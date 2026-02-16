@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Worker Pool Dashboard</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e1e4e8; min-height: 100vh; }
+
+.header { background: linear-gradient(135deg, #1a1f36 0%, #0d1025 100%); border-bottom: 1px solid #2d3148; padding: 20px 32px; display: flex; justify-content: space-between; align-items: center; }
+.header h1 { font-size: 22px; font-weight: 600; }
+.header h1 span { color: #58a6ff; }
+.header .status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #8b949e; }
+.header .dot { width: 8px; height: 8px; border-radius: 50%; background: #3fb950; animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+.container { max-width: 1400px; margin: 0 auto; padding: 24px 32px; }
+
+/* Stats Row */
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+.stat-card { background: #161b22; border: 1px solid #21262d; border-radius: 12px; padding: 20px; }
+.stat-card .label { font-size: 12px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+.stat-card .value { font-size: 32px; font-weight: 700; }
+.stat-card .sub { font-size: 12px; color: #8b949e; margin-top: 4px; }
+.stat-card.workers .value { color: #58a6ff; }
+.stat-card.tasks .value { color: #d29922; }
+.stat-card.building .value { color: #bc8cff; }
+.stat-card.completed .value { color: #3fb950; }
+
+/* Sections */
+.section { margin-bottom: 28px; }
+.section-title { font-size: 16px; font-weight: 600; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+
+/* Worker Cards */
+.workers-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.worker-card { background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 18px; transition: border-color 0.2s; }
+.worker-card:hover { border-color: #388bfd; }
+.worker-card .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.worker-card .name { font-size: 15px; font-weight: 600; }
+.worker-card .badge { font-size: 11px; padding: 3px 10px; border-radius: 12px; font-weight: 500; }
+.badge-idle { background: #0d419d33; color: #58a6ff; border: 1px solid #58a6ff44; }
+.badge-working { background: #9e6a0333; color: #d29922; border: 1px solid #d2992244; }
+.badge-offline { background: #f8514933; color: #f85149; border: 1px solid #f8514944; }
+.worker-card .info { font-size: 12px; color: #8b949e; line-height: 1.8; }
+.worker-card .info strong { color: #c9d1d9; }
+.worker-card .heartbeat { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 11px; color: #8b949e; }
+.worker-card .hb-dot { width: 6px; height: 6px; border-radius: 50%; }
+.hb-ok { background: #3fb950; }
+.hb-warn { background: #d29922; }
+.hb-dead { background: #f85149; }
+
+/* Task Table */
+.task-table { width: 100%; border-collapse: collapse; background: #161b22; border: 1px solid #21262d; border-radius: 10px; overflow: hidden; }
+.task-table th { background: #1c2129; text-align: left; padding: 12px 16px; font-size: 12px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 500; }
+.task-table td { padding: 14px 16px; font-size: 13px; border-top: 1px solid #21262d; }
+.task-table tr:hover td { background: #1c2129; }
+.task-table .status-badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 500; }
+.s-pending { background: #8b949e22; color: #8b949e; }
+.s-assigned { background: #58a6ff22; color: #58a6ff; }
+.s-developing { background: #d2992222; color: #d29922; }
+.s-building { background: #bc8cff22; color: #bc8cff; }
+.s-completed { background: #3fb95022; color: #3fb950; }
+.s-failed { background: #f8514922; color: #f85149; }
+.s-retry_pending { background: #d2992222; color: #d29922; }
+.s-reviewing { background: #58a6ff22; color: #58a6ff; }
+.s-parsed { background: #8b949e22; color: #8b949e; }
+
+.progress-bar { width: 100px; height: 6px; background: #21262d; border-radius: 3px; overflow: hidden; }
+.progress-bar .fill { height: 100%; background: linear-gradient(90deg, #58a6ff, #bc8cff); border-radius: 3px; transition: width 0.5s; }
+
+.empty-state { text-align: center; padding: 48px; color: #484f58; font-size: 14px; }
+.empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+
+.refresh-info { font-size: 11px; color: #484f58; text-align: right; margin-top: 16px; }
+
+/* Log Panel */
+.log-panel { background: #0d1117; border: 1px solid #21262d; border-radius: 10px; padding: 16px; max-height: 200px; overflow-y: auto; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; line-height: 1.6; }
+.log-panel .log-line { color: #8b949e; }
+.log-panel .log-line .ts { color: #484f58; }
+.log-panel .log-line.info { color: #58a6ff; }
+.log-panel .log-line.success { color: #3fb950; }
+.log-panel .log-line.error { color: #f85149; }
+.log-panel .log-line.warn { color: #d29922; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🏗️ <span>Worker Pool</span> Dashboard</h1>
+  <div class="status">
+    <div class="dot"></div>
+    <span id="refresh-status">实时监控中</span>
+  </div>
+</div>
+
+<div class="container">
+  <!-- Stats -->
+  <div class="stats">
+    <div class="stat-card workers">
+      <div class="label">在线 Workers</div>
+      <div class="value" id="stat-workers">-</div>
+      <div class="sub" id="stat-workers-sub"></div>
+    </div>
+    <div class="stat-card tasks">
+      <div class="label">排队任务</div>
+      <div class="value" id="stat-pending">-</div>
+      <div class="sub" id="stat-pending-sub"></div>
+    </div>
+    <div class="stat-card building">
+      <div class="label">构建中</div>
+      <div class="value" id="stat-building">-</div>
+      <div class="sub" id="stat-building-sub"></div>
+    </div>
+    <div class="stat-card completed">
+      <div class="label">已完成</div>
+      <div class="value" id="stat-completed">-</div>
+      <div class="sub" id="stat-completed-sub"></div>
+    </div>
+  </div>
+
+  <!-- Workers -->
+  <div class="section">
+    <div class="section-title">⚙️ Workers</div>
+    <div class="workers-grid" id="workers-grid"></div>
+  </div>
+
+  <!-- Tasks -->
+  <div class="section">
+    <div class="section-title">📋 任务队列</div>
+    <div id="tasks-container"></div>
+  </div>
+
+  <!-- Activity Log -->
+  <div class="section">
+    <div class="section-title">📝 活动日志</div>
+    <div class="log-panel" id="log-panel"></div>
+  </div>
+
+  <div class="refresh-info">每 5 秒自动刷新 · <span id="last-update">-</span></div>
+</div>
+
+<script>
+var API_BASE = window.location.origin;
+var logs = [];
+var MAX_LOGS = 50;
+
+function addLog(msg, level) {
+  var ts = new Date().toLocaleTimeString('zh-CN', {hour12: false});
+  logs.unshift({ts: ts, msg: msg, level: level || 'info'});
+  if (logs.length > MAX_LOGS) logs.pop();
+  renderLogs();
+}
+
+function renderLogs() {
+  var panel = document.getElementById('log-panel');
+  panel.innerHTML = logs.map(function(l) {
+    return '<div class="log-line ' + l.level + '"><span class="ts">[' + l.ts + ']</span> ' + l.msg + '</div>';
+  }).join('');
+}
+
+function timeAgo(ms) {
+  if (!ms) return '-';
+  var diff = (Date.now() - ms) / 1000;
+  if (diff < 60) return Math.round(diff) + '秒前';
+  if (diff < 3600) return Math.round(diff / 60) + '分钟前';
+  if (diff < 86400) return Math.round(diff / 3600) + '小时前';
+  return Math.round(diff / 86400) + '天前';
+}
+
+function statusBadge(status) {
+  var labels = {
+    pending: '等待中', assigned: '已分配', developing: '开发中',
+    building: '构建中', completed: '已完成', failed: '失败',
+    retry_pending: '重试中', reviewing: '审核中', parsed: '已解析',
+    cloning: '拉取中', uploading: '上传中'
+  };
+  return '<span class="status-badge s-' + (status || 'pending') + '">' + (labels[status] || status || '未知') + '</span>';
+}
+
+function hbClass(lastHb) {
+  if (!lastHb) return 'hb-dead';
+  var diff = Date.now() - lastHb;
+  if (diff < 60000) return 'hb-ok';
+  if (diff < 90000) return 'hb-warn';
+  return 'hb-dead';
+}
+
+function workerBadgeClass(status) {
+  if (status === 'idle') return 'badge-idle';
+  if (status === 'working' || status === 'busy') return 'badge-working';
+  return 'badge-offline';
+}
+
+var prevWorkerCount = null;
+var prevTaskStates = {};
+
+function fetchDashboard() {
+  return fetch(API_BASE + '/api/dashboard').then(function(r) { return r.json(); });
+}
+
+function fetchWorkers() {
+  return fetch(API_BASE + '/api/workers').then(function(r) { return r.json(); });
+}
+
+function fetchTasks() {
+  return fetch(API_BASE + '/api/tasks?limit=30').then(function(r) { return r.json(); });
+}
+
+function refresh() {
+  Promise.all([fetchDashboard(), fetchWorkers(), fetchTasks()]).then(function(results) {
+    var dashboard = results[0];
+    var workersData = results[1];
+    var tasksData = results[2];
+
+    // Stats
+    var ws = dashboard.workers || {};
+    var ts = dashboard.tasks || {};
+    document.getElementById('stat-workers').textContent = ws.online || 0;
+    document.getElementById('stat-workers-sub').textContent = '共 ' + (ws.total || 0) + ' 台 · ' + (ws.offline || 0) + ' 离线';
+    document.getElementById('stat-pending').textContent = (ts.pending || 0) + (ts.retry_pending || 0);
+    document.getElementById('stat-pending-sub').textContent = (ts.assigned || 0) + ' 已分配';
+    document.getElementById('stat-building').textContent = (ts.building || 0) + (ts.developing || 0);
+    document.getElementById('stat-building-sub').textContent = (ts.developing || 0) + ' 开发 · ' + (ts.building || 0) + ' 构建';
+    document.getElementById('stat-completed').textContent = ts.completed || 0;
+    document.getElementById('stat-completed-sub').textContent = (ts.failed || 0) + ' 失败';
+
+    // Workers
+    var workers = workersData.workers || [];
+    var grid = document.getElementById('workers-grid');
+    if (workers.length === 0) {
+      grid.innerHTML = '<div class="empty-state"><div class="icon">🔌</div>暂无 Worker 注册</div>';
+    } else {
+      grid.innerHTML = workers.map(function(w) {
+        var hbc = hbClass(w.lastHeartbeat);
+        return '<div class="worker-card">' +
+          '<div class="top">' +
+            '<div class="name">🖥️ ' + w.workerId + '</div>' +
+            '<div class="badge ' + workerBadgeClass(w.status) + '">' + (w.status || 'unknown') + '</div>' +
+          '</div>' +
+          '<div class="info">' +
+            '<strong>IP:</strong> ' + (w.ip || '-') + ':' + (w.port || '-') + '<br>' +
+            '<strong>当前任务:</strong> ' + (w.currentTask || '<span style="color:#484f58">空闲</span>') + '<br>' +
+            '<strong>注册时间:</strong> ' + timeAgo(w.registeredAt) +
+          '</div>' +
+          '<div class="heartbeat">' +
+            '<div class="hb-dot ' + hbc + '"></div>' +
+            '心跳: ' + timeAgo(w.lastHeartbeat) +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    // Log worker changes
+    if (prevWorkerCount !== null && workers.length !== prevWorkerCount) {
+      if (workers.length > prevWorkerCount) addLog('新 Worker 上线', 'success');
+      else addLog('Worker 离线', 'warn');
+    }
+    prevWorkerCount = workers.length;
+
+    // Tasks
+    var tasks = tasksData.tasks || [];
+    var container = document.getElementById('tasks-container');
+    if (tasks.length === 0) {
+      container.innerHTML = '<div class="empty-state"><div class="icon">📭</div>暂无任务</div>';
+    } else {
+      var html = '<table class="task-table"><thead><tr>' +
+        '<th>项目</th><th>状态</th><th>Worker</th><th>进度</th><th>更新时间</th>' +
+        '</tr></thead><tbody>';
+      tasks.forEach(function(t) {
+        var progress = t.progress || 0;
+        if (t.status === 'completed') progress = 100;
+        else if (t.status === 'building') progress = 70;
+        else if (t.status === 'developing') progress = 40;
+        else if (t.status === 'assigned') progress = 10;
+
+        html += '<tr>' +
+          '<td><strong>' + (t.projectName || t.taskId || '-') + '</strong></td>' +
+          '<td>' + statusBadge(t.status) + '</td>' +
+          '<td>' + (t.workerId || '<span style="color:#484f58">-</span>') + '</td>' +
+          '<td><div class="progress-bar"><div class="fill" style="width:' + progress + '%"></div></div></td>' +
+          '<td style="color:#8b949e;font-size:12px">' + timeAgo(t.updatedAt) + '</td>' +
+          '</tr>';
+
+        // Log task state changes
+        if (prevTaskStates[t.taskId] && prevTaskStates[t.taskId] !== t.status) {
+          var emoji = t.status === 'completed' ? '✅' : t.status === 'failed' ? '❌' : '🔄';
+          addLog(emoji + ' ' + (t.projectName || t.taskId) + ': ' + prevTaskStates[t.taskId] + ' → ' + t.status,
+            t.status === 'completed' ? 'success' : t.status === 'failed' ? 'error' : 'info');
+        }
+        prevTaskStates[t.taskId] = t.status;
+      });
+      html += '</tbody></table>';
+      container.innerHTML = html;
+    }
+
+    document.getElementById('last-update').textContent = new Date().toLocaleTimeString('zh-CN', {hour12: false});
+  }).catch(function(err) {
+    addLog('刷新失败: ' + err.message, 'error');
+    document.getElementById('refresh-status').textContent = '连接中断...';
+  });
+}
+
+// Initial load
+addLog('Dashboard 启动', 'success');
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

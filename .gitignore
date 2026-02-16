@@ -1,0 +1,7 @@
+node_modules/
+dist/
+webgl-builds/
+server-data/
+autoCoding-tasks/
+*.bak
+*.bak.*
