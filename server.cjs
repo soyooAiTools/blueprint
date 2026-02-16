@@ -729,6 +729,12 @@ var server = http.createServer(function(req, res) {
     if (serveStatic(res, webglFile)) return;
   }
 
+  // Dashboard page (served from project root, not dist)
+  if (pathname === '/dashboard' || pathname === '/dashboard.html') {
+    var dashFile = path.join(__dir, 'dashboard.html');
+    if (serveStatic(res, dashFile)) return;
+  }
+
   // Frontend static files
   var staticFile = path.join(DIST_DIR, pathname === '/' ? 'index.html' : pathname);
   if (serveStatic(res, staticFile)) return;
