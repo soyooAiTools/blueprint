@@ -502,13 +502,22 @@ handlers.workerPoll = function(req, res, body) {
     var files = fs.readdirSync(AUTOCODING_QUEUE);
     var taskFiles = files.filter(function(f) { return f.endsWith('.json') && !f.endsWith('.cancelled.json'); });
     
-    // Find first pending task
+    // Find first pending task (atomic assign to prevent race condition)
     for (var i = 0; i < taskFiles.length; i++) {
       var taskPath = path.join(AUTOCODING_QUEUE, taskFiles[i]);
       var task = JSON.parse(fs.readFileSync(taskPath, 'utf-8'));
       
       if (task.status === 'pending' || task.status === 'fix_needed') {
-        console.log('[Worker Poll] Returning task ' + task.taskId + ' to worker ' + workerId);
+        var originalStatus = task.status;
+        // Atomic lock: mark as assigned before returning
+        task.status = 'assigned';
+        task.assignedTo = workerId;
+        task.assignedAt = new Date().toISOString();
+        fs.writeFileSync(taskPath, JSON.stringify(task, null, 2), 'utf-8');
+        
+        // Return with originalStatus so worker knows if it's new or fix
+        task.originalStatus = originalStatus;
+        console.log('[Worker Poll] Assigned task ' + task.taskId + ' (' + originalStatus + ') to worker ' + workerId);
         sendJSON(res, task);
         return;
       }

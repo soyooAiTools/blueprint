@@ -106,6 +106,12 @@ function runCmd(cmd, cwd, timeoutMs = 300000) {
 async function processTask(task) {
   const taskId = task.taskId;
 
+  // Restore original status if server used atomic assign
+  if (task.originalStatus) {
+    task.status = task.originalStatus;
+    delete task.originalStatus;
+  }
+
   if (task.status === 'commit_needed') {
     return await handleCommit(task);
   }
