@@ -11,7 +11,7 @@ const API_BASE = 'https://crs.mindrix.app/api';
 const API_KEY = process.env.LLM_API_KEY || 'cr_f891cb1046bf100addfc0bf027cb1b37fafa8cc214e1bdbbe5493e6fa3240e7c';
 const MODEL = process.env.LLM_MODEL || 'claude-sonnet-4-5-20250929';
 const MAX_TOKENS = 16384;
-const MAX_FIX_ATTEMPTS = 3;
+const MAX_FIX_ATTEMPTS = 10;  // Keep retrying until fixed (practical upper bound)
 const PIPELINE_DIR = process.env.LUNA_PIPELINE || 'D:\\Luna\\pipeline';
 
 // ============ LLM Call ============
@@ -98,40 +98,109 @@ function parseBlueprintToPrompt(blueprint) {
 // ============ System Prompts ============
 
 var GENERATE_PROMPT = [
-  'You are a Unity C# code generator for playable ads built with Luna SDK (HTML5).',
+  'You are a Unity C# code generator for playable ads built with Luna SDK (HTML5 export).',
+  'Luna converts Unity C# to JavaScript for web — many Unity features are NOT supported.',
   '',
-  'LUNA SDK CONSTRAINTS (MUST follow):',
-  '- Do NOT use: ParticleSystem, Animator, Animation, AnimationCurve',
-  '- Do NOT use: Physics/Physics2D, Rigidbody, Collider trigger events',
-  '- Do NOT use: Resources.Load, AssetBundle, SceneManager, async/await, Task, LINQ',
-  '- Do NOT use: RenderTexture, Camera.main, TextMeshPro',
-  '- Do NOT use: Application.OpenURL — use Luna.Unity.Playable.InstallFullGame() for CTA',
-  '- MUST call Luna.Unity.LifeCycle.GameEnded() when game ends (before CTA)',
-  '- ONLY use: MonoBehaviour, Transform, GameObject, SetActive',
-  '- ONLY use: UnityEngine.UI (Button, Text, Image, Canvas, RectTransform)',
-  '- ONLY use: Coroutines (IEnumerator/yield), Input, Time, Mathf, Vector2/3, Color',
-  '- Scene transitions = SetActive(true/false) on parent GameObjects',
+  '## CRITICAL LUNA CONSTRAINTS',
+  '',
+  '### Absolutely DO NOT use:',
+  '- TileMap, New InputSystem, Terrain (use mesh-based terrain instead)',
+  '- Generics (Luna does NOT support generic syntax)',
+  '- C# 7.0+ syntax (no tuples, pattern matching, local functions, etc.)',
+  '- Multi-threading (web does not support threads)',
+  '- SceneManager (scene transitions = SetActive on parent GameObjects)',
+  '- Resources.Load, AssetBundle, async/await, Task, LINQ',
+  '- Animation component (use Animator instead)',
+  '- AnimationCurve loop modes (must manually handle time wrapping)',
+  '- Custom RenderTexture',
+  '- Baked shadows (Luna does NOT support baked shadows)',
+  '- CharacterController (use Transform.Translate or Rigidbody instead)',
+  '- SendMessage()',
+  '- Vector3Int (not supported in web; cast to Vector3)',
+  '- System.Math (use UnityEngine.Mathf instead)',
+  '- String.Format, Regex (memory leak prone in Luna)',
+  '- Multi-dimensional arrays (use 1D or jagged arrays, 10x perf difference)',
+  '- GameObject.Find (use singleton pattern or pre-registered references)',
+  '- Application.OpenURL → use Luna.Unity.Playable.InstallFullGame() for CTA',
+  '',
+  '### MUST do:',
+  '- Call Luna.Unity.LifeCycle.GameEnded() when game ends (before CTA)',
+  '- Use Animator for all animations, NEVER Animation component',
+  '- Animator state machine: do NOT connect states to Exit node (causes animation bugs in Luna)',
+  '- Animation frame events: avoid placing on first or last frame (often fails to trigger)',
+  '- Do NOT call Animator.Play() continuously — it will replay frame 1 forever',
+  '- Button click events: assign directly in inspector style (add listener in Awake/Start), do NOT use dynamic assignment (may need double-click on mobile)',
+  '- For DOTween chain calls, write each method on a new line (avoids JS transpilation bugs):',
+  '    transform.DOMove(target, 1f)',
+  '      .OnUpdate(() => { ... })',
+  '      .OnComplete(() => { ... });',
+  '- For coroutines with bool params, do NOT use object type — use typed parameter directly',
+  '- When using GetComponent<Transform>() vs GetComponent<RectTransform>(), they are NOT interchangeable',
+  '',
+  '### Audio rules:',
+  '- Audio files max 30 seconds (longer causes initial stuttering)',
+  '- Minimize empty frames in audio, especially at start (causes perceived delay)',
+  '- Do NOT call AudioSource.Stop() or check AudioSource state before it has played once (Google channel error)',
+  '- iOS AppLovin: initial touch audio requires pre-playing a silent clip in Awake/Start',
+  '- Mute handling (required for channel testing):',
+  '    Luna.Unity.LifeCycle.OnUnmute += () => { AudioListener.volume = 1; };',
+  '    Luna.Unity.LifeCycle.OnMute += () => { AudioListener.volume = 0; };',
+  '',
+  '### Allowed:',
+  '- MonoBehaviour, Transform, GameObject, SetActive',
+  '- UnityEngine.UI (Button, Text, Image, Canvas, RectTransform, Graphic Raycaster)',
+  '- Coroutines (IEnumerator/yield), Input, Time, Mathf, Vector2/3, Color',
+  '- DOTween (supported plugin)',
+  '- TextMeshPro (supported but do NOT import TMP Samples — contains unsupported code)',
+  '- Spine (if needed)',
+  '',
+  '### Physics notes:',
+  '- Physics layer masks may malfunction — use tag comparison as fallback',
+  '- Avoid physics for animation effects — use DOTween instead',
+  '- For kinematic rigidbody: use MovePosition; for non-kinematic: use velocity or AddForce',
+  '- 3D colliders required for mouse click events (OnMouseDown etc.) — 2D colliders will NOT work',
+  '- OnTriggerEnter/Exit can miss detections — use continuous checking (OnTriggerStay) as backup',
+  '- Prefer BoxCollider/SphereCollider over MeshCollider for performance',
+  '',
+  '### UI notes:',
+  '- EventTrigger drag: dragged object MUST be the one with EventTrigger/interface, not another object',
+  '- UI layer ordering: add Graphic Raycaster; if sorting layer ineffective, check shader render queue',
+  '- Sprite-based number display may not refresh — workaround: duplicate sprite set with alpha=0 as backup',
   '',
   'NAMING: Do NOT name any class "GameManager" — the project already has one.',
-  'Use a unique name like "PlayableAdController" or "AdFlowManager".',
+  'Use unique names like "PlayableAdController" or "AdFlowManager".',
   '',
   'Output format: Each file as:',
   '```csharp:Assets/Scripts/FileName.cs',
   '// code',
   '```',
   '',
-  'Generate: one controller script + one script per scene. Keep it minimal.'
+  'Generate: one controller script + one script per scene. Keep it minimal and robust.'
 ].join('\n');
 
 var FIX_PROMPT = [
-  'You are fixing Unity C# compilation errors for Luna SDK.',
+  'You are fixing Unity C# compilation errors for a Luna SDK playable ad project.',
+  'Luna transpiles C# to JavaScript — many Unity features cause compilation failures.',
   '',
-  'Luna constraints: No ParticleSystem, Animator, AnimationCurve, Physics, LINQ, SceneManager, TextMeshPro.',
-  'Use Luna.Unity.Playable.InstallFullGame() instead of Application.OpenURL.',
-  'Use Luna.Unity.LifeCycle.GameEnded() when game ends.',
-  'Do NOT use class name "GameManager" (already exists in project).',
+  '## Key Luna constraints to remember when fixing:',
+  '- NO generics (Luna does not support generic syntax)',
+  '- NO C# 7.0+ syntax (tuples, pattern matching, local functions, etc.)',
+  '- NO Vector3Int (cast to Vector3)',
+  '- NO System.Math (use UnityEngine.Mathf)',
+  '- NO Animation component (use Animator)',
+  '- NO SendMessage, no multi-threading, no LINQ',
+  '- NO SceneManager, Resources.Load, async/await',
+  '- NO CharacterController (use Transform or Rigidbody)',
+  '- GetComponent<Transform>() and GetComponent<RectTransform>() are NOT interchangeable',
+  '- DOTween chain calls must be on separate lines to avoid JS transpilation bugs',
+  '- Use Luna.Unity.Playable.InstallFullGame() instead of Application.OpenURL',
+  '- Must call Luna.Unity.LifeCycle.GameEnded() when game ends',
+  '- Do NOT use class name "GameManager" (already exists in project)',
   '',
-  'Fix ALL errors. Output corrected files as:',
+  'Analyze each error carefully. Fix ALL errors. If the same error keeps recurring,',
+  'try a completely different approach rather than repeating the same fix.',
+  '',
+  'Output corrected files as:',
   '```csharp:Assets/Scripts/FileName.cs',
   '// fixed code',
   '```',
@@ -233,8 +302,10 @@ async function generateCode(blueprint, clientDir, log, taskId) {
     if (files.length === 0) return { ok: false, error: 'No code blocks' };
     writeFiles(clientDir, files, log, taskId);
 
-    // === Step 2: Build + Fix Loop ===
-    for (var attempt = 1; attempt <= MAX_FIX_ATTEMPTS + 1; attempt++) {
+    // === Step 2: Build + Fix Loop (keep trying until fixed) ===
+    var prevErrorSig = '';
+    var sameErrorCount = 0;
+    for (var attempt = 1; attempt <= MAX_FIX_ATTEMPTS; attempt++) {
       var result = tryCompile(clientDir, log, taskId);
       
       if (result.ok) {
@@ -242,9 +313,29 @@ async function generateCode(blueprint, clientDir, log, taskId) {
         return { ok: true, filesWritten: files.length, files: files.map(function(f) { return f.path; }), attempts: attempt };
       }
 
-      if (attempt > MAX_FIX_ATTEMPTS) {
-        log('[coder] ❌ Max fix attempts reached', taskId);
-        return { ok: false, error: 'Build failed after ' + MAX_FIX_ATTEMPTS + ' fixes:\n' + result.errors.join('\n') };
+      // Detect stuck loop: if same errors repeat 3 times, regenerate from scratch
+      var errorSig = result.errors.sort().join('|');
+      if (errorSig === prevErrorSig) {
+        sameErrorCount++;
+      } else {
+        sameErrorCount = 0;
+        prevErrorSig = errorSig;
+      }
+
+      if (sameErrorCount >= 3) {
+        log('[coder] ⚠️ Same errors repeated 3 times, regenerating from scratch...', taskId);
+        // Full regeneration with error context
+        var regenMsg = userMsg + '\n\n## IMPORTANT: Previous code had persistent compilation errors:\n```\n'
+          + result.errors.join('\n') + '\n```\nGenerate completely different code that avoids these issues.';
+        var regenResp = await callClaude(GENERATE_PROMPT, regenMsg);
+        var regenFiles = parseCodeBlocks(regenResp.text);
+        if (regenFiles.length > 0) {
+          writeFiles(clientDir, regenFiles, log, taskId);
+          files = regenFiles;
+        }
+        sameErrorCount = 0;
+        prevErrorSig = '';
+        continue;
       }
 
       log('[coder] Fix attempt ' + attempt + '/' + MAX_FIX_ATTEMPTS + ': ' + result.errors.length + ' errors', taskId);
@@ -253,7 +344,7 @@ async function generateCode(blueprint, clientDir, log, taskId) {
       var currentCode = readCurrentScripts(clientDir);
       var fixMsg = '## Build Errors:\n```\n' + result.errors.join('\n') + '\n```\n\n'
         + '## Current Scripts (Assets/Scripts/ only):\n' + currentCode
-        + '\n\nFix ALL errors above.';
+        + '\n\nFix ALL errors above. This is attempt ' + attempt + '. If previous fixes did not work, try a fundamentally different approach.';
 
       var fixResp = await callClaude(FIX_PROMPT, fixMsg);
       log('[coder] Fix response (' + (fixResp.usage ? fixResp.usage.output_tokens + ' tokens' : 'ok') + ')', taskId);
@@ -267,7 +358,8 @@ async function generateCode(blueprint, clientDir, log, taskId) {
       }
     }
 
-    return { ok: false, error: 'Unexpected loop exit' };
+    log('[coder] ❌ Exhausted ' + MAX_FIX_ATTEMPTS + ' attempts', taskId);
+    return { ok: false, error: 'Build failed after ' + MAX_FIX_ATTEMPTS + ' attempts:\n' + (result ? result.errors.join('\n') : 'unknown') };
   } catch (e) {
     log('[coder] Error: ' + e.message, taskId);
     return { ok: false, error: e.message };
