@@ -167,15 +167,24 @@ var GENERATE_PROMPT = [
   '- UI layer ordering: add Graphic Raycaster; if sorting layer ineffective, check shader render queue',
   '- Sprite-based number display may not refresh — workaround: duplicate sprite set with alpha=0 as backup',
   '',
-  'NAMING: Do NOT name any class "GameManager" — the project already has one.',
-  'Use unique names like "PlayableAdController" or "AdFlowManager".',
+  '## CRITICAL: Work with the existing project',
+  'This SVN project is a STANDARD SLG TEMPLATE from the company. You MUST:',
+  '1. Read and understand the existing codebase provided in the context',
+  '2. Follow the same coding patterns, naming conventions, and architecture',
+  '3. Extend/modify existing scripts when appropriate rather than creating everything from scratch',
+  '4. Reuse existing utility classes, managers, and helpers already in the project',
+  '5. Do NOT duplicate functionality that already exists',
+  '6. Match the existing code style (indentation, naming, comment style)',
+  '7. If the project has a GameManager or flow controller, integrate with it',
+  '',
+  'NAMING: Do NOT create classes that conflict with existing ones.',
   '',
   'Output format: Each file as:',
   '```csharp:Assets/Scripts/FileName.cs',
   '// code',
   '```',
   '',
-  'Generate: one controller script + one script per scene. Keep it minimal and robust.'
+  'Generate code that integrates naturally with the existing project. Minimal changes, maximum reuse.'
 ].join('\n');
 
 var FIX_PROMPT = [
@@ -279,6 +288,10 @@ async function generateCode(blueprint, clientDir, log, taskId) {
 
   log('[coder] Generating code for: ' + parsed.scenes.length + ' scenes', taskId);
 
+  // Read existing project context (SLG template)
+  var projectCtx = readProjectContext(clientDir);
+  log('[coder] Project context: ' + (projectCtx.fileList ? projectCtx.fileList.split('\n').length : 0) + ' files scanned', taskId);
+
   // List existing project classes to avoid naming conflicts
   var existingClasses = listExistingClasses(clientDir);
   var classWarning = '';
@@ -286,12 +299,21 @@ async function generateCode(blueprint, clientDir, log, taskId) {
     classWarning = '\n\n## EXISTING CLASS NAMES (do NOT reuse these):\n' + existingClasses.join(', ');
   }
 
+  var projectSection = '';
+  if (projectCtx.fileList) {
+    projectSection = '\n\n## EXISTING PROJECT FILE STRUCTURE:\n```\n' + projectCtx.fileList + '\n```';
+  }
+  if (projectCtx.context) {
+    projectSection += '\n\n## EXISTING PROJECT CODE (study these patterns and follow them):\n' + projectCtx.context;
+  }
+
   var userMsg = '## Project: ' + parsed.projectName + '\n\n'
     + '## Scenes:\n' + JSON.stringify(parsed.scenes, null, 2) + '\n\n'
     + '## Transitions:\n' + JSON.stringify(parsed.transitions, null, 2)
     + classWarning
+    + projectSection
     + parsed.feedbackText
-    + '\n\nGenerate Unity C# scripts for this playable ad.';
+    + '\n\nGenerate Unity C# scripts for this playable ad. Follow the existing project patterns closely.';
 
   try {
     // === Step 1: Generate ===
@@ -340,11 +362,13 @@ async function generateCode(blueprint, clientDir, log, taskId) {
 
       log('[coder] Fix attempt ' + attempt + '/' + MAX_FIX_ATTEMPTS + ': ' + result.errors.length + ' errors', taskId);
 
-      // Build fix prompt with current code + errors
+      // Build fix prompt with current code + errors + project context
       var currentCode = readCurrentScripts(clientDir);
+      var fixProjectCtx = projectCtx.fileList ? '\n\n## Existing project files (for reference):\n```\n' + projectCtx.fileList + '\n```' : '';
       var fixMsg = '## Build Errors:\n```\n' + result.errors.join('\n') + '\n```\n\n'
         + '## Current Scripts (Assets/Scripts/ only):\n' + currentCode
-        + '\n\nFix ALL errors above. This is attempt ' + attempt + '. If previous fixes did not work, try a fundamentally different approach.';
+        + fixProjectCtx
+        + '\n\nFix ALL errors above. This is attempt ' + attempt + '. If previous fixes did not work, try a fundamentally different approach. Reuse existing project classes where possible.';
 
       var fixResp = await callClaude(FIX_PROMPT, fixMsg);
       log('[coder] Fix response (' + (fixResp.usage ? fixResp.usage.output_tokens + ' tokens' : 'ok') + ')', taskId);
@@ -421,6 +445,57 @@ function listExistingClasses(clientDir) {
     }
   }
   return classes;
+}
+
+// Read existing project code as context for LLM (SLG template project)
+function readProjectContext(clientDir) {
+  var MAX_CONTEXT_CHARS = 30000; // Limit to avoid token overflow
+  var parts = [];
+  var totalChars = 0;
+
+  // Priority: Assets/Program (main game logic) > Assets/Scripts > Assets/Plugins
+  var scanDirs = ['Assets/Program', 'Assets/Scripts', 'Assets/Plugins'];
+  
+  // First pass: collect file list with sizes
+  var allFiles = [];
+  for (var d = 0; d < scanDirs.length; d++) {
+    var full = path.join(clientDir, scanDirs[d]);
+    if (fs.existsSync(full)) {
+      var csFiles = listCsFiles(full);
+      for (var i = 0; i < csFiles.length; i++) {
+        try {
+          var stat = fs.statSync(csFiles[i]);
+          var rel = path.relative(clientDir, csFiles[i]).replace(/\\/g, '/');
+          allFiles.push({ path: csFiles[i], rel: rel, size: stat.size, dir: scanDirs[d] });
+        } catch (e) {}
+      }
+    }
+  }
+
+  if (allFiles.length === 0) return { context: '', fileList: '' };
+
+  // Build file tree overview (always include)
+  var fileList = allFiles.map(function(f) { return f.rel + ' (' + Math.round(f.size / 1024) + 'KB)'; }).join('\n');
+
+  // Include key files in full (prioritize smaller, more important files)
+  // Sort: Program dir first, then by size ascending
+  allFiles.sort(function(a, b) {
+    if (a.dir !== b.dir) return a.dir === 'Assets/Program' ? -1 : 1;
+    return a.size - b.size;
+  });
+
+  for (var i = 0; i < allFiles.length; i++) {
+    if (totalChars >= MAX_CONTEXT_CHARS) break;
+    if (allFiles[i].size > 8000) continue; // Skip very large files
+    try {
+      var content = fs.readFileSync(allFiles[i].path, 'utf-8');
+      if (totalChars + content.length > MAX_CONTEXT_CHARS) continue;
+      parts.push('```csharp:' + allFiles[i].rel + '\n' + content + '\n```');
+      totalChars += content.length;
+    } catch (e) {}
+  }
+
+  return { context: parts.join('\n\n'), fileList: fileList };
 }
 
 function readCurrentScripts(clientDir) {
