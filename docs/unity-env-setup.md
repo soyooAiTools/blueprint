@@ -269,23 +269,42 @@ node --max-old-space-size=8192 jake.js -f Jakefile.js --quiet project:build
 
 ---
 
-## 7. AI 编码模块 (worker-coder.js v3)
+## 7. AI 编码模块 (worker-coder.js v4)
 
 ### 7.1 概述
-从蓝图 JSON 生成 Unity C# 代码，通过 LLM API 调用 Claude Sonnet 4.5。
+基于公司标准 SLG 模板工程，通过 LLM 根据蓝图生成/改造 Unity C# 代码。AI 会先读取现有工程代码，遵循已有架构和命名规范进行编码。
 
-### 7.2 编译-修复-重试循环
-1. LLM 生成 C# 代码 → 写入 `Assets/Scripts/`
+### 7.2 工程上下文感知
+- 自动扫描 SVN 工程的 `Assets/Program`、`Assets/Scripts`、`Assets/Plugins` 目录
+- 收集文件树概览 + 关键源文件内容（≤30KB）作为 LLM 上下文
+- LLM 被要求：遵循现有代码风格、复用已有类、不重复造轮子
+
+### 7.3 编译-修复循环（持续修复直到通过）
+1. LLM 基于蓝图 + 现有工程上下文生成 C# 代码 → 写入 `Assets/Scripts/`
 2. 运行 `project:build` 编译检查
 3. 从 `LunaTemp/diagnostics-*.json` 提取编译错误（CS0101/CS0246 等）
-4. 如果失败，将错误 + 当前代码发给 LLM 修复
-5. 最多重试 3 次
+4. 如果失败，将错误 + 当前代码 + 工程文件列表发给 LLM 修复
+5. **持续重试直到通过**（上限 10 轮）
+6. **防死循环**：相同错误连续出现 3 次 → 自动触发全量重新生成（附带错误上下文，要求换完全不同的写法）
 
-### 7.3 Luna C# 限制（系统提示）
-- ❌ ParticleSystem, Animator, AnimationCurve, Physics, LINQ
-- ❌ SceneManager, TextMeshPro, async/await
+### 7.4 Luna 制作规范（系统提示，基于团队多年经验）
+**禁用清单：**
+- ❌ 泛型写法、C# 7.0+ 语法（元组、模式匹配等）
+- ❌ TileMap, New InputSystem, Terrain, CharacterController
+- ❌ Vector3Int, System.Math, SendMessage, 多线程
+- ❌ Animation 组件（用 Animator）、烘焙阴影、Custom RenderTexture
+- ❌ SceneManager, Resources.Load, async/await, LINQ
+- ❌ String.Format, Regex（Luna 内存泄漏重灾区）
+- ❌ GameObject.Find（用单例或预注册引用）
+- ❌ Animator 状态机连 Exit 节点（导致动画 bug）
 - ❌ `Application.OpenURL` → ✅ `Luna.Unity.Playable.InstallFullGame()`
-- ✅ 必须调 `Luna.Unity.LifeCycle.GameEnded()`
+
+**必须遵守：**
+- ✅ 调 `Luna.Unity.LifeCycle.GameEnded()` 结束游戏
+- ✅ DOTween 链式调用分行写（避免 JS 转译 bug）
+- ✅ 按钮事件在 Awake/Start 中 AddListener，不动态赋值
+- ✅ 音频：iOS 预播放空音频、≤30 秒、首次播放前不调 Stop
+- ✅ Mute 处理：实现 `Luna.Unity.LifeCycle.OnMute/OnUnmute`
 - ✅ 自动扫描已有类名避免 CS0101 冲突
 
 ### 7.4 API 配置

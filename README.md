@@ -12,8 +12,8 @@ Blueprint Editor (Web) → Worker (Windows Server) → 渠道 HTML
 1. **蓝图编辑** — 在 Web 端编辑试玩广告蓝图（场景+转场+交互）
 2. **任务提交** — Worker 自动 poll 拉取任务
 3. **SVN 更新** — 拉取最新 Unity 项目代码
-4. **AI 编码** — Claude Sonnet 4.5 根据蓝图生成 Unity C# 代码
-5. **编译修复** — 自动检测编译错误，LLM 修复，最多重试 3 次
+4. **AI 编码** — Claude Sonnet 4.5 根据蓝图生成 Unity C# 代码（基于现有 SLG 模板工程，遵循公司 Luna 制作规范）
+5. **编译修复** — 自动检测编译错误，LLM 持续修复直到通过（最多 10 轮，相同错误连续 3 次自动重新生成）
 6. **Luna 构建** — Unity C# → HTML5（jake pipeline, 4 stages, ~28s）
 7. **渠道转换** — 多文件输出 → 单文件 AppLovin HTML（~725KB）
 8. **上传通知** — zip + 渠道 HTML 上传，SSE 推送前端通知
@@ -30,7 +30,7 @@ Blueprint Editor (Web) → Worker (Windows Server) → 渠道 HTML
 ```
 worker/                           # Worker 端脚本
 ├── worker-client.js              # v4 主任务处理
-├── worker-coder.js               # v3 AI 编码 agent
+├── worker-coder.js               # v4 AI 编码 agent（Luna 制作规范 + 工程上下文感知）
 ├── worker-bridge-build.js        # Luna 构建模块
 ├── worker-patch.js               # 预构建修复
 ├── worker-html-converter.js      # HTML 渠道转换
