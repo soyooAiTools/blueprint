@@ -17,6 +17,7 @@ Blueprint Editor (Web) → Worker (Windows Server) → 渠道 HTML
 6. **Luna 构建** — Unity C# → HTML5（jake pipeline, 4 stages, ~28s）
 7. **渠道转换** — 多文件输出 → 单文件 AppLovin HTML（~725KB）
 8. **上传通知** — zip + 渠道 HTML 上传，SSE 推送前端通知
+9. **审核通过 → SVN 提交** — 自动清理缓存目录（Library/Temp/LunaTemp/obj 等）后提交代码
 
 ### 耗时
 - AI 编码 + 修复: ~1 分钟

@@ -255,6 +255,20 @@ node --max-old-space-size=8192 jake.js -f Jakefile.js --quiet project:build
 
 ---
 
+## 6.3 SVN Commit 流程（审核通过后）
+
+当用户在前端确认审核通过（`commit_needed`），Worker 执行：
+
+1. **清理缓存目录** — 删除 `Client/` 下的 `Library`, `Temp`, `LunaTemp`, `obj`, `Logs`, `UserSettings`, `.vs`
+   - 先 `svn revert` 取消追踪，再 `fs.rmSync` 物理删除
+   - 确保不会将构建缓存提交到 SVN
+2. **`svn add --force .`** — 添加新文件
+3. **二次检查** — 再次 revert 残留的缓存目录（防止 add 误收）
+4. **`svn commit`** — 提交，提取 revision 号
+5. **回调通知** — POST `/api/projects/:id/committed` 通知服务端
+
+---
+
 ## 7. AI 编码模块 (worker-coder.js v3)
 
 ### 7.1 概述
@@ -420,7 +434,7 @@ pm2 save --force
 | 2 | TMPro 版本 | 锁定 `3.0.6` |
 | 3 | TMPro Luna 不兼容 | `#if !UNITY_LUNA` 保护 |
 | 4 | 泛型 GetBuiltinResource | 改非泛型版本 |
-| 5 | 构建缓存冲突 | 每次删 `LunaTemp/` |
+| 5 | 构建缓存冲突 | 每次删 `LunaTemp/`；commit 阶段自动清理所有缓存目录 |
 | 6 | fontbm 32 位 CRT | 安装 x86 VC++ Redistributable |
 | 7 | API-ms-win-crt DLL | 同上 |
 | 8 | AI 生成代码类名冲突 | worker-coder.js 自动扫描已有类名 |

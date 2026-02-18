@@ -315,11 +315,30 @@ async function handleCommit(task) {
     return;
   }
 
+  // === Delete cache directories before commit ===
+  const cacheList = ['Library', 'Temp', 'LunaTemp', 'obj', 'Logs', 'UserSettings', '.vs'];
+  for (const dir of cacheList) {
+    const dirPath = path.join(FIXED_PROJECT_DIR, 'Client', dir);
+    if (fs.existsSync(dirPath)) {
+      log(`Deleting cache: Client/${dir}`, taskId);
+      try {
+        // Remove from SVN tracking first (if tracked)
+        runCmd(`svn revert --depth infinity "Client/${dir}" ${SVN_FLAGS}`, FIXED_PROJECT_DIR);
+        // Delete from disk
+        fs.rmSync(dirPath, { recursive: true, force: true });
+        log(`Deleted cache: Client/${dir}`, taskId);
+      } catch (e) {
+        log(`Warning: failed to delete Client/${dir}: ${e.message}`, taskId);
+      }
+    }
+  }
+  await reportStatus(taskId, 'processing', { message: '缓存已清理，准备提交...' });
+
   // Add new files, commit
   runCmd(`svn add --force . ${SVN_FLAGS}`, FIXED_PROJECT_DIR);
 
-  // Ignore build artifacts
-  const ignoreList = ['Library', 'Temp', 'LunaTemp', 'obj', 'Logs', 'UserSettings', '.vs'];
+  // Double-check: revert any remaining build artifacts that svn add may have picked up
+  const ignoreList = cacheList;
   for (const dir of ignoreList) {
     const dirPath = path.join(FIXED_PROJECT_DIR, 'Client', dir);
     if (fs.existsSync(dirPath)) {
