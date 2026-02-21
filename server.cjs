@@ -763,3 +763,31 @@ server.listen(PORT, function() {
   console.log('Blueprint Editor Server running on http://localhost:' + PORT);
   console.log('  Projects dir: ' + PROJECTS_DIR);
 });
+
+// ============ Stale Task Recovery (3 min timeout) ============
+setInterval(function() {
+  try {
+    if (!fs.existsSync(AUTOCODING_QUEUE)) return;
+    var files = fs.readdirSync(AUTOCODING_QUEUE);
+    var now = Date.now();
+    var STALE_MS = 3 * 60 * 1000; // 3 minutes
+    files.filter(function(f) { return f.endsWith('.json') && !f.includes('-blueprint') && !f.includes('.cancelled'); }).forEach(function(f) {
+      var fp = path.join(AUTOCODING_QUEUE, f);
+      var task = JSON.parse(fs.readFileSync(fp, 'utf-8'));
+      if ((task.status === 'processing' || task.status === 'assigned') && task.updatedAt) {
+        var elapsed = now - new Date(task.updatedAt).getTime();
+        if (elapsed > STALE_MS) {
+          console.log('[Stale Recovery] Task ' + task.taskId + ' stuck in ' + task.status + ' for ' + Math.round(elapsed/1000) + 's, resetting to pending');
+          task.status = 'pending';
+          task.assignedTo = null;
+          task.assignedAt = null;
+          task.statusMessage = 'Auto-reset from stale ' + task.status;
+          task.updatedAt = new Date().toISOString();
+          fs.writeFileSync(fp, JSON.stringify(task, null, 2), 'utf-8');
+        }
+      }
+    });
+  } catch (e) {
+    console.warn('[Stale Recovery] Error: ' + e.message);
+  }
+}, 60000); // Check every 60s
