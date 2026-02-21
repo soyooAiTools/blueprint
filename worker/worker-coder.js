@@ -74,10 +74,32 @@ function parseBlueprintToPrompt(blueprint) {
 
   var scenes = nodes.map(function(node, i) {
     var d = node.data || {};
+    // Support both old format (label/description) and new blueprint editor format (name/scene/triggers/behavior)
+    var desc = d.description || '';
+    if (!desc && d.scene) {
+      // Build rich description from blueprint editor fields
+      var parts = [];
+      if (d.scene) parts.push('【场景】' + d.scene);
+      if (d.controlTarget) parts.push('【操控对象】' + d.controlTarget);
+      if (d.controlMethod) parts.push('【操控方式】' + d.controlMethod);
+      if (d.triggers) parts.push('【触发逻辑】' + d.triggers);
+      if (d.behavior) parts.push('【数值/行为】' + d.behavior);
+      if (d.entryCondition) parts.push('【进入条件】' + d.entryCondition);
+      if (d.endCondition) parts.push('【结束条件】' + d.endCondition);
+      if (d.branch) {
+        var b = d.branch;
+        parts.push('【分支】条件: ' + (b.condition || '') + ' → 成功: ' + (b.ifTrue || '继续') + ' / 失败: ' + (b.ifFalse || '继续'));
+      }
+      if (d.branch2) {
+        var b2 = d.branch2;
+        parts.push('【分支2】条件: ' + (b2.condition || '') + ' → 成功: ' + (b2.ifTrue || '继续') + ' / 失败: ' + (b2.ifFalse || '继续'));
+      }
+      desc = parts.join('\n');
+    }
     return {
       id: node.id,
-      label: d.label || d.title || ('Scene ' + (i + 1)),
-      description: d.description || '',
+      label: d.label || d.name || d.title || ('Scene ' + (i + 1)),
+      description: desc,
       interactions: d.interactions || []
     };
   });
