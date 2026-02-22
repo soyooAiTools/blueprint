@@ -478,7 +478,7 @@ export default function PropsPanel({
         </label>
 
         <div className="props-divider">🖼 参考图片</div>
-        <div className="props-hint">上传效果参考图，Agent B 会参考视觉风格</div>
+        <div className="props-hint">上传效果参考图，Coding Agent 会参考视觉风格</div>
 
         <div className="props-images">
           {(d.images || []).map((img, i) => (

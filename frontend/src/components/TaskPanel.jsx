@@ -104,7 +104,7 @@ export default function TaskPanel({ nodes, onUpdateNode }) {
       <div className="task-panel-header">
         <div>
           <h2>💬 镜头反馈</h2>
-          <div className="task-panel-desc">选择需要反馈的镜头，添加修改指令，导出后 Agent B 只关注增量部分</div>
+          <div className="task-panel-desc">选择需要反馈的镜头，添加修改指令，导出后 Coding Agent 只关注增量部分</div>
         </div>
         <div className="task-panel-actions">
           {pendingCount > 0 && (

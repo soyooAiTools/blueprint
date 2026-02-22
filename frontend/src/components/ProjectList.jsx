@@ -75,9 +75,10 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
   const STATUS_LABELS = {
     editing: '编辑中',
     submitted: '待审核',
+    developing: '开发中',
     approved: '已通过',
     feedback: '反馈中',
-    committed: '已提交',
+    committed: '已提交SVN',
   };
 
   return (
@@ -115,7 +116,7 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
               type="text"
               value={newSvnUrl}
               onChange={(e) => setNewSvnUrl(e.target.value)}
-              placeholder="SVN 地址（如：svn://...）（可选）"
+              placeholder="SVN 地址（如：svn://xxx/playable-ads/space-ice）（可选）"
             />
             <div className="project-create-actions">
               <button className="project-create-cancel" onClick={() => { setShowCreate(false); setNewName(''); setNewSvnUrl(''); }}>
