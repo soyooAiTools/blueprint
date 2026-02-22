@@ -1,6 +1,9 @@
-# Blueprint Editor — AI Playable Ad Pipeline
+# Blueprint — AI Playable Ad Pipeline
 
-自动化试玩广告生产流水线：从蓝图到可投放的单文件 HTML。
+自动化试玩广告生产流水线：从分镜到蓝图到可投放的单文件 HTML。
+
+- **线上地址**: `https://playcools.top/blueprint/`
+- **GitHub**: `soyooAiTools/blueprint`
 
 ## 架构
 
@@ -107,7 +110,7 @@ blueprint-editor/
 | **部署路径** | `C:\worker\` | `D:\worker-cocos\` |
 | **PM2 名称** | `worker-unity` | `worker-cocos` |
 
-两者共用同一后端 API（server.cjs），通过项目的 `engine` 字段区分任务路由。
+两者共用同一后端 API（server.cjs），通过项目的 `engine` 字段区分任务路由。统一 Worker（`worker/worker-client.js`）会根据任务的 `engine` 字段自动选择对应的构建流程。
 
 ### Cocos Worker 部署 (Worker ECS 42.121.160.107)
 
