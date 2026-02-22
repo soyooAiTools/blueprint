@@ -3273,3 +3273,247 @@ html, body, #root {
 .storyboard-frame-edit:focus {
   border-color: rgba(99,102,241,0.5);
 }
+
+/* ===== Project Create - Engine Radio ===== */
+.project-create-field {
+  margin-bottom: 16px;
+}
+
+.project-create-label {
+  display: block;
+  color: #aaa;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.project-create-radios {
+  display: flex;
+  gap: 12px;
+}
+
+.project-radio-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: #0f0f1a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  color: #aaa;
+  font-size: 14px;
+  cursor: pointer;
+  flex: 1;
+  transition: all 0.2s;
+}
+
+.project-radio-option input[type="radio"] { display: none; }
+
+.project-radio-selected {
+  border-color: #2563eb;
+  color: #fff;
+  background: rgba(37, 99, 235, 0.1);
+}
+
+.project-radio-icon {
+  font-size: 18px;
+}
+
+.project-engine-badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.project-engine-unity {
+  background: rgba(37, 99, 235, 0.15);
+  color: #60a5fa;
+}
+
+.project-engine-cocos {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+
+/* ===== Storyboard Upload Zone ===== */
+.sb-upload-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(255,255,255,0.02);
+  border: 2px dashed #333;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  gap: 6px;
+}
+
+.sb-upload-zone:hover {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.05);
+}
+
+.sb-upload-icon { font-size: 28px; }
+.sb-upload-text { color: #aaa; font-size: 14px; }
+.sb-upload-hint { color: #555; font-size: 12px; }
+
+.sb-file-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.sb-file-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #1a2a3a;
+  border: 1px solid #2d4a6a;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: #7dc4ff;
+}
+
+.sb-file-tag button {
+  background: none;
+  border: none;
+  color: #ef4444;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+/* ===== Storyboard Reference Images ===== */
+.sb-images-area {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.sb-image-thumb-wrap {
+  position: relative;
+  width: 72px;
+  height: 72px;
+}
+
+.sb-image-thumb {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #333;
+}
+
+.sb-image-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  background: #ef4444;
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.sb-image-add {
+  width: 72px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed #333;
+  border-radius: 6px;
+  color: #555;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s;
+}
+
+.sb-image-add:hover {
+  border-color: #6366f1;
+  color: #6366f1;
+}
+
+/* ===== Storyboard Camera Options ===== */
+.sb-option-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.sb-option-label {
+  color: #888;
+  font-size: 13px;
+  min-width: 70px;
+  flex-shrink: 0;
+}
+
+.sb-radio-group {
+  display: flex;
+  gap: 8px;
+}
+
+.sb-radio {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  background: #0f0f1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #888;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.sb-radio input[type="radio"] { display: none; }
+
+.sb-radio-active {
+  border-color: #6366f1;
+  color: #fff;
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.sb-select {
+  padding: 6px 12px;
+  background: #0f0f1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #ddd;
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+}
+
+.sb-select:focus { border-color: #6366f1; }
+
+.sb-style-input {
+  flex: 1;
+  padding: 6px 12px;
+  background: #0f0f1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #ddd;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.sb-style-input:focus { border-color: #6366f1; }
+.sb-style-input::placeholder { color: #555; }

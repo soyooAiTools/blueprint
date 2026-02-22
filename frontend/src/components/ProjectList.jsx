@@ -7,6 +7,7 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newSvnUrl, setNewSvnUrl] = useState('');
+  const [newEngine, setNewEngine] = useState('unity');
 
   const loadProjects = useCallback(async () => {
     try {
@@ -24,14 +25,35 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
     loadProjects();
   }, [loadProjects]);
 
+  const openProject = async (id) => {
+    try {
+      const full = await getProject(id);
+      onSelectProject({
+        id: full.id,
+        name: full.name,
+        svnUrl: full.svnUrl,
+        status: full.status,
+        engine: full.engine,
+        nodes: full.blueprint?.nodes || [],
+        edges: full.blueprint?.edges || [],
+        feedbackHistory: full.feedbackHistory || [],
+      });
+    } catch (err) {
+      alert('加载项目失败: ' + err.message);
+    }
+  };
+
   const handleCreate = async () => {
     if (!newName.trim()) return;
     try {
-      const project = await createProject(newName.trim(), newSvnUrl.trim());
+      const project = await createProject(newName.trim(), newSvnUrl.trim(), newEngine);
       setProjects((prev) => [project, ...prev]);
       setNewName('');
       setNewSvnUrl('');
+      setNewEngine('unity');
       setShowCreate(false);
+      // Auto-open the newly created project
+      await openProject(project.id);
     } catch (err) {
       alert('创建失败: ' + err.message);
     }
@@ -81,6 +103,8 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
     committed: '已提交SVN',
   };
 
+  const ENGINE_LABELS = { unity: 'Unity', cocos: 'Cocos' };
+
   return (
     <div className="project-list-page">
       <div className="project-list-header">
@@ -102,6 +126,21 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
         <div className="project-create-modal">
           <div className="project-create-card">
             <h3>新建项目</h3>
+
+            <div className="project-create-field">
+              <label className="project-create-label">引擎</label>
+              <div className="project-create-radios">
+                <label className={'project-radio-option' + (newEngine === 'unity' ? ' project-radio-selected' : '')}>
+                  <input type="radio" name="engine" value="unity" checked={newEngine === 'unity'} onChange={() => setNewEngine('unity')} />
+                  <span className="project-radio-icon">🎮</span> Unity
+                </label>
+                <label className={'project-radio-option' + (newEngine === 'cocos' ? ' project-radio-selected' : '')}>
+                  <input type="radio" name="engine" value="cocos" checked={newEngine === 'cocos'} onChange={() => setNewEngine('cocos')} />
+                  <span className="project-radio-icon">🐦</span> Cocos
+                </label>
+              </div>
+            </div>
+
             <input
               className="project-create-input"
               type="text"
@@ -116,14 +155,14 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
               type="text"
               value={newSvnUrl}
               onChange={(e) => setNewSvnUrl(e.target.value)}
-              placeholder="SVN 地址（如：svn://xxx/playable-ads/space-ice）（可选）"
+              placeholder="SVN 地址（可选）"
             />
             <div className="project-create-actions">
-              <button className="project-create-cancel" onClick={() => { setShowCreate(false); setNewName(''); setNewSvnUrl(''); }}>
+              <button className="project-create-cancel" onClick={() => { setShowCreate(false); setNewName(''); setNewSvnUrl(''); setNewEngine('unity'); }}>
                 取消
               </button>
-              <button className="project-create-confirm" onClick={handleCreate}>
-                创建
+              <button className="project-create-confirm" onClick={handleCreate} disabled={!newName.trim()}>
+                创建并打开
               </button>
             </div>
           </div>
@@ -147,22 +186,7 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
             const revisions = getRevisionCount(p);
             const statusLabel = STATUS_LABELS[p.status] || p.status;
             return (
-              <div key={p.id} className="project-card" onClick={async () => {
-                try {
-                  const full = await getProject(p.id);
-                  onSelectProject({
-                    id: full.id,
-                    name: full.name,
-                    svnUrl: full.svnUrl,
-                    status: full.status,
-                    nodes: full.blueprint?.nodes || [],
-                    edges: full.blueprint?.edges || [],
-                    feedbackHistory: full.feedbackHistory || [],
-                  });
-                } catch (err) {
-                  alert('加载项目失败: ' + err.message);
-                }
-              }}>
+              <div key={p.id} className="project-card" onClick={() => openProject(p.id)}>
                 <div className="project-card-top">
                   <div className="project-card-name">{p.name}</div>
                   <button
@@ -171,6 +195,7 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
                   >🗑</button>
                 </div>
                 <div className="project-card-stats">
+                  {p.engine && <span className={'project-stat project-engine-badge project-engine-' + p.engine}>{ENGINE_LABELS[p.engine] || p.engine}</span>}
                   <span className="project-stat">📷 {shots} 个镜头</span>
                   {revisions > 0 && <span className="project-stat project-stat-rev">🔴 {revisions} 待修</span>}
                   {p.status && p.status !== 'editing' && (

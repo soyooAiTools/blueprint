@@ -67,8 +67,18 @@ export async function fetchProjects() {
   return request('/projects');
 }
 
-export async function createProject(name, svnUrl) {
-  return request('/projects', { method: 'POST', body: JSON.stringify({ name, svnUrl }) });
+export async function createProject(name, svnUrl, engine) {
+  return request('/projects', { method: 'POST', body: JSON.stringify({ name, svnUrl, engine }) });
+}
+
+export async function parseStoryboard(projectId, formData) {
+  const res = await fetch(API_BASE + '/projects/' + projectId + '/parse-storyboard', {
+    method: 'POST',
+    body: formData,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || '请求失败 (' + res.status + ')');
+  return data;
 }
 
 export async function getProject(id) {
