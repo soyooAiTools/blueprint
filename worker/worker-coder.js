@@ -13,6 +13,7 @@ const MODEL = process.env.LLM_MODEL || 'claude-sonnet-4-5-20250929';
 const MAX_TOKENS = 16384;
 const MAX_FIX_ATTEMPTS = 10;  // Keep retrying until fixed (practical upper bound)
 const PIPELINE_DIR = process.env.LUNA_PIPELINE || 'D:\\Luna\\pipeline';
+const COCOS_EXE = process.env.COCOS_CREATOR || 'D:\\CocosCreator-v3.8.8-win-121518\\CocosCreator.exe';
 
 // ============ LLM Call ============
 
@@ -238,9 +239,119 @@ var FIX_PROMPT = [
   'Only include files that need changes.'
 ].join('\n');
 
+// ============ Cocos System Prompts ============
+
+var COCOS_GENERATE_PROMPT = [
+  'You are a Cocos Creator 3.8.x TypeScript code generator for playable ads (HTML5 Web Mobile).',
+  '',
+  '## 踩坑经验（公司实战，必须遵守！）',
+  '- 音频绝对不要用 .ogg 格式，必须用 .mp3。苹果手机黑屏大概率是 .ogg 导致',
+  '- 打包不要勾选 MD5 缓存，可能导致打包失败',
+  '- 打包 web-mobile 后压缩 zip 不要多套一层目录，否则渠道包黑屏',
+  '- 打包后黑屏但调试模式正常 + JSON.parse undefined 报错 → 缓存没清干净，删 library/Build/temp 重新打包',
+  '- 打包后出现进度条 → 游戏初始化时加 document.body.style.overflow = "hidden"',
+  '',
+  '## CRITICAL COCOS CREATOR CONSTRAINTS',
+  '',
+  '### DO NOT use:',
+  '- Multi-threading (SharedArrayBuffer restricted in WebView)',
+  '- VideoPlayer component (fails in many mobile WebViews)',
+  '- localStorage (some WebViews block it)',
+  '- cc.resources.load for assets not in resources/ folder',
+  '- Dynamic creation of many nodes (use NodePool for pooling)',
+  '- Heavy physics engines (Bullet/PhysX slow on Web, use Builtin or manual)',
+  '- cc.find() for global lookups (use @property references or getChildByName)',
+  '- Heavy computation in update() (use schedule() or events)',
+  '- Accessing other components in onLoad (may not be initialized; use start())',
+  '',
+  '### MUST do:',
+  '- Use TypeScript with @ccclass / @property decorators',
+  '- Components extend Component (import from "cc")',
+  '- import { _decorator, Component, Node, ... } from "cc"',
+  '- const { ccclass, property } = _decorator',
+  '- Use tween() for animations instead of manual interpolation',
+  '- Use EventTarget for decoupled communication',
+  '- iOS audio: play silent clip on first touch to unlock AudioContext',
+  '- Implement mute/unmute callbacks (channel requirement)',
+  '- CTA button: call channel SDK (e.g. mraid.open(url))',
+  '- Total bundle < 5MB (AppLovin channel limit)',
+  '- First screen < 3 seconds load',
+  '- Scene transitions via director.loadScene() or node.active toggling',
+  '- Clean up singletons on replay',
+  '- Use compressed textures and sprite atlases to reduce DrawCall',
+  '- Disable Mipmap on UI/static textures',
+  '- MP3 audio format (best compatibility), max 30 seconds',
+  '- Canvas: set Fit Width/Fit Height, anchor key UI with Widget',
+  '- Use BlockInputEvents to prevent touch passthrough',
+  '',
+  '### Allowed:',
+  '- Component, Node, Vec2, Vec3, Color, Quat, Mat4',
+  '- UI: Button, Label, Sprite, Layout, Widget, Canvas, RichText',
+  '- tween(), Tween',
+  '- AudioSource, AudioClip',
+  '- Collider, RigidBody (Builtin physics preferred)',
+  '- Spine (match runtime version)',
+  '- Scheduler (schedule/unschedule)',
+  '- resources.load / assetManager',
+  '- director.loadScene',
+  '',
+  '## Work with the existing project',
+  'Read and understand the existing codebase. Follow same patterns and architecture.',
+  'Extend/modify existing scripts rather than creating from scratch.',
+  'Reuse existing utility classes, managers, helpers.',
+  '',
+  'Output format: Each file as:',
+  '```typescript:assets/scripts/FileName.ts',
+  '// code',
+  '```',
+  '',
+  'Generate code that integrates naturally with the existing project.'
+].join('\n');
+
+var COCOS_FIX_PROMPT = [
+  'You are fixing Cocos Creator 3.8.x TypeScript compilation errors for a playable ad.',
+  '',
+  '## Key constraints:',
+  '- Must use @ccclass decorator on all component classes',
+  '- @property decorator for serialized fields',
+  '- Import from "cc": import { _decorator, Component, Node } from "cc"',
+  '- const { ccclass, property } = _decorator',
+  '- Do NOT use cc.find() — use @property references',
+  '- Do NOT access uninitialized components in onLoad — use start()',
+  '- Check null before accessing optional references',
+  '',
+  'Fix ALL errors. If same errors recur, try a different approach.',
+  '',
+  'Output corrected files as:',
+  '```typescript:assets/scripts/FileName.ts',
+  '// fixed code',
+  '```',
+  'Only include files that need changes.'
+].join('\n');
+
 // ============ Compile + Diagnostics ============
 
-function tryCompile(clientDir, log, taskId) {
+function tryCompileCocos(projectDir, log, taskId) {
+  var buildDir = path.join(projectDir, 'build', 'web-mobile');
+  try { if (fs.existsSync(buildDir)) fs.rmSync(buildDir, { recursive: true, force: true }); } catch(e) {}
+  try {
+    execSync('"' + COCOS_EXE + '" --project "' + projectDir + '" --build "platform=web-mobile;debug=false"', { timeout: 180000, encoding: 'utf-8', stdio: ['pipe','pipe','pipe'] });
+    log('[coder] Cocos build passed!', taskId);
+    return { ok: true };
+  } catch(e) {
+    if (fs.existsSync(path.join(buildDir, 'index.html'))) {
+      log('[coder] Cocos build exit non-zero but output exists, treating as pass', taskId);
+      return { ok: true };
+    }
+    var output = ((e.stdout||'') + '\n' + (e.stderr||'')).trim();
+    var errors = output.split('\n').filter(function(l) { return /error TS\d+/i.test(l); });
+    if (errors.length === 0) errors = output.split('\n').filter(function(l) { return /error/i.test(l) && !/warning|asset|SIGTERM|Exit process with code:null/i.test(l); });
+    log('[coder] Cocos build failed: ' + errors.length + ' errors', taskId);
+    return { ok: false, errors: errors.length > 0 ? errors : ['Build failed: ' + output.slice(-500)] };
+  }
+}
+
+function tryCompileUnity(clientDir, log, taskId) {
   // Clean LunaTemp
   var lunaTemp = path.join(clientDir, 'LunaTemp');
   if (fs.existsSync(lunaTemp)) {
@@ -299,8 +410,10 @@ function extractDiagnosticErrors(clientDir) {
 
 // ============ Main: Generate + Compile-Fix Loop ============
 
-async function generateCode(blueprint, clientDir, log, taskId) {
+async function generateCode(blueprint, clientDir, log, taskId, engine) {
   log = log || console.log;
+  engine = engine || 'unity';
+  var isCocos = engine === 'cocos';
 
   var parsed = parseBlueprintToPrompt(blueprint);
   if (!parsed) {
@@ -308,14 +421,23 @@ async function generateCode(blueprint, clientDir, log, taskId) {
     return { ok: true, skipped: true, message: 'Empty blueprint' };
   }
 
-  log('[coder] Generating code for: ' + parsed.scenes.length + ' scenes', taskId);
+  log('[coder] Generating ' + engine + ' code for: ' + parsed.scenes.length + ' scenes', taskId);
 
-  // Read existing project context (SLG template)
-  var projectCtx = readProjectContext(clientDir);
+  // Select prompts and helpers based on engine
+  var sysPrompt = isCocos ? COCOS_GENERATE_PROMPT : GENERATE_PROMPT;
+  var fixPrompt = isCocos ? COCOS_FIX_PROMPT : FIX_PROMPT;
+  var tryCompile = isCocos ? tryCompileCocos : tryCompileUnity;
+  var parseBlocks = isCocos ? parseCodeBlocksCocos : parseCodeBlocks;
+  var readScripts = isCocos ? readCurrentScriptsCocos : readCurrentScripts;
+  var readCtx = isCocos ? readProjectContextCocos : readProjectContext;
+  var listClasses = isCocos ? listExistingClassesCocos : listExistingClasses;
+  var lang = isCocos ? 'Cocos Creator TypeScript' : 'Unity C#';
+
+  // Read existing project context
+  var projectCtx = readCtx(clientDir);
   log('[coder] Project context: ' + (projectCtx.fileList ? projectCtx.fileList.split('\n').length : 0) + ' files scanned', taskId);
 
-  // List existing project classes to avoid naming conflicts
-  var existingClasses = listExistingClasses(clientDir);
+  var existingClasses = listClasses(clientDir);
   var classWarning = '';
   if (existingClasses.length > 0) {
     classWarning = '\n\n## EXISTING CLASS NAMES (do NOT reuse these):\n' + existingClasses.join(', ');
@@ -335,18 +457,16 @@ async function generateCode(blueprint, clientDir, log, taskId) {
     + classWarning
     + projectSection
     + parsed.feedbackText
-    + '\n\nGenerate Unity C# scripts for this playable ad. Follow the existing project patterns closely.';
+    + '\n\nGenerate ' + lang + ' scripts for this playable ad. Follow the existing project patterns closely.';
 
   try {
-    // === Step 1: Generate ===
-    var response = await callClaude(GENERATE_PROMPT, userMsg);
+    var response = await callClaude(sysPrompt, userMsg);
     log('[coder] Generated (' + (response.usage ? response.usage.output_tokens + ' tokens' : 'ok') + ')', taskId);
 
-    var files = parseCodeBlocks(response.text);
+    var files = parseBlocks(response.text);
     if (files.length === 0) return { ok: false, error: 'No code blocks' };
     writeFiles(clientDir, files, log, taskId);
 
-    // === Step 2: Build + Fix Loop (keep trying until fixed) ===
     var prevErrorSig = '';
     var sameErrorCount = 0;
     for (var attempt = 1; attempt <= MAX_FIX_ATTEMPTS; attempt++) {
@@ -357,51 +477,34 @@ async function generateCode(blueprint, clientDir, log, taskId) {
         return { ok: true, filesWritten: files.length, files: files.map(function(f) { return f.path; }), attempts: attempt };
       }
 
-      // Detect stuck loop: if same errors repeat 3 times, regenerate from scratch
       var errorSig = result.errors.sort().join('|');
-      if (errorSig === prevErrorSig) {
-        sameErrorCount++;
-      } else {
-        sameErrorCount = 0;
-        prevErrorSig = errorSig;
-      }
+      if (errorSig === prevErrorSig) { sameErrorCount++; } else { sameErrorCount = 0; prevErrorSig = errorSig; }
 
       if (sameErrorCount >= 3) {
         log('[coder] ⚠️ Same errors repeated 3 times, regenerating from scratch...', taskId);
-        // Full regeneration with error context
         var regenMsg = userMsg + '\n\n## IMPORTANT: Previous code had persistent compilation errors:\n```\n'
           + result.errors.join('\n') + '\n```\nGenerate completely different code that avoids these issues.';
-        var regenResp = await callClaude(GENERATE_PROMPT, regenMsg);
-        var regenFiles = parseCodeBlocks(regenResp.text);
-        if (regenFiles.length > 0) {
-          writeFiles(clientDir, regenFiles, log, taskId);
-          files = regenFiles;
-        }
-        sameErrorCount = 0;
-        prevErrorSig = '';
-        continue;
+        var regenResp = await callClaude(sysPrompt, regenMsg);
+        var regenFiles = parseBlocks(regenResp.text);
+        if (regenFiles.length > 0) { writeFiles(clientDir, regenFiles, log, taskId); files = regenFiles; }
+        sameErrorCount = 0; prevErrorSig = ''; continue;
       }
 
       log('[coder] Fix attempt ' + attempt + '/' + MAX_FIX_ATTEMPTS + ': ' + result.errors.length + ' errors', taskId);
 
-      // Build fix prompt with current code + errors + project context
-      var currentCode = readCurrentScripts(clientDir);
+      var currentCode = readScripts(clientDir);
       var fixProjectCtx = projectCtx.fileList ? '\n\n## Existing project files (for reference):\n```\n' + projectCtx.fileList + '\n```' : '';
       var fixMsg = '## Build Errors:\n```\n' + result.errors.join('\n') + '\n```\n\n'
-        + '## Current Scripts (Assets/Scripts/ only):\n' + currentCode
+        + '## Current Scripts:\n' + currentCode
         + fixProjectCtx
-        + '\n\nFix ALL errors above. This is attempt ' + attempt + '. If previous fixes did not work, try a fundamentally different approach. Reuse existing project classes where possible.';
+        + '\n\nFix ALL errors above. This is attempt ' + attempt + '. If previous fixes did not work, try a fundamentally different approach.';
 
-      var fixResp = await callClaude(FIX_PROMPT, fixMsg);
+      var fixResp = await callClaude(fixPrompt, fixMsg);
       log('[coder] Fix response (' + (fixResp.usage ? fixResp.usage.output_tokens + ' tokens' : 'ok') + ')', taskId);
 
-      var fixed = parseCodeBlocks(fixResp.text);
-      if (fixed.length > 0) {
-        writeFiles(clientDir, fixed, log, taskId);
-        files = fixed;
-      } else {
-        log('[coder] Warning: No fix blocks, retrying...', taskId);
-      }
+      var fixed = parseBlocks(fixResp.text);
+      if (fixed.length > 0) { writeFiles(clientDir, fixed, log, taskId); files = fixed; }
+      else { log('[coder] Warning: No fix blocks, retrying...', taskId); }
     }
 
     log('[coder] ❌ Exhausted ' + MAX_FIX_ATTEMPTS + ' attempts', taskId);
@@ -543,6 +646,95 @@ function listCsFiles(dir) {
       else if (entries[i].name.endsWith('.cs')) results.push(fp);
     }
   } catch (e) {}
+  return results;
+}
+
+// ============ Cocos Helpers ============
+
+function parseCodeBlocksCocos(text) {
+  var files = [];
+  var regex = /```(?:typescript|ts)[:\s]+([^\n`]+\.ts)\s*\n([\s\S]*?)```/g;
+  var match;
+  while ((match = regex.exec(text)) !== null) {
+    var fp = match[1].trim();
+    if (!fp.startsWith('assets/')) fp = 'assets/scripts/' + path.basename(fp);
+    files.push({ path: fp, content: match[2].trim() + '\n' });
+  }
+  if (files.length === 0) {
+    var fb = /```(?:typescript|ts)\s*\n([\s\S]*?)```/g;
+    var idx = 0;
+    while ((match = fb.exec(text)) !== null) {
+      var code = match[1].trim() + '\n';
+      var cm = code.match(/class\s+(\w+)/);
+      files.push({ path: 'assets/scripts/' + (cm ? cm[1] : 'Script' + idx) + '.ts', content: code });
+      idx++;
+    }
+  }
+  return files;
+}
+
+function listExistingClassesCocos(projectDir) {
+  var classes = [];
+  var dirs = ['assets/scripts', 'assets/Script', 'assets/src'];
+  for (var d = 0; d < dirs.length; d++) {
+    var full = path.join(projectDir, dirs[d]);
+    if (fs.existsSync(full)) {
+      var tsFiles = listTsFiles(full);
+      for (var i = 0; i < tsFiles.length; i++) {
+        try {
+          var content = fs.readFileSync(tsFiles[i], 'utf-8');
+          var matches = content.match(/class\s+(\w+)/g);
+          if (matches) for (var j = 0; j < matches.length; j++) classes.push(matches[j].replace('class ', ''));
+        } catch(e) {}
+      }
+    }
+  }
+  return classes;
+}
+
+function readProjectContextCocos(projectDir) {
+  var MAX = 30000, parts = [], total = 0;
+  var scanDirs = ['assets/scripts', 'assets/Script', 'assets/src'];
+  var allFiles = [];
+  for (var d = 0; d < scanDirs.length; d++) {
+    var full = path.join(projectDir, scanDirs[d]);
+    if (fs.existsSync(full)) {
+      var tsFiles = listTsFiles(full);
+      for (var i = 0; i < tsFiles.length; i++) {
+        try { var stat = fs.statSync(tsFiles[i]); allFiles.push({ path: tsFiles[i], rel: path.relative(projectDir, tsFiles[i]).replace(/\\/g,'/'), size: stat.size }); } catch(e) {}
+      }
+    }
+  }
+  if (allFiles.length === 0) return { context: '', fileList: '' };
+  var fileList = allFiles.map(function(f) { return f.rel + ' (' + Math.round(f.size/1024) + 'KB)'; }).join('\n');
+  allFiles.sort(function(a,b) { return a.size - b.size; });
+  for (var i = 0; i < allFiles.length; i++) {
+    if (total >= MAX || allFiles[i].size > 8000) continue;
+    try { var c = fs.readFileSync(allFiles[i].path, 'utf-8'); if (total + c.length > MAX) continue; parts.push('```typescript:' + allFiles[i].rel + '\n' + c + '\n```'); total += c.length; } catch(e) {}
+  }
+  return { context: parts.join('\n\n'), fileList: fileList };
+}
+
+function readCurrentScriptsCocos(projectDir) {
+  var scriptsDir = path.join(projectDir, 'assets', 'scripts');
+  if (!fs.existsSync(scriptsDir)) return '(no scripts)';
+  var files = listTsFiles(scriptsDir), parts = [];
+  for (var i = 0; i < files.length; i++) {
+    parts.push('```typescript:' + path.relative(projectDir, files[i]).replace(/\\/g,'/') + '\n' + fs.readFileSync(files[i], 'utf-8') + '\n```');
+  }
+  return parts.join('\n\n') || '(no scripts)';
+}
+
+function listTsFiles(dir) {
+  var results = [];
+  try {
+    var entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (var i = 0; i < entries.length; i++) {
+      var fp = path.join(dir, entries[i].name);
+      if (entries[i].isDirectory()) results = results.concat(listTsFiles(fp));
+      else if (entries[i].name.endsWith('.ts') && !entries[i].name.endsWith('.d.ts')) results.push(fp);
+    }
+  } catch(e) {}
   return results;
 }
 

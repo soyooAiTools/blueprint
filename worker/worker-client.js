@@ -12,14 +12,25 @@ const { runBridgeBuild, bridgeRequest } = require('./worker-bridge-build.js');
 const { generateCode } = require('./worker-coder.js');
 const { convertAndSave } = require('./worker-html-converter.js');
 
+// Cocos modules (optional — loaded dynamically to avoid crash if not present)
+let cocosPatch, cocosBuild, cocosHtmlConverter;
+try {
+  cocosPatch = require('../worker-cocos/worker-patch.js');
+  cocosBuild = require('../worker-cocos/worker-cocos-build.js');
+  cocosHtmlConverter = require('../worker-cocos/worker-html-converter.js');
+} catch (e) {
+  // Cocos modules not available — cocos tasks will fail gracefully
+}
+
 // ============ Config ============
 const WORKER_ID = process.env.WORKER_ID || 'workerA';
 const BASE_URL = process.env.BASE_URL || 'https://playcools.top/blueprintEditor';
 const POLL_INTERVAL = 8000;       // 8s between polls
 const HEARTBEAT_INTERVAL = 30000; // 30s heartbeat
 const WORK_DIR = 'D:\\work';
-const FIXED_PROJECT_DIR = path.join(WORK_DIR, 'test-luna'); // Fixed SVN working copy
+const FIXED_PROJECT_DIR = path.join(WORK_DIR, 'test-luna'); // Fixed SVN working copy (Unity)
 const CLIENT_DIR = path.join(FIXED_PROJECT_DIR, 'Client');
+const COCOS_PROJECT_DIR = path.join(WORK_DIR, 'test-cocos'); // Fixed SVN working copy (Cocos)
 const SVN_USER = 'openclaw';
 const SVN_PASS = 'openclaw';
 const SVN_FLAGS = `--non-interactive --no-auth-cache --username ${SVN_USER} --password ${SVN_PASS}`;
@@ -105,6 +116,7 @@ function runCmd(cmd, cwd, timeoutMs = 300000) {
 
 async function processTask(task) {
   const taskId = task.taskId;
+  const engine = task.engine || 'unity';
 
   // Restore original status if server used atomic assign
   if (task.originalStatus) {
@@ -116,12 +128,16 @@ async function processTask(task) {
     return await handleCommit(task);
   }
 
+  if (engine === 'cocos') {
+    return await processTaskCocos(task);
+  }
+
+  // ============ Unity (Luna) flow ============
   try {
     // === Step 1: SVN Update ===
     await reportStatus(taskId, 'processing', { message: 'SVN update 中...' });
 
     if (!fs.existsSync(FIXED_PROJECT_DIR)) {
-      // First time: SVN checkout
       const svnUrl = task.svnUrl || 'svn://47.101.191.213:3690/test0213';
       log('SVN checkout (first time)...', taskId);
       const checkout = runCmd(`svn checkout ${SVN_FLAGS} "${svnUrl}" "${FIXED_PROJECT_DIR}"`, undefined, 600000);
@@ -130,7 +146,6 @@ async function processTask(task) {
         return;
       }
     } else {
-      // SVN update existing working copy
       const update = runCmd(`svn update ${SVN_FLAGS}`, FIXED_PROJECT_DIR, 120000);
       if (!update.ok) {
         await reportStatus(taskId, 'failed', { message: 'SVN update failed: ' + update.output.slice(0, 300) });
@@ -146,8 +161,6 @@ async function processTask(task) {
 
     // === Step 2: AI Coding ===
     await reportStatus(taskId, 'processing', { message: 'AI 编码中...' });
-
-    // Fetch blueprint from server
     let blueprint = null;
     try {
       blueprint = await apiRequest('GET', `/api/tasks/${taskId}/blueprint`);
@@ -157,7 +170,7 @@ async function processTask(task) {
 
     if (blueprint && blueprint.nodes && blueprint.nodes.length > 0) {
       log(`Blueprint: ${blueprint.nodes.length} nodes, ${(blueprint.edges || []).length} edges`, taskId);
-      const codeResult = await generateCode(blueprint, CLIENT_DIR, log, taskId);
+      const codeResult = await generateCode(blueprint, CLIENT_DIR, log, taskId, 'unity');
       if (codeResult.ok && !codeResult.skipped) {
         log(`AI coding done: ${codeResult.filesWritten} files written`, taskId);
         await reportStatus(taskId, 'processing', { message: `AI 编码完成 (${codeResult.filesWritten} 文件)` });
@@ -172,7 +185,6 @@ async function processTask(task) {
     // === Step 3: Pre-build Patch ===
     await reportStatus(taskId, 'building', { message: '预处理 + Luna 构建中...' });
 
-    // Clean old LunaTemp
     const lunaTempDir = path.join(CLIENT_DIR, 'LunaTemp');
     if (fs.existsSync(lunaTempDir)) {
       log('Cleaning old LunaTemp...', taskId);
@@ -181,7 +193,6 @@ async function processTask(task) {
       }
     }
 
-    // Detect scenes and fix luna.json
     const scenes = detectScenes(CLIENT_DIR);
     if (scenes.length === 0) {
       await reportStatus(taskId, 'failed', { message: 'No scenes found in project' });
@@ -201,7 +212,7 @@ async function processTask(task) {
     }
     log(`Luna build OK in ${buildResult.buildTime}s`, taskId);
 
-    // === Step 5: HTML Conversion (single-file per channel) ===
+    // === Step 5: HTML Conversion ===
     await reportStatus(taskId, 'processing', { message: 'HTML 渠道转换中...' });
     const stage4Dir = path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop');
     const htmlOutputDir = path.join(WORK_DIR, taskId + '-html');
@@ -214,7 +225,6 @@ async function processTask(task) {
       log(`HTML conversion done: ${htmlResults.length} channels, sizes: ${htmlResults.map(r => r.channel + '=' + r.size + 'KB').join(', ')}`, taskId);
     } catch (e) {
       log(`HTML conversion failed (non-fatal): ${e.message}`, taskId);
-      // Non-fatal: still upload the multi-file zip
     }
 
     // === Step 6: Upload Build ===
@@ -238,19 +248,144 @@ async function processTask(task) {
           });
           log(`Uploaded HTML: ${f} (${(htmlBuffer.length / 1024).toFixed(0)} KB)`, taskId);
         }
-        // Cleanup
         try { fs.rmSync(htmlOutputDir, { recursive: true, force: true }); } catch (e) {}
       } catch (e) {
         log(`HTML upload failed (non-fatal): ${e.message}`, taskId);
       }
     }
 
-    // === Step 8: Done → reviewing ===
+    // === Step 8: Done ===
     await reportStatus(taskId, 'reviewing', { message: `构建完成 (${buildResult.buildTime}s)，等待审核` });
     log('Task completed → reviewing', taskId);
 
   } catch (e) {
     log(`Task error: ${e.message}`, taskId);
+    await reportStatus(taskId, 'failed', { message: 'Error: ' + e.message.slice(0, 300) });
+  }
+}
+
+// ============ Cocos Task Processing ============
+
+async function processTaskCocos(task) {
+  const taskId = task.taskId;
+
+  if (!cocosPatch || !cocosBuild) {
+    await reportStatus(taskId, 'failed', { message: 'Cocos modules not available on this worker' });
+    return;
+  }
+
+  try {
+    // === Step 1: SVN Update ===
+    await reportStatus(taskId, 'processing', { message: 'SVN update (Cocos)...' });
+
+    if (!fs.existsSync(COCOS_PROJECT_DIR)) {
+      const svnUrl = task.svnUrl || 'svn://47.101.191.213:3690/test0213';
+      log('SVN checkout (Cocos, first time)...', taskId);
+      const checkout = runCmd(`svn checkout ${SVN_FLAGS} "${svnUrl}" "${COCOS_PROJECT_DIR}"`, undefined, 600000);
+      if (!checkout.ok) {
+        await reportStatus(taskId, 'failed', { message: 'SVN checkout failed: ' + checkout.output.slice(0, 300) });
+        return;
+      }
+    } else {
+      const update = runCmd(`svn update ${SVN_FLAGS}`, COCOS_PROJECT_DIR, 120000);
+      if (!update.ok) {
+        await reportStatus(taskId, 'failed', { message: 'SVN update failed: ' + update.output.slice(0, 300) });
+        return;
+      }
+      log('SVN update OK: ' + update.output.split('\n').pop(), taskId);
+    }
+
+    // === Step 2: AI Coding ===
+    await reportStatus(taskId, 'processing', { message: 'AI 编码中 (Cocos)...' });
+    let blueprint = null;
+    try {
+      blueprint = await apiRequest('GET', `/api/tasks/${taskId}/blueprint`);
+    } catch (e) {
+      log('Failed to fetch blueprint: ' + e.message, taskId);
+    }
+
+    if (blueprint && blueprint.nodes && blueprint.nodes.length > 0) {
+      log(`Blueprint: ${blueprint.nodes.length} nodes`, taskId);
+      const codeResult = await generateCode(blueprint, COCOS_PROJECT_DIR, log, taskId, 'cocos');
+      if (codeResult.ok && !codeResult.skipped) {
+        log(`AI coding done: ${codeResult.filesWritten} files`, taskId);
+        await reportStatus(taskId, 'processing', { message: `AI 编码完成 (${codeResult.filesWritten} 文件)` });
+      } else if (!codeResult.ok) {
+        log('AI coding failed: ' + codeResult.error, taskId);
+        await reportStatus(taskId, 'processing', { message: 'AI 编码失败，使用现有代码继续构建' });
+      }
+    }
+
+    // === Step 3: Pre-build + Cocos Build ===
+    await reportStatus(taskId, 'building', { message: 'Cocos 构建中...' });
+
+    const buildDir = path.join(COCOS_PROJECT_DIR, 'build', 'web-mobile');
+    if (fs.existsSync(buildDir)) {
+      try { fs.rmSync(buildDir, { recursive: true, force: true }); } catch (e) {}
+    }
+
+    const scenes = cocosPatch.detectScenes(COCOS_PROJECT_DIR);
+    if (scenes.length === 0) {
+      await reportStatus(taskId, 'failed', { message: 'No scenes found' });
+      return;
+    }
+    log(`Detected ${scenes.length} scene(s)`, taskId);
+    cocosPatch.fixProjectSettings(COCOS_PROJECT_DIR, scenes);
+
+    const buildResult = await cocosBuild.runCocosBuild(COCOS_PROJECT_DIR, log, taskId);
+    if (!buildResult.ok) {
+      await reportStatus(taskId, 'failed', { message: 'Cocos build failed: ' + (buildResult.error || '').slice(0, 300) });
+      return;
+    }
+    log(`Cocos build OK in ${buildResult.buildTime}s`, taskId);
+
+    // === Step 4: HTML Conversion ===
+    await reportStatus(taskId, 'processing', { message: 'HTML 渠道转换中...' });
+    const htmlOutputDir = path.join(WORK_DIR, taskId + '-html');
+    const htmlConverter = cocosHtmlConverter || { convertAndSave };
+    try {
+      const htmlResults = await htmlConverter.convertAndSave(buildDir, htmlOutputDir, {
+        channels: ['appLovin'],
+        projectName: taskId
+      });
+      log(`HTML conversion done: ${htmlResults.length} channels`, taskId);
+    } catch (e) {
+      log(`HTML conversion failed (non-fatal): ${e.message}`, taskId);
+    }
+
+    // === Step 5: Upload HTMLs ===
+    await reportStatus(taskId, 'processing', { message: '上传 HTML...' });
+    if (fs.existsSync(htmlOutputDir)) {
+      const htmlFiles = fs.readdirSync(htmlOutputDir).filter(f => f.endsWith('.html'));
+      let uploadOk = false;
+      for (const f of htmlFiles) {
+        const htmlBuffer = fs.readFileSync(path.join(htmlOutputDir, f));
+        log(`Uploading ${f} (${(htmlBuffer.length / 1024 / 1024).toFixed(1)}MB)`, taskId);
+        try {
+          await apiRequest('POST', `/api/tasks/${taskId}/upload-html`, htmlBuffer, true, {
+            'Content-Type': 'text/html',
+            'X-Filename': f
+          });
+          uploadOk = true;
+        } catch (e) {
+          log(`HTML upload failed: ${e.message}`, taskId);
+        }
+      }
+      try { fs.rmSync(htmlOutputDir, { recursive: true, force: true }); } catch (e) {}
+      if (!uploadOk) {
+        await reportStatus(taskId, 'failed', { message: 'HTML upload failed' });
+        return;
+      }
+    } else {
+      await reportStatus(taskId, 'failed', { message: 'No HTML output' });
+      return;
+    }
+
+    await reportStatus(taskId, 'reviewing', { message: `Cocos 构建完成 (${buildResult.buildTime}s)，等待审核` });
+    log('Task completed → reviewing (Cocos)', taskId);
+
+  } catch (e) {
+    log(`Task error (Cocos): ${e.message}`, taskId);
     await reportStatus(taskId, 'failed', { message: 'Error: ' + e.message.slice(0, 300) });
   }
 }
@@ -308,46 +443,50 @@ async function uploadBuild(taskId) {
 
 async function handleCommit(task) {
   const taskId = task.taskId;
+  const engine = task.engine || 'unity';
+  const isCocos = engine === 'cocos';
+  const projectDir = isCocos ? COCOS_PROJECT_DIR : FIXED_PROJECT_DIR;
+
   await reportStatus(taskId, 'processing', { message: 'SVN commit 中...' });
 
-  if (!fs.existsSync(FIXED_PROJECT_DIR)) {
+  if (!fs.existsSync(projectDir)) {
     await reportStatus(taskId, 'failed', { message: 'Working copy not found' });
     return;
   }
 
   // === Delete cache directories before commit ===
-  const cacheList = ['Library', 'Temp', 'LunaTemp', 'obj', 'Logs', 'UserSettings', '.vs'];
+  const cacheList = isCocos
+    ? ['build', 'temp', 'local', 'library', 'node_modules', '.vs']
+    : ['Library', 'Temp', 'LunaTemp', 'obj', 'Logs', 'UserSettings', '.vs'];
+  const cachePrefix = isCocos ? '' : 'Client';
   for (const dir of cacheList) {
-    const dirPath = path.join(FIXED_PROJECT_DIR, 'Client', dir);
+    const dirPath = cachePrefix ? path.join(projectDir, cachePrefix, dir) : path.join(projectDir, dir);
+    const svnRelPath = cachePrefix ? `${cachePrefix}/${dir}` : dir;
     if (fs.existsSync(dirPath)) {
-      log(`Deleting cache: Client/${dir}`, taskId);
+      log(`Deleting cache: ${svnRelPath}`, taskId);
       try {
-        // Remove from SVN tracking first (if tracked)
-        runCmd(`svn revert --depth infinity "Client/${dir}" ${SVN_FLAGS}`, FIXED_PROJECT_DIR);
-        // Delete from disk
+        runCmd(`svn revert --depth infinity "${svnRelPath}" ${SVN_FLAGS}`, projectDir);
         fs.rmSync(dirPath, { recursive: true, force: true });
-        log(`Deleted cache: Client/${dir}`, taskId);
+        log(`Deleted cache: ${svnRelPath}`, taskId);
       } catch (e) {
-        log(`Warning: failed to delete Client/${dir}: ${e.message}`, taskId);
+        log(`Warning: failed to delete ${svnRelPath}: ${e.message}`, taskId);
       }
     }
   }
   await reportStatus(taskId, 'processing', { message: '缓存已清理，准备提交...' });
 
-  // Add new files, commit
-  runCmd(`svn add --force . ${SVN_FLAGS}`, FIXED_PROJECT_DIR);
+  runCmd(`svn add --force . ${SVN_FLAGS}`, projectDir);
 
-  // Double-check: revert any remaining build artifacts that svn add may have picked up
-  const ignoreList = cacheList;
-  for (const dir of ignoreList) {
-    const dirPath = path.join(FIXED_PROJECT_DIR, 'Client', dir);
+  for (const dir of cacheList) {
+    const dirPath = cachePrefix ? path.join(projectDir, cachePrefix, dir) : path.join(projectDir, dir);
+    const svnRelPath = cachePrefix ? `${cachePrefix}/${dir}` : dir;
     if (fs.existsSync(dirPath)) {
-      runCmd(`svn revert --depth infinity "Client/${dir}" 2>nul`, FIXED_PROJECT_DIR);
+      runCmd(`svn revert --depth infinity "${svnRelPath}" 2>nul`, projectDir);
     }
   }
 
   const commitMsg = `[AutoCoding] ${task.projectName || 'Project'} - ${taskId}`;
-  const result = runCmd(`svn commit -m "${commitMsg}" ${SVN_FLAGS}`, FIXED_PROJECT_DIR, 600000);
+  const result = runCmd(`svn commit -m "${commitMsg}" ${SVN_FLAGS}`, projectDir, 600000);
 
   if (!result.ok) {
     log(`SVN commit failed: ${result.output}`, taskId);
@@ -418,8 +557,8 @@ async function heartbeat() {
 }
 
 // ============ Start ============
-log(`Worker v4 starting | ID: ${WORKER_ID} | Server: ${BASE_URL}`);
-log(`Work dir: ${FIXED_PROJECT_DIR} | Luna: ${LUNA_DIR}`);
+log(`Worker v4 (unified) starting | ID: ${WORKER_ID} | Server: ${BASE_URL}`);
+log(`Unity dir: ${FIXED_PROJECT_DIR} | Cocos dir: ${COCOS_PROJECT_DIR} | Luna: ${LUNA_DIR}`);
 
 poll();
 setInterval(poll, POLL_INTERVAL);
