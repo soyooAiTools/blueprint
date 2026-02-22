@@ -66,9 +66,18 @@ blueprint-editor/
 │       └── proj_*/                   # 同 data/webgl 结构
 │
 ├── docs/
-│   └── unity-env-setup.md            # 完整部署指南（20 步清单）
+│   ├── unity-env-setup.md            # Unity Worker 部署指南（20 步清单）
+│   └── cocos-env-setup.md            # Cocos Worker 部署指南
 │
-└── worker/                           # Worker 端脚本
+├── worker-cocos/                     # Cocos Worker 端脚本
+│   ├── worker-client.js              # 任务轮询 + 流程编排
+│   ├── worker-coder.js               # AI 编码（Cocos TypeScript）
+│   ├── worker-cocos-build.js         # Cocos Creator CLI 构建
+│   ├── worker-patch.js               # 预构建修复（场景检测）
+│   ├── worker-html-converter.js      # HTML 单文件转换（PNG→WebP + zlib）
+│   └── ecosystem.config.js           # PM2 配置
+│
+└── worker/                           # Unity Worker 端脚本
     ├── worker-client.js              # v4 主任务处理
     ├── worker-coder.js               # v4 AI 编码 agent（Luna 制作规范 + 工程上下文感知）
     ├── worker-bridge-build.js        # Luna 构建模块
@@ -82,6 +91,35 @@ blueprint-editor/
         ├── auto-dismiss-unity.ps1
         └── launch-unity-auto.ps1
 ```
+
+## Unity vs Cocos Worker
+
+本仓库包含两套 Worker，分别对应 Unity 和 Cocos Creator 引擎：
+
+| | Unity Worker (`worker/`) | Cocos Worker (`worker-cocos/`) |
+|---|---|---|
+| **引擎** | Unity 2022.3 + Luna SDK 6.4.0 | Cocos Creator 3.8.8 |
+| **语言** | C# | TypeScript |
+| **构建** | Luna jake pipeline (~28s) | Cocos Creator CLI `--build` (~17s) |
+| **压缩** | Brotli + html-minifier | PNG→WebP (sharp) + zlib deflate |
+| **产物** | ~725KB 单文件 HTML | ~11.5MB 单文件 HTML |
+| **构建模块** | `worker-bridge-build.js` | `worker-cocos-build.js` |
+| **部署路径** | `C:\worker\` | `D:\worker-cocos\` |
+| **PM2 名称** | `worker-unity` | `worker-cocos` |
+
+两者共用同一后端 API（server.cjs），通过项目的 `engine` 字段区分任务路由。
+
+### Cocos Worker 部署 (Worker ECS 42.121.160.107)
+
+```powershell
+cd D:\worker-cocos
+npm install
+npm install sharp   # PNG→WebP 转换
+pm2 start ecosystem.config.js
+```
+
+- Cocos Creator 路径: `D:\CocosCreator-v3.8.8-win-121518\CocosCreator.exe`
+- 详细环境搭建见 [docs/cocos-env-setup.md](docs/cocos-env-setup.md)
 
 ## API 路由
 
