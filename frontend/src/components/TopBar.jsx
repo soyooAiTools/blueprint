@@ -1,4 +1,5 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
+import { submitProject, submitFeedback } from '../utils/api';
 
 export default function TopBar({
   projectName,
@@ -7,8 +8,11 @@ export default function TopBar({
   onImportJSON,
   onClearCanvas,
   onBack,
+  projectId,
+  nodes,
 }) {
   const fileInputRef = useRef(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const handleImportClick = () => {
     fileInputRef.current?.click();
@@ -19,6 +23,55 @@ export default function TopBar({
     if (file) {
       onImportJSON(file);
       e.target.value = '';
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!projectId) return;
+    
+    try {
+      setSubmitting(true);
+      await submitProject(projectId);
+      alert('✅ 项目已提交！');
+    } catch (err) {
+      alert('提交失败：' + err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSubmitFeedback = async () => {
+    if (!projectId || !nodes) return;
+    
+    // 收集所有反馈
+    const feedbackData = [];
+    nodes.forEach((node) => {
+      if (node.data.revisions && node.data.revisions.length > 0) {
+        node.data.revisions.forEach((rev) => {
+          if (rev.status === 'pending') {
+            feedbackData.push({
+              nodeId: node.id,
+              nodeLabel: node.data.label,
+              ...rev,
+            });
+          }
+        });
+      }
+    });
+    
+    if (feedbackData.length === 0) {
+      alert('没有待提交的反馈');
+      return;
+    }
+    
+    try {
+      setSubmitting(true);
+      await submitFeedback(projectId, feedbackData);
+      alert(`✅ 已提交 ${feedbackData.length} 条反馈！`);
+    } catch (err) {
+      alert('提交反馈失败：' + err.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -40,6 +93,24 @@ export default function TopBar({
         <span className="topbar-subtitle">镜头蓝图编辑器</span>
       </div>
       <div className="topbar-right">
+        {projectId && (
+          <>
+            <button 
+              className="topbar-btn topbar-btn-submit" 
+              onClick={handleSubmit}
+              disabled={submitting}
+            >
+              📝 提交项目
+            </button>
+            <button 
+              className="topbar-btn topbar-btn-feedback" 
+              onClick={handleSubmitFeedback}
+              disabled={submitting}
+            >
+              💬 提交反馈
+            </button>
+          </>
+        )}
         <button className="topbar-btn" onClick={onExportJSON}>
           📤 导出 JSON
         </button>

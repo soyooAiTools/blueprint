@@ -24,6 +24,7 @@ import TaskPanel from './components/TaskPanel';
 import shot1Preset from './presets/shot1';
 import { exportToJSON, downloadJSON } from './utils/export';
 import { importFromJSON, readFileAsJSON } from './utils/import';
+import { saveBlueprint } from './utils/api';
 
 const nodeTypes = {
   shotNode: ShotNode,
@@ -48,15 +49,22 @@ function FlowEditor({ project, onBack }) {
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
   const [activeTab, setActiveTab] = useState('blueprint');
+  const [buildComplete, setBuildComplete] = useState(false);
   const reactFlowInstance = useReactFlow();
   const shotCountRef = useRef((project.nodes || []).filter((n) => n.type === 'shotNode').length || 1);
   const autoSaveRef = useRef(null);
 
-  // Auto-save to localStorage
+  // Auto-save to localStorage and backend
   useEffect(() => {
     if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
     autoSaveRef.current = setTimeout(() => {
+      // Save to localStorage for backward compatibility
       saveProject({ id: project.id, name: projectName, nodes, edges });
+      
+      // Save to backend API
+      saveBlueprint(project.id, nodes, edges, projectName).catch((err) => {
+        console.warn('自动保存到后端失败:', err.message);
+      });
     }, 1000);
     return () => { if (autoSaveRef.current) clearTimeout(autoSaveRef.current); };
   }, [nodes, edges, projectName, project.id]);
@@ -264,8 +272,36 @@ function FlowEditor({ project, onBack }) {
     setSelectedEdge(null);
   }, [setNodes, setEdges]);
 
+  const handleViewPreview = () => {
+    setBuildComplete(false);
+    // 这里可以添加打开预览的逻辑
+    window.open(`/preview/${project.id}`, '_blank');
+  };
+
   return (
     <div className="app-container">
+      {buildComplete && (
+        <div className="build-notification-overlay">
+          <div className="build-notification">
+            <div className="build-notification-title">🎉 构建完成！</div>
+            <div className="build-notification-message">是否立即查看预览？</div>
+            <div className="build-notification-actions">
+              <button 
+                className="build-notification-btn build-notification-btn-secondary"
+                onClick={() => setBuildComplete(false)}
+              >
+                稍后查看
+              </button>
+              <button 
+                className="build-notification-btn build-notification-btn-primary"
+                onClick={handleViewPreview}
+              >
+                立即查看
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <TopBar
         projectName={projectName}
         onProjectNameChange={setProjectName}
@@ -273,6 +309,8 @@ function FlowEditor({ project, onBack }) {
         onImportJSON={onImportJSON}
         onClearCanvas={onClearCanvas}
         onBack={onBack}
+        projectId={project.id}
+        nodes={nodes}
       />
       <div className="app-tabs">
         <button

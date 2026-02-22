@@ -1,5 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { fetchProjects, createProject, deleteProject as apiDeleteProject } from '../utils/api';
+import { STATUS_LABELS } from '../utils/statusLabels';
 
+// 为了向后兼容，保留 localStorage 相关的导出函数
 const STORAGE_KEY = 'blueprint_projects';
 
 export function loadProjects() {
@@ -30,33 +33,58 @@ export function deleteProject(id) {
 
 export default function ProjectList({ user, onSelectProject, onLogout }) {
   const [projects, setProjects] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
+  const [svnUrl, setSvnUrl] = useState('');
+  const [error, setError] = useState('');
 
-  useEffect(() => {
-    setProjects(loadProjects());
+  const loadProjectList = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await fetchProjects();
+      setProjects(data);
+    } catch (err) {
+      console.error('加载项目列表失败:', err);
+      setError('加载失败：' + err.message);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const handleCreate = () => {
-    if (!newName.trim()) return;
-    const project = {
-      id: 'proj_' + Date.now(),
-      name: newName.trim(),
-      nodes: [],
-      edges: [],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-    saveProject(project);
-    setProjects(loadProjects());
-    setNewName('');
-    setShowCreate(false);
+  useEffect(() => {
+    loadProjectList();
+  }, [loadProjectList]);
+
+  const handleCreate = async () => {
+    if (!newName.trim()) {
+      setError('请输入项目名称');
+      return;
+    }
+    
+    try {
+      setError('');
+      await createProject(newName.trim(), svnUrl.trim());
+      await loadProjectList();
+      setNewName('');
+      setSvnUrl('');
+      setShowCreate(false);
+    } catch (err) {
+      setError('创建失败：' + err.message);
+    }
   };
 
-  const handleDelete = (id, name) => {
-    if (!window.confirm('确认删除项目「' + name + '」？此操作不可撤销。')) return;
-    deleteProject(id);
-    setProjects(loadProjects());
+  const handleDelete = async (id, name) => {
+    if (!window.confirm(`确认删除项目「${name}」？此操作不可撤销。`)) return;
+    
+    try {
+      setError('');
+      await apiDeleteProject(id);
+      await loadProjectList();
+    } catch (err) {
+      setError('删除失败：' + err.message);
+      console.error('删除项目失败:', err);
+    }
   };
 
   const formatDate = (ts) => {
@@ -69,16 +97,13 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
       String(d.getMinutes()).padStart(2, '0');
   };
 
-  const getShotCount = (p) => (p.nodes || []).filter((n) => n.type === 'shotNode').length;
-  const getRevisionCount = (p) => {
-    let count = 0;
-    (p.nodes || []).forEach((n) => {
-      (n.data?.revisions || []).forEach((r) => {
-        if (r.status === 'pending') count++;
-      });
-    });
-    return count;
-  };
+  if (loading) {
+    return (
+      <div className="project-list-page">
+        <div className="project-list-loading">加载中...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="project-list-page">
@@ -97,6 +122,13 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
         </div>
       </div>
 
+      {error && (
+        <div className="project-list-error">
+          ⚠️ {error}
+          <button onClick={() => setError('')}>✕</button>
+        </div>
+      )}
+
       {showCreate && (
         <div className="project-create-modal">
           <div className="project-create-card">
@@ -110,8 +142,25 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
               placeholder="项目名称（如：太空打冰块）"
               autoFocus
             />
+            <input
+              className="project-create-input"
+              type="text"
+              value={svnUrl}
+              onChange={(e) => setSvnUrl(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+              placeholder="SVN 地址（选填）"
+            />
+            {error && <div className="project-create-error">{error}</div>}
             <div className="project-create-actions">
-              <button className="project-create-cancel" onClick={() => { setShowCreate(false); setNewName(''); }}>
+              <button 
+                className="project-create-cancel" 
+                onClick={() => { 
+                  setShowCreate(false); 
+                  setNewName(''); 
+                  setSvnUrl('');
+                  setError('');
+                }}
+              >
                 取消
               </button>
               <button className="project-create-confirm" onClick={handleCreate}>
@@ -131,8 +180,9 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
       ) : (
         <div className="project-grid">
           {projects.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).map((p) => {
-            const shots = getShotCount(p);
-            const revisions = getRevisionCount(p);
+            const shotCount = p.shotCount || 0;
+            const statusLabel = STATUS_LABELS[p.status] || STATUS_LABELS.editing;
+            
             return (
               <div key={p.id} className="project-card" onClick={() => onSelectProject(p)}>
                 <div className="project-card-top">
@@ -142,9 +192,19 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
                     onClick={(e) => { e.stopPropagation(); handleDelete(p.id, p.name); }}
                   >🗑</button>
                 </div>
+                <div className="project-card-status">
+                  <span 
+                    className="project-status-badge"
+                    style={{
+                      color: statusLabel.color,
+                      backgroundColor: statusLabel.bg,
+                    }}
+                  >
+                    {statusLabel.text}
+                  </span>
+                </div>
                 <div className="project-card-stats">
-                  <span className="project-stat">📷 {shots} 个镜头</span>
-                  {revisions > 0 && <span className="project-stat project-stat-rev">🔴 {revisions} 待修</span>}
+                  <span className="project-stat">📷 {shotCount} 个镜头</span>
                 </div>
                 <div className="project-card-time">
                   <span>更新于 {formatDate(p.updatedAt)}</span>
