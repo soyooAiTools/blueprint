@@ -13,7 +13,7 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import Login from './components/Login';
-import ProjectList, { saveProject } from './components/ProjectList';
+import ProjectList from './components/ProjectList';
 import ShotNode from './components/ShotNode';
 import JoinNode from './components/JoinNode';
 import NoteNode from './components/NoteNode';
@@ -21,10 +21,19 @@ import Toolbar from './components/Toolbar';
 import PropsPanel from './components/PropsPanel';
 import TopBar from './components/TopBar';
 import TaskPanel from './components/TaskPanel';
+import { ModalProviderWithContext, useModal } from './components/ModalProvider';
 import shot1Preset from './presets/shot1';
 import { exportToJSON, downloadJSON } from './utils/export';
 import { importFromJSON, readFileAsJSON } from './utils/import';
-import { saveBlueprint } from './utils/api';
+import {
+  saveBlueprint,
+  submitProject,
+  submitFeedback,
+  approveProject,
+  getWebglInfo,
+  getProject,
+  fetchProjects,
+} from './utils/api';
 
 const nodeTypes = {
   shotNode: ShotNode,
@@ -42,30 +51,70 @@ const defaultEdgeOptions = {
 let idCounter = 100;
 const getNextId = (prefix) => `${prefix}_${++idCounter}`;
 
-function FlowEditor({ project, onBack }) {
+function FlowEditor({ project, onBack, initialTab }) {
   const [nodes, setNodes, onNodesChange] = useNodesState(project.nodes || []);
   const [edges, setEdges, onEdgesChange] = useEdgesState(project.edges || []);
   const [projectName, setProjectName] = useState(project.name || '未命名项目');
+  const [projectStatus, setProjectStatus] = useState(project.status || 'editing');
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
-  const [activeTab, setActiveTab] = useState('blueprint');
-  const [buildComplete, setBuildComplete] = useState(false);
+  const [activeTab, setActiveTab] = useState(initialTab || 'blueprint');
+  const [webglInfo, setWebglInfo] = useState(null);
   const reactFlowInstance = useReactFlow();
   const shotCountRef = useRef((project.nodes || []).filter((n) => n.type === 'shotNode').length || 1);
   const autoSaveRef = useRef(null);
+  const { showAlert, showConfirm } = useModal();
 
-  // Auto-save to localStorage and backend
+  // Fetch WebGL info when status warrants it
+  useEffect(() => {
+    if (['reviewing', 'approved', 'committed', 'feedback'].indexOf(projectStatus) >= 0) {
+      getWebglInfo(project.id).then(setWebglInfo).catch(() => {});
+    }
+  }, [projectStatus, project.id]);
+
+  // Poll for WebGL build completion
+  const buildNotified = useRef(false);
+  useEffect(() => {
+    if (['submitted', 'building', 'feedback'].indexOf(projectStatus) === -1 || buildNotified.current) return;
+    const interval = setInterval(() => {
+      getWebglInfo(project.id)
+        .then((info) => {
+          if (info && info.available && !buildNotified.current) {
+            buildNotified.current = true;
+            setWebglInfo(info);
+            setProjectStatus('reviewing');
+            showConfirm('🎉 WebGL 构建完成！是否立即查看预览？').then((yes) => {
+              if (yes) setActiveTab('review');
+            });
+            clearInterval(interval);
+          }
+        })
+        .catch(() => {});
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [projectStatus, project.id, showConfirm]);
+
+  // Poll for status changes
+  useEffect(() => {
+    if (['submitted', 'building', 'approved'].indexOf(projectStatus) === -1) return;
+    const interval = setInterval(() => {
+      getProject(project.id)
+        .then((p) => {
+          if (p.status !== projectStatus) setProjectStatus(p.status);
+        })
+        .catch(() => {});
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [projectStatus, project.id]);
+
+  // Auto-save to backend
   useEffect(() => {
     if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
     autoSaveRef.current = setTimeout(() => {
-      // Save to localStorage for backward compatibility
-      saveProject({ id: project.id, name: projectName, nodes, edges });
-      
-      // Save to backend API
       saveBlueprint(project.id, nodes, edges, projectName).catch((err) => {
-        console.warn('自动保存到后端失败:', err.message);
+        console.warn('自动保存失败:', err);
       });
-    }, 1000);
+    }, 2000);
     return () => { if (autoSaveRef.current) clearTimeout(autoSaveRef.current); };
   }, [nodes, edges, projectName, project.id]);
 
@@ -76,21 +125,15 @@ function FlowEditor({ project, onBack }) {
     [setEdges]
   );
 
-  const onNodeClick = useCallback(
-    (_, node) => {
-      setSelectedNode(node);
-      setSelectedEdge(null);
-    },
-    []
-  );
+  const onNodeClick = useCallback((_, node) => {
+    setSelectedNode(node);
+    setSelectedEdge(null);
+  }, []);
 
-  const onEdgeClick = useCallback(
-    (_, edge) => {
-      setSelectedEdge(edge);
-      setSelectedNode(null);
-    },
-    []
-  );
+  const onEdgeClick = useCallback((_, edge) => {
+    setSelectedEdge(edge);
+    setSelectedNode(null);
+  }, []);
 
   const onPaneClick = useCallback(() => {
     setSelectedNode(null);
@@ -102,8 +145,7 @@ function FlowEditor({ project, onBack }) {
       setNodes((nds) =>
         nds.map((n) => {
           if (n.id === nodeId) {
-            const newData = { ...n.data, ...updates };
-            return { ...n, data: newData };
+            return { ...n, data: { ...n.data, ...updates } };
           }
           return n;
         })
@@ -213,9 +255,9 @@ function FlowEditor({ project, onBack }) {
   }, [setNodes, getViewportCenter]);
 
   const onLoadTemplate = useCallback(
-    (tpl) => {
+    async (tpl) => {
       if (nodes.length > 0) {
-        if (!window.confirm(`加载模板「${tpl.name}」将覆盖当前画布，确认？`)) return;
+        if (!(await showConfirm(`加载模板「${tpl.name}」将覆盖当前画布，确认？`))) return;
       }
       setNodes(tpl.nodes || []);
       setEdges(tpl.edges || []);
@@ -229,13 +271,23 @@ function FlowEditor({ project, onBack }) {
         reactFlowInstance.fitView({ padding: 0.2 });
       }, 50);
     },
-    [nodes, setNodes, setEdges, reactFlowInstance]
+    [nodes, setNodes, setEdges, reactFlowInstance, showConfirm]
   );
 
-  const onExportJSON = useCallback(() => {
+  const onExportJSON = useCallback(async () => {
     const data = exportToJSON(projectName, nodes, edges);
     downloadJSON(data, `${projectName || 'blueprint'}.json`);
-  }, [projectName, nodes, edges]);
+    // Auto-submit feedback when exporting in reviewing state
+    if (projectStatus === 'reviewing') {
+      try {
+        const result = await submitFeedback(project.id, { blueprint: data, text: '蓝图反馈更新' });
+        setProjectStatus(result.status);
+        await showAlert('✅ 反馈已同步提交给 Coding Agent！');
+      } catch (err) {
+        console.warn('自动提交反馈失败:', err);
+      }
+    }
+  }, [projectName, nodes, edges, projectStatus, project.id, showAlert]);
 
   const onImportJSON = useCallback(
     async (file) => {
@@ -243,10 +295,8 @@ function FlowEditor({ project, onBack }) {
         const result = await readFileAsJSON(file);
         let newNodes, newEdges, pn;
         if (result.__parsed) {
-          // Zip import: already parsed with model data
           ({ nodes: newNodes, edges: newEdges, projectName: pn } = result);
         } else {
-          // Plain JSON import
           ({ nodes: newNodes, edges: newEdges, projectName: pn } = importFromJSON(result));
         }
         setNodes(newNodes);
@@ -258,50 +308,53 @@ function FlowEditor({ project, onBack }) {
           reactFlowInstance.fitView({ padding: 0.2 });
         }, 50);
       } catch (err) {
-        alert('导入失败: ' + err.message);
+        await showAlert('导入失败: ' + err.message);
       }
     },
-    [setNodes, setEdges, reactFlowInstance]
+    [setNodes, setEdges, reactFlowInstance, showAlert]
   );
 
-  const onClearCanvas = useCallback(() => {
-    if (!window.confirm('确认清空画布？所有数据将丢失。')) return;
+  const onClearCanvas = useCallback(async () => {
+    if (!(await showConfirm('确认清空画布？所有数据将丢失。'))) return;
     setNodes([]);
     setEdges([]);
     setSelectedNode(null);
     setSelectedEdge(null);
-  }, [setNodes, setEdges]);
+  }, [setNodes, setEdges, showConfirm]);
 
-  const handleViewPreview = () => {
-    setBuildComplete(false);
-    // 这里可以添加打开预览的逻辑
-    window.open(`/preview/${project.id}`, '_blank');
-  };
+  const handleSubmit = useCallback(async () => {
+    try {
+      await saveBlueprint(project.id, nodes, edges, projectName);
+      const result = await submitProject(project.id);
+      setProjectStatus(result.status);
+      await showAlert('✅ 已成功提交给 Coding Agent！');
+    } catch (err) {
+      await showAlert('提交失败: ' + err.message);
+    }
+  }, [project.id, nodes, edges, projectName, showAlert]);
+
+  const handleApprove = useCallback(async () => {
+    try {
+      const result = await approveProject(project.id);
+      setProjectStatus(result.status);
+      await showAlert('✅ 审核已通过！');
+    } catch (err) {
+      await showAlert('通过失败: ' + err.message);
+    }
+  }, [project.id, showAlert]);
+
+  const handleFeedback = useCallback(async (text) => {
+    try {
+      const result = await submitFeedback(project.id, { text });
+      setProjectStatus(result.status);
+      await showAlert('✅ 反馈已提交！');
+    } catch (err) {
+      await showAlert('反馈失败: ' + err.message);
+    }
+  }, [project.id, showAlert]);
 
   return (
     <div className="app-container">
-      {buildComplete && (
-        <div className="build-notification-overlay">
-          <div className="build-notification">
-            <div className="build-notification-title">🎉 构建完成！</div>
-            <div className="build-notification-message">是否立即查看预览？</div>
-            <div className="build-notification-actions">
-              <button 
-                className="build-notification-btn build-notification-btn-secondary"
-                onClick={() => setBuildComplete(false)}
-              >
-                稍后查看
-              </button>
-              <button 
-                className="build-notification-btn build-notification-btn-primary"
-                onClick={handleViewPreview}
-              >
-                立即查看
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       <TopBar
         projectName={projectName}
         onProjectNameChange={setProjectName}
@@ -309,8 +362,11 @@ function FlowEditor({ project, onBack }) {
         onImportJSON={onImportJSON}
         onClearCanvas={onClearCanvas}
         onBack={onBack}
-        projectId={project.id}
-        nodes={nodes}
+        projectStatus={projectStatus}
+        onSubmit={handleSubmit}
+        onApprove={handleApprove}
+        onFeedback={handleFeedback}
+        shotCount={nodes.filter((n) => n.type === 'shotNode').length}
       />
       <div className="app-tabs">
         <button
@@ -334,6 +390,14 @@ function FlowEditor({ project, onBack }) {
             return pending > 0 ? <span className="app-tab-badge">{pending}</span> : null;
           })()}
         </button>
+        {['reviewing', 'approved', 'committed', 'feedback'].indexOf(projectStatus) >= 0 && (
+          <button
+            className={`app-tab ${activeTab === 'review' ? 'app-tab-active' : ''}`}
+            onClick={() => setActiveTab('review')}
+          >
+            📱 审核
+          </button>
+        )}
       </div>
       <div className="app-body">
         {activeTab === 'blueprint' ? (
@@ -374,6 +438,74 @@ function FlowEditor({ project, onBack }) {
               onDeleteNode={onDeleteNode}
             />
           </>
+        ) : activeTab === 'review' ? (
+          <div className="review-split">
+            <div className="review-left">
+              <div className="preview-status-bar">
+                {projectStatus === 'reviewing' && (
+                  <span className="preview-status-text">👀 开发完成，请审核预览效果</span>
+                )}
+                {projectStatus === 'feedback' && (
+                  <span className="preview-status-text">💬 反馈已提交，等待修改</span>
+                )}
+                {projectStatus === 'approved' && (
+                  <span className="preview-status-text">⏳ 已通过，正在提交 SVN...</span>
+                )}
+                {projectStatus === 'committed' && (
+                  <span className="preview-status-text preview-status-committed">✅ 已提交 SVN</span>
+                )}
+              </div>
+              {webglInfo && webglInfo.available ? (
+                <div className="preview-phone-frame">
+                  <div className="preview-phone-notch" />
+                  <iframe
+                    className="preview-iframe"
+                    src={webglInfo.url}
+                    title="WebGL Preview"
+                    sandbox="allow-scripts allow-same-origin"
+                  />
+                </div>
+              ) : (
+                <div className="preview-empty">
+                  {projectStatus === 'submitted' ? (
+                    <>
+                      <div className="preview-empty-icon">⏳</div>
+                      <div className="preview-empty-text">已提交开发</div>
+                      <div className="preview-empty-hint">Coding Agent 正在生成代码，请耐心等待...</div>
+                    </>
+                  ) : projectStatus === 'building' ? (
+                    <>
+                      <div className="preview-empty-icon">🔨</div>
+                      <div className="preview-empty-text">正在构建 WebGL</div>
+                      <div className="preview-empty-hint">代码已完成，正在打包中...</div>
+                    </>
+                  ) : projectStatus === 'feedback' ? (
+                    <>
+                      <div className="preview-empty-icon">💬</div>
+                      <div className="preview-empty-text">反馈修改中</div>
+                      <div className="preview-empty-hint">Coding Agent 正在根据反馈修改，完成后会推送新版本</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="preview-empty-icon">📱</div>
+                      <div className="preview-empty-text">暂无预览</div>
+                      <div className="preview-empty-hint">等待 Coding Agent 交付 WebGL 包</div>
+                    </>
+                  )}
+                </div>
+              )}
+              <div className="preview-actions">
+                {(projectStatus === 'reviewing' || projectStatus === 'feedback') && (
+                  <button className="preview-btn preview-btn-approve" onClick={handleApprove}>
+                    ✅ 通过
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="review-right">
+              <TaskPanel nodes={nodes} onUpdateNode={onUpdateNode} />
+            </div>
+          </div>
         ) : (
           <TaskPanel nodes={nodes} onUpdateNode={onUpdateNode} />
         )}
@@ -382,9 +514,70 @@ function FlowEditor({ project, onBack }) {
   );
 }
 
+// Global build notification component
+function GlobalBuildNotification({ user, currentProject, onGoToProject }) {
+  const [notification, setNotification] = useState(null);
+  const notifiedRef = useRef({});
+
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(async () => {
+      try {
+        const projects = await fetchProjects();
+        for (const p of projects) {
+          if (['submitted', 'building', 'feedback'].indexOf(p.status) !== -1 && !notifiedRef.current[p.id]) {
+            try {
+              const info = await getWebglInfo(p.id);
+              if (info && info.available) {
+                notifiedRef.current[p.id] = true;
+                setNotification({ project: p, url: info.url });
+              }
+            } catch {}
+          }
+        }
+      } catch {}
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [user]);
+
+  if (!notification) return null;
+
+  return (
+    <div className="global-notification-overlay" onClick={() => setNotification(null)}>
+      <div className="global-notification" onClick={(e) => e.stopPropagation()}>
+        <div className="global-notification-icon">🎉</div>
+        <div className="global-notification-title">WebGL 构建完成</div>
+        <div className="global-notification-text">
+          项目「{notification.project.name}」已完成构建，可以预览了！
+        </div>
+        <div className="global-notification-actions">
+          <button
+            className="global-notification-btn global-notification-btn-primary"
+            onClick={() => { onGoToProject(notification.project); setNotification(null); }}
+          >
+            🚀 立即查看
+          </button>
+          <button
+            className="global-notification-btn"
+            onClick={() => setNotification(null)}
+          >
+            稍后再看
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [user, setUser] = useState(() => localStorage.getItem('blueprint_user'));
   const [currentProject, setCurrentProject] = useState(null);
+  const [goToReview, setGoToReview] = useState(false);
+
+  const handleGoToProject = useCallback((project) => {
+    setGoToReview(true);
+    setCurrentProject(project);
+  }, []);
 
   if (!user) {
     return <Login onLogin={setUser} />;
@@ -392,24 +585,31 @@ export default function App() {
 
   if (!currentProject) {
     return (
-      <ProjectList
-        user={user}
-        onSelectProject={(p) => setCurrentProject(p)}
-        onLogout={() => {
-          localStorage.removeItem('blueprint_user');
-          setUser(null);
-        }}
-      />
+      <>
+        <ProjectList
+          user={user}
+          onSelectProject={(p) => { setGoToReview(false); setCurrentProject(p); }}
+          onLogout={() => {
+            localStorage.removeItem('blueprint_user');
+            setUser(null);
+          }}
+        />
+        <GlobalBuildNotification user={user} currentProject={currentProject} onGoToProject={handleGoToProject} />
+      </>
     );
   }
 
   return (
-    <ReactFlowProvider>
-      <FlowEditor
-        key={currentProject.id}
-        project={currentProject}
-        onBack={() => setCurrentProject(null)}
-      />
-    </ReactFlowProvider>
+    <ModalProviderWithContext>
+      <ReactFlowProvider>
+        <FlowEditor
+          key={currentProject.id}
+          project={currentProject}
+          onBack={() => setCurrentProject(null)}
+          initialTab={goToReview ? 'review' : 'blueprint'}
+        />
+      </ReactFlowProvider>
+      <GlobalBuildNotification user={user} currentProject={currentProject} onGoToProject={handleGoToProject} />
+    </ModalProviderWithContext>
   );
 }

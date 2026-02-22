@@ -278,7 +278,7 @@ export default function PropsPanel({
         </label>
 
         <div className="props-divider">🎯 素材配置</div>
-        <div className="props-hint">为每个游戏对象配置名称和素材，Agent B 会自动匹配使用</div>
+        <div className="props-hint">为每个游戏对象配置名称和素材，Coding Agent 会自动匹配使用</div>
 
         {(d.assets || []).map((asset, ai) => (
           <div key={ai} className="props-asset-card">
@@ -383,7 +383,7 @@ export default function PropsPanel({
         </button>
 
         <div className="props-divider">🖼 参考图片</div>
-        <div className="props-hint">上传效果参考图，Agent B 会参考视觉风格</div>
+        <div className="props-hint">上传效果参考图，Coding Agent 会参考视觉风格</div>
 
         <div className="props-images">
           {(d.images || []).map((img, i) => (
@@ -427,7 +427,7 @@ export default function PropsPanel({
         </label>
 
         <div className="props-divider">💬 反馈修改</div>
-        <div className="props-hint">标注问题和修改意见，导出后 Agent B 会自动参考修复</div>
+        <div className="props-hint">标注问题和修改意见，导出后 Coding Agent 会自动参考修复</div>
 
         {(d.feedback || []).map((fb, fi) => (
           <div key={fi} className={`props-feedback-card props-feedback-${fb.status || 'open'}`}>

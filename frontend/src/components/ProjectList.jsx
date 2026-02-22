@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchProjects, createProject, deleteProject as apiDeleteProject } from '../utils/api';
+import { fetchProjects, createProject, deleteProject as apiDeleteProject, getProject } from '../utils/api';
 import { STATUS_LABELS } from '../utils/statusLabels';
 
 // 为了向后兼容，保留 localStorage 相关的导出函数
@@ -37,7 +37,6 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [svnUrl, setSvnUrl] = useState('');
-  const [error, setError] = useState('');
 
   const loadProjectList = useCallback(async () => {
     try {
@@ -46,7 +45,6 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
       setProjects(data);
     } catch (err) {
       console.error('加载项目列表失败:', err);
-      setError('加载失败：' + err.message);
     } finally {
       setLoading(false);
     }
@@ -57,33 +55,42 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
   }, [loadProjectList]);
 
   const handleCreate = async () => {
-    if (!newName.trim()) {
-      setError('请输入项目名称');
-      return;
-    }
-    
+    if (!newName.trim()) return;
     try {
-      setError('');
-      await createProject(newName.trim(), svnUrl.trim());
-      await loadProjectList();
+      const created = await createProject(newName.trim(), svnUrl.trim());
+      setProjects((prev) => [created, ...prev]);
       setNewName('');
       setSvnUrl('');
       setShowCreate(false);
     } catch (err) {
-      setError('创建失败：' + err.message);
+      alert('创建失败: ' + err.message);
     }
   };
 
   const handleDelete = async (id, name) => {
     if (!window.confirm(`确认删除项目「${name}」？此操作不可撤销。`)) return;
-    
     try {
-      setError('');
       await apiDeleteProject(id);
-      await loadProjectList();
+      setProjects((prev) => prev.filter((p) => p.id !== id));
     } catch (err) {
-      setError('删除失败：' + err.message);
-      console.error('删除项目失败:', err);
+      alert('删除失败: ' + err.message);
+    }
+  };
+
+  const handleSelectProject = async (project) => {
+    try {
+      const full = await getProject(project.id);
+      onSelectProject({
+        id: full.id,
+        name: full.name,
+        svnUrl: full.svnUrl,
+        status: full.status,
+        nodes: full.blueprint?.nodes || [],
+        edges: full.blueprint?.edges || [],
+        feedbackHistory: full.feedbackHistory || [],
+      });
+    } catch (err) {
+      alert('加载项目失败: ' + err.message);
     }
   };
 
@@ -96,14 +103,6 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
       String(d.getHours()).padStart(2, '0') + ':' +
       String(d.getMinutes()).padStart(2, '0');
   };
-
-  if (loading) {
-    return (
-      <div className="project-list-page">
-        <div className="project-list-loading">加载中...</div>
-      </div>
-    );
-  }
 
   return (
     <div className="project-list-page">
@@ -121,13 +120,6 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
           </button>
         </div>
       </div>
-
-      {error && (
-        <div className="project-list-error">
-          ⚠️ {error}
-          <button onClick={() => setError('')}>✕</button>
-        </div>
-      )}
 
       {showCreate && (
         <div className="project-create-modal">
@@ -148,18 +140,13 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
               value={svnUrl}
               onChange={(e) => setSvnUrl(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-              placeholder="SVN 地址（选填）"
+              placeholder="SVN 地址（如：svn://xxx/playable-ads/space-ice）"
+              style={{ marginTop: 0 }}
             />
-            {error && <div className="project-create-error">{error}</div>}
             <div className="project-create-actions">
-              <button 
-                className="project-create-cancel" 
-                onClick={() => { 
-                  setShowCreate(false); 
-                  setNewName(''); 
-                  setSvnUrl('');
-                  setError('');
-                }}
+              <button
+                className="project-create-cancel"
+                onClick={() => { setShowCreate(false); setNewName(''); setSvnUrl(''); }}
               >
                 取消
               </button>
@@ -171,7 +158,12 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
         </div>
       )}
 
-      {projects.length === 0 ? (
+      {loading ? (
+        <div className="project-list-empty">
+          <div className="project-empty-icon">⏳</div>
+          <div className="project-empty-text">加载中...</div>
+        </div>
+      ) : projects.length === 0 ? (
         <div className="project-list-empty">
           <div className="project-empty-icon">📂</div>
           <div className="project-empty-text">还没有项目</div>
@@ -179,12 +171,12 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
         </div>
       ) : (
         <div className="project-grid">
-          {projects.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).map((p) => {
+          {projects.map((p) => {
             const shotCount = p.shotCount || 0;
             const statusLabel = STATUS_LABELS[p.status] || STATUS_LABELS.editing;
-            
+
             return (
-              <div key={p.id} className="project-card" onClick={() => onSelectProject(p)}>
+              <div key={p.id} className="project-card" onClick={() => handleSelectProject(p)}>
                 <div className="project-card-top">
                   <div className="project-card-name">{p.name}</div>
                   <button
@@ -192,8 +184,8 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
                     onClick={(e) => { e.stopPropagation(); handleDelete(p.id, p.name); }}
                   >🗑</button>
                 </div>
-                <div className="project-card-status">
-                  <span 
+                <div className="project-card-status-row">
+                  <span
                     className="project-status-badge"
                     style={{
                       color: statusLabel.color,
