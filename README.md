@@ -139,7 +139,9 @@ pm2 start ecosystem.config.js
 | POST | `/api/projects/:id/submit` | 提交构建任务 |
 | POST | `/api/projects/:id/feedback` | 提交反馈 |
 | POST | `/api/projects/:id/approve` | 审核通过 |
-| POST | `/api/projects/:id/parse-storyboard` | 分镜解析（支持 FormData：text/files/images + 镜头选项） |
+| POST | `/api/projects/:id/parse-storyboard` | 分镜解析（支持 FormData：text/files/images + 镜头选项，参考图片会用 Gemini Vision 解析） |
+| POST | `/api/projects/:id/generate-storyboard` | 为每帧生成配图（Gemini / SVG 占位） |
+| POST | `/api/projects/:id/edit-frame` | AI 自然语言编辑单帧（`{ frameIndex, instruction }`） |
 | GET | `/api/projects/:id/webgl` | 获取 WebGL 构建 |
 | POST | `/api/projects/:id/status` | 更新状态 |
 | POST | `/api/projects/:id/upload-webgl` | 上传 WebGL 包 |
