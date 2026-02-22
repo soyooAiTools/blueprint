@@ -10,24 +10,20 @@ function buildNodesFromJSON(json, modelDataMap) {
 
   if (json.shots) {
     json.shots.forEach((shot, index) => {
-      // Rebuild assets with model data from zip
-      let assets = [];
-      if (shot.assets && shot.assets.length > 0) {
-        assets = shot.assets.map((a) => ({
-          targetName: a.targetName || '',
-          models: (a.models || []).map((m) => ({
-            name: m.name,
-            size: modelDataMap[m.path] ? modelDataMap[m.path].length : 0,
-            data: modelDataMap[m.path] || '',
-          })),
-          images: a.images || [],
+      // Rebuild model data from zip if available
+      let models = [];
+      if (shot.models && shot.models.length > 0) {
+        models = shot.models.map((m) => ({
+          name: m.name,
+          size: modelDataMap[m.path] ? modelDataMap[m.path].length : 0,
+          data: modelDataMap[m.path] || '',
         }));
       }
 
       nodes.push({
         id: shot.id,
         type: 'shotNode',
-        position: shot.position || { x: 300, y: index * 400 + 50 },
+        position: { x: 300, y: index * 400 + 50 },
         data: {
           label: shot.id.replace('shot_', '镜头'),
           name: shot.name || '',
@@ -45,15 +41,7 @@ function buildNodesFromJSON(json, modelDataMap) {
           branchTrue2: shot.branch2 ? shot.branch2.ifTrue || '' : '',
           branchFalse2: shot.branch2 ? shot.branch2.ifFalse || '' : '',
           images: shot.images || [],
-          assets: assets.length > 0 ? assets : [],
-          feedback: shot.feedback || [],
-          revisions: shot.revisions ? shot.revisions.map((r, i) => ({
-            id: Date.now() + i,
-            type: r.type || 'behavior',
-            priority: r.priority || 'high',
-            instruction: r.instruction || '',
-            status: 'pending',
-          })) : [],
+          models: models.length > 0 ? models : [],
         },
       });
 
@@ -71,8 +59,6 @@ function buildNodesFromJSON(json, modelDataMap) {
               color: 'rgba(255,255,255,0.5)',
             },
           };
-          if (t.sourceHandle) edge.sourceHandle = t.sourceHandle;
-          if (t.targetHandle) edge.targetHandle = t.targetHandle;
           if (t.condition) {
             edge.label = t.condition;
             edge.labelStyle = { fill: '#fff', fontWeight: 700, fontSize: 12 };

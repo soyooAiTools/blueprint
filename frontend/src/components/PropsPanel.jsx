@@ -382,8 +382,103 @@ export default function PropsPanel({
           + 添加素材目标
         </button>
 
+        <div className="props-divider">📦 模型文件</div>
+
+        <div className="props-models">
+          {(d.models || []).map((m, i) => (
+            <div key={i} className="props-model-item">
+              <div className="props-model-info">
+                <span className="props-model-icon">📦</span>
+                <span className="props-model-name">{m.name}</span>
+                <span className="props-model-size">{(m.size / 1024).toFixed(0)}KB</span>
+              </div>
+              <button
+                className="props-image-remove"
+                onClick={() => {
+                  const newModels = [...(d.models || [])];
+                  newModels.splice(i, 1);
+                  update('models', newModels);
+                }}
+              >✕</button>
+            </div>
+          ))}
+        </div>
+
+        <label className="props-image-upload-btn">
+          + 添加模型 (.fbx / .obj / .glb)
+          <input
+            type="file"
+            accept=".fbx,.obj,.glb,.gltf,.blend"
+            multiple
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const files = Array.from(e.target.files);
+              if (!files.length) return;
+              const promises = files.map((file) => {
+                return new Promise((resolve) => {
+                  const reader = new FileReader();
+                  reader.onload = (ev) => resolve({
+                    name: file.name,
+                    size: file.size,
+                    data: ev.target.result,
+                  });
+                  reader.readAsDataURL(file);
+                });
+              });
+              Promise.all(promises).then((models) => {
+                update('models', [...(d.models || []), ...models]);
+              });
+              e.target.value = '';
+            }}
+          />
+        </label>
+
         <div className="props-divider">🖼 参考图片</div>
         <div className="props-hint">上传效果参考图，Coding Agent 会参考视觉风格</div>
+
+        <div className="props-images">
+          {(d.images || []).map((img, i) => (
+            <div key={i} className="props-image-item">
+              <img src={img} className="props-image-preview" alt={'参考图' + (i + 1)} />
+              <button
+                className="props-image-remove"
+                onClick={() => {
+                  const newImages = [...(d.images || [])];
+                  newImages.splice(i, 1);
+                  update('images', newImages);
+                }}
+              >✕</button>
+            </div>
+          ))}
+        </div>
+
+        <label className="props-image-upload-btn">
+          + 添加图片
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const files = Array.from(e.target.files);
+              if (!files.length) return;
+              const promises = files.map((file) => {
+                return new Promise((resolve) => {
+                  const reader = new FileReader();
+                  reader.onload = (ev) => resolve(ev.target.result);
+                  reader.readAsDataURL(file);
+                });
+              });
+              Promise.all(promises).then((dataUrls) => {
+                update('images', [...(d.images || []), ...dataUrls]);
+              });
+              e.target.value = '';
+            }}
+          />
+        </label>
+
+        <div className="props-divider">🖼 参考图片</div>
+        <div className="props-hint">上传效果参考图，Agent B 会参考视觉风格</div>
 
         <div className="props-images">
           {(d.images || []).map((img, i) => (

@@ -1,48 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchProjects, createProject, deleteProject as apiDeleteProject, getProject } from '../utils/api';
-import { STATUS_LABELS } from '../utils/statusLabels';
-
-// 为了向后兼容，保留 localStorage 相关的导出函数
-const STORAGE_KEY = 'blueprint_projects';
-
-export function loadProjects() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-  } catch { return []; }
-}
-
-export function saveProjects(projects) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
-}
-
-export function saveProject(project) {
-  const projects = loadProjects();
-  const idx = projects.findIndex((p) => p.id === project.id);
-  if (idx >= 0) {
-    projects[idx] = { ...projects[idx], ...project, updatedAt: Date.now() };
-  } else {
-    projects.push({ ...project, createdAt: Date.now(), updatedAt: Date.now() });
-  }
-  saveProjects(projects);
-}
-
-export function deleteProject(id) {
-  const projects = loadProjects().filter((p) => p.id !== id);
-  saveProjects(projects);
-}
+import { fetchProjects, createProject, deleteProject, getProject } from '../utils/api';
 
 export default function ProjectList({ user, onSelectProject, onLogout }) {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
-  const [svnUrl, setSvnUrl] = useState('');
+  const [newSvnUrl, setNewSvnUrl] = useState('');
 
-  const loadProjectList = useCallback(async () => {
+  const loadProjects = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await fetchProjects();
-      setProjects(data);
+      const list = await fetchProjects();
+      setProjects(list);
     } catch (err) {
       console.error('加载项目列表失败:', err);
     } finally {
@@ -51,16 +21,16 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
   }, []);
 
   useEffect(() => {
-    loadProjectList();
-  }, [loadProjectList]);
+    loadProjects();
+  }, [loadProjects]);
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
     try {
-      const created = await createProject(newName.trim(), svnUrl.trim());
-      setProjects((prev) => [created, ...prev]);
+      const project = await createProject(newName.trim(), newSvnUrl.trim());
+      setProjects((prev) => [project, ...prev]);
       setNewName('');
-      setSvnUrl('');
+      setNewSvnUrl('');
       setShowCreate(false);
     } catch (err) {
       alert('创建失败: ' + err.message);
@@ -68,29 +38,12 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
   };
 
   const handleDelete = async (id, name) => {
-    if (!window.confirm(`确认删除项目「${name}」？此操作不可撤销。`)) return;
+    if (!window.confirm('确认删除项目「' + name + '」？此操作不可撤销。')) return;
     try {
-      await apiDeleteProject(id);
+      await deleteProject(id);
       setProjects((prev) => prev.filter((p) => p.id !== id));
     } catch (err) {
       alert('删除失败: ' + err.message);
-    }
-  };
-
-  const handleSelectProject = async (project) => {
-    try {
-      const full = await getProject(project.id);
-      onSelectProject({
-        id: full.id,
-        name: full.name,
-        svnUrl: full.svnUrl,
-        status: full.status,
-        nodes: full.blueprint?.nodes || [],
-        edges: full.blueprint?.edges || [],
-        feedbackHistory: full.feedbackHistory || [],
-      });
-    } catch (err) {
-      alert('加载项目失败: ' + err.message);
     }
   };
 
@@ -102,6 +55,29 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
       String(d.getDate()).padStart(2, '0') + ' ' +
       String(d.getHours()).padStart(2, '0') + ':' +
       String(d.getMinutes()).padStart(2, '0');
+  };
+
+  const getShotCount = (p) => {
+    const bp = p.blueprint || p;
+    return (bp.nodes || []).filter((n) => n.type === 'shotNode').length;
+  };
+  const getRevisionCount = (p) => {
+    const bp = p.blueprint || p;
+    let count = 0;
+    (bp.nodes || []).forEach((n) => {
+      (n.data?.revisions || []).forEach((r) => {
+        if (r.status === 'pending') count++;
+      });
+    });
+    return count;
+  };
+
+  const STATUS_LABELS = {
+    editing: '编辑中',
+    submitted: '待审核',
+    approved: '已通过',
+    feedback: '反馈中',
+    committed: '已提交',
   };
 
   return (
@@ -137,17 +113,12 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
             <input
               className="project-create-input"
               type="text"
-              value={svnUrl}
-              onChange={(e) => setSvnUrl(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-              placeholder="SVN 地址（如：svn://xxx/playable-ads/space-ice）"
-              style={{ marginTop: 0 }}
+              value={newSvnUrl}
+              onChange={(e) => setNewSvnUrl(e.target.value)}
+              placeholder="SVN 地址（如：svn://...）（可选）"
             />
             <div className="project-create-actions">
-              <button
-                className="project-create-cancel"
-                onClick={() => { setShowCreate(false); setNewName(''); setSvnUrl(''); }}
-              >
+              <button className="project-create-cancel" onClick={() => { setShowCreate(false); setNewName(''); setNewSvnUrl(''); }}>
                 取消
               </button>
               <button className="project-create-confirm" onClick={handleCreate}>
@@ -160,7 +131,6 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
 
       {loading ? (
         <div className="project-list-empty">
-          <div className="project-empty-icon">⏳</div>
           <div className="project-empty-text">加载中...</div>
         </div>
       ) : projects.length === 0 ? (
@@ -171,12 +141,27 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
         </div>
       ) : (
         <div className="project-grid">
-          {projects.map((p) => {
-            const shotCount = p.shotCount || 0;
-            const statusLabel = STATUS_LABELS[p.status] || STATUS_LABELS.editing;
-
+          {projects.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).map((p) => {
+            const shots = getShotCount(p);
+            const revisions = getRevisionCount(p);
+            const statusLabel = STATUS_LABELS[p.status] || p.status;
             return (
-              <div key={p.id} className="project-card" onClick={() => handleSelectProject(p)}>
+              <div key={p.id} className="project-card" onClick={async () => {
+                try {
+                  const full = await getProject(p.id);
+                  onSelectProject({
+                    id: full.id,
+                    name: full.name,
+                    svnUrl: full.svnUrl,
+                    status: full.status,
+                    nodes: full.blueprint?.nodes || [],
+                    edges: full.blueprint?.edges || [],
+                    feedbackHistory: full.feedbackHistory || [],
+                  });
+                } catch (err) {
+                  alert('加载项目失败: ' + err.message);
+                }
+              }}>
                 <div className="project-card-top">
                   <div className="project-card-name">{p.name}</div>
                   <button
@@ -184,19 +169,12 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
                     onClick={(e) => { e.stopPropagation(); handleDelete(p.id, p.name); }}
                   >🗑</button>
                 </div>
-                <div className="project-card-status-row">
-                  <span
-                    className="project-status-badge"
-                    style={{
-                      color: statusLabel.color,
-                      backgroundColor: statusLabel.bg,
-                    }}
-                  >
-                    {statusLabel.text}
-                  </span>
-                </div>
                 <div className="project-card-stats">
-                  <span className="project-stat">📷 {shotCount} 个镜头</span>
+                  <span className="project-stat">📷 {shots} 个镜头</span>
+                  {revisions > 0 && <span className="project-stat project-stat-rev">🔴 {revisions} 待修</span>}
+                  {p.status && p.status !== 'editing' && (
+                    <span className={'project-stat project-stat-status project-status-' + p.status}>{statusLabel}</span>
+                  )}
                 </div>
                 <div className="project-card-time">
                   <span>更新于 {formatDate(p.updatedAt)}</span>

@@ -1,161 +1,124 @@
-// API 工具函数
+// API 层 — 统一走后端，启动时自动迁移 localStorage 数据
 const API_BASE = '/api';
+const LS_KEY = 'blueprint_projects';
 
-const LEGACY_STORAGE_KEY = 'blueprint_projects';
-let migrationDone = false;
-
-async function request(path, options) {
+// ============ API 请求 ============
+async function request(url, options) {
   options = options || {};
-  const res = await fetch(API_BASE + path, {
-    headers: {
-      'Content-Type': 'application/json',
-    },
+  var res = await fetch(API_BASE + url, {
+    headers: { 'Content-Type': 'application/json' },
     ...options,
   });
-  
-  const data = await res.json();
-  
-  if (!res.ok) {
-    throw new Error(data.error || `请求失败 (${res.status})`);
-  }
-  
+  var data = await res.json();
+  if (!res.ok) throw new Error(data.error || '请求失败 (' + res.status + ')');
   return data;
 }
 
-// localStorage 数据迁移到后端
-async function migrateLegacyData() {
-  if (migrationDone) return;
-  migrationDone = true;
-  
+// ============ 启动时迁移 localStorage → 后端 ============
+let _migrated = false;
+async function migrateIfNeeded() {
+  if (_migrated) return;
+  _migrated = true;
   try {
-    const legacyData = localStorage.getItem(LEGACY_STORAGE_KEY);
-    if (!legacyData) return;
-    
-    const projects = JSON.parse(legacyData);
+    var raw = localStorage.getItem(LS_KEY);
+    if (!raw) return;
+    var projects = JSON.parse(raw);
     if (!Array.isArray(projects) || projects.length === 0) return;
-    
-    console.log(`[api] 发现 localStorage 中有 ${projects.length} 个项目，正在迁移到后端...`);
-    
-    for (const project of projects) {
+    console.log('[api] 发现 localStorage 中有 ' + projects.length + ' 个项目，正在迁移到后端...');
+    for (var i = 0; i < projects.length; i++) {
+      var p = projects[i];
       try {
-        // 检查项目是否已存在
-        await request(`/projects/${project.id}`);
-        console.log(`[api] 跳过已存在: ${project.name}`);
-      } catch (err) {
-        // 项目不存在，创建新项目
-        const newProject = await request('/projects', {
+        // 先检查后端是否已有同 id 的项目
+        await request('/projects/' + p.id);
+        // 已存在，跳过
+        console.log('[api] 跳过已存在: ' + p.name);
+      } catch (e) {
+        // 不存在，创建
+        var created = await request('/projects', {
           method: 'POST',
-          body: JSON.stringify({
-            name: project.name || '未命名',
-            svnUrl: project.svnUrl || '',
-          }),
+          body: JSON.stringify({ name: p.name || '未命名', svnUrl: p.svnUrl || '' })
         });
-        
-        // 如果有蓝图数据，保存蓝图
-        if (project.nodes && project.nodes.length > 0) {
-          await request(`/projects/${newProject.id}/blueprint`, {
+        // 保存蓝图数据
+        if (p.blueprint && (p.blueprint.nodes || []).length > 0) {
+          await request('/projects/' + created.id + '/blueprint', {
             method: 'PUT',
             body: JSON.stringify({
-              nodes: project.nodes,
-              edges: project.edges,
-              projectName: project.name,
-            }),
+              nodes: p.blueprint.nodes,
+              edges: p.blueprint.edges,
+              projectName: p.blueprint.projectName || p.name
+            })
           });
         }
-        
-        console.log(`[api] 已迁移: ${project.name} → ${newProject.id}`);
+        console.log('[api] 已迁移: ' + p.name + ' → ' + created.id);
       }
     }
-    
-    // 迁移完成，清除 localStorage
-    localStorage.removeItem(LEGACY_STORAGE_KEY);
+    // 迁移完成，清理 localStorage
+    localStorage.removeItem(LS_KEY);
     console.log('[api] 迁移完成，localStorage 已清理');
-  } catch (err) {
-    console.warn('[api] 迁移失败:', err.message);
+  } catch (e) {
+    console.warn('[api] 迁移失败:', e.message);
   }
 }
 
-// 项目相关 API
+// ============ 公开接口 ============
+
 export async function fetchProjects() {
-  await migrateLegacyData();
+  await migrateIfNeeded();
   return request('/projects');
 }
 
 export async function createProject(name, svnUrl) {
-  return request('/projects', {
-    method: 'POST',
-    body: JSON.stringify({ name, svnUrl }),
-  });
+  return request('/projects', { method: 'POST', body: JSON.stringify({ name, svnUrl }) });
 }
 
 export async function getProject(id) {
-  return request(`/projects/${id}`);
+  return request('/projects/' + id);
 }
 
-export async function updateProject(id, updates) {
-  return request(`/projects/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(updates),
-  });
+export async function updateProject(id, data) {
+  return request('/projects/' + id, { method: 'PUT', body: JSON.stringify(data) });
 }
 
-export async function saveBlueprint(projectId, nodes, edges, projectName) {
-  return request(`/projects/${projectId}/blueprint`, {
-    method: 'PUT',
-    body: JSON.stringify({ nodes, edges, projectName }),
-  });
+export async function saveBlueprint(id, nodes, edges, projectName) {
+  return request('/projects/' + id + '/blueprint', { method: 'PUT', body: JSON.stringify({ nodes, edges, projectName }) });
 }
 
 export async function submitProject(id) {
-  return request(`/projects/${id}/submit`, {
-    method: 'POST',
-  });
+  return request('/projects/' + id + '/submit', { method: 'POST' });
 }
 
 export async function submitFeedback(id, feedbackData) {
-  return request(`/projects/${id}/feedback`, {
-    method: 'POST',
-    body: JSON.stringify({ data: feedbackData }),
-  });
+  return request('/projects/' + id + '/feedback', { method: 'POST', body: JSON.stringify({ data: feedbackData }) });
 }
 
 export async function approveProject(id) {
-  return request(`/projects/${id}/approve`, {
-    method: 'POST',
-  });
+  return request('/projects/' + id + '/approve', { method: 'POST' });
 }
 
 export async function getWebglInfo(id) {
-  return request(`/projects/${id}/webgl`);
+  return request('/projects/' + id + '/webgl');
 }
 
+// P3: Fetch pending projects (submitted/feedback)
 export async function fetchPendingProjects() {
   return request('/projects/pending');
 }
 
-export async function updateProjectStatus(id, status) {
-  return request(`/projects/${id}/status`, {
-    method: 'POST',
-    body: JSON.stringify({ status }),
-  });
+// P3: Generic status update
+export async function updateStatus(id, status) {
+  return request('/projects/' + id + '/status', { method: 'POST', body: JSON.stringify({ status }) });
 }
 
+// P3: Upload WebGL
 export async function uploadWebgl(id, htmlContent) {
-  return request(`/projects/${id}/upload-webgl`, {
-    method: 'POST',
-    body: JSON.stringify({ html: htmlContent }),
-  });
+  return request('/projects/' + id + '/upload-webgl', { method: 'POST', body: JSON.stringify({ html: htmlContent }) });
 }
 
+// P5: Mark project as committed
 export async function commitProject(id, svnRevision) {
-  return request(`/projects/${id}/committed`, {
-    method: 'POST',
-    body: JSON.stringify({ svnRevision }),
-  });
+  return request('/projects/' + id + '/committed', { method: 'POST', body: JSON.stringify({ svnRevision }) });
 }
 
 export async function deleteProject(id) {
-  return request(`/projects/${id}`, {
-    method: 'DELETE',
-  });
+  return request('/projects/' + id, { method: 'DELETE' });
 }

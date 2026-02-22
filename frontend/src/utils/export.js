@@ -20,37 +20,18 @@ export function exportToJSON(projectName, nodes, edges) {
     const outEdges = edges.filter((e) => e.source === node.id);
     const shotId = idMap[node.id];
 
-    // Build transitions from edges (map old IDs to new sequential IDs)
-    const transitions = outEdges
-      .filter((e) => idMap[e.target])
-      .map((e) => ({
-        target: idMap[e.target],
-        condition: e.label || '',
-        sourceHandle: e.sourceHandle || '',
-        targetHandle: e.targetHandle || '',
-      }));
-
-    // Process assets: strip base64 data, save model files for zip
-    let assetRefs;
-    if (node.data.assets && node.data.assets.length > 0) {
-      assetRefs = node.data.assets.filter(a => a.targetName).map((asset) => {
-        const assetModels = (asset.models || []).map((m) => {
-          const path = `models/${shotId}/${asset.targetName}/${m.name}`;
-          modelFiles.push({ path, data: m.data, name: m.name });
-          return { name: m.name, path };
-        });
-        return {
-          targetName: asset.targetName,
-          models: assetModels.length > 0 ? assetModels : undefined,
-          images: (asset.images && asset.images.length > 0) ? asset.images : undefined,
-        };
+    // Process models: strip base64 data, save references
+    let modelRefs;
+    if (node.data.models && node.data.models.length > 0) {
+      modelRefs = node.data.models.map((m) => {
+        const path = `models/${shotId}/${m.name}`;
+        modelFiles.push({ path, data: m.data, name: m.name });
+        return { name: m.name, path };
       });
     }
 
     return {
       id: shotId,
-      position: { x: node.position.x, y: node.position.y },
-      transitions: transitions.length > 0 ? transitions : undefined,
       name: node.data.name || '',
       scene: node.data.scene || '',
       controlTarget: node.data.controlTarget || '',
@@ -70,21 +51,7 @@ export function exportToJSON(projectName, nodes, edges) {
         ifFalse: node.data.branchFalse2 || '',
       } : null,
       images: (node.data.images && node.data.images.length > 0) ? node.data.images : undefined,
-      assets: assetRefs || undefined,
-      feedback: (node.data.feedback && node.data.feedback.filter(f => f.status !== 'fixed').length > 0)
-        ? node.data.feedback.filter(f => f.status !== 'fixed').map(f => ({
-            type: f.type,
-            status: f.status,
-            text: f.text,
-          }))
-        : undefined,
-      revisions: (node.data.revisions && node.data.revisions.filter(r => r.status === 'pending').length > 0)
-        ? node.data.revisions.filter(r => r.status === 'pending').map(r => ({
-            type: r.type,
-            priority: r.priority,
-            instruction: r.instruction,
-          }))
-        : undefined,
+      models: modelRefs || undefined,
     };
   });
 

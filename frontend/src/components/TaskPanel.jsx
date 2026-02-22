@@ -45,6 +45,49 @@ export default function TaskPanel({ nodes, onUpdateNode }) {
     updateRevisions(nodeId, newRevs);
   };
 
+  // Export feedback-only JSON
+  const exportFeedbackJSON = () => {
+    const feedbackData = {
+      type: 'feedback',
+      exportedAt: new Date().toISOString(),
+      shots: [],
+    };
+
+    feedbackShots.forEach((node) => {
+      const idx = shotNodes.indexOf(node);
+      const pending = (node.data.revisions || []).filter((r) => r.status === 'pending');
+      if (pending.length === 0) return;
+
+      feedbackData.shots.push({
+        shotId: 'shot_' + (idx + 1),
+        shotName: node.data.name || node.data.label || '镜头' + (idx + 1),
+        context: {
+          scene: node.data.scene || '',
+          behavior: node.data.behavior || '',
+          controlMethod: node.data.controlMethod || '',
+        },
+        feedback: pending.map((r) => ({
+          type: r.type,
+          priority: r.priority,
+          instruction: r.instruction,
+        })),
+      });
+    });
+
+    if (feedbackData.shots.length === 0) {
+      alert('没有待修的反馈指令');
+      return;
+    }
+
+    const blob = new Blob([JSON.stringify(feedbackData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'feedback-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const pendingCount = feedbackShots.reduce((sum, n) =>
     sum + (n.data.revisions || []).filter((r) => r.status === 'pending').length, 0);
 
@@ -61,10 +104,19 @@ export default function TaskPanel({ nodes, onUpdateNode }) {
       <div className="task-panel-header">
         <div>
           <h2>💬 镜头反馈</h2>
-          <div className="task-panel-desc">选择需要反馈的镜头，添加修改指令，导出后 Coding Agent 只关注增量部分</div>
+          <div className="task-panel-desc">选择需要反馈的镜头，添加修改指令，导出后 Agent B 只关注增量部分</div>
+        </div>
+        <div className="task-panel-actions">
+          {pendingCount > 0 && (
+            <button className="task-export-btn" onClick={exportFeedbackJSON}>
+              📤 导出反馈 JSON（{pendingCount}条待修）
+            </button>
+          )}
         </div>
         {pendingCount > 0 && (
-          <div className="task-panel-pending-hint">🔴 {pendingCount} 条待修，通过顶栏「📤 导出 JSON」一起导出</div>
+          <div className="task-panel-pending-hint">
+            🔴 {pendingCount} 条待修，通过顶栏「📤 导出 JSON」一起导出
+          </div>
         )}
       </div>
 
@@ -91,8 +143,7 @@ export default function TaskPanel({ nodes, onUpdateNode }) {
               <div className="task-card-header" onClick={() => setExpandedId(isExpanded ? null : node.id)}>
                 <div className="task-card-left">
                   <span className="task-card-index">#{idx + 1}</span>
-                  <span className="task-card-name">{d.label || '镜头'}</span>
-                  {d.name && <span className="task-card-subname">— {d.name}</span>}
+                  <span className="task-card-name">{d.name || d.label || '未命名镜头'}</span>
                   {d.scene && <span className="task-card-scene">{truncate(d.scene)}</span>}
                 </div>
                 <div className="task-card-right">
@@ -172,8 +223,7 @@ export default function TaskPanel({ nodes, onUpdateNode }) {
               return (
                 <div key={node.id} className="task-picker-item" onClick={() => addShotToFeedback(node.id)}>
                   <span className="task-card-index">#{idx + 1}</span>
-                  <span className="task-card-name">{node.data.label || '镜头'}</span>
-                  {node.data.name && <span className="task-card-subname">— {node.data.name}</span>}
+                  <span className="task-card-name">{node.data.name || node.data.label || '未命名镜头'}</span>
                 </div>
               );
             })

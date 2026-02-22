@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { useModal } from './ModalProvider';
+import { useModal } from './Modal';
 
 const TOPBAR_STATUS_LABELS = {
   editing: { text: '✏️ 编辑中', color: '#2563eb', bg: 'rgba(37,99,235,0.15)' },

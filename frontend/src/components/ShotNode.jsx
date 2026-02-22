@@ -35,19 +35,6 @@ function ShotNode({ id, data, selected }) {
         </div>
       )}
 
-      {/* 素材目标展示 */}
-      {data.assets && data.assets.length > 0 && (
-        <div className="shot-assets">
-          {data.assets.filter(a => a.targetName).map((a, i) => (
-            <div key={i} className="shot-asset-tag">
-              🎯 {a.targetName}
-              {(a.models && a.models.length > 0) && <span className="shot-asset-badge">📦{a.models.length}</span>}
-              {(a.images && a.images.length > 0) && <span className="shot-asset-badge">🖼{a.images.length}</span>}
-            </div>
-          ))}
-        </div>
-      )}
-
       {data.entryCondition && (
         <div className="shot-section shot-entry-condition">
           <div className="shot-section-title">🔑 进入条件</div>
@@ -105,25 +92,6 @@ function ShotNode({ id, data, selected }) {
             {data.branchTrue2 && <div className="branch-true">✅ 满足 → {data.branchTrue2}</div>}
             {data.branchFalse2 && <div className="branch-false">❌ 不满足 → {data.branchFalse2}</div>}
           </div>
-        </div>
-      )}
-
-      {/* 反馈状态 */}
-      {data.feedback && data.feedback.length > 0 && (
-        <div className="shot-feedback-bar">
-          {(() => {
-            const open = data.feedback.filter(f => f.status === 'open').length;
-            const wip = data.feedback.filter(f => f.status === 'wip').length;
-            const fixed = data.feedback.filter(f => f.status === 'fixed').length;
-            return (
-              <>
-                <span className="shot-feedback-label">💬</span>
-                {open > 0 && <span className="shot-fb-badge shot-fb-open">🔴{open}</span>}
-                {wip > 0 && <span className="shot-fb-badge shot-fb-wip">🟡{wip}</span>}
-                {fixed > 0 && <span className="shot-fb-badge shot-fb-fixed">🟢{fixed}</span>}
-              </>
-            );
-          })()}
         </div>
       )}
 
