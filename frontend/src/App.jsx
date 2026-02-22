@@ -21,6 +21,7 @@ import Toolbar from './components/Toolbar';
 import PropsPanel from './components/PropsPanel';
 import TopBar from './components/TopBar';
 import TaskPanel from './components/TaskPanel';
+import StoryboardPanel from './components/StoryboardPanel';
 import { ModalProviderWithContext, useModal } from './components/ModalProvider';
 import shot1Preset from './presets/shot1';
 import { exportToJSON, downloadJSON } from './utils/export';
@@ -64,6 +65,16 @@ function FlowEditor({ project, onBack, initialTab }) {
   const shotCountRef = useRef((project.nodes || []).filter((n) => n.type === 'shotNode').length || 1);
   const autoSaveRef = useRef(null);
   const { showAlert, showConfirm } = useModal();
+
+  const handleStoryboardConvert = useCallback((newNodes, newEdges) => {
+    setNodes((nds) => [...nds, ...newNodes]);
+    setEdges((eds) => [...eds, ...newEdges]);
+    shotCountRef.current += newNodes.filter((n) => n.type === 'shotNode').length;
+    setActiveTab('blueprint');
+    setTimeout(() => {
+      reactFlowInstance.fitView({ padding: 0.2 });
+    }, 100);
+  }, [setNodes, setEdges, reactFlowInstance]);
 
   // Fetch WebGL info when status warrants it
   useEffect(() => {
@@ -370,6 +381,12 @@ function FlowEditor({ project, onBack, initialTab }) {
       />
       <div className="app-tabs">
         <button
+          className={`app-tab ${activeTab === 'storyboard' ? 'app-tab-active' : ''}`}
+          onClick={() => setActiveTab('storyboard')}
+        >
+          🎬 分镜
+        </button>
+        <button
           className={`app-tab ${activeTab === 'blueprint' ? 'app-tab-active' : ''}`}
           onClick={() => setActiveTab('blueprint')}
         >
@@ -400,7 +417,12 @@ function FlowEditor({ project, onBack, initialTab }) {
         )}
       </div>
       <div className="app-body">
-        {activeTab === 'blueprint' ? (
+        {activeTab === 'storyboard' ? (
+          <StoryboardPanel
+            projectId={project.id}
+            onConvertToBlueprint={handleStoryboardConvert}
+          />
+        ) : activeTab === 'blueprint' ? (
           <>
             <Toolbar
               onAddShot={onAddShot}
