@@ -3215,3 +3215,61 @@ html, body, #root {
 }
 
 .storyboard-frame-image-area { text-align: center; }
+
+/* Storyboard UX enhancements */
+.storyboard-frames-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.storyboard-btn-clear {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.15);
+  color: #aaa;
+  padding: 6px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+.storyboard-btn-clear:hover {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.storyboard-frame-title-input {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 2px 6px;
+  flex: 1;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.storyboard-frame-title-input:hover,
+.storyboard-frame-title-input:focus {
+  border-color: rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.05);
+}
+
+.storyboard-frame-edit {
+  width: 100%;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  color: #ccc;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 6px 8px;
+  resize: vertical;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+.storyboard-frame-edit:focus {
+  border-color: rgba(99,102,241,0.5);
+}

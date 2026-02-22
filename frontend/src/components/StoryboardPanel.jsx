@@ -1,20 +1,7 @@
 import { useState, useCallback } from 'react';
+import { useModal } from './ModalProvider';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '';
-
-/**
- * Mock parser: split text by double-newline into frames
- */
-function mockParseFrames(text) {
-  const paragraphs = text.split(/\n{2,}/).map(s => s.trim()).filter(Boolean);
-  return paragraphs.map((p, i) => ({
-    id: i + 1,
-    title: `帧 ${i + 1}`,
-    interaction: p,
-    ui: '',
-    prompt: '',
-  }));
-}
 
 /**
  * Convert frames → blueprint nodes + edges (mirrors frames-to-blueprint.cjs logic)
@@ -58,10 +45,11 @@ function framesToNodesEdges(frames) {
   return { nodes, edges };
 }
 
-export default function StoryboardPanel({ projectId, onConvertToBlueprint }) {
+export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasExistingNodes }) {
   const [text, setText] = useState('');
   const [frames, setFrames] = useState([]);
   const [loading, setLoading] = useState(false);
+  const { showAlert, showConfirm } = useModal();
 
   const handleParse = useCallback(async () => {
     if (!text.trim()) return;
@@ -79,17 +67,33 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint }) {
         return;
       }
     } catch {
-      // API not available, use mock
+      // API not available — show error instead of silent fallback
     }
-    setFrames(mockParseFrames(text));
+    await showAlert('⚠️ 分镜解析服务暂不可用，请稍后重试');
     setLoading(false);
-  }, [text, projectId]);
+  }, [text, projectId, showAlert]);
 
-  const handleConvert = useCallback(() => {
+  const handleConvert = useCallback(async () => {
     if (frames.length === 0) return;
+    if (hasExistingNodes) {
+      const yes = await showConfirm(
+        `画布已有内容。转为蓝图将追加 ${frames.length} 个镜头节点到画布，确认继续？`
+      );
+      if (!yes) return;
+    }
     const { nodes, edges } = framesToNodesEdges(frames);
     onConvertToBlueprint(nodes, edges);
-  }, [frames, onConvertToBlueprint]);
+  }, [frames, onConvertToBlueprint, hasExistingNodes, showConfirm]);
+
+  const handleClearFrames = useCallback(() => {
+    setFrames([]);
+  }, []);
+
+  const handleUpdateFrame = useCallback((frameId, field, value) => {
+    setFrames((prev) =>
+      prev.map((f) => (f.id === frameId ? { ...f, [field]: value } : f))
+    );
+  }, []);
 
   return (
     <div className="storyboard-panel">
@@ -115,29 +119,53 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint }) {
         <div className="storyboard-frames-section">
           <div className="storyboard-frames-header">
             <h3 className="storyboard-section-title">🎞 分镜预览 ({frames.length} 帧)</h3>
-            <button className="storyboard-btn storyboard-btn-convert" onClick={handleConvert}>
-              🗺 转为蓝图
-            </button>
+            <div className="storyboard-frames-actions">
+              <button
+                className="storyboard-btn storyboard-btn-clear"
+                onClick={handleClearFrames}
+              >
+                🗑 清空帧
+              </button>
+              <button
+                className="storyboard-btn storyboard-btn-convert"
+                onClick={handleConvert}
+              >
+                🗺 转为蓝图
+              </button>
+            </div>
           </div>
           <div className="storyboard-frames-list">
             {frames.map((frame) => (
               <div key={frame.id} className="storyboard-frame-card">
                 <div className="storyboard-frame-header">
                   <span className="storyboard-frame-number">#{frame.id}</span>
-                  <span className="storyboard-frame-title">{frame.title}</span>
+                  <input
+                    className="storyboard-frame-title-input"
+                    value={frame.title}
+                    onChange={(e) => handleUpdateFrame(frame.id, 'title', e.target.value)}
+                    placeholder="帧标题"
+                  />
                 </div>
-                {frame.interaction && (
-                  <div className="storyboard-frame-field">
-                    <span className="storyboard-field-label">🎮 交互</span>
-                    <p>{frame.interaction}</p>
-                  </div>
-                )}
-                {frame.ui && (
-                  <div className="storyboard-frame-field">
-                    <span className="storyboard-field-label">🖥 UI</span>
-                    <p>{frame.ui}</p>
-                  </div>
-                )}
+                <div className="storyboard-frame-field">
+                  <span className="storyboard-field-label">🎮 交互</span>
+                  <textarea
+                    className="storyboard-frame-edit"
+                    value={frame.interaction || ''}
+                    onChange={(e) => handleUpdateFrame(frame.id, 'interaction', e.target.value)}
+                    placeholder="描述交互行为..."
+                    rows={3}
+                  />
+                </div>
+                <div className="storyboard-frame-field">
+                  <span className="storyboard-field-label">🖥 UI</span>
+                  <textarea
+                    className="storyboard-frame-edit"
+                    value={frame.ui || ''}
+                    onChange={(e) => handleUpdateFrame(frame.id, 'ui', e.target.value)}
+                    placeholder="描述 UI 元素..."
+                    rows={2}
+                  />
+                </div>
                 {frame.prompt && (
                   <div className="storyboard-frame-field storyboard-frame-image-area">
                     <img
