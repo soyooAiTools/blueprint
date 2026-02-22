@@ -3154,10 +3154,20 @@ html, body, #root {
 }
 .storyboard-frames-header .storyboard-section-title { margin: 0; }
 
+.storyboard-frames-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 400px;
+}
+
 .storyboard-frames-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   gap: 16px;
+  padding-right: 4px;
 }
 
 .storyboard-frame-card {
@@ -3185,6 +3195,51 @@ html, body, #root {
   border-radius: 4px;
 }
 
+.storyboard-frame-body {
+  display: flex;
+  gap: 16px;
+}
+
+.storyboard-frame-image {
+  flex-shrink: 0;
+  width: 200px;
+}
+
+.storyboard-frame-image img {
+  width: 100%;
+  border-radius: 8px;
+  display: block;
+}
+
+.storyboard-frame-placeholder {
+  width: 200px;
+  height: 150px;
+  background: #12122a;
+  border: 1px dashed #333;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.storyboard-frame-placeholder .placeholder-number {
+  font-size: 28px;
+  font-weight: 700;
+  color: #333;
+}
+
+.storyboard-frame-placeholder .placeholder-text {
+  font-size: 12px;
+  color: #444;
+}
+
+.storyboard-frame-content {
+  flex: 1;
+  min-width: 0;
+}
+
 .storyboard-frame-title {
   color: #fff;
   font-size: 15px;
@@ -3208,6 +3263,50 @@ html, body, #root {
   line-height: 1.5;
 }
 
+/* Parse progress bar */
+.parse-progress-bar {
+  position: relative;
+  width: 100%;
+  height: 28px;
+  background: #12122a;
+  border-radius: 14px;
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid #2a2a4a;
+}
+
+.parse-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4f46e5, #6366f1, #818cf8);
+  border-radius: 14px;
+  transition: width 0.4s ease;
+}
+
+.parse-progress-text {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+
+/* Generate storyboard button */
+.generate-storyboard-btn {
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  color: #fff;
+  width: 100%;
+}
+.generate-storyboard-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #7c3aed, #4f46e5);
+}
+
 .storyboard-frame-img {
   width: 100%;
   border-radius: 8px;
@@ -3216,21 +3315,86 @@ html, body, #root {
 
 .storyboard-frame-image-area { text-align: center; }
 
-/* Storyboard UX enhancements */
-.storyboard-frames-actions {
+/* Storyboard hint text */
+.storyboard-hint {
+  color: #888;
+  font-size: 12px;
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+
+/* Bottom action bar */
+.storyboard-bottom-bar {
+  display: flex;
+  gap: 12px;
+  padding: 16px 0 4px;
+  border-top: 1px solid #2a2a4a;
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+
+.storyboard-bottom-btn {
+  padding: 10px 24px !important;
+  font-size: 14px !important;
+  min-width: 140px;
+  text-align: center;
+}
+
+/* Frame edit button */
+.storyboard-frame-edit-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  line-height: 1;
+}
+.storyboard-frame-edit-btn:hover {
+  background: rgba(99,102,241,0.15);
+  border-color: rgba(99,102,241,0.3);
+}
+
+/* Frame edit bar (natural language input) */
+.storyboard-frame-edit-bar {
   display: flex;
   gap: 8px;
+  margin-bottom: 12px;
   align-items: center;
+}
+
+.storyboard-frame-edit-input {
+  flex: 1;
+  background: #0f0f1a;
+  border: 1px solid #6366f1;
+  border-radius: 8px;
+  color: #ddd;
+  font-size: 13px;
+  padding: 8px 12px;
+  outline: none;
+  font-family: inherit;
+}
+.storyboard-frame-edit-input:focus {
+  border-color: #818cf8;
+  box-shadow: 0 0 0 2px rgba(99,102,241,0.2);
+}
+
+.storyboard-frame-edit-apply {
+  padding: 8px 16px !important;
+  background: #6366f1 !important;
+  color: #fff !important;
+  font-size: 13px !important;
+  white-space: nowrap;
+}
+.storyboard-frame-edit-apply:hover:not(:disabled) {
+  background: #4f46e5 !important;
 }
 
 .storyboard-btn-clear {
   background: transparent;
   border: 1px solid rgba(255,255,255,0.15);
   color: #aaa;
-  padding: 6px 14px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 13px;
   transition: all 0.2s;
 }
 .storyboard-btn-clear:hover {
