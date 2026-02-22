@@ -9,7 +9,8 @@ Blueprint Editor (Web) → Worker (Windows Server) → 渠道 HTML
 ```
 
 ### 完整 E2E 流程
-1. **蓝图编辑** — 在 Web 端编辑试玩广告蓝图（场景+转场+交互）
+1. **分镜解析** — 上传策划文案（文本/doc/docx/xlsx）+ 参考图片，AI 解析为分镜帧
+2. **蓝图编辑** — 分镜转蓝图节点，在 Web 端编辑试玩广告蓝图（场景+转场+交互）
 2. **任务提交** — Worker 自动 poll 拉取任务
 3. **SVN 更新** — 拉取最新 Unity 项目代码
 4. **AI 编码** — Claude Sonnet 4.5 根据蓝图生成 Unity C# 代码（基于现有 SLG 模板工程，遵循公司 Luna 制作规范）
@@ -27,7 +28,7 @@ Blueprint Editor (Web) → Worker (Windows Server) → 渠道 HTML
 
 ## 技术栈
 
-- **前端**: React 19 + @xyflow/react 12 + Vite 7
+- **前端**: React 19 + @xyflow/react 12 + Vite 7（支持 Unity / Cocos 双引擎项目）
 - **后端**: Node.js (server.cjs, Express 5, PM2)
 - **AI**: Claude Sonnet 4.5 (Anthropic Messages API)
 - **构建**: Unity 2022.3 + Luna SDK 6.4.0
@@ -89,7 +90,7 @@ blueprint-editor/
 |------|------|------|
 | GET | `/api/projects` | 项目列表 |
 | GET | `/api/projects/pending` | 待处理项目 |
-| POST | `/api/projects` | 创建项目 |
+| POST | `/api/projects` | 创建项目（支持 `engine: "unity"\|"cocos"`） |
 | GET | `/api/projects/:id` | 获取项目详情 |
 | PUT | `/api/projects/:id` | 更新项目 |
 | DELETE | `/api/projects/:id` | 删除项目 |
@@ -97,6 +98,7 @@ blueprint-editor/
 | POST | `/api/projects/:id/submit` | 提交构建任务 |
 | POST | `/api/projects/:id/feedback` | 提交反馈 |
 | POST | `/api/projects/:id/approve` | 审核通过 |
+| POST | `/api/projects/:id/parse-storyboard` | 分镜解析（支持 FormData：text/files/images + 镜头选项） |
 | GET | `/api/projects/:id/webgl` | 获取 WebGL 构建 |
 | POST | `/api/projects/:id/status` | 更新状态 |
 | POST | `/api/projects/:id/upload-webgl` | 上传 WebGL 包 |
