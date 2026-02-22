@@ -1,5 +1,4 @@
 import { useState, useCallback } from 'react';
-import { useModal } from './ModalProvider';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
@@ -45,11 +44,10 @@ function framesToNodesEdges(frames) {
   return { nodes, edges };
 }
 
-export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasExistingNodes }) {
+export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasExistingNodes, showAlert, showConfirm }) {
   const [text, setText] = useState('');
   const [frames, setFrames] = useState([]);
   const [loading, setLoading] = useState(false);
-  const { showAlert, showConfirm } = useModal();
 
   const handleParse = useCallback(async () => {
     if (!text.trim()) return;

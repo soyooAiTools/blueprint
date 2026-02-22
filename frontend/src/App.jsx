@@ -422,6 +422,8 @@ function FlowEditor({ project, onBack, initialTab }) {
             projectId={project.id}
             onConvertToBlueprint={handleStoryboardConvert}
             hasExistingNodes={nodes.length > 0}
+            showAlert={showAlert}
+            showConfirm={showConfirm}
           />
         ) : activeTab === 'blueprint' ? (
           <>
