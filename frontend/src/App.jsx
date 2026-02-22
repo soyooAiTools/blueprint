@@ -59,7 +59,7 @@ function FlowEditor({ project, onBack, initialTab }) {
   const [projectStatus, setProjectStatus] = useState(project.status || 'editing');
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
-  const [activeTab, setActiveTab] = useState(initialTab || 'blueprint');
+  const [activeTab, setActiveTab] = useState(initialTab || 'storyboard');
   const [webglInfo, setWebglInfo] = useState(null);
   const reactFlowInstance = useReactFlow();
   const shotCountRef = useRef((project.nodes || []).filter((n) => n.type === 'shotNode').length || 1);
