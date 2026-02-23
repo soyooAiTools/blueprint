@@ -60,6 +60,8 @@ function FlowEditor({ project, onBack, initialTab }) {
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
   const [activeTab, setActiveTab] = useState(initialTab || 'storyboard');
+  // Default to storyboard for new/editing projects (unless explicitly set)
+  
   const [webglInfo, setWebglInfo] = useState(null);
   const reactFlowInstance = useReactFlow();
   const shotCountRef = useRef((project.nodes || []).filter((n) => n.type === 'shotNode').length || 1);
@@ -631,7 +633,7 @@ export default function App() {
           key={currentProject.id}
           project={currentProject}
           onBack={() => setCurrentProject(null)}
-          initialTab={goToReview ? 'review' : 'blueprint'}
+          initialTab={goToReview ? 'review' : 'storyboard'}
         />
       </ReactFlowProvider>
       <GlobalBuildNotification user={user} currentProject={currentProject} onGoToProject={handleGoToProject} />
