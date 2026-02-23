@@ -20,8 +20,8 @@ if (PROXY_URL) {
 const { GoogleGenAI } = require('@google/genai');
 
 const CONFIG = {
-  apiKey: process.env.GEMINI_API_KEY || 'AIzaSyANLJWW64PI1GBYu2U3b2rkVpfW2Cq-oes',
-  baseUrl: process.env.GOOGLE_GEMINI_BASE_URL || '',
+  apiKey: process.env.GEMINI_API_KEY || 'sk-d0hBOKM0YLUraKKcrjWY19zMpQJ1XxNP06I9lmGf4ImkzgQf',
+  baseUrl: process.env.GOOGLE_GEMINI_BASE_URL || 'https://api.yyds168.net',
   textModel: 'gemini-3.1-pro-preview',
 };
 
