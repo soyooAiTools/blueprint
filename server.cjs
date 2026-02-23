@@ -160,6 +160,14 @@ function matchRoute(method, pathname) {
   m = pathname.match(/^\/api\/projects\/([^/]+)\/committed$/);
   if (m && method === 'POST') return { handler: 'committedProject', id: m[1] };
 
+  // Storyboard routes
+  m = pathname.match(/^\/api\/projects\/([^/]+)\/parse-storyboard$/);
+  if (m && method === 'POST') return { handler: 'parseStoryboard', id: m[1], rawBody: true };
+  m = pathname.match(/^\/api\/projects\/([^/]+)\/generate-storyboard$/);
+  if (m && method === 'POST') return { handler: 'generateStoryboard', id: m[1] };
+  m = pathname.match(/^\/api\/projects\/([^/]+)\/edit-frame$/);
+  if (m && method === 'POST') return { handler: 'editFrame', id: m[1] };
+
   // Worker API routes
   if (method === 'GET' && pathname === '/api/worker/poll') return { handler: 'workerPoll' };
   m = pathname.match(/^\/api\/tasks\/([^/]+)\/blueprint$/);
@@ -639,6 +647,118 @@ handlers.uploadBuild = function(req, res, body, id) {
     }
   });
   return; // don't let the normal body handler process this
+};
+
+// ============ Storyboard Handlers ============
+const Busboy = require('busboy');
+const storyboardParser = require('./storyboard-parser.cjs');
+const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+handlers.parseStoryboard = function(req, res) {
+  // Multipart form: text, orientation, cameraAngle, perspective, style, files[], images[]
+  var fields = {};
+  var files = [];
+  var images = [];
+
+  var bb;
+  try {
+    bb = Busboy({ headers: req.headers });
+  } catch(e) {
+    return sendJSON(res, { error: 'Invalid multipart request: ' + e.message }, 400);
+  }
+
+  bb.on('field', function(name, val) { fields[name] = val; });
+  bb.on('file', function(name, stream, info) {
+    var savePath = path.join(UPLOAD_DIR, Date.now() + '_' + (info.filename || 'file'));
+    var ws = fs.createWriteStream(savePath);
+    stream.pipe(ws);
+    ws.on('close', function() {
+      if (name === 'images') {
+        images.push({ path: savePath, mime: info.mimeType, filename: info.filename });
+      } else {
+        files.push({ path: savePath, filename: info.filename });
+      }
+    });
+  });
+
+  bb.on('close', async function() {
+    try {
+      // Build text from docs + text field
+      var allText = fields.text || '';
+      for (var f of files) {
+        try {
+          var docText = await storyboardParser.extractDocText(f.path);
+          allText += '\n\n' + docText;
+        } catch(e) { console.warn('[parse-storyboard] Doc extract failed:', f.filename, e.message); }
+      }
+
+      // Read image parts
+      var imageParts = [];
+      for (var img of images) {
+        try {
+          var part = storyboardParser.readImagePart(img.path);
+          imageParts.push(part);
+        } catch(e) { console.warn('[parse-storyboard] Image read failed:', e.message); }
+      }
+
+      if (!allText.trim() && imageParts.length === 0) {
+        return sendJSON(res, { error: '请提供文案或文档' }, 400);
+      }
+
+      // Call Gemini parser
+      var config = {
+        orientation: fields.orientation || 'landscape',
+        cameraAngle: fields.cameraAngle || 'isometric45',
+        perspective: fields.perspective || 'third',
+        style: fields.style || '',
+      };
+      var frames = await storyboardParser.parseScript(allText, { ...config, images: imageParts });
+      sendJSON(res, { frames: frames });
+
+      // Cleanup uploaded files
+      for (var f2 of [...files, ...images]) {
+        try { fs.unlinkSync(f2.path); } catch(e) {}
+      }
+    } catch(e) {
+      console.error('[parse-storyboard] Error:', e.message);
+      sendJSON(res, { error: '分镜解析失败: ' + e.message }, 500);
+    }
+  });
+
+  bb.on('error', function(e) {
+    sendJSON(res, { error: 'Upload failed: ' + e.message }, 500);
+  });
+
+  req.pipe(bb);
+};
+
+handlers.generateStoryboard = function(req, res, body) {
+  // For now, return frames with placeholder images
+  try {
+    var data = JSON.parse(body);
+    var frames = data.frames || [];
+    // Just return frames as-is (image generation is optional/future)
+    sendJSON(res, { frames: frames });
+  } catch(e) {
+    sendJSON(res, { error: e.message }, 500);
+  }
+};
+
+handlers.editFrame = function(req, res, body) {
+  (async function() {
+    try {
+      var data = JSON.parse(body);
+      var frame = data.frame;
+      var instruction = data.instruction;
+      if (!frame || !instruction) return sendJSON(res, { error: 'frame and instruction required' }, 400);
+      var newFrame = await storyboardParser.editFrame(frame, instruction);
+      sendJSON(res, { frame: newFrame });
+    } catch(e) {
+      console.error('[edit-frame] Error:', e.message);
+      sendJSON(res, { error: '编辑失败: ' + e.message }, 500);
+    }
+  })();
 };
 
 handlers.workerHeartbeat = function(req, res, body) {

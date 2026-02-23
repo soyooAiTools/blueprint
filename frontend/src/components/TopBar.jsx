@@ -132,7 +132,8 @@ export default function TopBar({
           <button
             className="topbar-btn topbar-btn-submit"
             onClick={handleSubmit}
-            disabled={submitting}
+            disabled={submitting || !shotCount}
+            title={!shotCount ? '请先完成分镜并转为蓝图' : ''}
           >
             {submitting ? '⏳ 提交中...' : '🚀 提交开发'}
           </button>
