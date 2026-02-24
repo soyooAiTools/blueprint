@@ -3264,37 +3264,52 @@ html, body, #root {
 }
 
 /* Parse progress bar */
-.parse-progress-bar {
-  position: relative;
-  width: 100%;
-  height: 28px;
-  background: #12122a;
-  border-radius: 14px;
-  margin-top: 12px;
-  overflow: hidden;
-  border: 1px solid #2a2a4a;
-}
-
-.parse-progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #4f46e5, #6366f1, #818cf8);
-  border-radius: 14px;
-  transition: width 0.4s ease;
-}
-
-.parse-progress-text {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+/* === Parse Progress Overlay === */
+.parse-progress-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.65);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
-  font-weight: 600;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+.parse-progress-card {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 20px;
+  padding: 36px 44px;
+  min-width: 380px;
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+}
+.parse-progress-icon {
+  font-size: 40px;
+  margin-bottom: 20px;
+}
+.parse-progress-bar-track {
+  height: 8px;
+  background: #2a2a3a;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+.parse-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4f46e5, #7c3aed, #a78bfa);
+  border-radius: 4px;
+  transition: width 0.8s ease;
+}
+.parse-progress-percent {
   color: #fff;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  font-size: 32px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.parse-progress-text {
+  color: #8888a0;
+  font-size: 14px;
 }
 
 /* Generate storyboard button */
@@ -3863,3 +3878,74 @@ html, body, #root {
 .global-notification-btn-primary:hover {
   background: #5b52f0;
 }
+
+/* === Modal (Alert/Confirm/Prompt) === */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  backdrop-filter: blur(4px);
+}
+.modal-box {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 16px;
+  padding: 28px 32px;
+  min-width: 340px;
+  max-width: 480px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+  animation: modalFadeIn 0.2s ease;
+}
+@keyframes modalFadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.modal-message {
+  color: #d0d0e0;
+  font-size: 15px;
+  line-height: 1.7;
+  margin-bottom: 24px;
+  white-space: pre-line;
+}
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+.modal-btn {
+  padding: 10px 28px;
+  border-radius: 10px;
+  border: none;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.modal-btn-primary {
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
+  color: #fff;
+}
+.modal-btn-primary:hover { background: linear-gradient(135deg, #6366f1, #818cf8); }
+.modal-btn-cancel {
+  background: #2a2a3a;
+  color: #a0a0b0;
+  border: 1px solid #333;
+}
+.modal-btn-cancel:hover { background: #333; color: #d0d0e0; }
+.modal-input {
+  width: 100%;
+  padding: 10px 14px;
+  background: #12122a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  color: #e0e0e0;
+  font-size: 14px;
+  margin-bottom: 20px;
+  outline: none;
+  box-sizing: border-box;
+}
+.modal-input:focus { border-color: #4f46e5; }

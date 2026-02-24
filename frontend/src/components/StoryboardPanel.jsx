@@ -90,16 +90,24 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
   }, []);
 
   const handleDocFiles = useCallback((files) => {
+    const MAX_SIZE = 10 * 1024 * 1024;
     const valid = Array.from(files).filter((f) => /\.(doc|docx|xls|xlsx|csv|txt)$/i.test(f.name));
-    if (valid.length) setDocFiles((prev) => [...prev, ...valid]);
-  }, []);
+    const oversized = valid.filter(f => f.size > MAX_SIZE);
+    const ok = valid.filter(f => f.size <= MAX_SIZE);
+    if (oversized.length) showAlert('⚠️ 以下文件超过 10MB 限制，已跳过：\n' + oversized.map(f => f.name + ' (' + (f.size/1024/1024).toFixed(1) + 'MB)').join('\n'));
+    if (ok.length) setDocFiles((prev) => [...prev, ...ok]);
+  }, [showAlert]);
   const removeDoc = useCallback((idx) => setDocFiles((prev) => prev.filter((_, i) => i !== idx)), []);
 
   const handleImageFiles = useCallback((files) => {
+    const MAX_SIZE = 10 * 1024 * 1024;
     const valid = Array.from(files).filter((f) => f.type.startsWith('image/'));
-    const newImgs = valid.map((f) => ({ file: f, preview: URL.createObjectURL(f) }));
+    const oversized = valid.filter(f => f.size > MAX_SIZE);
+    const ok = valid.filter(f => f.size <= MAX_SIZE);
+    if (oversized.length) showAlert('⚠️ 以下图片超过 10MB 限制，已跳过：\n' + oversized.map(f => f.name + ' (' + (f.size/1024/1024).toFixed(1) + 'MB)').join('\n'));
+    const newImgs = ok.map((f) => ({ file: f, preview: URL.createObjectURL(f) }));
     setRefImages((prev) => [...prev, ...newImgs]);
-  }, []);
+  }, [showAlert]);
   const removeImage = useCallback((idx) => {
     setRefImages((prev) => {
       const removed = prev[idx];
@@ -350,9 +358,15 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
           {loading ? '⏳ 解析中...' : '🎬 解析分镜'}
         </button>
         {parseProgress !== null && (
-          <div className="parse-progress-bar">
-            <div className="parse-progress-fill" style={{ width: `${parseProgress}%` }} />
-            <span className="parse-progress-text">{parseProgress}% {parseStage}</span>
+          <div className="parse-progress-overlay">
+            <div className="parse-progress-card">
+              <div className="parse-progress-icon">{parseProgress >= 100 ? '✅' : '🤖'}</div>
+              <div className="parse-progress-bar-track">
+                <div className="parse-progress-bar-fill" style={{ width: `${parseProgress}%` }} />
+              </div>
+              <div className="parse-progress-percent">{parseProgress}%</div>
+              <div className="parse-progress-text">{parseStage}</div>
+            </div>
           </div>
         )}
       </div>
