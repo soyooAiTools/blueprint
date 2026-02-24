@@ -3155,19 +3155,14 @@ html, body, #root {
 .storyboard-frames-header .storyboard-section-title { margin: 0; }
 
 .storyboard-frames-section {
-  flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 400px;
 }
 
 .storyboard-frames-list {
-  flex: 1;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding-right: 4px;
 }
 
 .storyboard-frame-card {
