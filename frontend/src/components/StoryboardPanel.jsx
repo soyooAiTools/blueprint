@@ -124,20 +124,29 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
   const startProgress = useCallback(() => {
     setParseProgress(0); setParseStage('准备中...');
     let p = 0;
+    let elapsed = 0;
     const stages = [
       { at: 10, text: '上传文件中...' },
       { at: 30, text: '上传完成，AI 解析中...' },
-      { at: 60, text: 'AI 解析中...' },
-      { at: 85, text: '处理结果中...' },
+      { at: 60, base: 'AI 正在分析文档' },
+      { at: 85, base: 'AI 深度分析中，请耐心等待' },
     ];
     if (progressTimer.current) clearInterval(progressTimer.current);
     progressTimer.current = setInterval(() => {
-      p += Math.random() * 8 + 2;
-      if (p > 90) p = 90;
+      elapsed++;
+      p += Math.random() * 6 + 1;
+      if (p > 92) p = 92;
       const stage = [...stages].reverse().find((s) => p >= s.at);
-      if (stage) setParseStage(stage.text);
+      if (stage) {
+        const secs = elapsed;
+        if (stage.base) {
+          setParseStage(`${stage.base}（已等待 ${secs} 秒）`);
+        } else {
+          setParseStage(stage.text);
+        }
+      }
       setParseProgress(Math.round(p));
-    }, 400);
+    }, 1000);
   }, []);
 
   const finishProgress = useCallback(() => {
@@ -165,7 +174,11 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       finishProgress();
     } catch (err) {
       finishProgress();
-      await showAlert('⚠️ 分镜解析失败: ' + err.message);
+      const msg = err.message || '未知错误';
+      const isTimeout = msg.includes('超时') || msg.includes('Load failed') || msg.includes('Failed to fetch');
+      await showAlert(isTimeout
+        ? '⏱️ 分镜解析超时\n\n大文件（>10MB）解析可能需要1-2分钟，请稍后重试。\n如果持续超时，请联系管理员。'
+        : '⚠️ 分镜解析失败\n\n' + msg + '\n\n你可以修改文案后重新解析。');
     }
     setLoading(false);
   }, [text, docFiles, refImages, orientation, cameraAngle, perspective, style, projectId, showAlert, startProgress, finishProgress]);
