@@ -156,6 +156,42 @@ pm2 start ecosystem.config.js
 | POST | `/api/worker/heartbeat` | Worker 心跳 |
 | POST | `/api/tasks/:taskId/upload-build` | 上传构建产物 |
 
+## ⚙️ Gemini API 配置
+
+分镜解析功能使用 Gemini API（通过 yyds168 中转服务）。
+
+### 环境变量
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `GEMINI_API_KEY` | yyds168 API Key（`sk-` 开头） | 硬编码在 storyboard-parser.cjs |
+| `GOOGLE_GEMINI_BASE_URL` | API 中转地址 | `https://api.yyds168.net` |
+
+### 调用方式
+
+- **协议**: OpenAI 兼容（`/v1/chat/completions`），但代码使用 `@google/genai` SDK + `httpOptions.baseUrl` 中转
+- **认证**: `Bearer <sk-xxx>` （yyds168 发货密钥，非 Google 原生 API Key）
+- **当前模型**: `gemini-3.0-pro`
+- **配置文件**: `storyboard-parser.cjs` 第 22-26 行
+
+### 可用模型（yyds168）
+
+| 模型 | 说明 |
+|------|------|
+| `gemini-3.0-pro` | 当前使用 ✅ |
+| `gemini-3.1-pro-high` | 最新版，thinking tokens 较多 |
+| `gemini-3.1-pro-low` | 最新版，thinking tokens 较少 |
+| `gemini-2.5-flash` | 快速模型 |
+| `gemini-2.5-pro` | 上一代 Pro |
+
+### 更换 Key
+
+1. 从 yyds168 获取新的 `sk-` 开头的 Key
+2. 修改 `storyboard-parser.cjs` 中的 `apiKey` 字段，或设置环境变量 `GEMINI_API_KEY`
+3. `pm2 restart blueprint-editor`
+
+> ⚠️ yyds168 的 Key 格式为 `sk-xxx`，**不是** Google 原生 `AIzaSy-xxx` 格式。两者不通用。
+
 ## 快速部署
 
 详见 [docs/unity-env-setup.md](docs/unity-env-setup.md)
