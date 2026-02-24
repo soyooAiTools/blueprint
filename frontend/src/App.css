@@ -3949,3 +3949,9 @@ html, body, #root {
   box-sizing: border-box;
 }
 .modal-input:focus { border-color: #4f46e5; }
+
+.sb-upload-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+  cursor: not-allowed;
+}

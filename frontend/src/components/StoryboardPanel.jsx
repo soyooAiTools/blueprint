@@ -70,6 +70,9 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
   const progressTimer = useRef(null);
   const [generating, setGenerating] = useState(false);
   const [generated, setGenerated] = useState(false);
+  const [genProgress, setGenProgress] = useState(null);
+  const [genStage, setGenStage] = useState('');
+  const genTimer = useRef(null);
 
   // Frame editing
   const [editingFrameId, setEditingFrameId] = useState(null);
@@ -86,8 +89,10 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
   const [style, setStyle] = useState('');
 
   useEffect(() => {
-    return () => { if (progressTimer.current) clearInterval(progressTimer.current); };
+    return () => { if (progressTimer.current) clearInterval(progressTimer.current); if (genTimer.current) clearInterval(genTimer.current); };
   }, []);
+
+  const isBusy = loading || generating;
 
   const handleDocFiles = useCallback((files) => {
     const MAX_SIZE = 10 * 1024 * 1024;
@@ -118,6 +123,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
 
   const handleDrop = useCallback((e) => {
     e.preventDefault(); e.stopPropagation();
+    if (loading || generating) return;
     const files = e.dataTransfer.files;
     const docs = [], imgs = [];
     Array.from(files).forEach((f) => {
@@ -194,6 +200,15 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
   const handleGenerate = useCallback(async () => {
     if (frames.length === 0) return;
     setGenerating(true);
+    setGenProgress(0); setGenStage('准备生成...');
+    let gp = 0, ge = 0;
+    if (genTimer.current) clearInterval(genTimer.current);
+    genTimer.current = setInterval(() => {
+      ge++; gp += Math.random() * 5 + 1;
+      if (gp > 90) gp = 90;
+      setGenProgress(Math.round(gp));
+      setGenStage(gp < 30 ? '正在生成配图...' : `AI 生成中（已等待 ${ge} 秒）`);
+    }, 1000);
     try {
       const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generate-storyboard`, {
         method: 'POST',
@@ -211,6 +226,9 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       })));
       setGenerated(true);
     }
+    if (genTimer.current) { clearInterval(genTimer.current); genTimer.current = null; }
+    setGenProgress(100); setGenStage('完成！');
+    setTimeout(() => { setGenProgress(null); setGenStage(''); }, 1200);
     setGenerating(false);
   }, [frames, projectId]);
 
@@ -272,9 +290,9 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       {/* Document Upload */}
       <div className="storyboard-input-section">
         <h3 className="storyboard-section-title">📎 文档上传</h3>
-        <div className="sb-upload-zone" onClick={() => docInputRef.current?.click()}>
+        <div className={'sb-upload-zone' + (isBusy ? ' sb-upload-disabled' : '')} onClick={() => !isBusy && docInputRef.current?.click()}>
           <input ref={docInputRef} type="file" accept={ACCEPTED_DOCS} multiple style={{ display: 'none' }}
-            onChange={(e) => { handleDocFiles(e.target.files); e.target.value = ''; }} />
+            onChange={(e) => { handleDocFiles(e.target.files); e.target.value = ''; }} disabled={isBusy} />
           <span className="sb-upload-icon">📄</span>
           <span className="sb-upload-text">点击或拖拽上传文档</span>
           <span className="sb-upload-hint">支持 doc, docx, xls, xlsx, csv, txt</span>
@@ -306,9 +324,9 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
               <button className="sb-image-remove" onClick={() => removeImage(i)}>×</button>
             </div>
           ))}
-          <div className="sb-image-add" onClick={() => imgInputRef.current?.click()}>
+          <div className={'sb-image-add' + (isBusy ? ' sb-upload-disabled' : '')} onClick={() => !isBusy && imgInputRef.current?.click()}>
             <input ref={imgInputRef} type="file" accept={ACCEPTED_IMAGES} multiple style={{ display: 'none' }}
-              onChange={(e) => { handleImageFiles(e.target.files); e.target.value = ''; }} />
+              onChange={(e) => { handleImageFiles(e.target.files); e.target.value = ''; }} disabled={isBusy} />
             <span>+ 添加图片</span>
           </div>
         </div>
@@ -354,8 +372,8 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       {/* Parse Button + Progress */}
       <div className="storyboard-input-section">
         <button className="storyboard-btn storyboard-btn-parse" onClick={handleParse}
-          disabled={loading || (!text.trim() && docFiles.length === 0)}>
-          {loading ? '⏳ 解析中...' : '🎬 解析分镜'}
+          disabled={loading || generating || frames.length > 0 || (!text.trim() && docFiles.length === 0)}>
+          {loading ? '⏳ 解析中...' : frames.length > 0 ? '✅ 已解析' : '🎬 解析分镜'}
         </button>
         {parseProgress !== null && (
           <div className="parse-progress-overlay">
@@ -378,6 +396,18 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
             {generating ? '⏳ 生成中...' : '🎨 生成分镜'}
           </button>
           <p className="storyboard-hint">为每帧生成 AI 配图，排版成分镜板</p>
+        </div>
+      )}
+      {genProgress !== null && (
+        <div className="parse-progress-overlay">
+          <div className="parse-progress-card">
+            <div className="parse-progress-icon">{genProgress >= 100 ? '✅' : '🎨'}</div>
+            <div className="parse-progress-bar-track">
+              <div className="parse-progress-bar-fill" style={{ width: `${genProgress}%` }} />
+            </div>
+            <div className="parse-progress-percent">{genProgress}%</div>
+            <div className="parse-progress-text">{genStage}</div>
+          </div>
         </div>
       )}
 
