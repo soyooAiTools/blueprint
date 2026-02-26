@@ -158,39 +158,41 @@ pm2 start ecosystem.config.js
 
 ## ⚙️ Gemini API 配置
 
-分镜解析功能使用 Gemini API（通过 yyds168 中转服务）。
+分镜解析和图片生成使用 Google Gemini 官方 API。
 
 ### 环境变量
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `GEMINI_API_KEY` | yyds168 API Key（`sk-` 开头） | 硬编码在 storyboard-parser.cjs |
-| `GOOGLE_GEMINI_BASE_URL` | API 中转地址 | `https://api.yyds168.net` |
+| `GEMINI_API_KEY` | Google Gemini API Key（`AIzaSy-` 开头） | 硬编码在 storyboard-parser.cjs |
+| `HTTPS_PROXY` | HTTP 代理（国内访问 Google API 需要） | `http://127.0.0.1:7890` |
 
 ### 调用方式
 
-- **协议**: OpenAI 兼容（`/v1/chat/completions`），但代码使用 `@google/genai` SDK + `httpOptions.baseUrl` 中转
-- **认证**: `Bearer <sk-xxx>` （yyds168 发货密钥，非 Google 原生 API Key）
-- **当前模型**: `gemini-3.0-pro`
-- **配置文件**: `storyboard-parser.cjs` 第 22-26 行
+- **SDK**: `@google/genai`，直连 Google 官方 API（通过 HTTP 代理）
+- **认证**: Google API Key（`AIzaSy-xxx` 格式）
+- **代理**: undici `EnvHttpProxyAgent`，自动读取 `HTTPS_PROXY` 环境变量
+- **配置文件**: `storyboard-parser.cjs` CONFIG 对象
 
-### 可用模型（yyds168）
+### 使用的模型
 
-| 模型 | 说明 |
+| 模型 | 用途 |
 |------|------|
-| `gemini-3.0-pro` | 当前使用 ✅ |
-| `gemini-3.1-pro-high` | 最新版，thinking tokens 较多 |
-| `gemini-3.1-pro-low` | 最新版，thinking tokens 较少 |
-| `gemini-2.5-flash` | 快速模型 |
-| `gemini-2.5-pro` | 上一代 Pro |
+| `gemini-2.5-flash` | 文本分镜解析、帧编辑、图片预分析 |
+| `gemini-2.0-flash-exp-image-generation` | 分镜线稿图生成（TEXT+IMAGE 混合输出） |
+
+### 图片生成 API
+
+`storyboard-parser.cjs` 导出两个生图函数：
+
+- **`generateImage(prompt, opts)`** — 单张图片生成，返回 `{base64, mimeType, text}`
+- **`generateFrameImages(frames, outputDir, onProgress)`** — 批量为分镜帧生成线稿图
 
 ### 更换 Key
 
-1. 从 yyds168 获取新的 `sk-` 开头的 Key
+1. 从 Google AI Studio 获取 API Key
 2. 修改 `storyboard-parser.cjs` 中的 `apiKey` 字段，或设置环境变量 `GEMINI_API_KEY`
 3. `pm2 restart blueprint-editor`
-
-> ⚠️ yyds168 的 Key 格式为 `sk-xxx`，**不是** Google 原生 `AIzaSy-xxx` 格式。两者不通用。
 
 ## 快速部署
 
