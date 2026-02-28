@@ -12,7 +12,9 @@ Blueprint Editor (Web) → Worker (Windows Server) → 渠道 HTML
 ```
 
 ### 完整 E2E 流程
-1. **分镜解析** — 上传策划文案（文本/doc/docx/xlsx）+ 参考图片，AI 解析为分镜帧
+1. **分镜解析** — 双模式：
+   - **有分镜文件**：上传 PDF 分镜 + 附件图片，AI 直接解析为分镜帧，可直接转蓝图
+   - **无分镜文件**：上传需求文档（DOC/DOCX/XLS/XLSX）+ 附件图片 + 备注，AI 解析并生成配图
 2. **蓝图编辑** — 分镜转蓝图节点，在 Web 端编辑试玩广告蓝图（场景+转场+交互）
 2. **任务提交** — Worker 自动 poll 拉取任务
 3. **SVN 更新** — 拉取最新 Unity 项目代码
@@ -139,8 +141,10 @@ pm2 start ecosystem.config.js
 | POST | `/api/projects/:id/submit` | 提交构建任务 |
 | POST | `/api/projects/:id/feedback` | 提交反馈 |
 | POST | `/api/projects/:id/approve` | 审核通过 |
-| POST | `/api/projects/:id/parse-storyboard` | 分镜解析（支持 FormData：text/files/images + 镜头选项，参考图片会用 Gemini Vision 解析） |
-| POST | `/api/projects/:id/generate-storyboard` | 为每帧生成配图（Gemini / SVG 占位） |
+| POST | `/api/projects/:id/parse-storyboard` | 分镜解析（FormData：files/images/text + 镜头选项） |
+| PUT | `/api/projects/:id/storyboard` | 保存分镜帧数据 |
+| POST | `/api/projects/:id/generate-storyboard` | SSE 实时生成每帧 AI 配图（gemini-3-pro-image-preview） |
+| GET | `/api/images/:projectId/:filename` | 获取生成的分镜配图 |
 | POST | `/api/projects/:id/edit-frame` | AI 自然语言编辑单帧（`{ frameIndex, instruction }`） |
 | GET | `/api/projects/:id/webgl` | 获取 WebGL 构建 |
 | POST | `/api/projects/:id/status` | 更新状态 |
@@ -179,7 +183,7 @@ pm2 start ecosystem.config.js
 | 模型 | 用途 |
 |------|------|
 | `gemini-2.5-flash` | 文本分镜解析、帧编辑、图片预分析 |
-| `gemini-2.0-flash-exp-image-generation` | 分镜线稿图生成（TEXT+IMAGE 混合输出） |
+| `gemini-3-pro-image-preview` | 分镜配图生成（高质量游戏场景概念图） |
 
 ### 图片生成 API
 
