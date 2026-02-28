@@ -25,9 +25,9 @@ if (PROXY_URL) {
 const { GoogleGenAI } = require('@google/genai');
 
 const CONFIG = {
-  apiKey: process.env.GEMINI_API_KEY || 'AIzaSyBLfsQC8HLiIxB2yWbTe-E8BWjHvjl_p98',
-  textModel: 'gemini-2.5-pro',
-  imageModel: 'gemini-2.0-flash-exp-image-generation',
+  apiKey: process.env.GEMINI_API_KEY || 'AIzaSyCdVe2RB4HjpjZCKLq5Ns0m__oROnmogFY',
+  textModel: 'gemini-2.5-flash',
+  imageModel: 'gemini-3-pro-image-preview',
 };
 
 const ai = new GoogleGenAI({
@@ -111,10 +111,17 @@ async function parseScript(text, opts = {}) {
   if (docPath) {
     const docExt = path.extname(docPath).toLowerCase();
     if (docExt === '.pdf') {
-      // PDF: send directly to Gemini as inline data (native PDF support)
-      const pdfData = fs.readFileSync(docPath);
-      pdfPart = { inlineData: { data: pdfData.toString('base64'), mimeType: 'application/pdf' } };
-      console.log(`[StoryboardParser] PDF 文件将直接发送给 Gemini 解析 (${(pdfData.length / 1024).toFixed(1)}KB)`);
+      // PDF: upload via Files API then reference by URI (avoids proxy size limits)
+      console.log(`[StoryboardParser] Uploading PDF via Files API...`);
+      const uploaded = await ai.files.upload({ file: docPath, config: { mimeType: 'application/pdf' } });
+      let file = uploaded;
+      while (file.state === 'PROCESSING') {
+        await new Promise(r => setTimeout(r, 2000));
+        file = await ai.files.get({ name: file.name });
+      }
+      if (file.state !== 'ACTIVE') throw new Error(`PDF upload failed: ${file.state}`);
+      pdfPart = { fileData: { fileUri: file.uri, mimeType: 'application/pdf' } };
+      console.log(`[StoryboardParser] PDF uploaded: ${file.uri}`);
     } else {
       docText = await extractDocText(docPath);
       console.log(`[StoryboardParser] 从文档提取了 ${docText.length} 字`);
@@ -229,17 +236,66 @@ ${style ? `9. 额外风格要求：${style}` : ''}
     throw new Error('请提供文案、图片或文档中的至少一种作为输入');
   }
 
-  const result = await ai.models.generateContent({
-    model: CONFIG.textModel,
-    contents: [{ role: 'user', parts }],
-    config: {
-      temperature: 0.3,
-      systemInstruction: systemPrompt,
-    },
-  });
+  let result;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      console.log(`[StoryboardParser] Calling Gemini (attempt ${attempt}/3)...`);
+      result = await ai.models.generateContent({
+        model: CONFIG.textModel,
+        contents: [{ role: 'user', parts }],
+        config: {
+          temperature: 0.3,
+          maxOutputTokens: 65536,
+          thinkingConfig: { thinkingBudget: 1024 },
+          systemInstruction: systemPrompt,
+        },
+      });
+      break;
+    } catch (fetchErr) {
+      console.error(`[StoryboardParser] Attempt ${attempt} failed: ${fetchErr.message?.substring(0, 100)}`);
+      if (attempt === 3) throw fetchErr;
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
 
-  const jsonStr = result.text.replace(/```json?\s*/g, '').replace(/```/g, '').trim();
-  const parsed = JSON.parse(jsonStr);
+  let rawText = result.text || '';
+  // Extract JSON: try code block first, then find first [ or {
+  let jsonStr;
+  const codeBlockMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (codeBlockMatch) {
+    jsonStr = codeBlockMatch[1].trim();
+  } else {
+    // Find the first [ or { and match to the end
+    const startIdx = rawText.search(/[\[{]/);
+    if (startIdx >= 0) {
+      jsonStr = rawText.substring(startIdx).trim();
+      // Trim trailing non-JSON text after last ] or }
+      const lastBracket = Math.max(jsonStr.lastIndexOf(']'), jsonStr.lastIndexOf('}'));
+      if (lastBracket >= 0) jsonStr = jsonStr.substring(0, lastBracket + 1);
+    } else {
+      jsonStr = rawText.replace(/```json?\s*/g, '').replace(/```/g, '').trim();
+    }
+  }
+  // Clean common Gemini artifacts: stray characters between JSON objects
+  jsonStr = jsonStr.replace(/},\s*[a-zA-Z]\s*\{/g, '},{');
+  // Remove trailing commas before ] or }
+  jsonStr = jsonStr.replace(/,\s*([\]}])/g, '$1');
+  console.log(`[StoryboardParser] JSON extraction: raw ${rawText.length} chars → json ${jsonStr.length} chars`);
+  
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch(jsonErr) {
+    // Last resort: try to fix common issues and retry
+    console.error(`[StoryboardParser] JSON parse failed, attempting repair. Error: ${jsonErr.message.substring(0, 100)}`);
+    // Try removing all non-JSON content between objects
+    const repaired = jsonStr.replace(/}[\s\S]{1,5}?\{/g, (match) => {
+      if (match.includes('"') || match.includes('[') || match.includes(']')) return match;
+      return '},{';
+    });
+    parsed = JSON.parse(repaired);
+    console.log('[StoryboardParser] JSON repair succeeded');
+  }
 
   let frames, characterSheet = {};
   if (Array.isArray(parsed)) {

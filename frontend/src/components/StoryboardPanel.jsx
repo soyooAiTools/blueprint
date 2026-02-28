@@ -1,10 +1,11 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { parseStoryboard } from '../utils/api';
+import { parseStoryboard, getProject, updateProject } from '../utils/api';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
-const ACCEPTED_DOCS = '.doc,.docx,.xls,.xlsx,.csv,.txt,.pdf';
-const ACCEPTED_IMAGES = 'image/png,image/jpeg,image/gif,image/webp';
+const ACCEPTED_DOCS_WITH_STORYBOARD = '.pdf';
+const ACCEPTED_DOCS_WITHOUT_STORYBOARD = '.doc,.docx,.xls,.xlsx';
+const ACCEPTED_IMAGES = 'image/png,image/jpeg';
 
 const CAMERA_ANGLES = [
   { value: 'isometric45', label: '等距45°' },
@@ -80,12 +81,13 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
   const [editInstruction, setEditInstruction] = useState('');
   const [editingLoading, setEditingLoading] = useState(false);
 
+  const [hasStoryboard, setHasStoryboard] = useState(false);
   const [docFiles, setDocFiles] = useState([]);
   const [refImages, setRefImages] = useState([]);
   const docInputRef = useRef(null);
   const imgInputRef = useRef(null);
   const [orientation, setOrientation] = useState('landscape');
-  const [cameraAngle, setCameraAngle] = useState('isometric45');
+  const [cameraAngle, setCameraAngle] = useState('topdown45');
   const [perspective, setPerspective] = useState('third');
   const [style, setStyle] = useState('');
 
@@ -93,16 +95,34 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
     return () => { if (progressTimer.current) clearInterval(progressTimer.current); if (genTimer.current) clearInterval(genTimer.current); };
   }, []);
 
+  // Load saved storyboard frames on mount
+  useEffect(() => {
+    if (!projectId) return;
+    getProject(projectId).then((proj) => {
+      if (proj.storyboardFrames && proj.storyboardFrames.length > 0) {
+        setFrames(proj.storyboardFrames.map((f) => ({ ...f, imageUrl: f.imageUrl || null })));
+        console.log('[Storyboard] Loaded', proj.storyboardFrames.length, 'saved frames');
+      }
+      if (proj.storyboardConfig) {
+        if (proj.storyboardConfig.orientation) setOrientation(proj.storyboardConfig.orientation);
+        if (proj.storyboardConfig.cameraAngle) setCameraAngle(proj.storyboardConfig.cameraAngle);
+        if (proj.storyboardConfig.perspective) setPerspective(proj.storyboardConfig.perspective);
+        if (proj.storyboardConfig.style) setStyle(proj.storyboardConfig.style);
+      }
+    }).catch(() => {});
+  }, [projectId]);
+
   const isBusy = loading || generating;
 
   const handleDocFiles = useCallback((files) => {
     const MAX_SIZE = 10 * 1024 * 1024;
-    const valid = Array.from(files).filter((f) => /\.(doc|docx|xls|xlsx|csv|txt|pdf)$/i.test(f.name));
+    const pattern = hasStoryboard ? /\.(pdf)$/i : /\.(doc|docx|xls|xlsx)$/i;
+    const valid = Array.from(files).filter((f) => pattern.test(f.name));
     const oversized = valid.filter(f => f.size > MAX_SIZE);
     const ok = valid.filter(f => f.size <= MAX_SIZE);
     if (oversized.length) showAlert('⚠️ 以下文件超过 10MB 限制，已跳过：\n' + oversized.map(f => f.name + ' (' + (f.size/1024/1024).toFixed(1) + 'MB)').join('\n'));
     if (ok.length) setDocFiles((prev) => [...prev, ...ok]);
-  }, [showAlert]);
+  }, [showAlert, hasStoryboard]);
   const removeDoc = useCallback((idx) => setDocFiles((prev) => prev.filter((_, i) => i !== idx)), []);
 
   const handleImageFiles = useCallback((files) => {
@@ -127,9 +147,10 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
     if (loading || generating) return;
     const files = e.dataTransfer.files;
     const docs = [], imgs = [];
+    const docPattern = hasStoryboard ? /\.(pdf)$/i : /\.(doc|docx|xls|xlsx)$/i;
     Array.from(files).forEach((f) => {
-      if (/\.(doc|docx|xls|xlsx|csv|txt|pdf)$/i.test(f.name)) docs.push(f);
-      else if (f.type.startsWith('image/')) imgs.push(f);
+      if (docPattern.test(f.name)) docs.push(f);
+      else if (/\.(png|jpg|jpeg)$/i.test(f.name)) imgs.push(f);
     });
     if (docs.length) handleDocFiles(docs);
     if (imgs.length) handleImageFiles(imgs);
@@ -171,7 +192,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
   }, []);
 
   const handleParse = useCallback(async () => {
-    if (!text.trim() && docFiles.length === 0) return;
+    if (docFiles.length === 0 && refImages.length === 0 && !text.trim()) return;
     setLoading(true); setGenerated(false);
     startProgress();
     try {
@@ -201,37 +222,50 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
   const handleGenerate = useCallback(async () => {
     if (frames.length === 0) return;
     setGenerating(true);
-    setGenProgress(0); setGenStage('准备生成...');
-    let gp = 0, ge = 0;
-    if (genTimer.current) clearInterval(genTimer.current);
-    genTimer.current = setInterval(() => {
-      ge++; gp += Math.random() * 5 + 1;
-      if (gp > 90) gp = 90;
-      setGenProgress(Math.round(gp));
-      setGenStage(gp < 30 ? '正在生成配图...' : `AI 生成中（已等待 ${ge} 秒）`);
-    }, 1000);
+    setGenProgress(0); setGenStage('准备生成配图...');
     try {
       const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generate-storyboard`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ frames }),
       });
-      const data = await resp.json();
-      if (data.error) throw new Error(data.error);
-      setFrames(data.frames || frames);
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            if (evt.type === 'progress') {
+              const pct = Math.round((evt.current / evt.total) * 100);
+              setGenProgress(pct);
+              setGenStage(`正在生成第 ${evt.current}/${evt.total} 帧配图...`);
+            } else if (evt.type === 'done') {
+              setFrames(evt.frames.map((f) => ({ ...f })));
+              setGenerated(true);
+            } else if (evt.type === 'error') {
+              throw new Error(evt.error);
+            }
+          } catch (parseErr) {
+            if (parseErr.message !== evt?.error) console.warn('SSE parse:', parseErr);
+          }
+        }
+      }
       setGenerated(true);
     } catch (err) {
-      console.warn('Generate API failed, using placeholders:', err.message);
-      setFrames((prev) => prev.map((f) => ({
-        ...f, imageUrl: f.imageUrl || placeholderSvg(f.id, f.interaction || f.title),
-      })));
-      setGenerated(true);
+      console.warn('Generate failed:', err.message);
+      await showAlert('⚠️ 配图生成失败: ' + err.message);
     }
-    if (genTimer.current) { clearInterval(genTimer.current); genTimer.current = null; }
     setGenProgress(100); setGenStage('完成！');
     setTimeout(() => { setGenProgress(null); setGenStage(''); }, 1200);
     setGenerating(false);
-  }, [frames, projectId]);
+  }, [frames, projectId, showAlert]);
 
   // Edit frame with natural language
   const handleEditFrame = useCallback(async (frameId) => {
@@ -272,9 +306,25 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
 
   const handleClearFrames = useCallback(() => { setFrames([]); setGenerated(false); }, []);
 
+  const saveTimerRef = useRef(null);
+  const saveFramesToServer = useCallback((updatedFrames) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      fetch(`${API_BASE}/api/projects/${projectId}/storyboard`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frames: updatedFrames }),
+      }).catch(() => {});
+    }, 1500);
+  }, [projectId]);
+
   const handleUpdateFrame = useCallback((frameId, field, value) => {
-    setFrames((prev) => prev.map((f) => (f.id === frameId ? { ...f, [field]: value } : f)));
-  }, []);
+    setFrames((prev) => {
+      const updated = prev.map((f) => (f.id === frameId ? { ...f, [field]: value } : f));
+      saveFramesToServer(updated);
+      return updated;
+    });
+  }, [saveFramesToServer]);
 
   const toggleEdit = useCallback((frameId) => {
     if (editingFrameId === frameId) {
@@ -288,15 +338,34 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
 
   return (
     <div className="storyboard-panel" onDrop={handleDrop} onDragOver={handleDragOver}>
-      {/* Document Upload */}
+      {/* Storyboard Mode Toggle */}
       <div className="storyboard-input-section">
-        <h3 className="storyboard-section-title">📎 文档上传</h3>
+        <h3 className="storyboard-section-title">📋 分镜模式</h3>
+        <div className="sb-mode-toggle">
+          <label className={'sb-mode-option' + (!hasStoryboard ? ' sb-mode-active' : '')} onClick={() => { setHasStoryboard(false); setDocFiles([]); }}>
+            <input type="radio" name="sbMode" checked={!hasStoryboard} onChange={() => {}} style={{ display: 'none' }} />
+            <span className="sb-mode-icon">📝</span>
+            <span className="sb-mode-label">无分镜文件</span>
+            <span className="sb-mode-desc">上传策划文档，AI 生成分镜配图</span>
+          </label>
+          <label className={'sb-mode-option' + (hasStoryboard ? ' sb-mode-active' : '')} onClick={() => { setHasStoryboard(true); setDocFiles([]); }}>
+            <input type="radio" name="sbMode" checked={hasStoryboard} onChange={() => {}} style={{ display: 'none' }} />
+            <span className="sb-mode-icon">📑</span>
+            <span className="sb-mode-label">有分镜文件</span>
+            <span className="sb-mode-desc">上传 PDF 分镜，直接解析</span>
+          </label>
+        </div>
+      </div>
+
+      {/* Requirement Document Upload */}
+      <div className="storyboard-input-section">
+        <h3 className="storyboard-section-title">📄 需求文档</h3>
         <div className={'sb-upload-zone' + (isBusy ? ' sb-upload-disabled' : '')} onClick={() => !isBusy && docInputRef.current?.click()}>
-          <input ref={docInputRef} type="file" accept={ACCEPTED_DOCS} multiple style={{ display: 'none' }}
+          <input ref={docInputRef} type="file" accept={hasStoryboard ? ACCEPTED_DOCS_WITH_STORYBOARD : ACCEPTED_DOCS_WITHOUT_STORYBOARD} multiple style={{ display: 'none' }}
             onChange={(e) => { handleDocFiles(e.target.files); e.target.value = ''; }} disabled={isBusy} />
           <span className="sb-upload-icon">📄</span>
-          <span className="sb-upload-text">点击或拖拽上传文档</span>
-          <span className="sb-upload-hint">支持 doc, docx, xls, xlsx, csv, txt, pdf</span>
+          <span className="sb-upload-text">点击或拖拽上传文件</span>
+          <span className="sb-upload-hint">{hasStoryboard ? '支持 PDF' : '支持 DOC, DOCX, XLS, XLSX'}</span>
         </div>
         {docFiles.length > 0 && (
           <div className="sb-file-list">
@@ -307,33 +376,37 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
         )}
       </div>
 
-      {/* Text Input */}
+      {/* Attachments */}
       <div className="storyboard-input-section">
-        <h3 className="storyboard-section-title">📝 策划文案</h3>
-        <textarea className="storyboard-textarea" placeholder="粘贴策划文案，每段之间空一行分隔不同帧..."
-          value={text} onChange={(e) => setText(e.target.value)} rows={8} />
-      </div>
-
-      {/* Reference Images */}
-      <div className="storyboard-input-section">
-        <h3 className="storyboard-section-title">🖼 参考图片</h3>
-        <p className="storyboard-hint">上传的参考图片会用 AI 解析内容和风格，融入分镜生成</p>
-        <div className="sb-images-area">
-          {refImages.map((img, i) => (
-            <div key={i} className="sb-image-thumb-wrap">
-              <img src={img.preview} alt="" className="sb-image-thumb" />
-              <button className="sb-image-remove" onClick={() => removeImage(i)}>×</button>
-            </div>
-          ))}
-          <div className={'sb-image-add' + (isBusy ? ' sb-upload-disabled' : '')} onClick={() => !isBusy && imgInputRef.current?.click()}>
-            <input ref={imgInputRef} type="file" accept={ACCEPTED_IMAGES} multiple style={{ display: 'none' }}
-              onChange={(e) => { handleImageFiles(e.target.files); e.target.value = ''; }} disabled={isBusy} />
-            <span>+ 添加图片</span>
-          </div>
+        <h3 className="storyboard-section-title">📎 上传附件</h3>
+        <div className={'sb-upload-zone' + (isBusy ? ' sb-upload-disabled' : '')} onClick={() => !isBusy && imgInputRef.current?.click()}>
+          <input ref={imgInputRef} type="file" accept="image/png,image/jpeg" multiple style={{ display: 'none' }}
+            onChange={(e) => { handleImageFiles(e.target.files); e.target.value = ''; }} disabled={isBusy} />
+          <span className="sb-upload-icon">🖼</span>
+          <span className="sb-upload-text">点击或拖拽上传文件</span>
+          <span className="sb-upload-hint">支持 PNG, JPG</span>
         </div>
+        {refImages.length > 0 && (
+          <div className="sb-file-list">
+            {refImages.map((img, i) => (
+              <div key={i} className="sb-file-tag">
+                <img src={img.preview} alt="" style={{ width: 24, height: 24, objectFit: 'cover', borderRadius: 3, marginRight: 4 }} />
+                <span>{img.file.name}</span>
+                <button onClick={() => removeImage(i)}>×</button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Camera Options */}
+      {/* Notes / Instructions for AI */}
+      <div className="storyboard-input-section">
+        <h3 className="storyboard-section-title">📝 备注</h3>
+        <textarea className="storyboard-textarea" placeholder="告诉 AI 上传的附件是什么，需要参考哪些内容...&#10;例如：「附件是游戏截图，请参考其中的美术风格和 UI 布局」" value={text} onChange={(e) => setText(e.target.value)} rows={4} />
+      </div>
+
+      {/* Camera Options - only in "no storyboard" mode */}
+      {!hasStoryboard && (
       <div className="storyboard-input-section">
         <h3 className="storyboard-section-title">🎥 镜头方式</h3>
         <div className="sb-option-row">
@@ -369,12 +442,13 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
           <input className="sb-style-input" type="text" placeholder="可选：如「卡通风」「写实」..." value={style} onChange={(e) => setStyle(e.target.value)} />
         </div>
       </div>
+      )}
 
       {/* Parse Button + Progress */}
       <div className="storyboard-input-section">
         <button className="storyboard-btn storyboard-btn-parse" onClick={handleParse}
-          disabled={loading || generating || frames.length > 0 || (!text.trim() && docFiles.length === 0)}>
-          {loading ? '⏳ 解析中...' : frames.length > 0 ? '✅ 已解析' : '🎬 解析分镜'}
+          disabled={loading || generating || frames.length > 0 || (docFiles.length === 0 && refImages.length === 0)}>
+          {loading ? '⏳ 解析中...' : frames.length > 0 ? '✅ 已解析' : '🎬 开始解析'}
         </button>
         {parseProgress !== null && (
           <div className="parse-progress-overlay">
@@ -390,15 +464,6 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
         )}
       </div>
 
-      {/* Generate Storyboard Button */}
-      {frames.length > 0 && !generated && (
-        <div className="storyboard-input-section">
-          <button className="storyboard-btn generate-storyboard-btn" onClick={handleGenerate} disabled={generating}>
-            {generating ? '⏳ 生成中...' : '🎨 生成分镜'}
-          </button>
-          <p className="storyboard-hint">为每帧生成 AI 配图，排版成分镜板</p>
-        </div>
-      )}
       {genProgress !== null && (
         <div className="parse-progress-overlay">
           <div className="parse-progress-card">
@@ -448,7 +513,8 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
                   </div>
                 )}
                 <div className="storyboard-frame-body">
-                  {/* Left: Image */}
+                  {/* Left: Image (only in "no storyboard" mode) */}
+                  {!hasStoryboard && (
                   <div className="storyboard-frame-image">
                     {frame.imageUrl ? (
                       <img src={frame.imageUrl} alt={frame.title} />
@@ -459,6 +525,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
                       </div>
                     )}
                   </div>
+                  )}
                   {/* Right: Content */}
                   <div className="storyboard-frame-content">
                     <div className="storyboard-frame-field">
@@ -489,13 +556,13 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
             <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-clear" onClick={handleClearFrames}>
               🗑 清空帧
             </button>
-            {!generated && (
+            {!hasStoryboard && !generated && (
               <button className="storyboard-btn storyboard-bottom-btn generate-storyboard-btn" onClick={handleGenerate} disabled={generating}>
                 {generating ? '⏳ 生成中...' : '🎨 生成分镜'}
               </button>
             )}
             <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-convert" onClick={handleConvert}
-              disabled={!generated} title={!generated ? '请先点击"生成分镜"' : ''}>
+              disabled={hasStoryboard ? false : !generated} title={!hasStoryboard && !generated ? '请先点击"生成分镜"' : ''}>
               🗺 转为蓝图
             </button>
           </div>
