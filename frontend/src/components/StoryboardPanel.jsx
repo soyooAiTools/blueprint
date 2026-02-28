@@ -126,12 +126,16 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
   const removeDoc = useCallback((idx) => setDocFiles((prev) => prev.filter((_, i) => i !== idx)), []);
 
   const handleImageFiles = useCallback((files) => {
-    const MAX_SIZE = 10 * 1024 * 1024;
-    const valid = Array.from(files).filter((f) => f.type.startsWith('image/'));
+    const MAX_SIZE = 50 * 1024 * 1024;
+    const ALLOWED = /\.(png|jpg|jpeg|mp4|avi|html|htm)$/i;
+    const valid = Array.from(files).filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/') || ALLOWED.test(f.name));
     const oversized = valid.filter(f => f.size > MAX_SIZE);
     const ok = valid.filter(f => f.size <= MAX_SIZE);
-    if (oversized.length) showAlert('⚠️ 以下图片超过 10MB 限制，已跳过：\n' + oversized.map(f => f.name + ' (' + (f.size/1024/1024).toFixed(1) + 'MB)').join('\n'));
-    const newImgs = ok.map((f) => ({ file: f, preview: URL.createObjectURL(f) }));
+    if (oversized.length) showAlert('⚠️ 以下文件超过 50MB 限制，已跳过：\n' + oversized.map(f => f.name + ' (' + (f.size/1024/1024).toFixed(1) + 'MB)').join('\n'));
+    const newImgs = ok.map((f) => {
+      const isImage = f.type.startsWith('image/');
+      return { file: f, preview: isImage ? URL.createObjectURL(f) : null };
+    });
     setRefImages((prev) => [...prev, ...newImgs]);
   }, [showAlert]);
   const removeImage = useCallback((idx) => {
@@ -148,9 +152,10 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
     const files = e.dataTransfer.files;
     const docs = [], imgs = [];
     const docPattern = hasStoryboard ? /\.(pdf)$/i : /\.(doc|docx|xls|xlsx)$/i;
+    const attachPattern = /\.(png|jpg|jpeg|mp4|avi|html|htm)$/i;
     Array.from(files).forEach((f) => {
       if (docPattern.test(f.name)) docs.push(f);
-      else if (/\.(png|jpg|jpeg)$/i.test(f.name)) imgs.push(f);
+      else if (attachPattern.test(f.name)) imgs.push(f);
     });
     if (docs.length) handleDocFiles(docs);
     if (imgs.length) handleImageFiles(imgs);
@@ -380,17 +385,21 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       <div className="storyboard-input-section">
         <h3 className="storyboard-section-title">📎 上传附件</h3>
         <div className={'sb-upload-zone' + (isBusy ? ' sb-upload-disabled' : '')} onClick={() => !isBusy && imgInputRef.current?.click()}>
-          <input ref={imgInputRef} type="file" accept="image/png,image/jpeg" multiple style={{ display: 'none' }}
+          <input ref={imgInputRef} type="file" accept="image/png,image/jpeg,.avi,.mp4,.html,.htm" multiple style={{ display: 'none' }}
             onChange={(e) => { handleImageFiles(e.target.files); e.target.value = ''; }} disabled={isBusy} />
-          <span className="sb-upload-icon">🖼</span>
+          <span className="sb-upload-icon">📎</span>
           <span className="sb-upload-text">点击或拖拽上传文件</span>
-          <span className="sb-upload-hint">支持 PNG, JPG</span>
+          <span className="sb-upload-hint">支持 PNG, JPG, MP4, AVI, HTML，可上传多个</span>
         </div>
         {refImages.length > 0 && (
           <div className="sb-file-list">
             {refImages.map((img, i) => (
               <div key={i} className="sb-file-tag">
-                <img src={img.preview} alt="" style={{ width: 24, height: 24, objectFit: 'cover', borderRadius: 3, marginRight: 4 }} />
+                {img.preview ? (
+                  <img src={img.preview} alt="" style={{ width: 24, height: 24, objectFit: 'cover', borderRadius: 3, marginRight: 4 }} />
+                ) : (
+                  <span style={{ marginRight: 4 }}>{/\.(mp4|avi)$/i.test(img.file.name) ? '🎬' : '📄'}</span>
+                )}
                 <span>{img.file.name}</span>
                 <button onClick={() => removeImage(i)}>×</button>
               </div>
