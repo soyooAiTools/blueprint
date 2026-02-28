@@ -11,6 +11,7 @@ const CAMERA_ANGLES = [
   { value: 'sidescroll', label: '横版卷轴' },
   { value: 'topdown', label: '俯视' },
   { value: 'threequarter', label: '3/4视角' },
+  { value: 'topdown45', label: '俯视斜45°正交' },
 ];
 
 function framesToNodesEdges(frames) {

@@ -97,6 +97,7 @@ async function parseScript(text, opts = {}) {
     'side-scroll': 'side-scrolling 2D camera view',
     'top-down': 'top-down overhead camera view',
     '3/4-view': '3/4 perspective angled camera view',
+    'topdown45': 'top-down oblique 45-degree orthographic camera (bird\'s-eye view tilted at 45°, no perspective distortion)',
   };
   const cameraDesc = cameraMap[cameraAngle] || cameraAngle;
   const perspectiveRule = perspective === 'first-person'
