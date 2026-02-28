@@ -25,7 +25,7 @@ if (PROXY_URL) {
 const { GoogleGenAI } = require('@google/genai');
 
 const CONFIG = {
-  apiKey: process.env.GEMINI_API_KEY || 'AIzaSyCWQLGj3-Y8qamy466laxdD0qyjzGBcd9E',
+  apiKey: process.env.GEMINI_API_KEY || 'AIzaSyBLfsQC8HLiIxB2yWbTe-E8BWjHvjl_p98',
   textModel: 'gemini-2.5-pro',
   imageModel: 'gemini-2.0-flash-exp-image-generation',
 };
