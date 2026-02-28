@@ -47,6 +47,11 @@ async function extractDocText(filePath) {
     return result.value;
   }
 
+  if (ext === '.pdf') {
+    // PDF will be sent directly to Gemini as inline data (native PDF support)
+    return null; // signal caller to use PDF inline
+  }
+
   if (ext === '.xls' || ext === '.xlsx') {
     const XLSX = require('xlsx');
     const workbook = XLSX.readFile(filePath);
@@ -101,9 +106,18 @@ async function parseScript(text, opts = {}) {
     : '绝对禁止第一人称视角，始终使用第三人称';
 
   let docText = '';
+  let pdfPart = null;
   if (docPath) {
-    docText = await extractDocText(docPath);
-    console.log(`[StoryboardParser] 从文档提取了 ${docText.length} 字`);
+    const docExt = path.extname(docPath).toLowerCase();
+    if (docExt === '.pdf') {
+      // PDF: send directly to Gemini as inline data (native PDF support)
+      const pdfData = fs.readFileSync(docPath);
+      pdfPart = { inlineData: { data: pdfData.toString('base64'), mimeType: 'application/pdf' } };
+      console.log(`[StoryboardParser] PDF 文件将直接发送给 Gemini 解析 (${(pdfData.length / 1024).toFixed(1)}KB)`);
+    } else {
+      docText = await extractDocText(docPath);
+      console.log(`[StoryboardParser] 从文档提取了 ${docText.length} 字`);
+    }
   }
 
   const fullText = [text, docText].filter(Boolean).join('\n\n');
@@ -199,7 +213,12 @@ ${style ? `9. 额外风格要求：${style}` : ''}
     }
   }
 
-  if (fullText) {
+  if (pdfPart) {
+    parts.push(pdfPart);
+    const analysisContext = imageAnalysis ? `\n\n## 参考图片 AI 分析结果\n${imageAnalysis}\n\n请参考以上图片分析结果，在生成分镜时融入图片中的风格、场景元素和 UI 设计。` : '';
+    const extraText = text ? `\n\n补充说明：${text}` : '';
+    parts.push({ text: `请解析这份 PDF 文档的内容，根据其中的策划文案/需求设计试玩广告分镜板。${extraText}${analysisContext}` });
+  } else if (fullText) {
     const analysisContext = imageAnalysis ? `\n\n## 参考图片 AI 分析结果\n${imageAnalysis}\n\n请参考以上图片分析结果，在生成分镜时融入图片中的风格、场景元素和 UI 设计。` : '';
     parts.push({ text: `文案/需求：\n${fullText}${analysisContext}` });
   } else if (images.length > 0) {

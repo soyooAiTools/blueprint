@@ -3,7 +3,7 @@ import { parseStoryboard } from '../utils/api';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
-const ACCEPTED_DOCS = '.doc,.docx,.xls,.xlsx,.csv,.txt';
+const ACCEPTED_DOCS = '.doc,.docx,.xls,.xlsx,.csv,.txt,.pdf';
 const ACCEPTED_IMAGES = 'image/png,image/jpeg,image/gif,image/webp';
 
 const CAMERA_ANGLES = [
@@ -96,7 +96,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
 
   const handleDocFiles = useCallback((files) => {
     const MAX_SIZE = 10 * 1024 * 1024;
-    const valid = Array.from(files).filter((f) => /\.(doc|docx|xls|xlsx|csv|txt)$/i.test(f.name));
+    const valid = Array.from(files).filter((f) => /\.(doc|docx|xls|xlsx|csv|txt|pdf)$/i.test(f.name));
     const oversized = valid.filter(f => f.size > MAX_SIZE);
     const ok = valid.filter(f => f.size <= MAX_SIZE);
     if (oversized.length) showAlert('⚠️ 以下文件超过 10MB 限制，已跳过：\n' + oversized.map(f => f.name + ' (' + (f.size/1024/1024).toFixed(1) + 'MB)').join('\n'));
@@ -127,7 +127,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
     const files = e.dataTransfer.files;
     const docs = [], imgs = [];
     Array.from(files).forEach((f) => {
-      if (/\.(doc|docx|xls|xlsx|csv|txt)$/i.test(f.name)) docs.push(f);
+      if (/\.(doc|docx|xls|xlsx|csv|txt|pdf)$/i.test(f.name)) docs.push(f);
       else if (f.type.startsWith('image/')) imgs.push(f);
     });
     if (docs.length) handleDocFiles(docs);
@@ -295,7 +295,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
             onChange={(e) => { handleDocFiles(e.target.files); e.target.value = ''; }} disabled={isBusy} />
           <span className="sb-upload-icon">📄</span>
           <span className="sb-upload-text">点击或拖拽上传文档</span>
-          <span className="sb-upload-hint">支持 doc, docx, xls, xlsx, csv, txt</span>
+          <span className="sb-upload-hint">支持 doc, docx, xls, xlsx, csv, txt, pdf</span>
         </div>
         {docFiles.length > 0 && (
           <div className="sb-file-list">
