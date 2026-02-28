@@ -26,7 +26,7 @@ const { GoogleGenAI } = require('@google/genai');
 
 const CONFIG = {
   apiKey: process.env.GEMINI_API_KEY || 'AIzaSyCWQLGj3-Y8qamy466laxdD0qyjzGBcd9E',
-  textModel: 'gemini-2.5-flash',
+  textModel: 'gemini-2.5-pro',
   imageModel: 'gemini-2.0-flash-exp-image-generation',
 };
 
