@@ -403,26 +403,38 @@ async function generateImage(prompt, opts = {}) {
   return { ...imageData, text: textResponse };
 }
 
-async function generateFrameImages(frames, outputDir, onProgress) {
+async function generateFrameImages(frames, outputDir, onProgress, { concurrency = 4 } = {}) {
   if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
-  const results = [];
-  for (let i = 0; i < frames.length; i++) {
-    const frame = frames[i];
-    if (onProgress) onProgress(i, frames.length);
-    try {
-      const { base64, mimeType } = await generateImage(frame.prompt);
-      const ext = mimeType.includes('png') ? '.png' : '.jpg';
-      const filename = frame.id + ext;
-      const filePath = path.join(outputDir, filename);
-      fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
-      results.push({ id: frame.id, imagePath: filePath, filename });
-      console.log('[StoryboardParser] Generated image for ' + frame.id);
-    } catch (err) {
-      console.error('[StoryboardParser] Image gen failed for ' + frame.id + ':', err.message);
-      results.push({ id: frame.id, imagePath: null, error: err.message });
+  const results = new Array(frames.length);
+  let completed = 0;
+
+  // Process frames with concurrency limit
+  async function worker(startIdx) {
+    for (let i = startIdx; i < frames.length; i += concurrency) {
+      const frame = frames[i];
+      try {
+        const { base64, mimeType } = await generateImage(frame.prompt);
+        const ext = mimeType.includes('png') ? '.png' : '.jpg';
+        const filename = frame.id + ext;
+        const filePath = path.join(outputDir, filename);
+        fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
+        results[i] = { id: frame.id, imagePath: filePath, filename };
+        console.log('[StoryboardParser] Generated image for ' + frame.id);
+      } catch (err) {
+        console.error('[StoryboardParser] Image gen failed for ' + frame.id + ':', err.message);
+        results[i] = { id: frame.id, imagePath: null, error: err.message };
+      }
+      completed++;
+      if (onProgress) onProgress(completed - 1, frames.length);
     }
   }
-  return results;
+
+  const workers = [];
+  for (let w = 0; w < Math.min(concurrency, frames.length); w++) {
+    workers.push(worker(w));
+  }
+  await Promise.all(workers);
+  return results.filter(Boolean);
 }
 
 module.exports = { parseScript, extractDocText, readImagePart, readImagePartFromBuffer, editFrame, analyzeImages, generateImage, generateFrameImages };

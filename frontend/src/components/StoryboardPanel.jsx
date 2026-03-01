@@ -227,45 +227,30 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
   const handleGenerate = useCallback(async () => {
     if (frames.length === 0) return;
     setGenerating(true);
-    setGenProgress(0); setGenStage('准备生成配图...');
+    setGenProgress(50); setGenStage('正在生成分镜 PDF...');
     try {
-      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generate-storyboard`, {
+      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generate-storyboard-pdf`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ frames }),
+        body: JSON.stringify({ frames, projectName: '分镜板' }),
       });
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const evt = JSON.parse(line.slice(6));
-            if (evt.type === 'progress') {
-              const pct = Math.round((evt.current / evt.total) * 100);
-              setGenProgress(pct);
-              setGenStage(`正在生成第 ${evt.current}/${evt.total} 帧配图...`);
-            } else if (evt.type === 'done') {
-              setFrames(evt.frames.map((f) => ({ ...f })));
-              setGenerated(true);
-            } else if (evt.type === 'error') {
-              throw new Error(evt.error);
-            }
-          } catch (parseErr) {
-            if (parseErr.message !== evt?.error) console.warn('SSE parse:', parseErr);
-          }
-        }
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: resp.statusText }));
+        throw new Error(err.error || '生成失败');
       }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = '分镜板_分镜.pdf';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
       setGenerated(true);
     } catch (err) {
-      console.warn('Generate failed:', err.message);
-      await showAlert('⚠️ 配图生成失败: ' + err.message);
+      console.warn('Generate PDF failed:', err.message);
+      await showAlert('⚠️ 分镜PDF生成失败: ' + err.message);
     }
     setGenProgress(100); setGenStage('完成！');
     setTimeout(() => { setGenProgress(null); setGenStage(''); }, 1200);
@@ -567,7 +552,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
             </button>
             {!hasStoryboard && !generated && (
               <button className="storyboard-btn storyboard-bottom-btn generate-storyboard-btn" onClick={handleGenerate} disabled={generating}>
-                {generating ? '⏳ 生成中...' : '🎨 生成分镜'}
+                {generating ? '⏳ 生成中...' : '📄 生成分镜PDF'}
               </button>
             )}
             <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-convert" onClick={handleConvert}
