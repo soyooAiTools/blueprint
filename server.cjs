@@ -1018,7 +1018,8 @@ handlers.getWorkers = function(req, res) {
 
 // GET /api/tasks?limit=30 — list tasks from queue
 handlers.getTasks = function(req, res) {
-  var limit = parseInt(parsedUrl.query.limit) || 30;
+  var u = new URL(req.url, 'http://localhost');
+  var limit = parseInt(u.searchParams.get('limit')) || 30;
   var tasks = [];
   try {
     if (fs.existsSync(AUTOCODING_QUEUE)) {
