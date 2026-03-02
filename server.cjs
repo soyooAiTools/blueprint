@@ -207,6 +207,11 @@ function matchRoute(method, pathname) {
   m = pathname.match(/^\/api\/tasks\/([^/]+)\/upload-build$/);
   if (m && method === 'POST') return { handler: 'uploadBuild', taskId: m[1], rawBody: true };
 
+  // Dashboard API routes
+  if (method === 'GET' && pathname === '/api/dashboard') return { handler: 'getDashboard' };
+  if (method === 'GET' && pathname === '/api/workers') return { handler: 'getWorkers' };
+  if (method === 'GET' && pathname === '/api/tasks') return { handler: 'getTasks' };
+
   // Serve generated images
   m = pathname.match(/^\/api\/images\/([^/]+)\/(.+)$/);
   if (m && method === 'GET') return { handler: 'serveImage', projectId: m[1], filename: m[2] };
@@ -959,6 +964,86 @@ handlers.workerHeartbeat = function(req, res, body) {
     console.error('[Worker Heartbeat] Error: ' + e.message);
     sendJSON(res, { error: 'Heartbeat failed: ' + e.message }, 500);
   }
+};
+
+// ============ Dashboard API Handlers ============
+
+// GET /api/dashboard — summary stats
+handlers.getDashboard = function(req, res) {
+  var workers = Object.values(workerHeartbeats);
+  var now = Date.now();
+  var onlineThreshold = 90000; // 90s
+  var online = workers.filter(function(w) { return w.lastSeen && (now - new Date(w.lastSeen).getTime()) < onlineThreshold; }).length;
+  var offline = workers.length - online;
+
+  // Scan queue for task stats
+  var taskStats = { pending: 0, assigned: 0, developing: 0, building: 0, completed: 0, failed: 0, retry_pending: 0 };
+  try {
+    if (fs.existsSync(AUTOCODING_QUEUE)) {
+      fs.readdirSync(AUTOCODING_QUEUE).filter(function(f) { return f.endsWith('.json') && !f.includes('-blueprint') && !f.includes('.cancelled'); }).forEach(function(f) {
+        try {
+          var t = JSON.parse(fs.readFileSync(path.join(AUTOCODING_QUEUE, f), 'utf-8'));
+          var s = t.status || 'pending';
+          if (taskStats[s] !== undefined) taskStats[s]++;
+          else taskStats[s] = 1;
+        } catch(e) {}
+      });
+    }
+  } catch(e) {}
+
+  sendJSON(res, {
+    workers: { total: workers.length, online: online, offline: offline },
+    tasks: taskStats
+  });
+};
+
+// GET /api/workers — list all registered workers
+handlers.getWorkers = function(req, res) {
+  var workers = Object.values(workerHeartbeats).map(function(w) {
+    var lastHbMs = w.lastSeen ? new Date(w.lastSeen).getTime() : null;
+    return {
+      workerId: w.workerId,
+      status: w.status || 'unknown',
+      currentTask: w.currentTask ? (typeof w.currentTask === 'string' ? w.currentTask : w.currentTask.taskId || w.currentTask) : null,
+      currentTaskName: w.currentTask && w.currentTask.projectName ? w.currentTask.projectName : null,
+      ip: w.ip || null,
+      port: w.port || null,
+      lastHeartbeat: lastHbMs,
+      registeredAt: lastHbMs,
+      uptime: w.uptime || 0
+    };
+  });
+  sendJSON(res, { workers: workers });
+};
+
+// GET /api/tasks?limit=30 — list tasks from queue
+handlers.getTasks = function(req, res) {
+  var limit = parseInt(parsedUrl.query.limit) || 30;
+  var tasks = [];
+  try {
+    if (fs.existsSync(AUTOCODING_QUEUE)) {
+      var files = fs.readdirSync(AUTOCODING_QUEUE).filter(function(f) { return f.endsWith('.json') && !f.includes('-blueprint'); });
+      files.forEach(function(f) {
+        try {
+          var t = JSON.parse(fs.readFileSync(path.join(AUTOCODING_QUEUE, f), 'utf-8'));
+          tasks.push({
+            taskId: t.taskId || f.replace('.json', ''),
+            projectName: t.projectName || t.taskId || '-',
+            status: t.status || 'pending',
+            statusMessage: t.statusMessage || null,
+            workerId: t.assignedTo || null,
+            progress: t.progress || 0,
+            createdAt: t.createdAt ? new Date(t.createdAt).getTime() : null,
+            updatedAt: t.updatedAt ? new Date(t.updatedAt).getTime() : null
+          });
+        } catch(e) {}
+      });
+    }
+  } catch(e) {}
+  // Sort by updatedAt desc
+  tasks.sort(function(a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
+  tasks = tasks.slice(0, limit);
+  sendJSON(res, { tasks: tasks });
 };
 
 // 删除项目时清理 autoCoding 队列 + 标记任务取消
