@@ -57,6 +57,7 @@ function FlowEditor({ project, onBack, initialTab }) {
   const [edges, setEdges, onEdgesChange] = useEdgesState(project.edges || []);
   const [projectName, setProjectName] = useState(project.name || '未命名项目');
   const [projectStatus, setProjectStatus] = useState(project.status || 'editing');
+  const [statusMessage, setStatusMessage] = useState(project.statusMessage || '');
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
   const [activeTab, setActiveTab] = useState(initialTab || 'storyboard');
@@ -109,14 +110,15 @@ function FlowEditor({ project, onBack, initialTab }) {
 
   // Poll for status changes
   useEffect(() => {
-    if (['submitted', 'building', 'approved'].indexOf(projectStatus) === -1) return;
+    if (['submitted', 'building', 'approved', 'feedback'].indexOf(projectStatus) === -1) return;
     const interval = setInterval(() => {
       getProject(project.id)
         .then((p) => {
           if (p.status !== projectStatus) setProjectStatus(p.status);
+          if (p.statusMessage !== undefined) setStatusMessage(p.statusMessage || '');
         })
         .catch(() => {});
-    }, 5000);
+    }, 3000);
     return () => clearInterval(interval);
   }, [projectStatus, project.id]);
 
@@ -376,6 +378,7 @@ function FlowEditor({ project, onBack, initialTab }) {
         onClearCanvas={onClearCanvas}
         onBack={onBack}
         projectStatus={projectStatus}
+                statusMessage={statusMessage}
         onSubmit={handleSubmit}
         onApprove={handleApprove}
         onFeedback={handleFeedback}

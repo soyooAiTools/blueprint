@@ -47,6 +47,7 @@ export default function TopBar({
   onApprove,
   onFeedback,
   shotCount,
+  statusMessage,
 }) {
   const fileInputRef = useRef(null);
   const [submitting, setSubmitting] = useState(false);
@@ -124,6 +125,9 @@ export default function TopBar({
             style={{ color: statusLabel.color, background: statusLabel.bg }}
           >
             {statusLabel.text}
+            {statusMessage && (projectStatus === 'submitted' || projectStatus === 'building' || projectStatus === 'feedback') && (
+              <span className="topbar-status-detail"> — {statusMessage}</span>
+            )}
           </span>
         )}
       </div>
