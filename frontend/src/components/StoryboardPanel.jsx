@@ -477,80 +477,109 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
         </div>
       )}
 
-      {/* Frames Preview */}
+      {/* Frames Preview — PDF Table Format */}
       {frames.length > 0 && (
         <div className="storyboard-frames-section">
           <div className="storyboard-frames-header">
             <h3 className="storyboard-section-title">🎞 分镜预览 ({frames.length} 帧)</h3>
           </div>
-          <div className="storyboard-frames-list">
-            {frames.map((frame) => (
-              <div key={frame.id} className="storyboard-frame-card">
-                <div className="storyboard-frame-header">
-                  <span className="storyboard-frame-number">#{frame.id}</span>
-                  <input className="storyboard-frame-title-input" value={frame.title}
-                    onChange={(e) => handleUpdateFrame(frame.id, 'title', e.target.value)} placeholder="帧标题" />
-                  <button className="storyboard-frame-edit-btn" onClick={() => toggleEdit(frame.id)}
-                    title="用自然语言编辑此帧">✏️</button>
-                </div>
-                {/* AI Edit Bar */}
-                {editingFrameId === frame.id && (
-                  <div className="storyboard-frame-edit-bar">
-                    <input
-                      className="storyboard-frame-edit-input"
-                      placeholder="描述修改需求，如「把场景改成室内」「增加一个 NPC」..."
-                      value={editInstruction}
-                      onChange={(e) => setEditInstruction(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEditFrame(frame.id); } }}
-                      disabled={editingLoading}
-                      autoFocus
-                    />
-                    <button className="storyboard-btn storyboard-frame-edit-apply"
-                      onClick={() => handleEditFrame(frame.id)}
-                      disabled={editingLoading || !editInstruction.trim()}>
-                      {editingLoading ? '⏳' : '✨ 应用'}
-                    </button>
-                  </div>
-                )}
-                <div className="storyboard-frame-body">
-                  {/* Left: Image (only in "no storyboard" mode) */}
-                  {!hasStoryboard && (
-                  <div className="storyboard-frame-image">
+          <table className="sb-table">
+            <thead>
+              <tr>
+                <th className="sb-th sb-th-num">序号</th>
+                <th className="sb-th sb-th-desc">文字描述</th>
+                <th className="sb-th sb-th-visual">画面</th>
+                <th className="sb-th sb-th-note">注释</th>
+              </tr>
+            </thead>
+            <tbody>
+              {frames.map((frame, idx) => (
+                <tr key={frame.id} className="sb-tr">
+                  {/* 序号 */}
+                  <td className="sb-td sb-td-num">
+                    <span className="sb-num">{idx + 1}</span>
+                  </td>
+                  {/* 文字描述 */}
+                  <td className="sb-td sb-td-desc">
+                    <div className="sb-desc-phase">
+                      <input className="sb-phase-input" value={frame.title || ''}
+                        onChange={(e) => handleUpdateFrame(frame.id, 'title', e.target.value)}
+                        placeholder="Phase 标题" />
+                      <button className="sb-edit-btn" onClick={() => toggleEdit(frame.id)} title="AI 编辑">✏️</button>
+                    </div>
+                    {editingFrameId === frame.id && (
+                      <div className="sb-edit-bar">
+                        <input className="sb-edit-input" placeholder="描述修改需求，如「把场景改成室内」..."
+                          value={editInstruction} onChange={(e) => setEditInstruction(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEditFrame(frame.id); } }}
+                          disabled={editingLoading} autoFocus />
+                        <button className="sb-edit-apply" onClick={() => handleEditFrame(frame.id)}
+                          disabled={editingLoading || !editInstruction.trim()}>
+                          {editingLoading ? '⏳' : '✨ 应用'}
+                        </button>
+                      </div>
+                    )}
+                    <div className="sb-desc-fields">
+                      <div className="sb-field-row">
+                        <span className="sb-field-key">玩家看到什么：</span>
+                        <textarea className="sb-field-val" value={frame.scene || ''} rows={2}
+                          onChange={(e) => handleUpdateFrame(frame.id, 'scene', e.target.value)}
+                          placeholder="场景描述..." />
+                      </div>
+                      <div className="sb-field-row">
+                        <span className="sb-field-key">玩家做什么：</span>
+                        <textarea className="sb-field-val" value={frame.interaction || ''} rows={2}
+                          onChange={(e) => handleUpdateFrame(frame.id, 'interaction', e.target.value)}
+                          placeholder="交互行为..." />
+                      </div>
+                      <div className="sb-field-row">
+                        <span className="sb-field-key">镜头：</span>
+                        <textarea className="sb-field-val" value={frame.camera || ''} rows={1}
+                          onChange={(e) => handleUpdateFrame(frame.id, 'camera', e.target.value)}
+                          placeholder="镜头描述..." />
+                      </div>
+                      <div className="sb-field-row">
+                        <span className="sb-field-key">感觉：</span>
+                        <textarea className="sb-field-val" value={frame.feeling || ''} rows={1}
+                          onChange={(e) => handleUpdateFrame(frame.id, 'feeling', e.target.value)}
+                          placeholder="氛围/感受..." />
+                      </div>
+                      <div className="sb-field-row">
+                        <span className="sb-field-key">大约耗时：</span>
+                        <input className="sb-field-val sb-field-short" value={frame.duration || ''}
+                          onChange={(e) => handleUpdateFrame(frame.id, 'duration', e.target.value)}
+                          placeholder="如 2-3秒" />
+                      </div>
+                    </div>
+                  </td>
+                  {/* 画面 */}
+                  <td className="sb-td sb-td-visual">
                     {frame.imageUrl ? (
-                      <img src={frame.imageUrl} alt={frame.title} />
+                      <div className="sb-visual-images">
+                        <img src={frame.imageUrl} alt={frame.title} className="sb-visual-img" />
+                      </div>
                     ) : (
-                      <div className="storyboard-frame-placeholder">
-                        <span className="placeholder-number">#{frame.id}</span>
-                        <span className="placeholder-text">待生成</span>
+                      <div className="sb-visual-placeholder">
+                        <span>#{idx + 1}</span>
+                        <span className="sb-visual-ph-text">{frame.prompt ? frame.prompt.slice(0, 60) + '...' : '待生成'}</span>
                       </div>
                     )}
-                  </div>
-                  )}
-                  {/* Right: Content */}
-                  <div className="storyboard-frame-content">
-                    <div className="storyboard-frame-field">
-                      <span className="storyboard-field-label">🎮 交互</span>
-                      <textarea className="storyboard-frame-edit" value={frame.interaction || ''}
-                        onChange={(e) => handleUpdateFrame(frame.id, 'interaction', e.target.value)}
-                        placeholder="描述交互行为..." rows={3} />
-                    </div>
-                    <div className="storyboard-frame-field">
-                      <span className="storyboard-field-label">🖥 UI</span>
-                      <textarea className="storyboard-frame-edit" value={frame.ui || ''}
-                        onChange={(e) => handleUpdateFrame(frame.id, 'ui', e.target.value)}
-                        placeholder="描述 UI 元素..." rows={2} />
-                    </div>
-                    {frame.description && (
-                      <div className="storyboard-frame-field">
-                        <span className="storyboard-field-label">📝 描述</span>
-                        <p style={{ margin: 0, color: '#ccc', fontSize: 13, lineHeight: 1.5 }}>{frame.description}</p>
+                  </td>
+                  {/* 注释 */}
+                  <td className="sb-td sb-td-note">
+                    <textarea className="sb-note-input" value={frame.note || ''} rows={3}
+                      onChange={(e) => handleUpdateFrame(frame.id, 'note', e.target.value)}
+                      placeholder="备注/参考..." />
+                    {frame.refImage && (
+                      <div className="sb-note-ref">
+                        <img src={frame.refImage} alt="参考" className="sb-note-ref-img" />
                       </div>
                     )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
           {/* Bottom Action Bar */}
           <div className="storyboard-bottom-bar">
             <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-clear" onClick={handleClearFrames}>
