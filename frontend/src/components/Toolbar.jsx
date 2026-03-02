@@ -1,6 +1,4 @@
-import templates from '../presets/templates';
-
-export default function Toolbar({ onAddShot, onAddJoin, onAddNote, onLoadTemplate }) {
+export default function Toolbar({ onAddShot, onAddJoin, onAddNote }) {
   return (
     <div className="toolbar">
       <div className="toolbar-title">🛠 工具箱</div>
@@ -16,19 +14,6 @@ export default function Toolbar({ onAddShot, onAddJoin, onAddNote, onLoadTemplat
         <button className="toolbar-btn" onClick={onAddNote}>
           📝 添加注释
         </button>
-      </div>
-
-      <div className="toolbar-section">
-        <div className="toolbar-section-title">预设模板</div>
-        {templates.map((tpl, i) => (
-          <button
-            key={i}
-            className="toolbar-btn toolbar-btn-template"
-            onClick={() => onLoadTemplate(tpl)}
-          >
-            {tpl.name}
-          </button>
-        ))}
       </div>
     </div>
   );
