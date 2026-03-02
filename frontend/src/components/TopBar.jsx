@@ -142,16 +142,7 @@ export default function TopBar({
             {submitting ? '⏳ 提交中...' : '🚀 提交开发'}
           </button>
         )}
-        {projectStatus === 'reviewing' && onApprove && (
-          <>
-            <button className="topbar-btn topbar-btn-approve" onClick={handleApprove}>
-              ✅ 通过
-            </button>
-            <button className="topbar-btn topbar-btn-feedback" onClick={handleFeedback}>
-              💬 反馈
-            </button>
-          </>
-        )}
+
         <button className="topbar-btn" onClick={onExportJSON}>
           📤 导出 JSON
         </button>
