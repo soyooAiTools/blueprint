@@ -479,6 +479,8 @@ function FlowEditor({ project, onBack, initialTab }) {
                     src={webglInfo.url}
                     title="WebGL Preview"
                     sandbox="allow-scripts allow-same-origin"
+                    scrolling="no"
+                    style={{ overflow: 'hidden' }}
                   />
                 </div>
               ) : (

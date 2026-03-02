@@ -664,6 +664,17 @@ handlers.uploadBuild = function(req, res, body, id) {
       zip.extractAllTo(webglDir, true);
       console.log('[Upload Build] Extracted to:', webglDir);
 
+      // Fix absolute paths to relative in HTML files (Luna uses absolute /static/, /favicon/ etc.)
+      ['index.html', 'iframe.html'].forEach(function(htmlFile) {
+        var htmlPath = path.join(webglDir, htmlFile);
+        if (fs.existsSync(htmlPath)) {
+          var content = fs.readFileSync(htmlPath, 'utf-8');
+          content = content.replace(/href="\//g, 'href="./').replace(/src="\//g, 'src="./');
+          fs.writeFileSync(htmlPath, content, 'utf-8');
+          console.log('[Upload Build] Fixed paths in ' + htmlFile);
+        }
+      });
+
       // Update project status
       var project = readProject(taskId);
       if (project) {

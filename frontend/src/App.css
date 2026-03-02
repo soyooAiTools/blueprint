@@ -3794,7 +3794,9 @@ html, body, #root {
   height: 100%;
   border: none;
   border-radius: 36px;
+  overflow: hidden;
 }
+.preview-iframe::-webkit-scrollbar { display: none; }
 
 /* Empty preview state */
 .preview-empty {
