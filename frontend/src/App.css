@@ -3740,12 +3740,12 @@ html, body, #root {
   overflow: hidden;
 }
 .review-left {
-  flex: 0 0 360px;
+  flex: 0 0 400px;
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: 24px;
-  overflow-y: auto;
+  overflow: hidden;
   background: #0a0a1a;
 }
 .review-right {
@@ -3755,10 +3755,17 @@ html, body, #root {
   overflow-y: auto;
   padding: 16px;
 }
+.review-right::-webkit-scrollbar { width: 4px; }
+.review-right::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+.review-left::-webkit-scrollbar { display: none; }
 
 .preview-status-bar {
   margin-bottom: 16px;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 .preview-status-text {
   font-size: 14px;
@@ -3791,6 +3798,13 @@ html, body, #root {
   border-radius: 0 0 20px 20px;
   z-index: 10;
 }
+.preview-phone-frame.landscape {
+  width: 667px;
+  height: 375px;
+}
+.preview-phone-frame.landscape .preview-phone-notch {
+  display: none;
+}
 .preview-iframe {
   width: 100%;
   height: 100%;
@@ -3799,6 +3813,18 @@ html, body, #root {
   overflow: hidden;
 }
 .preview-iframe::-webkit-scrollbar { display: none; }
+
+.preview-orientation-btn {
+  background: rgba(99,102,241,0.15);
+  border: 1px solid #6366f144;
+  color: #a5b4fc;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.preview-orientation-btn:hover { background: rgba(99,102,241,0.3); }
 
 .preview-refresh-btn {
   background: rgba(99,102,241,0.15);

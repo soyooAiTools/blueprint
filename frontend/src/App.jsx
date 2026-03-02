@@ -58,6 +58,7 @@ function FlowEditor({ project, onBack, initialTab }) {
   const [projectName, setProjectName] = useState(project.name || '未命名项目');
   const [projectStatus, setProjectStatus] = useState(project.status || 'editing');
   const [statusMessage, setStatusMessage] = useState(project.statusMessage || '');
+  const [previewLandscape, setPreviewLandscape] = useState(false);
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
   const [activeTab, setActiveTab] = useState(initialTab || 'storyboard');
@@ -474,10 +475,14 @@ function FlowEditor({ project, onBack, initialTab }) {
                   const iframe = document.querySelector('.preview-iframe');
                   if (iframe) { iframe.src = iframe.src; }
                 }} title="刷新预览">🔄</button>
+                <button className="preview-orientation-btn" onClick={() => setPreviewLandscape(!previewLandscape)}
+                  title={previewLandscape ? '切换竖屏' : '切换横屏'}>
+                  {previewLandscape ? '📱 竖屏' : '📲 横屏'}
+                </button>
               </div>
               {webglInfo && webglInfo.available ? (
-                <div className="preview-phone-frame">
-                  <div className="preview-phone-notch" />
+                <div className={`preview-phone-frame ${previewLandscape ? 'landscape' : ''}`}>
+                  {!previewLandscape && <div className="preview-phone-notch" />}
                   <iframe
                     className="preview-iframe"
                     src={webglInfo.url}
