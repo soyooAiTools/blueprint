@@ -3991,3 +3991,19 @@ html, body, #root {
   pointer-events: none;
   cursor: not-allowed;
 }
+
+/* V2 structured fields - monospace for code-like content */
+.props-textarea-mono {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace !important;
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+  background: #1a1a2e !important;
+  color: #e0e0ff !important;
+  border: 1px solid #333366 !important;
+  white-space: pre !important;
+  tab-size: 2;
+}
+.props-textarea-mono::placeholder {
+  color: #666699 !important;
+  font-style: italic;
+}

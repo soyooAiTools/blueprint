@@ -207,6 +207,95 @@ export default function PropsPanel({
           />
         </label>
 
+        
+        {/* ========== V2 结构化字��（AI Coder 优化） ========== */}
+        <div className="props-divider">🏗️ 场景对象（给 AI 的结构化数据）</div>
+        <div className="props-hint">列出本镜头中的所有游戏对象、位置和状态。AI Coder 会据此生成代码框架。</div>
+        <textarea
+          className="props-textarea props-textarea-mono"
+          rows={8}
+          value={d.sceneObjects || ''}
+          onChange={(e) => update('sceneObjects', e.target.value)}
+          placeholder={`# 场景对象列表
+- PlayerCharacter | 位置: 屏幕下方中央 | 状态: idle
+- ConveyorBelt | 位置: 屏幕下方 | 状态: locked
+- UI_ResourcePanel | 位置: 右上角 | 显示: Gold, Wood`}
+        />
+
+        <div className="props-divider">🎮 输入方式</div>
+        <div className="props-hint">玩家的操控方式和具体参数配置</div>
+        <label className="props-label">
+          输入类型
+          <select
+            className="props-input"
+            value={d.inputType || 'virtualJoystick'}
+            onChange={(e) => update('inputType', e.target.value)}
+          >
+            <option value="virtualJoystick">🕹️ 虚拟摇杆</option>
+            <option value="tap">👆 点击移动</option>
+            <option value="drag">✋ 拖拽</option>
+            <option value="swipe">👉 滑动</option>
+            <option value="none">🚫 无操作（自动播放）</option>
+          </select>
+        </label>
+        <textarea
+          className="props-textarea props-textarea-mono"
+          rows={3}
+          value={d.inputConfig || ''}
+          onChange={(e) => update('inputConfig', e.target.value)}
+          placeholder={`position: 屏幕左下角
+size: 屏幕宽度的 15%
+sensitivity: 1.0`}
+        />
+
+        <div className="props-divider">⚡ 触发链（有序事件流）</div>
+        <div className="props-hint">按顺序描述：事件 → 条件 → 动作。AI Coder 会据此生成状态机和事件系统。</div>
+        <textarea
+          className="props-textarea props-textarea-mono"
+          rows={12}
+          value={d.triggerChain || ''}
+          onChange={(e) => update('triggerChain', e.target.value)}
+          placeholder={`1. 场景初始化
+   → 显示引导箭头
+   → 目标高亮
+
+2. 玩家进入交互区
+   → 条件: player.gold >= cost
+   → 扣除资源 → 播放动画
+
+3. 动画完成
+   → endCondition 满足 → 下一个 shot`}
+        />
+
+        <div className="props-divider">📊 参数表（Key-Value）</div>
+        <div className="props-hint">结构化的数值参数，带中文注释。AI Coder 会直接读取这些值生成代码常量。</div>
+        <textarea
+          className="props-textarea props-textarea-mono"
+          rows={12}
+          value={d.params || ''}
+          onChange={(e) => update('params', e.target.value)}
+          placeholder={`# === 玩家参数 ===
+player.gold = 1          # 玩家初始金币数量
+player.moveSpeed = 5     # 移动速度（单位/秒）
+
+# === 建筑参数 ===
+building.unlockCost = 10 # 解锁所需资源
+building.buildTime = 2   # 建造时长（秒）`}
+        />
+
+        <div className="props-divider">📦 资源清单</div>
+        <div className="props-hint">本镜头需要的预制体、音效、特效等资源列表</div>
+        <textarea
+          className="props-textarea props-textarea-mono"
+          rows={6}
+          value={(typeof d.assets === 'string' ? d.assets : '') || ''}
+          onChange={(e) => update('assets', e.target.value)}
+          placeholder={`# 预制体/资源
+- Prefab: PlayerCharacter（玩家角色）
+- Audio: unlock_ding.wav（解锁音效）
+- VFX: build_particles（建造特效）`}
+        />
+
         <div className="props-divider">🔀 条件分支 1</div>
 
         <label className="props-label">
