@@ -7,25 +7,7 @@ const AdmZip = require('adm-zip');
 const PORT = process.env.PORT || 3901;
 const __dir = __dirname;
 
-// 启动前清理占端口的孤儿进程（内联，避免 require 路径问题）
-try {
-  var pgResult = require('child_process').execSync(
-    'ss -tlnp sport = :' + PORT + ' 2>/dev/null || true',
-    { encoding: 'utf-8', timeout: 3000 }
-  ).trim();
-  var pgPidMatch = pgResult.match(/pid=(\d+)/);
-  if (pgPidMatch) {
-    var pgPid = parseInt(pgPidMatch[1]);
-    if (pgPid !== process.pid) {
-      console.log('[port-guard] Port ' + PORT + ' occupied by PID ' + pgPid + ', killing...');
-      try { process.kill(pgPid, 'SIGTERM'); } catch(e) {}
-      require('child_process').execSync('sleep 1');
-      try { process.kill(pgPid, 'SIGKILL'); } catch(e) {}
-      require('child_process').execSync('sleep 1');
-      console.log('[port-guard] Cleaned up PID ' + pgPid);
-    }
-  }
-} catch (e) { console.warn('[port-guard] skipped:', e.message); }
+// port-guard removed — PM2 handles process lifecycle, port-guard caused restart loops
 
 // 非 PM2 启动时警告（防止手动 node server.cjs 产生孤儿进程）
 if (!process.env.pm_id) {
@@ -483,7 +465,7 @@ handlers.uploadWebgl = function(req, res, body, id) {
     return sendJSON(res, { error: '请提供 html 或 files 字段' }, 400);
   }
 
-  project.webglPath = '/webgl/' + id + '/index.html';
+  project.webglPath = '/webgl/' + id + '/iframe.html';
   project.updatedAt = new Date().toISOString();
   writeProject(project);
   sendJSON(res, { success: true, webglPath: project.webglPath });
@@ -510,7 +492,7 @@ handlers.getWebgl = function(req, res, body, id) {
   var hasWebgl = fs.existsSync(webglDir) && fs.existsSync(path.join(webglDir, 'index.html'));
   sendJSON(res, {
     available: hasWebgl,
-    url: hasWebgl ? '/webgl/' + id + '/index.html' : null,
+    url: hasWebgl ? '/webgl/' + id + '/iframe.html' : null,
     webglPath: project.webglPath,
   });
 };
@@ -681,7 +663,7 @@ handlers.uploadBuild = function(req, res, body, id) {
       var project = readProject(taskId);
       if (project) {
         project.status = 'reviewing';
-        project.webglPath = '/webgl/' + taskId + '/index.html';
+        project.webglPath = '/webgl/' + taskId + '/iframe.html';
         project.buildCompletedAt = new Date().toISOString();
         project.updatedAt = new Date().toISOString();
         writeProject(project);
@@ -690,8 +672,8 @@ handlers.uploadBuild = function(req, res, body, id) {
 
       sendJSON(res, {
         success: true,
-        url: '/webgl/' + taskId + '/index.html',
-        webglPath: '/webgl/' + taskId + '/index.html',
+        url: '/webgl/' + taskId + '/iframe.html',
+        webglPath: '/webgl/' + taskId + '/iframe.html',
       });
     } catch (e) {
       console.log('[Upload Build] Error:', e.message);
@@ -1153,9 +1135,11 @@ var server = http.createServer(function(req, res) {
 
 server.on('error', function(err) {
   if (err.code === 'EADDRINUSE') {
-    console.error('[FATAL] 端口 ' + PORT + ' 被占用！port-guard 未能清理。');
-    console.error('[FATAL] 手动执行: kill $(ss -tlnp sport = :' + PORT + ' | grep -oP "pid=\\K\\d+")');
-    process.exit(1);
+    console.warn('[port-retry] Port ' + PORT + ' in use, retrying in 2s...');
+    setTimeout(function() {
+      server.listen(PORT);
+    }, 2000);
+    return;
   }
   throw err;
 });
@@ -1163,6 +1147,7 @@ server.on('error', function(err) {
 server.listen(PORT, function() {
   console.log('Blueprint Editor Server running on http://localhost:' + PORT);
   console.log('  Projects dir: ' + PROJECTS_DIR);
+  if (process.send) process.send('ready');
 });
 
 // ============ Stale Task Recovery (3 min timeout) ============

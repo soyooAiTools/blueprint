@@ -106,18 +106,7 @@ export default function TaskPanel({ nodes, onUpdateNode }) {
           <h2>💬 镜头反馈</h2>
           <div className="task-panel-desc">选择需要反馈的镜头，添加修改指令，导出后 Coding Agent 只关注增量部分</div>
         </div>
-        <div className="task-panel-actions">
-          {pendingCount > 0 && (
-            <button className="task-export-btn" onClick={exportFeedbackJSON}>
-              📤 导出反馈 JSON（{pendingCount}条待修）
-            </button>
-          )}
-        </div>
-        {pendingCount > 0 && (
-          <div className="task-panel-pending-hint">
-            🔴 {pendingCount} 条待修，通过顶栏「📤 导出 JSON」一起导出
-          </div>
-        )}
+
       </div>
 
       {/* Feedback shot list */}

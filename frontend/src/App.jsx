@@ -59,6 +59,8 @@ function FlowEditor({ project, onBack, initialTab }) {
   const [projectStatus, setProjectStatus] = useState(project.status || 'editing');
   const [statusMessage, setStatusMessage] = useState(project.statusMessage || '');
   const [previewLandscape, setPreviewLandscape] = useState(false);
+  const [webglLoading, setWebglLoading] = useState(true);
+  const [webglProgress, setWebglProgress] = useState(0);
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
   const [activeTab, setActiveTab] = useState(initialTab || 'storyboard');
@@ -68,7 +70,7 @@ function FlowEditor({ project, onBack, initialTab }) {
   const reactFlowInstance = useReactFlow();
   const shotCountRef = useRef((project.nodes || []).filter((n) => n.type === 'shotNode').length || 1);
   const autoSaveRef = useRef(null);
-  const { showAlert, showConfirm } = useModal();
+  const { showAlert, showConfirm, showPrompt } = useModal();
 
   const handleStoryboardConvert = useCallback((newNodes, newEdges) => {
     setNodes((nds) => [...nds, ...newNodes]);
@@ -86,6 +88,56 @@ function FlowEditor({ project, onBack, initialTab }) {
       getWebglInfo(project.id).then(setWebglInfo).catch(() => {});
     }
   }, [projectStatus, project.id]);
+
+  // WebGL loading progress via Luna postMessage events + smooth timer
+  useEffect(() => {
+    if (!webglInfo || !webglInfo.available) return;
+    setWebglLoading(true);
+    setWebglProgress(0);
+    let progress = 0;
+    let done = false;
+    // Smooth progress timer - accelerates then slows near 90%
+    const timer = setInterval(() => {
+      if (done) return;
+      if (progress < 30) progress += 2;
+      else if (progress < 60) progress += 1.5;
+      else if (progress < 85) progress += 0.5;
+      else if (progress < 95) progress += 0.1;
+      setWebglProgress(Math.min(Math.round(progress), 95));
+    }, 200);
+    // Listen for Luna lifecycle events from iframe
+    const onMessage = (e) => {
+      try {
+        if (typeof e.data !== 'object') return;
+        const { target, title } = e.data || {};
+        if (target === 'editor') {
+          // Luna sends events like "Game Started"
+          if (title === 'Game Started' || e.data.eventName === 'started' || e.data.eventName === 'frame') {
+            done = true;
+            setWebglProgress(100);
+            setTimeout(() => setWebglLoading(false), 300);
+          }
+        }
+        if (target === 'editor:pi') {
+          if (e.data.eventName === 'started' || e.data.eventName === 'frame') {
+            done = true;
+            setWebglProgress(100);
+            setTimeout(() => setWebglLoading(false), 300);
+          }
+        }
+      } catch(err) {}
+    };
+    window.addEventListener('message', onMessage);
+    // Fallback: if no event after 30s, hide overlay anyway
+    const fallback = setTimeout(() => {
+      if (!done) { done = true; setWebglProgress(100); setTimeout(() => setWebglLoading(false), 300); }
+    }, 30000);
+    return () => {
+      clearInterval(timer);
+      clearTimeout(fallback);
+      window.removeEventListener('message', onMessage);
+    };
+  }, [webglInfo]);
 
   // Poll for WebGL build completion
   const buildNotified = useRef(false);
@@ -483,13 +535,37 @@ function FlowEditor({ project, onBack, initialTab }) {
               {webglInfo && webglInfo.available ? (
                 <div className={`preview-phone-frame ${previewLandscape ? 'landscape' : ''}`}>
                   {!previewLandscape && <div className="preview-phone-notch" />}
+                  {/* Loading overlay with progress */}
+                  {webglLoading && (
+                    <div className="webgl-loading-overlay">
+                      <div className="webgl-loading-spinner" />
+                      <div className="webgl-loading-text">{webglProgress}%</div>
+                      <div className="webgl-loading-hint">
+                        {webglProgress < 30 ? '加载引擎资源...' : webglProgress < 70 ? '编译着色器...' : webglProgress < 95 ? '初始化场景...' : '即将完成...'}
+                      </div>
+                      <div className="webgl-loading-bar">
+                        <div className="webgl-loading-bar-fill" style={{ width: webglProgress + '%' }} />
+                      </div>
+                    </div>
+                  )}
                   <iframe
                     className="preview-iframe"
                     src={webglInfo.url}
                     title="WebGL Preview"
-                    sandbox="allow-scripts allow-same-origin"
+                    allow="autoplay; fullscreen; webgl; webgl2"
+                    allowFullScreen
                     scrolling="no"
                     style={{ overflow: 'hidden' }}
+                    onLoad={(e) => {
+                      // Luna Dev builds check _isInsideIframe() and won't auto-start in iframes.
+                      // Send postMessage to trigger luna:build + luna:start via setPlaygroundAssetOverrides handler.
+                      try {
+                        e.target.contentWindow.postMessage(JSON.stringify({
+                          name: 'setPlaygroundAssetOverrides',
+                          data: '{}'
+                        }), '*');
+                      } catch(err) { console.warn('Failed to send start message to iframe:', err); }
+                    }}
                   />
                 </div>
               ) : (
@@ -521,16 +597,18 @@ function FlowEditor({ project, onBack, initialTab }) {
                   )}
                 </div>
               )}
-              <div className="preview-actions">
+              <div className="preview-actions-vertical">
                 {(projectStatus === 'reviewing' || projectStatus === 'feedback') && (
                   <>
-                    <button className="preview-btn preview-btn-approve" onClick={handleApprove}>
-                      ✅ 通过
+                    <button className="preview-action-outline preview-action-approve" onClick={handleApprove}>
+                      ✅ 效果审核通过
                     </button>
-                    <button className="preview-btn preview-btn-feedback" onClick={handleFeedback}>
-                      💬 反馈修改
+                    <button className="preview-action-outline preview-action-feedback" onClick={async () => {
+                      const text = await showPrompt('请输入反馈内容：');
+                      if (text) handleFeedback(text);
+                    }}>
+                      💬 提交反馈，继续修改
                     </button>
-
                   </>
                 )}
               </div>
