@@ -397,21 +397,7 @@ function FlowEditor({ project, onBack, initialTab }) {
         >
           🗺 蓝图
         </button>
-        <button
-          className={`app-tab ${activeTab === 'tasks' ? 'app-tab-active' : ''}`}
-          onClick={() => setActiveTab('tasks')}
-        >
-          💬 镜头反馈
-          {(() => {
-            let pending = 0;
-            nodes.forEach((n) => {
-              (n.data.revisions || []).forEach((r) => {
-                if (r.status === 'pending') pending++;
-              });
-            });
-            return pending > 0 ? <span className="app-tab-badge">{pending}</span> : null;
-          })()}
-        </button>
+
         {['reviewing', 'approved', 'committed', 'feedback'].indexOf(projectStatus) >= 0 && (
           <button
             className={`app-tab ${activeTab === 'review' ? 'app-tab-active' : ''}`}
