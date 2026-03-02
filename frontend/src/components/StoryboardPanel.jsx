@@ -87,6 +87,11 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
   const [editInstruction, setEditInstruction] = useState('');
   const [editingLoading, setEditingLoading] = useState(false);
 
+  // Image lightbox
+  const [lightboxUrl, setLightboxUrl] = useState(null);
+  // Per-frame image generating state
+  const [generatingFrameIds, setGeneratingFrameIds] = useState(new Set());
+
   const [hasStoryboard, setHasStoryboard] = useState(false);
   const [docFiles, setDocFiles] = useState([]);
   const [refImages, setRefImages] = useState([]);
@@ -202,6 +207,93 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
     setTimeout(() => { setParseProgress(null); setParseStage(''); }, 1200);
   }, []);
 
+  // Generate images for frames via SSE endpoint
+  const generateFrameImages = useCallback(async (targetFrames) => {
+    if (!targetFrames || targetFrames.length === 0) return;
+    setGenerating(true);
+    setGenProgress(0); setGenStage('正在生成分镜配图...');
+    let completed = 0;
+    try {
+      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generate-storyboard`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frames: targetFrames }),
+      });
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            if (evt.type === 'progress') {
+              completed = evt.current;
+              setGenProgress(Math.round((completed / evt.total) * 100));
+              setGenStage(`生成配图中 ${completed}/${evt.total}...`);
+            } else if (evt.type === 'done') {
+              const updatedFrames = evt.frames || [];
+              setFrames((prev) => {
+                const map = new Map(updatedFrames.map(f => [f.id, f]));
+                return prev.map(f => map.has(f.id) ? { ...f, imageUrl: map.get(f.id).imageUrl || f.imageUrl } : f);
+              });
+            }
+          } catch {}
+        }
+      }
+    } catch (err) {
+      console.warn('Generate images failed:', err.message);
+    }
+    setGenProgress(100); setGenStage('配图生成完成！');
+    setTimeout(() => { setGenProgress(null); setGenStage(''); }, 1200);
+    setGenerating(false);
+  }, [projectId]);
+
+  // Generate image for a single frame
+  const generateSingleFrameImage = useCallback(async (frameId) => {
+    const frame = frames.find(f => f.id === frameId);
+    if (!frame) return;
+    setGeneratingFrameIds(prev => new Set(prev).add(frameId));
+    try {
+      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generate-storyboard`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frames: [frame] }),
+      });
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            if (evt.type === 'done') {
+              const updated = evt.frames || [];
+              const uf = updated.find(f => f.id === frameId);
+              if (uf && uf.imageUrl) {
+                setFrames(prev => prev.map(f => f.id === frameId ? { ...f, imageUrl: uf.imageUrl } : f));
+              }
+            }
+          } catch {}
+        }
+      }
+    } catch (err) {
+      await showAlert('⚠️ 图片生成失败: ' + err.message);
+    }
+    setGeneratingFrameIds(prev => { const s = new Set(prev); s.delete(frameId); return s; });
+  }, [frames, projectId, showAlert]);
+
   const handleParse = useCallback(async () => {
     if (docFiles.length === 0 && refImages.length === 0 && !text.trim()) return;
     setLoading(true); setGenerated(false);
@@ -217,8 +309,14 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       refImages.forEach((img) => formData.append('images', img.file));
       const data = await parseStoryboard(projectId, formData);
       const parsedFrames = Array.isArray(data) ? data : data.frames || [];
-      setFrames(parsedFrames.map((f) => ({ ...f, imageUrl: f.imageUrl || null })));
+      const newFrames = parsedFrames.map((f) => ({ ...f, imageUrl: f.imageUrl || null }));
+      setFrames(newFrames);
       finishProgress();
+      // Auto-generate images for frames without images
+      const needImages = newFrames.filter(f => !f.imageUrl);
+      if (needImages.length > 0) {
+        setTimeout(() => generateFrameImages(newFrames), 500);
+      }
     } catch (err) {
       finishProgress();
       const msg = err.message || '未知错误';
@@ -228,7 +326,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
         : '⚠️ 分镜解析失败\n\n' + msg + '\n\n你可以修改文案后重新解析。');
     }
     setLoading(false);
-  }, [text, docFiles, refImages, orientation, cameraAngle, perspective, style, projectId, showAlert, startProgress, finishProgress]);
+  }, [text, docFiles, refImages, orientation, cameraAngle, perspective, style, projectId, showAlert, startProgress, finishProgress, generateFrameImages]);
 
   const handleGenerate = useCallback(async () => {
     if (frames.length === 0) return;
@@ -556,12 +654,26 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
                   <td className="sb-td sb-td-visual">
                     {frame.imageUrl ? (
                       <div className="sb-visual-images">
-                        <img src={frame.imageUrl} alt={frame.title} className="sb-visual-img" />
+                        <img src={frame.imageUrl} alt={frame.title} className="sb-visual-img sb-visual-img-clickable"
+                          onClick={() => setLightboxUrl(frame.imageUrl)} title="点击放大" />
+                        <div className="sb-visual-actions">
+                          <a className="sb-img-action-btn" href={frame.imageUrl} download={`frame_${idx + 1}.jpg`} title="下载" onClick={e => e.stopPropagation()}>⬇️</a>
+                          <button className="sb-img-action-btn" onClick={() => generateSingleFrameImage(frame.id)}
+                            disabled={generatingFrameIds.has(frame.id)} title="重新生成">🔄</button>
+                        </div>
                       </div>
                     ) : (
                       <div className="sb-visual-placeholder">
                         <span>#{idx + 1}</span>
-                        <span className="sb-visual-ph-text">{frame.prompt ? frame.prompt.slice(0, 60) + '...' : '待生成'}</span>
+                        {generatingFrameIds.has(frame.id) ? (
+                          <span className="sb-visual-ph-text">⏳ 生成中...</span>
+                        ) : (
+                          <>
+                            <span className="sb-visual-ph-text">{frame.prompt ? frame.prompt.slice(0, 40) + '...' : '待生成'}</span>
+                            <button className="sb-gen-single-btn" onClick={() => generateSingleFrameImage(frame.id)}
+                              disabled={generating}>🎨 生成图片</button>
+                          </>
+                        )}
                       </div>
                     )}
                   </td>
@@ -594,6 +706,18 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
               disabled={hasStoryboard ? false : !generated} title={!hasStoryboard && !generated ? '请先点击"生成分镜"' : ''}>
               🗺 转为蓝图
             </button>
+          </div>
+        </div>
+      )}
+      {/* Lightbox */}
+      {lightboxUrl && (
+        <div className="sb-lightbox-overlay" onClick={() => setLightboxUrl(null)}>
+          <div className="sb-lightbox-content" onClick={e => e.stopPropagation()}>
+            <img src={lightboxUrl} alt="放大预览" className="sb-lightbox-img" />
+            <div className="sb-lightbox-bar">
+              <a className="sb-lightbox-btn" href={lightboxUrl} download="frame.jpg">⬇️ 下载</a>
+              <button className="sb-lightbox-btn" onClick={() => setLightboxUrl(null)}>✕ 关闭</button>
+            </div>
           </div>
         </div>
       )}

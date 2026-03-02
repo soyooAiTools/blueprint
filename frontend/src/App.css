@@ -4295,6 +4295,38 @@ html, body, #root {
   font-weight: 700;
 }
 .sb-visual-ph-text { font-size: 11px; font-weight: 400; color: #555; }
+.sb-visual-img-clickable { cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
+.sb-visual-img-clickable:hover { transform: scale(1.03); box-shadow: 0 0 12px rgba(99,102,241,0.4); }
+.sb-visual-actions { display: flex; gap: 6px; justify-content: center; margin-top: 6px; }
+.sb-img-action-btn {
+  background: #1e1e3a; border: 1px solid #333; border-radius: 4px;
+  color: #ccc; font-size: 13px; padding: 2px 8px; cursor: pointer;
+  text-decoration: none; display: inline-flex; align-items: center;
+}
+.sb-img-action-btn:hover { background: #2a2a4a; color: #fff; border-color: #6366f1; }
+.sb-gen-single-btn {
+  margin-top: 6px; padding: 4px 12px; background: #6366f1; color: #fff;
+  border: none; border-radius: 6px; cursor: pointer; font-size: 12px;
+}
+.sb-gen-single-btn:hover { background: #818cf8; }
+.sb-gen-single-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Lightbox */
+.sb-lightbox-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.85); z-index: 9999;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.sb-lightbox-content { max-width: 90vw; max-height: 90vh; cursor: default; text-align: center; }
+.sb-lightbox-img { max-width: 90vw; max-height: 80vh; border-radius: 8px; box-shadow: 0 0 40px rgba(0,0,0,0.5); }
+.sb-lightbox-bar { margin-top: 12px; display: flex; gap: 12px; justify-content: center; }
+.sb-lightbox-btn {
+  background: #1e1e3a; border: 1px solid #444; border-radius: 6px;
+  color: #ddd; padding: 6px 16px; cursor: pointer; font-size: 14px;
+  text-decoration: none; display: inline-flex; align-items: center;
+}
+.sb-lightbox-btn:hover { background: #2a2a4a; color: #fff; border-color: #6366f1; }
 
 /* 注释 */
 .sb-td-note { vertical-align: top; }
