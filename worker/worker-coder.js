@@ -10,7 +10,7 @@ const { execSync } = require('child_process');
 const API_BASE = 'https://crs.mindrix.app/api';
 const API_KEY = process.env.LLM_API_KEY || 'cr_f891cb1046bf100addfc0bf027cb1b37fafa8cc214e1bdbbe5493e6fa3240e7c';
 const MODEL = process.env.LLM_MODEL || 'claude-sonnet-4-5-20250929';
-const MAX_TOKENS = 16384;
+const MAX_TOKENS = 32768; // 10 shots need more output tokens
 const MAX_FIX_ATTEMPTS = 10;  // Keep retrying until fixed (practical upper bound)
 const PIPELINE_DIR = process.env.LUNA_PIPELINE || 'D:\\Luna\\pipeline';
 const COCOS_EXE = process.env.COCOS_CREATOR || 'D:\\CocosCreator-v3.8.8-win-121518\\CocosCreator.exe';
@@ -18,7 +18,7 @@ const COCOS_EXE = process.env.COCOS_CREATOR || 'D:\\CocosCreator-v3.8.8-win-1215
 // ============ LLM Call ============
 
 function callClaude(systemPrompt, userMessage, timeoutMs) {
-  timeoutMs = timeoutMs || 120000;
+  timeoutMs = timeoutMs || 300000; // 5 min for large blueprints
   return new Promise(function(resolve, reject) {
     var body = JSON.stringify({
       model: MODEL,

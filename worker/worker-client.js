@@ -24,7 +24,7 @@ try {
 
 // ============ Config ============
 const WORKER_ID = process.env.WORKER_ID || 'workerA';
-const BASE_URL = process.env.BASE_URL || 'https://playcools.top/blueprintEditor';
+const BASE_URL = process.env.BASE_URL || 'https://playcools.top/blueprint';
 const POLL_INTERVAL = 8000;       // 8s between polls
 const HEARTBEAT_INTERVAL = 30000; // 30s heartbeat
 const WORK_DIR = 'D:\\work';
@@ -175,8 +175,18 @@ async function processTask(task) {
         log(`AI coding done: ${codeResult.filesWritten} files written`, taskId);
         await reportStatus(taskId, 'processing', { message: `AI 编码完成 (${codeResult.filesWritten} 文件)` });
       } else if (!codeResult.ok) {
-        log('AI coding failed: ' + codeResult.error, taskId);
-        await reportStatus(taskId, 'processing', { message: 'AI 编码失败，使用现有代码继续构建' });
+        log('AI coding failed: ' + codeResult.error + ', retrying...', taskId);
+        await reportStatus(taskId, 'processing', { message: 'AI 编码失败，重试中...' });
+        // Retry once
+        const retryResult = await generateCode(blueprint, CLIENT_DIR, log, taskId, 'unity');
+        if (retryResult.ok && !retryResult.skipped) {
+          log(`AI coding retry done: ${retryResult.filesWritten} files written`, taskId);
+          await reportStatus(taskId, 'processing', { message: `AI 编码完成 (${retryResult.filesWritten} 文件, 重试)` });
+        } else {
+          log('AI coding retry also failed: ' + (retryResult.error || 'unknown'), taskId);
+          await reportStatus(taskId, 'error', { message: 'AI 编码失败: ' + (codeResult.error || 'unknown') });
+          throw new Error('AI coding failed after retry: ' + (retryResult.error || codeResult.error));
+        }
       }
     } else {
       log('Empty or missing blueprint, skipping AI coding', taskId);
@@ -311,8 +321,15 @@ async function processTaskCocos(task) {
         log(`AI coding done: ${codeResult.filesWritten} files`, taskId);
         await reportStatus(taskId, 'processing', { message: `AI 编码完成 (${codeResult.filesWritten} 文件)` });
       } else if (!codeResult.ok) {
-        log('AI coding failed: ' + codeResult.error, taskId);
-        await reportStatus(taskId, 'processing', { message: 'AI 编码失败，使用现有代码继续构建' });
+        log('AI coding failed: ' + codeResult.error + ', retrying...', taskId);
+        await reportStatus(taskId, 'processing', { message: 'AI 编码失败，重试中...' });
+        const retryResult = await generateCode(blueprint, COCOS_PROJECT_DIR, log, taskId, 'cocos');
+        if (retryResult.ok && !retryResult.skipped) {
+          log(`AI coding retry done: ${retryResult.filesWritten} files`, taskId);
+        } else {
+          await reportStatus(taskId, 'error', { message: 'AI 编码失败: ' + (codeResult.error || 'unknown') });
+          throw new Error('AI coding failed after retry: ' + (retryResult.error || codeResult.error));
+        }
       }
     }
 
