@@ -9,7 +9,8 @@ const { execSync } = require('child_process');
 // ============ Config ============
 const API_BASE = 'https://crs.mindrix.app/api';
 const API_KEY = process.env.LLM_API_KEY || 'cr_f891cb1046bf100addfc0bf027cb1b37fafa8cc214e1bdbbe5493e6fa3240e7c';
-const MODEL = process.env.LLM_MODEL || 'claude-sonnet-4-5-20250929';
+const MODEL_GENERATE = process.env.LLM_MODEL_GENERATE || 'claude-opus-4-0-20250115';
+const MODEL_FIX = process.env.LLM_MODEL_FIX || 'claude-sonnet-4-5-20250929';
 const MAX_TOKENS = 32768; // 10 shots need more output tokens
 const MAX_FIX_ATTEMPTS = 10;  // Keep retrying until fixed (practical upper bound)
 const PIPELINE_DIR = process.env.LUNA_PIPELINE || 'D:\\Luna\\pipeline';
@@ -17,11 +18,12 @@ const COCOS_EXE = process.env.COCOS_CREATOR || 'D:\\CocosCreator-v3.8.8-win-1215
 
 // ============ LLM Call ============
 
-function callClaude(systemPrompt, userMessage, timeoutMs) {
+function callClaude(systemPrompt, userMessage, timeoutMs, model) {
   timeoutMs = timeoutMs || 300000; // 5 min for large blueprints
+  model = model || MODEL_FIX;
   return new Promise(function(resolve, reject) {
     var body = JSON.stringify({
-      model: MODEL,
+      model: model,
       max_tokens: MAX_TOKENS,
       system: systemPrompt,
       messages: [{ role: 'user', content: userMessage }]
@@ -150,8 +152,8 @@ var GENERATE_PROMPT = [
   '- System.Math (use UnityEngine.Mathf instead)',
   '- String.Format, Regex (memory leak prone in Luna)',
   '- Multi-dimensional arrays (use 1D or jagged arrays, 10x perf difference)',
-  '- GameObject.Find (use singleton pattern or pre-registered references)',
   '- Application.OpenURL → use Luna.Unity.Playable.InstallFullGame() for CTA',
+  '- public Inspector references (the scene file will NOT be modified — all references MUST be resolved in code)',
   '',
   '### MUST do:',
   '- Call Luna.Unity.LifeCycle.GameEnded() when game ends (before CTA)',
@@ -197,6 +199,66 @@ var GENERATE_PROMPT = [
   '- UI layer ordering: add Graphic Raycaster; if sorting layer ineffective, check shader render queue',
   '- Sprite-based number display may not refresh — workaround: duplicate sprite set with alpha=0 as backup',
   '',
+  '## CRITICAL ARCHITECTURE: Clean Scene + Code-Built World',
+  '',
+  '⚠️ Luna converts Unity C# to JavaScript. [RuntimeInitializeOnLoadMethod] is IGNORED by Luna.',
+  '⚠️ Only scripts already attached to scene GameObjects via the Unity Editor will execute.',
+  '⚠️ The SVN template scene contains UNRELATED objects from previous projects.',
+  '⚠️ You MUST clear the template scene and BUILD THE ENTIRE GAME WORLD FROM CODE.',
+  '',
+  '### Strategy: CLEAN SCENE + BUILD FROM SCRATCH IN CODE',
+  '',
+  '#### Step 1: Clear the template scene (in Awake or Start, BEFORE anything else)',
+  '```csharp',
+  '// Hide ALL template objects except essential ones',
+  'foreach (GameObject root in UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects())',
+  '{',
+  '    string name = root.name.ToLower();',
+  '    // Keep: Main Camera, Directional Light, EventSystem, Canvas (if reusable), and the object running this script',
+  '    if (name.Contains("camera") || name.Contains("light") || name.Contains("eventsystem"))',
+  '        continue;',
+  '    if (root == this.gameObject || root.transform == this.transform.root)',
+  '        continue;',
+  '    root.SetActive(false);',
+  '}',
+  '```',
+  '',
+  '#### Step 2: Set up the essential scene infrastructure',
+  '- **Camera**: Reuse existing Main Camera or create one. Set position, rotation, FOV, background color per blueprint.',
+  '- **Lighting**: Reuse existing Directional Light or create one. Set rotation, color, intensity.',
+  '- **UI Canvas**: Create a new Canvas (Screen Space - Overlay) with CanvasScaler (Scale With Screen Size, 1080x1920 or as needed) + GraphicRaycaster.',
+  '- **EventSystem**: If none exists, create one with StandaloneInputModule.',
+  '',
+  '#### Step 3: Build ALL game objects from code',
+  '- 3D objects: `GameObject.CreatePrimitive(PrimitiveType.Cube/Sphere/Plane/etc.)` + set transform + material',
+  '- UI elements: `new GameObject("ButtonName", typeof(RectTransform), typeof(Image), typeof(Button))` etc.',
+  '- Text: `new GameObject("Label", typeof(RectTransform), typeof(UnityEngine.UI.Text))` — set font via `Resources.GetBuiltinResource<Font>("Arial.ttf")`',
+  '- Parent objects: create empty `new GameObject("ShotContainer")` to group objects per shot',
+  '- Materials: `new Material(Shader.Find("Universal Render Pipeline/Lit"))` — set color via `material.color = ...`',
+  '- For complex shapes: compose from multiple primitives, or use scaled/rotated cubes',
+  '',
+  '#### Step 4: Implement blueprint logic on code-created objects',
+  '- Attach scripts to created objects via `obj.AddComponent<T>()`',
+  '- Wire up events (button clicks, collisions) in code',
+  '- Shot transitions: SetActive(false) current shot container, SetActive(true) next shot container',
+  '',
+  '### Rules:',
+  '- Identify the main controller script from the project context — REWRITE it completely (keep class name)',
+  '- The rewritten main script is your ENTRY POINT — it runs Awake/Start because it is already in the scene',
+  '- ALL scene content must be created in code from this entry point — do NOT rely on template scene objects',
+  '- Do NOT assume any specific GameObjects exist in the scene (except Camera, Light, EventSystem)',
+  '- Use `gameObject.AddComponent<T>()` for helper scripts',
+  '- Color/style the objects to roughly match the blueprint theme (not just white primitives)',
+  '',
+  '### What to REWRITE:',
+  '- The main game controller (PlayableAdController, GameManager, etc.) — keep class name, replace ALL logic',
+  '- Any other scripts attached to the scene — rewrite to participate in the new code-built world',
+  '',
+  '### What to KEEP unchanged:',
+  '- Utility scripts (MonoSingleton, math helpers, Luna lifecycle helpers)',
+  '- Audio/mute handling scripts (LunaPlayableBootstrap etc.)',
+  '- Class names of scripts attached to the scene (changing names = broken references)',
+  '',
   '## CRITICAL: Implement EXACTLY what the blueprint describes',
   '',
   'The user has designed a playable ad with specific shots (scenes). Each shot has:',
@@ -218,13 +280,14 @@ var GENERATE_PROMPT = [
   '8. Do NOT keep template gameplay that contradicts the blueprint',
   '',
   '## Working with the existing SVN project',
-  'The SVN project is a TEMPLATE. You should:',
-  '1. Read and understand the existing codebase provided in the context',
-  '2. MODIFY existing scripts to match the blueprint — do NOT keep unrelated template logic',
-  '3. Reuse existing utility classes, managers, and helpers when they fit',
-  '4. Remove or disable template-specific gameplay that does not match the blueprint',
-  '5. Keep the same coding patterns and naming conventions',
-  '6. If the project has a GameManager or flow controller, adapt it to the blueprint flow',
+  'The SVN project is a TEMPLATE with scripts already attached to scene GameObjects.',
+  'You MUST:',
+  '1. Read ALL existing scripts carefully — identify which ones are entry points (have Start/Awake)',
+  '2. REWRITE the main controller script(s) to implement the blueprint — keep class names identical',
+  '3. Create new helper scripts and attach them via AddComponent from the main script',
+  '4. Use GameObject.CreatePrimitive() for new 3D objects the blueprint needs',
+  '5. Reuse existing scene GameObjects where possible (find them by name)',
+  '6. Do NOT create a Bootstrap with [RuntimeInitializeOnLoadMethod] — Luna ignores it',
   '',
   'NAMING: Do NOT create classes that conflict with existing ones.',
   '',
@@ -233,6 +296,7 @@ var GENERATE_PROMPT = [
   '// code',
   '```',
   '',
+  'FIRST file MUST be the rewritten main controller (e.g., PlayableAdController.cs) — keep the original class name.',
   'Generate code that implements the blueprint faithfully. The final playable ad should match the storyboard exactly.'
 ].join('\n');
 
@@ -254,6 +318,11 @@ var FIX_PROMPT = [
   '- Use Luna.Unity.Playable.InstallFullGame() instead of Application.OpenURL',
   '- Must call Luna.Unity.LifeCycle.GameEnded() when game ends',
   '- Do NOT use class name "GameManager" (already exists in project)',
+  '- Do NOT use [RuntimeInitializeOnLoadMethod] — Luna ignores it',
+  '- The main controller script (rewritten from template) is the entry point — keep its class name',
+  '- The scene is CLEAN — all game objects are created from code, do NOT use GameObject.Find() for template objects',
+  '- If a fix requires new scene objects, CREATE them in code (CreatePrimitive, new GameObject, etc.)',
+  '- Do NOT reintroduce dependencies on template scene objects that were cleared',
   '',
   'Analyze each error carefully. Fix ALL errors. If the same error keeps recurring,',
   'try a completely different approach rather than repeating the same fix.',
@@ -449,6 +518,25 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
 
   log('[coder] Generating ' + engine + ' code for: ' + parsed.scenes.length + ' scenes', taskId);
 
+  // Clean up previously generated scripts to avoid conflicts
+  if (!isCocos) {
+    var scriptsDir = path.join(clientDir, 'Assets', 'Scripts');
+    var dirsToClean = ['WoodArchery', 'Playable', 'FinalPlayable', 'NewPlayable', 'Generated', 'BlueprintGame'];
+    dirsToClean.forEach(function(d) {
+      var dirPath = path.join(scriptsDir, d);
+      if (fs.existsSync(dirPath)) {
+        log('[coder] Cleaning previous AI-generated dir: ' + d, taskId);
+        try { fs.rmSync(dirPath, { recursive: true, force: true }); } catch(e) { log('[coder] Clean failed: ' + e.message, taskId); }
+      }
+    });
+    // Also clean any PlayableBootstrap.cs in root Scripts dir
+    var bootstrapFile = path.join(scriptsDir, 'PlayableBootstrap.cs');
+    if (fs.existsSync(bootstrapFile)) { try { fs.unlinkSync(bootstrapFile); } catch(e) {} }
+    var lunaBuildFix = path.join(scriptsDir, 'LunaBuildFix.cs');
+    if (fs.existsSync(lunaBuildFix)) { try { fs.unlinkSync(lunaBuildFix); } catch(e) {} }
+    log('[coder] Cleanup done', taskId);
+  }
+
   // Select prompts and helpers based on engine
   var sysPrompt = isCocos ? COCOS_GENERATE_PROMPT : GENERATE_PROMPT;
   var fixPrompt = isCocos ? COCOS_FIX_PROMPT : FIX_PROMPT;
@@ -474,7 +562,11 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
     projectSection = '\n\n## EXISTING PROJECT FILE STRUCTURE:\n```\n' + projectCtx.fileList + '\n```';
   }
   if (projectCtx.context) {
-    projectSection += '\n\n## EXISTING PROJECT CODE (study these patterns and follow them):\n' + projectCtx.context;
+    projectSection += '\n\n## EXISTING TEMPLATE CODE (reference ONLY — do NOT copy patterns, do NOT reuse scene-dependent logic):\n'
+      + '⚠️ This template code is from the SVN base project. It references scene objects that will be HIDDEN.\n'
+      + '⚠️ Only use this to understand: class names to keep, utility functions to reuse, Luna lifecycle hooks.\n'
+      + '⚠️ Do NOT copy game logic, scene references, or object lookups from this code.\n\n'
+      + projectCtx.context;
   }
 
   // Build structured scene descriptions for AI
@@ -494,12 +586,18 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
     + classWarning
     + projectSection
     + parsed.feedbackText
-    + '\n\nGenerate ' + lang + ' scripts that implement this blueprint EXACTLY. '
-    + 'Every shot must be playable. Remove or disable any template code that contradicts the blueprint. '
-    + 'The final game should match the storyboard — no extra unrelated content.';
+    + '\n\n## IMPORTANT REMINDERS:\n'
+    + '1. CLEAR the template scene first (SetActive(false) on all root objects except Camera/Light/EventSystem)\n'
+    + '2. BUILD everything from code — CreatePrimitive, new GameObject, UI components\n'
+    + '3. Do NOT use GameObject.Find() to locate template objects — they are all disabled\n'
+    + '4. Do NOT copy game logic from the template code — it is for a DIFFERENT game\n'
+    + '5. The template code is ONLY useful for: class names to preserve, utility functions, Luna lifecycle hooks\n\n'
+    + 'Generate ' + lang + ' scripts that implement this blueprint EXACTLY from scratch. '
+    + 'Every shot must be playable with code-created objects. '
+    + 'The final game should match the storyboard — no template content should be visible.';
 
   try {
-    var response = await callClaude(sysPrompt, userMsg);
+    var response = await callClaude(sysPrompt, userMsg, 300000, MODEL_GENERATE);
     log('[coder] Generated (' + (response.usage ? response.usage.output_tokens + ' tokens' : 'ok') + ')', taskId);
 
     var files = parseBlocks(response.text);
@@ -523,7 +621,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
         log('[coder] ⚠️ Same errors repeated 3 times, regenerating from scratch...', taskId);
         var regenMsg = userMsg + '\n\n## IMPORTANT: Previous code had persistent compilation errors:\n```\n'
           + result.errors.join('\n') + '\n```\nGenerate completely different code that avoids these issues.';
-        var regenResp = await callClaude(sysPrompt, regenMsg);
+        var regenResp = await callClaude(sysPrompt, regenMsg, 300000, MODEL_GENERATE);
         var regenFiles = parseBlocks(regenResp.text);
         if (regenFiles.length > 0) { writeFiles(clientDir, regenFiles, log, taskId); files = regenFiles; }
         sameErrorCount = 0; prevErrorSig = ''; continue;
