@@ -7,8 +7,25 @@ const AdmZip = require('adm-zip');
 const PORT = process.env.PORT || 3901;
 const __dir = __dirname;
 
-// 启动前清理占端口的孤儿进程
-try { require('./port-guard')(PORT); } catch (e) { console.warn('[port-guard] skipped:', e.message); }
+// 启动前清理占端口的孤儿进程（内联，避免 require 路径问题）
+try {
+  var pgResult = require('child_process').execSync(
+    'ss -tlnp sport = :' + PORT + ' 2>/dev/null || true',
+    { encoding: 'utf-8', timeout: 3000 }
+  ).trim();
+  var pgPidMatch = pgResult.match(/pid=(\d+)/);
+  if (pgPidMatch) {
+    var pgPid = parseInt(pgPidMatch[1]);
+    if (pgPid !== process.pid) {
+      console.log('[port-guard] Port ' + PORT + ' occupied by PID ' + pgPid + ', killing...');
+      try { process.kill(pgPid, 'SIGTERM'); } catch(e) {}
+      require('child_process').execSync('sleep 1');
+      try { process.kill(pgPid, 'SIGKILL'); } catch(e) {}
+      require('child_process').execSync('sleep 1');
+      console.log('[port-guard] Cleaned up PID ' + pgPid);
+    }
+  }
+} catch (e) { console.warn('[port-guard] skipped:', e.message); }
 
 // 非 PM2 启动时警告（防止手动 node server.cjs 产生孤儿进程）
 if (!process.env.pm_id) {

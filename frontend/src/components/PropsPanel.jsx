@@ -369,7 +369,7 @@ building.buildTime = 2   # 建造时长（秒）`}
         <div className="props-divider">🎯 素材配置</div>
         <div className="props-hint">为每个游戏对象配置名称和素材，Coding Agent 会自动匹配使用</div>
 
-        {(d.assets || []).map((asset, ai) => (
+        {(Array.isArray(d.assets) ? d.assets : []).map((asset, ai) => (
           <div key={ai} className="props-asset-card">
             <div className="props-asset-header">
               <input
@@ -466,7 +466,7 @@ building.buildTime = 2   # 建造时长（秒）`}
 
         <button
           className="props-image-upload-btn"
-          onClick={() => update('assets', [...(d.assets || []), { targetName: '', models: [], images: [] }])}
+          onClick={() => update('assets', [...(Array.isArray(d.assets) ? d.assets : []), { targetName: '', models: [], images: [] }])}
         >
           + 添加素材目标
         </button>

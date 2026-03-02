@@ -113,7 +113,9 @@ async function generateStoryboardPDF(frames, options = {}) {
 
   // Register Chinese fonts
   let hasCJK = false;
+  let cjkFontPath = null;
   const fontPaths = [
+    '/usr/share/fonts/chinese/NotoSansSC-Regular.ttf',
     '/usr/share/fonts/chinese/NotoSansCJKsc-Regular.otf',
     '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
     '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
@@ -128,6 +130,7 @@ async function generateStoryboardPDF(frames, options = {}) {
   for (const fp of fontPaths) {
     if (fs.existsSync(fp)) {
       doc.registerFont('CJK', fp);
+      cjkFontPath = fp;
       hasCJK = true;
       break;
     }
@@ -144,7 +147,8 @@ async function generateStoryboardPDF(frames, options = {}) {
     doc.registerFont('CJK', 'Helvetica');
   }
   if (!hasBold) {
-    doc.registerFont('CJK-Bold', hasCJK ? 'CJK' : 'Helvetica-Bold');
+    // Use the same CJK font file for bold (not the registered name)
+    doc.registerFont('CJK-Bold', cjkFontPath || 'Helvetica-Bold');
   }
 
   // Pre-fetch all images
