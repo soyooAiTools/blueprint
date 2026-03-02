@@ -10,6 +10,12 @@ const __dir = __dirname;
 // 启动前清理占端口的孤儿进程
 try { require('./port-guard')(PORT); } catch (e) { console.warn('[port-guard] skipped:', e.message); }
 
+// 非 PM2 启动时警告（防止手动 node server.cjs 产生孤儿进程）
+if (!process.env.pm_id) {
+  console.warn('\n⚠️  未通过 PM2 启动！手动测试请用: node server.cjs &  测完记得 kill');
+  console.warn('⚠️  生产启动请用: pm2 start ecosystem.config.js\n');
+}
+
 // Data directories
 const DATA_DIR = path.join(__dir, 'server-data');
 
