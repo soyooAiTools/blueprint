@@ -75,10 +75,25 @@ function parseBlueprintToPrompt(blueprint) {
 
   var scenes = nodes.map(function(node, i) {
     var d = node.data || {};
-    // Support both old format (label/description) and new blueprint editor format (name/scene/triggers/behavior)
-    var desc = d.description || '';
-    if (!desc && d.scene) {
-      // Build rich description from blueprint editor fields
+    var isV2 = !!(d.sceneObjects || d.triggerChain || d.params);
+    var desc = '';
+
+    if (isV2) {
+      // V2 blueprint format — rich structured fields
+      var parts = [];
+      if (d.sceneObjects) parts.push('【场景对象】\n' + d.sceneObjects);
+      if (d.inputType) parts.push('【输入方式】' + d.inputType + (d.inputConfig ? '\n' + d.inputConfig : ''));
+      if (d.triggerChain) parts.push('【触发链（按顺序执行）】\n' + d.triggerChain);
+      if (d.params) parts.push('【参数表】\n' + d.params);
+      if (d.assets) parts.push('【资源清单】\n' + d.assets);
+      if (d.entryCondition) parts.push('【进入条件】' + d.entryCondition);
+      if (d.endCondition) parts.push('【结束条件】' + d.endCondition);
+      if (d.referenceNote) parts.push('【参考说明】' + d.referenceNote);
+      desc = parts.join('\n');
+    } else if (d.description) {
+      desc = d.description;
+    } else if (d.scene) {
+      // Legacy v1 format fallback
       var parts = [];
       if (d.scene) parts.push('【场景】' + d.scene);
       if (d.controlTarget) parts.push('【操控对象】' + d.controlTarget);
@@ -87,26 +102,18 @@ function parseBlueprintToPrompt(blueprint) {
       if (d.behavior) parts.push('【数值/行为】' + d.behavior);
       if (d.entryCondition) parts.push('【进入条件】' + d.entryCondition);
       if (d.endCondition) parts.push('【结束条件】' + d.endCondition);
-      if (d.branch) {
-        var b = d.branch;
-        parts.push('【分支】条件: ' + (b.condition || '') + ' → 成功: ' + (b.ifTrue || '继续') + ' / 失败: ' + (b.ifFalse || '继续'));
-      }
-      if (d.branch2) {
-        var b2 = d.branch2;
-        parts.push('【分支2】条件: ' + (b2.condition || '') + ' → 成功: ' + (b2.ifTrue || '继续') + ' / 失败: ' + (b2.ifFalse || '继续'));
-      }
       desc = parts.join('\n');
     }
     return {
       id: node.id,
-      label: d.label || d.name || d.title || ('Scene ' + (i + 1)),
+      label: d.label || d.name || d.title || ('Shot ' + (i + 1)),
       description: desc,
       interactions: d.interactions || []
     };
   });
 
   var transitions = edges.map(function(edge) {
-    return { from: edge.source, to: edge.target, condition: (edge.data && edge.data.condition) || 'click' };
+    return { from: edge.source, to: edge.target, condition: (edge.data && edge.data.condition) || 'auto' };
   });
 
   var feedbackText = '';
@@ -190,15 +197,34 @@ var GENERATE_PROMPT = [
   '- UI layer ordering: add Graphic Raycaster; if sorting layer ineffective, check shader render queue',
   '- Sprite-based number display may not refresh — workaround: duplicate sprite set with alpha=0 as backup',
   '',
-  '## CRITICAL: Work with the existing project',
-  'This SVN project is a STANDARD SLG TEMPLATE from the company. You MUST:',
+  '## CRITICAL: Implement EXACTLY what the blueprint describes',
+  '',
+  'The user has designed a playable ad with specific shots (scenes). Each shot has:',
+  '- **Scene Objects**: What should appear on screen (characters, items, UI elements)',
+  '- **Input Type + Config**: How the player interacts (tap, drag, joystick, etc.)',
+  '- **Trigger Chain**: Step-by-step game logic — events, conditions, and actions IN ORDER',
+  '- **Parameters**: Game values (speeds, scores, durations, etc.)',
+  '- **Assets**: Required prefabs, textures, audio',
+  '- **Entry/End Conditions**: When each shot starts and ends',
+  '',
+  'You MUST:',
+  '1. Implement EVERY shot described in the blueprint, in the specified order',
+  '2. The trigger chain is your primary guide — implement each step exactly as described',
+  '3. Scene objects listed MUST appear on screen; objects NOT listed should be hidden/removed',
+  '4. Use the exact input method specified (tap, drag, joystick, etc.)',
+  '5. Apply all parameters from the params table (speeds, scores, timing, etc.)',
+  '6. Shot transitions follow the edges/connections — implement them as scene flow',
+  '7. Do NOT add gameplay that is not in the blueprint',
+  '8. Do NOT keep template gameplay that contradicts the blueprint',
+  '',
+  '## Working with the existing SVN project',
+  'The SVN project is a TEMPLATE. You should:',
   '1. Read and understand the existing codebase provided in the context',
-  '2. Follow the same coding patterns, naming conventions, and architecture',
-  '3. Extend/modify existing scripts when appropriate rather than creating everything from scratch',
-  '4. Reuse existing utility classes, managers, and helpers already in the project',
-  '5. Do NOT duplicate functionality that already exists',
-  '6. Match the existing code style (indentation, naming, comment style)',
-  '7. If the project has a GameManager or flow controller, integrate with it',
+  '2. MODIFY existing scripts to match the blueprint — do NOT keep unrelated template logic',
+  '3. Reuse existing utility classes, managers, and helpers when they fit',
+  '4. Remove or disable template-specific gameplay that does not match the blueprint',
+  '5. Keep the same coding patterns and naming conventions',
+  '6. If the project has a GameManager or flow controller, adapt it to the blueprint flow',
   '',
   'NAMING: Do NOT create classes that conflict with existing ones.',
   '',
@@ -207,7 +233,7 @@ var GENERATE_PROMPT = [
   '// code',
   '```',
   '',
-  'Generate code that integrates naturally with the existing project. Minimal changes, maximum reuse.'
+  'Generate code that implements the blueprint faithfully. The final playable ad should match the storyboard exactly.'
 ].join('\n');
 
 var FIX_PROMPT = [
@@ -451,13 +477,26 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
     projectSection += '\n\n## EXISTING PROJECT CODE (study these patterns and follow them):\n' + projectCtx.context;
   }
 
+  // Build structured scene descriptions for AI
+  var scenesMarkdown = parsed.scenes.map(function(s, i) {
+    var lines = ['### Shot ' + (i + 1) + ': ' + s.label];
+    if (s.description) lines.push(s.description);
+    return lines.join('\n');
+  }).join('\n\n');
+
+  var transMarkdown = parsed.transitions.map(function(t) {
+    return '- ' + t.from + ' → ' + t.to + ' (condition: ' + t.condition + ')';
+  }).join('\n');
+
   var userMsg = '## Project: ' + parsed.projectName + '\n\n'
-    + '## Scenes:\n' + JSON.stringify(parsed.scenes, null, 2) + '\n\n'
-    + '## Transitions:\n' + JSON.stringify(parsed.transitions, null, 2)
+    + '## Blueprint Shots (implement ALL of these IN ORDER):\n\n' + scenesMarkdown + '\n\n'
+    + '## Shot Transitions (scene flow):\n' + transMarkdown
     + classWarning
     + projectSection
     + parsed.feedbackText
-    + '\n\nGenerate ' + lang + ' scripts for this playable ad. Follow the existing project patterns closely.';
+    + '\n\nGenerate ' + lang + ' scripts that implement this blueprint EXACTLY. '
+    + 'Every shot must be playable. Remove or disable any template code that contradicts the blueprint. '
+    + 'The final game should match the storyboard — no extra unrelated content.';
 
   try {
     var response = await callClaude(sysPrompt, userMsg);
