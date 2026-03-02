@@ -525,18 +525,7 @@ function FlowEditor({ project, onBack, initialTab }) {
                     <button className="preview-btn preview-btn-feedback" onClick={handleFeedback}>
                       💬 反馈修改
                     </button>
-                    <button className="preview-btn preview-btn-retry" onClick={async () => {
-                      if (await showConfirm('重新提交给 Coding Agent 开发？将基于当前蓝图重新生成代码。')) {
-                        try {
-                          await onSubmit();
-                          setActiveTab('review');
-                        } catch (err) {
-                          await showAlert('重新提交失败: ' + err.message);
-                        }
-                      }
-                    }}>
-                      🔄 重新生成
-                    </button>
+
                   </>
                 )}
               </div>
