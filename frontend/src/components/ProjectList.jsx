@@ -80,6 +80,7 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
   };
 
   const getShotCount = (p) => {
+    if (typeof p.shotCount === 'number') return p.shotCount;
     const bp = p.blueprint || p;
     return (bp.nodes || []).filter((n) => n.type === 'shotNode').length;
   };
