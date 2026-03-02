@@ -3811,6 +3811,20 @@ html, body, #root {
 }
 .preview-refresh-btn:hover { background: rgba(99,102,241,0.3); }
 
+.preview-btn-feedback {
+  background: rgba(234,179,8,0.15) !important;
+  border-color: #eab30844 !important;
+  color: #fbbf24 !important;
+}
+.preview-btn-feedback:hover { background: rgba(234,179,8,0.3) !important; }
+
+.preview-btn-retry {
+  background: rgba(99,102,241,0.15) !important;
+  border-color: #6366f144 !important;
+  color: #a5b4fc !important;
+}
+.preview-btn-retry:hover { background: rgba(99,102,241,0.3) !important; }
+
 /* Empty preview state */
 .preview-empty {
   width: 375px;
