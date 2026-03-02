@@ -670,6 +670,8 @@ handlers.uploadBuild = function(req, res, body, id) {
         if (fs.existsSync(htmlPath)) {
           var content = fs.readFileSync(htmlPath, 'utf-8');
           content = content.replace(/href="\//g, 'href="./').replace(/src="\//g, 'src="./');
+          // Fix Windows backslashes in paths (Luna on Windows generates backslash paths)
+          content = content.replace(/src="([^"]*?)\\([^"]*?)"/g, function(m) { return m.replace(/\\/g, '/'); });
           fs.writeFileSync(htmlPath, content, 'utf-8');
           console.log('[Upload Build] Fixed paths in ' + htmlFile);
         }
