@@ -85,20 +85,17 @@ for (let i = 0; i < groups.length; i++) {
     position: { x: i * SHOT_SPACING_X, y: 0 },
     transitions: nextShotId ? [{ target: nextShotId }] : [],
     name: group.title,
-    scene: `【待细化】\n${sceneLines.join('\n')}`,
-    controlTarget: '【待填写】',
-    controlMethod: '【待填写】',
-    triggers: `【待细化】\n${interactionLines.join('\n')}`,
-    behavior: '【待填写数值参数】',
     entryCondition: i === 0 ? '游戏开始' : `镜头${i}完成`,
     endCondition: '',
-    branch: nextShotId ? {
-      condition: '【待填写分支条件】',
-      ifTrue: nextShotId,
-      ifFalse: ''
-    } : null,
-    branch2: null,
-    images: []
+    // v2 fields
+    sceneObjects: `【待细化】\n${sceneLines.join('\n')}`,
+    inputType: 'tap',
+    inputConfig: '',
+    triggerChain: `【待细化】\n${interactionLines.join('\n')}`,
+    params: '【待填写数值参数】',
+    assets: '',
+    images: [],
+    referenceNote: '',
   };
 
   // Last shot: add CTA note

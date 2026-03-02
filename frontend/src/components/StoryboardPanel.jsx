@@ -29,11 +29,17 @@ function framesToNodesEdges(frames) {
       data: {
         label: f.title || `镜头${i + 1}`,
         name: f.title || '',
-        scene: f.prompt || '',
-        controlTarget: '【待填写】',
-        controlMethod: '【待填写】',
-        triggers: f.interaction || '',
+        entryCondition: i === 0 ? '游戏开始' : '',
         endCondition: '',
+        // v2 fields
+        sceneObjects: f.prompt || '',
+        inputType: 'tap',
+        inputConfig: '',
+        triggerChain: f.interaction || '',
+        params: '',
+        assets: '',
+        images: [],
+        referenceNote: '',
       },
     });
     if (i > 0) {

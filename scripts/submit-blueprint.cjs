@@ -60,16 +60,17 @@ function convertToBlueprint(storyboard) {
       position: shot.position || { x: nodes.length * 400, y: 0 },
       data: {
         name: shot.name || '',
-        scene: shot.scene || '',
-        controlTarget: shot.controlTarget || '',
-        controlMethod: shot.controlMethod || '',
-        triggers: shot.triggers || '',
-        behavior: shot.behavior || '',
         entryCondition: shot.entryCondition || '',
         endCondition: shot.endCondition || '',
-        branch: shot.branch || null,
-        branch2: shot.branch2 || null,
-        images: [] // Strip base64 images
+        // v2 fields
+        sceneObjects: shot.sceneObjects || shot.scene || '',
+        inputType: shot.inputType || 'tap',
+        inputConfig: shot.inputConfig || '',
+        triggerChain: shot.triggerChain || shot.triggers || '',
+        params: shot.params || shot.behavior || '',
+        assets: shot.assets || '',
+        images: [],
+        referenceNote: shot.referenceNote || '',
       }
     };
     nodes.push(node);
