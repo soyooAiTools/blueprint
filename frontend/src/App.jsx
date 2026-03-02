@@ -470,6 +470,10 @@ function FlowEditor({ project, onBack, initialTab }) {
                 {projectStatus === 'committed' && (
                   <span className="preview-status-text preview-status-committed">✅ 已提交 SVN</span>
                 )}
+                <button className="preview-refresh-btn" onClick={() => {
+                  const iframe = document.querySelector('.preview-iframe');
+                  if (iframe) { iframe.src = iframe.src; }
+                }} title="刷新预览">🔄</button>
               </div>
               {webglInfo && webglInfo.available ? (
                 <div className="preview-phone-frame">
