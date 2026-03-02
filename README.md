@@ -15,7 +15,7 @@ Blueprint Editor (Web) → Worker (Windows Server) → 渠道 HTML
 1. **分镜解析** — 双模式：
    - **有分镜文件**：上传 PDF 分镜 + 附件（PNG/JPG/MP4/AVI/HTML），AI 直接解析为分镜帧，可直接转蓝图
    - **无分镜文件**：上传需求文档（DOC/DOCX/XLS/XLSX）+ 附件（PNG/JPG/MP4/AVI/HTML）+ 备注，AI 解析并生成配图
-2. **蓝图编辑** — 分镜转蓝图节点，在 Web 端编辑试玩广告蓝图（场景+转场+交互）
+2. **蓝图编辑** — 分镜转蓝图节点（v2 格式：sceneObjects/triggerChain/params/assets），在 Web 端编辑试玩广告蓝图
 2. **任务提交** — Worker 自动 poll 拉取任务
 3. **SVN 更新** — 拉取最新 Unity 项目代码
 4. **AI 编码** — Claude Sonnet 4.5 根据蓝图生成 Unity C# 代码（基于现有 SLG 模板工程，遵循公司 Luna 制作规范）
