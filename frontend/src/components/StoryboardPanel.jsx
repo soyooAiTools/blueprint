@@ -654,10 +654,10 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
                   <td className="sb-td sb-td-visual">
                     {frame.imageUrl ? (
                       <div className="sb-visual-images">
-                        <img src={frame.imageUrl} alt={frame.title} className="sb-visual-img sb-visual-img-clickable"
-                          onClick={() => setLightboxUrl(frame.imageUrl)} title="点击放大" />
+                        <img src={API_BASE + frame.imageUrl} alt={frame.title} className="sb-visual-img sb-visual-img-clickable"
+                          onClick={() => setLightboxUrl(API_BASE + frame.imageUrl)} title="点击放大" />
                         <div className="sb-visual-actions">
-                          <a className="sb-img-action-btn" href={frame.imageUrl} download={`frame_${idx + 1}.jpg`} title="下载" onClick={e => e.stopPropagation()}>⬇️</a>
+                          <a className="sb-img-action-btn" href={API_BASE + frame.imageUrl} download={`frame_${idx + 1}.jpg`} title="下载" onClick={e => e.stopPropagation()}>⬇️</a>
                           <button className="sb-img-action-btn" onClick={() => generateSingleFrameImage(frame.id)}
                             disabled={generatingFrameIds.has(frame.id)} title="重新生成">🔄</button>
                         </div>
