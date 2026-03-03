@@ -846,11 +846,10 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
             <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-clear" onClick={handleClearFrames}>
               🗑 清空帧
             </button>
-            {!hasStoryboard && !generated && (
-              <button className="storyboard-btn storyboard-bottom-btn generate-storyboard-btn" onClick={handleGenerate} disabled={generating}>
-                {generating ? '⏳ 生成中...' : '📄 生成分镜PDF'}
-              </button>
-            )}
+            <button className="storyboard-btn storyboard-bottom-btn generate-storyboard-btn"
+              onClick={() => window.open(`${API_BASE}/storyboard-preview.html?id=${projectId}`, '_blank')}>
+              📄 预览分镜
+            </button>
             <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-convert" onClick={handleConvert}
               disabled={hasStoryboard ? false : !generated} title={!hasStoryboard && !generated ? '请先点击"生成分镜"' : ''}>
               🗺 转为蓝图
