@@ -294,6 +294,64 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
     setGeneratingFrameIds(prev => { const s = new Set(prev); s.delete(frameId); return s; });
   }, [frames, projectId, showAlert]);
 
+  // Regenerate a frame based on feedback: re-generate text fields + image
+  const regenerateFrame = useCallback(async (frameId) => {
+    const frame = frames.find(f => f.id === frameId);
+    if (!frame) return;
+    setGeneratingFrameIds(prev => new Set(prev).add(frameId));
+    try {
+      // Step 1: Use edit-frame API to regenerate text fields based on feedback
+      const feedback = frame.feedback || '';
+      if (feedback.trim()) {
+        const editResp = await fetch(`${API_BASE}/api/projects/${projectId}/edit-frame`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            frameIndex: frames.indexOf(frame),
+            instruction: feedback,
+            frame,
+          }),
+        });
+        const editData = await editResp.json();
+        if (!editData.error && editData.frame) {
+          setFrames(prev => prev.map(f => f.id === frameId ? { ...editData.frame, id: frameId, imageUrl: f.imageUrl, feedback: f.feedback, feedbackImage: f.feedbackImage } : f));
+        }
+      }
+      // Step 2: Regenerate image
+      const updatedFrame = frames.find(f => f.id === frameId) || frame;
+      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generate-storyboard`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frames: [updatedFrame] }),
+      });
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            if (evt.type === 'done') {
+              const uf = (evt.frames || []).find(f => f.id === frameId);
+              if (uf && uf.imageUrl) {
+                setFrames(prev => prev.map(f => f.id === frameId ? { ...f, imageUrl: uf.imageUrl } : f));
+              }
+            }
+          } catch {}
+        }
+      }
+    } catch (err) {
+      await showAlert('⚠️ 重新生成失败: ' + err.message);
+    }
+    setGeneratingFrameIds(prev => { const s = new Set(prev); s.delete(frameId); return s; });
+  }, [frames, projectId, showAlert]);
+
   const handleParse = useCallback(async () => {
     if (docFiles.length === 0 && refImages.length === 0 && !text.trim()) return;
     setLoading(true); setGenerated(false);
@@ -587,7 +645,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
                 <th className="sb-th sb-th-num">序号</th>
                 <th className="sb-th sb-th-desc">文字描述</th>
                 <th className="sb-th sb-th-visual">画面</th>
-                <th className="sb-th sb-th-note">注释</th>
+                <th className="sb-th sb-th-note">反馈</th>
               </tr>
             </thead>
             <tbody>
@@ -683,14 +741,34 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
                       </div>
                     )}
                   </td>
-                  {/* 注释 */}
+                  {/* 反馈 */}
                   <td className="sb-td sb-td-note">
-                    <textarea className="sb-note-input" value={frame.note || ''} rows={3}
-                      onChange={(e) => handleUpdateFrame(frame.id, 'note', e.target.value)}
-                      placeholder="备注/参考..." />
-                    {frame.refImage && (
+                    <textarea className="sb-note-input" value={frame.feedback || ''} rows={3}
+                      onChange={(e) => handleUpdateFrame(frame.id, 'feedback', e.target.value)}
+                      placeholder="输入修改意见..." />
+                    <div className="sb-feedback-upload">
+                      <label className="sb-feedback-upload-btn" title="上传参考图">
+                        📎
+                        <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = () => handleUpdateFrame(frame.id, 'feedbackImage', reader.result);
+                          reader.readAsDataURL(file);
+                          e.target.value = '';
+                        }} />
+                      </label>
+                      <button className="sb-feedback-regen-btn"
+                        onClick={() => regenerateFrame(frame.id)}
+                        disabled={generatingFrameIds.has(frame.id)}
+                        title="根据反馈重新生成此帧的文案和图片">
+                        {generatingFrameIds.has(frame.id) ? '⏳ 生成中...' : '🔄 重新生成'}
+                      </button>
+                    </div>
+                    {frame.feedbackImage && (
                       <div className="sb-note-ref">
-                        <img src={frame.refImage} alt="参考" className="sb-note-ref-img" />
+                        <img src={frame.feedbackImage} alt="参考" className="sb-note-ref-img" />
+                        <button className="sb-feedback-img-remove" onClick={() => handleUpdateFrame(frame.id, 'feedbackImage', null)}>×</button>
                       </div>
                     )}
                   </td>

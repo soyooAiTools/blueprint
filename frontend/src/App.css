@@ -4351,7 +4351,25 @@ html, body, #root {
 }
 .sb-note-input:hover { border-color: #333; }
 .sb-note-input:focus { border-color: #6366f1; outline: none; background: #1a1a2e; }
-.sb-note-ref { margin-top: 8px; }
+.sb-feedback-upload { display: flex; gap: 6px; margin-top: 6px; align-items: center; }
+.sb-feedback-upload-btn {
+  cursor: pointer; font-size: 16px; padding: 2px 8px;
+  background: #1e1e3a; border: 1px solid #333; border-radius: 4px;
+  display: inline-flex; align-items: center;
+}
+.sb-feedback-upload-btn:hover { background: #2a2a4a; border-color: #6366f1; }
+.sb-feedback-regen-btn {
+  padding: 4px 10px; background: #6366f1; color: #fff; border: none;
+  border-radius: 5px; cursor: pointer; font-size: 11px; white-space: nowrap;
+}
+.sb-feedback-regen-btn:hover { background: #818cf8; }
+.sb-feedback-regen-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.sb-feedback-img-remove {
+  position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,0.7);
+  color: #fff; border: none; border-radius: 50%; width: 18px; height: 18px;
+  font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.sb-note-ref { margin-top: 8px; position: relative; }
 .sb-note-ref-img {
   max-width: 100%;
   border-radius: 4px;
