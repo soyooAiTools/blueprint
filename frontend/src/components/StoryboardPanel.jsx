@@ -488,6 +488,63 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
     }
   }, [editingFrameId]);
 
+  // Delete a frame
+  const handleDeleteFrame = useCallback((frameId) => {
+    setFrames((prev) => {
+      const updated = prev.filter((f) => f.id !== frameId);
+      saveFramesToServer(updated);
+      return updated;
+    });
+  }, [saveFramesToServer]);
+
+  // Add a new empty frame
+  const handleAddFrame = useCallback(() => {
+    const maxId = frames.reduce((m, f) => Math.max(m, typeof f.id === 'number' ? f.id : 0), 0);
+    const newFrame = {
+      id: maxId + 1,
+      chapter: frames.length > 0 ? frames[frames.length - 1].chapter || 1 : 1,
+      chapterTitle: '',
+      step: 1,
+      title: '',
+      scene: '',
+      interaction: '',
+      camera: '',
+      feeling: '',
+      duration: '',
+      prompt: '',
+      ui: '',
+      timing: '',
+      animation: '',
+      note: '',
+      scriptExcerpt: '',
+      imageUrl: null,
+    };
+    setFrames((prev) => {
+      const updated = [...prev, newFrame];
+      saveFramesToServer(updated);
+      return updated;
+    });
+  }, [frames, saveFramesToServer]);
+
+  // Drag reorder
+  const dragItem = useRef(null);
+  const dragOverItem = useRef(null);
+  const handleDragStart = useCallback((idx) => { dragItem.current = idx; }, []);
+  const handleDragEnter = useCallback((idx) => { dragOverItem.current = idx; }, []);
+  const handleDragEnd = useCallback(() => {
+    if (dragItem.current === null || dragOverItem.current === null || dragItem.current === dragOverItem.current) {
+      dragItem.current = null; dragOverItem.current = null; return;
+    }
+    setFrames((prev) => {
+      const updated = [...prev];
+      const [removed] = updated.splice(dragItem.current, 1);
+      updated.splice(dragOverItem.current, 0, removed);
+      saveFramesToServer(updated);
+      return updated;
+    });
+    dragItem.current = null; dragOverItem.current = null;
+  }, [saveFramesToServer]);
+
   return (
     <div className="storyboard-panel" onDrop={handleDrop} onDragOver={handleDragOver}>
       {/* Storyboard Mode Toggle */}
@@ -650,10 +707,15 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
             </thead>
             <tbody>
               {frames.map((frame, idx) => (
-                <tr key={frame.id} className="sb-tr">
+                <tr key={frame.id} className="sb-tr"
+                  draggable onDragStart={() => handleDragStart(idx)}
+                  onDragEnter={() => handleDragEnter(idx)} onDragEnd={handleDragEnd}
+                  onDragOver={(e) => e.preventDefault()}>
                   {/* 序号 */}
                   <td className="sb-td sb-td-num">
+                    <span className="sb-drag-handle" title="拖拽排序">⠿</span>
                     <span className="sb-num">{idx + 1}</span>
+                    <button className="sb-delete-frame-btn" onClick={() => handleDeleteFrame(frame.id)} title="删除此帧">✕</button>
                   </td>
                   {/* 文字描述 */}
                   <td className="sb-td sb-td-desc">
@@ -778,6 +840,9 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
           </table>
           {/* Bottom Action Bar */}
           <div className="storyboard-bottom-bar">
+            <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-add" onClick={handleAddFrame}>
+              ➕ 添加分镜
+            </button>
             <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-clear" onClick={handleClearFrames}>
               🗑 清空帧
             </button>

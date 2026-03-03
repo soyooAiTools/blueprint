@@ -4295,6 +4295,25 @@ html, body, #root {
   font-weight: 700;
 }
 .sb-visual-ph-text { font-size: 11px; font-weight: 400; color: #555; }
+/* 拖拽排序 + 删除 */
+.sb-tr[draggable] { cursor: grab; }
+.sb-tr[draggable]:active { cursor: grabbing; }
+.sb-tr.sb-tr-dragging { opacity: 0.4; }
+.sb-drag-handle {
+  display: block; font-size: 16px; color: #444; cursor: grab;
+  margin-bottom: 4px; user-select: none; line-height: 1;
+}
+.sb-drag-handle:hover { color: #888; }
+.sb-delete-frame-btn {
+  display: block; margin-top: 6px; background: none; border: 1px solid transparent;
+  color: #555; font-size: 14px; cursor: pointer; border-radius: 4px;
+  width: 24px; height: 24px; line-height: 22px; text-align: center; padding: 0;
+}
+.sb-delete-frame-btn:hover { background: #3a1a1a; border-color: #f87171; color: #f87171; }
+.sb-td-num { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.storyboard-btn-add { background: #1e3a2e !important; border-color: #34d399 !important; color: #34d399 !important; }
+.storyboard-btn-add:hover { background: #2a4a3a !important; }
+
 .sb-field-script { border-top: 1px dashed #2a2a4a; padding-top: 8px; margin-top: 6px; }
 .sb-script-text {
   font-size: 12px; color: #888; line-height: 1.6; white-space: pre-wrap;
