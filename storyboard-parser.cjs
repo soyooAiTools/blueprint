@@ -387,8 +387,15 @@ ${JSON.stringify(frame, null, 2)}
 
 // === Image Generation (Gemini native) ===
 async function generateImage(prompt, opts = {}) {
-  const { style = 'simple cartoon sketch, clean lines, game storyboard style' } = opts;
-  const fullPrompt = style ? prompt + '. Style: ' + style : prompt;
+  const { style = '', cameraAngle = '', orientation = '', perspective = '' } = opts;
+  let fullPrompt = prompt;
+  // Append camera/orientation hints if not already in prompt
+  const cameraHints = [];
+  if (cameraAngle && !prompt.toLowerCase().includes(cameraAngle.toLowerCase())) cameraHints.push('Camera: ' + cameraAngle);
+  if (orientation && !prompt.toLowerCase().includes(orientation)) cameraHints.push('Orientation: ' + orientation);
+  if (perspective && !prompt.toLowerCase().includes(perspective)) cameraHints.push('Perspective: ' + perspective + ' person');
+  if (cameraHints.length) fullPrompt += '. ' + cameraHints.join(', ');
+  if (style) fullPrompt += '. Style: ' + style;
   const result = await ai.models.generateContent({
     model: CONFIG.imageModel,
     contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],

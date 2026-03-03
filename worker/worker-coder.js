@@ -9,7 +9,7 @@ const { execSync } = require('child_process');
 // ============ Config ============
 const API_BASE = 'https://crs.mindrix.app/api';
 const API_KEY = process.env.LLM_API_KEY || 'cr_f891cb1046bf100addfc0bf027cb1b37fafa8cc214e1bdbbe5493e6fa3240e7c';
-const MODEL_GENERATE = process.env.LLM_MODEL_GENERATE || 'claude-opus-4-0-20250115';
+const MODEL_GENERATE = process.env.LLM_MODEL_GENERATE || 'claude-opus-4-20250514';
 const MODEL_FIX = process.env.LLM_MODEL_FIX || 'claude-sonnet-4-5-20250929';
 const MAX_TOKENS = 32768; // 10 shots need more output tokens
 const MAX_FIX_ATTEMPTS = 10;  // Keep retrying until fixed (practical upper bound)
