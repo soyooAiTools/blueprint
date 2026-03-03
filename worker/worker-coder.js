@@ -13,7 +13,7 @@ function listCsFiles(dir) {
     var entries = fs.readdirSync(dir, { withFileTypes: true });
     for (var i = 0; i < entries.length; i++) {
       var fp = path.join(dir, entries[i].name);
-      if (entries[i].isDirectory()) results = results.concat(listCsFiles(fp));
+      if (entries[i].isDirectory() && entries[i].name !== 'Editor') results = results.concat(listCsFiles(fp));
       else if (entries[i].name.endsWith('.cs')) results.push(fp);
     }
   } catch(e) {}
@@ -23,9 +23,9 @@ function listCsFiles(dir) {
 // ============ Config ============
 const API_BASE = 'https://crs.mindrix.app/api';
 const API_KEY = process.env.LLM_API_KEY || 'cr_f891cb1046bf100addfc0bf027cb1b37fafa8cc214e1bdbbe5493e6fa3240e7c';
-const MODEL_GENERATE = process.env.LLM_MODEL_GENERATE || 'claude-opus-4-20250514';
+const MODEL_GENERATE = process.env.LLM_MODEL_GENERATE || 'claude-sonnet-4-5-20250929';
 const MODEL_FIX = process.env.LLM_MODEL_FIX || 'claude-sonnet-4-5-20250929';
-const MAX_TOKENS = 32768; // 10 shots need more output tokens
+const MAX_TOKENS = 30000; // Opus max is 32000; leave headroom
 const MAX_FIX_ATTEMPTS = 10;  // Keep retrying until fixed (practical upper bound)
 const PIPELINE_DIR = process.env.LUNA_PIPELINE || 'D:\\Luna\\pipeline';
 const COCOS_EXE = process.env.COCOS_CREATOR || 'D:\\CocosCreator-v3.8.8-win-121518\\CocosCreator.exe';
@@ -33,8 +33,8 @@ const COCOS_EXE = process.env.COCOS_CREATOR || 'D:\\CocosCreator-v3.8.8-win-1215
 // ============ LLM Call ============
 
 function callClaude(systemPrompt, userMessage, timeoutMs, model) {
-  timeoutMs = timeoutMs || 300000; // 5 min for large blueprints
-  model = model || MODEL_FIX;
+  timeoutMs = timeoutMs || 300000; // 5 min default
+  model = model || MODEL_GENERATE; // Use Opus for all calls (fix quality > cost savings)
   return new Promise(function(resolve, reject) {
     var body = JSON.stringify({
       model: model,
@@ -151,12 +151,14 @@ var GENERATE_PROMPT = [
   '',
   '### Absolutely DO NOT use:',
   '- TileMap, New InputSystem, Terrain (use mesh-based terrain instead)',
-  '- Generics (Luna does NOT support generic syntax)',
+  '- Generics (Luna does NOT support generic syntax — use non-generic overloads)',
+  '- Resources.GetBuiltinResource<T>() — use (T)Resources.GetBuiltinResource(typeof(T), name) instead',
   '- C# 7.0+ syntax (no tuples, pattern matching, local functions, etc.)',
   '- Multi-threading (web does not support threads)',
   '- SceneManager (scene transitions = SetActive on parent GameObjects)',
   '- Resources.Load, AssetBundle, async/await, Task, LINQ',
   '- Animation component (use Animator instead)',
+  '- TextMeshPro / TMPro (use UnityEngine.UI.Text instead; for font use: (Font)Resources.GetBuiltinResource(typeof(Font), "Arial.ttf"))',
   '- AnimationCurve loop modes (must manually handle time wrapping)',
   '- Custom RenderTexture',
   '- Baked shadows (Luna does NOT support baked shadows)',
@@ -220,76 +222,55 @@ var GENERATE_PROMPT = [
   '⚠️ Scripts you create in Assets/Scripts/ will NEVER run unless AddComponent from a Program script.',
   '⚠️ The template is a SLG/idle game — you must COMPLETELY REPLACE the game logic.',
   '',
-  '### Strategy: REWRITE the template entry-point scripts + create helpers',
+  '### Strategy: Output ONLY StateManager.cs — everything else is already handled',
   '',
-  '#### The template project structure:',
-  '- `Assets/Program/Script/Manager/StateManager.cs` — main game state machine (REWRITE THIS FIRST)',
-  '- `Assets/Program/Script/Manager/LunaManager.cs` — Luna lifecycle (keep Luna calls, replace game logic)',
-  '- `Assets/Program/Script/Manager/UIManager.cs` — UI management (REWRITE for blueprint UI)',
-  '- `Assets/Program/Script/Controllers/Player.cs` — player controller (REWRITE for blueprint player)',
-  '- `Assets/Program/Script/Controllers/Boss.cs` — boss controller (REWRITE or empty out)',
-  '- `Assets/Program/Script/Controllers/Npc.cs` — NPC controller (REWRITE or empty out)',
-  '- `Assets/Program/Script/Manager/CameraManager.cs` — camera (REWRITE for blueprint camera)',
-  '- `Assets/Program/Script/UI/MainPanel.cs` — main UI panel (REWRITE)',
-  '- `Assets/Program/Script/UI/TouchArea.cs` — touch input (REWRITE for blueprint input)',
-  '- `Assets/Program/Script/UI/YangJoystick.cs` — virtual joystick (REWRITE if blueprint uses joystick)',
-  '- `Assets/Program/Script/Utilities/MonoSingleton.cs` — utility (KEEP as-is)',
+  '⚠️ ALL other .cs files in Assets/Program/Script/ have been pre-emptied to harmless stubs.',
+  '⚠️ You ONLY need to output ONE file: `Assets/Program/Script/Manager/StateManager.cs`',
+  '⚠️ Do NOT output Player.cs, Boss.cs, Npc.cs, UIManager.cs, etc. — they are already empty stubs.',
+  '⚠️ Do NOT create new files like StateManagerExtension.cs, StateManagerFontFix.cs, etc.',
   '',
-  '#### Step 1: REWRITE StateManager.cs as your main game controller',
-  '- Keep the class name `StateManager` (it is attached to the scene)',
-  '- Delete ALL template game logic inside it',
-  '- In Start(): hide all template scene objects, then create your blueprint world from code',
+  '#### StateManager.cs is the ONLY entry point:',
+  '- It is attached to the scene and executes on Start()',
+  '- Put ALL game logic here: shots, UI, input, camera, everything',
+  '- Keep the class name `StateManager`',
+  '',
+  '#### In Start(), first hide all template objects:',
   '```csharp',
-  '// In StateManager.Start() — first thing:',
-  'foreach (GameObject root in UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects())',
-  '{',
-  '    string n = root.name.ToLower();',
-  '    if (n.Contains("camera") || n.Contains("light") || n.Contains("eventsystem") || n.Contains("statemanager") || n.Contains("manager"))',
+  'var roots = gameObject.scene.GetRootGameObjects();',
+  'for (int i = 0; i < roots.Length; i++) {',
+  '    string n = roots[i].name.ToLower();',
+  '    if (n.Contains("camera") || n.Contains("light") || n.Contains("eventsystem") || n.Contains("manager"))',
   '        continue;',
-  '    root.SetActive(false);',
+  '    roots[i].SetActive(false);',
   '}',
-  '// Then create your game world from code...',
   '```',
   '',
-  '#### Step 2: Create game objects from code in StateManager.Start()',
-  '- 3D objects: `GameObject.CreatePrimitive(PrimitiveType.Cube/Sphere/Plane/etc.)`',
-  '- UI: `new GameObject("Button", typeof(RectTransform), typeof(Image), typeof(Button))`',
-  '- Text: `new GameObject("Label", typeof(RectTransform), typeof(UnityEngine.UI.Text))`',
-  '- Materials: `new Material(Shader.Find("Universal Render Pipeline/Lit"))` with colors',
-  '- Camera: find existing Main Camera, reposition for your game',
-  '- Create Canvas with CanvasScaler (1080x1920) + GraphicRaycaster',
+  '#### Then create your game world from code:',
+  '- 3D objects: `GameObject.CreatePrimitive(PrimitiveType.Cube/Sphere/Plane)`',
+  '- UI: `new GameObject("Btn", typeof(RectTransform), typeof(Image), typeof(Button))`',
+  '- Text: `var t = new GameObject("Lbl", typeof(RectTransform)).AddComponent<UnityEngine.UI.Text>();`',
+  '- Font: `t.font = (Font)Resources.GetBuiltinResource(typeof(Font), "Arial.ttf");`',
+  '- Materials: `new Material(Shader.Find("Universal Render Pipeline/Lit"))`',
+  '- Canvas: create with CanvasScaler (1080x1920) + GraphicRaycaster',
   '',
-  '#### Step 3: Implement shots as state machine in StateManager',
-  '- Each shot = a method that creates/shows the right objects and hides the previous shot',
+  '#### Implement shots as state machine methods:',
+  '- Each shot = a method that creates/shows objects and hides previous ones',
   '- Use SetActive to toggle shot containers',
-  '- Shot transitions triggered by gameplay events',
   '',
-  '#### Step 4: REWRITE other Program scripts to support your game',
-  '- Player.cs → implement blueprint player behavior',
-  '- UIManager.cs → implement blueprint UI',
-  '- Other controllers → implement or empty out (keep class names!)',
+  '### ⚠️ ONE FILE ONLY — ABSOLUTELY NO EXCEPTIONS ⚠️',
+  '- Output ONLY `Assets/Program/Script/Manager/StateManager.cs`',
+  '- Do NOT output ANY other file — not Player.cs, not GameHelper.cs, not any "Extension" or "Fix" file',
+  '- ALL game logic, ALL helper methods, ALL inner classes go INSIDE StateManager.cs',
+  '- If you need helper classes, define them as `private class` INSIDE StateManager',
+  '- Violating this rule = instant compilation failure',
   '',
   '### Rules:',
-  '- You MUST output files with paths starting with `Assets/Program/Script/` for scripts attached to scene',
-  '- Keep ALL class names in Assets/Program/ identical (changing = broken scene references)',
-  '- Helper scripts go in `Assets/Scripts/` and are attached via `AddComponent` from StateManager',
-  '- Do NOT create Bootstrap scripts with [RuntimeInitializeOnLoadMethod] — Luna ignores them',
-  '- Do NOT rely on template GameObjects by name — hide everything and create from code',
-  '',
-  '### What to REWRITE (keep class names, replace ALL logic):',
-  '- `Assets/Program/Script/Manager/StateManager.cs` — your main entry point',
-  '- `Assets/Program/Script/Manager/UIManager.cs`',
-  '- `Assets/Program/Script/Controllers/Player.cs`',
-  '- `Assets/Program/Script/Controllers/Boss.cs`',
-  '- `Assets/Program/Script/Controllers/Npc.cs`',
-  '- `Assets/Program/Script/Manager/CameraManager.cs`',
-  '- `Assets/Program/Script/UI/MainPanel.cs`',
-  '- `Assets/Program/Script/UI/TouchArea.cs`',
-  '',
-  '### What to KEEP unchanged:',
-  '- `Assets/Program/Script/Utilities/MonoSingleton.cs` and other utility base classes',
-  '- `Assets/Program/Script/Utilities/Event/*` — event system',
-  '- Class names of ALL scripts in Assets/Program/ (even if you empty the body)',
+  '- Keep class name `StateManager` (attached to scene)',
+  '- Do NOT create Bootstrap scripts with [RuntimeInitializeOnLoadMethod]',
+  '- Do NOT reference any classes from Utilities/Entities/AStar/BySakanakoChan — they do not exist',
+  '- Do NOT use EventPool, BasicExtensions, MonoSingleton, ReturnPool — they do not exist',
+  '- For singletons: `public static StateManager instance;` set in Awake()',
+  '- Do NOT define enums that conflict with stub classes (ResourceType, GameState, etc. may exist as empty stubs)',
   '',
   '## CRITICAL: Implement EXACTLY what the blueprint describes',
   '',
@@ -312,24 +293,30 @@ var GENERATE_PROMPT = [
   '8. Do NOT keep template gameplay that contradicts the blueprint',
   '',
   '## Working with the existing SVN project',
-  'The SVN project is a TEMPLATE with scripts already attached to scene GameObjects.',
-  'You MUST:',
-  '1. Read ALL existing scripts carefully — identify which ones are entry points (have Start/Awake)',
-  '2. REWRITE the main controller script(s) to implement the blueprint — keep class names identical',
-  '3. Create new helper scripts and attach them via AddComponent from the main script',
-  '4. Use GameObject.CreatePrimitive() for new 3D objects the blueprint needs',
-  '5. Reuse existing scene GameObjects where possible (find them by name)',
-  '6. Do NOT create a Bootstrap with [RuntimeInitializeOnLoadMethod] — Luna ignores it',
+  'The SVN project is a TEMPLATE. ALL other scripts are empty stubs.',
+  'StateManager.cs is the ONLY entry point — it runs Start() on scene load.',
+  'You MUST put ALL game logic in StateManager.cs. Do NOT create new files.',
+  'Do NOT create a Bootstrap with [RuntimeInitializeOnLoadMethod] — Luna ignores it.',
   '',
-  'NAMING: Do NOT create classes that conflict with existing ones.',
-  '',
-  'Output format: Each file as:',
-  '```csharp:Assets/Scripts/FileName.cs',
+  'Output format:',
+  '```csharp:Assets/Program/Script/Manager/StateManager.cs',
   '// code',
   '```',
   '',
-  'FIRST file MUST be the rewritten main controller (e.g., PlayableAdController.cs) — keep the original class name.',
-  'Generate code that implements the blueprint faithfully. The final playable ad should match the storyboard exactly.'
+  'Output ONLY ONE file: Assets/Program/Script/Manager/StateManager.cs — no other files.',
+  'ALL game logic must be SELF-CONTAINED in StateManager.cs.',
+  'Do NOT reference any class from Utilities/Entities/AStar — they are empty stubs.',
+  'Do NOT output UIManager.cs, Player.cs, CameraManager.cs, MainPanel.cs, Boss.cs, Npc.cs, or TouchArea.cs — they are all empty stubs and must stay that way.',
+  '',
+  '## QUALITY REQUIREMENTS (your code will be automatically verified):',
+  '- StateManager.cs MUST be at least 300 lines of actual game logic',
+  '- MUST contain methods for EVERY shot described in the blueprint (e.g., shot_1(), shot_2(), etc.)',
+  '- MUST create visible game objects (CreatePrimitive, UI elements) — not just empty methods',
+  '- MUST implement player interactions described in the blueprint (input handling, triggers)',
+  '- A skeleton/template class that only sets up camera and calls GameEnded() will be REJECTED',
+  '- The generated game must be VISUALLY DIFFERENT from the SLG template — all template objects are hidden',
+  '',
+  'Generate code that implements the blueprint faithfully and completely.'
 ].join('\n');
 
 var FIX_PROMPT = [
@@ -342,6 +329,7 @@ var FIX_PROMPT = [
   '- NO Vector3Int (cast to Vector3)',
   '- NO System.Math (use UnityEngine.Mathf)',
   '- NO Animation component (use Animator)',
+  '- NO TextMeshPro / TMPro (use UnityEngine.UI.Text instead)',
   '- NO SendMessage, no multi-threading, no LINQ',
   '- NO SceneManager, Resources.Load, async/await',
   '- NO CharacterController (use Transform or Rigidbody)',
@@ -359,8 +347,25 @@ var FIX_PROMPT = [
   'Analyze each error carefully. Fix ALL errors. If the same error keeps recurring,',
   'try a completely different approach rather than repeating the same fix.',
   '',
+  '## CRITICAL: Do NOT simplify or remove game logic to fix errors!',
+  '- If a feature causes errors, fix the implementation — do NOT delete the feature',
+  '- The code MUST still implement ALL shots from the blueprint after fixing',
+  '- Removing shot methods or game objects to fix compile errors = REJECTED',
+  '- The final code must be 200+ non-empty lines with real game logic',
+  '',
+  '## FILE RULES (CRITICAL — ABSOLUTELY NO EXCEPTIONS):',
+  '- Output ONLY `Assets/Program/Script/Manager/StateManager.cs` — NO OTHER FILES',
+  '- Do NOT create StateManagerExtension.cs, StateManagerFontFix.cs, StateManagerPublicAPI.cs, etc.',
+  '- Do NOT create files in Assets/Scripts/ — they will not be executed',
+  '- ALL fixes must be made INSIDE StateManager.cs',
+  '- If you need helper classes, define them as `private class` INSIDE StateManager',
+  '- Do NOT reference classes from Utilities/, Entities/, AStar/, BySakanakoChan/ — they are EMPTY STUBS',
+  '- If an error says a class/method does not exist, REMOVE the reference — do NOT create a new file for it',
+  '- For Font: use `(Font)Resources.GetBuiltinResource(typeof(Font), "Arial.ttf")` — no generics',
+  '- If a class does not exist, do NOT try to use it — remove or inline the logic',
+  '',
   'Output corrected files as:',
-  '```csharp:Assets/Scripts/FileName.cs',
+  '```csharp:Assets/Program/Script/Manager/StateManager.cs',
   '// fixed code',
   '```',
   'Only include files that need changes.'
@@ -485,7 +490,50 @@ function tryCompileUnity(clientDir, log, taskId) {
     try { fs.rmSync(lunaTemp, { recursive: true, force: true }); } catch (e) {}
   }
 
+  // Temporarily stub out ALL non-AI template scripts to avoid cross-reference errors
+  // Save originals, replace with empty class stubs
+  var stubBackups = [];
+  var templateDirs = ['Utilities', 'Entities', 'AStar', 'Controllers', 'Manager', 'UI'];
+  templateDirs.forEach(function(d) {
+    var dir = path.join(clientDir, 'Assets', 'Program', 'Script', d);
+    if (!fs.existsSync(dir)) return;
+    var csFiles = listCsFiles(dir);
+    csFiles.forEach(function(f) {
+      // Skip files that AI wrote (they have recent mtime from this run)
+      var rel = path.relative(clientDir, f).replace(/\\/g, '/');
+      // Check if file was written by AI (exists in writeFiles output)
+      // Simple heuristic: if file mtime is within last 10 minutes, it's AI-written
+      try {
+        var stat = fs.statSync(f);
+        var ageMs = Date.now() - stat.mtimeMs;
+        if (ageMs < 600000) return; // AI-written file, skip
+      } catch(e) { return; }
+      
+      // This is an original template file — stub it out
+      try {
+        var orig = fs.readFileSync(f, 'utf-8');
+        // Extract class/enum names to create valid stubs
+        var classes = orig.match(/(?:public\s+)?(?:class|enum|struct|interface)\s+(\w+)/g) || [];
+        var stub = 'using UnityEngine;\nusing System.Collections;\nusing System.Collections.Generic;\n\n';
+        classes.forEach(function(c) {
+          var m = c.match(/(class|enum|struct|interface)\s+(\w+)/);
+          if (m) {
+            if (m[1] === 'class') stub += 'public class ' + m[2] + ' : MonoBehaviour { }\n';
+            else if (m[1] === 'enum') stub += 'public enum ' + m[2] + ' { Default }\n';
+            else if (m[1] === 'struct') stub += 'public struct ' + m[2] + ' { }\n';
+            else if (m[1] === 'interface') stub += 'public interface ' + m[2] + ' { }\n';
+          }
+        });
+        if (classes.length > 0) {
+          stubBackups.push({ path: f, original: orig });
+          fs.writeFileSync(f, stub, 'utf-8');
+        }
+      } catch(e) {}
+    });
+  });
+
   var cmd = 'node --max-old-space-size=8192 jake.js -f Jakefile.js --quiet project:build';
+  var buildResult;
   try {
     execSync(cmd, {
       cwd: PIPELINE_DIR,
@@ -495,13 +543,20 @@ function tryCompileUnity(clientDir, log, taskId) {
       stdio: ['pipe', 'pipe', 'pipe']
     });
     log('[coder] Build passed!', taskId);
-    return { ok: true };
+    buildResult = { ok: true };
   } catch (e) {
     // Read diagnostics JSON for actual errors
     var errors = extractDiagnosticErrors(clientDir);
     log('[coder] Build failed: ' + errors.length + ' fatal errors', taskId);
-    return { ok: false, errors: errors };
+    buildResult = { ok: false, errors: errors };
   }
+
+  // Restore stubbed files
+  stubBackups.forEach(function(b) {
+    try { fs.writeFileSync(b.path, b.original, 'utf-8'); } catch(e) {}
+  });
+
+  return buildResult;
 }
 
 function extractDiagnosticErrors(clientDir) {
@@ -523,6 +578,8 @@ function extractDiagnosticErrors(clientDir) {
         if (log.FilePath) {
           // Make path relative
           var rel = log.FilePath.replace(/.*[\\\/]Assets[\\\/]/, 'Assets/').replace(/\\/g, '/');
+          // Skip errors from hidden (temporarily excluded) dirs — AI cannot fix these
+          if (rel.indexOf('_hidden_') >= 0) continue;
           msg += ' (file: ' + rel + ', line: ' + (log.LinePosition || '?') + ')';
         }
         if (log.Details && log.Details.length > 0) msg += ' | ' + log.Details[0];
@@ -571,6 +628,88 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       rmEmptyDirs(scriptsDir);
       if (deleted > 0) log('[coder] Cleaned ' + deleted + ' old scripts from Assets/Scripts', taskId);
     }
+    // Also clean Assets/Editor (AI sometimes creates Editor scripts)
+    var editorDir = path.join(clientDir, 'Assets', 'Editor');
+    if (fs.existsSync(editorDir)) {
+      var edFiles = listCsFiles(editorDir);
+      edFiles.forEach(function(f) { try { fs.unlinkSync(f); } catch(e) {} });
+    }
+    // Clean AI-created subdirs in Assets/Program/Script/ that shouldn't exist
+    var programScript = path.join(clientDir, 'Assets', 'Program', 'Script');
+    var allowedProgramDirs = ['AStar', 'Controllers', 'Entities', 'Manager', 'UI', 'Utilities'];
+    if (fs.existsSync(programScript)) {
+      try {
+        var pEntries = fs.readdirSync(programScript, { withFileTypes: true });
+        pEntries.forEach(function(e) {
+          if (e.isDirectory() && allowedProgramDirs.indexOf(e.name) === -1) {
+            var dp = path.join(programScript, e.name);
+            log('[coder] Removing stale AI dir: Program/Script/' + e.name, taskId);
+            try { fs.rmSync(dp, { recursive: true, force: true }); } catch(x) {}
+          }
+        });
+      } catch(e) {}
+      // Also remove AI-created .cs files in Program/Script/UI/ that aren't original
+      var uiDir = path.join(programScript, 'UI');
+      var originalUI = ['MainPanel.cs', 'TouchArea.cs', 'YangJoystick.cs'];
+      if (fs.existsSync(uiDir)) {
+        try {
+          fs.readdirSync(uiDir).forEach(function(f) {
+            if (f.endsWith('.cs') && originalUI.indexOf(f) === -1) {
+              log('[coder] Removing stale UI file: ' + f, taskId);
+              try { fs.unlinkSync(path.join(uiDir, f)); } catch(x) {}
+            }
+          });
+        } catch(e) {}
+      }
+    }
+    // SVN revert the Program files that AI overwrote in previous runs
+    try {
+      execSync('svn revert -R Assets/Program', { cwd: clientDir, timeout: 30000, encoding: 'utf-8' });
+      log('[coder] SVN revert Assets/Program OK', taskId);
+    } catch(e) { log('[coder] SVN revert warning: ' + e.message, taskId); }
+
+    // Hide template Utilities/Entities/AStar files — they reference old Manager APIs
+    // and cause 50+ compile errors when AI rewrites Manager/Controller scripts.
+    // Rename .cs → .cs.bak so they don't compile but SVN doesn't delete them.
+    // Empty ALL .cs files in Program/Script EXCEPT Manager/StateManager.cs
+    // This removes template cross-references (BasicExtensions, EventPool, etc.)
+    // AI will rewrite StateManager + any other files it needs from scratch
+    var stubCount = 0;
+    var keepPaths = []; // Stub EVERYTHING including StateManager.cs — AI will completely overwrite it
+    function stubAllCs(dir) {
+      if (!fs.existsSync(dir)) return;
+      try {
+        var entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (var i = 0; i < entries.length; i++) {
+          var fullP = path.join(dir, entries[i].name);
+          if (entries[i].isDirectory()) { stubAllCs(fullP); continue; }
+          if (!entries[i].name.endsWith('.cs')) continue;
+          // Keep StateManager.cs content (AI's main rewrite target — needs original structure)
+          if (keepPaths.indexOf(entries[i].name) >= 0) continue;
+          try {
+            var orig = fs.readFileSync(fullP, 'utf-8');
+            // Extract class/enum names to keep stubs compilable
+            var classes = orig.match(/(?:public\s+)?(?:abstract\s+)?class\s+(\w+)/g) || [];
+            var enums = orig.match(/(?:public\s+)?enum\s+(\w+)/g) || [];
+            var stub = 'using UnityEngine;\nusing System;\nusing System.Collections.Generic;\n';
+            for (var c = 0; c < classes.length; c++) {
+              var cn = classes[c].match(/class\s+(\w+)/)[1];
+              stub += 'public class ' + cn + ' : MonoBehaviour { }\n';
+            }
+            for (var e = 0; e < enums.length; e++) {
+              var en = enums[e].match(/enum\s+(\w+)/)[1];
+              stub += 'public enum ' + en + ' { Default }\n';
+            }
+            if (classes.length === 0 && enums.length === 0) stub += '// emptied\n';
+            fs.writeFileSync(fullP, stub, 'utf-8');
+            stubCount++;
+          } catch(ex) {}
+        }
+      } catch(ex) {}
+    }
+    stubAllCs(programScript);
+    if (stubCount > 0) log('[coder] Stubbed ' + stubCount + ' template .cs files (only StateManager kept)', taskId);
+
     log('[coder] Cleanup done', taskId);
   }
 
@@ -598,13 +737,8 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
   if (projectCtx.fileList) {
     projectSection = '\n\n## EXISTING PROJECT FILE STRUCTURE:\n```\n' + projectCtx.fileList + '\n```';
   }
-  if (projectCtx.context) {
-    projectSection += '\n\n## TEMPLATE SCRIPTS IN Assets/Program/ (these are ATTACHED to scene — you MUST REWRITE them):\n'
-      + '⚠️ These scripts are the ONLY ones that execute (attached to scene GameObjects).\n'
-      + '⚠️ You MUST rewrite them with blueprint logic. Keep class names, replace ALL content.\n'
-      + '⚠️ Key entry point: StateManager.cs — rewrite Start() to hide template objects and build your game.\n\n'
-      + projectCtx.context;
-  }
+  // Don't show template script content — it confuses the AI into copying template logic.
+  // The prompt already explains the architecture. Only show file structure for reference.
 
   // Build structured scene descriptions for AI
   var scenesMarkdown = parsed.scenes.map(function(s, i) {
@@ -648,6 +782,25 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       
       if (result.ok) {
         log('[coder] ✅ Build passed on attempt ' + attempt, taskId);
+        // Content verification — reject skeleton/empty code
+        var verification = verifyCodeContent(clientDir, parsed, log, taskId);
+        if (!verification.ok) {
+          log('[coder] ⚠️ Content verification FAILED: ' + verification.reason, taskId);
+          // Regenerate with explicit feedback about what's missing
+          if (attempt < MAX_FIX_ATTEMPTS) {
+            var regenMsg = userMsg + '\n\n## REJECTED: Your code compiled but FAILED content verification:\n'
+              + verification.reason + '\n\n'
+              + '⚠️ You MUST implement ALL shots with real game logic. '
+              + 'Each shot must create visible GameObjects and handle player input. '
+              + 'A skeleton class will be rejected. Generate COMPLETE, FULL code.';
+            var regenResp = await callClaude(sysPrompt, regenMsg, 300000, MODEL_GENERATE);
+            var regenFiles = parseBlocks(regenResp.text);
+            if (regenFiles.length > 0) { writeFiles(clientDir, regenFiles, log, taskId); files = regenFiles; }
+            continue; // Go back to compile check
+          }
+          return { ok: false, error: 'Content verification failed after all attempts: ' + verification.reason };
+        }
+        log('[coder] ✅ Content verification passed', taskId);
         return { ok: true, filesWritten: files.length, files: files.map(function(f) { return f.path; }), attempts: attempt };
       }
 
@@ -657,7 +810,8 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       if (sameErrorCount >= 3) {
         log('[coder] ⚠️ Same errors repeated 3 times, regenerating from scratch...', taskId);
         var regenMsg = userMsg + '\n\n## IMPORTANT: Previous code had persistent compilation errors:\n```\n'
-          + result.errors.join('\n') + '\n```\nGenerate completely different code that avoids these issues.';
+          + result.errors.join('\n') + '\n```\nGenerate completely different code that avoids these issues.'
+          + '\n⚠️ You MUST generate FULL game logic — do NOT output a skeleton/empty class. The game must actually run with all shots implemented.';
         var regenResp = await callClaude(sysPrompt, regenMsg, 300000, MODEL_GENERATE);
         var regenFiles = parseBlocks(regenResp.text);
         if (regenFiles.length > 0) { writeFiles(clientDir, regenFiles, log, taskId); files = regenFiles; }
@@ -668,10 +822,12 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
 
       var currentCode = readScripts(clientDir);
       var fixProjectCtx = projectCtx.fileList ? '\n\n## Existing project files (for reference):\n```\n' + projectCtx.fileList + '\n```' : '';
-      var fixMsg = '## Build Errors:\n```\n' + result.errors.join('\n') + '\n```\n\n'
+      var fixMsg = '## Build Errors (' + result.errors.length + ' total):\n```\n' + result.errors.join('\n') + '\n```\n\n'
         + '## Current Scripts:\n' + currentCode
         + fixProjectCtx
-        + '\n\nFix ALL errors above. This is attempt ' + attempt + '. If previous fixes did not work, try a fundamentally different approach.';
+        + '\n\nFix ALL ' + result.errors.length + ' errors above. Output the COMPLETE fixed StateManager.cs.'
+        + '\n⚠️ CRITICAL: Do NOT break code that already works. Only change lines that cause errors.'
+        + '\nThis is attempt ' + attempt + '. If previous fixes oscillated, try a MINIMAL change approach.';
 
       var fixResp = await callClaude(fixPrompt, fixMsg);
       log('[coder] Fix response (' + (fixResp.usage ? fixResp.usage.output_tokens + ' tokens' : 'ok') + ')', taskId);
@@ -689,15 +845,130 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
   }
 }
 
+// ============ Content Verification ============
+
+function verifyCodeContent(clientDir, parsed, log, taskId) {
+  var stateManagerPath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'StateManager.cs');
+  if (!fs.existsSync(stateManagerPath)) {
+    return { ok: false, reason: 'StateManager.cs not found — AI did not write the main file' };
+  }
+
+  var code = fs.readFileSync(stateManagerPath, 'utf-8');
+  var lines = code.split('\n');
+  var nonEmptyLines = lines.filter(function(l) { return l.trim().length > 0; }).length;
+
+  var issues = [];
+
+  // Check 1: Minimum code length
+  if (nonEmptyLines < 200) {
+    issues.push('StateManager.cs only has ' + nonEmptyLines + ' non-empty lines (minimum 200). This is likely a skeleton.');
+  }
+
+  // Check 2: Must contain shot-related methods or state machine
+  var shotCount = parsed.scenes ? parsed.scenes.length : 0;
+  var hasShotMethods = false;
+  var shotKeywords = 0;
+  for (var i = 0; i < shotCount; i++) {
+    var shotNum = i + 1;
+    // Check for shot_1, Shot1, shot1, ShowShot1, SetupShot1, etc.
+    var patterns = ['shot_' + shotNum, 'shot' + shotNum, 'Shot' + shotNum, 'SHOT_' + shotNum];
+    for (var p = 0; p < patterns.length; p++) {
+      if (code.indexOf(patterns[p]) >= 0) { shotKeywords++; break; }
+    }
+  }
+  if (shotCount > 0 && shotKeywords < Math.ceil(shotCount * 0.5)) {
+    issues.push('Only ' + shotKeywords + '/' + shotCount + ' shots referenced in code. Blueprint has ' + shotCount + ' shots — at least half must be implemented.');
+  }
+
+  // Check 3: Must create game objects (not just empty methods)
+  var createPatterns = ['CreatePrimitive', 'new GameObject', 'AddComponent', 'Instantiate'];
+  var createCount = 0;
+  for (var c = 0; c < createPatterns.length; c++) {
+    var idx = -1;
+    while ((idx = code.indexOf(createPatterns[c], idx + 1)) >= 0) createCount++;
+  }
+  if (createCount < 5) {
+    issues.push('Only ' + createCount + ' object creation calls found. The game must create objects from code (CreatePrimitive, new GameObject, etc.). Minimum 5 expected.');
+  }
+
+  // Check 4: Must NOT contain template-specific logic
+  var templateKeywords = ['idleGame', 'slgGame', 'buildingUpgrade', 'troopTrain', 'ResourceType.Gold'];
+  for (var t = 0; t < templateKeywords.length; t++) {
+    if (code.indexOf(templateKeywords[t]) >= 0) {
+      issues.push('Found template keyword "' + templateKeywords[t] + '" — code contains original SLG template logic instead of blueprint implementation.');
+      break;
+    }
+  }
+
+  // Check 5: Must have SetActive(false) call to hide template objects
+  if (code.indexOf('SetActive(false)') < 0 && code.indexOf('SetActive( false )') < 0) {
+    issues.push('No SetActive(false) found — template objects are not being hidden.');
+  }
+
+  // Check 6: Must call GameEnded()
+  if (code.indexOf('GameEnded') < 0) {
+    issues.push('No GameEnded() call found — Luna lifecycle not properly handled.');
+  }
+
+  if (issues.length > 0) {
+    return { ok: false, reason: issues.join('\n') };
+  }
+
+  log('[coder] Verification: ' + nonEmptyLines + ' lines, ' + shotKeywords + '/' + shotCount + ' shots, ' + createCount + ' object creations', taskId);
+  return { ok: true };
+}
+
 // ============ Helpers ============
 
 function writeFiles(clientDir, files, log, taskId) {
+  // Build map of class->path from Assets/Program to detect duplicates
+  var programClassMap = {};
+  var programDir = path.join(clientDir, 'Assets', 'Program');
+  if (fs.existsSync(programDir)) {
+    var pFiles = listCsFiles(programDir);
+    for (var p = 0; p < pFiles.length; p++) {
+      var bn = path.basename(pFiles[p], '.cs');
+      programClassMap[bn] = path.relative(clientDir, pFiles[p]).replace(/\\/g, '/');
+    }
+  }
+
   for (var i = 0; i < files.length; i++) {
-    var fullPath = path.join(clientDir, files[i].path);
+    var fp = files[i].path;
+    // If writing to Assets/Scripts/ but same filename exists in Assets/Program/Manager or Controllers or UI, redirect
+    if (fp.indexOf('Assets/Scripts/') === 0) {
+      var className = path.basename(fp, '.cs');
+      if (programClassMap[className]) {
+        var targetPath = programClassMap[className];
+        // Only redirect to Manager/, Controllers/, UI/ — not to deleted dirs (Entities/Utilities/AStar)
+        if (targetPath.indexOf('/Manager/') >= 0 || targetPath.indexOf('/Controllers/') >= 0 || targetPath.indexOf('/UI/') >= 0) {
+          log('[coder] Redirecting ' + fp + ' → ' + targetPath, taskId);
+          fp = targetPath;
+          files[i].path = fp;
+        }
+      }
+    }
+    // Block writes to hidden dirs only
+    if (fp.indexOf('_hidden_') >= 0) {
+      log('[coder] BLOCKED (hidden dir): ' + fp, taskId);
+      continue;
+    }
+    var fullPath = path.join(clientDir, fp);
     var dir = path.dirname(fullPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(fullPath, files[i].content, 'utf-8');
-    log('[coder] Written: ' + files[i].path, taskId);
+    log('[coder] Written: ' + fp, taskId);
+  }
+
+  // After writing, clean Assets/Scripts/ of any files that duplicate Assets/Program/ classes
+  var scriptsDir = path.join(clientDir, 'Assets', 'Scripts');
+  if (fs.existsSync(scriptsDir)) {
+    var sFiles = listCsFiles(scriptsDir);
+    for (var s = 0; s < sFiles.length; s++) {
+      var sName = path.basename(sFiles[s], '.cs');
+      if (programClassMap[sName]) {
+        try { fs.unlinkSync(sFiles[s]); log('[coder] Removed duplicate: Assets/Scripts/' + sName + '.cs', taskId); } catch(e) {}
+      }
+    }
   }
 }
 
@@ -782,10 +1053,17 @@ function readProjectContext(clientDir) {
     var full = path.join(clientDir, scanDirs[d]);
     if (fs.existsSync(full)) {
       var csFiles = listCsFiles(full);
+      // Skip Utilities, Entities, AStar dirs — AI should not reference them
+      var skipDirs = ['/Utilities/', '/Entities/', '/AStar/', '/BySakanakoChan/'];
       for (var i = 0; i < csFiles.length; i++) {
         try {
-          var stat = fs.statSync(csFiles[i]);
           var rel = path.relative(clientDir, csFiles[i]).replace(/\\/g, '/');
+          var skip = false;
+          for (var s = 0; s < skipDirs.length; s++) {
+            if (rel.indexOf(skipDirs[s]) >= 0) { skip = true; break; }
+          }
+          if (skip) continue;
+          var stat = fs.statSync(csFiles[i]);
           allFiles.push({ path: csFiles[i], rel: rel, size: stat.size, dir: scanDirs[d] });
         } catch (e) {}
       }
@@ -829,19 +1107,6 @@ function readCurrentScripts(clientDir) {
     parts.push('```csharp:' + rel + '\n' + content + '\n```');
   }
   return parts.join('\n\n') || '(no scripts)';
-}
-
-function listCsFiles(dir) {
-  var results = [];
-  try {
-    var entries = fs.readdirSync(dir, { withFileTypes: true });
-    for (var i = 0; i < entries.length; i++) {
-      var fp = path.join(dir, entries[i].name);
-      if (entries[i].isDirectory() && entries[i].name !== 'Editor') results = results.concat(listCsFiles(fp));
-      else if (entries[i].name.endsWith('.cs')) results.push(fp);
-    }
-  } catch (e) {}
-  return results;
 }
 
 // ============ Cocos Helpers ============
