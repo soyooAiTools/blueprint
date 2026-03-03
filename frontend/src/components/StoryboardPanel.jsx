@@ -648,6 +648,12 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
                           onChange={(e) => handleUpdateFrame(frame.id, 'duration', e.target.value)}
                           placeholder="如 2-3秒" />
                       </div>
+                      {frame.scriptExcerpt && (
+                        <div className="sb-field-row sb-field-script">
+                          <span className="sb-field-key">原脚本文案：</span>
+                          <div className="sb-script-text">{frame.scriptExcerpt}</div>
+                        </div>
+                      )}
                     </div>
                   </td>
                   {/* 画面 */}
