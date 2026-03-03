@@ -6,6 +6,20 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
+// ============ Helpers ============
+function listCsFiles(dir) {
+  var results = [];
+  try {
+    var entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (var i = 0; i < entries.length; i++) {
+      var fp = path.join(dir, entries[i].name);
+      if (entries[i].isDirectory()) results = results.concat(listCsFiles(fp));
+      else if (entries[i].name.endsWith('.cs')) results.push(fp);
+    }
+  } catch(e) {}
+  return results;
+}
+
 // ============ Config ============
 const API_BASE = 'https://crs.mindrix.app/api';
 const API_KEY = process.env.LLM_API_KEY || 'cr_f891cb1046bf100addfc0bf027cb1b37fafa8cc214e1bdbbe5493e6fa3240e7c';
@@ -199,65 +213,83 @@ var GENERATE_PROMPT = [
   '- UI layer ordering: add Graphic Raycaster; if sorting layer ineffective, check shader render queue',
   '- Sprite-based number display may not refresh — workaround: duplicate sprite set with alpha=0 as backup',
   '',
-  '## CRITICAL ARCHITECTURE: Clean Scene + Code-Built World',
+  '## CRITICAL ARCHITECTURE: Rewrite Template Scripts (they are the ONLY entry points)',
   '',
   '⚠️ Luna converts Unity C# to JavaScript. [RuntimeInitializeOnLoadMethod] is IGNORED by Luna.',
-  '⚠️ Only scripts already attached to scene GameObjects via the Unity Editor will execute.',
-  '⚠️ The SVN template scene contains UNRELATED objects from previous projects.',
-  '⚠️ You MUST clear the template scene and BUILD THE ENTIRE GAME WORLD FROM CODE.',
+  '⚠️ ONLY scripts in Assets/Program/Script/ are attached to scene GameObjects and will execute.',
+  '⚠️ Scripts you create in Assets/Scripts/ will NEVER run unless AddComponent from a Program script.',
+  '⚠️ The template is a SLG/idle game — you must COMPLETELY REPLACE the game logic.',
   '',
-  '### Strategy: CLEAN SCENE + BUILD FROM SCRATCH IN CODE',
+  '### Strategy: REWRITE the template entry-point scripts + create helpers',
   '',
-  '#### Step 1: Clear the template scene (in Awake or Start, BEFORE anything else)',
+  '#### The template project structure:',
+  '- `Assets/Program/Script/Manager/StateManager.cs` — main game state machine (REWRITE THIS FIRST)',
+  '- `Assets/Program/Script/Manager/LunaManager.cs` — Luna lifecycle (keep Luna calls, replace game logic)',
+  '- `Assets/Program/Script/Manager/UIManager.cs` — UI management (REWRITE for blueprint UI)',
+  '- `Assets/Program/Script/Controllers/Player.cs` — player controller (REWRITE for blueprint player)',
+  '- `Assets/Program/Script/Controllers/Boss.cs` — boss controller (REWRITE or empty out)',
+  '- `Assets/Program/Script/Controllers/Npc.cs` — NPC controller (REWRITE or empty out)',
+  '- `Assets/Program/Script/Manager/CameraManager.cs` — camera (REWRITE for blueprint camera)',
+  '- `Assets/Program/Script/UI/MainPanel.cs` — main UI panel (REWRITE)',
+  '- `Assets/Program/Script/UI/TouchArea.cs` — touch input (REWRITE for blueprint input)',
+  '- `Assets/Program/Script/UI/YangJoystick.cs` — virtual joystick (REWRITE if blueprint uses joystick)',
+  '- `Assets/Program/Script/Utilities/MonoSingleton.cs` — utility (KEEP as-is)',
+  '',
+  '#### Step 1: REWRITE StateManager.cs as your main game controller',
+  '- Keep the class name `StateManager` (it is attached to the scene)',
+  '- Delete ALL template game logic inside it',
+  '- In Start(): hide all template scene objects, then create your blueprint world from code',
   '```csharp',
-  '// Hide ALL template objects except essential ones',
+  '// In StateManager.Start() — first thing:',
   'foreach (GameObject root in UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects())',
   '{',
-  '    string name = root.name.ToLower();',
-  '    // Keep: Main Camera, Directional Light, EventSystem, Canvas (if reusable), and the object running this script',
-  '    if (name.Contains("camera") || name.Contains("light") || name.Contains("eventsystem"))',
-  '        continue;',
-  '    if (root == this.gameObject || root.transform == this.transform.root)',
+  '    string n = root.name.ToLower();',
+  '    if (n.Contains("camera") || n.Contains("light") || n.Contains("eventsystem") || n.Contains("statemanager") || n.Contains("manager"))',
   '        continue;',
   '    root.SetActive(false);',
   '}',
+  '// Then create your game world from code...',
   '```',
   '',
-  '#### Step 2: Set up the essential scene infrastructure',
-  '- **Camera**: Reuse existing Main Camera or create one. Set position, rotation, FOV, background color per blueprint.',
-  '- **Lighting**: Reuse existing Directional Light or create one. Set rotation, color, intensity.',
-  '- **UI Canvas**: Create a new Canvas (Screen Space - Overlay) with CanvasScaler (Scale With Screen Size, 1080x1920 or as needed) + GraphicRaycaster.',
-  '- **EventSystem**: If none exists, create one with StandaloneInputModule.',
+  '#### Step 2: Create game objects from code in StateManager.Start()',
+  '- 3D objects: `GameObject.CreatePrimitive(PrimitiveType.Cube/Sphere/Plane/etc.)`',
+  '- UI: `new GameObject("Button", typeof(RectTransform), typeof(Image), typeof(Button))`',
+  '- Text: `new GameObject("Label", typeof(RectTransform), typeof(UnityEngine.UI.Text))`',
+  '- Materials: `new Material(Shader.Find("Universal Render Pipeline/Lit"))` with colors',
+  '- Camera: find existing Main Camera, reposition for your game',
+  '- Create Canvas with CanvasScaler (1080x1920) + GraphicRaycaster',
   '',
-  '#### Step 3: Build ALL game objects from code',
-  '- 3D objects: `GameObject.CreatePrimitive(PrimitiveType.Cube/Sphere/Plane/etc.)` + set transform + material',
-  '- UI elements: `new GameObject("ButtonName", typeof(RectTransform), typeof(Image), typeof(Button))` etc.',
-  '- Text: `new GameObject("Label", typeof(RectTransform), typeof(UnityEngine.UI.Text))` — set font via `Resources.GetBuiltinResource<Font>("Arial.ttf")`',
-  '- Parent objects: create empty `new GameObject("ShotContainer")` to group objects per shot',
-  '- Materials: `new Material(Shader.Find("Universal Render Pipeline/Lit"))` — set color via `material.color = ...`',
-  '- For complex shapes: compose from multiple primitives, or use scaled/rotated cubes',
+  '#### Step 3: Implement shots as state machine in StateManager',
+  '- Each shot = a method that creates/shows the right objects and hides the previous shot',
+  '- Use SetActive to toggle shot containers',
+  '- Shot transitions triggered by gameplay events',
   '',
-  '#### Step 4: Implement blueprint logic on code-created objects',
-  '- Attach scripts to created objects via `obj.AddComponent<T>()`',
-  '- Wire up events (button clicks, collisions) in code',
-  '- Shot transitions: SetActive(false) current shot container, SetActive(true) next shot container',
+  '#### Step 4: REWRITE other Program scripts to support your game',
+  '- Player.cs → implement blueprint player behavior',
+  '- UIManager.cs → implement blueprint UI',
+  '- Other controllers → implement or empty out (keep class names!)',
   '',
   '### Rules:',
-  '- Identify the main controller script from the project context — REWRITE it completely (keep class name)',
-  '- The rewritten main script is your ENTRY POINT — it runs Awake/Start because it is already in the scene',
-  '- ALL scene content must be created in code from this entry point — do NOT rely on template scene objects',
-  '- Do NOT assume any specific GameObjects exist in the scene (except Camera, Light, EventSystem)',
-  '- Use `gameObject.AddComponent<T>()` for helper scripts',
-  '- Color/style the objects to roughly match the blueprint theme (not just white primitives)',
+  '- You MUST output files with paths starting with `Assets/Program/Script/` for scripts attached to scene',
+  '- Keep ALL class names in Assets/Program/ identical (changing = broken scene references)',
+  '- Helper scripts go in `Assets/Scripts/` and are attached via `AddComponent` from StateManager',
+  '- Do NOT create Bootstrap scripts with [RuntimeInitializeOnLoadMethod] — Luna ignores them',
+  '- Do NOT rely on template GameObjects by name — hide everything and create from code',
   '',
-  '### What to REWRITE:',
-  '- The main game controller (PlayableAdController, GameManager, etc.) — keep class name, replace ALL logic',
-  '- Any other scripts attached to the scene — rewrite to participate in the new code-built world',
+  '### What to REWRITE (keep class names, replace ALL logic):',
+  '- `Assets/Program/Script/Manager/StateManager.cs` — your main entry point',
+  '- `Assets/Program/Script/Manager/UIManager.cs`',
+  '- `Assets/Program/Script/Controllers/Player.cs`',
+  '- `Assets/Program/Script/Controllers/Boss.cs`',
+  '- `Assets/Program/Script/Controllers/Npc.cs`',
+  '- `Assets/Program/Script/Manager/CameraManager.cs`',
+  '- `Assets/Program/Script/UI/MainPanel.cs`',
+  '- `Assets/Program/Script/UI/TouchArea.cs`',
   '',
   '### What to KEEP unchanged:',
-  '- Utility scripts (MonoSingleton, math helpers, Luna lifecycle helpers)',
-  '- Audio/mute handling scripts (LunaPlayableBootstrap etc.)',
-  '- Class names of scripts attached to the scene (changing names = broken references)',
+  '- `Assets/Program/Script/Utilities/MonoSingleton.cs` and other utility base classes',
+  '- `Assets/Program/Script/Utilities/Event/*` — event system',
+  '- Class names of ALL scripts in Assets/Program/ (even if you empty the body)',
   '',
   '## CRITICAL: Implement EXACTLY what the blueprint describes',
   '',
@@ -518,22 +550,27 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
 
   log('[coder] Generating ' + engine + ' code for: ' + parsed.scenes.length + ' scenes', taskId);
 
-  // Clean up previously generated scripts to avoid conflicts
+  // Clean up ALL previously generated scripts in Assets/Scripts to avoid conflicts
   if (!isCocos) {
     var scriptsDir = path.join(clientDir, 'Assets', 'Scripts');
-    var dirsToClean = ['WoodArchery', 'Playable', 'FinalPlayable', 'NewPlayable', 'Generated', 'BlueprintGame'];
-    dirsToClean.forEach(function(d) {
-      var dirPath = path.join(scriptsDir, d);
-      if (fs.existsSync(dirPath)) {
-        log('[coder] Cleaning previous AI-generated dir: ' + d, taskId);
-        try { fs.rmSync(dirPath, { recursive: true, force: true }); } catch(e) { log('[coder] Clean failed: ' + e.message, taskId); }
+    if (fs.existsSync(scriptsDir)) {
+      // Delete EVERYTHING in Assets/Scripts — all AI-generated residue
+      var allScriptFiles = listCsFiles(scriptsDir);
+      var deleted = 0;
+      allScriptFiles.forEach(function(f) {
+        try { fs.unlinkSync(f); deleted++; } catch(e) {}
+      });
+      // Also remove empty subdirectories
+      function rmEmptyDirs(dir) {
+        try {
+          var entries = fs.readdirSync(dir, { withFileTypes: true });
+          entries.forEach(function(e) { if (e.isDirectory()) rmEmptyDirs(path.join(dir, e.name)); });
+          if (fs.readdirSync(dir).length === 0 && dir !== scriptsDir) fs.rmdirSync(dir);
+        } catch(e) {}
       }
-    });
-    // Also clean any PlayableBootstrap.cs in root Scripts dir
-    var bootstrapFile = path.join(scriptsDir, 'PlayableBootstrap.cs');
-    if (fs.existsSync(bootstrapFile)) { try { fs.unlinkSync(bootstrapFile); } catch(e) {} }
-    var lunaBuildFix = path.join(scriptsDir, 'LunaBuildFix.cs');
-    if (fs.existsSync(lunaBuildFix)) { try { fs.unlinkSync(lunaBuildFix); } catch(e) {} }
+      rmEmptyDirs(scriptsDir);
+      if (deleted > 0) log('[coder] Cleaned ' + deleted + ' old scripts from Assets/Scripts', taskId);
+    }
     log('[coder] Cleanup done', taskId);
   }
 
@@ -562,10 +599,10 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
     projectSection = '\n\n## EXISTING PROJECT FILE STRUCTURE:\n```\n' + projectCtx.fileList + '\n```';
   }
   if (projectCtx.context) {
-    projectSection += '\n\n## EXISTING TEMPLATE CODE (reference ONLY — do NOT copy patterns, do NOT reuse scene-dependent logic):\n'
-      + '⚠️ This template code is from the SVN base project. It references scene objects that will be HIDDEN.\n'
-      + '⚠️ Only use this to understand: class names to keep, utility functions to reuse, Luna lifecycle hooks.\n'
-      + '⚠️ Do NOT copy game logic, scene references, or object lookups from this code.\n\n'
+    projectSection += '\n\n## TEMPLATE SCRIPTS IN Assets/Program/ (these are ATTACHED to scene — you MUST REWRITE them):\n'
+      + '⚠️ These scripts are the ONLY ones that execute (attached to scene GameObjects).\n'
+      + '⚠️ You MUST rewrite them with blueprint logic. Keep class names, replace ALL content.\n'
+      + '⚠️ Key entry point: StateManager.cs — rewrite Start() to hide template objects and build your game.\n\n'
       + projectCtx.context;
   }
 
@@ -670,6 +707,7 @@ function parseCodeBlocks(text) {
   var match;
   while ((match = regex.exec(text)) !== null) {
     var fp = match[1].trim();
+    // Accept both Assets/Program/ and Assets/Scripts/ paths as-is
     if (!fp.startsWith('Assets/')) fp = 'Assets/Scripts/' + path.basename(fp);
     files.push({ path: fp, content: match[2].trim() + '\n' });
   }
@@ -679,7 +717,27 @@ function parseCodeBlocks(text) {
     while ((match = fb.exec(text)) !== null) {
       var code = match[1].trim() + '\n';
       var cm = code.match(/class\s+(\w+)/);
-      files.push({ path: 'Assets/Scripts/' + (cm ? cm[1] : 'Script' + idx) + '.cs', content: code });
+      // Check if the class matches a known Program script
+      var knownProgram = ['StateManager','Player','Boss','Npc','UIManager','CameraManager','LunaManager','MainPanel','TouchArea','YangJoystick'];
+      var className = cm ? cm[1] : 'Script' + idx;
+      var targetPath = 'Assets/Scripts/' + className + '.cs';
+      if (knownProgram.indexOf(className) !== -1) {
+        // Map to correct Program path
+        var programPaths = {
+          'StateManager': 'Assets/Program/Script/Manager/StateManager.cs',
+          'Player': 'Assets/Program/Script/Controllers/Player.cs',
+          'Boss': 'Assets/Program/Script/Controllers/Boss.cs',
+          'Npc': 'Assets/Program/Script/Controllers/Npc.cs',
+          'UIManager': 'Assets/Program/Script/Manager/UIManager.cs',
+          'CameraManager': 'Assets/Program/Script/Manager/CameraManager.cs',
+          'LunaManager': 'Assets/Program/Script/Manager/LunaManager.cs',
+          'MainPanel': 'Assets/Program/Script/UI/MainPanel.cs',
+          'TouchArea': 'Assets/Program/Script/UI/TouchArea.cs',
+          'YangJoystick': 'Assets/Program/Script/UI/YangJoystick.cs'
+        };
+        targetPath = programPaths[className];
+      }
+      files.push({ path: targetPath, content: code });
       idx++;
     }
   }

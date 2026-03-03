@@ -352,6 +352,63 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
     setGeneratingFrameIds(prev => { const s = new Set(prev); s.delete(frameId); return s; });
   }, [frames, projectId, showAlert]);
 
+  // Regenerate a frame based on edited scriptExcerpt
+  const regenerateFromScript = useCallback(async (frameId) => {
+    const frame = frames.find(f => f.id === frameId);
+    if (!frame) return;
+    setGeneratingFrameIds(prev => new Set(prev).add(frameId));
+    try {
+      // Step 1: Use edit-frame API to regenerate all fields based on scriptExcerpt
+      const editResp = await fetch(`${API_BASE}/api/projects/${projectId}/edit-frame`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          frameIndex: frames.indexOf(frame),
+          instruction: '根据修改后的「原脚本文案」(scriptExcerpt)，重新生成此帧的场景描述(scene)、交互(interaction)、镜头(camera)、动画(animation)、UI描述(ui)、时间(timing)等所有字段，保持与原脚本文案一致。prompt也要根据新的文案重新生成。',
+          frame,
+        }),
+      });
+      const editData = await editResp.json();
+      if (!editData.error && editData.frame) {
+        const updatedFrame = { ...editData.frame, id: frameId, imageUrl: frame.imageUrl, feedback: frame.feedback, feedbackImage: frame.feedbackImage, scriptExcerpt: frame.scriptExcerpt };
+        setFrames(prev => prev.map(f => f.id === frameId ? updatedFrame : f));
+        // Step 2: Regenerate image with updated prompt
+        const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generate-storyboard`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ frames: [updatedFrame] }),
+        });
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const evt = JSON.parse(line.slice(6));
+              if (evt.type === 'done') {
+                const uf = (evt.frames || []).find(f => f.id === frameId);
+                if (uf && uf.imageUrl) {
+                  setFrames(prev => prev.map(f => f.id === frameId ? { ...f, imageUrl: uf.imageUrl } : f));
+                }
+              }
+            } catch {}
+          }
+        }
+      } else {
+        throw new Error(editData.error || '编辑失败');
+      }
+    } catch (err) {
+      await showAlert('⚠️ 重新生成失败: ' + err.message);
+    }
+    setGeneratingFrameIds(prev => { const s = new Set(prev); s.delete(frameId); return s; });
+  }, [frames, projectId, showAlert]);
+
   const handleParse = useCallback(async () => {
     if (docFiles.length === 0 && refImages.length === 0 && !text.trim()) return;
     setLoading(true); setGenerated(false);
@@ -768,12 +825,18 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
                           onChange={(e) => handleUpdateFrame(frame.id, 'duration', e.target.value)}
                           placeholder="如 2-3秒" />
                       </div>
-                      {frame.scriptExcerpt && (
-                        <div className="sb-field-row sb-field-script">
-                          <span className="sb-field-key">原脚本文案：</span>
-                          <div className="sb-script-text">{frame.scriptExcerpt}</div>
-                        </div>
-                      )}
+                      <div className="sb-field-row sb-field-script">
+                        <span className="sb-field-key">原脚本文案：</span>
+                        <textarea className="sb-field-val sb-script-textarea" value={frame.scriptExcerpt || ''} rows={3}
+                          onChange={(e) => handleUpdateFrame(frame.id, 'scriptExcerpt', e.target.value)}
+                          placeholder="原脚本文案..." />
+                        <button className="sb-script-regen-btn"
+                          onClick={() => regenerateFromScript(frame.id)}
+                          disabled={generatingFrameIds.has(frame.id)}
+                          title="根据原脚本文案重新生成此帧的描述和图片">
+                          {generatingFrameIds.has(frame.id) ? '⏳' : '🔄 重新生成'}
+                        </button>
+                      </div>
                     </div>
                   </td>
                   {/* 画面 */}
