@@ -847,7 +847,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
               🗑 清空帧
             </button>
             <button className="storyboard-btn storyboard-bottom-btn generate-storyboard-btn"
-              onClick={() => window.open(`${API_BASE}/storyboard-preview.html?id=${projectId}`, '_blank')}>
+              onClick={() => window.open(`./storyboard-preview.html?id=${projectId}`, '_blank')}>
               📄 预览分镜
             </button>
             <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-convert" onClick={handleConvert}
