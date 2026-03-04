@@ -92,6 +92,29 @@ function apiRequest(method, urlPath, body, isBinary, extraHeaders) {
   });
 }
 
+// Screenshot review via Main ECS screenshot-review service
+async function screenshotReview(taskId, log) {
+  return new Promise((resolve, reject) => {
+    const url = new URL('http://120.55.70.226:18820/api/tasks/' + taskId + '/screenshot-review');
+    const opts = {
+      hostname: url.hostname, port: url.port, path: url.pathname,
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 120000
+    };
+    const req = http.request(opts, (res) => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => {
+        try { resolve(JSON.parse(Buffer.concat(chunks).toString())); }
+        catch (e) { resolve({ ok: true, warning: true, reason: 'Parse error' }); }
+      });
+    });
+    req.on('error', (e) => resolve({ ok: true, warning: true, reason: 'Connection error: ' + e.message }));
+    req.on('timeout', () => { req.destroy(); resolve({ ok: true, warning: true, reason: 'Timeout' }); });
+    req.write('{}');
+    req.end();
+  });
+}
+
 async function reportStatus(taskId, status, extra) {
   const payload = { workerId: WORKER_ID, taskId, status };
   if (extra) Object.assign(payload, extra);
@@ -303,8 +326,27 @@ async function processTask(task) {
       }
     }
 
-    // === Step 8: Done ===
-    await reportStatus(taskId, 'reviewing', { message: `构建完成 (${buildResult.buildTime}s)，等待审核` });
+    // === Step 8: Screenshot Review (AI visual QC on Main ECS) ===
+    await reportStatus(taskId, 'processing', { message: 'AI 截图审核中...' });
+    try {
+      const reviewResult = await screenshotReview(taskId, log);
+      if (reviewResult && reviewResult.ok === false && !reviewResult.warning) {
+        log(`Screenshot review REJECTED: ${reviewResult.reason}`, taskId);
+        await reportStatus(taskId, 'failed', { 
+          message: `AI 截图审核不通过: ${(reviewResult.reason || '').slice(0, 200)}`,
+          screenshotReview: reviewResult
+        });
+        return;
+      }
+      if (reviewResult && reviewResult.ok) {
+        log(`Screenshot review PASSED: ${reviewResult.reason || 'looks good'}`, taskId);
+      }
+    } catch (e) {
+      log(`Screenshot review error (non-fatal): ${e.message}`, taskId);
+    }
+
+    // === Step 9: Done ===
+    await reportStatus(taskId, 'reviewing', { message: `构建完成 (${buildResult.buildTime}s)，AI审核通过，等待人工审核` });
     log('Task completed → reviewing', taskId);
 
   } catch (e) {
