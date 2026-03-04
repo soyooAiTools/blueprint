@@ -159,6 +159,30 @@ async function processTask(task) {
       return;
     }
 
+    // === Step 1.5: Clean old AI-generated scripts from Assets/Scripts ===
+    // SVN update restores deleted files; we must clean before AI coding
+    const scriptsDir = path.join(CLIENT_DIR, 'Assets', 'Scripts');
+    if (fs.existsSync(scriptsDir)) {
+      function cleanCsRecursive(dir) {
+        let count = 0;
+        try {
+          const entries = fs.readdirSync(dir, { withFileTypes: true });
+          for (const e of entries) {
+            const fp = path.join(dir, e.name);
+            if (e.isDirectory()) {
+              count += cleanCsRecursive(fp);
+              try { if (fs.readdirSync(fp).length === 0) fs.rmdirSync(fp); } catch(x) {}
+            } else if (e.name.endsWith('.cs')) {
+              try { fs.unlinkSync(fp); count++; } catch(x) {}
+            }
+          }
+        } catch(x) {}
+        return count;
+      }
+      const cleaned = cleanCsRecursive(scriptsDir);
+      if (cleaned > 0) log(`Cleaned ${cleaned} old .cs files from Assets/Scripts`, taskId);
+    }
+
     // === Step 2: AI Coding ===
     await reportStatus(taskId, 'processing', { message: 'AI 编码中...' });
     let blueprint = null;
@@ -203,12 +227,27 @@ async function processTask(task) {
       }
     }
 
-    const scenes = detectScenes(CLIENT_DIR);
-    if (scenes.length === 0) {
-      await reportStatus(taskId, 'failed', { message: 'No scenes found in project' });
-      return;
+    // Create clean empty scene to replace template scene (template has irrelevant SLG objects)
+    const emptySceneTemplate = path.join(__dirname, 'empty-scene-template.unity');
+    const targetScenePath = path.join(CLIENT_DIR, 'Assets', 'Scenes', 'PlayableAd.unity');
+    const targetSceneMetaPath = targetScenePath + '.meta';
+    if (fs.existsSync(emptySceneTemplate)) {
+      // Ensure Scenes directory exists
+      const scenesDir = path.join(CLIENT_DIR, 'Assets', 'Scenes');
+      if (!fs.existsSync(scenesDir)) fs.mkdirSync(scenesDir, { recursive: true });
+      fs.copyFileSync(emptySceneTemplate, targetScenePath);
+      // Create .meta file for the new scene
+      if (!fs.existsSync(targetSceneMetaPath)) {
+        fs.writeFileSync(targetSceneMetaPath, 
+          'fileFormatVersion: 2\nguid: a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6\nDefaultImporter:\n  externalObjects: {}\n  userData: \n  assetBundleName: \n  assetBundleVariant: \n',
+          'utf-8');
+      }
+      log('Created clean empty scene: Assets/Scenes/PlayableAd.unity', taskId);
     }
-    log(`Detected ${scenes.length} scene(s): ${scenes.join(', ')}`, taskId);
+
+    // Use ONLY the new clean scene (ignore template SampleScene)
+    const scenes = ['Assets/Scenes/PlayableAd.unity'];
+    log(`Using scene: ${scenes[0]}`, taskId);
 
     fixLunaJson(CLIENT_DIR, scenes);
     generateExportAssets(CLIENT_DIR, scenes);

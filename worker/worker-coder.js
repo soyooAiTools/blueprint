@@ -215,35 +215,27 @@ var GENERATE_PROMPT = [
   '- UI layer ordering: add Graphic Raycaster; if sorting layer ineffective, check shader render queue',
   '- Sprite-based number display may not refresh — workaround: duplicate sprite set with alpha=0 as backup',
   '',
-  '## CRITICAL ARCHITECTURE: Rewrite Template Scripts (they are the ONLY entry points)',
+  '## CRITICAL ARCHITECTURE',
   '',
   '⚠️ Luna converts Unity C# to JavaScript. [RuntimeInitializeOnLoadMethod] is IGNORED by Luna.',
-  '⚠️ ONLY scripts in Assets/Program/Script/ are attached to scene GameObjects and will execute.',
-  '⚠️ Scripts you create in Assets/Scripts/ will NEVER run unless AddComponent from a Program script.',
-  '⚠️ The template is a SLG/idle game — you must COMPLETELY REPLACE the game logic.',
+  '⚠️ The scene is a CLEAN EMPTY scene with only: Main Camera, Directional Light, EventSystem, and a GameManager object with StateManager.cs attached.',
+  '⚠️ There are NO template objects in the scene — you start from a blank canvas.',
+  '⚠️ The template project has utility scripts in Assets/Program/Script/ — you can CALL their methods if useful (e.g., PoolManager, AudioManager).',
+  '⚠️ But you must NOT depend on template scene objects — they do not exist in the new scene.',
   '',
-  '### Strategy: Output ONLY StateManager.cs — everything else is already handled',
+  '### Strategy: Output ONLY StateManager.cs',
   '',
-  '⚠️ ALL other .cs files in Assets/Program/Script/ have been pre-emptied to harmless stubs.',
   '⚠️ You ONLY need to output ONE file: `Assets/Program/Script/Manager/StateManager.cs`',
-  '⚠️ Do NOT output Player.cs, Boss.cs, Npc.cs, UIManager.cs, etc. — they are already empty stubs.',
   '⚠️ Do NOT create new files like StateManagerExtension.cs, StateManagerFontFix.cs, etc.',
+  '⚠️ You CAN call utility classes from the template (PoolManager, AudioManager, etc.) if they help.',
+  '⚠️ But ALL game logic must be in StateManager.cs — it is the only entry point.',
   '',
-  '#### StateManager.cs is the ONLY entry point:',
-  '- It is attached to the scene and executes on Start()',
+  '#### StateManager.cs is attached to the GameManager object in the scene:',
+  '- It executes on Start()',
   '- Put ALL game logic here: shots, UI, input, camera, everything',
   '- Keep the class name `StateManager`',
   '',
-  '#### In Start(), first hide all template objects:',
-  '```csharp',
-  'var roots = gameObject.scene.GetRootGameObjects();',
-  'for (int i = 0; i < roots.Length; i++) {',
-  '    string n = roots[i].name.ToLower();',
-  '    if (n.Contains("camera") || n.Contains("light") || n.Contains("eventsystem") || n.Contains("manager"))',
-  '        continue;',
-  '    roots[i].SetActive(false);',
-  '}',
-  '```',
+  '#### The scene is EMPTY — create everything from code:',
   '',
   '#### Then create your game world from code:',
   '- 3D objects: `GameObject.CreatePrimitive(PrimitiveType.Cube/Sphere/Plane)`',
@@ -267,8 +259,8 @@ var GENERATE_PROMPT = [
   '### Rules:',
   '- Keep class name `StateManager` (attached to scene)',
   '- Do NOT create Bootstrap scripts with [RuntimeInitializeOnLoadMethod]',
-  '- Do NOT reference any classes from Utilities/Entities/AStar/BySakanakoChan — they do not exist',
-  '- Do NOT use EventPool, BasicExtensions, MonoSingleton, ReturnPool — they do not exist',
+  '- You CAN use utility classes from the template (PoolManager, AudioManager, etc.) — they are compiled and available',
+  '- Do NOT use classes from Utilities/Entities/AStar/BySakanakoChan if they are empty stubs',
   '- For singletons: `public static StateManager instance;` set in Awake()',
   '- Do NOT define enums that conflict with stub classes (ResourceType, GameState, etc. may exist as empty stubs)',
   '',
@@ -675,7 +667,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
     // This removes template cross-references (BasicExtensions, EventPool, etc.)
     // AI will rewrite StateManager + any other files it needs from scratch
     var stubCount = 0;
-    var keepPaths = []; // Stub EVERYTHING including StateManager.cs — AI will completely overwrite it
+    var keepPaths = ['StateManager.cs']; // Keep StateManager.cs — AI will completely rewrite it
     function stubAllCs(dir) {
       if (!fs.existsSync(dir)) return;
       try {
@@ -737,8 +729,13 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
   if (projectCtx.fileList) {
     projectSection = '\n\n## EXISTING PROJECT FILE STRUCTURE:\n```\n' + projectCtx.fileList + '\n```';
   }
-  // Don't show template script content — it confuses the AI into copying template logic.
-  // The prompt already explains the architecture. Only show file structure for reference.
+  if (projectCtx.context) {
+    projectSection += '\n\n## TEMPLATE UTILITY SCRIPTS (you can call these, but do NOT copy their game logic):\n'
+      + '⚠️ These are UTILITY classes you can reference/call from StateManager.cs.\n'
+      + '⚠️ Do NOT copy SLG/idle game logic from them — implement the BLUEPRINT logic instead.\n'
+      + '⚠️ Useful utilities: PoolManager (object pooling), AudioManager (sound), etc.\n\n'
+      + projectCtx.context;
+  }
 
   // Build structured scene descriptions for AI
   var scenesMarkdown = parsed.scenes.map(function(s, i) {
@@ -758,14 +755,14 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
     + projectSection
     + parsed.feedbackText
     + '\n\n## IMPORTANT REMINDERS:\n'
-    + '1. CLEAR the template scene first (SetActive(false) on all root objects except Camera/Light/EventSystem)\n'
+    + '1. The scene is EMPTY (only Camera, Light, EventSystem, GameManager with StateManager). No template objects exist.\n'
     + '2. BUILD everything from code — CreatePrimitive, new GameObject, UI components\n'
-    + '3. Do NOT use GameObject.Find() to locate template objects — they are all disabled\n'
-    + '4. Do NOT copy game logic from the template code — it is for a DIFFERENT game\n'
-    + '5. The template code is ONLY useful for: class names to preserve, utility functions, Luna lifecycle hooks\n\n'
-    + 'Generate ' + lang + ' scripts that implement this blueprint EXACTLY from scratch. '
+    + '3. You CAN call utility classes from the template project (PoolManager, AudioManager, etc.) if they help\n'
+    + '4. Do NOT copy SLG/idle game logic from the template — implement the BLUEPRINT logic\n'
+    + '5. StateManager.Start() is your entry point — create all game objects and UI from there\n\n'
+    + 'Generate ' + lang + ' code that implements this blueprint EXACTLY from scratch. '
     + 'Every shot must be playable with code-created objects. '
-    + 'The final game should match the storyboard — no template content should be visible.';
+    + 'The scene starts empty — you create the entire game world in code.';
 
   try {
     var response = await callClaude(sysPrompt, userMsg, 300000, MODEL_GENERATE);
@@ -900,10 +897,8 @@ function verifyCodeContent(clientDir, parsed, log, taskId) {
     }
   }
 
-  // Check 5: Must have SetActive(false) call to hide template objects
-  if (code.indexOf('SetActive(false)') < 0 && code.indexOf('SetActive( false )') < 0) {
-    issues.push('No SetActive(false) found — template objects are not being hidden.');
-  }
+  // Check 5: Must have SetActive calls (for shot toggling)
+  // Scene is empty now, but shots should toggle visibility of shot containers
 
   // Check 6: Must call GameEnded()
   if (code.indexOf('GameEnded') < 0) {
