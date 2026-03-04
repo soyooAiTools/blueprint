@@ -28,12 +28,17 @@ async function runBridgeBuild(clientDir, log, taskId) {
   log = log || console.log;
   const startTime = Date.now();
 
-  // 1. Clean old LunaTemp
+  // 1. Clean old LunaTemp (preserve stage1 cache - asset export is slow/broken on cold start)
   const lunaTempDir = path.join(clientDir, 'LunaTemp');
   if (fs.existsSync(lunaTempDir)) {
-    log('[luna-build] Cleaning old LunaTemp...', taskId);
-    try { fs.rmSync(lunaTempDir, { recursive: true, force: true }); } catch (e) {
-      log('[luna-build] Warning cleaning LunaTemp: ' + e.message, taskId);
+    log('[luna-build] Cleaning LunaTemp (preserving stage1 cache)...', taskId);
+    for (const sub of ['stage2', 'stage3', 'stage4']) {
+      const subDir = path.join(lunaTempDir, sub);
+      if (fs.existsSync(subDir)) {
+        try { fs.rmSync(subDir, { recursive: true, force: true }); } catch (e) {
+          log('[luna-build] Warning cleaning ' + sub + ': ' + e.message, taskId);
+        }
+      }
     }
   }
 
