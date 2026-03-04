@@ -7,7 +7,7 @@ const https = require('https');
 const { exec, execSync, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { detectScenes, fixLunaJson, generateExportAssets } = require('./worker-patch.js');
+const { detectScenes, fixLunaJson, generateExportAssets, injectMaterialSourceAll } = require('./worker-patch.js');
 const { runBridgeBuild, bridgeRequest } = require('./worker-bridge-build.js');
 const { generateCode } = require('./worker-coder.js');
 const { convertAndSave } = require('./worker-html-converter.js');
@@ -264,7 +264,8 @@ async function processTask(task) {
 
     fixLunaJson(CLIENT_DIR, scenes);
     generateExportAssets(CLIENT_DIR, scenes);
-    log('Pre-build patch applied', taskId);
+    injectMaterialSourceAll(CLIENT_DIR, scenes);
+    log('Pre-build patch applied (incl. __MaterialSource injection)', taskId);
 
     // === Step 4: Luna Build ===
     const buildResult = await runBridgeBuild(CLIENT_DIR, log, taskId);

@@ -157,4 +157,142 @@ if (require.main === module) {
   generateExportAssets(clientDir, scenes);
 }
 
-module.exports = { detectScenes, fixLunaJson, generateExportAssets, MSBUILD_PATH };
+/**
+ * Inject a hidden __MaterialSource Cube into a .unity scene file
+ * so that runtime code can clone a valid Material from it.
+ * Skips if __MaterialSource already exists in the scene.
+ */
+function injectMaterialSource(sceneFilePath) {
+  if (!fs.existsSync(sceneFilePath)) return false;
+  const content = fs.readFileSync(sceneFilePath, 'utf-8');
+  if (content.includes('__MaterialSource')) {
+    console.log('[injectMaterialSource] Already exists in: ' + sceneFilePath);
+    return false;
+  }
+
+  const cubeYaml = `
+--- !u!1 &8880000
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 8880001}
+  - component: {fileID: 8880002}
+  - component: {fileID: 8880003}
+  - component: {fileID: 8880004}
+  m_Layer: 0
+  m_Name: __MaterialSource
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 0
+--- !u!4 &8880001
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8880000}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: -9999, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!33 &8880002
+MeshFilter:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8880000}
+  m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!65 &8880003
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8880000}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_IsTrigger: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 1, y: 1, z: 1}
+  m_Center: {x: 0, y: 0, z: 0}
+--- !u!23 &8880004
+MeshRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8880000}
+  m_Enabled: 1
+  m_CastShadows: 1
+  m_ReceiveShadows: 1
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 1
+  m_LightProbeUsage: 1
+  m_ReflectionProbeUsage: 1
+  m_RayTracingMode: 2
+  m_RayTraceProcedural: 0
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: 10303, guid: 0000000000000000f000000000000000, type: 0}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_SceneOffsetInLightmap: {x: 0, y: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 0
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 3
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 0
+  m_AdditionalVertexStreams: {fileID: 0}
+`;
+
+  fs.writeFileSync(sceneFilePath, content.trimEnd() + '\n' + cubeYaml.trim() + '\n', 'utf-8');
+  console.log('[injectMaterialSource] Injected into: ' + sceneFilePath);
+  return true;
+}
+
+/**
+ * Inject __MaterialSource into all detected scene files
+ */
+function injectMaterialSourceAll(clientDir, scenes) {
+  let count = 0;
+  for (const scenePath of scenes) {
+    const fullPath = path.join(clientDir, scenePath);
+    if (injectMaterialSource(fullPath)) count++;
+  }
+  console.log('[injectMaterialSourceAll] Injected into ' + count + ' scene(s)');
+  return count;
+}
+
+module.exports = { detectScenes, fixLunaJson, generateExportAssets, injectMaterialSource, injectMaterialSourceAll, MSBUILD_PATH };

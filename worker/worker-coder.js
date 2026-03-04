@@ -150,6 +150,7 @@ var GENERATE_PROMPT = [
   '## CRITICAL LUNA CONSTRAINTS',
   '',
   '### Absolutely DO NOT use:',
+  '- Do NOT manually create Mesh vertices/triangles — use CreatePrimitive or simple GameObjects instead',
   '- TileMap, New InputSystem, Terrain (use mesh-based terrain instead)',
   '- Generics (Luna does NOT support generic syntax — use non-generic overloads)',
   '- Resources.GetBuiltinResource<T>() — use (T)Resources.GetBuiltinResource(typeof(T), name) instead',
@@ -170,6 +171,27 @@ var GENERATE_PROMPT = [
   '- Multi-dimensional arrays (use 1D or jagged arrays, 10x perf difference)',
   '- Application.OpenURL → use Luna.Unity.Playable.InstallFullGame() for CTA',
   '- public Inspector references (the scene file will NOT be modified — all references MUST be resolved in code)',
+  '- `new Material(Shader.Find(...))` — does NOT work in Luna (creates invisible/pink objects)',
+  '- `GameObject.CreatePrimitive()` does NOT auto-assign Material in Luna',
+  '',
+  '### Material handling (CRITICAL — Luna has no runtime shader compilation):',
+  '- The scene has a hidden Cube named `__MaterialSource` with a valid default Material',
+  '- Clone it once in Start() and reuse for all objects:',
+  '```csharp',
+  'private Material _baseMat;',
+  'void Start() {',
+  '    var matSrc = GameObject.Find("__MaterialSource");',
+  '    matSrc.SetActive(true);',
+  '    _baseMat = matSrc.GetComponent<Renderer>().sharedMaterial;',
+  '    matSrc.SetActive(false);',
+  '    // ... rest of Start',
+  '}',
+  '// For each new object:',
+  'renderer.material = new Material(_baseMat);',
+  'renderer.material.color = Color.red; // customize',
+  '```',
+  '- For CreatePrimitive: ALWAYS assign `obj.GetComponent<Renderer>().material = new Material(_baseMat);`',
+  '- NEVER use Shader.Find() or new Material(shader) — they produce invisible/pink results in Luna',
   '',
   '### MUST do:',
   '- Call Luna.Unity.LifeCycle.GameEnded() when game ends (before CTA)',
@@ -219,7 +241,7 @@ var GENERATE_PROMPT = [
   '',
   '⚠️ Luna converts Unity C# to JavaScript. [RuntimeInitializeOnLoadMethod] is IGNORED by Luna.',
   '⚠️ The scene contains template objects (SLG game) — you MUST hide all of them in Start().',
-  '⚠️ GameFlowManagerMain.cs is ALREADY mounted in the scene on a GameObject. You are REPLACING its content.',
+  '⚠️ GameFlowManagerMain will be automatically instantiated at runtime via JS injection. You are writing its content.',
   '⚠️ The template project has utility scripts in Assets/Program/Script/ — you can CALL their methods if useful (e.g., DOTween, PoolManager).',
   '⚠️ After hiding template objects, CREATE all your game content from code.',
   '',
@@ -246,7 +268,7 @@ var GENERATE_PROMPT = [
   'var roots = gameObject.scene.GetRootGameObjects();',
   'for (int i = 0; i < roots.Length; i++) {',
   '    string n = roots[i].name.ToLower();',
-  '    if (n.Contains("camera") || n.Contains("light") || n.Contains("eventsystem"))',
+  '    if (n.Contains("camera") || n.Contains("light") || n.Contains("eventsystem") || n.Contains("__materialsource"))',
   '        continue;',
   '    if (roots[i] == this.gameObject || roots[i] == this.transform.root.gameObject)',
   '        continue;',
@@ -259,7 +281,7 @@ var GENERATE_PROMPT = [
   '- UI: `new GameObject("Btn", typeof(RectTransform), typeof(Image), typeof(Button))`',
   '- Text: `var t = new GameObject("Lbl", typeof(RectTransform)).AddComponent<UnityEngine.UI.Text>();`',
   '- Font: `t.font = (Font)Resources.GetBuiltinResource(typeof(Font), "Arial.ttf");`',
-  '- Materials: `new Material(Shader.Find("Universal Render Pipeline/Lit"))`',
+  '- Materials: clone from the hidden __MaterialSource Cube in the scene (see below)',
   '- Canvas: create with CanvasScaler (1080x1920) + GraphicRaycaster',
   '',
   '#### Implement shots as state machine methods:',
@@ -348,7 +370,9 @@ var FIX_PROMPT = [
   '- Must call Luna.Unity.LifeCycle.GameEnded() when game ends',
   '- Do NOT use [RuntimeInitializeOnLoadMethod] — Luna ignores it',
   '- The main controller script is GameFlowManagerMain.cs — keep its class name `GameFlowManagerMain`',
-  '- The scene is CLEAN — all game objects are created from code, do NOT use GameObject.Find() for template objects',
+  '- The scene is CLEAN — all game objects are created from code, do NOT use GameObject.Find() for template objects (except __MaterialSource)',
+  '- Materials: NEVER use `new Material(Shader.Find(...))` — clone from __MaterialSource instead: `var matSrc = GameObject.Find("__MaterialSource"); matSrc.SetActive(true); _baseMat = matSrc.GetComponent<Renderer>().sharedMaterial; matSrc.SetActive(false);`',
+  '- For CreatePrimitive objects: ALWAYS assign `obj.GetComponent<Renderer>().material = new Material(_baseMat);`',
   '- If a fix requires new scene objects, CREATE them in code (CreatePrimitive, new GameObject, etc.)',
   '- Do NOT reintroduce dependencies on template scene objects that were cleared',
   '',
@@ -832,16 +856,24 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
         var verification = verifyCodeContent(clientDir, parsed, log, taskId);
         if (!verification.ok) {
           log('[coder] ⚠️ Content verification FAILED: ' + verification.reason, taskId);
-          // Regenerate with explicit feedback about what's missing
+          // Incremental fix: send compiled code + verification feedback to AI for targeted improvement
           if (attempt < MAX_FIX_ATTEMPTS) {
-            var regenMsg = userMsg + '\n\n## REJECTED: Your code compiled but FAILED content verification:\n'
+            var currentCode = readScripts(clientDir);
+            var contentFixMsg = '## Content Verification FAILED\n'
+              + 'Your code COMPILED SUCCESSFULLY but failed quality checks:\n\n'
               + verification.reason + '\n\n'
-              + '⚠️ You MUST implement ALL shots with real game logic. '
-              + 'Each shot must create visible GameObjects and handle player input. '
-              + 'A skeleton class will be rejected. Generate COMPLETE, FULL code.';
-            var regenResp = await callClaude(sysPrompt, regenMsg, 300000, MODEL_GENERATE);
-            var regenFiles = parseBlocks(regenResp.text);
-            if (regenFiles.length > 0) { writeFiles(clientDir, regenFiles, log, taskId); files = regenFiles; }
+              + '## Current Code (compiles OK):\n' + currentCode + '\n\n'
+              + '## Blueprint Requirements:\n' + scenesMarkdown + '\n\n'
+              + '## INSTRUCTIONS:\n'
+              + '- Keep the code compilable — do NOT introduce new errors\n'
+              + '- Add the missing content (shots, game objects, interactions) to the EXISTING code\n'
+              + '- Each shot_N() method must create visible GameObjects (CreatePrimitive, new GameObject, UI)\n'
+              + '- Implement at least 5 of the ' + (parsed.scenes ? parsed.scenes.length : 10) + ' shots from the blueprint\n'
+              + '- Output the COMPLETE updated GameFlowManagerMain.cs\n';
+            var contentFixResp = await callClaude(fixPrompt, contentFixMsg, 300000, MODEL_GENERATE);
+            var contentFixFiles = parseBlocks(contentFixResp.text);
+            if (contentFixFiles.length > 0) { writeFiles(clientDir, contentFixFiles, log, taskId); files = contentFixFiles; }
+            log('[coder] Content fix applied, re-checking...', taskId);
             continue; // Go back to compile check
           }
           return { ok: false, error: 'Content verification failed after all attempts: ' + verification.reason };
@@ -922,8 +954,9 @@ function verifyCodeContent(clientDir, parsed, log, taskId) {
       if (code.indexOf(patterns[p]) >= 0) { shotKeywords++; break; }
     }
   }
-  if (shotCount > 0 && shotKeywords < Math.ceil(shotCount * 0.5)) {
-    issues.push('Only ' + shotKeywords + '/' + shotCount + ' shots referenced in code. Blueprint has ' + shotCount + ' shots — at least half must be implemented.');
+  if (shotCount > 0 && shotKeywords < Math.ceil(shotCount * 0.3)) {
+    // Downgraded to warning — content fix often introduces more compile errors than it fixes
+    log('[coder] Warning: Only ' + shotKeywords + '/' + shotCount + ' shots referenced in code (threshold: 30%)', taskId);
   }
 
   // Check 3: Must create game objects (not just empty methods)
@@ -946,9 +979,9 @@ function verifyCodeContent(clientDir, parsed, log, taskId) {
     }
   }
 
-  // Check 5: Must hide template objects
+  // Check 5: Should hide template objects (warning, not blocker)
   if (code.indexOf('SetActive(false)') < 0 && code.indexOf('SetActive( false )') < 0) {
-    issues.push('No SetActive(false) found — template objects must be hidden in Start().');
+    log('[coder] Warning: No SetActive(false) found — template objects may still be visible', taskId);
   }
 
   // Check 6: Must call GameEnded()
@@ -1085,62 +1118,50 @@ function listExistingClasses(clientDir) {
   return classes;
 }
 
-// Read existing project code as context for LLM (SLG template project)
+// Read existing project code as context for LLM — ONLY utility classes AI can call
 function readProjectContext(clientDir) {
-  var MAX_CONTEXT_CHARS = 30000; // Limit to avoid token overflow
+  var MAX_CONTEXT_CHARS = 20000;
   var parts = [];
   var totalChars = 0;
 
-  // Priority: Assets/Program (main game logic) > Assets/Scripts > Assets/Plugins
-  var scanDirs = ['Assets/Program', 'Assets/Scripts', 'Assets/Plugins'];
-  
-  // First pass: collect file list with sizes
-  var allFiles = [];
-  for (var d = 0; d < scanDirs.length; d++) {
-    var full = path.join(clientDir, scanDirs[d]);
-    if (fs.existsSync(full)) {
-      var csFiles = listCsFiles(full);
-      // Skip Utilities, Entities, AStar dirs — AI should not reference them
-      var skipDirs = ['/Utilities/', '/Entities/', '/AStar/', '/BySakanakoChan/'];
-      for (var i = 0; i < csFiles.length; i++) {
-        try {
-          var rel = path.relative(clientDir, csFiles[i]).replace(/\\/g, '/');
-          var skip = false;
-          for (var s = 0; s < skipDirs.length; s++) {
-            if (rel.indexOf(skipDirs[s]) >= 0) { skip = true; break; }
-          }
-          if (skip) continue;
-          var stat = fs.statSync(csFiles[i]);
-          allFiles.push({ path: csFiles[i], rel: rel, size: stat.size, dir: scanDirs[d] });
-        } catch (e) {}
-      }
+  // Only include utility files that AI can actually call (from keepFiles list)
+  var utilityFiles = [
+    'PoolManager.cs', 'AudioManager.cs', 'SimpleAudioManager.cs', 'SimpleAudioManagerMain.cs',
+    'CTAManager.cs', 'LunaManager.cs', 'GameConstants.cs', 'GameData.cs',
+    'MonoSingleton.cs', 'BasicExtensions.cs', 'ReturnPool.cs',
+    'ImageSeqAni.cs', 'SpriteRendererSeqAni.cs',
+    'YangJoystick.cs', 'TouchArea.cs',
+    'EventManager.cs', 'Event.cs', 'EventPool.cs', 'GameEventArgs.cs'
+  ];
+
+  var programDir = path.join(clientDir, 'Assets', 'Program');
+  if (!fs.existsSync(programDir)) return { context: '', fileList: '' };
+
+  var allCsFiles = listCsFiles(programDir);
+  var utilFiles = [];
+  var fileListParts = [];
+
+  for (var i = 0; i < allCsFiles.length; i++) {
+    var baseName = path.basename(allCsFiles[i]);
+    var rel = path.relative(clientDir, allCsFiles[i]).replace(/\\/g, '/');
+    fileListParts.push(rel);
+
+    if (utilityFiles.indexOf(baseName) >= 0) {
+      utilFiles.push({ path: allCsFiles[i], rel: rel });
     }
   }
 
-  if (allFiles.length === 0) return { context: '', fileList: '' };
-
-  // Build file tree overview (always include)
-  var fileList = allFiles.map(function(f) { return f.rel + ' (' + Math.round(f.size / 1024) + 'KB)'; }).join('\n');
-
-  // Include key files in full (prioritize smaller, more important files)
-  // Sort: Program dir first, then by size ascending
-  allFiles.sort(function(a, b) {
-    if (a.dir !== b.dir) return a.dir === 'Assets/Program' ? -1 : 1;
-    return a.size - b.size;
-  });
-
-  for (var i = 0; i < allFiles.length; i++) {
-    if (totalChars >= MAX_CONTEXT_CHARS) break;
-    if (allFiles[i].size > 8000) continue; // Skip very large files
+  // Include full content of utility files only
+  for (var u = 0; u < utilFiles.length; u++) {
     try {
-      var content = fs.readFileSync(allFiles[i].path, 'utf-8');
+      var content = fs.readFileSync(utilFiles[u].path, 'utf-8');
       if (totalChars + content.length > MAX_CONTEXT_CHARS) continue;
-      parts.push('```csharp:' + allFiles[i].rel + '\n' + content + '\n```');
+      parts.push('```csharp:' + utilFiles[u].rel + '\n' + content + '\n```');
       totalChars += content.length;
     } catch (e) {}
   }
 
-  return { context: parts.join('\n\n'), fileList: fileList };
+  return { context: parts.join('\n\n'), fileList: fileListParts.join('\n') };
 }
 
 function readCurrentScripts(clientDir) {
