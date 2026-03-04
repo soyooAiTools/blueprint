@@ -227,8 +227,14 @@ var GENERATE_PROMPT = [
   '',
   '⚠️ You ONLY need to output ONE file: `Assets/Program/Script/Manager/StateManager.cs`',
   '⚠️ Do NOT create new files like StateManagerExtension.cs, StateManagerFontFix.cs, etc.',
-  '⚠️ You CAN call utility classes from the template (PoolManager, AudioManager, etc.) if they help.',
-  '⚠️ But ALL game logic must be in StateManager.cs — it is the only entry point.',
+  '⚠️ Available utility classes (kept intact, you CAN call them):',
+  '  - PoolManager (object pooling), AudioManager/SimpleAudioManager (sound)',
+  '  - CTAManager (CTA button), LunaManager (Luna lifecycle), GameConstants, GameData',
+  '  - MonoSingleton<T> (singleton base), BasicExtensions, ReturnPool, EventManager',
+  '  - YangJoystick (joystick input), TouchArea (touch input)',
+  '  - DOTween (DG.Tweening namespace, .dll)',
+  '⚠️ All other game logic classes (Boss, Player, Enemy, Worker, etc.) are EMPTY stubs — do NOT call their methods.',
+  '⚠️ ALL game logic must be in StateManager.cs — it is the only entry point.',
   '',
   '#### StateManager.cs is attached to the GameManager object in the scene:',
   '- It executes on Start()',
@@ -270,8 +276,8 @@ var GENERATE_PROMPT = [
   '### Rules:',
   '- Keep class name `StateManager` (attached to scene)',
   '- Do NOT create Bootstrap scripts with [RuntimeInitializeOnLoadMethod]',
-  '- You CAN use utility classes from the template (PoolManager, AudioManager, etc.) — they are compiled and available',
-  '- Do NOT use classes from Utilities/Entities/AStar/BySakanakoChan if they are empty stubs',
+  '- You CAN use: PoolManager, AudioManager, SimpleAudioManager, CTAManager, LunaManager, GameConstants, GameData, MonoSingleton, YangJoystick, TouchArea, DOTween',
+  '- Do NOT use: Boss, Player, Enemy, Worker, Npc, UIManager, CameraManager, or any Controller class — they are empty stubs',
   '- For singletons: `public static StateManager instance;` set in Awake()',
   '- Do NOT define enums that conflict with stub classes (ResourceType, GameState, etc. may exist as empty stubs)',
   '',
@@ -671,30 +677,59 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       log('[coder] SVN revert Assets/Program OK', taskId);
     } catch(e) { log('[coder] SVN revert warning: ' + e.message, taskId); }
 
-    // Hide template Utilities/Entities/AStar files — they reference old Manager APIs
-    // and cause 50+ compile errors when AI rewrites Manager/Controller scripts.
-    // Rename .cs → .cs.bak so they don't compile but SVN doesn't delete them.
-    // Empty ALL .cs files in Program/Script EXCEPT Manager/StateManager.cs
-    // This removes template cross-references (BasicExtensions, EventPool, etc.)
-    // AI will rewrite StateManager + any other files it needs from scratch
-    var stubCount = 0;
-    var keepPaths = ['StateManager.cs']; // Keep StateManager.cs — AI will completely rewrite it
-    function stubAllCs(dir) {
+    // Smart stub: keep utility classes, stub game logic, delete AI remnants
+    var stubCount = 0, keepCount = 0, deleteCount = 0;
+
+    // Files to KEEP intact (utility/tool classes AI can call)
+    var keepFiles = [
+      'PoolManager.cs', 'AudioManager.cs', 'SimpleAudioManager.cs', 'SimpleAudioManagerMain.cs',
+      'CTAManager.cs', 'LunaManager.cs', 'GameConstants.cs', 'GameData.cs',
+      'MonoSingleton.cs', 'BasicExtensions.cs', 'ReturnPool.cs',
+      'ImageSeqAni.cs', 'SpriteRendererSeqAni.cs',
+      'YangJoystick.cs', 'TouchArea.cs',
+      'EventManager.cs', 'Event.cs', 'EventPool.cs', 'GameEventArgs.cs'
+    ];
+    // Files to DELETE (AI remnants from previous runs — cause duplicate class conflicts)
+    var deletePatterns = [
+      'StateManagerCleanup', 'StateManagerDuplicateFix', 'StateManagerExtension',
+      'StateManagerFontFix', 'StateManagerMethods', 'StateManagerPublicAPI',
+      'BlueprintTriggerLogic', 'BlueprintTriggerMain',
+      'ConveyorBlueprintTrigger', 'CrossbowBlueprint2Trigger',
+      'HouseBlueprintTrigger', 'RecruitButtonTrigger', 'UpgradeButtonTrigger'
+    ];
+
+    function smartStub(dir) {
       if (!fs.existsSync(dir)) return;
       try {
         var entries = fs.readdirSync(dir, { withFileTypes: true });
         for (var i = 0; i < entries.length; i++) {
           var fullP = path.join(dir, entries[i].name);
-          if (entries[i].isDirectory()) { stubAllCs(fullP); continue; }
+          if (entries[i].isDirectory()) { smartStub(fullP); continue; }
           if (!entries[i].name.endsWith('.cs')) continue;
-          // Keep StateManager.cs content (AI's main rewrite target — needs original structure)
-          if (keepPaths.indexOf(entries[i].name) >= 0) continue;
+
+          var baseName = entries[i].name.replace('.cs', '');
+
+          // StateManager.cs — AI will rewrite, skip
+          if (entries[i].name === 'StateManager.cs') continue;
+
+          // Delete AI remnants
+          if (deletePatterns.some(function(p) { return baseName.indexOf(p) >= 0; })) {
+            try { fs.unlinkSync(fullP); deleteCount++; } catch(ex) {}
+            // Also delete .meta
+            try { fs.unlinkSync(fullP + '.meta'); } catch(ex) {}
+            continue;
+          }
+
+          // Keep utility files intact
+          if (keepFiles.indexOf(entries[i].name) >= 0) { keepCount++; continue; }
+
+          // Stub everything else (game logic)
           try {
             var orig = fs.readFileSync(fullP, 'utf-8');
-            // Extract class/enum names to keep stubs compilable
             var classes = orig.match(/(?:public\s+)?(?:abstract\s+)?class\s+(\w+)/g) || [];
             var enums = orig.match(/(?:public\s+)?enum\s+(\w+)/g) || [];
-            var stub = 'using UnityEngine;\nusing System;\nusing System.Collections.Generic;\n';
+            var interfaces = orig.match(/(?:public\s+)?interface\s+(\w+)/g) || [];
+            var stub = 'using UnityEngine;\nusing UnityEngine.UI;\nusing System;\nusing System.Collections;\nusing System.Collections.Generic;\n';
             for (var c = 0; c < classes.length; c++) {
               var cn = classes[c].match(/class\s+(\w+)/)[1];
               stub += 'public class ' + cn + ' : MonoBehaviour { }\n';
@@ -703,15 +738,19 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
               var en = enums[e].match(/enum\s+(\w+)/)[1];
               stub += 'public enum ' + en + ' { Default }\n';
             }
-            if (classes.length === 0 && enums.length === 0) stub += '// emptied\n';
+            for (var f = 0; f < interfaces.length; f++) {
+              var inf = interfaces[f].match(/interface\s+(\w+)/)[1];
+              stub += 'public interface ' + inf + ' { }\n';
+            }
+            if (classes.length === 0 && enums.length === 0 && interfaces.length === 0) stub += '// emptied\n';
             fs.writeFileSync(fullP, stub, 'utf-8');
             stubCount++;
           } catch(ex) {}
         }
       } catch(ex) {}
     }
-    stubAllCs(programScript);
-    if (stubCount > 0) log('[coder] Stubbed ' + stubCount + ' template .cs files (only StateManager kept)', taskId);
+    smartStub(programScript);
+    log('[coder] Smart stub: ' + keepCount + ' kept, ' + stubCount + ' stubbed, ' + deleteCount + ' deleted', taskId);
 
     log('[coder] Cleanup done', taskId);
   }
