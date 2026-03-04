@@ -219,14 +219,14 @@ var GENERATE_PROMPT = [
   '',
   '⚠️ Luna converts Unity C# to JavaScript. [RuntimeInitializeOnLoadMethod] is IGNORED by Luna.',
   '⚠️ The scene contains template objects (SLG game) — you MUST hide all of them in Start().',
-  '⚠️ A GameManager object with StateManager.cs is injected into the scene automatically.',
+  '⚠️ GameFlowManagerMain.cs is ALREADY mounted in the scene on a GameObject. You are REPLACING its content.',
   '⚠️ The template project has utility scripts in Assets/Program/Script/ — you can CALL their methods if useful (e.g., DOTween, PoolManager).',
   '⚠️ After hiding template objects, CREATE all your game content from code.',
   '',
-  '### Strategy: Output ONLY StateManager.cs',
+  '### Strategy: Output ONLY GameFlowManagerMain.cs',
   '',
-  '⚠️ You ONLY need to output ONE file: `Assets/Program/Script/Manager/StateManager.cs`',
-  '⚠️ Do NOT create new files like StateManagerExtension.cs, StateManagerFontFix.cs, etc.',
+  '⚠️ You ONLY need to output ONE file: `Assets/Program/Script/Manager/GameFlowManagerMain.cs`',
+  '⚠️ Do NOT create new files like StateManagerExtension.cs, GameFlowHelper.cs, etc.',
   '⚠️ Available utility classes (kept intact, you CAN call them):',
   '  - PoolManager (object pooling), AudioManager/SimpleAudioManager (sound)',
   '  - CTAManager (CTA button), LunaManager (Luna lifecycle), GameConstants, GameData',
@@ -234,25 +234,25 @@ var GENERATE_PROMPT = [
   '  - YangJoystick (joystick input), TouchArea (touch input)',
   '  - DOTween (DG.Tweening namespace, .dll)',
   '⚠️ All other game logic classes (Boss, Player, Enemy, Worker, etc.) are EMPTY stubs — do NOT call their methods.',
-  '⚠️ ALL game logic must be in StateManager.cs — it is the only entry point.',
+  '⚠️ ALL game logic must be in GameFlowManagerMain.cs — it is the only entry point.',
   '',
-  '#### StateManager.cs is attached to the GameManager object in the scene:',
+  '#### GameFlowManagerMain.cs is ALREADY attached to a GameObject in the scene:',
   '- It executes on Start()',
   '- Put ALL game logic here: shots, UI, input, camera, everything',
-  '- Keep the class name `StateManager`',
+  '- Keep the class name `GameFlowManagerMain`',
   '',
   '#### In Start(), first HIDE all template objects, then create your game:',
   '```csharp',
   'var roots = gameObject.scene.GetRootGameObjects();',
   'for (int i = 0; i < roots.Length; i++) {',
   '    string n = roots[i].name.ToLower();',
-  '    if (n.Contains("camera") || n.Contains("light") || n.Contains("eventsystem") || n == "gamemanager")',
+  '    if (n.Contains("camera") || n.Contains("light") || n.Contains("eventsystem"))',
+  '        continue;',
+  '    if (roots[i] == this.gameObject || roots[i] == this.transform.root.gameObject)',
   '        continue;',
   '    roots[i].SetActive(false);',
   '}',
   '```',
-  '',
-  '#### Then create everything from code:',
   '',
   '#### Then create your game world from code:',
   '- 3D objects: `GameObject.CreatePrimitive(PrimitiveType.Cube/Sphere/Plane)`',
@@ -267,18 +267,18 @@ var GENERATE_PROMPT = [
   '- Use SetActive to toggle shot containers',
   '',
   '### ⚠️ ONE FILE ONLY — ABSOLUTELY NO EXCEPTIONS ⚠️',
-  '- Output ONLY `Assets/Program/Script/Manager/StateManager.cs`',
+  '- Output ONLY `Assets/Program/Script/Manager/GameFlowManagerMain.cs`',
   '- Do NOT output ANY other file — not Player.cs, not GameHelper.cs, not any "Extension" or "Fix" file',
-  '- ALL game logic, ALL helper methods, ALL inner classes go INSIDE StateManager.cs',
-  '- If you need helper classes, define them as `private class` INSIDE StateManager',
+  '- ALL game logic, ALL helper methods, ALL inner classes go INSIDE GameFlowManagerMain.cs',
+  '- If you need helper classes, define them as `private class` INSIDE GameFlowManagerMain',
   '- Violating this rule = instant compilation failure',
   '',
   '### Rules:',
-  '- Keep class name `StateManager` (attached to scene)',
+  '- Keep class name `GameFlowManagerMain` (already attached to scene object)',
   '- Do NOT create Bootstrap scripts with [RuntimeInitializeOnLoadMethod]',
   '- You CAN use: PoolManager, AudioManager, SimpleAudioManager, CTAManager, LunaManager, GameConstants, GameData, MonoSingleton, YangJoystick, TouchArea, DOTween',
   '- Do NOT use: Boss, Player, Enemy, Worker, Npc, UIManager, CameraManager, or any Controller class — they are empty stubs',
-  '- For singletons: `public static StateManager instance;` set in Awake()',
+  '- For singletons: `public static GameFlowManagerMain instance;` set in Awake()',
   '- Do NOT define enums that conflict with stub classes (ResourceType, GameState, etc. may exist as empty stubs)',
   '',
   '## CRITICAL: Implement EXACTLY what the blueprint describes',
@@ -303,22 +303,22 @@ var GENERATE_PROMPT = [
   '',
   '## Working with the existing SVN project',
   'The SVN project is a TEMPLATE. ALL other scripts are empty stubs.',
-  'StateManager.cs is the ONLY entry point — it runs Start() on scene load.',
-  'You MUST put ALL game logic in StateManager.cs. Do NOT create new files.',
+  'GameFlowManagerMain.cs is the ONLY entry point — it runs Start() on scene load.',
+  'You MUST put ALL game logic in GameFlowManagerMain.cs. Do NOT create new files.',
   'Do NOT create a Bootstrap with [RuntimeInitializeOnLoadMethod] — Luna ignores it.',
   '',
   'Output format:',
-  '```csharp:Assets/Program/Script/Manager/StateManager.cs',
+  '```csharp:Assets/Program/Script/Manager/GameFlowManagerMain.cs',
   '// code',
   '```',
   '',
-  'Output ONLY ONE file: Assets/Program/Script/Manager/StateManager.cs — no other files.',
-  'ALL game logic must be SELF-CONTAINED in StateManager.cs.',
+  'Output ONLY ONE file: Assets/Program/Script/Manager/GameFlowManagerMain.cs — no other files.',
+  'ALL game logic must be SELF-CONTAINED in GameFlowManagerMain.cs.',
   'Do NOT reference any class from Utilities/Entities/AStar — they are empty stubs.',
   'Do NOT output UIManager.cs, Player.cs, CameraManager.cs, MainPanel.cs, Boss.cs, Npc.cs, or TouchArea.cs — they are all empty stubs and must stay that way.',
   '',
   '## QUALITY REQUIREMENTS (your code will be automatically verified):',
-  '- StateManager.cs MUST be at least 300 lines of actual game logic',
+  '- GameFlowManagerMain.cs MUST be at least 300 lines of actual game logic',
   '- MUST contain methods for EVERY shot described in the blueprint (e.g., shot_1(), shot_2(), etc.)',
   '- MUST create visible game objects (CreatePrimitive, UI elements) — not just empty methods',
   '- MUST implement player interactions described in the blueprint (input handling, triggers)',
@@ -346,9 +346,8 @@ var FIX_PROMPT = [
   '- DOTween chain calls must be on separate lines to avoid JS transpilation bugs',
   '- Use Luna.Unity.Playable.InstallFullGame() instead of Application.OpenURL',
   '- Must call Luna.Unity.LifeCycle.GameEnded() when game ends',
-  '- Do NOT use class name "GameManager" (already exists in project)',
   '- Do NOT use [RuntimeInitializeOnLoadMethod] — Luna ignores it',
-  '- The main controller script (rewritten from template) is the entry point — keep its class name',
+  '- The main controller script is GameFlowManagerMain.cs — keep its class name `GameFlowManagerMain`',
   '- The scene is CLEAN — all game objects are created from code, do NOT use GameObject.Find() for template objects',
   '- If a fix requires new scene objects, CREATE them in code (CreatePrimitive, new GameObject, etc.)',
   '- Do NOT reintroduce dependencies on template scene objects that were cleared',
@@ -363,18 +362,18 @@ var FIX_PROMPT = [
   '- The final code must be 200+ non-empty lines with real game logic',
   '',
   '## FILE RULES (CRITICAL — ABSOLUTELY NO EXCEPTIONS):',
-  '- Output ONLY `Assets/Program/Script/Manager/StateManager.cs` — NO OTHER FILES',
-  '- Do NOT create StateManagerExtension.cs, StateManagerFontFix.cs, StateManagerPublicAPI.cs, etc.',
+  '- Output ONLY `Assets/Program/Script/Manager/GameFlowManagerMain.cs` — NO OTHER FILES',
+  '- Do NOT create StateManagerExtension.cs, GameFlowHelper.cs, etc.',
   '- Do NOT create files in Assets/Scripts/ — they will not be executed',
-  '- ALL fixes must be made INSIDE StateManager.cs',
-  '- If you need helper classes, define them as `private class` INSIDE StateManager',
+  '- ALL fixes must be made INSIDE GameFlowManagerMain.cs',
+  '- If you need helper classes, define them as `private class` INSIDE GameFlowManagerMain',
   '- Do NOT reference classes from Utilities/, Entities/, AStar/, BySakanakoChan/ — they are EMPTY STUBS',
   '- If an error says a class/method does not exist, REMOVE the reference — do NOT create a new file for it',
   '- For Font: use `(Font)Resources.GetBuiltinResource(typeof(Font), "Arial.ttf")` — no generics',
   '- If a class does not exist, do NOT try to use it — remove or inline the logic',
   '',
   'Output corrected files as:',
-  '```csharp:Assets/Program/Script/Manager/StateManager.cs',
+  '```csharp:Assets/Program/Script/Manager/GameFlowManagerMain.cs',
   '// fixed code',
   '```',
   'Only include files that need changes.'
@@ -709,8 +708,8 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
 
           var baseName = entries[i].name.replace('.cs', '');
 
-          // StateManager.cs — AI will rewrite, skip
-          if (entries[i].name === 'StateManager.cs') continue;
+          // GameFlowManagerMain.cs — AI will rewrite, skip
+          if (entries[i].name === 'GameFlowManagerMain.cs') continue;
 
           // Delete AI remnants
           if (deletePatterns.some(function(p) { return baseName.indexOf(p) >= 0; })) {
@@ -781,7 +780,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
   }
   if (projectCtx.context) {
     projectSection += '\n\n## TEMPLATE UTILITY SCRIPTS (you can call these, but do NOT copy their game logic):\n'
-      + '⚠️ These are UTILITY classes you can reference/call from StateManager.cs.\n'
+      + '⚠️ These are UTILITY classes you can reference/call from GameFlowManagerMain.cs.\n'
       + '⚠️ Do NOT copy SLG/idle game logic from them — implement the BLUEPRINT logic instead.\n'
       + '⚠️ Useful utilities: PoolManager (object pooling), AudioManager (sound), etc.\n\n'
       + projectCtx.context;
@@ -809,7 +808,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
     + '2. Then BUILD everything from code — CreatePrimitive, new GameObject, UI components\n'
     + '3. You CAN call utility classes from the template (DOTween, PoolManager, etc.)\n'
     + '4. Do NOT copy SLG/idle game logic — implement the BLUEPRINT logic\n'
-    + '5. StateManager.Start() is your entry point\n\n'
+    + '5. GameFlowManagerMain.Start() is your entry point\n\n'
     + 'Generate ' + lang + ' code that implements this blueprint EXACTLY from scratch. '
     + 'Every shot must be playable with code-created objects. '
     + 'Hide all template objects first, then create your game world in code.';
@@ -872,7 +871,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       var fixMsg = '## Build Errors (' + result.errors.length + ' total):\n```\n' + result.errors.join('\n') + '\n```\n\n'
         + '## Current Scripts:\n' + currentCode
         + fixProjectCtx
-        + '\n\nFix ALL ' + result.errors.length + ' errors above. Output the COMPLETE fixed StateManager.cs.'
+        + '\n\nFix ALL ' + result.errors.length + ' errors above. Output the COMPLETE fixed GameFlowManagerMain.cs.'
         + '\n⚠️ CRITICAL: Do NOT break code that already works. Only change lines that cause errors.'
         + '\nThis is attempt ' + attempt + '. If previous fixes oscillated, try a MINIMAL change approach.';
 
@@ -895,12 +894,12 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
 // ============ Content Verification ============
 
 function verifyCodeContent(clientDir, parsed, log, taskId) {
-  var stateManagerPath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'StateManager.cs');
-  if (!fs.existsSync(stateManagerPath)) {
-    return { ok: false, reason: 'StateManager.cs not found — AI did not write the main file' };
+  var mainFilePath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
+  if (!fs.existsSync(mainFilePath)) {
+    return { ok: false, reason: 'GameFlowManagerMain.cs not found — AI did not write the main file' };
   }
 
-  var code = fs.readFileSync(stateManagerPath, 'utf-8');
+  var code = fs.readFileSync(mainFilePath, 'utf-8');
   var lines = code.split('\n');
   var nonEmptyLines = lines.filter(function(l) { return l.trim().length > 0; }).length;
 
@@ -908,7 +907,7 @@ function verifyCodeContent(clientDir, parsed, log, taskId) {
 
   // Check 1: Minimum code length
   if (nonEmptyLines < 200) {
-    issues.push('StateManager.cs only has ' + nonEmptyLines + ' non-empty lines (minimum 200). This is likely a skeleton.');
+    issues.push('GameFlowManagerMain.cs only has ' + nonEmptyLines + ' non-empty lines (minimum 200). This is likely a skeleton.');
   }
 
   // Check 2: Must contain shot-related methods or state machine
@@ -1036,13 +1035,14 @@ function parseCodeBlocks(text) {
       var code = match[1].trim() + '\n';
       var cm = code.match(/class\s+(\w+)/);
       // Check if the class matches a known Program script
-      var knownProgram = ['StateManager','Player','Boss','Npc','UIManager','CameraManager','LunaManager','MainPanel','TouchArea','YangJoystick'];
+      var knownProgram = ['GameFlowManagerMain','StateManager','Player','Boss','Npc','UIManager','CameraManager','LunaManager','MainPanel','TouchArea','YangJoystick'];
       var className = cm ? cm[1] : 'Script' + idx;
       var targetPath = 'Assets/Scripts/' + className + '.cs';
       if (knownProgram.indexOf(className) !== -1) {
         // Map to correct Program path
         var programPaths = {
-          'StateManager': 'Assets/Program/Script/Manager/StateManager.cs',
+          'GameFlowManagerMain': 'Assets/Program/Script/Manager/GameFlowManagerMain.cs',
+          'StateManager': 'Assets/Program/Script/Manager/GameFlowManagerMain.cs',
           'Player': 'Assets/Program/Script/Controllers/Player.cs',
           'Boss': 'Assets/Program/Script/Controllers/Boss.cs',
           'Npc': 'Assets/Program/Script/Controllers/Npc.cs',

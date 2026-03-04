@@ -252,65 +252,8 @@ async function processTask(task) {
       }
     }
 
-    // Inject StateManager into existing SampleScene (it's not attached by default)
-    const sampleScenePath = path.join(CLIENT_DIR, 'Assets', 'Scenes', 'SampleScene.unity');
-    if (fs.existsSync(sampleScenePath)) {
-      let sceneContent = fs.readFileSync(sampleScenePath, 'utf-8');
-      const SM_GUID = '1daddc65e2d7e8b4c8a4a4ed10612430';
-      if (!sceneContent.includes(SM_GUID)) {
-        // Append a new GameObject with StateManager at the end of the scene file
-        const injection = `--- !u!1 &9900000
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 9900001}
-  - component: {fileID: 9900002}
-  m_Layer: 0
-  m_Name: GameManager
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &9900001
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 9900000}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &9900002
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 9900000}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: ${SM_GUID}, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-`;
-        sceneContent += '\n' + injection;
-        fs.writeFileSync(sampleScenePath, sceneContent, 'utf-8');
-        log('Injected StateManager into SampleScene.unity', taskId);
-      } else {
-        log('StateManager already in SampleScene.unity', taskId);
-      }
-    }
+    // GameFlowManagerMain is already mounted in SampleScene.unity — no injection needed
+    log('GameFlowManagerMain already in scene (template)', taskId);
 
     const scenes = detectScenes(CLIENT_DIR);
     if (scenes.length === 0) {
