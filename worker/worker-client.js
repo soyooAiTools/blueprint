@@ -92,15 +92,17 @@ function apiRequest(method, urlPath, body, isBinary, extraHeaders) {
   });
 }
 
-// Screenshot review via Main ECS screenshot-review service
+// Screenshot review via Main ECS screenshot-review service (HTTPS through Nginx)
 async function screenshotReview(taskId, log) {
   return new Promise((resolve, reject) => {
-    const url = new URL('http://120.55.70.226:18820/api/tasks/' + taskId + '/screenshot-review');
+    const https = require('https');
     const opts = {
-      hostname: url.hostname, port: url.port, path: url.pathname,
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 120000
+      hostname: 'playcools.top', port: 443,
+      path: '/screenshot-review/api/tasks/' + taskId + '/screenshot-review',
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      timeout: 120000, rejectUnauthorized: false
     };
-    const req = http.request(opts, (res) => {
+    const req = https.request(opts, (res) => {
       const chunks = [];
       res.on('data', c => chunks.push(c));
       res.on('end', () => {
