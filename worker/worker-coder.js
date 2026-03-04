@@ -218,10 +218,10 @@ var GENERATE_PROMPT = [
   '## CRITICAL ARCHITECTURE',
   '',
   '⚠️ Luna converts Unity C# to JavaScript. [RuntimeInitializeOnLoadMethod] is IGNORED by Luna.',
-  '⚠️ The scene is a CLEAN EMPTY scene with only: Main Camera, Directional Light, EventSystem, and a GameManager object with StateManager.cs attached.',
-  '⚠️ There are NO template objects in the scene — you start from a blank canvas.',
-  '⚠️ The template project has utility scripts in Assets/Program/Script/ — you can CALL their methods if useful (e.g., PoolManager, AudioManager).',
-  '⚠️ But you must NOT depend on template scene objects — they do not exist in the new scene.',
+  '⚠️ The scene contains template objects (SLG game) — you MUST hide all of them in Start().',
+  '⚠️ A GameManager object with StateManager.cs is injected into the scene automatically.',
+  '⚠️ The template project has utility scripts in Assets/Program/Script/ — you can CALL their methods if useful (e.g., DOTween, PoolManager).',
+  '⚠️ After hiding template objects, CREATE all your game content from code.',
   '',
   '### Strategy: Output ONLY StateManager.cs',
   '',
@@ -235,7 +235,18 @@ var GENERATE_PROMPT = [
   '- Put ALL game logic here: shots, UI, input, camera, everything',
   '- Keep the class name `StateManager`',
   '',
-  '#### The scene is EMPTY — create everything from code:',
+  '#### In Start(), first HIDE all template objects, then create your game:',
+  '```csharp',
+  'var roots = gameObject.scene.GetRootGameObjects();',
+  'for (int i = 0; i < roots.Length; i++) {',
+  '    string n = roots[i].name.ToLower();',
+  '    if (n.Contains("camera") || n.Contains("light") || n.Contains("eventsystem") || n == "gamemanager")',
+  '        continue;',
+  '    roots[i].SetActive(false);',
+  '}',
+  '```',
+  '',
+  '#### Then create everything from code:',
   '',
   '#### Then create your game world from code:',
   '- 3D objects: `GameObject.CreatePrimitive(PrimitiveType.Cube/Sphere/Plane)`',
@@ -755,14 +766,14 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
     + projectSection
     + parsed.feedbackText
     + '\n\n## IMPORTANT REMINDERS:\n'
-    + '1. The scene is EMPTY (only Camera, Light, EventSystem, GameManager with StateManager). No template objects exist.\n'
-    + '2. BUILD everything from code — CreatePrimitive, new GameObject, UI components\n'
-    + '3. You CAN call utility classes from the template project (PoolManager, AudioManager, etc.) if they help\n'
-    + '4. Do NOT copy SLG/idle game logic from the template — implement the BLUEPRINT logic\n'
-    + '5. StateManager.Start() is your entry point — create all game objects and UI from there\n\n'
+    + '1. In Start(), FIRST hide ALL template root objects (except Camera/Light/EventSystem/GameManager)\n'
+    + '2. Then BUILD everything from code — CreatePrimitive, new GameObject, UI components\n'
+    + '3. You CAN call utility classes from the template (DOTween, PoolManager, etc.)\n'
+    + '4. Do NOT copy SLG/idle game logic — implement the BLUEPRINT logic\n'
+    + '5. StateManager.Start() is your entry point\n\n'
     + 'Generate ' + lang + ' code that implements this blueprint EXACTLY from scratch. '
     + 'Every shot must be playable with code-created objects. '
-    + 'The scene starts empty — you create the entire game world in code.';
+    + 'Hide all template objects first, then create your game world in code.';
 
   try {
     var response = await callClaude(sysPrompt, userMsg, 300000, MODEL_GENERATE);
@@ -897,8 +908,10 @@ function verifyCodeContent(clientDir, parsed, log, taskId) {
     }
   }
 
-  // Check 5: Must have SetActive calls (for shot toggling)
-  // Scene is empty now, but shots should toggle visibility of shot containers
+  // Check 5: Must hide template objects
+  if (code.indexOf('SetActive(false)') < 0 && code.indexOf('SetActive( false )') < 0) {
+    issues.push('No SetActive(false) found — template objects must be hidden in Start().');
+  }
 
   // Check 6: Must call GameEnded()
   if (code.indexOf('GameEnded') < 0) {

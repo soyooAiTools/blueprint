@@ -250,27 +250,72 @@ async function processTask(task) {
       }
     }
 
-    // Create clean empty scene to replace template scene (template has irrelevant SLG objects)
-    const emptySceneTemplate = path.join(__dirname, 'empty-scene-template.unity');
-    const targetScenePath = path.join(CLIENT_DIR, 'Assets', 'Scenes', 'PlayableAd.unity');
-    const targetSceneMetaPath = targetScenePath + '.meta';
-    if (fs.existsSync(emptySceneTemplate)) {
-      // Ensure Scenes directory exists
-      const scenesDir = path.join(CLIENT_DIR, 'Assets', 'Scenes');
-      if (!fs.existsSync(scenesDir)) fs.mkdirSync(scenesDir, { recursive: true });
-      fs.copyFileSync(emptySceneTemplate, targetScenePath);
-      // Create .meta file for the new scene
-      if (!fs.existsSync(targetSceneMetaPath)) {
-        fs.writeFileSync(targetSceneMetaPath, 
-          'fileFormatVersion: 2\nguid: a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6\nDefaultImporter:\n  externalObjects: {}\n  userData: \n  assetBundleName: \n  assetBundleVariant: \n',
-          'utf-8');
+    // Inject StateManager into existing SampleScene (it's not attached by default)
+    const sampleScenePath = path.join(CLIENT_DIR, 'Assets', 'Scenes', 'SampleScene.unity');
+    if (fs.existsSync(sampleScenePath)) {
+      let sceneContent = fs.readFileSync(sampleScenePath, 'utf-8');
+      const SM_GUID = '1daddc65e2d7e8b4c8a4a4ed10612430';
+      if (!sceneContent.includes(SM_GUID)) {
+        // Append a new GameObject with StateManager at the end of the scene file
+        const injection = `--- !u!1 &9900000
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 9900001}
+  - component: {fileID: 9900002}
+  m_Layer: 0
+  m_Name: GameManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &9900001
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9900000}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &9900002
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9900000}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ${SM_GUID}, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+`;
+        sceneContent += '\n' + injection;
+        fs.writeFileSync(sampleScenePath, sceneContent, 'utf-8');
+        log('Injected StateManager into SampleScene.unity', taskId);
+      } else {
+        log('StateManager already in SampleScene.unity', taskId);
       }
-      log('Created clean empty scene: Assets/Scenes/PlayableAd.unity', taskId);
     }
 
-    // Use ONLY the new clean scene (ignore template SampleScene)
-    const scenes = ['Assets/Scenes/PlayableAd.unity'];
-    log(`Using scene: ${scenes[0]}`, taskId);
+    const scenes = detectScenes(CLIENT_DIR);
+    if (scenes.length === 0) {
+      await reportStatus(taskId, 'failed', { message: 'No scenes found in project' });
+      return;
+    }
+    log(`Detected ${scenes.length} scene(s): ${scenes.join(', ')}`, taskId);
 
     fixLunaJson(CLIENT_DIR, scenes);
     generateExportAssets(CLIENT_DIR, scenes);
