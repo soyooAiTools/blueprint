@@ -264,8 +264,9 @@ async function processTask(task) {
 
     fixLunaJson(CLIENT_DIR, scenes);
     generateExportAssets(CLIENT_DIR, scenes);
-    injectMaterialSourceAll(CLIENT_DIR, scenes);
-    log('Pre-build patch applied (incl. __MaterialSource injection)', taskId);
+    // NOTE: scene injection disabled — causes Luna jake build to hang
+    // Material solution is now code-only (AI uses Object.FindObjectOfType<Renderer>())
+    log('Pre-build patch applied', taskId);
 
     // === Step 4: Luna Build ===
     const buildResult = await runBridgeBuild(CLIENT_DIR, log, taskId);
