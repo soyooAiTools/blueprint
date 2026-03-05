@@ -59,6 +59,8 @@ function FlowEditor({ project, onBack, initialTab }) {
   const [projectStatus, setProjectStatus] = useState(project.status || 'editing');
   const [statusMessage, setStatusMessage] = useState(project.statusMessage || '');
   const [previewLandscape, setPreviewLandscape] = useState(false);
+  const [feedbackHistory, setFeedbackHistory] = useState(project.feedbackHistory || []);
+  const [hasPendingFeedback, setHasPendingFeedback] = useState(false);
 
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
@@ -118,6 +120,7 @@ function FlowEditor({ project, onBack, initialTab }) {
         .then((p) => {
           if (p.status !== projectStatus) setProjectStatus(p.status);
           if (p.statusMessage !== undefined) setStatusMessage(p.statusMessage || '');
+          if (p.feedbackHistory) setFeedbackHistory(p.feedbackHistory);
         })
         .catch(() => {});
     }, 3000);
@@ -159,14 +162,21 @@ function FlowEditor({ project, onBack, initialTab }) {
 
   const onUpdateNode = useCallback(
     (nodeId, updates) => {
-      setNodes((nds) =>
-        nds.map((n) => {
+      setNodes((nds) => {
+        const newNds = nds.map((n) => {
           if (n.id === nodeId) {
             return { ...n, data: { ...n.data, ...updates } };
           }
           return n;
-        })
-      );
+        });
+        // Check if any shot has pending revisions → enable feedback button
+        const hasPending = newNds.some((n) =>
+          n.type === 'shotNode' && n.data.inFeedbackList &&
+          (n.data.revisions || []).some((r) => r.status === 'pending' && r.instruction && r.instruction.trim())
+        );
+        setHasPendingFeedback(hasPending);
+        return newNds;
+      });
       setSelectedNode((prev) => {
         if (prev && prev.id === nodeId) {
           return { ...prev, data: { ...prev.data, ...updates } };
@@ -364,6 +374,9 @@ function FlowEditor({ project, onBack, initialTab }) {
     try {
       const result = await submitFeedback(project.id, { text });
       setProjectStatus(result.status);
+      if (result.feedbackHistory) setFeedbackHistory(result.feedbackHistory);
+      else setFeedbackHistory((prev) => [...prev, { text, submittedAt: new Date().toISOString() }]);
+      setHasPendingFeedback(false);
       await showAlert('✅ 反馈已提交！');
     } catch (err) {
       await showAlert('反馈失败: ' + err.message);
@@ -539,15 +552,32 @@ function FlowEditor({ project, onBack, initialTab }) {
                     <button className="preview-action-outline preview-action-approve" onClick={handleApprove}>
                       ✅ 效果审核通过
                     </button>
-                    <button className="preview-action-outline preview-action-feedback" onClick={async () => {
-                      const text = await showPrompt('请输入反馈内容：');
-                      if (text) handleFeedback(text);
-                    }}>
+                    <button
+                      className={`preview-action-outline preview-action-feedback${!hasPendingFeedback ? ' preview-action-disabled' : ''}`}
+                      disabled={!hasPendingFeedback}
+                      title={!hasPendingFeedback ? '请先在右侧添加反馈内容' : ''}
+                      onClick={async () => {
+                        const text = await showPrompt('请输入反馈内容：');
+                        if (text) handleFeedback(text);
+                      }}
+                    >
                       💬 提交反馈，继续修改
                     </button>
                   </>
                 )}
               </div>
+              {feedbackHistory.length > 0 && (
+                <div className="feedback-history">
+                  <div className="feedback-history-title">📋 反馈记录</div>
+                  {feedbackHistory.map((fb, i) => (
+                    <div key={i} className="feedback-history-item">
+                      <span className="feedback-history-badge">✅ 已反馈</span>
+                      <span className="feedback-history-text">{(fb.data && fb.data.text) || fb.text || '蓝图更新反馈'}</span>
+                      <span className="feedback-history-time">{fb.submittedAt ? new Date(fb.submittedAt).toLocaleString('zh-CN') : ''}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="review-right">
               <TaskPanel nodes={nodes} onUpdateNode={onUpdateNode} />
