@@ -134,10 +134,15 @@ function serveStatic(res, filePath) {
   var ext = path.extname(filePath).toLowerCase();
   var mime = MIME[ext] || 'application/octet-stream';
   var content = fs.readFileSync(filePath);
+  // HTML files: no cache (so new deploys take effect immediately)
+  // Assets (JS/CSS with hash filenames): cache 1 year
+  var cacheControl = ext === '.html'
+    ? 'no-cache, no-store, must-revalidate'
+    : 'public, max-age=31536000, immutable';
   var headers = {
     'Content-Type': mime,
     'Content-Length': content.length,
-    'Cache-Control': 'public, max-age=3600',
+    'Cache-Control': cacheControl,
   };
   // Unity WebGL: .wasm files need correct MIME
   if (filePath.endsWith('.wasm')) {
