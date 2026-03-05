@@ -641,7 +641,7 @@ export default function App() {
             setUser(null);
           }}
         />
-        <GlobalBuildNotification user={user} currentProject={currentProject} onGoToProject={handleGoToProject} />
+        {/* GlobalBuildNotification disabled */}
       </>
     );
   }
@@ -656,7 +656,7 @@ export default function App() {
           initialTab={goToReview ? 'review' : 'storyboard'}
         />
       </ReactFlowProvider>
-      <GlobalBuildNotification user={user} currentProject={currentProject} onGoToProject={handleGoToProject} />
+      {/* GlobalBuildNotification disabled */}
     </ModalProviderWithContext>
   );
 }
