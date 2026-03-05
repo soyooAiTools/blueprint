@@ -526,7 +526,8 @@ handlers.uploadWebgl = function(req, res, body, id) {
     return sendJSON(res, { error: '请提供 html 或 files 字段' }, 400);
   }
 
-  project.webglPath = '/webgl/' + id + '/index.html';
+  var uploadedFile = fs.existsSync(path.join(webglDir, 'iframe.html')) ? 'iframe.html' : 'index.html';
+  project.webglPath = '/webgl/' + id + '/' + uploadedFile;
   project.updatedAt = new Date().toISOString();
   writeProject(project);
   sendJSON(res, { success: true, webglPath: project.webglPath });
@@ -550,10 +551,14 @@ handlers.getWebgl = function(req, res, body, id) {
   var project = readProject(id);
   if (!project) return sendJSON(res, { error: '项目不存在' }, 404);
   var webglDir = path.join(WEBGL_DIR, id);
-  var hasWebgl = fs.existsSync(webglDir) && fs.existsSync(path.join(webglDir, 'index.html'));
+  var hasIframe = fs.existsSync(path.join(webglDir, 'iframe.html'));
+  var hasIndex = fs.existsSync(path.join(webglDir, 'index.html'));
+  var hasWebgl = hasIframe || hasIndex;
+  // Prefer iframe.html (actual game) over index.html (Luna Dev Environment)
+  var webglFile = hasIframe ? 'iframe.html' : 'index.html';
   sendJSON(res, {
     available: hasWebgl,
-    url: hasWebgl ? '/webgl/' + id + '/index.html' : null,
+    url: hasWebgl ? '/webgl/' + id + '/' + webglFile : null,
     webglPath: project.webglPath,
   });
 };
@@ -722,9 +727,10 @@ handlers.uploadBuild = function(req, res, body, id) {
 
       // Update project status
       var project = readProject(taskId);
+      var buildFile = fs.existsSync(path.join(taskDir, 'iframe.html')) ? 'iframe.html' : 'index.html';
       if (project) {
         project.status = 'reviewing';
-        project.webglPath = '/webgl/' + taskId + '/index.html';
+        project.webglPath = '/webgl/' + taskId + '/' + buildFile;
         project.buildCompletedAt = new Date().toISOString();
         project.updatedAt = new Date().toISOString();
         writeProject(project);
@@ -733,7 +739,7 @@ handlers.uploadBuild = function(req, res, body, id) {
 
       sendJSON(res, {
         success: true,
-        url: '/webgl/' + taskId + '/index.html',
+        url: '/webgl/' + taskId + '/' + buildFile,
         webglPath: '/webgl/' + taskId + '/index.html',
       });
     } catch (e) {
