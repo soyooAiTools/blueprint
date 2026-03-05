@@ -83,10 +83,13 @@ function FlowEditor({ project, onBack, initialTab }) {
     }, 100);
   }, [setNodes, setEdges, reactFlowInstance]);
 
-  // Fetch WebGL info when status warrants it
+  // Fetch WebGL info + feedback history when status warrants it
   useEffect(() => {
     if (['reviewing', 'approved', 'committed', 'feedback'].indexOf(projectStatus) >= 0) {
       getWebglInfo(project.id).then(setWebglInfo).catch(() => {});
+      getProject(project.id).then((p) => {
+        if (p.feedbackHistory && p.feedbackHistory.length > 0) setFeedbackHistory(p.feedbackHistory);
+      }).catch(() => {});
     }
   }, [projectStatus, project.id]);
 
@@ -375,13 +378,23 @@ function FlowEditor({ project, onBack, initialTab }) {
       const result = await submitFeedback(project.id, { text });
       setProjectStatus(result.status);
       if (result.feedbackHistory) setFeedbackHistory(result.feedbackHistory);
-      else setFeedbackHistory((prev) => [...prev, { text, submittedAt: new Date().toISOString() }]);
+      else setFeedbackHistory((prev) => [...prev, { text, timestamp: new Date().toISOString() }]);
+      // Mark all pending revisions in TaskPanel as done
+      setNodes((nds) => nds.map((n) => {
+        if (n.type === 'shotNode' && n.data.inFeedbackList && n.data.revisions) {
+          const updatedRevs = n.data.revisions.map((r) =>
+            r.status === 'pending' ? { ...r, status: 'done' } : r
+          );
+          return { ...n, data: { ...n.data, revisions: updatedRevs } };
+        }
+        return n;
+      }));
       setHasPendingFeedback(false);
       await showAlert('✅ 反馈已提交！');
     } catch (err) {
       await showAlert('反馈失败: ' + err.message);
     }
-  }, [project.id, showAlert]);
+  }, [project.id, showAlert, setNodes]);
 
   return (
     <div className="app-container">
@@ -568,14 +581,18 @@ function FlowEditor({ project, onBack, initialTab }) {
               </div>
               {feedbackHistory.length > 0 && (
                 <div className="feedback-history">
-                  <div className="feedback-history-title">📋 反馈记录</div>
-                  {feedbackHistory.map((fb, i) => (
-                    <div key={i} className="feedback-history-item">
-                      <span className="feedback-history-badge">✅ 已反馈</span>
-                      <span className="feedback-history-text">{(fb.data && fb.data.text) || fb.text || '蓝图更新反馈'}</span>
-                      <span className="feedback-history-time">{fb.submittedAt ? new Date(fb.submittedAt).toLocaleString('zh-CN') : ''}</span>
-                    </div>
-                  ))}
+                  <div className="feedback-history-title">📋 反馈记录 ({feedbackHistory.length})</div>
+                  {feedbackHistory.map((fb, i) => {
+                    const fbText = typeof fb.data === 'string' ? fb.data : (fb.data && fb.data.text) || fb.text || '蓝图更新反馈';
+                    const fbTime = fb.timestamp || fb.submittedAt;
+                    return (
+                      <div key={fb.id || i} className="feedback-history-item">
+                        <span className="feedback-history-badge">✅ #{fb.id || i + 1}</span>
+                        <span className="feedback-history-text">{fbText}</span>
+                        <span className="feedback-history-time">{fbTime ? new Date(fbTime).toLocaleString('zh-CN') : ''}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
