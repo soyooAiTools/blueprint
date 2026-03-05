@@ -892,6 +892,11 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
           return { ok: false, error: 'Content verification failed after all attempts: ' + verification.reason };
         }
         log('[coder] ✅ Content verification passed', taskId);
+        // Generate architecture diagram
+        try {
+          var archGen = require('./generate-architecture.js');
+          archGen.generateArchitecture(clientDir, log, taskId);
+        } catch(archErr) { log('[coder] Architecture generation skipped: ' + archErr.message, taskId); }
         return { ok: true, filesWritten: files.length, files: files.map(function(f) { return f.path; }), attempts: attempt };
       }
 
