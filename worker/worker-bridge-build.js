@@ -249,6 +249,19 @@ window.addEventListener("luna:started", function() {
     log('[luna-build] Injected GameFlowManagerMain component into iframe.html', taskId);
   }
 
+  // 7. Verify AI code is in the build output (prevent template-only builds)
+  const finalJsPath = path.join(stage4Dir, 'engine', 'unity', 'bin', 'UnityScriptsCompiler.js');
+  if (fs.existsSync(finalJsPath)) {
+    const finalJs = fs.readFileSync(finalJsPath, 'utf-8');
+    if (!finalJs.includes('GameFlowManagerMain')) {
+      log('[luna-build] ⚠️ WARNING: UnityScriptsCompiler.js does NOT contain GameFlowManagerMain — AI code may not be compiled in!', taskId);
+      return { ok: false, error: 'Build verification failed: AI code (GameFlowManagerMain) not found in compiled JS. The build output may be template-only.' };
+    }
+    log(`[luna-build] ✅ Build verified: GameFlowManagerMain found in compiled JS (${(finalJs.length / 1024).toFixed(0)} KB)`, taskId);
+  } else {
+    log('[luna-build] ⚠️ UnityScriptsCompiler.js not found in stage4, skipping verification', taskId);
+  }
+
   const totalTime = Math.floor((Date.now() - startTime) / 1000);
   log(`[luna-build] Build completed in ${totalTime}s (jake: ${jakeBuildTime}s + msbuild: ${totalTime - jakeBuildTime}s)`, taskId);
 

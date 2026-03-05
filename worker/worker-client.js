@@ -244,12 +244,18 @@ async function processTask(task) {
     // === Step 3: Pre-build Patch ===
     await reportStatus(taskId, 'building', { message: '预处理 + Luna 构建中...' });
 
+    // Clean old LunaTemp but PRESERVE stage1 cache (asset export is slow without Bridge)
     const lunaTempDir = path.join(CLIENT_DIR, 'LunaTemp');
     if (fs.existsSync(lunaTempDir)) {
-      log('Cleaning old LunaTemp...', taskId);
-      try { fs.rmSync(lunaTempDir, { recursive: true, force: true }); } catch (e) {
-        log('Warning cleaning LunaTemp: ' + e.message, taskId);
+      for (const sub of ['stage2', 'stage3', 'stage4']) {
+        const subDir = path.join(lunaTempDir, sub);
+        if (fs.existsSync(subDir)) {
+          try { fs.rmSync(subDir, { recursive: true, force: true }); } catch (e) {
+            log(`Warning cleaning ${sub}: ${e.message}`, taskId);
+          }
+        }
       }
+      log('Cleaned LunaTemp (stage1 cache preserved)', taskId);
     }
 
     // GameFlowManagerMain is already mounted in SampleScene.unity — no injection needed
