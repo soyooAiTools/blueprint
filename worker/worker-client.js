@@ -7,7 +7,7 @@ const https = require('https');
 const { exec, execSync, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { detectScenes, fixLunaJson, generateExportAssets, injectMaterialSourceAll } = require('./worker-patch.js');
+const { detectScenes, fixLunaJson, generateExportAssets, injectMaterialSourceAll, cleanScene } = require('./worker-patch.js');
 const { runBridgeBuild, bridgeRequest } = require('./worker-bridge-build.js');
 const { generateCode } = require('./worker-coder.js');
 const { convertAndSave } = require('./worker-html-converter.js');
@@ -258,8 +258,12 @@ async function processTask(task) {
       log('Cleaned LunaTemp (stage1 cache preserved)', taskId);
     }
 
-    // GameFlowManagerMain is already mounted in SampleScene.unity — no injection needed
-    log('GameFlowManagerMain already in scene (template)', taskId);
+    // Replace template scene with clean empty scene (Camera + Light + EventSystem + GameManager + MaterialSource only)
+    if (cleanScene(CLIENT_DIR)) {
+      log('Scene cleaned: replaced template with empty scene', taskId);
+    } else {
+      log('Warning: cleanScene skipped (template not found)', taskId);
+    }
 
     const scenes = detectScenes(CLIENT_DIR);
     if (scenes.length === 0) {

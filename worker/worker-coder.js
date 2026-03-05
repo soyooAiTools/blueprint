@@ -175,19 +175,19 @@ var GENERATE_PROMPT = [
   '- `GameObject.CreatePrimitive()` does NOT auto-assign Material in Luna',
   '',
   '### Material handling (CRITICAL — Luna has no runtime shader compilation):',
-  '- Grab a Material from a scene renderer BEFORE hiding template objects:',
+  '- The scene has a hidden __MaterialSource Cube with a valid Material. Grab it in Start():',
   '```csharp',
   'private Material _baseMat;',
   'void Start() {',
-  '    // FIRST: grab material from any existing renderer before hiding',
-  '    var anyRenderer = Object.FindObjectOfType<Renderer>();',
-  '    if (anyRenderer != null) _baseMat = new Material(anyRenderer.sharedMaterial);',
+  '    // Grab material from __MaterialSource (hidden Cube in scene)',
+  '    var matSource = GameObject.Find("__MaterialSource");',
+  '    if (matSource != null) {',
+  '        var r = matSource.GetComponent<Renderer>();',
+  '        if (r != null) _baseMat = new Material(r.sharedMaterial);',
+  '    }',
   '    if (_baseMat == null) _baseMat = new Material(Shader.Find("Standard"));',
-  '    // IMPORTANT: clear template textures so objects get clean solid colors',
   '    if (_baseMat != null) { _baseMat.mainTexture = null; _baseMat.color = Color.white; }',
-  '    // THEN: hide template objects',
-  '    var roots = gameObject.scene.GetRootGameObjects();',
-  '    // ... hide loop ...',
+  '    // Scene is clean — create your game objects directly',
   '}',
   '// For each new object:',
   'renderer.material = new Material(_baseMat);',
@@ -195,7 +195,7 @@ var GENERATE_PROMPT = [
   '```',
   '- For CreatePrimitive: ALWAYS assign material: `obj.GetComponent<Renderer>().material = new Material(_baseMat);`',
   '- NEVER use Shader.Find() or new Material(shader) directly — grab from existing scene renderers first',
-  '- The template scene has renderers with valid Materials — use them as source before hiding',
+  '- The scene has a hidden __MaterialSource Cube — use its Material as source for new objects',
   '',
   '### MUST do:',
   '- Call Luna.Unity.LifeCycle.GameEnded() when game ends (before CTA)',
@@ -244,10 +244,11 @@ var GENERATE_PROMPT = [
   '## CRITICAL ARCHITECTURE',
   '',
   '⚠️ Luna converts Unity C# to JavaScript. [RuntimeInitializeOnLoadMethod] is IGNORED by Luna.',
-  '⚠️ The scene contains template objects (SLG game) — you MUST hide all of them in Start().',
+  '⚠️ The scene is CLEAN — it only has Camera, Light, EventSystem, GameManager, and a hidden __MaterialSource Cube.',
+  '⚠️ There are NO template objects to hide. Do NOT write code to hide/disable scene objects.',
   '⚠️ GameFlowManagerMain will be automatically instantiated at runtime via JS injection. You are writing its content.',
   '⚠️ The template project has utility scripts in Assets/Program/Script/ — you can CALL their methods if useful (e.g., DOTween, PoolManager).',
-  '⚠️ After hiding template objects, CREATE all your game content from code.',
+  '⚠️ CREATE all your game content from code in Start().',
   '',
   '### Strategy: Output ONLY GameFlowManagerMain.cs',
   '',
@@ -267,25 +268,22 @@ var GENERATE_PROMPT = [
   '- Put ALL game logic here: shots, UI, input, camera, everything',
   '- Keep the class name `GameFlowManagerMain`',
   '',
-  '#### In Start(), FIRST grab a material, THEN hide template objects:',
+  '#### In Start(), grab material from __MaterialSource, then create your content:',
   '```csharp',
-  '// 1. Grab material from scene renderers BEFORE hiding them',
-  'var anyRenderer = Object.FindObjectOfType<Renderer>();',
-  'if (anyRenderer != null) _baseMat = new Material(anyRenderer.sharedMaterial);',
+  '// Grab material from the hidden __MaterialSource object',
+  'var matSource = GameObject.Find("__MaterialSource");',
+  'if (matSource != null) {',
+  '    var r = matSource.GetComponent<Renderer>();',
+  '    if (r != null) _baseMat = new Material(r.sharedMaterial);',
+  '} else {',
+  '    var anyRenderer = Object.FindObjectOfType<Renderer>();',
+  '    if (anyRenderer != null) _baseMat = new Material(anyRenderer.sharedMaterial);',
+  '}',
   'if (_baseMat == null) _baseMat = new Material(Shader.Find("Standard"));',
-  '// Clear template textures for clean solid colors',
   'if (_baseMat != null) { _baseMat.mainTexture = null; _baseMat.color = Color.white; }',
   '',
-  '// 2. Now hide all template objects',
-  'var roots = gameObject.scene.GetRootGameObjects();',
-  'for (int i = 0; i < roots.Length; i++) {',
-  '    string n = roots[i].name.ToLower();',
-  '    if (n.Contains("camera") || n.Contains("light") || n.Contains("eventsystem"))',
-  '        continue;',
-  '    if (roots[i] == this.gameObject || roots[i] == this.transform.root.gameObject)',
-  '        continue;',
-  '    roots[i].SetActive(false);',
-  '}',
+  '// Scene is clean — start creating your game objects directly',
+  '// No need to hide template objects (scene only has Camera, Light, EventSystem)',
   '```',
   '',
   '#### Then create your game world from code:',
@@ -383,7 +381,7 @@ var FIX_PROMPT = [
   '- Do NOT use [RuntimeInitializeOnLoadMethod] — Luna ignores it',
   '- The main controller script is GameFlowManagerMain.cs — keep its class name `GameFlowManagerMain`',
   '- The scene is CLEAN — all game objects are created from code, do NOT use GameObject.Find() for template objects',
-  '- Materials: grab from scene renderers before hiding template objects: `_baseMat = new Material(Object.FindObjectOfType<Renderer>().sharedMaterial); _baseMat.mainTexture = null; _baseMat.color = Color.white;`',
+  '- Materials: grab from __MaterialSource: `var ms = GameObject.Find("__MaterialSource"); _baseMat = new Material(ms.GetComponent<Renderer>().sharedMaterial); _baseMat.mainTexture = null; _baseMat.color = Color.white;`',
   '- For CreatePrimitive objects: ALWAYS assign `obj.GetComponent<Renderer>().material = new Material(_baseMat);` then set color',
   '- If a fix requires new scene objects, CREATE them in code (CreatePrimitive, new GameObject, etc.)',
   '- Do NOT reintroduce dependencies on template scene objects that were cleared',
@@ -840,14 +838,15 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
     + projectSection
     + parsed.feedbackText
     + '\n\n## IMPORTANT REMINDERS:\n'
-    + '1. In Start(), FIRST hide ALL template root objects (except Camera/Light/EventSystem/GameManager)\n'
-    + '2. Then BUILD everything from code — CreatePrimitive, new GameObject, UI components\n'
-    + '3. You CAN call utility classes from the template (DOTween, PoolManager, etc.)\n'
-    + '4. Do NOT copy SLG/idle game logic — implement the BLUEPRINT logic\n'
-    + '5. GameFlowManagerMain.Start() is your entry point\n\n'
+    + '1. The scene is CLEAN — only Camera, Light, EventSystem, GameManager, __MaterialSource exist\n'
+    + '2. Do NOT hide/disable any scene objects — there are no template objects to hide\n'
+    + '3. BUILD everything from code — CreatePrimitive, new GameObject, UI components\n'
+    + '4. You CAN call utility classes from the template (DOTween, PoolManager, etc.)\n'
+    + '5. Do NOT copy SLG/idle game logic — implement the BLUEPRINT logic\n'
+    + '6. GameFlowManagerMain.Start() is your entry point\n\n'
     + 'Generate ' + lang + ' code that implements this blueprint EXACTLY from scratch. '
     + 'Every shot must be playable with code-created objects. '
-    + 'Hide all template objects first, then create your game world in code.';
+    + 'Create your game world from a clean scene.';
 
   try {
     var response = await callClaude(sysPrompt, userMsg, 300000, MODEL_GENERATE);
@@ -1000,9 +999,9 @@ function verifyCodeContent(clientDir, parsed, log, taskId) {
     }
   }
 
-  // Check 5: Should hide template objects (warning, not blocker)
-  if (code.indexOf('SetActive(false)') < 0 && code.indexOf('SetActive( false )') < 0) {
-    log('[coder] Warning: No SetActive(false) found — template objects may still be visible', taskId);
+  // Check 5: Scene is clean now — warn if code still tries to hide template objects (unnecessary)
+  if (code.indexOf('GetRootGameObjects') >= 0 && code.indexOf('SetActive(false)') >= 0) {
+    log('[coder] Warning: Code still hides scene root objects — scene is already clean, this is unnecessary', taskId);
   }
 
   // Check 6: Must call GameEnded()

@@ -277,4 +277,56 @@ function injectMaterialSourceAll(clientDir, scenes) {
   return count;
 }
 
-module.exports = { detectScenes, fixLunaJson, generateExportAssets, injectMaterialSource, injectMaterialSourceAll, MSBUILD_PATH };
+/**
+ * Replace the template scene with a clean empty scene.
+ * The empty scene template (empty-scene-template.unity) contains only:
+ *   - Main Camera, Directional Light, EventSystem
+ *   - GameManager (with GameFlowManagerMain script attached)
+ *   - __MaterialSource (hidden Cube with valid Material for runtime cloning)
+ * 
+ * This eliminates all SLG template objects so AI code starts from a clean slate
+ * instead of hiding 19000+ lines of template objects at runtime.
+ */
+function cleanScene(clientDir) {
+  const emptyScenePath = path.join(path.dirname(clientDir), 'empty-scene-template.unity');
+  if (!fs.existsSync(emptyScenePath)) {
+    // Fallback: check worker directory
+    const workerDir = path.dirname(require.main ? require.main.filename : __filename);
+    const fallbackPath = path.join(workerDir, 'empty-scene-template.unity');
+    if (!fs.existsSync(fallbackPath)) {
+      console.log('[cleanScene] empty-scene-template.unity not found, skipping');
+      return false;
+    }
+    return doCleanScene(clientDir, fallbackPath);
+  }
+  return doCleanScene(clientDir, emptyScenePath);
+}
+
+function doCleanScene(clientDir, emptyScenePath) {
+  // Find the main scene file
+  const scenesDir = path.join(clientDir, 'Assets', 'Scenes');
+  let targetScene = null;
+  
+  if (fs.existsSync(scenesDir)) {
+    const files = fs.readdirSync(scenesDir).filter(f => f.endsWith('.unity'));
+    if (files.length > 0) {
+      targetScene = path.join(scenesDir, files[0]);
+    }
+  }
+  
+  if (!targetScene) {
+    console.log('[cleanScene] No scene file found in Assets/Scenes/');
+    return false;
+  }
+  
+  const originalSize = fs.statSync(targetScene).size;
+  const emptyContent = fs.readFileSync(emptyScenePath, 'utf-8');
+  fs.writeFileSync(targetScene, emptyContent, 'utf-8');
+  const newSize = fs.statSync(targetScene).size;
+  
+  console.log('[cleanScene] Replaced ' + path.basename(targetScene) + 
+    ' (' + Math.round(originalSize/1024) + 'KB → ' + Math.round(newSize/1024) + 'KB)');
+  return true;
+}
+
+module.exports = { detectScenes, fixLunaJson, generateExportAssets, injectMaterialSource, injectMaterialSourceAll, cleanScene, MSBUILD_PATH };
