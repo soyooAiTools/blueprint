@@ -53,6 +53,22 @@
 - `luna.json` 必须设 `forceSourcesBasedCompilation: true`
 - `GameFlowManagerMain.cs` 是 AI 入口文件（不在 SVN 中，每次任务由 AI 创建）
 
+## 自动架构图
+
+AI 编码完成后自动生成代码架构关系图：
+
+- `architecture.json` — 结构化数据（类、方法、依赖关系、职责）
+- `architecture.drawio` — draw.io 可视化（可直接打开编辑）
+- 纯静态 C# 分析，零 API 调用
+- 随代码一起 SVN 提交
+
+## WebGL 预览
+
+- 预览 URL：`/webgl/{projectId}/iframe.html`（实际游戏画面）
+- `index.html` 是 Luna Dev Environment 空壳，不含游戏内容
+- 构建上传后自动检测 `iframe.html` 优先使用
+- **白屏检测**：screenshot-review 服务在 AI 审核前做像素级检测（Canvas 颜色方差），白屏/黑屏/纯色硬 REJECT
+
 ## 目录结构
 
 ```
@@ -68,6 +84,7 @@ blueprint-editor/
 │   ├── worker-bridge-build.js    # Luna jake + MSBuild 构建
 │   ├── worker-html-converter.js  # 单文件 HTML 渠道转换
 │   ├── worker-patch.js           # 预构建修复（scenes, luna.json）
+│   ├── generate-architecture.js  # 代码架构图生成（C# → JSON + drawio）
 │   ├── ecosystem.config.js       # PM2 配置
 │   └── html-templates/           # Luna 运行时模板
 │
@@ -76,6 +93,10 @@ blueprint-editor/
 │   ├── worker-coder.js           # AI 编码（TypeScript）
 │   ├── worker-cocos-build.js     # Cocos Creator CLI 构建
 │   └── worker-html-converter.js  # HTML 转换（PNG→WebP + zlib）
+│
+├── screenshot-review/              # WebGL 白屏检测 + AI 审核
+│   ├── screenshot-review.cjs       # Playwright 截图 + 像素分析
+│   └── screenshot-review-server.cjs # HTTP 服务（端口 18820）
 │
 ├── docs/
 │   ├── unity-env-setup.md        # Unity Worker 部署指南
