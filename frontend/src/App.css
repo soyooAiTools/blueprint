@@ -3002,6 +3002,14 @@ html, body, #root {
   font-size: 12px;
   font-weight: 600;
 }
+.project-status-editing { background: rgba(139,148,158,0.15); color: #8b949e; }
+.project-status-submitted { background: rgba(136,153,255,0.15); color: #8899ff; }
+.project-status-developing { background: rgba(188,140,255,0.15); color: #bc8cff; }
+.project-status-building { background: rgba(188,140,255,0.15); color: #bc8cff; }
+.project-status-reviewing { background: rgba(88,166,255,0.15); color: #58a6ff; }
+.project-status-feedback { background: rgba(255,159,67,0.15); color: #ff9f43; }
+.project-status-approved { background: rgba(63,185,80,0.15); color: #3fb950; }
+.project-status-committed { background: rgba(63,185,80,0.15); color: #3fb950; }
 
 /* ===== Project List Error ===== */
 .project-list-error {
