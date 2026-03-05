@@ -7,11 +7,30 @@ const AdmZip = require('adm-zip');
 const PORT = process.env.PORT || 3901;
 const __dir = __dirname;
 
-// port-guard removed 鈥?PM2 handles process lifecycle, port-guard caused restart loops
+// 启动前清理占端口的孤儿进程（内联，避免 require 路径问题）
+try {
+  var pgResult = require('child_process').execSync(
+    'ss -tlnp sport = :' + PORT + ' 2>/dev/null || true',
+    { encoding: 'utf-8', timeout: 3000 }
+  ).trim();
+  var pgPidMatch = pgResult.match(/pid=(\d+)/);
+  if (pgPidMatch) {
+    var pgPid = parseInt(pgPidMatch[1]);
+    if (pgPid !== process.pid) {
+      console.log('[port-guard] Port ' + PORT + ' occupied by PID ' + pgPid + ', killing...');
+      try { process.kill(pgPid, 'SIGTERM'); } catch(e) {}
+      require('child_process').execSync('sleep 1');
+      try { process.kill(pgPid, 'SIGKILL'); } catch(e) {}
+      require('child_process').execSync('sleep 1');
+      console.log('[port-guard] Cleaned up PID ' + pgPid);
+    }
+  }
+} catch (e) { console.warn('[port-guard] skipped:', e.message); }
 
-// 闈?PM2 鍚姩鏃惰鍛婏紙闃叉鎵嬪姩 node server.cjs 浜х敓瀛ゅ効杩涚▼锛?if (!process.env.pm_id) {
-  console.warn('\n鈿狅笍  鏈€氳繃 PM2 鍚姩锛佹墜鍔ㄦ祴璇曡鐢? node server.cjs &  娴嬪畬璁板緱 kill');
-  console.warn('鈿狅笍  鐢熶骇鍚姩璇风敤: pm2 start ecosystem.config.js\n');
+// 非 PM2 启动时警告（防止手动 node server.cjs 产生孤儿进程）
+if (!process.env.pm_id) {
+  console.warn('\n⚠️  未通过 PM2 启动！手动测试请用: node server.cjs &  测完记得 kill');
+  console.warn('⚠️  生产启动请用: pm2 start ecosystem.config.js\n');
 }
 
 // Data directories
@@ -21,7 +40,7 @@ const DATA_DIR = path.join(__dir, 'server-data');
 const AUTOCODING_DIR = path.join(__dir, '..', 'autoCoding-tasks');
 const AUTOCODING_QUEUE = path.join(AUTOCODING_DIR, 'queue');
 
-// Signal file for OpenClaw wake 鈥?write a signal file that HEARTBEAT.md checks
+// Signal file for OpenClaw wake — write a signal file that HEARTBEAT.md checks
 const WAKE_SIGNAL_FILE = path.join(AUTOCODING_DIR, 'wake-signal.json');
 
 function wakeOpenClaw(text) {
@@ -212,7 +231,7 @@ handlers.listProjects = function(req, res) {
 
 handlers.createProject = function(req, res, body) {
   var data = JSON.parse(body);
-  if (!data.name || !data.name.trim()) return sendJSON(res, { error: '椤圭洰鍚嶇О涓嶈兘涓虹┖' }, 400);
+  if (!data.name || !data.name.trim()) return sendJSON(res, { error: '项目名称不能为空' }, 400);
   var now = new Date().toISOString();
   var project = {
     id: generateId(),
@@ -232,13 +251,13 @@ handlers.createProject = function(req, res, body) {
 
 handlers.getProject = function(req, res, body, id) {
   var project = readProject(id);
-  if (!project) return sendJSON(res, { error: '椤圭洰涓嶅瓨鍦? }, 404);
+  if (!project) return sendJSON(res, { error: '项目不存在' }, 404);
   sendJSON(res, project);
 };
 
 handlers.updateProject = function(req, res, body, id) {
   var project = readProject(id);
-  if (!project) return sendJSON(res, { error: '椤圭洰涓嶅瓨鍦? }, 404);
+  if (!project) return sendJSON(res, { error: '项目不存在' }, 404);
   var data = JSON.parse(body);
   if (data.name !== undefined) project.name = data.name.trim();
   if (data.svnUrl !== undefined) project.svnUrl = data.svnUrl.trim();
@@ -250,7 +269,7 @@ handlers.updateProject = function(req, res, body, id) {
 
 handlers.saveBlueprint = function(req, res, body, id) {
   var project = readProject(id);
-  if (!project) return sendJSON(res, { error: '椤圭洰涓嶅瓨鍦? }, 404);
+  if (!project) return sendJSON(res, { error: '项目不存在' }, 404);
   var data = JSON.parse(body);
   project.blueprint = {
     nodes: data.nodes || [],
@@ -264,9 +283,9 @@ handlers.saveBlueprint = function(req, res, body, id) {
 
 handlers.submitProject = function(req, res, body, id) {
   var project = readProject(id);
-  if (!project) return sendJSON(res, { error: '椤圭洰涓嶅瓨鍦? }, 404);
+  if (!project) return sendJSON(res, { error: '项目不存在' }, 404);
   if (project.status !== 'editing' && project.status !== 'feedback') {
-    return sendJSON(res, { error: '褰撳墠鐘舵€併€? + project.status + '銆嶄笉鍏佽鎻愪氦' }, 400);
+    return sendJSON(res, { error: '当前状态「' + project.status + '」不允许提交' }, 400);
   }
 
   // === autoCoding pipeline integration ===
@@ -282,7 +301,7 @@ handlers.submitProject = function(req, res, body, id) {
   var taskFile = path.join(AUTOCODING_QUEUE, taskId + '.json');
   var task;
   if (isFeedbackResubmit && fs.existsSync(taskFile)) {
-    // Update existing task 鈥?set status to trigger Agent B fix
+    // Update existing task — set status to trigger Agent B fix
     task = JSON.parse(fs.readFileSync(taskFile, 'utf-8'));
     task.status = 'fix_needed';
     task.blueprintPath = blueprintPath;
@@ -327,7 +346,8 @@ handlers.submitProject = function(req, res, body, id) {
   project.updatedAt = new Date().toISOString();
   writeProject(project);
 
-  // 鍗虫椂瑙﹀彂 OpenClaw锛岃缂栨帓鍣ㄧ珛鍒绘帴鍗?  wakeOpenClaw('[钃濆浘缂栬緫鍣╙ 鏂颁换鍔″凡鎻愪氦鍒?autoCoding 闃熷垪锛岃绔嬪嵆杩愯 node autoCoding-tasks/orchestrate.cjs 骞舵墽琛岃繑鍥炵殑 actions銆傞」鐩? ' + project.name + ', taskId: ' + taskId);
+  // 即时触发 OpenClaw，让编排器立刻接单
+  wakeOpenClaw('[蓝图编辑器] 新任务已提交到 autoCoding 队列，请立即运行 node autoCoding-tasks/orchestrate.cjs 并执行返回的 actions。项目: ' + project.name + ', taskId: ' + taskId);
 
   sendJSON(res, { success: true, status: project.status, taskId: taskId });
 };
@@ -370,9 +390,9 @@ function exportBlueprintForAgent(project) {
 
 handlers.submitFeedback = function(req, res, body, id) {
   var project = readProject(id);
-  if (!project) return sendJSON(res, { error: '椤圭洰涓嶅瓨鍦? }, 404);
+  if (!project) return sendJSON(res, { error: '项目不存在' }, 404);
   if (project.status !== 'reviewing') {
-    return sendJSON(res, { error: '褰撳墠鐘舵€併€? + project.status + '銆嶄笉鍏佽鎻愪氦鍙嶉' }, 400);
+    return sendJSON(res, { error: '当前状态「' + project.status + '」不允许提交反馈' }, 400);
   }
   var data = JSON.parse(body);
   var entry = {
@@ -423,22 +443,23 @@ handlers.submitFeedback = function(req, res, body, id) {
   } catch(e) {
     console.error('[feedback] Auto-resubmit failed: ' + e.message);
   }
+
   sendJSON(res, { success: true, status: project.status, feedbackId: entry.id });
 };
 
 handlers.approveProject = function(req, res, body, id) {
   var project = readProject(id);
-  if (!project) return sendJSON(res, { error: '椤圭洰涓嶅瓨鍦? }, 404);
+  if (!project) return sendJSON(res, { error: '项目不存在' }, 404);
   if (project.status !== 'reviewing') {
-    return sendJSON(res, { error: '褰撳墠鐘舵€併€? + project.status + '銆嶄笉鍏佽閫氳繃' }, 400);
+    return sendJSON(res, { error: '当前状态「' + project.status + '」不允许通过' }, 400);
   }
   project.status = 'approved';
   project.updatedAt = new Date().toISOString();
   writeProject(project);
-  sendJSON(res, { success: true, status: 'approved', message: '宸查€氱煡 Coding Agent 鎻愪氦 SVN' });
+  sendJSON(res, { success: true, status: 'approved', message: '已通知 Coding Agent 提交 SVN' });
 };
 
-// P3: GET /api/projects/pending 鈥?return submitted/feedback projects (full data with blueprint)
+// P3: GET /api/projects/pending — return submitted/feedback projects (full data with blueprint)
 handlers.listPending = function(req, res) {
   var files = fs.readdirSync(PROJECTS_DIR).filter(function(f) { return f.endsWith('.json'); });
   var pending = [];
@@ -452,14 +473,14 @@ handlers.listPending = function(req, res) {
   sendJSON(res, pending);
 };
 
-// P3: POST /api/projects/:id/status 鈥?generic status update (for Coding Agent callbacks)
+// P3: POST /api/projects/:id/status — generic status update (for Coding Agent callbacks)
 handlers.updateStatus = function(req, res, body, id) {
   var project = readProject(id);
-  if (!project) return sendJSON(res, { error: '椤圭洰涓嶅瓨鍦? }, 404);
+  if (!project) return sendJSON(res, { error: '项目不存在' }, 404);
   var data = JSON.parse(body);
   var allowed = ['building', 'reviewing', 'committed', 'editing', 'submitted', 'feedback', 'approved'];
   if (!data.status || allowed.indexOf(data.status) === -1) {
-    return sendJSON(res, { error: '鏃犳晥鐨勭姸鎬? ' + data.status }, 400);
+    return sendJSON(res, { error: '无效的状态: ' + data.status }, 400);
   }
   project.status = data.status;
   if (data.message) project.statusMessage = data.message;
@@ -468,10 +489,10 @@ handlers.updateStatus = function(req, res, body, id) {
   sendJSON(res, { success: true, status: project.status });
 };
 
-// P3: POST /api/projects/:id/upload-webgl 鈥?upload WebGL files (JSON body)
+// P3: POST /api/projects/:id/upload-webgl — upload WebGL files (JSON body)
 handlers.uploadWebgl = function(req, res, body, id) {
   var project = readProject(id);
-  if (!project) return sendJSON(res, { error: '椤圭洰涓嶅瓨鍦? }, 404);
+  if (!project) return sendJSON(res, { error: '项目不存在' }, 404);
   var data = JSON.parse(body);
   var webglDir = path.join(WEBGL_DIR, id);
   if (!fs.existsSync(webglDir)) fs.mkdirSync(webglDir, { recursive: true });
@@ -484,7 +505,7 @@ handlers.uploadWebgl = function(req, res, body, id) {
     var keys = Object.keys(data.files);
     for (var i = 0; i < keys.length; i++) {
       var filename = keys[i];
-      // Sanitize filename 鈥?prevent path traversal
+      // Sanitize filename — prevent path traversal
       var safeName = filename.replace(/\.\./g, '').replace(/^[/\\]+/, '');
       var fileDir = path.join(webglDir, path.dirname(safeName));
       if (!fs.existsSync(fileDir)) fs.mkdirSync(fileDir, { recursive: true });
@@ -497,19 +518,19 @@ handlers.uploadWebgl = function(req, res, body, id) {
       }
     }
   } else {
-    return sendJSON(res, { error: '璇锋彁渚?html 鎴?files 瀛楁' }, 400);
+    return sendJSON(res, { error: '请提供 html 或 files 字段' }, 400);
   }
 
-  project.webglPath = '/webgl/' + id + '/iframe.html';
+  project.webglPath = '/webgl/' + id + '/index.html';
   project.updatedAt = new Date().toISOString();
   writeProject(project);
   sendJSON(res, { success: true, webglPath: project.webglPath });
 };
 
-// P5: POST /api/projects/:id/committed 鈥?Coding Agent SVN commit callback
+// P5: POST /api/projects/:id/committed — Coding Agent SVN commit callback
 handlers.committedProject = function(req, res, body, id) {
   var project = readProject(id);
-  if (!project) return sendJSON(res, { error: '椤圭洰涓嶅瓨鍦? }, 404);
+  if (!project) return sendJSON(res, { error: '项目不存在' }, 404);
   var data = {};
   try { data = JSON.parse(body); } catch(e) {}
   project.status = 'committed';
@@ -522,24 +543,24 @@ handlers.committedProject = function(req, res, body, id) {
 
 handlers.getWebgl = function(req, res, body, id) {
   var project = readProject(id);
-  if (!project) return sendJSON(res, { error: '椤圭洰涓嶅瓨鍦? }, 404);
+  if (!project) return sendJSON(res, { error: '项目不存在' }, 404);
   var webglDir = path.join(WEBGL_DIR, id);
   var hasWebgl = fs.existsSync(webglDir) && fs.existsSync(path.join(webglDir, 'index.html'));
   sendJSON(res, {
     available: hasWebgl,
-    url: hasWebgl ? '/webgl/' + id + '/iframe.html' : null,
+    url: hasWebgl ? '/webgl/' + id + '/index.html' : null,
     webglPath: project.webglPath,
   });
 };
 
 handlers.deleteProject = function(req, res, body, id) {
   var filePath = path.join(PROJECTS_DIR, id + '.json');
-  if (!fs.existsSync(filePath)) return sendJSON(res, { error: '椤圭洰涓嶅瓨鍦? }, 404);
+  if (!fs.existsSync(filePath)) return sendJSON(res, { error: '项目不存在' }, 404);
   fs.unlinkSync(filePath);
   var webglDir = path.join(WEBGL_DIR, id);
   if (fs.existsSync(webglDir)) fs.rmSync(webglDir, { recursive: true, force: true });
 
-  // 娓呯悊 autoCoding 闃熷垪浠诲姟
+  // 清理 autoCoding 队列任务
   cleanupAutoCodingTask(id);
 
   sendJSON(res, { success: true });
@@ -658,7 +679,7 @@ handlers.workerStatus = function(req, res, body) {
 var workerHeartbeats = {};
 
 // POST /api/worker/heartbeat
-// POST /api/tasks/:id/upload-build 鈥?receives zip binary, extracts to webgl dir, updates project
+// POST /api/tasks/:id/upload-build — receives zip binary, extracts to webgl dir, updates project
 handlers.uploadBuild = function(req, res, body, id) {
   // id comes from taskId in route match
   var taskId = id;
@@ -698,7 +719,7 @@ handlers.uploadBuild = function(req, res, body, id) {
       var project = readProject(taskId);
       if (project) {
         project.status = 'reviewing';
-        project.webglPath = '/webgl/' + taskId + '/iframe.html';
+        project.webglPath = '/webgl/' + taskId + '/index.html';
         project.buildCompletedAt = new Date().toISOString();
         project.updatedAt = new Date().toISOString();
         writeProject(project);
@@ -707,8 +728,8 @@ handlers.uploadBuild = function(req, res, body, id) {
 
       sendJSON(res, {
         success: true,
-        url: '/webgl/' + taskId + '/iframe.html',
-        webglPath: '/webgl/' + taskId + '/iframe.html',
+        url: '/webgl/' + taskId + '/index.html',
+        webglPath: '/webgl/' + taskId + '/index.html',
       });
     } catch (e) {
       console.log('[Upload Build] Error:', e.message);
@@ -785,7 +806,7 @@ handlers.parseStoryboard = function(req, res, body, projectId) {
       }
 
       if (!allText.trim() && imageParts.length === 0 && !pdfPath) {
-        return sendJSON(res, { error: '璇锋彁渚涙枃妗堟垨鏂囨。' }, 400);
+        return sendJSON(res, { error: '请提供文案或文档' }, 400);
       }
 
       // Call Gemini parser
@@ -816,7 +837,7 @@ handlers.parseStoryboard = function(req, res, body, projectId) {
       }
     } catch(e) {
       console.error('[parse-storyboard] Error:', e.message);
-      sendJSON(res, { error: '鍒嗛暅瑙ｆ瀽澶辫触: ' + e.message }, 500);
+      sendJSON(res, { error: '分镜解析失败: ' + e.message }, 500);
     }
   });
 
@@ -883,12 +904,7 @@ handlers.generateStoryboard = function(req, res, body, projectId) {
             batch.push((async function() {
               var frame = frames[idx];
               try {
-                var imgResult = await storyboardParser.generateImage(frame.prompt || frame.title, {
-                  cameraAngle: frame._cameraAngle || "",
-                  orientation: frame._orientation || "",
-                  perspective: frame._perspective || "",
-                  style: data.style || "",
-                });
+                var imgResult = await storyboardParser.generateImage(frame.prompt || frame.title);
                 var ext = (imgResult.mimeType || '').includes('png') ? '.png' : '.jpg';
                 var filename = 'frame_' + frame.id + ext;
                 var filePath = path.join(imgDir, filename);
@@ -932,7 +948,7 @@ handlers.generateStoryboardPDF = function(req, res, body, projectId) {
     try {
       var data = JSON.parse(body);
       var frames = data.frames || [];
-      var projectName = data.projectName || '鍒嗛暅鏉?;
+      var projectName = data.projectName || '分镜板';
       var subtitle = data.subtitle || '';
       if (frames.length === 0) return sendJSON(res, { error: 'No frames' }, 400);
 
@@ -969,7 +985,7 @@ handlers.editFrame = function(req, res, body) {
       sendJSON(res, { frame: newFrame });
     } catch(e) {
       console.error('[edit-frame] Error:', e.message);
-      sendJSON(res, { error: '缂栬緫澶辫触: ' + e.message }, 500);
+      sendJSON(res, { error: '编辑失败: ' + e.message }, 500);
     }
   })();
 };
@@ -1003,7 +1019,7 @@ handlers.workerHeartbeat = function(req, res, body) {
 
 // ============ Dashboard API Handlers ============
 
-// GET /api/dashboard 鈥?summary stats
+// GET /api/dashboard — summary stats
 handlers.getDashboard = function(req, res) {
   var workers = Object.values(workerHeartbeats);
   var now = Date.now();
@@ -1032,7 +1048,7 @@ handlers.getDashboard = function(req, res) {
   });
 };
 
-// GET /api/workers 鈥?list all registered workers
+// GET /api/workers — list all registered workers
 handlers.getWorkers = function(req, res) {
   var workers = Object.values(workerHeartbeats).map(function(w) {
     var lastHbMs = w.lastSeen ? new Date(w.lastSeen).getTime() : null;
@@ -1051,7 +1067,7 @@ handlers.getWorkers = function(req, res) {
   sendJSON(res, { workers: workers });
 };
 
-// GET /api/tasks?limit=30 鈥?list tasks from queue
+// GET /api/tasks?limit=30 — list tasks from queue
 handlers.getTasks = function(req, res) {
   var u = new URL(req.url, 'http://localhost');
   var limit = parseInt(u.searchParams.get('limit')) || 30;
@@ -1082,14 +1098,14 @@ handlers.getTasks = function(req, res) {
   sendJSON(res, { tasks: tasks });
 };
 
-// 鍒犻櫎椤圭洰鏃舵竻鐞?autoCoding 闃熷垪 + 鏍囪浠诲姟鍙栨秷
+// 删除项目时清理 autoCoding 队列 + 标记任务取消
 function cleanupAutoCodingTask(projectId) {
   try {
     var taskFile = path.join(AUTOCODING_QUEUE, projectId + '.json');
     var blueprintFile = path.join(AUTOCODING_QUEUE, projectId + '-blueprint.json');
 
     if (fs.existsSync(taskFile)) {
-      // 璇诲彇浠诲姟锛屾爣璁颁负 cancelled 鍐嶅垹闄わ紙鐣欏璁¤褰曪級
+      // 读取任务，标记为 cancelled 再删除（留审计记录）
       var task = JSON.parse(fs.readFileSync(taskFile, 'utf-8'));
       var cancelledFile = path.join(AUTOCODING_QUEUE, projectId + '.cancelled.json');
       task.status = 'cancelled';
@@ -1097,11 +1113,11 @@ function cleanupAutoCodingTask(projectId) {
       task.cancelReason = 'project_deleted';
       fs.writeFileSync(cancelledFile, JSON.stringify(task, null, 2), 'utf-8');
       fs.unlinkSync(taskFile);
-      console.log('[autoCoding] 浠诲姟宸插彇娑? ' + projectId);
+      console.log('[autoCoding] 任务已取消: ' + projectId);
     }
     if (fs.existsSync(blueprintFile)) fs.unlinkSync(blueprintFile);
   } catch (e) {
-    console.warn('[autoCoding] 娓呯悊澶辫触: ' + e.message);
+    console.warn('[autoCoding] 清理失败: ' + e.message);
   }
 }
 
@@ -1128,7 +1144,7 @@ var server = http.createServer(function(req, res) {
   var route = matchRoute(method, pathname);
   if (route) {
     if (route.rawBody) {
-      // Binary upload 鈥?pass req directly, handler reads raw body
+      // Binary upload — pass req directly, handler reads raw body
       try {
         handlers[route.handler](req, res, null, route.id || route.taskId);
       } catch (e) {
@@ -1162,7 +1178,7 @@ var server = http.createServer(function(req, res) {
   var staticFile = path.join(DIST_DIR, pathname === '/' ? 'index.html' : pathname);
   if (serveStatic(res, staticFile)) return;
 
-  // SPA fallback 鈥?serve index.html for non-file routes
+  // SPA fallback — serve index.html for non-file routes
   var indexFile = path.join(DIST_DIR, 'index.html');
   if (fs.existsSync(indexFile)) {
     serveStatic(res, indexFile);
@@ -1173,20 +1189,11 @@ var server = http.createServer(function(req, res) {
   res.end('Not Found');
 });
 
-var _portRetries = 0;
-var _MAX_PORT_RETRIES = 5;
 server.on('error', function(err) {
   if (err.code === 'EADDRINUSE') {
-    _portRetries++;
-    if (_portRetries > _MAX_PORT_RETRIES) {
-      console.error('[port-guard] Exceeded ' + _MAX_PORT_RETRIES + ' retries for port ' + PORT + ', exiting. PM2 will restart.');
-      process.exit(1);
-    }
-    console.warn('[port-retry] Port ' + PORT + ' in use, retry ' + _portRetries + '/' + _MAX_PORT_RETRIES + ' in 3s...');
-    setTimeout(function() {
-      server.listen(PORT);
-    }, 3000);
-    return;
+    console.error('[FATAL] 端口 ' + PORT + ' 被占用！port-guard 未能清理。');
+    console.error('[FATAL] 手动执行: kill $(ss -tlnp sport = :' + PORT + ' | grep -oP "pid=\\K\\d+")');
+    process.exit(1);
   }
   throw err;
 });
@@ -1194,7 +1201,6 @@ server.on('error', function(err) {
 server.listen(PORT, function() {
   console.log('Blueprint Editor Server running on http://localhost:' + PORT);
   console.log('  Projects dir: ' + PROJECTS_DIR);
-  if (process.send) process.send('ready');
 });
 
 // ============ Stale Task Recovery (3 min timeout) ============
@@ -1229,19 +1235,11 @@ setInterval(function() {
 // Graceful shutdown
 function gracefulShutdown(signal) {
   console.log('[server] ' + signal + ' received, closing...');
-  // Destroy all active connections immediately to free port
-  if (server._connections) {
-    server.closeAllConnections && server.closeAllConnections();
-  }
   server.close(function() {
-    console.log('[server] Closed cleanly.');
+    console.log('[server] Closed.');
     process.exit(0);
   });
-  // Force exit after 5s (give connections time to drain)
-  setTimeout(function() {
-    console.warn('[server] Force exit after timeout');
-    process.exit(0);
-  }, 5000);
+  setTimeout(function() { process.exit(1); }, 3000);
 }
 process.on('SIGINT', function() { gracefulShutdown('SIGINT'); });
 process.on('SIGTERM', function() { gracefulShutdown('SIGTERM'); });
