@@ -647,10 +647,13 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
     return { ok: true, skipped: true, message: 'Empty blueprint' };
   }
 
-  log('[coder] Generating ' + engine + ' code for: ' + parsed.scenes.length + ' scenes', taskId);
+  // Check if this is an incremental fix (has feedback + existing code)
+  var hasFeedbackEarly = blueprint.feedbackHistory && blueprint.feedbackHistory.length > 0;
 
-  // Clean up ALL previously generated scripts in Assets/Scripts to avoid conflicts
-  if (!isCocos) {
+  log('[coder] ' + (hasFeedbackEarly ? 'INCREMENTAL FIX' : 'FULL GENERATION') + ' — ' + parsed.scenes.length + ' scenes', taskId);
+
+  // Clean up scripts ONLY for full generation — incremental fix preserves existing code
+  if (!isCocos && !hasFeedbackEarly) {
     var scriptsDir = path.join(clientDir, 'Assets', 'Scripts');
     if (fs.existsSync(scriptsDir)) {
       // Delete EVERYTHING in Assets/Scripts — all AI-generated residue
@@ -831,22 +834,61 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
     return '- ' + t.from + ' → ' + t.to + ' (condition: ' + t.condition + ')';
   }).join('\n');
 
-  var userMsg = '## Project: ' + parsed.projectName + '\n\n'
-    + '## Blueprint Shots (implement ALL of these IN ORDER):\n\n' + scenesMarkdown + '\n\n'
-    + '## Shot Transitions (scene flow):\n' + transMarkdown
-    + classWarning
-    + projectSection
-    + parsed.feedbackText
-    + '\n\n## IMPORTANT REMINDERS:\n'
-    + '1. The scene is CLEAN — only Camera, Light, EventSystem, GameManager, __MaterialSource exist\n'
-    + '2. Do NOT hide/disable any scene objects — there are no template objects to hide\n'
-    + '3. BUILD everything from code — CreatePrimitive, new GameObject, UI components\n'
-    + '4. You CAN call utility classes from the template (DOTween, PoolManager, etc.)\n'
-    + '5. Do NOT copy SLG/idle game logic — implement the BLUEPRINT logic\n'
-    + '6. GameFlowManagerMain.Start() is your entry point\n\n'
-    + 'Generate ' + lang + ' code that implements this blueprint EXACTLY from scratch. '
-    + 'Every shot must be playable with code-created objects. '
-    + 'Create your game world from a clean scene.';
+  // ============ Incremental Fix vs Full Generation ============
+  var hasFeedback = blueprint.feedbackHistory && blueprint.feedbackHistory.length > 0;
+  var existingCode = readScripts(clientDir);
+  var hasExistingCode = existingCode && existingCode.trim().length > 200;
+  var isIncrementalFix = hasFeedback && hasExistingCode;
+
+  var userMsg;
+
+  if (isIncrementalFix) {
+    // === INCREMENTAL FIX MODE ===
+    // Read existing code + feedback, ask AI to do targeted modifications only
+    var allFeedback = blueprint.feedbackHistory.map(function(fb, idx) {
+      var text = '';
+      if (fb.data && fb.data.text) text = fb.data.text;
+      else if (typeof fb.data === 'string') text = fb.data;
+      else text = JSON.stringify(fb.data);
+      return '- Feedback #' + (idx + 1) + ' (' + (fb.status || 'pending') + '): ' + text;
+    }).join('\n');
+
+    log('[coder] INCREMENTAL FIX mode — existing code found + ' + blueprint.feedbackHistory.length + ' feedback entries', taskId);
+
+    userMsg = '## INCREMENTAL FIX MODE\n\n'
+      + '⚠️ This is a FIX request, NOT a full regeneration.\n'
+      + '⚠️ You MUST preserve the existing code structure and only modify what the feedback requires.\n'
+      + '⚠️ Do NOT rewrite the entire file. Make TARGETED changes.\n\n'
+      + '## Current Working Code:\n```' + lang + '\n' + existingCode + '\n```\n\n'
+      + '## Feedback to Address:\n' + allFeedback + '\n\n'
+      + '## Blueprint Reference (for context):\n' + scenesMarkdown + '\n\n'
+      + '## Instructions:\n'
+      + '1. Read the existing code carefully\n'
+      + '2. Identify ONLY the parts that need changing based on feedback\n'
+      + '3. Make minimal, targeted modifications\n'
+      + '4. Keep all working code intact — do NOT remove or rewrite unrelated sections\n'
+      + '5. Output the COMPLETE updated file (with changes applied)\n'
+      + '6. The scene is CLEAN (Camera, Light, EventSystem, GameManager, __MaterialSource only)\n\n'
+      + 'Apply the feedback fixes to the existing code. Preserve everything that works.';
+  } else {
+    // === FULL GENERATION MODE ===
+    userMsg = '## Project: ' + parsed.projectName + '\n\n'
+      + '## Blueprint Shots (implement ALL of these IN ORDER):\n\n' + scenesMarkdown + '\n\n'
+      + '## Shot Transitions (scene flow):\n' + transMarkdown
+      + classWarning
+      + projectSection
+      + parsed.feedbackText
+      + '\n\n## IMPORTANT REMINDERS:\n'
+      + '1. The scene is CLEAN — only Camera, Light, EventSystem, GameManager, __MaterialSource exist\n'
+      + '2. Do NOT hide/disable any scene objects — there are no template objects to hide\n'
+      + '3. BUILD everything from code — CreatePrimitive, new GameObject, UI components\n'
+      + '4. You CAN call utility classes from the template (DOTween, PoolManager, etc.)\n'
+      + '5. Do NOT copy SLG/idle game logic — implement the BLUEPRINT logic\n'
+      + '6. GameFlowManagerMain.Start() is your entry point\n\n'
+      + 'Generate ' + lang + ' code that implements this blueprint EXACTLY from scratch. '
+      + 'Every shot must be playable with code-created objects. '
+      + 'Create your game world from a clean scene.';
+  }
 
   try {
     var response = await callClaude(sysPrompt, userMsg, 300000, MODEL_GENERATE);
