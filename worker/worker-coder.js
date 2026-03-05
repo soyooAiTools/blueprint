@@ -876,7 +876,8 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
               + '- Keep the code compilable — do NOT introduce new errors\n'
               + '- Add the missing content (shots, game objects, interactions) to the EXISTING code\n'
               + '- Each shot_N() method must create visible GameObjects (CreatePrimitive, new GameObject, UI)\n'
-              + '- Implement at least 5 of the ' + (parsed.scenes ? parsed.scenes.length : 10) + ' shots from the blueprint\n'
+              + '- Implement ALL ' + (parsed.scenes ? parsed.scenes.length : 10) + ' shots from the blueprint — every single one, no exceptions\n'
+              + '- Missing shots: ' + (verification.missingShots ? verification.missingShots.join(', ') : 'unknown') + '\n'
               + '- Output the COMPLETE updated GameFlowManagerMain.cs\n';
             var contentFixResp = await callClaude(fixPrompt, contentFixMsg, 300000, MODEL_GENERATE);
             var contentFixFiles = parseBlocks(contentFixResp.text);
@@ -954,17 +955,20 @@ function verifyCodeContent(clientDir, parsed, log, taskId) {
   var shotCount = parsed.scenes ? parsed.scenes.length : 0;
   var hasShotMethods = false;
   var shotKeywords = 0;
+  var missingShots = [];
   for (var i = 0; i < shotCount; i++) {
     var shotNum = i + 1;
     // Check for shot_1, Shot1, shot1, ShowShot1, SetupShot1, etc.
     var patterns = ['shot_' + shotNum, 'shot' + shotNum, 'Shot' + shotNum, 'SHOT_' + shotNum];
+    var found = false;
     for (var p = 0; p < patterns.length; p++) {
-      if (code.indexOf(patterns[p]) >= 0) { shotKeywords++; break; }
+      if (code.indexOf(patterns[p]) >= 0) { shotKeywords++; found = true; break; }
     }
+    if (!found) missingShots.push(shotNum);
   }
-  if (shotCount > 0 && shotKeywords < Math.ceil(shotCount * 0.3)) {
-    // Downgraded to warning — content fix often introduces more compile errors than it fixes
-    log('[coder] Warning: Only ' + shotKeywords + '/' + shotCount + ' shots referenced in code (threshold: 30%)', taskId);
+  if (shotCount > 0 && shotKeywords < shotCount) {
+    issues.push('Missing shots: ' + missingShots.join(', ') + ' (' + shotKeywords + '/' + shotCount + ' implemented). ALL shots must be implemented — no exceptions.');
+    log('[coder] FAIL: Only ' + shotKeywords + '/' + shotCount + ' shots found, missing: [' + missingShots.join(', ') + ']', taskId);
   }
 
   // Check 3: Must create game objects (not just empty methods)
@@ -998,10 +1002,10 @@ function verifyCodeContent(clientDir, parsed, log, taskId) {
   }
 
   if (issues.length > 0) {
-    return { ok: false, reason: issues.join('\n') };
+    return { ok: false, reason: issues.join('\n'), missingShots: missingShots };
   }
 
-  log('[coder] Verification: ' + nonEmptyLines + ' lines, ' + shotKeywords + '/' + shotCount + ' shots, ' + createCount + ' object creations', taskId);
+  log('[coder] Verification: ' + nonEmptyLines + ' lines, ' + shotKeywords + '/' + shotCount + ' shots (100%), ' + createCount + ' object creations', taskId);
   return { ok: true };
 }
 
