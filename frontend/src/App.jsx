@@ -88,7 +88,19 @@ function FlowEditor({ project, onBack, initialTab }) {
     if (['reviewing', 'approved', 'committed', 'feedback'].indexOf(projectStatus) >= 0) {
       getWebglInfo(project.id).then(setWebglInfo).catch(() => {});
       getProject(project.id).then((p) => {
-        if (p.feedbackHistory && p.feedbackHistory.length > 0) setFeedbackHistory(p.feedbackHistory);
+        if (p.feedbackHistory && p.feedbackHistory.length > 0) {
+          setFeedbackHistory(p.feedbackHistory);
+          // Mark existing revisions as done if feedback was already submitted
+          setNodes((nds) => nds.map((n) => {
+            if (n.type === 'shotNode' && n.data.inFeedbackList && n.data.revisions) {
+              const updatedRevs = n.data.revisions.map((r) =>
+                r.status === 'pending' ? { ...r, status: 'done' } : r
+              );
+              return { ...n, data: { ...n.data, revisions: updatedRevs } };
+            }
+            return n;
+          }));
+        }
       }).catch(() => {});
     }
   }, [projectStatus, project.id]);
@@ -579,29 +591,14 @@ function FlowEditor({ project, onBack, initialTab }) {
                   </>
                 )}
               </div>
-              {feedbackHistory.length > 0 && (
-                <div className="feedback-history">
-                  <div className="feedback-history-title">📋 反馈记录 ({feedbackHistory.length})</div>
-                  {feedbackHistory.map((fb, i) => {
-                    const fbText = typeof fb.data === 'string' ? fb.data : (fb.data && fb.data.text) || fb.text || '蓝图更新反馈';
-                    const fbTime = fb.timestamp || fb.submittedAt;
-                    return (
-                      <div key={fb.id || i} className="feedback-history-item">
-                        <span className="feedback-history-badge">✅ #{fb.id || i + 1}</span>
-                        <span className="feedback-history-text">{fbText}</span>
-                        <span className="feedback-history-time">{fbTime ? new Date(fbTime).toLocaleString('zh-CN') : ''}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              {/* feedback history removed per Nick's request — shown in TaskPanel instead */}
             </div>
             <div className="review-right">
-              <TaskPanel nodes={nodes} onUpdateNode={onUpdateNode} />
+              <TaskPanel nodes={nodes} onUpdateNode={onUpdateNode} feedbackSubmitted={feedbackHistory.length > 0} />
             </div>
           </div>
         ) : (
-          <TaskPanel nodes={nodes} onUpdateNode={onUpdateNode} />
+          <TaskPanel nodes={nodes} onUpdateNode={onUpdateNode} feedbackSubmitted={feedbackHistory.length > 0} />
         )}
       </div>
     </div>

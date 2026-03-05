@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-export default function TaskPanel({ nodes, onUpdateNode }) {
+export default function TaskPanel({ nodes, onUpdateNode, feedbackSubmitted }) {
   const shotNodes = nodes.filter((n) => n.type === 'shotNode');
   const [expandedId, setExpandedId] = useState(null);
   const [showPicker, setShowPicker] = useState(false);
@@ -126,23 +126,28 @@ export default function TaskPanel({ nodes, onUpdateNode }) {
           const pending = revisions.filter((r) => r.status === 'pending').length;
           const done = revisions.filter((r) => r.status === 'done').length;
           const isExpanded = expandedId === node.id;
+          // Check if all revisions are already submitted (all done, none pending)
+          const allSubmitted = feedbackSubmitted && revisions.length > 0 && pending === 0;
 
           return (
-            <div key={node.id} className={`task-card ${isExpanded ? 'task-card-expanded' : ''}`}>
+            <div key={node.id} className={`task-card ${isExpanded ? 'task-card-expanded' : ''}${allSubmitted ? ' task-card-submitted' : ''}`}>
               <div className="task-card-header" onClick={() => setExpandedId(isExpanded ? null : node.id)}>
                 <div className="task-card-left">
                   <span className="task-card-index">#{idx + 1}</span>
                   <span className="task-card-name">{d.name || d.label || '未命名镜头'}</span>
+                  {allSubmitted && <span className="task-submitted-badge">✅ 已提交</span>}
                   {d.scene && <span className="task-card-scene">{truncate(d.scene)}</span>}
                 </div>
                 <div className="task-card-right">
                   {pending > 0 && <span className="task-mini-badge task-mini-pending">{pending}</span>}
                   {done > 0 && <span className="task-mini-badge task-mini-done">{done}</span>}
-                  <button
-                    className="task-card-remove-btn"
-                    onClick={(e) => { e.stopPropagation(); removeShotFromFeedback(node.id); }}
-                    title="从反馈列表移除"
-                  >✕</button>
+                  {!allSubmitted && (
+                    <button
+                      className="task-card-remove-btn"
+                      onClick={(e) => { e.stopPropagation(); removeShotFromFeedback(node.id); }}
+                      title="从反馈列表移除"
+                    >✕</button>
+                  )}
                   <span className="task-expand-icon">{isExpanded ? '▾' : '▸'}</span>
                 </div>
               </div>
@@ -153,46 +158,58 @@ export default function TaskPanel({ nodes, onUpdateNode }) {
                     <div className="task-rev-empty">暂无反馈，点击下方按钮添加</div>
                   )}
 
-                  {revisions.map((rev, ri) => (
-                    <div key={rev.id || ri} className={`task-rev-item task-rev-${rev.status}`}>
-                      <div className="task-rev-top">
-                        <select className="task-rev-type" value={rev.type}
-                          onChange={(e) => updateFeedback(node.id, revisions, ri, 'type', e.target.value)}>
-                          <option value="visual">🎨 视觉</option>
-                          <option value="behavior">⚙️ 行为</option>
-                          <option value="value">📊 数值</option>
-                          <option value="bug">🐛 Bug</option>
-                          <option value="add">➕ 新增</option>
-                          <option value="remove">➖ 移除</option>
-                        </select>
-                        <select className="task-rev-priority" value={rev.priority}
-                          onChange={(e) => updateFeedback(node.id, revisions, ri, 'priority', e.target.value)}>
-                          <option value="high">🔴 高</option>
-                          <option value="medium">🟡 中</option>
-                          <option value="low">🟢 低</option>
-                        </select>
-                        <select className="task-rev-status" value={rev.status}
-                          onChange={(e) => updateFeedback(node.id, revisions, ri, 'status', e.target.value)}>
-                          <option value="pending">🔴 待修</option>
-                          <option value="done">🟢 完成</option>
-                        </select>
+                  {revisions.map((rev, ri) => {
+                    const isSubmitted = rev.status === 'done' && allSubmitted;
+                    return (
+                      <div key={rev.id || ri} className={`task-rev-item task-rev-${rev.status}${isSubmitted ? ' task-rev-readonly' : ''}`}>
+                        <div className="task-rev-top">
+                          <select className="task-rev-type" value={rev.type} disabled={isSubmitted}
+                            onChange={(e) => updateFeedback(node.id, revisions, ri, 'type', e.target.value)}>
+                            <option value="visual">🎨 视觉</option>
+                            <option value="behavior">⚙️ 行为</option>
+                            <option value="value">📊 数值</option>
+                            <option value="bug">🐛 Bug</option>
+                            <option value="add">➕ 新增</option>
+                            <option value="remove">➖ 移除</option>
+                          </select>
+                          <select className="task-rev-priority" value={rev.priority} disabled={isSubmitted}
+                            onChange={(e) => updateFeedback(node.id, revisions, ri, 'priority', e.target.value)}>
+                            <option value="high">🔴 高</option>
+                            <option value="medium">🟡 中</option>
+                            <option value="low">🟢 低</option>
+                          </select>
+                          {isSubmitted ? (
+                            <span className="task-rev-status-label">🟢 已提交</span>
+                          ) : (
+                            <select className="task-rev-status" value={rev.status}
+                              onChange={(e) => updateFeedback(node.id, revisions, ri, 'status', e.target.value)}>
+                              <option value="pending">🔴 待修</option>
+                              <option value="done">🟢 完成</option>
+                            </select>
+                          )}
+                        </div>
+                        <textarea className="task-rev-text" rows={3} value={rev.instruction}
+                          readOnly={isSubmitted}
+                          onChange={(e) => updateFeedback(node.id, revisions, ri, 'instruction', e.target.value)}
+                          placeholder="具体修改指令：什么问题 → 改成什么样"
+                        />
+                        {!isSubmitted && (
+                          <div className="task-rev-bottom">
+                            <button className="task-rev-delete-btn"
+                              onClick={() => removeFeedback(node.id, revisions, ri)}>
+                              🗑 删除此反馈
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      <textarea className="task-rev-text" rows={3} value={rev.instruction}
-                        onChange={(e) => updateFeedback(node.id, revisions, ri, 'instruction', e.target.value)}
-                        placeholder="具体修改指令：什么问题 → 改成什么样"
-                      />
-                      <div className="task-rev-bottom">
-                        <button className="task-rev-delete-btn"
-                          onClick={() => removeFeedback(node.id, revisions, ri)}>
-                          🗑 删除此反馈
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
 
-                  <button className="task-add-rev-btn" onClick={() => addFeedback(node.id, revisions)}>
-                    + 添加反馈
-                  </button>
+                  {!allSubmitted && (
+                    <button className="task-add-rev-btn" onClick={() => addFeedback(node.id, revisions)}>
+                      + 添加反馈
+                    </button>
+                  )}
                 </div>
               )}
             </div>
