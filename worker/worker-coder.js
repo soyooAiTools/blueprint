@@ -6,6 +6,14 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
+// GitNexus Helper — 代码结构分析（可选，不影响主流程）
+let gnHelper;
+try {
+  gnHelper = require('./gitnexus-helper');
+} catch (e) {
+  // gitnexus-helper.js 不存在时静默跳过
+}
+
 // ============ Helpers ============
 function listCsFiles(dir) {
   var results = [];
@@ -855,6 +863,36 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
 
     log('[coder] INCREMENTAL FIX mode — existing code found + ' + blueprint.feedbackHistory.length + ' feedback entries', taskId);
 
+    // GitNexus 代码结构分析（可选增强）
+    var gnContext = '';
+    if (gnHelper) {
+      try {
+        await gnHelper.init(clientDir);
+        // 从 feedback 提取错误关键词
+        var latestFb = blueprint.feedbackHistory[blueprint.feedbackHistory.length - 1];
+        var fbText = (latestFb.data && latestFb.data.text) || (typeof latestFb.data === 'string' ? latestFb.data : JSON.stringify(latestFb.data));
+        // 提取错误中提到的类名/方法名作为关键词
+        var errorKeyword = '';
+        var classMatch = fbText.match(/\b([A-Z][a-zA-Z]+(?:Manager|Controller|Handler|System|Helper|UI|Panel|View))\b/);
+        if (classMatch) errorKeyword = classMatch[1];
+        else {
+          var wordMatch = fbText.match(/(?:error|bug|fix|问题|修复|报错)[：:\s]*([^\n,.;]+)/i);
+          if (wordMatch) errorKeyword = wordMatch[1].trim().substring(0, 50);
+        }
+        // 提取可疑文件
+        var suspectFiles = [];
+        var fileMatches = fbText.match(/\b\w+\.cs\b/g);
+        if (fileMatches) suspectFiles = [...new Set(fileMatches)];
+        gnContext = await gnHelper.getFixContext(errorKeyword, suspectFiles);
+        if (gnContext) {
+          log('[coder] GitNexus context: ' + gnContext.length + ' chars', taskId);
+        }
+        gnHelper.cleanup();
+      } catch (e) {
+        log('[coder] GitNexus analysis skipped: ' + e.message, taskId);
+      }
+    }
+
     userMsg = '## INCREMENTAL FIX MODE\n\n'
       + '⚠️ This is a FIX request, NOT a full regeneration.\n'
       + '⚠️ You MUST preserve the existing code structure and only modify what the feedback requires.\n'
@@ -862,6 +900,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       + '## Current Working Code:\n```' + lang + '\n' + existingCode + '\n```\n\n'
       + '## Feedback to Address:\n' + allFeedback + '\n\n'
       + '## Blueprint Reference (for context):\n' + scenesMarkdown + '\n\n'
+      + (gnContext ? gnContext + '\n\n' : '')
       + '## Instructions:\n'
       + '1. Read the existing code carefully\n'
       + '2. Identify ONLY the parts that need changing based on feedback\n'
