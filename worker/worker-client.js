@@ -301,6 +301,47 @@ async function processTask(task) {
       log(`HTML conversion failed (non-fatal): ${e.message}`, taskId);
     }
 
+    // === Step 5.5: CUA Verification (GPT-5.4 操控验证) ===
+    try {
+      const { runCUAVerification } = require('./worker-cua-verify.js');
+      await reportStatus(taskId, 'processing', { message: 'GPT-5.4 CUA 操控验证中...' });
+
+      // Read blueprint from task file
+      let cuaBlueprint = null;
+      const bpPath = path.join(WORK_DIR, '..', 'autoCoding-tasks', 'queue', taskId + '-blueprint.json');
+      try { cuaBlueprint = JSON.parse(fs.readFileSync(bpPath, 'utf-8')); } catch(e) {}
+
+      const stage4Dir = path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop');
+      const cuaResult = await runCUAVerification(stage4Dir, cuaBlueprint, taskId, log);
+
+      if (!cuaResult.skipped) {
+        if (cuaResult.passed) {
+          log(`CUA verification PASSED (score: ${cuaResult.score})`, taskId);
+        } else {
+          log(`CUA verification FAILED (score: ${cuaResult.score}), ${cuaResult.issues.length} issues`, taskId);
+          
+          // Auto-submit feedback for re-coding
+          const feedbackText = 'CUA自动验证不通过 (score: ' + cuaResult.score + '):\n' + cuaResult.issues.join('\n');
+          try {
+            await apiRequest('POST', '/api/projects/' + taskId + '/feedback', 
+              JSON.stringify({ text: feedbackText, source: 'cua-auto' }),
+              false, { 'Content-Type': 'application/json' });
+            log('CUA feedback submitted, will re-code on next poll', taskId);
+          } catch(fbErr) {
+            log('CUA feedback submit failed: ' + fbErr.message, taskId);
+          }
+
+          await reportStatus(taskId, 'failed', { 
+            message: 'CUA验证不通过 (score: ' + cuaResult.score + '): ' + cuaResult.issues.slice(0, 2).join('; ').slice(0, 200),
+            cuaReview: { score: cuaResult.score, issues: cuaResult.issues.length }
+          });
+          return;
+        }
+      }
+    } catch (cuaErr) {
+      log(`CUA verification error (non-fatal): ${cuaErr.message}`, taskId);
+    }
+
     // === Step 6: Upload Build ===
     await reportStatus(taskId, 'processing', { message: '上传构建产物...' });
     const uploaded = await uploadBuild(taskId);

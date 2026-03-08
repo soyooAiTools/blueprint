@@ -747,15 +747,8 @@ handlers.uploadBuild = function(req, res, body, id) {
         webglPath: '/webgl/' + taskId + '/index.html',
       });
 
-      // Trigger CUA review asynchronously after build upload
-      try {
-        var cuaProject = readProject(taskId);
-        if (cuaProject) {
-          triggerCUAReview(cuaProject, readProject, writeProject);
-        }
-      } catch (cuaErr) {
-        console.log('[Upload Build] CUA trigger error (non-fatal): ' + cuaErr.message);
-      }
+      // CUA verification is now done on Worker side (before upload)
+      // Only verified builds reach this point
     } catch (e) {
       console.log('[Upload Build] Error:', e.message);
       sendJSON(res, { error: e.message }, 500);
