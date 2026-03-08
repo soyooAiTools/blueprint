@@ -8,7 +8,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyADCJimUONm1T115o4lIxJ1J9mEQ2Om03A';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyDKKUVi_Ac-OfR-jC6Vg8f_sQdfiXUvlsU';
 const GEMINI_MODEL = 'gemini-2.0-flash';
 const WEBGL_BASE = process.env.WEBGL_BASE || '/opt/blueprint-editor/server-data/webgl';
 const SCREENSHOT_DIR = process.env.SCREENSHOT_DIR || '/tmp/screenshots';
