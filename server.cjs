@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const url = require('url');
 const AdmZip = require('adm-zip');
+const { triggerCUAReview, resetCUARetries } = require('./server-cua-review.cjs');
 
 const PORT = process.env.PORT || 3901;
 const __dir = __dirname;
@@ -292,6 +293,9 @@ handlers.submitProject = function(req, res, body, id) {
   if (project.status !== 'editing' && project.status !== 'feedback') {
     return sendJSON(res, { error: '当前状态「' + project.status + '」不允许提交' }, 400);
   }
+
+  // Reset CUA retry counter on manual submit
+  resetCUARetries(id);
 
   // === autoCoding pipeline integration ===
   var taskId = id; // use project id as task id for easy mapping
@@ -742,6 +746,16 @@ handlers.uploadBuild = function(req, res, body, id) {
         url: '/webgl/' + taskId + '/' + buildFile,
         webglPath: '/webgl/' + taskId + '/index.html',
       });
+
+      // Trigger CUA review asynchronously after build upload
+      try {
+        var cuaProject = readProject(taskId);
+        if (cuaProject) {
+          triggerCUAReview(cuaProject, readProject, writeProject);
+        }
+      } catch (cuaErr) {
+        console.log('[Upload Build] CUA trigger error (non-fatal): ' + cuaErr.message);
+      }
     } catch (e) {
       console.log('[Upload Build] Error:', e.message);
       sendJSON(res, { error: e.message }, 500);

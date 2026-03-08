@@ -252,11 +252,17 @@ var GENERATE_PROMPT = [
   '## CRITICAL ARCHITECTURE',
   '',
   '⚠️ Luna converts Unity C# to JavaScript. [RuntimeInitializeOnLoadMethod] is IGNORED by Luna.',
-  '⚠️ The scene is CLEAN — it only has Camera, Light, EventSystem, GameManager, and a hidden __MaterialSource Cube.',
-  '⚠️ There are NO template objects to hide. Do NOT write code to hide/disable scene objects.',
+  '⚠️ The scene SHOULD be clean but MAY still contain template objects. ALWAYS clean up in Start() as the FIRST thing:',
+  '```csharp',
+  '// MANDATORY: Clean all template objects at the very beginning of Start()',
+  'string[] keepNames = { "Main Camera", "Directional Light", "EventSystem", "GameManager", "__MaterialSource" };',
+  'foreach (var root in UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects()) {',
+  '    if (System.Array.IndexOf(keepNames, root.name) < 0) Destroy(root);',
+  '}',
+  '```',
   '⚠️ GameFlowManagerMain will be automatically instantiated at runtime via JS injection. You are writing its content.',
   '⚠️ The template project has utility scripts in Assets/Program/Script/ — you can CALL their methods if useful (e.g., DOTween, PoolManager).',
-  '⚠️ CREATE all your game content from code in Start().',
+  '⚠️ CREATE all your game content from code in Start() AFTER the cleanup above.',
   '',
   '### Strategy: Output ONLY GameFlowManagerMain.cs',
   '',
@@ -288,7 +294,10 @@ var GENERATE_PROMPT = [
   '    if (anyRenderer != null) _baseMat = new Material(anyRenderer.sharedMaterial);',
   '}',
   'if (_baseMat == null) _baseMat = new Material(Shader.Find("Standard"));',
-  'if (_baseMat != null) { _baseMat.mainTexture = null; _baseMat.color = Color.white; }',
+  'if (_baseMat != null) { _baseMat.mainTexture = null; _baseMat.color = new Color(0.5f, 0.5f, 0.5f); }',
+  '',
+  '// IMPORTANT: ALL 3D objects MUST use this gray material. Apply _baseMat to every',
+  '// Renderer you create. Do NOT use Color.white or custom colors for materials.',
   '',
   '// Scene is clean — start creating your game objects directly',
   '// No need to hide template objects (scene only has Camera, Light, EventSystem)',
@@ -907,7 +916,8 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       + '3. Make minimal, targeted modifications\n'
       + '4. Keep all working code intact — do NOT remove or rewrite unrelated sections\n'
       + '5. Output the COMPLETE updated file (with changes applied)\n'
-      + '6. The scene is CLEAN (Camera, Light, EventSystem, GameManager, __MaterialSource only)\n\n'
+      + '6. The scene MAY contain template objects — Start() MUST begin with cleanup: destroy all root objects except {"Main Camera","Directional Light","EventSystem","GameManager","__MaterialSource"}\n'
+      + '7. ALL 3D objects MUST use gray material: _baseMat.color = new Color(0.5f, 0.5f, 0.5f)\n\n'
       + 'Apply the feedback fixes to the existing code. Preserve everything that works.';
   } else {
     // === FULL GENERATION MODE ===
@@ -918,8 +928,8 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       + projectSection
       + parsed.feedbackText
       + '\n\n## IMPORTANT REMINDERS:\n'
-      + '1. The scene is CLEAN — only Camera, Light, EventSystem, GameManager, __MaterialSource exist\n'
-      + '2. Do NOT hide/disable any scene objects — there are no template objects to hide\n'
+      + '1. Start() MUST begin with scene cleanup: destroy all root objects except {"Main Camera","Directional Light","EventSystem","GameManager","__MaterialSource"}\n'
+      + '2. ALL 3D objects MUST use gray material: _baseMat.color = new Color(0.5f, 0.5f, 0.5f) — no white, no custom colors\n'
       + '3. BUILD everything from code — CreatePrimitive, new GameObject, UI components\n'
       + '4. You CAN call utility classes from the template (DOTween, PoolManager, etc.)\n'
       + '5. Do NOT copy SLG/idle game logic — implement the BLUEPRINT logic\n'
