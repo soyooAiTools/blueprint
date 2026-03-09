@@ -4,6 +4,11 @@
  * Runs GPT-5.4 CUA on the locally built HTML (via local file server)
  * BEFORE uploading to main ECS.
  * Only verified builds get uploaded.
+ * 
+ * ⚠️ Blueprint CUA 定位：流程验证器（不是效果审核）
+ * - 只验证：蓝图描述的场景流程是否能走通（shot 切换、交互触发、CTA 到达）
+ * - 不管：美术效果、视觉质量、动画细节
+ * - 通过标准：按蓝图 shot 顺序操作能走完全流程即通过
  */
 
 const { spawn } = require('child_process');
@@ -206,10 +211,18 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
         });
       }
 
+      // Blueprint CUA 只做流程验证，不审视觉效果
+      // Gemini 视觉问题仅记录不作为通过/失败依据
       if (report.geminiReview && report.geminiReview.issues) {
-        report.geminiReview.issues.forEach(issue => {
-          issues.push('[视觉问题] ' + (issue.description || issue.message || JSON.stringify(issue)));
+        const blockers = report.geminiReview.issues.filter(i => i.severity === '阻断');
+        blockers.forEach(issue => {
+          issues.push('[阻断问题] ' + (issue.description || issue.message || JSON.stringify(issue)));
         });
+        // 非阻断级视觉问题只记日志不计入 issues
+        const nonBlockers = report.geminiReview.issues.filter(i => i.severity !== '阻断');
+        if (nonBlockers.length > 0) {
+          log('[CUA] ' + nonBlockers.length + ' visual issues logged (non-blocking for blueprint flow check)', taskId);
+        }
       }
 
       if (report.anomalies) {
