@@ -192,7 +192,7 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
         report = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
       } catch(e) {
         log('[CUA] Failed to read report: ' + (e.message || 'unknown'), taskId);
-        resolve({ passed: true, score: 0, issues: ['CUA report not generated'], skipped: false, error: e.message });
+        resolve({ passed: false, score: 0, issues: ['CUA report not generated (timeout or crash)'], skipped: false, error: e.message });
         return;
       }
 
@@ -241,7 +241,7 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       clearTimeout(timeout);
       try { server.close(); } catch(e) {}
       log('[CUA] Failed to start: ' + err.message, taskId);
-      resolve({ passed: true, score: 0, issues: [], skipped: true, error: err.message });
+      resolve({ passed: false, score: 0, issues: ['CUA process failed to start: ' + err.message], skipped: false, error: err.message });
     });
   });
 }

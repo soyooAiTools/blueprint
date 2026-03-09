@@ -339,7 +339,9 @@ async function processTask(task) {
         }
       }
     } catch (cuaErr) {
-      log(`CUA verification error (non-fatal): ${cuaErr.message}`, taskId);
+      log(`CUA verification error (fatal): ${cuaErr.message}`, taskId);
+      await reportStatus(taskId, 'failed', { message: 'CUA verification crashed: ' + cuaErr.message.slice(0, 200) });
+      return;
     }
 
     // === Step 6: Upload Build ===
