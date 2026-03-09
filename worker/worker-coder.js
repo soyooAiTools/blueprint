@@ -194,12 +194,12 @@ var GENERATE_PROMPT = [
   '        if (r != null) _baseMat = new Material(r.sharedMaterial);',
   '    }',
   '    if (_baseMat == null) _baseMat = new Material(Shader.Find("Standard"));',
-  '    if (_baseMat != null) { _baseMat.mainTexture = null; _baseMat.color = Color.white; }',
+  '    if (_baseMat != null) { _baseMat.mainTexture = null; _baseMat.color = new Color(0.5f, 0.5f, 0.5f); }',
   '    // Scene is clean — create your game objects directly',
   '}',
-  '// For each new object:',
+  '// For each new object — ALWAYS use gray material, NO custom colors:',
   'renderer.material = new Material(_baseMat);',
-  'renderer.material.color = Color.red; // customize',
+  '// renderer.material.color is already gray (0.5, 0.5, 0.5) — do NOT change it',
   '```',
   '- For CreatePrimitive: ALWAYS assign material: `obj.GetComponent<Renderer>().material = new Material(_baseMat);`',
   '- NEVER use Shader.Find() or new Material(shader) directly — grab from existing scene renderers first',
@@ -468,8 +468,8 @@ var FIX_PROMPT = [
   '- Do NOT use [RuntimeInitializeOnLoadMethod] — Luna ignores it',
   '- The main controller script is GameFlowManagerMain.cs — keep its class name `GameFlowManagerMain`',
   '- The scene is CLEAN — all game objects are created from code, do NOT use GameObject.Find() for template objects',
-  '- Materials: grab from __MaterialSource: `var ms = GameObject.Find("__MaterialSource"); _baseMat = new Material(ms.GetComponent<Renderer>().sharedMaterial); _baseMat.mainTexture = null; _baseMat.color = Color.white;`',
-  '- For CreatePrimitive objects: ALWAYS assign `obj.GetComponent<Renderer>().material = new Material(_baseMat);` then set color',
+  '- Materials: grab from __MaterialSource: `var ms = GameObject.Find("__MaterialSource"); _baseMat = new Material(ms.GetComponent<Renderer>().sharedMaterial); _baseMat.mainTexture = null; _baseMat.color = new Color(0.5f, 0.5f, 0.5f);`',
+  '- For CreatePrimitive objects: ALWAYS assign `obj.GetComponent<Renderer>().material = new Material(_baseMat);` — keep gray, do NOT set custom colors',
   '- If a fix requires new scene objects, CREATE them in code (CreatePrimitive, new GameObject, etc.)',
   '- Do NOT reintroduce dependencies on template scene objects that were cleared',
   '',
@@ -1002,7 +1002,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       + '4. Keep all working code intact — do NOT remove or rewrite unrelated sections\n'
       + '5. Output the COMPLETE updated file (with changes applied)\n'
       + '6. The scene MAY contain template objects — Start() MUST begin with cleanup: destroy all root objects except {"Main Camera","Directional Light","EventSystem","GameManager","__MaterialSource"}\n'
-      + '7. ALL 3D objects MUST use gray material: _baseMat.color = new Color(0.5f, 0.5f, 0.5f)\n\n'
+      + '7. ALL 3D objects MUST use gray material: _baseMat.color = new Color(0.5f, 0.5f, 0.5f). FORBIDDEN: Color.white, Color.red, Color.blue, or any color other than new Color(0.5f, 0.5f, 0.5f).\n\n'
       + 'Apply the feedback fixes to the existing code. Preserve everything that works.';
   } else {
     // === FULL GENERATION MODE ===
@@ -1014,7 +1014,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       + parsed.feedbackText
       + '\n\n## IMPORTANT REMINDERS:\n'
       + '1. Start() MUST begin with scene cleanup: destroy all root objects except {"Main Camera","Directional Light","EventSystem","GameManager","__MaterialSource"}\n'
-      + '2. ALL 3D objects MUST use gray material: _baseMat.color = new Color(0.5f, 0.5f, 0.5f) — no white, no custom colors\n'
+      + '2. ALL 3D objects MUST use gray material: _baseMat.color = new Color(0.5f, 0.5f, 0.5f). FORBIDDEN colors: Color.white, Color.red, Color.blue, Color.green, Color.yellow, Color.black, Color.cyan, Color.magenta, new Color(1f,...), new Color(0f,...). The ONLY allowed color is new Color(0.5f, 0.5f, 0.5f).\n'
       + '3. BUILD everything from code — CreatePrimitive, new GameObject, UI components\n'
       + '4. You CAN call utility classes from the template (DOTween, PoolManager, etc.)\n'
       + '5. Do NOT copy SLG/idle game logic — implement the BLUEPRINT logic\n'
@@ -1285,7 +1285,31 @@ function writeFiles(clientDir, files, log, taskId) {
     var fullPath = path.join(clientDir, fp);
     var dir = path.dirname(fullPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(fullPath, files[i].content, 'utf-8');
+    // Auto-fix forbidden colors → gray (0.5f, 0.5f, 0.5f)
+    var content = files[i].content;
+    if (fp.endsWith('.cs')) {
+      var colorFixed = false;
+      var forbiddenColors = [
+        [/\.color\s*=\s*Color\.white/g, '.color = new Color(0.5f, 0.5f, 0.5f)'],
+        [/\.color\s*=\s*Color\.red/g, '.color = new Color(0.5f, 0.5f, 0.5f)'],
+        [/\.color\s*=\s*Color\.blue/g, '.color = new Color(0.5f, 0.5f, 0.5f)'],
+        [/\.color\s*=\s*Color\.green/g, '.color = new Color(0.5f, 0.5f, 0.5f)'],
+        [/\.color\s*=\s*Color\.yellow/g, '.color = new Color(0.5f, 0.5f, 0.5f)'],
+        [/\.color\s*=\s*Color\.black/g, '.color = new Color(0.5f, 0.5f, 0.5f)'],
+        [/\.color\s*=\s*Color\.cyan/g, '.color = new Color(0.5f, 0.5f, 0.5f)'],
+        [/\.color\s*=\s*Color\.magenta/g, '.color = new Color(0.5f, 0.5f, 0.5f)'],
+        [/\.color\s*=\s*new\s+Color\s*\(\s*1f?\s*,/g, '.color = new Color(0.5f,'],
+        [/\.color\s*=\s*new\s+Color\s*\(\s*0f?\s*,\s*0f?\s*,\s*0f?/g, '.color = new Color(0.5f, 0.5f, 0.5f'],
+      ];
+      for (var fc = 0; fc < forbiddenColors.length; fc++) {
+        if (forbiddenColors[fc][0].test(content)) {
+          content = content.replace(forbiddenColors[fc][0], forbiddenColors[fc][1]);
+          colorFixed = true;
+        }
+      }
+      if (colorFixed) log('[coder] Auto-fixed forbidden colors → gray in ' + fp, taskId);
+    }
+    fs.writeFileSync(fullPath, content, 'utf-8');
     log('[coder] Written: ' + fp, taskId);
   }
 
