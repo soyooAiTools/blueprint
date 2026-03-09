@@ -619,6 +619,19 @@ function tryCompileUnity(clientDir, log, taskId) {
     try { fs.rmSync(lunaTemp, { recursive: true, force: true }); } catch (e) {}
   }
 
+  // Read AI-written code to detect class names it defines (to avoid CS0101 duplicates)
+  var aiMainFile = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
+  var aiClassNames = [];
+  if (fs.existsSync(aiMainFile)) {
+    var aiCode = fs.readFileSync(aiMainFile, 'utf-8');
+    var aiClassMatches = aiCode.match(/(?:public|private|internal|protected)?\s*(?:class|enum|struct|interface)\s+(\w+)/g) || [];
+    aiClassMatches.forEach(function(m) {
+      var nameMatch = m.match(/(?:class|enum|struct|interface)\s+(\w+)/);
+      if (nameMatch && nameMatch[1] !== 'GameFlowManagerMain') aiClassNames.push(nameMatch[1]);
+    });
+    if (aiClassNames.length > 0) log('[coder] AI defines classes: ' + aiClassNames.join(', ') + ' — will remove from stubs to avoid CS0101', taskId);
+  }
+
   // Temporarily stub out ALL non-AI template scripts to avoid cross-reference errors
   // Save originals, replace with empty class stubs
   var stubBackups = [];
@@ -647,6 +660,8 @@ function tryCompileUnity(clientDir, log, taskId) {
         classes.forEach(function(c) {
           var m = c.match(/(class|enum|struct|interface)\s+(\w+)/);
           if (m) {
+            // Skip classes that AI already defines — prevents CS0101 duplicate definition
+            if (aiClassNames.indexOf(m[2]) >= 0) return;
             if (m[1] === 'class') stub += 'public class ' + m[2] + ' : MonoBehaviour { }\n';
             else if (m[1] === 'enum') stub += 'public enum ' + m[2] + ' { Default }\n';
             else if (m[1] === 'struct') stub += 'public struct ' + m[2] + ' { }\n';
