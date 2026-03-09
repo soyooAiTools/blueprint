@@ -150,16 +150,7 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
   return new Promise((resolve) => {
     const child = spawn('node', args, {
       cwd: __dirname,
-      env: {
-        ...process.env,
-        // 显式传递关键环境变量，防止 PM2 子进程继承丢失
-        OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
-        GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
-        https_proxy: process.env.https_proxy || process.env.HTTPS_PROXY || '',
-        http_proxy: process.env.http_proxy || process.env.HTTP_PROXY || '',
-        HTTPS_PROXY: process.env.HTTPS_PROXY || process.env.https_proxy || '',
-        HTTP_PROXY: process.env.HTTP_PROXY || process.env.http_proxy || '',
-      },
+      env: { ...process.env },  // dotenv 已在主进程加载，process.env 包含所有变量
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 300000 // 5 min max
     });

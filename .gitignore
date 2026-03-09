@@ -5,3 +5,6 @@ html-output/
 *-build.zip
 *-html/
 .auth_*
+
+worker/.env
+

@@ -2,6 +2,9 @@
 // Flow: Poll task → SVN update → Pre-build patch → Luna build → Upload zip → Report status
 // Also handles: fix_needed (re-build), commit_needed (SVN commit + cleanup)
 
+// 加载 .env（所有环境变量的唯一来源，子进程也自动继承）
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
+
 const http = require('http');
 const https = require('https');
 const { exec, execSync, spawn } = require('child_process');

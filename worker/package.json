@@ -1,0 +1,8 @@
+{
+  "name": "blueprint-worker",
+  "version": "4.0.0",
+  "private": true,
+  "dependencies": {
+    "dotenv": "^16.4.0"
+  }
+}
