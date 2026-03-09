@@ -162,6 +162,124 @@ async function processTask(task) {
 
   // ============ Unity (Luna) flow ============
   try {
+    // === CUA Resume Check ===
+    // If previous run failed at CUA stage and build artifacts still exist,
+    // skip coding+build and jump directly to CUA verification
+    const cuaStage4Path = path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop');
+    const cuaResumeMarker = path.join(CUA_RESULTS_DIR || path.join(__dirname, 'cua-results'), taskId + '-resume.json');
+    const previousMsg = task.statusMessage || '';
+    const isCuaRetry = previousMsg.includes('CUA') && (
+      fs.existsSync(path.join(cuaStage4Path, 'iframe.html')) || 
+      fs.existsSync(path.join(cuaStage4Path, 'index.html'))
+    );
+
+    if (isCuaRetry) {
+      log('CUA resume: previous failure was CUA-related and build artifacts exist, skipping coding+build', taskId);
+      await reportStatus(taskId, 'processing', { message: 'CUA断点续跑 (跳过编码+构建)...' });
+
+      // Jump directly to CUA verification loop
+      const MAX_CUA_FIX_ROUNDS = 3;
+      let cuaPassed = false;
+      let cuaBlueprint = null;
+      try { cuaBlueprint = await apiRequest('GET', `/api/tasks/${taskId}/blueprint`); } catch(e) {}
+
+      for (let cuaRound = 1; cuaRound <= MAX_CUA_FIX_ROUNDS; cuaRound++) {
+        try {
+          const { runCUAVerification } = require('./worker-cua-verify.js');
+          await reportStatus(taskId, 'processing', { 
+            message: `CUA断点续跑 - GPT-5.4 操控验证中... (第${cuaRound}/${MAX_CUA_FIX_ROUNDS}轮)` 
+          });
+
+          const cuaResult = await runCUAVerification(cuaStage4Path, cuaBlueprint, taskId, log);
+
+          if (cuaResult.skipped) {
+            log(`CUA resume: verification skipped (round ${cuaRound})`, taskId);
+            cuaPassed = true;
+            break;
+          }
+
+          if (cuaResult.passed) {
+            log(`CUA resume: verification PASSED (round ${cuaRound})`, taskId);
+            cuaPassed = true;
+            break;
+          }
+
+          log(`CUA resume: FAILED round ${cuaRound}/${MAX_CUA_FIX_ROUNDS}, ${cuaResult.issues.length} issues`, taskId);
+          cuaResult.issues.forEach(issue => log(`  - ${issue}`, taskId));
+
+          if (cuaRound >= MAX_CUA_FIX_ROUNDS) {
+            await reportStatus(taskId, 'failed', { 
+              message: 'CUA蓝图流程验证' + MAX_CUA_FIX_ROUNDS + '轮后未通过: ' + cuaResult.issues.slice(0, 2).join('; ').slice(0, 200)
+            });
+            return;
+          }
+
+          // Fix cycle: re-code with CUA feedback, rebuild, retry
+          log(`CUA resume: round ${cuaRound} failed, fix cycle...`, taskId);
+          await reportStatus(taskId, 'processing', { message: `CUA第${cuaRound}轮不通过，AI 重新编码修复中...` });
+
+          const cuaFeedbackText = 'CUA按蓝图流程操控验证未通过:\n' + cuaResult.issues.join('\n') + '\n\n请修改代码确保蓝图流程走通。';
+          try {
+            await apiRequest('POST', '/api/projects/' + taskId + '/feedback', 
+              JSON.stringify({ text: cuaFeedbackText, source: 'cua-resume-round-' + cuaRound }),
+              false, { 'Content-Type': 'application/json' });
+          } catch(fbErr) {}
+
+          if (cuaBlueprint && cuaBlueprint.nodes) {
+            const fixResult = await generateCode(cuaBlueprint, CLIENT_DIR, log, taskId, 'unity');
+            if (!fixResult.ok) {
+              await reportStatus(taskId, 'failed', { message: 'CUA fix re-code failed: ' + (fixResult.error || '').slice(0, 200) });
+              return;
+            }
+            log(`CUA resume fix re-code done: ${fixResult.filesWritten} files`, taskId);
+          }
+
+          // Rebuild
+          await reportStatus(taskId, 'building', { message: `CUA修复后重新构建中...` });
+          const ltDir = path.join(CLIENT_DIR, 'LunaTemp');
+          for (const sub of ['stage2', 'stage3', 'stage4']) {
+            const sd = path.join(ltDir, sub);
+            if (fs.existsSync(sd)) try { fs.rmSync(sd, { recursive: true, force: true }); } catch(e) {}
+          }
+          if (cleanScene(CLIENT_DIR)) log('Scene re-cleaned for CUA fix', taskId);
+          const fixScenes = detectScenes(CLIENT_DIR);
+          fixLunaJson(CLIENT_DIR, fixScenes);
+          generateExportAssets(CLIENT_DIR, fixScenes);
+
+          const fixBuild = await runBridgeBuild(CLIENT_DIR, log, taskId);
+          if (!fixBuild.ok) {
+            await reportStatus(taskId, 'failed', { message: 'CUA fix rebuild failed: ' + (fixBuild.error || '').slice(0, 300) });
+            return;
+          }
+          log(`CUA resume fix rebuild OK in ${fixBuild.buildTime}s`, taskId);
+
+          try {
+            convertAndSave(path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop'), 
+              path.join(WORK_DIR, taskId + '-html'), { channels: ['appLovin'], projectName: taskId });
+          } catch(e) {}
+
+        } catch (cuaErr) {
+          log(`CUA resume error round ${cuaRound}: ${cuaErr.message}`, taskId);
+          await reportStatus(taskId, 'failed', { message: 'CUA verification crashed: ' + cuaErr.message.slice(0, 200) });
+          return;
+        }
+      }
+
+      if (cuaPassed) {
+        // Jump to upload
+        await reportStatus(taskId, 'processing', { message: '上传构建产物...' });
+        const uploaded = await uploadBuild(taskId);
+        if (!uploaded) {
+          await reportStatus(taskId, 'failed', { message: 'Build upload failed' });
+          return;
+        }
+        await reportStatus(taskId, 'completed', { message: 'CUA断点续跑完成，构建已上传' });
+        log('CUA resume completed successfully', taskId);
+        return;
+      }
+      return;
+    }
+
     // === Step 1: SVN Update ===
     await reportStatus(taskId, 'processing', { message: 'SVN update 中...' });
 
