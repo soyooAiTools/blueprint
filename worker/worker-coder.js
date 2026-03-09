@@ -1098,6 +1098,39 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       // Log specific errors for debugging
       result.errors.forEach(function(e, i) { if (i < 5) log('[coder]   error ' + (i+1) + ': ' + e, taskId); });
 
+      // Auto-fix CS0101 duplicate definitions: find the conflicting stub file and empty it
+      var cs0101Fixed = false;
+      result.errors.forEach(function(e) {
+        var m101 = e.match(/CS0101.*definition for '(\w+)'.*file:\s*([^,)]+)/);
+        if (m101) {
+          var conflictClass = m101[1];
+          var conflictFile = m101[2].trim();
+          var fullPath = path.join(clientDir, conflictFile.replace(/\//g, path.sep));
+          // Only empty stub files (not the AI-written file)
+          if (fullPath.indexOf('GameFlowManagerMain') < 0 && fs.existsSync(fullPath)) {
+            log('[coder] Auto-fixing CS0101: emptying stub ' + conflictFile + ' (class ' + conflictClass + ')', taskId);
+            fs.writeFileSync(fullPath, '// Auto-emptied to resolve CS0101 conflict with AI code\nusing UnityEngine;\n', 'utf-8');
+            cs0101Fixed = true;
+          }
+        }
+      });
+      if (cs0101Fixed) {
+        // Retry compile immediately without using a fix attempt
+        log('[coder] Retrying compile after CS0101 auto-fix...', taskId);
+        result = tryCompile(clientDir, log, taskId);
+        if (result.ok) {
+          log('[coder] ✅ Build passed after CS0101 auto-fix!', taskId);
+          // Jump to content verification
+          var verification2 = verifyCodeContent(clientDir, parsed, log, taskId);
+          if (verification2.ok) {
+            log('[coder] ✅ Content verification passed', taskId);
+            try { var archGen2 = require('./generate-architecture.js'); archGen2.generateArchitecture(clientDir, log, taskId); } catch(ae) {}
+            return { ok: true, filesWritten: files.length, files: files.map(function(f) { return f.path; }), attempts: attempt };
+          }
+          // Content failed, continue normal flow
+        }
+      }
+
       var currentCode = readScripts(clientDir);
       var fixProjectCtx = projectCtx.fileList ? '\n\n## Existing project files (for reference):\n```\n' + projectCtx.fileList + '\n```' : '';
       var fixMsg = '## Build Errors (' + result.errors.length + ' total):\n```\n' + result.errors.join('\n') + '\n```\n\n'
