@@ -167,11 +167,12 @@ async function processTask(task) {
     // skip coding+build and jump directly to CUA verification
     const cuaStage4Path = path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop');
     const cuaResultsDir = path.join(__dirname, 'cua-results');
-    const previousMsg = task.statusMessage || '';
-    const isCuaRetry = previousMsg.includes('CUA') && (
-      fs.existsSync(path.join(cuaStage4Path, 'iframe.html')) || 
-      fs.existsSync(path.join(cuaStage4Path, 'index.html'))
-    );
+    const cuaLogPath = path.join(cuaResultsDir, taskId + '-cua.log');
+    const hasCuaLog = fs.existsSync(cuaLogPath);
+    const hasBuildArtifacts = fs.existsSync(path.join(cuaStage4Path, 'iframe.html')) || 
+      fs.existsSync(path.join(cuaStage4Path, 'index.html'));
+    // Resume if: previous CUA log exists (meaning CUA was attempted) AND build artifacts still on disk
+    const isCuaRetry = hasCuaLog && hasBuildArtifacts;
 
     if (isCuaRetry) {
       log('CUA resume: previous failure was CUA-related and build artifacts exist, skipping coding+build', taskId);
