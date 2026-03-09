@@ -1,17 +1,17 @@
-// PM2 配置 — 环境变量全部走 .env 文件，这里只管进程
+// PM2 配置 — 环境变量全部走 .env 文件（dotenv），这里只管进程
+// 部署路径：D:\worker-repo\worker\
 module.exports = {
   apps: [{
     name: 'worker-unity',
-    script: 'C:\\worker\\worker-client.js',
-    cwd: 'C:\\worker',
+    script: 'D:/worker-repo/worker/worker-client.js',
+    cwd: 'D:/worker-repo/worker',
     instances: 1,
-    exec_mode: 'fork',
-    // 不再在此配 env，全部由 dotenv + .env 管理
+    exec_mode: 'fork'
   }, {
     name: 'cua-service',
-    script: 'C:\\worker\\cua-service.js',
-    cwd: 'C:\\worker',
+    script: 'D:/worker-repo/worker/cua-service.js',
+    cwd: 'D:/worker-repo/worker',
     instances: 1,
-    exec_mode: 'fork',
+    exec_mode: 'fork'
   }]
 };

@@ -1,26 +1,31 @@
 @echo off
-REM Worker 部署脚本 — 确保进程唯一、代码最新、环境变量正确
-REM 用法: deploy.cmd
+REM ============================================================
+REM  Worker Deploy Script — D:\worker-repo
+REM  用法: D:\worker-repo\worker\deploy.cmd
+REM  功能: git pull + npm install + pm2 唯一进程重启
+REM ============================================================
 
-echo [DEPLOY] Stopping all worker processes...
+echo [DEPLOY] Stopping all workers...
 pm2 delete worker-client 2>nul
 pm2 delete worker-unity 2>nul
 
 echo [DEPLOY] Pulling latest code...
-cd /d C:\worker
-git pull origin main 2>nul || echo [DEPLOY] Git pull skipped (not a git repo, using SCP deploy)
+set PATH=%PATH%;C:\Program Files\Git\cmd
+cd /d D:\worker-repo
+git pull origin main
+
+echo [DEPLOY] Installing dependencies...
+cd /d D:\worker-repo\worker
+npm install --production
 
 echo [DEPLOY] Checking .env file...
-if not exist C:\worker\.env (
-    echo [DEPLOY] ERROR: .env file not found! Copy .env.example to .env and fill in values.
+if not exist D:\worker-repo\worker\.env (
+    echo [DEPLOY] ERROR: .env not found! Copy .env.example to .env and fill in values.
     exit /b 1
 )
 
-echo [DEPLOY] Installing dependencies...
-call npm install --production 2>nul
-
-echo [DEPLOY] Starting worker-unity via ecosystem.config.cjs...
-pm2 start C:\worker\ecosystem.config.cjs --only worker-unity
+echo [DEPLOY] Starting worker-unity...
+pm2 start D:\worker-repo\worker\ecosystem.config.cjs --only worker-unity
 pm2 save
 
 echo [DEPLOY] Verifying...
