@@ -31,8 +31,8 @@ function listCsFiles(dir) {
 // ============ Config ============
 const API_BASE = 'https://crs.mindrix.app/api';
 const API_KEY = process.env.LLM_API_KEY || 'cr_f891cb1046bf100addfc0bf027cb1b37fafa8cc214e1bdbbe5493e6fa3240e7c';
-const MODEL_GENERATE = process.env.LLM_MODEL_GENERATE || 'claude-sonnet-4-5-20250929';
-const MODEL_FIX = process.env.LLM_MODEL_FIX || 'claude-sonnet-4-5-20250929';
+const MODEL_GENERATE = process.env.LLM_MODEL_GENERATE || 'claude-opus-4-6-20250904';
+const MODEL_FIX = process.env.LLM_MODEL_FIX || 'claude-opus-4-6-20250904';
 const MAX_TOKENS = 30000; // Opus max is 32000; leave headroom
 const MAX_FIX_ATTEMPTS = 10;  // Keep retrying until fixed (practical upper bound)
 const PIPELINE_DIR = process.env.LUNA_PIPELINE || 'D:\\Luna\\pipeline';
