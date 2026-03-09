@@ -1129,8 +1129,10 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
             try { var archGen2 = require('./generate-architecture.js'); archGen2.generateArchitecture(clientDir, log, taskId); } catch(ae) {}
             return { ok: true, filesWritten: files.length, files: files.map(function(f) { return f.path; }), attempts: attempt };
           }
-          // Content failed, continue normal flow
+          // Content failed — go back to top of loop which will handle content verification properly
+          continue;
         }
+        // Build still failed after CS0101 fix, continue to normal fix flow
       }
 
       var currentCode = readScripts(clientDir);
