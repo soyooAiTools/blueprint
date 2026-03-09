@@ -1,11 +1,16 @@
 /**
- * Worker-side CUA Verification �?蓝图流程验证�? * 
- * �?GPT-5.4 CUA 按蓝�?shot 顺序操控 HTML，验证流程是否走通�? * 
- * 通过标准（无打分，纯 pass/fail）：
- *   1. 蓝图所�?shot 都能操作覆盖
- *   2. CTA 按钮可到达并可点�? *   3. 游戏不卡�?白屏/崩溃
+ * Worker-side CUA Verification - Blueprint Flow Verifier
  * 
- * 不通过时返回具体的未覆�?shot 和问题描述，用于反馈�?AI 重新编码�? * 不做任何视觉效果审核�? */
+ * Uses GPT-5.4 CUA to navigate HTML following blueprint shot sequence.
+ * 
+ * Pass/fail criteria (no scoring):
+ *   1. All blueprint shots are reachable/covered
+ *   2. CTA button is reachable and clickable
+ *   3. No stuck/crash/white-screen
+ * 
+ * On failure: returns uncovered shots + issue descriptions for AI re-coding.
+ * No visual quality review.
+ */
 
 const { spawn } = require('child_process');
 const http = require('http');
@@ -15,9 +20,7 @@ const path = require('path');
 const LUNA_AGENT_JS = path.join(__dirname, 'luna-agent.js');
 const CUA_RESULTS_DIR = path.join(__dirname, 'cua-results');
 const MAX_CUA_RETRIES = 3;
-// 不再使用分数阈值，改为蓝图覆盖�?pass/fail
-// const CUA_PASS_THRESHOLD = 70;
-const LOCAL_PREVIEW_PORT = 18850; // Temp local server for preview
+const LOCAL_PREVIEW_PORT = 18850;
 
 try { fs.mkdirSync(CUA_RESULTS_DIR, { recursive: true }); } catch(e) {}
 
@@ -28,11 +31,9 @@ function startLocalServer(buildDir) {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       let filePath = path.join(buildDir, req.url === '/' ? 'iframe.html' : req.url);
-      // Remove query string
       filePath = filePath.split('?')[0];
       
       if (!fs.existsSync(filePath)) {
-        // Try index.html as fallback
         if (req.url === '/') filePath = path.join(buildDir, 'index.html');
         if (!fs.existsSync(filePath)) {
           res.writeHead(404);
@@ -60,7 +61,6 @@ function startLocalServer(buildDir) {
 
     server.on('error', (err) => {
       if (err.code === 'EADDRINUSE') {
-        // Port in use, try to kill and retry
         try {
           require('child_process').execSync(
             'powershell -Command "Get-Process -Id (Get-NetTCPConnection -LocalPort ' + LOCAL_PREVIEW_PORT + ').OwningProcess -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue"',
@@ -103,13 +103,11 @@ function generateScript(blueprint, outputPath) {
  * @returns {object} { passed: boolean, issues: string[], report: object }
  */
 async function runCUAVerification(buildDir, blueprint, taskId, log) {
-  // Check if luna-agent.js exists
   if (!fs.existsSync(LUNA_AGENT_JS)) {
     log('[CUA] luna-agent.js not found, skipping CUA verification', taskId);
     return { passed: true, issues: [], skipped: true };
   }
 
-  // Check iframe.html or index.html exists
   const hasIframe = fs.existsSync(path.join(buildDir, 'iframe.html'));
   const hasIndex = fs.existsSync(path.join(buildDir, 'index.html'));
   if (!hasIframe && !hasIndex) {
@@ -119,7 +117,6 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
 
   log('[CUA] Starting CUA verification...', taskId);
 
-  // Start local preview server
   let server;
   try {
     server = await startLocalServer(buildDir);
@@ -133,11 +130,9 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
   const outputPath = path.join(CUA_RESULTS_DIR, taskId + '-report.json');
   const logPath = path.join(CUA_RESULTS_DIR, taskId + '-cua.log');
 
-  // Generate script from blueprint
   const scriptPath = path.join(CUA_RESULTS_DIR, taskId + '-script.txt');
   const hasScript = generateScript(blueprint, scriptPath);
 
-  // Build args
   const args = [
     LUNA_AGENT_JS,
     previewUrl,
@@ -150,9 +145,9 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
   return new Promise((resolve) => {
     const child = spawn('node', args, {
       cwd: __dirname,
-      env: { ...process.env },  // dotenv 已在主进程加载，process.env 包含所有变量
+      env: { ...process.env },
       stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 300000 // 5 min max
+      timeout: 300000
     });
 
     let stdout = '';
@@ -160,7 +155,6 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
     child.stdout.on('data', d => { 
       const line = d.toString();
       stdout += line;
-      // Forward key log lines
       if (line.includes('[Luna Agent]') || line.includes('[CUA]') || line.includes('Score')) {
         log('[CUA] ' + line.trim(), taskId);
       }
@@ -174,13 +168,10 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
 
     child.on('close', (code) => {
       clearTimeout(timeout);
-      
-      // Stop local server
       try { server.close(); } catch(e) {}
 
       log('[CUA] luna-agent exited with code ' + code, taskId);
 
-      // Save raw output
       try {
         fs.writeFileSync(logPath, stdout + '\n---STDERR---\n' + stderr, 'utf-8');
       } catch(e) {}
@@ -195,51 +186,53 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
         return;
       }
 
-      // === 蓝图流程验证（pass/fail，无打分�?==
+      // === Blueprint flow verification (pass/fail, no scoring) ===
       const issues = [];
 
-      // 1. 检查是否卡�?崩溃
+      // 1. Check for stuck/crash
       if (report.exitReason === 'stuck') {
-        issues.push('[卡死] 游戏在操控过程中卡死，无法继续（连续多轮无状态变化）');
+        issues.push('[stuck] Game stuck during CUA operation (no state change for multiple rounds)');
       }
 
-      // 2. 检查蓝�?shot 覆盖度（核心指标�?      if (report.scriptCoverage) {
+      // 2. Check blueprint shot coverage (core metric)
+      if (report.scriptCoverage) {
         const uncovered = report.scriptCoverage.filter(s => !s.covered);
         if (uncovered.length > 0) {
-          issues.push('[分镜未覆盖] 以下蓝图场景未能走�? ' + uncovered.map(s => s.step || s.name).join(', '));
+          issues.push('[uncovered] Blueprint shots not reached: ' + uncovered.map(s => s.step || s.name).join(', '));
         }
       }
 
-      // 3. CTA 不是必要条件，只要蓝图最后一�?shot 走到即可
-      // CTA 状态仅记日志，不影�?pass/fail
+      // 3. CTA is NOT required for pass - only last shot coverage matters
+      // CTA status logged but does not affect pass/fail
       if (report.ctaStatus === 'not_found' || report.ctaStatus === 'no_response') {
-        log('[CUA] CTA未到达（仅记录，不影响通过判定�?, taskId);
+        log('[CUA] CTA not reached (logged only, does not affect pass/fail)', taskId);
       }
 
-      // 4. AI 操控中发现的阻断级交互问题（按钮不响应、场景切换失败等�?      if (report.bugs) {
+      // 4. Blocking interaction issues (button unresponsive, scene transition failure)
+      if (report.bugs) {
         const bugList = report.bugs.fromAI || report.bugs;
         const bugArray = Array.isArray(bugList) ? bugList : [];
         bugArray.forEach(bug => {
-          issues.push('[交互问题] ' + (bug.description || bug.message || JSON.stringify(bug)));
+          issues.push('[interaction] ' + (bug.description || bug.message || JSON.stringify(bug)));
         });
       }
 
-      // 5. 严重异常（白屏、崩溃）
+      // 5. Critical anomalies (white screen, crash)
       if (report.anomalies) {
         report.anomalies
           .filter(a => a.severity === 'high' || a.severity === 'error' || a.severity === 'critical')
           .forEach(a => {
-            issues.push('[严重异常] ' + (a.description || a.rule || JSON.stringify(a)));
+            issues.push('[critical] ' + (a.description || a.rule || JSON.stringify(a)));
           });
       }
 
-      // Gemini 视觉审核结果只记日志，不影响 pass/fail
+      // Gemini visual review results logged only, do not affect pass/fail
       if (report.geminiReview && report.geminiReview.issues && report.geminiReview.issues.length > 0) {
-        log('[CUA] Gemini 视觉审核发现 ' + report.geminiReview.issues.length + ' 个问题（仅记录，不影响通过判定�?, taskId);
+        log('[CUA] Gemini visual review found ' + report.geminiReview.issues.length + ' issues (logged only, does not affect pass/fail)', taskId);
       }
 
-      // 通过标准：蓝图所�?shot 覆盖 + 不卡�?= pass
-      // 到达最后一�?shot 即视为流程完整，CTA 不是必要条件
+      // Pass criteria: all shots covered + not stuck = pass
+      // Reaching last shot = flow complete, CTA not required
       const passed = issues.length === 0;
 
       log('[CUA] Issues: ' + issues.length + ', Pass: ' + passed + ', ExitReason: ' + (report.exitReason || 'unknown'), taskId);
