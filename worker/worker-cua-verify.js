@@ -25,7 +25,43 @@ const LOCAL_PREVIEW_PORT = 18850;
 try { fs.mkdirSync(CUA_RESULTS_DIR, { recursive: true }); } catch(e) {}
 
 /**
+ * Patch Luna build files for Playwright/headless compatibility.
+ * 
+ * Two known issues in Luna 6.4.0 under headless Chromium:
+ *   1. `new Event("xxx")` throws "parameter 1 is not of type Event"
+ *      Fix: replace with document.createEvent("Event") + initEvent()
+ *   2. UnityEngine.Behaviour$1#isActiveAndEnabled getter crashes on null ref
+ *      Fix: add null guard before .enabled access
+ */
+function patchForHeadless(content, filename) {
+  let patched = content;
+  let fixes = 0;
+
+  // Fix 1: Replace new Event("xxx") with createEvent pattern
+  // Matches: new Event("luna:ready"), new Event("bridge:ready"), etc.
+  patched = patched.replace(/new Event\(([^)]+)\)/g, (match, args) => {
+    fixes++;
+    return '(function(){var _e=document.createEvent("Event");_e.initEvent(' + args + ',true,true);return _e;})()';
+  });
+
+  // Fix 2: isActiveAndEnabled null guard (UnityEngine.js only)
+  // Pattern: return this.XXX$.enabled&&this.YYY$.ZZZ$
+  if (filename.includes('UnityEngine')) {
+    patched = patched.replace(
+      /return this\.(\w+)\$\.enabled&&this\.(\w+)\$\.(\w+)\$/g,
+      (match, a, b, d) => {
+        fixes++;
+        return 'return (this.' + a + '$?this.' + a + '$.enabled:false)&&(this.' + b + '$?this.' + b + '$.' + d + '$:false)';
+      }
+    );
+  }
+
+  return { content: patched, fixes };
+}
+
+/**
  * Start a simple local HTTP server to serve the build output
+ * with on-the-fly patching for headless compatibility
  */
 function startLocalServer(buildDir) {
   return new Promise((resolve, reject) => {
@@ -50,6 +86,19 @@ function startLocalServer(buildDir) {
         '.wasm': 'application/wasm', '.bin': 'application/octet-stream',
         '.ico': 'image/x-icon', '.svg': 'image/svg+xml'
       };
+
+      // Patch HTML and JS files on-the-fly for headless compatibility
+      if (ext === '.html' || ext === '.js') {
+        try {
+          const raw = fs.readFileSync(filePath, 'utf8');
+          const { content, fixes } = patchForHeadless(raw, path.basename(filePath));
+          res.writeHead(200, { 'Content-Type': mimeTypes[ext] });
+          res.end(content);
+          return;
+        } catch(e) {
+          // Fall through to stream if patch fails
+        }
+      }
 
       res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
       fs.createReadStream(filePath).pipe(res);
