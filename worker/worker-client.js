@@ -176,7 +176,41 @@ async function processTask(task) {
     const isCuaRetry = hasCuaLog && hasBuildArtifacts;
 
     if (isCuaRetry) {
-      log('CUA resume: previous failure was CUA-related and build artifacts exist, skipping coding+build', taskId);
+      log('CUA resume: previous build artifacts exist, checking last CUA result...', taskId);
+
+      // Check if previous CUA already PASSED (upload failed, not CUA failed)
+      const cuaReportPath = path.join(cuaResultsDir, taskId + '-report.json');
+      let prevCuaPassed = false;
+      try {
+        if (fs.existsSync(cuaReportPath)) {
+          const prevReport = JSON.parse(fs.readFileSync(cuaReportPath, 'utf-8'));
+          // Check the CUA verify result: exitReason=max_rounds with no uncovered shots = passed
+          // Or check if worker logged "PASSED" in the log
+          if (prevReport.exitReason !== 'stuck') {
+            // Also check log for PASSED marker
+            const logContent = fs.readFileSync(cuaLogPath, 'utf-8');
+            if (logContent.includes('Pass: true') || logContent.includes('PASSED')) {
+              prevCuaPassed = true;
+            }
+          }
+        }
+      } catch(e) {}
+
+      if (prevCuaPassed) {
+        // CUA already passed last time, just retry upload
+        log('CUA resume: previous CUA PASSED, skipping directly to upload', taskId);
+        await reportStatus(taskId, 'processing', { message: '上传构建产物 (CUA已通过，重试上传)...' });
+        const uploaded = await uploadBuild(taskId);
+        if (!uploaded) {
+          await reportStatus(taskId, 'failed', { message: 'Build upload failed (retry)' });
+          return;
+        }
+        await reportStatus(taskId, 'completed', { message: 'CUA已通过，构建上传完成' });
+        log('CUA resume: upload retry succeeded', taskId);
+        return;
+      }
+
+      log('CUA resume: previous CUA did not pass, re-running CUA verification', taskId);
       await reportStatus(taskId, 'processing', { message: 'CUA断点续跑 (跳过编码+构建)...' });
 
       // Apply Luna runtime patches before CUA
