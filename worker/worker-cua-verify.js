@@ -266,4 +266,4 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
   });
 }
 
-module.exports = { runCUAVerification, CUA_RESULTS_DIR, MAX_CUA_RETRIES, CUA_PASS_THRESHOLD };
+module.exports = { runCUAVerification, CUA_RESULTS_DIR, MAX_CUA_RETRIES };
