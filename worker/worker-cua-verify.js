@@ -1,11 +1,11 @@
 /**
- * Worker-side CUA Verification �?蓝图流程验证�? * 
- * �?GPT-5.4 CUA 按蓝�?shot 顺序操控 HTML，验证流程是否走通�? * 
+ * Worker-side CUA Verification �?蓝图流程验证�? * 
+ * �?GPT-5.4 CUA 按蓝�?shot 顺序操控 HTML，验证流程是否走通�? * 
  * 通过标准（无打分，纯 pass/fail）：
- *   1. 蓝图所�?shot 都能操作覆盖
- *   2. CTA 按钮可到达并可点�? *   3. 游戏不卡�?白屏/崩溃
+ *   1. 蓝图所�?shot 都能操作覆盖
+ *   2. CTA 按钮可到达并可点�? *   3. 游戏不卡�?白屏/崩溃
  * 
- * 不通过时返回具体的未覆�?shot 和问题描述，用于反馈�?AI 重新编码�? * 不做任何视觉效果审核�? */
+ * 不通过时返回具体的未覆�?shot 和问题描述，用于反馈�?AI 重新编码�? * 不做任何视觉效果审核�? */
 
 const { spawn } = require('child_process');
 const http = require('http');
@@ -15,7 +15,7 @@ const path = require('path');
 const LUNA_AGENT_JS = path.join(__dirname, 'luna-agent.js');
 const CUA_RESULTS_DIR = path.join(__dirname, 'cua-results');
 const MAX_CUA_RETRIES = 3;
-// 不再使用分数阈值，改为蓝图覆盖�?pass/fail
+// 不再使用分数阈值，改为蓝图覆盖�?pass/fail
 // const CUA_PASS_THRESHOLD = 70;
 const LOCAL_PREVIEW_PORT = 18850; // Temp local server for preview
 
@@ -152,7 +152,13 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       cwd: __dirname,
       env: {
         ...process.env,
-        // Keys should be in PM2 env or system env
+        // 显式传递关键环境变量，防止 PM2 子进程继承丢失
+        OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
+        GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
+        https_proxy: process.env.https_proxy || process.env.HTTPS_PROXY || '',
+        http_proxy: process.env.http_proxy || process.env.HTTP_PROXY || '',
+        HTTPS_PROXY: process.env.HTTPS_PROXY || process.env.https_proxy || '',
+        HTTP_PROXY: process.env.HTTP_PROXY || process.env.http_proxy || '',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 300000 // 5 min max
@@ -198,28 +204,28 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
         return;
       }
 
-      // === 蓝图流程验证（pass/fail，无打分�?==
+      // === 蓝图流程验证（pass/fail，无打分�?==
       const issues = [];
 
-      // 1. 检查是否卡�?崩溃
+      // 1. 检查是否卡�?崩溃
       if (report.exitReason === 'stuck') {
         issues.push('[卡死] 游戏在操控过程中卡死，无法继续（连续多轮无状态变化）');
       }
 
-      // 2. 检查蓝�?shot 覆盖度（核心指标�?      if (report.scriptCoverage) {
+      // 2. 检查蓝�?shot 覆盖度（核心指标�?      if (report.scriptCoverage) {
         const uncovered = report.scriptCoverage.filter(s => !s.covered);
         if (uncovered.length > 0) {
-          issues.push('[分镜未覆盖] 以下蓝图场景未能走�? ' + uncovered.map(s => s.step || s.name).join(', '));
+          issues.push('[分镜未覆盖] 以下蓝图场景未能走�? ' + uncovered.map(s => s.step || s.name).join(', '));
         }
       }
 
-      // 3. CTA 不是必要条件，只要蓝图最后一�?shot 走到即可
-      // CTA 状态仅记日志，不影�?pass/fail
+      // 3. CTA 不是必要条件，只要蓝图最后一�?shot 走到即可
+      // CTA 状态仅记日志，不影�?pass/fail
       if (report.ctaStatus === 'not_found' || report.ctaStatus === 'no_response') {
-        log('[CUA] CTA未到达（仅记录，不影响通过判定�?, taskId);
+        log('[CUA] CTA未到达（仅记录，不影响通过判定�?, taskId);
       }
 
-      // 4. AI 操控中发现的阻断级交互问题（按钮不响应、场景切换失败等�?      if (report.bugs) {
+      // 4. AI 操控中发现的阻断级交互问题（按钮不响应、场景切换失败等�?      if (report.bugs) {
         const bugList = report.bugs.fromAI || report.bugs;
         const bugArray = Array.isArray(bugList) ? bugList : [];
         bugArray.forEach(bug => {
@@ -238,11 +244,11 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
 
       // Gemini 视觉审核结果只记日志，不影响 pass/fail
       if (report.geminiReview && report.geminiReview.issues && report.geminiReview.issues.length > 0) {
-        log('[CUA] Gemini 视觉审核发现 ' + report.geminiReview.issues.length + ' 个问题（仅记录，不影响通过判定�?, taskId);
+        log('[CUA] Gemini 视觉审核发现 ' + report.geminiReview.issues.length + ' 个问题（仅记录，不影响通过判定�?, taskId);
       }
 
-      // 通过标准：蓝图所�?shot 覆盖 + 不卡�?= pass
-      // 到达最后一�?shot 即视为流程完整，CTA 不是必要条件
+      // 通过标准：蓝图所�?shot 覆盖 + 不卡�?= pass
+      // 到达最后一�?shot 即视为流程完整，CTA 不是必要条件
       const passed = issues.length === 0;
 
       log('[CUA] Issues: ' + issues.length + ', Pass: ' + passed + ', ExitReason: ' + (report.exitReason || 'unknown'), taskId);
