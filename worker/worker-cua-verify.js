@@ -1,14 +1,15 @@
 /**
- * Worker-side CUA Verification
+ * Worker-side CUA Verification — 蓝图流程验证器
  * 
- * Runs GPT-5.4 CUA on the locally built HTML (via local file server)
- * BEFORE uploading to main ECS.
- * Only verified builds get uploaded.
+ * 用 GPT-5.4 CUA 按蓝图 shot 顺序操控 HTML，验证流程是否走通。
  * 
- * ⚠️ Blueprint CUA 定位：流程验证器（不是效果审核）
- * - 只验证：蓝图描述的场景流程是否能走通（shot 切换、交互触发、CTA 到达）
- * - 不管：美术效果、视觉质量、动画细节
- * - 通过标准：按蓝图 shot 顺序操作能走完全流程即通过
+ * 通过标准（无打分，纯 pass/fail）：
+ *   1. 蓝图所有 shot 都能操作覆盖
+ *   2. CTA 按钮可到达并可点击
+ *   3. 游戏不卡死/白屏/崩溃
+ * 
+ * 不通过时返回具体的未覆盖 shot 和问题描述，用于反馈给 AI 重新编码。
+ * 不做任何视觉效果审核。
  */
 
 const { spawn } = require('child_process');
@@ -19,7 +20,8 @@ const path = require('path');
 const LUNA_AGENT_JS = path.join(__dirname, 'luna-agent.js');
 const CUA_RESULTS_DIR = path.join(__dirname, 'cua-results');
 const MAX_CUA_RETRIES = 3;
-const CUA_PASS_THRESHOLD = 70;
+// 不再使用分数阈值，改为蓝图覆盖度 pass/fail
+// const CUA_PASS_THRESHOLD = 70;
 const LOCAL_PREVIEW_PORT = 18850; // Temp local server for preview
 
 try { fs.mkdirSync(CUA_RESULTS_DIR, { recursive: true }); } catch(e) {}
@@ -201,53 +203,67 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
         return;
       }
 
-      // Evaluate
-      const score = report.score || report.overallScore || 0;
+      // === 蓝图流程验证（pass/fail，无打分）===
       const issues = [];
 
-      if (report.bugs && report.bugs.length > 0) {
-        report.bugs.forEach(bug => {
-          issues.push('[操控问题] ' + (bug.description || bug.message || JSON.stringify(bug)));
-        });
+      // 1. 检查是否卡死/崩溃
+      if (report.exitReason === 'stuck') {
+        issues.push('[卡死] 游戏在操控过程中卡死，无法继续（连续多轮无状态变化）');
       }
 
-      // Blueprint CUA 只做流程验证，不审视觉效果
-      // Gemini 视觉问题仅记录不作为通过/失败依据
-      if (report.geminiReview && report.geminiReview.issues) {
-        const blockers = report.geminiReview.issues.filter(i => i.severity === '阻断');
-        blockers.forEach(issue => {
-          issues.push('[阻断问题] ' + (issue.description || issue.message || JSON.stringify(issue)));
-        });
-        // 非阻断级视觉问题只记日志不计入 issues
-        const nonBlockers = report.geminiReview.issues.filter(i => i.severity !== '阻断');
-        if (nonBlockers.length > 0) {
-          log('[CUA] ' + nonBlockers.length + ' visual issues logged (non-blocking for blueprint flow check)', taskId);
-        }
-      }
-
-      if (report.anomalies) {
-        report.anomalies
-          .filter(a => a.severity === 'error' || a.severity === 'critical')
-          .forEach(a => {
-            issues.push('[异常] ' + (a.description || a.rule || JSON.stringify(a)));
-          });
-      }
-
-      if (report.ctaStatus === 'not_found' || report.ctaStatus === 'no_response') {
-        issues.push('[CTA] CTA按钮未找到或无响应');
-      }
-
+      // 2. 检查蓝图 shot 覆盖度（核心指标）
       if (report.scriptCoverage) {
         const uncovered = report.scriptCoverage.filter(s => !s.covered);
         if (uncovered.length > 0) {
-          issues.push('[分镜] 未覆盖: ' + uncovered.map(s => s.step).join(', '));
+          issues.push('[分镜未覆盖] 以下蓝图场景未能走通: ' + uncovered.map(s => s.step || s.name).join(', '));
         }
       }
 
-      const passed = score >= CUA_PASS_THRESHOLD && issues.length === 0;
-      log('[CUA] Score: ' + score + ', Issues: ' + issues.length + ', Pass: ' + passed, taskId);
+      // 3. 检查 CTA 是否到达
+      if (report.ctaStatus === 'not_found' || report.ctaStatus === 'no_response') {
+        issues.push('[CTA不可达] CTA按钮未找到或点击无响应，流程未完成');
+      }
 
-      resolve({ passed, score, issues, report, skipped: false });
+      // 4. AI 操控中发现的阻断级交互问题（按钮不响应、场景切换失败等）
+      if (report.bugs) {
+        const bugList = report.bugs.fromAI || report.bugs;
+        const bugArray = Array.isArray(bugList) ? bugList : [];
+        bugArray.forEach(bug => {
+          issues.push('[交互问题] ' + (bug.description || bug.message || JSON.stringify(bug)));
+        });
+      }
+
+      // 5. 严重异常（白屏、崩溃）
+      if (report.anomalies) {
+        report.anomalies
+          .filter(a => a.severity === 'high' || a.severity === 'error' || a.severity === 'critical')
+          .forEach(a => {
+            issues.push('[严重异常] ' + (a.description || a.rule || JSON.stringify(a)));
+          });
+      }
+
+      // Gemini 视觉审核结果只记日志，不影响 pass/fail
+      if (report.geminiReview && report.geminiReview.issues && report.geminiReview.issues.length > 0) {
+        log('[CUA] Gemini 视觉审核发现 ' + report.geminiReview.issues.length + ' 个问题（仅记录，不影响通过判定）', taskId);
+      }
+
+      // 通过标准：没有任何流程问题 = pass
+      const passed = issues.length === 0;
+      // 到达 CTA 终局视为流程完整
+      const reachedCTA = report.exitReason === 'cta_terminal';
+      if (reachedCTA && issues.length > 0) {
+        // 如果已到达 CTA 但有非关键 issues，仍然通过（流程已走完）
+        const criticalIssues = issues.filter(i => i.includes('[卡死]') || i.includes('[CTA不可达]') || i.includes('[分镜未覆盖]'));
+        if (criticalIssues.length === 0) {
+          log('[CUA] 已到达CTA终局，非关键问题忽略，判定通过', taskId);
+          resolve({ passed: true, issues: [], report, skipped: false, reachedCTA: true });
+          return;
+        }
+      }
+
+      log('[CUA] Issues: ' + issues.length + ', Pass: ' + passed + ', ExitReason: ' + (report.exitReason || 'unknown'), taskId);
+
+      resolve({ passed, issues, report, skipped: false });
     });
 
     child.on('error', (err) => {

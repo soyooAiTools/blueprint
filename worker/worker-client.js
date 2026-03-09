@@ -327,17 +327,18 @@ async function processTask(task) {
         }
 
         if (cuaResult.passed) {
-          log(`CUA verification PASSED (score: ${cuaResult.score}, round ${cuaRound})`, taskId);
+          log(`CUA verification PASSED (round ${cuaRound}): 蓝图流程全部走通`, taskId);
           cuaPassed = true;
           break;
         }
 
         // CUA failed — log issues
-        log(`CUA verification FAILED round ${cuaRound}/${MAX_CUA_FIX_ROUNDS} (score: ${cuaResult.score}), ${cuaResult.issues.length} issues`, taskId);
+        log(`CUA verification FAILED round ${cuaRound}/${MAX_CUA_FIX_ROUNDS}, ${cuaResult.issues.length} issues`, taskId);
+        cuaResult.issues.forEach(issue => log(`  - ${issue}`, taskId));
 
         if (cuaRound >= MAX_CUA_FIX_ROUNDS) {
-          // Max retries exhausted — fail the task
-          const feedbackText = 'CUA自动验证不通过 (score: ' + cuaResult.score + ', ' + MAX_CUA_FIX_ROUNDS + '轮修复后仍未通过):\n' + cuaResult.issues.join('\n');
+          // Max retries exhausted — fail the task with details
+          const feedbackText = 'CUA蓝图流程验证不通过 (' + MAX_CUA_FIX_ROUNDS + '轮修复后仍有问题):\n' + cuaResult.issues.join('\n');
           try {
             await apiRequest('POST', '/api/projects/' + taskId + '/feedback', 
               JSON.stringify({ text: feedbackText, source: 'cua-auto' }),
@@ -346,15 +347,15 @@ async function processTask(task) {
             log('CUA feedback submit failed: ' + fbErr.message, taskId);
           }
           await reportStatus(taskId, 'failed', { 
-            message: `CUA验证${MAX_CUA_FIX_ROUNDS}轮修复后仍不通过 (score: ${cuaResult.score}): ` + cuaResult.issues.slice(0, 2).join('; ').slice(0, 200),
-            cuaReview: { score: cuaResult.score, issues: cuaResult.issues.length, rounds: cuaRound }
+            message: 'CUA蓝图流程验证' + MAX_CUA_FIX_ROUNDS + '轮后未通过: ' + cuaResult.issues.slice(0, 2).join('; ').slice(0, 200),
+            cuaReview: { issues: cuaResult.issues.length, rounds: cuaRound, details: cuaResult.issues }
           });
           return;
         }
 
         // Not final round — use CUA feedback to re-code and rebuild
         log(`CUA round ${cuaRound} failed, starting fix cycle...`, taskId);
-        const cuaFeedbackText = 'CUA操控验证发现以下问题，请修复:\n' + cuaResult.issues.join('\n');
+        const cuaFeedbackText = 'CUA按蓝图流程操控验证未通过，以下问题必须修复才能让流程走通:\n' + cuaResult.issues.join('\n') + '\n\n请针对以上问题修改代码，确保蓝图描述的所有场景能按顺序操作通过，最终到达CTA。';
 
         // Re-code with CUA feedback as context
         await reportStatus(taskId, 'processing', { message: `CUA第${cuaRound}轮不通过，AI 重新编码修复中...` });
