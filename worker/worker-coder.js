@@ -1075,19 +1075,10 @@ function verifyCodeContent(clientDir, parsed, log, taskId) {
     }
     if (!found) missingShots.push(shotNum);
   }
-  // Also check for generic state machine patterns (enum-based, switch-case, etc.)
-  var hasStateMachine = (code.indexOf('switch') >= 0 && code.indexOf('case') >= 0) || 
-                        code.indexOf('currentState') >= 0 || code.indexOf('currentShot') >= 0 ||
-                        code.indexOf('currentScene') >= 0 || code.indexOf('currentStage') >= 0 ||
-                        code.indexOf('currentStep') >= 0 || code.indexOf('gameState') >= 0 ||
-                        code.indexOf('currentPhase') >= 0 || code.indexOf('currentLevel') >= 0;
-  // Pass if: enough shots matched OR state machine detected with sufficient code
-  var shotThreshold = Math.max(1, Math.floor(shotCount * 0.5)); // at least 50% of shots
-  if (shotCount > 0 && shotKeywords < shotThreshold && !hasStateMachine) {
-    issues.push('Missing shots: ' + missingShots.join(', ') + ' (' + shotKeywords + '/' + shotCount + ' implemented). At least ' + shotThreshold + ' shots or a state machine required.');
+  // ALL shots must be found — no exceptions, no lowered threshold
+  if (shotCount > 0 && shotKeywords < shotCount) {
+    issues.push('Missing shots: ' + missingShots.join(', ') + ' (' + shotKeywords + '/' + shotCount + ' implemented). ALL shots must be implemented — no exceptions.');
     log('[coder] FAIL: Only ' + shotKeywords + '/' + shotCount + ' shots found, missing: [' + missingShots.join(', ') + ']', taskId);
-  } else if (shotKeywords < shotCount) {
-    log('[coder] WARN: ' + shotKeywords + '/' + shotCount + ' shots matched by name, but state machine detected — accepting', taskId);
   }
 
   // Check 3: Must create game objects (not just empty methods)
