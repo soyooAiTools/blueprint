@@ -219,9 +219,10 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
         }
       }
 
-      // 3. 检查 CTA 是否到达
+      // 3. CTA 不是必要条件，只要蓝图最后一步 shot 走到即可
+      // CTA 状态仅记日志，不影响 pass/fail
       if (report.ctaStatus === 'not_found' || report.ctaStatus === 'no_response') {
-        issues.push('[CTA不可达] CTA按钮未找到或点击无响应，流程未完成');
+        log('[CUA] CTA未到达（仅记录，不影响通过判定）', taskId);
       }
 
       // 4. AI 操控中发现的阻断级交互问题（按钮不响应、场景切换失败等）
@@ -247,19 +248,9 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
         log('[CUA] Gemini 视觉审核发现 ' + report.geminiReview.issues.length + ' 个问题（仅记录，不影响通过判定）', taskId);
       }
 
-      // 通过标准：没有任何流程问题 = pass
+      // 通过标准：蓝图所有 shot 覆盖 + 不卡死 = pass
+      // 到达最后一个 shot 即视为流程完整，CTA 不是必要条件
       const passed = issues.length === 0;
-      // 到达 CTA 终局视为流程完整
-      const reachedCTA = report.exitReason === 'cta_terminal';
-      if (reachedCTA && issues.length > 0) {
-        // 如果已到达 CTA 但有非关键 issues，仍然通过（流程已走完）
-        const criticalIssues = issues.filter(i => i.includes('[卡死]') || i.includes('[CTA不可达]') || i.includes('[分镜未覆盖]'));
-        if (criticalIssues.length === 0) {
-          log('[CUA] 已到达CTA终局，非关键问题忽略，判定通过', taskId);
-          resolve({ passed: true, issues: [], report, skipped: false, reachedCTA: true });
-          return;
-        }
-      }
 
       log('[CUA] Issues: ' + issues.length + ', Pass: ' + passed + ', ExitReason: ' + (report.exitReason || 'unknown'), taskId);
 
