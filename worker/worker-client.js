@@ -14,6 +14,7 @@ const { detectScenes, fixLunaJson, generateExportAssets, injectMaterialSourceAll
 const { runBridgeBuild, bridgeRequest } = require('./worker-bridge-build.js');
 const { generateCode } = require('./worker-coder.js');
 const { convertAndSave } = require('./worker-html-converter.js');
+const { patchLunaBuild } = require('./worker-luna-patch.js');
 
 // Cocos modules (optional — loaded dynamically to avoid crash if not present)
 let cocosPatch, cocosBuild, cocosHtmlConverter;
@@ -177,6 +178,13 @@ async function processTask(task) {
     if (isCuaRetry) {
       log('CUA resume: previous failure was CUA-related and build artifacts exist, skipping coding+build', taskId);
       await reportStatus(taskId, 'processing', { message: 'CUA断点续跑 (跳过编码+构建)...' });
+
+      // Apply Luna runtime patches before CUA
+      try {
+        patchLunaBuild(cuaStage4Path, log, taskId);
+      } catch(e) {
+        log('CUA resume: Luna patch error (non-fatal): ' + e.message, taskId);
+      }
 
       // Jump directly to CUA verification loop
       const MAX_CUA_FIX_ROUNDS = 3;
@@ -423,7 +431,18 @@ async function processTask(task) {
       log(`HTML conversion failed (non-fatal): ${e.message}`, taskId);
     }
 
-    // === Step 5.5: CUA Verification Loop (GPT-5.4 操控验证 → 不通过则修复重试) ===
+    // === Step 5.5a: Luna Runtime Compatibility Patches ===
+    // Fix known issues: new Event() in headless Chromium, isActiveAndEnabled null ref
+    try {
+      const patchResult = patchLunaBuild(stage4Dir, log, taskId);
+      if (patchResult.patched) {
+        log(`Luna patches applied: ${patchResult.details.join('; ')}`, taskId);
+      }
+    } catch (patchErr) {
+      log(`Luna patch error (non-fatal): ${patchErr.message}`, taskId);
+    }
+
+    // === Step 5.5b: CUA Verification Loop (GPT-5.4 操控验证 → 不通过则修复重试) ===
     const MAX_CUA_FIX_ROUNDS = 3;
     let cuaPassed = false;
     
@@ -527,6 +546,14 @@ async function processTask(task) {
           return;
         }
         log(`CUA fix rebuild OK in ${fixBuild.buildTime}s`, taskId);
+
+        // Re-apply Luna runtime patches after rebuild
+        try {
+          const fixStage4 = path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop');
+          patchLunaBuild(fixStage4, log, taskId);
+        } catch(e) {
+          log(`CUA fix Luna patch error (non-fatal): ${e.message}`, taskId);
+        }
 
         // Re-convert HTML
         try {
