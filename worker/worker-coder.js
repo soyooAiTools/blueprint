@@ -1057,11 +1057,13 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
               + '## INSTRUCTIONS:\n'
               + '- Keep the code compilable — do NOT introduce new errors\n'
               + '- Add the missing content (shots, game objects, interactions) to the EXISTING code\n'
-              + '- Each shot MUST be a method named EXACTLY shot_N() (shot_1, shot_2, shot_3...) — NOT Scene1, Level1, Stage1\n'
-              + '- The verification system searches for "shot_1", "shot_2" etc. — any other naming WILL FAIL\n'
-              + '- Each shot_N() method must create visible GameObjects (CreatePrimitive, new GameObject, UI)\n'
-              + '- Implement ALL ' + (parsed.scenes ? parsed.scenes.length : 10) + ' shots from the blueprint — every single one, no exceptions\n'
+              + '- The verification system searches for methods named shot_1(), shot_2()... shot_N() in your code\n'
+              + '- If you have scene logic under different names (e.g. ShowScene1, SetupLevel1, Phase1), RENAME them to shot_1(), shot_2() etc.\n'
+              + '- EASIEST FIX: Add wrapper methods: void shot_1() { /* call your existing scene logic */ }\n'
+              + '- Each shot_N() method must create visible GameObjects or call methods that create them\n'
+              + '- You need EXACTLY ' + (parsed.scenes ? parsed.scenes.length : 10) + ' shot methods: shot_1 through shot_' + (parsed.scenes ? parsed.scenes.length : 10) + '\n'
               + '- Missing shots: ' + (verification.missingShots ? verification.missingShots.join(', ') : 'unknown') + '\n'
+              + '- DO NOT rewrite the entire code — just add the shot_N() wrapper methods and keep everything else\n'
               + '- Output the COMPLETE updated GameFlowManagerMain.cs\n';
             var contentFixResp = await callClaude(fixPrompt, contentFixMsg, 300000, MODEL_GENERATE);
             var contentFixFiles = parseBlocks(contentFixResp.text);
