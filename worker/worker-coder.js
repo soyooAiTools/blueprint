@@ -311,8 +311,9 @@ var GENERATE_PROMPT = [
   '- Materials: `new Material(_baseMat)` — _baseMat grabbed from scene renderer in Start() (see Material handling section)',
   '- Canvas: create with CanvasScaler (1080x1920) + GraphicRaycaster',
   '',
-  '#### Implement shots as state machine methods:',
-  '- Each shot = a method that creates/shows objects and hides previous ones',
+  '#### Implement shots as state machine methods (MANDATORY naming: shot_1, shot_2, shot_3...):',
+  '- Each shot = a method named shot_N() (e.g. shot_1(), shot_2()) that creates/shows objects and hides previous ones',
+  '- The method MUST be named shot_N — this is verified by automated checks and will fail if named differently',
   '- Use SetActive to toggle shot containers',
   '',
   '### ⚠️ ONE FILE ONLY — ABSOLUTELY NO EXCEPTIONS ⚠️',
@@ -368,7 +369,9 @@ var GENERATE_PROMPT = [
   '',
   '## QUALITY REQUIREMENTS (your code will be automatically verified):',
   '- GameFlowManagerMain.cs MUST be at least 300 lines of actual game logic',
-  '- MUST contain methods for EVERY shot described in the blueprint (e.g., shot_1(), shot_2(), etc.)',
+  '- MUST contain methods named EXACTLY shot_1(), shot_2(), shot_3()... shot_N() for EVERY shot in the blueprint',
+  '- METHOD NAMING IS MANDATORY: shot_1, shot_2, shot_3... — NOT Scene1, Level1, Phase1, Stage1 or any other name',
+  '- The automated verification system searches for "shot_1", "shot_2" etc. — other names WILL FAIL verification',
   '- MUST create visible game objects (CreatePrimitive, UI elements) — not just empty methods',
   '- MUST implement player interactions described in the blueprint (input handling, triggers)',
   '- A skeleton/template class that only sets up camera and calls GameEnded() will be REJECTED',
@@ -969,6 +972,8 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
               + '## INSTRUCTIONS:\n'
               + '- Keep the code compilable — do NOT introduce new errors\n'
               + '- Add the missing content (shots, game objects, interactions) to the EXISTING code\n'
+              + '- Each shot MUST be a method named EXACTLY shot_N() (shot_1, shot_2, shot_3...) — NOT Scene1, Level1, Stage1\n'
+              + '- The verification system searches for "shot_1", "shot_2" etc. — any other naming WILL FAIL\n'
               + '- Each shot_N() method must create visible GameObjects (CreatePrimitive, new GameObject, UI)\n'
               + '- Implement ALL ' + (parsed.scenes ? parsed.scenes.length : 10) + ' shots from the blueprint — every single one, no exceptions\n'
               + '- Missing shots: ' + (verification.missingShots ? verification.missingShots.join(', ') : 'unknown') + '\n'
