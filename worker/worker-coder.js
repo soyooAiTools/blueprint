@@ -503,6 +503,13 @@ var FIX_PROMPT = [
   'You are fixing Unity C# compilation errors for a Luna SDK playable ad project.',
   'Luna transpiles C# to JavaScript — many Unity features cause compilation failures.',
   '',
+  '## ⛔ CRITICAL: NO Coroutines (MUST rewrite if found)',
+  '- StartCoroutine, IEnumerator, yield return, WaitForSeconds, WaitUntil — ALL FORBIDDEN in Luna.',
+  '- If the existing code uses coroutines, you MUST rewrite ALL shot logic as Update()-based state machine:',
+  '  `_currentShot` (int) + `_shotState` (int) + `_shotTimer` (float) in Update() switch/case.',
+  '- Time delays: use `_shotTimer += Time.deltaTime; if (_shotTimer > X)` instead of WaitForSeconds.',
+  '- DOTween is OK for animations.',
+  '',
   '## 踩坑经验（公司实战，必须遵守！）',
   '- Luna不支持TileMap',
   '- Luna不支持New InputSystem',
@@ -1097,8 +1104,10 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       + '4. Keep all working code intact — do NOT remove or rewrite unrelated sections\n'
       + '5. Output the COMPLETE updated file (with changes applied)\n'
       + '6. The scene MAY contain template objects — Start() MUST begin with cleanup: destroy all root objects except {"Main Camera","Directional Light","EventSystem","GameManager","__MaterialSource"}\n'
-      + '7. ALL 3D objects MUST use gray material: _baseMat.color = new Color(0.5f, 0.5f, 0.5f). FORBIDDEN: Color.white, Color.red, Color.blue, or any color other than new Color(0.5f, 0.5f, 0.5f).\n\n'
-      + 'Apply the feedback fixes to the existing code. Preserve everything that works.';
+      + '7. ALL 3D objects MUST use gray material: _baseMat.color = new Color(0.5f, 0.5f, 0.5f). FORBIDDEN: Color.white, Color.red, Color.blue, or any color other than new Color(0.5f, 0.5f, 0.5f).\n'
+      + '8. ⛔ EXCEPTION TO "minimal changes": If the code uses StartCoroutine/IEnumerator/WaitForSeconds/WaitUntil/yield, you MUST rewrite ALL shot logic as an Update()-based state machine (_currentShot + _shotState + _shotTimer in switch/case). Coroutines do NOT work in Luna WebGL runtime injection.\n'
+      + '9. Auto-play: Update() must include auto-play logic — if no joystick input for 2s, auto-move player toward _currentTarget.\n\n'
+      + 'Apply the feedback fixes to the existing code. Preserve everything that works EXCEPT coroutines which must be rewritten.';
   } else {
     // === FULL GENERATION MODE ===
     userMsg = '## Project: ' + parsed.projectName + '\n\n'
