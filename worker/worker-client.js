@@ -301,46 +301,129 @@ async function processTask(task) {
       log(`HTML conversion failed (non-fatal): ${e.message}`, taskId);
     }
 
-    // === Step 5.5: CUA Verification (GPT-5.4 操控验证) ===
-    try {
-      const { runCUAVerification } = require('./worker-cua-verify.js');
-      await reportStatus(taskId, 'processing', { message: 'GPT-5.4 CUA 操控验证中...' });
+    // === Step 5.5: CUA Verification Loop (GPT-5.4 操控验证 → 不通过则修复重试) ===
+    const MAX_CUA_FIX_ROUNDS = 3;
+    let cuaPassed = false;
+    
+    for (let cuaRound = 1; cuaRound <= MAX_CUA_FIX_ROUNDS; cuaRound++) {
+      try {
+        const { runCUAVerification } = require('./worker-cua-verify.js');
+        await reportStatus(taskId, 'processing', { 
+          message: `GPT-5.4 CUA 操控验证中... (第${cuaRound}/${MAX_CUA_FIX_ROUNDS}轮)` 
+        });
 
-      // Read blueprint from task file
-      let cuaBlueprint = null;
-      const bpPath = path.join(WORK_DIR, '..', 'autoCoding-tasks', 'queue', taskId + '-blueprint.json');
-      try { cuaBlueprint = JSON.parse(fs.readFileSync(bpPath, 'utf-8')); } catch(e) {}
+        // Read blueprint from task file
+        let cuaBlueprint = null;
+        const bpPath = path.join(WORK_DIR, '..', 'autoCoding-tasks', 'queue', taskId + '-blueprint.json');
+        try { cuaBlueprint = JSON.parse(fs.readFileSync(bpPath, 'utf-8')); } catch(e) {}
 
-      const stage4Dir = path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop');
-      const cuaResult = await runCUAVerification(stage4Dir, cuaBlueprint, taskId, log);
+        const cuaStage4 = path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop');
+        const cuaResult = await runCUAVerification(cuaStage4, cuaBlueprint, taskId, log);
 
-      if (!cuaResult.skipped) {
+        if (cuaResult.skipped) {
+          log(`CUA verification skipped (round ${cuaRound}): ${cuaResult.error || 'no agent'}`, taskId);
+          cuaPassed = true;
+          break;
+        }
+
         if (cuaResult.passed) {
-          log(`CUA verification PASSED (score: ${cuaResult.score})`, taskId);
-        } else {
-          log(`CUA verification FAILED (score: ${cuaResult.score}), ${cuaResult.issues.length} issues`, taskId);
-          
-          // Auto-submit feedback for re-coding
-          const feedbackText = 'CUA自动验证不通过 (score: ' + cuaResult.score + '):\n' + cuaResult.issues.join('\n');
+          log(`CUA verification PASSED (score: ${cuaResult.score}, round ${cuaRound})`, taskId);
+          cuaPassed = true;
+          break;
+        }
+
+        // CUA failed — log issues
+        log(`CUA verification FAILED round ${cuaRound}/${MAX_CUA_FIX_ROUNDS} (score: ${cuaResult.score}), ${cuaResult.issues.length} issues`, taskId);
+
+        if (cuaRound >= MAX_CUA_FIX_ROUNDS) {
+          // Max retries exhausted — fail the task
+          const feedbackText = 'CUA自动验证不通过 (score: ' + cuaResult.score + ', ' + MAX_CUA_FIX_ROUNDS + '轮修复后仍未通过):\n' + cuaResult.issues.join('\n');
           try {
             await apiRequest('POST', '/api/projects/' + taskId + '/feedback', 
               JSON.stringify({ text: feedbackText, source: 'cua-auto' }),
               false, { 'Content-Type': 'application/json' });
-            log('CUA feedback submitted, will re-code on next poll', taskId);
           } catch(fbErr) {
             log('CUA feedback submit failed: ' + fbErr.message, taskId);
           }
-
           await reportStatus(taskId, 'failed', { 
-            message: 'CUA验证不通过 (score: ' + cuaResult.score + '): ' + cuaResult.issues.slice(0, 2).join('; ').slice(0, 200),
-            cuaReview: { score: cuaResult.score, issues: cuaResult.issues.length }
+            message: `CUA验证${MAX_CUA_FIX_ROUNDS}轮修复后仍不通过 (score: ${cuaResult.score}): ` + cuaResult.issues.slice(0, 2).join('; ').slice(0, 200),
+            cuaReview: { score: cuaResult.score, issues: cuaResult.issues.length, rounds: cuaRound }
           });
           return;
         }
+
+        // Not final round — use CUA feedback to re-code and rebuild
+        log(`CUA round ${cuaRound} failed, starting fix cycle...`, taskId);
+        const cuaFeedbackText = 'CUA操控验证发现以下问题，请修复:\n' + cuaResult.issues.join('\n');
+
+        // Re-code with CUA feedback as context
+        await reportStatus(taskId, 'processing', { message: `CUA第${cuaRound}轮不通过，AI 重新编码修复中...` });
+        
+        // Inject CUA feedback into the task's feedback history for AI coder to see
+        try {
+          await apiRequest('POST', '/api/projects/' + taskId + '/feedback', 
+            JSON.stringify({ text: cuaFeedbackText, source: 'cua-auto-round-' + cuaRound }),
+            false, { 'Content-Type': 'application/json' });
+        } catch(fbErr) {
+          log('CUA feedback inject failed: ' + fbErr.message, taskId);
+        }
+
+        // Re-run AI coding (incremental fix with CUA feedback)
+        let fixBlueprint = null;
+        try { fixBlueprint = await apiRequest('GET', `/api/tasks/${taskId}/blueprint`); } catch(e) {}
+        
+        if (fixBlueprint && fixBlueprint.nodes) {
+          const fixResult = await generateCode(fixBlueprint, CLIENT_DIR, log, taskId, 'unity');
+          if (fixResult.ok) {
+            log(`CUA fix re-code done: ${fixResult.filesWritten} files written`, taskId);
+          } else {
+            log(`CUA fix re-code failed: ${fixResult.error}`, taskId);
+            await reportStatus(taskId, 'failed', { message: 'CUA fix re-code failed: ' + (fixResult.error || '').slice(0, 200) });
+            return;
+          }
+        }
+
+        // Re-build
+        await reportStatus(taskId, 'building', { message: `CUA修复后重新构建中... (第${cuaRound + 1}轮验证)` });
+        
+        // Clean stage2-4 for rebuild
+        const ltDir = path.join(CLIENT_DIR, 'LunaTemp');
+        for (const sub of ['stage2', 'stage3', 'stage4']) {
+          const sd = path.join(ltDir, sub);
+          if (fs.existsSync(sd)) try { fs.rmSync(sd, { recursive: true, force: true }); } catch(e) {}
+        }
+
+        if (cleanScene(CLIENT_DIR)) log('Scene re-cleaned for CUA fix rebuild', taskId);
+        const fixScenes = detectScenes(CLIENT_DIR);
+        fixLunaJson(CLIENT_DIR, fixScenes);
+        generateExportAssets(CLIENT_DIR, fixScenes);
+
+        const fixBuild = await runBridgeBuild(CLIENT_DIR, log, taskId);
+        if (!fixBuild.ok) {
+          await reportStatus(taskId, 'failed', { message: 'CUA fix rebuild failed: ' + (fixBuild.error || '').slice(0, 300) });
+          return;
+        }
+        log(`CUA fix rebuild OK in ${fixBuild.buildTime}s`, taskId);
+
+        // Re-convert HTML
+        try {
+          const fixStage4 = path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop');
+          const fixHtmlDir = path.join(WORK_DIR, taskId + '-html');
+          convertAndSave(fixStage4, fixHtmlDir, { channels: ['appLovin'], projectName: taskId });
+        } catch(e) {
+          log(`CUA fix HTML conversion failed (non-fatal): ${e.message}`, taskId);
+        }
+
+        // Loop back to CUA verification
+      } catch (cuaErr) {
+        log(`CUA verification error round ${cuaRound} (fatal): ${cuaErr.message}`, taskId);
+        await reportStatus(taskId, 'failed', { message: 'CUA verification crashed: ' + cuaErr.message.slice(0, 200) });
+        return;
       }
-    } catch (cuaErr) {
-      log(`CUA verification error (fatal): ${cuaErr.message}`, taskId);
-      await reportStatus(taskId, 'failed', { message: 'CUA verification crashed: ' + cuaErr.message.slice(0, 200) });
+    }
+
+    if (!cuaPassed) {
+      await reportStatus(taskId, 'failed', { message: 'CUA verification did not pass after all rounds' });
       return;
     }
 
