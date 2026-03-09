@@ -385,15 +385,26 @@ var FIX_PROMPT = [
   'Luna transpiles C# to JavaScript — many Unity features cause compilation failures.',
   '',
   '## Key Luna constraints to remember when fixing:',
-  '- NO generics (Luna does not support generic syntax)',
-  '- NO C# 7.0+ syntax (tuples, pattern matching, local functions, etc.)',
-  '- NO Vector3Int (cast to Vector3)',
+  '- NO generics (Luna does not support generic syntax like List<T>, Dictionary<K,V> — use ArrayList or plain arrays)',
+  '- NO C# 7.0+ syntax (tuples, pattern matching, local functions, string interpolation $"", etc.)',
+  '- NO Vector3Int or Vector2Int (cast to Vector3/Vector2)',
   '- NO System.Math (use UnityEngine.Mathf)',
-  '- NO Animation component (use Animator)',
+  '- NO Animation component (use Animator or DOTween)',
   '- NO TextMeshPro / TMPro (use UnityEngine.UI.Text instead)',
-  '- NO SendMessage, no multi-threading, no LINQ',
-  '- NO SceneManager, Resources.Load, async/await',
-  '- NO CharacterController (use Transform or Rigidbody)',
+  '- NO SendMessage, no multi-threading, no LINQ, no System.Linq',
+  '- NO SceneManager, Resources.Load, async/await, Task',
+  '- NO CharacterController (use Transform.Translate or Rigidbody)',
+  '- NO Enum.GetValues, Enum.Parse, typeof() with generics',
+  '- NO delegate with generics (System.Action<T>, System.Func<T> — use plain delegates)',
+  '- NO System.Collections.Generic in complex ways (Dictionary is sometimes OK, but HashSet/Queue may fail)',
+  '- NO Camera.main.ScreenToWorldPoint without null check (Camera.main can be null)',
+  '- NO Resources.GetBuiltinResource (not implemented in Luna — create manually)',
+  '- NO Sprite.Create from code (use UI.Image with color, or CreatePrimitive for 3D)',
+  '- NO UnityEngine.Random.Range with int overload ambiguity (cast explicitly)',
+  '- NO nested generic types or generic method calls',
+  '- NO optional parameters with default values in some contexts (use overloads)',
+  '- NO nameof() operator',
+  '- NO null-conditional ?. or null-coalescing ?? operators',
   '- GetComponent<Transform>() and GetComponent<RectTransform>() are NOT interchangeable',
   '- DOTween chain calls must be on separate lines to avoid JS transpilation bugs',
   '- Use Luna.Unity.Playable.InstallFullGame() instead of Application.OpenURL',
@@ -952,7 +963,10 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
 
     var prevErrorSig = '';
     var sameErrorCount = 0;
-    for (var attempt = 1; attempt <= MAX_FIX_ATTEMPTS; attempt++) {
+    var MAX_COMPILE_ATTEMPTS = MAX_FIX_ATTEMPTS; // compile fix budget (separate from content)
+    var MAX_CONTENT_ATTEMPTS = 3; // content fix budget (separate counter)
+    var contentFixCount = 0;
+    for (var attempt = 1; attempt <= MAX_COMPILE_ATTEMPTS + MAX_CONTENT_ATTEMPTS; attempt++) {
       var result = tryCompile(clientDir, log, taskId);
       
       if (result.ok) {
@@ -960,11 +974,11 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
         // Content verification — reject skeleton/empty code
         var verification = verifyCodeContent(clientDir, parsed, log, taskId);
         if (!verification.ok) {
-          log('[coder] ⚠️ Content verification FAILED: ' + verification.reason, taskId);
-          // Incremental fix: send compiled code + verification feedback to AI for targeted improvement
-          if (attempt < MAX_FIX_ATTEMPTS) {
+          contentFixCount++;
+          log('[coder] ⚠️ Content verification FAILED (round ' + contentFixCount + '/' + MAX_CONTENT_ATTEMPTS + '): ' + verification.reason, taskId);
+          if (contentFixCount < MAX_CONTENT_ATTEMPTS) {
             var currentCode = readScripts(clientDir);
-            var contentFixMsg = '## Content Verification FAILED\n'
+            var contentFixMsg = '## Content Verification FAILED (round ' + contentFixCount + '/' + MAX_CONTENT_ATTEMPTS + ')\n'
               + 'Your code COMPILED SUCCESSFULLY but failed quality checks:\n\n'
               + verification.reason + '\n\n'
               + '## Current Code (compiles OK):\n' + currentCode + '\n\n'
@@ -984,7 +998,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
             log('[coder] Content fix applied, re-checking...', taskId);
             continue; // Go back to compile check
           }
-          return { ok: false, error: 'Content verification failed after all attempts: ' + verification.reason };
+          return { ok: false, error: 'Content verification failed after ' + MAX_CONTENT_ATTEMPTS + ' attempts: ' + verification.reason };
         }
         log('[coder] ✅ Content verification passed', taskId);
         // Generate architecture diagram
@@ -1009,7 +1023,9 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
         sameErrorCount = 0; prevErrorSig = ''; continue;
       }
 
-      log('[coder] Fix attempt ' + attempt + '/' + MAX_FIX_ATTEMPTS + ': ' + result.errors.length + ' errors', taskId);
+      log('[coder] Fix attempt ' + attempt + '/' + MAX_COMPILE_ATTEMPTS + ': ' + result.errors.length + ' errors', taskId);
+      // Log specific errors for debugging
+      result.errors.forEach(function(e, i) { if (i < 5) log('[coder]   error ' + (i+1) + ': ' + e, taskId); });
 
       var currentCode = readScripts(clientDir);
       var fixProjectCtx = projectCtx.fileList ? '\n\n## Existing project files (for reference):\n```\n' + projectCtx.fileList + '\n```' : '';
@@ -1028,8 +1044,8 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       else { log('[coder] Warning: No fix blocks, retrying...', taskId); }
     }
 
-    log('[coder] ❌ Exhausted ' + MAX_FIX_ATTEMPTS + ' attempts', taskId);
-    return { ok: false, error: 'Build failed after ' + MAX_FIX_ATTEMPTS + ' attempts:\n' + (result ? result.errors.join('\n') : 'unknown') };
+    log('[coder] ❌ Exhausted compile attempts (compile: ' + MAX_COMPILE_ATTEMPTS + ', content: ' + contentFixCount + '/' + MAX_CONTENT_ATTEMPTS + ')', taskId);
+    return { ok: false, error: 'Build failed after ' + MAX_COMPILE_ATTEMPTS + ' compile + ' + contentFixCount + ' content attempts:\n' + (result ? result.errors.join('\n') : 'unknown') };
   } catch (e) {
     log('[coder] Error: ' + e.message, taskId);
     return { ok: false, error: e.message };
