@@ -1294,36 +1294,146 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
         // Build still failed after CS0101 fix, continue to normal fix flow
       }
 
-      var currentCode = readScripts(clientDir);
-      var fixProjectCtx = projectCtx.fileList ? '\n\n## Existing project files (for reference):\n```\n' + projectCtx.fileList + '\n```' : '';
-      var fixMsg = '## Build Errors (' + result.errors.length + ' total):\n```\n' + result.errors.join('\n') + '\n```\n\n'
-        + '## Current Scripts:\n' + currentCode
-        + fixProjectCtx
-        + '\n\nFix ALL ' + result.errors.length + ' errors above. Output the COMPLETE fixed GameFlowManagerMain.cs.'
-        + '\n⚠️ CRITICAL: You MUST output the ENTIRE file content — do NOT output only the changed lines or a partial snippet.'
-        + '\n⚠️ The current file has ' + (function() { try { var mc = fs.readFileSync(path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs'), 'utf-8'); return mc.split('\n').length; } catch(e) { return 0; } })() + ' lines. Your output must be of similar length.'
-        + '\n⚠️ Only change lines that cause errors. Keep all working code intact.'
-        + '\nThis is attempt ' + attempt + '. If previous fixes oscillated, try a MINIMAL change approach.';
+      var mainPath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
+      var currentMainCode = '';
+      try { currentMainCode = fs.readFileSync(mainPath, 'utf-8'); } catch(e) {}
+      var currentMainLines = currentMainCode.split('\n');
 
-      var fixResp = await callClaude(fixPrompt, fixMsg);
-      log('[coder] Fix response (' + (fixResp.usage ? fixResp.usage.output_tokens + ' tokens' : 'ok') + ')', taskId);
+      // Extract error line numbers and surrounding context for patch mode
+      var errorLineInfos = result.errors.map(function(err) {
+        var lineMatch = err.match(/line:\s*(\d+)/i) || err.match(/line\s+(\d+)/i);
+        var lineNum = lineMatch ? parseInt(lineMatch[1]) : 0;
+        return { error: err, line: lineNum };
+      }).filter(function(e) { return e.line > 0; });
 
-      var fixed = parseBlocks(fixResp.text);
-      if (fixed.length > 0) {
-        // Safety check: reject fix if it's drastically shorter than the original file
-        var mainPath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
-        var origLineCount = 0;
-        try { origLineCount = fs.readFileSync(mainPath, 'utf-8').split('\n').length; } catch(e) {}
-        var mainFixed = fixed.find(function(f) { return f.path.indexOf('GameFlowManagerMain') >= 0; });
-        var fixedLineCount = mainFixed ? mainFixed.content.split('\n').length : origLineCount;
-        if (origLineCount > 100 && fixedLineCount < origLineCount * 0.5) {
-          log('[coder] ⚠️ REJECTED fix: AI returned ' + fixedLineCount + ' lines but original has ' + origLineCount + ' lines (truncated output). Retrying...', taskId);
-          // Don't write, just retry
-        } else {
-          writeFiles(clientDir, fixed, log, taskId); files = fixed;
+      // Use PATCH mode if we have line numbers and a substantial file
+      var usePatchMode = errorLineInfos.length > 0 && currentMainLines.length > 100;
+
+      if (usePatchMode) {
+        // Build context windows around each error (±15 lines)
+        var CONTEXT_RADIUS = 15;
+        var patchSections = [];
+        var coveredLines = {};
+        for (var ei = 0; ei < errorLineInfos.length; ei++) {
+          var eLine = errorLineInfos[ei].line;
+          var startLine = Math.max(1, eLine - CONTEXT_RADIUS);
+          var endLine = Math.min(currentMainLines.length, eLine + CONTEXT_RADIUS);
+          // Merge overlapping sections
+          if (patchSections.length > 0 && startLine <= patchSections[patchSections.length - 1].end + 1) {
+            patchSections[patchSections.length - 1].end = endLine;
+            patchSections[patchSections.length - 1].errors.push(errorLineInfos[ei].error);
+          } else {
+            patchSections.push({ start: startLine, end: endLine, errors: [errorLineInfos[ei].error] });
+          }
         }
+
+        var patchCtx = '## PATCH MODE: Fix compilation errors by replacing ONLY the broken sections.\n\n';
+        patchCtx += '## Build Errors (' + result.errors.length + ' total):\n```\n' + result.errors.join('\n') + '\n```\n\n';
+        patchCtx += '## File: GameFlowManagerMain.cs (' + currentMainLines.length + ' lines total)\n\n';
+        patchCtx += 'Below are the sections around each error. Fix ONLY these sections.\n\n';
+
+        for (var si = 0; si < patchSections.length; si++) {
+          var sec = patchSections[si];
+          patchCtx += '### Section ' + (si + 1) + ' (lines ' + sec.start + '-' + sec.end + '):\n';
+          patchCtx += 'Errors in this section:\n```\n' + sec.errors.join('\n') + '\n```\n';
+          patchCtx += 'Current code:\n```csharp\n';
+          for (var li = sec.start - 1; li < sec.end && li < currentMainLines.length; li++) {
+            patchCtx += (li + 1) + ': ' + currentMainLines[li] + '\n';
+          }
+          patchCtx += '```\n\n';
+        }
+
+        patchCtx += '## OUTPUT FORMAT:\n';
+        patchCtx += 'For each section, output a patch block like this:\n';
+        patchCtx += '```patch: START_LINE-END_LINE\n';
+        patchCtx += '// replacement code for those lines\n';
+        patchCtx += '```\n\n';
+        patchCtx += 'Example: if lines 190-195 need fixing:\n';
+        patchCtx += '```patch: 190-195\n';
+        patchCtx += 'var light = new GameObject("Light").AddComponent<Light>();\n';
+        patchCtx += '// light.type is not available in Luna, skip it\n';
+        patchCtx += '```\n\n';
+        patchCtx += '⚠️ ONLY output patch blocks. Do NOT output the entire file.\n';
+        patchCtx += '⚠️ Keep all surrounding code unchanged. Fix ONLY the erroring lines.\n';
+        patchCtx += '⚠️ The replacement lines will REPLACE the original lines in that range.\n';
+
+        var patchResp = await callClaude(fixPrompt, patchCtx);
+        log('[coder] Patch fix response (' + (patchResp.usage ? patchResp.usage.output_tokens + ' tokens' : 'ok') + ')', taskId);
+
+        // Parse patch blocks
+        var patchRegex = /```patch:\s*(\d+)\s*-\s*(\d+)\s*\n([\s\S]*?)```/g;
+        var patchMatch;
+        var patches = [];
+        while ((patchMatch = patchRegex.exec(patchResp.text)) !== null) {
+          patches.push({
+            startLine: parseInt(patchMatch[1]),
+            endLine: parseInt(patchMatch[2]),
+            replacement: patchMatch[3].trimEnd()
+          });
+        }
+
+        if (patches.length > 0) {
+          // Sort patches by startLine descending so we apply from bottom up (avoids line shift issues)
+          patches.sort(function(a, b) { return b.startLine - a.startLine; });
+          var patchedLines = currentMainLines.slice();
+          for (var pi = 0; pi < patches.length; pi++) {
+            var p = patches[pi];
+            var replacementLines = p.replacement.split('\n');
+            // Validate patch range
+            if (p.startLine < 1 || p.endLine > patchedLines.length || p.startLine > p.endLine) {
+              log('[coder] ⚠️ Skipping invalid patch range: ' + p.startLine + '-' + p.endLine, taskId);
+              continue;
+            }
+            patchedLines.splice(p.startLine - 1, p.endLine - p.startLine + 1, replacementLines.join('\n'));
+            log('[coder] Applied patch: lines ' + p.startLine + '-' + p.endLine + ' → ' + replacementLines.length + ' lines', taskId);
+          }
+          var patchedContent = patchedLines.join('\n');
+          fs.writeFileSync(mainPath, patchedContent, 'utf-8');
+          log('[coder] Written (patch mode): ' + 'Assets/Program/Script/Manager/GameFlowManagerMain.cs', taskId);
+          files = [{ path: 'Assets/Program/Script/Manager/GameFlowManagerMain.cs', content: patchedContent }];
+        } else {
+          // Fallback: AI didn't output patch format, try parsing as full file
+          log('[coder] ⚠️ No patch blocks found, falling back to full-file parse...', taskId);
+          var fallbackFiles = parseBlocks(patchResp.text);
+          if (fallbackFiles.length > 0) {
+            var fbMain = fallbackFiles.find(function(f) { return f.path.indexOf('GameFlowManagerMain') >= 0; });
+            var fbLines = fbMain ? fbMain.content.split('\n').length : 0;
+            if (currentMainLines.length > 100 && fbLines < currentMainLines.length * 0.5) {
+              log('[coder] ⚠️ REJECTED fallback fix: ' + fbLines + ' lines vs original ' + currentMainLines.length + ' lines. Retrying...', taskId);
+            } else {
+              writeFiles(clientDir, fallbackFiles, log, taskId); files = fallbackFiles;
+            }
+          } else {
+            log('[coder] Warning: No fix blocks at all, retrying...', taskId);
+          }
+        }
+      } else {
+        // No line numbers or small file — use traditional full-file fix
+        var currentCode = readScripts(clientDir);
+        var fixProjectCtx = projectCtx.fileList ? '\n\n## Existing project files (for reference):\n```\n' + projectCtx.fileList + '\n```' : '';
+        var fixMsg = '## Build Errors (' + result.errors.length + ' total):\n```\n' + result.errors.join('\n') + '\n```\n\n'
+          + '## Current Scripts:\n' + currentCode
+          + fixProjectCtx
+          + '\n\nFix ALL ' + result.errors.length + ' errors above. Output the COMPLETE fixed GameFlowManagerMain.cs.'
+          + '\n⚠️ CRITICAL: You MUST output the ENTIRE file content — do NOT output only the changed lines or a partial snippet.'
+          + '\n⚠️ Only change lines that cause errors. Keep all working code intact.'
+          + '\nThis is attempt ' + attempt + '. If previous fixes oscillated, try a MINIMAL change approach.';
+
+        var fixResp = await callClaude(fixPrompt, fixMsg);
+        log('[coder] Fix response (' + (fixResp.usage ? fixResp.usage.output_tokens + ' tokens' : 'ok') + ')', taskId);
+
+        var fixed = parseBlocks(fixResp.text);
+        if (fixed.length > 0) {
+          var fmMain = fixed.find(function(f) { return f.path.indexOf('GameFlowManagerMain') >= 0; });
+          var fmLines = fmMain ? fmMain.content.split('\n').length : 999;
+          if (currentMainLines.length > 100 && fmLines < currentMainLines.length * 0.5) {
+            log('[coder] ⚠️ REJECTED fix: ' + fmLines + ' lines vs original ' + currentMainLines.length + ' lines. Retrying...', taskId);
+          } else {
+            writeFiles(clientDir, fixed, log, taskId); files = fixed;
+          }
+        }
+        else { log('[coder] Warning: No fix blocks, retrying...', taskId); }
       }
-      else { log('[coder] Warning: No fix blocks, retrying...', taskId); }
     }
 
     log('[coder] ❌ Exhausted compile attempts (compile: ' + MAX_COMPILE_ATTEMPTS + ', content: ' + contentFixCount + '/' + MAX_CONTENT_ATTEMPTS + ')', taskId);
