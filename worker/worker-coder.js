@@ -1206,7 +1206,19 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
               + '- Output the COMPLETE updated GameFlowManagerMain.cs\n';
             var contentFixResp = await callClaude(fixPrompt, contentFixMsg, 300000, MODEL_GENERATE);
             var contentFixFiles = parseBlocks(contentFixResp.text);
-            if (contentFixFiles.length > 0) { writeFiles(clientDir, contentFixFiles, log, taskId); files = contentFixFiles; }
+            if (contentFixFiles.length > 0) {
+              // Safety check: reject if drastically shorter than original
+              var cfMainPath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
+              var cfOrigLines = 0;
+              try { cfOrigLines = fs.readFileSync(cfMainPath, 'utf-8').split('\n').length; } catch(e) {}
+              var cfMainFile = contentFixFiles.find(function(f) { return f.path.indexOf('GameFlowManagerMain') >= 0; });
+              var cfNewLines = cfMainFile ? cfMainFile.content.split('\n').length : cfOrigLines;
+              if (cfOrigLines > 100 && cfNewLines < cfOrigLines * 0.5) {
+                log('[coder] ⚠️ REJECTED content fix: AI returned ' + cfNewLines + ' lines but original has ' + cfOrigLines + ' lines. Retrying...', taskId);
+              } else {
+                writeFiles(clientDir, contentFixFiles, log, taskId); files = contentFixFiles;
+              }
+            }
             log('[coder] Content fix applied, re-checking...', taskId);
             continue; // Go back to compile check
           }
@@ -1231,7 +1243,15 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
           + '\n⚠️ You MUST generate FULL game logic — do NOT output a skeleton/empty class. The game must actually run with all shots implemented.';
         var regenResp = await callClaude(sysPrompt, regenMsg, 300000, MODEL_GENERATE);
         var regenFiles = parseBlocks(regenResp.text);
-        if (regenFiles.length > 0) { writeFiles(clientDir, regenFiles, log, taskId); files = regenFiles; }
+        if (regenFiles.length > 0) {
+          var rgMain = regenFiles.find(function(f) { return f.path.indexOf('GameFlowManagerMain') >= 0; });
+          var rgLines = rgMain ? rgMain.content.split('\n').length : 999;
+          if (rgLines < 100) {
+            log('[coder] ⚠️ REJECTED regen: AI returned ' + rgLines + ' lines (too short for full game). Retrying...', taskId);
+          } else {
+            writeFiles(clientDir, regenFiles, log, taskId); files = regenFiles;
+          }
+        }
         sameErrorCount = 0; prevErrorSig = ''; continue;
       }
 
@@ -1280,14 +1300,29 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
         + '## Current Scripts:\n' + currentCode
         + fixProjectCtx
         + '\n\nFix ALL ' + result.errors.length + ' errors above. Output the COMPLETE fixed GameFlowManagerMain.cs.'
-        + '\n⚠️ CRITICAL: Do NOT break code that already works. Only change lines that cause errors.'
+        + '\n⚠️ CRITICAL: You MUST output the ENTIRE file content — do NOT output only the changed lines or a partial snippet.'
+        + '\n⚠️ The current file has ' + (function() { try { var mc = fs.readFileSync(path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs'), 'utf-8'); return mc.split('\n').length; } catch(e) { return 0; } })() + ' lines. Your output must be of similar length.'
+        + '\n⚠️ Only change lines that cause errors. Keep all working code intact.'
         + '\nThis is attempt ' + attempt + '. If previous fixes oscillated, try a MINIMAL change approach.';
 
       var fixResp = await callClaude(fixPrompt, fixMsg);
       log('[coder] Fix response (' + (fixResp.usage ? fixResp.usage.output_tokens + ' tokens' : 'ok') + ')', taskId);
 
       var fixed = parseBlocks(fixResp.text);
-      if (fixed.length > 0) { writeFiles(clientDir, fixed, log, taskId); files = fixed; }
+      if (fixed.length > 0) {
+        // Safety check: reject fix if it's drastically shorter than the original file
+        var mainPath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
+        var origLineCount = 0;
+        try { origLineCount = fs.readFileSync(mainPath, 'utf-8').split('\n').length; } catch(e) {}
+        var mainFixed = fixed.find(function(f) { return f.path.indexOf('GameFlowManagerMain') >= 0; });
+        var fixedLineCount = mainFixed ? mainFixed.content.split('\n').length : origLineCount;
+        if (origLineCount > 100 && fixedLineCount < origLineCount * 0.5) {
+          log('[coder] ⚠️ REJECTED fix: AI returned ' + fixedLineCount + ' lines but original has ' + origLineCount + ' lines (truncated output). Retrying...', taskId);
+          // Don't write, just retry
+        } else {
+          writeFiles(clientDir, fixed, log, taskId); files = fixed;
+        }
+      }
       else { log('[coder] Warning: No fix blocks, retrying...', taskId); }
     }
 
