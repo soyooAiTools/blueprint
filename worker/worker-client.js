@@ -246,6 +246,16 @@ async function processTask(task) {
           } catch(fbErr) {}
 
           if (cuaBlueprint && cuaBlueprint.nodes) {
+            // Inject CUA feedback into blueprint so generateCode sees it and uses INCREMENTAL FIX mode
+            if (!cuaBlueprint.feedbackHistory) cuaBlueprint.feedbackHistory = [];
+            cuaBlueprint.feedbackHistory.push({
+              data: { text: cuaFeedbackText },
+              source: 'cua-resume-round-' + cuaRound,
+              status: 'pending',
+              timestamp: Date.now()
+            });
+            log(`CUA resume: injected feedback into blueprint (${cuaBlueprint.feedbackHistory.length} entries) → INCREMENTAL FIX`, taskId);
+
             const fixResult = await generateCode(cuaBlueprint, CLIENT_DIR, log, taskId, 'unity');
             if (!fixResult.ok) {
               await reportStatus(taskId, 'failed', { message: 'CUA fix re-code failed: ' + (fixResult.error || '').slice(0, 200) });
@@ -526,6 +536,17 @@ async function processTask(task) {
         try { fixBlueprint = await apiRequest('GET', `/api/tasks/${taskId}/blueprint`); } catch(e) {}
         
         if (fixBlueprint && fixBlueprint.nodes) {
+          // Ensure feedbackHistory is populated so generateCode uses INCREMENTAL FIX mode
+          if (!fixBlueprint.feedbackHistory || fixBlueprint.feedbackHistory.length === 0) {
+            fixBlueprint.feedbackHistory = [{
+              data: { text: cuaFeedbackText },
+              source: 'cua-auto-round-' + cuaRound,
+              status: 'pending',
+              timestamp: Date.now()
+            }];
+            log(`CUA fix: feedbackHistory was empty, injected CUA feedback → INCREMENTAL FIX`, taskId);
+          }
+
           const fixResult = await generateCode(fixBlueprint, CLIENT_DIR, log, taskId, 'unity');
           if (fixResult.ok) {
             log(`CUA fix re-code done: ${fixResult.filesWritten} files written`, taskId);

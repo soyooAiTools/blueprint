@@ -729,6 +729,16 @@ public static class GFM_Create
 {
     private static Material _baseMat;
 
+    // Object pool counters (scene has __Pool_Cube_01..50, __Pool_Sphere_01..20, __Pool_Plane_01..10, __Pool_Cylinder_01..10)
+    private static int _cubeIdx = 0;
+    private static int _sphereIdx = 0;
+    private static int _planeIdx = 0;
+    private static int _cylinderIdx = 0;
+    private const int MAX_CUBES = 50;
+    private const int MAX_SPHERES = 20;
+    private const int MAX_PLANES = 10;
+    private const int MAX_CYLINDERS = 10;
+
     /// <summary>设置基础材质（从场景 __MaterialSource 获取）</summary>
     public static void SetBaseMaterial(Material mat)
     {
@@ -758,14 +768,55 @@ public static class GFM_Create
         return _baseMat;
     }
 
-    /// <summary>创建 3D 原始物体（自动分配材质 + 可选标签）</summary>
-    public static GameObject Obj(PrimitiveType type, Vector3 pos, Vector3 scale, string label)
+    /// <summary>从场景对象池取一个预放的物体，移动到指定位置。Luna 兼容！</summary>
+    /// <param name="type">PrimitiveType.Cube/Sphere/Plane/Cylinder</param>
+    private static GameObject PoolGet(PrimitiveType type, Vector3 pos, Vector3 scale)
     {
-        var obj = GameObject.CreatePrimitive(type);
+        string prefix; int idx; int max;
+        switch (type)
+        {
+            case PrimitiveType.Sphere:
+                prefix = "Sphere"; idx = ++_sphereIdx; max = MAX_SPHERES; break;
+            case PrimitiveType.Plane:
+                prefix = "Plane"; idx = ++_planeIdx; max = MAX_PLANES; break;
+            case PrimitiveType.Cylinder:
+                prefix = "Cylinder"; idx = ++_cylinderIdx; max = MAX_CYLINDERS; break;
+            default: // Cube, Capsule → use cube pool
+                prefix = "Cube"; idx = ++_cubeIdx; max = MAX_CUBES; break;
+        }
+        if (idx > max) idx = max; // Clamp to max (reuse last object)
+        string name = "__Pool_" + prefix + "_" + idx.ToString("D2");
+        var obj = GameObject.Find(name);
+        if (obj == null)
+        {
+            // Fallback: CreatePrimitive (won't render in Luna, but compiles)
+            obj = GameObject.CreatePrimitive(type);
+        }
         obj.transform.position = pos;
         obj.transform.localScale = scale;
         if (_baseMat != null)
-            obj.GetComponent<Renderer>().material = new Material(_baseMat);
+        {
+            var r = obj.GetComponent<Renderer>();
+            if (r != null) r.material = new Material(_baseMat);
+        }
+        return obj;
+    }
+
+    /// <summary>重置对象池计数器（在 Start() 开头调用）</summary>
+    public static void ResetPool()
+    {
+        _cubeIdx = 0; _sphereIdx = 0; _planeIdx = 0; _cylinderIdx = 0;
+        // Hide all pool objects (move offscreen)
+        for (int i = 1; i <= MAX_CUBES; i++) { var o = GameObject.Find("__Pool_Cube_" + i.ToString("D2")); if (o != null) o.transform.position = new Vector3(0, -9999, 0); }
+        for (int i = 1; i <= MAX_SPHERES; i++) { var o = GameObject.Find("__Pool_Sphere_" + i.ToString("D2")); if (o != null) o.transform.position = new Vector3(0, -9999, 0); }
+        for (int i = 1; i <= MAX_PLANES; i++) { var o = GameObject.Find("__Pool_Plane_" + i.ToString("D2")); if (o != null) o.transform.position = new Vector3(0, -9999, 0); }
+        for (int i = 1; i <= MAX_CYLINDERS; i++) { var o = GameObject.Find("__Pool_Cylinder_" + i.ToString("D2")); if (o != null) o.transform.position = new Vector3(0, -9999, 0); }
+    }
+
+    /// <summary>创建 3D 原始物体（从对象池取，Luna 兼容 + 可选标签）</summary>
+    public static GameObject Obj(PrimitiveType type, Vector3 pos, Vector3 scale, string label)
+    {
+        var obj = PoolGet(type, pos, scale);
         if (!string.IsNullOrEmpty(label))
         {
             obj.name = label;
@@ -774,18 +825,20 @@ public static class GFM_Create
         return obj;
     }
 
-    /// <summary>创建地面</summary>
+    /// <summary>创建地面（从对象池取 Plane）</summary>
     public static GameObject Ground(float width, float depth)
     {
-        var obj = GameObject.CreatePrimitive(PrimitiveType.Plane);
+        var obj = PoolGet(PrimitiveType.Plane, Vector3.zero, new Vector3(width / 10f, 1, depth / 10f));
         obj.name = "Ground";
-        obj.transform.position = Vector3.zero;
-        obj.transform.localScale = new Vector3(width / 10f, 1, depth / 10f);
         if (_baseMat != null)
         {
-            var mat = new Material(_baseMat);
-            mat.color = new Color(0.35f, 0.35f, 0.35f);
-            obj.GetComponent<Renderer>().material = mat;
+            var r = obj.GetComponent<Renderer>();
+            if (r != null)
+            {
+                var mat = new Material(_baseMat);
+                mat.color = new Color(0.35f, 0.35f, 0.35f);
+                r.material = mat;
+            }
         }
         return obj;
     }
