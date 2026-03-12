@@ -1020,14 +1020,14 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
     log('[coder] Smart stub: ' + keepCount + ' kept, ' + stubCount + ' stubbed, ' + deleteCount + ' deleted', taskId);
 
     log('[coder] Cleanup done', taskId);
-    // Copy GFM_Tools.cs toolkit into project
-    var gfmSrc = path.join(path.dirname(__filename), 'GFM_Tools.cs');
-    var gfmDst = path.join(clientDir, 'Assets', 'Program', 'Script', 'GFM_Tools.cs');
-    if (fs.existsSync(gfmSrc)) {
-      fs.copyFileSync(gfmSrc, gfmDst);
-      log('[coder] GFM_Tools.cs toolkit copied to project', taskId);
-    }
+  }
 
+  // ALWAYS copy latest GFM_Tools.cs toolkit into project (both full gen and incremental fix)
+  var gfmSrc = path.join(path.dirname(__filename), 'GFM_Tools.cs');
+  var gfmDst = path.join(clientDir, 'Assets', 'Program', 'Script', 'GFM_Tools.cs');
+  if (fs.existsSync(gfmSrc)) {
+    fs.copyFileSync(gfmSrc, gfmDst);
+    log('[coder] GFM_Tools.cs toolkit copied to project', taskId);
   }
 
   // Select prompts and helpers based on engine
