@@ -474,10 +474,13 @@ async function processTask(task) {
           message: `GPT-5.4 CUA 操控验证中... (第${cuaRound}/${MAX_CUA_FIX_ROUNDS}轮)` 
         });
 
-        // Read blueprint from task file
-        let cuaBlueprint = null;
-        const bpPath = path.join(WORK_DIR, '..', 'autoCoding-tasks', 'queue', taskId + '-blueprint.json');
-        try { cuaBlueprint = JSON.parse(fs.readFileSync(bpPath, 'utf-8')); } catch(e) {}
+        // Read blueprint from API (fixed: local autoCoding-tasks path doesn't exist on Worker ECS)
+        let cuaBlueprint = blueprint; // reuse from Step 2
+        if (!cuaBlueprint) {
+          try { cuaBlueprint = await apiRequest('GET', `/api/tasks/${taskId}/blueprint`); } catch(e) {
+            log('CUA: Failed to fetch blueprint from API: ' + e.message, taskId);
+          }
+        }
 
         const cuaStage4 = path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop');
         const cuaResult = await runCUAVerification(cuaStage4, cuaBlueprint, taskId, log);
