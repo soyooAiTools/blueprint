@@ -7,9 +7,9 @@
  *   1. All blueprint shots are reachable/covered
  *   2. CTA button is reachable and clickable
  *   3. No stuck/crash/white-screen
+ *   4. GPT must observe actual game content (not blank/empty screen)
  * 
  * On failure: returns uncovered shots + issue descriptions for AI re-coding.
- * No visual quality review.
  */
 
 const { spawn } = require('child_process');
@@ -235,7 +235,7 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
         return;
       }
 
-      // === Blueprint flow verification (pass/fail, no scoring) ===
+      // === Blueprint flow verification (pass/fail, strict) ===
       const issues = [];
 
       // 1. Check for stuck/crash
@@ -243,21 +243,36 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
         issues.push('[stuck] Game stuck during CUA operation (no state change for multiple rounds)');
       }
 
-      // 2. Check blueprint shot coverage (core metric)
+      // 2. Check blueprint shot coverage (STRICT: ALL shots must be covered)
       if (report.scriptCoverage) {
         const uncovered = report.scriptCoverage.filter(s => !s.covered);
         if (uncovered.length > 0) {
-          issues.push('[uncovered] Blueprint shots not reached: ' + uncovered.map(s => s.step || s.name).join(', '));
+          issues.push('[uncovered] Blueprint shots not reached (' + uncovered.length + '/' + report.scriptCoverage.length + '): ' + uncovered.map(s => s.step || s.name).join(', '));
         }
+      } else {
+        // No script coverage data = cannot verify shots = fail
+        issues.push('[no-coverage] No blueprint shot coverage data in CUA report');
       }
 
-      // 3. CTA is NOT required for pass - only last shot coverage matters
-      // CTA status logged but does not affect pass/fail
+      // 3. CTA must be reachable
       if (report.ctaStatus === 'not_found' || report.ctaStatus === 'no_response') {
-        log('[CUA] CTA not reached (logged only, does not affect pass/fail)', taskId);
+        issues.push('[cta] CTA not reached or unresponsive: ' + (report.ctaStatus || 'unknown'));
       }
 
-      // 4. Blocking interaction issues (button unresponsive, scene transition failure)
+      // 4. Content validation: GPT must have seen actual game content
+      //    If all round descriptions are vague/empty, the game likely didn't load
+      const roundTexts = (report.rounds || []).map(r => r.description || r.text || r.observation || '').join(' ');
+      const vaguePatterns = /淡蓝色|空白|没有.*元素|没有.*内容|无法.*识别|blank|empty|nothing|no visible/gi;
+      const vagueMatches = (roundTexts.match(vaguePatterns) || []).length;
+      const totalRounds = (report.rounds || []).length;
+      const gameContentKeywords = /按钮|角色|场景|游戏|障碍|敌人|道具|得分|血量|UI|菜单|开始|button|character|scene|game|score|player|enemy|level|menu|start|shoot|arrow|wood|target|弓|箭|射|木/gi;
+      const contentMatches = (roundTexts.match(gameContentKeywords) || []).length;
+
+      if (totalRounds >= 5 && contentMatches < 3) {
+        issues.push('[no-content] GPT did not observe actual game content across ' + totalRounds + ' rounds (content keywords: ' + contentMatches + ', vague descriptions: ' + vagueMatches + '). Game may not have loaded properly.');
+      }
+
+      // 5. Blocking interaction issues (button unresponsive, scene transition failure)
       if (report.bugs) {
         const bugList = report.bugs.fromAI || report.bugs;
         const bugArray = Array.isArray(bugList) ? bugList : [];
@@ -266,7 +281,7 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
         });
       }
 
-      // 5. Critical anomalies (white screen, crash)
+      // 6. Critical anomalies (white screen, crash)
       if (report.anomalies) {
         report.anomalies
           .filter(a => a.severity === 'high' || a.severity === 'error' || a.severity === 'critical')
@@ -275,13 +290,7 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
           });
       }
 
-      // Gemini visual review results logged only, do not affect pass/fail
-      if (report.geminiReview && report.geminiReview.issues && report.geminiReview.issues.length > 0) {
-        log('[CUA] Gemini visual review found ' + report.geminiReview.issues.length + ' issues (logged only, does not affect pass/fail)', taskId);
-      }
-
-      // Pass criteria: all shots covered + not stuck = pass
-      // Reaching last shot = flow complete, CTA not required
+      // Pass criteria: ALL shots covered + CTA reachable + game content visible + no critical issues
       const passed = issues.length === 0;
 
       log('[CUA] Issues: ' + issues.length + ', Pass: ' + passed + ', ExitReason: ' + (report.exitReason || 'unknown'), taskId);
