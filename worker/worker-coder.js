@@ -335,6 +335,26 @@ var GENERATE_PROMPT = [
   '  `if (mousePos.x < Screen.width * 0.5f)` (remove the mousePos.y check)',
   '- This ensures automated QA testing can verify all shots even without perfect input.',
   '',
+  '#### MANDATORY: Create ALL Scene Objects from Blueprint',
+  '- Every single object mentioned in the blueprint/storyboard MUST be created as a 3D object in the scene.',
+  '- This includes: buildings, turrets, trees, resources, NPCs, vehicles, conveyor belts, generators, walls, decorations.',
+  '- Use GameObject.CreatePrimitive(PrimitiveType.Cube/Sphere/Cylinder/Capsule) for each object.',
+  '- Different object types should use different primitive shapes:',
+  '  - Buildings/structures: Cube (scaled appropriately)',
+  '  - Trees/plants: Cylinder (tall thin) + Sphere (on top as crown)',
+  '  - Characters/NPCs: Capsule',
+  '  - Resources/items: Sphere (small)',
+  '  - Vehicles/machines: Cube (wide low)',
+  '- Scale objects to reasonable sizes (buildings 3-5 units, trees 4-6 units, player 2 units)',
+  '- Position objects in a logical spatial layout, spread out, not all at origin',
+  '- Use DIFFERENT colored materials for categories (via new Material(_baseMat)):',
+  '  - Buildings: brown Color(0.6f,0.4f,0.2f), Trees: green Color(0.2f,0.6f,0.2f)',
+  '  - Resources: yellow Color(0.8f,0.7f,0.2f), Player: blue Color(0.3f,0.3f,0.8f)',
+  '  - Enemies: red Color(0.8f,0.2f,0.2f)',
+  '- If a shot says click X or drag X, X MUST exist as a visible object with a Collider',
+  '- Objects for later shots: create initially with SetActive(false), activate when needed',
+  '- Scene must look like a populated game world, NOT an empty void with just a player',
+  '',
   '#### MANDATORY: Text Labels on Interactive Objects',
   '- Since all 3D objects are gray blocks, you MUST add floating text labels above every key interactive object (buildings, turrets, NPCs, blueprints, etc.)',
   '- Create a WorldSpace Canvas for each labeled object:',
@@ -445,7 +465,7 @@ var GENERATE_PROMPT = [
   '- Do NOT use: Boss, Player, Enemy, Worker, Npc, UIManager, CameraManager, or any Controller class — they are empty stubs',
   '- RULE: If a class is listed as "available" but has no documented API, assume it is an EMPTY STUB and implement the logic yourself',
   '- NEVER define classes/enums with names that already exist in the project stubs — this causes CS0101 duplicate definition errors',
-  '- Known stub class names you MUST NOT redefine: EventPool, EventData, GameState, ResourceType, GameHelper, UIHelper, StateManager, Player, Boss, Npc, UIManager, CameraManager, MainPanel, TouchArea, YangJoystick, PoolManager, AudioManager, SimpleAudioManager, CTAManager, LunaManager, GameConstants, GameData, MonoSingleton',
+  '- Do NOT redefine ANY class. All utility code is in GFM_Tools.cs (GFM_ prefix). Use them as-is.',
   '- If you need a helper class, use a UNIQUE name like GFM_EventPool, GFM_Helper, etc. (prefix with GFM_ to avoid conflicts)',
   '- For singletons: `public static GameFlowManagerMain instance;` set in Awake()',
   '- Do NOT define enums that conflict with stub classes (ResourceType, GameState, etc. may exist as empty stubs)',
@@ -495,6 +515,22 @@ var GENERATE_PROMPT = [
   '- MUST implement player interactions described in the blueprint (input handling, triggers)',
   '- A skeleton/template class that only sets up camera and calls GameEnded() will be REJECTED',
   '- The generated game must be VISUALLY DIFFERENT from the SLG template — all template objects are hidden',
+  '',
+  '',
+  '## GFM_Tools TOOLKIT (already in project — call these, DO NOT redefine)',
+  '- GFM_Create.InitMaterialFromScene() / .Obj(type, pos, scale, label) / .Ground(w, d) / .SetColor(obj, color)',
+  '- GFM_UI.CreateCanvas(w, h) / .CreateButton(canvas, text, pos, size, onClick) / .CreateText(canvas, text, pos, fs)',
+  '- GFM_UI.AddWorldLabel(obj, text, height) / .CreateProgressBar(canvas, pos, size, color)',
+  '- GFM_Audio.Init(go) / .instance.PlaySFX(clip) / .PlayBGM(clip) / .PlayPitch(clip, idx)',
+  '- GFM_Pool.Init(go) / .Preload(prefab, n) / .Get(prefab) / .Return(obj) / .ReturnAfter(obj, delay)',
+  '- GFM_Event.Init(go) / .Subscribe(id, handler) / .Fire(id, sender, data) / .FireNow(...) / .Unsubscribe(id, h)',
+  '- GFM_Utils.IsInRange(dist, a, b, inclY) / .IsOnScreen(tf) / .FindClosestByTag(origin, tag, maxD)',
+  '- GFM_Joystick.Create(canvas, size) — .Horizontal / .Vertical / .Direction / .IsDragging',
+  '- GFM_Luna.Init(go) / .GameOver() / .GotoStore() / .IsGameOver()',
+  '',
+  'CRITICAL: Do NOT define classes named AudioManager, PoolManager, EventManager, EventPool,',
+  'BasicExtensions, MonoSingleton, Player, Boss, Npc, LunaManager, CTAManager, etc.',
+  'Use the GFM_ equivalents. All utility logic is in GFM_Tools.cs.',
   '',
   'Generate code that implements the blueprint faithfully and completely.'
 ].join('\n');
@@ -921,14 +957,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
     var stubCount = 0, keepCount = 0, deleteCount = 0;
 
     // Files to KEEP intact (utility/tool classes AI can call)
-    var keepFiles = [
-      'PoolManager.cs', 'AudioManager.cs', 'SimpleAudioManager.cs', 'SimpleAudioManagerMain.cs',
-      'CTAManager.cs', 'LunaManager.cs', 'GameConstants.cs', 'GameData.cs',
-      'MonoSingleton.cs', 'BasicExtensions.cs', 'ReturnPool.cs',
-      'ImageSeqAni.cs', 'SpriteRendererSeqAni.cs',
-      'YangJoystick.cs', 'TouchArea.cs',
-      'EventManager.cs', 'Event.cs', 'EventPool.cs', 'GameEventArgs.cs'
-    ];
+    var keepFiles = []; // All non-essential files get stubbed
     // Files to DELETE (AI remnants from previous runs — cause duplicate class conflicts)
     var deletePatterns = [
       'StateManagerCleanup', 'StateManagerDuplicateFix', 'StateManagerExtension',
@@ -951,6 +980,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
 
           // GameFlowManagerMain.cs — AI will rewrite, skip
           if (entries[i].name === 'GameFlowManagerMain.cs') continue;
+          if (entries[i].name === 'GFM_Tools.cs') continue;
 
           // Delete AI remnants
           if (deletePatterns.some(function(p) { return baseName.indexOf(p) >= 0; })) {
@@ -993,6 +1023,14 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
     log('[coder] Smart stub: ' + keepCount + ' kept, ' + stubCount + ' stubbed, ' + deleteCount + ' deleted', taskId);
 
     log('[coder] Cleanup done', taskId);
+    // Copy GFM_Tools.cs toolkit into project
+    var gfmSrc = path.join(path.dirname(__filename), 'GFM_Tools.cs');
+    var gfmDst = path.join(clientDir, 'Assets', 'Program', 'Script', 'GFM_Tools.cs');
+    if (fs.existsSync(gfmSrc)) {
+      fs.copyFileSync(gfmSrc, gfmDst);
+      log('[coder] GFM_Tools.cs toolkit copied to project', taskId);
+    }
+
   }
 
   // Select prompts and helpers based on engine
