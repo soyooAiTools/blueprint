@@ -471,6 +471,25 @@ async function processTask(task) {
       log('Cleaned LunaTemp (stage1 cache preserved)', taskId);
     }
 
+    // Auto-restore stage1 from git cache if missing
+    const stage1Dir = path.join(CLIENT_DIR, 'LunaTemp', 'stage1');
+    if (!fs.existsSync(stage1Dir) || !fs.existsSync(path.join(stage1Dir, 'js'))) {
+      log('[stage1] Cache missing! Restoring from git stage1-cache...', taskId);
+      const stage1CacheDir = path.join(__dirname, 'stage1-cache');
+      if (fs.existsSync(stage1CacheDir)) {
+        const { execSync } = require('child_process');
+        if (!fs.existsSync(path.join(CLIENT_DIR, 'LunaTemp'))) {
+          fs.mkdirSync(path.join(CLIENT_DIR, 'LunaTemp'), { recursive: true });
+        }
+        // xcopy the entire stage1-cache to LunaTemp/stage1
+        execSync(`xcopy "${stage1CacheDir}" "${stage1Dir}" /E /I /Y /Q`, { stdio: 'pipe' });
+        log('[stage1] Restored from git cache successfully', taskId);
+      } else {
+        log('[stage1] WARNING: stage1-cache not found in worker directory!', taskId);
+        throw new TaskFailedError('stage1 cache missing and no backup available - need Unity Bridge to regenerate');
+      }
+    }
+
     // Replace template scene with clean empty scene (Camera + Light + EventSystem + GameManager + MaterialSource only)
     if (cleanScene(CLIENT_DIR)) {
       log('Scene cleaned: replaced template with empty scene', taskId);
