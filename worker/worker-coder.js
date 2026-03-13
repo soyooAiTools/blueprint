@@ -352,7 +352,7 @@ var GENERATE_PROMPT = [
   '- Scene must look like a populated game world, NOT an empty void with just a player',
   '',
   '#### MANDATORY: Text Labels on Interactive Objects',
-  '- Since all 3D objects are gray blocks, you MUST add floating text labels above every key interactive object (buildings, turrets, NPCs, blueprints, etc.)',
+  '- You MUST add floating text labels above every key interactive object (buildings, turrets, NPCs, blueprints, etc.) so CUA can identify them',
   '- Create a WorldSpace Canvas for each labeled object:',
   '```csharp',
   'void AddLabel(GameObject target, string text) {',
