@@ -43,6 +43,8 @@ const LUNA_DIR = 'D:\\Luna';
 
 // ============ Task Notification Webhook ============
 const NOTIFY_URL = process.env.NOTIFY_URL || 'https://playcools.top/notify/webhook';
+const FEISHU_WEBHOOK_URL = process.env.FEISHU_WEBHOOK_URL || '';
+
 function notifyEvent(taskId, event, message, extra) {
   try {
     const data = JSON.stringify({
@@ -51,6 +53,7 @@ function notifyEvent(taskId, event, message, extra) {
       status: (extra && extra.status) || event,
       details: (extra && extra.details) || null
     });
+    // Send to playcools notify endpoint
     const url = new URL(NOTIFY_URL);
     const lib = url.protocol === 'https:' ? https : http;
     const req = lib.request({
@@ -60,6 +63,42 @@ function notifyEvent(taskId, event, message, extra) {
     }, () => {});
     req.on('error', () => {});
     req.write(data);
+    req.end();
+  } catch(e) {}
+
+  // Send to Feishu webhook (if configured)
+  notifyFeishu(taskId, event, message, extra);
+}
+
+const FEISHU_EVENT_ICONS = {
+  task_started: '🚀', task_failed: '❌', task_failed_final: '💀',
+  task_retry: '🔄', timeout: '⏰', cua_round: '🔍',
+  cua_pass: '✅', build_done: '🔨', coding_done: '📝',
+  preview_check: '🖥️', retry: '🔄', done: '🎉'
+};
+
+function notifyFeishu(taskId, event, message, extra) {
+  if (!FEISHU_WEBHOOK_URL) return;
+  try {
+    const icon = FEISHU_EVENT_ICONS[event] || '📋';
+    const proj = (extra && extra.projectName) || taskId;
+    const card = JSON.stringify({
+      msg_type: 'interactive',
+      card: {
+        header: { title: { tag: 'plain_text', content: `${icon} Worker 通知: ${proj}` }, template: event.includes('fail') || event === 'timeout' ? 'red' : event === 'done' || event === 'cua_pass' ? 'green' : 'blue' },
+        elements: [
+          { tag: 'div', text: { tag: 'lark_md', content: `**事件**: ${event}\n**消息**: ${message}\n**任务ID**: ${taskId}` } }
+        ]
+      }
+    });
+    const url = new URL(FEISHU_WEBHOOK_URL);
+    const req = https.request({
+      hostname: url.hostname, port: 443, path: url.pathname + url.search,
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(card) },
+      timeout: 5000
+    }, () => {});
+    req.on('error', () => {});
+    req.write(card);
     req.end();
   } catch(e) {}
 }
@@ -646,6 +685,7 @@ async function processTask(task) {
 
         if (cuaResult.passed) {
           log(`CUA verification PASSED (round ${cuaRound}): 蓝图流程全部走通`, taskId);
+          notifyEvent(taskId, 'cua_pass', `✅ CUA验证通过 (第${cuaRound}轮)! 蓝图流程全部走通`, { projectName: task.projectName });
           cuaPassed = true;
           break;
         }
@@ -653,6 +693,7 @@ async function processTask(task) {
         // CUA failed — log issues
         log(`CUA verification FAILED round ${cuaRound}/${MAX_CUA_ROUNDS}, ${cuaResult.issues.length} issues`, taskId);
         cuaResult.issues.forEach(issue => log(`  - ${issue}`, taskId));
+        notifyEvent(taskId, 'cua_round', `CUA第${cuaRound}/${MAX_CUA_ROUNDS}轮未通过 (${cuaResult.issues.length}个问题): ${cuaResult.issues.slice(0,2).join('; ').slice(0,150)}`, { projectName: task.projectName });
 
         if (cuaRound >= MAX_CUA_ROUNDS) {
           // Max retries exhausted — fail the task with details
