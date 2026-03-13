@@ -247,7 +247,7 @@ async function processTask(task) {
         }
         await reportStatus(taskId, 'completed', { message: 'CUA已通过，构建上传完成' });
         log('CUA resume: upload retry succeeded', taskId);
-        return;
+        throw new TaskFailedError('Task failed');
       }
 
       log('CUA resume: previous CUA did not pass, re-running CUA verification', taskId);
@@ -293,7 +293,7 @@ async function processTask(task) {
             await reportStatus(taskId, 'failed', { 
               message: 'CUA蓝图流程验证' + MAX_CUA_ROUNDS + '轮后未通过: ' + cuaResult.issues.slice(0, 2).join('; ').slice(0, 200)
             });
-            return;
+            throw new TaskFailedError('CUA verification failed after ' + MAX_CUA_ROUNDS + ' rounds');
           }
 
           // Fix cycle: re-code with CUA feedback, rebuild, retry
@@ -367,7 +367,7 @@ async function processTask(task) {
         }
         await reportStatus(taskId, 'completed', { message: 'CUA断点续跑完成，构建已上传' });
         log('CUA resume completed successfully', taskId);
-        return;
+        throw new TaskFailedError('Task failed');
       }
       return;
     }
@@ -576,7 +576,7 @@ async function processTask(task) {
             message: 'CUA蓝图流程验证' + MAX_CUA_ROUNDS + '轮后未通过: ' + cuaResult.issues.slice(0, 2).join('; ').slice(0, 200),
             cuaReview: { issues: cuaResult.issues.length, rounds: cuaRound, details: cuaResult.issues }
           });
-          return;
+          throw new TaskFailedError('CUA verification failed after ' + MAX_CUA_ROUNDS + ' rounds');
         }
 
         // Not final round — use CUA feedback to re-code and rebuild
