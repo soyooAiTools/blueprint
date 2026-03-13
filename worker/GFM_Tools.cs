@@ -763,7 +763,14 @@ public static class GFM_Create
         if (_baseMat != null)
         {
             _baseMat.mainTexture = null;
-            _baseMat.color = new Color(0.5f, 0.5f, 0.5f);
+            _baseMat.color = Color.white; // neutral base, Obj() will set per-type colors
+        }
+        // Auto-set camera background to sky blue for visual contrast
+        var cam = Camera.main;
+        if (cam != null)
+        {
+            cam.backgroundColor = new Color(0.6f, 0.8f, 1f); // sky blue
+            cam.clearFlags = CameraClearFlags.SolidColor;
         }
         return _baseMat;
     }
@@ -817,6 +824,22 @@ public static class GFM_Create
     public static GameObject Obj(PrimitiveType type, Vector3 pos, Vector3 scale, string label)
     {
         var obj = PoolGet(type, pos, scale);
+        if (obj != null)
+        {
+            // Auto-assign distinct base color by primitive type (fallback if AI doesn't SetColor)
+            var defaultColor = type == PrimitiveType.Cube ? new Color(0.7f, 0.5f, 0.25f) :     // brown
+                               type == PrimitiveType.Sphere ? new Color(0.2f, 0.6f, 0.2f) :    // green
+                               type == PrimitiveType.Cylinder ? new Color(0.5f, 0.5f, 0.55f) :  // steel gray
+                               type == PrimitiveType.Plane ? new Color(0.35f, 0.25f, 0.15f) :   // dark brown
+                               new Color(0.6f, 0.6f, 0.6f);                                     // light gray
+            var renderer = obj.GetComponent<Renderer>();
+            if (renderer != null && _baseMat != null)
+            {
+                var mat = new Material(_baseMat);
+                mat.color = defaultColor;
+                renderer.material = mat;
+            }
+        }
         if (!string.IsNullOrEmpty(label))
         {
             obj.name = label;
@@ -836,19 +859,23 @@ public static class GFM_Create
             if (r != null)
             {
                 var mat = new Material(_baseMat);
-                mat.color = new Color(0.35f, 0.35f, 0.35f);
+                mat.color = new Color(0.35f, 0.25f, 0.15f); // dark brown ground
                 r.material = mat;
             }
         }
         return obj;
     }
 
-    /// <summary>设置物体颜色（仅灰度范围，防止 Luna 渲染异常）</summary>
+    /// <summary>设置物体颜色（支持任意颜色）</summary>
     public static void SetColor(GameObject obj, Color color)
     {
         if (obj == null) return;
         var r = obj.GetComponent<Renderer>();
-        if (r != null && r.material != null) r.material.color = color;
+        if (r != null)
+        {
+            if (r.material != null) r.material.color = color;
+            else if (_baseMat != null) { r.material = new Material(_baseMat); r.material.color = color; }
+        }
     }
 }
 
