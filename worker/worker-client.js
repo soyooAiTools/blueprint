@@ -41,6 +41,61 @@ const SVN_FLAGS = `--non-interactive --no-auth-cache --username ${SVN_USER} --pa
 const MAX_CONCURRENT = 1; // Only 1 task at a time (Unity can only open 1 project)
 const LUNA_DIR = 'D:\\Luna';
 
+// ============ Task Notification Webhook ============
+const NOTIFY_URL = process.env.NOTIFY_URL || 'https://playcools.top/notify/webhook';
+function notifyEvent(taskId, event, message, extra) {
+  try {
+    const data = JSON.stringify({
+      taskId, event, message,
+      projectName: (extra && extra.projectName) || taskId,
+      status: (extra && extra.status) || event,
+      details: (extra && extra.details) || null
+    });
+    const url = new URL(NOTIFY_URL);
+    const lib = url.protocol === 'https:' ? https : http;
+    const req = lib.request({
+      hostname: url.hostname, port: url.port || (url.protocol === 'https:' ? 443 : 80), path: url.pathname,
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
+      timeout: 5000, rejectUnauthorized: false
+    }, () => {});
+    req.on('error', () => {});
+    req.write(data);
+    req.end();
+  } catch(e) {}
+}
+
+// ============ Resilience Config ============
+const MAX_TASK_RETRIES = 3;
+const RETRY_DELAYS = [30, 60, 120];
+const MAX_CUA_ROUNDS = 5;
+const TASK_TIMEOUT_MS = 45 * 60 * 1000;
+const TRANSIENT_RETRIES = 3;
+const taskRetryCount = new Map();
+
+async function withRetry(fn, retries, label, taskId, delayMs) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (e.noRetry) throw e;
+      if (i < retries) {
+        const wait = delayMs || (1000 * Math.pow(2, i));
+        log(`[retry] ${label} failed (${i + 1}/${retries + 1}): ${e.message}, retrying in ${wait}ms...`, taskId);
+        notifyEvent(taskId, 'retry', `${label} 失败，自动重试 (${i + 1}/${retries})`,
+          { projectName: getProjectName(taskId), status: 'retrying' });
+        await new Promise(r => setTimeout(r, wait));
+      } else {
+        throw e;
+      }
+    }
+  }
+}
+
+function getProjectName(taskId) {
+  const info = activeTasks.get(taskId);
+  return (info && info.projectName) || taskId;
+}
+
 // ============ State ============
 const activeTasks = new Map();
 const startTime = Date.now();
@@ -198,16 +253,16 @@ async function processTask(task) {
       }
 
       // Jump directly to CUA verification loop
-      const MAX_CUA_FIX_ROUNDS = 3;
+      const MAX_CUA_ROUNDS = 3;
       let cuaPassed = false;
       let cuaBlueprint = null;
       try { cuaBlueprint = await apiRequest('GET', `/api/tasks/${taskId}/blueprint`); } catch(e) {}
 
-      for (let cuaRound = 1; cuaRound <= MAX_CUA_FIX_ROUNDS; cuaRound++) {
+      for (let cuaRound = 1; cuaRound <= MAX_CUA_ROUNDS; cuaRound++) {
         try {
           const { runCUAVerification } = require('./worker-cua-verify.js');
           await reportStatus(taskId, 'processing', { 
-            message: `CUA断点续跑 - GPT-5.4 操控验证中... (第${cuaRound}/${MAX_CUA_FIX_ROUNDS}轮)` 
+            message: `CUA断点续跑 - GPT-5.4 操控验证中... (第${cuaRound}/${MAX_CUA_ROUNDS}轮)` 
           });
 
           const cuaResult = await runCUAVerification(cuaStage4Path, cuaBlueprint, taskId, log);
@@ -224,12 +279,12 @@ async function processTask(task) {
             break;
           }
 
-          log(`CUA resume: FAILED round ${cuaRound}/${MAX_CUA_FIX_ROUNDS}, ${cuaResult.issues.length} issues`, taskId);
+          log(`CUA resume: FAILED round ${cuaRound}/${MAX_CUA_ROUNDS}, ${cuaResult.issues.length} issues`, taskId);
           cuaResult.issues.forEach(issue => log(`  - ${issue}`, taskId));
 
-          if (cuaRound >= MAX_CUA_FIX_ROUNDS) {
+          if (cuaRound >= MAX_CUA_ROUNDS) {
             await reportStatus(taskId, 'failed', { 
-              message: 'CUA蓝图流程验证' + MAX_CUA_FIX_ROUNDS + '轮后未通过: ' + cuaResult.issues.slice(0, 2).join('; ').slice(0, 200)
+              message: 'CUA蓝图流程验证' + MAX_CUA_ROUNDS + '轮后未通过: ' + cuaResult.issues.slice(0, 2).join('; ').slice(0, 200)
             });
             return;
           }
@@ -464,14 +519,14 @@ async function processTask(task) {
     }
 
     // === Step 5.5b: CUA Verification Loop (GPT-5.4 操控验证 → 不通过则修复重试) ===
-    const MAX_CUA_FIX_ROUNDS = 3;
+    const MAX_CUA_ROUNDS = 3;
     let cuaPassed = false;
     
-    for (let cuaRound = 1; cuaRound <= MAX_CUA_FIX_ROUNDS; cuaRound++) {
+    for (let cuaRound = 1; cuaRound <= MAX_CUA_ROUNDS; cuaRound++) {
       try {
         const { runCUAVerification } = require('./worker-cua-verify.js');
         await reportStatus(taskId, 'processing', { 
-          message: `GPT-5.4 CUA 操控验证中... (第${cuaRound}/${MAX_CUA_FIX_ROUNDS}轮)` 
+          message: `GPT-5.4 CUA 操控验证中... (第${cuaRound}/${MAX_CUA_ROUNDS}轮)` 
         });
 
         // Read blueprint from API (fixed: local autoCoding-tasks path doesn't exist on Worker ECS)
@@ -498,12 +553,12 @@ async function processTask(task) {
         }
 
         // CUA failed — log issues
-        log(`CUA verification FAILED round ${cuaRound}/${MAX_CUA_FIX_ROUNDS}, ${cuaResult.issues.length} issues`, taskId);
+        log(`CUA verification FAILED round ${cuaRound}/${MAX_CUA_ROUNDS}, ${cuaResult.issues.length} issues`, taskId);
         cuaResult.issues.forEach(issue => log(`  - ${issue}`, taskId));
 
-        if (cuaRound >= MAX_CUA_FIX_ROUNDS) {
+        if (cuaRound >= MAX_CUA_ROUNDS) {
           // Max retries exhausted — fail the task with details
-          const feedbackText = 'CUA蓝图流程验证不通过 (' + MAX_CUA_FIX_ROUNDS + '轮修复后仍有问题):\n' + cuaResult.issues.join('\n');
+          const feedbackText = 'CUA蓝图流程验证不通过 (' + MAX_CUA_ROUNDS + '轮修复后仍有问题):\n' + cuaResult.issues.join('\n');
           try {
             await apiRequest('POST', '/api/projects/' + taskId + '/feedback', 
               JSON.stringify({ text: feedbackText, source: 'cua-auto' }),
@@ -512,7 +567,7 @@ async function processTask(task) {
             log('CUA feedback submit failed: ' + fbErr.message, taskId);
           }
           await reportStatus(taskId, 'failed', { 
-            message: 'CUA蓝图流程验证' + MAX_CUA_FIX_ROUNDS + '轮后未通过: ' + cuaResult.issues.slice(0, 2).join('; ').slice(0, 200),
+            message: 'CUA蓝图流程验证' + MAX_CUA_ROUNDS + '轮后未通过: ' + cuaResult.issues.slice(0, 2).join('; ').slice(0, 200),
             cuaReview: { issues: cuaResult.issues.length, rounds: cuaRound, details: cuaResult.issues }
           });
           return;

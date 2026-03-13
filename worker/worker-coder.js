@@ -748,10 +748,15 @@ function tryCompileCocos(projectDir, log, taskId) {
 }
 
 function tryCompileUnity(clientDir, log, taskId) {
-  // Clean LunaTemp
+  // Clean LunaTemp (preserve stage1 cache — Unity asset export cannot be regenerated without Unity)
   var lunaTemp = path.join(clientDir, 'LunaTemp');
   if (fs.existsSync(lunaTemp)) {
-    try { fs.rmSync(lunaTemp, { recursive: true, force: true }); } catch (e) {}
+    ['stage2', 'stage3', 'stage4'].forEach(function(sub) {
+      var subDir = path.join(lunaTemp, sub);
+      if (fs.existsSync(subDir)) {
+        try { fs.rmSync(subDir, { recursive: true, force: true }); } catch (e) {}
+      }
+    });
   }
 
   // Read AI-written code to detect class names it defines (to avoid CS0101 duplicates)
@@ -813,17 +818,27 @@ function tryCompileUnity(clientDir, log, taskId) {
 
   var cmd = 'node --max-old-space-size=8192 jake.js -f Jakefile.js --quiet project:build';
   var buildResult;
+  // Build env: set PROJECT_PATH and remove proxy vars (proxy on Worker may not exist, causes TLS failures in jake)
+  var buildEnv = Object.assign({}, process.env, { PROJECT_PATH: clientDir });
+  delete buildEnv.http_proxy; delete buildEnv.https_proxy;
+  delete buildEnv.HTTP_PROXY; delete buildEnv.HTTPS_PROXY;
   try {
     execSync(cmd, {
       cwd: PIPELINE_DIR,
       timeout: 180000,
       encoding: 'utf-8',
-      env: Object.assign({}, process.env, { PROJECT_PATH: clientDir }),
+      env: buildEnv,
       stdio: ['pipe', 'pipe', 'pipe']
     });
     log('[coder] Build passed!', taskId);
     buildResult = { ok: true };
   } catch (e) {
+    // Log jake build output for debugging
+    var jakeOut = ((e.stdout || '') + '\n' + (e.stderr || '')).trim();
+    if (jakeOut) {
+      var failLines = jakeOut.split('\n').filter(function(l) { return l.trim().length > 0; }).slice(-10);
+      log('[coder] Jake output (last lines): ' + failLines.join(' | '), taskId);
+    }
     // Read diagnostics JSON for actual errors
     var errors = extractDiagnosticErrors(clientDir);
     log('[coder] Build failed: ' + errors.length + ' fatal errors', taskId);

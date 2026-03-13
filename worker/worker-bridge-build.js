@@ -47,6 +47,12 @@ async function runBridgeBuild(clientDir, log, taskId) {
 
   const jakeResult = await new Promise((resolve) => {
     const env = { ...process.env, PROJECT_PATH: clientDir };
+    // Remove proxy vars — Worker proxy may not exist, causes TLS failures in jake
+    delete env.http_proxy; delete env.https_proxy;
+    delete env.HTTP_PROXY; delete env.HTTPS_PROXY;
+    // Remove proxy vars — Worker proxy may not exist, causes TLS failures in jake license check
+    delete env.http_proxy; delete env.https_proxy;
+    delete env.HTTP_PROXY; delete env.HTTPS_PROXY;
     const child = spawn('node', [
       '--max-old-space-size=8192',
       'jake.js', '-f', 'Jakefile.js', '--quiet', 'project:build'
