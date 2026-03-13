@@ -714,7 +714,29 @@ async function processTask(task) {
 
         // Not final round — use CUA feedback to re-code and rebuild
         log(`CUA round ${cuaRound} failed, starting fix cycle...`, taskId);
-        const cuaFeedbackText = 'CUA按蓝图流程操控验证未通过，以下问题必须修复才能让流程走通:\n' + cuaResult.issues.join('\n') + '\n\n请针对以上问题修改代码，确保蓝图描述的所有场景能按顺序操作通过，最终到达CTA。';
+        
+        // Build rich feedback with visual context so AI knows WHAT the screen looks like
+        let visualContext = '';
+        if (cuaResult.report) {
+          if (cuaResult.report.summary) {
+            visualContext += '\n\n## CUA观察到的画面:\n' + cuaResult.report.summary;
+          }
+          if (cuaResult.report.history && cuaResult.report.history.length > 0) {
+            const lastRound = cuaResult.report.history[cuaResult.report.history.length - 1];
+            if (lastRound.thinking) visualContext += '\n\nGPT最后一轮观察: ' + (lastRound.thinking || '').slice(0, 500);
+          }
+          // Detect uniform/empty scene from score vs coverage mismatch
+          const allUncovered = cuaResult.report.scriptCoverage && cuaResult.report.scriptCoverage.every(s => !s.covered);
+          if (allUncovered) {
+            visualContext += '\n\n⚠️ 严重问题: 所有分镜头都未覆盖到 (0/' + (cuaResult.report.scriptCoverage || []).length + ')。这通常意味着:\n'
+              + '1. 场景物体不可见（所有物体颜色相同，和背景融为一体）\n'
+              + '2. 相机位置/朝向错误，看不到物体\n'
+              + '3. 物体创建失败（GFM_Create.Obj()返回null）\n'
+              + '请检查: 每种物体是否有不同颜色？相机是否对准了场景中心？_mainCam.backgroundColor是否设为天蓝色(0.6f,0.8f,1f)？';
+          }
+        }
+        
+        const cuaFeedbackText = 'CUA按蓝图流程操控验证未通过，以下问题必须修复才能让流程走通:\n' + cuaResult.issues.join('\n') + visualContext + '\n\n请针对以上问题修改代码，确保蓝图描述的所有场景能按顺序操作通过，最终到达CTA。';
 
         // Re-code with CUA feedback as context
         await reportStatus(taskId, 'processing', { message: `CUA第${cuaRound}轮不通过，AI 重新编码修复中...` });
