@@ -72,6 +72,14 @@ const TASK_TIMEOUT_MS = 45 * 60 * 1000;
 const TRANSIENT_RETRIES = 3;
 const taskRetryCount = new Map();
 
+class TaskFailedError extends Error {
+  constructor(message, noRetry = false) {
+    super(message);
+    this.name = 'TaskFailedError';
+    this.noRetry = noRetry;
+  }
+}
+
 async function withRetry(fn, retries, label, taskId, delayMs) {
   for (let i = 0; i <= retries; i++) {
     try {
@@ -235,7 +243,7 @@ async function processTask(task) {
         const uploaded = await uploadBuild(taskId);
         if (!uploaded) {
           await reportStatus(taskId, 'failed', { message: 'Build upload failed (retry)' });
-          return;
+          throw new TaskFailedError('Build upload failed (retry)');
         }
         await reportStatus(taskId, 'completed', { message: 'CUA已通过，构建上传完成' });
         log('CUA resume: upload retry succeeded', taskId);
@@ -253,7 +261,6 @@ async function processTask(task) {
       }
 
       // Jump directly to CUA verification loop
-      const MAX_CUA_ROUNDS = 3;
       let cuaPassed = false;
       let cuaBlueprint = null;
       try { cuaBlueprint = await apiRequest('GET', `/api/tasks/${taskId}/blueprint`); } catch(e) {}
@@ -314,7 +321,7 @@ async function processTask(task) {
             const fixResult = await generateCode(cuaBlueprint, CLIENT_DIR, log, taskId, 'unity');
             if (!fixResult.ok) {
               await reportStatus(taskId, 'failed', { message: 'CUA fix re-code failed: ' + (fixResult.error || '').slice(0, 200) });
-              return;
+              throw new TaskFailedError('CUA fix re-code failed: ' + (fixResult.error || '').slice(0, 200));
             }
             log(`CUA resume fix re-code done: ${fixResult.filesWritten} files`, taskId);
           }
@@ -334,7 +341,7 @@ async function processTask(task) {
           const fixBuild = await runBridgeBuild(CLIENT_DIR, log, taskId);
           if (!fixBuild.ok) {
             await reportStatus(taskId, 'failed', { message: 'CUA fix rebuild failed: ' + (fixBuild.error || '').slice(0, 300) });
-            return;
+            throw new TaskFailedError('CUA fix rebuild failed: ' + (fixBuild.error || '').slice(0, 300));
           }
           log(`CUA resume fix rebuild OK in ${fixBuild.buildTime}s`, taskId);
 
@@ -346,7 +353,7 @@ async function processTask(task) {
         } catch (cuaErr) {
           log(`CUA resume error round ${cuaRound}: ${cuaErr.message}`, taskId);
           await reportStatus(taskId, 'failed', { message: 'CUA verification crashed: ' + cuaErr.message.slice(0, 200) });
-          return;
+          throw new TaskFailedError('CUA verification crashed: ' + cuaErr.message.slice(0, 200));
         }
       }
 
@@ -356,7 +363,7 @@ async function processTask(task) {
         const uploaded = await uploadBuild(taskId);
         if (!uploaded) {
           await reportStatus(taskId, 'failed', { message: 'Build upload failed' });
-          return;
+          throw new TaskFailedError('Build upload failed');
         }
         await reportStatus(taskId, 'completed', { message: 'CUA断点续跑完成，构建已上传' });
         log('CUA resume completed successfully', taskId);
@@ -374,20 +381,20 @@ async function processTask(task) {
       const checkout = runCmd(`svn checkout ${SVN_FLAGS} "${svnUrl}" "${FIXED_PROJECT_DIR}"`, undefined, 600000);
       if (!checkout.ok) {
         await reportStatus(taskId, 'failed', { message: 'SVN checkout failed: ' + checkout.output.slice(0, 300) });
-        return;
+        throw new TaskFailedError('SVN checkout failed: ' + checkout.output.slice(0, 300));
       }
     } else {
       const update = runCmd(`svn update ${SVN_FLAGS}`, FIXED_PROJECT_DIR, 120000);
       if (!update.ok) {
         await reportStatus(taskId, 'failed', { message: 'SVN update failed: ' + update.output.slice(0, 300) });
-        return;
+        throw new TaskFailedError('SVN update failed: ' + update.output.slice(0, 300));
       }
       log('SVN update OK: ' + update.output.split('\n').pop(), taskId);
     }
 
     if (!fs.existsSync(CLIENT_DIR)) {
       await reportStatus(taskId, 'failed', { message: 'Client directory not found after SVN update' });
-      return;
+      throw new TaskFailedError('Client directory not found after SVN update');
     }
 
     // === Step 1.5: Clean old AI-generated scripts from Assets/Scripts ===
@@ -474,7 +481,7 @@ async function processTask(task) {
     const scenes = detectScenes(CLIENT_DIR);
     if (scenes.length === 0) {
       await reportStatus(taskId, 'failed', { message: 'No scenes found in project' });
-      return;
+      throw new TaskFailedError('No scenes found in project');
     }
     log(`Detected ${scenes.length} scene(s): ${scenes.join(', ')}`, taskId);
 
@@ -488,7 +495,7 @@ async function processTask(task) {
     const buildResult = await runBridgeBuild(CLIENT_DIR, log, taskId);
     if (!buildResult.ok) {
       await reportStatus(taskId, 'failed', { message: 'Luna build failed: ' + (buildResult.error || '').slice(0, 300) });
-      return;
+      throw new TaskFailedError('Luna build failed: ' + (buildResult.error || '').slice(0, 300));
     }
     log(`Luna build OK in ${buildResult.buildTime}s`, taskId);
 
@@ -519,7 +526,6 @@ async function processTask(task) {
     }
 
     // === Step 5.5b: CUA Verification Loop (GPT-5.4 操控验证 → 不通过则修复重试) ===
-    const MAX_CUA_ROUNDS = 3;
     let cuaPassed = false;
     
     for (let cuaRound = 1; cuaRound <= MAX_CUA_ROUNDS; cuaRound++) {
@@ -611,7 +617,7 @@ async function processTask(task) {
           } else {
             log(`CUA fix re-code failed: ${fixResult.error}`, taskId);
             await reportStatus(taskId, 'failed', { message: 'CUA fix re-code failed: ' + (fixResult.error || '').slice(0, 200) });
-            return;
+            throw new TaskFailedError('CUA fix re-code failed: ' + (fixResult.error || '').slice(0, 200));
           }
         }
 
@@ -633,7 +639,7 @@ async function processTask(task) {
         const fixBuild = await runBridgeBuild(CLIENT_DIR, log, taskId);
         if (!fixBuild.ok) {
           await reportStatus(taskId, 'failed', { message: 'CUA fix rebuild failed: ' + (fixBuild.error || '').slice(0, 300) });
-          return;
+          throw new TaskFailedError('CUA fix rebuild failed: ' + (fixBuild.error || '').slice(0, 300));
         }
         log(`CUA fix rebuild OK in ${fixBuild.buildTime}s`, taskId);
 
@@ -658,13 +664,13 @@ async function processTask(task) {
       } catch (cuaErr) {
         log(`CUA verification error round ${cuaRound} (fatal): ${cuaErr.message}`, taskId);
         await reportStatus(taskId, 'failed', { message: 'CUA verification crashed: ' + cuaErr.message.slice(0, 200) });
-        return;
+        throw new TaskFailedError('CUA verification crashed: ' + cuaErr.message.slice(0, 200));
       }
     }
 
     if (!cuaPassed) {
       await reportStatus(taskId, 'failed', { message: 'CUA verification did not pass after all rounds' });
-      return;
+      throw new TaskFailedError('CUA verification did not pass after all rounds');
     }
 
     // === Step 6: Upload Build ===
@@ -672,7 +678,7 @@ async function processTask(task) {
     const uploaded = await uploadBuild(taskId);
     if (!uploaded) {
       await reportStatus(taskId, 'failed', { message: 'Build upload failed' });
-      return;
+      throw new TaskFailedError('Build upload failed');
     }
 
     // === Step 7: Upload single-file HTMLs ===
@@ -699,8 +705,10 @@ async function processTask(task) {
     log('Task completed → reviewing', taskId);
 
   } catch (e) {
+    if (e instanceof TaskFailedError) throw e;
     log(`Task error: ${e.message}`, taskId);
     await reportStatus(taskId, 'failed', { message: 'Error: ' + e.message.slice(0, 300) });
+    throw new TaskFailedError(e.message);
   }
 }
 
@@ -711,7 +719,7 @@ async function processTaskCocos(task) {
 
   if (!cocosPatch || !cocosBuild) {
     await reportStatus(taskId, 'failed', { message: 'Cocos modules not available on this worker' });
-    return;
+    throw new TaskFailedError('Cocos modules not available on this worker');
   }
 
   try {
@@ -724,13 +732,13 @@ async function processTaskCocos(task) {
       const checkout = runCmd(`svn checkout ${SVN_FLAGS} "${svnUrl}" "${COCOS_PROJECT_DIR}"`, undefined, 600000);
       if (!checkout.ok) {
         await reportStatus(taskId, 'failed', { message: 'SVN checkout failed: ' + checkout.output.slice(0, 300) });
-        return;
+        throw new TaskFailedError('SVN checkout failed: ' + checkout.output.slice(0, 300));
       }
     } else {
       const update = runCmd(`svn update ${SVN_FLAGS}`, COCOS_PROJECT_DIR, 120000);
       if (!update.ok) {
         await reportStatus(taskId, 'failed', { message: 'SVN update failed: ' + update.output.slice(0, 300) });
-        return;
+        throw new TaskFailedError('SVN update failed: ' + update.output.slice(0, 300));
       }
       log('SVN update OK: ' + update.output.split('\n').pop(), taskId);
     }
@@ -774,7 +782,7 @@ async function processTaskCocos(task) {
     const scenes = cocosPatch.detectScenes(COCOS_PROJECT_DIR);
     if (scenes.length === 0) {
       await reportStatus(taskId, 'failed', { message: 'No scenes found' });
-      return;
+      throw new TaskFailedError('No scenes found');
     }
     log(`Detected ${scenes.length} scene(s)`, taskId);
     cocosPatch.fixProjectSettings(COCOS_PROJECT_DIR, scenes);
@@ -782,7 +790,7 @@ async function processTaskCocos(task) {
     const buildResult = await cocosBuild.runCocosBuild(COCOS_PROJECT_DIR, log, taskId);
     if (!buildResult.ok) {
       await reportStatus(taskId, 'failed', { message: 'Cocos build failed: ' + (buildResult.error || '').slice(0, 300) });
-      return;
+      throw new TaskFailedError('Cocos build failed: ' + (buildResult.error || '').slice(0, 300));
     }
     log(`Cocos build OK in ${buildResult.buildTime}s`, taskId);
 
@@ -821,11 +829,11 @@ async function processTaskCocos(task) {
       try { fs.rmSync(htmlOutputDir, { recursive: true, force: true }); } catch (e) {}
       if (!uploadOk) {
         await reportStatus(taskId, 'failed', { message: 'HTML upload failed' });
-        return;
+        throw new TaskFailedError('HTML upload failed');
       }
     } else {
       await reportStatus(taskId, 'failed', { message: 'No HTML output' });
-      return;
+      throw new TaskFailedError('No HTML output');
     }
 
     await reportStatus(taskId, 'reviewing', { message: `Cocos 构建完成 (${buildResult.buildTime}s)，等待审核` });
@@ -898,7 +906,7 @@ async function handleCommit(task) {
 
   if (!fs.existsSync(projectDir)) {
     await reportStatus(taskId, 'failed', { message: 'Working copy not found' });
-    return;
+    throw new TaskFailedError('Working copy not found');
   }
 
   // === Delete cache directories before commit ===
@@ -938,7 +946,7 @@ async function handleCommit(task) {
   if (!result.ok) {
     log(`SVN commit failed: ${result.output}`, taskId);
     await reportStatus(taskId, 'failed', { message: 'SVN commit failed: ' + result.output.slice(0, 200) });
-    return;
+    throw new TaskFailedError('SVN commit failed: ' + result.output.slice(0, 200));
   }
 
   let svnRevision = null;
@@ -969,12 +977,55 @@ async function poll() {
     if (activeTasks.has(task.taskId)) return;
 
     log(`Got task: ${task.taskId} (${task.status}), project: ${task.projectName || '?'}`, task.taskId);
-    activeTasks.set(task.taskId, { task, startedAt: Date.now() });
+    activeTasks.set(task.taskId, { task, startedAt: Date.now(), projectName: task.projectName });
+    notifyEvent(task.taskId, 'task_started', `开始处理: ${task.projectName || task.taskId}`, { projectName: task.projectName });
 
-    processTask(task)
-      .catch(e => log(`Unhandled error: ${e.message}`, task.taskId))
+    // Task execution with auto-retry + global timeout
+    const runWithRetry = async () => {
+      const taskTimeout = setTimeout(() => {
+        log(`⏰ Task timeout (${TASK_TIMEOUT_MS/60000}min)`, task.taskId);
+        notifyEvent(task.taskId, 'timeout', `任务超时 (${TASK_TIMEOUT_MS/60000}分钟)`, { projectName: task.projectName });
+      }, TASK_TIMEOUT_MS);
+      try {
+        await processTask(task);
+      } catch (e) {
+        clearTimeout(taskTimeout);
+        const retries = taskRetryCount.get(task.taskId) || 0;
+        if (retries < MAX_TASK_RETRIES && !e.noRetry) {
+          taskRetryCount.set(task.taskId, retries + 1);
+          const delay = (RETRY_DELAYS[retries] || 120) * 1000;
+          log(`🔄 Task retry ${retries + 1}/${MAX_TASK_RETRIES} in ${delay/1000}s: ${e.message.slice(0, 100)}`, task.taskId);
+          notifyEvent(task.taskId, 'task_retry',
+            `任务失败，${delay/1000}秒后自动重试 (${retries + 1}/${MAX_TASK_RETRIES}): ${e.message.slice(0, 100)}`,
+            { projectName: task.projectName });
+          await new Promise(r => setTimeout(r, delay));
+          // Clean CUA cache so retry goes full path (not resume)
+          try {
+            const cuaDir = path.join(__dirname, 'cua-results');
+            ['-cua.log', '-report.json'].forEach(suf => {
+              const f = path.join(cuaDir, task.taskId + suf);
+              if (fs.existsSync(f)) fs.unlinkSync(f);
+            });
+            log('Cleared CUA cache for fresh retry', task.taskId);
+          } catch(ce) {}
+          await processTask(task);
+        } else {
+          throw e;
+        }
+      } finally {
+        clearTimeout(taskTimeout);
+      }
+    };
+    runWithRetry()
+      .catch(e => {
+        log(`❌ Task failed permanently: ${e.message}`, task.taskId);
+        notifyEvent(task.taskId, 'task_failed_final',
+          `任务最终失败 (已重试${taskRetryCount.get(task.taskId) || 0}次): ${e.message.slice(0, 150)}`,
+          { projectName: task.projectName });
+      })
       .finally(() => {
         activeTasks.delete(task.taskId);
+        taskRetryCount.delete(task.taskId);
         log(`Task done. Slots: ${activeTasks.size}/${MAX_CONCURRENT}`, task.taskId);
       });
   } catch (e) {
