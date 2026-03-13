@@ -525,18 +525,77 @@ async function processTask(task) {
       log(`Luna patch error (non-fatal): ${patchErr.message}`, taskId);
     }
 
-    // === Step 5.6: Preview Health Check (构建产物快速健康检查，卡 loading 直接打回) ===
+    // === Step 5.6: Preview Health Check + Self-Heal Loop ===
+    // 白屏/黑屏/卡进度条/JS崩溃 → 反馈给 AI 增量修复 → 重新构建 → 再检查，最多 3 轮
     {
       const { runPreviewCheck } = require('./worker-preview-check.js');
-      const cuaStage4Pre = path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop');
-      const previewResult = await runPreviewCheck(cuaStage4Pre, taskId, log);
-      if (!previewResult.ok) {
-        const msg = `Preview health check failed: ${previewResult.error}`;
-        log(msg, taskId);
-        // Don't enter CUA - throw to trigger retry with fresh code generation
-        throw new TaskFailedError(msg);
+      const MAX_PREVIEW_FIX_ROUNDS = 3;
+
+      for (let previewRound = 1; previewRound <= MAX_PREVIEW_FIX_ROUNDS; previewRound++) {
+        const cuaStage4Pre = path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop');
+        const previewResult = await runPreviewCheck(cuaStage4Pre, taskId, log);
+
+        if (previewResult.ok) {
+          log(`[preview-check] PASSED (round ${previewRound}) - game loaded successfully`, taskId);
+          break;
+        }
+
+        log(`[preview-check] FAILED round ${previewRound}/${MAX_PREVIEW_FIX_ROUNDS}: ${previewResult.error}`, taskId);
+        if (previewResult.consoleErrors && previewResult.consoleErrors.length > 0) {
+          log(`[preview-check] JS errors: ${previewResult.consoleErrors.slice(0, 5).join(' | ').slice(0, 500)}`, taskId);
+        }
+
+        if (previewRound >= MAX_PREVIEW_FIX_ROUNDS) {
+          throw new TaskFailedError(`Preview health check failed after ${MAX_PREVIEW_FIX_ROUNDS} fix rounds: ${previewResult.error}`);
+        }
+
+        // === Self-heal: feed error back to AI coder for targeted fix ===
+        log(`[preview-check] Self-healing: feeding error to AI for fix (round ${previewRound})...`, taskId);
+        await reportStatus(taskId, 'processing', {
+          message: `预览检查失败(${previewResult.error?.slice(0, 50)})，AI 自修复中... (第${previewRound}/${MAX_PREVIEW_FIX_ROUNDS}轮)`
+        });
+
+        // Build feedback for AI coder
+        const previewFeedback = {
+          type: 'preview_health_check_failure',
+          round: previewRound,
+          error: previewResult.error,
+          consoleErrors: (previewResult.consoleErrors || []).slice(0, 10),
+          details: previewResult.details || {},
+          instruction: `游戏构建后预览检查失败。问题: ${previewResult.error}。` +
+            (previewResult.consoleErrors?.length ? `浏览器控制台错误: ${previewResult.consoleErrors.slice(0, 5).join('; ')}。` : '') +
+            `请检查并修复代码中导致此问题的原因。常见原因: Start()中有未捕获异常导致游戏无法初始化、死循环阻塞主线程、引用了不存在的资源、UI元素未正确创建。` +
+            `修复时保留已有代码结构，只修改导致问题的部分。`
+        };
+
+        // Inject feedback into blueprint for incremental fix
+        if (!blueprint.feedbackHistory) blueprint.feedbackHistory = [];
+        blueprint.feedbackHistory.push(previewFeedback);
+
+        // Re-generate code with feedback
+        const fixResult = await generateCode(blueprint, CLIENT_DIR, log, taskId, 'unity');
+        if (!fixResult || !fixResult.success) {
+          log(`[preview-check] AI fix failed, skipping to next round`, taskId);
+          continue;
+        }
+
+        // Re-build
+        log(`[preview-check] AI fix done, rebuilding...`, taskId);
+        const fixBuild = await runBridgeBuild(CLIENT_DIR, log, taskId);
+        if (!fixBuild.ok) {
+          log(`[preview-check] Rebuild failed: ${fixBuild.error}, trying next round`, taskId);
+          continue;
+        }
+
+        // Apply Luna patches again
+        try {
+          const { patchLunaBuild } = require('./worker-luna-patch.js');
+          patchLunaBuild(path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop'), log, taskId);
+        } catch(e) { /* non-fatal */ }
+
+        log(`[preview-check] Rebuild done, re-checking preview...`, taskId);
+        // Loop back to check again
       }
-      log('[preview-check] Passed - game loaded successfully, proceeding to CUA', taskId);
     }
 
     // === Step 5.7: CUA Verification Loop (GPT-5.4 操控验证 → 不通过则修复重试) ===

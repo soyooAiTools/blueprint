@@ -160,7 +160,7 @@ async function runPreviewCheck(stage4Dir, taskId, log) {
       log(`[preview-check] Console errors: ${errors.slice(0, 5).join(' | ').slice(0, 500)}`, taskId);
     }
 
-    return { ok, error: failReason || undefined, screenshotPath: ssPath, details: loadingCheck };
+    return { ok, error: failReason || undefined, screenshotPath: ssPath, details: loadingCheck, consoleErrors: errors };
 
   } catch (err) {
     log(`[preview-check] Error: ${err.message}`, taskId);
