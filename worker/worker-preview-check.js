@@ -1,0 +1,174 @@
+/**
+ * worker-preview-check.js
+ * 构建完成后、CUA 前的快速预览健康检查
+ * 用 Playwright 打开构建产物，检查是否卡在 loading/进度条
+ * 返回 { ok: boolean, error?: string, screenshot?: string }
+ */
+
+const { chromium } = require('playwright');
+const path = require('path');
+const fs = require('fs');
+const http = require('http');
+
+const PREVIEW_TIMEOUT = 15000; // 15秒加载超时
+const GAME_READY_TIMEOUT = 10000; // 游戏就绪等待
+
+/**
+ * 启动临时 HTTP 服务托管构建产物（如果 cua-service 不可用）
+ */
+function startTempServer(dir, port = 0) {
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      let filePath = path.join(dir, req.url === '/' ? 'iframe.html' : req.url);
+      if (!fs.existsSync(filePath)) { res.writeHead(404); res.end(); return; }
+      const ext = path.extname(filePath);
+      const types = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm' };
+      res.writeHead(200, { 'Content-Type': types[ext] || 'application/octet-stream' });
+      fs.createReadStream(filePath).pipe(res);
+    });
+    server.listen(port, '127.0.0.1', () => resolve(server));
+  });
+}
+
+/**
+ * 快速预览检查
+ * @param {string} stage4Dir - Luna stage4 构建输出目录
+ * @param {string} taskId - 任务 ID
+ * @param {Function} log - 日志函数
+ * @returns {{ ok: boolean, error?: string, screenshotPath?: string }}
+ */
+async function runPreviewCheck(stage4Dir, taskId, log) {
+  log('[preview-check] Starting quick preview health check...', taskId);
+
+  // Check if iframe.html exists
+  const iframePath = path.join(stage4Dir, 'iframe.html');
+  if (!fs.existsSync(iframePath)) {
+    return { ok: false, error: 'iframe.html not found in build output' };
+  }
+
+  // Start temp server
+  const server = await startTempServer(stage4Dir);
+  const port = server.address().port;
+  const url = `http://127.0.0.1:${port}/iframe.html`;
+
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+    const page = await browser.newPage({ viewport: { width: 960, height: 640 } });
+
+    // Collect console errors
+    const errors = [];
+    page.on('console', msg => {
+      if (msg.type() === 'error') errors.push(msg.text());
+    });
+    page.on('pageerror', err => errors.push(err.message));
+
+    // Navigate
+    await page.goto(url, { timeout: PREVIEW_TIMEOUT, waitUntil: 'domcontentloaded' });
+
+    // Wait for game to load
+    await page.waitForTimeout(8000);
+
+    // Take screenshot
+    const screenshotDir = path.join(path.dirname(stage4Dir), '..', 'worker', 'cua-results');
+    if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
+    const screenshotPath = path.join(screenshotDir, `${taskId}-preview.png`);
+    // Fallback to a simpler path
+    const ssPath = path.join(process.cwd(), 'cua-results', `${taskId}-preview.png`);
+    if (!fs.existsSync(path.dirname(ssPath))) fs.mkdirSync(path.dirname(ssPath), { recursive: true });
+    await page.screenshot({ path: ssPath });
+
+    // Check for stuck loading indicators
+    const loadingCheck = await page.evaluate(() => {
+      const body = document.body;
+      if (!body) return { stuck: true, reason: 'no body element' };
+
+      // Check for common loading indicators
+      const loadingElements = document.querySelectorAll('[class*="loading"], [class*="progress"], [id*="loading"], [id*="progress"]');
+      const visibleLoading = Array.from(loadingElements).filter(el => {
+        const style = window.getComputedStyle(el);
+        return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+      });
+
+      // Check for Unity/Luna loading bar
+      const unityLoader = document.querySelector('#unity-loading-bar, .unity-loader, #UnityLoading, .webgl-content .loading');
+      const lunaProgress = document.querySelector('.luna-loading, #luna-loading, [class*="luna"][class*="load"]');
+
+      // Check canvas existence and dimensions
+      const canvas = document.querySelector('canvas');
+      const hasCanvas = !!canvas;
+      let canvasInfo = null;
+      if (canvas) {
+        canvasInfo = { width: canvas.width, height: canvas.height };
+        // Try to check if canvas has content (not just black/white)
+        try {
+          const ctx = canvas.getContext('2d') || canvas.getContext('webgl') || canvas.getContext('webgl2');
+          if (ctx && ctx.getImageData) {
+            const data = ctx.getImageData(0, 0, Math.min(canvas.width, 100), Math.min(canvas.height, 100)).data;
+            const nonZero = data.some((v, i) => i % 4 !== 3 && v !== 0 && v !== 255);
+            canvasInfo.hasContent = nonZero;
+          }
+        } catch(e) { /* WebGL context, can't getImageData */ }
+      }
+
+      // Check if page is mostly empty (just a loading screen)
+      const textContent = document.body.innerText.trim();
+      const hasLoadingText = /loading|加载中|please wait|initializing/i.test(textContent);
+
+      return {
+        stuck: false,
+        visibleLoadingCount: visibleLoading.length,
+        hasUnityLoader: !!unityLoader,
+        hasLunaProgress: !!lunaProgress,
+        hasCanvas,
+        canvasInfo,
+        hasLoadingText,
+        bodyTextLength: textContent.length,
+        bodyText: textContent.slice(0, 200)
+      };
+    });
+
+    // Check for fatal JS errors
+    const fatalErrors = errors.filter(e => 
+      /uncaught|exception|cannot read|is not defined|is not a function|stack overflow|maximum call/i.test(e)
+    );
+
+    // Decision logic
+    let ok = true;
+    let failReason = '';
+
+    if (fatalErrors.length > 0) {
+      ok = false;
+      failReason = `Fatal JS errors: ${fatalErrors.slice(0, 3).join('; ').slice(0, 300)}`;
+    } else if (loadingCheck.hasLoadingText && !loadingCheck.hasCanvas) {
+      ok = false;
+      failReason = 'Page stuck on loading text, no game canvas found';
+    } else if (loadingCheck.hasUnityLoader || loadingCheck.hasLunaProgress) {
+      ok = false;
+      failReason = 'Unity/Luna loading indicator still visible after 8s';
+    } else if (!loadingCheck.hasCanvas) {
+      ok = false;
+      failReason = 'No canvas element found - game did not initialize';
+    } else if (loadingCheck.visibleLoadingCount > 0 && loadingCheck.hasLoadingText) {
+      ok = false;
+      failReason = `Loading indicators still visible (${loadingCheck.visibleLoadingCount} elements)`;
+    }
+
+    log(`[preview-check] Result: ${ok ? 'PASS' : 'FAIL'} | canvas=${loadingCheck.hasCanvas} | errors=${errors.length} | fatalErrors=${fatalErrors.length}${failReason ? ' | reason=' + failReason : ''}`, taskId);
+
+    if (errors.length > 0) {
+      log(`[preview-check] Console errors: ${errors.slice(0, 5).join(' | ').slice(0, 500)}`, taskId);
+    }
+
+    return { ok, error: failReason || undefined, screenshotPath: ssPath, details: loadingCheck };
+
+  } catch (err) {
+    log(`[preview-check] Error: ${err.message}`, taskId);
+    return { ok: false, error: `Preview check crashed: ${err.message}` };
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+    server.close();
+  }
+}
+
+module.exports = { runPreviewCheck };

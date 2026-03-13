@@ -525,7 +525,21 @@ async function processTask(task) {
       log(`Luna patch error (non-fatal): ${patchErr.message}`, taskId);
     }
 
-    // === Step 5.5b: CUA Verification Loop (GPT-5.4 操控验证 → 不通过则修复重试) ===
+    // === Step 5.6: Preview Health Check (构建产物快速健康检查，卡 loading 直接打回) ===
+    {
+      const { runPreviewCheck } = require('./worker-preview-check.js');
+      const cuaStage4Pre = path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop');
+      const previewResult = await runPreviewCheck(cuaStage4Pre, taskId, log);
+      if (!previewResult.ok) {
+        const msg = `Preview health check failed: ${previewResult.error}`;
+        log(msg, taskId);
+        // Don't enter CUA - throw to trigger retry with fresh code generation
+        throw new TaskFailedError(msg);
+      }
+      log('[preview-check] Passed - game loaded successfully, proceeding to CUA', taskId);
+    }
+
+    // === Step 5.7: CUA Verification Loop (GPT-5.4 操控验证 → 不通过则修复重试) ===
     let cuaPassed = false;
     
     for (let cuaRound = 1; cuaRound <= MAX_CUA_ROUNDS; cuaRound++) {
