@@ -1585,7 +1585,6 @@ function writeFiles(clientDir, files, log, taskId) {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     // Colors: AI is free to use any color. No auto-replacement.
     var content = files[i].content;
-    }
     fs.writeFileSync(fullPath, content, 'utf-8');
     log('[coder] Written: ' + fp, taskId);
   }
