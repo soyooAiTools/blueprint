@@ -190,6 +190,87 @@ async function runPreviewCheck(stage4Dir, taskId, log) {
       }
     }
 
+    // Scene object verification: check for visible text labels and color diversity
+    if (ok) {
+      try {
+        // Check if there are visible DOM text elements (floating labels created by AddLabel)
+        const sceneCheck = await page.evaluate(() => {
+          // In Luna WebGL, UI Text elements render on canvas, not DOM.
+          // But we can check the canvas pixel diversity more thoroughly
+          const canvas = document.querySelector('canvas');
+          if (!canvas) return { hasObjects: false, reason: 'no canvas' };
+          
+          const tempCanvas = document.createElement('canvas');
+          const w = Math.min(canvas.width, 400);
+          const h = Math.min(canvas.height, 400);
+          tempCanvas.width = w; tempCanvas.height = h;
+          const ctx = tempCanvas.getContext('2d');
+          try { ctx.drawImage(canvas, 0, 0, w, h); } catch(e) { return { hasObjects: false, reason: 'drawImage: ' + e.message }; }
+          const data = ctx.getImageData(0, 0, w, h).data;
+          
+          // Analyze color distribution in regions (divide into 4x4 grid)
+          const gridSize = 4;
+          const cellW = Math.floor(w / gridSize);
+          const cellH = Math.floor(h / gridSize);
+          const regionColors = [];
+          
+          for (let gy = 0; gy < gridSize; gy++) {
+            for (let gx = 0; gx < gridSize; gx++) {
+              const colorSet = new Set();
+              for (let y = gy * cellH; y < (gy + 1) * cellH; y += 4) {
+                for (let x = gx * cellW; x < (gx + 1) * cellW; x += 4) {
+                  const i = (y * w + x) * 4;
+                  // Quantize to reduce noise (bucket by 32)
+                  const r = Math.floor(data[i] / 32);
+                  const g = Math.floor(data[i+1] / 32);
+                  const b = Math.floor(data[i+2] / 32);
+                  colorSet.add(r + ',' + g + ',' + b);
+                }
+              }
+              regionColors.push(colorSet.size);
+            }
+          }
+          
+          // Count how many regions have >2 colors (meaning objects are there)
+          const activeRegions = regionColors.filter(c => c > 2).length;
+          // Total unique colors across entire image
+          const totalColors = new Set();
+          for (let i = 0; i < data.length; i += 16) {
+            const r = Math.floor(data[i] / 32);
+            const g = Math.floor(data[i+1] / 32);
+            const b = Math.floor(data[i+2] / 32);
+            totalColors.add(r + ',' + g + ',' + b);
+          }
+          
+          // Check for white/light colored text pixels (labels are usually white text)
+          let textPixelCount = 0;
+          for (let i = 0; i < data.length; i += 4) {
+            if (data[i] > 220 && data[i+1] > 220 && data[i+2] > 220) textPixelCount++;
+          }
+          const textRatio = textPixelCount / (w * h);
+          
+          return {
+            hasObjects: activeRegions >= 4 && totalColors.size >= 8,
+            activeRegions,
+            totalRegions: gridSize * gridSize,
+            totalUniqueColors: totalColors.size,
+            textPixelRatio: textRatio.toFixed(4),
+            hasTextLabels: textRatio > 0.005, // At least 0.5% white pixels = likely has text labels
+            regionColorCounts: regionColors
+          };
+        });
+        
+        log(`[preview-check] Scene analysis: ${sceneCheck.activeRegions}/${sceneCheck.totalRegions} active regions, ${sceneCheck.totalUniqueColors} colors, text=${sceneCheck.hasTextLabels} (${sceneCheck.textPixelRatio})`, taskId);
+        
+        if (!sceneCheck.hasObjects) {
+          ok = false;
+          failReason = `Scene too empty: only ${sceneCheck.activeRegions}/${sceneCheck.totalRegions} regions have objects, ${sceneCheck.totalUniqueColors} unique colors. Game objects not rendered properly. AI must create visible objects with DISTINCT colors and text labels.`;
+        }
+      } catch(sceneErr) {
+        log(`[preview-check] Scene analysis skipped: ${sceneErr.message}`, taskId);
+      }
+    }
+
     log(`[preview-check] Result: ${ok ? 'PASS' : 'FAIL'} | canvas=${loadingCheck.hasCanvas} | errors=${errors.length} | fatalErrors=${fatalErrors.length}${failReason ? ' | reason=' + failReason : ''}`, taskId);
 
     if (errors.length > 0) {
