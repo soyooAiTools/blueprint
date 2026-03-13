@@ -67,7 +67,7 @@ function notifyEvent(taskId, event, message, extra) {
 // ============ Resilience Config ============
 const MAX_TASK_RETRIES = 3;
 const RETRY_DELAYS = [30, 60, 120];
-const MAX_CUA_ROUNDS = 5;
+const MAX_CUA_ROUNDS = 20; // Keep trying until pass. Nick: "不接受几轮没好就直接报终止"
 const TASK_TIMEOUT_MS = 45 * 60 * 1000;
 const TRANSIENT_RETRIES = 3;
 const taskRetryCount = new Map();

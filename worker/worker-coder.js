@@ -199,7 +199,7 @@ var GENERATE_PROMPT = [
   '}',
   '```',
   '- Pool limits: Cube=50, Sphere=20, Plane=10, Cylinder=10. Plan your objects within these limits.',
-  '- GFM_Create.SetColor(obj, color) to change material color (gray only: new Color(0.5f, 0.5f, 0.5f))',
+  '- GFM_Create.SetColor(obj, new Color(r, g, b)) to change material color. Use distinct colors for different object types (e.g. brown for wood, green for trees, blue for water, red for enemies).',
   '- NEVER use Shader.Find() or new Material(shader) directly',
   '',
   '### MUST do:',
@@ -291,10 +291,9 @@ var GENERATE_PROMPT = [
   '    if (anyRenderer != null) _baseMat = new Material(anyRenderer.sharedMaterial);',
   '}',
   'if (_baseMat == null) _baseMat = new Material(Shader.Find("Standard"));',
-  'if (_baseMat != null) { _baseMat.mainTexture = null; _baseMat.color = new Color(0.5f, 0.5f, 0.5f); }',
+  'if (_baseMat != null) { _baseMat.mainTexture = null; }',
   '',
-  '// IMPORTANT: ALL 3D objects MUST use this gray material. Apply _baseMat to every',
-  '// Renderer you create. Do NOT use Color.white or custom colors for materials.',
+  '// _baseMat is the base material. Use GFM_Create.SetColor(obj, color) to set distinct colors per object.',
   '',
   '// Scene is clean — start creating your game objects directly',
   '// No need to hide template objects (scene only has Camera, Light, EventSystem)',
@@ -603,8 +602,8 @@ var FIX_PROMPT = [
   '- Do NOT use [RuntimeInitializeOnLoadMethod] — Luna ignores it',
   '- The main controller script is GameFlowManagerMain.cs — keep its class name `GameFlowManagerMain`',
   '- The scene is CLEAN — all game objects are created from code, do NOT use GameObject.Find() for template objects',
-  '- Materials: grab from __MaterialSource: `var ms = GameObject.Find("__MaterialSource"); _baseMat = new Material(ms.GetComponent<Renderer>().sharedMaterial); _baseMat.mainTexture = null; _baseMat.color = new Color(0.5f, 0.5f, 0.5f);`',
-  '- GFM_Create.Obj() auto-assigns gray material — no manual material assignment needed for pool objects',
+  '- Materials: grab from __MaterialSource: `var ms = GameObject.Find("__MaterialSource"); _baseMat = new Material(ms.GetComponent<Renderer>().sharedMaterial); _baseMat.mainTexture = null;`',
+  '- GFM_Create.Obj() auto-assigns base material. Use GFM_Create.SetColor(obj, color) to give each object a distinct color.',
   '- If a fix requires new visible objects, use GFM_Create.Obj() — NOT CreatePrimitive (invisible in Luna)',
   '- Do NOT reintroduce dependencies on template scene objects that were cleared',
   '',
@@ -1154,7 +1153,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       + '4. Keep all working code intact — do NOT remove or rewrite unrelated sections\n'
       + '5. Output the COMPLETE updated file (with changes applied)\n'
       + '6. The scene MAY contain template objects — Start() MUST begin with cleanup: destroy all root objects except {"Main Camera","Directional Light","EventSystem","GameManager","__MaterialSource"}\n'
-      + '7. ALL 3D objects MUST use gray material: _baseMat.color = new Color(0.5f, 0.5f, 0.5f). FORBIDDEN: Color.white, Color.red, Color.blue, or any color other than new Color(0.5f, 0.5f, 0.5f).\n'
+      + '7. Use GFM_Create.SetColor(obj, new Color(r,g,b)) to give objects distinct colors (e.g. brown=0.6,0.3,0.1 for wood, green=0.2,0.6,0.2 for trees, red=0.8,0.2,0.2 for enemies). Do NOT make everything the same color.\n'
       + '8. ⛔ EXCEPTION TO "minimal changes": If the code uses StartCoroutine/IEnumerator/WaitForSeconds/WaitUntil/yield, you MUST rewrite ALL shot logic as an Update()-based state machine (_currentShot + _shotState + _shotTimer in switch/case). Coroutines do NOT work in Luna WebGL runtime injection.\n'
       + '9. Auto-play: Update() must include auto-play logic — if no joystick input for 2s, auto-move player toward _currentTarget.\n\n'
       + 'Apply the feedback fixes to the existing code. Preserve everything that works EXCEPT coroutines which must be rewritten.';
@@ -1168,7 +1167,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       + parsed.feedbackText
       + '\n\n## IMPORTANT REMINDERS:\n'
       + '1. Start() MUST begin with scene cleanup: destroy all root objects except {"Main Camera","Directional Light","EventSystem","GameManager","__MaterialSource"}\n'
-      + '2. ALL 3D objects MUST use gray material: _baseMat.color = new Color(0.5f, 0.5f, 0.5f). FORBIDDEN colors: Color.white, Color.red, Color.blue, Color.green, Color.yellow, Color.black, Color.cyan, Color.magenta, new Color(1f,...), new Color(0f,...). The ONLY allowed color is new Color(0.5f, 0.5f, 0.5f).\n'
+      + '2. Use GFM_Create.SetColor(obj, new Color(r,g,b)) with distinct colors for different object types. Ground=dark green/brown, buildings=tan/brown, player=blue, enemies=red, trees=green, UI=white. Make the scene visually readable.\n'
       + '3. BUILD everything using GFM_Create.Obj() for 3D objects (from scene pool), new GameObject for empty parents, UI components for HUD\n'
       + '4. You CAN call utility classes from the template (DOTween, PoolManager, etc.)\n'
       + '5. Do NOT copy SLG/idle game logic — implement the BLUEPRINT logic\n'
@@ -1584,29 +1583,8 @@ function writeFiles(clientDir, files, log, taskId) {
     var fullPath = path.join(clientDir, fp);
     var dir = path.dirname(fullPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    // Auto-fix forbidden colors → gray (0.5f, 0.5f, 0.5f)
+    // Colors: AI is free to use any color. No auto-replacement.
     var content = files[i].content;
-    if (fp.endsWith('.cs')) {
-      var colorFixed = false;
-      var forbiddenColors = [
-        [/\.color\s*=\s*Color\.white/g, '.color = new Color(0.5f, 0.5f, 0.5f)'],
-        [/\.color\s*=\s*Color\.red/g, '.color = new Color(0.5f, 0.5f, 0.5f)'],
-        [/\.color\s*=\s*Color\.blue/g, '.color = new Color(0.5f, 0.5f, 0.5f)'],
-        [/\.color\s*=\s*Color\.green/g, '.color = new Color(0.5f, 0.5f, 0.5f)'],
-        [/\.color\s*=\s*Color\.yellow/g, '.color = new Color(0.5f, 0.5f, 0.5f)'],
-        [/\.color\s*=\s*Color\.black/g, '.color = new Color(0.5f, 0.5f, 0.5f)'],
-        [/\.color\s*=\s*Color\.cyan/g, '.color = new Color(0.5f, 0.5f, 0.5f)'],
-        [/\.color\s*=\s*Color\.magenta/g, '.color = new Color(0.5f, 0.5f, 0.5f)'],
-        [/\.color\s*=\s*new\s+Color\s*\(\s*1f?\s*,/g, '.color = new Color(0.5f,'],
-        [/\.color\s*=\s*new\s+Color\s*\(\s*0f?\s*,\s*0f?\s*,\s*0f?/g, '.color = new Color(0.5f, 0.5f, 0.5f'],
-      ];
-      for (var fc = 0; fc < forbiddenColors.length; fc++) {
-        if (forbiddenColors[fc][0].test(content)) {
-          content = content.replace(forbiddenColors[fc][0], forbiddenColors[fc][1]);
-          colorFixed = true;
-        }
-      }
-      if (colorFixed) log('[coder] Auto-fixed forbidden colors → gray in ' + fp, taskId);
     }
     fs.writeFileSync(fullPath, content, 'utf-8');
     log('[coder] Written: ' + fp, taskId);

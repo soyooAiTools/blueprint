@@ -154,6 +154,42 @@ async function runPreviewCheck(stage4Dir, taskId, log) {
       failReason = `Loading indicators still visible (${loadingCheck.visibleLoadingCount} elements)`;
     }
 
+    // Screenshot pixel analysis: detect blank/uniform scenes (all same color = nothing rendered)
+    if (ok) {
+      try {
+        const screenshot = await page.screenshot({ type: 'png' });
+        const pixels = screenshot; // raw PNG buffer
+        // Sample center region of canvas via page.evaluate
+        const pixelCheck = await page.evaluate(() => {
+          const canvas = document.querySelector('canvas');
+          if (!canvas) return { uniform: false, reason: 'no canvas' };
+          // Try to get pixel data from a 2D snapshot
+          const tempCanvas = document.createElement('canvas');
+          const w = Math.min(canvas.width, 200);
+          const h = Math.min(canvas.height, 200);
+          tempCanvas.width = w; tempCanvas.height = h;
+          const ctx = tempCanvas.getContext('2d');
+          try { ctx.drawImage(canvas, 0, 0, w, h); } catch(e) { return { uniform: false, reason: 'drawImage failed: ' + e.message }; }
+          const data = ctx.getImageData(0, 0, w, h).data;
+          // Count unique colors (sample every 4th pixel)
+          const colorSet = new Set();
+          for (let i = 0; i < data.length; i += 16) {
+            const key = data[i] + ',' + data[i+1] + ',' + data[i+2];
+            colorSet.add(key);
+            if (colorSet.size > 10) break; // enough variety
+          }
+          return { uniqueColors: colorSet.size, uniform: colorSet.size <= 3 };
+        });
+        if (pixelCheck.uniform) {
+          ok = false;
+          failReason = `Scene appears blank/uniform (only ${pixelCheck.uniqueColors} unique colors). Game objects may not have rendered.`;
+        }
+        log(`[preview-check] Pixel analysis: ${pixelCheck.uniqueColors} unique colors${pixelCheck.uniform ? ' (UNIFORM - likely empty scene)' : ''}`, taskId);
+      } catch(pixErr) {
+        log(`[preview-check] Pixel analysis skipped: ${pixErr.message}`, taskId);
+      }
+    }
+
     log(`[preview-check] Result: ${ok ? 'PASS' : 'FAIL'} | canvas=${loadingCheck.hasCanvas} | errors=${errors.length} | fatalErrors=${fatalErrors.length}${failReason ? ' | reason=' + failReason : ''}`, taskId);
 
     if (errors.length > 0) {
