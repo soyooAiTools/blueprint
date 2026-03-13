@@ -154,111 +154,79 @@ async function runPreviewCheck(stage4Dir, taskId, log) {
       failReason = `Loading indicators still visible (${loadingCheck.visibleLoadingCount} elements)`;
     }
 
-    // Screenshot pixel analysis: detect blank/uniform scenes (all same color = nothing rendered)
-    if (ok) {
-      try {
-        const screenshot = await page.screenshot({ type: 'png' });
-        const pixels = screenshot; // raw PNG buffer
-        // Sample center region of canvas via page.evaluate
-        const pixelCheck = await page.evaluate(() => {
-          const canvas = document.querySelector('canvas');
-          if (!canvas) return { uniform: false, reason: 'no canvas' };
-          // Try to get pixel data from a 2D snapshot
-          const tempCanvas = document.createElement('canvas');
-          const w = Math.min(canvas.width, 200);
-          const h = Math.min(canvas.height, 200);
-          tempCanvas.width = w; tempCanvas.height = h;
-          const ctx = tempCanvas.getContext('2d');
-          try { ctx.drawImage(canvas, 0, 0, w, h); } catch(e) { return { uniform: false, reason: 'drawImage failed: ' + e.message }; }
-          const data = ctx.getImageData(0, 0, w, h).data;
-          // Count unique colors (sample every 4th pixel)
-          const colorSet = new Set();
-          for (let i = 0; i < data.length; i += 16) {
-            const key = data[i] + ',' + data[i+1] + ',' + data[i+2];
-            colorSet.add(key);
-            if (colorSet.size > 10) break; // enough variety
-          }
-          return { uniqueColors: colorSet.size, uniform: colorSet.size <= 3 };
-        });
-        if (pixelCheck.uniform) {
-          ok = false;
-          failReason = `Scene appears blank/uniform (only ${pixelCheck.uniqueColors} unique colors). Game objects may not have rendered.`;
-        }
-        log(`[preview-check] Pixel analysis: ${pixelCheck.uniqueColors} unique colors${pixelCheck.uniform ? ' (UNIFORM - likely empty scene)' : ''}`, taskId);
-      } catch(pixErr) {
-        log(`[preview-check] Pixel analysis skipped: ${pixErr.message}`, taskId);
-      }
-    }
+    // NOTE: WebGL canvas drawImage returns all-black (preserveDrawingBuffer=false).
+    // Must use page.screenshot() for pixel analysis — it captures the compositor output.
 
-    // Scene object verification: check for visible text labels and color diversity
+    // Scene object verification via Playwright screenshot (NOT drawImage — WebGL preserveDrawingBuffer=false)
     if (ok) {
       try {
-        // Check if there are visible DOM text elements (floating labels created by AddLabel)
-        const sceneCheck = await page.evaluate(() => {
-          // In Luna WebGL, UI Text elements render on canvas, not DOM.
-          // But we can check the canvas pixel diversity more thoroughly
-          const canvas = document.querySelector('canvas');
-          if (!canvas) return { hasObjects: false, reason: 'no canvas' };
+        // Use sharp or raw PNG parsing to analyze the screenshot pixels
+        // Since we may not have sharp, use a second page with the screenshot loaded as an image
+        const screenshotBuf = await page.screenshot({ type: 'png' });
+        
+        // Open a new page, load the screenshot as an image, then analyze via canvas 2D
+        const page2 = await browser.newPage();
+        const b64 = screenshotBuf.toString('base64');
+        await page2.setContent(`<canvas id="c"></canvas><script>
+          var img = new Image();
+          img.onload = function() {
+            var c = document.getElementById('c');
+            c.width = img.width; c.height = img.height;
+            c.getContext('2d').drawImage(img, 0, 0);
+            window.__ready = true;
+          };
+          img.src = 'data:image/png;base64,${b64}';
+        </script>`);
+        await page2.waitForFunction('window.__ready', { timeout: 5000 });
+        
+        const sceneCheck = await page2.evaluate(() => {
+          var c = document.getElementById('c');
+          var ctx = c.getContext('2d');
+          var w = c.width, h = c.height;
+          var data = ctx.getImageData(0, 0, w, h).data;
           
-          const tempCanvas = document.createElement('canvas');
-          const w = Math.min(canvas.width, 400);
-          const h = Math.min(canvas.height, 400);
-          tempCanvas.width = w; tempCanvas.height = h;
-          const ctx = tempCanvas.getContext('2d');
-          try { ctx.drawImage(canvas, 0, 0, w, h); } catch(e) { return { hasObjects: false, reason: 'drawImage: ' + e.message }; }
-          const data = ctx.getImageData(0, 0, w, h).data;
-          
-          // Analyze color distribution in regions (divide into 4x4 grid)
-          const gridSize = 4;
-          const cellW = Math.floor(w / gridSize);
-          const cellH = Math.floor(h / gridSize);
-          const regionColors = [];
-          
-          for (let gy = 0; gy < gridSize; gy++) {
-            for (let gx = 0; gx < gridSize; gx++) {
-              const colorSet = new Set();
-              for (let y = gy * cellH; y < (gy + 1) * cellH; y += 4) {
-                for (let x = gx * cellW; x < (gx + 1) * cellW; x += 4) {
-                  const i = (y * w + x) * 4;
-                  // Quantize to reduce noise (bucket by 32)
-                  const r = Math.floor(data[i] / 32);
-                  const g = Math.floor(data[i+1] / 32);
-                  const b = Math.floor(data[i+2] / 32);
-                  colorSet.add(r + ',' + g + ',' + b);
+          // 4x4 grid region analysis
+          var gridSize = 4;
+          var cellW = Math.floor(w / gridSize), cellH = Math.floor(h / gridSize);
+          var regionColors = [];
+          for (var gy = 0; gy < gridSize; gy++) {
+            for (var gx = 0; gx < gridSize; gx++) {
+              var colorSet = new Set();
+              for (var y = gy * cellH; y < (gy + 1) * cellH; y += 4) {
+                for (var x = gx * cellW; x < (gx + 1) * cellW; x += 4) {
+                  var i = (y * w + x) * 4;
+                  colorSet.add(Math.floor(data[i]/32) + ',' + Math.floor(data[i+1]/32) + ',' + Math.floor(data[i+2]/32));
                 }
               }
               regionColors.push(colorSet.size);
             }
           }
           
-          // Count how many regions have >2 colors (meaning objects are there)
-          const activeRegions = regionColors.filter(c => c > 2).length;
-          // Total unique colors across entire image
-          const totalColors = new Set();
-          for (let i = 0; i < data.length; i += 16) {
-            const r = Math.floor(data[i] / 32);
-            const g = Math.floor(data[i+1] / 32);
-            const b = Math.floor(data[i+2] / 32);
-            totalColors.add(r + ',' + g + ',' + b);
+          var activeRegions = regionColors.filter(function(c) { return c > 2; }).length;
+          var totalColors = new Set();
+          for (var i = 0; i < data.length; i += 16) {
+            totalColors.add(Math.floor(data[i]/32) + ',' + Math.floor(data[i+1]/32) + ',' + Math.floor(data[i+2]/32));
           }
           
-          // Check for white/light colored text pixels (labels are usually white text)
-          let textPixelCount = 0;
-          for (let i = 0; i < data.length; i += 4) {
-            if (data[i] > 220 && data[i+1] > 220 && data[i+2] > 220) textPixelCount++;
+          // White text pixel detection
+          var textPixels = 0;
+          for (var i = 0; i < data.length; i += 4) {
+            if (data[i] > 220 && data[i+1] > 220 && data[i+2] > 220) textPixels++;
           }
-          const textRatio = textPixelCount / (w * h);
+          var textRatio = textPixels / (w * h);
           
           return {
             hasObjects: activeRegions >= 4 && totalColors.size >= 8,
-            activeRegions,
+            activeRegions: activeRegions,
             totalRegions: gridSize * gridSize,
             totalUniqueColors: totalColors.size,
             textPixelRatio: textRatio.toFixed(4),
-            hasTextLabels: textRatio > 0.005, // At least 0.5% white pixels = likely has text labels
+            hasTextLabels: textRatio > 0.005,
             regionColorCounts: regionColors
           };
         });
+        
+        await page2.close();
         
         log(`[preview-check] Scene analysis: ${sceneCheck.activeRegions}/${sceneCheck.totalRegions} active regions, ${sceneCheck.totalUniqueColors} colors, text=${sceneCheck.hasTextLabels} (${sceneCheck.textPixelRatio})`, taskId);
         
@@ -267,7 +235,7 @@ async function runPreviewCheck(stage4Dir, taskId, log) {
           failReason = `Scene too empty: only ${sceneCheck.activeRegions}/${sceneCheck.totalRegions} regions have objects, ${sceneCheck.totalUniqueColors} unique colors. Game objects not rendered properly. AI must create visible objects with DISTINCT colors and text labels.`;
         }
       } catch(sceneErr) {
-        log(`[preview-check] Scene analysis skipped: ${sceneErr.message}`, taskId);
+        log(`[preview-check] Scene analysis error: ${sceneErr.message}`, taskId);
       }
     }
 
