@@ -160,6 +160,10 @@ var GENERATE_PROMPT = [
   'ALL visible 3D objects MUST be created using GFM_Create.Obj() or GFM_Create.Ground().',
   'CreatePrimitive() and new GameObject() with mesh/renderer are FORBIDDEN — they produce INVISIBLE objects in Luna WebGL.',
   '',
+  'AVAILABLE GFM_ classes (DO NOT invent others): GFM_Create, GFM_UI, GFM_Utils, GFM_Audio, GFM_Pool, GFM_Event, GFM_Luna, GFM_Joystick, GFM_Grid, GFM_Pathfinding, GFM_ReturnTimer.',
+  'GFM_Billboard does NOT exist. Do NOT reference any GFM_ class not in this list.',
+  'Do NOT modify GFM_Tools.cs — it is a read-only toolkit file.',
+  '',
   'In Start(), BEFORE creating any objects, you MUST call:',
   '  GFM_Create.InitMaterialFromScene();',
   '  GFM_Create.ResetPool();',
@@ -830,6 +834,15 @@ function tryCompileUnity(clientDir, log, taskId) {
       } catch(e) {}
     });
   });
+
+  // MANDATORY: Restore original GFM_Tools.cs before every build
+  // AI fix attempts may overwrite it with broken versions
+  var gfmSrcBuild = path.join(path.dirname(__filename), 'GFM_Tools.cs');
+  var gfmDstBuild = path.join(clientDir, 'Assets', 'Program', 'Script', 'GFM_Tools.cs');
+  if (fs.existsSync(gfmSrcBuild)) {
+    fs.copyFileSync(gfmSrcBuild, gfmDstBuild);
+    log('[coder] GFM_Tools.cs restored from original (pre-build)', taskId);
+  }
 
   // Fix known CS0101 conflicts BEFORE build (both jake and MSBuild)
   // EventPool.cs in template conflicts with AI-generated EventPool — stub it
