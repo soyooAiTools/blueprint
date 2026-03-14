@@ -1549,6 +1549,40 @@ function verifyCodeContent(clientDir, parsed, log, taskId) {
     issues.push('No GameEnded() call found — Luna lifecycle not properly handled.');
   }
 
+  // Check 7: MUST use GFM_Create.Obj() for 3D objects — CreatePrimitive and new GameObject are INVISIBLE in Luna
+  var gfmCreateObjCount = 0;
+  var searchIdx = -1;
+  while ((searchIdx = code.indexOf('GFM_Create.Obj', searchIdx + 1)) >= 0) gfmCreateObjCount++;
+  var gfmGroundCount = 0;
+  searchIdx = -1;
+  while ((searchIdx = code.indexOf('GFM_Create.Ground', searchIdx + 1)) >= 0) gfmGroundCount++;
+  var totalGfmCreate = gfmCreateObjCount + gfmGroundCount;
+  if (totalGfmCreate < 3) {
+    issues.push('CRITICAL: Only ' + totalGfmCreate + ' GFM_Create.Obj/Ground calls found (minimum 3). '
+      + 'You MUST use GFM_Create.Obj() to create ALL visible 3D objects — '
+      + 'CreatePrimitive() and new GameObject() produce INVISIBLE objects in Luna WebGL. '
+      + 'The scene has a pre-placed object pool (50 Cubes, 20 Spheres, 10 Planes, 10 Cylinders). '
+      + 'Use GFM_Create.Obj(PrimitiveType.Cube, pos, scale, "label") for every visible object.');
+    log('[coder] FAIL: Only ' + totalGfmCreate + ' GFM_Create calls (need >= 3). AI used new GameObject/CreatePrimitive instead.', taskId);
+  }
+
+  // Check 8: Reject CreatePrimitive usage entirely
+  var createPrimCount = 0;
+  searchIdx = -1;
+  while ((searchIdx = code.indexOf('CreatePrimitive', searchIdx + 1)) >= 0) createPrimCount++;
+  if (createPrimCount > 0) {
+    issues.push('FORBIDDEN: Found ' + createPrimCount + ' CreatePrimitive() calls. '
+      + 'CreatePrimitive is INVISIBLE in Luna WebGL — replace ALL with GFM_Create.Obj().');
+  }
+
+  // Check 9: Must call GFM_Create.InitMaterialFromScene() and GFM_Create.ResetPool() in Start()
+  if (code.indexOf('GFM_Create.InitMaterialFromScene') < 0) {
+    issues.push('Missing GFM_Create.InitMaterialFromScene() call — must be called at start of Start() to initialize materials.');
+  }
+  if (code.indexOf('GFM_Create.ResetPool') < 0) {
+    issues.push('Missing GFM_Create.ResetPool() call — must be called at start of Start() to reset object pool counters.');
+  }
+
   if (issues.length > 0) {
     return { ok: false, reason: issues.join('\n'), missingShots: missingShots };
   }
