@@ -295,6 +295,22 @@ window.addEventListener("luna:started", function() {
     var go = new UnityEngine.GameObject.ctor("GameManager");
     var comp = go.AddComponent(GameFlowManagerMain);
     if (comp && comp.Start) { try { comp.Start(); } catch(se) { console.error("[AI] Start() error:", se); } }
+    // Luna injection: Update() is NOT called automatically by Unity runtime
+    // Must manually drive the game loop via requestAnimationFrame
+    if (comp && comp.Update) {
+      var lastTime = performance.now();
+      function gameLoop() {
+        var now = performance.now();
+        var dt = (now - lastTime) / 1000.0;
+        lastTime = now;
+        // Set Time.deltaTime for the frame (Luna exposes this)
+        try { if (UnityEngine.Time) UnityEngine.Time.deltaTime = dt; } catch(e) {}
+        try { comp.Update(); } catch(e) { /* silent — Update errors are common during transitions */ }
+        requestAnimationFrame(gameLoop);
+      }
+      requestAnimationFrame(gameLoop);
+      console.log("[AI] Update() loop started via requestAnimationFrame");
+    }
     console.log("[AI] GameFlowManagerMain injected successfully");
   } catch(e) { console.error("[AI] Failed to inject GameFlowManagerMain:", e); }
 });
