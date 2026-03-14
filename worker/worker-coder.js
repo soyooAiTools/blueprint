@@ -1210,6 +1210,36 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
     if (files.length === 0) return { ok: false, error: 'No code blocks' };
     writeFiles(clientDir, files, log, taskId);
 
+    // Pre-build content check: verify GFM_Create usage BEFORE attempting build
+    // This catches the common case where AI ignores GFM_Create.Obj and uses new GameObject/CreatePrimitive
+    var preCheck = verifyCodeContent(clientDir, parsed, log, taskId);
+    if (!preCheck.ok && preCheck.reason && preCheck.reason.indexOf('GFM_Create') >= 0) {
+      log('[coder] ⚠️ Pre-build content check FAILED: ' + preCheck.reason.substring(0, 200), taskId);
+      var currentCode = readScripts(clientDir);
+      var preFixMsg = '## Pre-Build Content Check FAILED\n'
+        + 'Your code has NOT been compiled yet because it fails mandatory checks:\n\n'
+        + preCheck.reason + '\n\n'
+        + '## Current Code:\n' + currentCode + '\n\n'
+        + '## Fix Requirements:\n'
+        + '- Replace ALL new GameObject() with GFM_Create.Obj(PrimitiveType.Cube, pos, scale, "label")\n'
+        + '- Replace ALL CreatePrimitive() with GFM_Create.Obj()\n'
+        + '- Call GFM_Create.InitMaterialFromScene() and GFM_Create.ResetPool() at start of Start()\n'
+        + '- Use GFM_Create.Ground(width, depth) for ground planes\n'
+        + '- Use GFM_Create.SetColor(obj, color) to color objects\n\n'
+        + 'Output the COMPLETE fixed GameFlowManagerMain.cs.';
+      var preFixResponse = await callClaude(sysPrompt, preFixMsg, 300000, MODEL_FIX);
+      log('[coder] Pre-build fix response (' + (preFixResponse.usage ? preFixResponse.usage.output_tokens + ' tokens' : 'ok') + ')', taskId);
+      var preFixFiles = parseBlocks(preFixResponse.text);
+      if (preFixFiles.length > 0) {
+        var preFixMain = preFixFiles.find(function(f) { return f.path.indexOf('GameFlowManagerMain') >= 0; });
+        if (preFixMain) {
+          var preFixPath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
+          fs.writeFileSync(preFixPath, preFixMain.content);
+          log('[coder] Pre-build fix applied', taskId);
+        }
+      }
+    }
+
     var prevErrorSig = '';
     var sameErrorCount = 0;
     var MAX_COMPILE_ATTEMPTS = MAX_FIX_ATTEMPTS; // compile fix budget (separate from content)
