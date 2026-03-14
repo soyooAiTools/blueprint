@@ -298,29 +298,36 @@ window.addEventListener("luna:started", function() {
     // Fix null shaders: Luna's __MaterialSource sharedMaterial has null shader after serialization
     // GFM_Create copies _baseMat from it, so all pool objects get null shader = invisible
     // Fix: recreate materials with URP/Lit shader, preserving original colors
-    try {
-      var fixShader = UnityEngine.Shader.Find("Universal Render Pipeline/Lit") || UnityEngine.Shader.Find("Standard");
-      if (fixShader) {
-        if (GFM_Create && GFM_Create._baseMat && !GFM_Create._baseMat.shader) {
-          GFM_Create._baseMat = new UnityEngine.Material.$ctor2(fixShader);
-          GFM_Create._baseMat.color = new pc.Color(1, 1, 1, 1);
-        }
-        var allRoots = UnityEngine.SceneManagement.SceneManager.GetActiveScene().getRootGameObjects();
-        var shaderFixed = 0;
-        for (var ri = 0; ri < allRoots.length; ri++) {
-          var rObj = allRoots[ri];
-          var rr = rObj.GetComponent(UnityEngine.MeshRenderer);
-          if (rr && UnityEngine.Component.op_Inequality(rr, null) && rr.material && !rr.material.shader) {
-            var origColor = rr.material.color || new pc.Color(1, 1, 1, 1);
-            var fixMat = new UnityEngine.Material.$ctor2(fixShader);
-            fixMat.color = new pc.Color(origColor.r, origColor.g, origColor.b, origColor.a || 1);
-            rr.material = fixMat;
-            shaderFixed++;
+    // MUST be delayed — PlayCanvas render pipeline needs a few seconds to stabilize before material reassignment triggers dirty flags
+    function fixNullShaders() {
+      try {
+        var fixShader = UnityEngine.Shader.Find("Universal Render Pipeline/Lit") || UnityEngine.Shader.Find("Standard");
+        if (fixShader) {
+          if (GFM_Create && GFM_Create._baseMat && !GFM_Create._baseMat.shader) {
+            GFM_Create._baseMat = new UnityEngine.Material.$ctor2(fixShader);
+            GFM_Create._baseMat.color = new pc.Color(1, 1, 1, 1);
           }
+          var allRoots = UnityEngine.SceneManagement.SceneManager.GetActiveScene().getRootGameObjects();
+          var shaderFixed = 0;
+          for (var ri = 0; ri < allRoots.length; ri++) {
+            var rObj = allRoots[ri];
+            var rr = rObj.GetComponent(UnityEngine.MeshRenderer);
+            if (rr && UnityEngine.Component.op_Inequality(rr, null) && rr.material) {
+              var origColor = rr.material.color || new pc.Color(1, 1, 1, 1);
+              var fixMat = new UnityEngine.Material.$ctor2(fixShader);
+              fixMat.color = new pc.Color(origColor.r, origColor.g, origColor.b, origColor.a || 1);
+              rr.material = fixMat;
+              shaderFixed++;
+            }
+          }
+          if (shaderFixed > 0) console.log("[AI] Fixed " + shaderFixed + " materials with URP/Lit shader");
         }
-        if (shaderFixed > 0) console.log("[AI] Fixed " + shaderFixed + " null-shader materials with URP/Lit");
-      }
-    } catch(shErr) { console.error("[AI] Shader fix error:", shErr); }
+      } catch(shErr) { console.error("[AI] Shader fix error:", shErr); }
+    }
+    // Run shader fix after delay (PlayCanvas needs render loop running before material dirty flags work)
+    setTimeout(fixNullShaders, 2000);
+    // Also run again at 5s for safety (some objects may be created by Update loop after initial delay)
+    setTimeout(fixNullShaders, 5000);
     // Luna injection: Update() is NOT called automatically by Unity runtime
     // Must manually drive the game loop via requestAnimationFrame
     if (comp && comp.Update) {
