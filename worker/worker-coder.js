@@ -964,6 +964,20 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       log('[coder] SVN revert Assets/Program OK', taskId);
     } catch(e) { log('[coder] SVN revert warning: ' + e.message, taskId); }
 
+    // Replace SVN scene with empty-scene-template (pool objects + MaterialSource, no original game objects)
+    try {
+      var scenesDir = path.join(clientDir, 'Assets', 'Scenes');
+      var sceneFiles = fs.existsSync(scenesDir) ? fs.readdirSync(scenesDir).filter(function(f) { return f.endsWith('.unity'); }) : [];
+      var templatePath = path.join(path.dirname(require.main ? require.main.filename : __filename), 'empty-scene-template.unity');
+      if (!fs.existsSync(templatePath)) templatePath = path.join(__dirname, 'empty-scene-template.unity');
+      if (fs.existsSync(templatePath) && sceneFiles.length > 0) {
+        for (var si = 0; si < sceneFiles.length; si++) {
+          fs.copyFileSync(templatePath, path.join(scenesDir, sceneFiles[si]));
+        }
+        log('[coder] Replaced ' + sceneFiles.length + ' scene(s) with empty-scene-template', taskId);
+      }
+    } catch(e) { log('[coder] Scene replacement warning: ' + e.message, taskId); }
+
     // Smart stub: keep utility classes, stub game logic, delete AI remnants
     var stubCount = 0, keepCount = 0, deleteCount = 0;
 
