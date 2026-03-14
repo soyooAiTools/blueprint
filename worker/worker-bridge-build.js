@@ -98,15 +98,50 @@ async function runBridgeBuild(clientDir, log, taskId) {
     
     if (stage1Exists && stage4HasAssets) {
       log('[luna-build] Jake C# compilation failed but stage1 cache + stage4 assets exist — falling back to MSBuild-only mode', taskId);
-    } else if (stage1Exists) {
-      // Stage4 missing — try running jake again with just asset stages (no C#)
-      // For now, use the previous stage4 if available from any prior build
-      log('[luna-build] Jake failed and no stage4 assets. Checking for prior stage4 cache...', taskId);
-      if (!fs.existsSync(path.join(lunaTempDir, 'stage4', 'develop'))) {
-        const errorLines = jakeResult.stdout.split('\n').filter(l => /fail|error/i.test(l)).slice(-5);
-        return { ok: false, error: `Jake build failed (code ${jakeResult.code}): ${errorLines.join('; ') || jakeResult.stderr.slice(-500)}` };
+    } else if (stage1Exists && fs.existsSync(path.join(lunaTempDir, 'stage3'))) {
+      // Jake Stage3 C# failed but stage1-3 exist — manually assemble stage4 from templates + stage3 assets
+      log('[luna-build] Jake Stage3 C# failed. Assembling stage4 manually from Luna engine + stage3 assets...', taskId);
+      const s4Dir = path.join(lunaTempDir, 'stage4', 'develop');
+      fs.mkdirSync(s4Dir, { recursive: true });
+      
+      // Copy Luna engine
+      const lunaEngineDir = path.join(LUNA_DIR, 'engine', 'luna');
+      if (fs.existsSync(lunaEngineDir)) {
+        const cpDir = (s, d) => { fs.mkdirSync(d,{recursive:true}); for(const e of fs.readdirSync(s,{withFileTypes:true})){const a=path.join(s,e.name),b=path.join(d,e.name); if(e.isDirectory())cpDir(a,b);else fs.copyFileSync(a,b);} };
+        cpDir(lunaEngineDir, path.join(s4Dir, 'engine', 'luna'));
       }
-      log('[luna-build] Found prior stage4 cache, proceeding with MSBuild-only', taskId);
+      // Copy compiled JS (bridge, UnityEngine, etc.)
+      const binDir = path.join(CSPROJ_DIR, '..', 'bin');
+      const unityBin = path.join(s4Dir, 'engine', 'unity', 'bin');
+      fs.mkdirSync(unityBin, { recursive: true });
+      if (fs.existsSync(binDir)) {
+        for (const f of fs.readdirSync(binDir)) {
+          if (f.endsWith('.js')) fs.copyFileSync(path.join(binDir, f), path.join(unityBin, f));
+        }
+      }
+      // Copy stage3 assets + js
+      const s3Dir = path.join(lunaTempDir, 'stage3');
+      if (fs.existsSync(path.join(s3Dir, 'assets'))) {
+        const cpDir2 = (s, d) => { fs.mkdirSync(d,{recursive:true}); for(const e of fs.readdirSync(s,{withFileTypes:true})){const a=path.join(s,e.name),b=path.join(d,e.name); if(e.isDirectory())cpDir2(a,b);else fs.copyFileSync(a,b);} };
+        cpDir2(path.join(s3Dir, 'assets'), path.join(s4Dir, 'assets'));
+      }
+      if (fs.existsSync(path.join(s3Dir, 'js'))) {
+        const cpDir3 = (s, d) => { fs.mkdirSync(d,{recursive:true}); for(const e of fs.readdirSync(s,{withFileTypes:true})){const a=path.join(s,e.name),b=path.join(d,e.name); if(e.isDirectory())cpDir3(a,b);else fs.copyFileSync(a,b);} };
+        cpDir3(path.join(s3Dir, 'js'), path.join(s4Dir, 'js'));
+      }
+      // Copy luna.json
+      if (fs.existsSync(path.join(clientDir, 'luna.json'))) {
+        fs.copyFileSync(path.join(clientDir, 'luna.json'), path.join(s4Dir, 'luna.json'));
+      }
+      // Use original iframe.html from luna-copy or generate minimal one
+      const lunaCopyIframe = path.join(path.dirname(clientDir), 'luna-copy', 'iframe.html');
+      if (fs.existsSync(lunaCopyIframe)) {
+        let ihtml = fs.readFileSync(lunaCopyIframe, 'utf-8');
+        ihtml = ihtml.replace(/(src|href)="([^"]+)"/g, (m, attr, p) => attr + '="' + p.replace(/\\/g, '/') + '"');
+        fs.writeFileSync(path.join(s4Dir, 'iframe.html'), ihtml);
+        log('[luna-build] Used luna-copy iframe.html as base', taskId);
+      }
+      log('[luna-build] Stage4 manually assembled (' + (fs.readdirSync(s4Dir).length) + ' items)', taskId);
     } else {
       const errorLines = jakeResult.stdout.split('\n').filter(l => /fail|error/i.test(l)).slice(-5);
       return { ok: false, error: `Jake build failed (code ${jakeResult.code}): ${errorLines.join('; ') || jakeResult.stderr.slice(-500)}` };
