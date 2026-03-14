@@ -838,10 +838,60 @@ function tryCompileUnity(clientDir, log, taskId) {
       var failLines = jakeOut.split('\n').filter(function(l) { return l.trim().length > 0; }).slice(-10);
       log('[coder] Jake output (last lines): ' + failLines.join(' | '), taskId);
     }
-    // Read diagnostics JSON for actual errors
-    var errors = extractDiagnosticErrors(clientDir);
-    log('[coder] Build failed: ' + errors.length + ' fatal errors', taskId);
-    buildResult = { ok: false, errors: errors };
+
+    // MSBuild fallback: if jake Stage3 C# fails but stage1/stage3 exist, assemble stage4 + MSBuild
+    var lunaTemp = path.join(clientDir, 'LunaTemp');
+    var stage3Dir = path.join(lunaTemp, 'stage3');
+    var stage4Dir = path.join(lunaTemp, 'stage4', 'develop');
+    if (fs.existsSync(path.join(lunaTemp, 'stage1')) && fs.existsSync(stage3Dir)) {
+      log('[coder] Jake Stage3 failed — trying MSBuild fallback with stage4 assembly...', taskId);
+
+      // Assemble stage4
+      var cpDirFn = function cpD(s,d){fs.mkdirSync(d,{recursive:true});for(var en of fs.readdirSync(s,{withFileTypes:true})){var a=path.join(s,en.name),b=path.join(d,en.name);if(en.isDirectory())cpD(a,b);else fs.copyFileSync(a,b);}};
+      fs.mkdirSync(stage4Dir, {recursive:true});
+      var lunaEngDir = path.join(PIPELINE_DIR, '..', 'engine', 'luna');
+      if (fs.existsSync(lunaEngDir)) cpDirFn(lunaEngDir, path.join(stage4Dir, 'engine', 'luna'));
+      var binDir = path.join(PIPELINE_DIR, 'templates', 'LunaCompiler', 'bin');
+      var ubDir = path.join(stage4Dir, 'engine', 'unity', 'bin');
+      fs.mkdirSync(ubDir, {recursive:true});
+      if (fs.existsSync(binDir)) fs.readdirSync(binDir).forEach(function(f){if(f.endsWith('.js'))fs.copyFileSync(path.join(binDir,f),path.join(ubDir,f));});
+      if (fs.existsSync(path.join(stage3Dir,'assets'))) cpDirFn(path.join(stage3Dir,'assets'), path.join(stage4Dir,'assets'));
+      if (fs.existsSync(path.join(stage3Dir,'js'))) cpDirFn(path.join(stage3Dir,'js'), path.join(stage4Dir,'js'));
+      if (fs.existsSync(path.join(clientDir,'luna.json'))) fs.copyFileSync(path.join(clientDir,'luna.json'), path.join(stage4Dir,'luna.json'));
+      // iframe from luna-copy
+      var lcIframe = path.join(path.dirname(clientDir), 'luna-copy', 'iframe.html');
+      if (fs.existsSync(lcIframe)) {
+        var ih = fs.readFileSync(lcIframe,'utf-8').replace(/(src|href)="([^"]+)"/g,function(m,a,p){return a+'="'+p.replace(/\\/g,'/')+'"';});
+        fs.writeFileSync(path.join(stage4Dir,'iframe.html'), ih);
+      }
+
+      // MSBuild compile
+      var MSBUILD = 'C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\MSBuild\\Current\\Bin\\MSBuild.exe';
+      var CSPROJ = path.join(PIPELINE_DIR, 'templates', 'LunaCompiler', 'Scripts', 'Scripts.csproj');
+      var objDir = path.join(path.dirname(CSPROJ), 'obj');
+      try { fs.rmSync(objDir, {recursive:true,force:true}); } catch(ex){}
+      try {
+        execSync('"' + MSBUILD + '" "' + CSPROJ + '" /t:Rebuild /v:minimal', {env:buildEnv, timeout:60000, encoding:'utf-8'});
+        var compiledJs = path.join(PIPELINE_DIR, 'templates', 'LunaCompiler', 'bin', 'UnityScriptsCompiler.js');
+        if (fs.existsSync(compiledJs)) {
+          fs.copyFileSync(compiledJs, path.join(ubDir, 'UnityScriptsCompiler.js'));
+          log('[coder] MSBuild OK — stage4 assembled with fresh JS', taskId);
+          buildResult = { ok: true };
+        } else {
+          buildResult = { ok: false, errors: ['MSBuild succeeded but no output JS'] };
+        }
+      } catch(msbErr) {
+        var msbOut = (msbErr.stdout || '') + (msbErr.stderr || '');
+        var csErrors = msbOut.split('\n').filter(function(l){return l.includes('error CS');}).slice(0,10);
+        log('[coder] MSBuild also failed: ' + csErrors.length + ' errors', taskId);
+        buildResult = { ok: false, errors: csErrors.length > 0 ? csErrors.map(function(l){return l.trim();}) : extractDiagnosticErrors(clientDir) };
+      }
+    } else {
+      // Read diagnostics JSON for actual errors
+      var errors = extractDiagnosticErrors(clientDir);
+      log('[coder] Build failed: ' + errors.length + ' fatal errors', taskId);
+      buildResult = { ok: false, errors: errors };
+    }
   }
 
   // Restore stubbed files
