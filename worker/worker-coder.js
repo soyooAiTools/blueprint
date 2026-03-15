@@ -845,9 +845,26 @@ function tryCompileUnity(clientDir, log, taskId) {
   }
 
   // EventPool.cs and Event.cs are template files — DO NOT modify them.
-  // They are partial classes that depend on each other. Previous approach of stubbing/removing
-  // references broke Event.cs syntax (CS1022). AI prompt forbids defining EventPool class.
-  // If AI creates its own EventPool class → CS0101 will be caught by compile-fix loop.
+  // Instead, strip any AI-defined EventPool class from GameFlowManagerMain.cs to prevent CS0101
+  var mainFile = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
+  if (fs.existsSync(mainFile)) {
+    var mainSrc = fs.readFileSync(mainFile, 'utf-8');
+    // Remove any class EventPool { ... } definition (AI keeps creating this despite prompt)
+    var evtPoolMatch = mainSrc.match(/(?:public\s+|internal\s+|private\s+)?(?:sealed\s+)?(?:partial\s+)?class\s+EventPool[^{]*\{/);
+    if (evtPoolMatch) {
+      // Find the matching closing brace
+      var startIdx = mainSrc.indexOf(evtPoolMatch[0]);
+      var braceCount = 0;
+      var endIdx = startIdx;
+      for (var bi = startIdx; bi < mainSrc.length; bi++) {
+        if (mainSrc[bi] === '{') braceCount++;
+        if (mainSrc[bi] === '}') { braceCount--; if (braceCount === 0) { endIdx = bi + 1; break; } }
+      }
+      mainSrc = mainSrc.slice(0, startIdx) + '// [AUTO-REMOVED] EventPool class conflicts with template\n' + mainSrc.slice(endIdx);
+      fs.writeFileSync(mainFile, mainSrc, 'utf-8');
+      log('[coder] Auto-removed EventPool class from GameFlowManagerMain.cs (template conflict)', taskId);
+    }
+  }
 
   var cmd = 'node --max-old-space-size=8192 jake.js -f Jakefile.js --quiet project:build';
   var buildResult;
