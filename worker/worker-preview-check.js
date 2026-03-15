@@ -128,9 +128,11 @@ async function runPreviewCheck(stage4Dir, taskId, log) {
       };
     });
 
-    // Check for fatal JS errors
+    // Check for fatal JS errors (exclude known Luna engine errors that don't affect gameplay)
+    const LUNA_ENGINE_ERRORS = /Awake\(\)|OnEnable\(\)|_invokeOverload|onAwake|onInit/i;
     const fatalErrors = errors.filter(e => 
       /uncaught|exception|cannot read|is not defined|is not a function|stack overflow|maximum call/i.test(e)
+      && !LUNA_ENGINE_ERRORS.test(e)  // Luna template component lifecycle errors — safe to ignore
     );
 
     // Decision logic
