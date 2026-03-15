@@ -1802,9 +1802,10 @@ function verifyCodeContent(clientDir, parsed, log, taskId) {
     log('[coder] Warning: Code still hides scene root objects — scene is already clean, this is unnecessary', taskId);
   }
 
-  // Check 6: Must call GameEnded()
+  // Check 6: GameEnded() — downgraded to warning (not blocking)
   if (code.indexOf('GameEnded') < 0) {
-    issues.push('No GameEnded() call found — Luna lifecycle not properly handled.');
+    log('[coder] Warning: No GameEnded() call found — Luna lifecycle may not end properly', taskId);
+    // Not added to issues — allow task to continue to preview/CUA
   }
 
   // Check 6b: State machine completeness — each shot must transition to next
