@@ -43,7 +43,7 @@ const LUNA_DIR = 'D:\\Luna';
 
 // ============ Task Notification Webhook ============
 const NOTIFY_URL = process.env.NOTIFY_URL || 'https://playcools.top/notify/webhook';
-const FEISHU_WEBHOOK_URL = process.env.FEISHU_WEBHOOK_URL || '';
+// Feishu DM notifications via feishu-notify.js (App Bot API, no webhook needed)
 
 function notifyEvent(taskId, event, message, extra) {
   try {
@@ -66,41 +66,9 @@ function notifyEvent(taskId, event, message, extra) {
     req.end();
   } catch(e) {}
 
-  // Send to Feishu webhook (if configured)
-  notifyFeishu(taskId, event, message, extra);
-}
-
-const FEISHU_EVENT_ICONS = {
-  task_started: '🚀', task_failed: '❌', task_failed_final: '💀',
-  task_retry: '🔄', timeout: '⏰', cua_round: '🔍',
-  cua_pass: '✅', build_done: '🔨', coding_done: '📝',
-  preview_check: '🖥️', retry: '🔄', done: '🎉'
-};
-
-function notifyFeishu(taskId, event, message, extra) {
-  if (!FEISHU_WEBHOOK_URL) return;
-  try {
-    const icon = FEISHU_EVENT_ICONS[event] || '📋';
-    const proj = (extra && extra.projectName) || taskId;
-    const card = JSON.stringify({
-      msg_type: 'interactive',
-      card: {
-        header: { title: { tag: 'plain_text', content: `${icon} Worker 通知: ${proj}` }, template: event.includes('fail') || event === 'timeout' ? 'red' : event === 'done' || event === 'cua_pass' ? 'green' : 'blue' },
-        elements: [
-          { tag: 'div', text: { tag: 'lark_md', content: `**事件**: ${event}\n**消息**: ${message}\n**任务ID**: ${taskId}` } }
-        ]
-      }
-    });
-    const url = new URL(FEISHU_WEBHOOK_URL);
-    const req = https.request({
-      hostname: url.hostname, port: 443, path: url.pathname + url.search,
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(card) },
-      timeout: 5000
-    }, () => {});
-    req.on('error', () => {});
-    req.write(card);
-    req.end();
-  } catch(e) {}
+  // Send to Feishu DM via App Bot API
+  const feishuNotify = require('./feishu-notify.js');
+  feishuNotify.send(taskId, event, message, extra).catch(() => {});
 }
 
 // ============ Resilience Config ============
@@ -474,6 +442,7 @@ async function processTask(task) {
       const codeResult = await generateCode(blueprint, CLIENT_DIR, log, taskId, 'unity');
       if (codeResult.ok && !codeResult.skipped) {
         log(`AI coding done: ${codeResult.filesWritten} files written`, taskId);
+        notifyEvent(taskId, 'coding_done', `AI 编码完成 (${codeResult.filesWritten} 文件)`, { projectName: task.projectName });
         await reportStatus(taskId, 'processing', { message: `AI 编码完成 (${codeResult.filesWritten} 文件)` });
       } else if (!codeResult.ok) {
         log('AI coding failed: ' + codeResult.error + ', retrying...', taskId);
@@ -595,6 +564,7 @@ async function processTask(task) {
 
         if (previewResult.ok) {
           log(`[preview-check] PASSED (round ${previewRound}) - game loaded successfully`, taskId);
+          notifyEvent(taskId, 'preview_check', `✅ 预览检查通过，进入 CUA 验证`, { projectName: task.projectName });
           break;
         }
 
@@ -604,6 +574,7 @@ async function processTask(task) {
         }
 
         if (previewRound >= MAX_PREVIEW_FIX_ROUNDS) {
+          notifyEvent(taskId, 'compile_error', `❌ 预览检查 ${MAX_PREVIEW_FIX_ROUNDS} 轮失败: ${(previewResult.error||'').slice(0,100)}`, { projectName: task.projectName });
           throw new TaskFailedError(`Preview health check failed after ${MAX_PREVIEW_FIX_ROUNDS} fix rounds: ${previewResult.error}`);
         }
 
@@ -857,6 +828,7 @@ async function processTask(task) {
 
     // === Step 8: Done (CUA verification already done in Step 5.5b) ===
     await reportStatus(taskId, 'reviewing', { message: `构建完成 (${buildResult.buildTime}s)，CUA验证通过，等待人工审核` });
+    notifyEvent(taskId, 'done', `🎉 任务完成！构建 ${buildResult.buildTime}s，CUA 验证通过，等待人工审核`, { projectName: task.projectName });
     log('Task completed → reviewing', taskId);
 
   } catch (e) {
