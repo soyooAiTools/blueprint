@@ -143,6 +143,146 @@ function generateScript(blueprint, outputPath) {
 }
 
 /**
+ * Quick Play Test — 15-second headless Playwright check before full CUA.
+ * Opens the HTML, waits for load, reads _currentShot, simulates basic input,
+ * checks if _currentShot changes. No GPT needed, pure automation.
+ * 
+ * @returns {object} { ok: boolean, reason?: string, loaded: boolean, initialShot, finalShot, shotProgressed }
+ */
+async function quickPlayTest(url, taskId, log) {
+  let browser, page;
+  try {
+    const { chromium } = require('playwright');
+    browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    page = await context.newPage();
+
+    // Suppress console errors from the game
+    page.on('pageerror', () => {});
+
+    // Load page
+    log('[QuickTest] Loading ' + url, taskId);
+    try {
+      await page.goto(url, { waitUntil: 'load', timeout: 15000 });
+    } catch(e) {
+      await browser.close();
+      return { ok: false, reason: 'Page failed to load: ' + e.message, loaded: false };
+    }
+
+    // Wait for Unity engine init
+    await page.waitForTimeout(5000);
+
+    // Check if page has any visible content (not blank/white/black screen)
+    const bodyColor = await page.evaluate(function() {
+      var canvas = document.querySelector('canvas');
+      if (canvas) return 'has-canvas';
+      return document.body.innerText.length > 10 ? 'has-text' : 'empty';
+    });
+    if (bodyColor === 'empty') {
+      await browser.close();
+      return { ok: false, reason: 'Page loaded but appears empty (no canvas, no text). Game may not have initialized.', loaded: false };
+    }
+
+    // Try to read _currentShot from the game runtime
+    var initialShot = await page.evaluate(function() {
+      // Try multiple ways to find the shot state
+      try {
+        // Bridge.NET compiled code — global scope or on component
+        if (typeof GameFlowManagerMain !== 'undefined' && GameFlowManagerMain._currentShot !== undefined) return GameFlowManagerMain._currentShot;
+        if (typeof GameFlowManagerMain !== 'undefined' && GameFlowManagerMain.currentShot !== undefined) return GameFlowManagerMain.currentShot;
+      } catch(e) {}
+      try {
+        // Search through Unity objects
+        var objs = typeof UnityEngine !== 'undefined' && UnityEngine.Object ? UnityEngine.Object.FindObjectsOfType(UnityEngine.MonoBehaviour) : null;
+        if (objs) {
+          for (var i = 0; i < objs.length; i++) {
+            if (objs[i]._currentShot !== undefined) return objs[i]._currentShot;
+            if (objs[i].currentShot !== undefined) return objs[i].currentShot;
+          }
+        }
+      } catch(e) {}
+      return null;
+    });
+
+    log('[QuickTest] Initial shot state: ' + initialShot, taskId);
+
+    // Simulate basic interactions: clicks + drags
+    var interactions = [
+      { type: 'click', x: 400, y: 300 },   // center
+      { type: 'click', x: 400, y: 500 },   // bottom center
+      { type: 'drag', x1: 90, y1: 560, x2: 90, y2: 510 },  // joystick up
+      { type: 'click', x: 200, y: 300 },   // left area
+      { type: 'drag', x1: 90, y1: 560, x2: 130, y2: 560 }, // joystick right
+      { type: 'click', x: 600, y: 300 },   // right area
+    ];
+
+    for (var i = 0; i < interactions.length; i++) {
+      var action = interactions[i];
+      try {
+        if (action.type === 'click') {
+          await page.mouse.click(action.x, action.y);
+        } else if (action.type === 'drag') {
+          await page.mouse.move(action.x1, action.y1);
+          await page.mouse.down();
+          await page.mouse.move(action.x2, action.y2, { steps: 5 });
+          await page.mouse.up();
+        }
+      } catch(e) {}
+      await page.waitForTimeout(800);
+    }
+
+    // Read shot state again
+    var finalShot = await page.evaluate(function() {
+      try {
+        if (typeof GameFlowManagerMain !== 'undefined' && GameFlowManagerMain._currentShot !== undefined) return GameFlowManagerMain._currentShot;
+        if (typeof GameFlowManagerMain !== 'undefined' && GameFlowManagerMain.currentShot !== undefined) return GameFlowManagerMain.currentShot;
+      } catch(e) {}
+      try {
+        var objs = typeof UnityEngine !== 'undefined' && UnityEngine.Object ? UnityEngine.Object.FindObjectsOfType(UnityEngine.MonoBehaviour) : null;
+        if (objs) {
+          for (var i = 0; i < objs.length; i++) {
+            if (objs[i]._currentShot !== undefined) return objs[i]._currentShot;
+            if (objs[i].currentShot !== undefined) return objs[i].currentShot;
+          }
+        }
+      } catch(e) {}
+      return null;
+    });
+
+    log('[QuickTest] Final shot state: ' + finalShot, taskId);
+
+    // Take a screenshot for debugging
+    try {
+      var screenshotPath = path.join(CUA_RESULTS_DIR, taskId + '-quicktest.png');
+      await page.screenshot({ path: screenshotPath });
+    } catch(e) {}
+
+    await browser.close();
+
+    // Analyze results
+    var loaded = (bodyColor !== 'empty');
+    var shotProgressed = (initialShot !== null && finalShot !== null && finalShot > initialShot);
+
+    // If we can't read _currentShot, that's not a failure — just means we can't verify
+    if (initialShot === null) {
+      return { ok: true, reason: 'Could not read _currentShot variable (runtime may use different naming)', loaded: loaded, initialShot: null, finalShot: null, shotProgressed: false };
+    }
+
+    // If shot didn't progress, it's a warning but not a hard fail (user interaction might be needed)
+    // Hard fail only if page didn't load at all
+    if (!loaded) {
+      return { ok: false, reason: 'Game failed to render (no canvas or content visible)', loaded: false, initialShot: initialShot, finalShot: finalShot, shotProgressed: false };
+    }
+
+    return { ok: true, loaded: true, initialShot: initialShot, finalShot: finalShot, shotProgressed: shotProgressed };
+
+  } catch(e) {
+    if (browser) try { await browser.close(); } catch(x) {}
+    return { ok: true, reason: 'Quick test error: ' + e.message, loaded: false };
+  }
+}
+
+/**
  * Run CUA verification on the build output
  * 
  * @param {string} buildDir - Path to stage4/develop/ build output
@@ -178,6 +318,26 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
   const previewUrl = 'http://127.0.0.1:' + LOCAL_PREVIEW_PORT + '/' + (hasIframe ? 'iframe.html' : 'index.html');
   const outputPath = path.join(CUA_RESULTS_DIR, taskId + '-report.json');
   const logPath = path.join(CUA_RESULTS_DIR, taskId + '-cua.log');
+
+  // === Quick Play Test: 15-second headless sanity check before full CUA ===
+  try {
+    const quickResult = await quickPlayTest(previewUrl, taskId, log);
+    if (!quickResult.ok) {
+      log('[CUA] Quick play test FAILED: ' + quickResult.reason, taskId);
+      try { server.close(); } catch(e) {}
+      return {
+        passed: false,
+        issues: ['[quick-test] ' + quickResult.reason],
+        skipped: false,
+        quickTestFailed: true,
+        quickTestDetail: quickResult
+      };
+    }
+    log('[CUA] Quick play test passed: loaded=' + quickResult.loaded + ', shotProgressed=' + quickResult.shotProgressed + ', initialShot=' + quickResult.initialShot + ', finalShot=' + quickResult.finalShot, taskId);
+  } catch(qe) {
+    log('[CUA] Quick play test error (non-fatal): ' + qe.message, taskId);
+    // Non-fatal: continue to full CUA even if quick test errors
+  }
 
   const scriptPath = path.join(CUA_RESULTS_DIR, taskId + '-script.txt');
   const hasScript = generateScript(blueprint, scriptPath);

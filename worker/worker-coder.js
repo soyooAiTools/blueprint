@@ -1736,6 +1736,61 @@ function verifyCodeContent(clientDir, parsed, log, taskId) {
     issues.push('No GameEnded() call found — Luna lifecycle not properly handled.');
   }
 
+  // Check 6b: State machine completeness — each shot must transition to next
+  if (shotCount >= 3 && shotKeywords === shotCount) {
+    var hasUpdate = code.indexOf('void Update()') >= 0 || code.indexOf('void Update ()') >= 0;
+    var hasShotSwitch = code.indexOf('_currentShot') >= 0 || code.indexOf('currentShot') >= 0;
+    if (!hasUpdate) {
+      issues.push('No Update() method found. Shot flow requires Update() with a state machine (switch/_currentShot) to drive transitions between shots.');
+      log('[coder] FAIL: No Update() method — shots cannot auto-progress', taskId);
+    } else if (!hasShotSwitch) {
+      issues.push('Update() exists but no _currentShot state variable found. Shots need a switch(_currentShot) dispatcher in Update() to drive the flow.');
+      log('[coder] FAIL: Update() has no _currentShot state machine', taskId);
+    } else {
+      // Verify each shot has a transition to the next
+      var missingTransitions = [];
+      for (var st = 1; st < shotCount; st++) {
+        // Look for _currentShot = (st+1) or currentShot = (st+1) somewhere after shot_st definition
+        var transPatterns = [
+          '_currentShot = ' + (st + 1),
+          '_currentShot=' + (st + 1),
+          'currentShot = ' + (st + 1),
+          'currentShot=' + (st + 1),
+          '_currentShot ++', '_currentShot++',
+          'currentShot ++', 'currentShot++',
+        ];
+        var hasTransition = false;
+        for (var tp = 0; tp < transPatterns.length; tp++) {
+          if (code.indexOf(transPatterns[tp]) >= 0) { hasTransition = true; break; }
+        }
+        if (!hasTransition) missingTransitions.push(st + ' -> ' + (st + 1));
+      }
+      if (missingTransitions.length > Math.floor(shotCount * 0.3)) {
+        issues.push('Shot transitions incomplete: ' + missingTransitions.length + '/' + (shotCount - 1) + ' transitions missing. '
+          + 'Each shot_N must set _currentShot = N+1 (or _currentShot++) to advance the flow. '
+          + 'Missing: ' + missingTransitions.slice(0, 5).join(', ') + (missingTransitions.length > 5 ? '...' : ''));
+        log('[coder] FAIL: ' + missingTransitions.length + ' shot transitions missing', taskId);
+      }
+    }
+  }
+
+  // Check 6c: Last shot must end the game
+  if (shotCount >= 3) {
+    // Find the last shot method and check if it calls GameEnded/GameOver/GFM_Luna.GameOver
+    var lastShotPattern = 'shot_' + shotCount;
+    var lastShotIdx = code.lastIndexOf(lastShotPattern);
+    if (lastShotIdx >= 0) {
+      var afterLastShot = code.slice(lastShotIdx, Math.min(lastShotIdx + 2000, code.length));
+      var hasEndInLastShot = afterLastShot.indexOf('GameEnded') >= 0 ||
+                              afterLastShot.indexOf('GameOver') >= 0 ||
+                              afterLastShot.indexOf('GFM_Luna.GameOver') >= 0 ||
+                              afterLastShot.indexOf('GFM_Luna.GotoStore') >= 0;
+      if (!hasEndInLastShot) {
+        log('[coder] Warning: Last shot (shot_' + shotCount + ') may not call GameEnded/GameOver', taskId);
+      }
+    }
+  }
+
   // Check 7: MUST use GFM_Create.Obj() for 3D objects — CreatePrimitive and new GameObject are INVISIBLE in Luna
   var gfmCreateObjCount = 0;
   var searchIdx = -1;
