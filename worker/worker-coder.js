@@ -844,22 +844,10 @@ function tryCompileUnity(clientDir, log, taskId) {
     log('[coder] GFM_Tools.cs restored from original (pre-build)', taskId);
   }
 
-  // Fix known CS0101 conflicts BEFORE build (both jake and MSBuild)
-  // EventPool.cs in template conflicts with AI-generated EventPool — stub it
-  var evtPoolFile = path.join(clientDir, 'Assets', 'Program', 'Script', 'Utilities', 'Event', 'EventPool.cs');
-  if (fs.existsSync(evtPoolFile)) {
-    fs.writeFileSync(evtPoolFile, '// Stubbed to avoid CS0101\n');
-    log('[coder] EventPool.cs stubbed (pre-build)', taskId);
-  }
-  var evtFile = path.join(clientDir, 'Assets', 'Program', 'Script', 'Utilities', 'Event', 'Event.cs');
-  if (fs.existsSync(evtFile)) {
-    var evtSrc = fs.readFileSync(evtFile, 'utf-8');
-    if (evtSrc.includes('EventPool')) {
-      evtSrc = evtSrc.replace(/.*EventPool.*/g, '// removed EventPool reference');
-      fs.writeFileSync(evtFile, evtSrc, 'utf-8');
-      log('[coder] Removed EventPool refs from Event.cs (pre-build)', taskId);
-    }
-  }
+  // EventPool.cs and Event.cs are template files — DO NOT modify them.
+  // They are partial classes that depend on each other. Previous approach of stubbing/removing
+  // references broke Event.cs syntax (CS1022). AI prompt forbids defining EventPool class.
+  // If AI creates its own EventPool class → CS0101 will be caught by compile-fix loop.
 
   var cmd = 'node --max-old-space-size=8192 jake.js -f Jakefile.js --quiet project:build';
   var buildResult;
@@ -911,22 +899,7 @@ function tryCompileUnity(clientDir, log, taskId) {
         fs.writeFileSync(path.join(stage4Dir,'iframe.html'), ih);
       }
 
-      // Fix known CS0101 conflicts before MSBuild
-      // EventPool.cs conflicts with AI-generated EventPool class — stub it and remove from Event.cs
-      var evtPoolPath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Utilities', 'Event', 'EventPool.cs');
-      if (fs.existsSync(evtPoolPath)) {
-        fs.writeFileSync(evtPoolPath, '// Stubbed to avoid CS0101\n');
-        log('[coder] EventPool.cs stubbed for MSBuild', taskId);
-      }
-      var evtPath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Utilities', 'Event', 'Event.cs');
-      if (fs.existsSync(evtPath)) {
-        var evtContent = fs.readFileSync(evtPath, 'utf-8');
-        if (evtContent.includes('EventPool')) {
-          evtContent = evtContent.replace(/.*EventPool.*/g, '// removed EventPool reference');
-          fs.writeFileSync(evtPath, evtContent, 'utf-8');
-          log('[coder] Removed EventPool refs from Event.cs', taskId);
-        }
-      }
+      // EventPool.cs and Event.cs — DO NOT modify (partial class pair, see pre-build comment)
 
       // MSBuild compile
       var MSBUILD = 'C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\MSBuild\\Current\\Bin\\MSBuild.exe';
