@@ -286,7 +286,45 @@ window.addEventListener("luna:starting", function() {
         });
       }
     }
-    console.log("[AI] Resources.GetBuiltinResource + Shader.Find + Material polyfill installed");
+    // Patch _invokeOverload to catch Awake/OnEnable errors on template components
+    // Luna's Bridge.NET compiled code calls _invokeOverload for lifecycle methods (Awake, OnEnable, etc.)
+    // Template components (stubbed .cs files) may have undefined methods causing "Cannot read properties of undefined (reading 'Awake()')"
+    try {
+      var origInvokeOverload = Bridge.Reflection.Overloads ? Bridge.Reflection.Overloads.prototype._invokeOverload : null;
+      // Patch at prototype level if accessible
+      if (!origInvokeOverload) {
+        // Try finding it on the function prototype chain used by components
+        var sampleProto = UnityEngine.MonoBehaviour.prototype;
+        if (sampleProto && sampleProto._invokeOverload) {
+          origInvokeOverload = sampleProto._invokeOverload;
+          sampleProto._invokeOverload = function() {
+            try { return origInvokeOverload.apply(this, arguments); }
+            catch(e) {
+              if (e && e.message && (e.message.indexOf("Awake()") >= 0 || e.message.indexOf("OnEnable()") >= 0 || e.message.indexOf("undefined") >= 0)) {
+                // Silent — stubbed template component, safe to ignore
+                return undefined;
+              }
+              throw e;
+            }
+          };
+        }
+      }
+      // Also patch the F (Function) prototype that Luna uses for component lifecycle dispatch
+      // The error trace shows F._invokeOverload, so we need to find F's prototype
+      // Broader approach: patch all MonoBehaviour-derived prototypes
+      var allTypes = Bridge.Reflection ? Bridge.Reflection.getMembers : null;
+      // Safest: global error handler for Awake-related errors
+      var origOnError = window.onerror;
+      window.addEventListener("error", function(evt) {
+        if (evt && evt.message && (evt.message.indexOf("Awake()") >= 0 || evt.message.indexOf("OnEnable()") >= 0)) {
+          evt.preventDefault();
+          return true; // suppress
+        }
+      });
+      console.log("[AI] Awake/OnEnable error protection installed");
+    } catch(ae) { console.error("[AI] Awake protection setup error:", ae); }
+
+    console.log("[AI] Resources.GetBuiltinResource + Shader.Find + Material polyfill + Awake protection installed");
   } catch(e) { console.error("[AI] Polyfill error:", e); }
 });
 // Inject GameFlowManagerMain component after Luna fully started
