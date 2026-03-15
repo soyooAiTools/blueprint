@@ -1109,7 +1109,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
     var stubCount = 0, keepCount = 0, deleteCount = 0;
 
     // Files to KEEP intact (utility/tool classes AI can call)
-    var keepFiles = []; // All non-essential files get stubbed
+    var keepFiles = ['MonoSingleton.cs', 'EventPool.cs', 'Event.cs']; // Template infrastructure — stubbing breaks dependents
     // Files to DELETE (AI remnants from previous runs — cause duplicate class conflicts)
     var deletePatterns = [
       'StateManagerCleanup', 'StateManagerDuplicateFix', 'StateManagerExtension',
@@ -1149,12 +1149,16 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
           // Stub everything else (game logic)
           try {
             var orig = fs.readFileSync(fullP, 'utf-8');
-            var classes = orig.match(/(?:public\s+)?(?:abstract\s+)?class\s+(\w+)/g) || [];
+            var classes = orig.match(/(?:public\s+)?(?:abstract\s+)?class\s+(\w+(?:<[^>]+>)?)/g) || [];
             var enums = orig.match(/(?:public\s+)?enum\s+(\w+)/g) || [];
             var interfaces = orig.match(/(?:public\s+)?interface\s+(\w+)/g) || [];
             var stub = 'using UnityEngine;\nusing UnityEngine.UI;\nusing System;\nusing System.Collections;\nusing System.Collections.Generic;\n';
             for (var c = 0; c < classes.length; c++) {
-              var cn = classes[c].match(/class\s+(\w+)/)[1];
+              var cn = classes[c].match(/class\s+(\w+(?:<[^>]+>)?)/)[1];
+              // Preserve generic parameters (e.g. MonoSingleton<T>)
+              var baseClass = cn.indexOf('<') >= 0 ? 'MonoBehaviour' : 'MonoBehaviour';
+              // If original has generic constraint like "where T : ...", extract base constraint
+              var whereMatch = orig.match(new RegExp('class\\s+' + cn.replace(/[<>]/g, '\\$&').replace(/\w+(?=\s*>)/, '\\w+') + '\\s+(?::\\s*\\w+[^{]*)?where\\s+\\w+\\s*:\\s*([\\w.]+)'));
               stub += 'public class ' + cn + ' : MonoBehaviour { }\n';
             }
             for (var e = 0; e < enums.length; e++) {
