@@ -1678,6 +1678,34 @@ function verifyCodeContent(clientDir, parsed, log, taskId) {
     log('[coder] FAIL: Only ' + shotKeywords + '/' + shotCount + ' shots found, missing: [' + missingShots.join(', ') + ']', taskId);
   }
 
+  // Check 2b: Shot methods must be CALLED, not just defined
+  // Look for a state machine (switch/case with shot numbers) or direct shot_N() calls
+  if (shotCount > 0 && shotKeywords === shotCount) {
+    var hasStateMachine = (code.indexOf('switch') >= 0 && code.indexOf('_currentShot') >= 0) ||
+                          (code.indexOf('switch') >= 0 && code.indexOf('_shotState') >= 0) ||
+                          (code.indexOf('switch') >= 0 && code.indexOf('currentShot') >= 0);
+    var shotCallCount = 0;
+    for (var sc = 1; sc <= shotCount; sc++) {
+      // Check if shot_N() is actually invoked (not just defined as a method)
+      // Pattern: shot_N() called outside its own definition — look for "shot_N(" not preceded by "void "
+      var callPattern = 'shot_' + sc + '(';
+      var defPattern = 'void shot_' + sc;
+      var callIdx = -1;
+      var calls = 0;
+      while ((callIdx = code.indexOf(callPattern, callIdx + 1)) >= 0) calls++;
+      // Subtract definitions (void shot_N, private void shot_N, etc.)
+      var defIdx = -1;
+      var defs = 0;
+      while ((defIdx = code.indexOf(defPattern, defIdx + 1)) >= 0) defs++;
+      if (calls > defs) shotCallCount++; // at least one invocation beyond the definition
+    }
+    if (!hasStateMachine && shotCallCount < Math.ceil(shotCount * 0.5)) {
+      issues.push('Shot methods are DEFINED but NOT CALLED. Found ' + shotCallCount + '/' + shotCount + ' shot methods with actual invocations. '
+        + 'You need a state machine (switch/_currentShot in Update()) or explicit shot_N() calls to drive the flow between shots.');
+      log('[coder] FAIL: Shot methods defined but only ' + shotCallCount + '/' + shotCount + ' are actually called. No state machine detected.', taskId);
+    }
+  }
+
   // Check 3: Must create game objects (not just empty methods)
   var createPatterns = ['CreatePrimitive', 'new GameObject', 'AddComponent', 'Instantiate', 'GFM_Create.Obj', 'GFM_Create.Ground', 'PoolGet'];
   var createCount = 0;

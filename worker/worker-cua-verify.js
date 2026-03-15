@@ -238,6 +238,30 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       // === Blueprint flow verification (pass/fail, strict) ===
       const issues = [];
 
+      // 0. ANTI-CHEAT: Cross-check script steps vs expected shot count
+      //    If code has 10 shots but CUA script only has 1, blueprint data was corrupted
+      const scriptStepCount = report.scriptCoverage ? report.scriptCoverage.length : 0;
+      const expectedShotCount = blueprint && blueprint.nodes ? blueprint.nodes.filter(function(n) { return n.type === 'shotNode'; }).length : 0;
+      // Also check via report metadata if available
+      if (scriptStepCount > 0 && scriptStepCount < 3) {
+        // Very suspicious: a real playable ad should have at least 3 steps
+        log('[CUA] WARNING: Script only has ' + scriptStepCount + ' steps (expected blueprint: ' + expectedShotCount + '). Possible data corruption.', taskId);
+        issues.push('[suspicious-script] Script has only ' + scriptStepCount + ' step(s) — too few for a real playable ad. Blueprint may have lost data. Expected: 3+ steps.');
+      }
+
+      // 0b. ANTI-CHEAT: Detect GPT "stuck" pattern — if GPT repeatedly says "no change" / "没有变化"
+      const historyEntries = report.history || report.rounds || [];
+      let noChangeCount = 0;
+      const noChangePatterns = /没有明显.*变化|没有.*改变|图像.*保持|保持稳定|no.*visible.*change|no.*significant.*change|still.*same|nothing.*changed|仍然没/gi;
+      for (var hi = 0; hi < historyEntries.length; hi++) {
+        var desc = historyEntries[hi].thinking || historyEntries[hi].description || historyEntries[hi].text || '';
+        if (noChangePatterns.test(desc)) noChangeCount++;
+        noChangePatterns.lastIndex = 0; // reset regex
+      }
+      if (historyEntries.length >= 5 && noChangeCount >= Math.floor(historyEntries.length * 0.5)) {
+        issues.push('[stuck-pattern] GPT reported "no visible change" in ' + noChangeCount + '/' + historyEntries.length + ' rounds. Game flow is likely stuck — not progressing through shots.');
+      }
+
       // 1. Check for stuck/crash
       if (report.exitReason === 'stuck') {
         issues.push('[stuck] Game stuck during CUA operation (no state change for multiple rounds)');
