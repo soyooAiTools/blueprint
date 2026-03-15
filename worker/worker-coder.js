@@ -1461,19 +1461,59 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       // Auto-fix CS0101 duplicate definitions: find the conflicting stub file and empty it
       var cs0101Fixed = false;
       result.errors.forEach(function(e) {
-        var m101 = e.match(/CS0101.*definition for '(\w+)'.*file:\s*([^,)]+)/);
-        if (m101) {
-          var conflictClass = m101[1];
-          var conflictFile = m101[2].trim();
-          var fullPath = path.join(clientDir, conflictFile.replace(/\//g, path.sep));
-          // Only empty stub files (not the AI-written file)
-          if (fullPath.indexOf('GameFlowManagerMain') < 0 && fs.existsSync(fullPath)) {
-            log('[coder] Auto-fixing CS0101: emptying stub ' + conflictFile + ' (class ' + conflictClass + ')', taskId);
-            fs.writeFileSync(fullPath, '// Auto-emptied to resolve CS0101 conflict with AI code\nusing UnityEngine;\n', 'utf-8');
-            cs0101Fixed = true;
+        // Match both English and Chinese CS0101 messages
+        // English: CS0101... definition for 'EventPool' ... file: path
+        // Chinese: CS0101... 已经包含"EventPool"的定义 ... path.cs(line,col)
+        var m101 = e.match(/CS0101.*definition for '(\w+)'.*file:\s*([^,)]+)/) ||
+                   e.match(/CS0101[^"]*"(\w+)"/) ||
+                   e.match(/CS0101/);
+        if (m101 && e.indexOf('CS0101') >= 0) {
+          // Extract file path from the error line (format: path.cs(line,col): error CS0101)
+          var fileMatch = e.match(/([A-Za-z]:\\[^\(]+\.cs)/);
+          if (fileMatch) {
+            var conflictFileFull = fileMatch[1].trim();
+            // Only empty stub files (not the AI-written file)
+            if (conflictFileFull.indexOf('GameFlowManagerMain') < 0 && fs.existsSync(conflictFileFull)) {
+              log('[coder] Auto-fixing CS0101: emptying ' + path.basename(conflictFileFull), taskId);
+              fs.writeFileSync(conflictFileFull, '// Auto-emptied to resolve CS0101 conflict with AI code\nusing UnityEngine;\n', 'utf-8');
+              cs0101Fixed = true;
+            }
+          }
+          // Also strip EventPool class from GameFlowManagerMain.cs
+          var mainF = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
+          if (fs.existsSync(mainF)) {
+            var src = fs.readFileSync(mainF, 'utf-8');
+            var epMatch = src.match(/(?:public\s+|internal\s+|private\s+)?(?:sealed\s+)?(?:partial\s+)?class\s+EventPool[^{]*\{/);
+            if (epMatch) {
+              var si = src.indexOf(epMatch[0]);
+              var bc = 0, ei = si;
+              for (var bi = si; bi < src.length; bi++) {
+                if (src[bi] === '{') bc++;
+                if (src[bi] === '}') { bc--; if (bc === 0) { ei = bi + 1; break; } }
+              }
+              src = src.slice(0, si) + '// [AUTO-REMOVED] EventPool\n' + src.slice(ei);
+              fs.writeFileSync(mainF, src, 'utf-8');
+              log('[coder] Auto-removed EventPool class from GameFlowManagerMain.cs (compile-fix)', taskId);
+              cs0101Fixed = true;
+            }
           }
         }
       });
+      // Also clean up any AI-created Script*.cs files in Assets/Scripts/
+      var scriptsDir = path.join(clientDir, 'Assets', 'Scripts');
+      if (fs.existsSync(scriptsDir)) {
+        try {
+          var scriptFiles = fs.readdirSync(scriptsDir).filter(function(f) { return f.endsWith('.cs'); });
+          scriptFiles.forEach(function(f) {
+            fs.unlinkSync(path.join(scriptsDir, f));
+            try { fs.unlinkSync(path.join(scriptsDir, f + '.meta')); } catch(ex) {}
+          });
+          if (scriptFiles.length > 0) {
+            log('[coder] Cleaned ' + scriptFiles.length + ' AI-created files from Assets/Scripts/', taskId);
+            cs0101Fixed = true;
+          }
+        } catch(ex) {}
+      }
       if (cs0101Fixed) {
         // Retry compile immediately without using a fix attempt
         log('[coder] Retrying compile after CS0101 auto-fix...', taskId);
