@@ -1282,7 +1282,8 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       + '6. The scene MAY contain template objects — Start() MUST begin with cleanup: destroy all root objects except {"Main Camera","Directional Light","EventSystem","GameManager","__MaterialSource"}\n'
       + '7. ⛔ COLOR: Each object type MUST use a DISTINCT color. Player=blue(0.2,0.4,0.9), ground=brown(0.35,0.25,0.15), buildings=tan(0.85,0.7,0.4), enemies=red(0.85,0.15,0.15), trees=green(0.1,0.55,0.1), turrets=gray(0.5,0.5,0.55), workers=orange(0.9,0.6,0.2), camera.backgroundColor=sky blue(0.6,0.8,1). NEVER same color for all objects.\n'
       + '8. ⛔ EXCEPTION TO "minimal changes": If the code uses StartCoroutine/IEnumerator/WaitForSeconds/WaitUntil/yield, you MUST rewrite ALL shot logic as an Update()-based state machine (_currentShot + _shotState + _shotTimer in switch/case). Coroutines do NOT work in Luna WebGL runtime injection.\n'
-      + '9. Auto-play: Update() must include auto-play logic — if no joystick input for 2s, auto-move player toward _currentTarget.\n\n'
+      + '9. Auto-play: Update() must include auto-play logic — if no joystick input for 2s, auto-move player toward _currentTarget.\n'
+      + '10. ⛔ CAMERA: ALL projects use top-down 45° orthographic view. GFM_Tools.EnsureMaterial() auto-sets this. Do NOT change camera to perspective or other angles.\n\n'
       + 'Apply the feedback fixes to the existing code. Preserve everything that works EXCEPT coroutines which must be rewritten.';
   } else {
     // === FULL GENERATION MODE ===
@@ -1305,6 +1306,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       + '   - UI buttons/highlights: new Color(1f, 0.85f, 0f) (gold yellow)\n'
       + '   - Workers/NPCs: new Color(0.9f, 0.6f, 0.2f) (orange)\n'
       + '   Camera background: new Color(0.6f, 0.8f, 1f) (sky blue) via _mainCam.backgroundColor\n'
+      + '   ⛔ CAMERA: ALL projects use top-down 45° orthographic view. GFM_Tools.EnsureMaterial() auto-sets this. Do NOT change camera to perspective or other angles.\n'
       + '   NEVER make all objects the same color. If scene looks uniform, CUA cannot navigate it.\n'
       + '3. BUILD everything using GFM_Create.Obj() for 3D objects (from scene pool), new GameObject for empty parents, UI components for HUD\n'
       + '4. You CAN call utility classes from the template (DOTween, PoolManager, etc.)\n'

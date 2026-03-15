@@ -765,12 +765,16 @@ public static class GFM_Create
             _baseMat.mainTexture = null;
             _baseMat.color = Color.white; // neutral base, Obj() will set per-type colors
         }
-        // Auto-set camera background to sky blue for visual contrast
+        // Auto-set camera: top-down 45° orthographic view
         var cam = Camera.main;
         if (cam != null)
         {
             cam.backgroundColor = new Color(0.6f, 0.8f, 1f); // sky blue
             cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.orthographic = true;
+            cam.orthographicSize = 8f;
+            cam.transform.rotation = Quaternion.Euler(45f, 0f, 0f);
+            cam.transform.position = new Vector3(0f, 15f, -15f);
         }
         return _baseMat;
     }
