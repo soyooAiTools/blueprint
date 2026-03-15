@@ -1091,6 +1091,20 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       }
     } catch(e) { log('[coder] Scene replacement warning: ' + e.message, taskId); }
 
+    // Clean up AI-created files that svn revert doesn't remove
+    try {
+      var svnOut = execSync('svn status Assets/', { cwd: clientDir, timeout: 15000, encoding: 'utf-8' });
+      var untracked = svnOut.split('\n').filter(function(l) { return l.startsWith('?') && l.trim().endsWith('.cs'); });
+      var aiCleanCount = 0;
+      untracked.forEach(function(l) {
+        var fp = l.replace(/^\?\s+/, '').trim();
+        if (fp.indexOf('GameFlowManagerMain.cs') >= 0 || fp.indexOf('GFM_Tools.cs') >= 0) return;
+        try { fs.unlinkSync(path.join(clientDir, fp)); aiCleanCount++; } catch(ex) {}
+        try { fs.unlinkSync(path.join(clientDir, fp + '.meta')); } catch(ex) {}
+      });
+      if (aiCleanCount > 0) log('[coder] Cleaned ' + aiCleanCount + ' untracked .cs files (AI remnants)', taskId);
+    } catch(e) { log('[coder] SVN status cleanup warning: ' + e.message, taskId); }
+
     // Smart stub: keep utility classes, stub game logic, delete AI remnants
     var stubCount = 0, keepCount = 0, deleteCount = 0;
 
@@ -1102,7 +1116,8 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       'StateManagerFontFix', 'StateManagerMethods', 'StateManagerPublicAPI',
       'BlueprintTriggerLogic', 'BlueprintTriggerMain',
       'ConveyorBlueprintTrigger', 'CrossbowBlueprint2Trigger',
-      'HouseBlueprintTrigger', 'RecruitButtonTrigger', 'UpgradeButtonTrigger'
+      'HouseBlueprintTrigger', 'RecruitButtonTrigger', 'UpgradeButtonTrigger',
+      'Script1', 'Script2', 'Script3', 'Script4', 'Script5'
     ];
 
     function smartStub(dir) {
