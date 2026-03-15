@@ -1126,7 +1126,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
     var stubCount = 0, keepCount = 0, deleteCount = 0;
 
     // Files to KEEP intact (utility/tool classes AI can call)
-    var keepFiles = ['MonoSingleton.cs', 'EventPool.cs', 'Event.cs']; // Template infrastructure — stubbing breaks dependents
+    var keepFiles = ['MonoSingleton.cs', 'EventPool.cs', 'Event.cs', 'EventManager.cs']; // Template infrastructure — stubbing breaks dependents
     // Files to DELETE (AI remnants from previous runs — cause duplicate class conflicts)
     var deletePatterns = [
       'StateManagerCleanup', 'StateManagerDuplicateFix', 'StateManagerExtension',
@@ -1489,22 +1489,17 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
                    e.match(/CS0101[^"]*"(\w+)"/) ||
                    e.match(/CS0101/);
         if (m101 && e.indexOf('CS0101') >= 0) {
-          // Extract file path from the error line (format: path.cs(line,col): error CS0101)
-          var fileMatch = e.match(/([A-Za-z]:\\[^\(]+\.cs)/);
-          if (fileMatch) {
-            var conflictFileFull = fileMatch[1].trim();
-            // Only empty stub files (not the AI-written file)
-            if (conflictFileFull.indexOf('GameFlowManagerMain') < 0 && fs.existsSync(conflictFileFull)) {
-              log('[coder] Auto-fixing CS0101: emptying ' + path.basename(conflictFileFull), taskId);
-              fs.writeFileSync(conflictFileFull, '// Auto-emptied to resolve CS0101 conflict with AI code\nusing UnityEngine;\n', 'utf-8');
-              cs0101Fixed = true;
-            }
-          }
-          // Also strip EventPool class from GameFlowManagerMain.cs
+          // Extract conflicting class name and strip it from GameFlowManagerMain.cs
+          // Do NOT empty template files (EventPool.cs, Event.cs, EventManager.cs etc.) — they have methods other files depend on
+          var classNameMatch = e.match(/"(\w+)"/) || e.match(/'(\w+)'/);
+          var conflictClassName = classNameMatch ? classNameMatch[1] : null;
+          // Strip the conflicting class from GameFlowManagerMain.cs (AI should not redefine template classes)
           var mainF = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
-          if (fs.existsSync(mainF)) {
+          if (fs.existsSync(mainF) && conflictClassName) {
             var src = fs.readFileSync(mainF, 'utf-8');
-            var epMatch = src.match(/(?:public\s+|internal\s+|private\s+)?(?:sealed\s+)?(?:partial\s+)?class\s+EventPool[^{]*\{/);
+            // Build regex to match the conflicting class definition
+            var classRegex = new RegExp('(?:public\\s+|internal\\s+|private\\s+)?(?:sealed\\s+)?(?:partial\\s+)?class\\s+' + conflictClassName + '[^{]*\\{');
+            var epMatch = src.match(classRegex);
             if (epMatch) {
               var si = src.indexOf(epMatch[0]);
               var bc = 0, ei = si;
@@ -1512,9 +1507,9 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
                 if (src[bi] === '{') bc++;
                 if (src[bi] === '}') { bc--; if (bc === 0) { ei = bi + 1; break; } }
               }
-              src = src.slice(0, si) + '// [AUTO-REMOVED] EventPool\n' + src.slice(ei);
+              src = src.slice(0, si) + '// [AUTO-REMOVED] ' + conflictClassName + '\n' + src.slice(ei);
               fs.writeFileSync(mainF, src, 'utf-8');
-              log('[coder] Auto-removed EventPool class from GameFlowManagerMain.cs (compile-fix)', taskId);
+              log('[coder] Auto-removed ' + conflictClassName + ' class from GameFlowManagerMain.cs (compile-fix)', taskId);
               cs0101Fixed = true;
             }
           }
