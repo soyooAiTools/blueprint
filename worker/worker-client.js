@@ -664,7 +664,14 @@ async function processTask(task) {
         // CUA failed — log issues
         log(`CUA verification FAILED round ${cuaRound}/${MAX_CUA_ROUNDS}, ${cuaResult.issues.length} issues`, taskId);
         cuaResult.issues.forEach(issue => log(`  - ${issue}`, taskId));
-        notifyEvent(taskId, 'cua_round', `CUA第${cuaRound}/${MAX_CUA_ROUNDS}轮未通过 (${cuaResult.issues.length}个问题): ${cuaResult.issues.slice(0,2).join('; ').slice(0,150)}`, { projectName: task.projectName });
+        // Calculate coverage stats for notification
+        var coveredCount = 0, totalSteps = 0;
+        if (cuaResult.scriptCoverage) {
+          totalSteps = cuaResult.scriptCoverage.length;
+          coveredCount = cuaResult.scriptCoverage.filter(function(s) { return s.covered; }).length;
+        }
+        var coverageStr = totalSteps > 0 ? ` | 分镜覆盖: ${coveredCount}/${totalSteps}` : '';
+        notifyEvent(taskId, 'cua_round', `CUA第${cuaRound}/${MAX_CUA_ROUNDS}轮未通过${coverageStr}\n问题: ${cuaResult.issues.slice(0,3).join('\n').slice(0,200)}`, { projectName: task.projectName });
 
         if (cuaRound >= MAX_CUA_ROUNDS) {
           // Max retries exhausted — fail the task with details
