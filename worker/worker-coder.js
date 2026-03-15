@@ -1071,11 +1071,33 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
         } catch(e) {}
       }
     }
-    // SVN revert the Program files that AI overwrote in previous runs
+    // NUCLEAR RESET: SVN revert ALL Assets (not just Program) + delete ALL untracked files
+    // This ensures zero contamination between tasks
     try {
-      execSync('svn revert -R Assets/Program', { cwd: clientDir, timeout: 30000, encoding: 'utf-8' });
-      log('[coder] SVN revert Assets/Program OK', taskId);
+      execSync('svn revert -R Assets/', { cwd: clientDir, timeout: 60000, encoding: 'utf-8' });
+      log('[coder] SVN revert -R Assets/ OK (full reset)', taskId);
     } catch(e) { log('[coder] SVN revert warning: ' + e.message, taskId); }
+    // Delete ALL untracked files (? status) — not just .cs, EVERYTHING
+    try {
+      var svnFull = execSync('svn status Assets/', { cwd: clientDir, timeout: 15000, encoding: 'utf-8' });
+      var untrackedAll = svnFull.split('\n').filter(function(l) { return l.startsWith('?'); });
+      var nukeCount = 0;
+      untrackedAll.forEach(function(l) {
+        var fp = l.replace(/^\?\s+/, '').trim();
+        if (!fp) return;
+        // Keep GameFlowManagerMain.cs and GFM_Tools.cs (will be recreated anyway)
+        if (fp.indexOf('GameFlowManagerMain.cs') >= 0) return;
+        if (fp.indexOf('GFM_Tools.cs') >= 0) return;
+        var fullP = path.join(clientDir, fp);
+        try {
+          var stat = fs.statSync(fullP);
+          if (stat.isDirectory()) { fs.rmSync(fullP, { recursive: true, force: true }); }
+          else { fs.unlinkSync(fullP); }
+          nukeCount++;
+        } catch(ex) {}
+      });
+      if (nukeCount > 0) log('[coder] Nuked ' + nukeCount + ' untracked items from Assets/', taskId);
+    } catch(e) { log('[coder] Untracked cleanup warning: ' + e.message, taskId); }
 
     // Replace SVN scene with empty-scene-template (pool objects + MaterialSource, no original game objects)
     try {
@@ -1091,19 +1113,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       }
     } catch(e) { log('[coder] Scene replacement warning: ' + e.message, taskId); }
 
-    // Clean up AI-created files that svn revert doesn't remove
-    try {
-      var svnOut = execSync('svn status Assets/', { cwd: clientDir, timeout: 15000, encoding: 'utf-8' });
-      var untracked = svnOut.split('\n').filter(function(l) { return l.startsWith('?') && l.trim().endsWith('.cs'); });
-      var aiCleanCount = 0;
-      untracked.forEach(function(l) {
-        var fp = l.replace(/^\?\s+/, '').trim();
-        if (fp.indexOf('GameFlowManagerMain.cs') >= 0 || fp.indexOf('GFM_Tools.cs') >= 0) return;
-        try { fs.unlinkSync(path.join(clientDir, fp)); aiCleanCount++; } catch(ex) {}
-        try { fs.unlinkSync(path.join(clientDir, fp + '.meta')); } catch(ex) {}
-      });
-      if (aiCleanCount > 0) log('[coder] Cleaned ' + aiCleanCount + ' untracked .cs files (AI remnants)', taskId);
-    } catch(e) { log('[coder] SVN status cleanup warning: ' + e.message, taskId); }
+    // (Untracked file cleanup now handled by nuclear reset above)
 
     // Smart stub: keep utility classes, stub game logic, delete AI remnants
     var stubCount = 0, keepCount = 0, deleteCount = 0;
