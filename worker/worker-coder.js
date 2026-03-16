@@ -945,19 +945,10 @@ function tryCompileUnity(clientDir, log, taskId) {
         lines[li] = '// [AUTO-FIX] ' + line.trim() + ' // Light.type not supported in Luna';
         autoFixCount++;
       }
-      // Fix: Slider → Image for CreateProgressBar return type
-      if (line.match(/\bSlider\b/) && line.match(/CreateProgressBar/)) {
+      // Fix: ALL Slider → Image (GFM_UI toolkit has no Slider APIs, all progress bars return Image)
+      if (line.match(/\bSlider\b/) && !line.match(/^\s*\/\//) && !line.match(/["']/)) {
         lines[li] = line.replace(/\bSlider\b/g, 'Image');
         autoFixCount++;
-      }
-      // Fix: Slider variable assigned from CreateProgressBar (declaration on separate line)
-      if (line.match(/\bSlider\s+\w+\s*=/) && !line.match(/CreateProgressBar/)) {
-        // Check if a nearby line has CreateProgressBar — this is a broader pattern
-        // Only fix if the variable name contains 'bar' or 'progress' (heuristic)
-        if (line.match(/\bSlider\s+\w*(bar|progress|fill|hp|health)/i)) {
-          lines[li] = line.replace(/\bSlider\b/, 'Image');
-          autoFixCount++;
-        }
       }
       // Fix: enum EventPool or struct EventPool (not just class)
       if (line.match(/\b(enum|struct)\s+EventPool\b/)) {
@@ -1484,6 +1475,11 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
     var MAX_COMPILE_ATTEMPTS = MAX_FIX_ATTEMPTS; // compile fix budget (separate from content)
     var MAX_CONTENT_ATTEMPTS = 3; // content fix budget (separate counter)
     var contentFixCount = 0;
+    // Save original code BEFORE fix loop — all shot guards compare against this
+    var mainPathOrig = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
+    var originalMainCode = '';
+    try { originalMainCode = fs.readFileSync(mainPathOrig, 'utf-8'); } catch(e) {}
+    var originalShotCount = (originalMainCode.match(/\bshot_\d+\s*\(/g) || []).length;
     for (var attempt = 1; attempt <= MAX_COMPILE_ATTEMPTS + MAX_CONTENT_ATTEMPTS; attempt++) {
       var result = tryCompile(clientDir, log, taskId);
       
@@ -1768,13 +1764,12 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
           var fallbackFiles = parseBlocks(patchResp.text);
           if (fallbackFiles.length > 0) {
             var fbMain = fallbackFiles.find(function(f) { return f.path.indexOf('GameFlowManagerMain') >= 0; });
-            // Shot count guard: reject fix if it loses shots
-            if (fbMain && currentMainCode) {
-              var origShots = (currentMainCode.match(/\bshot_\d+\s*\(/g) || []).length;
+            // Shot count guard: reject fix if it loses shots (compare against ORIGINAL, not last fix)
+            if (fbMain && originalShotCount > 3) {
               var newShots = (fbMain.content.match(/\bshot_\d+\s*\(/g) || []).length;
-              if (origShots > 3 && newShots < origShots * 0.7) {
-                log('[coder] ⚠️ REJECTED fix: shot count dropped from ' + origShots + ' to ' + newShots + '. Restoring original.', taskId);
-                fs.writeFileSync(mainPath, currentMainCode, 'utf-8');
+              if (newShots < originalShotCount * 0.7) {
+                log('[coder] ⚠️ REJECTED fix: shot count dropped from ' + originalShotCount + ' to ' + newShots + '. Restoring original.', taskId);
+                fs.writeFileSync(mainPath, originalMainCode, 'utf-8');
               } else {
                 writeFiles(clientDir, fallbackFiles, log, taskId); files = fallbackFiles;
               }
@@ -1787,11 +1782,10 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
             if (csharpMatch && csharpMatch[1].length > 200 && csharpMatch[1].indexOf('class ') >= 0) {
               log('[coder] Fallback: extracted csharp block from response (' + csharpMatch[1].split('\n').length + ' lines)', taskId);
               var fbContent = csharpMatch[1].trimEnd();
-              // Shot count guard
-              var origShotsFb2 = (currentMainCode.match(/\bshot_\d+\s*\(/g) || []).length;
+              // Shot count guard (compare against original)
               var newShotsFb2 = (fbContent.match(/\bshot_\d+\s*\(/g) || []).length;
-              if (origShotsFb2 > 3 && newShotsFb2 < origShotsFb2 * 0.7) {
-                log('[coder] ⚠️ REJECTED csharp fallback: shot count dropped ' + origShotsFb2 + ' → ' + newShotsFb2, taskId);
+              if (originalShotCount > 3 && newShotsFb2 < originalShotCount * 0.7) {
+                log('[coder] ⚠️ REJECTED csharp fallback: shot count dropped ' + originalShotCount + ' → ' + newShotsFb2, taskId);
               } else {
                 fs.writeFileSync(mainPath, fbContent, 'utf-8');
                 files = [{ path: 'Assets/Program/Script/Manager/GameFlowManagerMain.cs', content: fbContent }];
@@ -1821,11 +1815,11 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
         if (fixed.length > 0) {
           // Shot count guard: reject fix if it loses shots
           var fxMain = fixed.find(function(f) { return f.path.indexOf('GameFlowManagerMain') >= 0; });
-          if (fxMain && currentCode) {
-            var origShotsFull = (currentCode.match(/\bshot_\d+\s*\(/g) || []).length;
+          if (fxMain) {
             var newShotsFull = (fxMain.content.match(/\bshot_\d+\s*\(/g) || []).length;
-            if (origShotsFull > 3 && newShotsFull < origShotsFull * 0.7) {
-              log('[coder] ⚠️ REJECTED fix: shot count dropped from ' + origShotsFull + ' to ' + newShotsFull + '. Keeping original.', taskId);
+            if (originalShotCount > 3 && newShotsFull < originalShotCount * 0.7) {
+              log('[coder] ⚠️ REJECTED fix: shot count dropped from ' + originalShotCount + ' to ' + newShotsFull + '. Restoring original.', taskId);
+              fs.writeFileSync(mainPath, originalMainCode, 'utf-8');
             } else {
               writeFiles(clientDir, fixed, log, taskId); files = fixed;
             }
@@ -1839,10 +1833,9 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
           if (csharpMatch2 && csharpMatch2[1].length > 200 && csharpMatch2[1].indexOf('class ') >= 0) {
             log('[coder] Fallback: extracted csharp block (' + csharpMatch2[1].split('\n').length + ' lines)', taskId);
             var fbContent2 = csharpMatch2[1].trimEnd();
-            var origShotsFix2 = (currentCode.match(/\bshot_\d+\s*\(/g) || []).length;
             var newShotsFix2 = (fbContent2.match(/\bshot_\d+\s*\(/g) || []).length;
-            if (origShotsFix2 > 3 && newShotsFix2 < origShotsFix2 * 0.7) {
-              log('[coder] ⚠️ REJECTED csharp fallback: shot count dropped ' + origShotsFix2 + ' → ' + newShotsFix2, taskId);
+            if (originalShotCount > 3 && newShotsFix2 < originalShotCount * 0.7) {
+              log('[coder] ⚠️ REJECTED csharp fallback: shot count dropped ' + originalShotCount + ' → ' + newShotsFix2, taskId);
             } else {
               fs.writeFileSync(mainPath, fbContent2, 'utf-8');
               files = [{ path: 'Assets/Program/Script/Manager/GameFlowManagerMain.cs', content: fbContent2 }];
