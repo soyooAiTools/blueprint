@@ -431,10 +431,16 @@ async function processTask(task) {
     // === Step 2: AI Coding ===
     await reportStatus(taskId, 'processing', { message: 'AI 编码中...' });
     let blueprint = null;
-    try {
-      blueprint = await apiRequest('GET', `/api/tasks/${taskId}/blueprint`);
-    } catch (e) {
-      log('Failed to fetch blueprint: ' + e.message, taskId);
+    for (let bpRetry = 0; bpRetry < 3; bpRetry++) {
+      try {
+        blueprint = await apiRequest('GET', `/api/tasks/${taskId}/blueprint`);
+        if (blueprint && blueprint.nodes && blueprint.nodes.length > 0) break;
+        log('Blueprint empty/missing, retry ' + (bpRetry + 1) + '/3...', taskId);
+        await new Promise(r => setTimeout(r, 5000));
+      } catch (e) {
+        log('Failed to fetch blueprint (retry ' + (bpRetry + 1) + '): ' + e.message, taskId);
+        await new Promise(r => setTimeout(r, 5000));
+      }
     }
 
     if (blueprint && blueprint.nodes && blueprint.nodes.length > 0) {

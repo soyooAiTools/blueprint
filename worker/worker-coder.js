@@ -90,6 +90,27 @@ function callClaude(systemPrompt, userMessage, timeoutMs, model) {
   });
 }
 
+// Retry wrapper for callClaude — retries on transient network errors
+function callClaudeWithRetry(systemPrompt, userMessage, timeoutMs, model, maxRetries) {
+  maxRetries = maxRetries || 3;
+  var attempt = 0;
+  function tryOnce() {
+    attempt++;
+    return callClaude(systemPrompt, userMessage, timeoutMs, model).catch(function(err) {
+      var msg = err.message || '';
+      var isTransient = msg.indexOf('ECONNABORTED') >= 0 || msg.indexOf('socket hang up') >= 0 || 
+                        msg.indexOf('ECONNRESET') >= 0 || msg.indexOf('timeout') >= 0 ||
+                        msg.indexOf('ETIMEDOUT') >= 0;
+      if (isTransient && attempt < maxRetries) {
+        var delay = attempt * 15000;
+        return new Promise(function(resolve) { setTimeout(resolve, delay); }).then(tryOnce);
+      }
+      throw err;
+    });
+  }
+  return tryOnce();
+}
+
 // ============ Blueprint → Prompt ============
 
 function parseBlueprintToPrompt(blueprint) {
@@ -1430,7 +1451,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
   }
 
   try {
-    var response = await callClaude(sysPrompt, userMsg, 300000, MODEL_GENERATE);
+    var response = await callClaudeWithRetry(sysPrompt, userMsg, 300000, MODEL_GENERATE);
     log('[coder] Generated (' + (response.usage ? response.usage.output_tokens + ' tokens' : 'ok') + ')', taskId);
 
     var files = parseBlocks(response.text);
@@ -1454,7 +1475,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
         + '- Use GFM_Create.Ground(width, depth) for ground planes\n'
         + '- Use GFM_Create.SetColor(obj, color) to color objects\n\n'
         + 'Output the COMPLETE fixed GameFlowManagerMain.cs.';
-      var preFixResponse = await callClaude(sysPrompt, preFixMsg, 300000, MODEL_FIX);
+      var preFixResponse = await callClaudeWithRetry(sysPrompt, preFixMsg, 300000, MODEL_FIX);
       log('[coder] Pre-build fix response (' + (preFixResponse.usage ? preFixResponse.usage.output_tokens + ' tokens' : 'ok') + ')', taskId);
       var preFixFiles = parseBlocks(preFixResponse.text);
       if (preFixFiles.length > 0) {
@@ -1500,7 +1521,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
               + '- Missing shots: ' + (verification.missingShots ? verification.missingShots.join(', ') : 'unknown') + '\n'
               + '- DO NOT rewrite the entire code — just add the shot_N() wrapper methods and keep everything else\n'
               + '- Output the COMPLETE updated GameFlowManagerMain.cs\n';
-            var contentFixResp = await callClaude(fixPrompt, contentFixMsg, 300000, MODEL_GENERATE);
+            var contentFixResp = await callClaudeWithRetry(fixPrompt, contentFixMsg, 300000, MODEL_GENERATE);
             var contentFixFiles = parseBlocks(contentFixResp.text);
             if (contentFixFiles.length > 0) {
               // Safety check: reject if drastically shorter than original
@@ -1537,7 +1558,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
         var regenMsg = userMsg + '\n\n## IMPORTANT: Previous code had persistent compilation errors:\n```\n'
           + result.errors.join('\n') + '\n```\nGenerate completely different code that avoids these issues.'
           + '\n⚠️ You MUST generate FULL game logic — do NOT output a skeleton/empty class. The game must actually run with all shots implemented.';
-        var regenResp = await callClaude(sysPrompt, regenMsg, 300000, MODEL_GENERATE);
+        var regenResp = await callClaudeWithRetry(sysPrompt, regenMsg, 300000, MODEL_GENERATE);
         var regenFiles = parseBlocks(regenResp.text);
         if (regenFiles.length > 0) {
           var rgMain = regenFiles.find(function(f) { return f.path.indexOf('GameFlowManagerMain') >= 0; });
@@ -1716,7 +1737,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
         patchCtx += '⚠️ Keep all surrounding code unchanged. Fix ONLY the erroring lines.\n';
         patchCtx += '⚠️ The replacement lines will REPLACE the original lines in that range.\n';
 
-        var patchResp = await callClaude(fixPrompt, patchCtx);
+        var patchResp = await callClaudeWithRetry(fixPrompt, patchCtx);
         log('[coder] Patch fix response (' + (patchResp.usage ? patchResp.usage.output_tokens + ' tokens' : 'ok') + ')', taskId);
 
         // Parse patch blocks
@@ -1802,7 +1823,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
           + '\n⚠️ Only change lines that cause errors. Keep all working code intact.'
           + '\nThis is attempt ' + attempt + '. If previous fixes oscillated, try a MINIMAL change approach.';
 
-        var fixResp = await callClaude(fixPrompt, fixMsg);
+        var fixResp = await callClaudeWithRetry(fixPrompt, fixMsg);
         log('[coder] Fix response (' + (fixResp.usage ? fixResp.usage.output_tokens + ' tokens' : 'ok') + ')', taskId);
 
         var fixed = parseBlocks(fixResp.text);
