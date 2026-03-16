@@ -652,6 +652,7 @@ var FIX_PROMPT = [
   '- DOTween chain calls must be on separate lines to avoid JS transpilation bugs',
   '- Use Luna.Unity.Playable.InstallFullGame() instead of Application.OpenURL',
   '- Must call Luna.Unity.LifeCycle.GameEnded() when game ends',
+  '- Do NOT create or configure Light components (Light.type is NOT available in Luna Bridge.NET)',
   '- Do NOT use [RuntimeInitializeOnLoadMethod] — Luna ignores it',
   '- The main controller script is GameFlowManagerMain.cs — keep its class name `GameFlowManagerMain`',
   '- The scene is CLEAN — all game objects are created from code, do NOT use GameObject.Find() for template objects',
@@ -659,8 +660,13 @@ var FIX_PROMPT = [
   '- GFM_Create.Obj() auto-assigns base material. Use GFM_Create.SetColor(obj, color) to give each object a distinct color.',
   '- GFM_UI.CreateCanvas() returns **Canvas** (component), NOT GameObject. Write: Canvas canvas = GFM_UI.CreateCanvas(w,h);',
   '- GFM_UI.CreateButton/CreateText take **Canvas** as first param, NOT GameObject.',
+  '- GFM_UI.CreateProgressBar() returns **Image**, NOT Slider.',
   '- GFM_Joystick.Create() takes **Canvas** as first param, NOT GameObject.',
   '- If you need the GameObject from a Canvas: use canvas.gameObject',
+  '- GFM_Create.Obj() requires 4 params: (PrimitiveType, Vector3 pos, Vector3 scale, string label) — do NOT omit scale!',
+  '- Light.type is NOT available in Luna Bridge.NET — do NOT create or configure Light components manually',
+  '- CS0101 EventPool: the template already has EventPool.cs — do NOT define any class/enum named EventPool in your code',
+  '- NEVER replace GFM_Create.Obj() calls with CreatePrimitive() — CreatePrimitive is INVISIBLE in Luna WebGL',
   '- If a fix requires new visible objects, use GFM_Create.Obj() — NOT CreatePrimitive (invisible in Luna)',
   '- Do NOT reintroduce dependencies on template scene objects that were cleared',
   '',
@@ -1672,7 +1678,19 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
           var fallbackFiles = parseBlocks(patchResp.text);
           if (fallbackFiles.length > 0) {
             var fbMain = fallbackFiles.find(function(f) { return f.path.indexOf('GameFlowManagerMain') >= 0; });
-            writeFiles(clientDir, fallbackFiles, log, taskId); files = fallbackFiles;
+            // Shot count guard: reject fix if it loses shots
+            if (fbMain && currentMainCode) {
+              var origShots = (currentMainCode.match(/\bshot_\d+\s*\(/g) || []).length;
+              var newShots = (fbMain.content.match(/\bshot_\d+\s*\(/g) || []).length;
+              if (origShots > 3 && newShots < origShots * 0.7) {
+                log('[coder] ⚠️ REJECTED fix: shot count dropped from ' + origShots + ' to ' + newShots + '. Restoring original.', taskId);
+                fs.writeFileSync(mainPath, currentMainCode, 'utf-8');
+              } else {
+                writeFiles(clientDir, fallbackFiles, log, taskId); files = fallbackFiles;
+              }
+            } else {
+              writeFiles(clientDir, fallbackFiles, log, taskId); files = fallbackFiles;
+            }
           } else {
             log('[coder] Warning: No fix blocks at all, retrying...', taskId);
           }
@@ -1694,7 +1712,19 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
 
         var fixed = parseBlocks(fixResp.text);
         if (fixed.length > 0) {
-          writeFiles(clientDir, fixed, log, taskId); files = fixed;
+          // Shot count guard: reject fix if it loses shots
+          var fxMain = fixed.find(function(f) { return f.path.indexOf('GameFlowManagerMain') >= 0; });
+          if (fxMain && currentCode) {
+            var origShotsFull = (currentCode.match(/\bshot_\d+\s*\(/g) || []).length;
+            var newShotsFull = (fxMain.content.match(/\bshot_\d+\s*\(/g) || []).length;
+            if (origShotsFull > 3 && newShotsFull < origShotsFull * 0.7) {
+              log('[coder] ⚠️ REJECTED fix: shot count dropped from ' + origShotsFull + ' to ' + newShotsFull + '. Keeping original.', taskId);
+            } else {
+              writeFiles(clientDir, fixed, log, taskId); files = fixed;
+            }
+          } else {
+            writeFiles(clientDir, fixed, log, taskId); files = fixed;
+          }
         }
         else { log('[coder] Warning: No fix blocks, retrying...', taskId); }
       }
