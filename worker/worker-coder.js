@@ -920,8 +920,10 @@ function tryCompileUnity(clientDir, log, taskId) {
   // === NUCLEAR PRE-BUILD FIXES ===
   // These fix KNOWN type issues that AI consistently produces, BEFORE compilation
   var mainFile = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
+  log('[coder] Pre-build mainFile: ' + mainFile + ' exists=' + fs.existsSync(mainFile), taskId);
   if (fs.existsSync(mainFile)) {
     var mainSrc = fs.readFileSync(mainFile, 'utf-8');
+    log('[coder] Pre-build mainSrc length=' + mainSrc.length + ' hasSlider=' + (mainSrc.indexOf('Slider') >= 0) + ' hasEventPool=' + (mainSrc.indexOf('EventPool') >= 0), taskId);
 
     // NUCLEAR FIX 1: ALL Slider → Image (GFM_UI.CreateProgressBar returns Image, never Slider)
     if (mainSrc.indexOf('Slider') >= 0) {
