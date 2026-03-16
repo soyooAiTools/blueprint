@@ -7,11 +7,8 @@
 const fs = require('fs');
 const path = require('path');
 
-// === Proxy (only when env var set) ===
-// Proxy enabled for Google API access from China
-const PROXY_URL = process.env.HTTPS_PROXY || 'http://127.0.0.1:7890';
-process.env.HTTPS_PROXY = PROXY_URL;
-process.env.HTTP_PROXY = PROXY_URL;
+// === Proxy (only when env var explicitly set) ===
+const PROXY_URL = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy || '';
 if (PROXY_URL) {
   try {
     const { EnvHttpProxyAgent, setGlobalDispatcher } = require('undici');
@@ -20,6 +17,8 @@ if (PROXY_URL) {
   } catch (e) {
     console.warn('[StoryboardParser][Proxy] undici not available');
   }
+} else {
+  console.log('[StoryboardParser] No proxy configured, connecting directly');
 }
 
 const { GoogleGenAI } = require('@google/genai');
