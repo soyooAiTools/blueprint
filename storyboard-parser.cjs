@@ -7,24 +7,18 @@
 const fs = require('fs');
 const path = require('path');
 
-// === Proxy (only when env var explicitly set) ===
-const PROXY_URL = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy || '';
-if (PROXY_URL) {
-  try {
-    const { EnvHttpProxyAgent, setGlobalDispatcher } = require('undici');
-    setGlobalDispatcher(new EnvHttpProxyAgent());
-    console.log(`[StoryboardParser][Proxy] Using ${PROXY_URL}`);
-  } catch (e) {
-    console.warn('[StoryboardParser][Proxy] undici not available');
-  }
-} else {
-  console.log('[StoryboardParser] No proxy configured, connecting directly');
-}
+// === Proxy: disabled on ECS (PM2 inherits stale HTTPS_PROXY that doesn't exist) ===
+// Clear all proxy env vars to ensure direct connection
+delete process.env.HTTPS_PROXY;
+delete process.env.HTTP_PROXY;
+delete process.env.https_proxy;
+delete process.env.http_proxy;
+console.log('[StoryboardParser] Proxy disabled, connecting directly to Gemini API');
 
 const { GoogleGenAI } = require('@google/genai');
 
 const CONFIG = {
-  apiKey: process.env.GEMINI_API_KEY || 'AIzaSyCdVe2RB4HjpjZCKLq5Ns0m__oROnmogFY',
+  apiKey: process.env.GEMINI_API_KEY || 'AIzaSyBDgacpSxTtysiTjnD1wrNs9-KGxe4tccQ',
   textModel: 'gemini-2.5-flash',
   imageModel: 'gemini-3-pro-image-preview',
 };
