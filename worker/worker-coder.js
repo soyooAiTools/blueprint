@@ -917,6 +917,17 @@ function tryCompileUnity(clientDir, log, taskId) {
     log('[coder] GFM_Tools.cs restored from original (pre-build)', taskId);
   }
 
+  // Fix Event.cs stub: it has a duplicate EventPool class that conflicts with EventPool.cs
+  var eventCsPath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Utilities', 'Event', 'Event.cs');
+  if (fs.existsSync(eventCsPath)) {
+    var eventSrc = fs.readFileSync(eventCsPath, 'utf-8');
+    if (eventSrc.indexOf('class EventPool') >= 0) {
+      eventSrc = eventSrc.replace(/^.*class EventPool.*$/gm, '// [AUTO-FIX] removed duplicate EventPool definition');
+      fs.writeFileSync(eventCsPath, eventSrc, 'utf-8');
+      log('[coder] Removed duplicate EventPool from Event.cs', taskId);
+    }
+  }
+
   // === NUCLEAR PRE-BUILD FIXES ===
   // These fix KNOWN type issues that AI consistently produces, BEFORE compilation
   var mainFile = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
