@@ -588,6 +588,15 @@ var FIX_PROMPT = [
   'You are fixing Unity C# compilation errors for a Luna SDK playable ad project.',
   'Luna transpiles C# to JavaScript — many Unity features cause compilation failures.',
   '',
+  '## ⚡ GFM API CHEAT SHEET (EXACT signatures — do NOT guess parameters!)',
+  '```',
+  'Canvas canvas = GFM_UI.CreateCanvas(800, 600);                                    // (int w, int h) → Canvas',
+  'Text txt = GFM_UI.CreateText(canvas, "Hello", new Vector2(0, 100), 28);           // (Canvas, string, Vector2, int) → Text — ONLY 4 params!',
+  'Button btn = GFM_UI.CreateButton(canvas, "Go", new Vector2(0,-200), new Vector2(300,80), ()=>{}); // (Canvas, string, Vector2, Vector2, UnityAction) → Button — 5 params',
+  'Image bar = GFM_UI.CreateProgressBar(canvas, new Vector2(0,300), new Vector2(400,30), Color.green); // (Canvas, Vector2, Vector2, Color) → Image — 4 params',
+  'GameObject obj = GFM_Create.Obj(PrimitiveType.Cube, new Vector3(0,1,0), Vector3.one, "MyCube");     // (PrimitiveType, Vector3, Vector3, string) → GameObject — 4 params!',
+  '```',
+  '',
   '## ⛔ CRITICAL: NO Coroutines (MUST rewrite if found)',
   '- StartCoroutine, IEnumerator, yield return, WaitForSeconds, WaitUntil — ALL FORBIDDEN in Luna.',
   '- If the existing code uses coroutines, you MUST rewrite ALL shot logic as Update()-based state machine:',
@@ -906,6 +915,29 @@ function tryCompileUnity(clientDir, log, taskId) {
       mainSrc = mainSrc.slice(0, startIdx) + '// [AUTO-REMOVED] EventPool class conflicts with template\n' + mainSrc.slice(endIdx);
       fs.writeFileSync(mainFile, mainSrc, 'utf-8');
       log('[coder] Auto-removed EventPool class from GameFlowManagerMain.cs (template conflict)', taskId);
+    }
+
+    // === Pre-build API auto-fix: fix common GFM_UI/GFM_Create call mistakes ===
+    var autoFixCount = 0;
+    // Re-read after EventPool removal
+    mainSrc = fs.readFileSync(mainFile, 'utf-8');
+    var lines = mainSrc.split('\n');
+    for (var li = 0; li < lines.length; li++) {
+      var line = lines[li];
+      // Fix: Light.type → comment out (not supported in Luna Bridge.NET)
+      if (line.match(/\.\s*type\s*=\s*LightType\b/) || line.match(/\.type\s*=\s*UnityEngine\.LightType/)) {
+        lines[li] = '// [AUTO-FIX] ' + line.trim() + ' // Light.type not supported in Luna';
+        autoFixCount++;
+      }
+      // Fix: enum EventPool or struct EventPool (not just class)
+      if (line.match(/\b(enum|struct)\s+EventPool\b/)) {
+        lines[li] = '// [AUTO-FIX] ' + line.trim() + ' // conflicts with template EventPool';
+        autoFixCount++;
+      }
+    }
+    if (autoFixCount > 0) {
+      fs.writeFileSync(mainFile, lines.join('\n'), 'utf-8');
+      log('[coder] Pre-build auto-fixed ' + autoFixCount + ' known issues', taskId);
     }
   }
 
@@ -1692,7 +1724,24 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
               writeFiles(clientDir, fallbackFiles, log, taskId); files = fallbackFiles;
             }
           } else {
-            log('[coder] Warning: No fix blocks at all, retrying...', taskId);
+            // Fallback: try extracting ```csharp code blocks from response
+            var csharpMatch = patchResp.text.match(/```(?:csharp|cs)\s*\n([\s\S]*?)```/);
+            if (csharpMatch && csharpMatch[1].length > 200 && csharpMatch[1].indexOf('class ') >= 0) {
+              log('[coder] Fallback: extracted csharp block from response (' + csharpMatch[1].split('\n').length + ' lines)', taskId);
+              var fbContent = csharpMatch[1].trimEnd();
+              // Shot count guard
+              var origShotsFb2 = (currentMainCode.match(/\bshot_\d+\s*\(/g) || []).length;
+              var newShotsFb2 = (fbContent.match(/\bshot_\d+\s*\(/g) || []).length;
+              if (origShotsFb2 > 3 && newShotsFb2 < origShotsFb2 * 0.7) {
+                log('[coder] ⚠️ REJECTED csharp fallback: shot count dropped ' + origShotsFb2 + ' → ' + newShotsFb2, taskId);
+              } else {
+                fs.writeFileSync(mainPath, fbContent, 'utf-8');
+                files = [{ path: 'Assets/Program/Script/Manager/GameFlowManagerMain.cs', content: fbContent }];
+                log('[coder] Written (csharp fallback): GameFlowManagerMain.cs', taskId);
+              }
+            } else {
+              log('[coder] Warning: No fix blocks at all, retrying...', taskId);
+            }
           }
         }
       } else {
@@ -1726,7 +1775,25 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
             writeFiles(clientDir, fixed, log, taskId); files = fixed;
           }
         }
-        else { log('[coder] Warning: No fix blocks, retrying...', taskId); }
+        else {
+          // Fallback: try extracting ```csharp code blocks
+          var csharpMatch2 = fixResp.text.match(/```(?:csharp|cs)\s*\n([\s\S]*?)```/);
+          if (csharpMatch2 && csharpMatch2[1].length > 200 && csharpMatch2[1].indexOf('class ') >= 0) {
+            log('[coder] Fallback: extracted csharp block (' + csharpMatch2[1].split('\n').length + ' lines)', taskId);
+            var fbContent2 = csharpMatch2[1].trimEnd();
+            var origShotsFix2 = (currentCode.match(/\bshot_\d+\s*\(/g) || []).length;
+            var newShotsFix2 = (fbContent2.match(/\bshot_\d+\s*\(/g) || []).length;
+            if (origShotsFix2 > 3 && newShotsFix2 < origShotsFix2 * 0.7) {
+              log('[coder] ⚠️ REJECTED csharp fallback: shot count dropped ' + origShotsFix2 + ' → ' + newShotsFix2, taskId);
+            } else {
+              fs.writeFileSync(mainPath, fbContent2, 'utf-8');
+              files = [{ path: 'Assets/Program/Script/Manager/GameFlowManagerMain.cs', content: fbContent2 }];
+              log('[coder] Written (csharp fallback): GameFlowManagerMain.cs', taskId);
+            }
+          } else {
+            log('[coder] Warning: No fix blocks, retrying...', taskId);
+          }
+        }
       }
     }
 
