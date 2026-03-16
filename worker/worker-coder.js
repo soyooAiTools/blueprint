@@ -924,22 +924,13 @@ function tryCompileUnity(clientDir, log, taskId) {
     var mainSrc = fs.readFileSync(mainFile, 'utf-8');
     // Remove any class/struct/enum EventPool definition (AI keeps creating this despite prompt)
     // Use broad regex: any line containing 'class EventPool' or 'struct EventPool' or 'enum EventPool'
-    var evtPoolRemoved = false;
-    for (var epPass = 0; epPass < 5; epPass++) {
-      var evtPoolMatch = mainSrc.match(/^[^\n\/]*\b(?:class|struct|enum)\s+EventPool\b[^{]*\{/m);
-      if (!evtPoolMatch) break;
-      var startIdx = mainSrc.indexOf(evtPoolMatch[0]);
-      var braceCount = 0, endIdx = startIdx;
-      for (var bi = startIdx; bi < mainSrc.length; bi++) {
-        if (mainSrc[bi] === '{') braceCount++;
-        if (mainSrc[bi] === '}') { braceCount--; if (braceCount === 0) { endIdx = bi + 1; break; } }
-      }
-      mainSrc = mainSrc.slice(0, startIdx) + '// [AUTO-REMOVED] EventPool conflicts with template\n' + mainSrc.slice(endIdx);
-      evtPoolRemoved = true;
-    }
-    if (evtPoolRemoved) {
+    // Nuclear option: rename ALL occurrences of 'EventPool' to 'GFM_EventPool' in AI code
+    // This prevents CS0101 regardless of how AI defines/uses EventPool (class, enum, struct, interface, using, etc.)
+    if (mainSrc.indexOf('EventPool') >= 0) {
+      // Only rename standalone 'EventPool' (not 'EventPoolManager' etc., but DO rename 'EventPool<' etc.)
+      mainSrc = mainSrc.replace(/\bEventPool\b/g, 'GFM_EventPool');
       fs.writeFileSync(mainFile, mainSrc, 'utf-8');
-      log('[coder] Auto-removed EventPool definition(s) from GameFlowManagerMain.cs', taskId);
+      log('[coder] Renamed EventPool→GFM_EventPool in GameFlowManagerMain.cs (prevent CS0101)', taskId);
     }
 
     // === Pre-build API auto-fix: fix common GFM_UI/GFM_Create call mistakes ===
