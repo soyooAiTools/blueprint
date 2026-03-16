@@ -917,11 +917,19 @@ function tryCompileUnity(clientDir, log, taskId) {
     log('[coder] GFM_Tools.cs restored from original (pre-build)', taskId);
   }
 
-  // EventPool.cs and Event.cs are template files — DO NOT modify them.
-  // Instead, strip any AI-defined EventPool class from GameFlowManagerMain.cs to prevent CS0101
+  // === NUCLEAR PRE-BUILD FIXES ===
+  // These fix KNOWN type issues that AI consistently produces, BEFORE compilation
   var mainFile = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
   if (fs.existsSync(mainFile)) {
     var mainSrc = fs.readFileSync(mainFile, 'utf-8');
+
+    // NUCLEAR FIX 1: ALL Slider → Image (GFM_UI.CreateProgressBar returns Image, never Slider)
+    if (mainSrc.indexOf('Slider') >= 0) {
+      var sliderCount = (mainSrc.match(/Slider/g) || []).length;
+      mainSrc = mainSrc.replace(/Slider/g, 'Image');
+      fs.writeFileSync(mainFile, mainSrc, 'utf-8');
+      log('[coder] NUCLEAR: Replaced ' + sliderCount + ' Slider→Image in GameFlowManagerMain.cs', taskId);
+    }
     // Remove any class/struct/enum EventPool definition (AI keeps creating this despite prompt)
     // Use broad regex: any line containing 'class EventPool' or 'struct EventPool' or 'enum EventPool'
     // Nuclear option: rename ALL occurrences of 'EventPool' to 'GFM_EventPool' in AI code
@@ -946,9 +954,10 @@ function tryCompileUnity(clientDir, log, taskId) {
         autoFixCount++;
       }
       // Fix: ALL Slider → Image (GFM_UI toolkit has no Slider APIs, all progress bars return Image)
-      if (line.match(/\bSlider\b/) && !line.match(/^\s*\/\//) && !line.match(/["']/)) {
-        lines[li] = line.replace(/\bSlider\b/g, 'Image');
+      if (line.indexOf('Slider') >= 0 && !line.match(/^\s*\/\//) && !line.match(/["']/)) {
+        lines[li] = line.replace(/Slider/g, 'Image');
         autoFixCount++;
+        log('[coder] Pre-build Slider→Image fix at line ' + (li+1) + ': ' + line.trim().substring(0, 80), taskId);
       }
       // Fix: enum EventPool or struct EventPool (not just class)
       if (line.match(/\b(enum|struct)\s+EventPool\b/)) {
