@@ -901,20 +901,24 @@ function tryCompileUnity(clientDir, log, taskId) {
   var mainFile = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
   if (fs.existsSync(mainFile)) {
     var mainSrc = fs.readFileSync(mainFile, 'utf-8');
-    // Remove any class EventPool { ... } definition (AI keeps creating this despite prompt)
-    var evtPoolMatch = mainSrc.match(/(?:public\s+|internal\s+|private\s+)?(?:sealed\s+)?(?:partial\s+)?class\s+EventPool[^{]*\{/);
-    if (evtPoolMatch) {
-      // Find the matching closing brace
+    // Remove any class/struct/enum EventPool definition (AI keeps creating this despite prompt)
+    // Use broad regex: any line containing 'class EventPool' or 'struct EventPool' or 'enum EventPool'
+    var evtPoolRemoved = false;
+    for (var epPass = 0; epPass < 5; epPass++) {
+      var evtPoolMatch = mainSrc.match(/^[^\n\/]*\b(?:class|struct|enum)\s+EventPool\b[^{]*\{/m);
+      if (!evtPoolMatch) break;
       var startIdx = mainSrc.indexOf(evtPoolMatch[0]);
-      var braceCount = 0;
-      var endIdx = startIdx;
+      var braceCount = 0, endIdx = startIdx;
       for (var bi = startIdx; bi < mainSrc.length; bi++) {
         if (mainSrc[bi] === '{') braceCount++;
         if (mainSrc[bi] === '}') { braceCount--; if (braceCount === 0) { endIdx = bi + 1; break; } }
       }
-      mainSrc = mainSrc.slice(0, startIdx) + '// [AUTO-REMOVED] EventPool class conflicts with template\n' + mainSrc.slice(endIdx);
+      mainSrc = mainSrc.slice(0, startIdx) + '// [AUTO-REMOVED] EventPool conflicts with template\n' + mainSrc.slice(endIdx);
+      evtPoolRemoved = true;
+    }
+    if (evtPoolRemoved) {
       fs.writeFileSync(mainFile, mainSrc, 'utf-8');
-      log('[coder] Auto-removed EventPool class from GameFlowManagerMain.cs (template conflict)', taskId);
+      log('[coder] Auto-removed EventPool definition(s) from GameFlowManagerMain.cs', taskId);
     }
 
     // === Pre-build API auto-fix: fix common GFM_UI/GFM_Create call mistakes ===
