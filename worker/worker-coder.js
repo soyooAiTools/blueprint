@@ -583,7 +583,7 @@ var GENERATE_PROMPT = [
   '- GFM_UI.CreateButton(**Canvas** canvas, string text, Vector2 pos, Vector2 size, UnityAction onClick) → **Button**',
   '- GFM_UI.CreateText(**Canvas** canvas, string text, Vector2 pos, int fontSize) → **Text**',
   '- GFM_UI.AddWorldLabel(GameObject obj, string text, float height) → void',
-  '- GFM_UI.CreateProgressBar(**Canvas** canvas, Vector2 pos, Vector2 size, Color color) → Image',
+  '- GFM_UI.CreateProgressBar(**Canvas** canvas, Vector2 pos, Vector2 size, Color color) → Slider',
   '',
   '- GFM_Audio.Init(GameObject go) / .instance.PlaySFX(clip) / .PlayBGM(clip) / .PlayPitch(clip, idx)',
   '- GFM_Pool.Init(go) / .Preload(prefab, n) / .Get(prefab) / .Return(obj) / .ReturnAfter(obj, delay)',
@@ -614,7 +614,7 @@ var FIX_PROMPT = [
   'Canvas canvas = GFM_UI.CreateCanvas(800, 600);                                    // (int w, int h) → Canvas',
   'Text txt = GFM_UI.CreateText(canvas, "Hello", new Vector2(0, 100), 28);           // (Canvas, string, Vector2, int) → Text — ONLY 4 params!',
   'Button btn = GFM_UI.CreateButton(canvas, "Go", new Vector2(0,-200), new Vector2(300,80), ()=>{}); // (Canvas, string, Vector2, Vector2, UnityAction) → Button — 5 params',
-  'Image bar = GFM_UI.CreateProgressBar(canvas, new Vector2(0,300), new Vector2(400,30), Color.green); // (Canvas, Vector2, Vector2, Color) → Image — 4 params',
+  'Slider bar = GFM_UI.CreateProgressBar(canvas, new Vector2(0,300), new Vector2(400,30), Color.green); // (Canvas, Vector2, Vector2, Color) → Slider — 4 params',
   'GameObject obj = GFM_Create.Obj(PrimitiveType.Cube, new Vector3(0,1,0), Vector3.one, "MyCube");     // (PrimitiveType, Vector3, Vector3, string) → GameObject — 4 params!',
   '```',
   '',
@@ -690,7 +690,7 @@ var FIX_PROMPT = [
   '- GFM_Create.Obj() auto-assigns base material. Use GFM_Create.SetColor(obj, color) to give each object a distinct color.',
   '- GFM_UI.CreateCanvas() returns **Canvas** (component), NOT GameObject. Write: Canvas canvas = GFM_UI.CreateCanvas(w,h);',
   '- GFM_UI.CreateButton/CreateText take **Canvas** as first param, NOT GameObject.',
-  '- GFM_UI.CreateProgressBar() returns **Image**, NOT Slider.',
+  '- GFM_UI.CreateProgressBar() returns **Slider**, NOT Image.',
   '- GFM_Joystick.Create() takes **Canvas** as first param, NOT GameObject.',
   '- If you need the GameObject from a Canvas: use canvas.gameObject',
   '- GFM_Create.Obj() requires 4 params: (PrimitiveType, Vector3 pos, Vector3 scale, string label) — do NOT omit scale!',
@@ -925,12 +925,23 @@ function tryCompileUnity(clientDir, log, taskId) {
     var mainSrc = fs.readFileSync(mainFile, 'utf-8');
     log('[coder] Pre-build mainSrc length=' + mainSrc.length + ' hasSlider=' + (mainSrc.indexOf('Slider') >= 0) + ' hasEventPool=' + (mainSrc.indexOf('EventPool') >= 0), taskId);
 
-    // NUCLEAR FIX 1: ALL Slider → Image (GFM_UI.CreateProgressBar returns Image, never Slider)
-    if (mainSrc.indexOf('Slider') >= 0) {
-      var sliderCount = (mainSrc.match(/Slider/g) || []).length;
-      mainSrc = mainSrc.replace(/Slider/g, 'Image');
-      fs.writeFileSync(mainFile, mainSrc, 'utf-8');
-      log('[coder] NUCLEAR: Replaced ' + sliderCount + ' Slider→Image in GameFlowManagerMain.cs', taskId);
+    // FIX: Image → Slider for CreateProgressBar (it returns Slider, not Image)
+    // AI prompt incorrectly said "returns Image" causing AI to use Image type
+    if (mainSrc.indexOf('Image') >= 0 && mainSrc.indexOf('CreateProgressBar') >= 0) {
+      // Find lines where Image var is assigned from CreateProgressBar and fix to Slider
+      var fixedLines = mainSrc.split('\n');
+      var imgFixCount = 0;
+      for (var fi = 0; fi < fixedLines.length; fi++) {
+        if (fixedLines[fi].indexOf('CreateProgressBar') >= 0 && fixedLines[fi].indexOf('Image') >= 0) {
+          fixedLines[fi] = fixedLines[fi].replace(/\bImage\b/, 'Slider');
+          imgFixCount++;
+        }
+      }
+      if (imgFixCount > 0) {
+        mainSrc = fixedLines.join('\n');
+        fs.writeFileSync(mainFile, mainSrc, 'utf-8');
+        log('[coder] Pre-build: Fixed ' + imgFixCount + ' Image→Slider for CreateProgressBar', taskId);
+      }
     }
     // Remove any class/struct/enum EventPool definition (AI keeps creating this despite prompt)
     // Use broad regex: any line containing 'class EventPool' or 'struct EventPool' or 'enum EventPool'
@@ -955,12 +966,7 @@ function tryCompileUnity(clientDir, log, taskId) {
         lines[li] = '// [AUTO-FIX] ' + line.trim() + ' // Light.type not supported in Luna';
         autoFixCount++;
       }
-      // Fix: ALL Slider → Image (GFM_UI toolkit has no Slider APIs, all progress bars return Image)
-      if (line.indexOf('Slider') >= 0 && !line.match(/^\s*\/\//) && !line.match(/["']/)) {
-        lines[li] = line.replace(/Slider/g, 'Image');
-        autoFixCount++;
-        log('[coder] Pre-build Slider→Image fix at line ' + (li+1) + ': ' + line.trim().substring(0, 80), taskId);
-      }
+      // (Slider fix moved to top of pre-build as Image→Slider for CreateProgressBar)
       // Fix: enum EventPool or struct EventPool (not just class)
       if (line.match(/\b(enum|struct)\s+EventPool\b/)) {
         lines[li] = '// [AUTO-FIX] ' + line.trim() + ' // conflicts with template EventPool';
@@ -1644,19 +1650,19 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
         // Build still failed after CS0101 fix, continue to normal fix flow
       }
 
-      // Auto-fix type mismatches: Slider→Image (CreateProgressBar returns Image, not Slider)
+      // Auto-fix type mismatches: Image→Slider (CreateProgressBar returns Slider, AI often uses Image)
       var sliderErrors = result.errors.filter(function(e) { return e.indexOf('Slider') >= 0 && e.indexOf('Image') >= 0; });
       if (sliderErrors.length > 0 && sliderErrors.length === result.errors.length) {
-        // ALL errors are Slider→Image — auto-fix globally
+        // ALL errors are Slider/Image mismatch — auto-fix: Image→Slider for progress bar vars
         var mainAutoFix = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
         if (fs.existsSync(mainAutoFix)) {
           var fixSrc = fs.readFileSync(mainAutoFix, 'utf-8');
-          var fixedSrc = fixSrc.replace(/\bSlider\b(\s+\w+\s*=\s*(?:GFM_UI\.)?Create(?:Progress|Slider))/g, 'Image$1');
-          // Also fix standalone Slider declarations that are clearly progress bars
-          fixedSrc = fixedSrc.replace(/\bSlider\b(\s+(?:\w*[Bb]ar\w*|\w*[Pp]rogress\w*|\w*[Ff]ill\w*|\w*[Hh]p\w*|\w*[Hh]ealth\w*)\s*[;=])/g, 'Image$1');
+          var fixedSrc = fixSrc.replace(/\bImage\b(\s+\w+\s*=\s*(?:GFM_UI\.)?Create(?:Progress))/g, 'Slider$1');
+          // Also fix standalone Image declarations that are clearly progress bars
+          fixedSrc = fixedSrc.replace(/\bImage\b(\s+(?:\w*[Bb]ar\w*|\w*[Pp]rogress\w*|\w*[Ff]ill\w*|\w*[Hh]p\w*|\w*[Hh]ealth\w*)\s*[;=])/g, 'Slider$1');
           if (fixedSrc !== fixSrc) {
             fs.writeFileSync(mainAutoFix, fixedSrc, 'utf-8');
-            log('[coder] Auto-fixed Slider→Image type mismatch (' + sliderErrors.length + ' errors)', taskId);
+            log('[coder] Auto-fixed Image→Slider type mismatch (' + sliderErrors.length + ' errors)', taskId);
             result = tryCompile(clientDir, log, taskId);
             if (result.ok) {
               log('[coder] ✅ Build passed after Slider→Image auto-fix!', taskId);
