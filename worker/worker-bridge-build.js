@@ -157,6 +157,17 @@ async function runBridgeBuild(clientDir, log, taskId) {
   const jakeBuildTime = Math.floor((Date.now() - startTime) / 1000);
   log(`[luna-build] Jake build done in ${jakeBuildTime}s, starting MSBuild Rebuild...`, taskId);
 
+  // 2.5 Fix Event.cs duplicate EventPool class (conflicts with EventPool.cs)
+  const eventCsPath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Utilities', 'Event', 'Event.cs');
+  if (fs.existsSync(eventCsPath)) {
+    let eventSrc = fs.readFileSync(eventCsPath, 'utf-8');
+    if (eventSrc.indexOf('class EventPool') >= 0) {
+      eventSrc = eventSrc.replace(/^.*class EventPool.*$/gm, '// [AUTO-FIX] removed duplicate EventPool');
+      fs.writeFileSync(eventCsPath, eventSrc, 'utf-8');
+      log('[luna-build] Removed duplicate EventPool from Event.cs', taskId);
+    }
+  }
+
   // 3. Clean MSBuild obj cache to force recompilation
   const objDir = path.join(CSPROJ_DIR, 'obj');
   if (fs.existsSync(objDir)) {
