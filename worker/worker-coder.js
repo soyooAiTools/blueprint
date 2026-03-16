@@ -933,6 +933,20 @@ function tryCompileUnity(clientDir, log, taskId) {
         lines[li] = '// [AUTO-FIX] ' + line.trim() + ' // Light.type not supported in Luna';
         autoFixCount++;
       }
+      // Fix: Slider → Image for CreateProgressBar return type
+      if (line.match(/\bSlider\b/) && line.match(/CreateProgressBar/)) {
+        lines[li] = line.replace(/\bSlider\b/g, 'Image');
+        autoFixCount++;
+      }
+      // Fix: Slider variable assigned from CreateProgressBar (declaration on separate line)
+      if (line.match(/\bSlider\s+\w+\s*=/) && !line.match(/CreateProgressBar/)) {
+        // Check if a nearby line has CreateProgressBar — this is a broader pattern
+        // Only fix if the variable name contains 'bar' or 'progress' (heuristic)
+        if (line.match(/\bSlider\s+\w*(bar|progress|fill|hp|health)/i)) {
+          lines[li] = line.replace(/\bSlider\b/, 'Image');
+          autoFixCount++;
+        }
+      }
       // Fix: enum EventPool or struct EventPool (not just class)
       if (line.match(/\b(enum|struct)\s+EventPool\b/)) {
         lines[li] = '// [AUTO-FIX] ' + line.trim() + ' // conflicts with template EventPool';
@@ -1609,6 +1623,34 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
           continue;
         }
         // Build still failed after CS0101 fix, continue to normal fix flow
+      }
+
+      // Auto-fix type mismatches: Slider→Image (CreateProgressBar returns Image, not Slider)
+      var sliderErrors = result.errors.filter(function(e) { return e.indexOf('Slider') >= 0 && e.indexOf('Image') >= 0; });
+      if (sliderErrors.length > 0 && sliderErrors.length === result.errors.length) {
+        // ALL errors are Slider→Image — auto-fix globally
+        var mainAutoFix = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
+        if (fs.existsSync(mainAutoFix)) {
+          var fixSrc = fs.readFileSync(mainAutoFix, 'utf-8');
+          var fixedSrc = fixSrc.replace(/\bSlider\b(\s+\w+\s*=\s*(?:GFM_UI\.)?Create(?:Progress|Slider))/g, 'Image$1');
+          // Also fix standalone Slider declarations that are clearly progress bars
+          fixedSrc = fixedSrc.replace(/\bSlider\b(\s+(?:\w*[Bb]ar\w*|\w*[Pp]rogress\w*|\w*[Ff]ill\w*|\w*[Hh]p\w*|\w*[Hh]ealth\w*)\s*[;=])/g, 'Image$1');
+          if (fixedSrc !== fixSrc) {
+            fs.writeFileSync(mainAutoFix, fixedSrc, 'utf-8');
+            log('[coder] Auto-fixed Slider→Image type mismatch (' + sliderErrors.length + ' errors)', taskId);
+            result = tryCompile(clientDir, log, taskId);
+            if (result.ok) {
+              log('[coder] ✅ Build passed after Slider→Image auto-fix!', taskId);
+              var verification3 = verifyCodeContent(clientDir, parsed, log, taskId);
+              if (verification3.ok) {
+                log('[coder] ✅ Content verification passed', taskId);
+                try { var archGen3 = require('./generate-architecture.js'); archGen3.generateArchitecture(clientDir, log, taskId); } catch(ae) {}
+                return { ok: true, filesWritten: files.length, files: files.map(function(f) { return f.path; }), attempts: attempt };
+              }
+              continue;
+            }
+          }
+        }
       }
 
       var mainPath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
