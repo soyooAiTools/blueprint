@@ -7,18 +7,22 @@
 const fs = require('fs');
 const path = require('path');
 
-// === Proxy: disabled on ECS (PM2 inherits stale HTTPS_PROXY that doesn't exist) ===
-// Clear all proxy env vars to ensure direct connection
-delete process.env.HTTPS_PROXY;
-delete process.env.HTTP_PROXY;
-delete process.env.https_proxy;
-delete process.env.http_proxy;
-console.log('[StoryboardParser] Proxy disabled, connecting directly to Gemini API');
+// === Proxy: ECS needs proxy to reach Google API (China firewall) ===
+const PROXY_URL = 'http://127.0.0.1:7890';
+process.env.HTTPS_PROXY = PROXY_URL;
+process.env.HTTP_PROXY = PROXY_URL;
+try {
+  const { EnvHttpProxyAgent, setGlobalDispatcher } = require('undici');
+  setGlobalDispatcher(new EnvHttpProxyAgent());
+  console.log(`[StoryboardParser][Proxy] Using ${PROXY_URL}`);
+} catch (e) {
+  console.warn('[StoryboardParser][Proxy] undici not available, fetch may fail');
+}
 
 const { GoogleGenAI } = require('@google/genai');
 
 const CONFIG = {
-  apiKey: process.env.GEMINI_API_KEY || 'AIzaSyBDgacpSxTtysiTjnD1wrNs9-KGxe4tccQ',
+  apiKey: 'AIzaSyA73A6SjC50R00UR4eaE9BGwg1rzr10g2c', // hardcoded — PM2 env has stale expired key
   textModel: 'gemini-2.5-flash',
   imageModel: 'gemini-3-pro-image-preview',
 };
