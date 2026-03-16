@@ -677,7 +677,32 @@ async function processTask(task) {
           coveredCount = cuaResult.scriptCoverage.filter(function(s) { return s.covered; }).length;
         }
         var coverageStr = totalSteps > 0 ? ` | 分镜覆盖: ${coveredCount}/${totalSteps}` : '';
-        notifyEvent(taskId, 'cua_round', `CUA第${cuaRound}/${MAX_CUA_ROUNDS}轮未通过${coverageStr}\n问题: ${cuaResult.issues.slice(0,3).join('\n').slice(0,200)}`, { projectName: task.projectName });
+        // Build AI fix strategy summary for notification
+        var fixStrategy = '';
+        if (cuaResult.issues && cuaResult.issues.length > 0) {
+          var issueTypes = cuaResult.issues.map(function(i) { return i.split(']')[0].replace('[','').trim(); });
+          var hasNoCoverage = issueTypes.indexOf('uncovered') >= 0 || cuaResult.issues.some(function(i) { return i.indexOf('not reached') >= 0; });
+          var hasStuck = cuaResult.issues.some(function(i) { return i.indexOf('stuck') >= 0 || i.indexOf('卡住') >= 0; });
+          
+          fixStrategy = '\n\n🔧 AI修复思路:';
+          if (hasNoCoverage) {
+            var covPct = totalSteps > 0 ? Math.round(coveredCount / totalSteps * 100) : 0;
+            fixStrategy += '\n• 分镜覆盖' + covPct + '% → 需要加强shot转场触发逻辑';
+            if (coveredCount === 0) fixStrategy += '（0覆盖=场景可能空白/物体不可见/相机位置错误）';
+          }
+          if (hasStuck) fixStrategy += '\n• 游戏卡住 → 检查状态机/Update循环是否正常推进';
+          // Include CUA's last observation
+          if (cuaResult.report && cuaResult.report.history && cuaResult.report.history.length > 0) {
+            var lastObs = cuaResult.report.history[cuaResult.report.history.length - 1];
+            if (lastObs.thinking) fixStrategy += '\n• CUA最后观察: ' + (lastObs.thinking || '').slice(0, 150);
+          }
+          // Include specific uncovered shots
+          if (cuaResult.scriptCoverage) {
+            var missed = cuaResult.scriptCoverage.filter(function(s) { return !s.covered; }).map(function(s) { return s.step; });
+            if (missed.length > 0 && missed.length <= 10) fixStrategy += '\n• 未覆盖: ' + missed.slice(0, 5).join(', ') + (missed.length > 5 ? '...' : '');
+          }
+        }
+        notifyEvent(taskId, 'cua_round', `CUA第${cuaRound}/${MAX_CUA_ROUNDS}轮未通过${coverageStr}\n问题: ${cuaResult.issues.slice(0,3).join('\n').slice(0,200)}${fixStrategy}`, { projectName: task.projectName });
 
         if (cuaRound >= MAX_CUA_ROUNDS) {
           // Max retries exhausted — fail the task with details
