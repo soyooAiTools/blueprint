@@ -187,7 +187,7 @@ var GENERATE_PROMPT = [
   'If a shot has only 3D objects and NO UI elements, it WILL be rejected.',
   '',
   'Example pattern for each shot:',
-  '  var canvas = GFM_UI.CreateCanvas(800, 600);',
+  '  Canvas canvas = GFM_UI.CreateCanvas(800, 600);  // Canvas type, NOT GameObject!',
   '  GFM_UI.CreateText(canvas, "Tap the tree to collect wood!", new Vector2(0, 200), 28);',
   '  var arrow = GFM_Create.Obj(PrimitiveType.Cube, targetPos + Vector3.up * 2f, new Vector3(0.5f, 1f, 0.5f), "GuideArrow");',
   '  GFM_Create.SetColor(arrow, new Color(1f, 0.9f, 0f)); // bright yellow',
@@ -551,15 +551,31 @@ var GENERATE_PROMPT = [
   '',
   '',
   '## GFM_Tools TOOLKIT (already in project — call these, DO NOT redefine)',
-  '- GFM_Create.InitMaterialFromScene() / .Obj(type, pos, scale, label) / .Ground(w, d) / .SetColor(obj, color)',
-  '- GFM_UI.CreateCanvas(w, h) / .CreateButton(canvas, text, pos, size, onClick) / .CreateText(canvas, text, pos, fs)',
-  '- GFM_UI.AddWorldLabel(obj, text, height) / .CreateProgressBar(canvas, pos, size, color)',
-  '- GFM_Audio.Init(go) / .instance.PlaySFX(clip) / .PlayBGM(clip) / .PlayPitch(clip, idx)',
+  '',
+  '### ⚠️ RETURN TYPES MATTER — read carefully:',
+  '- GFM_Create.InitMaterialFromScene() → void',
+  '- GFM_Create.Obj(PrimitiveType type, Vector3 pos, Vector3 scale, string label) → **GameObject**',
+  '- GFM_Create.Ground(float w, float d) → **GameObject**',
+  '- GFM_Create.SetColor(GameObject obj, Color color) → void',
+  '',
+  '- GFM_UI.CreateCanvas(int w, int h) → **Canvas** (NOT GameObject! Do NOT write: GameObject canvas = GFM_UI.CreateCanvas(...))',
+  '- GFM_UI.CreateButton(**Canvas** canvas, string text, Vector2 pos, Vector2 size, UnityAction onClick) → **Button**',
+  '- GFM_UI.CreateText(**Canvas** canvas, string text, Vector2 pos, int fontSize) → **Text**',
+  '- GFM_UI.AddWorldLabel(GameObject obj, string text, float height) → void',
+  '- GFM_UI.CreateProgressBar(**Canvas** canvas, Vector2 pos, Vector2 size, Color color) → Image',
+  '',
+  '- GFM_Audio.Init(GameObject go) / .instance.PlaySFX(clip) / .PlayBGM(clip) / .PlayPitch(clip, idx)',
   '- GFM_Pool.Init(go) / .Preload(prefab, n) / .Get(prefab) / .Return(obj) / .ReturnAfter(obj, delay)',
   '- GFM_Event.Init(go) / .Subscribe(id, handler) / .Fire(id, sender, data) / .FireNow(...) / .Unsubscribe(id, h)',
   '- GFM_Utils.IsInRange(dist, a, b, inclY) / .IsOnScreen(tf) / .FindClosestByTag(origin, tag, maxD)',
-  '- GFM_Joystick.Create(canvas, size) — .Horizontal / .Vertical / .Direction / .IsDragging',
+  '- GFM_Joystick.Create(**Canvas** canvas, float size) → GFM_Joystick — .Horizontal / .Vertical / .Direction / .IsDragging',
   '- GFM_Luna.Init(go) / .GameOver() / .GotoStore() / .IsGameOver()',
+  '',
+  '### Correct Canvas usage pattern:',
+  '  Canvas canvas = GFM_UI.CreateCanvas(800, 600);     // ← Canvas type, NOT GameObject!',
+  '  GFM_UI.CreateText(canvas, "Hello", Vector2.zero, 28);',
+  '  GFM_UI.CreateButton(canvas, "Play", new Vector2(0, -200), new Vector2(300, 80), () => { });',
+  '  // If you need the GameObject: canvas.gameObject',
   '',
   'CRITICAL: Do NOT define classes named AudioManager, PoolManager, EventManager, EventPool,',
   'BasicExtensions, MonoSingleton, Player, Boss, Npc, LunaManager, CTAManager, etc.',
@@ -641,6 +657,10 @@ var FIX_PROMPT = [
   '- The scene is CLEAN — all game objects are created from code, do NOT use GameObject.Find() for template objects',
   '- Materials: grab from __MaterialSource: `var ms = GameObject.Find("__MaterialSource"); _baseMat = new Material(ms.GetComponent<Renderer>().sharedMaterial); _baseMat.mainTexture = null;`',
   '- GFM_Create.Obj() auto-assigns base material. Use GFM_Create.SetColor(obj, color) to give each object a distinct color.',
+  '- GFM_UI.CreateCanvas() returns **Canvas** (component), NOT GameObject. Write: Canvas canvas = GFM_UI.CreateCanvas(w,h);',
+  '- GFM_UI.CreateButton/CreateText take **Canvas** as first param, NOT GameObject.',
+  '- GFM_Joystick.Create() takes **Canvas** as first param, NOT GameObject.',
+  '- If you need the GameObject from a Canvas: use canvas.gameObject',
   '- If a fix requires new visible objects, use GFM_Create.Obj() — NOT CreatePrimitive (invisible in Luna)',
   '- Do NOT reintroduce dependencies on template scene objects that were cleared',
   '',
@@ -1652,12 +1672,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
           var fallbackFiles = parseBlocks(patchResp.text);
           if (fallbackFiles.length > 0) {
             var fbMain = fallbackFiles.find(function(f) { return f.path.indexOf('GameFlowManagerMain') >= 0; });
-            var fbLines = fbMain ? fbMain.content.split('\n').length : 0;
-            if (currentMainLines.length > 100 && fbLines < currentMainLines.length * 0.5) {
-              log('[coder] ⚠️ REJECTED fallback fix: ' + fbLines + ' lines vs original ' + currentMainLines.length + ' lines. Retrying...', taskId);
-            } else {
-              writeFiles(clientDir, fallbackFiles, log, taskId); files = fallbackFiles;
-            }
+            writeFiles(clientDir, fallbackFiles, log, taskId); files = fallbackFiles;
           } else {
             log('[coder] Warning: No fix blocks at all, retrying...', taskId);
           }
@@ -1679,13 +1694,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
 
         var fixed = parseBlocks(fixResp.text);
         if (fixed.length > 0) {
-          var fmMain = fixed.find(function(f) { return f.path.indexOf('GameFlowManagerMain') >= 0; });
-          var fmLines = fmMain ? fmMain.content.split('\n').length : 999;
-          if (currentMainLines.length > 100 && fmLines < currentMainLines.length * 0.5) {
-            log('[coder] ⚠️ REJECTED fix: ' + fmLines + ' lines vs original ' + currentMainLines.length + ' lines. Retrying...', taskId);
-          } else {
-            writeFiles(clientDir, fixed, log, taskId); files = fixed;
-          }
+          writeFiles(clientDir, fixed, log, taskId); files = fixed;
         }
         else { log('[coder] Warning: No fix blocks, retrying...', taskId); }
       }
