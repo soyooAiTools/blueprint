@@ -157,16 +157,10 @@ async function runBridgeBuild(clientDir, log, taskId) {
   const jakeBuildTime = Math.floor((Date.now() - startTime) / 1000);
   log(`[luna-build] Jake build done in ${jakeBuildTime}s, starting MSBuild Rebuild...`, taskId);
 
-  // 2.5 Fix Event.cs duplicate EventPool class (conflicts with EventPool.cs)
-  const eventCsPath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Utilities', 'Event', 'Event.cs');
-  if (fs.existsSync(eventCsPath)) {
-    let eventSrc = fs.readFileSync(eventCsPath, 'utf-8');
-    if (eventSrc.indexOf('class EventPool') >= 0) {
-      eventSrc = eventSrc.replace(/^.*class EventPool.*$/gm, '// [AUTO-FIX] removed duplicate EventPool');
-      fs.writeFileSync(eventCsPath, eventSrc, 'utf-8');
-      log('[luna-build] Removed duplicate EventPool from Event.cs', taskId);
-    }
-  }
+  // 2.5 DO NOT modify Event.cs or EventPool.cs — they are a partial class pair.
+  // Modifying Event.cs breaks syntax (CS1022). EventPool conflicts are handled
+  // in worker-coder.js pre-build by renaming AI's EventPool→GFM_EventPool in GameFlowManagerMain.cs.
+  // See memory/2026-03-15.md commit 10fa378 and rules.md EventPool 铁律.
 
   // 3. Clean MSBuild obj cache to force recompilation
   const objDir = path.join(CSPROJ_DIR, 'obj');
@@ -201,7 +195,12 @@ async function runBridgeBuild(clientDir, log, taskId) {
       }
     }
   } catch (e) {
-    return { ok: false, error: `MSBuild failed: ${(e.stdout || e.message).slice(-500)}` };
+    const fullErr = (e.stdout || '') + '\n' + (e.stderr || '') + '\n' + (e.message || '');
+    try { fs.writeFileSync(path.join(clientDir, '..', 'msbuild-error.txt'), fullErr, 'utf-8'); } catch(we) {}
+    // Extract actual CS error lines for clear reporting
+    const csErrors = fullErr.split('\n').filter(l => /error CS\d+/i.test(l)).slice(0, 15);
+    const errMsg = csErrors.length > 0 ? csErrors.join('\n') : fullErr.slice(-2000);
+    return { ok: false, error: `MSBuild failed: ${errMsg}` };
   }
 
   // 5. Copy new UnityScriptsCompiler.js to stage3 and stage4
@@ -334,6 +333,26 @@ window.addEventListener("luna:starting", function() {
       });
       console.log("[AI] Awake/OnEnable error protection installed");
     } catch(ae) { console.error("[AI] Awake protection setup error:", ae); }
+
+    // Polyfill Transform.SetParent — Luna Canvas components may have undefined .transform
+    // When canvas.transform is undefined, SetParent crashes with "Cannot read 'parent' of undefined"
+    try {
+      var origSetParent = UnityEngine.Transform.prototype.SetParent;
+      if (origSetParent) {
+        UnityEngine.Transform.prototype.SetParent = function(newParent, worldPositionStays) {
+          if (!newParent) {
+            console.warn("[AI] SetParent called with null/undefined parent, skipping");
+            return;
+          }
+          try {
+            return origSetParent.call(this, newParent, worldPositionStays);
+          } catch(spe) {
+            console.warn("[AI] SetParent error (suppressed):", spe.message);
+          }
+        };
+        console.log("[AI] Transform.SetParent safety wrapper installed");
+      }
+    } catch(spe) { console.warn("[AI] SetParent polyfill error:", spe); }
 
     console.log("[AI] Resources.GetBuiltinResource + Shader.Find + Material polyfill + Awake protection installed");
   } catch(e) { console.error("[AI] Polyfill error:", e); }

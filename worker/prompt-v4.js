@@ -262,6 +262,40 @@ function parseBlueprintToPromptV4(blueprint, opts) {
     lines.push('');
   }
 
+  // ========== 5.5 必须创建的对象清单 ==========
+  lines.push('# ⚠️ 必须创建的对象清单（MANDATORY）');
+  lines.push('');
+  lines.push('在 Start() 中，你 **必须** 用 GFM_Create.Obj / GFM_Create.Ground 创建以下所有对象。');
+  lines.push('漏创建任何一个都算 BUG。对象池类型预创建后隐藏在 y=-999。');
+  lines.push('');
+
+  var createCount = 0;
+  for (var ci = 0; ci < entities.length; ci++) {
+    var ce = entities[ci];
+    if (!ce.visual) continue; // 跳过不可见实体
+    createCount++;
+    var vis = ce.visual;
+    var spawnNote = '';
+    if (ce.spawn) {
+      var resolved = resolvePhaseRef(ce.spawn.condition, ruleMap);
+      if (resolved === 'runtime') {
+        spawnNote = ' → 对象池，预创建隐藏在 y=-999';
+      } else if (resolved === 'gameStart') {
+        spawnNote = ' → Start() 中直接创建并显示';
+      } else {
+        spawnNote = ' → Start() 中创建，初始隐藏 y=-999，条件满足后激活';
+      }
+    }
+    var createLine = (createCount) + '. ' + ce.name;
+    if (ce.label) createLine += '(' + ce.label + ')';
+    createLine += ': ' + vis.shape + ' ' + (vis.scale || '') + ' ' + (vis.color || '');
+    createLine += spawnNote;
+    lines.push(createLine);
+  }
+  lines.push('');
+  lines.push('共 ' + createCount + ' 个可见实体必须创建。场景中应有大量 3D 对象。');
+  lines.push('');
+
   // ========== 6. 代码架构要求 ==========
   lines.push('# 代码架构要求');
   lines.push('');
@@ -289,11 +323,23 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   lines.push('11. 隐藏对象: transform.position = new Vector3(0, -999, 0); 不用 SetActive(false)');
   lines.push('12. 游戏结束: Luna.Unity.LifeCycle.GameEnded()');
   lines.push('13. CTA: Luna.Unity.Playable.InstallFullGame()');
-  lines.push('14. UI: GFM_UI.CreateCanvas() / GFM_UI.CreateText(canvas, pos, size, text, fontSize, color)');
+  lines.push('14. UI: Canvas canvas = GFM_UI.CreateCanvas(960, 540); // returns Canvas, not GameObject!');
+  lines.push('    Text txt = GFM_UI.CreateText(canvas, "text", new Vector2(x,y), fontSize); // param1 must be Canvas type');
   lines.push('15. 音频: GFM_Audio (如需要)');
   lines.push('');
   lines.push('⚠️ 重要：没有 GFM_Tools 类！可用类名: GFM_Create, GFM_Utils, GFM_UI, GFM_Joystick, GFM_Audio');
   lines.push('⚠️ 不要用 CreatePrimitive, Resources.Load, async/await, 协程, List<T>（用数组）');
+  lines.push('');
+  lines.push('# ⚠️ Luna WebGL 运行时限制（必读！违反会导致运行时崩溃）');
+  lines.push('');
+  lines.push('1. **不要访问 .transform.parent** — Luna 中 parent 可能为 undefined，直接崩溃');
+  lines.push('2. **不要用 transform.SetParent()** — 改用 GFM_UI 创建 UI 元素（它内部处理了层级）');
+  lines.push('3. **AddComponent 后 Start()/Awake() 不会自动调用** — 手动调用 comp.Start()');
+  lines.push('4. **不要用 FindObjectOfType / FindObjectsOfType** — Luna 中可能返回 null');
+  lines.push('5. **不要用 GetComponentInChildren / GetComponentInParent** — 层级遍历不稳定');
+  lines.push('6. **所有对象引用保存在成员变量或数组中** — 不要运行时查找，创建时就存好引用');
+  lines.push('7. **UI 元素只通过 GFM_UI.CreateText / GFM_UI.CreateButton 创建** — 不要手动 new GameObject + AddComponent<Text>');
+  lines.push('8. **不要定义 class EventPool** — 和模板冲突（CS0101），如需事件直接用 delegate/Action');
   lines.push('');
 
   // ========== 7. 行为模板参考 ==========
