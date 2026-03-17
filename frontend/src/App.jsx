@@ -15,6 +15,7 @@ import '@xyflow/react/dist/style.css';
 import Login from './components/Login';
 import ProjectList from './components/ProjectList';
 import ShotNode from './components/ShotNode';
+import PhaseNode from './components/PhaseNode';
 import JoinNode from './components/JoinNode';
 import NoteNode from './components/NoteNode';
 import Toolbar from './components/Toolbar';
@@ -38,6 +39,7 @@ import {
 
 const nodeTypes = {
   shotNode: ShotNode,
+  phaseNode: PhaseNode,
   joinNode: JoinNode,
   noteNode: NoteNode,
 };
@@ -66,6 +68,8 @@ function FlowEditor({ project, onBack, initialTab }) {
   const [selectedEdge, setSelectedEdge] = useState(null);
   const [activeTab, setActiveTab] = useState(initialTab || 'storyboard');
   const [objectRegistry, setObjectRegistry] = useState(project.objectRegistry || []);
+  const [entities, setEntities] = useState(project.entities || []);
+  const isV4 = entities.length > 0;
   const [globalParams, setGlobalParams] = useState(project.globalParams || '');
   const [globalSettings, setGlobalSettings] = useState(project.globalSettings || {
     gameType: 'slg',
@@ -156,7 +160,7 @@ function FlowEditor({ project, onBack, initialTab }) {
   useEffect(() => {
     if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
     autoSaveRef.current = setTimeout(() => {
-      saveBlueprint(project.id, nodes, edges, projectName, { objectRegistry, globalParams, globalSettings }).catch((err) => {
+      saveBlueprint(project.id, nodes, edges, projectName, { objectRegistry, globalParams, globalSettings, entities }).catch((err) => {
         console.warn('自动保存失败:', err);
       });
     }, 2000);
@@ -267,7 +271,20 @@ function FlowEditor({ project, onBack, initialTab }) {
   const onAddShot = useCallback(() => {
     shotCountRef.current += 1;
     const pos = getViewportCenter();
-    const newNode = {
+    const newNode = isV4 ? {
+      id: getNextId('phase'),
+      type: 'phaseNode',
+      position: { x: pos.x + Math.random() * 60 - 30, y: pos.y + Math.random() * 60 - 30 },
+      data: {
+        phaseId: shotCountRef.current,
+        label: `Phase ${shotCountRef.current}`,
+        name: '',
+        activate: [],
+        endCondition: '',
+        guide: '',
+        camera: { lookAt: '', zoom: 8 },
+      },
+    } : {
       id: getNextId('shot'),
       type: 'shotNode',
       position: { x: pos.x + Math.random() * 60 - 30, y: pos.y + Math.random() * 60 - 30 },
@@ -282,7 +299,7 @@ function FlowEditor({ project, onBack, initialTab }) {
       },
     };
     setNodes((nds) => [...nds, newNode]);
-  }, [setNodes, getViewportCenter]);
+  }, [setNodes, getViewportCenter, isV4]);
 
   const onAddJoin = useCallback(() => {
     const pos = getViewportCenter();
@@ -479,7 +496,11 @@ function FlowEditor({ project, onBack, initialTab }) {
             />
             <div className="canvas-container">
               <ReactFlow
-                nodes={nodes.map(n => n.type === 'shotNode' ? { ...n, data: { ...n.data, _objectRegistry: objectRegistry } } : n)}
+                nodes={nodes.map(n => {
+                  if (n.type === 'shotNode') return { ...n, data: { ...n.data, _objectRegistry: objectRegistry } };
+                  if (n.type === 'phaseNode') return { ...n, data: { ...n.data, _entities: entities } };
+                  return n;
+                })}
                 edges={edges}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
@@ -511,6 +532,9 @@ function FlowEditor({ project, onBack, initialTab }) {
               onChangeRegistry={setObjectRegistry}
               onChangeParams={setGlobalParams}
               onChangeGlobalSettings={setGlobalSettings}
+              entities={entities}
+              onChangeEntities={setEntities}
+              isV4={isV4}
             />
           </>
         ) : activeTab === 'review' ? (

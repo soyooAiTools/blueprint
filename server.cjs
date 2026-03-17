@@ -286,6 +286,8 @@ handlers.saveBlueprint = function(req, res, body, id) {
   if (data.objectRegistry !== undefined) project.blueprint.objectRegistry = data.objectRegistry;
   if (data.globalParams !== undefined) project.blueprint.globalParams = data.globalParams;
   if (data.globalSettings !== undefined) project.blueprint.globalSettings = data.globalSettings;
+  // V4 实体列表
+  if (data.entities !== undefined) project.blueprint.entities = data.entities;
   project.updatedAt = new Date().toISOString();
   writeProject(project);
   sendJSON(res, { success: true, updatedAt: project.updatedAt });
@@ -399,6 +401,7 @@ function exportBlueprintForAgent(project) {
     objectRegistry: bp.objectRegistry || [],
     globalParams: bp.globalParams || '',
     globalSettings: bp.globalSettings || {},
+    entities: bp.entities || [],
     feedbackHistory: project.feedbackHistory || [],
     exportedAt: new Date().toISOString()
   };

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import EntityEditor from './EntityEditor.jsx';
 
 const COLOR_PRESETS = [
   { label: 'Player 蓝色', value: '(0.2,0.4,0.9)' },
@@ -130,6 +131,10 @@ export default function PropsPanel({
   onChangeRegistry,
   onChangeParams,
   onChangeGlobalSettings,
+  // V4 props
+  entities = [],
+  onChangeEntities,
+  isV4 = false,
 }) {
   const [showSceneFallback, setShowSceneFallback] = useState(false);
 
@@ -178,6 +183,61 @@ export default function PropsPanel({
             内容
             <textarea className="props-textarea" rows={5} value={selectedNode.data.text || ''} onChange={(e) => onUpdateNode(selectedNode.id, { text: e.target.value })} />
           </label>
+          <button className="props-delete-btn" onClick={() => onDeleteNode(selectedNode.id)}>🗑 删除节点</button>
+        </div>
+      </div>
+    );
+  }
+
+  // Phase node selected (V4)
+  if (selectedNode && selectedNode.type === 'phaseNode') {
+    const d = selectedNode.data;
+    const update = (field, value) => onUpdateNode(selectedNode.id, { [field]: value });
+    const allEntityNames = entities.map(e => e.name);
+    const activate = d.activate || [];
+
+    const toggleActivate = (name, checked) => {
+      const newList = checked ? [...activate, name] : activate.filter(n => n !== name);
+      update('activate', newList);
+    };
+
+    return (
+      <div className="props-panel">
+        <div className="props-title">🎯 Phase {d.phaseId || '?'}</div>
+        <div className="props-form">
+          <label className="props-label">
+            阶段名称
+            <input className="props-input" type="text" value={d.label || d.name || ''} onChange={(e) => { update('label', e.target.value); update('name', e.target.value); }} />
+          </label>
+
+          <div className="props-divider">🎭 激活实体</div>
+          <div className="props-hint">该阶段新激活的实体（之前激活的保持）</div>
+          <div className="props-obj-checkboxes">
+            {allEntityNames.filter(n => n).map(name => {
+              const ent = entities.find(e => e.name === name);
+              const label = ent?.label ? `${name}(${ent.label})` : name;
+              return (
+                <label key={name} className="props-obj-check">
+                  <input type="checkbox" checked={activate.includes(name)} onChange={(e) => toggleActivate(name, e.target.checked)} />
+                  {label}
+                </label>
+              );
+            })}
+          </div>
+
+          <div className="props-divider">✅ 结束条件</div>
+          <input className="props-input" type="text" value={d.endCondition || ''} onChange={(e) => update('endCondition', e.target.value)} placeholder="如: ConveyorBelt.state == built" />
+          <div className="props-hint">条件满足自动进入下一 Phase</div>
+
+          <div className="props-divider">💬 引导文案</div>
+          <input className="props-input" type="text" value={d.guide || ''} onChange={(e) => update('guide', e.target.value)} placeholder="如: 移动到传送带位置建造它" />
+
+          <div className="props-divider">📷 镜头</div>
+          <div className="entity-row">
+            <input className="props-input props-input-sm" value={d.camera?.lookAt || ''} onChange={(e) => update('camera', { ...d.camera, lookAt: e.target.value })} placeholder="看向实体名" />
+            <input className="props-input props-input-sm" type="number" value={d.camera?.zoom || 8} onChange={(e) => update('camera', { ...d.camera, zoom: parseInt(e.target.value) || 8 })} placeholder="缩放" />
+          </div>
+
           <button className="props-delete-btn" onClick={() => onDeleteNode(selectedNode.id)}>🗑 删除节点</button>
         </div>
       </div>
@@ -243,7 +303,11 @@ export default function PropsPanel({
           </select>
           <div className="props-hint">每个步骤可单独覆盖输入方式</div>
 
-          <ObjectRegistryEditor objectRegistry={objectRegistry} onChangeRegistry={onChangeRegistry} />
+          {isV4 ? (
+            <EntityEditor entities={entities} onChangeEntities={onChangeEntities} allEntityNames={entities.map(e => e.name)} />
+          ) : (
+            <ObjectRegistryEditor objectRegistry={objectRegistry} onChangeRegistry={onChangeRegistry} />
+          )}
           <GlobalParamsEditor globalParams={globalParams} onChangeParams={onChangeParams} />
         </div>
       </div>

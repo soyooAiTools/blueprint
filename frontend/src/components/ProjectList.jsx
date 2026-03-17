@@ -40,6 +40,7 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
         objectRegistry: bp.objectRegistry || [],
         globalParams: bp.globalParams || '',
         globalSettings: bp.globalSettings || {},
+        entities: bp.entities || [],
         feedbackHistory: full.feedbackHistory || [],
       });
     } catch (err) {

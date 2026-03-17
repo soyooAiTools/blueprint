@@ -1,0 +1,8 @@
+#!/bin/bash
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+curl -s http://127.0.0.1:3901/api/projects/proj_1772426062293_qmjs | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+print('Status:', d['status'])
+print('Message:', d.get('statusMessage',''))
+"

@@ -4526,3 +4526,144 @@ html, body, #root {
   background: none; border: none; color: #6366f1; cursor: pointer; font-size: 12px; padding: 0;
 }
 .props-link-btn:hover { color: #818cf8; }
+
+/* ===== V4 Phase Node ===== */
+.phase-node {
+  background: #1a1a2e;
+  border: 2px solid #3a3a5e;
+  border-radius: 12px;
+  padding: 10px 14px;
+  min-width: 180px;
+  max-width: 260px;
+  color: #e0e0e0;
+  font-size: 12px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.phase-node-selected {
+  border-color: #7c5cfc;
+  box-shadow: 0 0 12px rgba(124, 92, 252, 0.4);
+}
+.phase-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.phase-id {
+  background: #7c5cfc;
+  color: white;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.phase-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.phase-activate {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-bottom: 4px;
+}
+.phase-entity-tag {
+  background: #2a3a2a;
+  color: #8ddf8d;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+}
+.phase-more {
+  color: #888;
+  font-size: 10px;
+  padding: 1px 4px;
+}
+.phase-end-condition {
+  color: #8ddf8d;
+  font-size: 11px;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.phase-guide {
+  color: #aaa;
+  font-size: 11px;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ===== V4 Entity Editor ===== */
+.entity-item {
+  background: #1e1e2e;
+  border: 1px solid #333;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+.entity-item-expanded {
+  border-color: #7c5cfc;
+}
+.entity-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.entity-header:hover {
+  background: #252538;
+}
+.entity-expand-icon {
+  font-size: 10px;
+  color: #888;
+  width: 12px;
+}
+.entity-name {
+  font-weight: 600;
+  color: #e0e0e0;
+  font-size: 12px;
+}
+.entity-label {
+  color: #888;
+  font-size: 11px;
+}
+.entity-template-badge {
+  margin-left: auto;
+  background: #2a2a4e;
+  color: #aaa;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 10px;
+}
+.entity-body {
+  padding: 4px 8px 8px;
+  border-top: 1px solid #333;
+}
+.entity-section {
+  margin-bottom: 8px;
+}
+.entity-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #7c5cfc;
+  margin-bottom: 4px;
+}
+.entity-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-bottom: 3px;
+}
+.entity-field-label {
+  font-size: 11px;
+  color: #aaa;
+  min-width: 80px;
+}
