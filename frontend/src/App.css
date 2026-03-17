@@ -304,8 +304,8 @@ html, body, #root {
 
 /* ===== Right Props Panel ===== */
 .props-panel {
-  width: 350px;
-  min-width: 350px;
+  width: 420px;
+  min-width: 420px;
   background: #12122a;
   border-left: 1px solid #2a2a4a;
   padding: 16px;

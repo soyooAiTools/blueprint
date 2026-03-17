@@ -16,7 +16,7 @@ const SHAPE_OPTIONS = ['Cube', 'Sphere', 'Cylinder', 'Ground', 'UI'];
 
 function ObjectRegistryEditor({ objectRegistry, onChangeRegistry }) {
   const addObject = () => {
-    onChangeRegistry([...objectRegistry, { name: '', shape: 'Cube', scale: '1×1×1', color: '', initiallyVisible: true, firstStep: 1 }]);
+    onChangeRegistry([...objectRegistry, { name: '', label: '', shape: 'Cube', scale: '1×1×1', color: '', initiallyVisible: true, firstStep: 1 }]);
   };
   const removeObject = (i) => {
     const arr = [...objectRegistry];
@@ -36,11 +36,14 @@ function ObjectRegistryEditor({ objectRegistry, onChangeRegistry }) {
       {objectRegistry.map((obj, i) => (
         <div key={i} className="props-registry-item">
           <div className="props-registry-row">
-            <input className="props-input props-input-sm" type="text" value={obj.name} onChange={(e) => updateObj(i, 'name', e.target.value)} placeholder="物件名" />
+            <input className="props-input props-input-sm" type="text" value={obj.name} onChange={(e) => updateObj(i, 'name', e.target.value)} placeholder="英文名 (Player)" />
+            <input className="props-input props-input-sm" type="text" value={obj.label || ''} onChange={(e) => updateObj(i, 'label', e.target.value)} placeholder="中文注释 (玩家)" />
+            <button className="props-registry-remove" onClick={() => removeObject(i)}>✕</button>
+          </div>
+          <div className="props-registry-row">
             <select className="props-input props-input-sm" value={obj.shape} onChange={(e) => updateObj(i, 'shape', e.target.value)}>
               {SHAPE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
-            <button className="props-registry-remove" onClick={() => removeObject(i)}>✕</button>
           </div>
           <div className="props-registry-row">
             <input className="props-input props-input-sm" type="text" value={obj.scale} onChange={(e) => updateObj(i, 'scale', e.target.value)} placeholder="比例 1×2×1" />
