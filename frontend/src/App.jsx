@@ -277,10 +277,11 @@ function FlowEditor({ project, onBack, initialTab }) {
       position: { x: pos.x + Math.random() * 60 - 30, y: pos.y + Math.random() * 60 - 30 },
       data: {
         phaseId: shotCountRef.current,
-        label: `Phase ${shotCountRef.current}`,
+        label: `规则 ${shotCountRef.current}`,
         name: '',
+        triggerCondition: '',
         activate: [],
-        endCondition: '',
+        actions: [],
         guide: '',
         camera: { lookAt: '', zoom: 8 },
       },

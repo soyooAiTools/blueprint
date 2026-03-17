@@ -4667,3 +4667,49 @@ html, body, #root {
   color: #aaa;
   min-width: 80px;
 }
+
+/* ===== V4 Phase Node - Event-driven ===== */
+.phase-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #2a1a3e;
+  border-radius: 6px;
+  padding: 3px 8px;
+  margin-bottom: 6px;
+}
+.phase-trigger-icon {
+  font-size: 12px;
+}
+.phase-trigger-text {
+  font-size: 11px;
+  font-weight: 600;
+  color: #c89dff;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.phase-node-start {
+  border-color: #4caf50 !important;
+}
+.phase-node-start .phase-trigger {
+  background: #1a3a1e;
+}
+.phase-node-start .phase-trigger-text {
+  color: #8ddf8d;
+}
+.phase-activate-label {
+  font-size: 10px;
+  color: #888;
+  width: 100%;
+  margin-bottom: 2px;
+}
+.phase-actions {
+  margin-top: 2px;
+}
+.phase-action-tag {
+  font-size: 10px;
+  color: #aaa;
+  padding: 1px 0;
+}

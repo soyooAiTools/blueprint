@@ -23,7 +23,26 @@ try {
 function parseBlueprintToPromptV4(blueprint, opts) {
   opts = opts || {};
   var entities = blueprint.entities || [];
+  // phases 可以来自 blueprint.phases（JSON 直传）或 nodes 中的 phaseNode
   var phases = blueprint.phases || [];
+  if (phases.length === 0 && blueprint.nodes) {
+    phases = blueprint.nodes
+      .filter(function(n) { return n.type === 'phaseNode'; })
+      .map(function(n) {
+        var d = n.data || {};
+        return {
+          id: d.phaseId || 0,
+          name: d.name || d.label || '',
+          triggerCondition: d.triggerCondition || '',
+          activate: d.activate || [],
+          actions: d.actions || [],
+          guide: d.guide || '',
+          camera: d.camera || null,
+          endCondition: d.endCondition || '',
+        };
+      })
+      .sort(function(a, b) { return (a.id || 0) - (b.id || 0); });
+  }
   var settings = blueprint.globalSettings || {};
   var params = blueprint.globalParams || {};
 
@@ -170,32 +189,39 @@ function parseBlueprintToPromptV4(blueprint, opts) {
     lines.push('');
   }
 
-  // ========== 5. 事件触发链（Phases）==========
+  // ========== 5. 事件触发链（条件→动作规则）==========
   lines.push('# 事件触发链');
-  lines.push('Phase 之间由条件驱动，不是时间驱动。条件满足自动进入下一 Phase。');
+  lines.push('每条规则：当条件满足时执行动作（激活实体/切镜头/显示引导等）。规则之间无顺序依赖，纯事件驱动。');
   lines.push('');
 
   for (var pi = 0; pi < phases.length; pi++) {
     var p = phases[pi];
-    var pLine = 'Phase ' + p.id + ': ' + p.name;
-    lines.push(pLine);
+    // 支持新格式（triggerCondition）和旧格式（endCondition 线性链）
+    var trigger = p.triggerCondition || p.trigger || '';
+    if (!trigger && pi === 0) trigger = 'gameStart';
+    if (!trigger && pi > 0 && phases[pi - 1].endCondition) trigger = phases[pi - 1].endCondition;
+
+    var ruleLine = 'Rule ' + (p.id || pi + 1) + ': ' + (p.name || '');
+    lines.push(ruleLine);
+    lines.push('  WHEN: ' + (trigger || 'gameStart'));
     if (p.activate && p.activate.length > 0) {
-      lines.push('  激活: ' + p.activate.join(', '));
+      lines.push('  THEN activate: ' + p.activate.join(', '));
     }
-    if (p.endCondition) {
-      lines.push('  结束条件: ' + p.endCondition);
+    if (p.actions && p.actions.length > 0) {
+      for (var ai = 0; ai < p.actions.length; ai++) {
+        var act = p.actions[ai];
+        lines.push('  THEN ' + act.type + '(' + (act.params && act.params.target || '') + ')');
+      }
     }
     if (p.guide) {
-      lines.push('  引导: ' + p.guide);
+      lines.push('  THEN showGuide: "' + p.guide + '"');
     }
-    if (p.camera) {
-      lines.push('  镜头: 看向' + p.camera.lookAt + ', 缩放' + p.camera.zoom);
+    if (p.camera && p.camera.lookAt) {
+      lines.push('  THEN setCamera: lookAt=' + p.camera.lookAt + ', zoom=' + p.camera.zoom);
     }
-    if (p.actions) {
-      lines.push('  结束动作: ' + p.actions.join(', '));
-    }
-    if (p.$note) {
-      lines.push('  注: ' + p.$note);
+    // Legacy endCondition for prompt compatibility
+    if (p.endCondition) {
+      lines.push('  (进入下一规则的条件: ' + p.endCondition + ')');
     }
     lines.push('');
   }
@@ -207,7 +233,7 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   lines.push('2. 用平行数组管理实体状态（eGo[], eActive[], eState[], eTimer[], eHP[]）');
   lines.push('3. 每个实体一个 UpdateXxx(int idx, float dt) 方法');
   lines.push('4. Update() 中遍历所有已激活实体，分发到对应的 Update 方法');
-  lines.push('5. CheckPhaseTransition() 检查 Phase 转场条件');
+  lines.push('5. CheckEventRules() 检查事件规则条件，满足则执行动作（激活实体/切镜头等）');
   lines.push('6. 动态生成的实体（敌人、弹药、金币）用对象池管理');
   lines.push('7. 用 GFM_Create.Obj() 创建 3D 对象，GFM_Create.SetColor() 设颜色');
   lines.push('8. 用 GFM_Tools.SliderValue() 读取虚拟摇杆');

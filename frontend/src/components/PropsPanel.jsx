@@ -189,29 +189,48 @@ export default function PropsPanel({
     );
   }
 
-  // Phase node selected (V4)
+  // Phase node selected (V4) — 条件→动作卡片
   if (selectedNode && selectedNode.type === 'phaseNode') {
     const d = selectedNode.data;
     const update = (field, value) => onUpdateNode(selectedNode.id, { [field]: value });
     const allEntityNames = entities.map(e => e.name);
     const activate = d.activate || [];
+    const actions = d.actions || [];
 
     const toggleActivate = (name, checked) => {
       const newList = checked ? [...activate, name] : activate.filter(n => n !== name);
       update('activate', newList);
     };
 
+    const updateAction = (idx, field, value) => {
+      const arr = [...actions]; arr[idx] = { ...arr[idx], [field]: value }; update('actions', arr);
+    };
+    const addAction = () => update('actions', [...actions, { type: 'setCamera', params: {} }]);
+    const removeAction = (idx) => { const arr = [...actions]; arr.splice(idx, 1); update('actions', arr); };
+
     return (
       <div className="props-panel">
-        <div className="props-title">🎯 Phase {d.phaseId || '?'}</div>
+        <div className="props-title">⚡ 事件规则</div>
         <div className="props-form">
           <label className="props-label">
-            阶段名称
+            规则名称
             <input className="props-input" type="text" value={d.label || d.name || ''} onChange={(e) => { update('label', e.target.value); update('name', e.target.value); }} />
           </label>
 
-          <div className="props-divider">🎭 激活实体</div>
-          <div className="props-hint">该阶段新激活的实体（之前激活的保持）</div>
+          <div className="props-divider">⚡ 触发条件（WHEN）</div>
+          <div className="props-hint">什么条件满足时执行这条规则</div>
+          <select className="props-input" value={d.triggerCondition === 'gameStart' ? 'gameStart' : (d.triggerCondition ? 'custom' : 'gameStart')}
+            onChange={(e) => update('triggerCondition', e.target.value === 'gameStart' ? 'gameStart' : '')}>
+            <option value="gameStart">🚀 游戏开始</option>
+            <option value="custom">⚡ 自定义条件</option>
+          </select>
+          {d.triggerCondition && d.triggerCondition !== 'gameStart' && (
+            <input className="props-input" type="text" value={d.triggerCondition} onChange={(e) => update('triggerCondition', e.target.value)}
+              placeholder="如: ConveyorBelt.state==built 或 Enemy_A.killed>=3 或 wood>=5" />
+          )}
+
+          <div className="props-divider">🎭 激活实体（THEN）</div>
+          <div className="props-hint">条件满足时激活哪些实体</div>
           <div className="props-obj-checkboxes">
             {allEntityNames.filter(n => n).map(name => {
               const ent = entities.find(e => e.name === name);
@@ -225,9 +244,23 @@ export default function PropsPanel({
             })}
           </div>
 
-          <div className="props-divider">✅ 结束条件</div>
-          <input className="props-input" type="text" value={d.endCondition || ''} onChange={(e) => update('endCondition', e.target.value)} placeholder="如: ConveyorBelt.state == built" />
-          <div className="props-hint">条件满足自动进入下一 Phase</div>
+          <div className="props-divider">🎬 附加动作</div>
+          <div className="props-hint">触发时额外执行的动作</div>
+          {actions.map((a, i) => (
+            <div key={i} className="entity-row" style={{ marginBottom: 4 }}>
+              <select className="props-input props-input-sm" value={a.type} onChange={(e) => updateAction(i, 'type', e.target.value)}>
+                <option value="setCamera">📷 切镜头</option>
+                <option value="showGuide">💬 显示引导</option>
+                <option value="playEffect">✨ 播放特效</option>
+                <option value="setResource">💰 设置资源</option>
+                <option value="deactivate">❌ 关闭实体</option>
+                <option value="endGame">🏁 游戏结束</option>
+              </select>
+              <input className="props-input props-input-sm" value={a.params?.target || ''} onChange={(e) => updateAction(i, 'params', { ...a.params, target: e.target.value })} placeholder="目标/参数" />
+              <button className="props-registry-remove" onClick={() => removeAction(i)}>✕</button>
+            </div>
+          ))}
+          <button className="props-image-upload-btn" onClick={addAction}>+ 添加动作</button>
 
           <div className="props-divider">💬 引导文案</div>
           <input className="props-input" type="text" value={d.guide || ''} onChange={(e) => update('guide', e.target.value)} placeholder="如: 移动到传送带位置建造它" />
