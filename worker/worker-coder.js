@@ -2792,6 +2792,12 @@ async function generateCodeV4(blueprint, clientDir, log, taskId, engine) {
       fs.copyFileSync(toolsSrc, toolsDst);
       log('[coder] GFM_Tools.cs toolkit copied to project', taskId);
     }
+    // Remove duplicate from old V3 location to avoid CS0111
+    var oldGfm = path.join(clientDir, 'Assets', 'Program', 'Script', 'GFM_Tools.cs');
+    if (fs.existsSync(oldGfm)) {
+      fs.unlinkSync(oldGfm);
+      log('[coder] Removed duplicate GFM_Tools.cs from old location', taskId);
+    }
   } catch(e) {}
 
   // Scan project context
@@ -2856,6 +2862,11 @@ async function generateCodeV4(blueprint, clientDir, log, taskId, engine) {
       if (fs.existsSync(toolsSrc2)) {
         fs.copyFileSync(toolsSrc2, toolsDst2);
         log('[coder] GFM_Tools.cs restored from original (pre-build)', taskId);
+      }
+      // Remove duplicate from old location
+      var oldGfm2 = path.join(clientDir, 'Assets', 'Program', 'Script', 'GFM_Tools.cs');
+      if (fs.existsSync(oldGfm2)) {
+        fs.unlinkSync(oldGfm2);
       }
     } catch(e) {}
 
