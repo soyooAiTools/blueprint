@@ -1,0 +1,465 @@
+# 任务
+在 GameFlowManagerMain.cs 中实现一个 Luna 试玩广告。
+采用【纯事件驱动架构】：
+- 每个实体有自己的出生条件（什么时候出现）和行为（出现后做什么）
+- 事件规则定义"条件→动作"，条件满足就执行，彼此独立无顺序
+- 没有线性 Phase/阶段概念，不要用 currentPhase 状态机
+- 用 bool[] ruleTriggered 跟踪哪些规则已触发
+
+# 全局设置
+相机: orthographic, topDown45
+背景色: (0.5,0.8,1)
+操控方式: virtualJoystick
+
+# 全局参数
+player.startGold = 1
+economy.killReward = 1
+economy.woodValue = 1
+
+# 实体定义（共 24 个）
+
+## Ground (地面)
+模板: Static
+外观: Ground(40×1×40) 颜色(0.35,0.25,0.15) 位置(0,-0.5,0)
+出生: 游戏开始时创建
+
+## Player (玩家)
+模板: PlayerController
+外观: Cube(1×2×1) 颜色(0.2,0.4,0.9) 位置(-2,0,-4)
+出生: 游戏开始时创建
+行为: 移速:5, 输入:virtualJoystick
+
+## Base (基地)
+模板: Damageable
+外观: Cube(3×3×3) 颜色(0.85,0.7,0.4) 位置(0,0,-3)
+出生: 游戏开始时创建
+行为: HP:50
+
+## WoodFence_L (木栅栏(左))
+模板: Static
+外观: Cube(0.3×1.5×4) 颜色(0.6,0.35,0.1) 位置(-4,0,0)
+出生: 游戏开始时创建
+
+## WoodFence_R (木栅栏(右))
+模板: Static
+外观: Cube(0.3×1.5×4) 颜色(0.6,0.35,0.1) 位置(4,0,0)
+出生: 游戏开始时创建
+
+## PineTree_L (松树(左))
+模板: Static
+外观: Cylinder(0.5×3×0.5) 颜色(0.1,0.55,0.1) 位置(-5,0,3)
+出生: 游戏开始时创建
+
+## PineTree_R (松树(右))
+模板: Static
+外观: Cylinder(0.5×3×0.5) 颜色(0.1,0.55,0.1) 位置(5,0,3)
+出生: 游戏开始时创建
+
+## Generator (发电机)
+模板: Static
+外观: Cube(2×2×2) 颜色(0.5,0.5,0.55) 位置(-3,0,2)
+出生: 游戏开始时创建
+
+## ConveyorBelt (传送带)
+模板: Buildable
+外观: Cube(4×0.3×1) 颜色(0.5,0.5,0.55) 位置(0,0,2)
+出生: 游戏开始时创建, 出现方式: blueprint
+触发: proximity, 距离<2, 消耗[gold:1], 仅一次
+行为: 建造时间:1.5s
+建造完成: activate(WoodLog_Spawner)
+
+## Crossbow_L (弩炮(左))
+模板: Shooter
+外观: Cube(1×1.5×1) 颜色(0.5,0.5,0.55) 位置(3,0,5)
+出生: 当 ConveyorBelt.state==built 时激活, 出现方式: popUp
+触发: click
+行为: 射速:1.5s, 弹药:Arrow, 伤害:1, 射程:10, 目标:enemy
+
+## Crossbow_R (弩炮(右))
+模板: Shooter
+外观: Cube(1×1.5×1) 颜色(0.5,0.5,0.55) 位置(-3,0,5)
+出生: 当 ConveyorBelt.state==built 时激活, 出现方式: popUp
+触发: click
+行为: 射速:1.5s, 弹药:Arrow, 伤害:1, 射程:10, 目标:enemy
+
+## Arrow (箭矢)
+模板: Projectile
+外观: Cylinder(0.05×0.5×0.05) 颜色(0.6,0.35,0.1)
+出生: 运行时动态创建（对象池）
+行为: 伤害:1, 飞行速度:12, 存活时间:3s
+
+## EnemySpawner (刷怪点)
+模板: Spawner
+外观: 无（不可见实体）
+出生: 当 ConveyorBelt.state==built 时激活
+行为: 生成:Enemy_A, 间隔:3s, 最大存活:5
+生成位置: (15,0,0)
+
+## Enemy_A (敌人)
+模板: Mover+Damageable
+外观: Cube(0.8×1.6×0.8) 颜色(0.85,0.15,0.15)
+出生: 运行时动态创建（对象池）
+行为: 移速:2, 移动目标:Base, HP:3
+死亡: 掉落GoldCoin×1
+
+## GoldCoin (金币)
+模板: Collectible
+外观: Sphere(0.3×0.3×0.3) 颜色(1,0.85,0)
+出生: 运行时动态创建（对象池）, 出现方式: popUp
+触发: proximity, 距离<1.5, 仅一次
+拾取: +1gold
+
+## WoodLog_Spawner (木材生成器)
+模板: Spawner
+外观: 无（不可见实体）
+出生: 当 ConveyorBelt.state==built 时激活
+行为: 生成:WoodLog, 间隔:4s, 最大存活:3
+生成位置: (0,0,3)
+
+## WoodLog (木材)
+模板: Draggable
+外观: Cylinder(0.3×0.8×0.3) 颜色(0.6,0.35,0.1)
+出生: 运行时动态创建（对象池）, 出现方式: popUp
+触发: drag, 拖到WoodHouse(半径2), 仅一次
+拾取: +1wood
+
+## WoodHouse (木屋)
+模板: Buildable
+外观: Cube(3×2.5×3) 颜色(0.85,0.7,0.4) 位置(5,0,-2)
+出生: 当 phase_3_active 时激活, 出现方式: blueprint
+触发: event, 条件: wood>=3, 仅一次
+行为: 建造时间:2s
+建造完成: activate(Worker_Spawner)
+
+## Worker_Spawner (工人生成器)
+模板: Spawner
+外观: 无（不可见实体）
+出生: 当 WoodHouse.state==built 时激活
+行为: 生成:Worker, 间隔:5s, 最大存活:2
+生成位置: (5,0,-1)
+
+## Worker (工人)
+模板: Mover
+外观: Cube(0.8×1.5×0.8) 颜色(0.9,0.6,0.2)
+出生: 运行时动态创建（对象池）
+行为: 移速:3, 移动目标:WoodLog
+到达后: pickup(WoodLog) → moveTo(Base) → addResource()
+
+## Turret (炮塔)
+模板: Buildable+Shooter
+外观: Cube(1.5×2×1.5) 颜色(0.5,0.5,0.55) 位置(0,0,7)
+出生: 当 phase_6_active 时激活, 出现方式: blueprint
+触发: proximity, 距离<2, 消耗[wood:5], 仅一次
+行为: 射速:2s, 弹药:Arrow, 伤害:3, 射程:12, 目标:enemy, 建造时间:2s, 自动射击
+
+## Boss (Boss)
+模板: Mover+Damageable
+外观: Cube(1.5×3×1.5) 颜色(0.7,0.1,0.1) 位置(20,0,0)
+出生: 当 phase_8_active 时激活
+行为: 移速:1.5, 移动目标:Base, HP:20
+死亡:  → 触发条件: phase_9_active
+
+## CastleWall (城墙)
+模板: Static
+外观: Cube(5×4×0.5) 颜色(0.7,0.7,0.75) 位置(0,0,8)
+出生: 当 phase_9_active 时激活, 出现方式: popUp
+
+## HealthBar_UI (血条)
+模板: UI
+外观: UI(1×0.1×0.1) 颜色(0.1,0.8,0.1)
+出生: 游戏开始时创建
+
+# 事件规则
+每条规则独立运行。在 CheckEventRules() 中检查所有规则，条件满足且未触发过 → 执行动作。
+不要用 currentPhase 或 switch/case 线性流程！用 bool[] ruleTriggered 数组。
+
+Rule 1: 建造传送带
+  WHEN: gameStart
+  → activate: Ground, Player, Base, WoodFence_L, WoodFence_R, PineTree_L, PineTree_R, Generator, ConveyorBelt, HealthBar_UI
+  → showGuide: "移动到传送带位置，花费金币建造"
+  → setCamera: lookAt=ConveyorBelt, zoom=8
+
+Rule 2: 弩炮防御
+  WHEN: 
+  → showGuide: "点击弩炮射击敌人"
+  → setCamera: lookAt=Base, zoom=10
+
+Rule 3: 修建木屋
+  WHEN: 
+  → activate: WoodHouse
+  → showGuide: "收集木材建造木屋"
+
+Rule 4: 招募工人
+  WHEN: 
+  → showGuide: "木屋产出工人"
+
+Rule 5: 自动生产
+  WHEN: 
+  → showGuide: "工人自动搬运木材"
+
+Rule 6: 建造炮塔
+  WHEN: 
+  → activate: Turret
+  → showGuide: "用木材建造炮塔"
+
+Rule 7: 抵御进攻
+  WHEN: 
+  → showGuide: "防守基地！"
+
+Rule 8: 迎战Boss
+  WHEN: 
+  → activate: Boss
+  → showGuide: "消灭Boss！"
+
+Rule 9: 升级主城
+  WHEN: 
+  → activate: CastleWall
+  → showGuide: "点击基地升级"
+
+Rule 10: 结局
+  WHEN: 
+
+# 代码架构要求
+
+1. 所有代码在一个文件 GameFlowManagerMain.cs 中
+2. 用平行数组管理实体状态: eGo[], eActive[], eState[], eTimer[], eHP[]
+3. 每个实体一个 UpdateXxx(float dt) 方法
+4. Update() 中遍历所有已激活实体，分发到对应的 Update 方法
+5. CheckEventRules(): 检查每条规则的条件，满足且 ruleTriggered[i]==false → 执行动作 + 标记已触发
+   示例:
+   bool[] ruleTriggered = new bool[RULE_COUNT];
+   void CheckEventRules() {
+     if (!ruleTriggered[0]) { /* gameStart */ ruleTriggered[0]=true; ActivateEntities(...); }
+     if (!ruleTriggered[1] && eState[E_CONVEYOR]==2) { ruleTriggered[1]=true; ShowGuide(...); }
+     // 每条规则独立判断，不依赖其他规则的顺序
+   }
+6. 动态实体（敌人/弹药/金币）用对象池: 预创建数组，隐藏在 y=-999
+7. 创建3D对象: var go = GFM_Create.Obj(PrimitiveType.Cube, new Vector3(x,y,z), new Vector3(sx,sy,sz), "Name");
+   签名: GFM_Create.Obj(PrimitiveType type, Vector3 position, Vector3 scale, string name)
+   PrimitiveType: Cube, Sphere, Cylinder, Capsule, Quad, Plane
+8. 创建地面: var ground = GFM_Create.Ground(width, depth); // 只有2个float参数
+   然后: GFM_Create.SetColor(ground, new Color(r,g,b));
+9. 设颜色: GFM_Create.SetColor(go, new Color(r,g,b));
+10. 虚拟摇杆: 在 Start() 中 var joystick = GFM_Joystick.Create(canvas, 200f);
+    在 Update() 中: float h = joystick.Horizontal; float v = joystick.Vertical;
+11. 隐藏对象: transform.position = new Vector3(0, -999, 0); 不用 SetActive(false)
+12. 游戏结束: Luna.Unity.LifeCycle.GameEnded()
+13. CTA: Luna.Unity.Playable.InstallFullGame()
+14. UI: GFM_UI.CreateCanvas() / GFM_UI.CreateText(canvas, pos, size, text, fontSize, color)
+15. 音频: GFM_Audio (如需要)
+
+⚠️ 重要：没有 GFM_Tools 类！可用类名: GFM_Create, GFM_Utils, GFM_UI, GFM_Joystick, GFM_Audio
+⚠️ 不要用 CreatePrimitive, Resources.Load, async/await, 协程, List<T>（用数组）
+
+# 行为模板参考
+# Luna 行为模板实现手册（事件驱动版）
+
+> 纯事件驱动，无线性 Phase。用 bool[] ruleTriggered 跟踪规则状态。
+
+## 通用架构
+
+```csharp
+// 实体索引常量
+const int E_PLAYER = 0;
+const int E_BASE = 1;
+const int E_CONVEYOR = 2;
+// ... 每个实体一个常量
+
+const int MAX_ENTITIES = 50;
+const int RULE_COUNT = 10;
+
+// 实体运行时数据（平行数组）
+GameObject[] eGo = new GameObject[MAX_ENTITIES];
+bool[] eActive = new bool[MAX_ENTITIES];
+int[] eState = new int[MAX_ENTITIES];     // 0=初始, 1=触发中, 2=完成
+float[] eTimer = new float[MAX_ENTITIES];
+float[] eHP = new float[MAX_ENTITIES];
+
+// 事件规则
+bool[] ruleTriggered = new bool[RULE_COUNT];
+
+// 资源
+int gold = 0;
+int wood = 0;
+int enemyKillCount = 0;
+
+void Update() {
+    float dt = Time.deltaTime;
+    CheckEventRules();  // 每帧检查所有规则条件
+    UpdatePlayer(dt);
+    UpdateProjectiles(dt);
+    // 遍历激活的实体
+    for (int i = 0; i < entityCount; i++) {
+        if (!eActive[i]) continue;
+        UpdateEntity(i, dt);
+    }
+}
+
+// 事件规则：独立检查，不依赖顺序
+void CheckEventRules() {
+    // Rule 1: gameStart → 激活初始实体
+    if (!ruleTriggered[0]) {
+        ruleTriggered[0] = true;
+        ActivateEntity(E_PLAYER);
+        ActivateEntity(E_BASE);
+        // ... 激活所有初始实体
+    }
+    // Rule 2: 当传送带建造完成
+    if (!ruleTriggered[1] && eState[E_CONVEYOR] == 2) {
+        ruleTriggered[1] = true;
+        ActivateEntity(E_ENEMY_SPAWNER);
+        ShowGuide("点击弩炮射击敌人");
+    }
+    // Rule N: 每条规则独立判断
+    // ...
+}
+```
+
+## 创建3D对象（GFM_Create）
+
+```csharp
+// 正确签名！4个参数：PrimitiveType, Vector3 position, Vector3 scale, string name
+var cube = GFM_Create.Obj(PrimitiveType.Cube, new Vector3(0,1,0), new Vector3(1,2,1), "MyCube");
+GFM_Create.SetColor(cube, new Color(0.2f, 0.4f, 0.9f));
+
+// 地面：2个float参数
+var ground = GFM_Create.Ground(40f, 40f);
+GFM_Create.SetColor(ground, new Color(0.35f, 0.25f, 0.15f));
+```
+
+## PlayerController 模板
+
+```csharp
+GFM_Joystick joystick;  // 在 Start() 中初始化
+
+void InitJoystick() {
+    var canvas = GFM_UI.CreateCanvas();
+    joystick = GFM_Joystick.Create(canvas, 200f);
+}
+
+void UpdatePlayer(float dt) {
+    float h = joystick.Horizontal;  // -1 ~ 1
+    float v = joystick.Vertical;    // -1 ~ 1
+    Vector3 move = new Vector3(h, 0, v).normalized * moveSpeed * dt;
+    eGo[E_PLAYER].transform.position += move;
+}
+```
+
+## Buildable 模板
+状态: 0(等待触发) → 1(建造中) → 2(已建造)
+
+```csharp
+void UpdateBuildable(int idx, float dt) {
+    if (eState[idx] == 0) {
+        float dist = Vector3.Distance(eGo[E_PLAYER].transform.position, eGo[idx].transform.position);
+        if (dist < triggerRadius && gold >= cost) {
+            gold -= cost;
+            eState[idx] = 1;
+            eTimer[idx] = 0;
+        }
+    }
+    else if (eState[idx] == 1) {
+        eTimer[idx] += dt;
+        if (eTimer[idx] >= buildTime) {
+            eState[idx] = 2;  // 建造完成 → CheckEventRules 会检测到
+        }
+    }
+}
+```
+
+## Shooter 模板
+
+```csharp
+void UpdateShooter(int idx, float dt) {
+    if (eState[idx] < 1) return;
+    eTimer[idx] += dt;
+    if (eTimer[idx] >= fireRate) {
+        int target = FindNearestEnemy(eGo[idx].transform.position, range);
+        if (target >= 0) {
+            SpawnProjectile(eGo[idx].transform.position, eGo[target].transform.position);
+            eTimer[idx] = 0;
+        }
+    }
+}
+```
+
+## Mover+Damageable（敌人）
+
+```csharp
+void UpdateEnemy(int idx, float dt) {
+    if (eHP[idx] <= 0) { OnEnemyDeath(idx); return; }
+    Vector3 dir = (basePos - eGo[idx].transform.position).normalized;
+    eGo[idx].transform.position += dir * moveSpeed * dt;
+    if (Vector3.Distance(eGo[idx].transform.position, basePos) < 1.5f) {
+        DamageBase(1);
+        eHP[idx] = 0;
+    }
+}
+
+void OnEnemyDeath(int idx) {
+    SpawnCollectible(eGo[idx].transform.position);
+    eGo[idx].transform.position = new Vector3(0, -999, 0);
+    eActive[idx] = false;
+    enemyKillCount++;
+    // CheckEventRules() 会检测 enemyKillCount 变化
+}
+```
+
+## Spawner 模板
+
+```csharp
+void UpdateSpawner(int idx, float dt) {
+    if (!eActive[idx]) return;
+    eTimer[idx] += dt;
+    if (eTimer[idx] >= spawnInterval && CountAlive(spawnTag) < maxAlive) {
+        int child = GetPooled(spawnTag);
+        eGo[child].transform.position = spawnPosition;
+        eActive[child] = true;
+        eHP[child] = childHP;
+        eState[child] = 1;
+        eTimer[idx] = 0;
+    }
+}
+```
+
+## Collectible 模板
+
+```csharp
+void UpdateCollectible(int idx, float dt) {
+    if (!eActive[idx]) return;
+    float dist = Vector3.Distance(eGo[E_PLAYER].transform.position, eGo[idx].transform.position);
+    if (dist < collectRadius) {
+        gold += rewardAmount;
+        eGo[idx].transform.position = new Vector3(0, -999, 0);
+        eActive[idx] = false;
+    }
+}
+```
+
+## Projectile 模板
+
+```csharp
+void UpdateProjectiles(float dt) {
+    for (int i = 0; i < MAX_ARROWS; i++) {
+        if (!arrowActive[i]) continue;
+        Vector3 dir = (arrowTarget[i] - arrowGo[i].transform.position).normalized;
+        arrowGo[i].transform.position += dir * arrowSpeed * dt;
+        arrowGo[i].transform.forward = dir;
+        if (Vector3.Distance(arrowGo[i].transform.position, arrowTarget[i]) < 0.5f) {
+            DamageNearestEnemy(arrowTarget[i], arrowDamage);
+            arrowGo[i].transform.position = new Vector3(0, -999, 0);
+            arrowActive[i] = false;
+        }
+    }
+}
+```
+
+## 关键约束（Luna）
+- 所有代码在 GameFlowManagerMain.cs 一个文件
+- 用 GFM_Create.Obj(PrimitiveType, Vector3, Vector3, string) 创建对象
+- 没有 GFM_Tools 类！用: GFM_Create, GFM_Utils, GFM_UI, GFM_Joystick, GFM_Audio
+- 不能用 CreatePrimitive、Resources.Load、async/await、协程、List<T>
+- 隐藏用 position=(0,-999,0)，不用 SetActive(false)
+- 结束: Luna.Unity.LifeCycle.GameEnded()
+- CTA: Luna.Unity.Playable.InstallFullGame()
+

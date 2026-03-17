@@ -1,6 +1,6 @@
 /**
  * Blueprint V4 Prompt Generator
- * 实体驱动架构：实体行为定义 + 事件触发链 + 行为模板
+ * 纯事件驱动架构：实体自带行为+触发条件，无线性 Phase
  */
 
 var fs = require('fs');
@@ -15,48 +15,88 @@ try {
 }
 
 /**
+ * 把 phase:N 引用转换为实际条件表达式
+ * 通过查找 Rule N 的 triggerCondition
+ */
+function resolvePhaseRef(condition, ruleMap) {
+  if (!condition) return 'gameStart';
+  if (condition === 'runtime') return 'runtime';
+  if (condition.indexOf('phase:') === 0) {
+    var phaseId = parseInt(condition.split(':')[1]);
+    if (ruleMap[phaseId]) return ruleMap[phaseId];
+    if (phaseId === 1) return 'gameStart';
+    return 'phase_' + phaseId + '_active';
+  }
+  if (condition.indexOf('entity:') === 0) {
+    return condition.split(':')[1];
+  }
+  return condition;
+}
+
+/**
  * V4 蓝图 → AI Prompt
- * @param {object} blueprint - V4 格式蓝图数据
- * @param {object} opts - { projectContext, existingCode, feedback }
- * @returns {string} prompt
  */
 function parseBlueprintToPromptV4(blueprint, opts) {
   opts = opts || {};
   var entities = blueprint.entities || [];
-  // phases 可以来自 blueprint.phases（JSON 直传）或 nodes 中的 phaseNode
-  var phases = blueprint.phases || [];
-  if (phases.length === 0 && blueprint.nodes) {
-    phases = blueprint.nodes
+  
+  // 从 nodes 提取事件规则
+  var rules = blueprint.phases || [];
+  if (rules.length === 0 && blueprint.nodes) {
+    rules = blueprint.nodes
       .filter(function(n) { return n.type === 'phaseNode'; })
       .map(function(n) {
         var d = n.data || {};
         return {
           id: d.phaseId || 0,
           name: d.name || d.label || '',
-          triggerCondition: d.triggerCondition || '',
+          triggerCondition: d.triggerCondition || d.endCondition || '',
           activate: d.activate || [],
           actions: d.actions || [],
           guide: d.guide || '',
           camera: d.camera || null,
-          endCondition: d.endCondition || '',
         };
       })
       .sort(function(a, b) { return (a.id || 0) - (b.id || 0); });
   }
+
+  // 如果 rules 只有 endCondition 没有 triggerCondition（旧格式），自动转换
+  // 上一个 rule 的 endCondition = 下一个 rule 的 triggerCondition
+  for (var ri = 0; ri < rules.length; ri++) {
+    if (!rules[ri].triggerCondition) {
+      if (ri === 0) {
+        rules[ri].triggerCondition = 'gameStart';
+      } else if (rules[ri - 1].endCondition) {
+        rules[ri].triggerCondition = rules[ri - 1].endCondition;
+      }
+    }
+  }
+
+  // 构建 ruleMap: phaseId → triggerCondition
+  var ruleMap = {};
+  for (var ri = 0; ri < rules.length; ri++) {
+    var r = rules[ri];
+    if (r.id && r.triggerCondition) {
+      ruleMap[r.id] = r.triggerCondition;
+    }
+  }
+
   var settings = blueprint.globalSettings || {};
   var params = blueprint.globalParams || {};
-
   var lines = [];
 
   // ========== 1. 任务说明 ==========
   lines.push('# 任务');
   lines.push('在 GameFlowManagerMain.cs 中实现一个 Luna 试玩广告。');
-  lines.push('采用【实体驱动架构】：每个游戏实体有独立的行为方法，由事件触发链串联。');
+  lines.push('采用【纯事件驱动架构】：');
+  lines.push('- 每个实体有自己的出生条件（什么时候出现）和行为（出现后做什么）');
+  lines.push('- 事件规则定义"条件→动作"，条件满足就执行，彼此独立无顺序');
+  lines.push('- 没有线性 Phase/阶段概念，不要用 currentPhase 状态机');
+  lines.push('- 用 bool[] ruleTriggered 跟踪哪些规则已触发');
   lines.push('');
 
   // ========== 2. 全局设置 ==========
   lines.push('# 全局设置');
-  if (settings.gameType) lines.push('游戏类型: ' + settings.gameType);
   if (settings.cameraProjection) lines.push('相机: ' + settings.cameraProjection + ', ' + (settings.cameraAngle || 'topDown45'));
   if (settings.backgroundColor) lines.push('背景色: ' + settings.backgroundColor);
   if (settings.inputMethod) lines.push('操控方式: ' + settings.inputMethod);
@@ -94,15 +134,16 @@ function parseBlueprintToPromptV4(blueprint, opts) {
       lines.push('外观: 无（不可见实体）');
     }
 
-    // 出生条件
+    // 出生条件 - 把 phase:N 转为实际条件
     if (e.spawn) {
       var spawnLine = '出生: ';
-      if (e.spawn.condition === 'runtime') {
+      var resolved = resolvePhaseRef(e.spawn.condition, ruleMap);
+      if (resolved === 'runtime') {
         spawnLine += '运行时动态创建（对象池）';
-      } else if (e.spawn.condition && e.spawn.condition.indexOf('phase:') === 0) {
-        spawnLine += 'Phase ' + e.spawn.condition.split(':')[1] + ' 激活';
-      } else if (e.spawn.condition && e.spawn.condition.indexOf('entity:') === 0) {
-        spawnLine += '当 ' + e.spawn.condition.split(':')[1] + ' 时激活';
+      } else if (resolved === 'gameStart') {
+        spawnLine += '游戏开始时创建';
+      } else {
+        spawnLine += '当 ' + resolved + ' 时激活';
       }
       if (e.spawn.style && e.spawn.style !== 'instant') {
         spawnLine += ', 出现方式: ' + e.spawn.style;
@@ -121,8 +162,7 @@ function parseBlueprintToPromptV4(blueprint, opts) {
           var costStr = costKeys.map(function(k) { return k + ':' + tp.cost[k]; }).join(', ');
           trigLine += ', 消耗[' + costStr + ']';
         }
-        if (tp.interval) trigLine += ', 间隔' + tp.interval + 's';
-        if (tp.dropTarget) trigLine += ', 拖到' + tp.dropTarget + '(半径' + tp.dropRadius + ')';
+        if (tp.dropTarget) trigLine += ', 拖到' + tp.dropTarget + '(半径' + (tp.dropRadius || 2) + ')';
         if (tp.event) trigLine += ', 条件: ' + tp.event;
       }
       if (e.trigger.once) trigLine += ', 仅一次';
@@ -152,22 +192,19 @@ function parseBlueprintToPromptV4(blueprint, opts) {
       if (bhParts.length > 0) {
         lines.push('行为: ' + bhParts.join(', '));
       }
-
-      // onBuilt
       if (bh.onBuilt && bh.onBuilt.length > 0) {
         var builtActions = bh.onBuilt.map(function(a) {
-          return a.type + '(' + (a.params.target || '') + ')';
+          return a.type + '(' + (a.params && a.params.target || '') + ')';
         }).join(' → ');
         lines.push('建造完成: ' + builtActions);
       }
-
-      // onArrive
       if (bh.onArrive && bh.onArrive.length > 0) {
         var arriveActions = bh.onArrive.map(function(a) {
-          return a.type + '(' + (a.params.target || '') + ')';
+          return a.type + '(' + (a.params && a.params.target || '') + ')';
         }).join(' → ');
         lines.push('到达后: ' + arriveActions);
       }
+      if (bh.spawnPosition) lines.push('生成位置: ' + bh.spawnPosition);
     }
 
     // 动作
@@ -177,7 +214,10 @@ function parseBlueprintToPromptV4(blueprint, opts) {
         if (act.type === 'onDeath') {
           var deathLine = '死亡: ';
           if (act.params.drop) deathLine += '掉落' + act.params.drop + '×' + (act.params.count || 1);
-          if (act.params.trigger) deathLine += '触发' + act.params.trigger;
+          if (act.params.trigger) {
+            var deathTrigger = resolvePhaseRef(act.params.trigger, ruleMap);
+            deathLine += ' → 触发条件: ' + deathTrigger;
+          }
           lines.push(deathLine);
         } else if (act.type === 'addResource') {
           var resKeys = Object.keys(act.params);
@@ -189,39 +229,35 @@ function parseBlueprintToPromptV4(blueprint, opts) {
     lines.push('');
   }
 
-  // ========== 5. 事件触发链（条件→动作规则）==========
-  lines.push('# 事件触发链');
-  lines.push('每条规则：当条件满足时执行动作（激活实体/切镜头/显示引导等）。规则之间无顺序依赖，纯事件驱动。');
+  // ========== 5. 事件规则（独立条件→动作，无顺序） ==========
+  lines.push('# 事件规则');
+  lines.push('每条规则独立运行。在 CheckEventRules() 中检查所有规则，条件满足且未触发过 → 执行动作。');
+  lines.push('不要用 currentPhase 或 switch/case 线性流程！用 bool[] ruleTriggered 数组。');
   lines.push('');
 
-  for (var pi = 0; pi < phases.length; pi++) {
-    var p = phases[pi];
-    // 支持新格式（triggerCondition）和旧格式（endCondition 线性链）
-    var trigger = p.triggerCondition || p.trigger || '';
-    if (!trigger && pi === 0) trigger = 'gameStart';
-    if (!trigger && pi > 0 && phases[pi - 1].endCondition) trigger = phases[pi - 1].endCondition;
+  for (var ri = 0; ri < rules.length; ri++) {
+    var rule = rules[ri];
+    var trigger = rule.triggerCondition || '';
+    if (!trigger && ri === 0) trigger = 'gameStart';
 
-    var ruleLine = 'Rule ' + (p.id || pi + 1) + ': ' + (p.name || '');
-    lines.push(ruleLine);
-    lines.push('  WHEN: ' + (trigger || 'gameStart'));
-    if (p.activate && p.activate.length > 0) {
-      lines.push('  THEN activate: ' + p.activate.join(', '));
+    lines.push('Rule ' + (rule.id || ri + 1) + ': ' + (rule.name || ''));
+    lines.push('  WHEN: ' + trigger);
+    if (rule.activate && rule.activate.length > 0) {
+      lines.push('  → activate: ' + rule.activate.join(', '));
     }
-    if (p.actions && p.actions.length > 0) {
-      for (var ai = 0; ai < p.actions.length; ai++) {
-        var act = p.actions[ai];
-        lines.push('  THEN ' + act.type + '(' + (act.params && act.params.target || '') + ')');
+    if (rule.actions && rule.actions.length > 0) {
+      for (var ai = 0; ai < rule.actions.length; ai++) {
+        var a = rule.actions[ai];
+        if (a && a.type) {
+          lines.push('  → ' + a.type + ': ' + JSON.stringify(a.params || {}));
+        }
       }
     }
-    if (p.guide) {
-      lines.push('  THEN showGuide: "' + p.guide + '"');
+    if (rule.guide) {
+      lines.push('  → showGuide: "' + rule.guide + '"');
     }
-    if (p.camera && p.camera.lookAt) {
-      lines.push('  THEN setCamera: lookAt=' + p.camera.lookAt + ', zoom=' + p.camera.zoom);
-    }
-    // Legacy endCondition for prompt compatibility
-    if (p.endCondition) {
-      lines.push('  (进入下一规则的条件: ' + p.endCondition + ')');
+    if (rule.camera && rule.camera.lookAt) {
+      lines.push('  → setCamera: lookAt=' + rule.camera.lookAt + ', zoom=' + rule.camera.zoom);
     }
     lines.push('');
   }
@@ -230,24 +266,41 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   lines.push('# 代码架构要求');
   lines.push('');
   lines.push('1. 所有代码在一个文件 GameFlowManagerMain.cs 中');
-  lines.push('2. 用平行数组管理实体状态（eGo[], eActive[], eState[], eTimer[], eHP[]）');
-  lines.push('3. 每个实体一个 UpdateXxx(int idx, float dt) 方法');
+  lines.push('2. 用平行数组管理实体状态: eGo[], eActive[], eState[], eTimer[], eHP[]');
+  lines.push('3. 每个实体一个 UpdateXxx(float dt) 方法');
   lines.push('4. Update() 中遍历所有已激活实体，分发到对应的 Update 方法');
-  lines.push('5. CheckEventRules() 检查事件规则条件，满足则执行动作（激活实体/切镜头等）');
-  lines.push('6. 动态生成的实体（敌人、弹药、金币）用对象池管理');
-  lines.push('7. 用 GFM_Create.Obj() 创建 3D 对象，GFM_Create.SetColor() 设颜色');
-  lines.push('8. 用 GFM_Tools.SliderValue() 读取虚拟摇杆');
-  lines.push('9. 隐藏对象用 position=(0,-999,0)，不用 SetActive(false)');
-  lines.push('10. 游戏结束调用 Luna.Unity.LifeCycle.GameEnded()');
-  lines.push('11. CTA 调用 Luna.Unity.Playable.InstallFullGame()');
+  lines.push('5. CheckEventRules(): 检查每条规则的条件，满足且 ruleTriggered[i]==false → 执行动作 + 标记已触发');
+  lines.push('   示例:');
+  lines.push('   bool[] ruleTriggered = new bool[RULE_COUNT];');
+  lines.push('   void CheckEventRules() {');
+  lines.push('     if (!ruleTriggered[0]) { /* gameStart */ ruleTriggered[0]=true; ActivateEntities(...); }');
+  lines.push('     if (!ruleTriggered[1] && eState[E_CONVEYOR]==2) { ruleTriggered[1]=true; ShowGuide(...); }');
+  lines.push('     // 每条规则独立判断，不依赖其他规则的顺序');
+  lines.push('   }');
+  lines.push('6. 动态实体（敌人/弹药/金币）用对象池: 预创建数组，隐藏在 y=-999');
+  lines.push('7. 创建3D对象: var go = GFM_Create.Obj(PrimitiveType.Cube, new Vector3(x,y,z), new Vector3(sx,sy,sz), "Name");');
+  lines.push('   签名: GFM_Create.Obj(PrimitiveType type, Vector3 position, Vector3 scale, string name)');
+  lines.push('   PrimitiveType: Cube, Sphere, Cylinder, Capsule, Quad, Plane');
+  lines.push('8. 创建地面: var ground = GFM_Create.Ground(width, depth); // 只有2个float参数');
+  lines.push('   然后: GFM_Create.SetColor(ground, new Color(r,g,b));');
+  lines.push('9. 设颜色: GFM_Create.SetColor(go, new Color(r,g,b));');
+  lines.push('10. 虚拟摇杆: 在 Start() 中 var joystick = GFM_Joystick.Create(canvas, 200f);');
+  lines.push('    在 Update() 中: float h = joystick.Horizontal; float v = joystick.Vertical;');
+  lines.push('11. 隐藏对象: transform.position = new Vector3(0, -999, 0); 不用 SetActive(false)');
+  lines.push('12. 游戏结束: Luna.Unity.LifeCycle.GameEnded()');
+  lines.push('13. CTA: Luna.Unity.Playable.InstallFullGame()');
+  lines.push('14. UI: GFM_UI.CreateCanvas() / GFM_UI.CreateText(canvas, pos, size, text, fontSize, color)');
+  lines.push('15. 音频: GFM_Audio (如需要)');
+  lines.push('');
+  lines.push('⚠️ 重要：没有 GFM_Tools 类！可用类名: GFM_Create, GFM_Utils, GFM_UI, GFM_Joystick, GFM_Audio');
+  lines.push('⚠️ 不要用 CreatePrimitive, Resources.Load, async/await, 协程, List<T>（用数组）');
   lines.push('');
 
   // ========== 7. 行为模板参考 ==========
   if (BEHAVIOR_TEMPLATES) {
-    lines.push('# 行为模板参考代码');
-    lines.push('以下是每种模板的标准实现方式，请参考但不要照抄，根据实体定义调整参数。');
-    lines.push('');
+    lines.push('# 行为模板参考');
     lines.push(BEHAVIOR_TEMPLATES);
+    lines.push('');
   }
 
   // ========== 8. 反馈修复（如有）==========
@@ -258,12 +311,13 @@ function parseBlueprintToPromptV4(blueprint, opts) {
       var fb = opts.feedback[fi];
       lines.push('- ' + (fb.data ? fb.data.text : JSON.stringify(fb)));
     }
+    lines.push('');
   }
 
-  // ========== 9. 现有代码（增量修复用）==========
+  // ========== 8. 现有代码（如有）==========
   if (opts.existingCode) {
     lines.push('');
-    lines.push('# 当前代码（需要修复，不要从头重写）');
+    lines.push('# 现有代码（请在此基础上修复）');
     lines.push('```csharp');
     lines.push(opts.existingCode);
     lines.push('```');
@@ -272,16 +326,4 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   return lines.join('\n');
 }
 
-// 导出
 module.exports = { parseBlueprintToPromptV4: parseBlueprintToPromptV4 };
-
-// 测试：如果直接运行
-if (require.main === module) {
-  var testBP = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'docs', 'qmjs-v4-blueprint.json'), 'utf-8'));
-  var prompt = parseBlueprintToPromptV4(testBP);
-  console.log(prompt);
-  console.log('\n--- STATS ---');
-  console.log('Prompt length:', prompt.length, 'chars');
-  console.log('Entities:', testBP.entities.length);
-  console.log('Phases:', testBP.phases.length);
-}

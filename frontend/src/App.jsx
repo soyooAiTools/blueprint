@@ -16,6 +16,7 @@ import Login from './components/Login';
 import ProjectList from './components/ProjectList';
 import ShotNode from './components/ShotNode';
 import PhaseNode from './components/PhaseNode';
+import EntityNode from './components/EntityNode';
 import JoinNode from './components/JoinNode';
 import NoteNode from './components/NoteNode';
 import Toolbar from './components/Toolbar';
@@ -40,6 +41,7 @@ import {
 const nodeTypes = {
   shotNode: ShotNode,
   phaseNode: PhaseNode,
+  entityNode: EntityNode,
   joinNode: JoinNode,
   noteNode: NoteNode,
 };
@@ -53,6 +55,112 @@ const defaultEdgeOptions = {
 
 let idCounter = 100;
 const getNextId = (prefix) => `${prefix}_${++idCounter}`;
+
+/**
+ * V4 方案A: 从 entities 数组生成画布上的实体节点和条件连线
+ */
+function generateEntityNodesAndEdges(entities) {
+  const nodes = [];
+  const edges = [];
+  const nameToId = {};
+  
+  // Layout: group by spawn condition
+  const groups = { gameStart: [], runtime: [], conditional: [] };
+  entities.forEach((e) => {
+    const cond = e.spawn?.condition || '';
+    if (cond === 'runtime') groups.runtime.push(e);
+    else if (cond.startsWith('phase:1') || cond === 'gameStart' || cond.startsWith('phase:1')) groups.gameStart.push(e);
+    else groups.conditional.push(e);
+  });
+  
+  let x = 50, y = 50;
+  const COL_WIDTH = 260, ROW_HEIGHT = 130;
+  
+  // Column 1: gameStart entities
+  groups.gameStart.forEach((e, i) => {
+    const id = 'entity_' + e.name;
+    nameToId[e.name] = id;
+    nodes.push({
+      id,
+      type: 'entityNode',
+      position: { x, y: y + i * ROW_HEIGHT },
+      data: { ...e },
+    });
+  });
+  
+  // Column 2: conditional entities
+  x += COL_WIDTH + 80;
+  groups.conditional.forEach((e, i) => {
+    const id = 'entity_' + e.name;
+    nameToId[e.name] = id;
+    nodes.push({
+      id,
+      type: 'entityNode',
+      position: { x, y: y + i * ROW_HEIGHT },
+      data: { ...e },
+    });
+  });
+  
+  // Column 3: runtime/pool entities
+  x += COL_WIDTH + 80;
+  groups.runtime.forEach((e, i) => {
+    const id = 'entity_' + e.name;
+    nameToId[e.name] = id;
+    nodes.push({
+      id,
+      type: 'entityNode',
+      position: { x, y: y + i * ROW_HEIGHT },
+      data: { ...e },
+    });
+  });
+  
+  // Generate edges from spawn.condition (entity:XXX references)
+  entities.forEach((e) => {
+    const cond = e.spawn?.condition || '';
+    if (cond.startsWith('entity:')) {
+      // entity:ConveyorBelt.state==built → source is ConveyorBelt
+      const ref = cond.split(':')[1];
+      const sourceName = ref.split('.')[0];
+      const sourceId = nameToId[sourceName];
+      const targetId = nameToId[e.name];
+      if (sourceId && targetId) {
+        edges.push({
+          id: `edge_${sourceName}_${e.name}`,
+          source: sourceId,
+          target: targetId,
+          type: 'smoothstep',
+          label: ref.includes('.') ? ref.split('.').slice(1).join('.') : '',
+          style: { stroke: '#7c5cfc' },
+          labelStyle: { fontSize: 10, fill: '#a0aec0' },
+          animated: true,
+        });
+      }
+    }
+    // onBuilt activate links
+    if (e.behavior?.onBuilt) {
+      e.behavior.onBuilt.forEach((a) => {
+        if (a.type === 'activate' && a.params?.target) {
+          const sourceId = nameToId[e.name];
+          const targetId = nameToId[a.params.target];
+          if (sourceId && targetId) {
+            edges.push({
+              id: `edge_built_${e.name}_${a.params.target}`,
+              source: sourceId,
+              target: targetId,
+              type: 'smoothstep',
+              label: 'onBuilt',
+              style: { stroke: '#48bb78' },
+              labelStyle: { fontSize: 10, fill: '#48bb78' },
+              animated: true,
+            });
+          }
+        }
+      });
+    }
+  });
+  
+  return { nodes, edges };
+}
 
 function FlowEditor({ project, onBack, initialTab }) {
   const [nodes, setNodes, onNodesChange] = useNodesState(project.nodes || []);
@@ -70,6 +178,21 @@ function FlowEditor({ project, onBack, initialTab }) {
   const [objectRegistry, setObjectRegistry] = useState(project.objectRegistry || []);
   const [entities, setEntities] = useState(project.entities || []);
   const isV4 = entities.length > 0;
+  
+  // V4 方案A: 自动从 entities 生成画布节点（仅在首次加载且无 entityNode 时）
+  const entityNodesGenerated = useRef(false);
+  useEffect(() => {
+    if (isV4 && !entityNodesGenerated.current) {
+      const hasEntityNodes = nodes.some((n) => n.type === 'entityNode');
+      if (!hasEntityNodes && entities.length > 0) {
+        const { nodes: eNodes, edges: eEdges } = generateEntityNodesAndEdges(entities);
+        setNodes((nds) => [...nds.filter((n) => n.type !== 'phaseNode'), ...eNodes]);
+        setEdges((eds) => [...eds.filter((e) => !e.id.startsWith('e_')), ...eEdges]);
+        entityNodesGenerated.current = true;
+      }
+    }
+  }, [isV4, entities]);
+  
   const [globalParams, setGlobalParams] = useState(project.globalParams || '');
   const [globalSettings, setGlobalSettings] = useState(project.globalSettings || {
     gameType: 'slg',
@@ -272,18 +395,17 @@ function FlowEditor({ project, onBack, initialTab }) {
     shotCountRef.current += 1;
     const pos = getViewportCenter();
     const newNode = isV4 ? {
-      id: getNextId('phase'),
-      type: 'phaseNode',
+      id: getNextId('entity'),
+      type: 'entityNode',
       position: { x: pos.x + Math.random() * 60 - 30, y: pos.y + Math.random() * 60 - 30 },
       data: {
-        phaseId: shotCountRef.current,
-        label: `规则 ${shotCountRef.current}`,
-        name: '',
-        triggerCondition: '',
-        activate: [],
-        actions: [],
-        guide: '',
-        camera: { lookAt: '', zoom: 8 },
+        name: `Entity_${shotCountRef.current}`,
+        label: '',
+        template: 'Static',
+        visual: { shape: 'Cube', scale: '1×1×1', color: '(0.5,0.5,0.5)', position: '(0,0,0)' },
+        spawn: { condition: 'gameStart', style: 'instant' },
+        behavior: {},
+        trigger: { type: 'none' },
       },
     } : {
       id: getNextId('shot'),
@@ -494,6 +616,7 @@ function FlowEditor({ project, onBack, initialTab }) {
               onAddJoin={onAddJoin}
               onAddNote={onAddNote}
               onLoadTemplate={onLoadTemplate}
+              isV4={isV4}
             />
             <div className="canvas-container">
               <ReactFlow

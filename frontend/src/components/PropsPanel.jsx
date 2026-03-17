@@ -277,6 +277,42 @@ export default function PropsPanel({
     );
   }
 
+  // ===== EntityNode (V4 方案A) =====
+  if (selectedNode && selectedNode.type === 'entityNode') {
+    const d = selectedNode.data;
+    // Wrap single entity in array for EntityEditor, sync back on change
+    const singleEntity = [d];
+    const handleSingleChange = (arr) => {
+      if (arr.length > 0) {
+        const updated = arr[0];
+        onUpdateNode(selectedNode.id, updated);
+        // Sync to entities array
+        if (onChangeEntities) {
+          const idx = entities.findIndex(e => e.name === d.name || e.name === updated.name);
+          if (idx >= 0) {
+            const newEntities = [...entities];
+            newEntities[idx] = { ...newEntities[idx], ...updated };
+            onChangeEntities(newEntities);
+          }
+        }
+      }
+    };
+
+    return (
+      <div className="props-panel">
+        <div className="props-title">📦 实体属性 — {d.name || '未命名'}</div>
+        <div className="props-form">
+          <EntityEditor
+            entities={singleEntity}
+            onChangeEntities={handleSingleChange}
+            allEntityNames={entities.map(e => e.name)}
+          />
+          <button className="props-delete-btn" onClick={() => onDeleteNode(selectedNode.id)} style={{ marginTop: 12 }}>🗑 删除实体节点</button>
+        </div>
+      </div>
+    );
+  }
+
   // No selection → Global settings panel
   if (!selectedNode) {
     return (
