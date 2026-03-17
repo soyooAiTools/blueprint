@@ -1,0 +1,87 @@
+{
+  "$comment": "Blueprint V4 Schema - Entity-Driven Architecture",
+  "version": 4,
+  
+  "entities": [
+    {
+      "name": "string - 唯一标识符（英文，如 ConveyorBelt）",
+      "label": "string - 中文名（如 传送带）",
+      
+      "visual": {
+        "shape": "Cube | Sphere | Cylinder | Ground | UI",
+        "scale": "string - 如 4×0.3×1",
+        "color": "string - 如 (0.5,0.5,0.55)",
+        "position": "string - 如 (0, 0, 2)"
+      },
+      
+      "template": "Static | Buildable | Shooter | Mover | Spawner | Collectible | Draggable | Damageable | Upgradeable | PlayerController",
+      
+      "spawn": {
+        "condition": "string - 触发出生的条件，如 'phase:1' 或 'entity:ConveyorBelt.state==built'",
+        "style": "instant | fadeIn | popUp | blueprint",
+        "persistent": "boolean - 是否持续存在"
+      },
+      
+      "trigger": {
+        "type": "none | proximity | click | drag | auto | timer | event",
+        "params": {
+          "radius": "number - proximity 触发距离",
+          "cost": "object - 触发消耗，如 { gold: 1 }",
+          "interval": "number - timer 间隔（秒）",
+          "event": "string - event 触发的事件名"
+        },
+        "once": "boolean - 是否只触发一次"
+      },
+      
+      "actions": [
+        {
+          "type": "playAnim | setState | activate | deactivate | spawn | damage | addResource | showUI | cameraLookAt | gameEnd",
+          "params": "object - 动作参数"
+        }
+      ],
+      
+      "behavior": {
+        "$comment": "模板特有参数",
+        "moveSpeed": "number - Mover",
+        "moveTarget": "string - Mover 移动目标实体名",
+        "hp": "number - Damageable",
+        "fireRate": "number - Shooter 射击间隔",
+        "projectile": "string - Shooter 弹药实体名",
+        "damage": "number - Shooter 伤害值",
+        "range": "number - Shooter 射程",
+        "targetTag": "string - Shooter 目标标签",
+        "spawnEntity": "string - Spawner 生成的实体名",
+        "spawnInterval": "number - Spawner 生成间隔",
+        "maxAlive": "number - Spawner 最大存活数",
+        "buildTime": "number - Buildable 建造时间",
+        "onBuilt": "array - Buildable 建好后的动作",
+        "upgradeLevels": "array - Upgradeable 升级阶段"
+      }
+    }
+  ],
+  
+  "phases": [
+    {
+      "id": "number",
+      "name": "string - 阶段名称",
+      "activate": ["string - 激活的实体名列表"],
+      "endCondition": "string - 结束条件表达式",
+      "guide": "string - 引导文案",
+      "camera": {
+        "lookAt": "string - 看向的实体",
+        "zoom": "number - 缩放级别"
+      }
+    }
+  ],
+  
+  "globalSettings": {
+    "gameType": "slg | td | idle | runner | puzzle | merge",
+    "cameraProjection": "orthographic | perspective",
+    "cameraAngle": "topDown45 | topDown90 | sideView | isometric",
+    "backgroundColor": "string - 如 (0.5,0.8,1)"
+  },
+  
+  "globalParams": {
+    "$comment": "全局参数，key-value 形式"
+  }
+}

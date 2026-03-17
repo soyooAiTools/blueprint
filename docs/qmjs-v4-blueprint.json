@@ -1,0 +1,370 @@
+{
+  "version": 4,
+  "projectName": "取木射箭",
+  "gameType": "slg",
+
+  "globalSettings": {
+    "cameraProjection": "orthographic",
+    "cameraAngle": "topDown45",
+    "backgroundColor": "(0.5,0.8,1)",
+    "inputMethod": "virtualJoystick"
+  },
+
+  "entities": [
+    {
+      "name": "Ground",
+      "label": "地面",
+      "visual": { "shape": "Ground", "scale": "40×1×40", "color": "(0.35,0.25,0.15)", "position": "(0,-0.5,0)" },
+      "template": "Static",
+      "spawn": { "condition": "phase:1", "style": "instant" }
+    },
+    {
+      "name": "Player",
+      "label": "玩家",
+      "visual": { "shape": "Cube", "scale": "1×2×1", "color": "(0.2,0.4,0.9)", "position": "(-2,0,-4)" },
+      "template": "PlayerController",
+      "spawn": { "condition": "phase:1", "style": "instant" },
+      "behavior": { "moveSpeed": 5, "input": "virtualJoystick" }
+    },
+    {
+      "name": "Base",
+      "label": "基地",
+      "visual": { "shape": "Cube", "scale": "3×3×3", "color": "(0.85,0.7,0.4)", "position": "(0,0,-3)" },
+      "template": "Damageable",
+      "spawn": { "condition": "phase:1", "style": "instant" },
+      "behavior": { "hp": 50 },
+      "trigger": { "type": "none" }
+    },
+    {
+      "name": "WoodFence_L",
+      "label": "木栅栏(左)",
+      "visual": { "shape": "Cube", "scale": "0.3×1.5×4", "color": "(0.6,0.35,0.1)", "position": "(-4,0,0)" },
+      "template": "Static",
+      "spawn": { "condition": "phase:1", "style": "instant" }
+    },
+    {
+      "name": "WoodFence_R",
+      "label": "木栅栏(右)",
+      "visual": { "shape": "Cube", "scale": "0.3×1.5×4", "color": "(0.6,0.35,0.1)", "position": "(4,0,0)" },
+      "template": "Static",
+      "spawn": { "condition": "phase:1", "style": "instant" }
+    },
+    {
+      "name": "PineTree_L",
+      "label": "松树(左)",
+      "visual": { "shape": "Cylinder", "scale": "0.5×3×0.5", "color": "(0.1,0.55,0.1)", "position": "(-5,0,3)" },
+      "template": "Static",
+      "spawn": { "condition": "phase:1", "style": "instant" }
+    },
+    {
+      "name": "PineTree_R",
+      "label": "松树(右)",
+      "visual": { "shape": "Cylinder", "scale": "0.5×3×0.5", "color": "(0.1,0.55,0.1)", "position": "(5,0,3)" },
+      "template": "Static",
+      "spawn": { "condition": "phase:1", "style": "instant" }
+    },
+    {
+      "name": "Generator",
+      "label": "发电机",
+      "visual": { "shape": "Cube", "scale": "2×2×2", "color": "(0.5,0.5,0.55)", "position": "(-3,0,2)" },
+      "template": "Static",
+      "spawn": { "condition": "phase:1", "style": "instant" }
+    },
+
+    {
+      "name": "ConveyorBelt",
+      "label": "传送带",
+      "visual": { "shape": "Cube", "scale": "4×0.3×1", "color": "(0.5,0.5,0.55)", "position": "(0,0,2)" },
+      "template": "Buildable",
+      "spawn": { "condition": "phase:1", "style": "blueprint" },
+      "trigger": { "type": "proximity", "params": { "radius": 2, "cost": { "gold": 1 } }, "once": true },
+      "behavior": {
+        "buildTime": 1.5,
+        "onBuilt": [
+          { "type": "activate", "params": { "target": "WoodLog_Spawner" } }
+        ]
+      }
+    },
+
+    {
+      "name": "Crossbow_L",
+      "label": "弩炮(左)",
+      "visual": { "shape": "Cube", "scale": "1×1.5×1", "color": "(0.5,0.5,0.55)", "position": "(3,0,5)" },
+      "template": "Shooter",
+      "spawn": { "condition": "entity:ConveyorBelt.state==built", "style": "popUp" },
+      "trigger": { "type": "click", "once": false },
+      "behavior": {
+        "fireRate": 1.5,
+        "projectile": "Arrow",
+        "damage": 1,
+        "range": 10,
+        "targetTag": "enemy"
+      }
+    },
+    {
+      "name": "Crossbow_R",
+      "label": "弩炮(右)",
+      "visual": { "shape": "Cube", "scale": "1×1.5×1", "color": "(0.5,0.5,0.55)", "position": "(-3,0,5)" },
+      "template": "Shooter",
+      "spawn": { "condition": "entity:ConveyorBelt.state==built", "style": "popUp" },
+      "trigger": { "type": "click", "once": false },
+      "behavior": {
+        "fireRate": 1.5,
+        "projectile": "Arrow",
+        "damage": 1,
+        "range": 10,
+        "targetTag": "enemy"
+      }
+    },
+    {
+      "name": "Arrow",
+      "label": "箭矢",
+      "visual": { "shape": "Cylinder", "scale": "0.05×0.5×0.05", "color": "(0.6,0.35,0.1)" },
+      "template": "Projectile",
+      "spawn": { "condition": "runtime", "style": "instant" },
+      "behavior": { "speed": 12, "damage": 1, "lifetime": 3 }
+    },
+
+    {
+      "name": "EnemySpawner",
+      "label": "刷怪点",
+      "visual": null,
+      "template": "Spawner",
+      "spawn": { "condition": "entity:ConveyorBelt.state==built", "style": "instant" },
+      "behavior": {
+        "spawnEntity": "Enemy_A",
+        "spawnInterval": 3,
+        "spawnPosition": "(15,0,0)",
+        "maxAlive": 5
+      }
+    },
+    {
+      "name": "Enemy_A",
+      "label": "敌人",
+      "visual": { "shape": "Cube", "scale": "0.8×1.6×0.8", "color": "(0.85,0.15,0.15)" },
+      "template": "Mover+Damageable",
+      "spawn": { "condition": "runtime", "style": "instant" },
+      "behavior": {
+        "hp": 3,
+        "moveSpeed": 2,
+        "moveTarget": "Base"
+      },
+      "actions": [
+        { "type": "onDeath", "params": { "drop": "GoldCoin", "count": 1 } }
+      ]
+    },
+
+    {
+      "name": "GoldCoin",
+      "label": "金币",
+      "visual": { "shape": "Sphere", "scale": "0.3×0.3×0.3", "color": "(1,0.85,0)" },
+      "template": "Collectible",
+      "spawn": { "condition": "runtime", "style": "popUp" },
+      "trigger": { "type": "proximity", "params": { "radius": 1.5 }, "once": true },
+      "actions": [
+        { "type": "addResource", "params": { "gold": 1 } }
+      ]
+    },
+
+    {
+      "name": "WoodLog_Spawner",
+      "label": "木材生成器",
+      "visual": null,
+      "template": "Spawner",
+      "spawn": { "condition": "entity:ConveyorBelt.state==built", "style": "instant" },
+      "behavior": {
+        "spawnEntity": "WoodLog",
+        "spawnInterval": 4,
+        "spawnPosition": "(0,0,3)",
+        "maxAlive": 3
+      }
+    },
+    {
+      "name": "WoodLog",
+      "label": "木材",
+      "visual": { "shape": "Cylinder", "scale": "0.3×0.8×0.3", "color": "(0.6,0.35,0.1)" },
+      "template": "Draggable",
+      "spawn": { "condition": "runtime", "style": "popUp" },
+      "trigger": { "type": "drag", "params": { "dropTarget": "WoodHouse", "dropRadius": 2 }, "once": true },
+      "actions": [
+        { "type": "addResource", "params": { "wood": 1 } },
+        { "type": "deactivate", "params": {} }
+      ]
+    },
+
+    {
+      "name": "WoodHouse",
+      "label": "木屋",
+      "visual": { "shape": "Cube", "scale": "3×2.5×3", "color": "(0.85,0.7,0.4)", "position": "(5,0,-2)" },
+      "template": "Buildable",
+      "spawn": { "condition": "phase:3", "style": "blueprint" },
+      "trigger": { "type": "event", "params": { "event": "wood>=3" }, "once": true },
+      "behavior": {
+        "buildTime": 2,
+        "onBuilt": [
+          { "type": "activate", "params": { "target": "Worker_Spawner" } }
+        ]
+      }
+    },
+
+    {
+      "name": "Worker_Spawner",
+      "label": "工人生成器",
+      "visual": null,
+      "template": "Spawner",
+      "spawn": { "condition": "entity:WoodHouse.state==built", "style": "instant" },
+      "behavior": {
+        "spawnEntity": "Worker",
+        "spawnInterval": 5,
+        "spawnPosition": "(5,0,-1)",
+        "maxAlive": 2
+      }
+    },
+    {
+      "name": "Worker",
+      "label": "工人",
+      "visual": { "shape": "Cube", "scale": "0.8×1.5×0.8", "color": "(0.9,0.6,0.2)" },
+      "template": "Mover",
+      "spawn": { "condition": "runtime", "style": "instant" },
+      "behavior": {
+        "moveSpeed": 3,
+        "moveTarget": "WoodLog",
+        "onArrive": [
+          { "type": "pickup", "params": { "target": "WoodLog" } },
+          { "type": "moveTo", "params": { "target": "Base" } },
+          { "type": "addResource", "params": { "wood": 1 } }
+        ]
+      }
+    },
+
+    {
+      "name": "Turret",
+      "label": "炮塔",
+      "visual": { "shape": "Cube", "scale": "1.5×2×1.5", "color": "(0.5,0.5,0.55)", "position": "(0,0,7)" },
+      "template": "Buildable+Shooter",
+      "spawn": { "condition": "phase:6", "style": "blueprint" },
+      "trigger": { "type": "proximity", "params": { "radius": 2, "cost": { "wood": 5 } }, "once": true },
+      "behavior": {
+        "buildTime": 2,
+        "fireRate": 2,
+        "projectile": "Arrow",
+        "damage": 3,
+        "range": 12,
+        "targetTag": "enemy",
+        "autoFire": true
+      }
+    },
+
+    {
+      "name": "Boss",
+      "label": "Boss",
+      "visual": { "shape": "Cube", "scale": "1.5×3×1.5", "color": "(0.7,0.1,0.1)", "position": "(20,0,0)" },
+      "template": "Mover+Damageable",
+      "spawn": { "condition": "phase:8", "style": "instant" },
+      "behavior": {
+        "hp": 20,
+        "moveSpeed": 1.5,
+        "moveTarget": "Base"
+      },
+      "actions": [
+        { "type": "onDeath", "params": { "trigger": "phase:9" } }
+      ]
+    },
+
+    {
+      "name": "CastleWall",
+      "label": "城墙",
+      "visual": { "shape": "Cube", "scale": "5×4×0.5", "color": "(0.7,0.7,0.75)", "position": "(0,0,8)" },
+      "template": "Static",
+      "spawn": { "condition": "phase:9", "style": "popUp" }
+    },
+
+    {
+      "name": "HealthBar_UI",
+      "label": "血条",
+      "visual": { "shape": "UI", "scale": "1×0.1×0.1", "color": "(0.1,0.8,0.1)" },
+      "template": "UI",
+      "spawn": { "condition": "phase:1", "style": "instant" },
+      "behavior": { "followEntity": "Base", "offset": "(0,3,0)", "showHP": true }
+    }
+  ],
+
+  "phases": [
+    {
+      "id": 1,
+      "name": "建造传送带",
+      "activate": ["Ground", "Player", "Base", "WoodFence_L", "WoodFence_R", "PineTree_L", "PineTree_R", "Generator", "ConveyorBelt", "HealthBar_UI"],
+      "endCondition": "ConveyorBelt.state == built",
+      "guide": "移动到传送带位置，花费金币建造",
+      "camera": { "lookAt": "ConveyorBelt", "zoom": 8 }
+    },
+    {
+      "id": 2,
+      "name": "弩炮防御",
+      "endCondition": "Enemy_A.killed >= 3",
+      "guide": "点击弩炮射击敌人",
+      "camera": { "lookAt": "Base", "zoom": 10 },
+      "$note": "Crossbow_L/R 和 EnemySpawner 由 ConveyorBelt.onBuilt 触发，不在 activate 里"
+    },
+    {
+      "id": 3,
+      "name": "修建木屋",
+      "activate": ["WoodHouse"],
+      "endCondition": "WoodHouse.state == built",
+      "guide": "收集木材建造木屋"
+    },
+    {
+      "id": 4,
+      "name": "招募工人",
+      "endCondition": "Worker.count >= 1",
+      "guide": "木屋产出工人",
+      "$note": "Worker_Spawner 由 WoodHouse.onBuilt 触发"
+    },
+    {
+      "id": 5,
+      "name": "自动生产",
+      "endCondition": "wood >= 5",
+      "guide": "工人自动搬运木材"
+    },
+    {
+      "id": 6,
+      "name": "建造炮塔",
+      "activate": ["Turret"],
+      "endCondition": "Turret.state == built",
+      "guide": "用木材建造炮塔"
+    },
+    {
+      "id": 7,
+      "name": "抵御进攻",
+      "endCondition": "Enemy_A.killed >= 10",
+      "guide": "防守基地！",
+      "$note": "刷怪加速"
+    },
+    {
+      "id": 8,
+      "name": "迎战Boss",
+      "activate": ["Boss"],
+      "endCondition": "Boss.hp <= 0",
+      "guide": "消灭Boss！"
+    },
+    {
+      "id": 9,
+      "name": "升级主城",
+      "activate": ["CastleWall"],
+      "endCondition": "Base.level >= 2",
+      "guide": "点击基地升级"
+    },
+    {
+      "id": 10,
+      "name": "结局",
+      "endCondition": "always",
+      "actions": ["GameEnded()", "showCTA()"]
+    }
+  ],
+
+  "globalParams": {
+    "player.startGold": 1,
+    "economy.killReward": 1,
+    "economy.woodValue": 1
+  }
+}
