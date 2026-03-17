@@ -158,9 +158,36 @@ async function runPreviewCheck(stage4Dir, taskId, log) {
 
     // NOTE: WebGL canvas drawImage returns all-black (preserveDrawingBuffer=false).
     // Must use page.screenshot() for pixel analysis — it captures the compositor output.
+    // HOWEVER: On headless Chromium without GPU (e.g. Worker ECS Windows Server),
+    // WebGL renders near-black even with screenshot. Skip pixel analysis in that case.
+
+    // Detect GPU availability: check if WebGL renders anything beyond background
+    let hasGPU = true;
+    if (ok) {
+      try {
+        const gpuCheck = await page.evaluate(() => {
+          var c = document.createElement('canvas');
+          c.width = 64; c.height = 64;
+          var gl = c.getContext('webgl2') || c.getContext('webgl');
+          if (!gl) return { hasGPU: false, reason: 'no webgl context' };
+          var renderer = gl.getParameter(gl.RENDERER) || '';
+          var vendor = gl.getParameter(gl.VENDOR) || '';
+          // SwiftShader / llvmpipe / software = no real GPU
+          var isSoftware = /swiftshader|llvmpipe|software|mesa/i.test(renderer + ' ' + vendor);
+          return { hasGPU: !isSoftware, renderer, vendor };
+        });
+        hasGPU = gpuCheck.hasGPU;
+        if (!hasGPU) {
+          log(`[preview-check] No GPU detected (renderer: ${gpuCheck.renderer}). Skipping pixel analysis — WebGL content invisible in software rendering.`, taskId);
+        }
+      } catch (gpuErr) {
+        log(`[preview-check] GPU detection failed: ${gpuErr.message}, assuming no GPU`, taskId);
+        hasGPU = false;
+      }
+    }
 
     // Scene object verification via Playwright screenshot (NOT drawImage — WebGL preserveDrawingBuffer=false)
-    if (ok) {
+    if (ok && hasGPU) {
       try {
         // Use sharp or raw PNG parsing to analyze the screenshot pixels
         // Since we may not have sharp, use a second page with the screenshot loaded as an image

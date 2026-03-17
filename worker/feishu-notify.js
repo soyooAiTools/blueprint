@@ -63,22 +63,23 @@ const EVENT_COLORS = {
 };
 
 // 每类事件的处理方案说明
-const EVENT_PLANS = {
-  task_started: '→ AI 将根据蓝图分镜生成代码，预计 3-5 分钟',
-  coding_done: '→ 接下来编译代码，通过后进入预览检查',
-  build_done: '→ 构建完成，准备进入 CUA 自动验证',
-  preview_check: '→ 预览正常，CUA(GPT-5.4) 将自动操控游戏验证分镜覆盖度',
-  compile_error: '→ AI 将自动尝试修复编译错误（最多 10 轮），如果反复失败会重新生成代码',
-  cua_pass: '→ 任务即将完成！上传产物后等待人工审核',
-  cua_round: '→ AI 将根据 CUA 反馈重新编码修复，然后重新构建+验证',
-  cua_fail: '→ 同上，AI 增量修复后重试',
-  task_retry: '→ 自动重试中，如果连续失败 3 次将终止并通知',
-  retry: '→ 瞬态错误，自动重试',
-  task_failed: '→ 本轮失败，进入下一轮重试',
-  task_failed_final: '→ ⚠️ 已耗尽所有重试次数。需要人工介入排查根因。常见原因：编译死循环、CUA 无法覆盖分镜、环境异常',
-  timeout: '→ 任务执行超时。可能是编译卡住或 CUA 循环过多。建议检查 Worker 日志',
-  stuck: '→ Worker 可能卡住，建议 SSH 检查进程状态',
-  done: '→ 🎉 可以在 playcools.top 查看结果并审核'
+// actionRequired: true = 需要人工操作, false = 仅通知(系统自动处理)
+const EVENT_META = {
+  task_started:      { plan: '→ AI 正在根据蓝图生成代码，预计 3-5 分钟', actionRequired: false },
+  coding_done:       { plan: '→ 编译代码中，通过后进入预览检查', actionRequired: false },
+  build_done:        { plan: '→ 构建完成，准备进入 CUA 自动验证', actionRequired: false },
+  preview_check:     { plan: '→ 预览正常，CUA 将自动操控验证分镜覆盖度', actionRequired: false },
+  compile_error:     { plan: '→ AI 自动修复编译错误中（最多 10 轮）', actionRequired: false },
+  cua_pass:          { plan: '→ 上传产物后等待人工审核', actionRequired: false },
+  cua_round:         { plan: '→ AI 根据 CUA 反馈自动修复重试中', actionRequired: false },
+  cua_fail:          { plan: '→ AI 增量修复后自动重试', actionRequired: false },
+  task_retry:        { plan: '→ 自动重试中，连续失败 3 次将终止', actionRequired: false },
+  retry:             { plan: '→ 瞬态错误，自动重试', actionRequired: false },
+  task_failed:       { plan: '→ 本轮失败，自动进入下一轮重试', actionRequired: false },
+  task_failed_final: { plan: '→ 已耗尽所有重试。常见原因：编译死循环、CUA 无法覆盖分镜、环境异常', actionRequired: true },
+  timeout:           { plan: '→ 任务执行超时。可能是编译卡住或 CUA 循环过多', actionRequired: true },
+  stuck:             { plan: '→ Worker 可能卡住，建议 SSH 检查进程状态', actionRequired: true },
+  done:              { plan: '→ 可以在 playcools.top 查看结果并审核', actionRequired: true }
 };
 
 async function send(taskId, event, message, extra) {
@@ -88,13 +89,18 @@ async function send(taskId, event, message, extra) {
     const proj = (extra && extra.projectName) || taskId;
     const color = EVENT_COLORS[event] || 'blue';
 
+    const meta = EVENT_META[event] || { plan: '继续执行', actionRequired: false };
+    const actionTag = meta.actionRequired
+      ? '\n\n🔔 **需要你操作**'
+      : '\n\n💤 仅通知，系统自动处理中';
+
     const card = {
       msg_type: 'interactive',
       receive_id: NICK_OPEN_ID,
       content: JSON.stringify({
         config: { wide_screen_mode: true },
         header: {
-          title: { tag: 'plain_text', content: `${icon} ${proj}` },
+          title: { tag: 'plain_text', content: `${icon} ${proj}${meta.actionRequired ? ' ⚠️ 需要你' : ''}` },
           template: color
         },
         elements: [
@@ -102,7 +108,7 @@ async function send(taskId, event, message, extra) {
             tag: 'div',
             text: {
               tag: 'lark_md',
-              content: `**事件**: ${event}\n**消息**: ${message}\n**方案**: ${EVENT_PLANS[event] || '继续执行'}\n**任务ID**: ${taskId}`
+              content: `**事件**: ${event}\n**消息**: ${message}\n**方案**: ${meta.plan}${actionTag}\n**任务ID**: ${taskId}`
             }
           }
         ]

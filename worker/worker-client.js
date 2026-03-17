@@ -580,8 +580,18 @@ async function processTask(task) {
         }
 
         if (previewRound >= MAX_PREVIEW_FIX_ROUNDS) {
+          // Detect structural failure: if error message is identical across all rounds,
+          // AI self-heal is not making progress → don't waste time retrying the whole task
+          const isStructuralFailure = previewResult.error &&
+            blueprint.feedbackHistory &&
+            blueprint.feedbackHistory.length >= 2 &&
+            blueprint.feedbackHistory.every(fb =>
+              fb.type === 'preview_health_check_failure' && fb.error === previewResult.error);
           notifyEvent(taskId, 'compile_error', `❌ 预览检查 ${MAX_PREVIEW_FIX_ROUNDS} 轮失败: ${(previewResult.error||'').slice(0,100)}`, { projectName: task.projectName });
-          throw new TaskFailedError(`Preview health check failed after ${MAX_PREVIEW_FIX_ROUNDS} fix rounds: ${previewResult.error}`);
+          throw new TaskFailedError(
+            `Preview health check failed after ${MAX_PREVIEW_FIX_ROUNDS} fix rounds: ${previewResult.error}`,
+            isStructuralFailure // noRetry=true if same error every round
+          );
         }
 
         // === Self-heal: feed error back to AI coder for targeted fix ===
