@@ -113,61 +113,332 @@ function callClaudeWithRetry(systemPrompt, userMessage, timeoutMs, model, maxRet
 
 // ============ Blueprint → Prompt ============
 
+// --- V3 三层结构解析：物件清单 + 流程时间线 + 参数表 ---
+
+// 从 sceneObjects 文本中提取对象列表
+function extractObjectsFromText(text) {
+  if (!text) return [];
+  var objects = [];
+  var lines = text.split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (!line || line.startsWith('#')) continue;
+    // 匹配 "- Name | key: value | key: value" 格式
+    var match = line.match(/^-\s*(\w+)\s*\|(.+)/);
+    if (match) {
+      var name = match[1].trim();
+      var rest = match[2];
+      // 提取位置
+      var posMatch = rest.match(/位置[：:]\s*([^|]+)/);
+      var stateMatch = rest.match(/状态[：:]\s*([^|]+)/);
+      objects.push({
+        name: name,
+        position: posMatch ? posMatch[1].trim() : '',
+        state: stateMatch ? stateMatch[1].trim() : ''
+      });
+    }
+  }
+  return objects;
+}
+
+// 把美术描述翻译成引擎能力范围内的物件定义
+function translateToEngineObject(name) {
+  var n = name.toLowerCase();
+  // 根据名称推断最佳基本体 + 默认颜色
+  if (n.indexOf('player') >= 0 || n.indexOf('character') >= 0)
+    return { shape: 'Cube', scale: '1×2×1', color: '蓝色(0.2,0.4,0.9)', colorCode: 'new Color(0.2f,0.4f,0.9f)' };
+  if (n.indexOf('tree') >= 0 || n.indexOf('pine') >= 0)
+    return { shape: 'Cylinder+Sphere', scale: '0.5×3×0.5 + 1.5球', color: '绿色(0.1,0.55,0.1)', colorCode: 'new Color(0.1f,0.55f,0.1f)' };
+  if (n.indexOf('enemy') >= 0 || n.indexOf('soldier') >= 0)
+    return { shape: 'Cube', scale: '0.8×1.6×0.8', color: '红色(0.85,0.15,0.15)', colorCode: 'new Color(0.85f,0.15f,0.15f)' };
+  if (n.indexOf('healthbar') >= 0 || n.indexOf('health_bar') >= 0 || n.indexOf('progressbar') >= 0)
+    return { shape: 'UI', scale: 'UI元素', color: 'UI', colorCode: '' };
+  if (n.indexOf('boss') >= 0)
+    return { shape: 'Cube', scale: '2×4×2', color: '深红(0.7,0.1,0.1)', colorCode: 'new Color(0.7f,0.1f,0.1f)' };
+  if (n.indexOf('turret') >= 0 || n.indexOf('crossbow') >= 0 || n.indexOf('cannon') >= 0)
+    return { shape: 'Cube', scale: '1×1.5×1', color: '灰色(0.5,0.5,0.55)', colorCode: 'new Color(0.5f,0.5f,0.55f)' };
+  if (n.indexOf('house') >= 0 || n.indexOf('building') >= 0 || n.indexOf('base') >= 0 || n.indexOf('castle') >= 0)
+    return { shape: 'Cube', scale: '3×3×3', color: '棕色(0.85,0.7,0.4)', colorCode: 'new Color(0.85f,0.7f,0.4f)' };
+  if (n.indexOf('wood') >= 0 || n.indexOf('log') >= 0)
+    return { shape: 'Cylinder', scale: '0.3×0.8×0.3', color: '木色(0.6,0.35,0.1)', colorCode: 'new Color(0.6f,0.35f,0.1f)' };
+  if (n.indexOf('conveyor') >= 0 || n.indexOf('belt') >= 0)
+    return { shape: 'Cube', scale: '4×0.3×1', color: '灰色(0.5,0.5,0.55)', colorCode: 'new Color(0.5f,0.5f,0.55f)' };
+  if (n.indexOf('worker') >= 0 || n.indexOf('npc') >= 0)
+    return { shape: 'Cube', scale: '0.8×1.8×0.8', color: '橙色(0.9,0.6,0.2)', colorCode: 'new Color(0.9f,0.6f,0.2f)' };
+  if (n.indexOf('gold') >= 0 || n.indexOf('coin') >= 0)
+    return { shape: 'Sphere', scale: '0.3×0.3×0.3', color: '金色(1,0.85,0)', colorCode: 'new Color(1f,0.85f,0f)' };
+  if (n.indexOf('ground') >= 0 || n.indexOf('terrain') >= 0)
+    return { shape: 'Ground', scale: '20×20', color: '棕色(0.35,0.25,0.15)', colorCode: 'new Color(0.35f,0.25f,0.15f)' };
+  if (n.indexOf('wall') >= 0 || n.indexOf('fence') >= 0)
+    return { shape: 'Cube', scale: '0.3×2×5', color: '灰棕(0.6,0.5,0.4)', colorCode: 'new Color(0.6f,0.5f,0.4f)' };
+  if (n.indexOf('arrow') >= 0 || n.indexOf('guide') >= 0 || n.indexOf('finger') >= 0 || n.indexOf('highlight') >= 0)
+    return { shape: 'UI', scale: 'UI元素', color: '黄色(1,0.9,0)', colorCode: 'new Color(1f,0.9f,0f)' };
+  if (n.indexOf('button') >= 0 || n.indexOf('ui') >= 0 || n.indexOf('panel') >= 0)
+    return { shape: 'UI', scale: 'UI元素', color: 'UI', colorCode: '' };
+  if (n.indexOf('generator') >= 0)
+    return { shape: 'Cube', scale: '1.5×2×1.5', color: '灰色(0.4,0.4,0.45)', colorCode: 'new Color(0.4f,0.4f,0.45f)' };
+  // 默认
+  return { shape: 'Cube', scale: '1×1×1', color: '白色(0.8,0.8,0.8)', colorCode: 'new Color(0.8f,0.8f,0.8f)' };
+}
+
 function parseBlueprintToPrompt(blueprint) {
   var nodes = blueprint.nodes || [];
   var edges = blueprint.edges || [];
   if (nodes.length === 0) return null;
 
-  var scenes = nodes.map(function(node, i) {
-    var d = node.data || {};
-    var isV2 = !!(d.sceneObjects || d.triggerChain || d.params);
-    var desc = '';
+  // --- 第一层：构建全局物件注册表 ---
+  // 从所有 shot 的 sceneObjects 中提取去重的对象列表
+  var objectRegistry = {};  // name → { shape, scale, color, colorCode, firstSeen, lastSeen, positions }
+  var allParams = {};       // key → value (合并所有 shot 的参数)
 
-    if (isV2) {
-      // V2 blueprint format — rich structured fields
-      var parts = [];
-      if (d.sceneObjects) parts.push('【场景对象】\n' + d.sceneObjects);
-      if (d.inputType) parts.push('【输入方式】' + d.inputType + (d.inputConfig ? '\n' + d.inputConfig : ''));
-      if (d.triggerChain) parts.push('【触发链（按顺序执行）】\n' + d.triggerChain);
-      if (d.params) parts.push('【参数表】\n' + d.params);
-      if (d.assets) parts.push('【资源清单】\n' + d.assets);
-      if (d.entryCondition) parts.push('【进入条件】' + d.entryCondition);
-      if (d.endCondition) parts.push('【结束条件】' + d.endCondition);
-      if (d.referenceNote) parts.push('【参考说明】' + d.referenceNote);
-      desc = parts.join('\n');
-    } else if (d.description) {
-      desc = d.description;
-    } else if (d.scene) {
-      // Legacy v1 format fallback
-      var parts = [];
-      if (d.scene) parts.push('【场景】' + d.scene);
-      if (d.controlTarget) parts.push('【操控对象】' + d.controlTarget);
-      if (d.controlMethod) parts.push('【操控方式】' + d.controlMethod);
-      if (d.triggers) parts.push('【触发逻辑】' + d.triggers);
-      if (d.behavior) parts.push('【数值/行为】' + d.behavior);
-      if (d.entryCondition) parts.push('【进入条件】' + d.entryCondition);
-      if (d.endCondition) parts.push('【结束条件】' + d.endCondition);
-      desc = parts.join('\n');
+  // 按 edge 顺序排列 nodes
+  var orderedNodes = [];
+  var nodeMap = {};
+  for (var i = 0; i < nodes.length; i++) {
+    nodeMap[nodes[i].id] = nodes[i];
+  }
+  // 简单线性排序：找到没有入边的起始节点，沿 edge 遍历
+  var inEdge = {};
+  for (var i = 0; i < edges.length; i++) {
+    inEdge[edges[i].target] = edges[i].source;
+  }
+  var outEdge = {};
+  for (var i = 0; i < edges.length; i++) {
+    outEdge[edges[i].source] = edges[i].target;
+  }
+  // 找起始节点
+  var startId = null;
+  for (var i = 0; i < nodes.length; i++) {
+    if (!inEdge[nodes[i].id]) { startId = nodes[i].id; break; }
+  }
+  if (!startId && nodes.length > 0) startId = nodes[0].id;
+  // 沿 edge 链遍历
+  var visited = {};
+  var cur = startId;
+  while (cur && nodeMap[cur] && !visited[cur]) {
+    visited[cur] = true;
+    orderedNodes.push(nodeMap[cur]);
+    cur = outEdge[cur];
+  }
+  // 追加未访问的节点（分支等）
+  for (var i = 0; i < nodes.length; i++) {
+    if (!visited[nodes[i].id]) orderedNodes.push(nodes[i]);
+  }
+
+  // 扫描所有 shot，提取对象和参数
+  for (var si = 0; si < orderedNodes.length; si++) {
+    var d = orderedNodes[si].data || {};
+    var shotIdx = si + 1;
+
+    // 提取对象
+    var objs = extractObjectsFromText(d.sceneObjects);
+    for (var oi = 0; oi < objs.length; oi++) {
+      var obj = objs[oi];
+      var key = obj.name;
+      // 跳过纯 UI 引导元素（每个 shot 都有，不算全局对象）
+      if (/^(GuideArrow|HighlightCircle|FingerIcon|UIPanel)$/i.test(key)) continue;
+      if (!objectRegistry[key]) {
+        var eng = translateToEngineObject(key);
+        objectRegistry[key] = {
+          shape: eng.shape, scale: eng.scale, color: eng.color, colorCode: eng.colorCode,
+          firstSeen: shotIdx, lastSeen: shotIdx, position: obj.position
+        };
+      } else {
+        objectRegistry[key].lastSeen = shotIdx;
+        if (obj.position && !objectRegistry[key].position) {
+          objectRegistry[key].position = obj.position;
+        }
+      }
     }
-    return {
-      id: node.id,
-      label: d.label || d.name || d.title || ('Shot ' + (i + 1)),
-      description: desc,
-      interactions: d.interactions || []
-    };
-  });
 
-  var transitions = edges.map(function(edge) {
-    return { from: edge.source, to: edge.target, condition: (edge.data && edge.data.condition) || 'auto' };
-  });
+    // 提取参数
+    if (d.params) {
+      var plines = d.params.split('\n');
+      for (var pi = 0; pi < plines.length; pi++) {
+        var pl = plines[pi].trim();
+        if (!pl || pl.startsWith('#')) continue;
+        var pm = pl.match(/^([\w.]+)\s*=\s*(.+?)(?:\s*#.*)?$/);
+        if (pm) allParams[pm[1].trim()] = pm[2].trim();
+      }
+    }
+  }
 
+  // --- 第二层：构建流程时间线 ---
+  var timeline = [];
+  // 记录前一步可见的对象集合，用于计算增量
+  var prevVisible = {};
+
+  for (var si = 0; si < orderedNodes.length; si++) {
+    var node = orderedNodes[si];
+    var d = node.data || {};
+    var shotIdx = si + 1;
+    var label = d.label || d.name || d.title || ('Step ' + shotIdx);
+
+    // 当前 shot 提到的对象
+    var curObjs = extractObjectsFromText(d.sceneObjects);
+    var curObjNames = {};
+    for (var ci = 0; ci < curObjs.length; ci++) {
+      var cn = curObjs[ci].name;
+      if (/^(GuideArrow|HighlightCircle|FingerIcon|UIPanel)$/i.test(cn)) continue;
+      curObjNames[cn] = curObjs[ci].state || '';
+    }
+
+    // 计算增量
+    // 设计原则：对象一旦显示就默认持续存在，除非 shot 的 sceneObjects 里明确标记状态包含
+    // "隐藏"、"消失"、"移除"、"撤退" 等关键词，或者 triggerChain 里提到销毁
+    var newObjs = [];   // 新出现的
+    var changedObjs = []; // 状态变化的
+
+    for (var name in curObjNames) {
+      if (!prevVisible[name]) {
+        newObjs.push(name);
+      } else if (curObjNames[name] !== prevVisible[name] && curObjNames[name]) {
+        changedObjs.push(name + '→' + curObjNames[name]);
+      }
+    }
+    // 不再标记"隐藏"——对象默认持续存在
+    // 前一步的对象继续保留到 prevVisible 中
+
+    // 构建场景变更描述
+    var sceneDelta = '';
+    if (si === 0) {
+      // 第一步：列出所有初始可见对象
+      sceneDelta = '初始显示: ' + Object.keys(curObjNames).join(', ');
+    } else {
+      var deltaParts = [];
+      if (newObjs.length > 0) deltaParts.push('新增显示: ' + newObjs.join(', '));
+      if (changedObjs.length > 0) deltaParts.push('状态变化: ' + changedObjs.join(', '));
+      if (deltaParts.length === 0) deltaParts.push('场景不变（所有之前的对象保持可见）');
+      sceneDelta = deltaParts.join(' | ');
+    }
+
+    // 输入方式
+    var inputDesc = '';
+    if (d.inputType === 'none' || !d.inputType) {
+      inputDesc = '无操作（自动播放）';
+    } else if (d.inputType === 'virtualJoystick') {
+      inputDesc = '摇杆移动';
+      if (d.inputConfig) inputDesc += ' — ' + d.inputConfig.replace(/\n/g, ', ').replace(/^(position|control)[：:]\s*/gm, '');
+    } else {
+      inputDesc = d.inputType;
+      if (d.inputConfig) inputDesc += ' — ' + d.inputConfig.replace(/\n/g, ', ');
+    }
+
+    // 触发链：精简为编号步骤（去掉分镜描述性文字，保留逻辑）
+    var triggerSteps = '';
+    if (d.triggerChain) {
+      triggerSteps = d.triggerChain;
+    } else if (d.triggers) {
+      triggerSteps = d.triggers;
+    } else if (d.scene) {
+      triggerSteps = d.scene;
+    }
+
+    // 结束条件
+    var endCond = d.endCondition || '自动进入下一步';
+
+    timeline.push({
+      index: shotIdx,
+      label: label,
+      sceneDelta: sceneDelta,
+      input: inputDesc,
+      triggerSteps: triggerSteps,
+      endCondition: endCond,
+      entryCondition: d.entryCondition || ''
+    });
+
+    // 更新可见状态：累积式——新对象加入，已有对象保持
+    for (var name in curObjNames) {
+      prevVisible[name] = curObjNames[name] || prevVisible[name] || 'visible';
+    }
+  }
+
+  // --- 构建输出 ---
+  // 物件清单（给 AI 的格式）
+  var objectLines = [];
+  var objKeys = Object.keys(objectRegistry);
+  for (var oi = 0; oi < objKeys.length; oi++) {
+    var k = objKeys[oi];
+    var o = objectRegistry[k];
+    if (o.shape === 'UI') continue; // UI 元素不需要在对象池中创建
+    var visibility = '';
+    if (o.firstSeen === 1) {
+      visibility = '初始可见';
+    } else {
+      visibility = 'Step' + o.firstSeen + '时显示';
+    }
+    objectLines.push(k + ' | ' + o.shape + '(' + o.scale + ') | ' + o.color + ' | ' + visibility);
+  }
+
+  // 流程时间线（给 AI 的格式）
+  var timelineLines = [];
+  for (var ti = 0; ti < timeline.length; ti++) {
+    var t = timeline[ti];
+    var parts = [];
+    parts.push('Step ' + t.index + ' "' + t.label + '":');
+    parts.push('  场景: ' + t.sceneDelta);
+    parts.push('  操作: ' + t.input);
+    if (t.triggerSteps) parts.push('  逻辑:\n    ' + t.triggerSteps.replace(/\n/g, '\n    '));
+    parts.push('  结束: ' + t.endCondition);
+    timelineLines.push(parts.join('\n'));
+  }
+
+  // 参数表
+  var paramLines = [];
+  var paramKeys = Object.keys(allParams);
+  for (var pi = 0; pi < paramKeys.length; pi++) {
+    paramLines.push(paramKeys[pi] + ' = ' + allParams[paramKeys[pi]]);
+  }
+
+  // 反馈
   var feedbackText = '';
   if (blueprint.feedbackHistory && blueprint.feedbackHistory.length > 0) {
     var latest = blueprint.feedbackHistory[blueprint.feedbackHistory.length - 1];
     feedbackText = '\n\n## Previous Feedback (MUST address):\n' + JSON.stringify(latest.data || latest, null, 2);
   }
 
-  return { projectName: blueprint.projectName || 'Playable Ad', scenes: scenes, transitions: transitions, feedbackText: feedbackText };
+  // 保留 scenes 兼容旧代码（shot 计数、验证等依赖 scenes.length）
+  var scenes = orderedNodes.map(function(node, i) {
+    var d = node.data || {};
+    return {
+      id: node.id,
+      label: d.label || d.name || d.title || ('Shot ' + (i + 1)),
+      description: '', // V3 不再使用逐 shot 描述
+      interactions: d.interactions || []
+    };
+  });
+
+  return {
+    projectName: blueprint.projectName || 'Playable Ad',
+    scenes: scenes,
+    transitions: edges.map(function(e) { return { from: e.source, to: e.target, condition: (e.data && e.data.condition) || 'auto' }; }),
+    feedbackText: feedbackText,
+    // V3 新增三层结构
+    objectRegistry: objectLines.join('\n'),
+    timeline: timelineLines.join('\n\n'),
+    params: paramLines.join('\n'),
+    stepCount: timeline.length
+  };
+}
+
+// Legacy wrapper — 旧格式 scene description (用于 incremental fix mode 保持兼容)
+function parseBlueprintToLegacyScenes(blueprint) {
+  var nodes = blueprint.nodes || [];
+  if (nodes.length === 0) return '';
+  return nodes.map(function(node, i) {
+    var d = node.data || {};
+    var label = d.label || d.name || d.title || ('Shot ' + (i + 1));
+    var parts = ['### Shot ' + (i + 1) + ': ' + label];
+    if (d.sceneObjects) parts.push('【场景对象】\n' + d.sceneObjects);
+    if (d.inputType) parts.push('【输入方式】' + d.inputType + (d.inputConfig ? '\n' + d.inputConfig : ''));
+    if (d.triggerChain) parts.push('【触发链】\n' + d.triggerChain);
+    if (d.params) parts.push('【参数表】\n' + d.params);
+    if (d.entryCondition) parts.push('【进入条件】' + d.entryCondition);
+    if (d.endCondition) parts.push('【结束条件】' + d.endCondition);
+    if (d.scene) parts.push('【场景】' + d.scene);
+    if (d.triggers) parts.push('【触发逻辑】' + d.triggers);
+    return parts.join('\n');
+  }).join('\n\n');
 }
 
 // ============ System Prompts ============
@@ -1346,12 +1617,13 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       + projectCtx.context;
   }
 
-  // Build structured scene descriptions for AI
-  var scenesMarkdown = parsed.scenes.map(function(s, i) {
-    var lines = ['### Shot ' + (i + 1) + ': ' + s.label];
-    if (s.description) lines.push(s.description);
-    return lines.join('\n');
-  }).join('\n\n');
+  // Build structured scene descriptions for AI (V3 三层结构)
+  var v3ObjectRegistry = parsed.objectRegistry || '';
+  var v3Timeline = parsed.timeline || '';
+  var v3Params = parsed.params || '';
+
+  // Legacy scenesMarkdown for incremental fix mode
+  var scenesMarkdown = parseBlueprintToLegacyScenes(blueprint);
 
   var transMarkdown = parsed.transitions.map(function(t) {
     return '- ' + t.from + ' → ' + t.to + ' (condition: ' + t.condition + ')';
@@ -1429,35 +1701,54 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       + '10. ⛔ CAMERA: ALL projects use top-down 45° orthographic view. GFM_Tools.EnsureMaterial() auto-sets this. Do NOT change camera to perspective or other angles.\n\n'
       + 'Apply the feedback fixes to the existing code. Preserve everything that works EXCEPT coroutines which must be rewritten.';
   } else {
-    // === FULL GENERATION MODE ===
+    // === FULL GENERATION MODE (V3 三层结构) ===
     userMsg = '## Project: ' + parsed.projectName + '\n\n'
-      + '## Blueprint Shots (implement ALL of these IN ORDER):\n\n' + scenesMarkdown + '\n\n'
-      + '## Shot Transitions (scene flow):\n' + transMarkdown
+
+      // 第一层：物件清单
+      + '## 🏗️ 全局物件清单（在 Start() 中全部创建）\n'
+      + '以下是整个游戏需要的所有 3D 对象。在 Start() 中用 GFM_Create.Obj() 一次性全部创建。\n'
+      + '初始不可见的对象创建后立即 SetActive(false)，在对应 Step 激活。\n'
+      + '每个对象的颜色已指定，必须用 GFM_Create.SetColor() 设置。\n\n'
+      + '```\n' + v3ObjectRegistry + '\n```\n\n'
+
+      // 第二层：流程时间线
+      + '## 🎮 游戏流程时间线（Update 状态机按顺序执行）\n'
+      + '每个 Step 对应一个 shot_N() 方法和 UpdateShotN() 方法。\n'
+      + '「场景」行说明该步骤相比上一步的变化（显示/隐藏/变化了哪些对象）。\n'
+      + '「操作」行说明玩家需要做什么。\n'
+      + '「逻辑」行说明具体的游戏逻辑步骤。\n'
+      + '「结束」行说明何时进入下一步。\n\n'
+      + v3Timeline + '\n\n'
+
+      // 第三层：参数表
+      + '## 📊 全局参数表\n'
+      + '所有游戏数值参数，在代码中定义为字段：\n'
+      + '```\n' + v3Params + '\n```\n\n'
+
+      // 流程连线
+      + '## Shot Transitions:\n' + transMarkdown + '\n'
+
+      // 项目上下文
       + classWarning
       + projectSection
       + parsed.feedbackText
+
       + '\n\n## IMPORTANT REMINDERS:\n'
       + '1. Start() MUST begin with scene cleanup: destroy all root objects except {"Main Camera","Directional Light","EventSystem","GameManager","__MaterialSource"}\n'
-      + '2. ⛔ CRITICAL COLOR RULE: Every object type MUST have a DIFFERENT, HIGH-CONTRAST color. Use this mandatory color palette:\n'
-      + '   - Ground/terrain: new Color(0.35f, 0.25f, 0.15f) (dark brown)\n'
-      + '   - Player character: new Color(0.2f, 0.4f, 0.9f) (bright blue)\n'
-      + '   - Trees trunk: new Color(0.45f, 0.25f, 0.1f) (brown), crown: new Color(0.1f, 0.55f, 0.1f) (green)\n'
-      + '   - Buildings/structures: new Color(0.85f, 0.7f, 0.4f) (tan/sandy)\n'
-      + '   - Enemies/boss: new Color(0.85f, 0.15f, 0.15f) (red)\n'
-      + '   - Turrets/weapons: new Color(0.5f, 0.5f, 0.55f) (steel gray)\n'
-      + '   - Wood/resources: new Color(0.6f, 0.35f, 0.1f) (wood brown)\n'
-      + '   - UI buttons/highlights: new Color(1f, 0.85f, 0f) (gold yellow)\n'
-      + '   - Workers/NPCs: new Color(0.9f, 0.6f, 0.2f) (orange)\n'
-      + '   Camera background: new Color(0.6f, 0.8f, 1f) (sky blue) via _mainCam.backgroundColor\n'
-      + '   ⛔ CAMERA: ALL projects use top-down 45° orthographic view. GFM_Tools.EnsureMaterial() auto-sets this. Do NOT change camera to perspective or other angles.\n'
-      + '   NEVER make all objects the same color. If scene looks uniform, CUA cannot navigate it.\n'
-      + '3. BUILD everything using GFM_Create.Obj() for 3D objects (from scene pool), new GameObject for empty parents, UI components for HUD\n'
-      + '4. You CAN call utility classes from the template (DOTween, PoolManager, etc.)\n'
-      + '5. Do NOT copy SLG/idle game logic — implement the BLUEPRINT logic\n'
-      + '6. GameFlowManagerMain.Start() is your entry point\n\n'
-      + 'Generate ' + lang + ' code that implements this blueprint EXACTLY from scratch. '
-      + 'Every shot must be playable with code-created objects. '
-      + 'Create your game world from a clean scene.';
+      + '2. After cleanup, call GFM_Create.ResetPool() + GFM_Create.InitMaterialFromScene()\n'
+      + '3. Then create ALL objects from the 物件清单 using GFM_Create.Obj(). Set colors with GFM_Create.SetColor(). SetActive(false) for objects not visible in Step 1.\n'
+      + '4. In Update(), implement state machine: _currentShot switches between UpdateShot1()..UpdateShotN()\n'
+      + '5. Each UpdateShotN() handles the logic described in that Step of the timeline\n'
+      + '6. Shot transitions: set _currentShot = N+1, _shotState = 0, _shotTimer = 0\n'
+      + '7. ⛔ Object colors are specified in the 物件清单. Follow them exactly. NEVER make all objects the same color.\n'
+      + '8. ⛔ CAMERA: top-down 45° orthographic view (GFM_Tools.EnsureMaterial() auto-sets). Do NOT change.\n'
+      + '9. Auto-play: if no joystick input for 2s, auto-move player toward current target.\n'
+      + '10. Last step MUST call Luna.Unity.LifeCycle.GameEnded() + show CTA button (Luna.Unity.Playable.InstallFullGame())\n'
+      + '11. You CAN call utility classes from the template (DOTween, PoolManager, etc.)\n'
+      + '12. Do NOT copy SLG/idle game logic — implement the blueprint logic only\n\n'
+      + 'Generate ' + lang + ' code. Create ALL objects from the 物件清单 in Start(), '
+      + 'then implement each Step as a shot_N()/UpdateShotN() method pair. '
+      + 'The game flow must match the timeline EXACTLY — each Step\'s 场景变化 tells you what to show/hide.';
   }
 
   try {
