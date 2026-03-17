@@ -263,6 +263,33 @@ function parseBlueprintToPrompt(blueprint) {
     }
   }
 
+  // 合并前端的 objectRegistry 数据（role, interactionType, label 等）
+  if (blueprint.objectRegistry && Array.isArray(blueprint.objectRegistry)) {
+    for (var ri = 0; ri < blueprint.objectRegistry.length; ri++) {
+      var regObj = blueprint.objectRegistry[ri];
+      if (!regObj.name) continue;
+      if (!objectRegistry[regObj.name]) {
+        // 前端定义的对象在 sceneObjects 里不存在，补充
+        objectRegistry[regObj.name] = {
+          shape: regObj.shape || 'Cube',
+          scale: regObj.scale || '1×1×1',
+          color: regObj.color || '',
+          colorCode: '',
+          firstSeen: regObj.firstStep || 1,
+          lastSeen: regObj.firstStep || 1,
+        };
+      }
+      // 合并交互属性
+      if (regObj.role) objectRegistry[regObj.name].role = regObj.role;
+      if (regObj.interactionType) objectRegistry[regObj.name].interactionType = regObj.interactionType;
+      if (regObj.label) objectRegistry[regObj.name].label = regObj.label;
+      // 前端显式定义的形状/颜色优先
+      if (regObj.shape) objectRegistry[regObj.name].shape = regObj.shape;
+      if (regObj.color) objectRegistry[regObj.name].color = regObj.color;
+      if (regObj.scale) objectRegistry[regObj.name].scale = regObj.scale;
+    }
+  }
+
   // --- 第二层：构建流程时间线 ---
   var timeline = [];
   // 记录前一步可见的对象集合，用于计算增量
@@ -367,7 +394,16 @@ function parseBlueprintToPrompt(blueprint) {
     } else {
       visibility = 'Step' + o.firstSeen + '时显示';
     }
-    objectLines.push(k + ' | ' + o.shape + '(' + o.scale + ') | ' + o.color + ' | ' + visibility);
+    var roleInfo = '';
+    if (o.role && o.role !== 'decoration') {
+      var roleMap = { player: '玩家角色', interactive: '可交互', enemy: '敌人', ui: 'UI元素' };
+      roleInfo = ' | 角色: ' + (roleMap[o.role] || o.role);
+    }
+    if (o.interactionType && o.interactionType !== 'none') {
+      var intMap = { proximity: '靠近触发', click: '点击触发', collect: '拾取收集', drag: '拖拽', auto: '自动行为' };
+      roleInfo += ' | 交互: ' + (intMap[o.interactionType] || o.interactionType);
+    }
+    objectLines.push(k + ' | ' + o.shape + '(' + o.scale + ') | ' + o.color + ' | ' + visibility + roleInfo);
   }
 
   // 流程时间线（给 AI 的格式）

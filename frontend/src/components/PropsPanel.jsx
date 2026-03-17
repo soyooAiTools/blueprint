@@ -14,9 +14,26 @@ const COLOR_PRESETS = [
 
 const SHAPE_OPTIONS = ['Cube', 'Sphere', 'Cylinder', 'Ground', 'UI'];
 
+const ROLE_OPTIONS = [
+  { value: 'decoration', label: '🌲 装饰物' },
+  { value: 'player', label: '🧍 玩家角色' },
+  { value: 'interactive', label: '🔧 可交互物体' },
+  { value: 'enemy', label: '👹 敌人' },
+  { value: 'ui', label: '💬 UI元素' },
+];
+
+const INTERACTION_OPTIONS = [
+  { value: 'none', label: '无交互' },
+  { value: 'proximity', label: '靠近触发' },
+  { value: 'click', label: '点击触发' },
+  { value: 'collect', label: '拾取收集' },
+  { value: 'drag', label: '拖拽' },
+  { value: 'auto', label: '自动行为' },
+];
+
 function ObjectRegistryEditor({ objectRegistry, onChangeRegistry }) {
   const addObject = () => {
-    onChangeRegistry([...objectRegistry, { name: '', label: '', shape: 'Cube', scale: '1×1×1', color: '', initiallyVisible: true, firstStep: 1 }]);
+    onChangeRegistry([...objectRegistry, { name: '', label: '', shape: 'Cube', scale: '1×1×1', color: '', role: 'decoration', interactionType: 'none', initiallyVisible: true, firstStep: 1 }]);
   };
   const removeObject = (i) => {
     const arr = [...objectRegistry];
@@ -58,6 +75,14 @@ function ObjectRegistryEditor({ objectRegistry, onChangeRegistry }) {
             <select className="props-color-preset" value="" onChange={(e) => { if (e.target.value) updateObj(i, 'color', e.target.value); }}>
               <option value="">预设</option>
               {COLOR_PRESETS.map(c => <option key={c.label} value={c.value}>{c.label}</option>)}
+            </select>
+          </div>
+          <div className="props-registry-row">
+            <select className="props-input props-input-sm" value={obj.role || 'decoration'} onChange={(e) => updateObj(i, 'role', e.target.value)}>
+              {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+            <select className="props-input props-input-sm" value={obj.interactionType || 'none'} onChange={(e) => updateObj(i, 'interactionType', e.target.value)}>
+              {INTERACTION_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
           </div>
           <div className="props-registry-row">
