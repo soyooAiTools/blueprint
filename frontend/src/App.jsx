@@ -65,6 +65,8 @@ function FlowEditor({ project, onBack, initialTab }) {
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
   const [activeTab, setActiveTab] = useState(initialTab || 'storyboard');
+  const [objectRegistry, setObjectRegistry] = useState(project.objectRegistry || []);
+  const [globalParams, setGlobalParams] = useState(project.globalParams || '');
   // Default to storyboard for new/editing projects (unless explicitly set)
   
   const [webglInfo, setWebglInfo] = useState(null);
@@ -146,12 +148,12 @@ function FlowEditor({ project, onBack, initialTab }) {
   useEffect(() => {
     if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
     autoSaveRef.current = setTimeout(() => {
-      saveBlueprint(project.id, nodes, edges, projectName).catch((err) => {
+      saveBlueprint(project.id, nodes, edges, projectName, { objectRegistry, globalParams }).catch((err) => {
         console.warn('自动保存失败:', err);
       });
     }, 2000);
     return () => { if (autoSaveRef.current) clearTimeout(autoSaveRef.current); };
-  }, [nodes, edges, projectName, project.id]);
+  }, [nodes, edges, projectName, project.id, objectRegistry, globalParams]);
 
   const onConnect = useCallback(
     (params) => {
@@ -317,7 +319,7 @@ function FlowEditor({ project, onBack, initialTab }) {
   );
 
   const onExportJSON = useCallback(async () => {
-    const data = exportToJSON(projectName, nodes, edges);
+    const data = exportToJSON(projectName, nodes, edges, { objectRegistry, globalParams });
     downloadJSON(data, `${projectName || 'blueprint'}.json`);
     // Auto-submit feedback when exporting in reviewing state
     if (projectStatus === 'reviewing') {
@@ -344,6 +346,8 @@ function FlowEditor({ project, onBack, initialTab }) {
         setNodes(newNodes);
         setEdges(newEdges);
         setProjectName(pn);
+        if (result.objectRegistry) setObjectRegistry(result.objectRegistry);
+        if (result.globalParams) setGlobalParams(result.globalParams);
         setSelectedNode(null);
         setSelectedEdge(null);
         setTimeout(() => {
@@ -366,7 +370,7 @@ function FlowEditor({ project, onBack, initialTab }) {
 
   const handleSubmit = useCallback(async () => {
     try {
-      await saveBlueprint(project.id, nodes, edges, projectName);
+      await saveBlueprint(project.id, nodes, edges, projectName, { objectRegistry, globalParams });
       const result = await submitProject(project.id);
       setProjectStatus(result.status);
       await showAlert('✅ 已成功提交给 Coding Agent！');
@@ -492,6 +496,10 @@ function FlowEditor({ project, onBack, initialTab }) {
               onUpdateNode={onUpdateNode}
               onUpdateEdge={onUpdateEdge}
               onDeleteNode={onDeleteNode}
+              objectRegistry={objectRegistry}
+              globalParams={globalParams}
+              onChangeRegistry={setObjectRegistry}
+              onChangeParams={setGlobalParams}
             />
           </>
         ) : activeTab === 'review' ? (

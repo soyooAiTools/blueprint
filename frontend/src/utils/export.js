@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 
-export function exportToJSON(projectName, nodes, edges) {
+export function exportToJSON(projectName, nodes, edges, extra) {
   const shotNodes = nodes.filter((n) => n.type === 'shotNode');
   const noteNodes = nodes.filter((n) => n.type === 'noteNode');
 
@@ -66,6 +66,8 @@ export function exportToJSON(projectName, nodes, edges) {
     project: projectName,
     shots,
     annotations,
+    ...(extra && extra.objectRegistry ? { objectRegistry: extra.objectRegistry } : {}),
+    ...(extra && extra.globalParams ? { globalParams: extra.globalParams } : {}),
   };
 
   return { json, modelFiles };

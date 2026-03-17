@@ -99,8 +99,8 @@ export async function updateProject(id, data) {
   return request('/projects/' + id, { method: 'PUT', body: JSON.stringify(data) });
 }
 
-export async function saveBlueprint(id, nodes, edges, projectName) {
-  return request('/projects/' + id + '/blueprint', { method: 'PUT', body: JSON.stringify({ nodes, edges, projectName }) });
+export async function saveBlueprint(id, nodes, edges, projectName, extra) {
+  return request('/projects/' + id + '/blueprint', { method: 'PUT', body: JSON.stringify({ nodes, edges, projectName, ...(extra || {}) }) });
 }
 
 export async function submitProject(id) {

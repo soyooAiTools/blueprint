@@ -1,104 +1,69 @@
 import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 
+const INPUT_ICONS = {
+  virtualJoystick: '🕹️',
+  tap: '👆',
+  drag: '✋',
+  swipe: '👉',
+  none: '🚫',
+};
+
+function extractNewObjects(sceneObjects) {
+  if (!sceneObjects) return [];
+  const names = [];
+  for (const line of sceneObjects.split('\n')) {
+    const m = line.match(/^-\s*(\S+)\s*\|/);
+    if (m) names.push(m[1]);
+  }
+  return names;
+}
+
 function ShotNode({ id, data, selected }) {
-  const truncate = (text, max = 80) => {
-    if (!text) return '—';
+  const truncate = (text, max = 50) => {
+    if (!text) return '';
     return text.length > max ? text.slice(0, max) + '…' : text;
   };
 
-  const hasBranch1 = !!data.branchCondition;
-  const hasBranch2 = !!data.branchCondition2;
-  const hasAnyBranch = hasBranch1 || hasBranch2;
+  const isV2 = !!(data.sceneObjects || data.triggerChain || data.params);
+  const newObjects = isV2 ? extractNewObjects(data.sceneObjects) : [];
+  const inputIcon = INPUT_ICONS[data.inputType] || '';
 
   return (
-    <div className={`shot-node ${selected ? 'shot-node-selected' : ''}`}>
+    <div className={`shot-node shot-node-compact ${selected ? 'shot-node-selected' : ''}`}>
       <Handle type="target" position={Position.Top} className="shot-handle" isConnectable={true} />
       <Handle type="target" position={Position.Left} id="left-in" className="shot-handle shot-handle-side" isConnectable={true} />
 
       <div className="shot-header">
         <span>📷 {data.label || '镜头'}</span>
+        {inputIcon && <span className="shot-input-icon" title={data.inputType}>{inputIcon}</span>}
       </div>
 
-      {data.name && (
-        <div className="shot-name">
-          {data.name}
-        </div>
-      )}
+      {data.name && <div className="shot-name">{data.name}</div>}
 
-      {/* 图片展示 */}
       {data.images && data.images.length > 0 && (
         <div className="shot-images">
-          {data.images.map((img, i) => (
+          {data.images.slice(0, 2).map((img, i) => (
             <img key={i} src={img} className="shot-image-thumb" alt={`参考图${i + 1}`} />
           ))}
         </div>
       )}
 
-      {data.entryCondition && (
-        <div className="shot-section shot-entry-condition">
-          <div className="shot-section-title">🔑 进入条件</div>
-          <div className="shot-section-content">{truncate(data.entryCondition)}</div>
+      {newObjects.length > 0 && (
+        <div className="shot-new-objects">
+          {newObjects.map((name, i) => (
+            <span key={i} className="shot-obj-tag">+{name}</span>
+          ))}
         </div>
       )}
 
-      <div className="shot-section">
-        <div className="shot-section-title">🎬 画面描述</div>
-        <div className="shot-section-content">{truncate(data.scene, 120)}</div>
-      </div>
-
-      {data.behavior && (
-        <div className="shot-section shot-behavior">
-          <div className="shot-section-title">📊 数值设定</div>
-          <div className="shot-section-content">{truncate(data.behavior, 120)}</div>
-        </div>
+      {/* V1 fallback: show brief scene if no V2 data */}
+      {!isV2 && data.scene && (
+        <div className="shot-section-brief">{truncate(data.scene, 60)}</div>
       )}
 
-      <div className="shot-section">
-        <div className="shot-section-title">🎮 操控</div>
-        <div className="shot-section-content">
-          {data.controlTarget && <div>对象：{data.controlTarget}</div>}
-          {data.controlMethod && <div>方式：{data.controlMethod}</div>}
-          {!data.controlTarget && !data.controlMethod && <div>—</div>}
-        </div>
-      </div>
-
-      <div className="shot-section">
-        <div className="shot-section-title">⚡ 触发行为</div>
-        <div className="shot-section-content">{truncate(data.triggers, 120)}</div>
-      </div>
-
-      <div className="shot-section">
-        <div className="shot-section-title">✅ 结束条件</div>
-        <div className="shot-section-content">{truncate(data.endCondition)}</div>
-      </div>
-
-      {hasBranch1 && (
-        <div className="shot-section shot-branch">
-          <div className="shot-section-title">🔀 条件分支 1</div>
-          <div className="shot-section-content">
-            <div className="branch-condition">判断：{truncate(data.branchCondition, 60)}</div>
-            {data.branchTrue && <div className="branch-true">✅ 满足 → {data.branchTrue}</div>}
-            {data.branchFalse && <div className="branch-false">❌ 不满足 → {data.branchFalse}</div>}
-          </div>
-        </div>
-      )}
-
-      {hasBranch2 && (
-        <div className="shot-section shot-branch shot-branch-2">
-          <div className="shot-section-title">🔀 条件分支 2</div>
-          <div className="shot-section-content">
-            <div className="branch-condition">判断：{truncate(data.branchCondition2, 60)}</div>
-            {data.branchTrue2 && <div className="branch-true">✅ 满足 → {data.branchTrue2}</div>}
-            {data.branchFalse2 && <div className="branch-false">❌ 不满足 → {data.branchFalse2}</div>}
-          </div>
-        </div>
-      )}
-
-      {!hasAnyBranch && (
-        <div className="shot-footer">
-          <span>○ 出口</span>
-        </div>
+      {data.endCondition && (
+        <div className="shot-end-condition">✅ {truncate(data.endCondition, 50)}</div>
       )}
 
       <Handle type="source" position={Position.Bottom} className="shot-handle" isConnectable={true} />

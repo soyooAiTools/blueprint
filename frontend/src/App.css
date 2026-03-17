@@ -4466,3 +4466,55 @@ html, body, #root {
 .task-rev-readonly { opacity: 0.7; }
 .task-rev-readonly textarea { cursor: default; color: #94a3b8; }
 .task-rev-status-label { font-size: 12px; color: #4ade80; padding: 2px 6px; }
+
+/* ===== Compact ShotNode ===== */
+.shot-node-compact { min-height: auto; }
+.shot-node-compact .shot-header { display: flex; justify-content: space-between; align-items: center; }
+.shot-input-icon { font-size: 14px; }
+.shot-new-objects { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 10px; }
+.shot-obj-tag {
+  background: #22c55e22; color: #4ade80; font-size: 11px; padding: 1px 6px;
+  border-radius: 4px; border: 1px solid #22c55e44;
+}
+.shot-section-brief { padding: 4px 10px; font-size: 12px; color: #94a3b8; }
+.shot-end-condition { padding: 4px 10px 8px; font-size: 12px; color: #94a3b8; }
+
+/* ===== Global Panel / Object Registry ===== */
+.props-registry-item {
+  background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 8px;
+  padding: 8px; margin-bottom: 8px;
+}
+.props-registry-row {
+  display: flex; gap: 6px; align-items: center; margin-bottom: 4px;
+}
+.props-input-sm { flex: 1; min-width: 0; }
+.props-input-xs { width: 50px; }
+.props-registry-remove {
+  background: none; border: none; color: #f87171; cursor: pointer; font-size: 14px; padding: 2px 4px;
+}
+.props-registry-remove:hover { color: #ef4444; }
+.props-color-wrap { display: flex; gap: 4px; flex: 1; min-width: 0; }
+.props-color-wrap .props-input-sm { flex: 1; }
+.props-color-preset {
+  background: #16162a; color: #94a3b8; border: 1px solid #2a2a4a; border-radius: 4px;
+  font-size: 11px; cursor: pointer; padding: 2px;
+}
+.props-checkbox-label {
+  display: flex; align-items: center; gap: 4px; font-size: 12px; color: #94a3b8;
+}
+.props-inline-label {
+  display: flex; align-items: center; gap: 4px; font-size: 12px; color: #94a3b8; margin-left: auto;
+}
+.props-scene-delta { margin-bottom: 8px; }
+.props-sub-label { font-size: 12px; color: #a78bfa; margin-bottom: 4px; }
+.props-obj-checkboxes { display: flex; flex-wrap: wrap; gap: 6px; }
+.props-obj-check {
+  display: flex; align-items: center; gap: 3px; font-size: 12px; color: #cbd5e1;
+  background: #16162a; padding: 2px 8px; border-radius: 4px; border: 1px solid #2a2a4a; cursor: pointer;
+}
+.props-obj-check:hover { border-color: #6366f1; }
+.props-scene-fallback-toggle { margin: 4px 0; }
+.props-link-btn {
+  background: none; border: none; color: #6366f1; cursor: pointer; font-size: 12px; padding: 0;
+}
+.props-link-btn:hover { color: #818cf8; }
