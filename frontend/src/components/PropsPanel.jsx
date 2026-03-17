@@ -93,8 +93,10 @@ export default function PropsPanel({
   onDeleteNode,
   objectRegistry = [],
   globalParams = '',
+  globalSettings = {},
   onChangeRegistry,
   onChangeParams,
+  onChangeGlobalSettings,
 }) {
   const [showSceneFallback, setShowSceneFallback] = useState(false);
 
@@ -155,6 +157,59 @@ export default function PropsPanel({
       <div className="props-panel">
         <div className="props-title">🌐 全局设置</div>
         <div className="props-form">
+          <div className="props-divider">🎮 游戏类型</div>
+          <select className="props-input" value={globalSettings?.gameType || 'slg'} onChange={(e) => onChangeGlobalSettings({ ...globalSettings, gameType: e.target.value })}>
+            <option value="slg">🏰 SLG 建造防守</option>
+            <option value="runner">🏃 跑酷</option>
+            <option value="shooter">🔫 射击</option>
+            <option value="merge">🧩 合成</option>
+            <option value="puzzle">🧠 解谜</option>
+            <option value="idle">💰 放置</option>
+            <option value="match3">💎 三消</option>
+            <option value="other">📦 其他</option>
+          </select>
+
+          <div className="props-divider">📷 相机设置</div>
+          <label className="props-label">
+            视角模式
+            <select className="props-input" value={globalSettings?.cameraMode || 'topDown45'} onChange={(e) => onChangeGlobalSettings({ ...globalSettings, cameraMode: e.target.value })}>
+              <option value="topDown45">🔽 俯视45°（默认）</option>
+              <option value="topDown90">⬇️ 正俯视90°</option>
+              <option value="sideScroll">➡️ 横版</option>
+              <option value="thirdPerson">🧍 第三人称</option>
+              <option value="fixed">📌 固定机位</option>
+            </select>
+          </label>
+          <label className="props-label">
+            投影方式
+            <select className="props-input" value={globalSettings?.cameraProjection || 'orthographic'} onChange={(e) => onChangeGlobalSettings({ ...globalSettings, cameraProjection: e.target.value })}>
+              <option value="orthographic">正交 (Orthographic)</option>
+              <option value="perspective">透视 (Perspective)</option>
+            </select>
+          </label>
+          <div className="props-registry-row">
+            <label className="props-inline-label">
+              FOV / Size
+              <input className="props-input props-input-xs" type="number" value={globalSettings?.cameraFOV || 60} onChange={(e) => onChangeGlobalSettings({ ...globalSettings, cameraFOV: parseInt(e.target.value) || 60 })} />
+            </label>
+            <label className="props-inline-label">
+              背景色
+              <div className="props-color-wrap">
+                <input className="props-input props-input-sm" type="text" value={globalSettings?.cameraBgColor || '(0.6,0.8,1)'} onChange={(e) => onChangeGlobalSettings({ ...globalSettings, cameraBgColor: e.target.value })} placeholder="(r,g,b)" />
+              </div>
+            </label>
+          </div>
+
+          <div className="props-divider">🕹️ 默认输入方式</div>
+          <select className="props-input" value={globalSettings?.defaultInput || 'virtualJoystick'} onChange={(e) => onChangeGlobalSettings({ ...globalSettings, defaultInput: e.target.value })}>
+            <option value="virtualJoystick">🕹️ 虚拟摇杆</option>
+            <option value="tap">👆 点击移动</option>
+            <option value="drag">✋ 拖拽</option>
+            <option value="swipe">👉 滑动</option>
+            <option value="none">🚫 无操作（自动播放）</option>
+          </select>
+          <div className="props-hint">每个步骤可单独覆盖输入方式</div>
+
           <ObjectRegistryEditor objectRegistry={objectRegistry} onChangeRegistry={onChangeRegistry} />
           <GlobalParamsEditor globalParams={globalParams} onChangeParams={onChangeParams} />
         </div>
