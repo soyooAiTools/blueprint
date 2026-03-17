@@ -396,6 +396,9 @@ function exportBlueprintForAgent(project) {
     svnUrl: project.svnUrl || '',
     nodes: nodes,
     edges: bp.edges || [],
+    objectRegistry: bp.objectRegistry || [],
+    globalParams: bp.globalParams || '',
+    globalSettings: bp.globalSettings || {},
     feedbackHistory: project.feedbackHistory || [],
     exportedAt: new Date().toISOString()
   };
