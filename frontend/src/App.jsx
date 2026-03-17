@@ -479,7 +479,7 @@ function FlowEditor({ project, onBack, initialTab }) {
             />
             <div className="canvas-container">
               <ReactFlow
-                nodes={nodes}
+                nodes={nodes.map(n => n.type === 'shotNode' ? { ...n, data: { ...n.data, _objectRegistry: objectRegistry } } : n)}
                 edges={edges}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}

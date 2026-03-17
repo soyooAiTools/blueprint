@@ -51,9 +51,11 @@ function ShotNode({ id, data, selected }) {
 
       {newObjects.length > 0 && (
         <div className="shot-new-objects">
-          {newObjects.map((name, i) => (
-            <span key={i} className="shot-obj-tag">+{name}</span>
-          ))}
+          {newObjects.map((name, i) => {
+            const reg = (data._objectRegistry || []).find(o => o.name === name);
+            const display = reg?.label ? `${name}(${reg.label})` : name;
+            return <span key={i} className="shot-obj-tag">+{display}</span>;
+          })}
         </div>
       )}
 

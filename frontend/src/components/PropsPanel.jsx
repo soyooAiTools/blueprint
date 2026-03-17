@@ -47,13 +47,18 @@ function ObjectRegistryEditor({ objectRegistry, onChangeRegistry }) {
           </div>
           <div className="props-registry-row">
             <input className="props-input props-input-sm" type="text" value={obj.scale} onChange={(e) => updateObj(i, 'scale', e.target.value)} placeholder="比例 1×2×1" />
-            <div className="props-color-wrap">
-              <input className="props-input props-input-sm" type="text" value={obj.color} onChange={(e) => updateObj(i, 'color', e.target.value)} placeholder="颜色" />
-              <select className="props-color-preset" value="" onChange={(e) => { if (e.target.value) updateObj(i, 'color', e.target.value); }}>
-                <option value="">预设</option>
-                {COLOR_PRESETS.map(c => <option key={c.label} value={c.value}>{c.label}</option>)}
-              </select>
-            </div>
+          </div>
+          <div className="props-registry-row">
+            {(() => {
+              const m = (obj.color || '').match(/\(?([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\)?/);
+              const bg = m ? `rgb(${Math.round(m[1]*255)},${Math.round(m[2]*255)},${Math.round(m[3]*255)})` : '#666';
+              return <span className="props-color-swatch" style={{ background: bg }} />;
+            })()}
+            <input className="props-input props-input-sm" type="text" value={obj.color} onChange={(e) => updateObj(i, 'color', e.target.value)} placeholder="(r,g,b) 0-1" />
+            <select className="props-color-preset" value="" onChange={(e) => { if (e.target.value) updateObj(i, 'color', e.target.value); }}>
+              <option value="">预设</option>
+              {COLOR_PRESETS.map(c => <option key={c.label} value={c.value}>{c.label}</option>)}
+            </select>
           </div>
           <div className="props-registry-row">
             <label className="props-checkbox-label">
@@ -306,7 +311,7 @@ export default function PropsPanel({
                   return (
                     <label key={obj.name} className="props-obj-check">
                       <input type="checkbox" checked={checked} onChange={(e) => toggleNewObject(obj.name, e.target.checked)} />
-                      {obj.name}
+                      {obj.label ? `${obj.name}(${obj.label})` : obj.name}
                     </label>
                   );
                 })}
@@ -343,14 +348,7 @@ export default function PropsPanel({
           <textarea className="props-textarea props-textarea-mono" rows={12} value={d.triggerChain || ''} onChange={(e) => update('triggerChain', e.target.value)}
             placeholder={"1. 场景初始化\n   → 显示引导箭头\n2. 玩家进入交互区\n   → 条件: player.gold >= cost"} />
 
-          <div className="props-divider">📊 参数表</div>
-          <div className="props-hint">Key-Value 数值参数，带中文注释</div>
-          <textarea className="props-textarea props-textarea-mono" rows={12} value={d.params || ''} onChange={(e) => update('params', e.target.value)}
-            placeholder={"# === 玩家参数 ===\nplayer.gold = 1          # 初始金币"} />
-
-          <div className="props-divider">📦 资源清单</div>
-          <textarea className="props-textarea props-textarea-mono" rows={6} value={(typeof d.assets === 'string' ? d.assets : '') || ''} onChange={(e) => update('assets', e.target.value)}
-            placeholder={"- Prefab: PlayerCharacter（玩家角色）"} />
+          {/* 参数表和资源清单已移至全局面板 */}
         </>)}
 
         {/* V1 branch conditions */}
@@ -476,12 +474,6 @@ export default function PropsPanel({
               }); e.target.value = '';
             }} />
         </label>
-        <label className="props-label">
-          📝 参考说明
-          <textarea className="props-textarea" rows={3} value={d.referenceNote || ''} onChange={(e) => update('referenceNote', e.target.value)}
-            placeholder="说明参考图片的哪些内容..." />
-        </label>
-
         <button className="props-delete-btn" onClick={() => onDeleteNode(selectedNode.id)}>🗑 删除节点</button>
       </div>
     </div>
