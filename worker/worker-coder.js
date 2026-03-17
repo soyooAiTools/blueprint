@@ -1426,6 +1426,13 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
   engine = engine || 'unity';
   var isCocos = engine === 'cocos';
 
+  // V4 检测：如果蓝图有 entities 数组，走实体驱动架构
+  var isV4 = blueprint.entities && Array.isArray(blueprint.entities) && blueprint.entities.length > 0;
+  if (isV4) {
+    log('[coder] V4 entity-driven blueprint detected (' + blueprint.entities.length + ' entities, ' + (blueprint.phases || []).length + ' phases)', taskId);
+    return generateCodeV4(blueprint, clientDir, log, taskId, engine);
+  }
+
   var parsed = parseBlueprintToPrompt(blueprint);
   if (!parsed) {
     log('[coder] Empty blueprint, skipping', taskId);
@@ -2688,7 +2695,193 @@ function listTsFiles(dir) {
   return results;
 }
 
-module.exports = { generateCode, callClaude, parseBlueprintToPrompt };
+// =====================================================================
+// V4 实体驱动架构 - 代码生成
+// =====================================================================
+
+var promptV4Module = require('./prompt-v4.js');
+
+async function generateCodeV4(blueprint, clientDir, log, taskId, engine) {
+  var isCocos = engine === 'cocos';
+  var lang = isCocos ? 'TypeScript' : 'C#';
+  var hasFeedback = blueprint.feedbackHistory && blueprint.feedbackHistory.length > 0;
+
+  // 生成 V4 prompt
+  var opts = {};
+  if (hasFeedback) {
+    opts.feedback = blueprint.feedbackHistory;
+    // 读取现有代码
+    var mainFile = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
+    if (fs.existsSync(mainFile)) {
+      opts.existingCode = fs.readFileSync(mainFile, 'utf-8');
+    }
+  }
+  var prompt = promptV4Module.parseBlueprintToPromptV4(blueprint, opts);
+
+  log('[coder] V4 prompt: ' + prompt.length + ' chars, ' + (hasFeedback ? 'INCREMENTAL FIX' : 'FULL GENERATION'), taskId);
+
+  // 项目上下文
+  var projectContext = '';
+
+  // System prompt
+  var sysPrompt = 'You are a Luna playable ad developer. You write C# code for Unity projects exported via Luna.\n'
+    + 'CRITICAL RULES:\n'
+    + '- ALL code in ONE file: GameFlowManagerMain.cs\n'
+    + '- Use GFM_Create.Obj("Cube"/"Sphere"/"Cylinder") to create 3D objects\n'
+    + '- Use GFM_Create.SetColor(go, new Color(r,g,b)) for colors\n'
+    + '- NO CreatePrimitive, NO Resources.Load, NO async/await, NO coroutines\n'
+    + '- Use Update() state machine with phase tracking\n'
+    + '- NO generics (no List<T>), use plain arrays\n'
+    + '- NO SetActive(false) — hide with position = new Vector3(0, -999, 0)\n'
+    + '- Use GFM_Tools.SliderValue("joyX"/"joyY") for virtual joystick\n'
+    + '- Game end: Luna.Unity.LifeCycle.GameEnded()\n'
+    + '- CTA: Luna.Unity.Playable.InstallFullGame()\n'
+    + '- Start() must begin with scene cleanup: destroy all root objects except {"Main Camera","Directional Light","EventSystem","GameManager","__MaterialSource"}\n'
+    + '- After cleanup: GFM_Create.ResetPool() + GFM_Create.InitMaterialFromScene()\n'
+    + '- Camera: top-down 45° orthographic (GFM_Tools.EnsureMaterial() auto-sets)\n'
+    + '- Auto-play: if no joystick input for 2s, auto-move player toward current target\n'
+    + '- Each entity uses parallel arrays: eGo[], eActive[], eState[], eTimer[], eHP[]\n'
+    + '- Entity Update dispatch: for each active entity, call its UpdateXxx() method\n'
+    + '- Phase transitions driven by conditions, not time\n';
+
+  if (projectContext) {
+    sysPrompt += '\n## Project Context:\n' + projectContext;
+  }
+
+  // User prompt
+  var userMsg = prompt;
+  if (hasFeedback) {
+    userMsg = '## INCREMENTAL FIX MODE\n\n'
+      + '⚠️ This is a FIX request. Preserve existing code structure, only modify what feedback requires.\n\n'
+      + userMsg;
+  }
+
+  userMsg += '\n\nGenerate the COMPLETE GameFlowManagerMain.cs file. '
+    + 'Use the entity-driven architecture described above. '
+    + 'Each entity gets its own UpdateXxx() method. '
+    + 'Phase transitions are condition-driven. '
+    + 'Output the file in a ```csharp code block.';
+
+  // 清理和准备（复用 V3 的清理逻辑）
+  if (!hasFeedback && !isCocos) {
+    // Full generation: clean up scripts
+    try {
+      execSync('svn revert -R Assets/', { cwd: clientDir, timeout: 60000, encoding: 'utf-8' });
+      log('[coder] SVN revert OK', taskId);
+    } catch(e) { log('[coder] SVN revert warning: ' + e.message, taskId); }
+
+    // Replace scene with empty template
+    try {
+      var scenesDir = path.join(clientDir, 'Assets', 'Scenes');
+      var sceneFiles = fs.existsSync(scenesDir) ? fs.readdirSync(scenesDir).filter(function(f) { return f.endsWith('.unity'); }) : [];
+      var templatePath = path.join(__dirname, 'empty-scene-template.unity');
+      if (fs.existsSync(templatePath) && sceneFiles.length > 0) {
+        for (var si = 0; si < sceneFiles.length; si++) {
+          fs.copyFileSync(templatePath, path.join(scenesDir, sceneFiles[si]));
+        }
+        log('[coder] Scene cleaned: replaced template with empty scene', taskId);
+      }
+    } catch(e) {}
+  }
+
+  // Copy GFM_Tools.cs toolkit
+  try {
+    var toolsSrc = path.join(__dirname, 'GFM_Tools.cs');
+    var toolsDst = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GFM_Tools.cs');
+    if (fs.existsSync(toolsSrc)) {
+      fs.copyFileSync(toolsSrc, toolsDst);
+      log('[coder] GFM_Tools.cs toolkit copied to project', taskId);
+    }
+  } catch(e) {}
+
+  // Scan project context
+  var contextFileCount = 0;
+  try {
+    var walk = function(dir, arr) {
+      if (!fs.existsSync(dir)) return arr;
+      fs.readdirSync(dir, { withFileTypes: true }).forEach(function(e) {
+        if (e.isDirectory()) walk(path.join(dir, e.name), arr);
+        else if (e.name.endsWith('.cs')) arr.push(path.join(dir, e.name));
+      });
+      return arr;
+    };
+    contextFileCount = walk(path.join(clientDir, 'Assets'), []).length;
+    log('[coder] Project context: ' + contextFileCount + ' files scanned', taskId);
+  } catch(e) {}
+
+  // Call AI
+  try {
+    var response = await callClaudeWithRetry(sysPrompt, userMsg, 300000, MODEL_GENERATE);
+    log('[coder] Generated (' + (response.usage ? response.usage.output_tokens + ' tokens' : 'ok') + ')', taskId);
+
+    var parseBlocks = isCocos ? parseCodeBlocksCocos : parseCodeBlocks;
+    var files = parseBlocks(response.text);
+    if (files.length === 0) return { ok: false, error: 'No code blocks in V4 response' };
+
+    // Write files
+    writeFiles(clientDir, files, log, taskId);
+
+    // Verify: check for entity-driven structure
+    var mainFile = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
+    var mainSrc = '';
+    if (fs.existsSync(mainFile)) {
+      mainSrc = fs.readFileSync(mainFile, 'utf-8');
+    }
+    var lineCount = mainSrc.split('\n').length;
+    var hasPhaseCheck = /CheckPhaseTransition|AdvancePhase|currentPhase/.test(mainSrc);
+    var hasEntityArrays = /eGo\[|eActive\[|eState\[/.test(mainSrc);
+    var hasGFMCreate = /GFM_Create\.Obj/.test(mainSrc);
+    var objectCreations = (mainSrc.match(/GFM_Create\.Obj/g) || []).length;
+    var entityCount = blueprint.entities.length;
+    var phaseCount = (blueprint.phases || []).length;
+
+    log('[coder] V4 Verification: ' + lineCount + ' lines, ' + objectCreations + ' object creations, phases=' + hasPhaseCheck + ', entityArrays=' + hasEntityArrays + ', GFM_Create=' + hasGFMCreate, taskId);
+
+    // Warnings
+    if (!hasGFMCreate) {
+      log('[coder] Warning: No GFM_Create.Obj() calls found — AI may have used wrong API', taskId);
+    }
+    if (!hasPhaseCheck) {
+      log('[coder] Warning: No phase transition logic found', taskId);
+    }
+    var hasGameEnded = /GameEnded/.test(mainSrc);
+    if (!hasGameEnded) {
+      log('[coder] Warning: No GameEnded() call found — Luna lifecycle may not end properly', taskId);
+    }
+
+    // Restore GFM_Tools.cs (in case AI overwrote it)
+    try {
+      var toolsSrc2 = path.join(__dirname, 'GFM_Tools.cs');
+      var toolsDst2 = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GFM_Tools.cs');
+      if (fs.existsSync(toolsSrc2)) {
+        fs.copyFileSync(toolsSrc2, toolsDst2);
+        log('[coder] GFM_Tools.cs restored from original (pre-build)', taskId);
+      }
+    } catch(e) {}
+
+    // Pre-build checks
+    var hasSrc = fs.existsSync(mainFile);
+    var srcLen = hasSrc ? fs.readFileSync(mainFile, 'utf-8').length : 0;
+    var hasSlider = /SliderValue/.test(mainSrc);
+    log('[coder] Pre-build mainFile: ' + mainFile + ' exists=' + hasSrc, taskId);
+    log('[coder] Pre-build mainSrc length=' + srcLen + ' hasSlider=' + hasSlider, taskId);
+
+    return {
+      ok: true,
+      skipped: false,
+      v4: true,
+      entityCount: entityCount,
+      phaseCount: phaseCount,
+      lineCount: lineCount,
+      objectCreations: objectCreations
+    };
+  } catch(e) {
+    log('[coder] V4 generation error: ' + e.message, taskId);
+    return { ok: false, error: 'V4 generation failed: ' + e.message };
+  }
+}
+
+module.exports = { generateCode, generateCodeV4, callClaude, parseBlueprintToPrompt };
 
 if (require.main === module) {
   (async function() {
