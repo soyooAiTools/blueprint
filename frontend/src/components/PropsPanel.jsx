@@ -319,15 +319,7 @@ export default function PropsPanel({
             </div>
           )}
 
-          <div className="props-scene-fallback-toggle">
-            <button className="props-link-btn" onClick={() => setShowSceneFallback(!showSceneFallback)}>
-              {showSceneFallback ? '▼ 隐藏原始文本' : '▶ 编辑原始文本'}
-            </button>
-          </div>
-          {showSceneFallback && (
-            <textarea className="props-textarea props-textarea-mono" rows={8} value={d.sceneObjects || ''} onChange={(e) => update('sceneObjects', e.target.value)}
-              placeholder={"# 场景对象列表\n- PlayerCharacter | 位置: 屏幕下方中央 | 状态: idle"} />
-          )}
+          {/* 原始文本编辑已移除，通过 checkbox 管理 */}
 
           <div className="props-divider">🎮 玩家操作</div>
           <label className="props-label">
