@@ -1,0 +1,33 @@
+{
+  "objectRegistry": [
+    { "name": "Ground", "shape": "Ground", "scale": "30×30", "color": "(0.35,0.25,0.15)", "initiallyVisible": true, "firstStep": 1 },
+    { "name": "Player", "shape": "Cube", "scale": "1×2×1", "color": "(0.2,0.4,0.9)", "initiallyVisible": true, "firstStep": 1 },
+    { "name": "Base", "shape": "Cube", "scale": "3×3×3", "color": "(0.85,0.7,0.4)", "initiallyVisible": true, "firstStep": 1 },
+    { "name": "WoodFence", "shape": "Cube", "scale": "0.3×1.5×8", "color": "(0.6,0.35,0.1)", "initiallyVisible": true, "firstStep": 1 },
+    { "name": "PineTree_L", "shape": "Cylinder", "scale": "0.5×3×0.5", "color": "(0.1,0.55,0.1)", "initiallyVisible": true, "firstStep": 1 },
+    { "name": "PineTree_R", "shape": "Cylinder", "scale": "0.5×3×0.5", "color": "(0.1,0.55,0.1)", "initiallyVisible": true, "firstStep": 1 },
+    { "name": "Generator", "shape": "Cube", "scale": "1.5×2×1.5", "color": "(0.4,0.4,0.45)", "initiallyVisible": true, "firstStep": 1 },
+    { "name": "ConveyorBelt", "shape": "Cube", "scale": "4×0.3×1", "color": "(0.5,0.5,0.55)", "initiallyVisible": false, "firstStep": 1 },
+    { "name": "Crossbow_L", "shape": "Cube", "scale": "1×1.5×1", "color": "(0.5,0.5,0.55)", "initiallyVisible": false, "firstStep": 2 },
+    { "name": "Enemy_A", "shape": "Cube", "scale": "0.8×1.6×0.8", "color": "(0.85,0.15,0.15)", "initiallyVisible": false, "firstStep": 2 },
+    { "name": "WoodLog", "shape": "Cylinder", "scale": "0.3×0.8×0.3", "color": "(0.6,0.35,0.1)", "initiallyVisible": false, "firstStep": 2 },
+    { "name": "WoodenHouse_L", "shape": "Cube", "scale": "2.5×2.5×2.5", "color": "(0.85,0.7,0.4)", "initiallyVisible": false, "firstStep": 3 },
+    { "name": "Worker_L", "shape": "Cube", "scale": "0.8×1.8×0.8", "color": "(0.9,0.6,0.2)", "initiallyVisible": false, "firstStep": 4 },
+    { "name": "Crossbow_R", "shape": "Cube", "scale": "1×1.5×1", "color": "(0.5,0.5,0.55)", "initiallyVisible": false, "firstStep": 6 },
+    { "name": "WoodenHouse_R", "shape": "Cube", "scale": "2.5×2.5×2.5", "color": "(0.85,0.7,0.4)", "initiallyVisible": false, "firstStep": 6 },
+    { "name": "Worker_R", "shape": "Cube", "scale": "0.8×1.8×0.8", "color": "(0.9,0.6,0.2)", "initiallyVisible": false, "firstStep": 7 },
+    { "name": "Cannon", "shape": "Cube", "scale": "1.2×1.8×1.2", "color": "(0.5,0.5,0.55)", "initiallyVisible": false, "firstStep": 7 },
+    { "name": "Boss", "shape": "Cube", "scale": "2.5×4×2.5", "color": "(0.7,0.1,0.1)", "initiallyVisible": false, "firstStep": 8 },
+    { "name": "Castle", "shape": "Cube", "scale": "5×5×5", "color": "(0.6,0.5,0.4)", "initiallyVisible": false, "firstStep": 10 },
+    { "name": "StoneWall", "shape": "Cube", "scale": "0.4×2×10", "color": "(0.55,0.55,0.55)", "initiallyVisible": false, "firstStep": 10 }
+  ],
+  "globalParams": "# === 玩家参数 ===\nplayer.moveSpeed = 5        # 移动速度\nplayer.startGold = 1        # 初始金币\n\n# === 传送带 ===\nconveyor.unlockCost = 1     # 解锁费用(金币)\nconveyor.spawnInterval = 1  # 木材生成间隔(秒)\nconveyor.speed = 1          # 传送速度(米/秒)\n\n# === 弩炮 ===\ncrossbow.damage = 1         # 攻击力\ncrossbow.range = 5          # 射程\ncrossbow.activateCost = 10  # 激活费用(木材)\n\n# === 敌人 ===\nenemy.hp = 1                # 血量\nenemy.moveSpeed = 3         # 移动速度\nenemy.dropGold = 1          # 掉落金币(Phase2), 后期+5\nenemy.spawnInterval = 1     # 生成间隔(秒)\n\n# === 建造 ===\nwoodenHouse.buildCost = 10  # 木屋建造费用(木材)\nworker.recruitCost = 10     # 工人招募费用(金币)\nworker.moveSpeed = 5        # 工人移速\ncrossbow_R.buildCost = 100  # 右侧弩炮建造费用(木材)\n\n# === Boss ===\nboss.hp = 50                # Boss血量\nboss.damage = 5             # Boss对基地攻击力\nboss.moveSpeed = 2          # Boss移速(比玩家慢)\nbase.hp = 50                # 基地血量\n\n# === 升级 ===\nbase.upgradeCost = 200      # 主城升级费用(金币)\ncamera.fovIncrease = 10     # 升级后镜头拉远值",
+  "globalSettings": {
+    "gameType": "slg",
+    "cameraMode": "topDown45",
+    "cameraProjection": "orthographic",
+    "cameraFOV": 60,
+    "cameraBgColor": "(0.6,0.8,1)",
+    "defaultInput": "virtualJoystick"
+  }
+}

@@ -282,6 +282,10 @@ handlers.saveBlueprint = function(req, res, body, id) {
     edges: data.edges || [],
     projectName: data.projectName || (project.blueprint && project.blueprint.projectName) || '',
   };
+  // V3 全局字段
+  if (data.objectRegistry !== undefined) project.blueprint.objectRegistry = data.objectRegistry;
+  if (data.globalParams !== undefined) project.blueprint.globalParams = data.globalParams;
+  if (data.globalSettings !== undefined) project.blueprint.globalSettings = data.globalSettings;
   project.updatedAt = new Date().toISOString();
   writeProject(project);
   sendJSON(res, { success: true, updatedAt: project.updatedAt });

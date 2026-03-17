@@ -28,14 +28,18 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
   const openProject = async (id) => {
     try {
       const full = await getProject(id);
+      const bp = full.blueprint || {};
       onSelectProject({
         id: full.id,
         name: full.name,
         svnUrl: full.svnUrl,
         status: full.status,
         engine: full.engine,
-        nodes: full.blueprint?.nodes || [],
-        edges: full.blueprint?.edges || [],
+        nodes: bp.nodes || [],
+        edges: bp.edges || [],
+        objectRegistry: bp.objectRegistry || [],
+        globalParams: bp.globalParams || '',
+        globalSettings: bp.globalSettings || {},
         feedbackHistory: full.feedbackHistory || [],
       });
     } catch (err) {
