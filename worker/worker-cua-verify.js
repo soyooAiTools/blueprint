@@ -429,9 +429,10 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
 
       // 2. Check blueprint shot coverage (STRICT: ALL shots must be covered)
       // V4 entity-driven blueprints have NO shotNodes — skip coverage check for V4
-      const isV4 = expectedShotCount === 0 && blueprint && blueprint.nodes && blueprint.nodes.some(function(n) { return n.type === 'entityNode'; });
-      if (isV4) {
-        log('[CUA] V4 entity-driven blueprint — skipping shot coverage check (no shotNodes)', taskId);
+      const hasShotNodes = expectedShotCount > 0;
+      const isV4 = !hasShotNodes && blueprint && blueprint.nodes && blueprint.nodes.some(function(n) { return n.type === 'entityNode'; });
+      if (!hasShotNodes) {
+        log('[CUA] No shotNodes in blueprint (V4 or phase-only) — skipping shot coverage check', taskId);
       } else if (report.scriptCoverage) {
         const uncovered = report.scriptCoverage.filter(s => !s.covered);
         if (uncovered.length > 0) {
