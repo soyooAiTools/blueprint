@@ -48,9 +48,9 @@ const NOTIFY_URL = process.env.NOTIFY_URL || 'https://playcools.top/notify/webho
 const taskDebugBy = new Map(); // Track debugBy flag per task (set when task JSON has debugBy field)
 
 function notifyEvent(taskId, event, message, extra) {
+  // Check if task has debugBy flag (set by 小白 when actively debugging)
+  const debugBy = (extra && extra.debugBy) || taskDebugBy.get(taskId);
   try {
-    // Check if task has debugBy flag (set by 小白 when actively debugging)
-    let debugBy = (extra && extra.debugBy) || taskDebugBy.get(taskId);
     const data = JSON.stringify({
       taskId, event, message,
       projectName: (extra && extra.projectName) || taskId,
