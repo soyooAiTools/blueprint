@@ -1,8 +1,8 @@
-// Worker Client v4 �?Poll from Blueprint Editor API, build via Luna jake pipeline
-// Flow: Poll task �?SVN update �?Pre-build patch �?Luna build �?Upload zip �?Report status
+// Worker Client v4 — Poll from Blueprint Editor API, build via Luna jake pipeline
+// Flow: Poll task → SVN update → Pre-build patch → Luna build → Upload zip → Report status
 // Also handles: fix_needed (re-build), commit_needed (SVN commit + cleanup)
 
-// 加载 .env（所有环境变量的唯一来源，子进程也自动继承）
+// Load .env config
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 
 const http = require('http');
@@ -12,31 +12,18 @@ const fs = require('fs');
 const path = require('path');
 const { detectScenes, fixLunaJson, generateExportAssets, injectMaterialSourceAll, cleanScene } = require('./worker-patch.js');
 const { runBridgeBuild, bridgeRequest } = require('./worker-bridge-build.js');
-const { generateCode, generateCodeV5 } = require('./worker-coder.js');
-
-// V5 基础样例工程模式开�?�?设为 true 启用
-const USE_BASE_TEMPLATE = process.env.USE_BASE_TEMPLATE === 'true' || true;
-
-// 智能选择代码生成器：V5(基础工程) �?V4/V3
-function smartGenerateCode(blueprint, clientDir, log, taskId, engine) {
-  if (engine === 'unity' && USE_BASE_TEMPLATE && blueprint.entities && blueprint.entities.length > 0) {
-    log('[smart] Using V5 BASE TEMPLATE mode', taskId);
-    return generateCodeV5(blueprint, clientDir, log, taskId, engine);
-  }
-  log('[smart] Using legacy generateCode mode', taskId);
-  return generateCode(blueprint, clientDir, log, taskId, engine);
-}
+const { generateCode } = require('./worker-coder.js');
 const { convertAndSave } = require('./worker-html-converter.js');
 const { patchLunaBuild } = require('./worker-luna-patch.js');
 
-// Cocos modules (optional �?loaded dynamically to avoid crash if not present)
+// Cocos modules (optional — loaded dynamically to avoid crash if not present)
 let cocosPatch, cocosBuild, cocosHtmlConverter;
 try {
   cocosPatch = require('../worker-cocos/worker-patch.js');
   cocosBuild = require('../worker-cocos/worker-cocos-build.js');
   cocosHtmlConverter = require('../worker-cocos/worker-html-converter.js');
 } catch (e) {
-  // Cocos modules not available �?cocos tasks will fail gracefully
+  // Cocos modules not available — cocos tasks will fail gracefully
 }
 
 // ============ Config ============
@@ -57,7 +44,6 @@ const LUNA_DIR = 'D:\\Luna';
 // ============ Task Notification Webhook ============
 const NOTIFY_URL = process.env.NOTIFY_URL || 'https://playcools.top/notify/webhook';
 // Feishu DM notifications via feishu-notify.js (App Bot API, no webhook needed)
-
 const taskDebugBy = new Map(); // Track debugBy flag per task (set when task JSON has debugBy field)
 
 function notifyEvent(taskId, event, message, extra) {
@@ -92,7 +78,7 @@ function notifyEvent(taskId, event, message, extra) {
 // ============ Resilience Config ============
 const MAX_TASK_RETRIES = 3;
 const RETRY_DELAYS = [30, 60, 120];
-const MAX_CUA_ROUNDS = 20; // Keep trying until pass. Nick: "不接受几轮没好就直接报终�?
+const MAX_CUA_ROUNDS = 20; // Keep trying until pass. Nick: "不接受几轮没好就直接报终止"
 const TASK_TIMEOUT_MS = 45 * 60 * 1000;
 const TRANSIENT_RETRIES = 3;
 const taskRetryCount = new Map();
@@ -114,7 +100,7 @@ async function withRetry(fn, retries, label, taskId, delayMs) {
       if (i < retries) {
         const wait = delayMs || (1000 * Math.pow(2, i));
         log(`[retry] ${label} failed (${i + 1}/${retries + 1}): ${e.message}, retrying in ${wait}ms...`, taskId);
-        notifyEvent(taskId, 'retry', `${label} 失败，自动重�?(${i + 1}/${retries})`,
+        notifyEvent(taskId, 'retry', `${label}  failed, auto-retry (${i + 1}/${retries})`,
           { projectName: getProjectName(taskId), status: 'retrying' });
         await new Promise(r => setTimeout(r, wait));
       } else {
@@ -184,14 +170,14 @@ function apiRequest(method, urlPath, body, isBinary, extraHeaders) {
   });
 }
 
-// [REMOVED] Screenshot review on Main ECS �?replaced by CUA verification on Worker (Step 5.5b)
+// [REMOVED] Screenshot review on Main ECS — replaced by CUA verification on Worker (Step 5.5b)
 
 async function reportStatus(taskId, status, extra) {
   const payload = { workerId: WORKER_ID, taskId, status };
   if (extra) Object.assign(payload, extra);
   try {
     await apiRequest('POST', '/api/worker/status', payload);
-    log(`Status �?${status}${extra && extra.message ? ': ' + extra.message : ''}`, taskId);
+    log(`Status → ${status}${extra && extra.message ? ': ' + extra.message : ''}`, taskId);
   } catch (e) {
     log(`Status report failed: ${e.message}`, taskId);
   }
@@ -264,13 +250,13 @@ async function processTask(task) {
       if (prevCuaPassed) {
         // CUA already passed last time, just retry upload
         log('CUA resume: previous CUA PASSED, skipping directly to upload', taskId);
-        await reportStatus(taskId, 'processing', { message: '上传构建产物 (CUA已通过，重试上�?...' });
+        await reportStatus(taskId, 'processing', { message: 'Uploading build (CUA passed, retry upload)...' });
         const uploaded = await uploadBuild(taskId);
         if (!uploaded) {
           await reportStatus(taskId, 'failed', { message: 'Build upload failed (retry)' });
           throw new TaskFailedError('Build upload failed (retry)');
         }
-        await reportStatus(taskId, 'completed', { message: 'CUA已通过，构建上传完�? });
+        await reportStatus(taskId, 'completed', { message: 'CUA passed, build uploaded' });
         log('CUA resume: upload retry succeeded', taskId);
         throw new TaskFailedError('Task failed');
       }
@@ -294,7 +280,7 @@ async function processTask(task) {
         try {
           const { runCUAVerification } = require('./worker-cua-verify.js');
           await reportStatus(taskId, 'processing', { 
-            message: `CUA断点续跑 - GPT-5.4 操控验证�?.. (�?{cuaRound}/${MAX_CUA_ROUNDS}�?` 
+            message: `CUA resume - GPT-5.4 verifying... (round ${cuaRound}/${MAX_CUA_ROUNDS})` 
           });
 
           const cuaResult = await runCUAVerification(cuaStage4Path, cuaBlueprint, taskId, log);
@@ -323,9 +309,9 @@ async function processTask(task) {
 
           // Fix cycle: re-code with CUA feedback, rebuild, retry
           log(`CUA resume: round ${cuaRound} failed, fix cycle...`, taskId);
-          await reportStatus(taskId, 'processing', { message: `CUA�?{cuaRound}轮不通过，AI 重新编码修复�?..` });
+          await reportStatus(taskId, 'processing', { message: `CUA第${cuaRound}轮不通过，AI 重新编码修复中...` });
 
-          const cuaFeedbackText = 'CUA按蓝图流程操控验证未通过:\n' + cuaResult.issues.join('\n') + '\n\n请修改代码确保蓝图流程走通�?;
+          const cuaFeedbackText = 'CUA blueprint flow verification failed:\n' + cuaResult.issues.join('\n') + '\n\n请修改代码确保蓝图流程走通。';
           try {
             await apiRequest('POST', '/api/projects/' + taskId + '/feedback', 
               JSON.stringify({ text: cuaFeedbackText, source: 'cua-resume-round-' + cuaRound }),
@@ -341,9 +327,9 @@ async function processTask(task) {
               status: 'pending',
               timestamp: Date.now()
             });
-            log(`CUA resume: injected feedback into blueprint (${cuaBlueprint.feedbackHistory.length} entries) �?INCREMENTAL FIX`, taskId);
+            log(`CUA resume: injected feedback into blueprint (${cuaBlueprint.feedbackHistory.length} entries) → INCREMENTAL FIX`, taskId);
 
-            const fixResult = await smartGenerateCode(cuaBlueprint, CLIENT_DIR, log, taskId, 'unity');
+            const fixResult = await generateCode(cuaBlueprint, CLIENT_DIR, log, taskId, 'unity');
             if (!fixResult.ok) {
               await reportStatus(taskId, 'failed', { message: 'CUA fix re-code failed: ' + (fixResult.error || '').slice(0, 200) });
               throw new TaskFailedError('CUA fix re-code failed: ' + (fixResult.error || '').slice(0, 200));
@@ -384,7 +370,7 @@ async function processTask(task) {
 
       if (cuaPassed) {
         // Jump to upload
-        await reportStatus(taskId, 'processing', { message: '上传构建产物...' });
+        await reportStatus(taskId, 'processing', { message: 'Uploading build...' });
         const uploaded = await uploadBuild(taskId);
         if (!uploaded) {
           await reportStatus(taskId, 'failed', { message: 'Build upload failed' });
@@ -398,7 +384,7 @@ async function processTask(task) {
     }
 
     // === Step 1: SVN Update ===
-    await reportStatus(taskId, 'processing', { message: 'SVN update �?..' });
+    await reportStatus(taskId, 'processing', { message: 'SVN updating...' });
 
     if (!fs.existsSync(FIXED_PROJECT_DIR)) {
       const svnUrl = task.svnUrl || 'svn://47.101.191.213:3690/test0213';
@@ -447,38 +433,32 @@ async function processTask(task) {
     }
 
     // === Step 2: AI Coding ===
-    await reportStatus(taskId, 'processing', { message: 'AI 编码�?..' });
+    await reportStatus(taskId, 'processing', { message: 'AI coding...' });
     let blueprint = null;
-    for (let bpRetry = 0; bpRetry < 3; bpRetry++) {
-      try {
-        blueprint = await apiRequest('GET', `/api/tasks/${taskId}/blueprint`);
-        if (blueprint && blueprint.nodes && blueprint.nodes.length > 0) break;
-        log('Blueprint empty/missing, retry ' + (bpRetry + 1) + '/3...', taskId);
-        await new Promise(r => setTimeout(r, 5000));
-      } catch (e) {
-        log('Failed to fetch blueprint (retry ' + (bpRetry + 1) + '): ' + e.message, taskId);
-        await new Promise(r => setTimeout(r, 5000));
-      }
+    try {
+      blueprint = await apiRequest('GET', `/api/tasks/${taskId}/blueprint`);
+    } catch (e) {
+      log('Failed to fetch blueprint: ' + e.message, taskId);
     }
 
     if (blueprint && blueprint.nodes && blueprint.nodes.length > 0) {
       log(`Blueprint: ${blueprint.nodes.length} nodes, ${(blueprint.edges || []).length} edges`, taskId);
-      const codeResult = await smartGenerateCode(blueprint, CLIENT_DIR, log, taskId, 'unity');
+      const codeResult = await generateCode(blueprint, CLIENT_DIR, log, taskId, 'unity');
       if (codeResult.ok && !codeResult.skipped) {
         log(`AI coding done: ${codeResult.filesWritten} files written`, taskId);
-        notifyEvent(taskId, 'coding_done', `AI 编码完成 (${codeResult.filesWritten} 文件)`, { projectName: task.projectName });
-        await reportStatus(taskId, 'processing', { message: `AI 编码完成 (${codeResult.filesWritten} 文件)` });
+        notifyEvent(taskId, 'coding_done', `AI coding done (${codeResult.filesWritten} files)`, { projectName: task.projectName });
+        await reportStatus(taskId, 'processing', { message: `AI coding done (${codeResult.filesWritten} files)` });
       } else if (!codeResult.ok) {
         log('AI coding failed: ' + codeResult.error + ', retrying...', taskId);
-        await reportStatus(taskId, 'processing', { message: 'AI 编码失败，重试中...' });
+        await reportStatus(taskId, 'processing', { message: 'AI coding failed, retrying...' });
         // Retry once
-        const retryResult = await smartGenerateCode(blueprint, CLIENT_DIR, log, taskId, 'unity');
+        const retryResult = await generateCode(blueprint, CLIENT_DIR, log, taskId, 'unity');
         if (retryResult.ok && !retryResult.skipped) {
           log(`AI coding retry done: ${retryResult.filesWritten} files written`, taskId);
-          await reportStatus(taskId, 'processing', { message: `AI 编码完成 (${retryResult.filesWritten} 文件, 重试)` });
+          await reportStatus(taskId, 'processing', { message: `AI coding done (${retryResult.filesWritten} files, retry)` });
         } else {
           log('AI coding retry also failed: ' + (retryResult.error || 'unknown'), taskId);
-          await reportStatus(taskId, 'error', { message: 'AI 编码失败: ' + (codeResult.error || 'unknown') });
+          await reportStatus(taskId, 'error', { message: 'AI coding failed: ' + (codeResult.error || 'unknown') });
           throw new Error('AI coding failed after retry: ' + (retryResult.error || codeResult.error));
         }
       }
@@ -487,7 +467,7 @@ async function processTask(task) {
     }
 
     // === Step 3: Pre-build Patch ===
-    await reportStatus(taskId, 'building', { message: '预处�?+ Luna 构建�?..' });
+    await reportStatus(taskId, 'building', { message: '预处理 + Luna 构建中...' });
 
     // Clean old LunaTemp but PRESERVE stage1 cache (asset export is slow without Bridge)
     const lunaTempDir = path.join(CLIENT_DIR, 'LunaTemp');
@@ -538,7 +518,7 @@ async function processTask(task) {
 
     fixLunaJson(CLIENT_DIR, scenes);
     generateExportAssets(CLIENT_DIR, scenes);
-    // NOTE: scene injection disabled �?causes Luna jake build to hang
+    // NOTE: scene injection disabled — causes Luna jake build to hang
     // Material solution is now code-only (AI uses Object.FindObjectOfType<Renderer>())
     log('Pre-build patch applied', taskId);
 
@@ -551,7 +531,7 @@ async function processTask(task) {
     log(`Luna build OK in ${buildResult.buildTime}s`, taskId);
 
     // === Step 5: HTML Conversion ===
-    await reportStatus(taskId, 'processing', { message: 'HTML 渠道转换�?..' });
+    await reportStatus(taskId, 'processing', { message: 'HTML channel conversion...' });
     const stage4Dir = path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop');
     const htmlOutputDir = path.join(WORK_DIR, taskId + '-html');
     try {
@@ -577,7 +557,7 @@ async function processTask(task) {
     }
 
     // === Step 5.6: Preview Health Check + Self-Heal Loop ===
-    // 白屏/黑屏/卡进度条/JS崩溃 �?反馈�?AI 增量修复 �?重新构建 �?再检查，最�?3 �?
+    // White/black screen, stuck loading, JS crash -> feedback to AI fix -> rebuild -> recheck, max 3 rounds
     {
       const { runPreviewCheck } = require('./worker-preview-check.js');
       const MAX_PREVIEW_FIX_ROUNDS = 3;
@@ -588,7 +568,7 @@ async function processTask(task) {
 
         if (previewResult.ok) {
           log(`[preview-check] PASSED (round ${previewRound}) - game loaded successfully`, taskId);
-          notifyEvent(taskId, 'preview_check', `�?预览检查通过，进�?CUA 验证`, { projectName: task.projectName });
+          notifyEvent(taskId, 'preview_check', `✅ 预览检查通过，进入 CUA 验证`, { projectName: task.projectName });
           break;
         }
 
@@ -598,24 +578,14 @@ async function processTask(task) {
         }
 
         if (previewRound >= MAX_PREVIEW_FIX_ROUNDS) {
-          // Detect structural failure: if error message is identical across all rounds,
-          // AI self-heal is not making progress �?don't waste time retrying the whole task
-          const isStructuralFailure = previewResult.error &&
-            blueprint.feedbackHistory &&
-            blueprint.feedbackHistory.length >= 2 &&
-            blueprint.feedbackHistory.every(fb =>
-              fb.type === 'preview_health_check_failure' && fb.error === previewResult.error);
-          notifyEvent(taskId, 'compile_error', `�?预览检�?${MAX_PREVIEW_FIX_ROUNDS} 轮失�? ${(previewResult.error||'').slice(0,100)}`, { projectName: task.projectName });
-          throw new TaskFailedError(
-            `Preview health check failed after ${MAX_PREVIEW_FIX_ROUNDS} fix rounds: ${previewResult.error}`,
-            isStructuralFailure // noRetry=true if same error every round
-          );
+          notifyEvent(taskId, 'compile_error', `❌ 预览检查 ${MAX_PREVIEW_FIX_ROUNDS} 轮失败: ${(previewResult.error||'').slice(0,100)}`, { projectName: task.projectName });
+          throw new TaskFailedError(`Preview health check failed after ${MAX_PREVIEW_FIX_ROUNDS} fix rounds: ${previewResult.error}`);
         }
 
         // === Self-heal: feed error back to AI coder for targeted fix ===
         log(`[preview-check] Self-healing: feeding error to AI for fix (round ${previewRound})...`, taskId);
         await reportStatus(taskId, 'processing', {
-          message: `预览检查失�?${previewResult.error?.slice(0, 50)})，AI 自修复中... (�?{previewRound}/${MAX_PREVIEW_FIX_ROUNDS}�?`
+          message: `预览检查失败(${previewResult.error?.slice(0, 50)})，AI 自修复中... (第${previewRound}/${MAX_PREVIEW_FIX_ROUNDS}轮)`
         });
 
         // Build feedback for AI coder
@@ -625,9 +595,9 @@ async function processTask(task) {
           error: previewResult.error,
           consoleErrors: (previewResult.consoleErrors || []).slice(0, 10),
           details: previewResult.details || {},
-          instruction: `游戏构建后预览检查失败。问�? ${previewResult.error}。` +
+          instruction: `游戏构建后预览检查失败。问题: ${previewResult.error}。` +
             (previewResult.consoleErrors?.length ? `浏览器控制台错误: ${previewResult.consoleErrors.slice(0, 5).join('; ')}。` : '') +
-            `请检查并修复代码中导致此问题的原因。常见原�? Start()中有未捕获异常导致游戏无法初始化、死循环阻塞主线程、引用了不存在的资源、UI元素未正确创建。` +
+            `请检查并修复代码中导致此问题的原因。常见原因: Start()中有未捕获异常导致游戏无法初始化、死循环阻塞主线程、引用了不存在的资源、UI元素未正确创建。` +
             `修复时保留已有代码结构，只修改导致问题的部分。`
         };
 
@@ -636,9 +606,9 @@ async function processTask(task) {
         blueprint.feedbackHistory.push(previewFeedback);
 
         // Re-generate code with feedback
-        const fixResult = await smartGenerateCode(blueprint, CLIENT_DIR, log, taskId, 'unity');
+        const fixResult = await generateCode(blueprint, CLIENT_DIR, log, taskId, 'unity');
         if (!fixResult || !fixResult.ok) {
-          log(`[preview-check] AI fix failed (${fixResult?.error || 'unknown'}), skipping to next round`, taskId);
+          log(`[preview-check] AI fix failed, skipping to next round`, taskId);
           continue;
         }
 
@@ -661,14 +631,14 @@ async function processTask(task) {
       }
     }
 
-    // === Step 5.7: CUA Verification Loop (GPT-5.4 操控验证 �?不通过则修复重�? ===
+    // === Step 5.7: CUA Verification Loop (GPT-5.4 verification, fix until pass) ===
     let cuaPassed = false;
     
     for (let cuaRound = 1; cuaRound <= MAX_CUA_ROUNDS; cuaRound++) {
       try {
         const { runCUAVerification } = require('./worker-cua-verify.js');
         await reportStatus(taskId, 'processing', { 
-          message: `GPT-5.4 CUA 操控验证�?.. (�?{cuaRound}/${MAX_CUA_ROUNDS}�?` 
+          message: `GPT-5.4 CUA verifying... (round ${cuaRound}/${MAX_CUA_ROUNDS})` 
         });
 
         // Read blueprint from API (fixed: local autoCoding-tasks path doesn't exist on Worker ECS)
@@ -689,51 +659,19 @@ async function processTask(task) {
         }
 
         if (cuaResult.passed) {
-          log(`CUA verification PASSED (round ${cuaRound}): 蓝图流程全部走通`, taskId);
-          notifyEvent(taskId, 'cua_pass', `�?CUA验证通过 (�?{cuaRound}�?! 蓝图流程全部走通`, { projectName: task.projectName });
+          log(`CUA verification PASSED (round ${cuaRound}): all shots passed`, taskId);
+          notifyEvent(taskId, 'cua_pass', `✅ CUA验证通过 (第${cuaRound}轮)! all shots passed`, { projectName: task.projectName });
           cuaPassed = true;
           break;
         }
 
-        // CUA failed �?log issues
+        // CUA failed — log issues
         log(`CUA verification FAILED round ${cuaRound}/${MAX_CUA_ROUNDS}, ${cuaResult.issues.length} issues`, taskId);
         cuaResult.issues.forEach(issue => log(`  - ${issue}`, taskId));
-        // Calculate coverage stats for notification
-        var coveredCount = 0, totalSteps = 0;
-        if (cuaResult.scriptCoverage) {
-          totalSteps = cuaResult.scriptCoverage.length;
-          coveredCount = cuaResult.scriptCoverage.filter(function(s) { return s.covered; }).length;
-        }
-        var coverageStr = totalSteps > 0 ? ` | 分镜覆盖: ${coveredCount}/${totalSteps}` : '';
-        // Build AI fix strategy summary for notification
-        var fixStrategy = '';
-        if (cuaResult.issues && cuaResult.issues.length > 0) {
-          var issueTypes = cuaResult.issues.map(function(i) { return i.split(']')[0].replace('[','').trim(); });
-          var hasNoCoverage = issueTypes.indexOf('uncovered') >= 0 || cuaResult.issues.some(function(i) { return i.indexOf('not reached') >= 0; });
-          var hasStuck = cuaResult.issues.some(function(i) { return i.indexOf('stuck') >= 0 || i.indexOf('卡住') >= 0; });
-          
-          fixStrategy = '\n\n🔧 AI修复思路:';
-          if (hasNoCoverage) {
-            var covPct = totalSteps > 0 ? Math.round(coveredCount / totalSteps * 100) : 0;
-            fixStrategy += '\n�?分镜覆盖' + covPct + '% �?需要加强shot转场触发逻辑';
-            if (coveredCount === 0) fixStrategy += '�?覆盖=场景可能空白/物体不可�?相机位置错误�?;
-          }
-          if (hasStuck) fixStrategy += '\n�?游戏卡住 �?检查状态机/Update循环是否正常推进';
-          // Include CUA's last observation
-          if (cuaResult.report && cuaResult.report.history && cuaResult.report.history.length > 0) {
-            var lastObs = cuaResult.report.history[cuaResult.report.history.length - 1];
-            if (lastObs.thinking) fixStrategy += '\n�?CUA最后观�? ' + (lastObs.thinking || '').slice(0, 150);
-          }
-          // Include specific uncovered shots
-          if (cuaResult.scriptCoverage) {
-            var missed = cuaResult.scriptCoverage.filter(function(s) { return !s.covered; }).map(function(s) { return s.step; });
-            if (missed.length > 0 && missed.length <= 10) fixStrategy += '\n�?未覆�? ' + missed.slice(0, 5).join(', ') + (missed.length > 5 ? '...' : '');
-          }
-        }
-        notifyEvent(taskId, 'cua_round', `CUA�?{cuaRound}/${MAX_CUA_ROUNDS}轮未通过${coverageStr}\n问题: ${cuaResult.issues.slice(0,3).join('\n').slice(0,200)}${fixStrategy}`, { projectName: task.projectName });
+        notifyEvent(taskId, 'cua_round', `CUA第${cuaRound}/${MAX_CUA_ROUNDS}轮未通过 (${cuaResult.issues.length}个问题): ${cuaResult.issues.slice(0,2).join('; ').slice(0,150)}`, { projectName: task.projectName });
 
         if (cuaRound >= MAX_CUA_ROUNDS) {
-          // Max retries exhausted �?fail the task with details
+          // Max retries exhausted — fail the task with details
           const feedbackText = 'CUA蓝图流程验证不通过 (' + MAX_CUA_ROUNDS + '轮修复后仍有问题):\n' + cuaResult.issues.join('\n');
           try {
             await apiRequest('POST', '/api/projects/' + taskId + '/feedback', 
@@ -749,7 +687,7 @@ async function processTask(task) {
           throw new TaskFailedError('CUA verification failed after ' + MAX_CUA_ROUNDS + ' rounds');
         }
 
-        // Not final round �?use CUA feedback to re-code and rebuild
+        // Not final round — use CUA feedback to re-code and rebuild
         log(`CUA round ${cuaRound} failed, starting fix cycle...`, taskId);
         
         // Build rich feedback with visual context so AI knows WHAT the screen looks like
@@ -760,23 +698,23 @@ async function processTask(task) {
           }
           if (cuaResult.report.history && cuaResult.report.history.length > 0) {
             const lastRound = cuaResult.report.history[cuaResult.report.history.length - 1];
-            if (lastRound.thinking) visualContext += '\n\nGPT最后一轮观�? ' + (lastRound.thinking || '').slice(0, 500);
+            if (lastRound.thinking) visualContext += '\n\nGPT last round observation: ' + (lastRound.thinking || '').slice(0, 500);
           }
           // Detect uniform/empty scene from score vs coverage mismatch
           const allUncovered = cuaResult.report.scriptCoverage && cuaResult.report.scriptCoverage.every(s => !s.covered);
           if (allUncovered) {
-            visualContext += '\n\n⚠️ 严重问题: 所有分镜头都未覆盖�?(0/' + (cuaResult.report.scriptCoverage || []).length + ')。这通常意味着:\n'
-              + '1. 场景物体不可见（所有物体颜色相同，和背景融为一体）\n'
+            visualContext += '\n\n⚠️ Critical: All shots uncovered' + (cuaResult.report.scriptCoverage || []).length + ')。这通常意味着:\n'
+              + '1. Objects invisible\n2. Camera misaligned\n3. Object creation failed'
               + '2. 相机位置/朝向错误，看不到物体\n'
               + '3. 物体创建失败（GFM_Create.Obj()返回null）\n'
-              + '请检�? 每种物体是否有不同颜色？相机是否对准了场景中心？_mainCam.backgroundColor是否设为天蓝�?0.6f,0.8f,1f)�?;
+              + '请检查: 每种物体是否有不同颜色？相机是否对准了场景中心？_mainCam.backgroundColor是否设为天蓝色(0.6f,0.8f,1f)？';
           }
         }
         
-        const cuaFeedbackText = 'CUA按蓝图流程操控验证未通过，以下问题必须修复才能让流程走�?\n' + cuaResult.issues.join('\n') + visualContext + '\n\n请针对以上问题修改代码，确保蓝图描述的所有场景能按顺序操作通过，最终到达CTA�?;
+        const cuaFeedbackText = 'CUA blueprint flow verification failed，fix these issues to pass:\n' + cuaResult.issues.join('\n') + visualContext + '\n\n请针对以上问题修改代码，确保蓝图描述的所有场景能按顺序操作通过，最终到达CTA。';
 
         // Re-code with CUA feedback as context
-        await reportStatus(taskId, 'processing', { message: `CUA�?{cuaRound}轮不通过，AI 重新编码修复�?..` });
+        await reportStatus(taskId, 'processing', { message: `CUA第${cuaRound}轮不通过，AI 重新编码修复中...` });
         
         // Inject CUA feedback into the task's feedback history for AI coder to see
         try {
@@ -800,10 +738,10 @@ async function processTask(task) {
               status: 'pending',
               timestamp: Date.now()
             }];
-            log(`CUA fix: feedbackHistory was empty, injected CUA feedback �?INCREMENTAL FIX`, taskId);
+            log(`CUA fix: feedbackHistory was empty, injected CUA feedback → INCREMENTAL FIX`, taskId);
           }
 
-          const fixResult = await smartGenerateCode(fixBlueprint, CLIENT_DIR, log, taskId, 'unity');
+          const fixResult = await generateCode(fixBlueprint, CLIENT_DIR, log, taskId, 'unity');
           if (fixResult.ok) {
             log(`CUA fix re-code done: ${fixResult.filesWritten} files written`, taskId);
           } else {
@@ -814,7 +752,7 @@ async function processTask(task) {
         }
 
         // Re-build
-        await reportStatus(taskId, 'building', { message: `CUA修复后重新构建中... (�?{cuaRound + 1}轮验�?` });
+        await reportStatus(taskId, 'building', { message: `CUA修复后重新构建中... (第${cuaRound + 1}轮验证)` });
         
         // Clean stage2-4 for rebuild
         const ltDir = path.join(CLIENT_DIR, 'LunaTemp');
@@ -866,7 +804,7 @@ async function processTask(task) {
     }
 
     // === Step 6: Upload Build ===
-    await reportStatus(taskId, 'processing', { message: '上传构建产物...' });
+    await reportStatus(taskId, 'processing', { message: 'Uploading build...' });
     const uploaded = await uploadBuild(taskId);
     if (!uploaded) {
       await reportStatus(taskId, 'failed', { message: 'Build upload failed' });
@@ -894,8 +832,8 @@ async function processTask(task) {
 
     // === Step 8: Done (CUA verification already done in Step 5.5b) ===
     await reportStatus(taskId, 'reviewing', { message: `构建完成 (${buildResult.buildTime}s)，CUA验证通过，等待人工审核` });
-    notifyEvent(taskId, 'done', `🎉 任务完成！构�?${buildResult.buildTime}s，CUA 验证通过，等待人工审核`, { projectName: task.projectName });
-    log('Task completed �?reviewing', taskId);
+    notifyEvent(taskId, 'done', `🎉 Task done! Build ${buildResult.buildTime}s, CUA passed, waiting for review`, { projectName: task.projectName });
+    log('Task completed → reviewing', taskId);
 
   } catch (e) {
     if (e instanceof TaskFailedError) throw e;
@@ -937,7 +875,7 @@ async function processTaskCocos(task) {
     }
 
     // === Step 2: AI Coding ===
-    await reportStatus(taskId, 'processing', { message: 'AI 编码�?(Cocos)...' });
+    await reportStatus(taskId, 'processing', { message: 'AI 编码中 (Cocos)...' });
     let blueprint = null;
     try {
       blueprint = await apiRequest('GET', `/api/tasks/${taskId}/blueprint`);
@@ -950,22 +888,22 @@ async function processTaskCocos(task) {
       const codeResult = await generateCode(blueprint, COCOS_PROJECT_DIR, log, taskId, 'cocos');
       if (codeResult.ok && !codeResult.skipped) {
         log(`AI coding done: ${codeResult.filesWritten} files`, taskId);
-        await reportStatus(taskId, 'processing', { message: `AI 编码完成 (${codeResult.filesWritten} 文件)` });
+        await reportStatus(taskId, 'processing', { message: `AI coding done (${codeResult.filesWritten} files)` });
       } else if (!codeResult.ok) {
         log('AI coding failed: ' + codeResult.error + ', retrying...', taskId);
-        await reportStatus(taskId, 'processing', { message: 'AI 编码失败，重试中...' });
+        await reportStatus(taskId, 'processing', { message: 'AI coding failed, retrying...' });
         const retryResult = await generateCode(blueprint, COCOS_PROJECT_DIR, log, taskId, 'cocos');
         if (retryResult.ok && !retryResult.skipped) {
           log(`AI coding retry done: ${retryResult.filesWritten} files`, taskId);
         } else {
-          await reportStatus(taskId, 'error', { message: 'AI 编码失败: ' + (codeResult.error || 'unknown') });
+          await reportStatus(taskId, 'error', { message: 'AI coding failed: ' + (codeResult.error || 'unknown') });
           throw new Error('AI coding failed after retry: ' + (retryResult.error || codeResult.error));
         }
       }
     }
 
     // === Step 3: Pre-build + Cocos Build ===
-    await reportStatus(taskId, 'building', { message: 'Cocos 构建�?..' });
+    await reportStatus(taskId, 'building', { message: 'Cocos building...' });
 
     const buildDir = path.join(COCOS_PROJECT_DIR, 'build', 'web-mobile');
     if (fs.existsSync(buildDir)) {
@@ -988,7 +926,7 @@ async function processTaskCocos(task) {
     log(`Cocos build OK in ${buildResult.buildTime}s`, taskId);
 
     // === Step 4: HTML Conversion ===
-    await reportStatus(taskId, 'processing', { message: 'HTML 渠道转换�?..' });
+    await reportStatus(taskId, 'processing', { message: 'HTML channel conversion...' });
     const htmlOutputDir = path.join(WORK_DIR, taskId + '-html');
     const htmlConverter = cocosHtmlConverter || { convertAndSave };
     try {
@@ -1030,7 +968,7 @@ async function processTaskCocos(task) {
     }
 
     await reportStatus(taskId, 'reviewing', { message: `Cocos 构建完成 (${buildResult.buildTime}s)，等待审核` });
-    log('Task completed �?reviewing (Cocos)', taskId);
+    log('Task completed → reviewing (Cocos)', taskId);
 
   } catch (e) {
     log(`Task error (Cocos): ${e.message}`, taskId);
@@ -1039,7 +977,7 @@ async function processTaskCocos(task) {
 }
 
 async function uploadBuild(taskId) {
-  // Find build output �?stage4/develop/index.html is the standard output
+  // Find build output — stage4/develop/index.html is the standard output
   const searchDirs = [
     path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop'),
     path.join(CLIENT_DIR, 'LunaTemp', 'package', 'default'),
@@ -1095,7 +1033,7 @@ async function handleCommit(task) {
   const isCocos = engine === 'cocos';
   const projectDir = isCocos ? COCOS_PROJECT_DIR : FIXED_PROJECT_DIR;
 
-  await reportStatus(taskId, 'processing', { message: 'SVN commit �?..' });
+  await reportStatus(taskId, 'processing', { message: 'SVN committing...' });
 
   if (!fs.existsSync(projectDir)) {
     await reportStatus(taskId, 'failed', { message: 'Working copy not found' });
@@ -1172,13 +1110,13 @@ async function poll() {
     log(`Got task: ${task.taskId} (${task.status}), project: ${task.projectName || '?'}`, task.taskId);
     if (task.debugBy) { taskDebugBy.set(task.taskId, task.debugBy); log(`[debug] Task being debugged by: ${task.debugBy}`, task.taskId); }
     activeTasks.set(task.taskId, { task, startedAt: Date.now(), projectName: task.projectName });
-    notifyEvent(task.taskId, 'task_started', `开始处�? ${task.projectName || task.taskId}`, { projectName: task.projectName });
+    notifyEvent(task.taskId, 'task_started', `开始处理: ${task.projectName || task.taskId}`, { projectName: task.projectName });
 
     // Task execution with auto-retry + global timeout
     const runWithRetry = async () => {
       const taskTimeout = setTimeout(() => {
-        log(`�?Task timeout (${TASK_TIMEOUT_MS/60000}min)`, task.taskId);
-        notifyEvent(task.taskId, 'timeout', `任务超时 (${TASK_TIMEOUT_MS/60000}分钟)`, { projectName: task.projectName });
+        log(`⏰ Task timeout (${TASK_TIMEOUT_MS/60000}min)`, task.taskId);
+        notifyEvent(task.taskId, 'timeout', `Task timeout (${TASK_TIMEOUT_MS/60000}min)`, { projectName: task.projectName });
       }, TASK_TIMEOUT_MS);
       try {
         await processTask(task);
@@ -1190,7 +1128,7 @@ async function poll() {
           const delay = (RETRY_DELAYS[retries] || 120) * 1000;
           log(`🔄 Task retry ${retries + 1}/${MAX_TASK_RETRIES} in ${delay/1000}s: ${e.message.slice(0, 100)}`, task.taskId);
           notifyEvent(task.taskId, 'task_retry',
-            `任务失败�?{delay/1000}秒后自动重试 (${retries + 1}/${MAX_TASK_RETRIES}): ${e.message.slice(0, 100)}`,
+            `Task failed, ${delay/1000}s auto-retry (${retries + 1}/${MAX_TASK_RETRIES}): ${e.message.slice(0, 100)}`,
             { projectName: task.projectName });
           await new Promise(r => setTimeout(r, delay));
           // Clean CUA cache so retry goes full path (not resume)
@@ -1212,9 +1150,9 @@ async function poll() {
     };
     runWithRetry()
       .catch(e => {
-        log(`�?Task failed permanently: ${e.message}`, task.taskId);
+        log(`❌ Task failed permanently: ${e.message}`, task.taskId);
         notifyEvent(task.taskId, 'task_failed_final',
-          `任务最终失�?(已重�?{taskRetryCount.get(task.taskId) || 0}�?: ${e.message.slice(0, 150)}`,
+          `任务最终失败 (已重试${taskRetryCount.get(task.taskId) || 0} times): ${e.message.slice(0, 150)}`,
           { projectName: task.projectName });
       })
       .finally(() => {
@@ -1223,7 +1161,7 @@ async function poll() {
         log(`Task done. Slots: ${activeTasks.size}/${MAX_CONCURRENT}`, task.taskId);
       });
   } catch (e) {
-    // Poll error �?server might be down, silently retry
+    // Poll error — server might be down, silently retry
     if (!e.message.includes('timeout')) log(`Poll error: ${e.message}`);
   } finally {
     pollLock = false;
