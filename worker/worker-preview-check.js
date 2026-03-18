@@ -180,10 +180,10 @@ async function runPreviewCheck(stage4Dir, taskId, log) {
           var vendor = gl.getParameter(gl.VENDOR) || '';
           // SwiftShader / llvmpipe / software / WARP / ANGLE on software = no real GPU
           var isSoftware = /swiftshader|llvmpipe|software|mesa|warp|microsoft basic/i.test(renderer + ' ' + vendor);
-          // ANGLE with D3D on Windows Server often uses WARP (software) even if renderer says "ANGLE"
-          // If renderer contains "ANGLE" but no real GPU name (NVIDIA/AMD/Intel UHD/Intel Iris), treat as software
-          var isAngleSoftware = /angle/i.test(renderer) && !/nvidia|amd|radeon|geforce|intel\s*(uhd|iris|hd)/i.test(renderer);
-          return { hasGPU: !isSoftware && !isAngleSoftware, renderer, vendor };
+          // If renderer doesn't contain a known real GPU name, treat as software rendering
+          // Real GPUs report: NVIDIA, AMD, Radeon, GeForce, Intel UHD/Iris/HD, Apple M1/M2, etc.
+          var hasRealGPUName = /nvidia|amd|radeon|geforce|intel\s*(uhd|iris|hd)|apple\s*m\d|mali|adreno|powervr/i.test(renderer + ' ' + vendor);
+          return { hasGPU: !isSoftware && hasRealGPUName, renderer, vendor };
         });
         hasGPU = gpuCheck.hasGPU;
         log(`[preview-check] GPU check: renderer="${gpuCheck.renderer}" vendor="${gpuCheck.vendor}" hasGPU=${hasGPU}`, taskId);
