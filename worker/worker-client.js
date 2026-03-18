@@ -619,8 +619,8 @@ async function processTask(task) {
 
         // Re-generate code with feedback
         const fixResult = await generateCode(blueprint, CLIENT_DIR, log, taskId, 'unity');
-        if (!fixResult || !fixResult.success) {
-          log(`[preview-check] AI fix failed, skipping to next round`, taskId);
+        if (!fixResult || !fixResult.ok) {
+          log(`[preview-check] AI fix failed (${fixResult?.error || 'unknown'}), skipping to next round`, taskId);
           continue;
         }
 
