@@ -62,6 +62,12 @@ async function runPreviewCheck(stage4Dir, taskId, log) {
       if (msg.type() === 'error') errors.push(msg.text());
     });
     page.on('pageerror', err => errors.push(err.message));
+    // Track 404s with full URL for debugging
+    page.on('response', resp => {
+      if (resp.status() === 404) {
+        errors.push(`404: ${resp.url()}`);
+      }
+    });
 
     // Navigate
     await page.goto(url, { timeout: PREVIEW_TIMEOUT, waitUntil: 'domcontentloaded' });
@@ -172,13 +178,17 @@ async function runPreviewCheck(stage4Dir, taskId, log) {
           if (!gl) return { hasGPU: false, reason: 'no webgl context' };
           var renderer = gl.getParameter(gl.RENDERER) || '';
           var vendor = gl.getParameter(gl.VENDOR) || '';
-          // SwiftShader / llvmpipe / software = no real GPU
-          var isSoftware = /swiftshader|llvmpipe|software|mesa/i.test(renderer + ' ' + vendor);
-          return { hasGPU: !isSoftware, renderer, vendor };
+          // SwiftShader / llvmpipe / software / WARP / ANGLE on software = no real GPU
+          var isSoftware = /swiftshader|llvmpipe|software|mesa|warp|microsoft basic/i.test(renderer + ' ' + vendor);
+          // ANGLE with D3D on Windows Server often uses WARP (software) even if renderer says "ANGLE"
+          // If renderer contains "ANGLE" but no real GPU name (NVIDIA/AMD/Intel UHD/Intel Iris), treat as software
+          var isAngleSoftware = /angle/i.test(renderer) && !/nvidia|amd|radeon|geforce|intel\s*(uhd|iris|hd)/i.test(renderer);
+          return { hasGPU: !isSoftware && !isAngleSoftware, renderer, vendor };
         });
         hasGPU = gpuCheck.hasGPU;
+        log(`[preview-check] GPU check: renderer="${gpuCheck.renderer}" vendor="${gpuCheck.vendor}" hasGPU=${hasGPU}`, taskId);
         if (!hasGPU) {
-          log(`[preview-check] No GPU detected (renderer: ${gpuCheck.renderer}). Skipping pixel analysis — WebGL content invisible in software rendering.`, taskId);
+          log(`[preview-check] No real GPU detected — skipping pixel analysis (WebGL content unreliable in software rendering)`, taskId);
         }
       } catch (gpuErr) {
         log(`[preview-check] GPU detection failed: ${gpuErr.message}, assuming no GPU`, taskId);
