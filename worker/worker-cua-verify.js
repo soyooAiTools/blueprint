@@ -403,8 +403,8 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       const scriptStepCount = report.scriptCoverage ? report.scriptCoverage.length : 0;
       const expectedShotCount = blueprint && blueprint.nodes ? blueprint.nodes.filter(function(n) { return n.type === 'shotNode'; }).length : 0;
       // Also check via report metadata if available
-      if (scriptStepCount > 0 && scriptStepCount < 3) {
-        // Very suspicious: a real playable ad should have at least 3 steps
+      if (scriptStepCount > 0 && scriptStepCount < 3 && expectedShotCount >= 3) {
+        // Very suspicious: a real playable ad should have at least 3 steps (skip for V4 which has no shots)
         log('[CUA] WARNING: Script only has ' + scriptStepCount + ' steps (expected blueprint: ' + expectedShotCount + '). Possible data corruption.', taskId);
         issues.push('[suspicious-script] Script has only ' + scriptStepCount + ' step(s) — too few for a real playable ad. Blueprint may have lost data. Expected: 3+ steps.');
       }
@@ -428,7 +428,11 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       }
 
       // 2. Check blueprint shot coverage (STRICT: ALL shots must be covered)
-      if (report.scriptCoverage) {
+      // V4 entity-driven blueprints have NO shotNodes — skip coverage check for V4
+      const isV4 = expectedShotCount === 0 && blueprint && blueprint.nodes && blueprint.nodes.some(function(n) { return n.type === 'entityNode'; });
+      if (isV4) {
+        log('[CUA] V4 entity-driven blueprint — skipping shot coverage check (no shotNodes)', taskId);
+      } else if (report.scriptCoverage) {
         const uncovered = report.scriptCoverage.filter(s => !s.covered);
         if (uncovered.length > 0) {
           issues.push('[uncovered] Blueprint shots not reached (' + uncovered.length + '/' + report.scriptCoverage.length + '): ' + uncovered.map(s => s.step || s.name).join(', '));
