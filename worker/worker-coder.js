@@ -2700,6 +2700,135 @@ function listTsFiles(dir) {
 // =====================================================================
 
 var promptV4Module = require('./prompt-v4.js');
+var promptV5Module = require('./prompt-v5-basetemplate.js');
+
+async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
+  var isCocos = engine === 'cocos';
+  if (isCocos) {
+    log('[coder] V5 base template not supported for Cocos, falling back to V4', taskId);
+    return generateCodeV4(blueprint, clientDir, log, taskId, engine);
+  }
+  var hasFeedback = blueprint.feedbackHistory && blueprint.feedbackHistory.length > 0;
+
+  // 生成 V5 prompt（基础样例工程模式）
+  var opts = {};
+  if (hasFeedback) {
+    opts.feedback = blueprint.feedbackHistory;
+    var mainFile = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
+    if (fs.existsSync(mainFile)) {
+      opts.existingCode = fs.readFileSync(mainFile, 'utf-8');
+    }
+  }
+  var prompt = promptV5Module.parseBlueprintToPromptV5(blueprint, opts);
+
+  log('[coder] V5 BASE TEMPLATE prompt: ' + prompt.length + ' chars, ' + (hasFeedback ? 'INCREMENTAL FIX' : 'FULL GENERATION'), taskId);
+
+  // V5 System Prompt — 简洁版，强调 Find+Move
+  var sysPrompt = 'You are a Luna playable ad developer using the BASE TEMPLATE approach.\n'
+    + 'The Unity scene already contains 242 pre-built 3D objects. You do NOT create objects.\n\n'
+    + 'YOUR APPROACH:\n'
+    + '1. GameObject.Find("Name") to get object references in Start()\n'
+    + '2. transform.position = new Vector3(x,y,z) to show objects\n'
+    + '3. transform.position = new Vector3(0,-999,0) to hide objects\n'
+    + '4. GFM_Create.SetColor(obj, new Color(r,g,b)) to change colors\n'
+    + '5. Instantiate(obj) if you need more copies of an object\n'
+    + '6. Write game logic (interactions, collisions, flow control)\n\n'
+    + 'CRITICAL RULES:\n'
+    + '- ALL code in ONE file: GameFlowManagerMain.cs\n'
+    + '- Do NOT use GFM_Create.Obj() or CreatePrimitive() — objects already exist\n'
+    + '- Do NOT use GFM_UI.CreateCanvas() — Canvas already exists\n'
+    + '- NO generics (no List<T>), use plain arrays\n'
+    + '- NO coroutines/async/await — use Update() + timer pattern\n'
+    + '- NO LINQ, NO System.Linq\n'
+    + '- Hide with position y=-999, NOT SetActive(false)\n'
+    + '- Game end: Luna.Unity.LifeCycle.GameEnded()\n'
+    + '- CTA: Luna.Unity.Playable.InstallFullGame()\n'
+    + '- Collision detection: Vector3.Distance(a.position, b.position) < radius\n'
+    + '- Do NOT define class EventPool (conflicts with template)\n'
+    + '- Do NOT use transform.parent / SetParent / FindObjectOfType\n';
+
+  var userMsg = prompt;
+  if (hasFeedback) {
+    userMsg = '## INCREMENTAL FIX MODE\n\n'
+      + '⚠️ This is a FIX request. Preserve existing code structure, only modify what feedback requires.\n\n'
+      + userMsg;
+  }
+
+  userMsg += '\n\nGenerate the COMPLETE GameFlowManagerMain.cs file. '
+    + 'Use GameObject.Find() to get pre-built objects. '
+    + 'Move objects to show/hide them. Write game logic. '
+    + 'Output the file in a ```csharp code block.';
+
+  // V5: 不做 SVN revert 和场景替换！基础场景已经有 242 个对象
+  if (!hasFeedback) {
+    log('[coder] V5: Skipping SVN revert — base template scene preserved', taskId);
+  }
+
+  // Copy GFM_Tools.cs toolkit（仍需确保存在）
+  try {
+    var toolsSrc = path.join(__dirname, 'GFM_Tools.cs');
+    var toolsDst = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GFM_Tools.cs');
+    if (fs.existsSync(toolsSrc)) {
+      fs.copyFileSync(toolsSrc, toolsDst);
+      log('[coder] GFM_Tools.cs toolkit copied to project', taskId);
+    }
+  } catch(e) {}
+
+  // Call AI
+  try {
+    var response = await callClaudeWithRetry(sysPrompt, userMsg, 300000, MODEL_GENERATE);
+    log('[coder] V5 Generated (' + (response.usage ? response.usage.output_tokens + ' tokens' : 'ok') + ')', taskId);
+
+    var files = parseCodeBlocks(response.text);
+    if (files.length === 0) return { ok: false, error: 'No code blocks in V5 response' };
+
+    // Write files
+    writeFiles(clientDir, files, log, taskId);
+
+    // Verify: V5 checks Find-based approach
+    var mainFilePath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
+    var mainSrc = '';
+    if (fs.existsSync(mainFilePath)) {
+      mainSrc = fs.readFileSync(mainFilePath, 'utf-8');
+    }
+    var lineCount = mainSrc.split('\n').length;
+    var findCalls = (mainSrc.match(/GameObject\.Find/g) || []).length;
+    var gfmCreateCalls = (mainSrc.match(/GFM_Create\.Obj/g) || []).length;
+    var hasGameEnded = /GameEnded/.test(mainSrc);
+
+    log('[coder] V5 Verification: ' + lineCount + ' lines, ' + findCalls + ' Find() calls, ' + gfmCreateCalls + ' GFM_Create.Obj() calls (should be 0)', taskId);
+
+    if (gfmCreateCalls > 0) {
+      log('[coder] ⚠️ WARNING: AI used GFM_Create.Obj() in V5 mode — should use Find() instead', taskId);
+    }
+    if (findCalls === 0) {
+      log('[coder] ⚠️ WARNING: No GameObject.Find() calls — AI may not be using base template objects', taskId);
+    }
+    if (!hasGameEnded) {
+      log('[coder] ⚠️ WARNING: No GameEnded() call — Luna lifecycle may not end properly', taskId);
+    }
+
+    // Restore GFM_Tools.cs
+    try {
+      var toolsSrc2 = path.join(__dirname, 'GFM_Tools.cs');
+      var toolsDst2 = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GFM_Tools.cs');
+      if (fs.existsSync(toolsSrc2)) fs.copyFileSync(toolsSrc2, toolsDst2);
+    } catch(e) {}
+
+    return {
+      ok: true,
+      skipped: false,
+      v5: true,
+      entityCount: (blueprint.entities || []).length,
+      lineCount: lineCount,
+      findCalls: findCalls,
+      gfmCreateCalls: gfmCreateCalls
+    };
+  } catch(e) {
+    log('[coder] V5 generation error: ' + e.message, taskId);
+    return { ok: false, error: 'V5 generation failed: ' + e.message };
+  }
+}
 
 async function generateCodeV4(blueprint, clientDir, log, taskId, engine) {
   var isCocos = engine === 'cocos';
@@ -2897,7 +3026,7 @@ async function generateCodeV4(blueprint, clientDir, log, taskId, engine) {
   }
 }
 
-module.exports = { generateCode, generateCodeV4, callClaude, parseBlueprintToPrompt };
+module.exports = { generateCode, generateCodeV4, generateCodeV5, callClaude, parseBlueprintToPrompt };
 
 if (require.main === module) {
   (async function() {
