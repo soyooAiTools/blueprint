@@ -45,6 +45,8 @@ const LUNA_DIR = 'D:\\Luna';
 const NOTIFY_URL = process.env.NOTIFY_URL || 'https://playcools.top/notify/webhook';
 // Feishu DM notifications via feishu-notify.js (App Bot API, no webhook needed)
 
+const taskDebugBy = new Map(); // Track debugBy flag per task (set when task JSON has debugBy field)
+
 function notifyEvent(taskId, event, message, extra) {
   try {
     // Check if task has debugBy flag (set by 小白 when actively debugging)
@@ -81,7 +83,6 @@ const MAX_CUA_ROUNDS = 20; // Keep trying until pass. Nick: "不接受几轮没�
 const TASK_TIMEOUT_MS = 45 * 60 * 1000;
 const TRANSIENT_RETRIES = 3;
 const taskRetryCount = new Map();
-const taskDebugBy = new Map(); // Track debugBy flag per task (set when task JSON has debugBy field)
 
 class TaskFailedError extends Error {
   constructor(message, noRetry = false) {
