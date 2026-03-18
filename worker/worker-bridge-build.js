@@ -157,6 +157,48 @@ async function runBridgeBuild(clientDir, log, taskId) {
   const jakeBuildTime = Math.floor((Date.now() - startTime) / 1000);
   log(`[luna-build] Jake build done in ${jakeBuildTime}s, starting MSBuild Rebuild...`, taskId);
 
+  // 2.5a CRITICAL: Strip custom script components (type:4) from ALL stage scene data.
+  // The empty-scene-template has GameManager (class:6) and Directional Light (class:5) with custom scripts.
+  // After MSBuild recompilation with stubs, class indices shift → Luna instantiates wrong class → Awake() crash
+  // → luna:started never fires → iframe injection never runs → empty scene.
+  // We inject GameFlowManagerMain via iframe.html, so scene-baked script components are redundant and harmful.
+  try {
+    for (const stage of ['stage1', 'stage2', 'stage3', 'stage4']) {
+      // Check multiple possible scene data locations
+      const scenePaths = [
+        path.join(lunaTempDir, stage, 'assets', 'scenes'),
+        path.join(lunaTempDir, stage, 'develop', 'assets', 'scenes'),
+        path.join(lunaTempDir, stage, 'develop', 'engine', 'assets', 'scenes'),
+      ];
+      for (const scenesDir of scenePaths) {
+        if (!fs.existsSync(scenesDir)) continue;
+        const sceneFiles = fs.readdirSync(scenesDir).filter(f => f.endsWith('.json'));
+        for (const sf of sceneFiles) {
+          const sfPath = path.join(scenesDir, sf);
+          try {
+            const sceneData = JSON.parse(fs.readFileSync(sfPath, 'utf-8'));
+            let stripped = 0;
+            if (sceneData.objects) {
+              for (const obj of sceneData.objects) {
+                if (obj.components) {
+                  const before = obj.components.length;
+                  obj.components = obj.components.filter(c => c.type !== 4);
+                  stripped += before - obj.components.length;
+                }
+              }
+            }
+            if (stripped > 0) {
+              fs.writeFileSync(sfPath, JSON.stringify(sceneData), 'utf-8');
+              log(`[luna-build] Stripped ${stripped} custom script(s) from ${stage}/scenes/${sf}`, taskId);
+            }
+          } catch (pe) { /* skip non-scene JSON */ }
+        }
+      }
+    }
+  } catch (e) {
+    log('[luna-build] Warning stripping scene scripts: ' + e.message, taskId);
+  }
+
   // 2.5 DO NOT modify Event.cs or EventPool.cs — they are a partial class pair.
   // Modifying Event.cs breaks syntax (CS1022). EventPool conflicts are handled
   // in worker-coder.js pre-build by renaming AI's EventPool→GFM_EventPool in GameFlowManagerMain.cs.
@@ -424,6 +466,33 @@ window.addEventListener("luna:started", function() {
     }
     fs.writeFileSync(iframePath, html);
     log('[luna-build] Injected GameFlowManagerMain component into iframe.html', taskId);
+  }
+
+  // 6.5 CRITICAL: Patch script1.js _invokeOverload to prevent Awake crash
+  // Root cause: Scene data has components with class indices that don't match recompiled code.
+  // Luna calls _invokeOverload("Awake") → this.code.overloads is undefined → crash → luna:started never fires.
+  // Fix: Add null-check on this.code.overloads before accessing it.
+  const script1Path = path.join(stage4Dir, 'engine', 'luna', 'script1.js');
+  if (fs.existsSync(script1Path)) {
+    let script1 = fs.readFileSync(script1Path, 'utf-8');
+    const oldPattern = '_invokeOverload(e){try{const t=this.code.overloads[e+"()"]';
+    const newPattern = '_invokeOverload(e){try{if(!this.code||!this.code.overloads)return;const t=this.code.overloads[e+"()"]';
+    if (script1.includes(oldPattern)) {
+      script1 = script1.replace(oldPattern, newPattern);
+      fs.writeFileSync(script1Path, script1);
+      log('[luna-build] ✅ Patched script1.js _invokeOverload: added null-check for code.overloads (prevents Awake crash)', taskId);
+    } else {
+      log('[luna-build] ⚠️ _invokeOverload pattern not found in script1.js — may already be patched or format changed', taskId);
+    }
+    // Also patch stage3 copy if exists
+    const script1Stage3 = path.join(lunaTempDir, 'stage3', 'engine', 'luna', 'script1.js');
+    if (fs.existsSync(script1Stage3)) {
+      let s3 = fs.readFileSync(script1Stage3, 'utf-8');
+      if (s3.includes(oldPattern)) {
+        s3 = s3.replace(oldPattern, newPattern);
+        fs.writeFileSync(script1Stage3, s3);
+      }
+    }
   }
 
   // 7. Verify AI code is in the build output (prevent template-only builds)

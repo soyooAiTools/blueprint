@@ -1201,7 +1201,7 @@ function tryCompileUnity(clientDir, log, taskId) {
           if (m) {
             // Skip classes that AI already defines — prevents CS0101 duplicate definition
             if (aiClassNames.indexOf(m[2]) >= 0) return;
-            if (m[1] === 'class') stub += 'public class ' + m[2] + ' : MonoBehaviour { }\n';
+            if (m[1] === 'class') stub += 'public class ' + m[2] + ' : MonoBehaviour { void Awake(){} void OnEnable(){} void Start(){} void Update(){} }\n';
             else if (m[1] === 'enum') stub += 'public enum ' + m[2] + ' { Default }\n';
             else if (m[1] === 'struct') stub += 'public struct ' + m[2] + ' { }\n';
             else if (m[1] === 'interface') stub += 'public interface ' + m[2] + ' { }\n';
@@ -1597,7 +1597,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
               var baseClass = cn.indexOf('<') >= 0 ? 'MonoBehaviour' : 'MonoBehaviour';
               // If original has generic constraint like "where T : ...", extract base constraint
               var whereMatch = orig.match(new RegExp('class\\s+' + cn.replace(/[<>]/g, '\\$&').replace(/\w+(?=\s*>)/, '\\w+') + '\\s+(?::\\s*\\w+[^{]*)?where\\s+\\w+\\s*:\\s*([\\w.]+)'));
-              stub += 'public class ' + cn + ' : MonoBehaviour { }\n';
+              stub += 'public class ' + cn + ' : MonoBehaviour { void Awake(){} void OnEnable(){} void Start(){} void Update(){} }\n';
             }
             for (var e = 0; e < enums.length; e++) {
               var en = enums[e].match(/enum\s+(\w+)/)[1];
