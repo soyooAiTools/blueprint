@@ -90,9 +90,13 @@ async function send(taskId, event, message, extra) {
     const color = EVENT_COLORS[event] || 'blue';
 
     const meta = EVENT_META[event] || { plan: '继续执行', actionRequired: false };
-    const actionTag = meta.actionRequired
-      ? '\n\n🔔 **需要你操作**'
-      : '\n\n💤 仅通知，系统自动处理中';
+    // If debugBy is set (e.g. "小白"), override actionRequired to show agent is handling it
+    const debugBy = extra && extra.debugBy;
+    const actionTag = debugBy
+      ? `\n\n🤖 **${debugBy}正在处理**，无需操作`
+      : meta.actionRequired
+        ? '\n\n🔔 **需要你操作**'
+        : '\n\n💤 仅通知，系统自动处理中';
 
     const card = {
       msg_type: 'interactive',
@@ -100,7 +104,7 @@ async function send(taskId, event, message, extra) {
       content: JSON.stringify({
         config: { wide_screen_mode: true },
         header: {
-          title: { tag: 'plain_text', content: `${icon} ${proj}${meta.actionRequired ? ' ⚠️ 需要你' : ''}` },
+          title: { tag: 'plain_text', content: `${icon} ${proj}${debugBy ? ` 🤖 ${debugBy}处理中` : meta.actionRequired ? ' ⚠️ 需要你' : ''}` },
           template: color
         },
         elements: [

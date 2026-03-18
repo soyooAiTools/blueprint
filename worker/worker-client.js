@@ -47,6 +47,8 @@ const NOTIFY_URL = process.env.NOTIFY_URL || 'https://playcools.top/notify/webho
 
 function notifyEvent(taskId, event, message, extra) {
   try {
+    // Check if task has debugBy flag (set by 小白 when actively debugging)
+    let debugBy = (extra && extra.debugBy) || taskDebugBy.get(taskId);
     const data = JSON.stringify({
       taskId, event, message,
       projectName: (extra && extra.projectName) || taskId,
@@ -68,7 +70,8 @@ function notifyEvent(taskId, event, message, extra) {
 
   // Send to Feishu DM via App Bot API
   const feishuNotify = require('./feishu-notify.js');
-  feishuNotify.send(taskId, event, message, extra).catch(() => {});
+  const feishuExtra = debugBy ? Object.assign({}, extra || {}, { debugBy }) : extra;
+  feishuNotify.send(taskId, event, message, feishuExtra).catch(() => {});
 }
 
 // ============ Resilience Config ============
@@ -78,6 +81,7 @@ const MAX_CUA_ROUNDS = 20; // Keep trying until pass. Nick: "不接受几轮没�
 const TASK_TIMEOUT_MS = 45 * 60 * 1000;
 const TRANSIENT_RETRIES = 3;
 const taskRetryCount = new Map();
+const taskDebugBy = new Map(); // Track debugBy flag per task (set when task JSON has debugBy field)
 
 class TaskFailedError extends Error {
   constructor(message, noRetry = false) {
@@ -1152,6 +1156,7 @@ async function poll() {
     if (activeTasks.has(task.taskId)) return;
 
     log(`Got task: ${task.taskId} (${task.status}), project: ${task.projectName || '?'}`, task.taskId);
+    if (task.debugBy) { taskDebugBy.set(task.taskId, task.debugBy); log(`[debug] Task being debugged by: ${task.debugBy}`, task.taskId); }
     activeTasks.set(task.taskId, { task, startedAt: Date.now(), projectName: task.projectName });
     notifyEvent(task.taskId, 'task_started', `开始处理: ${task.projectName || task.taskId}`, { projectName: task.projectName });
 
