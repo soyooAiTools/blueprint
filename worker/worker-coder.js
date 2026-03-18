@@ -2745,7 +2745,9 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
     + '- CTA: Luna.Unity.Playable.InstallFullGame()\n'
     + '- Collision detection: Vector3.Distance(a.position, b.position) < radius\n'
     + '- Do NOT define class EventPool (conflicts with template)\n'
-    + '- Do NOT use transform.parent / SetParent / FindObjectOfType\n';
+    + '- Do NOT use transform.parent / SetParent / FindObjectOfType\n'
+    + '- Do NOT use generic methods: GetComponent<T>(), Resources.GetBuiltinResource<T>(), FindObjectOfType<T>()\n'
+    + '- Instead use: (T)GetComponent(typeof(T)), (Font)Resources.GetBuiltinResource(typeof(Font), "Arial.ttf")\n';
 
   var userMsg = prompt;
   if (hasFeedback) {
@@ -2784,6 +2786,22 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
 
     // Write files
     writeFiles(clientDir, files, log, taskId);
+
+    // Post-fix: replace generic method calls that Luna doesn't support
+    for (var fi = 0; fi < files.length; fi++) {
+      if (files[fi].content) {
+        // Fix Resources.GetBuiltinResource<T>("name") -> (T)Resources.GetBuiltinResource(typeof(T), "name")
+        files[fi].content = files[fi].content.replace(/Resources\.GetBuiltinResource<(\w+)>\(([^)]+)\)/g, '($1)Resources.GetBuiltinResource(typeof($1), $2)');
+        // Fix FindObjectOfType<T>() -> (T)FindObjectOfType(typeof(T))
+        files[fi].content = files[fi].content.replace(/FindObjectOfType<(\w+)>\(\)/g, '($1)FindObjectOfType(typeof($1))');
+        // Fix GetComponent<T>() -> (T)GetComponent(typeof(T))
+        files[fi].content = files[fi].content.replace(/\.GetComponent<(\w+)>\(\)/g, '.GetComponent(typeof($1)) as $1');
+      }
+    }
+
+    // Re-write files after post-fix
+    writeFiles(clientDir, files, log, taskId);
+    log('[coder] V5 Post-fix: stripped generic method calls for Luna compatibility', taskId);
 
     // Verify: V5 checks Find-based approach
     var mainFilePath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');

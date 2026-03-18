@@ -1,6 +1,6 @@
-// Worker Client v4 — Poll from Blueprint Editor API, build via Luna jake pipeline
-// Flow: Poll task → SVN update → Pre-build patch → Luna build → Upload zip → Report status
-// Also handles: fix_needed (re-build), commit_needed (SVN commit + cleanup)
+// Worker Client v5 — Poll from Blueprint Editor API, build via Luna jake pipeline
+// Flow: Poll task → Git clone/reset base template → Pre-build patch → Luna build → converter-v3 → Upload → CUA
+// Also handles: fix_needed (re-build), commit_needed (cleanup)
 
 // Load .env config
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
@@ -12,18 +12,32 @@ const fs = require('fs');
 const path = require('path');
 const { detectScenes, fixLunaJson, generateExportAssets, injectMaterialSourceAll, cleanScene } = require('./worker-patch.js');
 const { runBridgeBuild, bridgeRequest } = require('./worker-bridge-build.js');
-const { generateCode } = require('./worker-coder.js');
-const { convertAndSave } = require('./worker-html-converter.js');
+const { generateCode, generateCodeV5 } = require('./worker-coder.js');
+
+// V5 base template mode - set to true to enable
+const USE_BASE_TEMPLATE = process.env.USE_BASE_TEMPLATE === 'true' || true;
+
+// Smart code generator: V5 (base template) or legacy
+function smartGenerateCode(blueprint, clientDir, log, taskId, engine) {
+  if (engine === 'unity' && USE_BASE_TEMPLATE && blueprint.entities && blueprint.entities.length > 0) {
+    log('[smart] Using V5 BASE TEMPLATE mode', taskId);
+    return generateCodeV5(blueprint, clientDir, log, taskId, engine);
+  }
+  log('[smart] Using legacy generateCode mode', taskId);
+  return generateCode(blueprint, clientDir, log, taskId, engine);
+}
+// converter-v3: stage4→single HTML (replaces old worker-html-converter.js)
+const { convertV3 } = require('./converter-v3-wrapper.cjs');
 const { patchLunaBuild } = require('./worker-luna-patch.js');
 
-// Cocos modules (optional — loaded dynamically to avoid crash if not present)
+// Cocos modules (optional ?loaded dynamically to avoid crash if not present)
 let cocosPatch, cocosBuild, cocosHtmlConverter;
 try {
   cocosPatch = require('../worker-cocos/worker-patch.js');
   cocosBuild = require('../worker-cocos/worker-cocos-build.js');
   cocosHtmlConverter = require('../worker-cocos/worker-html-converter.js');
 } catch (e) {
-  // Cocos modules not available — cocos tasks will fail gracefully
+  // Cocos modules not available ?cocos tasks will fail gracefully
 }
 
 // ============ Config ============
@@ -32,12 +46,15 @@ const BASE_URL = process.env.BASE_URL || 'https://playcools.top/blueprint';
 const POLL_INTERVAL = 8000;       // 8s between polls
 const HEARTBEAT_INTERVAL = 30000; // 30s heartbeat
 const WORK_DIR = 'D:\\work';
-const FIXED_PROJECT_DIR = path.join(WORK_DIR, 'test-luna'); // Fixed SVN working copy (Unity)
+const FIXED_PROJECT_DIR = path.join(WORK_DIR, 'test-luna'); // Git base template (Unity)
 const CLIENT_DIR = path.join(FIXED_PROJECT_DIR, 'Client');
 const COCOS_PROJECT_DIR = path.join(WORK_DIR, 'test-cocos'); // Fixed SVN working copy (Cocos)
 const SVN_USER = 'openclaw';
 const SVN_PASS = 'openclaw';
 const SVN_FLAGS = `--non-interactive --no-auth-cache --username ${SVN_USER} --password ${SVN_PASS}`;
+// GitHub base template repo
+const BASE_TEMPLATE_REPO = 'https://github.com/soyooAiTools/luna-base-template.git';
+const BASE_TEMPLATE_BRANCH = 'main';
 const MAX_CONCURRENT = 1; // Only 1 task at a time (Unity can only open 1 project)
 const LUNA_DIR = 'D:\\Luna';
 
@@ -47,7 +64,7 @@ const NOTIFY_URL = process.env.NOTIFY_URL || 'https://playcools.top/notify/webho
 const taskDebugBy = new Map(); // Track debugBy flag per task (set when task JSON has debugBy field)
 
 function notifyEvent(taskId, event, message, extra) {
-  // Check if task has debugBy flag (set by 小白 when actively debugging)
+  // Check if task has debugBy flag (set by XiaoBai when actively debugging)
   const debugBy = (extra && extra.debugBy) || taskDebugBy.get(taskId);
   try {
     const data = JSON.stringify({
@@ -78,7 +95,7 @@ function notifyEvent(taskId, event, message, extra) {
 // ============ Resilience Config ============
 const MAX_TASK_RETRIES = 3;
 const RETRY_DELAYS = [30, 60, 120];
-const MAX_CUA_ROUNDS = 20; // Keep trying until pass. Nick: "不接受几轮没好就直接报终止"
+const MAX_CUA_ROUNDS = 20; // Keep trying until pass. Nick: "keep trying until pass"
 const TASK_TIMEOUT_MS = 45 * 60 * 1000;
 const TRANSIENT_RETRIES = 3;
 const taskRetryCount = new Map();
@@ -170,14 +187,14 @@ function apiRequest(method, urlPath, body, isBinary, extraHeaders) {
   });
 }
 
-// [REMOVED] Screenshot review on Main ECS — replaced by CUA verification on Worker (Step 5.5b)
+// [REMOVED] Screenshot review on Main ECS ?replaced by CUA verification on Worker (Step 5.5b)
 
 async function reportStatus(taskId, status, extra) {
   const payload = { workerId: WORKER_ID, taskId, status };
   if (extra) Object.assign(payload, extra);
   try {
     await apiRequest('POST', '/api/worker/status', payload);
-    log(`Status → ${status}${extra && extra.message ? ': ' + extra.message : ''}`, taskId);
+    log(`Status ?${status}${extra && extra.message ? ': ' + extra.message : ''}`, taskId);
   } catch (e) {
     log(`Status report failed: ${e.message}`, taskId);
   }
@@ -262,7 +279,7 @@ async function processTask(task) {
       }
 
       log('CUA resume: previous CUA did not pass, re-running CUA verification', taskId);
-      await reportStatus(taskId, 'processing', { message: 'CUA断点续跑 (跳过编码+构建)...' });
+      await reportStatus(taskId, 'processing', { message: 'CUA resume (skip coding+build)...' });
 
       // Apply Luna runtime patches before CUA
       try {
@@ -302,16 +319,16 @@ async function processTask(task) {
 
           if (cuaRound >= MAX_CUA_ROUNDS) {
             await reportStatus(taskId, 'failed', { 
-              message: 'CUA蓝图流程验证' + MAX_CUA_ROUNDS + '轮后未通过: ' + cuaResult.issues.slice(0, 2).join('; ').slice(0, 200)
+              message: 'CUA blueprint verification' + MAX_CUA_ROUNDS + ' rounds failed: ' + cuaResult.issues.slice(0, 2).join('; ').slice(0, 200)
             });
             throw new TaskFailedError('CUA verification failed after ' + MAX_CUA_ROUNDS + ' rounds');
           }
 
           // Fix cycle: re-code with CUA feedback, rebuild, retry
           log(`CUA resume: round ${cuaRound} failed, fix cycle...`, taskId);
-          await reportStatus(taskId, 'processing', { message: `CUA第${cuaRound}轮不通过，AI 重新编码修复中...` });
+          await reportStatus(taskId, 'processing', { message: `CUAround ${cuaRound} round failed, AI re-coding...` });
 
-          const cuaFeedbackText = 'CUA blueprint flow verification failed:\n' + cuaResult.issues.join('\n') + '\n\n请修改代码确保蓝图流程走通。';
+          const cuaFeedbackText = 'CUA blueprint flow verification failed:\n' + cuaResult.issues.join('\n') + '\n\nPlease fix the code to ensure blueprint flow works.';
           try {
             await apiRequest('POST', '/api/projects/' + taskId + '/feedback', 
               JSON.stringify({ text: cuaFeedbackText, source: 'cua-resume-round-' + cuaRound }),
@@ -327,9 +344,9 @@ async function processTask(task) {
               status: 'pending',
               timestamp: Date.now()
             });
-            log(`CUA resume: injected feedback into blueprint (${cuaBlueprint.feedbackHistory.length} entries) → INCREMENTAL FIX`, taskId);
+            log(`CUA resume: injected feedback into blueprint (${cuaBlueprint.feedbackHistory.length} entries) ?INCREMENTAL FIX`, taskId);
 
-            const fixResult = await generateCode(cuaBlueprint, CLIENT_DIR, log, taskId, 'unity');
+            const fixResult = await smartGenerateCode(cuaBlueprint, CLIENT_DIR, log, taskId, 'unity');
             if (!fixResult.ok) {
               await reportStatus(taskId, 'failed', { message: 'CUA fix re-code failed: ' + (fixResult.error || '').slice(0, 200) });
               throw new TaskFailedError('CUA fix re-code failed: ' + (fixResult.error || '').slice(0, 200));
@@ -338,13 +355,17 @@ async function processTask(task) {
           }
 
           // Rebuild
-          await reportStatus(taskId, 'building', { message: `CUA修复后重新构建中...` });
+          await reportStatus(taskId, 'building', { message: `CUA fix rebuilding...` });
           const ltDir = path.join(CLIENT_DIR, 'LunaTemp');
           for (const sub of ['stage2', 'stage3', 'stage4']) {
             const sd = path.join(ltDir, sub);
             if (fs.existsSync(sd)) try { fs.rmSync(sd, { recursive: true, force: true }); } catch(e) {}
           }
-          if (cleanScene(CLIENT_DIR)) log('Scene re-cleaned for CUA fix', taskId);
+          if (!USE_BASE_TEMPLATE) {
+            if (cleanScene(CLIENT_DIR)) log('Scene re-cleaned for CUA fix', taskId);
+          } else {
+            log('V5: Skipping cleanScene for CUA fix — base template preserved', taskId);
+          }
           const fixScenes = detectScenes(CLIENT_DIR);
           fixLunaJson(CLIENT_DIR, fixScenes);
           generateExportAssets(CLIENT_DIR, fixScenes);
@@ -357,8 +378,8 @@ async function processTask(task) {
           log(`CUA resume fix rebuild OK in ${fixBuild.buildTime}s`, taskId);
 
           try {
-            convertAndSave(path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop'), 
-              path.join(WORK_DIR, taskId + '-html'), { channels: ['appLovin'], projectName: taskId });
+            convertV3(path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop'), 
+              path.join(WORK_DIR, taskId + '-html'), { stripModules: ['TextMeshPro'], outputName: taskId });
           } catch(e) {}
 
         } catch (cuaErr) {
@@ -376,40 +397,53 @@ async function processTask(task) {
           await reportStatus(taskId, 'failed', { message: 'Build upload failed' });
           throw new TaskFailedError('Build upload failed');
         }
-        await reportStatus(taskId, 'completed', { message: 'CUA断点续跑完成，构建已上传' });
+        await reportStatus(taskId, 'completed', { message: 'CUA resume done, build uploaded' });
         log('CUA resume completed successfully', taskId);
         throw new TaskFailedError('Task failed');
       }
       return;
     }
 
-    // === Step 1: SVN Update ===
-    await reportStatus(taskId, 'processing', { message: 'SVN updating...' });
+    // === Step 1: Git Clone/Reset Base Template ===
+    await reportStatus(taskId, 'processing', { message: 'Preparing base template from GitHub...' });
 
-    if (!fs.existsSync(FIXED_PROJECT_DIR)) {
-      const svnUrl = task.svnUrl || 'svn://47.101.191.213:3690/test0213';
-      log('SVN checkout (first time)...', taskId);
-      const checkout = runCmd(`svn checkout ${SVN_FLAGS} "${svnUrl}" "${FIXED_PROJECT_DIR}"`, undefined, 600000);
-      if (!checkout.ok) {
-        await reportStatus(taskId, 'failed', { message: 'SVN checkout failed: ' + checkout.output.slice(0, 300) });
-        throw new TaskFailedError('SVN checkout failed: ' + checkout.output.slice(0, 300));
+    if (!fs.existsSync(path.join(FIXED_PROJECT_DIR, '.git'))) {
+      // First time: clone
+      log('Git clone base template...', taskId);
+      // Remove stale directory if exists (e.g. old SVN checkout)
+      if (fs.existsSync(FIXED_PROJECT_DIR)) {
+        runCmd(`rmdir /s /q "${FIXED_PROJECT_DIR}"`, undefined, 60000);
       }
+      const clone = runCmd(`git clone "${BASE_TEMPLATE_REPO}" "${FIXED_PROJECT_DIR}"`, undefined, 600000);
+      if (!clone.ok) {
+        await reportStatus(taskId, 'failed', { message: 'Git clone failed: ' + clone.output.slice(0, 300) });
+        throw new TaskFailedError('Git clone failed: ' + clone.output.slice(0, 300));
+      }
+      log('Git clone OK', taskId);
     } else {
-      const update = runCmd(`svn update ${SVN_FLAGS}`, FIXED_PROJECT_DIR, 120000);
-      if (!update.ok) {
-        await reportStatus(taskId, 'failed', { message: 'SVN update failed: ' + update.output.slice(0, 300) });
-        throw new TaskFailedError('SVN update failed: ' + update.output.slice(0, 300));
+      // Already cloned: fetch + hard reset to clean state
+      log('Git fetch + reset to latest base template...', taskId);
+      const fetch = runCmd(`git fetch origin ${BASE_TEMPLATE_BRANCH}`, FIXED_PROJECT_DIR, 120000);
+      if (!fetch.ok) {
+        log('Git fetch warning: ' + fetch.output.slice(0, 200), taskId);
       }
-      log('SVN update OK: ' + update.output.split('\n').pop(), taskId);
+      const reset = runCmd(`git reset --hard origin/${BASE_TEMPLATE_BRANCH}`, FIXED_PROJECT_DIR, 30000);
+      if (!reset.ok) {
+        await reportStatus(taskId, 'failed', { message: 'Git reset failed: ' + reset.output.slice(0, 300) });
+        throw new TaskFailedError('Git reset failed: ' + reset.output.slice(0, 300));
+      }
+      // Clean untracked files (AI-generated .cs, build artifacts, etc.)
+      runCmd('git clean -fdx -e LunaTemp/', FIXED_PROJECT_DIR, 30000);
+      log('Git reset + clean OK', taskId);
     }
 
     if (!fs.existsSync(CLIENT_DIR)) {
-      await reportStatus(taskId, 'failed', { message: 'Client directory not found after SVN update' });
-      throw new TaskFailedError('Client directory not found after SVN update');
+      await reportStatus(taskId, 'failed', { message: 'Client directory not found after git clone' });
+      throw new TaskFailedError('Client directory not found after git clone');
     }
 
     // === Step 1.5: Clean old AI-generated scripts from Assets/Scripts ===
-    // SVN update restores deleted files; we must clean before AI coding
+    // git reset --hard should handle this, but double-check
     const scriptsDir = path.join(CLIENT_DIR, 'Assets', 'Scripts');
     if (fs.existsSync(scriptsDir)) {
       function cleanCsRecursive(dir) {
@@ -443,7 +477,7 @@ async function processTask(task) {
 
     if (blueprint && blueprint.nodes && blueprint.nodes.length > 0) {
       log(`Blueprint: ${blueprint.nodes.length} nodes, ${(blueprint.edges || []).length} edges`, taskId);
-      const codeResult = await generateCode(blueprint, CLIENT_DIR, log, taskId, 'unity');
+      const codeResult = await smartGenerateCode(blueprint, CLIENT_DIR, log, taskId, 'unity');
       if (codeResult.ok && !codeResult.skipped) {
         log(`AI coding done: ${codeResult.filesWritten} files written`, taskId);
         notifyEvent(taskId, 'coding_done', `AI coding done (${codeResult.filesWritten} files)`, { projectName: task.projectName });
@@ -452,7 +486,7 @@ async function processTask(task) {
         log('AI coding failed: ' + codeResult.error + ', retrying...', taskId);
         await reportStatus(taskId, 'processing', { message: 'AI coding failed, retrying...' });
         // Retry once
-        const retryResult = await generateCode(blueprint, CLIENT_DIR, log, taskId, 'unity');
+        const retryResult = await smartGenerateCode(blueprint, CLIENT_DIR, log, taskId, 'unity');
         if (retryResult.ok && !retryResult.skipped) {
           log(`AI coding retry done: ${retryResult.filesWritten} files written`, taskId);
           await reportStatus(taskId, 'processing', { message: `AI coding done (${retryResult.filesWritten} files, retry)` });
@@ -467,7 +501,7 @@ async function processTask(task) {
     }
 
     // === Step 3: Pre-build Patch ===
-    await reportStatus(taskId, 'building', { message: '预处理 + Luna 构建中...' });
+    await reportStatus(taskId, 'building', { message: 'Pre-process + Luna build...' });
 
     // Clean old LunaTemp but PRESERVE stage1 cache (asset export is slow without Bridge)
     const lunaTempDir = path.join(CLIENT_DIR, 'LunaTemp');
@@ -503,7 +537,10 @@ async function processTask(task) {
     }
 
     // Replace template scene with clean empty scene (Camera + Light + EventSystem + GameManager + MaterialSource only)
-    if (cleanScene(CLIENT_DIR)) {
+    // V5 BASE TEMPLATE: skip cleanScene to preserve 242 pre-built objects
+    if (USE_BASE_TEMPLATE) {
+      log('V5: Skipping cleanScene — base template scene preserved with 242 objects', taskId);
+    } else if (cleanScene(CLIENT_DIR)) {
       log('Scene cleaned: replaced template with empty scene', taskId);
     } else {
       log('Warning: cleanScene skipped (template not found)', taskId);
@@ -518,7 +555,7 @@ async function processTask(task) {
 
     fixLunaJson(CLIENT_DIR, scenes);
     generateExportAssets(CLIENT_DIR, scenes);
-    // NOTE: scene injection disabled — causes Luna jake build to hang
+    // NOTE: scene injection disabled ?causes Luna jake build to hang
     // Material solution is now code-only (AI uses Object.FindObjectOfType<Renderer>())
     log('Pre-build patch applied', taskId);
 
@@ -530,17 +567,13 @@ async function processTask(task) {
     }
     log(`Luna build OK in ${buildResult.buildTime}s`, taskId);
 
-    // === Step 5: HTML Conversion ===
-    await reportStatus(taskId, 'processing', { message: 'HTML channel conversion...' });
+    // === Step 5: HTML Conversion (converter-v3) ===
+    await reportStatus(taskId, 'processing', { message: 'HTML conversion (converter-v3)...' });
     const stage4Dir = path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop');
     const htmlOutputDir = path.join(WORK_DIR, taskId + '-html');
     try {
-      const defaultChannels = ['appLovin'];
-      const htmlResults = convertAndSave(stage4Dir, htmlOutputDir, {
-        channels: defaultChannels,
-        projectName: taskId
-      });
-      log(`HTML conversion done: ${htmlResults.length} channels, sizes: ${htmlResults.map(r => r.channel + '=' + r.size + 'KB').join(', ')}`, taskId);
+      const v3Result = convertV3(stage4Dir, htmlOutputDir, { stripModules: ['TextMeshPro'], outputName: taskId });
+      log(`HTML conversion done: ${v3Result.rawMB}MB raw / ${v3Result.gzipMB}MB gzip`, taskId);
     } catch (e) {
       log(`HTML conversion failed (non-fatal): ${e.message}`, taskId);
     }
@@ -568,7 +601,7 @@ async function processTask(task) {
 
         if (previewResult.ok) {
           log(`[preview-check] PASSED (round ${previewRound}) - game loaded successfully`, taskId);
-          notifyEvent(taskId, 'preview_check', `✅ 预览检查通过，进入 CUA 验证`, { projectName: task.projectName });
+          notifyEvent(taskId, 'preview_check', `?Preview passed, entering CUA`, { projectName: task.projectName });
           break;
         }
 
@@ -578,14 +611,14 @@ async function processTask(task) {
         }
 
         if (previewRound >= MAX_PREVIEW_FIX_ROUNDS) {
-          notifyEvent(taskId, 'compile_error', `❌ 预览检查 ${MAX_PREVIEW_FIX_ROUNDS} 轮失败: ${(previewResult.error||'').slice(0,100)}`, { projectName: task.projectName });
+          notifyEvent(taskId, 'compile_error', `?Preview check ${MAX_PREVIEW_FIX_ROUNDS}  rounds failed: ${(previewResult.error||'').slice(0,100)}`, { projectName: task.projectName });
           throw new TaskFailedError(`Preview health check failed after ${MAX_PREVIEW_FIX_ROUNDS} fix rounds: ${previewResult.error}`);
         }
 
         // === Self-heal: feed error back to AI coder for targeted fix ===
         log(`[preview-check] Self-healing: feeding error to AI for fix (round ${previewRound})...`, taskId);
         await reportStatus(taskId, 'processing', {
-          message: `预览检查失败(${previewResult.error?.slice(0, 50)})，AI 自修复中... (第${previewRound}/${MAX_PREVIEW_FIX_ROUNDS}轮)`
+          message: `Preview check failed(${previewResult.error?.slice(0, 50)}),AI self-fixing... (round ${previewRound}/${MAX_PREVIEW_FIX_ROUNDS})`
         });
 
         // Build feedback for AI coder
@@ -595,10 +628,10 @@ async function processTask(task) {
           error: previewResult.error,
           consoleErrors: (previewResult.consoleErrors || []).slice(0, 10),
           details: previewResult.details || {},
-          instruction: `游戏构建后预览检查失败。问题: ${previewResult.error}。` +
-            (previewResult.consoleErrors?.length ? `浏览器控制台错误: ${previewResult.consoleErrors.slice(0, 5).join('; ')}。` : '') +
-            `请检查并修复代码中导致此问题的原因。常见原因: Start()中有未捕获异常导致游戏无法初始化、死循环阻塞主线程、引用了不存在的资源、UI元素未正确创建。` +
-            `修复时保留已有代码结构，只修改导致问题的部分。`
+          instruction: `Preview check failed after build. Issue: ${previewResult.error}。` +
+            (previewResult.consoleErrors?.length ? `Browser console errors: ${previewResult.consoleErrors.slice(0, 5).join('; ')}。` : '') +
+            `Check and fix root cause. Common issues: Start()has uncaught exception, infinite loop, missing resources, or UI not created.` +
+            `Preserve code structure, only fix the problematic parts.`
         };
 
         // Inject feedback into blueprint for incremental fix
@@ -606,7 +639,7 @@ async function processTask(task) {
         blueprint.feedbackHistory.push(previewFeedback);
 
         // Re-generate code with feedback
-        const fixResult = await generateCode(blueprint, CLIENT_DIR, log, taskId, 'unity');
+        const fixResult = await smartGenerateCode(blueprint, CLIENT_DIR, log, taskId, 'unity');
         if (!fixResult || !fixResult.ok) {
           log(`[preview-check] AI fix failed, skipping to next round`, taskId);
           continue;
@@ -660,19 +693,19 @@ async function processTask(task) {
 
         if (cuaResult.passed) {
           log(`CUA verification PASSED (round ${cuaRound}): all shots passed`, taskId);
-          notifyEvent(taskId, 'cua_pass', `✅ CUA验证通过 (第${cuaRound}轮)! all shots passed`, { projectName: task.projectName });
+          notifyEvent(taskId, 'cua_pass', `?CUA passed (round ${cuaRound})! all shots passed`, { projectName: task.projectName });
           cuaPassed = true;
           break;
         }
 
-        // CUA failed — log issues
+        // CUA failed ?log issues
         log(`CUA verification FAILED round ${cuaRound}/${MAX_CUA_ROUNDS}, ${cuaResult.issues.length} issues`, taskId);
         cuaResult.issues.forEach(issue => log(`  - ${issue}`, taskId));
-        notifyEvent(taskId, 'cua_round', `CUA第${cuaRound}/${MAX_CUA_ROUNDS}轮未通过 (${cuaResult.issues.length}个问题): ${cuaResult.issues.slice(0,2).join('; ').slice(0,150)}`, { projectName: task.projectName });
+        notifyEvent(taskId, 'cua_round', `CUAround ${cuaRound}/${MAX_CUA_ROUNDS} round failed (${cuaResult.issues.length} issues): ${cuaResult.issues.slice(0,2).join('; ').slice(0,150)}`, { projectName: task.projectName });
 
         if (cuaRound >= MAX_CUA_ROUNDS) {
-          // Max retries exhausted — fail the task with details
-          const feedbackText = 'CUA蓝图流程验证不通过 (' + MAX_CUA_ROUNDS + '轮修复后仍有问题):\n' + cuaResult.issues.join('\n');
+          // Max retries exhausted ?fail the task with details
+          const feedbackText = 'CUA blueprint verification failed (' + MAX_CUA_ROUNDS + ' rounds still failing):\n' + cuaResult.issues.join('\n');
           try {
             await apiRequest('POST', '/api/projects/' + taskId + '/feedback', 
               JSON.stringify({ text: feedbackText, source: 'cua-auto' }),
@@ -681,20 +714,20 @@ async function processTask(task) {
             log('CUA feedback submit failed: ' + fbErr.message, taskId);
           }
           await reportStatus(taskId, 'failed', { 
-            message: 'CUA蓝图流程验证' + MAX_CUA_ROUNDS + '轮后未通过: ' + cuaResult.issues.slice(0, 2).join('; ').slice(0, 200),
+            message: 'CUA blueprint verification' + MAX_CUA_ROUNDS + ' rounds failed: ' + cuaResult.issues.slice(0, 2).join('; ').slice(0, 200),
             cuaReview: { issues: cuaResult.issues.length, rounds: cuaRound, details: cuaResult.issues }
           });
           throw new TaskFailedError('CUA verification failed after ' + MAX_CUA_ROUNDS + ' rounds');
         }
 
-        // Not final round — use CUA feedback to re-code and rebuild
+        // Not final round ?use CUA feedback to re-code and rebuild
         log(`CUA round ${cuaRound} failed, starting fix cycle...`, taskId);
         
         // Build rich feedback with visual context so AI knows WHAT the screen looks like
         let visualContext = '';
         if (cuaResult.report) {
           if (cuaResult.report.summary) {
-            visualContext += '\n\n## CUA观察到的画面:\n' + cuaResult.report.summary;
+            visualContext += '\n\n## CUA observed screen:\n' + cuaResult.report.summary;
           }
           if (cuaResult.report.history && cuaResult.report.history.length > 0) {
             const lastRound = cuaResult.report.history[cuaResult.report.history.length - 1];
@@ -703,18 +736,18 @@ async function processTask(task) {
           // Detect uniform/empty scene from score vs coverage mismatch
           const allUncovered = cuaResult.report.scriptCoverage && cuaResult.report.scriptCoverage.every(s => !s.covered);
           if (allUncovered) {
-            visualContext += '\n\n⚠️ Critical: All shots uncovered' + (cuaResult.report.scriptCoverage || []).length + ')。这通常意味着:\n'
+            visualContext += '\n\n⚠️ Critical: All shots uncovered' + (cuaResult.report.scriptCoverage || []).length + ')。This usually means:\n'
               + '1. Objects invisible\n2. Camera misaligned\n3. Object creation failed'
-              + '2. 相机位置/朝向错误，看不到物体\n'
-              + '3. 物体创建失败（GFM_Create.Obj()返回null）\n'
-              + '请检查: 每种物体是否有不同颜色？相机是否对准了场景中心？_mainCam.backgroundColor是否设为天蓝色(0.6f,0.8f,1f)？';
+              + '2. Camera position/direction wrong, objects not visible\n'
+              + '3. Object creation failed (GFM_Create.Obj() returns null)\n'
+              + 'Check: each object type has different color, camera aimed at scene center, _mainCam.backgroundColor set to sky blue (0.6f,0.8f,1f)';
           }
         }
         
-        const cuaFeedbackText = 'CUA blueprint flow verification failed，fix these issues to pass:\n' + cuaResult.issues.join('\n') + visualContext + '\n\n请针对以上问题修改代码，确保蓝图描述的所有场景能按顺序操作通过，最终到达CTA。';
+        const cuaFeedbackText = 'CUA blueprint flow verification failed,fix these issues to pass:\n' + cuaResult.issues.join('\n') + visualContext + '\n\nPlease modify code to fix above issues, ensure all blueprint scenes work in order and reach CTA';
 
         // Re-code with CUA feedback as context
-        await reportStatus(taskId, 'processing', { message: `CUA第${cuaRound}轮不通过，AI 重新编码修复中...` });
+        await reportStatus(taskId, 'processing', { message: `CUAround ${cuaRound} round failed, AI re-coding...` });
         
         // Inject CUA feedback into the task's feedback history for AI coder to see
         try {
@@ -738,10 +771,10 @@ async function processTask(task) {
               status: 'pending',
               timestamp: Date.now()
             }];
-            log(`CUA fix: feedbackHistory was empty, injected CUA feedback → INCREMENTAL FIX`, taskId);
+            log(`CUA fix: feedbackHistory was empty, injected CUA feedback ?INCREMENTAL FIX`, taskId);
           }
 
-          const fixResult = await generateCode(fixBlueprint, CLIENT_DIR, log, taskId, 'unity');
+          const fixResult = await smartGenerateCode(fixBlueprint, CLIENT_DIR, log, taskId, 'unity');
           if (fixResult.ok) {
             log(`CUA fix re-code done: ${fixResult.filesWritten} files written`, taskId);
           } else {
@@ -752,7 +785,7 @@ async function processTask(task) {
         }
 
         // Re-build
-        await reportStatus(taskId, 'building', { message: `CUA修复后重新构建中... (第${cuaRound + 1}轮验证)` });
+        await reportStatus(taskId, 'building', { message: `CUA fix rebuilding... (round ${cuaRound + 1}verify)` });
         
         // Clean stage2-4 for rebuild
         const ltDir = path.join(CLIENT_DIR, 'LunaTemp');
@@ -761,7 +794,11 @@ async function processTask(task) {
           if (fs.existsSync(sd)) try { fs.rmSync(sd, { recursive: true, force: true }); } catch(e) {}
         }
 
-        if (cleanScene(CLIENT_DIR)) log('Scene re-cleaned for CUA fix rebuild', taskId);
+        if (!USE_BASE_TEMPLATE) {
+          if (cleanScene(CLIENT_DIR)) log('Scene re-cleaned for CUA fix rebuild', taskId);
+        } else {
+          log('V5: Skipping cleanScene for CUA rebuild — base template preserved', taskId);
+        }
         const fixScenes = detectScenes(CLIENT_DIR);
         fixLunaJson(CLIENT_DIR, fixScenes);
         generateExportAssets(CLIENT_DIR, fixScenes);
@@ -785,7 +822,7 @@ async function processTask(task) {
         try {
           const fixStage4 = path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop');
           const fixHtmlDir = path.join(WORK_DIR, taskId + '-html');
-          convertAndSave(fixStage4, fixHtmlDir, { channels: ['appLovin'], projectName: taskId });
+          convertV3(fixStage4, fixHtmlDir, { stripModules: ['TextMeshPro'], outputName: taskId });
         } catch(e) {
           log(`CUA fix HTML conversion failed (non-fatal): ${e.message}`, taskId);
         }
@@ -813,7 +850,7 @@ async function processTask(task) {
 
     // === Step 7: Upload single-file HTMLs ===
     if (fs.existsSync(htmlOutputDir)) {
-      await reportStatus(taskId, 'processing', { message: '上传渠道 HTML...' });
+      await reportStatus(taskId, 'processing', { message: 'Uploading channel HTML...' });
       try {
         const htmlFiles = fs.readdirSync(htmlOutputDir).filter(f => f.endsWith('.html'));
         for (const f of htmlFiles) {
@@ -831,9 +868,9 @@ async function processTask(task) {
     }
 
     // === Step 8: Done (CUA verification already done in Step 5.5b) ===
-    await reportStatus(taskId, 'reviewing', { message: `构建完成 (${buildResult.buildTime}s)，CUA验证通过，等待人工审核` });
+    await reportStatus(taskId, 'reviewing', { message: `Build done (${buildResult.buildTime}s),CUA passed,waiting for review` });
     notifyEvent(taskId, 'done', `🎉 Task done! Build ${buildResult.buildTime}s, CUA passed, waiting for review`, { projectName: task.projectName });
-    log('Task completed → reviewing', taskId);
+    log('Task completed ?reviewing', taskId);
 
   } catch (e) {
     if (e instanceof TaskFailedError) throw e;
@@ -875,7 +912,7 @@ async function processTaskCocos(task) {
     }
 
     // === Step 2: AI Coding ===
-    await reportStatus(taskId, 'processing', { message: 'AI 编码中 (Cocos)...' });
+    await reportStatus(taskId, 'processing', { message: 'AI coding (Cocos)...' });
     let blueprint = null;
     try {
       blueprint = await apiRequest('GET', `/api/tasks/${taskId}/blueprint`);
@@ -928,7 +965,11 @@ async function processTaskCocos(task) {
     // === Step 4: HTML Conversion ===
     await reportStatus(taskId, 'processing', { message: 'HTML channel conversion...' });
     const htmlOutputDir = path.join(WORK_DIR, taskId + '-html');
-    const htmlConverter = cocosHtmlConverter || { convertAndSave };
+    // Cocos uses its own html converter (not converter-v3)
+    const htmlConverter = cocosHtmlConverter;
+    if (!htmlConverter) {
+      log('Cocos HTML converter not available, skipping', taskId);
+    }
     try {
       const htmlResults = await htmlConverter.convertAndSave(buildDir, htmlOutputDir, {
         channels: ['appLovin'],
@@ -940,7 +981,7 @@ async function processTaskCocos(task) {
     }
 
     // === Step 5: Upload HTMLs ===
-    await reportStatus(taskId, 'processing', { message: '上传 HTML...' });
+    await reportStatus(taskId, 'processing', { message: 'Uploading HTML...' });
     if (fs.existsSync(htmlOutputDir)) {
       const htmlFiles = fs.readdirSync(htmlOutputDir).filter(f => f.endsWith('.html'));
       let uploadOk = false;
@@ -967,8 +1008,8 @@ async function processTaskCocos(task) {
       throw new TaskFailedError('No HTML output');
     }
 
-    await reportStatus(taskId, 'reviewing', { message: `Cocos 构建完成 (${buildResult.buildTime}s)，等待审核` });
-    log('Task completed → reviewing (Cocos)', taskId);
+    await reportStatus(taskId, 'reviewing', { message: `Cocos Build done (${buildResult.buildTime}s),waiting for review` });
+    log('Task completed ?reviewing (Cocos)', taskId);
 
   } catch (e) {
     log(`Task error (Cocos): ${e.message}`, taskId);
@@ -977,7 +1018,7 @@ async function processTaskCocos(task) {
 }
 
 async function uploadBuild(taskId) {
-  // Find build output — stage4/develop/index.html is the standard output
+  // Find build output ?stage4/develop/index.html is the standard output
   const searchDirs = [
     path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop'),
     path.join(CLIENT_DIR, 'LunaTemp', 'package', 'default'),
@@ -1033,68 +1074,42 @@ async function handleCommit(task) {
   const isCocos = engine === 'cocos';
   const projectDir = isCocos ? COCOS_PROJECT_DIR : FIXED_PROJECT_DIR;
 
-  await reportStatus(taskId, 'processing', { message: 'SVN committing...' });
+  await reportStatus(taskId, 'processing', { message: 'Finalizing project...' });
 
   if (!fs.existsSync(projectDir)) {
     await reportStatus(taskId, 'failed', { message: 'Working copy not found' });
     throw new TaskFailedError('Working copy not found');
   }
 
-  // === Delete cache directories before commit ===
+  // Git-based: no SVN commit needed. Just clean up build artifacts.
   const cacheList = isCocos
     ? ['build', 'temp', 'local', 'library', 'node_modules', '.vs']
     : ['Library', 'Temp', 'LunaTemp', 'obj', 'Logs', 'UserSettings', '.vs'];
   const cachePrefix = isCocos ? '' : 'Client';
   for (const dir of cacheList) {
     const dirPath = cachePrefix ? path.join(projectDir, cachePrefix, dir) : path.join(projectDir, dir);
-    const svnRelPath = cachePrefix ? `${cachePrefix}/${dir}` : dir;
     if (fs.existsSync(dirPath)) {
-      log(`Deleting cache: ${svnRelPath}`, taskId);
       try {
-        runCmd(`svn revert --depth infinity "${svnRelPath}" ${SVN_FLAGS}`, projectDir);
         fs.rmSync(dirPath, { recursive: true, force: true });
-        log(`Deleted cache: ${svnRelPath}`, taskId);
+        log(`Cleaned: ${cachePrefix ? cachePrefix + '/' : ''}${dir}`, taskId);
       } catch (e) {
-        log(`Warning: failed to delete ${svnRelPath}: ${e.message}`, taskId);
+        log(`Warning: failed to clean ${dir}: ${e.message}`, taskId);
       }
     }
   }
-  await reportStatus(taskId, 'processing', { message: '缓存已清理，准备提交...' });
 
-  runCmd(`svn add --force . ${SVN_FLAGS}`, projectDir);
-
-  for (const dir of cacheList) {
-    const dirPath = cachePrefix ? path.join(projectDir, cachePrefix, dir) : path.join(projectDir, dir);
-    const svnRelPath = cachePrefix ? `${cachePrefix}/${dir}` : dir;
-    if (fs.existsSync(dirPath)) {
-      runCmd(`svn revert --depth infinity "${svnRelPath}" 2>nul`, projectDir);
-    }
-  }
-
-  const commitMsg = `[AutoCoding] ${task.projectName || 'Project'} - ${taskId}`;
-  const result = runCmd(`svn commit -m "${commitMsg}" ${SVN_FLAGS}`, projectDir, 600000);
-
-  if (!result.ok) {
-    log(`SVN commit failed: ${result.output}`, taskId);
-    await reportStatus(taskId, 'failed', { message: 'SVN commit failed: ' + result.output.slice(0, 200) });
-    throw new TaskFailedError('SVN commit failed: ' + result.output.slice(0, 200));
-  }
-
-  let svnRevision = null;
-  const revMatch = result.output.match(/Committed revision (\d+)/);
-  if (revMatch) svnRevision = parseInt(revMatch[1]);
-
-  log(`SVN commit OK: r${svnRevision}`, taskId);
+  log('Project cleanup done (no SVN commit — using Git base template)', taskId);
 
   // Callback to Blueprint Editor
   try {
-    await apiRequest('POST', `/api/projects/${taskId}/committed`, { svnRevision, message: commitMsg });
+    const commitMsg = `[AutoCoding] ${task.projectName || 'Project'} - ${taskId}`;
+    await apiRequest('POST', `/api/projects/${taskId}/committed`, { svnRevision: null, message: commitMsg });
     log('Committed callback OK', taskId);
   } catch (e) {
     log(`Committed callback failed: ${e.message}`, taskId);
   }
 
-  await reportStatus(taskId, 'committed', { message: `SVN committed r${svnRevision}` });
+  await reportStatus(taskId, 'committed', { message: 'Project finalized' });
 }
 
 // ============ Poll & Heartbeat ============
@@ -1110,12 +1125,12 @@ async function poll() {
     log(`Got task: ${task.taskId} (${task.status}), project: ${task.projectName || '?'}`, task.taskId);
     if (task.debugBy) { taskDebugBy.set(task.taskId, task.debugBy); log(`[debug] Task being debugged by: ${task.debugBy}`, task.taskId); }
     activeTasks.set(task.taskId, { task, startedAt: Date.now(), projectName: task.projectName });
-    notifyEvent(task.taskId, 'task_started', `开始处理: ${task.projectName || task.taskId}`, { projectName: task.projectName });
+    notifyEvent(task.taskId, 'task_started', `Started processing: ${task.projectName || task.taskId}`, { projectName: task.projectName });
 
     // Task execution with auto-retry + global timeout
     const runWithRetry = async () => {
       const taskTimeout = setTimeout(() => {
-        log(`⏰ Task timeout (${TASK_TIMEOUT_MS/60000}min)`, task.taskId);
+        log(`?Task timeout (${TASK_TIMEOUT_MS/60000}min)`, task.taskId);
         notifyEvent(task.taskId, 'timeout', `Task timeout (${TASK_TIMEOUT_MS/60000}min)`, { projectName: task.projectName });
       }, TASK_TIMEOUT_MS);
       try {
@@ -1150,9 +1165,9 @@ async function poll() {
     };
     runWithRetry()
       .catch(e => {
-        log(`❌ Task failed permanently: ${e.message}`, task.taskId);
+        log(`?Task failed permanently: ${e.message}`, task.taskId);
         notifyEvent(task.taskId, 'task_failed_final',
-          `任务最终失败 (已重试${taskRetryCount.get(task.taskId) || 0} times): ${e.message.slice(0, 150)}`,
+          `Task failed permanently (retried${taskRetryCount.get(task.taskId) || 0} times): ${e.message.slice(0, 150)}`,
           { projectName: task.projectName });
       })
       .finally(() => {
@@ -1161,7 +1176,7 @@ async function poll() {
         log(`Task done. Slots: ${activeTasks.size}/${MAX_CONCURRENT}`, task.taskId);
       });
   } catch (e) {
-    // Poll error — server might be down, silently retry
+    // Poll error ?server might be down, silently retry
     if (!e.message.includes('timeout')) log(`Poll error: ${e.message}`);
   } finally {
     pollLock = false;

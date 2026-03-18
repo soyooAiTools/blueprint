@@ -22,7 +22,7 @@ try {
 const { GoogleGenAI } = require('@google/genai');
 
 const CONFIG = {
-  apiKey: 'AIzaSyA73A6SjC50R00UR4eaE9BGwg1rzr10g2c', // hardcoded — PM2 env has stale expired key
+  apiKey: process.env.GEMINI_API_KEY || '',
   textModel: 'gemini-2.5-flash',
   imageModel: 'gemini-3-pro-image-preview',
 };
