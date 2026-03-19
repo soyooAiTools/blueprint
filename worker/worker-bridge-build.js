@@ -102,62 +102,44 @@ async function runBridgeBuild(clientDir, log, taskId) {
       fs.copyFileSync(stage1Iframe, iframeDest);
       log('[luna-build] Used stage1 iframe.html', taskId);
     } else {
-      // Generate iframe.html dynamically from actual stage4 files
-      const engineDir = path.join(s4Dir, 'engine', 'unity', 'bin');
-      const jsDir = path.join(s4Dir, 'js');
-      let scriptTags = '';
-      // Add engine JS files in correct load order
-      const engineOrder = ['bridge.js', 'bridge.meta.js', 'Bridge.Locales.js'];
-      const engineFiles = fs.existsSync(engineDir) ? fs.readdirSync(engineDir).filter(f => f.endsWith('.js')) : [];
-      // First: bridge core files in order
-      for (const f of engineOrder) {
-        if (engineFiles.includes(f)) scriptTags += `<script src="engine/unity/bin/${f}"></script>\n`;
-      }
-      // Then: all other engine JS (UnityEngine, DOTween, etc) except bridge core and UnityScriptsCompiler (loaded last)
-      for (const f of engineFiles) {
-        if (!engineOrder.includes(f) && f !== 'UnityScriptsCompiler.js') {
-          scriptTags += `<script src="engine/unity/bin/${f}"></script>\n`;
+      // Use luna-bootstrap.html template from worker directory
+      const bootstrapPath = path.join(__dirname, 'luna-bootstrap.html');
+      if (fs.existsSync(bootstrapPath)) {
+        // Generate iframe.html: engine script tags + bootstrap HTML
+        const engineDir = path.join(s4Dir, 'engine', 'unity', 'bin');
+        const jsDir = path.join(s4Dir, 'js');
+        let scriptTags = '';
+        const engineOrder = ['bridge.js', 'bridge.meta.js', 'Bridge.Locales.js'];
+        const engineFiles = fs.existsSync(engineDir) ? fs.readdirSync(engineDir).filter(f => f.endsWith('.js')) : [];
+        for (const f of engineOrder) {
+          if (engineFiles.includes(f)) scriptTags += `<script src="engine/unity/bin/${f}" defer="defer" type="text/javascript"></script>\n`;
         }
-      }
-      // UnityScriptsCompiler.js last (contains game code)
-      if (engineFiles.includes('UnityScriptsCompiler.js')) {
-        scriptTags += `<script src="engine/unity/bin/UnityScriptsCompiler.js"></script>\n`;
-      }
-      // Add js/ directory files
-      if (fs.existsSync(jsDir)) {
-        for (const f of fs.readdirSync(jsDir).filter(f => f.endsWith('.js'))) {
-          scriptTags += `<script src="js/${f}"></script>\n`;
+        for (const f of engineFiles) {
+          if (!engineOrder.includes(f) && f !== 'UnityScriptsCompiler.js') {
+            scriptTags += `<script src="engine/unity/bin/${f}" defer="defer" type="text/javascript"></script>\n`;
+          }
         }
+        if (engineFiles.includes('UnityScriptsCompiler.js')) {
+          scriptTags += `<script src="engine/unity/bin/UnityScriptsCompiler.js" defer="defer" type="text/javascript"></script>\n`;
+        }
+        if (fs.existsSync(jsDir)) {
+          for (const f of fs.readdirSync(jsDir).filter(f => f.endsWith('.js'))) {
+            scriptTags += `<script src="js/${f}" defer="defer" type="text/javascript"></script>\n`;
+          }
+        }
+        const bootstrap = fs.readFileSync(bootstrapPath, 'utf-8');
+        const iframeHtml = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>*{margin:0;padding:0}html,body{width:100%;height:100%;overflow:hidden}canvas{display:block;width:100%;height:100%}</style>
+</head><body>
+${scriptTags}
+${bootstrap}
+</body></html>`;
+        fs.writeFileSync(iframeDest, iframeHtml, 'utf-8');
+        log('[luna-build] Generated iframe.html from luna-bootstrap.html with ' + engineFiles.length + ' engine scripts', taskId);
+      } else {
+        log('[luna-build] WARNING: No iframe.html source found (no luna-copy, no stage1 cache, no bootstrap)', taskId);
       }
-      const iframeHtml = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Luna Preview</title>
-<style>*{margin:0;padding:0}html,body{width:100%;height:100%;overflow:hidden}canvas{display:block}</style>
-</head>
-<body>
-<canvas id="unity-canvas"></canvas>
-<script>
-window.DEVELOP=true;window.TRACE=false;window.TESTS=false;window.DEBUG=false;window.FORCE_STABLE_RANDOM_SEED=false;
-window.MODULE_physics3d=true;window.MODULE_physics2d=true;window.MODULE_particle_system=true;
-window.MODULE_reflection=true;window.MODULE_prefabs=true;window.MODULE_mecanim=true;
-</script>
-${scriptTags}<script>
-(function(){
-  var canvas = document.getElementById('unity-canvas');
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-  if(typeof Unity !== 'undefined' && Unity.init) {
-    Unity.init(canvas);
-  }
-})();
-</script>
-</body>
-</html>`;
-      fs.writeFileSync(iframeDest, iframeHtml, 'utf-8');
-      log('[luna-build] Generated iframe.html with ' + engineFiles.length + ' engine scripts', taskId);
     }
     
     // Also create stage3 dir for MSBuild JS copy target
