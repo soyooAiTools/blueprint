@@ -280,16 +280,17 @@ async function runBridgeBuild(clientDir, log, taskId) {
     }
   }
 
-  // 3.5 Create Client junction if PROJECT_PATH\Client doesn't exist (csproj references Client\Assets\...)
+  // 3.5 Create Client junction (csproj references Client\Assets\...)
   const clientJunction = path.join(clientDir, 'Client');
-  if (!fs.existsSync(clientJunction)) {
-    try {
-      // Junction: D:\work\test-luna\Client → D:\work\test-luna
-      execSync(`mklink /J "${clientJunction}" "${clientDir}"`, { encoding: 'utf-8', timeout: 5000 });
-      log('[luna-build] Created Client junction → project root', taskId);
-    } catch (e) {
-      log('[luna-build] Warning creating Client junction: ' + e.message, taskId);
+  try {
+    // Remove if exists (could be stale dir from git)
+    if (fs.existsSync(clientJunction)) {
+      try { execSync(`rmdir /S /Q "${clientJunction}"`, { encoding: 'utf-8', timeout: 5000 }); } catch(e) {}
     }
+    execSync(`mklink /J "${clientJunction}" "${clientDir}"`, { encoding: 'utf-8', timeout: 5000 });
+    log('[luna-build] Created Client junction → project root', taskId);
+  } catch (e) {
+    log('[luna-build] Warning creating Client junction: ' + e.message, taskId);
   }
 
   // 4. MSBuild Rebuild (compiles .cs from disk via Bridge.NET → JS)
