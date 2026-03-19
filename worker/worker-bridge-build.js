@@ -102,11 +102,33 @@ async function runBridgeBuild(clientDir, log, taskId) {
       fs.copyFileSync(stage1Iframe, iframeDest);
       log('[luna-build] Used stage1 iframe.html', taskId);
     } else {
-      // Generate standard Luna iframe.html template
-      // Read luna.json to get scene and asset info
-      let lunaJson = {};
-      try { lunaJson = JSON.parse(fs.readFileSync(path.join(s4Dir, 'luna.json'), 'utf-8')); } catch(e) {}
-      const scenes = (lunaJson.scenes || []).map(s => `"${s}"`).join(',');
+      // Generate iframe.html dynamically from actual stage4 files
+      const engineDir = path.join(s4Dir, 'engine', 'unity', 'bin');
+      const jsDir = path.join(s4Dir, 'js');
+      let scriptTags = '';
+      // Add engine JS files in correct load order
+      const engineOrder = ['bridge.js', 'bridge.meta.js', 'Bridge.Locales.js'];
+      const engineFiles = fs.existsSync(engineDir) ? fs.readdirSync(engineDir).filter(f => f.endsWith('.js')) : [];
+      // First: bridge core files in order
+      for (const f of engineOrder) {
+        if (engineFiles.includes(f)) scriptTags += `<script src="engine/unity/bin/${f}"></script>\n`;
+      }
+      // Then: all other engine JS (UnityEngine, DOTween, etc) except bridge core and UnityScriptsCompiler (loaded last)
+      for (const f of engineFiles) {
+        if (!engineOrder.includes(f) && f !== 'UnityScriptsCompiler.js') {
+          scriptTags += `<script src="engine/unity/bin/${f}"></script>\n`;
+        }
+      }
+      // UnityScriptsCompiler.js last (contains game code)
+      if (engineFiles.includes('UnityScriptsCompiler.js')) {
+        scriptTags += `<script src="engine/unity/bin/UnityScriptsCompiler.js"></script>\n`;
+      }
+      // Add js/ directory files
+      if (fs.existsSync(jsDir)) {
+        for (const f of fs.readdirSync(jsDir).filter(f => f.endsWith('.js'))) {
+          scriptTags += `<script src="js/${f}"></script>\n`;
+        }
+      }
       const iframeHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -117,13 +139,7 @@ async function runBridgeBuild(clientDir, log, taskId) {
 </head>
 <body>
 <canvas id="unity-canvas"></canvas>
-<script src="engine/unity/bin/bridge.js"></script>
-<script src="engine/unity/bin/bridge.console.js"></script>
-<script src="engine/unity/bin/UnityEngine.js"></script>
-<script src="engine/unity/bin/UI.js"></script>
-<script src="engine/unity/bin/UnityScriptsCompiler.js"></script>
-<script src="js/luna.unity.js"></script>
-<script>
+${scriptTags}<script>
 (function(){
   var canvas = document.getElementById('unity-canvas');
   canvas.width = window.innerWidth;
@@ -136,7 +152,7 @@ async function runBridgeBuild(clientDir, log, taskId) {
 </body>
 </html>`;
       fs.writeFileSync(iframeDest, iframeHtml, 'utf-8');
-      log('[luna-build] Generated standard iframe.html template', taskId);
+      log('[luna-build] Generated iframe.html with ' + engineFiles.length + ' engine scripts', taskId);
     }
     
     // Also create stage3 dir for MSBuild JS copy target
