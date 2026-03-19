@@ -619,7 +619,20 @@ After each action, briefly report in Chinese:
   - Prefer drag; use click only for clear buttons (PLAY, START, OK)
 - **NEVER use the same action type at a similar position for 2 consecutive rounds**
 - Do not refresh the page or navigate away
-- Mark defects with [BUG]`
+- Mark defects with [BUG]
+
+## ⚠️ 白屏/空场景时的强制行为
+如果画面是白色、黑色、或完全空白：
+1. **不要说"建议刷新"或"联系技术支持"** — 你无法刷新页面
+2. **必须报告具体观察**：canvas 是否存在？有没有任何 DOM 元素？背景是什么颜色？
+3. **仍然执行操作**：在画面中央和四角点击/拖拽，看有没有任何响应
+4. **对照分镜脚本逐条标记 [MISS]**：白屏意味着所有 Phase 都未达成
+5. **每轮必须输出结构化报告**，格式：
+   [状态] 白屏/黑屏/有内容
+   [Phase进度] 当前Phase: X, 已完成: Y/Z
+   [操作] 执行了什么操作
+   [结果] 操作后画面变化
+   [问题] [BUG] 具体问题描述`
 + (gameScript ? `
 
 ## 📋 分镜脚本（必须逐步验证！）

@@ -107,8 +107,27 @@ async function runBridgeBuild(clientDir, log, taskId) {
       if (fs.existsSync(bootstrapPath)) {
         // Generate iframe.html: engine script tags + bootstrap HTML
         const engineDir = path.join(s4Dir, 'engine', 'unity', 'bin');
+        const lunaDir = path.join(s4Dir, 'engine', 'luna');
         const jsDir = path.join(s4Dir, 'js');
         let scriptTags = '';
+
+        // 1. Luna/PlayCanvas engine (script1.js defines `pc` — MUST load before bridge.js)
+        if (fs.existsSync(lunaDir)) {
+          // script1.js (PlayCanvas core) must load first, then others
+          const lunaFiles = fs.readdirSync(lunaDir).filter(f => f.endsWith('.js'));
+          const lunaOrder = ['script1.js', 'script-1.js', 'script3.js'];
+          for (const f of lunaOrder) {
+            if (lunaFiles.includes(f)) scriptTags += `<script src="engine/luna/${f}"></script>\n`;
+          }
+          for (const f of lunaFiles) {
+            if (!lunaOrder.includes(f) && f !== 'manifest.json') {
+              scriptTags += `<script src="engine/luna/${f}"></script>\n`;
+            }
+          }
+          log('[luna-build] Added ' + lunaFiles.filter(f => f.endsWith('.js')).length + ' Luna/PlayCanvas engine scripts', taskId);
+        }
+
+        // 2. Bridge.NET + Unity engine
         const engineOrder = ['bridge.js', 'bridge.meta.js', 'Bridge.Locales.js'];
         const engineFiles = fs.existsSync(engineDir) ? fs.readdirSync(engineDir).filter(f => f.endsWith('.js')) : [];
         for (const f of engineOrder) {
@@ -122,6 +141,8 @@ async function runBridgeBuild(clientDir, log, taskId) {
         if (engineFiles.includes('UnityScriptsCompiler.js')) {
           scriptTags += `<script src="engine/unity/bin/UnityScriptsCompiler.js"></script>\n`;
         }
+
+        // 3. Additional JS
         if (fs.existsSync(jsDir)) {
           for (const f of fs.readdirSync(jsDir).filter(f => f.endsWith('.js'))) {
             scriptTags += `<script src="js/${f}"></script>\n`;
