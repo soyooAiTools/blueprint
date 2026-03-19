@@ -111,8 +111,7 @@ async function runBridgeBuild(clientDir, log, taskId) {
         const jsDir = path.join(s4Dir, 'js');
         let scriptTags = '';
 
-        // === Script load order (circular dep resolution): ===
-        // script1.js (defines `pc`) → Bridge → .NET assemblies → remaining Luna → user code
+        // === Script load order: Bridge → Luna (manifest) → .NET → user code ===
         const engineFiles = fs.existsSync(engineDir) ? fs.readdirSync(engineDir).filter(f => f.endsWith('.js')) : [];
         let lunaLoadOrder = [];
         if (fs.existsSync(lunaDir)) {
@@ -138,18 +137,18 @@ async function runBridgeBuild(clientDir, log, taskId) {
           if (lunaLoadOrder.length === 0) lunaLoadOrder = lunaFiles.filter(f => f !== 'manifest.json').sort();
         }
 
-        // 1. script1.js FIRST (defines `pc` global, needed by UnityEngine.js)
-        if (lunaLoadOrder.includes('script1.js')) {
-          scriptTags += `<script src="engine/luna/script1.js"></script>\n`;
-        }
-
-        // 2. Bridge.NET core
+        // 1. Bridge.NET core (must be first)
         const engineOrder = ['bridge.js', 'bridge.meta.js', 'Bridge.Locales.js'];
         for (const f of engineOrder) {
           if (engineFiles.includes(f)) scriptTags += `<script src="engine/unity/bin/${f}"></script>\n`;
         }
 
-        // 3. .NET assemblies
+        // 2. Luna scripts (manifest order — script1.js defines `pc`)
+        for (const f of lunaLoadOrder) {
+          scriptTags += `<script src="engine/luna/${f}"></script>\n`;
+        }
+
+        // 3. .NET assemblies (depend on Bridge + pc)
         const unityOrder = ['UnityEngine.js', 'UnityEngine.UI.js', 'UnityEngine.UniversalRenderPipeline.js',
                            'DOTween.js', 'newtonsoft.json.js', 'TextMeshPro.js', 'JetBrains.js'];
         for (const f of unityOrder) {
@@ -160,14 +159,9 @@ async function runBridgeBuild(clientDir, log, taskId) {
             scriptTags += `<script src="engine/unity/bin/${f}"></script>\n`;
           }
         }
+        log('[luna-build] Order: Bridge → Luna(' + lunaLoadOrder.length + ') → .NET → user code', taskId);
 
-        // 4. Remaining Luna scripts (depend on Bridge/Luna namespace)
-        for (const f of lunaLoadOrder) {
-          if (f !== 'script1.js') scriptTags += `<script src="engine/luna/${f}"></script>\n`;
-        }
-        log('[luna-build] Script order: script1.js → Bridge → .NET → Luna(' + lunaLoadOrder.filter(f=>f!=='script1.js').length + ') → user code', taskId);
-
-        // 5. UnityScriptsCompiler.js (user code)
+        // 4. UnityScriptsCompiler.js (user code)
         if (engineFiles.includes('UnityScriptsCompiler.js')) {
           scriptTags += `<script src="engine/unity/bin/UnityScriptsCompiler.js"></script>\n`;
         }

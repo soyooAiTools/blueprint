@@ -70,16 +70,21 @@ if (fs.existsSync(lunaDir)) {
   if (lunaLoadOrder.length === 0) lunaLoadOrder = lunaFiles.filter(f => f !== 'manifest.json').sort();
 }
 
-// 1. script1.js FIRST (defines `pc` global, needed by UnityEngine.js)
-if (lunaLoadOrder.includes('script1.js')) {
-  scripts.push('engine/luna/script1.js');
-}
+// Correct order: bridge.js → bridge.meta.js → Bridge.Locales.js → Luna scripts (by manifest) → .NET assemblies → user code
+// bridge.js: defines Bridge runtime (window.Bridge)
+// script1.js: first line is `if(window.Bridge.property=...)`, defines `pc` global
+// UnityEngine.js: references `pc` in Bridge.assembly callback
+// script3.js: references `Luna` namespace (from Bridge.assembly in bridge.js)
+// script-1.js: uses Bridge.define proxy
 
-// 2. Bridge.NET core
+// 1. Bridge.NET core (must be first — script1.js needs Bridge)
 const bridgeOrder = ['bridge.js', 'bridge.meta.js', 'Bridge.Locales.js'];
 for (const f of bridgeOrder) { if (engineFiles.includes(f)) scripts.push('engine/unity/bin/' + f); }
 
-// 3. .NET assemblies (depend on pc + Bridge)
+// 2. All Luna scripts in manifest order (script1.js defines `pc`, which .NET needs)
+for (const f of lunaLoadOrder) scripts.push('engine/luna/' + f);
+
+// 3. .NET assemblies (depend on both Bridge and pc)
 const unityOrder = ['UnityEngine.js', 'UnityEngine.UI.js', 'UnityEngine.UniversalRenderPipeline.js',
                     'DOTween.js', 'newtonsoft.json.js', 'TextMeshPro.js', 'JetBrains.js'];
 for (const f of unityOrder) { if (engineFiles.includes(f)) scripts.push('engine/unity/bin/' + f); }
@@ -89,12 +94,7 @@ for (const f of engineFiles) {
   }
 }
 
-// 4. Remaining Luna scripts (script-1.js, script3.js, physics, etc. — depend on Bridge/Luna namespace)
-for (const f of lunaLoadOrder) {
-  if (f !== 'script1.js') scripts.push('engine/luna/' + f);
-}
-
-// 5. UnityScriptsCompiler.js (user code)
+// 4. UnityScriptsCompiler.js (user code)
 if (engineFiles.includes('UnityScriptsCompiler.js')) scripts.push('engine/unity/bin/UnityScriptsCompiler.js');
 if (fs.existsSync(jsDir)) {
   for (const f of fs.readdirSync(jsDir).filter(f => f.endsWith('.js'))) scripts.push('js/' + f);
