@@ -112,19 +112,19 @@ async function runBridgeBuild(clientDir, log, taskId) {
         const engineOrder = ['bridge.js', 'bridge.meta.js', 'Bridge.Locales.js'];
         const engineFiles = fs.existsSync(engineDir) ? fs.readdirSync(engineDir).filter(f => f.endsWith('.js')) : [];
         for (const f of engineOrder) {
-          if (engineFiles.includes(f)) scriptTags += `<script src="engine/unity/bin/${f}" defer="defer" type="text/javascript"></script>\n`;
+          if (engineFiles.includes(f)) scriptTags += `<script src="engine/unity/bin/${f}"></script>\n`;
         }
         for (const f of engineFiles) {
           if (!engineOrder.includes(f) && f !== 'UnityScriptsCompiler.js') {
-            scriptTags += `<script src="engine/unity/bin/${f}" defer="defer" type="text/javascript"></script>\n`;
+            scriptTags += `<script src="engine/unity/bin/${f}"></script>\n`;
           }
         }
         if (engineFiles.includes('UnityScriptsCompiler.js')) {
-          scriptTags += `<script src="engine/unity/bin/UnityScriptsCompiler.js" defer="defer" type="text/javascript"></script>\n`;
+          scriptTags += `<script src="engine/unity/bin/UnityScriptsCompiler.js"></script>\n`;
         }
         if (fs.existsSync(jsDir)) {
           for (const f of fs.readdirSync(jsDir).filter(f => f.endsWith('.js'))) {
-            scriptTags += `<script src="js/${f}" defer="defer" type="text/javascript"></script>\n`;
+            scriptTags += `<script src="js/${f}"></script>\n`;
           }
         }
         const bootstrap = fs.readFileSync(bootstrapPath, 'utf-8');
