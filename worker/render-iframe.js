@@ -36,18 +36,24 @@ const moduleMap = { 'mecanim-wasm': 'mecanim', 'mecanim': 'mecanim', 'particle-s
 const scripts = [];
 const engineFiles = fs.existsSync(engineDir) ? fs.readdirSync(engineDir).filter(f => f.endsWith('.js')) : [];
 
-// === LOAD ORDER (critical!) ===
-// 1. Luna/PlayCanvas engine FIRST (defines `pc` global, needed by UnityEngine.js)
-// 2. Bridge.NET core (bridge.js defines Bridge runtime)
-// 3. .NET assemblies (UnityEngine.js etc. reference both `pc` and `Bridge`)
-// 4. UnityScriptsCompiler.js (user code)
-// 5. Additional JS (deserializers)
+// === LOAD ORDER (critical! circular dep resolution): ===
+// UnityEngine.js references `pc` → script1.js must come before Bridge+Unity
+// script3.js references `Luna` namespace → bridge.js must come before script3.js
+// script-1.js uses Bridge.define() proxy → bridge.js must come before script-1.js
+//
+// Correct order:
+// 1. script1.js (PlayCanvas core, defines `pc` global) — no deps
+// 2. Bridge.NET core (bridge.js, bridge.meta.js, Bridge.Locales.js) — no deps
+// 3. .NET assemblies (UnityEngine.js, etc.) — depend on `pc` + Bridge
+// 4. Remaining Luna scripts (script-1.js, script3.js, physics, etc.) — depend on Bridge (Luna namespace)
+// 5. UnityScriptsCompiler.js (user code)
+// 6. Additional JS (deserializers)
 
-// 1. Luna/PlayCanvas engine (from manifest.json)
+// Resolve Luna scripts from manifest
+let lunaLoadOrder = [];
 if (fs.existsSync(lunaDir)) {
   const lunaFiles = fs.readdirSync(lunaDir).filter(f => f.endsWith('.js'));
   const manifestPath = path.join(lunaDir, 'manifest.json');
-  let lunaLoadOrder = [];
   if (fs.existsSync(manifestPath)) {
     try {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
@@ -62,14 +68,18 @@ if (fs.existsSync(lunaDir)) {
     } catch(e) {}
   }
   if (lunaLoadOrder.length === 0) lunaLoadOrder = lunaFiles.filter(f => f !== 'manifest.json').sort();
-  for (const f of lunaLoadOrder) scripts.push('engine/luna/' + f);
+}
+
+// 1. script1.js FIRST (defines `pc` global, needed by UnityEngine.js)
+if (lunaLoadOrder.includes('script1.js')) {
+  scripts.push('engine/luna/script1.js');
 }
 
 // 2. Bridge.NET core
 const bridgeOrder = ['bridge.js', 'bridge.meta.js', 'Bridge.Locales.js'];
 for (const f of bridgeOrder) { if (engineFiles.includes(f)) scripts.push('engine/unity/bin/' + f); }
 
-// 3. .NET assemblies (depend on both pc and Bridge)
+// 3. .NET assemblies (depend on pc + Bridge)
 const unityOrder = ['UnityEngine.js', 'UnityEngine.UI.js', 'UnityEngine.UniversalRenderPipeline.js',
                     'DOTween.js', 'newtonsoft.json.js', 'TextMeshPro.js', 'JetBrains.js'];
 for (const f of unityOrder) { if (engineFiles.includes(f)) scripts.push('engine/unity/bin/' + f); }
@@ -79,7 +89,12 @@ for (const f of engineFiles) {
   }
 }
 
-// 4. UnityScriptsCompiler.js (user code)
+// 4. Remaining Luna scripts (script-1.js, script3.js, physics, etc. — depend on Bridge/Luna namespace)
+for (const f of lunaLoadOrder) {
+  if (f !== 'script1.js') scripts.push('engine/luna/' + f);
+}
+
+// 5. UnityScriptsCompiler.js (user code)
 if (engineFiles.includes('UnityScriptsCompiler.js')) scripts.push('engine/unity/bin/UnityScriptsCompiler.js');
 if (fs.existsSync(jsDir)) {
   for (const f of fs.readdirSync(jsDir).filter(f => f.endsWith('.js'))) scripts.push('js/' + f);
