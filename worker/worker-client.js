@@ -683,7 +683,6 @@ async function processTask(task) {
         // Loop back to check again
       }
     } // end if (!htmlOutputExists)
-    }
 
     // === Step 5.7: CUA Verification Loop (GPT-5.4 verification, fix until pass) ===
     let cuaPassed = false;
