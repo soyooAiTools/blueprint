@@ -112,34 +112,15 @@ async function runBridgeBuild(clientDir, log, taskId) {
         let scriptTags = '';
 
         // === Script load order (critical! dependency chain): ===
-        // 1. Bridge.NET core (bridge.js, bridge.meta.js, Bridge.Locales.js)
-        // 2. UnityEngine + other .NET assemblies (depend on Bridge)
-        // 3. Luna/PlayCanvas engine (script3.js references Luna namespace from Bridge)
-        // 4. UnityScriptsCompiler.js (user code, depends on everything)
+        // 1. Luna/PlayCanvas engine FIRST (defines `pc` global, needed by UnityEngine.js)
+        // 2. Bridge.NET core (bridge.js, bridge.meta.js, Bridge.Locales.js)
+        // 3. .NET assemblies (UnityEngine.js etc. reference both `pc` and `Bridge`)
+        // 4. UnityScriptsCompiler.js (user code)
         // 5. Additional JS (deserializers etc.)
 
-        // 1. Bridge.NET core — must load first
-        const engineOrder = ['bridge.js', 'bridge.meta.js', 'Bridge.Locales.js'];
         const engineFiles = fs.existsSync(engineDir) ? fs.readdirSync(engineDir).filter(f => f.endsWith('.js')) : [];
-        for (const f of engineOrder) {
-          if (engineFiles.includes(f)) scriptTags += `<script src="engine/unity/bin/${f}"></script>\n`;
-        }
 
-        // 2. .NET assemblies (UnityEngine, DOTween, etc.) — depend on Bridge
-        // UnityEngine.js must come before DOTween/TextMeshPro (they reference UnityEngine)
-        const unityOrder = ['UnityEngine.js', 'UnityEngine.UI.js', 'UnityEngine.UniversalRenderPipeline.js',
-                           'DOTween.js', 'newtonsoft.json.js', 'TextMeshPro.js', 'JetBrains.js'];
-        for (const f of unityOrder) {
-          if (engineFiles.includes(f)) scriptTags += `<script src="engine/unity/bin/${f}"></script>\n`;
-        }
-        // Any remaining engine files not in explicit orders
-        for (const f of engineFiles) {
-          if (!engineOrder.includes(f) && !unityOrder.includes(f) && f !== 'UnityScriptsCompiler.js') {
-            scriptTags += `<script src="engine/unity/bin/${f}"></script>\n`;
-          }
-        }
-
-        // 3. Luna/PlayCanvas engine — depends on Bridge + Luna namespace
+        // 1. Luna/PlayCanvas engine FIRST — defines `pc` global
         if (fs.existsSync(lunaDir)) {
           const lunaFiles = fs.readdirSync(lunaDir).filter(f => f.endsWith('.js'));
           const manifestPath = path.join(lunaDir, 'manifest.json');
@@ -165,10 +146,28 @@ async function runBridgeBuild(clientDir, log, taskId) {
           for (const f of lunaLoadOrder) {
             scriptTags += `<script src="engine/luna/${f}"></script>\n`;
           }
-          log('[luna-build] Added ' + lunaLoadOrder.length + ' Luna/PlayCanvas scripts (after Bridge): ' + lunaLoadOrder.join(', '), taskId);
+          log('[luna-build] Added ' + lunaLoadOrder.length + ' Luna/PlayCanvas scripts (FIRST, before Bridge): ' + lunaLoadOrder.join(', '), taskId);
         }
 
-        // 4. UnityScriptsCompiler.js (user code — depends on UnityEngine + Bridge)
+        // 2. Bridge.NET core
+        const engineOrder = ['bridge.js', 'bridge.meta.js', 'Bridge.Locales.js'];
+        for (const f of engineOrder) {
+          if (engineFiles.includes(f)) scriptTags += `<script src="engine/unity/bin/${f}"></script>\n`;
+        }
+
+        // 3. .NET assemblies (depend on both pc and Bridge)
+        const unityOrder = ['UnityEngine.js', 'UnityEngine.UI.js', 'UnityEngine.UniversalRenderPipeline.js',
+                           'DOTween.js', 'newtonsoft.json.js', 'TextMeshPro.js', 'JetBrains.js'];
+        for (const f of unityOrder) {
+          if (engineFiles.includes(f)) scriptTags += `<script src="engine/unity/bin/${f}"></script>\n`;
+        }
+        for (const f of engineFiles) {
+          if (!engineOrder.includes(f) && !unityOrder.includes(f) && f !== 'UnityScriptsCompiler.js') {
+            scriptTags += `<script src="engine/unity/bin/${f}"></script>\n`;
+          }
+        }
+
+        // 4. UnityScriptsCompiler.js (user code)
         if (engineFiles.includes('UnityScriptsCompiler.js')) {
           scriptTags += `<script src="engine/unity/bin/UnityScriptsCompiler.js"></script>\n`;
         }

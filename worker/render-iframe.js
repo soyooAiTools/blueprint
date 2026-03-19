@@ -34,19 +34,16 @@ const jsDir = path.join(stage4Dir, 'js');
 const moduleMap = { 'mecanim-wasm': 'mecanim', 'mecanim': 'mecanim', 'particle-system': 'particle_system', 'particle_system': 'particle_system', 'urp': 'urp' };
 
 const scripts = [];
-const bridgeOrder = ['bridge.js', 'bridge.meta.js', 'Bridge.Locales.js'];
-const unityOrder = ['UnityEngine.js', 'UnityEngine.UI.js', 'UnityEngine.UniversalRenderPipeline.js',
-                    'DOTween.js', 'newtonsoft.json.js', 'TextMeshPro.js', 'JetBrains.js'];
 const engineFiles = fs.existsSync(engineDir) ? fs.readdirSync(engineDir).filter(f => f.endsWith('.js')) : [];
 
-for (const f of bridgeOrder) { if (engineFiles.includes(f)) scripts.push('engine/unity/bin/' + f); }
-for (const f of unityOrder) { if (engineFiles.includes(f)) scripts.push('engine/unity/bin/' + f); }
-for (const f of engineFiles) {
-  if (!bridgeOrder.includes(f) && !unityOrder.includes(f) && f !== 'UnityScriptsCompiler.js') {
-    scripts.push('engine/unity/bin/' + f);
-  }
-}
+// === LOAD ORDER (critical!) ===
+// 1. Luna/PlayCanvas engine FIRST (defines `pc` global, needed by UnityEngine.js)
+// 2. Bridge.NET core (bridge.js defines Bridge runtime)
+// 3. .NET assemblies (UnityEngine.js etc. reference both `pc` and `Bridge`)
+// 4. UnityScriptsCompiler.js (user code)
+// 5. Additional JS (deserializers)
 
+// 1. Luna/PlayCanvas engine (from manifest.json)
 if (fs.existsSync(lunaDir)) {
   const lunaFiles = fs.readdirSync(lunaDir).filter(f => f.endsWith('.js'));
   const manifestPath = path.join(lunaDir, 'manifest.json');
@@ -68,6 +65,21 @@ if (fs.existsSync(lunaDir)) {
   for (const f of lunaLoadOrder) scripts.push('engine/luna/' + f);
 }
 
+// 2. Bridge.NET core
+const bridgeOrder = ['bridge.js', 'bridge.meta.js', 'Bridge.Locales.js'];
+for (const f of bridgeOrder) { if (engineFiles.includes(f)) scripts.push('engine/unity/bin/' + f); }
+
+// 3. .NET assemblies (depend on both pc and Bridge)
+const unityOrder = ['UnityEngine.js', 'UnityEngine.UI.js', 'UnityEngine.UniversalRenderPipeline.js',
+                    'DOTween.js', 'newtonsoft.json.js', 'TextMeshPro.js', 'JetBrains.js'];
+for (const f of unityOrder) { if (engineFiles.includes(f)) scripts.push('engine/unity/bin/' + f); }
+for (const f of engineFiles) {
+  if (!bridgeOrder.includes(f) && !unityOrder.includes(f) && f !== 'UnityScriptsCompiler.js') {
+    scripts.push('engine/unity/bin/' + f);
+  }
+}
+
+// 4. UnityScriptsCompiler.js (user code)
 if (engineFiles.includes('UnityScriptsCompiler.js')) scripts.push('engine/unity/bin/UnityScriptsCompiler.js');
 if (fs.existsSync(jsDir)) {
   for (const f of fs.readdirSync(jsDir).filter(f => f.endsWith('.js'))) scripts.push('js/' + f);
