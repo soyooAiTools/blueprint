@@ -128,10 +128,26 @@ async function runBridgeBuild(clientDir, log, taskId) {
           }
         }
         const bootstrap = fs.readFileSync(bootstrapPath, 'utf-8');
+        // Build $environment from luna.json (required by luna-bootstrap.html)
+        let lunaJson = {};
+        const lunaJsonPath = path.join(s4Dir, 'luna.json');
+        try { lunaJson = JSON.parse(fs.readFileSync(lunaJsonPath, 'utf-8')); } catch(e) {}
+        const scenes = (lunaJson.unity && lunaJson.unity.scenes) || [];
+        const startupScene = scenes[lunaJson.unity?.startupScene || 0] || '';
+        const sceneName = startupScene.replace(/^.*\//, '').replace('.unity', '');
+        const envObj = {
+          runtimeAnalysisModules: ['physics3d', 'physics2d', 'particle_system', 'reflection', 'prefabs', 'mecanim'],
+          scenes: scenes,
+          startupScene: lunaJson.unity?.startupScene || 0,
+          projectId: lunaJson.projectId || '',
+          version: lunaJson.version || ''
+        };
+        const envScript = `<script>var $environment = ${JSON.stringify(envObj)};</script>`;
         const iframeHtml = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>*{margin:0;padding:0}html,body{width:100%;height:100%;overflow:hidden}canvas{display:block;width:100%;height:100%}</style>
 </head><body>
+${envScript}
 ${scriptTags}
 ${bootstrap}
 </body></html>`;
