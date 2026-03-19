@@ -45,38 +45,31 @@ const server = http.createServer((req, res) => {
   const d = await page.evaluate(function() {
     var r = {};
     r.bridge = typeof Bridge;
-    r.bridgeReady = typeof Bridge !== 'undefined' ? typeof Bridge.ready : 'N/A';
+    r.bridgeNull = (typeof Bridge !== 'undefined' && Bridge === null) ? true : false;
+    r.bridgeReady = (typeof Bridge !== 'undefined' && Bridge !== null) ? typeof Bridge.ready : 'N/A';
     r.pc = typeof pc;
     r.pcTextGen = typeof pc !== 'undefined' && pc.TextGenerator ? 'exists' : 'missing';
     r.pcApp = typeof pc !== 'undefined' && pc.Application ? 'exists' : 'missing';
     r.luna = typeof Luna;
-    r.lunaLifeCycle = typeof Luna !== 'undefined' && Luna.Unity ? (typeof Luna.Unity.LifeCycle) : 'N/A';
+    r.lunaNull = (typeof Luna !== 'undefined' && Luna === null) ? true : false;
+    r.lunaLifeCycle = (typeof Luna !== 'undefined' && Luna !== null && Luna.Unity) ? (typeof Luna.Unity.LifeCycle) : 'N/A';
     r.lunaUnity = typeof LunaUnity;
     r.unityEngine = typeof UnityEngine;
-    r.ueCamera = typeof UnityEngine !== 'undefined' && UnityEngine.Camera ? 'exists' : 'missing';
-    r.ueObject = typeof UnityEngine !== 'undefined' && UnityEngine.Object ? 'exists' : 'missing';
+    r.ueNull = (typeof UnityEngine !== 'undefined' && UnityEngine === null) ? true : false;
+    r.ueCamera = (typeof UnityEngine !== 'undefined' && UnityEngine !== null && UnityEngine.Camera) ? 'exists' : 'missing';
+    r.ueObject = (typeof UnityEngine !== 'undefined' && UnityEngine !== null && UnityEngine.Object) ? 'exists' : 'missing';
     r.windowApp = typeof window.app;
     r.canvas = !!document.querySelector('canvas');
     try { r.webgl = !!document.querySelector('canvas').getContext('webgl2'); } catch(e) { r.webgl = false; }
     
-    // Try manually calling startGame
-    if (!window.app && typeof window.startGame === 'function') {
-      try {
-        var result = window.startGame();
-        r.startGameResult = 'promise returned';
-        if (result && result.then) {
-          // Can't await in evaluate, but check window.app after
-        }
-      } catch(e) {
-        r.startGameError = e.message;
-      }
-    }
+    r.startGameExists = typeof window.startGame === 'function';
+    // Don't call startGame here, just check state
     
     // Check Bridge assembly registry
-    if (typeof Bridge !== 'undefined' && Bridge.assemblies) {
+    if (typeof Bridge !== 'undefined' && Bridge !== null && Bridge.assemblies) {
       r.bridgeAssemblies = Object.keys(Bridge.assemblies);
-    } else if (typeof Bridge !== 'undefined') {
-      r.bridgeProps = Object.keys(Bridge).filter(function(k) { return typeof Bridge[k] !== 'function' && k.length < 30; }).slice(0, 20);
+    } else if (typeof Bridge !== 'undefined' && Bridge !== null) {
+      try { r.bridgeProps = Object.keys(Bridge).filter(function(k) { return k.length < 30; }).slice(0, 20); } catch(e) {}
     }
     
     return r;
