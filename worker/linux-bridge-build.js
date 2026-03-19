@@ -41,7 +41,8 @@ const ENGINE_JS_DIR = isLinux ? '/opt/luna-poc/LunaCompiler/bin' : 'D:\\Luna\\pi
  * @returns {Promise<{ok: boolean, html?: string, error?: string, buildTime?: number}>}
  */
 async function buildFromCS(csCode, opts = {}) {
-  const { taskId = 'build', log = console.log, className = 'GameFlowManagerMain' } = opts;
+  const { taskId = 'build', log = console.log, className = 'GameFlowManagerMain', extraFiles = {} } = opts;
+  // extraFiles: { 'GFM_Tools.cs': '...code...' }
   const startTime = Date.now();
 
   // Create temp work directory
@@ -69,8 +70,11 @@ async function buildFromCS(csCode, opts = {}) {
       }
     }
 
-    // 2. Write C# source
+    // 2. Write C# source(s)
     fs.writeFileSync(path.join(scriptsDir, 'Sources', `${className}.cs`), csCode);
+    for (const [fileName, fileCode] of Object.entries(extraFiles)) {
+      fs.writeFileSync(path.join(scriptsDir, 'Sources', fileName), fileCode);
+    }
 
     // AssemblyInfo
     fs.writeFileSync(path.join(scriptsDir, 'Properties', 'AssemblyInfo.cs'),
@@ -80,11 +84,24 @@ async function buildFromCS(csCode, opts = {}) {
     fs.writeFileSync(path.join(scriptsDir, 'bridge.json'), JSON.stringify({
       output: 'bin/Debug',
       cleanOutputFolderBeforeBuild: false,
-      outputFormatting: 'Formatted'
+      outputFormatting: 'Formatted',
+      ignoreDuplicateTypes: true,
+      reflection: { target: 'Inline' },
+      console: { enabled: false },
+      sourceMap: { enabled: false },
+      generateTypeScript: false,
+      rules: {
+        anonymousType: 'Plain',
+        arrayIndex: 'Plain',
+        autoProperty: 'Plain',
+        boxing: 'Managed',
+        integer: 'Managed',
+        lambda: 'Plain'
+      }
     }, null, 2));
 
     // 4. Generate csproj
-    const csproj = generateCsproj(className);
+    const csproj = generateCsproj(className, Object.keys(extraFiles));
     fs.writeFileSync(path.join(scriptsDir, 'Scripts.csproj'), csproj);
 
     // 5. Run msbuild
@@ -144,12 +161,19 @@ async function buildFromCS(csCode, opts = {}) {
 
   } finally {
     // Cleanup temp dir
-    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (e) {}
+    // DEBUG: keep temp dir
+    // try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (e) {}
   }
 }
 
 // ─── csproj Generator ───
-function generateCsproj(className) {
+function generateCsproj(className, extraFileNames = []) {
+  const compileEntries = [`    <Compile Include="Sources/${className}.cs" />`];
+  for (const fn of extraFileNames) {
+    compileEntries.push(`    <Compile Include="Sources/${fn}" />`);
+  }
+  compileEntries.push(`    <Compile Include="Properties/AssemblyInfo.cs" />`);
+
   return `<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
@@ -171,8 +195,7 @@ function generateCsproj(className) {
     <LangVersion>7.2</LangVersion>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="Sources/${className}.cs" />
-    <Compile Include="Properties/AssemblyInfo.cs" />
+${compileEntries.join('\n')}
   </ItemGroup>
   <ItemGroup>
     <Reference Include="Bridge">
@@ -201,6 +224,21 @@ function generateCsproj(className) {
     </Reference>
     <Reference Include="UnityEngine">
       <HintPath>Vendor/UnityEngine.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>../packages/com.unity.ui/1.2.1/UnityEngine.UI.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.UniversalRenderPipeline">
+      <HintPath>../packages/com.unity.urp/7.6/UnityEngine.UniversalRenderPipeline.dll</HintPath>
+    </Reference>
+    <Reference Include="DOTween">
+      <HintPath>../packages/DOTween.1.2.705/lib/net40/DOTween.dll</HintPath>
+    </Reference>
+    <Reference Include="TextMeshPro">
+      <HintPath>../packages/com.unity.textmeshpro/3.0.6/TextMeshPro.dll</HintPath>
+    </Reference>
+    <Reference Include="JetBrains">
+      <HintPath>../packages/com.unity.ide.rider/3.0.0/JetBrains.dll</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>
@@ -639,14 +677,16 @@ function startServer(port = 3080) {
       req.on('data', chunk => body += chunk);
       req.on('end', async () => {
         try {
-          const { code, className } = JSON.parse(body);
+          const parsed = JSON.parse(body);
+          const { code, className, extraFiles } = parsed;
+          console.log(`[build] body=${body.length}b, code=${(code||'').length}b, extraFiles=${JSON.stringify(Object.keys(extraFiles||{}))}`);
           if (!code) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: false, error: 'Missing "code" field' }));
             return;
           }
 
-          const result = await buildFromCS(code, { className });
+          const result = await buildFromCS(code, { className, extraFiles });
 
           if (result.ok) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -674,8 +714,8 @@ function startServer(port = 3080) {
       req.on('data', chunk => body += chunk);
       req.on('end', async () => {
         try {
-          const { code, className } = JSON.parse(body);
-          const result = await buildFromCS(code, { className });
+          const { code, className, extraFiles } = JSON.parse(body);
+          const result = await buildFromCS(code, { className, extraFiles });
           if (result.ok) {
             res.writeHead(200, { 'Content-Type': 'text/html' });
             res.end(result.html);
