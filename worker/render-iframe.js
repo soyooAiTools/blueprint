@@ -1,9 +1,8 @@
 /**
  * Render iframe.html from Luna pipeline pug templates.
- * Produces the same output as jake stage4, without needing Unity Editor.
+ * Replicates the exact structure of jake-generated develop iframe.html.
  * 
  * Usage: node render-iframe.js <stage4Dir> [lunaJsonPath]
- * Output: writes iframe.html to stage4Dir
  */
 const fs = require('fs');
 const path = require('path');
@@ -11,58 +10,43 @@ const path = require('path');
 const stage4Dir = process.argv[2] || 'D:\\work\\test-luna\\LunaTemp\\stage4\\develop';
 const lunaJsonPath = process.argv[3] || path.join(path.dirname(path.dirname(path.dirname(stage4Dir))), 'luna.json');
 
-// Read luna.json for environment config
+// Read luna.json
 let lunaJson = {};
 if (fs.existsSync(lunaJsonPath)) {
   try { lunaJson = JSON.parse(fs.readFileSync(lunaJsonPath, 'utf8')); } catch(e) {}
 }
-
 const runtimeAnalysisModules = lunaJson.runtimeAnalysisModules || ['physics3d', 'physics2d', 'particle_system', 'reflection', 'prefabs', 'mecanim'];
-const scenes = lunaJson.scenes || [];
+const scenes = lunaJson.scenes || ['Assets/Scenes/templeteScene.unity'];
 const projectId = lunaJson.projectId || '';
 const version = lunaJson.version || '6.4.0';
+const startupScene = scenes[0] || 'Assets/Scenes/templeteScene.unity';
 
-// Build $environment
 const envObj = {
   baseUrl: './',
   resourceConfig: { json: 'external', image: 'external', video: 'external', blob: 'external', sound: 'external' },
-  runtimeAnalysisModules,
-  scenes,
-  startupScene: 0,
-  projectId,
-  version
+  runtimeAnalysisModules, scenes, startupScene: 0, projectId, version
 };
 
-// Collect scripts in correct order from stage4
+// Collect scripts in correct order
 const engineDir = path.join(stage4Dir, 'engine', 'unity', 'bin');
 const lunaDir = path.join(stage4Dir, 'engine', 'luna');
 const jsDir = path.join(stage4Dir, 'js');
-
-// Active modules for manifest.json filtering
-const activeModules = runtimeAnalysisModules.slice();
 const moduleMap = { 'mecanim-wasm': 'mecanim', 'mecanim': 'mecanim', 'particle-system': 'particle_system', 'particle_system': 'particle_system', 'urp': 'urp' };
 
 const scripts = [];
-
-// 1. Bridge.NET core
 const bridgeOrder = ['bridge.js', 'bridge.meta.js', 'Bridge.Locales.js'];
 const unityOrder = ['UnityEngine.js', 'UnityEngine.UI.js', 'UnityEngine.UniversalRenderPipeline.js',
                     'DOTween.js', 'newtonsoft.json.js', 'TextMeshPro.js', 'JetBrains.js'];
 const engineFiles = fs.existsSync(engineDir) ? fs.readdirSync(engineDir).filter(f => f.endsWith('.js')) : [];
 
-for (const f of bridgeOrder) {
-  if (engineFiles.includes(f)) scripts.push('engine/unity/bin/' + f);
-}
-for (const f of unityOrder) {
-  if (engineFiles.includes(f)) scripts.push('engine/unity/bin/' + f);
-}
+for (const f of bridgeOrder) { if (engineFiles.includes(f)) scripts.push('engine/unity/bin/' + f); }
+for (const f of unityOrder) { if (engineFiles.includes(f)) scripts.push('engine/unity/bin/' + f); }
 for (const f of engineFiles) {
   if (!bridgeOrder.includes(f) && !unityOrder.includes(f) && f !== 'UnityScriptsCompiler.js') {
     scripts.push('engine/unity/bin/' + f);
   }
 }
 
-// 2. Luna/PlayCanvas engine (from manifest.json)
 if (fs.existsSync(lunaDir)) {
   const lunaFiles = fs.readdirSync(lunaDir).filter(f => f.endsWith('.js'));
   const manifestPath = path.join(lunaDir, 'manifest.json');
@@ -74,8 +58,8 @@ if (fs.existsSync(lunaDir)) {
       for (const entry of manifest) {
         const mod = entry.ifModule ? (moduleMap[entry.ifModule] || entry.ifModule) : null;
         const unlessMod = entry.unlessModule ? (moduleMap[entry.unlessModule] || entry.unlessModule) : null;
-        if (mod && !activeModules.includes(mod)) continue;
-        if (unlessMod && activeModules.includes(unlessMod)) continue;
+        if (mod && !runtimeAnalysisModules.includes(mod)) continue;
+        if (unlessMod && runtimeAnalysisModules.includes(unlessMod)) continue;
         if (lunaFiles.includes(entry.src)) lunaLoadOrder.push(entry.src);
       }
     } catch(e) {}
@@ -84,59 +68,28 @@ if (fs.existsSync(lunaDir)) {
   for (const f of lunaLoadOrder) scripts.push('engine/luna/' + f);
 }
 
-// 3. UnityScriptsCompiler.js (user code)
-if (engineFiles.includes('UnityScriptsCompiler.js')) {
-  scripts.push('engine/unity/bin/UnityScriptsCompiler.js');
-}
-
-// 4. Additional JS
+if (engineFiles.includes('UnityScriptsCompiler.js')) scripts.push('engine/unity/bin/UnityScriptsCompiler.js');
 if (fs.existsSync(jsDir)) {
-  for (const f of fs.readdirSync(jsDir).filter(f => f.endsWith('.js'))) {
-    scripts.push('js/' + f);
-  }
+  for (const f of fs.readdirSync(jsDir).filter(f => f.endsWith('.js'))) scripts.push('js/' + f);
 }
 
-// Read pi.js from Luna pipeline
-const piJsPath = 'D:\\Luna\\pipeline\\templates\\html\\resources\\js\\pi.js';
-let piJs = '';
-if (fs.existsSync(piJsPath)) {
-  piJs = fs.readFileSync(piJsPath, 'utf8');
-}
+// Read template resources from Luna pipeline
+const pipelineDir = 'D:\\Luna\\pipeline\\templates\\html\\resources';
+function readFile(p) { try { return fs.readFileSync(p, 'utf8'); } catch(e) { return ''; } }
+const touchEmulatorJs = readFile(path.join(pipelineDir, 'js', 'touch-emulator.js'));
+const defaultCss = readFile(path.join(pipelineDir, 'css', 'default.css'));
+const piJs = readFile(path.join(pipelineDir, '..', '..', 'resources', 'js', 'pi.js')) ||
+             readFile('D:\\Luna\\pipeline\\templates\\html\\resources\\js\\pi.js');
+const contentJs = readFile('D:\\Luna\\pipeline\\templates\\html\\playground\\content.js');
+const runtimeJs = readFile('D:\\Luna\\pipeline\\templates\\html\\playground\\runtime.js');
+const sharedJs = readFile('D:\\Luna\\pipeline\\templates\\html\\resources\\pug\\content\\shared.pug'); // might be pug, skip if so
 
-// Read touch-emulator.js
-const touchEmulatorPath = 'D:\\Luna\\pipeline\\templates\\html\\resources\\js\\touch-emulator.js';
-let touchEmulatorJs = '';
-if (fs.existsSync(touchEmulatorPath)) {
-  touchEmulatorJs = fs.readFileSync(touchEmulatorPath, 'utf8');
-}
+// Script tags WITHOUT defer (synchronous, matching body.pug inline structure)
+const scriptTags = scripts.map(s => `<script src="${s}"></script>`).join('\n');
 
-// Read default.css
-const defaultCssPath = 'D:\\Luna\\pipeline\\templates\\html\\resources\\css\\default.css';
-let defaultCss = '';
-if (fs.existsSync(defaultCssPath)) {
-  defaultCss = fs.readFileSync(defaultCssPath, 'utf8');
-}
+// Fix new Event() for headless compatibility
+const safeEvent = (name) => `(function(){var _e=document.createEvent("Event");_e.initEvent("${name}",true,true);return _e;})()`;
 
-// Read content.js and runtime.js from playground template
-const contentJsPath = 'D:\\Luna\\pipeline\\templates\\html\\playground\\content.js';
-let contentJs = '';
-if (fs.existsSync(contentJsPath)) {
-  contentJs = fs.readFileSync(contentJsPath, 'utf8');
-}
-
-const runtimeJsPath = 'D:\\Luna\\pipeline\\templates\\html\\playground\\runtime.js';
-let runtimeJs = '';
-if (fs.existsSync(runtimeJsPath)) {
-  runtimeJs = fs.readFileSync(runtimeJsPath, 'utf8');
-}
-
-// Generate script tags with defer (matching jake output)
-const scriptTags = scripts.map(s => `<script src="${s}" defer data-startup-only></script>`).join('\n');
-
-// Module variables
-const moduleVars = runtimeAnalysisModules.map(m => `window['MODULE_${m}'] = true;`).join('\n        ');
-
-// Generate HTML matching layout.pug + develop/index.pug structure
 const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -146,14 +99,40 @@ const html = `<!DOCTYPE html>
 <meta http-equiv="cache-control" content="no-cache, no-store, must-revalidate, post-check=0, pre-check=0">
 <meta http-equiv="cache-control" content="max-age=0">
 <meta http-equiv="expires" content="0">
-<meta http-equiv="expires" content="Tue, 01 Jan 1980 1:00:00 GMT">
 <meta http-equiv="pragma" content="no-cache">
 </head>
 <body>
 ${touchEmulatorJs ? '<script>' + touchEmulatorJs + '</script>' : ''}
 <style>${defaultCss}</style>
-<script>var $environment = ${JSON.stringify(envObj)};</script>
+
+<!-- layout.pug: config block -->
+<script>
+var $environment = ${JSON.stringify(envObj)};
+</script>
+
+<!-- layout.pug: libraries block (pi.js) -->
 ${piJs ? '<script>' + piJs + '</script>' : ''}
+
+<!-- layout.pug: global variables (MUST be before engine scripts) -->
+<script>
+window.DEBUG = false;
+window.TRACE = false;
+window.DEVELOP = true;
+window.TESTS = false;
+window.FORCE_STABLE_RANDOM_SEED = false;
+</script>
+
+<!-- layout.pug: pi block (module variables) -->
+<script>
+for (var _m of $environment.runtimeAnalysisModules) {
+  window['MODULE_' + _m] = true;
+}
+</script>
+
+<!-- body.pug: canvas element -->
+<canvas id="application-canvas"></canvas>
+
+<!-- body.pug: bridge ready / luna ready event chain -->
 <script>
 window._bridgeReady = false;
 window._domReady = false;
@@ -161,7 +140,7 @@ window._readyEventEmitted = false;
 window.addEventListener("DOMContentLoaded", function() {
   if (window._compressedAssets) {
     Promise.all(window._compressedAssets).then(function() {
-      window.dispatchEvent((function(){var _e=document.createEvent("Event");_e.initEvent("bridge:ready",true,true);return _e;})());
+      window.dispatchEvent(${safeEvent('bridge:ready')});
     });
   }
 });
@@ -169,7 +148,7 @@ window.addEventListener("bridge:ready", function() {
   window._bridgeReady = true;
   if (window._domReady && !window._readyEventEmitted) {
     window._readyEventEmitted = true;
-    window.dispatchEvent((function(){var _e=document.createEvent("Event");_e.initEvent("luna:ready",true,true);return _e;})());
+    window.dispatchEvent(${safeEvent('luna:ready')});
   }
 });
 window.addEventListener("DOMContentLoaded", function() {
@@ -177,33 +156,88 @@ window.addEventListener("DOMContentLoaded", function() {
   if ("Bridge" in window) { window._bridgeReady = true; }
   if (window._bridgeReady && !window._readyEventEmitted) {
     window._readyEventEmitted = true;
-    window.dispatchEvent((function(){var _e=document.createEvent("Event");_e.initEvent("luna:ready",true,true);return _e;})());
+    window.dispatchEvent(${safeEvent('luna:ready')});
   }
 });
 </script>
-<script>
-window.DEBUG = false;
-window.TRACE = false;
-window.DEVELOP = true;
-window.TESTS = false;
-window.FORCE_STABLE_RANDOM_SEED = false;
 
-for (var _m of $environment.runtimeAnalysisModules) {
-  window['MODULE_' + _m] = true;
+<!-- body.pug: startGame function -->
+<script>
+function startGame() {
+  return new Promise(function(resolve, reject) {
+    pc.TextGenerator.fontRatio = 2.0;
+    window.app = new LunaUnity.Application(
+      document.getElementById("application-canvas"),
+      window.$environment,
+      new LunaUnity.Application.StartupScene("-1", "${startupScene}")
+    );
+    var initializeTask = (window.app.InitializeAsync && window.app.InitializeAsync()) || System.Threading.Tasks.Task.fromResult(true);
+    initializeTask.continueWith(function(status) {
+      if (status.exception) {
+        console.error('Cannot start the game due to exception');
+        reject(status.exception);
+        return;
+      }
+      window.dispatchEvent(${safeEvent('luna:initialized')});
+      window.dispatchEvent(${safeEvent('luna:starting')});
+      window.app.StartWithJSCallback(function() {
+        var preloader = document.getElementById("application-preloader");
+        if (preloader != null) { preloader.parentNode.removeChild(preloader); }
+        resolve();
+      });
+    });
+  });
 }
 </script>
+
+<!-- body.pug: volume/pause/resume handlers -->
+<script>
+(function() {
+  var _mute = false;
+  window.audioVolumeToggle = function(mute) {
+    if (mute !== _mute) {
+      _mute = mute;
+      if (mute) {
+        try { Luna.Unity.LifeCycle.OnMute(); } catch(e) {}
+        try { window.app.app.muteAudio(); } catch(e) {}
+      } else {
+        try { Luna.Unity.LifeCycle.OnUnmute(); } catch(e) {}
+        try { window.app.app.unmuteAudio(); } catch(e) {}
+      }
+      if (window.app && window.app.AudioManager) {
+        window.app.AudioManager.TriggerMasterVolumeChange(_mute ? 0 : 1);
+      }
+    }
+  };
+  window.addEventListener("luna:unmute", function() { window.audioVolumeToggle(false); });
+  window.addEventListener("luna:mute", function() { window.audioVolumeToggle(true); });
+  window.addEventListener("luna:pause", function() {
+    if (window.app && window.app.app) { try { Luna.Unity.LifeCycle.OnPause(); window.app.app.pause(); } catch(e) {} }
+  });
+  window.addEventListener("luna:resume", function() {
+    if (window.app && window.app.app) { try { Luna.Unity.LifeCycle.OnResume(); window.app.app.resume(); } catch(e) {} }
+  });
+})();
+</script>
+
+<!-- layout.pug: engine script tags (synchronous, in dependency order) -->
 ${scriptTags}
+
+<!-- develop/index.pug: content block (auto-start when not in iframe) -->
 <script>
 window.addEventListener('luna:ready', function() {
   if (!(function() { try { return window.self !== window.top; } catch(e) { return true; } })()) {
-    window.dispatchEvent((function(){var _e=document.createEvent("Event");_e.initEvent("luna:build",true,true);return _e;})());
-    window.dispatchEvent((function(){var _e=document.createEvent("Event");_e.initEvent("luna:start",true,true);return _e;})());
-    window.dispatchEvent((function(){var _e=document.createEvent("Event");_e.initEvent("playground:started",true,true);return _e;})());
+    window.dispatchEvent(${safeEvent('luna:build')});
+    window.dispatchEvent(${safeEvent('luna:start')});
+    window.dispatchEvent(${safeEvent('playground:started')});
   }
 });
 </script>
+
+<!-- playground content.js and runtime.js -->
 ${contentJs ? '<script>' + contentJs + '</script>' : ''}
 ${runtimeJs ? '<script>' + runtimeJs + '</script>' : ''}
+
 </body>
 </html>`;
 
