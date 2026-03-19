@@ -52,7 +52,7 @@ const server = http.createServer((req, res) => {
     r.pcApp = typeof pc !== 'undefined' && pc.Application ? 'exists' : 'missing';
     r.luna = typeof Luna;
     r.lunaNull = (typeof Luna !== 'undefined' && Luna === null) ? true : false;
-    r.lunaLifeCycle = (typeof Luna !== 'undefined' && Luna !== null && Luna.Unity) ? (typeof Luna.Unity.LifeCycle) : 'N/A';
+    try { r.lunaUnityKeys = typeof Luna !== 'undefined' && Luna !== null && Luna.Unity ? Object.getOwnPropertyNames(Luna.Unity).slice(0, 5) : 'N/A'; } catch(e) { r.lunaUnityKeys = 'err:' + e.message; }
     r.lunaUnity = typeof LunaUnity;
     r.unityEngine = typeof UnityEngine;
     r.ueNull = (typeof UnityEngine !== 'undefined' && UnityEngine === null) ? true : false;
