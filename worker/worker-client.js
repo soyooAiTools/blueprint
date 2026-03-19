@@ -1,5 +1,5 @@
-// Worker Client v5 â€” Poll from Blueprint Editor API, build via Luna jake pipeline
-// Flow: Poll task â†’ Git clone/reset base template â†’ Pre-build patch â†’ Luna build â†’ converter-v3 â†’ Upload â†’ CUA
+// Worker Client v5 â€?Poll from Blueprint Editor API, build via Luna jake pipeline
+// Flow: Poll task â†?Git clone/reset base template â†?Pre-build patch â†?Luna build â†?converter-v3 â†?Upload â†?CUA
 // Also handles: fix_needed (re-build), commit_needed (cleanup)
 
 // Load .env config
@@ -17,6 +17,10 @@ const { generateCode, generateCodeV5 } = require('./worker-coder.js');
 // V5 base template mode - set to true to enable
 const USE_BASE_TEMPLATE = process.env.USE_BASE_TEMPLATE === 'true' || true;
 
+// Linux build mode - uses remote Linux ECS for C#â†’JSâ†’HTML (faster, no Unity needed)
+const USE_LINUX_BUILD = process.env.USE_LINUX_BUILD === 'true';
+const LINUX_BUILD_URL = process.env.LINUX_BUILD_URL || 'http://100.84.246.49:18860';
+
 // Smart code generator: V5 (base template) or legacy
 function smartGenerateCode(blueprint, clientDir, log, taskId, engine) {
   if (engine === 'unity' && USE_BASE_TEMPLATE && blueprint.entities && blueprint.entities.length > 0) {
@@ -26,6 +30,71 @@ function smartGenerateCode(blueprint, clientDir, log, taskId, engine) {
   log('[smart] Using legacy generateCode mode', taskId);
   return generateCode(blueprint, clientDir, log, taskId, engine);
 }
+// === Linux Build Function ===
+async function runLinuxBuild(csCode, extraFiles, log, taskId) {
+  log('[linux-build] Calling Linux Build API...', taskId);
+  const startTime = Date.now();
+  const body = JSON.stringify({ csCode, extraFiles: extraFiles || {}, taskId });
+  
+  return new Promise((resolve) => {
+    const url = new URL(LINUX_BUILD_URL + '/build');
+    const mod = url.protocol === 'https:' ? https : http;
+    const req = mod.request({
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      timeout: 120000
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const result = JSON.parse(data);
+          if (result.ok) {
+            const html = Buffer.from(result.htmlBase64, 'base64').toString('utf8');
+            const buildTime = ((Date.now() - startTime) / 1000).toFixed(1);
+            log(`[linux-build] âœ?Success: ${(html.length/1024).toFixed(0)} KB in ${buildTime}s`, taskId);
+            resolve({ ok: true, html, buildTime, htmlSize: html.length });
+          } else {
+            log(`[linux-build] â?Failed: ${result.error}`, taskId);
+            resolve({ ok: false, error: result.error, buildLog: result.buildLog });
+          }
+        } catch(e) {
+          resolve({ ok: false, error: 'Invalid response from Linux build API: ' + e.message });
+        }
+      });
+    });
+    req.on('error', e => resolve({ ok: false, error: 'Linux build API error: ' + e.message }));
+    req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'Linux build API timeout (120s)' }); });
+    req.write(body);
+    req.end();
+  });
+}
+
+// === Unified Build Helper (Windows or Linux) ===
+async function doBuild(clientDir, log, taskId) {
+  if (USE_LINUX_BUILD) {
+    const csPath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
+    const gfmPath = path.join(__dirname, 'GFM_Tools.cs');
+    if (!fs.existsSync(csPath)) return { ok: false, error: 'GameFlowManagerMain.cs not found' };
+    const csCode = fs.readFileSync(csPath, 'utf8');
+    const extraFiles = {};
+    if (fs.existsSync(gfmPath)) extraFiles['GFM_Tools.cs'] = fs.readFileSync(gfmPath, 'utf8');
+    const result = await runLinuxBuild(csCode, extraFiles, log, taskId);
+    if (result.ok) {
+      // Write HTML to output dir
+      const htmlOutputDir = path.join(WORK_DIR, taskId + '-html');
+      fs.mkdirSync(htmlOutputDir, { recursive: true });
+      fs.writeFileSync(path.join(htmlOutputDir, taskId + '.html'), result.html);
+    }
+    return result;
+  } else {
+    return await runBridgeBuild(clientDir, log, taskId);
+  }
+}
+
 // converter-v3: stage4â†’single HTML (replaces old worker-html-converter.js)
 const { convertV3 } = require('./converter-v3-wrapper.cjs');
 const { patchLunaBuild } = require('./worker-luna-patch.js');
@@ -48,7 +117,7 @@ const HEARTBEAT_INTERVAL = 30000; // 30s heartbeat
 const WORK_DIR = 'D:\\work';
 const FIXED_PROJECT_DIR = path.join(WORK_DIR, 'test-luna'); // Git base template root
 // luna-base-template repo IS the Unity project (Assets/Packages/ProjectSettings at root)
-// No 'Client' subdirectory â€” the repo root is the Client dir
+// No 'Client' subdirectory â€?the repo root is the Client dir
 const CLIENT_DIR = FIXED_PROJECT_DIR;
 const COCOS_PROJECT_DIR = path.join(WORK_DIR, 'test-cocos'); // Fixed SVN working copy (Cocos)
 const SVN_USER = 'openclaw';
@@ -339,11 +408,11 @@ async function processTask(task) {
 
           // Auto-stop: engine not initialized = infrastructure issue, not code issue
           if (cuaResult.issues.some(i => i.includes('[engine-not-ready]'))) {
-            log('CUA auto-stop: engine not initialized â€” infrastructure issue, AI re-coding won\'t help', taskId);
+            log('CUA auto-stop: engine not initialized â€?infrastructure issue, AI re-coding won\'t help', taskId);
             await reportStatus(taskId, 'failed', {
               message: 'Luna engine failed to initialize (infrastructure issue). ' + cuaResult.issues.filter(i => i.includes('[engine') || i.includes('[console') || i.includes('[page-error')).join('; ').slice(0, 300)
             });
-            throw new TaskFailedError('Engine initialization failure â€” not an AI code issue');
+            throw new TaskFailedError('Engine initialization failure â€?not an AI code issue');
           }
 
           if (cuaRound >= MAX_CUA_ROUNDS) {
@@ -422,13 +491,13 @@ async function processTask(task) {
           if (!USE_BASE_TEMPLATE) {
             if (cleanScene(CLIENT_DIR)) log('Scene re-cleaned for CUA fix', taskId);
           } else {
-            log('V5: Skipping cleanScene for CUA fix â€” base template preserved', taskId);
+            log('V5: Skipping cleanScene for CUA fix â€?base template preserved', taskId);
           }
           const fixScenes = detectScenes(CLIENT_DIR);
           fixLunaJson(CLIENT_DIR, fixScenes);
           generateExportAssets(CLIENT_DIR, fixScenes);
 
-          const fixBuild = await runBridgeBuild(CLIENT_DIR, log, taskId);
+          const fixBuild = await doBuild(CLIENT_DIR, log, taskId);
           if (!fixBuild.ok) {
             await reportStatus(taskId, 'failed', { message: 'CUA fix rebuild failed: ' + (fixBuild.error || '').slice(0, 300) });
             throw new TaskFailedError('CUA fix rebuild failed: ' + (fixBuild.error || '').slice(0, 300));
@@ -610,7 +679,7 @@ async function processTask(task) {
     // Replace template scene with clean empty scene (Camera + Light + EventSystem + GameManager + MaterialSource only)
     // V5 BASE TEMPLATE: skip cleanScene to preserve 242 pre-built objects
     if (USE_BASE_TEMPLATE) {
-      log('V5: Skipping cleanScene â€” base template scene preserved with 242 objects', taskId);
+      log('V5: Skipping cleanScene â€?base template scene preserved with 242 objects', taskId);
     } else if (cleanScene(CLIENT_DIR)) {
       log('Scene cleaned: replaced template with empty scene', taskId);
     } else {
@@ -630,42 +699,73 @@ async function processTask(task) {
     // Material solution is now code-only (AI uses Object.FindObjectOfType<Renderer>())
     log('Pre-build patch applied', taskId);
 
-    // === Step 4: Luna Build ===
-    const buildResult = await runBridgeBuild(CLIENT_DIR, log, taskId);
-    if (!buildResult.ok) {
-      await reportStatus(taskId, 'failed', { message: 'Luna build failed: ' + (buildResult.error || '').slice(0, 300) });
-      throw new TaskFailedError('Luna build failed: ' + (buildResult.error || '').slice(0, 300));
-    }
-    log(`Luna build OK in ${buildResult.buildTime}s`, taskId);
-
-    // === Step 5: HTML Conversion (converter-v3) ===
-    await reportStatus(taskId, 'processing', { message: 'HTML conversion (converter-v3)...' });
-    const stage4Dir = path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop');
+    // === Step 4: Build ===
     const htmlOutputDir = path.join(WORK_DIR, taskId + '-html');
-    try {
-      const v3Result = convertV3(stage4Dir, htmlOutputDir, { stripModules: ['TextMeshPro'], outputName: taskId });
-      log(`HTML conversion done: ${v3Result.rawMB}MB raw / ${v3Result.gzipMB}MB gzip`, taskId);
-    } catch (e) {
-      log(`HTML conversion failed (non-fatal): ${e.message}`, taskId);
-    }
-
-    // === Step 5.5a: Luna Runtime Compatibility Patches ===
-    // Fix known issues: new Event() in headless Chromium, isActiveAndEnabled null ref
-    try {
-      const patchResult = patchLunaBuild(stage4Dir, log, taskId);
-      if (patchResult.patched) {
-        log(`Luna patches applied: ${patchResult.details.join('; ')}`, taskId);
+    let stage4Dir = path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop');
+    
+    if (USE_LINUX_BUILD) {
+      // === Linux Build Path: C# â†?JS â†?HTML via remote API ===
+      log('[linux-build] Using Linux build path', taskId);
+      const csPath = path.join(CLIENT_DIR, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
+      const gfmPath = path.join(__dirname, 'GFM_Tools.cs');
+      
+      if (!fs.existsSync(csPath)) {
+        throw new TaskFailedError('GameFlowManagerMain.cs not found at ' + csPath);
       }
-    } catch (patchErr) {
-      log(`Luna patch error (non-fatal): ${patchErr.message}`, taskId);
+      
+      const csCode = fs.readFileSync(csPath, 'utf8');
+      const extraFiles = {};
+      if (fs.existsSync(gfmPath)) {
+        extraFiles['GFM_Tools.cs'] = fs.readFileSync(gfmPath, 'utf8');
+      }
+      
+      const linuxResult = await runLinuxBuild(csCode, extraFiles, log, taskId);
+      if (!linuxResult.ok) {
+        await reportStatus(taskId, 'failed', { message: 'Linux build failed: ' + (linuxResult.error || '').slice(0, 300) });
+        throw new TaskFailedError('Linux build failed: ' + (linuxResult.error || '').slice(0, 300));
+      }
+      log(`Linux build OK in ${linuxResult.buildTime}s`, taskId);
+      
+      // Write the HTML directly to output
+      fs.mkdirSync(htmlOutputDir, { recursive: true });
+      fs.writeFileSync(path.join(htmlOutputDir, taskId + '.html'), linuxResult.html);
+      log(`[linux-build] HTML written to ${htmlOutputDir}/${taskId}.html (${(linuxResult.htmlSize/1024).toFixed(0)} KB)`, taskId);
+      
+    } else {
+      // === Windows Build Path: Luna jake + MSBuild ===
+      const buildResult = await runBridgeBuild(CLIENT_DIR, log, taskId);
+      if (!buildResult.ok) {
+        await reportStatus(taskId, 'failed', { message: 'Luna build failed: ' + (buildResult.error || '').slice(0, 300) });
+        throw new TaskFailedError('Luna build failed: ' + (buildResult.error || '').slice(0, 300));
+      }
+      log(`Luna build OK in ${buildResult.buildTime}s`, taskId);
+
+      // === Step 5: HTML Conversion (converter-v3) ===
+      await reportStatus(taskId, 'processing', { message: 'HTML conversion (converter-v3)...' });
+      try {
+        const v3Result = convertV3(stage4Dir, htmlOutputDir, { stripModules: ['TextMeshPro'], outputName: taskId });
+        log(`HTML conversion done: ${v3Result.rawMB}MB raw / ${v3Result.gzipMB}MB gzip`, taskId);
+      } catch (e) {
+        log(`HTML conversion failed (non-fatal): ${e.message}`, taskId);
+      }
+
+      // === Step 5.5a: Luna Runtime Compatibility Patches ===
+      try {
+        const patchResult = patchLunaBuild(stage4Dir, log, taskId);
+        if (patchResult.patched) {
+          log(`Luna patches applied: ${patchResult.details.join('; ')}`, taskId);
+        }
+      } catch (patchErr) {
+        log(`Luna patch error (non-fatal): ${patchErr.message}`, taskId);
+      }
     }
 
     // === Step 5.6: Preview Health Check + Self-Heal Loop ===
-    // Skip preview-check when using generated iframe.html (jake-skip mode) â€” converter-v3 output is the real artifact
+    // Skip preview-check when using generated iframe.html (jake-skip mode) â€?converter-v3 output is the real artifact
     // The generated iframe.html loads scripts via <script src> which doesn't match Luna's runtime init sequence
     const htmlOutputExists = fs.existsSync(path.join(htmlOutputDir, taskId + '.html'));
     if (htmlOutputExists) {
-      log('[preview-check] Skipping â€” HTML converter output exists, using that as final artifact', taskId);
+      log('[preview-check] Skipping â€?HTML converter output exists, using that as final artifact', taskId);
     }
     if (!htmlOutputExists) {
       const { runPreviewCheck } = require('./worker-preview-check.js');
@@ -723,7 +823,7 @@ async function processTask(task) {
 
         // Re-build
         log(`[preview-check] AI fix done, rebuilding...`, taskId);
-        const fixBuild = await runBridgeBuild(CLIENT_DIR, log, taskId);
+        const fixBuild = await doBuild(CLIENT_DIR, log, taskId);
         if (!fixBuild.ok) {
           log(`[preview-check] Rebuild failed: ${fixBuild.error}, trying next round`, taskId);
           continue;
@@ -873,13 +973,13 @@ async function processTask(task) {
         if (!USE_BASE_TEMPLATE) {
           if (cleanScene(CLIENT_DIR)) log('Scene re-cleaned for CUA fix rebuild', taskId);
         } else {
-          log('V5: Skipping cleanScene for CUA rebuild â€” base template preserved', taskId);
+          log('V5: Skipping cleanScene for CUA rebuild â€?base template preserved', taskId);
         }
         const fixScenes = detectScenes(CLIENT_DIR);
         fixLunaJson(CLIENT_DIR, fixScenes);
         generateExportAssets(CLIENT_DIR, fixScenes);
 
-        const fixBuild = await runBridgeBuild(CLIENT_DIR, log, taskId);
+        const fixBuild = await doBuild(CLIENT_DIR, log, taskId);
         if (!fixBuild.ok) {
           await reportStatus(taskId, 'failed', { message: 'CUA fix rebuild failed: ' + (fixBuild.error || '').slice(0, 300) });
           throw new TaskFailedError('CUA fix rebuild failed: ' + (fixBuild.error || '').slice(0, 300));
@@ -1174,7 +1274,7 @@ async function handleCommit(task) {
     }
   }
 
-  log('Project cleanup done (no SVN commit â€” using Git base template)', taskId);
+  log('Project cleanup done (no SVN commit â€?using Git base template)', taskId);
 
   // Callback to Blueprint Editor
   try {
