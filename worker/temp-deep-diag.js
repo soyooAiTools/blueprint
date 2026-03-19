@@ -44,34 +44,23 @@ const server = http.createServer((req, res) => {
   
   const d = await page.evaluate(function() {
     var r = {};
+    function safe(fn) { try { return fn(); } catch(e) { return 'err:' + e.message.substring(0, 100); } }
     r.bridge = typeof Bridge;
-    r.bridgeNull = (typeof Bridge !== 'undefined' && Bridge === null) ? true : false;
-    r.bridgeReady = (typeof Bridge !== 'undefined' && Bridge !== null) ? typeof Bridge.ready : 'N/A';
     r.pc = typeof pc;
-    r.pcTextGen = typeof pc !== 'undefined' && pc.TextGenerator ? 'exists' : 'missing';
-    r.pcApp = typeof pc !== 'undefined' && pc.Application ? 'exists' : 'missing';
     r.luna = typeof Luna;
-    r.lunaNull = (typeof Luna !== 'undefined' && Luna === null) ? true : false;
-    try { r.lunaUnityKeys = typeof Luna !== 'undefined' && Luna !== null && Luna.Unity ? Object.getOwnPropertyNames(Luna.Unity).slice(0, 5) : 'N/A'; } catch(e) { r.lunaUnityKeys = 'err:' + e.message; }
     r.lunaUnity = typeof LunaUnity;
     r.unityEngine = typeof UnityEngine;
-    r.ueNull = (typeof UnityEngine !== 'undefined' && UnityEngine === null) ? true : false;
-    r.ueCamera = (typeof UnityEngine !== 'undefined' && UnityEngine !== null && UnityEngine.Camera) ? 'exists' : 'missing';
-    r.ueObject = (typeof UnityEngine !== 'undefined' && UnityEngine !== null && UnityEngine.Object) ? 'exists' : 'missing';
     r.windowApp = typeof window.app;
     r.canvas = !!document.querySelector('canvas');
-    try { r.webgl = !!document.querySelector('canvas').getContext('webgl2'); } catch(e) { r.webgl = false; }
-    
+    r.webgl = safe(function() { return !!document.querySelector('canvas').getContext('webgl2'); });
     r.startGameExists = typeof window.startGame === 'function';
-    // Don't call startGame here, just check state
-    
-    // Check Bridge assembly registry
-    if (typeof Bridge !== 'undefined' && Bridge !== null && Bridge.assemblies) {
-      r.bridgeAssemblies = Object.keys(Bridge.assemblies);
-    } else if (typeof Bridge !== 'undefined' && Bridge !== null) {
-      try { r.bridgeProps = Object.keys(Bridge).filter(function(k) { return k.length < 30; }).slice(0, 20); } catch(e) {}
-    }
-    
+    r.pcTextGen = safe(function() { return pc && pc.TextGenerator ? 'exists' : 'missing'; });
+    r.bridgeAssemblies = safe(function() { return Bridge && Bridge.assemblies ? Object.keys(Bridge.assemblies) : (Bridge ? Object.keys(Bridge).slice(0, 15) : 'null'); });
+    r.scripts = document.querySelectorAll('script[src]').length;
+    // List all script srcs
+    var srcs = [];
+    document.querySelectorAll('script[src]').forEach(function(s) { srcs.push(s.src.split('/').slice(-2).join('/')); });
+    r.scriptSrcs = srcs;
     return r;
   });
   
