@@ -46,8 +46,10 @@ const BASE_URL = process.env.BASE_URL || 'https://playcools.top/blueprint';
 const POLL_INTERVAL = 8000;       // 8s between polls
 const HEARTBEAT_INTERVAL = 30000; // 30s heartbeat
 const WORK_DIR = 'D:\\work';
-const FIXED_PROJECT_DIR = path.join(WORK_DIR, 'test-luna'); // Git base template (Unity)
-const CLIENT_DIR = path.join(FIXED_PROJECT_DIR, 'Client');
+const FIXED_PROJECT_DIR = path.join(WORK_DIR, 'test-luna'); // Git base template root
+// luna-base-template repo IS the Unity project (Assets/Packages/ProjectSettings at root)
+// No 'Client' subdirectory — the repo root is the Client dir
+const CLIENT_DIR = FIXED_PROJECT_DIR;
 const COCOS_PROJECT_DIR = path.join(WORK_DIR, 'test-cocos'); // Fixed SVN working copy (Cocos)
 const SVN_USER = 'openclaw';
 const SVN_PASS = 'openclaw';
@@ -410,9 +412,22 @@ async function processTask(task) {
     if (!fs.existsSync(path.join(FIXED_PROJECT_DIR, '.git'))) {
       // First time: clone
       log('Git clone base template...', taskId);
-      // Remove stale directory if exists (e.g. old SVN checkout)
+      // Remove stale directory if exists (e.g. old SVN checkout, locked Unity files)
       if (fs.existsSync(FIXED_PROJECT_DIR)) {
-        runCmd(`rmdir /s /q "${FIXED_PROJECT_DIR}"`, undefined, 60000);
+        log('Removing stale directory: ' + FIXED_PROJECT_DIR, taskId);
+        try { fs.rmSync(FIXED_PROJECT_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 1000 }); } catch(e) {}
+        // Fallback: rmdir + powershell
+        if (fs.existsSync(FIXED_PROJECT_DIR)) {
+          runCmd(`rmdir /s /q "${FIXED_PROJECT_DIR}"`, undefined, 60000);
+        }
+        if (fs.existsSync(FIXED_PROJECT_DIR)) {
+          runCmd(`powershell -Command "Remove-Item -Path '${FIXED_PROJECT_DIR}' -Recurse -Force"`, undefined, 60000);
+        }
+        if (fs.existsSync(FIXED_PROJECT_DIR)) {
+          // Last resort: rename and continue
+          const bakDir = FIXED_PROJECT_DIR + '-bak-' + Date.now();
+          try { fs.renameSync(FIXED_PROJECT_DIR, bakDir); log('Renamed stale dir to: ' + bakDir, taskId); } catch(e) { log('Cannot remove stale dir: ' + e.message, taskId); }
+        }
       }
       const clone = runCmd(`git clone "${BASE_TEMPLATE_REPO}" "${FIXED_PROJECT_DIR}"`, undefined, 600000);
       if (!clone.ok) {
