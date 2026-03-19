@@ -487,6 +487,8 @@ window.addEventListener("luna:started", function() {
     var go = new UnityEngine.GameObject.ctor("GameManager");
     var comp = go.AddComponent(${className});
     if (comp && comp.Start) { try { comp.Start(); } catch(se) { console.error("[AI] Start() error:", se); } }
+    // Apply color override on next animation frame (before first render)
+    requestAnimationFrame(function() { if (window.__applyColors) window.__applyColors(); });
     // Post-Start fixes using PlayCanvas native API
     (function() {
       var pcApp = window.app && window.app.app;
@@ -515,25 +517,62 @@ window.addEventListener("luna:started", function() {
       });
       lightEnt.setEulerAngles(50, -30, 0);
       
-      // 2. Material color sync: Bridge.NET material.color → PlayCanvas _Color parameter
-      var mis = pcApp.scene._meshInstances || [];
-      var colorFixed = 0;
-      for (var i = 0; i < mis.length; i++) {
-        var mi = mis[i];
-        if (!mi || !mi.material || !mi.node) continue;
-        try {
-          var goName = mi.node.name;
-          var go = UnityEngine.GameObject.Find(goName);
-          if (!go) continue;
-          var renderer = go.GetComponent(UnityEngine.Renderer);
-          if (!renderer || !renderer.material || !renderer.material.color) continue;
-          var c = renderer.material.color;
-          mi.material.setParameter("_Color", [c.r, c.g, c.b, c.a]);
-          mi.material.setParameter("_BaseColor", [c.r, c.g, c.b, c.a]);
-          colorFixed++;
-        } catch(e) {}
+      // 2. Continuous material color override (GFM Update keeps resetting colors)
+      var colorRules = [
+        [/^Ground$/,         [0.25, 0.55, 0.18, 1]],  // green grass
+        [/^Base$|^Castle$/,  [0.75, 0.55, 0.35, 1]],  // tan/sandstone
+        [/^Player$/,         [0.10, 0.45, 0.95, 1]],  // bright blue
+        [/^Fence/,           [0.65, 0.42, 0.22, 1]],  // wood brown
+        [/Tree.*T$/,         [0.08, 0.58, 0.12, 1]],  // dark green canopy
+        [/Tree.*C$/,         [0.50, 0.28, 0.10, 1]],  // brown trunk
+        [/^Enemy|^Goblin|^Boss/, [0.92, 0.12, 0.08, 1]], // red enemies
+        [/^Arrow/,           [0.85, 0.85, 0.85, 1]],  // silver arrows
+        [/^Generator/,       [1.00, 0.75, 0.00, 1]],  // gold
+        [/^Conveyor/,        [0.60, 0.60, 0.60, 1]],  // gray conveyor
+        [/^WLog|^Wood/,      [0.72, 0.50, 0.15, 1]],  // light wood
+        [/^Stone/,           [0.55, 0.55, 0.55, 1]],  // gray stone
+        [/^House|^Cabin/,    [0.82, 0.58, 0.28, 1]],  // warm wood house
+        [/^Crossbow/,        [0.35, 0.35, 0.50, 1]],  // dark steel
+        [/^Worker/,          [0.15, 0.70, 0.82, 1]],  // cyan workers
+        [/^Guide/,           [1.00, 1.00, 0.00, 1]],  // yellow guide
+        [/^Label|^Text/,     [1.00, 1.00, 1.00, 1]],  // white text
+        [/^Btn_/,            [0.00, 0.80, 0.40, 1]],  // green buttons
+        [/^Coin|^Gold/,      [1.00, 0.85, 0.00, 1]],  // gold coins
+      ];
+      // Build name→color cache for fast lookup
+      var nameColorCache = {};
+      function getColorForName(name) {
+        if (nameColorCache[name] !== undefined) return nameColorCache[name];
+        for (var r = 0; r < colorRules.length; r++) {
+          if (colorRules[r][0].test(name)) { nameColorCache[name] = colorRules[r][1]; return colorRules[r][1]; }
+        }
+        nameColorCache[name] = null;
+        return null;
       }
-      console.log("[AI] Material colors synced:", colorFixed);
+      function applyColors() {
+        var mis = pcApp.scene._meshInstances || [];
+        for (var i = 0; i < mis.length; i++) {
+          var mi = mis[i];
+          if (!mi || !mi.material || !mi.node) continue;
+          var col = getColorForName(mi.node.name);
+          if (col) {
+            mi.material.setParameter("_Color", col);
+            mi.material.setParameter("_BaseColor", col);
+          }
+        }
+        // Ensure light exists
+        if (!pcApp.scene._lights || pcApp.scene._lights.length === 0) {
+          var le = new pc.Entity("AI_Light2");
+          pcApp.root.addChild(le);
+          le.addComponent("light", { type:"directional", color:new pc.Color(1,0.95,0.85), intensity:1.2 });
+          le.setEulerAngles(50, -30, 0);
+          console.log("[AI] Re-created light");
+        }
+      }
+      window.__applyColors = applyColors;
+      applyColors();
+      setInterval(applyColors, 200);  // 200ms for faster first-frame coverage
+      console.log("[AI] Color override active (interval)");
     })();
     if (comp && comp.Update) {
       var lastTime = performance.now();
