@@ -42,8 +42,75 @@ async function runBridgeBuild(clientDir, log, taskId) {
     }
   }
 
-  // 2. Run jake project:build (Stage1-4 with template/cached code)
-  log('[luna-build] Running jake project:build...', taskId);
+  // 2. Check if we can skip jake entirely using stage1 cache
+  const stage1CacheDir = path.join(lunaTempDir, 'stage1');
+  const stage1HasAssets = fs.existsSync(path.join(stage1CacheDir, 'assets'));
+  const stage1HasJs = fs.existsSync(path.join(stage1CacheDir, 'js'));
+  
+  if (stage1HasAssets && stage1HasJs) {
+    // Stage1 cache exists — skip jake completely, assemble stage4 from cache + Luna engine
+    log('[luna-build] Stage1 cache found — skipping jake, assembling stage4 from cache...', taskId);
+    
+    const s4Dir = path.join(lunaTempDir, 'stage4', 'develop');
+    fs.mkdirSync(s4Dir, { recursive: true });
+    
+    const cpDir = (s, d) => {
+      fs.mkdirSync(d, { recursive: true });
+      for (const e of fs.readdirSync(s, { withFileTypes: true })) {
+        const a = path.join(s, e.name), b = path.join(d, e.name);
+        if (e.isDirectory()) cpDir(a, b); else fs.copyFileSync(a, b);
+      }
+    };
+    
+    // Copy Luna engine
+    const lunaEngineDir = path.join(LUNA_DIR, 'engine', 'luna');
+    if (fs.existsSync(lunaEngineDir)) {
+      cpDir(lunaEngineDir, path.join(s4Dir, 'engine', 'luna'));
+    }
+    
+    // Copy compiled JS (bridge, UnityEngine, etc.) from LunaCompiler bin
+    const binDir = path.join(CSPROJ_DIR, '..', 'bin');
+    const unityBin = path.join(s4Dir, 'engine', 'unity', 'bin');
+    fs.mkdirSync(unityBin, { recursive: true });
+    if (fs.existsSync(binDir)) {
+      for (const f of fs.readdirSync(binDir)) {
+        if (f.endsWith('.js')) fs.copyFileSync(path.join(binDir, f), path.join(unityBin, f));
+      }
+    }
+    
+    // Copy stage1 assets
+    cpDir(path.join(stage1CacheDir, 'assets'), path.join(s4Dir, 'assets'));
+    
+    // Copy stage1 js
+    if (fs.existsSync(path.join(stage1CacheDir, 'js'))) {
+      cpDir(path.join(stage1CacheDir, 'js'), path.join(s4Dir, 'js'));
+    }
+    
+    // Copy luna.json
+    if (fs.existsSync(path.join(clientDir, 'luna.json'))) {
+      fs.copyFileSync(path.join(clientDir, 'luna.json'), path.join(s4Dir, 'luna.json'));
+    }
+    
+    // Use iframe.html from luna-copy or stage1
+    const lunaCopyIframe = path.join(path.dirname(clientDir), 'luna-copy', 'iframe.html');
+    const stage1Iframe = path.join(stage1CacheDir, 'tmp', 'iframe.html');
+    if (fs.existsSync(lunaCopyIframe)) {
+      fs.copyFileSync(lunaCopyIframe, path.join(s4Dir, 'iframe.html'));
+      log('[luna-build] Used luna-copy iframe.html', taskId);
+    } else if (fs.existsSync(stage1Iframe)) {
+      fs.copyFileSync(stage1Iframe, path.join(s4Dir, 'iframe.html'));
+      log('[luna-build] Used stage1 iframe.html', taskId);
+    }
+    
+    // Also create stage3 dir for MSBuild JS copy target
+    const s3JsDir = path.join(lunaTempDir, 'stage3', 'engine', 'unity', 'bin');
+    fs.mkdirSync(s3JsDir, { recursive: true });
+    
+    const items = fs.readdirSync(s4Dir);
+    log(`[luna-build] Stage4 assembled from cache (${items.length} items, skipped jake)`, taskId);
+  } else {
+    // No stage1 cache — must run jake (needs Unity Editor)
+    log('[luna-build] No stage1 cache — running jake project:build (requires Unity Editor)...', taskId);
 
   const jakeResult = await new Promise((resolve) => {
     const env = { ...process.env, PROJECT_PATH: clientDir };
@@ -147,6 +214,7 @@ async function runBridgeBuild(clientDir, log, taskId) {
       return { ok: false, error: `Jake build failed (code ${jakeResult.code}): ${errorLines.join('; ') || jakeResult.stderr.slice(-500)}` };
     }
   }
+  } // end else (no stage1 cache — ran jake)
 
   // Verify stage4 output
   const stage4Dir = path.join(lunaTempDir, 'stage4', 'develop');
