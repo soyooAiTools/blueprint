@@ -611,22 +611,36 @@ handlers.workerPoll = function(req, res, body) {
     var files = fs.readdirSync(AUTOCODING_QUEUE);
     var taskFiles = files.filter(function(f) { return f.endsWith('.json') && !f.endsWith('.cancelled.json'); });
     
-    // Find first pending task (atomic assign to prevent race condition)
+    // Find first task this worker hasn't claimed yet
+    // Multi-worker support: each worker independently processes the same task
+    var workerType = workerId.startsWith('linux') ? 'linux' : 'windows';
     for (var i = 0; i < taskFiles.length; i++) {
       var taskPath = path.join(AUTOCODING_QUEUE, taskFiles[i]);
       var task = JSON.parse(fs.readFileSync(taskPath, 'utf-8'));
       
-      if (task.status === 'pending' || task.status === 'fix_needed') {
-        var originalStatus = task.status;
-        // Atomic lock: mark as assigned before returning
+      // Initialize workerAssignments if missing
+      if (!task.workerAssignments) task.workerAssignments = {};
+      
+      var workerState = task.workerAssignments[workerType];
+      var taskAvailable = (task.status === 'pending' || task.status === 'fix_needed' || task.status === 'assigned');
+      
+      // This worker can claim if: task is available AND this workerType hasn't claimed it yet
+      if (taskAvailable && (!workerState || workerState === 'pending' || workerState === 'fix_needed')) {
+        var originalStatus = workerState || task.status;
+        
+        // Mark this worker's assignment
+        task.workerAssignments[workerType] = 'assigned';
+        task.workerAssignments[workerType + '_workerId'] = workerId;
+        task.workerAssignments[workerType + '_assignedAt'] = new Date().toISOString();
+        
+        // Overall task status: assigned if any worker has it
         task.status = 'assigned';
         task.assignedTo = workerId;
         task.assignedAt = new Date().toISOString();
         fs.writeFileSync(taskPath, JSON.stringify(task, null, 2), 'utf-8');
         
-        // Return with originalStatus so worker knows if it's new or fix
-        task.originalStatus = originalStatus;
-        console.log('[Worker Poll] Assigned task ' + task.taskId + ' (' + originalStatus + ') to worker ' + workerId);
+        task.originalStatus = (originalStatus === 'pending' || originalStatus === 'fix_needed') ? originalStatus : 'pending';
+        console.log('[Worker Poll] Assigned task ' + task.taskId + ' (' + task.originalStatus + ') to ' + workerType + ' worker ' + workerId);
         sendJSON(res, task);
         return;
       }
@@ -682,11 +696,30 @@ handlers.workerStatus = function(req, res, body) {
       writeProject(project);
     }
 
-    // Update task file if exists
+    // Update task file if exists (with per-worker tracking)
     var taskPath = path.join(AUTOCODING_QUEUE, taskId + '.json');
     if (fs.existsSync(taskPath)) {
       var task = JSON.parse(fs.readFileSync(taskPath, 'utf-8'));
-      task.status = status;
+      var wType = workerId.startsWith('linux') ? 'linux' : 'windows';
+      
+      // Update per-worker status
+      if (!task.workerAssignments) task.workerAssignments = {};
+      task.workerAssignments[wType] = status;
+      task.workerAssignments[wType + '_message'] = message || '';
+      task.workerAssignments[wType + '_updatedAt'] = new Date().toISOString();
+      
+      // Overall task status = best of both workers
+      // done > processing > assigned > fix_needed > pending > failed
+      var statusPriority = { done: 6, cua_passed: 5, processing: 4, assigned: 3, fix_needed: 2, pending: 1, failed: 0 };
+      var bestStatus = status;
+      var types = ['linux', 'windows'];
+      for (var ti = 0; ti < types.length; ti++) {
+        var ws = task.workerAssignments[types[ti]];
+        if (ws && (statusPriority[ws] || 0) > (statusPriority[bestStatus] || 0)) {
+          bestStatus = ws;
+        }
+      }
+      task.status = bestStatus;
       if (message) task.statusMessage = message;
       task.updatedAt = new Date().toISOString();
       fs.writeFileSync(taskPath, JSON.stringify(task, null, 2), 'utf-8');
