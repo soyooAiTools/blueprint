@@ -1,5 +1,5 @@
-// Worker Client v5 â€?Poll from Blueprint Editor API, build via Luna jake pipeline
-// Flow: Poll task â†?Git clone/reset base template â†?Pre-build patch â†?Luna build â†?converter-v3 â†?Upload â†?CUA
+// Worker Client v5 ï¿½?Poll from Blueprint Editor API, build via Luna jake pipeline
+// Flow: Poll task ï¿½?Git clone/reset base template ï¿½?Pre-build patch ï¿½?Luna build ï¿½?converter-v3 ï¿½?Upload ï¿½?CUA
 // Also handles: fix_needed (re-build), commit_needed (cleanup)
 
 // Load .env config
@@ -55,10 +55,10 @@ async function runLinuxBuild(csCode, extraFiles, log, taskId) {
           if (result.ok) {
             const html = Buffer.from(result.htmlBase64, 'base64').toString('utf8');
             const buildTime = ((Date.now() - startTime) / 1000).toFixed(1);
-            log(`[linux-build] âœ?Success: ${(html.length/1024).toFixed(0)} KB in ${buildTime}s`, taskId);
+            log(`[linux-build] ï¿½?Success: ${(html.length/1024).toFixed(0)} KB in ${buildTime}s`, taskId);
             resolve({ ok: true, html, buildTime, htmlSize: html.length });
           } else {
-            log(`[linux-build] â?Failed: ${result.error}`, taskId);
+            log(`[linux-build] ï¿½?Failed: ${result.error}`, taskId);
             resolve({ ok: false, error: result.error, buildLog: result.buildLog });
           }
         } catch(e) {
@@ -84,10 +84,18 @@ async function doBuild(clientDir, log, taskId) {
     if (fs.existsSync(gfmPath)) extraFiles['GFM_Tools.cs'] = fs.readFileSync(gfmPath, 'utf8');
     const result = await runLinuxBuild(csCode, extraFiles, log, taskId);
     if (result.ok) {
-      // Write HTML to output dir
+      // Write HTML to multiple locations for downstream compatibility
       const htmlOutputDir = path.join(WORK_DIR, taskId + '-html');
       fs.mkdirSync(htmlOutputDir, { recursive: true });
       fs.writeFileSync(path.join(htmlOutputDir, taskId + '.html'), result.html);
+      fs.writeFileSync(path.join(htmlOutputDir, 'index.html'), result.html);
+      
+      // Also write to stage4/develop so CUA, preview-check, upload all work unchanged
+      const stage4Dir = path.join(clientDir, 'LunaTemp', 'stage4', 'develop');
+      fs.mkdirSync(stage4Dir, { recursive: true });
+      fs.writeFileSync(path.join(stage4Dir, 'iframe.html'), result.html);
+      fs.writeFileSync(path.join(stage4Dir, 'index.html'), result.html);
+      log(`[linux-build] HTML written to stage4/develop for CUA compatibility`, taskId);
     }
     return result;
   } else {
@@ -117,7 +125,7 @@ const HEARTBEAT_INTERVAL = 30000; // 30s heartbeat
 const WORK_DIR = 'D:\\work';
 const FIXED_PROJECT_DIR = path.join(WORK_DIR, 'test-luna'); // Git base template root
 // luna-base-template repo IS the Unity project (Assets/Packages/ProjectSettings at root)
-// No 'Client' subdirectory â€?the repo root is the Client dir
+// No 'Client' subdirectory ï¿½?the repo root is the Client dir
 const CLIENT_DIR = FIXED_PROJECT_DIR;
 const COCOS_PROJECT_DIR = path.join(WORK_DIR, 'test-cocos'); // Fixed SVN working copy (Cocos)
 const SVN_USER = 'openclaw';
@@ -408,11 +416,11 @@ async function processTask(task) {
 
           // Auto-stop: engine not initialized = infrastructure issue, not code issue
           if (cuaResult.issues.some(i => i.includes('[engine-not-ready]'))) {
-            log('CUA auto-stop: engine not initialized â€?infrastructure issue, AI re-coding won\'t help', taskId);
+            log('CUA auto-stop: engine not initialized ï¿½?infrastructure issue, AI re-coding won\'t help', taskId);
             await reportStatus(taskId, 'failed', {
               message: 'Luna engine failed to initialize (infrastructure issue). ' + cuaResult.issues.filter(i => i.includes('[engine') || i.includes('[console') || i.includes('[page-error')).join('; ').slice(0, 300)
             });
-            throw new TaskFailedError('Engine initialization failure â€?not an AI code issue');
+            throw new TaskFailedError('Engine initialization failure ï¿½?not an AI code issue');
           }
 
           if (cuaRound >= MAX_CUA_ROUNDS) {
@@ -491,7 +499,7 @@ async function processTask(task) {
           if (!USE_BASE_TEMPLATE) {
             if (cleanScene(CLIENT_DIR)) log('Scene re-cleaned for CUA fix', taskId);
           } else {
-            log('V5: Skipping cleanScene for CUA fix â€?base template preserved', taskId);
+            log('V5: Skipping cleanScene for CUA fix ï¿½?base template preserved', taskId);
           }
           const fixScenes = detectScenes(CLIENT_DIR);
           fixLunaJson(CLIENT_DIR, fixScenes);
@@ -679,7 +687,7 @@ async function processTask(task) {
     // Replace template scene with clean empty scene (Camera + Light + EventSystem + GameManager + MaterialSource only)
     // V5 BASE TEMPLATE: skip cleanScene to preserve 242 pre-built objects
     if (USE_BASE_TEMPLATE) {
-      log('V5: Skipping cleanScene â€?base template scene preserved with 242 objects', taskId);
+      log('V5: Skipping cleanScene ï¿½?base template scene preserved with 242 objects', taskId);
     } else if (cleanScene(CLIENT_DIR)) {
       log('Scene cleaned: replaced template with empty scene', taskId);
     } else {
@@ -704,7 +712,7 @@ async function processTask(task) {
     let stage4Dir = path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop');
     
     if (USE_LINUX_BUILD) {
-      // === Linux Build Path: C# â†?JS â†?HTML via remote API ===
+      // === Linux Build Path: C# ï¿½?JS ï¿½?HTML via remote API ===
       log('[linux-build] Using Linux build path', taskId);
       const csPath = path.join(CLIENT_DIR, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
       const gfmPath = path.join(__dirname, 'GFM_Tools.cs');
@@ -761,11 +769,11 @@ async function processTask(task) {
     }
 
     // === Step 5.6: Preview Health Check + Self-Heal Loop ===
-    // Skip preview-check when using generated iframe.html (jake-skip mode) â€?converter-v3 output is the real artifact
+    // Skip preview-check when using generated iframe.html (jake-skip mode) ï¿½?converter-v3 output is the real artifact
     // The generated iframe.html loads scripts via <script src> which doesn't match Luna's runtime init sequence
     const htmlOutputExists = fs.existsSync(path.join(htmlOutputDir, taskId + '.html'));
     if (htmlOutputExists) {
-      log('[preview-check] Skipping â€?HTML converter output exists, using that as final artifact', taskId);
+      log('[preview-check] Skipping ï¿½?HTML converter output exists, using that as final artifact', taskId);
     }
     if (!htmlOutputExists) {
       const { runPreviewCheck } = require('./worker-preview-check.js');
@@ -973,7 +981,7 @@ async function processTask(task) {
         if (!USE_BASE_TEMPLATE) {
           if (cleanScene(CLIENT_DIR)) log('Scene re-cleaned for CUA fix rebuild', taskId);
         } else {
-          log('V5: Skipping cleanScene for CUA rebuild â€?base template preserved', taskId);
+          log('V5: Skipping cleanScene for CUA rebuild ï¿½?base template preserved', taskId);
         }
         const fixScenes = detectScenes(CLIENT_DIR);
         fixLunaJson(CLIENT_DIR, fixScenes);
@@ -1194,7 +1202,12 @@ async function processTaskCocos(task) {
 }
 
 async function uploadBuild(taskId) {
-  // Find build output ?stage4/develop/index.html is the standard output
+  // Find build output
+  // Linux build: single HTML at WORK_DIR/taskId-html/taskId.html
+  // Windows build: stage4/develop/index.html
+  const linuxHtmlDir = path.join(WORK_DIR, taskId + '-html');
+  const linuxHtmlFile = path.join(linuxHtmlDir, taskId + '.html');
+  
   const searchDirs = [
     path.join(CLIENT_DIR, 'LunaTemp', 'stage4', 'develop'),
     path.join(CLIENT_DIR, 'LunaTemp', 'package', 'default'),
@@ -1202,10 +1215,22 @@ async function uploadBuild(taskId) {
   ];
 
   let buildDir = null;
-  for (const d of searchDirs) {
-    if (fs.existsSync(path.join(d, 'index.html'))) {
-      buildDir = d;
-      break;
+  
+  // Check Linux build output first
+  if (USE_LINUX_BUILD && fs.existsSync(linuxHtmlFile)) {
+    buildDir = linuxHtmlDir;
+    // Rename to index.html for compatibility
+    const indexPath = path.join(linuxHtmlDir, 'index.html');
+    if (!fs.existsSync(indexPath)) {
+      fs.copyFileSync(linuxHtmlFile, indexPath);
+    }
+    log(`[linux-build] Using Linux build output: ${linuxHtmlFile}`, taskId);
+  } else {
+    for (const d of searchDirs) {
+      if (fs.existsSync(path.join(d, 'index.html'))) {
+        buildDir = d;
+        break;
+      }
     }
   }
 
@@ -1274,7 +1299,7 @@ async function handleCommit(task) {
     }
   }
 
-  log('Project cleanup done (no SVN commit â€?using Git base template)', taskId);
+  log('Project cleanup done (no SVN commit ï¿½?using Git base template)', taskId);
 
   // Callback to Blueprint Editor
   try {
