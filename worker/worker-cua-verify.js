@@ -479,6 +479,20 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
           });
       }
 
+      // 7. Diagnostics-based issues (engine state, console errors)
+      if (report.diagnostics) {
+        const diag = report.diagnostics;
+        if (!diag.engineReady) {
+          issues.push('[engine-not-ready] Luna engine failed to initialize. Engine state: ' + JSON.stringify(diag.engineState || 'unknown'));
+          if (diag.consoleErrors && diag.consoleErrors.length > 0) {
+            issues.push('[console-errors] JS errors during load (' + diag.consoleErrors.length + '): ' + diag.consoleErrors.slice(0, 5).join(' | '));
+          }
+          if (diag.pageErrors && diag.pageErrors.length > 0) {
+            issues.push('[page-errors] Uncaught JS exceptions (' + diag.pageErrors.length + '): ' + diag.pageErrors.slice(0, 5).join(' | '));
+          }
+        }
+      }
+
       // Pass criteria: ALL shots covered + CTA reachable + game content visible + no critical issues
       const passed = issues.length === 0;
 

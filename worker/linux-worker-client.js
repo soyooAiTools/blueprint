@@ -44,11 +44,61 @@ function log(msg, taskId) {
 }
 
 // ============ HTTP Helpers ============
+function handleResponse(resolve, reject) {
+  return (res) => {
+    let data = '';
+    res.on('data', c => data += c);
+    res.on('end', () => {
+      if (res.statusCode === 204) return resolve(null);
+      if (res.statusCode >= 400) return reject(new Error(`HTTP ${res.statusCode}: ${data.slice(0, 200)}`));
+      try { resolve(JSON.parse(data)); } catch(e) { resolve(data); }
+    });
+  };
+}
+
 function apiRequest(method, urlPath, body, isJSON) {
   return new Promise((resolve, reject) => {
     const fullUrl = new URL(BASE_URL + urlPath);
-    const mod = fullUrl.protocol === 'https:' ? https : http;
-    const opts = {
+    const useProxy = process.env.https_proxy || process.env.HTTPS_PROXY;
+    let mod, opts;
+    
+    if (useProxy && fullUrl.protocol === 'https:') {
+      // HTTPS through HTTP CONNECT proxy
+      const proxyUrl = new URL(useProxy);
+      mod = http;
+      opts = {
+        hostname: proxyUrl.hostname,
+        port: proxyUrl.port,
+        path: fullUrl.hostname + ':' + (fullUrl.port || 443),
+        method: 'CONNECT',
+        timeout: 30000,
+      };
+      // Use CONNECT tunnel
+      const tunnelReq = http.request(opts);
+      tunnelReq.on('connect', (res, socket) => {
+        const tls = require('tls');
+        const tlsSocket = tls.connect({ host: fullUrl.hostname, socket, servername: fullUrl.hostname }, () => {
+          const req = https.request({
+            hostname: fullUrl.hostname,
+            path: fullUrl.pathname + fullUrl.search,
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            socket: tlsSocket,
+            agent: false,
+            timeout: 30000,
+          }, handleResponse(resolve, reject));
+          req.on('error', reject);
+          if (body) req.write(typeof body === 'string' ? body : JSON.stringify(body));
+          req.end();
+        });
+      });
+      tunnelReq.on('error', reject);
+      tunnelReq.end();
+      return;
+    }
+    
+    mod = fullUrl.protocol === 'https:' ? https : http;
+    opts = {
       hostname: fullUrl.hostname,
       port: fullUrl.port || (fullUrl.protocol === 'https:' ? 443 : 80),
       path: fullUrl.pathname + fullUrl.search,
@@ -56,15 +106,7 @@ function apiRequest(method, urlPath, body, isJSON) {
       headers: { 'Content-Type': 'application/json' },
       timeout: 30000,
     };
-    const req = mod.request(opts, (res) => {
-      let data = '';
-      res.on('data', c => data += c);
-      res.on('end', () => {
-        if (res.statusCode === 204) return resolve(null);
-        if (res.statusCode >= 400) return reject(new Error(`HTTP ${res.statusCode}: ${data.slice(0, 200)}`));
-        try { resolve(JSON.parse(data)); } catch(e) { resolve(data); }
-      });
-    });
+    const req = mod.request(opts, handleResponse(resolve, reject));
     req.on('error', reject);
     req.on('timeout', () => { req.destroy(); reject(new Error('Request timeout')); });
     if (body) req.write(typeof body === 'string' ? body : JSON.stringify(body));
@@ -237,6 +279,10 @@ async function poll() {
     pollLock = false;
   }
 }
+
+// ============ Error Handling ============
+process.on('uncaughtException', (e) => { log('UNCAUGHT: ' + e.stack); });
+process.on('unhandledRejection', (e) => { log('UNHANDLED: ' + (e.stack || e)); });
 
 // ============ Start ============
 log(`Linux Worker starting | ID: ${WORKER_ID} | Server: ${BASE_URL} | Build: ${BUILD_URL}`);

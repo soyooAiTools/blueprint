@@ -1423,6 +1423,21 @@ async function main() {
   });
   const page = await context.newPage();
 
+  // ─── 诊断数据收集 ───
+  const _diagnostics = { consoleErrors: [], pageErrors: [], engineState: null, engineReady: false };
+  page.on('pageerror', err => {
+    const msg = err.message || String(err);
+    _diagnostics.pageErrors.push(msg.substring(0, 500));
+    if (_diagnostics.pageErrors.length <= 5) console.error('[Luna Agent] PAGE ERROR:', msg.substring(0, 200));
+  });
+  page.on('console', msg => {
+    if (msg.type() === 'error') {
+      const txt = msg.text().substring(0, 500);
+      _diagnostics.consoleErrors.push(txt);
+      if (_diagnostics.consoleErrors.length <= 5) console.error('[Luna Agent] CONSOLE ERROR:', txt.substring(0, 200));
+    }
+  });
+
   // ─── 打开广告 ───
   console.log('[Luna Agent] Loading URL...');
   try {
@@ -1447,9 +1462,34 @@ async function main() {
       return __playcheck.waitReady();
     });
     console.log('[Luna Agent] Engine ready ✓');
+    _diagnostics.engineReady = true;
   } catch (err) {
     console.error('[Luna Agent] Engine not ready (continuing anyway):', err.message);
+    // ─── 引擎状态探针 ───
+    try {
+      _diagnostics.engineState = await page.evaluate(function () {
+        var r = {};
+        r.bridge = typeof Bridge;
+        r.lunaUnity = typeof LunaUnity;
+        r.unityEngine = typeof UnityEngine;
+        r.pc = typeof pc;
+        r.app = typeof window.app;
+        r.bridgeReady = window._bridgeReady || false;
+        r.domReady = window._domReady || false;
+        r.readyEmitted = window._readyEventEmitted || false;
+        r.scripts = document.querySelectorAll('script').length;
+        r.canvas = !!document.querySelector('canvas');
+        try { r.webgl = !!document.querySelector('canvas').getContext('webgl2') || !!document.querySelector('canvas').getContext('webgl'); } catch(e) { r.webgl = false; }
+        return r;
+      });
+      console.log('[Luna Agent] Engine state probe:', JSON.stringify(_diagnostics.engineState));
+    } catch (probeErr) {
+      console.error('[Luna Agent] Engine state probe failed:', probeErr.message);
+    }
   }
+
+  // 把诊断数据挂到 config 上，供 runCUA 和 report 使用
+  config._diagnostics = _diagnostics;
 
   // ─── CUA 模式：GPT-5.4 直接操控 ───
   if (config.model === 'cua') {
@@ -1477,6 +1517,12 @@ async function main() {
       },
       feedbackVerification: cuaResult.feedbackVerification || null,
       scriptCoverage: cuaResult.scriptCoverage || null,
+      diagnostics: {
+        engineReady: config._diagnostics ? config._diagnostics.engineReady : true,
+        engineState: config._diagnostics ? config._diagnostics.engineState : null,
+        consoleErrors: config._diagnostics ? config._diagnostics.consoleErrors.slice(0, 20) : [],
+        pageErrors: config._diagnostics ? config._diagnostics.pageErrors.slice(0, 20) : []
+      },
       history: cuaResult.history,
       finalScreenshot: cuaResult.finalScreenshot ? '(base64)' : null
     };

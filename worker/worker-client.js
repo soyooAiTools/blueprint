@@ -295,6 +295,8 @@ async function processTask(task) {
       let cuaBlueprint = null;
       try { cuaBlueprint = await apiRequest('GET', `/api/tasks/${taskId}/blueprint`); } catch(e) {}
 
+      let prevIssueSignature = '';
+      let sameIssueCount = 0;
       for (let cuaRound = 1; cuaRound <= MAX_CUA_ROUNDS; cuaRound++) {
         try {
           const { runCUAVerification } = require('./worker-cua-verify.js');
@@ -316,8 +318,33 @@ async function processTask(task) {
             break;
           }
 
-          log(`CUA resume: FAILED round ${cuaRound}/${MAX_CUA_ROUNDS}, ${cuaResult.issues.length} issues`, taskId);
+          log(`CUA verification FAILED round ${cuaRound}/${MAX_CUA_ROUNDS}, ${cuaResult.issues.length} issues`, taskId);
           cuaResult.issues.forEach(issue => log(`  - ${issue}`, taskId));
+
+          // Auto-stop: same issues repeated 3+ rounds
+          const issueSignature = cuaResult.issues.map(i => i.replace(/\d+/g, 'N')).sort().join('|');
+          if (issueSignature === prevIssueSignature) {
+            sameIssueCount++;
+          } else {
+            sameIssueCount = 1;
+            prevIssueSignature = issueSignature;
+          }
+          if (sameIssueCount >= 3) {
+            log(`CUA auto-stop: same issues repeated ${sameIssueCount} rounds, stopping to avoid waste`, taskId);
+            await reportStatus(taskId, 'failed', { 
+              message: 'CUA auto-stopped: same issues repeated ' + sameIssueCount + ' rounds. Issues: ' + cuaResult.issues.slice(0, 2).join('; ').slice(0, 200)
+            });
+            throw new TaskFailedError('CUA auto-stopped: repeated issues after ' + cuaRound + ' rounds');
+          }
+
+          // Auto-stop: engine not initialized = infrastructure issue, not code issue
+          if (cuaResult.issues.some(i => i.includes('[engine-not-ready]'))) {
+            log('CUA auto-stop: engine not initialized — infrastructure issue, AI re-coding won\'t help', taskId);
+            await reportStatus(taskId, 'failed', {
+              message: 'Luna engine failed to initialize (infrastructure issue). ' + cuaResult.issues.filter(i => i.includes('[engine') || i.includes('[console') || i.includes('[page-error')).join('; ').slice(0, 300)
+            });
+            throw new TaskFailedError('Engine initialization failure — not an AI code issue');
+          }
 
           if (cuaRound >= MAX_CUA_ROUNDS) {
             await reportStatus(taskId, 'failed', { 
@@ -330,7 +357,23 @@ async function processTask(task) {
           log(`CUA resume: round ${cuaRound} failed, fix cycle...`, taskId);
           await reportStatus(taskId, 'processing', { message: `CUAround ${cuaRound} round failed, AI re-coding...` });
 
-          const cuaFeedbackText = 'CUA blueprint flow verification failed:\n' + cuaResult.issues.join('\n') + '\n\nPlease fix the code to ensure blueprint flow works.';
+          // Build detailed CUA feedback with diagnostics
+          let cuaFeedbackText = 'CUA blueprint flow verification failed (round ' + cuaRound + '):\n' + cuaResult.issues.join('\n');
+          // Add diagnostics if available
+          if (cuaResult.report && cuaResult.report.diagnostics) {
+            const diag = cuaResult.report.diagnostics;
+            if (!diag.engineReady) {
+              cuaFeedbackText += '\n\n⚠️ ENGINE NOT INITIALIZED - This is likely an infrastructure issue, not a code issue.';
+              cuaFeedbackText += '\nEngine state: ' + JSON.stringify(diag.engineState);
+              if (diag.consoleErrors && diag.consoleErrors.length > 0) {
+                cuaFeedbackText += '\nConsole errors:\n' + diag.consoleErrors.slice(0, 10).map(e => '  - ' + e).join('\n');
+              }
+              if (diag.pageErrors && diag.pageErrors.length > 0) {
+                cuaFeedbackText += '\nPage errors:\n' + diag.pageErrors.slice(0, 10).map(e => '  - ' + e).join('\n');
+              }
+            }
+          }
+          cuaFeedbackText += '\n\nPlease fix the code to ensure blueprint flow works.';
           try {
             await apiRequest('POST', '/api/projects/' + taskId + '/feedback', 
               JSON.stringify({ text: cuaFeedbackText, source: 'cua-resume-round-' + cuaRound }),
