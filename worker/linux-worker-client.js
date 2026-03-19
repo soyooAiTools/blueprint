@@ -249,59 +249,152 @@ async function processTask(task) {
     fs.writeFileSync(htmlPath, htmlData);
     log(`HTML saved: ${(htmlData.length / 1048576).toFixed(1)}MB → ${htmlPath}`, taskId);
 
-    // === Step 6: CUA Verification ===
-    await reportStatus(taskId, 'processing', { message: '[Linux] CUA verification...' });
-    
-    // Serve the single HTML file via a local HTTP server
-    const httpServer = require('http').createServer((req, res) => {
-      if (req.url === '/' || req.url === '/iframe.html' || req.url === '/index.html') {
-        res.writeHead(200, { 'Content-Type': 'text/html', 'Content-Length': htmlData.length });
-        res.end(htmlData);
-      } else {
-        res.writeHead(404); res.end('Not Found');
-      }
-    });
-    
-    const CUA_PORT = 18850 + Math.floor(Math.random() * 100);
-    await new Promise((resolve, reject) => {
-      httpServer.listen(CUA_PORT, '127.0.0.1', resolve);
-      httpServer.on('error', reject);
-    });
-    log(`CUA preview server on :${CUA_PORT}`, taskId);
-    
-    const previewUrl = `http://127.0.0.1:${CUA_PORT}/`;
-    
-    try {
-      const { runCUAVerification } = require('./worker-cua-verify.js');
-      // CUA expects a buildDir with iframe.html — write HTML there for compatibility
-      const cuaBuildDir = path.join(require('os').tmpdir(), `linux-cua-${taskId}`);
+    // === Step 6: CUA Verification + Auto-Fix Loop ===
+    const MAX_CUA_ROUNDS = 20;
+    const { runCUAVerification } = require('./worker-cua-verify.js');
+    let cuaPassed = false;
+    let lastHtmlData = htmlData;
+    let lastCsCode = csCode;
+
+    for (let cuaRound = 1; cuaRound <= MAX_CUA_ROUNDS; cuaRound++) {
+      await reportStatus(taskId, 'processing', { message: `[Linux] CUA verifying... (round ${cuaRound}/${MAX_CUA_ROUNDS})` });
+      
+      // Write HTML to temp dir for CUA
+      const cuaBuildDir = path.join(require('os').tmpdir(), `linux-cua-${taskId}-r${cuaRound}`);
       fs.mkdirSync(cuaBuildDir, { recursive: true });
-      fs.writeFileSync(path.join(cuaBuildDir, 'iframe.html'), htmlData);
+      fs.writeFileSync(path.join(cuaBuildDir, 'iframe.html'), lastHtmlData);
       
-      const cuaResult = await runCUAVerification(cuaBuildDir, blueprint, taskId, log);
-      
-      if (cuaResult.passed) {
-        log(`CUA PASSED in ${((Date.now() - startTime) / 1000).toFixed(0)}s`, taskId);
-        await reportStatus(taskId, 'cua_passed', { message: `[Linux] CUA passed! Total: ${((Date.now() - startTime) / 1000).toFixed(0)}s` });
-      } else if (cuaResult.skipped) {
-        log('CUA skipped, marking done', taskId);
-        await reportStatus(taskId, 'done', { message: `[Linux] Done (CUA skipped). Total: ${((Date.now() - startTime) / 1000).toFixed(0)}s` });
-      } else {
-        log(`CUA FAILED: ${cuaResult.issues.length} issues`, taskId);
-        cuaResult.issues.forEach(i => log(`  - ${i}`, taskId));
-        await reportStatus(taskId, 'fix_needed', { 
-          message: `[Linux] CUA failed: ${cuaResult.issues.slice(0, 3).join('; ').slice(0, 300)}`,
-          cuaIssues: cuaResult.issues,
-        });
+      let cuaResult;
+      try {
+        cuaResult = await runCUAVerification(cuaBuildDir, blueprint, taskId, log);
+      } catch (cuaErr) {
+        log(`CUA round ${cuaRound} error: ${cuaErr.message}`, taskId);
+        if (cuaRound >= MAX_CUA_ROUNDS) {
+          await reportStatus(taskId, 'done', { message: `[Linux] Done (CUA error after ${cuaRound} rounds)` });
+        }
+        try { fs.rmSync(cuaBuildDir, { recursive: true, force: true }); } catch(e) {}
+        continue;
       }
       
-      // Cleanup CUA temp dir
       try { fs.rmSync(cuaBuildDir, { recursive: true, force: true }); } catch(e) {}
-    } catch (cuaErr) {
-      log('CUA error: ' + cuaErr.message, taskId);
-      await reportStatus(taskId, 'done', { message: `[Linux] Done (CUA error: ${cuaErr.message.slice(0, 100)}). Total: ${((Date.now() - startTime) / 1000).toFixed(0)}s` });
-    } finally {
-      try { httpServer.close(); } catch(e) {}
+
+      if (cuaResult.passed || cuaResult.skipped) {
+        cuaPassed = true;
+        log(`CUA ${cuaResult.skipped ? 'SKIPPED' : 'PASSED'} round ${cuaRound}, total ${((Date.now() - startTime) / 1000).toFixed(0)}s`, taskId);
+        await reportStatus(taskId, 'cua_passed', { message: `[Linux] CUA passed (round ${cuaRound})! Total: ${((Date.now() - startTime) / 1000).toFixed(0)}s` });
+        break;
+      }
+
+      log(`CUA FAILED round ${cuaRound}/${MAX_CUA_ROUNDS}: ${cuaResult.issues.length} issues`, taskId);
+      cuaResult.issues.forEach(i => log(`  - ${i}`, taskId));
+
+      // Auto-stop: engine not initialized = infrastructure issue
+      if (cuaResult.report && cuaResult.report.diagnostics && !cuaResult.report.diagnostics.engineReady) {
+        log('CUA auto-stop: engine not initialized — infrastructure issue, AI re-coding won\'t help', taskId);
+        await reportStatus(taskId, 'failed', { message: '[Linux] Engine not initialized — infrastructure issue' });
+        break;
+      }
+
+      if (cuaRound >= MAX_CUA_ROUNDS) {
+        await reportStatus(taskId, 'failed', { message: `[Linux] CUA failed after ${MAX_CUA_ROUNDS} rounds` });
+        break;
+      }
+
+      // === Fix cycle: build CUA feedback → re-code → rebuild → retry ===
+      await reportStatus(taskId, 'processing', { message: `[Linux] CUA round ${cuaRound} failed, AI re-coding...` });
+
+      // Build detailed feedback
+      let cuaFeedbackText = `CUA blueprint flow verification failed (round ${cuaRound}):\n` + cuaResult.issues.join('\n');
+      if (cuaResult.report && cuaResult.report.diagnostics) {
+        const diag = cuaResult.report.diagnostics;
+        if (diag.consoleErrors && diag.consoleErrors.length > 0) {
+          cuaFeedbackText += '\nConsole errors:\n' + diag.consoleErrors.slice(0, 10).map(e => '  - ' + e).join('\n');
+        }
+      }
+      if (cuaResult.report && cuaResult.report.gameState) {
+        const gs = cuaResult.report.gameState;
+        cuaFeedbackText += '\n\n📊 Game State at failure:';
+        cuaFeedbackText += '\n  Current Phase: ' + (gs.currentPhase || 'unknown');
+        cuaFeedbackText += '\n  Completed Phases: ' + ((gs.completedPhases || []).join(', ') || 'none');
+        if (gs.variables) cuaFeedbackText += '\n  Variables: ' + JSON.stringify(gs.variables);
+        if (gs.entityStates) cuaFeedbackText += '\n  Entity States: ' + JSON.stringify(gs.entityStates);
+      }
+      cuaFeedbackText += '\n\nPlease fix the code to ensure blueprint flow works. Focus on the specific phase/entity that failed.';
+
+      // Inject feedback into blueprint for INCREMENTAL FIX mode
+      if (!blueprint.feedbackHistory) blueprint.feedbackHistory = [];
+      blueprint.feedbackHistory.push({
+        data: { text: cuaFeedbackText },
+        source: 'cua-linux-round-' + cuaRound,
+        status: 'pending',
+        timestamp: Date.now()
+      });
+
+      // Re-generate code
+      const fixTempDir = path.join(require('os').tmpdir(), `linux-fix-${taskId}-r${cuaRound}`);
+      const fixAssetsDir = path.join(fixTempDir, 'Assets', 'Scripts');
+      fs.mkdirSync(fixAssetsDir, { recursive: true });
+      if (fs.existsSync(gfmSrc)) fs.copyFileSync(gfmSrc, path.join(fixAssetsDir, 'GFM_Tools.cs'));
+      // Copy previous code so AI can do incremental fix
+      fs.writeFileSync(path.join(fixAssetsDir, 'GameFlowManagerMain.cs'), lastCsCode);
+
+      let fixResult;
+      try {
+        fixResult = await generateCodeV5(blueprint, fixTempDir, log, taskId, 'unity');
+      } catch (fixErr) {
+        log(`Fix re-code error: ${fixErr.message}`, taskId);
+        try { fs.rmSync(fixTempDir, { recursive: true, force: true }); } catch(e) {}
+        continue;
+      }
+
+      if (!fixResult.ok) {
+        log('Fix re-code failed: ' + fixResult.error, taskId);
+        try { fs.rmSync(fixTempDir, { recursive: true, force: true }); } catch(e) {}
+        continue;
+      }
+
+      // Find new CS code
+      const fixCsFiles = findFiles(fixTempDir, '.cs');
+      const fixMainCs = fixCsFiles.find(f => f.includes('GameFlowManagerMain.cs'));
+      if (!fixMainCs) {
+        log('Fix re-code: no GameFlowManagerMain.cs found', taskId);
+        try { fs.rmSync(fixTempDir, { recursive: true, force: true }); } catch(e) {}
+        continue;
+      }
+
+      lastCsCode = fs.readFileSync(fixMainCs, 'utf-8');
+      const fixExtraFiles = {};
+      const fixGfm = fixCsFiles.find(f => f.includes('GFM_Tools.cs'));
+      if (fixGfm) fixExtraFiles['GFM_Tools.cs'] = fs.readFileSync(fixGfm, 'utf-8');
+      try { fs.rmSync(fixTempDir, { recursive: true, force: true }); } catch(e) {}
+
+      // Rebuild
+      await reportStatus(taskId, 'building', { message: `[Linux] CUA fix rebuilding... (round ${cuaRound + 1})` });
+      let fixBuild;
+      try {
+        fixBuild = await buildRequest('/build', lastCsCode, fixExtraFiles);
+      } catch (buildErr) {
+        log(`Fix rebuild error: ${buildErr.message}`, taskId);
+        continue;
+      }
+      if (!fixBuild.ok) {
+        log('Fix rebuild failed: ' + (fixBuild.error || ''), taskId);
+        continue;
+      }
+      log(`Fix rebuild OK in ${fixBuild.buildTime}s`, taskId);
+
+      // Download new HTML
+      try {
+        lastHtmlData = await buildRequest('/build-html', lastCsCode, fixExtraFiles);
+        log(`Fix HTML: ${(lastHtmlData.length / 1048576).toFixed(1)}MB`, taskId);
+      } catch (dlErr) {
+        log('Fix HTML download error: ' + dlErr.message, taskId);
+        continue;
+      }
+    }
+
+    if (!cuaPassed) {
+      log(`Task ended after CUA loop, total ${((Date.now() - startTime) / 1000).toFixed(0)}s`, taskId);
     }
 
     // Cleanup temp dirs
