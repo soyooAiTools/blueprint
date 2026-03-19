@@ -117,7 +117,7 @@ if(_imgSet&&_imgSet.set){
 
   // 5. Replace external script src with inline content
   let strippedSize = 0;
-  html = html.replace(/<script\s+src="([^"]+)"\s+defer="defer"\s+type="text\/javascript"><\/script>/g, (match, src) => {
+  html = html.replace(/<script\s+src="([^"]+)"(?:\s+defer="defer")?(?:\s+type="text\/javascript")?><\/script>/g, (match, src) => {
     const normalizedSrc = src.replace(/\\/g, '/');
     const basename = path.basename(normalizedSrc, '.js');
     
