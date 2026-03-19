@@ -487,6 +487,54 @@ window.addEventListener("luna:started", function() {
     var go = new UnityEngine.GameObject.ctor("GameManager");
     var comp = go.AddComponent(${className});
     if (comp && comp.Start) { try { comp.Start(); } catch(se) { console.error("[AI] Start() error:", se); } }
+    // Post-Start fixes using PlayCanvas native API
+    (function() {
+      var pcApp = window.app && window.app.app;
+      if (!pcApp || !pcApp.root) return;
+      
+      // 1. Always create camera + light (scene ones don't survive Start clean-up)
+      console.log("[AI] Creating PlayCanvas camera + light");
+      var camEnt = new pc.Entity("AI_Camera");
+      pcApp.root.addChild(camEnt);
+      camEnt.addComponent("camera", {
+        clearColor: new pc.Color(0.6, 0.8, 1.0),
+        projection: 1,
+        orthoHeight: 10,
+        nearClip: 0.1,
+        farClip: 1000,
+        priority: 100
+      });
+      camEnt.setPosition(0, 15, -8);
+      camEnt.setEulerAngles(55, 0, 0);
+      var lightEnt = new pc.Entity("AI_Light");
+      pcApp.root.addChild(lightEnt);
+      lightEnt.addComponent("light", {
+        type: "directional",
+        color: new pc.Color(1, 0.95, 0.85),
+        intensity: 1.0
+      });
+      lightEnt.setEulerAngles(50, -30, 0);
+      
+      // 2. Material color sync: Bridge.NET material.color → PlayCanvas _Color parameter
+      var mis = pcApp.scene._meshInstances || [];
+      var colorFixed = 0;
+      for (var i = 0; i < mis.length; i++) {
+        var mi = mis[i];
+        if (!mi || !mi.material || !mi.node) continue;
+        try {
+          var goName = mi.node.name;
+          var go = UnityEngine.GameObject.Find(goName);
+          if (!go) continue;
+          var renderer = go.GetComponent(UnityEngine.Renderer);
+          if (!renderer || !renderer.material || !renderer.material.color) continue;
+          var c = renderer.material.color;
+          mi.material.setParameter("_Color", [c.r, c.g, c.b, c.a]);
+          mi.material.setParameter("_BaseColor", [c.r, c.g, c.b, c.a]);
+          colorFixed++;
+        } catch(e) {}
+      }
+      console.log("[AI] Material colors synced:", colorFixed);
+    })();
     if (comp && comp.Update) {
       var lastTime = performance.now();
       function gameLoop() {
