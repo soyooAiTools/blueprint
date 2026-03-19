@@ -111,56 +111,69 @@ async function runBridgeBuild(clientDir, log, taskId) {
         const jsDir = path.join(s4Dir, 'js');
         let scriptTags = '';
 
-        // 1. Luna/PlayCanvas engine — load order from manifest.json
-        if (fs.existsSync(lunaDir)) {
-          const lunaFiles = fs.readdirSync(lunaDir).filter(f => f.endsWith('.js'));
-          const manifestPath = path.join(lunaDir, 'manifest.json');
-          let lunaLoadOrder = [];
-          // Active modules (from globalsScript)
-          const activeModules = ['physics3d', 'physics2d', 'particle_system', 'reflection', 'prefabs', 'mecanim'];
-          const moduleMap = { 'mecanim-wasm': 'mecanim', 'mecanim': 'mecanim', 'particle-system': 'particle_system', 'particle_system': 'particle_system', 'urp': 'urp' };
-          if (fs.existsSync(manifestPath)) {
-            try {
-              const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-              // Sort by priority, then filter by module conditions
-              manifest.sort((a, b) => (a.priority || 0) - (b.priority || 0));
-              for (const entry of manifest) {
-                const mod = entry.ifModule ? (moduleMap[entry.ifModule] || entry.ifModule) : null;
-                const unlessMod = entry.unlessModule ? (moduleMap[entry.unlessModule] || entry.unlessModule) : null;
-                if (mod && !activeModules.includes(mod)) continue; // ifModule not active, skip
-                if (unlessMod && activeModules.includes(unlessMod)) continue; // unlessModule is active, skip stub
-                if (lunaFiles.includes(entry.src)) lunaLoadOrder.push(entry.src);
-              }
-            } catch(e) {
-              log('[luna-build] Failed to parse manifest.json: ' + e.message + ', falling back to dir scan', taskId);
-            }
-          }
-          if (lunaLoadOrder.length === 0) {
-            // Fallback: load all JS files sorted
-            lunaLoadOrder = lunaFiles.sort();
-          }
-          for (const f of lunaLoadOrder) {
-            scriptTags += `<script src="engine/luna/${f}"></script>\n`;
-          }
-          log('[luna-build] Added ' + lunaLoadOrder.length + ' Luna/PlayCanvas scripts (manifest order): ' + lunaLoadOrder.join(', '), taskId);
-        }
+        // === Script load order (critical! dependency chain): ===
+        // 1. Bridge.NET core (bridge.js, bridge.meta.js, Bridge.Locales.js)
+        // 2. UnityEngine + other .NET assemblies (depend on Bridge)
+        // 3. Luna/PlayCanvas engine (script3.js references Luna namespace from Bridge)
+        // 4. UnityScriptsCompiler.js (user code, depends on everything)
+        // 5. Additional JS (deserializers etc.)
 
-        // 2. Bridge.NET + Unity engine
+        // 1. Bridge.NET core — must load first
         const engineOrder = ['bridge.js', 'bridge.meta.js', 'Bridge.Locales.js'];
         const engineFiles = fs.existsSync(engineDir) ? fs.readdirSync(engineDir).filter(f => f.endsWith('.js')) : [];
         for (const f of engineOrder) {
           if (engineFiles.includes(f)) scriptTags += `<script src="engine/unity/bin/${f}"></script>\n`;
         }
+
+        // 2. .NET assemblies (UnityEngine, DOTween, etc.) — depend on Bridge
+        // UnityEngine.js must come before DOTween/TextMeshPro (they reference UnityEngine)
+        const unityOrder = ['UnityEngine.js', 'UnityEngine.UI.js', 'UnityEngine.UniversalRenderPipeline.js',
+                           'DOTween.js', 'newtonsoft.json.js', 'TextMeshPro.js', 'JetBrains.js'];
+        for (const f of unityOrder) {
+          if (engineFiles.includes(f)) scriptTags += `<script src="engine/unity/bin/${f}"></script>\n`;
+        }
+        // Any remaining engine files not in explicit orders
         for (const f of engineFiles) {
-          if (!engineOrder.includes(f) && f !== 'UnityScriptsCompiler.js') {
+          if (!engineOrder.includes(f) && !unityOrder.includes(f) && f !== 'UnityScriptsCompiler.js') {
             scriptTags += `<script src="engine/unity/bin/${f}"></script>\n`;
           }
         }
+
+        // 3. Luna/PlayCanvas engine — depends on Bridge + Luna namespace
+        if (fs.existsSync(lunaDir)) {
+          const lunaFiles = fs.readdirSync(lunaDir).filter(f => f.endsWith('.js'));
+          const manifestPath = path.join(lunaDir, 'manifest.json');
+          let lunaLoadOrder = [];
+          const activeModules = ['physics3d', 'physics2d', 'particle_system', 'reflection', 'prefabs', 'mecanim'];
+          const moduleMap = { 'mecanim-wasm': 'mecanim', 'mecanim': 'mecanim', 'particle-system': 'particle_system', 'particle_system': 'particle_system', 'urp': 'urp' };
+          if (fs.existsSync(manifestPath)) {
+            try {
+              const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+              manifest.sort((a, b) => (a.priority || 0) - (b.priority || 0));
+              for (const entry of manifest) {
+                const mod = entry.ifModule ? (moduleMap[entry.ifModule] || entry.ifModule) : null;
+                const unlessMod = entry.unlessModule ? (moduleMap[entry.unlessModule] || entry.unlessModule) : null;
+                if (mod && !activeModules.includes(mod)) continue;
+                if (unlessMod && activeModules.includes(unlessMod)) continue;
+                if (lunaFiles.includes(entry.src)) lunaLoadOrder.push(entry.src);
+              }
+            } catch(e) {
+              log('[luna-build] Failed to parse manifest.json: ' + e.message, taskId);
+            }
+          }
+          if (lunaLoadOrder.length === 0) lunaLoadOrder = lunaFiles.sort();
+          for (const f of lunaLoadOrder) {
+            scriptTags += `<script src="engine/luna/${f}"></script>\n`;
+          }
+          log('[luna-build] Added ' + lunaLoadOrder.length + ' Luna/PlayCanvas scripts (after Bridge): ' + lunaLoadOrder.join(', '), taskId);
+        }
+
+        // 4. UnityScriptsCompiler.js (user code — depends on UnityEngine + Bridge)
         if (engineFiles.includes('UnityScriptsCompiler.js')) {
           scriptTags += `<script src="engine/unity/bin/UnityScriptsCompiler.js"></script>\n`;
         }
 
-        // 3. Additional JS
+        // 5. Additional JS (deserializers, etc.)
         if (fs.existsSync(jsDir)) {
           for (const f of fs.readdirSync(jsDir).filter(f => f.endsWith('.js'))) {
             scriptTags += `<script src="js/${f}"></script>\n`;
