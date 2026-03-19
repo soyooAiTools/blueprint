@@ -734,10 +734,16 @@ async function processTask(task) {
       }
       log(`Linux build OK in ${linuxResult.buildTime}s`, taskId);
       
-      // Write the HTML directly to output
+      // Write the HTML to multiple locations
       fs.mkdirSync(htmlOutputDir, { recursive: true });
       fs.writeFileSync(path.join(htmlOutputDir, taskId + '.html'), linuxResult.html);
-      log(`[linux-build] HTML written to ${htmlOutputDir}/${taskId}.html (${(linuxResult.htmlSize/1024).toFixed(0)} KB)`, taskId);
+      fs.writeFileSync(path.join(htmlOutputDir, 'index.html'), linuxResult.html);
+      
+      // Also write to stage4/develop for CUA, preview-check, upload compatibility
+      fs.mkdirSync(stage4Dir, { recursive: true });
+      fs.writeFileSync(path.join(stage4Dir, 'iframe.html'), linuxResult.html);
+      fs.writeFileSync(path.join(stage4Dir, 'index.html'), linuxResult.html);
+      log(`[linux-build] HTML written to ${htmlOutputDir} + stage4/develop (${(linuxResult.htmlSize/1024).toFixed(0)} KB)`, taskId);
       
     } else {
       // === Windows Build Path: Luna jake + MSBuild ===
