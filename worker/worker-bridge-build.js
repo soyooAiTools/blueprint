@@ -139,6 +139,11 @@ async function runBridgeBuild(clientDir, log, taskId) {
 </head>
 <body>
 <canvas id="unity-canvas"></canvas>
+<script>
+window.DEVELOP=true;window.TRACE=false;window.TESTS=false;window.DEBUG=false;window.FORCE_STABLE_RANDOM_SEED=false;
+window.MODULE_physics3d=true;window.MODULE_physics2d=true;window.MODULE_particle_system=true;
+window.MODULE_reflection=true;window.MODULE_prefabs=true;window.MODULE_mecanim=true;
+</script>
 ${scriptTags}<script>
 (function(){
   var canvas = document.getElementById('unity-canvas');
