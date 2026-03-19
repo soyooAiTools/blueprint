@@ -605,8 +605,13 @@ async function processTask(task) {
     }
 
     // === Step 5.6: Preview Health Check + Self-Heal Loop ===
-    // White/black screen, stuck loading, JS crash -> feedback to AI fix -> rebuild -> recheck, max 3 rounds
-    {
+    // Skip preview-check when using generated iframe.html (jake-skip mode) — converter-v3 output is the real artifact
+    // The generated iframe.html loads scripts via <script src> which doesn't match Luna's runtime init sequence
+    const htmlOutputExists = fs.existsSync(path.join(htmlOutputDir, taskId + '.html'));
+    if (htmlOutputExists) {
+      log('[preview-check] Skipping — HTML converter output exists, using that as final artifact', taskId);
+    }
+    if (!htmlOutputExists) {
       const { runPreviewCheck } = require('./worker-preview-check.js');
       const MAX_PREVIEW_FIX_ROUNDS = 3;
 
@@ -677,6 +682,7 @@ async function processTask(task) {
         log(`[preview-check] Rebuild done, re-checking preview...`, taskId);
         // Loop back to check again
       }
+    } // end if (!htmlOutputExists)
     }
 
     // === Step 5.7: CUA Verification Loop (GPT-5.4 verification, fix until pass) ===
