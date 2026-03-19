@@ -111,20 +111,38 @@ async function runBridgeBuild(clientDir, log, taskId) {
         const jsDir = path.join(s4Dir, 'js');
         let scriptTags = '';
 
-        // 1. Luna/PlayCanvas engine (script1.js defines `pc` — MUST load before bridge.js)
+        // 1. Luna/PlayCanvas engine — load order from manifest.json
         if (fs.existsSync(lunaDir)) {
-          // script1.js (PlayCanvas core) must load first, then others
           const lunaFiles = fs.readdirSync(lunaDir).filter(f => f.endsWith('.js'));
-          const lunaOrder = ['script1.js', 'script-1.js', 'script3.js'];
-          for (const f of lunaOrder) {
-            if (lunaFiles.includes(f)) scriptTags += `<script src="engine/luna/${f}"></script>\n`;
-          }
-          for (const f of lunaFiles) {
-            if (!lunaOrder.includes(f) && f !== 'manifest.json') {
-              scriptTags += `<script src="engine/luna/${f}"></script>\n`;
+          const manifestPath = path.join(lunaDir, 'manifest.json');
+          let lunaLoadOrder = [];
+          // Active modules (from globalsScript)
+          const activeModules = ['physics3d', 'physics2d', 'particle_system', 'reflection', 'prefabs', 'mecanim'];
+          const moduleMap = { 'mecanim-wasm': 'mecanim', 'mecanim': 'mecanim', 'particle-system': 'particle_system', 'particle_system': 'particle_system', 'urp': 'urp' };
+          if (fs.existsSync(manifestPath)) {
+            try {
+              const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+              // Sort by priority, then filter by module conditions
+              manifest.sort((a, b) => (a.priority || 0) - (b.priority || 0));
+              for (const entry of manifest) {
+                const mod = entry.ifModule ? (moduleMap[entry.ifModule] || entry.ifModule) : null;
+                const unlessMod = entry.unlessModule ? (moduleMap[entry.unlessModule] || entry.unlessModule) : null;
+                if (mod && !activeModules.includes(mod)) continue; // ifModule not active, skip
+                if (unlessMod && activeModules.includes(unlessMod)) continue; // unlessModule is active, skip stub
+                if (lunaFiles.includes(entry.src)) lunaLoadOrder.push(entry.src);
+              }
+            } catch(e) {
+              log('[luna-build] Failed to parse manifest.json: ' + e.message + ', falling back to dir scan', taskId);
             }
           }
-          log('[luna-build] Added ' + lunaFiles.filter(f => f.endsWith('.js')).length + ' Luna/PlayCanvas engine scripts', taskId);
+          if (lunaLoadOrder.length === 0) {
+            // Fallback: load all JS files sorted
+            lunaLoadOrder = lunaFiles.sort();
+          }
+          for (const f of lunaLoadOrder) {
+            scriptTags += `<script src="engine/luna/${f}"></script>\n`;
+          }
+          log('[luna-build] Added ' + lunaLoadOrder.length + ' Luna/PlayCanvas scripts (manifest order): ' + lunaLoadOrder.join(', '), taskId);
         }
 
         // 2. Bridge.NET + Unity engine
