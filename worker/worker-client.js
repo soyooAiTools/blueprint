@@ -373,7 +373,20 @@ async function processTask(task) {
               }
             }
           }
-          cuaFeedbackText += '\n\nPlease fix the code to ensure blueprint flow works.';
+          // Add gameState phase coverage info
+          if (cuaResult.report && cuaResult.report.gameState) {
+            const gs = cuaResult.report.gameState;
+            cuaFeedbackText += '\n\n📊 Game State at failure:';
+            cuaFeedbackText += '\n  Current Phase: ' + (gs.currentPhase || 'unknown');
+            cuaFeedbackText += '\n  Completed Phases: ' + (gs.completedPhases && gs.completedPhases.length > 0 ? gs.completedPhases.join(', ') : 'none');
+            if (gs.entityStates) {
+              cuaFeedbackText += '\n  Entity States: ' + JSON.stringify(gs.entityStates);
+            }
+            if (gs.variables) {
+              cuaFeedbackText += '\n  Variables: ' + JSON.stringify(gs.variables);
+            }
+          }
+          cuaFeedbackText += '\n\nPlease fix the code to ensure blueprint flow works. Focus on the specific phase/entity that failed.';
           try {
             await apiRequest('POST', '/api/projects/' + taskId + '/feedback', 
               JSON.stringify({ text: cuaFeedbackText, source: 'cua-resume-round-' + cuaRound }),

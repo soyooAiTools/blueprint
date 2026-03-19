@@ -132,9 +132,36 @@ function startLocalServer(buildDir) {
 function generateScript(blueprint, outputPath) {
   if (!blueprint || !blueprint.nodes) return null;
   
-  const steps = blueprint.nodes
+  // Try shotNodes first (V3 blueprints)
+  let steps = blueprint.nodes
     .filter(n => n.type === 'shotNode')
     .map((n, i) => (i + 1) + '. ' + (n.data.name || n.data.label || 'Shot ' + (i + 1)));
+  
+  // Fallback: phaseNodes (V4 entity-driven blueprints)
+  if (steps.length === 0) {
+    const phaseNodes = blueprint.nodes
+      .filter(n => n.type === 'phaseNode')
+      .sort((a, b) => {
+        const ai = parseInt((a.id || '').replace(/\D/g, '')) || 0;
+        const bi = parseInt((b.id || '').replace(/\D/g, '')) || 0;
+        return ai - bi;
+      });
+    
+    if (phaseNodes.length > 0) {
+      steps = phaseNodes.map((n, i) => {
+        const d = n.data || {};
+        const name = d.name || d.label || 'Phase ' + (i + 1);
+        const trigger = d.triggerCondition || '';
+        const guide = d.guide || '';
+        const activate = (d.activate || []).join(', ');
+        let step = (i + 1) + '. [Phase] ' + name;
+        if (trigger) step += ' | 触发: ' + trigger;
+        if (guide) step += ' | 操作: ' + guide;
+        if (activate) step += ' | 新增实体: ' + activate;
+        return step;
+      });
+    }
+  }
   
   if (steps.length === 0) return null;
   
@@ -479,7 +506,46 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
           });
       }
 
-      // 7. Diagnostics-based issues (engine state, console errors)
+      // 7. Phase coverage check via __gameState
+      if (report.gameState) {
+        const gs = report.gameState;
+        const completedPhases = gs.completedPhases || [];
+        const phaseNodes = (blueprint && blueprint.nodes || []).filter(function(n) { return n.type === 'phaseNode'; });
+        if (phaseNodes.length > 0) {
+          const totalPhases = phaseNodes.length;
+          const coveredCount = completedPhases.length;
+          if (coveredCount < totalPhases) {
+            const uncoveredPhases = phaseNodes.filter(function(n) {
+              const phaseName = (n.data || {}).name || n.id;
+              return completedPhases.indexOf(phaseName) === -1 && completedPhases.indexOf(n.id) === -1;
+            });
+            const details = uncoveredPhases.map(function(n) {
+              const d = n.data || {};
+              return (d.name || n.id) + ' (trigger: ' + (d.triggerCondition || 'none') + ')';
+            }).join('; ');
+            issues.push('[phase-coverage] ' + coveredCount + '/' + totalPhases + ' phases completed. Missing: ' + details);
+          }
+          log('[CUA] Phase coverage: ' + coveredCount + '/' + totalPhases + ', current: ' + (gs.currentPhase || 'unknown'), taskId);
+        }
+        // Entity state check
+        if (gs.entityStates) {
+          const missingEntities = [];
+          (blueprint.entities || []).forEach(function(e) {
+            const eName = e.name || e.id;
+            if (gs.entityStates[eName] === undefined) {
+              missingEntities.push(eName);
+            }
+          });
+          if (missingEntities.length > 0) {
+            log('[CUA] Missing entities in gameState: ' + missingEntities.join(', '), taskId);
+          }
+        }
+      } else if (!isV4 || (blueprint && blueprint.nodes && blueprint.nodes.some(function(n) { return n.type === 'phaseNode'; }))) {
+        // No __gameState available — note it as a soft issue
+        log('[CUA] __gameState not available — cannot verify phase coverage programmatically', taskId);
+      }
+
+      // 8. Diagnostics-based issues (engine state, console errors)
       if (report.diagnostics) {
         const diag = report.diagnostics;
         if (!diag.engineReady) {

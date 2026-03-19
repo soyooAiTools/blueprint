@@ -2747,7 +2747,23 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
     + '- Do NOT define class EventPool (conflicts with template)\n'
     + '- Do NOT use transform.parent / SetParent / FindObjectOfType\n'
     + '- Do NOT use generic methods: GetComponent<T>(), Resources.GetBuiltinResource<T>(), FindObjectOfType<T>()\n'
-    + '- Instead use: (T)GetComponent(typeof(T)), (Font)Resources.GetBuiltinResource(typeof(Font), "Arial.ttf")\n';
+    + '- Instead use: (T)GetComponent(typeof(T)), (Font)Resources.GetBuiltinResource(typeof(Font), "Arial.ttf")\n\n'
+    + 'CUA VERIFICATION HOOK (MANDATORY):\n'
+    + 'You MUST expose game state for automated testing. Add this in your Update() or state-change logic:\n'
+    + '```\n'
+    + 'private void UpdateGameState() {\n'
+    + '  var state = new System.Collections.Generic.Dictionary<string, object>();\n'
+    + '  state["currentPhase"] = currentPhaseName; // string: current phase name\n'
+    + '  state["completedPhases"] = completedPhasesList; // string[] of completed phase names\n'
+    + '  state["entityStates"] = entityStatesDict; // Dict<string,string>: entity name → state\n'
+    + '  state["variables"] = variablesDict; // Dict<string,float>: variable name → value\n'
+    + '  // Serialize to JSON and expose on window\n'
+    + '  string json = Newtonsoft.Json.JsonConvert.SerializeObject(state);\n'
+    + '  UnityEngine.Application.ExternalEval("window.__gameState=" + json);\n'
+    + '}\n'
+    + '```\n'
+    + 'Call UpdateGameState() whenever phase changes, entities are created/destroyed, or key variables change.\n'
+    + 'This is required for CUA automated testing to verify blueprint flow coverage.\n';
 
   var userMsg = prompt;
   if (hasFeedback) {

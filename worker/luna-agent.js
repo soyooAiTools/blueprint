@@ -701,6 +701,15 @@ ${feedbackBugs.map((b, i) => (i + 1) + '. ' + b).join('\n')}
       delete snapshot.fps;
     } catch (e) {}
 
+    // 查询 __gameState（AI coder 暴露的 Phase 状态）
+    let gameState = null;
+    try {
+      gameState = await page.evaluate(function () {
+        return window.__gameState || null;
+      });
+      if (gameState && round === 0) console.log('[CUA] __gameState available:', JSON.stringify(gameState).substring(0, 200));
+    } catch (e) {}
+
     // 规则引擎
     const anomalies = detectAnomalies(snapshot, {
       round: round, stuckCount: stuckCount, prevObjectCount: prevObjectCount,
@@ -710,6 +719,23 @@ ${feedbackBugs.map((b, i) => (i + 1) + '. ' + b).join('\n')}
       allAnomalies.push(...anomalies.map(a => ({ ...a, round })));
     }
     prevObjectCount = snapshot.objectCount || 0;
+
+    // 构建 gameState 文本
+    let gameStateText = '';
+    if (gameState) {
+      gameStateText = '\n\n[游戏状态] 当前Phase: ' + (gameState.currentPhase || '未知');
+      if (gameState.completedPhases && gameState.completedPhases.length > 0) {
+        gameStateText += ' | 已完成: ' + gameState.completedPhases.join(', ');
+      }
+      if (gameState.entityStates) {
+        const entities = Object.entries(gameState.entityStates).map(function(e) { return e[0] + '=' + e[1]; });
+        if (entities.length > 0) gameStateText += ' | 实体: ' + entities.join(', ');
+      }
+      if (gameState.variables) {
+        const vars = Object.entries(gameState.variables).map(function(e) { return e[0] + '=' + e[1]; });
+        if (vars.length > 0) gameStateText += ' | 变量: ' + vars.join(', ');
+      }
+    }
 
     // 构建 CUA 请求
     const input = [];
@@ -721,7 +747,7 @@ ${feedbackBugs.map((b, i) => (i + 1) + '. ' + b).join('\n')}
           type: 'input_text',
           text: '请开始测试这个试玩广告。' +
             (refImageBuffers.length > 0 ? '\n\n以下先发送 ' + refImageBuffers.length + ' 张参考图，请记住它们的视觉风格，后续测试中对比。' : '') +
-            '\n\n以下是场景数据供参考：' + snapshotText +
+            '\n\n以下是场景数据供参考：' + snapshotText + gameStateText +
             (anomalies.length > 0 ? '\n⚠️ 规则引擎检测到异常: ' + anomalies.map(a => a.desc).join('; ') : '')
         }
       ];
@@ -762,12 +788,15 @@ ${feedbackBugs.map((b, i) => (i + 1) + '. ' + b).join('\n')}
           image_url: 'data:image/jpeg;base64,' + screenshotB64
         }
       });
-      // 注入场景变化信息
-      if (snapshot.diff && snapshot.diff !== '(首次快照)') {
+      // 注入场景变化信息 + gameState
+      const contextParts = [];
+      if (snapshot.diff && snapshot.diff !== '(首次快照)') contextParts.push('[场景变化] ' + snapshot.diff);
+      if (gameStateText) contextParts.push(gameStateText);
+      if (anomalies.length > 0) contextParts.push('⚠️ 异常: ' + anomalies.map(a => a.desc).join('; '));
+      if (contextParts.length > 0) {
         input.push({
           role: 'user',
-          content: '[场景变化] ' + snapshot.diff +
-            (anomalies.length > 0 ? ' | ⚠️ 异常: ' + anomalies.map(a => a.desc).join('; ') : '')
+          content: contextParts.join('\n')
         });
       }
     } else {
@@ -1055,6 +1084,12 @@ ${feedbackBugs.map((b, i) => (i + 1) + '. ' + b).join('\n')}
     filteredAnomalies = allAnomalies.filter(a => a.type !== 'cta_unresponsive' && a.type !== 'cta_click_failed');
   }
 
+  // 最终 gameState 快照
+  let finalGameState = null;
+  try {
+    finalGameState = await page.evaluate(function () { return window.__gameState || null; });
+  } catch (e) {}
+
   return {
     history, allBugs, allAnomalies: filteredAnomalies, exitReason,
     totalRounds: totalCUARounds,
@@ -1063,7 +1098,8 @@ ${feedbackBugs.map((b, i) => (i + 1) + '. ' + b).join('\n')}
     isFeedbackMode,
     scriptCoverage: scriptCoverage.length > 0 ? scriptCoverage : undefined,
     hasScript: scriptSteps.length > 0,
-    hasRefImages: refImageBuffers.length > 0
+    hasRefImages: refImageBuffers.length > 0,
+    finalGameState: finalGameState
   };
 }
 
@@ -1523,6 +1559,7 @@ async function main() {
         consoleErrors: config._diagnostics ? config._diagnostics.consoleErrors.slice(0, 20) : [],
         pageErrors: config._diagnostics ? config._diagnostics.pageErrors.slice(0, 20) : []
       },
+      gameState: cuaResult.finalGameState || null,
       history: cuaResult.history,
       finalScreenshot: cuaResult.finalScreenshot ? '(base64)' : null
     };
