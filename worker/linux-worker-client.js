@@ -26,7 +26,7 @@ const { generateCodeV5 } = require('./worker-coder.js');
 
 // ============ Config ============
 const WORKER_ID = process.env.LINUX_WORKER_ID || 'linux-worker-1';
-const BASE_URL = process.env.BASE_URL || 'https://playcools.top/blueprint';
+const BASE_URL = process.env.LINUX_BASE_URL || 'http://120.55.70.226:3901';
 const BUILD_URL = process.env.LINUX_BUILD_URL || 'http://120.55.70.226:3080';
 const POLL_INTERVAL = 10000;       // 10s between polls
 const HEARTBEAT_INTERVAL = 30000;
@@ -192,23 +192,33 @@ async function processTask(task) {
     log(`AI coding done: ${codeResult.filesWritten} files`, taskId);
     await reportStatus(taskId, 'processing', { message: `[Linux] AI coding done (${codeResult.filesWritten} files), building...` });
 
-    // === Step 3: Read generated C# files ===
-    const mainCs = path.join(assetsDir, 'GameFlowManagerMain.cs');
-    if (!fs.existsSync(mainCs)) {
-      // Search for the generated .cs file
-      const csFiles = fs.readdirSync(assetsDir).filter(f => f.endsWith('.cs') && f !== 'GFM_Tools.cs');
-      if (csFiles.length === 0) {
-        await reportStatus(taskId, 'failed', { message: '[Linux] No C# files generated' });
-        return;
-      }
-      // Use first non-GFM file as main
-      fs.renameSync(path.join(assetsDir, csFiles[0]), mainCs);
+    // === Step 3: Read generated C# files (search recursively) ===
+    function findFiles(dir, ext) {
+      const results = [];
+      try {
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+          const fp = path.join(dir, e.name);
+          if (e.isDirectory()) results.push(...findFiles(fp, ext));
+          else if (e.name.endsWith(ext)) results.push(fp);
+        }
+      } catch(e) {}
+      return results;
     }
-
-    const csCode = fs.readFileSync(mainCs, 'utf-8');
+    
+    const allCs = findFiles(tempDir, '.cs');
+    const mainCsPath = allCs.find(f => f.includes('GameFlowManagerMain.cs'));
+    const gfmPath = allCs.find(f => f.includes('GFM_Tools.cs'));
+    
+    if (!mainCsPath) {
+      log('No GameFlowManagerMain.cs found in: ' + allCs.join(', '), taskId);
+      await reportStatus(taskId, 'failed', { message: '[Linux] No GameFlowManagerMain.cs generated' });
+      return;
+    }
+    
+    const csCode = fs.readFileSync(mainCsPath, 'utf-8');
+    log(`Main CS: ${mainCsPath} (${csCode.length} chars)`, taskId);
     const extraFiles = {};
-    const gfmPath = path.join(assetsDir, 'GFM_Tools.cs');
-    if (fs.existsSync(gfmPath)) {
+    if (gfmPath) {
       extraFiles['GFM_Tools.cs'] = fs.readFileSync(gfmPath, 'utf-8');
     }
 
@@ -239,12 +249,60 @@ async function processTask(task) {
     fs.writeFileSync(htmlPath, htmlData);
     log(`HTML saved: ${(htmlData.length / 1048576).toFixed(1)}MB → ${htmlPath}`, taskId);
 
-    // === Step 6: CUA Verification (luna-agent) ===
+    // === Step 6: CUA Verification ===
     await reportStatus(taskId, 'processing', { message: '[Linux] CUA verification...' });
-    // TODO: Run luna-agent against the HTML
-    // For now, mark as completed
-    log(`Task completed in ${((Date.now() - startTime) / 1000).toFixed(0)}s`, taskId);
-    await reportStatus(taskId, 'done', { message: `[Linux] Completed in ${((Date.now() - startTime) / 1000).toFixed(0)}s` });
+    
+    // Serve the single HTML file via a local HTTP server
+    const httpServer = require('http').createServer((req, res) => {
+      if (req.url === '/' || req.url === '/iframe.html' || req.url === '/index.html') {
+        res.writeHead(200, { 'Content-Type': 'text/html', 'Content-Length': htmlData.length });
+        res.end(htmlData);
+      } else {
+        res.writeHead(404); res.end('Not Found');
+      }
+    });
+    
+    const CUA_PORT = 18850 + Math.floor(Math.random() * 100);
+    await new Promise((resolve, reject) => {
+      httpServer.listen(CUA_PORT, '127.0.0.1', resolve);
+      httpServer.on('error', reject);
+    });
+    log(`CUA preview server on :${CUA_PORT}`, taskId);
+    
+    const previewUrl = `http://127.0.0.1:${CUA_PORT}/`;
+    
+    try {
+      const { runCUAVerification } = require('./worker-cua-verify.js');
+      // CUA expects a buildDir with iframe.html — write HTML there for compatibility
+      const cuaBuildDir = path.join(require('os').tmpdir(), `linux-cua-${taskId}`);
+      fs.mkdirSync(cuaBuildDir, { recursive: true });
+      fs.writeFileSync(path.join(cuaBuildDir, 'iframe.html'), htmlData);
+      
+      const cuaResult = await runCUAVerification(cuaBuildDir, blueprint, taskId, log);
+      
+      if (cuaResult.passed) {
+        log(`CUA PASSED in ${((Date.now() - startTime) / 1000).toFixed(0)}s`, taskId);
+        await reportStatus(taskId, 'cua_passed', { message: `[Linux] CUA passed! Total: ${((Date.now() - startTime) / 1000).toFixed(0)}s` });
+      } else if (cuaResult.skipped) {
+        log('CUA skipped, marking done', taskId);
+        await reportStatus(taskId, 'done', { message: `[Linux] Done (CUA skipped). Total: ${((Date.now() - startTime) / 1000).toFixed(0)}s` });
+      } else {
+        log(`CUA FAILED: ${cuaResult.issues.length} issues`, taskId);
+        cuaResult.issues.forEach(i => log(`  - ${i}`, taskId));
+        await reportStatus(taskId, 'fix_needed', { 
+          message: `[Linux] CUA failed: ${cuaResult.issues.slice(0, 3).join('; ').slice(0, 300)}`,
+          cuaIssues: cuaResult.issues,
+        });
+      }
+      
+      // Cleanup CUA temp dir
+      try { fs.rmSync(cuaBuildDir, { recursive: true, force: true }); } catch(e) {}
+    } catch (cuaErr) {
+      log('CUA error: ' + cuaErr.message, taskId);
+      await reportStatus(taskId, 'done', { message: `[Linux] Done (CUA error: ${cuaErr.message.slice(0, 100)}). Total: ${((Date.now() - startTime) / 1000).toFixed(0)}s` });
+    } finally {
+      try { httpServer.close(); } catch(e) {}
+    }
 
     // Cleanup temp dirs
     try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch(e) {}
