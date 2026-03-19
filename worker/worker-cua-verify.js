@@ -197,7 +197,43 @@ async function quickPlayTest(url, taskId, log) {
     }
 
     // Wait for Unity engine init
-    await page.waitForTimeout(5000);
+    await page.waitForTimeout(8000);
+
+    // === Engine Health Check — must pass before CUA ===
+    const engineHealth = await page.evaluate(function() {
+      var h = {};
+      h.bridge = typeof Bridge !== 'undefined';
+      h.pc = typeof pc !== 'undefined';
+      h.lunaUnity = typeof LunaUnity !== 'undefined';
+      h.unityEngine = typeof UnityEngine !== 'undefined';
+      h.windowApp = typeof window.app !== 'undefined';
+      h.canvas = !!document.querySelector('canvas');
+      try { h.webgl = !!document.querySelector('canvas').getContext('webgl2') || !!document.querySelector('canvas').getContext('webgl'); } catch(e) { h.webgl = false; }
+      // Scene objects
+      h.rendererCount = 0;
+      try {
+        if (typeof UnityEngine !== 'undefined' && UnityEngine.Object && UnityEngine.Object.FindObjectsOfType$1) {
+          var rr = UnityEngine.Object.FindObjectsOfType$1(UnityEngine.Renderer);
+          h.rendererCount = rr ? rr.length : 0;
+        }
+      } catch(e) {}
+      return h;
+    });
+    log('[QuickTest] Engine health: ' + JSON.stringify(engineHealth), taskId);
+
+    // Gate: engine must be loaded
+    if (!engineHealth.bridge || !engineHealth.unityEngine) {
+      await browser.close();
+      return { ok: false, reason: 'Engine not initialized: Bridge=' + engineHealth.bridge + ' UnityEngine=' + engineHealth.unityEngine + ' pc=' + engineHealth.pc + ' app=' + engineHealth.windowApp, loaded: false, engineHealth: engineHealth };
+    }
+
+    // Gate: scene must have objects (not empty)
+    if (engineHealth.rendererCount === 0) {
+      await browser.close();
+      return { ok: false, reason: 'Scene is empty (0 renderers). Engine loaded but scene failed to initialize. pc=' + engineHealth.pc + ' app=' + engineHealth.windowApp + ' webgl=' + engineHealth.webgl, loaded: true, engineHealth: engineHealth };
+    }
+
+    log('[QuickTest] Scene has ' + engineHealth.rendererCount + ' renderers — proceeding', taskId);
 
     // Check if page has any visible content (not blank/white/black screen)
     const bodyColor = await page.evaluate(function() {
