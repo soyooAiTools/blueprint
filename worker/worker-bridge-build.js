@@ -142,11 +142,19 @@ async function runBridgeBuild(clientDir, log, taskId) {
           projectId: lunaJson.projectId || '',
           version: lunaJson.version || ''
         };
+        // Luna global variables must be defined BEFORE engine scripts load
+        // bridge.js references TRACE, MODULE_* etc. at parse time — ReferenceError if missing
+        const globalsScript = `<script>
+window.DEVELOP=true;window.TRACE=false;window.TESTS=false;window.DEBUG=false;window.FORCE_STABLE_RANDOM_SEED=false;
+window.MODULE_physics3d=true;window.MODULE_physics2d=true;window.MODULE_particle_system=true;
+window.MODULE_reflection=true;window.MODULE_prefabs=true;window.MODULE_mecanim=true;
+</script>`;
         const envScript = `<script>var $environment = ${JSON.stringify(envObj)};</script>`;
         const iframeHtml = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>*{margin:0;padding:0}html,body{width:100%;height:100%;overflow:hidden}canvas{display:block;width:100%;height:100%}</style>
 </head><body>
+${globalsScript}
 ${envScript}
 ${scriptTags}
 ${bootstrap}
