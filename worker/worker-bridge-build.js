@@ -91,15 +91,52 @@ async function runBridgeBuild(clientDir, log, taskId) {
       fs.copyFileSync(path.join(clientDir, 'luna.json'), path.join(s4Dir, 'luna.json'));
     }
     
-    // Use iframe.html from luna-copy or stage1
+    // Use iframe.html from luna-copy, stage1, or generate standard template
     const lunaCopyIframe = path.join(path.dirname(clientDir), 'luna-copy', 'iframe.html');
     const stage1Iframe = path.join(stage1CacheDir, 'tmp', 'iframe.html');
+    const iframeDest = path.join(s4Dir, 'iframe.html');
     if (fs.existsSync(lunaCopyIframe)) {
-      fs.copyFileSync(lunaCopyIframe, path.join(s4Dir, 'iframe.html'));
+      fs.copyFileSync(lunaCopyIframe, iframeDest);
       log('[luna-build] Used luna-copy iframe.html', taskId);
     } else if (fs.existsSync(stage1Iframe)) {
-      fs.copyFileSync(stage1Iframe, path.join(s4Dir, 'iframe.html'));
+      fs.copyFileSync(stage1Iframe, iframeDest);
       log('[luna-build] Used stage1 iframe.html', taskId);
+    } else {
+      // Generate standard Luna iframe.html template
+      // Read luna.json to get scene and asset info
+      let lunaJson = {};
+      try { lunaJson = JSON.parse(fs.readFileSync(path.join(s4Dir, 'luna.json'), 'utf-8')); } catch(e) {}
+      const scenes = (lunaJson.scenes || []).map(s => `"${s}"`).join(',');
+      const iframeHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Luna Preview</title>
+<style>*{margin:0;padding:0}html,body{width:100%;height:100%;overflow:hidden}canvas{display:block}</style>
+</head>
+<body>
+<canvas id="unity-canvas"></canvas>
+<script src="engine/unity/bin/bridge.js"></script>
+<script src="engine/unity/bin/bridge.console.js"></script>
+<script src="engine/unity/bin/UnityEngine.js"></script>
+<script src="engine/unity/bin/UI.js"></script>
+<script src="engine/unity/bin/UnityScriptsCompiler.js"></script>
+<script src="js/luna.unity.js"></script>
+<script>
+(function(){
+  var canvas = document.getElementById('unity-canvas');
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  if(typeof Unity !== 'undefined' && Unity.init) {
+    Unity.init(canvas);
+  }
+})();
+</script>
+</body>
+</html>`;
+      fs.writeFileSync(iframeDest, iframeHtml, 'utf-8');
+      log('[luna-build] Generated standard iframe.html template', taskId);
     }
     
     // Also create stage3 dir for MSBuild JS copy target
