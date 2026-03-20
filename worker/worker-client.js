@@ -1353,15 +1353,21 @@ async function poll() {
             `Task failed, ${delay/1000}s auto-retry (${retries + 1}/${MAX_TASK_RETRIES}): ${e.message.slice(0, 100)}`,
             { projectName: task.projectName });
           await new Promise(r => setTimeout(r, delay));
-          // Clean CUA cache so retry goes full path (not resume)
-          try {
-            const cuaDir = path.join(__dirname, 'cua-results');
-            ['-cua.log', '-report.json'].forEach(suf => {
-              const f = path.join(cuaDir, task.taskId + suf);
-              if (fs.existsSync(f)) fs.unlinkSync(f);
-            });
-            log('Cleared CUA cache for fresh retry', task.taskId);
-          } catch(ce) {}
+          // Clean CUA cache ONLY if failure was NOT upload-related
+          // If CUA passed but upload failed, keep CUA cache so retry skips to upload
+          const isUploadFailure = e.message && (e.message.includes('upload') || e.message.includes('Upload'));
+          if (!isUploadFailure) {
+            try {
+              const cuaDir = path.join(__dirname, 'cua-results');
+              ['-cua.log', '-report.json'].forEach(suf => {
+                const f = path.join(cuaDir, task.taskId + suf);
+                if (fs.existsSync(f)) fs.unlinkSync(f);
+              });
+              log('Cleared CUA cache for fresh retry', task.taskId);
+            } catch(ce) {}
+          } else {
+            log('Upload failure - keeping CUA cache for retry', task.taskId);
+          }
           await processTask(task);
         } else {
           throw e;
