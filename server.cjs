@@ -403,6 +403,11 @@ function exportBlueprintForAgent(project) {
     globalSettings: bp.globalSettings || {},
     entities: bp.entities || [],
     feedbackHistory: project.feedbackHistory || [],
+    storyboard: {
+      frames: project.storyboardFrames || [],
+      characterSheet: project.characterSheet || {},
+      config: project.storyboardConfig || {},
+    },
     exportedAt: new Date().toISOString()
   };
 }

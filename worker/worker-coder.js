@@ -6,6 +6,15 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
+// Spec System — structured experience specs + skeleton generation
+let specExtractor, skeletonGenerator;
+try {
+  specExtractor = require('../spec-extractor.cjs');
+  skeletonGenerator = require('../skeleton-generator.cjs');
+} catch (e) {
+  // spec system not available — degrade gracefully
+}
+
 // GitNexus Helper — 代码结构分析（可选，不影响主流程）
 let gnHelper;
 try {
@@ -2825,11 +2834,50 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
     + 'Call UpdateGameState() whenever phase changes, entities are created/destroyed, or key variables change.\n'
     + 'This is required for CUA automated testing to verify blueprint flow coverage.\n';
 
+  // === Spec System: Extract specs + generate skeleton (if storyboard frames available) ===
+  var skeleton = null;
+  var specs = null;
+  if (!hasFeedback && specExtractor && skeletonGenerator && blueprint.storyboard && blueprint.storyboard.frames && blueprint.storyboard.frames.length > 0) {
+    try {
+      log('[coder] V5 Spec: extracting specs from ' + blueprint.storyboard.frames.length + ' storyboard frames...', taskId);
+      specs = await specExtractor.extractSpecs(blueprint.storyboard.frames, {
+        projectName: blueprint.projectName || taskId,
+        gameType: blueprint.gameType || 'SLG',
+      });
+      log('[coder] V5 Spec: extracted ' + specs.length + ' phase specs', taskId);
+
+      // Save specs for CUA verification later
+      var serverData = process.env.SERVER_DATA_DIR || '/opt/blueprint-editor/server-data';
+      specExtractor.saveSpecs(specs, taskId, path.join(serverData, 'webgl'));
+
+      // Generate skeleton
+      skeleton = skeletonGenerator.generateSkeleton(specs, { projectName: blueprint.projectName || taskId });
+      log('[coder] V5 Skeleton: generated ' + skeleton.split('\n').length + ' lines', taskId);
+    } catch (specErr) {
+      log('[coder] V5 Spec extraction failed (non-fatal): ' + specErr.message, taskId);
+      skeleton = null;
+      specs = null;
+    }
+  }
+
   var userMsg = prompt;
   if (hasFeedback) {
     userMsg = '## INCREMENTAL FIX MODE\n\n'
       + '⚠️ This is a FIX request. Preserve existing code structure, only modify what feedback requires.\n\n'
       + userMsg;
+  }
+
+  // If skeleton available, inject it into the prompt
+  if (skeleton) {
+    userMsg += '\n\n## CODE SKELETON (MANDATORY)\n\n'
+      + '⚠️ A code skeleton has been generated from the storyboard specs. You MUST:\n'
+      + '1. Use this skeleton as the base of your GameFlowManagerMain.cs\n'
+      + '2. Fill in all sections marked with TODO comments\n'
+      + '3. Do NOT remove or modify lines marked [SKELETON]\n'
+      + '4. Do NOT remove phaseTimer checks — they enforce minimum phase dwell time\n'
+      + '5. Do NOT change the CheckEventRules() transition conditions\n'
+      + '6. You CAN add new methods, variables, and helper functions\n\n'
+      + '```csharp\n' + skeleton + '\n```\n';
   }
 
   userMsg += '\n\nGenerate the COMPLETE GameFlowManagerMain.cs file. '
