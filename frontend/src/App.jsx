@@ -24,6 +24,7 @@ import PropsPanel from './components/PropsPanel';
 import TopBar from './components/TopBar';
 import TaskPanel from './components/TaskPanel';
 import StoryboardPanel from './components/StoryboardPanel';
+import SpecReviewPanel from './components/SpecReviewPanel';
 import { ModalProviderWithContext, useModal } from './components/ModalProvider';
 import shot1Preset from './presets/shot1';
 import { exportToJSON, downloadJSON } from './utils/export';
@@ -266,7 +267,7 @@ function FlowEditor({ project, onBack, initialTab }) {
 
   // Poll for status changes
   useEffect(() => {
-    if (['submitted', 'building', 'approved', 'feedback'].indexOf(projectStatus) === -1) return;
+    if (['submitted', 'building', 'approved', 'feedback', 'spec_extracting', 'spec_review'].indexOf(projectStatus) === -1) return;
     const interval = setInterval(() => {
       getProject(project.id)
         .then((p) => {
@@ -711,7 +712,13 @@ function FlowEditor({ project, onBack, initialTab }) {
                 </div>
               ) : (
                 <div className="preview-empty">
-                  {projectStatus === 'submitted' ? (
+                  {(projectStatus === 'spec_extracting' || projectStatus === 'spec_review') ? (
+                    <SpecReviewPanel
+                      projectId={project.id}
+                      onConfirmed={() => setProjectStatus('submitted')}
+                      showAlert={showAlert}
+                    />
+                  ) : projectStatus === 'submitted' ? (
                     <>
                       <div className="preview-empty-icon">⏳</div>
                       <div className="preview-empty-text">已提交开发</div>

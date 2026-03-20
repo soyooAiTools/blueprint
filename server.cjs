@@ -204,6 +204,12 @@ function matchRoute(method, pathname) {
   if (m && method === "POST") return { handler: "generateStoryboardPDF", id: m[1] };
   if (m && method === 'POST') return { handler: 'editFrame', id: m[1] };
 
+  // Spec review routes
+  m = pathname.match(/^\/api\/projects\/([^/]+)\/specs$/);
+  if (m && method === 'GET') return { handler: 'getSpecs', id: m[1] };
+  m = pathname.match(/^\/api\/projects\/([^/]+)\/confirm-specs$/);
+  if (m && method === 'POST') return { handler: 'confirmSpecs', id: m[1] };
+
   // Worker API routes
   if (method === 'GET' && pathname === '/api/worker/poll') return { handler: 'workerPoll' };
   m = pathname.match(/^\/api\/tasks\/([^/]+)\/blueprint$/);
@@ -356,10 +362,49 @@ handlers.submitProject = function(req, res, body, id) {
   }
   fs.writeFileSync(taskFile, JSON.stringify(task, null, 2), 'utf-8');
 
-  project.status = 'submitted';
   project.autoCodingTaskId = taskId;
   project.updatedAt = new Date().toISOString();
+
+  // If storyboard frames exist and not a feedback resubmit, extract specs first
+  var hasStoryboard = project.storyboardFrames && project.storyboardFrames.length > 0;
+  if (hasStoryboard && !isFeedbackResubmit) {
+    project.status = 'spec_extracting';
+    writeProject(project);
+    
+    // Async spec extraction — don't block response
+    (async function() {
+      try {
+        var specExtractor = require('./spec-extractor.cjs');
+        console.log('[submit] Extracting specs from ' + project.storyboardFrames.length + ' frames...');
+        var specs = await specExtractor.extractSpecs(project.storyboardFrames, {
+          projectName: project.name,
+          gameType: 'SLG',
+        });
+        project.specs = specs;
+        project.status = 'spec_review';
+        project.updatedAt = new Date().toISOString();
+        writeProject(project);
+        console.log('[submit] Specs extracted: ' + specs.length + ' phases, waiting for review');
+      } catch(specErr) {
+        console.error('[submit] Spec extraction failed, proceeding without specs:', specErr.message);
+        // Fallback: skip spec review, go directly to submitted
+        project.status = 'submitted';
+        project.updatedAt = new Date().toISOString();
+        writeProject(project);
+        task.status = 'pending';
+        fs.writeFileSync(taskFile, JSON.stringify(task, null, 2), 'utf-8');
+        wakeOpenClaw('[蓝图编辑器] 新任务已提交(spec提取失败,跳过)。项目: ' + project.name + ', taskId: ' + taskId);
+      }
+    })();
+    
+    sendJSON(res, { success: true, status: 'spec_extracting', message: '正在提取体验规格，完成后请确认...' });
+    return;
+  }
+
+  project.status = 'submitted';
   writeProject(project);
+  task.status = 'pending';
+  fs.writeFileSync(taskFile, JSON.stringify(task, null, 2), 'utf-8');
 
   // 即时触发 OpenClaw，让编排器立刻接单
   wakeOpenClaw('[蓝图编辑器] 新任务已提交到 autoCoding 队列，请立即运行 node autoCoding-tasks/orchestrate.cjs 并执行返回的 actions。项目: ' + project.name + ', taskId: ' + taskId);
@@ -1054,6 +1099,74 @@ handlers.editFrame = function(req, res, body) {
       sendJSON(res, { error: '编辑失败: ' + e.message }, 500);
     }
   })();
+};
+
+// ============ Spec Review Handlers ============
+
+handlers.getSpecs = function(req, res, body, id) {
+  var project = readProject(id);
+  if (!project) return sendJSON(res, { error: '项目不存在' }, 404);
+  sendJSON(res, {
+    specs: project.specs || [],
+    status: project.status,
+    projectName: project.name,
+  });
+};
+
+handlers.confirmSpecs = function(req, res, body, id) {
+  var project = readProject(id);
+  if (!project) return sendJSON(res, { error: '项目不存在' }, 404);
+  if (project.status !== 'spec_review') {
+    return sendJSON(res, { error: '当前状态「' + project.status + '」不在 spec 审核阶段' }, 400);
+  }
+
+  try {
+    var data = JSON.parse(body);
+    if (data.specs && Array.isArray(data.specs)) {
+      project.specs = data.specs; // Save edited specs
+    }
+  } catch(e) { /* no body or parse error, keep existing specs */ }
+
+  // Save specs for CUA verification
+  try {
+    var specsDir = path.join(SERVER_DATA, 'webgl', id);
+    fs.mkdirSync(specsDir, { recursive: true });
+    fs.writeFileSync(path.join(specsDir, 'specs.json'), JSON.stringify(project.specs, null, 2), 'utf-8');
+    console.log('[confirm-specs] Specs saved for CUA verification: ' + project.specs.length + ' phases');
+  } catch(e) {
+    console.error('[confirm-specs] Failed to save specs for CUA:', e.message);
+  }
+
+  // Now proceed with normal submit flow
+  var taskId = id;
+  var blueprintExport = exportBlueprintForAgent(project);
+  var blueprintPath = path.join(AUTOCODING_QUEUE, taskId + '-blueprint.json');
+
+  // Inject specs into blueprint export
+  blueprintExport.specs = project.specs;
+  fs.writeFileSync(blueprintPath, JSON.stringify(blueprintExport, null, 2), 'utf-8');
+
+  var taskFile = path.join(AUTOCODING_QUEUE, taskId + '.json');
+  var task = {
+    taskId: taskId,
+    projectName: project.name,
+    svnUrl: project.svnUrl || '',
+    blueprintPath: blueprintPath,
+    blueprintEditorId: id,
+    blueprintServerUrl: 'http://localhost:' + PORT,
+    status: 'pending',
+    source: 'blueprint-editor',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(taskFile, JSON.stringify(task, null, 2), 'utf-8');
+
+  project.status = 'submitted';
+  project.updatedAt = new Date().toISOString();
+  writeProject(project);
+
+  wakeOpenClaw('[蓝图编辑器] Spec 已确认，任务已提交。项目: ' + project.name + ', taskId: ' + taskId);
+  sendJSON(res, { success: true, status: 'submitted', specsCount: (project.specs || []).length });
 };
 
 handlers.workerHeartbeat = function(req, res, body) {

@@ -142,3 +142,11 @@ export async function commitProject(id, svnRevision) {
 export async function deleteProject(id) {
   return request('/projects/' + id, { method: 'DELETE' });
 }
+
+export async function getSpecs(id) {
+  return request('/projects/' + id + '/specs');
+}
+
+export async function confirmSpecs(id, specs) {
+  return request('/projects/' + id + '/confirm-specs', { method: 'POST', body: JSON.stringify({ specs }) });
+}
