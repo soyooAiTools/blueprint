@@ -131,7 +131,9 @@ function callClaude(systemPrompt, userMessage, timeoutMs, model) {
 
     // Use proxy if available, otherwise direct
     var proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy || '';
-    if (proxyUrl) {
+    // Skip proxy for crs.mindrix.app (directly accessible, proxy causes timeout on long Opus requests)
+    var skipProxy = (API_BASE.indexOf('crs.mindrix.app') >= 0 || API_BASE.indexOf('localhost') >= 0);
+    if (proxyUrl && !skipProxy) {
       createProxyRequest(API_BASE + '/v1/messages', opts, handleResponse).then(function(req) {
         req.on('error', reject);
         req.on('timeout', function() { req.destroy(); reject(new Error('API timeout')); });
