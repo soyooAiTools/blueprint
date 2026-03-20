@@ -276,6 +276,31 @@ handlers.updateProject = function(req, res, body, id) {
   if (data.status !== undefined) project.status = data.status;
   project.updatedAt = new Date().toISOString();
   writeProject(project);
+
+  // Sync status to autocoding task file (if exists)
+  try {
+    var taskFile = path.join(AUTOCODING_QUEUE, id + '.json');
+    if (fs.existsSync(taskFile)) {
+      var task = JSON.parse(fs.readFileSync(taskFile, 'utf-8'));
+      var needSync = false;
+      if (data.status !== undefined && task.status !== data.status) {
+        // Map project status to task status
+        var statusMap = { 'editing': 'cancelled', 'submitted': 'pending', 'reviewing': 'reviewing' };
+        if (statusMap[data.status]) { task.status = statusMap[data.status]; needSync = true; }
+      }
+      if (data.name !== undefined && task.projectName !== project.name) {
+        task.projectName = project.name; needSync = true;
+      }
+      if (needSync) {
+        task.updatedAt = new Date().toISOString();
+        fs.writeFileSync(taskFile, JSON.stringify(task, null, 2), 'utf-8');
+        console.log('[updateProject] Synced task file: ' + id + ' status=' + task.status);
+      }
+    }
+  } catch(syncErr) {
+    console.error('[updateProject] Task sync failed:', syncErr.message);
+  }
+
   sendJSON(res, project);
 };
 

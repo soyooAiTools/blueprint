@@ -464,14 +464,9 @@ async function processTask(task) {
             }
           }
           cuaFeedbackText += '\n\nPlease fix the code to ensure blueprint flow works. Focus on the specific phase/entity that failed.';
-          try {
-            await apiRequest('POST', '/api/projects/' + taskId + '/feedback', 
-              JSON.stringify({ text: cuaFeedbackText, source: 'cua-resume-round-' + cuaRound }),
-              false, { 'Content-Type': 'application/json' });
-          } catch(fbErr) {}
-
+          // NOTE: Removed POST /feedback call — handler requires status=reviewing, CUA is in submitted state
           if (cuaBlueprint && cuaBlueprint.nodes) {
-            // Inject CUA feedback into blueprint so generateCode sees it and uses INCREMENTAL FIX mode
+            // Inject CUA feedback directly into blueprint for INCREMENTAL FIX mode
             if (!cuaBlueprint.feedbackHistory) cuaBlueprint.feedbackHistory = [];
             cuaBlueprint.feedbackHistory.push({
               data: { text: cuaFeedbackText },
@@ -940,30 +935,22 @@ async function processTask(task) {
         // Re-code with CUA feedback as context
         await reportStatus(taskId, 'processing', { message: `CUAround ${cuaRound} round failed, AI re-coding...` });
         
-        // Inject CUA feedback into the task's feedback history for AI coder to see
-        try {
-          await apiRequest('POST', '/api/projects/' + taskId + '/feedback', 
-            JSON.stringify({ text: cuaFeedbackText, source: 'cua-auto-round-' + cuaRound }),
-            false, { 'Content-Type': 'application/json' });
-        } catch(fbErr) {
-          log('CUA feedback inject failed: ' + fbErr.message, taskId);
-        }
-
         // Re-run AI coding (incremental fix with CUA feedback)
+        // NOTE: Do NOT use /api/projects/:id/feedback — that handler requires status=reviewing
+        // and rejects CUA auto-feedback. Instead, inject directly into blueprint object.
         let fixBlueprint = null;
         try { fixBlueprint = await apiRequest('GET', `/api/tasks/${taskId}/blueprint`); } catch(e) {}
         
         if (fixBlueprint && fixBlueprint.nodes) {
-          // Ensure feedbackHistory is populated so generateCode uses INCREMENTAL FIX mode
-          if (!fixBlueprint.feedbackHistory || fixBlueprint.feedbackHistory.length === 0) {
-            fixBlueprint.feedbackHistory = [{
-              data: { text: cuaFeedbackText },
-              source: 'cua-auto-round-' + cuaRound,
-              status: 'pending',
-              timestamp: Date.now()
-            }];
-            log(`CUA fix: feedbackHistory was empty, injected CUA feedback ?INCREMENTAL FIX`, taskId);
-          }
+          // Always inject CUA feedback into feedbackHistory for INCREMENTAL FIX mode
+          if (!fixBlueprint.feedbackHistory) fixBlueprint.feedbackHistory = [];
+          fixBlueprint.feedbackHistory.push({
+            data: { text: cuaFeedbackText },
+            source: 'cua-auto-round-' + cuaRound,
+            status: 'pending',
+            timestamp: Date.now()
+          });
+          log(`CUA fix: injected feedback into blueprint (${fixBlueprint.feedbackHistory.length} entries) → INCREMENTAL FIX`, taskId);
 
           const fixResult = await smartGenerateCode(fixBlueprint, CLIENT_DIR, log, taskId, 'unity');
           if (fixResult.ok) {
