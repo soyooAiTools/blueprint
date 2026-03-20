@@ -349,6 +349,19 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('- 不要定义 class EventPool（和模板冲突）');
   lines.push('- 最后一个步骤必须有 GameEnded() + CTA 按钮');
   lines.push('');
+  
+  // ========== 8b. 阶段流程规则（关键！）==========
+  lines.push('# 阶段流程规则（必须严格遵守）');
+  lines.push('- ⛔ 禁止 ForceCompleteAllPhases 或任何"超时强制完成所有阶段"的逻辑');
+  lines.push('- ⛔ 禁止 autoplay/自动演示：不要写代码让游戏自动完成所有步骤');
+  lines.push('- ✅ 每个阶段(phase)必须通过玩家交互（点击/拖拽/移动）才能推进到下一个');
+  lines.push('- ✅ CheckEventRules 中：Rule触发 = 设置 currentPhaseName + 激活对象 + 显示引导');
+  lines.push('- ✅ 只有当玩家完成当前阶段的操作后，才调用 AddCompletedPhase 并进入下一条 Rule');
+  lines.push('- ✅ 引导(guide)要清晰告诉玩家下一步操作（如"点击传送带建造"）');
+  lines.push('- ✅ 每个阶段之间要有明显的视觉变化（对象出现、颜色变化、UI更新）');
+  lines.push('- 示例正确流程：Rule1(gameStart)→显示引导"点击建造"→玩家点击→conveyor.state=built→Rule2触发');
+  lines.push('- 示例错误流程：Rule1→自动等3秒→强制完成→Rule2→自动等3秒→强制完成（❌这是autoplay）');
+  lines.push('');
 
   // ========== 9. 行为模板 ==========
   if (BEHAVIOR_TEMPLATES) {
