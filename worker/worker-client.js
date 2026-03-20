@@ -1059,7 +1059,8 @@ async function processTask(task) {
     }
 
     // === Step 8: Done (CUA verification already done in Step 5.5b) ===
-    await reportStatus(taskId, 'reviewing', { message: `Build done (${buildResult.buildTime}s),CUA passed,waiting for review` });
+    const _buildTime = (typeof buildResult !== 'undefined' && buildResult && buildResult.buildTime) ? buildResult.buildTime + 's' : (typeof linuxResult !== 'undefined' && linuxResult && linuxResult.buildTime) ? linuxResult.buildTime + 's' : 'N/A';
+    await reportStatus(taskId, 'reviewing', { message: `Build done (${_buildTime}),CUA passed,waiting for review` });
     notifyEvent(taskId, 'done', `🎉 Task done! Build ${buildResult.buildTime}s, CUA passed, waiting for review`, { projectName: task.projectName });
     log('Task completed ?reviewing', taskId);
 
