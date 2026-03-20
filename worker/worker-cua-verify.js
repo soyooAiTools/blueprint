@@ -623,8 +623,9 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       }
 
       // 7b. Spec-based validation (if specs exist for this project)
-      const SERVER_DATA = process.env.SERVER_DATA_DIR || '/opt/blueprint-editor/server-data';
-      const specs = loadSpecs(taskId, path.join(SERVER_DATA, 'webgl'));
+      // Specs saved by worker-coder.js to local spec-data/ directory
+      const specsDataDir = process.env.SPECS_DATA_DIR || path.join(__dirname, '..', 'spec-data');
+      const specs = loadSpecs(taskId, specsDataDir);
       if (specs && specs.length > 0 && report.gameState) {
         const gs = report.gameState;
         log('[CUA] Spec validation: ' + specs.length + ' phase specs loaded', taskId);

@@ -1154,7 +1154,7 @@ handlers.confirmSpecs = function(req, res, body, id) {
 
   // Save specs for CUA verification
   try {
-    var specsDir = path.join(SERVER_DATA, 'webgl', id);
+    var specsDir = path.join(WEBGL_DIR, id);
     fs.mkdirSync(specsDir, { recursive: true });
     fs.writeFileSync(path.join(specsDir, 'specs.json'), JSON.stringify(project.specs, null, 2), 'utf-8');
     console.log('[confirm-specs] Specs saved for CUA verification: ' + project.specs.length + ' phases');

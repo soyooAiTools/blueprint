@@ -2847,8 +2847,9 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
       log('[coder] V5 Spec: extracted ' + specs.length + ' phase specs', taskId);
 
       // Save specs for CUA verification later
-      var serverData = process.env.SERVER_DATA_DIR || '/opt/blueprint-editor/server-data';
-      specExtractor.saveSpecs(specs, taskId, path.join(serverData, 'webgl'));
+      // Save specs locally on Worker — CUA verify also runs on Worker, reads from same path
+      var specsDataDir = process.env.SPECS_DATA_DIR || path.join(__dirname, '..', 'spec-data');
+      specExtractor.saveSpecs(specs, taskId, specsDataDir);
 
       // Generate skeleton
       skeleton = skeletonGenerator.generateSkeleton(specs, { projectName: blueprint.projectName || taskId });
