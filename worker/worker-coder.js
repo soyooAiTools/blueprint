@@ -38,6 +38,49 @@ const MAX_FIX_ATTEMPTS = 10;  // Keep retrying until fixed (practical upper boun
 const PIPELINE_DIR = process.env.LUNA_PIPELINE || 'D:\\Luna\\pipeline';
 const COCOS_EXE = process.env.COCOS_CREATOR || 'D:\\CocosCreator-v3.8.8-win-121518\\CocosCreator.exe';
 
+// ============ HTTPS Proxy Helper ============
+const http = require('http');
+
+function createProxyRequest(targetUrl, opts, callback) {
+  var proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy || '';
+  if (!proxyUrl) {
+    // No proxy — direct HTTPS request
+    return https.request(opts, callback);
+  }
+  
+  var proxy = new URL(proxyUrl);
+  return new Promise(function(resolveReq) {
+    var connectReq = http.request({
+      host: proxy.hostname,
+      port: proxy.port || 80,
+      method: 'CONNECT',
+      path: opts.hostname + ':' + (opts.port || 443),
+      timeout: 30000
+    });
+    connectReq.on('connect', function(res, socket) {
+      if (res.statusCode !== 200) {
+        socket.destroy();
+        var fakeReq = new (require('events').EventEmitter)();
+        fakeReq.write = function() {}; fakeReq.end = function() {};
+        resolveReq(fakeReq);
+        fakeReq.emit('error', new Error('Proxy CONNECT failed: ' + res.statusCode));
+        return;
+      }
+      opts.socket = socket;
+      opts.agent = false;
+      var req = https.request(opts, callback);
+      resolveReq(req);
+    });
+    connectReq.on('error', function(e) {
+      var fakeReq = new (require('events').EventEmitter)();
+      fakeReq.write = function() {}; fakeReq.end = function() {};
+      resolveReq(fakeReq);
+      fakeReq.emit('error', new Error('Proxy connection failed: ' + e.message));
+    });
+    connectReq.end();
+  });
+}
+
 // ============ LLM Call ============
 
 function callClaude(systemPrompt, userMessage, timeoutMs, model) {
@@ -67,7 +110,7 @@ function callClaude(systemPrompt, userMessage, timeoutMs, model) {
       timeout: timeoutMs
     };
 
-    var req = https.request(opts, function(res) {
+    function handleResponse(res) {
       var chunks = [];
       res.on('data', function(c) { chunks.push(c); });
       res.on('end', function() {
@@ -82,11 +125,24 @@ function callClaude(systemPrompt, userMessage, timeoutMs, model) {
           resolve({ text: text, usage: parsed.usage, model: parsed.model });
         } catch (e) { reject(new Error('Parse: ' + data.slice(0, 500))); }
       });
-    });
-    req.on('error', reject);
-    req.on('timeout', function() { req.destroy(); reject(new Error('API timeout')); });
-    req.write(body);
-    req.end();
+    }
+
+    // Use proxy if available, otherwise direct
+    var proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy || '';
+    if (proxyUrl) {
+      createProxyRequest(API_BASE + '/v1/messages', opts, handleResponse).then(function(req) {
+        req.on('error', reject);
+        req.on('timeout', function() { req.destroy(); reject(new Error('API timeout')); });
+        req.write(body);
+        req.end();
+      });
+    } else {
+      var req = https.request(opts, handleResponse);
+      req.on('error', reject);
+      req.on('timeout', function() { req.destroy(); reject(new Error('API timeout')); });
+      req.write(body);
+      req.end();
+    }
   });
 }
 
