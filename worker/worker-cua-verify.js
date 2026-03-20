@@ -16,6 +16,7 @@
  */
 
 const { spawn } = require('child_process');
+const { loadSpecs } = require('../spec-extractor.cjs');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -619,6 +620,48 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       } else if (!isV4 || (blueprint && blueprint.nodes && blueprint.nodes.some(function(n) { return n.type === 'phaseNode'; }))) {
         // No __gameState available — note it as a soft issue
         log('[CUA] __gameState not available — cannot verify phase coverage programmatically', taskId);
+      }
+
+      // 7b. Spec-based validation (if specs exist for this project)
+      const SERVER_DATA = process.env.SERVER_DATA_DIR || '/opt/blueprint-editor/server-data';
+      const specs = loadSpecs(taskId, path.join(SERVER_DATA, 'webgl'));
+      if (specs && specs.length > 0 && report.gameState) {
+        const gs = report.gameState;
+        log('[CUA] Spec validation: ' + specs.length + ' phase specs loaded', taskId);
+
+        // Check: all spec phases completed
+        const specPhaseIds = specs.map(s => s.phaseId);
+        const completed = gs.completedPhases || [];
+        const specSkipped = specPhaseIds.filter(id => completed.indexOf(id) === -1);
+        if (specSkipped.length > 0 && completed.length > 0) {
+          issues.push('[spec-phase-skipped] Spec phases not completed: ' + specSkipped.join(', ') + '. Game balance likely broken — phases were bypassed.');
+        }
+
+        // Check: all spec entities reached terminal state
+        specs.forEach(function(spec) {
+          (spec.entitiesRequired || []).forEach(function(entity) {
+            if (gs.entityStates && gs.entityStates[entity.name] !== undefined) {
+              if (String(gs.entityStates[entity.name]) !== String(entity.terminalState)) {
+                issues.push('[spec-entity] ' + entity.name + ' state=' + gs.entityStates[entity.name] + ', spec requires ' + entity.terminalState + ' (' + entity.description + ')');
+              }
+            }
+          });
+        });
+
+        // Check: phase dwell times (from phaseTimestamps)
+        if (gs.phaseTimestamps) {
+          for (var si = 0; si < specs.length; si++) {
+            var spec = specs[si];
+            var enterTime = gs.phaseTimestamps[spec.phaseId];
+            var nextEnterTime = (si < specs.length - 1 && gs.phaseTimestamps[specs[si + 1].phaseId]) ? gs.phaseTimestamps[specs[si + 1].phaseId] : gs.variables.gameTimer;
+            if (enterTime > 0 && nextEnterTime > 0) {
+              var dwellTime = nextEnterTime - enterTime;
+              if (dwellTime < spec.duration.min) {
+                issues.push('[spec-too-fast] Phase ' + spec.phaseId + ' lasted ' + dwellTime + 's, spec minimum ' + spec.duration.min + 's');
+              }
+            }
+          }
+        }
       }
 
       // 8. Diagnostics-based issues (engine state, console errors)

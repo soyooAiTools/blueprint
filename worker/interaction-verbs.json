@@ -1,0 +1,45 @@
+{
+  "version": "1.0",
+  "description": "Standard interaction verb definitions for storyboard spec system",
+  "verbs": {
+    "basic": {
+      "move_to": { "args": ["target"], "description": "玩家移动到目标附近", "example": "move_to:conveyor" },
+      "click": { "args": ["target"], "description": "点击目标", "example": "click:crossbow" },
+      "drag": { "args": ["from", "to"], "description": "从 A 拖拽到 B", "example": "drag:wood:woodHouse" },
+      "hold": { "args": ["target", "duration"], "description": "长按目标 N 秒", "example": "hold:button:3" }
+    },
+    "economy": {
+      "collect": { "args": ["item", "count"], "description": "收集 N 个物品（需点击/拖拽）", "example": "collect:wood:3" },
+      "deliver": { "args": ["item", "target"], "description": "投递物品到建筑", "example": "deliver:wood:woodHouse" },
+      "spend": { "args": ["resource", "amount"], "description": "消耗 N 个资源", "example": "spend:gold:1" }
+    },
+    "building": {
+      "build": { "args": ["building"], "description": "建造建筑", "example": "build:conveyor" },
+      "upgrade": { "args": ["building", "level"], "description": "升级建筑到指定等级", "example": "upgrade:base:2" },
+      "unlock": { "args": ["feature"], "description": "解锁功能", "example": "unlock:turret" }
+    },
+    "combat": {
+      "defeat": { "args": ["enemy"], "description": "击败指定敌人", "example": "defeat:boss" },
+      "defeat_count": { "args": ["count"], "description": "累计击杀 N 个敌人", "example": "defeat_count:10" },
+      "defend": { "args": ["duration"], "description": "防守 N 秒", "example": "defend:15" },
+      "attack": { "args": ["target"], "description": "主动攻击（点击触发）", "example": "attack:enemy" }
+    },
+    "state": {
+      "wait": { "args": ["duration"], "description": "停留/观看 N 秒", "example": "wait:3" },
+      "reach": { "args": ["target"], "description": "接触/抵达某位置", "example": "reach:base" },
+      "disappear": { "args": ["object"], "description": "某物消失", "example": "disappear:boss" },
+      "appear": { "args": ["object"], "description": "某物出现", "example": "appear:castleWall" },
+      "transform": { "args": ["object", "state"], "description": "对象状态变化", "example": "transform:wall:stone" }
+    },
+    "slg": {
+      "recruit": { "args": ["unit", "count"], "description": "招募 N 个单位", "example": "recruit:worker:2" },
+      "deploy": { "args": ["unit", "position"], "description": "部署单位到位置", "example": "deploy:archer:tower" },
+      "merge": { "args": ["unit"], "description": "合并/升级单位", "example": "merge:soldier" },
+      "assign": { "args": ["worker", "task"], "description": "指派任务", "example": "assign:worker:woodCutting" },
+      "expand": { "args": ["territory"], "description": "扩展领地", "example": "expand:north" },
+      "rally": { "args": ["position"], "description": "设置集结点", "example": "rally:gate" },
+      "scout": { "args": ["area"], "description": "探索区域", "example": "scout:forest" },
+      "trade": { "args": ["give", "receive"], "description": "交易交换", "example": "trade:gold:wood" }
+    }
+  }
+}
