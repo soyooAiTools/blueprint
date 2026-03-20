@@ -363,6 +363,40 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('- 示例错误流程：Rule1→自动等3秒→强制完成→Rule2→自动等3秒→强制完成（❌这是autoplay）');
   lines.push('');
 
+  // ========== 8c. 数值平衡与节奏控制（关键！）==========
+  lines.push('# 数值平衡与节奏控制（必须严格遵守）');
+  lines.push('');
+  lines.push('## 禁止自动射击/自动攻击');
+  lines.push('- ⛔ 弩炮/箭塔/防御建筑 禁止自动射击（auto-shoot）');
+  lines.push('- ✅ 攻击必须由玩家点击触发（点击弩炮 → 射击最近敌人）');
+  lines.push('- ✅ 如果需要辅助射击（玩家长时间不操作），间隔必须 >= 8秒，且伤害减半');
+  lines.push('');
+  lines.push('## 每个 Phase 必须有交互门槛');
+  lines.push('- ⛔ 禁止纯数值触发下一阶段（如 enemyKillCount >= 3 就自动跳 phase）');
+  lines.push('- ✅ 数值条件满足后，还需要玩家执行一个操作才能推进（移动到位/点击/拖拽）');
+  lines.push('- ✅ 每个 Phase 玩家至少需要 2 次主动交互（点击/拖拽/移动到指定位置）');
+  lines.push('');
+  lines.push('## 所有可建造实体必须真正完成建造');
+  lines.push('- ✅ 如果分镜包含"建造木屋"→ woodHouseState 必须达到 2（built）');
+  lines.push('- ✅ 如果分镜包含"建造炮塔"→ turretState 必须达到 2（built）');
+  lines.push('- ⛔ 禁止跳过中间建造阶段直接进入 Boss 战');
+  lines.push('');
+  lines.push('## 资源收集必须有明确交互');
+  lines.push('- ⛔ 禁止靠近自动捡取（proximity auto-collect）');
+  lines.push('- ✅ 木头/资源必须通过点击或拖拽收集');
+  lines.push('- ✅ 资源投递到建筑必须有搬运过程（玩家移动或工人搬运动画）');
+  lines.push('');
+  lines.push('## 节奏控制');
+  lines.push('- ✅ 每个 Phase 最少停留 8 秒（用 phaseTimer 计时，不满足就不触发下一条 Rule）');
+  lines.push('- ✅ Boss 战 HP 必须足够高，确保战斗持续 10-15 秒');
+  lines.push('- ✅ 敌人刷新间隔 >= 3 秒，同时存活敌人上限 <= 3 个（前期）');
+  lines.push('');
+  lines.push('## CUA 验证会检查以下项目（不满足 = FAIL）');
+  lines.push('- completedPhases 必须包含所有 Phase（跳过任何一个 = FAIL）');
+  lines.push('- 所有可建造实体的 entityState 必须 = 2（未建成 = FAIL）');
+  lines.push('- 这意味着你不能为了让 CUA 容易通过而简化玩法，必须保留完整交互流程');
+  lines.push('');
+
   // ========== 9. 行为模板 ==========
   if (BEHAVIOR_TEMPLATES) {
     lines.push('# 行为模板参考');

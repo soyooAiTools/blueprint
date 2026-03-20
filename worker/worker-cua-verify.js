@@ -8,6 +8,9 @@
  *   2. CTA button is reachable and clickable
  *   3. No stuck/crash/white-screen
  *   4. GPT must observe actual game content (not blank/empty screen)
+ *   5. All phases must be in completedPhases (no skipped phases)
+ *   6. All buildable entities must reach terminal state (e.g. conveyor=2, woodHouse=2, turret=2)
+ *   7. Phase dwell time: each phase must be active for >= MIN_PHASE_DWELL_SECONDS
  * 
  * On failure: returns uncovered shots + issue descriptions for AI re-coding.
  */
@@ -563,9 +566,10 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
           }
           log('[CUA] Phase coverage: ' + coveredCount + '/' + totalPhases + ', current: ' + (gs.currentPhase || 'unknown'), taskId);
         }
-        // Entity state check
+        // Entity state check — buildable entities must reach terminal state
         if (gs.entityStates) {
           const missingEntities = [];
+          const incompleteEntities = [];
           (blueprint.entities || []).forEach(function(e) {
             const eName = e.name || e.id;
             if (gs.entityStates[eName] === undefined) {
@@ -575,6 +579,42 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
           if (missingEntities.length > 0) {
             log('[CUA] Missing entities in gameState: ' + missingEntities.join(', '), taskId);
           }
+          // Check that buildable entities reached terminal state (state "2" = built)
+          const BUILDABLE_KEYS = ['conveyor', 'woodHouse', 'turret'];
+          BUILDABLE_KEYS.forEach(function(key) {
+            if (gs.entityStates[key] !== undefined) {
+              const state = String(gs.entityStates[key]);
+              if (state !== '2') {
+                incompleteEntities.push(key + '=' + state + ' (expected 2=built)');
+              }
+            }
+          });
+          if (incompleteEntities.length > 0) {
+            issues.push('[entity-incomplete] Buildable entities not fully constructed: ' + incompleteEntities.join(', ') + '. The game rushed through phases without completing intermediate build steps.');
+          }
+        }
+
+        // Phase skip detection — all intermediate phases must appear in completedPhases
+        const REQUIRED_PHASES = [
+          'buildConveyor', 'crossbowDefense', 'buildWoodHouse', 'recruitWorker',
+          'autoProduction', 'buildTurret', 'defendBase', 'fightBoss', 'upgradeBase'
+        ];
+        // Also check Chinese phase names
+        const REQUIRED_PHASES_CN = [
+          '建造传送带', '弩炮防御', '修建木屋', '招募工人',
+          '自动生产', '建造炮塔', '守护基地', '抵御进攻', '迎战Boss', '升级主城'
+        ];
+        const allCompleted = completedPhases;
+        const skippedPhases = REQUIRED_PHASES.filter(function(p) {
+          return allCompleted.indexOf(p) === -1;
+        });
+        const skippedPhasesCN = REQUIRED_PHASES_CN.filter(function(p) {
+          return allCompleted.indexOf(p) === -1;
+        });
+        // Use whichever language has fewer skips (code may use either)
+        const skipped = skippedPhases.length <= skippedPhasesCN.length ? skippedPhases : skippedPhasesCN;
+        if (skipped.length > 0 && allCompleted.length > 0) {
+          issues.push('[phase-skipped] Phases were skipped (never completed): ' + skipped.join(', ') + '. Total completed: ' + allCompleted.length + '/' + (REQUIRED_PHASES.length) + '. This usually means game balance is broken — auto-shooting or auto-progression bypassed intermediate phases.');
         }
       } else if (!isV4 || (blueprint && blueprint.nodes && blueprint.nodes.some(function(n) { return n.type === 'phaseNode'; }))) {
         // No __gameState available — note it as a soft issue
