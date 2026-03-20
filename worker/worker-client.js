@@ -733,6 +733,7 @@ async function processTask(task) {
         throw new TaskFailedError('Linux build failed: ' + (linuxResult.error || '').slice(0, 300));
       }
       log(`Linux build OK in ${linuxResult.buildTime}s`, taskId);
+      var buildResult = linuxResult; // Alias for shared code path below
       
       // Write the HTML to multiple locations
       fs.mkdirSync(htmlOutputDir, { recursive: true });
