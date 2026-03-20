@@ -66,6 +66,8 @@ function createProxyRequest(targetUrl, opts, callback) {
         fakeReq.emit('error', new Error('Proxy CONNECT failed: ' + res.statusCode));
         return;
       }
+      socket.setKeepAlive(true, 30000);
+      socket.setTimeout(0); // no idle timeout on tunnel
       opts.socket = socket;
       opts.agent = false;
       var req = https.request(opts, callback);
