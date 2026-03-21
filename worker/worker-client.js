@@ -122,12 +122,12 @@ const WORKER_ID = process.env.WORKER_ID || 'workerA';
 const BASE_URL = process.env.BASE_URL || 'https://playcools.top/blueprint';
 const POLL_INTERVAL = 8000;       // 8s between polls
 const HEARTBEAT_INTERVAL = 30000; // 30s heartbeat
-const WORK_DIR = 'D:\\work';
+const WORK_DIR = process.env.WORK_DIR || '/tmp/work';
 const FIXED_PROJECT_DIR = path.join(WORK_DIR, 'test-luna'); // Git base template root
 // luna-base-template repo IS the Unity project (Assets/Packages/ProjectSettings at root)
 // No 'Client' subdirectory �?the repo root is the Client dir
 const CLIENT_DIR = FIXED_PROJECT_DIR;
-const COCOS_PROJECT_DIR = path.join(WORK_DIR, 'test-cocos'); // Fixed SVN working copy (Cocos)
+const COCOS_PROJECT_DIR = process.env.COCOS_PROJECT_DIR || path.join(WORK_DIR, 'test-cocos'); // Fixed SVN working copy (Cocos)
 const SVN_USER = 'openclaw';
 const SVN_PASS = 'openclaw';
 const SVN_FLAGS = `--non-interactive --no-auth-cache --username ${SVN_USER} --password ${SVN_PASS}`;

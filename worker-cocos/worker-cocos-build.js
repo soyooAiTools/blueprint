@@ -1,62 +1,68 @@
-// Cocos Creator build via command-line (replaces Luna bridge build)
-const { spawn } = require('child_process');
-const path = require('path');
+// Linux replacement for worker-cocos-build.js
+// Uses cocos-full-builder.js for complete build (no Windows/CocosCreator needed)
+
 const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
 
-var COCOS_CREATOR = process.env.COCOS_CREATOR || 'D:\\CocosCreator-v3.8.8-win-121518\\CocosCreator.exe';
-
-function findCocosCreator() {
-  if (fs.existsSync(COCOS_CREATOR)) return COCOS_CREATOR;
-  var paths = ['D:\\CocosCreator-v3.8.8-win-121518\\CocosCreator.exe', 'D:\\CocosCreator\\CocosCreator.exe', 'C:\\Program Files\\Cocos\\CocosCreator\\CocosCreator.exe'];
-  for (var i = 0; i < paths.length; i++) { if (fs.existsSync(paths[i])) return paths[i]; }
-  return COCOS_CREATOR;
-}
+const ENGINE_CACHE = '/data/cocos-engine-cache';
+const BUILDER_SCRIPT = path.join(__dirname, 'cocos-full-builder.js');
 
 async function runCocosBuild(projectDir, log, taskId) {
   log = log || console.log;
-  var startTime = Date.now();
-  var cocosExe = findCocosCreator();
-  log('[cocos-build] Using: ' + cocosExe, taskId);
-  if (!fs.existsSync(cocosExe)) return { ok: false, error: 'Cocos Creator not found at ' + cocosExe };
+  const startTime = Date.now();
+  const buildDir = path.join(projectDir, 'build', 'web-mobile');
 
-  var buildDir = path.join(projectDir, 'build', 'web-mobile');
-  if (fs.existsSync(buildDir)) { try { fs.rmSync(buildDir, { recursive: true, force: true }); } catch(e) {} }
+  log(`[cocos-build] Starting full Linux build for ${projectDir}`);
 
-  log('[cocos-build] Running build...', taskId);
-  return new Promise(function(resolve) {
-    var child = spawn(cocosExe, ['--project', projectDir, '--build', 'platform=web-mobile;debug=false'], { stdio: ['ignore','pipe','pipe'] });
-    var stdout = '', stderr = '', lastLog = Date.now();
+  // Check engine cache
+  if (!fs.existsSync(ENGINE_CACHE)) {
+    return { ok: false, error: 'Engine cache not found at ' + ENGINE_CACHE };
+  }
 
-    child.stdout.on('data', function(data) {
-      stdout += data.toString();
-      if (Date.now() - lastLog > 15000) { log('[cocos-build] Still running... (' + Math.floor((Date.now()-startTime)/1000) + 's)', taskId); lastLog = Date.now(); }
-    });
-    child.stderr.on('data', function(data) { stderr += data.toString(); });
+  // Check builder script
+  if (!fs.existsSync(BUILDER_SCRIPT)) {
+    return { ok: false, error: 'cocos-full-builder.js not found at ' + BUILDER_SCRIPT };
+  }
 
-    child.on('close', function(code) {
-      var buildTime = Math.floor((Date.now() - startTime) / 1000);
-      var hasOutput = fs.existsSync(path.join(buildDir, 'index.html'));
-      if (hasOutput) {
-        // Build produced output — treat as success even with non-zero exit code
-        // (Cocos may exit with code 36 due to missing assets warnings)
-        if (code !== 0) log('[cocos-build] Warning: exit code ' + code + ' but output exists, treating as success', taskId);
-        log('[cocos-build] Done in ' + buildTime + 's', taskId);
-        resolve({ ok: true, buildTime: buildTime, outputDir: buildDir });
-      } else {
-        var errorLines = (stdout+'\n'+stderr).split('\n').filter(function(l) { return /fail|error/i.test(l); }).slice(-5);
-        resolve({ ok: false, error: 'Exit ' + code + ': ' + (errorLines.join('; ') || stderr.slice(-500)), buildTime: buildTime });
-      }
-    });
-    setTimeout(function() { child.kill(); resolve({ ok: false, error: 'Build timed out after 600s' }); }, 600000);
-  });
+  // Check project has library/ (required for CCON conversion)
+  if (!fs.existsSync(path.join(projectDir, 'library'))) {
+    return { ok: false, error: 'Project missing library/ directory. Need a Cocos project with pre-processed library.' };
+  }
+
+  try {
+    // Clean old build
+    if (fs.existsSync(buildDir)) {
+      fs.rmSync(buildDir, { recursive: true, force: true });
+    }
+
+    // Run full builder
+    const output = execSync(
+      `node "${BUILDER_SCRIPT}" "${projectDir}" "${ENGINE_CACHE}"`,
+      { timeout: 120000, stdio: 'pipe', cwd: path.dirname(BUILDER_SCRIPT) }
+    ).toString();
+
+    log(`[cocos-build] Builder output:\n${output}`);
+
+    // Verify output
+    if (!fs.existsSync(path.join(buildDir, 'index.html'))) {
+      return { ok: false, error: 'Build failed - no index.html generated' };
+    }
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    const fileCount = execSync(`find "${buildDir}" -type f | wc -l`).toString().trim();
+
+    log(`[cocos-build] SUCCESS in ${elapsed}s - ${fileCount} files`);
+
+    return {
+      ok: true,
+      buildTime: parseFloat(elapsed),
+      outputDir: buildDir,
+      fileCount: parseInt(fileCount),
+    };
+  } catch (e) {
+    return { ok: false, error: 'Build error: ' + e.message.slice(0, 500) };
+  }
 }
 
-module.exports = { runCocosBuild, findCocosCreator };
-
-if (require.main === module) {
-  (async function() {
-    var result = await runCocosBuild(process.argv[2] || 'D:\\work\\test-cocos', console.log, 'test');
-    console.log('Result:', JSON.stringify(result, null, 2));
-    process.exit(result.ok ? 0 : 1);
-  })();
-}
+module.exports = { runCocosBuild };
