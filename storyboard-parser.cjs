@@ -33,22 +33,22 @@ const CONFIG = {
 };
 console.log('[StoryboardParser] API Key prefix:', CONFIG.apiKey ? CONFIG.apiKey.substring(0, 15) + '...' : 'EMPTY');
 
-// Create GoogleGenAI with proxy fetch
-let aiOptions = { apiKey: CONFIG.apiKey };
+// Override global fetch with proxied version so @google/genai uses it
 try {
   let undici2;
   try { undici2 = require('undici'); } catch(e) {
     undici2 = require(require('path').join(__dirname, 'node_modules', 'undici'));
   }
   const proxyAgent = new undici2.ProxyAgent(PROXY_URL);
-  aiOptions.httpOptions = {
-    fetch: (url, init) => undici2.fetch(url, { ...init, dispatcher: proxyAgent }),
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = function(url, init) {
+    return undici2.fetch(url, { ...init, dispatcher: proxyAgent });
   };
-  console.log('[StoryboardParser] Using undici ProxyAgent fetch for Gemini API');
+  console.log('[StoryboardParser] Overrode global fetch with proxy dispatcher');
 } catch(e) {
-  console.log('[StoryboardParser] undici proxy fetch not available:', e.message);
+  console.log('[StoryboardParser] Could not override fetch:', e.message);
 }
-const ai = new GoogleGenAI(aiOptions);
+const ai = new GoogleGenAI({ apiKey: CONFIG.apiKey });
 
 // === Document extraction ===
 
