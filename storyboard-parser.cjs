@@ -26,6 +26,7 @@ const CONFIG = {
   textModel: 'gemini-2.5-flash',
   imageModel: 'gemini-3-pro-image-preview',
 };
+console.log('[StoryboardParser] API Key prefix:', CONFIG.apiKey ? CONFIG.apiKey.substring(0, 15) + '...' : 'EMPTY');
 
 // Create GoogleGenAI with proxy fetch
 let aiOptions = { apiKey: CONFIG.apiKey };
