@@ -12,11 +12,16 @@ const PROXY_URL = 'http://127.0.0.1:7890';
 process.env.HTTPS_PROXY = PROXY_URL;
 process.env.HTTP_PROXY = PROXY_URL;
 try {
-  const { EnvHttpProxyAgent, setGlobalDispatcher } = require('undici');
+  // Try local node_modules first (handles PM2 cwd mismatch)
+  let undici;
+  try { undici = require('undici'); } catch(e) {
+    undici = require(require('path').join(__dirname, 'node_modules', 'undici'));
+  }
+  const { EnvHttpProxyAgent, setGlobalDispatcher } = undici;
   setGlobalDispatcher(new EnvHttpProxyAgent());
   console.log(`[StoryboardParser][Proxy] Using ${PROXY_URL}`);
 } catch (e) {
-  console.warn('[StoryboardParser][Proxy] undici not available, fetch may fail');
+  console.warn('[StoryboardParser][Proxy] undici not available:', e.message);
 }
 
 const { GoogleGenAI } = require('@google/genai');
@@ -31,10 +36,13 @@ console.log('[StoryboardParser] API Key prefix:', CONFIG.apiKey ? CONFIG.apiKey.
 // Create GoogleGenAI with proxy fetch
 let aiOptions = { apiKey: CONFIG.apiKey };
 try {
-  const { ProxyAgent, fetch: proxyFetch } = require('undici');
-  const proxyAgent = new ProxyAgent(PROXY_URL);
+  let undici2;
+  try { undici2 = require('undici'); } catch(e) {
+    undici2 = require(require('path').join(__dirname, 'node_modules', 'undici'));
+  }
+  const proxyAgent = new undici2.ProxyAgent(PROXY_URL);
   aiOptions.httpOptions = {
-    fetch: (url, init) => proxyFetch(url, { ...init, dispatcher: proxyAgent }),
+    fetch: (url, init) => undici2.fetch(url, { ...init, dispatcher: proxyAgent }),
   };
   console.log('[StoryboardParser] Using undici ProxyAgent fetch for Gemini API');
 } catch(e) {
