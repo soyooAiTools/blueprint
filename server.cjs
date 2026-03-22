@@ -1,5 +1,20 @@
-// Load .env before anything else
-try { require('dotenv').config({ path: require('path').join(__dirname, '.env'), override: true }); } catch(e) {}
+// Load .env before anything else (no dotenv dependency - manual parse)
+try {
+  var _envPath = require('path').join(__dirname, '.env');
+  if (require('fs').existsSync(_envPath)) {
+    require('fs').readFileSync(_envPath, 'utf8').split('\n').forEach(function(line) {
+      line = line.trim();
+      if (!line || line.startsWith('#')) return;
+      var eq = line.indexOf('=');
+      if (eq > 0) {
+        var key = line.substring(0, eq).trim();
+        var val = line.substring(eq + 1).trim().replace(/^["']|["']$/g, '');
+        process.env[key] = val; // always override
+      }
+    });
+    console.log('[env] Loaded .env from', _envPath);
+  }
+} catch(e) { console.warn('[env] Failed to load .env:', e.message); }
 
 const http = require('http');
 const fs = require('fs');
