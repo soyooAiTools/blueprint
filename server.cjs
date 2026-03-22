@@ -919,6 +919,7 @@ handlers.parseStoryboard = function(req, res, body, projectId) {
       // Build text from docs + text field
       var allText = fields.text || '';
       var pdfPath = null;
+      var imageParts = [];
       console.log("[parse-storyboard] files detail:", JSON.stringify(files.map(f => ({name: f.filename, path: f.path}))));
       for (var f of files) {
         try {
@@ -938,8 +939,7 @@ handlers.parseStoryboard = function(req, res, body, projectId) {
         } catch(e) { console.warn('[parse-storyboard] Doc extract failed:', f.filename, e.message); }
       }
 
-      // Read image parts
-      var imageParts = [];
+      // Read additional image attachments
       for (var img of images) {
         try {
           var part = storyboardParser.readImagePart(img.path);
