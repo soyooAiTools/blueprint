@@ -1103,10 +1103,30 @@ ${feedbackBugs.map((b, i) => (i + 1) + '. ' + b).join('\n')}
     finalGameState = await page.evaluate(function () { return window.__gameState || null; });
   } catch (e) {}
 
+  // 最终引擎状态探针（WebGL、初始化、FPS）
+  let finalEngineStatus = { webgl: false, initialized: false, fps: 0 };
+  try {
+    finalEngineStatus = await page.evaluate(function () {
+      var r = { webgl: false, initialized: false, fps: 0 };
+      try {
+        var c = document.querySelector('canvas');
+        if (c) r.webgl = !!(c.getContext('webgl2') || c.getContext('webgl'));
+      } catch(e) {}
+      r.initialized = (typeof UnityEngine !== 'undefined' && typeof Bridge !== 'undefined');
+      try {
+        if (typeof pc !== 'undefined' && pc.app) r.fps = Math.round(pc.app.graphicsDevice.fps || 0);
+      } catch(e) {}
+      try {
+        if (typeof UnityEngine !== 'undefined' && UnityEngine.Time) r.fps = Math.round(1.0 / (UnityEngine.Time.get_deltaTime() || 1));
+      } catch(e) {}
+      return r;
+    });
+  } catch (e) {}
+
   return {
     history, allBugs, allAnomalies: filteredAnomalies, exitReason,
     totalRounds: totalCUARounds,
-    finalScreenshot, stuckCount,
+    finalScreenshot, stuckCount, finalEngineStatus,
     feedbackVerification: isFeedbackMode ? feedbackVerification : undefined,
     isFeedbackMode,
     scriptCoverage: scriptCoverage.length > 0 ? scriptCoverage : undefined,
@@ -1472,18 +1492,40 @@ async function main() {
   });
   const page = await context.newPage();
 
-  // ─── 诊断数据收集 ───
-  const _diagnostics = { consoleErrors: [], pageErrors: [], engineState: null, engineReady: false };
+  // ─── 诊断数据收集（增强版） ───
+  const _diagnostics = {
+    consoleErrors: [],   // console.error messages
+    consoleWarns: [],    // console.warn messages
+    pageErrors: [],      // uncaught JS exceptions
+    engineState: null,   // engine probe result
+    engineReady: false,
+    jsErrorList: [],     // structured: {message, timestamp, count}
+    _errorCounts: {}     // dedup counter
+  };
   page.on('pageerror', err => {
     const msg = err.message || String(err);
     _diagnostics.pageErrors.push(msg.substring(0, 500));
+    // Track structured error list with dedup
+    const key = msg.substring(0, 100).replace(/\d+/g, 'N');
+    if (!_diagnostics._errorCounts[key]) {
+      _diagnostics._errorCounts[key] = { message: msg.substring(0, 300), count: 0, firstSeen: Date.now() };
+    }
+    _diagnostics._errorCounts[key].count++;
     if (_diagnostics.pageErrors.length <= 5) console.error('[Luna Agent] PAGE ERROR:', msg.substring(0, 200));
   });
   page.on('console', msg => {
     if (msg.type() === 'error') {
       const txt = msg.text().substring(0, 500);
       _diagnostics.consoleErrors.push(txt);
+      const key = txt.substring(0, 100).replace(/\d+/g, 'N');
+      if (!_diagnostics._errorCounts[key]) {
+        _diagnostics._errorCounts[key] = { message: txt.substring(0, 300), count: 0, firstSeen: Date.now() };
+      }
+      _diagnostics._errorCounts[key].count++;
       if (_diagnostics.consoleErrors.length <= 5) console.error('[Luna Agent] CONSOLE ERROR:', txt.substring(0, 200));
+    } else if (msg.type() === 'warning') {
+      const txt = msg.text().substring(0, 500);
+      _diagnostics.consoleWarns.push(txt);
     }
   });
 
@@ -1537,6 +1579,12 @@ async function main() {
     }
   }
 
+  // Build structured jsErrorList from dedup counts
+  _diagnostics.jsErrorList = Object.values(_diagnostics._errorCounts)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 20);
+  delete _diagnostics._errorCounts;
+
   // 把诊断数据挂到 config 上，供 runCUA 和 report 使用
   config._diagnostics = _diagnostics;
 
@@ -1570,8 +1618,11 @@ async function main() {
         engineReady: config._diagnostics ? config._diagnostics.engineReady : true,
         engineState: config._diagnostics ? config._diagnostics.engineState : null,
         consoleErrors: config._diagnostics ? config._diagnostics.consoleErrors.slice(0, 20) : [],
-        pageErrors: config._diagnostics ? config._diagnostics.pageErrors.slice(0, 20) : []
+        consoleWarns: config._diagnostics ? config._diagnostics.consoleWarns.slice(0, 10) : [],
+        pageErrors: config._diagnostics ? config._diagnostics.pageErrors.slice(0, 20) : [],
+        jsErrorList: config._diagnostics ? config._diagnostics.jsErrorList : []
       },
+      engineStatus: cuaResult.finalEngineStatus || { webgl: false, initialized: false, fps: 0 },
       gameState: cuaResult.finalGameState || null,
       history: cuaResult.history,
       finalScreenshot: cuaResult.finalScreenshot ? '(base64)' : null

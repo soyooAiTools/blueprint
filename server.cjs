@@ -922,9 +922,15 @@ handlers.parseStoryboard = function(req, res, body, projectId) {
       console.log("[parse-storyboard] files detail:", JSON.stringify(files.map(f => ({name: f.filename, path: f.path}))));
       for (var f of files) {
         try {
-          if (f.filename && f.filename.toLowerCase().endsWith('.pdf')) {
+          var fname = (f.filename || '').toLowerCase();
+          if (fname.endsWith('.pdf')) {
             pdfPath = f.path;
             console.log('[parse-storyboard] PDF detected:', f.filename);
+          } else if (/\.(png|jpg|jpeg|webp)$/.test(fname)) {
+            // Image doc: treat as visual input alongside other images
+            var imgPart = storyboardParser.readImagePart(f.path);
+            imageParts.push(imgPart);
+            console.log('[parse-storyboard] Image doc detected:', f.filename);
           } else {
             var docText = await storyboardParser.extractDocText(f.path);
             allText += '\n\n' + docText;

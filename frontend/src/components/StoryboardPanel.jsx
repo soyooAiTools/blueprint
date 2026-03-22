@@ -3,8 +3,8 @@ import { parseStoryboard, getProject, updateProject } from '../utils/api';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
-const ACCEPTED_DOCS_WITH_STORYBOARD = '.pdf';
-const ACCEPTED_DOCS_WITHOUT_STORYBOARD = '.pdf';
+const ACCEPTED_DOCS_WITH_STORYBOARD = '.pdf,.png,.jpg,.jpeg';
+const ACCEPTED_DOCS_WITHOUT_STORYBOARD = '.pdf,.png,.jpg,.jpeg';
 const ACCEPTED_IMAGES = 'image/png,image/jpeg';
 
 const CAMERA_ANGLES = [
@@ -127,7 +127,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
 
   const handleDocFiles = useCallback((files) => {
     const MAX_SIZE = 10 * 1024 * 1024;
-    const pattern = /\.(pdf)$/i;
+    const pattern = /\.(pdf|png|jpg|jpeg)$/i;
     const valid = Array.from(files).filter((f) => pattern.test(f.name));
     const oversized = valid.filter(f => f.size > MAX_SIZE);
     const ok = valid.filter(f => f.size <= MAX_SIZE);
@@ -627,11 +627,11 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       <div className="storyboard-input-section">
         <h3 className="storyboard-section-title">📄 需求文档</h3>
         <div className={'sb-upload-zone' + (isBusy ? ' sb-upload-disabled' : '')} onClick={() => !isBusy && docInputRef.current?.click()}>
-          <input ref={docInputRef} type="file" accept=".pdf" multiple style={{ display: 'none' }}
+          <input ref={docInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg" multiple style={{ display: 'none' }}
             onChange={(e) => { handleDocFiles(e.target.files); e.target.value = ''; }} disabled={isBusy} />
           <span className="sb-upload-icon">📄</span>
           <span className="sb-upload-text">点击或拖拽上传文件</span>
-          <span className="sb-upload-hint">{'支持 PDF'}</span>
+          <span className="sb-upload-hint">{'支持 PDF / PNG / JPG'}</span>
         </div>
         {docFiles.length > 0 && (
           <div className="sb-file-list">

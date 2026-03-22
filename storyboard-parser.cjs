@@ -119,6 +119,10 @@ async function parseScript(text, opts = {}) {
       if (file.state !== 'ACTIVE') throw new Error(`PDF upload failed: ${file.state}`);
       pdfPart = { fileData: { fileUri: file.uri, mimeType: 'application/pdf' } };
       console.log(`[StoryboardParser] PDF uploaded: ${file.uri}`);
+    } else if (['.png', '.jpg', '.jpeg', '.webp'].includes(docExt)) {
+      // Image: send as inline data to Gemini for visual understanding
+      pdfPart = readImagePart(docPath);
+      console.log(`[StoryboardParser] 图片文档已读取: ${docPath}`);
     } else {
       docText = await extractDocText(docPath);
       console.log(`[StoryboardParser] 从文档提取了 ${docText.length} 字`);
