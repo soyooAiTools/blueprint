@@ -1,3 +1,6 @@
+// Load .env before anything else
+try { require('dotenv').config({ path: require('path').join(__dirname, '.env'), override: true }); } catch(e) {}
+
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
