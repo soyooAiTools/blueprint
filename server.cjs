@@ -8,23 +8,55 @@ const { triggerCUAReview, resetCUARetries } = require('./server-cua-review.cjs')
 const PORT = process.env.PORT || 3901;
 const __dir = __dirname;
 
-// 启动前清理占端口的孤儿进程（内联，避免 require 路径问题）
+// 启动前清理占端口的孤儿进程（跨平台：先试 ss/lsof/fuser，都没有就用 /proc/net/tcp）
 try {
-  var pgResult = require('child_process').execSync(
-    'ss -tlnp sport = :' + PORT + ' 2>/dev/null || true',
-    { encoding: 'utf-8', timeout: 3000 }
-  ).trim();
-  var pgPidMatch = pgResult.match(/pid=(\d+)/);
-  if (pgPidMatch) {
-    var pgPid = parseInt(pgPidMatch[1]);
-    if (pgPid !== process.pid) {
-      console.log('[port-guard] Port ' + PORT + ' occupied by PID ' + pgPid + ', killing...');
-      try { process.kill(pgPid, 'SIGTERM'); } catch(e) {}
-      require('child_process').execSync('sleep 1');
-      try { process.kill(pgPid, 'SIGKILL'); } catch(e) {}
-      require('child_process').execSync('sleep 1');
-      console.log('[port-guard] Cleaned up PID ' + pgPid);
-    }
+  var pgPid = null;
+  var pgCmds = [
+    'ss -tlnp sport = :' + PORT + ' 2>/dev/null',
+    'lsof -ti :' + PORT + ' 2>/dev/null',
+    'fuser ' + PORT + '/tcp 2>/dev/null',
+  ];
+  for (var pgCmd of pgCmds) {
+    try {
+      var pgResult = require('child_process').execSync(pgCmd, { encoding: 'utf-8', timeout: 3000 }).trim();
+      if (pgResult) {
+        var pgPidMatch = pgResult.match(/pid=(\d+)/) || pgResult.match(/^(\d+)/m);
+        if (pgPidMatch) { pgPid = parseInt(pgPidMatch[1]); break; }
+      }
+    } catch(e2) { /* tool not available, try next */ }
+  }
+  // Fallback: parse /proc/net/tcp (Linux)
+  if (!pgPid) {
+    try {
+      var pgHex = PORT.toString(16).toUpperCase().padStart(4, '0');
+      var pgTcp = require('fs').readFileSync('/proc/net/tcp', 'utf8');
+      var pgLines = pgTcp.split('\n').filter(function(l) { return l.indexOf(':' + pgHex) !== -1 && l.indexOf('0A') !== -1; });
+      if (pgLines.length > 0) {
+        var pgInode = pgLines[0].trim().split(/\s+/)[9];
+        // Find PID owning this inode
+        var pgDirs = require('fs').readdirSync('/proc').filter(function(d) { return /^\d+$/.test(d); });
+        for (var pgDir of pgDirs) {
+          try {
+            var pgFds = require('fs').readdirSync('/proc/' + pgDir + '/fd');
+            for (var pgFd of pgFds) {
+              try {
+                var pgLink = require('fs').readlinkSync('/proc/' + pgDir + '/fd/' + pgFd);
+                if (pgLink.indexOf('socket:[' + pgInode + ']') !== -1) { pgPid = parseInt(pgDir); break; }
+              } catch(e3) {}
+            }
+            if (pgPid) break;
+          } catch(e3) {}
+        }
+      }
+    } catch(e2) { /* /proc not available */ }
+  }
+  if (pgPid && pgPid !== process.pid) {
+    console.log('[port-guard] Port ' + PORT + ' occupied by PID ' + pgPid + ', killing...');
+    try { process.kill(pgPid, 'SIGTERM'); } catch(e2) {}
+    var pgWait = Date.now(); while (Date.now() - pgWait < 1000) {} // busy wait 1s (no sleep cmd needed)
+    try { process.kill(pgPid, 'SIGKILL'); } catch(e2) {}
+    pgWait = Date.now(); while (Date.now() - pgWait < 1000) {}
+    console.log('[port-guard] Cleaned up PID ' + pgPid);
   }
 } catch (e) { console.warn('[port-guard] skipped:', e.message); }
 
@@ -1401,9 +1433,12 @@ var server = http.createServer(function(req, res) {
 
 server.on('error', function(err) {
   if (err.code === 'EADDRINUSE') {
-    console.error('[FATAL] 端口 ' + PORT + ' 被占用！port-guard 未能清理。');
-    console.error('[FATAL] 手动执行: kill $(ss -tlnp sport = :' + PORT + ' | grep -oP "pid=\\K\\d+")');
-    process.exit(1);
+    console.error('[FATAL] Port ' + PORT + ' still in use after port-guard. Retrying in 2s...');
+    setTimeout(function() {
+      server.close();
+      server.listen(PORT);
+    }, 2000);
+    return;
   }
   throw err;
 });
