@@ -27,10 +27,19 @@ const CONFIG = {
   imageModel: 'gemini-3-pro-image-preview',
 };
 
-const ai = new GoogleGenAI({
-  apiKey: CONFIG.apiKey,
-  // using official Google Gemini API
-});
+// Create GoogleGenAI with proxy fetch
+let aiOptions = { apiKey: CONFIG.apiKey };
+try {
+  const { ProxyAgent, fetch: proxyFetch } = require('undici');
+  const proxyAgent = new ProxyAgent(PROXY_URL);
+  aiOptions.httpOptions = {
+    fetch: (url, init) => proxyFetch(url, { ...init, dispatcher: proxyAgent }),
+  };
+  console.log('[StoryboardParser] Using undici ProxyAgent fetch for Gemini API');
+} catch(e) {
+  console.log('[StoryboardParser] undici proxy fetch not available:', e.message);
+}
+const ai = new GoogleGenAI(aiOptions);
 
 // === Document extraction ===
 
