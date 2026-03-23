@@ -9,3 +9,4 @@ html-output/
 worker/.env
 
 worker/cua-results/
+.env

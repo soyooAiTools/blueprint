@@ -26,8 +26,20 @@ try {
 
 const { GoogleGenAI } = require('@google/genai');
 
+
+// [key-rotation] Round-robin Gemini API key pool
+const _geminiKeys = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '').split(',').filter(Boolean);
+let _geminiKeyIndex = 0;
+function getNextGeminiKey() {
+  if (_geminiKeys.length === 0) return '';
+  const key = _geminiKeys[_geminiKeyIndex % _geminiKeys.length];
+  _geminiKeyIndex++;
+  return key;
+}
+function getAllGeminiKeys() { return _geminiKeys; }
+console.log('[key-rotation] Loaded ' + _geminiKeys.length + ' Gemini API keys');
 const CONFIG = {
-  apiKey: process.env.GEMINI_API_KEY || '',
+  apiKey: getNextGeminiKey(),
   textModel: process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview',
   imageModel: 'gemini-3-pro-image-preview',
 };
@@ -47,6 +59,15 @@ try {
   console.log('[StoryboardParser] Overrode global fetch with proxy dispatcher');
 } catch(e) {
   console.log('[StoryboardParser] Could not override fetch:', e.message);
+}
+// [key-pool] Create one GoogleGenAI instance per key for round-robin
+const aiPool = _geminiKeys.map(k => new GoogleGenAI({ apiKey: k }));
+let _keyIndex = 0;
+function getAI() {
+  if (aiPool.length === 0) throw new Error('No Gemini API keys configured');
+  const inst = aiPool[_keyIndex % aiPool.length];
+  _keyIndex++;
+  return inst;
 }
 const ai = new GoogleGenAI({ apiKey: CONFIG.apiKey });
 

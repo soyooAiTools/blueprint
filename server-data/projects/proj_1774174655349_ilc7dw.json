@@ -1,0 +1,19 @@
+{
+  "id": "proj_1774174655349_ilc7dw",
+  "name": "2.0测试",
+  "svnUrl": "",
+  "createdAt": "2026-03-23T06:00:00Z",
+  "updatedAt": "2026-03-23T10:42:36.227Z",
+  "nodes": [],
+  "edges": [],
+  "storyboardFrames": [],
+  "blueprint": {
+    "nodes": [],
+    "edges": [],
+    "projectName": "2.0测试",
+    "objectRegistry": [],
+    "globalParams": "",
+    "globalSettings": {},
+    "entities": []
+  }
+}
