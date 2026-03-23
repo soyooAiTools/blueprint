@@ -1023,6 +1023,7 @@ handlers.parseStoryboard = function(req, res, body, projectId) {
         cameraAngle: fields.cameraAngle || 'isometric45',
         perspective: fields.perspective || 'third',
         style: fields.style || '',
+        targetFrames: parseInt(fields.targetFrames, 10) || 15,
       };
       var frames = await storyboardParser.parseScript(allText, { ...config, images: imageParts, docPath: pdfPath });
       // Save frames to project

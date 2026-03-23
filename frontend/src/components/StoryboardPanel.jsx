@@ -101,6 +101,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
   const [cameraAngle, setCameraAngle] = useState('topdown45');
   const [perspective, setPerspective] = useState('third');
   const [style, setStyle] = useState('');
+  const [targetFrames, setTargetFrames] = useState(15);
 
   useEffect(() => {
     return () => { if (progressTimer.current) clearInterval(progressTimer.current); if (genTimer.current) clearInterval(genTimer.current); };
@@ -420,6 +421,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       formData.append('cameraAngle', cameraAngle);
       formData.append('perspective', perspective);
       if (style.trim()) formData.append('style', style.trim());
+      formData.append('targetFrames', String(targetFrames || 15));
       docFiles.forEach((f) => formData.append('files', f));
       refImages.forEach((img) => formData.append('images', img.file));
       const data = await parseStoryboard(projectId, formData);
@@ -441,7 +443,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
         : '⚠️ 分镜解析失败\n\n' + msg + '\n\n你可以修改文案后重新解析。');
     }
     setLoading(false);
-  }, [text, docFiles, refImages, orientation, cameraAngle, perspective, style, projectId, showAlert, startProgress, finishProgress, generateFrameImages]);
+  }, [text, docFiles, refImages, orientation, cameraAngle, perspective, style, targetFrames, projectId, showAlert, startProgress, finishProgress, generateFrameImages]);
 
   const handleGenerate = useCallback(async () => {
     if (frames.length === 0) return;
@@ -710,6 +712,13 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
         <div className="sb-option-row">
           <span className="sb-option-label">额外风格</span>
           <input className="sb-style-input" type="text" placeholder="可选：如「卡通风」「写实」..." value={style} onChange={(e) => setStyle(e.target.value)} />
+        </div>
+        <div className="sb-option-row">
+          <span className="sb-option-label">目标帧数</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input type="range" min={8} max={25} value={targetFrames} onChange={(e) => setTargetFrames(Number(e.target.value))} style={{ flex: 1 }} />
+            <span style={{ minWidth: 32, textAlign: 'center', fontWeight: 600 }}>{targetFrames}</span>
+          </div>
         </div>
       </div>
       )}

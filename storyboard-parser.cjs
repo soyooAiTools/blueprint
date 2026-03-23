@@ -28,7 +28,7 @@ const { GoogleGenAI } = require('@google/genai');
 
 const CONFIG = {
   apiKey: process.env.GEMINI_API_KEY || '',
-  textModel: 'gemini-2.5-flash',
+  textModel: process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview',
   imageModel: 'gemini-3-pro-image-preview',
 };
 console.log('[StoryboardParser] API Key prefix:', CONFIG.apiKey ? CONFIG.apiKey.substring(0, 15) + '...' : 'EMPTY');
@@ -105,7 +105,7 @@ function readImagePartFromBuffer(buffer, mimeType) {
 // === Core parse function ===
 
 async function parseScript(text, opts = {}) {
-  const { orientation = 'landscape', cameraAngle = 'isometric-45', perspective = 'third-person', images = [], docPath, style = '' } = opts;
+  const { orientation = 'landscape', cameraAngle = 'isometric-45', perspective = 'third-person', images = [], docPath, style = '', targetFrames = 15 } = opts;
 
   const cameraMap = {
     'isometric-45': 'isometric 45-degree orthographic camera',
@@ -204,8 +204,8 @@ async function parseScript(text, opts = {}) {
   - 与下一帧的过渡方式（硬切/淡入淡出/滑动/缩放）
 
 要求：
-1. 总帧数控制在 15-25 帧
-2. 每个章节 3-5 个子步骤
+1. 总帧数严格控制在 ${targetFrames - 1} 到 ${targetFrames + 1} 帧（目标 ${targetFrames} 帧），绝对不能超出此范围
+2. 根据总帧数目标合理分配每章节的子步骤数（总帧数 / 章节数 = 每章步骤数）
 3. 帧之间要有明确的叙事递进和过渡
 4. prompt 中必须包含 UI 标注元素的描述
 5. 适配 ${orientation === 'portrait' ? '竖屏（手机竖握）' : '横屏（手机横握）'} 布局
