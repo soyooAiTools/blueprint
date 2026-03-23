@@ -161,7 +161,7 @@ function writeProject(project) {
   var filePath = path.join(PROJECTS_DIR, project.id + '.json');
   // Auto-backup: keep last version before overwrite
   if (fs.existsSync(filePath)) {
-    var backupDir = path.join(PROJECTS_DIR, 'backups');
+    var backupDir = path.join('/opt/blueprint-backups');
     if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
     var ts = new Date().toISOString().replace(/[:.]/g, '-');
     var backupPath = path.join(backupDir, project.id + '.' + ts + '.json');
