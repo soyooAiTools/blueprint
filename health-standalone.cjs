@@ -32,13 +32,15 @@ function sendHTML(res, html) {
 // Health probes
 function probeBlueprint() {
   return new Promise((resolve) => {
+    let resolved = false;
+    const done = (result) => { if (!resolved) { resolved = true; resolve(result); } };
     const req = http.request({ hostname: '127.0.0.1', port: BLUEPRINT_PORT, path: '/api/projects', method: 'GET', timeout: 5000 }, (res) => {
       let data = '';
       res.on('data', c => data += c);
-      res.on('end', () => resolve({ status: res.statusCode === 200 ? 'ok' : 'error', code: res.statusCode }));
+      res.on('end', () => done({ status: res.statusCode === 200 ? 'ok' : 'error', code: res.statusCode }));
     });
-    req.on('error', (e) => resolve({ status: 'down', error: e.message }));
-    req.on('timeout', () => { req.destroy(); resolve({ status: 'timeout' }); });
+    req.on('error', (e) => done({ status: 'down', error: e.message }));
+    req.on('timeout', () => { req.destroy(); done({ status: 'timeout' }); });
     req.end();
   });
 }
@@ -49,13 +51,15 @@ function probeGemini() {
     if (!apiKey) return resolve({ status: 'no_key' });
     const url = new URL(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
     const mod = require('https');
+    let resolved = false;
+    const done = (result) => { if (!resolved) { resolved = true; resolve(result); } };
     const req = mod.request({ hostname: url.hostname, path: url.pathname + url.search, method: 'GET', timeout: 8000 }, (res) => {
       let data = '';
       res.on('data', c => data += c);
-      res.on('end', () => resolve({ status: res.statusCode === 200 ? 'ok' : 'error', code: res.statusCode }));
+      res.on('end', () => done({ status: res.statusCode === 200 ? 'ok' : 'error', code: res.statusCode }));
     });
-    req.on('error', (e) => resolve({ status: 'down', error: e.message }));
-    req.on('timeout', () => { req.destroy(); resolve({ status: 'timeout' }); });
+    req.on('error', (e) => done({ status: 'down', error: e.message }));
+    req.on('timeout', () => { req.destroy(); done({ status: 'timeout' }); });
     req.end();
   });
 }
