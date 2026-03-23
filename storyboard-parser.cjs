@@ -269,25 +269,93 @@ ${style ? `9. 额外风格要求：${style}` : ''}
     throw new Error('请提供文案、图片或文档中的至少一种作为输入');
   }
 
-  let result;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      console.log(`[StoryboardParser] Calling Gemini (attempt ${attempt}/3)...`);
-      result = await ai.models.generateContent({
-        model: CONFIG.textModel,
-        contents: [{ role: 'user', parts }],
-        config: {
+  // === Degradation chain: original → resize → fallback model → fail ===
+  const proxyDoctor = require('./proxy-doctor.cjs');
+  const notify = require('./notify.cjs');
+
+  // Helper: try calling Gemini with given config, 2 attempts
+  async function tryGemini(model, partsToUse, thinkingBudget, label) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        console.log(`[StoryboardParser] ${label} (attempt ${attempt}/2)...`);
+        const cfg = {
           temperature: 0.3,
           maxOutputTokens: 65536,
-          thinkingConfig: { thinkingBudget: 1024 },
           systemInstruction: systemPrompt,
-        },
-      });
-      break;
-    } catch (fetchErr) {
-      console.error(`[StoryboardParser] Attempt ${attempt} failed: ${fetchErr.message?.substring(0, 100)}`);
-      if (attempt === 3) throw fetchErr;
-      await new Promise(r => setTimeout(r, 3000));
+        };
+        if (thinkingBudget > 0) {
+          cfg.thinkingConfig = { thinkingBudget };
+        }
+        return await ai.models.generateContent({
+          model,
+          contents: [{ role: 'user', parts: partsToUse }],
+          config: cfg,
+        });
+      } catch (err) {
+        console.error(`[StoryboardParser] ${label} attempt ${attempt} failed: ${err.message?.substring(0, 150)}`);
+        if (attempt < 2) {
+          // Before retry, ensure proxy is working
+          await proxyDoctor.ensure();
+          await new Promise(r => setTimeout(r, 3000));
+        } else {
+          throw err;
+        }
+      }
+    }
+  }
+
+  // Helper: resize images in parts to max 1024px JPEG 80%
+  async function resizeParts(originalParts) {
+    let sharp;
+    try { sharp = require('sharp'); } catch(e) { return originalParts; /* no sharp, skip resize */ }
+    const resized = [];
+    for (const p of originalParts) {
+      if (p.inlineData && p.inlineData.data) {
+        try {
+          const buf = Buffer.from(p.inlineData.data, 'base64');
+          if (buf.length > 500 * 1024) { // Only resize if > 500KB
+            const out = await sharp(buf).resize(1024, 1024, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
+            resized.push({ inlineData: { data: out.toString('base64'), mimeType: 'image/jpeg' } });
+            console.log(`[StoryboardParser] Resized image: ${buf.length} → ${out.length} bytes`);
+          } else {
+            resized.push(p);
+          }
+        } catch(e) {
+          resized.push(p); // Keep original if resize fails
+        }
+      } else {
+        resized.push(p);
+      }
+    }
+    return resized;
+  }
+
+  let result;
+
+  // Phase 1: Original request with gemini-3.1-pro-preview
+  try {
+    result = await tryGemini(CONFIG.textModel, parts, 1024, 'Phase1:' + CONFIG.textModel);
+  } catch(phase1Err) {
+    console.log('[StoryboardParser] Phase 1 failed, trying resize...');
+    notify.alert('warning', '分镜解析：原图失败，缩图重试中', phase1Err.message?.substring(0, 100));
+
+    // Phase 2: Resize images and retry
+    try {
+      const resizedParts = await resizeParts(parts);
+      result = await tryGemini(CONFIG.textModel, resizedParts, 1024, 'Phase2:resize+' + CONFIG.textModel);
+    } catch(phase2Err) {
+      console.log('[StoryboardParser] Phase 2 failed, trying fallback model...');
+      notify.alert('warning', '分镜解析降级：切换到 gemini-2.5-flash', phase2Err.message?.substring(0, 100));
+
+      // Phase 3: Fallback model (gemini-2.5-flash, no thinking)
+      try {
+        const resizedParts = await resizeParts(parts);
+        result = await tryGemini('gemini-2.5-flash', resizedParts, 0, 'Phase3:gemini-2.5-flash');
+      } catch(phase3Err) {
+        // All phases failed
+        notify.alert('critical', '分镜解析全部降级失败', phase3Err.message?.substring(0, 200));
+        throw phase3Err;
+      }
     }
   }
 

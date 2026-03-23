@@ -1192,6 +1192,19 @@ handlers.generateStoryboard = function(req, res, body, projectId) {
       var completed = 0;
       var CONCURRENCY = 4;
 
+      // Pre-check: ensure proxy is available before starting image generation
+      try {
+        var proxyDoctor = require('./proxy-doctor.cjs');
+        var proxyStatus = await proxyDoctor.ensure();
+        if (!proxyStatus.ok) {
+          notify.alert('critical', '图片生成前代理不可用', '代理修复失败，继续尝试生成');
+        } else if (proxyStatus.method && proxyStatus.method !== 'direct') {
+          console.log('[generate-storyboard] Proxy OK via ' + (proxyStatus.method || 'direct check'));
+        }
+      } catch(proxyErr) {
+        console.warn('[generate-storyboard] Proxy check failed:', proxyErr.message);
+      }
+
       // Step 1: Generate frame 1 first (style anchor)
       if (frames.length > 0) {
         try {
@@ -1255,6 +1268,8 @@ handlers.generateStoryboard = function(req, res, body, projectId) {
         if (failedIdxs.length === 0) break;
         var backoffMs = 3000 * Math.pow(2, retryRound - 1);
         console.log('[generate-storyboard] Retry round ' + retryRound + ': ' + failedIdxs.length + ' failed, backoff ' + backoffMs + 'ms');
+        // Ensure proxy is available before retrying
+        try { await require('./proxy-doctor.cjs').ensure(); } catch(pe) {}
         await new Promise(function(r) { setTimeout(r, backoffMs); });
         for (var rb = 0; rb < failedIdxs.length; rb += CONCURRENCY) {
           var retryBatch = [];
