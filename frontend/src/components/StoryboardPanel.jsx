@@ -337,7 +337,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generate-storyboard`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ frames: [updatedFrame] }),
+        body: JSON.stringify({ frames: [updatedFrame], orientation, styleRefUrl, charRefUrl }),
       });
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
@@ -363,9 +363,10 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       }
     } catch (err) {
       await showAlert('⚠️ 重新生成失败: ' + err.message);
+    } finally {
+      setGeneratingFrameIds(prev => { const s = new Set(prev); s.delete(frameId); return s; });
     }
-    setGeneratingFrameIds(prev => { const s = new Set(prev); s.delete(frameId); return s; });
-  }, [frames, projectId, showAlert]);
+  }, [frames, projectId, showAlert, orientation, styleRefUrl, charRefUrl]);
 
   // Regenerate a frame based on edited scriptExcerpt
   const regenerateFromScript = useCallback(async (frameId) => {
