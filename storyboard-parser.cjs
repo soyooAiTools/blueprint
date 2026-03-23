@@ -351,6 +351,33 @@ ${style ? `9. 额外风格要求：${style}` : ''}
     return resized;
   }
 
+  // Phase 0: Pre-process all images to JPEG + max 2048px (avoid Gemini 400 on large PNG/alpha)
+  let sharp0;
+  try { sharp0 = require('sharp'); } catch(e0) { /* no sharp */ }
+  if (sharp0) {
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i];
+      if (p.inlineData && p.inlineData.data) {
+        try {
+          const buf = Buffer.from(p.inlineData.data, 'base64');
+          const meta = await sharp0(buf).metadata();
+          const needsConvert = meta.hasAlpha || meta.format === 'png' || (meta.width > 2048 || meta.height > 2048) || buf.length > 1024 * 1024;
+          if (needsConvert) {
+            const out = await sharp0(buf)
+              .resize(2048, 2048, { fit: 'inside', withoutEnlargement: true })
+              .flatten({ background: { r: 255, g: 255, b: 255 } })
+              .jpeg({ quality: 85 })
+              .toBuffer();
+            parts[i] = { inlineData: { data: out.toString('base64'), mimeType: 'image/jpeg' } };
+            console.log('[StoryboardParser] Phase0 pre-process: ' + meta.format + ' ' + meta.width + 'x' + meta.height + ' (' + buf.length + 'B) -> JPEG (' + out.length + 'B)');
+          }
+        } catch(e0) {
+          console.log('[StoryboardParser] Phase0 pre-process skip: ' + e0.message);
+        }
+      }
+    }
+  }
+
   let result;
 
   // Phase 1: Original request with gemini-3.1-pro-preview

@@ -16,6 +16,64 @@ const ERRORS_FILE = path.join(DATA_DIR, 'errors.json');
 const MAX_RECORDS = 500;
 const DEDUP_MS = 5 * 60 * 1000; // 5 minutes
 
+// === Feishu App API (triggers OpenClaw agent for auto-repair) ===
+const FEISHU_APP_ID = 'cli_a921d57203789cb3';
+const FEISHU_APP_SECRET = 'PE41pQTmRcV6krYt2frcDbaRvJe7HWeK';
+const MONITOR_CHAT_ID = 'oc_2b4f89c248d0b046feba747fd42acf95';
+let _appToken = null;
+let _appTokenExpires = 0;
+
+async function getAppToken() {
+  if (_appToken && Date.now() < _appTokenExpires - 60000) return _appToken;
+  try {
+    const resp = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ app_id: FEISHU_APP_ID, app_secret: FEISHU_APP_SECRET })
+    });
+    const data = await resp.json();
+    if (data.code === 0 && data.tenant_access_token) {
+      _appToken = data.tenant_access_token;
+      _appTokenExpires = Date.now() + (data.expire || 7200) * 1000;
+      return _appToken;
+    }
+    console.error('[notify] App token error:', data.code, data.msg);
+    return null;
+  } catch(e) {
+    console.error('[notify] App token fetch failed:', e.message);
+    return null;
+  }
+}
+
+async function sendAppApiMessage(chatId, text) {
+  const token = await getAppToken();
+  if (!token) return false;
+  try {
+    const resp = await fetch('https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify({
+        receive_id: chatId,
+        msg_type: 'text',
+        content: JSON.stringify({ text })
+      })
+    });
+    const data = await resp.json();
+    if (data.code === 0) {
+      console.log('[notify] App API message sent to', chatId);
+      return true;
+    }
+    console.error('[notify] App API send failed:', data.code, data.msg);
+    return false;
+  } catch(e) {
+    console.error('[notify] App API error:', e.message);
+    return false;
+  }
+}
+
 // === Dedup ===
 const _lastSent = new Map();
 
@@ -110,6 +168,15 @@ function alert(level, title, detail) {
     sendFeishu(level, title, detail || '');
   }
   console.log(`[notify] ${level === 'critical' ? '🔴' : '🟡'} ${title}: ${(detail || '').substring(0, 100)}`);
+
+  // Auto-repair: send critical alerts to monitoring group via App API
+  // This triggers OpenClaw agent which will SSH back and auto-diagnose/fix
+  if (level === 'critical') {
+    const autoRepairMsg = `🤖 [AUTO-REPAIR REQUEST]\nLevel: ${level}\nError: ${title}\nDetail: ${(detail || '').substring(0, 300)}\nTimestamp: ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\n\n请自动诊断并修复此问题。`;
+    sendAppApiMessage(MONITOR_CHAT_ID, autoRepairMsg).catch(e => {
+      console.error('[notify] Auto-repair trigger failed:', e.message);
+    });
+  }
 }
 
 /**
