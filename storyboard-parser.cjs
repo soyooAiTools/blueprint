@@ -36,7 +36,6 @@ function getNextGeminiKey() {
   _geminiKeyIndex++;
   return key;
 }
-function getAllGeminiKeys() { return _geminiKeys; }
 console.log('[key-rotation] Loaded ' + _geminiKeys.length + ' Gemini API keys');
 const CONFIG = {
   apiKey: getNextGeminiKey(),
@@ -69,7 +68,8 @@ function getAI() {
   _keyIndex++;
   return inst;
 }
-const ai = new GoogleGenAI({ apiKey: CONFIG.apiKey });
+const ai = aiPool[0] || new GoogleGenAI({ apiKey: CONFIG.apiKey });
+console.log('[key-pool] Created ' + aiPool.length + ' AI instances for rotation');
 
 // === Document extraction ===
 
@@ -149,11 +149,11 @@ async function parseScript(text, opts = {}) {
     if (docExt === '.pdf') {
       // PDF: upload via Files API then reference by URI (avoids proxy size limits)
       console.log(`[StoryboardParser] Uploading PDF via Files API...`);
-      const uploaded = await ai.files.upload({ file: docPath, config: { mimeType: 'application/pdf' } });
+      const uploaded = await getAI().files.upload({ file: docPath, config: { mimeType: 'application/pdf' } });
       let file = uploaded;
       while (file.state === 'PROCESSING') {
         await new Promise(r => setTimeout(r, 2000));
-        file = await ai.files.get({ name: file.name });
+        file = await getAI().files.get({ name: file.name });
       }
       if (file.state !== 'ACTIVE') throw new Error(`PDF upload failed: ${file.state}`);
       pdfPart = { fileData: { fileUri: file.uri, mimeType: 'application/pdf' } };
@@ -307,7 +307,7 @@ ${style ? `9. 额外风格要求：${style}` : ''}
         if (thinkingBudget > 0) {
           cfg.thinkingConfig = { thinkingBudget };
         }
-        return await ai.models.generateContent({
+        return await getAI().models.generateContent({
           model,
           contents: [{ role: 'user', parts: partsToUse }],
           config: cfg,
@@ -349,33 +349,6 @@ ${style ? `9. 额外风格要求：${style}` : ''}
       }
     }
     return resized;
-  }
-
-  // Phase 0: Pre-process all images to JPEG + max 2048px (avoid Gemini 400 on large PNG/alpha)
-  let sharp0;
-  try { sharp0 = require('sharp'); } catch(e0) { /* no sharp */ }
-  if (sharp0) {
-    for (let i = 0; i < parts.length; i++) {
-      const p = parts[i];
-      if (p.inlineData && p.inlineData.data) {
-        try {
-          const buf = Buffer.from(p.inlineData.data, 'base64');
-          const meta = await sharp0(buf).metadata();
-          const needsConvert = meta.hasAlpha || meta.format === 'png' || (meta.width > 2048 || meta.height > 2048) || buf.length > 1024 * 1024;
-          if (needsConvert) {
-            const out = await sharp0(buf)
-              .resize(2048, 2048, { fit: 'inside', withoutEnlargement: true })
-              .flatten({ background: { r: 255, g: 255, b: 255 } })
-              .jpeg({ quality: 85 })
-              .toBuffer();
-            parts[i] = { inlineData: { data: out.toString('base64'), mimeType: 'image/jpeg' } };
-            console.log('[StoryboardParser] Phase0 pre-process: ' + meta.format + ' ' + meta.width + 'x' + meta.height + ' (' + buf.length + 'B) -> JPEG (' + out.length + 'B)');
-          }
-        } catch(e0) {
-          console.log('[StoryboardParser] Phase0 pre-process skip: ' + e0.message);
-        }
-      }
-    }
   }
 
   let result;
@@ -493,7 +466,7 @@ async function analyzeImages(imageParts) {
   const parts = [...imageParts, { text: prompt }];
   
   try {
-    const result = await ai.models.generateContent({
+    const result = await getAI().models.generateContent({
       model: CONFIG.textModel,
       contents: [{ role: 'user', parts }],
       config: { temperature: 0.2 },
@@ -520,7 +493,7 @@ ${JSON.stringify(frame, null, 2)}
 请输出修改后的完整帧 JSON。保持所有字段（id, title, interaction, ui, prompt 等），只修改用户要求改的部分。
 其他未提及的字段保持不变。只输出 JSON，不要其他内容。`;
 
-  const result = await ai.models.generateContent({
+  const result = await getAI().models.generateContent({
     model: CONFIG.textModel,
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     config: { temperature: 0.3 },
