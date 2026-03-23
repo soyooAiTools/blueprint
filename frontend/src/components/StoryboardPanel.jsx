@@ -235,7 +235,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
             const evt = JSON.parse(line.slice(6));
             if (evt.type === 'progress') {
               completed = evt.current;
-              setGenProgress(Math.round((completed / evt.total) * 100));
+              setGenProgress(Math.min(99, Math.round((completed / evt.total) * 100)));
               setGenStage(`生成配图中 ${completed}/${evt.total}...`);
             } else if (evt.type === 'done') {
               const updatedFrames = evt.frames || [];
