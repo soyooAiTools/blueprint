@@ -159,6 +159,22 @@ function readProject(id) {
 
 function writeProject(project) {
   var filePath = path.join(PROJECTS_DIR, project.id + '.json');
+  // Auto-backup: keep last version before overwrite
+  if (fs.existsSync(filePath)) {
+    var backupDir = path.join(PROJECTS_DIR, 'backups');
+    if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+    var ts = new Date().toISOString().replace(/[:.]/g, '-');
+    var backupPath = path.join(backupDir, project.id + '.' + ts + '.json');
+    try { fs.copyFileSync(filePath, backupPath); } catch(e) { console.error('[backup] Failed:', e.message); }
+    // Keep max 20 backups per project, prune oldest
+    try {
+      var prefix = project.id + '.';
+      var backups = fs.readdirSync(backupDir).filter(function(f) { return f.startsWith(prefix); }).sort();
+      while (backups.length > 20) {
+        fs.unlinkSync(path.join(backupDir, backups.shift()));
+      }
+    } catch(e) { /* ignore prune errors */ }
+  }
   fs.writeFileSync(filePath, JSON.stringify(project, null, 2), 'utf-8');
 }
 
@@ -1045,7 +1061,16 @@ handlers.saveStoryboard = function(req, res, body, id) {
     var data = JSON.parse(body);
     var proj = readProject(id);
     if (!proj) return sendJSON(res, { error: 'Project not found' }, 404);
-    proj.storyboardFrames = data.frames || [];
+    var newFrames = data.frames || [];
+    var oldFrames = proj.storyboardFrames || [];
+    // Guard: reject if frame count drops by >50% (likely frontend state loss)
+    if (oldFrames.length >= 4 && newFrames.length < oldFrames.length * 0.5) {
+      console.error('[saveStoryboard] BLOCKED: frame count drop ' + oldFrames.length + ' -> ' + newFrames.length + ' (>50% loss). Use force=true to override.');
+      if (!data.force) {
+        return sendJSON(res, { error: 'Frame count dropped from ' + oldFrames.length + ' to ' + newFrames.length + '. This looks like data loss. Add force:true to override.', blocked: true, oldCount: oldFrames.length, newCount: newFrames.length }, 409);
+      }
+    }
+    proj.storyboardFrames = newFrames;
     if (data.characterSheet) proj.characterSheet = data.characterSheet;
     proj.updatedAt = new Date().toISOString();
     writeProject(proj);
