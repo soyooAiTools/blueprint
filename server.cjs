@@ -22,6 +22,7 @@ const path = require('path');
 const url = require('url');
 const AdmZip = require('adm-zip');
 const { triggerCUAReview, resetCUARetries } = require('./server-cua-review.cjs');
+const notify = require('./notify.cjs');
 
 const PORT = process.env.PORT || 3901;
 const __dir = __dirname;
@@ -134,6 +135,9 @@ const MIME = {
 
 function sendJSON(res, data, status) {
   status = status || 200;
+  if (status >= 500) {
+    try { notify.alert('critical', 'API ' + status, JSON.stringify(data).substring(0, 200)); } catch(e) {}
+  }
   const body = JSON.stringify(data);
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -1057,6 +1061,7 @@ handlers.parseStoryboard = function(req, res, body, projectId) {
       }
     } catch(e) {
       console.error('[parse-storyboard] Error:', e.message);
+      try { notify.alert('critical', '分镜解析失败', e.message); } catch(ne) {}
       sendJSON(res, { error: '分镜解析失败: ' + e.message }, 500);
     }
   });
@@ -1278,7 +1283,7 @@ handlers.generateStoryboard = function(req, res, body, projectId) {
       }
       var finalFailed = updatedFrames.filter(function(f) { return !f.imageUrl; }).length;
       if (finalFailed > 0) {
-        pushAlert('warning', '图片生成部分失败', finalFailed + '/' + frames.length + ' 张未生成');
+        try { notify.alert('warning', '图片生成部分失败', finalFailed + '/' + frames.length + ' 张未生成'); } catch(ne) {}
       }
 
       // Save to project
@@ -1297,6 +1302,7 @@ handlers.generateStoryboard = function(req, res, body, projectId) {
       res.end();
     } catch(e) {
       console.error('[generate-storyboard] Error:', e.message);
+      try { notify.alert('critical', '配图生成失败', e.message); } catch(ne) {}
       try { res.write('data: ' + JSON.stringify({ type: 'error', error: e.message }) + '\n\n'); res.end(); } catch(x) {}
     }
   })();

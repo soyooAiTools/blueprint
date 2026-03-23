@@ -1,0 +1,49 @@
+/**
+ * error-reporter.js — 前端错误收集器
+ * 注入到 index.html 的 <head> 中
+ * 捕获: window.onerror, unhandledrejection, fetch 4xx/5xx
+ * 上报: POST /api/errors (via sendBeacon)
+ */
+(function() {
+  var _reported = {};
+  var DEDUP_MS = 60000; // 1 min client-side dedup
+
+  function report(err) {
+    var key = (err.message || '').substring(0, 80);
+    var now = Date.now();
+    if (_reported[key] && now - _reported[key] < DEDUP_MS) return;
+    _reported[key] = now;
+    err.timestamp = new Date().toISOString();
+    err.userAgent = navigator.userAgent;
+    try {
+      navigator.sendBeacon('/api/errors', JSON.stringify(err));
+    } catch(e) {}
+  }
+
+  // Global errors
+  window.addEventListener('error', function(e) {
+    report({ message: e.message, stack: e.error && e.error.stack || '', url: location.href });
+  });
+
+  // Unhandled promise rejections
+  window.addEventListener('unhandledrejection', function(e) {
+    var reason = e.reason || {};
+    report({ message: String(reason.message || reason), stack: reason.stack || '', url: location.href });
+  });
+
+  // Fetch interceptor
+  var _fetch = window.fetch;
+  if (_fetch) {
+    window.fetch = function(url, opts) {
+      return _fetch.apply(this, arguments).then(function(r) {
+        if (r.status >= 400) {
+          report({ message: 'Fetch ' + r.status + ' ' + (typeof url === 'string' ? url : url.url || ''), url: location.href });
+        }
+        return r;
+      }).catch(function(err) {
+        report({ message: 'Fetch error: ' + err.message, url: location.href });
+        throw err;
+      });
+    };
+  }
+})();
