@@ -105,7 +105,7 @@ function readImagePartFromBuffer(buffer, mimeType) {
 // === Core parse function ===
 
 async function parseScript(text, opts = {}) {
-  const { orientation = 'landscape', cameraAngle = 'isometric-45', perspective = 'third-person', images = [], docPath, style = '', targetFrames = 15 } = opts;
+  const { orientation = 'landscape', cameraAngle = 'isometric-45', perspective = 'third-person', images = [], docPath, style = '', targetFrames = 15, charRefImage = null } = opts;
 
   const cameraMap = {
     'isometric-45': 'isometric 45-degree orthographic camera',
@@ -230,6 +230,12 @@ ${style ? `9. 额外风格要求：${style}` : ''}
         parts.push(img);
       }
     }
+  }
+
+  // Add character reference image if provided
+  if (charRefImage && charRefImage.inlineData) {
+    parts.push(charRefImage);
+    parts.push({ text: '上面是角色参考图。分镜中的主角必须完全基于这张图的外观来描述（服装、发型、体型、颜色等）。characterSheet 中的描述必须精确匹配此参考图中的角色形象。' });
   }
 
   // Pre-analyze images if present

@@ -438,6 +438,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       formData.append('targetFrames', String(targetFrames || 15));
       docFiles.forEach((f) => formData.append('files', f));
       refImages.forEach((img) => formData.append('images', img.file));
+      if (charRefFile) formData.append('charRef', charRefFile);
       const data = await parseStoryboard(projectId, formData);
       const parsedFrames = Array.isArray(data) ? data : data.frames || [];
       const newFrames = parsedFrames.map((f) => ({ ...f, imageUrl: f.imageUrl || null }));
