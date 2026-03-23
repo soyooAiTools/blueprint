@@ -895,8 +895,6 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
                           onClick={() => setLightboxUrl(API_BASE + frame.imageUrl)} title="点击放大" />
                         <div className="sb-visual-actions">
                           <a className="sb-img-action-btn" href={API_BASE + frame.imageUrl} download={`frame_${idx + 1}.jpg`} title="下载" onClick={e => e.stopPropagation()}>⬇️</a>
-                          <button className="sb-img-action-btn" onClick={() => generateSingleFrameImage(frame.id)}
-                            disabled={generatingFrameIds.has(frame.id)} title="重新生成">🔄</button>
                         </div>
                       </div>
                     ) : (

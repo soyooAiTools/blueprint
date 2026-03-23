@@ -264,6 +264,7 @@ function matchRoute(method, pathname) {
   m = pathname.match(/^\/api\/projects\/([^/]+)\/storyboard$/);
   if (m && method === 'PUT') return { handler: 'saveStoryboard', id: m[1] };
   m = pathname.match(/^\/api\/projects\/([^/]+)\/edit-frame$/);
+  if (m && method === 'POST') return { handler: 'editFrame', id: m[1] };
   m = pathname.match(/^\/api\/projects\/([^/]+)\/upload-style-ref$/);
   if (m && method === 'POST') return { handler: 'uploadStyleRef', id: m[1], rawBody: true };
   m = pathname.match(/^\/api\/projects\/([^/]+)\/generate-storyboard$/);   
