@@ -415,7 +415,7 @@ ${JSON.stringify(frame, null, 2)}
 // === Image Generation (Gemini native) ===
 async function generateImage(prompt, opts = {}, aiInstance) {
   if (!aiInstance) aiInstance = aiPool[_keyIndex++ % aiPool.length];
-  const { style = '', cameraAngle = '', orientation = '', perspective = '', styleRefBase64 = null, styleRefMime = null } = opts;
+  const { style = '', cameraAngle = '', orientation = '', perspective = '', styleRefBase64 = null, styleRefMime = null, charRefBase64 = null, charRefMime = null } = opts;
   let fullPrompt = prompt;
   // Append camera/orientation hints if not already in prompt
   const cameraHints = [];
@@ -425,12 +425,18 @@ async function generateImage(prompt, opts = {}, aiInstance) {
   if (cameraHints.length) fullPrompt += '. ' + cameraHints.join(', ');
   if (style) fullPrompt += '. Style: ' + style;
 
-  // Build parts: optional style reference image + text prompt
+  // Build parts: optional reference images + text prompt
   const parts = [];
+  const prefixes = [];
   if (styleRefBase64) {
     parts.push({ inlineData: { data: styleRefBase64, mimeType: styleRefMime || 'image/jpeg' } });
-    fullPrompt = 'Generate an image in EXACTLY the same art style, color palette, and rendering technique as the reference image above. ' + fullPrompt;
+    prefixes.push('Generate an image in EXACTLY the same art style, color palette, and rendering technique as the style reference image.');
   }
+  if (charRefBase64) {
+    parts.push({ inlineData: { data: charRefBase64, mimeType: charRefMime || 'image/jpeg' } });
+    prefixes.push('The character in the image MUST look exactly like the character reference image — same face, hair, clothing, body proportions, and colors.');
+  }
+  if (prefixes.length) fullPrompt = prefixes.join(' ') + ' ' + fullPrompt;
   parts.push({ text: fullPrompt });
 
   const result = await aiInstance.models.generateContent({
