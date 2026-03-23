@@ -264,6 +264,8 @@ function matchRoute(method, pathname) {
   m = pathname.match(/^\/api\/projects\/([^/]+)\/storyboard$/);
   if (m && method === 'PUT') return { handler: 'saveStoryboard', id: m[1] };
   m = pathname.match(/^\/api\/projects\/([^/]+)\/edit-frame$/);
+  m = pathname.match(/^\/api\/projects\/([^/]+)\/upload-style-ref$/);
+  if (m && method === 'POST') return { handler: 'uploadStyleRef', id: m[1], rawBody: true };
   m = pathname.match(/^\/api\/projects\/([^/]+)\/generate-storyboard$/);   
   if (m && method === "POST") return { handler: "generateStoryboard", id: m[1] };
   m = pathname.match(/^\/api\/projects\/([^/]+)\/generate-storyboard-pdf$/);
@@ -1092,12 +1094,40 @@ handlers.serveImage = function(req, res, body, id) {
   serveStatic(res, imgPath);
 };
 
+handlers.uploadStyleRef = function(req, res, body, projectId) {
+  var Busboy = require('busboy');
+  var bb = Busboy({ headers: req.headers, limits: { fileSize: 10 * 1024 * 1024 } });
+  var savedFile = null;
+  bb.on('file', function(fieldname, file, info) {
+    var imgDir = path.join(DATA_DIR, 'images', projectId || 'default');
+    if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
+    var filename = 'style_ref_' + Date.now() + '.jpg';
+    var filePath = path.join(imgDir, filename);
+    var ws = fs.createWriteStream(filePath);
+    file.pipe(ws);
+    ws.on('finish', function() {
+      savedFile = { filename: filename, url: '/api/images/' + (projectId || 'default') + '/' + filename };
+    });
+  });
+  bb.on('finish', function() {
+    if (savedFile) {
+      sendJSON(res, { ok: true, styleRefUrl: savedFile.url, filename: savedFile.filename });
+    } else {
+      sendJSON(res, { error: 'No file uploaded' }, 400);
+    }
+  });
+  bb.on('error', function(e) { sendJSON(res, { error: e.message }, 500); });
+  req.pipe(bb);
+};
+
 handlers.generateStoryboard = function(req, res, body, projectId) {
   (async function() {
     try {
       var data = JSON.parse(body);
       var frames = data.frames || [];
       if (frames.length === 0) return sendJSON(res, { error: 'No frames' }, 400);
+      var orientation = data.orientation || 'landscape';
+      var styleRefUrl = data.styleRefUrl || null;
 
       // Use SSE for progress
       res.writeHead(200, {
@@ -1110,23 +1140,64 @@ handlers.generateStoryboard = function(req, res, body, projectId) {
       var imgDir = path.join(DATA_DIR, 'images', projectId || 'default');
       if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
 
+      // Load user-uploaded style reference if provided
+      var styleRefBase64 = null, styleRefMime = null;
+      if (styleRefUrl) {
+        try {
+          // styleRefUrl could be /api/images/projId/filename or just a filename
+          var refPath = path.join(imgDir, path.basename(styleRefUrl));
+          if (!fs.existsSync(refPath) && styleRefUrl.startsWith('/api/images/')) {
+            refPath = path.join(DATA_DIR, 'images', styleRefUrl.replace('/api/images/', ''));
+          }
+          if (fs.existsSync(refPath)) {
+            styleRefBase64 = fs.readFileSync(refPath).toString('base64');
+            styleRefMime = refPath.endsWith('.png') ? 'image/png' : 'image/jpeg';
+            console.log('[generate-storyboard] Using user style ref: ' + refPath);
+          }
+        } catch(e) { console.warn('[generate-storyboard] Failed to load style ref:', e.message); }
+      }
+
       var updatedFrames = [...frames];
       var completed = 0;
       var CONCURRENCY = 4;
 
-      // Process in batches of CONCURRENCY
-      for (var batchStart = 0; batchStart < frames.length; batchStart += CONCURRENCY) {
+      // Step 1: Generate frame 1 first (style anchor)
+      if (frames.length > 0) {
+        try {
+          var f0opts = styleRefBase64 ? { styleRefBase64: styleRefBase64, styleRefMime: styleRefMime } : {};
+          var img0 = await storyboardParser.generateImage(frames[0].prompt || frames[0].title, f0opts);
+          var rawBuf0 = Buffer.from(img0.base64, 'base64');
+          var normBuf0 = await storyboardParser.normalizeImageSize(rawBuf0, orientation);
+          var fn0 = 'frame_' + frames[0].id + '.jpg';
+          fs.writeFileSync(path.join(imgDir, fn0), normBuf0);
+          updatedFrames[0] = { ...frames[0], imageUrl: '/api/images/' + (projectId || 'default') + '/' + fn0 };
+          // Use frame 1 as style anchor if no user ref
+          if (!styleRefBase64) {
+            styleRefBase64 = img0.base64;
+            styleRefMime = img0.mimeType || 'image/jpeg';
+            console.log('[generate-storyboard] Using frame 1 as style anchor');
+          }
+        } catch(e0) {
+          console.error('[generate-storyboard] Frame 1 gen failed:', e0.message);
+          updatedFrames[0] = { ...frames[0], imageUrl: null, imageError: e0.message };
+        }
+        completed++;
+        res.write('data: ' + JSON.stringify({ type: 'progress', current: completed, total: frames.length, frameId: frames[0].id }) + '\n\n');
+      }
+
+      // Step 2: Generate remaining frames with style ref + concurrency
+      for (var batchStart = 1; batchStart < frames.length; batchStart += CONCURRENCY) {
         var batch = [];
         for (var bi = batchStart; bi < Math.min(batchStart + CONCURRENCY, frames.length); bi++) {
           (function(idx) {
             batch.push((async function() {
               var frame = frames[idx];
               try {
-                var imgResult = await storyboardParser.generateImage(frame.prompt || frame.title);
-                var ext = (imgResult.mimeType || '').includes('png') ? '.png' : '.jpg';
-                var filename = 'frame_' + frame.id + ext;
-                var filePath = path.join(imgDir, filename);
-                fs.writeFileSync(filePath, Buffer.from(imgResult.base64, 'base64'));
+                var imgResult = await storyboardParser.generateImage(frame.prompt || frame.title, { styleRefBase64: styleRefBase64, styleRefMime: styleRefMime });
+                var rawBuf = Buffer.from(imgResult.base64, 'base64');
+                var normalizedBuf = await storyboardParser.normalizeImageSize(rawBuf, orientation);
+                var filename = 'frame_' + frame.id + '.jpg';
+                fs.writeFileSync(path.join(imgDir, filename), normalizedBuf);
                 updatedFrames[idx] = { ...frame, imageUrl: '/api/images/' + (projectId || 'default') + '/' + filename };
                 console.log('[generate-storyboard] Image generated for frame ' + frame.id);
               } catch(imgErr) {
@@ -1139,6 +1210,47 @@ handlers.generateStoryboard = function(req, res, body, projectId) {
           })(bi);
         }
         await Promise.all(batch);
+      }
+
+      // Step 3: Auto-retry failed frames (up to 3 rounds with exponential backoff)
+      var MAX_RETRY_ROUNDS = 3;
+      for (var retryRound = 1; retryRound <= MAX_RETRY_ROUNDS; retryRound++) {
+        var failedIdxs = [];
+        for (var fi = 0; fi < updatedFrames.length; fi++) {
+          if (!updatedFrames[fi].imageUrl) failedIdxs.push(fi);
+        }
+        if (failedIdxs.length === 0) break;
+        var backoffMs = 3000 * Math.pow(2, retryRound - 1);
+        console.log('[generate-storyboard] Retry round ' + retryRound + ': ' + failedIdxs.length + ' failed, backoff ' + backoffMs + 'ms');
+        await new Promise(function(r) { setTimeout(r, backoffMs); });
+        for (var rb = 0; rb < failedIdxs.length; rb += CONCURRENCY) {
+          var retryBatch = [];
+          for (var rbi = rb; rbi < Math.min(rb + CONCURRENCY, failedIdxs.length); rbi++) {
+            (function(idx) {
+              retryBatch.push((async function() {
+                var frame = frames[idx];
+                try {
+                  var imgResult = await storyboardParser.generateImage(frame.prompt || frame.title, { styleRefBase64: styleRefBase64, styleRefMime: styleRefMime });
+                  var rawBuf = Buffer.from(imgResult.base64, 'base64');
+                  var normalizedBuf = await storyboardParser.normalizeImageSize(rawBuf, orientation);
+                  var filename = 'frame_' + frame.id + '.jpg';
+                  fs.writeFileSync(path.join(imgDir, filename), normalizedBuf);
+                  updatedFrames[idx] = { ...frame, imageUrl: '/api/images/' + (projectId || 'default') + '/' + filename };
+                  console.log('[generate-storyboard] Retry success for frame ' + frame.id);
+                } catch(retryErr) {
+                  console.error('[generate-storyboard] Retry failed for frame ' + frame.id + ':', retryErr.message);
+                }
+                completed++;
+                res.write('data: ' + JSON.stringify({ type: 'progress', current: completed, total: frames.length + failedIdxs.length, frameId: frame.id, retry: true }) + '\n\n');
+              })());
+            })(failedIdxs[rbi]);
+          }
+          await Promise.all(retryBatch);
+        }
+      }
+      var finalFailed = updatedFrames.filter(function(f) { return !f.imageUrl; }).length;
+      if (finalFailed > 0) {
+        pushAlert('warning', '图片生成部分失败', finalFailed + '/' + frames.length + ' 张未生成');
       }
 
       // Save to project

@@ -413,8 +413,9 @@ ${JSON.stringify(frame, null, 2)}
 
 
 // === Image Generation (Gemini native) ===
-async function generateImage(prompt, opts = {}) {
-  const { style = '', cameraAngle = '', orientation = '', perspective = '' } = opts;
+async function generateImage(prompt, opts = {}, aiInstance) {
+  if (!aiInstance) aiInstance = aiPool[_keyIndex++ % aiPool.length];
+  const { style = '', cameraAngle = '', orientation = '', perspective = '', styleRefBase64 = null, styleRefMime = null } = opts;
   let fullPrompt = prompt;
   // Append camera/orientation hints if not already in prompt
   const cameraHints = [];
@@ -423,9 +424,18 @@ async function generateImage(prompt, opts = {}) {
   if (perspective && !prompt.toLowerCase().includes(perspective)) cameraHints.push('Perspective: ' + perspective + ' person');
   if (cameraHints.length) fullPrompt += '. ' + cameraHints.join(', ');
   if (style) fullPrompt += '. Style: ' + style;
-  const result = await ai.models.generateContent({
+
+  // Build parts: optional style reference image + text prompt
+  const parts = [];
+  if (styleRefBase64) {
+    parts.push({ inlineData: { data: styleRefBase64, mimeType: styleRefMime || 'image/jpeg' } });
+    fullPrompt = 'Generate an image in EXACTLY the same art style, color palette, and rendering technique as the reference image above. ' + fullPrompt;
+  }
+  parts.push({ text: fullPrompt });
+
+  const result = await aiInstance.models.generateContent({
     model: CONFIG.imageModel,
-    contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
+    contents: [{ role: 'user', parts }],
     config: { responseModalities: ['TEXT', 'IMAGE'], temperature: 0.8 },
   });
   let imageData = null, textResponse = '';
@@ -435,6 +445,14 @@ async function generateImage(prompt, opts = {}) {
   }
   if (!imageData) throw new Error('Gemini did not return an image');
   return { ...imageData, text: textResponse };
+}
+
+// Resize image buffer to target dimensions using sharp
+async function normalizeImageSize(buffer, orientation) {
+  const sharp = require('sharp');
+  const targetW = orientation === 'portrait' ? 576 : 1024;
+  const targetH = orientation === 'portrait' ? 1024 : 576;
+  return sharp(buffer).resize(targetW, targetH, { fit: 'cover' }).jpeg({ quality: 90 }).toBuffer();
 }
 
 async function generateFrameImages(frames, outputDir, onProgress, { concurrency = 4 } = {}) {
@@ -471,4 +489,4 @@ async function generateFrameImages(frames, outputDir, onProgress, { concurrency 
   return results.filter(Boolean);
 }
 
-module.exports = { parseScript, extractDocText, readImagePart, readImagePartFromBuffer, editFrame, analyzeImages, generateImage, generateFrameImages };
+module.exports = { parseScript, extractDocText, readImagePart, readImagePartFromBuffer, editFrame, analyzeImages, generateImage, generateFrameImages, normalizeImageSize };

@@ -102,6 +102,10 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
   const [perspective, setPerspective] = useState('third');
   const [style, setStyle] = useState('');
   const [targetFrames, setTargetFrames] = useState(15);
+  const [styleRefFile, setStyleRefFile] = useState(null);
+  const [styleRefUrl, setStyleRefUrl] = useState(null);
+  const [styleRefPreview, setStyleRefPreview] = useState(null);
+  const styleRefInputRef = useRef(null);
 
   useEffect(() => {
     return () => { if (progressTimer.current) clearInterval(progressTimer.current); if (genTimer.current) clearInterval(genTimer.current); };
@@ -218,7 +222,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generate-storyboard`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ frames: targetFrames }),
+        body: JSON.stringify({ frames: targetFrames, orientation, styleRefUrl }),
       });
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
@@ -253,7 +257,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
     setGenProgress(100); setGenStage('配图生成完成！');
     setTimeout(() => { setGenProgress(null); setGenStage(''); }, 1200);
     setGenerating(false);
-  }, [projectId]);
+  }, [projectId, orientation, styleRefUrl]);
 
   // Generate image for a single frame
   const generateSingleFrameImage = useCallback(async (frameId) => {
@@ -712,6 +716,35 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
         <div className="sb-option-row">
           <span className="sb-option-label">额外风格</span>
           <input className="sb-style-input" type="text" placeholder="可选：如「卡通风」「写实」..." value={style} onChange={(e) => setStyle(e.target.value)} />
+        </div>
+        <div className="sb-option-row">
+          <span className="sb-option-label">风格参考</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input ref={styleRefInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              setStyleRefFile(file);
+              setStyleRefPreview(URL.createObjectURL(file));
+              // Upload to server
+              try {
+                const fd = new FormData();
+                fd.append('file', file);
+                const resp = await fetch(`${API_BASE}/api/projects/${projectId}/upload-style-ref`, { method: 'POST', body: fd });
+                const data = await resp.json();
+                if (data.styleRefUrl) { setStyleRefUrl(data.styleRefUrl); }
+              } catch(err) { console.warn('Style ref upload failed:', err.message); }
+            }} />
+            <button className="storyboard-btn" style={{ padding: '4px 12px', fontSize: 13 }} onClick={() => styleRefInputRef.current?.click()}>
+              {styleRefPreview ? '更换图片' : '📎 上传参考图'}
+            </button>
+            {styleRefPreview && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <img src={styleRefPreview} alt="style ref" style={{ height: 36, borderRadius: 4, border: '1px solid #444' }} />
+                <button style={{ background: 'none', border: 'none', color: '#f66', cursor: 'pointer', fontSize: 16 }} onClick={() => { setStyleRefFile(null); setStyleRefUrl(null); setStyleRefPreview(null); }}>✕</button>
+              </div>
+            )}
+            {!styleRefPreview && <span style={{ color: '#888', fontSize: 12 }}>可选：统一所有帧的画风</span>}
+          </div>
         </div>
         <div className="sb-option-row">
           <span className="sb-option-label">目标帧数</span>
