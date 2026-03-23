@@ -265,11 +265,15 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
     if (!frame) return;
     setGeneratingFrameIds(prev => new Set(prev).add(frameId));
     try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 120000); // 2 min timeout
       const resp = await fetch(`${API_BASE}/api/projects/${projectId}/generate-storyboard`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ frames: [frame] }),
+        body: JSON.stringify({ frames: [frame], orientation, styleRefUrl }),
+        signal: controller.signal,
       });
+      clearTimeout(timer);
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -294,10 +298,12 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
         }
       }
     } catch (err) {
-      await showAlert('⚠️ 图片生成失败: ' + err.message);
+      if (err.name !== 'AbortError') await showAlert('⚠️ 图片生成失败: ' + err.message);
+      else await showAlert('⚠️ 图片生成超时，请重试');
+    } finally {
+      setGeneratingFrameIds(prev => { const s = new Set(prev); s.delete(frameId); return s; });
     }
-    setGeneratingFrameIds(prev => { const s = new Set(prev); s.delete(frameId); return s; });
-  }, [frames, projectId, showAlert]);
+  }, [frames, projectId, showAlert, orientation, styleRefUrl]);
 
   // Regenerate a frame based on feedback: re-generate text fields + image
   const regenerateFrame = useCallback(async (frameId) => {
