@@ -1030,5 +1030,89 @@
     "title": "API 500",
     "detail": "{\"error\":\"分镜解析失败: fetch failed\"}",
     "timestamp": "2026-03-24T09:11:15.293Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：GPT-5.4 失败，降级到 Gemini Pro",
+    "detail": "GPT-5.4 API timeout (300s)",
+    "timestamp": "2026-03-24T09:25:32.737Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：GPT-5.4 失败，降级到 Gemini Pro",
+    "detail": "Unexpected end of JSON input",
+    "timestamp": "2026-03-24T09:37:33.047Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：GPT-5.4 失败，降级到 Gemini Pro",
+    "detail": "Command failed: curl -s --max-time 300 https://api.openai.com/v1/chat/completions -H \"Authorization:",
+    "timestamp": "2026-03-24T09:46:00.549Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：GPT-5.4 失败，降级到 Gemini Pro",
+    "detail": "Unexpected end of JSON input",
+    "timestamp": "2026-03-24T09:51:13.101Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：GPT-5.4 失败，降级到 Gemini Pro",
+    "detail": "Unexpected end of JSON input",
+    "timestamp": "2026-03-24T09:57:37.634Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：GPT-5.4 失败，降级到 Gemini Pro",
+    "detail": "curl failed: Command failed: curl -s --noproxy '*' --max-time 300 -o /tmp/gpt54-response-17743464158",
+    "timestamp": "2026-03-24T10:00:48.099Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：GPT-5.4 失败，降级到 Gemini Pro",
+    "detail": "Unexpected end of JSON input",
+    "timestamp": "2026-03-24T10:08:31.439Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：Gemini Pro 失败，尝试 flash",
+    "detail": "{\"error\":{\"code\":429,\"message\":\"Your project has exceeded its spending cap.\",\"status\":\"RESOURCE_EXHA",
+    "timestamp": "2026-03-24T10:10:35.652Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析降级：缩图 + flash 重试",
+    "detail": "{\"error\":{\"code\":429,\"message\":\"Your project has exceeded its spending cap.\",\"status\":\"RESOURCE_EXHA",
+    "timestamp": "2026-03-24T10:10:40.688Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析全部降级失败（GPT-5.4 → Pro → Flash → Flash+缩图）",
+    "detail": "{\"error\":{\"code\":429,\"message\":\"Your project has exceeded its spending cap.\",\"status\":\"RESOURCE_EXHAUSTED\"}}",
+    "timestamp": "2026-03-24T10:10:46.625Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析失败",
+    "detail": "{\"error\":{\"code\":429,\"message\":\"Your project has exceeded its spending cap.\",\"status\":\"RESOURCE_EXHAUSTED\"}}",
+    "timestamp": "2026-03-24T10:10:46.627Z"
+  },
+  {
+    "level": "critical",
+    "title": "API 500",
+    "detail": "{\"error\":\"分镜解析失败: {\\\"error\\\":{\\\"code\\\":429,\\\"message\\\":\\\"Your project has exceeded its spending cap.\\\",\\\"status\\\":\\\"RESOURCE_EXHAUSTED\\\"}}\"}",
+    "timestamp": "2026-03-24T10:10:46.628Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析失败",
+    "detail": "Expected ',' or ']' after array element in JSON at position 40409 (line 188 column 6)",
+    "timestamp": "2026-03-24T10:16:41.935Z"
+  },
+  {
+    "level": "critical",
+    "title": "API 500",
+    "detail": "{\"error\":\"分镜解析失败: Expected ',' or ']' after array element in JSON at position 40409 (line 188 column 6)\"}",
+    "timestamp": "2026-03-24T10:16:41.948Z"
   }
 ]

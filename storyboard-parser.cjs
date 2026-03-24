@@ -383,7 +383,7 @@ ${style ? `9. 额外风格要求：${style}` : ''}
           console.log('[StoryboardParser] Uploading PDF via curl...');
           const { execSync } = require('child_process');
           const curlResult = execSync(
-            `curl -s --max-time 30 -x ${PROXY_URL} https://api.openai.com/v1/files -H "Authorization: Bearer ${OPENAI_API_KEY}" -F "purpose=assistants" -F "file=@${pdfOriginalPath}"`,
+            `curl -s -x ${PROXY_URL} --max-time 60 https://api.openai.com/v1/files -H "Authorization: Bearer ${OPENAI_API_KEY}" -F "purpose=assistants" -F "file=@${pdfOriginalPath}"`,
             { encoding: 'utf8' }
           );
           const parsed = JSON.parse(curlResult);
@@ -406,22 +406,79 @@ ${style ? `9. 额外风格要求：${style}` : ''}
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         console.log(`[StoryboardParser] ${label} (attempt ${attempt}/2)...`);
-        const timeoutMs = 300000; // 5 min for GPT-5.4 (thorough PDF analysis)
-        const result = await Promise.race([
-          openaiClient.chat.completions.create({
-            model: 'gpt-5.4',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: contentParts }
-            ],
-            max_completion_tokens: 16384,
-            temperature: 0.3,
-          }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('GPT-5.4 API timeout (' + timeoutMs/1000 + 's)')), timeoutMs))
-        ]);
-        // Wrap in Gemini-compatible format
-        const text = result.choices?.[0]?.message?.content || '';
-        console.log(`[StoryboardParser] ${label} returned ${text.length} chars`);
+        // Use curl subprocess instead of OpenAI SDK to avoid undici connection issues in PM2
+        const { execSync } = require('child_process');
+        const requestBody = JSON.stringify({
+          model: 'gpt-5.4',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: contentParts }
+          ],
+          max_completion_tokens: 32768,
+          temperature: 0.3,
+          stream: true,  // Stream to prevent proxy timeout on long responses
+        });
+        // Write request body to temp file, stream response via curl
+        const tmpReqFile = '/tmp/gpt54-request-' + Date.now() + '.json';
+        const tmpRespFile = '/tmp/gpt54-stream-' + Date.now() + '.txt';
+        fs.writeFileSync(tmpReqFile, requestBody);
+        const startMs = Date.now();
+        const { exec: execAsync } = require('child_process');
+        const curlOutput = await new Promise((resolve, reject) => {
+          // Use streaming: curl writes SSE chunks, we parse after completion
+          const cmd = `curl -s -x ${PROXY_URL} --max-time 300 -o ${tmpRespFile} https://api.openai.com/v1/chat/completions ` +
+            `-H "Authorization: Bearer ${OPENAI_API_KEY}" ` +
+            `-H "Content-Type: application/json" ` +
+            `-d @${tmpReqFile}`;
+          execAsync(cmd, { timeout: 310000 }, (err, stdout, stderr) => {
+            try {
+              if (!fs.existsSync(tmpRespFile)) {
+                return reject(new Error('curl failed: no response file. ' + (err?.message || stderr || '').substring(0, 200)));
+              }
+              const raw = fs.readFileSync(tmpRespFile, 'utf8');
+              // Parse SSE stream: extract content from data: lines
+              let fullContent = '';
+              let finishReason = '';
+              for (const line of raw.split('\n')) {
+                if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+                try {
+                  const chunk = JSON.parse(line.substring(6));
+                  const delta = chunk.choices?.[0]?.delta?.content;
+                  if (delta) fullContent += delta;
+                  const fr = chunk.choices?.[0]?.finish_reason;
+                  if (fr) finishReason = fr;
+                } catch(e) { /* skip unparseable chunks */ }
+              }
+              if (!fullContent && raw.length > 0) {
+                // Maybe not streamed (error response) — try as regular JSON
+                try {
+                  const parsed = JSON.parse(raw);
+                  if (parsed.error) {
+                    return reject(new Error('OpenAI API error: ' + (parsed.error.message || '').substring(0, 200)));
+                  }
+                  fullContent = parsed.choices?.[0]?.message?.content || '';
+                  finishReason = parsed.choices?.[0]?.finish_reason || '';
+                } catch(e) {
+                  return reject(new Error('Failed to parse response (' + raw.length + ' bytes): ' + raw.substring(0, 200)));
+                }
+              }
+              resolve(JSON.stringify({ choices: [{ message: { content: fullContent }, finish_reason: finishReason }] }));
+            } catch(readErr) {
+              reject(new Error('Response read error: ' + readErr.message));
+            } finally {
+              try { fs.unlinkSync(tmpReqFile); } catch(e) {}
+              try { fs.unlinkSync(tmpRespFile); } catch(e) {}
+            }
+          });
+        });
+        const elapsed = Date.now() - startMs;
+        const parsed = JSON.parse(curlOutput);
+        if (parsed.error) {
+          throw new Error('OpenAI API error: ' + (parsed.error.message || JSON.stringify(parsed.error)).substring(0, 200));
+        }
+        const text = parsed.choices?.[0]?.message?.content || '';
+        console.log(`[StoryboardParser] ${label} returned ${text.length} chars in ${(elapsed/1000).toFixed(1)}s, finish=${parsed.choices?.[0]?.finish_reason}`);
+        try { fs.writeFileSync('/tmp/gpt54-raw-output.txt', text); } catch(e) {}
         return { text };
       } catch (err) {
         console.error(`[StoryboardParser] ${label} attempt ${attempt} failed: ${err.message?.substring(0, 150)}`);
@@ -613,15 +670,40 @@ ${style ? `9. 额外风格要求：${style}` : ''}
   try {
     parsed = JSON.parse(jsonStr);
   } catch(jsonErr) {
-    // Last resort: try to fix common issues and retry
     console.error(`[StoryboardParser] JSON parse failed, attempting repair. Error: ${jsonErr.message.substring(0, 100)}`);
-    // Try removing all non-JSON content between objects
-    const repaired = jsonStr.replace(/}[\s\S]{1,5}?\{/g, (match) => {
+    let repaired = jsonStr;
+    // Fix 1: Remove non-JSON content between objects
+    repaired = repaired.replace(/}[\s\S]{1,5}?\{/g, (match) => {
       if (match.includes('"') || match.includes('[') || match.includes(']')) return match;
       return '},{';
     });
-    parsed = JSON.parse(repaired);
-    console.log('[StoryboardParser] JSON repair succeeded');
+    try {
+      parsed = JSON.parse(repaired);
+      console.log('[StoryboardParser] JSON repair succeeded (fix 1)');
+    } catch(e2) {
+      // Fix 2: Truncated JSON (finish_reason=length) — close open brackets
+      console.log('[StoryboardParser] Attempting truncated JSON repair...');
+      // Find last complete object (ending with })
+      const lastCompleteObj = repaired.lastIndexOf('}');
+      if (lastCompleteObj > 0) {
+        let truncated = repaired.substring(0, lastCompleteObj + 1);
+        // Count open/close brackets to close properly
+        const openBrackets = (truncated.match(/\[/g) || []).length - (truncated.match(/\]/g) || []).length;
+        const openBraces = (truncated.match(/\{/g) || []).length - (truncated.match(/\}/g) || []).length;
+        for (let b = 0; b < openBraces; b++) truncated += '}';
+        for (let b = 0; b < openBrackets; b++) truncated += ']';
+        // Remove trailing commas before closing
+        truncated = truncated.replace(/,\s*([\]}])/g, '$1');
+        try {
+          parsed = JSON.parse(truncated);
+          console.log('[StoryboardParser] Truncated JSON repair succeeded, recovered ' + truncated.length + ' chars');
+        } catch(e3) {
+          throw new Error('JSON repair failed after all attempts: ' + e3.message.substring(0, 100));
+        }
+      } else {
+        throw jsonErr;
+      }
+    }
   }
 
   let frames, characterSheet = {};
