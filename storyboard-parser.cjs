@@ -36,6 +36,7 @@ function getNextGeminiKey() {
   _geminiKeyIndex++;
   return key;
 }
+function getAllGeminiKeys() { return _geminiKeys; }
 console.log('[key-rotation] Loaded ' + _geminiKeys.length + ' Gemini API keys');
 const CONFIG = {
   apiKey: getNextGeminiKey(),
@@ -50,14 +51,23 @@ try {
   try { undici2 = require('undici'); } catch(e) {
     undici2 = require(require('path').join(__dirname, 'node_modules', 'undici'));
   }
-  const proxyAgent = new undici2.ProxyAgent(PROXY_URL);
-  const originalFetch = globalThis.fetch;
+  const proxyAgent = new undici2.ProxyAgent({
+    uri: PROXY_URL,
+    requestTls: { timeout: 120000 },
+    connect: { timeout: 30000 },
+    bodyTimeout: 300000,
+    headersTimeout: 300000,
+  });
+  // CRITICAL: Node.js v18+ built-in fetch uses its own internal undici dispatcher.
+  // setGlobalDispatcher does NOT affect globalThis.fetch (built-in).
+  // @google/genai SDK uses globalThis.fetch, so we MUST override it with undici.fetch + proxyAgent.
+  undici2.setGlobalDispatcher(proxyAgent);
   globalThis.fetch = function(url, init) {
     return undici2.fetch(url, { ...init, dispatcher: proxyAgent });
   };
-  console.log('[StoryboardParser] Overrode global fetch with proxy dispatcher');
+  console.log('[StoryboardParser] Overrode globalThis.fetch with proxy dispatcher (bodyTimeout=300s)');
 } catch(e) {
-  console.log('[StoryboardParser] Could not override fetch:', e.message);
+  console.log('[StoryboardParser] Could not set proxy dispatcher:', e.message);
 }
 // [key-pool] Create one GoogleGenAI instance per key for round-robin
 const aiPool = _geminiKeys.map(k => new GoogleGenAI({ apiKey: k }));
@@ -68,8 +78,7 @@ function getAI() {
   _keyIndex++;
   return inst;
 }
-const ai = aiPool[0] || new GoogleGenAI({ apiKey: CONFIG.apiKey });
-console.log('[key-pool] Created ' + aiPool.length + ' AI instances for rotation');
+const ai = new GoogleGenAI({ apiKey: CONFIG.apiKey });
 
 // === Document extraction ===
 
@@ -149,11 +158,11 @@ async function parseScript(text, opts = {}) {
     if (docExt === '.pdf') {
       // PDF: upload via Files API then reference by URI (avoids proxy size limits)
       console.log(`[StoryboardParser] Uploading PDF via Files API...`);
-      const uploaded = await getAI().files.upload({ file: docPath, config: { mimeType: 'application/pdf' } });
+      const uploaded = await ai.files.upload({ file: docPath, config: { mimeType: 'application/pdf' } });
       let file = uploaded;
       while (file.state === 'PROCESSING') {
         await new Promise(r => setTimeout(r, 2000));
-        file = await getAI().files.get({ name: file.name });
+        file = await ai.files.get({ name: file.name });
       }
       if (file.state !== 'ACTIVE') throw new Error(`PDF upload failed: ${file.state}`);
       pdfPart = { fileData: { fileUri: file.uri, mimeType: 'application/pdf' } };
@@ -296,6 +305,17 @@ ${style ? `9. 额外风格要求：${style}` : ''}
 
   // Helper: try calling Gemini with given config, 2 attempts
   async function tryGemini(model, partsToUse, thinkingBudget, label) {
+    // Pre-flight: quick proxy check (2s) before wasting time on a dead proxy
+    const preCheck = await proxyDoctor.quickCheck();
+    if (!preCheck.ok) {
+      console.warn('[StoryboardParser] Pre-flight: proxy down, attempting repair...');
+      const repaired = await proxyDoctor.ensure();
+      if (!repaired.ok) {
+        throw new Error('代理不可用，请检查网络: ' + (repaired.error || 'repair failed'));
+      }
+      console.log('[StoryboardParser] Pre-flight: proxy recovered via ' + (repaired.method || '?'));
+    }
+
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         console.log(`[StoryboardParser] ${label} (attempt ${attempt}/2)...`);
@@ -307,11 +327,17 @@ ${style ? `9. 额外风格要求：${style}` : ''}
         if (thinkingBudget > 0) {
           cfg.thinkingConfig = { thinkingBudget };
         }
-        return await getAI().models.generateContent({
-          model,
-          contents: [{ role: 'user', parts: partsToUse }],
-          config: cfg,
-        });
+        // Add timeout to prevent hanging on slow/unresponsive models
+        const timeoutMs = thinkingBudget > 0 ? 180000 : 120000;
+        const result = await Promise.race([
+          ai.models.generateContent({
+            model,
+            contents: [{ role: 'user', parts: partsToUse }],
+            config: cfg,
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Gemini API timeout (' + timeoutMs/1000 + 's)')), timeoutMs))
+        ]);
+        return result;
       } catch (err) {
         console.error(`[StoryboardParser] ${label} attempt ${attempt} failed: ${err.message?.substring(0, 150)}`);
         if (attempt < 2) {
@@ -351,27 +377,64 @@ ${style ? `9. 额外风格要求：${style}` : ''}
     return resized;
   }
 
+  // Phase 0: Pre-process all images — convert to JPEG, resize, then upload via Files API
+  // gemini-3.1-pro-preview has issues with inlineData images, but works perfectly with Files API references
+  const imgCount0 = parts.filter(p => p.inlineData && p.inlineData.data).length;
+  console.log('[StoryboardParser] Phase0: ' + parts.length + ' parts total, ' + imgCount0 + ' with inlineData');
+  let sharp0;
+  try { sharp0 = require('sharp'); console.log('[StoryboardParser] Phase0: sharp loaded OK'); } catch(e0) { console.log('[StoryboardParser] Phase0: sharp NOT available: ' + e0.message); }
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    if (p.inlineData && p.inlineData.data) {
+      try {
+        let buf = Buffer.from(p.inlineData.data, 'base64');
+        let mimeType = 'image/jpeg';
+        // Pre-process with sharp if available
+        if (sharp0) {
+          const meta = await sharp0(buf).metadata();
+          const out = await sharp0(buf)
+            .resize(2048, 2048, { fit: 'inside', withoutEnlargement: true })
+            .flatten({ background: { r: 255, g: 255, b: 255 } })
+            .jpeg({ quality: 85 })
+            .toBuffer();
+          console.log('[StoryboardParser] Phase0 pre-process: ' + meta.format + ' ' + meta.width + 'x' + meta.height + ' (' + buf.length + 'B) -> JPEG (' + out.length + 'B)');
+          buf = out;
+        }
+        // Upload via Files API to avoid inlineData issues with gemini-3.1-pro-preview
+        const tmpPath = '/tmp/phase0_img_' + i + '_' + Date.now() + '.jpg';
+        fs.writeFileSync(tmpPath, buf);
+        const uploaded = await ai.files.upload({ file: tmpPath, config: { mimeType } });
+        try { fs.unlinkSync(tmpPath); } catch(e) {}
+        parts[i] = { fileData: { fileUri: uploaded.uri, mimeType } };
+        console.log('[StoryboardParser] Phase0 uploaded image ' + i + ' via Files API: ' + uploaded.uri);
+      } catch(e0) {
+        console.log('[StoryboardParser] Phase0 pre-process/upload FAILED, removing image from parts: ' + e0.message);
+        parts.splice(i, 1);
+        i--;
+      }
+    }
+  }
+
   let result;
 
-  // Phase 1: Original request with gemini-3.1-pro-preview
+  // Phase 1: Pro model first (gemini-3.1-pro-preview — default, best quality)
   try {
     result = await tryGemini(CONFIG.textModel, parts, 1024, 'Phase1:' + CONFIG.textModel);
   } catch(phase1Err) {
-    console.log('[StoryboardParser] Phase 1 failed, trying resize...');
-    notify.alert('warning', '分镜解析：原图失败，缩图重试中', phase1Err.message?.substring(0, 100));
+    console.log('[StoryboardParser] Phase 1 (pro) failed, trying flash model...');
+    notify.alert('warning', '分镜解析：pro 失败，尝试 flash 模型', phase1Err.message?.substring(0, 100));
 
-    // Phase 2: Resize images and retry
+    // Phase 2: Fallback to flash (gemini-2.5-flash — stable & fast)
     try {
-      const resizedParts = await resizeParts(parts);
-      result = await tryGemini(CONFIG.textModel, resizedParts, 1024, 'Phase2:resize+' + CONFIG.textModel);
+      result = await tryGemini('gemini-2.5-flash', parts, 0, 'Phase2:gemini-2.5-flash');
     } catch(phase2Err) {
-      console.log('[StoryboardParser] Phase 2 failed, trying fallback model...');
-      notify.alert('warning', '分镜解析降级：切换到 gemini-2.5-flash', phase2Err.message?.substring(0, 100));
+      console.log('[StoryboardParser] Phase 2 (flash) failed, trying resize + flash...');
+      notify.alert('warning', '分镜解析降级：缩图 + flash 重试', phase2Err.message?.substring(0, 100));
 
-      // Phase 3: Fallback model (gemini-2.5-flash, no thinking)
+      // Phase 3: Resize images + flash (last resort)
       try {
         const resizedParts = await resizeParts(parts);
-        result = await tryGemini('gemini-2.5-flash', resizedParts, 0, 'Phase3:gemini-2.5-flash');
+        result = await tryGemini('gemini-2.5-flash', resizedParts, 0, 'Phase3:resize+gemini-2.5-flash');
       } catch(phase3Err) {
         // All phases failed
         notify.alert('critical', '分镜解析全部降级失败', phase3Err.message?.substring(0, 200));
@@ -463,14 +526,50 @@ async function analyzeImages(imageParts) {
 
 请用中文详细描述，每张图片单独分析。输出纯文本，不要 JSON。`;
 
-  const parts = [...imageParts, { text: prompt }];
+  // Upload inlineData images via Files API (gemini-3.1-pro-preview has issues with inlineData)
+  const uploadedParts = [];
+  for (let i = 0; i < imageParts.length; i++) {
+    const p = imageParts[i];
+    if (p.inlineData && p.inlineData.data) {
+      try {
+        const buf = Buffer.from(p.inlineData.data, 'base64');
+        let outBuf = buf;
+        let mimeType = 'image/jpeg';
+        let sharp0;
+        try { sharp0 = require('sharp'); } catch(e) {}
+        if (sharp0) {
+          outBuf = await sharp0(buf)
+            .resize(2048, 2048, { fit: 'inside', withoutEnlargement: true })
+            .flatten({ background: { r: 255, g: 255, b: 255 } })
+            .jpeg({ quality: 85 })
+            .toBuffer();
+        }
+        const tmpPath = '/tmp/analyze_img_' + i + '_' + Date.now() + '.jpg';
+        fs.writeFileSync(tmpPath, outBuf);
+        const uploaded = await ai.files.upload({ file: tmpPath, config: { mimeType } });
+        try { fs.unlinkSync(tmpPath); } catch(e) {}
+        uploadedParts.push({ fileData: { fileUri: uploaded.uri, mimeType } });
+        console.log('[StoryboardParser] analyzeImages: uploaded image ' + i + ' via Files API');
+      } catch(e) {
+        console.log('[StoryboardParser] analyzeImages: upload failed for image ' + i + ': ' + e.message);
+      }
+    } else if (p.fileData) {
+      uploadedParts.push(p);
+    }
+  }
+
+  if (uploadedParts.length === 0) return '';
+  const parts = [...uploadedParts, { text: prompt }];
   
   try {
-    const result = await getAI().models.generateContent({
-      model: CONFIG.textModel,
-      contents: [{ role: 'user', parts }],
-      config: { temperature: 0.2 },
-    });
+    const result = await Promise.race([
+      ai.models.generateContent({
+        model: CONFIG.textModel,
+        contents: [{ role: 'user', parts }],
+        config: { temperature: 0.2, thinkingConfig: { thinkingBudget: 1024 } },
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Image analysis timeout (120s)')), 120000))
+    ]);
     console.log('[StoryboardParser] Image analysis done, length=' + result.text.length);
     return result.text;
   } catch (err) {
@@ -493,7 +592,7 @@ ${JSON.stringify(frame, null, 2)}
 请输出修改后的完整帧 JSON。保持所有字段（id, title, interaction, ui, prompt 等），只修改用户要求改的部分。
 其他未提及的字段保持不变。只输出 JSON，不要其他内容。`;
 
-  const result = await getAI().models.generateContent({
+  const result = await ai.models.generateContent({
     model: CONFIG.textModel,
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     config: { temperature: 0.3 },

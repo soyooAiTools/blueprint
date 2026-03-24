@@ -1,5 +1,5 @@
 #!/bin/bash
-# Blueprint 健康检查 — 建议加入 crontab: */5 * * * * /opt/blueprint-editor/healthcheck.sh
+# Blueprint 健康检查 — 建议加入 crontab: */5 * * * * /opt/blueprint/healthcheck.sh
 # 检查服务是否正常响应，不正常则自动恢复
 
 PORT=3901
@@ -18,7 +18,7 @@ fi
 echo "$(timestamp) [ALERT] HTTP check failed (code=$HTTP_CODE), attempting recovery..." >> "$LOG"
 
 # 2. 检查 PM2 进程状态
-PM2_STATUS=$(pm2 jlist 2>/dev/null | python3 -c "import sys,json; apps=json.load(sys.stdin); print(next((a['pm2_env']['status'] for a in apps if a['name']=='blueprint-editor'), 'missing'))" 2>/dev/null)
+PM2_STATUS=$(pm2 jlist 2>/dev/null | python3 -c "import sys,json; apps=json.load(sys.stdin); print(next((a['pm2_env']['status'] for a in apps if a['name']=='blueprint'), 'missing'))" 2>/dev/null)
 
 echo "$(timestamp) PM2 status: $PM2_STATUS" >> "$LOG"
 
@@ -26,7 +26,7 @@ echo "$(timestamp) PM2 status: $PM2_STATUS" >> "$LOG"
 ORPHAN_PID=$(ss -tlnp sport = :${PORT} 2>/dev/null | grep -oP 'pid=\K\d+' | head -1)
 if [ -n "$ORPHAN_PID" ]; then
   # 检查是否是 PM2 管理的
-  PM2_PID=$(pm2 jlist 2>/dev/null | python3 -c "import sys,json; apps=json.load(sys.stdin); print(next((a['pid'] for a in apps if a['name']=='blueprint-editor'), 0))" 2>/dev/null)
+  PM2_PID=$(pm2 jlist 2>/dev/null | python3 -c "import sys,json; apps=json.load(sys.stdin); print(next((a['pid'] for a in apps if a['name']=='blueprint'), 0))" 2>/dev/null)
   
   if [ "$ORPHAN_PID" != "$PM2_PID" ]; then
     echo "$(timestamp) Killing orphan PID $ORPHAN_PID (PM2 PID is $PM2_PID)" >> "$LOG"
@@ -38,8 +38,8 @@ if [ -n "$ORPHAN_PID" ]; then
 fi
 
 # 4. 重启 PM2 进程
-echo "$(timestamp) Restarting blueprint-editor via PM2..." >> "$LOG"
-pm2 restart blueprint-editor 2>> "$LOG"
+echo "$(timestamp) Restarting blueprint via PM2..." >> "$LOG"
+pm2 restart blueprint 2>> "$LOG"
 sleep 3
 
 # 5. 验证恢复

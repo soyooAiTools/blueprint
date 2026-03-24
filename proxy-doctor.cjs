@@ -12,7 +12,7 @@ const PROXY_HOST = '127.0.0.1';
 const PROXY_PORT = 7890;
 const MIHOMO_API = 'http://127.0.0.1:9090';
 const GEMINI_TEST_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
-const TIMEOUT = 10000;
+const TIMEOUT = 3000;
 const NODE_GROUPS = ['Gemini专线', '日本节点', '香港节点', '自动选择'];
 
 // Internal state
@@ -75,7 +75,7 @@ function check() {
  */
 function quickCheck() {
   return new Promise((resolve) => {
-    const req = http.request({ hostname: PROXY_HOST, port: PROXY_PORT, path: 'http://www.gstatic.com/generate_204', method: 'GET', timeout: 5000 }, (res) => {
+    const req = http.request({ hostname: PROXY_HOST, port: PROXY_PORT, path: 'http://www.gstatic.com/generate_204', method: 'GET', timeout: 2000 }, (res) => {
       resolve({ ok: res.statusCode === 204 || res.statusCode === 200 });
     });
     req.on('error', () => resolve({ ok: false }));
@@ -162,6 +162,18 @@ async function switchGroup(groupName) {
  * Full repair chain
  */
 async function repair() {
+  // Step 0: Quick - trigger node switch first (fastest recovery)
+  console.log('[proxy-doctor] Step 0: Triggering node switch...');
+  const r0 = await triggerNodeSwitch();
+  if (r0.ok) {
+    await new Promise(r => setTimeout(r, 1000));
+    const c0 = await check();
+    if (c0.ok) {
+      notify.alert('warning', '代理已恢复', '切换到节点: ' + (r0.fastest || '?') + ' (' + (r0.minDelay || '?') + 'ms)');
+      return { ok: true, method: 'node-switch:' + r0.fastest };
+    }
+  }
+
   // Step 1: Restart Mihomo
   console.log('[proxy-doctor] Step 1: Restarting Mihomo...');
   notify.alert('warning', '代理不通，正在重启 Mihomo', '');
@@ -220,4 +232,45 @@ async function ensure() {
   return await repair();
 }
 
-module.exports = { check, quickCheck, checkDirect, ensure, repair, getProxyBypass };
+
+
+/**
+ * Switch specific node within Gemini专线 group via delay test
+ * Triggers URLTest to pick fastest node automatically
+ */
+async function triggerNodeSwitch() {
+  return new Promise((resolve) => {
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port: 9090,
+      path: '/proxies/Gemini%E4%B8%93%E7%BA%BF/delay?timeout=3000&url=https%3A%2F%2Fwww.gstatic.com%2Fgenerate_204',
+      method: 'GET',
+      timeout: 8000,
+    }, (res) => {
+      let data = '';
+      res.on('data', (c) => data += c);
+      res.on('end', () => {
+        try {
+          const delays = JSON.parse(data);
+          // Find fastest node
+          let fastest = null, minDelay = Infinity;
+          for (const [name, info] of Object.entries(delays)) {
+            if (info.delay > 0 && info.delay < minDelay) {
+              minDelay = info.delay;
+              fastest = name;
+            }
+          }
+          if (fastest) {
+            console.log('[proxy-doctor] Fastest node: ' + fastest + ' (' + minDelay + 'ms)');
+          }
+          resolve({ ok: true, fastest, minDelay });
+        } catch(e) { resolve({ ok: false }); }
+      });
+    });
+    req.on('error', () => resolve({ ok: false }));
+    req.on('timeout', () => { req.destroy(); resolve({ ok: false }); });
+    req.end();
+  });
+}
+
+module.exports = { triggerNodeSwitch, check, quickCheck, checkDirect, ensure, repair, getProxyBypass };

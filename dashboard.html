@@ -129,8 +129,9 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
     return '<span class="badge ' + (level || 'info') + '">' + (level || 'info') + '</span>';
   }
 
-  function probeHTML(name, status) {
-    return '<div class="probe"><div class="dot ' + status + '"></div><div class="name">' + name + '</div><div class="status-text">' + status + '</div></div>';
+  function probeHTML(name, st) {
+    var s = (typeof st === 'object' && st !== null) ? (st.status || 'unknown') : (st || 'unknown');
+    return '<div class="probe"><div class="dot ' + s + '"></div><div class="name">' + name + '</div><div class="status-text">' + s + '</div></div>';
   }
 
   function tableHTML(headers, rows) {
@@ -159,7 +160,7 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
     var statsHTML = '';
     if (health) {
       var probes = health.probes || {};
-      var okCount = Object.values(probes).filter(function(v) { return v === 'ok'; }).length;
+      var okCount = Object.values(probes).filter(function(v) { return (typeof v === 'object' ? v.status : v) === 'ok'; }).length;
       statsHTML += '<div class="stat"><div class="val">' + okCount + '/' + Object.keys(probes).length + '</div><div class="label">探针正常</div></div>';
     }
     statsHTML += '<div class="stat"><div class="val">' + (alerts ? alerts.length : 0) + '</div><div class="label">告警</div></div>';

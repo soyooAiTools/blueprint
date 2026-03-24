@@ -10,3 +10,22 @@ worker/.env
 
 worker/cua-results/
 .env
+
+# Server data (user uploads, project files)
+server-data/uploads/
+server-data/images/
+server-data/projects/
+server-data/errors.json
+server-data/alerts.json
+
+# Temp/debug scripts
+_*.cjs
+_*.js
+*-test.cjs
+test-*.cjs
+deep-diag.cjs
+in-process-test.cjs
+api-test.cjs
+
+# Backups
+*.bak
