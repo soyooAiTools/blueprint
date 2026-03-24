@@ -1138,5 +1138,11 @@
     "title": "API 500",
     "detail": "{\"error\":\"分镜解析失败: 帧 ? 格式不完整（缺少 id 或 prompt）\"}",
     "timestamp": "2026-03-24T10:48:28.872Z"
+  },
+  {
+    "level": "warning",
+    "title": "图片生成部分失败",
+    "detail": "4/11 张未生成",
+    "timestamp": "2026-03-24T13:27:16.523Z"
   }
 ]
