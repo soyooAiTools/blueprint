@@ -1419,66 +1419,35 @@ ${framesDesc}
 
 返回纯 JSON（不要 markdown code fence）。`;
 
-    // Call GPT-5.4 via curl (streaming, through proxy)
-    var PROXY_URL = 'http://127.0.0.1:7890';
-    var OPENAI_KEY = process.env.OPENAI_API_KEY || '';
+    // Call GPT-5.4 via Python subprocess (stable streaming)
+    var fs = require('fs');
     var text = '';
-
-    if (OPENAI_KEY) {
-      var fs = require('fs');
-      var tmpReq = '/tmp/v4-blueprint-req-' + Date.now() + '.json';
-      var tmpResp = '/tmp/v4-blueprint-resp-' + Date.now() + '.txt';
-      fs.writeFileSync(tmpReq, JSON.stringify({
-        model: 'gpt-5.4',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        max_completion_tokens: 65536,
-        temperature: 0.3,
-        stream: true,
-      }));
-      console.log('[v4-convert] Calling GPT-5.4 for blueprint conversion...');
-      var { exec: execAsync } = require('child_process');
-      text = await new Promise(function(resolve, reject) {
-        var cmd = 'curl -s -x ' + PROXY_URL + ' --max-time 300 -o ' + tmpResp + ' https://api.openai.com/v1/chat/completions ' +
-          '-H "Authorization: Bearer ' + OPENAI_KEY + '" ' +
-          '-H "Content-Type: application/json" ' +
-          '-d @' + tmpReq;
-        execAsync(cmd, { timeout: 310000 }, function(err) {
-          try {
-            if (!fs.existsSync(tmpResp)) {
-              return reject(new Error('GPT-5.4 blueprint conversion failed: no response'));
-            }
-            var raw = fs.readFileSync(tmpResp, 'utf8');
-            var content = '';
-            for (var line of raw.split('\n')) {
-              if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
-              try {
-                var chunk = JSON.parse(line.substring(6));
-                var delta = chunk.choices && chunk.choices[0] && chunk.choices[0].delta && chunk.choices[0].delta.content;
-                if (delta) content += delta;
-              } catch(e) {}
-            }
-            if (!content && raw.length > 0) {
-              try {
-                var parsed = JSON.parse(raw);
-                if (parsed.error) return reject(new Error('GPT-5.4 error: ' + (parsed.error.message || '').substring(0, 200)));
-                content = parsed.choices && parsed.choices[0] && parsed.choices[0].message && parsed.choices[0].message.content || '';
-              } catch(e) {
-                return reject(new Error('Failed to parse GPT-5.4 response: ' + raw.substring(0, 200)));
-              }
-            }
-            resolve(content);
-          } finally {
-            try { fs.unlinkSync(tmpReq); } catch(e) {}
-            try { fs.unlinkSync(tmpResp); } catch(e) {}
-          }
+    
+    console.log('[v4-convert] Calling GPT-5.4 via Python for blueprint conversion...');
+    var tmpFrames = '/tmp/v4-frames-' + Date.now() + '.json';
+    fs.writeFileSync(tmpFrames, JSON.stringify(project.storyboard || project.storyboardFrames || []), 'utf8');
+    
+    var { exec: execAsync } = require('child_process');
+    try {
+      var pyResult = await new Promise(function(resolve, reject) {
+        var cmd = 'python3.8 /opt/blueprint-editor/python/blueprint_converter.py' +
+          ' --frames-file ' + tmpFrames +
+          ' --schema-file /opt/blueprint-editor/docs/v4-schema.json' +
+          ' --templates-file /opt/blueprint-editor/worker/behavior-templates.md';
+        execAsync(cmd, { timeout: 600000, maxBuffer: 50 * 1024 * 1024, env: Object.assign({}, process.env, { OPENAI_API_KEY: process.env.OPENAI_API_KEY || '' }) }, function(err, stdout, stderr) {
+          try { fs.unlinkSync(tmpFrames); } catch(e) {}
+          if (stderr) console.log('[v4-convert] Python: ' + stderr.substring(0, 300));
+          if (err && !stdout) return reject(new Error('Python converter failed: ' + (err.message || '').substring(0, 200)));
+          resolve(stdout);
         });
       });
-      console.log('[v4-convert] GPT-5.4 returned ' + text.length + ' chars');
-    } else {
-      // Fallback to Gemini if no OpenAI key
+      var parsed = JSON.parse(pyResult);
+      if (parsed.error) throw new Error(parsed.error);
+      text = JSON.stringify(parsed.data);
+      console.log('[v4-convert] Python GPT-5.4 returned ' + text.length + ' chars');
+    } catch(pyErr) {
+      console.log('[v4-convert] Python failed, falling back to Gemini: ' + pyErr.message?.substring(0, 100));
+      // Fallback to Gemini
       var ai = require('./storyboard-parser.cjs').getAI ? require('./storyboard-parser.cjs').getAI() : null;
       if (!ai) {
         var { GoogleGenAI } = require('@google/genai');

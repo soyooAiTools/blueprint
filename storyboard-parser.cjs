@@ -406,79 +406,58 @@ ${style ? `9. 额外风格要求：${style}` : ''}
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         console.log(`[StoryboardParser] ${label} (attempt ${attempt}/2)...`);
-        // Use curl subprocess instead of OpenAI SDK to avoid undici connection issues in PM2
-        const { execSync } = require('child_process');
-        const requestBody = JSON.stringify({
-          model: 'gpt-5.4',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: contentParts }
-          ],
-          max_completion_tokens: 65536,
-          temperature: 0.3,
-          stream: true,  // Stream to prevent proxy timeout on long responses
-        });
-        // Write request body to temp file, stream response via curl
-        const tmpReqFile = '/tmp/gpt54-request-' + Date.now() + '.json';
-        const tmpRespFile = '/tmp/gpt54-stream-' + Date.now() + '.txt';
-        fs.writeFileSync(tmpReqFile, requestBody);
-        const startMs = Date.now();
+        // Use Python openai SDK for stable streaming (replaces curl hack)
         const { exec: execAsync } = require('child_process');
-        const curlOutput = await new Promise((resolve, reject) => {
-          // Use streaming: curl writes SSE chunks, we parse after completion
-          const cmd = `curl -s -x ${PROXY_URL} --max-time 300 -o ${tmpRespFile} https://api.openai.com/v1/chat/completions ` +
-            `-H "Authorization: Bearer ${OPENAI_API_KEY}" ` +
-            `-H "Content-Type: application/json" ` +
-            `-d @${tmpReqFile}`;
-          execAsync(cmd, { timeout: 310000 }, (err, stdout, stderr) => {
-            try {
-              if (!fs.existsSync(tmpRespFile)) {
-                return reject(new Error('curl failed: no response file. ' + (err?.message || stderr || '').substring(0, 200)));
-              }
-              const raw = fs.readFileSync(tmpRespFile, 'utf8');
-              // Parse SSE stream: extract content from data: lines
-              let fullContent = '';
-              let finishReason = '';
-              for (const line of raw.split('\n')) {
-                if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
-                try {
-                  const chunk = JSON.parse(line.substring(6));
-                  const delta = chunk.choices?.[0]?.delta?.content;
-                  if (delta) fullContent += delta;
-                  const fr = chunk.choices?.[0]?.finish_reason;
-                  if (fr) finishReason = fr;
-                } catch(e) { /* skip unparseable chunks */ }
-              }
-              if (!fullContent && raw.length > 0) {
-                // Maybe not streamed (error response) — try as regular JSON
-                try {
-                  const parsed = JSON.parse(raw);
-                  if (parsed.error) {
-                    return reject(new Error('OpenAI API error: ' + (parsed.error.message || '').substring(0, 200)));
-                  }
-                  fullContent = parsed.choices?.[0]?.message?.content || '';
-                  finishReason = parsed.choices?.[0]?.finish_reason || '';
-                } catch(e) {
-                  return reject(new Error('Failed to parse response (' + raw.length + ' bytes): ' + raw.substring(0, 200)));
-                }
-              }
-              resolve(JSON.stringify({ choices: [{ message: { content: fullContent }, finish_reason: finishReason }] }));
-            } catch(readErr) {
-              reject(new Error('Response read error: ' + readErr.message));
-            } finally {
-              try { fs.unlinkSync(tmpReqFile); } catch(e) {}
-              try { fs.unlinkSync(tmpRespFile); } catch(e) {}
-            }
-          });
-        });
-        const elapsed = Date.now() - startMs;
-        const parsed = JSON.parse(curlOutput);
-        if (parsed.error) {
-          throw new Error('OpenAI API error: ' + (parsed.error.message || JSON.stringify(parsed.error)).substring(0, 200));
+        const tmpPromptFile = '/tmp/gpt54-prompt-' + Date.now() + '.txt';
+        fs.writeFileSync(tmpPromptFile, systemPrompt, 'utf8');
+        
+        // Build Python command args
+        const pyScript = '/opt/blueprint-editor/python/storyboard_parser.py';
+        let pyArgs = `--system-prompt-file ${tmpPromptFile} --max-tokens 65536 --raw-output /tmp/gpt54-raw-output.txt`;
+        
+        // Determine input: PDF file or file_id
+        if (pdfOriginalPath && fs.existsSync(pdfOriginalPath)) {
+          pyArgs += ` --pdf ${pdfOriginalPath}`;
+        } else if (openaiFileId) {
+          pyArgs += ` --file-id ${openaiFileId}`;
         }
-        const text = parsed.choices?.[0]?.message?.content || '';
-        console.log(`[StoryboardParser] ${label} returned ${text.length} chars in ${(elapsed/1000).toFixed(1)}s, finish=${parsed.choices?.[0]?.finish_reason}`);
-        try { fs.writeFileSync('/tmp/gpt54-raw-output.txt', text); } catch(e) {}
+        
+        // Add extra user text if any
+        const userText = contentParts.find(p => p.type === 'text')?.text || '';
+        if (userText) {
+          const tmpUserFile = '/tmp/gpt54-user-' + Date.now() + '.txt';
+          fs.writeFileSync(tmpUserFile, userText, 'utf8');
+          pyArgs += ` --user-text "$(cat ${tmpUserFile})"`;
+        }
+
+        const startMs = Date.now();
+        const pyOutput = await new Promise((resolve, reject) => {
+          execAsync(
+            `python3.8 ${pyScript} ${pyArgs}`,
+            { timeout: 600000, maxBuffer: 50 * 1024 * 1024, env: { ...process.env, OPENAI_API_KEY } },
+            (err, stdout, stderr) => {
+              try { fs.unlinkSync(tmpPromptFile); } catch(e) {}
+              if (stderr) console.log('[StoryboardParser] Python stderr: ' + stderr.substring(0, 500));
+              if (err && !stdout) {
+                return reject(new Error('Python parser failed: ' + (err.message || '').substring(0, 200)));
+              }
+              resolve(stdout);
+            }
+          );
+        });
+        
+        const elapsed = Date.now() - startMs;
+        const result = JSON.parse(pyOutput);
+        
+        if (result.error) {
+          throw new Error('GPT-5.4 parse error: ' + result.error);
+        }
+        
+        const data = result.data;
+        const meta = result.meta || {};
+        const text = JSON.stringify(data);
+        
+        console.log(`[StoryboardParser] ${label} returned ${text.length} chars in ${(elapsed/1000).toFixed(1)}s, finish=${meta.finish_reason}, parser=python`);
         return { text };
       } catch (err) {
         console.error(`[StoryboardParser] ${label} attempt ${attempt} failed: ${err.message?.substring(0, 150)}`);
