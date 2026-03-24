@@ -51,13 +51,26 @@ try {
   try { undici2 = require('undici'); } catch(e) {
     undici2 = require(require('path').join(__dirname, 'node_modules', 'undici'));
   }
-  const proxyAgent = new undici2.ProxyAgent({
+  let proxyAgent = new undici2.ProxyAgent({
     uri: PROXY_URL,
     requestTls: { timeout: 120000 },
     connect: { timeout: 30000 },
     bodyTimeout: 300000,
     headersTimeout: 300000,
   });
+  // Rebuild proxy agent (clears stale connections after TLS/fetch failures)
+  function rebuildProxyAgent() {
+    try { proxyAgent.close(); } catch(e) {}
+    proxyAgent = new undici2.ProxyAgent({
+      uri: PROXY_URL,
+      requestTls: { timeout: 120000 },
+      connect: { timeout: 30000 },
+      bodyTimeout: 300000,
+      headersTimeout: 300000,
+    });
+    undici2.setGlobalDispatcher(proxyAgent);
+    console.log('[StoryboardParser] ProxyAgent rebuilt (stale connections cleared)');
+  }
   // CRITICAL: Node.js v18+ built-in fetch uses its own internal undici dispatcher.
   // setGlobalDispatcher does NOT affect globalThis.fetch (built-in).
   // @google/genai SDK uses globalThis.fetch, so we MUST override it with undici.fetch + proxyAgent.
@@ -343,6 +356,7 @@ ${style ? `9. 额外风格要求：${style}` : ''}
         if (attempt < 2) {
           // Before retry, ensure proxy is working
           await proxyDoctor.ensure();
+          try { rebuildProxyAgent(); } catch(rbe) {}
           await new Promise(r => setTimeout(r, 3000));
         } else {
           throw err;
