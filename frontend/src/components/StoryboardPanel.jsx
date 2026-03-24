@@ -978,7 +978,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
               {generating ? '⏳ 生成中...' : '📥 下载PDF'}
             </button>
             <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-convert" style={{ fontSize: 12, padding: "4px 10px" }} onClick={handleConvert}
-              disabled={converting || (hasStoryboard ? false : !generated)} title={!hasStoryboard && !generated ? '请先点击"生成分镜"' : ''}>
+              disabled={converting || frames.length === 0} title={frames.length === 0 ? '请先解析分镜' : ''}>
               {converting ? '⏳ AI 提取实体中...' : '🗺 转为蓝图(V4)'}
             </button>
           </div>
