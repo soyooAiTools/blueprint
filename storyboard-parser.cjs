@@ -414,7 +414,7 @@ ${style ? `9. 额外风格要求：${style}` : ''}
             { role: 'system', content: systemPrompt },
             { role: 'user', content: contentParts }
           ],
-          max_completion_tokens: 32768,
+          max_completion_tokens: 65536,
           temperature: 0.3,
           stream: true,  // Stream to prevent proxy timeout on long responses
         });

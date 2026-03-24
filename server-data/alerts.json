@@ -1114,5 +1114,17 @@
     "title": "API 500",
     "detail": "{\"error\":\"分镜解析失败: Expected ',' or ']' after array element in JSON at position 40409 (line 188 column 6)\"}",
     "timestamp": "2026-03-24T10:16:41.948Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析失败",
+    "detail": "JSON repair failed after all attempts: Expected ',' or ']' after array element in JSON at position 50993 (line 219 column 8)",
+    "timestamp": "2026-03-24T10:40:31.945Z"
+  },
+  {
+    "level": "critical",
+    "title": "API 500",
+    "detail": "{\"error\":\"分镜解析失败: JSON repair failed after all attempts: Expected ',' or ']' after array element in JSON at position 50993 (line 219 column 8)\"}",
+    "timestamp": "2026-03-24T10:40:31.958Z"
   }
 ]
