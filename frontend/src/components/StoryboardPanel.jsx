@@ -61,7 +61,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
   const [cameraAngle, setCameraAngle] = useState('topdown45');
   const [perspective, setPerspective] = useState('third');
   const [style, setStyle] = useState('');
-  const [targetFrames, setTargetFrames] = useState(15);
+  const [targetFrames, setTargetFrames] = useState(11);
   const [styleRefFile, setStyleRefFile] = useState(null);
   const [styleRefUrl, setStyleRefUrl] = useState(null);
   const [styleRefPreview, setStyleRefPreview] = useState(null);
@@ -396,7 +396,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       formData.append('cameraAngle', cameraAngle);
       formData.append('perspective', perspective);
       if (style.trim()) formData.append('style', style.trim());
-      formData.append('targetFrames', String(targetFrames || 15));
+      formData.append('targetFrames', String(targetFrames || 11));
       docFiles.forEach((f) => formData.append('files', f));
       refImages.forEach((img) => formData.append('images', img.file));
       if (charRefFile) formData.append('charRef', charRefFile);
