@@ -211,15 +211,47 @@ function FlowEditor({ project, onBack, initialTab }) {
   const autoSaveRef = useRef(null);
   const { showAlert, showConfirm, showPrompt } = useModal();
 
-  const handleStoryboardConvert = useCallback((newNodes, newEdges) => {
-    setNodes((nds) => [...nds, ...newNodes]);
-    setEdges((eds) => [...eds, ...newEdges]);
-    shotCountRef.current += newNodes.filter((n) => n.type === 'shotNode').length;
-    setActiveTab('blueprint');
-    setTimeout(() => {
-      reactFlowInstance.fitView({ padding: 0.2 });
-    }, 100);
-  }, [setNodes, setEdges, reactFlowInstance]);
+  const handleStoryboardConvert = useCallback((newNodes, newEdges, v4Data) => {
+    if (v4Data && v4Data.entities) {
+      // V4 entity-driven: set entities + phases, generate entity/phase nodes
+      setEntities(v4Data.entities);
+      if (v4Data.phases) {
+        // Generate phase nodes
+        const phaseNodes = v4Data.phases.map((p, i) => ({
+          id: 'phase_' + Date.now() + '_' + (i + 1),
+          type: 'phaseNode',
+          position: { x: 50, y: i * 300 },
+          data: {
+            name: p.name || 'Phase ' + (p.id || i + 1),
+            activate: p.activate || [],
+            endCondition: p.endCondition || '',
+            guide: p.guide || '',
+            camera: p.camera || {},
+          },
+        }));
+        // Generate entity nodes using existing function
+        const { nodes: eNodes, edges: eEdges } = generateEntityNodesAndEdges(v4Data.entities);
+        setNodes([...phaseNodes, ...eNodes]);
+        setEdges(eEdges);
+      }
+      if (v4Data.globalSettings) {
+        setGlobalSettings(v4Data.globalSettings);
+      }
+      setActiveTab('blueprint');
+      setTimeout(() => {
+        reactFlowInstance.fitView({ padding: 0.2 });
+      }, 100);
+    } else if (newNodes && newEdges) {
+      // Legacy V3 path (fallback)
+      setNodes((nds) => [...nds, ...newNodes]);
+      setEdges((eds) => [...eds, ...newEdges]);
+      shotCountRef.current += newNodes.filter((n) => n.type === 'shotNode').length;
+      setActiveTab('blueprint');
+      setTimeout(() => {
+        reactFlowInstance.fitView({ padding: 0.2 });
+      }, 100);
+    }
+  }, [setNodes, setEdges, setEntities, reactFlowInstance]);
 
   // Fetch WebGL info + feedback history when status warrants it
   useEffect(() => {

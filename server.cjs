@@ -285,6 +285,8 @@ function matchRoute(method, pathname) {
   if (m && method === "POST") return { handler: "generateStoryboard", id: m[1] };
   m = pathname.match(/^\/api\/projects\/([^/]+)\/generate-storyboard-pdf$/);
   if (m && method === "POST") return { handler: "generateStoryboardPDF", id: m[1] };
+  m = pathname.match(/^\/api\/projects\/([^/]+)\/convert-to-v4$/);
+  if (m && method === 'POST') return { handler: 'convertToV4', id: m[1] };
   if (m && method === 'POST') return { handler: 'editFrame', id: m[1] };
 
   // Spec review routes
@@ -1347,6 +1349,150 @@ handlers.generateStoryboardPDF = function(req, res, body, projectId) {
   })();
 };
 
+
+handlers.convertToV4 = async function(req, res, body, projectId) {
+  try {
+    var project = loadProject(projectId);
+    if (!project) return sendJSON(res, 404, { error: 'Project not found' });
+    var frames = project.storyboard || [];
+    if (!frames.length && body.frames) frames = body.frames;
+    if (!frames.length) return sendJSON(res, 400, { error: 'No storyboard frames' });
+
+    console.log('[convert-to-v4] Converting ' + frames.length + ' frames for project ' + projectId);
+
+    // Build prompt for Gemini to extract entities + phases from storyboard frames
+    var framesDesc = frames.map(function(f, i) {
+      var parts = ['帧' + (i+1)];
+      if (f.title) parts.push('标题: ' + f.title);
+      if (f.scene) parts.push('场景: ' + f.scene);
+      if (f.interaction) parts.push('交互: ' + f.interaction);
+      if (f.camera) parts.push('镜头: ' + f.camera);
+      if (f.feeling) parts.push('感受: ' + f.feeling);
+      if (f.prompt) parts.push('场景描述: ' + f.prompt);
+      if (f.ui) parts.push('UI: ' + f.ui);
+      if (f.animation) parts.push('动画: ' + f.animation);
+      if (f.note) parts.push('备注: ' + f.note);
+      if (f.scriptExcerpt) parts.push('脚本: ' + f.scriptExcerpt);
+      return parts.join('\n');
+    }).join('\n---\n');
+
+    var v4SchemaStr = require('fs').readFileSync('/opt/blueprint-editor/docs/v4-schema.json', 'utf8');
+    var behaviorTemplatesStr = require('fs').readFileSync('/opt/blueprint-editor/worker/behavior-templates.md', 'utf8').substring(0, 3000);
+
+    var systemPrompt = `你是试玩广告蓝图架构师。你的任务是将分镜板（storyboard frames）转换为 V4 实体驱动蓝图。
+
+## 核心原则
+- **非线性**：不要按时间线顺序映射，而是提取所有游戏实体和它们的事件触发关系
+- **实体为中心**：每个游戏对象（角色、建筑、道具、UI、敌人）都是独立实体
+- **条件驱动**：Phase 只管"激活哪些实体"和"结束条件"，实体自己知道怎么行为
+
+## V4 数据 Schema
+${v4SchemaStr}
+
+## 行为模板参考
+${behaviorTemplatesStr}
+
+## 输出要求
+返回纯 JSON，包含:
+1. entities: 所有游戏实体数组，每个实体遵循 V4 Schema
+2. phases: 阶段数组，每个阶段定义激活的实体和结束条件
+3. globalSettings: 游戏全局设置
+
+确保:
+- 每个实体有唯一英文 name 和中文 label
+- 模板类型(template)必须是 Schema 中定义的类型之一
+- 触发条件用表达式格式如 "phase:1" 或 "entity:X.state==built"
+- Phase 的 endCondition 用简洁表达式
+- 尽量从分镜描述中推断合理的数值参数`;
+
+    var userPrompt = `请将以下分镜板转换为 V4 实体驱动蓝图：
+
+${framesDesc}
+
+返回纯 JSON（不要 markdown code fence）。`;
+
+    // Call Gemini
+    var ai = require('./storyboard-parser.cjs').getAI ? require('./storyboard-parser.cjs').getAI() : null;
+    if (!ai) {
+      // Fallback: create AI instance directly
+      var { GoogleGenAI } = require('@google/genai');
+      var keyRotation = require('./key-rotation.cjs');
+      ai = new GoogleGenAI({ apiKey: keyRotation.getKey() });
+    }
+
+    var proxyDoctor = require('./proxy-doctor.cjs');
+    var preCheck = await proxyDoctor.quickCheck();
+    if (!preCheck.ok) {
+      console.warn('[convert-to-v4] Proxy down, attempting repair...');
+      await proxyDoctor.ensure();
+    }
+
+    var result = await Promise.race([
+      ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+        config: {
+          temperature: 0.3,
+          maxOutputTokens: 65536,
+          systemInstruction: systemPrompt,
+        },
+      }),
+      new Promise(function(_, reject) { setTimeout(function() { reject(new Error('Gemini timeout (120s)')); }, 120000); })
+    ]);
+
+    var text = '';
+    if (result.candidates && result.candidates[0]) {
+      var parts = result.candidates[0].content.parts || [];
+      for (var p = 0; p < parts.length; p++) {
+        if (parts[p].text) text += parts[p].text;
+      }
+    } else if (result.text) {
+      text = typeof result.text === 'function' ? result.text() : result.text;
+    }
+
+    // Clean markdown fences
+    text = text.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+
+    var v4Data;
+    try {
+      v4Data = JSON.parse(text);
+    } catch(parseErr) {
+      // Try to find JSON in response
+      var jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        v4Data = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error('Failed to parse AI response as JSON');
+      }
+    }
+
+    // Validate basic structure
+    if (!v4Data.entities || !Array.isArray(v4Data.entities)) {
+      throw new Error('AI response missing entities array');
+    }
+    if (!v4Data.phases || !Array.isArray(v4Data.phases)) {
+      throw new Error('AI response missing phases array');
+    }
+
+    console.log('[convert-to-v4] Extracted ' + v4Data.entities.length + ' entities, ' + v4Data.phases.length + ' phases');
+
+    // Save V4 data to project
+    project.entities = v4Data.entities;
+    project.phases = v4Data.phases;
+    project.globalSettings = v4Data.globalSettings || {};
+    project.version = 4;
+    saveProject(projectId, project);
+
+    sendJSON(res, 200, {
+      entities: v4Data.entities,
+      phases: v4Data.phases,
+      globalSettings: v4Data.globalSettings || {},
+    });
+  } catch(e) {
+    console.error('[convert-to-v4] Error:', e.message);
+    sendJSON(res, 500, { error: e.message });
+  }
+};
 
 handlers.editFrame = function(req, res, body) {
   (async function() {

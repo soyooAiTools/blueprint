@@ -15,47 +15,7 @@ const CAMERA_ANGLES = [
   { value: 'topdown45', label: '俯视斜45°正交' },
 ];
 
-function framesToNodesEdges(frames) {
-  const Y_SPACING = 400;
-  const nodes = [];
-  const edges = [];
-  for (let i = 0; i < frames.length; i++) {
-    const f = frames[i];
-    const shotId = `shot_${Date.now()}_${i + 1}`;
-    nodes.push({
-      id: shotId,
-      type: 'shotNode',
-      position: { x: 300, y: i * Y_SPACING },
-      data: {
-        label: f.title || `镜头${i + 1}`,
-        name: f.title || '',
-        entryCondition: i === 0 ? '游戏开始' : '',
-        endCondition: '',
-        // v2 fields
-        sceneObjects: f.prompt || '',
-        inputType: 'tap',
-        inputConfig: '',
-        triggerChain: f.interaction || '',
-        params: '',
-        assets: '',
-        images: [],
-        referenceNote: '',
-      },
-    });
-    if (i > 0) {
-      edges.push({
-        id: `e_${nodes[i - 1].id}_${shotId}`,
-        source: nodes[i - 1].id,
-        target: shotId,
-        type: 'smoothstep',
-        animated: true,
-        style: { stroke: 'rgba(255,255,255,0.5)', strokeWidth: 2 },
-        markerEnd: { type: 'arrowclosed', color: 'rgba(255,255,255,0.5)' },
-      });
-    }
-  }
-  return { nodes, edges };
-}
+
 
 function placeholderSvg(frameId, description) {
   const desc = (description || '').slice(0, 40).replace(/[<>&"]/g, '');
@@ -521,15 +481,33 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
     setEditingLoading(false);
   }, [editInstruction, frames, projectId, showAlert]);
 
+  const [converting, setConverting] = useState(false);
   const handleConvert = useCallback(async () => {
     if (frames.length === 0) return;
     if (hasExistingNodes) {
-      const yes = await showConfirm(`画布已有内容。转为蓝图将追加 ${frames.length} 个镜头节点到画布，确认继续？`);
+      const yes = await showConfirm(`画布已有内容。转为蓝图将覆盖现有蓝图数据，确认继续？`);
       if (!yes) return;
     }
-    const { nodes, edges } = framesToNodesEdges(frames);
-    onConvertToBlueprint(nodes, edges);
-  }, [frames, onConvertToBlueprint, hasExistingNodes, showConfirm]);
+    setConverting(true);
+    try {
+      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/convert-to-v4`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frames }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: resp.statusText }));
+        throw new Error(err.error || '转换失败');
+      }
+      const v4Data = await resp.json();
+      // Pass V4 data (entities + phases) to parent
+      onConvertToBlueprint(null, null, v4Data);
+    } catch (err) {
+      console.error('[convert-to-v4] Error:', err.message);
+      await showAlert('⚠️ 分镜转蓝图失败: ' + err.message);
+    }
+    setConverting(false);
+  }, [frames, projectId, onConvertToBlueprint, hasExistingNodes, showConfirm, showAlert]);
 
   const handleClearFrames = useCallback(() => { setFrames([]); setGenerated(false); }, []);
 
@@ -999,8 +977,8 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
               {generating ? '⏳ 生成中...' : '📥 下载PDF'}
             </button>
             <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-convert" onClick={handleConvert}
-              disabled={hasStoryboard ? false : !generated} title={!hasStoryboard && !generated ? '请先点击"生成分镜"' : ''}>
-              🗺 转为蓝图
+              disabled={converting || (hasStoryboard ? false : !generated)} title={!hasStoryboard && !generated ? '请先点击"生成分镜"' : ''}>
+              {converting ? '⏳ AI 提取实体中...' : '🗺 转为蓝图(V4)'}
             </button>
           </div>
         </div>
