@@ -1,8 +1,11 @@
-// Using official Google Gemini API with proxy
+// Storyboard Parser — GPT-5.4 (primary) + Gemini (fallback)
 
 /**
- * Storyboard Parser — Gemini 2.5 Pro
- * Extracted from storyboard skill for blueprint-editor integration
+ * Storyboard Parser — GPT-5.4 primary, Gemini fallback
+ * Phase 1: GPT-5.4 (best quality)
+ * Phase 2: Gemini 3.1 Pro (fallback)
+ * Phase 3: Gemini 2.5 Flash (fast fallback)
+ * Phase 4: Gemini 2.5 Flash + resize (last resort)
  */
 const fs = require('fs');
 const path = require('path');
@@ -25,16 +28,39 @@ try {
   });
   undici.setGlobalDispatcher(agent);
   // Override globalThis.fetch for @google/genai SDK
-  const origFetch = globalThis.fetch;
+  const origNodeFetch = globalThis.fetch; // Save original Node.js fetch for OpenAI SDK
   globalThis.fetch = function(url, init) {
     return undici.fetch(url, { ...init, dispatcher: agent });
   };
+  globalThis._origNodeFetch = origNodeFetch; // Expose for OpenAI file uploads
   console.log('[StoryboardParser] Proxy configured via EnvHttpProxyAgent: ' + PROXY_URL);
 } catch(e) {
   console.warn('[StoryboardParser] Proxy setup failed:', e.message);
 }
 
 const { GoogleGenAI } = require('@google/genai');
+const OpenAI = require('openai').default || require('openai');
+
+// === OpenAI (GPT-5.4) setup ===
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
+let openaiClient = null;
+let openaiFileClient = null; // Separate client for file uploads (no custom fetch)
+if (OPENAI_API_KEY) {
+  // Create OpenAI client with fresh ProxyAgent per-request to avoid stale connections
+  const undiciMod = require('undici');
+  function makeOpenAIFetch(url, init) {
+    const pa = new undiciMod.ProxyAgent(PROXY_URL);
+    return undiciMod.fetch(url, { ...init, dispatcher: pa });
+  }
+  openaiClient = new OpenAI({
+    apiKey: OPENAI_API_KEY,
+    fetch: makeOpenAIFetch,
+  });
+  openaiFileClient = null; // Will use curl for file uploads
+  console.log('[StoryboardParser] OpenAI configured, key prefix:', OPENAI_API_KEY.substring(0, 15) + '...');
+} else {
+  console.warn('[StoryboardParser] No OPENAI_API_KEY — GPT-5.4 unavailable, will use Gemini only');
+}
 
 // [key-rotation] Round-robin Gemini API key pool
 const _geminiKeys = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '').split(',').filter(Boolean);
@@ -138,20 +164,27 @@ async function parseScript(text, opts = {}) {
 
   let docText = '';
   let pdfPart = null;
+  let pdfOriginalPath = null; // Keep original PDF path for GPT-5.4
   if (docPath) {
     const docExt = path.extname(docPath).toLowerCase();
     if (docExt === '.pdf') {
-      // PDF: upload via Files API then reference by URI (avoids proxy size limits)
-      console.log(`[StoryboardParser] Uploading PDF via Files API...`);
-      const uploaded = await ai.files.upload({ file: docPath, config: { mimeType: 'application/pdf' } });
-      let file = uploaded;
-      while (file.state === 'PROCESSING') {
-        await new Promise(r => setTimeout(r, 2000));
-        file = await ai.files.get({ name: file.name });
+      // PDF: save path for GPT-5.4, then try Gemini Files API upload (non-blocking)
+      pdfOriginalPath = docPath;
+      try {
+        console.log(`[StoryboardParser] Uploading PDF via Gemini Files API...`);
+        const uploaded = await ai.files.upload({ file: docPath, config: { mimeType: 'application/pdf' } });
+        let file = uploaded;
+        while (file.state === 'PROCESSING') {
+          await new Promise(r => setTimeout(r, 2000));
+          file = await ai.files.get({ name: file.name });
+        }
+        if (file.state !== 'ACTIVE') throw new Error(`PDF upload state: ${file.state}`);
+        pdfPart = { fileData: { fileUri: file.uri, mimeType: 'application/pdf' } };
+        console.log(`[StoryboardParser] PDF uploaded to Gemini: ${file.uri}`);
+      } catch(geminiUploadErr) {
+        console.warn(`[StoryboardParser] Gemini PDF upload failed (will use GPT-5.4 directly): ${geminiUploadErr.message?.substring(0, 100)}`);
+        // pdfPart stays null — Gemini phases will be skipped if no pdfPart, but GPT-5.4 uses pdfOriginalPath
       }
-      if (file.state !== 'ACTIVE') throw new Error(`PDF upload failed: ${file.state}`);
-      pdfPart = { fileData: { fileUri: file.uri, mimeType: 'application/pdf' } };
-      console.log(`[StoryboardParser] PDF uploaded: ${file.uri}`);
     } else if (['.png', '.jpg', '.jpeg', '.webp'].includes(docExt)) {
       // Image: send as inline data to Gemini for visual understanding
       pdfPart = readImagePart(docPath);
@@ -274,6 +307,12 @@ ${style ? `9. 额外风格要求：${style}` : ''}
     const analysisContext = imageAnalysis ? `\n\n## 参考图片 AI 分析结果\n${imageAnalysis}\n\n请参考以上图片分析结果，在生成分镜时融入图片中的风格、场景元素和 UI 设计。` : '';
     const extraText = text ? `\n\n补充说明：${text}` : '';
     parts.push({ text: `请解析这份 PDF 文档的内容，根据其中的策划文案/需求设计试玩广告分镜板。${extraText}${analysisContext}` });
+  } else if (pdfOriginalPath) {
+    // Gemini upload failed but we have the PDF file — GPT-5.4 will handle it via file_id
+    const analysisContext = imageAnalysis ? `\n\n## 参考图片 AI 分析结果\n${imageAnalysis}` : '';
+    const extraText = text ? `\n\n补充说明：${text}` : '';
+    parts.push({ text: `请解析 PDF 文档内容，设计试玩广告分镜板。${extraText}${analysisContext}` });
+    console.log('[StoryboardParser] PDF available for GPT-5.4 only (Gemini upload failed)');
   } else if (fullText) {
     const analysisContext = imageAnalysis ? `\n\n## 参考图片 AI 分析结果\n${imageAnalysis}\n\n请参考以上图片分析结果，在生成分镜时融入图片中的风格、场景元素和 UI 设计。` : '';
     parts.push({ text: `文案/需求：\n${fullText}${analysisContext}` });
@@ -284,9 +323,116 @@ ${style ? `9. 额外风格要求：${style}` : ''}
     throw new Error('请提供文案、图片或文档中的至少一种作为输入');
   }
 
-  // === Degradation chain: original → resize → fallback model → fail ===
+  // === Degradation chain: GPT-5.4 → Gemini Pro → Gemini Flash → Flash+resize ===
   const proxyDoctor = require('./proxy-doctor.cjs');
   const notify = require('./notify.cjs');
+
+  // Helper: try GPT-5.4 with PDF/images, 2 attempts
+  async function tryGPT(partsToUse, label) {
+    if (!openaiClient) throw new Error('OpenAI not configured');
+
+    const preCheck = await proxyDoctor.quickCheck();
+    if (!preCheck.ok) {
+      const repaired = await proxyDoctor.ensure();
+      if (!repaired.ok) throw new Error('代理不可用: ' + (repaired.error || 'repair failed'));
+      console.log('[StoryboardParser] Pre-flight: proxy recovered via ' + (repaired.method || '?'));
+    }
+
+    // Convert parts to OpenAI messages format
+    const contentParts = [];
+    for (const p of partsToUse) {
+      if (p.text) {
+        contentParts.push({ type: 'text', text: p.text });
+      } else if (p.inlineData && p.inlineData.data) {
+        contentParts.push({
+          type: 'image_url',
+          image_url: { url: `data:${p.inlineData.mimeType || 'image/jpeg'};base64,${p.inlineData.data}` }
+        });
+      } else if (p.fileData && p.fileData.fileUri) {
+        // Files API URI — need to download and convert to base64, or use PDF text
+        // For PDF uploaded to Gemini Files API, we need to read original file
+        contentParts.push({ type: 'text', text: '[PDF document provided — see file content below]' });
+      }
+    }
+
+    // If we have the original PDF path, upload to OpenAI Files API
+    if (pdfOriginalPath && fs.existsSync(pdfOriginalPath)) {
+      let uploaded = false;
+      // Method 1: Upload via OpenAI Files API using separate client (no proxy needed for upload)
+      if (openaiFileClient) {
+        try {
+          console.log('[StoryboardParser] Uploading PDF to OpenAI Files API...');
+          const fileStream = fs.createReadStream(pdfOriginalPath);
+          const uploadedFile = await openaiFileClient.files.create({
+            file: fileStream,
+            purpose: 'assistants',
+          });
+          console.log('[StoryboardParser] PDF uploaded to OpenAI: ' + uploadedFile.id);
+          contentParts.unshift({
+            type: 'file',
+            file: { file_id: uploadedFile.id }
+          });
+          uploaded = true;
+        } catch(uploadErr) {
+          console.error('[StoryboardParser] OpenAI Files API upload failed: ' + uploadErr.message?.substring(0, 150));
+        }
+      }
+      // Method 2: Use curl to upload (bypasses fetch issues)
+      if (!uploaded) {
+        try {
+          console.log('[StoryboardParser] Uploading PDF via curl...');
+          const { execSync } = require('child_process');
+          const curlResult = execSync(
+            `curl -s --max-time 30 -x ${PROXY_URL} https://api.openai.com/v1/files -H "Authorization: Bearer ${OPENAI_API_KEY}" -F "purpose=assistants" -F "file=@${pdfOriginalPath}"`,
+            { encoding: 'utf8' }
+          );
+          const parsed = JSON.parse(curlResult);
+          if (parsed.id) {
+            console.log('[StoryboardParser] PDF uploaded via curl: ' + parsed.id);
+            contentParts.unshift({ type: 'file', file: { file_id: parsed.id } });
+            uploaded = true;
+          }
+        } catch(curlErr) {
+          console.error('[StoryboardParser] curl upload also failed: ' + curlErr.message?.substring(0, 100));
+        }
+      }
+      // Remove placeholder
+      if (uploaded) {
+        const placeholderIdx = contentParts.findIndex(p => p.type === 'text' && p.text.includes('[PDF document provided'));
+        if (placeholderIdx >= 0) contentParts.splice(placeholderIdx, 1);
+      }
+    }
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        console.log(`[StoryboardParser] ${label} (attempt ${attempt}/2)...`);
+        const timeoutMs = 300000; // 5 min for GPT-5.4 (thorough PDF analysis)
+        const result = await Promise.race([
+          openaiClient.chat.completions.create({
+            model: 'gpt-5.4',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: contentParts }
+            ],
+            max_completion_tokens: 16384,
+            temperature: 0.3,
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('GPT-5.4 API timeout (' + timeoutMs/1000 + 's)')), timeoutMs))
+        ]);
+        // Wrap in Gemini-compatible format
+        const text = result.choices?.[0]?.message?.content || '';
+        console.log(`[StoryboardParser] ${label} returned ${text.length} chars`);
+        return { text };
+      } catch (err) {
+        console.error(`[StoryboardParser] ${label} attempt ${attempt} failed: ${err.message?.substring(0, 150)}`);
+        if (attempt < 2) {
+          await new Promise(r => setTimeout(r, 3000));
+        } else {
+          throw err;
+        }
+      }
+    }
+  }
 
   // Helper: try calling Gemini with given config, 2 attempts
   async function tryGemini(model, partsToUse, thinkingBudget, label) {
@@ -401,28 +547,40 @@ ${style ? `9. 额外风格要求：${style}` : ''}
 
   let result;
 
-  // Phase 1: Pro model first (gemini-3.1-pro-preview — default, best quality)
-  try {
-    result = await tryGemini(CONFIG.textModel, parts, 1024, 'Phase1:' + CONFIG.textModel);
-  } catch(phase1Err) {
-    console.log('[StoryboardParser] Phase 1 (pro) failed, trying flash model...');
-    notify.alert('warning', '分镜解析：pro 失败，尝试 flash 模型', phase1Err.message?.substring(0, 100));
-
-    // Phase 2: Fallback to flash (gemini-2.5-flash — stable & fast)
+  // Phase 1: GPT-5.4 (primary — best quality for client delivery)
+  if (openaiClient) {
     try {
-      result = await tryGemini('gemini-2.5-flash', parts, 0, 'Phase2:gemini-2.5-flash');
-    } catch(phase2Err) {
-      console.log('[StoryboardParser] Phase 2 (flash) failed, trying resize + flash...');
-      notify.alert('warning', '分镜解析降级：缩图 + flash 重试', phase2Err.message?.substring(0, 100));
+      result = await tryGPT(parts, 'Phase1:GPT-5.4');
+    } catch(phase1Err) {
+      console.log('[StoryboardParser] Phase 1 (GPT-5.4) failed: ' + phase1Err.message?.substring(0, 100));
+      notify.alert('warning', '分镜解析：GPT-5.4 失败，降级到 Gemini Pro', phase1Err.message?.substring(0, 100));
+      result = null;
+    }
+  }
 
-      // Phase 3: Resize images + flash (last resort)
+  // Phase 2: Gemini Pro (fallback)
+  if (!result) {
+    try {
+      result = await tryGemini(CONFIG.textModel, parts, 1024, 'Phase2:' + CONFIG.textModel);
+    } catch(phase2Err) {
+      console.log('[StoryboardParser] Phase 2 (Gemini Pro) failed, trying flash...');
+      notify.alert('warning', '分镜解析：Gemini Pro 失败，尝试 flash', phase2Err.message?.substring(0, 100));
+
+      // Phase 3: Flash (fast fallback)
       try {
-        const resizedParts = await resizeParts(parts);
-        result = await tryGemini('gemini-2.5-flash', resizedParts, 0, 'Phase3:resize+gemini-2.5-flash');
+        result = await tryGemini('gemini-2.5-flash', parts, 0, 'Phase3:gemini-2.5-flash');
       } catch(phase3Err) {
-        // All phases failed
-        notify.alert('critical', '分镜解析全部降级失败', phase3Err.message?.substring(0, 200));
-        throw phase3Err;
+        console.log('[StoryboardParser] Phase 3 (flash) failed, trying resize + flash...');
+        notify.alert('warning', '分镜解析降级：缩图 + flash 重试', phase3Err.message?.substring(0, 100));
+
+        // Phase 4: Resize + flash (last resort)
+        try {
+          const resizedParts = await resizeParts(parts);
+          result = await tryGemini('gemini-2.5-flash', resizedParts, 0, 'Phase4:resize+gemini-2.5-flash');
+        } catch(phase4Err) {
+          notify.alert('critical', '分镜解析全部降级失败（GPT-5.4 → Pro → Flash → Flash+缩图）', phase4Err.message?.substring(0, 200));
+          throw phase4Err;
+        }
       }
     }
   }
@@ -478,8 +636,16 @@ ${style ? `9. 额外风格要求：${style}` : ''}
 
   // Inject character descriptions
   for (const f of frames) {
-    if (!f.id || !f.prompt || !f.title || !f.interaction || !f.ui) {
-      throw new Error(`帧 ${f.id || '?'} 格式不完整`);
+    if (!f.id || !f.prompt || !f.title) {
+      console.warn(`[StoryboardParser] Frame ${f.id || '?'} missing fields: id=${!!f.id} prompt=${!!f.prompt} title=${!!f.title} interaction=${!!f.interaction} ui=${!!f.ui}`);
+      // Only throw if critical fields missing (id + prompt are essential for image gen)
+      if (!f.id || !f.prompt) {
+        throw new Error(`帧 ${f.id || '?'} 格式不完整（缺少 id 或 prompt）`);
+      }
+      // Fill optional missing fields with placeholders
+      if (!f.title) f.title = `帧 ${f.id}`;
+      if (!f.interaction) f.interaction = '';
+      if (!f.ui) f.ui = '';
     }
     if (Object.keys(characterSheet).length > 0) {
       const charDesc = Object.entries(characterSheet).map(([name, desc]) => `${name}: ${desc}`).join('. ');

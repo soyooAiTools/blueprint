@@ -1000,5 +1000,35 @@
     "title": "分镜解析：pro 失败，尝试 flash 模型",
     "detail": "Gemini API timeout (120s)",
     "timestamp": "2026-03-24T08:03:10.452Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：pro 失败，尝试 flash 模型",
+    "detail": "Gemini API timeout (120s)",
+    "timestamp": "2026-03-24T08:15:44.149Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：pro 失败，尝试 flash 模型",
+    "detail": "Gemini API timeout (120s)",
+    "timestamp": "2026-03-24T08:20:53.816Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：GPT-5.4 失败，降级到 Gemini Pro",
+    "detail": "400 Missing required parameter: 'messages[1].content[0].file.file_id'.",
+    "timestamp": "2026-03-24T08:35:33.997Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析失败",
+    "detail": "fetch failed",
+    "timestamp": "2026-03-24T09:11:15.279Z"
+  },
+  {
+    "level": "critical",
+    "title": "API 500",
+    "detail": "{\"error\":\"分镜解析失败: fetch failed\"}",
+    "timestamp": "2026-03-24T09:11:15.293Z"
   }
 ]
