@@ -1147,6 +1147,7 @@ handlers.uploadStyleRef = function(req, res, body, projectId) {
 };
 
 handlers.generateStoryboard = function(req, res, body, projectId) {
+  activeGenerations++;
   (async function() {
     try {
       var data = JSON.parse(body);
@@ -1255,6 +1256,10 @@ handlers.generateStoryboard = function(req, res, body, projectId) {
           })(bi);
         }
         await Promise.all(batch);
+        // Partial save after each batch
+        if (projectId) {
+          try { var _p = readProject(projectId); if (_p) { _p.storyboardFrames = updatedFrames; _p.updatedAt = new Date().toISOString(); writeProject(_p); } } catch(_se) {}
+        }
       }
 
       // Step 3: Auto-retry failed frames (up to 3 rounds with exponential backoff)
@@ -1312,10 +1317,12 @@ handlers.generateStoryboard = function(req, res, body, projectId) {
 
       res.write('data: ' + JSON.stringify({ type: 'done', frames: updatedFrames }) + '\n\n');
       res.end();
+      activeGenerations--;
     } catch(e) {
       console.error('[generate-storyboard] Error:', e.message);
       try { notify.alert('critical', '配图生成失败', e.message); } catch(ne) {}
       try { res.write('data: ' + JSON.stringify({ type: 'error', error: e.message }) + '\n\n'); res.end(); } catch(x) {}
+      activeGenerations--;
     }
   })();
 };
@@ -1791,6 +1798,8 @@ server.on('error', function(err) {
 
 server.listen(PORT, function() {
   console.log('Blueprint Editor Server running on http://localhost:' + PORT);
+
+var activeGenerations = 0;  // Track ongoing image generations for graceful shutdown
   console.log('  Projects dir: ' + PROJECTS_DIR);
 });
 
@@ -1825,6 +1834,20 @@ setInterval(function() {
 
 // Graceful shutdown
 function gracefulShutdown(signal) {
+  if (activeGenerations > 0) {
+    console.log('[server] ' + signal + ' received, waiting for ' + activeGenerations + ' active generation(s) to finish...');
+    var waitCount = 0;
+    var waitTimer = setInterval(function() {
+      waitCount++;
+      if (activeGenerations <= 0 || waitCount > 60) {  // Max 60s wait
+        clearInterval(waitTimer);
+        if (activeGenerations > 0) console.log('[server] Force shutdown after 60s with ' + activeGenerations + ' generation(s) still running');
+        else console.log('[server] All generations finished, shutting down');
+        process.exit(0);
+      }
+    }, 1000);
+    return;
+  }
   console.log('[server] ' + signal + ' received, closing...');
   server.close(function() {
     console.log('[server] Closed.');
