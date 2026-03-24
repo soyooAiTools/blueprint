@@ -993,6 +993,11 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
               onClick={() => window.open(`./storyboard-preview.html?id=${projectId}`, '_blank')}>
               📄 预览分镜
             </button>
+            <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-pdf"
+              onClick={handleGenerate} disabled={generating || frames.length === 0}
+              title={frames.length === 0 ? '请先解析分镜' : '下载分镜 PDF 文件'}>
+              {generating ? '⏳ 生成中...' : '📥 下载PDF'}
+            </button>
             <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-convert" onClick={handleConvert}
               disabled={hasStoryboard ? false : !generated} title={!hasStoryboard && !generated ? '请先点击"生成分镜"' : ''}>
               🗺 转为蓝图
