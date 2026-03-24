@@ -994,5 +994,11 @@
     "title": "分镜解析降级：缩图 + flash 重试",
     "detail": "Gemini API timeout (45s)",
     "timestamp": "2026-03-24T07:42:34.030Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：pro 失败，尝试 flash 模型",
+    "detail": "Gemini API timeout (120s)",
+    "timestamp": "2026-03-24T08:03:10.452Z"
   }
 ]
