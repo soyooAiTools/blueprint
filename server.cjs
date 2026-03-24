@@ -1419,38 +1419,89 @@ ${framesDesc}
 
 返回纯 JSON（不要 markdown code fence）。`;
 
-    // Call Gemini
-    var ai = require('./storyboard-parser.cjs').getAI ? require('./storyboard-parser.cjs').getAI() : null;
-    if (!ai) {
-      // Fallback: create AI instance directly
-      var { GoogleGenAI } = require('@google/genai');
-      var keyRotation = require('./key-rotation.cjs');
-      ai = new GoogleGenAI({ apiKey: keyRotation.getKey() });
-    }
-
-    // Proxy removed - direct connection
-
-    var result = await Promise.race([
-      ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-        config: {
-          temperature: 0.3,
-          maxOutputTokens: 65536,
-          systemInstruction: systemPrompt,
-        },
-      }),
-      new Promise(function(_, reject) { setTimeout(function() { reject(new Error('Gemini timeout (120s)')); }, 120000); })
-    ]);
-
+    // Call GPT-5.4 via curl (streaming, through proxy)
+    var PROXY_URL = 'http://127.0.0.1:7890';
+    var OPENAI_KEY = process.env.OPENAI_API_KEY || '';
     var text = '';
-    if (result.candidates && result.candidates[0]) {
-      var parts = result.candidates[0].content.parts || [];
-      for (var p = 0; p < parts.length; p++) {
-        if (parts[p].text) text += parts[p].text;
+
+    if (OPENAI_KEY) {
+      var fs = require('fs');
+      var tmpReq = '/tmp/v4-blueprint-req-' + Date.now() + '.json';
+      var tmpResp = '/tmp/v4-blueprint-resp-' + Date.now() + '.txt';
+      fs.writeFileSync(tmpReq, JSON.stringify({
+        model: 'gpt-5.4',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        max_completion_tokens: 65536,
+        temperature: 0.3,
+        stream: true,
+      }));
+      console.log('[v4-convert] Calling GPT-5.4 for blueprint conversion...');
+      var { exec: execAsync } = require('child_process');
+      text = await new Promise(function(resolve, reject) {
+        var cmd = 'curl -s -x ' + PROXY_URL + ' --max-time 300 -o ' + tmpResp + ' https://api.openai.com/v1/chat/completions ' +
+          '-H "Authorization: Bearer ' + OPENAI_KEY + '" ' +
+          '-H "Content-Type: application/json" ' +
+          '-d @' + tmpReq;
+        execAsync(cmd, { timeout: 310000 }, function(err) {
+          try {
+            if (!fs.existsSync(tmpResp)) {
+              return reject(new Error('GPT-5.4 blueprint conversion failed: no response'));
+            }
+            var raw = fs.readFileSync(tmpResp, 'utf8');
+            var content = '';
+            for (var line of raw.split('\n')) {
+              if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+              try {
+                var chunk = JSON.parse(line.substring(6));
+                var delta = chunk.choices && chunk.choices[0] && chunk.choices[0].delta && chunk.choices[0].delta.content;
+                if (delta) content += delta;
+              } catch(e) {}
+            }
+            if (!content && raw.length > 0) {
+              try {
+                var parsed = JSON.parse(raw);
+                if (parsed.error) return reject(new Error('GPT-5.4 error: ' + (parsed.error.message || '').substring(0, 200)));
+                content = parsed.choices && parsed.choices[0] && parsed.choices[0].message && parsed.choices[0].message.content || '';
+              } catch(e) {
+                return reject(new Error('Failed to parse GPT-5.4 response: ' + raw.substring(0, 200)));
+              }
+            }
+            resolve(content);
+          } finally {
+            try { fs.unlinkSync(tmpReq); } catch(e) {}
+            try { fs.unlinkSync(tmpResp); } catch(e) {}
+          }
+        });
+      });
+      console.log('[v4-convert] GPT-5.4 returned ' + text.length + ' chars');
+    } else {
+      // Fallback to Gemini if no OpenAI key
+      var ai = require('./storyboard-parser.cjs').getAI ? require('./storyboard-parser.cjs').getAI() : null;
+      if (!ai) {
+        var { GoogleGenAI } = require('@google/genai');
+        var keyRotation = require('./key-rotation.cjs');
+        ai = new GoogleGenAI({ apiKey: keyRotation.getKey() });
       }
-    } else if (result.text) {
-      text = typeof result.text === 'function' ? result.text() : result.text;
+      var result = await Promise.race([
+        ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+          config: { temperature: 0.3, maxOutputTokens: 65536, systemInstruction: systemPrompt },
+        }),
+        new Promise(function(_, reject) { setTimeout(function() { reject(new Error('Gemini timeout (120s)')); }, 120000); })
+      ]);
+      if (result.candidates && result.candidates[0]) {
+        var parts = result.candidates[0].content.parts || [];
+        for (var p = 0; p < parts.length; p++) {
+          if (parts[p].text) text += parts[p].text;
+        }
+      } else if (result.text) {
+        text = typeof result.text === 'function' ? result.text() : result.text;
+      }
+      console.log('[v4-convert] Gemini returned ' + text.length + ' chars');
     }
 
     // Clean markdown fences
