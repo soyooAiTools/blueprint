@@ -7,81 +7,9 @@
 const fs = require('fs');
 const path = require('path');
 
-// === Proxy: ECS needs proxy to reach Google API (China firewall) ===
-const PROXY_URL = 'http://127.0.0.1:7890';
-process.env.HTTPS_PROXY = PROXY_URL;
-process.env.HTTP_PROXY = PROXY_URL;
-try {
-  // Try local node_modules first (handles PM2 cwd mismatch)
-  let undici;
-  try { undici = require('undici'); } catch(e) {
-    undici = require(require('path').join(__dirname, 'node_modules', 'undici'));
-  }
-  const { EnvHttpProxyAgent, setGlobalDispatcher } = undici;
-  setGlobalDispatcher(new EnvHttpProxyAgent());
-  console.log(`[StoryboardParser][Proxy] Using ${PROXY_URL}`);
-} catch (e) {
-  console.warn('[StoryboardParser][Proxy] undici not available:', e.message);
-}
-
-const { GoogleGenAI } = require('@google/genai');
-
-
-// [key-rotation] Round-robin Gemini API key pool
-const _geminiKeys = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '').split(',').filter(Boolean);
-let _geminiKeyIndex = 0;
-function getNextGeminiKey() {
-  if (_geminiKeys.length === 0) return '';
-  const key = _geminiKeys[_geminiKeyIndex % _geminiKeys.length];
-  _geminiKeyIndex++;
-  return key;
-}
-function getAllGeminiKeys() { return _geminiKeys; }
-console.log('[key-rotation] Loaded ' + _geminiKeys.length + ' Gemini API keys');
-const CONFIG = {
-  apiKey: getNextGeminiKey(),
-  textModel: process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview',
-  imageModel: 'gemini-3-pro-image-preview',
-};
-console.log('[StoryboardParser] API Key prefix:', CONFIG.apiKey ? CONFIG.apiKey.substring(0, 15) + '...' : 'EMPTY');
-
-// Override global fetch with proxied version so @google/genai uses it
-try {
-  let undici2;
-  try { undici2 = require('undici'); } catch(e) {
-    undici2 = require(require('path').join(__dirname, 'node_modules', 'undici'));
-  }
-  let proxyAgent = new undici2.ProxyAgent({
-    uri: PROXY_URL,
-    requestTls: { timeout: 120000 },
-    connect: { timeout: 30000 },
-    bodyTimeout: 300000,
-    headersTimeout: 300000,
-  });
-  // Rebuild proxy agent (clears stale connections after TLS/fetch failures)
-  function rebuildProxyAgent() {
-    try { proxyAgent.close(); } catch(e) {}
-    proxyAgent = new undici2.ProxyAgent({
-      uri: PROXY_URL,
-      requestTls: { timeout: 120000 },
-      connect: { timeout: 30000 },
-      bodyTimeout: 300000,
-      headersTimeout: 300000,
-    });
-    undici2.setGlobalDispatcher(proxyAgent);
-    console.log('[StoryboardParser] ProxyAgent rebuilt (stale connections cleared)');
-  }
-  // CRITICAL: Node.js v18+ built-in fetch uses its own internal undici dispatcher.
-  // setGlobalDispatcher does NOT affect globalThis.fetch (built-in).
-  // @google/genai SDK uses globalThis.fetch, so we MUST override it with undici.fetch + proxyAgent.
-  undici2.setGlobalDispatcher(proxyAgent);
-  globalThis.fetch = function(url, init) {
-    return undici2.fetch(url, { ...init, dispatcher: proxyAgent });
-  };
-  console.log('[StoryboardParser] Overrode globalThis.fetch with proxy dispatcher (bodyTimeout=300s)');
-} catch(e) {
-  console.log('[StoryboardParser] Could not set proxy dispatcher:', e.message);
-}
+// === Direct connection: ECS can reach Google API directly (no proxy needed) ===
+// Proxy removed 2026-03-24: direct connection is faster and more reliable
+console.log('[StoryboardParser] Using direct connection (no proxy)');
 // [key-pool] Create one GoogleGenAI instance per key for round-robin
 const aiPool = _geminiKeys.map(k => new GoogleGenAI({ apiKey: k }));
 let _keyIndex = 0;
@@ -355,9 +283,7 @@ ${style ? `9. 额外风格要求：${style}` : ''}
         console.error(`[StoryboardParser] ${label} attempt ${attempt} failed: ${err.message?.substring(0, 150)}`);
         if (attempt < 2) {
           // Before retry, ensure proxy is working
-          await proxyDoctor.ensure();
-          try { rebuildProxyAgent(); } catch(rbe) {}
-          await new Promise(r => setTimeout(r, 3000));
+          await new Promise(r => setTimeout(r, 2000));
         } else {
           throw err;
         }

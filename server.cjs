@@ -1428,12 +1428,7 @@ ${framesDesc}
       ai = new GoogleGenAI({ apiKey: keyRotation.getKey() });
     }
 
-    var proxyDoctor = require('./proxy-doctor.cjs');
-    var preCheck = await proxyDoctor.quickCheck();
-    if (!preCheck.ok) {
-      console.warn('[convert-to-v4] Proxy down, attempting repair...');
-      await proxyDoctor.ensure();
-    }
+    // Proxy removed - direct connection
 
     var result = await Promise.race([
       ai.models.generateContent({
