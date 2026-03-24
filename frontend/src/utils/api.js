@@ -73,7 +73,7 @@ export async function createProject(name, svnUrl, engine) {
 
 export async function parseStoryboard(projectId, formData) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 180000); // 3 min timeout
+  const timer = setTimeout(() => controller.abort(), 360000); // 6 min timeout
   try {
     const res = await fetch(API_BASE + '/projects/' + projectId + '/parse-storyboard', {
       method: 'POST',
@@ -86,7 +86,7 @@ export async function parseStoryboard(projectId, formData) {
     return data;
   } catch (err) {
     clearTimeout(timer);
-    if (err.name === 'AbortError') throw new Error('解析超时（超过3分钟），请检查网络后重试');
+    if (err.name === 'AbortError') throw new Error('解析超时（超过6分钟），请检查网络后重试');
     throw err;
   }
 }

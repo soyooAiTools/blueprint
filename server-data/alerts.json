@@ -886,5 +886,11 @@
     "title": "分镜解析：pro 失败，尝试 flash 模型",
     "detail": "fetch failed",
     "timestamp": "2026-03-24T06:54:20.162Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：pro 失败，尝试 flash 模型",
+    "detail": "fetch failed",
+    "timestamp": "2026-03-24T07:01:44.901Z"
   }
 ]
