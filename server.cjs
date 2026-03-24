@@ -1204,99 +1204,83 @@ handlers.generateStoryboard = function(req, res, body, projectId) {
 
       var updatedFrames = [...frames];
       var completed = 0;
-      var CONCURRENCY = 4;
+      var prevImagePath = null; // Track previous frame image for consistency
 
-      // Step 1: Generate frame 1 first (style anchor)
-      if (frames.length > 0) {
+      // Generate frames SEQUENTIALLY for consistency (each frame uses prev as reference)
+      for (var fi = 0; fi < frames.length; fi++) {
+        var frame = frames[fi];
         try {
-          var f0opts = {};
-          if (styleRefBase64) { f0opts.styleRefBase64 = styleRefBase64; f0opts.styleRefMime = styleRefMime; }
-          if (charRefBase64) { f0opts.charRefBase64 = charRefBase64; f0opts.charRefMime = charRefMime; }
-          var img0 = await storyboardParser.generateImage(frames[0].prompt || frames[0].title, f0opts);
-          var rawBuf0 = Buffer.from(img0.base64, 'base64');
-          var normBuf0 = await storyboardParser.normalizeImageSize(rawBuf0, orientation);
-          var fn0 = 'frame_' + frames[0].id + '.jpg';
-          fs.writeFileSync(path.join(imgDir, fn0), normBuf0);
-          updatedFrames[0] = { ...frames[0], imageUrl: '/api/images/' + (projectId || 'default') + '/' + fn0 };
-          // Use frame 1 as style anchor if no user ref
-          if (!styleRefBase64) {
-            styleRefBase64 = img0.base64;
-            styleRefMime = img0.mimeType || 'image/jpeg';
-            console.log('[generate-storyboard] Using frame 1 as style anchor');
+          var genOpts = { orientation: orientation };
+          if (charRefBase64) { genOpts.charRefBase64 = charRefBase64; genOpts.charRefMime = charRefMime; }
+          if (prevImagePath) { genOpts.prevImagePath = prevImagePath; }
+          
+          var imgResult = await storyboardParser.generateImage(frame.prompt || frame.title, genOpts);
+          var rawBuf = Buffer.from(imgResult.base64, 'base64');
+          var normBuf = await storyboardParser.normalizeImageSize(rawBuf, orientation);
+          var fn = 'frame_' + frame.id + '.jpg';
+          var framePath = path.join(imgDir, fn);
+          fs.writeFileSync(framePath, normBuf);
+          updatedFrames[fi] = { ...frame, imageUrl: '/api/images/' + (projectId || 'default') + '/' + fn };
+          
+          // Save full-res PNG for next frame's reference (edit API needs the uncompressed version)
+          var prevPngPath = path.join(imgDir, 'prev_frame.png');
+          if (imgResult.outputPath && fs.existsSync(imgResult.outputPath)) {
+            fs.copyFileSync(imgResult.outputPath, prevPngPath);
+            try { fs.unlinkSync(imgResult.outputPath); } catch(e) {}
+          } else {
+            fs.writeFileSync(prevPngPath, rawBuf);
           }
-        } catch(e0) {
-          console.error('[generate-storyboard] Frame 1 gen failed:', e0.message);
-          updatedFrames[0] = { ...frames[0], imageUrl: null, imageError: e0.message };
+          prevImagePath = prevPngPath;
+          
+          console.log('[generate-storyboard] Frame ' + frame.id + ' generated' + (fi > 0 ? ' (edit mode, consistent)' : ' (base frame)'));
+        } catch(imgErr) {
+          console.error('[generate-storyboard] Frame ' + frame.id + ' failed:', imgErr.message?.substring(0, 150));
+          updatedFrames[fi] = { ...frame, imageUrl: null, imageError: imgErr.message };
         }
         completed++;
-        res.write('data: ' + JSON.stringify({ type: 'progress', current: completed, total: frames.length, frameId: frames[0].id }) + '\n\n');
-      }
-
-      // Step 2: Generate remaining frames with style ref + concurrency
-      for (var batchStart = 1; batchStart < frames.length; batchStart += CONCURRENCY) {
-        var batch = [];
-        for (var bi = batchStart; bi < Math.min(batchStart + CONCURRENCY, frames.length); bi++) {
-          (function(idx) {
-            batch.push((async function() {
-              var frame = frames[idx];
-              try {
-                var imgResult = await storyboardParser.generateImage(frame.prompt || frame.title, { styleRefBase64: styleRefBase64, styleRefMime: styleRefMime, charRefBase64: charRefBase64, charRefMime: charRefMime });
-                var rawBuf = Buffer.from(imgResult.base64, 'base64');
-                var normalizedBuf = await storyboardParser.normalizeImageSize(rawBuf, orientation);
-                var filename = 'frame_' + frame.id + '.jpg';
-                fs.writeFileSync(path.join(imgDir, filename), normalizedBuf);
-                updatedFrames[idx] = { ...frame, imageUrl: '/api/images/' + (projectId || 'default') + '/' + filename };
-                console.log('[generate-storyboard] Image generated for frame ' + frame.id);
-              } catch(imgErr) {
-                console.error('[generate-storyboard] Image gen failed for frame ' + frame.id + ':', imgErr.message);
-                updatedFrames[idx] = { ...frame, imageUrl: null, imageError: imgErr.message };
-              }
-              completed++;
-              res.write('data: ' + JSON.stringify({ type: 'progress', current: completed, total: frames.length, frameId: frame.id }) + '\n\n');
-            })());
-          })(bi);
-        }
-        await Promise.all(batch);
-        // Partial save after each batch
+        res.write('data: ' + JSON.stringify({ type: 'progress', current: completed, total: frames.length, frameId: frame.id }) + '\n\n');
+        
+        // Save after each frame
         if (projectId) {
           try { var _p = readProject(projectId); if (_p) { _p.storyboardFrames = updatedFrames; _p.updatedAt = new Date().toISOString(); writeProject(_p); } } catch(_se) {}
         }
       }
-
-      // Step 3: Auto-retry failed frames (up to 3 rounds with exponential backoff)
-      var MAX_RETRY_ROUNDS = 3;
+      // Retry failed frames (without prev-image to avoid chain failure)
+      var MAX_RETRY_ROUNDS = 2;
       for (var retryRound = 1; retryRound <= MAX_RETRY_ROUNDS; retryRound++) {
         var failedIdxs = [];
-        for (var fi = 0; fi < updatedFrames.length; fi++) {
-          if (!updatedFrames[fi].imageUrl) failedIdxs.push(fi);
+        for (var ri = 0; ri < updatedFrames.length; ri++) {
+          if (!updatedFrames[ri].imageUrl) failedIdxs.push(ri);
         }
         if (failedIdxs.length === 0) break;
-        var backoffMs = 3000 * Math.pow(2, retryRound - 1);
-        console.log('[generate-storyboard] Retry round ' + retryRound + ': ' + failedIdxs.length + ' failed, backoff ' + backoffMs + 'ms');
-        await new Promise(function(r) { setTimeout(r, backoffMs); });
-        for (var rb = 0; rb < failedIdxs.length; rb += CONCURRENCY) {
-          var retryBatch = [];
-          for (var rbi = rb; rbi < Math.min(rb + CONCURRENCY, failedIdxs.length); rbi++) {
-            (function(idx) {
-              retryBatch.push((async function() {
-                var frame = frames[idx];
-                try {
-                  var imgResult = await storyboardParser.generateImage(frame.prompt || frame.title, { styleRefBase64: styleRefBase64, styleRefMime: styleRefMime, charRefBase64: charRefBase64, charRefMime: charRefMime });
-                  var rawBuf = Buffer.from(imgResult.base64, 'base64');
-                  var normalizedBuf = await storyboardParser.normalizeImageSize(rawBuf, orientation);
-                  var filename = 'frame_' + frame.id + '.jpg';
-                  fs.writeFileSync(path.join(imgDir, filename), normalizedBuf);
-                  updatedFrames[idx] = { ...frame, imageUrl: '/api/images/' + (projectId || 'default') + '/' + filename };
-                  console.log('[generate-storyboard] Retry success for frame ' + frame.id);
-                } catch(retryErr) {
-                  console.error('[generate-storyboard] Retry failed for frame ' + frame.id + ':', retryErr.message);
-                }
-                completed++;
-                res.write('data: ' + JSON.stringify({ type: 'progress', current: completed, total: frames.length, frameId: frame.id, retry: true }) + '\n\n');
-              })());
-            })(failedIdxs[rbi]);
+        console.log('[generate-storyboard] Retry round ' + retryRound + ': ' + failedIdxs.length + ' failed');
+        await new Promise(function(r) { setTimeout(r, 3000); });
+        for (var rfi = 0; rfi < failedIdxs.length; rfi++) {
+          var ridx = failedIdxs[rfi];
+          var rframe = frames[ridx];
+          try {
+            // Find nearest successful prev frame for reference
+            var retryPrev = null;
+            for (var pi = ridx - 1; pi >= 0; pi--) {
+              if (updatedFrames[pi].imageUrl) {
+                retryPrev = path.join(imgDir, 'frame_' + frames[pi].id + '.jpg');
+                if (!fs.existsSync(retryPrev)) retryPrev = null;
+                break;
+              }
+            }
+            var retryOpts = { orientation: orientation };
+            if (retryPrev) retryOpts.prevImagePath = retryPrev;
+            var retryResult = await storyboardParser.generateImage(rframe.prompt || rframe.title, retryOpts);
+            var retryBuf = Buffer.from(retryResult.base64, 'base64');
+            var retryNorm = await storyboardParser.normalizeImageSize(retryBuf, orientation);
+            var retryFn = 'frame_' + rframe.id + '.jpg';
+            fs.writeFileSync(path.join(imgDir, retryFn), retryNorm);
+            updatedFrames[ridx] = { ...rframe, imageUrl: '/api/images/' + (projectId || 'default') + '/' + retryFn };
+            console.log('[generate-storyboard] Retry success for frame ' + rframe.id);
+          } catch(retryErr) {
+            console.error('[generate-storyboard] Retry failed for frame ' + rframe.id + ':', retryErr.message?.substring(0, 100));
           }
-          await Promise.all(retryBatch);
+          res.write('data: ' + JSON.stringify({ type: 'progress', current: ++completed, total: frames.length, frameId: rframe.id, retry: true }) + '\n\n');
         }
       }
       var finalFailed = updatedFrames.filter(function(f) { return !f.imageUrl; }).length;

@@ -827,7 +827,7 @@ ${JSON.stringify(frame, null, 2)}
 // === Image Generation (Gemini native) ===
 async function generateImage(prompt, opts = {}, aiInstance) {
   if (!aiInstance) aiInstance = aiPool[_keyIndex++ % aiPool.length];
-  const { style = '', cameraAngle = '', orientation = '', perspective = '', styleRefBase64 = null, styleRefMime = null, charRefBase64 = null, charRefMime = null } = opts;
+  const { style = '', cameraAngle = '', orientation = '', perspective = '', styleRefBase64 = null, styleRefMime = null, charRefBase64 = null, charRefMime = null, prevImagePath = null } = opts;
   let fullPrompt = prompt;
   // Append camera/orientation hints if not already in prompt
   const cameraHints = [];
@@ -851,58 +851,40 @@ async function generateImage(prompt, opts = {}, aiInstance) {
   if (prefixes.length) fullPrompt = prefixes.join(' ') + ' ' + fullPrompt;
   parts.push({ text: fullPrompt });
 
-  // Use GPT-image-1 via Python subprocess for better quality and consistency
+  // Use Python image_generator.py for gpt-image-1 with frame consistency
   const { exec: execAsync } = require('child_process');
+  const tmpPromptFile = '/tmp/imggen-prompt-' + Date.now() + '.txt';
+  const tmpOutFile = '/tmp/imggen-out-' + Date.now() + '.png';
+  fs.writeFileSync(tmpPromptFile, fullPrompt.substring(0, 4000), 'utf8');
+  const sizeStr = (orientation === 'portrait') ? '1024x1536' : '1536x1024';
+  
+  let pyArgs = `--prompt-file ${tmpPromptFile} --size ${sizeStr} --quality medium --output ${tmpOutFile}`;
+  if (prevImagePath && fs.existsSync(prevImagePath)) {
+    pyArgs += ` --prev-image ${prevImagePath}`;
+    console.log('[generateImage] Using prev frame for consistency: ' + prevImagePath);
+  }
+  
   const pyResult = await new Promise((resolve, reject) => {
-    const tmpPromptFile = '/tmp/imggen-prompt-' + Date.now() + '.txt';
-    const tmpOutFile = '/tmp/imggen-out-' + Date.now() + '.json';
-    fs.writeFileSync(tmpPromptFile, fullPrompt.substring(0, 4000), 'utf8');
-    const sizeStr = (orientation === 'portrait') ? '1024x1536' : '1536x1024';
-    const cmd = `python3.8 -c "
-import os, sys, json, base64
-os.environ['HTTPS_PROXY'] = 'http://127.0.0.1:7890'
-os.environ['HTTP_PROXY'] = 'http://127.0.0.1:7890'
-from openai import OpenAI
-client = OpenAI(api_key='${OPENAI_API_KEY}', timeout=120)
-prompt = open('${tmpPromptFile}', encoding='utf-8').read()
-resp = client.images.generate(model='gpt-image-1', prompt=prompt, size='${sizeStr}', quality='medium', n=1)
-img = resp.data[0].b64_json
-json.dump({'base64': img, 'mimeType': 'image/png'}, open('${tmpOutFile}', 'w'))
-print('OK')
-"`;
-    execAsync(cmd, { timeout: 180000, maxBuffer: 50 * 1024 * 1024 }, (err, stdout, stderr) => {
+    const cmd = `python3.8 /opt/blueprint-editor/python/image_generator.py ${pyArgs}`;
+    execAsync(cmd, { timeout: 180000, maxBuffer: 50 * 1024 * 1024, env: { ...process.env, OPENAI_API_KEY } }, (err, stdout, stderr) => {
       try { fs.unlinkSync(tmpPromptFile); } catch(e) {}
-      if (err && !fs.existsSync(tmpOutFile)) {
+      if (stderr) console.log('[generateImage] ' + stderr.trim().split('\n').slice(-2).join(' | '));
+      if (err && !stdout) {
         return reject(new Error('gpt-image-1 failed: ' + (stderr || err.message || '').substring(0, 300)));
       }
       try {
-        const data = JSON.parse(fs.readFileSync(tmpOutFile, 'utf8'));
-        try { fs.unlinkSync(tmpOutFile); } catch(e) {}
-        resolve(data);
+        const result = JSON.parse(stdout);
+        if (!result.success) return reject(new Error(result.error || 'Unknown error'));
+        // Read the generated image as base64
+        const imgBuf = fs.readFileSync(tmpOutFile);
+        resolve({ base64: imgBuf.toString('base64'), mimeType: 'image/png', outputPath: tmpOutFile });
       } catch(e) {
-        reject(new Error('Failed to read gpt-image-1 output: ' + e.message));
+        reject(new Error('Failed to parse image result: ' + e.message));
       }
     });
   });
   
-  // Fallback to Gemini if GPT fails
-  if (!pyResult || !pyResult.base64) {
-    console.log('[generateImage] gpt-image-1 returned no image, falling back to Gemini');
-    const result = await aiInstance.models.generateContent({
-      model: CONFIG.imageModel,
-      contents: [{ role: 'user', parts }],
-      config: { responseModalities: ['TEXT', 'IMAGE'], temperature: 0.8 },
-    });
-    let imageData = null, textResponse = '';
-    for (const part of (result.candidates?.[0]?.content?.parts || [])) {
-      if (part.inlineData) imageData = { base64: part.inlineData.data, mimeType: part.inlineData.mimeType };
-      if (part.text) textResponse = part.text;
-    }
-    if (!imageData) throw new Error('Both gpt-image-1 and Gemini failed to return an image');
-    return { ...imageData, text: textResponse };
-  }
-  
-  return { base64: pyResult.base64, mimeType: pyResult.mimeType || 'image/png', text: '' };
+  return { base64: pyResult.base64, mimeType: pyResult.mimeType || 'image/png', text: '', outputPath: pyResult.outputPath };
 }
 
 // Resize image buffer to target dimensions using sharp
