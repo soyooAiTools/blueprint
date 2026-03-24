@@ -1286,7 +1286,7 @@ handlers.generateStoryboard = function(req, res, body, projectId) {
                   console.error('[generate-storyboard] Retry failed for frame ' + frame.id + ':', retryErr.message);
                 }
                 completed++;
-                res.write('data: ' + JSON.stringify({ type: 'progress', current: completed, total: frames.length + failedIdxs.length, frameId: frame.id, retry: true }) + '\n\n');
+                res.write('data: ' + JSON.stringify({ type: 'progress', current: completed, total: frames.length, frameId: frame.id, retry: true }) + '\n\n');
               })());
             })(failedIdxs[rbi]);
           }
