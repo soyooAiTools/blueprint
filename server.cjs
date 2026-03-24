@@ -318,6 +318,7 @@ function matchRoute(method, pathname) {
 
 // ============ API Handlers ============
 
+var activeGenerations = 0;  // Track ongoing image generations for graceful shutdown
 var handlers = {};
 
 handlers.listProjects = function(req, res) {
@@ -1789,7 +1790,7 @@ server.on('error', function(err) {
     console.error('[FATAL] Port ' + PORT + ' still in use after port-guard. Retrying in 2s...');
     setTimeout(function() {
       server.close();
-      server.listen(PORT);
+server.listen(PORT);
     }, 2000);
     return;
   }
@@ -1799,7 +1800,6 @@ server.on('error', function(err) {
 server.listen(PORT, function() {
   console.log('Blueprint Editor Server running on http://localhost:' + PORT);
 
-var activeGenerations = 0;  // Track ongoing image generations for graceful shutdown
   console.log('  Projects dir: ' + PROJECTS_DIR);
 });
 
