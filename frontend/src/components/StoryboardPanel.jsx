@@ -108,7 +108,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
   const handleImageFiles = useCallback((files) => {
     const MAX_SIZE = 50 * 1024 * 1024;
     const ALLOWED = /\.(png|jpg|jpeg|mp4|avi|html|htm)$/i;
-    const valid = Array.from(files).filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/') || ALLOWED.test(f.name));
+    const valid = Array.from(files).filter((f) => f.type.startsWith('image/') || ALLOWED.test(f.name));
     const oversized = valid.filter(f => f.size > MAX_SIZE);
     const ok = valid.filter(f => f.size <= MAX_SIZE);
     if (oversized.length) showAlert('⚠️ 以下文件超过 50MB 限制，已跳过：\n' + oversized.map(f => f.name + ' (' + (f.size/1024/1024).toFixed(1) + 'MB)').join('\n'));
@@ -642,7 +642,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       <div className="storyboard-input-section">
         <h3 className="storyboard-section-title">📎 上传附件</h3>
         <div className={'sb-upload-zone' + (isBusy ? ' sb-upload-disabled' : '')} onClick={() => !isBusy && imgInputRef.current?.click()}>
-          <input ref={imgInputRef} type="file" accept="image/png,image/jpeg,.avi,.mp4,.html,.htm" multiple style={{ display: 'none' }}
+          <input ref={imgInputRef} type="file" accept="image/png,image/jpeg" multiple style={{ display: 'none' }}
             onChange={(e) => { handleImageFiles(e.target.files); e.target.value = ''; }} disabled={isBusy} />
           <span className="sb-upload-icon">📎</span>
           <span className="sb-upload-text">点击或拖拽上传文件</span>
@@ -961,22 +961,22 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
           </table>
           {/* Bottom Action Bar */}
           <div className="storyboard-bottom-bar">
-            <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-add" onClick={handleAddFrame}>
+            <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-add" style={{ fontSize: 12, padding: "4px 10px" }} onClick={handleAddFrame}>
               ➕ 添加分镜
             </button>
-            <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-clear" onClick={handleClearFrames}>
+            <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-clear" style={{ fontSize: 12, padding: "4px 10px" }} onClick={handleClearFrames}>
               🗑 清空帧
             </button>
-            <button className="storyboard-btn storyboard-bottom-btn generate-storyboard-btn"
+            <button className="storyboard-btn storyboard-bottom-btn generate-storyboard-btn" style={{ fontSize: 12, padding: "4px 10px" }}
               onClick={() => window.open(`./storyboard-preview.html?id=${projectId}`, '_blank')}>
               📄 预览分镜
             </button>
-            <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-pdf"
+            <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-pdf" style={{ fontSize: 12, padding: "4px 10px" }}
               onClick={handleGenerate} disabled={generating || frames.length === 0}
               title={frames.length === 0 ? '请先解析分镜' : '下载分镜 PDF 文件'}>
               {generating ? '⏳ 生成中...' : '📥 下载PDF'}
             </button>
-            <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-convert" onClick={handleConvert}
+            <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-convert" style={{ fontSize: 12, padding: "4px 10px" }} onClick={handleConvert}
               disabled={converting || (hasStoryboard ? false : !generated)} title={!hasStoryboard && !generated ? '请先点击"生成分镜"' : ''}>
               {converting ? '⏳ AI 提取实体中...' : '🗺 转为蓝图(V4)'}
             </button>
