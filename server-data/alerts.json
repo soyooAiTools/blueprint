@@ -316,5 +316,515 @@
     "title": "Gemini API down",
     "detail": "{\"status\":\"timeout\"}",
     "timestamp": "2026-03-23T12:55:07.079Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：原图失败，缩图重试中",
+    "detail": "{\"error\":{\"code\":400,\"message\":\"Unable to process input image. Please retry or report in https://dev",
+    "timestamp": "2026-03-23T14:59:22.012Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析降级：切换到 gemini-2.5-flash",
+    "detail": "{\"error\":{\"code\":400,\"message\":\"Unable to process input image. Please retry or report in https://dev",
+    "timestamp": "2026-03-23T15:00:30.556Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析全部降级失败",
+    "detail": "{\"error\":{\"code\":400,\"message\":\"Unable to process input image. Please retry or report in https://developers.generativeai.google/guide/troubleshooting\",\"status\":\"INVALID_ARGUMENT\"}}",
+    "timestamp": "2026-03-23T15:01:39.481Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析失败",
+    "detail": "{\"error\":{\"code\":400,\"message\":\"Unable to process input image. Please retry or report in https://developers.generativeai.google/guide/troubleshooting\",\"status\":\"INVALID_ARGUMENT\"}}",
+    "timestamp": "2026-03-23T15:01:39.485Z"
+  },
+  {
+    "level": "critical",
+    "title": "API 500",
+    "detail": "{\"error\":\"分镜解析失败: {\\\"error\\\":{\\\"code\\\":400,\\\"message\\\":\\\"Unable to process input image. Please retry or report in https://developers.generativeai.google/guide/troubleshooting\\\",\\\"status\\\":\\\"INVALID_AR",
+    "timestamp": "2026-03-23T15:01:39.488Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：原图失败，缩图重试中",
+    "detail": "{\"error\":{\"code\":400,\"message\":\"Unable to process input image. Please retry or report in https://dev",
+    "timestamp": "2026-03-23T15:25:58.579Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析降级：切换到 gemini-2.5-flash",
+    "detail": "{\"error\":{\"code\":400,\"message\":\"Unable to process input image. Please retry or report in https://dev",
+    "timestamp": "2026-03-23T15:27:06.693Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析全部降级失败",
+    "detail": "{\"error\":{\"code\":400,\"message\":\"Unable to process input image. Please retry or report in https://developers.generativeai.google/guide/troubleshooting\",\"status\":\"INVALID_ARGUMENT\"}}",
+    "timestamp": "2026-03-23T15:28:15.260Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析失败",
+    "detail": "{\"error\":{\"code\":400,\"message\":\"Unable to process input image. Please retry or report in https://developers.generativeai.google/guide/troubleshooting\",\"status\":\"INVALID_ARGUMENT\"}}",
+    "timestamp": "2026-03-23T15:28:15.266Z"
+  },
+  {
+    "level": "critical",
+    "title": "API 500",
+    "detail": "{\"error\":\"分镜解析失败: {\\\"error\\\":{\\\"code\\\":400,\\\"message\\\":\\\"Unable to process input image. Please retry or report in https://developers.generativeai.google/guide/troubleshooting\\\",\\\"status\\\":\\\"INVALID_AR",
+    "timestamp": "2026-03-23T15:28:15.268Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：原图失败，缩图重试中",
+    "detail": "{\"error\":{\"code\":400,\"message\":\"Unable to process input image. Please retry or report in https://dev",
+    "timestamp": "2026-03-23T15:31:49.202Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：原图失败，缩图重试中",
+    "detail": "{\"error\":{\"code\":400,\"message\":\"Unable to process input image. Please retry or report in https://dev",
+    "timestamp": "2026-03-23T15:32:35.539Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析降级：切换到 gemini-2.5-flash",
+    "detail": "{\"error\":{\"code\":400,\"message\":\"Unable to process input image. Please retry or report in https://dev",
+    "timestamp": "2026-03-23T15:33:08.650Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析降级：切换到 gemini-2.5-flash",
+    "detail": "{\"error\":{\"code\":400,\"message\":\"Unable to process input image. Please retry or report in https://dev",
+    "timestamp": "2026-03-23T15:33:41.451Z"
+  },
+  {
+    "level": "warning",
+    "title": "代理不通，正在重启 Mihomo",
+    "detail": "",
+    "timestamp": "2026-03-23T15:33:46.038Z"
+  },
+  {
+    "level": "warning",
+    "title": "代理不通，正在重启 Mihomo",
+    "detail": "",
+    "timestamp": "2026-03-23T15:33:46.057Z"
+  },
+  {
+    "level": "warning",
+    "title": "代理已恢复",
+    "detail": "Mihomo 重启成功",
+    "timestamp": "2026-03-23T15:33:51.391Z"
+  },
+  {
+    "level": "warning",
+    "title": "代理已恢复",
+    "detail": "Mihomo 重启成功",
+    "timestamp": "2026-03-23T15:33:51.479Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析全部降级失败",
+    "detail": "{\"error\":{\"code\":400,\"message\":\"Unable to process input image. Please retry or report in https://developers.generativeai.google/guide/troubleshooting\",\"status\":\"INVALID_ARGUMENT\"}}",
+    "timestamp": "2026-03-23T15:34:22.284Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析失败",
+    "detail": "{\"error\":{\"code\":400,\"message\":\"Unable to process input image. Please retry or report in https://developers.generativeai.google/guide/troubleshooting\",\"status\":\"INVALID_ARGUMENT\"}}",
+    "timestamp": "2026-03-23T15:34:22.287Z"
+  },
+  {
+    "level": "critical",
+    "title": "API 500",
+    "detail": "{\"error\":\"分镜解析失败: {\\\"error\\\":{\\\"code\\\":400,\\\"message\\\":\\\"Unable to process input image. Please retry or report in https://developers.generativeai.google/guide/troubleshooting\\\",\\\"status\\\":\\\"INVALID_AR",
+    "timestamp": "2026-03-23T15:34:22.289Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析全部降级失败",
+    "detail": "{\"error\":{\"code\":400,\"message\":\"Unable to process input image. Please retry or report in https://developers.generativeai.google/guide/troubleshooting\",\"status\":\"INVALID_ARGUMENT\"}}",
+    "timestamp": "2026-03-23T15:34:28.647Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析失败",
+    "detail": "{\"error\":{\"code\":400,\"message\":\"Unable to process input image. Please retry or report in https://developers.generativeai.google/guide/troubleshooting\",\"status\":\"INVALID_ARGUMENT\"}}",
+    "timestamp": "2026-03-23T15:34:28.649Z"
+  },
+  {
+    "level": "critical",
+    "title": "API 500",
+    "detail": "{\"error\":\"分镜解析失败: {\\\"error\\\":{\\\"code\\\":400,\\\"message\\\":\\\"Unable to process input image. Please retry or report in https://developers.generativeai.google/guide/troubleshooting\\\",\\\"status\\\":\\\"INVALID_AR",
+    "timestamp": "2026-03-23T15:34:28.649Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：原图失败，缩图重试中",
+    "detail": "fetch failed",
+    "timestamp": "2026-03-23T15:53:44.822Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"timeout\"}",
+    "timestamp": "2026-03-23T15:53:51.445Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"timeout\"}",
+    "timestamp": "2026-03-23T15:54:21.434Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"timeout\"}",
+    "timestamp": "2026-03-23T15:54:51.426Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"timeout\"}",
+    "timestamp": "2026-03-23T15:55:19.801Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"timeout\"}",
+    "timestamp": "2026-03-23T15:55:21.361Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"timeout\"}",
+    "timestamp": "2026-03-23T15:55:51.364Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"timeout\"}",
+    "timestamp": "2026-03-23T15:56:21.358Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"timeout\"}",
+    "timestamp": "2026-03-23T15:56:42.965Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"timeout\"}",
+    "timestamp": "2026-03-23T15:57:13.501Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"timeout\"}",
+    "timestamp": "2026-03-23T15:57:14.135Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"timeout\"}",
+    "timestamp": "2026-03-23T15:57:44.934Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"timeout\"}",
+    "timestamp": "2026-03-23T15:58:14.928Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析降级：切换到 gemini-2.5-flash",
+    "detail": "fetch failed",
+    "timestamp": "2026-03-23T15:58:16.643Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"timeout\"}",
+    "timestamp": "2026-03-23T15:58:44.933Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"timeout\"}",
+    "timestamp": "2026-03-23T15:59:14.930Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"timeout\"}",
+    "timestamp": "2026-03-23T15:59:44.924Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"timeout\"}",
+    "timestamp": "2026-03-23T16:00:14.924Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"timeout\"}",
+    "timestamp": "2026-03-23T16:00:44.920Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"timeout\"}",
+    "timestamp": "2026-03-23T16:01:14.923Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"timeout\"}",
+    "timestamp": "2026-03-23T16:01:44.924Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-23T16:05:43.249Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-23T16:06:01.767Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-23T16:06:31.989Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-23T16:07:01.721Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-23T16:07:31.816Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-23T16:08:01.748Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：flash 失败，尝试 pro 模型",
+    "detail": "Gemini API timeout (30s)",
+    "timestamp": "2026-03-23T16:44:20.807Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析降级：缩图 + flash 重试",
+    "detail": "Gemini API timeout (45s)",
+    "timestamp": "2026-03-23T16:45:54.271Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析全部降级失败",
+    "detail": "Gemini API timeout (30s)",
+    "timestamp": "2026-03-23T16:46:57.672Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析失败",
+    "detail": "Gemini API timeout (30s)",
+    "timestamp": "2026-03-23T16:46:57.676Z"
+  },
+  {
+    "level": "critical",
+    "title": "API 500",
+    "detail": "{\"error\":\"分镜解析失败: Gemini API timeout (30s)\"}",
+    "timestamp": "2026-03-23T16:46:57.678Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：flash 失败，尝试 pro 模型",
+    "detail": "Gemini API timeout (30s)",
+    "timestamp": "2026-03-23T16:48:27.910Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析降级：缩图 + flash 重试",
+    "detail": "Gemini API timeout (45s)",
+    "timestamp": "2026-03-23T16:50:01.478Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析全部降级失败",
+    "detail": "fetch failed",
+    "timestamp": "2026-03-23T16:50:45.886Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析失败",
+    "detail": "fetch failed",
+    "timestamp": "2026-03-23T16:50:45.888Z"
+  },
+  {
+    "level": "critical",
+    "title": "API 500",
+    "detail": "{\"error\":\"分镜解析失败: fetch failed\"}",
+    "timestamp": "2026-03-23T16:50:45.888Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：pro 失败，尝试 flash 模型",
+    "detail": "Gemini API timeout (45s)",
+    "timestamp": "2026-03-24T02:39:40.544Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析降级：缩图 + flash 重试",
+    "detail": "Gemini API timeout (30s)",
+    "timestamp": "2026-03-24T02:40:44.061Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析全部降级失败",
+    "detail": "Gemini API timeout (30s)",
+    "timestamp": "2026-03-24T02:41:47.362Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析失败",
+    "detail": "Gemini API timeout (30s)",
+    "timestamp": "2026-03-24T02:41:47.366Z"
+  },
+  {
+    "level": "critical",
+    "title": "API 500",
+    "detail": "{\"error\":\"分镜解析失败: Gemini API timeout (30s)\"}",
+    "timestamp": "2026-03-24T02:41:47.368Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：pro 失败，尝试 flash 模型",
+    "detail": "Gemini API timeout (45s)",
+    "timestamp": "2026-03-24T02:47:59.695Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析降级：缩图 + flash 重试",
+    "detail": "Gemini API timeout (30s)",
+    "timestamp": "2026-03-24T02:49:03.098Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析全部降级失败",
+    "detail": "Gemini API timeout (30s)",
+    "timestamp": "2026-03-24T02:50:06.512Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析失败",
+    "detail": "Gemini API timeout (30s)",
+    "timestamp": "2026-03-24T02:50:06.516Z"
+  },
+  {
+    "level": "critical",
+    "title": "API 500",
+    "detail": "{\"error\":\"分镜解析失败: Gemini API timeout (30s)\"}",
+    "timestamp": "2026-03-24T02:50:06.519Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：pro 失败，尝试 flash 模型",
+    "detail": "Gemini API timeout (90s)",
+    "timestamp": "2026-03-24T02:56:57.295Z"
+  },
+  {
+    "level": "warning",
+    "title": "代理不通，正在重启 Mihomo",
+    "detail": "",
+    "timestamp": "2026-03-24T02:57:47.310Z"
+  },
+  {
+    "level": "warning",
+    "title": "代理已恢复",
+    "detail": "Mihomo 重启成功",
+    "timestamp": "2026-03-24T02:57:52.680Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析降级：缩图 + flash 重试",
+    "detail": "Gemini API timeout (45s)",
+    "timestamp": "2026-03-24T02:58:40.682Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析全部降级失败",
+    "detail": "Gemini API timeout (45s)",
+    "timestamp": "2026-03-24T03:00:14.012Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析失败",
+    "detail": "Gemini API timeout (45s)",
+    "timestamp": "2026-03-24T03:00:14.016Z"
+  },
+  {
+    "level": "critical",
+    "title": "API 500",
+    "detail": "{\"error\":\"分镜解析失败: Gemini API timeout (45s)\"}",
+    "timestamp": "2026-03-24T03:00:14.018Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：pro 失败，尝试 flash 模型",
+    "detail": "Gemini API timeout (90s)",
+    "timestamp": "2026-03-24T03:10:09.472Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：pro 失败，尝试 flash 模型",
+    "detail": "Gemini API timeout (90s)",
+    "timestamp": "2026-03-24T03:15:19.105Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析降级：缩图 + flash 重试",
+    "detail": "Gemini API timeout (45s)",
+    "timestamp": "2026-03-24T03:16:52.442Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析全部降级失败",
+    "detail": "Gemini API timeout (45s)",
+    "timestamp": "2026-03-24T03:18:25.804Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析失败",
+    "detail": "Gemini API timeout (45s)",
+    "timestamp": "2026-03-24T03:18:25.807Z"
+  },
+  {
+    "level": "critical",
+    "title": "API 500",
+    "detail": "{\"error\":\"分镜解析失败: Gemini API timeout (45s)\"}",
+    "timestamp": "2026-03-24T03:18:25.810Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：pro 失败，尝试 flash 模型",
+    "detail": "fetch failed",
+    "timestamp": "2026-03-24T03:30:44.843Z"
   }
 ]

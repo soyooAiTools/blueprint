@@ -67,7 +67,7 @@ export default function TopBar({
 
   const handleSubmit = async () => {
     if (!shotCount || shotCount === 0) {
-      await showAlert('蓝图为空，请先添加镜头节点再提交');
+      await showAlert('蓝图为空，请先添加实体或镜头节点再提交');
       return;
     }
     if (await showConfirm('确认提交给 Coding Agent 开发？')) {

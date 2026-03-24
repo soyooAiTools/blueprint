@@ -26,7 +26,6 @@ import TaskPanel from './components/TaskPanel';
 import StoryboardPanel from './components/StoryboardPanel';
 import SpecReviewPanel from './components/SpecReviewPanel';
 import { ModalProviderWithContext, useModal } from './components/ModalProvider';
-import shot1Preset from './presets/shot1';
 import { exportToJSON, downloadJSON } from './utils/export';
 import { importFromJSON, readFileAsJSON } from './utils/import';
 import {
@@ -608,7 +607,7 @@ function FlowEditor({ project, onBack, initialTab }) {
         onSubmit={handleSubmit}
         onApprove={handleApprove}
         onFeedback={handleFeedback}
-        shotCount={nodes.filter((n) => n.type === 'shotNode').length}
+        shotCount={nodes.filter((n) => n.type === 'shotNode' || n.type === 'entityNode').length}
       />
       <div className="app-tabs">
         <button

@@ -169,14 +169,8 @@ function alert(level, title, detail) {
   }
   console.log(`[notify] ${level === 'critical' ? '🔴' : '🟡'} ${title}: ${(detail || '').substring(0, 100)}`);
 
-  // Auto-repair: send critical alerts to monitoring group via App API
-  // This triggers OpenClaw agent which will SSH back and auto-diagnose/fix
-  if (level === 'critical') {
-    const autoRepairMsg = `🤖 [AUTO-REPAIR REQUEST]\nLevel: ${level}\nError: ${title}\nDetail: ${(detail || '').substring(0, 300)}\nTimestamp: ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\n\n请自动诊断并修复此问题。`;
-    sendAppApiMessage(MONITOR_CHAT_ID, autoRepairMsg).catch(e => {
-      console.error('[notify] Auto-repair trigger failed:', e.message);
-    });
-  }
+  // Auto-repair to monitoring group DISABLED (Nick requested 2026-03-24)
+  // if (level === 'critical') { ... }
 }
 
 /**

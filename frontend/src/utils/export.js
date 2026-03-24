@@ -1,26 +1,68 @@
 import JSZip from 'jszip';
 
 export function exportToJSON(projectName, nodes, edges, extra) {
-  const shotNodes = nodes.filter((n) => n.type === 'shotNode');
+  // V4: entity-driven export
+  const entityNodes = nodes.filter((n) => n.type === 'entityNode');
+  const phaseNodes = nodes.filter((n) => n.type === 'phaseNode');
   const noteNodes = nodes.filter((n) => n.type === 'noteNode');
 
-  // Build old→new ID mapping (sequential: shot_1, shot_2, ...)
-  const idMap = {};
-  shotNodes.forEach((node, i) => {
-    idMap[node.id] = `shot_${i + 1}`;
-  });
-  noteNodes.forEach((node, i) => {
-    idMap[node.id] = `note_${i + 1}`;
-  });
+  // Legacy V3 shotNodes (backward compat)
+  const shotNodes = nodes.filter((n) => n.type === 'shotNode');
 
-  // Collect all model files for zip
+  const isV4 = entityNodes.length > 0 || (extra && extra.entities && extra.entities.length > 0);
+
   const modelFiles = [];
+
+  if (isV4) {
+    // V4 export
+    const entities = (extra && extra.entities) || entityNodes.map((n) => ({
+      name: n.data.name || n.id,
+      label: n.data.label || '',
+      template: n.data.template || 'Static',
+      visual: n.data.visual || {},
+      spawn: n.data.spawn || {},
+      trigger: n.data.trigger || {},
+      actions: n.data.actions || [],
+      behavior: n.data.behavior || {},
+    }));
+
+    const phases = phaseNodes.map((n, i) => ({
+      id: n.data.id || i + 1,
+      name: n.data.name || `Phase ${i + 1}`,
+      activate: n.data.activate || [],
+      endCondition: n.data.endCondition || '',
+      guide: n.data.guide || '',
+      camera: n.data.camera || {},
+    }));
+
+    const annotations = noteNodes.map((node) => ({
+      id: node.id,
+      text: node.data.text || '',
+      x: node.position.x,
+      y: node.position.y,
+    }));
+
+    const json = {
+      version: 4,
+      project: projectName,
+      entities,
+      phases,
+      annotations,
+      globalSettings: (extra && extra.globalSettings) || {},
+      globalParams: (extra && extra.globalParams) || {},
+    };
+
+    return { json, modelFiles };
+  }
+
+  // Legacy V3 export
+  const idMap = {};
+  shotNodes.forEach((node, i) => { idMap[node.id] = `shot_${i + 1}`; });
+  noteNodes.forEach((node, i) => { idMap[node.id] = `note_${i + 1}`; });
 
   const shots = shotNodes.map((node) => {
     const outEdges = edges.filter((e) => e.source === node.id);
     const shotId = idMap[node.id];
-
-    // Process models: strip base64 data, save references
     let modelRefs;
     if (node.data.models && node.data.models.length > 0) {
       modelRefs = node.data.models.map((m) => {
@@ -29,7 +71,6 @@ export function exportToJSON(projectName, nodes, edges, extra) {
         return { name: m.name, path };
       });
     }
-
     return {
       id: shotId,
       name: node.data.name || '',
@@ -40,16 +81,6 @@ export function exportToJSON(projectName, nodes, edges, extra) {
       behavior: node.data.behavior || '',
       entryCondition: node.data.entryCondition || '',
       endCondition: node.data.endCondition || '',
-      branch: node.data.branchCondition ? {
-        condition: node.data.branchCondition,
-        ifTrue: node.data.branchTrue || '',
-        ifFalse: node.data.branchFalse || '',
-      } : null,
-      branch2: node.data.branchCondition2 ? {
-        condition: node.data.branchCondition2,
-        ifTrue: node.data.branchTrue2 || '',
-        ifFalse: node.data.branchFalse2 || '',
-      } : null,
       images: (node.data.images && node.data.images.length > 0) ? node.data.images : undefined,
       models: modelRefs || undefined,
     };
@@ -75,15 +106,10 @@ export function exportToJSON(projectName, nodes, edges, extra) {
 
 export function downloadJSON(data, filename) {
   const { json, modelFiles } = data;
-
   if (modelFiles && modelFiles.length > 0) {
-    // Export as zip with JSON + model files
     downloadZip(json, modelFiles, filename);
   } else {
-    // No models, export plain JSON
-    const blob = new Blob([JSON.stringify(json, null, 2)], {
-      type: 'application/json',
-    });
+    const blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -95,19 +121,11 @@ export function downloadJSON(data, filename) {
 
 function downloadZip(json, modelFiles, filename) {
   const zip = new JSZip();
-
-  // Add JSON
   zip.file('blueprint.json', JSON.stringify(json, null, 2));
-
-  // Add model files
   for (const mf of modelFiles) {
-    // mf.data is a data URL like "data:application/octet-stream;base64,..."
     const base64 = mf.data.split(',')[1];
-    if (base64) {
-      zip.file(mf.path, base64, { base64: true });
-    }
+    if (base64) zip.file(mf.path, base64, { base64: true });
   }
-
   zip.generateAsync({ type: 'blob' }).then((blob) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
