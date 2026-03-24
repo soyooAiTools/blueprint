@@ -1,20 +1,18 @@
 import { useState } from 'react';
 
 export default function TaskPanel({ nodes, onUpdateNode, feedbackSubmitted }) {
-  const shotNodes = nodes.filter((n) => n.type === 'shotNode');
+  const entityNodes = nodes.filter((n) => n.type === 'entityNode' || n.type === 'phaseNode');
   const [expandedId, setExpandedId] = useState(null);
   const [showPicker, setShowPicker] = useState(false);
 
-  // feedbackShotIds: which shots are in the feedback list
-  // Stored as a set of node IDs in each shot's data.inFeedbackList
-  const feedbackShots = shotNodes.filter((n) => n.data.inFeedbackList);
+  const feedbackNodes = entityNodes.filter((n) => n.data.inFeedbackList);
 
-  const addShotToFeedback = (nodeId) => {
+  const addToFeedback = (nodeId) => {
     onUpdateNode(nodeId, { inFeedbackList: true });
     setShowPicker(false);
   };
 
-  const removeShotFromFeedback = (nodeId) => {
+  const removeFromFeedback = (nodeId) => {
     onUpdateNode(nodeId, { inFeedbackList: false });
     if (expandedId === nodeId) setExpandedId(null);
   };
@@ -45,27 +43,23 @@ export default function TaskPanel({ nodes, onUpdateNode, feedbackSubmitted }) {
     updateRevisions(nodeId, newRevs);
   };
 
-  // Export feedback-only JSON
   const exportFeedbackJSON = () => {
     const feedbackData = {
       type: 'feedback',
+      version: 4,
       exportedAt: new Date().toISOString(),
-      shots: [],
+      items: [],
     };
 
-    feedbackShots.forEach((node) => {
-      const idx = shotNodes.indexOf(node);
+    feedbackNodes.forEach((node) => {
       const pending = (node.data.revisions || []).filter((r) => r.status === 'pending');
       if (pending.length === 0) return;
 
-      feedbackData.shots.push({
-        shotId: 'shot_' + (idx + 1),
-        shotName: node.data.name || node.data.label || '镜头' + (idx + 1),
-        context: {
-          scene: node.data.scene || '',
-          behavior: node.data.behavior || '',
-          controlMethod: node.data.controlMethod || '',
-        },
+      feedbackData.items.push({
+        entityId: node.data.name || node.id,
+        entityLabel: node.data.label || node.data.name || node.id,
+        type: node.type === 'phaseNode' ? 'phase' : 'entity',
+        template: node.data.template || '',
         feedback: pending.map((r) => ({
           type: r.type,
           priority: r.priority,
@@ -74,7 +68,7 @@ export default function TaskPanel({ nodes, onUpdateNode, feedbackSubmitted }) {
       });
     });
 
-    if (feedbackData.shots.length === 0) {
+    if (feedbackData.items.length === 0) {
       alert('没有待修的反馈指令');
       return;
     }
@@ -88,7 +82,7 @@ export default function TaskPanel({ nodes, onUpdateNode, feedbackSubmitted }) {
     URL.revokeObjectURL(url);
   };
 
-  const pendingCount = feedbackShots.reduce((sum, n) =>
+  const pendingCount = feedbackNodes.reduce((sum, n) =>
     sum + (n.data.revisions || []).filter((r) => r.status === 'pending').length, 0);
 
   const truncate = (text, max = 60) => {
@@ -96,57 +90,51 @@ export default function TaskPanel({ nodes, onUpdateNode, feedbackSubmitted }) {
     return text.length > max ? text.slice(0, max) + '…' : text;
   };
 
-  // Shots not yet in feedback list
-  const availableShots = shotNodes.filter((n) => !n.data.inFeedbackList);
+  const availableNodes = entityNodes.filter((n) => !n.data.inFeedbackList);
 
   return (
     <div className="task-panel">
       <div className="task-panel-header">
         <div>
-          <h2>💬 镜头反馈</h2>
-          <div className="task-panel-desc">选择需要反馈的镜头，添加修改指令，导出后 Coding Agent 只关注增量部分</div>
+          <h2>💬 实体反馈</h2>
+          <div className="task-panel-desc">选择需要反馈的实体或阶段，添加修改指令</div>
         </div>
-
       </div>
 
-      {/* Feedback shot list */}
       <div className="task-list">
-        {feedbackShots.length === 0 && (
+        {feedbackNodes.length === 0 && (
           <div className="task-list-empty">
             <div className="task-empty-icon">💬</div>
-            <div className="task-empty-text">暂无反馈镜头</div>
-            <div className="task-empty-hint">点击下方「+ 添加镜头」选择要反馈的镜头</div>
+            <div className="task-empty-text">暂无反馈</div>
+            <div className="task-empty-hint">点击下方「+ 添加实体」选择要反馈的实体</div>
           </div>
         )}
 
-        {feedbackShots.map((node) => {
+        {feedbackNodes.map((node) => {
           const d = node.data;
-          const idx = shotNodes.indexOf(node);
           const revisions = d.revisions || [];
           const pending = revisions.filter((r) => r.status === 'pending').length;
           const done = revisions.filter((r) => r.status === 'done').length;
           const isExpanded = expandedId === node.id;
-          // Check if all revisions are already submitted (all done, none pending)
           const allSubmitted = feedbackSubmitted && revisions.length > 0 && pending === 0;
+          const icon = node.type === 'phaseNode' ? '🔄' : '📦';
 
           return (
             <div key={node.id} className={`task-card ${isExpanded ? 'task-card-expanded' : ''}${allSubmitted ? ' task-card-submitted' : ''}`}>
               <div className="task-card-header" onClick={() => setExpandedId(isExpanded ? null : node.id)}>
                 <div className="task-card-left">
-                  <span className="task-card-index">#{idx + 1}</span>
-                  <span className="task-card-name">{d.name || d.label || '未命名镜头'}</span>
+                  <span className="task-card-index">{icon}</span>
+                  <span className="task-card-name">{d.label || d.name || node.id}</span>
+                  {d.template && <span className="task-card-scene">{d.template}</span>}
                   {allSubmitted && <span className="task-submitted-badge">✅ 已提交</span>}
-                  {d.scene && <span className="task-card-scene">{truncate(d.scene)}</span>}
                 </div>
                 <div className="task-card-right">
                   {pending > 0 && <span className="task-mini-badge task-mini-pending">{pending}</span>}
                   {done > 0 && <span className="task-mini-badge task-mini-done">{done}</span>}
                   {!allSubmitted && (
-                    <button
-                      className="task-card-remove-btn"
-                      onClick={(e) => { e.stopPropagation(); removeShotFromFeedback(node.id); }}
-                      title="从反馈列表移除"
-                    >✕</button>
+                    <button className="task-card-remove-btn"
+                      onClick={(e) => { e.stopPropagation(); removeFromFeedback(node.id); }}
+                      title="从反馈列表移除">✕</button>
                   )}
                   <span className="task-expand-icon">{isExpanded ? '▾' : '▸'}</span>
                 </div>
@@ -157,7 +145,6 @@ export default function TaskPanel({ nodes, onUpdateNode, feedbackSubmitted }) {
                   {revisions.length === 0 && (
                     <div className="task-rev-empty">暂无反馈，点击下方按钮添加</div>
                   )}
-
                   {revisions.map((rev, ri) => {
                     const isSubmitted = rev.status === 'done' && allSubmitted;
                     return (
@@ -204,7 +191,6 @@ export default function TaskPanel({ nodes, onUpdateNode, feedbackSubmitted }) {
                       </div>
                     );
                   })}
-
                   {!allSubmitted && (
                     <button className="task-add-rev-btn" onClick={() => addFeedback(node.id, revisions)}>
                       + 添加反馈
@@ -217,19 +203,18 @@ export default function TaskPanel({ nodes, onUpdateNode, feedbackSubmitted }) {
         })}
       </div>
 
-      {/* Add shot picker */}
       {showPicker ? (
         <div className="task-picker">
-          <div className="task-picker-title">选择要反馈的镜头：</div>
-          {availableShots.length === 0 ? (
-            <div className="task-picker-empty">所有镜头都已在反馈列表中</div>
+          <div className="task-picker-title">选择要反馈的实体/阶段：</div>
+          {availableNodes.length === 0 ? (
+            <div className="task-picker-empty">所有实体都已在反馈列表中</div>
           ) : (
-            availableShots.map((node) => {
-              const idx = shotNodes.indexOf(node);
+            availableNodes.map((node) => {
+              const icon = node.type === 'phaseNode' ? '🔄' : '📦';
               return (
-                <div key={node.id} className="task-picker-item" onClick={() => addShotToFeedback(node.id)}>
-                  <span className="task-card-index">#{idx + 1}</span>
-                  <span className="task-card-name">{node.data.name || node.data.label || '未命名镜头'}</span>
+                <div key={node.id} className="task-picker-item" onClick={() => addToFeedback(node.id)}>
+                  <span className="task-card-index">{icon}</span>
+                  <span className="task-card-name">{node.data.label || node.data.name || node.id}</span>
                 </div>
               );
             })
@@ -238,7 +223,7 @@ export default function TaskPanel({ nodes, onUpdateNode, feedbackSubmitted }) {
         </div>
       ) : (
         <button className="task-add-shot-btn" onClick={() => setShowPicker(true)}>
-          + 添加镜头
+          + 添加实体
         </button>
       )}
     </div>

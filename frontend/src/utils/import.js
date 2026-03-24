@@ -12,7 +12,7 @@ function buildNodesFromJSON(json, modelDataMap) {
   let globalSettings = {};
 
   // V4: entity-driven import
-  if (json.version === 4 || (json.entities && json.entities.length > 0)) {
+  {
     entities = json.entities || [];
     phases = json.phases || [];
     globalSettings = json.globalSettings || {};
@@ -50,72 +50,7 @@ function buildNodesFromJSON(json, modelDataMap) {
     return { nodes, edges, entities, phases, globalSettings, projectName: json.project || '未命名项目' };
   }
 
-  // Legacy V3: shot-based import
-  if (json.shots) {
-    json.shots.forEach((shot, index) => {
-      let models = [];
-      if (shot.models && shot.models.length > 0) {
-        models = shot.models.map((m) => ({
-          name: m.name,
-          size: modelDataMap[m.path] ? modelDataMap[m.path].length : 0,
-          data: modelDataMap[m.path] || '',
-        }));
-      }
 
-      nodes.push({
-        id: shot.id,
-        type: 'shotNode',
-        position: { x: 300, y: index * 400 + 50 },
-        data: {
-          label: shot.id.replace('shot_', '镜头'),
-          name: shot.name || '',
-          scene: shot.scene || '',
-          controlTarget: shot.controlTarget || '',
-          controlMethod: shot.controlMethod || '',
-          triggers: shot.triggers || '',
-          behavior: shot.behavior || '',
-          entryCondition: shot.entryCondition || '',
-          endCondition: shot.endCondition || '',
-          images: shot.images || [],
-          models: models.length > 0 ? models : [],
-        },
-      });
-
-      if (shot.transitions) {
-        shot.transitions.forEach((t, ti) => {
-          edges.push({
-            id: `e-${shot.id}-${t.target}-${ti}`,
-            source: shot.id,
-            target: t.target,
-            type: 'smoothstep',
-            animated: true,
-            style: { stroke: 'rgba(255,255,255,0.5)', strokeWidth: 2 },
-            markerEnd: { type: 'arrowclosed', color: 'rgba(255,255,255,0.5)' },
-            ...(t.condition ? {
-              label: t.condition,
-              labelStyle: { fill: '#fff', fontWeight: 700, fontSize: 12 },
-              labelBgStyle: { fill: '#f59e0b', fillOpacity: 0.9 },
-              labelBgPadding: [6, 4],
-              labelBgBorderRadius: 4,
-            } : {}),
-          });
-        });
-      }
-    });
-  }
-
-  if (json.annotations) {
-    json.annotations.forEach((ann) => {
-      nodes.push({
-        id: ann.id,
-        type: 'noteNode',
-        position: { x: ann.x, y: ann.y },
-        data: { text: ann.text || '' },
-      });
-    });
-  }
-
-  return { nodes, edges, projectName: json.project || '未命名项目' };
 }
 
 export async function readFileAsJSON(file) {

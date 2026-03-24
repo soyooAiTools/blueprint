@@ -14,7 +14,6 @@ import '@xyflow/react/dist/style.css';
 
 import Login from './components/Login';
 import ProjectList from './components/ProjectList';
-import ShotNode from './components/ShotNode';
 import PhaseNode from './components/PhaseNode';
 import EntityNode from './components/EntityNode';
 import JoinNode from './components/JoinNode';
@@ -39,7 +38,6 @@ import {
 } from './utils/api';
 
 const nodeTypes = {
-  shotNode: ShotNode,
   phaseNode: PhaseNode,
   entityNode: EntityNode,
   joinNode: JoinNode,
@@ -206,7 +204,7 @@ function FlowEditor({ project, onBack, initialTab }) {
   
   const [webglInfo, setWebglInfo] = useState(null);
   const reactFlowInstance = useReactFlow();
-  const shotCountRef = useRef((project.nodes || []).filter((n) => n.type === 'shotNode').length || 1);
+  const entityCountRef = useRef((project.entities || []).length || (project.nodes || []).filter((n) => n.type === 'entityNode').length || 1);
   const autoSaveRef = useRef(null);
   const { showAlert, showConfirm, showPrompt } = useModal();
 
@@ -240,15 +238,6 @@ function FlowEditor({ project, onBack, initialTab }) {
       setTimeout(() => {
         reactFlowInstance.fitView({ padding: 0.2 });
       }, 100);
-    } else if (newNodes && newEdges) {
-      // Legacy V3 path (fallback)
-      setNodes((nds) => [...nds, ...newNodes]);
-      setEdges((eds) => [...eds, ...newEdges]);
-      shotCountRef.current += newNodes.filter((n) => n.type === 'shotNode').length;
-      setActiveTab('blueprint');
-      setTimeout(() => {
-        reactFlowInstance.fitView({ padding: 0.2 });
-      }, 100);
     }
   }, [setNodes, setEdges, setEntities, reactFlowInstance]);
 
@@ -261,7 +250,7 @@ function FlowEditor({ project, onBack, initialTab }) {
           setFeedbackHistory(p.feedbackHistory);
           // Mark existing revisions as done if feedback was already submitted
           setNodes((nds) => nds.map((n) => {
-            if (n.type === 'shotNode' && n.data.inFeedbackList && n.data.revisions) {
+            if (n.data.inFeedbackList && n.data.revisions) {
               const updatedRevs = n.data.revisions.map((r) =>
                 r.status === 'pending' ? { ...r, status: 'done' } : r
               );
@@ -355,7 +344,7 @@ function FlowEditor({ project, onBack, initialTab }) {
         });
         // Check if any shot has pending revisions → enable feedback button
         const hasPending = newNds.some((n) =>
-          n.type === 'shotNode' && n.data.inFeedbackList &&
+          n.data.inFeedbackList &&
           (n.data.revisions || []).some((r) => r.status === 'pending' && r.instruction && r.instruction.trim())
         );
         setHasPendingFeedback(hasPending);
@@ -424,14 +413,14 @@ function FlowEditor({ project, onBack, initialTab }) {
   }, [reactFlowInstance]);
 
   const onAddShot = useCallback(() => {
-    shotCountRef.current += 1;
+    entityCountRef.current += 1;
     const pos = getViewportCenter();
-    const newNode = isV4 ? {
+    const newNode = {
       id: getNextId('entity'),
       type: 'entityNode',
       position: { x: pos.x + Math.random() * 60 - 30, y: pos.y + Math.random() * 60 - 30 },
       data: {
-        name: `Entity_${shotCountRef.current}`,
+        name: `Entity_${entityCountRef.current}`,
         label: '',
         template: 'Static',
         visual: { shape: 'Cube', scale: '1×1×1', color: '(0.5,0.5,0.5)', position: '(0,0,0)' },
@@ -439,22 +428,9 @@ function FlowEditor({ project, onBack, initialTab }) {
         behavior: {},
         trigger: { type: 'none' },
       },
-    } : {
-      id: getNextId('shot'),
-      type: 'shotNode',
-      position: { x: pos.x + Math.random() * 60 - 30, y: pos.y + Math.random() * 60 - 30 },
-      data: {
-        label: `镜头${shotCountRef.current}`,
-        name: '',
-        scene: '',
-        controlTarget: '',
-        controlMethod: '',
-        triggers: '',
-        endCondition: '',
-      },
     };
     setNodes((nds) => [...nds, newNode]);
-  }, [setNodes, getViewportCenter, isV4]);
+  }, [setNodes, getViewportCenter]);
 
   const onAddJoin = useCallback(() => {
     const pos = getViewportCenter();
@@ -490,7 +466,7 @@ function FlowEditor({ project, onBack, initialTab }) {
       if (tpl.name) {
         setProjectName(tpl.name);
       }
-      shotCountRef.current = (tpl.nodes || []).filter((n) => n.type === 'shotNode').length;
+      entityCountRef.current = (tpl.entities || []).length || (tpl.nodes || []).filter((n) => n.type === 'entityNode').length;
       setTimeout(() => {
         reactFlowInstance.fitView({ padding: 0.2 });
       }, 50);
@@ -578,7 +554,7 @@ function FlowEditor({ project, onBack, initialTab }) {
       else setFeedbackHistory((prev) => [...prev, { text, timestamp: new Date().toISOString() }]);
       // Mark all pending revisions in TaskPanel as done
       setNodes((nds) => nds.map((n) => {
-        if (n.type === 'shotNode' && n.data.inFeedbackList && n.data.revisions) {
+        if (n.data.inFeedbackList && n.data.revisions) {
           const updatedRevs = n.data.revisions.map((r) =>
             r.status === 'pending' ? { ...r, status: 'done' } : r
           );
@@ -607,7 +583,7 @@ function FlowEditor({ project, onBack, initialTab }) {
         onSubmit={handleSubmit}
         onApprove={handleApprove}
         onFeedback={handleFeedback}
-        shotCount={nodes.filter((n) => n.type === 'shotNode' || n.type === 'entityNode').length}
+        shotCount={nodes.filter((n) => n.type === 'entityNode' || n.type === 'phaseNode').length}
       />
       <div className="app-tabs">
         <button
@@ -653,7 +629,6 @@ function FlowEditor({ project, onBack, initialTab }) {
             <div className="canvas-container">
               <ReactFlow
                 nodes={nodes.map(n => {
-                  if (n.type === 'shotNode') return { ...n, data: { ...n.data, _objectRegistry: objectRegistry } };
                   if (n.type === 'phaseNode') return { ...n, data: { ...n.data, _entities: entities } };
                   return n;
                 })}
