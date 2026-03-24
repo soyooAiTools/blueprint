@@ -952,5 +952,47 @@
     "title": "API 500",
     "detail": "{\"error\":\"分镜解析失败: fetch failed\"}",
     "timestamp": "2026-03-24T07:23:54.193Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：pro 失败，尝试 flash 模型",
+    "detail": "Gemini API timeout (60s)",
+    "timestamp": "2026-03-24T07:36:36.245Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析降级：缩图 + flash 重试",
+    "detail": "Gemini API timeout (45s)",
+    "timestamp": "2026-03-24T07:38:08.852Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析全部降级失败",
+    "detail": "Gemini API timeout (45s)",
+    "timestamp": "2026-03-24T07:39:41.324Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析失败",
+    "detail": "Gemini API timeout (45s)",
+    "timestamp": "2026-03-24T07:39:41.326Z"
+  },
+  {
+    "level": "critical",
+    "title": "API 500",
+    "detail": "{\"error\":\"分镜解析失败: Gemini API timeout (45s)\"}",
+    "timestamp": "2026-03-24T07:39:41.327Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：pro 失败，尝试 flash 模型",
+    "detail": "Gemini API timeout (60s)",
+    "timestamp": "2026-03-24T07:41:01.422Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析降级：缩图 + flash 重试",
+    "detail": "Gemini API timeout (45s)",
+    "timestamp": "2026-03-24T07:42:34.030Z"
   }
 ]

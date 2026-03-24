@@ -313,7 +313,7 @@ ${style ? `9. 额外风格要求：${style}` : ''}
           cfg.thinkingConfig = { thinkingBudget };
         }
         // Add timeout to prevent hanging on slow/unresponsive models
-        const timeoutMs = thinkingBudget > 0 ? 60000 : 45000;
+        const timeoutMs = thinkingBudget > 0 ? 120000 : 90000;
         const result = await Promise.race([
           ai.models.generateContent({
             model,
