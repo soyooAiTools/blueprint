@@ -404,6 +404,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       const parsedFrames = Array.isArray(data) ? data : data.frames || [];
       const newFrames = parsedFrames.map((f) => ({ ...f, imageUrl: f.imageUrl || null }));
       setFrames(newFrames);
+      setGenerated(true);
       finishProgress();
       // Auto-generate images for frames without images
       const needImages = newFrames.filter(f => !f.imageUrl);
