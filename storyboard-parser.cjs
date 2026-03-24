@@ -895,37 +895,45 @@ async function normalizeImageSize(buffer, orientation) {
   return sharp(buffer).resize(targetW, targetH, { fit: 'cover' }).jpeg({ quality: 90 }).toBuffer();
 }
 
-async function generateFrameImages(frames, outputDir, onProgress, { concurrency = 4 } = {}) {
+async function generateFrameImages(frames, outputDir, onProgress, { concurrency = 1 } = {}) {
   if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
   const results = new Array(frames.length);
   let completed = 0;
+  let prevImagePath = null;
 
-  // Process frames with concurrency limit
-  async function worker(startIdx) {
-    for (let i = startIdx; i < frames.length; i += concurrency) {
-      const frame = frames[i];
-      try {
-        const { base64, mimeType } = await generateImage(frame.prompt);
-        const ext = mimeType.includes('png') ? '.png' : '.jpg';
-        const filename = frame.id + ext;
-        const filePath = path.join(outputDir, filename);
-        fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
-        results[i] = { id: frame.id, imagePath: filePath, filename };
-        console.log('[StoryboardParser] Generated image for ' + frame.id);
-      } catch (err) {
-        console.error('[StoryboardParser] Image gen failed for ' + frame.id + ':', err.message);
-        results[i] = { id: frame.id, imagePath: null, error: err.message };
+  // Generate frames SEQUENTIALLY for consistency (each frame uses prev as reference)
+  for (let i = 0; i < frames.length; i++) {
+    const frame = frames[i];
+    try {
+      const opts = {};
+      if (prevImagePath) opts.prevImagePath = prevImagePath;
+      const { base64, mimeType, outputPath } = await generateImage(frame.prompt, opts);
+      const ext = mimeType.includes('png') ? '.png' : '.jpg';
+      const filename = frame.id + ext;
+      const filePath = path.join(outputDir, filename);
+      fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
+      results[i] = { id: frame.id, imagePath: filePath, filename };
+      
+      // Save full-res image for next frame's reference
+      const prevPngPath = path.join(outputDir, 'prev_frame.png');
+      if (outputPath && fs.existsSync(outputPath)) {
+        fs.copyFileSync(outputPath, prevPngPath);
+        try { fs.unlinkSync(outputPath); } catch(e) {}
+      } else {
+        fs.writeFileSync(prevPngPath, Buffer.from(base64, 'base64'));
       }
-      completed++;
-      if (onProgress) onProgress(completed - 1, frames.length);
+      prevImagePath = prevPngPath;
+      
+      console.log('[StoryboardParser] Generated image for ' + frame.id + (i > 0 ? ' (edit mode)' : ' (base frame)'));
+    } catch (err) {
+      console.error('[StoryboardParser] Image gen failed for ' + frame.id + ':', err.message);
+      results[i] = { id: frame.id, imagePath: null, error: err.message };
+      // Don't break chain: next frame will generate without prev reference
     }
+    completed++;
+    if (onProgress) onProgress(completed - 1, frames.length);
   }
 
-  const workers = [];
-  for (let w = 0; w < Math.min(concurrency, frames.length); w++) {
-    workers.push(worker(w));
-  }
-  await Promise.all(workers);
   return results.filter(Boolean);
 }
 
