@@ -646,7 +646,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
             onChange={(e) => { handleImageFiles(e.target.files); e.target.value = ''; }} disabled={isBusy} />
           <span className="sb-upload-icon">📎</span>
           <span className="sb-upload-text">点击或拖拽上传文件</span>
-          <span className="sb-upload-hint">支持 PNG, JPG, MP4, AVI, HTML，可上传多个</span>
+          <span className="sb-upload-hint">支持 PNG、JPG，可上传多个</span>
         </div>
         {refImages.length > 0 && (
           <div className="sb-file-list">
