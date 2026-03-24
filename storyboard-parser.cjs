@@ -7,11 +7,32 @@
 const fs = require('fs');
 const path = require('path');
 
-// === Direct connection: ECS can reach Google API directly (no proxy needed) ===
-// Proxy removed 2026-03-24: direct connection is faster and more reliable
-console.log('[StoryboardParser] Using direct connection (no proxy)');
-delete process.env.HTTPS_PROXY;
-delete process.env.HTTP_PROXY;
+// === Proxy: ECS needs proxy to reach Google API ===
+const PROXY_URL = 'http://127.0.0.1:7890';
+process.env.HTTPS_PROXY = PROXY_URL;
+process.env.HTTP_PROXY = PROXY_URL;
+process.env.NO_PROXY = 'localhost,127.0.0.1,120.55.70.226';
+
+// Node.js v24 built-in fetch reads HTTPS_PROXY env var automatically.
+// But @google/genai SDK uses its own fetch that may not. Force undici proxy.
+try {
+  const undici = require('undici');
+  // Use EnvHttpProxyAgent which auto-reads env vars and handles connection lifecycle
+  const agent = new undici.EnvHttpProxyAgent({
+    httpProxy: PROXY_URL,
+    httpsProxy: PROXY_URL,
+    noProxy: 'localhost,127.0.0.1,120.55.70.226',
+  });
+  undici.setGlobalDispatcher(agent);
+  // Override globalThis.fetch for @google/genai SDK
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = function(url, init) {
+    return undici.fetch(url, { ...init, dispatcher: agent });
+  };
+  console.log('[StoryboardParser] Proxy configured via EnvHttpProxyAgent: ' + PROXY_URL);
+} catch(e) {
+  console.warn('[StoryboardParser] Proxy setup failed:', e.message);
+}
 
 const { GoogleGenAI } = require('@google/genai');
 

@@ -940,5 +940,17 @@
     "title": "分镜解析降级：缩图 + flash 重试",
     "detail": "Gemini API timeout (45s)",
     "timestamp": "2026-03-24T07:19:58.396Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析失败",
+    "detail": "fetch failed",
+    "timestamp": "2026-03-24T07:23:54.180Z"
+  },
+  {
+    "level": "critical",
+    "title": "API 500",
+    "detail": "{\"error\":\"分镜解析失败: fetch failed\"}",
+    "timestamp": "2026-03-24T07:23:54.193Z"
   }
 ]
