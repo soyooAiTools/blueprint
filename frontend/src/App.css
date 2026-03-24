@@ -3529,11 +3529,12 @@ html, body, #root {
 .sb-mode-option {
   flex: 1;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  padding: 12px 8px;
-  border: 2px solid #333;
-  border-radius: 10px;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid #333;
+  border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
   background: #1a1a2e;
@@ -3547,19 +3548,16 @@ html, body, #root {
   background: #1e1b4b;
 }
 .sb-mode-icon {
-  font-size: 24px;
-  margin-bottom: 4px;
+  font-size: 16px;
 }
 .sb-mode-label {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   color: #e2e8f0;
 }
 .sb-mode-desc {
-  font-size: 11px;
+  font-size: 10px;
   color: #888;
-  margin-top: 2px;
-  text-align: center;
 }
 
 /* ===== Storyboard Upload Zone ===== */
