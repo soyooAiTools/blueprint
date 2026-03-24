@@ -10,6 +10,29 @@ const path = require('path');
 // === Direct connection: ECS can reach Google API directly (no proxy needed) ===
 // Proxy removed 2026-03-24: direct connection is faster and more reliable
 console.log('[StoryboardParser] Using direct connection (no proxy)');
+delete process.env.HTTPS_PROXY;
+delete process.env.HTTP_PROXY;
+
+const { GoogleGenAI } = require('@google/genai');
+
+// [key-rotation] Round-robin Gemini API key pool
+const _geminiKeys = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '').split(',').filter(Boolean);
+let _geminiKeyIndex = 0;
+function getNextGeminiKey() {
+  if (_geminiKeys.length === 0) return '';
+  const key = _geminiKeys[_geminiKeyIndex % _geminiKeys.length];
+  _geminiKeyIndex++;
+  return key;
+}
+function getAllGeminiKeys() { return _geminiKeys; }
+console.log('[key-rotation] Loaded ' + _geminiKeys.length + ' Gemini API keys');
+const CONFIG = {
+  apiKey: getNextGeminiKey(),
+  textModel: process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview',
+  imageModel: 'gemini-3-pro-image-preview',
+};
+console.log('[StoryboardParser] API Key prefix:', CONFIG.apiKey ? CONFIG.apiKey.substring(0, 15) + '...' : 'EMPTY');
+
 // [key-pool] Create one GoogleGenAI instance per key for round-robin
 const aiPool = _geminiKeys.map(k => new GoogleGenAI({ apiKey: k }));
 let _keyIndex = 0;
