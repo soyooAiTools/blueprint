@@ -1126,5 +1126,17 @@
     "title": "API 500",
     "detail": "{\"error\":\"分镜解析失败: JSON repair failed after all attempts: Expected ',' or ']' after array element in JSON at position 50993 (line 219 column 8)\"}",
     "timestamp": "2026-03-24T10:40:31.958Z"
+  },
+  {
+    "level": "critical",
+    "title": "分镜解析失败",
+    "detail": "帧 ? 格式不完整（缺少 id 或 prompt）",
+    "timestamp": "2026-03-24T10:48:28.860Z"
+  },
+  {
+    "level": "critical",
+    "title": "API 500",
+    "detail": "{\"error\":\"分镜解析失败: 帧 ? 格式不完整（缺少 id 或 prompt）\"}",
+    "timestamp": "2026-03-24T10:48:28.872Z"
   }
 ]

@@ -708,7 +708,14 @@ ${style ? `9. 额外风格要求：${style}` : ''}
 
   let frames, characterSheet = {};
   if (Array.isArray(parsed)) {
-    frames = parsed;
+    // GPT-5.4 sometimes wraps {characterSheet, frames} in an outer array
+    if (parsed.length === 1 && parsed[0].frames && Array.isArray(parsed[0].frames)) {
+      frames = parsed[0].frames;
+      characterSheet = parsed[0].characterSheet || {};
+      console.log('[StoryboardParser] Unwrapped single-element array wrapper');
+    } else {
+      frames = parsed;
+    }
   } else if (parsed.frames && Array.isArray(parsed.frames)) {
     frames = parsed.frames;
     characterSheet = parsed.characterSheet || {};
