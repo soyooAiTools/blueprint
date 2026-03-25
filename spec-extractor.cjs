@@ -10,21 +10,18 @@
 const fs = require('fs');
 const path = require('path');
 
-// Proxy for China firewall
-const PROXY_URL = process.env.HTTPS_PROXY || process.env.GEMINI_PROXY || 'http://127.0.0.1:7890';
-process.env.HTTPS_PROXY = PROXY_URL;
-process.env.HTTP_PROXY = PROXY_URL;
-try {
-  const { EnvHttpProxyAgent, setGlobalDispatcher } = require('undici');
-  setGlobalDispatcher(new EnvHttpProxyAgent());
-} catch (e) { /* undici not available */ }
+// Gemini via relay — direct, no proxy needed
+delete process.env.HTTPS_PROXY;
+delete process.env.HTTP_PROXY;
 
 const { GoogleGenAI } = require('@google/genai');
 
 const VERBS = JSON.parse(fs.readFileSync(path.join(__dirname, 'worker', 'interaction-verbs.json'), 'utf8'));
 
+const GEMINI_BASE_URL = process.env.GOOGLE_GEMINI_BASE_URL || 'https://sub.mindrix.app';
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY || '',
+  httpOptions: { baseUrl: GEMINI_BASE_URL },
 });
 
 function buildVerbDoc() {

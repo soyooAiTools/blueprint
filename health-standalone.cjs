@@ -49,11 +49,12 @@ function probeGemini() {
   return new Promise((resolve) => {
     const apiKey = process.env.GEMINI_API_KEY || '';
     if (!apiKey) return resolve({ status: 'no_key' });
-    const url = new URL(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-    const mod = require('http'); // Use HTTP to go through mihomo proxy
+    const baseUrl = process.env.GOOGLE_GEMINI_BASE_URL || 'https://sub.mindrix.app';
+    const url = new URL(`${baseUrl}/v1beta/models?key=${apiKey}`);
+    const mod = url.protocol === 'https:' ? require('https') : require('http');
     let resolved = false;
     const done = (result) => { if (!resolved) { resolved = true; resolve(result); } };
-    const req = mod.request({ hostname: '127.0.0.1', port: 7890, path: url.href, method: 'GET', timeout: 8000 }, (res) => {
+    const req = mod.request({ hostname: url.hostname, port: url.port || (url.protocol === 'https:' ? 443 : 80), path: url.pathname + url.search, method: 'GET', timeout: 8000 }, (res) => {
       let data = '';
       res.on('data', c => data += c);
       res.on('end', () => done({ status: res.statusCode === 200 ? 'ok' : 'error', code: res.statusCode }));

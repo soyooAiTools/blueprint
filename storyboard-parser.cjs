@@ -10,33 +10,12 @@
 const fs = require('fs');
 const path = require('path');
 
-// === Proxy: ECS needs proxy to reach Google API ===
-const PROXY_URL = 'http://127.0.0.1:7890';
-process.env.HTTPS_PROXY = PROXY_URL;
-process.env.HTTP_PROXY = PROXY_URL;
-process.env.NO_PROXY = 'localhost,127.0.0.1,120.55.70.226';
-
-// Node.js v24 built-in fetch reads HTTPS_PROXY env var automatically.
-// But @google/genai SDK uses its own fetch that may not. Force undici proxy.
-try {
-  const undici = require('undici');
-  // Use EnvHttpProxyAgent which auto-reads env vars and handles connection lifecycle
-  const agent = new undici.EnvHttpProxyAgent({
-    httpProxy: PROXY_URL,
-    httpsProxy: PROXY_URL,
-    noProxy: 'localhost,127.0.0.1,120.55.70.226',
-  });
-  undici.setGlobalDispatcher(agent);
-  // Override globalThis.fetch for @google/genai SDK
-  const origNodeFetch = globalThis.fetch; // Save original Node.js fetch for OpenAI SDK
-  globalThis.fetch = function(url, init) {
-    return undici.fetch(url, { ...init, dispatcher: agent });
-  };
-  globalThis._origNodeFetch = origNodeFetch; // Expose for OpenAI file uploads
-  console.log('[StoryboardParser] Proxy configured via EnvHttpProxyAgent: ' + PROXY_URL);
-} catch(e) {
-  console.warn('[StoryboardParser] Proxy setup failed:', e.message);
-}
+// === Gemini via relay (direct, no proxy needed) ===
+const GEMINI_BASE_URL = process.env.GOOGLE_GEMINI_BASE_URL || 'https://sub.mindrix.app';
+// Clear proxy env vars — relay is direct
+delete process.env.HTTPS_PROXY;
+delete process.env.HTTP_PROXY;
+console.log('[StoryboardParser] Gemini relay: ' + GEMINI_BASE_URL + ' (direct, no proxy)');
 
 const { GoogleGenAI } = require('@google/genai');
 const OpenAI = require('openai').default || require('openai');
@@ -44,17 +23,10 @@ const OpenAI = require('openai').default || require('openai');
 // === OpenAI (GPT-5.4) setup ===
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 let openaiClient = null;
-let openaiFileClient = null; // Separate client for file uploads (no custom fetch)
+let openaiFileClient = null;
 if (OPENAI_API_KEY) {
-  // Create OpenAI client with fresh ProxyAgent per-request to avoid stale connections
-  const undiciMod = require('undici');
-  function makeOpenAIFetch(url, init) {
-    const pa = new undiciMod.ProxyAgent(PROXY_URL);
-    return undiciMod.fetch(url, { ...init, dispatcher: pa });
-  }
   openaiClient = new OpenAI({
     apiKey: OPENAI_API_KEY,
-    fetch: makeOpenAIFetch,
   });
   openaiFileClient = null; // Will use curl for file uploads
   console.log('[StoryboardParser] OpenAI configured, key prefix:', OPENAI_API_KEY.substring(0, 15) + '...');
@@ -62,34 +34,27 @@ if (OPENAI_API_KEY) {
   console.warn('[StoryboardParser] No OPENAI_API_KEY — GPT-5.4 unavailable, will use Gemini only');
 }
 
-// [key-rotation] Round-robin Gemini API key pool
-const _geminiKeys = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || '').split(',').filter(Boolean);
-let _geminiKeyIndex = 0;
-function getNextGeminiKey() {
-  if (_geminiKeys.length === 0) return '';
-  const key = _geminiKeys[_geminiKeyIndex % _geminiKeys.length];
-  _geminiKeyIndex++;
-  return key;
-}
-function getAllGeminiKeys() { return _geminiKeys; }
-console.log('[key-rotation] Loaded ' + _geminiKeys.length + ' Gemini API keys');
+// [Gemini] Single key via relay — no rotation needed
+const _geminiKey = process.env.GEMINI_API_KEY || '';
+function getNextGeminiKey() { return _geminiKey; }
+function getAllGeminiKeys() { return _geminiKey ? [_geminiKey] : []; }
+console.log('[Gemini] Key: ' + (_geminiKey ? _geminiKey.substring(0, 15) + '...' : 'EMPTY'));
 const CONFIG = {
-  apiKey: getNextGeminiKey(),
+  apiKey: _geminiKey,
   textModel: process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview',
-  imageModel: 'gemini-3-pro-image-preview',
+  imageModel: 'gemini-3.1-pro-preview',
 };
 console.log('[StoryboardParser] API Key prefix:', CONFIG.apiKey ? CONFIG.apiKey.substring(0, 15) + '...' : 'EMPTY');
 
-// [key-pool] Create one GoogleGenAI instance per key for round-robin
-const aiPool = _geminiKeys.map(k => new GoogleGenAI({ apiKey: k }));
+// [Gemini SDK] Single instance with relay baseUrl
+const _sdkOpts = { apiKey: _geminiKey, httpOptions: { baseUrl: GEMINI_BASE_URL } };
+const aiPool = _geminiKey ? [new GoogleGenAI(_sdkOpts)] : [];
 let _keyIndex = 0;
 function getAI() {
-  if (aiPool.length === 0) throw new Error('No Gemini API keys configured');
-  const inst = aiPool[_keyIndex % aiPool.length];
-  _keyIndex++;
-  return inst;
+  if (aiPool.length === 0) throw new Error('No Gemini API key configured');
+  return aiPool[0];
 }
-const ai = new GoogleGenAI({ apiKey: CONFIG.apiKey });
+const ai = new GoogleGenAI(_sdkOpts);
 
 // === Document extraction ===
 
@@ -199,12 +164,15 @@ async function parseScript(text, opts = {}) {
 
   const systemPrompt = `你是一个资深试玩广告分镜专家。请根据需求拆分为**带章节的详细分镜**。
 
-## 角色一致性（最重要！）
+## 角色一致性 + 场景一致性（最重要！）
 你必须在输出的第一帧之前，先定义一个 characterSheet 对象，描述主角和关键角色的固定外观特征（服装颜色、发型、体型、武器、标志性元素）。之后每一帧的 prompt 都必须引用这些角色描述，确保全部帧中角色外观完全一致。
 
+同时定义一个 sceneSheet 对象，描述场景的固定视觉元素（地面材质/颜色、建筑造型/位置、天空色调、光照方向、环境物体等）。每帧 prompt 必须引用 sceneSheet 中的场景描述，确保同一场景内的地面纹理、建筑样式、植被、道具位置等在不同帧之间保持严格一致。只有当剧情明确切换到新场景时，才可以改变场景描述。
+
 ## 输出格式
-输出一个 JSON 对象，包含两个字段：
+输出一个 JSON 对象，包含三个字段：
 - characterSheet: 对象，key 为角色名，value 为英文外观描述（50-80词，固定不变）
+- sceneSheet: 对象，key 为场景名（如 "main_village", "boss_arena"），value 为英文场景描述（60-100词），包含：地面材质和颜色、建筑造型和位置布局、天空色调、光照方向和强度、植被/装饰物分布、整体色彩基调。同一场景内所有帧必须引用相同的 sceneSheet 描述。
 - frames: 帧数组
 
 每个大场景（章节）下拆 3-5 个子步骤，描述进入→操作→反馈→过渡的完整流程。
@@ -216,6 +184,7 @@ async function parseScript(text, opts = {}) {
 - step: 章节内子步骤号
 - prompt: 英文画面描述（给 AI 出图用）。**必须遵守以下规则：**
   - **角色描述**：每帧 prompt 开头必须引用 characterSheet 中的角色外观描述，逐字重复角色服装、发型、体型等关键特征，确保 AI 画出一致的角色形象
+  - **场景描述**：每帧 prompt 必须引用 sceneSheet 中对应场景的描述，逐字重复地面材质、建筑造型、色彩基调等，确保同场景内的帧视觉风格和空间布局完全一致
   - 视角：高空远景，使用 ${cameraDesc}，镜头拉高拉远，必须能看到整体地图/场景的全貌布局
   - ${perspectiveRule}
   - 画面内容要极其详细（至少 150 英文单词）：
@@ -260,7 +229,8 @@ async function parseScript(text, opts = {}) {
 6. **每帧描述必须极其详细**，interaction 至少 100 字，ui 至少 80 字，animation 至少 60 字。要让读者仅凭文字就能完全还原画面
 7. 视角统一使用 ${cameraDesc}，${perspectiveRule}
 8. **角色一致性是最高优先级**：每帧 prompt 必须重复角色外观描述
-${style ? `9. 额外风格要求：${style}` : ''}
+9. **场景一致性同等重要**：同一场景内的每帧 prompt 必须重复 sceneSheet 中的场景描述，地面材质、建筑造型、光照方向不得帧间突变
+${style ? `10. 额外风格要求：${style}` : ''}
 
 只输出 JSON 数组，不要其他内容。`;
 
@@ -324,19 +294,14 @@ ${style ? `9. 额外风格要求：${style}` : ''}
   }
 
   // === Degradation chain: GPT-5.4 → Gemini Pro → Gemini Flash → Flash+resize ===
-  const proxyDoctor = require('./proxy-doctor.cjs');
+  // proxy-doctor no longer needed — Gemini goes via relay direct
   const notify = require('./notify.cjs');
 
   // Helper: try GPT-5.4 with PDF/images, 2 attempts
   async function tryGPT(partsToUse, label) {
     if (!openaiClient) throw new Error('OpenAI not configured');
 
-    const preCheck = await proxyDoctor.quickCheck();
-    if (!preCheck.ok) {
-      const repaired = await proxyDoctor.ensure();
-      if (!repaired.ok) throw new Error('代理不可用: ' + (repaired.error || 'repair failed'));
-      console.log('[StoryboardParser] Pre-flight: proxy recovered via ' + (repaired.method || '?'));
-    }
+    // No proxy pre-flight needed — direct connection
 
     // Convert parts to OpenAI messages format
     const contentParts = [];
@@ -383,7 +348,7 @@ ${style ? `9. 额外风格要求：${style}` : ''}
           console.log('[StoryboardParser] Uploading PDF via curl...');
           const { execSync } = require('child_process');
           const curlResult = execSync(
-            `curl -s -x ${PROXY_URL} --max-time 60 https://api.openai.com/v1/files -H "Authorization: Bearer ${OPENAI_API_KEY}" -F "purpose=assistants" -F "file=@${pdfOriginalPath}"`,
+            `curl -s --max-time 60 https://api.openai.com/v1/files -H "Authorization: Bearer ${OPENAI_API_KEY}" -F "purpose=assistants" -F "file=@${pdfOriginalPath}"`,
             { encoding: 'utf8' }
           );
           const parsed = JSON.parse(curlResult);
@@ -472,16 +437,7 @@ ${style ? `9. 额外风格要求：${style}` : ''}
 
   // Helper: try calling Gemini with given config, 2 attempts
   async function tryGemini(model, partsToUse, thinkingBudget, label) {
-    // Pre-flight: quick proxy check (2s) before wasting time on a dead proxy
-    const preCheck = await proxyDoctor.quickCheck();
-    if (!preCheck.ok) {
-      console.warn('[StoryboardParser] Pre-flight: proxy down, attempting repair...');
-      const repaired = await proxyDoctor.ensure();
-      if (!repaired.ok) {
-        throw new Error('代理不可用，请检查网络: ' + (repaired.error || 'repair failed'));
-      }
-      console.log('[StoryboardParser] Pre-flight: proxy recovered via ' + (repaired.method || '?'));
-    }
+    // Gemini via relay — no proxy pre-flight needed
 
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
@@ -685,12 +641,13 @@ ${style ? `9. 额外风格要求：${style}` : ''}
     }
   }
 
-  let frames, characterSheet = {};
+  let frames, characterSheet = {}, sceneSheet = {};
   if (Array.isArray(parsed)) {
     // GPT-5.4 sometimes wraps {characterSheet, frames} in an outer array
     if (parsed.length === 1 && parsed[0].frames && Array.isArray(parsed[0].frames)) {
       frames = parsed[0].frames;
       characterSheet = parsed[0].characterSheet || {};
+      sceneSheet = parsed[0].sceneSheet || {};
       console.log('[StoryboardParser] Unwrapped single-element array wrapper');
     } else {
       frames = parsed;
@@ -698,11 +655,12 @@ ${style ? `9. 额外风格要求：${style}` : ''}
   } else if (parsed.frames && Array.isArray(parsed.frames)) {
     frames = parsed.frames;
     characterSheet = parsed.characterSheet || {};
+    sceneSheet = parsed.sceneSheet || {};
   } else {
     throw new Error('Gemini 返回格式不正确');
   }
 
-  // Inject character descriptions
+  // Inject character + scene descriptions into each frame prompt
   for (const f of frames) {
     if (!f.id || !f.prompt || !f.title) {
       console.warn(`[StoryboardParser] Frame ${f.id || '?'} missing fields: id=${!!f.id} prompt=${!!f.prompt} title=${!!f.title} interaction=${!!f.interaction} ui=${!!f.ui}`);
@@ -715,18 +673,27 @@ ${style ? `9. 额外风格要求：${style}` : ''}
       if (!f.interaction) f.interaction = '';
       if (!f.ui) f.ui = '';
     }
+    // Build reference prefix: character + scene
+    const refParts = [];
     if (Object.keys(characterSheet).length > 0) {
       const charDesc = Object.entries(characterSheet).map(([name, desc]) => `${name}: ${desc}`).join('. ');
-      if (!f.prompt.includes(charDesc.substring(0, 30))) {
-        f.prompt = `[Character Reference] ${charDesc}. [Scene] ${f.prompt}`;
-      }
+      refParts.push(`[Character Reference] ${charDesc}.`);
+    }
+    if (Object.keys(sceneSheet).length > 0) {
+      // Try to match scene key from frame, otherwise use all scenes
+      const sceneDesc = Object.entries(sceneSheet).map(([name, desc]) => `${name}: ${desc}`).join('. ');
+      refParts.push(`[Scene Reference] ${sceneDesc}.`);
+    }
+    if (refParts.length > 0 && !f.prompt.includes('[Character Reference]') && !f.prompt.includes('[Scene Reference]')) {
+      f.prompt = refParts.join(' ') + ' [Scene] ' + f.prompt;
     }
     f._characterSheet = characterSheet;
+    f._sceneSheet = sceneSheet;
     f._cameraAngle = cameraAngle;
     f._perspective = perspective;
   }
 
-  return { frames, characterSheet };
+  return { frames, characterSheet, sceneSheet };
 }
 
 
@@ -824,7 +791,7 @@ ${JSON.stringify(frame, null, 2)}
 }
 
 
-// === Image Generation (Gemini native) ===
+// === Image Generation (Gemini 3.1 Pro native) ===
 async function generateImage(prompt, opts = {}, aiInstance) {
   if (!aiInstance) aiInstance = aiPool[_keyIndex++ % aiPool.length];
   const { style = '', cameraAngle = '', orientation = '', perspective = '', styleRefBase64 = null, styleRefMime = null, charRefBase64 = null, charRefMime = null, prevImagePath = null } = opts;
@@ -837,9 +804,35 @@ async function generateImage(prompt, opts = {}, aiInstance) {
   if (cameraHints.length) fullPrompt += '. ' + cameraHints.join(', ');
   if (style) fullPrompt += '. Style: ' + style;
 
+  // === Scene layout & modeling consistency constraint (prepended to ALL frames) ===
+  const consistencyPrefix = 
+    'CRITICAL REQUIREMENTS for scene consistency across all storyboard frames:\n' +
+    '1. SCENE LAYOUT: Maintain the EXACT same spatial arrangement — ground plane, horizon line, ' +
+    'building positions, prop placements, and environmental landmarks must stay in consistent positions.\n' +
+    '2. 3D MODELING CONSISTENCY: All characters and objects must maintain identical proportions, ' +
+    'silhouettes, clothing details, facial features, and color schemes across frames.\n' +
+    '3. ART STYLE LOCK: Use the same rendering technique, line weight, shading style, ' +
+    'color palette, and lighting direction throughout.\n' +
+    '4. CAMERA COHERENCE: Unless explicitly stated, maintain similar camera distance and angle.\n\n';
+  fullPrompt = consistencyPrefix + fullPrompt;
+
   // Build parts: optional reference images + text prompt
   const parts = [];
   const prefixes = [];
+
+  // If we have a previous frame image, pass it as reference for consistency
+  if (prevImagePath && fs.existsSync(prevImagePath)) {
+    const prevBuf = fs.readFileSync(prevImagePath);
+    parts.push({ inlineData: { data: prevBuf.toString('base64'), mimeType: 'image/png' } });
+    prefixes.push(
+      'REFERENCE IMAGE: This is the previous frame in the storyboard sequence. ' +
+      'You MUST maintain the EXACT same scene layout, ground textures, building architecture, ' +
+      'character designs (proportions, clothing, face), color palette, art style, and camera perspective. ' +
+      'Only change what the new frame description explicitly requires.'
+    );
+    console.log('[generateImage] Using prev frame for Gemini consistency: ' + prevImagePath);
+  }
+
   if (styleRefBase64) {
     parts.push({ inlineData: { data: styleRefBase64, mimeType: styleRefMime || 'image/jpeg' } });
     prefixes.push('Generate an image in EXACTLY the same art style, color palette, and rendering technique as the style reference image.');
@@ -848,43 +841,21 @@ async function generateImage(prompt, opts = {}, aiInstance) {
     parts.push({ inlineData: { data: charRefBase64, mimeType: charRefMime || 'image/jpeg' } });
     prefixes.push('The character in the image MUST look exactly like the character reference image — same face, hair, clothing, body proportions, and colors.');
   }
-  if (prefixes.length) fullPrompt = prefixes.join(' ') + ' ' + fullPrompt;
+  if (prefixes.length) fullPrompt = prefixes.join(' ') + '\n\n' + fullPrompt;
   parts.push({ text: fullPrompt });
 
-  // Use Python image_generator.py for gpt-image-1 with frame consistency
-  const { exec: execAsync } = require('child_process');
-  const tmpPromptFile = '/tmp/imggen-prompt-' + Date.now() + '.txt';
-  const tmpOutFile = '/tmp/imggen-out-' + Date.now() + '.png';
-  fs.writeFileSync(tmpPromptFile, fullPrompt.substring(0, 4000), 'utf8');
-  const sizeStr = (orientation === 'portrait') ? '1024x1536' : '1536x1024';
-  
-  let pyArgs = `--prompt-file ${tmpPromptFile} --size ${sizeStr} --quality medium --output ${tmpOutFile}`;
-  if (prevImagePath && fs.existsSync(prevImagePath)) {
-    pyArgs += ` --prev-image ${prevImagePath}`;
-    console.log('[generateImage] Using prev frame for consistency: ' + prevImagePath);
-  }
-  
-  const pyResult = await new Promise((resolve, reject) => {
-    const cmd = `python3.8 /opt/blueprint-editor/python/image_generator.py ${pyArgs}`;
-    execAsync(cmd, { timeout: 180000, maxBuffer: 50 * 1024 * 1024, env: { ...process.env, OPENAI_API_KEY } }, (err, stdout, stderr) => {
-      try { fs.unlinkSync(tmpPromptFile); } catch(e) {}
-      if (stderr) console.log('[generateImage] ' + stderr.trim().split('\n').slice(-2).join(' | '));
-      if (err && !stdout) {
-        return reject(new Error('gpt-image-1 failed: ' + (stderr || err.message || '').substring(0, 300)));
-      }
-      try {
-        const result = JSON.parse(stdout);
-        if (!result.success) return reject(new Error(result.error || 'Unknown error'));
-        // Read the generated image as base64
-        const imgBuf = fs.readFileSync(tmpOutFile);
-        resolve({ base64: imgBuf.toString('base64'), mimeType: 'image/png', outputPath: tmpOutFile });
-      } catch(e) {
-        reject(new Error('Failed to parse image result: ' + e.message));
-      }
-    });
+  const result = await aiInstance.models.generateContent({
+    model: CONFIG.imageModel,
+    contents: [{ role: 'user', parts }],
+    config: { responseModalities: ['TEXT', 'IMAGE'], temperature: 0.8 },
   });
-  
-  return { base64: pyResult.base64, mimeType: pyResult.mimeType || 'image/png', text: '', outputPath: pyResult.outputPath };
+  let imageData = null, textResponse = '';
+  for (const part of (result.candidates?.[0]?.content?.parts || [])) {
+    if (part.inlineData) imageData = { base64: part.inlineData.data, mimeType: part.inlineData.mimeType };
+    if (part.text) textResponse = part.text;
+  }
+  if (!imageData) throw new Error('Gemini did not return an image');
+  return { ...imageData, text: textResponse };
 }
 
 // Resize image buffer to target dimensions using sharp
@@ -901,30 +872,25 @@ async function generateFrameImages(frames, outputDir, onProgress, { concurrency 
   let completed = 0;
   let prevImagePath = null;
 
-  // Generate frames SEQUENTIALLY for consistency (each frame uses prev as reference)
+  // Generate frames SEQUENTIALLY for consistency (each frame uses prev as reference via Gemini inlineData)
   for (let i = 0; i < frames.length; i++) {
     const frame = frames[i];
     try {
       const opts = {};
       if (prevImagePath) opts.prevImagePath = prevImagePath;
-      const { base64, mimeType, outputPath } = await generateImage(frame.prompt, opts);
+      const { base64, mimeType } = await generateImage(frame.prompt, opts);
       const ext = mimeType.includes('png') ? '.png' : '.jpg';
       const filename = frame.id + ext;
       const filePath = path.join(outputDir, filename);
       fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
       results[i] = { id: frame.id, imagePath: filePath, filename };
       
-      // Save full-res image for next frame's reference
+      // Save image for next frame's reference
       const prevPngPath = path.join(outputDir, 'prev_frame.png');
-      if (outputPath && fs.existsSync(outputPath)) {
-        fs.copyFileSync(outputPath, prevPngPath);
-        try { fs.unlinkSync(outputPath); } catch(e) {}
-      } else {
-        fs.writeFileSync(prevPngPath, Buffer.from(base64, 'base64'));
-      }
+      fs.writeFileSync(prevPngPath, Buffer.from(base64, 'base64'));
       prevImagePath = prevPngPath;
       
-      console.log('[StoryboardParser] Generated image for ' + frame.id + (i > 0 ? ' (edit mode)' : ' (base frame)'));
+      console.log('[StoryboardParser] Generated image for ' + frame.id + (i > 0 ? ' (with prev ref)' : ' (base frame)'));
     } catch (err) {
       console.error('[StoryboardParser] Image gen failed for ' + frame.id + ':', err.message);
       results[i] = { id: frame.id, imagePath: null, error: err.message };

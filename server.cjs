@@ -562,6 +562,7 @@ function exportBlueprintForAgent(project) {
     storyboard: {
       frames: project.storyboardFrames || [],
       characterSheet: project.characterSheet || {},
+      sceneSheet: project.sceneSheet || {},
       config: project.storyboardConfig || {},
     },
     exportedAt: new Date().toISOString()
@@ -1061,6 +1062,7 @@ handlers.parseStoryboard = function(req, res, body, projectId) {
           proj.storyboardFrames = frames.frames || [];
           proj.storyboardConfig = config;
           proj.characterSheet = frames.characterSheet || {};
+          proj.sceneSheet = frames.sceneSheet || {};
           proj.updatedAt = new Date().toISOString();
           writeProject(proj);
           console.log('[parse-storyboard] Saved', (frames.frames || []).length, 'frames to project', projectId);
@@ -1102,6 +1104,7 @@ handlers.saveStoryboard = function(req, res, body, id) {
     }
     proj.storyboardFrames = newFrames;
     if (data.characterSheet) proj.characterSheet = data.characterSheet;
+    if (data.sceneSheet) proj.sceneSheet = data.sceneSheet;
     proj.updatedAt = new Date().toISOString();
     writeProject(proj);
     sendJSON(res, { ok: true });

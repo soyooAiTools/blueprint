@@ -11,7 +11,7 @@ const notify = require('./notify.cjs');
 const PROXY_HOST = '127.0.0.1';
 const PROXY_PORT = 7890;
 const MIHOMO_API = 'http://127.0.0.1:9090';
-const GEMINI_TEST_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
+const GEMINI_TEST_URL = process.env.GOOGLE_GEMINI_BASE_URL || 'https://sub.mindrix.app';
 const TIMEOUT = 3000;
 const NODE_GROUPS = ['Gemini专线', '日本节点', '香港节点', '自动选择'];
 

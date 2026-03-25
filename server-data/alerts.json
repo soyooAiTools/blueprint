@@ -1144,5 +1144,17 @@
     "title": "图片生成部分失败",
     "detail": "4/11 张未生成",
     "timestamp": "2026-03-24T13:27:16.523Z"
+  },
+  {
+    "level": "warning",
+    "title": "图片生成部分失败",
+    "detail": "11/11 张未生成",
+    "timestamp": "2026-03-24T15:19:32.242Z"
+  },
+  {
+    "level": "critical",
+    "title": "API 500",
+    "detail": "{\"error\":\"编辑失败: {\\\"error\\\":{\\\"code\\\":429,\\\"message\\\":\\\"Your project has exceeded its spending cap.\\\",\\\"status\\\":\\\"RESOURCE_EXHAUSTED\\\"}}\"}",
+    "timestamp": "2026-03-25T04:19:42.390Z"
   }
 ]

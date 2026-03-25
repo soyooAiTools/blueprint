@@ -8,8 +8,9 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyDKKUVi_Ac-OfR-jC6Vg8f_sQdfiXUvlsU';
-const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+const GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_BASE_URL = process.env.GOOGLE_GEMINI_BASE_URL || 'https://sub.mindrix.app';
 const WEBGL_BASE = process.env.WEBGL_BASE || '/opt/blueprint-editor/server-data/webgl';
 const SCREENSHOT_DIR = process.env.SCREENSHOT_DIR || '/tmp/screenshots';
 
@@ -147,7 +148,7 @@ function callGemini(prompt, imageBase64) {
       generationConfig: { temperature: 0.1, maxOutputTokens: 1000 }
     });
 
-    const url = new URL(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`);
+    const url = new URL(`${GEMINI_BASE_URL}/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`);
     const opts = {
       hostname: url.hostname,
       path: url.pathname + url.search,
