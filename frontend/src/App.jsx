@@ -569,6 +569,9 @@ function FlowEditor({ project, onBack, initialTab }) {
     }
   }, [project.id, showAlert, setNodes]);
 
+  // Whether storyboard has been parsed (frames exist) or blueprint has content
+  const hasContent = nodes.length > 0 || entities.length > 0;
+
   return (
     <div className="app-container">
       <TopBar
@@ -584,6 +587,7 @@ function FlowEditor({ project, onBack, initialTab }) {
         onApprove={handleApprove}
         onFeedback={handleFeedback}
         shotCount={nodes.filter((n) => n.type === 'entityNode' || n.type === 'phaseNode').length}
+        activeTab={activeTab}
       />
       <div className="app-tabs">
         <button
@@ -592,12 +596,14 @@ function FlowEditor({ project, onBack, initialTab }) {
         >
           🎬 分镜
         </button>
-        <button
-          className={`app-tab ${activeTab === 'blueprint' ? 'app-tab-active' : ''}`}
-          onClick={() => setActiveTab('blueprint')}
-        >
-          🗺 蓝图
-        </button>
+        {hasContent && (
+          <button
+            className={`app-tab ${activeTab === 'blueprint' ? 'app-tab-active' : ''}`}
+            onClick={() => setActiveTab('blueprint')}
+          >
+            🗺 蓝图
+          </button>
+        )}
 
         {['reviewing', 'approved', 'committed', 'feedback'].indexOf(projectStatus) >= 0 && (
           <button

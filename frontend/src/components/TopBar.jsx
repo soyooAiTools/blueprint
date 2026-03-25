@@ -48,6 +48,7 @@ export default function TopBar({
   onFeedback,
   shotCount,
   statusMessage,
+  activeTab,
 }) {
   const fileInputRef = useRef(null);
   const [submitting, setSubmitting] = useState(false);
@@ -132,26 +133,30 @@ export default function TopBar({
         )}
       </div>
       <div className="topbar-right">
-        {(!projectStatus || projectStatus === 'editing' || projectStatus === 'feedback') && onSubmit && (
-          <button
-            className="topbar-btn topbar-btn-submit"
-            onClick={handleSubmit}
-            disabled={submitting || !shotCount}
-            title={!shotCount ? '请先完成分镜并转为蓝图' : ''}
-          >
-            {submitting ? '⏳ 提交中...' : '🚀 提交开发'}
-          </button>
-        )}
+        {activeTab === 'blueprint' && (
+          <>
+            {(!projectStatus || projectStatus === 'editing' || projectStatus === 'feedback') && onSubmit && (
+              <button
+                className="topbar-btn topbar-btn-submit"
+                onClick={handleSubmit}
+                disabled={submitting || !shotCount}
+                title={!shotCount ? '请先完成分镜并转为蓝图' : ''}
+              >
+                {submitting ? '⏳ 提交中...' : '🚀 提交开发'}
+              </button>
+            )}
 
-        <button className="topbar-btn" onClick={onExportJSON}>
-          📤 导出 JSON
-        </button>
-        <button className="topbar-btn" onClick={handleImportClick}>
-          📥 导入 JSON
-        </button>
-        <button className="topbar-btn topbar-btn-danger" onClick={onClearCanvas}>
-          🗑 清空画布
-        </button>
+            <button className="topbar-btn" onClick={onExportJSON}>
+              📤 导出 JSON
+            </button>
+            <button className="topbar-btn" onClick={handleImportClick}>
+              📥 导入 JSON
+            </button>
+            <button className="topbar-btn topbar-btn-danger" onClick={onClearCanvas}>
+              🗑 清空画布
+            </button>
+          </>
+        )}
         <input
           ref={fileInputRef}
           type="file"

@@ -6,15 +6,15 @@ Output: JSON to stdout
 """
 import os, sys, json, time, argparse
 
-os.environ['HTTPS_PROXY'] = 'http://127.0.0.1:7890'
-os.environ['HTTP_PROXY'] = 'http://127.0.0.1:7890'
+os.environ.pop('HTTPS_PROXY', None)
+os.environ.pop('HTTP_PROXY', None)
 
 from openai import OpenAI
 
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY',
     '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')
 
-client = OpenAI(api_key=OPENAI_API_KEY, timeout=600)
+client = OpenAI(api_key=OPENAI_API_KEY, base_url=os.environ.get('OPENAI_BASE_URL', 'https://sub.mindrix.app/v1'), timeout=600)
 
 
 def log(msg):
@@ -40,14 +40,19 @@ def convert_to_v4(system_prompt, frames_desc, max_tokens=65536):
     full = ""
     finish = ""
     last_log = time.time()
+    chunk_count = 0
     
     for chunk in stream:
         if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
             full += chunk.choices[0].delta.content
+            chunk_count += 1
         if chunk.choices and chunk.choices[0].finish_reason:
             finish = chunk.choices[0].finish_reason
-        if time.time() - last_log > 30:
-            log(f"  progress: {len(full)} chars, {time.time()-t0:.0f}s")
+        if time.time() - last_log > 3:
+            elapsed = time.time() - t0
+            log(f"  progress: {len(full)} chars, {elapsed:.0f}s")
+            # Structured progress line for Node.js to parse
+            print(f"PROGRESS:{len(full)}:{elapsed:.0f}", file=sys.stderr, flush=True)
             last_log = time.time()
     
     log(f"Done: {len(full)} chars, finish={finish} in {time.time()-t0:.1f}s")

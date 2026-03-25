@@ -1147,14 +1147,122 @@
   },
   {
     "level": "warning",
-    "title": "图片生成部分失败",
-    "detail": "11/11 张未生成",
-    "timestamp": "2026-03-24T15:19:32.242Z"
+    "title": "代理不通，正在重启 Mihomo",
+    "detail": "",
+    "timestamp": "2026-03-25T11:57:06.237Z"
   },
   {
-    "level": "critical",
-    "title": "API 500",
-    "detail": "{\"error\":\"编辑失败: {\\\"error\\\":{\\\"code\\\":429,\\\"message\\\":\\\"Your project has exceeded its spending cap.\\\",\\\"status\\\":\\\"RESOURCE_EXHAUSTED\\\"}}\"}",
-    "timestamp": "2026-03-25T04:19:42.390Z"
+    "level": "warning",
+    "title": "代理已恢复",
+    "detail": "Mihomo 重启成功",
+    "timestamp": "2026-03-25T11:57:11.558Z"
+  },
+  {
+    "level": "warning",
+    "title": "代理不通，正在重启 Mihomo",
+    "detail": "",
+    "timestamp": "2026-03-25T12:18:09.212Z"
+  },
+  {
+    "level": "warning",
+    "title": "代理已恢复",
+    "detail": "Mihomo 重启成功",
+    "timestamp": "2026-03-25T12:18:14.533Z"
+  },
+  {
+    "level": "warning",
+    "title": "代理不通，正在重启 Mihomo",
+    "detail": "",
+    "timestamp": "2026-03-25T12:22:58.500Z"
+  },
+  {
+    "level": "warning",
+    "title": "已切换代理节点组: 自动选择",
+    "detail": "latency: 146ms",
+    "timestamp": "2026-03-25T12:23:07.810Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：GPT-5.4 失败，降级到 Gemini Pro",
+    "detail": "Python parser failed: Command failed: python3.8 /opt/blueprint-editor/python/storyboard_parser.py --",
+    "timestamp": "2026-03-25T12:23:48.253Z"
+  },
+  {
+    "level": "warning",
+    "title": "代理不通，正在重启 Mihomo",
+    "detail": "",
+    "timestamp": "2026-03-25T12:23:50.362Z"
+  },
+  {
+    "level": "warning",
+    "title": "代理已恢复",
+    "detail": "Mihomo 重启成功",
+    "timestamp": "2026-03-25T12:23:55.564Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：GPT-5.4 失败，降级到 Gemini Pro",
+    "detail": "Python parser failed: Command failed: python3.8 /opt/blueprint-editor/python/storyboard_parser.py --",
+    "timestamp": "2026-03-25T12:37:01.194Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：Gemini Pro 失败，尝试 flash",
+    "detail": "Gemini API timeout (120s)",
+    "timestamp": "2026-03-25T12:39:13.696Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：GPT-5.4 失败，降级到 Gemini Pro",
+    "detail": "Python parser failed: Command failed: python3.8 /opt/blueprint-editor/python/storyboard_parser.py --",
+    "timestamp": "2026-03-25T12:41:47.914Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：Gemini Pro 失败，尝试 flash",
+    "detail": "fetch failed",
+    "timestamp": "2026-03-25T12:44:00.217Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：GPT-5.4 失败，降级到 Gemini Pro",
+    "detail": "Python parser failed: Command failed: python3.8 /opt/blueprint-editor/python/storyboard_parser.py --",
+    "timestamp": "2026-03-25T12:57:16.657Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：Gemini Pro 失败，尝试 flash",
+    "detail": "Gemini API timeout (120s)",
+    "timestamp": "2026-03-25T13:01:18.671Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：GPT-5.4 失败，降级到 Gemini Pro",
+    "detail": "Python parser failed: Command failed: python3.8 /opt/blueprint-editor/python/storyboard_parser.py --",
+    "timestamp": "2026-03-25T13:08:07.952Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：Gemini Pro 失败，尝试 flash",
+    "detail": "Gemini API timeout (120s)",
+    "timestamp": "2026-03-25T13:12:09.962Z"
+  },
+  {
+    "level": "warning",
+    "title": "图片生成部分失败",
+    "detail": "11/11 张未生成",
+    "timestamp": "2026-03-25T14:16:15.685Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：GPT-5.4 失败，降级到 Gemini Pro",
+    "detail": "Python parser failed: Command failed: python3.8 /opt/blueprint-editor/python/storyboard_parser.py --",
+    "timestamp": "2026-03-25T14:27:08.389Z"
+  },
+  {
+    "level": "warning",
+    "title": "分镜解析：Gemini Pro 失败，尝试 flash",
+    "detail": "Gemini API timeout (120s)",
+    "timestamp": "2026-03-25T14:31:10.405Z"
   }
 ]

@@ -9,7 +9,11 @@ async function request(url, options) {
     headers: { 'Content-Type': 'application/json' },
     ...options,
   });
-  var data = await res.json();
+  var text = await res.text();
+  var data;
+  try { data = JSON.parse(text); } catch (_) {
+    throw new Error('服务异常，请联系管理员Nick');
+  }
   if (!res.ok) throw new Error(data.error || '请求失败 (' + res.status + ')');
   return data;
 }
@@ -71,7 +75,7 @@ export async function createProject(name, svnUrl, engine) {
   return request('/projects', { method: 'POST', body: JSON.stringify({ name, svnUrl, engine }) });
 }
 
-export async function parseStoryboard(projectId, formData) {
+export async function parseStoryboard(projectId, formData, onProgress) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 360000); // 6 min timeout
   try {
@@ -81,8 +85,47 @@ export async function parseStoryboard(projectId, formData) {
       signal: controller.signal,
     });
     clearTimeout(timer);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || '请求失败 (' + res.status + ')');
+
+    // SSE stream response
+    if (res.headers.get('content-type')?.includes('text/event-stream')) {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let result = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            if (evt.type === 'progress' && onProgress) {
+              onProgress(evt.percent, evt.stage);
+            } else if (evt.type === 'done') {
+              result = evt.data;
+            } else if (evt.type === 'error') {
+              throw new Error(evt.message || '解析失败');
+            }
+          } catch (parseErr) {
+            if (parseErr.message && !parseErr.message.includes('JSON')) throw parseErr;
+          }
+        }
+      }
+      if (!result) throw new Error('解析未返回结果');
+      return result;
+    }
+
+    // Fallback: legacy JSON response
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch (_) {
+      throw new Error('解析失败，请联系管理员Nick');
+    }
+    if (!res.ok) throw new Error(data.error || '解析失败，请联系管理员Nick');
     return data;
   } catch (err) {
     clearTimeout(timer);

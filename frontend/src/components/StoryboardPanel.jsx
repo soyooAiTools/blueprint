@@ -52,7 +52,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
   // Per-frame image generating state
   const [generatingFrameIds, setGeneratingFrameIds] = useState(new Set());
 
-  const [hasStoryboard, setHasStoryboard] = useState(false);
+  const [hasStoryboard, setHasStoryboard] = useState(true);
   const [docFiles, setDocFiles] = useState([]);
   const [refImages, setRefImages] = useState([]);
   const docInputRef = useRef(null);
@@ -72,7 +72,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
   const charRefInputRef = useRef(null);
 
   useEffect(() => {
-    return () => { if (progressTimer.current) clearInterval(progressTimer.current); if (genTimer.current) clearInterval(genTimer.current); };
+    return () => { if (genTimer.current) clearInterval(genTimer.current); };
   }, []);
 
   // Load saved storyboard frames on mount
@@ -144,34 +144,9 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
 
   const startProgress = useCallback(() => {
     setParseProgress(0); setParseStage('准备中...');
-    let p = 0;
-    let elapsed = 0;
-    const stages = [
-      { at: 10, text: '上传文件中...' },
-      { at: 30, text: '上传完成，AI 解析中...' },
-      { at: 60, base: 'AI 正在分析文档' },
-      { at: 85, base: 'AI 深度分析中，请耐心等待' },
-    ];
-    if (progressTimer.current) clearInterval(progressTimer.current);
-    progressTimer.current = setInterval(() => {
-      elapsed++;
-      p += Math.random() * 6 + 1;
-      if (p > 92) p = 92;
-      const stage = [...stages].reverse().find((s) => p >= s.at);
-      if (stage) {
-        const secs = elapsed;
-        if (stage.base) {
-          setParseStage(`${stage.base}（已等待 ${secs} 秒）`);
-        } else {
-          setParseStage(stage.text);
-        }
-      }
-      setParseProgress(Math.round(p));
-    }, 1000);
   }, []);
 
   const finishProgress = useCallback(() => {
-    if (progressTimer.current) { clearInterval(progressTimer.current); progressTimer.current = null; }
     setParseProgress(100); setParseStage('完成！');
     setTimeout(() => { setParseProgress(null); setParseStage(''); }, 1200);
   }, []);
@@ -400,17 +375,15 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       docFiles.forEach((f) => formData.append('files', f));
       refImages.forEach((img) => formData.append('images', img.file));
       if (charRefFile) formData.append('charRef', charRefFile);
-      const data = await parseStoryboard(projectId, formData);
+      const data = await parseStoryboard(projectId, formData, (percent, stage) => {
+        setParseProgress(percent);
+        setParseStage(stage || '');
+      });
       const parsedFrames = Array.isArray(data) ? data : data.frames || [];
       const newFrames = parsedFrames.map((f) => ({ ...f, imageUrl: f.imageUrl || null }));
       setFrames(newFrames);
       setGenerated(true);
       finishProgress();
-      // Auto-generate images for frames without images
-      const needImages = newFrames.filter(f => !f.imageUrl);
-      if (needImages.length > 0) {
-        setTimeout(() => generateFrameImages(newFrames), 500);
-      }
     } catch (err) {
       finishProgress();
       const msg = err.message || '未知错误';
@@ -482,7 +455,81 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
     setEditingLoading(false);
   }, [editInstruction, frames, projectId, showAlert]);
 
+  // One-shot: PDF → V4 Blueprint
+  const [oneshotLoading, setOneshotLoading] = useState(false);
+  const [oneshotProgress, setOneshotProgress] = useState(null);
+  const [oneshotStage, setOneshotStage] = useState('');
+  const handleOneshot = useCallback(async () => {
+    if (docFiles.length === 0 && refImages.length === 0) return;
+    if (hasExistingNodes) {
+      const yes = await showConfirm('画布已有内容，将被覆盖，确认继续？');
+      if (!yes) return;
+    }
+    setOneshotLoading(true);
+    setOneshotProgress(0);
+    setOneshotStage('准备中...');
+    try {
+      const formData = new FormData();
+      formData.append('orientation', orientation);
+      formData.append('targetFrames', String(targetFrames || 11));
+      if (text.trim()) formData.append('text', text.trim());
+      docFiles.forEach((f) => formData.append('files', f));
+      refImages.forEach((img) => formData.append('images', img.file));
+
+      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/parse-and-blueprint`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let result = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            if (evt.type === 'progress') {
+              setOneshotProgress(evt.percent);
+              setOneshotStage(evt.stage || '');
+            } else if (evt.type === 'done') {
+              result = evt;
+            } else if (evt.type === 'error') {
+              throw new Error(evt.message || '解析失败');
+            }
+          } catch (parseErr) {
+            if (parseErr.message && !parseErr.message.includes('JSON')) throw parseErr;
+          }
+        }
+      }
+
+      if (!result) throw new Error('解析未返回结果');
+
+      // Save frames for display
+      if (result.storyboardFrames && result.storyboardFrames.length > 0) {
+        setFrames(result.storyboardFrames.map((f) => ({ ...f, imageUrl: f.imageUrl || null })));
+      }
+      // Pass V4 data to parent → switch to blueprint tab
+      onConvertToBlueprint(null, null, result);
+    } catch (err) {
+      console.error('[parse-and-blueprint] Error:', err.message);
+      await showAlert('⚠️ 解析输出蓝图失败: ' + err.message);
+    }
+    setOneshotProgress(null);
+    setOneshotStage('');
+    setOneshotLoading(false);
+  }, [docFiles, refImages, text, orientation, targetFrames, projectId, hasExistingNodes, showConfirm, showAlert, onConvertToBlueprint]);
+
   const [converting, setConverting] = useState(false);
+  const [convertProgress, setConvertProgress] = useState(null);
+  const [convertStage, setConvertStage] = useState('');
   const handleConvert = useCallback(async () => {
     if (frames.length === 0) return;
     if (hasExistingNodes) {
@@ -490,23 +537,53 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       if (!yes) return;
     }
     setConverting(true);
+    setConvertProgress(0);
+    setConvertStage('准备中...');
     try {
       const resp = await fetch(`${API_BASE}/api/projects/${projectId}/convert-to-v4`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ frames }),
       });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ error: resp.statusText }));
-        throw new Error(err.error || '转换失败');
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let v4Data = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            if (evt.type === 'progress') {
+              setConvertProgress(evt.percent);
+              setConvertStage(evt.stage || '');
+            } else if (evt.type === 'done') {
+              v4Data = evt;
+            } else if (evt.type === 'error') {
+              throw new Error(evt.message || '转换失败');
+            }
+          } catch (parseErr) {
+            if (parseErr.message && !parseErr.message.includes('JSON')) throw parseErr;
+          }
+        }
       }
-      const v4Data = await resp.json();
+
+      if (!v4Data) throw new Error('转换未返回结果');
       // Pass V4 data (entities + phases) to parent
       onConvertToBlueprint(null, null, v4Data);
     } catch (err) {
       console.error('[convert-to-v4] Error:', err.message);
       await showAlert('⚠️ 分镜转蓝图失败: ' + err.message);
     }
+    setConvertProgress(null);
+    setConvertStage('');
     setConverting(false);
   }, [frames, projectId, onConvertToBlueprint, hasExistingNodes, showConfirm, showAlert]);
 
@@ -605,11 +682,11 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       <div className="storyboard-input-section">
         <h3 className="storyboard-section-title">📋 分镜模式</h3>
         <div className="sb-mode-toggle">
-          <label className={'sb-mode-option' + (!hasStoryboard ? ' sb-mode-active' : '')} onClick={() => { setHasStoryboard(false); setDocFiles([]); }}>
-            <input type="radio" name="sbMode" checked={!hasStoryboard} onChange={() => {}} style={{ display: 'none' }} />
+          <label className={'sb-mode-option sb-mode-disabled'} style={{ opacity: 0.45, cursor: 'not-allowed', pointerEvents: 'none' }}>
+            <input type="radio" name="sbMode" disabled style={{ display: 'none' }} />
             <span className="sb-mode-icon">📝</span>
             <span className="sb-mode-label">无分镜文件</span>
-            <span className="sb-mode-desc">上传策划文档，AI 生成分镜配图</span>
+            <span className="sb-mode-desc">待上线</span>
           </label>
           <label className={'sb-mode-option' + (hasStoryboard ? ' sb-mode-active' : '')} onClick={() => { setHasStoryboard(true); setDocFiles([]); }}>
             <input type="radio" name="sbMode" checked={hasStoryboard} onChange={() => {}} style={{ display: 'none' }} />
@@ -622,7 +699,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
 
       {/* Requirement Document Upload */}
       <div className="storyboard-input-section">
-        <h3 className="storyboard-section-title">📄 需求文档</h3>
+        <h3 className="storyboard-section-title">📄 分镜文档</h3>
         <div className={'sb-upload-zone' + (isBusy ? ' sb-upload-disabled' : '')} onClick={() => !isBusy && docInputRef.current?.click()}>
           <input ref={docInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg" multiple style={{ display: 'none' }}
             onChange={(e) => { handleDocFiles(e.target.files); e.target.value = ''; }} disabled={isBusy} />
@@ -639,7 +716,8 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
         )}
       </div>
 
-      {/* Attachments */}
+      {/* Attachments - only in "no storyboard" mode */}
+      {!hasStoryboard && (
       <div className="storyboard-input-section">
         <h3 className="storyboard-section-title">📎 上传附件</h3>
         <div className={'sb-upload-zone' + (isBusy ? ' sb-upload-disabled' : '')} onClick={() => !isBusy && imgInputRef.current?.click()}>
@@ -665,12 +743,15 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
           </div>
         )}
       </div>
+      )}
 
-      {/* Notes / Instructions for AI */}
+      {/* Notes - only in "no storyboard" mode */}
+      {!hasStoryboard && (
       <div className="storyboard-input-section">
         <h3 className="storyboard-section-title">📝 备注</h3>
         <textarea className="storyboard-textarea" placeholder="告诉 AI 上传的附件是什么，需要参考哪些内容...&#10;例如：「附件是游戏截图，请参考其中的美术风格和 UI 布局」" value={text} onChange={(e) => setText(e.target.value)} rows={4} />
       </div>
+      )}
 
       {/* Camera Options - only in "no storyboard" mode */}
       {!hasStoryboard && (
@@ -775,12 +856,31 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       </div>
       )}
 
-      {/* Parse Button + Progress */}
+      {/* Parse Button + One-Shot Button + Progress */}
       <div className="storyboard-input-section">
-        <button className="storyboard-btn storyboard-btn-parse" onClick={handleParse}
-          disabled={loading || generating || frames.length > 0 || (docFiles.length === 0 && refImages.length === 0)}>
-          {loading ? '⏳ 解析中...' : frames.length > 0 ? '✅ 已解析' : '🎬 开始解析'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {hasStoryboard && (
+            <button className="storyboard-btn storyboard-btn-parse" onClick={handleOneshot}
+              disabled={oneshotLoading || loading || generating || docFiles.length === 0}
+              style={{ background: docFiles.length > 0 ? 'linear-gradient(135deg, #7c3aed, #2563eb)' : undefined, opacity: docFiles.length === 0 ? 0.4 : 1, fontWeight: 600 }}>
+              {oneshotLoading ? (oneshotProgress !== null ? `⏳ ${oneshotProgress}% ${oneshotStage}` : '⏳ 处理中...') : '🚀 解析输出蓝图'}
+            </button>
+          )}
+          {!hasStoryboard && (
+            <button className="storyboard-btn storyboard-btn-parse" onClick={() => { if (frames.length > 0) { setFrames([]); } else { handleParse(); } }}
+              disabled={loading || generating || (frames.length === 0 && docFiles.length === 0 && refImages.length === 0)}>
+              {loading ? (parseProgress !== null ? `⏳ 解析中 ${parseProgress}%` : '⏳ 解析中...') : frames.length > 0 ? '🔄 重新解析' : '🎬 开始解析'}
+            </button>
+          )}
+          {!hasStoryboard && (
+            <button className="storyboard-btn storyboard-btn-parse" onClick={handleConvert}
+              disabled={converting || frames.length === 0}
+              style={{ background: frames.length > 0 ? '#7c3aed' : undefined, opacity: frames.length === 0 ? 0.4 : 1 }}>
+              {converting ? (convertProgress !== null ? `⏳ ${convertProgress}% ${convertStage}` : '⏳ AI 提取实体中...') : '🗺 转为蓝图(V4)'}
+            </button>
+          )}
+          {frames.length > 0 && <span style={{ color: '#22c55e', fontSize: 13 }}>✅ 已解析 · {frames.length} 帧</span>}
+        </div>
         {parseProgress !== null && (
           <div className="parse-progress-overlay">
             <div className="parse-progress-card">
@@ -808,8 +908,34 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
         </div>
       )}
 
-      {/* Frames Preview — PDF Table Format */}
-      {frames.length > 0 && (
+      {convertProgress !== null && (
+        <div className="parse-progress-overlay">
+          <div className="parse-progress-card">
+            <div className="parse-progress-icon">{convertProgress >= 100 ? '✅' : '🗺'}</div>
+            <div className="parse-progress-bar-track">
+              <div className="parse-progress-bar-fill" style={{ width: `${convertProgress}%` }} />
+            </div>
+            <div className="parse-progress-percent">{convertProgress}%</div>
+            <div className="parse-progress-text">{convertStage}</div>
+          </div>
+        </div>
+      )}
+
+      {oneshotProgress !== null && (
+        <div className="parse-progress-overlay">
+          <div className="parse-progress-card">
+            <div className="parse-progress-icon">{oneshotProgress >= 100 ? '✅' : '🚀'}</div>
+            <div className="parse-progress-bar-track">
+              <div className="parse-progress-bar-fill" style={{ width: `${oneshotProgress}%` }} />
+            </div>
+            <div className="parse-progress-percent">{oneshotProgress}%</div>
+            <div className="parse-progress-text">{oneshotStage}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Frames Preview — only in "no storyboard" mode */}
+      {!hasStoryboard && frames.length > 0 && (
         <div className="storyboard-frames-section">
           <div className="storyboard-frames-header">
             <h3 className="storyboard-section-title">🎞 分镜预览 ({frames.length} 帧)</h3>
@@ -979,7 +1105,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
             </button>
             <button className="storyboard-btn storyboard-bottom-btn storyboard-btn-convert" style={{ fontSize: 12, padding: "4px 10px" }} onClick={handleConvert}
               disabled={converting || frames.length === 0} title={frames.length === 0 ? '请先解析分镜' : ''}>
-              {converting ? '⏳ AI 提取实体中...' : '🗺 转为蓝图(V4)'}
+              {converting ? (convertProgress !== null ? `⏳ ${convertProgress}%` : '⏳ AI 提取实体中...') : '🗺 转为蓝图(V4)'}
             </button>
           </div>
         </div>

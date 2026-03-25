@@ -6,15 +6,18 @@ Output: JSON to stdout
 """
 import os, sys, json, time, argparse
 
-os.environ['HTTPS_PROXY'] = 'http://127.0.0.1:7890'
-os.environ['HTTP_PROXY'] = 'http://127.0.0.1:7890'
+# Direct connection — no proxy needed (using relay or direct)
+os.environ.pop('HTTPS_PROXY', None)
+os.environ.pop('HTTP_PROXY', None)
+os.environ.pop('https_proxy', None)
+os.environ.pop('http_proxy', None)
 
 from openai import OpenAI
 
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY',
     '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')
 
-client = OpenAI(api_key=OPENAI_API_KEY, timeout=600)
+client = OpenAI(api_key=OPENAI_API_KEY, base_url=os.environ.get('OPENAI_BASE_URL', 'https://sub.mindrix.app/v1'), timeout=600)
 
 
 def log(msg):
@@ -22,14 +25,64 @@ def log(msg):
     print(f"[py-storyboard] {msg}", file=sys.stderr, flush=True)
 
 
-def upload_pdf(pdf_path):
-    """Upload PDF to OpenAI Files API"""
-    log(f"Uploading PDF ({os.path.getsize(pdf_path)} bytes)...")
-    t0 = time.time()
-    with open(pdf_path, 'rb') as f:
-        uploaded = client.files.create(file=f, purpose='assistants')
-    log(f"Uploaded: {uploaded.id} in {time.time()-t0:.1f}s")
-    return uploaded.id
+def pdf_to_images(pdf_path, dpi=150, quality=85, max_dimension=2048):
+    """Convert PDF pages to WebP base64 image_url list for GPT-5.4 vision.
+    
+    Relay (sub.mindrix.app) doesn't support /v1/files, and image_url rejects
+    application/pdf MIME. So we render each page as WebP via PyMuPDF.
+    WebP is ~60% smaller than JPEG at same quality.
+    Large pages are scaled down to fit within max_dimension.
+    """
+    import fitz  # PyMuPDF
+    import base64
+    from io import BytesIO
+    try:
+        from PIL import Image
+    except ImportError:
+        Image = None
+
+    size = os.path.getsize(pdf_path)
+    doc = fitz.open(pdf_path)
+    page_count = len(doc)
+    log(f"PDF: {size} bytes, {page_count} pages, rendering at {dpi} DPI → WebP q{quality} (max {max_dimension}px)")
+
+    image_urls = []
+
+    for i, page in enumerate(doc):
+        rect = page.rect
+        # Calculate scale: use DPI but cap at max_dimension
+        scale = dpi / 72
+        raw_w = int(rect.width * scale)
+        raw_h = int(rect.height * scale)
+        if max(raw_w, raw_h) > max_dimension:
+            scale = scale * max_dimension / max(raw_w, raw_h)
+            log(f"  page {i+1}: {raw_w}x{raw_h} too large, scaling down to {int(rect.width*scale)}x{int(rect.height*scale)}")
+
+        mat = fitz.Matrix(scale, scale)
+        pix = page.get_pixmap(matrix=mat)
+        png_bytes = pix.tobytes("png")
+
+        # Convert to WebP via Pillow (much smaller than JPEG/PNG)
+        if Image:
+            img = Image.open(BytesIO(png_bytes))
+            buf = BytesIO()
+            img.save(buf, format="WEBP", quality=quality)
+            webp_bytes = buf.getvalue()
+            b64 = base64.b64encode(webp_bytes).decode("ascii")
+            mime = "image/webp"
+            log(f"  page {i+1}/{page_count}: {pix.width}x{pix.height} → WebP {len(webp_bytes)//1024}KB")
+        else:
+            # Fallback: use PNG if Pillow not available
+            b64 = base64.b64encode(png_bytes).decode("ascii")
+            mime = "image/png"
+            log(f"  page {i+1}/{page_count}: {pix.width}x{pix.height} → PNG {len(png_bytes)//1024}KB (no Pillow)")
+
+        image_urls.append(f"data:{mime};base64,{b64}")
+
+    doc.close()
+    total_b64_kb = sum(len(u) for u in image_urls) // 1024
+    log(f"PDF → {len(image_urls)} page images, total base64 ~{total_b64_kb}KB")
+    return image_urls
 
 
 def parse_storyboard(system_prompt, user_content, max_tokens=65536):
@@ -135,15 +188,18 @@ def main():
     
     log(f"System prompt: {len(system_prompt)} chars")
     
-    # Get file_id
-    file_id = args.file_id
-    if not file_id and args.pdf:
-        file_id = upload_pdf(args.pdf)
+    # Get PDF data — render pages as WebP images
+    pdf_image_urls = []
+    if not args.file_id and args.pdf:
+        pdf_image_urls = pdf_to_images(args.pdf)
     
     # Build user content
     user_content = []
-    if file_id:
-        user_content.append({"type": "file", "file": {"file_id": file_id}})
+    if pdf_image_urls:
+        for url in pdf_image_urls:
+            user_content.append({"type": "image_url", "image_url": {"url": url}})
+    elif args.file_id:
+        user_content.append({"type": "file", "file": {"file_id": args.file_id}})
     
     text = args.user_text
     if args.extra_text:

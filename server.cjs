@@ -285,9 +285,10 @@ function matchRoute(method, pathname) {
   if (m && method === "POST") return { handler: "generateStoryboard", id: m[1] };
   m = pathname.match(/^\/api\/projects\/([^/]+)\/generate-storyboard-pdf$/);
   if (m && method === "POST") return { handler: "generateStoryboardPDF", id: m[1] };
+  m = pathname.match(/^\/api\/projects\/([^/]+)\/parse-and-blueprint$/);
+  if (m && method === 'POST') return { handler: 'parseAndBlueprint', id: m[1], rawBody: true };
   m = pathname.match(/^\/api\/projects\/([^/]+)\/convert-to-v4$/);
   if (m && method === 'POST') return { handler: 'convertToV4', id: m[1] };
-  if (m && method === 'POST') return { handler: 'editFrame', id: m[1] };
 
   // Spec review routes
   m = pathname.match(/^\/api\/projects\/([^/]+)\/specs$/);
@@ -983,6 +984,23 @@ handlers.parseStoryboard = function(req, res, body, projectId) {
     return sendJSON(res, { error: 'Invalid multipart request: ' + e.message }, 400);
   }
 
+  // SSE helpers
+  var sseStarted = false;
+  function startSSE() {
+    if (sseStarted) return;
+    sseStarted = true;
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    });
+  }
+  function sendSSE(evt) {
+    if (!sseStarted) startSSE();
+    res.write('data: ' + JSON.stringify(evt) + '\n\n');
+  }
+
   bb.on('field', function(name, val) { fields[name] = val; });
   var _fileWrites = [];
   bb.on('file', function(name, stream, info) {
@@ -1003,8 +1021,11 @@ handlers.parseStoryboard = function(req, res, body, projectId) {
     }));
   });
   bb.on('close', async function() {
+    startSSE();
     try {
       await Promise.all(_fileWrites);
+      sendSSE({ type: 'progress', percent: 5, stage: '文件上传完成' });
+
       // Build text from docs + text field
       var allText = fields.text || '';
       var pdfPath = null;
@@ -1017,7 +1038,6 @@ handlers.parseStoryboard = function(req, res, body, projectId) {
             pdfPath = f.path;
             console.log('[parse-storyboard] PDF detected:', f.filename);
           } else if (/\.(png|jpg|jpeg|webp)$/.test(fname)) {
-            // Image doc: treat as visual input alongside other images
             var imgPart = storyboardParser.readImagePart(f.path);
             imageParts.push(imgPart);
             console.log('[parse-storyboard] Image doc detected:', f.filename);
@@ -1027,6 +1047,7 @@ handlers.parseStoryboard = function(req, res, body, projectId) {
           }
         } catch(e) { console.warn('[parse-storyboard] Doc extract failed:', f.filename, e.message); }
       }
+      sendSSE({ type: 'progress', percent: 15, stage: '文档解析完成' });
 
       // Read additional image attachments
       var charRefPart = null;
@@ -1043,10 +1064,13 @@ handlers.parseStoryboard = function(req, res, body, projectId) {
       }
 
       if (!allText.trim() && imageParts.length === 0 && !pdfPath) {
-        return sendJSON(res, { error: '请提供文案或文档' }, 400);
+        sendSSE({ type: 'error', message: '请提供文案或文档' });
+        return res.end();
       }
 
-      // Call Gemini parser
+      sendSSE({ type: 'progress', percent: 20, stage: 'AI 分镜解析中...' });
+
+      // Call parser
       var config = {
         orientation: fields.orientation || 'landscape',
         cameraAngle: fields.cameraAngle || 'isometric45',
@@ -1054,7 +1078,25 @@ handlers.parseStoryboard = function(req, res, body, projectId) {
         style: fields.style || '',
         targetFrames: parseInt(fields.targetFrames, 10) || 15,
       };
-      var frames = await storyboardParser.parseScript(allText, { ...config, images: imageParts, docPath: pdfPath, charRefImage: charRefPart });
+
+      // Set up a heartbeat to track long AI calls
+      var aiStartTime = Date.now();
+      var heartbeat = setInterval(function() {
+        var elapsed = Math.round((Date.now() - aiStartTime) / 1000);
+        // Slowly advance from 20 to 85 based on elapsed time (typical parse: 30-120s)
+        var aiPercent = Math.min(85, 20 + Math.round(elapsed * 0.5));
+        sendSSE({ type: 'progress', percent: aiPercent, stage: 'AI 深度分析中（已等待 ' + elapsed + ' 秒）' });
+      }, 3000);
+
+      var frames;
+      try {
+        frames = await storyboardParser.parseScript(allText, { ...config, images: imageParts, docPath: pdfPath, charRefImage: charRefPart });
+      } finally {
+        clearInterval(heartbeat);
+      }
+
+      sendSSE({ type: 'progress', percent: 90, stage: '解析完成，保存中...' });
+
       // Save frames to project
       try {
         var proj = readProject(projectId);
@@ -1068,7 +1110,10 @@ handlers.parseStoryboard = function(req, res, body, projectId) {
           console.log('[parse-storyboard] Saved', (frames.frames || []).length, 'frames to project', projectId);
         }
       } catch(saveErr) { console.error('[parse-storyboard] Save frames error:', saveErr.message); }
-      sendJSON(res, frames);
+
+      sendSSE({ type: 'progress', percent: 100, stage: '完成！' });
+      sendSSE({ type: 'done', data: frames });
+      res.end();
 
       // Cleanup uploaded files
       for (var f2 of [...files, ...images]) {
@@ -1077,12 +1122,18 @@ handlers.parseStoryboard = function(req, res, body, projectId) {
     } catch(e) {
       console.error('[parse-storyboard] Error:', e.message);
       try { notify.alert('critical', '分镜解析失败', e.message); } catch(ne) {}
-      sendJSON(res, { error: '分镜解析失败: ' + e.message }, 500);
+      sendSSE({ type: 'error', message: '分镜解析失败: ' + e.message });
+      res.end();
     }
   });
 
   bb.on('error', function(e) {
-    sendJSON(res, { error: 'Upload failed: ' + e.message }, 500);
+    if (sseStarted) {
+      sendSSE({ type: 'error', message: 'Upload failed: ' + e.message });
+      res.end();
+    } else {
+      sendJSON(res, { error: 'Upload failed: ' + e.message }, 500);
+    }
   });
 
   req.pipe(bb);
@@ -1372,15 +1423,211 @@ handlers.generateStoryboardPDF = function(req, res, body, projectId) {
 };
 
 
-handlers.convertToV4 = async function(req, res, body, projectId) {
+// ========================
+// Parse & Blueprint (One-Shot): PDF → V4 蓝图，一次 AI 调用
+// ========================
+handlers.parseAndBlueprint = async function(req, res, body, projectId) {
+  var fs = require('fs');
+  var path = require('path');
+  
+  // Parse multipart form data (same as parseStoryboard)
+  var Busboy;
+  try { Busboy = require('busboy'); } catch(e) {
+    // Fallback: try to get files from existing upload handling
+  }
+  
+  // SSE streaming response
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  function sendSSE(data) {
+    try { res.write('data: ' + JSON.stringify(data) + '\n\n'); } catch(e) {}
+  }
+
   try {
-    var project = loadProject(projectId);
-    if (!project) return sendJSON(res, 404, { error: 'Project not found' });
-    var frames = project.storyboard || [];
+    sendSSE({ type: 'progress', percent: 2, stage: '检查项目...' });
+    
+    var project = readProject(projectId);
+    if (!project) { sendSSE({ type: 'error', message: 'Project not found' }); res.end(); return; }
+
+    sendSSE({ type: 'progress', percent: 5, stage: '处理上传文件...' });
+
+    // Parse multipart to get PDF file
+    var uploadedFiles = [];
+    var formFields = {};
+    
+    await new Promise(function(resolve, reject) {
+      try {
+        var bb = Busboy({ headers: req.headers });
+        bb.on('file', function(fieldname, file, info) {
+          var filename = info.filename || info;
+          if (typeof filename === 'object') filename = filename.filename;
+          var uploadDir = path.join(__dirname, 'server-data', 'uploads');
+          if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+          var dest = path.join(uploadDir, Date.now() + '_' + filename);
+          var ws = fs.createWriteStream(dest);
+          file.pipe(ws);
+          ws.on('close', function() {
+            uploadedFiles.push({ name: filename, path: dest });
+          });
+        });
+        bb.on('field', function(name, val) { formFields[name] = val; });
+        bb.on('close', resolve);
+        bb.on('error', reject);
+        req.pipe(bb);
+      } catch(e) {
+        // If busboy fails (e.g. JSON body), try parsing body as JSON
+        try {
+          var parsed = JSON.parse(body);
+          formFields = parsed;
+        } catch(e2) {}
+        resolve();
+      }
+    });
+
+    // Find PDF file
+    var pdfFile = uploadedFiles.find(function(f) { return /\.pdf$/i.test(f.name); });
+    var imageFiles = uploadedFiles.filter(function(f) { return /\.(png|jpg|jpeg)$/i.test(f.name); });
+
+    // If no new upload, check existing storyboard upload or saved frames
+    if (!pdfFile && !imageFiles.length) {
+      // Try to find the most recent upload
+      var uploadsDir = path.join(__dirname, 'server-data', 'uploads');
+      if (fs.existsSync(uploadsDir)) {
+        var files = fs.readdirSync(uploadsDir).filter(function(f) { return /\.pdf$/i.test(f); }).sort().reverse();
+        if (files.length > 0) {
+          pdfFile = { name: files[0], path: path.join(uploadsDir, files[0]) };
+        }
+      }
+    }
+
+    if (!pdfFile && !imageFiles.length) {
+      sendSSE({ type: 'error', message: '请上传 PDF 分镜文件' });
+      res.end();
+      return;
+    }
+
+    var orientation = formFields.orientation || 'landscape';
+    var targetFrames = parseInt(formFields.targetFrames) || 11;
+    var userText = formFields.text || '';
+
+    sendSSE({ type: 'progress', percent: 10, stage: '准备 AI 分析...' });
+    console.log('[parse-and-blueprint] One-shot PDF→V4 for project ' + projectId);
+
+    // Call Python one-shot script via spawn
+    var { spawn: spawnProc } = require('child_process');
+    
+    var pyResult = await new Promise(function(resolve, reject) {
+      var args = [
+        '/opt/blueprint-editor/python/pdf_to_blueprint.py',
+        '--schema-file', '/opt/blueprint-editor/docs/v4-schema.json',
+        '--templates-file', '/opt/blueprint-editor/worker/behavior-templates.md',
+        '--orientation', orientation,
+        '--target-frames', String(targetFrames),
+      ];
+      if (pdfFile) {
+        args.push('--pdf', pdfFile.path);
+      }
+      if (imageFiles.length > 0) {
+        args.push('--images');
+        imageFiles.forEach(function(f) { args.push(f.path); });
+      }
+      if (userText) {
+        args.push('--text', userText);
+      }
+
+      var env = Object.assign({}, process.env, { OPENAI_API_KEY: process.env.OPENAI_API_KEY || '' });
+      var child = spawnProc('python3.8', args, { env: env, timeout: 600000 });
+      var stdout = '';
+      var stderr = '';
+      
+      child.stdout.on('data', function(data) { stdout += data.toString(); });
+      child.stderr.on('data', function(data) {
+        var chunk = data.toString();
+        stderr += chunk;
+        // Parse structured progress lines
+        var lines = chunk.split('\n');
+        for (var i = 0; i < lines.length; i++) {
+          var pm = lines[i].match(/^PROGRESS:(\d+):(.+)/);
+          if (pm) {
+            sendSSE({ type: 'progress', percent: parseInt(pm[1]), stage: pm[2] });
+          }
+        }
+      });
+      child.on('close', function(code) {
+        if (stderr) console.log('[parse-and-blueprint] Python: ' + stderr.substring(0, 500));
+        if (code !== 0 && !stdout) return reject(new Error('Python one-shot failed (exit ' + code + ')'));
+        resolve(stdout);
+      });
+      child.on('error', reject);
+    });
+
+    sendSSE({ type: 'progress', percent: 90, stage: '解析结果...' });
+
+    var parsed = JSON.parse(pyResult);
+    if (parsed.error) throw new Error(parsed.error);
+    var v4Data = parsed.data;
+
+    // Validate
+    if (!v4Data.entities || !Array.isArray(v4Data.entities)) throw new Error('Missing entities');
+    if (!v4Data.phases || !Array.isArray(v4Data.phases)) throw new Error('Missing phases');
+
+    sendSSE({ type: 'progress', percent: 95, stage: '保存数据 (' + v4Data.entities.length + ' 实体, ' + v4Data.phases.length + ' 阶段)...' });
+
+    // Save storyboard frames
+    if (v4Data.storyboardFrames && v4Data.storyboardFrames.length > 0) {
+      project.storyboardFrames = v4Data.storyboardFrames;
+    }
+    // Save V4 data
+    project.entities = v4Data.entities;
+    project.phases = v4Data.phases;
+    project.globalSettings = v4Data.globalSettings || {};
+    project.version = 4;
+    writeProject(project);
+
+    console.log('[parse-and-blueprint] Done: ' + v4Data.entities.length + ' entities, ' + v4Data.phases.length + ' phases, ' + (v4Data.storyboardFrames || []).length + ' frames');
+
+    sendSSE({ type: 'progress', percent: 100, stage: '完成！' });
+    sendSSE({
+      type: 'done',
+      storyboardFrames: v4Data.storyboardFrames || [],
+      entities: v4Data.entities,
+      phases: v4Data.phases,
+      globalSettings: v4Data.globalSettings || {},
+    });
+    res.end();
+  } catch(e) {
+    console.error('[parse-and-blueprint] Error:', e.message);
+    sendSSE({ type: 'error', message: e.message });
+    res.end();
+  }
+};
+
+handlers.convertToV4 = async function(req, res, body, projectId) {
+  // SSE streaming response for real-time progress
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  function sendSSE(data) {
+    try { res.write('data: ' + JSON.stringify(data) + '\n\n'); } catch(e) {}
+  }
+  try {
+    sendSSE({ type: 'progress', percent: 5, stage: '读取项目数据...' });
+
+    var project = readProject(projectId);
+    if (!project) { sendSSE({ type: 'error', message: 'Project not found' }); res.end(); return; }
+    var frames = project.storyboardFrames || project.storyboard || [];
     if (!frames.length && body.frames) frames = body.frames;
-    if (!frames.length) return sendJSON(res, 400, { error: 'No storyboard frames' });
+    if (!frames.length) { sendSSE({ type: 'error', message: 'No storyboard frames' }); res.end(); return; }
 
     console.log('[convert-to-v4] Converting ' + frames.length + ' frames for project ' + projectId);
+    sendSSE({ type: 'progress', percent: 10, stage: '准备分镜数据 (' + frames.length + ' 帧)...' });
 
     // Build prompt for Gemini to extract entities + phases from storyboard frames
     var framesDesc = frames.map(function(f, i) {
@@ -1397,6 +1644,8 @@ handlers.convertToV4 = async function(req, res, body, projectId) {
       if (f.scriptExcerpt) parts.push('脚本: ' + f.scriptExcerpt);
       return parts.join('\n');
     }).join('\n---\n');
+
+    sendSSE({ type: 'progress', percent: 15, stage: '加载 V4 Schema 和模板...' });
 
     var v4SchemaStr = require('fs').readFileSync('/opt/blueprint-editor/docs/v4-schema.json', 'utf8');
     var behaviorTemplatesStr = require('fs').readFileSync('/opt/blueprint-editor/worker/behavior-templates.md', 'utf8').substring(0, 3000);
@@ -1437,30 +1686,67 @@ ${framesDesc}
     var fs = require('fs');
     var text = '';
     
+    sendSSE({ type: 'progress', percent: 20, stage: '调用 AI 提取实体中...' });
     console.log('[v4-convert] Calling GPT-5.4 via Python for blueprint conversion...');
     var tmpFrames = '/tmp/v4-frames-' + Date.now() + '.json';
     fs.writeFileSync(tmpFrames, JSON.stringify(project.storyboard || project.storyboardFrames || []), 'utf8');
     
-    var { exec: execAsync } = require('child_process');
+    var { spawn: spawnProc } = require('child_process');
+
     try {
       var pyResult = await new Promise(function(resolve, reject) {
-        var cmd = 'python3.8 /opt/blueprint-editor/python/blueprint_converter.py' +
-          ' --frames-file ' + tmpFrames +
-          ' --schema-file /opt/blueprint-editor/docs/v4-schema.json' +
-          ' --templates-file /opt/blueprint-editor/worker/behavior-templates.md';
-        execAsync(cmd, { timeout: 600000, maxBuffer: 50 * 1024 * 1024, env: Object.assign({}, process.env, { OPENAI_API_KEY: process.env.OPENAI_API_KEY || '' }) }, function(err, stdout, stderr) {
+        var args = [
+          '/opt/blueprint-editor/python/blueprint_converter.py',
+          '--frames-file', tmpFrames,
+          '--schema-file', '/opt/blueprint-editor/docs/v4-schema.json',
+          '--templates-file', '/opt/blueprint-editor/worker/behavior-templates.md'
+        ];
+        var env = Object.assign({}, process.env, { OPENAI_API_KEY: process.env.OPENAI_API_KEY || '' });
+        var child = spawnProc('python3.8', args, { env: env, timeout: 600000 });
+        var stdout = '';
+        var stderr = '';
+        child.stdout.on('data', function(data) { stdout += data.toString(); });
+        child.stderr.on('data', function(data) {
+          var chunk = data.toString();
+          stderr += chunk;
+          // Parse structured progress lines: PROGRESS:<chars>:<seconds>
+          var lines = chunk.split('\n');
+          for (var li = 0; li < lines.length; li++) {
+            var pm = lines[li].match(/^PROGRESS:(\d+):(\d+)/);
+            if (pm) {
+              var chars = parseInt(pm[1]);
+              var secs = parseInt(pm[2]);
+              // Estimate percent: typical response is 15000-30000 chars over 60-120s
+              var pct = Math.min(85, 20 + Math.round((chars / 25000) * 60));
+              sendSSE({ type: 'progress', percent: pct, stage: 'AI 生成中... ' + Math.round(chars/1000) + 'K 字符, ' + secs + '秒' });
+            }
+          }
+        });
+        child.on('close', function(code) {
           try { fs.unlinkSync(tmpFrames); } catch(e) {}
-          if (stderr) console.log('[v4-convert] Python: ' + stderr.substring(0, 300));
-          if (err && !stdout) return reject(new Error('Python converter failed: ' + (err.message || '').substring(0, 200)));
+          if (stderr) console.log('[v4-convert] Python: ' + stderr.substring(0, 500));
+          if (code !== 0 && !stdout) return reject(new Error('Python converter failed (exit ' + code + ')'));
           resolve(stdout);
         });
+        child.on('error', function(err) {
+          try { fs.unlinkSync(tmpFrames); } catch(e) {}
+          reject(err);
+        });
       });
+      sendSSE({ type: 'progress', percent: 88, stage: '解析 AI 返回结果...' });
       var parsed = JSON.parse(pyResult);
       if (parsed.error) throw new Error(parsed.error);
       text = JSON.stringify(parsed.data);
       console.log('[v4-convert] Python GPT-5.4 returned ' + text.length + ' chars');
     } catch(pyErr) {
       console.log('[v4-convert] Python failed, falling back to Gemini: ' + pyErr.message?.substring(0, 100));
+      sendSSE({ type: 'progress', percent: 30, stage: '切换到 Gemini 备选模型...' });
+      // Simple ticker for Gemini (no stderr progress)
+      var geminiPercent = 30;
+      var geminiTicker = setInterval(function() {
+        geminiPercent = Math.min(geminiPercent + 3, 85);
+        sendSSE({ type: 'progress', percent: geminiPercent, stage: 'Gemini AI 分析中...' });
+      }, 2000);
       // Fallback to Gemini
       var ai = require('./storyboard-parser.cjs').getAI ? require('./storyboard-parser.cjs').getAI() : null;
       if (!ai) {
@@ -1476,6 +1762,8 @@ ${framesDesc}
         }),
         new Promise(function(_, reject) { setTimeout(function() { reject(new Error('Gemini timeout (120s)')); }, 120000); })
       ]);
+      clearInterval(geminiTicker);
+      sendSSE({ type: 'progress', percent: 88, stage: '解析 AI 返回结果...' });
       if (result.candidates && result.candidates[0]) {
         var parts = result.candidates[0].content.parts || [];
         for (var p = 0; p < parts.length; p++) {
@@ -1486,6 +1774,8 @@ ${framesDesc}
       }
       console.log('[v4-convert] Gemini returned ' + text.length + ' chars');
     }
+
+    sendSSE({ type: 'progress', percent: 90, stage: '解析 JSON 结构...' });
 
     // Clean markdown fences
     text = text.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
@@ -1511,6 +1801,7 @@ ${framesDesc}
       throw new Error('AI response missing phases array');
     }
 
+    sendSSE({ type: 'progress', percent: 95, stage: '保存蓝图数据 (' + v4Data.entities.length + ' 实体, ' + v4Data.phases.length + ' 阶段)...' });
     console.log('[convert-to-v4] Extracted ' + v4Data.entities.length + ' entities, ' + v4Data.phases.length + ' phases');
 
     // Save V4 data to project
@@ -1518,16 +1809,20 @@ ${framesDesc}
     project.phases = v4Data.phases;
     project.globalSettings = v4Data.globalSettings || {};
     project.version = 4;
-    saveProject(projectId, project);
+    writeProject(project);
 
-    sendJSON(res, 200, {
+    sendSSE({ type: 'progress', percent: 100, stage: '完成！' });
+    sendSSE({
+      type: 'done',
       entities: v4Data.entities,
       phases: v4Data.phases,
       globalSettings: v4Data.globalSettings || {},
     });
+    res.end();
   } catch(e) {
     console.error('[convert-to-v4] Error:', e.message);
-    sendJSON(res, 500, { error: e.message });
+    sendSSE({ type: 'error', message: e.message });
+    res.end();
   }
 };
 

@@ -7,15 +7,15 @@ Usage: python3.8 image_generator.py --prompt <text_or_file> --size 1536x1024 [--
 """
 import os, sys, json, time, argparse, base64
 
-os.environ['HTTPS_PROXY'] = 'http://127.0.0.1:7890'
-os.environ['HTTP_PROXY'] = 'http://127.0.0.1:7890'
+os.environ.pop('HTTPS_PROXY', None)
+os.environ.pop('HTTP_PROXY', None)
 
 from openai import OpenAI
 
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY',
     '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')
 
-client = OpenAI(api_key=OPENAI_API_KEY, timeout=180)
+client = OpenAI(api_key=OPENAI_API_KEY, base_url=os.environ.get('OPENAI_BASE_URL', 'https://sub.mindrix.app/v1'), timeout=180)
 
 
 def log(msg):
