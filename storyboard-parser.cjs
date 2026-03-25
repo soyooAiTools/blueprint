@@ -9,6 +9,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 // === Gemini via relay (direct, no proxy needed) ===
 const GEMINI_BASE_URL = process.env.GOOGLE_GEMINI_BASE_URL || 'https://sub.mindrix.app';
@@ -793,10 +794,9 @@ ${JSON.stringify(frame, null, 2)}
 
 // === Image Generation (Gemini 3.1 Pro native) ===
 async function generateImage(prompt, opts = {}, aiInstance) {
-  if (!aiInstance) aiInstance = aiPool[_keyIndex++ % aiPool.length];
-  const { style = '', cameraAngle = '', orientation = '', perspective = '', styleRefBase64 = null, styleRefMime = null, charRefBase64 = null, charRefMime = null, prevImagePath = null } = opts;
+  const { style = '', cameraAngle = '', orientation = '', perspective = '', prevImagePath = null } = opts;
   let fullPrompt = prompt;
-  // Append camera/orientation hints if not already in prompt
+  // Append camera/orientation hints
   const cameraHints = [];
   if (cameraAngle && !prompt.toLowerCase().includes(cameraAngle.toLowerCase())) cameraHints.push('Camera: ' + cameraAngle);
   if (orientation && !prompt.toLowerCase().includes(orientation)) cameraHints.push('Orientation: ' + orientation);
@@ -804,42 +804,85 @@ async function generateImage(prompt, opts = {}, aiInstance) {
   if (cameraHints.length) fullPrompt += '. ' + cameraHints.join(', ');
   if (style) fullPrompt += '. Style: ' + style;
 
-  // === Scene layout & modeling consistency constraint (prepended to ALL frames) ===
+  // Try GPT-image-1 (Python) first, then Gemini fallback
+  try {
+    return await generateImageGPT(fullPrompt, { orientation, prevImagePath });
+  } catch (gptErr) {
+    console.warn('[generateImage] GPT-image-1 failed:', gptErr.message?.substring(0, 120), '— trying Gemini fallback');
+    return await generateImageGemini(fullPrompt, opts, aiInstance);
+  }
+}
+
+// GPT-image-1 via Python image_generator.py
+async function generateImageGPT(prompt, opts = {}) {
+  const { execFile } = require('child_process');
+  const { orientation = 'landscape', prevImagePath = null } = opts;
+  const size = orientation === 'portrait' ? '1024x1536' : '1536x1024';
+  const outputPath = path.join(os.tmpdir(), 'gpt_img_' + Date.now() + '.png');
+  const promptFile = path.join(os.tmpdir(), 'gpt_prompt_' + Date.now() + '.txt');
+  fs.writeFileSync(promptFile, prompt, 'utf-8');
+
+  const args = ['python/image_generator.py', '--prompt-file', promptFile, '--size', size, '--quality', 'medium', '--output', outputPath];
+  if (prevImagePath && fs.existsSync(prevImagePath)) args.push('--prev-image', prevImagePath);
+
+  console.log('[generateImage] GPT-image-1 via Python' + (prevImagePath ? ' (edit mode)' : ' (generate)'));
+
+  return new Promise((resolve, reject) => {
+    execFile('python3.8', args, { cwd: __dirname, timeout: 180000, env: { ...process.env, HTTPS_PROXY: 'http://127.0.0.1:7890', HTTP_PROXY: 'http://127.0.0.1:7890' } }, (err, stdout, stderr) => {
+      try { fs.unlinkSync(promptFile); } catch(e) {}
+      if (stderr) console.log('[generateImage] Python stderr:', stderr.trim().split('\n').slice(-2).join(' | '));
+      // Parse stdout JSON even on error (Python outputs error JSON before exit 1)
+      let result = null;
+      try { result = JSON.parse((stdout || '').trim()); } catch(e) {}
+      if (result && result.error) {
+        try { fs.unlinkSync(outputPath); } catch(e) {}
+        return reject(new Error('GPT-image-1: ' + result.error));
+      }
+      if (err && !result) {
+        try { fs.unlinkSync(outputPath); } catch(e) {}
+        return reject(new Error('GPT-image-1: ' + (err.message || 'unknown error')));
+      }
+      // Read the output file as base64
+      if (fs.existsSync(outputPath)) {
+        const buf = fs.readFileSync(outputPath);
+        console.log('[generateImage] GPT-image-1 success: ' + (buf.length / 1024).toFixed(0) + 'KB');
+        resolve({ base64: buf.toString('base64'), mimeType: 'image/png', outputPath });
+      } else {
+        reject(new Error('GPT-image-1: no output file generated'));
+      }
+    });
+  });
+}
+
+// Gemini image generation (fallback)
+async function generateImageGemini(prompt, opts = {}, aiInstance) {
+  if (!aiInstance) aiInstance = aiPool[_keyIndex++ % aiPool.length];
+  const { styleRefBase64 = null, styleRefMime = null, charRefBase64 = null, charRefMime = null, prevImagePath = null } = opts;
+
   const consistencyPrefix = 
     'CRITICAL REQUIREMENTS for scene consistency across all storyboard frames:\n' +
-    '1. SCENE LAYOUT: Maintain the EXACT same spatial arrangement — ground plane, horizon line, ' +
-    'building positions, prop placements, and environmental landmarks must stay in consistent positions.\n' +
-    '2. 3D MODELING CONSISTENCY: All characters and objects must maintain identical proportions, ' +
-    'silhouettes, clothing details, facial features, and color schemes across frames.\n' +
-    '3. ART STYLE LOCK: Use the same rendering technique, line weight, shading style, ' +
-    'color palette, and lighting direction throughout.\n' +
-    '4. CAMERA COHERENCE: Unless explicitly stated, maintain similar camera distance and angle.\n\n';
-  fullPrompt = consistencyPrefix + fullPrompt;
+    '1. SCENE LAYOUT: Maintain the EXACT same spatial arrangement.\n' +
+    '2. 3D MODELING CONSISTENCY: Identical proportions, silhouettes, clothing, colors.\n' +
+    '3. ART STYLE LOCK: Same rendering, shading, palette, lighting.\n' +
+    '4. CAMERA COHERENCE: Maintain similar camera distance and angle.\n\n';
+  let fullPrompt = consistencyPrefix + prompt;
 
-  // Build parts: optional reference images + text prompt
   const parts = [];
   const prefixes = [];
 
-  // If we have a previous frame image, pass it as reference for consistency
   if (prevImagePath && fs.existsSync(prevImagePath)) {
     const prevBuf = fs.readFileSync(prevImagePath);
     parts.push({ inlineData: { data: prevBuf.toString('base64'), mimeType: 'image/png' } });
-    prefixes.push(
-      'REFERENCE IMAGE: This is the previous frame in the storyboard sequence. ' +
-      'You MUST maintain the EXACT same scene layout, ground textures, building architecture, ' +
-      'character designs (proportions, clothing, face), color palette, art style, and camera perspective. ' +
-      'Only change what the new frame description explicitly requires.'
-    );
-    console.log('[generateImage] Using prev frame for Gemini consistency: ' + prevImagePath);
+    prefixes.push('REFERENCE IMAGE: Maintain EXACT same scene layout, textures, character designs. Only change what the description requires.');
+    console.log('[generateImage] Gemini fallback with prev frame: ' + prevImagePath);
   }
-
   if (styleRefBase64) {
     parts.push({ inlineData: { data: styleRefBase64, mimeType: styleRefMime || 'image/jpeg' } });
-    prefixes.push('Generate an image in EXACTLY the same art style, color palette, and rendering technique as the style reference image.');
+    prefixes.push('Generate in EXACTLY the same art style as the reference.');
   }
   if (charRefBase64) {
     parts.push({ inlineData: { data: charRefBase64, mimeType: charRefMime || 'image/jpeg' } });
-    prefixes.push('The character in the image MUST look exactly like the character reference image — same face, hair, clothing, body proportions, and colors.');
+    prefixes.push('Character MUST match the reference exactly.');
   }
   if (prefixes.length) fullPrompt = prefixes.join(' ') + '\n\n' + fullPrompt;
   parts.push({ text: fullPrompt });
