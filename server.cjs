@@ -1243,9 +1243,25 @@ handlers.generateStoryboard = function(req, res, body, projectId) {
         completed++;
         res.write('data: ' + JSON.stringify({ type: 'progress', current: completed, total: frames.length, frameId: frame.id }) + '\n\n');
         
-        // Save after each frame
+        // Save after each frame (merge into existing, don't overwrite)
         if (projectId) {
-          try { var _p = readProject(projectId); if (_p) { _p.storyboardFrames = updatedFrames; _p.updatedAt = new Date().toISOString(); writeProject(_p); } } catch(_se) {}
+          try {
+            var _p = readProject(projectId);
+            if (_p) {
+              var _existing = _p.storyboardFrames || [];
+              if (_existing.length >= updatedFrames.length) {
+                var _imgMap = {};
+                for (var _uf of updatedFrames) { if (_uf.imageUrl) _imgMap[_uf.id] = _uf.imageUrl; }
+                _p.storyboardFrames = _existing.map(function(_ef) {
+                  return _imgMap[_ef.id] ? Object.assign({}, _ef, { imageUrl: _imgMap[_ef.id], imageError: undefined }) : _ef;
+                });
+              } else {
+                _p.storyboardFrames = updatedFrames;
+              }
+              _p.updatedAt = new Date().toISOString();
+              writeProject(_p);
+            }
+          } catch(_se) {}
         }
       }
       // Retry failed frames (without prev-image to avoid chain failure)
@@ -1291,12 +1307,23 @@ handlers.generateStoryboard = function(req, res, body, projectId) {
         try { notify.alert('warning', '图片生成部分失败', finalFailed + '/' + frames.length + ' 张未生成'); } catch(ne) {}
       }
 
-      // Save to project
+      // Save to project — merge imageUrl into existing frames (don't overwrite all frames)
       if (projectId) {
         try {
           var proj = readProject(projectId);
           if (proj) {
-            proj.storyboardFrames = updatedFrames;
+            var existingFrames = proj.storyboardFrames || [];
+            // Build map from generated frames
+            var imgMap = {};
+            for (var uf of updatedFrames) { if (uf.imageUrl) imgMap[uf.id] = uf.imageUrl; }
+            // Merge into existing frames
+            if (existingFrames.length >= updatedFrames.length) {
+              proj.storyboardFrames = existingFrames.map(function(ef) {
+                return imgMap[ef.id] ? Object.assign({}, ef, { imageUrl: imgMap[ef.id], imageError: undefined }) : ef;
+              });
+            } else {
+              proj.storyboardFrames = updatedFrames;
+            }
             proj.updatedAt = new Date().toISOString();
             writeProject(proj);
           }
