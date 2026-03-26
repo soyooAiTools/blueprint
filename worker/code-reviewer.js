@@ -177,6 +177,53 @@ const REVIEW_RULES = `
 - Shot count in fixed code must not decrease from original (anti-skeleton regression)
 - Light.type assignment is forbidden (auto-commented out in pre-build)
 - GFM_Tools.cs must not be modified (overwrite-protected)
+
+### 15. GFM_Tools API Correct Usage (from GFM_Tools_API.md)
+- GFM_Create.Obj() takes EXACTLY 4 params: (PrimitiveType, Vector3 position, Vector3 scale, string name) — not 3, not 5
+- GFM_Create.Ground() takes 2 floats: (float width, float depth) — not Vector3
+- GFM_Create.SetColor(gameObject, Color) — not SetColor(gameObject, float, float, float)
+- GFM_Create.InitMaterialFromScene() — must be called in Start() before any Obj()/SetColor() calls
+- GFM_UI.CreateCanvas(int width, int height) — REQUIRES 2 int parameters, returns Canvas
+- GFM_UI.CreateText(Canvas, string text, Vector2 pos, int fontSize) — 4 params
+- GFM_UI.CreateButton(Canvas, string text, Vector2 pos, Vector2 size, Action onClick) — 5 params
+- GFM_UI.CreateProgressBar(Canvas, Vector2 pos, Vector2 size, Color) — returns Slider (NOT Image!)
+- GFM_UI.AddWorldLabel(GameObject target, string text, float height) — 3D world label
+- GFM_Joystick.Create(Canvas, float size) — returns GFM_Joystick, access .Horizontal/.Vertical/.IsDragging
+- GFM_Luna.Init(gameObject) — call in Start(). GameOver(), GotoStore(), IsGameOver()
+- GFM_Audio.Init(gameObject) — call in Start(). instance.PlayBGM/StopBGM/PlaySFX/SetMute
+- GFM_Event.Init(gameObject) — Subscribe(int id, handler)/Fire(int id, sender, data)/Clear()
+- GFM_Pool is available but rarely needed (pool objects are pre-placed in scene)
+- GFM_Pathfinding.FindPath(grid, start, end) returns List<Vector3> (null = unreachable) — but List<> is OK inside GFM_ library, NOT in AI code
+- DO NOT call any class named just "GFM_Tools" — there is no such unified class. Use specific classes: GFM_Create, GFM_UI, GFM_Utils, etc.
+
+### 16. V4 Entity-Driven Architecture (from entity-architecture-proposal.md)
+- V4 code uses parallel arrays: eGo[], eActive[], eState[], eTimer[], eHP[] for entity data
+- Entity constants: const int E_PLAYER = 0, E_BASE = 1, etc.
+- CheckEventRules() with bool[] ruleTriggered — independent per-rule checks, NOT linear phase state machine
+- Each entity has its own UpdateXxx() method (UpdatePlayer, UpdateConveyorBelt, UpdateEnemy, etc.)
+- Entity states: 0=waiting, 1=triggered/building, 2=complete/working
+- Hide = move to y=-999, Show = move to visible y. Do NOT use SetActive(false)
+- Phase transitions via StartPhase(n) — activate entities, not rewrite scene
+- Spawner pattern: timer-based with maxAlive cap
+- Projectile pattern: parallel arrays arrowActive[]/arrowTarget[]/arrowGo[], update in loop
+- Collectible pattern: distance check to player, collect → add resource → hide
+
+### 17. Input & Touch Constraints (from CUA/playcheck learnings)
+- Luna only responds to isTrusted=true events — synthetic events from code are ignored
+- Luna index.html has built-in mouse→touch conversion (window-level capture listener)
+- Input.GetMouseButtonDown/Up works in Luna (legacy Input system only)
+- Time.deltaTime in Luna is constant 0.1 regardless of actual FPS — accumulate manually for timing
+- OnMute/OnUnmute pattern is REQUIRED for iOS AppLovin — first touch must pre-play silent audio
+- GFM_Luna.Init() handles this automatically — code should call it in Start()
+
+### 18. Build Environment Constraints (from worker-architecture.md)
+- All code goes in ONE file: GameFlowManagerMain.cs (single-file constraint for Bridge.NET stability)
+- essentialFiles = ['GameFlowManagerMain.cs', 'GFM_Tools.cs'] — all other .cs files are stub-ified
+- If AI creates additional .cs files, they will be DELETED during cleanup — code must be self-contained
+- svn revert does NOT delete new files — cleanup explicitly removes untracked files except essentialFiles
+- MSBuild csproj has hardcoded paths — worker-bridge-build.js patches '\Client\' prefix before build
+- luna.json must have forceSourcesBasedCompilation: true
+- Stage1 cache MUST be preserved (only delete stage2/3/4) — deleting stage1 = build fails with "no LunaTemp"
 `;
 
 // === Dynamic rules loader: reads additional constraints from project docs ===
@@ -191,6 +238,19 @@ try {
     { path: path.join(docsDir, 'memory/luna-rendering-postmortem.md'), label: 'Luna Rendering Postmortem' },
     { path: path.join(docsDir, 'memory/blueprint-tech.md'), label: 'Blueprint Tech Notes' },
     { path: path.join(docsDir, 'memory/2026-03-14-audit.md'), label: 'Pipeline Audit Findings' },
+    { path: path.join(docsDir, 'memory/worker-architecture.md'), label: 'Worker Architecture' },
+    { path: path.join(docsDir, 'memory/playcheck-luna-agent.md'), label: 'Luna Agent Browser Notes' },
+    { path: path.join(docsDir, 'skills/blueprint/INCIDENTS.md'), label: 'Blueprint Incident History' },
+    { path: path.join(skillDir, 'build-pipeline.md'), label: 'Build Pipeline Details' },
+    // Project-internal docs
+    { path: '/opt/blueprint-editor/worker/GFM_Tools_API.md', label: 'GFM_Tools API Reference' },
+    { path: '/opt/blueprint-editor/worker/behavior-templates.md', label: 'Behavior Templates Handbook' },
+    { path: '/opt/blueprint-editor/docs/entity-architecture-proposal.md', label: 'V4 Entity Architecture' },
+    // Daily memories with heavy Blueprint content
+    { path: path.join(docsDir, 'memory/2026-03-09.md'), label: 'Daily Log 03-09 (EventPool/prompt)' },
+    { path: path.join(docsDir, 'memory/2026-03-15.md'), label: 'Daily Log 03-15 (Env isolation/Awake)' },
+    { path: path.join(docsDir, 'memory/2026-03-19.md'), label: 'Daily Log 03-19 (Linux build/CUA)' },
+    { path: path.join(docsDir, 'memory/2026-03-20.md'), label: 'Daily Log 03-20 (CUA pass/delivery)' },
   ];
   const extraRules = [];
   const lunaKeywords = /Luna|Bridge|compile|shader|material|Pool|GFM|mono|C#|Unity|scene|mesh|render|shot|WebGL|object|Create|Find|Component|Update|Start|script|camera|Canvas|EventPool|MonoBehaviour|inject|stage4|MSBuild|CUA|prompt|AI|编码|编译|材质|渲染|场景|纯色|对象/i;
