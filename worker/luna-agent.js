@@ -14,13 +14,9 @@
  */
 
 // ─── 代理设置（必须在最前面） ───
-process.env.https_proxy = process.env.https_proxy || 'http://127.0.0.1:7890';
-process.env.http_proxy = process.env.http_proxy || 'http://127.0.0.1:7890';
-process.env.HTTPS_PROXY = process.env.https_proxy;
-process.env.HTTP_PROXY = process.env.http_proxy;
+// No proxy needed - all APIs go through relay (sub.mindrix.app) directly
 try {
-  const { EnvHttpProxyAgent, setGlobalDispatcher } = require('undici');
-  setGlobalDispatcher(new EnvHttpProxyAgent());
+  // No global proxy dispatcher needed
 } catch (e) { /* undici not available */ }
 
 const fs = require('fs');
@@ -202,15 +198,12 @@ async function runGeminiVideoReview(videoPath, config, cuaResult) {
   const GEMINI_API_KEY_UNUSED = 'removed';
   const GEMINI_MODEL = 'gemini-3.1-pro-preview';
 
-  const { ProxyAgent, fetch: uFetch } = require('undici');
-  const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy || 'http://127.0.0.1:7890';
-  const proxyAgent = new ProxyAgent({ uri: proxyUrl, requestTls: { timeout: 300000 }, connect: { timeout: 30000 } });
   const gemFetch = (url, opts = {}) => {
     // 大文件上传加长超时
     const timeout = opts.body && opts.body.length > 1000000 ? 300000 : 60000;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
-    return uFetch(url, { ...opts, dispatcher: proxyAgent, signal: controller.signal })
+    return fetch(url, { ...opts, signal: controller.signal })
       .finally(() => clearTimeout(timer));
   };
 
@@ -1429,12 +1422,10 @@ async function main() {
       console.error('OPENAI_API_KEY environment variable not set');
       process.exit(1);
     }
-    // OpenAI SDK v6 需要自定义 fetch 走代理
-    const { ProxyAgent, fetch: undiciFetch } = require('undici');
-    const proxyDispatcher = new ProxyAgent('http://127.0.0.1:7890');
+    // OpenAI via relay (direct, no proxy)
     openaiClient = new OpenAI({
       apiKey,
-      fetch: (url, init) => undiciFetch(url, { ...init, dispatcher: proxyDispatcher })
+      baseURL: process.env.OPENAI_BASE_URL || 'https://sub.mindrix.app/v1',
     });
   } else {
     anthropicClient = new Anthropic();
