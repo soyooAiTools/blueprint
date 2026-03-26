@@ -416,7 +416,7 @@ handlers.saveBlueprint = function(req, res, body, id) {
 handlers.submitProject = function(req, res, body, id) {
   var project = readProject(id);
   if (!project) return sendJSON(res, { error: '项目不存在' }, 404);
-  if (project.status !== 'editing' && project.status !== 'feedback') {
+  if (project.status !== 'editing' && project.status !== 'feedback' && project.status !== 'failed') {
     return sendJSON(res, { error: '当前状态「' + project.status + '」不允许提交' }, 400);
   }
 

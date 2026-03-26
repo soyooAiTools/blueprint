@@ -33,6 +33,11 @@ const TOPBAR_STATUS_LABELS = {
     color: '#22c55e',
     bg: 'rgba(34,197,94,0.15)',
   },
+  failed: {
+    text: '❌ 开发失败，可重新提交',
+    color: '#ef4444',
+    bg: 'rgba(239,68,68,0.15)',
+  },
 };
 
 export default function TopBar({
@@ -135,7 +140,7 @@ export default function TopBar({
       <div className="topbar-right">
         {activeTab === 'blueprint' && (
           <>
-            {(!projectStatus || projectStatus === 'editing' || projectStatus === 'feedback') && onSubmit && (
+            {(!projectStatus || projectStatus === 'editing' || projectStatus === 'feedback' || projectStatus === 'failed') && onSubmit && (
               <button
                 className="topbar-btn topbar-btn-submit"
                 onClick={handleSubmit}
