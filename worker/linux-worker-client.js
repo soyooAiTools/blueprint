@@ -215,13 +215,44 @@ async function processTask(task) {
       return;
     }
     
-    const csCode = fs.readFileSync(mainCsPath, 'utf-8');
+    let csCode = fs.readFileSync(mainCsPath, 'utf-8');
     log(`Main CS: ${mainCsPath} (${csCode.length} chars)`, taskId);
     // Always use canonical GFM_Tools.cs from worker dir (never AI-generated version)
     const extraFiles = {};
     const canonicalGfm = path.join(__dirname, 'GFM_Tools.cs');
     if (fs.existsSync(canonicalGfm)) {
       extraFiles['GFM_Tools.cs'] = fs.readFileSync(canonicalGfm, 'utf-8');
+    }
+
+    // === Step 3.5: GPT-5.4 Adversarial Review (before build) ===
+    let codeReviewer;
+    try { codeReviewer = require('./code-reviewer.js'); } catch(e) {}
+    if (codeReviewer && csCode) {
+      const MAX_REVIEW_ROUNDS = 2;
+      let reviewedCode = csCode;
+      for (let reviewRound = 1; reviewRound <= MAX_REVIEW_ROUNDS; reviewRound++) {
+        const reviewResult = await codeReviewer.reviewCode(reviewedCode, { taskId, log });
+        if (reviewResult.passed) {
+          log(`[reviewer] ✅ GPT-5.4 review PASSED${reviewRound > 1 ? ` (round ${reviewRound})` : ''}`, taskId);
+          break;
+        }
+        if (reviewRound >= MAX_REVIEW_ROUNDS) {
+          log(`[reviewer] ⚠️ GPT-5.4 review still FAIL after ${MAX_REVIEW_ROUNDS} rounds, proceeding`, taskId);
+          break;
+        }
+        log(`[reviewer] 🔄 GPT-5.4 review FAIL (round ${reviewRound}/${MAX_REVIEW_ROUNDS}), fixing...`, taskId);
+        await reportStatus(taskId, 'processing', { message: `[Linux] Code review failed, AI fixing...` });
+        // Send review feedback to Claude for fixing
+        const { generateCodeV5 } = require('./worker-coder.js');
+        const reviewFixBlueprint = { ...blueprint, feedbackHistory: [...(blueprint.feedbackHistory || []), { text: reviewResult.feedback, source: 'code-review' }] };
+        const fixResult = await generateCodeV5(reviewFixBlueprint, tempDir, log, taskId, 'unity');
+        if (fixResult.ok) {
+          reviewedCode = fs.readFileSync(mainCsPath, 'utf-8');
+          log(`[reviewer] Review fix applied (${reviewedCode.length} chars), re-reviewing...`, taskId);
+        }
+      }
+      // Update csCode with reviewed version
+      csCode = fs.readFileSync(mainCsPath, 'utf-8');
     }
 
     // === Step 4: Linux Build (Bridge.NET + stage4 assembly) with auto-fix ===

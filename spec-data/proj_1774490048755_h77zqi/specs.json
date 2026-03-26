@@ -1,62 +1,52 @@
 [
   {
-    "phaseId": "buildDefendUpgrade",
-    "phaseName": "建造、防守与升级",
+    "phaseId": "buildAndDefendCamp",
+    "phaseName": "建造与防守营地",
     "chapterId": 1,
     "duration": {
-      "min": 30,
-      "max": 45
+      "min": 27,
+      "max": 71
     },
     "requiredInteractions": [
-      "move_to:woodHouseSpot",
-      "spend:gold:any",
+      "move_to:woodHouse1Spot",
       "build:woodHouse",
-      "move_to:crossbow",
-      "defeat_count:15",
-      "collect:gold:any",
-      "move_to:workerRecruitSpot",
-      "spend:gold:any",
+      "spend:gold:X",
+      "collect:gold:X",
       "recruit:worker:1",
-      "assign:worker:woodCutting",
-      "unlock:rightWoodHouseSpot",
-      "move_to:rightWoodHouseSpot",
-      "spend:gold:any",
+      "move_to:woodHouse2Spot",
       "build:woodHouse",
       "move_to:base",
-      "spend:gold:any",
       "upgrade:base:2",
-      "appear:boss",
       "defeat:boss",
-      "disappear:boss",
-      "wait:3"
+      "click:installButton"
     ],
     "triggerNext": {
-      "condition": "baseState == 2 && bossDefeated == true && woodHouseCount == 2 && workerCount == 1",
-      "description": "主城升级完成，Boss被击败，两座木屋和一名工人到位"
+      "condition": "bossState == 0 && baseLevel == 2",
+      "description": "Boss被击败且主城升级完成"
     },
     "entitiesRequired": [
       {
         "name": "woodHouse",
         "terminalState": 2,
-        "description": "两座木屋已建造"
+        "description": "木屋已建造 (x2)"
       },
       {
         "name": "worker",
         "terminalState": 1,
-        "description": "一名工人已招募"
+        "description": "工人已招募"
       },
       {
         "name": "base",
         "terminalState": 2,
-        "description": "主城已升级到2级"
+        "description": "主城已升级至2级"
       },
       {
-        "name": "rightWoodHouseSpot",
-        "terminalState": 1,
-        "description": "右侧木屋地块已解锁"
+        "name": "boss",
+        "terminalState": 0,
+        "description": "Boss已击败"
       }
     ],
     "playerMustAct": true,
-    "autoAllowed": false
+    "autoAllowed": true
   }
 ]
