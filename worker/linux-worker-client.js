@@ -230,18 +230,21 @@ async function processTask(task) {
     if (codeReviewer && csCode) {
       const MAX_REVIEW_ROUNDS = 3;
       let reviewedCode = csCode;
+      await reportStatus(taskId, 'processing', { message: `[Linux] GPT-5.4 代码审核中...` });
       for (let reviewRound = 1; reviewRound <= MAX_REVIEW_ROUNDS; reviewRound++) {
         const reviewResult = await codeReviewer.reviewCode(reviewedCode, { taskId, log });
         if (reviewResult.passed) {
           log(`[reviewer] ✅ GPT-5.4 review PASSED${reviewRound > 1 ? ` (round ${reviewRound})` : ''}`, taskId);
+          await reportStatus(taskId, 'processing', { message: `[Linux] GPT-5.4 审核通过 ✅${reviewRound > 1 ? ` (第${reviewRound}轮)` : ''} — ${reviewResult.summary || ''}`.slice(0, 100) });
           break;
         }
         if (reviewRound >= MAX_REVIEW_ROUNDS) {
           log(`[reviewer] ⚠️ GPT-5.4 review still FAIL after ${MAX_REVIEW_ROUNDS} rounds, proceeding`, taskId);
+          await reportStatus(taskId, 'processing', { message: `[Linux] GPT-5.4 审核 ${MAX_REVIEW_ROUNDS} 轮仍 FAIL，继续编译...` });
           break;
         }
         log(`[reviewer] 🔄 GPT-5.4 review FAIL (round ${reviewRound}/${MAX_REVIEW_ROUNDS}), fixing...`, taskId);
-        await reportStatus(taskId, 'processing', { message: `[Linux] Code review failed, AI fixing...` });
+        await reportStatus(taskId, 'processing', { message: `[Linux] GPT-5.4 审核失败 (${reviewRound}/${MAX_REVIEW_ROUNDS})，${reviewResult.criticalCount || '?'}个严重问题，AI修复中...` });
         // Send review feedback to Claude for fixing
         const { generateCodeV5 } = require('./worker-coder.js');
         const reviewFixBlueprint = { ...blueprint, feedbackHistory: [...(blueprint.feedbackHistory || []), { text: reviewResult.feedback, source: 'code-review' }] };
