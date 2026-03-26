@@ -16,7 +16,7 @@
  * This way we reuse worker-coder.js and all prompt files without porting to Linux.
  */
 
-require('dotenv').config({ path: require('path').join(__dirname, '.env') });
+require('dotenv').config({ path: require('path').join(__dirname, '.env'), override: true });
 
 const http = require('http');
 const https = require('https');
