@@ -62,6 +62,21 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
 .history-item:last-child { border-bottom: none; }
 .history-item .icon { font-size: 14px; }
 .history-item .time { color: #8b949e; margin-left: auto; white-space: nowrap; }
+.timeline { position: relative; padding-left: 24px; }
+.timeline::before { content: ''; position: absolute; left: 7px; top: 0; bottom: 0; width: 2px; background: #30363d; }
+.tl-item { position: relative; padding: 8px 0 8px 16px; font-size: 12px; }
+.tl-item::before { content: ''; position: absolute; left: -20px; top: 14px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid #30363d; background: #0d1117; }
+.tl-item.ok::before { border-color: #3fb950; background: #3fb950; }
+.tl-item.processing::before, .tl-item.building::before { border-color: #58a6ff; background: #58a6ff; }
+.tl-item.failed::before, .tl-item.error::before { border-color: #f85149; background: #f85149; }
+.tl-item.fixing::before { border-color: #d29922; background: #d29922; }
+.tl-item.done::before, .tl-item.cua_passed::before { border-color: #3fb950; background: #3fb950; box-shadow: 0 0 6px #3fb95066; }
+.tl-item .tl-msg { color: #e1e4e8; }
+.tl-item .tl-time { color: #484f58; font-size: 11px; margin-top: 2px; }
+.tl-item .tl-status { font-size: 10px; text-transform: uppercase; margin-left: 6px; }
+.task-card { margin-bottom: 16px; }
+.task-card .task-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.task-card .task-name { font-size: 15px; font-weight: 600; }
 @media (max-width: 768px) {
   .grid-2 { grid-template-columns: 1fr; }
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
@@ -80,6 +95,7 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
   <div class="tab active" data-panel="overview">总览</div>
   <div class="tab" data-panel="workers">Workers</div>
   <div class="tab" data-panel="tasks">任务队列</div>
+  <div class="tab" data-panel="live">实时动态</div>
   <div class="tab" data-panel="parse">解析统计</div>
 </div>
 <div class="content">
@@ -116,6 +132,11 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       <h3>任务队列</h3>
       <div id="taskList"></div>
     </div>
+  </div>
+  <!-- Live Timeline -->
+  <div class="panel" id="live">
+    <div id="liveTimelines"></div>
+    <div class="refresh-info">每 5 秒自动刷新</div>
   </div>
   <!-- Parse Stats -->
   <div class="panel" id="parse">
@@ -292,10 +313,47 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       });
       document.getElementById('parseHistory').innerHTML = hh;
     }
+
+    // ========== Live Timeline ==========
+    var liveHTML = '';
+    var tasksWithTimeline = (stats.recentTasks || []).filter(function(t) { return t.timeline && t.timeline.length > 0; });
+    if (tasksWithTimeline.length === 0) {
+      liveHTML = '<div class="empty">暂无任务动态</div>';
+    } else {
+      tasksWithTimeline.forEach(function(t) {
+        liveHTML += '<div class="card task-card">';
+        liveHTML += '<div class="task-header">';
+        liveHTML += '<span class="task-name">' + (t.projectName || t.taskId) + '</span>';
+        liveHTML += badge(t.status);
+        liveHTML += '</div>';
+        liveHTML += '<div class="timeline">';
+        // Show timeline entries (most recent first for readability, but render oldest first for visual flow)
+        var entries = t.timeline.slice().reverse();
+        entries.forEach(function(e, idx) {
+          var cls = 'tl-item';
+          var msg = e.message || e.status;
+          if (e.status === 'failed' || msg.includes('failed')) cls += ' failed';
+          else if (e.status === 'done' || e.status === 'cua_passed') cls += ' done';
+          else if (e.status === 'building') cls += ' building';
+          else if (msg.includes('AI fixing') || msg.includes('AI re-coding')) cls += ' fixing';
+          else if (e.status === 'processing') cls += ' processing';
+          else cls += ' ok';
+          // Highlight the latest entry
+          var isLatest = idx === 0;
+          liveHTML += '<div class="' + cls + '">';
+          liveHTML += '<div class="tl-msg">' + (isLatest ? '<strong>' : '') + msg + (isLatest ? '</strong>' : '') + '<span class="tl-status badge ' + e.status + '">' + e.status + '</span></div>';
+          liveHTML += '<div class="tl-time">' + ago(e.timestamp) + (e.workerId ? ' · ' + e.workerId : '') + '</div>';
+          liveHTML += '</div>';
+        });
+        liveHTML += '</div></div>';
+      });
+    }
+    document.getElementById('liveTimelines').innerHTML = liveHTML;
   }
 
   refresh();
-  setInterval(refresh, 15000);
+  // Live tab refreshes faster (5s)
+  setInterval(refresh, 5000);
 })();
 </script>
 </body>

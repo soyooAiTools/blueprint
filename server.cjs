@@ -887,6 +887,18 @@ handlers.workerStatus = function(req, res, body) {
       task.status = bestStatus;
       if (message) task.statusMessage = message;
       task.updatedAt = new Date().toISOString();
+
+      // Append to timeline for dashboard live tracking
+      if (!task.timeline) task.timeline = [];
+      task.timeline.push({
+        status: status,
+        message: message || '',
+        workerId: workerId,
+        timestamp: Date.now()
+      });
+      // Keep last 50 entries
+      if (task.timeline.length > 50) task.timeline = task.timeline.slice(-50);
+
       fs.writeFileSync(taskPath, JSON.stringify(task, null, 2), 'utf-8');
     }
 
@@ -2141,7 +2153,8 @@ handlers.getDashboardStats = function(req, res) {
             workerId: t.assignedTo || null,
             progress: t.progress || 0,
             createdAt: t.createdAt ? new Date(t.createdAt).getTime() : null,
-            updatedAt: t.updatedAt ? new Date(t.updatedAt).getTime() : null
+            updatedAt: t.updatedAt ? new Date(t.updatedAt).getTime() : null,
+            timeline: (t.timeline || []).slice(-20)
           });
         } catch(e) {}
       });
