@@ -1436,7 +1436,23 @@ handlers.parseAndBlueprint = async function(req, res, body, projectId) {
     // Fallback: try to get files from existing upload handling
   }
   
-  // SSE streaming response
+  // *** STEP 1: Collect raw body BEFORE starting SSE response ***
+  // This prevents the req stream from conflicting with the SSE response
+  var rawChunks = [];
+  await new Promise(function(resolve, reject) {
+    var timeout = setTimeout(function() {
+      console.error('[parse-and-blueprint] Body read timeout 60s');
+      reject(new Error('文件上传超时'));
+    }, 60000);
+    req.on('data', function(chunk) { rawChunks.push(chunk); });
+    req.on('end', function() { clearTimeout(timeout); resolve(); });
+    req.on('error', function(e) { clearTimeout(timeout); reject(e); });
+    if (req.complete) { clearTimeout(timeout); resolve(); }
+  });
+  var rawBody = Buffer.concat(rawChunks);
+  console.log('[parse-and-blueprint] Body received: ' + rawBody.length + ' bytes');
+
+  // *** STEP 2: Now start SSE response ***
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
@@ -1459,29 +1475,54 @@ handlers.parseAndBlueprint = async function(req, res, body, projectId) {
     var uploadedFiles = [];
     var formFields = {};
     
+    // *** STEP 3: Parse multipart from buffer ***
+    // Collect raw body first, then parse with busboy from buffer
     await new Promise(function(resolve, reject) {
       try {
         var bb = Busboy({ headers: req.headers });
+        var pendingWrites = 0;
+        var busboyDone = false;
+        function checkResolve() {
+          if (busboyDone && pendingWrites === 0) resolve();
+        }
         bb.on('file', function(fieldname, file, info) {
           var filename = info.filename || info;
           if (typeof filename === 'object') filename = filename.filename;
+          console.log('[parse-and-blueprint] Receiving file: ' + filename);
           var uploadDir = path.join(__dirname, 'server-data', 'uploads');
           if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
           var dest = path.join(uploadDir, Date.now() + '_' + filename);
           var ws = fs.createWriteStream(dest);
+          pendingWrites++;
           file.pipe(ws);
           ws.on('close', function() {
+            var size = 0;
+            try { size = require('fs').statSync(dest).size; } catch(e) {}
+            console.log('[parse-and-blueprint] File saved: ' + dest + ' (' + size + ' bytes)');
             uploadedFiles.push({ name: filename, path: dest });
+            pendingWrites--;
+            checkResolve();
           });
         });
         bb.on('field', function(name, val) { formFields[name] = val; });
-        bb.on('close', resolve);
-        bb.on('error', reject);
-        req.pipe(bb);
+        bb.on('close', function() {
+          console.log('[parse-and-blueprint] Busboy close, pendingWrites=' + pendingWrites);
+          busboyDone = true;
+          checkResolve();
+        });
+        bb.on('error', function(e) {
+          console.error('[parse-and-blueprint] Busboy error:', e.message);
+          reject(e);
+        });
+        // Feed collected buffer through PassThrough stream
+        var { PassThrough } = require('stream');
+        var pt = new PassThrough();
+        pt.pipe(bb);
+        pt.end(rawBody);
       } catch(e) {
-        // If busboy fails (e.g. JSON body), try parsing body as JSON
+        console.error('[parse-and-blueprint] Busboy init error:', e.message);
         try {
-          var parsed = JSON.parse(body);
+          var parsed = JSON.parse(rawBody.toString());
           formFields = parsed;
         } catch(e2) {}
         resolve();
