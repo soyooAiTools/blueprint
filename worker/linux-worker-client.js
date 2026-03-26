@@ -321,7 +321,7 @@ async function processTask(task) {
     }
 
     log(`Build OK in ${buildResult.buildTime}s, HTML: ${buildResult.htmlSize}`, taskId);
-    await reportStatus(taskId, 'processing', { message: `[Linux] Build OK (${buildResult.buildTime}s), starting CUA...`, previewUrl });
+    await reportStatus(taskId, 'processing', { message: `[Linux] Build OK (${buildResult.buildTime}s), starting CUA...` });
 
     // === Step 5: Download HTML & Run CUA ===
     const htmlOutputDir = path.join(require('os').tmpdir(), `linux-html-${taskId}`);
