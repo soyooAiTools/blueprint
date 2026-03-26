@@ -1264,5 +1264,149 @@
     "title": "分镜解析：Gemini Pro 失败，尝试 flash",
     "detail": "Gemini API timeout (120s)",
     "timestamp": "2026-03-25T14:31:10.405Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:20:35.351Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:21:05.365Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:21:32.641Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:21:48.266Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:22:18.149Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:22:48.158Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:23:18.149Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:23:48.385Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:24:18.379Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:24:48.407Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:25:18.384Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:26:00.387Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:26:34.884Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:26:36.254Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:27:06.369Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:27:36.406Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:28:06.375Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:28:36.372Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:29:06.378Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:29:14.804Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:29:15.711Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:29:46.632Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:30:16.392Z"
+  },
+  {
+    "level": "critical",
+    "title": "Gemini API down",
+    "detail": "{\"status\":\"error\",\"code\":502}",
+    "timestamp": "2026-03-26T02:30:46.460Z"
   }
 ]

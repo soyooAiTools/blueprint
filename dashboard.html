@@ -9,108 +9,125 @@
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f1117; color: #e1e4e8; min-height: 100vh; }
 .header { background: #161b22; padding: 16px 24px; border-bottom: 1px solid #30363d; display: flex; align-items: center; justify-content: space-between; }
 .header h1 { font-size: 18px; font-weight: 600; }
-.header .status { font-size: 13px; color: #8b949e; }
+.header .meta { display: flex; align-items: center; gap: 16px; font-size: 12px; color: #8b949e; }
+.header .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+.header .dot.ok { background: #3fb950; }
+.header .dot.err { background: #f85149; }
 .tabs { display: flex; background: #161b22; border-bottom: 1px solid #30363d; padding: 0 16px; overflow-x: auto; }
-.tab { padding: 10px 16px; cursor: pointer; font-size: 13px; color: #8b949e; border-bottom: 2px solid transparent; white-space: nowrap; transition: all 0.15s; }
+.tab { padding: 10px 16px; cursor: pointer; font-size: 13px; color: #8b949e; border-bottom: 2px solid transparent; white-space: nowrap; transition: all 0.15s; user-select: none; }
 .tab:hover { color: #e1e4e8; }
 .tab.active { color: #58a6ff; border-bottom-color: #58a6ff; }
-.content { padding: 20px 24px; max-width: 1200px; margin: 0 auto; }
+.content { padding: 20px 24px; max-width: 1280px; margin: 0 auto; }
 .panel { display: none; }
 .panel.active { display: block; }
-.card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-.card h3 { font-size: 14px; color: #8b949e; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
-.probes { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
-.probe { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px; display: flex; align-items: center; gap: 10px; }
-.probe .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-.probe .dot.ok { background: #3fb950; box-shadow: 0 0 6px #3fb95066; }
-.probe .dot.warn { background: #d29922; box-shadow: 0 0 6px #d2992266; }
-.probe .dot.down { background: #f85149; box-shadow: 0 0 6px #f8514966; }
-.probe .dot.unknown { background: #484f58; }
-.probe .name { font-size: 13px; font-weight: 500; }
-.probe .status-text { font-size: 11px; color: #8b949e; margin-left: auto; text-transform: uppercase; }
-.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-bottom: 16px; }
-.stat { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 14px; text-align: center; }
-.stat .val { font-size: 28px; font-weight: 700; color: #58a6ff; }
-.stat .label { font-size: 11px; color: #8b949e; margin-top: 4px; text-transform: uppercase; }
+.grid { display: grid; gap: 16px; margin-bottom: 20px; }
+.grid-4 { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+.grid-3 { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.grid-2 { grid-template-columns: 1fr 1fr; }
+.card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }
+.card h3 { font-size: 12px; color: #8b949e; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+.stat-card { text-align: center; padding: 20px 16px; }
+.stat-card .val { font-size: 32px; font-weight: 700; line-height: 1.2; }
+.stat-card .label { font-size: 11px; color: #8b949e; margin-top: 6px; text-transform: uppercase; letter-spacing: 0.3px; }
+.stat-card .sub { font-size: 11px; color: #484f58; margin-top: 2px; }
+.val.blue { color: #58a6ff; }
+.val.green { color: #3fb950; }
+.val.yellow { color: #d29922; }
+.val.red { color: #f85149; }
+.val.gray { color: #8b949e; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th { text-align: left; padding: 8px 10px; color: #8b949e; font-weight: 500; border-bottom: 1px solid #30363d; font-size: 11px; text-transform: uppercase; }
 td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; }
-.badge.critical, .badge.error { background: #f8514933; color: #f85149; }
-.badge.warning { background: #d2992233; color: #d29922; }
-.badge.info { background: #58a6ff22; color: #58a6ff; }
-.badge.ok, .badge.online { background: #3fb95022; color: #3fb950; }
-.badge.idle { background: #484f5833; color: #8b949e; }
-.empty { text-align: center; padding: 40px; color: #484f58; }
+.badge.ok, .badge.online, .badge.idle, .badge.completed, .badge.done, .badge.cua_passed, .badge.approved, .badge.committed { background: #3fb95022; color: #3fb950; }
+.badge.processing, .badge.developing, .badge.building, .badge.assigned, .badge.submitted, .badge.reviewing { background: #58a6ff22; color: #58a6ff; }
+.badge.pending, .badge.retry_pending, .badge.editing { background: #d2992233; color: #d29922; }
+.badge.failed, .badge.error, .badge.down, .badge.offline { background: #f8514933; color: #f85149; }
+.badge.feedback { background: #bc8cff22; color: #bc8cff; }
+.badge.unknown { background: #484f5833; color: #8b949e; }
+.empty { text-align: center; padding: 32px; color: #484f58; font-size: 13px; }
 .refresh-info { font-size: 11px; color: #484f58; text-align: right; margin-top: 8px; }
+.probe { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; }
+.probe .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.probe .dot.ok { background: #3fb950; box-shadow: 0 0 6px #3fb95066; }
+.probe .dot.error, .probe .dot.down { background: #f85149; box-shadow: 0 0 6px #f8514966; }
+.probe .name { font-size: 13px; font-weight: 500; flex: 1; }
+.probe .latency { font-size: 11px; color: #8b949e; }
+.flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 12px 0; }
+.flow-step { text-align: center; }
+.flow-step .count { font-size: 20px; font-weight: 700; }
+.flow-step .lbl { font-size: 10px; color: #8b949e; text-transform: uppercase; }
+.flow-arrow { color: #30363d; font-size: 18px; }
+.history-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #21262d; font-size: 12px; }
+.history-item:last-child { border-bottom: none; }
+.history-item .icon { font-size: 14px; }
+.history-item .time { color: #8b949e; margin-left: auto; white-space: nowrap; }
+@media (max-width: 768px) {
+  .grid-2 { grid-template-columns: 1fr; }
+  .grid-4 { grid-template-columns: repeat(2, 1fr); }
+}
 </style>
 </head>
 <body>
 <div class="header">
   <h1>📊 Blueprint Dashboard</h1>
-  <div class="status" id="lastUpdate">加载中...</div>
+  <div class="meta">
+    <span id="serverStatus"></span>
+    <span id="lastUpdate">加载中...</span>
+  </div>
 </div>
 <div class="tabs">
   <div class="tab active" data-panel="overview">总览</div>
-  <div class="tab" data-panel="health">链路健康</div>
-  <div class="tab" data-panel="alerts">告警</div>
-  <div class="tab" data-panel="errors">错误上报</div>
   <div class="tab" data-panel="workers">Workers</div>
-  <div class="tab" data-panel="tasks">任务</div>
+  <div class="tab" data-panel="tasks">任务队列</div>
+  <div class="tab" data-panel="parse">解析统计</div>
 </div>
 <div class="content">
   <!-- Overview -->
   <div class="panel active" id="overview">
-    <div class="stats" id="overviewStats"></div>
-    <div class="card">
-      <h3>链路探针</h3>
-      <div class="probes" id="overviewProbes"></div>
+    <div class="grid grid-4" id="overviewStats"></div>
+    <div class="grid grid-2" style="margin-top:16px;">
+      <div class="card">
+        <h3>项目流转</h3>
+        <div id="projectFlow"></div>
+      </div>
+      <div class="card">
+        <h3>API 健康</h3>
+        <div id="apiHealth" style="display:flex;flex-direction:column;gap:8px;"></div>
+      </div>
     </div>
-    <div class="card">
-      <h3>最近告警</h3>
-      <div id="overviewAlerts"></div>
-    </div>
-  </div>
-  <!-- Health -->
-  <div class="panel" id="health">
-    <div class="card">
-      <h3>探针状态</h3>
-      <div class="probes" id="healthProbes"></div>
-      <div class="refresh-info">每 30s 自动刷新</div>
-    </div>
-  </div>
-  <!-- Alerts -->
-  <div class="panel" id="alerts">
-    <div class="card">
-      <h3>告警记录</h3>
-      <div id="alertsList"></div>
-    </div>
-  </div>
-  <!-- Errors -->
-  <div class="panel" id="errors">
-    <div class="card">
-      <h3>前端错误上报</h3>
-      <div id="errorsList"></div>
+    <div class="card" style="margin-top:16px;">
+      <h3>最近任务</h3>
+      <div id="recentTasks"></div>
     </div>
   </div>
   <!-- Workers -->
   <div class="panel" id="workers">
-    <div class="card">
+    <div class="grid grid-4" id="workerStats"></div>
+    <div class="card" style="margin-top:16px;">
       <h3>Worker 列表</h3>
-      <div id="workersList"></div>
+      <div id="workerList"></div>
     </div>
   </div>
   <!-- Tasks -->
   <div class="panel" id="tasks">
-    <div class="card">
+    <div class="grid grid-4" id="taskStats"></div>
+    <div class="card" style="margin-top:16px;">
       <h3>任务队列</h3>
-      <div id="tasksList"></div>
+      <div id="taskList"></div>
+    </div>
+  </div>
+  <!-- Parse Stats -->
+  <div class="panel" id="parse">
+    <div class="grid grid-4" id="parseStats"></div>
+    <div class="card" style="margin-top:16px;">
+      <h3>最近解析记录</h3>
+      <div id="parseHistory"></div>
     </div>
   </div>
 </div>
 <script>
 (function() {
-  // Tab switching
   document.querySelectorAll('.tab').forEach(function(tab) {
     tab.addEventListener('click', function() {
       document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
@@ -120,110 +137,165 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
     });
   });
 
+  var BASE = window.location.origin;
+
   function fmt(ts) {
     if (!ts) return '-';
-    return new Date(ts).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+    var d = new Date(ts);
+    return d.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
   }
-
-  function badge(level) {
-    return '<span class="badge ' + (level || 'info') + '">' + (level || 'info') + '</span>';
+  function ago(ts) {
+    if (!ts) return '-';
+    var s = Math.round((Date.now() - ts) / 1000);
+    if (s < 60) return s + '秒前';
+    if (s < 3600) return Math.floor(s / 60) + '分钟前';
+    if (s < 86400) return Math.floor(s / 3600) + '小时前';
+    return Math.floor(s / 86400) + '天前';
   }
+  function badge(level) { return '<span class="badge ' + (level || 'unknown') + '">' + (level || '-') + '</span>'; }
 
-  function probeHTML(name, st) {
-    var s = (typeof st === 'object' && st !== null) ? (st.status || 'unknown') : (st || 'unknown');
-    return '<div class="probe"><div class="dot ' + s + '"></div><div class="name">' + name + '</div><div class="status-text">' + s + '</div></div>';
+  function statCard(val, label, color, sub) {
+    return '<div class="card stat-card"><div class="val ' + (color || 'blue') + '">' + val + '</div><div class="label">' + label + '</div>' + (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>';
   }
 
   function tableHTML(headers, rows) {
     if (!rows || !rows.length) return '<div class="empty">暂无数据</div>';
     var h = '<table><thead><tr>' + headers.map(function(h) { return '<th>' + h + '</th>'; }).join('') + '</tr></thead><tbody>';
-    h += rows.map(function(r) { return '<tr>' + r.map(function(c) { return '<td>' + (c || '-') + '</td>'; }).join('') + '</tr>'; }).join('');
+    h += rows.map(function(r) { return '<tr>' + r.map(function(c) { return '<td>' + (c != null ? c : '-') + '</td>'; }).join('') + '</tr>'; }).join('');
     return h + '</tbody></table>';
   }
-
-  var BASE = window.location.origin;
 
   function fetchJSON(url) {
     return fetch(BASE + url).then(function(r) { return r.json(); }).catch(function() { return null; });
   }
 
   async function refresh() {
-    var health = await fetchJSON('/api/health');
-    var alerts = await fetchJSON('/api/alerts');
-    var errors = await fetchJSON('/api/errors');
-    var workers = await fetchJSON('/api/workers');
-    var tasks = await fetchJSON('/api/tasks');
+    var [stats, health] = await Promise.all([
+      fetchJSON('/api/dashboard/stats'),
+      fetchJSON('/api/dashboard/api-health')
+    ]);
 
     document.getElementById('lastUpdate').textContent = '更新: ' + fmt(Date.now());
 
-    // Overview stats
-    var statsHTML = '';
-    if (health) {
-      var probes = health.probes || {};
-      var okCount = Object.values(probes).filter(function(v) { return (typeof v === 'object' ? v.status : v) === 'ok'; }).length;
-      statsHTML += '<div class="stat"><div class="val">' + okCount + '/' + Object.keys(probes).length + '</div><div class="label">探针正常</div></div>';
-    }
-    statsHTML += '<div class="stat"><div class="val">' + (alerts ? alerts.length : 0) + '</div><div class="label">告警</div></div>';
-    statsHTML += '<div class="stat"><div class="val">' + (errors ? errors.length : 0) + '</div><div class="label">错误</div></div>';
-    if (workers) {
-      var onlineW = Array.isArray(workers) ? workers.filter(function(w) { return w.status === 'online' || (Date.now() - (w.lastSeen || 0) < 120000); }).length : 0;
-      statsHTML += '<div class="stat"><div class="val">' + onlineW + '</div><div class="label">在线 Worker</div></div>';
-    }
-    document.getElementById('overviewStats').innerHTML = statsHTML;
-
-    // Probes
-    if (health && health.probes) {
-      var probesHTML = '';
-      for (var k in health.probes) probesHTML += probeHTML(k, health.probes[k]);
-      document.getElementById('overviewProbes').innerHTML = probesHTML;
-      document.getElementById('healthProbes').innerHTML = probesHTML;
+    if (!stats) {
+      document.getElementById('overviewStats').innerHTML = '<div class="empty">无法连接服务器</div>';
+      return;
     }
 
-    // Alerts
-    var alertRows = (alerts || []).slice(-20).reverse().map(function(a) {
-      return [badge(a.level), a.title || '-', (a.detail || '').slice(0, 60), fmt(a.timestamp)];
+    // Server status in header
+    var serverOk = health && health.server && health.server.status === 'ok';
+    document.getElementById('serverStatus').innerHTML = '<span class="dot ' + (serverOk ? 'ok' : 'err') + '"></span>' + (serverOk ? '服务运行中 (' + (health.server.uptimeHuman || '?') + ')' : '服务异常');
+
+    // ========== Overview ==========
+    var ov = '';
+    ov += statCard(stats.workers.online + '/' + stats.workers.total, 'Worker 在线', stats.workers.online > 0 ? 'green' : 'red');
+    var activeTasks = (stats.tasks.processing || 0) + (stats.tasks.assigned || 0) + (stats.tasks.developing || 0) + (stats.tasks.building || 0);
+    ov += statCard(activeTasks, '进行中任务', activeTasks > 0 ? 'blue' : 'gray');
+    ov += statCard(stats.parse.successRate + '%', '解析成功率', stats.parse.successRate >= 80 ? 'green' : stats.parse.successRate >= 50 ? 'yellow' : 'red', '共 ' + stats.parse.total + ' 次');
+    ov += statCard(stats.parse.avgTimeSec + 's', '平均解析耗时', 'blue', stats.parse.avgTimeSec > 180 ? '⚠️ 偏慢' : '');
+    document.getElementById('overviewStats').innerHTML = ov;
+
+    // Project flow
+    var p = stats.projects;
+    var flowSteps = [
+      { count: p.editing || 0, lbl: '编辑中', color: 'yellow' },
+      { count: p.submitted || 0, lbl: '已提交', color: 'blue' },
+      { count: p.reviewing || 0, lbl: '审核中', color: 'blue' },
+      { count: p.feedback || 0, lbl: '反馈中', color: 'purple' },
+      { count: p.approved || 0, lbl: '已通过', color: 'green' },
+      { count: p.committed || 0, lbl: '已入库', color: 'green' }
+    ];
+    var flowHTML = '<div style="text-align:center;margin-bottom:8px;font-size:12px;color:#8b949e;">共 ' + p.total + ' 个项目' + (p.failed ? '，<span style="color:#f85149;">' + p.failed + ' 个失败</span>' : '') + '</div>';
+    flowHTML += '<div class="flow" style="justify-content:center;">';
+    flowSteps.forEach(function(s, i) {
+      if (i > 0) flowHTML += '<span class="flow-arrow">→</span>';
+      flowHTML += '<div class="flow-step"><div class="count" style="color:var(--c)">' + s.count + '</div><div class="lbl">' + s.lbl + '</div></div>';
     });
-    var alertTable = tableHTML(['级别', '标题', '详情', '时间'], alertRows);
-    document.getElementById('overviewAlerts').innerHTML = alertTable;
-    document.getElementById('alertsList').innerHTML = tableHTML(['级别', '标题', '详情', '时间'],
-      (alerts || []).slice(-50).reverse().map(function(a) {
-        return [badge(a.level), a.title || '-', a.detail || '-', fmt(a.timestamp)];
-      })
-    );
+    flowHTML += '</div>';
+    document.getElementById('projectFlow').innerHTML = flowHTML;
 
-    // Errors
-    document.getElementById('errorsList').innerHTML = tableHTML(['类型', '消息', 'URL', '时间'],
-      (errors || []).slice(-50).reverse().map(function(e) {
-        return [e.type || 'error', (e.message || '').slice(0, 80), (e.url || '').slice(0, 40), fmt(e.timestamp)];
-      })
-    );
-
-    // Workers
-    if (Array.isArray(workers)) {
-      document.getElementById('workersList').innerHTML = tableHTML(['名称', '状态', '当前任务', '最后心跳'],
-        workers.map(function(w) {
-          var st = (Date.now() - (w.lastSeen || w.timestamp || 0) < 120000) ? 'online' : 'offline';
-          return [w.name || w.id || '-', badge(st), w.currentTask || '-', fmt(w.lastSeen || w.timestamp)];
-        })
-      );
-    } else {
-      document.getElementById('workersList').innerHTML = '<div class="empty">暂无 Worker 数据</div>';
+    // API Health
+    if (health) {
+      var ah = '';
+      function probeHTML(name, data) {
+        var st = data ? data.status : 'unknown';
+        var lat = data && data.latencyMs ? data.latencyMs + 'ms' : '';
+        var err = data && data.error ? ' · ' + data.error : '';
+        return '<div class="probe"><div class="dot ' + st + '"></div><div class="name">' + name + '</div><div class="latency">' + lat + err + '</div></div>';
+      }
+      if (health.gpt54) ah += probeHTML('GPT-5.4 (中转)', health.gpt54);
+      if (health.gemini) ah += probeHTML('Gemini (中转)', health.gemini);
+      if (health.server) ah += probeHTML('Blueprint 服务', health.server);
+      document.getElementById('apiHealth').innerHTML = ah || '<div class="empty">检测中...</div>';
     }
 
-    // Tasks
-    if (Array.isArray(tasks)) {
-      document.getElementById('tasksList').innerHTML = tableHTML(['ID', '项目', '状态', '创建时间'],
-        tasks.slice(0, 30).map(function(t) {
-          return [(t.id || '').slice(0, 8), t.projectName || '-', badge(t.status || 'pending'), fmt(t.createdAt)];
-        })
-      );
+    // Recent tasks
+    var rt = stats.recentTasks || [];
+    document.getElementById('recentTasks').innerHTML = tableHTML(
+      ['项目', '状态', '消息', 'Worker', '更新时间'],
+      rt.slice(0, 10).map(function(t) {
+        return [t.projectName, badge(t.status), (t.statusMessage || '').slice(0, 50), t.workerId || '-', ago(t.updatedAt)];
+      })
+    );
+
+    // ========== Workers ==========
+    var ws = '';
+    ws += statCard(stats.workers.total, '总 Workers', 'blue');
+    ws += statCard(stats.workers.online, '在线', 'green');
+    ws += statCard(stats.workers.offline, '离线', stats.workers.offline > 0 ? 'red' : 'gray');
+    var busyWorkers = (stats.workers.list || []).filter(function(w) { return w.currentTask; }).length;
+    ws += statCard(busyWorkers, '忙碌中', busyWorkers > 0 ? 'yellow' : 'gray');
+    document.getElementById('workerStats').innerHTML = ws;
+
+    document.getElementById('workerList').innerHTML = tableHTML(
+      ['Worker ID', '状态', '当前任务', '最后心跳'],
+      (stats.workers.list || []).map(function(w) {
+        return [w.workerId, badge(w.status), w.currentTaskName || w.currentTask || '-', ago(w.lastHeartbeat)];
+      })
+    );
+
+    // ========== Tasks ==========
+    var ts2 = '';
+    ts2 += statCard(stats.tasks.pending || 0, '等待中', 'yellow');
+    ts2 += statCard((stats.tasks.processing || 0) + (stats.tasks.assigned || 0), '执行中', 'blue');
+    ts2 += statCard(stats.tasks.completed || 0, '已完成', 'green');
+    ts2 += statCard(stats.tasks.failed || 0, '失败', (stats.tasks.failed || 0) > 0 ? 'red' : 'gray');
+    document.getElementById('taskStats').innerHTML = ts2;
+
+    document.getElementById('taskList').innerHTML = tableHTML(
+      ['项目', '状态', '消息', 'Worker', '进度', '创建时间', '更新时间'],
+      rt.map(function(t) {
+        var prog = t.progress ? t.progress + '%' : '-';
+        return [t.projectName, badge(t.status), (t.statusMessage || '').slice(0, 40), t.workerId || '-', prog, fmt(t.createdAt), ago(t.updatedAt)];
+      })
+    );
+
+    // ========== Parse Stats ==========
+    var ps = '';
+    ps += statCard(stats.parse.total, '总次数', 'blue');
+    ps += statCard(stats.parse.success, '成功', 'green');
+    ps += statCard(stats.parse.failed, '失败', (stats.parse.failed || 0) > 0 ? 'red' : 'gray');
+    ps += statCard(stats.parse.avgTimeSec + 's', '平均耗时', 'blue');
+    document.getElementById('parseStats').innerHTML = ps;
+
+    var hist = stats.parse.recentHistory || [];
+    if (hist.length === 0) {
+      document.getElementById('parseHistory').innerHTML = '<div class="empty">暂无解析记录</div>';
     } else {
-      document.getElementById('tasksList').innerHTML = '<div class="empty">暂无任务数据</div>';
+      var hh = '';
+      hist.forEach(function(h) {
+        var icon = h.success ? '✅' : '❌';
+        var detail = h.success
+          ? h.entities + ' 实体, ' + h.phases + ' 阶段, ' + Math.round(h.timeMs / 1000) + 's'
+          : (h.error || '未知错误').slice(0, 60);
+        hh += '<div class="history-item"><span class="icon">' + icon + '</span><span>' + detail + '</span><span class="time">' + ago(h.timestamp) + '</span></div>';
+      });
+      document.getElementById('parseHistory').innerHTML = hh;
     }
   }
 
   refresh();
-  setInterval(refresh, 30000);
+  setInterval(refresh, 15000);
 })();
 </script>
 </body>

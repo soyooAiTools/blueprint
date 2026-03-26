@@ -309,6 +309,8 @@ function matchRoute(method, pathname) {
   if (method === 'GET' && pathname === '/api/dashboard') return { handler: 'getDashboard' };
   if (method === 'GET' && pathname === '/api/workers') return { handler: 'getWorkers' };
   if (method === 'GET' && pathname === '/api/tasks') return { handler: 'getTasks' };
+  if (method === 'GET' && pathname === '/api/dashboard/stats') return { handler: 'getDashboardStats' };
+  if (method === 'GET' && pathname === '/api/dashboard/api-health') return { handler: 'getApiHealth' };
 
   // Serve generated images
   m = pathname.match(/^\/api\/images\/([^/]+)\/(.+)$/);
@@ -898,6 +900,34 @@ handlers.workerStatus = function(req, res, body) {
 // In-memory worker heartbeat storage
 var workerHeartbeats = {};
 
+// In-memory parse-and-blueprint stats (persisted to file on update)
+var parseStats = { total: 0, success: 0, failed: 0, totalTimeMs: 0, history: [] };
+var PARSE_STATS_FILE = path.join(__dir, 'server-data', 'parse-stats.json');
+try {
+  if (fs.existsSync(PARSE_STATS_FILE)) {
+    parseStats = JSON.parse(fs.readFileSync(PARSE_STATS_FILE, 'utf-8'));
+    if (!parseStats.history) parseStats.history = [];
+  }
+} catch(e) { console.warn('[stats] Failed to load parse-stats.json:', e.message); }
+
+function recordParseStat(success, timeMs, entities, phases, error) {
+  parseStats.total++;
+  if (success) parseStats.success++;
+  else parseStats.failed++;
+  if (timeMs) parseStats.totalTimeMs += timeMs;
+  parseStats.history.push({
+    success: success,
+    timeMs: timeMs || 0,
+    entities: entities || 0,
+    phases: phases || 0,
+    error: error || null,
+    timestamp: Date.now()
+  });
+  // Keep last 100 entries
+  if (parseStats.history.length > 100) parseStats.history = parseStats.history.slice(-100);
+  try { fs.writeFileSync(PARSE_STATS_FILE, JSON.stringify(parseStats, null, 2)); } catch(e) {}
+}
+
 // POST /api/worker/heartbeat
 // POST /api/tasks/:id/upload-build — receives zip binary, extracts to webgl dir, updates project
 handlers.uploadBuild = function(req, res, body, id) {
@@ -1463,6 +1493,7 @@ handlers.parseAndBlueprint = async function(req, res, body, projectId) {
     try { res.write('data: ' + JSON.stringify(data) + '\n\n'); } catch(e) {}
   }
 
+  var _parseStart = Date.now();
   try {
     sendSSE({ type: 'progress', percent: 2, stage: '检查项目...' });
     
@@ -1650,6 +1681,7 @@ handlers.parseAndBlueprint = async function(req, res, body, projectId) {
     writeProject(project);
 
     console.log('[parse-and-blueprint] Done: ' + v4Data.entities.length + ' entities, ' + v4Data.phases.length + ' phases, ' + (v4Data.storyboardFrames || []).length + ' frames');
+    recordParseStat(true, Date.now() - _parseStart, v4Data.entities.length, v4Data.phases.length, null);
 
     sendSSE({ type: 'progress', percent: 100, stage: '完成！' });
     sendSSE({
@@ -1662,6 +1694,7 @@ handlers.parseAndBlueprint = async function(req, res, body, projectId) {
     res.end();
   } catch(e) {
     console.error('[parse-and-blueprint] Error:', e.message);
+    recordParseStat(false, Date.now() - _parseStart, 0, 0, e.message);
     sendSSE({ type: 'error', message: e.message });
     res.end();
   }
@@ -2077,6 +2110,156 @@ handlers.getTasks = function(req, res) {
   tasks.sort(function(a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
   tasks = tasks.slice(0, limit);
   sendJSON(res, { tasks: tasks });
+};
+
+// GET /api/dashboard/stats — comprehensive dashboard stats
+handlers.getDashboardStats = function(req, res) {
+  var workers = Object.values(workerHeartbeats);
+  var now = Date.now();
+  var onlineThreshold = 90000;
+
+  // Worker stats
+  var onlineWorkers = workers.filter(function(w) { return w.lastSeen && (now - new Date(w.lastSeen).getTime()) < onlineThreshold; });
+  
+  // Task stats from queue
+  var taskStats = { pending: 0, assigned: 0, processing: 0, developing: 0, building: 0, completed: 0, failed: 0, retry_pending: 0 };
+  var recentTasks = [];
+  try {
+    if (fs.existsSync(AUTOCODING_QUEUE)) {
+      var files = fs.readdirSync(AUTOCODING_QUEUE).filter(function(f) { return f.endsWith('.json') && !f.includes('-blueprint') && !f.includes('.cancelled'); });
+      files.forEach(function(f) {
+        try {
+          var t = JSON.parse(fs.readFileSync(path.join(AUTOCODING_QUEUE, f), 'utf-8'));
+          var s = t.status || 'pending';
+          if (taskStats[s] !== undefined) taskStats[s]++;
+          else taskStats[s] = 1;
+          recentTasks.push({
+            taskId: t.taskId || f.replace('.json', ''),
+            projectName: t.projectName || '-',
+            status: s,
+            statusMessage: t.statusMessage || null,
+            workerId: t.assignedTo || null,
+            progress: t.progress || 0,
+            createdAt: t.createdAt ? new Date(t.createdAt).getTime() : null,
+            updatedAt: t.updatedAt ? new Date(t.updatedAt).getTime() : null
+          });
+        } catch(e) {}
+      });
+    }
+  } catch(e) {}
+  recentTasks.sort(function(a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
+
+  // Project stats
+  var projectStats = { total: 0, editing: 0, submitted: 0, reviewing: 0, approved: 0, feedback: 0, committed: 0, failed: 0 };
+  try {
+    var projDir = path.join(__dir, 'server-data', 'projects');
+    if (fs.existsSync(projDir)) {
+      fs.readdirSync(projDir).filter(function(f) { return f.endsWith('.json'); }).forEach(function(f) {
+        try {
+          var p = JSON.parse(fs.readFileSync(path.join(projDir, f), 'utf-8'));
+          projectStats.total++;
+          var s = p.status || 'editing';
+          if (projectStats[s] !== undefined) projectStats[s]++;
+          else projectStats[s] = 1;
+        } catch(e) {}
+      });
+    }
+  } catch(e) {}
+
+  // Parse stats
+  var avgTimeMs = parseStats.success > 0 ? Math.round(parseStats.totalTimeMs / parseStats.success) : 0;
+  var last24h = parseStats.history.filter(function(h) { return h.timestamp > now - 86400000; });
+  var last24hSuccess = last24h.filter(function(h) { return h.success; }).length;
+  var last24hFailed = last24h.filter(function(h) { return !h.success; }).length;
+  var successRate = parseStats.total > 0 ? Math.round(parseStats.success / parseStats.total * 100) : 0;
+
+  sendJSON(res, {
+    workers: {
+      total: workers.length,
+      online: onlineWorkers.length,
+      offline: workers.length - onlineWorkers.length,
+      list: workers.map(function(w) {
+        var lastHbMs = w.lastSeen ? new Date(w.lastSeen).getTime() : null;
+        var isOnline = lastHbMs && (now - lastHbMs) < onlineThreshold;
+        return {
+          workerId: w.workerId,
+          status: isOnline ? (w.status || 'idle') : 'offline',
+          currentTask: w.currentTask ? (typeof w.currentTask === 'string' ? w.currentTask : w.currentTask.taskId || null) : null,
+          currentTaskName: w.currentTask && w.currentTask.projectName ? w.currentTask.projectName : null,
+          lastHeartbeat: lastHbMs,
+          uptime: w.uptime || 0
+        };
+      })
+    },
+    tasks: taskStats,
+    recentTasks: recentTasks.slice(0, 20),
+    projects: projectStats,
+    parse: {
+      total: parseStats.total,
+      success: parseStats.success,
+      failed: parseStats.failed,
+      successRate: successRate,
+      avgTimeMs: avgTimeMs,
+      avgTimeSec: Math.round(avgTimeMs / 1000),
+      last24h: { success: last24hSuccess, failed: last24hFailed },
+      recentHistory: parseStats.history.slice(-10).reverse()
+    }
+  });
+};
+
+// GET /api/dashboard/api-health — check GPT-5.4 API availability
+handlers.getApiHealth = async function(req, res) {
+  var results = {};
+  
+  // Check GPT-5.4
+  try {
+    var start = Date.now();
+    var { default: fetch } = await import('node-fetch');
+    var apiBase = process.env.OPENAI_BASE_URL || 'https://sub.mindrix.app/v1';
+    var apiKey = process.env.OPENAI_API_KEY || '';
+    var resp = await Promise.race([
+      fetch(apiBase + '/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+        body: JSON.stringify({ model: 'gpt-5.4', messages: [{ role: 'user', content: 'ping' }], max_completion_tokens: 5 })
+      }),
+      new Promise(function(_, reject) { setTimeout(function() { reject(new Error('timeout')); }, 15000); })
+    ]);
+    var latency = Date.now() - start;
+    if (resp.ok) {
+      results.gpt54 = { status: 'ok', latencyMs: latency };
+    } else {
+      var body = await resp.text().catch(function() { return ''; });
+      results.gpt54 = { status: 'error', latencyMs: latency, error: resp.status + ': ' + body.substring(0, 100) };
+    }
+  } catch(e) {
+    results.gpt54 = { status: 'down', error: e.message };
+  }
+
+  // Check Gemini relay
+  try {
+    var start2 = Date.now();
+    var geminiBase = process.env.GOOGLE_GEMINI_BASE_URL || 'https://sub.mindrix.app';
+    var geminiKey = process.env.GEMINI_API_KEY || '';
+    var { default: fetch2 } = await import('node-fetch');
+    var resp2 = await Promise.race([
+      fetch2(geminiBase + '/v1/models', {
+        method: 'GET',
+        headers: { 'Authorization': 'Bearer ' + geminiKey }
+      }),
+      new Promise(function(_, reject) { setTimeout(function() { reject(new Error('timeout')); }, 10000); })
+    ]);
+    var latency2 = Date.now() - start2;
+    results.gemini = { status: resp2.ok ? 'ok' : 'error', latencyMs: latency2 };
+    if (!resp2.ok) results.gemini.error = 'HTTP ' + resp2.status;
+  } catch(e) {
+    results.gemini = { status: 'down', error: e.message };
+  }
+
+  // Blueprint server uptime
+  results.server = { status: 'ok', uptimeMs: process.uptime() * 1000, uptimeHuman: Math.round(process.uptime() / 3600) + 'h' };
+
+  sendJSON(res, results);
 };
 
 // 删除项目时清理 autoCoding 队列 + 标记任务取消
