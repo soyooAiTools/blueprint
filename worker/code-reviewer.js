@@ -22,61 +22,134 @@ const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL || 'https://sub.mindrix.app/
 const REVIEW_MODEL = 'gpt-5.4';
 const REVIEW_TIMEOUT = 120000; // 2 min
 
-// === Luna/Bridge.NET constraint rules (extracted from project docs) ===
+// === Luna/Bridge.NET constraint rules ===
+// Sources: luna-rendering-postmortem.md, blueprint-tech.md, rules.md, LEARNINGS.md, ERRORS.md
+// Last synced: 2026-03-26
 const REVIEW_RULES = `
 ## Luna/Bridge.NET Iron Rules (MUST check each one)
 
-### 1. Naming — Pool Objects
-- All GameObject.Find() calls MUST use actual scene object names: __Pool_Cube_01..14, __Pool_Cylinder_01..04, __Pool_Sphere_01..20, __Pool_Plane_01..10
-- NEVER use concept names like "Building_1", "Player", "Enemy_1" etc. — these DO NOT exist in the scene
-- The scene template has exactly 90 __Pool_* objects. If the code references objects outside this pool, it will fail silently
+### 1. Object Naming — Pool Objects (MOST COMMON FAILURE)
+- Scene has exactly 90 __Pool_* objects: __Pool_Cube_01..14, __Pool_Cylinder_01..04, __Pool_Sphere_01..20, __Pool_Plane_01..10
+- All GameObject.Find() calls MUST use these exact pool names
+- NEVER use concept names like "Building_1", "Player", "Enemy_1", "Tree", "Ground" etc. — these DO NOT exist in the scene
+- If code references objects outside this pool, GameObject.Find returns null silently → nothing renders → solid color screen
+- This is the #1 cause of "green screen" / "solid color" failures (postmortem 2026-03-26)
 
-### 2. C# Basics
-- MUST have "using UnityEngine;" at the top
-- MUST have "using System;" if using Math/Array
+### 2. C# Language Restrictions (Bridge.NET)
+- MUST have "using UnityEngine;" at the top of every .cs file
+- MUST have "using System;" if using Math, Array, or similar System types
 - Class must inherit MonoBehaviour
-- No generic method calls (Luna Bridge.NET does not support generics like GetComponent<T>(), use GetComponent(typeof(T)) instead)
-- No LINQ (System.Linq is not available in Luna)
-- No async/await (not supported in Luna Bridge.NET)
-- No string interpolation $"..." (use string.Format or concatenation)
+- NO generic method calls — GetComponent<T>() DOES NOT WORK → use GetComponent(typeof(T)) and cast
+- NO LINQ — System.Linq is not available in Luna Bridge.NET
+- NO async/await — not supported in Luna Bridge.NET
+- NO string interpolation $"..." — use string.Format() or string concatenation
+- NO nameof() operator
+- NO null-conditional operators (?. / ??)
+- NO pattern matching (switch expressions, is pattern)
+- NO default interface implementations
+- MUST NOT define any class or enum named "EventPool" — conflicts with Luna's internal EventPool (causes CS1022). If you need event pooling, name it "GFM_EventPool" instead
 
-### 3. Luna API Restrictions
-- CreatePrimitive() objects are INVISIBLE in Luna (Runtime Analysis strips them) — NEVER use
-- Camera.AddComponent() does NOT create a rendering camera — camera is handled by injection template
-- AddComponent() after scene load: Start()/Update() are NOT auto-called — handled by injection template
-- GFM_Create.InitMaterialFromScene() should be called in Start() if using GFM_Create materials
-- Do NOT call Destroy() on scene cameras or lights — the injection template manages these
+### 3. Luna Runtime API Restrictions
+- CreatePrimitive() objects are COMPLETELY INVISIBLE in Luna (Runtime Analysis strips them) — NEVER use. Use __Pool_* objects instead
+- new GameObject() creates objects WITHOUT mesh/renderer — they are invisible. Use __Pool_* objects instead
+- Camera.AddComponent() does NOT create a working camera — camera is managed by injection template
+- AddComponent() after scene load: Start() and Update() are NOT auto-called by Luna (unlike standard Unity). The injection template handles lifecycle via requestAnimationFrame
+- GFM_Create.InitMaterialFromScene() must be called in Start() before using materials
+- Do NOT call Destroy() on cameras or lights — the injection template manages these
+- Resources.GetBuiltinResource() is NOT implemented in Luna — will throw
+- Shader.Find() may fail if the shader was stripped by Runtime Analysis — only "Universal Render Pipeline/Lit" is guaranteed safe
 
-### 4. Object Positioning
-- All __Pool_* objects start at y=-999 (hidden)
-- ShowEntity() moves them to visible positions, HideEntity() sends back to y=-999
-- Ground should be at y=-0.5 or y=0, player at y=0.5~1.0
-- Camera is set by injection template (orthographic, top-down 55°) — code should NOT override camera transform
+### 4. Object Positioning & Visibility
+- All __Pool_* objects start at y=-999 (hidden below camera view)
+- ShowEntity() / equivalent moves them to visible Y positions; HideEntity() sends back to y=-999
+- Ground should be at y=-0.5 or y=0
+- Player/characters at y=0.5~1.0
+- Camera is preset by injection template: orthographic, 45° top-down view, size=8, position=(0,15,-15)
+- Code should NOT modify Camera.main.transform or camera projection — the template manages this
 
-### 5. Color & Materials
+### 5. Color & Materials (Shader-null root cause)
 - Use GFM_Create.SetColor(gameObject, new Color(r,g,b,a)) for coloring
-- Player = blue (0.2, 0.5, 0.9), Ground = green (0.45, 0.65, 0.3), Buildings = tan, Enemies = red
-- Materials are handled by injection template's shader fix — do not create new Material() manually
+- DO NOT create new Material() manually — the shader will be null (Luna serialization strips built-in shader references)
+- The injection template fixes null shaders at runtime with Shader.Find("Universal Render Pipeline/Lit"), but only for __Pool_* objects
+- Manually created materials bypass this fix → invisible objects
+- Color convention: Player=blue(0.2,0.5,0.9), Ground=green(0.45,0.65,0.3), Buildings=tan, Enemies=red
 
-### 6. Code Structure
-- Must have Start() method that: finds all pool objects, sets initial positions/colors/scales
-- Must have Update() method that: handles input, updates game state, moves objects
-- Must have a state machine or rule system for game progression
-- All shots/phases from the storyboard must be implemented (no skipping)
-- Must have CheckEventRules() or equivalent for phase transitions
+### 6. Code Structure Requirements
+- MUST have Start() method that: finds all pool objects via GameObject.Find("__Pool_*"), sets initial positions/colors/scales
+- MUST have Update() method that: handles input, updates game state, moves objects each frame
+- MUST implement ALL shots/phases from the storyboard (zero tolerance — no skipping)
+- Shot methods MUST be named shot_1(), shot_2(), ... shot_N() — NOT Scene1, Level1, Phase1, Stage1 or any other naming scheme
+- MUST have a state machine or CheckEventRules() for phase transitions
+- Last shot MUST call Luna.Unity.LifeCycle.GameEnded() + show CTA button via Luna.Unity.Playable.InstallFullGame()
+- MUST NOT modify or redefine GFM_Tools.cs functions — it is an external toolkit provided by the template
 
 ### 7. UI Elements
 - Use GFM_UI or Unity UI (Canvas/Text) for labels and HUD
-- joystick is created by injection template — code should reference this.joystick from GFM_Joystick.Create()
-- CTA button for "install full game" at game end
+- Joystick is created by injection template — reference via this.joystick from GFM_Joystick.Create()
+- CTA button for "install full game" must appear in the final shot/phase
+- Canvas and EventSystem are provided by the scene template — do not recreate them
 
-### 8. Common Mistakes to Flag
-- Using "transform.rotation = Quaternion.Euler(...)" — should use "transform.rotation = Quaternion.Euler(...)" (this is fine in C# but verify syntax)
-- Using Vector3 without "new" keyword
-- Missing null checks after GameObject.Find() (silent fail if object not found)
-- Infinite loops or blocking code in Update()
-- Using Time.time instead of accumulating deltaTime
+### 8. Common Fatal Mistakes (from ERRORS.md & LEARNINGS.md)
+- Using Vector3 without "new" keyword → compile error
+- Missing null checks after GameObject.Find() — if object not found, all subsequent .transform / .GetComponent calls throw NullReferenceException silently
+- Infinite loops or blocking code in Update() → freezes entire WebGL page
+- Using Time.time for elapsed timing instead of accumulating Time.deltaTime each frame
+- Declaring variables inside switch cases without braces → CS0163 fall-through error
+- Using "override" on methods that don't exist in the base class
+- Trying to access .material directly instead of .GetComponent<Renderer>().material (and remember: no generics, so use GetComponent(typeof(Renderer)))
+- Calling Destroy(gameObject) on pool objects — they should be hidden (y=-999), not destroyed, as they are reused across shots
+
+### 9. Incremental Fix Rules (from rules.md)
+- When reviewing code that is a FIX (not full generation): the code should only modify what the feedback requested
+- Removing shot methods or game objects to "fix" compile errors = REJECTED — this is a content regression
+- Shot count must match the blueprint exactly — if original had 8 shots, fixed code must still have 8 shots
+- AI must not "simplify" by merging or removing shots
+
+### 10. Performance & WebGL Constraints
+- No heavy per-frame allocations (new Vector3() in Update is OK but avoid new List/Array/string per frame)
+- No Debug.Log() calls in Update() — console spam kills WebGL performance
+- No Application.LoadLevel / SceneManager.LoadScene — Luna runs in a single scene
+- All game state must be in-memory (no PlayerPrefs, no file I/O, no network calls)
+
+### 11. Verified Failure Patterns (from postmortem)
+- "Green screen" = all GameObject.Find() returned null (using concept names instead of __Pool_*)
+- "Black screen" = shader is null on all materials (creating new Material() instead of using GFM_Create)
+- "Loading stuck" = missing engine files or script errors preventing luna:started event
+- "Objects invisible but code runs" = used CreatePrimitive() or new GameObject() instead of __Pool_*
+- "Compile CS0246 MonoBehaviour not found" = missing "using UnityEngine;"
+- "Compile CS8802" = duplicate class definition from leftover files (not a code review issue but worth noting)
 `;
+
+// === Dynamic rules loader: reads additional constraints from project docs ===
+// Loads once at startup to avoid file I/O per review call
+let DYNAMIC_RULES = '';
+try {
+  const docsDir = '/root/.openclaw/workspace';
+  const dynamicFiles = [
+    { path: path.join(docsDir, '.learnings/LEARNINGS.md'), label: 'Self-Improvement Learnings' },
+    { path: path.join(docsDir, '.learnings/ERRORS.md'), label: 'Historical Error Patterns' },
+  ];
+  const extraRules = [];
+  for (const f of dynamicFiles) {
+    if (fs.existsSync(f.path)) {
+      const content = fs.readFileSync(f.path, 'utf-8');
+      // Extract actionable bullet points (lines starting with - or *)
+      const bullets = content.split('\n')
+        .filter(line => /^\s*[-*]\s+/.test(line) && line.length > 20)
+        .filter(line => /Luna|Bridge|compile|shader|material|Pool|GFM|mono|C#|Unity|scene|mesh|render|shot|WebGL|object|Create|Find|Component|Update|Start|script/i.test(line))
+        .slice(0, 30); // cap to prevent prompt bloat
+      if (bullets.length > 0) {
+        extraRules.push(`\n### ${f.label} (auto-loaded)\n${bullets.join('\n')}`);
+      }
+    }
+  }
+  if (extraRules.length > 0) {
+    DYNAMIC_RULES = '\n## Additional Rules from Project Learnings\n' + extraRules.join('\n');
+    console.log('[reviewer] Loaded ' + extraRules.length + ' dynamic rule sources');
+  }
+} catch (e) {
+  console.warn('[reviewer] Failed to load dynamic rules:', e.message);
+}
 
 /**
  * Call GPT-5.4 for code review
@@ -151,10 +224,12 @@ async function reviewCode(code, options) {
   log('[reviewer] Starting GPT-5.4 adversarial review...', taskId);
 
   var systemPrompt = `You are a strict code reviewer for Luna (Unity-to-HTML5) playable ads.
-Your job is to check C# code against documented Luna/Bridge.NET constraints.
+Your job is to check C# code against documented Luna/Bridge.NET constraints AND historical lessons learned from production failures.
 You MUST find violations — be adversarial. Do NOT rubber-stamp.
+Every rule below comes from real production incidents. If you miss a violation, the playable ad will fail at runtime.
 
 ${REVIEW_RULES}
+${DYNAMIC_RULES}
 
 ## Output Format
 Respond with a JSON object (no markdown, no code fences):
