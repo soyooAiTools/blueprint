@@ -402,12 +402,23 @@ async function processTask(task) {
       
       try { fs.rmSync(cuaBuildDir, { recursive: true, force: true }); } catch(e) {}
 
-      // Auto-stop: solid color = no GPU / render failure, CUA is pointless
+      // Auto-stop: solid color detection
       if (cuaResult.quickTestDetail && cuaResult.quickTestDetail.solidColor) {
-        log('CUA auto-stop: solid color screen detected — no GPU or WebGL render failure, skipping CUA', taskId);
-        await reportStatus(taskId, 'done', { message: `[Linux] Build OK, skipped CUA (solid color screen — no GPU). Preview: ${previewUrl || 'N/A'}`, previewUrl });
-        cuaPassed = true;
-        break;
+        if (cuaResult.quickTestDetail.codeBug) {
+          // Non-black solid = code bug, treat as CUA failure with feedback
+          log('CUA: solid color screen (code bug) — objects not visible, feeding back to AI', taskId);
+          await reportStatus(taskId, 'processing', { message: `[Linux] 画面纯色(${cuaResult.quickTestDetail.solidColorDetail?.color || '?'})，对象不可见，AI修复中...` });
+          // Treat as a CUA failure with specific feedback
+          cuaResult.issues = [cuaResult.reason || 'Screen is solid color — objects not visible'];
+          cuaResult.passed = false;
+          // Fall through to the CUA failure handling below
+        } else {
+          // True black = no GPU / render failure, skip CUA
+          log('CUA auto-stop: solid black screen — no GPU or WebGL render failure, skipping CUA', taskId);
+          await reportStatus(taskId, 'done', { message: `[Linux] Build OK, skipped CUA (solid black — no GPU). Preview: ${previewUrl || 'N/A'}`, previewUrl });
+          cuaPassed = true;
+          break;
+        }
       }
 
       if (cuaResult.passed || cuaResult.skipped) {

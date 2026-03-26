@@ -325,51 +325,73 @@ async function quickPlayTest(url, taskId, log) {
     } catch(e) {}
 
     // === Solid color detection (3-14 audit lesson: stop CUA on solid-color screens) ===
-    // Sample canvas pixels — if all are the same color, it's a solid-color screen (no GPU / render failure)
-    // NOTE: We use page.screenshot + pixel sampling instead of gl.readPixels because
-    // WebGL back buffer is cleared after frame swap (always returns black).
-    var solidColorCheck = await page.evaluate(function() {
-      var canvas = document.querySelector('canvas');
-      if (!canvas) return { solid: false, reason: 'no-canvas' };
-      try {
-        // Method: draw the WebGL canvas onto a 2D canvas to read pixels reliably
-        var tmpCanvas = document.createElement('canvas');
-        var w = Math.min(canvas.width, 100);
-        var h = Math.min(canvas.height, 100);
-        tmpCanvas.width = w;
-        tmpCanvas.height = h;
-        var ctx2d = tmpCanvas.getContext('2d');
-        ctx2d.drawImage(canvas, 0, 0, w, h);
-        var imageData = ctx2d.getImageData(0, 0, w, h);
-        var pixels = imageData.data;
-        var r0 = pixels[0], g0 = pixels[1], b0 = pixels[2];
+    // WebGL canvas with preserveDrawingBuffer:false (default) clears after compositing,
+    // so both gl.readPixels AND drawImage read black. The only reliable source is
+    // the page screenshot (which captures the composited frame before clear).
+    var solidColorCheck = { solid: false, reason: 'screenshot-analysis' };
+    try {
+      if (fs.existsSync(screenshotPath)) {
+        var sharp = require('sharp');
+        var img = sharp(screenshotPath);
+        var meta = await img.metadata();
+        // Sample a 100x100 region from center
+        var cx = Math.max(0, Math.floor((meta.width || 400) / 2) - 50);
+        var cy = Math.max(0, Math.floor((meta.height || 400) / 2) - 50);
+        var sw = Math.min(100, (meta.width || 400) - cx);
+        var sh = Math.min(100, (meta.height || 400) - cy);
+        var buf = await img.extract({ left: cx, top: cy, width: sw, height: sh })
+          .raw().toBuffer();
+        var channels = meta.channels || 3;
+        var r0 = buf[0], g0 = buf[1], b0 = buf[2];
         var allSame = true;
-        for (var i = 4; i < pixels.length; i += 4) {
-          if (Math.abs(pixels[i] - r0) > 5 || Math.abs(pixels[i+1] - g0) > 5 || Math.abs(pixels[i+2] - b0) > 5) {
+        for (var si = channels; si < buf.length; si += channels) {
+          if (Math.abs(buf[si] - r0) > 5 || Math.abs(buf[si+1] - g0) > 5 || Math.abs(buf[si+2] - b0) > 5) {
             allSame = false;
             break;
           }
         }
-        return { solid: allSame, color: 'rgb(' + r0 + ',' + g0 + ',' + b0 + ')', sampled: w * h };
-      } catch(e) {
-        return { solid: false, reason: 'error: ' + e.message };
+        solidColorCheck = { solid: allSame, color: 'rgb(' + r0 + ',' + g0 + ',' + b0 + ')', sampled: sw * sh, method: 'screenshot' };
       }
-    });
+    } catch(e) {
+      log('[QuickTest] Screenshot analysis error (non-fatal): ' + e.message, taskId);
+      solidColorCheck = { solid: false, reason: 'analysis-error: ' + e.message };
+    }
     log('[QuickTest] Solid color check: ' + JSON.stringify(solidColorCheck), taskId);
 
     if (solidColorCheck.solid) {
-      log('[QuickTest] ⚠️ SOLID COLOR DETECTED (' + solidColorCheck.color + ') — skipping CUA (no GPU / render failure)', taskId);
-      await browser.close();
-      return {
-        ok: false,
-        reason: 'Screen is solid color (' + solidColorCheck.color + '). No GPU or WebGL render failure. CUA would waste API calls on blank screen.',
-        loaded: true,
-        solidColor: true,
-        solidColorDetail: solidColorCheck,
-        initialShot: initialShot,
-        finalShot: finalShot,
-        shotProgressed: false
-      };
+      var colorStr = solidColorCheck.color || 'unknown';
+      var isBlack = colorStr === 'rgb(0,0,0)';
+      if (isBlack) {
+        // True black = no GPU / WebGL context failed — skip CUA entirely
+        log('[QuickTest] ⚠️ SOLID BLACK — no GPU or WebGL render failure, skipping CUA', taskId);
+        await browser.close();
+        return {
+          ok: false,
+          reason: 'Screen is solid black — no GPU or WebGL context failure. CUA cannot operate.',
+          loaded: true,
+          solidColor: true,
+          solidColorDetail: solidColorCheck,
+          initialShot: initialShot,
+          finalShot: finalShot,
+          shotProgressed: false
+        };
+      } else {
+        // Non-black solid color = code logic bug (objects hidden/same color/not created)
+        // Return as a code issue, NOT a GPU issue — let the pipeline handle it as build feedback
+        log('[QuickTest] ⚠️ SOLID COLOR (' + colorStr + ') — likely code bug (objects not visible), reporting as build issue', taskId);
+        await browser.close();
+        return {
+          ok: false,
+          reason: 'Screen is solid color (' + colorStr + ') with ' + rendererCount + ' renderers loaded. Objects are likely hidden (y=-999), not created, or same color as background. This is a CODE BUG, not a GPU issue.',
+          loaded: true,
+          solidColor: true,
+          codeBug: true,
+          solidColorDetail: solidColorCheck,
+          initialShot: initialShot,
+          finalShot: finalShot,
+          shotProgressed: false
+        };
+      }
     }
 
     await browser.close();
