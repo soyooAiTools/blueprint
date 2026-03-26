@@ -2138,15 +2138,18 @@ handlers.getDashboardStats = function(req, res) {
   var recentTasks = [];
   try {
     if (fs.existsSync(AUTOCODING_QUEUE)) {
-      var files = fs.readdirSync(AUTOCODING_QUEUE).filter(function(f) { return f.endsWith('.json') && !f.includes('-blueprint') && !f.includes('.cancelled'); });
+      var files = fs.readdirSync(AUTOCODING_QUEUE).filter(function(f) { return f.endsWith('.json') && !f.includes('-blueprint'); });
       files.forEach(function(f) {
         try {
           var t = JSON.parse(fs.readFileSync(path.join(AUTOCODING_QUEUE, f), 'utf-8'));
-          var s = t.status || 'pending';
-          if (taskStats[s] !== undefined) taskStats[s]++;
-          else taskStats[s] = 1;
+          var isCancelled = f.includes('.cancelled');
+          var s = isCancelled ? 'cancelled' : (t.status || 'pending');
+          if (!isCancelled) {
+            if (taskStats[s] !== undefined) taskStats[s]++;
+            else taskStats[s] = 1;
+          }
           recentTasks.push({
-            taskId: t.taskId || f.replace('.json', ''),
+            taskId: t.taskId || f.replace('.cancelled.json', '').replace('.json', ''),
             projectName: t.projectName || '-',
             status: s,
             statusMessage: t.statusMessage || null,

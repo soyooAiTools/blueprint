@@ -207,7 +207,6 @@ async function processTask(task) {
     
     const allCs = findFiles(tempDir, '.cs');
     const mainCsPath = allCs.find(f => f.includes('GameFlowManagerMain.cs'));
-    const gfmPath = allCs.find(f => f.includes('GFM_Tools.cs'));
     
     if (!mainCsPath) {
       log('No GameFlowManagerMain.cs found in: ' + allCs.join(', '), taskId);
@@ -217,9 +216,11 @@ async function processTask(task) {
     
     const csCode = fs.readFileSync(mainCsPath, 'utf-8');
     log(`Main CS: ${mainCsPath} (${csCode.length} chars)`, taskId);
+    // Always use canonical GFM_Tools.cs from worker dir (never AI-generated version)
     const extraFiles = {};
-    if (gfmPath) {
-      extraFiles['GFM_Tools.cs'] = fs.readFileSync(gfmPath, 'utf-8');
+    const canonicalGfm = path.join(__dirname, 'GFM_Tools.cs');
+    if (fs.existsSync(canonicalGfm)) {
+      extraFiles['GFM_Tools.cs'] = fs.readFileSync(canonicalGfm, 'utf-8');
     }
 
     // === Step 4: Linux Build (Bridge.NET + stage4 assembly) with auto-fix ===
@@ -307,8 +308,7 @@ async function processTask(task) {
       }
 
       lastCsCode = fs.readFileSync(fixMainCs, 'utf-8');
-      const fixGfm = fixCsFiles.find(f => f.includes('GFM_Tools.cs'));
-      if (fixGfm) lastExtraFiles['GFM_Tools.cs'] = fs.readFileSync(fixGfm, 'utf-8');
+      // Always use canonical GFM_Tools.cs (never AI-generated version which may lack using directives)
       try { fs.rmSync(fixTempDir, { recursive: true, force: true }); } catch(e) {}
 
       log(`Build fix ${buildAttempt}: got fixed code (${lastCsCode.length} chars), retrying build...`, taskId);
@@ -445,9 +445,11 @@ async function processTask(task) {
       }
 
       lastCsCode = fs.readFileSync(fixMainCs, 'utf-8');
+      // Always use canonical GFM_Tools.cs (never AI-generated version)
       const fixExtraFiles = {};
-      const fixGfm = fixCsFiles.find(f => f.includes('GFM_Tools.cs'));
-      if (fixGfm) fixExtraFiles['GFM_Tools.cs'] = fs.readFileSync(fixGfm, 'utf-8');
+      if (fs.existsSync(canonicalGfm)) {
+        fixExtraFiles['GFM_Tools.cs'] = fs.readFileSync(canonicalGfm, 'utf-8');
+      }
       try { fs.rmSync(fixTempDir, { recursive: true, force: true }); } catch(e) {}
 
       // Rebuild
