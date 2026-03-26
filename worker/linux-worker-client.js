@@ -222,21 +222,103 @@ async function processTask(task) {
       extraFiles['GFM_Tools.cs'] = fs.readFileSync(gfmPath, 'utf-8');
     }
 
-    // === Step 4: Linux Build (Bridge.NET + stage4 assembly) ===
-    await reportStatus(taskId, 'building', { message: '[Linux] Bridge.NET compiling...' });
+    // === Step 4: Linux Build (Bridge.NET + stage4 assembly) with auto-fix ===
+    const MAX_BUILD_FIX_ATTEMPTS = 3;
+    let lastCsCode = csCode;
+    let lastExtraFiles = { ...extraFiles };
     let buildResult;
-    try {
-      buildResult = await buildRequest('/build', csCode, extraFiles);
-    } catch (e) {
-      await reportStatus(taskId, 'failed', { message: '[Linux] Build failed: ' + e.message.slice(0, 200) });
+    let buildOk = false;
+
+    for (let buildAttempt = 1; buildAttempt <= MAX_BUILD_FIX_ATTEMPTS + 1; buildAttempt++) {
+      const attemptLabel = buildAttempt === 1 ? '' : ` (fix attempt ${buildAttempt - 1}/${MAX_BUILD_FIX_ATTEMPTS})`;
+      await reportStatus(taskId, 'building', { message: `[Linux] Bridge.NET compiling...${attemptLabel}` });
+      
+      try {
+        buildResult = await buildRequest('/build', lastCsCode, lastExtraFiles);
+      } catch (e) {
+        buildResult = { ok: false, error: e.message };
+      }
+
+      if (buildResult.ok) {
+        buildOk = true;
+        log(`Build OK in ${buildResult.buildTime}s${attemptLabel}`, taskId);
+        break;
+      }
+
+      const buildError = buildResult.error || '';
+      log(`Build failed${attemptLabel}: ${buildError.slice(0, 300)}`, taskId);
+
+      // No more fix attempts left
+      if (buildAttempt > MAX_BUILD_FIX_ATTEMPTS) break;
+
+      // === Auto-fix: feed compile error to AI for code correction ===
+      await reportStatus(taskId, 'processing', { message: `[Linux] Build failed, AI fixing... (${buildAttempt}/${MAX_BUILD_FIX_ATTEMPTS})` });
+
+      const fixPrompt = `The C# code failed to compile with Bridge.NET/msbuild. Fix the compilation errors.\n\n` +
+        `=== COMPILE ERRORS ===\n${buildError.slice(0, 2000)}\n\n` +
+        `=== CURRENT CODE (GameFlowManagerMain.cs) ===\n${lastCsCode}\n\n` +
+        `IMPORTANT RULES:\n` +
+        `- Add missing "using" directives (e.g. "using UnityEngine;" for MonoBehaviour)\n` +
+        `- Do NOT remove or rename GFM_Tools classes — they are provided externally\n` +
+        `- Do NOT change the overall structure, only fix compilation errors\n` +
+        `- Return the COMPLETE fixed GameFlowManagerMain.cs file\n` +
+        `- The code must compile with Bridge.NET (C# → JavaScript transpiler)`;
+
+      // Inject compile error as feedback for incremental fix
+      if (!blueprint.feedbackHistory) blueprint.feedbackHistory = [];
+      blueprint.feedbackHistory.push({
+        data: { text: `Build compilation failed:\n${buildError.slice(0, 1500)}\nPlease fix the C# compilation errors.` },
+        source: 'build-fix-attempt-' + buildAttempt,
+        status: 'pending',
+        timestamp: Date.now()
+      });
+
+      const fixTempDir = path.join(require('os').tmpdir(), `linux-buildfix-${taskId}-${buildAttempt}`);
+      const fixAssetsDir = path.join(fixTempDir, 'Assets', 'Scripts');
+      fs.mkdirSync(fixAssetsDir, { recursive: true });
+      
+      // Copy GFM_Tools and current code for context
+      const gfmSrcFix = path.join(__dirname, 'GFM_Tools.cs');
+      if (fs.existsSync(gfmSrcFix)) fs.copyFileSync(gfmSrcFix, path.join(fixAssetsDir, 'GFM_Tools.cs'));
+      fs.writeFileSync(path.join(fixAssetsDir, 'GameFlowManagerMain.cs'), lastCsCode);
+
+      let fixResult;
+      try {
+        fixResult = await generateCodeV5(blueprint, fixTempDir, log, taskId, 'unity');
+      } catch (fixErr) {
+        log(`Build fix re-code error: ${fixErr.message}`, taskId);
+        try { fs.rmSync(fixTempDir, { recursive: true, force: true }); } catch(e) {}
+        continue;
+      }
+
+      if (!fixResult.ok) {
+        log('Build fix re-code failed: ' + fixResult.error, taskId);
+        try { fs.rmSync(fixTempDir, { recursive: true, force: true }); } catch(e) {}
+        continue;
+      }
+
+      // Read fixed code
+      const fixCsFiles = findFiles(fixTempDir, '.cs');
+      const fixMainCs = fixCsFiles.find(f => f.includes('GameFlowManagerMain.cs'));
+      if (!fixMainCs) {
+        log('Build fix: no GameFlowManagerMain.cs found', taskId);
+        try { fs.rmSync(fixTempDir, { recursive: true, force: true }); } catch(e) {}
+        continue;
+      }
+
+      lastCsCode = fs.readFileSync(fixMainCs, 'utf-8');
+      const fixGfm = fixCsFiles.find(f => f.includes('GFM_Tools.cs'));
+      if (fixGfm) lastExtraFiles['GFM_Tools.cs'] = fs.readFileSync(fixGfm, 'utf-8');
+      try { fs.rmSync(fixTempDir, { recursive: true, force: true }); } catch(e) {}
+
+      log(`Build fix ${buildAttempt}: got fixed code (${lastCsCode.length} chars), retrying build...`, taskId);
+    }
+
+    if (!buildOk) {
+      await reportStatus(taskId, 'failed', { message: '[Linux] Build failed after ' + MAX_BUILD_FIX_ATTEMPTS + ' fix attempts: ' + (buildResult.error || '').slice(0, 200) });
       return;
     }
 
-    if (!buildResult.ok) {
-      log('Build failed: ' + (buildResult.error || ''), taskId);
-      await reportStatus(taskId, 'failed', { message: '[Linux] Build failed: ' + (buildResult.error || '').slice(0, 200) });
-      return;
-    }
     log(`Build OK in ${buildResult.buildTime}s, HTML: ${buildResult.htmlSize}`, taskId);
     await reportStatus(taskId, 'processing', { message: `[Linux] Build OK (${buildResult.buildTime}s), starting CUA...` });
 
@@ -245,7 +327,7 @@ async function processTask(task) {
     fs.mkdirSync(htmlOutputDir, { recursive: true });
     const htmlPath = path.join(htmlOutputDir, taskId + '.html');
 
-    const htmlData = await buildRequest('/build-html', csCode, extraFiles);
+    const htmlData = await buildRequest('/build-html', lastCsCode, lastExtraFiles);
     fs.writeFileSync(htmlPath, htmlData);
     log(`HTML saved: ${(htmlData.length / 1048576).toFixed(1)}MB → ${htmlPath}`, taskId);
 
@@ -254,7 +336,7 @@ async function processTask(task) {
     const { runCUAVerification } = require('./worker-cua-verify.js');
     let cuaPassed = false;
     let lastHtmlData = htmlData;
-    let lastCsCode = csCode;
+    // lastCsCode already defined in Step 4 (may have been updated by build fix loop)
 
     for (let cuaRound = 1; cuaRound <= MAX_CUA_ROUNDS; cuaRound++) {
       await reportStatus(taskId, 'processing', { message: `[Linux] CUA verifying... (round ${cuaRound}/${MAX_CUA_ROUNDS})` });
