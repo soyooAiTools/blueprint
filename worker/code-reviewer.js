@@ -111,13 +111,72 @@ const REVIEW_RULES = `
 - No Application.LoadLevel / SceneManager.LoadScene — Luna runs in a single scene
 - All game state must be in-memory (no PlayerPrefs, no file I/O, no network calls)
 
-### 11. Verified Failure Patterns (from postmortem)
+### 11. Luna Company-Internal Known Limitations (luna-spec.md)
+- Luna does NOT support TileMap
+- Luna does NOT support New InputSystem (use legacy Input)
+- Luna does NOT support generic instance patterns (no Singleton<T> with instance)
+- Luna does NOT support Terrain component (must convert to mesh)
+- Luna does NOT support animation state machine Exit nodes
+- Luna does NOT support C# 7.0+ syntax (no tuples, no pattern matching)
+- Luna does NOT support multi-threading (Web limitation)
+- CharacterController support is poor — use Transform.Translate or Rigidbody instead
+- RenderTexture: cannot use Custom RenderTexture
+- Only DOTween and TextMeshPro plugins are safe; Spine by request
+- Button events should be assigned in Inspector/code, not dynamically (mobile may need double-tap)
+- Multiple materials on one object: only the first material animates correctly
+- GetComponent<Transform>() and GetComponent<RectTransform>() are NOT interchangeable
+- Vector3Int is NOT supported — cast to Vector3
+- DOTween chain calls must be split into separate lines (transpile bug)
+- SendMessage() is NOT supported
+- Trail Renderer: must call trailRenderer.Clear() before moving the object
+- 3D collision detection only — 2D collider cannot trigger OnMouseDown
+- iOS AppLovin: first touch must pre-play silent audio (OnMute/OnUnmute pattern)
+- AudioSource: do not call Stop/judge before playing
+- URP: do not enable dynamic batching (Luna 6.4 bug — materials vanish on mobile; use GPU instancing)
+- Multiple lights: only directional light can have real-time shadows
+- Orthographic camera: moving Y axis may cause exposure/light disappearance
+
+### 12. Gameplay Logic Constraints (from prompt rules)
+- FORBIDDEN: ForceCompleteAllPhases or any "timeout forces all phases complete" logic
+- FORBIDDEN: autoplay / auto-demo — game must NOT auto-complete phases
+- FORBIDDEN: auto-shoot for turrets/crossbows — player must trigger manually
+- FORBIDDEN: pure numeric triggers for phase transition (e.g., killCount >= 3 auto-jumps)
+- FORBIDDEN: skipping intermediate build phases to jump directly to boss fight
+- FORBIDDEN: proximity auto-collect (player must tap to collect)
+- FORBIDDEN: accessing .transform.parent (may be undefined in Luna — crashes)
+- FORBIDDEN: transform.SetParent() — use GFM_UI for UI hierarchy
+- FORBIDDEN: FindObjectOfType / FindObjectsOfType (may return null in Luna)
+- FORBIDDEN: GetComponentInChildren / GetComponentInParent (hierarchy traversal unstable)
+- All object references must be stored in member variables/arrays at creation time — no runtime lookups
+- UI elements ONLY through GFM_UI.CreateText / GFM_UI.CreateButton — never manual AddComponent<Text>
+- GFM_UI.CreateCanvas() requires parameters: Canvas canvas = GFM_UI.CreateCanvas(960, 540)
+- GFM_UI.CreateProgressBar returns Slider, NOT Image — code must handle Slider type
+- Do not define class/enum named EventPool — conflicts with Luna template (CS0101), use delegate/Action instead
+- Do not use List<T> or Dictionary<K,V> — use arrays (C# arrays are supported)
+- Do not use coroutine / async / await — use Update() + deltaTime timer pattern
+- Resources.GetBuiltinResource("Arial.ttf") is NOT implemented in Luna — will return null
+
+### 13. Verified Failure Patterns (from postmortem + audit)
 - "Green screen" = all GameObject.Find() returned null (using concept names instead of __Pool_*)
 - "Black screen" = shader is null on all materials (creating new Material() instead of using GFM_Create)
 - "Loading stuck" = missing engine files or script errors preventing luna:started event
 - "Objects invisible but code runs" = used CreatePrimitive() or new GameObject() instead of __Pool_*
 - "Compile CS0246 MonoBehaviour not found" = missing "using UnityEngine;"
 - "Compile CS8802" = duplicate class definition from leftover files (not a code review issue but worth noting)
+- "Compile CS0101 EventPool" = code defines class EventPool which conflicts with Luna template
+- "CUA stuck 15+ rounds on solid color" = GameObject.Find all returned null, no objects visible
+- "White screen after shader fix" = called mat.dirty = true which triggers shader recompile failure
+- "Camera not rendering" = code overrode Camera.main transform or created new camera via AddComponent
+- "Phase auto-completes" = autoplay/ForceCompleteAllPhases logic — CUA cannot test interaction
+- "Awake undefined error" = engine-level error, not fixable by AI code — infrastructure issue
+
+### 14. Pre-Build Validation Checks (worker-coder enforces these)
+- Code must contain >= 3 GFM_Create.Obj() calls OR >= 3 GameObject.Find("__Pool_") calls
+- Code must NOT contain CreatePrimitive (auto-rejected)
+- Code must contain shot_N() methods matching blueprint shot count
+- Shot count in fixed code must not decrease from original (anti-skeleton regression)
+- Light.type assignment is forbidden (auto-commented out in pre-build)
+- GFM_Tools.cs must not be modified (overwrite-protected)
 `;
 
 // === Dynamic rules loader: reads additional constraints from project docs ===
@@ -125,27 +184,33 @@ const REVIEW_RULES = `
 let DYNAMIC_RULES = '';
 try {
   const docsDir = '/root/.openclaw/workspace';
+  const skillDir = docsDir + '/skills/blueprint/references';
   const dynamicFiles = [
     { path: path.join(docsDir, '.learnings/LEARNINGS.md'), label: 'Self-Improvement Learnings' },
     { path: path.join(docsDir, '.learnings/ERRORS.md'), label: 'Historical Error Patterns' },
+    { path: path.join(docsDir, 'memory/luna-rendering-postmortem.md'), label: 'Luna Rendering Postmortem' },
+    { path: path.join(docsDir, 'memory/blueprint-tech.md'), label: 'Blueprint Tech Notes' },
+    { path: path.join(docsDir, 'memory/2026-03-14-audit.md'), label: 'Pipeline Audit Findings' },
   ];
   const extraRules = [];
+  const lunaKeywords = /Luna|Bridge|compile|shader|material|Pool|GFM|mono|C#|Unity|scene|mesh|render|shot|WebGL|object|Create|Find|Component|Update|Start|script|camera|Canvas|EventPool|MonoBehaviour|inject|stage4|MSBuild|CUA|prompt|AI|编码|编译|材质|渲染|场景|纯色|对象/i;
   for (const f of dynamicFiles) {
     if (fs.existsSync(f.path)) {
       const content = fs.readFileSync(f.path, 'utf-8');
-      // Extract actionable bullet points (lines starting with - or *)
+      // Extract actionable bullet points (lines starting with - or * or numbered)
       const bullets = content.split('\n')
-        .filter(line => /^\s*[-*]\s+/.test(line) && line.length > 20)
-        .filter(line => /Luna|Bridge|compile|shader|material|Pool|GFM|mono|C#|Unity|scene|mesh|render|shot|WebGL|object|Create|Find|Component|Update|Start|script/i.test(line))
-        .slice(0, 30); // cap to prevent prompt bloat
+        .filter(line => /^\s*[-*]\s+|^\s*\d+\.\s+/.test(line) && line.length > 20)
+        .filter(line => lunaKeywords.test(line))
+        .map(line => line.trim())
+        .slice(0, 40); // cap to prevent prompt bloat
       if (bullets.length > 0) {
         extraRules.push(`\n### ${f.label} (auto-loaded)\n${bullets.join('\n')}`);
       }
     }
   }
   if (extraRules.length > 0) {
-    DYNAMIC_RULES = '\n## Additional Rules from Project Learnings\n' + extraRules.join('\n');
-    console.log('[reviewer] Loaded ' + extraRules.length + ' dynamic rule sources');
+    DYNAMIC_RULES = '\n## Additional Context from Project Documentation\n' + extraRules.join('\n');
+    console.log('[reviewer] Loaded dynamic rules from ' + extraRules.length + ' sources');
   }
 } catch (e) {
   console.warn('[reviewer] Failed to load dynamic rules:', e.message);
