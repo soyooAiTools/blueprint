@@ -24,257 +24,116 @@ const REVIEW_TIMEOUT = 120000; // 2 min
 
 // === Luna/Bridge.NET constraint rules ===
 // Sources: luna-rendering-postmortem.md, blueprint-tech.md, rules.md, LEARNINGS.md, ERRORS.md
+// luna-spec.md, GFM_Tools_API.md, behavior-templates.md, entity-architecture-proposal.md
 // Last synced: 2026-03-26
+//
+// DESIGN: Rules are split into 3 tiers by severity.
+// GPT-5.4 checks Tier 1 (critical/instant-fail) first, then Tier 2, then Tier 3.
+// This prevents attention dilution on a long flat list.
 const REVIEW_RULES = `
-## Luna/Bridge.NET Iron Rules (MUST check each one)
+## Tier 1 — INSTANT FAIL (check these first, any violation = FAIL)
 
-### 1. Object Naming — Pool Objects (MOST COMMON FAILURE)
-- Scene has exactly 90 __Pool_* objects: __Pool_Cube_01..14, __Pool_Cylinder_01..04, __Pool_Sphere_01..20, __Pool_Plane_01..10
-- All GameObject.Find() calls MUST use these exact pool names
-- NEVER use concept names like "Building_1", "Player", "Enemy_1", "Tree", "Ground" etc. — these DO NOT exist in the scene
-- If code references objects outside this pool, GameObject.Find returns null silently → nothing renders → solid color screen
-- This is the #1 cause of "green screen" / "solid color" failures (postmortem 2026-03-26)
+### 1. Object Naming — Pool Objects
+- All GameObject.Find() calls MUST use actual pool names: __Pool_Cube_01..50, __Pool_Sphere_01..20, __Pool_Plane_01..10, __Pool_Cylinder_01..10
+- NEVER use concept names like "Building_1", "Player", "Tree" — these DO NOT exist → Find returns null → solid color screen
+- This is the #1 cause of runtime failure
 
-### 2. C# Language Restrictions (Bridge.NET)
-- MUST have "using UnityEngine;" at the top of every .cs file
-- MUST have "using System;" if using Math, Array, or similar System types
-- Class must inherit MonoBehaviour
-- NO generic method calls — GetComponent<T>() DOES NOT WORK → use GetComponent(typeof(T)) and cast
-- NO LINQ — System.Linq is not available in Luna Bridge.NET
-- NO async/await — not supported in Luna Bridge.NET
-- NO string interpolation $"..." — use string.Format() or string concatenation
-- NO nameof() operator
-- NO null-conditional operators (?. / ??)
-- NO pattern matching (switch expressions, is pattern)
-- NO default interface implementations
-- MUST NOT define any class or enum named "EventPool" — conflicts with Luna's internal EventPool (causes CS1022). If you need event pooling, name it "GFM_EventPool" instead
+### 2. Forbidden APIs (will be invisible or crash)
+- CreatePrimitive() — objects are INVISIBLE in Luna (Runtime Analysis strips them)
+- new GameObject() — creates objects WITHOUT mesh/renderer, invisible
+- new Material() — shader will be null (Luna strips built-in shader refs) → invisible
+- Camera.AddComponent() — does NOT create a working camera
+- Destroy() on cameras/lights — managed by injection template
+- Resources.GetBuiltinResource() — NOT implemented in Luna
+- FindObjectOfType / FindObjectsOfType — may return null
+- GetComponentInChildren / GetComponentInParent — hierarchy traversal unstable
+- transform.parent access — may be undefined in Luna, crashes
+- transform.SetParent() — use GFM_UI for UI hierarchy instead
+- SceneManager.LoadScene / Application.LoadLevel — Luna is single-scene
+- SendMessage() — NOT supported
 
-### 3. Luna Runtime API Restrictions
-- CreatePrimitive() objects are COMPLETELY INVISIBLE in Luna (Runtime Analysis strips them) — NEVER use. Use __Pool_* objects instead
-- new GameObject() creates objects WITHOUT mesh/renderer — they are invisible. Use __Pool_* objects instead
-- Camera.AddComponent() does NOT create a working camera — camera is managed by injection template
-- AddComponent() after scene load: Start() and Update() are NOT auto-called by Luna (unlike standard Unity). The injection template handles lifecycle via requestAnimationFrame
-- GFM_Create.InitMaterialFromScene() must be called in Start() before using materials
-- Do NOT call Destroy() on cameras or lights — the injection template manages these
-- Resources.GetBuiltinResource() is NOT implemented in Luna — will throw
-- Shader.Find() may fail if the shader was stripped by Runtime Analysis — only "Universal Render Pipeline/Lit" is guaranteed safe
+### 3. C# Language — Bridge.NET Hard Limits
+- MUST have "using UnityEngine;" (missing = CS0246 MonoBehaviour not found)
+- NO generics: GetComponent<T>() → use GetComponent(typeof(T)) and cast
+- NO LINQ (System.Linq unavailable)
+- NO async/await
+- NO string interpolation $"..."
+- NO null-conditional (?.) or null-coalescing (??)
+- NO pattern matching, no nameof()
+- NO List<T> or Dictionary<K,V> — use arrays
+- NO coroutines — use Update() + deltaTime timer
+- MUST NOT define class/enum named "EventPool" (conflicts with Luna template → CS0101)
 
-### 4. Object Positioning & Visibility
-- All __Pool_* objects start at y=-999 (hidden below camera view)
-- ShowEntity() / equivalent moves them to visible Y positions; HideEntity() sends back to y=-999
-- Ground should be at y=-0.5 or y=0
-- Player/characters at y=0.5~1.0
-- Camera is preset by injection template: orthographic, 45° top-down view, size=8, position=(0,15,-15)
-- Code should NOT modify Camera.main.transform or camera projection — the template manages this
+### 4. Code Completeness
+- ALL shots/phases from blueprint MUST be implemented (zero tolerance)
+- Shot methods MUST be named shot_1(), shot_2()...shot_N() — not Scene1/Level1/Phase1
+- Last shot MUST call Luna.Unity.LifeCycle.GameEnded() + Luna.Unity.Playable.InstallFullGame()
+- Must have Start() and Update() methods
+- Must NOT modify or redefine GFM_Tools.cs classes
 
-### 5. Color & Materials (Shader-null root cause)
-- Use GFM_Create.SetColor(gameObject, new Color(r,g,b,a)) for coloring
-- DO NOT create new Material() manually — the shader will be null (Luna serialization strips built-in shader references)
-- The injection template fixes null shaders at runtime with Shader.Find("Universal Render Pipeline/Lit"), but only for __Pool_* objects
-- Manually created materials bypass this fix → invisible objects
-- Color convention: Player=blue(0.2,0.5,0.9), Ground=green(0.45,0.65,0.3), Buildings=tan, Enemies=red
+## Tier 2 — LIKELY FAIL (high probability of runtime issues)
 
-### 6. Code Structure Requirements
-- MUST have Start() method that: finds all pool objects via GameObject.Find("__Pool_*"), sets initial positions/colors/scales
-- MUST have Update() method that: handles input, updates game state, moves objects each frame
-- MUST implement ALL shots/phases from the storyboard (zero tolerance — no skipping)
-- Shot methods MUST be named shot_1(), shot_2(), ... shot_N() — NOT Scene1, Level1, Phase1, Stage1 or any other naming scheme
-- MUST have a state machine or CheckEventRules() for phase transitions
-- Last shot MUST call Luna.Unity.LifeCycle.GameEnded() + show CTA button via Luna.Unity.Playable.InstallFullGame()
-- MUST NOT modify or redefine GFM_Tools.cs functions — it is an external toolkit provided by the template
+### 5. Materials & Rendering
+- Use GFM_Create.SetColor(go, new Color(r,g,b,a)) for coloring
+- Do NOT create new Material() — use GFM_Create which handles material registry
+- GFM_Create.InitMaterialFromScene() must be called in Start() before any SetColor()
+- Pool objects start at y=-999 (hidden). Show = move to visible Y. Hide = y=-999
+- Do NOT use SetActive(false) for hiding — use y=-999 position
 
-### 7. UI Elements
-- Use GFM_UI or Unity UI (Canvas/Text) for labels and HUD
-- Joystick is created by injection template — reference via this.joystick from GFM_Joystick.Create()
-- CTA button for "install full game" must appear in the final shot/phase
-- Canvas and EventSystem are provided by the scene template — do not recreate them
+### 6. GFM_Tools API Signatures (wrong params = compile error or silent fail)
+- GFM_Create.Obj(PrimitiveType, Vector3 pos, Vector3 scale, string name) — exactly 4 params
+- GFM_Create.Ground(float width, float depth) — 2 floats, not Vector3
+- GFM_UI.CreateCanvas(int w, int h) — REQUIRES 2 params, returns Canvas
+- GFM_UI.CreateProgressBar(...) — returns Slider, NOT Image
+- GFM_Joystick.Create(Canvas, float size) — returns GFM_Joystick (.Horizontal/.Vertical/.IsDragging)
+- There is NO class called "GFM_Tools" — use GFM_Create, GFM_UI, GFM_Utils, etc.
 
-### 8. Common Fatal Mistakes (from ERRORS.md & LEARNINGS.md)
-- Using Vector3 without "new" keyword → compile error
-- Missing null checks after GameObject.Find() — if object not found, all subsequent .transform / .GetComponent calls throw NullReferenceException silently
-- Infinite loops or blocking code in Update() → freezes entire WebGL page
-- Using Time.time for elapsed timing instead of accumulating Time.deltaTime each frame
-- Declaring variables inside switch cases without braces → CS0163 fall-through error
-- Using "override" on methods that don't exist in the base class
-- Trying to access .material directly instead of .GetComponent<Renderer>().material (and remember: no generics, so use GetComponent(typeof(Renderer)))
-- Calling Destroy(gameObject) on pool objects — they should be hidden (y=-999), not destroyed, as they are reused across shots
+### 7. Gameplay Logic
+- FORBIDDEN: autoplay / ForceCompleteAllPhases / auto-demo
+- FORBIDDEN: auto-shoot for turrets (player must trigger)
+- FORBIDDEN: proximity auto-collect (player must tap)
+- FORBIDDEN: pure numeric triggers that skip interaction (killCount >= N auto-jumps phase)
+- Player input must drive phase progression — CUA needs to interact
 
-### 9. Incremental Fix Rules (from rules.md)
-- When reviewing code that is a FIX (not full generation): the code should only modify what the feedback requested
-- Removing shot methods or game objects to "fix" compile errors = REJECTED — this is a content regression
-- Shot count must match the blueprint exactly — if original had 8 shots, fixed code must still have 8 shots
-- AI must not "simplify" by merging or removing shots
+### 8. Incremental Fix Constraints
+- Removing shot methods to "fix" compile errors = REJECTED (content regression)
+- Shot count must not decrease from original
+- Fix must only change what feedback requested — no full rewrite
 
-### 10. Performance & WebGL Constraints
-- No heavy per-frame allocations (new Vector3() in Update is OK but avoid new List/Array/string per frame)
-- No Debug.Log() calls in Update() — console spam kills WebGL performance
-- No Application.LoadLevel / SceneManager.LoadScene — Luna runs in a single scene
-- All game state must be in-memory (no PlayerPrefs, no file I/O, no network calls)
+## Tier 3 — WARNINGS (best practices, may work but risky)
 
-### 11. Luna Company-Internal Known Limitations (luna-spec.md)
-- Luna does NOT support TileMap
-- Luna does NOT support New InputSystem (use legacy Input)
-- Luna does NOT support generic instance patterns (no Singleton<T> with instance)
-- Luna does NOT support Terrain component (must convert to mesh)
-- Luna does NOT support animation state machine Exit nodes
-- Luna does NOT support C# 7.0+ syntax (no tuples, no pattern matching)
-- Luna does NOT support multi-threading (Web limitation)
-- CharacterController support is poor — use Transform.Translate or Rigidbody instead
-- RenderTexture: cannot use Custom RenderTexture
-- Only DOTween and TextMeshPro plugins are safe; Spine by request
-- Button events should be assigned in Inspector/code, not dynamically (mobile may need double-tap)
-- Multiple materials on one object: only the first material animates correctly
-- GetComponent<Transform>() and GetComponent<RectTransform>() are NOT interchangeable
-- Vector3Int is NOT supported — cast to Vector3
-- DOTween chain calls must be split into separate lines (transpile bug)
-- SendMessage() is NOT supported
-- Trail Renderer: must call trailRenderer.Clear() before moving the object
-- 3D collision detection only — 2D collider cannot trigger OnMouseDown
-- iOS AppLovin: first touch must pre-play silent audio (OnMute/OnUnmute pattern)
-- AudioSource: do not call Stop/judge before playing
-- URP: do not enable dynamic batching (Luna 6.4 bug — materials vanish on mobile; use GPU instancing)
-- Multiple lights: only directional light can have real-time shadows
-- Orthographic camera: moving Y axis may cause exposure/light disappearance
+### 9. Common Mistakes
+- Vector3 without "new" keyword → compile error
+- Missing null checks after GameObject.Find() → NullReferenceException
+- Infinite loops or blocking code in Update() → freezes WebGL
+- Using Time.time instead of accumulating Time.deltaTime
+- Debug.Log() in Update() → console spam kills performance
+- Declaring variables inside switch cases without braces → CS0163
 
-### 12. Gameplay Logic Constraints (from prompt rules)
-- FORBIDDEN: ForceCompleteAllPhases or any "timeout forces all phases complete" logic
-- FORBIDDEN: autoplay / auto-demo — game must NOT auto-complete phases
-- FORBIDDEN: auto-shoot for turrets/crossbows — player must trigger manually
-- FORBIDDEN: pure numeric triggers for phase transition (e.g., killCount >= 3 auto-jumps)
-- FORBIDDEN: skipping intermediate build phases to jump directly to boss fight
-- FORBIDDEN: proximity auto-collect (player must tap to collect)
-- FORBIDDEN: accessing .transform.parent (may be undefined in Luna — crashes)
-- FORBIDDEN: transform.SetParent() — use GFM_UI for UI hierarchy
-- FORBIDDEN: FindObjectOfType / FindObjectsOfType (may return null in Luna)
-- FORBIDDEN: GetComponentInChildren / GetComponentInParent (hierarchy traversal unstable)
-- All object references must be stored in member variables/arrays at creation time — no runtime lookups
-- UI elements ONLY through GFM_UI.CreateText / GFM_UI.CreateButton — never manual AddComponent<Text>
-- GFM_UI.CreateCanvas() requires parameters: Canvas canvas = GFM_UI.CreateCanvas(960, 540)
-- GFM_UI.CreateProgressBar returns Slider, NOT Image — code must handle Slider type
-- Do not define class/enum named EventPool — conflicts with Luna template (CS0101), use delegate/Action instead
-- Do not use List<T> or Dictionary<K,V> — use arrays (C# arrays are supported)
-- Do not use coroutine / async / await — use Update() + deltaTime timer pattern
-- Resources.GetBuiltinResource("Arial.ttf") is NOT implemented in Luna — will return null
+### 10. Luna Platform Limitations
+- No TileMap, no New InputSystem, no Terrain, no multi-threading
+- CharacterController poorly supported — use Transform or Rigidbody
+- No animation state machine Exit nodes
+- Vector3Int not supported (cast to Vector3)
+- DOTween chains must be split into separate lines (transpile bug)
+- Multiple materials: only first material animates correctly
+- GetComponent<Transform>() ≠ GetComponent<RectTransform>()
+- iOS AppLovin: first touch must pre-play silent audio (GFM_Luna.Init handles this)
+- Time.deltaTime is constant 0.1 in Luna regardless of FPS
 
-### 13. Verified Failure Patterns (from postmortem + audit)
-- "Green screen" = all GameObject.Find() returned null (using concept names instead of __Pool_*)
-- "Black screen" = shader is null on all materials (creating new Material() instead of using GFM_Create)
-- "Loading stuck" = missing engine files or script errors preventing luna:started event
-- "Objects invisible but code runs" = used CreatePrimitive() or new GameObject() instead of __Pool_*
-- "Compile CS0246 MonoBehaviour not found" = missing "using UnityEngine;"
-- "Compile CS8802" = duplicate class definition from leftover files (not a code review issue but worth noting)
-- "Compile CS0101 EventPool" = code defines class EventPool which conflicts with Luna template
-- "CUA stuck 15+ rounds on solid color" = GameObject.Find all returned null, no objects visible
-- "White screen after shader fix" = called mat.dirty = true which triggers shader recompile failure
-- "Camera not rendering" = code overrode Camera.main transform or created new camera via AddComponent
-- "Phase auto-completes" = autoplay/ForceCompleteAllPhases logic — CUA cannot test interaction
-- "Awake undefined error" = engine-level error, not fixable by AI code — infrastructure issue
-
-### 14. Pre-Build Validation Checks (worker-coder enforces these)
-- Code must contain >= 3 GFM_Create.Obj() calls OR >= 3 GameObject.Find("__Pool_") calls
-- Code must NOT contain CreatePrimitive (auto-rejected)
-- Code must contain shot_N() methods matching blueprint shot count
-- Shot count in fixed code must not decrease from original (anti-skeleton regression)
-- Light.type assignment is forbidden (auto-commented out in pre-build)
-- GFM_Tools.cs must not be modified (overwrite-protected)
-
-### 15. GFM_Tools API Correct Usage (from GFM_Tools_API.md)
-- GFM_Create.Obj() takes EXACTLY 4 params: (PrimitiveType, Vector3 position, Vector3 scale, string name) — not 3, not 5
-- GFM_Create.Ground() takes 2 floats: (float width, float depth) — not Vector3
-- GFM_Create.SetColor(gameObject, Color) — not SetColor(gameObject, float, float, float)
-- GFM_Create.InitMaterialFromScene() — must be called in Start() before any Obj()/SetColor() calls
-- GFM_UI.CreateCanvas(int width, int height) — REQUIRES 2 int parameters, returns Canvas
-- GFM_UI.CreateText(Canvas, string text, Vector2 pos, int fontSize) — 4 params
-- GFM_UI.CreateButton(Canvas, string text, Vector2 pos, Vector2 size, Action onClick) — 5 params
-- GFM_UI.CreateProgressBar(Canvas, Vector2 pos, Vector2 size, Color) — returns Slider (NOT Image!)
-- GFM_UI.AddWorldLabel(GameObject target, string text, float height) — 3D world label
-- GFM_Joystick.Create(Canvas, float size) — returns GFM_Joystick, access .Horizontal/.Vertical/.IsDragging
-- GFM_Luna.Init(gameObject) — call in Start(). GameOver(), GotoStore(), IsGameOver()
-- GFM_Audio.Init(gameObject) — call in Start(). instance.PlayBGM/StopBGM/PlaySFX/SetMute
-- GFM_Event.Init(gameObject) — Subscribe(int id, handler)/Fire(int id, sender, data)/Clear()
-- GFM_Pool is available but rarely needed (pool objects are pre-placed in scene)
-- GFM_Pathfinding.FindPath(grid, start, end) returns List<Vector3> (null = unreachable) — but List<> is OK inside GFM_ library, NOT in AI code
-- DO NOT call any class named just "GFM_Tools" — there is no such unified class. Use specific classes: GFM_Create, GFM_UI, GFM_Utils, etc.
-
-### 16. V4 Entity-Driven Architecture (from entity-architecture-proposal.md)
-- V4 code uses parallel arrays: eGo[], eActive[], eState[], eTimer[], eHP[] for entity data
-- Entity constants: const int E_PLAYER = 0, E_BASE = 1, etc.
-- CheckEventRules() with bool[] ruleTriggered — independent per-rule checks, NOT linear phase state machine
-- Each entity has its own UpdateXxx() method (UpdatePlayer, UpdateConveyorBelt, UpdateEnemy, etc.)
-- Entity states: 0=waiting, 1=triggered/building, 2=complete/working
-- Hide = move to y=-999, Show = move to visible y. Do NOT use SetActive(false)
-- Phase transitions via StartPhase(n) — activate entities, not rewrite scene
-- Spawner pattern: timer-based with maxAlive cap
-- Projectile pattern: parallel arrays arrowActive[]/arrowTarget[]/arrowGo[], update in loop
-- Collectible pattern: distance check to player, collect → add resource → hide
-
-### 17. Input & Touch Constraints (from CUA/playcheck learnings)
-- Luna only responds to isTrusted=true events — synthetic events from code are ignored
-- Luna index.html has built-in mouse→touch conversion (window-level capture listener)
-- Input.GetMouseButtonDown/Up works in Luna (legacy Input system only)
-- Time.deltaTime in Luna is constant 0.1 regardless of actual FPS — accumulate manually for timing
-- OnMute/OnUnmute pattern is REQUIRED for iOS AppLovin — first touch must pre-play silent audio
-- GFM_Luna.Init() handles this automatically — code should call it in Start()
-
-### 18. Build Environment Constraints (from worker-architecture.md)
-- All code goes in ONE file: GameFlowManagerMain.cs (single-file constraint for Bridge.NET stability)
-- essentialFiles = ['GameFlowManagerMain.cs', 'GFM_Tools.cs'] — all other .cs files are stub-ified
-- If AI creates additional .cs files, they will be DELETED during cleanup — code must be self-contained
-- svn revert does NOT delete new files — cleanup explicitly removes untracked files except essentialFiles
-- MSBuild csproj has hardcoded paths — worker-bridge-build.js patches '\Client\' prefix before build
-- luna.json must have forceSourcesBasedCompilation: true
-- Stage1 cache MUST be preserved (only delete stage2/3/4) — deleting stage1 = build fails with "no LunaTemp"
+### 11. Architecture (V4 entity-driven)
+- Parallel arrays: eGo[], eActive[], eState[], eTimer[], eHP[]
+- CheckEventRules() with bool[] ruleTriggered — independent checks, not linear state machine
+- Each entity has its own UpdateXxx() method
+- All code in ONE file: GameFlowManagerMain.cs
 `;
 
-// === Dynamic rules loader: reads additional constraints from project docs ===
-// Loads once at startup to avoid file I/O per review call
-let DYNAMIC_RULES = '';
-try {
-  const docsDir = '/root/.openclaw/workspace';
-  const skillDir = docsDir + '/skills/blueprint/references';
-  const dynamicFiles = [
-    { path: path.join(docsDir, '.learnings/LEARNINGS.md'), label: 'Self-Improvement Learnings' },
-    { path: path.join(docsDir, '.learnings/ERRORS.md'), label: 'Historical Error Patterns' },
-    { path: path.join(docsDir, 'memory/luna-rendering-postmortem.md'), label: 'Luna Rendering Postmortem' },
-    { path: path.join(docsDir, 'memory/blueprint-tech.md'), label: 'Blueprint Tech Notes' },
-    { path: path.join(docsDir, 'memory/2026-03-14-audit.md'), label: 'Pipeline Audit Findings' },
-    { path: path.join(docsDir, 'memory/worker-architecture.md'), label: 'Worker Architecture' },
-    { path: path.join(docsDir, 'memory/playcheck-luna-agent.md'), label: 'Luna Agent Browser Notes' },
-    { path: path.join(docsDir, 'skills/blueprint/INCIDENTS.md'), label: 'Blueprint Incident History' },
-    { path: path.join(skillDir, 'build-pipeline.md'), label: 'Build Pipeline Details' },
-    // Project-internal docs
-    { path: '/opt/blueprint-editor/worker/GFM_Tools_API.md', label: 'GFM_Tools API Reference' },
-    { path: '/opt/blueprint-editor/worker/behavior-templates.md', label: 'Behavior Templates Handbook' },
-    { path: '/opt/blueprint-editor/docs/entity-architecture-proposal.md', label: 'V4 Entity Architecture' },
-    // Daily memories with heavy Blueprint content
-    { path: path.join(docsDir, 'memory/2026-03-09.md'), label: 'Daily Log 03-09 (EventPool/prompt)' },
-    { path: path.join(docsDir, 'memory/2026-03-15.md'), label: 'Daily Log 03-15 (Env isolation/Awake)' },
-    { path: path.join(docsDir, 'memory/2026-03-19.md'), label: 'Daily Log 03-19 (Linux build/CUA)' },
-    { path: path.join(docsDir, 'memory/2026-03-20.md'), label: 'Daily Log 03-20 (CUA pass/delivery)' },
-  ];
-  const extraRules = [];
-  const lunaKeywords = /Luna|Bridge|compile|shader|material|Pool|GFM|mono|C#|Unity|scene|mesh|render|shot|WebGL|object|Create|Find|Component|Update|Start|script|camera|Canvas|EventPool|MonoBehaviour|inject|stage4|MSBuild|CUA|prompt|AI|编码|编译|材质|渲染|场景|纯色|对象/i;
-  for (const f of dynamicFiles) {
-    if (fs.existsSync(f.path)) {
-      const content = fs.readFileSync(f.path, 'utf-8');
-      // Extract actionable bullet points (lines starting with - or * or numbered)
-      const bullets = content.split('\n')
-        .filter(line => /^\s*[-*]\s+|^\s*\d+\.\s+/.test(line) && line.length > 20)
-        .filter(line => lunaKeywords.test(line))
-        .map(line => line.trim())
-        .slice(0, 40); // cap to prevent prompt bloat
-      if (bullets.length > 0) {
-        extraRules.push(`\n### ${f.label} (auto-loaded)\n${bullets.join('\n')}`);
-      }
-    }
-  }
-  if (extraRules.length > 0) {
-    DYNAMIC_RULES = '\n## Additional Context from Project Documentation\n' + extraRules.join('\n');
-    console.log('[reviewer] Loaded dynamic rules from ' + extraRules.length + ' sources');
-  }
-} catch (e) {
-  console.warn('[reviewer] Failed to load dynamic rules:', e.message);
-}
+// Dynamic rules disabled — all critical rules are in the static REVIEW_RULES above.
+// Static rules are curated, deduplicated, and tiered by severity.
+// Dynamic loading from 16 files added ~6K tokens of noisy/duplicate bullets
+// that diluted GPT-5.4's attention on critical checks.
+// To add new rules: edit REVIEW_RULES directly (and update "Last synced" date).
+const DYNAMIC_RULES = '';
 
 /**
  * Call GPT-5.4 for code review
