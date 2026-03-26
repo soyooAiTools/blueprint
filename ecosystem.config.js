@@ -14,6 +14,11 @@ module.exports = {
     env: {
       NODE_ENV: 'production',
       PORT: 3901,
+      GOOGLE_GEMINI_BASE_URL: 'https://sub.mindrix.app',
+      GEMINI_API_KEY: 'sk-d7492099ab2b2902df41cf042b2c20e8a98b55a2e68f098917a77efd064dd0b3',
+      GEMINI_MODEL: 'gemini-3.1-pro-preview',
+      OPENAI_API_KEY: 'sk-7316ee056524c5ffb3c5920fa9d6ffcbcd8026fdc0fea386de50c5e2f4a083aa',
+      OPENAI_BASE_URL: 'https://sub.mindrix.app/v1',
     },
     // 日志配置
     error_file: '/root/.pm2/logs/blueprint-editor-error.log',

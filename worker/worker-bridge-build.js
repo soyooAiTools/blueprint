@@ -630,6 +630,69 @@ window.addEventListener("luna:started", function() {
     setTimeout(fixNullShaders, 2000);
     // Also run again at 5s for safety (some objects may be created by Update loop after initial delay)
     setTimeout(fixNullShaders, 5000);
+    // === PlayCanvas native Camera + Light (MANDATORY — UnityEngine.Camera.AddComponent does NOT create a rendering camera in Luna) ===
+    // Source: memory/2026-03-19.md — "必须用 pc.Entity.addComponent('camera')"
+    (function() {
+      try {
+        var pcApp = window.app && window.app.app;
+        if (!pcApp || !pcApp.root) { console.warn("[AI] pcApp not found, skipping PlayCanvas camera/light"); return; }
+
+        // 1. Camera — always create, unconditional (condition checks are unreliable per 2026-03-19 postmortem)
+        console.log("[AI] Creating PlayCanvas camera + light");
+        var camEnt = new pc.Entity("AI_Camera");
+        pcApp.root.addChild(camEnt);
+        camEnt.addComponent("camera", {
+          clearColor: new pc.Color(0.6, 0.8, 1.0),  // sky blue
+          projection: 1,       // orthographic
+          orthoHeight: 15,
+          nearClip: 0.1,
+          farClip: 1000,
+          priority: 100        // higher priority = renders on top
+        });
+        camEnt.setPosition(0, 20, -12);
+        camEnt.setEulerAngles(55, 0, 0);
+
+        // 2. Directional light
+        var lightEnt = new pc.Entity("AI_Light");
+        pcApp.root.addChild(lightEnt);
+        lightEnt.addComponent("light", {
+          type: "directional",
+          color: new pc.Color(1, 0.95, 0.85),
+          intensity: 1.2
+        });
+        lightEnt.setEulerAngles(50, -30, 0);
+
+        // 3. Material color sync via setParameter("_Color") — per 2026-03-19
+        // Pool objects are named __Pool_Cube_01..14, __Pool_Sphere_01..20, etc.
+        // Apply colors by matching __Pool_* names to entity roles assigned by GFM code
+        function syncPoolColors() {
+          try {
+            var mis = pcApp.scene && pcApp.scene._meshInstances ? pcApp.scene._meshInstances : [];
+            for (var i = 0; i < mis.length; i++) {
+              var mi = mis[i];
+              if (!mi || !mi.material || !mi.node) continue;
+              var name = mi.node.name || "";
+              // Skip hidden objects (y <= -900)
+              if (mi.node.getPosition && mi.node.getPosition().y <= -900) continue;
+              // Apply color based on object visibility (if it's been moved from y=-999, it's active)
+              if (mi.material) {
+                // Use the Unity-layer color if set, otherwise leave as-is
+                var matColor = mi.material.getParameter ? mi.material.getParameter("_Color") : null;
+                if (!matColor) {
+                  // Default: give visible objects a neutral gray so they're at least visible
+                  mi.material.setParameter("_Color", [0.7, 0.7, 0.7, 1]);
+                }
+              }
+            }
+          } catch(ce) { /* silent */ }
+        }
+        // Run color sync repeatedly (GFM_Create.SetColor uses Unity API which may not sync to PlayCanvas layer)
+        setInterval(syncPoolColors, 300);
+        syncPoolColors();
+        console.log("[AI] PlayCanvas camera + light + color sync active");
+      } catch(pcErr) { console.error("[AI] PlayCanvas setup error:", pcErr); }
+    })();
+
     // Luna injection: Update() is NOT called automatically by Unity runtime
     // Must manually drive the game loop via requestAnimationFrame
     if (comp && comp.Update) {
