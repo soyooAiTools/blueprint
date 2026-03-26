@@ -117,6 +117,10 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       <h3>最近任务</h3>
       <div id="recentTasks"></div>
     </div>
+    <div class="card" style="margin-top:16px;">
+      <h3>📋 项目链路日志（最近 10 步）</h3>
+      <div id="pipelineLog"></div>
+    </div>
   </div>
   <!-- Workers -->
   <div class="panel" id="workers">
@@ -255,11 +259,43 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
     var rt = stats.recentTasks || [];
     document.getElementById('recentTasks').innerHTML = tableHTML(
       ['项目', '状态', '消息', '预览', 'Worker', '更新时间'],
-      rt.slice(0, 10).map(function(t) {
+      rt.slice(0, 5).map(function(t) {
         var preview = t.previewUrl ? '<a href="' + t.previewUrl + '" target="_blank" style="color:#58a6ff;">▶ 预览</a>' : '-';
         return [t.projectName, badge(t.status), (t.statusMessage || '').slice(0, 80), preview, t.workerId || '-', ago(t.updatedAt)];
       })
     );
+
+    // Pipeline log — show latest 10 timeline entries from active/recent task
+    var pipelineHTML = '';
+    var activeTask = rt.length > 0 ? rt[0] : null;
+    if (activeTask && activeTask.timeline && activeTask.timeline.length > 0) {
+      var entries = activeTask.timeline.slice(-10);
+      var statusIcons = {
+        'pending': '⏳', 'assigned': '📋', 'processing': '🔧', 'building': '🔨',
+        'built': '✅', 'cua_verifying': '🤖', 'completed': '🎉', 'failed': '❌',
+        'developing': '💻', 'uploading': '📤'
+      };
+      pipelineHTML = '<div style="display:flex;flex-direction:column;gap:6px;">';
+      pipelineHTML += '<div style="color:#8b949e;font-size:13px;margin-bottom:4px;">项目: <span style="color:#58a6ff;font-weight:600;">' + activeTask.projectName + '</span> — ' + badge(activeTask.status) + '</div>';
+      for (var pi = 0; pi < entries.length; pi++) {
+        var e = entries[pi];
+        var icon = statusIcons[e.status] || '▪';
+        var ts = e.timestamp ? new Date(e.timestamp).toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '-';
+        var isLast = pi === entries.length - 1;
+        var borderColor = isLast ? '#58a6ff' : '#30363d';
+        var bgColor = isLast ? 'rgba(88,166,255,0.08)' : 'transparent';
+        pipelineHTML += '<div style="display:flex;align-items:center;gap:10px;padding:6px 10px;border-left:3px solid ' + borderColor + ';background:' + bgColor + ';border-radius:0 4px 4px 0;">';
+        pipelineHTML += '<span style="color:#8b949e;font-size:12px;min-width:60px;">' + ts + '</span>';
+        pipelineHTML += '<span style="font-size:14px;">' + icon + '</span>';
+        pipelineHTML += '<span style="font-size:13px;color:#c9d1d9;">' + (e.message || e.status) + '</span>';
+        if (e.workerId) pipelineHTML += '<span style="font-size:11px;color:#8b949e;margin-left:auto;">' + e.workerId + '</span>';
+        pipelineHTML += '</div>';
+      }
+      pipelineHTML += '</div>';
+    } else {
+      pipelineHTML = '<div class="empty">暂无链路日志</div>';
+    }
+    document.getElementById('pipelineLog').innerHTML = pipelineHTML;
 
     // ========== Workers ==========
     var ws = '';
