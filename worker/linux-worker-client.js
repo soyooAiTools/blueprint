@@ -228,7 +228,7 @@ async function processTask(task) {
     let codeReviewer;
     try { codeReviewer = require('./code-reviewer.js'); } catch(e) {}
     if (codeReviewer && csCode) {
-      const MAX_REVIEW_ROUNDS = 2;
+      const MAX_REVIEW_ROUNDS = 3;
       let reviewedCode = csCode;
       for (let reviewRound = 1; reviewRound <= MAX_REVIEW_ROUNDS; reviewRound++) {
         const reviewResult = await codeReviewer.reviewCode(reviewedCode, { taskId, log });
