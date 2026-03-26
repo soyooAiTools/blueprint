@@ -70,46 +70,49 @@ var UI_PREFABS = [
  * 返回 AI 应该 Find 的对象清单
  */
 function matchPrefabs(entities) {
+  // 对象池实际名称（和场景模板 0.json 完全一致）
+  var pools = {
+    Cube: { prefix: '__Pool_Cube_', total: 50, next: 1 },
+    Sphere: { prefix: '__Pool_Sphere_', total: 20, next: 1 },
+    Plane: { prefix: '__Pool_Plane_', total: 10, next: 1 },
+    Cylinder: { prefix: '__Pool_Cylinder_', total: 10, next: 1 }
+  };
   var used = {};
-  var counters = {};
-  
+
   for (var i = 0; i < entities.length; i++) {
     var e = entities[i];
     var template = (e.template || 'Static').toLowerCase();
     var name = (e.name || '').toLowerCase();
-    
-    // 尝试匹配预制名
-    var prefabName = null;
-    var prefabKeys = Object.keys(PREFAB_REGISTRY);
-    
-    for (var j = 0; j < prefabKeys.length; j++) {
-      var pk = prefabKeys[j];
-      if (name.indexOf(pk.toLowerCase()) >= 0 || pk.toLowerCase().indexOf(name) >= 0) {
-        prefabName = pk;
-        break;
+
+    // 根据实体类型选择形状
+    var shape = 'Cube'; // default
+    if (template.indexOf('projectile') >= 0 || name.indexOf('bullet') >= 0 || name.indexOf('ball') >= 0 || name.indexOf('coin') >= 0 || name.indexOf('gem') >= 0 || name.indexOf('sphere') >= 0) {
+      shape = 'Sphere';
+    } else if (template.indexOf('ground') >= 0 || name.indexOf('ground') >= 0 || name.indexOf('floor') >= 0 || name.indexOf('plane') >= 0 || name.indexOf('water') >= 0) {
+      shape = 'Plane';
+    } else if (name.indexOf('tower') >= 0 || name.indexOf('turret') >= 0 || name.indexOf('pillar') >= 0 || name.indexOf('cylinder') >= 0 || name.indexOf('tree') >= 0 || name.indexOf('pole') >= 0) {
+      shape = 'Cylinder';
+    }
+
+    var pool = pools[shape];
+    if (pool.next <= pool.total) {
+      var num = pool.next < 10 ? '0' + pool.next : '' + pool.next;
+      used[e.name] = pool.prefix + num;
+      pool.next++;
+    } else {
+      // Pool exhausted, fall back to Cube pool
+      var fallback = pools.Cube;
+      if (fallback.next <= fallback.total) {
+        var fn = fallback.next < 10 ? '0' + fallback.next : '' + fallback.next;
+        used[e.name] = fallback.prefix + fn;
+        fallback.next++;
+      } else {
+        // All pools exhausted — use last available
+        used[e.name] = '__Pool_Cube_50';
       }
     }
-    
-    // 按模板猜测
-    if (!prefabName) {
-      if (template.indexOf('player') >= 0) prefabName = 'Player';
-      else if (template.indexOf('mover') >= 0 && template.indexOf('damageable') >= 0) prefabName = 'Enemy';
-      else if (template.indexOf('shooter') >= 0) prefabName = 'Turret';
-      else if (template.indexOf('buildable') >= 0) prefabName = 'Building';
-      else if (template.indexOf('spawner') >= 0) prefabName = 'Building';
-      else if (template.indexOf('collectible') >= 0) prefabName = 'Coin';
-      else if (template.indexOf('projectile') >= 0) prefabName = 'Arrow';
-      else if (template.indexOf('mover') >= 0) prefabName = 'Soldier';
-      else prefabName = 'Building'; // fallback
-    }
-    
-    if (!counters[prefabName]) counters[prefabName] = 0;
-    counters[prefabName]++;
-    
-    var instanceName = prefabName === 'Player' ? 'Player' : prefabName + '_' + counters[prefabName];
-    used[e.name] = instanceName;
   }
-  
+
   return used;
 }
 
@@ -262,13 +265,14 @@ function parseBlueprintToPromptV5(blueprint, opts) {
 
   // ========== 5. 对象分配表 ==========
   lines.push('# 对象分配表');
-  lines.push('以下是蓝图实体 → 预制对象的映射。用 GameObject.Find 获取。');
+  lines.push('以下是蓝图实体 → 场景对象的映射。用 GameObject.Find 获取。');
+  lines.push('对象名格式为 __Pool_[Shape]_[Number]，这些是场景中已存在的 3D 对象。');
   lines.push('');
-  lines.push('| 蓝图实体 | 预制对象名 | 说明 |');
+  lines.push('| 蓝图实体 | 场景对象名 | 说明 |');
   lines.push('|----------|-----------|------|');
   for (var i = 0; i < entities.length; i++) {
     var e = entities[i];
-    var pName = prefabMap[e.name] || 'Building_1';
+    var pName = prefabMap[e.name] || '__Pool_Cube_01';
     var desc = (e.template || 'Static') + (e.label ? ' (' + e.label + ')' : '');
     lines.push('| ' + e.name + ' | ' + pName + ' | ' + desc + ' |');
   }
@@ -280,7 +284,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   for (var i = 0; i < entities.length; i++) {
     var e = entities[i];
     lines.push('## ' + e.name + (e.label ? ' (' + e.label + ')' : ''));
-    lines.push('预制对象: `GameObject.Find("' + (prefabMap[e.name] || 'Building_1') + '")`');
+    lines.push('场景对象: `GameObject.Find("' + (prefabMap[e.name] || '__Pool_Cube_01') + '")`');
     lines.push('模板: ' + (e.template || 'Static'));
     
     if (e.visual) {
@@ -336,8 +340,20 @@ function parseBlueprintToPromptV5(blueprint, opts) {
 
   // ========== 8. Luna 限制（精简版）==========
   lines.push('# Luna WebGL 限制（精简版）');
-  lines.push('- 显示对象: `transform.position = new Vector3(x, y, z)`');
-  lines.push('- 隐藏对象: `transform.position = new Vector3(0, -999, 0)`（不用 SetActive）');
+  lines.push('');
+  lines.push('## 场景对象池（已存在，直接 Find 使用）');
+  lines.push('场景中预置了 90 个 3D 对象，名称如下：');
+  lines.push('- `__Pool_Cube_01` ~ `__Pool_Cube_50`（50 个 Cube）');
+  lines.push('- `__Pool_Sphere_01` ~ `__Pool_Sphere_20`（20 个 Sphere）');
+  lines.push('- `__Pool_Plane_01` ~ `__Pool_Plane_10`（10 个 Plane）');
+  lines.push('- `__Pool_Cylinder_01` ~ `__Pool_Cylinder_10`（10 个 Cylinder）');
+  lines.push('- 其他固定对象：`Main Camera`、`Directional Light`、`EventSystem`、`GameManager`、`__MaterialSource`');
+  lines.push('');
+  lines.push('初始时所有 __Pool_* 对象位于 (0, -999, 0)（不可见）。');
+  lines.push('要显示对象：`obj.transform.position = new Vector3(x, y, z);`');
+  lines.push('要隐藏对象：`obj.transform.position = new Vector3(0, -999, 0);`（不用 SetActive）');
+  lines.push('');
+  lines.push('## 操作 API');
   lines.push('- 改颜色: `GFM_Create.SetColor(obj, new Color(r,g,b))`');
   lines.push('- 虚拟摇杆: `var joystick = GFM_Joystick.Create(canvas, 200f);` canvas 是 Canvas 类型');
   lines.push('- 游戏结束: `Luna.Unity.LifeCycle.GameEnded()`');
