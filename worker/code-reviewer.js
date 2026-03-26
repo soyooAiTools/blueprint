@@ -135,6 +135,131 @@ const REVIEW_RULES = `
 // To add new rules: edit REVIEW_RULES directly (and update "Last synced" date).
 const DYNAMIC_RULES = '';
 
+// === Pending Rules: auto-record new issues for human approval ===
+const PENDING_RULES_PATH = path.join(__dirname, 'pending-rules.json');
+
+function loadPendingRules() {
+  try {
+    return JSON.parse(fs.readFileSync(PENDING_RULES_PATH, 'utf8'));
+  } catch(e) {
+    return [];
+  }
+}
+
+function savePendingRules(rules) {
+  fs.writeFileSync(PENDING_RULES_PATH, JSON.stringify(rules, null, 2), 'utf8');
+}
+
+/**
+ * Check if an issue is already covered by REVIEW_RULES or pending list.
+ * Simple keyword dedup — not perfect, but avoids obvious duplicates.
+ */
+function isKnownIssue(issue) {
+  var desc = (issue.description || '').toLowerCase();
+  var rule = (issue.rule || '').toLowerCase();
+  var combined = desc + ' ' + rule;
+
+  // Check against static REVIEW_RULES
+  var rulesLower = REVIEW_RULES.toLowerCase();
+  // Extract key phrases (3+ word chunks) and check if already in rules
+  var keywords = combined.match(/[a-zA-Z_][a-zA-Z0-9_.]+/g) || [];
+  var matchCount = 0;
+  for (var i = 0; i < keywords.length; i++) {
+    if (keywords[i].length > 4 && rulesLower.indexOf(keywords[i].toLowerCase()) !== -1) {
+      matchCount++;
+    }
+  }
+  // If more than 40% of significant keywords already in rules, consider it known
+  if (keywords.length > 0 && matchCount / keywords.length > 0.4) return true;
+
+  // Check against pending rules
+  var pending = loadPendingRules();
+  for (var j = 0; j < pending.length; j++) {
+    var pDesc = (pending[j].description || '').toLowerCase();
+    if (pDesc === desc) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Record new critical issues to pending-rules.json and notify via Feishu.
+ * Only records issues not already in REVIEW_RULES or pending list.
+ */
+async function recordNewIssues(issues, taskId) {
+  var newIssues = [];
+  for (var i = 0; i < issues.length; i++) {
+    if (issues[i].severity === 'critical' && !isKnownIssue(issues[i])) {
+      newIssues.push({
+        description: issues[i].description,
+        rule: issues[i].rule,
+        fix: issues[i].fix,
+        line: issues[i].line,
+        taskId: taskId,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }
+
+  if (newIssues.length === 0) return;
+
+  // Append to pending-rules.json
+  var pending = loadPendingRules();
+  for (var j = 0; j < newIssues.length; j++) {
+    pending.push(newIssues[j]);
+  }
+  savePendingRules(pending);
+
+  // Notify via Feishu webhook (fire-and-forget)
+  try {
+    notifyFeishuNewRules(newIssues, taskId);
+  } catch(e) {
+    console.log('[reviewer] Feishu notify failed (non-fatal): ' + e.message);
+  }
+}
+
+/**
+ * Send Feishu notification about new pending rules.
+ */
+function notifyFeishuNewRules(newIssues, taskId) {
+  // Use the blueprint project's notify webhook if available
+  var webhookUrl = process.env.FEISHU_WEBHOOK_URL;
+  if (!webhookUrl) {
+    console.log('[reviewer] No FEISHU_WEBHOOK_URL, skipping notification');
+    return;
+  }
+
+  var lines = ['🔔 **审核发现新问题待确认**（任务: ' + taskId + '）\n'];
+  for (var i = 0; i < newIssues.length; i++) {
+    var issue = newIssues[i];
+    lines.push((i + 1) + '. **' + issue.description + '**');
+    lines.push('   规则: ' + (issue.rule || '-') + ' | 建议修复: ' + (issue.fix || '-'));
+  }
+  lines.push('\n请确认是否加入 REVIEW_RULES。确认后告诉小白执行写入。');
+
+  var payload = JSON.stringify({
+    msg_type: 'text',
+    content: { text: lines.join('\n') }
+  });
+
+  var parsed = new URL(webhookUrl);
+  var opts = {
+    hostname: parsed.hostname,
+    port: 443,
+    path: parsed.pathname + parsed.search,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+  };
+
+  var req = https.request(opts, function(res) {
+    res.on('data', function() {});
+    res.on('end', function() {});
+  });
+  req.on('error', function() {});
+  req.write(payload);
+  req.end();
+}
+
 /**
  * Call GPT-5.4 for code review
  */
@@ -268,6 +393,13 @@ Respond with a JSON object (no markdown, no code fences):
         ' (' + criticalCount + ' critical, ' + warningCount + ' warnings)' +
         ' — ' + (review.summary || ''), taskId);
 
+    // Record new critical issues for human approval (fire-and-forget)
+    if (!passed && criticalCount > 0) {
+      recordNewIssues(issues, taskId).catch(function(e) {
+        log('[reviewer] recordNewIssues error (non-fatal): ' + e.message, taskId);
+      });
+    }
+
     // Build feedback string for Claude if FAIL
     var feedback = '';
     if (!passed) {
@@ -306,4 +438,4 @@ Respond with a JSON object (no markdown, no code fences):
   }
 }
 
-module.exports = { reviewCode, REVIEW_RULES };
+module.exports = { reviewCode, REVIEW_RULES, loadPendingRules, PENDING_RULES_PATH };

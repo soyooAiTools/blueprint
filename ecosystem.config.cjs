@@ -19,6 +19,7 @@ module.exports = {
       GEMINI_MODEL: 'gemini-3.1-pro-preview',
       OPENAI_API_KEY: 'sk-7316ee056524c5ffb3c5920fa9d6ffcbcd8026fdc0fea386de50c5e2f4a083aa',
       OPENAI_BASE_URL: 'https://sub.mindrix.app/v1',
+      FEISHU_WEBHOOK_URL: 'https://open.feishu.cn/open-apis/bot/v2/hook/b9c59492-4949-4950-a34b-913bf1c7df08',
     },
     // 日志配置
     error_file: '/root/.pm2/logs/blueprint-editor-error.log',
