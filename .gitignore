@@ -29,3 +29,4 @@ api-test.cjs
 
 # Backups
 *.bak
+server-data/webgl/

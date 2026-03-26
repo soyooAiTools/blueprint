@@ -254,9 +254,10 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
     // Recent tasks
     var rt = stats.recentTasks || [];
     document.getElementById('recentTasks').innerHTML = tableHTML(
-      ['项目', '状态', '消息', 'Worker', '更新时间'],
+      ['项目', '状态', '消息', '预览', 'Worker', '更新时间'],
       rt.slice(0, 10).map(function(t) {
-        return [t.projectName, badge(t.status), (t.statusMessage || '').slice(0, 50), t.workerId || '-', ago(t.updatedAt)];
+        var preview = t.previewUrl ? '<a href="' + t.previewUrl + '" target="_blank" style="color:#58a6ff;">▶ 预览</a>' : '-';
+        return [t.projectName, badge(t.status), (t.statusMessage || '').slice(0, 50), preview, t.workerId || '-', ago(t.updatedAt)];
       })
     );
 

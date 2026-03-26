@@ -886,6 +886,7 @@ handlers.workerStatus = function(req, res, body) {
       }
       task.status = bestStatus;
       if (message) task.statusMessage = message;
+      if (data.previewUrl) task.previewUrl = data.previewUrl;
       task.updatedAt = new Date().toISOString();
 
       // Append to timeline for dashboard live tracking
@@ -2153,6 +2154,7 @@ handlers.getDashboardStats = function(req, res) {
             projectName: t.projectName || '-',
             status: s,
             statusMessage: t.statusMessage || null,
+            previewUrl: t.previewUrl || null,
             workerId: t.assignedTo || null,
             progress: t.progress || 0,
             createdAt: t.createdAt ? new Date(t.createdAt).getTime() : null,

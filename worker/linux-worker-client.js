@@ -116,6 +116,7 @@ function apiRequest(method, urlPath, body, isJSON) {
 
 function reportStatus(taskId, status, extra) {
   const data = { workerId: WORKER_ID, taskId, status, message: (extra && extra.message) || '' };
+  if (extra && extra.previewUrl) data.previewUrl = extra.previewUrl;
   return apiRequest('POST', '/api/worker/status', JSON.stringify(data)).catch(e => {
     log(`Status report failed: ${e.message}`, taskId);
   });
@@ -320,7 +321,7 @@ async function processTask(task) {
     }
 
     log(`Build OK in ${buildResult.buildTime}s, HTML: ${buildResult.htmlSize}`, taskId);
-    await reportStatus(taskId, 'processing', { message: `[Linux] Build OK (${buildResult.buildTime}s), starting CUA...` });
+    await reportStatus(taskId, 'processing', { message: `[Linux] Build OK (${buildResult.buildTime}s), starting CUA...`, previewUrl });
 
     // === Step 5: Download HTML & Run CUA ===
     const htmlOutputDir = path.join(require('os').tmpdir(), `linux-html-${taskId}`);
@@ -331,6 +332,13 @@ async function processTask(task) {
     fs.writeFileSync(htmlPath, htmlData);
     log(`HTML saved: ${(htmlData.length / 1048576).toFixed(1)}MB → ${htmlPath}`, taskId);
 
+    // Save preview copy to webgl dir (web-accessible)
+    const previewDir = path.join('/opt/blueprint-editor/server-data/webgl', taskId);
+    fs.mkdirSync(previewDir, { recursive: true });
+    fs.writeFileSync(path.join(previewDir, 'index.html'), htmlData);
+    const previewUrl = `https://playcools.top/webgl/${taskId}/index.html`;
+    log(`Preview: ${previewUrl}`, taskId);
+
     // === Step 6: CUA Verification + Auto-Fix Loop ===
     const MAX_CUA_ROUNDS = 20;
     const { runCUAVerification } = require('./worker-cua-verify.js');
@@ -339,7 +347,7 @@ async function processTask(task) {
     // lastCsCode already defined in Step 4 (may have been updated by build fix loop)
 
     for (let cuaRound = 1; cuaRound <= MAX_CUA_ROUNDS; cuaRound++) {
-      await reportStatus(taskId, 'processing', { message: `[Linux] CUA verifying... (round ${cuaRound}/${MAX_CUA_ROUNDS})` });
+      await reportStatus(taskId, 'processing', { message: `[Linux] CUA verifying... (round ${cuaRound}/${MAX_CUA_ROUNDS})`, previewUrl });
       
       // Write HTML to temp dir for CUA
       const cuaBuildDir = path.join(require('os').tmpdir(), `linux-cua-${taskId}-r${cuaRound}`);
@@ -352,7 +360,7 @@ async function processTask(task) {
       } catch (cuaErr) {
         log(`CUA round ${cuaRound} error: ${cuaErr.message}`, taskId);
         if (cuaRound >= MAX_CUA_ROUNDS) {
-          await reportStatus(taskId, 'done', { message: `[Linux] Done (CUA error after ${cuaRound} rounds)` });
+          await reportStatus(taskId, 'done', { message: `[Linux] Done (CUA error after ${cuaRound} rounds)`, previewUrl });
         }
         try { fs.rmSync(cuaBuildDir, { recursive: true, force: true }); } catch(e) {}
         continue;
@@ -363,7 +371,7 @@ async function processTask(task) {
       if (cuaResult.passed || cuaResult.skipped) {
         cuaPassed = true;
         log(`CUA ${cuaResult.skipped ? 'SKIPPED' : 'PASSED'} round ${cuaRound}, total ${((Date.now() - startTime) / 1000).toFixed(0)}s`, taskId);
-        await reportStatus(taskId, 'cua_passed', { message: `[Linux] CUA passed (round ${cuaRound})! Total: ${((Date.now() - startTime) / 1000).toFixed(0)}s` });
+        await reportStatus(taskId, 'cua_passed', { message: `[Linux] CUA passed (round ${cuaRound})! Total: ${((Date.now() - startTime) / 1000).toFixed(0)}s`, previewUrl });
         break;
       }
 
@@ -383,7 +391,7 @@ async function processTask(task) {
       }
 
       // === Fix cycle: build CUA feedback → re-code → rebuild → retry ===
-      await reportStatus(taskId, 'processing', { message: `[Linux] CUA round ${cuaRound} failed, AI re-coding...` });
+      await reportStatus(taskId, 'processing', { message: `[Linux] CUA round ${cuaRound} failed, AI re-coding...`, previewUrl });
 
       // Build detailed feedback
       let cuaFeedbackText = `CUA blueprint flow verification failed (round ${cuaRound}):\n` + cuaResult.issues.join('\n');
@@ -471,6 +479,8 @@ async function processTask(task) {
       try {
         lastHtmlData = await buildRequest('/build-html', lastCsCode, fixExtraFiles);
         log(`Fix HTML: ${(lastHtmlData.length / 1048576).toFixed(1)}MB`, taskId);
+        // Update preview
+        fs.writeFileSync(path.join(previewDir, 'index.html'), lastHtmlData);
       } catch (dlErr) {
         log('Fix HTML download error: ' + dlErr.message, taskId);
         continue;
