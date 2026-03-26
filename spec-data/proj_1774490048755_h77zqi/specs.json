@@ -1,0 +1,62 @@
+[
+  {
+    "phaseId": "buildDefendUpgrade",
+    "phaseName": "建造、防守与升级",
+    "chapterId": 1,
+    "duration": {
+      "min": 30,
+      "max": 45
+    },
+    "requiredInteractions": [
+      "move_to:woodHouseSpot",
+      "spend:gold:any",
+      "build:woodHouse",
+      "move_to:crossbow",
+      "defeat_count:15",
+      "collect:gold:any",
+      "move_to:workerRecruitSpot",
+      "spend:gold:any",
+      "recruit:worker:1",
+      "assign:worker:woodCutting",
+      "unlock:rightWoodHouseSpot",
+      "move_to:rightWoodHouseSpot",
+      "spend:gold:any",
+      "build:woodHouse",
+      "move_to:base",
+      "spend:gold:any",
+      "upgrade:base:2",
+      "appear:boss",
+      "defeat:boss",
+      "disappear:boss",
+      "wait:3"
+    ],
+    "triggerNext": {
+      "condition": "baseState == 2 && bossDefeated == true && woodHouseCount == 2 && workerCount == 1",
+      "description": "主城升级完成，Boss被击败，两座木屋和一名工人到位"
+    },
+    "entitiesRequired": [
+      {
+        "name": "woodHouse",
+        "terminalState": 2,
+        "description": "两座木屋已建造"
+      },
+      {
+        "name": "worker",
+        "terminalState": 1,
+        "description": "一名工人已招募"
+      },
+      {
+        "name": "base",
+        "terminalState": 2,
+        "description": "主城已升级到2级"
+      },
+      {
+        "name": "rightWoodHouseSpot",
+        "terminalState": 1,
+        "description": "右侧木屋地块已解锁"
+      }
+    ],
+    "playerMustAct": true,
+    "autoAllowed": false
+  }
+]

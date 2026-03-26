@@ -6,6 +6,12 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
+// Code Reviewer — GPT-5.4 adversarial review against Luna constraints
+let codeReviewer;
+try {
+  codeReviewer = require('./code-reviewer.js');
+} catch(e) { console.warn('[coder] code-reviewer.js not loaded:', e.message); }
+
 // Spec System — structured experience specs + skeleton generation
 let specExtractor, skeletonGenerator;
 try {
@@ -1911,6 +1917,35 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
     var originalMainCode = '';
     try { originalMainCode = fs.readFileSync(mainPathOrig, 'utf-8'); } catch(e) {}
     var originalShotCount = (originalMainCode.match(/\bshot_\d+\s*\(/g) || []).length;
+
+    // === GPT-5.4 Adversarial Review (before compile) ===
+    // Per Nick's requirement (2026-03-26): review code against Luna constraints before attempting build
+    if (codeReviewer && originalMainCode) {
+      var MAX_REVIEW_ROUNDS = 2;
+      for (var reviewRound = 1; reviewRound <= MAX_REVIEW_ROUNDS; reviewRound++) {
+        var codeToReview = fs.readFileSync(mainPathOrig, 'utf-8');
+        var reviewResult = await codeReviewer.reviewCode(codeToReview, { taskId: taskId, log: log });
+        if (reviewResult.passed) {
+          log('[coder] ✅ GPT-5.4 review PASSED' + (reviewRound > 1 ? ' (round ' + reviewRound + ')' : ''), taskId);
+          break;
+        }
+        if (reviewRound >= MAX_REVIEW_ROUNDS) {
+          log('[coder] ⚠️ GPT-5.4 review still FAIL after ' + MAX_REVIEW_ROUNDS + ' rounds, proceeding anyway', taskId);
+          break;
+        }
+        log('[coder] 🔄 GPT-5.4 review FAIL (round ' + reviewRound + '/' + MAX_REVIEW_ROUNDS + '), sending feedback to Claude...', taskId);
+        var reviewFixMsg = '## Code Review Failed — Fix These Issues\n\n'
+          + reviewResult.feedback + '\n\n'
+          + '## Current Code:\n```csharp\n' + codeToReview + '\n```\n\n'
+          + 'Fix ALL critical issues listed above. Output the COMPLETE fixed GameFlowManagerMain.cs.';
+        var reviewFixResponse = await callClaudeWithRetry(sysPrompt, reviewFixMsg, 300000, MODEL_FIX);
+        var reviewFixFiles = parseBlocks(reviewFixResponse.text);
+        if (reviewFixFiles.length > 0) {
+          writeFiles(clientDir, reviewFixFiles, log, taskId);
+          log('[coder] Review fix applied, re-reviewing...', taskId);
+        }
+      }
+    }
     for (var attempt = 1; attempt <= MAX_COMPILE_ATTEMPTS + MAX_CONTENT_ATTEMPTS; attempt++) {
       var result = tryCompile(clientDir, log, taskId);
       
