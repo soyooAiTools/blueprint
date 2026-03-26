@@ -91,7 +91,7 @@ const REVIEW_RULES = `
 ### 7. Gameplay Logic
 - FORBIDDEN: autoplay / ForceCompleteAllPhases / auto-demo
 - FORBIDDEN: auto-shoot for turrets (player must trigger)
-- FORBIDDEN: proximity auto-collect (player must tap)
+- ALLOWED: proximity auto-collect (player walks near item → auto pickup, no tap needed)
 - FORBIDDEN: pure numeric triggers that skip interaction (killCount >= N auto-jumps phase)
 - Player input must drive phase progression — CUA needs to interact
 
