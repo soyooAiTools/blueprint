@@ -2208,7 +2208,7 @@ handlers.getDashboardStats = function(req, res) {
       })
     },
     tasks: taskStats,
-    recentTasks: recentTasks.slice(0, 20),
+    recentTasks: recentTasks.filter(function(t) { return t.updatedAt && (now - t.updatedAt) < 86400000; }).slice(0, 20),
     projects: projectStats,
     parse: {
       total: parseStats.total,
