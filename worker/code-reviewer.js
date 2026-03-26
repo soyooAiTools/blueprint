@@ -389,6 +389,14 @@ Respond with a JSON object (no markdown, no code fences):
 
     var passed = (review.verdict || '').toUpperCase() === 'PASS' && criticalCount === 0;
 
+    // Detailed review log (for debugging/audit)
+    log('[reviewer] === FULL REVIEW RESULT ===', taskId);
+    for (var di = 0; di < issues.length; di++) {
+      var dIssue = issues[di];
+      log('[reviewer]   ' + (dIssue.severity === 'critical' ? '❌' : '⚠️') + ' [' + (dIssue.severity || '?') + '] ' + (dIssue.description || '').slice(0, 150) + ' | rule: ' + (dIssue.rule || '-') + ' | fix: ' + (dIssue.fix || '-').slice(0, 100), taskId);
+    }
+    log('[reviewer] === END REVIEW ===', taskId);
+
     log('[reviewer] Verdict: ' + (passed ? 'PASS ✅' : 'FAIL ❌') + 
         ' (' + criticalCount + ' critical, ' + warningCount + ' warnings)' +
         ' — ' + (review.summary || ''), taskId);

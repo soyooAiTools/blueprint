@@ -326,30 +326,31 @@ async function quickPlayTest(url, taskId, log) {
 
     // === Solid color detection (3-14 audit lesson: stop CUA on solid-color screens) ===
     // Sample canvas pixels — if all are the same color, it's a solid-color screen (no GPU / render failure)
+    // NOTE: We use page.screenshot + pixel sampling instead of gl.readPixels because
+    // WebGL back buffer is cleared after frame swap (always returns black).
     var solidColorCheck = await page.evaluate(function() {
       var canvas = document.querySelector('canvas');
       if (!canvas) return { solid: false, reason: 'no-canvas' };
       try {
-        var ctx = canvas.getContext('2d') || canvas.getContext('webgl') || canvas.getContext('webgl2');
-        // For WebGL, read pixels via readPixels
-        var gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
-        if (gl) {
-          var w = Math.min(canvas.width, 100);
-          var h = Math.min(canvas.height, 100);
-          var pixels = new Uint8Array(w * h * 4);
-          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-          // Check if all pixels are the same color
-          var r0 = pixels[0], g0 = pixels[1], b0 = pixels[2];
-          var allSame = true;
-          for (var i = 4; i < pixels.length; i += 4) {
-            if (Math.abs(pixels[i] - r0) > 5 || Math.abs(pixels[i+1] - g0) > 5 || Math.abs(pixels[i+2] - b0) > 5) {
-              allSame = false;
-              break;
-            }
+        // Method: draw the WebGL canvas onto a 2D canvas to read pixels reliably
+        var tmpCanvas = document.createElement('canvas');
+        var w = Math.min(canvas.width, 100);
+        var h = Math.min(canvas.height, 100);
+        tmpCanvas.width = w;
+        tmpCanvas.height = h;
+        var ctx2d = tmpCanvas.getContext('2d');
+        ctx2d.drawImage(canvas, 0, 0, w, h);
+        var imageData = ctx2d.getImageData(0, 0, w, h);
+        var pixels = imageData.data;
+        var r0 = pixels[0], g0 = pixels[1], b0 = pixels[2];
+        var allSame = true;
+        for (var i = 4; i < pixels.length; i += 4) {
+          if (Math.abs(pixels[i] - r0) > 5 || Math.abs(pixels[i+1] - g0) > 5 || Math.abs(pixels[i+2] - b0) > 5) {
+            allSame = false;
+            break;
           }
-          return { solid: allSame, color: 'rgb(' + r0 + ',' + g0 + ',' + b0 + ')', sampled: w * h };
         }
-        return { solid: false, reason: 'no-webgl-context' };
+        return { solid: allSame, color: 'rgb(' + r0 + ',' + g0 + ',' + b0 + ')', sampled: w * h };
       } catch(e) {
         return { solid: false, reason: 'error: ' + e.message };
       }
