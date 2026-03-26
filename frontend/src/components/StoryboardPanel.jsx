@@ -468,60 +468,110 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
     setOneshotLoading(true);
     setOneshotProgress(0);
     setOneshotStage('准备中...');
-    try {
-      const formData = new FormData();
-      formData.append('orientation', orientation);
-      formData.append('targetFrames', String(targetFrames || 11));
-      if (text.trim()) formData.append('text', text.trim());
-      docFiles.forEach((f) => formData.append('files', f));
-      refImages.forEach((img) => formData.append('images', img.file));
 
-      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/parse-and-blueprint`, {
-        method: 'POST',
-        body: formData,
-      });
+    const MAX_RETRIES = 2;
+    const TIMEOUT_MS = 360000; // 6 min
 
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let result = null;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const evt = JSON.parse(line.slice(6));
-            if (evt.type === 'progress') {
-              setOneshotProgress(evt.percent);
-              setOneshotStage(evt.stage || '');
-            } else if (evt.type === 'done') {
-              result = evt;
-            } else if (evt.type === 'error') {
-              throw new Error(evt.message || '解析失败');
-            }
-          } catch (parseErr) {
-            if (parseErr.message && !parseErr.message.includes('JSON')) throw parseErr;
-          }
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        if (attempt > 0) {
+          setOneshotProgress(0);
+          setOneshotStage(`第 ${attempt + 1} 次尝试...`);
         }
-      }
 
-      if (!result) throw new Error('解析未返回结果');
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-      // Save frames for display
-      if (result.storyboardFrames && result.storyboardFrames.length > 0) {
-        setFrames(result.storyboardFrames.map((f) => ({ ...f, imageUrl: f.imageUrl || null })));
+        const formData = new FormData();
+        formData.append('orientation', orientation);
+        formData.append('targetFrames', String(targetFrames || 11));
+        if (text.trim()) formData.append('text', text.trim());
+        docFiles.forEach((f) => formData.append('files', f));
+        refImages.forEach((img) => formData.append('images', img.file));
+
+        const resp = await fetch(`${API_BASE}/api/projects/${projectId}/parse-and-blueprint`, {
+          method: 'POST',
+          body: formData,
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+
+        if (!resp.ok) {
+          const errText = await resp.text().catch(() => '');
+          throw new Error(`服务端错误 (${resp.status}): ${errText.slice(0, 200)}`);
+        }
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let result = null;
+        let lastEventTime = Date.now();
+
+        // Stale connection detector: if no SSE event for 90s, abort
+        const staleCheck = setInterval(() => {
+          if (Date.now() - lastEventTime > 90000) {
+            console.warn('[parse-and-blueprint] No SSE event for 90s, aborting...');
+            controller.abort();
+          }
+        }, 10000);
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            lastEventTime = Date.now();
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              try {
+                const evt = JSON.parse(line.slice(6));
+                if (evt.type === 'progress') {
+                  setOneshotProgress(evt.percent);
+                  setOneshotStage(evt.stage || '');
+                } else if (evt.type === 'done') {
+                  result = evt;
+                } else if (evt.type === 'error') {
+                  throw new Error(evt.message || '解析失败');
+                }
+              } catch (parseErr) {
+                // Only swallow JSON syntax errors from partial chunks
+                if (parseErr instanceof SyntaxError) continue;
+                throw parseErr;
+              }
+            }
+          }
+        } finally {
+          clearInterval(staleCheck);
+        }
+
+        if (!result) throw new Error('解析未返回结果');
+
+        // Save frames for display
+        if (result.storyboardFrames && result.storyboardFrames.length > 0) {
+          setFrames(result.storyboardFrames.map((f) => ({ ...f, imageUrl: f.imageUrl || null })));
+        }
+        // Pass V4 data to parent → switch to blueprint tab
+        onConvertToBlueprint(null, null, result);
+        // Success — break retry loop
+        break;
+      } catch (err) {
+        const isRetryable = err.name === 'AbortError' || err.message.includes('解析未返回结果') || err.message.includes('fetch') || err.message.includes('network');
+        console.error(`[parse-and-blueprint] Attempt ${attempt + 1} failed:`, err.message);
+
+        if (isRetryable && attempt < MAX_RETRIES) {
+          setOneshotStage(`连接中断，${2}秒后重试 (${attempt + 1}/${MAX_RETRIES})...`);
+          await new Promise((r) => setTimeout(r, 2000));
+          continue;
+        }
+
+        const prefix = err.name === 'AbortError' ? '解析超时（超过6分钟）' : err.message;
+        await showAlert('⚠️ 解析输出蓝图失败: ' + prefix);
+        break;
       }
-      // Pass V4 data to parent → switch to blueprint tab
-      onConvertToBlueprint(null, null, result);
-    } catch (err) {
-      console.error('[parse-and-blueprint] Error:', err.message);
-      await showAlert('⚠️ 解析输出蓝图失败: ' + err.message);
     }
+
     setOneshotProgress(null);
     setOneshotStage('');
     setOneshotLoading(false);

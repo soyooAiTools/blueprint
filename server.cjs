@@ -1519,8 +1519,15 @@ handlers.parseAndBlueprint = async function(req, res, body, projectId) {
 
     // Call Python one-shot script via spawn
     var { spawn: spawnProc } = require('child_process');
+
+    // SSE keepalive: send heartbeat every 15s to prevent proxy/browser timeout
+    var keepalive = setInterval(function() {
+      try { res.write(': keepalive\n\n'); } catch(e) { clearInterval(keepalive); }
+    }, 15000);
     
-    var pyResult = await new Promise(function(resolve, reject) {
+    var pyResult;
+    try {
+    pyResult = await new Promise(function(resolve, reject) {
       var args = [
         '/opt/blueprint-editor/python/pdf_to_blueprint.py',
         '--schema-file', '/opt/blueprint-editor/docs/v4-schema.json',
@@ -1543,11 +1550,13 @@ handlers.parseAndBlueprint = async function(req, res, body, projectId) {
       var child = spawnProc('python3.8', args, { env: env, timeout: 600000 });
       var stdout = '';
       var stderr = '';
+      var lastProgress = Date.now();
       
       child.stdout.on('data', function(data) { stdout += data.toString(); });
       child.stderr.on('data', function(data) {
         var chunk = data.toString();
         stderr += chunk;
+        lastProgress = Date.now();
         // Parse structured progress lines
         var lines = chunk.split('\n');
         for (var i = 0; i < lines.length; i++) {
@@ -1559,11 +1568,22 @@ handlers.parseAndBlueprint = async function(req, res, body, projectId) {
       });
       child.on('close', function(code) {
         if (stderr) console.log('[parse-and-blueprint] Python: ' + stderr.substring(0, 500));
-        if (code !== 0 && !stdout) return reject(new Error('Python one-shot failed (exit ' + code + ')'));
+        if (code !== 0 && !stdout) return reject(new Error('Python one-shot failed (exit ' + code + '): ' + (stderr || '').substring(0, 300)));
         resolve(stdout);
       });
       child.on('error', reject);
+
+      // Detect client disconnect: if res is closed, kill child process
+      res.on('close', function() {
+        if (!child.killed) {
+          console.log('[parse-and-blueprint] Client disconnected, killing Python process');
+          child.kill('SIGTERM');
+        }
+      });
     });
+    } finally {
+      clearInterval(keepalive);
+    }
 
     sendSSE({ type: 'progress', percent: 90, stage: '解析结果...' });
 
