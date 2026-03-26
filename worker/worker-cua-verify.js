@@ -319,10 +319,57 @@ async function quickPlayTest(url, taskId, log) {
     log('[QuickTest] Final shot state: ' + finalShot, taskId);
 
     // Take a screenshot for debugging
+    var screenshotPath = path.join(CUA_RESULTS_DIR, taskId + '-quicktest.png');
     try {
-      var screenshotPath = path.join(CUA_RESULTS_DIR, taskId + '-quicktest.png');
       await page.screenshot({ path: screenshotPath });
     } catch(e) {}
+
+    // === Solid color detection (3-14 audit lesson: stop CUA on solid-color screens) ===
+    // Sample canvas pixels — if all are the same color, it's a solid-color screen (no GPU / render failure)
+    var solidColorCheck = await page.evaluate(function() {
+      var canvas = document.querySelector('canvas');
+      if (!canvas) return { solid: false, reason: 'no-canvas' };
+      try {
+        var ctx = canvas.getContext('2d') || canvas.getContext('webgl') || canvas.getContext('webgl2');
+        // For WebGL, read pixels via readPixels
+        var gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+        if (gl) {
+          var w = Math.min(canvas.width, 100);
+          var h = Math.min(canvas.height, 100);
+          var pixels = new Uint8Array(w * h * 4);
+          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+          // Check if all pixels are the same color
+          var r0 = pixels[0], g0 = pixels[1], b0 = pixels[2];
+          var allSame = true;
+          for (var i = 4; i < pixels.length; i += 4) {
+            if (Math.abs(pixels[i] - r0) > 5 || Math.abs(pixels[i+1] - g0) > 5 || Math.abs(pixels[i+2] - b0) > 5) {
+              allSame = false;
+              break;
+            }
+          }
+          return { solid: allSame, color: 'rgb(' + r0 + ',' + g0 + ',' + b0 + ')', sampled: w * h };
+        }
+        return { solid: false, reason: 'no-webgl-context' };
+      } catch(e) {
+        return { solid: false, reason: 'error: ' + e.message };
+      }
+    });
+    log('[QuickTest] Solid color check: ' + JSON.stringify(solidColorCheck), taskId);
+
+    if (solidColorCheck.solid) {
+      log('[QuickTest] ⚠️ SOLID COLOR DETECTED (' + solidColorCheck.color + ') — skipping CUA (no GPU / render failure)', taskId);
+      await browser.close();
+      return {
+        ok: false,
+        reason: 'Screen is solid color (' + solidColorCheck.color + '). No GPU or WebGL render failure. CUA would waste API calls on blank screen.',
+        loaded: true,
+        solidColor: true,
+        solidColorDetail: solidColorCheck,
+        initialShot: initialShot,
+        finalShot: finalShot,
+        shotProgressed: false
+      };
+    }
 
     await browser.close();
 

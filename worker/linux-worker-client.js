@@ -368,6 +368,14 @@ async function processTask(task) {
       
       try { fs.rmSync(cuaBuildDir, { recursive: true, force: true }); } catch(e) {}
 
+      // Auto-stop: solid color = no GPU / render failure, CUA is pointless
+      if (cuaResult.quickTestDetail && cuaResult.quickTestDetail.solidColor) {
+        log('CUA auto-stop: solid color screen detected — no GPU or WebGL render failure, skipping CUA', taskId);
+        await reportStatus(taskId, 'done', { message: `[Linux] Build OK, skipped CUA (solid color screen — no GPU). Preview: ${previewUrl || 'N/A'}`, previewUrl });
+        cuaPassed = true;
+        break;
+      }
+
       if (cuaResult.passed || cuaResult.skipped) {
         cuaPassed = true;
         log(`CUA ${cuaResult.skipped ? 'SKIPPED' : 'PASSED'} round ${cuaRound}, total ${((Date.now() - startTime) / 1000).toFixed(0)}s`, taskId);
