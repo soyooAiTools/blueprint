@@ -379,14 +379,109 @@ async function quickPlayTest(url, taskId, log) {
         // Non-black solid color = code logic bug (objects hidden/same color/not created)
         // Return as a code issue, NOT a GPU issue — let the pipeline handle it as build feedback
         log('[QuickTest] ⚠️ SOLID COLOR (' + colorStr + ') — likely code bug (objects not visible), reporting as build issue', taskId);
+
+        // Inject diagnostic script to find out WHY the screen is solid color
+        var diagnostics = { objectsAtOrigin: [], objectsHidden: [], cameraInfo: null, groundInfo: null };
+        try {
+          diagnostics = await page.evaluate(function() {
+            var result = { objectsAtOrigin: [], objectsHidden: [], cameraInfo: null, groundInfo: null };
+
+            try {
+              if (typeof UnityEngine === 'undefined') return result;
+
+              // Camera info
+              var cam = UnityEngine.Camera.main;
+              if (cam) {
+                var bg = cam.backgroundColor;
+                result.cameraInfo = {
+                  bgColor: 'rgb(' + Math.round(bg.r*255) + ',' + Math.round(bg.g*255) + ',' + Math.round(bg.b*255) + ')',
+                  orthSize: cam.orthographicSize,
+                  pos: cam.transform.position.toString()
+                };
+              }
+
+              // Check all root-level objects for visibility
+              var allRenderers = UnityEngine.Object.FindObjectsOfType$1(UnityEngine.Renderer);
+              if (allRenderers) {
+                for (var i = 0; i < Math.min(allRenderers.length, 50); i++) {
+                  var r = allRenderers[i];
+                  var go = r.gameObject;
+                  var pos = go.transform.position;
+                  var name = go.name;
+                  var yPos = pos.y;
+                  var scale = go.transform.localScale;
+
+                  // Skip pool objects still at y=-999
+                  if (yPos < -100) {
+                    result.objectsHidden.push(name + ' (y=' + yPos.toFixed(0) + ')');
+                    continue;
+                  }
+
+                  // Objects near origin
+                  var color = '?';
+                  try {
+                    var mat = r.material;
+                    if (mat && mat.color) {
+                      var c = mat.color;
+                      color = 'rgb(' + Math.round(c.r*255) + ',' + Math.round(c.g*255) + ',' + Math.round(c.b*255) + ')';
+                    }
+                  } catch(e) {}
+
+                  result.objectsAtOrigin.push({
+                    name: name,
+                    pos: 'y=' + yPos.toFixed(1),
+                    scale: scale.x.toFixed(1) + 'x' + scale.y.toFixed(1) + 'x' + scale.z.toFixed(1),
+                    color: color,
+                    active: go.activeSelf
+                  });
+
+                  // Check for ground plane (largest object by scale)
+                  if (scale.x * scale.z > 4) { // Large flat object
+                    result.groundInfo = {
+                      name: name,
+                      scale: scale.x.toFixed(1) + 'x' + scale.y.toFixed(1) + 'x' + scale.z.toFixed(1),
+                      color: color
+                    };
+                  }
+                }
+              }
+            } catch(e) {
+              result.error = e.message;
+            }
+
+            return result;
+          });
+        } catch(diagErr) {
+          log('[QuickTest] Diagnostics injection error (non-fatal): ' + diagErr.message, taskId);
+          diagnostics.error = diagErr.message;
+        }
+
+        // Build detailed reason string with diagnostic info
+        var detailedReason = 'Screen is solid color (' + colorStr + ') with ' + (engineHealth.rendererCount || 0) + ' renderers loaded.';
+        if (diagnostics.cameraInfo) {
+          detailedReason += '\nCamera: bg=' + diagnostics.cameraInfo.bgColor + ', orthSize=' + diagnostics.cameraInfo.orthSize;
+        }
+        if (diagnostics.groundInfo) {
+          detailedReason += '\nGround plane: ' + diagnostics.groundInfo.name + ' scale=' + diagnostics.groundInfo.scale + ' color=' + diagnostics.groundInfo.color;
+        }
+        if (diagnostics.objectsAtOrigin.length > 0) {
+          detailedReason += '\nVisible objects (' + diagnostics.objectsAtOrigin.length + '): ' + diagnostics.objectsAtOrigin.map(function(o) {
+            return o.name + '(' + o.pos + ',scale=' + o.scale + ',color=' + o.color + ')';
+          }).join(', ');
+        }
+        detailedReason += '\nHidden objects at y<-100: ' + diagnostics.objectsHidden.length;
+        detailedReason += '\n\nFIX: 1) Ground plane color must be neutral gray, not saturated. 2) Ensure ≥3 objects with contrasting colors are at y≥0. 3) Camera.backgroundColor must differ from ground by ≥0.3.';
+
+        log('[QuickTest] Diagnostics: ' + JSON.stringify(diagnostics), taskId);
+
         await browser.close();
         return {
           ok: false,
-          reason: 'Screen is solid color (' + colorStr + ') with ' + (engineHealth.rendererCount || 0) + ' renderers loaded. Objects are likely hidden (y=-999), not created, or same color as background. This is a CODE BUG, not a GPU issue.',
+          reason: detailedReason,
           loaded: true,
           solidColor: true,
           codeBug: true,
-          solidColorDetail: solidColorCheck,
+          solidColorDetail: { solid: solidColorCheck.solid, color: solidColorCheck.color, sampled: solidColorCheck.sampled, method: solidColorCheck.method, diagnostics: diagnostics },
           initialShot: initialShot,
           finalShot: finalShot,
           shotProgressed: false

@@ -25,7 +25,7 @@ const REVIEW_TIMEOUT = 120000; // 2 min
 // === Luna/Bridge.NET constraint rules ===
 // Sources: luna-rendering-postmortem.md, blueprint-tech.md, rules.md, LEARNINGS.md, ERRORS.md
 // luna-spec.md, GFM_Tools_API.md, behavior-templates.md, entity-architecture-proposal.md
-// Last synced: 2026-03-26
+// Last synced: 2026-03-28
 //
 // DESIGN: Rules are split into 3 tiers by severity.
 // GPT-5.4 checks Tier 1 (critical/instant-fail) first, then Tier 2, then Tier 3.
@@ -79,6 +79,12 @@ const REVIEW_RULES = `
 - GFM_Create.InitMaterialFromScene() must be called in Start() before any SetColor()
 - Pool objects start at y=-999 (hidden). Show = move to visible Y. Hide = y=-999
 - Do NOT use SetActive(false) for hiding — use y=-999 position
+
+### 5b. Solid-Color Screen Prevention (CRITICAL)
+- Ground/GroundField plane color MUST be neutral gray (recommended (0.75, 0.78, 0.82)). Any channel saturation > 0.3 from gray midpoint triggers FAIL (e.g. green (0.42, 0.72, 0.38) is BANNED)
+- Camera.backgroundColor MUST differ from ground color by ≥ 0.3 on at least one RGB channel
+- Rule 0 / gameStart MUST position ≥ 3 differently-colored objects at y ≥ -1 in the first frame — prevents solid-color screen if later phases never trigger
+- Main entities (castle, player, hero) MUST have at least one scale dimension ≥ 1.5 to be visible under orthographic camera
 
 ### 6. GFM_Tools API Signatures (wrong params = compile error or silent fail)
 - GFM_Create.Obj(PrimitiveType, Vector3 pos, Vector3 scale, string name) — exactly 4 params
