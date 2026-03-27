@@ -1,19 +1,15 @@
 /**
  * Linux Worker Client — Polls tasks from Blueprint Server, builds via Linux Bridge.NET pipeline
- * 
- * Flow: Poll task → AI coding (via Anthropic API) → POST /build (localhost:3080) → CUA → Upload
- * 
+ *
+ * Flow: Poll task → Git clone base template → AI coding → Code review → Bridge.NET build → CUA → Upload
+ *
+ * Base template: https://github.com/soyooAiTools/luna-base-template.git
+ * Each task starts by git cloning the base Unity project, then AI generates code on top of it.
+ *
  * This runs on the main ECS (120.55.70.226) alongside linux-bridge-build.js
  * Worker ID starts with "linux" so server.cjs assigns independently from Windows worker
- * 
+ *
  * Dependencies: dotenv (npm install dotenv)
- * No Windows-specific deps (no Unity, no jake, no Bridge on Windows)
- */
-
-/**
- * NOTE: This script runs on the LOCAL MACHINE (Windows), NOT on the Linux ECS.
- * It polls tasks, does AI coding locally, then calls the Linux ECS /build API for compilation.
- * This way we reuse worker-coder.js and all prompt files without porting to Linux.
  */
 
 require('dotenv').config({ path: require('path').join(__dirname, '.env'), override: true });
@@ -23,6 +19,65 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { generateCodeV5 } = require('./worker-coder.js');
+const { generateWithClaudeCode } = require('./claude-code-coder.js');
+
+// Claude Code 模式开关：设为 true 使用 Claude Code CLI agent，false 使用传统 API 调用
+const USE_CLAUDE_CODE = process.env.USE_CLAUDE_CODE !== 'false'; // 默认开启
+
+// ============ Task Checkpoint (persist best code across worker restarts) ============
+const CHECKPOINT_DIR = path.join(__dirname, '..', 'server-data', 'checkpoints');
+
+function getCheckpointPath(taskId) {
+  return path.join(CHECKPOINT_DIR, taskId);
+}
+
+function saveCheckpoint(taskId, data) {
+  const dir = getCheckpointPath(taskId);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'checkpoint.json'), JSON.stringify({
+    csCode: data.csCode,
+    cuaRound: data.cuaRound,
+    feedbackHistory: data.feedbackHistory,
+    fixHistory: data.fixHistory || [],
+    savedAt: new Date().toISOString()
+  }));
+}
+
+function loadCheckpoint(taskId) {
+  const fp = path.join(getCheckpointPath(taskId), 'checkpoint.json');
+  if (fs.existsSync(fp)) {
+    try {
+      return JSON.parse(fs.readFileSync(fp, 'utf8'));
+    } catch (e) { return null; }
+  }
+  return null;
+}
+
+function clearCheckpoint(taskId) {
+  const dir = getCheckpointPath(taskId);
+  if (fs.existsSync(dir)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Categorize CUA issues into a short tag for consecutive-same-issue detection (BUG-0007).
+ * Returns a string like 'solid-color', 'phase-skipped', 'quick-test', etc.
+ */
+function categorizeIssue(cuaResult) {
+  if (cuaResult.quickTestDetail && cuaResult.quickTestDetail.solidColor) return 'solid-color';
+  const issues = (cuaResult.issues || []).join(' ').toLowerCase();
+  if (issues.includes('solid color') || issues.includes('纯色')) return 'solid-color';
+  if (issues.includes('phase-skipped') || issues.includes('phases were skipped')) return 'phase-skipped';
+  if (issues.includes('entity-incomplete')) return 'entity-incomplete';
+  if (issues.includes('quick-test') || issues.includes('quick test')) return 'quick-test';
+  if (issues.includes('stuck')) return 'stuck';
+  if (issues.includes('[cta]') || issues.includes('cta')) return 'cta-missing';
+  if (issues.includes('[uncovered]') || issues.includes('not covered')) return 'uncovered-shots';
+  if (issues.includes('engine-not-ready')) return 'engine-not-ready';
+  // Default: hash the first issue to detect repetition
+  return (cuaResult.issues && cuaResult.issues[0]) ? cuaResult.issues[0].substring(0, 50) : 'unknown';
+}
 
 // ============ Config ============
 const WORKER_ID = process.env.LINUX_WORKER_ID || 'linux-worker-1';
@@ -117,6 +172,7 @@ function apiRequest(method, urlPath, body, isJSON) {
 function reportStatus(taskId, status, extra) {
   const data = { workerId: WORKER_ID, taskId, status, message: (extra && extra.message) || '' };
   if (extra && extra.previewUrl) data.previewUrl = extra.previewUrl;
+  if (extra && extra.qualityData) data.qualityData = extra.qualityData;
   return apiRequest('POST', '/api/worker/status', JSON.stringify(data)).catch(e => {
     log(`Status report failed: ${e.message}`, taskId);
   });
@@ -173,27 +229,17 @@ async function processTask(task) {
 
     log(`Blueprint: ${blueprint.nodes.length} nodes, ${(blueprint.edges || []).length} edges`, taskId);
 
-    // === Step 2: AI Coding (generate C# code in local temp dir) ===
+    // Check for existing checkpoint (resume after worker restart)
+    const checkpoint = loadCheckpoint(taskId);
+    if (checkpoint) {
+      log(`[checkpoint] Resuming from round ${checkpoint.cuaRound}, saved at ${checkpoint.savedAt}`, taskId);
+    }
+
+    // === Step 2: Git clone base template + AI Coding ===
     const tempDir = path.join(require('os').tmpdir(), `linux-task-${taskId}`);
-    const assetsDir = path.join(tempDir, 'Assets', 'Scripts');
-    fs.mkdirSync(assetsDir, { recursive: true });
+    const BASE_TEMPLATE_REPO = process.env.BASE_TEMPLATE_REPO || 'https://github.com/soyooAiTools/luna-base-template.git';
 
-    // Copy GFM_Tools.cs to temp dir
-    const gfmSrc = path.join(__dirname, 'GFM_Tools.cs');
-    if (fs.existsSync(gfmSrc)) {
-      fs.copyFileSync(gfmSrc, path.join(assetsDir, 'GFM_Tools.cs'));
-    }
-
-    const codeResult = await generateCodeV5(blueprint, tempDir, log, taskId, 'unity');
-    if (!codeResult.ok) {
-      log('AI coding failed: ' + codeResult.error, taskId);
-      await reportStatus(taskId, 'failed', { message: '[Linux] AI coding failed: ' + (codeResult.error || '').slice(0, 200) });
-      return;
-    }
-    log(`AI coding done: ${codeResult.filesWritten} files`, taskId);
-    await reportStatus(taskId, 'processing', { message: `[Linux] AI coding done (${codeResult.filesWritten} files), building...` });
-
-    // === Step 3: Read generated C# files (search recursively) ===
+    // Helper: recursively find files by extension
     function findFiles(dir, ext) {
       const results = [];
       try {
@@ -205,18 +251,7 @@ async function processTask(task) {
       } catch(e) {}
       return results;
     }
-    
-    const allCs = findFiles(tempDir, '.cs');
-    const mainCsPath = allCs.find(f => f.includes('GameFlowManagerMain.cs'));
-    
-    if (!mainCsPath) {
-      log('No GameFlowManagerMain.cs found in: ' + allCs.join(', '), taskId);
-      await reportStatus(taskId, 'failed', { message: '[Linux] No GameFlowManagerMain.cs generated' });
-      return;
-    }
-    
-    let csCode = fs.readFileSync(mainCsPath, 'utf-8');
-    log(`Main CS: ${mainCsPath} (${csCode.length} chars)`, taskId);
+
     // Always use canonical GFM_Tools.cs from worker dir (never AI-generated version)
     const extraFiles = {};
     const canonicalGfm = path.join(__dirname, 'GFM_Tools.cs');
@@ -224,31 +259,104 @@ async function processTask(task) {
       extraFiles['GFM_Tools.cs'] = fs.readFileSync(canonicalGfm, 'utf-8');
     }
 
-    // === Step 3.5: GPT-5.4 Adversarial Review (before build) ===
+    let csCode;
+
+    if (checkpoint && checkpoint.csCode) {
+      // === Checkpoint resume: skip code generation + review, use saved code ===
+      csCode = checkpoint.csCode;
+      blueprint.feedbackHistory = checkpoint.feedbackHistory || [];
+      log(`[checkpoint] Using saved code (${csCode.length} chars), skipping initial generation + review`, taskId);
+      await reportStatus(taskId, 'processing', { message: `[Linux] Resuming from checkpoint (round ${checkpoint.cuaRound}), rebuilding...` });
+    } else {
+      // === Normal path: clone, generate, review ===
+      // Clean up previous run if exists
+      if (fs.existsSync(tempDir)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+
+      // Git clone the base Unity project as foundation
+      log(`Cloning base template from ${BASE_TEMPLATE_REPO}...`, taskId);
+      await reportStatus(taskId, 'processing', { message: '[Linux] Cloning base template...' });
+      try {
+        const { execSync } = require('child_process');
+        execSync(`git clone --depth 1 ${BASE_TEMPLATE_REPO} "${tempDir}"`, { timeout: 60000, stdio: 'pipe' });
+        log('Base template cloned OK', taskId);
+      } catch (cloneErr) {
+        log('Git clone failed: ' + cloneErr.message, taskId);
+        await reportStatus(taskId, 'failed', { message: '[Linux] Git clone base template failed: ' + (cloneErr.message || '').slice(0, 200) });
+        return;
+      }
+
+      // AI-generated code goes into the base project's script directory
+      const assetsDir = path.join(tempDir, 'Assets', 'Program', 'Script', 'Manager');
+      fs.mkdirSync(assetsDir, { recursive: true });
+
+      const codeResult = USE_CLAUDE_CODE
+        ? await generateWithClaudeCode(blueprint, tempDir, log, taskId, 'unity')
+        : await generateCodeV5(blueprint, tempDir, log, taskId, 'unity');
+      if (!codeResult.ok) {
+        log('AI coding failed: ' + codeResult.error, taskId);
+        await reportStatus(taskId, 'failed', { message: '[Linux] AI coding failed: ' + (codeResult.error || '').slice(0, 200) });
+        return;
+      }
+      log(`AI coding done: ${codeResult.filesWritten} files`, taskId);
+      await reportStatus(taskId, 'processing', { message: `[Linux] AI coding done (${codeResult.filesWritten} files), building...` });
+
+      // === Step 3: Read generated C# files (search recursively) ===
+      const allCs = findFiles(tempDir, '.cs');
+      const mainCsPath = allCs.find(f => f.includes('GameFlowManagerMain.cs'));
+
+      if (!mainCsPath) {
+        log('No GameFlowManagerMain.cs found in: ' + allCs.join(', '), taskId);
+        await reportStatus(taskId, 'failed', { message: '[Linux] No GameFlowManagerMain.cs generated' });
+        return;
+      }
+
+      csCode = fs.readFileSync(mainCsPath, 'utf-8');
+      log(`Main CS: ${mainCsPath} (${csCode.length} chars)`, taskId);
+
+      // === Step 3.5: Code Review (Codex or GPT-5.4 fallback) ===
     let codeReviewer;
+    let codexReviewer;
     try { codeReviewer = require('./code-reviewer.js'); } catch(e) {}
-    if (codeReviewer && csCode) {
+    try { codexReviewer = require('./codex-reviewer.js'); } catch(e) {}
+    const USE_CODEX_REVIEW = process.env.USE_CODEX_REVIEW !== 'false'; // 默认开启
+    if ((USE_CODEX_REVIEW && codexReviewer || codeReviewer) && csCode) {
       const MAX_REVIEW_ROUNDS = 3;
       let reviewedCode = csCode;
-      await reportStatus(taskId, 'processing', { message: `[Linux] GPT-5.4 代码审核中...` });
+      const reviewerName = USE_CODEX_REVIEW && codexReviewer ? 'Codex' : 'GPT-5.4';
+      await reportStatus(taskId, 'processing', { message: `[Linux] ${reviewerName} 代码审核中...` });
       for (let reviewRound = 1; reviewRound <= MAX_REVIEW_ROUNDS; reviewRound++) {
-        const reviewResult = await codeReviewer.reviewCode(reviewedCode, { taskId, log });
+        let reviewResult;
+        if (USE_CODEX_REVIEW && codexReviewer) {
+          reviewResult = await codexReviewer.reviewCodeWithCodex(reviewedCode, { taskId, log });
+          // Fallback to GPT-5.4 if Codex had environment/parse errors (not real code issues)
+          if (!reviewResult.passed && (reviewResult.parseError || reviewResult.error) && codeReviewer) {
+            log(`[reviewer] Codex review had env/parse error, falling back to GPT-5.4 API`, taskId);
+            reviewResult = await codeReviewer.reviewCode(reviewedCode, { taskId, log });
+          }
+        } else if (codeReviewer) {
+          reviewResult = await codeReviewer.reviewCode(reviewedCode, { taskId, log });
+        } else {
+          reviewResult = { passed: true, issues: [], skipped: true };
+        }
         if (reviewResult.passed) {
-          log(`[reviewer] ✅ GPT-5.4 review PASSED${reviewRound > 1 ? ` (round ${reviewRound})` : ''}`, taskId);
-          await reportStatus(taskId, 'processing', { message: `[Linux] GPT-5.4 审核通过 ✅${reviewRound > 1 ? ` (第${reviewRound}轮)` : ''} — ${reviewResult.summary || ''}`.slice(0, 100) });
+          log(`[reviewer] ✅ ${reviewerName} review PASSED${reviewRound > 1 ? ` (round ${reviewRound})` : ''}`, taskId);
+          await reportStatus(taskId, 'processing', { message: `[Linux] ${reviewerName} 审核通过 ✅${reviewRound > 1 ? ` (第${reviewRound}轮)` : ''} — ${reviewResult.summary || ''}`.slice(0, 100), qualityData: { reviewResult: { passed: true, reviewer: reviewerName, round: reviewRound, summary: reviewResult.summary || '' } } });
           break;
         }
         if (reviewRound >= MAX_REVIEW_ROUNDS) {
-          log(`[reviewer] ⚠️ GPT-5.4 review still FAIL after ${MAX_REVIEW_ROUNDS} rounds, proceeding`, taskId);
-          await reportStatus(taskId, 'processing', { message: `[Linux] GPT-5.4 审核 ${MAX_REVIEW_ROUNDS} 轮仍 FAIL，继续编译...` });
+          log(`[reviewer] ⚠️ ${reviewerName} review still FAIL after ${MAX_REVIEW_ROUNDS} rounds, proceeding`, taskId);
+          await reportStatus(taskId, 'processing', { message: `[Linux] ${reviewerName} 审核 ${MAX_REVIEW_ROUNDS} 轮仍 FAIL，继续编译...`, qualityData: { reviewResult: { passed: false, reviewer: reviewerName, round: MAX_REVIEW_ROUNDS, criticalCount: reviewResult.criticalCount || 0 } } });
           break;
         }
-        log(`[reviewer] 🔄 GPT-5.4 review FAIL (round ${reviewRound}/${MAX_REVIEW_ROUNDS}), fixing...`, taskId);
-        await reportStatus(taskId, 'processing', { message: `[Linux] GPT-5.4 审核失败 (${reviewRound}/${MAX_REVIEW_ROUNDS})，${reviewResult.criticalCount || '?'}个严重问题，AI修复中...` });
+        log(`[reviewer] 🔄 ${reviewerName} review FAIL (round ${reviewRound}/${MAX_REVIEW_ROUNDS}), fixing...`, taskId);
+        await reportStatus(taskId, 'processing', { message: `[Linux] ${reviewerName} 审核失败 (${reviewRound}/${MAX_REVIEW_ROUNDS})，${reviewResult.criticalCount || '?'}个严重问题，AI修复中...` });
         // Send review feedback to Claude for fixing
-        const { generateCodeV5 } = require('./worker-coder.js');
         const reviewFixBlueprint = { ...blueprint, feedbackHistory: [...(blueprint.feedbackHistory || []), { text: reviewResult.feedback, source: 'code-review' }] };
-        const fixResult = await generateCodeV5(reviewFixBlueprint, tempDir, log, taskId, 'unity');
+        const fixResult = USE_CLAUDE_CODE
+          ? await generateWithClaudeCode(reviewFixBlueprint, tempDir, log, taskId, 'unity')
+          : await generateCodeV5(reviewFixBlueprint, tempDir, log, taskId, 'unity');
         if (fixResult.ok) {
           reviewedCode = fs.readFileSync(mainCsPath, 'utf-8');
           log(`[reviewer] Review fix applied (${reviewedCode.length} chars), re-reviewing...`, taskId);
@@ -257,6 +365,7 @@ async function processTask(task) {
       // Update csCode with reviewed version
       csCode = fs.readFileSync(mainCsPath, 'utf-8');
     }
+    } // end of normal path (no checkpoint)
 
     // === Step 4: Linux Build (Bridge.NET + stage4 assembly) with auto-fix ===
     const MAX_BUILD_FIX_ATTEMPTS = 3;
@@ -310,17 +419,27 @@ async function processTask(task) {
       });
 
       const fixTempDir = path.join(require('os').tmpdir(), `linux-buildfix-${taskId}-${buildAttempt}`);
-      const fixAssetsDir = path.join(fixTempDir, 'Assets', 'Scripts');
+      if (fs.existsSync(fixTempDir)) fs.rmSync(fixTempDir, { recursive: true, force: true });
+
+      // Git clone base template for fix attempt
+      try {
+        const { execSync } = require('child_process');
+        execSync(`git clone --depth 1 ${BASE_TEMPLATE_REPO} "${fixTempDir}"`, { timeout: 60000, stdio: 'pipe' });
+      } catch (cloneFixErr) {
+        log(`Build fix git clone failed: ${cloneFixErr.message}`, taskId);
+        continue;
+      }
+
+      const fixAssetsDir = path.join(fixTempDir, 'Assets', 'Program', 'Script', 'Manager');
       fs.mkdirSync(fixAssetsDir, { recursive: true });
-      
-      // Copy GFM_Tools and current code for context
-      const gfmSrcFix = path.join(__dirname, 'GFM_Tools.cs');
-      if (fs.existsSync(gfmSrcFix)) fs.copyFileSync(gfmSrcFix, path.join(fixAssetsDir, 'GFM_Tools.cs'));
+      // Write current code for AI to fix (GFM_Tools.cs already in git repo)
       fs.writeFileSync(path.join(fixAssetsDir, 'GameFlowManagerMain.cs'), lastCsCode);
 
       let fixResult;
       try {
-        fixResult = await generateCodeV5(blueprint, fixTempDir, log, taskId, 'unity');
+        fixResult = USE_CLAUDE_CODE
+          ? await generateWithClaudeCode(blueprint, fixTempDir, log, taskId, 'unity')
+          : await generateCodeV5(blueprint, fixTempDir, log, taskId, 'unity');
       } catch (fixErr) {
         log(`Build fix re-code error: ${fixErr.message}`, taskId);
         try { fs.rmSync(fixTempDir, { recursive: true, force: true }); } catch(e) {}
@@ -373,14 +492,249 @@ async function processTask(task) {
     const previewUrl = `https://playcools.top/webgl/${taskId}/index.html`;
     log(`Preview: ${previewUrl}`, taskId);
 
+    // === Step 5.5: Visual Verification (screenshot + Claude Sonnet analysis) ===
+    const MAX_VISUAL_ROUNDS = 5;
+    let visualPassed = false;
+    let lastHtmlForVisual = htmlData;
+
+    for (let vRound = 1; vRound <= MAX_VISUAL_ROUNDS; vRound++) {
+      await reportStatus(taskId, 'processing', {
+        message: `[Linux] 视觉预检 (${vRound}/${MAX_VISUAL_ROUNDS})...`, previewUrl
+      });
+
+      try {
+        // 1. Take screenshot with Playwright
+        const screenshotPath = `/tmp/visual-check-${taskId}-r${vRound}.png`;
+        const tmpHtmlPath = `/tmp/visual-check-${taskId}-r${vRound}.html`;
+        fs.writeFileSync(tmpHtmlPath, lastHtmlForVisual);
+
+        const { chromium } = require('playwright');
+        const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-gpu'] });
+        const page = await browser.newPage({ viewport: { width: 960, height: 640 } });
+        const consoleLogs = [];
+        page.on('console', msg => {
+          const text = msg.text();
+          if (text.includes('[AI]')) consoleLogs.push(text);
+        });
+        await page.goto(`file://${tmpHtmlPath}`, { waitUntil: 'load', timeout: 30000 });
+        await page.waitForTimeout(10000); // Wait for engine + game init
+        await page.screenshot({ path: screenshotPath });
+        await browser.close();
+        try { fs.unlinkSync(tmpHtmlPath); } catch(e) {}
+
+        log(`Visual round ${vRound}: screenshot taken, ${consoleLogs.length} AI logs`, taskId);
+        consoleLogs.forEach(l => log(`  ${l}`, taskId));
+
+        // 2. Extract shot 1 info from blueprint
+        let sceneDesc = 'A game scene with multiple colored objects';
+        let expectedObjects = [];
+        try {
+          const shots = blueprint.shots || blueprint.nodes || [];
+          if (shots.length > 0) {
+            const shot1 = shots[0].data || shots[0];
+            sceneDesc = shot1.sceneDescription || shot1.description || shot1.title || sceneDesc;
+            const objs = shot1.sceneObjects || shot1.activate || [];
+            expectedObjects = objs.map(o => (typeof o === 'string' ? o : o.name || o.label || '')).filter(Boolean);
+          }
+          if (blueprint.storyboard && blueprint.storyboard.frames && blueprint.storyboard.frames.length > 0) {
+            const frame1 = blueprint.storyboard.frames[0];
+            sceneDesc = frame1.scene || frame1.description || sceneDesc;
+          }
+        } catch(e) { /* use defaults */ }
+
+        // 3. Analyze screenshot with Claude Sonnet via OpenAI-compatible API
+        const imgBase64 = fs.readFileSync(screenshotPath).toString('base64');
+        const analysisPrompt = `You are a playable ad visual quality inspector.
+
+Analyze this game screenshot and determine if it rendered correctly.
+
+## Expected scene
+Description: ${sceneDesc}
+Expected objects: ${expectedObjects.length > 0 ? expectedObjects.join(', ') : 'multiple game objects'}
+
+## Criteria
+FAIL if ANY of these:
+1. Solid color screen (entire screen one color)
+2. Black screen
+3. Stuck on loading bar/Loading text
+4. Scene is clearly empty (only sky/ground, no game objects)
+5. None of the expected objects are visible
+
+PASS if the screen shows multiple colored game objects (even if not perfect).
+
+Reply in JSON only: {"passed": true/false, "reason": "brief explanation in English"}`;
+
+        const apiBody = JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image_url', image_url: { url: `data:image/png;base64,${imgBase64}` } },
+              { type: 'text', text: analysisPrompt }
+            ]
+          }],
+          max_tokens: 200
+        });
+
+        const analysis = await new Promise((resolve, reject) => {
+          const apiKey = process.env.OPENAI_API_KEY;
+          const baseUrl = process.env.OPENAI_BASE_URL || 'https://sub.mindrix.app/v1';
+          const url = new URL(baseUrl + '/chat/completions');
+          const reqOpts = {
+            hostname: url.hostname, port: url.port || 443, path: url.pathname, method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey}`,
+              'Content-Length': Buffer.byteLength(apiBody)
+            },
+            timeout: 60000
+          };
+          const req = https.request(reqOpts, res => {
+            const chunks = [];
+            res.on('data', c => chunks.push(c));
+            res.on('end', () => {
+              try {
+                const resp = JSON.parse(Buffer.concat(chunks).toString());
+                const text = resp.choices?.[0]?.message?.content || '';
+                const jsonMatch = text.match(/\{[\s\S]*\}/);
+                if (jsonMatch) resolve(JSON.parse(jsonMatch[0]));
+                else resolve({ passed: true, reason: 'Could not parse analysis, assuming pass' });
+              } catch(e) { resolve({ passed: true, reason: 'Analysis parse error, assuming pass' }); }
+            });
+          });
+          req.on('error', e => resolve({ passed: true, reason: 'API error, assuming pass: ' + e.message }));
+          req.on('timeout', () => { req.destroy(); resolve({ passed: true, reason: 'API timeout, assuming pass' }); });
+          req.write(apiBody);
+          req.end();
+        });
+
+        log(`Visual round ${vRound}: ${analysis.passed ? 'PASSED' : 'FAILED'} — ${analysis.reason}`, taskId);
+
+        if (analysis.passed) {
+          visualPassed = true;
+          break;
+        }
+
+        // 4. Failed — feed back to AI, re-code, rebuild
+        if (vRound >= MAX_VISUAL_ROUNDS) {
+          log(`Visual check failed after ${MAX_VISUAL_ROUNDS} rounds, proceeding to CUA anyway`, taskId);
+          break;
+        }
+
+        await reportStatus(taskId, 'processing', { message: `[Linux] 视觉预检失败: ${analysis.reason}，AI修复中...`, previewUrl });
+
+        // Inject visual feedback
+        if (!blueprint.feedbackHistory) blueprint.feedbackHistory = [];
+        blueprint.feedbackHistory.push({
+          data: { text: `Visual pre-check failed (round ${vRound}): ${analysis.reason}\n\nThe rendered screenshot shows rendering issues. Please ensure:\n1. Game objects are positioned within camera view\n2. Objects have visible colors/materials\n3. The scene is not empty or solid-colored\n4. Camera settings match the intended view` },
+          source: 'visual-precheck-round-' + vRound,
+          status: 'pending',
+          timestamp: Date.now()
+        });
+
+        // Re-code
+        const vFixDir = path.join(require('os').tmpdir(), `linux-vfix-${taskId}-r${vRound}`);
+        if (fs.existsSync(vFixDir)) fs.rmSync(vFixDir, { recursive: true, force: true });
+        try {
+          const { execSync } = require('child_process');
+          execSync(`git clone --depth 1 ${BASE_TEMPLATE_REPO} "${vFixDir}"`, { timeout: 60000, stdio: 'pipe' });
+        } catch (e) {
+          log(`Visual fix git clone failed: ${e.message}`, taskId);
+          break;
+        }
+
+        const vFixAssetsDir = path.join(vFixDir, 'Assets', 'Program', 'Script', 'Manager');
+        fs.mkdirSync(vFixAssetsDir, { recursive: true });
+        fs.writeFileSync(path.join(vFixAssetsDir, 'GameFlowManagerMain.cs'), lastCsCode);
+
+        let vFixResult;
+        try {
+          vFixResult = USE_CLAUDE_CODE
+            ? await generateWithClaudeCode(blueprint, vFixDir, log, taskId, 'unity')
+            : await generateCodeV5(blueprint, vFixDir, log, taskId, 'unity');
+        } catch (e) {
+          log(`Visual fix re-code error: ${e.message}`, taskId);
+          try { fs.rmSync(vFixDir, { recursive: true, force: true }); } catch(e2) {}
+          break;
+        }
+
+        if (!vFixResult.ok) {
+          log('Visual fix re-code failed: ' + vFixResult.error, taskId);
+          try { fs.rmSync(vFixDir, { recursive: true, force: true }); } catch(e) {}
+          break;
+        }
+
+        // Find new CS code
+        const vFixCsFiles = findFiles(vFixDir, '.cs');
+        const vFixMainCs = vFixCsFiles.find(f => f.includes('GameFlowManagerMain.cs'));
+        if (!vFixMainCs) {
+          log('Visual fix: no GameFlowManagerMain.cs found', taskId);
+          try { fs.rmSync(vFixDir, { recursive: true, force: true }); } catch(e) {}
+          break;
+        }
+
+        lastCsCode = fs.readFileSync(vFixMainCs, 'utf-8');
+        const vFixExtraFiles = {};
+        if (fs.existsSync(canonicalGfm)) {
+          vFixExtraFiles['GFM_Tools.cs'] = fs.readFileSync(canonicalGfm, 'utf-8');
+        }
+        try { fs.rmSync(vFixDir, { recursive: true, force: true }); } catch(e) {}
+
+        // Rebuild
+        await reportStatus(taskId, 'building', { message: `[Linux] 视觉修复重编译 (round ${vRound + 1})...` });
+        let vFixBuild;
+        try {
+          vFixBuild = await buildRequest('/build', lastCsCode, vFixExtraFiles);
+        } catch (e) {
+          log(`Visual fix rebuild error: ${e.message}`, taskId);
+          break;
+        }
+        if (!vFixBuild.ok) {
+          log('Visual fix rebuild failed: ' + (vFixBuild.error || ''), taskId);
+          break;
+        }
+        log(`Visual fix rebuild OK in ${vFixBuild.buildTime}s`, taskId);
+
+        // Download new HTML
+        try {
+          lastHtmlForVisual = await buildRequest('/build-html', lastCsCode, vFixExtraFiles);
+          lastExtraFiles = vFixExtraFiles;
+          log(`Visual fix HTML: ${(lastHtmlForVisual.length / 1048576).toFixed(1)}MB`, taskId);
+          fs.writeFileSync(path.join(previewDir, 'index.html'), lastHtmlForVisual);
+        } catch (e) {
+          log('Visual fix HTML download error: ' + e.message, taskId);
+          break;
+        }
+      } catch (vErr) {
+        log(`Visual check round ${vRound} error: ${vErr.message}`, taskId);
+        visualPassed = true; // Don't block on visual check errors
+        break;
+      }
+    }
+
+    // Update htmlData for CUA if visual fix produced new HTML
+    const finalHtmlData = lastHtmlForVisual;
+    log(`Visual pre-check: ${visualPassed ? 'PASSED' : 'proceeded without pass'}, entering CUA...`, taskId);
+
     // === Step 6: CUA Verification + Auto-Fix Loop ===
     const MAX_CUA_ROUNDS = 20;
+    const SAME_ISSUE_REGEN_THRESHOLD = 3; // 连续 N 轮同一问题 → 全量重生成
     const { runCUAVerification } = require('./worker-cua-verify.js');
     let cuaPassed = false;
-    let lastHtmlData = htmlData;
+    let lastHtmlData = finalHtmlData;
     // lastCsCode already defined in Step 4 (may have been updated by build fix loop)
+    const cuaStartRound = (checkpoint && checkpoint.cuaRound) ? checkpoint.cuaRound + 1 : 1;
+    if (cuaStartRound > 1) {
+      log(`[checkpoint] CUA loop starting from round ${cuaStartRound} (resumed)`, taskId);
+    }
 
-    for (let cuaRound = 1; cuaRound <= MAX_CUA_ROUNDS; cuaRound++) {
+    // Fix history: track what was tried each round to avoid repeating (BUG-0010)
+    const fixHistory = (checkpoint && checkpoint.fixHistory) || [];
+    // Consecutive same-issue tracking (BUG-0007)
+    let consecutiveSameIssue = 0;
+    let lastIssueCategory = null;
+
+    for (let cuaRound = cuaStartRound; cuaRound <= MAX_CUA_ROUNDS; cuaRound++) {
       await reportStatus(taskId, 'processing', { message: `[Linux] CUA verifying... (round ${cuaRound}/${MAX_CUA_ROUNDS})`, previewUrl });
       
       // Write HTML to temp dir for CUA
@@ -407,7 +761,7 @@ async function processTask(task) {
         if (cuaResult.quickTestDetail.codeBug) {
           // Non-black solid = code bug, treat as CUA failure with feedback
           log('CUA: solid color screen (code bug) — objects not visible, feeding back to AI', taskId);
-          await reportStatus(taskId, 'processing', { message: `[Linux] 画面纯色(${cuaResult.quickTestDetail.solidColorDetail?.color || '?'})，对象不可见，AI修复中...` });
+          await reportStatus(taskId, 'processing', { message: `[Linux] 画面纯色(${cuaResult.quickTestDetail.solidColorDetail?.color || '?'})，对象不可见，AI修复中...`, qualityData: { quickTestResult: { passed: false, solidColor: true, color: cuaResult.quickTestDetail.solidColorDetail?.color || '?' } } });
           // Treat as a CUA failure with specific feedback
           cuaResult.issues = [cuaResult.reason || 'Screen is solid color — objects not visible'];
           cuaResult.passed = false;
@@ -424,12 +778,30 @@ async function processTask(task) {
       if (cuaResult.passed || cuaResult.skipped) {
         cuaPassed = true;
         log(`CUA ${cuaResult.skipped ? 'SKIPPED' : 'PASSED'} round ${cuaRound}, total ${((Date.now() - startTime) / 1000).toFixed(0)}s`, taskId);
-        await reportStatus(taskId, 'cua_passed', { message: `[Linux] CUA passed (round ${cuaRound})! Total: ${((Date.now() - startTime) / 1000).toFixed(0)}s`, previewUrl });
+        await reportStatus(taskId, 'cua_passed', { message: `[Linux] CUA passed (round ${cuaRound})! Total: ${((Date.now() - startTime) / 1000).toFixed(0)}s`, previewUrl, qualityData: { cuaResult: { passed: true, round: cuaRound, exitReason: cuaResult.report?.exitReason || 'unknown' }, cuaRetries: cuaRound } });
         break;
       }
 
       log(`CUA FAILED round ${cuaRound}/${MAX_CUA_ROUNDS}: ${cuaResult.issues.length} issues`, taskId);
       cuaResult.issues.forEach(i => log(`  - ${i}`, taskId));
+
+      // --- BUG-0007: Detect consecutive same-issue pattern ---
+      const currentIssueCategory = categorizeIssue(cuaResult);
+      if (currentIssueCategory === lastIssueCategory) {
+        consecutiveSameIssue++;
+      } else {
+        consecutiveSameIssue = 1;
+        lastIssueCategory = currentIssueCategory;
+      }
+
+      if (consecutiveSameIssue >= SAME_ISSUE_REGEN_THRESHOLD) {
+        log(`[strategy] Same issue "${currentIssueCategory}" for ${consecutiveSameIssue} consecutive rounds — switching to FULL_GENERATION`, taskId);
+        // Reset feedbackHistory to force fresh generation
+        blueprint.feedbackHistory = [];
+        consecutiveSameIssue = 0;
+        // Clear the fixHistory so AI gets a clean slate
+        fixHistory.length = 0;
+      }
 
       // Auto-stop: engine not initialized = infrastructure issue
       if (cuaResult.report && cuaResult.report.diagnostics && !cuaResult.report.diagnostics.engineReady) {
@@ -439,7 +811,7 @@ async function processTask(task) {
       }
 
       if (cuaRound >= MAX_CUA_ROUNDS) {
-        await reportStatus(taskId, 'failed', { message: `[Linux] CUA failed after ${MAX_CUA_ROUNDS} rounds` });
+        await reportStatus(taskId, 'failed', { message: `[Linux] CUA failed after ${MAX_CUA_ROUNDS} rounds`, qualityData: { cuaResult: { passed: false, round: MAX_CUA_ROUNDS, issues: cuaResult.issues?.slice(0, 3) || [] }, cuaRetries: MAX_CUA_ROUNDS } });
         break;
       }
 
@@ -464,6 +836,23 @@ async function processTask(task) {
       }
       cuaFeedbackText += '\n\nPlease fix the code to ensure blueprint flow works. Focus on the specific phase/entity that failed.';
 
+      // --- BUG-0010: Append fix history so AI knows what was already tried ---
+      const fixEntry = {
+        round: cuaRound,
+        issueCategory: currentIssueCategory,
+        issues: cuaResult.issues.slice(0, 3),
+        codeLines: lastCsCode ? lastCsCode.split('\n').length : 0
+      };
+      fixHistory.push(fixEntry);
+
+      if (fixHistory.length > 1) {
+        cuaFeedbackText += '\n\n⚠️ 修复历史（之前已尝试的方案，请勿重复）：';
+        for (const h of fixHistory.slice(-5)) { // 最近 5 轮
+          cuaFeedbackText += `\n  Round ${h.round}: ${h.issueCategory} — ${h.issues[0] || 'unknown'}`;
+        }
+        cuaFeedbackText += '\n请尝试与之前不同的修复策略。';
+      }
+
       // Inject feedback into blueprint for INCREMENTAL FIX mode
       if (!blueprint.feedbackHistory) blueprint.feedbackHistory = [];
       blueprint.feedbackHistory.push({
@@ -475,15 +864,27 @@ async function processTask(task) {
 
       // Re-generate code
       const fixTempDir = path.join(require('os').tmpdir(), `linux-fix-${taskId}-r${cuaRound}`);
-      const fixAssetsDir = path.join(fixTempDir, 'Assets', 'Scripts');
+      if (fs.existsSync(fixTempDir)) fs.rmSync(fixTempDir, { recursive: true, force: true });
+
+      // Git clone base template for CUA fix attempt
+      try {
+        const { execSync } = require('child_process');
+        execSync(`git clone --depth 1 ${BASE_TEMPLATE_REPO} "${fixTempDir}"`, { timeout: 60000, stdio: 'pipe' });
+      } catch (cloneFixErr) {
+        log(`CUA fix git clone failed: ${cloneFixErr.message}`, taskId);
+        continue;
+      }
+
+      const fixAssetsDir = path.join(fixTempDir, 'Assets', 'Program', 'Script', 'Manager');
       fs.mkdirSync(fixAssetsDir, { recursive: true });
-      if (fs.existsSync(gfmSrc)) fs.copyFileSync(gfmSrc, path.join(fixAssetsDir, 'GFM_Tools.cs'));
-      // Copy previous code so AI can do incremental fix
+      // Copy previous code so AI can do incremental fix (GFM_Tools.cs already in git repo)
       fs.writeFileSync(path.join(fixAssetsDir, 'GameFlowManagerMain.cs'), lastCsCode);
 
       let fixResult;
       try {
-        fixResult = await generateCodeV5(blueprint, fixTempDir, log, taskId, 'unity');
+        fixResult = USE_CLAUDE_CODE
+          ? await generateWithClaudeCode(blueprint, fixTempDir, log, taskId, 'unity')
+          : await generateCodeV5(blueprint, fixTempDir, log, taskId, 'unity');
       } catch (fixErr) {
         log(`Fix re-code error: ${fixErr.message}`, taskId);
         try { fs.rmSync(fixTempDir, { recursive: true, force: true }); } catch(e) {}
@@ -528,6 +929,15 @@ async function processTask(task) {
       }
       log(`Fix rebuild OK in ${fixBuild.buildTime}s`, taskId);
 
+      // Save checkpoint after successful rebuild (persist best buildable code)
+      saveCheckpoint(taskId, {
+        csCode: lastCsCode,
+        cuaRound: cuaRound,
+        feedbackHistory: blueprint.feedbackHistory,
+        fixHistory: fixHistory
+      });
+      log(`[checkpoint] Saved after CUA round ${cuaRound} rebuild`, taskId);
+
       // Download new HTML
       try {
         lastHtmlData = await buildRequest('/build-html', lastCsCode, fixExtraFiles);
@@ -547,9 +957,14 @@ async function processTask(task) {
     // Cleanup temp dirs
     try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch(e) {}
 
+    // Clear checkpoint — task completed (success or permanent failure)
+    clearCheckpoint(taskId);
+    log(`[checkpoint] Cleared for task ${taskId}`, taskId);
+
   } catch (e) {
     log('Task error: ' + e.message, taskId);
     await reportStatus(taskId, 'failed', { message: '[Linux] Error: ' + e.message.slice(0, 200) });
+    clearCheckpoint(taskId);
   }
 }
 

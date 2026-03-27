@@ -426,7 +426,9 @@ function parseBlueprintToPromptV5(blueprint, opts) {
     lines.push('# CUA 反馈（需修复的问题）');
     for (var fi = 0; fi < opts.feedback.length; fi++) {
       var fb = opts.feedback[fi];
-      lines.push('- ' + (fb.data ? fb.data.text : JSON.stringify(fb)));
+      var roundLabel = fb.source ? (' [' + fb.source + ']') : '';
+      lines.push('## Feedback' + roundLabel);
+      lines.push(fb.data ? fb.data.text : JSON.stringify(fb));
     }
     lines.push('');
   }

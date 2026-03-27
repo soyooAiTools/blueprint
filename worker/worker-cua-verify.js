@@ -382,7 +382,7 @@ async function quickPlayTest(url, taskId, log) {
         await browser.close();
         return {
           ok: false,
-          reason: 'Screen is solid color (' + colorStr + ') with ' + rendererCount + ' renderers loaded. Objects are likely hidden (y=-999), not created, or same color as background. This is a CODE BUG, not a GPU issue.',
+          reason: 'Screen is solid color (' + colorStr + ') with ' + (engineHealth.rendererCount || 0) + ' renderers loaded. Objects are likely hidden (y=-999), not created, or same color as background. This is a CODE BUG, not a GPU issue.',
           loaded: true,
           solidColor: true,
           codeBug: true,
@@ -415,13 +415,79 @@ async function quickPlayTest(url, taskId, log) {
 
   } catch(e) {
     if (browser) try { await browser.close(); } catch(x) {}
-    return { ok: true, reason: 'Quick test error: ' + e.message, loaded: false };
+    log('[QuickTest] Unexpected error (treating as FAIL): ' + e.message, taskId);
+    return { ok: false, reason: 'Quick test error: ' + e.message, loaded: false };
   }
 }
 
 /**
+ * Build phase name lookup: for each blueprint phase, collect all known aliases
+ * (id, name, label, camelCase variants) for fuzzy matching against completedPhases.
+ * Fixes BUG-0008: blueprint phase IDs (English) vs completedPhases (Chinese) mismatch.
+ */
+function buildPhaseAliases(blueprint) {
+  const aliases = new Map(); // phaseId → Set<alias strings>
+  const phaseNodes = (blueprint && blueprint.nodes || []).filter(function(n) { return n.type === 'phaseNode'; });
+  const phases = blueprint && blueprint.phases || [];
+
+  // Collect from phaseNodes
+  for (var i = 0; i < phaseNodes.length; i++) {
+    var n = phaseNodes[i];
+    var d = n.data || {};
+    var id = d.phaseId || n.id;
+    var nameSet = aliases.get(id) || new Set();
+    nameSet.add(id);
+    if (d.name) nameSet.add(d.name);
+    if (d.label) nameSet.add(d.label);
+    if (n.id && n.id !== id) nameSet.add(n.id);
+    aliases.set(id, nameSet);
+  }
+
+  // Collect from phases array
+  for (var j = 0; j < phases.length; j++) {
+    var p = phases[j];
+    var pid = p.id || p.phaseId;
+    if (!pid) continue;
+    var pNameSet = aliases.get(pid) || new Set();
+    pNameSet.add(pid);
+    if (p.name) pNameSet.add(p.name);
+    if (p.label) pNameSet.add(p.label);
+    aliases.set(pid, pNameSet);
+  }
+
+  return aliases;
+}
+
+/**
+ * Check if a phase (by any of its aliases) appears in completedPhases.
+ * Returns { completed: boolean, matchedAlias: string|null }.
+ */
+function isPhaseCompleted(phaseId, aliases, completedPhases) {
+  var nameSet = aliases.get(phaseId);
+  if (!nameSet) {
+    // No aliases known, fall back to direct check
+    return { completed: completedPhases.indexOf(phaseId) !== -1, matchedAlias: completedPhases.indexOf(phaseId) !== -1 ? phaseId : null };
+  }
+  // Exact match pass
+  for (var alias of nameSet) {
+    if (completedPhases.indexOf(alias) !== -1) {
+      return { completed: true, matchedAlias: alias };
+    }
+  }
+  // Case-insensitive and trimmed pass
+  var completedLower = completedPhases.map(function(p) { return (p || '').trim().toLowerCase(); });
+  for (var alias2 of nameSet) {
+    var lowerAlias = (alias2 || '').trim().toLowerCase();
+    if (completedLower.indexOf(lowerAlias) !== -1) {
+      return { completed: true, matchedAlias: alias2 + ' (case-insensitive)' };
+    }
+  }
+  return { completed: false, matchedAlias: null };
+}
+
+/**
  * Run CUA verification on the build output
- * 
+ *
  * @param {string} buildDir - Path to stage4/develop/ build output
  * @param {object} blueprint - Blueprint data with nodes
  * @param {string} taskId - Task/project ID
@@ -616,19 +682,30 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
           });
       }
 
-      // 7. Phase coverage check via __gameState
+      // 7. Phase coverage check via __gameState (BUG-0008: use fuzzy alias matching)
       if (report.gameState) {
         const gs = report.gameState;
         const completedPhases = gs.completedPhases || [];
+        const phaseAliases = buildPhaseAliases(blueprint);
         const phaseNodes = (blueprint && blueprint.nodes || []).filter(function(n) { return n.type === 'phaseNode'; });
         if (phaseNodes.length > 0) {
           const totalPhases = phaseNodes.length;
-          const coveredCount = completedPhases.length;
-          if (coveredCount < totalPhases) {
-            const uncoveredPhases = phaseNodes.filter(function(n) {
-              const phaseName = (n.data || {}).name || n.id;
-              return completedPhases.indexOf(phaseName) === -1 && completedPhases.indexOf(n.id) === -1;
-            });
+          // Count covered using fuzzy alias matching
+          let coveredCount = 0;
+          const uncoveredPhases = phaseNodes.filter(function(n) {
+            const d = n.data || {};
+            const phaseId = d.phaseId || n.id;
+            const result = isPhaseCompleted(phaseId, phaseAliases, completedPhases);
+            if (result.completed) {
+              coveredCount++;
+              if (result.matchedAlias && result.matchedAlias !== phaseId) {
+                log('[CUA] Phase \'' + phaseId + '\' matched via alias \'' + result.matchedAlias + '\'', taskId);
+              }
+              return false;
+            }
+            return true;
+          });
+          if (uncoveredPhases.length > 0) {
             const details = uncoveredPhases.map(function(n) {
               const d = n.data || {};
               return (d.name || n.id) + ' (trigger: ' + (d.triggerCondition || 'none') + ')';
@@ -665,27 +742,44 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
           }
         }
 
-        // Phase skip detection — all intermediate phases must appear in completedPhases
-        const REQUIRED_PHASES = [
-          'buildConveyor', 'crossbowDefense', 'buildWoodHouse', 'recruitWorker',
-          'autoProduction', 'buildTurret', 'defendBase', 'fightBoss', 'upgradeBase'
-        ];
-        // Also check Chinese phase names
-        const REQUIRED_PHASES_CN = [
-          '建造传送带', '弩炮防御', '修建木屋', '招募工人',
-          '自动生产', '建造炮塔', '守护基地', '抵御进攻', '迎战Boss', '升级主城'
-        ];
-        const allCompleted = completedPhases;
-        const skippedPhases = REQUIRED_PHASES.filter(function(p) {
-          return allCompleted.indexOf(p) === -1;
-        });
-        const skippedPhasesCN = REQUIRED_PHASES_CN.filter(function(p) {
-          return allCompleted.indexOf(p) === -1;
-        });
-        // Use whichever language has fewer skips (code may use either)
-        const skipped = skippedPhases.length <= skippedPhasesCN.length ? skippedPhases : skippedPhasesCN;
-        if (skipped.length > 0 && allCompleted.length > 0) {
-          issues.push('[phase-skipped] Phases were skipped (never completed): ' + skipped.join(', ') + '. Total completed: ' + allCompleted.length + '/' + (REQUIRED_PHASES.length) + '. This usually means game balance is broken — auto-shooting or auto-progression bypassed intermediate phases.');
+        // Phase skip detection — use blueprint-derived aliases for fuzzy matching (BUG-0008)
+        // If blueprint has phaseNodes, derive required phases from there
+        if (phaseAliases.size > 0) {
+          const skippedFromBlueprint = [];
+          for (var _entry of phaseAliases) {
+            var _phaseId = _entry[0];
+            var _result = isPhaseCompleted(_phaseId, phaseAliases, completedPhases);
+            if (!_result.completed) {
+              skippedFromBlueprint.push(_phaseId);
+            } else if (_result.matchedAlias && _result.matchedAlias !== _phaseId) {
+              log('[CUA] Phase \'' + _phaseId + '\' matched via alias \'' + _result.matchedAlias + '\'', taskId);
+            }
+          }
+          if (skippedFromBlueprint.length > 0 && completedPhases.length > 0) {
+            issues.push('[phase-skipped] Phases were skipped (never completed): ' + skippedFromBlueprint.join(', ') + '. Total completed: ' + completedPhases.length + '/' + phaseAliases.size + '. This usually means game balance is broken — auto-shooting or auto-progression bypassed intermediate phases.');
+          }
+        } else {
+          // Fallback: hardcoded REQUIRED_PHASES when blueprint has no phase info
+          const REQUIRED_PHASES = [
+            'buildConveyor', 'crossbowDefense', 'buildWoodHouse', 'recruitWorker',
+            'autoProduction', 'buildTurret', 'defendBase', 'fightBoss', 'upgradeBase'
+          ];
+          const REQUIRED_PHASES_CN = [
+            '建造传送带', '弩炮防御', '修建木屋', '招募工人',
+            '自动生产', '建造炮塔', '守护基地', '抵御进攻', '迎战Boss', '升级主城'
+          ];
+          const allCompleted = completedPhases;
+          const skippedPhases = REQUIRED_PHASES.filter(function(p) {
+            return allCompleted.indexOf(p) === -1;
+          });
+          const skippedPhasesCN = REQUIRED_PHASES_CN.filter(function(p) {
+            return allCompleted.indexOf(p) === -1;
+          });
+          // Use whichever language has fewer skips (code may use either)
+          const skipped = skippedPhases.length <= skippedPhasesCN.length ? skippedPhases : skippedPhasesCN;
+          if (skipped.length > 0 && allCompleted.length > 0) {
+            issues.push('[phase-skipped] Phases were skipped (never completed): ' + skipped.join(', ') + '. Total completed: ' + allCompleted.length + '/' + (REQUIRED_PHASES.length) + '. This usually means game balance is broken — auto-shooting or auto-progression bypassed intermediate phases.');
+          }
         }
       } else if (!isV4 || (blueprint && blueprint.nodes && blueprint.nodes.some(function(n) { return n.type === 'phaseNode'; }))) {
         // No __gameState available — note it as a soft issue
@@ -700,10 +794,30 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
         const gs = report.gameState;
         log('[CUA] Spec validation: ' + specs.length + ' phase specs loaded', taskId);
 
-        // Check: all spec phases completed
+        // Check: all spec phases completed (BUG-0008: use fuzzy alias matching)
         const specPhaseIds = specs.map(s => s.phaseId);
         const completed = gs.completedPhases || [];
-        const specSkipped = specPhaseIds.filter(id => completed.indexOf(id) === -1);
+        // Build aliases for spec phases too (merge with blueprint aliases)
+        const specAliases = buildPhaseAliases(blueprint);
+        // Also add spec-specific aliases (specs may have names not in blueprint)
+        for (var spi = 0; spi < specs.length; spi++) {
+          var spec = specs[spi];
+          var spId = spec.phaseId;
+          if (spId) {
+            var spNameSet = specAliases.get(spId) || new Set();
+            spNameSet.add(spId);
+            if (spec.name) spNameSet.add(spec.name);
+            if (spec.label) spNameSet.add(spec.label);
+            specAliases.set(spId, spNameSet);
+          }
+        }
+        const specSkipped = specPhaseIds.filter(function(id) {
+          var result = isPhaseCompleted(id, specAliases, completed);
+          if (result.completed && result.matchedAlias && result.matchedAlias !== id) {
+            log('[CUA] Spec phase \'' + id + '\' matched via alias \'' + result.matchedAlias + '\'', taskId);
+          }
+          return !result.completed;
+        });
         if (specSkipped.length > 0 && completed.length > 0) {
           issues.push('[spec-phase-skipped] Spec phases not completed: ' + specSkipped.join(', ') + '. Game balance likely broken — phases were bypassed.');
         }
@@ -750,9 +864,20 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       }
 
       // Pass criteria: ALL shots covered + CTA reachable + game content visible + no critical issues
-      const passed = issues.length === 0;
+      // Timeout/max_rounds without meaningful interaction = NOT a pass
+      const exitReason = report.exitReason || 'unknown';
+      let passed;
+      if (exitReason === 'max_rounds' && (!report.totalRounds || report.totalRounds <= 1)) {
+        // max_rounds with ≤1 round means timeout killed the agent before it could do anything
+        passed = false;
+        if (issues.length === 0) {
+          issues.push('[timeout] CUA agent timed out (exit: max_rounds) without completing verification');
+        }
+      } else {
+        passed = issues.length === 0;
+      }
 
-      log('[CUA] Issues: ' + issues.length + ', Pass: ' + passed + ', ExitReason: ' + (report.exitReason || 'unknown'), taskId);
+      log('[CUA] Issues: ' + issues.length + ', Pass: ' + passed + ', ExitReason: ' + exitReason, taskId);
 
       resolve({ passed, issues, report, skipped: false });
     });
