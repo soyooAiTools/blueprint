@@ -1,10 +1,14 @@
 /**
  * Linux Bridge Build — Luna C#→JS→HTML on Linux (Mono 6.12 + msbuild)
- * 
+ *
  * Minimal implementation:
  *   Input:  C# source code (GameFlowManagerMain.cs)
  *   Output: Single HTML file (playable ad)
- * 
+ *
+ * Base template: git clone https://github.com/soyooAiTools/luna-base-template.git
+ * The worker (linux-worker-client.js) clones the base Unity project per task,
+ * AI generates code into Assets/Program/Script/Manager/, then this module compiles it.
+ *
  * Prerequisites on Linux:
  *   - Mono 6.12+ (msbuild 16.6.0)
  *   - Node.js 20+
@@ -484,15 +488,64 @@ window.addEventListener("luna:starting", function() {
 });
 window.addEventListener("luna:started", function() {
   try {
+    // Patch GFM_Create.SetColor BEFORE Start() so we capture all color assignments
+    var __poolColorCache = {};
+    window.__poolColorCache = __poolColorCache;
+    if (typeof GFM_Create !== 'undefined' && GFM_Create.SetColor) {
+      var origSetColor = GFM_Create.SetColor;
+      GFM_Create.SetColor = function(obj, color) {
+        origSetColor.apply(this, arguments);
+        try {
+          if (obj && !UnityEngine.GameObject.op_Equality(obj, null)) {
+            var name = obj.name;
+            if (name && name.indexOf && name.indexOf("__Pool_") === 0) {
+              __poolColorCache[name] = [color.r, color.g, color.b, color.a || 1];
+            }
+          }
+        } catch(e) {}
+      };
+      console.log("[AI] GFM_Create.SetColor patched BEFORE Start()");
+    }
     var go = new UnityEngine.GameObject.ctor("GameManager");
     var comp = go.AddComponent(${className});
     if (comp && comp.Start) { try { comp.Start(); } catch(se) { console.error("[AI] Start() error:", se); } }
+    console.log("[AI] After Start(): " + Object.keys(__poolColorCache).length + " pool colors captured");
     // Apply color override on next animation frame (before first render)
     requestAnimationFrame(function() { if (window.__applyColors) window.__applyColors(); });
     // Post-Start fixes using PlayCanvas native API
     (function() {
       var pcApp = window.app && window.app.app;
       if (!pcApp || !pcApp.root) return;
+      
+      // 0. Fix null shaders (MUST run before color override)
+      function fixNullShaders() {
+        try {
+          var fixShader = UnityEngine.Shader.Find("Universal Render Pipeline/Lit") || UnityEngine.Shader.Find("Standard");
+          if (fixShader) {
+            if (typeof GFM_Create !== 'undefined' && GFM_Create._baseMat && !GFM_Create._baseMat.shader) {
+              GFM_Create._baseMat = new UnityEngine.Material.$ctor2(fixShader);
+              GFM_Create._baseMat.color = new pc.Color(1, 1, 1, 1);
+              console.log("[AI] Fixed GFM_Create._baseMat shader");
+            }
+            var allRoots = UnityEngine.SceneManagement.SceneManager.GetActiveScene().getRootGameObjects();
+            var shaderFixed = 0;
+            for (var ri = 0; ri < allRoots.length; ri++) {
+              var rObj = allRoots[ri];
+              var rr = rObj.GetComponent(UnityEngine.MeshRenderer);
+              if (rr && UnityEngine.Component.op_Inequality(rr, null) && rr.material && !rr.material.shader) {
+                var origColor = rr.material.color || new pc.Color(1, 1, 1, 1);
+                var fixMat = new UnityEngine.Material.$ctor2(fixShader);
+                fixMat.color = new pc.Color(origColor.r, origColor.g, origColor.b, origColor.a || 1);
+                rr.material = fixMat;
+                shaderFixed++;
+              }
+            }
+            if (shaderFixed > 0) console.log("[AI] Fixed " + shaderFixed + " materials with URP/Lit shader");
+          }
+        } catch(shErr) { console.error("[AI] Shader fix error:", shErr); }
+      }
+      setTimeout(fixNullShaders, 2000);
+      setTimeout(fixNullShaders, 5000);
       
       // 1. Always create camera + light (scene ones don't survive Start clean-up)
       console.log("[AI] Creating PlayCanvas camera + light");
@@ -508,6 +561,33 @@ window.addEventListener("luna:started", function() {
       });
       camEnt.setPosition(0, 15, -8);
       camEnt.setEulerAngles(55, 0, 0);
+      // Sync AI_Camera with AI code's Camera.main settings after Start()
+      setTimeout(function() {
+        try {
+          var mainCam = UnityEngine.Camera.main;
+          if (mainCam) {
+            var t = mainCam.transform;
+            if (t) {
+              var p = t.position;
+              if (p) camEnt.setPosition(p.x, p.y, p.z);
+              var euler = t.eulerAngles;
+              if (euler) camEnt.setEulerAngles(euler.x, euler.y, euler.z);
+            }
+            // Sync ortho/perspective
+            if (mainCam.orthographic) {
+              camEnt.camera.projection = 1; // ortho
+              camEnt.camera.orthoHeight = mainCam.orthographicSize;
+            } else {
+              camEnt.camera.projection = 0; // perspective
+              if (mainCam.fieldOfView) camEnt.camera.fov = mainCam.fieldOfView;
+            }
+            // Sync clear color
+            var bg = mainCam.backgroundColor;
+            if (bg) camEnt.camera.clearColor = new pc.Color(bg.r, bg.g, bg.b, bg.a || 1);
+            console.log("[AI] Camera synced: ortho=" + mainCam.orthographicSize + " bg=" + (bg ? bg.r.toFixed(2)+","+bg.g.toFixed(2)+","+bg.b.toFixed(2) : "?"));
+          }
+        } catch(camErr) { console.error("[AI] Camera sync error:", camErr); }
+      }, 500);
       var lightEnt = new pc.Entity("AI_Light");
       pcApp.root.addChild(lightEnt);
       lightEnt.addComponent("light", {
@@ -516,8 +596,39 @@ window.addEventListener("luna:started", function() {
         intensity: 1.0
       });
       lightEnt.setEulerAngles(50, -30, 0);
-      
+
+      // 1.5 Hide all __BaseTemplate children (named objects like Ground, Archer_1 etc)
+      // These overlap with __Pool_* objects and cause visual interference (e.g. green screen from Ground entity)
+      (function hideBaseTemplate() {
+        try {
+          function findByName(entity, name) {
+            if (entity.name === name) return entity;
+            if (entity.children) {
+              for (var i = 0; i < entity.children.length; i++) {
+                var found = findByName(entity.children[i], name);
+                if (found) return found;
+              }
+            }
+            return null;
+          }
+          var base = findByName(pcApp.root, '__BaseTemplate');
+          if (base && base.children) {
+            var hidden = 0;
+            for (var i = 0; i < base.children.length; i++) {
+              var child = base.children[i];
+              if (child.setPosition) {
+                child.setPosition(0, -9999, 0);
+                hidden++;
+              }
+            }
+            console.log("[AI] Hidden " + hidden + " __BaseTemplate children to prevent overlap");
+          }
+        } catch(e) { console.error("[AI] hideBaseTemplate error:", e); }
+      })();
+
       // 2. Continuous material color override (GFM Update keeps resetting colors)
+      // poolColorCache is populated by the pre-Start() monkey-patch above (window.__poolColorCache)
+      var poolColorCache = window.__poolColorCache || {};
       var colorRules = [
         [/^Ground$/,         [0.25, 0.55, 0.18, 1]],  // green grass
         [/^Base$|^Castle$/,  [0.75, 0.55, 0.35, 1]],  // tan/sandstone
@@ -549,6 +660,24 @@ window.addEventListener("luna:started", function() {
         nameColorCache[name] = null;
         return null;
       }
+      // Find a reference material from __BaseTemplate children (Luna-exported shader that works)
+      var refMat = null;
+      (function findRefMaterial() {
+        var mis = pcApp.scene._meshInstances || [];
+        for (var i = 0; i < mis.length; i++) {
+          var n = mis[i].node ? mis[i].node.name : '';
+          // Find any __BaseTemplate child material (not __Pool, not system objects)
+          if (n && n.indexOf('__Pool') === -1 && n.indexOf('__') !== 0 && n.indexOf('AI_') === -1
+              && n !== 'Main Camera' && n !== 'Directional Light' && n !== 'EventSystem' && n !== 'GameManager'
+              && mis[i].material && mis[i].material.clone) {
+            refMat = mis[i].material;
+            console.log("[AI] Reference material found from: " + n);
+            break;
+          }
+        }
+      })();
+      var poolMatCache = {}; // name -> cloned material (one per pool object)
+      var poolMatApplied = 0;
       function applyColors() {
         var mis = pcApp.scene._meshInstances || [];
         for (var i = 0; i < mis.length; i++) {
@@ -558,6 +687,25 @@ window.addEventListener("luna:started", function() {
           if (col) {
             mi.material.setParameter("_Color", col);
             mi.material.setParameter("_BaseColor", col);
+          } else if (mi.node.name && mi.node.name.indexOf("__Pool_") === 0) {
+            var cached = poolColorCache[mi.node.name];
+            if (cached && refMat) {
+              // Clone reference material once per pool object, then just update _Color
+              if (!poolMatCache[mi.node.name]) {
+                poolMatCache[mi.node.name] = refMat.clone();
+                poolMatCache[mi.node.name].name = 'pool_' + mi.node.name;
+              }
+              mi.material = poolMatCache[mi.node.name];
+              mi.material.setParameter("_Color", cached);
+              mi.material.setParameter("_BaseColor", cached);
+              poolMatApplied++;
+            }
+          }
+        }
+        if (poolMatApplied > 0 && poolMatApplied <= 200) {
+          // Log once after first significant application
+          if (poolMatApplied === Object.keys(poolColorCache).length || poolMatApplied % 90 === 0) {
+            console.log("[AI] Pool materials applied: " + poolMatApplied + " cache: " + Object.keys(poolColorCache).length);
           }
         }
         // Ensure light exists

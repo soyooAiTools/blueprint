@@ -44,7 +44,11 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
 .badge.pending, .badge.retry_pending, .badge.editing { background: #d2992233; color: #d29922; }
 .badge.failed, .badge.error, .badge.down, .badge.offline { background: #f8514933; color: #f85149; }
 .badge.cancelled { background: #48484822; color: #888; }
-.badge.feedback { background: #bc8cff22; color: #bc8cff; }
+.badge.feedback, .badge.review_pass, .badge.review_fail { background: #bc8cff22; color: #bc8cff; }
+.badge.quicktest_pass { background: #3fb95022; color: #3fb950; }
+.badge.quicktest_fail { background: #f8514933; color: #f85149; }
+.badge.cua_pass { background: #3fb95022; color: #3fb950; }
+.badge.cua_fail { background: #f8514933; color: #f85149; }
 .badge.unknown { background: #484f5833; color: #8b949e; }
 .empty { text-align: center; padding: 32px; color: #484f58; font-size: 13px; }
 .refresh-info { font-size: 11px; color: #484f58; text-align: right; margin-top: 8px; }
@@ -97,6 +101,7 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
   <div class="tab" data-panel="workers">Workers</div>
   <div class="tab" data-panel="tasks">任务队列</div>
   <div class="tab" data-panel="live">实时动态</div>
+  <div class="tab" data-panel="quality">质量关卡</div>
   <div class="tab" data-panel="parse">解析统计</div>
 </div>
 <div class="content">
@@ -142,6 +147,14 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
   <div class="panel" id="live">
     <div id="liveTimelines"></div>
     <div class="refresh-info">每 5 秒自动刷新</div>
+  </div>
+  <!-- Quality Gates -->
+  <div class="panel" id="quality">
+    <div class="grid grid-4" id="qualityStats"></div>
+    <div class="card" style="margin-top:16px;">
+      <h3>任务质量明细</h3>
+      <div id="qualityDetail"></div>
+    </div>
   </div>
   <!-- Parse Stats -->
   <div class="panel" id="parse">
@@ -258,10 +271,18 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
     // Recent tasks
     var rt = stats.recentTasks || [];
     document.getElementById('recentTasks').innerHTML = tableHTML(
-      ['项目', '状态', '消息', '预览', 'Worker', '更新时间'],
+      ['项目', '状态', '质量', '消息', '预览', 'Worker', '更新时间'],
       rt.slice(0, 5).map(function(t) {
         var preview = t.previewUrl ? '<a href="' + t.previewUrl + '" target="_blank" style="color:#58a6ff;">▶ 预览</a>' : '-';
-        return [t.projectName, badge(t.status), (t.statusMessage || '').slice(0, 80), preview, t.workerId || '-', ago(t.updatedAt)];
+        var qIcons = '';
+        if (t.reviewResult === 'pass') qIcons += '📋✅';
+        else if (t.reviewResult === 'fail') qIcons += '📋❌';
+        if (t.quickTestResult === 'pass') qIcons += '🔍✅';
+        else if (t.quickTestResult === 'fail') qIcons += '🔍❌';
+        if (t.cuaResult === 'pass') qIcons += '🤖✅';
+        else if (t.cuaResult === 'fail') qIcons += '🤖❌';
+        if (!qIcons) qIcons = '-';
+        return [t.projectName, badge(t.status), qIcons, (t.statusMessage || '').slice(0, 80), preview, t.workerId || '-', ago(t.updatedAt)];
       })
     );
 
@@ -273,7 +294,10 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       var statusIcons = {
         'pending': '⏳', 'assigned': '📋', 'processing': '🔧', 'building': '🔨',
         'built': '✅', 'cua_verifying': '🤖', 'completed': '🎉', 'failed': '❌',
-        'developing': '💻', 'uploading': '📤'
+        'developing': '💻', 'uploading': '📤',
+        'code_review_pass': '📋✅', 'code_review_fail': '📋❌',
+        'quicktest_fail': '🔍❌', 'quicktest_pass': '🔍✅',
+        'cua_passed': '🤖✅', 'cua_failed': '🤖❌'
       };
       pipelineHTML = '<div style="display:flex;flex-direction:column;gap:6px;">';
       pipelineHTML += '<div style="color:#8b949e;font-size:13px;margin-bottom:4px;">项目: <span style="color:#58a6ff;font-weight:600;">' + activeTask.projectName + '</span> — ' + badge(activeTask.status) + '</div>';
@@ -296,6 +320,41 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       pipelineHTML = '<div class="empty">暂无链路日志</div>';
     }
     document.getElementById('pipelineLog').innerHTML = pipelineHTML;
+
+    // ========== Quality Gates ==========
+    var q = stats.quality || {};
+    var reviewTotal = (q.reviewPassed || 0) + (q.reviewFailed || 0);
+    var reviewRate = reviewTotal > 0 ? Math.round(q.reviewPassed / reviewTotal * 100) : 0;
+    var qtTotal = (q.quickTestPassed || 0) + (q.quickTestFailed || 0);
+    var qtRate = qtTotal > 0 ? Math.round(q.quickTestPassed / qtTotal * 100) : 0;
+    var cuaTotal = (q.cuaPassed || 0) + (q.cuaFailed || 0);
+    var cuaRate = cuaTotal > 0 ? Math.round(q.cuaPassed / cuaTotal * 100) : 0;
+    var qs = '';
+    qs += statCard(reviewRate + '%', '代码审查通过率', reviewRate >= 80 ? 'green' : reviewRate >= 50 ? 'yellow' : 'red', '通过 ' + (q.reviewPassed || 0) + ' / 失败 ' + (q.reviewFailed || 0));
+    qs += statCard(qtRate + '%', 'QuickTest 通过率', qtRate >= 80 ? 'green' : qtRate >= 50 ? 'yellow' : 'red', '通过 ' + (q.quickTestPassed || 0) + ' / 失败 ' + (q.quickTestFailed || 0));
+    qs += statCard(cuaRate + '%', 'CUA 验证通过率', cuaRate >= 80 ? 'green' : cuaRate >= 50 ? 'yellow' : 'red', '通过 ' + (q.cuaPassed || 0) + ' / 失败 ' + (q.cuaFailed || 0));
+    qs += statCard(q.avgCuaRounds || 0, '平均 CUA 轮数', (q.avgCuaRounds || 0) <= 2 ? 'green' : (q.avgCuaRounds || 0) <= 4 ? 'yellow' : 'red');
+    document.getElementById('qualityStats').innerHTML = qs;
+
+    // Quality detail table
+    var qualityRows = rt.filter(function(t) { return t.reviewResult || t.quickTestResult || t.cuaResult; });
+    if (qualityRows.length === 0) {
+      document.getElementById('qualityDetail').innerHTML = '<div class="empty">暂无质量数据（任务完成后将自动显示）</div>';
+    } else {
+      document.getElementById('qualityDetail').innerHTML = tableHTML(
+        ['项目', '审查', 'QuickTest', 'CUA', 'CUA轮数', '问题'],
+        qualityRows.map(function(t) {
+          var reviewBadge = t.reviewResult ? badge(t.reviewResult === 'pass' ? 'review_pass' : 'review_fail').replace('>' + (t.reviewResult === 'pass' ? 'review_pass' : 'review_fail') + '<', '>' + (t.reviewResult === 'pass' ? '✅ 通过' : '❌ 未通过') + '<') : '<span style="color:#484f58;">-</span>';
+          var qtBadge = t.quickTestResult ? badge(t.quickTestResult === 'pass' ? 'quicktest_pass' : 'quicktest_fail').replace('>' + (t.quickTestResult === 'pass' ? 'quicktest_pass' : 'quicktest_fail') + '<', '>' + (t.quickTestResult === 'pass' ? '✅ 通过' : '❌ 未通过') + '<') : '<span style="color:#484f58;">-</span>';
+          var cuaBadge = t.cuaResult ? badge(t.cuaResult === 'pass' ? 'cua_pass' : 'cua_fail').replace('>' + (t.cuaResult === 'pass' ? 'cua_pass' : 'cua_fail') + '<', '>' + (t.cuaResult === 'pass' ? '✅ 通过' : '❌ 未通过') + '<') : '<span style="color:#484f58;">-</span>';
+          var issues = [];
+          if (t.reviewResult === 'fail') issues.push('代码审查未通过');
+          if (t.quickTestResult === 'fail') issues.push('纯色检测异常');
+          if (t.cuaResult === 'fail') issues.push('CUA 验证失败');
+          return [t.projectName, reviewBadge, qtBadge, cuaBadge, t.cuaRetries || '-', issues.length > 0 ? '<span style="color:#f85149;">' + issues.join('; ') + '</span>' : '<span style="color:#3fb950;">全部通过</span>'];
+        })
+      );
+    }
 
     // ========== Workers ==========
     var ws = '';
