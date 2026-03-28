@@ -1,6 +1,6 @@
 # Video-to-Blueprint Design Spec
 
-> 从游戏视频中提取流程逻辑，直接生成 V3 蓝图 JSON，跳过分镜确认步骤。
+> 从游戏视频中提取流程逻辑，直接生成蓝图 JSON（nodes + edges + objectRegistry），跳过分镜确认步骤。
 
 ## 背景
 
@@ -47,22 +47,25 @@
 │          - 非 mp4 → 转码为 mp4                       │
 │          - 提取 ~8 张均匀配图帧 → frames/            │
 │  Step 2: Gemini 2.5 Pro 视频理解                     │
-│          - File API 上传视频                         │
+│          - @google/genai File API 上传视频           │
+│          - 通过 Gemini relay proxy 上传              │
 │          - 轮询 file.state === "ACTIVE"              │
 │          - Prompt 三步引导 → 输出蓝图 JSON            │
 │          - responseSchema 强制 JSON 格式             │
 │  Step 3: 校验 + 修补                                 │
 │          - objectRegistry 物件名去重                  │
-│          - shape 限定 Cube|Sphere|Cylinder|Plane|    │
-│            Ground|UI                                 │
-│          - shotNodes 数量 8-12 个                    │
-│          - 最后 shotNode 强制注入 CTA                │
-│          - shotNode id 格式 shot_0, shot_1...        │
-│  Output: 完整 blueprint JSON (V3 格式)               │
+│          - shape 限定 Cube|Sphere|Cylinder|Ground|UI │
+│          - shotNode 类型节点数量 8-12 个              │
+│          - 最后一个 shotNode 强制注入 CTA             │
+│          - 节点 id 格式 shot_0, shot_1...            │
+│          - 自动生成节点 position (x: 300*i, y: 200)  │
+│          - 自动生成 edges 连接相邻节点               │
+│  Output: 完整 blueprint JSON                         │
+│          { nodes, edges, objectRegistry }             │
 └──────────────┬──────────────────────────────────────┘
                │
                ▼
-        现有 V5 流水线 (skeleton → AI编码 → 构建 → CUA)
+        现有构建流水线 (parseBlueprintToPrompt → AI编码 → 构建 → CUA)
 ```
 
 **与现有流程的关系：**
@@ -72,7 +75,70 @@
                                          (跳过分镜)
 ```
 
-两条路最终汇入同一个蓝图编辑器和 V5 构建流水线。
+两条路最终汇入同一个蓝图编辑器和 V3 构建流水线（`parseBlueprintToPrompt` 路径）。
+
+## 蓝图输出格式
+
+输出为 V3 图结构格式（nodes + edges），与现有蓝图编辑器和 `parseBlueprintToPrompt` 完全兼容：
+
+```json
+{
+  "objectRegistry": [
+    {
+      "name": "Player",
+      "shape": "Cube",
+      "scale": [1, 2, 1],
+      "color": "blue",
+      "rgb": "#0000FF",
+      "initiallyVisible": true,
+      "firstStep": 0
+    }
+  ],
+  "nodes": [
+    {
+      "id": "shot_0",
+      "type": "shotNode",
+      "position": { "x": 0, "y": 200 },
+      "data": {
+        "label": "Opening",
+        "description": "Player enters the scene",
+        "sceneObjects": [
+          {
+            "name": "Player",
+            "position": [0, 1, 0],
+            "visible": true,
+            "actions": ["idle"]
+          }
+        ],
+        "inputType": "none",
+        "triggerChain": [
+          {
+            "event": "start",
+            "actions": [
+              { "type": "show", "target": "Player" }
+            ]
+          }
+        ],
+        "endCondition": {
+          "type": "time",
+          "value": 3,
+          "description": "Wait 3 seconds"
+        }
+      }
+    }
+  ],
+  "edges": [
+    { "id": "e_0_1", "source": "shot_0", "target": "shot_1" }
+  ]
+}
+```
+
+**关键约束：**
+- nodes 中 `type: 'shotNode'` 的节点数量: 8-12 个
+- 最后一个 shotNode 的 triggerChain 必须包含 `GameEnded()` + `InstallFullGame()`
+- objectRegistry shape 限定: `Cube | Sphere | Cylinder | Ground | UI`（对齐 V4 schema 和对象池）
+- edges 按顺序连接相邻 shotNode
+- position 自动生成，便于编辑器布局
 
 ## Gemini Prompt 设计
 
@@ -88,37 +154,50 @@
 - 识别触发条件 (碰撞、时间、点击、距离)
 
 **Step 3: 结构化 — "输出蓝图"**
-- 按 V3 schema 输出 JSON
+- 按 nodes + edges + objectRegistry 格式输出 JSON
 - objectRegistry: 所有物件 (shape 限定对象池可用类型)
-- shotNodes: 每个阶段的 sceneObjects + triggerChain + endCondition
-- 数量约束: 8-12 个 shotNodes
+- 每个 shotNode: data 中包含 sceneObjects + triggerChain + endCondition
+- 数量约束: 8-12 个 shotNode 节点
 
-**输出约束：**
-- `responseMimeType: 'application/json'` + `responseSchema` 强制格式
-- objectRegistry 中 shape 限定: `Cube | Sphere | Cylinder | Plane | Ground | UI`
-- 最后一个 shotNode 强制包含:
-  - `Luna.Unity.LifeCycle.GameEnded()`
-  - `Luna.Unity.Playable.InstallFullGame()`
-- shotNode id 格式: `shot_0`, `shot_1`, ...
-
-**Gemini 调用方式：**
+**Gemini 调用方式（使用 @google/genai SDK，通过 relay proxy）：**
 ```javascript
-const file = await fileManager.uploadFile(videoPath, { mimeType: 'video/mp4' });
-await waitForFileActive(file);
+const { GoogleGenAI } = require('@google/genai');
+const ai = new GoogleGenAI({
+  apiKey: process.env.GOOGLE_GEMINI_API_KEY,
+  httpOptions: { baseUrl: process.env.GOOGLE_GEMINI_BASE_URL }
+});
 
-const result = await model.generateContent({
+// 上传视频 (File API)
+const uploaded = await ai.files.upload({
+  file: videoPath,
+  config: { mimeType: 'video/mp4' }
+});
+
+// 轮询等待处理完成
+let file = uploaded;
+while (file.state === 'PROCESSING') {
+  await new Promise(r => setTimeout(r, 2000));
+  file = await ai.files.get({ name: file.name });
+}
+if (file.state !== 'ACTIVE') throw new Error('Video upload failed: ' + file.state);
+
+// 视频理解 + 蓝图生成
+const result = await ai.models.generateContent({
+  model: 'gemini-2.5-pro',
   contents: [{
     parts: [
       { fileData: { fileUri: file.uri, mimeType: 'video/mp4' } },
       { text: BLUEPRINT_EXTRACTION_PROMPT }
     ]
   }],
-  generationConfig: {
+  config: {
     responseMimeType: 'application/json',
     responseSchema: BLUEPRINT_SCHEMA
   }
 });
 ```
+
+**注意：** 必须使用 `GOOGLE_GEMINI_BASE_URL`（relay proxy），与 `storyboard-parser.cjs` 和 `spec-extractor.cjs` 一致。需确认 relay 支持 20MB 视频上传。
 
 ## API 接口
 
@@ -127,22 +206,15 @@ POST /api/projects/:id/parse-video
   Content-Type: multipart/form-data
   Body: { video: File (mp4/mov/webm, max 20MB) }
 
-  Response (SSE):
-    event: status
-    data: {"step": "uploading", "message": "视频上传中..."}
-
-    event: status
-    data: {"step": "preprocessing", "message": "FFmpeg 预处理..."}
-
-    event: status
-    data: {"step": "analyzing", "message": "Gemini 视频分析中..."}
-
-    event: status
-    data: {"step": "validating", "message": "蓝图校验修补..."}
-
-    event: complete
-    data: {"blueprint": {...}, "frames": ["frame_1.jpg", ...]}
+  Response (SSE, 与 parse-storyboard 格式一致):
+    data: {"type": "progress", "percent": 10, "stage": "视频上传中..."}
+    data: {"type": "progress", "percent": 30, "stage": "FFmpeg 预处理..."}
+    data: {"type": "progress", "percent": 50, "stage": "Gemini 视频分析中..."}
+    data: {"type": "progress", "percent": 80, "stage": "蓝图校验修补..."}
+    data: {"type": "done", "data": {"blueprint": {...}, "frames": ["frame_1.jpg", ...]}}
 ```
+
+SSE 格式对齐现有 `parseStoryboard` 端点的 `{type, percent, stage}` 模式，前端可复用现有进度组件。
 
 ## 文件改动清单
 
@@ -152,30 +224,30 @@ POST /api/projects/:id/parse-video
 
 **改动文件（1 个）：**
 - `server.cjs` — 新增 `POST /api/projects/:id/parse-video` 路由，~60-80 行
-  - multer 接收视频 (max 20MB)
+  - busboy 接收视频 (max 20MB)，与现有 parseStoryboard 上传模式一致
   - FFmpeg 预处理 (截断/转码/抽帧)
   - 调用 video-to-blueprint.cjs
   - SSE 流式返回
 
 **依赖：**
 - FFmpeg — 系统级，`apt install ffmpeg`（主 ECS 可能已有）
-- `@google/generative-ai` — 已有，复用
+- `@google/genai` — 已有，复用（storyboard-parser.cjs 同款）
 
 **不改动：**
-- worker-coder.js — 蓝图格式不变
+- worker-coder.js — 蓝图格式不变，走 V3 `parseBlueprintToPrompt` 路径
 - skeleton-generator.cjs — 照常从蓝图生成骨架
-- 前端蓝图编辑器 — 格式一致，直接可编辑
+- 前端蓝图编辑器 — nodes/edges 格式一致，直接可编辑
 - CUA 验证 — 不受影响
 
 ## 边界条件与约束
 
 | 约束 | 值 | 处理 |
 |------|-----|------|
-| 文件大小 | max 20MB | multer 限制，超出返回 413 |
+| 文件大小 | max 20MB | busboy 限制，超出返回 413 |
 | 时长 | max 60s | FFmpeg 截取前 60s |
 | 格式 | mp4/mov/webm | FFmpeg 统一转码为 mp4 |
 | 分辨率 | 不限 | Gemini 自行处理 |
-| shotNodes 数量 | 8-12 | prompt 硬约束，不足则重试 |
+| shotNode 节点数量 | 8-12 | prompt 硬约束，不足则重试 |
 | objectRegistry 为空 | — | 报错，要求换视频或补充文字 |
 
 ## 失败处理
@@ -183,8 +255,8 @@ POST /api/projects/:id/parse-video
 | 场景 | 策略 |
 |------|------|
 | Gemini JSON 输出不合法 | 重试 1 次（temperature 0.2 → 0.5） |
-| Gemini 视频上传失败 | 回退关键帧模式：FFmpeg 抽 8 帧 → 图片模式逐帧分析 → 合并 |
-| shotNodes < 8 | prompt 硬约束 + 重试 |
+| Gemini 视频上传失败 | 返回错误，要求用户重试或换视频 |
+| shotNode 节点 < 8 | prompt 硬约束 + 重试 1 次 |
 | 识别物件 < 3 | 报错，要求用户换视频或补充文字描述 |
 
 ## 不做的事情（YAGNI）
@@ -194,9 +266,9 @@ POST /api/projects/:id/parse-video
 - 不做视频缓存/去重 — 分析完视频文件可删
 - 不做游戏类型自动分类 — Gemini 自己判断
 - 不做音频分析 — 试玩广告音效对流程理解无价值
+- 不做关键帧回退模式 — 上传失败直接报错，保持简单
 
 ## 成本估算
 
 - Gemini 2.5 Pro 视频输入: ~$0.05-0.15/次
 - 重试场景: 最多 2x 成本
-- 回退关键帧模式: 8 帧图片 ~$0.02-0.05/次
