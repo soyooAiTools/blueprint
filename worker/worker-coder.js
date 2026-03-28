@@ -2856,8 +2856,15 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
       var specsDataDir = process.env.SPECS_DATA_DIR || path.join(__dirname, '..', 'spec-data');
       specExtractor.saveSpecs(specs, taskId, specsDataDir);
 
-      // Generate skeleton
-      skeleton = skeletonGenerator.generateSkeleton(specs, { projectName: blueprint.projectName || taskId });
+      // Generate skeleton with entity→pool mapping
+      var entityPoolMap = {};
+      if (blueprint.entities && blueprint.entities.length > 0) {
+        entityPoolMap = promptV5Module.matchPrefabs(blueprint.entities);
+      }
+      skeleton = skeletonGenerator.generateSkeleton(specs, {
+        projectName: blueprint.projectName || taskId,
+        entityPoolMap: entityPoolMap
+      });
       log('[coder] V5 Skeleton: generated ' + skeleton.split('\n').length + ' lines', taskId);
     } catch (specErr) {
       log('[coder] V5 Spec extraction failed (non-fatal): ' + specErr.message, taskId);

@@ -24,6 +24,28 @@ const { generateWithClaudeCode } = require('./claude-code-coder.js');
 // Claude Code 模式开关：设为 true 使用 Claude Code CLI agent，false 使用传统 API 调用
 const USE_CLAUDE_CODE = process.env.USE_CLAUDE_CODE !== 'false'; // 默认开启
 
+// ============ Base Template Cache (avoid repeated git clones) ============
+const TEMPLATE_CACHE_DIR = path.join(require('os').tmpdir(), 'luna-base-cache');
+const TEMPLATE_CACHE_MAX_AGE = 3600 * 1000; // 1 hour
+
+function getBaseTemplate(targetDir, log, taskId) {
+  const { execSync } = require('child_process');
+  const cacheValid = fs.existsSync(TEMPLATE_CACHE_DIR)
+    && fs.existsSync(path.join(TEMPLATE_CACHE_DIR, '.git'))
+    && (Date.now() - fs.statSync(TEMPLATE_CACHE_DIR).mtimeMs) < TEMPLATE_CACHE_MAX_AGE;
+
+  if (!cacheValid) {
+    if (fs.existsSync(TEMPLATE_CACHE_DIR)) fs.rmSync(TEMPLATE_CACHE_DIR, { recursive: true, force: true });
+    const repo = process.env.BASE_TEMPLATE_REPO || 'https://github.com/soyooAiTools/luna-base-template.git';
+    execSync(`git clone --depth 1 ${repo} "${TEMPLATE_CACHE_DIR}"`, { timeout: 60000, stdio: 'pipe' });
+    log('[cache] Base template cache refreshed', taskId);
+  } else {
+    log('[cache] Using cached base template', taskId);
+  }
+
+  execSync(`cp -r "${TEMPLATE_CACHE_DIR}/." "${targetDir}"`, { timeout: 30000, stdio: 'pipe' });
+}
+
 // ============ Task Checkpoint (persist best code across worker restarts) ============
 const CHECKPOINT_DIR = path.join(__dirname, '..', 'server-data', 'checkpoints');
 
@@ -186,7 +208,7 @@ function buildStructuredFeedback(round, cuaResult, blueprint, fixHistory) {
   }
 
   // Fix history summary
-  const fixHistorySummary = (fixHistory || []).map(function(h) {
+  const fixHistorySummary = (fixHistory || []).slice(-3).map(function(h) {
     return { round: h.round, category: h.issueCategory, topIssue: (h.issues && h.issues[0]) || 'unknown' };
   });
 
@@ -422,12 +444,11 @@ async function processTask(task) {
       }
 
       // Git clone the base Unity project as foundation
-      log(`Cloning base template from ${BASE_TEMPLATE_REPO}...`, taskId);
-      await reportStatus(taskId, 'processing', { message: '[Linux] Cloning base template...' });
+      log('Preparing base template...', taskId);
+      await reportStatus(taskId, 'processing', { message: '[Linux] Preparing base template...' });
       try {
-        const { execSync } = require('child_process');
-        execSync(`git clone --depth 1 ${BASE_TEMPLATE_REPO} "${tempDir}"`, { timeout: 60000, stdio: 'pipe' });
-        log('Base template cloned OK', taskId);
+        getBaseTemplate(tempDir, log, taskId);
+        log('Base template ready', taskId);
       } catch (cloneErr) {
         log('Git clone failed: ' + cloneErr.message, taskId);
         await reportStatus(taskId, 'failed', { message: '[Linux] Git clone base template failed: ' + (cloneErr.message || '').slice(0, 200) });
@@ -570,8 +591,7 @@ async function processTask(task) {
 
       // Git clone base template for fix attempt
       try {
-        const { execSync } = require('child_process');
-        execSync(`git clone --depth 1 ${BASE_TEMPLATE_REPO} "${fixTempDir}"`, { timeout: 60000, stdio: 'pipe' });
+        getBaseTemplate(fixTempDir, log, taskId);
       } catch (cloneFixErr) {
         log(`Build fix git clone failed: ${cloneFixErr.message}`, taskId);
         continue;
@@ -864,8 +884,8 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
     log(`Visual pre-check: ${visualPassed ? 'PASSED' : 'proceeded without pass'}, entering CUA...`, taskId);
 
     // === Step 6: CUA Verification + Auto-Fix Loop ===
-    const MAX_CUA_ROUNDS = 20;
-    const SAME_ISSUE_REGEN_THRESHOLD = 3; // 连续 N 轮同一问题 → 全量重生成
+    const MAX_CUA_ROUNDS = 12;
+    const SAME_ISSUE_REGEN_THRESHOLD = 2; // 连续 N 轮同一问题 → 全量重生成
     const { runCUAVerification } = require('./worker-cua-verify.js');
     let cuaPassed = false;
     let lastHtmlData = finalHtmlData;
@@ -979,6 +999,10 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
 
       // Inject feedback into blueprint for INCREMENTAL FIX mode
       if (!blueprint.feedbackHistory) blueprint.feedbackHistory = [];
+      // Cap feedbackHistory to last 1 entry (after push below = 2 total, prevents prompt bloat)
+      if (blueprint.feedbackHistory.length >= 2) {
+        blueprint.feedbackHistory = blueprint.feedbackHistory.slice(-1);
+      }
       blueprint.feedbackHistory.push({
         data: cuaFeedback,
         source: 'cua-linux-round-' + cuaRound,
@@ -992,8 +1016,7 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
 
       // Git clone base template for CUA fix attempt
       try {
-        const { execSync } = require('child_process');
-        execSync(`git clone --depth 1 ${BASE_TEMPLATE_REPO} "${fixTempDir}"`, { timeout: 60000, stdio: 'pipe' });
+        getBaseTemplate(fixTempDir, log, taskId);
       } catch (cloneFixErr) {
         log(`CUA fix git clone failed: ${cloneFixErr.message}`, taskId);
         continue;

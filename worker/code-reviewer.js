@@ -65,9 +65,9 @@ const REVIEW_RULES = `
 - MUST NOT define class/enum named "EventPool" (conflicts with Luna template → CS0101)
 
 ### 4. Code Completeness
-- ALL shots/phases from blueprint MUST be implemented (zero tolerance)
-- Shot methods MUST be named shot_1(), shot_2()...shot_N() — not Scene1/Level1/Phase1
-- Last shot MUST call Luna.Unity.LifeCycle.GameEnded() + Luna.Unity.Playable.InstallFullGame()
+- ALL phases from blueprint MUST be implemented in CheckEventRules() (zero tolerance)
+- Each phase must have transition logic with phaseTimer minimum dwell check
+- The gameEnd block MUST call Luna.Unity.LifeCycle.GameEnded() + ShowCTA() which calls Luna.Unity.Playable.InstallFullGame()
 - Must have Start() and Update() methods
 - Must NOT modify or redefine GFM_Tools.cs classes
 
@@ -102,8 +102,8 @@ const REVIEW_RULES = `
 - Player input must drive phase progression — CUA needs to interact
 
 ### 8. Incremental Fix Constraints
-- Removing shot methods to "fix" compile errors = REJECTED (content regression)
-- Shot count must not decrease from original
+- Removing phase logic from CheckEventRules() to "fix" compile errors = REJECTED (content regression)
+- Phase count must not decrease from original
 - Fix must only change what feedback requested — no full rewrite
 
 ## Tier 3 — WARNINGS (best practices, may work but risky)
@@ -127,10 +127,10 @@ const REVIEW_RULES = `
 - iOS AppLovin: first touch must pre-play silent audio (GFM_Luna.Init handles this)
 - Time.deltaTime is constant 0.1 in Luna regardless of FPS
 
-### 11. Architecture (V4 entity-driven)
-- Parallel arrays: eGo[], eActive[], eState[], eTimer[], eHP[]
-- CheckEventRules() with bool[] ruleTriggered — independent checks, not linear state machine
-- Each entity has its own UpdateXxx() method
+### 11. Architecture (V5 phase-driven)
+- Phase tracking: currentPhaseName, ruleTriggered[], phaseTimer, phaseEnterTimes[]
+- CheckEventRules() with bool[] ruleTriggered — each phase has trigger condition + min dwell time
+- Entity states tracked as int variables (0=waiting, 1=building, 2=built)
 - All code in ONE file: GameFlowManagerMain.cs
 `;
 

@@ -1,27 +1,43 @@
 /**
  * Skeleton Generator — Generate GameFlowManagerMain.cs skeleton from phase specs
- * 
- * Input: Phase specs array + GFM_Tools API configuration
- * Output: C# skeleton code with enforced phaseTimer, interaction gates, TODO markers
- * 
+ *
+ * Input: Phase specs array + entity→pool mapping + GFM_Tools API configuration
+ * Output: C# skeleton code with enforced phaseTimer, interaction gates, pre-generated boilerplate
+ *
  * The skeleton ensures:
  * - Every phase has minimum dwell time (from spec.duration.min)
  * - Every phase transition requires spec.triggerNext.condition
  * - AI can only fill TODO sections, cannot remove skeleton-enforced code
  * - All entities must reach terminal state before game ends
+ * - Start() is pre-populated with Find() calls, colors, camera, GFM_Luna.Init()
+ * - ShowCTA() is pre-generated with InstallFullGame()
+ * - Phase 1 places 3 objects to prevent solid-color screen
  */
 
 const fs = require('fs');
 const path = require('path');
 
+// Default colors for anti-solid-color initialization
+const GROUND_COLOR = { r: 0.75, g: 0.78, b: 0.82 };
+const CAMERA_BG = { r: 0.45, g: 0.52, b: 0.62 };
+const ENTITY_COLORS = [
+  { r: 0.6, g: 0.3, b: 0.15, label: 'brown' },
+  { r: 0.2, g: 0.4, b: 0.9, label: 'blue' },
+  { r: 0.8, g: 0.2, b: 0.2, label: 'red' },
+  { r: 0.2, g: 0.7, b: 0.3, label: 'green' },
+  { r: 0.9, g: 0.7, b: 0.1, label: 'gold' }
+];
+
 /**
  * Generate C# skeleton from specs
  * @param {Array} specs - Phase specs from spec-extractor
- * @param {object} opts - { projectName, totalPhases }
+ * @param {object} opts - { projectName, entityPoolMap: {entityName: poolObjName} }
  * @returns {string} C# skeleton code
  */
 function generateSkeleton(specs, opts = {}) {
   const totalPhases = specs.length;
+  const entityPoolMap = opts.entityPoolMap || {};
+  const entityNames = Object.keys(entityPoolMap);
   const lines = [];
 
   // Header
@@ -66,14 +82,23 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('');
   }
 
+  // [SKELETON] Pre-generated GameObject declarations from entity→pool mapping
+  if (entityNames.length > 0) {
+    lines.push('    // [SKELETON] Object references (auto-mapped from entity→pool)');
+    entityNames.forEach(name => {
+      lines.push(`    GameObject ${name}; // → ${entityPoolMap[name]}`);
+    });
+    lines.push('');
+  }
+
   // TODO: AI declares additional variables
-  lines.push('    // === TODO: AI declares object references, pools, and game variables below ===');
+  lines.push('    // === TODO: AI declares pools, counters, and game-specific variables below ===');
   lines.push('    // TODO_VARIABLES_START');
   lines.push('');
   lines.push('    // TODO_VARIABLES_END');
   lines.push('');
 
-  // Start method
+  // Start method — pre-populated with Find() calls and initialization
   lines.push('    void Start()');
   lines.push('    {');
   lines.push('        // [SKELETON] Initialize phase tracking');
@@ -81,7 +106,39 @@ function generateSkeleton(specs, opts = {}) {
   lines.push(`        completedPhases = new string[RULE_COUNT + 5];`);
   lines.push(`        phaseEnterTimes = new float[RULE_COUNT];`);
   lines.push('');
-  lines.push('        // === TODO: AI fills — find objects, initialize pools, setup camera, setup UI ===');
+
+  // [SKELETON] Pre-generated initialization
+  lines.push('        // [SKELETON] Material and pool initialization');
+  lines.push('        GFM_Create.InitMaterialFromScene();');
+  lines.push('        GFM_Create.ResetPool();');
+  lines.push('');
+
+  // [SKELETON] Pre-generated Find() calls
+  if (entityNames.length > 0) {
+    lines.push('        // [SKELETON] Find all scene objects');
+    entityNames.forEach(name => {
+      lines.push(`        ${name} = GameObject.Find("${entityPoolMap[name]}");`);
+    });
+    lines.push('');
+  }
+
+  // [SKELETON] Ground color and camera background
+  const groundEntity = entityNames.find(n => n.toLowerCase().indexOf('ground') >= 0 || n.toLowerCase().indexOf('field') >= 0);
+  if (groundEntity) {
+    lines.push('        // [SKELETON] Anti-solid-color: ground and camera colors');
+    lines.push(`        if (${groundEntity} != null) GFM_Create.SetColor(${groundEntity}, new Color(${GROUND_COLOR.r}f, ${GROUND_COLOR.g}f, ${GROUND_COLOR.b}f));`);
+  } else {
+    lines.push('        // [SKELETON] Anti-solid-color: camera background');
+  }
+  lines.push(`        Camera.main.backgroundColor = new Color(${CAMERA_BG.r}f, ${CAMERA_BG.g}f, ${CAMERA_BG.b}f);`);
+  lines.push('');
+
+  // [SKELETON] GFM_Luna.Init for iOS audio
+  lines.push('        // [SKELETON] Luna platform init (iOS audio pre-play)');
+  lines.push('        GFM_Luna.Init();');
+  lines.push('');
+
+  lines.push('        // === TODO: AI fills — setup camera projection, create UI, joystick, etc. ===');
   lines.push('        // TODO_START_START');
   lines.push('');
   lines.push('        // TODO_START_END');
@@ -118,9 +175,16 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    void CheckEventRules()');
   lines.push('    {');
 
+  // Pick first 3 non-ground entities for anti-solid-color placement in phase 1
+  const visibleEntities = entityNames.filter(n => {
+    const lower = n.toLowerCase();
+    return lower.indexOf('ground') < 0 && lower.indexOf('field') < 0
+      && lower.indexOf('spawner') < 0 && lower.indexOf('ui') < 0
+      && lower.indexOf('cta') < 0 && lower.indexOf('hint') < 0;
+  }).slice(0, 3);
+
   specs.forEach((spec, i) => {
     const ruleIdx = i;
-    const nextIdx = i + 1;
     const isLast = i === specs.length - 1;
 
     lines.push(`        // ========== Phase ${i + 1}: ${spec.phaseName} (${spec.phaseId}) ==========`);
@@ -136,7 +200,21 @@ function generateSkeleton(specs, opts = {}) {
       lines.push(`            currentPhaseName = "${spec.phaseId}";`);
       lines.push(`            phaseEnterTimes[${ruleIdx}] = gameTimer; // [SKELETON]`);
       lines.push('');
-      lines.push(`            // === TODO: AI fills — place initial objects, set colors, show guide ===`);
+
+      // [SKELETON] Anti-solid-color: place first 3 entities in phase 1
+      if (visibleEntities.length > 0) {
+        lines.push('            // [SKELETON] Anti-solid-color: show initial objects');
+        visibleEntities.forEach((eName, vi) => {
+          const color = ENTITY_COLORS[vi % ENTITY_COLORS.length];
+          const xPos = (vi - 1) * 3; // spread: -3, 0, 3
+          lines.push(`            PlaceObj(${eName}, ${xPos}f, 0.5f, 0f);`);
+          lines.push(`            SetScale(${eName}, 2f, 2f, 2f);`);
+          lines.push(`            GFM_Create.SetColor(${eName}, new Color(${color.r}f, ${color.g}f, ${color.b}f)); // ${color.label}`);
+        });
+        lines.push('');
+      }
+
+      lines.push(`            // === TODO: AI fills — place additional objects, set colors, show guide ===`);
       lines.push(`            // TODO_PHASE_${i + 1}_INIT_START`);
       lines.push('');
       lines.push(`            // TODO_PHASE_${i + 1}_INIT_END`);
@@ -147,14 +225,14 @@ function generateSkeleton(specs, opts = {}) {
     } else {
       // Subsequent rules: require previous phase condition + minimum dwell time
       const prevSpec = specs[i - 1];
-      const triggerCondition = spec.triggerNext && spec.triggerNext.condition
-        ? spec.triggerNext.condition
+      const triggerCondition = prevSpec.triggerNext && prevSpec.triggerNext.condition
+        ? prevSpec.triggerNext.condition
         : `/* TODO: AI fills trigger condition for ${spec.phaseId} */`;
 
       lines.push(`        // [SKELETON] Transition from ${prevSpec.phaseId} → ${spec.phaseId}`);
       lines.push(`        // Requires: ${prevSpec.triggerNext ? prevSpec.triggerNext.description : 'previous phase complete'}`);
       lines.push(`        if (!ruleTriggered[${ruleIdx}]`);
-      lines.push(`            && ${prevSpec.triggerNext ? prevSpec.triggerNext.condition : `/* TODO: condition */`}`);
+      lines.push(`            && ${triggerCondition}`);
       lines.push(`            && phaseTimer >= ${prevSpec.duration.min}f) // [SKELETON] min dwell time`);
       lines.push('        {');
       lines.push(`            ruleTriggered[${ruleIdx}] = true;`);
@@ -238,6 +316,16 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    }');
   lines.push('');
 
+  // [SKELETON] Pre-generated ShowCTA with InstallFullGame
+  lines.push('    // [SKELETON] CTA button — pre-generated, do not remove');
+  lines.push('    void ShowCTA()');
+  lines.push('    {');
+  lines.push('        Canvas ctaCanvas = GFM_UI.CreateCanvas(960, 640);');
+  lines.push('        GFM_UI.CreateButton(ctaCanvas, "INSTALL NOW", new Vector2(0, -80), new Vector2(280, 80),');
+  lines.push('            delegate { Luna.Unity.Playable.InstallFullGame(); });');
+  lines.push('    }');
+  lines.push('');
+
   // UpdateGameState with phaseTimestamps
   lines.push('    void UpdateGameState()');
   lines.push('    {');
@@ -268,7 +356,7 @@ function generateSkeleton(specs, opts = {}) {
   // Variables (AI fills)
   lines.push('            + "\\"variables\\":{"');
   lines.push('            + "\\"gameTimer\\":" + (int)gameTimer');
-  lines.push('            // TODO: AI adds game-specific variables here');
+  lines.push('            // TODO: AI adds game-specific variables here (gold, wood, ammo, etc.)');
   lines.push('            + "}"');
 
   // Phase timestamps
@@ -285,8 +373,8 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    }');
   lines.push('');
 
-  // ShowCTA / ShowGuide stubs
-  lines.push('    // === TODO: AI fills — ShowGuide, ShowCTA, UI methods ===');
+  // TODO: AI fills remaining UI methods
+  lines.push('    // === TODO: AI fills — ShowGuide, UI helpers, input handlers ===');
   lines.push('    // TODO_UI_START');
   lines.push('');
   lines.push('    // TODO_UI_END');

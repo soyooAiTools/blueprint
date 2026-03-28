@@ -435,8 +435,10 @@ function parseBlueprintToPromptV5(blueprint, opts) {
     lines.push('');
     lines.push('# CUA Feedback (Issues to Fix)');
 
-    for (var fi = 0; fi < opts.feedback.length; fi++) {
-      var fb = opts.feedback[fi];
+    // Safety cap: only render the last 2 feedback entries to prevent prompt bloat
+    var feedbackToRender = opts.feedback.length > 2 ? opts.feedback.slice(-2) : opts.feedback;
+    for (var fi = 0; fi < feedbackToRender.length; fi++) {
+      var fb = feedbackToRender[fi];
       var roundLabel = fb.source ? (' [' + fb.source + ']') : '';
       lines.push('## Feedback' + roundLabel);
 
@@ -493,8 +495,9 @@ function parseBlueprintToPromptV5(blueprint, opts) {
         // Fix history warning
         if (s.fixHistory && s.fixHistory.length > 1) {
           lines.push('### Fix History (DO NOT repeat these approaches)');
-          for (var fhi = 0; fhi < s.fixHistory.length; fhi++) {
-            var fh = s.fixHistory[fhi];
+          var historyToShow = s.fixHistory.slice(-3);
+          for (var fhi = 0; fhi < historyToShow.length; fhi++) {
+            var fh = historyToShow[fhi];
             lines.push('- Round ' + fh.round + ': ' + fh.category + ' — ' + fh.topIssue);
           }
           lines.push('**You must try a DIFFERENT fix strategy.**');
