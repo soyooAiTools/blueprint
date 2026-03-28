@@ -287,6 +287,8 @@ function matchRoute(method, pathname) {
   if (m && method === "POST") return { handler: "generateStoryboardPDF", id: m[1] };
   m = pathname.match(/^\/api\/projects\/([^/]+)\/parse-and-blueprint$/);
   if (m && method === 'POST') return { handler: 'parseAndBlueprint', id: m[1], rawBody: true };
+  m = pathname.match(/^\/api\/projects\/([^/]+)\/parse-video$/);
+  if (m && method === 'POST') return { handler: 'parseVideo', id: m[1], rawBody: true };
   m = pathname.match(/^\/api\/projects\/([^/]+)\/convert-to-v4$/);
   if (m && method === 'POST') return { handler: 'convertToV4', id: m[1] };
 
@@ -900,6 +902,14 @@ handlers.workerStatus = function(req, res, body) {
       // Keep last 50 entries
       if (task.timeline.length > 50) task.timeline = task.timeline.slice(-50);
 
+      // Save quality gate data if provided
+      if (data.qualityData) {
+        if (data.qualityData.reviewResult) task.reviewResult = data.qualityData.reviewResult;
+        if (data.qualityData.quickTestResult) task.quickTestResult = data.qualityData.quickTestResult;
+        if (data.qualityData.cuaResult) task.cuaResult = data.qualityData.cuaResult;
+        if (data.qualityData.cuaRetries) task.cuaRetries = data.qualityData.cuaRetries;
+      }
+
       fs.writeFileSync(taskPath, JSON.stringify(task, null, 2), 'utf-8');
     }
 
@@ -1166,6 +1176,139 @@ handlers.parseStoryboard = function(req, res, body, projectId) {
       console.error('[parse-storyboard] Error:', e.message);
       try { notify.alert('critical', '分镜解析失败', e.message); } catch(ne) {}
       sendSSE({ type: 'error', message: '分镜解析失败: ' + e.message });
+      res.end();
+    }
+  });
+
+  bb.on('error', function(e) {
+    if (sseStarted) {
+      sendSSE({ type: 'error', message: 'Upload failed: ' + e.message });
+      res.end();
+    } else {
+      sendJSON(res, { error: 'Upload failed: ' + e.message }, 500);
+    }
+  });
+
+  req.pipe(bb);
+};
+
+// ---- Video-to-Blueprint handler ----
+handlers.parseVideo = function(req, res, body, projectId) {
+  console.log('[parse-video] REQ headers:', JSON.stringify({ct: req.headers['content-type'], cl: req.headers['content-length']}));
+
+  var videoToBlueprint = require('./worker/video-to-blueprint.cjs');
+
+  var bb;
+  try {
+    bb = Busboy({ headers: req.headers, limits: { fileSize: 20 * 1024 * 1024 } });
+  } catch(e) {
+    return sendJSON(res, { error: 'Invalid multipart request: ' + e.message }, 400);
+  }
+
+  var sseStarted = false;
+  function startSSE() {
+    if (sseStarted) return;
+    sseStarted = true;
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+      'Access-Control-Allow-Origin': '*',
+    });
+  }
+  function sendSSE(evt) {
+    if (!sseStarted) startSSE();
+    try { res.write('data: ' + JSON.stringify(evt) + '\n\n'); } catch(e) {}
+  }
+
+  var videoFile = null;
+  var _fileWrite = null;
+  var fileLimitHit = false;
+
+  bb.on('file', function(fieldname, stream, info) {
+    var ext = path.extname(info.filename || '').toLowerCase();
+    if (['.mp4', '.mov', '.webm'].indexOf(ext) === -1) {
+      stream.resume(); // drain
+      return;
+    }
+    var savePath = path.join(DATA_DIR, 'webgl', projectId || 'tmp', 'source_video' + ext);
+    var dir = path.dirname(savePath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    var ws = fs.createWriteStream(savePath);
+    stream.pipe(ws);
+
+    stream.on('limit', function() { fileLimitHit = true; });
+
+    _fileWrite = new Promise(function(resolve) {
+      ws.on('close', function() {
+        videoFile = savePath;
+        resolve();
+      });
+    });
+  });
+
+  bb.on('close', async function() {
+    startSSE();
+    try {
+      if (_fileWrite) await _fileWrite;
+
+      if (fileLimitHit) {
+        sendSSE({ type: 'error', message: '视频文件超过 20MB 限制' });
+        return res.end();
+      }
+
+      if (!videoFile) {
+        sendSSE({ type: 'error', message: '请上传视频文件 (mp4/mov/webm)' });
+        return res.end();
+      }
+
+      sendSSE({ type: 'progress', percent: 5, stage: '视频上传完成' });
+
+      // Heartbeat for long Gemini calls
+      var heartbeat = null;
+      var startTime = Date.now();
+      var lastPercent = 5;
+      heartbeat = setInterval(function() {
+        var elapsed = Math.round((Date.now() - startTime) / 1000);
+        sendSSE({ type: 'progress', percent: Math.min(lastPercent + 1, 89), stage: '处理中（已等待 ' + elapsed + ' 秒）' });
+      }, 5000);
+
+      var result = await videoToBlueprint.parseVideo(videoFile, projectId, function(percent, stage) {
+        lastPercent = percent;
+        sendSSE({ type: 'progress', percent: percent, stage: stage });
+      });
+
+      clearInterval(heartbeat);
+
+      // Save blueprint to project
+      try {
+        var proj = readProject(projectId);
+        if (proj) {
+          proj.nodes = result.blueprint.nodes;
+          proj.edges = result.blueprint.edges;
+          proj.objectRegistry = result.blueprint.objectRegistry;
+          proj.videoSource = true;
+          proj.updatedAt = new Date().toISOString();
+          writeProject(proj);
+          console.log('[parse-video] Saved blueprint (' + result.blueprint.nodes.length + ' nodes) to project', projectId);
+        }
+      } catch(saveErr) {
+        console.error('[parse-video] Save blueprint error:', saveErr.message);
+      }
+
+      sendSSE({ type: 'progress', percent: 100, stage: '完成！' });
+      sendSSE({ type: 'done', data: { blueprint: result.blueprint, frames: result.frames } });
+      res.end();
+
+      // Cleanup source video
+      try { fs.unlinkSync(videoFile); } catch(e) {}
+
+    } catch(e) {
+      if (heartbeat) clearInterval(heartbeat);
+      console.error('[parse-video] Error:', e.message);
+      try { notify.alert('critical', '视频解析失败', e.message); } catch(ne) {}
+      sendSSE({ type: 'error', message: '视频解析失败: ' + e.message });
       res.end();
     }
   });
@@ -2159,7 +2302,11 @@ handlers.getDashboardStats = function(req, res) {
             progress: t.progress || 0,
             createdAt: t.createdAt ? new Date(t.createdAt).getTime() : null,
             updatedAt: t.updatedAt ? new Date(t.updatedAt).getTime() : null,
-            timeline: (t.timeline || []).slice(-20)
+            timeline: (t.timeline || []).slice(-20),
+            reviewResult: t.reviewResult || null,
+            quickTestResult: t.quickTestResult || null,
+            cuaResult: t.cuaResult || null,
+            cuaRetries: t.cuaRetries || 0
           });
         } catch(e) {}
       });
@@ -2191,6 +2338,18 @@ handlers.getDashboardStats = function(req, res) {
   var last24hFailed = last24h.filter(function(h) { return !h.success; }).length;
   var successRate = parseStats.total > 0 ? Math.round(parseStats.success / parseStats.total * 100) : 0;
 
+  // Quality gate stats
+  var qualityStats = { reviewPassed: 0, reviewFailed: 0, quickTestPassed: 0, quickTestFailed: 0, cuaPassed: 0, cuaFailed: 0, totalCuaRounds: 0, cuaCount: 0 };
+  recentTasks.forEach(function(t) {
+    if (t.reviewResult === 'pass') qualityStats.reviewPassed++;
+    else if (t.reviewResult === 'fail') qualityStats.reviewFailed++;
+    if (t.quickTestResult === 'pass') qualityStats.quickTestPassed++;
+    else if (t.quickTestResult === 'fail') qualityStats.quickTestFailed++;
+    if (t.cuaResult === 'pass') qualityStats.cuaPassed++;
+    else if (t.cuaResult === 'fail') qualityStats.cuaFailed++;
+    if (t.cuaRetries > 0) { qualityStats.totalCuaRounds += t.cuaRetries; qualityStats.cuaCount++; }
+  });
+
   sendJSON(res, {
     workers: {
       total: workers.length,
@@ -2212,6 +2371,15 @@ handlers.getDashboardStats = function(req, res) {
     tasks: taskStats,
     recentTasks: recentTasks.slice(0, 10),
     projects: projectStats,
+    quality: {
+      reviewPassed: qualityStats.reviewPassed,
+      reviewFailed: qualityStats.reviewFailed,
+      quickTestPassed: qualityStats.quickTestPassed,
+      quickTestFailed: qualityStats.quickTestFailed,
+      cuaPassed: qualityStats.cuaPassed,
+      cuaFailed: qualityStats.cuaFailed,
+      avgCuaRounds: qualityStats.cuaCount > 0 ? Math.round(qualityStats.totalCuaRounds / qualityStats.cuaCount * 10) / 10 : 0
+    },
     parse: {
       total: parseStats.total,
       success: parseStats.success,
