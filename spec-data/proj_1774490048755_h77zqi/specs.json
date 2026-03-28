@@ -1,32 +1,38 @@
 [
   {
-    "phaseId": "buildAndDefendBase",
-    "phaseName": "基地建设与防守",
+    "phaseId": "buildDefendUpgrade",
+    "phaseName": "建造防守升级循环",
     "chapterId": 1,
     "duration": {
-      "min": 30,
-      "max": 45
+      "min": 27,
+      "max": 72
     },
     "requiredInteractions": [
-      "move_to:woodHouse",
+      "move_to:woodHouseBuildSpot",
+      "spend:gold",
       "build:woodHouse",
-      "recruit:worker:1",
-      "upgrade:base:2",
-      "collect:wood",
       "collect:gold",
-      "defeat:boss",
-      "assign:worker:woodCutting",
-      "deliver:wood:crossbow"
+      "move_to:recruitSpot",
+      "spend:gold",
+      "recruit:worker:1",
+      "move_to:woodHouseBuildSpot",
+      "spend:gold",
+      "build:woodHouse",
+      "collect:gold",
+      "move_to:base",
+      "spend:gold",
+      "upgrade:base:2",
+      "defeat:boss"
     ],
     "triggerNext": {
-      "condition": "bossDefeated == true && baseState == 2",
-      "description": "击败Boss且主城最终升级完成"
+      "condition": "baseLevel == 3 && bossDefeated == true && woodHouseCount == 2 && workerCount == 1",
+      "description": "主城最终升级完成，Boss被击败，两座木屋和一名工人已就位"
     },
     "entitiesRequired": [
       {
         "name": "woodHouse",
         "terminalState": 2,
-        "description": "左右两侧木屋已建造"
+        "description": "两座木屋已建造"
       },
       {
         "name": "worker",
@@ -35,11 +41,11 @@
       },
       {
         "name": "base",
-        "terminalState": 2,
-        "description": "主城已升级"
+        "terminalState": 3,
+        "description": "主城已升级至最终形态"
       }
     ],
     "playerMustAct": true,
-    "autoAllowed": true
+    "autoAllowed": false
   }
 ]
