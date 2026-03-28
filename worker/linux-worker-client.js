@@ -79,6 +79,153 @@ function categorizeIssue(cuaResult) {
   return (cuaResult.issues && cuaResult.issues[0]) ? cuaResult.issues[0].substring(0, 50) : 'unknown';
 }
 
+/**
+ * Map issue type to severity level.
+ */
+function getIssueSeverity(type) {
+  const HIGH = ['phase-coverage', 'entity-incomplete', 'stuck', 'engine-not-ready', 'no-content', 'stuck-pattern', 'no-coverage'];
+  const MEDIUM = ['uncovered', 'cta', 'solid-color', 'interaction', 'suspicious-script'];
+  if (HIGH.indexOf(type) >= 0) return 'high';
+  if (MEDIUM.indexOf(type) >= 0) return 'medium';
+  return 'low';
+}
+
+/**
+ * Generate a fix hint based on issue type.
+ */
+function getFixHint(type) {
+  switch (type) {
+    case 'phase-coverage':
+      return 'Ensure all phases are reachable via player interaction. Check trigger conditions and interaction radius. Do not use auto-progression or timers to skip phases.';
+    case 'entity-incomplete':
+      return 'Buildable entities must reach state=2 (built). Check build triggers, resource requirements, and player interaction with the build area.';
+    case 'stuck':
+    case 'stuck-pattern':
+      return 'Game is stuck with no state changes. Check if player movement works, interaction targets are reachable, and trigger conditions can be satisfied.';
+    case 'uncovered':
+      return 'Some blueprint shots were not reached. Check if phase transitions trigger correctly and if the player can navigate to all game areas.';
+    case 'cta':
+      return 'CTA button was not reached or unresponsive. Ensure the final phase completes and CTA button calls Luna.Unity.Playable.InstallFullGame().';
+    case 'no-content':
+      return 'Game content was not visible. Check if objects are moved from pool position (y=-999) to visible positions during Start() or phase activation.';
+    case 'solid-color':
+      return 'Screen is a single color. Ground plane must be neutral gray, >=3 different-colored objects at y>=0, Camera.backgroundColor must differ from ground by >=0.3.';
+    case 'engine-not-ready':
+      return 'Luna engine failed to initialize. Check for JS errors in the build output and ensure Bridge.NET transpilation succeeded.';
+    default:
+      return '';
+  }
+}
+
+/**
+ * Build structured CUA feedback object (BUG-0011: structured JSON for better AI fixes).
+ * Returns { text: string, structured: object }.
+ *   .text = legacy human-readable string (backward compat)
+ *   .structured = machine-parseable JSON for prompt rendering
+ */
+function buildStructuredFeedback(round, cuaResult, blueprint, fixHistory) {
+  // Parse "[type] message" issues into structured objects
+  const issues = (cuaResult.issues || []).map(function(issueStr) {
+    const match = issueStr.match(/^\[([^\]]+)\]\s*(.*)/s);
+    const type = match ? match[1] : 'unknown';
+    const message = match ? match[2] : issueStr;
+
+    const issue = {
+      type: type,
+      severity: getIssueSeverity(type),
+      message: message,
+      details: {},
+      fix_hint: getFixHint(type)
+    };
+
+    // Enrich details based on type
+    if (type === 'phase-coverage') {
+      const coverageMatch = message.match(/(\d+)\/(\d+) phases completed/);
+      if (coverageMatch) {
+        issue.details.covered = parseInt(coverageMatch[1]);
+        issue.details.total = parseInt(coverageMatch[2]);
+      }
+      const missingMatch = message.match(/Missing: (.+?)(?:\. |$)/);
+      if (missingMatch) {
+        issue.details.missing = missingMatch[1].split('; ').map(function(m) {
+          const parts = m.match(/(.+?) \(trigger: (.+?)\)/);
+          return parts ? { phaseId: parts[1].trim(), trigger: parts[2].trim() } : { phaseId: m.trim() };
+        });
+      }
+    } else if (type === 'entity-incomplete') {
+      const entityMatches = message.match(/(\w+)=(\d+)\s*\(expected (\d+)=(\w+)\)/g) || [];
+      issue.details.entities = entityMatches.map(function(em) {
+        const parts = em.match(/(\w+)=(\d+)\s*\(expected (\d+)=(\w+)\)/);
+        return parts ? { entity: parts[1], currentState: parseInt(parts[2]), requiredState: parseInt(parts[3]), stateLabel: parts[4] } : {};
+      });
+    } else if (type === 'quick-test' && cuaResult.quickTestDetail) {
+      if (cuaResult.quickTestDetail.solidColor) {
+        issue.details.solidColor = cuaResult.quickTestDetail.solidColorDetail || {};
+      }
+    }
+
+    return issue;
+  });
+
+  // Game state snapshot
+  const gameState = {};
+  if (cuaResult.report && cuaResult.report.gameState) {
+    const gs = cuaResult.report.gameState;
+    gameState.currentPhase = gs.currentPhase || 'unknown';
+    gameState.completedPhases = gs.completedPhases || [];
+    gameState.entityStates = gs.entityStates || {};
+    gameState.variables = gs.variables || {};
+  }
+
+  // Console errors
+  const consoleErrors = [];
+  if (cuaResult.report && cuaResult.report.diagnostics && cuaResult.report.diagnostics.consoleErrors) {
+    for (var i = 0; i < Math.min(cuaResult.report.diagnostics.consoleErrors.length, 10); i++) {
+      consoleErrors.push(cuaResult.report.diagnostics.consoleErrors[i]);
+    }
+  }
+
+  // Fix history summary
+  const fixHistorySummary = (fixHistory || []).map(function(h) {
+    return { round: h.round, category: h.issueCategory, topIssue: (h.issues && h.issues[0]) || 'unknown' };
+  });
+
+  // Structured payload
+  const structured = {
+    round: round,
+    summary: issues.length + ' issue(s): ' + issues.map(function(i) { return i.type; }).join(', '),
+    issues: issues,
+    gameState: gameState,
+    consoleErrors: consoleErrors,
+    fixHistory: fixHistorySummary
+  };
+
+  // Legacy text (backward compatibility — same format as before)
+  let text = 'CUA blueprint flow verification failed (round ' + round + '):\n' + (cuaResult.issues || []).join('\n');
+  if (consoleErrors.length > 0) {
+    text += '\nConsole errors:\n' + consoleErrors.map(function(e) { return '  - ' + e; }).join('\n');
+  }
+  if (cuaResult.report && cuaResult.report.gameState) {
+    const gs = cuaResult.report.gameState;
+    text += '\n\nGame State at failure:';
+    text += '\n  Current Phase: ' + (gs.currentPhase || 'unknown');
+    text += '\n  Completed Phases: ' + ((gs.completedPhases || []).join(', ') || 'none');
+    if (gs.variables) text += '\n  Variables: ' + JSON.stringify(gs.variables);
+    if (gs.entityStates) text += '\n  Entity States: ' + JSON.stringify(gs.entityStates);
+  }
+  text += '\n\nPlease fix the code to ensure blueprint flow works. Focus on the specific phase/entity that failed.';
+  if (fixHistory && fixHistory.length > 1) {
+    text += '\n\nFix history (do not repeat):';
+    for (var hi = Math.max(0, fixHistory.length - 5); hi < fixHistory.length; hi++) {
+      var h = fixHistory[hi];
+      text += '\n  Round ' + h.round + ': ' + h.issueCategory + ' — ' + ((h.issues && h.issues[0]) || 'unknown');
+    }
+    text += '\nTry a different fix strategy.';
+  }
+
+  return { text: text, structured: structured };
+}
+
 // ============ Config ============
 const WORKER_ID = process.env.LINUX_WORKER_ID || 'linux-worker-1';
 const BASE_URL = process.env.LINUX_BASE_URL || 'http://120.55.70.226:3901';
@@ -818,24 +965,7 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
       // === Fix cycle: build CUA feedback → re-code → rebuild → retry ===
       await reportStatus(taskId, 'processing', { message: `[Linux] CUA round ${cuaRound} failed, AI re-coding...`, previewUrl });
 
-      // Build detailed feedback
-      let cuaFeedbackText = `CUA blueprint flow verification failed (round ${cuaRound}):\n` + cuaResult.issues.join('\n');
-      if (cuaResult.report && cuaResult.report.diagnostics) {
-        const diag = cuaResult.report.diagnostics;
-        if (diag.consoleErrors && diag.consoleErrors.length > 0) {
-          cuaFeedbackText += '\nConsole errors:\n' + diag.consoleErrors.slice(0, 10).map(e => '  - ' + e).join('\n');
-        }
-      }
-      if (cuaResult.report && cuaResult.report.gameState) {
-        const gs = cuaResult.report.gameState;
-        cuaFeedbackText += '\n\n📊 Game State at failure:';
-        cuaFeedbackText += '\n  Current Phase: ' + (gs.currentPhase || 'unknown');
-        cuaFeedbackText += '\n  Completed Phases: ' + ((gs.completedPhases || []).join(', ') || 'none');
-        if (gs.variables) cuaFeedbackText += '\n  Variables: ' + JSON.stringify(gs.variables);
-        if (gs.entityStates) cuaFeedbackText += '\n  Entity States: ' + JSON.stringify(gs.entityStates);
-      }
-      cuaFeedbackText += '\n\nPlease fix the code to ensure blueprint flow works. Focus on the specific phase/entity that failed.';
-
+      // Build detailed feedback (structured JSON + legacy text)
       // --- BUG-0010: Append fix history so AI knows what was already tried ---
       const fixEntry = {
         round: cuaRound,
@@ -845,18 +975,12 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
       };
       fixHistory.push(fixEntry);
 
-      if (fixHistory.length > 1) {
-        cuaFeedbackText += '\n\n⚠️ 修复历史（之前已尝试的方案，请勿重复）：';
-        for (const h of fixHistory.slice(-5)) { // 最近 5 轮
-          cuaFeedbackText += `\n  Round ${h.round}: ${h.issueCategory} — ${h.issues[0] || 'unknown'}`;
-        }
-        cuaFeedbackText += '\n请尝试与之前不同的修复策略。';
-      }
+      const cuaFeedback = buildStructuredFeedback(cuaRound, cuaResult, blueprint, fixHistory);
 
       // Inject feedback into blueprint for INCREMENTAL FIX mode
       if (!blueprint.feedbackHistory) blueprint.feedbackHistory = [];
       blueprint.feedbackHistory.push({
-        data: { text: cuaFeedbackText },
+        data: cuaFeedback,
         source: 'cua-linux-round-' + cuaRound,
         status: 'pending',
         timestamp: Date.now()

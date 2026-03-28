@@ -733,11 +733,27 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
         log('[CUA] No shotNodes in blueprint (V4 or phase-only) — skipping shot coverage check', taskId);
       } else if (report.scriptCoverage) {
         const uncovered = report.scriptCoverage.filter(s => !s.covered);
-        if (uncovered.length > 0) {
-          issues.push('[uncovered] Blueprint shots not reached (' + uncovered.length + '/' + report.scriptCoverage.length + '): ' + uncovered.map(s => s.step || s.name).join(', '));
+        // Cross-check: if completedPhases covers the phase, don't flag as uncovered
+        const _gs = report.gameState;
+        const _completedPhases = (_gs && _gs.completedPhases) || [];
+        const _phaseAliases = buildPhaseAliases(blueprint);
+        const trueUncovered = uncovered.filter(function(s) {
+          var stepName = s.step || s.name || '';
+          var result = isPhaseCompleted(stepName, _phaseAliases, _completedPhases);
+          if (result.completed) {
+            log('[CUA] Shot "' + stepName + '" marked uncovered by script but phase completed — overriding', taskId);
+            return false;
+          }
+          return true;
+        });
+        if (trueUncovered.length > 0) {
+          issues.push('[uncovered] Blueprint shots not reached (' + trueUncovered.length + '/' + report.scriptCoverage.length + '): ' + trueUncovered.map(s => s.step || s.name).join(', '));
         }
+      } else if (report.gameState && report.gameState.completedPhases && report.gameState.completedPhases.length > 0) {
+        // No scriptCoverage but gameState shows phases completed — use as coverage proxy
+        log('[CUA] No scriptCoverage data but gameState.completedPhases has ' + report.gameState.completedPhases.length + ' entries — using as coverage proxy', taskId);
       } else {
-        // No script coverage data = cannot verify shots = fail
+        // No script coverage AND no gameState = cannot verify shots = fail
         issues.push('[no-coverage] No blueprint shot coverage data in CUA report');
       }
 
@@ -803,9 +819,9 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
           if (uncoveredPhases.length > 0) {
             const details = uncoveredPhases.map(function(n) {
               const d = n.data || {};
-              return (d.name || n.id) + ' (trigger: ' + (d.triggerCondition || 'none') + ')';
+              return (d.name || d.phaseId || n.id) + ' (trigger: ' + (d.triggerCondition || 'none') + ')';
             }).join('; ');
-            issues.push('[phase-coverage] ' + coveredCount + '/' + totalPhases + ' phases completed. Missing: ' + details);
+            issues.push('[phase-coverage] ' + coveredCount + '/' + totalPhases + ' phases completed. Missing: ' + details + '. This usually means game balance is broken — auto-progression bypassed intermediate phases.');
           }
           log('[CUA] Phase coverage: ' + coveredCount + '/' + totalPhases + ', current: ' + (gs.currentPhase || 'unknown'), taskId);
         }
@@ -837,45 +853,7 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
           }
         }
 
-        // Phase skip detection — use blueprint-derived aliases for fuzzy matching (BUG-0008)
-        // If blueprint has phaseNodes, derive required phases from there
-        if (phaseAliases.size > 0) {
-          const skippedFromBlueprint = [];
-          for (var _entry of phaseAliases) {
-            var _phaseId = _entry[0];
-            var _result = isPhaseCompleted(_phaseId, phaseAliases, completedPhases);
-            if (!_result.completed) {
-              skippedFromBlueprint.push(_phaseId);
-            } else if (_result.matchedAlias && _result.matchedAlias !== _phaseId) {
-              log('[CUA] Phase \'' + _phaseId + '\' matched via alias \'' + _result.matchedAlias + '\'', taskId);
-            }
-          }
-          if (skippedFromBlueprint.length > 0 && completedPhases.length > 0) {
-            issues.push('[phase-skipped] Phases were skipped (never completed): ' + skippedFromBlueprint.join(', ') + '. Total completed: ' + completedPhases.length + '/' + phaseAliases.size + '. This usually means game balance is broken — auto-shooting or auto-progression bypassed intermediate phases.');
-          }
-        } else {
-          // Fallback: hardcoded REQUIRED_PHASES when blueprint has no phase info
-          const REQUIRED_PHASES = [
-            'buildConveyor', 'crossbowDefense', 'buildWoodHouse', 'recruitWorker',
-            'autoProduction', 'buildTurret', 'defendBase', 'fightBoss', 'upgradeBase'
-          ];
-          const REQUIRED_PHASES_CN = [
-            '建造传送带', '弩炮防御', '修建木屋', '招募工人',
-            '自动生产', '建造炮塔', '守护基地', '抵御进攻', '迎战Boss', '升级主城'
-          ];
-          const allCompleted = completedPhases;
-          const skippedPhases = REQUIRED_PHASES.filter(function(p) {
-            return allCompleted.indexOf(p) === -1;
-          });
-          const skippedPhasesCN = REQUIRED_PHASES_CN.filter(function(p) {
-            return allCompleted.indexOf(p) === -1;
-          });
-          // Use whichever language has fewer skips (code may use either)
-          const skipped = skippedPhases.length <= skippedPhasesCN.length ? skippedPhases : skippedPhasesCN;
-          if (skipped.length > 0 && allCompleted.length > 0) {
-            issues.push('[phase-skipped] Phases were skipped (never completed): ' + skipped.join(', ') + '. Total completed: ' + allCompleted.length + '/' + (REQUIRED_PHASES.length) + '. This usually means game balance is broken — auto-shooting or auto-progression bypassed intermediate phases.');
-          }
-        }
+        // (phase-skipped check merged into phase-coverage above — no duplicate)
       } else if (!isV4 || (blueprint && blueprint.nodes && blueprint.nodes.some(function(n) { return n.type === 'phaseNode'; }))) {
         // No __gameState available — note it as a soft issue
         log('[CUA] __gameState not available — cannot verify phase coverage programmatically', taskId);

@@ -430,15 +430,80 @@ function parseBlueprintToPromptV5(blueprint, opts) {
     lines.push('');
   }
 
-  // ========== 10. 反馈修复 ==========
+  // ========== 10. 反馈修复（结构化 JSON + legacy text fallback）==========
   if (opts.feedback && opts.feedback.length > 0) {
     lines.push('');
-    lines.push('# CUA 反馈（需修复的问题）');
+    lines.push('# CUA Feedback (Issues to Fix)');
+
     for (var fi = 0; fi < opts.feedback.length; fi++) {
       var fb = opts.feedback[fi];
       var roundLabel = fb.source ? (' [' + fb.source + ']') : '';
       lines.push('## Feedback' + roundLabel);
-      lines.push(fb.data ? fb.data.text : JSON.stringify(fb));
+
+      // Structured feedback rendering
+      if (fb.data && fb.data.structured) {
+        var s = fb.data.structured;
+        lines.push('**Round ' + s.round + ' — ' + s.summary + '**');
+        lines.push('');
+
+        // Render each issue as actionable item
+        for (var ii = 0; ii < s.issues.length; ii++) {
+          var issue = s.issues[ii];
+          lines.push('### Issue ' + (ii + 1) + ': [' + issue.type + '] (severity: ' + issue.severity + ')');
+          lines.push(issue.message);
+          if (issue.fix_hint) {
+            lines.push('**How to fix:** ' + issue.fix_hint);
+          }
+          if (issue.details && issue.details.missing) {
+            lines.push('Missing phases:');
+            for (var mi = 0; mi < issue.details.missing.length; mi++) {
+              var mp = issue.details.missing[mi];
+              lines.push('  - ' + mp.phaseId + (mp.trigger ? ' (trigger: ' + mp.trigger + ')' : ''));
+            }
+          }
+          if (issue.details && issue.details.entities) {
+            lines.push('Incomplete entities:');
+            for (var ei = 0; ei < issue.details.entities.length; ei++) {
+              var ent = issue.details.entities[ei];
+              lines.push('  - ' + ent.entity + ': current=' + ent.currentState + ', required=' + ent.requiredState + ' (' + ent.stateLabel + ')');
+            }
+          }
+          lines.push('');
+        }
+
+        // Game state context
+        if (s.gameState && s.gameState.completedPhases) {
+          lines.push('### Game State at Failure');
+          lines.push('- Current Phase: ' + (s.gameState.currentPhase || 'unknown'));
+          lines.push('- Completed Phases: ' + (s.gameState.completedPhases.join(', ') || 'none'));
+          if (s.gameState.entityStates) lines.push('- Entity States: ' + JSON.stringify(s.gameState.entityStates));
+          if (s.gameState.variables) lines.push('- Variables: ' + JSON.stringify(s.gameState.variables));
+          lines.push('');
+        }
+
+        // Console errors
+        if (s.consoleErrors && s.consoleErrors.length > 0) {
+          lines.push('### Console Errors');
+          for (var ce = 0; ce < s.consoleErrors.length; ce++) {
+            lines.push('- ' + s.consoleErrors[ce]);
+          }
+          lines.push('');
+        }
+
+        // Fix history warning
+        if (s.fixHistory && s.fixHistory.length > 1) {
+          lines.push('### Fix History (DO NOT repeat these approaches)');
+          for (var fhi = 0; fhi < s.fixHistory.length; fhi++) {
+            var fh = s.fixHistory[fhi];
+            lines.push('- Round ' + fh.round + ': ' + fh.category + ' — ' + fh.topIssue);
+          }
+          lines.push('**You must try a DIFFERENT fix strategy.**');
+          lines.push('');
+        }
+      } else {
+        // Legacy fallback: render plain text
+        lines.push(fb.data ? fb.data.text : JSON.stringify(fb));
+      }
     }
     lines.push('');
   }

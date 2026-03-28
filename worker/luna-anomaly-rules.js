@@ -64,6 +64,8 @@ function detectAnomalies(snapshot, context) {
     if (!obj || !obj.position || !obj.name) continue;
     var name = obj.name.toLowerCase();
     if (name.indexOf('player') >= 0 || name.indexOf('hero') >= 0 || name.indexOf('character') >= 0) {
+      // Skip objects at pool-hidden positions (y <= -500 is standard hide position)
+      if (obj.position.y <= -500) continue;
       var px = Math.abs(obj.position.x);
       var py = Math.abs(obj.position.y);
       var pz = Math.abs(obj.position.z);
