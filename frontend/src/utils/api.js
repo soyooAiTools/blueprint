@@ -193,3 +193,60 @@ export async function getSpecs(id) {
 export async function confirmSpecs(id, specs) {
   return request('/projects/' + id + '/confirm-specs', { method: 'POST', body: JSON.stringify({ specs }) });
 }
+
+export async function analyzeReference(projectId, formData, onProgress) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 300000); // 5 min timeout
+  try {
+    const res = await fetch(API_BASE + '/projects/' + projectId + '/analyze-reference', {
+      method: 'POST',
+      body: formData,
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (res.headers.get('content-type')?.includes('text/event-stream')) {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let result = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            if (evt.type === 'progress' && onProgress) {
+              onProgress(evt.percent, evt.stage);
+            } else if (evt.type === 'done') {
+              result = evt;
+            } else if (evt.type === 'error') {
+              throw new Error(evt.message || '分析失败');
+            }
+          } catch (parseErr) {
+            if (parseErr.message && !parseErr.message.includes('JSON')) throw parseErr;
+          }
+        }
+      }
+      if (!result) throw new Error('分析未返回结果');
+      return result;
+    }
+
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch (_) {
+      throw new Error('分析失败');
+    }
+    if (!res.ok) throw new Error(data.error || '分析失败');
+    return data;
+  } catch (err) {
+    clearTimeout(timer);
+    if (err.name === 'AbortError') throw new Error('分析超时（超过5分钟）');
+    throw err;
+  }
+}

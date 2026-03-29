@@ -328,29 +328,59 @@ async function quickPlayTest(url, taskId, log) {
     // WebGL canvas with preserveDrawingBuffer:false (default) clears after compositing,
     // so both gl.readPixels AND drawImage read black. The only reliable source is
     // the page screenshot (which captures the composited frame before clear).
+    // Multi-region sampling (3-29 fix): sample center + 4 quadrants to avoid false
+    // positives when ground plane fills center but objects exist at edges.
     var solidColorCheck = { solid: false, reason: 'screenshot-analysis' };
     try {
       if (fs.existsSync(screenshotPath)) {
         var sharp = require('sharp');
         var img = sharp(screenshotPath);
         var meta = await img.metadata();
-        // Sample a 100x100 region from center
-        var cx = Math.max(0, Math.floor((meta.width || 400) / 2) - 50);
-        var cy = Math.max(0, Math.floor((meta.height || 400) / 2) - 50);
-        var sw = Math.min(100, (meta.width || 400) - cx);
-        var sh = Math.min(100, (meta.height || 400) - cy);
-        var buf = await img.extract({ left: cx, top: cy, width: sw, height: sh })
-          .raw().toBuffer();
+        var imgW = meta.width || 400;
+        var imgH = meta.height || 400;
         var channels = meta.channels || 3;
-        var r0 = buf[0], g0 = buf[1], b0 = buf[2];
-        var allSame = true;
-        for (var si = channels; si < buf.length; si += channels) {
-          if (Math.abs(buf[si] - r0) > 5 || Math.abs(buf[si+1] - g0) > 5 || Math.abs(buf[si+2] - b0) > 5) {
-            allSame = false;
-            break;
+        var regionSize = 60;
+
+        // 5 regions: center, top-left, top-right, bottom-left, bottom-right
+        var regions = [
+          { left: Math.floor(imgW / 2) - 30, top: Math.floor(imgH / 2) - 30 },
+          { left: Math.floor(imgW * 0.2) - 30, top: Math.floor(imgH * 0.25) - 30 },
+          { left: Math.floor(imgW * 0.8) - 30, top: Math.floor(imgH * 0.25) - 30 },
+          { left: Math.floor(imgW * 0.2) - 30, top: Math.floor(imgH * 0.75) - 30 },
+          { left: Math.floor(imgW * 0.8) - 30, top: Math.floor(imgH * 0.75) - 30 }
+        ];
+        // Clamp regions to image bounds
+        for (var ri = 0; ri < regions.length; ri++) {
+          regions[ri].left = Math.max(0, Math.min(regions[ri].left, imgW - regionSize));
+          regions[ri].top = Math.max(0, Math.min(regions[ri].top, imgH - regionSize));
+        }
+
+        var solidRegions = 0;
+        var firstColor = null;
+        var allRegionsSameColor = true;
+        for (var ri = 0; ri < regions.length; ri++) {
+          var buf = await sharp(screenshotPath)
+            .extract({ left: regions[ri].left, top: regions[ri].top, width: regionSize, height: regionSize })
+            .raw().toBuffer();
+          var r0 = buf[0], g0 = buf[1], b0 = buf[2];
+          var regionSolid = true;
+          for (var si = channels; si < buf.length; si += channels) {
+            if (Math.abs(buf[si] - r0) > 5 || Math.abs(buf[si+1] - g0) > 5 || Math.abs(buf[si+2] - b0) > 5) {
+              regionSolid = false;
+              break;
+            }
+          }
+          if (regionSolid) solidRegions++;
+          if (!firstColor) {
+            firstColor = { r: r0, g: g0, b: b0 };
+          } else if (Math.abs(r0 - firstColor.r) > 15 || Math.abs(g0 - firstColor.g) > 15 || Math.abs(b0 - firstColor.b) > 15) {
+            allRegionsSameColor = false;
           }
         }
-        solidColorCheck = { solid: allSame, color: 'rgb(' + r0 + ',' + g0 + ',' + b0 + ')', sampled: sw * sh, method: 'screenshot' };
+        // Only flag as solid if ALL regions are uniform AND they share the same color
+        var isSolid = solidRegions >= 5 && allRegionsSameColor;
+        var colorStr = firstColor ? 'rgb(' + firstColor.r + ',' + firstColor.g + ',' + firstColor.b + ')' : 'unknown';
+        solidColorCheck = { solid: isSolid, color: colorStr, sampled: regionSize * regionSize * 5, method: 'multi-region', solidRegions: solidRegions, totalRegions: 5 };
       }
     } catch(e) {
       log('[QuickTest] Screenshot analysis error (non-fatal): ' + e.message, taskId);
@@ -939,12 +969,19 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       // Pass criteria: ALL shots covered + CTA reachable + game content visible + no critical issues
       // Timeout/max_rounds without meaningful interaction = NOT a pass
       const exitReason = report.exitReason || 'unknown';
+      const hasHistory = Array.isArray(report.history) && report.history.length > 0;
       let passed;
       if (exitReason === 'max_rounds' && (!report.totalRounds || report.totalRounds <= 1)) {
         // max_rounds with ≤1 round means timeout killed the agent before it could do anything
         passed = false;
         if (issues.length === 0) {
           issues.push('[timeout] CUA agent timed out (exit: max_rounds) without completing verification');
+        }
+      } else if (!hasHistory) {
+        // No interaction history means CUA never executed any actions (e.g. API errors on all rounds)
+        passed = false;
+        if (issues.length === 0) {
+          issues.push('[no-interaction] CUA completed ' + (report.totalRounds || 0) + ' rounds but recorded zero interactions — likely API failures');
         }
       } else {
         passed = issues.length === 0;

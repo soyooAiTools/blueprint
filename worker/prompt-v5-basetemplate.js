@@ -193,7 +193,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('## 防纯色屏规则（CRITICAL — 违反会导致构建失败）');
   lines.push('');
   lines.push('1. **地面必须用中性灰色**：Ground/GroundField Plane 颜色必须用灰色调（推荐 (0.75, 0.78, 0.82)），禁止饱和绿/蓝/棕。地面占满画面，饱和色触发纯色检测。');
-  lines.push('2. **Camera.backgroundColor 必须与地面反差 ≥ 0.3**（任一 RGB 通道）。推荐天空蓝 (0.75, 0.82, 0.92)。');
+  lines.push('2. **Camera.backgroundColor 必须与地面反差 ≥ 0.3**（任一 RGB 通道）。推荐深天蓝 (0.35, 0.55, 0.75)（与灰色地面 R 通道差 0.40）。禁止用浅色如 (0.75, 0.82, 0.92)，会与地面融合触发纯色检测。');
   lines.push('3. **主要对象 scale 足够大**：BaseCastle、PlayerHero 等主要实体至少一个维度 scale ≥ 1.5，确保在正交相机下可见。');
   lines.push('4. **对象颜色与地面有对比**：所有可见对象颜色与地面颜色差值（任一通道）≥ 0.25。');
   lines.push('5. **Rule 0 (gameStart) 必须在第一帧移动至少 3 个不同颜色的对象到 y ≥ 0**：确保画面不是纯色。');

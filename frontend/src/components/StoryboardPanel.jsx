@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { parseStoryboard, getProject, updateProject } from '../utils/api';
+import { parseStoryboard, getProject, updateProject, analyzeReference } from '../utils/api';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
@@ -53,7 +53,18 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
   const [generatingFrameIds, setGeneratingFrameIds] = useState(new Set());
 
   const [hasStoryboard, setHasStoryboard] = useState(true);
+  const [inputMode, setInputMode] = useState('storyboard'); // storyboard | video | reference
   const [docFiles, setDocFiles] = useState([]);
+
+  // Video mode state
+  const [videoFile, setVideoFile] = useState(null);
+  const videoInputRef = useRef(null);
+
+  // Reference mode state
+  const [refUrl, setRefUrl] = useState('');
+  const [refHtmlFile, setRefHtmlFile] = useState(null);
+  const [refDesc, setRefDesc] = useState('');
+  const refHtmlInputRef = useRef(null);
   const [refImages, setRefImages] = useState([]);
   const docInputRef = useRef(null);
   const imgInputRef = useRef(null);
@@ -577,6 +588,110 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
     setOneshotLoading(false);
   }, [docFiles, refImages, text, orientation, targetFrames, projectId, hasExistingNodes, showConfirm, showAlert, onConvertToBlueprint]);
 
+  // Video → Blueprint handler
+  const [videoLoading, setVideoLoading] = useState(false);
+  const [videoProgress, setVideoProgress] = useState(null);
+  const [videoStage, setVideoStage] = useState('');
+  const handleVideoAnalyze = useCallback(async () => {
+    if (!videoFile) return;
+    if (hasExistingNodes) {
+      const yes = await showConfirm('画布已有内容，将被覆盖，确认继续？');
+      if (!yes) return;
+    }
+    setVideoLoading(true);
+    setVideoProgress(0);
+    setVideoStage('上传视频...');
+    try {
+      const formData = new FormData();
+      formData.append('video', videoFile);
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 300000);
+      const resp = await fetch(`${API_BASE}/api/projects/${projectId}/parse-video`, {
+        method: 'POST',
+        body: formData,
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let result = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            if (evt.type === 'progress') {
+              setVideoProgress(evt.percent);
+              setVideoStage(evt.stage || '');
+            } else if (evt.type === 'done') {
+              result = evt;
+            } else if (evt.type === 'error') {
+              throw new Error(evt.message || '视频分析失败');
+            }
+          } catch (parseErr) {
+            if (parseErr instanceof SyntaxError) continue;
+            throw parseErr;
+          }
+        }
+      }
+      if (!result) throw new Error('视频分析未返回结果');
+      onConvertToBlueprint(null, null, result);
+    } catch (err) {
+      const msg = err.name === 'AbortError' ? '视频分析超时（超过5分钟）' : err.message;
+      await showAlert('⚠️ 视频分析失败: ' + msg);
+    }
+    setVideoProgress(null);
+    setVideoStage('');
+    setVideoLoading(false);
+  }, [videoFile, projectId, hasExistingNodes, showConfirm, showAlert, onConvertToBlueprint]);
+
+  // Reference → Blueprint handler
+  const [refLoading, setRefLoading] = useState(false);
+  const [refProgress, setRefProgress] = useState(null);
+  const [refStage, setRefStage] = useState('');
+  const handleRefAnalyze = useCallback(async () => {
+    if (!refUrl && !refHtmlFile) return;
+    if (hasExistingNodes) {
+      const yes = await showConfirm('画布已有内容，将被覆盖，确认继续？');
+      if (!yes) return;
+    }
+    setRefLoading(true);
+    setRefProgress(0);
+    setRefStage('准备分析...');
+    try {
+      const formData = new FormData();
+      if (refUrl) formData.append('url', refUrl);
+      if (refHtmlFile) formData.append('htmlFile', refHtmlFile);
+      if (refDesc) formData.append('description', refDesc);
+
+      await analyzeReference(projectId, formData, (percent, stage) => {
+        setRefProgress(percent);
+        setRefStage(stage || '');
+      });
+
+      // Reload project to get updated blueprint
+      const proj = await getProject(projectId);
+      const bp = proj.blueprint || {};
+      if (bp.entities && bp.entities.length > 0) {
+        onConvertToBlueprint(null, null, { entities: bp.entities, phases: bp.phases, globalSettings: bp.globalSettings });
+      }
+    } catch (err) {
+      await showAlert('⚠️ 竞品分析失败: ' + err.message);
+    }
+    setRefProgress(null);
+    setRefStage('');
+    setRefLoading(false);
+  }, [refUrl, refHtmlFile, refDesc, projectId, hasExistingNodes, showConfirm, showAlert, onConvertToBlueprint]);
+
   const [converting, setConverting] = useState(false);
   const [convertProgress, setConvertProgress] = useState(null);
   const [convertStage, setConvertStage] = useState('');
@@ -728,26 +843,33 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
 
   return (
     <div className="storyboard-panel" onDrop={handleDrop} onDragOver={handleDragOver}>
-      {/* Storyboard Mode Toggle */}
+      {/* Input Mode Toggle */}
       <div className="storyboard-input-section">
-        <h3 className="storyboard-section-title">📋 分镜模式</h3>
+        <h3 className="storyboard-section-title">📋 输入模式</h3>
         <div className="sb-mode-toggle">
-          <label className={'sb-mode-option sb-mode-disabled'} style={{ opacity: 0.45, cursor: 'not-allowed', pointerEvents: 'none' }}>
-            <input type="radio" name="sbMode" disabled style={{ display: 'none' }} />
-            <span className="sb-mode-icon">📝</span>
-            <span className="sb-mode-label">无分镜文件</span>
-            <span className="sb-mode-desc">待上线</span>
-          </label>
-          <label className={'sb-mode-option' + (hasStoryboard ? ' sb-mode-active' : '')} onClick={() => { setHasStoryboard(true); setDocFiles([]); }}>
-            <input type="radio" name="sbMode" checked={hasStoryboard} onChange={() => {}} style={{ display: 'none' }} />
+          <label className={'sb-mode-option' + (inputMode === 'storyboard' ? ' sb-mode-active' : '')} onClick={() => { setInputMode('storyboard'); setHasStoryboard(true); }}>
+            <input type="radio" name="sbMode" checked={inputMode === 'storyboard'} onChange={() => {}} style={{ display: 'none' }} />
             <span className="sb-mode-icon">📑</span>
-            <span className="sb-mode-label">有分镜文件</span>
-            <span className="sb-mode-desc">上传 PDF 分镜，直接解析</span>
+            <span className="sb-mode-label">分镜文档</span>
+            <span className="sb-mode-desc">上传 PDF/图片，AI 解析</span>
+          </label>
+          <label className={'sb-mode-option' + (inputMode === 'video' ? ' sb-mode-active' : '')} onClick={() => { setInputMode('video'); setHasStoryboard(false); }}>
+            <input type="radio" name="sbMode" checked={inputMode === 'video'} onChange={() => {}} style={{ display: 'none' }} />
+            <span className="sb-mode-icon">🎬</span>
+            <span className="sb-mode-label">视频分析</span>
+            <span className="sb-mode-desc">上传游戏视频，AI 提取蓝图</span>
+          </label>
+          <label className={'sb-mode-option' + (inputMode === 'reference' ? ' sb-mode-active' : '')} onClick={() => { setInputMode('reference'); setHasStoryboard(false); }}>
+            <input type="radio" name="sbMode" checked={inputMode === 'reference'} onChange={() => {}} style={{ display: 'none' }} />
+            <span className="sb-mode-icon">🔍</span>
+            <span className="sb-mode-label">竞品参考</span>
+            <span className="sb-mode-desc">分析竞品 HTML/URL</span>
           </label>
         </div>
       </div>
 
-      {/* Requirement Document Upload */}
+      {/* Requirement Document Upload — Storyboard mode only */}
+      {inputMode === 'storyboard' && (
       <div className="storyboard-input-section">
         <h3 className="storyboard-section-title">📄 分镜文档</h3>
         <div className={'sb-upload-zone' + (isBusy ? ' sb-upload-disabled' : '')} onClick={() => !isBusy && docInputRef.current?.click()}>
@@ -765,9 +887,89 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
           </div>
         )}
       </div>
+      )}
+
+      {/* Video Upload — Video mode only */}
+      {inputMode === 'video' && (
+      <div className="storyboard-input-section">
+        <h3 className="storyboard-section-title">🎬 游戏视频</h3>
+        <div className={'sb-upload-zone' + (videoLoading ? ' sb-upload-disabled' : '')} onClick={() => !videoLoading && videoInputRef.current?.click()}>
+          <input ref={videoInputRef} type="file" accept=".mp4,.mov,.webm" style={{ display: 'none' }}
+            onChange={(e) => { setVideoFile(e.target.files?.[0] || null); e.target.value = ''; }} disabled={videoLoading} />
+          <span className="sb-upload-icon">🎬</span>
+          <span className="sb-upload-text">{videoFile ? videoFile.name : '点击上传游戏视频'}</span>
+          <span className="sb-upload-hint">支持 MP4 / MOV / WebM，最大 20MB</span>
+        </div>
+        {videoFile && (
+          <div className="sb-file-list">
+            <div className="sb-file-tag">
+              <span>🎬 {videoFile.name} ({(videoFile.size / 1024 / 1024).toFixed(1)}MB)</span>
+              <button onClick={() => setVideoFile(null)}>×</button>
+            </div>
+          </div>
+        )}
+        <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+          <button className="storyboard-btn storyboard-btn-parse" onClick={handleVideoAnalyze}
+            disabled={videoLoading || !videoFile}
+            style={{ background: videoFile ? 'linear-gradient(135deg, #7c3aed, #2563eb)' : undefined, opacity: !videoFile ? 0.4 : 1, fontWeight: 600 }}>
+            {videoLoading ? `⏳ ${videoProgress || 0}% ${videoStage}` : '🚀 分析视频生成蓝图'}
+          </button>
+        </div>
+      </div>
+      )}
+
+      {/* Reference Input — Reference mode only */}
+      {inputMode === 'reference' && (
+      <div className="storyboard-input-section">
+        <h3 className="storyboard-section-title">🔍 竞品试玩广告</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <input
+            className="project-create-input"
+            style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid #333', background: '#1a1a2e', color: '#eee', fontSize: 13 }}
+            type="text"
+            value={refUrl}
+            onChange={(e) => { setRefUrl(e.target.value); if (e.target.value) setRefHtmlFile(null); }}
+            placeholder="竞品试玩广告 URL（粘贴链接）"
+            disabled={!!refHtmlFile || refLoading}
+          />
+          <div style={{ textAlign: 'center', color: '#666', fontSize: 12 }}>或</div>
+          <div className={'sb-upload-zone' + (refLoading ? ' sb-upload-disabled' : '')}
+            onClick={() => !refLoading && refHtmlInputRef.current?.click()}
+            style={{ border: refHtmlFile ? '2px solid #4a9eff' : undefined }}>
+            <input ref={refHtmlInputRef} type="file" accept=".html,.htm" style={{ display: 'none' }}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) { setRefHtmlFile(f); setRefUrl(''); } e.target.value = ''; }} disabled={refLoading} />
+            <span className="sb-upload-icon">{refHtmlFile ? '📄' : '🔍'}</span>
+            <span className="sb-upload-text">{refHtmlFile ? refHtmlFile.name : '上传 HTML 文件'}</span>
+            <span className="sb-upload-hint">竞品试玩广告的 HTML 文件</span>
+          </div>
+          {refHtmlFile && (
+            <div className="sb-file-list">
+              <div className="sb-file-tag">
+                <span>📄 {refHtmlFile.name} ({(refHtmlFile.size / 1024 / 1024).toFixed(1)}MB)</span>
+                <button onClick={() => setRefHtmlFile(null)}>×</button>
+              </div>
+            </div>
+          )}
+          <textarea
+            style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid #333', background: '#1a1a2e', color: '#eee', fontSize: 13, resize: 'vertical', fontFamily: 'inherit' }}
+            value={refDesc}
+            onChange={(e) => setRefDesc(e.target.value)}
+            placeholder="补充描述（可选，如：三消游戏，3关，每关30秒，借鉴它的消除玩法和UI风格）"
+            rows={2}
+          />
+        </div>
+        <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+          <button className="storyboard-btn storyboard-btn-parse" onClick={handleRefAnalyze}
+            disabled={refLoading || (!refUrl && !refHtmlFile)}
+            style={{ background: (refUrl || refHtmlFile) ? 'linear-gradient(135deg, #7c3aed, #2563eb)' : undefined, opacity: (!refUrl && !refHtmlFile) ? 0.4 : 1, fontWeight: 600 }}>
+            {refLoading ? `⏳ ${refProgress || 0}% ${refStage}` : '🚀 分析竞品生成蓝图'}
+          </button>
+        </div>
+      </div>
+      )}
 
       {/* Attachments - only in "no storyboard" mode */}
-      {!hasStoryboard && (
+      {!hasStoryboard && inputMode === 'storyboard' && (
       <div className="storyboard-input-section">
         <h3 className="storyboard-section-title">📎 上传附件</h3>
         <div className={'sb-upload-zone' + (isBusy ? ' sb-upload-disabled' : '')} onClick={() => !isBusy && imgInputRef.current?.click()}>
@@ -906,7 +1108,8 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       </div>
       )}
 
-      {/* Parse Button + One-Shot Button + Progress */}
+      {/* Parse Button + One-Shot Button + Progress — Storyboard mode only */}
+      {inputMode === 'storyboard' && (
       <div className="storyboard-input-section">
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           {hasStoryboard && (
@@ -944,6 +1147,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
           </div>
         )}
       </div>
+      )}
 
       {genProgress !== null && (
         <div className="parse-progress-overlay">
@@ -980,6 +1184,32 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
             </div>
             <div className="parse-progress-percent">{oneshotProgress}%</div>
             <div className="parse-progress-text">{oneshotStage}</div>
+          </div>
+        </div>
+      )}
+
+      {videoProgress !== null && (
+        <div className="parse-progress-overlay">
+          <div className="parse-progress-card">
+            <div className="parse-progress-icon">{videoProgress >= 100 ? '✅' : '🎬'}</div>
+            <div className="parse-progress-bar-track">
+              <div className="parse-progress-bar-fill" style={{ width: `${videoProgress}%` }} />
+            </div>
+            <div className="parse-progress-percent">{videoProgress}%</div>
+            <div className="parse-progress-text">{videoStage}</div>
+          </div>
+        </div>
+      )}
+
+      {refProgress !== null && (
+        <div className="parse-progress-overlay">
+          <div className="parse-progress-card">
+            <div className="parse-progress-icon">{refProgress >= 100 ? '✅' : '🔍'}</div>
+            <div className="parse-progress-bar-track">
+              <div className="parse-progress-bar-fill" style={{ width: `${refProgress}%` }} />
+            </div>
+            <div className="parse-progress-percent">{refProgress}%</div>
+            <div className="parse-progress-text">{refStage}</div>
           </div>
         </div>
       )}

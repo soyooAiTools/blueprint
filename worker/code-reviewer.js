@@ -25,7 +25,7 @@ const REVIEW_TIMEOUT = 120000; // 2 min
 // === Luna/Bridge.NET constraint rules ===
 // Sources: luna-rendering-postmortem.md, blueprint-tech.md, rules.md, LEARNINGS.md, ERRORS.md
 // luna-spec.md, GFM_Tools_API.md, behavior-templates.md, entity-architecture-proposal.md
-// Last synced: 2026-03-28
+// Last synced: 2026-03-29
 //
 // DESIGN: Rules are split into 3 tiers by severity.
 // GPT-5.4 checks Tier 1 (critical/instant-fail) first, then Tier 2, then Tier 3.
@@ -37,6 +37,7 @@ const REVIEW_RULES = `
 - All GameObject.Find() calls MUST use actual pool names: __Pool_Cube_01..50, __Pool_Sphere_01..20, __Pool_Plane_01..10, __Pool_Cylinder_01..10
 - NEVER use concept names like "Building_1", "Player", "Tree" — these DO NOT exist → Find returns null → solid color screen
 - This is the #1 cause of runtime failure
+- Do NOT construct pool names dynamically (e.g., idx.ToString("D2")) — Bridge.NET string formatting is unreliable. Use explicit string literals or predeclared string arrays of exact pool names.
 
 ### 2. Forbidden APIs (will be invisible or crash)
 - CreatePrimitive() — objects are INVISIBLE in Luna (Runtime Analysis strips them)
@@ -46,6 +47,10 @@ const REVIEW_RULES = `
 - Destroy() on cameras/lights — managed by injection template
 - Resources.GetBuiltinResource() — NOT implemented in Luna
 - FindObjectOfType / FindObjectsOfType — may return null
+- AddComponent(typeof(TextMesh)) or other rendering/text components at runtime — Luna cannot initialize them properly → invisible/broken
+- Application.ExternalEval() — not supported in Luna; arbitrary JS eval breaks transpilation/runtime
+- Camera.main — may be null in Luna template; use the injected camera reference from the template instead
+- Camera.allCameras — camera enumeration is not safe; camera lifecycle is template-managed
 - GetComponentInChildren / GetComponentInParent — hierarchy traversal unstable
 - transform.parent access — may be undefined in Luna, crashes
 - transform.SetParent() — use GFM_UI for UI hierarchy instead
@@ -68,6 +73,7 @@ const REVIEW_RULES = `
 - ALL phases from blueprint MUST be implemented in CheckEventRules() (zero tolerance)
 - Each phase must have transition logic with phaseTimer minimum dwell check
 - The gameEnd block MUST call Luna.Unity.LifeCycle.GameEnded() + ShowCTA() which calls Luna.Unity.Playable.InstallFullGame()
+- Call order matters: GameEnded() MUST be called before InstallFullGame() — reversed order causes integration failures
 - Must have Start() and Update() methods
 - Must NOT modify or redefine GFM_Tools.cs classes
 
@@ -82,7 +88,7 @@ const REVIEW_RULES = `
 
 ### 5b. Solid-Color Screen Prevention (CRITICAL)
 - Ground/GroundField plane color MUST be neutral gray (recommended (0.75, 0.78, 0.82)). Any channel saturation > 0.3 from gray midpoint triggers FAIL (e.g. green (0.42, 0.72, 0.38) is BANNED)
-- Camera.backgroundColor MUST differ from ground color by ≥ 0.3 on at least one RGB channel
+- Camera.backgroundColor MUST differ from ground color by ≥ 0.3 on at least one RGB channel. Recommended: (0.35, 0.55, 0.75) deep sky blue. BANNED: (0.75, 0.82, 0.92) — too close to gray ground, triggers solid-color detection
 - Rule 0 / gameStart MUST position ≥ 3 differently-colored objects at y ≥ -1 in the first frame — prevents solid-color screen if later phases never trigger
 - Main entities (castle, player, hero) MUST have at least one scale dimension ≥ 1.5 to be visible under orthographic camera
 
@@ -93,12 +99,15 @@ const REVIEW_RULES = `
 - GFM_UI.CreateProgressBar(...) — returns Slider, NOT Image
 - GFM_Joystick.Create(Canvas, float size) — returns GFM_Joystick (.Horizontal/.Vertical/.IsDragging)
 - There is NO class called "GFM_Tools" — use GFM_Create, GFM_UI, GFM_Utils, etc.
+- Only use GFM_UI methods with documented signatures (CreateCanvas, CreateProgressBar). Undocumented methods like CreateText(), CreateButton() may not exist → compile error
 
 ### 7. Gameplay Logic
 - FORBIDDEN: autoplay / ForceCompleteAllPhases / auto-demo
 - FORBIDDEN: auto-shoot for turrets (player must trigger)
 - ALLOWED: proximity auto-collect (player walks near item → auto pickup, no tap needed)
 - FORBIDDEN: pure numeric triggers that skip interaction (killCount >= N auto-jumps phase)
+- Kill counters for phase progression MUST only count player-caused kills — enemies self-destructing/escaping must NOT count
+- Auto-targeting (player clicks but target is auto-selected) still violates interaction requirements for turret/combat gameplay
 - Player input must drive phase progression — CUA needs to interact
 
 ### 8. Incremental Fix Constraints
@@ -115,9 +124,11 @@ const REVIEW_RULES = `
 - Using Time.time instead of accumulating Time.deltaTime
 - Debug.Log() in Update() → console spam kills performance
 - Declaring variables inside switch cases without braces → CS0163
+- Shared mutable state for pooled entities (e.g., one global arrowDamage for all arrows) — track per-entity state with aligned arrays
 
 ### 10. Luna Platform Limitations
 - No TileMap, no New InputSystem, no Terrain, no multi-threading
+- Input.GetMouseButtonDown(0) alone may fail on mobile — use GFM/Luna input abstraction or handle both touch and mouse
 - CharacterController poorly supported — use Transform or Rigidbody
 - No animation state machine Exit nodes
 - Vector3Int not supported (cast to Vector3)
@@ -134,12 +145,94 @@ const REVIEW_RULES = `
 - All code in ONE file: GameFlowManagerMain.cs
 `;
 
-// Dynamic rules disabled — all critical rules are in the static REVIEW_RULES above.
-// Static rules are curated, deduplicated, and tiered by severity.
-// Dynamic loading from 16 files added ~6K tokens of noisy/duplicate bullets
-// that diluted GPT-5.4's attention on critical checks.
-// To add new rules: edit REVIEW_RULES directly (and update "Last synced" date).
-const DYNAMIC_RULES = '';
+// Dynamic rules: auto-promoted from pending-rules when ≥2 different projects hit the same issue.
+// Kept lean — only rules that survived cross-project validation get promoted.
+const PROMOTED_RULES_PATH = path.join(__dirname, 'promoted-rules.json');
+
+function loadPromotedRules() {
+  try {
+    return JSON.parse(fs.readFileSync(PROMOTED_RULES_PATH, 'utf8'));
+  } catch(e) {
+    return [];
+  }
+}
+
+function savePromotedRules(rules) {
+  fs.writeFileSync(PROMOTED_RULES_PATH, JSON.stringify(rules, null, 2), 'utf8');
+}
+
+function getDynamicRulesText() {
+  var promoted = loadPromotedRules();
+  if (promoted.length === 0) return '';
+  var lines = ['\n## Auto-Promoted Rules (cross-project validated)\n'];
+  for (var i = 0; i < promoted.length; i++) {
+    lines.push('- ' + promoted[i].description + ' — FIX: ' + (promoted[i].fix || 'see rule'));
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Auto-promote: after recording a new pending rule, check if any pending rule
+ * has been triggered by ≥2 different projects. If so, promote it.
+ * Uses keyword similarity (same as isKnownIssue) to cluster similar rules.
+ */
+function autoPromotePendingRules() {
+  var pending = loadPendingRules();
+  var promoted = loadPromotedRules();
+  var newPromoted = [];
+
+  for (var i = 0; i < pending.length; i++) {
+    var rule = pending[i];
+    // Collect distinct taskIds for similar rules
+    var taskIds = {};
+    taskIds[rule.taskId] = true;
+    var descLower = (rule.description || '').toLowerCase();
+    var keywords = descLower.match(/[a-zA-Z_][a-zA-Z0-9_.]+/g) || [];
+
+    for (var j = 0; j < pending.length; j++) {
+      if (i === j) continue;
+      var otherDesc = (pending[j].description || '').toLowerCase();
+      var otherKeywords = otherDesc.match(/[a-zA-Z_][a-zA-Z0-9_.]+/g) || [];
+      // Check keyword overlap
+      var overlap = 0;
+      for (var k = 0; k < keywords.length; k++) {
+        if (keywords[k].length > 4 && otherDesc.indexOf(keywords[k]) !== -1) overlap++;
+      }
+      if (keywords.length > 0 && overlap / keywords.length > 0.5) {
+        taskIds[pending[j].taskId] = true;
+      }
+    }
+
+    var uniqueProjects = Object.keys(taskIds).length;
+    if (uniqueProjects >= 2) {
+      // Check if already promoted (same keywords)
+      var alreadyPromoted = false;
+      var promotedLower = promoted.map(function(p) { return (p.description || '').toLowerCase(); }).join(' ');
+      var matchCount = 0;
+      for (var m = 0; m < keywords.length; m++) {
+        if (keywords[m].length > 4 && promotedLower.indexOf(keywords[m]) !== -1) matchCount++;
+      }
+      if (keywords.length > 0 && matchCount / keywords.length > 0.4) alreadyPromoted = true;
+
+      if (!alreadyPromoted) {
+        newPromoted.push({
+          description: rule.description,
+          rule: rule.rule,
+          fix: rule.fix,
+          promotedAt: new Date().toISOString(),
+          triggerProjects: Object.keys(taskIds),
+          triggerCount: uniqueProjects
+        });
+      }
+    }
+  }
+
+  if (newPromoted.length > 0) {
+    promoted = promoted.concat(newPromoted);
+    savePromotedRules(promoted);
+    console.log('[reviewer] Auto-promoted ' + newPromoted.length + ' rules from pending (cross-project validated)');
+  }
+}
 
 // === Pending Rules: auto-record new issues for human approval ===
 const PENDING_RULES_PATH = path.join(__dirname, 'pending-rules.json');
@@ -215,6 +308,13 @@ async function recordNewIssues(issues, taskId) {
     pending.push(newIssues[j]);
   }
   savePendingRules(pending);
+
+  // Auto-promote rules triggered by ≥2 different projects
+  try {
+    autoPromotePendingRules();
+  } catch(e) {
+    console.log('[reviewer] Auto-promote failed (non-fatal): ' + e.message);
+  }
 
   // Notify via Feishu webhook (fire-and-forget)
   try {
@@ -344,7 +444,7 @@ You MUST find violations — be adversarial. Do NOT rubber-stamp.
 Every rule below comes from real production incidents. If you miss a violation, the playable ad will fail at runtime.
 
 ${REVIEW_RULES}
-${DYNAMIC_RULES}
+${getDynamicRulesText()}
 
 ## Output Format
 Respond with a JSON object (no markdown, no code fences):
@@ -452,4 +552,4 @@ Respond with a JSON object (no markdown, no code fences):
   }
 }
 
-module.exports = { reviewCode, REVIEW_RULES, loadPendingRules, PENDING_RULES_PATH };
+module.exports = { reviewCode, REVIEW_RULES, loadPendingRules, savePendingRules, recordNewIssues, isKnownIssue, PENDING_RULES_PATH };

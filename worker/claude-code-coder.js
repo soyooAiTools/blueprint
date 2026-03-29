@@ -22,7 +22,7 @@ try {
 
 // ============ Config ============
 const CLAUDE_CMD = process.env.CLAUDE_CMD || 'claude';
-const CLAUDE_TIMEOUT_MS = parseInt(process.env.CLAUDE_TIMEOUT_MS) || 10 * 60 * 1000; // 10 min
+const CLAUDE_TIMEOUT_MS = parseInt(process.env.CLAUDE_TIMEOUT_MS) || 5 * 60 * 1000; // 5 min (was 10 min — timeouts produce stubs, early kill + retry is faster)
 const CLAUDE_MAX_BUDGET = process.env.CLAUDE_MAX_BUDGET_USD || '3';
 const CLAUDE_MODEL = process.env.CLAUDE_CODE_MODEL || 'claude-opus-4-6';
 const SYSTEM_PROMPT_PATH = path.join(__dirname, 'luna-claude-code.md');

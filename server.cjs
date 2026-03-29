@@ -29,6 +29,7 @@ try {
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const url = require('url');
 const AdmZip = require('adm-zip');
 const { triggerCUAReview, resetCUARetries } = require('./server-cua-review.cjs');
@@ -210,8 +211,11 @@ function generateId() {
   return 'proj_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
 }
 
-function serveStatic(res, filePath) {
+// Gzip cache: filePath → { mtime, data }
+var _gzipCache = {};
+function serveStatic(res, filePath, req) {
   if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return false;
+  var stat = fs.statSync(filePath);
   var ext = path.extname(filePath).toLowerCase();
   var mime = MIME[ext] || 'application/octet-stream';
   var content = fs.readFileSync(filePath);
@@ -222,15 +226,35 @@ function serveStatic(res, filePath) {
     : 'public, max-age=31536000, immutable';
   var headers = {
     'Content-Type': mime,
-    'Content-Length': content.length,
     'Cache-Control': cacheControl,
   };
   // Unity WebGL: .wasm files need correct MIME
   if (filePath.endsWith('.wasm')) {
     headers['Content-Type'] = 'application/wasm';
   }
-  res.writeHead(200, headers);
-  res.end(content);
+  // Gzip compress text-based files >10KB when client supports it
+  var COMPRESSIBLE = { '.html': 1, '.js': 1, '.css': 1, '.json': 1, '.svg': 1, '.xml': 1, '.wasm': 1 };
+  var acceptEncoding = (req && req.headers && req.headers['accept-encoding']) || '';
+  if (COMPRESSIBLE[ext] && content.length > 10240 && acceptEncoding.includes('gzip')) {
+    var mtime = stat.mtimeMs;
+    var cached = _gzipCache[filePath];
+    var compressed;
+    if (cached && cached.mtime === mtime) {
+      compressed = cached.data;
+    } else {
+      compressed = zlib.gzipSync(content);
+      _gzipCache[filePath] = { mtime: mtime, data: compressed };
+    }
+    headers['Content-Encoding'] = 'gzip';
+    headers['Content-Length'] = compressed.length;
+    headers['Vary'] = 'Accept-Encoding';
+    res.writeHead(200, headers);
+    res.end(compressed);
+  } else {
+    headers['Content-Length'] = content.length;
+    res.writeHead(200, headers);
+    res.end(content);
+  }
   return true;
 }
 
@@ -291,6 +315,8 @@ function matchRoute(method, pathname) {
   if (m && method === 'POST') return { handler: 'parseVideo', id: m[1], rawBody: true };
   m = pathname.match(/^\/api\/projects\/([^/]+)\/convert-to-v4$/);
   if (m && method === 'POST') return { handler: 'convertToV4', id: m[1] };
+  m = pathname.match(/^\/api\/projects\/([^/]+)\/analyze-reference$/);
+  if (m && method === 'POST') return { handler: 'analyzeReference', id: m[1], rawBody: true };
 
   // Spec review routes
   m = pathname.match(/^\/api\/projects\/([^/]+)\/specs$/);
@@ -763,7 +789,7 @@ handlers.deleteProject = function(req, res, body, id) {
 handlers.workerPoll = function(req, res, body) {
   var parsedUrl = url.parse(req.url, true);
   var workerId = parsedUrl.query.workerId;
-  
+
   if (!workerId) {
     return sendJSON(res, { error: 'workerId required' }, 400);
   }
@@ -777,37 +803,31 @@ handlers.workerPoll = function(req, res, body) {
 
     var files = fs.readdirSync(AUTOCODING_QUEUE);
     var taskFiles = files.filter(function(f) { return f.endsWith('.json') && !f.endsWith('.cancelled.json'); });
-    
-    // Find first task this worker hasn't claimed yet
-    // Multi-worker support: each worker independently processes the same task
-    var workerType = workerId.startsWith('linux') ? 'linux' : 'windows';
+
+    // Multi-worker: each task assigned to ONE worker at a time, tracked by workerId
     for (var i = 0; i < taskFiles.length; i++) {
       var taskPath = path.join(AUTOCODING_QUEUE, taskFiles[i]);
       var task = JSON.parse(fs.readFileSync(taskPath, 'utf-8'));
-      
-      // Initialize workerAssignments if missing
+
       if (!task.workerAssignments) task.workerAssignments = {};
-      
-      var workerState = task.workerAssignments[workerType];
-      var taskAvailable = (task.status === 'pending' || task.status === 'fix_needed' || task.status === 'assigned');
-      
-      // This worker can claim if: task is available AND this workerType hasn't claimed it yet
-      if (taskAvailable && (!workerState || workerState === 'pending' || workerState === 'fix_needed')) {
-        var originalStatus = workerState || task.status;
-        
-        // Mark this worker's assignment
-        task.workerAssignments[workerType] = 'assigned';
-        task.workerAssignments[workerType + '_workerId'] = workerId;
-        task.workerAssignments[workerType + '_assignedAt'] = new Date().toISOString();
-        
-        // Overall task status: assigned if any worker has it
+
+      var taskAvailable = (task.status === 'pending' || task.status === 'fix_needed');
+
+      // Task is claimable if: status is pending/fix_needed (not already assigned/processing by another worker)
+      if (taskAvailable) {
+        var originalStatus = task.status;
+
+        // Mark assignment by this specific workerId
+        task.workerAssignments[workerId] = 'assigned';
+        task.workerAssignments[workerId + '_assignedAt'] = new Date().toISOString();
+
         task.status = 'assigned';
         task.assignedTo = workerId;
         task.assignedAt = new Date().toISOString();
         fs.writeFileSync(taskPath, JSON.stringify(task, null, 2), 'utf-8');
-        
+
         task.originalStatus = (originalStatus === 'pending' || originalStatus === 'fix_needed') ? originalStatus : 'pending';
-        console.log('[Worker Poll] Assigned task ' + task.taskId + ' (' + task.originalStatus + ') to ' + workerType + ' worker ' + workerId);
+        console.log('[Worker Poll] Assigned task ' + task.taskId + ' (' + task.originalStatus + ') to worker ' + workerId);
         sendJSON(res, task);
         return;
       }
@@ -857,9 +877,20 @@ handlers.workerStatus = function(req, res, body) {
     // Update project status if exists
     var project = readProject(taskId);
     if (project) {
-      project.status = status;
+      // Map cua_passed to reviewing — CUA passed means ready for human review
+      project.status = (status === 'cua_passed') ? 'reviewing' : status;
       if (message) project.statusMessage = message;
       project.updatedAt = new Date().toISOString();
+      // Set webglPath if not already set (CUA passed with build available)
+      if (status === 'cua_passed' && !project.webglPath) {
+        var webglDir = path.join(WEBGL_DIR, taskId);
+        var hasIframe = fs.existsSync(path.join(webglDir, 'iframe.html'));
+        var buildFile = hasIframe ? 'iframe.html' : 'index.html';
+        if (fs.existsSync(path.join(webglDir, buildFile))) {
+          project.webglPath = '/webgl/' + taskId + '/' + buildFile;
+          project.buildCompletedAt = new Date().toISOString();
+        }
+      }
       writeProject(project);
     }
 
@@ -867,21 +898,22 @@ handlers.workerStatus = function(req, res, body) {
     var taskPath = path.join(AUTOCODING_QUEUE, taskId + '.json');
     if (fs.existsSync(taskPath)) {
       var task = JSON.parse(fs.readFileSync(taskPath, 'utf-8'));
-      var wType = workerId.startsWith('linux') ? 'linux' : 'windows';
-      
-      // Update per-worker status
+
+      // Update per-workerId status (not per workerType)
       if (!task.workerAssignments) task.workerAssignments = {};
-      task.workerAssignments[wType] = status;
-      task.workerAssignments[wType + '_message'] = message || '';
-      task.workerAssignments[wType + '_updatedAt'] = new Date().toISOString();
-      
-      // Overall task status = best of both workers
-      // done > processing > assigned > fix_needed > pending > failed
+      task.workerAssignments[workerId] = status;
+      task.workerAssignments[workerId + '_message'] = message || '';
+      task.workerAssignments[workerId + '_updatedAt'] = new Date().toISOString();
+
+      // Overall task status = best of all workers
       var statusPriority = { done: 6, cua_passed: 5, processing: 4, assigned: 3, fix_needed: 2, pending: 1, failed: 0 };
       var bestStatus = status;
-      var types = ['linux', 'windows'];
-      for (var ti = 0; ti < types.length; ti++) {
-        var ws = task.workerAssignments[types[ti]];
+      var waKeys = Object.keys(task.workerAssignments);
+      for (var ti = 0; ti < waKeys.length; ti++) {
+        var wk = waKeys[ti];
+        // Skip metadata keys (those with _ suffix)
+        if (wk.indexOf('_') !== -1) continue;
+        var ws = task.workerAssignments[wk];
         if (ws && (statusPriority[ws] || 0) > (statusPriority[bestStatus] || 0)) {
           bestStatus = ws;
         }
@@ -1358,7 +1390,7 @@ handlers.serveImage = function(req, res, body, id) {
   if (!m) return sendJSON(res, { error: 'Not found' }, 404);
   var imgPath = path.join(DATA_DIR, 'images', m[1], m[2]);
   if (!fs.existsSync(imgPath)) return sendJSON(res, { error: 'Image not found' }, 404);
-  serveStatic(res, imgPath);
+  serveStatic(res, imgPath, req);
 };
 
 handlers.uploadStyleRef = function(req, res, body, projectId) {
@@ -2092,6 +2124,200 @@ handlers.editFrame = function(req, res, body) {
   })();
 };
 
+// ============ Reference Analysis Handler ============
+
+handlers.analyzeReference = async function(req, res, body, projectId) {
+  var fs = require('fs');
+  var path = require('path');
+
+  // Lazy-load modules
+  var referenceFetcher = require('./worker/reference-fetcher.js');
+  var referenceAnalyzer = require('./worker/reference-analyzer.js');
+  var referenceToBlueprint = require('./worker/reference-to-blueprint.js');
+
+  // Collect raw body before SSE
+  var rawChunks = [];
+  await new Promise(function(resolve, reject) {
+    var timeout = setTimeout(function() { reject(new Error('Upload timeout')); }, 60000);
+    req.on('data', function(chunk) { rawChunks.push(chunk); });
+    req.on('end', function() { clearTimeout(timeout); resolve(); });
+    req.on('error', function(e) { clearTimeout(timeout); reject(e); });
+    if (req.complete) { clearTimeout(timeout); resolve(); }
+  });
+  var rawBody = Buffer.concat(rawChunks);
+  console.log('[analyze-reference] Body received: ' + rawBody.length + ' bytes');
+
+  // Start SSE
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  function sendSSE(data) {
+    try { res.write('data: ' + JSON.stringify(data) + '\n\n'); } catch(e) {}
+  }
+
+  // SSE keepalive
+  var keepalive = setInterval(function() {
+    try { res.write(': keepalive\n\n'); } catch(e) { clearInterval(keepalive); }
+  }, 15000);
+
+  try {
+    sendSSE({ type: 'progress', percent: 2, stage: '检查项目...' });
+
+    var project = readProject(projectId);
+    if (!project) { sendSSE({ type: 'error', message: 'Project not found' }); res.end(); return; }
+
+    sendSSE({ type: 'progress', percent: 5, stage: '处理上传...' });
+
+    // Parse multipart
+    var uploadedFiles = [];
+    var formFields = {};
+
+    var Busboy;
+    try { Busboy = require('busboy'); } catch(e) {}
+
+    await new Promise(function(resolve, reject) {
+      try {
+        var bb = Busboy({ headers: req.headers });
+        var pendingWrites = 0;
+        var busboyDone = false;
+        function checkResolve() { if (busboyDone && pendingWrites === 0) resolve(); }
+
+        bb.on('file', function(fieldname, file, info) {
+          var filename = info.filename || info;
+          if (typeof filename === 'object') filename = filename.filename;
+          console.log('[analyze-reference] Receiving file: ' + filename);
+          var uploadDir = path.join(__dirname, 'server-data', 'uploads');
+          if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+          var dest = path.join(uploadDir, 'ref_' + Date.now() + '_' + filename);
+          var ws = fs.createWriteStream(dest);
+          pendingWrites++;
+          file.pipe(ws);
+          ws.on('close', function() {
+            uploadedFiles.push({ name: filename, path: dest });
+            pendingWrites--;
+            checkResolve();
+          });
+        });
+        bb.on('field', function(name, val) { formFields[name] = val; });
+        bb.on('close', function() { busboyDone = true; checkResolve(); });
+        bb.on('error', function(e) { reject(e); });
+
+        var { PassThrough } = require('stream');
+        var pt = new PassThrough();
+        pt.pipe(bb);
+        pt.end(rawBody);
+      } catch(e) {
+        try { formFields = JSON.parse(rawBody.toString()); } catch(e2) {}
+        resolve();
+      }
+    });
+
+    var url = formFields.url || '';
+    var description = formFields.description || '';
+    var htmlFile = uploadedFiles.find(function(f) { return /\.html?$/i.test(f.name); });
+
+    if (!url && !htmlFile) {
+      sendSSE({ type: 'error', message: '请提供竞品链接或上传 HTML 文件' });
+      res.end();
+      return;
+    }
+
+    // Step 1: Fetch reference
+    sendSSE({ type: 'progress', percent: 10, stage: '获取竞品资源...' });
+    function log(msg) { console.log(msg); }
+
+    var fetchResult;
+    try {
+      fetchResult = await referenceFetcher.fetchReference(
+        { url: url || null, htmlPath: htmlFile ? htmlFile.path : null },
+        log, projectId
+      );
+    } catch (e) {
+      sendSSE({ type: 'error', message: '获取资源失败: ' + e.message });
+      res.end();
+      return;
+    }
+
+    sendSSE({ type: 'progress', percent: 25, stage: '资源获取完成，框架: ' + (fetchResult.metadata.framework || 'unknown') });
+
+    // Step 2: Analyze with Playwright
+    sendSSE({ type: 'progress', percent: 30, stage: '运行截图分析...' });
+
+    var analysis;
+    try {
+      analysis = await referenceAnalyzer.analyzeReference(
+        fetchResult.htmlPath, fetchResult.metadata, log, projectId
+      );
+    } catch (e) {
+      console.error('[analyze-reference] Analyzer error:', e.message);
+      // Fallback: 无截图分析，纯代码分析
+      analysis = {
+        screenshots: [],
+        interactionFlow: [],
+        staticAnalysis: {},
+        ctaDetected: false,
+        phaseCount: 0,
+      };
+      sendSSE({ type: 'progress', percent: 40, stage: '截图分析失败，使用纯代码分析...' });
+    }
+
+    sendSSE({ type: 'progress', percent: 50, stage: '截图: ' + analysis.screenshots.length + ' 张, 交互: ' + analysis.interactionFlow.length + ' 个' });
+
+    // Step 3: Generate blueprint via LLM
+    sendSSE({ type: 'progress', percent: 60, stage: 'AI 生成蓝图...' });
+
+    var blueprint;
+    try {
+      blueprint = await referenceToBlueprint.generateBlueprint(
+        analysis, description, fetchResult.metadata, fetchResult.html, log, projectId
+      );
+    } catch (e) {
+      sendSSE({ type: 'error', message: 'AI 生成蓝图失败: ' + e.message });
+      res.end();
+      return;
+    }
+
+    sendSSE({ type: 'progress', percent: 90, stage: '蓝图生成完成: ' + blueprint.entities.length + ' 个实体, ' + blueprint.phases.length + ' 个阶段' });
+
+    // Step 4: Save to project
+    project.blueprint = project.blueprint || {};
+    project.blueprint.entities = blueprint.entities;
+    project.blueprint.phases = blueprint.phases;
+    project.blueprint.globalSettings = blueprint.globalSettings || {};
+    project.blueprint.referenceSource = {
+      type: url ? 'url' : 'file',
+      value: url || (htmlFile && htmlFile.name) || '',
+      framework: fetchResult.metadata.framework,
+      analyzedAt: new Date().toISOString(),
+      screenshotCount: analysis.screenshots.length,
+      interactionCount: analysis.interactionFlow.length,
+    };
+    project.updatedAt = new Date().toISOString();
+    writeProject(project);
+
+    console.log('[analyze-reference] Done: ' + blueprint.entities.length + ' entities, ' + blueprint.phases.length + ' phases for project ' + projectId);
+
+    sendSSE({
+      type: 'done',
+      entities: blueprint.entities.length,
+      phases: blueprint.phases.length,
+      globalSettings: blueprint.globalSettings,
+      framework: fetchResult.metadata.framework,
+    });
+    res.end();
+
+  } catch (e) {
+    console.error('[analyze-reference] Error:', e.message);
+    sendSSE({ type: 'error', message: e.message });
+    res.end();
+  } finally {
+    clearInterval(keepalive);
+  }
+};
+
 // ============ Spec Review Handlers ============
 
 handlers.getSpecs = function(req, res, body, id) {
@@ -2515,23 +2741,23 @@ var server = http.createServer(function(req, res) {
   // WebGL static files
   if (pathname.startsWith('/webgl/')) {
     var webglFile = path.join(WEBGL_DIR, pathname.slice(7));
-    if (serveStatic(res, webglFile)) return;
+    if (serveStatic(res, webglFile, req)) return;
   }
 
   // Dashboard page (served from project root, not dist)
   if (pathname === '/dashboard' || pathname === '/dashboard.html') {
     var dashFile = path.join(__dir, 'dashboard.html');
-    if (serveStatic(res, dashFile)) return;
+    if (serveStatic(res, dashFile, req)) return;
   }
 
   // Frontend static files
   var staticFile = path.join(DIST_DIR, pathname === '/' ? 'index.html' : pathname);
-  if (serveStatic(res, staticFile)) return;
+  if (serveStatic(res, staticFile, req)) return;
 
   // SPA fallback — serve index.html for non-file routes
   var indexFile = path.join(DIST_DIR, 'index.html');
   if (fs.existsSync(indexFile)) {
-    serveStatic(res, indexFile);
+    serveStatic(res, indexFile, req);
     return;
   }
 
@@ -2576,6 +2802,16 @@ setInterval(function() {
           task.assignedAt = null;
           task.statusMessage = 'Auto-reset from stale ' + task.status;
           task.updatedAt = new Date().toISOString();
+          // Also reset workerAssignments so workers can re-claim the task
+          if (task.workerAssignments) {
+            var waKeys = Object.keys(task.workerAssignments);
+            for (var wi = 0; wi < waKeys.length; wi++) {
+              var wk = waKeys[wi];
+              if (task.workerAssignments[wk] === 'processing' || task.workerAssignments[wk] === 'assigned') {
+                task.workerAssignments[wk] = 'pending';
+              }
+            }
+          }
           fs.writeFileSync(fp, JSON.stringify(task, null, 2), 'utf-8');
         }
       }

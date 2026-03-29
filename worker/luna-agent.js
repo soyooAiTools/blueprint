@@ -731,7 +731,10 @@ ${feedbackBugs.map((b, i) => (i + 1) + '. ' + b).join('\n')}
     if (gameState) {
       gameStateText = '\n\n[游戏状态] 当前Phase: ' + (gameState.currentPhase || '未知');
       if (gameState.completedPhases && gameState.completedPhases.length > 0) {
-        gameStateText += ' | 已完成: ' + gameState.completedPhases.join(', ');
+        var phases = Array.isArray(gameState.completedPhases)
+          ? gameState.completedPhases
+          : String(gameState.completedPhases).split(',').filter(function(s) { return s.trim(); });
+        gameStateText += ' | 已完成: ' + phases.join(', ');
       }
       if (gameState.entityStates) {
         const entities = Object.entries(gameState.entityStates).map(function(e) { return e[0] + '=' + e[1]; });
@@ -1597,7 +1600,7 @@ async function main() {
         total: cuaResult.allBugs.length + cuaResult.allAnomalies.length
       },
       summary: {
-        passed: cuaResult.allBugs.length === 0 && cuaResult.allAnomalies.filter(a => a.severity === 'high').length === 0,
+        passed: cuaResult.allBugs.length === 0 && cuaResult.allAnomalies.filter(a => a.severity === 'high').length === 0 && (cuaResult.history || []).length > 0,
         highSeverity: cuaResult.allAnomalies.filter(a => a.severity === 'high').length,
         mediumSeverity: cuaResult.allAnomalies.filter(a => a.severity === 'medium').length,
         aiBugs: cuaResult.allBugs.length,
@@ -1626,9 +1629,10 @@ async function main() {
     const stuckPenalty = cuaResult.exitReason === 'stuck' ? 40 : 0;
     const ctaBonus = cuaResult.exitReason === 'cta_terminal' ? 20 : 0;
     const completionRate = cuaResult.totalRounds > 0 ? Math.min(cuaResult.totalRounds / config.rounds, 1) : 0;
-    report.score = Math.max(0, Math.min(100,
+    const hasHistory = (cuaResult.history || []).length > 0;
+    report.score = hasHistory ? Math.max(0, Math.min(100,
       Math.round(100 - highBugs * 20 - aiBugs * 10 - stuckPenalty + ctaBonus - (1 - completionRate) * 10)
-    ));
+    )) : 0;
 
     if (config.output) {
       const fullReport = { ...report };
@@ -1921,7 +1925,7 @@ async function main() {
       total: allBugs.length + allAnomalies.length
     },
     summary: {
-      passed: allBugs.length === 0 && allAnomalies.filter(a => a.severity === 'high').length === 0,
+      passed: allBugs.length === 0 && allAnomalies.filter(a => a.severity === 'high').length === 0 && history.length > 0,
       highSeverity: allAnomalies.filter(a => a.severity === 'high').length,
       mediumSeverity: allAnomalies.filter(a => a.severity === 'medium').length,
       aiBugs: allBugs.length,

@@ -249,7 +249,7 @@ function buildStructuredFeedback(round, cuaResult, blueprint, fixHistory) {
 }
 
 // ============ Config ============
-const WORKER_ID = process.env.LINUX_WORKER_ID || 'linux-worker-1';
+const WORKER_ID = process.env.LINUX_WORKER_ID || process.env.name || ('linux-worker-' + (process.env.pm_id || '1'));
 const BASE_URL = process.env.LINUX_BASE_URL || 'http://120.55.70.226:3901';
 const BUILD_URL = process.env.LINUX_BUILD_URL || 'http://120.55.70.226:3080';
 const POLL_INTERVAL = 10000;       // 10s between polls
@@ -914,8 +914,21 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
         cuaResult = await runCUAVerification(cuaBuildDir, blueprint, taskId, log);
       } catch (cuaErr) {
         log(`CUA round ${cuaRound} error: ${cuaErr.message}`, taskId);
+        // Track consecutive crashes for early-stop (was missing — caused Run 1 to spin 12 rounds)
+        if (lastIssueCategory === 'crash') {
+          consecutiveSameIssue++;
+        } else {
+          consecutiveSameIssue = 1;
+          lastIssueCategory = 'crash';
+        }
+        if (consecutiveSameIssue >= 3) {
+          log(`[early-stop] ${consecutiveSameIssue} consecutive CUA crashes — stopping task (infrastructure or fundamental code issue)`, taskId);
+          await reportStatus(taskId, 'failed', { message: `[Linux] CUA crashed ${consecutiveSameIssue} consecutive rounds — stopping` });
+          try { fs.rmSync(cuaBuildDir, { recursive: true, force: true }); } catch(e) {}
+          break;
+        }
         if (cuaRound >= MAX_CUA_ROUNDS) {
-          await reportStatus(taskId, 'done', { message: `[Linux] Done (CUA error after ${cuaRound} rounds)`, previewUrl });
+          await reportStatus(taskId, 'failed', { message: `[Linux] Done (CUA error after ${cuaRound} rounds)`, previewUrl });
         }
         try { fs.rmSync(cuaBuildDir, { recursive: true, force: true }); } catch(e) {}
         continue;
@@ -962,10 +975,15 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
       }
 
       if (consecutiveSameIssue >= SAME_ISSUE_REGEN_THRESHOLD) {
+        if (consecutiveSameIssue >= SAME_ISSUE_REGEN_THRESHOLD * 2) {
+          // 4+ rounds same issue even after full regen — give up
+          log(`[early-stop] Same issue "${currentIssueCategory}" persists after ${consecutiveSameIssue} rounds (including full regen) — stopping`, taskId);
+          await reportStatus(taskId, 'failed', { message: `[Linux] Same issue "${currentIssueCategory}" after ${consecutiveSameIssue} rounds — stopping` });
+          break;
+        }
         log(`[strategy] Same issue "${currentIssueCategory}" for ${consecutiveSameIssue} consecutive rounds — switching to FULL_GENERATION`, taskId);
         // Reset feedbackHistory to force fresh generation
         blueprint.feedbackHistory = [];
-        consecutiveSameIssue = 0;
         // Clear the fixHistory so AI gets a clean slate
         fixHistory.length = 0;
       }
@@ -984,6 +1002,23 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
 
       // === Fix cycle: build CUA feedback → re-code → rebuild → retry ===
       await reportStatus(taskId, 'processing', { message: `[Linux] CUA round ${cuaRound} failed, AI re-coding...`, previewUrl });
+
+      // Record CUA failures to pending-rules for cross-project learning
+      try {
+        const { recordNewIssues } = require('./code-reviewer.js');
+        const cuaIssuesForRules = (cuaResult.issues || []).map(issueText => ({
+          severity: 'critical',
+          description: issueText,
+          rule: 'CUA - ' + (currentIssueCategory || 'unknown'),
+          fix: cuaResult.reason || issueText,
+          line: 'CUA round ' + cuaRound,
+        }));
+        if (cuaIssuesForRules.length > 0) {
+          await recordNewIssues(cuaIssuesForRules, taskId);
+        }
+      } catch (e) {
+        log(`[pending-rules] CUA issue recording failed (non-fatal): ${e.message}`, taskId);
+      }
 
       // Build detailed feedback (structured JSON + legacy text)
       // --- BUG-0010: Append fix history so AI knows what was already tried ---

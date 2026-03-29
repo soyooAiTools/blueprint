@@ -131,7 +131,7 @@ export default function TopBar({
             style={{ color: statusLabel.color, background: statusLabel.bg }}
           >
             {statusLabel.text}
-            {statusMessage && (projectStatus === 'submitted' || projectStatus === 'building' || projectStatus === 'feedback') && (
+            {statusMessage && (projectStatus === 'submitted' || projectStatus === 'building' || projectStatus === 'feedback' || projectStatus === 'failed') && (
               <span className="topbar-status-detail"> — {statusMessage}</span>
             )}
           </span>

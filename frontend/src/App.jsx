@@ -713,12 +713,21 @@ function FlowEditor({ project, onBack, initialTab }) {
                     onLoad={(e) => {
                       // Luna Dev builds check _isInsideIframe() and won't auto-start in iframes.
                       // Send postMessage to trigger luna:build + luna:start via setPlaygroundAssetOverrides handler.
-                      try {
-                        e.target.contentWindow.postMessage(JSON.stringify({
-                          name: 'setPlaygroundAssetOverrides',
-                          data: '{}'
-                        }), '*');
-                      } catch(err) { console.warn('Failed to send start message to iframe:', err); }
+                      // Retry multiple times since the 12MB HTML may still be initializing scripts after iframe load.
+                      const iframe = e.target;
+                      const sendStartMsg = () => {
+                        try {
+                          iframe.contentWindow.postMessage(JSON.stringify({
+                            name: 'setPlaygroundAssetOverrides',
+                            data: '{}'
+                          }), '*');
+                        } catch(err) { console.warn('Failed to send start message to iframe:', err); }
+                      };
+                      sendStartMsg();
+                      // Retry at 500ms, 1500ms, 3000ms in case scripts aren't ready yet
+                      setTimeout(sendStartMsg, 500);
+                      setTimeout(sendStartMsg, 1500);
+                      setTimeout(sendStartMsg, 3000);
                     }}
                   />
                 </div>
