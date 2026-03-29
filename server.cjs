@@ -102,6 +102,7 @@ const DATA_DIR = path.join(__dir, 'server-data');
 // autoCoding pipeline integration
 const AUTOCODING_DIR = path.join(__dir, '..', 'autoCoding-tasks');
 const AUTOCODING_QUEUE = path.join(AUTOCODING_DIR, 'queue');
+var MAX_TASK_RETRIES = 3; // Max times a failed task can be retried before permanent fail
 
 // Signal file for OpenClaw wake — write a signal file that HEARTBEAT.md checks
 const WAKE_SIGNAL_FILE = path.join(AUTOCODING_DIR, 'wake-signal.json');
@@ -905,6 +906,12 @@ handlers.workerStatus = function(req, res, body) {
       task.workerAssignments[workerId + '_message'] = message || '';
       task.workerAssignments[workerId + '_updatedAt'] = new Date().toISOString();
 
+      // Track fail count for max retry protection
+      if (status === 'failed') {
+        task.failCount = (task.failCount || 0) + 1;
+        console.log('[Worker Status] Task ' + taskId + ' failCount: ' + task.failCount + ' (worker: ' + workerId + ')');
+      }
+
       // Overall task status = best of all workers
       var statusPriority = { done: 6, cua_passed: 5, processing: 4, assigned: 3, fix_needed: 2, pending: 1, failed: 0 };
       var bestStatus = status;
@@ -919,6 +926,19 @@ handlers.workerStatus = function(req, res, body) {
         }
       }
       task.status = bestStatus;
+      // Force permanent fail if max retries exceeded
+      if (task.failCount >= MAX_TASK_RETRIES && bestStatus !== 'done' && bestStatus !== 'cua_passed') {
+        task.status = 'failed';
+        task.statusMessage = 'Permanently failed after ' + task.failCount + ' retries';
+        // Also update project
+        var proj = readProject(taskId);
+        if (proj && proj.status !== 'failed') {
+          proj.status = 'failed';
+          proj.statusMessage = task.statusMessage;
+          proj.updatedAt = new Date().toISOString();
+          writeProject(proj);
+        }
+      }
       if (message) task.statusMessage = message;
       if (data.previewUrl) task.previewUrl = data.previewUrl;
       task.updatedAt = new Date().toISOString();
@@ -2796,19 +2816,39 @@ setInterval(function() {
       if ((task.status === 'processing' || task.status === 'assigned') && task.updatedAt) {
         var elapsed = now - new Date(task.updatedAt).getTime();
         if (elapsed > STALE_MS) {
-          console.log('[Stale Recovery] Task ' + task.taskId + ' stuck in ' + task.status + ' for ' + Math.round(elapsed/1000) + 's, resetting to pending');
-          task.status = 'pending';
-          task.assignedTo = null;
-          task.assignedAt = null;
-          task.statusMessage = 'Auto-reset from stale ' + task.status;
-          task.updatedAt = new Date().toISOString();
-          // Also reset workerAssignments so workers can re-claim the task
-          if (task.workerAssignments) {
-            var waKeys = Object.keys(task.workerAssignments);
-            for (var wi = 0; wi < waKeys.length; wi++) {
-              var wk = waKeys[wi];
-              if (task.workerAssignments[wk] === 'processing' || task.workerAssignments[wk] === 'assigned') {
-                task.workerAssignments[wk] = 'pending';
+          // Check if task has exceeded max retries
+          var failCount = task.failCount || 0;
+          if (failCount >= MAX_TASK_RETRIES) {
+            console.log('[Stale Recovery] Task ' + task.taskId + ' exceeded max retries (' + failCount + '/' + MAX_TASK_RETRIES + '), marking as permanently failed');
+            task.status = 'failed';
+            task.assignedTo = null;
+            task.assignedAt = null;
+            task.statusMessage = 'Permanently failed after ' + failCount + ' retries';
+            task.updatedAt = new Date().toISOString();
+            // Also update project status
+            var project = readProject(task.taskId);
+            if (project) {
+              project.status = 'failed';
+              project.statusMessage = 'Permanently failed after ' + failCount + ' retries';
+              project.updatedAt = new Date().toISOString();
+              writeProject(project);
+            }
+          } else {
+            console.log('[Stale Recovery] Task ' + task.taskId + ' stuck in ' + task.status + ' for ' + Math.round(elapsed/1000) + 's, resetting to pending (retry ' + (failCount + 1) + '/' + MAX_TASK_RETRIES + ')');
+            task.status = 'pending';
+            task.assignedTo = null;
+            task.assignedAt = null;
+            task.failCount = failCount + 1;
+            task.statusMessage = 'Auto-reset from stale ' + task.status + ' (retry ' + task.failCount + '/' + MAX_TASK_RETRIES + ')';
+            task.updatedAt = new Date().toISOString();
+            // Also reset workerAssignments so workers can re-claim the task
+            if (task.workerAssignments) {
+              var waKeys = Object.keys(task.workerAssignments);
+              for (var wi = 0; wi < waKeys.length; wi++) {
+                var wk = waKeys[wi];
+                if (task.workerAssignments[wk] === 'processing' || task.workerAssignments[wk] === 'assigned') {
+                  task.workerAssignments[wk] = 'pending';
+                }
               }
             }
           }

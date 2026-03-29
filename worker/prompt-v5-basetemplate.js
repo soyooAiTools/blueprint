@@ -117,6 +117,27 @@ function matchPrefabs(entities) {
 }
 
 /**
+ * 检测 matchPrefabs 映射中的冲突（多个实体映射到同一个池对象）
+ */
+function detectPrefabCollisions(prefabMap) {
+  var reverse = {};  // poolName → [entityName, ...]
+  var keys = Object.keys(prefabMap);
+  for (var i = 0; i < keys.length; i++) {
+    var poolName = prefabMap[keys[i]];
+    if (!reverse[poolName]) reverse[poolName] = [];
+    reverse[poolName].push(keys[i]);
+  }
+  var collisions = [];
+  var rKeys = Object.keys(reverse);
+  for (var j = 0; j < rKeys.length; j++) {
+    if (reverse[rKeys[j]].length > 1) {
+      collisions.push({ pool: rKeys[j], entities: reverse[rKeys[j]] });
+    }
+  }
+  return collisions;
+}
+
+/**
  * V5 蓝图 → AI Prompt（基础样例工程模式）
  */
 function parseBlueprintToPromptV5(blueprint, opts) {
@@ -216,7 +237,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
     var eName = entityNames[i];
     var pName = prefabMap[eName];
     lines.push('    GameObject ' + eName.replace(/[^a-zA-Z0-9_]/g, '_') + '; // → Find("' + pName + '")');
-    findLines.push('        ' + eName.replace(/[^a-zA-Z0-9_]/g, '_') + ' = GameObject.Find("' + pName + '");');
+    findLines.push('        ' + eName.replace(/[^a-zA-Z0-9_]/g, '_') + ' = GameObject.Find("' + pName + '"); // MUST NOT be null — verify pool name matches');
   }
   
   lines.push('');
@@ -287,6 +308,24 @@ function parseBlueprintToPromptV5(blueprint, opts) {
     lines.push('| ' + e.name + ' | ' + pName + ' | ' + desc + ' |');
   }
   lines.push('');
+
+  // 检测池对象冲突
+  var collisions = detectPrefabCollisions(prefabMap);
+  if (collisions.length > 0) {
+    lines.push('⚠️ **POOL COLLISION WARNING**: The following pool objects are shared by multiple entities:');
+    for (var ci = 0; ci < collisions.length; ci++) {
+      lines.push('- `' + collisions[ci].pool + '` is used by: ' + collisions[ci].entities.join(', '));
+    }
+    lines.push('Only one entity can use each pool object. For colliding entities, you MUST use different pool objects or merge them into a single logical entity.');
+    lines.push('');
+  }
+
+  // 检测总实体数是否超过池容量
+  var totalPool = 50 + 20 + 10 + 10; // Cube + Sphere + Plane + Cylinder = 90
+  if (entities.length > totalPool) {
+    lines.push('⚠️ **POOL EXHAUSTION WARNING**: ' + entities.length + ' entities exceed the pool capacity of ' + totalPool + ' objects. Some entities share the same pool object — merge or reduce entity count.');
+    lines.push('');
+  }
 
   // ========== 6. 实体行为描述 ==========
   lines.push('# 实体行为');

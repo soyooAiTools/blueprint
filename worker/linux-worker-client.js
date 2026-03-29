@@ -686,6 +686,60 @@ async function processTask(task) {
         await page.goto(`file://${tmpHtmlPath}`, { waitUntil: 'load', timeout: 30000 });
         await page.waitForTimeout(10000); // Wait for engine + game init
         await page.screenshot({ path: screenshotPath });
+
+        // Collect scene diagnostics BEFORE closing browser (for feedback if visual check fails)
+        let sceneDiagnostics = null;
+        try {
+          sceneDiagnostics = await page.evaluate(function() {
+            var result = { objectsAtOrigin: [], objectsHidden: [], cameraInfo: null, groundInfo: null };
+            try {
+              if (typeof UnityEngine === 'undefined') return result;
+              var cam = UnityEngine.Camera.main;
+              if (cam) {
+                var bg = cam.backgroundColor;
+                result.cameraInfo = {
+                  bgColor: 'rgb(' + Math.round(bg.r*255) + ',' + Math.round(bg.g*255) + ',' + Math.round(bg.b*255) + ')',
+                  orthSize: cam.orthographicSize,
+                  pos: cam.transform.position.toString()
+                };
+              }
+              var allRenderers = UnityEngine.Object.FindObjectsOfType$1(UnityEngine.Renderer);
+              if (allRenderers) {
+                for (var i = 0; i < Math.min(allRenderers.length, 50); i++) {
+                  var r = allRenderers[i];
+                  var go = r.gameObject;
+                  var pos = go.transform.position;
+                  var yPos = pos.y;
+                  var scale = go.transform.localScale;
+                  if (yPos < -100) {
+                    result.objectsHidden.push(go.name + ' (y=' + yPos.toFixed(0) + ')');
+                    continue;
+                  }
+                  var color = '?';
+                  try {
+                    var mat = r.material;
+                    if (mat && mat.color) {
+                      var c = mat.color;
+                      color = 'rgb(' + Math.round(c.r*255) + ',' + Math.round(c.g*255) + ',' + Math.round(c.b*255) + ')';
+                    }
+                  } catch(e) {}
+                  result.objectsAtOrigin.push({
+                    name: go.name, pos: 'y=' + yPos.toFixed(1),
+                    scale: scale.x.toFixed(1) + 'x' + scale.y.toFixed(1) + 'x' + scale.z.toFixed(1),
+                    color: color, active: go.activeSelf
+                  });
+                  if (scale.x * scale.z > 4) {
+                    result.groundInfo = { name: go.name, scale: scale.x.toFixed(1) + 'x' + scale.y.toFixed(1) + 'x' + scale.z.toFixed(1), color: color };
+                  }
+                }
+              }
+            } catch(e) { result.error = e.message; }
+            return result;
+          });
+        } catch(diagErr) {
+          log(`Visual round ${vRound}: diagnostics failed (non-fatal): ${diagErr.message}`, taskId);
+        }
+
         await browser.close();
         try { fs.unlinkSync(tmpHtmlPath); } catch(e) {}
 
@@ -790,10 +844,28 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
 
         await reportStatus(taskId, 'processing', { message: `[Linux] 视觉预检失败: ${analysis.reason}，AI修复中...`, previewUrl });
 
-        // Inject visual feedback
+        // Inject visual feedback with scene diagnostics
         if (!blueprint.feedbackHistory) blueprint.feedbackHistory = [];
+        let diagText = '';
+        if (sceneDiagnostics) {
+          if (sceneDiagnostics.cameraInfo) {
+            diagText += `\n\n## Scene Diagnostics (from runtime)\nCamera: bg=${sceneDiagnostics.cameraInfo.bgColor}, orthSize=${sceneDiagnostics.cameraInfo.orthSize}, pos=${sceneDiagnostics.cameraInfo.pos}`;
+          }
+          if (sceneDiagnostics.groundInfo) {
+            diagText += `\nGround plane: ${sceneDiagnostics.groundInfo.name} scale=${sceneDiagnostics.groundInfo.scale} color=${sceneDiagnostics.groundInfo.color}`;
+          }
+          if (sceneDiagnostics.objectsAtOrigin.length > 0) {
+            diagText += `\nVisible objects (${sceneDiagnostics.objectsAtOrigin.length}): ${sceneDiagnostics.objectsAtOrigin.map(o => `${o.name}(${o.pos},scale=${o.scale},color=${o.color})`).join(', ')}`;
+          } else {
+            diagText += '\nVisible objects: NONE (all objects still at y=-999 pool position)';
+          }
+          diagText += `\nHidden objects at y<-100: ${sceneDiagnostics.objectsHidden.length}`;
+          if (sceneDiagnostics.objectsHidden.length > 0 && sceneDiagnostics.objectsAtOrigin.length === 0) {
+            diagText += '\n\n⚠️ ROOT CAUSE: All pool objects are still hidden at y=-999. Your Start() method likely has null Find() results. Check that object names in Find() match the __Pool_xxx_NN names from the assignment table.';
+          }
+        }
         blueprint.feedbackHistory.push({
-          data: { text: `Visual pre-check failed (round ${vRound}): ${analysis.reason}\n\nThe rendered screenshot shows rendering issues. Please ensure:\n1. Game objects are positioned within camera view\n2. Objects have visible colors/materials\n3. The scene is not empty or solid-colored\n4. Camera settings match the intended view` },
+          data: { text: `Visual pre-check failed (round ${vRound}): ${analysis.reason}\n\nThe rendered screenshot shows rendering issues. Please fix based on the diagnostics below:${diagText}\n\nRequired fixes:\n1. Ensure all objects from the assignment table are Find()'d with correct __Pool_xxx_NN names\n2. Move objects to visible positions (y >= 0) in Start()\n3. Ground color must be neutral gray (0.75, 0.78, 0.82), Camera.backgroundColor must contrast by >= 0.3\n4. Main objects must have scale >= 1.5 on at least one axis` },
           source: 'visual-precheck-round-' + vRound,
           status: 'pending',
           timestamp: Date.now()
@@ -943,7 +1015,7 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
           log('CUA: solid color screen (code bug) — objects not visible, feeding back to AI', taskId);
           await reportStatus(taskId, 'processing', { message: `[Linux] 画面纯色(${cuaResult.quickTestDetail.solidColorDetail?.color || '?'})，对象不可见，AI修复中...`, qualityData: { quickTestResult: { passed: false, solidColor: true, color: cuaResult.quickTestDetail.solidColorDetail?.color || '?' } } });
           // Treat as a CUA failure with specific feedback
-          cuaResult.issues = [cuaResult.reason || 'Screen is solid color — objects not visible'];
+          cuaResult.issues = ['[quick-test] ' + (cuaResult.reason || 'Screen is solid color — objects not visible')];
           cuaResult.passed = false;
           // Fall through to the CUA failure handling below
         } else {

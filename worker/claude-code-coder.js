@@ -373,11 +373,26 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
   if (gfmCreateCalls > 0) {
     log('[claude-code] ⚠️ WARNING: AI used GFM_Create.Obj() — should use Find() instead', taskId);
   }
-  if (findCalls === 0) {
-    log('[claude-code] ⚠️ WARNING: No GameObject.Find() calls', taskId);
-  }
   if (!hasGameEnded) {
     log('[claude-code] ⚠️ WARNING: No GameEnded() call', taskId);
+  }
+
+  // === Stub 检测：空壳代码不允许进入修复循环 ===
+  if (lineCount < 100 || findCalls === 0) {
+    const stubReason = lineCount < 100
+      ? `Only ${lineCount} lines (need ≥100)`
+      : `0 GameObject.Find() calls (objects won't be loaded)`;
+    log(`[claude-code] ❌ STUB CODE DETECTED: ${stubReason}. Rejecting output.`, taskId);
+    // 清空 feedbackHistory 强制下一轮走 FULL_GENERATION
+    if (blueprint.feedbackHistory && blueprint.feedbackHistory.length > 0) {
+      log('[claude-code] Clearing feedbackHistory to force FULL_GENERATION on next attempt', taskId);
+      blueprint.feedbackHistory.length = 0;
+    }
+    return {
+      ok: false,
+      error: `Stub code detected (${lineCount} lines, ${findCalls} Find calls) — need full regeneration`,
+      stubDetected: true,
+    };
   }
 
   // Post-fix: 替换泛型方法（Luna 不支持）
