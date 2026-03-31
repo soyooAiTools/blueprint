@@ -178,8 +178,8 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
       env: {
         ...process.env,
         // 确保用正确的 API 配置
-        ANTHROPIC_BASE_URL: opts.useGlm ? GLM_API_BASE : (process.env.ANTHROPIC_BASE_URL || GLM_API_BASE),  // api.aaxe.cn supports both Opus and GLM
-        ANTHROPIC_API_KEY: opts.useGlm ? GLM_API_KEY : (process.env.ANTHROPIC_API_KEY || GLM_API_KEY),
+        ANTHROPIC_BASE_URL: opts.useGlm ? GLM_API_BASE : (process.env.ANTHROPIC_BASE_URL || 'https://crs.mindrix.app/api/anthropic'),
+        ANTHROPIC_API_KEY: opts.useGlm ? GLM_API_KEY : (process.env.ANTHROPIC_API_KEY || GLM_API_KEY),  // Keep GLM key as fallback, works with crs.mindrix.app too
         // 禁止 Claude Code 在内部再次尝试 OAuth
         CLAUDE_CODE_SIMPLE: '1',
       },
@@ -303,15 +303,27 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
       const specsDataDir = process.env.SPECS_DATA_DIR || path.join(__dirname, '..', 'spec-data');
       specExtractor.saveSpecs(specs, taskId, specsDataDir);
 
+      // === Phased Generation: limit initial generation to first 3 phases ===
+      const MAX_INITIAL_PHASES = 3;
+      let activeSpecs = specs;
+      if (specs.length > MAX_INITIAL_PHASES) {
+        activeSpecs = specs.slice(0, MAX_INITIAL_PHASES);
+        // Adjust the last active phase to trigger CTA (so CUA can verify a complete flow)
+        const lastActive = { ...activeSpecs[activeSpecs.length - 1] };
+        lastActive.triggerNext = { condition: 'player completed core loop', description: 'Core gameplay done → show CTA' };
+        activeSpecs[activeSpecs.length - 1] = lastActive;
+        log(`[claude-code] Phased generation: using first ${MAX_INITIAL_PHASES} of ${specs.length} phases`, taskId);
+      }
+
       // Generate skeleton with entity→pool mapping
       const entityPoolMap = (blueprint.entities && blueprint.entities.length > 0)
         ? promptV5Module.matchPrefabs(blueprint.entities)
         : {};
-      skeleton = skeletonGenerator.generateSkeleton(specs, {
+      skeleton = skeletonGenerator.generateSkeleton(activeSpecs, {
         projectName: blueprint.projectName || taskId,
         entityPoolMap: entityPoolMap
       });
-      log(`[claude-code] Skeleton generated: ${skeleton.split('\n').length} lines`, taskId);
+      log(`[claude-code] Skeleton generated: ${skeleton.split('\n').length} lines (${activeSpecs.length}/${specs.length} phases)`, taskId);
     } catch (specErr) {
       log(`[claude-code] Spec extraction failed (non-fatal): ${specErr.message}`, taskId);
     }
@@ -373,8 +385,8 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
   log('[claude-code] 🚀 Starting Claude Code agent...', taskId);
   let result;
   try {
-  const useGlm = hasFeedback; // skeleton fill -> Opus 4.6, all fixes -> GLM 5.1
-  log(`[claude-code] Model: ${useGlm ? 'GLM 5.1' : 'Opus 4.6'}`, taskId);
+  const useGlm = false; // All models use Opus 4.6 now (GLM 5.1 removed)
+  log(`[claude-code] Model: Opus 4.6`, taskId);
   result = await runClaudeCode(clientDir, userPrompt, log, taskId, {
     useGlm: useGlm,
     appendSystemPrompt: hasFeedback

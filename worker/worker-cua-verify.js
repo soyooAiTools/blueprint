@@ -851,7 +851,9 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
               const d = n.data || {};
               return (d.name || d.phaseId || n.id) + ' (trigger: ' + (d.triggerCondition || 'none') + ')';
             }).join('; ');
-            issues.push('[phase-coverage] ' + coveredCount + '/' + totalPhases + ' phases completed. Missing: ' + details + '. This usually means game balance is broken — auto-progression bypassed intermediate phases.');
+            // Phase coverage is now a warning, not a blocking issue.
+            // Spec-phase-skipped (7b) is the authoritative check — it only validates phases that were actually generated.
+            log('[CUA] [phase-coverage-warn] ' + coveredCount + '/' + totalPhases + ' blueprint phases completed. Missing: ' + details, taskId);
           }
           log('[CUA] Phase coverage: ' + coveredCount + '/' + totalPhases + ', current: ' + (gs.currentPhase || 'unknown'), taskId);
         }
@@ -866,7 +868,9 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
             }
           });
           if (missingEntities.length > 0) {
-            log('[CUA] Missing entities in gameState: ' + missingEntities.join(', '), taskId);
+            // Info only — blueprint entity names may differ from code variable names
+            // Spec entity check (7b) is the authoritative validation
+            log('[CUA] [info] Blueprint entities not in gameState (may be aliased): ' + missingEntities.join(', '), taskId);
           }
           // Check that buildable entities reached terminal state (state "2" = built)
           const BUILDABLE_KEYS = ['conveyor', 'woodHouse', 'turret'];

@@ -102,6 +102,18 @@ function categorizeIssue(cuaResult) {
 }
 
 /**
+ * Extract phase coverage numbers from CUA result (e.g. "8/11 phases completed").
+ * Returns { completed, total } or null if not a phase-coverage issue.
+ */
+function extractPhaseCoverage(cuaResult) {
+  for (const issue of (cuaResult.issues || [])) {
+    const m = issue.match(/\[phase-coverage\]\s*(\d+)\/(\d+)/);
+    if (m) return { completed: parseInt(m[1]), total: parseInt(m[2]) };
+  }
+  return null;
+}
+
+/**
  * Map issue type to severity level.
  */
 function getIssueSeverity(type) {
@@ -990,6 +1002,7 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
     // Consecutive same-issue tracking (BUG-0007)
     let consecutiveSameIssue = 0;
     let lastIssueCategory = null;
+    let lastPhaseCompleted = -1; // Track phase progress to detect improvement
 
     for (let cuaRound = cuaStartRound; cuaRound <= MAX_CUA_ROUNDS; cuaRound++) {
       await reportStatus(taskId, 'processing', { message: `[Linux] CUA verifying... (round ${cuaRound}/${MAX_CUA_ROUNDS})`, previewUrl });
@@ -1055,20 +1068,30 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
       log(`CUA FAILED round ${cuaRound}/${MAX_CUA_ROUNDS}: ${cuaResult.issues.length} issues`, taskId);
       cuaResult.issues.forEach(i => log(`  - ${i}`, taskId));
 
-      // --- BUG-0007: Detect consecutive same-issue pattern ---
+      // --- BUG-0007: Detect consecutive same-issue pattern (with progress awareness) ---
       const currentIssueCategory = categorizeIssue(cuaResult);
-      if (currentIssueCategory === lastIssueCategory) {
+      const phaseCoverage = extractPhaseCoverage(cuaResult);
+      const currentPhaseCompleted = phaseCoverage ? phaseCoverage.completed : -1;
+
+      // Check if phase coverage is improving (even if issue category is the same)
+      const isProgressing = currentPhaseCompleted > lastPhaseCompleted && lastPhaseCompleted >= 0;
+      if (isProgressing) {
+        log(`[progress] Phase coverage improving: ${lastPhaseCompleted} → ${currentPhaseCompleted}/${phaseCoverage.total} — resetting same-issue counter`, taskId);
+        consecutiveSameIssue = 1; // Reset: progress means fixes are working
+        lastIssueCategory = currentIssueCategory;
+      } else if (currentIssueCategory === lastIssueCategory) {
         consecutiveSameIssue++;
       } else {
         consecutiveSameIssue = 1;
         lastIssueCategory = currentIssueCategory;
       }
+      if (currentPhaseCompleted >= 0) lastPhaseCompleted = currentPhaseCompleted;
 
       if (consecutiveSameIssue >= SAME_ISSUE_REGEN_THRESHOLD) {
         if (consecutiveSameIssue >= SAME_ISSUE_REGEN_THRESHOLD * 2) {
-          // 4+ rounds same issue even after full regen — give up
-          log(`[early-stop] Same issue "${currentIssueCategory}" persists after ${consecutiveSameIssue} rounds (including full regen) — stopping`, taskId);
-          await reportStatus(taskId, 'failed', { message: `[Linux] Same issue "${currentIssueCategory}" after ${consecutiveSameIssue} rounds — stopping` });
+          // 4+ rounds same issue WITHOUT progress even after full regen — give up
+          log(`[early-stop] Same issue "${currentIssueCategory}" persists after ${consecutiveSameIssue} rounds (no phase progress) — stopping`, taskId);
+          await reportStatus(taskId, 'failed', { message: `[Linux] Same issue "${currentIssueCategory}" after ${consecutiveSameIssue} rounds (no progress) — stopping` });
           break;
         }
         log(`[strategy] Same issue "${currentIssueCategory}" for ${consecutiveSameIssue} consecutive rounds — switching to FULL_GENERATION`, taskId);

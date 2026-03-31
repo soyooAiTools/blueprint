@@ -524,10 +524,23 @@ handlers.submitProject = function(req, res, body, id) {
           gameType: 'SLG',
         });
         project.specs = specs;
-        project.status = 'spec_review';
+        // Skip spec_review — go directly to submitted
+        project.status = 'submitted';
         project.updatedAt = new Date().toISOString();
         writeProject(project);
-        console.log('[submit] Specs extracted: ' + specs.length + ' phases, waiting for review');
+        // Save specs and mark task pending
+        try {
+          var specsDir2 = path.join(WEBGL_DIR, taskId);
+          fs.mkdirSync(specsDir2, { recursive: true });
+          fs.writeFileSync(path.join(specsDir2, 'specs.json'), JSON.stringify(specs, null, 2), 'utf-8');
+        } catch(e2) { console.error('[submit] save specs:', e2.message); }
+        var blueprintExport2 = exportBlueprintForAgent(project);
+        blueprintExport2.specs = specs;
+        fs.writeFileSync(blueprintPath, JSON.stringify(blueprintExport2, null, 2), 'utf-8');
+        task.status = 'pending';
+        fs.writeFileSync(taskFile, JSON.stringify(task, null, 2), 'utf-8');
+        wakeOpenClaw('[蓝图编辑器] 新任务已提交。项目: ' + project.name + ', taskId: ' + taskId);
+        console.log('[submit] Specs extracted: ' + specs.length + ' phases, skipping review, task pending');
       } catch(specErr) {
         console.error('[submit] Spec extraction failed, proceeding without specs:', specErr.message);
         // Fallback: skip spec review, go directly to submitted
@@ -812,9 +825,11 @@ handlers.workerPoll = function(req, res, body) {
 
       if (!task.workerAssignments) task.workerAssignments = {};
 
+      // Exclusive lock: task only claimable if status is pending/fix_needed
+      // Skip tasks already assigned/processing by another worker
       var taskAvailable = (task.status === 'pending' || task.status === 'fix_needed');
+      if (task.status === 'assigned' || task.status === 'processing') taskAvailable = false;
 
-      // Task is claimable if: status is pending/fix_needed (not already assigned/processing by another worker)
       if (taskAvailable) {
         var originalStatus = task.status;
 
@@ -2809,7 +2824,7 @@ setInterval(function() {
     if (!fs.existsSync(AUTOCODING_QUEUE)) return;
     var files = fs.readdirSync(AUTOCODING_QUEUE);
     var now = Date.now();
-    var STALE_MS = 3 * 60 * 1000; // 3 minutes
+    var STALE_MS = 15 * 60 * 1000; // 15 minutes (Claude Opus coding can take ~12min)
     files.filter(function(f) { return f.endsWith('.json') && !f.includes('-blueprint') && !f.includes('.cancelled'); }).forEach(function(f) {
       var fp = path.join(AUTOCODING_QUEUE, f);
       var task = JSON.parse(fs.readFileSync(fp, 'utf-8'));

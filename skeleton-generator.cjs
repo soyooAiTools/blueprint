@@ -100,6 +100,113 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    Text scoreText;');
   lines.push('');
 
+  // Detect idle/tycoon game pattern (has joystick + resource interactions)
+  const hasJoystick = specs.some(s => (s.requiredInteractions || []).some(i => i.startsWith('move_to:')));
+  const hasResources = specs.some(s => (s.requiredInteractions || []).some(i => i.startsWith('collect:') || i.startsWith('deliver:')));
+  const isIdleGame = hasJoystick && hasResources;
+
+  if (isIdleGame) {
+    lines.push('    // ========== [SKELETON] IDLE GAME KIT — Pre-built systems ==========');
+    lines.push('    // All systems below are working code. AI should CALL these, not rewrite them.');
+    lines.push('');
+    lines.push('    // --- Player Movement (joystick-driven) ---');
+    lines.push('    GFM_Joystick joystick;');
+    lines.push('    GameObject player;');
+    lines.push('    float moveSpeed = 5f;');
+    lines.push('    int carrying = 0; // generic resource count on player back');
+    lines.push('    string carryingType = ""; // what resource type');
+    lines.push('    int gold = 0;');
+    lines.push('');
+    lines.push('    // [SKELETON] Move player by joystick — call in Update()');
+    lines.push('    void MovePlayer()');
+    lines.push('    {');
+    lines.push('        if (player == null || joystick == null) return;');
+    lines.push('        float h = joystick.Horizontal;');
+    lines.push('        float v = joystick.Vertical;');
+    lines.push('        if (Mathf.Abs(h) > 0.1f || Mathf.Abs(v) > 0.1f)');
+    lines.push('        {');
+    lines.push('            Vector3 move = new Vector3(h, 0, v) * moveSpeed * Time.deltaTime;');
+    lines.push('            player.transform.position += move;');
+    lines.push('            // Face movement direction');
+    lines.push('            player.transform.rotation = Quaternion.LookRotation(new Vector3(h, 0, v));');
+    lines.push('        }');
+    lines.push('    }');
+    lines.push('');
+    lines.push('    // [SKELETON] Check if player is near a target (proximity trigger)');
+    lines.push('    bool IsNear(GameObject target, float range)');
+    lines.push('    {');
+    lines.push('        if (player == null || target == null) return false;');
+    lines.push('        return Vector3.Distance(player.transform.position, target.transform.position) < range;');
+    lines.push('    }');
+    lines.push('');
+    lines.push('    // [SKELETON] Auto-collect: when player near source, pick up resources');
+    lines.push('    // Returns true if collected this frame');
+    lines.push('    bool TryCollect(GameObject source, string resType, int maxCarry, float range)');
+    lines.push('    {');
+    lines.push('        if (source == null || !IsNear(source, range)) return false;');
+    lines.push('        if (carrying >= maxCarry) return false;');
+    lines.push('        carrying++;');
+    lines.push('        carryingType = resType;');
+    lines.push('        return true;');
+    lines.push('    }');
+    lines.push('');
+    lines.push('    // [SKELETON] Auto-deliver: when player near machine/sellpoint, drop off resources');
+    lines.push('    // Returns number of items delivered');
+    lines.push('    int TryDeliver(GameObject target, string expectedType, float range)');
+    lines.push('    {');
+    lines.push('        if (target == null || !IsNear(target, range)) return 0;');
+    lines.push('        if (carrying <= 0 || carryingType != expectedType) return 0;');
+    lines.push('        int delivered = carrying;');
+    lines.push('        carrying = 0;');
+    lines.push('        carryingType = "";');
+    lines.push('        return delivered;');
+    lines.push('    }');
+    lines.push('');
+    lines.push('    // [SKELETON] Show carry stack on player back (visual feedback)');
+    lines.push('    GameObject[] carryVisuals;');
+    lines.push('    void UpdateCarryVisuals(Color resColor)');
+    lines.push('    {');
+    lines.push('        if (carryVisuals == null)');
+    lines.push('        {');
+    lines.push('            carryVisuals = new GameObject[10];');
+    lines.push('            for (int i = 0; i < 10; i++)');
+    lines.push('            {');
+    lines.push('                carryVisuals[i] = GFM_Create.Obj(PrimitiveType.Cube, Vector3.zero, new Vector3(0.3f,0.3f,0.3f), "carry_" + i);');
+    lines.push('                if (carryVisuals[i] != null) GFM_Create.SetColor(carryVisuals[i], resColor);');
+    lines.push('                HideObj(carryVisuals[i]);');
+    lines.push('            }');
+    lines.push('        }');
+    lines.push('        for (int i = 0; i < carryVisuals.Length; i++)');
+    lines.push('        {');
+    lines.push('            if (i < carrying && player != null)');
+    lines.push('            {');
+    lines.push('                Vector3 p = player.transform.position + new Vector3(0, 1f + i * 0.35f, -0.3f);');
+    lines.push('                PlaceObj(carryVisuals[i], p.x, p.y, p.z);');
+    lines.push('            }');
+    lines.push('            else HideObj(carryVisuals[i]);');
+    lines.push('        }');
+    lines.push('    }');
+    lines.push('');
+    lines.push('    // [SKELETON] Gold UI update helper');
+    lines.push('    void AddGold(int amount)');
+    lines.push('    {');
+    lines.push('        gold += amount;');
+    lines.push('        if (scoreText != null) scoreText.text = "💰 " + gold;');
+    lines.push('    }');
+    lines.push('');
+    lines.push('    // [SKELETON] Show floating text (+3 gold) effect');
+    lines.push('    void ShowFloatingText(Vector3 worldPos, string text, Color color)');
+    lines.push('    {');
+    lines.push('        if (mainCam == null) return;');
+    lines.push('        // Create temporary UI text that fades');
+    lines.push('        Text ft = GFM_UI.CreateText(uiCanvas, text, Vector2.zero, 24);');
+    lines.push('        if (ft != null) { ft.color = color; Destroy(ft.gameObject, 1.5f); }');
+    lines.push('    }');
+    lines.push('');
+    lines.push('    // ========== END IDLE GAME KIT ==========');
+    lines.push('');
+  }
+
   // TODO: AI declares additional variables
   lines.push('    // === TODO: AI declares pools, counters, and game-specific variables below ===');
   lines.push('    // TODO_VARIABLES_START');
@@ -156,8 +263,25 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        scoreText = GFM_UI.CreateText(uiCanvas, "Score: 0", new Vector2(340, 290), 20);');
   lines.push('');
 
-  lines.push('        // === TODO: AI fills — setup camera projection, joystick, additional UI, etc. ===');
+  if (isIdleGame) {
+    lines.push('        // [SKELETON] Idle game initialization — joystick + isometric camera');
+    lines.push('        joystick = GFM_Joystick.Create(uiCanvas, 180f);');
+    lines.push('        if (mainCam != null)');
+    lines.push('        {');
+    lines.push('            mainCam.orthographic = true;');
+    lines.push('            mainCam.orthographicSize = 8f;');
+    lines.push('            mainCam.transform.position = new Vector3(0, 12f, -8f);');
+    lines.push('            mainCam.transform.rotation = Quaternion.Euler(50f, 0f, 0f);');
+    lines.push('        }');
+    lines.push('');
+  }
+  lines.push('        // === TODO: AI fills — create game objects, setup scene layout, etc. ===');
   lines.push('        // IMPORTANT: Do NOT create Canvas again (use uiCanvas). Do NOT use Camera.main (use mainCam).');
+  if (isIdleGame) {
+    lines.push('        // IMPORTANT for idle games: Use the pre-built MovePlayer(), TryCollect(), TryDeliver() in Update.');
+    lines.push('        //   player = GFM_Create.Obj(PrimitiveType.Capsule, new Vector3(0,0.75f,0), new Vector3(0.8f,0.8f,0.8f), "Player");');
+    lines.push('        //   Then in Update: MovePlayer(); TryCollect(iceSource, "ice", 5, 1.5f); TryDeliver(machine, "ice", 1.5f);');
+  }
   lines.push('        // TODO_START_START');
   lines.push('');
   lines.push('        // TODO_START_END');
@@ -183,7 +307,19 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('');
   lines.push('        CheckEventRules();');
   lines.push('');
-  lines.push('        // === TODO: AI fills — update systems (player, enemies, arrows, etc.) ===');
+  if (isIdleGame) {
+    lines.push('        // [SKELETON] Idle game core loop — always run these');
+    lines.push('        MovePlayer();');
+    lines.push('');
+  }
+  lines.push('        // === TODO: AI fills — update systems: resource collection, delivery, production, etc. ===');
+  if (isIdleGame) {
+    lines.push('        // Use TryCollect/TryDeliver for resource flow. Example:');
+    lines.push('        // if (TryCollect(iceSource, "ice", 5, 1.5f)) { /* picked up ice */ }');
+    lines.push('        // int delivered = TryDeliver(waterMachine, "ice", 1.5f);');
+    lines.push('        // if (delivered > 0) { waterMachineState = 1; /* machine producing */ }');
+    lines.push('        // UpdateCarryVisuals(Color.cyan); // show stack on player back');
+  }
   lines.push('        // TODO_UPDATE_START');
   lines.push('');
   lines.push('        // TODO_UPDATE_END');

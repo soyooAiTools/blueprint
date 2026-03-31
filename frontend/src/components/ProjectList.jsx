@@ -23,6 +23,9 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
 
   useEffect(() => {
     loadProjects();
+    // Auto-refresh every 5s to keep status up-to-date
+    const timer = setInterval(loadProjects, 5000);
+    return () => clearInterval(timer);
   }, [loadProjects]);
 
   const openProject = async (id) => {
@@ -102,11 +105,16 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
 
   const STATUS_LABELS = {
     editing: '编辑中',
-    submitted: '待审核',
+    spec_extracting: '提取规格中...',
+    spec_review: '规格待确认',
+    submitted: '排队中',
+    building: '开发中',
     developing: '开发中',
+    reviewing: '待审核',
     approved: '已通过',
     feedback: '反馈中',
     committed: '已提交SVN',
+    failed: '失败',
   };
 
   const ENGINE_LABELS = { unity: 'Unity', cocos: 'Cocos' };
