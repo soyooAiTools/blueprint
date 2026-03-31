@@ -1,0 +1,79 @@
+[
+  {
+    "description": "Start() exists but contains no initialization. Required playable setup is missing.",
+    "rule": "4. Code Completeness",
+    "fix": "Initialize gameplay state, pooled objects, camera/background, and required systems in Start().",
+    "promotedAt": "2026-03-29T14:42:07.980Z",
+    "triggerProjects": [
+      "proj_1774794219517_z43qrz",
+      "proj_1774794237502_k0rbwx"
+    ],
+    "triggerCount": 2
+  },
+  {
+    "description": "[phase-coverage] 0/11 phases completed. Missing: 开场教学 (trigger: none); 解锁第一舱门 (trigger: none); 前往救援区域 (trigger: none); 获得第一名队员 (trigger: none); 激活浴池 (trigger: none); 升级搬运人数 (trigger: none); 升级浴池容量 (trigger: none); 解锁第二舱门 (trigger: none); 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
+    "rule": "CUA - phase-skipped",
+    "fix": "[phase-coverage] 0/11 phases completed. Missing: 开场教学 (trigger: none); 解锁第一舱门 (trigger: none); 前往救援区域 (trigger: none); 获得第一名队员 (trigger: none); 激活浴池 (trigger: none); 升级搬运人数 (trigger: none); 升级浴池容量 (trigger: none); 解锁第二舱门 (trigger: none); 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
+    "promotedAt": "2026-03-29T16:19:54.876Z",
+    "triggerProjects": [
+      "proj_1774794219517_z43qrz",
+      "proj_1774798766776_1sjld8"
+    ],
+    "triggerCount": 2
+  },
+  {
+    "description": "[phase-coverage] 1/11 phases completed. Missing: 解锁第一舱门 (trigger: none); 前往救援区域 (trigger: none); 获得第一名队员 (trigger: none); 激活浴池 (trigger: none); 升级搬运人数 (trigger: none); 升级浴池容量 (trigger: none); 解锁第二舱门 (trigger: none); 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
+    "rule": "CUA - phase-skipped",
+    "fix": "[phase-coverage] 1/11 phases completed. Missing: 解锁第一舱门 (trigger: none); 前往救援区域 (trigger: none); 获得第一名队员 (trigger: none); 激活浴池 (trigger: none); 升级搬运人数 (trigger: none); 升级浴池容量 (trigger: none); 解锁第二舱门 (trigger: none); 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
+    "promotedAt": "2026-03-29T16:19:54.879Z",
+    "triggerProjects": [
+      "proj_1774794219517_z43qrz",
+      "proj_1774798766776_1sjld8"
+    ],
+    "triggerCount": 2
+  },
+  {
+    "description": "[phase-coverage] 0/11 phases completed. Missing: 开场展示 (trigger: none); 核心建造中 (trigger: none); 核心激活 (trigger: none); 第一波来袭 (trigger: none); 收益与第二建造位 (trigger: none); 双炮塔成型 (trigger: none); 升级教学 (trigger: none); 强化波次 (trigger: none); 最终扩建 (trigger: none); 胜利展示 (trigger: none); CTA收尾 (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
+    "rule": "CUA - cta-missing",
+    "fix": "[phase-coverage] 0/11 phases completed. Missing: 开场展示 (trigger: none); 核心建造中 (trigger: none); 核心激活 (trigger: none); 第一波来袭 (trigger: none); 收益与第二建造位 (trigger: none); 双炮塔成型 (trigger: none); 升级教学 (trigger: none); 强化波次 (trigger: none); 最终扩建 (trigger: none); 胜利展示 (trigger: none); CTA收尾 (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
+    "promotedAt": "2026-03-29T16:19:54.883Z",
+    "triggerProjects": [
+      "proj_1774798766776_1sjld8",
+      "proj_1774794219517_z43qrz"
+    ],
+    "triggerCount": 2
+  },
+  {
+    "description": "Uses Application.ExternalEval(), which is explicitly unsupported in Luna and can break transpilation/runtime.",
+    "rule": "Tier 1.2 Forbidden APIs",
+    "fix": "Remove ExternalEval usage. Expose state through supported Luna/GFM mechanisms only.",
+    "promotedAt": "2026-03-29T19:11:24.851Z",
+    "triggerProjects": [
+      "proj_1774709451098_pt2ysl",
+      "proj_1774794219517_z43qrz"
+    ],
+    "triggerCount": 2
+  },
+  {
+    "description": "[spec-phase-skipped] Spec phases not completed: initialSetupAndExpansion. Game balance likely broken — phases were bypassed.",
+    "rule": "CUA - phase-skipped",
+    "fix": "[spec-phase-skipped] Spec phases not completed: initialSetupAndExpansion. Game balance likely broken — phases were bypassed.",
+    "promotedAt": "2026-03-29T19:15:20.062Z",
+    "triggerProjects": [
+      "proj_1774794219517_z43qrz",
+      "proj_1774709451098_pt2ysl"
+    ],
+    "triggerCount": 2
+  },
+  {
+    "description": "[spec-phase-skipped] Spec phases not completed: fullSpaceStationManagement. Game balance likely broken — phases were bypassed.",
+    "rule": "CUA - phase-skipped",
+    "fix": "[spec-phase-skipped] Spec phases not completed: fullSpaceStationManagement. Game balance likely broken — phases were bypassed.",
+    "promotedAt": "2026-03-29T19:15:20.067Z",
+    "triggerProjects": [
+      "proj_1774709451098_pt2ysl",
+      "proj_1774794219517_z43qrz"
+    ],
+    "triggerCount": 2
+  }
+]

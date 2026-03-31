@@ -852,6 +852,10 @@ handlers.workerPoll = function(req, res, body) {
       // Skip tasks already assigned/processing by another worker
       var taskAvailable = (task.status === 'pending' || task.status === 'fix_needed');
       if (task.status === 'assigned' || task.status === 'processing') taskAvailable = false;
+      // Respect retryAfter for infrastructure failure backoff
+      if (taskAvailable && task.retryAfter && Date.now() < task.retryAfter) {
+        taskAvailable = false; // Not yet time to retry
+      }
       // In-memory race prevention: if task is claimed by ANY worker, skip (no time window - persists until completion or stale recovery)
       if (claimedTasks[task.taskId] && claimedTasks[task.taskId].workerId !== workerId) {
         taskAvailable = false;
@@ -970,17 +974,56 @@ handlers.workerStatus = function(req, res, body) {
         }
       }
       task.status = bestStatus;
-      // Force permanent fail if max retries exceeded
+      // Force permanent fail if max retries exceeded — but distinguish infra vs code failures
       if (task.failCount >= MAX_TASK_RETRIES && bestStatus !== 'done' && bestStatus !== 'cua_passed') {
-        task.status = 'failed';
-        task.statusMessage = 'Permanently failed after ' + task.failCount + ' retries';
-        // Also update project
-        var proj = readProject(taskId);
-        if (proj && proj.status !== 'failed') {
-          proj.status = 'failed';
-          proj.statusMessage = task.statusMessage;
-          proj.updatedAt = new Date().toISOString();
-          writeProject(proj);
+        // Check if the failure is infrastructure-related (API unavailable, network errors)
+        var isInfraFailure = message && (
+          message.indexOf('api_unavailable') >= 0 ||
+          message.indexOf('API unavailable') >= 0 ||
+          message.indexOf('[infra]') >= 0 ||
+          message.indexOf('ECONNRESET') >= 0 ||
+          message.indexOf('ECONNREFUSED') >= 0 ||
+          message.indexOf('Git clone') >= 0 ||
+          message.indexOf('git clone') >= 0 ||
+          message.indexOf('401') >= 0 ||
+          message.indexOf('503') >= 0
+        );
+
+        if (isInfraFailure) {
+          // Infrastructure failure: reset to pending for auto-retry when infra recovers
+          // Use a separate infraRetryCount to allow more retries for infra issues
+          task.infraRetryCount = (task.infraRetryCount || 0) + 1;
+          if (task.infraRetryCount <= 5) {
+            // Schedule retry with exponential backoff (5min, 10min, 20min, 40min, 80min)
+            var backoffMs = Math.min(5 * 60 * 1000 * Math.pow(2, task.infraRetryCount - 1), 80 * 60 * 1000);
+            task.status = 'pending';
+            task.retryAfter = Date.now() + backoffMs;
+            task.failCount = 0; // Reset failCount so worker will pick it up again
+            task.statusMessage = 'Infrastructure failure (retry ' + task.infraRetryCount + '/5, next attempt in ' + Math.round(backoffMs / 60000) + 'min): ' + (message || '').substring(0, 200);
+            console.log('[Infra Recovery] Task ' + taskId + ' infra failure — scheduled retry ' + task.infraRetryCount + '/5 in ' + Math.round(backoffMs / 60000) + 'min');
+          } else {
+            // Even infra retries exhausted — truly permanent fail
+            task.status = 'failed';
+            task.statusMessage = 'Infrastructure failure persisted after ' + task.infraRetryCount + ' retries: ' + (message || '').substring(0, 200);
+            var proj = readProject(taskId);
+            if (proj && proj.status !== 'failed') {
+              proj.status = 'failed';
+              proj.statusMessage = task.statusMessage;
+              proj.updatedAt = new Date().toISOString();
+              writeProject(proj);
+            }
+          }
+        } else {
+          // Code/logic failure: permanent fail as before
+          task.status = 'failed';
+          task.statusMessage = 'Permanently failed after ' + task.failCount + ' retries';
+          var proj = readProject(taskId);
+          if (proj && proj.status !== 'failed') {
+            proj.status = 'failed';
+            proj.statusMessage = task.statusMessage;
+            proj.updatedAt = new Date().toISOString();
+            writeProject(proj);
+          }
         }
       }
       if (message) task.statusMessage = message;

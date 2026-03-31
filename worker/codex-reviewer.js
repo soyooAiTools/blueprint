@@ -240,8 +240,43 @@ async function reviewCodeWithCodex(code, options) {
   // 写入代码文件供 Codex 读取
   fs.writeFileSync(path.join(workDir, 'GameFlowManagerMain.cs'), code);
 
-  // 写入 review rules 文件
-  fs.writeFileSync(path.join(workDir, 'REVIEW_RULES.md'), REVIEW_RULES);
+  // 写入 review rules 文件 (包含动态规则)
+  var dynamicRulesText = '';
+  try {
+    var promotedPath = path.join(__dirname, 'promoted-rules.json');
+    if (fs.existsSync(promotedPath)) {
+      var promoted = JSON.parse(fs.readFileSync(promotedPath, 'utf-8'));
+      if (promoted.length > 0) {
+        dynamicRulesText = '\n\n## Auto-Promoted Rules (cross-project validated failures)\n';
+        for (var dri = 0; dri < promoted.length; dri++) {
+          dynamicRulesText += '- ' + (promoted[dri].description || '') + ' — FIX: ' + (promoted[dri].fix || 'see rule') + '\n';
+        }
+      }
+    }
+    // Also inject top pending-rules patterns (seen in 2+ projects)
+    var pendingPath = path.join(__dirname, 'pending-rules.json');
+    if (fs.existsSync(pendingPath)) {
+      var pending = JSON.parse(fs.readFileSync(pendingPath, 'utf-8'));
+      var ruleGroups = {};
+      for (var pri = 0; pri < pending.length; pri++) {
+        var rKey = (pending[pri].rule || 'unknown').substring(0, 60);
+        if (!ruleGroups[rKey]) ruleGroups[rKey] = { projects: {}, desc: pending[pri].description, fix: pending[pri].fix };
+        if (pending[pri].taskId) ruleGroups[rKey].projects[pending[pri].taskId] = true;
+      }
+      var topPatterns = Object.entries(ruleGroups)
+        .filter(function(e) { return Object.keys(e[1].projects).length >= 2; })
+        .sort(function(a, b) { return Object.keys(b[1].projects).length - Object.keys(a[1].projects).length; })
+        .slice(0, 8);
+      if (topPatterns.length > 0) {
+        dynamicRulesText += '\n## Recurring Production Failures (flagged in ' + topPatterns.length + ' patterns)\n';
+        for (var tpi = 0; tpi < topPatterns.length; tpi++) {
+          var tp = topPatterns[tpi];
+          dynamicRulesText += '- [' + tp[0] + '] ' + (tp[1].desc || '').substring(0, 150) + '\n';
+        }
+      }
+    }
+  } catch(e) {}
+  fs.writeFileSync(path.join(workDir, 'REVIEW_RULES.md'), REVIEW_RULES + dynamicRulesText);
 
   // 构建 prompt
   const userPrompt = `You are a strict code reviewer for Luna (Unity-to-HTML5) playable ads.

@@ -567,6 +567,60 @@ function parseBlueprintToPromptV5(blueprint, opts) {
     lines.push('```');
   }
 
+  // ========== 12. 历史教训（从生产失败中自动提取） ==========
+  try {
+    var lessonsLines = [];
+    // Load top error patterns from pending-rules (cross-project validated)
+    var pendingPath = require('path').join(__dirname, 'pending-rules.json');
+    if (require('fs').existsSync(pendingPath)) {
+      var pending = JSON.parse(require('fs').readFileSync(pendingPath, 'utf-8'));
+      // Group by rule category, count distinct projects per category
+      var ruleGroups = {};
+      for (var pi = 0; pi < pending.length; pi++) {
+        var pr = pending[pi];
+        var ruleKey = (pr.rule || 'unknown').toLowerCase().replace(/[^a-z0-9 ]/g, '').substring(0, 60);
+        if (!ruleGroups[ruleKey]) ruleGroups[ruleKey] = { count: 0, projects: {}, fix: pr.fix, desc: pr.description };
+        ruleGroups[ruleKey].count++;
+        if (pr.taskId) ruleGroups[ruleKey].projects[pr.taskId] = true;
+      }
+      // Sort by cross-project count (most widespread first)
+      var sorted = Object.entries(ruleGroups)
+        .map(function(e) { return { key: e[0], data: e[1], projectCount: Object.keys(e[1].projects).length }; })
+        .filter(function(e) { return e.projectCount >= 2; }) // Only include patterns seen in 2+ projects
+        .sort(function(a, b) { return b.projectCount - a.projectCount; })
+        .slice(0, 10); // Top 10 patterns
+
+      if (sorted.length > 0) {
+        lessonsLines.push('');
+        lessonsLines.push('# ⚠️ 历史生产失败教训（以下错误在多个项目中反复出现，务必避免）');
+        lessonsLines.push('');
+        for (var si = 0; si < sorted.length; si++) {
+          var s = sorted[si];
+          lessonsLines.push('- **' + s.key + '** (影响 ' + s.projectCount + ' 个项目, 共 ' + s.data.count + ' 次): ' + (s.data.desc || '').substring(0, 150));
+          if (s.data.fix) lessonsLines.push('  修复: ' + s.data.fix.substring(0, 150));
+        }
+      }
+    }
+    // Also load promoted-rules (cross-project validated and promoted)
+    var promotedPath = require('path').join(__dirname, 'promoted-rules.json');
+    if (require('fs').existsSync(promotedPath)) {
+      var promoted = JSON.parse(require('fs').readFileSync(promotedPath, 'utf-8'));
+      if (promoted.length > 0 && lessonsLines.length === 0) {
+        lessonsLines.push('');
+        lessonsLines.push('# ⚠️ 已验证的生产规则（跨项目验证通过）');
+      }
+      for (var pri = 0; pri < Math.min(promoted.length, 5); pri++) {
+        var pr = promoted[pri];
+        lessonsLines.push('- ' + (pr.description || '').substring(0, 200) + (pr.fix ? ' — 修复: ' + pr.fix.substring(0, 100) : ''));
+      }
+    }
+    if (lessonsLines.length > 0) {
+      lines.push(lessonsLines.join('\n'));
+    }
+  } catch(lessonsErr) {
+    // Non-fatal: don't break prompt generation if lessons loading fails
+  }
+
   return lines.join('\n');
 }
 

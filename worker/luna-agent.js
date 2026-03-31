@@ -694,6 +694,7 @@ ${feedbackBugs.map((b, i) => (i + 1) + '. ' + b).join('\n')}
   let totalCUARounds = 0;
 
   // CUA 主循环
+  let consecutiveApiErrors = 0;
   for (let round = 0; round < config.rounds; round++) {
     totalCUARounds = round + 1;
 
@@ -867,12 +868,20 @@ ${feedbackBugs.map((b, i) => (i + 1) + '. ' + b).join('\n')}
 
       response = await openaiClient.responses.create(reqParams);
       previousResponseId = response.id;
+      consecutiveApiErrors = 0; // Reset on success
     } catch (err) {
       console.error('[CUA Round ' + (round + 1) + '] API Error:', err.message);
+      consecutiveApiErrors = (consecutiveApiErrors || 0) + 1;
       // API 报错时重置对话状态
       if (err.message && err.message.indexOf('400') >= 0) {
         previousResponseId = null;
         lastCallId = null;
+      }
+      // Early exit: if API fails consecutively for 5+ rounds, stop wasting time
+      if (consecutiveApiErrors >= 5) {
+        console.error('[CUA] API failed ' + consecutiveApiErrors + ' consecutive rounds — marking as apiFailure and stopping');
+        exitReason = 'api_failure';
+        break;
       }
       continue;
     }

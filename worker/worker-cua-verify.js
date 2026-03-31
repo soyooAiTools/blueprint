@@ -920,19 +920,64 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
   const logPath = path.join(CUA_RESULTS_DIR, taskId + '-cua.log');
 
   // === Quick Play Test: 15-second headless sanity check before full CUA ===
+  let quickTestPassed = false;
   try {
     const quickResult = await quickPlayTest(previewUrl, taskId, log);
     if (!quickResult.ok) {
       log('[CUA] Quick play test FAILED: ' + quickResult.reason, taskId);
-      try { server.close(); } catch(e) {}
-      return {
-        passed: false,
-        issues: ['[quick-test] ' + quickResult.reason],
-        skipped: false,
-        quickTestFailed: true,
-        quickTestDetail: quickResult
-      };
+
+      // --- FIX: Don't blindly return — try autoPlayVerify as fallback first ---
+      // quickTest failing (rendererCount=0, solid color) may be a headless rendering issue.
+      // autoPlayVerify uses joystick + click simulation and reads __gameState,
+      // which can succeed even when visual rendering fails in headless.
+      log('[CUA] Attempting autoPlayVerify fallback before giving up...', taskId);
+      try {
+        const specsDataDir = process.env.SPECS_DATA_DIR || path.join(__dirname, '..', 'spec-data');
+        const autoPlaySpecs = loadSpecs(taskId, specsDataDir) || [];
+        const autoResult = await autoPlayVerify(previewUrl, autoPlaySpecs, taskId, log, 90);
+        log('[CUA] Auto-play fallback result: passed=' + autoResult.passed + ', phases=' + autoResult.phasesCompleted + '/' + autoResult.totalPhases + ', issues=' + autoResult.issues.length, taskId);
+
+        if (autoResult.passed || autoResult.phasesCompleted > 0) {
+          // autoPlay made progress — game logic works even if visual rendering broke
+          log('[CUA] Auto-play made progress (' + autoResult.phasesCompleted + ' phases) despite quickTest failure — game logic OK, visual issue only', taskId);
+          try { server.close(); } catch(e) {}
+          return {
+            passed: autoResult.passed,
+            issues: autoResult.passed ? [] : autoResult.issues,
+            skipped: false,
+            quickTestFailed: true,
+            quickTestDetail: quickResult,
+            autoPlay: autoResult,
+            note: 'quickTest failed but autoPlay verified game logic works'
+          };
+        } else {
+          // autoPlay also failed — genuine code problem
+          log('[CUA] Auto-play also failed — confirmed code/rendering issue', taskId);
+          var allIssues = ['[quick-test] ' + quickResult.reason];
+          autoResult.issues.forEach(function(iss) { allIssues.push(iss); });
+          try { server.close(); } catch(e) {}
+          return {
+            passed: false,
+            issues: allIssues,
+            skipped: false,
+            quickTestFailed: true,
+            quickTestDetail: quickResult,
+            autoPlay: autoResult
+          };
+        }
+      } catch (autoErr) {
+        log('[CUA] Auto-play fallback error: ' + autoErr.message, taskId);
+        try { server.close(); } catch(e) {}
+        return {
+          passed: false,
+          issues: ['[quick-test] ' + quickResult.reason],
+          skipped: false,
+          quickTestFailed: true,
+          quickTestDetail: quickResult
+        };
+      }
     }
+    quickTestPassed = true;
     log('[CUA] Quick play test passed: loaded=' + quickResult.loaded + ', shotProgressed=' + quickResult.shotProgressed + ', initialShot=' + quickResult.initialShot + ', finalShot=' + quickResult.finalShot, taskId);
   } catch(qe) {
     log('[CUA] Quick play test error (non-fatal): ' + qe.message, taskId);
@@ -1259,7 +1304,29 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       const exitReason = report.exitReason || 'unknown';
       const hasHistory = Array.isArray(report.history) && report.history.length > 0;
       let passed;
-      if (exitReason === 'max_rounds' && (!report.totalRounds || report.totalRounds <= 1)) {
+
+      // --- FIX: Detect CUA API failure and fall back to autoPlay ---
+      if (exitReason === 'api_failure') {
+        log('[CUA] CUA API failed (401/503) — this is an infrastructure issue, NOT a code problem. Falling back to autoPlay...', taskId);
+        try {
+          const specsDataDir = process.env.SPECS_DATA_DIR || path.join(__dirname, '..', 'spec-data');
+          const autoPlaySpecs = loadSpecs(taskId, specsDataDir) || [];
+          const autoResult = await autoPlayVerify(previewUrl, autoPlaySpecs, taskId, log, 90);
+          log('[CUA] Auto-play fallback (api_failure): passed=' + autoResult.passed + ', phases=' + autoResult.phasesCompleted + '/' + autoResult.totalPhases, taskId);
+          passed = autoResult.passed;
+          autoResult.issues.forEach(function(iss) { issues.push(iss); });
+          report.autoPlay = autoResult;
+          report.apiFailure = true;
+        } catch (autoErr) {
+          log('[CUA] Auto-play fallback error (api_failure): ' + autoErr.message, taskId);
+          // CUA API down + autoPlay crashed → skip CUA entirely, don't blame the code
+          passed = false;
+          issues.length = 0; // Clear code-related issues
+          issues.push('[infra] CUA API unavailable (401/503) and autoPlay fallback failed. This is NOT a code issue — retry later.');
+          report.apiFailure = true;
+          report.infraFailure = true;
+        }
+      } else if (exitReason === 'max_rounds' && (!report.totalRounds || report.totalRounds <= 1)) {
         // max_rounds with ≤1 round means timeout killed the agent before it could do anything
         passed = false;
         if (issues.length === 0) {

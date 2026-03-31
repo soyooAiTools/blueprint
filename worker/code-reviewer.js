@@ -184,49 +184,60 @@ function autoPromotePendingRules() {
   var promoted = loadPromotedRules();
   var newPromoted = [];
 
+  // Group by RULE CATEGORY (not description keywords) — more reliable clustering
+  var ruleGroups = {};
   for (var i = 0; i < pending.length; i++) {
     var rule = pending[i];
-    // Collect distinct taskIds for similar rules
-    var taskIds = {};
-    taskIds[rule.taskId] = true;
-    var descLower = (rule.description || '').toLowerCase();
-    var keywords = descLower.match(/[a-zA-Z_][a-zA-Z0-9_.]+/g) || [];
+    // Normalize rule category: lowercase, strip special chars, take first 80 chars
+    var ruleKey = (rule.rule || 'unknown').toLowerCase().replace(/[^a-z0-9 _.-]/g, '').substring(0, 80).trim();
+    if (!ruleGroups[ruleKey]) {
+      ruleGroups[ruleKey] = { rules: [], projects: {}, bestDesc: rule.description, bestFix: rule.fix };
+    }
+    ruleGroups[ruleKey].rules.push(rule);
+    if (rule.taskId) ruleGroups[ruleKey].projects[rule.taskId] = true;
+    // Keep the longest description/fix as "best"
+    if ((rule.description || '').length > (ruleGroups[ruleKey].bestDesc || '').length) {
+      ruleGroups[ruleKey].bestDesc = rule.description;
+    }
+    if ((rule.fix || '').length > (ruleGroups[ruleKey].bestFix || '').length) {
+      ruleGroups[ruleKey].bestFix = rule.fix;
+    }
+  }
 
-    for (var j = 0; j < pending.length; j++) {
-      if (i === j) continue;
-      var otherDesc = (pending[j].description || '').toLowerCase();
-      var otherKeywords = otherDesc.match(/[a-zA-Z_][a-zA-Z0-9_.]+/g) || [];
-      // Check keyword overlap
-      var overlap = 0;
-      for (var k = 0; k < keywords.length; k++) {
-        if (keywords[k].length > 4 && otherDesc.indexOf(keywords[k]) !== -1) overlap++;
-      }
-      if (keywords.length > 0 && overlap / keywords.length > 0.5) {
-        taskIds[pending[j].taskId] = true;
+  // Promote rules triggered by ≥2 different projects
+  var promotedDescs = promoted.map(function(p) { return (p.description || '').toLowerCase(); }).join('|||');
+  var entries = Object.entries(ruleGroups);
+  for (var gi = 0; gi < entries.length; gi++) {
+    var key = entries[gi][0];
+    var group = entries[gi][1];
+    var uniqueProjects = Object.keys(group.projects).length;
+    if (uniqueProjects < 2) continue;
+
+    // Check if already promoted (by rule key match)
+    var alreadyPromoted = false;
+    for (var pi = 0; pi < promoted.length; pi++) {
+      var existingKey = (promoted[pi].rule || '').toLowerCase().replace(/[^a-z0-9 _.-]/g, '').substring(0, 80).trim();
+      if (existingKey === key) { alreadyPromoted = true; break; }
+      // Also check description similarity (>60% keyword overlap)
+      var existingDesc = (promoted[pi].description || '').toLowerCase();
+      var newDesc = (group.bestDesc || '').toLowerCase();
+      if (existingDesc.length > 20 && newDesc.length > 20) {
+        var words = newDesc.match(/[a-z]{4,}/g) || [];
+        var matches = words.filter(function(w) { return existingDesc.indexOf(w) >= 0; }).length;
+        if (words.length > 0 && matches / words.length > 0.6) { alreadyPromoted = true; break; }
       }
     }
 
-    var uniqueProjects = Object.keys(taskIds).length;
-    if (uniqueProjects >= 2) {
-      // Check if already promoted (same keywords)
-      var alreadyPromoted = false;
-      var promotedLower = promoted.map(function(p) { return (p.description || '').toLowerCase(); }).join(' ');
-      var matchCount = 0;
-      for (var m = 0; m < keywords.length; m++) {
-        if (keywords[m].length > 4 && promotedLower.indexOf(keywords[m]) !== -1) matchCount++;
-      }
-      if (keywords.length > 0 && matchCount / keywords.length > 0.4) alreadyPromoted = true;
-
-      if (!alreadyPromoted) {
-        newPromoted.push({
-          description: rule.description,
-          rule: rule.rule,
-          fix: rule.fix,
-          promotedAt: new Date().toISOString(),
-          triggerProjects: Object.keys(taskIds),
-          triggerCount: uniqueProjects
-        });
-      }
+    if (!alreadyPromoted) {
+      newPromoted.push({
+        description: group.bestDesc,
+        rule: key,
+        fix: group.bestFix,
+        promotedAt: new Date().toISOString(),
+        triggerProjects: Object.keys(group.projects),
+        triggerCount: uniqueProjects,
+        totalOccurrences: group.rules.length
+      });
     }
   }
 
