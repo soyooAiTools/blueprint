@@ -49,7 +49,7 @@ const REVIEW_RULES = `
 - FindObjectOfType / FindObjectsOfType — may return null
 - AddComponent(typeof(TextMesh)) or other rendering/text components at runtime — Luna cannot initialize them properly → invisible/broken
 - Application.ExternalEval() — not supported in Luna; arbitrary JS eval breaks transpilation/runtime
-- Camera.main — may be null in Luna template; use the injected camera reference from the template instead
+- Camera.main — may be null in Luna template; skeleton pre-caches it as "mainCam" field. Use mainCam instead of Camera.main. Always null-check before use: if (mainCam != null)
 - Camera.allCameras — camera enumeration is not safe; camera lifecycle is template-managed
 - GetComponentInChildren / GetComponentInParent — hierarchy traversal unstable
 - transform.parent access — may be undefined in Luna, crashes
@@ -99,7 +99,10 @@ const REVIEW_RULES = `
 - GFM_UI.CreateProgressBar(...) — returns Slider, NOT Image
 - GFM_Joystick.Create(Canvas, float size) — returns GFM_Joystick (.Horizontal/.Vertical/.IsDragging)
 - There is NO class called "GFM_Tools" — use GFM_Create, GFM_UI, GFM_Utils, etc.
-- Only use GFM_UI methods with documented signatures (CreateCanvas, CreateProgressBar). Undocumented methods like CreateText(), CreateButton() may not exist → compile error
+- GFM_UI.CreateText(Canvas, string, Vector2, int) — returns Text, valid API
+- GFM_UI.CreateButton(Canvas, string, Vector2, Vector2, UnityAction) — returns Button, valid API
+- GFM_UI.AddWorldLabel(GameObject, string, float) — adds world-space text label above object
+- NOTE: The skeleton pre-creates uiCanvas, guideText, scoreText — use those variables instead of creating new ones
 
 ### 7. Gameplay Logic
 - FORBIDDEN: autoplay / ForceCompleteAllPhases / auto-demo
