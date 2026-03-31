@@ -91,6 +91,15 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('');
   }
 
+  // [SKELETON] Pre-created Camera, Canvas, UI references
+  lines.push('    // [SKELETON] Camera reference — use mainCam instead of Camera.main');
+  lines.push('    Camera mainCam;');
+  lines.push('    // [SKELETON] UI references — canvas and text pre-created, use directly');
+  lines.push('    Canvas uiCanvas;');
+  lines.push('    Text guideText;');
+  lines.push('    Text scoreText;');
+  lines.push('');
+
   // TODO: AI declares additional variables
   lines.push('    // === TODO: AI declares pools, counters, and game-specific variables below ===');
   lines.push('    // TODO_VARIABLES_START');
@@ -130,15 +139,25 @@ function generateSkeleton(specs, opts = {}) {
   } else {
     lines.push('        // [SKELETON] Anti-solid-color: camera background');
   }
-  lines.push(`        Camera.main.backgroundColor = new Color(${CAMERA_BG.r}f, ${CAMERA_BG.g}f, ${CAMERA_BG.b}f);`);
+  lines.push(`        // [SKELETON] Cache Camera.main — NEVER use Camera.main directly, always use mainCam`);
+  lines.push(`        mainCam = Camera.main;`);
+  lines.push(`        if (mainCam != null) mainCam.backgroundColor = new Color(${CAMERA_BG.r}f, ${CAMERA_BG.g}f, ${CAMERA_BG.b}f);`);
   lines.push('');
 
   // [SKELETON] GFM_Luna.Init for iOS audio
   lines.push('        // [SKELETON] Luna platform init (iOS audio pre-play)');
-  lines.push('        GFM_Luna.Init();');
+  lines.push('        GFM_Luna.Init(gameObject);');
   lines.push('');
 
-  lines.push('        // === TODO: AI fills — setup camera projection, create UI, joystick, etc. ===');
+  // [SKELETON] Pre-create Canvas and UI text
+  lines.push('        // [SKELETON] Create Canvas and UI text — use uiCanvas/guideText/scoreText directly');
+  lines.push('        uiCanvas = GFM_UI.CreateCanvas(960, 640);');
+  lines.push('        guideText = GFM_UI.CreateText(uiCanvas, "", new Vector2(0, 270), 26);');
+  lines.push('        scoreText = GFM_UI.CreateText(uiCanvas, "Score: 0", new Vector2(340, 290), 20);');
+  lines.push('');
+
+  lines.push('        // === TODO: AI fills — setup camera projection, joystick, additional UI, etc. ===');
+  lines.push('        // IMPORTANT: Do NOT create Canvas again (use uiCanvas). Do NOT use Camera.main (use mainCam).');
   lines.push('        // TODO_START_START');
   lines.push('');
   lines.push('        // TODO_START_END');
@@ -225,14 +244,15 @@ function generateSkeleton(specs, opts = {}) {
     } else {
       // Subsequent rules: require previous phase condition + minimum dwell time
       const prevSpec = specs[i - 1];
-      const triggerCondition = prevSpec.triggerNext && prevSpec.triggerNext.condition
+      const conditionHint = prevSpec.triggerNext && prevSpec.triggerNext.condition
         ? prevSpec.triggerNext.condition
-        : `/* TODO: AI fills trigger condition for ${spec.phaseId} */`;
+        : 'previous phase complete';
 
       lines.push(`        // [SKELETON] Transition from ${prevSpec.phaseId} → ${spec.phaseId}`);
       lines.push(`        // Requires: ${prevSpec.triggerNext ? prevSpec.triggerNext.description : 'previous phase complete'}`);
+      lines.push(`        // Condition hint: ${conditionHint}`);
       lines.push(`        if (!ruleTriggered[${ruleIdx}]`);
-      lines.push(`            && ${triggerCondition}`);
+      lines.push(`            && true /* TODO: AI replaces with real C# condition for: ${conditionHint} */`);
       lines.push(`            && phaseTimer >= ${prevSpec.duration.min}f) // [SKELETON] min dwell time`);
       lines.push('        {');
       lines.push(`            ruleTriggered[${ruleIdx}] = true;`);
@@ -254,8 +274,10 @@ function generateSkeleton(specs, opts = {}) {
   // Final rule: game end
   const lastSpec = specs[specs.length - 1];
   lines.push(`        // ========== Game End ==========`);
+  const endConditionHint = lastSpec.triggerNext ? lastSpec.triggerNext.condition : 'game end condition';
+  lines.push(`        // End condition hint: ${endConditionHint}`);
   lines.push(`        if (!ruleTriggered[${specs.length}]`);
-  lines.push(`            && ${lastSpec.triggerNext ? lastSpec.triggerNext.condition : '/* TODO: end condition */'}`);
+  lines.push(`            && true /* TODO: AI replaces with real C# condition for game end: ${endConditionHint} */`);
   lines.push(`            && phaseTimer >= ${lastSpec.duration.min}f) // [SKELETON]`);
   lines.push('        {');
   lines.push(`            ruleTriggered[${specs.length}] = true;`);
@@ -302,12 +324,12 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('');
   lines.push('    void PlaceObj(GameObject obj, float x, float y, float z)');
   lines.push('    {');
-  lines.push('        if (obj != null) { obj.SetActive(true); obj.transform.position = new Vector3(x, y, z); }');
+  lines.push('        if (obj != null) obj.transform.position = new Vector3(x, y, z);');
   lines.push('    }');
   lines.push('');
   lines.push('    void HideObj(GameObject obj)');
   lines.push('    {');
-  lines.push('        if (obj != null) obj.SetActive(false);');
+  lines.push('        if (obj != null) obj.transform.position = new Vector3(0f, -999f, 0f);');
   lines.push('    }');
   lines.push('');
   lines.push('    void SetScale(GameObject obj, float x, float y, float z)');
@@ -320,9 +342,8 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    // [SKELETON] CTA button — pre-generated, do not remove');
   lines.push('    void ShowCTA()');
   lines.push('    {');
-  lines.push('        Canvas ctaCanvas = GFM_UI.CreateCanvas(960, 640);');
-  lines.push('        GFM_UI.CreateButton(ctaCanvas, "INSTALL NOW", new Vector2(0, -80), new Vector2(280, 80),');
-  lines.push('            delegate { Luna.Unity.Playable.InstallFullGame(); });');
+  lines.push('        Luna.Unity.LifeCycle.GameEnded();');
+  lines.push('        Luna.Unity.Playable.InstallFullGame();');
   lines.push('    }');
   lines.push('');
 
@@ -369,7 +390,9 @@ function generateSkeleton(specs, opts = {}) {
 
   lines.push('            + "}";');
   lines.push('');
-  lines.push('        GFM_Tools.SetGameState(json);');
+  lines.push('        // [SKELETON] Expose game state to JavaScript for CUA verification');
+  lines.push('        // Luna bridge exposes C# strings to JS via gameObject.name trick');
+  lines.push('        gameObject.name = "GFM|" + json;');
   lines.push('    }');
   lines.push('');
 

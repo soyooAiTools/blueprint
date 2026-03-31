@@ -589,10 +589,10 @@ function exportBlueprintForAgent(project) {
     objectRegistry: bp.objectRegistry || [],
     globalParams: bp.globalParams || '',
     globalSettings: bp.globalSettings || {},
-    entities: bp.entities || [],
+    entities: (bp.entities && bp.entities.length > 0) ? bp.entities : (project.entities || []),
     feedbackHistory: project.feedbackHistory || [],
     storyboard: {
-      frames: project.storyboardFrames || [],
+      frames: (project.storyboardFrames && project.storyboardFrames.length > 0) ? project.storyboardFrames : (bp.storyboardFrames || []),
       characterSheet: project.characterSheet || {},
       sceneSheet: project.sceneSheet || {},
       config: project.storyboardConfig || {},

@@ -679,9 +679,17 @@ async function processTask(task) {
         const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-gpu'] });
         const page = await browser.newPage({ viewport: { width: 960, height: 640 } });
         const consoleLogs = [];
+        const consoleErrors = [];
         page.on('console', msg => {
           const text = msg.text();
           if (text.includes('[AI]')) consoleLogs.push(text);
+          // Capture error/warning level messages (critical for debugging black screen)
+          if (msg.type() === 'error' || msg.type() === 'warning') {
+            consoleErrors.push(`[${msg.type()}] ${text.slice(0, 300)}`);
+          }
+        });
+        page.on('pageerror', err => {
+          consoleErrors.push(`[pageerror] ${err.message.slice(0, 300)}`);
         });
         await page.goto(`file://${tmpHtmlPath}`, { waitUntil: 'load', timeout: 30000 });
         await page.waitForTimeout(10000); // Wait for engine + game init
@@ -743,8 +751,12 @@ async function processTask(task) {
         await browser.close();
         try { fs.unlinkSync(tmpHtmlPath); } catch(e) {}
 
-        log(`Visual round ${vRound}: screenshot taken, ${consoleLogs.length} AI logs`, taskId);
+        log(`Visual round ${vRound}: screenshot taken, ${consoleLogs.length} AI logs, ${consoleErrors.length} errors`, taskId);
         consoleLogs.forEach(l => log(`  ${l}`, taskId));
+        if (consoleErrors.length > 0) {
+          log(`  JS errors (${consoleErrors.length}):`, taskId);
+          consoleErrors.slice(0, 10).forEach(e => log(`    ${e}`, taskId));
+        }
 
         // 2. Extract shot 1 info from blueprint
         let sceneDesc = 'A game scene with multiple colored objects';
@@ -863,6 +875,12 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
           if (sceneDiagnostics.objectsHidden.length > 0 && sceneDiagnostics.objectsAtOrigin.length === 0) {
             diagText += '\n\n⚠️ ROOT CAUSE: All pool objects are still hidden at y=-999. Your Start() method likely has null Find() results. Check that object names in Find() match the __Pool_xxx_NN names from the assignment table.';
           }
+        }
+        // Add JavaScript runtime errors (critical for debugging black screen!)
+        if (consoleErrors.length > 0) {
+          diagText += '\n\n## JavaScript Runtime Errors\n';
+          diagText += consoleErrors.slice(0, 15).join('\n');
+          diagText += '\n\n⚠️ These JS errors likely cause the black screen. Fix the root cause in the C# code (Bridge.NET transpiles C# → JS).';
         }
         blueprint.feedbackHistory.push({
           data: { text: `Visual pre-check failed (round ${vRound}): ${analysis.reason}\n\nThe rendered screenshot shows rendering issues. Please fix based on the diagnostics below:${diagText}\n\nRequired fixes:\n1. Ensure all objects from the assignment table are Find()'d with correct __Pool_xxx_NN names\n2. Move objects to visible positions (y >= 0) in Start()\n3. Ground color must be neutral gray (0.75, 0.78, 0.82), Camera.backgroundColor must contrast by >= 0.3\n4. Main objects must have scale >= 1.5 on at least one axis` },

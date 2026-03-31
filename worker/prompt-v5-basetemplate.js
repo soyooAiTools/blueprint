@@ -201,9 +201,17 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('5. `Instantiate(obj)` 复制对象（如果预制数量不够）');
   lines.push('6. 写游戏逻辑（交互、碰撞检测、流程控制）');
   lines.push('');
+  lines.push('## 骨架已预创建的变量（直接使用，不要重新创建）');
+  lines.push('- `Camera mainCam` — 已缓存的相机，绝对不要用 Camera.main，用 mainCam');
+  lines.push('- `Canvas uiCanvas` — 已创建的 Canvas，不要再创建');
+  lines.push('- `Text guideText` — 引导文字，设 guideText.text = "..." 更新');
+  lines.push('- `Text scoreText` — 分数文字，设 scoreText.text = "..." 更新');
+  lines.push('');
   lines.push('## ⛔ 绝对禁止');
+  lines.push('- **绝对不要用 Camera.main** — 用 mainCam，操作前 if (mainCam != null)');
+  lines.push('- **绝对不要用 GFM_UI.CreateCanvas()** — 用 uiCanvas');
+  lines.push('- **绝对不要用 SetActive()** — Luna 中会导致对象永久消失');
   lines.push('- 不要用 GFM_Create.Obj() / GFM_Create.Ground() — 对象已存在');
-  lines.push('- 不要用 GFM_UI.CreateCanvas() — Canvas 已存在');
   lines.push('- 不要用 CreatePrimitive() — 在 Luna 中不可见');
   lines.push('- 不要用泛型 List<T> / Dictionary<K,V> — 用数组');
   lines.push('- 不要用 coroutine / async / await — 用 Update + timer');

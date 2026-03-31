@@ -178,8 +178,8 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
       env: {
         ...process.env,
         // 确保用正确的 API 配置
-        ANTHROPIC_BASE_URL: opts.useGlm ? GLM_API_BASE : (process.env.ANTHROPIC_BASE_URL || 'https://chat.nuoda.vip/claudecode'),
-        ANTHROPIC_API_KEY: opts.useGlm ? GLM_API_KEY : (process.env.ANTHROPIC_API_KEY || ''),
+        ANTHROPIC_BASE_URL: opts.useGlm ? GLM_API_BASE : (process.env.ANTHROPIC_BASE_URL || GLM_API_BASE),  // api.aaxe.cn supports both Opus and GLM
+        ANTHROPIC_API_KEY: opts.useGlm ? GLM_API_KEY : (process.env.ANTHROPIC_API_KEY || GLM_API_KEY),
         // 禁止 Claude Code 在内部再次尝试 OAuth
         CLAUDE_CODE_SIMPLE: '1',
       },
