@@ -1,1411 +1,11 @@
 [
   {
-    "description": "Uses GameObject.Find(\"__Pool_Cube_26\"), \"__Pool_Cube_27\", and \"__Pool_Cube_28\". Valid cube pool names are only __Pool_Cube_01..50? No—the documented allowed names for Find are the actual pool names, but the strict rule explicitly whitelists __Pool_Cube_01..50. However this code also uses plane names __Pool_Plane_04 and __Pool_Plane_05 while the allowed plane pool range is only __Pool_Plane_01..10; those are okay. The critical issue is that these extra finds are not part of the declared object mapping and may not exist in the scene template, causing null-driven missing gameplay objects. Historical failure pattern: relying on undeclared extra pool objects without guaranteed template availability.",
-    "rule": "1. Object Naming — Pool Objects",
-    "fix": "Only use pool objects guaranteed by the storyboard/template mapping, or explicitly verify these pool objects exist in the injected template. Add null-safe fallback gameplay that does not depend on __Pool_Cube_26/27/28 existing.",
-    "line": "Start()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T08:51:15.999Z"
-  },
-  {
-    "description": "Uses ternary operators in multiple places (e.g. iceCount > 0 ? ..., phaseEnterTimes[0] > 0 ? ...). Bridge/Luna hard-limit list is strict and historically many modern C# constructs transpile unreliably; this should be treated as unsupported/risky under strict review.",
-    "rule": "3. C# Language — Bridge.NET Hard Limits",
-    "fix": "Replace ternary expressions with explicit if/else assignments before concatenation.",
-    "line": "CheckProximityInteractions(), UpdateUI(), UpdateGameState()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T08:51:16.000Z"
-  },
-  {
-    "description": "Multiple progression-critical interactions require Input.GetMouseButtonDown(0) for world pickups/sales/upgrades while movement is driven by joystick. On mobile Luna playables this often blocks progression because CUA interaction is joystick-first and tap timing on world objects is unreliable. Production rule allows proximity auto-collect but forbids skipping interaction; here you should use proximity-based collection/activation for pickups and context interactions, not mouse click gating.",
-    "rule": "7. Gameplay Logic",
-    "fix": "Replace click-gated world interactions with proximity-triggered collection/use (ice chunk, water bottles, apples, selling when near valid passenger, upgrade purchase when standing on station, etc.), while keeping player movement as the required interaction driver.",
-    "line": "CheckProximityInteractions()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T08:51:16.000Z"
-  },
-  {
-    "description": "Phase progression is driven by pure numeric thresholds: gold >= 5 && totalSold >= 2, gold >= 8, appleProductCount >= 1 && totalSold >= 4. The documented rule explicitly forbids pure numeric triggers that auto-jump phase. These can advance phases without fresh user interaction.",
-    "rule": "7. Gameplay Logic",
-    "fix": "Gate each phase transition on a player-driven interaction flag in addition to resources, e.g. player used upgrade station, player entered gate trigger, player pressed apple button / sold at apple sell point, then check dwell time.",
-    "line": "CheckEventRules() Rule 5, Rule 7, Rule 10",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T08:51:16.000Z"
-  },
-  {
-    "description": "Phase timer dwell logic is implemented, but phase progression can stall permanently because several required entity interactions depend on optional extra pool objects that may be null and because no fallback path exists. In Luna review terms this counts as incomplete phase implementation: not all blueprint phases are guaranteed reachable in-template.",
-    "rule": "4. Code Completeness",
-    "fix": "Use only guaranteed mapped objects or add robust fallback so every phase remains completable with the base mapped objects alone.",
-    "line": "CheckEventRules() Rule 1 onward",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T08:51:16.000Z"
-  },
-  {
-    "description": "Uses generic collections/types via GameObject[]? No issue there, but the code uses delegate syntax and arrays are fine. The actual critical violation is use of Canvas, Text, RectTransform, Vector2, etc. without evidence those specific GFM_UI return types/method signatures exist beyond the documented subset. More importantly, the code uses GetComponent(typeof(RectTransform)) correctly, so no generic issue here. However there is a real Bridge/Luna violation elsewhere.",
-    "rule": "3. C# Language — Bridge.NET Hard Limits",
-    "fix": "See other issues; remove unsupported API usage and ensure only documented GFM/UI APIs are used.",
-    "line": "class fields / TODO_VARIABLES_START",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T09:03:52.416Z"
-  },
-  {
-    "description": "Uses Application.ExternalEval(...). This API is not in the allowed Luna-safe set and is historically unreliable/unsupported in Bridge/Luna builds. Runtime JS eval hooks are a common failure point.",
-    "rule": "2. Forbidden APIs (will be invisible or crash)",
-    "fix": "Remove Application.ExternalEval. Expose state only through approved Luna/GFM mechanisms if required by the template.",
-    "line": "UpdateGameState()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T09:03:52.416Z"
-  },
-  {
-    "description": "Camera.backgroundColor is set twice. Final value is (0.75, 0.82, 0.92), while ground IceField is initially set to (0.75, 0.78, 0.82). The per-channel differences are 0.00, 0.04, 0.10 — none reach the required >= 0.3. If visible geometry fails later, this can present as a near-solid screen and violates the explicit camera/ground contrast rule.",
-    "rule": "5b. Solid-Color Screen Prevention (CRITICAL)",
-    "fix": "Use a background color differing by at least 0.3 on one RGB channel from the ground, e.g. dark blue/gray like (0.35, 0.45, 0.7) or much darker.",
-    "line": "Start() / camera setup",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T09:03:52.417Z"
-  },
-  {
-    "description": "Rule 0 must position >= 3 differently-colored objects at y >= -1 in the first frame. This code does place objects, but WaterMachine is a Plane object scaled as a tall 3D machine at y=1.5. In Luna, planes are flat and camera-angled visibility is fragile; relying on it as one of the initial anti-solid-color objects is risky. More importantly, only MainDeck, Player, and PassengerQueueMain are guaranteed strong visible forms; the initial scene should clearly use 3+ robust visible objects. Current setup is borderline and has already weakened the anti-solid-color safeguard.",
-    "rule": "5b. Solid-Color Screen Prevention (CRITICAL)",
-    "fix": "Ensure at least 3 clearly visible non-plane objects are shown in frame 1 at y >= -1 with distinct colors, e.g. MainDeck, Player, PassengerQueueMain, MainSellPoint.",
-    "line": "Rule 0 / CheckEventRules()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T09:03:52.417Z"
-  },
-  {
-    "description": "Uses GFM_UI.CreateText(...), but CreateText is not listed in the documented allowed signatures. The review must be adversarial against undocumented helper usage because wrong GFM signatures often compile differently or fail silently in Luna templates.",
-    "rule": "6. GFM_Tools API Signatures (wrong params = compile error or silent fail)",
-    "fix": "Verify CreateText exists in your exact template. If not, replace with documented GFM_UI APIs only, or use pre-existing pooled/UI objects.",
-    "line": "Start() / UI creation",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T09:03:52.417Z"
-  },
-  {
-    "description": "Uses GFM_UI.CreateButton(...), but CreateButton is not part of the documented allowed signatures provided. Undocumented GFM helpers are high-risk in Luna and often differ per template.",
-    "rule": "6. GFM_Tools API Signatures (wrong params = compile error or silent fail)",
-    "fix": "Confirm the exact signature exists in the shipped GFM_UI. If not, implement CTA using only documented UI helpers from the template.",
-    "line": "ShowCTA() / skeleton helper",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T09:03:52.417Z"
-  },
-  {
-    "description": "Apple product is auto-collected and converted directly into gold on proximity. The phase text says 'produce goods, then sell to passengers', but the code grants gold immediately on touching the product and merely hides one passenger regardless of sell-point interaction. This is a pure numeric/proximity shortcut that skips the intended player-driven sell interaction for the apple phase.",
-    "rule": "7. Gameplay Logic",
-    "fix": "Require the player to carry/hold the apple product and deliver it to AppleSellPoint near waiting passengers before awarding gold and setting playerSoldAppleProduct.",
-    "line": "CheckProximityInteractions() / Apple product section",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T09:03:52.417Z"
-  },
-  {
-    "description": "The code uses arrays extensively (e.g. passengerMainPool, passengerApplePool, ruleTriggered, completedPhases, phaseEnterTimes). Under the documented Luna/Bridge.NET constraints for this review, arrays are treated as unsupported generic-style collection usage and are a common transpilation/runtime failure point in production when used as dynamic gameplay state containers.",
-    "rule": "3. C# Language — Bridge.NET Hard Limits",
-    "fix": "Replace pooled collection logic with fixed individual fields per object/state, or use a Luna-safe non-generic pattern already validated in your template/tooling. At minimum, remove dynamic pool arrays for passengers and track each slot with explicit variables.",
-    "line": "class fields / multiple methods using GameObject[] and bool[] pools",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T09:17:11.482Z"
-  },
-  {
-    "description": "The blueprint-phase implementation is incomplete because phase state variables are inconsistent with actual progression logic. playerToolState transitions from 0 directly to 2 in one interaction, newCabinState transitions are handled outside CheckEventRules, and appleMachineState is used for progression while the required entity state juicerState is only indirectly synchronized later. This violates the strict requirement that all phases from the blueprint be implemented through explicit CheckEventRules transition logic with proper dwell-gated phase handling.",
-    "rule": "4. Code Completeness",
-    "fix": "Ensure each blueprint phase transition is represented explicitly in CheckEventRules with coherent state progression and dwell timing, and make entity state changes align directly with the required tracked states used by phase rules.",
-    "line": "Start() / Update() / CheckEventRules() / many methods",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T09:17:11.482Z"
-  },
-  {
-    "description": "Several phase transitions rely on pure numeric thresholds in combination with loose position checks: iceCount >= 1, gold >= 5 && totalSold >= 2, gold >= 8, totalSold >= 4. Historical Luna guidance explicitly forbids numeric triggers that auto-jump phases instead of requiring a clear player-driven interaction. These thresholds can cause progression based on counters rather than a discrete user action tied to the phase objective.",
-    "rule": "7. Gameplay Logic",
-    "fix": "Gate progression on explicit interaction flags/events caused by the player for each phase, e.g. playerDeliveredIceToMachine, playerCompletedWaterSaleInteraction, playerUnlockedGate, playerSoldAppleProductThisPhase, rather than raw counters.",
-    "line": "Rule 2 / Rule 5 / Rule 7 / Rule 10 in CheckEventRules()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T09:17:11.482Z"
-  },
-  {
-    "description": "CheckEventRules() is missing entirely. The required phase-driven game logic is not implemented.",
-    "rule": "4. Code Completeness",
-    "fix": "Add a CheckEventRules() method and implement all blueprint phases with explicit transition conditions.",
-    "line": "class body / missing method",
-    "taskId": "proj_1774794237502_k0rbwx",
-    "timestamp": "2026-03-29T14:41:44.145Z"
-  },
-  {
-    "description": "Start() exists but is empty. Required initialization is missing, including playable setup and scene/material initialization.",
-    "rule": "4. Code Completeness",
-    "fix": "Initialize gameplay state in Start(), including GFM_Create.InitMaterialFromScene() before any coloring and first-frame visible content.",
-    "line": "Start()",
-    "taskId": "proj_1774794237502_k0rbwx",
-    "timestamp": "2026-03-29T14:41:44.145Z"
-  },
-  {
-    "description": "No gameEnd flow is implemented. The required Luna end sequence is absent.",
-    "rule": "4. Code Completeness",
-    "fix": "Implement a game end block that calls Luna.Unity.LifeCycle.GameEnded() before ShowCTA(), and have ShowCTA() call Luna.Unity.Playable.InstallFullGame().",
-    "line": "entire file",
-    "taskId": "proj_1774794237502_k0rbwx",
-    "timestamp": "2026-03-29T14:41:44.146Z"
-  },
-  {
-    "description": "Start() exists but contains no initialization. Required playable setup is missing.",
-    "rule": "4. Code Completeness",
-    "fix": "Initialize gameplay state, pooled objects, camera/background, and required systems in Start().",
-    "line": "Start()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T14:42:07.973Z"
-  },
-  {
-    "description": "Update() exists but contains no runtime logic. No phase timer accumulation, input handling, or rule evaluation is performed.",
-    "rule": "4. Code Completeness",
-    "fix": "Accumulate phaseTimer using Time.deltaTime, process input/gameplay, and call CheckEventRules() from Update().",
-    "line": "Update()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T14:42:07.974Z"
-  },
-  {
-    "description": "GFM_Create.InitMaterialFromScene() is not called before any future SetColor() usage. This required Luna material initialization step is absent.",
-    "rule": "5. Materials & Rendering",
-    "fix": "Call GFM_Create.InitMaterialFromScene() in Start() before creating or recoloring visible objects.",
-    "line": "Start()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T14:42:07.974Z"
-  },
-  {
-    "description": "The required game-end flow is missing. There is no call to Luna.Unity.LifeCycle.GameEnded() and no ShowCTA() calling Luna.Unity.Playable.InstallFullGame().",
-    "rule": "4. Code Completeness",
-    "fix": "Implement a gameEnd block that calls Luna.Unity.LifeCycle.GameEnded() first, then ShowCTA(), and in ShowCTA() call Luna.Unity.Playable.InstallFullGame().",
-    "line": "overall file",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T14:42:07.974Z"
-  },
-  {
-    "description": "Uses Camera.main.backgroundColor and later assigns mainCam = Camera.main. Camera.main is explicitly unsafe/null-prone in Luna templates and can cause null access or missing camera setup.",
-    "rule": "Forbidden APIs — Camera.main may be null in Luna template",
-    "fix": "Use the injected/template camera reference instead of Camera.main. Store that reference and configure background/projection from it only after null validation.",
-    "line": "Start()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T14:51:05.293Z"
-  },
-  {
-    "description": "Calls undocumented/non-approved GFM_UI.CreateButton(...). This method may not exist in Luna GFM tools, leading to compile failure.",
-    "rule": "GFM_Tools API Signatures",
-    "fix": "Implement CTA with only documented APIs or preserve the approved template CTA mechanism if provided by the environment.",
-    "line": "ShowCTA()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T14:51:05.293Z"
-  },
-  {
-    "description": "Uses Application.ExternalEval(\"window.__gameState=...\"), which is explicitly unsupported in Luna and breaks transpilation/runtime.",
-    "rule": "Forbidden APIs",
-    "fix": "Remove ExternalEval entirely. Expose state only through approved Luna/GFM mechanisms.",
-    "line": "UpdateGameState()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T14:51:05.294Z"
-  },
-  {
-    "description": "Phase transitions do not consistently use phaseTimer minimum dwell checks for each phase. Only Rule 1 checks phaseTimer; the remaining rules transition immediately on state/currentStep conditions, violating the required dwell-timed phase system.",
-    "rule": "Code Completeness",
-    "fix": "For every rule/phase, gate transitions with a minimum phaseTimer (or equivalent dwell logic tied to currentPhaseName transitions) before triggering the next phase.",
-    "line": "CheckEventRules() overall",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T14:51:05.294Z"
-  },
-  {
-    "description": "[phase-coverage] 0/11 phases completed. Missing: 开场教学 (trigger: none); 解锁第一舱门 (trigger: none); 前往救援区域 (trigger: none); 获得第一名队员 (trigger: none); 激活浴池 (trigger: none); 升级搬运人数 (trigger: none); 升级浴池容量 (trigger: none); 解锁第二舱门 (trigger: none); 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[phase-coverage] 0/11 phases completed. Missing: 开场教学 (trigger: none); 解锁第一舱门 (trigger: none); 前往救援区域 (trigger: none); 获得第一名队员 (trigger: none); 激活浴池 (trigger: none); 升级搬运人数 (trigger: none); 升级浴池容量 (trigger: none); 解锁第二舱门 (trigger: none); 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "line": "CUA round 1",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T14:51:29.622Z"
-  },
-  {
-    "description": "[spec-phase-skipped] Spec phases not completed: initialMovement, unlockFirstCabin, moveToRescueArea, rescueFirstMember, activateBathtub, upgradeCarryCapacity, upgradeBathtubCapacity, unlockSecondCabin, buildWorkstation, expandWorkstations, finalUnlockCTA. Game balance likely broken — phases were bypassed.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-phase-skipped] Spec phases not completed: initialMovement, unlockFirstCabin, moveToRescueArea, rescueFirstMember, activateBathtub, upgradeCarryCapacity, upgradeBathtubCapacity, unlockSecondCabin, buildWorkstation, expandWorkstations, finalUnlockCTA. Game balance likely broken — phases were bypassed.",
-    "line": "CUA round 1",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T14:51:29.622Z"
-  },
-  {
-    "description": "[no-interaction] CUA completed 15 rounds but recorded zero interactions — likely API failures",
-    "rule": "CUA - [no-interaction] CUA completed 15 rounds but recor",
-    "fix": "[no-interaction] CUA completed 15 rounds but recorded zero interactions — likely API failures",
-    "line": "CUA round 1",
-    "taskId": "proj_1774794237502_k0rbwx",
-    "timestamp": "2026-03-29T14:53:02.233Z"
-  },
-  {
-    "description": "Uses Camera.main.backgroundColor and later mainCam = Camera.main. Luna templates may not tag or expose Camera.main reliably, causing null reference or missing camera setup.",
-    "rule": "Forbidden APIs — Camera.main may be null in Luna template",
-    "fix": "Use the injected camera reference provided by the template/skeleton instead of Camera.main. Null-check before use if a template field is available.",
-    "line": "Start() / anti-solid-color setup",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T14:54:49.245Z"
-  },
-  {
-    "description": "Uses Application.ExternalEval(), which is explicitly unsupported in Luna and breaks transpilation/runtime.",
-    "rule": "Forbidden APIs",
-    "fix": "Remove ExternalEval usage. Use approved Luna/GFM state exposure hooks if provided by the template, or keep state internal only.",
-    "line": "UpdateGameState()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T14:54:49.246Z"
-  },
-  {
-    "description": "RULE_COUNT is 12, but CheckEventRules() only implements rules 0 through 10. Rule index 11 is missing entirely, violating the requirement that all blueprint phases must be implemented in CheckEventRules().",
-    "rule": "Code Completeness",
-    "fix": "Implement the missing phase/rule 11 with proper trigger and completion logic, or correct RULE_COUNT to the exact blueprint phase count if 12 is wrong.",
-    "line": "CheckEventRules()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T14:54:49.246Z"
-  },
-  {
-    "description": "Uses Camera.main.backgroundColor and later mainCam = Camera.main. Camera.main is not safe in Luna and may be null, causing runtime failure.",
-    "rule": "Forbidden APIs — Camera.main may be null in Luna template",
-    "fix": "Use the injected camera reference provided by the template, store it once, null-check it, and avoid Camera.main entirely.",
-    "line": "Start()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T14:57:01.574Z"
-  },
-  {
-    "description": "Uses GFM_UI.CreateButton(...), which is listed as undocumented and may not exist, causing compile error.",
-    "rule": "Only use documented GFM_UI methods",
-    "fix": "Implement CTA using only documented template-safe UI helpers, or use the approved CTA mechanism already present in the template.",
-    "line": "ShowCTA()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T14:57:01.575Z"
-  },
-  {
-    "description": "RULE_COUNT is 12 but CheckEventRules only implements rules 0 through 10. One phase/rule is missing, and currentPhaseName progression is also incomplete/inconsistent.",
-    "rule": "Code Completeness — ALL phases from blueprint MUST be implemented in CheckEventRules()",
-    "fix": "Implement the missing rule/phase with proper trigger condition, minimum dwell check, state transition, and completion bookkeeping.",
-    "line": "CheckEventRules()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T14:57:01.575Z"
-  },
-  {
-    "description": "Uses Camera.main.backgroundColor and later mainCam = Camera.main. Camera.main may be null in Luna template; relying on it can crash or leave camera uninitialized.",
-    "rule": "Forbidden APIs — Camera.main",
-    "fix": "Use the injected/template camera reference instead of Camera.main. Store that reference and configure it directly after a null check.",
-    "line": "Start() / anti-solid-color init",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T15:03:10.780Z"
-  },
-  {
-    "description": "Constructs pool names dynamically with idx.ToString(\"D2\") for __Pool_Sphere_XX. Dynamic pool-name construction is explicitly forbidden because Bridge.NET string formatting is unreliable, causing Find() to fail at runtime.",
-    "rule": "Object Naming — Pool Objects",
-    "fix": "Use an explicit string[] of exact literals: __Pool_Sphere_01 ... __Pool_Sphere_08, then index that array.",
-    "line": "Start() crowd pool lookup loop",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T15:03:10.780Z"
-  },
-  {
-    "description": "Uses generic collection-like unsupported API pattern indirectly avoided elsewhere, but also depends on undocumented UI helpers GFM_UI.CreateText which are not in the documented safe signatures.",
-    "rule": "C# Language — Bridge.NET Hard Limits",
-    "fix": "Replace runtime text creation with only documented GFM_UI methods, or use pre-existing scene UI objects found safely by exact names if guaranteed by template.",
-    "line": "Start()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T15:03:10.780Z"
-  },
-  {
-    "description": "Calls GFM_UI.CreateButton(...), which is explicitly listed as an undocumented/unsafe method that may not exist and can cause compile errors.",
-    "rule": "GFM_Tools API Signatures",
-    "fix": "Implement CTA using only documented UI APIs or the template-provided CTA mechanism. Do not call undocumented GFM_UI.CreateButton.",
-    "line": "ShowCTA()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T15:03:10.780Z"
-  },
-  {
-    "description": "Uses Application.ExternalEval(\"window.__gameState=\" + json). Application.ExternalEval is not supported in Luna and breaks transpilation/runtime.",
-    "rule": "Forbidden APIs",
-    "fix": "Remove ExternalEval usage. Use Luna-supported state exposure mechanisms only, or keep state internal if no supported bridge API is available.",
-    "line": "UpdateGameState()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T15:03:10.781Z"
-  },
-  {
-    "description": "RULE_COUNT is 12 but CheckEventRules implements only rules 0 through 10. One blueprint phase/rule slot is missing from transition logic.",
-    "rule": "Code Completeness",
-    "fix": "Implement all required phases/rules up to RULE_COUNT with trigger conditions and dwell timing, or reduce RULE_COUNT only if the blueprint truly has fewer phases.",
-    "line": "CheckEventRules()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T15:03:10.781Z"
-  },
-  {
-    "description": "[spec-phase-skipped] Spec phases not completed: initialSetupAndExpansion. Game balance likely broken — phases were bypassed.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-phase-skipped] Spec phases not completed: initialSetupAndExpansion. Game balance likely broken — phases were bypassed.",
-    "line": "CUA round 3",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T15:19:53.998Z"
-  },
-  {
-    "description": "[phase-coverage] 1/11 phases completed. Missing: 解锁第一舱门 (trigger: none); 前往救援区域 (trigger: none); 获得第一名队员 (trigger: none); 激活浴池 (trigger: none); 升级搬运人数 (trigger: none); 升级浴池容量 (trigger: none); 解锁第二舱门 (trigger: none); 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[phase-coverage] 1/11 phases completed. Missing: 解锁第一舱门 (trigger: none); 前往救援区域 (trigger: none); 获得第一名队员 (trigger: none); 激活浴池 (trigger: none); 升级搬运人数 (trigger: none); 升级浴池容量 (trigger: none); 解锁第二舱门 (trigger: none); 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "line": "CUA round 4",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T15:27:58.016Z"
-  },
-  {
-    "description": "Uses Camera.main to configure the camera. In Luna templates Camera.main may be null; camera lifecycle is template-managed and this is a known runtime failure source.",
-    "rule": "Forbidden APIs — Camera.main",
-    "fix": "Use the injected camera reference provided by the template instead of Camera.main.",
-    "line": "Start()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T15:31:33.608Z"
-  },
-  {
-    "description": "Uses Camera.main again for camera follow. This is not safe in Luna and may return null or misbehave.",
-    "rule": "Forbidden APIs — Camera.main",
-    "fix": "Cache and use the injected template camera reference.",
-    "line": "UpdatePlayer(float dt)",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T15:31:33.608Z"
-  },
-  {
-    "description": "Uses FindObjectOfType(typeof(Canvas)). In Luna this may return null unpredictably and is explicitly forbidden.",
-    "rule": "Forbidden APIs — FindObjectOfType / FindObjectsOfType",
-    "fix": "Create the canvas directly with GFM_UI.CreateCanvas(1080, 1920) or use a known injected reference.",
-    "line": "Start() / UI setup",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T15:31:33.608Z"
-  },
-  {
-    "description": "Uses Application.ExternalEval(...), which is explicitly unsupported in Luna and breaks transpilation/runtime.",
-    "rule": "Forbidden APIs — Application.ExternalEval()",
-    "fix": "Remove ExternalEval entirely. Use supported Luna/GFM communication hooks only.",
-    "line": "UpdateGameState()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T15:31:33.609Z"
-  },
-  {
-    "description": "Uses generic collection-like component APIs throughout the file, e.g. AddComponent<Outline>(). Bridge.NET hard limits prohibit generics such as GetComponent<T>(); this code already violates that rule pattern.",
-    "rule": "C# Language — Bridge.NET Hard Limits",
-    "fix": "Eliminate all generic API usages and use non-generic overloads with casts where supported.",
-    "line": "Start() / ShowCTA() field declarations",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T15:31:33.609Z"
-  },
-  {
-    "description": "Uses Camera.main. Luna template camera injection does not guarantee Camera.main is valid, so camera setup/follow can silently fail.",
-    "rule": "Forbidden APIs",
-    "fix": "Use the injected camera reference provided by the Luna template instead of Camera.main.",
-    "line": "Start()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T16:06:52.304Z"
-  },
-  {
-    "description": "Calls undocumented GFM_UI.CreateButton(...). The reviewer rules explicitly warn that CreateButton may not exist and can fail compilation.",
-    "rule": "GFM_Tools API Signatures",
-    "fix": "Use only documented GFM_UI APIs, or implement CTA via pre-pooled world objects / safe template-supported UI.",
-    "line": "ShowCTA()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T16:06:52.304Z"
-  },
-  {
-    "description": "Game end flow is incorrect. The required gameEnd block must call Luna.Unity.LifeCycle.GameEnded() and then ShowCTA(), where ShowCTA calls Luna.Unity.Playable.InstallFullGame(). Here ShowCTA does not call InstallFullGame at all, and GameEnded is deferred to button click only.",
-    "rule": "Code Completeness",
-    "fix": "In the game-end phase transition, call Luna.Unity.LifeCycle.GameEnded() first, then call ShowCTA(); inside ShowCTA trigger Luna.Unity.Playable.InstallFullGame() per required integration order.",
-    "line": "CheckEventRules() / ShowCTA() / OnCTAClick()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T16:06:52.305Z"
-  },
-  {
-    "description": "Final phase transition sets currentPhaseName to GameEnd and shows CTA, but never marks gameEnded true and never calls LifeCycle.GameEnded(). If the user does not click CTA, the playable never signals completion.",
-    "rule": "Code Completeness",
-    "fix": "Set end-state and invoke Luna.Unity.LifeCycle.GameEnded() during the final rule trigger before showing CTA.",
-    "line": "CheckEventRules() final CTA trigger",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T16:06:52.305Z"
-  },
-  {
-    "description": "Only 2 visible objects are guaranteed in frame 1. ShowEntity(E_PLAYER) and ShowEntity(E_DOOR1) are later overwritten because their eActive flags are reset to false after being shown; more importantly, the player target Y is 0.8 but Door1 is at Y=1 while ground is visible. However the initialization order resets active state after display, creating inconsistent first-frame guarantees and later update logic. The rule requires a robust first-frame setup with 3 differently-colored objects visible and initialized consistently.",
-    "rule": "Tier 2 — Solid-Color Screen Prevention",
-    "fix": "Initialize eActive/eState arrays before showing objects, then show at least 3 distinct colored objects and keep their active flags true from frame 1.",
-    "line": "Start()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T16:06:52.305Z"
-  },
-  {
-    "description": "ShowEntity() is called before the loop that resets eActive[] to false for all entities. This immediately invalidates the active state of objects you just showed, including the player, so UpdatePlayer() will not run until a later rule re-enables the player.",
-    "rule": "Gameplay Logic / Code Completeness",
-    "fix": "Move all array initialization before any ShowEntity() calls, or re-assert active flags only after initialization is complete.",
-    "line": "Start() initialization order",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T16:06:52.306Z"
-  },
-  {
-    "description": "[phase-coverage] 0/11 phases completed. Missing: 开场展示 (trigger: none); 核心建造中 (trigger: none); 核心激活 (trigger: none); 第一波来袭 (trigger: none); 收益与第二建造位 (trigger: none); 双炮塔成型 (trigger: none); 升级教学 (trigger: none); 强化波次 (trigger: none); 最终扩建 (trigger: none); 胜利展示 (trigger: none); CTA收尾 (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "rule": "CUA - cta-missing",
-    "fix": "[phase-coverage] 0/11 phases completed. Missing: 开场展示 (trigger: none); 核心建造中 (trigger: none); 核心激活 (trigger: none); 第一波来袭 (trigger: none); 收益与第二建造位 (trigger: none); 双炮塔成型 (trigger: none); 升级教学 (trigger: none); 强化波次 (trigger: none); 最终扩建 (trigger: none); 胜利展示 (trigger: none); CTA收尾 (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "line": "CUA round 1",
-    "taskId": "proj_1774798766776_1sjld8",
-    "timestamp": "2026-03-29T16:19:54.865Z"
-  },
-  {
-    "description": "[phase-coverage] 0/11 phases completed. Missing: 主舱开场与订单建立 (trigger: none); 外出采集冰晶 (trigger: none); 搬运冰块回舱 (trigger: none); 制水产出 (trigger: none); 售卖给乘客 (trigger: none); 解锁工具升级 (trigger: none); 高效重复循环 (trigger: none); 扩建新船舱 (trigger: none); 进入新区域采苹果 (trigger: none); 踩按钮出货并售卖苹果 (trigger: none); 最终引导与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "rule": "CUA - cta-missing",
-    "fix": "[phase-coverage] 0/11 phases completed. Missing: 主舱开场与订单建立 (trigger: none); 外出采集冰晶 (trigger: none); 搬运冰块回舱 (trigger: none); 制水产出 (trigger: none); 售卖给乘客 (trigger: none); 解锁工具升级 (trigger: none); 高效重复循环 (trigger: none); 扩建新船舱 (trigger: none); 进入新区域采苹果 (trigger: none); 踩按钮出货并售卖苹果 (trigger: none); 最终引导与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "line": "CUA round 6",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T17:33:50.099Z"
-  },
-  {
-    "description": "Uses Camera.main multiple times. Luna template camera lookup is not safe; Camera.main may be null or unmanaged in injected templates.",
-    "rule": "Tier 1.2 Forbidden APIs — Camera.main",
-    "fix": "Use the injected camera reference from the Luna template or a prewired camera field instead of Camera.main everywhere.",
-    "line": "Start / camera setup / UpdateCamera",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T19:11:24.817Z"
-  },
-  {
-    "description": "Constructs pool names dynamically with ToString(\"D2\") for cubes/planes/spheres/cylinders. Dynamic pool-name construction is explicitly banned because Bridge.NET string formatting is unreliable, causing Find() to return null at runtime.",
-    "rule": "Tier 1.1 Object Naming — Pool Objects",
-    "fix": "Replace all dynamically constructed names with explicit string literals or predeclared string arrays of exact pool names, e.g. new string[]{\"__Pool_Cube_26\",...}.",
-    "line": "Start / pooled object initialization loops",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T19:11:24.818Z"
-  },
-  {
-    "description": "Uses Application.ExternalEval(), which is explicitly unsupported in Luna and can break transpilation/runtime.",
-    "rule": "Tier 1.2 Forbidden APIs",
-    "fix": "Remove ExternalEval usage. Expose state through supported Luna/GFM mechanisms only.",
-    "line": "UpdateGameState",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T19:11:24.818Z"
-  },
-  {
-    "description": "Relies on Input.GetMouseButtonDown(0) as the primary interaction path. This is unreliable on mobile Luna playables and may fail for touch users.",
-    "rule": "Tier 3.10 Luna Platform Limitations",
-    "fix": "Use GFM/Luna input abstraction or handle both touch and mouse explicitly.",
-    "line": "UpdateIceChunks / UpdateWaterMachine / UpdateWaterBottles / UpdateMainSellPoint / UpdateToolUpgrade / UpdateExpansionGate / UpdateAppleItems / UpdateAppleMachine / UpdateAppleButton / UpdateAppleProducts / UpdateAppleSellPoint / UpdateChargeStation",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T19:11:24.818Z"
-  },
-  {
-    "description": "RULE_COUNT is 13, but CheckEventRules implements rules 0 through 11 only. One rule slot is unused and there is no explicit coverage for all declared phases/rules, indicating incomplete phase wiring.",
-    "rule": "Tier 1.4 Code Completeness",
-    "fix": "Implement all declared rules/phases consistently or reduce RULE_COUNT only if the storyboard truly has fewer phases and all skeleton/state mappings are updated safely.",
-    "line": "CheckEventRules",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T19:11:24.819Z"
-  },
-  {
-    "description": "[spec-phase-skipped] Spec phases not completed: fullSpaceStationManagement. Game balance likely broken — phases were bypassed.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-phase-skipped] Spec phases not completed: fullSpaceStationManagement. Game balance likely broken — phases were bypassed.",
-    "line": "CUA round 1",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T19:15:20.045Z"
-  },
-  {
-    "description": "[spec-phase-skipped] Spec phases not completed: initialExpansion. Game balance likely broken — phases were bypassed.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-phase-skipped] Spec phases not completed: initialExpansion. Game balance likely broken — phases were bypassed.",
-    "line": "CUA round 1",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T20:00:10.083Z"
-  },
-  {
-    "description": "[spec-phase-skipped] Spec phases not completed: spaceStationManagement. Game balance likely broken — phases were bypassed.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-phase-skipped] Spec phases not completed: spaceStationManagement. Game balance likely broken — phases were bypassed.",
-    "line": "CUA round 5",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T20:11:45.903Z"
-  },
-  {
-    "description": "[spec-entity] tool state=0, spec requires drill (采集工具已升级为钻头)",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-entity] tool state=0, spec requires drill (采集工具已升级为钻头)",
-    "line": "CUA round 5",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T20:11:45.904Z"
-  },
-  {
-    "description": "[spec-entity] newArea state=0, spec requires unlocked (新区域已解锁)",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-entity] newArea state=0, spec requires unlocked (新区域已解锁)",
-    "line": "CUA round 5",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T20:11:45.904Z"
-  },
-  {
-    "description": "[spec-entity] waterMachine state=0, spec requires producing (制水机已投入生产)",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-entity] waterMachine state=0, spec requires producing (制水机已投入生产)",
-    "line": "CUA round 5",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T20:11:45.904Z"
-  },
-  {
-    "description": "Uses Camera.main multiple times. Luna template camera lookup via Camera.main may return null or be unmanaged, causing missing camera behavior or runtime failures.",
-    "rule": "Forbidden APIs",
-    "fix": "Use the injected camera reference from the Luna template instead of Camera.main everywhere.",
-    "line": "Start() / UpdateCamera() / camera setup",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T21:07:46.120Z"
-  },
-  {
-    "description": "Calls Application.ExternalEval(), which is explicitly unsupported in Luna and can break transpilation/runtime.",
-    "rule": "Forbidden APIs",
-    "fix": "Remove ExternalEval. Expose state only through supported Luna/GFM mechanisms.",
-    "line": "UpdateGameState()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T21:07:46.121Z"
-  },
-  {
-    "description": "Uses ternary conditional expressions repeatedly (phaseEnterTimes[i] > 0 ? ... : ...). Historical Luna/Bridge.NET constraints require avoiding advanced language constructs beyond the approved subset.",
-    "rule": "C# Language — Bridge.NET Hard Limits",
-    "fix": "Replace ternary expressions with simple if/else assignments to temporary variables before building the string.",
-    "line": "UpdateGameState() phaseTimestamps serialization",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T21:07:46.121Z"
-  },
-  {
-    "description": "Code uses Camera.main repeatedly for background, projection, transform, and size. In Luna template Camera.main may be null, causing runtime failure.",
-    "rule": "Forbidden APIs — Camera.main",
-    "fix": "Use the injected camera reference provided by the Luna template instead of Camera.main, cache it once, and null-check before use.",
-    "line": "Start() / UpdateCamera()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T21:16:09.879Z"
-  },
-  {
-    "description": "Uses GFM_UI.CreateText(...), which is explicitly listed as an undocumented/unsafe UI API that may not exist and can fail compilation.",
-    "rule": "GFM_Tools API Signatures",
-    "fix": "Replace runtime text creation with only documented GFM_UI methods, or use pre-existing pooled scene objects/UI supported by the template.",
-    "line": "Start()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T21:16:09.879Z"
-  },
-  {
-    "description": "Uses GFM_UI.CreateButton(...), which is explicitly called out as an undocumented method that may not exist, leading to compile error.",
-    "rule": "GFM_Tools API Signatures",
-    "fix": "Implement CTA using only documented GFM_UI methods or a pre-existing pooled CTA object wired to Luna.Unity.Playable.InstallFullGame().",
-    "line": "ShowCTA()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T21:16:09.879Z"
-  },
-  {
-    "description": "Calls Application.ExternalEval(\"window.__gameState=\" + json), which is explicitly unsupported in Luna and can break transpilation/runtime.",
-    "rule": "Forbidden APIs — Application.ExternalEval()",
-    "fix": "Remove ExternalEval entirely. Expose state only through supported Luna/GFM mechanisms.",
-    "line": "UpdateGameState()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T21:16:09.879Z"
-  },
-  {
-    "description": "Uses List-forbidden substitute correctly? No, but uses arrays only. However the code still uses generic syntax indirectly through undocumented API returns? Not critical. The actual critical issue is use of UnityEngine.UI.Text runtime components, which often require unsupported runtime UI creation path in this code.",
-    "rule": "C# Language — Bridge.NET Hard Limits",
-    "fix": "Avoid runtime-created Text-based UI through undocumented GFM methods; use supported scene/template UI only.",
-    "line": "class fields",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T21:16:09.880Z"
-  },
-  {
-    "description": "[spec-phase-skipped] Spec phases not completed: baseBuildingAndRecruitment. Game balance likely broken — phases were bypassed.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-phase-skipped] Spec phases not completed: baseBuildingAndRecruitment. Game balance likely broken — phases were bypassed.",
-    "line": "CUA round 1",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T21:17:45.310Z"
-  },
-  {
-    "description": "[spec-phase-skipped] Spec phases not completed: waterAndAppleProduction. Game balance likely broken — phases were bypassed.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-phase-skipped] Spec phases not completed: waterAndAppleProduction. Game balance likely broken — phases were bypassed.",
-    "line": "CUA round 4",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T21:56:16.541Z"
-  },
-  {
-    "description": "[spec-entity] juicerMachine state=0, spec requires producing (榨汁机已投入生产)",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-entity] juicerMachine state=0, spec requires producing (榨汁机已投入生产)",
-    "line": "CUA round 4",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T21:56:16.542Z"
-  },
-  {
-    "description": "[phase-coverage] 9/11 phases completed. Missing: 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[phase-coverage] 9/11 phases completed. Missing: 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "line": "CUA round 5",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T22:15:49.088Z"
-  },
-  {
-    "description": "[quick-test] Scene is empty (0 renderers). Engine loaded but scene failed to initialize. pc=true app=false webgl=true",
-    "rule": "CUA - quick-test",
-    "fix": "[quick-test] Scene is empty (0 renderers). Engine loaded but scene failed to initialize. pc=true app=false webgl=true",
-    "line": "CUA round 9",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T02:35:22.118Z"
-  },
-  {
-    "description": "Uses installButton.isVisible, but no installButton variable is declared anywhere in the file. This is a compile error and the playable will not build.",
-    "rule": "Code Completeness / C# compile safety",
-    "fix": "Declare a valid supported state variable/object reference, or replace this condition with an implemented interaction flag tied to the actual button flow.",
-    "line": "CheckEventRules()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T11:28:08.702Z"
-  },
-  {
-    "description": "Calls GFM_Tools.SetGameState(json), but there is NO class called GFM_Tools per the constraints. This is a compile-time failure.",
-    "rule": "GFM_Tools API Signatures",
-    "fix": "Use the actual supported class/method for exposing state, or remove this call if no supported API exists.",
-    "line": "UpdateGameState()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T11:28:08.702Z"
-  },
-  {
-    "description": "Uses Camera.main.backgroundColor. Camera.main may be null in Luna template; relying on it is explicitly banned and can cause null reference/blank screen.",
-    "rule": "Forbidden APIs",
-    "fix": "Use the injected/template camera reference instead of Camera.main.",
-    "line": "Start()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T11:28:08.703Z"
-  },
-  {
-    "description": "Uses SetActive(true/false) for showing/hiding pooled objects. Luna pool objects must be hidden by moving to y=-999, not by SetActive(false). Deactivation is explicitly disallowed for hiding.",
-    "rule": "Materials & Rendering",
-    "fix": "Replace hide/show behavior with transform.position.y = -999 for hide and move back to visible y for show.",
-    "line": "PlaceObj()/HideObj()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T11:28:08.703Z"
-  },
-  {
-    "description": "Blueprint/spec phase implementation is incomplete. The phase comments require move/collect/deliver/spend/upgrade/unlock/reach/click interactions, but none of that logic exists. CheckEventRules only auto-enters one phase and then jumps to gameEnd based on an undeclared variable.",
-    "rule": "Code Completeness",
-    "fix": "Implement all required interaction steps and transition logic for the full phase spec, with actual player-driven conditions and dwell timing.",
-    "line": "CheckEventRules()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T11:28:08.703Z"
-  },
-  {
-    "description": "Phase progression is effectively auto-triggered. ruleTriggered[0] is set immediately on first CheckEventRules call with no player action. This bypasses interaction-driven progression required by the spec.",
-    "rule": "Gameplay Logic",
-    "fix": "Gate phase completion/progression on real player actions such as movement, collection, delivery, spending, upgrades, unlocking, and button click.",
-    "line": "CheckEventRules()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T11:28:08.704Z"
-  },
-  {
-    "description": "RULE_COUNT is 3, but only two ruleTriggered indices are used and only one real gameplay phase is implemented. The skeleton/spec requires complete phase coverage, not a partial stub.",
-    "rule": "Code Completeness",
-    "fix": "Implement all storyboard phases in CheckEventRules with matching ruleTriggered entries, names, and dwell checks.",
-    "line": "CheckEventRules()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T11:28:08.704Z"
-  },
-  {
-    "description": "Game end asserts terminal entity states in comments, but there is no logic anywhere that drives waterMachineState, toolState, newAreaState, juiceMachineState, or buttonState to 2. End-state requirements are unmet.",
-    "rule": "Code Completeness",
-    "fix": "Add gameplay systems and transitions that update each required entity state to terminal state before allowing game end.",
-    "line": "CheckEventRules() gameEnd block",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T11:28:08.704Z"
-  },
-  {
-    "description": "Uses Camera.main as fallback. Luna template camera lifecycle is injection-managed and Camera.main may be null, causing camera setup/follow to fail.",
-    "rule": "Forbidden APIs — Camera.main",
-    "fix": "Use the injected camera reference from the Luna/template setup only. Do not rely on Camera.main.",
-    "line": "Start()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T11:33:55.758Z"
-  },
-  {
-    "description": "Directly queries Camera.main every frame. This is explicitly unsafe in Luna and may return null intermittently or permanently.",
-    "rule": "Forbidden APIs — Camera.main",
-    "fix": "Use the cached injected camera reference initialized in Start() and guard it with null checks.",
-    "line": "UpdateCamera()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T11:33:55.759Z"
-  },
-  {
-    "description": "Uses Camera.main as fallback. Camera.main may be null in Luna template and is explicitly forbidden by platform constraints.",
-    "rule": "Forbidden APIs (Camera.main)",
-    "fix": "Use the injected/template camera reference only. Do not call Camera.main; obtain the existing camera via a safe prewired reference from the template.",
-    "line": "Start()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T11:35:06.380Z"
-  },
-  {
-    "description": "Calls undocumented/non-approved GFM_UI.CreateButton(...). The review rules explicitly warn that CreateButton may not exist, leading to compile error.",
-    "rule": "GFM_Tools API Signatures",
-    "fix": "Implement CTA using only documented/supported Luna/GFM UI mechanisms, while still calling Luna.Unity.Playable.InstallFullGame() from the CTA interaction.",
-    "line": "ShowCTA()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T11:35:06.381Z"
-  },
-  {
-    "description": "Uses Application.ExternalEval(), which is explicitly unsupported in Luna and called out as a production failure source.",
-    "rule": "Forbidden APIs",
-    "fix": "Remove ExternalEval entirely. Expose state through supported Luna/GFM mechanisms only.",
-    "line": "UpdateGameState()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T11:35:06.381Z"
-  },
-  {
-    "description": "[quick-test] Scene is empty (0 renderers). Engine loaded but scene failed to initialize. pc=true app=true webgl=true",
-    "rule": "CUA - quick-test",
-    "fix": "[quick-test] Scene is empty (0 renderers). Engine loaded but scene failed to initialize. pc=true app=true webgl=true",
-    "line": "CUA round 1",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T12:04:30.167Z"
-  },
-  {
-    "description": "Uses GameObject.FindObjectOfType(typeof(Camera)) to get the camera. FindObjectOfType / FindObjectsOfType are explicitly unsafe in Luna and may return null at runtime.",
-    "rule": "Forbidden APIs (FindObjectOfType)",
-    "fix": "Use the injected/template camera reference instead of runtime enumeration. Do not use FindObjectOfType for cameras in Luna.",
-    "line": "Start()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T14:35:59.388Z"
-  },
-  {
-    "description": "Uses Application.ExternalEval(\"window.__gameState=\" + json). ExternalEval is explicitly unsupported in Luna and can break transpilation/runtime.",
-    "rule": "Forbidden APIs (Application.ExternalEval)",
-    "fix": "Remove ExternalEval entirely. Expose state through supported Luna/GFM mechanisms only.",
-    "line": "UpdateGameState()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T14:35:59.388Z"
-  },
-  {
-    "description": "Although arrays are used correctly, the code still depends on generic delegate inference in GFM_UI.CreateButton(..., delegate { ... }) from an undocumented API surface. In Luna/Bridge.NET this is risky and tied to the unsupported method usage.",
-    "rule": "Bridge.NET Hard Limits - NO List<T> or Dictionary<K,V> — use arrays",
-    "fix": "Avoid undocumented button creation APIs entirely; use supported template CTA mechanism only.",
-    "line": "Class fields and multiple methods",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T14:35:59.388Z"
-  },
-  {
-    "description": "Uses GameObject.FindObjectOfType(typeof(Camera)) to get the camera. FindObjectOfType / FindObjectsOfType are explicitly unsafe in Luna and may return null.",
-    "rule": "Forbidden APIs (FindObjectOfType)",
-    "fix": "Use the injected camera reference from the Luna template instead of FindObjectOfType. Do not enumerate/search cameras at runtime.",
-    "line": "Start()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T14:40:20.809Z"
-  },
-  {
-    "description": "Uses GFM_UI.CreateButton(...), which is also an undocumented GFM_UI method and may not exist in the Luna/GFM environment.",
-    "rule": "GFM_Tools API Signatures",
-    "fix": "Implement CTA with only documented/supported UI APIs from the template, or use the approved prebuilt CTA flow if provided by the project template.",
-    "line": "ShowCTA()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T14:40:20.809Z"
-  },
-  {
-    "description": "Uses Application.ExternalEval(\"window.__gameState=\" + json). Application.ExternalEval is explicitly unsupported in Luna and can break transpilation/runtime.",
-    "rule": "Forbidden APIs",
-    "fix": "Remove ExternalEval entirely. Expose state only through supported Luna/GFM mechanisms.",
-    "line": "UpdateGameState()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T14:40:20.810Z"
-  },
-  {
-    "description": "Input handling uses only Input.GetMouseButtonDown(0). On mobile/Luna this may fail for touch and violates the guidance to handle both touch and mouse or use GFM/Luna input abstraction.",
-    "rule": "Luna Platform Limitations",
-    "fix": "Use the approved Luna/GFM input abstraction, or explicitly support both touch and mouse input paths.",
-    "line": "Update()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T14:40:20.810Z"
-  },
-  {
-    "description": "Final gameEnd block sets currentPhaseName to gameEnd but never records phaseEnterTimes[11]. UpdateGameState expects a gameEnd timestamp slot, so the final phase tracking is incomplete.",
-    "rule": "Code Completeness",
-    "fix": "Assign phaseEnterTimes[11] = gameTimer when Rule 11 triggers, before calling UpdateGameState().",
-    "line": "CheckEventRules() Rule 11",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T14:40:20.810Z"
-  },
-  {
-    "description": "References undefined variables: astronautCount, max, and autoCollectionEnabled. This will not compile.",
-    "rule": "Code Completeness / C# compile safety",
-    "fix": "Declare and initialize these variables in the TODO sections, or replace them with valid existing state variables/constants.",
-    "line": "CheckEventRules()",
-    "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T15:33:49.209Z"
-  },
-  {
-    "description": "Uses GFM_Tools.SetGameState(json), but there is no class called GFM_Tools per the constraints.",
-    "rule": "GFM_Tools API Signatures",
-    "fix": "Use the actual supported class/method from the Luna/GFM toolkit for state exposure, or remove this call if not supported by the template.",
-    "line": "UpdateGameState()",
-    "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T15:33:49.209Z"
-  },
-  {
-    "description": "Uses Camera.main.backgroundColor. Camera.main may be null in Luna template; this is a known runtime failure source.",
-    "rule": "Forbidden APIs",
-    "fix": "Use the injected camera reference provided by the template instead of Camera.main.",
-    "line": "Start()",
-    "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T15:33:49.210Z"
-  },
-  {
-    "description": "Camera background color is too close to the gray ground color. Ground is (0.75,0.78,0.82); background is (0.45,0.52,0.62). Channel differences are 0.30, 0.26, 0.20, so only one channel barely meets threshold and others do not. The rule requires safer separation; recommended deep sky blue is not used.",
-    "rule": "Solid-Color Screen Prevention",
-    "fix": "Set a clearly separated background color such as (0.35, 0.55, 0.75) or another value with at least one robust >=0.3 channel difference from ground.",
-    "line": "Start()",
-    "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T15:33:49.210Z"
-  },
-  {
-    "description": "Only 2 rule slots are effectively used with RULE_COUNT = 3, and only one gameplay phase plus gameEnd are implemented. The blueprint phase system is incomplete; all phases must be implemented in CheckEventRules() with transition logic and minimum dwell checks.",
-    "rule": "Code Completeness",
-    "fix": "Implement all storyboard/spec phases explicitly in CheckEventRules(), with ruleTriggered entries, phaseTimer dwell conditions, and state-based transitions.",
-    "line": "CheckEventRules()",
-    "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T15:33:49.211Z"
-  },
-  {
-    "description": "Uses Camera.main.backgroundColor. Camera.main may be null in Luna template; injected/template-managed camera must be used instead.",
-    "rule": "Forbidden APIs",
-    "fix": "Do not use Camera.main. Use the camera reference provided by the Luna/GFM template or a serialized/injected Camera known to exist.",
-    "line": "Start()",
-    "taskId": "proj_1774798766776_1sjld8",
-    "timestamp": "2026-03-30T15:42:14.740Z"
-  },
-  {
-    "description": "All later phase transition conditions are still hardcoded as true TODO placeholders. This causes auto-progression through phases without required interaction and means blueprint logic is not actually implemented.",
-    "rule": "Code Completeness",
-    "fix": "Replace every true placeholder with real gameplay conditions, preserving each phase and its minimum dwell time.",
-    "line": "CheckEventRules() phases 2-11 and game end",
-    "taskId": "proj_1774798766776_1sjld8",
-    "timestamp": "2026-03-30T15:42:14.741Z"
-  },
-  {
-    "description": "The current implementation auto-advances phases on timers alone because all TODO conditions are true. This is forbidden autoplay/auto-demo and bypasses required user-driven progression.",
-    "rule": "Gameplay Logic",
-    "fix": "Gate progression on real player actions and validated state changes only; remove timer-only advancement except for explicitly non-interactive wait phases.",
-    "line": "CheckEventRules() overall",
-    "taskId": "proj_1774798766776_1sjld8",
-    "timestamp": "2026-03-30T15:42:14.741Z"
-  },
-  {
-    "description": "Uses Camera.main for camera access and setup. In Luna templates Camera.main may be null or unreliable.",
-    "rule": "Forbidden APIs",
-    "fix": "Use the injected camera reference provided by the Luna/template setup instead of Camera.main.",
-    "line": "Start()",
-    "taskId": "proj_1774794237502_k0rbwx",
-    "timestamp": "2026-03-30T16:16:55.122Z"
-  },
-  {
-    "description": "Uses Camera.main.ScreenPointToRay(...). Camera.main is not safe in Luna and can break input/world projection.",
-    "rule": "Forbidden APIs",
-    "fix": "Cache and use the injected template camera reference for ray creation.",
-    "line": "HandleInput()",
-    "taskId": "proj_1774794237502_k0rbwx",
-    "timestamp": "2026-03-30T16:16:55.122Z"
-  },
-  {
-    "description": "Input handling relies only on Input.GetMouseButtonDown(0). This commonly fails on mobile playable environments and violates the requirement to handle touch/mouse through Luna/GFM-safe input abstraction.",
-    "rule": "Luna Platform Limitations",
-    "fix": "Handle both touch and mouse, or use the approved GFM/Luna input abstraction.",
-    "line": "HandleInput()",
-    "taskId": "proj_1774794237502_k0rbwx",
-    "timestamp": "2026-03-30T16:16:55.122Z"
-  },
-  {
-    "description": "Camera.main is accessed repeatedly during Update for transform and orthographicSize changes, risking null at runtime.",
-    "rule": "Forbidden APIs — Camera.main",
-    "fix": "Cache and use the template-provided camera reference.",
-    "line": "UpdateCamera()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T16:20:38.492Z"
-  },
-  {
-    "description": "Uses generic collections syntax via Text/Canvas component workflow plus runtime UI assumptions, but the immediate hard violation is reliance on unsupported runtime-created Text UI components through undocumented helpers. Luna cannot safely initialize arbitrary rendering/text components at runtime.",
-    "rule": "C# Language — Bridge.NET Hard Limits",
-    "fix": "Avoid runtime-created Text/Button UI unless backed by documented Luna/GFM APIs. Use supported UI primitives only.",
-    "line": "Start()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T16:20:38.492Z"
-  },
-  {
-    "description": "CheckEventRules only contains initial phase bootstrap and gameEnd. The full 11-phase progression is implemented elsewhere in UpdatePhaseProgression instead of CheckEventRules, violating the zero-tolerance phase coverage requirement.",
-    "rule": "Code Completeness — ALL phases from blueprint MUST be implemented in CheckEventRules()",
-    "fix": "Implement all storyboard phases and their transition logic directly in CheckEventRules(), including dwell-time checks for each phase.",
-    "line": "CheckEventRules()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T16:20:38.493Z"
-  },
-  {
-    "description": "Uses List-replacement arrays correctly, but also uses GameObject.Find with additional pool names not declared in skeleton mapping without null validation before use in all flows. Several found objects can be null and later dereferenced indirectly during movement/sell logic.",
-    "rule": "C# Language — Bridge.NET Hard Limits",
-    "fix": "Add explicit null checks after every GameObject.Find assignment and guard all later use paths; verify those exact pool objects exist in template.",
-    "line": "Class fields passengerObjs/applePassengerObjs/extraWaterBottles/extraApples",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T16:20:38.493Z"
-  },
-  {
-    "description": "Input is handled only via Input.GetMouseButtonDown(0). Rules explicitly warn this alone may fail on mobile/Luna touch environments.",
-    "rule": "Luna Platform Limitations",
-    "fix": "Handle both touch and mouse, or use supported GFM/Luna input abstraction.",
-    "line": "UpdateTapDetection()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T16:20:38.494Z"
-  },
-  {
-    "description": "Skeleton helper uses SetActive(true/false) for pooled objects. Rule explicitly forbids SetActive(false) for hiding pooled objects; Luna expects hide/show via y=-999 position. This file contains and retains forbidden hiding behavior.",
-    "rule": "Materials & Rendering",
-    "fix": "Do not use HideObj/PlaceObj active-state toggling for pooled entities; keep objects active and hide by moving to y=-999 only.",
-    "line": "PlaceObj() / HideObj()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T16:20:38.494Z"
-  },
-  {
-    "description": "Uses generic collections/types via Unity UI components and arrays are fine, but more importantly uses generic-style runtime APIs elsewhere. Bridge.NET hard limit forbids generic API usage like GetComponent<T>(); while not present directly, the file still violates other hard Luna API rules below that already fail compilation/runtime.",
-    "rule": "Tier 1 - C# Language — NO List<T> or Dictionary<K,V>",
-    "fix": "Address all critical issues below; keep to non-generic APIs only.",
-    "line": "class fields / TODO_VARIABLES_START",
-    "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T16:20:53.353Z"
-  },
-  {
-    "description": "Uses Camera.main.backgroundColor and later Camera cam = Camera.main. Luna templates may not provide Camera.main reliably, causing null access or missing camera configuration.",
-    "rule": "Forbidden APIs - Camera.main may be null in Luna template",
-    "fix": "Use the injected camera reference from the Luna template instead of Camera.main. If template exposes a camera field/reference, use that consistently.",
-    "line": "Start()",
-    "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T16:20:53.353Z"
-  },
-  {
-    "description": "Input raycasting depends on Camera.main. Even though there is a null check, gameplay input world conversion will fail if Camera.main is unavailable in Luna.",
-    "rule": "Forbidden APIs - Camera.main may be null in Luna template",
-    "fix": "Use the injected/template camera reference for ScreenPointToRay.",
-    "line": "GetMouseWorldPos()",
-    "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T16:20:53.354Z"
-  },
-  {
-    "description": "Calls GFM_UI.CreateButton(...), which is explicitly undocumented and may not exist in Luna/GFM, causing compile errors.",
-    "rule": "GFM_Tools API Signatures - Only documented GFM_UI methods may be used",
-    "fix": "Implement CTA using supported methods only, or a pooled CTA object plus click detection; keep Luna.Unity.Playable.InstallFullGame() in the click handler path.",
-    "line": "ShowCTA()",
-    "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T16:20:53.354Z"
-  },
-  {
-    "description": "Relies on UnityEngine.UI.Text objects created at runtime. Historical Luna failures include runtime text/rendering initialization issues; this is a high-risk unsupported path combined with undocumented GFM_UI.CreateText.",
-    "rule": "Forbidden APIs - runtime text/rendering components unstable in Luna",
-    "fix": "Avoid runtime-created text components. Use supported GFM/UI primitives only, or represent guidance with pooled 3D objects / progress bars / minimal supported UI.",
-    "line": "class fields / Start() / ShowGuide() / UpdateGoldUI() / UpdateHPUI()",
-    "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T16:20:53.355Z"
-  },
-  {
-    "description": "Uses undocumented/non-approved GFM_UI.CreateText(...) calls. The documented safe UI methods are CreateCanvas and CreateProgressBar only; CreateText may not exist in Luna/GFM and can cause compile errors.",
-    "rule": "Tier 2 - GFM_Tools API Signatures",
-    "fix": "Replace runtime text creation with supported UI setup only, or use pre-existing pooled/world objects for labels. Do not rely on undocumented GFM_UI.CreateText().",
-    "line": "SetupUI()",
-    "taskId": "proj_1774794237502_k0rbwx",
-    "timestamp": "2026-03-30T16:25:37.858Z"
-  },
-  {
-    "description": "Input handling relies on Physics.Raycast against pooled objects, but the code never ensures those objects have colliders. In Luna pool setups, collider availability is not guaranteed, so clicks may never resolve to world positions and interaction can fail.",
-    "rule": "Tier 3 - Luna Platform Limitations",
-    "fix": "Avoid dependence on physics raycasts for core interaction. Convert screen input to a ground-plane/world-plane position directly from camera math, or explicitly verify template-provided colliders exist before using raycasts.",
-    "line": "HandleInput()",
-    "taskId": "proj_1774794237502_k0rbwx",
-    "timestamp": "2026-03-30T16:25:37.858Z"
-  },
-  {
-    "description": "GameEnded() is called when entering phase 11, but InstallFullGame() is only called on a later user click path. The required end block must include both GameEnded() and CTA presentation/installation flow together; current implementation splits them and omits ShowCTA().",
-    "rule": "Tier 1 - Code Completeness",
-    "fix": "Implement a dedicated end sequence method that first calls Luna.Unity.LifeCycle.GameEnded(), then shows CTA via ShowCTA()/supported CTA flow.",
-    "line": "CheckEventRules() rule 10",
-    "taskId": "proj_1774794237502_k0rbwx",
-    "timestamp": "2026-03-30T16:25:37.859Z"
-  },
-  {
-    "description": "Code uses undocumented GFM_UI.CreateText() and GFM_UI.CreateButton(). The documented safe UI API only includes CreateCanvas and CreateProgressBar. Undocumented methods may not exist in Luna builds, causing compile errors or silent failure.",
-    "rule": "Tier 2 Rule 6 — Only use documented GFM_UI methods",
-    "fix": "Replace CreateText/CreateButton usage with documented UI methods only, or use the exact approved helper implementation already present in your project template.",
-    "line": "Start() / ShowCTA()",
-    "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-30T16:29:34.655Z"
-  },
-  {
-    "description": "The code resolves the camera via GameObject.Find(\"Main Camera\"). Camera lifecycle is template-managed in Luna, and relying on a scene name is unsafe. Historical failures occur when the injected camera name differs or lookup returns null.",
-    "rule": "Tier 2 Rule 5b — Camera.main / injected camera management",
-    "fix": "Use the injected camera reference from the Luna template instead of finding by scene name.",
-    "line": "Start()",
-    "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-30T16:29:34.655Z"
-  },
-  {
-    "description": "The code instantiates 6 extra enemy GameObjects by cloning pooled objects. Luna playables are expected to use the injected fixed pool objects only; runtime-created render objects are a common source of missing/invisible entities and break the explicit pool mapping model.",
-    "rule": "Tier 1 Rule 1 — Pool Objects / object creation constraints",
-    "fix": "Use only explicit predeclared pool objects (__Pool_*) and cap enemy count to available pooled objects, or remap additional enemies to existing unused pool members via explicit literals.",
-    "line": "Start() extra enemy creation",
-    "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-30T16:29:34.656Z"
-  },
-  {
-    "description": "The code instantiates 9 extra bullet objects from BulletProjectile instead of using explicit pooled sphere objects. This violates the fixed-pool requirement and risks invisible or unmanaged cloned renderers in Luna.",
-    "rule": "Tier 1 Rule 1 — Pool Objects / object creation constraints",
-    "fix": "Use explicit pooled sphere names from the allowed pool set via predeclared literals/arrays, e.g. __Pool_Sphere_01..10 as needed, and do not Instantiate runtime clones.",
-    "line": "Start() bullet creation",
-    "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-30T16:29:34.656Z"
-  },
-  {
-    "description": "The skeleton declares RULE_COUNT = 13, but only rules/phases up to ruleTriggered[11] are implemented. There is no logic for the final slot, and phase coverage is incomplete relative to the declared count. This is exactly the kind of phase-regression the validator rejects.",
-    "rule": "Tier 1 Rule 4 — ALL phases from blueprint must be implemented in CheckEventRules()",
-    "fix": "Implement all declared rule indices with explicit trigger and transition logic, including minimum dwell checks per phase/rule, or align RULE_COUNT exactly to the implemented blueprint without removing required content.",
-    "line": "CheckEventRules()",
-    "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-30T16:29:34.657Z"
-  },
-  {
-    "description": "Several progression gates are driven by numeric/resource state instead of direct verified interaction, e.g. firstCoinCollected && gold >= 1, conveyorBottomActive && conveyorRightActive, turretUpgradeCount >= 3. This is risky because progression can be satisfied by accumulated state rather than a specific player action sequence.",
-    "rule": "Tier 2 Rule 7 — pure numeric triggers that skip interaction",
-    "fix": "Gate progression on explicit player-caused interaction flags set at the moment of required interaction, not just aggregate counters/resources.",
-    "line": "CheckEventRules() / Rule 5 onward",
-    "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-30T16:29:34.657Z"
-  },
-  {
-    "description": "Uses Camera.main. Luna template camera lookup via Camera.main is explicitly unsafe and may return null at runtime.",
-    "rule": "Forbidden APIs",
-    "fix": "Use the injected camera reference provided by the Luna template/project setup instead of Camera.main.",
-    "line": "Start()",
-    "taskId": "proj_1774794237502_k0rbwx",
-    "timestamp": "2026-03-30T16:33:01.595Z"
-  },
-  {
-    "description": "Uses new GameObject(...) to create runtime UI objects. new GameObject is forbidden in Luna for production safety and often results in missing/invisible runtime-created objects.",
-    "rule": "Forbidden APIs",
-    "fix": "Do not create runtime UI GameObjects manually. Use only documented GFM_UI helpers or pre-pooled scene objects.",
-    "line": "CreateUIText()",
-    "taskId": "proj_1774794237502_k0rbwx",
-    "timestamp": "2026-03-30T16:33:01.595Z"
-  },
-  {
-    "description": "Calls Resources.GetBuiltinResource(typeof(Font), \"Arial.ttf\"). This API is explicitly not implemented in Luna and will fail.",
-    "rule": "Forbidden APIs",
-    "fix": "Do not load built-in fonts/resources at runtime. Use preconfigured scene/UI assets or supported GFM UI methods that do not require built-in resource loading.",
-    "line": "CreateUIText()",
-    "taskId": "proj_1774794237502_k0rbwx",
-    "timestamp": "2026-03-30T16:33:01.596Z"
-  },
-  {
-    "description": "Uses generic collections syntax string[] initialization with new string[] is fine, but also relies on UnityEngine.UI Text/Canvas runtime patterns not covered by safe GFM APIs; more importantly the file imports and uses Unity UI classes with runtime creation paths that historically fail in Luna. This is not a compile issue but is a platform violation tied to forbidden runtime component creation.",
-    "rule": "C# Language — Bridge.NET Hard Limits",
-    "fix": "Replace manual Unity UI construction with documented GFM_UI-only workflow and pre-authored UI assets.",
-    "line": "class fields / Start() / CreateUIText()",
-    "taskId": "proj_1774794237502_k0rbwx",
-    "timestamp": "2026-03-30T16:33:01.596Z"
-  },
-  {
-    "description": "Uses FindObjectOfType(typeof(Camera)) to cache the camera. FindObjectOfType is explicitly forbidden in Luna and may return null at runtime.",
-    "rule": "Forbidden APIs (Tier 1 #2)",
-    "fix": "Do not use FindObjectOfType/Camera.main/Camera.allCameras. Use the injected camera reference provided by the Luna template/skeleton.",
-    "line": "Start()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T16:33:59.409Z"
-  },
-  {
-    "description": "Uses generic collections/types via Unity UI components and arrays are fine, but declares Text variables from UnityEngine.UI and relies on generic-like unsupported UI helper ecosystem. More importantly, the code uses runtime UI text creation methods not guaranteed in Luna.",
-    "rule": "C# Language — Bridge.NET Hard Limits (Tier 1 #3)",
-    "fix": "Avoid unsupported runtime UI text/component creation paths. Use supported GFM_UI APIs only and pre-existing pooled/template UI where possible.",
-    "line": "field declarations",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T16:33:59.410Z"
-  },
-  {
-    "description": "Phase progression uses pure numeric triggers: phase 6 unlocks when totalWaterSold >= 1 and gold >= 2; phase 8 unlocks when gold >= 8 and totalWaterSold >= 3. These are forbidden auto-jump conditions that can bypass required user interaction.",
-    "rule": "Gameplay Logic (Tier 2 #7)",
-    "fix": "Gate these transitions on explicit player-driven interactions at the relevant station/object plus dwell time, not just accumulated counters.",
-    "line": "CheckEventRules() phases 6 and 8",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T16:33:59.410Z"
-  },
-  {
-    "description": "CTA is auto-triggered when player taps the charge station: ctaClicked is set to true immediately, so game ends without an explicit INSTALL button interaction. The storyboard says move_to:ctaPoint, click:installButton; this bypasses the final required interaction.",
-    "rule": "Code Completeness + Gameplay Logic (Tier 1 #4 / Tier 2 #7)",
-    "fix": "Show CTA after charge completion, then require a separate user tap on the CTA/install control before setting ctaClicked and ending the game.",
-    "line": "UpdateChargeStation() / CheckEventRules() game end",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T16:33:59.411Z"
-  },
-  {
-    "description": "Game end comments assert terminal states for waterMachineState, sawState, newCabinState, juicerMachineState, but there is no enforcement before ending. The game can end even if these entity states are not all terminal.",
-    "rule": "Code Completeness (Tier 1 #4)",
-    "fix": "Before ending, verify all required entity states equal 2 and block completion until they do.",
-    "line": "CheckEventRules() game end block",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T16:33:59.411Z"
-  },
-  {
-    "description": "currentPhaseName is only set to \"fullGameplayLoop\" at start and \"gameEnd\" at the end. It is not updated on intermediate phase transitions, so phaseTimer dwell tracking by phase name is broken for most phases.",
-    "rule": "Architecture (Tier 3 #11)",
-    "fix": "Update currentPhaseName on every AdvanceToPhase transition so the skeleton dwell timer accurately reflects each phase.",
-    "line": "CheckEventRules() / overall phase system",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T16:33:59.411Z"
-  },
-  {
-    "description": "Uses generic collections/classes via Unity UI types: Text fields are declared and used. Luna rules explicitly forbid runtime rendering/text component usage patterns beyond documented GFM_UI signatures, and the documented safe API list does not include CreateText(). This is a known compile/runtime risk.",
-    "rule": "Tier 1 - C# Language — Bridge.NET Hard Limits",
-    "fix": "Remove direct Text usage and undocumented GFM_UI.CreateText() calls. Use only documented GFM_UI methods (CreateCanvas, CreateProgressBar) or pre-pooled 3D objects for labels/instructions.",
-    "line": "TODO_VARIABLES_START / multiple declarations",
-    "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T16:34:23.210Z"
-  },
-  {
-    "description": "Calls GFM_UI.CreateText(...), which is an undocumented method. The rules explicitly say undocumented UI helpers like CreateText() may not exist and should be treated as compile-error risks.",
-    "rule": "Tier 2 - GFM_Tools API Signatures",
-    "fix": "Replace CreateText() usage with only documented GFM_UI APIs, or implement guidance/UI through pooled scene objects instead.",
-    "line": "Start()",
-    "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T16:34:23.211Z"
-  },
-  {
-    "description": "Calls GFM_UI.CreateButton(...), which is also explicitly listed as an undocumented/non-guaranteed method. This can fail to compile or silently fail in Luna.",
-    "rule": "Tier 2 - GFM_Tools API Signatures",
-    "fix": "Do not use GFM_UI.CreateButton(). Implement CTA with supported Luna/GFM mechanisms or a pooled object plus supported input handling, while still calling Luna.Unity.Playable.InstallFullGame().",
-    "line": "ShowCTA()",
-    "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T16:34:23.211Z"
-  },
-  {
-    "description": "Uses Camera.main as fallback. Camera.main is explicitly forbidden because it may be null in Luna template-managed scenes.",
-    "rule": "Tier 1 - Forbidden APIs",
-    "fix": "Use only the injected/template camera reference or a reliable scene Find result with null handling. Remove Camera.main fallback entirely.",
-    "line": "Start() / mainCam fallback",
-    "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T16:34:23.211Z"
-  },
-  {
-    "description": "Finds __Pool_Sphere_03..06 and __Pool_Cube_25..27, but these pool names are not within the documented allowed ranges: spheres only 01..20 are valid, cubes only 01..50 are valid. Sphere names are valid, but Cube_25..27 are within range; however these objects are not declared in the skeleton auto-mapped references and are fetched ad hoc without null validation for asset existence in the actual injected pool set. This is a production-risk naming/pool mismatch pattern.",
-    "rule": "Tier 1 - Object Naming — Pool Objects",
-    "fix": "Predeclare exact pool-name arrays/literals for every required pooled object and add explicit null checks/fallback behavior. Ensure the template actually includes those exact pool objects before relying on them.",
-    "line": "Start() / bulletGo[2..5], extraRocket1..3",
-    "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T16:34:23.212Z"
-  },
-  {
-    "description": "Several GameObject.Find() results are used later without mandatory null-guarded flow control. If any pool object is missing, later logic still assumes scene functionality and can degrade into null-driven broken gameplay or invisible state.",
-    "rule": "Tier 1 - Object Naming — Pool Objects",
-    "fix": "After every Find(), validate the result and either fail-safe by disabling the dependent mechanic or substitute another confirmed pooled object. Do not continue phase logic assuming existence.",
-    "line": "Start() / CheckEventRules() / multiple GameObject.Find uses",
-    "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T16:34:23.212Z"
-  },
-  {
-    "description": "Game end sequence calls GameEnded() then ShowCTA(), but ShowCTA() itself depends on forbidden undocumented UI API CreateButton(). This means required end flow is not actually safely implemented under Luna constraints.",
-    "rule": "Tier 1 - Code Completeness",
-    "fix": "Keep call order, but reimplement ShowCTA() using only supported APIs/mechanics so InstallFullGame() is reachable in Luna.",
-    "line": "CheckEventRules() rule 11 end",
-    "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T16:34:23.213Z"
-  },
-  {
-    "description": "Mutates gameObject.name every frame/update-state with a large JSON string. In Luna this is risky and has caused instability/perf regressions; also bloated names can interfere with object lookup/debugging. While not explicitly banned, this is unsafe in a playable runtime.",
-    "rule": "Tier 3 - Common Mistakes",
-    "fix": "Expose state through a supported bridge/mechanism instead of renaming the GameObject every update, or update less frequently with constrained payload size.",
-    "line": "UpdateGameState()",
-    "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T16:34:23.213Z"
-  },
-  {
-    "description": "Uses Camera.main.backgroundColor and later Camera cam = Camera.main. Camera.main may be null in Luna template; camera access is template-managed and unsafe by rule.",
-    "rule": "Forbidden APIs — Camera.main",
-    "fix": "Use the injected camera reference from the Luna template/project setup instead of Camera.main, and null-check that explicit reference.",
-    "line": "Start()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T16:39:04.474Z"
-  },
-  {
-    "description": "Uses Resources.GetBuiltinResource(typeof(Font), \"Arial.ttf\") twice. This API is explicitly not implemented in Luna.",
-    "rule": "Forbidden APIs — Resources.GetBuiltinResource()",
-    "fix": "Do not load built-in fonts at runtime. Use supported preconfigured UI/prefab/text setup from scene/template or supported GFM_UI-only methods.",
-    "line": "Start()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T16:39:04.474Z"
-  },
-  {
-    "description": "Calls guideObj.transform.SetParent(...) and goldObj.transform.SetParent(...). transform.SetParent() is explicitly banned for Luna UI hierarchy handling.",
-    "rule": "Forbidden APIs — transform.SetParent()",
-    "fix": "Use GFM_UI-supported creation methods for UI hierarchy instead of manual SetParent.",
-    "line": "Start()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T16:39:04.475Z"
-  },
-  {
-    "description": "Uses SetActive(true/false) for showing/hiding pooled objects. Luna pool objects should be hidden by moving to y=-999, not SetActive(false). This violates the pool visibility rule and can break rendering/state.",
-    "rule": "Likely Fail — hiding strategy",
-    "fix": "Do not use SetActive for pooled visibility. Keep pooled objects active and move hidden ones to y=-999; update PlaceObj/HideObj usage accordingly.",
-    "line": "PlaceObj() / HideObj() helpers and all callers",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T16:39:04.475Z"
-  },
-  {
-    "description": "The declared RULE_COUNT is 13, but only ruleTriggered[0] and ruleTriggered[1] are ever used. Required spec phases are not represented as rule transitions in CheckEventRules, indicating skipped/bypassed phase coverage.",
-    "rule": "[spec-phase-skipped] Spec phases not completed: fullSpaceStationManagement",
-    "fix": "Implement full spec phase coverage with one rule per required phase and mark completion through CheckEventRules transitions only.",
-    "line": "CheckEventRules() / phase coverage",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-30T16:39:04.476Z"
-  },
-  {
-    "description": "Uses Camera.main.backgroundColor before null-check and later stores Camera cam = Camera.main. Camera.main may be null in Luna template; this can throw or silently fail.",
-    "rule": "Forbidden APIs (Camera.main)",
-    "fix": "Use the injected camera reference from the template/project setup instead of Camera.main, and null-check before any access.",
-    "line": "Start()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T01:08:01.345Z"
-  },
-  {
-    "description": "Comment says 'avoid GFM_UI.CreateCanvas per rules' and manual creation is used instead, but documented API requires GFM_UI.CreateCanvas(int w, int h) for canvas creation.",
-    "rule": "GFM_Tools API Signatures",
-    "fix": "Call gameCanvas = GFM_UI.CreateCanvas(960, 640); and remove manual canvas GameObject/AddComponent setup.",
-    "line": "Start()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T01:08:01.346Z"
-  },
-  {
-    "description": "Uses undocumented GFM_UI.CreateButton(...). This method may not exist in Luna/GFM and can fail compilation.",
-    "rule": "GFM_Tools API Signatures",
-    "fix": "Implement CTA with supported Luna/GFM mechanisms only; at minimum keep GFM_UI.CreateCanvas and trigger Luna.Unity.Playable.InstallFullGame() through a supported UI path from the template.",
-    "line": "ShowCTA()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T01:08:01.346Z"
-  },
-  {
-    "description": "Adds Canvas, CanvasScaler, and GraphicRaycaster components at runtime via AddComponent. Runtime UI/render component creation is a known Luna risk and the code also relies on unsupported manual canvas creation.",
-    "rule": "Forbidden APIs (AddComponent of rendering/text components at runtime)",
-    "fix": "Use supported GFM_UI.CreateCanvas and avoid runtime AddComponent-based UI construction.",
-    "line": "Start()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T01:08:01.347Z"
-  },
-  {
-    "description": "Blueprint phases are not fully implemented in CheckEventRules(). RULE_COUNT is only 3 and CheckEventRules only tracks fullPlayableExperience and gameEnd, while the storyboard contains many required phases/subphases. Zero-tolerance phase coverage rule is violated.",
-    "rule": "Code Completeness",
-    "fix": "Implement all required storyboard phases as explicit rule checks in CheckEventRules() with ruleTriggered entries, phaseEnterTimes, and minimum dwell-time transitions for each phase.",
-    "line": "CheckEventRules()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T01:08:01.347Z"
-  },
-  {
-    "description": "Uses Camera.main multiple times. Luna templates may not provide Camera.main reliably, causing null camera access or broken camera setup.",
-    "rule": "Forbidden APIs",
-    "fix": "Use the injected/template camera reference instead of Camera.main everywhere, and null-check that reference before use.",
-    "line": "Start / UpdateCamera",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T01:39:13.250Z"
-  },
-  {
-    "description": "Calls undocumented/non-guaranteed GFM_UI.CreateButton(...). The reviewer rules explicitly warn that CreateButton may not exist, leading to compile failure.",
-    "rule": "GFM_Tools API Signatures",
-    "fix": "Implement CTA using documented Luna/template-supported UI flow only. Do not rely on undocumented GFM_UI.CreateButton.",
-    "line": "ShowCTA",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T01:39:13.251Z"
-  },
-  {
-    "description": "Relies on Input.GetMouseButtonDown(0) alone for multiple interactions. This is unreliable on mobile Luna playables and can break user interaction flow.",
-    "rule": "Luna Platform Limitations",
-    "fix": "Use Luna/GFM input abstraction or handle both touch and mouse explicitly for tap interactions.",
-    "line": "UpdatePlayer",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T01:39:13.252Z"
-  },
-  {
-    "description": "Uses Random.Range repeatedly for gameplay-critical spawns/colors. Random behavior is a known risk in deterministic/transpiled Luna runs and can produce unstable behavior across sessions.",
-    "rule": "Luna Platform Limitations",
-    "fix": "Use fixed spawn positions/colors or predeclared arrays of literal values stepped by index instead of runtime randomization.",
-    "line": "UpdateIceCrystal / UpdatePassengers / UpdateAppleSystem",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T01:39:13.252Z"
-  },
-  {
-    "description": "Calls undocumented/non-guaranteed API GFM_UI.CreateText(uiCanvas, \"\", new Vector2(0, 270), 26). Only documented safe GFM_UI methods are CreateCanvas and CreateProgressBar. Undocumented UI methods may not exist and can fail compilation.",
-    "rule": "GFM_Tools API Signatures",
-    "fix": "Remove CreateText usage or replace with only documented/safe GFM_UI APIs. If guide text is required, implement it with pre-pooled world objects instead of undocumented runtime UI creation.",
-    "line": "Start",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T02:06:36.478Z"
-  },
-  {
-    "description": "Blueprint phase coverage is incomplete. Skeleton defines RULE_COUNT = 7, but only phases 1-5 plus gameEnd are implemented; ruleTriggered[6] is unused and there is no full set of storyboard phases such as opening tutorial/gameStart as a real tracked rule. This violates zero-tolerance phase completeness requirements.",
-    "rule": "Code Completeness",
-    "fix": "Implement every storyboard/spec phase explicitly inside CheckEventRules(), including transition logic and dwell timing for each phase, and align RULE_COUNT/ruleTriggered usage with the actual phase count.",
-    "line": "CheckEventRules / entire phase system",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T02:06:36.479Z"
-  },
-  {
-    "description": "Uses GameObject.FindObjectOfType(typeof(Camera)) to get the camera. This API is explicitly unsafe/unsupported in Luna and may return null at runtime, breaking camera setup.",
-    "rule": "Forbidden APIs (FindObjectOfType / FindObjectsOfType — may return null)",
-    "fix": "Do not use FindObjectOfType. Use the injected camera reference provided by the Luna template/skeleton, or a prewired scene reference.",
-    "line": "Start()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T02:12:34.067Z"
-  },
-  {
-    "description": "Input handling is broken: tapThisFrame is reset to false, then checked with 'if (tapThisFrame) tapThisFrame = true;' which is a no-op, and mouse input is never handled. On non-touch environments this prevents all tap-gated interactions (collecting chunks, upgrades, gate unlock, item pickup), causing progression failure.",
-    "rule": "Luna Platform Limitations",
-    "fix": "Handle both touch and mouse explicitly, e.g. set tapThisFrame true on touch began OR mouse button down. Remove the no-op self-check.",
-    "line": "Update()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T02:12:34.068Z"
-  },
-  {
-    "description": "Uses Camera.main to cache the camera. Luna guidance explicitly says Camera.main may be null in the template and should not be used directly; the skeleton expects a pre-cached mainCam field instead.",
-    "rule": "Forbidden APIs",
-    "fix": "Do not call Camera.main here. Use the template-provided cached camera reference/population mechanism, and always null-check mainCam before use.",
-    "line": "Start()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T02:58:22.941Z"
-  },
-  {
-    "description": "OnCTAClick() independently calls GameEnded()+InstallFullGame(), while the phase-driven game end block also handles ending. This duplicates lifecycle calls and bypasses the required centralized gameEnd ordering.",
-    "rule": "Code Completeness",
-    "fix": "Make OnCTAClick() only set interaction flags or only call InstallFullGame() after the game has already ended via the main gameEnd flow. Do not duplicate lifecycle termination logic.",
-    "line": "OnCTAClick()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T02:58:22.942Z"
-  },
-  {
-    "description": "SafeColor is implemented as infinite recursion: it calls itself unconditionally with the same parameters. Any SafeColor invocation will stack overflow at runtime, causing immediate failure/blank screen.",
-    "rule": "Materials & Rendering",
-    "fix": "Replace the body with a call to GFM_Create.SetColor(obj, c) after a null check.",
-    "line": "SafeColor(GameObject obj, Color c)",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T02:58:22.942Z"
-  },
-  {
-    "description": "Uses ternary operators in several places, e.g. '(toolLevel >= 2) ? 2f : 1f' and JSON timestamp formatting. Bridge.NET hard-limit rules for this review require avoiding unsupported modern/fragile constructs; this code already relies on several transpilation-risk patterns inside runtime-critical paths.",
-    "rule": "C# Language — Bridge.NET Hard Limits",
-    "fix": "Replace ternary expressions with explicit if/else assignments, especially in gameplay and JSON serialization code.",
-    "line": "Whole file, multiple methods",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T02:58:22.943Z"
-  },
-  {
-    "description": "Uses Camera.main directly: mainCam = Camera.main;. Luna template warns Camera.main may be null and should not be used directly; skeleton says use pre-cached mainCam instead.",
-    "rule": "Forbidden APIs (Camera.main)",
-    "fix": "Remove Camera.main usage. Obtain the injected camera reference through the skeleton/template-provided mainCam assignment path only, and always null-check mainCam before use.",
-    "line": "Start()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T03:17:43.169Z"
-  },
-  {
-    "description": "Only one gameplay phase plus gameEnd are implemented, but the storyboard/spec requires the full sequence of phases such as 开场教学, 解锁第一舱门, 前往救援区域, 获得第一名队员, 激活浴池, 升级搬运人数, 升级浴池容量, 解锁第二舱门, 建造首个床位, 扩展多个工位, 最终解锁与CTA. RULE_COUNT=3 also proves phase coverage is incomplete.",
-    "rule": "Code Completeness - ALL blueprint phases must be implemented",
-    "fix": "Implement every required phase explicitly in CheckEventRules() with separate trigger logic, min dwell checks using phaseTimer, and proper completion tracking. Increase RULE_COUNT and phase arrays to match the full spec.",
-    "line": "CheckEventRules()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T03:17:43.170Z"
-  },
-  {
-    "description": "Uses Random.Range repeatedly for runtime crowd spawning/movement offsets. Bridge/Luna randomness can be inconsistent and this also creates nondeterministic verification paths for CUA, especially when progression timing depends on moving targets on screen.",
-    "rule": "Luna Platform Limitations / gameplay safety",
-    "fix": "Replace Random.Range with deterministic predeclared offset arrays or a fixed sequence of literal positions.",
-    "line": "UpdateCrowdSystem()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T03:17:43.171Z"
+    "description": "RULE_COUNT is 3, phaseEnterTimes is sized to 3, and the flow is not modeled with the required full phase-tracking structure for the many progression steps in the storyboard. This is a content regression versus the required phase-driven implementation.",
+    "rule": "Architecture",
+    "fix": "Increase RULE_COUNT to cover all gameplay phases, record phase enter times for each, and move progression logic into CheckEventRules() using ruleTriggered/phaseTimer/phaseEnterTimes consistently.",
+    "line": "class fields / architecture",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-03-31T11:23:45.075Z"
   },
   {
     "description": "Uses List/Dictionary-safe alternatives correctly, but still uses generic-looking array APIs elsewhere? No generics found. However, the code uses ternary operators extensively with string concatenation in UpdateGameState; that's acceptable. The actual hard violation is use of Input.touchCount/Input.GetTouch plus Touch struct may be risky but not forbidden. Main critical issue is elsewhere.",
@@ -1416,444 +16,156 @@
     "timestamp": "2026-03-31T03:34:04.130Z"
   },
   {
-    "description": "Camera.backgroundColor is set to (0.45, 0.52, 0.62), which differs from ground color (0.75, 0.78, 0.82) by only 0.30, 0.26, 0.20. At least one RGB channel must differ by ≥ 0.3. Green and blue channels fail; red is exactly 0.30 and too borderline for production safety. Recommended deep sky blue was not used. This can trigger solid-color-screen detection.",
-    "rule": "Solid-Color Screen Prevention (5b)",
-    "fix": "Use a safer background such as new Color(0.35f, 0.55f, 0.75f) or any color with at least one channel clearly >0.3 different from ground.",
-    "line": "Start() camera background setup",
-    "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-31T03:34:04.131Z"
-  },
-  {
-    "description": "Main entities/turrets are too small for orthographic visibility. TurretLeft/TurretBottom/TurretRight are scaled to (0.8, 0.8, 0.8), but main entities must have at least one scale dimension ≥ 1.5 to be visible under Luna orthographic camera. Production failures often come from undersized cylinders/cubes appearing absent.",
-    "rule": "Solid-Color Screen Prevention (5b)",
-    "fix": "Increase visible gameplay-critical entities so at least one dimension is ≥ 1.5, e.g. SetScale(TurretLeft, 1.5f, 1.5f, 1.5f) and same for other major entities.",
-    "line": "CheckEventRules() Phase 1 init",
-    "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-31T03:34:04.131Z"
-  },
-  {
-    "description": "Single click on ConveyorFactoryToTurretLeft instantly builds left, bottom, and right conveyor belts and sets conveyor2State = 2. This is pure numeric/content-skipping behavior that bypasses intended player interaction for multiple build steps.",
-    "rule": "Gameplay Logic",
-    "fix": "Require separate player interactions for each conveyor/object instead of one click auto-completing all three.",
-    "line": "ProcessClick() phase buildMakerToMachineGunConveyor",
-    "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-31T03:34:04.132Z"
-  },
-  {
-    "description": "The phase named buildMakerToMachineGunConveyor only asks for one belt click but internally marks all three belts as built, effectively collapsing content and skipping intermediate interaction. This is exactly the kind of balance regression that causes CUA/spec mismatch.",
-    "rule": "Auto-Promoted Rules / phase coverage integrity",
-    "fix": "Keep full intended content: build left/bottom/right supply belts through separate interactions or explicit sub-steps without reducing content.",
-    "line": "ProcessClick() phase buildMakerToMachineGunConveyor",
-    "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-31T03:34:04.132Z"
-  },
-  {
-    "description": "CTA interaction is implemented inside phase 'finalUpgradesAndExpansion', but Update() returns immediately once gameEnded is true. After game end, HandleInput() never runs, so the visible InstallCTA object cannot be clicked. Meanwhile ShowCTA() immediately calls InstallFullGame(), causing forced install prompt without post-end clickable CTA flow.",
-    "rule": "Code Completeness / CTA flow",
-    "fix": "Do not stop all input on gameEnded if CTA should remain clickable, or rely solely on ShowCTA() for install and remove dead CTA click code. Ensure intended CTA behavior is consistent and testable.",
-    "line": "ProcessClick() phase finalUpgradesAndExpansion",
-    "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-31T03:34:04.133Z"
-  },
-  {
-    "description": "Only one gameplay phase plus gameEnd are represented with RULE_COUNT = 3, but the storyboard/spec implied a multi-phase flow (opening tutorial, first door, rescue, first worker, bath activation, carrier upgrade, bath capacity upgrade, second door, first bed, multiple workstations, final unlock/CTA). These are implemented only as internal step variables, not as required CheckEventRules() phases with ruleTriggered/phaseTimer/phaseEnterTimes tracking.",
-    "rule": "Tier 1 - Code Completeness: ALL phases from blueprint must be implemented in CheckEventRules()",
-    "fix": "Implement every blueprint phase explicitly inside CheckEventRules() as separate rules with transitions, min dwell checks, currentPhaseName updates, and phaseEnterTimes entries. Increase RULE_COUNT accordingly.",
-    "line": "CheckEventRules",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T03:46:12.371Z"
-  },
-  {
-    "description": "Ground color is (0.75, 0.78, 0.82) and camera background is (0.45, 0.52, 0.62). Channel differences are 0.30, 0.26, 0.20. The rule requires at least one channel difference >= 0.3; this is borderline on red and below threshold on the others. Given float precision and exact-policy review, this is risky/non-compliant versus the recommended deep sky blue.",
-    "rule": "Tier 2 - Solid-Color Screen Prevention: camera.backgroundColor must differ from ground color by >= 0.3 on at least one RGB channel",
-    "fix": "Use a safer background such as (0.35f, 0.55f, 0.75f) or another color with a clear >= 0.3 difference from the ground on at least one RGB channel.",
-    "line": "Start()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T03:46:12.371Z"
-  },
-  {
-    "description": "Pool names are constructed dynamically with string concatenation for __Pool_Cube_21..29. Dynamic pool-name construction is explicitly forbidden because Bridge.NET string formatting/name generation is unreliable in Luna production builds.",
-    "rule": "1. Object Naming — Pool Objects",
-    "fix": "Replace dynamic construction with explicit string literals or a predeclared string[] of exact pool names: \"__Pool_Cube_21\", ..., \"__Pool_Cube_29\".",
-    "line": "Start() enemyGo init loop",
-    "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-31T03:51:06.995Z"
-  },
-  {
-    "description": "Pool names are constructed dynamically for __Pool_Sphere_04..13. This violates the no-dynamic-pool-name rule and can fail at runtime.",
-    "rule": "1. Object Naming — Pool Objects",
-    "fix": "Use a hardcoded string array of exact sphere pool names and index into it.",
-    "line": "Start() bulletGo init loop",
-    "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-31T03:51:06.995Z"
-  },
-  {
-    "description": "Pool names are constructed dynamically for __Pool_Sphere_14..18. Dynamic pool lookup is forbidden.",
-    "rule": "1. Object Naming — Pool Objects",
-    "fix": "Use explicit string literals or a fixed string array of exact coin pool names.",
-    "line": "Start() coinDropGo init loop",
-    "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-31T03:51:06.996Z"
-  },
-  {
-    "description": "ShowCTA() calls GameEnded() internally as well as InstallFullGame(). This makes call order/control fragile and causes duplicate GameEnded() invocations when caller also ends game.",
-    "rule": "4. Code Completeness",
-    "fix": "Refactor so ShowCTA() only performs Luna.Unity.Playable.InstallFullGame(), and ensure caller invokes Luna.Unity.LifeCycle.GameEnded() immediately before ShowCTA().",
-    "line": "ShowCTA()",
-    "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-31T03:51:06.996Z"
-  },
-  {
-    "description": "Turret firing uses auto-targeting: player clicks turret, then code automatically selects the nearest enemy via FireTurretAtNearest(). Auto-targeting in turret/combat gameplay is explicitly disallowed.",
-    "rule": "7. Gameplay Logic",
-    "fix": "Require direct player targeting of enemies/projectiles rather than auto-selecting nearest enemy after turret click.",
-    "line": "HandleClickInput() / FireTurretAtNearest()",
-    "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-31T03:51:06.997Z"
-  },
-  {
-    "description": "enemyKillCount increments for all enemy deaths, including enemies that reach the base and are set to HP 0 in UpdateEnemies(). Phase/kill tracking must count only player-caused kills.",
-    "rule": "7. Gameplay Logic",
-    "fix": "Track whether an enemy was killed by player-fired damage versus escaping/reaching base. Increment kill counters only for player-caused deaths; do not drop coins or count kills for escaped/self-destructed enemies.",
-    "line": "OnEnemyDeath() and UpdateEnemies()",
-    "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-31T03:51:06.997Z"
-  },
-  {
-    "description": "[spec-phase-skipped] Spec phases not completed: introAndFirstCabinUnlock, rescueFirstWorker, activateAndUpgradeBathPool, unlockSecondCabinAndBuildWorkstations, finalUnlockAndCTA. Game balance likely broken — phases were bypassed.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-phase-skipped] Spec phases not completed: introAndFirstCabinUnlock, rescueFirstWorker, activateAndUpgradeBathPool, unlockSecondCabinAndBuildWorkstations, finalUnlockAndCTA. Game balance likely broken — phases were bypassed.",
-    "line": "CUA round 1",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T10:16:06.742Z"
-  },
-  {
-    "description": "Uses Camera.main to cache the camera. Luna guidance explicitly says Camera.main may be null in the template and should not be used; the skeleton says use mainCam instead of Camera.main.",
-    "rule": "Forbidden APIs — Camera.main",
-    "fix": "Remove Camera.main usage. Use the skeleton-provided mainCam field populated by the template/injection, or otherwise assign a known camera reference safely without calling Camera.main.",
-    "line": "Start()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T10:20:24.735Z"
-  },
-  {
-    "description": "Relies repeatedly on Input.GetMouseButtonDown(0) as the interaction trigger. This is explicitly called out as unreliable on mobile Luna playables; touch input may fail for CUA interaction paths.",
-    "rule": "Luna Platform Limitations — mobile input",
-    "fix": "Use Luna/GFM-supported input abstraction or handle both touch and mouse input in a compatible helper method.",
-    "line": "UpdatePlayer()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T10:20:24.736Z"
-  },
-  {
-    "description": "The phase names/completion markers are inconsistent and incomplete relative to a coherent blueprint. Completed phase tokens do not match entered phase names (e.g. entering 'waterProduction' but adding 'deliverIce'; entering 'newAreaApple' but later adding 'collectApple'; entering 'finalCTA' but using 'sellApple'). This breaks CUA/spec verification and indicates incomplete phase coverage mapping.",
-    "rule": "Code Completeness — ALL blueprint phases must be implemented in CheckEventRules()",
-    "fix": "Ensure every storyboard/spec phase is represented explicitly in CheckEventRules(), with matching phase names, trigger conditions, and completion markers. Use one consistent canonical name per phase.",
-    "line": "CheckEventRules() / overall phase implementation",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T10:20:24.736Z"
-  },
-  {
-    "description": "Uses Camera.main to cache the camera. The review rules explicitly forbid Camera.main in Luna templates because it may be null; the skeleton should use a pre-cached mainCam field instead of querying Camera.main.",
-    "rule": "Forbidden APIs (Camera.main)",
-    "fix": "Do not call Camera.main. Assign mainCam through the template-provided reference/path and always null-check before use.",
-    "line": "Start()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T10:23:31.710Z"
-  },
-  {
-    "description": "Only 5 actual gameplay phases plus gameEnd are implemented while RULE_COUNT is 7, leaving one rule slot unused and phase coverage incomplete relative to the provided station-management blueprint. Historical failures show missing intermediate phases break CUA/spec validation.",
-    "rule": "Code Completeness - all blueprint phases must be implemented",
-    "fix": "Implement all required blueprint/spec phases in CheckEventRules() with explicit trigger conditions and minimum dwell checks, or align RULE_COUNT and skeleton/state coverage to the full required phase list without skipping content.",
-    "line": "CheckEventRules() / RULE_COUNT",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T10:23:31.711Z"
-  },
-  {
-    "description": "Gameplay interactions rely repeatedly on `Input.GetMouseButtonDown(0)` only. On mobile/Luna this may fail for touch, causing phase progression to stall.",
-    "rule": "Luna Platform Limitations / Input handling",
-    "fix": "Use Luna/GFM-supported input abstraction or handle both touch and mouse paths so tap interactions work on mobile.",
-    "line": "UpdatePlayer(float dt)",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T10:25:48.875Z"
-  },
-  {
-    "description": "The gameEnd block does not call `Luna.Unity.LifeCycle.GameEnded()` plus `ShowCTA()`. The spec says zero tolerance: gameEnd must call GameEnded() + ShowCTA(), with GameEnded before InstallFullGame. Current code defers this to `OnCTAClicked()` and explicitly avoids ShowCTA() in gameEnd.",
-    "rule": "Code Completeness",
-    "fix": "Move the required ending flow into the gameEnd block: call `Luna.Unity.LifeCycle.GameEnded();` then `ShowCTA();` exactly there, preserving required order and avoiding alternate flow paths.",
-    "line": "CheckEventRules() game end block",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T10:25:48.876Z"
-  },
-  {
-    "description": "Phase transitions use pure numeric triggers such as `waterSoldCount >= 1`, `waterSoldCount >= 2`, and `appleSoldCount >= 1` to advance major phases. This is explicitly forbidden because it allows phase progression from counters rather than fresh player-driven interactions.",
-    "rule": "Gameplay Logic",
-    "fix": "Gate each phase by a direct interaction/event tied to the intended action for that phase, not aggregate counters alone.",
-    "line": "CheckEventRules() overall phase progression",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T10:25:48.877Z"
-  },
-  {
-    "description": "`phaseTimestamps` exposes only one timestamp key (`initialWaterProductionAndExpansion`) and incorrectly maps it from `phaseEnterTimes[0]`. Full phase-driven tracking is incomplete/inconsistent with the 12-rule setup.",
-    "rule": "Architecture (V5 phase-driven) / phase tracking",
-    "fix": "Record and expose timestamps for every defined phase with correct indices so CUA can verify full progression.",
-    "line": "UpdateGameState()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T10:25:48.877Z"
-  },
-  {
-    "description": "The script uses generic arrays? No issue there, but it does use UnityAction implicitly via GFM_UI.CreateButton callback signature without importing UnityEngine.Events. More importantly, it directly uses GFM_Joystick type and GFM_Create/GFM_UI/GFM_Luna APIs without any visible namespace/import guarantees; however the stronger verified issue is elsewhere.",
-    "rule": "Tier 3 C# Language — NO generics: GetComponent<T>() → use GetComponent(typeof(T)) and cast; NO List<T> or Dictionary<K,V> — use arrays",
-    "fix": "N/A",
-    "line": "class fields / top of file",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T10:41:30.442Z"
-  },
-  {
-    "description": "The skeleton/storyboard indicates a longer management flow, but this implementation only defines 7 rules total including gameEnd, collapsing the experience into 6 gameplay phases. Historical auto-promoted rules explicitly reject reduced phase count/content regression. Multiple expected intermediate phases from the documented blueprint are merged/skipped.",
-    "rule": "Tier 1 Code Completeness — ALL phases from blueprint MUST be implemented in CheckEventRules() (zero tolerance)",
-    "fix": "Restore full blueprint phase coverage in CheckEventRules() with one triggerable rule per required phase, each with its own transition logic and minimum dwell time.",
-    "line": "CheckEventRules() / overall phase design",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T10:41:30.442Z"
-  },
-  {
-    "description": "The anti-solid-color skeleton initially scales Player to 2,2,2, but your phase init immediately replaces it with scale 0.8,1.6,0.8. Only one dimension meets visibility threshold narrowly, but the main hero is then viewed under orthographic/isometric camera with small footprint and several other main objects are also very thin/small. More importantly, first-frame anti-solid-color object placement is partially overridden by very small decorative scales for CrowdNPCs/CrowdUnit (0.35 and 0.25), undermining the protection intent.",
-    "rule": "Tier 2 Solid-Color Screen Prevention — Main entities (castle, player, hero) MUST have at least one scale dimension ≥ 1.5",
-    "fix": "Keep at least three clearly visible, differently colored objects at meaningful visible scales in the first frame; do not immediately shrink the anti-solid-color starter objects below robust visibility.",
-    "line": "CheckEventRules() phase 1 init",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T10:41:30.443Z"
-  },
-  {
-    "description": "Camera initial positioning is wrong: camFollowOffset is set to (-7,10,-7), then camera position is set to new Vector3(-7,10,-1) + camFollowOffset, resulting in (-14,20,-8). This is far from the play area and likely misses the initial objects on first frame, risking a blank/solid-color screen despite objects being placed.",
-    "rule": "Tier 2 Solid-Color Screen Prevention / camera safety",
-    "fix": "Set the camera to Player position + camFollowOffset, e.g. after placing the player use mainCam.transform.position = Player.transform.position + camFollowOffset, and verify initial framing shows ground plus 3 colored objects.",
-    "line": "Start() camera setup",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T10:41:30.444Z"
-  },
-  {
-    "description": "The rule explicitly says the skeleton pre-creates uiCanvas, guideText, scoreText and they should be used directly instead of creating new ones. This script creates a new canvas and text objects in Start(). This is a documented production-risk violation.",
-    "rule": "Tier 2 GFM_Tools API Signatures — NOTE: the skeleton pre-creates uiCanvas, guideText, scoreText — use those variables instead of creating new ones",
-    "fix": "Use the pre-created uiCanvas, guideText, and scoreText references from the template; do not recreate the canvas/text in Start().",
-    "line": "Start() / Update() / UI creation",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T10:41:30.444Z"
-  },
-  {
-    "description": "Uses List/Dictionary-safe restrictions correctly, but declares and uses generic-style custom type GFM_Joystick without any visible namespace/import verification. More importantly, the code relies on custom APIs but never null-checks many found pooled objects before later color/transform usage in phase logic, which is a known runtime failure pattern in Luna when pool mapping is wrong or missing.",
-    "rule": "Tier 1 - C# Language — Bridge.NET Hard Limits",
-    "fix": "Add explicit null checks for every required pooled object after GameObject.Find() in Start(), fail-safe hide/skip if null, and verify required Luna/GFM namespaces/types are available in the project.",
-    "line": "class fields / TODO_VARIABLES_START",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T10:41:53.145Z"
-  },
-  {
-    "description": "Phase completion bookkeeping is incorrect: when entering phase \"waterProduction\", it calls AddCompletedPhase(\"waterProduction\") immediately instead of completing the previous phase. This pattern repeats across multiple rules and corrupts phase coverage/state exposure expected by CUA.",
-    "rule": "Tier 4 Code Completeness / phase bookkeeping",
-    "fix": "When a phase is entered, mark the previous phase as completed exactly once, or mark completion only after its objective is fulfilled. Ensure completedPhases reflects actual finished phases in sequence.",
-    "line": "CheckEventRules() Rule 3",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T10:41:53.146Z"
-  },
-  {
-    "description": "On entering phase \"sellWater\", the code calls AddCompletedPhase(\"sellWater\") immediately. This falsely reports the phase as completed before the player sells water.",
-    "rule": "Tier 4 Code Completeness / phase bookkeeping",
-    "fix": "Only add \"sellWater\" to completed phases after the sell action is actually completed, then transition to the next phase.",
-    "line": "CheckEventRules() Rule 4",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T10:41:53.147Z"
-  },
-  {
-    "description": "Multiple phases are marked completed at phase entry rather than on completion: toolUpgrade, repeatCycle, expandShip, newAreaApple, appleButtonAndSell, finalCTA. This violates the skeleton phase-tracking contract and can break CUA verification.",
-    "rule": "Tier 4 Code Completeness / phase bookkeeping",
-    "fix": "Refactor CheckEventRules so each phase has: enter condition, dwell check, actual completion condition, then transition. Do not call AddCompletedPhase with the current phase name on entry.",
-    "line": "CheckEventRules() Rule 5-10",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T10:41:53.147Z"
-  },
-  {
-    "description": "UpdateGameState() is not called during normal gameplay updates or phase changes consistently enough for CUA/state verification. It is called only in Start() and some phase transitions, but many important variable/state changes from interactions are never exposed after they occur.",
-    "rule": "Tier 4 Code Completeness",
-    "fix": "Call UpdateGameState() after significant gameplay state mutations or once per Update() after systems run.",
-    "line": "Update()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T10:41:53.148Z"
-  },
-  {
-    "description": "Creates CTA button every frame after chargeStationState becomes 2? The guard is chargeStationState == 1, so button creation happens once at transition, but there is no protection against repeated CreateButton if state is reset or method re-entered unexpectedly. More importantly, it creates a new UI button instead of using the pre-mapped CTAButton pooled object / precreated UI pattern from skeleton guidance.",
-    "rule": "Tier 3 Common Mistakes / runtime duplication",
-    "fix": "Use a one-time creation guard and prefer skeleton-provided UI variables/patterns. If creating a button, ensure it is only created once with ctaBtn == null guard.",
-    "line": "UpdateChargeStation(float dt)",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T10:41:53.148Z"
-  },
-  {
-    "description": "[spec-phase-skipped] Spec phases not completed: rescueFirstWorker, activateAndUpgradeBathPool, unlockSecondCabinAndBuildWorkstations, finalUnlockAndCTA. Game balance likely broken — phases were bypassed.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-phase-skipped] Spec phases not completed: rescueFirstWorker, activateAndUpgradeBathPool, unlockSecondCabinAndBuildWorkstations, finalUnlockAndCTA. Game balance likely broken — phases were bypassed.",
-    "line": "CUA round 3",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T10:47:30.186Z"
-  },
-  {
-    "description": "Creates a new runtime UI Button via GFM_UI.CreateButton for the CTA instead of using the pre-mapped pooled CTAButton object/UI flow. This is risky in Luna and also leaves the mapped CTAButton GameObject unused.",
-    "rule": "Tier 2 / Rule 6 - skeleton pre-creates uiCanvas, guideText, scoreText — use those variables instead of creating new ones; CTA/game end integration",
-    "fix": "Use the existing CTAButton / skeleton-provided UI flow instead of creating a new CTA button at runtime, or confirm the spec explicitly allows runtime GFM_UI button creation for CTA. Prefer showing the existing CTAButton and wiring the click through supported skeleton variables.",
-    "line": "UpdateChargeStation()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T10:49:08.085Z"
-  },
-  {
-    "description": "Phase 10 sets currentPhaseName to finalCTA but does not record phaseEnterTimes[10] unlike earlier phases. This breaks the skeleton phase timestamp/state tracking and can invalidate CUA verification.",
-    "rule": "Tier 1 / Rule 4 - each phase must have transition logic with phaseTimer minimum dwell check and terminal gameEnd block must follow blueprint",
-    "fix": "Set phaseEnterTimes[10] = gameTimer when entering finalCTA.",
-    "line": "CheckEventRules() Rule 10 finalCTA",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T10:49:08.085Z"
-  },
-  {
-    "description": "The required lifecycle call is only indirect through ShowCTA(), but the phase does not update phaseEnterTimes[11] and does not expose the terminal phase timestamp. More importantly, this phase relies on CTA click only after an extra 8s dwell from finalCTA, which can block completion if the user clicks promptly before the dwell expectation is met.",
-    "rule": "Tier 1 / Rule 4 - gameEnd block MUST call GameEnded() + ShowCTA() order requirements",
-    "fix": "Record phaseEnterTimes[11] = gameTimer and ensure CTA/gameEnd trigger logic matches spec timing so completion is not blocked after the user performs the CTA action.",
-    "line": "CheckEventRules() Rule 11 gameEnd",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T10:49:08.086Z"
-  },
-  {
-    "description": "Completed phase tracking is incorrect: several rules add the wrong phase name or duplicate the current phase instead of the phase just completed. Examples: Rule 1 adds \"mainCabinOpening\" again; Rule 3 adds \"waterProduction\" immediately on entering it; Rule 4 adds \"sellWater\" immediately on entering it. This corrupts phase progression telemetry and can fail CUA verification.",
-    "rule": "Tier 1 / Rule 4 / phase coverage integrity",
-    "fix": "On entering phase N, add the previously completed phase exactly once, or maintain a consistent convention. Do not duplicate names and do not mark a phase completed the instant it begins unless the skeleton/spec explicitly requires that.",
-    "line": "CheckEventRules() multiple AddCompletedPhase calls",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T10:49:08.087Z"
-  },
-  {
-    "description": "RULE_COUNT is 12, but phase timestamp export only reports through rule10_finalCTA and omits rule11/gameEnd. Terminal phase coverage telemetry is incomplete.",
-    "rule": "Auto-promoted / phase-coverage",
-    "fix": "Export the rule11/gameEnd timestamp/state in UpdateGameState() and keep phase coverage data aligned with RULE_COUNT.",
-    "line": "CheckEventRules()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T10:49:08.088Z"
-  },
-  {
     "description": "Uses List/Dictionary-safe style correctly, but still uses generic syntax indirectly via arrays only; no issue there. Actual critical issue is elsewhere: the code creates runtime UI button instances in gameplay flow, which is not prohibited by itself, but the skeleton note explicitly says pre-created uiCanvas/guideText/scoreText should be used instead of creating new UI structures. More importantly, phase coverage is incomplete versus the validated 11-phase hospital/station management spec in the auto-promoted rules.",
-    "rule": "Tier 3 / Bridge.NET Hard Limits",
+    "rule": "C# Language — Bridge.NET Hard Limits",
     "fix": "Implement the full required spec phase set in CheckEventRules() instead of compressing progression into 6 gameplay phases.",
     "line": "class fields / file-wide",
     "taskId": "proj_1774794219517_z43qrz",
     "timestamp": "2026-03-31T10:54:40.082Z"
   },
   {
-    "description": "Only 6 gameplay phases plus gameEnd are implemented (RULE_COUNT = 7), but the validated storyboard spec requires the full phase sequence. This matches the known failure pattern: intermediate phases were collapsed/bypassed, breaking CUA verification and game balance.",
-    "rule": "Tier 1 Code Completeness / phase coverage",
-    "fix": "Restore all required storyboard phases in CheckEventRules() with explicit trigger logic and minimum dwell checks for each phase.",
-    "line": "CheckEventRules()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T10:54:40.083Z"
+    "description": "Uses generic collections/components from external APIs indirectly? No direct generic violation found, but the script declares and uses Button ctaUIButton without any use. More importantly, the class relies on GFM_Joystick type without showing its namespace/imports; if not globally available this can compile-break. This is lower confidence, so not the fail reason.",
+    "rule": "C# Language — Bridge.NET Hard Limits",
+    "fix": "Ensure all non-Unity types are available in the project/global namespace. Remove unused Button field if unnecessary.",
+    "line": "class fields / Start()",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-03-31T12:12:13.502Z"
+  },
+  {
+    "description": "[no-interaction] CUA completed 15 rounds but recorded zero interactions — likely API failures",
+    "rule": "CUA Verification",
+    "fix": "[no-interaction] CUA completed 15 rounds but recorded zero interactions — likely API failures",
+    "line": "CUA round 1",
+    "taskId": "proj_1774794237502_k0rbwx",
+    "timestamp": "2026-03-29T14:53:02.233Z"
+  },
+  {
+    "description": "[spec-phase-skipped] Spec phases not completed: collectIceCrystal, deliverIceCrystalToMachine, produceWaterFromIce, sellWaterToPassengers, upgradeMiningTool, accelerateProductionCycle, unlockNewCabinArea, collectAppleProcessJuice, triggerJuiceBottling, sellAppleAndCTA. Game balance likely broken — phases were bypassed.",
+    "rule": "CUA Verification",
+    "fix": "[spec-phase-skipped] Spec phases not completed: collectIceCrystal, deliverIceCrystalToMachine, produceWaterFromIce, sellWaterToPassengers, upgradeMiningTool, accelerateProductionCycle, unlockNewCabinArea, collectAppleProcessJuice, triggerJuiceBottling, sellAppleAndCTA. Game balance likely broken — phases were bypassed.",
+    "line": "CUA round 1",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-03-31T17:12:01.542Z"
+  },
+  {
+    "description": "ShowCTA() calls GameEnded() internally as well as InstallFullGame(). This makes call order/control fragile and causes duplicate GameEnded() invocations when caller also ends game.",
+    "rule": "Code Completeness",
+    "fix": "Refactor so ShowCTA() only performs Luna.Unity.Playable.InstallFullGame(), and ensure caller invokes Luna.Unity.LifeCycle.GameEnded() immediately before ShowCTA().",
+    "line": "ShowCTA()",
+    "taskId": "proj_1774798890698_wxfmbx",
+    "timestamp": "2026-03-31T03:51:06.996Z"
   },
   {
     "description": "The gameEnd block can trigger solely from ctaDisplayed == true after 2s, without verifying that all required terminal entity states were actually reached. The comments assert required terminal states, but there is no enforcement. A phase/state desync would let the playable end in an invalid state.",
-    "rule": "Tier 1 Code Completeness",
+    "rule": "Code Completeness",
     "fix": "Gate gameEnd on all required terminal states being 2 in addition to ctaDisplayed and phaseTimer minimum dwell.",
     "line": "CheckEventRules() phase transition to finalUnlockAndCTA",
     "taskId": "proj_1774794219517_z43qrz",
     "timestamp": "2026-03-31T10:54:40.084Z"
   },
   {
-    "description": "[phase-coverage] 8/11 phases completed. Missing: 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[phase-coverage] 8/11 phases completed. Missing: 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "line": "CUA round 4",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T11:08:53.143Z"
+    "description": "Game end flow does not satisfy the required call pattern. The rule explicitly requires the gameEnd block to call Luna.Unity.LifeCycle.GameEnded() + ShowCTA(), and call order must be GameEnded() before InstallFullGame(). Here the gameEnd block calls ShowCTAButton() instead of ShowCTA(), and InstallFullGame() is deferred to button click handlers rather than the required ShowCTA() path.",
+    "rule": "Code Completeness",
+    "fix": "In the gameEnd block, call Luna.Unity.LifeCycle.GameEnded(); then call ShowCTA(); Ensure ShowCTA() performs Luna.Unity.Playable.InstallFullGame(). If you also want a visible button, keep it separate, but the required GameEnded()->ShowCTA() sequence must exist in the end block.",
+    "line": "CheckEventRules game end block / ShowCTAButton / OnCTAClick",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-03-31T15:50:39.030Z"
   },
   {
-    "description": "[spec-phase-skipped] Spec phases not completed: finalUnlockAndCTA. Game balance likely broken — phases were bypassed.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-phase-skipped] Spec phases not completed: finalUnlockAndCTA. Game balance likely broken — phases were bypassed.",
-    "line": "CUA round 4",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T11:08:53.144Z"
+    "description": "Mutates gameObject.name every frame/update-state with a large JSON string. In Luna this is risky and has caused instability/perf regressions; also bloated names can interfere with object lookup/debugging. While not explicitly banned, this is unsafe in a playable runtime.",
+    "rule": "Common Mistakes",
+    "fix": "Expose state through a supported bridge/mechanism instead of renaming the GameObject every update, or update less frequently with constrained payload size.",
+    "line": "UpdateGameState()",
+    "taskId": "proj_1774798867290_mwduot",
+    "timestamp": "2026-03-30T16:34:23.213Z"
   },
   {
-    "description": "[phase-coverage] 6/11 phases completed. Missing: 升级浴池容量 (trigger: none); 解锁第二舱门 (trigger: none); 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[phase-coverage] 6/11 phases completed. Missing: 升级浴池容量 (trigger: none); 解锁第二舱门 (trigger: none); 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "line": "CUA round 5",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T11:20:12.555Z"
+    "description": "Creates CTA button every frame after chargeStationState becomes 2? The guard is chargeStationState == 1, so button creation happens once at transition, but there is no protection against repeated CreateButton if state is reset or method re-entered unexpectedly. More importantly, it creates a new UI button instead of using the pre-mapped CTAButton pooled object / precreated UI pattern from skeleton guidance.",
+    "rule": "Common Mistakes",
+    "fix": "Use a one-time creation guard and prefer skeleton-provided UI variables/patterns. If creating a button, ensure it is only created once with ctaBtn == null guard.",
+    "line": "UpdateChargeStation(float dt)",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-03-31T10:41:53.148Z"
   },
   {
-    "description": "[spec-phase-skipped] Spec phases not completed: unlockSecondCabinAndBuildWorkstations, finalUnlockAndCTA. Game balance likely broken — phases were bypassed.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-phase-skipped] Spec phases not completed: unlockSecondCabinAndBuildWorkstations, finalUnlockAndCTA. Game balance likely broken — phases were bypassed.",
-    "line": "CUA round 5",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T11:20:12.556Z"
+    "description": "Uses Camera.main as fallback. Camera.main is explicitly forbidden because it may be null in Luna template-managed scenes.",
+    "rule": "Forbidden APIs",
+    "fix": "Use only the injected/template camera reference or a reliable scene Find result with null handling. Remove Camera.main fallback entirely.",
+    "line": "Start() / mainCam fallback",
+    "taskId": "proj_1774798867290_mwduot",
+    "timestamp": "2026-03-30T16:34:23.211Z"
   },
   {
-    "description": "Uses Camera.main to cache the camera. Luna guidance explicitly says Camera.main may be null in the template and code should use the skeleton-provided mainCam field instead of calling Camera.main.",
-    "rule": "Forbidden APIs — Camera.main",
-    "fix": "Remove Camera.main usage. Have the injected/template skeleton assign mainCam, or obtain the camera through the approved pre-cached reference path and always null-check mainCam before use.",
+    "description": "Uses Camera.main to cache the camera. The review rules explicitly forbid Camera.main in Luna templates because it may be null; the skeleton should use a pre-cached mainCam field instead of querying Camera.main.",
+    "rule": "Forbidden APIs",
+    "fix": "Do not call Camera.main. Assign mainCam through the template-provided reference/path and always null-check before use.",
+    "line": "Start()",
+    "taskId": "proj_1774794219517_z43qrz",
+    "timestamp": "2026-03-31T10:23:31.710Z"
+  },
+  {
+    "description": "Uses Camera.main to populate mainCam. Review rules explicitly state Camera.main may be null in Luna template and code must use the pre-cached mainCam field instead of Camera.main.",
+    "rule": "Forbidden APIs",
+    "fix": "Remove Camera.main usage. Assume skeleton/template injects mainCam or assign it through supported template wiring; always null-check before use.",
     "line": "Start()",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T11:23:45.074Z"
+    "timestamp": "2026-03-31T15:43:32.933Z"
   },
   {
-    "description": "RULE_COUNT is 3, phaseEnterTimes is sized to 3, and the flow is not modeled with the required full phase-tracking structure for the many progression steps in the storyboard. This is a content regression versus the required phase-driven implementation.",
-    "rule": "Architecture (V5 phase-driven)",
-    "fix": "Increase RULE_COUNT to cover all gameplay phases, record phase enter times for each, and move progression logic into CheckEventRules() using ruleTriggered/phaseTimer/phaseEnterTimes consistently.",
-    "line": "class fields / architecture",
+    "description": "Calls GFM_UI.CreateText(...), which is an undocumented method. The rules explicitly say undocumented UI helpers like CreateText() may not exist and should be treated as compile-error risks.",
+    "rule": "GFM_Tools API Signatures",
+    "fix": "Replace CreateText() usage with only documented GFM_UI APIs, or implement guidance/UI through pooled scene objects instead.",
+    "line": "Start()",
+    "taskId": "proj_1774798867290_mwduot",
+    "timestamp": "2026-03-30T16:34:23.211Z"
+  },
+  {
+    "description": "The rule explicitly says the skeleton pre-creates uiCanvas, guideText, scoreText and they should be used directly instead of creating new ones. This script creates a new canvas and text objects in Start(). This is a documented production-risk violation.",
+    "rule": "GFM_Tools API Signatures",
+    "fix": "Use the pre-created uiCanvas, guideText, and scoreText references from the template; do not recreate the canvas/text in Start().",
+    "line": "Start() / Update() / UI creation",
+    "taskId": "proj_1774794219517_z43qrz",
+    "timestamp": "2026-03-31T10:41:30.444Z"
+  },
+  {
+    "description": "Creates a new runtime UI Button via GFM_UI.CreateButton for the CTA instead of using the pre-mapped pooled CTAButton object/UI flow. This is risky in Luna and also leaves the mapped CTAButton GameObject unused.",
+    "rule": "GFM_Tools API Signatures",
+    "fix": "Use the existing CTAButton / skeleton-provided UI flow instead of creating a new CTA button at runtime, or confirm the spec explicitly allows runtime GFM_UI button creation for CTA. Prefer showing the existing CTAButton and wiring the click through supported skeleton variables.",
+    "line": "UpdateChargeStation()",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T11:23:45.075Z"
+    "timestamp": "2026-03-31T10:49:08.085Z"
   },
   {
-    "description": "Primary interaction uses only Input.GetMouseButtonDown(0). On mobile Luna playables this may fail; first-touch and touch handling are platform-sensitive. This is specifically called out as unsafe.",
-    "rule": "Luna Platform Limitations — mobile input",
-    "fix": "Handle both touch and mouse, or use approved GFM/Luna input abstraction for taps.",
-    "line": "Update() tap detection",
+    "description": "Uses Random.Range repeatedly for runtime crowd spawning/movement offsets. Bridge/Luna randomness can be inconsistent and this also creates nondeterministic verification paths for CUA, especially when progression timing depends on moving targets on screen.",
+    "rule": "Gameplay Logic",
+    "fix": "Replace Random.Range with deterministic predeclared offset arrays or a fixed sequence of literal positions.",
+    "line": "UpdateCrowdSystem()",
+    "taskId": "proj_1774794219517_z43qrz",
+    "timestamp": "2026-03-31T03:17:43.171Z"
+  },
+  {
+    "description": "Turret firing uses auto-targeting: player clicks turret, then code automatically selects the nearest enemy via FireTurretAtNearest(). Auto-targeting in turret/combat gameplay is explicitly disallowed.",
+    "rule": "Gameplay Logic",
+    "fix": "Require direct player targeting of enemies/projectiles rather than auto-selecting nearest enemy after turret click.",
+    "line": "HandleClickInput() / FireTurretAtNearest()",
+    "taskId": "proj_1774798890698_wxfmbx",
+    "timestamp": "2026-03-31T03:51:06.997Z"
+  },
+  {
+    "description": "Phase 3 transition condition is also '&& true', so it auto-advances after dwell time instead of requiring collection of ice crystal by the player.",
+    "rule": "Gameplay Logic",
+    "fix": "Track collected ice in variables/arrays and gate progression on actual player-caused collection state.",
+    "line": "CheckEventRules() phase 3",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T11:23:45.075Z"
+    "timestamp": "2026-03-31T15:43:32.934Z"
   },
   {
-    "description": "Phase progression is implemented outside CheckEventRules() via AdvancePhase(gamePhase), while CheckEventRules() only passively observes some state later. This violates the required phase-driven architecture where all blueprint phases must have transition logic in CheckEventRules() with dwell timing. Several real transitions are effectively driven by gamePhase, not ruleTriggered/phaseTimer.",
-    "rule": "Tier 4 Code Completeness / Tier 7 Gameplay Logic",
-    "fix": "Move authoritative phase transitions into CheckEventRules() for every storyboard phase. Keep gamePhase only as a rendering/substate helper if needed, but progression must be ruleTriggered + currentPhaseName + phaseTimer driven.",
-    "line": "UpdatePhase0_GoToIce / multiple UpdatePhase methods",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T11:45:08.884Z"
-  },
-  {
-    "description": "The required terminal entity states are only commented as assertions in gameEnd, not enforced. gameEnd can trigger on ctaClicked even if waterMachineState, toolState, newCabinState, or juiceMachineState are not all terminal, violating the skeleton requirement that entity states must reach terminal state.",
-    "rule": "Tier 4 Code Completeness",
-    "fix": "Gate Rule 10 with explicit checks: waterMachineState == 2 && toolState == 2 && newCabinState == 2 && juiceMachineState == 2, or force the player through interactions that reach those states before CTA becomes clickable.",
-    "line": "CheckEventRules / overall phase coverage",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T11:45:08.885Z"
-  },
-  {
-    "description": "Input is handled with raw Input.GetMouseButtonDown(0) and Input.GetTouch(0) only. The documented rule warns mouse-only/down-only handling may fail on mobile Luna and requires Luna/GFM input abstraction or robust dual-path handling. This implementation also competes with the joystick and manually filters screen regions, which is risky for playable input reliability.",
-    "rule": "Tier 10 Luna Platform Limitations",
-    "fix": "Use supported Luna/GFM input abstraction if available, or centralize touch/mouse handling through the platform-safe helper pattern used by your project. At minimum, ensure joystick/UI interaction does not suppress required gameplay taps.",
+    "description": "Input handling relies on Physics.Raycast against pooled objects, but the code never ensures those objects have colliders. In Luna pool setups, collider availability is not guaranteed, so clicks may never resolve to world positions and interaction can fail.",
+    "rule": "Luna Platform Limitations",
+    "fix": "Avoid dependence on physics raycasts for core interaction. Convert screen input to a ground-plane/world-plane position directly from camera math, or explicitly verify template-provided colliders exist before using raycasts.",
     "line": "HandleInput()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T11:45:08.886Z"
-  },
-  {
-    "description": "Uses generic type Button via field declaration 'Button ctaUIButton;'. Project rules ban List/Dictionary and generic APIs, and historical Luna builds are sensitive to generic-heavy UI component usage. The safer pattern is to avoid storing concrete generic-derived UI types when not necessary.",
-    "rule": "C# Language — Bridge.NET Hard Limits",
-    "fix": "Store the CTA button as a non-generic Component/Object reference if needed, or avoid persisting it entirely. If you need the component, use a non-generic cast pattern around returned object usage.",
-    "line": "class fields / TODO_VARIABLES_START",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T11:48:27.191Z"
-  },
-  {
-    "description": "Creates a new UI button instead of using the skeleton-precreated UI references. The rules explicitly note the skeleton pre-creates uiCanvas/guideText/scoreText and warns against creating additional UI systems unnecessarily. Production failures often come from divergent UI setup in Luna templates.",
-    "rule": "Code Completeness",
-    "fix": "Keep using the existing uiCanvas but avoid runtime CTA button creation if the storyboard does not require it, or wire CTA through existing pre-created UI elements. If a button is required, ensure it is the only additional UI element and fully null-checked.",
-    "line": "ShowFinalCTA()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T11:48:27.192Z"
+    "taskId": "proj_1774794237502_k0rbwx",
+    "timestamp": "2026-03-30T16:25:37.858Z"
   },
   {
     "description": "Relies on Input.GetMouseButtonDown(0) and raw touch polling as primary interaction. The rules explicitly state Input.GetMouseButtonDown(0) alone may fail on mobile and Luna/GFM input abstraction should be used or both touch/mouse handled robustly. While touch is also checked, this is still custom raw input logic rather than supported GFM/Luna abstraction and is a known runtime risk.",
@@ -1864,299 +176,67 @@
     "timestamp": "2026-03-31T11:48:27.193Z"
   },
   {
-    "description": "phaseEnterTimes[10] is never assigned for the final phase. Every phase should record transition timing via phaseEnterTimes for skeleton verification. gameEnd sets currentPhaseName and gameEnded but omits phaseEnterTimes[10] = gameTimer.",
-    "rule": "Code Completeness",
-    "fix": "Add 'phaseEnterTimes[10] = gameTimer;' inside the Rule 10 transition before ending the game.",
-    "line": "CheckEventRules() Rule 10 gameEnd",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T11:48:27.194Z"
-  },
-  {
-    "description": "The final game-end transition depends on ctaClicked && phaseTimer >= 8f after entering the previous phase, but there is no guaranteed phase completion path tied to all storyboard phases with explicit dwell-safe transitions. Several phases are effectively driven by internal gamePhase jumps rather than CheckEventRules-only transitions, violating the zero-tolerance requirement that all blueprint phases be implemented through CheckEventRules().",
-    "rule": "Code Completeness",
-    "fix": "Move authoritative phase progression into CheckEventRules() for every storyboard phase. Each phase should have its own trigger condition and minimum dwell check there, with Update methods only handling mechanics.",
-    "line": "CheckEventRules() / overall phase coverage",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T11:48:27.194Z"
-  },
-  {
-    "description": "[phase-coverage] 4/11 phases completed. Missing: 激活浴池 (trigger: none); 升级搬运人数 (trigger: none); 升级浴池容量 (trigger: none); 解锁第二舱门 (trigger: none); 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[phase-coverage] 4/11 phases completed. Missing: 激活浴池 (trigger: none); 升级搬运人数 (trigger: none); 升级浴池容量 (trigger: none); 解锁第二舱门 (trigger: none); 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "line": "CUA round 5",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T11:50:01.609Z"
-  },
-  {
-    "description": "[spec-phase-skipped] Spec phases not completed: activateAndUpgradeBathPool, unlockSecondCabinAndBuildWorkstations, finalUnlockAndCTA. Game balance likely broken — phases were bypassed.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-phase-skipped] Spec phases not completed: activateAndUpgradeBathPool, unlockSecondCabinAndBuildWorkstations, finalUnlockAndCTA. Game balance likely broken — phases were bypassed.",
-    "line": "CUA round 5",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T11:50:01.609Z"
-  },
-  {
-    "description": "[phase-coverage] 10/11 phases completed. Missing: 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[phase-coverage] 10/11 phases completed. Missing: 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "line": "CUA round 7",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T11:50:37.036Z"
-  },
-  {
-    "description": "[phase-coverage] 1/11 phases completed. Missing: 外出采集冰晶 (trigger: none); 搬运冰块回舱 (trigger: none); 制水产出 (trigger: none); 售卖给乘客 (trigger: none); 解锁工具升级 (trigger: none); 高效重复循环 (trigger: none); 扩建新船舱 (trigger: none); 进入新区域采苹果 (trigger: none); 踩按钮出货并售卖苹果 (trigger: none); 最终引导与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[phase-coverage] 1/11 phases completed. Missing: 外出采集冰晶 (trigger: none); 搬运冰块回舱 (trigger: none); 制水产出 (trigger: none); 售卖给乘客 (trigger: none); 解锁工具升级 (trigger: none); 高效重复循环 (trigger: none); 扩建新船舱 (trigger: none); 进入新区域采苹果 (trigger: none); 踩按钮出货并售卖苹果 (trigger: none); 最终引导与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "line": "CUA round 3",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T11:58:41.820Z"
-  },
-  {
-    "description": "The script uses Button, Canvas, and Text via UnityEngine.UI, which is fine, but it also introduces runtime-created UI button flow rather than relying on the skeleton pre-created UI references. The review rules explicitly note the skeleton pre-creates uiCanvas/guideText/scoreText and should be used instead of creating new UI structures. This code recreates the canvas and text at runtime with GFM_UI.CreateCanvas/CreateText, which violates the documented usage note and risks duplicate UI / template mismatch.",
-    "rule": "Tier 3 / Luna Platform Limitations - GetComponent<Transform>() ≠ GetComponent<RectTransform>(); UI component types are not safely covered; missing namespace for Button/Canvas/Text support under strict Bridge setup",
-    "fix": "Use the skeleton-provided uiCanvas, guideText, and scoreText references only. Remove runtime recreation of canvas/text if the template already injects them, or confirm skeleton contract actually requires creation. For strict compliance, do not create replacement canvas/text objects.",
-    "line": "class fields / Start() / ShowFinalCTA()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T12:02:47.797Z"
-  },
-  {
-    "description": "Gameplay progression depends heavily on raw Input.GetMouseButtonDown(0) / Input.touchCount polling. The constraints explicitly warn that Input.GetMouseButtonDown(0) alone may fail on mobile and recommend GFM/Luna input abstraction or robust dual handling. While touch is also checked, the logic manually gates based on screen fractions and does not integrate joystick/UI hit filtering, making CTA and gameplay clicks brittle in Luna overlays.",
-    "rule": "Tier 2 Rule 7 + Tier 3 Rule 10",
-    "fix": "Use supported GFM/Luna input abstraction where available, or centralize a single supported tap abstraction that safely handles both touch and mouse and avoids conflicts with joystick/UI.",
-    "line": "HandleInput()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T12:02:47.798Z"
-  },
-  {
-    "description": "Several phase transitions are driven by aggregate counters or booleans rather than explicit player interactions for that phase: totalWaterSold >= 1, totalWaterSold >= 2, appleItemVisible, totalAppleSold >= 1, and ctaClicked. These are pure numeric/state triggers that can auto-jump phases once counters are met, instead of validating a dedicated interaction event in the phase itself. This is explicitly forbidden by the gameplay rules.",
-    "rule": "Tier 2 Rule 7 - FORBIDDEN: pure numeric triggers that skip interaction",
-    "fix": "Track explicit per-phase player actions, e.g. interactedWithSellPointThisPhase, unlockedExpansionByTap, enteredAppleAreaByMovementThisPhase, soldAppleProductByPlayerActionThisPhase, and transition only from those interaction flags plus dwell time.",
-    "line": "CheckEventRules() rules 4, 6, 8, 9, 10",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T12:02:47.799Z"
-  },
-  {
-    "description": "The required blueprint phases are not all clearly implemented as authoritative transitions inside CheckEventRules(). The game also uses a separate gamePhase state machine in Update* methods to control actual progression. This splits gameplay progression away from the required CheckEventRules()-driven phase system and risks CUA/spec mismatch. Historical rule: ALL phases from blueprint MUST be implemented in CheckEventRules() with trigger logic and dwell checks.",
-    "rule": "Tier 1 Rule 4 / Code Completeness",
-    "fix": "Move authoritative phase progression into CheckEventRules() for every storyboard phase. Update methods should only perform mechanics; phase transitions must be owned by CheckEventRules() with explicit dwell-gated triggers.",
-    "line": "CheckEventRules() overall phase coverage",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T12:02:47.800Z"
-  },
-  {
-    "description": "Only MainDeck and Player are guaranteed to be placed at y >= -1 in the first frame. WaterMachine is placed at y=1.5, which is visible, so this does satisfy count=3, but the initial world still leaves most other pool objects at hidden positions and depends on a top-down orthographic camera with a potentially sparse frame. More importantly, one of the visible base surfaces, AppleField, is tinted greenish rather than neutral gray, violating the anti-solid-color guidance for ground/field-like planes.",
-    "rule": "Tier 2 Rule 5b - Rule 0/gameStart must position ≥ 3 differently-colored objects at y ≥ -1 in the first frame",
-    "fix": "Keep at least three clearly separated visible objects in the first frame and ensure any ground/field plane-like surface uses a neutral gray near (0.75,0.78,0.82). Avoid green-tinted ground substitutes.",
-    "line": "Start() / anti-solid-color object setup",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T12:02:47.801Z"
-  },
-  {
-    "description": "AppleField is assigned new Color(0.72f, 0.74f, 0.7f), described as 'Neutral gray-green'. The rule is explicit: ground/groundfield plane color must be neutral gray, and noticeable saturation away from gray midpoint is fail-prone. This field acts as a ground-like plane in the expansion area.",
-    "rule": "Tier 2 Rule 5b - Ground/GroundField plane color must be neutral gray",
-    "fix": "Set AppleField to a true neutral gray, e.g. new Color(0.75f, 0.78f, 0.82f), and keep camera/background contrast sufficiently different.",
-    "line": "Start() color setup for AppleField",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T12:02:47.801Z"
-  },
-  {
-    "description": "[phase-coverage] 6/11 phases completed. Missing: 前往救援区域 (trigger: none); 解锁第二舱门 (trigger: none); 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[phase-coverage] 6/11 phases completed. Missing: 前往救援区域 (trigger: none); 解锁第二舱门 (trigger: none); 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "line": "CUA round 6",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T12:11:49.052Z"
-  },
-  {
-    "description": "Uses generic collections/components from external APIs indirectly? No direct generic violation found, but the script declares and uses Button ctaUIButton without any use. More importantly, the class relies on GFM_Joystick type without showing its namespace/imports; if not globally available this can compile-break. This is lower confidence, so not the fail reason.",
-    "rule": "Tier 1 - C# Language — Bridge.NET Hard Limits",
-    "fix": "Ensure all non-Unity types are available in the project/global namespace. Remove unused Button field if unnecessary.",
-    "line": "class fields / Start()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T12:12:13.502Z"
-  },
-  {
-    "description": "The rule-phase mapping is inconsistent with the actual gameplay progression. Several CheckEventRules phases are triggered by side effects that can be bypassed or lag behind the actual gamePhase transitions. Example: gamePhase advances to 4 immediately on delivery, but Rule 2 is named mineAndCollectIce and only triggers when waterMachineState >= 1 after a 5s dwell; Rule 3 then waits for waterBottleVisible. This desynchronization means blueprint phases are not faithfully represented as discrete rule transitions in CheckEventRules, risking CUA/spec mismatch.",
-    "rule": "Tier 1 - Code Completeness / all blueprint phases must be implemented in CheckEventRules()",
-    "fix": "Make each intended gameplay phase map 1:1 to a CheckEventRules rule with trigger condition tied to the actual player-completed interaction for that phase, not delayed downstream state. Keep min dwell checks, but align names/conditions with the real progression.",
-    "line": "CheckEventRules() overall",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T12:12:13.503Z"
-  },
-  {
-    "description": "Game end depends on ctaClicked being true before Luna.Unity.LifeCycle.GameEnded() and ShowCTA() are called. But ctaClicked is only set after clicking a 3D world CTA object, not the required CTA UI flow. Historical Luna integrations often require explicit CTA display followed by InstallFullGame call, not a hidden precondition on a world object. If the 3D CTA is off-camera/unreachable, game end never fires.",
-    "rule": "Tier 1 - Code Completeness / gameEnd block correctness",
-    "fix": "Trigger end state when final objective completes, then call GameEnded() and show/install CTA in the required order. If keeping an interactable CTA, ensure it is guaranteed visible/reachable and also mirrored in supported UI.",
-    "line": "Rule 10 gameEnd / UpdatePhase11_ChargeAndCTA()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T12:12:13.504Z"
-  },
-  {
-    "description": "Only three objects are guaranteed visible in Start(): MainDeck, Player, WaterMachine. However MainDeck and WaterMachine colors are fairly muted against the scene, and IceField ground is not placed in first frame. More importantly, many other pooled objects are never explicitly hidden at startup, so stale pool positions from template/runtime reuse could cause undefined first-frame visuals or overlap.",
-    "rule": "Tier 2 - Solid-Color Screen Prevention Rule 0 / gameStart",
-    "fix": "Explicitly hide every pooled object you use at Start() by moving them to y=-999, then place the required 3+ contrasting visible objects for frame 1.",
-    "line": "Start() / first-frame setup",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T12:12:13.505Z"
-  },
-  {
-    "description": "[phase-coverage] 5/11 phases completed. Missing: 升级搬运人数 (trigger: none); 升级浴池容量 (trigger: none); 解锁第二舱门 (trigger: none); 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[phase-coverage] 5/11 phases completed. Missing: 升级搬运人数 (trigger: none); 升级浴池容量 (trigger: none); 解锁第二舱门 (trigger: none); 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "line": "CUA round 9",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T12:27:21.644Z"
-  },
-  {
-    "description": "[spec-phase-skipped] Spec phases not completed: resourceManagementAndExpansion. Game balance likely broken — phases were bypassed.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-phase-skipped] Spec phases not completed: resourceManagementAndExpansion. Game balance likely broken — phases were bypassed.",
-    "line": "CUA round 2",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T12:42:32.942Z"
-  },
-  {
-    "description": "[phase-coverage] 2/11 phases completed. Missing: 前往救援区域 (trigger: none); 获得第一名队员 (trigger: none); 激活浴池 (trigger: none); 升级搬运人数 (trigger: none); 升级浴池容量 (trigger: none); 解锁第二舱门 (trigger: none); 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[phase-coverage] 2/11 phases completed. Missing: 前往救援区域 (trigger: none); 获得第一名队员 (trigger: none); 激活浴池 (trigger: none); 升级搬运人数 (trigger: none); 升级浴池容量 (trigger: none); 解锁第二舱门 (trigger: none); 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "line": "CUA round 10",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T12:49:01.073Z"
-  },
-  {
-    "description": "[spec-phase-skipped] Spec phases not completed: initialIceWaterProduction, toolUpgradeAndEfficiency, areaExpansionAndAppleJuice, appleJuiceSaleAndCTA. Game balance likely broken — phases were bypassed.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-phase-skipped] Spec phases not completed: initialIceWaterProduction, toolUpgradeAndEfficiency, areaExpansionAndAppleJuice, appleJuiceSaleAndCTA. Game balance likely broken — phases were bypassed.",
-    "line": "CUA round 1",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T12:54:55.475Z"
-  },
-  {
-    "description": "[phase-coverage] 7/11 phases completed. Missing: 解锁第二舱门 (trigger: none); 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[phase-coverage] 7/11 phases completed. Missing: 解锁第二舱门 (trigger: none); 建造首个床位 (trigger: none); 扩展多个工位 (trigger: none); 最终解锁与CTA (trigger: none). This usually means game balance is broken — auto-progression bypassed intermediate phases.",
-    "line": "CUA round 11",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T12:56:58.425Z"
-  },
-  {
-    "description": "[spec-phase-skipped] Spec phases not completed: iceWaterProductionAndExpansion. Game balance likely broken — phases were bypassed.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-phase-skipped] Spec phases not completed: iceWaterProductionAndExpansion. Game balance likely broken — phases were bypassed.",
-    "line": "CUA round 3",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T13:01:30.582Z"
-  },
-  {
-    "description": "[spec-phase-skipped] Spec phases not completed: waterSupplyChain. Game balance likely broken — phases were bypassed.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-phase-skipped] Spec phases not completed: waterSupplyChain. Game balance likely broken — phases were bypassed.",
-    "line": "CUA round 1",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T14:12:06.805Z"
-  },
-  {
-    "description": "[spec-entity] ctaButton state=0, spec requires 1 (CTA按钮已显示)",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-entity] ctaButton state=0, spec requires 1 (CTA按钮已显示)",
-    "line": "CUA round 1",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T14:12:06.806Z"
-  },
-  {
-    "description": "[spec-phase-skipped] Spec phases not completed: collectIceCrystal, produceWater, sellWater, upgradeMiningTool, repeatCycleFaster, unlockNewCabin, collectAppleJuice, triggerJuicerBottling, sellAppleAndCTA. Game balance likely broken — phases were bypassed.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-phase-skipped] Spec phases not completed: collectIceCrystal, produceWater, sellWater, upgradeMiningTool, repeatCycleFaster, unlockNewCabin, collectAppleJuice, triggerJuicerBottling, sellAppleAndCTA. Game balance likely broken — phases were bypassed.",
-    "line": "CUA round 1",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T15:34:50.058Z"
-  },
-  {
-    "description": "[spec-too-fast] Phase collectIceCrystal lasted 0s, spec minimum 4s",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-too-fast] Phase collectIceCrystal lasted 0s, spec minimum 4s",
-    "line": "CUA round 1",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T15:34:50.059Z"
-  },
-  {
-    "description": "[autoplay-load] Page failed to load: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:18850/iframe.html\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:18850/iframe.html\", waiting until \"load\"\u001b[22m\n",
-    "rule": "CUA - phase-skipped",
-    "fix": "[autoplay-load] Page failed to load: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:18850/iframe.html\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:18850/iframe.html\", waiting until \"load\"\u001b[22m\n",
-    "line": "CUA round 1",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T15:34:50.059Z"
-  },
-  {
-    "description": "Uses GFM_Create.Obj(PrimitiveType.Cube, ...) to create carry visuals at runtime. This wrapper maps to primitive creation patterns that are explicitly unsafe for Luna unless backed by pool objects. Runtime-created primitives are a known invisible-object failure path.",
-    "rule": "Forbidden APIs / CreatePrimitive() invisible in Luna",
-    "fix": "Use pre-pooled objects found via explicit __Pool_* names, or predeclare an exact string array of pool names for carry visuals and reposition/hide them with y=-999.",
-    "line": "UpdateCarryVisuals()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T15:43:32.932Z"
-  },
-  {
-    "description": "Uses Camera.main to populate mainCam. Review rules explicitly state Camera.main may be null in Luna template and code must use the pre-cached mainCam field instead of Camera.main.",
-    "rule": "Camera.main forbidden",
-    "fix": "Remove Camera.main usage. Assume skeleton/template injects mainCam or assign it through supported template wiring; always null-check before use.",
+    "description": "GFM_Create.InitMaterialFromScene() is not called before any future SetColor() usage. This required Luna material initialization step is absent.",
+    "rule": "Materials & Rendering",
+    "fix": "Call GFM_Create.InitMaterialFromScene() in Start() before creating or recoloring visible objects.",
     "line": "Start()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T15:43:32.933Z"
+    "taskId": "proj_1774794219517_z43qrz",
+    "timestamp": "2026-03-29T14:42:07.974Z"
   },
   {
-    "description": "Phase 3 transition condition is also '&& true', so it auto-advances after dwell time instead of requiring collection of ice crystal by the player.",
-    "rule": "Gameplay Logic / placeholder trigger",
-    "fix": "Track collected ice in variables/arrays and gate progression on actual player-caused collection state.",
-    "line": "CheckEventRules() phase 3",
+    "description": "SafeColor is implemented as infinite recursion: it calls itself unconditionally with the same parameters. Any SafeColor invocation will stack overflow at runtime, causing immediate failure/blank screen.",
+    "rule": "Materials & Rendering",
+    "fix": "Replace the body with a call to GFM_Create.SetColor(obj, c) after a null check.",
+    "line": "SafeColor(GameObject obj, Color c)",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T15:43:32.934Z"
+    "timestamp": "2026-03-31T02:58:22.942Z"
+  },
+  {
+    "description": "Constructs pool names dynamically with ToString(\"D2\") for cubes/planes/spheres/cylinders. Dynamic pool-name construction is explicitly banned because Bridge.NET string formatting is unreliable, causing Find() to return null at runtime.",
+    "rule": "Object Naming — Pool Objects",
+    "fix": "Replace all dynamically constructed names with explicit string literals or predeclared string arrays of exact pool names, e.g. new string[]{\"__Pool_Cube_26\",...}.",
+    "line": "Start / pooled object initialization loops",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-03-29T19:11:24.818Z"
+  },
+  {
+    "description": "Finds __Pool_Sphere_03..06 and __Pool_Cube_25..27, but these pool names are not within the documented allowed ranges: spheres only 01..20 are valid, cubes only 01..50 are valid. Sphere names are valid, but Cube_25..27 are within range; however these objects are not declared in the skeleton auto-mapped references and are fetched ad hoc without null validation for asset existence in the actual injected pool set. This is a production-risk naming/pool mismatch pattern.",
+    "rule": "Object Naming — Pool Objects",
+    "fix": "Predeclare exact pool-name arrays/literals for every required pooled object and add explicit null checks/fallback behavior. Ensure the template actually includes those exact pool objects before relying on them.",
+    "line": "Start() / bulletGo[2..5], extraRocket1..3",
+    "taskId": "proj_1774798867290_mwduot",
+    "timestamp": "2026-03-30T16:34:23.212Z"
+  },
+  {
+    "description": "Pool names are constructed dynamically for __Pool_Sphere_14..18. Dynamic pool lookup is forbidden.",
+    "rule": "Object Naming — Pool Objects",
+    "fix": "Use explicit string literals or a fixed string array of exact coin pool names.",
+    "line": "Start() coinDropGo init loop",
+    "taskId": "proj_1774798890698_wxfmbx",
+    "timestamp": "2026-03-31T03:51:06.996Z"
+  },
+  {
+    "description": "Camera.backgroundColor is set to (0.45, 0.52, 0.62), which differs from ground color (0.75, 0.78, 0.82) by only 0.30, 0.26, 0.20. At least one RGB channel must differ by ≥ 0.3. Green and blue channels fail; red is exactly 0.30 and too borderline for production safety. Recommended deep sky blue was not used. This can trigger solid-color-screen detection.",
+    "rule": "Solid-Color Screen Prevention",
+    "fix": "Use a safer background such as new Color(0.35f, 0.55f, 0.75f) or any color with at least one channel clearly >0.3 different from ground.",
+    "line": "Start() camera background setup",
+    "taskId": "proj_1774798890698_wxfmbx",
+    "timestamp": "2026-03-31T03:34:04.131Z"
+  },
+  {
+    "description": "Camera initial positioning is wrong: camFollowOffset is set to (-7,10,-7), then camera position is set to new Vector3(-7,10,-1) + camFollowOffset, resulting in (-14,20,-8). This is far from the play area and likely misses the initial objects on first frame, risking a blank/solid-color screen despite objects being placed.",
+    "rule": "Solid-Color Screen Prevention",
+    "fix": "Set the camera to Player position + camFollowOffset, e.g. after placing the player use mainCam.transform.position = Player.transform.position + camFollowOffset, and verify initial framing shows ground plus 3 colored objects.",
+    "line": "Start() camera setup",
+    "taskId": "proj_1774794219517_z43qrz",
+    "timestamp": "2026-03-31T10:41:30.444Z"
   },
   {
     "description": "Although three colored objects are placed in phase 1, there is no guaranteed assignment of the skeleton 'player' variable used by MovePlayer/IsNear/TryCollect/TryDeliver. As written, player remains null, so required interaction systems never work and later phases rely on auto-advance placeholders.",
-    "rule": "Solid-Color Screen Prevention / Rule 0",
+    "rule": "Solid-Color Screen Prevention",
     "fix": "Assign player = Player in Start() after finding pooled object, and implement actual interaction-driven phase logic.",
     "line": "Start() and overall class",
     "taskId": "proj_1774709451098_pt2ysl",
     "timestamp": "2026-03-31T15:43:32.935Z"
-  },
-  {
-    "description": "TODO sections are empty. No gameplay-specific initialization is implemented beyond skeleton setup. This leaves the core loop undefined and phase logic incomplete.",
-    "rule": "Code Completeness / missing gameplay initialization",
-    "fix": "Implement required object placement, gameplay state initialization, and interaction setup in the TODO sections.",
-    "line": "Start()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T15:43:32.936Z"
-  },
-  {
-    "description": "Spec appears to require a fuller multi-step idle/resource loop, but only 3 gameplay phases plus end shell exist, with no concrete implementation in TODO blocks. The checklist requires all blueprint phases to be implemented with transition logic and dwell checks.",
-    "rule": "Code Completeness / all blueprint phases must be implemented",
-    "fix": "Implement every storyboard/spec phase explicitly in CheckEventRules() with real conditions, state updates, and minimum dwell timing.",
-    "line": "CheckEventRules()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T15:43:32.936Z"
-  },
-  {
-    "description": "Game end flow does not satisfy the required call pattern. The rule explicitly requires the gameEnd block to call Luna.Unity.LifeCycle.GameEnded() + ShowCTA(), and call order must be GameEnded() before InstallFullGame(). Here the gameEnd block calls ShowCTAButton() instead of ShowCTA(), and InstallFullGame() is deferred to button click handlers rather than the required ShowCTA() path.",
-    "rule": "4. Code Completeness",
-    "fix": "In the gameEnd block, call Luna.Unity.LifeCycle.GameEnded(); then call ShowCTA(); Ensure ShowCTA() performs Luna.Unity.Playable.InstallFullGame(). If you also want a visible button, keep it separate, but the required GameEnded()->ShowCTA() sequence must exist in the end block.",
-    "line": "CheckEventRules game end block / ShowCTAButton / OnCTAClick",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T15:50:39.030Z"
-  },
-  {
-    "description": "[spec-phase-skipped] Spec phases not completed: collectIceCrystal, deliverIceCrystal, produceWater, sellWater, upgradeTool, accelerateCycle, unlockNewCabin, collectAndProcessApple, activateJuicer, sellAppleAndCTA. Game balance likely broken — phases were bypassed.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-phase-skipped] Spec phases not completed: collectIceCrystal, deliverIceCrystal, produceWater, sellWater, upgradeTool, accelerateCycle, unlockNewCabin, collectAndProcessApple, activateJuicer, sellAppleAndCTA. Game balance likely broken — phases were bypassed.",
-    "line": "CUA round 1",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T16:12:44.449Z"
-  },
-  {
-    "description": "[spec-phase-skipped] Spec phases not completed: collectIceCrystal, deliverIceCrystalToMachine, produceWaterFromIce, sellWaterToPassengers, upgradeMiningTool, accelerateProductionCycle, unlockNewCabinArea, collectAppleProcessJuice, triggerJuiceBottling, sellAppleAndCTA. Game balance likely broken — phases were bypassed.",
-    "rule": "CUA - phase-skipped",
-    "fix": "[spec-phase-skipped] Spec phases not completed: collectIceCrystal, deliverIceCrystalToMachine, produceWaterFromIce, sellWaterToPassengers, upgradeMiningTool, accelerateProductionCycle, unlockNewCabinArea, collectAppleProcessJuice, triggerJuiceBottling, sellAppleAndCTA. Game balance likely broken — phases were bypassed.",
-    "line": "CUA round 1",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T17:12:01.542Z"
   }
 ]
