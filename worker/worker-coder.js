@@ -44,10 +44,10 @@ function listCsFiles(dir) {
 }
 
 // ============ Config ============
-const API_BASE = 'https://crs.mindrix.app/api';
-const API_KEY = process.env.LLM_API_KEY || 'cr_f891cb1046bf100addfc0bf027cb1b37fafa8cc214e1bdbbe5493e6fa3240e7c';
-const MODEL_GENERATE = process.env.LLM_MODEL_GENERATE || 'claude-opus-4-6';
-const MODEL_FIX = process.env.LLM_MODEL_FIX || 'claude-opus-4-6';
+const API_BASE = 'https://api.aaxe.cn/api/anthropic';
+const API_KEY = process.env.LLM_API_KEY || 'oki-d82fb9cf928492b23847db9569dd1f912906cc09135c62fe20b5fa3f0576';
+const MODEL_GENERATE = process.env.LLM_MODEL_GENERATE || 'glm-5.1';
+const MODEL_FIX = process.env.LLM_MODEL_FIX || 'glm-5.1';
 const MAX_TOKENS = 30000; // Opus max is 32000; leave headroom
 const MAX_FIX_ATTEMPTS = 10;  // Keep retrying until fixed (practical upper bound)
 const PIPELINE_DIR = process.env.LUNA_PIPELINE || 'D:\\Luna\\pipeline';
@@ -147,7 +147,7 @@ function callClaude(systemPrompt, userMessage, timeoutMs, model) {
     // Use proxy if available, otherwise direct
     var proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy || '';
     // Skip proxy for crs.mindrix.app (directly accessible, proxy causes timeout on long Opus requests)
-    var skipProxy = (API_BASE.indexOf('crs.mindrix.app') >= 0 || API_BASE.indexOf('localhost') >= 0);
+    var skipProxy = (API_BASE.indexOf('crs.mindrix.app') >= 0 || API_BASE.indexOf('api.aaxe.cn') >= 0 || API_BASE.indexOf('localhost') >= 0);
     if (proxyUrl && !skipProxy) {
       createProxyRequest(API_BASE + '/v1/messages', opts, handleResponse).then(function(req) {
         req.on('error', reject);
@@ -1786,7 +1786,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       + '7. ⛔ COLOR: Each object type MUST use a DISTINCT color. Player=blue(0.2,0.4,0.9), ground=brown(0.35,0.25,0.15), buildings=tan(0.85,0.7,0.4), enemies=red(0.85,0.15,0.15), trees=green(0.1,0.55,0.1), turrets=gray(0.5,0.5,0.55), workers=orange(0.9,0.6,0.2), camera.backgroundColor=sky blue(0.6,0.8,1). NEVER same color for all objects.\n'
       + '8. ⛔ EXCEPTION TO "minimal changes": If the code uses StartCoroutine/IEnumerator/WaitForSeconds/WaitUntil/yield, you MUST rewrite ALL shot logic as an Update()-based state machine (_currentShot + _shotState + _shotTimer in switch/case). Coroutines do NOT work in Luna WebGL runtime injection.\n'
       + '9. Auto-play: Update() must include auto-play logic — if no joystick input for 2s, auto-move player toward _currentTarget.\n'
-      + '10. ⛔ CAMERA: ALL projects use top-down 45° orthographic view. GFM_Tools.EnsureMaterial() auto-sets this. Do NOT change camera to perspective or other angles.\n\n'
+      + '10. ⛔ CAMERA: ALL projects use top-down 45° orthographic view. Do NOT change camera to perspective or other angles.\n\n'
       + 'Apply the feedback fixes to the existing code. Preserve everything that works EXCEPT coroutines which must be rewritten.';
   } else {
     // === FULL GENERATION MODE (V3 三层结构) ===
@@ -1829,7 +1829,7 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
       + '5. Each UpdateShotN() handles the logic described in that Step of the timeline\n'
       + '6. Shot transitions: set _currentShot = N+1, _shotState = 0, _shotTimer = 0\n'
       + '7. ⛔ Object colors are specified in the 物件清单. Follow them exactly. NEVER make all objects the same color.\n'
-      + '8. ⛔ CAMERA: top-down 45° orthographic view (GFM_Tools.EnsureMaterial() auto-sets). Do NOT change.\n'
+      + '8. ⛔ CAMERA: top-down 45° orthographic view. Do NOT change.\n'
       + '9. Auto-play: if no joystick input for 2s, auto-move player toward current target.\n'
       + '10. Last step MUST call Luna.Unity.LifeCycle.GameEnded() + show CTA button (Luna.Unity.Playable.InstallFullGame())\n'
       + '11. You CAN call utility classes from the template (DOTween, PoolManager, etc.)\n'
@@ -2842,10 +2842,13 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
   // === Spec System: Extract specs + generate skeleton (if storyboard frames available) ===
   var skeleton = null;
   var specs = null;
-  if (!hasFeedback && specExtractor && skeletonGenerator && blueprint.storyboard && blueprint.storyboard.frames && blueprint.storyboard.frames.length > 0) {
+  var storyboardFrames = (blueprint.storyboard && blueprint.storyboard.frames && blueprint.storyboard.frames.length > 0)
+    ? blueprint.storyboard.frames
+    : (blueprint.storyboardFrames && blueprint.storyboardFrames.length > 0 ? blueprint.storyboardFrames : null);
+  if (!hasFeedback && specExtractor && skeletonGenerator && storyboardFrames) {
     try {
-      log('[coder] V5 Spec: extracting specs from ' + blueprint.storyboard.frames.length + ' storyboard frames...', taskId);
-      specs = await specExtractor.extractSpecs(blueprint.storyboard.frames, {
+      log('[coder] V5 Spec: extracting specs from ' + storyboardFrames.length + ' storyboard frames...', taskId);
+      specs = await specExtractor.extractSpecs(storyboardFrames, {
         projectName: blueprint.projectName || taskId,
         gameType: blueprint.gameType || 'SLG',
       });
@@ -3027,7 +3030,7 @@ async function generateCodeV4(blueprint, clientDir, log, taskId, engine) {
     + '- CTA: Luna.Unity.Playable.InstallFullGame()\n'
     + '- Start() must begin with scene cleanup: destroy all root objects except {"Main Camera","Directional Light","EventSystem","GameManager","__MaterialSource"}\n'
     + '- After cleanup: GFM_Create.ResetPool() + GFM_Create.InitMaterialFromScene()\n'
-    + '- Camera: top-down 45° orthographic (GFM_Tools.EnsureMaterial() auto-sets)\n'
+    + '- Camera: top-down 45° orthographic. Do NOT change.\n'
     + '- Auto-play: if no joystick input for 2s, auto-move player toward current target\n'
     + '- Each entity uses parallel arrays: eGo[], eActive[], eState[], eTimer[], eHP[]\n'
     + '- Entity Update dispatch: for each active entity, call its UpdateXxx() method\n'

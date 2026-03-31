@@ -259,12 +259,19 @@ ${compileEntries.join('\n')}
 }
 
 // ─── Stage4 Assembly ───
-// Strategy: copy the entire stage4-template (from real Unity/Luna export),
-// then ONLY replace UnityScriptsCompiler.js with our Bridge.NET compiled output.
+// Luna 7.1.0 format: single engine/scripts.js contains everything (Deserializers + engine + runtime)
+// Template from Windows jake project:build → LunaTemp/stage4/develop/
+// Build: template engine/scripts.js + compiled UnityScriptsCompiler.js → final engine/scripts.js
+// index.html is the entry point (renamed to iframe.html for downstream compatibility)
 const STAGE4_TEMPLATE = isLinux ? '/opt/luna/stage4-template' : path.join(__dirname, '..', 'stage4-from-nick', 'stage4', 'develop');
 
 function assembleStage4(stage4Dir, binDir, stage1Cache) {
   fs.mkdirSync(stage4Dir, { recursive: true });
+  fs.mkdirSync(path.join(stage4Dir, 'engine'), { recursive: true });
+
+  if (!fs.existsSync(STAGE4_TEMPLATE)) {
+    throw new Error('stage4-template not found at ' + STAGE4_TEMPLATE);
+  }
 
   const cpDir = (s, d) => {
     fs.mkdirSync(d, { recursive: true });
@@ -274,28 +281,47 @@ function assembleStage4(stage4Dir, binDir, stage1Cache) {
     }
   };
 
-  // Copy entire stage4 template (iframe.html, engine, assets, js, etc.)
-  if (fs.existsSync(STAGE4_TEMPLATE)) {
-    cpDir(STAGE4_TEMPLATE, stage4Dir);
-  } else {
-    throw new Error('stage4-template not found at ' + STAGE4_TEMPLATE);
+  // Copy index.html as iframe.html (7.1.0 uses index.html, downstream expects iframe.html)
+  const indexSrc = path.join(STAGE4_TEMPLATE, 'index.html');
+  const iframeSrc = path.join(STAGE4_TEMPLATE, 'iframe.html');
+  if (fs.existsSync(indexSrc)) {
+    fs.copyFileSync(indexSrc, path.join(stage4Dir, 'iframe.html'));
+  } else if (fs.existsSync(iframeSrc)) {
+    fs.copyFileSync(iframeSrc, path.join(stage4Dir, 'iframe.html'));
+  }
+  // Copy luna.json
+  const lunaJsonSrc = path.join(STAGE4_TEMPLATE, 'luna.json');
+  if (fs.existsSync(lunaJsonSrc)) {
+    fs.copyFileSync(lunaJsonSrc, path.join(stage4Dir, 'luna.json'));
   }
 
-  // Replace UnityScriptsCompiler.js with our compiled version
-  if (fs.existsSync(binDir)) {
-    const compiled = path.join(binDir, 'UnityScriptsCompiler.js');
-    if (fs.existsSync(compiled)) {
-      const dest = path.join(stage4Dir, 'engine', 'unity', 'bin', 'UnityScriptsCompiler.js');
-      fs.copyFileSync(compiled, dest);
-    }
+  // Copy asset/resource directories needed by Luna runtime
+  // 7.1.0 dirs: assets, cache, resources  (6.x had: assets, js, static, favicon)
+  for (const dir of ['assets', 'cache', 'resources', 'js', 'static', 'favicon']) {
+    const src = path.join(STAGE4_TEMPLATE, dir);
+    if (fs.existsSync(src)) cpDir(src, path.join(stage4Dir, dir));
   }
 
-  // luna.json already exists in template, but regenerate to be safe
-  // Generate luna.json
-  fs.writeFileSync(path.join(stage4Dir, 'luna.json'), JSON.stringify({
-    version: '6.4.0', platform: 'WebGL', optimizations: {}
-  }));
+  // Build engine/scripts.js = 7.1.0 engine (with built-in Deserializers) + compiled UnityScriptsCompiler
+  const engineScripts = path.join(STAGE4_TEMPLATE, 'engine', 'scripts.js');
+  const engineLegacy = path.join(STAGE4_TEMPLATE, 'engine', 'scripts-engine.js');
+  const engineBase = fs.existsSync(engineScripts) ? engineScripts : engineLegacy;
+  const compiled = path.join(binDir, 'UnityScriptsCompiler.js');
+
+  if (fs.existsSync(engineBase) && fs.existsSync(compiled)) {
+    const engine = fs.readFileSync(engineBase, 'utf-8');
+    const userCode = fs.readFileSync(compiled, 'utf-8');
+    // 7.1.0: Deserializers are built into engine/scripts.js — no separate deserializers.js needed
+    fs.writeFileSync(path.join(stage4Dir, 'engine', 'scripts.js'), engine + '\n' + userCode);
+  } else if (fs.existsSync(path.join(STAGE4_TEMPLATE, 'engine', 'scripts.js'))) {
+    // Fallback: copy full scripts.js from template
+    fs.copyFileSync(
+      path.join(STAGE4_TEMPLATE, 'engine', 'scripts.js'),
+      path.join(stage4Dir, 'engine', 'scripts.js')
+    );
+  }
 }
+
 
 // ─── iframe.html Generator ───
 function generateIframeHTML(stage4Dir) {
@@ -407,7 +433,7 @@ function generateIframeHTML(stage4Dir) {
     .join('\n');
 
   // ─── Luna $environment (for inline single-HTML mode) ───
-  const envScript = `var $environment={baseUrl:"./",resourceConfig:{json:"external",image:"external",video:"external",blob:"external",sound:"external"},packageConfig:{userId:"linux-build",version:"6.4.0"},playerPrefs:!0,forceIncludedClasses:["LunaUnity.Utils.CompressedResources","LunaUnity.Utils.ExternalResources","LunaUnity.Utils.InlineResources","LunaUnity.Utils.Network","LunaUnity.Audio.Manager","Luna.Unity.Analytics","Luna.Unity.Analytics.EventType","Luna.Unity.Playable","Luna.Unity.LifeCycle","Luna.Unity.HapticFeedbackType","Luna.Unity.CallbackTypes","Luna.Unity.Nucleo","Luna.Unity.Nucleo.EventTypes","Luna.Unity.TriggerTypes","Luna.Unity.BuildPlatforms","Luna.Unity.NativeShare","UnityEngine.AudioSource","UnityEngine.Debug","UnityEngine.GameObject","UnityEngine.ILogger","UnityEngine.Logger","UnityEngine.ILogHandler","UnityEngine.DebugLogHandler","UnityEngine.LogType","UnityEngine.Input","UnityEngine.Touch","UnityEngine.Cursor","UnityEngine.CursorLockMode","UnityEngine.CursorMode","UnityEngine.EventSystems.EventSystem","UnityEngine.EventSystems.ExecuteEvents","UnityEngine.EventSystems.BaseInput","UnityEngine.Object","UnityEngine.Object$1","UnityEngine.Component","UnityEngine.Component$1","UnityEngine.Behaviour$1","UnityEngine.Behaviour","UnityEngine.ColorSpace","UnityEngine.MonoBehaviour","UnityEngine.EventSystems.UIBehaviour","UnityEngine.EventSystems.BaseInputModule","UnityEngine.EventSystems.PointerInputModule","UnityEngine.EventSystems.StandaloneInputModule","UnityEngine.EventSystems.AbstractEventData","UnityEngine.EventSystems.BaseEventData","UnityEngine.EventSystems.AxisEventData","UnityEngine.PlayerPrefs","UnityEngine.LunaPlaygroundAssetAttribute","UnityEngine.LunaPlaygroundFieldAttribute","UnityEngine.LunaPlaygroundSectionAttribute","LunaUnity.Objects.Registry","UnityEngine.Application","TMPro.TextMeshProUGUI"],targetPlatform:"develop",runtimeAnalysisModules:["physics3d","physics2d","particle_system","reflection","prefabs","mecanim-wasm"]}`;
+  const envScript = `var $environment={baseUrl:"./",resourceConfig:{json:"external",image:"external",video:"external",blob:"external",sound:"external"},packageConfig:{userId:"linux-build",version:"7.1.0"},playerPrefs:!0,forceIncludedClasses:["LunaUnity.Utils.CompressedResources","LunaUnity.Utils.ExternalResources","LunaUnity.Utils.InlineResources","LunaUnity.Utils.Network","LunaUnity.Audio.Manager","Luna.Unity.Analytics","Luna.Unity.Analytics.EventType","Luna.Unity.Analytics.Applovin","Luna.Unity.Playable","Luna.Unity.LifeCycle","Luna.Unity.HapticFeedbackType","Luna.Unity.CallbackTypes","Luna.Unity.Nucleo","Luna.Unity.Nucleo.EventTypes","Luna.Unity.TriggerTypes","Luna.Unity.BuildPlatforms","Luna.Unity.NativeShare","UnityEngine.AudioSource","UnityEngine.Debug","UnityEngine.GameObject","UnityEngine.ILogger","UnityEngine.Logger","UnityEngine.ILogHandler","UnityEngine.DebugLogHandler","UnityEngine.LogType","UnityEngine.Input","UnityEngine.Touch","UnityEngine.Cursor","UnityEngine.CursorLockMode","UnityEngine.CursorMode","UnityEngine.EventSystems.EventSystem","UnityEngine.EventSystems.ExecuteEvents","UnityEngine.EventSystems.BaseInput","UnityEngine.Object","UnityEngine.Object$1","UnityEngine.Component","UnityEngine.Component$1","UnityEngine.Behaviour$1","UnityEngine.Behaviour","UnityEngine.ColorSpace","UnityEngine.MonoBehaviour","UnityEngine.EventSystems.UIBehaviour","UnityEngine.EventSystems.BaseInputModule","UnityEngine.EventSystems.PointerInputModule","UnityEngine.EventSystems.PointerInputModule.MouseState","UnityEngine.EventSystems.PointerInputModule.ButtonState","UnityEngine.EventSystems.PointerInputModule.MouseButtonEventData","UnityEngine.EventSystems.PointerEventData","UnityEngine.EventSystems.PointerEventData.FramePressState","UnityEngine.EventSystems.StandaloneInputModule","UnityEngine.EventSystems.AbstractEventData","UnityEngine.EventSystems.BaseEventData","UnityEngine.EventSystems.AxisEventData","UnityEngine.PlayerPrefs","UnityEngine.PlayerPrefs.LocalStorageProvider","UnityEngine.PlayerPrefs.FacebookStorageProvider","UnityEngine.PlayerPrefs.IProvider","UnityEngine.LunaPlaygroundAssetAttribute","UnityEngine.LunaPlaygroundFieldArrayLengthAttribute","UnityEngine.LunaPlaygroundFieldAttribute","UnityEngine.LunaPlaygroundFieldStepAttribute","UnityEngine.LunaPlaygroundSectionAttribute","UnityEngine.EventSystems.IEventSystemHandler","UnityEngine.EventSystems.IDeselectHandler","UnityEngine.EventSystems.ISelectHandler","UnityEngine.EventSystems.IPointerExitHandler","UnityEngine.EventSystems.IPointerEnterHandler","UnityEngine.EventSystems.IPointerUpHandler","UnityEngine.EventSystems.IPointerDownHandler","UnityEngine.EventSystems.IMoveHandler","UnityEngine.UI.Selectable","UnityEngine.UI.ScrollRect","UnityEngine.UI.InputField","System.Attribute","System.Exception","System.SystemException","System.NullReferenceException","System.ArgumentException","System.ArgumentOutOfRangeException","System.AggregateException","System.Enum","System.Int32","System.IComparable","System.ICloneable","System.String","System.IAsyncResult","System.IDisposable","System.Threading.Tasks.Task","System.Threading.Tasks.TaskCompletionSource","System.Collections.ICollection","System.Collections.IDictionary","System.Collections.IEnumerable","System.Collections.IEnumerator","System.Collections.Generic.IReadOnlyCollection$1","System.Collections.Generic.IReadOnlyDictionary$2","System.Collections.Generic.IEnumerable$1","System.Collections.Generic.ICollection$1","System.Collections.Generic.KeyValuePair$2","System.Collections.Generic.IDictionary$2","System.Collections.Generic.Dictionary$2","System.Collections.Generic.IEnumerator$1","System.Collections.Generic.Dictionary$2.ValueCollection.Enumerator","System.Collections.HashHelpers","System.Collections.Generic.List$1","System.Text.RegularExpressions.Regex","System.Text.RegularExpressions.RegexEngine","System.Text.RegularExpressions.Match","System.Text.RegularExpressions.Capture","System.Text.RegularExpressions.RegexOptions","System.Text.RegularExpressions.RegexRunner","System.Text.RegularExpressions.RegexEngineParser","System.Text.RegularExpressions.RegexParser","System.Text.RegularExpressions.RegexNode","System.Text.RegularExpressions.RegexReplacement","System.Text.RegularExpressions.RegexEngineBranch","System.Text.RegularExpressions.RegexEngineState","System.Text.RegularExpressions.RegexEngineBranch","System.Text.RegularExpressions.RegexEnginePass","System.Text.RegularExpressions.RegexEngineProbe","LunaUnity.Objects.Registry","UnityEngine.Application","TMPro.TextMeshProUGUI"],targetPlatform:"develop",runtimeAnalysisModules:["physics3d","physics2d","particle_system","reflection","prefabs","mecanim-wasm"]}`;
 
   // ─── Luna bootstrap (loaded from luna-bootstrap.html file) ───
   const bootstrapFile = path.join(__dirname, 'luna-bootstrap.html');
@@ -443,6 +469,35 @@ function injectGameManager(stage4Dir, className) {
 
   // The injection script from worker-bridge-build.js (polyfills + game loop)
   const injectionScript = `<script>
+// Force preserveDrawingBuffer for CUA/QuickPlayTest pixel reading
+(function() {
+  var _origGetCtx = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function(type, attrs) {
+    if (type === 'webgl' || type === 'webgl2') {
+      attrs = Object.assign(attrs || {}, { preserveDrawingBuffer: true });
+    }
+    return _origGetCtx.call(this, type, attrs);
+  };
+})();
+// Fallback: if pi.ready() never fires, manually trigger startGame() after 3s
+(function() {
+  var _sgTimer = setTimeout(function() {
+    if (typeof window.app === 'undefined' && typeof window.startGame === 'function') {
+      console.log("[AI] pi.ready() did not fire — manually calling startGame()");
+      try { window.startGame(); } catch(e) { console.error("[AI] startGame() error:", e); }
+    }
+  }, 3000);
+  // Cancel timer if app is created normally
+  var _origDesc = Object.getOwnPropertyDescriptor(window, 'app');
+  if (!_origDesc || !_origDesc.get) {
+    var _appVal;
+    Object.defineProperty(window, 'app', {
+      get: function() { return _appVal; },
+      set: function(v) { _appVal = v; clearTimeout(_sgTimer); },
+      configurable: true
+    });
+  }
+})();
 window.addEventListener("luna:starting", function() {
   try {
     var origGetBuiltin = UnityEngine.Resources.GetBuiltinResource;
@@ -486,7 +541,7 @@ window.addEventListener("luna:starting", function() {
     console.log("[AI] Polyfills installed");
   } catch(e) { console.error("[AI] Polyfill error:", e); }
 });
-window.addEventListener("luna:started", function() {
+window.addEventListener("luna:startup:shaderReady", function() { setTimeout(function() {
   try {
     // Patch GFM_Create.SetColor BEFORE Start() so we capture all color assignments
     var __poolColorCache = {};
@@ -616,12 +671,17 @@ window.addEventListener("luna:started", function() {
             var hidden = 0;
             for (var i = 0; i < base.children.length; i++) {
               var child = base.children[i];
+              // Skip __Pool_ objects — they are used by AI code via GFM_Create.Obj()
+              if (child.name && child.name.indexOf('__Pool_') === 0) continue;
+              // Skip system objects
+              if (child.name && (child.name === 'Main Camera' || child.name === 'Directional Light' 
+                  || child.name === 'EventSystem' || child.name === 'GameManager' || child.name === 'Canvas')) continue;
               if (child.setPosition) {
                 child.setPosition(0, -9999, 0);
                 hidden++;
               }
             }
-            console.log("[AI] Hidden " + hidden + " __BaseTemplate children to prevent overlap");
+            console.log("[AI] Hidden " + hidden + " __BaseTemplate non-pool children");
           }
         } catch(e) { console.error("[AI] hideBaseTemplate error:", e); }
       })();
@@ -736,10 +796,18 @@ window.addEventListener("luna:started", function() {
     }
     console.log("[AI] ${className} injected successfully");
   } catch(e) { console.error("[AI] Failed to inject:", e); }
+  }, 500);
 });
 <\/script>`;
 
-  if (html.includes('</body>')) {
+  // 7.1.0 fix: inject event listeners BEFORE engine script (not after).
+  // convertToSingleHTML inlines engine/scripts.js (removes defer), so luna:started
+  // fires synchronously during engine init. Listeners must be registered earlier.
+  if (html.includes('<script src="engine/scripts.js"')) {
+    // Insert our listeners RIGHT BEFORE the engine script tag
+    html = html.replace('<script src="engine/scripts.js"', injectionScript + '\n<script src="engine/scripts.js"');
+  } else if (html.includes('</body>')) {
+    // Fallback for non-7.1.0 templates
     html = html.replace('</body>', injectionScript + '</body>');
   } else {
     html += injectionScript;
@@ -748,19 +816,23 @@ window.addEventListener("luna:started", function() {
   fs.writeFileSync(iframePath, html);
 }
 
-// ─── script1.js Patch ───
+// ─── script1.js Patch (applies to merged scripts.js in Luna 7.1.0) ───
 function patchScript1(stage4Dir, log, taskId) {
+  // Luna 7.1.0: all engine code is in engine/scripts.js
+  const scriptsPath = path.join(stage4Dir, 'engine', 'scripts.js');
+  // Fallback: old Luna 6.x format
   const script1Path = path.join(stage4Dir, 'engine', 'luna', 'script1.js');
-  if (!fs.existsSync(script1Path)) return;
+  const targetPath = fs.existsSync(scriptsPath) ? scriptsPath : (fs.existsSync(script1Path) ? script1Path : null);
+  if (!targetPath) return;
 
-  let script1 = fs.readFileSync(script1Path, 'utf-8');
+  let content = fs.readFileSync(targetPath, 'utf-8');
   const oldPattern = '_invokeOverload(e){try{const t=this.code.overloads[e+"()"]';
   const newPattern = '_invokeOverload(e){try{if(!this.code||!this.code.overloads)return;const t=this.code.overloads[e+"()"]';
 
-  if (script1.includes(oldPattern)) {
-    script1 = script1.replace(oldPattern, newPattern);
-    fs.writeFileSync(script1Path, script1);
-    log('[linux-build] ✅ Patched script1.js _invokeOverload', taskId);
+  if (content.includes(oldPattern)) {
+    content = content.replace(oldPattern, newPattern);
+    fs.writeFileSync(targetPath, content);
+    log(`[linux-build] ✅ Patched _invokeOverload in ${path.basename(targetPath)}`, taskId);
   }
 }
 
@@ -875,8 +947,35 @@ if(_imgSet&&_imgSet.set){
   // Inject interceptor after <body>
   html = html.replace('<body>', '<body>' + interceptor);
 
+  // Inject __gameState polling bridge: reads gameObject.name set by skeleton's UpdateGameState()
+  // Skeleton sets gameObject.name = "GFM|" + json in C#.
+  // Bridge.NET transpiles this to Playcanvas entity._name. We poll all root entities to find it.
+  const gameStateBridge = `<script>
+(function(){
+  setInterval(function(){
+    try{
+      var app=pc.app||pc.Application.getApplication();
+      if(!app||!app.root)return;
+      var all=app.root.findByName?null:null;
+      // Scan all children recursively for entity with name starting with "GFM|"
+      function scan(node){
+        if(!node)return null;
+        var n=node._name||node.name||'';
+        if(n.indexOf('GFM|')===0)return n;
+        var c=node._children||node.children||[];
+        for(var i=0;i<c.length;i++){var r=scan(c[i]);if(r)return r;}
+        return null;
+      }
+      var found=scan(app.root);
+      if(found){try{window.__gameState=JSON.parse(found.substring(4))}catch(e){}}
+    }catch(e){}
+  },500);
+})();
+<\/script>`;
+  html = html.replace('</body>', gameStateBridge + '</body>');
+
   // Replace external script src with inline content
-  html = html.replace(/<script\s+src="([^"]+)"\s+defer="defer"\s+type="text\/javascript"><\/script>/g, (match, src) => {
+  html = html.replace(/<script\s+src="([^"]+)"\s+defer="defer"(?:\s+type="text\/javascript")?><\/script>/g, (match, src) => {
     const normalizedSrc = src.replace(/\\/g, '/');
     const fp = path.join(stage4Dir, normalizedSrc);
     if (fs.existsSync(fp)) {

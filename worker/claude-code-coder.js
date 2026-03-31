@@ -22,11 +22,24 @@ try {
 
 // ============ Config ============
 const CLAUDE_CMD = process.env.CLAUDE_CMD || 'claude';
-const CLAUDE_TIMEOUT_MS = parseInt(process.env.CLAUDE_TIMEOUT_MS) || 5 * 60 * 1000; // 5 min (was 10 min — timeouts produce stubs, early kill + retry is faster)
-const CLAUDE_MAX_BUDGET = process.env.CLAUDE_MAX_BUDGET_USD || '3';
+const CLAUDE_TIMEOUT_MS = parseInt(process.env.CLAUDE_TIMEOUT_MS) || 20 * 60 * 1000; // 20 min (12 min timed out when 3 tasks run concurrently through proxy)
+const CLAUDE_MAX_BUDGET = process.env.CLAUDE_MAX_BUDGET_USD || '5';
 const CLAUDE_MODEL = process.env.CLAUDE_CODE_MODEL || 'claude-opus-4-6';
+const GLM_MODEL = process.env.GLM_MODEL || 'glm-5.1';
+const GLM_API_BASE = process.env.GLM_API_BASE || 'https://api.aaxe.cn/api/anthropic';
+const GLM_API_KEY = process.env.GLM_API_KEY || 'oki-d82fb9cf928492b23847db9569dd1f912906cc09135c62fe20b5fa3f0576';
 const SYSTEM_PROMPT_PATH = path.join(__dirname, 'luna-claude-code.md');
 const BUILD_URL = process.env.LINUX_BUILD_URL || 'http://localhost:3080';
+
+// ============ Global concurrency lock — DISABLED (allow parallel Claude Code) ============
+async function acquireLock(taskId, log) {
+  log(`[claude-lock] Lock disabled, proceeding immediately`, taskId);
+  return true;
+}
+
+function releaseLock(taskId, log) {
+  // no-op
+}
 
 /**
  * 准备 Claude Code 工作目录
@@ -52,18 +65,19 @@ function prepareWorkDir(workDir, blueprint, prompt, skeleton, log, taskId) {
   fs.writeFileSync(path.join(workDir, 'blueprint.json'), JSON.stringify(blueprint, null, 2));
 
   // 3. prompt.md — V5 prompt（对象分配表 + 实体行为 + 事件规则）
-  let promptContent = prompt;
+  fs.writeFileSync(path.join(workDir, 'prompt.md'), prompt);
+
+  // 3b. 如果有 skeleton，直接写入 .cs 文件（省去 Claude Code 读 prompt 再复制的时间）
   if (skeleton) {
-    promptContent += '\n\n## CODE SKELETON (MANDATORY)\n\n'
-      + '⚠️ 必须使用此骨架作为基础：\n'
-      + '1. 填充所有 TODO 标记的部分\n'
-      + '2. 不要删除 [SKELETON] 标记的行\n'
-      + '3. 不要删除 phaseTimer 检查\n'
-      + '4. 不要修改 CheckEventRules() 的跳转条件\n'
-      + '5. 可以添加新方法和变量\n\n'
-      + '```csharp\n' + skeleton + '\n```\n';
+    const csPath = path.join(managerDir, 'GameFlowManagerMain.cs');
+    fs.writeFileSync(csPath, skeleton);
+    // 同时在 prompt.md 末尾加一行提示
+    fs.appendFileSync(path.join(workDir, 'prompt.md'),
+      '\n\n## CODE SKELETON\n\n'
+      + '⚠️ 骨架代码已预写入 `Assets/Program/Script/Manager/GameFlowManagerMain.cs`。\n'
+      + '请直接在该文件上修改和填充 TODO，不需要从头创建文件。\n'
+      + '规则：不要删除 [SKELETON] 标记行、phaseTimer 检查、CheckEventRules() 跳转条件。\n');
   }
-  fs.writeFileSync(path.join(workDir, 'prompt.md'), promptContent);
 
   // 4. GFM_Tools.cs — API 参考
   const gfmSrc = path.join(__dirname, 'GFM_Tools.cs');
@@ -144,7 +158,7 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
   return new Promise((resolve, reject) => {
     const args = [
       '--print',                              // 非交互模式
-      '--model', CLAUDE_MODEL,
+      '--model', (opts.useGlm ? GLM_MODEL : CLAUDE_MODEL),
       '--output-format', 'text',
       '--max-budget-usd', CLAUDE_MAX_BUDGET,
       '--no-session-persistence',              // 不保存 session（每次全新）
@@ -164,8 +178,8 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
       env: {
         ...process.env,
         // 确保用正确的 API 配置
-        ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL || 'https://chat.nuoda.vip/claudecode',
-        ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
+        ANTHROPIC_BASE_URL: opts.useGlm ? GLM_API_BASE : (process.env.ANTHROPIC_BASE_URL || 'https://chat.nuoda.vip/claudecode'),
+        ANTHROPIC_API_KEY: opts.useGlm ? GLM_API_KEY : (process.env.ANTHROPIC_API_KEY || ''),
         // 禁止 Claude Code 在内部再次尝试 OAuth
         CLAUDE_CODE_SIMPLE: '1',
       },
@@ -274,10 +288,13 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
 
   // === Step 2: Spec + Skeleton（可选）===
   let skeleton = null;
-  if (!hasFeedback && specExtractor && skeletonGenerator && blueprint.storyboard && blueprint.storyboard.frames && blueprint.storyboard.frames.length > 0) {
+  const storyboardFrames = (blueprint.storyboard && blueprint.storyboard.frames && blueprint.storyboard.frames.length > 0)
+    ? blueprint.storyboard.frames
+    : (blueprint.storyboardFrames && blueprint.storyboardFrames.length > 0 ? blueprint.storyboardFrames : null);
+  if (!hasFeedback && specExtractor && skeletonGenerator && storyboardFrames) {
     try {
       log('[claude-code] Extracting specs from storyboard frames...', taskId);
-      const specs = await specExtractor.extractSpecs(blueprint.storyboard.frames, {
+      const specs = await specExtractor.extractSpecs(storyboardFrames, {
         projectName: blueprint.projectName || taskId,
         gameType: blueprint.gameType || 'SLG',
       });
@@ -309,17 +326,34 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
     userPrompt = `## 增量修复模式
 
 ⚠️ 这是一个 FIX 请求。保持现有代码结构，只修改反馈要求的部分。
+⚠️ 禁止重写整个文件！使用 Edit 工具做局部修改。
 
 请完成以下步骤：
-1. 阅读 blueprint.json 了解蓝图需求
-2. 阅读 prompt.md 了解对象分配表和详细需求（包含反馈信息）
-3. 阅读现有的 Assets/Program/Script/Manager/GameFlowManagerMain.cs
-4. 根据反馈修复代码
+1. 阅读 prompt.md 了解详细需求（包含反馈信息）
+2. 阅读现有的 Assets/Program/Script/Manager/GameFlowManagerMain.cs（1000+ 行）
+3. 使用 Edit 工具（不是 Write）根据反馈做**局部修改**
+4. 只修改反馈提到的具体问题，不要动其他代码
 5. 运行 bash build-test.sh 验证编译
-6. 如果编译失败，修复错误并重试
-7. 编译通过后完成`;
+6. 如果编译失败，用 Edit 修复错误并重试
+7. 编译通过后完成
+
+重要：修改后文件行数不应减少。如果你发现文件变短了，说明你错误地重写了整个文件。`;
   } else {
-    userPrompt = `请完成以下步骤生成 Luna 试玩广告代码：
+    userPrompt = skeleton
+      ? `请完成以下步骤生成 Luna 试玩广告代码：
+
+1. 阅读 prompt.md 了解详细需求（对象分配表、实体行为、事件规则）
+2. 阅读 GFM_Tools.cs 了解可用 API（只读参考，不要修改）
+3. 阅读 behavior-templates.md 了解行为模板参考
+4. 打开 Assets/Program/Script/Manager/GameFlowManagerMain.cs — 骨架代码已预填充
+5. 填充所有 TODO 标记的部分，实现完整游戏逻辑
+6. 代码必须遵循 CLAUDE.md 中的所有规则
+7. 运行 bash build-test.sh 验证编译是否通过
+8. 如果编译失败，阅读错误信息，修复代码，再次运行 build-test.sh
+9. 重复修复直到编译通过
+
+重要：骨架已在 .cs 文件中，直接在此基础上填充。代码必须完整（通常 1300-1600 行），不要省略任何部分。`
+      : `请完成以下步骤生成 Luna 试玩广告代码：
 
 1. 阅读 blueprint.json 了解蓝图结构（节点、边、实体）
 2. 阅读 prompt.md 了解详细需求（对象分配表、实体行为、事件规则）
@@ -334,12 +368,28 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
 重要：代码必须完整（通常 1300-1600 行），不要省略任何部分。`;
   }
 
-  // === Step 5: 运行 Claude Code ===
+  // === Step 5: 运行 Claude Code（全局串行锁，避免代理限流）===
+  await acquireLock(taskId, log);
   log('[claude-code] 🚀 Starting Claude Code agent...', taskId);
-  const result = await runClaudeCode(clientDir, userPrompt, log, taskId, {
-    appendSystemPrompt: hasFeedback ? 'This is an incremental fix. Read the existing code and feedback before making changes.' : null,
+  let result;
+  try {
+  const useGlm = hasFeedback; // skeleton fill -> Opus 4.6, all fixes -> GLM 5.1
+  log(`[claude-code] Model: ${useGlm ? 'GLM 5.1' : 'Opus 4.6'}`, taskId);
+  result = await runClaudeCode(clientDir, userPrompt, log, taskId, {
+    useGlm: useGlm,
+    appendSystemPrompt: hasFeedback
+      ? 'INCREMENTAL FIX MODE — CRITICAL RULES:\n'
+        + '1. Use the Edit tool (NOT Write) to modify GameFlowManagerMain.cs\n'
+        + '2. NEVER rewrite the entire file — only change the specific lines that need fixing\n'
+        + '3. The existing code is 1000+ lines. Your edits must preserve all existing code.\n'
+        + '4. Read the existing .cs file FIRST, then apply targeted edits based on the feedback.\n'
+        + '5. If the file becomes shorter after your edits, you have made a mistake.'
+      : null,
     workDir: clientDir,
   });
+  } finally {
+    releaseLock(taskId, log);
+  }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   log(`[claude-code] Agent finished in ${elapsed}s, ok=${result.ok}`, taskId);
@@ -370,6 +420,20 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
 
   log(`[claude-code] ✅ Code generated: ${lineCount} lines, ${findCalls} Find() calls, ${gfmCreateCalls} GFM_Create.Obj() calls`, taskId);
 
+  // === 增量修复回退保护：如果修复后代码变短了超过 30%，恢复原始代码 ===
+  if (hasFeedback && opts.existingCode) {
+    const origLines = opts.existingCode.split('\n').length;
+    if (lineCount < origLines * 0.7) {
+      log(`[claude-code] ⚠️ REGRESSION DETECTED: code shrank from ${origLines} to ${lineCount} lines (${Math.round((1 - lineCount/origLines) * 100)}% reduction). Restoring original.`, taskId);
+      fs.writeFileSync(mainFilePath, opts.existingCode);
+      return {
+        ok: false,
+        error: `Incremental fix regressed code from ${origLines} to ${lineCount} lines — restored original`,
+        regression: true,
+      };
+    }
+  }
+
   if (gfmCreateCalls > 0) {
     log('[claude-code] ⚠️ WARNING: AI used GFM_Create.Obj() — should use Find() instead', taskId);
   }
@@ -378,10 +442,18 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
   }
 
   // === Stub 检测：空壳代码不允许进入修复循环 ===
-  if (lineCount < 100 || findCalls === 0) {
+  // Count real unfilled TODOs (not skeleton section markers like TODO_VARIABLES_START/END)
+  const realTodoCount = (mainSrc.match(/\/\/ TODO(?!_\w+(?:START|END))/gi) || []).length;
+  // Check if skeleton was completely unmodified: [SKELETON] markers present AND code didn't grow
+  const skeletonLineCount = skeleton ? skeleton.split('\n').length : 0;
+  const codeGrowthRatio = skeletonLineCount > 0 ? lineCount / skeletonLineCount : 999;
+  const isUnmodifiedSkeleton = /\[SKELETON\]/.test(mainSrc) && codeGrowthRatio < 1.5;
+  if (lineCount < 100 || findCalls === 0 || isUnmodifiedSkeleton) {
     const stubReason = lineCount < 100
       ? `Only ${lineCount} lines (need ≥100)`
-      : `0 GameObject.Find() calls (objects won't be loaded)`;
+      : isUnmodifiedSkeleton
+        ? `Skeleton barely modified (${skeletonLineCount}→${lineCount} lines, ${codeGrowthRatio.toFixed(1)}x growth) — Claude Code likely timed out`
+        : `0 GameObject.Find() calls (objects won't be loaded)`;
     log(`[claude-code] ❌ STUB CODE DETECTED: ${stubReason}. Rejecting output.`, taskId);
     // 清空 feedbackHistory 强制下一轮走 FULL_GENERATION
     if (blueprint.feedbackHistory && blueprint.feedbackHistory.length > 0) {
@@ -390,9 +462,12 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
     }
     return {
       ok: false,
-      error: `Stub code detected (${lineCount} lines, ${findCalls} Find calls) — need full regeneration`,
+      error: `Stub code detected (${lineCount} lines, ${findCalls} Find calls, growth=${codeGrowthRatio.toFixed(1)}x) — need full regeneration`,
       stubDetected: true,
     };
+  }
+  if (codeGrowthRatio < 3 && codeGrowthRatio >= 1.5) {
+    log(`[claude-code] ⚠️ WARNING: Code only grew ${codeGrowthRatio.toFixed(1)}x from skeleton (${skeletonLineCount}→${lineCount}). May be partially filled.`, taskId);
   }
 
   // Post-fix: 替换泛型方法（Luna 不支持）
