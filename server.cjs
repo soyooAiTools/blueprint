@@ -799,6 +799,29 @@ handlers.deleteProject = function(req, res, body, id) {
 
 // ============ Worker API Handlers ============
 
+// In-memory lock: tracks which tasks are currently claimed (prevents race between near-simultaneous polls)
+// Rebuilt from filesystem on startup so server restart doesn't lose lock state
+var claimedTasks = {};
+(function rebuildClaimedTasks() {
+  try {
+    if (!fs.existsSync(AUTOCODING_QUEUE)) return;
+    var files = fs.readdirSync(AUTOCODING_QUEUE);
+    files.filter(function(f) { return f.endsWith('.json') && !f.includes('-blueprint') && !f.includes('.cancelled'); }).forEach(function(f) {
+      try {
+        var task = JSON.parse(fs.readFileSync(path.join(AUTOCODING_QUEUE, f), 'utf-8'));
+        if ((task.status === 'assigned' || task.status === 'processing') && task.taskId && task.assignedTo) {
+          claimedTasks[task.taskId] = { workerId: task.assignedTo, time: Date.now() };
+          console.log('[Boot] Rebuilt lock: task ' + task.taskId + ' -> ' + task.assignedTo + ' (status: ' + task.status + ')');
+        }
+      } catch (e) { /* skip bad files */ }
+    });
+    var lockCount = Object.keys(claimedTasks).length;
+    if (lockCount > 0) console.log('[Boot] Rebuilt ' + lockCount + ' task lock(s) from filesystem');
+  } catch (e) {
+    console.warn('[Boot] Failed to rebuild claimed tasks: ' + e.message);
+  }
+})();
+
 // GET /api/worker/poll?workerId=xxx
 handlers.workerPoll = function(req, res, body) {
   var parsedUrl = url.parse(req.url, true);
@@ -829,6 +852,10 @@ handlers.workerPoll = function(req, res, body) {
       // Skip tasks already assigned/processing by another worker
       var taskAvailable = (task.status === 'pending' || task.status === 'fix_needed');
       if (task.status === 'assigned' || task.status === 'processing') taskAvailable = false;
+      // In-memory race prevention: if task is claimed by ANY worker, skip (no time window - persists until completion or stale recovery)
+      if (claimedTasks[task.taskId] && claimedTasks[task.taskId].workerId !== workerId) {
+        taskAvailable = false;
+      }
 
       if (taskAvailable) {
         var originalStatus = task.status;
@@ -840,6 +867,8 @@ handlers.workerPoll = function(req, res, body) {
         task.status = 'assigned';
         task.assignedTo = workerId;
         task.assignedAt = new Date().toISOString();
+        // In-memory lock: prevent other workers from claiming during file write gap
+        claimedTasks[task.taskId] = { workerId: workerId, time: Date.now() };
         fs.writeFileSync(taskPath, JSON.stringify(task, null, 2), 'utf-8');
 
         task.originalStatus = (originalStatus === 'pending' || originalStatus === 'fix_needed') ? originalStatus : 'pending';
@@ -978,6 +1007,14 @@ handlers.workerStatus = function(req, res, body) {
       }
 
       fs.writeFileSync(taskPath, JSON.stringify(task, null, 2), 'utf-8');
+    }
+
+    // Clean up in-memory lock when task reaches terminal state
+    if (status === 'done' || status === 'cua_passed' || status === 'failed') {
+      if (claimedTasks[taskId]) {
+        console.log('[Lock] Released lock for task ' + taskId + ' (status: ' + status + ')');
+        delete claimedTasks[taskId];
+      }
     }
 
     sendJSON(res, { success: true, taskId: taskId, status: status });
@@ -2866,6 +2903,11 @@ setInterval(function() {
                 }
               }
             }
+          }
+          // Clear in-memory lock so task can be re-claimed
+          if (claimedTasks[task.taskId]) {
+            console.log('[Stale Recovery] Released lock for task ' + task.taskId);
+            delete claimedTasks[task.taskId];
           }
           fs.writeFileSync(fp, JSON.stringify(task, null, 2), 'utf-8');
         }

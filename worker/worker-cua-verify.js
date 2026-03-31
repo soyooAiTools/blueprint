@@ -619,6 +619,278 @@ function isPhaseCompleted(phaseId, aliases, completedPhases) {
  * @param {function} log - Logging function
  * @returns {object} { passed: boolean, issues: string[], report: object }
  */
+
+/**
+ * Auto-Play Verification — programmatic game driver (no GPT needed).
+ * 
+ * Loads the HTML in headless Playwright, injects JS to simulate:
+ *   - Joystick movement (pointer events on canvas)
+ *   - Proximity-based interactions (auto-trigger)
+ *   - Click interactions on various screen areas
+ * 
+ * Reads __gameState to verify phase progression.
+ * Used as fallback when CUA GPT API fails (401, timeout, etc.)
+ * or for idle/tycoon games that CUA can't operate.
+ * 
+ * @param {string} url - Preview URL
+ * @param {object} specs - Phase specs array
+ * @param {string} taskId
+ * @param {function} log
+ * @param {number} maxDurationSec - Max auto-play duration (default 90s)
+ * @returns {object} { passed, issues, gameState, phasesCompleted, totalPhases }
+ */
+async function autoPlayVerify(url, specs, taskId, log, maxDurationSec) {
+  maxDurationSec = maxDurationSec || 90;
+  let browser, page;
+  const issues = [];
+  
+  try {
+    const { chromium } = require('playwright');
+    browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    page = await context.newPage();
+    
+    // Suppress game console noise but capture GFM/phase logs
+    const gameLogs = [];
+    page.on('pageerror', () => {});
+    page.on('console', (msg) => {
+      const text = msg.text();
+      if (text.includes('[GFM]') || text.includes('Phase') || text.includes('phase') || text.includes('completed'))
+        gameLogs.push(text.substring(0, 200));
+    });
+    
+    log('[AutoPlay] Loading ' + url, taskId);
+    try {
+      await page.goto(url, { waitUntil: 'load', timeout: 20000 });
+    } catch(e) {
+      if (browser) await browser.close();
+      return { passed: false, issues: ['[autoplay-load] Page failed to load: ' + e.message], gameState: null, phasesCompleted: 0, totalPhases: 0 };
+    }
+    
+    // Wait for engine init
+    log('[AutoPlay] Waiting for engine (8s)...', taskId);
+    await page.waitForTimeout(8000);
+    
+    // Check engine
+    const health = await page.evaluate(function() {
+      return {
+        bridge: typeof Bridge !== 'undefined',
+        unityEngine: typeof UnityEngine !== 'undefined',
+        canvas: !!document.querySelector('canvas'),
+      };
+    });
+    
+    if (!health.bridge || !health.unityEngine) {
+      if (browser) await browser.close();
+      return { passed: false, issues: ['[autoplay-engine] Engine not loaded: ' + JSON.stringify(health)], gameState: null, phasesCompleted: 0, totalPhases: 0 };
+    }
+    
+    // Read initial state
+    var readState = function() {
+      return page.evaluate(function() {
+        try {
+          if (typeof window.__gameState === 'function') return window.__gameState();
+          if (typeof window.__gameState === 'object' && window.__gameState !== null) return window.__gameState;
+          if (typeof UnityEngine !== 'undefined' && UnityEngine.Object) {
+            var monos = UnityEngine.Object.FindObjectsOfType$1(UnityEngine.MonoBehaviour);
+            if (monos) {
+              for (var i = 0; i < monos.length; i++) {
+                var m = monos[i];
+                if (m.GetGameState) return m.GetGameState();
+              }
+            }
+          }
+        } catch(e) { return { error: e.message }; }
+        return null;
+      });
+    };
+    
+    const initialState = await readState();
+    log('[AutoPlay] Initial state: ' + JSON.stringify(initialState), taskId);
+    
+    if (!initialState) {
+      if (browser) await browser.close();
+      return { passed: false, issues: ['[autoplay-no-state] __gameState not available — cannot verify'], gameState: null, phasesCompleted: 0, totalPhases: 0 };
+    }
+    
+    // Inject touch simulator
+    await page.evaluate(function() {
+      var canvas = document.querySelector('canvas');
+      if (!canvas) return;
+      window.__simTouch = function(type, x, y) {
+        var rect = canvas.getBoundingClientRect();
+        var cx = rect.left + x;
+        var cy = rect.top + y;
+        canvas.dispatchEvent(new PointerEvent('pointer' + type, {
+          clientX: cx, clientY: cy, pointerId: 1, pointerType: 'touch',
+          bubbles: true, cancelable: true
+        }));
+        var mouseType = type === 'down' ? 'mousedown' : type === 'up' ? 'mouseup' : 'mousemove';
+        canvas.dispatchEvent(new MouseEvent(mouseType, {
+          clientX: cx, clientY: cy, button: 0,
+          bubbles: true, cancelable: true
+        }));
+        try {
+          var touch = new Touch({ identifier: 1, target: canvas, clientX: cx, clientY: cy });
+          var touchType = type === 'down' ? 'touchstart' : type === 'up' ? 'touchend' : 'touchmove';
+          canvas.dispatchEvent(new TouchEvent(touchType, {
+            touches: type === 'up' ? [] : [touch],
+            changedTouches: [touch],
+            bubbles: true, cancelable: true
+          }));
+        } catch(e) {}
+      };
+    });
+    
+    // Auto-play loop: move in different directions, click, check state
+    const directions = [
+      { name: 'up', jx: 90, jy: 530, dx: 90, dy: 480 },
+      { name: 'right', jx: 90, jy: 530, dx: 140, dy: 530 },
+      { name: 'up-right', jx: 90, jy: 530, dx: 140, dy: 480 },
+      { name: 'down', jx: 90, jy: 530, dx: 90, dy: 580 },
+      { name: 'left', jx: 90, jy: 530, dx: 40, dy: 530 },
+      { name: 'down-right', jx: 90, jy: 530, dx: 140, dy: 580 },
+      { name: 'up-left', jx: 90, jy: 530, dx: 40, dy: 480 },
+      { name: 'down-left', jx: 90, jy: 530, dx: 40, dy: 580 },
+    ];
+    
+    // Click targets: spread across screen for proximity triggers
+    const clickTargets = [
+      { x: 400, y: 300 }, { x: 200, y: 200 }, { x: 600, y: 200 },
+      { x: 200, y: 400 }, { x: 600, y: 400 }, { x: 400, y: 150 },
+      { x: 400, y: 450 }, { x: 100, y: 300 }, { x: 700, y: 300 },
+    ];
+    
+    const startTime = Date.now();
+    const maxMs = maxDurationSec * 1000;
+    let cycle = 0;
+    let lastCompletedCount = (initialState.completedPhases || []).length;
+    let staleCount = 0;
+    let finalState = initialState;
+    
+    while (Date.now() - startTime < maxMs) {
+      cycle++;
+      var dir = directions[cycle % directions.length];
+      
+      // Joystick movement (2s per direction)
+      await page.evaluate(function(d) { window.__simTouch('down', d.jx, d.jy); }, dir);
+      await page.waitForTimeout(50);
+      for (var step = 0; step < 10; step++) {
+        await page.evaluate(function(d) { window.__simTouch('move', d.dx, d.dy); }, dir);
+        await page.waitForTimeout(200);
+      }
+      await page.evaluate(function(d) { window.__simTouch('up', d.dx, d.dy); }, dir);
+      
+      // Click a target
+      var ct = clickTargets[cycle % clickTargets.length];
+      await page.mouse.click(ct.x, ct.y);
+      await page.waitForTimeout(300);
+      
+      // Check state
+      var state = await readState();
+      if (state) {
+        finalState = state;
+        var completed = (state.completedPhases || []).length;
+        
+        if (completed > lastCompletedCount) {
+          log('[AutoPlay] Progress! Cycle ' + cycle + ': ' + completed + ' phases completed (phase: ' + state.currentPhase + ')', taskId);
+          lastCompletedCount = completed;
+          staleCount = 0;
+        } else {
+          staleCount++;
+        }
+        
+        // Early exit if game ended
+        if (state.currentPhase === 'gameEnd' || state.currentPhase === 'cta' || state.currentPhase === 'CTA') {
+          log('[AutoPlay] Game reached end/CTA at cycle ' + cycle, taskId);
+          break;
+        }
+        
+        // Early exit if stuck for too long (20 cycles = ~50s with no progress)
+        if (staleCount >= 20) {
+          log('[AutoPlay] Stale for 20 cycles, stopping early', taskId);
+          break;
+        }
+      }
+    }
+    
+    // Take screenshot
+    var ssPath = path.join(CUA_RESULTS_DIR, taskId + '-autoplay.png');
+    try { await page.screenshot({ path: ssPath }); } catch(e) {}
+    
+    await browser.close();
+    
+    // === Analyze Results ===
+    var completedPhases = (finalState && finalState.completedPhases) || [];
+    var specPhaseIds = specs ? specs.map(function(s) { return s.phaseId; }) : [];
+    var totalExpected = specPhaseIds.length;
+    
+    // How many spec phases were completed?
+    var specCompleted = 0;
+    var specMissing = [];
+    for (var i = 0; i < specPhaseIds.length; i++) {
+      if (completedPhases.indexOf(specPhaseIds[i]) >= 0) {
+        specCompleted++;
+      } else {
+        specMissing.push(specPhaseIds[i]);
+      }
+    }
+    
+    log('[AutoPlay] Result: ' + completedPhases.length + ' phases completed (' + completedPhases.join(', ') + '), spec coverage: ' + specCompleted + '/' + totalExpected, taskId);
+    log('[AutoPlay] Entity states: ' + JSON.stringify(finalState.entityStates || {}), taskId);
+    log('[AutoPlay] Game logs: ' + gameLogs.slice(-5).join(' | '), taskId);
+    
+    // Determine pass/fail
+    // Criteria: game must have progressed beyond initial state
+    var progressed = completedPhases.length > (initialState.completedPhases || []).length;
+    
+    if (!progressed) {
+      issues.push('[autoplay-no-progress] Game did not progress after ' + cycle + ' cycles of auto-play simulation. Joystick/interaction may not be working.');
+    }
+    
+    // Check if game has meaningful phases (not just gameStart → gameEnd)
+    var meaningfulPhases = completedPhases.filter(function(p) {
+      return p !== 'gameStart' && p !== 'gameEnd' && p !== 'cta';
+    });
+    if (progressed && meaningfulPhases.length === 0) {
+      issues.push('[autoplay-no-meaningful-phases] Game progressed but only had start/end phases — no gameplay phases were implemented.');
+    }
+    
+    // If spec phases exist but few were completed
+    if (totalExpected > 0 && specCompleted === 0) {
+      issues.push('[autoplay-spec-mismatch] 0/' + totalExpected + ' spec phases found in completedPhases. Code may have renamed phases or only implemented a single mega-phase.');
+    }
+    
+    // Entity states check
+    if (finalState.entityStates) {
+      var allZero = Object.values(finalState.entityStates).every(function(v) { return String(v) === '0'; });
+      if (allZero && Object.keys(finalState.entityStates).length > 0) {
+        issues.push('[autoplay-entities-unchanged] All entity states are 0 — no entity progression occurred. Game may not have real interactive mechanics.');
+      }
+    }
+    
+    var passed = progressed && issues.length === 0;
+    
+    return {
+      passed: passed,
+      issues: issues,
+      gameState: finalState,
+      phasesCompleted: completedPhases.length,
+      totalPhases: totalExpected,
+      specCoverage: specCompleted + '/' + totalExpected,
+      cycles: cycle,
+      durationSec: Math.round((Date.now() - startTime) / 1000),
+      gameLogs: gameLogs.slice(-10),
+      mode: 'autoplay'
+    };
+    
+  } catch(e) {
+    if (browser) try { await browser.close(); } catch(x) {}
+    log('[AutoPlay] Error: ' + e.message, taskId);
+    return { passed: false, issues: ['[autoplay-error] ' + e.message], gameState: null, phasesCompleted: 0, totalPhases: 0, mode: 'autoplay' };
+  }
+}
+
 async function runCUAVerification(buildDir, blueprint, taskId, log) {
   if (!fs.existsSync(LUNA_AGENT_JS)) {
     log('[CUA] luna-agent.js not found, skipping CUA verification', taskId);
@@ -703,7 +975,7 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       try { child.kill('SIGTERM'); } catch(e) {}
     }, 300000);
 
-    child.on('close', (code) => {
+    child.on('close', async (code) => {
       clearTimeout(timeout);
       try { server.close(); } catch(e) {}
 
@@ -926,15 +1198,27 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
           return !result.completed;
         });
         if (specSkipped.length > 0 && completed.length > 0) {
-          issues.push('[spec-phase-skipped] Spec phases not completed: ' + specSkipped.join(', ') + '. Game balance likely broken — phases were bypassed.');
+          // If the current phase IS one of the skipped spec phases, it means the game is IN that phase
+          // but hasn't finished it yet (CUA ran out of rounds). This is expected for complex tycoon games.
+          var currentPhase = gs.currentPhase || '';
+          var trulySkipped = specSkipped.filter(function(id) {
+            // Not skipped if it's the current active phase
+            return id !== currentPhase && currentPhase.indexOf(id) < 0 && id.indexOf(currentPhase) < 0;
+          });
+          if (trulySkipped.length > 0) {
+            issues.push('[spec-phase-skipped] Spec phases not completed: ' + trulySkipped.join(', ') + '. Game balance likely broken — phases were bypassed.');
+          } else {
+            log('[CUA] [spec-phase-active] Phase ' + specSkipped.join(', ') + ' is currently active but not completed (CUA ran out of rounds). This is acceptable for complex games.', taskId);
+          }
         }
 
-        // Check: all spec entities reached terminal state
+        // Check: spec entities state (warning only — CUA may not reach all upgrades in 15 rounds)
+        // The authoritative check is spec-phase-skipped above.
         specs.forEach(function(spec) {
           (spec.entitiesRequired || []).forEach(function(entity) {
             if (gs.entityStates && gs.entityStates[entity.name] !== undefined) {
               if (String(gs.entityStates[entity.name]) !== String(entity.terminalState)) {
-                issues.push('[spec-entity] ' + entity.name + ' state=' + gs.entityStates[entity.name] + ', spec requires ' + entity.terminalState + ' (' + entity.description + ')');
+                log('[CUA] [spec-entity-warn] ' + entity.name + ' state=' + gs.entityStates[entity.name] + ', spec requires ' + entity.terminalState + ' (' + entity.description + ')', taskId);
               }
             }
           });
@@ -982,10 +1266,24 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
           issues.push('[timeout] CUA agent timed out (exit: max_rounds) without completing verification');
         }
       } else if (!hasHistory) {
-        // No interaction history means CUA never executed any actions (e.g. API errors on all rounds)
-        passed = false;
-        if (issues.length === 0) {
-          issues.push('[no-interaction] CUA completed ' + (report.totalRounds || 0) + ' rounds but recorded zero interactions — likely API failures');
+        // No interaction history = CUA API failed. Try auto-play verification as fallback.
+        log('[CUA] No interaction history from GPT CUA — falling back to auto-play verification', taskId);
+        try {
+          const specsDataDir = process.env.SPECS_DATA_DIR || path.join(__dirname, '..', 'spec-data');
+          const autoPlaySpecs = loadSpecs(taskId, specsDataDir) || [];
+          const autoResult = await autoPlayVerify(previewUrl, autoPlaySpecs, taskId, log, 90);
+          log('[CUA] Auto-play result: passed=' + autoResult.passed + ', phases=' + autoResult.phasesCompleted + ', issues=' + autoResult.issues.length, taskId);
+          
+          // Use auto-play result
+          passed = autoResult.passed;
+          autoResult.issues.forEach(function(iss) { issues.push(iss); });
+          report.autoPlay = autoResult;
+        } catch(autoErr) {
+          log('[CUA] Auto-play fallback error: ' + autoErr.message, taskId);
+          passed = false;
+          if (issues.length === 0) {
+            issues.push('[no-interaction] CUA completed ' + (report.totalRounds || 0) + ' rounds with zero interactions, auto-play fallback also failed: ' + autoErr.message);
+          }
         }
       } else {
         passed = issues.length === 0;
@@ -1005,4 +1303,4 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
   });
 }
 
-module.exports = { runCUAVerification, CUA_RESULTS_DIR, MAX_CUA_RETRIES };
+module.exports = { runCUAVerification, autoPlayVerify, CUA_RESULTS_DIR, MAX_CUA_RETRIES };

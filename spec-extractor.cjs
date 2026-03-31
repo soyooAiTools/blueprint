@@ -109,7 +109,8 @@ ${buildVerbDoc()}
 
 6. **triggerNext** 写成 C# 风格的条件表达式。
 
-7. 如果一个 chapter 内有多个子步骤（step），合并成一个 phase spec。
+7. 每个 chapter 对应一个 phase spec（一一对应，不要合并多个 chapter）。
+8. 重要：输出的 phase 数量必须等于输入的 chapter 数量。如果输入有 11 个 chapter，就必须输出 11 个 phase。绝对不要把所有内容合并成一个 phase。
 
 只输出 JSON 数组，不要其他内容。`;
 
@@ -125,10 +126,18 @@ async function extractSpecs(frames, opts = {}) {
   }
 
   // Group frames by chapter for context
+  // Assign chapter numbers: if frames lack chapter info, each frame = 1 chapter
+  // This prevents Gemini from merging all frames into a single mega-phase
   const chapters = {};
+  let autoChapter = 1;
   for (const frame of frames) {
-    const ch = frame.chapter || frame.chapterId || 1;
-    if (!chapters[ch]) chapters[ch] = { title: frame.chapterTitle || '', frames: [] };
+    let ch = frame.chapter || frame.chapterId;
+    if (!ch) {
+      // No chapter assigned — treat each frame as its own chapter
+      ch = autoChapter++;
+      frame.chapter = ch;  // mutate so Gemini sees chapter numbers in the JSON
+    }
+    if (!chapters[ch]) chapters[ch] = { title: frame.chapterTitle || frame.title || '', frames: [] };
     chapters[ch].frames.push(frame);
   }
 

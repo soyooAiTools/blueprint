@@ -24,7 +24,7 @@ try {
 const CLAUDE_CMD = process.env.CLAUDE_CMD || 'claude';
 const CLAUDE_TIMEOUT_MS = parseInt(process.env.CLAUDE_TIMEOUT_MS) || 20 * 60 * 1000; // 20 min (12 min timed out when 3 tasks run concurrently through proxy)
 const CLAUDE_MAX_BUDGET = process.env.CLAUDE_MAX_BUDGET_USD || '5';
-const CLAUDE_MODEL = process.env.CLAUDE_CODE_MODEL || 'claude-opus-4-6';
+const CLAUDE_MODEL = process.env.CLAUDE_CODE_MODEL || 'opus';  // 'opus' is the CLI alias for Claude Opus (claude-opus-4-6 breaks CLI model validation)
 const GLM_MODEL = process.env.GLM_MODEL || 'glm-5.1';
 const GLM_API_BASE = process.env.GLM_API_BASE || 'https://api.aaxe.cn/api/anthropic';
 const GLM_API_KEY = process.env.GLM_API_KEY || 'oki-d82fb9cf928492b23847db9569dd1f912906cc09135c62fe20b5fa3f0576';
@@ -178,7 +178,7 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
       env: {
         ...process.env,
         // 确保用正确的 API 配置
-        ANTHROPIC_BASE_URL: opts.useGlm ? GLM_API_BASE : (process.env.ANTHROPIC_BASE_URL || 'https://crs.mindrix.app/api/anthropic'),
+        // ANTHROPIC_BASE_URL: not set — let Claude CLI use its default API endpoint (crs.mindrix.app breaks model validation)
         ANTHROPIC_API_KEY: opts.useGlm ? GLM_API_KEY : (process.env.ANTHROPIC_API_KEY || GLM_API_KEY),  // Keep GLM key as fallback, works with crs.mindrix.app too
         // 禁止 Claude Code 在内部再次尝试 OAuth
         CLAUDE_CODE_SIMPLE: '1',
@@ -459,13 +459,15 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
   // Check if skeleton was completely unmodified: [SKELETON] markers present AND code didn't grow
   const skeletonLineCount = skeleton ? skeleton.split('\n').length : 0;
   const codeGrowthRatio = skeletonLineCount > 0 ? lineCount / skeletonLineCount : 999;
-  const isUnmodifiedSkeleton = /\[SKELETON\]/.test(mainSrc) && codeGrowthRatio < 1.5;
-  if (lineCount < 100 || findCalls === 0 || isUnmodifiedSkeleton) {
+  // Skeleton includes IdleGameKit (~400 lines of working code), so growth ratio is less relevant.
+  // Instead check: are TODO sections still unfilled? (realTodoCount > 5 = still a stub)
+  const isUnmodifiedSkeleton = /\[SKELETON\]/.test(mainSrc) && codeGrowthRatio < 1.2 && realTodoCount > 5;
+  if (lineCount < 100 || (findCalls === 0 && gfmCreateCalls === 0) || isUnmodifiedSkeleton) {
     const stubReason = lineCount < 100
       ? `Only ${lineCount} lines (need ≥100)`
       : isUnmodifiedSkeleton
-        ? `Skeleton barely modified (${skeletonLineCount}→${lineCount} lines, ${codeGrowthRatio.toFixed(1)}x growth) — Claude Code likely timed out`
-        : `0 GameObject.Find() calls (objects won't be loaded)`;
+        ? `Skeleton unmodified (${skeletonLineCount}→${lineCount} lines, ${realTodoCount} unfilled TODOs) — Claude Code likely timed out`
+        : `0 Find() and 0 GFM_Create.Obj() calls (no objects created)`;
     log(`[claude-code] ❌ STUB CODE DETECTED: ${stubReason}. Rejecting output.`, taskId);
     // 清空 feedbackHistory 强制下一轮走 FULL_GENERATION
     if (blueprint.feedbackHistory && blueprint.feedbackHistory.length > 0) {
