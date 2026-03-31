@@ -14,9 +14,14 @@
  */
 
 // ─── 代理设置（必须在最前面） ───
-// No proxy needed - all APIs go through relay (sub.mindrix.app) directly
+// CUA 需要走 mihomo 代理访问 api.openai.com（sub.mindrix.app 不支持 computer-use-preview）
+const CUA_PROXY_URL = 'http://127.0.0.1:7890';
+const CUA_OPENAI_KEY = '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';
+let ProxyAgent, undiciFetch;
 try {
-  // No global proxy dispatcher needed
+  const undici = require('undici');
+  ProxyAgent = undici.ProxyAgent;
+  undiciFetch = undici.fetch;
 } catch (e) { /* undici not available */ }
 
 const fs = require('fs');
@@ -1425,11 +1430,22 @@ async function main() {
       console.error('OPENAI_API_KEY environment variable not set');
       process.exit(1);
     }
-    // OpenAI via relay (direct, no proxy)
-    openaiClient = new OpenAI({
-      apiKey,
-      baseURL: process.env.OPENAI_BASE_URL || 'https://sub.mindrix.app/v1',
-    });
+    // OpenAI CUA 走真正的 api.openai.com + mihomo 代理
+    // (sub.mindrix.app 中转不支持 computer-use-preview 模型)
+    const cuaApiKey = CUA_OPENAI_KEY || apiKey;
+    if (ProxyAgent && undiciFetch) {
+      const proxyDispatcher = new ProxyAgent(CUA_PROXY_URL);
+      openaiClient = new OpenAI({
+        apiKey: cuaApiKey,
+        fetch: (url, init) => undiciFetch(url, { ...init, dispatcher: proxyDispatcher })
+      });
+      console.log('[Luna Agent] OpenAI CUA: api.openai.com via proxy ' + CUA_PROXY_URL);
+    } else {
+      openaiClient = new OpenAI({
+        apiKey: cuaApiKey,
+      });
+      console.log('[Luna Agent] OpenAI CUA: direct (no proxy agent available)');
+    }
   } else {
     anthropicClient = new Anthropic();
   }
