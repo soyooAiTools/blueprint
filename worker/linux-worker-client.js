@@ -988,7 +988,7 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
     // === Step 6: CUA Verification + Auto-Fix Loop ===
     const MAX_CUA_ROUNDS = 12;
     const SAME_ISSUE_REGEN_THRESHOLD = 2; // 连续 N 轮同一问题 → 全量重生成
-    const { runCUAVerification } = require('./worker-cua-verify.js');
+    const { runCUAVerification } = require('./worker-playableagent.js');
     let cuaPassed = false;
     let lastHtmlData = finalHtmlData;
     // lastCsCode already defined in Step 4 (may have been updated by build fix loop)
@@ -1065,27 +1065,15 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
         break;
       }
 
-      // --- FIX: Detect infrastructure failure (CUA API down) — don't blame the code ---
-      if (cuaResult.report && cuaResult.report.infraFailure) {
-        log('[infra] CUA API unavailable — this is NOT a code issue. Skipping CUA, marking as done with visual-only verification.', taskId);
-        await reportStatus(taskId, 'done', {
-          message: '[Linux] Build OK, CUA API temporarily unavailable — auto-play verified. Preview: ' + (previewUrl || 'N/A'),
+      // Detect CUA API unreachable — mark as failed immediately, no retry
+      if (cuaResult.report && (cuaResult.report.cuaApiUnreachable || cuaResult.report.infraFailure)) {
+        log('[CUA] CUA API不可达 — marking task as failed', taskId);
+        await reportStatus(taskId, 'failed', {
+          message: '[CUA API不可达] 请检查OpenAI API Key和网络连接。Preview: ' + (previewUrl || 'N/A'),
           previewUrl,
-          qualityData: { cuaSkipped: true, reason: 'api_unavailable', autoPlay: cuaResult.autoPlay || null }
+          qualityData: { cuaApiUnreachable: true }
         });
-        cuaPassed = true;
-        break;
-      }
-
-      // --- FIX: If CUA had apiFailure but autoPlay succeeded, treat as pass ---
-      if (cuaResult.report && cuaResult.report.apiFailure && cuaResult.autoPlay && cuaResult.autoPlay.phasesCompleted > 0) {
-        log('[infra] CUA API failed but autoPlay verified ' + cuaResult.autoPlay.phasesCompleted + ' phases — treating as pass', taskId);
-        cuaPassed = true;
-        await reportStatus(taskId, 'cua_passed', {
-          message: '[Linux] CUA API unavailable, autoPlay verified ' + cuaResult.autoPlay.phasesCompleted + ' phases. Preview: ' + (previewUrl || 'N/A'),
-          previewUrl,
-          qualityData: { cuaResult: { passed: true, round: cuaRound, method: 'autoPlay-fallback' }, cuaRetries: cuaRound }
-        });
+        cuaPassed = false;
         break;
       }
 

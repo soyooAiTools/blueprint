@@ -1,5 +1,5 @@
 // Screenshot Review — Take screenshot of WebGL build and AI-review against blueprint
-// Runs on Main ECS (Linux) with Playwright + Gemini
+// Runs on Main ECS (Linux) with Playwright + Doubao
 // Usage: node screenshot-review.cjs <taskId> <blueprintJsonPath> [webglDir]
 // Returns: { ok: true/false, reason: string, screenshotPath: string }
 
@@ -8,9 +8,9 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_MODEL = 'gemini-2.5-flash';
-const GEMINI_BASE_URL = process.env.GOOGLE_GEMINI_BASE_URL || 'https://sub.mindrix.app';
+const DOUBAO_API_KEY = process.env.DOUBAO_API_KEY || '197cb950-3cf3-4b30-b656-6afaa4306a7a';
+const DOUBAO_MODEL = 'doubao-seed-2-0-pro-260215';
+const DOUBAO_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 const WEBGL_BASE = process.env.WEBGL_BASE || '/opt/blueprint-editor/server-data/webgl';
 const SCREENSHOT_DIR = process.env.SCREENSHOT_DIR || '/tmp/screenshots';
 
@@ -136,133 +136,66 @@ async function detectBlankScreen(page) {
   }
 }
 
-function callGemini(prompt, imageBase64) {
+function callDoubao(prompt, imageBase64) {
   return new Promise((resolve, reject) => {
-    const body = JSON.stringify({
-      contents: [{
-        parts: [
-          { text: prompt },
-          { inline_data: { mime_type: 'image/png', data: imageBase64 } }
+    const messages = [];
+    if (imageBase64) {
+      messages.push({
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,' + imageBase64 } }
         ]
-      }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 1000 }
+      });
+    } else {
+      messages.push({ role: 'user', content: prompt });
+    }
+    
+    const payload = JSON.stringify({
+      model: DOUBAO_MODEL,
+      messages: messages,
+      max_tokens: 4096,
+      temperature: 0.3,
     });
-
-    const url = new URL(`${GEMINI_BASE_URL}/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`);
-    const opts = {
-      hostname: url.hostname,
-      path: url.pathname + url.search,
+    
+    const options = {
+      hostname: 'ark.cn-beijing.volces.com',
+      path: '/api/v3/chat/completions',
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
-      timeout: 30000
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + DOUBAO_API_KEY,
+        'Content-Length': Buffer.byteLength(payload),
+      },
+      timeout: 60000,
     };
-
-    const req = https.request(opts, (res) => {
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
+    
+    // Clear proxy
+    const prevProxy = process.env.HTTPS_PROXY;
+    delete process.env.HTTPS_PROXY;
+    delete process.env.HTTP_PROXY;
+    
+    const req = require('https').request(options, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
       res.on('end', () => {
+        if (prevProxy) process.env.HTTPS_PROXY = prevProxy;
         try {
-          const data = JSON.parse(Buffer.concat(chunks).toString());
-          const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          const json = JSON.parse(body);
+          if (json.error) { reject(new Error('Doubao error: ' + (json.error.message || JSON.stringify(json.error)))); return; }
+          const text = json.choices && json.choices[0] ? json.choices[0].message.content : '';
           resolve(text);
-        } catch (e) { reject(new Error('Gemini parse error: ' + e.message)); }
+        } catch (e) { reject(new Error('Doubao parse error: ' + e.message)); }
       });
     });
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('Gemini timeout')); });
-    req.write(body);
+    req.on('timeout', () => { req.destroy(); reject(new Error('Doubao timeout')); });
+    req.on('error', (e) => { if (prevProxy) process.env.HTTPS_PROXY = prevProxy; reject(e); });
+    req.write(payload);
     req.end();
   });
 }
 
-async function reviewScreenshot(screenshotPath, blueprint) {
-  const imageBuffer = fs.readFileSync(screenshotPath);
-  const imageBase64 = imageBuffer.toString('base64');
-
-  // Build blueprint summary for comparison
-  const nodes = blueprint.nodes || [];
-  const shotSummary = nodes.map((n, i) => {
-    const d = n.data || {};
-    return `Shot ${i + 1}: ${d.label || d.name || 'unnamed'} — ${(d.sceneObjects || d.description || '').slice(0, 200)}`;
-  }).join('\n');
-
-  const prompt = `You are reviewing a screenshot of a playable ad (HTML5 game) built from a blueprint.
-
-## Blueprint Summary:
-Project: ${blueprint.projectName || 'Unknown'}
-${shotSummary}
-
-## Your Task:
-Look at this screenshot and answer these questions:
-1. Is the screen BLANK or showing only a solid color? (yes/no)
-2. Does it look like a generic SLG/idle game template (buildings, resources, upgrade buttons)? (yes/no)  
-3. Does it appear to show content related to the blueprint description above? (yes/no)
-4. Are there visible game objects, UI elements, or interactive content? (yes/no)
-
-## Decision:
-- If screen is blank → REJECT (reason: blank screen)
-- If it looks like an SLG template → REJECT (reason: template content)
-- If it shows relevant content matching the blueprint → APPROVE
-- If uncertain but not blank and not template → APPROVE
-
-Respond in this EXACT format (JSON only, no markdown):
-{"decision": "APPROVE" or "REJECT", "reason": "brief explanation", "blank": true/false, "template": true/false, "relevant": true/false}`;
-
-  try {
-    const response = await callGemini(prompt, imageBase64);
-    // Parse JSON from response
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const result = JSON.parse(jsonMatch[0]);
-      return { ok: result.decision === 'APPROVE', ...result };
-    }
-    return { ok: false, reason: 'Failed to parse AI response: ' + response.slice(0, 200) };
-  } catch (e) {
-    // If AI review fails, don't block — pass with warning
-    return { ok: true, reason: 'AI review failed (passing anyway): ' + e.message, warning: true };
-  }
-}
-
-async function main() {
-  const taskId = process.argv[2];
-  const blueprintPath = process.argv[3];
-  const webglDir = process.argv[4];
-
-  if (!taskId || !blueprintPath) {
-    console.log(JSON.stringify({ ok: false, error: 'Usage: node screenshot-review.cjs <taskId> <blueprintPath> [webglDir]' }));
-    process.exit(1);
-  }
-
-  // Take screenshots
-  const ssResult = await takeScreenshot(taskId, webglDir);
-  if (!ssResult.ok) {
-    console.log(JSON.stringify(ssResult));
-    process.exit(1);
-  }
-
-  // Load blueprint
-  let blueprint;
-  try {
-    blueprint = JSON.parse(fs.readFileSync(blueprintPath, 'utf-8'));
-  } catch (e) {
-    console.log(JSON.stringify({ ok: false, error: 'Failed to load blueprint: ' + e.message }));
-    process.exit(1);
-  }
-
-  // Review both screenshots (use the later one as primary — more likely to have loaded)
-  const reviewPath = fs.existsSync(ssResult.screenshot2Path) ? ssResult.screenshot2Path : ssResult.screenshotPath;
-  const review = await reviewScreenshot(reviewPath, blueprint);
-  
-  console.log(JSON.stringify({
-    ...review,
-    screenshotPath: ssResult.screenshotPath,
-    screenshot2Path: ssResult.screenshot2Path
-  }));
-  
-  process.exit(review.ok ? 0 : 1);
-}
-
-module.exports = { takeScreenshot, reviewScreenshot, callGemini };
+module.exports = { takeScreenshot, reviewScreenshot, callDoubao };
 
 if (require.main === module) main().catch(e => {
   console.log(JSON.stringify({ ok: false, error: e.message }));

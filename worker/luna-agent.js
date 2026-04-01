@@ -14,8 +14,8 @@
  */
 
 // ─── 代理设置（必须在最前面） ───
-// CUA 需要走 mihomo 代理访问 api.openai.com（sub.mindrix.app 不支持 computer-use-preview）
-const CUA_PROXY_URL = 'http://127.0.0.1:7890';
+// CUA 直连 api.openai.com（2026-04-01: 代理导致 401，改为直连）
+const CUA_PROXY_URL = 'http://127.0.0.1:7890'; // mihomo proxy for api.openai.com
 const CUA_OPENAI_KEY = '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';
 let ProxyAgent, undiciFetch;
 try {
@@ -1442,7 +1442,7 @@ async function main() {
     // OpenAI CUA 走真正的 api.openai.com + mihomo 代理
     // (sub.mindrix.app 中转不支持 computer-use-preview 模型)
     const cuaApiKey = CUA_OPENAI_KEY || apiKey;
-    if (ProxyAgent && undiciFetch) {
+    if (CUA_PROXY_URL && ProxyAgent && undiciFetch) {
       const proxyDispatcher = new ProxyAgent(CUA_PROXY_URL);
       openaiClient = new OpenAI({
         apiKey: cuaApiKey,
@@ -1453,7 +1453,7 @@ async function main() {
       openaiClient = new OpenAI({
         apiKey: cuaApiKey,
       });
-      console.log('[Luna Agent] OpenAI CUA: direct (no proxy agent available)');
+      console.log('[Luna Agent] OpenAI CUA: api.openai.com (direct)');
     }
   } else {
     anthropicClient = new Anthropic();

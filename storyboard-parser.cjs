@@ -1,54 +1,40 @@
-// Storyboard Parser — GPT-5.4 (primary) + Gemini (fallback)
+// Storyboard Parser — 豆包 Seed 2.0 Pro (primary)
 
 /**
- * Storyboard Parser — GPT-5.4 primary, Gemini fallback
- * Phase 1: GPT-5.4 (best quality)
- * Phase 2: Gemini 3.1 Pro (fallback)
- * Phase 3: Gemini 2.5 Flash (fast fallback)
- * Phase 4: Gemini 2.5 Flash + resize (last resort)
+ * Storyboard Parser — 豆包 Seed 2.0 Pro (primary)
+ * Phase 1: 豆包 Seed 2.0 Pro (primary)
+ * Phase 2: 豆包 Seed 2.0 Pro + resize (fallback)
  */
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-// === Gemini via relay (direct, no proxy needed) ===
-const GEMINI_BASE_URL = process.env.GOOGLE_GEMINI_BASE_URL || 'https://sub.mindrix.app';
+// === Doubao API (direct, no proxy needed) ===
+const DOUBAO_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3'; // Doubao API (adapter handles this)
 // Clear proxy env vars — relay is direct
 delete process.env.HTTPS_PROXY;
 delete process.env.HTTP_PROXY;
-console.log('[StoryboardParser] Gemini relay: ' + GEMINI_BASE_URL + ' (direct, no proxy)');
+console.log('[StoryboardParser] Doubao API: ' + DOUBAO_BASE_URL + ' (direct, no proxy)');
 
-const { GoogleGenAI } = require('@google/genai');
-const OpenAI = require('openai').default || require('openai');
+const { GoogleGenAI } = require('./doubao-adapter.cjs');
 
-// === OpenAI (GPT-5.4) setup ===
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
-let openaiClient = null;
-let openaiFileClient = null;
-if (OPENAI_API_KEY) {
-  openaiClient = new OpenAI({
-    apiKey: OPENAI_API_KEY,
-  });
-  openaiFileClient = null; // Will use curl for file uploads
-  console.log('[StoryboardParser] OpenAI configured, key prefix:', OPENAI_API_KEY.substring(0, 15) + '...');
-} else {
-  console.warn('[StoryboardParser] No OPENAI_API_KEY — GPT-5.4 unavailable, will use Gemini only');
-}
+// === 豆包 Seed 2.0 Pro (primary, via doubao-adapter) ===
+// OpenAI SDK no longer needed — storyboard parsing uses Doubao directly
 
-// [Gemini] Single key via relay — no rotation needed
-const _geminiKey = process.env.GEMINI_API_KEY || '';
+// [Doubao] Single key via relay — no rotation needed
+const _geminiKey = process.env.DOUBAO_API_KEY || '197cb950-3cf3-4b30-b656-6afaa4306a7a';
 function getNextGeminiKey() { return _geminiKey; }
 function getAllGeminiKeys() { return _geminiKey ? [_geminiKey] : []; }
-console.log('[Gemini] Key: ' + (_geminiKey ? _geminiKey.substring(0, 15) + '...' : 'EMPTY'));
+console.log('[Doubao] Key: ' + (_geminiKey ? _geminiKey.substring(0, 15) + '...' : 'EMPTY'));
 const CONFIG = {
   apiKey: _geminiKey,
-  textModel: process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview',
-  imageModel: 'gemini-3.1-pro-preview',
+  textModel: process.env.DOUBAO_MODEL || 'doubao-seed-2-0-pro-260215',
+  imageModel: 'doubao-seed-2-0-pro-260215',
 };
 console.log('[StoryboardParser] API Key prefix:', CONFIG.apiKey ? CONFIG.apiKey.substring(0, 15) + '...' : 'EMPTY');
 
-// [Gemini SDK] Single instance with relay baseUrl
-const _sdkOpts = { apiKey: _geminiKey, httpOptions: { baseUrl: GEMINI_BASE_URL } };
+// [Doubao] Single instance
+const _sdkOpts = { apiKey: _geminiKey, httpOptions: { baseUrl: DOUBAO_BASE_URL } };
 const aiPool = _geminiKey ? [new GoogleGenAI(_sdkOpts)] : [];
 let _keyIndex = 0;
 function getAI() {
@@ -130,11 +116,11 @@ async function parseScript(text, opts = {}) {
 
   let docText = '';
   let pdfPart = null;
-  let pdfOriginalPath = null; // Keep original PDF path for GPT-5.4
+  let pdfOriginalPath = null; // Keep original PDF path for Claude Opus 4.6
   if (docPath) {
     const docExt = path.extname(docPath).toLowerCase();
     if (docExt === '.pdf') {
-      // PDF: save path for GPT-5.4, then try Gemini Files API upload (non-blocking)
+      // PDF: save path for Claude Opus 4.6, then try Gemini Files API upload (non-blocking)
       pdfOriginalPath = docPath;
       try {
         console.log(`[StoryboardParser] Uploading PDF via Gemini Files API...`);
@@ -148,8 +134,8 @@ async function parseScript(text, opts = {}) {
         pdfPart = { fileData: { fileUri: file.uri, mimeType: 'application/pdf' } };
         console.log(`[StoryboardParser] PDF uploaded to Gemini: ${file.uri}`);
       } catch(geminiUploadErr) {
-        console.warn(`[StoryboardParser] Gemini PDF upload failed (will use GPT-5.4 directly): ${geminiUploadErr.message?.substring(0, 100)}`);
-        // pdfPart stays null — Gemini phases will be skipped if no pdfPart, but GPT-5.4 uses pdfOriginalPath
+        console.warn(`[StoryboardParser] Gemini PDF upload failed (will use Claude Opus 4.6 directly): ${geminiUploadErr.message?.substring(0, 100)}`);
+        // pdfPart stays null — Gemini phases will be skipped if no pdfPart, but Claude Opus 4.6 uses pdfOriginalPath
       }
     } else if (['.png', '.jpg', '.jpeg', '.webp'].includes(docExt)) {
       // Image: send as inline data to Gemini for visual understanding
@@ -279,11 +265,11 @@ ${style ? `10. 额外风格要求：${style}` : ''}
     const extraText = text ? `\n\n补充说明：${text}` : '';
     parts.push({ text: `请解析这份 PDF 文档的内容，根据其中的策划文案/需求设计试玩广告分镜板。${extraText}${analysisContext}` });
   } else if (pdfOriginalPath) {
-    // Gemini upload failed but we have the PDF file — GPT-5.4 will handle it via file_id
+    // Gemini upload failed but we have the PDF file — Claude Opus 4.6 will handle it via file_id
     const analysisContext = imageAnalysis ? `\n\n## 参考图片 AI 分析结果\n${imageAnalysis}` : '';
     const extraText = text ? `\n\n补充说明：${text}` : '';
     parts.push({ text: `请解析 PDF 文档内容，设计试玩广告分镜板。${extraText}${analysisContext}` });
-    console.log('[StoryboardParser] PDF available for GPT-5.4 only (Gemini upload failed)');
+    console.log('[StoryboardParser] PDF available for Claude Opus 4.6 only (Gemini upload failed)');
   } else if (fullText) {
     const analysisContext = imageAnalysis ? `\n\n## 参考图片 AI 分析结果\n${imageAnalysis}\n\n请参考以上图片分析结果，在生成分镜时融入图片中的风格、场景元素和 UI 设计。` : '';
     parts.push({ text: `文案/需求：\n${fullText}${analysisContext}` });
@@ -294,11 +280,11 @@ ${style ? `10. 额外风格要求：${style}` : ''}
     throw new Error('请提供文案、图片或文档中的至少一种作为输入');
   }
 
-  // === Degradation chain: GPT-5.4 → Gemini Pro → Gemini Flash → Flash+resize ===
+  // === Degradation chain: Claude Opus 4.6 → Gemini Pro → Gemini Flash → Flash+resize ===
   // proxy-doctor no longer needed — Gemini goes via relay direct
   const notify = require('./notify.cjs');
 
-  // Helper: try GPT-5.4 with PDF/images, 2 attempts
+  // Helper: try Claude Opus 4.6 with PDF/images, 2 attempts
   async function tryGPT(partsToUse, label) {
     if (!openaiClient) throw new Error('OpenAI not configured');
 
@@ -416,7 +402,7 @@ ${style ? `10. 额外风格要求：${style}` : ''}
         const result = JSON.parse(pyOutput);
         
         if (result.error) {
-          throw new Error('GPT-5.4 parse error: ' + result.error);
+          throw new Error('Claude Opus 4.6 parse error: ' + result.error);
         }
         
         const data = result.data;
@@ -459,7 +445,7 @@ ${style ? `10. 额外风格要求：${style}` : ''}
             contents: [{ role: 'user', parts: partsToUse }],
             config: cfg,
           }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Gemini API timeout (' + timeoutMs/1000 + 's)')), timeoutMs))
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Doubao API timeout (' + timeoutMs/1000 + 's)')), timeoutMs))
         ]);
         return result;
       } catch (err) {
@@ -540,41 +526,20 @@ ${style ? `10. 额外风格要求：${style}` : ''}
 
   let result;
 
-  // Phase 1: GPT-5.4 (primary — best quality for client delivery)
-  if (openaiClient) {
-    try {
-      result = await tryGPT(parts, 'Phase1:GPT-5.4');
-    } catch(phase1Err) {
-      console.log('[StoryboardParser] Phase 1 (GPT-5.4) failed: ' + phase1Err.message?.substring(0, 100));
-      notify.alert('warning', '分镜解析：GPT-5.4 失败，降级到 Gemini Pro', phase1Err.message?.substring(0, 100));
-      result = null;
-    }
-  }
+  // Phase 1: 豆包 Seed 2.0 Pro (primary)
+  try {
+    result = await tryGemini(CONFIG.textModel, parts, 1024, 'Phase1:doubao-seed-2.0-pro');
+  } catch(phase1Err) {
+    console.log('[StoryboardParser] Phase 1 (豆包) failed: ' + phase1Err.message?.substring(0, 100));
+    notify.alert('warning', '分镜解析：豆包 失败，缩图重试', phase1Err.message?.substring(0, 100));
 
-  // Phase 2: Gemini Pro (fallback)
-  if (!result) {
+    // Phase 2: 豆包 + resize (fallback)
     try {
-      result = await tryGemini(CONFIG.textModel, parts, 1024, 'Phase2:' + CONFIG.textModel);
+      const resizedParts = await resizeParts(parts);
+      result = await tryGemini(CONFIG.textModel, resizedParts, 0, 'Phase2:doubao+resize');
     } catch(phase2Err) {
-      console.log('[StoryboardParser] Phase 2 (Gemini Pro) failed, trying flash...');
-      notify.alert('warning', '分镜解析：Gemini Pro 失败，尝试 flash', phase2Err.message?.substring(0, 100));
-
-      // Phase 3: Flash (fast fallback)
-      try {
-        result = await tryGemini('gemini-2.5-flash', parts, 0, 'Phase3:gemini-2.5-flash');
-      } catch(phase3Err) {
-        console.log('[StoryboardParser] Phase 3 (flash) failed, trying resize + flash...');
-        notify.alert('warning', '分镜解析降级：缩图 + flash 重试', phase3Err.message?.substring(0, 100));
-
-        // Phase 4: Resize + flash (last resort)
-        try {
-          const resizedParts = await resizeParts(parts);
-          result = await tryGemini('gemini-2.5-flash', resizedParts, 0, 'Phase4:resize+gemini-2.5-flash');
-        } catch(phase4Err) {
-          notify.alert('critical', '分镜解析全部降级失败（GPT-5.4 → Pro → Flash → Flash+缩图）', phase4Err.message?.substring(0, 200));
-          throw phase4Err;
-        }
-      }
+      notify.alert('critical', '分镜解析全部失败（豆包 → 豆包+缩图）', phase2Err.message?.substring(0, 200));
+      throw phase2Err;
     }
   }
 
@@ -644,7 +609,7 @@ ${style ? `10. 额外风格要求：${style}` : ''}
 
   let frames, characterSheet = {}, sceneSheet = {};
   if (Array.isArray(parsed)) {
-    // GPT-5.4 sometimes wraps {characterSheet, frames} in an outer array
+    // Claude Opus 4.6 sometimes wraps {characterSheet, frames} in an outer array
     if (parsed.length === 1 && parsed[0].frames && Array.isArray(parsed[0].frames)) {
       frames = parsed[0].frames;
       characterSheet = parsed[0].characterSheet || {};
@@ -792,7 +757,7 @@ ${JSON.stringify(frame, null, 2)}
 }
 
 
-// === Image Generation (Gemini 3.1 Pro native) ===
+// === Image Generation (Doubao Seed2.0Pro native) ===
 async function generateImage(prompt, opts = {}, aiInstance) {
   const { style = '', cameraAngle = '', orientation = '', perspective = '', prevImagePath = null } = opts;
   let fullPrompt = prompt;
@@ -804,11 +769,11 @@ async function generateImage(prompt, opts = {}, aiInstance) {
   if (cameraHints.length) fullPrompt += '. ' + cameraHints.join(', ');
   if (style) fullPrompt += '. Style: ' + style;
 
-  // Try GPT-image-1 (Python) first, then Gemini fallback
+  // Try GPT-image-1 (Python) first, then Doubao fallback
   try {
     return await generateImageGPT(fullPrompt, { orientation, prevImagePath });
   } catch (gptErr) {
-    console.warn('[generateImage] GPT-image-1 failed:', gptErr.message?.substring(0, 120), '— trying Gemini fallback');
+    console.warn('[generateImage] GPT-image-1 failed:', gptErr.message?.substring(0, 120), '— trying Doubao fallback');
     return await generateImageGemini(fullPrompt, opts, aiInstance);
   }
 }
@@ -874,7 +839,7 @@ async function generateImageGemini(prompt, opts = {}, aiInstance) {
     const prevBuf = fs.readFileSync(prevImagePath);
     parts.push({ inlineData: { data: prevBuf.toString('base64'), mimeType: 'image/png' } });
     prefixes.push('REFERENCE IMAGE: Maintain EXACT same scene layout, textures, character designs. Only change what the description requires.');
-    console.log('[generateImage] Gemini fallback with prev frame: ' + prevImagePath);
+    console.log('[generateImage] Doubao fallback with prev frame: ' + prevImagePath);
   }
   if (styleRefBase64) {
     parts.push({ inlineData: { data: styleRefBase64, mimeType: styleRefMime || 'image/jpeg' } });

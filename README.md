@@ -8,9 +8,10 @@
 ## 架构
 
 ```
-策划文案 → 分镜解析 → 蓝图编辑 → AI 编码 → Luna 构建 → 渠道 HTML
-                                    ↑                        |
-                                    └── 反馈迭代 ←── 审核预览 ←┘
+策划文案 → 分镜解析 → 蓝图编辑 → AI 编码 → Luna 构建 → PlayableAgent验证 → 渠道 HTML
+              (豆包)                (Claude)              (Qwen VLM)
+                                    ↑                                      |
+                                    └────────── 反馈迭代 ←── 审核预览 ←────┘
 ```
 
 ### E2E 流程
@@ -30,8 +31,12 @@
 |---|------|
 | 前端 | React 19 + @xyflow/react 12 + Vite 7 |
 | 后端 | Node.js (server.cjs, PM2) |
-| AI 编码 | Claude Opus 4.6 (中转 API: crs.mindrix.app) |
-| 分镜 AI | Gemini 2.5 Flash（解析）+ Gemini 3 Pro（配图） |
+| AI 编码 | Claude Opus 4.6 (中转: crs.mindrix.app) |
+| 分镜解析 | 豆包 Seed 2.0 Pro (ark.cn-beijing.volces.com) |
+| 蓝图转换 | Claude Opus 4.6 (中转: crs.mindrix.app) |
+| 代码审核 | GPT-5.4 (中转: sub.mindrix.app) |
+| CUA 验证 | PlayableAgent — Qwen2.5-VL-72B (SiliconFlow) |
+| 视频分析 | Gemini 2.5 Pro (中转: sub.mindrix.app) |
 | 构建 | Unity 2022.3 + Luna SDK 6.4.0 |
 | 转换 | Brotli + html-minifier + 渠道 SDK 注入 |
 | 版本控制 | SVN + Git |
@@ -74,14 +79,16 @@ AI 编码完成后自动生成代码架构关系图：
 ```
 blueprint-editor/
 ├── server.cjs                    # HTTP 服务端（API + 静态文件，端口 3901）
-├── storyboard-parser.cjs         # 分镜解析 + 配图生成（Gemini API）
+├── storyboard-parser.cjs         # 分镜解析（豆包 Seed 2.0 Pro）
+├── doubao-adapter.cjs            # 豆包 API 适配器（兼容 @google/genai 接口）
 ├── dashboard.html                # Worker Pool 监控仪表盘
 ├── package.json
 │
 ├── worker/                       # Unity Worker（Windows Server, 部署到 D:\worker-repo\worker）
 │   ├── worker-client.js          # 任务轮询 + SVN + 构建编排（入口，加载 dotenv）
 │   ├── worker-coder.js           # AI 编码（Claude Opus 4.6, Luna 制作规范 + 工程上下文）
-│   ├── worker-cua-verify.js      # CUA 蓝图流程验证（GPT-5.4 操控，pass/fail）
+│   ├── worker-playableagent.js   # PlayableAgent 蓝图验证（VLM + __gameState）
+│   ├── worker-cua-verify.js      # [已弃用] 旧 CUA 验证
 │   ├── worker-bridge-build.js    # Luna jake + MSBuild 构建
 │   ├── worker-html-converter.js  # 单文件 HTML 渠道转换
 │   ├── worker-patch.js           # 预构建修复（scenes, luna.json）
@@ -152,18 +159,20 @@ blueprint-editor/
 | POST | `/api/worker/heartbeat` | 心跳 |
 | POST | `/api/tasks/:taskId/upload-build` | 上传构建产物 |
 
-## CUA 蓝图流程验证
+## PlayableAgent 蓝图流程验证
 
-AI 编码 → 构建完成后，自动运行 CUA（Computer Use Agent）验证蓝图流程：
+AI 编码 → 构建完成后，自动运行 PlayableAgent 验证蓝图 Phase 覆盖：
 
-- **模型**：GPT-5.4（OpenAI CUA）
-- **判定方式**：纯 pass/fail，不打分
+- **模型**：Qwen2.5-VL-72B（SiliconFlow VLM）+ `__gameState` API
+- **方式**：Xvfb + Playwright 非 headless → 截图 → VLM 分析决策 → CDP 操作 → 读取游戏状态
+- **判定方式**：纯 pass/fail，基于 Phase 覆盖率
 - **通过标准**：
-  1. 蓝图所有 shot 都能操作覆盖
-  2. CTA 按钮可到达并可点击
-  3. 游戏不卡死/白屏/崩溃
-- **不通过时**：把未覆盖 shot + 问题描述反馈给 AI 重新编码，最多 3 轮
-- **到达 CTA 终局** → 自动判定通过（忽略非关键问题）
+  1. specs.json 中所有 Phase 都被 `completedPhases` 覆盖
+  2. 游戏不卡死/黑屏
+  3. 实体达到终态（buildable entities → state=2）
+- **不通过时**：未完成 Phase + gameState 反馈给 AI 重新编码，最多 3 轮
+- **模块**：`worker/worker-playableagent.js` → `blueprint_verify.py`（Python 3.8）
+- **费用**：~¥0.12/次（20步测试）
 
 ## 部署
 
@@ -201,10 +210,11 @@ D:\worker-repo\worker\deploy.cmd
 
 | 变量 | 说明 | 必填 |
 |------|------|------|
-| `OPENAI_API_KEY` | OpenAI API Key（CUA 验证用） | ✅ |
-| `GEMINI_API_KEY` | Google Gemini API Key | ✅ |
-| `HTTPS_PROXY` | 网络代理（国内需要） | ✅ |
-| `LLM_API_KEY` | AI 编码中转 API Key（默认内置） | 可选 |
+| `LLM_API_KEY` | Claude 编码/蓝图转换 API Key（默认内置） | 可选 |
+| `DOUBAO_API_KEY` | 豆包 Seed 2.0 Pro Key（分镜/Spec/截图审核） | 可选 |
+| `OPENAI_API_KEY` | GPT-5.4 Key（代码审核用） | ✅ |
+| `GEMINI_API_KEY` | Gemini Key（视频分析用） | 可选 |
+| `SILICONFLOW_API_KEY` | SiliconFlow Key（PlayableAgent VLM） | 可选 |
 | `LLM_MODEL_GENERATE` | AI 编码模型（默认 claude-opus-4-6） | 可选 |
 
 ### 远程重启 Unity

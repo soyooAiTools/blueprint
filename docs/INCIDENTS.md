@@ -43,3 +43,54 @@
 ### 后续措施
 - pending-rules.json 从 270 条清理至 30 条（去重、合并同类、清理 CUA 运行时噪音）
 - 建立规则定期维护机制（见 build-pipeline.md）
+
+---
+
+## 2026-04-01: Pipeline 模型大迁移
+
+### 背景
+原 Pipeline 大量依赖 GPT-5.4（sub.mindrix.app 中转）和 Gemini（sub.mindrix.app 中转）。
+凌晨 CUA API 故障导致 6 项目全部失败（见上方事故），暴露了单点依赖风险。
+决定全面替换为多模型分工方案。
+
+### 迁移清单
+
+| 环节 | 旧模型 | 新模型 | 文件 |
+|------|--------|--------|------|
+| 分镜文件→蓝图帧 | GPT-5.4 (primary) + Gemini (fallback) | **豆包 Seed 2.0 Pro** | `storyboard-parser.cjs`, `python/storyboard_parser.py` |
+| 一键PDF→V4蓝图 | GPT-5.4 | **豆包 Seed 2.0 Pro** | `python/pdf_to_blueprint.py` |
+| 蓝图帧→V4实体蓝图 | GPT-5.4 | **Claude Opus 4.6** (fallback: 豆包) | `python/blueprint_converter.py`, `server.cjs` |
+| Spec 提取 | Gemini | **豆包 Seed 2.0 Pro** | `spec-extractor.cjs` |
+| AI 编码 | Claude Opus 4.6 | 不变 | `worker/worker-coder.js` |
+| 代码审核 | GPT-5.4 | **GPT-5.4** (保留) | `worker/code-reviewer.js` |
+| 截图审核 | Gemini | **豆包 Seed 2.0 Pro** | `screenshot-review/screenshot-review.cjs` |
+| CUA 验证 | GPT-5.4 CUA (luna-agent.js) | **PlayableAgent** (Qwen2.5-VL-72B) | `worker/worker-playableagent.js`, `server-cua-review.cjs` |
+| 竞品参考→蓝图 | Gemini 2.5 Pro | **豆包 Seed 2.0 Pro** | `worker/reference-to-blueprint.js` |
+| 视频分析→蓝图 | Gemini 2.5 Pro | **Gemini** (保留) | `worker/video-to-blueprint.cjs` |
+| API 健康检查 | ping GPT-5.4 + Gemini | **Claude + 豆包 + Gemini** | `server.cjs` |
+
+### PlayableAgent 替换 CUA 详细说明
+- 旧方案：`luna-agent.js` 调 GPT-5.4 CUA (computer-use-preview) 操控浏览器
+  - 依赖 `OPENAI_API_KEY` + 代理，凌晨 401/503 导致全线失败
+- 新方案：`worker-playableagent.js` 调 `blueprint_verify.py` (Python 3.8)
+  - VLM 截图分析 (Qwen2.5-VL-72B via SiliconFlow) + `__gameState` API 读取 Phase 进度
+  - Xvfb + Playwright 非 headless 模式渲染 WebGL
+  - 同接口: `runCUAVerification(buildDir, blueprint, taskId, log) → {passed, issues, report}`
+  - 三个入口全部替换: `worker-client.js`, `linux-worker-client.js`, `server-cua-review.cjs`
+
+### 备份文件
+- `python/storyboard_parser.py.bak.gpt54`
+- `python/blueprint_converter.py.bak.gpt54`
+- `python/pdf_to_blueprint.py.bak.gpt54`
+- `storyboard-parser.cjs.bak.gemini`
+- `spec-extractor.cjs.bak.gemini`
+- `screenshot-review/screenshot-review.cjs.bak.gemini`
+- `worker/code-reviewer.js.bak.claude`
+- `worker/luna-agent.js.bak.gemini`
+
+### 影响
+- GPT-5.4 仅保留：代码审核 (`code-reviewer.js`) + 图片生成 (`gpt-image-1`)
+- Gemini 仅保留：视频分析 (`video-to-blueprint.cjs`)
+- 豆包成为分镜解析/Spec/截图审核/竞品参考的主力
+- Claude 成为编码/蓝图转换的主力
+- PlayableAgent 完全替代 CUA，消除 OpenAI CUA API 单点依赖

@@ -376,9 +376,9 @@ async function processTask(task) {
       let sameIssueCount = 0;
       for (let cuaRound = 1; cuaRound <= MAX_CUA_ROUNDS; cuaRound++) {
         try {
-          const { runCUAVerification } = require('./worker-cua-verify.js');
+          const { runCUAVerification } = require('./worker-playableagent.js');
           await reportStatus(taskId, 'processing', { 
-            message: `CUA resume - GPT-5.4 verifying... (round ${cuaRound}/${MAX_CUA_ROUNDS})` 
+            message: `CUA resume - PlayableAgent verifying... (round ${cuaRound}/${MAX_CUA_ROUNDS})` 
           });
 
           const cuaResult = await runCUAVerification(cuaStage4Path, cuaBlueprint, taskId, log);
@@ -850,14 +850,14 @@ async function processTask(task) {
       }
     } // end if (!htmlOutputExists)
 
-    // === Step 5.7: CUA Verification Loop (GPT-5.4 verification, fix until pass) ===
+    // === Step 5.7: CUA Verification Loop (PlayableAgent verification, fix until pass) ===
     let cuaPassed = false;
     
     for (let cuaRound = 1; cuaRound <= MAX_CUA_ROUNDS; cuaRound++) {
       try {
-        const { runCUAVerification } = require('./worker-cua-verify.js');
+        const { runCUAVerification } = require('./worker-playableagent.js');
         await reportStatus(taskId, 'processing', { 
-          message: `GPT-5.4 CUA verifying... (round ${cuaRound}/${MAX_CUA_ROUNDS})` 
+          message: `PlayableAgent verifying... (round ${cuaRound}/${MAX_CUA_ROUNDS})` 
         });
 
         // Read blueprint from API (fixed: local autoCoding-tasks path doesn't exist on Worker ECS)
@@ -1366,11 +1366,17 @@ async function poll() {
       }
     };
     runWithRetry()
-      .catch(e => {
+      .catch(async e => {
         log(`?Task failed permanently: ${e.message}`, task.taskId);
         notifyEvent(task.taskId, 'task_failed_final',
           `Task failed permanently (retried${taskRetryCount.get(task.taskId) || 0} times): ${e.message.slice(0, 150)}`,
           { projectName: task.projectName });
+        // Report failure to server so task doesn't stay stuck in assigned/processing
+        try {
+          await reportStatus(task.taskId, 'failed', { message: `Permanently failed: ${e.message.slice(0, 200)}` });
+        } catch (re) {
+          log(`Failed to report terminal status: ${re.message}`, task.taskId);
+        }
       })
       .finally(() => {
         activeTasks.delete(task.taskId);

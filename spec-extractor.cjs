@@ -10,18 +10,18 @@
 const fs = require('fs');
 const path = require('path');
 
-// Gemini via relay — direct, no proxy needed
+// Doubao API — direct, no proxy needed
 delete process.env.HTTPS_PROXY;
 delete process.env.HTTP_PROXY;
 
-const { GoogleGenAI } = require('@google/genai');
+const { GoogleGenAI } = require('./doubao-adapter.cjs');
 
 const VERBS = JSON.parse(fs.readFileSync(path.join(__dirname, 'worker', 'interaction-verbs.json'), 'utf8'));
 
-const GEMINI_BASE_URL = process.env.GOOGLE_GEMINI_BASE_URL || 'https://sub.mindrix.app';
+const DOUBAO_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY || '',
-  httpOptions: { baseUrl: GEMINI_BASE_URL },
+  apiKey: process.env.DOUBAO_API_KEY || '197cb950-3cf3-4b30-b656-6afaa4306a7a',
+  httpOptions: { baseUrl: DOUBAO_BASE_URL },
 });
 
 function buildVerbDoc() {
@@ -156,9 +156,9 @@ ${contextText}
   let result;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      console.log(`[SpecExtractor] Calling Gemini (attempt ${attempt}/3)...`);
+      console.log(`[SpecExtractor] Calling Doubao (attempt ${attempt}/3)...`);
       result = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'doubao-seed-2-0-pro-260215',
         contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
         config: {
           temperature: 0.2,
@@ -191,7 +191,7 @@ ${contextText}
   }
 
   if (!jsonStr) {
-    throw new Error('Failed to extract JSON from Gemini response');
+    throw new Error('Failed to extract JSON from Doubao response');
   }
 
   const specs = JSON.parse(jsonStr);

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3.8
 """
-PDF → V4 Blueprint (One-Shot)
+PDF → V4 Blueprint (One-Shot) — 豆包 Seed 2.0 Pro version
 Combines storyboard parsing + V4 conversion into a single AI call.
 Usage: python3.8 pdf_to_blueprint.py --pdf <path> --schema-file <path> --templates-file <path> [--orientation landscape] [--target-frames 11]
 Output: JSON to stdout, progress to stderr (PROGRESS:<percent>:<stage>)
 """
-import os, sys, json, time, argparse, base64
+import os, sys, json, time, argparse, base64, urllib.request, ssl
 from io import BytesIO
 
 os.environ.pop('HTTPS_PROXY', None)
@@ -13,28 +13,20 @@ os.environ.pop('HTTP_PROXY', None)
 os.environ.pop('https_proxy', None)
 os.environ.pop('http_proxy', None)
 
-from openai import OpenAI
-
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY',
-    'sk-7316ee056524c5ffb3c5920fa9d6ffcbcd8026fdc0fea386de50c5e2f4a083aa')
-
-client = OpenAI(
-    api_key=OPENAI_API_KEY,
-    base_url=os.environ.get('OPENAI_BASE_URL', 'https://sub.mindrix.app/v1'),
-    timeout=600
-)
+DOUBAO_BASE = 'https://ark.cn-beijing.volces.com/api/v3'
+DOUBAO_KEY = os.environ.get('DOUBAO_API_KEY', '197cb950-3cf3-4b30-b656-6afaa4306a7a')
+MODEL = os.environ.get('DOUBAO_MODEL', 'doubao-seed-2-0-pro-260215')
 
 
 def log(msg):
     print(f"[pdf2bp] {msg}", file=sys.stderr, flush=True)
 
 def progress(percent, stage):
-    """Structured progress line for Node.js SSE forwarding"""
     print(f"PROGRESS:{percent}:{stage}", file=sys.stderr, flush=True)
 
 
 def pdf_to_images(pdf_path, dpi=150, quality=85, max_dimension=2048):
-    """Convert PDF pages to WebP base64 image_url list for GPT vision"""
+    """Convert PDF pages to WebP base64 image_url list for Doubao vision"""
     import fitz  # PyMuPDF
     try:
         from PIL import Image
@@ -66,11 +58,11 @@ def pdf_to_images(pdf_path, dpi=150, quality=85, max_dimension=2048):
             webp_bytes = buf.getvalue()
             b64 = base64.b64encode(webp_bytes).decode("ascii")
             mime = "image/webp"
-            log(f"  page {i+1}/{page_count}: {pix.width}x{pix.height} → WebP {len(webp_bytes)//1024}KB")
+            log(f"  page {i+1}/{page_count}: {pix.width}x{pix.height} -> WebP {len(webp_bytes)//1024}KB")
         else:
             b64 = base64.b64encode(png_bytes).decode("ascii")
             mime = "image/png"
-            log(f"  page {i+1}/{page_count}: {pix.width}x{pix.height} → PNG {len(png_bytes)//1024}KB")
+            log(f"  page {i+1}/{page_count}: {pix.width}x{pix.height} -> PNG {len(png_bytes)//1024}KB")
 
         image_urls.append(f"data:{mime};base64,{b64}")
 
@@ -78,47 +70,57 @@ def pdf_to_images(pdf_path, dpi=150, quality=85, max_dimension=2048):
     return image_urls
 
 
-def call_gpt(system_prompt, user_content, max_tokens=65536):
-    """Call GPT-5.4 with streaming, emit progress to stderr"""
-    log(f"Calling GPT-5.4 (streaming)...")
+def call_doubao(system_prompt, user_content, max_tokens=65536):
+    """Call 豆包 Seed 2.0 Pro, emit progress to stderr"""
+    url = f"{DOUBAO_BASE}/chat/completions"
+    log(f"Calling 豆包 {MODEL} (max_tokens={max_tokens})...")
     t0 = time.time()
 
-    stream = client.chat.completions.create(
-        model="gpt-5.4",
-        messages=[
+    body = {
+        "model": MODEL,
+        "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content}
         ],
-        max_completion_tokens=max_tokens,
-        temperature=0.3,
-        stream=True,
-    )
+        "max_tokens": max_tokens,
+        "temperature": 0.3,
+    }
 
-    full = ""
-    finish = ""
-    last_progress = time.time()
+    data = json.dumps(body).encode('utf-8')
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {DOUBAO_KEY}',
+    }
 
-    for chunk in stream:
-        if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
-            full += chunk.choices[0].delta.content
-        if chunk.choices and chunk.choices[0].finish_reason:
-            finish = chunk.choices[0].finish_reason
-        now = time.time()
-        if now - last_progress > 3:
-            elapsed = now - t0
-            # Estimate: typical output 20-40K chars over 60-120s
-            chars = len(full)
-            pct = min(85, 25 + int((chars / 30000) * 55))
-            progress(pct, f"AI 生成中... {chars//1000}K 字符, {int(elapsed)}秒")
-            last_progress = now
+    ctx = ssl.create_default_context()
+    req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+
+    progress(25, "AI 分析中...")
+
+    try:
+        with urllib.request.urlopen(req, timeout=600, context=ctx) as resp:
+            result = json.loads(resp.read().decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8', errors='replace')
+        log(f"HTTP {e.code}: {error_body[:500]}")
+        raise Exception(f"Doubao API error {e.code}: {error_body[:200]}")
 
     elapsed = time.time() - t0
-    log(f"Done: {len(full)} chars, finish={finish} in {elapsed:.1f}s")
-    return full, finish
+
+    text = ""
+    choices = result.get("choices", [])
+    if choices:
+        text = choices[0].get("message", {}).get("content", "")
+
+    finish = choices[0].get("finish_reason", "unknown") if choices else "unknown"
+    usage = result.get("usage", {})
+    log(f"Done: {len(text)} chars, finish={finish}, tokens={usage.get('total_tokens', '?')} in {elapsed:.1f}s")
+
+    return text, finish
 
 
 def extract_json(text):
-    """Extract JSON from GPT output"""
+    """Extract JSON from model output"""
     text = text.strip()
     if text.startswith('```'):
         text = text.split('\n', 1)[1] if '\n' in text else text[3:]
@@ -137,7 +139,7 @@ def extract_json(text):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='PDF → V4 Blueprint (One-Shot)')
+    parser = argparse.ArgumentParser(description='PDF -> V4 Blueprint (One-Shot, 豆包)')
     parser.add_argument('--pdf', help='PDF file path')
     parser.add_argument('--images', nargs='*', help='Image file paths')
     parser.add_argument('--text', default='', help='User text/notes')
@@ -150,7 +152,6 @@ def main():
 
     progress(5, "读取文件...")
 
-    # Load schema and templates
     with open(args.schema_file, 'r', encoding='utf-8') as f:
         v4_schema = f.read()
     with open(args.templates_file, 'r', encoding='utf-8') as f:
@@ -158,7 +159,7 @@ def main():
 
     progress(8, "渲染 PDF 图片...")
 
-    # Prepare image content
+    # Prepare image content (OpenAI-compatible multimodal format)
     user_content = []
     if args.pdf:
         image_urls = pdf_to_images(args.pdf)
@@ -175,8 +176,8 @@ def main():
 
     progress(15, "构建 AI 提示词...")
 
-    orientation_desc = '竖屏（手机竖握）' if args.orientation == 'portrait' else '横屏（手机横握）'
     target = args.target_frames
+    orientation_desc = '竖屏（手机竖握）' if args.orientation == 'portrait' else '横屏（手机横握）'
 
     system_prompt = f"""你是试玩广告蓝图架构师。你需要一步完成：从分镜 PDF/图片直接提取游戏蓝图。
 
@@ -239,10 +240,9 @@ def main():
 
     log(f"System prompt: {len(system_prompt)} chars, images: {len([c for c in user_content if c.get('type') == 'image_url'])}")
 
-    progress(20, "调用 AI 分析分镜并生成蓝图...")
+    progress(20, "调用豆包 AI 分析分镜并生成蓝图...")
 
-    # Single AI call
-    raw, finish = call_gpt(system_prompt, user_content, args.max_tokens)
+    raw, finish = call_doubao(system_prompt, user_content, args.max_tokens)
 
     progress(88, "解析 JSON...")
 
@@ -256,7 +256,6 @@ def main():
         }, sys.stdout, ensure_ascii=False)
         sys.exit(1)
 
-    # Validate
     if 'entities' not in data or not isinstance(data.get('entities'), list):
         json.dump({"error": "Missing entities array"}, sys.stdout, ensure_ascii=False)
         sys.exit(1)
@@ -268,7 +267,7 @@ def main():
 
     json.dump({
         "data": data,
-        "meta": {"finish_reason": finish, "model": "gpt-5.4", "parser": "pdf2bp-oneshot"}
+        "meta": {"finish_reason": finish, "model": MODEL, "parser": "pdf2bp-doubao"}
     }, sys.stdout, ensure_ascii=False)
     sys.exit(0)
 

@@ -340,6 +340,8 @@ function matchRoute(method, pathname) {
   if (method === 'GET' && pathname === '/api/tasks') return { handler: 'getTasks' };
   if (method === 'GET' && pathname === '/api/dashboard/stats') return { handler: 'getDashboardStats' };
   if (method === 'GET' && pathname === '/api/dashboard/api-health') return { handler: 'getApiHealth' };
+  if (method === 'GET' && pathname === '/api/watchdog') return { handler: 'getWatchdogStatus' };
+  if (method === 'POST' && pathname === '/api/watchdog/run') return { handler: 'runWatchdog' };
 
   // Serve generated images
   m = pathname.match(/^\/api\/images\/([^/]+)\/(.+)$/);
@@ -2079,12 +2081,12 @@ ${framesDesc}
 
 返回纯 JSON（不要 markdown code fence）。`;
 
-    // Call GPT-5.4 via Python subprocess (stable streaming)
+    // Call Claude Opus 4.6 via Python subprocess
     var fs = require('fs');
     var text = '';
     
     sendSSE({ type: 'progress', percent: 20, stage: '调用 AI 提取实体中...' });
-    console.log('[v4-convert] Calling GPT-5.4 via Python for blueprint conversion...');
+    console.log('[v4-convert] Calling Claude Opus 4.6 via Python for blueprint conversion...');
     var tmpFrames = '/tmp/v4-frames-' + Date.now() + '.json';
     fs.writeFileSync(tmpFrames, JSON.stringify(project.storyboard || project.storyboardFrames || []), 'utf8');
     
@@ -2134,32 +2136,28 @@ ${framesDesc}
       var parsed = JSON.parse(pyResult);
       if (parsed.error) throw new Error(parsed.error);
       text = JSON.stringify(parsed.data);
-      console.log('[v4-convert] Python GPT-5.4 returned ' + text.length + ' chars');
+      console.log('[v4-convert] Python Claude Opus 4.6 returned ' + text.length + ' chars');
     } catch(pyErr) {
-      console.log('[v4-convert] Python failed, falling back to Gemini: ' + pyErr.message?.substring(0, 100));
-      sendSSE({ type: 'progress', percent: 30, stage: '切换到 Gemini 备选模型...' });
-      // Simple ticker for Gemini (no stderr progress)
-      var geminiPercent = 30;
-      var geminiTicker = setInterval(function() {
-        geminiPercent = Math.min(geminiPercent + 3, 85);
-        sendSSE({ type: 'progress', percent: geminiPercent, stage: 'Gemini AI 分析中...' });
+      console.log('[v4-convert] Python Claude failed, falling back to Doubao: ' + pyErr.message?.substring(0, 100));
+      sendSSE({ type: 'progress', percent: 30, stage: '切换到豆包备选模型...' });
+      var doubaoPercent = 30;
+      var doubaoTicker = setInterval(function() {
+        doubaoPercent = Math.min(doubaoPercent + 3, 85);
+        sendSSE({ type: 'progress', percent: doubaoPercent, stage: '豆包 AI 分析中...' });
       }, 2000);
-      // Fallback to Gemini
-      var ai = require('./storyboard-parser.cjs').getAI ? require('./storyboard-parser.cjs').getAI() : null;
-      if (!ai) {
-        var { GoogleGenAI } = require('@google/genai');
-        var keyRotation = require('./key-rotation.cjs');
-        ai = new GoogleGenAI({ apiKey: keyRotation.getKey() });
-      }
+      // Fallback to Doubao via adapter
+      var { GoogleGenAI } = require('./doubao-adapter.cjs');
+      var doubaoKey = process.env.DOUBAO_API_KEY || '197cb950-3cf3-4b30-b656-6afaa4306a7a';
+      var ai = new GoogleGenAI({ apiKey: doubaoKey });
       var result = await Promise.race([
         ai.models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: 'doubao-seed-2-0-pro-260215',
           contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
           config: { temperature: 0.3, maxOutputTokens: 65536, systemInstruction: systemPrompt },
         }),
-        new Promise(function(_, reject) { setTimeout(function() { reject(new Error('Gemini timeout (120s)')); }, 120000); })
+        new Promise(function(_, reject) { setTimeout(function() { reject(new Error('Doubao timeout (120s)')); }, 120000); })
       ]);
-      clearInterval(geminiTicker);
+      clearInterval(doubaoTicker);
       sendSSE({ type: 'progress', percent: 88, stage: '解析 AI 返回结果...' });
       if (result.candidates && result.candidates[0]) {
         var parts = result.candidates[0].content.parts || [];
@@ -2169,7 +2167,7 @@ ${framesDesc}
       } else if (result.text) {
         text = typeof result.text === 'function' ? result.text() : result.text;
       }
-      console.log('[v4-convert] Gemini returned ' + text.length + ' chars');
+      console.log('[v4-convert] Doubao fallback returned ' + text.length + ' chars');
     }
 
     sendSSE({ type: 'progress', percent: 90, stage: '解析 JSON 结构...' });
@@ -2734,51 +2732,75 @@ handlers.getDashboardStats = function(req, res) {
   });
 };
 
-// GET /api/dashboard/api-health — check GPT-5.4 API availability
+// GET /api/dashboard/api-health — check Claude + Doubao + Gemini API availability
 handlers.getApiHealth = async function(req, res) {
   var results = {};
   
-  // Check GPT-5.4
+  // Check Claude Opus 4.6 (coding + blueprint conversion)
   try {
     var start = Date.now();
     var { default: fetch } = await import('node-fetch');
-    var apiBase = process.env.OPENAI_BASE_URL || 'https://sub.mindrix.app/v1';
-    var apiKey = process.env.OPENAI_API_KEY || '';
+    var claudeBase = 'https://crs.mindrix.app/api/anthropic/v1/messages';
+    var claudeKey = process.env.LLM_API_KEY || 'oki-d82fb9cf928492b23847db9569dd1f912906cc09135c62fe20b5fa3f0576';
     var resp = await Promise.race([
-      fetch(apiBase + '/chat/completions', {
+      fetch(claudeBase, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
-        body: JSON.stringify({ model: 'gpt-5.4', messages: [{ role: 'user', content: 'ping' }], max_completion_tokens: 5 })
+        headers: { 'Content-Type': 'application/json', 'x-api-key': claudeKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model: 'claude-opus-4-6', max_tokens: 5, messages: [{ role: 'user', content: 'ping' }] })
       }),
       new Promise(function(_, reject) { setTimeout(function() { reject(new Error('timeout')); }, 15000); })
     ]);
     var latency = Date.now() - start;
     if (resp.ok) {
-      results.gpt54 = { status: 'ok', latencyMs: latency };
+      results.claude = { status: 'ok', latencyMs: latency };
     } else {
       var body = await resp.text().catch(function() { return ''; });
-      results.gpt54 = { status: 'error', latencyMs: latency, error: resp.status + ': ' + body.substring(0, 100) };
+      results.claude = { status: 'error', latencyMs: latency, error: resp.status + ': ' + body.substring(0, 100) };
     }
   } catch(e) {
-    results.gpt54 = { status: 'down', error: e.message };
+    results.claude = { status: 'down', error: e.message };
   }
 
-  // Check Gemini relay
+  // Check 豆包 Seed 2.0 Pro (storyboard parsing + spec extraction + screenshot review)
   try {
     var start2 = Date.now();
+    var { default: fetch2 } = await import('node-fetch');
+    var doubaoKey = process.env.DOUBAO_API_KEY || '197cb950-3cf3-4b30-b656-6afaa4306a7a';
+    var resp2 = await Promise.race([
+      fetch2('https://ark.cn-beijing.volces.com/api/v3/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + doubaoKey },
+        body: JSON.stringify({ model: 'doubao-seed-2-0-pro-260215', max_tokens: 5, messages: [{ role: 'user', content: 'ping' }] })
+      }),
+      new Promise(function(_, reject) { setTimeout(function() { reject(new Error('timeout')); }, 15000); })
+    ]);
+    var latency2 = Date.now() - start2;
+    if (resp2.ok) {
+      results.doubao = { status: 'ok', latencyMs: latency2 };
+    } else {
+      var body2 = await resp2.text().catch(function() { return ''; });
+      results.doubao = { status: 'error', latencyMs: latency2, error: resp2.status + ': ' + body2.substring(0, 100) };
+    }
+  } catch(e) {
+    results.doubao = { status: 'down', error: e.message };
+  }
+
+  // Check Gemini relay (video analysis)
+  try {
+    var start3 = Date.now();
     var geminiBase = process.env.GOOGLE_GEMINI_BASE_URL || 'https://sub.mindrix.app';
     var geminiKey = process.env.GEMINI_API_KEY || '';
-    var { default: fetch2 } = await import('node-fetch');
-    var resp2 = await Promise.race([
-      fetch2(geminiBase + '/v1/models', {
+    var { default: fetch3 } = await import('node-fetch');
+    var resp3 = await Promise.race([
+      fetch3(geminiBase + '/v1/models', {
         method: 'GET',
         headers: { 'Authorization': 'Bearer ' + geminiKey }
       }),
       new Promise(function(_, reject) { setTimeout(function() { reject(new Error('timeout')); }, 10000); })
     ]);
-    var latency2 = Date.now() - start2;
-    results.gemini = { status: resp2.ok ? 'ok' : 'error', latencyMs: latency2 };
-    if (!resp2.ok) results.gemini.error = 'HTTP ' + resp2.status;
+    var latency3 = Date.now() - start3;
+    results.gemini = { status: resp3.ok ? 'ok' : 'error', latencyMs: latency3 };
+    if (!resp3.ok) results.gemini.error = 'HTTP ' + resp3.status;
   } catch(e) {
     results.gemini = { status: 'down', error: e.message };
   }
@@ -2935,6 +2957,15 @@ setInterval(function() {
             task.assignedAt = null;
             task.failCount = failCount + 1;
             task.statusMessage = 'Auto-reset from stale ' + task.status + ' (retry ' + task.failCount + '/' + MAX_TASK_RETRIES + ')';
+            // FIX: Also sync project status back to 'submitted' so UI reflects the reset (2026-04-01)
+            var staleProject = readProject(task.taskId);
+            if (staleProject && staleProject.status === 'processing') {
+              staleProject.status = 'submitted';
+              staleProject.statusMessage = 'Auto-reset: stale task retrying (' + task.failCount + '/' + MAX_TASK_RETRIES + ')';
+              staleProject.updatedAt = new Date().toISOString();
+              writeProject(staleProject);
+              console.log('[Stale Recovery] Synced project ' + task.taskId + ' status to submitted');
+            }
             task.updatedAt = new Date().toISOString();
             // Also reset workerAssignments so workers can re-claim the task
             if (task.workerAssignments) {
@@ -2987,3 +3018,433 @@ function gracefulShutdown(signal) {
 }
 process.on('SIGINT', function() { gracefulShutdown('SIGINT'); });
 process.on('SIGTERM', function() { gracefulShutdown('SIGTERM'); });
+
+
+
+// ============ Task Watchdog v2 — Full Pipeline Health Monitor (2026-04-01) ============
+//
+// Deep investigation findings & failure modes covered:
+//
+// ── PM2 Layer ──
+// F1. PM2 auto-restarts server → in-memory claimedTasks lost → rebuilt from disk at boot,
+//     but tasks whose worker died mid-processing get stuck (assignedTo set, worker gone).
+// F2. PM2 restarts worker → child Claude/Codex processes become orphans (PPID=1),
+//     worker picks up task from checkpoint but old process still burns API credits.
+// F3. PM2 restarts worker during reportStatus() → server never gets final status,
+//     task stuck in processing forever.
+//
+// ── Server Layer ──
+// F4. Server has NO uncaughtException handler → one bad request could crash the process.
+// F5. Server gracefulShutdown only waits for image generations (activeGenerations),
+//     does NOT flush task states or notify workers.
+// F6. Server restart clears workerHeartbeats → watchdog sees all workers as "never seen"
+//     until they heartbeat again (~30s).
+//
+// ── Worker Layer ──
+// F7. Worker heartbeat ALWAYS reports status='idle' regardless of whether a task is active.
+//     watchdog can't trust worker.status — must cross-reference activeTasks.size.
+// F8. Worker processTask catch block calls reportStatus('failed') but if server is down
+//     at that moment, the failure report is swallowed (.catch(e => log(...))).
+// F9. Worker has uncaughtException handler but it only logs — no task cleanup.
+//     If an exception kills the event loop mid-task, task stays processing.
+// F10. Claude Code timeout is 20 min but $5 budget usually finishes in <5 min.
+//      A stuck Claude process (waiting for API) won't hit budget limit and runs until timeout.
+//
+// ── CUA / Build Layer ──
+// F11. CUA preview server (port 18850) closed before autoPlay fallback → ERR_CONNECTION_REFUSED.
+//      (Fixed in worker-cua-verify.js, but watchdog should detect residual port conflicts)
+// F12. Build service (linux-bridge-build) crash → all builds fail but workers keep retrying.
+// F13. SpecExtractor 429 rate limit → spec extraction fails → proceeds without specs →
+//      CUA can't validate phases → all phases show "not completed" → false failure.
+//
+// ── State Layer ──
+// F14. Task queue file status ≠ project status (desync) — most common after any restart.
+// F15. claimedTasks in-memory lock has entry but worker is dead → task blocked from re-claim.
+// F16. workerAssignments in task file has stale entries → poll logic skips task.
+
+// ─── Watchdog API Handlers (must be before IIFE so they're in handlers scope) ───
+
+// GET /api/watchdog — comprehensive health status snapshot
+handlers.getWatchdogStatus = function(req, res) {
+  try {
+    var now = Date.now();
+    var report = {
+      timestamp: new Date().toISOString(),
+      tasks: [], workers: [], issues: [], infrastructure: {},
+      healthy: true
+    };
+
+    // ── Tasks ──
+    if (fs.existsSync(AUTOCODING_QUEUE)) {
+      var files = fs.readdirSync(AUTOCODING_QUEUE)
+        .filter(function(f) { return f.endsWith('.json') && !f.includes('-blueprint') && !f.includes('.cancelled'); });
+      files.forEach(function(f) {
+        try {
+          var task = JSON.parse(fs.readFileSync(path.join(AUTOCODING_QUEUE, f), 'utf-8'));
+          var proj = readProject(task.taskId);
+          var age = task.updatedAt ? Math.round((now - new Date(task.updatedAt).getTime()) / 1000) : -1;
+          var inMemLock = claimedTasks[task.taskId] || null;
+          var entry = {
+            taskId: task.taskId,
+            projectName: proj ? proj.name : '?',
+            taskStatus: task.status,
+            projectStatus: proj ? proj.status : '?',
+            assignedTo: task.assignedTo || null,
+            inMemoryLock: inMemLock ? inMemLock.workerId : null,
+            failCount: task.failCount || 0,
+            ageSeconds: age,
+            statusMessage: (task.statusMessage || '').slice(0, 120),
+            synced: true
+          };
+          // Check desync
+          if (proj) {
+            var taskS = task.status, projS = proj.status;
+            var validCombos = {
+              pending: ['submitted'], assigned: ['processing'], processing: ['processing', 'building'],
+              building: ['processing', 'building'], failed: ['failed'],
+              done: ['reviewing', 'committed', 'done'], cua_passed: ['reviewing']
+            };
+            var allowed = validCombos[taskS] || [];
+            if (taskS !== projS && allowed.indexOf(projS) === -1) {
+              entry.synced = false;
+              entry.desyncDetail = 'task=' + taskS + ' project=' + projS;
+            }
+          }
+          // Check lock consistency
+          if (inMemLock && task.status !== 'processing' && task.status !== 'assigned') {
+            entry.staleLock = true;
+          }
+          report.tasks.push(entry);
+        } catch(e) {}
+      });
+    }
+
+    // ── Workers ──
+    Object.keys(workerHeartbeats).forEach(function(wid) {
+      var w = workerHeartbeats[wid];
+      var lastSeenMs = w.lastSeen ? new Date(w.lastSeen).getTime() : 0;
+      var ageS = Math.round((now - lastSeenMs) / 1000);
+      report.workers.push({
+        workerId: wid,
+        heartbeatStatus: w.status,
+        reportedActiveTasks: w.activeTasks || 0,
+        currentTask: w.currentTask ? w.currentTask.taskId : null,
+        alive: ageS < 180,
+        lastSeenAgo: ageS + 's'
+      });
+    });
+
+    // ── Infrastructure ──
+    // Build service
+    try {
+      var http = require('http');
+      report.infrastructure.buildService = 'checking...';
+    } catch(e) {}
+    // Check PM2 stopped workers
+    try {
+      var execSync = require('child_process').execSync;
+      var pm2Json = execSync('pm2 jlist 2>/dev/null', { encoding: 'utf-8', timeout: 5000 });
+      var pm2Data = JSON.parse(pm2Json);
+      var stoppedWorkers = pm2Data.filter(function(p) {
+        return p.name.indexOf('linux-worker') === 0 && p.pm2_env && p.pm2_env.status === 'stopped';
+      }).map(function(p) { return p.name; });
+      report.infrastructure.stoppedWorkers = stoppedWorkers;
+      report.infrastructure.totalWorkerProcesses = pm2Data.filter(function(p) { return p.name.indexOf('linux-worker') === 0; }).length;
+      report.infrastructure.activeWorkerProcesses = pm2Data.filter(function(p) {
+        return p.name.indexOf('linux-worker') === 0 && p.pm2_env && p.pm2_env.status === 'online';
+      }).length;
+    } catch(e) {
+      report.infrastructure.pm2Error = e.message;
+    }
+    // Zombie processes
+    try {
+      var zombieOut = execSync("ps -eo pid,etimes,args 2>/dev/null | grep -E 'claude.*--print.*--max-budget|codex.*exec' | grep -v grep || true", { encoding: 'utf-8', timeout: 5000 });
+      var zombies = zombieOut.trim().split('\n').filter(Boolean).map(function(line) {
+        var p = line.trim().split(/\s+/);
+        return { pid: parseInt(p[0]), runningSec: parseInt(p[1]), cmd: p.slice(2).join(' ').slice(0, 80) };
+      });
+      report.infrastructure.childProcesses = zombies;
+    } catch(e) {}
+
+    // ── Diagnose Issues ──
+    report.tasks.forEach(function(t) {
+      if (!t.synced) report.issues.push({ type: 'desync', taskId: t.taskId, detail: t.desyncDetail });
+      if (t.staleLock) report.issues.push({ type: 'stale-lock', taskId: t.taskId, detail: 'in-memory lock exists but task is ' + t.taskStatus });
+      if ((t.taskStatus === 'processing' || t.taskStatus === 'assigned') && !t.assignedTo && t.ageSeconds > 300)
+        report.issues.push({ type: 'orphan', taskId: t.taskId, detail: 'no assignee, age ' + t.ageSeconds + 's' });
+      if ((t.taskStatus === 'processing' || t.taskStatus === 'assigned') && t.assignedTo) {
+        var wk = report.workers.find(function(w) { return w.workerId === t.assignedTo; });
+        if (wk && !wk.alive) report.issues.push({ type: 'dead-worker', taskId: t.taskId, detail: 'assigned to ' + t.assignedTo + ' (last seen ' + wk.lastSeenAgo + ')' });
+        if (wk && wk.alive && wk.reportedActiveTasks === 0 && t.ageSeconds > 300)
+          report.issues.push({ type: 'worker-idle-desync', taskId: t.taskId, detail: t.assignedTo + ' reports 0 active tasks' });
+      }
+      if (t.failCount >= MAX_TASK_RETRIES) report.issues.push({ type: 'max-retries', taskId: t.taskId, detail: t.failCount + ' failures' });
+    });
+    if (report.infrastructure.childProcesses) {
+      report.infrastructure.childProcesses.forEach(function(z) {
+        if (z.runningSec > 900) report.issues.push({ type: 'zombie-process', pid: z.pid, detail: 'running ' + Math.round(z.runningSec/60) + 'min' });
+      });
+    }
+
+    report.healthy = report.issues.length === 0;
+    sendJSON(res, report);
+  } catch (e) {
+    sendJSON(res, { error: 'Watchdog status failed: ' + e.message }, 500);
+  }
+};
+
+// POST /api/watchdog/run — manually trigger full repair cycle, returns what was fixed
+handlers.runWatchdog = function(req, res) {
+  try {
+    console.log('[Watchdog] Manual run triggered via API');
+    var result = runWatchdogCycle('manual');
+    sendJSON(res, result);
+  } catch (e) {
+    sendJSON(res, { error: 'Watchdog run failed: ' + e.message }, 500);
+  }
+};
+
+// ─── Core watchdog cycle (shared by interval + manual trigger) ───
+function runWatchdogCycle(trigger) {
+  var now = Date.now();
+  var issues = [];
+  var fixes = [];
+
+  var ORPHAN_THRESHOLD_MS = 5 * 60 * 1000;
+  var WORKER_DEAD_MS = 3 * 60 * 1000;
+  var ZOMBIE_PROCESS_MS = 15 * 60;   // seconds
+  var DESYNC_GRACE_MS = 60 * 1000;
+
+  try {
+    if (!fs.existsSync(AUTOCODING_QUEUE)) return { trigger: trigger, issues: [], fixes: [], healthy: true };
+
+    var taskFiles = fs.readdirSync(AUTOCODING_QUEUE)
+      .filter(function(f) { return f.endsWith('.json') && !f.includes('-blueprint') && !f.includes('.cancelled'); });
+
+    // Gather live worker state
+    var liveWorkers = {};
+    Object.keys(workerHeartbeats).forEach(function(wid) {
+      var w = workerHeartbeats[wid];
+      var lastSeenMs = w.lastSeen ? new Date(w.lastSeen).getTime() : 0;
+      liveWorkers[wid] = {
+        alive: (now - lastSeenMs) < WORKER_DEAD_MS,
+        lastSeenAgo: Math.round((now - lastSeenMs) / 1000),
+        activeTasks: w.activeTasks || 0,
+        status: w.status
+      };
+    });
+
+    // ── Phase 1: Fix individual tasks ──
+    taskFiles.forEach(function(f) {
+      try {
+        var fp = path.join(AUTOCODING_QUEUE, f);
+        var task = JSON.parse(fs.readFileSync(fp, 'utf-8'));
+        var proj = readProject(task.taskId);
+        var age = task.updatedAt ? now - new Date(task.updatedAt).getTime() : 0;
+        var changed = false;
+
+        // === F1/F3/F9: Orphaned task — processing but assignedTo is null ===
+        if ((task.status === 'processing' || task.status === 'assigned' || task.status === 'building') &&
+            !task.assignedTo && age > ORPHAN_THRESHOLD_MS) {
+          issues.push('[F1-orphan] ' + task.taskId + ' is ' + task.status + ' with no assignee (age ' + Math.round(age/1000) + 's)');
+          task.status = 'pending';
+          task.assignedTo = null; task.assignedAt = null;
+          task.workerAssignments = {};
+          task.statusMessage = '[watchdog] Orphan reset (no assignee for ' + Math.round(age/1000) + 's)';
+          task.updatedAt = new Date().toISOString();
+          changed = true;
+          fixes.push('[fix] ' + task.taskId + ' → pending (orphan, no assignee)');
+        }
+
+        // === F2/F3: Assigned to dead worker ===
+        if ((task.status === 'processing' || task.status === 'assigned' || task.status === 'building') &&
+            task.assignedTo && age > ORPHAN_THRESHOLD_MS) {
+          var wInfo = liveWorkers[task.assignedTo];
+          if (!wInfo || !wInfo.alive) {
+            issues.push('[F2-dead-worker] ' + task.taskId + ' assigned to ' + task.assignedTo +
+              ' (last seen: ' + (wInfo ? wInfo.lastSeenAgo + 's ago' : 'never') + ')');
+            task.status = 'pending';
+            task.assignedTo = null; task.assignedAt = null;
+            task.statusMessage = '[watchdog] Worker ' + task.assignedTo + ' dead, re-queued';
+            task.updatedAt = new Date().toISOString();
+            // Reset workerAssignments
+            if (task.workerAssignments) {
+              Object.keys(task.workerAssignments).forEach(function(k) {
+                if (task.workerAssignments[k] === 'processing' || task.workerAssignments[k] === 'assigned') {
+                  task.workerAssignments[k] = 'pending';
+                }
+              });
+            }
+            changed = true;
+            fixes.push('[fix] ' + task.taskId + ' → pending (worker ' + task.assignedTo + ' dead)');
+          }
+        }
+
+        // === F7: Worker alive but reports 0 active tasks (idle desync) ===
+        if ((task.status === 'processing' || task.status === 'assigned') &&
+            task.assignedTo && age > ORPHAN_THRESHOLD_MS && !changed) {
+          var wInfo2 = liveWorkers[task.assignedTo];
+          if (wInfo2 && wInfo2.alive && wInfo2.activeTasks === 0) {
+            issues.push('[F7-idle-desync] ' + task.taskId + ' assigned to ' + task.assignedTo +
+              ' but worker reports 0 active tasks (age ' + Math.round(age/1000) + 's)');
+            task.status = 'pending';
+            task.assignedTo = null; task.assignedAt = null;
+            task.statusMessage = '[watchdog] Worker idle but task stuck, re-queued';
+            task.updatedAt = new Date().toISOString();
+            changed = true;
+            fixes.push('[fix] ' + task.taskId + ' → pending (worker idle desync)');
+          }
+        }
+
+        // === F15: Stale in-memory lock ===
+        if (claimedTasks[task.taskId] &&
+            task.status !== 'processing' && task.status !== 'assigned' && task.status !== 'building') {
+          issues.push('[F15-stale-lock] ' + task.taskId + ' has in-memory lock but status is ' + task.status);
+          delete claimedTasks[task.taskId];
+          fixes.push('[fix] Cleared stale lock for ' + task.taskId);
+        }
+        // Also clear lock if locked worker is dead
+        if (claimedTasks[task.taskId]) {
+          var lockWorker = claimedTasks[task.taskId].workerId;
+          var lwInfo = liveWorkers[lockWorker];
+          if (lwInfo && !lwInfo.alive) {
+            issues.push('[F15-dead-lock] ' + task.taskId + ' locked by dead worker ' + lockWorker);
+            delete claimedTasks[task.taskId];
+            fixes.push('[fix] Cleared dead-worker lock for ' + task.taskId);
+          }
+        }
+
+        // === F13: API rate limit / infra failure backoff ===
+        if ((task.status === 'processing' || task.status === 'pending') && task.statusMessage) {
+          var msg = (task.statusMessage || '').toLowerCase();
+          if ((msg.includes('api_failure') || msg.includes('401') || msg.includes('503') ||
+               msg.includes('rate limit') || msg.includes('429')) && (task.failCount || 0) >= 2) {
+            if (!task.retryAfter || task.retryAfter < now) {
+              var backoff = Math.min((task.failCount || 2) * 5 * 60 * 1000, 30 * 60 * 1000);
+              task.retryAfter = now + backoff;
+              task.statusMessage = '[watchdog] API infra issue, backoff ' + Math.round(backoff/60000) + 'min (fail #' + task.failCount + ')';
+              task.updatedAt = new Date().toISOString();
+              changed = true;
+              issues.push('[F13-infra] ' + task.taskId + ' has ' + task.failCount + ' API failures');
+              fixes.push('[fix] Set ' + Math.round(backoff/60000) + 'min backoff for ' + task.taskId);
+            }
+          }
+        }
+
+        if (changed) {
+          fs.writeFileSync(fp, JSON.stringify(task, null, 2), 'utf-8');
+        }
+
+        // === F14: Project ↔ Task desync ===
+        if (proj && age > DESYNC_GRACE_MS) {
+          var needSync = false;
+          var newProjStatus = null;
+
+          if ((task.status === 'pending' || task.status === 'failed') &&
+              (proj.status === 'processing' || proj.status === 'building')) {
+            newProjStatus = task.status === 'failed' ? 'failed' : 'submitted';
+            needSync = true;
+          }
+          if (task.status === 'done' && proj.status === 'processing') {
+            newProjStatus = 'reviewing';
+            needSync = true;
+          }
+
+          if (needSync && newProjStatus) {
+            issues.push('[F14-desync] Project ' + task.taskId + ' "' + proj.status + '" but task "' + task.status + '"');
+            proj.status = newProjStatus;
+            proj.statusMessage = '[watchdog] Synced: task was ' + task.status;
+            proj.updatedAt = new Date().toISOString();
+            writeProject(proj);
+            fixes.push('[fix] Project ' + task.taskId + ' → ' + newProjStatus);
+          }
+        }
+      } catch(e) {}
+    });
+
+    // ── Phase 2: Kill zombie child processes (F2/F10) ──
+    try {
+      var execSync = require('child_process').execSync;
+      var psOut = execSync("ps -eo pid,etimes,args 2>/dev/null | grep -E 'claude.*--print.*--max-budget|codex.*exec' | grep -v grep || true",
+        { encoding: 'utf-8', timeout: 5000 });
+      psOut.trim().split('\n').filter(Boolean).forEach(function(line) {
+        var parts = line.trim().split(/\s+/);
+        var pid = parseInt(parts[0]);
+        var elapsedSec = parseInt(parts[1]);
+        if (isNaN(pid) || isNaN(elapsedSec)) return;
+        if (elapsedSec > ZOMBIE_PROCESS_MS) {
+          issues.push('[F10-zombie] PID ' + pid + ' running ' + Math.round(elapsedSec/60) + 'min');
+          try {
+            process.kill(pid, 'SIGTERM');
+            fixes.push('[fix] SIGTERM → PID ' + pid + ' (' + Math.round(elapsedSec/60) + 'min)');
+          } catch(e) {}
+        }
+      });
+    } catch(e) {}
+
+    // ── Phase 3: Check infrastructure services (F12) ──
+    try {
+      var execSync2 = require('child_process').execSync;
+      var buildCheck = execSync2('curl -s --max-time 3 http://localhost:3080/health 2>/dev/null || echo "FAIL"',
+        { encoding: 'utf-8', timeout: 5000 }).trim();
+      if (buildCheck === 'FAIL' || !buildCheck.includes('ok')) {
+        issues.push('[F12-build] Build service (linux-bridge-build:3080) is unreachable');
+        // Try to restart it
+        try {
+          execSync2('pm2 restart linux-build 2>/dev/null', { timeout: 10000 });
+          fixes.push('[fix] Restarted linux-build service');
+        } catch(e) {}
+      }
+    } catch(e) {}
+
+    // ── Phase 4: Check for PM2 crash-loop workers ──
+    try {
+      var execSync3 = require('child_process').execSync;
+      var pm2Json = execSync3('pm2 jlist 2>/dev/null', { encoding: 'utf-8', timeout: 5000 });
+      var pm2Data = JSON.parse(pm2Json);
+      pm2Data.forEach(function(p) {
+        if (p.name.indexOf('linux-worker') !== 0) return;
+        var env = p.pm2_env || {};
+        // Detect crash-loop: restarted many times in short uptime
+        if (env.status === 'online' && env.restart_time > 20) {
+          var uptimeMs = Date.now() - (env.pm_uptime || Date.now());
+          if (uptimeMs < 300000 && env.restart_time > 3) { // 5 min with >3 restarts = crash loop
+            issues.push('[F9-crash-loop] ' + p.name + ' restarted ' + env.restart_time + ' times (uptime ' + Math.round(uptimeMs/1000) + 's)');
+            try {
+              execSync3('pm2 stop ' + p.name + ' 2>/dev/null', { timeout: 5000 });
+              fixes.push('[fix] Stopped crash-looping ' + p.name);
+            } catch(e) {}
+          }
+        }
+      });
+    } catch(e) {}
+
+  } catch (e) {
+    issues.push('[error] Watchdog cycle error: ' + e.message);
+  }
+
+  return { trigger: trigger, timestamp: new Date().toISOString(), issues: issues, fixes: fixes, healthy: issues.length === 0, issueCount: issues.length, fixCount: fixes.length };
+}
+
+// ─── Interval runner ───
+(function initTaskWatchdog() {
+  var WATCHDOG_INTERVAL_MS = 2 * 60 * 1000;
+  var watchdogRuns = 0;
+
+  setInterval(function() {
+    watchdogRuns++;
+    var result = runWatchdogCycle('auto-' + watchdogRuns);
+
+    if (result.issues.length > 0) {
+      console.log('[Watchdog] Run #' + watchdogRuns + ': ' + result.issues.length + ' issue(s), ' + result.fixes.length + ' fix(es)');
+      result.issues.forEach(function(i) { console.log('[Watchdog]   ' + i); });
+      result.fixes.forEach(function(f) { console.log('[Watchdog]   ' + f); });
+    }
+    // Quiet heartbeat every 15 runs (~30min)
+    if (result.issues.length === 0 && watchdogRuns % 15 === 0) {
+      console.log('[Watchdog] Run #' + watchdogRuns + ' — all clear');
+    }
+  }, WATCHDOG_INTERVAL_MS);
+
+  console.log('[Watchdog] v2 initialized — monitoring 16 failure modes, interval ' + (WATCHDOG_INTERVAL_MS/1000) + 's');
+})();

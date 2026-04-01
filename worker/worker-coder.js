@@ -749,7 +749,7 @@ var GENERATE_PROMPT = [
   '- FORBIDDEN: autoplay, auto-shoot, auto-demo, ForceCompleteAllPhases',
   '- FORBIDDEN: auto-move player toward targets without player input',
   '- Player must actively interact (tap, click, drag, use joystick) to progress through each shot',
-  '- CUA (GPT-5.4) will test the game by actually playing it — it needs real interactable elements, not auto-playing demos',
+  '- PlayableAgent (VLM) will test the game by actually playing it — it needs real interactable elements, not auto-playing demos',
   '- Make the joystick activation zone large — use the FULL left half of the screen:',
   '  `if (mousePos.x < Screen.width * 0.5f)` (remove the mousePos.y check)',
   '',

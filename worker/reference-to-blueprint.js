@@ -4,7 +4,7 @@
  * 输入: 截图 + 交互流程 + 静态分析 + 用户描述
  * 输出: V4 blueprint JSON (entities[], phases[], globalSettings)
  *
- * 调用 Gemini 2.5 Pro 多模态模型
+ * 调用豆包 Seed 2.0 Pro 多模态模型
  */
 
 'use strict';
@@ -12,15 +12,13 @@
 const fs = require('fs');
 const path = require('path');
 
-const { GoogleGenAI } = require('@google/genai');
+const { GoogleGenAI } = require('../doubao-adapter.cjs');
 
-const GEMINI_BASE_URL = process.env.GOOGLE_GEMINI_BASE_URL || 'https://sub.mindrix.app';
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_MODEL = process.env.REFERENCE_GEMINI_MODEL || 'gemini-2.5-pro';
+const DOUBAO_API_KEY = process.env.DOUBAO_API_KEY || '197cb950-3cf3-4b30-b656-6afaa4306a7a';
+const DOUBAO_MODEL = process.env.REFERENCE_MODEL || 'doubao-seed-2-0-pro-260215';
 
 const ai = new GoogleGenAI({
-  apiKey: GEMINI_API_KEY,
-  httpOptions: { baseUrl: GEMINI_BASE_URL },
+  apiKey: DOUBAO_API_KEY,
 });
 
 // V4 schema 路径
@@ -178,10 +176,10 @@ async function generateBlueprint(analysis, userDescription, metadata, html, log,
 
   log('[reference-to-blueprint] Prompt length: ' + prompt.length + ' chars, images: ' + ssToSend.length, taskId);
 
-  // 调用 Gemini
+  // 调用豆包
   var result = await Promise.race([
     ai.models.generateContent({
-      model: GEMINI_MODEL,
+      model: DOUBAO_MODEL,
       contents: [{ role: 'user', parts: parts }],
       config: {
         temperature: 0.2,
@@ -190,7 +188,7 @@ async function generateBlueprint(analysis, userDescription, metadata, html, log,
       },
     }),
     new Promise(function(_, reject) {
-      setTimeout(function() { reject(new Error('Gemini timeout (120s)')); }, 120000);
+      setTimeout(function() { reject(new Error('Doubao timeout (120s)')); }, 120000);
     })
   ]);
 
