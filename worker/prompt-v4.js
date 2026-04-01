@@ -296,6 +296,25 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   lines.push('共 ' + createCount + ' 个可见实体必须创建。场景中应有大量 3D 对象。');
   lines.push('');
 
+  // ========== 5.6 阶段流程规则（关键！）==========
+  lines.push('# 🚨🚨🚨 阶段流程规则（最高优先级！违反 = CUA 验证 100% FAIL）');
+  lines.push('');
+  lines.push('## 绝对禁止:');
+  lines.push('- ⛔ 禁止 gameTimer / 计时器 驱动的阶段推进（如 if gameTimer > N → completePhase）');
+  lines.push('- ⛔ 禁止 ForceCompleteAllPhases 或任何自动完成所有阶段的逻辑');
+  lines.push('- ⛔ 禁止 autoplay/自动演示：不要让游戏在无输入下自动跑完');
+  lines.push('- ⛔ 禁止 timer += dt 驱动 Phase 推进');
+  lines.push('- ⛔ 禁止 auto-complete: Phase 完成条件不能是"等待N秒"');
+  lines.push('');
+  lines.push('## 正确做法:');
+  lines.push('- ✅ 每个 Rule 的条件必须依赖玩家操作结果（eState==2, 距离<阈值, 点击目标）');
+  lines.push('- ✅ 玩家必须用摇杆移动到目标位置 / 点击按钮 / 拖拽物体 才能触发 Rule');
+  lines.push('- ✅ 只有玩家完成操作后才调用 AddCompletedPhase');
+  lines.push('- ✅ 每个 Phase 显示引导箭头告诉玩家下一步操作');
+  lines.push('');
+  lines.push('## CUA 验证检测: Agent 0 个操作完成所有 Phase → FAIL; 交互变量始终为 0 → FAIL');
+  lines.push('');
+
   // ========== 6. 代码架构要求 ==========
   lines.push('# 代码架构要求');
   lines.push('');

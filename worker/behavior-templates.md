@@ -1,5 +1,8 @@
 # Luna 行为模板实现手册（事件驱动版）
 
+> ⚠️ **最重要的规则**: Phase/Rule 推进必须由玩家操作触发，绝对禁止用 gameTimer/计时器 自动推进！
+> CUA 验证器会检测: 如果游戏在无玩家输入下自动跑完所有 Phase → **直接 FAIL**。
+
 > 纯事件驱动，无线性 Phase。用 bool[] ruleTriggered 跟踪规则状态。
 
 ## 通用架构
@@ -196,6 +199,39 @@ void UpdateProjectiles(float dt) {
             arrowGo[i].transform.position = new Vector3(0, -999, 0);
             arrowActive[i] = false;
         }
+    }
+}
+```
+
+## 🚨 禁止的 Anti-Pattern（会导致 CUA 验证 FAIL）
+
+```csharp
+// ❌ 错误示例 1: timer 驱动 phase 推进
+void CheckEventRules() {
+    if (!ruleTriggered[1] && gameTimer > 5f) {  // ❌ 不能用 timer 触发！
+        ruleTriggered[1] = true;
+        AddCompletedPhase("collectIce");
+    }
+}
+
+// ❌ 错误示例 2: auto-advance 
+void Update() {
+    phaseTimer += Time.deltaTime;
+    if (phaseTimer > 3f) {  // ❌ 不能自动推进！
+        AdvanceToNextPhase();
+        phaseTimer = 0;
+    }
+}
+
+// ✅ 正确示例: 玩家操作触发
+void CheckEventRules() {
+    // Rule 2: 玩家移动到冰矿附近 → 触发采集
+    if (!ruleTriggered[1] && 
+        Vector3.Distance(eGo[E_PLAYER].transform.position, eGo[E_ICE_MINE].transform.position) < 2f) {
+        ruleTriggered[1] = true;
+        eState[E_ICE_MINE] = 1; // 开始采集动画
+        AddCompletedPhase("collectIce");
+        ShowGuide("把冰搬到机器旁边");
     }
 }
 ```

@@ -424,20 +424,45 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('');
   
   // ========== 8b. 阶段流程规则（关键！）==========
-  lines.push('# 阶段流程规则（必须严格遵守）');
+  lines.push('# 🚨🚨🚨 阶段流程规则（最高优先级！违反 = 100% FAIL）');
+  lines.push('');
+  lines.push('## 绝对禁止 (这些会导致 CUA 验证直接 FAIL):');
   lines.push('- ⛔ 禁止 ForceCompleteAllPhases 或任何"超时强制完成所有阶段"的逻辑');
-  lines.push('- ⛔ 禁止 autoplay/自动演示：不要写代码让游戏自动完成所有步骤');
-  lines.push('- ✅ 每个阶段(phase)必须通过玩家交互（点击/拖拽/移动）才能推进到下一个');
+  lines.push('- ⛔ 禁止 gameTimer/计时器 驱动的阶段推进（如 if gameTimer > 10 then completePhase）');
+  lines.push('- ⛔ 禁止 autoplay/自动演示：不要写代码让游戏自动完成步骤');
+  lines.push('- ⛔ 禁止在 Update() 中用 timer += dt 来自动推进 Phase');
+  lines.push('- ⛔ 禁止在 CheckEventRules 中仅靠时间条件触发 Rule (如 gameTimer > N)');
+  lines.push('- ⛔ 禁止 auto-complete / auto-advance：Phase 结束条件不能是"等待N秒"');
+  lines.push('');
+  lines.push('## 正确做法:');
+  lines.push('- ✅ 每个 Phase 必须通过玩家交互（摇杆移动到位/点击/拖拽）才能推进');
+  lines.push('- ✅ Rule 的 WHEN 条件必须依赖玩家操作结果（eState==2, 距离<阈值, 金币>=N 且玩家点击）');
   lines.push('- ✅ CheckEventRules 中：Rule触发 = 设置 currentPhaseName + 激活对象 + 显示引导');
   lines.push('- ✅ 只有当玩家完成当前阶段的操作后，才调用 AddCompletedPhase 并进入下一条 Rule');
-  lines.push('- ✅ 引导(guide)要清晰告诉玩家下一步操作（如"点击传送带建造"）');
+  lines.push('- ✅ 引导(guide)要清晰告诉玩家下一步操作（如"用摇杆移动到传送带"、"点击建造"）');
   lines.push('- ✅ 每个阶段之间要有明显的视觉变化（对象出现、颜色变化、UI更新）');
-  lines.push('- 示例正确流程：Rule1(gameStart)→显示引导"点击建造"→玩家点击→conveyor.state=built→Rule2触发');
-  lines.push('- 示例错误流程：Rule1→自动等3秒→强制完成→Rule2→自动等3秒→强制完成（❌这是autoplay）');
+  lines.push('');
+  lines.push('## 示例:');
+  lines.push('- ✅ 正确: Rule1(gameStart)→显示引导"用摇杆移到冰矿"→玩家移动到冰矿附近→自动采集→Rule2触发');
+  lines.push('- ✅ 正确: Rule2→显示引导"把冰搬到机器"→玩家移到机器旁→eState[MACHINE]==2→Rule3触发');
+  lines.push('- ❌ 错误: Rule1→gameTimer>2→强制完成→Rule2→gameTimer>4→强制完成（这是 autoplay！验证必 FAIL）');
+  lines.push('- ❌ 错误: if(timer > 3f) { AddCompletedPhase("xxx"); } （timer 驱动 = FAIL）');
+  lines.push('');
+  lines.push('## CUA 验证器会检测:');
+  lines.push('- Agent 0 个操作就完成所有 Phase → 判定 autoplay → FAIL');
+  lines.push('- 所有交互变量(gold, carrying等)始终为0 → 判定无交互 → FAIL');
+  lines.push('- Phase 间隔均匀 <3秒 → 判定 timer 驱动 → FAIL');
   lines.push('');
 
   // ========== 8c. 数值平衡与节奏控制（关键！）==========
   lines.push('# 数值平衡与节奏控制（必须严格遵守）');
+  lines.push('');
+  lines.push('## ⛔ 禁止 gameTimer 驱动（最常见的 autoplay 原因）');
+  lines.push('- ⛔ 禁止: if (gameTimer > N) { AddCompletedPhase(...); } — 这是 autoplay');
+  lines.push('- ⛔ 禁止: phaseTimer += dt; if (phaseTimer > 3) { nextPhase(); } — 这是 autoplay');
+  lines.push('- ⛔ 禁止: eTimer[i] += dt; if (eTimer[i] > buildTime) { ... AddCompletedPhase } — 计时器不能直接完成 Phase');
+  lines.push('- ✅ 正确: eTimer[i] 可以用于建造动画/冷却，但 Phase 完成必须等玩家下一个操作（移到下个目标/点击）');
+  lines.push('- ✅ 正确: 建造完成后显示引导箭头，等玩家移到新目标后才 AddCompletedPhase');
   lines.push('');
   lines.push('## 禁止自动射击/自动攻击');
   lines.push('- ⛔ 弩炮/箭塔/防御建筑 禁止自动射击（auto-shoot）');

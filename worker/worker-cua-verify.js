@@ -868,6 +868,36 @@ async function autoPlayVerify(url, specs, taskId, log, maxDurationSec) {
         issues.push('[autoplay-entities-unchanged] All entity states are 0 — no entity progression occurred. Game may not have real interactive mechanics.');
       }
     }
+
+    // ═══ Anti-Autoplay: detect timer-based phase progression ═══
+    // If phases completed but interaction variables are all zero, game is autoplay
+    if (finalState.variables) {
+      var interactionVarKeys = Object.keys(finalState.variables).filter(function(k) { return k !== 'gameTimer'; });
+      var allInteractionZero = interactionVarKeys.length >= 2 && interactionVarKeys.every(function(k) { 
+        return finalState.variables[k] === 0 || String(finalState.variables[k]) === '0'; 
+      });
+      if (allInteractionZero && completedPhases.length > 2) {
+        issues.push('[autoplay-timer-progression] Phases completed but all interaction variables (gold, carrying, etc.) are 0. Game auto-progresses via timer without real player interaction. Each phase must require player input to advance.');
+        log('[AutoPlay] 🚨 Timer-based autoplay detected: ' + interactionVarKeys.length + ' interaction vars all zero, but ' + completedPhases.length + ' phases completed', taskId);
+      }
+    }
+
+    // Check phase timestamps for suspiciously fast progression (all within 1-2s intervals)
+    if (finalState.phaseTimestamps && completedPhases.length > 3) {
+      var timestamps = Object.values(finalState.phaseTimestamps).filter(function(t) { return t > 0; }).sort(function(a,b) { return a-b; });
+      if (timestamps.length > 3) {
+        var intervals = [];
+        for (var ti = 1; ti < timestamps.length; ti++) {
+          intervals.push(timestamps[ti] - timestamps[ti-1]);
+        }
+        var avgInterval = intervals.reduce(function(a,b) { return a+b; }, 0) / intervals.length;
+        var maxInterval = Math.max.apply(null, intervals);
+        if (avgInterval < 3 && maxInterval < 5) {
+          issues.push('[autoplay-rapid-phases] Phase transitions are suspiciously uniform (avg ' + avgInterval.toFixed(1) + 's, max ' + maxInterval + 's). Real gameplay should have variable timing based on player actions.');
+          log('[AutoPlay] 🚨 Rapid uniform phase progression: avg=' + avgInterval.toFixed(1) + 's, max=' + maxInterval + 's', taskId);
+        }
+      }
+    }
     
     var passed = progressed && issues.length === 0;
     

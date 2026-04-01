@@ -20,7 +20,7 @@ const CUA_RESULTS_DIR = path.join(__dirname, 'cua-results');
 const LOCAL_PREVIEW_PORT = 18850;
 const PYTHON = '/usr/bin/python3.8';
 const VERIFY_SCRIPT = '/root/cua-agent/blueprint_verify.py';
-const MAX_VERIFY_TIMEOUT = 300000; // 5 min
+const MAX_VERIFY_TIMEOUT = 480000; // 5 min
 
 try { fs.mkdirSync(CUA_RESULTS_DIR, { recursive: true }); } catch(e) {}
 
@@ -187,7 +187,7 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
   const specsPath = writeSpecsFile(blueprint, taskId);
   
   // Build Python command
-  const args = [VERIFY_SCRIPT, previewUrl, '--steps', '30'];
+  const args = [VERIFY_SCRIPT, previewUrl, '--steps', '50'];
   if (specsPath) args.push('--specs', specsPath);
 
   const outputDir = path.join(CUA_RESULTS_DIR, taskId + '-playableagent');
@@ -197,7 +197,7 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
     const env = {
       ...process.env,
       DISPLAY: ':99',
-      SILICONFLOW_API_KEY: process.env.SILICONFLOW_API_KEY || 'sk-pdxubhitsovteroxocmmdhcytlghrvnopumfgmxxylfgempc',
+      DOUBAO_API_KEY: process.env.DOUBAO_API_KEY || '197cb950-3cf3-4b30-b656-6afaa4306a7a',
     };
 
     log('[PlayableAgent] Running: ' + PYTHON + ' ' + args.join(' '), taskId);
@@ -222,7 +222,7 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
     child.stderr.on('data', d => { stderr += d.toString(); });
 
     const timeout = setTimeout(() => {
-      log('[PlayableAgent] Timeout after 5 minutes, killing', taskId);
+      log('[PlayableAgent] Timeout after 8 minutes, killing', taskId);
       try { child.kill('SIGTERM'); } catch(e) {}
     }, MAX_VERIFY_TIMEOUT);
 
@@ -269,7 +269,30 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
 
       // ─── Convert report to worker-cua-verify format ───
       const issues = [];
-      
+
+      // ═══ Anti-Autoplay Detection ═══
+      if (report.autoplay_detected) {
+        log('[PlayableAgent] 🚨 AUTOPLAY DETECTED: ' + (report.autoplay_reason || 'Phases auto-completed without player input'), taskId);
+        issues.push('[autoplay-detected] ' + (report.autoplay_reason || 'Game phases auto-completed via timer without any player interaction. The game must require real input to progress.'));
+      }
+
+      // Check if all phases passed but 0 actions taken (secondary autoplay check)
+      if (report.passed && (!report.actions || report.actions.length === 0)) {
+        log('[PlayableAgent] 🚨 AUTOPLAY: passed=true but 0 actions — overriding to FAIL', taskId);
+        report.passed = false;
+        issues.push('[autoplay-no-interaction] All phases completed with 0 agent actions. Game auto-progresses without player input. Each phase MUST require player interaction (joystick move / click / drag) to advance.');
+      }
+
+      // Check if game variables show no interaction (all zeros except gameTimer)
+      const finalVars = (report.finalState || {}).variables || {};
+      const interactionKeys = Object.keys(finalVars).filter(k => k !== 'gameTimer');
+      const allVarsZero = interactionKeys.length > 0 && interactionKeys.every(k => finalVars[k] === 0 || finalVars[k] === '0');
+      if (report.passed && allVarsZero && interactionKeys.length >= 2) {
+        log('[PlayableAgent] 🚨 AUTOPLAY: all interaction variables are 0 — overriding to FAIL', taskId);
+        report.passed = false;
+        issues.push('[autoplay-no-variable-change] Game completed but all interaction variables (gold, carrying, etc.) remain at 0. Game has no real interactive mechanics — phases advance by timer only.');
+      }
+
       // Phase coverage
       const missingPhases = report.missingPhases || [];
       const coveredPhases = report.coveredPhases || [];
