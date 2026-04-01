@@ -1003,6 +1003,7 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
     let consecutiveSameIssue = 0;
     let lastIssueCategory = null;
     let lastPhaseCompleted = -1; // Track phase progress to detect improvement
+    let _autoplayFailCount = 0; // BUG-0011: track consecutive autoplay detection failures
 
     for (let cuaRound = cuaStartRound; cuaRound <= MAX_CUA_ROUNDS; cuaRound++) {
       await reportStatus(taskId, 'processing', { message: `[Linux] CUA verifying... (round ${cuaRound}/${MAX_CUA_ROUNDS})`, previewUrl });
@@ -1111,6 +1112,29 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
         blueprint.feedbackHistory = [];
         // Clear the fixHistory so AI gets a clean slate
         fixHistory.length = 0;
+      }
+
+      // Auto-stop: consecutive autoplay failures — game fundamentally uses timer-based progression
+      const MAX_CONSECUTIVE_AUTOPLAY_FAILURES = 3;
+      const hasAutoplayIssue = (cuaResult.issues || []).some(i => 
+        i.includes('[autoplay-detected]') || i.includes('[autoplay-no-interaction]') || 
+        i.includes('[autoplay-no-variable-change]') || i.includes('[autoplay-timer-progression]') ||
+        i.includes('[autoplay-rapid-phases]')
+      );
+      if (hasAutoplayIssue) {
+        if (!_autoplayFailCount) _autoplayFailCount = 0;
+        _autoplayFailCount++;
+        log(`[autoplay] Autoplay failure #${_autoplayFailCount}/${MAX_CONSECUTIVE_AUTOPLAY_FAILURES}`, taskId);
+        if (_autoplayFailCount >= MAX_CONSECUTIVE_AUTOPLAY_FAILURES) {
+          log(`[early-stop] ${_autoplayFailCount} consecutive autoplay failures — game code fundamentally uses timer-based phase progression, AI re-coding cannot fix this pattern`, taskId);
+          await reportStatus(taskId, 'failed', { 
+            message: `[Linux] Autoplay detected ${_autoplayFailCount} consecutive rounds — game uses timer-based phase progression instead of player interaction. Stopping.`,
+            previewUrl 
+          });
+          break;
+        }
+      } else {
+        _autoplayFailCount = 0; // Reset if non-autoplay issue
       }
 
       // Auto-stop: engine not initialized = infrastructure issue
