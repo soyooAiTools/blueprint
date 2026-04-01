@@ -295,6 +295,29 @@ function isKnownIssue(issue) {
   return false;
 }
 
+
+/**
+ * Normalize GPT-generated rule names to standard categories.
+ * GPT审核返回的 rule 字段是自由文本，需要归一化到标准分类。
+ */
+function normalizeRuleName(rule) {
+  if (!rule) return 'Unknown';
+  var r = rule.toLowerCase();
+  if (r.indexOf('forbidden api') >= 0 || r.indexOf('camera.main') >= 0 || r.indexOf('externalevalc') >= 0 || r.indexOf('findobj') >= 0 || r.indexOf('createprimitive') >= 0 || r.indexOf('setparent') >= 0 || r.indexOf('resources.getbuiltin') >= 0) return 'Forbidden APIs';
+  if (r.indexOf('code completeness') >= 0 || r.indexOf('all phases') >= 0 || r.indexOf('phase coverage') >= 0 || r.indexOf('gameend') >= 0 || r.indexOf('game end') >= 0 || r.indexOf('missing gameplay') >= 0) return 'Code Completeness';
+  if (r.indexOf('bridge') >= 0 || r.indexOf('c# language') >= 0 || r.indexOf('no list') >= 0 || r.indexOf('no generic') >= 0 || r.indexOf('getcomponent<') >= 0) return 'C# Language — Bridge.NET Hard Limits';
+  if (r.indexOf('gfm_tools') >= 0 || r.indexOf('gfm_ui') >= 0 || r.indexOf('documented gfm') >= 0 || r.indexOf('skeleton pre-creates') >= 0) return 'GFM_Tools API Signatures';
+  if (r.indexOf('solid-color') >= 0 || r.indexOf('solid color') >= 0 || r.indexOf('backgroundcolor') >= 0 || r.indexOf('rule 0') >= 0) return 'Solid-Color Screen Prevention';
+  if (r.indexOf('gameplay logic') >= 0 || r.indexOf('gameplay safety') >= 0 || r.indexOf('numeric trigger') >= 0) return 'Gameplay Logic';
+  if (r.indexOf('object naming') >= 0 || r.indexOf('pool object') >= 0) return 'Object Naming — Pool Objects';
+  if (r.indexOf('luna platform') >= 0 || r.indexOf('mobile input') >= 0) return 'Luna Platform Limitations';
+  if (r.indexOf('material') >= 0 && r.indexOf('rendering') >= 0) return 'Materials & Rendering';
+  if (r.indexOf('cua') >= 0 || r.indexOf('phase-skipped') >= 0 || r.indexOf('cta-missing') >= 0) return 'CUA Verification';
+  if (r.indexOf('architecture') >= 0 || r.indexOf('phase-driven') >= 0) return 'Architecture';
+  if (r.indexOf('common mistake') >= 0 || r.indexOf('runtime duplication') >= 0) return 'Common Mistakes';
+  return rule; // Keep original if no match
+}
+
 /**
  * Record new critical issues to pending-rules.json and notify via Feishu.
  * Only records issues not already in REVIEW_RULES or pending list.
@@ -305,7 +328,7 @@ async function recordNewIssues(issues, taskId) {
     if (issues[i].severity === 'critical' && !isKnownIssue(issues[i])) {
       newIssues.push({
         description: issues[i].description,
-        rule: issues[i].rule,
+        rule: normalizeRuleName(issues[i].rule),
         fix: issues[i].fix,
         line: issues[i].line,
         taskId: taskId,
@@ -328,6 +351,37 @@ async function recordNewIssues(issues, taskId) {
     autoPromotePendingRules();
   } catch(e) {
     console.log('[reviewer] Auto-promote failed (non-fatal): ' + e.message);
+  }
+
+  // Auto-cleanup: if pending-rules exceeds 100, deduplicate
+  try {
+    var currentPending = loadPendingRules();
+    if (currentPending.length > 100) {
+      console.log('[reviewer] Pending rules exceeded 100 (' + currentPending.length + '), auto-cleaning...');
+      var seen = {};
+      var cleaned = [];
+      for (var ci = currentPending.length - 1; ci >= 0; ci--) {
+        var cr = currentPending[ci];
+        var cKey = normalizeRuleName(cr.rule) + '|' + (cr.taskId || '');
+        if (!seen[cKey]) {
+          seen[cKey] = true;
+          cr.rule = normalizeRuleName(cr.rule); // Normalize while cleaning
+          cleaned.unshift(cr);
+        }
+      }
+      // Cap at 3 entries per category
+      var catCount = {};
+      var capped = [];
+      for (var cci = cleaned.length - 1; cci >= 0; cci--) {
+        var cat = cleaned[cci].rule;
+        catCount[cat] = (catCount[cat] || 0) + 1;
+        if (catCount[cat] <= 3) capped.unshift(cleaned[cci]);
+      }
+      savePendingRules(capped);
+      console.log('[reviewer] Auto-cleaned pending rules: ' + currentPending.length + ' -> ' + capped.length);
+    }
+  } catch(cleanErr) {
+    console.log('[reviewer] Auto-cleanup failed (non-fatal): ' + cleanErr.message);
   }
 
   // Notify via Feishu webhook (fire-and-forget)

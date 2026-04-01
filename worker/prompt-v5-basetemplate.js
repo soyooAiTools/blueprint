@@ -618,7 +618,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
       lines.push(lessonsLines.join('\n'));
     }
   } catch(lessonsErr) {
-    // Non-fatal: don't break prompt generation if lessons loading fails
+    console.warn('[prompt] Failed to load historical lessons (non-fatal): ' + lessonsErr.message);
   }
 
   return lines.join('\n');
