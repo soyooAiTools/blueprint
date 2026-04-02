@@ -145,3 +145,59 @@
 2. **Promise rejection 在 headless Chrome 中几乎不可见** — 需要通过 CDP `Runtime.exceptionThrown` 才能捕获
 3. **Luna 7.1.0 单文件格式的 cache/*.js 是非必要文件** — 它们引用 `decompressArrayBuffer` 等未定义函数，说明不应被加载
 4. **headless Chrome 需要 20+ 秒才能完成 6MB JS 引擎的解析和执行** — 不要因为前 10 秒无响应就认为加载失败
+
+---
+
+## 2026-04-02: BUG-0012 磁盘满致项目丢失 + AI编码只实现3/11 phase
+
+### 影响范围
+6个项目全部不可见或失败：
+- 项目列表 API 返回 500（看起来"任务丢失"）
+- 3个项目 failed: 制作子弹(stub代码)、卖水(phase-skipped)、子弹模具(phase-skipped)
+- 3个项目 stuck: 救人泡澡、太空卖氧气、回收子弹（ENOSPC后卡死）
+
+### 根因分析
+
+**根因 1：ENOSPC 导致 JSON 写入截断**
+- 磁盘 93% 满，worker 写项目 JSON 时空间耗尽，文件被截断为非法 JSON
+- `listProjects()` 用 `files.map(JSON.parse)`，一个文件解析失败整个 API 返回 500
+- 用户看到的是"任务全部丢失"
+
+**根因 2：Skeleton 只生成前 3 个 phase**
+- `MAX_INITIAL_PHASES = 3` 限制骨架只覆盖 3/11 phase
+- AI 在 `$5` budget 内来不及读完大 prompt 就耗尽预算，产出 9 行 stub 代码
+- 即使代码生成成功，也只实现 3 个 phase，CUA 检测到 game_ended 后 phase-skipped
+
+**根因 3：CUA 反馈未有效传递给 AI**
+- 增量修复 prompt 写"请阅读 prompt.md 了解反馈"，但 AI 不一定会读
+- 4 轮修复产出完全相同的代码（卖水 507 行，子弹模具 525 行，字节级相同）
+
+**根因 4：Codex 审核失败后继续构建**
+- Codex 连续 3 轮检测到 critical issues，但 pipeline 仍继续到 CUA
+- 浪费 CUA 资源验证已知有严重问题的代码
+
+**根因 5：FULL_GENERATION 切换时清空所有上下文**
+- 连续 2 轮同一问题时切换全量重生成，但 `feedbackHistory = []` 清空了失败原因
+- AI 没有任何线索知道之前为什么失败，产出相同代码
+
+### 修复方案
+
+| # | 修复项 | 文件 | 改动 |
+|---|--------|------|------|
+| 1 | listProjects 单文件容错 | `server.cjs` | map→forEach+try/catch，跳过损坏文件 |
+| 2 | Budget 取消上限 | `worker/claude-code-coder.js` | `--max-budget-usd` 默认 0（不传），不再限制 |
+| 3 | Skeleton 覆盖全部 phase | `worker/claude-code-coder.js` | 移除 `MAX_INITIAL_PHASES=3`，所有 phase 生成骨架 |
+| 4 | Codex 审核失败阻断构建 | `worker/linux-worker-client.js` | criticalCount>0 时 return failed，不继续到 CUA |
+| 5 | CUA 反馈直接注入 prompt | `worker/claude-code-coder.js` | 反馈文本直接写进 userPrompt，不依赖 AI 读 prompt.md |
+| 6 | FULL_GENERATION 携带原因 | `worker/linux-worker-client.js` | 保留失败摘要+明确指令，避免产出相同代码 |
+
+### 提交
+- commit: `4f0f976` fix: 流水线5项关键修复
+
+### 教训
+1. **写文件必须有原子性保障** — JSON 写入被截断是致命的，应该 write-to-temp + rename
+2. **API 容错是底线** — 单个数据文件损坏不应导致整个列表接口不可用
+3. **Skeleton 限制 3 phase 是错误的优化** — 省下的 token 不值得丢失 8 个 phase 的代价
+4. **$5 预算对复杂蓝图不够** — 29KB prompt + 多文件读取就耗尽预算，AI 还没开始写代码
+5. **反馈必须直接注入 prompt** — 不能假设 AI 会主动去读某个文件
+6. **重生成必须携带失败原因** — 否则 AI 没有任何信号避免重复同样的错误
