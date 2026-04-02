@@ -20,6 +20,7 @@ const fs = require('fs');
 const path = require('path');
 const { generateCodeV5 } = require('./worker-coder.js');
 const { generateWithClaudeCode } = require('./claude-code-coder.js');
+const { patchForHeadless } = require('./worker-cua-verify.js');
 
 // Claude Code 模式开关：设为 true 使用 Claude Code CLI agent，false 使用传统 API 调用
 const USE_CLAUDE_CODE = process.env.USE_CLAUDE_CODE !== 'false'; // 默认开启
@@ -682,20 +683,42 @@ async function processTask(task) {
       });
 
       try {
-        // 1. Take screenshot with Playwright
+        // 1. Take screenshot with Playwright (via HTTP + headless patches, matching CUA path)
         const screenshotPath = `/tmp/visual-check-${taskId}-r${vRound}.png`;
-        const tmpHtmlPath = `/tmp/visual-check-${taskId}-r${vRound}.html`;
-        fs.writeFileSync(tmpHtmlPath, lastHtmlForVisual);
+        const tmpBuildDir = `/tmp/visual-check-build-${taskId}-r${vRound}`;
+        fs.mkdirSync(tmpBuildDir, { recursive: true });
+        fs.writeFileSync(path.join(tmpBuildDir, 'index.html'), lastHtmlForVisual);
+
+        // Start local HTTP server with on-the-fly headless patching (same as CUA verify)
+        const visualServer = await new Promise((resolve, reject) => {
+          const srv = http.createServer((req, res) => {
+            let fp = path.join(tmpBuildDir, req.url === '/' ? 'index.html' : req.url).split('?')[0];
+            if (!fs.existsSync(fp)) { res.writeHead(404); res.end(); return; }
+            const ext = path.extname(fp).toLowerCase();
+            if (ext === '.html' || ext === '.js') {
+              try {
+                const { content } = patchForHeadless(fs.readFileSync(fp, 'utf8'), path.basename(fp));
+                res.writeHead(200, { 'Content-Type': ext === '.html' ? 'text/html' : 'application/javascript' });
+                res.end(content); return;
+              } catch(e) {}
+            }
+            res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+            fs.createReadStream(fp).pipe(res);
+          });
+          srv.listen(0, '127.0.0.1', () => resolve(srv)); // port 0 = random available port
+          srv.on('error', reject);
+        });
+        const visualPort = visualServer.address().port;
+        const visualUrl = `http://127.0.0.1:${visualPort}/index.html`;
 
         const { chromium } = require('playwright');
-        const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-gpu'] });
+        const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
         const page = await browser.newPage({ viewport: { width: 960, height: 640 } });
         const consoleLogs = [];
         const consoleErrors = [];
         page.on('console', msg => {
           const text = msg.text();
           if (text.includes('[AI]')) consoleLogs.push(text);
-          // Capture error/warning level messages (critical for debugging black screen)
           if (msg.type() === 'error' || msg.type() === 'warning') {
             consoleErrors.push(`[${msg.type()}] ${text.slice(0, 300)}`);
           }
@@ -703,8 +726,28 @@ async function processTask(task) {
         page.on('pageerror', err => {
           consoleErrors.push(`[pageerror] ${err.message.slice(0, 300)}`);
         });
-        await page.goto(`file://${tmpHtmlPath}`, { waitUntil: 'load', timeout: 30000 });
-        await page.waitForTimeout(10000); // Wait for engine + game init
+        await page.goto(visualUrl, { waitUntil: 'load', timeout: 30000 });
+
+        // Wait for engine readiness instead of blind 10s timeout
+        let engineReady = false;
+        for (let waitStep = 0; waitStep < 20; waitStep++) { // max 20s
+          await page.waitForTimeout(1000);
+          try {
+            engineReady = await page.evaluate(function() {
+              return typeof UnityEngine !== 'undefined'
+                && typeof Bridge !== 'undefined'
+                && !!UnityEngine.Camera && !!UnityEngine.Camera.main;
+            });
+          } catch(e) {}
+          if (engineReady) {
+            await page.waitForTimeout(2000); // extra 2s for rendering to settle
+            break;
+          }
+        }
+        if (!engineReady) {
+          log(`Visual round ${vRound}: engine not ready after 20s`, taskId);
+        }
+
         await page.screenshot({ path: screenshotPath });
 
         // Collect scene diagnostics BEFORE closing browser (for feedback if visual check fails)
@@ -761,7 +804,8 @@ async function processTask(task) {
         }
 
         await browser.close();
-        try { fs.unlinkSync(tmpHtmlPath); } catch(e) {}
+        try { visualServer.close(); } catch(e) {}
+        try { fs.rmSync(tmpBuildDir, { recursive: true, force: true }); } catch(e) {}
 
         log(`Visual round ${vRound}: screenshot taken, ${consoleLogs.length} AI logs, ${consoleErrors.length} errors`, taskId);
         consoleLogs.forEach(l => log(`  ${l}`, taskId));

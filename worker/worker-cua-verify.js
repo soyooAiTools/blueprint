@@ -1334,4 +1334,4 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
   });
 }
 
-module.exports = { runCUAVerification, autoPlayVerify, CUA_RESULTS_DIR, MAX_CUA_RETRIES };
+module.exports = { runCUAVerification, autoPlayVerify, CUA_RESULTS_DIR, MAX_CUA_RETRIES, patchForHeadless, startLocalServer };

@@ -1,7 +1,7 @@
 /**
  * Blueprint V5 Prompt Generator — 基础样例工程模式
  * 
- * 核心变化：场景已预制 242 个对象，AI 只需 Find + Move + 写逻辑
+ * 核心变化：场景已预制 160 个带颜色的对象，AI 只需 Find + Move + 写逻辑
  * 不再需要 GFM_Create.Obj / GFM_UI.CreateCanvas 等创建 API
  */
 
@@ -65,54 +65,75 @@ var UI_PREFABS = [
   'ResourcePanel (Panel)', 'GuideHand (Image)', 'Timer (Text)'
 ];
 
+// 预制颜色池：10色 × 4形状，颜色在 Unity 中已烘焙，无需运行时 SetColor
+var POOL_COLORS = ['Red', 'Blue', 'Green', 'Yellow', 'Orange', 'Purple', 'White', 'Brown', 'Cyan', 'Pink'];
+var POOL_SHAPES = {
+  Cube:     { count: 5 },
+  Sphere:   { count: 5 },
+  Cylinder: { count: 3 },
+  Plane:    { count: 3 }
+};
+var COLOR_HINTS = {
+  player: 'Blue', enemy: 'Red', boss: 'Red', ground: 'Green', floor: 'Brown',
+  wall: 'White', coin: 'Yellow', gem: 'Purple', gold: 'Yellow', tree: 'Green',
+  water: 'Cyan', bullet: 'Yellow', arrow: 'White', bomb: 'Brown', rock: 'Brown',
+  tower: 'White', castle: 'White', building: 'Brown', house: 'Brown',
+  worker: 'Cyan', soldier: 'Green', guide: 'Yellow', road: 'White',
+  fire: 'Orange', lava: 'Orange', star: 'Yellow', heart: 'Pink', hp: 'Pink',
+  shield: 'Cyan', sword: 'White', spaceship: 'White', rocket: 'White'
+};
+
+function guessColor(entityName, template) {
+  var n = (entityName || '').toLowerCase();
+  var t = (template || '').toLowerCase();
+  var keys = Object.keys(COLOR_HINTS);
+  for (var i = 0; i < keys.length; i++) {
+    if (n.indexOf(keys[i]) >= 0 || t.indexOf(keys[i]) >= 0) return COLOR_HINTS[keys[i]];
+  }
+  return null;
+}
+
+function guessShape(entityName, template) {
+  var n = (entityName || '').toLowerCase();
+  var t = (template || '').toLowerCase();
+  if (t.indexOf('projectile') >= 0 || n.indexOf('bullet') >= 0 || n.indexOf('ball') >= 0 || n.indexOf('coin') >= 0 || n.indexOf('gem') >= 0 || n.indexOf('sphere') >= 0) return 'Sphere';
+  if (t.indexOf('ground') >= 0 || n.indexOf('ground') >= 0 || n.indexOf('floor') >= 0 || n.indexOf('plane') >= 0 || n.indexOf('water') >= 0) return 'Plane';
+  if (n.indexOf('tower') >= 0 || n.indexOf('turret') >= 0 || n.indexOf('pillar') >= 0 || n.indexOf('cylinder') >= 0 || n.indexOf('tree') >= 0 || n.indexOf('pole') >= 0) return 'Cylinder';
+  return 'Cube';
+}
+
 /**
- * 根据蓝图实体列表，匹配预制对象名
- * 返回 AI 应该 Find 的对象清单
+ * 根据蓝图实体列表，匹配预制颜色池对象名
+ * 新命名: __Pool_{Shape}_{Color}_{NN}
  */
 function matchPrefabs(entities) {
-  // 对象池实际名称（和场景模板 0.json 完全一致）
-  var pools = {
-    Cube: { prefix: '__Pool_Cube_', total: 50, next: 1 },
-    Sphere: { prefix: '__Pool_Sphere_', total: 20, next: 1 },
-    Plane: { prefix: '__Pool_Plane_', total: 10, next: 1 },
-    Cylinder: { prefix: '__Pool_Cylinder_', total: 10, next: 1 }
-  };
-  var used = {};
-
-  for (var i = 0; i < entities.length; i++) {
-    var e = entities[i];
-    var template = (e.template || 'Static').toLowerCase();
-    var name = (e.name || '').toLowerCase();
-
-    // 根据实体类型选择形状
-    var shape = 'Cube'; // default
-    if (template.indexOf('projectile') >= 0 || name.indexOf('bullet') >= 0 || name.indexOf('ball') >= 0 || name.indexOf('coin') >= 0 || name.indexOf('gem') >= 0 || name.indexOf('sphere') >= 0) {
-      shape = 'Sphere';
-    } else if (template.indexOf('ground') >= 0 || name.indexOf('ground') >= 0 || name.indexOf('floor') >= 0 || name.indexOf('plane') >= 0 || name.indexOf('water') >= 0) {
-      shape = 'Plane';
-    } else if (name.indexOf('tower') >= 0 || name.indexOf('turret') >= 0 || name.indexOf('pillar') >= 0 || name.indexOf('cylinder') >= 0 || name.indexOf('tree') >= 0 || name.indexOf('pole') >= 0) {
-      shape = 'Cylinder';
-    }
-
-    var pool = pools[shape];
-    if (pool.next <= pool.total) {
-      var num = pool.next < 10 ? '0' + pool.next : '' + pool.next;
-      used[e.name] = pool.prefix + num;
-      pool.next++;
-    } else {
-      // Pool exhausted, fall back to Cube pool
-      var fallback = pools.Cube;
-      if (fallback.next <= fallback.total) {
-        var fn = fallback.next < 10 ? '0' + fallback.next : '' + fallback.next;
-        used[e.name] = fallback.prefix + fn;
-        fallback.next++;
-      } else {
-        // All pools exhausted — use last available
-        used[e.name] = '__Pool_Cube_50';
-      }
+  var pools = {};
+  var shapes = Object.keys(POOL_SHAPES);
+  for (var si = 0; si < shapes.length; si++) {
+    pools[shapes[si]] = {};
+    for (var ci = 0; ci < POOL_COLORS.length; ci++) {
+      pools[shapes[si]][POOL_COLORS[ci]] = 1;
     }
   }
-
+  var used = {};
+  var colorIdx = 0;
+  for (var i = 0; i < entities.length; i++) {
+    var e = entities[i];
+    var shape = guessShape(e.name, e.template);
+    var color = guessColor(e.name, e.template);
+    if (!color) { color = POOL_COLORS[colorIdx % POOL_COLORS.length]; colorIdx++; }
+    var maxCount = POOL_SHAPES[shape].count;
+    var nextIdx = pools[shape][color];
+    if (nextIdx > maxCount) {
+      for (var ci = 0; ci < POOL_COLORS.length; ci++) {
+        var altColor = POOL_COLORS[ci];
+        if (pools[shape][altColor] <= maxCount) { color = altColor; nextIdx = pools[shape][altColor]; break; }
+      }
+    }
+    var num = nextIdx < 10 ? '0' + nextIdx : '' + nextIdx;
+    used[e.name] = '__Pool_' + shape + '_' + color + '_' + num;
+    pools[shape][color] = nextIdx + 1;
+  }
   return used;
 }
 
@@ -191,13 +212,13 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('在 GameFlowManagerMain.cs 中实现一个 Luna 试玩广告。');
   lines.push('');
   lines.push('## ⚡ 核心规则：基础样例工程模式');
-  lines.push('场景已预制 242 个 3D 对象 + UI 元素。你 **不需要创建任何对象**。');
+  lines.push('场景已预制 160 个带颜色的 3D 对象 + UI 元素。你 **不需要创建任何对象**。');
   lines.push('');
   lines.push('你只需要：');
   lines.push('1. `GameObject.Find("名称")` 获取对象引用');
   lines.push('2. `transform.position = new Vector3(x,y,z)` 移动到场景中（显示）');
   lines.push('3. `transform.position = new Vector3(0,-999,0)` 移到远处（隐藏）');
-  lines.push('4. `GFM_Create.SetColor(obj, new Color(r,g,b))` 改颜色');
+  lines.push('4. 颜色已烘焙 — 直接 Find 对应颜色的 `__Pool_{Shape}_{Color}_{NN}` 对象，无需 SetColor');
   lines.push('5. `Instantiate(obj)` 复制对象（如果预制数量不够）');
   lines.push('6. 写游戏逻辑（交互、碰撞检测、流程控制）');
   lines.push('');
@@ -329,7 +350,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   }
 
   // 检测总实体数是否超过池容量
-  var totalPool = 50 + 20 + 10 + 10; // Cube + Sphere + Plane + Cylinder = 90
+  var totalPool = 50 + 50 + 30 + 30; // 10colors × (5+5+3+3) = 160
   if (entities.length > totalPool) {
     lines.push('⚠️ **POOL EXHAUSTION WARNING**: ' + entities.length + ' entities exceed the pool capacity of ' + totalPool + ' objects. Some entities share the same pool object — merge or reduce entity count.');
     lines.push('');
@@ -399,19 +420,19 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('# Luna WebGL 限制（精简版）');
   lines.push('');
   lines.push('## 场景对象池（已存在，直接 Find 使用）');
-  lines.push('场景中预置了 90 个 3D 对象，名称如下：');
-  lines.push('- `__Pool_Cube_01` ~ `__Pool_Cube_50`（50 个 Cube）');
-  lines.push('- `__Pool_Sphere_01` ~ `__Pool_Sphere_20`（20 个 Sphere）');
-  lines.push('- `__Pool_Plane_01` ~ `__Pool_Plane_10`（10 个 Plane）');
-  lines.push('- `__Pool_Cylinder_01` ~ `__Pool_Cylinder_10`（10 个 Cylinder）');
-  lines.push('- 其他固定对象：`Main Camera`、`Directional Light`、`EventSystem`、`GameManager`、`__MaterialSource`');
+  lines.push('场景中预置了 160 个带颜色的 3D 对象，命名规则: `__Pool_{Shape}_{Color}_{NN}`');
+  lines.push('- 形状: Cube(每色5个), Sphere(每色5个), Cylinder(每色3个), Plane(每色3个)');
+  lines.push('- 颜色: Red, Blue, Green, Yellow, Orange, Purple, White, Brown, Cyan, Pink');
+  lines.push('- 例: `__Pool_Cube_Red_01`, `__Pool_Sphere_Blue_03`, `__Pool_Cylinder_Green_02`');
+  lines.push('- 颜色已在 Unity 中烘焙，**不需要调用 GFM_Create.SetColor()**');
+  lines.push('- 其他固定对象：`Main Camera`、`__MainLight`、`EventSystem`、`GameManager`、`__MaterialSource`、`__Ground`');
   lines.push('');
   lines.push('初始时所有 __Pool_* 对象位于 (0, -999, 0)（不可见）。');
   lines.push('要显示对象：`obj.transform.position = new Vector3(x, y, z);`');
   lines.push('要隐藏对象：`obj.transform.position = new Vector3(0, -999, 0);`（不用 SetActive）');
   lines.push('');
   lines.push('## 操作 API');
-  lines.push('- 改颜色: `GFM_Create.SetColor(obj, new Color(r,g,b))`');
+  lines.push('- ⛔ 不要用 GFM_Create.SetColor() — 颜色已烘焙，直接 Find 对应颜色的对象');
   lines.push('- 虚拟摇杆: `var joystick = GFM_Joystick.Create(canvas, 200f);` canvas 是 Canvas 类型');
   lines.push('- 游戏结束: `Luna.Unity.LifeCycle.GameEnded()`');
   lines.push('- CTA: `Luna.Unity.Playable.InstallFullGame()`');

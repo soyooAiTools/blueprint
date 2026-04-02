@@ -528,9 +528,14 @@ window.addEventListener("luna:starting", function() {
       return null;
     };
     var origShaderFind = UnityEngine.Shader.Find;
+    var _cachedURPShader = null;
     UnityEngine.Shader.Find = function(name) {
       var s = origShaderFind(name);
-      if (!s) s = origShaderFind("UI/Default");
+      if (!s) {
+        // UI/Default doesn't exist in our template — always fallback to URP/Lit
+        if (!_cachedURPShader) _cachedURPShader = origShaderFind("Universal Render Pipeline/Lit");
+        s = _cachedURPShader;
+      }
       return s;
     };
     window.addEventListener("error", function(evt) {
@@ -543,35 +548,21 @@ window.addEventListener("luna:starting", function() {
 });
 window.addEventListener("luna:startup:shaderReady", function() { setTimeout(function() {
   try {
-    // Patch GFM_Create.SetColor BEFORE Start() so we capture all color assignments
-    var __poolColorCache = {};
-    window.__poolColorCache = __poolColorCache;
-    if (typeof GFM_Create !== 'undefined' && GFM_Create.SetColor) {
-      var origSetColor = GFM_Create.SetColor;
-      GFM_Create.SetColor = function(obj, color) {
-        origSetColor.apply(this, arguments);
-        try {
-          if (obj && !UnityEngine.GameObject.op_Equality(obj, null)) {
-            var name = obj.name;
-            if (name && name.indexOf && name.indexOf("__Pool_") === 0) {
-              __poolColorCache[name] = [color.r, color.g, color.b, color.a || 1];
-            }
-          }
-        } catch(e) {}
-      };
-      console.log("[AI] GFM_Create.SetColor patched BEFORE Start()");
-    }
+    // Color pool objects are pre-baked in Unity — no runtime SetColor patching needed
+    console.log("[AI] Using pre-baked color pool objects");
     var go = new UnityEngine.GameObject.ctor("GameManager");
     var comp = go.AddComponent(${className});
     if (comp && comp.Start) { try { comp.Start(); } catch(se) { console.error("[AI] Start() error:", se); } }
-    console.log("[AI] After Start(): " + Object.keys(__poolColorCache).length + " pool colors captured");
-    // Apply color override on next animation frame (before first render)
-    requestAnimationFrame(function() { if (window.__applyColors) window.__applyColors(); });
+
+
     // Post-Start fixes using PlayCanvas native API
     (function() {
       var pcApp = window.app && window.app.app;
       if (!pcApp || !pcApp.root) return;
       
+      // BUG-0012 fix removed — pre-baked color pool objects eliminate texture sampler mismatch
+
+
       // 0. Fix null shaders (MUST run before color override)
       function fixNullShaders() {
         try {
@@ -599,7 +590,8 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           }
         } catch(shErr) { console.error("[AI] Shader fix error:", shErr); }
       }
-      setTimeout(fixNullShaders, 2000);
+      fixNullShaders(); // Run immediately after Start() — don't wait for timers
+      setTimeout(fixNullShaders, 2000); // Re-run as safety net
       setTimeout(fixNullShaders, 5000);
       
       // 1. Always create camera + light (scene ones don't survive Start clean-up)
@@ -686,101 +678,9 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         } catch(e) { console.error("[AI] hideBaseTemplate error:", e); }
       })();
 
-      // 2. Continuous material color override (GFM Update keeps resetting colors)
-      // poolColorCache is populated by the pre-Start() monkey-patch above (window.__poolColorCache)
-      var poolColorCache = window.__poolColorCache || {};
-      var colorRules = [
-        [/^Ground$/,         [0.25, 0.55, 0.18, 1]],  // green grass
-        [/^Base$|^Castle$/,  [0.75, 0.55, 0.35, 1]],  // tan/sandstone
-        [/^Player$/,         [0.10, 0.45, 0.95, 1]],  // bright blue
-        [/^Fence/,           [0.65, 0.42, 0.22, 1]],  // wood brown
-        [/Tree.*T$/,         [0.08, 0.58, 0.12, 1]],  // dark green canopy
-        [/Tree.*C$/,         [0.50, 0.28, 0.10, 1]],  // brown trunk
-        [/^Enemy|^Goblin|^Boss/, [0.92, 0.12, 0.08, 1]], // red enemies
-        [/^Arrow/,           [0.85, 0.85, 0.85, 1]],  // silver arrows
-        [/^Generator/,       [1.00, 0.75, 0.00, 1]],  // gold
-        [/^Conveyor/,        [0.60, 0.60, 0.60, 1]],  // gray conveyor
-        [/^WLog|^Wood/,      [0.72, 0.50, 0.15, 1]],  // light wood
-        [/^Stone/,           [0.55, 0.55, 0.55, 1]],  // gray stone
-        [/^House|^Cabin/,    [0.82, 0.58, 0.28, 1]],  // warm wood house
-        [/^Crossbow/,        [0.35, 0.35, 0.50, 1]],  // dark steel
-        [/^Worker/,          [0.15, 0.70, 0.82, 1]],  // cyan workers
-        [/^Guide/,           [1.00, 1.00, 0.00, 1]],  // yellow guide
-        [/^Label|^Text/,     [1.00, 1.00, 1.00, 1]],  // white text
-        [/^Btn_/,            [0.00, 0.80, 0.40, 1]],  // green buttons
-        [/^Coin|^Gold/,      [1.00, 0.85, 0.00, 1]],  // gold coins
-      ];
-      // Build name→color cache for fast lookup
-      var nameColorCache = {};
-      function getColorForName(name) {
-        if (nameColorCache[name] !== undefined) return nameColorCache[name];
-        for (var r = 0; r < colorRules.length; r++) {
-          if (colorRules[r][0].test(name)) { nameColorCache[name] = colorRules[r][1]; return colorRules[r][1]; }
-        }
-        nameColorCache[name] = null;
-        return null;
-      }
-      // Find a reference material from __BaseTemplate children (Luna-exported shader that works)
-      var refMat = null;
-      (function findRefMaterial() {
-        var mis = pcApp.scene._meshInstances || [];
-        for (var i = 0; i < mis.length; i++) {
-          var n = mis[i].node ? mis[i].node.name : '';
-          // Find any __BaseTemplate child material (not __Pool, not system objects)
-          if (n && n.indexOf('__Pool') === -1 && n.indexOf('__') !== 0 && n.indexOf('AI_') === -1
-              && n !== 'Main Camera' && n !== 'Directional Light' && n !== 'EventSystem' && n !== 'GameManager'
-              && mis[i].material && mis[i].material.clone) {
-            refMat = mis[i].material;
-            console.log("[AI] Reference material found from: " + n);
-            break;
-          }
-        }
-      })();
-      var poolMatCache = {}; // name -> cloned material (one per pool object)
-      var poolMatApplied = 0;
-      function applyColors() {
-        var mis = pcApp.scene._meshInstances || [];
-        for (var i = 0; i < mis.length; i++) {
-          var mi = mis[i];
-          if (!mi || !mi.material || !mi.node) continue;
-          var col = getColorForName(mi.node.name);
-          if (col) {
-            mi.material.setParameter("_Color", col);
-            mi.material.setParameter("_BaseColor", col);
-          } else if (mi.node.name && mi.node.name.indexOf("__Pool_") === 0) {
-            var cached = poolColorCache[mi.node.name];
-            if (cached && refMat) {
-              // Clone reference material once per pool object, then just update _Color
-              if (!poolMatCache[mi.node.name]) {
-                poolMatCache[mi.node.name] = refMat.clone();
-                poolMatCache[mi.node.name].name = 'pool_' + mi.node.name;
-              }
-              mi.material = poolMatCache[mi.node.name];
-              mi.material.setParameter("_Color", cached);
-              mi.material.setParameter("_BaseColor", cached);
-              poolMatApplied++;
-            }
-          }
-        }
-        if (poolMatApplied > 0 && poolMatApplied <= 200) {
-          // Log once after first significant application
-          if (poolMatApplied === Object.keys(poolColorCache).length || poolMatApplied % 90 === 0) {
-            console.log("[AI] Pool materials applied: " + poolMatApplied + " cache: " + Object.keys(poolColorCache).length);
-          }
-        }
-        // Ensure light exists
-        if (!pcApp.scene._lights || pcApp.scene._lights.length === 0) {
-          var le = new pc.Entity("AI_Light2");
-          pcApp.root.addChild(le);
-          le.addComponent("light", { type:"directional", color:new pc.Color(1,0.95,0.85), intensity:1.2 });
-          le.setEulerAngles(50, -30, 0);
-          console.log("[AI] Re-created light");
-        }
-      }
-      window.__applyColors = applyColors;
-      applyColors();
-      setInterval(applyColors, 200);  // 200ms for faster first-frame coverage
-      console.log("[AI] Color override active (interval)");
+      // Color override removed — pre-baked color pool objects handle all colors
+      console.log('[AI] Pre-baked color pool active — no runtime color override needed');
+
     })();
     if (comp && comp.Update) {
       var lastTime = performance.now();

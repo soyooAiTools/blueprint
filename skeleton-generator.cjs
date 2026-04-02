@@ -117,18 +117,52 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    string carryingType = ""; // what resource type');
     lines.push('    int gold = 0;');
     lines.push('');
-    lines.push('    // [SKELETON] Move player by joystick — call in Update()');
+    lines.push('    // [SKELETON] Tap-to-move target (fallback for joystick)');
+    lines.push('    Vector3 tapMoveTarget = Vector3.zero;');
+    lines.push('    bool hasTapTarget = false;');
+    lines.push('');
+    lines.push('    // [SKELETON] Move player by joystick + tap-to-move fallback — call in Update()');
     lines.push('    void MovePlayer()');
     lines.push('    {');
-    lines.push('        if (player == null || joystick == null) return;');
-    lines.push('        float h = joystick.Horizontal;');
-    lines.push('        float v = joystick.Vertical;');
-    lines.push('        if (Mathf.Abs(h) > 0.1f || Mathf.Abs(v) > 0.1f)');
+    lines.push('        if (player == null) return;');
+    lines.push('        // Priority 1: Joystick');
+    lines.push('        if (joystick != null)');
     lines.push('        {');
-    lines.push('            Vector3 move = new Vector3(h, 0, v) * moveSpeed * Time.deltaTime;');
-    lines.push('            player.transform.position += move;');
-    lines.push('            // Face movement direction');
-    lines.push('            player.transform.rotation = Quaternion.LookRotation(new Vector3(h, 0, v));');
+    lines.push('            float h = joystick.Horizontal;');
+    lines.push('            float v = joystick.Vertical;');
+    lines.push('            if (Mathf.Abs(h) > 0.1f || Mathf.Abs(v) > 0.1f)');
+    lines.push('            {');
+    lines.push('                Vector3 move = new Vector3(h, 0, v) * moveSpeed * Time.deltaTime;');
+    lines.push('                player.transform.position += move;');
+    lines.push('                player.transform.rotation = Quaternion.LookRotation(new Vector3(h, 0, v));');
+    lines.push('                hasTapTarget = false;');
+    lines.push('                return;');
+    lines.push('            }');
+    lines.push('        }');
+    lines.push('        // Priority 2: Tap-to-move (click on game area → raycast → move toward click)');
+    lines.push('        if (Input.GetMouseButtonDown(0) && mainCam != null)');
+    lines.push('        {');
+    lines.push('            Vector2 sp = Input.mousePosition;');
+    lines.push('            // Ignore clicks on joystick area (bottom-left 200x200)');
+    lines.push('            if (sp.x > 200f || sp.y > 200f)');
+    lines.push('            {');
+    lines.push('                Ray ray = mainCam.ScreenPointToRay(sp);');
+    lines.push('                float t = -ray.origin.y / ray.direction.y;');
+    lines.push('                if (t > 0f) { tapMoveTarget = ray.origin + ray.direction * t; hasTapTarget = true; }');
+    lines.push('            }');
+    lines.push('        }');
+    lines.push('        // Move toward tap target');
+    lines.push('        if (hasTapTarget)');
+    lines.push('        {');
+    lines.push('            Vector3 diff = tapMoveTarget - player.transform.position;');
+    lines.push('            diff.y = 0;');
+    lines.push('            if (diff.magnitude > 0.3f)');
+    lines.push('            {');
+    lines.push('                Vector3 move = diff.normalized * moveSpeed * Time.deltaTime;');
+    lines.push('                player.transform.position += move;');
+    lines.push('                player.transform.rotation = Quaternion.LookRotation(diff.normalized);');
+    lines.push('            }');
+    lines.push('            else { hasTapTarget = false; }');
     lines.push('        }');
     lines.push('    }');
     lines.push('');
@@ -226,7 +260,7 @@ function generateSkeleton(specs, opts = {}) {
   // [SKELETON] Pre-generated initialization
   lines.push('        // [SKELETON] Material and pool initialization');
   lines.push('        GFM_Create.InitMaterialFromScene();');
-  lines.push('        GFM_Create.ResetPool();');
+  // ResetPool removed — using pre-colored pool objects
   lines.push('');
 
   // [SKELETON] Pre-generated Find() calls
@@ -238,11 +272,22 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('');
   }
 
+  // [SKELETON] Add world labels to all entities — VLM can read these in screenshots
+  if (entityNames.length > 0) {
+    lines.push('        // [SKELETON] World labels for PlayableAgent VLM identification');
+    entityNames.forEach(name => {
+      // Convert camelCase entity name to readable Chinese-friendly label
+      // e.g., "WaterMachine" → "WaterMachine", "Player" → "Player"
+      lines.push(`        if (${name} != null) GFM_UI.AddWorldLabel(${name}, "${name}", 1.5f);`);
+    });
+    lines.push('');
+  }
+
   // [SKELETON] Ground color and camera background
   const groundEntity = entityNames.find(n => n.toLowerCase().indexOf('ground') >= 0 || n.toLowerCase().indexOf('field') >= 0);
   if (groundEntity) {
     lines.push('        // [SKELETON] Anti-solid-color: ground and camera colors');
-    lines.push(`        if (${groundEntity} != null) GFM_Create.SetColor(${groundEntity}, new Color(${GROUND_COLOR.r}f, ${GROUND_COLOR.g}f, ${GROUND_COLOR.b}f));`);
+    // Ground color is pre-baked in Unity template, no SetColor needed
   } else {
     lines.push('        // [SKELETON] Anti-solid-color: camera background');
   }
