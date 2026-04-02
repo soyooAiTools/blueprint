@@ -309,9 +309,14 @@ function assembleStage4(stage4Dir, binDir, stage1Cache) {
   const compiled = path.join(binDir, 'UnityScriptsCompiler.js');
 
   if (fs.existsSync(engineBase) && fs.existsSync(compiled)) {
-    const engine = fs.readFileSync(engineBase, 'utf-8');
+    let engine = fs.readFileSync(engineBase, 'utf-8');
     const userCode = fs.readFileSync(compiled, 'utf-8');
     // 7.1.0: Deserializers are built into engine/scripts.js — no separate deserializers.js needed
+    // Strip stub GameFlowManagerMain from template to avoid "Class already defined"
+    engine = engine.replace(
+      /,?Bridge\.define\("GameFlowManagerMain",\{inherits:\[UnityEngine\.MonoBehaviour\],methods:\{Start:function\(\)\{\},Update:function\(\)\{\}\}\}\)/,
+      ''
+    );
     fs.writeFileSync(path.join(stage4Dir, 'engine', 'scripts.js'), engine + '\n' + userCode);
   } else if (fs.existsSync(path.join(STAGE4_TEMPLATE, 'engine', 'scripts.js'))) {
     // Fallback: copy full scripts.js from template
