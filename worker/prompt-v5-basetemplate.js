@@ -173,7 +173,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
       .map(function(n) {
         var d = n.data || {};
         return {
-          id: d.phaseId || 0,
+          id: d.phaseId || n.id,
           name: d.name || d.label || '',
           triggerCondition: d.triggerCondition || d.endCondition || '',
           activate: d.activate || [],
@@ -326,13 +326,13 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   // ========== 5. 对象分配表 ==========
   lines.push('# 对象分配表');
   lines.push('以下是蓝图实体 → 场景对象的映射。用 GameObject.Find 获取。');
-  lines.push('对象名格式为 __Pool_[Shape]_[Number]，这些是场景中已存在的 3D 对象。');
+  lines.push('对象名格式为 __Pool_[Shape]_[Color]_[NN]（如 __Pool_Cube_Red_01），颜色已烘焙，这些是场景中已存在的 3D 对象。');
   lines.push('');
   lines.push('| 蓝图实体 | 场景对象名 | 说明 |');
   lines.push('|----------|-----------|------|');
   for (var i = 0; i < entities.length; i++) {
     var e = entities[i];
-    var pName = prefabMap[e.name] || '__Pool_Cube_01';
+    var pName = prefabMap[e.name] || '__Pool_Cube_White_01';
     var desc = (e.template || 'Static') + (e.label ? ' (' + e.label + ')' : '');
     lines.push('| ' + e.name + ' | ' + pName + ' | ' + desc + ' |');
   }
@@ -362,7 +362,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   for (var i = 0; i < entities.length; i++) {
     var e = entities[i];
     lines.push('## ' + e.name + (e.label ? ' (' + e.label + ')' : ''));
-    lines.push('场景对象: `GameObject.Find("' + (prefabMap[e.name] || '__Pool_Cube_01') + '")`');
+    lines.push('场景对象: `GameObject.Find("' + (prefabMap[e.name] || '__Pool_Cube_White_01') + '")`');
     lines.push('模板: ' + (e.template || 'Static'));
     
     if (e.visual) {
@@ -431,6 +431,14 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('要显示对象：`obj.transform.position = new Vector3(x, y, z);`');
   lines.push('要隐藏对象：`obj.transform.position = new Vector3(0, -999, 0);`（不用 SetActive）');
   lines.push('');
+  lines.push('## 🚨 相机与对象可见性（必须遵守，否则画面纯色/黑屏）');
+  lines.push('- mainCam.transform.position 的 z 必须为 -10（正交相机），不要用 Camera.main');
+  lines.push('- 所有游戏对象的 position.x 必须在 -6~6 范围，position.y 在 -4~4 范围');
+  lines.push('- 对象 localScale 不能小于 0.3f，推荐 0.5~2.0f');
+  lines.push('- SpriteRenderer 的颜色不能和 Camera.backgroundColor 相同');
+  lines.push('- 初始化时至少有 1 个对象在屏幕可见范围内（不能全部在 -999）');
+  lines.push('- 不要在 Awake/Start 中 SetActive(false) 所有对象');
+  lines.push('');
   lines.push('## 操作 API');
   lines.push('- ⛔ 不要用 GFM_Create.SetColor() — 颜色已烘焙，直接 Find 对应颜色的对象');
   lines.push('- 虚拟摇杆: `var joystick = GFM_Joystick.Create(canvas, 200f);` canvas 是 Canvas 类型');
@@ -460,6 +468,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('- ✅ Rule 的 WHEN 条件必须依赖玩家操作结果（eState==2, 距离<阈值, 金币>=N 且玩家点击）');
   lines.push('- ✅ CheckEventRules 中：Rule触发 = 设置 currentPhaseName + 激活对象 + 显示引导');
   lines.push('- ✅ 只有当玩家完成当前阶段的操作后，才调用 AddCompletedPhase 并进入下一条 Rule');
+  lines.push("- ✅ AddCompletedPhase 的参数必须使用上面 Rule 的 ID（如 Rule phase_xxx_1 → AddCompletedPhase(\"phase_xxx_1\"))");
   lines.push('- ✅ 引导(guide)要清晰告诉玩家下一步操作（如"用摇杆移动到传送带"、"点击建造"）');
   lines.push('- ✅ 每个阶段之间要有明显的视觉变化（对象出现、颜色变化、UI更新）');
   lines.push('');
@@ -514,6 +523,76 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('- completedPhases 必须包含所有 Phase（跳过任何一个 = FAIL）');
   lines.push('- 所有可建造实体的 entityState 必须 = 2（未建成 = FAIL）');
   lines.push('- 这意味着你不能为了让 CUA 容易通过而简化玩法，必须保留完整交互流程');
+  lines.push('');
+
+  // ========== 8d. 正确代码模式参考（必须严格遵循）==========
+  lines.push('# 📋 正确代码模式参考（直接照抄，不要自创写法）');
+  lines.push('');
+  lines.push('## CheckEventRules 的正确写法');
+  lines.push('```csharp');
+  lines.push('void CheckEventRules() {');
+  lines.push('  var p = GameObject.Find("__Pool_Sphere_Blue_01"); // Player — use prompt中指定的实际pool名');
+  lines.push('  if (p == null) return;');
+  lines.push('  var playerPos = p.transform.position;');
+  lines.push('');
+  lines.push('  // Rule 1: 游戏开始 → 显示引导');
+  lines.push('  if (currentPhaseName == "" || currentPhaseName == "gameStart") {');
+  lines.push('    currentPhaseName = "phase_1";');
+  lines.push('    AddCompletedPhase("phase_xxx_1"); // 用蓝图中 Rule 的真实 ID');
+  lines.push('    ShowGuide("用摇杆移动到目标位置");');
+  lines.push('  }');
+  lines.push('');
+  lines.push('  // Rule 2: 玩家移动到目标 → 触发下一阶段');
+  lines.push('  if (currentPhaseName == "phase_1") {');
+  lines.push('    var target = GameObject.Find("__Pool_Cube_Red_01"); // Target — use prompt中指定的实际pool名');
+  lines.push('    if (target != null && Vector3.Distance(playerPos, target.transform.position) < 1.5f) {');
+  lines.push('      AddCompletedPhase("phase_xxx_2"); // 用蓝图中 Rule 的真实 ID');
+  lines.push('      currentPhaseName = "phase_2";');
+  lines.push('      ShowGuide("点击建造按钮");');
+  lines.push('    }');
+  lines.push('  }');
+  lines.push('');
+  lines.push('  // Rule 3: 建造完成 → 下一阶段');
+  lines.push('  if (currentPhaseName == "phase_2" && eState[BUILDING_ID] == 2) {');
+  lines.push('    AddCompletedPhase("phase_xxx_3");');
+  lines.push('    currentPhaseName = "phase_3";');
+  lines.push('  }');
+  lines.push('');
+  lines.push('  // 最终 Rule: 所有阶段完成 → 结束游戏');
+  lines.push('  if (currentPhaseName == "phase_final") {');
+  lines.push('    Luna.Unity.LifeCycle.GameEnded();');
+  lines.push('    ShowCTAButton();');
+  lines.push('  }');
+  lines.push('}');
+  lines.push('```');
+  lines.push('');
+  lines.push('## 对象初始化的正确写法');
+  lines.push('```csharp');
+  lines.push('void InitScene() {');
+  lines.push('  // 1. 相机设置（必须）');
+  lines.push('  if (mainCam != null) mainCam.transform.position = new Vector3(0, 0, -10);');
+  lines.push('  if (mainCam != null) mainCam.orthographicSize = 5;');
+  lines.push('');
+  lines.push('  // 2. 玩家放在屏幕中心附近（坐标 -6~6 范围）');
+  lines.push('  var player = GameObject.Find("__Pool_Sphere_Blue_01"); // Player — use prompt中指定的实际pool名');
+  lines.push('  player.transform.position = new Vector3(-3, 0, 0);');
+  lines.push('  player.transform.localScale = Vector3.one * 1.0f;');
+  lines.push('');
+  lines.push('  // 3. 目标对象放在可见范围内');
+  lines.push('  var target = GameObject.Find("__Pool_Cube_Red_01"); // Target — use prompt中指定的实际pool名');
+  lines.push('  target.transform.position = new Vector3(3, 2, 0);');
+  lines.push('');
+  lines.push('  // 4. 暂时不需要的对象放在屏幕外（不用 SetActive）');
+  lines.push('  var later = GameObject.Find("__Pool_Cube_Green_01"); // 暂不需要的对象');
+  lines.push('  later.transform.position = new Vector3(0, -999, 0);');
+  lines.push('}');
+  lines.push('```');
+  lines.push('');
+  lines.push('## ⚠️ 关键提醒');
+  lines.push('- AddCompletedPhase 的参数必须是蓝图 Rule 的 ID（如 `phase_1774794448160_1`），不能自己编名字');
+  lines.push('- 每个 Phase 推进必须由玩家操作触发（距离判定/点击/拖拽），绝对不能用 timer');
+  lines.push('- CheckEventRules 中的 if 条件链必须用 currentPhaseName 串联，确保顺序执行');
+  lines.push('- 初始化时必须有至少 1 个对象在屏幕可见范围内');
   lines.push('');
 
   // ========== 9. 行为模板 ==========

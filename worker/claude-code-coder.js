@@ -23,7 +23,7 @@ try {
 // ============ Config ============
 const CLAUDE_CMD = process.env.CLAUDE_CMD || 'claude';
 const CLAUDE_TIMEOUT_MS = parseInt(process.env.CLAUDE_TIMEOUT_MS) || 20 * 60 * 1000; // 20 min (12 min timed out when 3 tasks run concurrently through proxy)
-const CLAUDE_MAX_BUDGET = process.env.CLAUDE_MAX_BUDGET_USD || '5';
+const CLAUDE_MAX_BUDGET = process.env.CLAUDE_MAX_BUDGET_USD || '0'; // 0 = no limit
 const CLAUDE_MODEL = process.env.CLAUDE_CODE_MODEL || 'opus';  // 'opus' is the CLI alias for Claude Opus (claude-opus-4-6 breaks CLI model validation)
 const GLM_MODEL = process.env.GLM_MODEL || 'glm-5.1';
 const GLM_API_BASE = process.env.GLM_API_BASE || 'https://api.aaxe.cn/api/anthropic';
@@ -160,7 +160,8 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
       '--print',                              // 非交互模式
       '--model', (opts.useGlm ? GLM_MODEL : CLAUDE_MODEL),
       '--output-format', 'text',
-      '--max-budget-usd', CLAUDE_MAX_BUDGET,
+      // Budget: 0 means no limit; only pass flag if > 0
+      ...(parseInt(CLAUDE_MAX_BUDGET) > 0 ? ['--max-budget-usd', CLAUDE_MAX_BUDGET] : []),
       '--no-session-persistence',              // 不保存 session（每次全新）
       '--system-prompt-file', path.join(workDir, 'CLAUDE.md'),  // 直接传入 system prompt
     ];
@@ -303,17 +304,8 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
       const specsDataDir = process.env.SPECS_DATA_DIR || path.join(__dirname, '..', 'spec-data');
       specExtractor.saveSpecs(specs, taskId, specsDataDir);
 
-      // === Phased Generation: limit initial generation to first 3 phases ===
-      const MAX_INITIAL_PHASES = 3;
+      // === Generate skeleton for ALL phases (no longer limiting to first 3) ===
       let activeSpecs = specs;
-      if (specs.length > MAX_INITIAL_PHASES) {
-        activeSpecs = specs.slice(0, MAX_INITIAL_PHASES);
-        // Adjust the last active phase to trigger CTA (so CUA can verify a complete flow)
-        const lastActive = { ...activeSpecs[activeSpecs.length - 1] };
-        lastActive.triggerNext = { condition: 'player completed core loop', description: 'Core gameplay done → show CTA' };
-        activeSpecs[activeSpecs.length - 1] = lastActive;
-        log(`[claude-code] Phased generation: using first ${MAX_INITIAL_PHASES} of ${specs.length} phases`, taskId);
-      }
 
       // Generate skeleton with entity→pool mapping
       const entityPoolMap = (blueprint.entities && blueprint.entities.length > 0)
@@ -335,19 +327,31 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
   // === Step 4: 构建用户 Prompt ===
   let userPrompt;
   if (hasFeedback) {
+    // Extract feedback text to inject directly into prompt (don't rely on AI reading prompt.md)
+    const feedbackTexts = blueprint.feedbackHistory.map(fb => {
+      if (fb.data && fb.data.text) return fb.data.text;
+      if (fb.text) return fb.text;
+      return JSON.stringify(fb);
+    }).join('\n---\n');
+
     userPrompt = `## 增量修复模式
 
 ⚠️ 这是一个 FIX 请求。保持现有代码结构，只修改反馈要求的部分。
 ⚠️ 禁止重写整个文件！使用 Edit 工具做局部修改。
 
+## CUA 验证反馈（必须修复以下问题）：
+${feedbackTexts}
+
 请完成以下步骤：
-1. 阅读 prompt.md 了解详细需求（包含反馈信息）
-2. 阅读现有的 Assets/Program/Script/Manager/GameFlowManagerMain.cs（1000+ 行）
-3. 使用 Edit 工具（不是 Write）根据反馈做**局部修改**
-4. 只修改反馈提到的具体问题，不要动其他代码
-5. 运行 bash build-test.sh 验证编译
-6. 如果编译失败，用 Edit 修复错误并重试
-7. 编译通过后完成
+1. 仔细阅读上面的 CUA 反馈，理解具体失败原因
+2. 阅读 prompt.md 了解完整需求
+3. 阅读现有的 Assets/Program/Script/Manager/GameFlowManagerMain.cs
+4. 根据 CUA 反馈做**针对性修改**（使用 Edit 工具，不是 Write）
+5. 如果反馈说缺少 phase，必须添加完整的 phase 实现代码
+6. 如果反馈说 phase-skipped/game_ended，检查 phase 过渡条件是否正确（不能用 true 占位）
+7. 运行 bash build-test.sh 验证编译
+8. 如果编译失败，修复错误并重试
+9. 编译通过后完成
 
 重要：修改后文件行数不应减少。如果你发现文件变短了，说明你错误地重写了整个文件。`;
   } else {

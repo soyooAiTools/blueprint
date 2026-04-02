@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchProjects, createProject, deleteProject, getProject } from '../utils/api';
 
 export default function ProjectList({ user, onSelectProject, onLogout }) {
@@ -9,24 +9,30 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
   const [newSvnUrl, setNewSvnUrl] = useState('');
   const [newEngine, setNewEngine] = useState('unity');
 
+  const initialLoad = useRef(true);
   const loadProjects = useCallback(async () => {
     try {
-      setLoading(true);
+      // Only show loading spinner on first load, not on refresh (prevents flashing)
+      if (initialLoad.current) setLoading(true);
       const list = await fetchProjects();
       setProjects(list);
     } catch (err) {
       console.error('加载项目列表失败:', err);
     } finally {
-      setLoading(false);
+      if (initialLoad.current) { setLoading(false); initialLoad.current = false; }
     }
   }, []);
 
   useEffect(() => {
     loadProjects();
-    // Auto-refresh every 5s to keep status up-to-date
-    const timer = setInterval(loadProjects, 5000);
+    // Only poll when there are active (in-progress) projects; otherwise stay idle
+    const ACTIVE_STATUSES = ['submitted', 'building', 'developing', 'feedback', 'spec_extracting', 'spec_review', 'processing'];
+    const timer = setInterval(() => {
+      const hasActive = projects.some((p) => ACTIVE_STATUSES.indexOf(p.status) !== -1);
+      if (hasActive) loadProjects();
+    }, 5000);
     return () => clearInterval(timer);
-  }, [loadProjects]);
+  }, [loadProjects, projects]);
 
   const openProject = async (id) => {
     try {
@@ -216,6 +222,11 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
                     <span className={'project-stat project-stat-status project-status-' + p.status}>{statusLabel}</span>
                   )}
                 </div>
+                {p.status === 'failed' && p.statusMessage && (
+                  <div className="project-card-error" title={p.statusMessage}>
+                    ⚠️ {p.statusMessage.length > 50 ? p.statusMessage.slice(0, 50) + '...' : p.statusMessage}
+                  </div>
+                )}
                 <div className="project-card-time">
                   <span>更新于 {formatDate(p.updatedAt)}</span>
                 </div>

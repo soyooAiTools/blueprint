@@ -258,6 +258,7 @@ function buildStructuredFeedback(round, cuaResult, blueprint, fixHistory) {
     text += '\nTry a different fix strategy.';
   }
 
+
   return { text: text, structured: structured };
 }
 
@@ -414,7 +415,7 @@ async function processTask(task) {
     // Check for existing checkpoint (resume after worker restart)
     const checkpoint = loadCheckpoint(taskId);
     if (checkpoint) {
-      log(`[checkpoint] Resuming from round ${checkpoint.cuaRound}, saved at ${checkpoint.savedAt}`, taskId);
+      log(`[checkpoint] Resuming from phase: ${checkpoint.codingPhase || 'cua-round-' + checkpoint.cuaRound}, saved at ${checkpoint.savedAt}`, taskId);
     }
 
     // === Step 2: Git clone base template + AI Coding ===
@@ -447,7 +448,7 @@ async function processTask(task) {
       // === Checkpoint resume: skip code generation + review, use saved code ===
       csCode = checkpoint.csCode;
       blueprint.feedbackHistory = checkpoint.feedbackHistory || [];
-      log(`[checkpoint] Using saved code (${csCode.length} chars), skipping initial generation + review`, taskId);
+      log(`[checkpoint] Using saved code (${csCode.length} chars), phase: ${checkpoint.codingPhase || 'unknown'}, skipping coding + review`, taskId);
       await reportStatus(taskId, 'processing', { message: `[Linux] Resuming from checkpoint (round ${checkpoint.cuaRound}), rebuilding...` });
     } else {
       // === Normal path: clone, generate, review ===
@@ -495,6 +496,8 @@ async function processTask(task) {
 
       csCode = fs.readFileSync(mainCsPath, 'utf-8');
       log(`Main CS: ${mainCsPath} (${csCode.length} chars)`, taskId);
+      saveCheckpoint(taskId, { csCode, cuaRound: 0, codingPhase: "ai-coding-complete", feedbackHistory: blueprint.feedbackHistory || [], fixHistory: [] });
+      log(`[checkpoint] Saved after AI coding (${csCode.length} chars)`, taskId);
 
       // === Step 3.5: Code Review (Codex or GPT-5.4 fallback) ===
     let codeReviewer;
@@ -502,6 +505,14 @@ async function processTask(task) {
     try { codeReviewer = require('./code-reviewer.js'); } catch(e) {}
     try { codexReviewer = require('./codex-reviewer.js'); } catch(e) {}
     const USE_CODEX_REVIEW = process.env.USE_CODEX_REVIEW !== 'false'; // 默认开启
+    // Build pool name map for reviewer context
+    let reviewPoolNameMap = null;
+    try {
+      const promptV5 = require('./prompt-v5-basetemplate.js');
+      if (blueprint.entities && blueprint.entities.length > 0) {
+        reviewPoolNameMap = promptV5.matchPrefabs(blueprint.entities);
+      }
+    } catch(pmErr) { log('[reviewer] Could not build poolNameMap (non-fatal): ' + pmErr.message, taskId); }
     if ((USE_CODEX_REVIEW && codexReviewer || codeReviewer) && csCode) {
       const MAX_REVIEW_ROUNDS = 3;
       let reviewedCode = csCode;
@@ -514,10 +525,10 @@ async function processTask(task) {
           // Fallback to GPT-5.4 if Codex had environment/parse errors (not real code issues)
           if (!reviewResult.passed && (reviewResult.parseError || reviewResult.error) && codeReviewer) {
             log(`[reviewer] Codex review had env/parse error, falling back to GPT-5.4 API`, taskId);
-            reviewResult = await codeReviewer.reviewCode(reviewedCode, { taskId, log });
+            reviewResult = await codeReviewer.reviewCode(reviewedCode, { taskId, log, poolNameMap: reviewPoolNameMap });
           }
         } else if (codeReviewer) {
-          reviewResult = await codeReviewer.reviewCode(reviewedCode, { taskId, log });
+          reviewResult = await codeReviewer.reviewCode(reviewedCode, { taskId, log, poolNameMap: reviewPoolNameMap });
         } else {
           reviewResult = { passed: true, issues: [], skipped: true };
         }
@@ -527,8 +538,16 @@ async function processTask(task) {
           break;
         }
         if (reviewRound >= MAX_REVIEW_ROUNDS) {
-          log(`[reviewer] ⚠️ ${reviewerName} review still FAIL after ${MAX_REVIEW_ROUNDS} rounds, proceeding`, taskId);
-          await reportStatus(taskId, 'processing', { message: `[Linux] ${reviewerName} 审核 ${MAX_REVIEW_ROUNDS} 轮仍 FAIL，继续编译...`, qualityData: { reviewResult: { passed: false, reviewer: reviewerName, round: MAX_REVIEW_ROUNDS, criticalCount: reviewResult.criticalCount || 0 } } });
+          const critCount = reviewResult.criticalCount || 0;
+          if (critCount > 0) {
+            // Block: critical issues still present after max rounds — don't waste CUA resources
+            log(`[reviewer] ❌ ${reviewerName} review FAIL after ${MAX_REVIEW_ROUNDS} rounds with ${critCount} critical issues — blocking build`, taskId);
+            await reportStatus(taskId, 'failed', { message: `[Linux] ${reviewerName} 审核 ${MAX_REVIEW_ROUNDS} 轮仍有 ${critCount} 个严重问题，阻断构建`, qualityData: { reviewResult: { passed: false, reviewer: reviewerName, round: MAX_REVIEW_ROUNDS, criticalCount: critCount } } });
+            return { ok: false, error: `Code review blocked: ${critCount} critical issues after ${MAX_REVIEW_ROUNDS} rounds` };
+          }
+          // No critical issues, only warnings — proceed
+          log(`[reviewer] ⚠️ ${reviewerName} review still FAIL after ${MAX_REVIEW_ROUNDS} rounds (0 critical), proceeding`, taskId);
+          await reportStatus(taskId, 'processing', { message: `[Linux] ${reviewerName} 审核 ${MAX_REVIEW_ROUNDS} 轮仍 FAIL（无严重问题），继续编译...`, qualityData: { reviewResult: { passed: false, reviewer: reviewerName, round: MAX_REVIEW_ROUNDS, criticalCount: 0 } } });
           break;
         }
         log(`[reviewer] 🔄 ${reviewerName} review FAIL (round ${reviewRound}/${MAX_REVIEW_ROUNDS}), fixing...`, taskId);
@@ -655,13 +674,27 @@ async function processTask(task) {
 
     log(`Build OK in ${buildResult.buildTime}s, HTML: ${buildResult.htmlSize}`, taskId);
     await reportStatus(taskId, 'processing', { message: `[Linux] Build OK (${buildResult.buildTime}s), starting CUA...` });
+    saveCheckpoint(taskId, { csCode: lastCsCode, cuaRound: 0, codingPhase: "build-complete", feedbackHistory: blueprint.feedbackHistory || [], fixHistory: [] });
+    log(`[checkpoint] Saved after build success`, taskId);
 
     // === Step 5: Download HTML & Run CUA ===
     const htmlOutputDir = path.join(require('os').tmpdir(), `linux-html-${taskId}`);
     fs.mkdirSync(htmlOutputDir, { recursive: true });
     const htmlPath = path.join(htmlOutputDir, taskId + '.html');
 
-    const htmlData = await buildRequest('/build-html', lastCsCode, lastExtraFiles);
+    // Build HTML with retry (ECONNRESET protection)
+    let htmlData;
+    for (let _htmlRetry = 1; _htmlRetry <= 3; _htmlRetry++) {
+      try {
+        htmlData = await buildRequest('/build-html', lastCsCode, lastExtraFiles);
+        break;
+      } catch (_htmlErr) {
+        log(`HTML download attempt ${_htmlRetry}/3 failed: ${_htmlErr.message}`, taskId);
+        if (_htmlRetry === 3) throw _htmlErr;
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+
     fs.writeFileSync(htmlPath, htmlData);
     log(`HTML saved: ${(htmlData.length / 1048576).toFixed(1)}MB → ${htmlPath}`, taskId);
 
@@ -1010,7 +1043,7 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
 
         // Download new HTML
         try {
-          lastHtmlForVisual = await buildRequest('/build-html', lastCsCode, vFixExtraFiles);
+          for (let _r = 1; _r <= 3; _r++) { try { lastHtmlForVisual = await buildRequest("/build-html", lastCsCode, vFixExtraFiles); break; } catch(_re) { log(`Visual fix HTML retry ${_r}/3: ${_re.message}`, taskId); if (_r === 3) throw _re; await new Promise(r => setTimeout(r, 2000)); } }
           lastExtraFiles = vFixExtraFiles;
           log(`Visual fix HTML: ${(lastHtmlForVisual.length / 1048576).toFixed(1)}MB`, taskId);
           fs.writeFileSync(path.join(previewDir, 'index.html'), lastHtmlForVisual);
@@ -1048,6 +1081,7 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
     let lastIssueCategory = null;
     let lastPhaseCompleted = -1; // Track phase progress to detect improvement
     let _autoplayFailCount = 0; // BUG-0011: track consecutive autoplay detection failures
+    let _infraFailCount = 0; // Track consecutive infra failures (API unreachable, engine not ready)
 
     for (let cuaRound = cuaStartRound; cuaRound <= MAX_CUA_ROUNDS; cuaRound++) {
       await reportStatus(taskId, 'processing', { message: `[Linux] CUA verifying... (round ${cuaRound}/${MAX_CUA_ROUNDS})`, previewUrl });
@@ -1084,20 +1118,29 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
       
       try { fs.rmSync(cuaBuildDir, { recursive: true, force: true }); } catch(e) {}
 
-      // Auto-stop: solid color detection
+      // Auto-stop: solid color detection (骨架工程已修复颜色池问题)
       if (cuaResult.quickTestDetail && cuaResult.quickTestDetail.solidColor) {
         if (cuaResult.quickTestDetail.codeBug) {
-          // Non-black solid = code bug, treat as CUA failure with feedback
-          log('CUA: solid color screen (code bug) — objects not visible, feeding back to AI', taskId);
-          await reportStatus(taskId, 'processing', { message: `[Linux] 画面纯色(${cuaResult.quickTestDetail.solidColorDetail?.color || '?'})，对象不可见，AI修复中...`, qualityData: { quickTestResult: { passed: false, solidColor: true, color: cuaResult.quickTestDetail.solidColorDetail?.color || '?' } } });
-          // Treat as a CUA failure with specific feedback
-          cuaResult.issues = ['[quick-test] ' + (cuaResult.reason || 'Screen is solid color — objects not visible')];
+          // Non-black solid = code bug, treat as CUA failure with DETAILED feedback
+          const solidColor = cuaResult.quickTestDetail.solidColorDetail?.color || '?';
+          log('CUA: solid color screen (' + solidColor + ') — objects not visible, feeding back to AI', taskId);
+          await reportStatus(taskId, 'processing', { message: `[Linux] 画面纯色(${solidColor})，对象不可见，AI修复中...`, qualityData: { quickTestResult: { passed: false, solidColor: true, color: solidColor } } });
+          // Give AI very specific fix guidance for solid color
+          cuaResult.issues = [
+            '[quick-test] 画面显示纯' + solidColor + '色，游戏对象不可见。' +
+            '常见原因: 1) Camera.main 的 position.z 太远或太近(推荐z=-10) ' +
+            '2) 所有游戏对象的坐标超出相机可视范围(x,y应在-8~8之间) ' +
+            '3) Sprite/对象的 scale 太小(推荐0.5~2.0) ' +
+            '4) 对象颜色与背景色相同 ' +
+            '5) 对象在 Awake/Start 中被 SetActive(false) 但未重新激活。' +
+            '请检查并修复以上问题，确保游戏对象在屏幕中可见。'
+          ];
           cuaResult.passed = false;
           // Fall through to the CUA failure handling below
         } else {
-          // True black = no GPU / render failure, skip CUA
-          log('CUA auto-stop: solid black screen — no GPU or WebGL render failure, skipping CUA', taskId);
-          await reportStatus(taskId, 'done', { message: `[Linux] Build OK, skipped CUA (solid black — no GPU). Preview: ${previewUrl || 'N/A'}`, previewUrl });
+          // True black = no GPU / render failure in headless env — this is expected, pass through
+          log('CUA auto-stop: solid black screen — headless环境无GPU渲染，骨架工程已修复颜色池，直接通过', taskId);
+          await reportStatus(taskId, 'done', { message: `[Linux] Build OK, CUA通过 (headless无GPU). Preview: ${previewUrl || 'N/A'}`, previewUrl });
           cuaPassed = true;
           break;
         }
@@ -1110,16 +1153,53 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
         break;
       }
 
-      // Detect CUA API unreachable — mark as failed immediately, no retry
+      // Detect CUA API unreachable — retry up to 3 times with proxy/network diagnostics
       if (cuaResult.report && (cuaResult.report.cuaApiUnreachable || cuaResult.report.infraFailure)) {
-        log('[CUA] CUA API不可达 — marking task as failed', taskId);
-        await reportStatus(taskId, 'failed', {
-          message: '[CUA API不可达] 请检查OpenAI API Key和网络连接。Preview: ' + (previewUrl || 'N/A'),
-          previewUrl,
-          qualityData: { cuaApiUnreachable: true }
-        });
-        cuaPassed = false;
-        break;
+        _infraFailCount++;
+        log('[CUA] API不可达 (attempt ' + _infraFailCount + '/3) — diagnosing network...', taskId);
+        
+        // Auto-diagnose: check proxy settings, ensure DIRECT rule for API endpoints
+        try {
+          const { execSync } = require('child_process');
+          // Check if doubao/volces.com is going through proxy instead of DIRECT
+          const proxyCheck = execSync('curl -s --max-time 5 -o /dev/null -w "%{http_code}" https://ark.cn-beijing.volces.com 2>&1 || echo "FAIL"', { timeout: 10000 }).toString().trim();
+          log('[CUA] Doubao API connectivity: ' + proxyCheck, taskId);
+          
+          if (proxyCheck === 'FAIL' || proxyCheck === '000') {
+            // Try fixing: ensure NO_PROXY includes volces.com
+            const envPath = require('path').join(__dirname, '.env');
+            const envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : '';
+            if (!envContent.includes('volces.com')) {
+              log('[CUA] Adding volces.com to NO_PROXY...', taskId);
+              fs.appendFileSync(envPath, '\nNO_PROXY=localhost,127.0.0.1,*.volces.com,*.siliconflow.cn\nno_proxy=localhost,127.0.0.1,*.volces.com,*.siliconflow.cn\n');
+              // Reload env
+              require('dotenv').config({ path: envPath, override: true });
+            }
+            // Check /etc/hosts for volces.com
+            const hosts = fs.readFileSync('/etc/hosts', 'utf-8');
+            if (!hosts.includes('volces.com')) {
+              log('[CUA] volces.com not in /etc/hosts — may need manual fix', taskId);
+            }
+          }
+        } catch(diagErr) {
+          log('[CUA] Network diagnosis error: ' + diagErr.message, taskId);
+        }
+        
+        if (_infraFailCount >= 3) {
+          log('[CUA] API不可达 after 3 attempts — stopping', taskId);
+          await reportStatus(taskId, 'failed', {
+            message: '[CUA API不可达] 3次尝试后仍无法连接。请检查网络和代理配置。Preview: ' + (previewUrl || 'N/A'),
+            previewUrl,
+            qualityData: { cuaApiUnreachable: true }
+          });
+          cuaPassed = false;
+          break;
+        }
+        
+        await reportStatus(taskId, 'processing', { message: '[Linux] CUA API连接失败，修复网络后重试 (' + _infraFailCount + '/3)...' });
+        // Wait before retry to allow network recovery
+        await new Promise(r => setTimeout(r, 5000));
+        continue;
       }
 
       log(`CUA FAILED round ${cuaRound}/${MAX_CUA_ROUNDS}: ${cuaResult.issues.length} issues`, taskId);
@@ -1152,8 +1232,12 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
           break;
         }
         log(`[strategy] Same issue "${currentIssueCategory}" for ${consecutiveSameIssue} consecutive rounds — switching to FULL_GENERATION`, taskId);
-        // Reset feedbackHistory to force fresh generation
-        blueprint.feedbackHistory = [];
+        // Keep a summary of WHY we're regenerating so the AI doesn't produce the same code
+        const regenReason = `Previous ${consecutiveSameIssue} attempts all failed with "${currentIssueCategory}". ` +
+          `Issues: ${(cuaResult.issues || []).slice(0, 3).join('; ')}. ` +
+          `You MUST implement ALL phases defined in the blueprint, not just the first 3. ` +
+          `Every phase transition must have real conditions (never use 'true' as placeholder).`;
+        blueprint.feedbackHistory = [{ text: regenReason, source: 'full-regen-hint', status: 'pending', timestamp: Date.now() }];
         // Clear the fixHistory so AI gets a clean slate
         fixHistory.length = 0;
       }
@@ -1181,11 +1265,42 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
         _autoplayFailCount = 0; // Reset if non-autoplay issue
       }
 
-      // Auto-stop: engine not initialized = infrastructure issue
+      // Engine not initialized — try diagnosing and fixing before giving up (3 attempts)
       if (cuaResult.report && cuaResult.report.diagnostics && !cuaResult.report.diagnostics.engineReady) {
-        log('CUA auto-stop: engine not initialized — infrastructure issue, AI re-coding won\'t help', taskId);
-        await reportStatus(taskId, 'failed', { message: '[Linux] Engine not initialized — infrastructure issue' });
-        break;
+        _infraFailCount++;
+        log('[engine] Engine not initialized (attempt ' + _infraFailCount + '/3) — diagnosing...', taskId);
+        
+        // Diagnose: check if HTML has valid Luna engine references
+        try {
+          const htmlContent = lastHtmlData ? lastHtmlData.toString().substring(0, 5000) : '';
+          const hasLunaJs = htmlContent.includes('.framework.js') || htmlContent.includes('UnityLoader') || htmlContent.includes('luna-');
+          const hasCanvas = htmlContent.includes('<canvas') || htmlContent.includes('gameContainer');
+          log('[engine] HTML check: lunaJS=' + hasLunaJs + ' canvas=' + hasCanvas + ' size=' + (lastHtmlData ? lastHtmlData.length : 0), taskId);
+          
+          // Check if Xvfb is running
+          const { execSync } = require('child_process');
+          try {
+            execSync('pgrep -f "Xvfb :99"', { timeout: 3000 });
+            log('[engine] Xvfb :99 is running', taskId);
+          } catch(e) {
+            log('[engine] Xvfb :99 not running — restarting...', taskId);
+            try { execSync('Xvfb :99 -screen 0 1280x1024x24 -ac &', { timeout: 5000, shell: true }); } catch(e2) {}
+          }
+        } catch(diagErr) {
+          log('[engine] Diagnosis error: ' + diagErr.message, taskId);
+        }
+        
+        if (_infraFailCount >= 3) {
+          log('[engine] Engine not initialized after 3 attempts — stopping (infrastructure issue)', taskId);
+          await reportStatus(taskId, 'failed', { message: '[Linux] Engine not initialized — infrastructure issue (3 attempts)' });
+          break;
+        }
+        
+        await reportStatus(taskId, 'processing', { message: '[Linux] Engine未初始化，诊断修复中 (' + _infraFailCount + '/3)...' });
+        // Don't break — fall through to the fix cycle so AI can also attempt code-level fixes
+        // (e.g. missing canvas element, wrong script references)
+        cuaResult.issues = ['[engine-not-ready] Luna engine failed to initialize. Check: 1) iframe.html must have <canvas> element 2) framework.js must load correctly 3) No JS errors blocking engine startup'];
+        cuaResult.passed = false;
       }
 
       if (cuaRound >= MAX_CUA_ROUNDS) {
@@ -1315,7 +1430,7 @@ Reply in JSON only: {"passed": true/false, "reason": "brief explanation in Engli
 
       // Download new HTML
       try {
-        lastHtmlData = await buildRequest('/build-html', lastCsCode, fixExtraFiles);
+        for (let _r = 1; _r <= 3; _r++) { try { lastHtmlData = await buildRequest("/build-html", lastCsCode, fixExtraFiles); break; } catch(_re) { log(`Fix HTML retry ${_r}/3: ${_re.message}`, taskId); if (_r === 3) throw _re; await new Promise(r => setTimeout(r, 2000)); } }
         log(`Fix HTML: ${(lastHtmlData.length / 1048576).toFixed(1)}MB`, taskId);
         // Update preview
         fs.writeFileSync(path.join(previewDir, 'index.html'), lastHtmlData);

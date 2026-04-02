@@ -655,22 +655,41 @@ public static class GFM_UI
     /// <summary>在 3D 物体上方添加世界空间文字标签</summary>
     public static void AddWorldLabel(GameObject target, string text, float heightOffset)
     {
+        if (target == null) return;
         var labelObj = new GameObject("Label_" + text);
         var canvas = labelObj.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
+        canvas.sortingOrder = 100;
         canvas.transform.SetParent(target.transform, false);
         canvas.transform.localPosition = new Vector3(0, heightOffset, 0);
-        canvas.transform.localScale = new Vector3(0.02f, 0.02f, 0.02f);
-        canvas.GetComponent<RectTransform>().sizeDelta = new Vector2(200, 50);
+        canvas.transform.localScale = new Vector3(0.015f, 0.015f, 0.015f);
+        var rt = canvas.GetComponent<RectTransform>();
+        rt.sizeDelta = new Vector2(240, 40);
 
-        var txtObj = new GameObject("Text").AddComponent<Text>();
+        // Dark background for readability (VLM needs high contrast)
+        var bgObj = new GameObject("LabelBG", typeof(RectTransform), typeof(Image));
+        bgObj.transform.SetParent(canvas.transform, false);
+        var bgRect = bgObj.GetComponent<RectTransform>();
+        bgRect.sizeDelta = new Vector2(240, 40);
+        bgRect.anchoredPosition = Vector2.zero;
+        var bgImg = bgObj.GetComponent<Image>();
+        bgImg.color = new Color(0f, 0f, 0f, 0.7f);
+
+        // White text on dark background
+        var txtObj = new GameObject("Text", typeof(RectTransform)).AddComponent<Text>();
         txtObj.transform.SetParent(canvas.transform, false);
-        txtObj.GetComponent<RectTransform>().sizeDelta = new Vector2(200, 50);
+        var txtRect = txtObj.GetComponent<RectTransform>();
+        txtRect.sizeDelta = new Vector2(240, 40);
+        txtRect.anchoredPosition = Vector2.zero;
         txtObj.text = text;
         txtObj.font = (Font)Resources.GetBuiltinResource(typeof(Font), "Arial.ttf");
-        txtObj.fontSize = 24;
+        txtObj.fontSize = 22;
         txtObj.color = Color.white;
         txtObj.alignment = TextAnchor.MiddleCenter;
+        txtObj.horizontalOverflow = HorizontalWrapMode.Overflow;
+
+        // Billboard effect: always face camera (added via Update helper)
+        labelObj.AddComponent<GFM_Billboard>();
     }
 
     /// <summary>创建进度条</summary>
@@ -1214,5 +1233,17 @@ public static class GFM_Pathfinding
         }
         simplified.Add(path[path.Count - 1]);
         return simplified;
+    }
+}
+
+// [SKELETON] Billboard — makes world labels always face the camera
+public class GFM_Billboard : MonoBehaviour
+{
+    Camera cam;
+    void Start() { cam = Camera.main; }
+    void LateUpdate()
+    {
+        if (cam == null) { cam = Camera.main; if (cam == null) return; }
+        transform.rotation = cam.transform.rotation;
     }
 }

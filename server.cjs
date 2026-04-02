@@ -196,16 +196,22 @@ function writeProject(project) {
 
 function listProjects() {
   var files = fs.readdirSync(PROJECTS_DIR).filter(function(f) { return f.endsWith('.json'); });
-  return files.map(function(f) {
-    var data = JSON.parse(fs.readFileSync(path.join(PROJECTS_DIR, f), 'utf-8'));
-    var blueprint = data.blueprint;
-    var summary = Object.assign({}, data);
-    delete summary.blueprint;
-    summary.shotCount = (blueprint && blueprint.nodes)
-      ? blueprint.nodes.filter(function(n) { return n.type === 'shotNode'; }).length
-      : 0;
-    return summary;
+  var results = [];
+  files.forEach(function(f) {
+    try {
+      var data = JSON.parse(fs.readFileSync(path.join(PROJECTS_DIR, f), 'utf-8'));
+      var blueprint = data.blueprint;
+      var summary = Object.assign({}, data);
+      delete summary.blueprint;
+      summary.shotCount = (blueprint && blueprint.nodes)
+        ? blueprint.nodes.filter(function(n) { return n.type === 'shotNode'; }).length
+        : 0;
+      results.push(summary);
+    } catch(e) {
+      console.error('[listProjects] Skipping corrupt file: ' + f + ' — ' + e.message);
+    }
   });
+  return results;
 }
 
 function generateId() {
@@ -1016,18 +1022,40 @@ handlers.workerStatus = function(req, res, body) {
             }
           }
         } else {
-          // Code/logic failure: permanent fail as before
-          task.status = 'failed';
-          task.statusMessage = 'Permanently failed after ' + task.failCount + ' retries';
-          var proj = readProject(taskId);
-          if (proj && proj.status !== 'failed') {
-            proj.status = 'failed';
-            proj.statusMessage = task.statusMessage;
-            proj.updatedAt = new Date().toISOString();
-            writeProject(proj);
+          // Code/logic failure: auto-retry with feedback (up to 5 total attempts)
+          var totalAttempts = (task.codeRetryCount || 0) + 1;
+          task.codeRetryCount = totalAttempts;
+          if (totalAttempts <= 5) {
+            // Reset to pending with backoff, keep failure message as learning
+            var backoffMs = Math.min(30000 * totalAttempts, 300000); // 30s, 60s, 90s, 120s, 150s
+            task.status = 'pending';
+            task.retryAfter = Date.now() + backoffMs;
+            task.failCount = 0;
+            task.statusMessage = 'Code failure retry ' + totalAttempts + '/5: ' + (message || '').substring(0, 200);
+            console.log('[Auto-Retry] Task ' + taskId + ' code failure — auto-retry ' + totalAttempts + '/5 in ' + Math.round(backoffMs / 1000) + 's');
+            // Keep project in processing state (not failed)
+            var proj = readProject(taskId);
+            if (proj) {
+              proj.status = 'submitted';
+              proj.statusMessage = task.statusMessage;
+              proj.updatedAt = new Date().toISOString();
+              writeProject(proj);
+            }
+          } else {
+            // Exhausted all retries — truly permanent fail
+            task.status = 'failed';
+            task.statusMessage = 'Permanently failed after ' + totalAttempts + ' code retries';
+            var proj = readProject(taskId);
+            if (proj && proj.status !== 'failed') {
+              proj.status = 'failed';
+              proj.statusMessage = task.statusMessage;
+              proj.updatedAt = new Date().toISOString();
+              writeProject(proj);
+            }
           }
         }
       }
+
       if (message) task.statusMessage = message;
       if (data.previewUrl) task.previewUrl = data.previewUrl;
       task.updatedAt = new Date().toISOString();

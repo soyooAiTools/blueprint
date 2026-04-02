@@ -24,54 +24,6 @@
     "timestamp": "2026-03-31T10:54:40.082Z"
   },
   {
-    "description": "Uses generic collections/components from external APIs indirectly? No direct generic violation found, but the script declares and uses Button ctaUIButton without any use. More importantly, the class relies on GFM_Joystick type without showing its namespace/imports; if not globally available this can compile-break. This is lower confidence, so not the fail reason.",
-    "rule": "C# Language — Bridge.NET Hard Limits",
-    "fix": "Ensure all non-Unity types are available in the project/global namespace. Remove unused Button field if unnecessary.",
-    "line": "class fields / Start()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T12:12:13.502Z"
-  },
-  {
-    "description": "[no-interaction] CUA completed 15 rounds but recorded zero interactions — likely API failures",
-    "rule": "CUA Verification",
-    "fix": "[no-interaction] CUA completed 15 rounds but recorded zero interactions — likely API failures",
-    "line": "CUA round 1",
-    "taskId": "proj_1774794237502_k0rbwx",
-    "timestamp": "2026-03-29T14:53:02.233Z"
-  },
-  {
-    "description": "[spec-phase-skipped] Spec phases not completed: collectIceCrystal, deliverIceCrystalToMachine, produceWaterFromIce, sellWaterToPassengers, upgradeMiningTool, accelerateProductionCycle, unlockNewCabinArea, collectAppleProcessJuice, triggerJuiceBottling, sellAppleAndCTA. Game balance likely broken — phases were bypassed.",
-    "rule": "CUA Verification",
-    "fix": "[spec-phase-skipped] Spec phases not completed: collectIceCrystal, deliverIceCrystalToMachine, produceWaterFromIce, sellWaterToPassengers, upgradeMiningTool, accelerateProductionCycle, unlockNewCabinArea, collectAppleProcessJuice, triggerJuiceBottling, sellAppleAndCTA. Game balance likely broken — phases were bypassed.",
-    "line": "CUA round 1",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T17:12:01.542Z"
-  },
-  {
-    "description": "ShowCTA() calls GameEnded() internally as well as InstallFullGame(). This makes call order/control fragile and causes duplicate GameEnded() invocations when caller also ends game.",
-    "rule": "Code Completeness",
-    "fix": "Refactor so ShowCTA() only performs Luna.Unity.Playable.InstallFullGame(), and ensure caller invokes Luna.Unity.LifeCycle.GameEnded() immediately before ShowCTA().",
-    "line": "ShowCTA()",
-    "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-31T03:51:06.996Z"
-  },
-  {
-    "description": "The gameEnd block can trigger solely from ctaDisplayed == true after 2s, without verifying that all required terminal entity states were actually reached. The comments assert required terminal states, but there is no enforcement. A phase/state desync would let the playable end in an invalid state.",
-    "rule": "Code Completeness",
-    "fix": "Gate gameEnd on all required terminal states being 2 in addition to ctaDisplayed and phaseTimer minimum dwell.",
-    "line": "CheckEventRules() phase transition to finalUnlockAndCTA",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T10:54:40.084Z"
-  },
-  {
-    "description": "Game end flow does not satisfy the required call pattern. The rule explicitly requires the gameEnd block to call Luna.Unity.LifeCycle.GameEnded() + ShowCTA(), and call order must be GameEnded() before InstallFullGame(). Here the gameEnd block calls ShowCTAButton() instead of ShowCTA(), and InstallFullGame() is deferred to button click handlers rather than the required ShowCTA() path.",
-    "rule": "Code Completeness",
-    "fix": "In the gameEnd block, call Luna.Unity.LifeCycle.GameEnded(); then call ShowCTA(); Ensure ShowCTA() performs Luna.Unity.Playable.InstallFullGame(). If you also want a visible button, keep it separate, but the required GameEnded()->ShowCTA() sequence must exist in the end block.",
-    "line": "CheckEventRules game end block / ShowCTAButton / OnCTAClick",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T15:50:39.030Z"
-  },
-  {
     "description": "Mutates gameObject.name every frame/update-state with a large JSON string. In Luna this is risky and has caused instability/perf regressions; also bloated names can interfere with object lookup/debugging. While not explicitly banned, this is unsafe in a playable runtime.",
     "rule": "Common Mistakes",
     "fix": "Expose state through a supported bridge/mechanism instead of renaming the GameObject every update, or update less frequently with constrained payload size.",
@@ -86,30 +38,6 @@
     "line": "UpdateChargeStation(float dt)",
     "taskId": "proj_1774709451098_pt2ysl",
     "timestamp": "2026-03-31T10:41:53.148Z"
-  },
-  {
-    "description": "Uses Camera.main as fallback. Camera.main is explicitly forbidden because it may be null in Luna template-managed scenes.",
-    "rule": "Forbidden APIs",
-    "fix": "Use only the injected/template camera reference or a reliable scene Find result with null handling. Remove Camera.main fallback entirely.",
-    "line": "Start() / mainCam fallback",
-    "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T16:34:23.211Z"
-  },
-  {
-    "description": "Uses Camera.main to cache the camera. The review rules explicitly forbid Camera.main in Luna templates because it may be null; the skeleton should use a pre-cached mainCam field instead of querying Camera.main.",
-    "rule": "Forbidden APIs",
-    "fix": "Do not call Camera.main. Assign mainCam through the template-provided reference/path and always null-check before use.",
-    "line": "Start()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T10:23:31.710Z"
-  },
-  {
-    "description": "Uses Camera.main to populate mainCam. Review rules explicitly state Camera.main may be null in Luna template and code must use the pre-cached mainCam field instead of Camera.main.",
-    "rule": "Forbidden APIs",
-    "fix": "Remove Camera.main usage. Assume skeleton/template injects mainCam or assign it through supported template wiring; always null-check before use.",
-    "line": "Start()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T15:43:32.933Z"
   },
   {
     "description": "Calls GFM_UI.CreateText(...), which is an undocumented method. The rules explicitly say undocumented UI helpers like CreateText() may not exist and should be treated as compile-error risks.",
@@ -128,14 +56,6 @@
     "timestamp": "2026-03-31T10:41:30.444Z"
   },
   {
-    "description": "Creates a new runtime UI Button via GFM_UI.CreateButton for the CTA instead of using the pre-mapped pooled CTAButton object/UI flow. This is risky in Luna and also leaves the mapped CTAButton GameObject unused.",
-    "rule": "GFM_Tools API Signatures",
-    "fix": "Use the existing CTAButton / skeleton-provided UI flow instead of creating a new CTA button at runtime, or confirm the spec explicitly allows runtime GFM_UI button creation for CTA. Prefer showing the existing CTAButton and wiring the click through supported skeleton variables.",
-    "line": "UpdateChargeStation()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T10:49:08.085Z"
-  },
-  {
     "description": "Uses Random.Range repeatedly for runtime crowd spawning/movement offsets. Bridge/Luna randomness can be inconsistent and this also creates nondeterministic verification paths for CUA, especially when progression timing depends on moving targets on screen.",
     "rule": "Gameplay Logic",
     "fix": "Replace Random.Range with deterministic predeclared offset arrays or a fixed sequence of literal positions.",
@@ -144,76 +64,12 @@
     "timestamp": "2026-03-31T03:17:43.171Z"
   },
   {
-    "description": "Turret firing uses auto-targeting: player clicks turret, then code automatically selects the nearest enemy via FireTurretAtNearest(). Auto-targeting in turret/combat gameplay is explicitly disallowed.",
-    "rule": "Gameplay Logic",
-    "fix": "Require direct player targeting of enemies/projectiles rather than auto-selecting nearest enemy after turret click.",
-    "line": "HandleClickInput() / FireTurretAtNearest()",
-    "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-31T03:51:06.997Z"
-  },
-  {
-    "description": "Phase 3 transition condition is also '&& true', so it auto-advances after dwell time instead of requiring collection of ice crystal by the player.",
-    "rule": "Gameplay Logic",
-    "fix": "Track collected ice in variables/arrays and gate progression on actual player-caused collection state.",
-    "line": "CheckEventRules() phase 3",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T15:43:32.934Z"
-  },
-  {
     "description": "Input handling relies on Physics.Raycast against pooled objects, but the code never ensures those objects have colliders. In Luna pool setups, collider availability is not guaranteed, so clicks may never resolve to world positions and interaction can fail.",
     "rule": "Luna Platform Limitations",
     "fix": "Avoid dependence on physics raycasts for core interaction. Convert screen input to a ground-plane/world-plane position directly from camera math, or explicitly verify template-provided colliders exist before using raycasts.",
     "line": "HandleInput()",
     "taskId": "proj_1774794237502_k0rbwx",
     "timestamp": "2026-03-30T16:25:37.858Z"
-  },
-  {
-    "description": "Relies on Input.GetMouseButtonDown(0) and raw touch polling as primary interaction. The rules explicitly state Input.GetMouseButtonDown(0) alone may fail on mobile and Luna/GFM input abstraction should be used or both touch/mouse handled robustly. While touch is also checked, this is still custom raw input logic rather than supported GFM/Luna abstraction and is a known runtime risk.",
-    "rule": "Luna Platform Limitations",
-    "fix": "Replace raw click handling with supported GFM/Luna input abstraction, or centralize a tested dual mouse/touch handler pattern already validated for Luna templates.",
-    "line": "HandleInput()",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T11:48:27.193Z"
-  },
-  {
-    "description": "GFM_Create.InitMaterialFromScene() is not called before any future SetColor() usage. This required Luna material initialization step is absent.",
-    "rule": "Materials & Rendering",
-    "fix": "Call GFM_Create.InitMaterialFromScene() in Start() before creating or recoloring visible objects.",
-    "line": "Start()",
-    "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-29T14:42:07.974Z"
-  },
-  {
-    "description": "SafeColor is implemented as infinite recursion: it calls itself unconditionally with the same parameters. Any SafeColor invocation will stack overflow at runtime, causing immediate failure/blank screen.",
-    "rule": "Materials & Rendering",
-    "fix": "Replace the body with a call to GFM_Create.SetColor(obj, c) after a null check.",
-    "line": "SafeColor(GameObject obj, Color c)",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T02:58:22.942Z"
-  },
-  {
-    "description": "Constructs pool names dynamically with ToString(\"D2\") for cubes/planes/spheres/cylinders. Dynamic pool-name construction is explicitly banned because Bridge.NET string formatting is unreliable, causing Find() to return null at runtime.",
-    "rule": "Object Naming — Pool Objects",
-    "fix": "Replace all dynamically constructed names with explicit string literals or predeclared string arrays of exact pool names, e.g. new string[]{\"__Pool_Cube_26\",...}.",
-    "line": "Start / pooled object initialization loops",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-29T19:11:24.818Z"
-  },
-  {
-    "description": "Finds __Pool_Sphere_03..06 and __Pool_Cube_25..27, but these pool names are not within the documented allowed ranges: spheres only 01..20 are valid, cubes only 01..50 are valid. Sphere names are valid, but Cube_25..27 are within range; however these objects are not declared in the skeleton auto-mapped references and are fetched ad hoc without null validation for asset existence in the actual injected pool set. This is a production-risk naming/pool mismatch pattern.",
-    "rule": "Object Naming — Pool Objects",
-    "fix": "Predeclare exact pool-name arrays/literals for every required pooled object and add explicit null checks/fallback behavior. Ensure the template actually includes those exact pool objects before relying on them.",
-    "line": "Start() / bulletGo[2..5], extraRocket1..3",
-    "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T16:34:23.212Z"
-  },
-  {
-    "description": "Pool names are constructed dynamically for __Pool_Sphere_14..18. Dynamic pool lookup is forbidden.",
-    "rule": "Object Naming — Pool Objects",
-    "fix": "Use explicit string literals or a fixed string array of exact coin pool names.",
-    "line": "Start() coinDropGo init loop",
-    "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-31T03:51:06.996Z"
   },
   {
     "description": "Camera.backgroundColor is set to (0.45, 0.52, 0.62), which differs from ground color (0.75, 0.78, 0.82) by only 0.30, 0.26, 0.20. At least one RGB channel must differ by ≥ 0.3. Green and blue channels fail; red is exactly 0.30 and too borderline for production safety. Recommended deep sky blue was not used. This can trigger solid-color-screen detection.",
@@ -238,5 +94,309 @@
     "line": "Start() and overall class",
     "taskId": "proj_1774709451098_pt2ysl",
     "timestamp": "2026-03-31T15:43:32.935Z"
+  },
+  {
+    "description": "The script creates a new canvas and new text objects with GFM_UI.CreateCanvas/CreateText even though the skeleton note explicitly says uiCanvas, guideText, and scoreText are pre-created and must be used directly instead of creating new UI structures. This is a documented production-risk violation.",
+    "rule": "Tier 2 - skeleton UI reuse",
+    "fix": "Remove runtime canvas/text creation and use the skeleton-provided uiCanvas, guideText, and scoreText references only.",
+    "line": "Start()",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-04-01T00:39:55.765Z"
+  },
+  {
+    "description": "The script creates a runtime CTA button with GFM_UI.CreateButton and triggers it from UpdateChargeStation(). The historical rule set flags runtime CTA button creation as a production-risk pattern and prefers skeleton-provided CTA/UI flow. More importantly, this adds an alternate CTA path outside the required GameEnded()->ShowCTA() end flow.",
+    "rule": "Auto-Promoted Rules - CTA flow / skeleton UI pattern",
+    "fix": "Use the required game-end path only: call Luna.Unity.LifeCycle.GameEnded(); then ShowCTA(); If a visible CTA is needed, use skeleton-provided UI/CTA objects with a one-time guard instead of creating a new button at runtime.",
+    "line": "UpdateChargeStation() / ShowCTAButton()",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-04-01T00:39:55.766Z"
+  },
+  {
+    "description": "Creates a new Canvas and new Text objects at runtime with `GFM_UI.CreateCanvas` and `GFM_UI.CreateText`, despite the rule that skeleton pre-creates `uiCanvas`, `guideText`, and `scoreText` and they should be used directly instead of creating new UI structures.",
+    "rule": "UI pre-created references must be used",
+    "fix": "Remove runtime canvas/text creation and use the pre-created `uiCanvas`, `guideText`, and `scoreText` references from the skeleton/template.",
+    "line": "Start()",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-04-01T12:27:01.072Z"
+  },
+  {
+    "description": "Declares Button ctaBtn and uses generic framework types indirectly from Unity UI patterns. More importantly, the script uses arrays safely, but runtime button creation below violates the required CTA flow and skeleton pre-created UI guidance.",
+    "rule": "C# Language — Bridge.NET Hard Limits",
+    "fix": "Remove runtime-created CTA button usage and use the provided ShowCTA() path / skeleton CTA object pattern instead.",
+    "line": "TODO_VARIABLES_START",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-04-01T12:35:23.214Z"
+  },
+  {
+    "description": "Creates a new CTA button at runtime with GFM_UI.CreateButton instead of using the pre-mapped CTAButton/skeleton UI flow. This violates documented skeleton guidance and has caused production regressions.",
+    "rule": "UI pre-created skeleton objects must be used",
+    "fix": "Use the existing CTAButton object or skeleton-provided UI pattern. Do not create a new runtime CTA button for the required end flow.",
+    "line": "Game End block in CheckEventRules()",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-04-01T12:35:23.214Z"
+  },
+  {
+    "description": "The script re-finds the Canvas via GameObject.Find(\"Canvas\") and then creates a runtime joystick with GFM_Joystick.Create(uiCanvas, 180f) instead of relying on skeleton-provided UI wiring. This violates the documented guidance to use pre-created UI variables directly and avoid ad hoc UI setup patterns that have caused runtime issues.",
+    "rule": "GFM_Tools API Signatures",
+    "fix": "Do not re-find or recreate UI infrastructure in gameplay code. Use the skeleton-provided uiCanvas/guideText/scoreText references directly, assuming template injection. Only null-check before use.",
+    "line": "Start()",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-04-01T12:42:28.854Z"
+  },
+  {
+    "description": "Core progression depends on raw Input.GetMouseButtonDown(0) for mining, collecting, delivering, upgrading, gate unlock, apple processing, selling, and charge station activation. There is no touch fallback here for those interactions. On mobile Luna builds this can fail, blocking progression.",
+    "rule": "Luna Platform Limitations",
+    "fix": "Replace raw mouse-only progression checks with a supported Luna/GFM input abstraction or handle both touch and mouse in a shared helper used by every interaction.",
+    "line": "MovePlayer() and multiple Update() interaction blocks",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-04-01T12:42:28.854Z"
+  },
+  {
+    "description": "Phase progression uses pure numeric trigger gates such as totalWaterSold >= 2 and totalWaterSold >= 4. The rules explicitly forbid pure numeric triggers that skip interaction. Even though proximity is also checked, these transitions are fundamentally driven by counters instead of a distinct player action completing the phase.",
+    "rule": "Gameplay Logic",
+    "fix": "Make each progression hinge on an explicit player-driven interaction/state change at the station/gate/button, with counters only as prerequisites, not as the trigger itself.",
+    "line": "CheckEventRules() Rule 5 / Rule 7 / Rule 10",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-04-01T17:09:55.448Z"
+  },
+  {
+    "description": "ShowCTA creates a new runtime CTA button with GFM_UI.CreateButton instead of using the skeleton/precreated UI flow. The production guidance explicitly warns against recreating UI structures when skeleton variables should be used.",
+    "rule": "Auto-promoted rule / skeleton UI usage",
+    "fix": "Use the skeleton-provided CTA/UI path instead of creating a new button at runtime, or guard this behind confirmed template support and use existing precreated UI references.",
+    "line": "ShowCTA()",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-04-01T17:09:55.448Z"
+  },
+  {
+    "description": "Uses Instantiate(...) repeatedly to clone pool objects for enemies, projectiles, and gold drops. The validated Luna workflow requires use of pre-baked pool objects found by exact names; runtime object creation is a frequent source of missing renderer/material/runtime mismatches in Luna playables.",
+    "rule": "Forbidden APIs",
+    "fix": "Pre-bind enough existing pooled objects by exact pool names into arrays and reuse them by moving them on/off screen (y=-999). Do not instantiate runtime clones.",
+    "line": "Start() / enemy/projectile/gold pool initialization",
+    "taskId": "proj_1774798766776_1sjld8",
+    "timestamp": "2026-04-02T06:59:04.824Z"
+  },
+  {
+    "description": "Creates a CTA UI button at runtime with GFM_UI.CreateButton instead of using the pre-created CTAButton / skeleton UI flow. The reviewer rules explicitly flag this as a production-risk violation.",
+    "rule": "Code Completeness",
+    "fix": "Use the existing skeleton CTAButton/UI pattern instead of creating a new runtime button. If a button must be shown, wire the existing pre-created element once.",
+    "line": "CheckEventRules() rule 10 / Start()",
+    "taskId": "proj_1774798766776_1sjld8",
+    "timestamp": "2026-04-02T06:59:04.824Z"
+  },
+  {
+    "description": "Uses non-approved pool names like __Pool_Cube_Red_01, __Pool_Plane_Cyan_01, __Pool_Sphere_Green_01. The documented required names are actual pool names __Pool_Cube_01..50, __Pool_Sphere_01..20, __Pool_Plane_01..10, __Pool_Cylinder_01..10. If those colored names do not exist in the target template, Find returns null and the playable fails/blank screens.",
+    "rule": "Object Naming — Pool Objects",
+    "fix": "Replace every Find string with exact existing pool object names from the allowed numeric pool set, using explicit string literals or a predeclared exact-name array. Null-check every required object after Find.",
+    "line": "Start() / all GameObject.Find(...) assignments",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-04-02T07:05:51.922Z"
+  },
+  {
+    "description": "Looks up and then recreates UI content on a scene Canvas instead of using skeleton pre-created uiCanvas/guideText/scoreText directly. This violates the documented skeleton guidance and is a known production risk.",
+    "rule": "Tier 2.6 skeleton pre-created UI variables",
+    "fix": "Use the provided uiCanvas, guideText, and scoreText variables from the skeleton/template wiring. Do not Find(\"Canvas\") and do not recreate guide/score text if they are already provided.",
+    "line": "Start() / GameObject.Find(\"Canvas\")",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-04-02T07:05:51.922Z"
+  },
+  {
+    "description": "Creates runtime UI text/button instances even though the skeleton note explicitly says pre-created uiCanvas, guideText, scoreText should be used instead of creating new UI structures. This has caused runtime UI initialization problems in Luna.",
+    "rule": "Tier 2.6 skeleton pre-created UI variables / auto-promoted UI creation risk",
+    "fix": "Reuse skeleton-provided guideText/scoreText and preferred CTA UI flow. If CTA must be shown, wire the existing template CTA control or implement required ShowCTA() flow without creating ad-hoc runtime UI objects.",
+    "line": "Start() / GFM_UI.CreateText(...), GFM_UI.CreateText(...), CheckEventRules() / GFM_UI.CreateButton(...)",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-04-02T07:05:51.923Z"
+  },
+  {
+    "description": "The game end block calls Luna.Unity.LifeCycle.GameEnded() but does not call the required ShowCTA() method that must perform Luna.Unity.Playable.InstallFullGame(). Instead, InstallFullGame() is deferred to a button click callback. The required end-flow pattern is missing.",
+    "rule": "Code Completeness",
+    "fix": "In the end block, call Luna.Unity.LifeCycle.GameEnded(); then call ShowCTA(); Implement ShowCTA() so it calls Luna.Unity.Playable.InstallFullGame(). Keep any visible CTA button separate if desired, but the required GameEnded()->ShowCTA() sequence must exist.",
+    "line": "CheckEventRules() Rule 11 / end block",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-04-02T07:05:51.923Z"
+  },
+  {
+    "description": "gameEnded is set to true immediately after creating the CTA button, and Update() returns early when gameEnded is true. This can prevent any post-end UI/state handling and confirms CTA activation depends entirely on a manually clicked runtime button rather than the required end-flow call.",
+    "rule": "Tier 1.4 Must have Start() and Update() methods with proper end flow",
+    "fix": "Implement the required ShowCTA() invocation directly in the end block before setting gameEnded, and do not rely solely on runtime button click to trigger InstallFullGame().",
+    "line": "CheckEventRules() / Rule 11 then Update()",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-04-02T07:05:51.924Z"
+  },
+  {
+    "description": "Uses color-suffixed pool names like __Pool_Plane_Green_01, __Pool_Cube_Blue_01, __Pool_Cylinder_Purple_01, etc. The documented required pool names are shape-only names such as __Pool_Cube_01..50, __Pool_Sphere_01..20, __Pool_Plane_01..10, __Pool_Cylinder_01..10. Under the stated rules these names do not exist, so Find will return null and cause runtime failure.",
+    "rule": "Object Naming — Pool Objects",
+    "fix": "Replace all GameObject.Find calls with explicit valid pool literals from the documented shape-only pool naming scheme, e.g. __Pool_Cube_01, __Pool_Sphere_01, __Pool_Plane_01, __Pool_Cylinder_01.",
+    "line": "Start() / object Find block",
+    "taskId": "proj_1774798890698_wxfmbx",
+    "timestamp": "2026-04-02T07:12:58.590Z"
+  },
+  {
+    "description": "Uses Instantiate() repeatedly to create extra enemies, bullets, and coins instead of relying on pre-existing pooled objects. The rules require exact pool-object usage and historical production constraints reject runtime-created rendering objects as unsafe for Luna.",
+    "rule": "Forbidden APIs",
+    "fix": "Pre-bind all needed entities from valid pool objects in Start() and reuse them by moving them on/off screen instead of instantiating clones.",
+    "line": "SpawnEnemy(), SpawnCoin(), FireBullet()",
+    "taskId": "proj_1774798890698_wxfmbx",
+    "timestamp": "2026-04-02T07:12:58.591Z"
+  },
+  {
+    "description": "Creates a new CTA button at runtime with GFM_UI.CreateButton instead of following the skeleton/precreated UI pattern. This is explicitly flagged as a production-risk violation in the validated rules.",
+    "rule": "Skeleton pre-created UI must be used",
+    "fix": "Use the skeleton/template CTA flow or a precreated CTA element instead of creating a new button at runtime.",
+    "line": "OnGameEnd()",
+    "taskId": "proj_1774798890698_wxfmbx",
+    "timestamp": "2026-04-02T07:12:58.592Z"
+  },
+  {
+    "description": "The script creates runtime UI text objects with GFM_UI.CreateText when guideText/scoreText are null. The validated skeleton guidance says uiCanvas, guideText, and scoreText are pre-created and should be used directly instead of creating new UI structures at runtime. This has caused runtime issues in production.",
+    "rule": "Tier 2 Rule 6 + auto-promoted skeleton UI rule",
+    "fix": "Remove the fallback CreateText calls. Use only skeleton-provided uiCanvas, guideText, and scoreText references wired by the template.",
+    "line": "Start() / UI fallback creation",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-04-02T07:19:31.716Z"
+  },
+  {
+    "description": "The script manually looks up the camera with GameObject.Find(\"Main Camera\"). Luna templates pre-cache the camera as mainCam and camera lifecycle is template-managed. Relying on a scene-name lookup is unsafe and can return null in template variants.",
+    "rule": "Forbidden APIs",
+    "fix": "Do not find the camera by scene name. Use the injected mainCam field only, and always null-check before using it.",
+    "line": "Start() / camera lookup",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-04-02T07:19:31.716Z"
+  },
+  {
+    "description": "The script uses Instantiate(...) repeatedly to create gameplay clones from pooled objects. Luna playables are expected to use pre-existing pooled objects found by exact pool names; runtime object creation is a common source of invisible/missing renderers and pool exhaustion mismatches.",
+    "rule": "Tier 2 Rule 5 / pooled object usage",
+    "fix": "Predeclare and find exact pool object names for every needed entity instance, store them in arrays, and show/hide them by moving to visible positions or y=-999. Do not instantiate runtime clones.",
+    "line": "SpawnIceCrystal(), SpawnIceChunkAt(), SpawnWaterBottle(), SpawnPassengerMain(), SpawnAppleItem(), SpawnAppleProduct(), SpawnPassengerApple()",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-04-02T07:19:31.717Z"
+  },
+  {
+    "description": "The script never assigns colors to the found pool objects, yet relies on plain numeric pool names like __Pool_Cube_01. Numeric pools are not guaranteed to be visually distinct by default. This violates the requirement that first-frame objects be differently colored and increases blank/solid-color risk.",
+    "rule": "Tier 2 Rule 5 + Tier 2 Rule 5b",
+    "fix": "Explicitly assign safe visible colors to the visible objects using the supported rendering path for your template before showing them, ensuring at least 3 visibly different objects are on screen immediately.",
+    "line": "Start() / no SetColor or baked-color pool usage",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-04-02T07:19:31.717Z"
+  },
+  {
+    "description": "Phase progression depends on pure numeric thresholds totalSold >= 2 and gold >= 8. Historical Luna guidance explicitly rejects numeric-only progression jumps because they bypass direct interaction validation and can break CUA verification.",
+    "rule": "Tier 3 auto-promoted / gameplay progression safety",
+    "fix": "Gate these phases on explicit player-driven interactions at the relevant stations with dwell preserved, not only on numeric counters.",
+    "line": "CheckEventRules() Rule 5 and Rule 7",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-04-02T07:19:31.718Z"
+  },
+  {
+    "description": "Core interaction depends on raw Input.GetMouseButtonDown(0) and raw touch polling. The documented constraint warns this may fail on mobile/Luna and recommends supported GFM/Luna input abstraction rather than custom raw input logic for core gameplay.",
+    "rule": "Tier 3 Rule 10 - input abstraction",
+    "fix": "Use the supported Luna/GFM input abstraction or a validated combined input helper pattern already approved by the template instead of raw mouse/touch checks as the main interaction source.",
+    "line": "Update() input handling",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-04-02T07:19:31.718Z"
+  },
+  {
+    "description": "The script recreates skeleton UI text objects via GFM_UI.CreateText when GuideText/ScoreText are not found. Historical guidance explicitly says the skeleton pre-creates uiCanvas, guideText, and scoreText and they should be used instead of creating new UI structures. Runtime-created text components are also a known Luna rendering risk.",
+    "rule": "Tier 2 / Rule 6 skeleton UI usage",
+    "fix": "Do not create fallback text objects. Rely only on skeleton-provided uiCanvas/guideText/scoreText, or fail safely if they are missing.",
+    "line": "Start()",
+    "taskId": "proj_1774798890698_wxfmbx",
+    "timestamp": "2026-04-02T07:24:05.635Z"
+  },
+  {
+    "description": "Phase progression uses a pure numeric/state gate: phase 11 triggers automatically when stateConveyorFactoryToTurretBottom == 2 && stateConveyorFactoryToTurretRight == 2 after dwell time. This is an auto-jump based on counters/states rather than a direct player interaction at the transition moment, which is explicitly disallowed for progression-sensitive gameplay.",
+    "rule": "Gameplay Logic",
+    "fix": "Make the transition depend on an explicit player-driven interaction in that phase, such as tapping an upgrade/finish pad after both conveyors are built, while preserving the dwell check.",
+    "line": "CheckEventRules() rule 10",
+    "taskId": "proj_1774798890698_wxfmbx",
+    "timestamp": "2026-04-02T07:24:05.636Z"
+  },
+  {
+    "description": "Although 12 internal rules exist, several phase steps described by the gameplay setup are not represented as distinct gated transitions in CheckEventRules(). For example, bottom/right turret loading and turret upgrades are compressed into later phases without their own dedicated transition checks, and the final CTA can be reached without verifying all turret upgrades promised by the guide text. This is a content-regression style phase coverage failure.",
+    "rule": "Code Completeness",
+    "fix": "Implement every intended gameplay phase as its own CheckEventRules() transition with explicit trigger condition and phaseTimer dwell, including separate phases for additional turret loading/upgrades and validated end-state requirements before CTA.",
+    "line": "CheckEventRules() overall phase coverage",
+    "taskId": "proj_1774798890698_wxfmbx",
+    "timestamp": "2026-04-02T07:24:05.636Z"
+  },
+  {
+    "description": "[spec-phase-skipped] Phases not completed (11/11): phase_1774794394690_1, phase_1774794394690_2, phase_1774794394690_3, phase_1774794394690_4, phase_1774794394690_5, phase_1774794394690_6, phase_1774794394690_7, phase_1774794394690_8, phase_1774794394690_9, phase_1774794394690_10, phase_1774794394690_11",
+    "rule": "CUA Verification",
+    "fix": "[spec-phase-skipped] Phases not completed (11/11): phase_1774794394690_1, phase_1774794394690_2, phase_1774794394690_3, phase_1774794394690_4, phase_1774794394690_5, phase_1774794394690_6, phase_1774794394690_7, phase_1774794394690_8, phase_1774794394690_9, phase_1774794394690_10, phase_1774794394690_11",
+    "line": "CUA round 1",
+    "taskId": "proj_1774794237502_k0rbwx",
+    "timestamp": "2026-04-02T09:13:36.544Z"
+  },
+  {
+    "description": "[spec-phase-skipped] Phases not completed (11/11): phase_1774799060632_1, phase_1774799060632_2, phase_1774799060632_3, phase_1774799060632_4, phase_1774799060632_5, phase_1774799060632_6, phase_1774799060632_7, phase_1774799060632_8, phase_1774799060632_9, phase_1774799060632_10, phase_1774799060632_11",
+    "rule": "CUA Verification",
+    "fix": "[spec-phase-skipped] Phases not completed (11/11): phase_1774799060632_1, phase_1774799060632_2, phase_1774799060632_3, phase_1774799060632_4, phase_1774799060632_5, phase_1774799060632_6, phase_1774799060632_7, phase_1774799060632_8, phase_1774799060632_9, phase_1774799060632_10, phase_1774799060632_11",
+    "line": "CUA round 2",
+    "taskId": "proj_1774798890698_wxfmbx",
+    "timestamp": "2026-04-02T09:13:54.317Z"
+  },
+  {
+    "description": "[spec-phase-skipped] Phases not completed (9/11): phase_1774799053193_3, phase_1774799053193_4, phase_1774799053193_5, phase_1774799053193_6, phase_1774799053193_7, phase_1774799053193_8, phase_1774799053193_9, phase_1774799053193_10, phase_1774799053193_11",
+    "rule": "CUA Verification",
+    "fix": "[spec-phase-skipped] Phases not completed (9/11): phase_1774799053193_3, phase_1774799053193_4, phase_1774799053193_5, phase_1774799053193_6, phase_1774799053193_7, phase_1774799053193_8, phase_1774799053193_9, phase_1774799053193_10, phase_1774799053193_11",
+    "line": "CUA round 1",
+    "taskId": "proj_1774798867290_mwduot",
+    "timestamp": "2026-04-02T09:57:02.627Z"
+  },
+  {
+    "description": "[entity-incomplete] Buildable entities not fully constructed: turret=0 (expected 2=built)",
+    "rule": "CUA Verification",
+    "fix": "[entity-incomplete] Buildable entities not fully constructed: turret=0 (expected 2=built)",
+    "line": "CUA round 2",
+    "taskId": "proj_1774798867290_mwduot",
+    "timestamp": "2026-04-02T10:01:31.364Z"
+  },
+  {
+    "description": "[spec-phase-skipped] Phases not completed (8/11): phase_1774798915627_4, phase_1774798915627_5, phase_1774798915627_6, phase_1774798915627_7, phase_1774798915627_8, phase_1774798915627_9, phase_1774798915627_10, phase_1774798915627_11",
+    "rule": "CUA Verification",
+    "fix": "[spec-phase-skipped] Phases not completed (8/11): phase_1774798915627_4, phase_1774798915627_5, phase_1774798915627_6, phase_1774798915627_7, phase_1774798915627_8, phase_1774798915627_9, phase_1774798915627_10, phase_1774798915627_11",
+    "line": "CUA round 2",
+    "taskId": "proj_1774798766776_1sjld8",
+    "timestamp": "2026-04-02T10:14:26.006Z"
+  },
+  {
+    "description": "[spec-phase-skipped] Phases not completed (8/11): phase_1774794394690_4, phase_1774794394690_5, phase_1774794394690_6, phase_1774794394690_7, phase_1774794394690_8, phase_1774794394690_9, phase_1774794394690_10, phase_1774794394690_11",
+    "rule": "CUA Verification",
+    "fix": "[spec-phase-skipped] Phases not completed (8/11): phase_1774794394690_4, phase_1774794394690_5, phase_1774794394690_6, phase_1774794394690_7, phase_1774794394690_8, phase_1774794394690_9, phase_1774794394690_10, phase_1774794394690_11",
+    "line": "CUA round 1",
+    "taskId": "proj_1774794237502_k0rbwx",
+    "timestamp": "2026-04-02T10:17:58.360Z"
+  },
+  {
+    "description": "[spec-phase-skipped] Phases not completed (9/11): phase_1774710349785_3, phase_1774710349785_4, phase_1774710349785_5, phase_1774710349785_6, phase_1774710349785_7, phase_1774710349785_8, phase_1774710349785_9, phase_1774710349785_10, phase_1774710349785_11",
+    "rule": "CUA Verification",
+    "fix": "[spec-phase-skipped] Phases not completed (9/11): phase_1774710349785_3, phase_1774710349785_4, phase_1774710349785_5, phase_1774710349785_6, phase_1774710349785_7, phase_1774710349785_8, phase_1774710349785_9, phase_1774710349785_10, phase_1774710349785_11",
+    "line": "CUA round 1",
+    "taskId": "proj_1774709451098_pt2ysl",
+    "timestamp": "2026-04-02T10:26:56.565Z"
+  },
+  {
+    "description": "[spec-phase-skipped] Phases not completed (8/11): phase_1774799060632_4, phase_1774799060632_5, phase_1774799060632_6, phase_1774799060632_7, phase_1774799060632_8, phase_1774799060632_9, phase_1774799060632_10, phase_1774799060632_11",
+    "rule": "CUA Verification",
+    "fix": "[spec-phase-skipped] Phases not completed (8/11): phase_1774799060632_4, phase_1774799060632_5, phase_1774799060632_6, phase_1774799060632_7, phase_1774799060632_8, phase_1774799060632_9, phase_1774799060632_10, phase_1774799060632_11",
+    "line": "CUA round 1",
+    "taskId": "proj_1774798890698_wxfmbx",
+    "timestamp": "2026-04-02T10:29:57.337Z"
+  },
+  {
+    "description": "[spec-phase-skipped] Phases not completed (8/11): phase_1774794448160_4, phase_1774794448160_5, phase_1774794448160_6, phase_1774794448160_7, phase_1774794448160_8, phase_1774794448160_9, phase_1774794448160_10, phase_1774794448160_11",
+    "rule": "CUA Verification",
+    "fix": "[spec-phase-skipped] Phases not completed (8/11): phase_1774794448160_4, phase_1774794448160_5, phase_1774794448160_6, phase_1774794448160_7, phase_1774794448160_8, phase_1774794448160_9, phase_1774794448160_10, phase_1774794448160_11",
+    "line": "CUA round 1",
+    "taskId": "proj_1774794219517_z43qrz",
+    "timestamp": "2026-04-02T10:38:23.976Z"
+  },
+  {
+    "description": "[spec-phase-skipped] Phases not completed (10/11): phase_1774799053193_2, phase_1774799053193_3, phase_1774799053193_4, phase_1774799053193_5, phase_1774799053193_6, phase_1774799053193_7, phase_1774799053193_8, phase_1774799053193_9, phase_1774799053193_10, phase_1774799053193_11",
+    "rule": "CUA Verification",
+    "fix": "[spec-phase-skipped] Phases not completed (10/11): phase_1774799053193_2, phase_1774799053193_3, phase_1774799053193_4, phase_1774799053193_5, phase_1774799053193_6, phase_1774799053193_7, phase_1774799053193_8, phase_1774799053193_9, phase_1774799053193_10, phase_1774799053193_11",
+    "line": "CUA round 1",
+    "taskId": "proj_1774798867290_mwduot",
+    "timestamp": "2026-04-02T15:57:33.160Z"
   }
 ]

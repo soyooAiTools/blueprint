@@ -166,7 +166,7 @@ async function buildFromCS(csCode, opts = {}) {
   } finally {
     // Cleanup temp dir
     // DEBUG: keep temp dir
-    // try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (e) {}
+    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (e) {}
   }
 }
 
@@ -975,6 +975,8 @@ function startServer(port = 3080) {
   });
 
   server.listen(port, () => {
+  server.timeout = 300000; // 5 min
+  server.keepAliveTimeout = 120000; // 2 min keepalive
     console.log(`🚀 Linux Bridge Build Server listening on :${port}`);
     console.log(`   POST /build      — Build C# → JSON response`);
     console.log(`   POST /build-html — Build C# → HTML response`);

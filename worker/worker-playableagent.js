@@ -17,7 +17,7 @@ const fs = require('fs');
 const path = require('path');
 
 const CUA_RESULTS_DIR = path.join(__dirname, 'cua-results');
-const LOCAL_PREVIEW_PORT = 18850;
+let LOCAL_PREVIEW_PORT = 0; // Dynamic port to avoid multi-worker conflicts
 const PYTHON = '/usr/bin/python3.8';
 const VERIFY_SCRIPT = '/root/cua-agent/blueprint_verify.py';
 const MAX_VERIFY_TIMEOUT = 480000; // 5 min
@@ -75,12 +75,11 @@ function startLocalServer(buildDir) {
       fs.createReadStream(filePath).pipe(res);
     });
 
-    server.listen(LOCAL_PREVIEW_PORT, '127.0.0.1', () => resolve(server));
+    server.listen(0, '127.0.0.1', () => { LOCAL_PREVIEW_PORT = server.address().port; resolve(server); });
     server.on('error', (err) => {
       if (err.code === 'EADDRINUSE') {
-        try { execSync(`fuser -k ${LOCAL_PREVIEW_PORT}/tcp`, { timeout: 3000 }); } catch(e) {}
         setTimeout(() => {
-          server.listen(LOCAL_PREVIEW_PORT, '127.0.0.1', () => resolve(server));
+          server.listen(0, '127.0.0.1', () => { LOCAL_PREVIEW_PORT = server.address().port; resolve(server); });
         }, 1000);
       } else {
         reject(err);
@@ -175,13 +174,17 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
   let server;
   try {
     server = await startLocalServer(buildDir);
-    log('[PlayableAgent] Local server on port ' + LOCAL_PREVIEW_PORT, taskId);
+
+
   } catch(e) {
     log('[PlayableAgent] Failed to start server: ' + e.message, taskId);
     return { passed: true, issues: [], skipped: true, error: e.message };
   }
 
-  const previewUrl = 'http://127.0.0.1:' + LOCAL_PREVIEW_PORT + '/' + (hasIframe ? 'iframe.html' : 'index.html');
+  const actualPort = server.address().port;
+  log("[PlayableAgent] Local server on port " + actualPort, taskId);
+
+  const previewUrl = 'http://127.0.0.1:' + actualPort + '/' + (hasIframe ? 'iframe.html' : 'index.html');
   
   // Write specs for Python
   const specsPath = writeSpecsFile(blueprint, taskId);

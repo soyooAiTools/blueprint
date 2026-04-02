@@ -998,7 +998,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       )}
 
       {/* Notes - only in "no storyboard" mode */}
-      {!hasStoryboard && (
+      {!hasStoryboard && inputMode === 'storyboard' && (
       <div className="storyboard-input-section">
         <h3 className="storyboard-section-title">📝 备注</h3>
         <textarea className="storyboard-textarea" placeholder="告诉 AI 上传的附件是什么，需要参考哪些内容...&#10;例如：「附件是游戏截图，请参考其中的美术风格和 UI 布局」" value={text} onChange={(e) => setText(e.target.value)} rows={4} />
@@ -1006,7 +1006,7 @@ export default function StoryboardPanel({ projectId, onConvertToBlueprint, hasEx
       )}
 
       {/* Camera Options - only in "no storyboard" mode */}
-      {!hasStoryboard && (
+      {!hasStoryboard && inputMode === 'storyboard' && (
       <div className="storyboard-input-section">
         <h3 className="storyboard-section-title">🎥 镜头方式</h3>
         <div className="sb-option-row">

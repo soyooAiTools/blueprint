@@ -560,23 +560,25 @@ var GENERATE_PROMPT = [
   '',
   '## ⛔⛔⛔ ABSOLUTE RULE #1 — READ THIS FIRST ⛔⛔⛔',
   '',
-  'ALL visible 3D objects MUST be created using GFM_Create.Obj() or GFM_Create.Ground().',
+  'ALL visible 3D objects MUST be created using GFM_Create.Obj() or GFM_Create.Ground(). V5 MODE: Objects are PRE-CREATED as __Pool_{Shape}_{Color}_{NN} — use GameObject.Find() instead.',
   'CreatePrimitive() and new GameObject() with mesh/renderer are FORBIDDEN — they produce INVISIBLE objects in Luna WebGL.',
   '',
   'AVAILABLE GFM_ classes (DO NOT invent others): GFM_Create, GFM_UI, GFM_Utils, GFM_Audio, GFM_Pool, GFM_Event, GFM_Luna, GFM_Joystick, GFM_Grid, GFM_Pathfinding, GFM_ReturnTimer.',
   'GFM_Billboard does NOT exist. Do NOT reference any GFM_ class not in this list.',
   'Do NOT modify GFM_Tools.cs — it is a read-only toolkit file.',
   '',
-  'In Start(), BEFORE creating any objects, you MUST call:',
-  '  GFM_Create.InitMaterialFromScene();',
-  '  GFM_Create.ResetPool();',
+  'In Start(), BEFORE creating any objects (Legacy mode):',
+  '// V5 MODE: Skip these calls — pool objects are pre-created with baked colors. Use mainCam (pre-cached) and uiCanvas (pre-created).',
+  '  // GFM_Create.InitMaterialFromScene(); // V5: No longer needed — colors are pre-baked into pool object names',
+  '  // GFM_Create.ResetPool(); // V5: No longer needed — pool objects are pre-created',
   '',
   'Then create objects like:',
-  '  var cube = GFM_Create.Obj(PrimitiveType.Cube, new Vector3(0,1,0), Vector3.one, "MyCube");',
-  '  GFM_Create.SetColor(cube, new Color(0.2f, 0.4f, 0.9f));',
+  '  // V5: var cube = GameObject.Find("__Pool_Cube_Blue_01"); // Pre-existing pool object',
+  '  // Legacy: var cube = GFM_Create.Obj(PrimitiveType.Cube, new Vector3(0,1,0), Vector3.one, "MyCube");',
+  '  // GFM_Create.SetColor(cube, ...); // V5: Colors are pre-baked — use __Pool_Cube_Blue_01 instead',
   '  var ground = GFM_Create.Ground(20f, 20f);',
   '',
-  'If your code does NOT use GFM_Create.Obj(), it WILL be rejected. This is non-negotiable.',
+  'V5 MODE: Use GameObject.Find("__Pool_{Shape}_{Color}_{NN}") for pre-existing pool objects. Legacy mode uses GFM_Create.Obj().',
   '',
   '## ⛔⛔⛔ ABSOLUTE RULE #2 — EVERY SHOT MUST HAVE VISIBLE UI ⛔⛔⛔',
   '',
@@ -593,12 +595,12 @@ var GENERATE_PROMPT = [
   '  Canvas canvas = GFM_UI.CreateCanvas(800, 600);  // Canvas type, NOT GameObject!',
   '  GFM_UI.CreateText(canvas, "Tap the tree to collect wood!", new Vector2(0, 200), 28);',
   '  var arrow = GFM_Create.Obj(PrimitiveType.Cube, targetPos + Vector3.up * 2f, new Vector3(0.5f, 1f, 0.5f), "GuideArrow");',
-  '  GFM_Create.SetColor(arrow, new Color(1f, 0.9f, 0f)); // bright yellow',
+  '  // GFM_Create.SetColor(arrow, ...); // V5: Colors pre-baked into pool names — use __Pool_Cube_Yellow_01',
   '',
   '## CRITICAL LUNA CONSTRAINTS',
   '',
   '### Absolutely DO NOT use:',
-  '- Do NOT use CreatePrimitive or new Mesh — use GFM_Create.Obj() to get pre-placed scene objects (Luna object pool)',
+  '- Do NOT use CreatePrimitive or new Mesh — V5: use GameObject.Find("__Pool_{Shape}_{Color}_{NN}") for pre-placed pool objects. Legacy: use GFM_Create.Obj().',
   '- TileMap, New InputSystem, Terrain (use mesh-based terrain instead)',
   '- Generics (Luna does NOT support generic syntax — use non-generic overloads)',
   '- Resources.GetBuiltinResource — NOT implemented in Luna, use GFM_UI for text/font',
@@ -625,21 +627,23 @@ var GENERATE_PROMPT = [
   '### Object Creation (CRITICAL — Luna object pool system):',
   '- ⛔ CreatePrimitive() objects are INVISIBLE in Luna. You MUST use GFM_Create for all 3D objects.',
   '- The scene has a pre-placed object pool: 50 Cubes, 20 Spheres, 10 Planes, 10 Cylinders at y=-9999.',
-  '- GFM_Create.Obj() fetches from this pool, moves to position, and assigns material automatically.',
+  '- V5: Pool objects are named __Pool_{Shape}_{Color}_{NN} (e.g. __Pool_Cube_Red_01). Use GameObject.Find() to get references. Legacy: GFM_Create.Obj() fetches from pool.',
   '```csharp',
   'void Start() {',
-  '    GFM_Create.ResetPool();  // MUST call first — resets pool counters',
-  '    GFM_Create.InitMaterialFromScene();  // Init base material from __MaterialSource',
+  '    // GFM_Create.ResetPool();  // V5: No longer needed — pool objects are pre-created as __Pool_{Shape}_{Color}_{NN}',
+  '    // GFM_Create.InitMaterialFromScene();  // V5: No longer needed — colors are pre-baked into pool object names',
   '    // Create objects using pool (Luna-compatible!):',
-  '    var cube = GFM_Create.Obj(PrimitiveType.Cube, new Vector3(0, 1, 0), Vector3.one, "MyCube");',
-  '    var sphere = GFM_Create.Obj(PrimitiveType.Sphere, new Vector3(3, 1, 0), Vector3.one * 0.5f, "Ball");',
+  '    // V5: var cube = GameObject.Find("__Pool_Cube_Blue_01");',
+  '    // V5: var sphere = GameObject.Find("__Pool_Sphere_Red_01");',
+  '    // Legacy: var cube = GFM_Create.Obj(PrimitiveType.Cube, new Vector3(0, 1, 0), Vector3.one, "MyCube");',
+  '    // Legacy: var sphere = GFM_Create.Obj(PrimitiveType.Sphere, new Vector3(3, 1, 0), Vector3.one * 0.5f, "Ball");',
   '    var ground = GFM_Create.Ground(20f, 20f);  // Creates a ground plane',
   '    // To hide an object: move it offscreen',
   '    cube.transform.position = new Vector3(0, -9999, 0);',
   '}',
   '```',
   '- Pool limits: Cube=50, Sphere=20, Plane=10, Cylinder=10. Plan your objects within these limits.',
-  '- GFM_Create.SetColor(obj, new Color(r, g, b)) — MANDATORY: use the color palette: player=blue(0.2f,0.4f,0.9f), ground=brown(0.35f,0.25f,0.15f), buildings=tan(0.85f,0.7f,0.4f), enemies=red(0.85f,0.15f,0.15f), trees=green(0.1f,0.55f,0.1f), turrets=gray(0.5f,0.5f,0.55f). Set _mainCam.backgroundColor=new Color(0.6f,0.8f,1f).',
+  '- V5: Colors are PRE-BAKED into pool object names (__Pool_Cube_Red_01, __Pool_Sphere_Blue_01, etc). No SetColor() needed. Use `mainCam` (pre-cached) for camera. Set mainCam.backgroundColor=new Color(0.6f,0.8f,1f).',
   '- NEVER use Shader.Find() or new Material(shader) directly',
   '',
   '### MUST do:',
@@ -721,12 +725,12 @@ var GENERATE_PROMPT = [
   '',
   '#### In Start(), initialize materials then create content:',
   '```csharp',
-  '// Initialize material system FIRST (before any SetColor calls)',
-  'GFM_Create.InitMaterialFromScene();',
+  '// V5: Material initialization and SetColor are no longer needed — colors pre-baked into pool names',
+  '// GFM_Create.InitMaterialFromScene(); // V5: No longer needed — colors pre-baked into pool names',
   '',
-  '// Use GFM_Create.SetColor(obj, color) to color objects — do NOT create new Material()',
-  'GFM_Create.SetColor(building, new Color(0.6f, 0.4f, 0.2f, 1f)); // brown',
-  'GFM_Create.SetColor(tree, new Color(0.2f, 0.6f, 0.2f, 1f));     // green',
+  '// V5: Colors are pre-baked into pool names — no SetColor() needed',
+  '// Use __Pool_Cube_Brown_01 for brown objects, __Pool_Cube_Green_01 for green, etc.',
+  '// Get references via: var building = GameObject.Find("__Pool_Cube_Brown_01");',
   '```',
   '- ⛔ DO NOT use: new Material(), Shader.Find(), FindObjectOfType<Renderer>()',
   '- ⛔ DO NOT use: GameObject.Find("__MaterialSource") — GFM_Create handles material setup internally',
@@ -736,13 +740,13 @@ var GENERATE_PROMPT = [
   '```',
   '',
   '#### Then create your game world from code:',
-  '- 3D objects: `GFM_Create.Obj(PrimitiveType.Cube/Sphere/Plane, pos, scale, "name")` (from scene pool)',
+  '- 3D objects: V5: `GameObject.Find("__Pool_Cube_Red_01")` (pre-existing pool). Legacy: `GFM_Create.Obj(PrimitiveType.Cube/Sphere/Plane, pos, scale, "name")`',
   '- UI Canvas: `Canvas canvas = GFM_UI.CreateCanvas(800, 600);`',
   '- UI Text: `Text txt = GFM_UI.CreateText(canvas, "Hello", new Vector2(0, 100), 28);`',
   '- UI Button: `Button btn = GFM_UI.CreateButton(canvas, "Go", new Vector2(0,-200), new Vector2(300,80), ()=>{});`',
   '- World Labels: `GFM_UI.AddWorldLabel(targetObj, "Label Text", 2f);`',
   '- Progress Bar: `Slider bar = GFM_UI.CreateProgressBar(canvas, new Vector2(0,300), new Vector2(400,30), Color.green);`',
-  '- Materials: use `GFM_Create.SetColor(go, new Color(r,g,b,a))` — call `GFM_Create.InitMaterialFromScene()` first in Start()',
+  '- Materials: In V5 mode, colors are pre-baked into pool object names (__Pool_Cube_Red_01). Use `mainCam` (pre-cached) instead of Camera.main. Use `uiCanvas` (pre-created) instead of GFM_UI.CreateCanvas().',
   '- ⛔ DO NOT use: new GameObject(), SetParent(), Resources.GetBuiltinResource(), new Material(), AddComponent<Canvas/Text/Image/Button>()',
   '',
   '#### ⛔ NO Auto-Play / Auto-Demo',
@@ -756,7 +760,7 @@ var GENERATE_PROMPT = [
   '#### MANDATORY: Create ALL Scene Objects from Blueprint',
   '- Every single object mentioned in the blueprint/storyboard MUST be created as a 3D object in the scene.',
   '- This includes: buildings, turrets, trees, resources, NPCs, vehicles, conveyor belts, generators, walls, decorations.',
-  '- Use GFM_Create.Obj(PrimitiveType.Cube/Sphere/Cylinder, pos, scale, "label") for each visible object. Call GFM_Create.ResetPool() + GFM_Create.InitMaterialFromScene() at Start().',
+  '- Use GFM_Create.Obj(PrimitiveType.Cube/Sphere/Cylinder, pos, scale, "label") for each visible object. V5: Objects are pre-created as __Pool_{Shape}_{Color}_{NN} — use GameObject.Find() instead.',
   '- Different object types should use different primitive shapes:',
   '  - Buildings/structures: Cube (scaled appropriately)',
   '  - Trees/plants: Cylinder (tall thin) + Sphere (on top as crown)',
@@ -765,10 +769,10 @@ var GENERATE_PROMPT = [
   '  - Vehicles/machines: Cube (wide low)',
   '- Scale objects to reasonable sizes (buildings 3-5 units, trees 4-6 units, player 2 units)',
   '- Position objects in a logical spatial layout, spread out, not all at origin',
-  '- Use DIFFERENT colors for categories (via GFM_Create.SetColor):',
-  '  - Buildings: brown Color(0.6f,0.4f,0.2f), Trees: green Color(0.2f,0.6f,0.2f)',
-  '  - Resources: yellow Color(0.8f,0.7f,0.2f), Player: blue Color(0.3f,0.3f,0.8f)',
-  '  - Enemies: red Color(0.8f,0.2f,0.2f)',
+  '- V5: Use pool objects with pre-baked colors: __Pool_Cube_Brown_01 (buildings), __Pool_Cube_Green_01 (trees),',
+  '  __Pool_Sphere_Yellow_01 (resources), __Pool_Cube_Blue_01 (player), __Pool_Cube_Red_01 (enemies)',
+  '  Colors are baked into the pool name — no GFM_Create.SetColor() needed.',
+  '  Legacy: Buildings=brown(0.6f,0.4f,0.2f), Trees=green(0.2f,0.6f,0.2f), Resources=yellow(0.8f,0.7f,0.2f)',
   '- If a shot says click X or drag X, X MUST exist as a visible object with a Collider',
   '- Objects for later shots: create initially with SetActive(false), activate when needed',
   '- Scene must look like a populated game world, NOT an empty void with just a player',
@@ -926,10 +930,10 @@ var GENERATE_PROMPT = [
   '## GFM_Tools TOOLKIT (already in project — call these, DO NOT redefine)',
   '',
   '### ⚠️ RETURN TYPES MATTER — read carefully:',
-  '- GFM_Create.InitMaterialFromScene() → void',
+  '- GFM_Create.InitMaterialFromScene() → void  // V5: No longer needed — colors pre-baked into __Pool_{Shape}_{Color}_{NN} names',
   '- GFM_Create.Obj(PrimitiveType type, Vector3 pos, Vector3 scale, string label) → **GameObject**',
   '- GFM_Create.Ground(float w, float d) → **GameObject**',
-  '- GFM_Create.SetColor(GameObject obj, Color color) → void',
+  '- GFM_Create.SetColor(GameObject obj, Color color) → void  // V5: Not needed — colors pre-baked into pool names',
   '',
   '- GFM_UI.CreateCanvas(int w, int h) → **Canvas** (NOT GameObject! Do NOT write: GameObject canvas = GFM_UI.CreateCanvas(...))',
   '- GFM_UI.CreateButton(**Canvas** canvas, string text, Vector2 pos, Vector2 size, UnityAction onClick) → **Button**',
@@ -1038,8 +1042,8 @@ var FIX_PROMPT = [
   '- Do NOT use [RuntimeInitializeOnLoadMethod] — Luna ignores it',
   '- The main controller script is GameFlowManagerMain.cs — keep its class name `GameFlowManagerMain`',
   '- The scene is CLEAN — all game objects are created from code, do NOT use GameObject.Find() for template objects',
-  '- Materials: call GFM_Create.InitMaterialFromScene() at start of Start(). Then use GFM_Create.SetColor(obj, color) to color objects.',
-  '- GFM_Create.Obj() auto-assigns base material. Use GFM_Create.SetColor(obj, color) to give each object a distinct color.',
+  '- Materials: V5 mode — colors are pre-baked into pool object names (__Pool_Cube_Red_01). No InitMaterialFromScene() or SetColor() needed.',
+  '- V5: Objects have pre-baked colors via pool naming (__Pool_{Shape}_{Color}_{NN}). No SetColor() needed.',
   '- GFM_UI.CreateCanvas() returns **Canvas** (component), NOT GameObject. Write: Canvas canvas = GFM_UI.CreateCanvas(w,h);',
   '- GFM_UI.CreateButton/CreateText take **Canvas** as first param, NOT GameObject.',
   '- GFM_UI.CreateProgressBar() returns **Slider**, NOT Image.',
@@ -1794,9 +1798,9 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
 
       // 第一层：物件清单
       + '## 🏗️ 全局物件清单（在 Start() 中全部创建）\n'
-      + '以下是整个游戏需要的所有 3D 对象。在 Start() 中用 GFM_Create.Obj() 一次性全部创建。\n'
+      + '以下是整个游戏需要的所有 3D 对象。V5 模式：对象已预创建为 __Pool_{Shape}_{Color}_{NN}，用 GameObject.Find() 获取引用。\n'
       + '初始不可见的对象创建后立即 SetActive(false)，在对应 Step 激活。\n'
-      + '每个对象的颜色已指定，必须用 GFM_Create.SetColor() 设置。\n\n'
+      + '每个对象的颜色已通过池对象名称预设（如 __Pool_Cube_Red_01）。V5 模式无需 SetColor()。\n\n'
       + '```\n' + v3ObjectRegistry + '\n```\n\n'
 
       // 第二层：流程时间线
@@ -1823,8 +1827,8 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
 
       + '\n\n## IMPORTANT REMINDERS:\n'
       + '1. Start() MUST begin with scene cleanup: destroy all root objects except {"Main Camera","Directional Light","EventSystem","GameManager","__MaterialSource"}\n'
-      + '2. After cleanup, call GFM_Create.ResetPool() + GFM_Create.InitMaterialFromScene()\n'
-      + '3. Then create ALL objects from the 物件清单 using GFM_Create.Obj(). Set colors with GFM_Create.SetColor(). SetActive(false) for objects not visible in Step 1.\n'
+      + '2. After cleanup, use GameObject.Find("__Pool_{Shape}_{Color}_{NN}") to get pre-existing pool objects (V5: no ResetPool/InitMaterialFromScene needed)\n'
+      + '3. V5: Use GameObject.Find("__Pool_{Shape}_{Color}_{NN}") for pre-existing pool objects. Colors are pre-baked. Hide with y=-999, NOT SetActive(false).\n'
       + '4. In Update(), implement state machine: _currentShot switches between UpdateShot1()..UpdateShotN()\n'
       + '5. Each UpdateShotN() handles the logic described in that Step of the timeline\n'
       + '6. Shot transitions: set _currentShot = N+1, _shotState = 0, _shotTimer = 0\n'
@@ -1858,11 +1862,11 @@ async function generateCode(blueprint, clientDir, log, taskId, engine) {
         + preCheck.reason + '\n\n'
         + '## Current Code:\n' + currentCode + '\n\n'
         + '## Fix Requirements:\n'
-        + '- Replace ALL new GameObject() with GFM_Create.Obj(PrimitiveType.Cube, pos, scale, "label")\n'
-        + '- Replace ALL CreatePrimitive() with GFM_Create.Obj()\n'
-        + '- Call GFM_Create.InitMaterialFromScene() and GFM_Create.ResetPool() at start of Start()\n'
+        + '- V5: Replace ALL new GameObject() with GameObject.Find("__Pool_{Shape}_{Color}_{NN}")\n'
+        + '- V5: Do NOT use CreatePrimitive() or GFM_Create.Obj() — objects are pre-created\n'
+        + '- V5: Pool objects are pre-created with baked colors — use GameObject.Find() instead of GFM_Create.Obj()\n'
         + '- Use GFM_Create.Ground(width, depth) for ground planes\n'
-        + '- Use GFM_Create.SetColor(obj, color) to color objects\n\n'
+        + '- V5: Colors are pre-baked into pool names — no SetColor() needed\n\n'
         + 'Output the COMPLETE fixed GameFlowManagerMain.cs.';
       var preFixResponse = await callClaudeWithRetry(sysPrompt, preFixMsg, 300000, MODEL_FIX);
       log('[coder] Pre-build fix response (' + (preFixResponse.usage ? preFixResponse.usage.output_tokens + ' tokens' : 'ok') + ')', taskId);
@@ -2482,13 +2486,15 @@ function verifyCodeContent(clientDir, parsed, log, taskId) {
       + 'CreatePrimitive is INVISIBLE in Luna WebGL — replace ALL with GFM_Create.Obj().');
   }
 
-  // Check 9: Must call GFM_Create.InitMaterialFromScene() and GFM_Create.ResetPool() in Start()
-  if (code.indexOf('GFM_Create.InitMaterialFromScene') < 0) {
-    issues.push('Missing GFM_Create.InitMaterialFromScene() call — must be called at start of Start() to initialize materials.');
-  }
-  if (code.indexOf('GFM_Create.ResetPool') < 0) {
-    issues.push('Missing GFM_Create.ResetPool() call — must be called at start of Start() to reset object pool counters.');
-  }
+  // Check 9: [V5 UPDATED] InitMaterialFromScene and ResetPool are no longer required
+  // [V5] InitMaterialFromScene is no longer needed — colors are pre-baked into pool object names
+  // if (code.indexOf('GFM_Create.InitMaterialFromScene') < 0) {
+  //   issues.push('Missing GFM_Create.InitMaterialFromScene() call');
+  // }
+  // [V5] ResetPool is no longer needed — pool objects are pre-created
+  // if (code.indexOf('GFM_Create.ResetPool') < 0) {
+  //   issues.push('Missing GFM_Create.ResetPool() call');
+  // }
 
   if (issues.length > 0) {
     return { ok: false, reason: issues.join('\n'), missingShots: missingShots };
@@ -2804,7 +2810,7 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
     + '1. GameObject.Find("Name") to get object references in Start()\n'
     + '2. transform.position = new Vector3(x,y,z) to show objects\n'
     + '3. transform.position = new Vector3(0,-999,0) to hide objects\n'
-    + '4. GFM_Create.SetColor(obj, new Color(r,g,b)) to change colors\n'
+    + '4. Colors are pre-baked into pool names (__Pool_Cube_Red_01) — no SetColor() needed\n'
     + '5. Instantiate(obj) if you need more copies of an object\n'
     + '6. Write game logic (interactions, collisions, flow control)\n\n'
     + 'CRITICAL RULES:\n'
@@ -3014,12 +3020,13 @@ async function generateCodeV4(blueprint, clientDir, log, taskId, engine) {
   var sysPrompt = 'You are a Luna playable ad developer. You write C# code for Unity projects exported via Luna.\n'
     + 'CRITICAL RULES:\n'
     + '- ALL code in ONE file: GameFlowManagerMain.cs\n'
-    + '- Create 3D objects: var go = GFM_Create.Obj(PrimitiveType.Cube, new Vector3(x,y,z), new Vector3(sx,sy,sz), "Name");\n'
+    + '- V5: var go = GameObject.Find("__Pool_Cube_Red_01"); // Pre-existing pool objects with baked colors\n'
+    + '- Legacy: var go = GFM_Create.Obj(PrimitiveType.Cube, new Vector3(x,y,z), new Vector3(sx,sy,sz), "Name");\n'
     + '- GFM_Create.Obj signature: (PrimitiveType type, Vector3 position, Vector3 scale, string name)\n'
     + '- PrimitiveType: Cube, Sphere, Cylinder, Capsule, Quad, Plane\n'
     + '- Ground: var ground = GFM_Create.Ground(width, depth); // 2 params: float width, float depth\n'
-    + '- Then color it: GFM_Create.SetColor(ground, new Color(r,g,b));\n'
-    + '- Set color: GFM_Create.SetColor(go, new Color(r,g,b));\n'
+    + '- V5: Colors pre-baked into pool names — no SetColor() needed\n'
+    + '- Use GameObject.Find("__Pool_Cube_Brown_01") for pre-colored objects\n'
     + '- NO CreatePrimitive, NO Resources.Load, NO async/await, NO coroutines\n'
     + '- Use Update() with event-driven condition checks (not sequential phases)\n'
     + '- NO generics (no List<T>), use plain arrays\n'
@@ -3029,7 +3036,7 @@ async function generateCodeV4(blueprint, clientDir, log, taskId, engine) {
     + '- Game end: Luna.Unity.LifeCycle.GameEnded()\n'
     + '- CTA: Luna.Unity.Playable.InstallFullGame()\n'
     + '- Start() must begin with scene cleanup: destroy all root objects except {"Main Camera","Directional Light","EventSystem","GameManager","__MaterialSource"}\n'
-    + '- After cleanup: GFM_Create.ResetPool() + GFM_Create.InitMaterialFromScene()\n'
+    + '- V5: Pool objects pre-exist with baked colors — no ResetPool/InitMaterialFromScene needed\n'
     + '- Camera: top-down 45° orthographic. Do NOT change.\n'
     + '- Auto-play: if no joystick input for 2s, auto-move player toward current target\n'
     + '- Each entity uses parallel arrays: eGo[], eActive[], eState[], eTimer[], eHP[]\n'

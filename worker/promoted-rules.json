@@ -75,5 +75,163 @@
       "proj_1774794219517_z43qrz"
     ],
     "triggerCount": 2
+  },
+  {
+    "description": "Uses List/Dictionary-safe style correctly, but still uses generic syntax indirectly via arrays only; no issue there. Actual critical issue is elsewhere: the code creates runtime UI button instances in gameplay flow, which is not prohibited by itself, but the skeleton note explicitly says pre-created uiCanvas/guideText/scoreText should be used instead of creating new UI structures. More importantly, phase coverage is incomplete versus the validated 11-phase hospital/station management spec in the auto-promoted rules.",
+    "rule": "c language  bridge.net hard limits",
+    "fix": "Implement the full required spec phase set in CheckEventRules() instead of compressing progression into 6 gameplay phases.",
+    "promotedAt": "2026-04-01T00:20:53.041Z",
+    "triggerProjects": [
+      "proj_1774798890698_wxfmbx",
+      "proj_1774794219517_z43qrz",
+      "proj_1774709451098_pt2ysl"
+    ],
+    "triggerCount": 3,
+    "totalOccurrences": 3
+  },
+  {
+    "description": "[spec-phase-skipped] Spec phases not completed: collectIceCrystal, deliverIceCrystalToMachine, produceWaterFromIce, sellWaterToPassengers, upgradeMiningTool, accelerateProductionCycle, unlockNewCabinArea, collectAppleProcessJuice, triggerJuiceBottling, sellAppleAndCTA. Game balance likely broken — phases were bypassed.",
+    "rule": "cua verification",
+    "fix": "[spec-phase-skipped] Spec phases not completed: collectIceCrystal, deliverIceCrystalToMachine, produceWaterFromIce, sellWaterToPassengers, upgradeMiningTool, accelerateProductionCycle, unlockNewCabinArea, collectAppleProcessJuice, triggerJuiceBottling, sellAppleAndCTA. Game balance likely broken — phases were bypassed.",
+    "promotedAt": "2026-04-01T00:20:53.042Z",
+    "triggerProjects": [
+      "proj_1774794237502_k0rbwx",
+      "proj_1774709451098_pt2ysl"
+    ],
+    "triggerCount": 2,
+    "totalOccurrences": 2
+  },
+  {
+    "description": "Game end flow does not satisfy the required call pattern. The rule explicitly requires the gameEnd block to call Luna.Unity.LifeCycle.GameEnded() + ShowCTA(), and call order must be GameEnded() before InstallFullGame(). Here the gameEnd block calls ShowCTAButton() instead of ShowCTA(), and InstallFullGame() is deferred to button click handlers rather than the required ShowCTA() path.",
+    "rule": "code completeness",
+    "fix": "In the gameEnd block, call Luna.Unity.LifeCycle.GameEnded(); then call ShowCTA(); Ensure ShowCTA() performs Luna.Unity.Playable.InstallFullGame(). If you also want a visible button, keep it separate, but the required GameEnded()->ShowCTA() sequence must exist in the end block.",
+    "promotedAt": "2026-04-01T00:20:53.042Z",
+    "triggerProjects": [
+      "proj_1774798890698_wxfmbx",
+      "proj_1774794219517_z43qrz",
+      "proj_1774709451098_pt2ysl"
+    ],
+    "triggerCount": 3,
+    "totalOccurrences": 3
+  },
+  {
+    "description": "Creates CTA button every frame after chargeStationState becomes 2? The guard is chargeStationState == 1, so button creation happens once at transition, but there is no protection against repeated CreateButton if state is reset or method re-entered unexpectedly. More importantly, it creates a new UI button instead of using the pre-mapped CTAButton pooled object / precreated UI pattern from skeleton guidance.",
+    "rule": "common mistakes",
+    "fix": "Use a one-time creation guard and prefer skeleton-provided UI variables/patterns. If creating a button, ensure it is only created once with ctaBtn == null guard.",
+    "promotedAt": "2026-04-01T00:20:53.042Z",
+    "triggerProjects": [
+      "proj_1774798867290_mwduot",
+      "proj_1774709451098_pt2ysl"
+    ],
+    "triggerCount": 2,
+    "totalOccurrences": 2
+  },
+  {
+    "description": "Creates new UI text objects at runtime with GFM_UI.CreateText for each floating text effect, then destroys them. The constraints explicitly warn against creating runtime rendering/text components because Luna often fails to initialize them properly or they become invisible/broken.",
+    "rule": "forbidden apis",
+    "fix": "Remove Camera.main usage. Assume skeleton/template injects mainCam or assign it through supported template wiring; always null-check before use.",
+    "promotedAt": "2026-04-01T00:20:53.042Z",
+    "triggerProjects": [
+      "proj_1774798867290_mwduot",
+      "proj_1774794219517_z43qrz",
+      "proj_1774709451098_pt2ysl"
+    ],
+    "triggerCount": 3,
+    "totalOccurrences": 6
+  },
+  {
+    "description": "The rule explicitly says the skeleton pre-creates uiCanvas, guideText, scoreText and they should be used directly instead of creating new ones. This script creates a new canvas and text objects in Start(). This is a documented production-risk violation.",
+    "rule": "gfm_tools api signatures",
+    "fix": "Use the existing CTAButton / skeleton-provided UI flow instead of creating a new CTA button at runtime, or confirm the spec explicitly allows runtime GFM_UI button creation for CTA. Prefer showing the existing CTAButton and wiring the click through supported skeleton variables.",
+    "promotedAt": "2026-04-01T00:20:53.042Z",
+    "triggerProjects": [
+      "proj_1774798867290_mwduot",
+      "proj_1774794219517_z43qrz",
+      "proj_1774709451098_pt2ysl"
+    ],
+    "triggerCount": 3,
+    "totalOccurrences": 3
+  },
+  {
+    "description": "Uses Random.Range repeatedly for runtime crowd spawning/movement offsets. Bridge/Luna randomness can be inconsistent and this also creates nondeterministic verification paths for CUA, especially when progression timing depends on moving targets on screen.",
+    "rule": "gameplay logic",
+    "fix": "Make the phase transition depend on the player's interaction context reaching the upgrade station or another explicit player-driven event, with dwell time preserved.",
+    "promotedAt": "2026-04-01T00:20:53.042Z",
+    "triggerProjects": [
+      "proj_1774794219517_z43qrz",
+      "proj_1774798890698_wxfmbx",
+      "proj_1774709451098_pt2ysl"
+    ],
+    "triggerCount": 3,
+    "totalOccurrences": 5
+  },
+  {
+    "description": "Relies on Input.GetMouseButtonDown(0) and raw touch polling as primary interaction. The rules explicitly state Input.GetMouseButtonDown(0) alone may fail on mobile and Luna/GFM input abstraction should be used or both touch/mouse handled robustly. While touch is also checked, this is still custom raw input logic rather than supported GFM/Luna abstraction and is a known runtime risk.",
+    "rule": "luna platform limitations",
+    "fix": "Avoid dependence on physics raycasts for core interaction. Convert screen input to a ground-plane/world-plane position directly from camera math, or explicitly verify template-provided colliders exist before using raycasts.",
+    "promotedAt": "2026-04-01T00:20:53.042Z",
+    "triggerProjects": [
+      "proj_1774794237502_k0rbwx",
+      "proj_1774709451098_pt2ysl"
+    ],
+    "triggerCount": 2,
+    "totalOccurrences": 2
+  },
+  {
+    "description": "SafeColor is implemented as infinite recursion: it calls itself unconditionally with the same parameters. Any SafeColor invocation will stack overflow at runtime, causing immediate failure/blank screen.",
+    "rule": "materials  rendering",
+    "fix": "Call GFM_Create.InitMaterialFromScene() in Start() before creating or recoloring visible objects.",
+    "promotedAt": "2026-04-01T00:20:53.042Z",
+    "triggerProjects": [
+      "proj_1774794219517_z43qrz",
+      "proj_1774709451098_pt2ysl"
+    ],
+    "triggerCount": 2,
+    "totalOccurrences": 2
+  },
+  {
+    "description": "Camera.backgroundColor is set to (0.45, 0.52, 0.62), which differs from ground color (0.75, 0.78, 0.82) by only 0.30, 0.26, 0.20. At least one RGB channel must differ by ≥ 0.3. Green and blue channels fail; red is exactly 0.30 and too borderline for production safety. Recommended deep sky blue was not used. This can trigger solid-color-screen detection.",
+    "rule": "solid-color screen prevention",
+    "fix": "Set the camera to Player position + camFollowOffset, e.g. after placing the player use mainCam.transform.position = Player.transform.position + camFollowOffset, and verify initial framing shows ground plus 3 colored objects.",
+    "promotedAt": "2026-04-01T00:20:53.042Z",
+    "triggerProjects": [
+      "proj_1774798890698_wxfmbx",
+      "proj_1774794219517_z43qrz",
+      "proj_1774709451098_pt2ysl"
+    ],
+    "triggerCount": 3,
+    "totalOccurrences": 3
+  },
+  {
+    "description": "Template has 160 pre-baked colored pool objects named __Pool_{Shape}_{Color}_{NN}. Colors are baked in URP/Lit materials. Never use SetColor() — it causes GL_INVALID_OPERATION.",
+    "rule": "Pre-Baked Color Pool",
+    "fix": "Use GameObject.Find(\"__Pool_Cube_Red_01\") to get a red cube. Available shapes: Cube(5), Sphere(5), Cylinder(3), Plane(3). Available colors: Red, Blue, Green, Yellow, Orange, Purple, White, Brown, Cyan, Pink.",
+    "promotedAt": "2026-04-02T14:00:00.000Z",
+    "triggerProjects": [
+      "all"
+    ],
+    "triggerCount": 99
+  },
+  {
+    "description": "Bridge.NET throws 'Class already defined' if GameFlowManagerMain is defined twice. Template engine already has a stub — build pipeline strips it automatically.",
+    "rule": "Luna 7.1.0 Engine Compatibility",
+    "fix": "Do not define duplicate class names. The build pipeline handles stub stripping in assembleStage4().",
+    "promotedAt": "2026-04-02T14:00:00.000Z",
+    "triggerProjects": [
+      "all"
+    ],
+    "triggerCount": 99
+  },
+  {
+    "description": "Uses color-suffixed pool names like __Pool_Plane_Green_01, __Pool_Cube_Blue_01, __Pool_Cylinder_Purple_01, etc. The documented required pool names are shape-only names such as __Pool_Cube_01..50, __Pool_Sphere_01..20, __Pool_Plane_01..10, __Pool_Cylinder_01..10. Under the stated rules these names do not exist, so Find will return null and cause runtime failure.",
+    "rule": "object naming  pool objects",
+    "fix": "Replace every Find string with exact existing pool object names from the allowed numeric pool set, using explicit string literals or a predeclared exact-name array. Null-check every required object after Find.",
+    "promotedAt": "2026-04-02T07:12:58.594Z",
+    "triggerProjects": [
+      "proj_1774709451098_pt2ysl",
+      "proj_1774798890698_wxfmbx"
+    ],
+    "triggerCount": 2,
+    "totalOccurrences": 3
   }
 ]

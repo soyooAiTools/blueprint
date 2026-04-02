@@ -807,21 +807,31 @@ function GlobalBuildNotification({ user, currentProject, onGoToProject }) {
 
   useEffect(() => {
     if (!user) return;
-    const interval = setInterval(async () => {
+    // Check once on mount, then poll only if there are active builds
+    let hasActiveBuilds = false;
+    const checkBuilds = async () => {
       try {
         const projects = await fetchProjects();
+        hasActiveBuilds = false;
         for (const p of projects) {
-          if (['submitted', 'building', 'feedback'].indexOf(p.status) !== -1 && !notifiedRef.current[p.id]) {
-            try {
-              const info = await getWebglInfo(p.id);
-              if (info && info.available) {
-                notifiedRef.current[p.id] = true;
-                setNotification({ project: p, url: info.url });
-              }
-            } catch {}
+          if (['submitted', 'building', 'feedback'].indexOf(p.status) !== -1) {
+            hasActiveBuilds = true;
+            if (!notifiedRef.current[p.id]) {
+              try {
+                const info = await getWebglInfo(p.id);
+                if (info && info.available) {
+                  notifiedRef.current[p.id] = true;
+                  setNotification({ project: p, url: info.url });
+                }
+              } catch {}
+            }
           }
         }
       } catch {}
+    };
+    checkBuilds();
+    const interval = setInterval(() => {
+      if (hasActiveBuilds) checkBuilds();
     }, 15000);
     return () => clearInterval(interval);
   }, [user]);
