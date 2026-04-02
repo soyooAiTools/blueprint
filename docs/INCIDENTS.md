@@ -94,3 +94,54 @@
 - 豆包成为分镜解析/Spec/截图审核/竞品参考的主力
 - Claude 成为编码/蓝图转换的主力
 - PlayableAgent 完全替代 CUA，消除 OpenAI CUA API 单点依赖
+
+---
+
+## 2026-04-02: Luna 7.1.0 升级后黑屏 — 双重根因修复
+
+### 背景
+从 Luna 6.4.0 升级到 7.1.0，同时将 90 个无颜色池对象替换为 160 个预烘焙颜色池对象。
+升级后所有构建产出均为黑屏。
+
+### 根因分析
+
+**根因 1：Bridge.NET 类重复定义**
+- Luna 7.1.0 的 stage4 模板 engine/scripts.js 已包含 stub `Bridge.define("GameFlowManagerMain", {Start:function(){},Update:function(){}})`
+- 构建时将用户编译的 JS 直接拼接到引擎末尾，再次 `Bridge.define("GameFlowManagerMain", ...)`
+- Bridge.NET 运行时检测到重复类定义，抛出 `"Class 'GameFlowManagerMain' is already defined"` 异常
+- 异常为 Promise rejection，无明显堆栈，表现为静默黑屏
+
+**根因 2：引擎 loadSettings 空指针崩溃**
+- 7 个 `loadSettings` 函数（loadSortingLayerSettings 等）直接访问 `e[te.sortingLayers].length`
+- 当项目设置数据缺失时，返回 null，导致空指针崩溃
+- 表现为引擎初始化阶段崩溃 → 黑屏
+
+### 排查过程
+1. 初始怀疑：`convertToSingleHTML` 的 XHR 拦截器不兼容新引擎 → 排除（cache/*.js 是非必要文件）
+2. 尝试用旧引擎 + 新 bundle → 不兼容（Deserializers 格式不匹配）
+3. 搭建 CDP（Chrome DevTools Protocol）调试环境，捕获运行时异常
+4. 定位到 exception at line 304 col 258789 → Bridge.NET class registration throw
+5. 确认 `Bridge.define("GameFlowManagerMain")` 在引擎中出现 2 次
+
+### 修复方案
+
+| 修复项 | 文件 | 改动 |
+|--------|------|------|
+| stub 类剥离 | `worker/linux-bridge-build.js` | `assembleStage4()` 拼接前用正则去除模板中的 stub GameFlowManagerMain |
+| 引擎 null guards | `/opt/luna/stage4-template/engine/scripts.js` | 7 个 loadSettings 函数添加 `if(!n)return;` |
+
+### 验证结果
+- 173 个实体全部加载，160 个池对象确认存在
+- 0 个 JS 异常
+- 截图中确认 Red/Blue/Green/Yellow/Purple 颜色正确渲染
+- 构建耗时 6 秒，HTML 7MB
+
+### 提交
+- blueprint: `08faf21` fix: strip stub GameFlowManagerMain from engine to prevent class redefinition crash
+- luna-base-template: `9b89483` fix: add patched stage4 engine with null guards for loadSettings functions
+
+### 教训
+1. **拼接引擎 + 用户代码时，必须检查命名冲突** — 模板引擎已有 stub 类，用户代码再定义同名类会崩溃
+2. **Promise rejection 在 headless Chrome 中几乎不可见** — 需要通过 CDP `Runtime.exceptionThrown` 才能捕获
+3. **Luna 7.1.0 单文件格式的 cache/*.js 是非必要文件** — 它们引用 `decompressArrayBuffer` 等未定义函数，说明不应被加载
+4. **headless Chrome 需要 20+ 秒才能完成 6MB JS 引擎的解析和执行** — 不要因为前 10 秒无响应就认为加载失败

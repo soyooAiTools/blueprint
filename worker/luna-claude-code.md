@@ -51,11 +51,18 @@
 
 ## 场景对象池（已存在，直接 Find 使用）
 
-- `__Pool_Cube_{Color}_01` ~ `__Pool_Cube_{Color}_05`（每色 5 个 Cube，共 50 个）
-- `__Pool_Sphere_01` ~ `__Pool_Sphere_20`（20 个 Sphere）
-- `__Pool_Plane_01` ~ `__Pool_Plane_10`（10 个 Plane）
-- `__Pool_Cylinder_01` ~ `__Pool_Cylinder_10`（10 个 Cylinder）
-- 其他固定对象：`Main Camera`、`Directional Light`、`EventSystem`、`GameManager`、`__MaterialSource`
+160 个预烘焙颜色池对象，命名规则：`__Pool_{Shape}_{Color}_{NN}`
+
+| 形状 | 每色数量 | 示例 |
+|------|---------|------|
+| Cube | 5 | `__Pool_Cube_Red_01` ~ `__Pool_Cube_Red_05` |
+| Sphere | 5 | `__Pool_Sphere_Blue_01` ~ `__Pool_Sphere_Blue_05` |
+| Cylinder | 3 | `__Pool_Cylinder_Green_01` ~ `__Pool_Cylinder_Green_03` |
+| Plane | 3 | `__Pool_Plane_Yellow_01` ~ `__Pool_Plane_Yellow_03` |
+
+**10 种颜色**：Red, Blue, Green, Yellow, Orange, Purple, White, Brown, Cyan, Pink
+
+其他固定对象：`__MainLight`、`__Ground`、`__MaterialSource`、`Canvas`、`EventSystem`、`GameManager`
 
 初始时所有 `__Pool_*` 对象位于 `(0, -999, 0)`（不可见）。
 

@@ -21,8 +21,8 @@
 | 1. 分镜解析 | ~30s | PDF/文案 → AI 拆帧 → 线稿图 → HTML 分镜板 |
 | 2. 蓝图编辑 | 人工 | 分镜转蓝图节点，在 Web 端编辑场景/交互/逻辑/数值 |
 | 3. AI 编码 | ~1min | Claude Opus 4.6 读蓝图 → Unity C#，编译失败自动修复（最多 10 轮） |
-| 4. Luna 构建 | ~38s | jake pipeline（4 stages）+ MSBuild Rebuild |
-| 5. 渠道转换 | ~30s | 多文件 → 单文件 AppLovin HTML（~725KB） |
+| 4. Luna 构建 | ~6s | MSBuild + Bridge.NET 编译 + 单 HTML 打包 |
+| 5. 渠道转换 | 内含 | convertToSingleHTML 已集成到构建步骤 |
 | 6. 审核迭代 | 人工 | 预览 → 反馈 → 重新编码 → 再构建，直到满意 |
 
 ## 技术栈
@@ -37,26 +37,28 @@
 | 代码审核 | GPT-5.4 (中转: sub.mindrix.app) |
 | CUA 验证 | PlayableAgent — Qwen2.5-VL-72B (SiliconFlow) |
 | 视频分析 | Gemini 2.5 Pro (中转: sub.mindrix.app) |
-| 构建 | Unity 2022.3 + Luna SDK 6.4.0 |
-| 转换 | Brotli + html-minifier + 渠道 SDK 注入 |
+| 构建 | Luna 7.1.0 + MSBuild (Linux ECS) |
+| 转换 | convertToSingleHTML 内联打包（~7MB） |
 | 版本控制 | SVN + Git |
 
 ## Luna 构建方案
 
-绕过 Unity Bridge（18801），直接用 MSBuild + Bridge.NET 编译 C# → JS。
+Linux ECS 上直接用 MSBuild + Bridge.NET 编译 C# → JS，拼接到 Luna 7.1.0 引擎。
 
 ```
-1. jake project:build       Stage1-4（用 stage1 缓存，~30s）
-2. 清 MSBuild obj 缓存      rmdir /s /q LunaCompiler/Scripts/obj
-3. MSBuild Rebuild           Bridge.NET 编译 .cs → JS（~8s）
-4. JS 复制到 stage4          替换 UnityScriptsCompiler.js
-5. Runtime polyfill 注入     CreatePrimitive/Font/Material 兼容
+1. MSBuild 编译 C# → UnityScriptsCompiler.js（~6s）
+2. 模板引擎去除 stub GameFlowManagerMain
+3. 拼接：engine/scripts.js + UnityScriptsCompiler.js
+4. Runtime polyfill 注入（CreatePrimitive/Font/Material 兼容）
+5. convertToSingleHTML 打包为单文件 HTML（~7MB）
 ```
 
 **要点**：
-- Bridge 18801 离线不影响构建（stage1 缓存存在即可）
-- `luna.json` 必须设 `forceSourcesBasedCompilation: true`
-- `GameFlowManagerMain.cs` 是 AI 入口文件（不在 SVN 中，每次任务由 AI 创建）
+- 构建服务：`worker/linux-bridge-build.js`（端口 3080）
+- Luna 7.1.0 使用单文件 engine/scripts.js（含 Deserializers），不需要旧版 deserializers.js
+- 模板引擎已打 null guard 补丁（防止 loadSettings 崩溃）
+- 160 个预烘焙颜色池对象，不再需要运行时 SetColor
+- `GameFlowManagerMain.cs` 是 AI 入口文件（每次任务由 AI 创建）
 
 ## 自动架构图
 
@@ -121,7 +123,7 @@ blueprint-editor/
 
 | | Unity (`worker/`) | Cocos (`worker-cocos/`) |
 |---|---|---|
-| 引擎 | Unity 2022.3 + Luna 6.4.0 | Cocos Creator 3.8.8 |
+| 引擎 | Unity 2022.3 + Luna 7.1.0 | Cocos Creator 3.8.8 |
 | 语言 | C# | TypeScript |
 | 构建 | Luna jake (~38s) | Cocos CLI (~17s) |
 | 产物 | ~725KB | ~11.5MB |
