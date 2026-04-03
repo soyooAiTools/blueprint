@@ -64,17 +64,23 @@ void CheckEventRules() {
 }
 ```
 
-## 创建3D对象（GFM_Create）
+## 获取3D对象（从预制池 Find）
 
 ```csharp
-// 正确签名！4个参数：PrimitiveType, Vector3 position, Vector3 scale, string name
-var cube = GFM_Create.Obj(PrimitiveType.Cube, new Vector3(0,1,0), new Vector3(1,2,1), "MyCube");
-GFM_Create.SetColor(cube, new Color(0.2f, 0.4f, 0.9f));
+// ✅ 正确：从预制池 Find 对象（颜色已烘焙，不需要 SetColor）
+var cube = GameObject.Find("__Pool_Cube_Red_01");
+cube.transform.position = new Vector3(0, 1, 0);  // 移到场景中 = 显示
+cube.transform.localScale = new Vector3(1, 2, 1);
 
-// 地面：2个float参数
-var ground = GFM_Create.Ground(40f, 40f);
-GFM_Create.SetColor(ground, new Color(0.35f, 0.25f, 0.15f));
+// ✅ 地面已存在
+var ground = GameObject.Find("__Ground");
+
+// ✅ 需要更多同类对象时，Instantiate 复制（仅当池对象用完时）
+var extraCube = Instantiate(cube);
+extraCube.transform.position = new Vector3(3, 1, 0);
 ```
+
+> ⛔ **绝对禁止**: `GFM_Create.Obj()`, `GFM_Create.Ground()`, `GFM_Create.SetColor()`, `CreatePrimitive()`
 
 ## PlayerController 模板
 
@@ -82,8 +88,8 @@ GFM_Create.SetColor(ground, new Color(0.35f, 0.25f, 0.15f));
 GFM_Joystick joystick;  // 在 Start() 中初始化
 
 void InitJoystick() {
-    var canvas = GFM_UI.CreateCanvas();
-    joystick = GFM_Joystick.Create(canvas, 200f);
+    // ✅ 用骨架预创建的 uiCanvas，不要调用 GFM_UI.CreateCanvas()
+    joystick = GFM_Joystick.Create(uiCanvas, 200f);
 }
 
 void UpdatePlayer(float dt) {
@@ -238,7 +244,7 @@ void CheckEventRules() {
 
 ## 关键约束（Luna）
 - 所有代码在 GameFlowManagerMain.cs 一个文件
-- 用 GFM_Create.Obj(PrimitiveType, Vector3, Vector3, string) 创建对象
+- 用 `GameObject.Find("__Pool_{Shape}_{Color}_{NN}")` 获取池对象，不要用 GFM_Create.Obj()
 - 没有 GFM_Tools 类！用: GFM_Create, GFM_Utils, GFM_UI, GFM_Joystick, GFM_Audio
 - 不能用 CreatePrimitive、Resources.Load、async/await、协程、List<T>
 - 隐藏用 position=(0,-999,0)，不用 SetActive(false)

@@ -1,0 +1,92 @@
+/**
+ * Static pre-check — regex-based code quality scan before LLM review
+ *
+ * Catches forbidden API usage that the LLM reviewers sometimes miss.
+ * Returns { passed, issues[] } where each issue has { rule, line, text }.
+ */
+
+var RULES = [
+  { id: 'setactive', pattern: /\.SetActive\s*\(/g, message: 'SetActive() forbidden in Luna — use position=(0,-999,0) to hide' },
+  { id: 'camera-main', pattern: /Camera\.main(?!\s*;?\s*\/\/\s*ok)/g, message: 'Camera.main forbidden — use skeleton\'s mainCam variable' },
+  { id: 'create-obj', pattern: /GFM_Create\.Obj\s*\(/g, message: 'GFM_Create.Obj() forbidden — use GameObject.Find() from pool' },
+  { id: 'create-ground', pattern: /GFM_Create\.Ground\s*\(/g, message: 'GFM_Create.Ground() forbidden — __Ground already exists' },
+  { id: 'set-color', pattern: /GFM_Create\.SetColor\s*\(/g, message: 'GFM_Create.SetColor() forbidden — pool objects have baked colors' },
+  { id: 'create-canvas', pattern: /GFM_UI\.CreateCanvas\s*\(/g, message: 'GFM_UI.CreateCanvas() forbidden — use skeleton\'s uiCanvas' },
+  { id: 'create-primitive', pattern: /CreatePrimitive\s*\(/g, message: 'CreatePrimitive() forbidden in Luna — invisible at runtime' },
+  { id: 'gfm-tools', pattern: /GFM_Tools\./g, message: 'GFM_Tools does not exist — use GFM_Create, GFM_UI, GFM_Utils, etc.' },
+  { id: 'coroutine', pattern: /StartCoroutine\s*\(/g, message: 'Coroutines forbidden in Luna — use Update + timer' },
+  { id: 'async-await', pattern: /\basync\b|\bawait\b/g, message: 'async/await forbidden in Luna — use Update + timer' },
+  { id: 'linq', pattern: /using\s+System\.Linq/g, message: 'System.Linq forbidden in Luna (Bridge.NET)' },
+  { id: 'list-generic', pattern: /\bList<[^>]+>/g, message: 'List<T> forbidden in Luna — use arrays' },
+  { id: 'dict-generic', pattern: /\bDictionary<[^>]+>/g, message: 'Dictionary<K,V> forbidden in Luna — use arrays' },
+  { id: 'set-parent', pattern: /\.SetParent\s*\(/g, message: 'SetParent() forbidden in Luna' },
+  { id: 'transform-parent', pattern: /\.parent\s*=/g, message: 'transform.parent assignment forbidden in Luna' },
+  { id: 'find-object-of-type', pattern: /FindObjectOfType\s*</g, message: 'FindObjectOfType<T>() forbidden — use (T)FindObjectOfType(typeof(T))' },
+  { id: 'get-component-generic', pattern: /GetComponent\s*</g, message: 'GetComponent<T>() forbidden — use (T)GetComponent(typeof(T))' },
+  { id: 'force-complete', pattern: /ForceCompleteAllPhases/g, message: 'ForceCompleteAllPhases forbidden — phases must require player interaction' },
+  { id: 'external-eval', pattern: /Application\.ExternalEval/g, message: 'Application.ExternalEval() not supported in Luna' },
+  { id: 'newtonsoft', pattern: /Newtonsoft\.Json/g, message: 'Newtonsoft.Json not supported in Luna' },
+  { id: 'class-eventpool', pattern: /class\s+EventPool\b/g, message: 'class EventPool conflicts with template — do not define' },
+  { id: 'missing-using', pattern: null, message: 'Missing "using UnityEngine;" declaration', custom: function(code) {
+    if (code.indexOf('using UnityEngine;') === -1) return [{ line: 1, text: 'File start' }];
+    return [];
+  }},
+];
+
+/**
+ * Run static checks on C# code
+ * @param {string} code - The C# source code
+ * @returns {{ passed: boolean, issues: Array<{rule: string, line: number, text: string, message: string}> }}
+ */
+function staticCheck(code) {
+  var lines = code.split('\n');
+  var issues = [];
+
+  for (var r = 0; r < RULES.length; r++) {
+    var rule = RULES[r];
+
+    if (rule.custom) {
+      var customHits = rule.custom(code);
+      for (var c = 0; c < customHits.length; c++) {
+        issues.push({
+          rule: rule.id,
+          line: customHits[c].line,
+          text: customHits[c].text,
+          message: rule.message,
+        });
+      }
+      continue;
+    }
+
+    // Reset regex
+    rule.pattern.lastIndex = 0;
+    var match;
+    while ((match = rule.pattern.exec(code)) !== null) {
+      // Find line number
+      var pos = match.index;
+      var lineNum = 1;
+      for (var i = 0; i < pos; i++) {
+        if (code[i] === '\n') lineNum++;
+      }
+      // Skip if in a comment line
+      var lineText = lines[lineNum - 1] || '';
+      var trimmed = lineText.trim();
+      if (trimmed.indexOf('//') === 0) continue; // single-line comment
+      if (trimmed.indexOf('/*') === 0) continue; // block comment start
+
+      issues.push({
+        rule: rule.id,
+        line: lineNum,
+        text: lineText.trim().slice(0, 120),
+        message: rule.message,
+      });
+    }
+  }
+
+  return {
+    passed: issues.length === 0,
+    issues: issues,
+  };
+}
+
+module.exports = { staticCheck: staticCheck, RULES: RULES };

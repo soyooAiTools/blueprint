@@ -92,6 +92,29 @@ Pipeline.prototype.run = function(ctx, onProgress) {
   var self = this;
   var stageIndex = 0;
 
+  // Cleanup stale temp dirs from previous runs (older than 2 hours)
+  try {
+    var os = require('os');
+    var tmpDir = os.tmpdir();
+    var cutoff = Date.now() - 2 * 3600 * 1000;
+    var entries = fs.readdirSync(tmpDir);
+    var cleaned = 0;
+    for (var ti = 0; ti < entries.length; ti++) {
+      var name = entries[ti];
+      if (name.indexOf('linux-') === 0 || name.indexOf('visual-check-') === 0) {
+        var fp = path.join(tmpDir, name);
+        try {
+          var stat = fs.statSync(fp);
+          if (stat.mtimeMs < cutoff) {
+            fs.rmSync(fp, { recursive: true, force: true });
+            cleaned++;
+          }
+        } catch(e) {}
+      }
+    }
+    if (cleaned > 0) ctx.addLog('pipeline', 'Cleaned ' + cleaned + ' stale temp dirs');
+  } catch(e) {}
+
   function runNext() {
     if (stageIndex >= self.stages.length) {
       return Promise.resolve(ctx);
@@ -110,6 +133,18 @@ Pipeline.prototype.run = function(ctx, onProgress) {
     if (stage.canSkip && stage.canSkip(ctx)) {
       ctx.addLog(stage.name, 'skipped (condition)');
       return runNext();
+    }
+
+    // ---- Quality Gate: assertBefore ----
+    if (stage.assertBefore) {
+      try {
+        stage.assertBefore(ctx);
+      } catch(gateErr) {
+        var gateMsg = 'Quality gate failed before ' + stage.name + ': ' + gateErr.message;
+        ctx.addLog(stage.name, gateMsg);
+        if (onProgress) onProgress(stage.name, 'gate-failed', ctx);
+        throw new Error(gateMsg);
+      }
     }
 
     ctx.addLog(stage.name, 'started');
@@ -151,6 +186,7 @@ Pipeline.prototype.run = function(ctx, onProgress) {
 // ============ Real Stage Implementations ============
 
 var cloneStage = require('./stages/clone.cjs');
+var specValidateStage = require('./stages/spec-validate.cjs');
 var codegenStage = require('./stages/codegen.cjs');
 var reviewStage = require('./stages/review.cjs');
 var compileStage = require('./stages/compile.cjs');
@@ -163,6 +199,7 @@ var uploadStage = require('./stages/upload.cjs');
 function createLunaPipeline(options) {
   return new Pipeline([
     cloneStage,
+    specValidateStage,
     codegenStage,
     reviewStage,
     compileStage,
@@ -188,6 +225,7 @@ module.exports = {
   createCocosPipeline: createCocosPipeline,
   stages: {
     clone: cloneStage,
+    specValidate: specValidateStage,
     codegen: codegenStage,
     review: reviewStage,
     compile: compileStage,

@@ -10,14 +10,15 @@
 
 ## 核心规则：基础样例工程模式
 
-场景已预制 160 个带颜色的 3D 对象 + UI 元素。你 **不需要创建任何对象**。
+场景已预制 160 个带颜色的 3D 对象 + UI 元素。**优先使用池对象（Find），只有池对象数量不够时才用 Instantiate 复制**。
+⛔ **绝对不要用 GFM_Create.Obj() / GFM_Create.Ground() / CreatePrimitive()** — 这些在 Luna 中不可见或会导致问题。
 
 你只需要：
 1. `GameObject.Find("名称")` 获取对象引用
 2. `transform.position = new Vector3(x,y,z)` 移动到场景中（显示）
 3. `transform.position = new Vector3(0,-999,0)` 移到远处（隐藏）
 4. 颜色已烘焙在对象中 — 直接 Find 对应颜色的 `__Pool_{Shape}_{Color}_{NN}` 对象，**不要用 SetColor**
-5. `Instantiate(obj)` 复制对象（如果预制数量不够）
+5. `Instantiate(obj)` 复制池对象（仅当同色同形状的 5 个池对象全部用完时才用）
 6. 写游戏逻辑（交互、碰撞检测、流程控制）
 
 ## 骨架已预创建的变量（直接使用，不要重新创建）
@@ -35,13 +36,13 @@
 - **绝对不要用 GFM_UI.CreateCanvas()** — 用骨架预创建的 `uiCanvas`
 - **绝对不要用 SetActive()** — Luna 中 SetActive 会导致对象消失且无法恢复
 - 不要用 `GFM_Tools` — 这个类不存在！可用的类是 `GFM_Create`, `GFM_UI`, `GFM_Luna`, `GFM_Audio`, `GFM_Pool`, `GFM_Event`, `GFM_Utils`, `GFM_Joystick`, `GFM_Grid`, `GFM_Pathfinding`
-- 不要用 `GFM_Create.Obj()` / `GFM_Create.Ground()` — 对象已存在
+- ⛔ **不要用 `GFM_Create.Obj()` / `GFM_Create.Ground()` / `GFM_Create.SetColor()`** — 池对象颜色已烘焙，直接 Find 使用
 - 不要用 `CreatePrimitive()` — 在 Luna 中不可见
 - 不要用泛型 `List<T>` / `Dictionary<K,V>` — 用数组
 - 不要用 coroutine / async / await — 用 Update + timer
 - 不要用 LINQ / System.Linq
 - 隐藏用 `position=(0,-999,0)`，不用 `SetActive(false)` / `SetActive(true)`
-- Pool 名字必须用字面量字符串如 `"__Pool_Cube_Red_01"`, 不要拼接字符串 (Bridge.NET 字符串格式化不可靠)
+- Pool 名字必须用字面量字符串如 `"__Pool_Cube_Red_01"`，**不要拼接字符串**（Bridge.NET 字符串格式化不可靠）。prompt.md 中有蓝图实体→池对象的完整映射表，直接复制使用
 - 新命名规则: `__Pool_{Shape}_{Color}_{NN}`，Shape=Cube/Sphere/Cylinder/Plane，Color=Red/Blue/Green/Yellow/Orange/Purple/White/Brown/Cyan/Pink
 - 不要定义 `class EventPool`（和模板冲突）
 - 不要用 `transform.parent` / `SetParent` / `FindObjectOfType`
@@ -68,11 +69,12 @@
 
 ## 操作 API
 
-- ⛔ 不要用 GFM_Create.SetColor() — 颜色已烘焙在预制对象中
+- ⛔ **不要用 GFM_Create.SetColor()** — 颜色已烘焙在池对象中，Find 对应颜色的 `__Pool_{Shape}_{Color}_{NN}` 即可
 - 虚拟摇杆: `var joystick = GFM_Joystick.Create(uiCanvas, 200f);` 用骨架的 uiCanvas
 - 游戏结束: `Luna.Unity.LifeCycle.GameEnded()`
 - CTA: `Luna.Unity.Playable.InstallFullGame()`
 - 时间延迟: 用 `timer += Time.deltaTime; if (timer > X)` 代替 WaitForSeconds
+- ⚠️ `phaseTimer` 仅用于 8 秒最短停留守卫（防止玩家秒过），**绝对不要用 timer 触发 Phase 推进**
 - 更新引导文字: `guideText.text = "点击采集";` 用骨架的 guideText
 - 更新分数文字: `scoreText.text = "Score: " + score;` 用骨架的 scoreText
 - 创建更多文字: `GFM_UI.CreateText(uiCanvas, "text", new Vector2(x, y), fontSize)`

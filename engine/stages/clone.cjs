@@ -34,6 +34,9 @@ module.exports = {
   name: 'clone',
   canRetry: true,
   maxRetries: 2,
+  assertBefore: function(ctx) {
+    if (!ctx.taskId) throw new Error('No taskId — cannot clone template');
+  },
   execute: function(ctx) {
     var tempDir = path.join(os.tmpdir(), 'linux-task-' + ctx.taskId);
 
@@ -48,6 +51,11 @@ module.exports = {
     }
 
     getBaseTemplate(tempDir, function(msg) { ctx.addLog('clone', msg); }, ctx.taskId);
+
+    // Verify template integrity — must have Assets dir and key files
+    if (!fs.existsSync(path.join(tempDir, 'Assets'))) {
+      throw new Error('Template clone corrupted: Assets/ directory missing');
+    }
 
     ctx.workDir = tempDir;
     ctx.addLog('clone', 'Base template ready at ' + tempDir);

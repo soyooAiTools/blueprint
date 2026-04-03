@@ -30,3 +30,39 @@ api-test.cjs
 # Backups
 *.bak
 server-data/webgl/
+
+# Luna SDK builds (large binaries)
+6.4.0/
+7.1.0/
+Pro/
+
+# Archives & backups
+archive/
+*.bak
+*.bak.*
+
+# Runtime data
+server-data/blueprint.db
+server-data/blueprint.db-shm
+server-data/blueprint.db-wal
+server-data/tasks.db
+server-data/checkpoints/
+server-data/tasks/
+server-data/parse-stats.json
+data/
+
+# Spec data (per-project, ephemeral)
+spec-data/
+
+# Python cache
+__pycache__/
+
+# CLI tools
+cli/
+
+# IDE / editor
+.superpowers/
+
+# Build artifacts in public
+public/test.png
+public/shader-test.html

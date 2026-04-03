@@ -14,16 +14,45 @@
                                     └────────── 反馈迭代 ←── 审核预览 ←────┘
 ```
 
-### E2E 流程
+### Harness Engine Pipeline（8 阶段）
 
-| 阶段 | 耗时 | 说明 |
+```
+clone → spec-validate → codegen → review [gate] → compile [gate] → visual-check [gate] → cua-verify [gate] → upload [gate]
+```
+
+| 阶段 | 模块 | 说明 |
 |------|------|------|
-| 1. 分镜解析 | ~30s | PDF/文案 → AI 拆帧 → 线稿图 → HTML 分镜板 |
-| 2. 蓝图编辑 | 人工 | 分镜转蓝图节点，在 Web 端编辑场景/交互/逻辑/数值 |
-| 3. AI 编码 | ~1min | Claude Opus 4.6 读蓝图 → Unity C#，编译失败自动修复（最多 10 轮） |
-| 4. Luna 构建 | ~6s | MSBuild + Bridge.NET 编译 + 单 HTML 打包 |
-| 5. 渠道转换 | 内含 | convertToSingleHTML 已集成到构建步骤 |
-| 6. 审核迭代 | 人工 | 预览 → 反馈 → 重新编码 → 再构建，直到满意 |
+| clone | `engine/stages/clone.cjs` | 克隆 Luna 模板工程 |
+| spec-validate | `engine/stages/spec-validate.cjs` | 蓝图 spec 校验（entity/trigger/verb/dead-end） |
+| codegen | `engine/stages/codegen.cjs` | AI 编码（entity-resolver → mechanics-resolver → skeleton → Claude） |
+| review | `engine/stages/review.cjs` | GPT-5.4/Codex 代码审核（3-Tier 规则，6 轮 fix-loop） |
+| compile | `engine/stages/compile.cjs` | Bridge.NET 编译（5 轮 auto-fix） |
+| visual-check | `engine/stages/visual-check.cjs` | Playwright 多帧截图 + Claude Sonnet VLM 分析（8 轮） |
+| cua-verify | `engine/stages/cua-verify.cjs` | PlayableAgent 操控验证（20 轮，30min 上限） |
+| upload | `engine/stages/upload.cjs` | SVN/存储上传 |
+
+### 质量门控
+
+- **review**: lineCount >= 100, phase 架构机械检查, 禁止 autoplay
+- **compile**: 方法数 >= 3, 必需方法检查 (Start/Update/CheckEventRules), 25MB 上限
+- **visual-check**: 多帧分析 (t=0/3/8s), 实体可见性, 画面变化检测
+- **cua-verify**: Phase 覆盖率, 30min 总时间上限, 5 轮无进展提前退出
+
+### Engine 核心模块
+
+| 模块 | 说明 |
+|------|------|
+| `engine/fix-loop.cjs` | 声明式 fix-loop 原语（maxRounds, onExhausted, beforeRound, attempt） |
+| `engine/error-classifier.cjs` | INFRA(退避) / CODE(recode) / FATAL(终止) 三类错误分类 |
+| `engine/recode.cjs` | 统一重编码（clone → seed → generate → findMainCs），支持 extraFiles |
+| `engine/static-check.cjs` | 静态代码检查（禁用 API / Bridge.NET 限制） |
+| `engine/helpers.cjs` | 构建请求、issue 分类、结构化反馈构建 |
+
+### Codegen 前置处理链
+
+1. `adapters/entity-resolver.cjs` — spec entity → `__Pool_` 对象预映射
+2. `adapters/mechanics-resolver.cjs` — interaction verb → C# 代码提示（28 种 verb）
+3. `adapters/skeleton-generator.cjs` — `buildRealCondition()` 生成真实 C# 条件
 
 ## 技术栈
 
@@ -31,18 +60,86 @@
 |---|------|
 | 前端 | React 19 + @xyflow/react 12 + Vite 7 |
 | 后端 | Node.js (server.cjs, PM2) |
-| AI 编码 | Claude Opus 4.6 (中转: crs.mindrix.app) |
-| 分镜解析 | 豆包 Seed 2.0 Pro (ark.cn-beijing.volces.com) |
-| 蓝图转换 | Claude Opus 4.6 (中转: crs.mindrix.app) |
-| 代码审核 | GPT-5.4 (中转: sub.mindrix.app) |
+| AI 编码 | Claude Opus 4.6 |
+| 代码审核 | GPT-5.4（3-Tier 规则分层检查） |
+| 视觉预检 | Claude Sonnet 4.6（多帧 VLM 分析） |
 | CUA 验证 | PlayableAgent — Qwen2.5-VL-72B (SiliconFlow) |
-| 视频分析 | Gemini 2.5 Pro (中转: sub.mindrix.app) |
-| 构建 | Luna 7.1.0 + MSBuild (Linux ECS) |
+| 分镜解析 | 豆包 Seed 2.0 Pro |
+| 构建 | Luna 7.1.0 + MSBuild + Bridge.NET (Linux ECS) |
 | 转换 | convertToSingleHTML 内联打包（~7MB） |
-| 版本控制 | SVN + Git |
 
-> **注意**: 自 2026-04-03 起，仅支持 V4 entity-driven 蓝图格式（`entities[]` + `phases[]` + `specs[]`）。
-> V3 node-based 格式（`shotNode` + `objectRegistry`）已废弃，相关代码已归档至 `_deprecated_v3/`。
+> **注意**: 仅支持 V4 entity-driven 蓝图格式（`entities[]` + `phases[]` + `specs[]`）。
+
+## 目录结构
+
+```
+blueprint-editor/
+├── server.cjs                      # HTTP 服务端（API + 静态文件，端口 3901）
+├── ecosystem.config.cjs            # PM2 配置
+├── package.json
+│
+├── engine/                         # Harness Engine（Pipeline 编排层）
+│   ├── pipeline.cjs                # 8 阶段 pipeline 编排
+│   ├── fix-loop.cjs                # 声明式 fix-loop 原语
+│   ├── error-classifier.cjs        # 错误分类（INFRA/CODE/FATAL）
+│   ├── recode.cjs                  # 统一重编码入口
+│   ├── static-check.cjs            # 静态代码检查
+│   ├── helpers.cjs                 # 工具函数
+│   └── stages/                     # Pipeline 各阶段实现
+│       ├── clone.cjs
+│       ├── spec-validate.cjs
+│       ├── codegen.cjs
+│       ├── review.cjs
+│       ├── compile.cjs
+│       ├── visual-check.cjs
+│       ├── cua-verify.cjs
+│       └── upload.cjs
+│
+├── adapters/                       # 数据适配层
+│   ├── entity-resolver.cjs         # spec entity → pool 对象映射
+│   ├── mechanics-resolver.cjs      # interaction verb → C# 代码提示
+│   └── skeleton-generator.cjs      # Phase 骨架代码生成
+│
+├── lib/                            # 基础设施层
+│   ├── lifecycle.cjs               # 进程生命周期管理
+│   ├── port-guard.cjs              # 端口冲突检测
+│   ├── watchdog.cjs                # 进程看门狗
+│   └── model-provider.cjs          # LLM 提供者抽象
+│
+├── worker/                         # AI Worker 模块
+│   ├── linux-bridge-build.js       # Bridge.NET 编译服务（端口 3080）
+│   ├── linux-worker-client.js      # Linux Worker 主入口
+│   ├── worker-coder.js             # AI 编码（Claude Opus 4.6）
+│   ├── worker-playableagent.js     # PlayableAgent CUA 验证
+│   ├── worker-cua-verify.js        # CUA 验证辅助
+│   ├── code-reviewer.js            # GPT-5.4 代码审核（3-Tier 规则）
+│   ├── codex-reviewer.js           # Codex 代码审核
+│   ├── prompt-v4.js                # V4 prompt 模板
+│   ├── prompt-v5-basetemplate.js   # V5 Base Template prompt
+│   ├── luna-claude-code.md         # Claude Code Luna 开发规范
+│   └── behavior-templates.md       # 行为模板文档
+│
+├── screenshot-review/              # WebGL 白屏检测
+│   ├── screenshot-review.cjs       # Playwright 截图 + 像素分析
+│   └── screenshot-review-server.cjs
+│
+├── frontend/                       # React 前端
+│   ├── src/
+│   └── dist/                       # 构建产物
+│
+├── python/                         # Python 工具
+│   ├── storyboard_parser.py        # 分镜解析
+│   ├── blueprint_converter.py      # 蓝图格式转换
+│   └── pdf_to_blueprint.py         # PDF → 蓝图
+│
+├── docs/                           # 文档
+│   ├── INCIDENTS.md                # 事故记录
+│   ├── entity-architecture-proposal.md
+│   ├── unity-env-setup.md
+│   └── cocos-env-setup.md
+│
+└── 7.1.0/                          # Luna 7.1.0 SDK（.gitignore）
+```
 
 ## Luna 构建方案
 
@@ -54,85 +151,14 @@ Linux ECS 上直接用 MSBuild + Bridge.NET 编译 C# → JS，拼接到 Luna 7.
 3. 拼接：engine/scripts.js + UnityScriptsCompiler.js
 4. Runtime polyfill 注入（CreatePrimitive/Font/Material 兼容）
 5. convertToSingleHTML 打包为单文件 HTML（~7MB）
+6. 输出验证：方法数 ≥ 3, 必需方法存在, 体积 ≤ 25MB
 ```
 
 **要点**：
 - 构建服务：`worker/linux-bridge-build.js`（端口 3080）
-- Luna 7.1.0 使用单文件 engine/scripts.js（含 Deserializers），不需要旧版 deserializers.js
-- 模板引擎已打 null guard 补丁（防止 loadSettings 崩溃）
-- 160 个预烘焙颜色池对象，不再需要运行时 SetColor
-- `GameFlowManagerMain.cs` 是 AI 入口文件（每次任务由 AI 创建）
-
-## 自动架构图
-
-AI 编码完成后自动生成代码架构关系图：
-
-- `architecture.json` — 结构化数据（类、方法、依赖关系、职责）
-- `architecture.drawio` — draw.io 可视化（可直接打开编辑）
-- 纯静态 C# 分析，零 API 调用
-- 随代码一起 SVN 提交
-
-## WebGL 预览
-
-- 预览 URL：`/webgl/{projectId}/iframe.html`（实际游戏画面）
-- `index.html` 是 Luna Dev Environment 空壳，不含游戏内容
-- 构建上传后自动检测 `iframe.html` 优先使用
-- **白屏检测**：screenshot-review 服务在 AI 审核前做像素级检测（Canvas 颜色方差），白屏/黑屏/纯色硬 REJECT
-
-## 目录结构
-
-```
-blueprint-editor/
-├── server.cjs                    # HTTP 服务端（API + 静态文件，端口 3901）
-├── storyboard-parser.cjs         # 分镜解析（豆包 Seed 2.0 Pro）
-├── doubao-adapter.cjs            # 豆包 API 适配器（兼容 @google/genai 接口）
-├── dashboard.html                # Worker Pool 监控仪表盘
-├── package.json
-│
-├── worker/                       # Unity Worker（Windows Server, 部署到 D:\worker-repo\worker）
-│   ├── worker-client.js          # 任务轮询 + SVN + 构建编排（入口，加载 dotenv）
-│   ├── worker-coder.js           # AI 编码（Claude Opus 4.6, Luna 制作规范 + 工程上下文）
-│   ├── worker-playableagent.js   # PlayableAgent 蓝图验证（VLM + __gameState）
-│   ├── worker-cua-verify.js      # [已弃用] 旧 CUA 验证
-│   ├── worker-bridge-build.js    # Luna jake + MSBuild 构建
-│   ├── worker-html-converter.js  # 单文件 HTML 渠道转换
-│   ├── worker-patch.js           # 预构建修复（scenes, luna.json）
-│   ├── generate-architecture.js  # 代码架构图生成（C# → JSON + drawio）
-│   ├── ecosystem.config.cjs      # PM2 配置（D 盘路径，不含 env）
-│   ├── deploy.cmd                # 一键部署脚本（git pull + npm install + pm2）
-│   ├── package.json              # 依赖（dotenv, brotli, html-minifier）
-│   ├── .env.example              # 环境变量模板
-│   ├── .env                      # 实际环境变量（不入 git）
-│   └── html-templates/           # Luna 运行时模板
-│
-├── worker-cocos/                 # Cocos Worker（备选引擎）
-│   ├── worker-client.js          # 任务轮询（Cocos 流程）
-│   ├── worker-coder.js           # AI 编码（TypeScript）
-│   ├── worker-cocos-build.js     # Cocos Creator CLI 构建
-│   └── worker-html-converter.js  # HTML 转换（PNG→WebP + zlib）
-│
-├── screenshot-review/              # WebGL 白屏检测 + AI 审核
-│   ├── screenshot-review.cjs       # Playwright 截图 + 像素分析
-│   └── screenshot-review-server.cjs # HTTP 服务（端口 18820）
-│
-├── docs/
-│   ├── unity-env-setup.md        # Unity Worker 部署指南
-│   └── cocos-env-setup.md        # Cocos Worker 部署指南
-│
-└── data/webgl/                   # WebGL 构建产物存储
-```
-
-## Unity vs Cocos Worker
-
-| | Unity (`worker/`) | Cocos (`worker-cocos/`) |
-|---|---|---|
-| 引擎 | Unity 2022.3 + Luna 7.1.0 | Cocos Creator 3.8.8 |
-| 语言 | C# | TypeScript |
-| 构建 | Luna jake (~38s) | Cocos CLI (~17s) |
-| 产物 | ~725KB | ~11.5MB |
-| PM2 | `worker-client` | `worker-cocos` |
-
-通过项目 `engine` 字段自动路由到对应构建流程。
+- 160 个预烘焙颜色池对象（`__Pool_{Shape}_{Color}_{NN}`），不需要运行时 SetColor
+- 支持 partial class 多文件编译（>800 行自动拆分）
+- `GameFlowManagerMain.cs` 是 AI 入口文件
 
 ## API 路由
 
@@ -164,20 +190,9 @@ blueprint-editor/
 | POST | `/api/worker/heartbeat` | 心跳 |
 | POST | `/api/tasks/:taskId/upload-build` | 上传构建产物 |
 
-## PlayableAgent 蓝图流程验证
+## 知识回流系统
 
-AI 编码 → 构建完成后，自动运行 PlayableAgent 验证蓝图 Phase 覆盖：
-
-- **模型**：Qwen2.5-VL-72B（SiliconFlow VLM）+ `__gameState` API
-- **方式**：Xvfb + Playwright 非 headless → 截图 → VLM 分析决策 → CDP 操作 → 读取游戏状态
-- **判定方式**：纯 pass/fail，基于 Phase 覆盖率
-- **通过标准**：
-  1. specs.json 中所有 Phase 都被 `completedPhases` 覆盖
-  2. 游戏不卡死/黑屏
-  3. 实体达到终态（buildable entities → state=2）
-- **不通过时**：未完成 Phase + gameState 反馈给 AI 重新编码，最多 3 轮
-- **模块**：`worker/worker-playableagent.js` → `blueprint_verify.py`（Python 3.8）
-- **费用**：~¥0.12/次（20步测试）
+CUA/Visual 验证失败自动记录到 `pending-rules.json`，经 3 次验证后自动晋升为 `promoted-rules.json`，注入到后续 codegen 和 review 中。语义去重（Jaccard > 50%）防止重复录入。
 
 ## 部署
 
@@ -186,60 +201,20 @@ AI 编码 → 构建完成后，自动运行 PlayableAgent 验证蓝图 Phase �
 ```bash
 npm install && node server.cjs
 # 或 PM2
-pm2 start server.cjs --name blueprint
+pm2 start ecosystem.config.cjs
 ```
-
-### Worker（Windows Server, D:\worker-repo）
-
-**首次部署：**
-```cmd
-D:
-git clone https://github.com/soyooAiTools/blueprint.git worker-repo
-cd worker-repo\worker
-copy .env.example .env
-REM 编辑 .env 填入 OPENAI_API_KEY、GEMINI_API_KEY、代理等
-npm install --production
-pm2 start ecosystem.config.cjs --only worker-unity
-pm2 save
-```
-
-**后续更新（一条命令）：**
-```cmd
-D:\worker-repo\worker\deploy.cmd
-```
-自动执行：git pull → npm install → pm2 唯一进程重启
 
 ### 环境变量
 
-所有环境变量通过 `worker/.env` 管理（dotenv 加载），不依赖 PM2 env 或系统环境变量。
+通过 `worker/.env` 管理（dotenv 加载）。
 
 | 变量 | 说明 | 必填 |
 |------|------|------|
-| `LLM_API_KEY` | Claude 编码/蓝图转换 API Key（默认内置） | 可选 |
-| `DOUBAO_API_KEY` | 豆包 Seed 2.0 Pro Key（分镜/Spec/截图审核） | 可选 |
-| `OPENAI_API_KEY` | GPT-5.4 Key（代码审核用） | ✅ |
-| `GEMINI_API_KEY` | Gemini Key（视频分析用） | 可选 |
+| `LLM_API_KEY` | Claude API Key | 可选（有内置默认） |
+| `OPENAI_API_KEY` | GPT-5.4 Key（代码审核） | ✅ |
 | `SILICONFLOW_API_KEY` | SiliconFlow Key（PlayableAgent VLM） | 可选 |
-| `LLM_MODEL_GENERATE` | AI 编码模型（默认 claude-opus-4-6） | 可选 |
-
-### 远程重启 Unity
-
-```bash
-ssh -i /root/.ssh/worker_key Administrator@42.121.160.107 "schtasks /run /tn LaunchUnity"
-```
-
-### Worker 目录结构
-
-```
-D:\worker-repo\              # git clone 仓库根目录
-├── worker/                  # Worker 代码 + 配置
-│   ├── .env                 # 环境变量（不入 git）
-│   ├── ecosystem.config.cjs # PM2 配置
-│   ├── deploy.cmd           # 一键部署
-│   └── node_modules/        # 依赖
-├── server.cjs               # 主服务端代码
-└── ...                      # 其他仓库文件
-```
+| `DOUBAO_API_KEY` | 豆包 Key（分镜/Spec） | 可选 |
+| `GEMINI_API_KEY` | Gemini Key（视频分析） | 可选 |
 
 ## License
 

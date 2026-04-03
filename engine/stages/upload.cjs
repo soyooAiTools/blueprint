@@ -11,6 +11,9 @@ var path = require('path');
 module.exports = {
   name: 'upload',
   canRetry: true,
+  assertBefore: function(ctx) {
+    if (!ctx.htmlOutput) throw new Error('No HTML output to upload');
+  },
   maxRetries: 3,
   execute: function(ctx) {
     ctx.addLog('upload', 'Saving build artifacts...');

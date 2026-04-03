@@ -93,7 +93,15 @@ function prepareWorkDir(workDir, blueprint, prompt, skeleton, log, taskId) {
     fs.copyFileSync(behaviorSrc, path.join(workDir, 'behavior-templates.md'));
   }
 
-  // 5b. GFM_Tools_API.md — extended API documentation
+  // 5b. Inject promoted rules + phase state machine into prompt.md
+  if (blueprint.promotedRulesText) {
+    fs.appendFileSync(path.join(workDir, 'prompt.md'), blueprint.promotedRulesText);
+  }
+  if (blueprint.phaseStateMachineText) {
+    fs.appendFileSync(path.join(workDir, 'prompt.md'), blueprint.phaseStateMachineText);
+  }
+
+  // 5c. GFM_Tools_API.md — extended API documentation
   const apiDocSrc = path.join(__dirname, 'GFM_Tools_API.md');
   if (fs.existsSync(apiDocSrc)) {
     fs.copyFileSync(apiDocSrc, path.join(workDir, 'GFM_Tools_API.md'));
