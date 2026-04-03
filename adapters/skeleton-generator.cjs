@@ -40,6 +40,32 @@ function generateSkeleton(specs, opts = {}) {
   const entityNames = Object.keys(entityPoolMap);
   const lines = [];
 
+  // Helper: convert spec trigger condition to real C# using entity state variables
+  // e.g. spec has entitiesRequired: [{name: "iceCrystal", terminalState: 1}]
+  //      → generates: iceCrystalState >= 1
+  function buildRealCondition(spec) {
+    const entities = spec.entitiesRequired || [];
+    if (entities.length === 0) {
+      // No entity requirements — check for interaction-based conditions
+      const interactions = spec.requiredInteractions || [];
+      if (interactions.length > 0) {
+        // Use the first interaction verb to generate a flag-based condition
+        const verb = interactions[0].split(':')[0];
+        const target = interactions[0].split(':')[1] || 'action';
+        return target + 'Done == true';
+      }
+      // Fallback: phase timer (AI should still improve this)
+      return 'phaseTimer >= ' + (spec.duration ? spec.duration.max : 5) + 'f /* AI: replace with real gameplay condition */';
+    }
+    // Build compound condition from entity terminal states
+    const conditions = entities.map(e => {
+      const varName = e.name + 'State';
+      return varName + ' >= ' + e.terminalState;
+    });
+    return conditions.join(' && ');
+  }
+
+
   // Header
   lines.push('// ========== AUTO-GENERATED SKELETON — DO NOT MODIFY SKELETON LINES ==========');
   lines.push('// Generated from storyboard spec. AI fills TODO sections only.');
@@ -433,7 +459,8 @@ function generateSkeleton(specs, opts = {}) {
       lines.push(`        // Requires: ${prevSpec.triggerNext ? prevSpec.triggerNext.description : 'previous phase complete'}`);
       lines.push(`        // Condition hint: ${conditionHint}`);
       lines.push(`        if (!ruleTriggered[${ruleIdx}]`);
-      lines.push(`            && true /* TODO: AI replaces with real C# condition for: ${conditionHint} */`);
+      const realCondition = buildRealCondition(prevSpec);
+      lines.push(`            && ${realCondition} // [SKELETON] auto-generated from entity states (hint: ${conditionHint})`);
       lines.push(`            && phaseTimer >= ${prevSpec.duration.min}f) // [SKELETON] min dwell time`);
       lines.push('        {');
       lines.push(`            ruleTriggered[${ruleIdx}] = true;`);
@@ -458,7 +485,8 @@ function generateSkeleton(specs, opts = {}) {
   const endConditionHint = lastSpec.triggerNext ? lastSpec.triggerNext.condition : 'game end condition';
   lines.push(`        // End condition hint: ${endConditionHint}`);
   lines.push(`        if (!ruleTriggered[${specs.length}]`);
-  lines.push(`            && true /* TODO: AI replaces with real C# condition for game end: ${endConditionHint} */`);
+  const endRealCondition = buildRealCondition(lastSpec);
+  lines.push(`            && ${endRealCondition} // [SKELETON] auto-generated end condition (hint: ${endConditionHint})`);
   lines.push(`            && phaseTimer >= ${lastSpec.duration.min}f) // [SKELETON]`);
   lines.push('        {');
   lines.push(`            ruleTriggered[${specs.length}] = true;`);

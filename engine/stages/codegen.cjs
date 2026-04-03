@@ -21,8 +21,8 @@ module.exports = {
 
     var USE_CLAUDE_CODE = process.env.USE_CLAUDE_CODE !== 'false';
     var coder, claudeCoder;
-    try { coder = require('../../worker/worker-coder.js'); } catch(e) {}
-    try { claudeCoder = require('../../worker/claude-code-coder.js'); } catch(e) {}
+    try { coder = require('../../worker/worker-coder.js'); } catch(e) { ctx.addLog('codegen', 'worker-coder.js not loaded: ' + e.message); }
+    try { claudeCoder = require('../../worker/claude-code-coder.js'); } catch(e) { ctx.addLog('codegen', 'claude-code-coder.js not loaded: ' + e.message); }
 
     var generator;
     if (USE_CLAUDE_CODE && claudeCoder && claudeCoder.generateWithClaudeCode) {
@@ -36,6 +36,35 @@ module.exports = {
     }
 
     var logFn = function(msg) { ctx.addLog('codegen', msg); };
+
+    // Resolve entity names to pool objects before codegen
+    if (ctx.blueprint.specs && ctx.blueprint.specs.length > 0) {
+      try {
+        var entityResolver = require('../../adapters/entity-resolver.cjs');
+        var resolution = entityResolver.resolveEntities(ctx.blueprint.specs, ctx.blueprint.entities || []);
+        ctx.blueprint.specs = resolution.resolvedSpecs;
+        if (!ctx.blueprint.entityPoolMap) ctx.blueprint.entityPoolMap = {};
+        for (var ek in resolution.entityPoolMap) {
+          ctx.blueprint.entityPoolMap[ek] = resolution.entityPoolMap[ek];
+        }
+        ctx.addLog('codegen', 'Entity resolution: ' + Object.keys(resolution.entityPoolMap).length + ' entities mapped to pool objects');
+      } catch(resolveErr) {
+        ctx.addLog('codegen', 'Entity resolution skipped: ' + resolveErr.message);
+      }
+    }
+
+    // Resolve gameplay mechanics for each spec's interactions
+    if (ctx.blueprint.specs && ctx.blueprint.specs.length > 0) {
+      try {
+        var mechanicsResolver = require('../../adapters/mechanics-resolver.cjs');
+        ctx.blueprint.specs = mechanicsResolver.resolveMechanics(ctx.blueprint.specs);
+        var mechanicsDoc = mechanicsResolver.buildMechanicsDoc(ctx.blueprint.specs);
+        ctx.blueprint.mechanicsText = mechanicsDoc;
+        ctx.addLog('codegen', 'Mechanics resolution: generated implementation hints for all interactions');
+      } catch(mechErr) {
+        ctx.addLog('codegen', 'Mechanics resolution skipped: ' + mechErr.message);
+      }
+    }
 
     // Inject structured specs into blueprint so AI has explicit phase graph
     if (ctx.blueprint.specs && ctx.blueprint.specs.length > 0) {
@@ -88,6 +117,24 @@ module.exports = {
       ctx.addLog('codegen', 'No specs found — AI will generate phases from storyboard narrative');
     }
 
+    // Task #16: Inject promoted rules into codegen so AI avoids known pitfalls
+    try {
+      var promotedRulesPath = path.join(__dirname, '..', '..', 'worker', 'promoted-rules.json');
+      var promotedRules = JSON.parse(fs.readFileSync(promotedRulesPath, 'utf8'));
+      if (promotedRules.length > 0) {
+        var rulesText = '\n\n=== KNOWN PITFALLS (auto-promoted from cross-project validation) ===\n';
+        for (var pri = 0; pri < promotedRules.length; pri++) {
+          rulesText += '- ' + promotedRules[pri].description + ' — FIX: ' + (promotedRules[pri].fix || 'see rule') + '\n';
+        }
+        if (!ctx.blueprint.promotedRulesText) {
+          ctx.blueprint.promotedRulesText = rulesText;
+          ctx.addLog('codegen', 'Injected ' + promotedRules.length + ' promoted rules into codegen');
+        }
+      }
+    } catch(e) {
+      // No promoted rules file — that's fine
+    }
+
     return generator(ctx.blueprint, ctx.workDir, logFn, ctx.taskId, 'unity').then(function(result) {
       if (!result.ok) {
         throw new Error('AI coding failed: ' + (result.error || '').slice(0, 200));
@@ -110,13 +157,59 @@ module.exports = {
       }
 
       ctx.csCode = fs.readFileSync(mainCsPath, 'utf-8');
+      // Also collect partial class files (multi-file support)
+      var partialFiles = ['GameFlowManagerMain.Systems.cs'];
+      for (var pfi = 0; pfi < partialFiles.length; pfi++) {
+        for (var pci = 0; pci < allCs.length; pci++) {
+          if (allCs[pci].indexOf(partialFiles[pfi]) !== -1) {
+            if (!ctx.extraFiles) ctx.extraFiles = {};
+            ctx.extraFiles[partialFiles[pfi]] = fs.readFileSync(allCs[pci], 'utf-8');
+            ctx.addLog('codegen', 'Collected partial class: ' + partialFiles[pfi]);
+          }
+        }
+      }
       ctx.addLog('codegen', 'Main CS: ' + mainCsPath + ' (' + ctx.csCode.length + ' chars)');
 
       if (ctx.reportStatus) {
         ctx.reportStatus('processing', { message: '[Linux] AI coding done (' + result.filesWritten + ' files), building...' });
       }
 
-      return { filesWritten: result.filesWritten, csLength: ctx.csCode.length };
+      // Phase completion detection: verify generated code covers all blueprint phases
+      var phaseDetection = { expectedPhases: 0, implementedPhases: 0, missing: [] };
+      if (ctx.blueprint.specs && ctx.blueprint.specs.length > 0) {
+        phaseDetection.expectedPhases = ctx.blueprint.specs.length;
+        for (var pi = 0; pi < ctx.blueprint.specs.length; pi++) {
+          var phaseId = ctx.blueprint.specs[pi].phaseId;
+          // Check if phase is referenced in code (CheckEventRules, AddCompletedPhase, or string literal)
+          if (ctx.csCode.indexOf('"' + phaseId + '"') >= 0 || ctx.csCode.indexOf("'" + phaseId + "'") >= 0) {
+            phaseDetection.implementedPhases++;
+          } else {
+            phaseDetection.missing.push(phaseId);
+          }
+        }
+        if (phaseDetection.missing.length > 0) {
+          ctx.addLog('codegen', 'WARNING: ' + phaseDetection.missing.length + '/' + phaseDetection.expectedPhases +
+            ' phases not found in code: ' + phaseDetection.missing.join(', '));
+          // Inject missing phases into feedback so review/recode knows what to fix
+          if (!ctx.blueprint.feedbackHistory) ctx.blueprint.feedbackHistory = [];
+          ctx.blueprint.feedbackHistory.push({
+            data: { text: 'PHASE COVERAGE GAP: Code is missing implementation for phases: ' + phaseDetection.missing.join(', ') +
+              '. Expected ' + phaseDetection.expectedPhases + ' phases but only found ' + phaseDetection.implementedPhases + ' in code.' },
+            source: 'codegen-phase-check',
+            status: 'pending',
+            timestamp: Date.now(),
+          });
+        } else {
+          ctx.addLog('codegen', 'Phase coverage: ' + phaseDetection.implementedPhases + '/' + phaseDetection.expectedPhases + ' phases found in code');
+        }
+      }
+
+      // Also check for ruleTriggered array coverage
+      var ruleCount = (ctx.csCode.match(/ruleTriggered\[/g) || []).length;
+      var addPhaseCount = (ctx.csCode.match(/AddCompletedPhase/g) || []).length;
+      ctx.addLog('codegen', 'Code metrics: ' + ruleCount + ' rule references, ' + addPhaseCount + ' AddCompletedPhase calls');
+
+      return { filesWritten: result.filesWritten, csLength: ctx.csCode.length, phaseDetection: phaseDetection };
     });
   },
 };

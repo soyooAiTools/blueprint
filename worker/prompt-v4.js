@@ -304,7 +304,10 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   // ========== 6. 代码架构要求 ==========
   lines.push('# 代码架构要求');
   lines.push('');
-  lines.push('1. 所有代码在一个文件 GameFlowManagerMain.cs 中');
+  lines.push('1. 主逻辑在 GameFlowManagerMain.cs 中。如果代码超过 800 行，可拆分为 partial class:');
+  lines.push('   - GameFlowManagerMain.cs — Start/Update/CheckEventRules 主流程');
+  lines.push('   - GameFlowManagerMain.Systems.cs — 游戏子系统(UpdatePlayer/UpdateEnemies等)');
+  lines.push('   - 所有文件必须用 `public partial class GameFlowManagerMain : MonoBehaviour`');
   lines.push('2. 用平行数组管理实体状态: eGo[], eActive[], eState[], eTimer[], eHP[]');
   lines.push('3. 每个实体一个 UpdateXxx(float dt) 方法');
   lines.push('4. Update() 中遍历所有已激活实体，分发到对应的 Update 方法');
