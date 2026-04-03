@@ -12,7 +12,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const { GoogleGenAI } = require('../doubao-adapter.cjs');
+const { GoogleGenAI } = require('../adapters/doubao-adapter.cjs');
 
 const DOUBAO_API_KEY = process.env.DOUBAO_API_KEY || '197cb950-3cf3-4b30-b656-6afaa4306a7a';
 const DOUBAO_MODEL = process.env.REFERENCE_MODEL || 'doubao-seed-2-0-pro-260215';

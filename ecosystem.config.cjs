@@ -15,11 +15,11 @@ module.exports = {
       NODE_ENV: 'production',
       PORT: 3901,
       GOOGLE_GEMINI_BASE_URL: 'https://sub.mindrix.app',
-      GEMINI_API_KEY: 'sk-d7492099ab2b2902df41cf042b2c20e8a98b55a2e68f098917a77efd064dd0b3',
+      GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',  // loaded from .env
       GEMINI_MODEL: 'gemini-3.1-pro-preview',
-      OPENAI_API_KEY: 'sk-7316ee056524c5ffb3c5920fa9d6ffcbcd8026fdc0fea386de50c5e2f4a083aa',
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',  // loaded from .env
       OPENAI_BASE_URL: 'https://sub.mindrix.app/v1',
-      FEISHU_WEBHOOK_URL: 'https://open.feishu.cn/open-apis/bot/v2/hook/b9c59492-4949-4950-a34b-913bf1c7df08',
+      FEISHU_WEBHOOK_URL: process.env.FEISHU_WEBHOOK_URL || '',  // loaded from .env
     },
     // 日志配置
     error_file: '/root/.pm2/logs/blueprint-editor-error.log',

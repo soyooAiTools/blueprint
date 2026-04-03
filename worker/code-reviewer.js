@@ -34,10 +34,13 @@ const REVIEW_RULES = `
 ## Tier 1 — INSTANT FAIL (check these first, any violation = FAIL)
 
 ### 1. Object Naming — Pool Objects
-- All GameObject.Find() calls MUST use actual pool names: __Pool_Cube_01..50, __Pool_Sphere_01..20, __Pool_Plane_01..10, __Pool_Cylinder_01..10
+- All GameObject.Find() calls MUST use pool names matching the pattern: __Pool_{Shape}_{Color}_{NN}
+- Valid shapes: Cube, Sphere, Cylinder, Plane
+- Valid colors: Red, Blue, Green, Yellow, Orange, Purple, White, Brown, Cyan, Pink
+- Valid format examples: __Pool_Cube_Red_01, __Pool_Sphere_Blue_02, __Pool_Plane_Green_01, __Pool_Cylinder_White_03
+- The prompt provides exact pool name assignments for each entity — code MUST use those exact names
 - NEVER use concept names like "Building_1", "Player", "Tree" — these DO NOT exist → Find returns null → solid color screen
-- This is the #1 cause of runtime failure
-- Do NOT construct pool names dynamically (e.g., idx.ToString("D2")) — Bridge.NET string formatting is unreliable. Use explicit string literals or predeclared string arrays of exact pool names.
+- Do NOT construct pool names dynamically (e.g., idx.ToString("D2")) — Bridge.NET string formatting is unreliable. Use explicit string literals.
 
 ### 2. Forbidden APIs (will be invisible or crash)
 - CreatePrimitive() — objects are INVISIBLE in Luna (Runtime Analysis strips them)
@@ -80,9 +83,8 @@ const REVIEW_RULES = `
 ## Tier 2 — LIKELY FAIL (high probability of runtime issues)
 
 ### 5. Materials & Rendering
-- Use GFM_Create.SetColor(go, new Color(r,g,b,a)) for coloring
-- Do NOT create new Material() — use GFM_Create which handles material registry
-- GFM_Create.InitMaterialFromScene() must be called in Start() before any SetColor()
+- Colors are pre-baked into pool objects (e.g., __Pool_Cube_Red_01 is already red). Do NOT call GFM_Create.SetColor() — it is no longer needed
+- Do NOT create new Material() — materials are baked at build time
 - Pool objects start at y=-999 (hidden). Show = move to visible Y. Hide = y=-999
 - Do NOT use SetActive(false) for hiding — use y=-999 position
 
@@ -141,7 +143,20 @@ const REVIEW_RULES = `
 - iOS AppLovin: first touch must pre-play silent audio (GFM_Luna.Init handles this)
 - Time.deltaTime is constant 0.1 in Luna regardless of FPS
 
-### 11. Architecture (V5 phase-driven)
+### 11. Phase ID Format (CRITICAL)
+- AddCompletedPhase() parameter MUST exactly match the blueprint Rule ID (e.g., "phase_1774794448160_1")
+- Do NOT use semantic names like "openingTutorial", "buildPhase", "phase_BuildHouse"
+- The prompt provides exact Rule IDs for each phase — code MUST use those exact strings
+- currentPhaseName should track progression using these same IDs
+
+### 12. Forbidden Legacy APIs
+- GFM_Create.InitMaterialFromScene() — NO LONGER needed; colors are pre-baked at build time
+- GFM_Create.SetColor() — NO LONGER needed; pool objects already have baked colors (e.g., __Pool_Cube_Red_01 is already red)
+- GFM_Create.ResetPool() — NO LONGER needed in current skeleton
+- GFM_Create.Obj() — Do NOT create new objects; use GameObject.Find() to locate pre-existing pool objects
+- GFM_Create.Ground() — Ground is pre-created in skeleton
+
+### 13. Architecture (V5 phase-driven)
 - Phase tracking: currentPhaseName, ruleTriggered[], phaseTimer, phaseEnterTimes[]
 - CheckEventRules() with bool[] ruleTriggered — each phase has trigger condition + min dwell time
 - Entity states tracked as int variables (0=waiting, 1=building, 2=built)
@@ -165,13 +180,28 @@ function savePromotedRules(rules) {
 }
 
 function getDynamicRulesText() {
+  // Inject anomaly detection rules (from luna-anomaly-rules.js)
+  var anomalyRules = '';
+  try {
+    var anomalyPath = require('path').join(__dirname, 'luna-anomaly-rules.js');
+    if (require('fs').existsSync(anomalyPath)) {
+      anomalyRules = '\n\n## Runtime Anomaly Prevention (auto-extracted)\n' +
+        '- No object creation in Update() without pooling (leak risk)\n' +
+        '- Phase timers must have max-duration auto-advance (stuck prevention)\n' +
+        '- Null-check all UI text values before display (NaN/undefined/null prevention)\n' +
+        '- Player movement must be clamped within bounds (out-of-bounds prevention)\n' +
+        '- Start() must move >=3 pool objects to visible positions (empty scene prevention)\n' +
+        '- CTA click handler must call Luna.Unity.Playable.InstallFullGame() (CTA unresponsive prevention)\n' +
+        '- Use pooling (y=-999) instead of Destroy() for hiding objects (mass disappear prevention)\n';
+    }
+  } catch(e) {}
   var promoted = loadPromotedRules();
   if (promoted.length === 0) return '';
   var lines = ['\n## Auto-Promoted Rules (cross-project validated)\n'];
   for (var i = 0; i < promoted.length; i++) {
     lines.push('- ' + promoted[i].description + ' — FIX: ' + (promoted[i].fix || 'see rule'));
   }
-  return lines.join('\n');
+  return lines.join('\n') + anomalyRules;
 }
 
 /**
@@ -529,6 +559,15 @@ Respond with a JSON object (no markdown, no code fences):
 - Verdict is FAIL if there are ANY critical issues
 - Verdict is PASS if only warnings or no issues`;
 
+
+  // Inject pool name mapping if provided
+  if (options.poolNameMap) {
+    systemPrompt += '\n\n## Valid Pool Names for This Project\n';
+    systemPrompt += 'The following are the ONLY valid pool names. Any other names in GameObject.Find() are WRONG:\n';
+    Object.keys(options.poolNameMap).forEach(function(entity) {
+      systemPrompt += '- ' + entity + ' → ' + options.poolNameMap[entity] + '\n';
+    });
+  }
   var userMessage = `Review this GameFlowManagerMain.cs for Luna/Bridge.NET constraint violations:\n\n\`\`\`csharp\n${code}\n\`\`\``;
 
   // Truncate if too long (GPT context limit)

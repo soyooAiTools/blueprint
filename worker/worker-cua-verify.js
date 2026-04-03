@@ -16,7 +16,7 @@
  */
 
 const { spawn } = require('child_process');
-const { loadSpecs } = require('../spec-extractor.cjs');
+const { loadSpecs } = require('../adapters/spec-extractor.cjs');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');

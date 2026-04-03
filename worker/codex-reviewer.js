@@ -266,7 +266,7 @@ async function reviewCodeWithCodex(code, options) {
       var topPatterns = Object.entries(ruleGroups)
         .filter(function(e) { return Object.keys(e[1].projects).length >= 2; })
         .sort(function(a, b) { return Object.keys(b[1].projects).length - Object.keys(a[1].projects).length; })
-        .slice(0, 8);
+        .slice(0, 15); // Increased from 8
       if (topPatterns.length > 0) {
         dynamicRulesText += '\n## Recurring Production Failures (flagged in ' + topPatterns.length + ' patterns)\n';
         for (var tpi = 0; tpi < topPatterns.length; tpi++) {

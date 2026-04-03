@@ -398,5 +398,13 @@
     "line": "CUA round 1",
     "taskId": "proj_1774798867290_mwduot",
     "timestamp": "2026-04-02T15:57:33.160Z"
+  },
+  {
+    "description": "[entity-incomplete] Buildable entities not fully constructed: conveyor=0 (expected 2=built)",
+    "rule": "CUA Verification",
+    "fix": "[entity-incomplete] Buildable entities not fully constructed: conveyor=0 (expected 2=built)",
+    "line": "CUA round 2",
+    "taskId": "proj_1774794237502_k0rbwx",
+    "timestamp": "2026-04-03T00:12:44.331Z"
   }
 ]

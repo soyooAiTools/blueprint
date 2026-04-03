@@ -8,7 +8,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
-const DOUBAO_API_KEY = process.env.DOUBAO_API_KEY || '197cb950-3cf3-4b30-b656-6afaa4306a7a';
+const DOUBAO_API_KEY = process.env.DOUBAO_API_KEY || '';
 const DOUBAO_MODEL = 'doubao-seed-2-0-pro-260215';
 const DOUBAO_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 const WEBGL_BASE = process.env.WEBGL_BASE || '/opt/blueprint-editor/server-data/webgl';

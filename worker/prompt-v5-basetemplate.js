@@ -699,7 +699,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
         .map(function(e) { return { key: e[0], data: e[1], projectCount: Object.keys(e[1].projects).length }; })
         .filter(function(e) { return e.projectCount >= 2; }) // Only include patterns seen in 2+ projects
         .sort(function(a, b) { return b.projectCount - a.projectCount; })
-        .slice(0, 10); // Top 10 patterns
+        .slice(0, 20); // Top 20 patterns (increased from 10)
 
       if (sorted.length > 0) {
         lessonsLines.push('');
@@ -720,7 +720,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
         lessonsLines.push('');
         lessonsLines.push('# ⚠️ 已验证的生产规则（跨项目验证通过）');
       }
-      for (var pri = 0; pri < Math.min(promoted.length, 5); pri++) {
+      for (var pri = 0; pri < Math.min(promoted.length, 15); pri++) {
         var pr = promoted[pri];
         lessonsLines.push('- ' + (pr.description || '').substring(0, 200) + (pr.fix ? ' — 修复: ' + pr.fix.substring(0, 100) : ''));
       }

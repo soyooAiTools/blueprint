@@ -93,6 +93,12 @@ function prepareWorkDir(workDir, blueprint, prompt, skeleton, log, taskId) {
     fs.copyFileSync(behaviorSrc, path.join(workDir, 'behavior-templates.md'));
   }
 
+  // 5b. GFM_Tools_API.md — extended API documentation
+  const apiDocSrc = path.join(__dirname, 'GFM_Tools_API.md');
+  if (fs.existsSync(apiDocSrc)) {
+    fs.copyFileSync(apiDocSrc, path.join(workDir, 'GFM_Tools_API.md'));
+  }
+
   // 6. 创建 build-test.sh — 方便 Claude Code 调用编译验证
   const buildScript = `#!/bin/bash
 # 编译验证脚本：读取 GameFlowManagerMain.cs 并调用 Bridge.NET 编译
