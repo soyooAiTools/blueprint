@@ -34,12 +34,68 @@ var RULES = [
 ];
 
 /**
+ * Build a boolean mask where 1 = real code, 0 = inside string or comment
+ * Handles: line comments, block comments, regular strings, verbatim strings, char literals
+ */
+function buildCodeMask(code) {
+  var mask = new Uint8Array(code.length); // 0 = skip, 1 = code
+  var i = 0;
+  while (i < code.length) {
+    // Line comment
+    if (code[i] === '/' && code[i + 1] === '/') {
+      while (i < code.length && code[i] !== '\n') i++;
+      continue;
+    }
+    // Block comment
+    if (code[i] === '/' && code[i + 1] === '*') {
+      i += 2;
+      while (i < code.length - 1 && !(code[i] === '*' && code[i + 1] === '/')) i++;
+      i += 2;
+      continue;
+    }
+    // Verbatim string @"..."
+    if (code[i] === '@' && code[i + 1] === '"') {
+      i += 2;
+      while (i < code.length) {
+        if (code[i] === '"' && code[i + 1] === '"') { i += 2; continue; }
+        if (code[i] === '"') { i++; break; }
+        i++;
+      }
+      continue;
+    }
+    // Regular string "..."
+    if (code[i] === '"') {
+      i++;
+      while (i < code.length && code[i] !== '"' && code[i] !== '\n') {
+        if (code[i] === '\\') i++; // skip escaped char
+        i++;
+      }
+      if (i < code.length) i++; // closing quote
+      continue;
+    }
+    // Char literal '.'
+    if (code[i] === '\'') {
+      i++;
+      if (i < code.length && code[i] === '\\') i++;
+      i++;
+      if (i < code.length && code[i] === '\'') i++;
+      continue;
+    }
+    // Real code
+    mask[i] = 1;
+    i++;
+  }
+  return mask;
+}
+
+/**
  * Run static checks on C# code
  * @param {string} code - The C# source code
  * @returns {{ passed: boolean, issues: Array<{rule: string, line: number, text: string, message: string}> }}
  */
 function staticCheck(code) {
   var lines = code.split('\n');
+  var mask = buildCodeMask(code);
   var issues = [];
 
   for (var r = 0; r < RULES.length; r++) {
@@ -62,17 +118,16 @@ function staticCheck(code) {
     rule.pattern.lastIndex = 0;
     var match;
     while ((match = rule.pattern.exec(code)) !== null) {
+      // Skip if match starts inside a string or comment
+      if (!mask[match.index]) continue;
+
       // Find line number
       var pos = match.index;
       var lineNum = 1;
       for (var i = 0; i < pos; i++) {
         if (code[i] === '\n') lineNum++;
       }
-      // Skip if in a comment line
       var lineText = lines[lineNum - 1] || '';
-      var trimmed = lineText.trim();
-      if (trimmed.indexOf('//') === 0) continue; // single-line comment
-      if (trimmed.indexOf('/*') === 0) continue; // block comment start
 
       issues.push({
         rule: rule.id,

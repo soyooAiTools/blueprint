@@ -387,11 +387,26 @@ function buildStructuredFeedback(round, cuaResult, blueprint, fixHistory, csCode
   return { text: text, structured: structured };
 }
 
+/**
+ * Extract phase IDs from console messages with __PHASE__: prefix
+ */
+function extractPhaseFromConsole(consoleMessages) {
+    var phases = [];
+    for (var i = 0; i < consoleMessages.length; i++) {
+        var text = consoleMessages[i];
+        if (typeof text === 'string' && text.indexOf('__PHASE__:') === 0) {
+            phases.push(text.substring(10));
+        }
+    }
+    return phases;
+}
+
 module.exports = {
   findFiles: findFiles,
   buildRequest: buildRequest,
   reportStatus: reportStatus,
   categorizeIssue: categorizeIssue,
+  extractPhaseFromConsole: extractPhaseFromConsole,
   extractPhaseCoverage: extractPhaseCoverage,
   getIssueSeverity: getIssueSeverity,
   getFixHint: getFixHint,

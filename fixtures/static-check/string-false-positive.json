@@ -1,0 +1,8 @@
+{
+    "csCode": "using UnityEngine;\npublic class GameFlowManagerMain : MonoBehaviour {\n    void Start() {\n        Debug.Log(\"Do not use CreatePrimitive or Camera.main\");\n        var cam = GameObject.Find(\"__Camera\");\n    }\n}",
+    "expectedResult": {
+        "passed": true,
+        "issueRules": []
+    },
+    "description": "CreatePrimitive and Camera.main inside a string should NOT be flagged"
+}

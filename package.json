@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node test/stage-regression.cjs",
+    "test:stage": "node test/stage-regression.cjs --stage"
   },
   "dependencies": {
     "@google/genai": "^1.46.0",

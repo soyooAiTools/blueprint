@@ -1,0 +1,7 @@
+{
+    "csCode": "using UnityEngine;\npublic class Test : MonoBehaviour {\n    void Start() {\n        var obj = GameObject.CreatePrimitive(PrimitiveType.Cube);\n        var list = new List<int>();\n    }\n}",
+    "expectedResult": {
+        "passed": false,
+        "issueRules": ["create-primitive", "list-generic"]
+    }
+}

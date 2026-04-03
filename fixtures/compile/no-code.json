@@ -1,0 +1,8 @@
+{
+    "testAssertBefore": true,
+    "csCode": "",
+    "blueprint": {},
+    "expectedResult": {
+        "assertBeforeFails": true
+    }
+}

@@ -1,0 +1,8 @@
+{
+    "csCode": "using UnityEngine;\npublic class GameFlowManagerMain : MonoBehaviour {\n    void Start() {\n        /* \n         * CreatePrimitive is forbidden\n         * List<int> is also forbidden\n         */\n        var cam = GameObject.Find(\"__Camera\");\n    }\n}",
+    "expectedResult": {
+        "passed": true,
+        "issueRules": []
+    },
+    "description": "Forbidden APIs inside multi-line comment should NOT be flagged"
+}

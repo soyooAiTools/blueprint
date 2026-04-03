@@ -103,8 +103,76 @@ function recode(opts) {
     });
 }
 
+/**
+ * Patch-based recode — fix specific issues without full regeneration.
+ *
+ * @param {object} opts
+ * @param {string} opts.taskId
+ * @param {string} opts.currentCode   — current C# code
+ * @param {Array}  opts.issues        — structured issues [{line, message, text}]
+ * @param {object} opts.blueprint     — full blueprint
+ * @param {string} opts.label         — short label for logs
+ * @param {number} opts.round         — current fix round number
+ * @param {Function} opts.log         — logging callback(msg)
+ * @returns {Promise<{ok:boolean, code?:string, patchApplied?:boolean, error?:string}>}
+ */
+function patchRecode(opts) {
+  var createProvider = require('../lib/model-provider.cjs').createProvider;
+  var provider = createProvider('claude', {});
+
+  var codeLines = opts.currentCode.split('\n');
+  var issueDescriptions = [];
+  for (var i = 0; i < opts.issues.length; i++) {
+    var issue = opts.issues[i];
+    var issueLine = issue.line || 0;
+    var snippetParts = [];
+    if (issueLine > 0 && issueLine <= codeLines.length) {
+      var start = Math.max(0, issueLine - 5);
+      var end = Math.min(codeLines.length, issueLine + 5);
+      for (var s = start; s < end; s++) {
+        snippetParts.push('L' + (s + 1) + (s + 1 === issueLine ? ' >>>' : '    ') + ': ' + codeLines[s]);
+      }
+    }
+    issueDescriptions.push(
+      '--- Issue ' + (i + 1) + ' ---\n' +
+      'Line: ' + issueLine + '\n' +
+      'Problem: ' + (issue.message || issue.text || '') + '\n' +
+      (snippetParts.length > 0 ? 'Code context:\n' + snippetParts.join('\n') : '')
+    );
+  }
+
+  var prompt = {
+    system: 'You are fixing specific issues in a Luna playable ad C# file. Output ONLY the complete corrected file. No explanations, no markdown fences.',
+    user: 'CURRENT FULL CODE:\n' + opts.currentCode + '\n\n' +
+      'ISSUES TO FIX (do NOT modify any other code):\n' + issueDescriptions.join('\n\n') + '\n\n' +
+      'Output the COMPLETE corrected file. Only modify lines related to the issues above.\n' +
+      'Do NOT add new features, refactor, or change working code.'
+  };
+
+  opts.log('patchRecode: fixing ' + opts.issues.length + ' issues via Claude Sonnet');
+
+  return provider.generateWithRetry(prompt, { model: 'claude-sonnet-4-6', maxTokens: 30000, timeoutMs: 180000 }, 2)
+    .then(function(result) {
+      var text = (result.text || '').trim();
+      // Strip markdown fences if present
+      if (text.indexOf('```') === 0) {
+        text = text.replace(/^```[^\n]*\n/, '').replace(/\n```\s*$/, '');
+      }
+      if (text.length < 100) {
+        opts.log('patchRecode: response too short (' + text.length + ' chars)');
+        return { ok: false, error: 'patch response too short', patchApplied: false };
+      }
+      opts.log('patchRecode: got ' + text.length + ' chars');
+      return { ok: true, code: text, patchApplied: true };
+    })
+    .catch(function(err) {
+      opts.log('patchRecode failed: ' + err.message);
+      return { ok: false, error: err.message, patchApplied: false };
+    });
+}
+
 function cleanup(dir) {
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch(e) {}
 }
 
-module.exports = { recode: recode };
+module.exports = { recode: recode, patchRecode: patchRecode };

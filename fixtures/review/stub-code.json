@@ -1,0 +1,9 @@
+{
+    "testAssertBefore": true,
+    "csCode": "using UnityEngine;\npublic class Test : MonoBehaviour {\n    void Start() { }\n}",
+    "blueprint": {},
+    "expectedResult": {
+        "assertBeforeFails": true
+    },
+    "description": "Review assertBefore should reject stub code under 100 lines"
+}

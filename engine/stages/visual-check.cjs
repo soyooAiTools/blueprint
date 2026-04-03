@@ -85,9 +85,14 @@ module.exports = {
               return browser.newPage({ viewport: { width: 960, height: 640 } })
                 .then(function(page) {
                   var consoleErrors = [];
+                  var phaseLog = [];
                   page.on('console', function(msg) {
+                    var text = msg.text();
+                    if (text.indexOf('__PHASE__:') === 0) {
+                        phaseLog.push({ phase: text.substring(10), time: Date.now() });
+                    }
                     if (msg.type() === 'error' || msg.type() === 'warning') {
-                      consoleErrors.push('[' + msg.type() + '] ' + msg.text().slice(0, 300));
+                      consoleErrors.push('[' + msg.type() + '] ' + text.slice(0, 300));
                     }
                   });
                   page.on('pageerror', function(err) { consoleErrors.push('[pageerror] ' + err.message.slice(0, 300)); });
@@ -181,6 +186,10 @@ module.exports = {
           if (frameCount > 1) {
             analysisPrompt += 'You are given ' + frameCount + ' frames captured at different times (t=0s, t=3s, t=8s).\n';
             analysisPrompt += 'Check for PROGRESSION: objects should move/change between frames. If all frames are identical, the game may be stuck.\n';
+          }
+          if (phaseLog.length > 0) {
+            analysisPrompt += 'Phase progression detected from game instrumentation: ' +
+                phaseLog.map(function(p) { return p.phase; }).join(' \u2192 ') + '\n';
           }
           analysisPrompt += 'Scene: ' + sceneDesc + '\n' +
             'FAIL if: solid color screen, black screen, loading bar, empty scene, no game objects, all frames identical (no progression).\n' +

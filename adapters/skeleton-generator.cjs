@@ -267,6 +267,14 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('');
   }
 
+  // [SKELETON] Phase instrumentation for automated testing
+  lines.push('    // [SKELETON] Phase instrumentation for automated testing');
+  lines.push('    void ReportPhase(string phaseId) {');
+  lines.push('        // Bridge.NET compiles this to console.log which Playwright can capture');
+  lines.push('        UnityEngine.Debug.Log("__PHASE__:" + phaseId);');
+  lines.push('    }');
+  lines.push('');
+
   // TODO: AI declares additional variables
   lines.push('    // === TODO: AI declares pools, counters, and game-specific variables below ===');
   lines.push('    // TODO_VARIABLES_START');
@@ -425,6 +433,7 @@ function generateSkeleton(specs, opts = {}) {
       lines.push(`            ruleTriggered[${ruleIdx}] = true;`);
       lines.push(`            currentPhaseName = "${spec.phaseId}";`);
       lines.push(`            phaseEnterTimes[${ruleIdx}] = gameTimer; // [SKELETON]`);
+      lines.push(`            ReportPhase("${spec.phaseId}"); // [SKELETON] Phase instrumentation`);
       lines.push('');
 
       // [SKELETON] Anti-solid-color: place first 3 entities in phase 1
@@ -466,6 +475,7 @@ function generateSkeleton(specs, opts = {}) {
       lines.push(`            ruleTriggered[${ruleIdx}] = true;`);
       lines.push(`            currentPhaseName = "${spec.phaseId}";`);
       lines.push(`            phaseEnterTimes[${ruleIdx}] = gameTimer; // [SKELETON]`);
+      lines.push(`            ReportPhase("${spec.phaseId}"); // [SKELETON] Phase instrumentation`);
       lines.push('');
       lines.push(`            // === TODO: AI fills — activate objects for ${spec.phaseName} ===`);
       lines.push(`            // TODO_PHASE_${i + 1}_INIT_START`);
@@ -491,6 +501,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        {');
   lines.push(`            ruleTriggered[${specs.length}] = true;`);
   lines.push('            currentPhaseName = "gameEnd";');
+  lines.push('            ReportPhase("gameEnd"); // [SKELETON] Phase instrumentation');
   lines.push('            gameEnded = true;');
   lines.push('');
 

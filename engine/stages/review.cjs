@@ -8,7 +8,7 @@
 var fs = require('fs');
 var path = require('path');
 var helpers = require('../helpers.cjs');
-var { recode } = require('../recode.cjs');
+var { recode, patchRecode } = require('../recode.cjs');
 var { createFixLoop } = require('../fix-loop.cjs');
 var { staticCheck } = require('../static-check.cjs');
 
@@ -167,17 +167,47 @@ module.exports = {
             ]),
           });
 
-          return recode({
-            taskId: ctx.taskId,
-            currentCode: reviewedCode,
-            blueprint: fixBlueprint,
-            label: 'reviewfix',
-            round: round,
-            log: function(msg) { ctx.addLog('review', msg); },
-          }).then(function(recodeResult) {
+          var usePatch = reviewResult.issues && reviewResult.issues.length <= 3
+            && reviewResult.issues.every(function(i) { return i.line > 0; });
+          var fixLog = function(msg) { ctx.addLog('review', msg); };
+
+          var fixPromise;
+          if (usePatch) {
+            fixPromise = patchRecode({
+              taskId: ctx.taskId,
+              currentCode: reviewedCode,
+              issues: reviewResult.issues,
+              blueprint: fixBlueprint,
+              label: 'reviewfix',
+              round: round,
+              log: fixLog,
+            }).then(function(patchResult) {
+              if (patchResult.ok) return patchResult;
+              fixLog('patchRecode failed, falling back to full recode');
+              return recode({
+                taskId: ctx.taskId,
+                currentCode: reviewedCode,
+                blueprint: fixBlueprint,
+                label: 'reviewfix',
+                round: round,
+                log: fixLog,
+              });
+            });
+          } else {
+            fixPromise = recode({
+              taskId: ctx.taskId,
+              currentCode: reviewedCode,
+              blueprint: fixBlueprint,
+              label: 'reviewfix',
+              round: round,
+              log: fixLog,
+            });
+          }
+
+          return fixPromise.then(function(recodeResult) {
             if (recodeResult.ok) {
               reviewedCode = recodeResult.code;
-              ctx.addLog('review', 'Review fix applied (' + reviewedCode.length + ' chars)');
+              ctx.addLog('review', 'Review fix applied (' + reviewedCode.length + ' chars' + (recodeResult.patchApplied ? ', patch mode' : '') + ')');
             }
             return { done: false };
           });

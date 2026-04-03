@@ -155,6 +155,29 @@ Pipeline.prototype.run = function(ctx, onProgress) {
 
     function tryExecute() {
       attempt++;
+      // Fixture dump for testing
+      if (process.env.DUMP_FIXTURES) {
+          try {
+              var fixtureDir = path.join(__dirname, '..', 'fixtures', stage.name);
+              fs.mkdirSync(fixtureDir, { recursive: true });
+              var fixtureData = {
+                  taskId: ctx.taskId,
+                  csCode: ctx.csCode,
+                  htmlOutput: ctx.htmlOutput ? '(omitted, ' + ctx.htmlOutput.length + ' bytes)' : null,
+                  blueprint: ctx.blueprint,
+                  extraFiles: ctx.extraFiles,
+                  workDir: ctx.workDir,
+                  completedStages: ctx.completedStages.slice(),
+              };
+              fs.writeFileSync(
+                  path.join(fixtureDir, ctx.taskId + '.json'),
+                  JSON.stringify(fixtureData, null, 2)
+              );
+              ctx.addLog(stage.name, 'Fixture dumped');
+          } catch(dumpErr) {
+              // Fixture dump is best-effort, never block pipeline
+          }
+      }
       return Promise.resolve().then(function() {
         return stage.execute(ctx);
       }).then(function(result) {

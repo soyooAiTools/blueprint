@@ -8,7 +8,7 @@
 var fs = require('fs');
 var path = require('path');
 var helpers = require('../helpers.cjs');
-var { recode } = require('../recode.cjs');
+var { recode, patchRecode } = require('../recode.cjs');
 var { createFixLoop } = require('../fix-loop.cjs');
 
 var MAX_CUA_ROUNDS = 20;
@@ -119,6 +119,16 @@ module.exports = {
             var currentIssueCategory = helpers.categorizeIssue(cuaResult);
             var phaseCoverage = helpers.extractPhaseCoverage(cuaResult);
             var currentPhaseCompleted = phaseCoverage ? phaseCoverage.completed : -1;
+
+            // Prefer console-based phase tracking over VLM analysis
+            var consolePhaseCoverage = helpers.extractPhaseFromConsole(
+                (cuaResult.report && cuaResult.report.diagnostics && cuaResult.report.diagnostics.consoleMessages) || []
+            );
+            if (consolePhaseCoverage.length > 0) {
+                currentPhaseCompleted = consolePhaseCoverage.length;
+                ctx.addLog('cua-verify', 'Phase progress (instrumented): ' + consolePhaseCoverage.join(' → '));
+            }
+
             var isProgressing = currentPhaseCompleted > lastPhaseCompleted && lastPhaseCompleted > 0;
 
             if (isProgressing) {
@@ -224,14 +234,52 @@ module.exports = {
               ctx.addLog('cua-verify', 'Full regen mode (consecutive: ' + consecutiveSameIssue + ')');
             }
 
-            return recode({
-              taskId: ctx.taskId,
-              currentCode: lastCsCode,
-              blueprint: ctx.blueprint,
-              label: 'cuafix',
-              round: round,
-              log: function(msg) { ctx.addLog('cua-verify', msg); },
-            }).then(function(recodeResult) {
+            var cuaFixLog = function(msg) { ctx.addLog('cua-verify', msg); };
+            var cuaFixPromise;
+            if (isSurgicalFix && cuaResult.issues && cuaResult.issues.length <= 3) {
+              var structuredIssues = (cuaResult.issues || []).map(function(issueText, idx) {
+                var lineMatch = typeof issueText === 'string' ? issueText.match(/[Ll]ine?\s*(\d+)/) : null;
+                return {
+                  line: (lineMatch ? parseInt(lineMatch[1], 10) : 0),
+                  message: typeof issueText === 'string' ? issueText : (issueText.message || issueText.text || ''),
+                };
+              });
+              var allHaveLines = structuredIssues.every(function(i) { return i.line > 0; });
+              if (allHaveLines) {
+                cuaFixPromise = patchRecode({
+                  taskId: ctx.taskId,
+                  currentCode: lastCsCode,
+                  issues: structuredIssues,
+                  blueprint: ctx.blueprint,
+                  label: 'cuafix',
+                  round: round,
+                  log: cuaFixLog,
+                }).then(function(patchResult) {
+                  if (patchResult.ok) return patchResult;
+                  cuaFixLog('patchRecode failed, falling back to full recode');
+                  return recode({
+                    taskId: ctx.taskId,
+                    currentCode: lastCsCode,
+                    blueprint: ctx.blueprint,
+                    label: 'cuafix',
+                    round: round,
+                    log: cuaFixLog,
+                  });
+                });
+              }
+            }
+            if (!cuaFixPromise) {
+              cuaFixPromise = recode({
+                taskId: ctx.taskId,
+                currentCode: lastCsCode,
+                blueprint: ctx.blueprint,
+                label: 'cuafix',
+                round: round,
+                log: cuaFixLog,
+              });
+            }
+
+            return cuaFixPromise.then(function(recodeResult) {
               if (!recodeResult.ok) {
                 ctx.addLog('cua-verify', 'Fix re-code failed: ' + recodeResult.error);
                 return { done: false };
