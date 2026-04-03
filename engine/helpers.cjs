@@ -53,30 +53,45 @@ function handleResponse(resolve, reject) {
  * @returns {Promise}
  */
 function buildRequest(buildUrl, endpoint, csCode, extraFiles) {
-  return new Promise(function(resolve, reject) {
-    var parsedUrl = new (require('url').URL)(buildUrl + endpoint);
-    var body = JSON.stringify({ code: csCode, className: 'GameFlowManagerMain', extraFiles: extraFiles });
-    var req = http.request({
-      hostname: parsedUrl.hostname,
-      port: parsedUrl.port,
-      path: parsedUrl.pathname,
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
-      timeout: 120000,
-    }, function(res) {
-      var chunks = [];
-      res.on('data', function(c) { chunks.push(c); });
-      res.on('end', function() {
-        var buf = Buffer.concat(chunks);
-        if (endpoint === '/build-html') return resolve(buf);
-        try { resolve(JSON.parse(buf.toString())); } catch(e) { reject(new Error('Bad response: ' + buf.toString().slice(0, 200))); }
+  var MAX_RETRIES = 2;
+
+  function doRequest(attempt) {
+    return new Promise(function(resolve, reject) {
+      var parsedUrl = new (require('url').URL)(buildUrl + endpoint);
+      var body = JSON.stringify({ code: csCode, className: 'GameFlowManagerMain', extraFiles: extraFiles });
+      var req = http.request({
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port,
+        path: parsedUrl.pathname,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+        timeout: 120000,
+      }, function(res) {
+        var chunks = [];
+        res.on('data', function(c) { chunks.push(c); });
+        res.on('end', function() {
+          var buf = Buffer.concat(chunks);
+          if (endpoint === '/build-html') return resolve(buf);
+          try { resolve(JSON.parse(buf.toString())); } catch(e) { reject(new Error('Bad response: ' + buf.toString().slice(0, 200))); }
+        });
       });
+      req.on('error', reject);
+      req.on('timeout', function() { req.destroy(); reject(new Error('Build timeout')); });
+      req.write(body);
+      req.end();
+    }).catch(function(err) {
+      // Retry on timeout/connection errors (not on HTTP 4xx/5xx which are code issues)
+      var isTransient = err.message.indexOf('timeout') >= 0 || err.message.indexOf('ECONNREFUSED') >= 0 || err.message.indexOf('ECONNRESET') >= 0;
+      if (isTransient && attempt < MAX_RETRIES) {
+        return new Promise(function(resolve) { setTimeout(resolve, 2000 * attempt); }).then(function() {
+          return doRequest(attempt + 1);
+        });
+      }
+      throw err;
     });
-    req.on('error', reject);
-    req.on('timeout', function() { req.destroy(); reject(new Error('Build timeout')); });
-    req.write(body);
-    req.end();
-  });
+  }
+
+  return doRequest(1);
 }
 
 /**
@@ -115,12 +130,21 @@ function categorizeIssue(cuaResult) {
   var issues = (cuaResult.issues || []).join(' ').toLowerCase();
   if (issues.includes('solid color') || issues.includes('纯色')) return 'solid-color';
   if (issues.includes('phase-skipped') || issues.includes('phases were skipped')) return 'phase-skipped';
+  if (issues.includes('autoplay')) return 'autoplay';
   if (issues.includes('entity-incomplete')) return 'entity-incomplete';
   if (issues.includes('quick-test') || issues.includes('quick test')) return 'quick-test';
-  if (issues.includes('stuck')) return 'stuck';
+  // Distinguish stuck types: waiting-for-input vs deadlock
+  if (issues.includes('stuck')) {
+    // Check if game state shows phase > 0 (got past init) — likely waiting for input
+    var coverage = extractPhaseCoverage(cuaResult);
+    if (coverage && coverage.completed > 0) return 'stuck-waiting-input';
+    // Phase 0 stuck — likely deadlock (never initialized properly)
+    return 'stuck-deadlock';
+  }
   if (issues.includes('[cta]') || issues.includes('cta')) return 'cta-missing';
   if (issues.includes('[uncovered]') || issues.includes('not covered')) return 'uncovered-shots';
   if (issues.includes('engine-not-ready')) return 'engine-not-ready';
+  if (issues.includes('phase-coverage')) return 'phase-coverage';
   return (cuaResult.issues && cuaResult.issues[0]) ? cuaResult.issues[0].substring(0, 50) : 'unknown';
 }
 

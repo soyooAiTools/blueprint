@@ -141,7 +141,22 @@ async function buildFromCS(csCode, opts = {}) {
       return { ok: false, error: `JS output does not contain ${className} — compilation may have failed silently` };
     }
 
-    log(`[linux-build] JS generated: ${(js.length / 1024).toFixed(0)} KB`, taskId);
+    // Enhanced output validation
+    // Check for empty method bodies (Bridge.NET silent transpilation failure)
+    var methodPattern = new RegExp(className + '\.prototype\\.');
+    var methodCount = (js.match(new RegExp(className.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\.prototype\\.', 'g')) || []).length;
+    if (methodCount < 3) {
+      return { ok: false, error: `${className} has only ${methodCount} prototype methods — Bridge.NET may have silently failed (expected Start/Update/CheckEventRules)` };
+    }
+
+    // Check for required method names in transpiled output
+    var requiredMethods = ['Start', 'Update', 'CheckEventRules'];
+    var missingMethods = requiredMethods.filter(m => !js.includes(m));
+    if (missingMethods.length > 0) {
+      return { ok: false, error: `Transpiled JS missing required methods: ${missingMethods.join(', ')} — Bridge.NET transpilation incomplete` };
+    }
+
+    log(`[linux-build] JS generated: ${(js.length / 1024).toFixed(0)} KB, ${methodCount} methods`, taskId);
 
     // 7. Assemble stage4
     log('[linux-build] Assembling stage4...', taskId);
@@ -157,6 +172,12 @@ async function buildFromCS(csCode, opts = {}) {
     // 10. Convert to single HTML
     log('[linux-build] Converting to single HTML...', taskId);
     const html = convertToSingleHTML(stage4Dir);
+
+    // Validate HTML output size
+    var htmlSizeMB = html.length / (1024 * 1024);
+    if (htmlSizeMB > 25) {
+      return { ok: false, error: `HTML output too large (${htmlSizeMB.toFixed(1)}MB > 25MB limit) — check asset bundling` };
+    }
 
     const totalTime = Math.floor((Date.now() - startTime) / 1000);
     log(`[linux-build] ✅ Build complete in ${totalTime}s, HTML: ${(html.length / 1024).toFixed(0)} KB`, taskId);

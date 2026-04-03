@@ -6,17 +6,21 @@
  */
 
 var http = require('http');
-var https = require('https');
 var fs = require('fs');
 var path = require('path');
 var helpers = require('../helpers.cjs');
-var cloneStage = require('./clone.cjs');
+var { recode } = require('../recode.cjs');
+var { createFixLoop } = require('../fix-loop.cjs');
 
 var MAX_VISUAL_ROUNDS = 8;
 
 module.exports = {
   name: 'visual-check',
-  canRetry: false, // has its own internal loop
+  canRetry: false,
+  assertBefore: function(ctx) {
+    if (!ctx.htmlOutput) throw new Error('No HTML output from compile stage');
+    if (ctx.htmlOutput.length < 10240) throw new Error('HTML output too small (' + ctx.htmlOutput.length + ' bytes) — likely empty build');
+  },
   canSkip: function(ctx) {
     return process.env.SKIP_VISUAL_CHECK === 'true';
   },
@@ -34,252 +38,260 @@ module.exports = {
     var lastHtmlForVisual = ctx.htmlOutput;
     var lastCsCode = ctx.csCode;
     var lastExtraFiles = Object.assign({}, ctx.extraFiles);
-    var vRound = 0;
 
     var patchForHeadless;
     try { patchForHeadless = require('../../worker/worker-cua-verify.js').patchForHeadless; } catch(e) {}
 
-    function doVisualRound() {
-      vRound++;
-      if (vRound > MAX_VISUAL_ROUNDS) {
-        ctx.addLog('visual-check', 'Failed after ' + MAX_VISUAL_ROUNDS + ' rounds, proceeding to CUA anyway');
-        return Promise.resolve({ passed: false, rounds: vRound - 1 });
-      }
+    var loop = createFixLoop({
+      name: 'visual-check',
+      maxRounds: MAX_VISUAL_ROUNDS,
+      onExhausted: 'throw',
+      beforeRound: function(ctx, round, maxRounds) {
+        ctx.reportStatus('processing', { message: '[Linux] 视觉预检 (' + round + '/' + maxRounds + ')...', previewUrl: ctx.previewUrl });
+      },
+      attempt: function(ctx, round, maxRounds) {
+        var screenshotPath = '/tmp/visual-check-' + ctx.taskId + '-r' + round + '.png';
+        var tmpBuildDir = '/tmp/visual-check-build-' + ctx.taskId + '-r' + round;
+        fs.mkdirSync(tmpBuildDir, { recursive: true });
+        fs.writeFileSync(path.join(tmpBuildDir, 'index.html'), lastHtmlForVisual);
 
-      if (ctx.reportStatus) {
-        ctx.reportStatus('processing', { message: '[Linux] 视觉预检 (' + vRound + '/' + MAX_VISUAL_ROUNDS + ')...', previewUrl: ctx.previewUrl });
-      }
+        var visualServer;
 
-      var screenshotPath = '/tmp/visual-check-' + ctx.taskId + '-r' + vRound + '.png';
-      var tmpBuildDir = '/tmp/visual-check-build-' + ctx.taskId + '-r' + vRound;
-      fs.mkdirSync(tmpBuildDir, { recursive: true });
-      fs.writeFileSync(path.join(tmpBuildDir, 'index.html'), lastHtmlForVisual);
-
-      var visualServer, visualPort;
-
-      return new Promise(function(resolve, reject) {
-        // Start local HTTP server with headless patches
-        var srv = http.createServer(function(req, res) {
-          var fp = path.join(tmpBuildDir, req.url === '/' ? 'index.html' : req.url).split('?')[0];
-          if (!fs.existsSync(fp)) { res.writeHead(404); res.end(); return; }
-          var ext = path.extname(fp).toLowerCase();
-          if ((ext === '.html' || ext === '.js') && patchForHeadless) {
-            try {
-              var patched = patchForHeadless(fs.readFileSync(fp, 'utf8'), path.basename(fp));
-              res.writeHead(200, { 'Content-Type': ext === '.html' ? 'text/html' : 'application/javascript' });
-              res.end(patched.content); return;
-            } catch(e) {}
-          }
-          res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
-          fs.createReadStream(fp).pipe(res);
-        });
-        srv.listen(0, '127.0.0.1', function() {
-          visualServer = srv;
-          visualPort = srv.address().port;
-          resolve();
-        });
-        srv.on('error', reject);
-      })
-      .then(function() {
-        var chromium = require('playwright').chromium;
-        return chromium.launch({ headless: true, args: ['--no-sandbox'] });
-      })
-      .then(function(browser) {
-        return browser.newPage({ viewport: { width: 960, height: 640 } })
-          .then(function(page) {
-            var consoleErrors = [];
-            page.on('console', function(msg) {
-              if (msg.type() === 'error' || msg.type() === 'warning') {
-                consoleErrors.push('[' + msg.type() + '] ' + msg.text().slice(0, 300));
-              }
-            });
-            page.on('pageerror', function(err) { consoleErrors.push('[pageerror] ' + err.message.slice(0, 300)); });
-
-            return page.goto('http://127.0.0.1:' + visualPort + '/index.html', { waitUntil: 'load', timeout: 30000 })
-              .then(function() {
-                // Wait for engine readiness
-                var waitStep = 0;
-                function waitEngine() {
-                  if (waitStep >= 20) return Promise.resolve(false);
-                  waitStep++;
-                  return page.waitForTimeout(1000).then(function() {
-                    return page.evaluate(function() {
-                      return typeof UnityEngine !== 'undefined' && typeof Bridge !== 'undefined'
-                        && !!UnityEngine.Camera && !!UnityEngine.Camera.main;
-                    }).catch(function() { return false; });
-                  }).then(function(ready) {
-                    if (ready) return page.waitForTimeout(2000).then(function() { return true; });
-                    return waitEngine();
+        return new Promise(function(resolve, reject) {
+          var srv = http.createServer(function(req, res) {
+            var fp = path.join(tmpBuildDir, req.url === '/' ? 'index.html' : req.url).split('?')[0];
+            if (!fs.existsSync(fp)) { res.writeHead(404); res.end(); return; }
+            var ext = path.extname(fp).toLowerCase();
+            if ((ext === '.html' || ext === '.js') && patchForHeadless) {
+              try {
+                var patched = patchForHeadless(fs.readFileSync(fp, 'utf8'), path.basename(fp));
+                res.writeHead(200, { 'Content-Type': ext === '.html' ? 'text/html' : 'application/javascript' });
+                res.end(patched.content); return;
+              } catch(e) {}
+            }
+            res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+            fs.createReadStream(fp).pipe(res);
+          });
+          srv.listen(0, '127.0.0.1', function() {
+            visualServer = srv;
+            resolve(srv.address().port);
+          });
+          srv.on('error', reject);
+        })
+        .then(function(visualPort) {
+          var chromium = require('playwright').chromium;
+          return chromium.launch({ headless: true, args: ['--no-sandbox'] })
+            .then(function(browser) {
+              return browser.newPage({ viewport: { width: 960, height: 640 } })
+                .then(function(page) {
+                  var consoleErrors = [];
+                  page.on('console', function(msg) {
+                    if (msg.type() === 'error' || msg.type() === 'warning') {
+                      consoleErrors.push('[' + msg.type() + '] ' + msg.text().slice(0, 300));
+                    }
                   });
-                }
-                return waitEngine();
-              })
-              .then(function() {
-                return page.screenshot({ path: screenshotPath });
-              })
-              .then(function() {
-                return browser.close().then(function() {
-                  try { visualServer.close(); } catch(e) {}
-                  try { fs.rmSync(tmpBuildDir, { recursive: true, force: true }); } catch(e) {}
-                  return { screenshotPath: screenshotPath, consoleErrors: consoleErrors };
+                  page.on('pageerror', function(err) { consoleErrors.push('[pageerror] ' + err.message.slice(0, 300)); });
+
+                  return page.goto('http://127.0.0.1:' + visualPort + '/index.html', { waitUntil: 'load', timeout: 30000 })
+                    .then(function() {
+                      var waitStep = 0;
+                      function waitEngine() {
+                        if (waitStep >= 20) return Promise.resolve(false);
+                        waitStep++;
+                        return page.waitForTimeout(1000).then(function() {
+                          return page.evaluate(function() {
+                            return typeof UnityEngine !== 'undefined' && typeof Bridge !== 'undefined'
+                              && !!UnityEngine.Camera && !!UnityEngine.Camera.main;
+                          }).catch(function() { return false; });
+                        }).then(function(ready) {
+                          if (ready) return page.waitForTimeout(2000).then(function() { return true; });
+                          return waitEngine();
+                        });
+                      }
+                      return waitEngine();
+                    })
+                    .then(function() {
+                      // Multi-frame capture: t=0s, t=3s, t=8s
+                      var frames = [];
+                      var frameDelays = [0, 3000, 5000]; // cumulative: 0, 3s, 8s
+                      var frameIdx = 0;
+                      function captureNextFrame() {
+                        if (frameIdx >= frameDelays.length) return Promise.resolve();
+                        var delay = frameDelays[frameIdx];
+                        var framePath = screenshotPath.replace('.png', '-f' + frameIdx + '.png');
+                        return page.waitForTimeout(delay)
+                          .then(function() { return page.screenshot({ path: framePath }); })
+                          .then(function() {
+                            frames.push({ path: framePath, timeMs: (frameIdx === 0 ? 0 : frameIdx === 1 ? 3000 : 8000) });
+                            frameIdx++;
+                            return captureNextFrame();
+                          });
+                      }
+                      return captureNextFrame().then(function() {
+                        return page.context().close().catch(function() {}).then(function() {
+                          return browser.close();
+                        }).then(function() {
+                          try { visualServer.close(); } catch(e) {}
+                          try { fs.rmSync(tmpBuildDir, { recursive: true, force: true }); } catch(e) {}
+                          return { frames: frames, consoleErrors: consoleErrors };
+                        });
+                      });
+                    });
                 });
+            });
+        })
+        .then(function(result) {
+          // Build multi-frame analysis
+          var frameImages = [];
+          if (result.frames && result.frames.length > 0) {
+            for (var fi = 0; fi < result.frames.length; fi++) {
+              try { frameImages.push({ base64: fs.readFileSync(result.frames[fi].path).toString('base64'), timeMs: result.frames[fi].timeMs }); } catch(e) {}
+            }
+          }
+          var imgBase64 = frameImages.length > 0 ? frameImages[0].base64 : '';
+          var sceneDesc = 'A game scene with multiple colored objects';
+          var expectedEntities = '';
+          var cameraInfo = '';
+          try {
+            var shots = ctx.blueprint.shots || (ctx.blueprint.storyboard && ctx.blueprint.storyboard.frames) || [];
+            if (shots.length > 0) {
+              var shot1 = shots[0].data || shots[0];
+              sceneDesc = shot1.sceneDescription || shot1.description || shot1.title || sceneDesc;
+            }
+            // Inject expected entities from blueprint
+            if (ctx.blueprint.entities && ctx.blueprint.entities.length > 0) {
+              expectedEntities = ctx.blueprint.entities.slice(0, 8).map(function(e) { return e.name + (e.poolName ? ' (' + e.poolName + ')' : ''); }).join(', ');
+            } else if (ctx.blueprint.entityPoolMap) {
+              var epKeys = Object.keys(ctx.blueprint.entityPoolMap).slice(0, 8);
+              expectedEntities = epKeys.map(function(k) { return k + ' (' + ctx.blueprint.entityPoolMap[k] + ')'; }).join(', ');
+            }
+            // Camera info from blueprint settings
+            var gs = ctx.blueprint.globalSettings || {};
+            if (gs.cameraType) cameraInfo = 'Camera: ' + gs.cameraType + (gs.cameraDistance ? ' distance=' + gs.cameraDistance : '');
+          } catch(e) {}
+
+          var frameCount = frameImages.length;
+          var analysisPrompt = 'You are a playable ad visual quality inspector.\n';
+          if (expectedEntities) {
+            analysisPrompt += 'Expected visible entities: ' + expectedEntities + '\n';
+          }
+          if (cameraInfo) {
+            analysisPrompt += cameraInfo + '\n';
+          }
+          if (frameCount > 1) {
+            analysisPrompt += 'You are given ' + frameCount + ' frames captured at different times (t=0s, t=3s, t=8s).\n';
+            analysisPrompt += 'Check for PROGRESSION: objects should move/change between frames. If all frames are identical, the game may be stuck.\n';
+          }
+          analysisPrompt += 'Scene: ' + sceneDesc + '\n' +
+            'FAIL if: solid color screen, black screen, loading bar, empty scene, no game objects, all frames identical (no progression).\n' +
+            'PASS if: multiple colored game objects visible AND (if multi-frame) some visual change between frames.\n' +
+            'Reply JSON only: {"passed": true/false, "reason": "brief explanation"}';
+
+          var claudeProvider = require('../../lib/model-provider.cjs').createProvider('claude', {});
+          // Send all frames if multiple available
+          var visionImages = frameCount > 1 ? frameImages.map(function(f) { return f.base64; }) : imgBase64;
+          return claudeProvider.generateVision(visionImages, analysisPrompt, { model: 'claude-sonnet-4-6', maxTokens: 300, timeoutMs: 60000 })
+            .then(function(visionResult) {
+              var jsonMatch = (visionResult.text || '').match(/\{[\s\S]*\}/);
+              if (jsonMatch) return JSON.parse(jsonMatch[0]);
+              return { passed: false, reason: 'Could not parse analysis response' };
+            })
+            .catch(function(err) {
+              ctx.addLog('visual-check', 'Vision API error: ' + err.message);
+              return { passed: false, reason: 'Vision API unavailable: ' + err.message };
+            })
+            .then(function(analysis) {
+              ctx.addLog('visual-check', (analysis.passed ? 'PASSED' : 'FAILED') + ' — ' + analysis.reason);
+
+              if (analysis.passed) {
+                ctx.htmlOutput = lastHtmlForVisual;
+                ctx.csCode = lastCsCode;
+                return { done: true, result: { passed: true, rounds: round } };
+              }
+
+              if (round >= maxRounds) {
+                ctx.htmlOutput = lastHtmlForVisual;
+                ctx.csCode = lastCsCode;
+                return { done: true, result: { passed: false, rounds: round } };
+              }
+
+              // Visual fix
+              ctx.reportStatus('processing', { message: '[Linux] 视觉预检失败: ' + analysis.reason + '，AI修复中...', previewUrl: ctx.previewUrl });
+
+              if (!ctx.blueprint.feedbackHistory) ctx.blueprint.feedbackHistory = [];
+              var diagText = '';
+              if (result.consoleErrors && result.consoleErrors.length > 0) {
+                diagText += '\n\nJavaScript Runtime Errors:\n' + result.consoleErrors.slice(0, 15).join('\n');
+              }
+              ctx.blueprint.feedbackHistory.push({
+                data: { text: 'Visual pre-check failed (round ' + round + '): ' + analysis.reason + diagText },
+                source: 'visual-precheck-round-' + round,
+                status: 'pending',
+                timestamp: Date.now(),
               });
-          });
-      })
-      .then(function(result) {
-        // Analyze screenshot with Claude Sonnet
-        var imgBase64 = fs.readFileSync(result.screenshotPath).toString('base64');
-        var sceneDesc = 'A game scene with multiple colored objects';
-        try {
-          var shots = ctx.blueprint.shots || (ctx.blueprint.storyboard && ctx.blueprint.storyboard.frames) || [];
-          if (shots.length > 0) {
-            var shot1 = shots[0].data || shots[0];
-            sceneDesc = shot1.sceneDescription || shot1.description || shot1.title || sceneDesc;
-          }
-        } catch(e) {}
 
-        var analysisPrompt = 'You are a playable ad visual quality inspector.\nAnalyze this game screenshot.\n' +
-          'Scene: ' + sceneDesc + '\n' +
-          'FAIL if: solid color screen, black screen, loading bar, empty scene, no game objects.\n' +
-          'PASS if: multiple colored game objects visible.\n' +
-          'Reply JSON only: {"passed": true/false, "reason": "brief explanation"}';
+              // Record visual failures to pending-rules for knowledge retention
+              try {
+                var codeReviewer = require('../../worker/code-reviewer.js');
+                codeReviewer.recordNewIssues([{
+                  severity: 'critical',
+                  description: '[Visual] ' + analysis.reason.slice(0, 200),
+                  rule: 'Visual Check',
+                  fix: 'Fix visual layout/rendering issue',
+                  line: '',
+                }], ctx.taskId).catch(function() {});
+              } catch(e) {}
 
-        // Use modelProvider for vision analysis
-        var claudeProvider = require('../../lib/model-provider.cjs').createProvider('claude', {});
-        return claudeProvider.generateVision(imgBase64, analysisPrompt, { model: 'claude-sonnet-4-6', maxTokens: 200, timeoutMs: 60000 })
-          .then(function(visionResult) {
-            var jsonMatch = (visionResult.text || '').match(/\{[\s\S]*\}/);
-            if (jsonMatch) return JSON.parse(jsonMatch[0]);
-            return { passed: true, reason: 'Could not parse analysis, assuming pass' };
-          })
-          .catch(function(err) {
-            return { passed: true, reason: 'Vision API error: ' + err.message + ', assuming pass' };
-          })
-          .then(function(analysis) {
-          ctx.addLog('visual-check', 'Round ' + vRound + ': ' + (analysis.passed ? 'PASSED' : 'FAILED') + ' — ' + analysis.reason);
-
-          if (analysis.passed) {
-            ctx.htmlOutput = lastHtmlForVisual;
-            ctx.csCode = lastCsCode;
-            return { passed: true, rounds: vRound };
-          }
-
-          if (vRound >= MAX_VISUAL_ROUNDS) {
-            ctx.htmlOutput = lastHtmlForVisual;
-            ctx.csCode = lastCsCode;
-            return { passed: false, rounds: vRound };
-          }
-
-          // Visual fix: re-code + rebuild
-          if (ctx.reportStatus) {
-            ctx.reportStatus('processing', { message: '[Linux] 视觉预检失败: ' + analysis.reason + '，AI修复中...', previewUrl: ctx.previewUrl });
-          }
-
-          if (!ctx.blueprint.feedbackHistory) ctx.blueprint.feedbackHistory = [];
-          var diagText = '';
-          if (result.consoleErrors && result.consoleErrors.length > 0) {
-            diagText += '\n\nJavaScript Runtime Errors:\n' + result.consoleErrors.slice(0, 15).join('\n');
-          }
-          ctx.blueprint.feedbackHistory.push({
-            data: { text: 'Visual pre-check failed (round ' + vRound + '): ' + analysis.reason + diagText },
-            source: 'visual-precheck-round-' + vRound,
-            status: 'pending',
-            timestamp: Date.now(),
-          });
-
-          // Re-code
-          var vFixDir = path.join(require('os').tmpdir(), 'linux-vfix-' + ctx.taskId + '-r' + vRound);
-          if (fs.existsSync(vFixDir)) fs.rmSync(vFixDir, { recursive: true, force: true });
-
-          try {
-            cloneStage.getBaseTemplate(vFixDir, function(msg) { ctx.addLog('visual-check', msg); }, ctx.taskId);
-          } catch(e) {
-            ctx.addLog('visual-check', 'Visual fix git clone failed: ' + e.message);
-            ctx.htmlOutput = lastHtmlForVisual;
-            ctx.csCode = lastCsCode;
-            return { passed: false, rounds: vRound, error: 'clone failed' };
-          }
-
-          var vFixAssetsDir = path.join(vFixDir, 'Assets', 'Program', 'Script', 'Manager');
-          fs.mkdirSync(vFixAssetsDir, { recursive: true });
-          fs.writeFileSync(path.join(vFixAssetsDir, 'GameFlowManagerMain.cs'), lastCsCode);
-
-          var USE_CLAUDE_CODE = process.env.USE_CLAUDE_CODE !== 'false';
-          var generator;
-          try {
-            generator = USE_CLAUDE_CODE
-              ? require('../../worker/claude-code-coder.js').generateWithClaudeCode
-              : require('../../worker/worker-coder.js').generateCodeV5;
-          } catch(e) {
-            try { fs.rmSync(vFixDir, { recursive: true, force: true }); } catch(e2) {}
-            ctx.htmlOutput = lastHtmlForVisual;
-            ctx.csCode = lastCsCode;
-            return { passed: false, rounds: vRound };
-          }
-
-          return generator(ctx.blueprint, vFixDir, function(msg) { ctx.addLog('visual-check', msg); }, ctx.taskId, 'unity')
-            .then(function(fixResult) {
-              if (!fixResult.ok) {
-                ctx.addLog('visual-check', 'Visual fix re-code failed');
-                try { fs.rmSync(vFixDir, { recursive: true, force: true }); } catch(e) {}
-                ctx.htmlOutput = lastHtmlForVisual;
-                ctx.csCode = lastCsCode;
-                return { passed: false, rounds: vRound };
-              }
-
-              var fixCsFiles = helpers.findFiles(vFixDir, '.cs');
-              var fixMainCs = null;
-              for (var i = 0; i < fixCsFiles.length; i++) {
-                if (fixCsFiles[i].indexOf('GameFlowManagerMain.cs') !== -1) { fixMainCs = fixCsFiles[i]; break; }
-              }
-              if (!fixMainCs) {
-                try { fs.rmSync(vFixDir, { recursive: true, force: true }); } catch(e) {}
-                ctx.htmlOutput = lastHtmlForVisual;
-                ctx.csCode = lastCsCode;
-                return { passed: false, rounds: vRound };
-              }
-
-              lastCsCode = fs.readFileSync(fixMainCs, 'utf-8');
-              try { fs.rmSync(vFixDir, { recursive: true, force: true }); } catch(e) {}
-
-              // Rebuild
-              if (ctx.reportStatus) {
-                ctx.reportStatus('building', { message: '[Linux] 视觉修复重编译 (round ' + (vRound + 1) + ')...' });
-              }
-
-              return helpers.buildRequest(buildUrl, '/build', lastCsCode, lastExtraFiles)
-                .then(function(buildResult) {
-                  if (!buildResult.ok) throw new Error('Visual fix rebuild failed');
-                  ctx.addLog('visual-check', 'Visual fix rebuild OK in ' + buildResult.buildTime + 's');
-
-                  // Download new HTML (with retry)
-                  return helpers.buildRequest(buildUrl, '/build-html', lastCsCode, lastExtraFiles);
-                })
-                .then(function(newHtml) {
-                  lastHtmlForVisual = newHtml;
-                  lastExtraFiles = Object.assign({}, ctx.extraFiles);
-                  fs.writeFileSync(path.join(previewDir, 'index.html'), lastHtmlForVisual);
-                  return doVisualRound();
-                })
-                .catch(function(err) {
-                  ctx.addLog('visual-check', 'Visual fix rebuild error: ' + err.message);
+              return recode({
+                taskId: ctx.taskId,
+                currentCode: lastCsCode,
+                blueprint: ctx.blueprint,
+                label: 'vfix',
+                round: round,
+                log: function(msg) { ctx.addLog('visual-check', msg); },
+              }).then(function(recodeResult) {
+                if (!recodeResult.ok) {
+                  ctx.addLog('visual-check', 'Visual fix re-code failed: ' + recodeResult.error);
                   ctx.htmlOutput = lastHtmlForVisual;
                   ctx.csCode = lastCsCode;
-                  return { passed: false, rounds: vRound };
-                });
-            });
-        });
-      })
-      .catch(function(err) {
-        ctx.addLog('visual-check', 'Round ' + vRound + ' error: ' + err.message);
-        try { if (visualServer) visualServer.close(); } catch(e) {}
-        try { fs.rmSync(tmpBuildDir, { recursive: true, force: true }); } catch(e) {}
-        ctx.htmlOutput = lastHtmlForVisual;
-        ctx.csCode = lastCsCode;
-        return { passed: true, reason: 'error bypass' }; // Don't block on visual check errors
-      });
-    }
+                  return { done: true, result: { passed: false, rounds: round } };
+                }
 
-    return doVisualRound();
+                lastCsCode = recodeResult.code;
+                ctx.reportStatus('building', { message: '[Linux] 视觉修复重编译 (round ' + (round + 1) + ')...' });
+
+                return helpers.buildRequest(buildUrl, '/build', lastCsCode, lastExtraFiles)
+                  .then(function(buildResult) {
+                    if (!buildResult.ok) throw new Error('Visual fix rebuild failed');
+                    ctx.addLog('visual-check', 'Visual fix rebuild OK in ' + buildResult.buildTime + 's');
+                    return helpers.buildRequest(buildUrl, '/build-html', lastCsCode, lastExtraFiles);
+                  })
+                  .then(function(newHtml) {
+                    lastHtmlForVisual = newHtml;
+                    lastExtraFiles = Object.assign({}, ctx.extraFiles);
+                    fs.writeFileSync(path.join(previewDir, 'index.html'), lastHtmlForVisual);
+                    return { done: false };
+                  })
+                  .catch(function(err) {
+                    ctx.addLog('visual-check', 'Visual fix rebuild error: ' + err.message);
+                    ctx.htmlOutput = lastHtmlForVisual;
+                    ctx.csCode = lastCsCode;
+                    return { done: true, result: { passed: false, rounds: round } };
+                  });
+              });
+            });
+        })
+        .catch(function(err) {
+          ctx.addLog('visual-check', 'Error: ' + err.message);
+          try { if (visualServer) visualServer.close(); } catch(e) {}
+          try { fs.rmSync(tmpBuildDir, { recursive: true, force: true }); } catch(e) {}
+          ctx.htmlOutput = lastHtmlForVisual;
+          ctx.csCode = lastCsCode;
+          return { done: true, result: { passed: false, reason: 'playwright error: ' + err.message } };
+        });
+      },
+    });
+
+    return loop.run(ctx);
   },
 };

@@ -79,6 +79,14 @@ const REVIEW_RULES = `
 - Call order matters: GameEnded() MUST be called before InstallFullGame() — reversed order causes integration failures
 - Must have Start() and Update() methods
 - Must NOT modify or redefine GFM_Tools.cs classes
+### 4b. Phase Architecture Verification (MECHANICAL CHECK — count, don't guess)
+- Count all ruleTriggered[N] references in CheckEventRules() — the highest N+1 MUST equal the expected phase count from blueprint
+- Every ruleTriggered[N] block MUST have a real condition (NOT just "true" or timer-only) — at least one entity state check or interaction flag
+- Every phase transition MUST include a phaseTimer >= Nf dwell guard (prevents instant skip)
+- Every phase MUST have real completion conditions (entity states, interaction flags, counters) — NOT timer-only or unconditional. Phase progression MUST require actual player actions (click/drag/move), never auto-complete
+- Variables referenced in trigger conditions (e.g. iceCrystalState, goldState) MUST be declared and MUST be modified somewhere in Update() or a helper method
+- If ruleTriggered[] array size < number of phases described in the prompt → INSTANT FAIL (phases were collapsed or removed)
+- CheckEventRules() MUST be called from Update() — verify the call chain exists
 
 ## Tier 2 — LIKELY FAIL (high probability of runtime issues)
 
@@ -114,6 +122,7 @@ const REVIEW_RULES = `
 - Kill counters for phase progression MUST only count player-caused kills — enemies self-destructing/escaping must NOT count
 - Auto-targeting (player clicks but target is auto-selected) still violates interaction requirements for turret/combat gameplay
 - Player input must drive phase progression — CUA needs to interact
+- Phase progression MUST be driven by player interaction (PlayableAgent operates) — NEVER auto-advance phases via timer, animation callback, or scripted sequence
 
 ### 8. Incremental Fix Constraints
 - Removing phase logic from CheckEventRules() to "fix" compile errors = REJECTED (content regression)
@@ -160,7 +169,7 @@ const REVIEW_RULES = `
 - Phase tracking: currentPhaseName, ruleTriggered[], phaseTimer, phaseEnterTimes[]
 - CheckEventRules() with bool[] ruleTriggered — each phase has trigger condition + min dwell time
 - Entity states tracked as int variables (0=waiting, 1=building, 2=built)
-- All code in ONE file: GameFlowManagerMain.cs
+- Main code in GameFlowManagerMain.cs (may use partial class for large files)
 `;
 
 // Dynamic rules: auto-promoted from pending-rules when ≥2 different projects hit the same issue.
@@ -299,29 +308,35 @@ function savePendingRules(rules) {
  */
 function isKnownIssue(issue) {
   var desc = (issue.description || '').toLowerCase();
-  var rule = (issue.rule || '').toLowerCase();
-  var combined = desc + ' ' + rule;
-
-  // Check against static REVIEW_RULES
+  if (!desc) return false;
+  
+  // Extract keywords for semantic matching (not exact string match)
+  var keywords = desc.replace(/[^a-z0-9_\s]/g, '').split(/\s+/).filter(function(w) { return w.length > 3; });
+  if (keywords.length === 0) return false;
+  
+  // Check against REVIEW_RULES text
   var rulesLower = REVIEW_RULES.toLowerCase();
-  // Extract key phrases (3+ word chunks) and check if already in rules
-  var keywords = combined.match(/[a-zA-Z_][a-zA-Z0-9_.]+/g) || [];
   var matchCount = 0;
-  for (var i = 0; i < keywords.length; i++) {
-    if (keywords[i].length > 4 && rulesLower.indexOf(keywords[i].toLowerCase()) !== -1) {
-      matchCount++;
-    }
+  for (var ki = 0; ki < keywords.length; ki++) {
+    if (rulesLower.indexOf(keywords[ki]) >= 0) matchCount++;
   }
-  // If more than 40% of significant keywords already in rules, consider it known
-  if (keywords.length > 0 && matchCount / keywords.length > 0.4) return true;
-
-  // Check against pending rules
+  // If >60% of keywords found in existing rules, consider it known
+  if (matchCount / keywords.length > 0.6) return true;
+  
+  // Check against pending rules with semantic similarity
   var pending = loadPendingRules();
   for (var j = 0; j < pending.length; j++) {
     var pDesc = (pending[j].description || '').toLowerCase();
-    if (pDesc === desc) return true;
+    var pKeywords = pDesc.replace(/[^a-z0-9_\s]/g, '').split(/\s+/).filter(function(w) { return w.length > 3; });
+    if (pKeywords.length === 0) continue;
+    
+    // Jaccard-like similarity: shared keywords / total unique keywords
+    var shared = 0;
+    for (var sk = 0; sk < keywords.length; sk++) {
+      if (pDesc.indexOf(keywords[sk]) >= 0) shared++;
+    }
+    if (shared / keywords.length > 0.5) return true; // >50% keyword overlap = same issue
   }
-
   return false;
 }
 
@@ -544,18 +559,27 @@ Every rule below comes from real production incidents. If you miss a violation, 
 ${REVIEW_RULES}
 ${getDynamicRulesText()}
 
+## Review Strategy — TIERED CHECKING (IMPORTANT)
+Check rules IN ORDER of tier. If Tier 1 has ANY violation, you may STOP checking lower tiers.
+This prevents wasting attention on Tier 3 style issues when critical Tier 1 bugs exist.
+
+1. First: Check ALL Tier 1 rules (instant fail). Count violations.
+2. If Tier 1 has 0 violations: Check Tier 2 rules.
+3. If Tier 1+2 have 0 violations: Check Tier 3 rules.
+
 ## Output Format
 Respond with a JSON object (no markdown, no code fences):
 {
   "verdict": "PASS" or "FAIL",
+  "tierChecked": 1 or 2 or 3,
   "issues": [
-    { "severity": "critical|warning", "line": "approximate line or method name", "rule": "which rule violated", "description": "what's wrong", "fix": "how to fix it" }
+    { "severity": "critical|warning", "tier": 1, "line": "approximate line or method name", "rule": "which rule violated", "description": "what's wrong", "fix": "how to fix it" }
   ],
   "summary": "one-line summary"
 }
 
-- "critical" issues = code will definitely break at runtime (wrong API, missing using, concept names instead of __Pool_*)
-- "warning" issues = code might work but violates best practices
+- "critical" issues (Tier 1/2) = code will definitely break at runtime
+- "warning" issues (Tier 3) = code might work but violates best practices
 - Verdict is FAIL if there are ANY critical issues
 - Verdict is PASS if only warnings or no issues`;
 
