@@ -404,13 +404,12 @@ async function processTask(task) {
       return;
     }
 
-    if (!blueprint || !blueprint.nodes || blueprint.nodes.length === 0) {
-      log('Empty blueprint, skipping', taskId);
-      await reportStatus(taskId, 'failed', { message: 'Empty blueprint' });
+    if (!blueprint || !blueprint.entities || !Array.isArray(blueprint.entities) || blueprint.entities.length === 0) {
+      log('Empty blueprint (no entities)', taskId);
+      await reportStatus(taskId, 'failed', { message: 'Empty blueprint - no entities found' });
       return;
     }
-
-    log(`Blueprint: ${blueprint.nodes.length} nodes, ${(blueprint.edges || []).length} edges`, taskId);
+    log(`Blueprint: ${blueprint.entities.length} entities`, taskId);
 
     // Check for existing checkpoint (resume after worker restart)
     const checkpoint = loadCheckpoint(taskId);
@@ -851,7 +850,7 @@ async function processTask(task) {
         let sceneDesc = 'A game scene with multiple colored objects';
         let expectedObjects = [];
         try {
-          const shots = blueprint.shots || blueprint.nodes || [];
+          const shots = blueprint.shots || (blueprint.storyboard && blueprint.storyboard.frames) || [];
           if (shots.length > 0) {
             const shot1 = shots[0].data || shots[0];
             sceneDesc = shot1.sceneDescription || shot1.description || shot1.title || sceneDesc;

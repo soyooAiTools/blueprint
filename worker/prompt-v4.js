@@ -40,24 +40,10 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   opts = opts || {};
   var entities = blueprint.entities || [];
   
-  // 从 nodes 提取事件规则
+  // 从 phases 提取事件规则 (V4 only)
   var rules = blueprint.phases || [];
-  if (rules.length === 0 && blueprint.nodes) {
-    rules = blueprint.nodes
-      .filter(function(n) { return n.type === 'phaseNode'; })
-      .map(function(n) {
-        var d = n.data || {};
-        return {
-          id: d.phaseId || 0,
-          name: d.name || d.label || '',
-          triggerCondition: d.triggerCondition || d.endCondition || '',
-          activate: d.activate || [],
-          actions: d.actions || [],
-          guide: d.guide || '',
-          camera: d.camera || null,
-        };
-      })
-      .sort(function(a, b) { return (a.id || 0) - (b.id || 0); });
+  if (rules.length === 0) {
+    throw new Error('No phases found in blueprint. V3 node fallback has been removed — please ensure blueprint has phases defined.');
   }
 
   // 如果 rules 只有 endCondition 没有 triggerCondition（旧格式），自动转换

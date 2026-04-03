@@ -165,24 +165,10 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   opts = opts || {};
   var entities = blueprint.entities || [];
   
-  // 从 nodes 提取事件规则（同 V4 逻辑）
+  // 从 phases 提取事件规则 (V4 only)
   var rules = blueprint.phases || [];
-  if (rules.length === 0 && blueprint.nodes) {
-    rules = blueprint.nodes
-      .filter(function(n) { return n.type === 'phaseNode'; })
-      .map(function(n) {
-        var d = n.data || {};
-        return {
-          id: d.phaseId || n.id,
-          name: d.name || d.label || '',
-          triggerCondition: d.triggerCondition || d.endCondition || '',
-          activate: d.activate || [],
-          actions: d.actions || [],
-          guide: d.guide || '',
-          camera: d.camera || null,
-        };
-      })
-      .sort(function(a, b) { return (a.id || 0) - (b.id || 0); });
+  if (rules.length === 0) {
+    throw new Error('No phases found in blueprint. V3 node fallback has been removed — please ensure blueprint has phases defined.');
   }
 
   // triggerCondition 自动转换（同 V4）

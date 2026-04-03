@@ -41,6 +41,9 @@
 | 转换 | convertToSingleHTML 内联打包（~7MB） |
 | 版本控制 | SVN + Git |
 
+> **注意**: 自 2026-04-03 起，仅支持 V4 entity-driven 蓝图格式（`entities[]` + `phases[]` + `specs[]`）。
+> V3 node-based 格式（`shotNode` + `objectRegistry`）已废弃，相关代码已归档至 `_deprecated_v3/`。
+
 ## Luna 构建方案
 
 Linux ECS 上直接用 MSBuild + Bridge.NET 编译 C# → JS，拼接到 Luna 7.1.0 引擎。

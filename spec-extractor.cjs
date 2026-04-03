@@ -153,70 +153,105 @@ ${contextText}
 
 请提取每个章节的体验规格。`;
 
-  let result;
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  const expectedCount = Object.keys(chapters).length;
+  const minAcceptable = Math.ceil(expectedCount * 0.5);
+  const MAX_TRUNCATION_RETRIES = 2;
+
+  let validated;
+
+  for (let truncRetry = 0; truncRetry <= MAX_TRUNCATION_RETRIES; truncRetry++) {
+    let result;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        console.log(`[SpecExtractor] Calling Doubao (attempt ${attempt}/3, round ${truncRetry + 1}/${MAX_TRUNCATION_RETRIES + 1})...`);
+        result = await ai.models.generateContent({
+          model: 'doubao-seed-2-0-pro-260215',
+          contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+          config: {
+            temperature: 0.2,
+            maxOutputTokens: 16384,
+            systemInstruction: SYSTEM_PROMPT,
+          },
+        });
+        break;
+      } catch (err) {
+        console.error(`[SpecExtractor] Attempt ${attempt} failed: ${err.message?.substring(0, 100)}`);
+        if (attempt === 3) throw err;
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+
+    const rawText = result.text || '';
+
+    // Parse JSON from response
+    let jsonStr;
+    const codeBlock = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (codeBlock) {
+      jsonStr = codeBlock[1].trim();
+    } else {
+      const startIdx = rawText.search(/[\[{]/);
+      if (startIdx >= 0) {
+        jsonStr = rawText.substring(startIdx);
+        const lastBracket = Math.max(jsonStr.lastIndexOf(']'), jsonStr.lastIndexOf('}'));
+        if (lastBracket >= 0) jsonStr = jsonStr.substring(0, lastBracket + 1);
+      }
+    }
+
+    if (!jsonStr) {
+      if (truncRetry < MAX_TRUNCATION_RETRIES) {
+        console.warn(`[SpecExtractor] No JSON in response — likely truncated. Retrying (${truncRetry + 1}/${MAX_TRUNCATION_RETRIES})...`);
+        await new Promise(r => setTimeout(r, 3000));
+        continue;
+      }
+      throw new Error('Failed to extract JSON from Doubao response');
+    }
+
+    let specs;
     try {
-      console.log(`[SpecExtractor] Calling Doubao (attempt ${attempt}/3)...`);
-      result = await ai.models.generateContent({
-        model: 'doubao-seed-2-0-pro-260215',
-        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-        config: {
-          temperature: 0.2,
-          maxOutputTokens: 16384,
-          systemInstruction: SYSTEM_PROMPT,
-        },
-      });
-      break;
-    } catch (err) {
-      console.error(`[SpecExtractor] Attempt ${attempt} failed: ${err.message?.substring(0, 100)}`);
-      if (attempt === 3) throw err;
-      await new Promise(r => setTimeout(r, 2000));
+      specs = JSON.parse(jsonStr);
+    } catch (parseErr) {
+      if (truncRetry < MAX_TRUNCATION_RETRIES) {
+        console.warn(`[SpecExtractor] JSON parse failed (truncated response?) — retrying (${truncRetry + 1}/${MAX_TRUNCATION_RETRIES})...`);
+        await new Promise(r => setTimeout(r, 3000));
+        continue;
+      }
+      throw parseErr;
     }
-  }
 
-  const rawText = result.text || '';
+    // Validate specs
+    validated = specs.map((spec, i) => ({
+      phaseId: spec.phaseId || `phase${i + 1}`,
+      phaseName: spec.phaseName || `Phase ${i + 1}`,
+      chapterId: spec.chapterId || i + 1,
+      duration: {
+        min: (spec.duration && spec.duration.min) || 5,
+        max: (spec.duration && spec.duration.max) || 15,
+      },
+      requiredInteractions: spec.requiredInteractions || [],
+      triggerNext: spec.triggerNext || { condition: '', description: '' },
+      entitiesRequired: (spec.entitiesRequired || []).map(e => ({
+        name: e.name || '',
+        terminalState: e.terminalState !== undefined ? e.terminalState : 2,
+        description: e.description || '',
+      })),
+      playerMustAct: spec.playerMustAct !== false,
+      autoAllowed: spec.autoAllowed === true,
+    }));
 
-  // Parse JSON from response
-  let jsonStr;
-  const codeBlock = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (codeBlock) {
-    jsonStr = codeBlock[1].trim();
-  } else {
-    const startIdx = rawText.search(/[\[{]/);
-    if (startIdx >= 0) {
-      jsonStr = rawText.substring(startIdx);
-      const lastBracket = Math.max(jsonStr.lastIndexOf(']'), jsonStr.lastIndexOf('}'));
-      if (lastBracket >= 0) jsonStr = jsonStr.substring(0, lastBracket + 1);
+    // Truncation guard: if we got far fewer specs than expected chapters, retry
+    if (validated.length < minAcceptable) {
+      console.warn(`[SpecExtractor] Truncation detected: got ${validated.length} specs but expected ~${expectedCount} (min acceptable: ${minAcceptable}). ${truncRetry < MAX_TRUNCATION_RETRIES ? 'Retrying...' : 'Giving up, using what we have.'}`);
+      if (truncRetry < MAX_TRUNCATION_RETRIES) {
+        await new Promise(r => setTimeout(r, 3000));
+        continue;
+      }
     }
+
+    // Good enough — break out
+    break;
   }
 
-  if (!jsonStr) {
-    throw new Error('Failed to extract JSON from Doubao response');
-  }
-
-  const specs = JSON.parse(jsonStr);
-
-  // Validate specs
-  const validated = specs.map((spec, i) => ({
-    phaseId: spec.phaseId || `phase${i + 1}`,
-    phaseName: spec.phaseName || `Phase ${i + 1}`,
-    chapterId: spec.chapterId || i + 1,
-    duration: {
-      min: (spec.duration && spec.duration.min) || 5,
-      max: (spec.duration && spec.duration.max) || 15,
-    },
-    requiredInteractions: spec.requiredInteractions || [],
-    triggerNext: spec.triggerNext || { condition: '', description: '' },
-    entitiesRequired: (spec.entitiesRequired || []).map(e => ({
-      name: e.name || '',
-      terminalState: e.terminalState !== undefined ? e.terminalState : 2,
-      description: e.description || '',
-    })),
-    playerMustAct: spec.playerMustAct !== false,
-    autoAllowed: spec.autoAllowed === true,
-  }));
-
-  console.log(`[SpecExtractor] Extracted ${validated.length} phase specs`);
+  console.log(`[SpecExtractor] Extracted ${validated.length} phase specs (expected ${expectedCount})`);
   return validated;
 }
 

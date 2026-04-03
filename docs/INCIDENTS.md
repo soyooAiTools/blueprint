@@ -201,3 +201,55 @@
 4. **$5 预算对复杂蓝图不够** — 29KB prompt + 多文件读取就耗尽预算，AI 还没开始写代码
 5. **反馈必须直接注入 prompt** — 不能假设 AI 会主动去读某个文件
 6. **重生成必须携带失败原因** — 否则 AI 没有任何信号避免重复同样的错误
+
+---
+
+## 2026-04-03: V3 代码清除 + 三项关键 Bug 修复
+
+### 背景
+4月2日重新提交6个项目后全部再次失败，深度排查发现3个根因。
+
+### 根因分析
+
+**根因 1：Claude Code CLI 秒退被误判为成功**
+- `claude-code-coder.js` 在调用 Claude 前预写 skeleton 到 .cs 文件
+- Claude 退出后检查**文件是否存在**来判断成功 → skeleton 永远存在 → 永远 "partial success"
+- 结果：未修改的 skeleton（满是 `true /* TODO */` 占位符）被当作有效代码
+- 游戏所有 phase 瞬间触发 → 3秒结束 → phase-skipped
+
+**根因 2：Doubao API TLS 断连导致 spec 截断**
+- mihomo (clash-meta) 运行在 `global` 模式，所有流量走海外代理
+- Doubao (volces.com) 是国内服务，海外节点 TLS 握手失败 (SSL_ERROR_SYSCALL)
+- spec-extractor 只提取出 1/11 个 spec，skeleton 只有 210 行
+- 配置中已有 `DOMAIN-SUFFIX,volces.com,DIRECT` 规则，但 global 模式下被忽略
+
+**根因 3：V3 蓝图格式兼容性 Bug**
+- `linux-worker-client.js` 只检查 `blueprint.nodes.length`
+- V4 蓝图使用 `entities[]` 而非 `nodes[]` → 4个项目被误判为空蓝图
+- 下游 `worker-coder.js` 已有 V4 支持但永远执行不到
+
+### 修复方案
+
+| 修复项 | 文件 | 改动 |
+|--------|------|------|
+| 骨架误判修复 | `claude-code-coder.js` | 检查文件 mtime 是否变化，而非是否存在 |
+| CLI 秒退检测 | `claude-code-coder.js` | exit code≠0 + <10s + stdout<200字符 → 直接失败 |
+| Spec 截断重试 | `spec-extractor.cjs` | specs 数量 < 50% frames 时自动重试（最多3次） |
+| Clash 路由修复 | mihomo config | global → rule 模式，TUN 保持开启，volces.com 走直连 |
+| **V3 代码全面清除** | 多文件 | 删除 ~1400 行 V3 代码，仅保留 V4 entity-driven 路径 |
+
+### V3 清除详情
+
+**删除的 V3 代码路径：**
+- `worker-coder.js`: 删除 `parseBlueprintToPrompt`、`parseBlueprintToLegacyScenes`、V3 生成路径、`verifyCodeContent` (~1383 行)
+- `server.cjs`: shotCount → entityCount/phaseCount，删除 objectRegistry/globalParams
+- `linux-worker-client.js`: V3 nodes 检查 → V4 entities only
+- `prompt-v4.js` / `prompt-v5-basetemplate.js`: V3 nodes fallback → 无 phases 时报错
+- `worker-playableagent.js`: V3 phaseNode fallback → 要求 specs 文件
+
+**归档到 `_deprecated_v3/`：**
+- `upload-v4.cjs`、`server-utf8.cjs`、`scripts/submit-blueprint.cjs`、`scripts/frames-to-blueprint.cjs`
+
+### 后续
+- V3 格式不再支持，所有项目必须使用 V4 entity-driven 蓝图
+- `video-to-blueprint.cjs` 仍输出 V3 格式，需后续迁移至 V4

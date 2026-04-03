@@ -174,6 +174,16 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
     log(`[claude-code] Spawning: ${CLAUDE_CMD} ${args.join(' ')}`, taskId);
     log(`[claude-code] Prompt length: ${userPrompt.length} chars`, taskId);
 
+    // Record file mtime before spawn to detect actual modifications (Bug fix: skeleton pre-write false positive)
+    const mainFileForMtime = path.join(opts.workDir || workDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
+    let preSpawnMtimeMs = 0;
+    try {
+      if (fs.existsSync(mainFileForMtime)) {
+        preSpawnMtimeMs = fs.statSync(mainFileForMtime).mtimeMs;
+      }
+    } catch (_e) {}
+    const spawnStartTime = Date.now();
+
     const child = spawn(CLAUDE_CMD, args, {
       cwd: workDir,
       env: {
@@ -223,21 +233,43 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
         }
       }
 
-      // 即使超时(143)或非零退出，也检查文件是否已生成
+      // Bug fix: Check elapsed time + stdout length to detect CLI errors (auth failure, connection error)
+      const elapsedMs = Date.now() - spawnStartTime;
+      if (code !== 0 && elapsedMs < 10000 && stdout.length < 200) {
+        log(`[claude-code] ❌ CLI error detected: exit code ${code}, elapsed ${elapsedMs}ms, stdout ${stdout.length} chars — treating as hard failure`, taskId);
+        resolve({
+          ok: false,
+          exitCode: code,
+          output: stdout,
+          error: stdout || stderr || `CLI error: exit code ${code} in ${elapsedMs}ms`,
+          partialSuccess: false,
+        });
+        return;
+      }
+
+      // 即使超时(143)或非零退出，也检查文件是否已实际修改
       // Claude Code 可能在被 kill 前已经写好了文件
       const mainFile = path.join(opts.workDir || '', 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
-      const fileExists = opts.workDir && fs.existsSync(mainFile);
+      let fileActuallyModified = false;
+      try {
+        if (opts.workDir && fs.existsSync(mainFile)) {
+          const currentMtimeMs = fs.statSync(mainFile).mtimeMs;
+          fileActuallyModified = currentMtimeMs > preSpawnMtimeMs;
+        }
+      } catch (_e) {}
       
-      if (code !== 0 && fileExists) {
-        log(`[claude-code] Process exited non-zero (${code}) but code file exists — treating as partial success`, taskId);
+      if (code !== 0 && fileActuallyModified) {
+        log(`[claude-code] Process exited non-zero (${code}) but code file was modified after spawn — treating as partial success`, taskId);
+      } else if (code !== 0 && !fileActuallyModified) {
+        log(`[claude-code] Process exited non-zero (${code}) and code file was NOT modified — treating as failure`, taskId);
       }
 
       resolve({
-        ok: code === 0 || fileExists,  // 文件存在就算成功
+        ok: code === 0 || fileActuallyModified,  // file must have been actually modified to count as success
         exitCode: code,
         output: stdout,
-        error: (code !== 0 && !fileExists) ? (stderr || `Exit code ${code}`) : null,
-        partialSuccess: code !== 0 && fileExists,
+        error: (code !== 0 && !fileActuallyModified) ? (stderr || `Exit code ${code}`) : null,
+        partialSuccess: code !== 0 && fileActuallyModified,
       });
     });
 

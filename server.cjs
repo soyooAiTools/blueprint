@@ -203,9 +203,8 @@ function listProjects() {
       var blueprint = data.blueprint;
       var summary = Object.assign({}, data);
       delete summary.blueprint;
-      summary.shotCount = (blueprint && blueprint.nodes)
-        ? blueprint.nodes.filter(function(n) { return n.type === 'shotNode'; }).length
-        : 0;
+      summary.entityCount = (blueprint && (blueprint.entities || [])).length || 0;
+      summary.phaseCount = (blueprint && (blueprint.phases || [])).length || 0;
       results.push(summary);
     } catch(e) {
       console.error('[listProjects] Skipping corrupt file: ' + f + ' — ' + e.message);
@@ -439,9 +438,7 @@ handlers.saveBlueprint = function(req, res, body, id) {
     edges: data.edges || [],
     projectName: data.projectName || (project.blueprint && project.blueprint.projectName) || '',
   };
-  // V3 全局字段
-  if (data.objectRegistry !== undefined) project.blueprint.objectRegistry = data.objectRegistry;
-  if (data.globalParams !== undefined) project.blueprint.globalParams = data.globalParams;
+  // V4 全局设置
   if (data.globalSettings !== undefined) project.blueprint.globalSettings = data.globalSettings;
   // V4 实体列表
   if (data.entities !== undefined) project.blueprint.entities = data.entities;
@@ -607,8 +604,6 @@ function exportBlueprintForAgent(project) {
     svnUrl: project.svnUrl || '',
     nodes: nodes,
     edges: bp.edges || [],
-    objectRegistry: bp.objectRegistry || [],
-    globalParams: bp.globalParams || '',
     globalSettings: bp.globalSettings || {},
     entities: (bp.entities && bp.entities.length > 0) ? bp.entities : (project.entities || []),
     feedbackHistory: project.feedbackHistory || [],
@@ -1462,13 +1457,11 @@ handlers.parseVideo = function(req, res, body, projectId) {
       try {
         var proj = readProject(projectId);
         if (proj) {
-          proj.nodes = result.blueprint.nodes;
-          proj.edges = result.blueprint.edges;
-          proj.objectRegistry = result.blueprint.objectRegistry;
+          // V3 node/edge/objectRegistry save removed — V4 uses entities
           proj.videoSource = true;
           proj.updatedAt = new Date().toISOString();
           writeProject(proj);
-          console.log('[parse-video] Saved blueprint (' + result.blueprint.nodes.length + ' nodes) to project', projectId);
+          console.log('[parse-video] Marked project videoSource for', projectId);
         }
       } catch(saveErr) {
         console.error('[parse-video] Save blueprint error:', saveErr.message);

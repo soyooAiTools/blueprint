@@ -116,27 +116,8 @@ function writeSpecsFile(blueprint, taskId) {
       return f;
     }
   }
-  // Extract from blueprint nodes
-  if (blueprint && blueprint.nodes) {
-    const phaseNodes = blueprint.nodes.filter(n => n.type === 'phaseNode');
-    if (phaseNodes.length > 0) {
-      const specs = phaseNodes.map((n, i) => {
-        const d = n.data || {};
-        return {
-          phaseId: d.phaseId || n.id,
-          phaseName: d.name || d.label || d.phaseId || n.id,
-          requiredInteractions: d.requiredInteractions || [],
-          triggerNext: d.triggerCondition ? { condition: d.triggerCondition } : {},
-          duration: d.duration || { min: 2, max: 10 },
-          order: i
-        };
-      });
-      const tmpPath = path.join(CUA_RESULTS_DIR, taskId + '-specs.json');
-      fs.writeFileSync(tmpPath, JSON.stringify(specs, null, 2), 'utf-8');
-      return tmpPath;
-    }
-  }
-  return null;
+  // V3 blueprint.nodes fallback removed — specs must come from file
+  throw new Error('No phase specs file found. V3 node fallback has been removed — please ensure specs file exists.');
 }
 
 /**
