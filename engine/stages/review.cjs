@@ -11,6 +11,7 @@ var helpers = require('../helpers.cjs');
 var { recode, patchRecode } = require('../recode.cjs');
 var { createFixLoop } = require('../fix-loop.cjs');
 var { staticCheck } = require('../static-check.cjs');
+var { checkConformance } = require('../spec-conformance.cjs');
 
 var MAX_REVIEW_ROUNDS = 6;
 
@@ -72,6 +73,26 @@ module.exports = {
       });
     }
 
+    // Spec conformance check: verify code semantics match blueprint
+    if (ctx.blueprint.specs && ctx.blueprint.specs.length > 0) {
+      var conformance = checkConformance(reviewedCode, ctx.blueprint);
+      if (!conformance.passed) {
+        var confIssues = conformance.issues.map(function(i) {
+          return '[' + i.severity + '] ' + i.phase + ': ' + i.message;
+        }).join('\n');
+        ctx.addLog('review', 'Spec conformance: ' + conformance.criticalCount + ' critical, ' + conformance.warningCount + ' warnings');
+        if (!ctx.blueprint.feedbackHistory) ctx.blueprint.feedbackHistory = [];
+        ctx.blueprint.feedbackHistory.push({
+          data: { text: 'SPEC CONFORMANCE VIOLATIONS (must fix):\n' + confIssues },
+          source: 'spec-conformance',
+          status: 'pending',
+          timestamp: Date.now(),
+        });
+      } else {
+        ctx.addLog('review', 'Spec conformance: all phases verified');
+      }
+    }
+
     var loop = createFixLoop({
       name: 'review',
       maxRounds: MAX_REVIEW_ROUNDS,
@@ -131,8 +152,25 @@ module.exports = {
               ctx.addLog('review', reviewerName + ' review still has ' + critCount + ' critical issues after ' + maxRounds + ' rounds — BLOCKING');
               throw new Error('Review blocked: ' + critCount + ' critical issues remain after ' + maxRounds + ' rounds');
             }
-            ctx.addLog('review', reviewerName + ' review still FAIL after ' + maxRounds + ' rounds (0 critical, warnings only), proceeding');
-            return { done: true, result: { passed: false, rounds: round, criticalCount: 0, warningOnly: true } };
+            // Classify remaining warnings — block high-risk types
+            var remainingIssues = reviewResult.issues || [];
+            var highRiskWarnings = remainingIssues.filter(function(i) {
+              var msg = (i.message || i.text || '').toLowerCase();
+              return msg.indexOf('infinite loop') >= 0 ||
+                     msg.indexOf('null reference') >= 0 ||
+                     msg.indexOf('pool object') >= 0 ||
+                     msg.indexOf('phase missing') >= 0 ||
+                     msg.indexOf('phase will never complete') >= 0 ||
+                     msg.indexOf('autoplay') >= 0;
+            });
+            if (highRiskWarnings.length > 0) {
+              ctx.addLog('review', 'High-risk warnings after ' + maxRounds + ' rounds — BLOCKING: ' +
+                highRiskWarnings.map(function(w) { return w.message || w.text; }).join('; '));
+              throw new Error('Review blocked: ' + highRiskWarnings.length + ' high-risk warnings remain');
+            }
+            ctx.addLog('review', remainingIssues.length + ' low-risk warnings after ' + maxRounds + ' rounds, passing with context');
+            ctx.reviewWarnings = remainingIssues;
+            return { done: true, result: { passed: false, rounds: round, criticalCount: 0, warningOnly: true, warnings: remainingIssues } };
           }
 
           ctx.addLog('review', reviewerName + ' review FAIL (' + round + '/' + maxRounds + '), fixing...');

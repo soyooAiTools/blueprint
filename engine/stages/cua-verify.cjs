@@ -142,18 +142,35 @@ module.exports = {
             }
             if (currentPhaseCompleted >= 0) lastPhaseCompleted = currentPhaseCompleted;
 
-            // No-progress early exit
+            // No-progress handling: graduated strategy
             if (isProgressing) {
               _noProgressRounds = 0;
             } else {
               _noProgressRounds++;
-              if (_noProgressRounds >= NO_PROGRESS_EXIT_ROUNDS) {
+              if (_noProgressRounds >= NO_PROGRESS_EXIT_ROUNDS + 3) {
+                // Hard exit after 8 no-progress rounds
                 throw new Error('No phase progress in ' + _noProgressRounds + ' consecutive rounds (stuck at phase ' + currentPhaseCompleted + ')');
+              } else if (_noProgressRounds === NO_PROGRESS_EXIT_ROUNDS) {
+                // Force full regen strategy after 5 rounds, but keep trying
+                ctx.addLog('cua-verify', 'No progress for ' + _noProgressRounds + ' rounds \u2014 escalating to full regen');
+                consecutiveSameIssue = SAME_ISSUE_REGEN_THRESHOLD;
               }
             }
 
             if (consecutiveSameIssue >= SAME_ISSUE_REGEN_THRESHOLD * 2) {
               throw new Error('Same issue "' + currentIssueCategory + '" after ' + consecutiveSameIssue + ' rounds (no progress)');
+            }
+
+            // Timing-based autoplay detection (complements text-based check)
+            if (cuaResult.passed && consolePhaseCoverage.length >= 2) {
+              var agentActions = (cuaResult.report && cuaResult.report.actions) || [];
+              if (agentActions.length === 0) {
+                ctx.addLog('cua-verify', 'All phases completed with 0 agent actions \u2014 overriding to FAIL (autoplay)');
+                cuaResult.passed = false;
+                cuaResult.issues = (cuaResult.issues || []).concat(
+                  ['[autoplay-zero-actions] ' + consolePhaseCoverage.length + ' phases completed with 0 agent actions']
+                );
+              }
             }
 
             // Autoplay detection

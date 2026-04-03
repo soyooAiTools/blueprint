@@ -29,11 +29,11 @@ clone → spec-validate → codegen → review [gate] → compile [gate] → vis
 | compile | `engine/stages/compile.cjs` | Bridge.NET 编译（5 轮 auto-fix） |
 | visual-check | `engine/stages/visual-check.cjs` | Playwright 多帧截图 + Claude Sonnet VLM 分析（8 轮） |
 | cua-verify | `engine/stages/cua-verify.cjs` | PlayableAgent 操控验证（20 轮，30min 上限） |
-| upload | `engine/stages/upload.cjs` | SVN/存储上传 |
+| upload | `engine/stages/upload.cjs` | 构建产物保存（版本管理 + gzip 压缩 + 7 天自动清理） |
 
 ### 质量门控
 
-- **review**: lineCount >= 100, phase 架构机械检查, 禁止 autoplay
+- **review**: lineCount >= 100, 30 条静态规则, spec 语义校验（phase/entity/trigger 一致性）, 高危 warning 阻断
 - **compile**: 方法数 >= 3, 必需方法检查 (Start/Update/CheckEventRules), 25MB 上限
 - **visual-check**: 多帧分析 (t=0/3/8s), 实体可见性, 画面变化检测
 - **cua-verify**: Phase 覆盖率, 30min 总时间上限, 5 轮无进展提前退出
@@ -45,8 +45,11 @@ clone → spec-validate → codegen → review [gate] → compile [gate] → vis
 | `engine/fix-loop.cjs` | 声明式 fix-loop 原语（maxRounds, onExhausted, beforeRound, attempt） |
 | `engine/error-classifier.cjs` | INFRA(退避) / CODE(recode) / FATAL(终止) 三类错误分类 |
 | `engine/recode.cjs` | 统一重编码（clone → seed → generate → findMainCs），支持 extraFiles |
-| `engine/static-check.cjs` | 静态代码检查（禁用 API / Bridge.NET 限制） |
+| `engine/static-check.cjs` | 静态代码检查（30 条规则：禁用 API / Bridge.NET 限制 / LINQ / 无限循环 / pool 名拼写） |
 | `engine/helpers.cjs` | 构建请求、issue 分类、结构化反馈构建 |
+| `engine/spec-conformance.cjs` | Spec 语义校验（phase 完整性 / 交互处理器 / entity 引用 / trigger 条件） |
+| `engine/metrics.cjs` | Pipeline 运行指标收集（JSONL），支持成功率/轮次/phase 覆盖率统计 |
+| `engine/cleanup-old-builds.cjs` | WebGL 构建产物清理（默认 7 天，支持 --dry-run） |
 
 ### Codegen 前置处理链
 
@@ -85,6 +88,9 @@ blueprint-editor/
 │   ├── recode.cjs                  # 统一重编码入口
 │   ├── static-check.cjs            # 静态代码检查
 │   ├── helpers.cjs                 # 工具函数
+│   ├── spec-conformance.cjs        # Spec 语义校验
+│   ├── metrics.cjs                 # Pipeline 指标收集
+│   ├── cleanup-old-builds.cjs      # 构建清理脚本
 │   └── stages/                     # Pipeline 各阶段实现
 │       ├── clone.cjs
 │       ├── spec-validate.cjs
@@ -215,6 +221,32 @@ pm2 start ecosystem.config.cjs
 | `SILICONFLOW_API_KEY` | SiliconFlow Key（PlayableAgent VLM） | 可选 |
 | `DOUBAO_API_KEY` | 豆包 Key（分镜/Spec） | 可选 |
 | `GEMINI_API_KEY` | Gemini Key（视频分析） | 可选 |
+
+## 运维
+
+### Pipeline 指标
+
+```bash
+# 查看最近 50 次运行的汇总统计
+node -e "console.log(require('./engine/metrics.cjs').getMetricsSummary(50))"
+```
+
+指标文件：`server-data/metrics/pipeline-metrics.jsonl`（每次 pipeline 自动追加一行）
+
+### 构建清理
+
+```bash
+# 预览将清理的目录
+node engine/cleanup-old-builds.cjs --dry-run
+
+# 清理 7 天前的构建（默认）
+node engine/cleanup-old-builds.cjs
+
+# 清理 3 天前的构建
+node engine/cleanup-old-builds.cjs --days 3
+```
+
+建议 cron: `0 3 * * * cd /opt/blueprint-editor && node engine/cleanup-old-builds.cjs --days 7 >> /var/log/blueprint-cleanup.log 2>&1`
 
 ## License
 

@@ -31,6 +31,16 @@ var RULES = [
     if (code.indexOf('using UnityEngine;') === -1) return [{ line: 1, text: 'File start' }];
     return [];
   }},
+  // --- v2: Additional rules ---
+  { id: 'new-list', pattern: /new\s+List\s*</g, message: 'new List<T>() forbidden in Luna — use plain arrays' },
+  { id: 'new-dict', pattern: /new\s+Dictionary\s*</g, message: 'new Dictionary<K,V>() forbidden in Luna — use parallel arrays' },
+  { id: 'linq-methods', pattern: /\.(Where|Select|FirstOrDefault|Any|All|OrderBy|GroupBy|ToList|ToArray|Aggregate)\s*\(/g,
+    message: 'LINQ extension method forbidden in Luna — use manual for loop' },
+  { id: 'while-true', pattern: /while\s*\(\s*true\s*\)/g, message: 'while(true) forbidden — use Update() + timer to avoid freezing the game' },
+  { id: 'pool-name-typo', pattern: /__Pol_|__Pool(?!_)|__pool_/g, message: 'Possible pool object name typo — correct prefix is __Pool_' },
+  { id: 'destroy-call', pattern: /\bDestroy\s*\(/g, message: 'Destroy() forbidden in Luna — hide objects by moving to (0,-999,0)' },
+  { id: 'invoke-call', pattern: /\bInvoke\s*\(\s*"/g, message: 'Invoke("method") forbidden in Luna — use Update() + timer' },
+  { id: 'invoke-repeating', pattern: /\bInvokeRepeating\s*\(/g, message: 'InvokeRepeating() forbidden in Luna — use Update() + timer' },
 ];
 
 /**
@@ -93,7 +103,7 @@ function buildCodeMask(code) {
  * @param {string} code - The C# source code
  * @returns {{ passed: boolean, issues: Array<{rule: string, line: number, text: string, message: string}> }}
  */
-function staticCheck(code) {
+function staticCheck(code, ctx) {
   var lines = code.split('\n');
   var mask = buildCodeMask(code);
   var issues = [];
@@ -102,7 +112,7 @@ function staticCheck(code) {
     var rule = RULES[r];
 
     if (rule.custom) {
-      var customHits = rule.custom(code);
+      var customHits = rule.custom(code, ctx);
       for (var c = 0; c < customHits.length; c++) {
         issues.push({
           rule: rule.id,

@@ -10,6 +10,7 @@
 var fs = require('fs');
 var path = require('path');
 var helpers = require('./helpers.cjs');
+var { recordPipelineMetrics } = require('./metrics.cjs');
 
 // ============ Pipeline Context ============
 
@@ -92,6 +93,9 @@ Pipeline.prototype.run = function(ctx, onProgress) {
   var self = this;
   var stageIndex = 0;
 
+  // Record pipeline start time for metrics
+  ctx._pipelineStartTime = Date.now();
+
   // Cleanup stale temp dirs from previous runs (older than 2 hours)
   try {
     var os = require('os');
@@ -117,6 +121,7 @@ Pipeline.prototype.run = function(ctx, onProgress) {
 
   function runNext() {
     if (stageIndex >= self.stages.length) {
+      try { recordPipelineMetrics(ctx, ctx.stageResults); } catch(e) {}
       return Promise.resolve(ctx);
     }
 
@@ -196,6 +201,8 @@ Pipeline.prototype.run = function(ctx, onProgress) {
         }
 
         if (onProgress) onProgress(stage.name, 'failed', ctx);
+        ctx._pipelineError = true;
+        try { recordPipelineMetrics(ctx, ctx.stageResults); } catch(e) {}
         throw new Error('Pipeline failed at ' + stage.name + ': ' + err.message);
       });
     }

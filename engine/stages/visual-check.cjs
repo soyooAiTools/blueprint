@@ -133,12 +133,40 @@ module.exports = {
                           });
                       }
                       return captureNextFrame().then(function() {
+                        // Adaptive capture: extend if no phase activity detected
+                        if (phaseLog.length === 0 && consoleErrors.length === 0) {
+                          ctx.addLog('visual-check', 'No phase activity after base capture, extending to 15s');
+                          // Capture 2 more frames at +3s and +4s
+                          return page.waitForTimeout(3000)
+                            .then(function() {
+                              var extraPath1 = screenshotPath.replace('.png', '-f3.png');
+                              return page.screenshot({ path: extraPath1 }).then(function() {
+                                frames.push({ path: extraPath1, timeMs: 11000 });
+                                return page.waitForTimeout(4000);
+                              });
+                            })
+                            .then(function() {
+                              var extraPath2 = screenshotPath.replace('.png', '-f4.png');
+                              return page.screenshot({ path: extraPath2 }).then(function() {
+                                frames.push({ path: extraPath2, timeMs: 15000 });
+                              });
+                            })
+                            .then(function() {
+                              return page.context().close().catch(function() {}).then(function() {
+                                return browser.close();
+                              }).then(function() {
+                                try { visualServer.close(); } catch(e) {}
+                                try { fs.rmSync(tmpBuildDir, { recursive: true, force: true }); } catch(e) {}
+                                return { frames: frames, consoleErrors: consoleErrors, phaseLog: phaseLog };
+                              });
+                            });
+                        }
                         return page.context().close().catch(function() {}).then(function() {
                           return browser.close();
                         }).then(function() {
                           try { visualServer.close(); } catch(e) {}
                           try { fs.rmSync(tmpBuildDir, { recursive: true, force: true }); } catch(e) {}
-                          return { frames: frames, consoleErrors: consoleErrors };
+                          return { frames: frames, consoleErrors: consoleErrors, phaseLog: phaseLog };
                         });
                       });
                     });
@@ -190,6 +218,11 @@ module.exports = {
           if (phaseLog.length > 0) {
             analysisPrompt += 'Phase progression detected from game instrumentation: ' +
                 phaseLog.map(function(p) { return p.phase; }).join(' \u2192 ') + '\n';
+            analysisPrompt += 'Phase activity detected via console instrumentation: [' +
+                phaseLog.map(function(p) { return p.phase; }).join(', ') +
+                ']. The game IS running. Focus on visual correctness, not whether it started.\n';
+          } else {
+            analysisPrompt += 'No phase activity detected in console after capture period. The game may be stuck, crashed, or never initialized. Be strict.\n';
           }
           analysisPrompt += 'Scene: ' + sceneDesc + '\n' +
             'FAIL if: solid color screen, black screen, loading bar, empty scene, no game objects, all frames identical (no progression).\n' +
