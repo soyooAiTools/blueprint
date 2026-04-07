@@ -44,6 +44,9 @@ var RULES = [
   { id: 'destroy-call', pattern: /\bDestroy\s*\(/g, message: 'Destroy() forbidden in Luna — hide objects by moving to (0,-999,0)' },
   { id: 'invoke-call', pattern: /\bInvoke\s*\(\s*"/g, message: 'Invoke("method") forbidden in Luna — use Update() + timer' },
   { id: 'invoke-repeating', pattern: /\bInvokeRepeating\s*\(/g, message: 'InvokeRepeating() forbidden in Luna — use Update() + timer' },
+  { id: 'instantiate', pattern: /\bInstantiate\s*\(/g, message: 'Instantiate() forbidden in Luna — use GameObject.Find() from pool' },
+  { id: 'add-component', pattern: /\bAddComponent\s*[<(]/g, message: 'AddComponent() forbidden in Luna — components must be pre-baked on pool objects' },
+  { id: 'resources-load', pattern: /Resources\.Load/g, message: 'Resources.Load() not supported in Luna — use pool objects' },
 ];
 
 /**

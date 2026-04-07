@@ -11,6 +11,92 @@ var helpers = require('../helpers.cjs');
 var { recode, patchRecode } = require('../recode.cjs');
 var { createFixLoop } = require('../fix-loop.cjs');
 
+/**
+ * Build structured diagnosis when CUA is stuck (no phase progress).
+ * Analyzes: what phase is stuck, what issues were reported, what the likely root cause is.
+ */
+function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgressRounds, blueprint, consolePhaseCoverage) {
+  var specs = blueprint.specs || [];
+  var totalPhases = specs.length;
+  var completedPhases = consolePhaseCoverage || [];
+  var issues = cuaResult.issues || [];
+
+  // Identify which phase we're stuck at
+  var stuckPhaseId = 'unknown';
+  var nextPhaseId = 'unknown';
+  if (completedPhases.length > 0 && completedPhases.length < totalPhases) {
+    stuckPhaseId = completedPhases[completedPhases.length - 1];
+    // Find next expected phase from spec order
+    for (var i = 0; i < specs.length; i++) {
+      if (specs[i].phaseId === stuckPhaseId && i + 1 < specs.length) {
+        nextPhaseId = specs[i + 1].phaseId;
+        break;
+      }
+    }
+  } else if (completedPhases.length === 0 && totalPhases > 0) {
+    stuckPhaseId = '(none completed)';
+    nextPhaseId = specs[0].phaseId;
+  }
+
+  // Classify the root cause from CUA issues
+  var rootCause = 'unknown';
+  var issueTexts = issues.map(function(i) { return typeof i === 'string' ? i : (i.message || i.text || ''); });
+  var allIssueText = issueTexts.join(' ').toLowerCase();
+
+  if (allIssueText.indexOf('solid color') >= 0 || allIssueText.indexOf('black screen') >= 0 || allIssueText.indexOf('blank') >= 0) {
+    rootCause = 'rendering_failure';
+  } else if (allIssueText.indexOf('not respond') >= 0 || allIssueText.indexOf('no reaction') >= 0 || allIssueText.indexOf('click') >= 0 && allIssueText.indexOf('nothing') >= 0) {
+    rootCause = 'interaction_dead';
+  } else if (allIssueText.indexOf('trigger') >= 0 || allIssueText.indexOf('condition') >= 0 || allIssueText.indexOf('transition') >= 0) {
+    rootCause = 'phase_transition_broken';
+  } else if (allIssueText.indexOf('null') >= 0 || allIssueText.indexOf('error') >= 0 || allIssueText.indexOf('exception') >= 0) {
+    rootCause = 'runtime_error';
+  } else if (allIssueText.indexOf('autoplay') >= 0 || allIssueText.indexOf('idle') >= 0) {
+    rootCause = 'autoplay_or_idle';
+  } else if (issueCategory) {
+    rootCause = issueCategory;
+  }
+
+  // Build the spec context for the stuck phase transition
+  var transitionContext = '';
+  if (nextPhaseId !== 'unknown') {
+    for (var j = 0; j < specs.length; j++) {
+      if (specs[j].phaseId === nextPhaseId) {
+        var nextSpec = specs[j];
+        transitionContext = 'Next phase "' + nextPhaseId + '" requires: ';
+        if (nextSpec.requiredInteractions && nextSpec.requiredInteractions.length > 0) {
+          transitionContext += 'interactions=[' + nextSpec.requiredInteractions.join(', ') + '] ';
+        }
+        if (nextSpec.triggerNext && nextSpec.triggerNext.condition) {
+          transitionContext += 'trigger="' + nextSpec.triggerNext.condition + '"';
+        }
+        break;
+      }
+    }
+  }
+
+  var summary = 'Stuck at phase ' + stuckPhaseId + ' → ' + nextPhaseId + ', root cause: ' + rootCause + ' (' + noProgressRounds + ' rounds)';
+
+  var rootCauseAdvice = {
+    rendering_failure: 'Objects are not visible. Check: (1) SetActive(true) is called, (2) objects are positioned within camera view, (3) no Z-fighting or off-screen placement.',
+    interaction_dead: 'User interactions have no effect. Check: (1) colliders exist on interactive objects, (2) raycast/click handlers are wired up, (3) interaction zone is large enough.',
+    phase_transition_broken: 'Phase transition condition never becomes true. Check: (1) the trigger condition variable is actually modified by gameplay, (2) AddCompletedPhase is called with correct phaseId, (3) no early return before the transition check.',
+    runtime_error: 'Runtime errors prevent execution. Check: (1) GameObject.Find returns null for missing objects, (2) array index out of bounds, (3) division by zero.',
+    autoplay_or_idle: 'Game progresses without user input. Check: (1) phase transitions require playerMustAct=true, (2) timer-only transitions should not exist, (3) autoAllowed=false phases must wait for user action.',
+  };
+
+  var detail = '=== CUA STUCK DIAGNOSIS (round ' + noProgressRounds + ') ===\n' +
+    'Completed phases: [' + completedPhases.join(' → ') + '] (' + completedPhases.length + '/' + totalPhases + ')\n' +
+    'Stuck at: ' + stuckPhaseId + ' → cannot reach: ' + nextPhaseId + '\n' +
+    'Root cause: ' + rootCause + '\n' +
+    (transitionContext ? transitionContext + '\n' : '') +
+    'CUA issues: ' + issueTexts.slice(0, 3).join('; ') + '\n' +
+    '\nACTION REQUIRED: ' + (rootCauseAdvice[rootCause] || 'Investigate why phase "' + nextPhaseId + '" is never reached. The transition condition or interaction handler is likely broken.') + '\n' +
+    'IMPORTANT: Focus your fix ONLY on the transition from "' + stuckPhaseId + '" to "' + nextPhaseId + '". Do NOT rewrite phases that already work.';
+
+  return { summary: summary, detail: detail, rootCause: rootCause, stuckPhase: stuckPhaseId, nextPhase: nextPhaseId };
+}
+
 var MAX_CUA_ROUNDS = 20;
 var MAX_CUA_TOTAL_MS = 30 * 60 * 1000; // 30 min absolute time limit
 var NO_PROGRESS_EXIT_ROUNDS = 5; // exit if no phase progress in N consecutive rounds
@@ -142,14 +228,27 @@ module.exports = {
             }
             if (currentPhaseCompleted >= 0) lastPhaseCompleted = currentPhaseCompleted;
 
-            // No-progress handling: graduated strategy
+            // No-progress handling: graduated strategy with failure attribution
             if (isProgressing) {
               _noProgressRounds = 0;
             } else {
               _noProgressRounds++;
+
+              // Build structured failure attribution for recode context
+              var stuckDiagnosis = _buildStuckDiagnosis(cuaResult, currentPhaseCompleted, currentIssueCategory, _noProgressRounds, ctx.blueprint, consolePhaseCoverage);
+              ctx.addLog('cua-verify', 'No-progress diagnosis: ' + stuckDiagnosis.summary);
+
+              if (!ctx.blueprint.feedbackHistory) ctx.blueprint.feedbackHistory = [];
+              ctx.blueprint.feedbackHistory.push({
+                data: { text: stuckDiagnosis.detail },
+                source: 'cua-stuck-diagnosis',
+                status: 'pending',
+                timestamp: Date.now(),
+              });
+
               if (_noProgressRounds >= NO_PROGRESS_EXIT_ROUNDS + 3) {
                 // Hard exit after 8 no-progress rounds
-                throw new Error('No phase progress in ' + _noProgressRounds + ' consecutive rounds (stuck at phase ' + currentPhaseCompleted + ')');
+                throw new Error('No phase progress in ' + _noProgressRounds + ' consecutive rounds. Diagnosis: ' + stuckDiagnosis.summary);
               } else if (_noProgressRounds === NO_PROGRESS_EXIT_ROUNDS) {
                 // Force full regen strategy after 5 rounds, but keep trying
                 ctx.addLog('cua-verify', 'No progress for ' + _noProgressRounds + ' rounds \u2014 escalating to full regen');

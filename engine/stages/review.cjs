@@ -161,7 +161,14 @@ module.exports = {
                      msg.indexOf('pool object') >= 0 ||
                      msg.indexOf('phase missing') >= 0 ||
                      msg.indexOf('phase will never complete') >= 0 ||
-                     msg.indexOf('autoplay') >= 0;
+                     msg.indexOf('autoplay') >= 0 ||
+                     msg.indexOf('instantiate') >= 0 ||
+                     msg.indexOf('forbidden') >= 0 ||
+                     msg.indexOf('setactive') >= 0 ||
+                     msg.indexOf('destroy(') >= 0 ||
+                     msg.indexOf('coroutine') >= 0 ||
+                     msg.indexOf('startcoroutine') >= 0 ||
+                     msg.indexOf('addcomponent') >= 0;
             });
             if (highRiskWarnings.length > 0) {
               ctx.addLog('review', 'High-risk warnings after ' + maxRounds + ' rounds — BLOCKING: ' +
@@ -261,6 +268,37 @@ module.exports = {
         if (allCs[i].indexOf('GameFlowManagerMain.cs') !== -1) { mainCs = allCs[i]; break; }
       }
       if (mainCs) ctx.csCode = fs.readFileSync(mainCs, 'utf-8');
+
+      // Phase coverage gate: block if < 80% of spec phases are implemented
+      var specs = ctx.blueprint.specs || [];
+      if (specs.length > 0) {
+        var code = ctx.csCode || '';
+        var implementedCount = 0;
+        for (var si = 0; si < specs.length; si++) {
+          var pid = specs[si].phaseId;
+          if (code.indexOf('AddCompletedPhase("' + pid + '"') >= 0 ||
+              code.indexOf('ReportPhase("' + pid + '"') >= 0 ||
+              code.indexOf('CheckEventRules("' + pid + '"') >= 0) {
+            implementedCount++;
+          }
+        }
+        var coverage = implementedCount / specs.length;
+        ctx.addLog('review', 'Phase coverage: ' + implementedCount + '/' + specs.length + ' (' + Math.round(coverage * 100) + '%)');
+        if (coverage < 0.8) {
+          var missingPhases = [];
+          for (var mi = 0; mi < specs.length; mi++) {
+            var mpid = specs[mi].phaseId;
+            if (code.indexOf('AddCompletedPhase("' + mpid + '"') < 0 &&
+                code.indexOf('ReportPhase("' + mpid + '"') < 0 &&
+                code.indexOf('CheckEventRules("' + mpid + '"') < 0) {
+              missingPhases.push(mpid);
+            }
+          }
+          throw new Error('Phase coverage too low: ' + implementedCount + '/' + specs.length +
+            ' (' + Math.round(coverage * 100) + '%). Missing: ' + missingPhases.join(', '));
+        }
+      }
+
       return result;
     });
   },

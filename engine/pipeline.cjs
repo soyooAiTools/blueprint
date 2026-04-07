@@ -125,7 +125,12 @@ Pipeline.prototype.run = function(ctx, onProgress) {
 
   function runNext() {
     if (stageIndex >= self.stages.length) {
-      try { recordPipelineMetrics(ctx, ctx.stageResults); } catch(e) {}
+      try {
+        recordPipelineMetrics(ctx, ctx.stageResults);
+        ctx.addLog('pipeline', 'Metrics recorded (success)');
+      } catch(e) {
+        ctx.addLog('pipeline', 'Metrics recording failed: ' + e.message);
+      }
       return Promise.resolve(ctx);
     }
 

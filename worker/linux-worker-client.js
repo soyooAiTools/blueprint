@@ -479,6 +479,12 @@ async function processTask(task) {
     const totalTime = ((Date.now() - startTime) / 1000).toFixed(0);
     log(`Task completed in ${totalTime}s`, taskId);
 
+    // Report success to server so project status transitions correctly
+    await reportStatus(taskId, 'done', {
+      message: '[Linux] Build OK (' + totalTime + 's)',
+      durationMs: Date.now() - startTime,
+    });
+
     // Cleanup
     if (ctx.workDir && fs.existsSync(ctx.workDir)) {
       try { fs.rmSync(ctx.workDir, { recursive: true, force: true }); } catch(e) {}

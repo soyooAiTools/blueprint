@@ -92,8 +92,8 @@ module.exports.init = function(ctx) {
         // Update project status if exists
         var project = readProject(taskId);
         if (project) {
-          // Map cua_passed to reviewing — CUA passed means ready for human review
-          var mappedStatus = (status === 'cua_passed') ? 'reviewing' : status;
+          // Map cua_passed/done to reviewing — means ready for human review
+          var mappedStatus = (status === 'cua_passed' || status === 'done') ? 'reviewing' : status;
           projectSM.forceTransition(project, mappedStatus, 'worker-' + workerId);
           if (message) project.statusMessage = message;
           // Persist structured failure attribution
@@ -111,8 +111,8 @@ module.exports.init = function(ctx) {
             project.failureHistory.push(project.lastFailure);
             if (project.failureHistory.length > 10) project.failureHistory = project.failureHistory.slice(-10);
           }
-          // Set webglPath if not already set (CUA passed with build available)
-          if (status === 'cua_passed' && !project.webglPath) {
+          // Set webglPath if not already set (CUA passed or done with build available)
+          if ((status === 'cua_passed' || status === 'done') && !project.webglPath) {
             var webglDir = path.join(WEBGL_DIR, taskId);
             var hasIframe = fs.existsSync(path.join(webglDir, 'iframe.html'));
             var buildFile = hasIframe ? 'iframe.html' : 'index.html';

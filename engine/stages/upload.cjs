@@ -61,11 +61,7 @@ module.exports = {
       });
     }
 
-    // Record pipeline metrics
-    try {
-      var { recordPipelineMetrics } = require('../metrics.cjs');
-      recordPipelineMetrics(ctx, ctx._stageResults || {});
-    } catch(e) {}
+    // Metrics are recorded at pipeline level (pipeline.cjs runNext), not here
     return Promise.resolve({ uploaded: true, previewUrl: ctx.previewUrl });
   },
 };

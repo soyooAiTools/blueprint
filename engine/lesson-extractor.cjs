@@ -75,26 +75,43 @@ function extractLesson(ctx) {
   // Build description from failure reason
   var description = reason.substring(0, 500);
 
-  // Build fix suggestion from stage results context
-  var fix = 'Review and fix the ' + stage + ' stage failure. ';
+  // Build fix suggestion from actual failure context
+  var fix = '';
+
+  // Extract specific fix info from feedbackHistory (most recent CUA/visual diagnosis)
+  var feedbackHistory = (ctx.blueprint && ctx.blueprint.feedbackHistory) || [];
+  var lastDiagnosis = '';
+  for (var fi = feedbackHistory.length - 1; fi >= 0; fi--) {
+    var fb = feedbackHistory[fi];
+    var fbText = (fb.data && fb.data.text) || fb.text || '';
+    if (fbText && (fbText.indexOf('DIAGNOSIS') >= 0 || fbText.indexOf('ACTION REQUIRED') >= 0)) {
+      lastDiagnosis = fbText.substring(0, 400);
+      break;
+    }
+  }
+
   if (stage === 'review') {
-    // Try to extract specific issues from stageResults
     var reviewResult = ctx.stageResults && ctx.stageResults.review;
     if (reviewResult && reviewResult.issues && Array.isArray(reviewResult.issues)) {
       fix = reviewResult.issues.slice(0, 3).map(function(i) {
         return (i.description || i.message || String(i)).substring(0, 150);
       }).join('; ');
     }
+  } else if (stage === 'compile') {
+    // Extract actual compiler error from reason
+    var errorMatch = reason.match(/error\s+CS\d+[^\n]*/i);
+    fix = errorMatch ? errorMatch[0].substring(0, 300) : 'Fix compilation error: ' + reason.substring(0, 200);
+  } else if (stage === 'visual-check' || stage === 'cua-verify') {
+    // Use last diagnosis from fix-loop feedback if available
+    if (lastDiagnosis) {
+      var actionMatch = lastDiagnosis.match(/ACTION REQUIRED:\s*([^\n]+)/);
+      fix = actionMatch ? actionMatch[1].substring(0, 300) : lastDiagnosis.substring(0, 300);
+    } else {
+      fix = reason.substring(0, 300);
+    }
   }
-  if (stage === 'compile') {
-    fix = 'Fix compilation error — likely forbidden API usage or Bridge.NET incompatibility.';
-  }
-  if (stage === 'visual-check') {
-    fix = 'Ensure scene renders correctly: objects visible, movement between frames, no black/solid screens.';
-  }
-  if (stage === 'cua-verify') {
-    fix = 'Ensure interactive elements respond to user input and phases progress correctly.';
-  }
+
+  if (!fix) fix = reason.substring(0, 300);
 
   // Dedup check: don't add near-duplicate rules
   var existingRules = readRules();

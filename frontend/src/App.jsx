@@ -243,7 +243,7 @@ function FlowEditor({ project, onBack, initialTab }) {
 
   // Fetch WebGL info + feedback history when status warrants it
   useEffect(() => {
-    if (['reviewing', 'approved', 'committed', 'feedback'].indexOf(projectStatus) >= 0) {
+    if (['reviewing', 'approved', 'committed', 'feedback', 'done'].indexOf(projectStatus) >= 0) {
       getWebglInfo(project.id).then(setWebglInfo).catch(() => {});
       getProject(project.id).then((p) => {
         if (p.feedbackHistory && p.feedbackHistory.length > 0) {

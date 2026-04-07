@@ -329,7 +329,8 @@ module.exports = {
           try { fs.rmSync(tmpBuildDir, { recursive: true, force: true }); } catch(e) {}
           ctx.htmlOutput = lastHtmlForVisual;
           ctx.csCode = lastCsCode;
-          return { done: true, result: { passed: false, reason: 'playwright error: ' + err.message } };
+          // Re-throw so fix-loop can classify and retry or abort
+          throw err;
         });
       },
     });

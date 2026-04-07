@@ -86,6 +86,7 @@ module.exports.init = function(ctx) {
         sceneSheet: project.sceneSheet || {},
         config: project.storyboardConfig || {},
       },
+      phases: project.phases || [],
       exportedAt: new Date().toISOString()
     };
   }

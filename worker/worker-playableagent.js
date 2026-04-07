@@ -107,17 +107,26 @@ function ensureXvfb() {
 function writeSpecsFile(blueprint, taskId) {
   const specsDataDir = process.env.SPECS_DATA_DIR || path.join(__dirname, '..', 'spec-data');
   // Try loading from spec-data dir first
+  const webglDir = path.join(__dirname, '..', 'server-data', 'webgl');
   const specsFiles = [
     path.join(specsDataDir, taskId + '.json'),
     path.join(specsDataDir, taskId + '-specs.json'),
+    path.join(webglDir, taskId, 'specs.json'),
   ];
   for (const f of specsFiles) {
     if (fs.existsSync(f)) {
       return f;
     }
   }
-  // V3 blueprint.nodes fallback removed — specs must come from file
-  throw new Error('No phase specs file found. V3 node fallback has been removed — please ensure specs file exists.');
+  // Fall back to blueprint.specs or blueprint.phases — write to disk for Python
+  const specs = blueprint.specs || blueprint.phases || [];
+  if (specs.length > 0) {
+    fs.mkdirSync(specsDataDir, { recursive: true });
+    const outPath = path.join(specsDataDir, taskId + '-specs.json');
+    fs.writeFileSync(outPath, JSON.stringify(specs, null, 2));
+    return outPath;
+  }
+  throw new Error('No phase specs available (no file on disk and no specs/phases in blueprint)');
 }
 
 /**
