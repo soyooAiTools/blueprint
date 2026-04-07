@@ -271,7 +271,7 @@ module.exports = {
     if (specs.length > 15) {
       warnings.push('Spec has ' + specs.length + ' phases (>15). Code budget may be exceeded — ' +
         'AI typically generates ~100 lines per phase, >1500 lines risks Opus token exhaustion. ' +
-        'Consider merging simple phases or using phased generation (first 3 phases only).');
+        'Consider merging simple phases to reduce code budget.');
     }
 
     // --- 10. Total duration sanity ---

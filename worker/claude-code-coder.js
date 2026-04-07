@@ -16,8 +16,8 @@ const promptV5Module = require('./prompt-v5-basetemplate.js');
 // Spec 系统（可选）
 let specExtractor, skeletonGenerator;
 try {
-  specExtractor = require('../spec-extractor.cjs');
-  skeletonGenerator = require('../skeleton-generator.cjs');
+  specExtractor = require('../adapters/spec-extractor.cjs');
+  skeletonGenerator = require('../adapters/skeleton-generator.cjs');
 } catch (e) {}
 
 // ============ Config ============
@@ -31,14 +31,86 @@ const GLM_API_KEY = process.env.GLM_API_KEY || 'oki-d82fb9cf928492b23847db9569dd
 const SYSTEM_PROMPT_PATH = path.join(__dirname, 'luna-claude-code.md');
 const BUILD_URL = process.env.LINUX_BUILD_URL || 'http://localhost:3080';
 
-// ============ Global concurrency lock — DISABLED (allow parallel Claude Code) ============
-async function acquireLock(taskId, log) {
-  log(`[claude-lock] Lock disabled, proceeding immediately`, taskId);
-  return true;
+// ============ Cross-process Claude Code concurrency semaphore ============
+// Uses file-based slot locking: /tmp/claude-code-slots/slot-N.lock
+// MAX_CONCURRENT_CLAUDE controls how many Claude Code sessions run in parallel
+const MAX_CONCURRENT_CLAUDE = parseInt(process.env.MAX_CONCURRENT_CLAUDE) || 3;
+const LOCK_DIR = '/tmp/claude-code-slots';
+const LOCK_POLL_MS = 5000;   // poll every 5s
+const LOCK_TIMEOUT_MS = 25 * 60 * 1000; // 25min max wait (slightly over CLAUDE_TIMEOUT)
+
+try { fs.mkdirSync(LOCK_DIR, { recursive: true }); } catch(e) {}
+
+function _cleanStaleLocks() {
+  // Remove locks older than 25 min (stale from crashed workers)
+  try {
+    const files = fs.readdirSync(LOCK_DIR);
+    const now = Date.now();
+    for (const f of files) {
+      if (!f.endsWith('.lock')) continue;
+      const fp = path.join(LOCK_DIR, f);
+      try {
+        const stat = fs.statSync(fp);
+        if (now - stat.mtimeMs > LOCK_TIMEOUT_MS) {
+          fs.unlinkSync(fp);
+        }
+      } catch(e) {}
+    }
+  } catch(e) {}
 }
 
-function releaseLock(taskId, log) {
-  // no-op
+function _tryAcquireSlot(taskId) {
+  _cleanStaleLocks();
+  for (let i = 0; i < MAX_CONCURRENT_CLAUDE; i++) {
+    const lockFile = path.join(LOCK_DIR, `slot-${i}.lock`);
+    try {
+      // O_EXCL ensures atomic creation — only one process wins
+      const fd = fs.openSync(lockFile, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY);
+      fs.writeSync(fd, JSON.stringify({ taskId, pid: process.pid, at: new Date().toISOString() }));
+      fs.closeSync(fd);
+      return i; // acquired slot index
+    } catch(e) {
+      // Slot taken — try next
+    }
+  }
+  return -1; // all slots busy
+}
+
+async function acquireLock(taskId, log) {
+  const slot = _tryAcquireSlot(taskId);
+  if (slot >= 0) {
+    log(`[claude-lock] Acquired slot ${slot}/${MAX_CONCURRENT_CLAUDE}`, taskId);
+    return slot;
+  }
+  // Wait for a slot
+  log(`[claude-lock] All ${MAX_CONCURRENT_CLAUDE} slots busy, waiting...`, taskId);
+  const waitStart = Date.now();
+  return new Promise((resolve, reject) => {
+    const timer = setInterval(() => {
+      const s = _tryAcquireSlot(taskId);
+      if (s >= 0) {
+        clearInterval(timer);
+        const waited = Math.round((Date.now() - waitStart) / 1000);
+        log(`[claude-lock] Acquired slot ${s}/${MAX_CONCURRENT_CLAUDE} after ${waited}s wait`, taskId);
+        resolve(s);
+        return;
+      }
+      if (Date.now() - waitStart > LOCK_TIMEOUT_MS) {
+        clearInterval(timer);
+        log(`[claude-lock] Timeout waiting for slot — proceeding without lock`, taskId);
+        resolve(-1); // proceed anyway after timeout
+      }
+    }, LOCK_POLL_MS);
+  });
+}
+
+function releaseLock(slot, taskId, log) {
+  if (slot < 0) return;
+  const lockFile = path.join(LOCK_DIR, `slot-${slot}.lock`);
+  try {
+    fs.unlinkSync(lockFile);
+    log(`[claude-lock] Released slot ${slot}`, taskId);
+  } catch(e) {}
 }
 
 /**
@@ -430,8 +502,8 @@ ${feedbackTexts}
 重要：代码必须完整（通常 1300-1600 行），不要省略任何部分。`;
   }
 
-  // === Step 5: 运行 Claude Code（全局串行锁，避免代理限流）===
-  await acquireLock(taskId, log);
+  // === Step 5: 运行 Claude Code（跨进程信号量，限制并发数）===
+  const slot = await acquireLock(taskId, log);
   log('[claude-code] 🚀 Starting Claude Code agent...', taskId);
   let result;
   try {
@@ -450,7 +522,7 @@ ${feedbackTexts}
     workDir: clientDir,
   });
   } finally {
-    releaseLock(taskId, log);
+    releaseLock(slot, taskId, log);
   }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);

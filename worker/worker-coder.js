@@ -15,8 +15,8 @@ try {
 // Spec System — structured experience specs + skeleton generation
 let specExtractor, skeletonGenerator;
 try {
-  specExtractor = require('../spec-extractor.cjs');
-  skeletonGenerator = require('../skeleton-generator.cjs');
+  specExtractor = require('../adapters/spec-extractor.cjs');
+  skeletonGenerator = require('../adapters/skeleton-generator.cjs');
 } catch (e) {
   // spec system not available — degrade gracefully
 }
