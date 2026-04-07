@@ -411,6 +411,43 @@ module.exports.init = function(ctx) {
       }
     },
 
+    getPipelineMetrics: function(req, res, body, params) {
+      try {
+        var u = new URL(req.url, 'http://localhost');
+        var lastN = parseInt(u.searchParams.get('last')) || 50;
+        var { getMetricsSummary } = require('../engine/metrics.cjs');
+        var summary = getMetricsSummary(lastN);
+
+        // Also load recent failure history from projects
+        var projectFailures = [];
+        try {
+          if (fs.existsSync(PROJECTS_DIR)) {
+            fs.readdirSync(PROJECTS_DIR).filter(function(f) { return f.endsWith('.json'); }).forEach(function(f) {
+              try {
+                var p = JSON.parse(fs.readFileSync(path.join(PROJECTS_DIR, f), 'utf-8'));
+                if (p.lastFailure) {
+                  projectFailures.push({
+                    projectId: p.id,
+                    projectName: p.name,
+                    status: p.status,
+                    lastFailure: p.lastFailure,
+                    failureCount: p.failureHistory ? p.failureHistory.length : 0,
+                  });
+                }
+              } catch(e) {}
+            });
+          }
+        } catch(e) {}
+
+        sendJSON(res, {
+          pipeline: summary,
+          projectFailures: projectFailures,
+        });
+      } catch(e) {
+        sendJSON(res, { error: e.message }, 500);
+      }
+    },
+
     // Expose for server.cjs interval usage
     runWatchdogCycle: runWatchdogCycle,
   };

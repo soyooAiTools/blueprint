@@ -157,20 +157,29 @@ function sendFeishu(level, title, detail) {
  * @param {'critical'|'warning'} level
  * @param {string} title
  * @param {string} detail
+ * @param {object} [extra] — optional structured context { stage, classification, taskId }
  */
-function alert(level, title, detail) {
-  const record = { level, title, detail, timestamp: new Date().toISOString() };
+function alert(level, title, detail, extra) {
+  const record = {
+    level,
+    title,
+    detail,
+    timestamp: new Date().toISOString(),
+    stage: (extra && extra.stage) || null,
+    classification: (extra && extra.classification) || null,
+    taskId: (extra && extra.taskId) || null,
+  };
   // Always store
   appendRecord(ALERTS_FILE, record);
-  // Dedup before sending to Feishu
-  const key = `alert:${level}:${title}`;
+  // Dedup before sending to Feishu — include stage for finer-grained dedup
+  const dedupStage = record.stage ? ':' + record.stage : '';
+  const key = `alert:${level}:${title}${dedupStage}`;
   if (shouldSend(key)) {
-    sendFeishu(level, title, detail || '');
+    const stageTag = record.stage ? ` [${record.stage}]` : '';
+    const classTag = record.classification ? ` (${record.classification})` : '';
+    sendFeishu(level, title + stageTag + classTag, detail || '');
   }
-  console.log(`[notify] ${level === 'critical' ? '🔴' : '🟡'} ${title}: ${(detail || '').substring(0, 100)}`);
-
-  // Auto-repair to monitoring group DISABLED (Nick requested 2026-03-24)
-  // if (level === 'critical') { ... }
+  console.log(`[notify] ${level === 'critical' ? '🔴' : '🟡'} ${title}${record.stage ? ' @' + record.stage : ''}: ${(detail || '').substring(0, 100)}`);
 }
 
 /**

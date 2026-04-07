@@ -96,6 +96,21 @@ module.exports.init = function(ctx) {
           var mappedStatus = (status === 'cua_passed') ? 'reviewing' : status;
           projectSM.forceTransition(project, mappedStatus, 'worker-' + workerId);
           if (message) project.statusMessage = message;
+          // Persist structured failure attribution
+          if (status === 'failed') {
+            project.lastFailure = {
+              failedAtStage: data.failedAtStage || null,
+              failReason: data.failReason ? String(data.failReason).substring(0, 500) : null,
+              failClassification: data.failClassification || null,
+              failedAt: data.failedAt || new Date().toISOString(),
+              durationMs: data.durationMs || null,
+              workerId: workerId,
+            };
+            // Accumulate failure history (keep last 10)
+            if (!project.failureHistory) project.failureHistory = [];
+            project.failureHistory.push(project.lastFailure);
+            if (project.failureHistory.length > 10) project.failureHistory = project.failureHistory.slice(-10);
+          }
           // Set webglPath if not already set (CUA passed with build available)
           if (status === 'cua_passed' && !project.webglPath) {
             var webglDir = path.join(WEBGL_DIR, taskId);

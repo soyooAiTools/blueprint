@@ -48,7 +48,8 @@ clone → spec-validate → codegen → review [gate] → compile [gate] → vis
 | `engine/static-check.cjs` | 静态代码检查（30 条规则：禁用 API / Bridge.NET 限制 / LINQ / 无限循环 / pool 名拼写） |
 | `engine/helpers.cjs` | 构建请求、issue 分类、结构化反馈构建 |
 | `engine/spec-conformance.cjs` | Spec 语义校验（phase 完整性 / 交互处理器 / entity 引用 / trigger 条件） |
-| `engine/metrics.cjs` | Pipeline 运行指标收集（JSONL），支持成功率/轮次/phase 覆盖率统计 |
+| `engine/metrics.cjs` | Pipeline 运行指标收集（JSONL），含失败归因/热点/趋势/诊断报告 |
+| `engine/lesson-extractor.cjs` | 失败自动规则沉淀（CODE/GATE 失败 → pending-rules.json，Jaccard 去重） |
 | `engine/cleanup-old-builds.cjs` | WebGL 构建产物清理（默认 7 天，支持 --dry-run） |
 
 ### Codegen 前置处理链
@@ -89,7 +90,8 @@ blueprint-editor/
 │   ├── static-check.cjs            # 静态代码检查
 │   ├── helpers.cjs                 # 工具函数
 │   ├── spec-conformance.cjs        # Spec 语义校验
-│   ├── metrics.cjs                 # Pipeline 指标收集
+│   ├── metrics.cjs                 # Pipeline 指标收集 + 诊断报告（CLI: node engine/metrics.cjs）
+│   ├── lesson-extractor.cjs        # 失败 → 规则自动沉淀
 │   ├── cleanup-old-builds.cjs      # 构建清理脚本
 │   └── stages/                     # Pipeline 各阶段实现
 │       ├── clone.cjs
@@ -188,12 +190,22 @@ Linux ECS 上直接用 MSBuild + Bridge.NET 编译 C# → JS，拼接到 Luna 7.
 | POST | `/api/projects/:id/generate-storyboard` | SSE 生成配图 |
 | POST | `/api/projects/:id/edit-frame` | AI 编辑单帧 |
 
+### Dashboard
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/dashboard/stats` | 综合仪表盘数据 |
+| GET | `/api/dashboard/pipeline-metrics?last=N` | Pipeline 指标（失败热点/通过率/趋势/项目失败明细） |
+| GET | `/api/dashboard/api-health` | API 健康检查 |
+| GET | `/api/watchdog` | Watchdog 状态 |
+
 ### Worker
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/worker/poll?workerId=xxx` | 拉取任务 |
 | POST | `/api/worker/heartbeat` | 心跳 |
+| POST | `/api/worker/status` | Worker 状态上报（含结构化失败归因） |
 | POST | `/api/tasks/:taskId/upload-build` | 上传构建产物 |
 
 ## 知识回流系统
@@ -227,11 +239,27 @@ pm2 start ecosystem.config.cjs
 ### Pipeline 指标
 
 ```bash
-# 查看最近 50 次运行的汇总统计
-node -e "console.log(require('./engine/metrics.cjs').getMetricsSummary(50))"
+# 终端诊断报告（人类可读）
+node engine/metrics.cjs
+
+# JSON 格式（程序消费）
+node -e "console.log(JSON.stringify(require('./engine/metrics.cjs').getMetricsSummary(50), null, 2))"
 ```
 
-指标文件：`server-data/metrics/pipeline-metrics.jsonl`（每次 pipeline 自动追加一行）
+- **Dashboard**: `http://localhost:3901/dashboard` → "Pipeline 指标" tab
+- **API**: `GET /api/dashboard/pipeline-metrics?last=50`
+- **原始数据**: `server-data/metrics/pipeline-metrics.jsonl`（每次 pipeline 自动追加）
+
+诊断报告包含：成功率、失败热点（按 stage）、瓶颈 stage、stage 通过率、错误分类（CODE/INFRA/GATE/FATAL）、趋势、top 失败原因。
+
+### 失败归因
+
+Pipeline 失败时自动记录结构化归因：
+- **metrics JSONL**: `failedAtStage` + `failReason` + `failClassification`
+- **项目 JSON**: `lastFailure` + `failureHistory`（保留最近 10 条）
+- **alerts**: 带 stage/classification/taskId 的分类告警
+
+失败同时触发 `lesson-extractor` 自动提取规则到 `pending-rules.json`（Jaccard 去重，重复命中计数）。
 
 ### 构建清理
 

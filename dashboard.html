@@ -103,6 +103,7 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
   <div class="tab" data-panel="live">实时动态</div>
   <div class="tab" data-panel="quality">质量关卡</div>
   <div class="tab" data-panel="parse">解析统计</div>
+  <div class="tab" data-panel="pipeline">Pipeline 指标</div>
 </div>
 <div class="content">
   <!-- Overview -->
@@ -164,6 +165,34 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       <div id="parseHistory"></div>
     </div>
   </div>
+  <!-- Pipeline Metrics -->
+  <div class="panel" id="pipeline">
+    <div class="grid grid-4" id="pipelineTopStats"></div>
+    <div class="grid grid-2" style="margin-top:16px;">
+      <div class="card">
+        <h3>失败热点（按 Stage）</h3>
+        <div id="failureHotspots"></div>
+      </div>
+      <div class="card">
+        <h3>Stage 通过率</h3>
+        <div id="stagePassRates"></div>
+      </div>
+    </div>
+    <div class="grid grid-2" style="margin-top:16px;">
+      <div class="card">
+        <h3>Top 失败原因</h3>
+        <div id="topFailReasons"></div>
+      </div>
+      <div class="card">
+        <h3>趋势 &amp; 错误分类</h3>
+        <div id="pipelineTrend"></div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3>项目失败明细</h3>
+      <div id="projectFailures"></div>
+    </div>
+  </div>
 </div>
 <script>
 (function() {
@@ -209,9 +238,10 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
   }
 
   async function refresh() {
-    var [stats, health] = await Promise.all([
+    var [stats, health, pipelineMetrics] = await Promise.all([
       fetchJSON('/api/dashboard/stats'),
-      fetchJSON('/api/dashboard/api-health')
+      fetchJSON('/api/dashboard/api-health'),
+      fetchJSON('/api/dashboard/pipeline-metrics')
     ]);
 
     document.getElementById('lastUpdate').textContent = '更新: ' + fmt(Date.now());
@@ -446,6 +476,128 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       });
     }
     document.getElementById('liveTimelines').innerHTML = liveHTML;
+
+    // ========== Pipeline Metrics ==========
+    var pm = pipelineMetrics && pipelineMetrics.pipeline;
+    if (pm && pm.totalRuns > 0) {
+      var pt = '';
+      var srColor = parseFloat(pm.successRate) >= 50 ? 'green' : parseFloat(pm.successRate) >= 20 ? 'yellow' : 'red';
+      pt += statCard(pm.successRate, '成功率', srColor, pm.successCount + ' 成功 / ' + pm.failCount + ' 失败');
+      pt += statCard(pm.totalRuns, '总运行次数', 'blue');
+      pt += statCard(pm.avgDurationMin + 'm', '平均耗时', 'blue');
+      var bn = pm.bottleneckStage;
+      pt += statCard(bn ? bn.stage : '-', '瓶颈 Stage', 'yellow', bn ? '平均 ' + bn.avgRounds + ' 轮' : '');
+      document.getElementById('pipelineTopStats').innerHTML = pt;
+
+      // Failure hotspots bar chart
+      var hotspots = pm.failureHotspots || [];
+      if (hotspots.length > 0) {
+        var maxCount = hotspots[0].count;
+        var hh = '';
+        hotspots.forEach(function(h) {
+          var pct = maxCount > 0 ? Math.round(h.count / maxCount * 100) : 0;
+          hh += '<div style="margin-bottom:10px;">';
+          hh += '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span>' + h.stage + '</span><span style="color:#8b949e;">' + h.count + '次 (' + h.pct + ')</span></div>';
+          hh += '<div style="background:#21262d;border-radius:4px;height:8px;overflow:hidden;"><div style="background:#f85149;height:100%;width:' + pct + '%;border-radius:4px;transition:width 0.3s;"></div></div>';
+          hh += '</div>';
+        });
+        document.getElementById('failureHotspots').innerHTML = hh;
+      } else {
+        document.getElementById('failureHotspots').innerHTML = '<div class="empty">无失败记录 🎉</div>';
+      }
+
+      // Stage pass rates
+      var spr = pm.stagePassRates || {};
+      var sprKeys = Object.keys(spr);
+      if (sprKeys.length > 0) {
+        var sh = '';
+        sprKeys.forEach(function(k) {
+          var s = spr[k];
+          var rate = parseInt(s.rate);
+          var barColor = rate >= 80 ? '#3fb950' : rate >= 50 ? '#d29922' : '#f85149';
+          sh += '<div style="margin-bottom:10px;">';
+          sh += '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span>' + k + '</span><span style="color:#8b949e;">' + s.rate + ' (' + s.passed + '/' + s.attempted + ')</span></div>';
+          sh += '<div style="background:#21262d;border-radius:4px;height:8px;overflow:hidden;"><div style="background:' + barColor + ';height:100%;width:' + rate + '%;border-radius:4px;transition:width 0.3s;"></div></div>';
+          sh += '</div>';
+        });
+        document.getElementById('stagePassRates').innerHTML = sh;
+      } else {
+        document.getElementById('stagePassRates').innerHTML = '<div class="empty">暂无数据</div>';
+      }
+
+      // Top failure reasons
+      var tfr = pm.topFailReasons || [];
+      if (tfr.length > 0) {
+        var fh = '';
+        tfr.forEach(function(r, i) {
+          fh += '<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid #21262d;font-size:13px;">';
+          fh += '<span style="color:#f85149;font-weight:700;min-width:28px;">' + r.count + '×</span>';
+          fh += '<span style="color:#c9d1d9;word-break:break-all;">' + r.reason + '</span>';
+          fh += '</div>';
+        });
+        document.getElementById('topFailReasons').innerHTML = fh;
+      } else {
+        document.getElementById('topFailReasons').innerHTML = '<div class="empty">无失败原因记录</div>';
+      }
+
+      // Trend + classification
+      var trendHTML = '';
+      if (pm.trend) {
+        var dirIcon = pm.trend.direction === 'improving' ? '📈' : pm.trend.direction === 'declining' ? '📉' : '➡️';
+        var dirColor = pm.trend.direction === 'improving' ? '#3fb950' : pm.trend.direction === 'declining' ? '#f85149' : '#8b949e';
+        trendHTML += '<div style="padding:12px;background:#0d1117;border:1px solid #30363d;border-radius:6px;margin-bottom:12px;">';
+        trendHTML += '<div style="font-size:13px;margin-bottom:8px;">趋势 ' + dirIcon + ' <span style="color:' + dirColor + ';font-weight:600;">' + pm.trend.direction + '</span></div>';
+        trendHTML += '<div style="display:flex;gap:20px;font-size:12px;">';
+        trendHTML += '<span>最近 5 次: <strong>' + pm.trend.recent5SuccessRate + '</strong></span>';
+        trendHTML += '<span>之前 5 次: <strong>' + pm.trend.previous5SuccessRate + '</strong></span>';
+        trendHTML += '</div></div>';
+      }
+      var fc = pm.failureClassifications || {};
+      var fcKeys = Object.keys(fc);
+      if (fcKeys.length > 0) {
+        trendHTML += '<h3 style="font-size:12px;color:#8b949e;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">错误分类</h3>';
+        trendHTML += '<div style="display:flex;gap:12px;flex-wrap:wrap;">';
+        var classColors = { CODE: '#d29922', INFRA: '#58a6ff', FATAL: '#f85149', GATE: '#bc8cff', UNKNOWN: '#8b949e' };
+        fcKeys.forEach(function(k) {
+          var c = classColors[k] || '#8b949e';
+          trendHTML += '<div style="background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px 16px;text-align:center;">';
+          trendHTML += '<div style="font-size:22px;font-weight:700;color:' + c + ';">' + fc[k] + '</div>';
+          trendHTML += '<div style="font-size:11px;color:#8b949e;margin-top:2px;">' + k + '</div>';
+          trendHTML += '</div>';
+        });
+        trendHTML += '</div>';
+      }
+      document.getElementById('pipelineTrend').innerHTML = trendHTML || '<div class="empty">需要 10+ 次运行后显示趋势</div>';
+
+    } else {
+      document.getElementById('pipelineTopStats').innerHTML = statCard('-', '总运行次数', 'gray', '尚无 Pipeline 运行数据');
+      document.getElementById('failureHotspots').innerHTML = '<div class="empty">Pipeline 运行后将自动采集数据</div>';
+      document.getElementById('stagePassRates').innerHTML = '<div class="empty">Pipeline 运行后将自动采集数据</div>';
+      document.getElementById('topFailReasons').innerHTML = '<div class="empty">Pipeline 运行后将自动采集数据</div>';
+      document.getElementById('pipelineTrend').innerHTML = '<div class="empty">Pipeline 运行后将自动采集数据</div>';
+    }
+
+    // Project failures table
+    var pf = pipelineMetrics && pipelineMetrics.projectFailures || [];
+    if (pf.length > 0) {
+      document.getElementById('projectFailures').innerHTML = tableHTML(
+        ['项目', '状态', '失败 Stage', '错误分类', '失败原因', '失败次数', '时间'],
+        pf.map(function(p) {
+          var lf = p.lastFailure || {};
+          return [
+            p.projectName || p.projectId,
+            badge(p.status),
+            lf.failedAtStage ? '<span style="color:#f85149;font-weight:500;">' + lf.failedAtStage + '</span>' : '-',
+            lf.failClassification ? badge(lf.failClassification === 'CODE' ? 'pending' : lf.failClassification === 'INFRA' ? 'processing' : 'failed').replace('>' + (lf.failClassification === 'CODE' ? 'pending' : lf.failClassification === 'INFRA' ? 'processing' : 'failed') + '<', '>' + lf.failClassification + '<') : '-',
+            lf.failReason ? '<span style="font-size:12px;color:#c9d1d9;">' + (lf.failReason || '').substring(0, 80) + '</span>' : '-',
+            '<span style="font-weight:600;' + (p.failureCount > 3 ? 'color:#f85149;' : '') + '">' + (p.failureCount || 0) + '</span>',
+            lf.failedAt ? ago(new Date(lf.failedAt).getTime()) : '-'
+          ];
+        })
+      );
+    } else {
+      document.getElementById('projectFailures').innerHTML = '<div class="empty">暂无项目失败记录</div>';
+    }
   }
 
   refresh();

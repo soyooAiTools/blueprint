@@ -5,6 +5,9 @@
  * Returns { passed, issues[] } where each issue has { rule, line, text }.
  */
 
+var fs = require('fs');
+var path = require('path');
+
 var RULES = [
   { id: 'setactive', pattern: /\.SetActive\s*\(/g, message: 'SetActive() forbidden in Luna — use position=(0,-999,0) to hide' },
   { id: 'camera-main', pattern: /Camera\.main(?!\s*;?\s*\/\/\s*ok)/g, message: 'Camera.main forbidden — use skeleton\'s mainCam variable' },
@@ -96,6 +99,33 @@ function buildCodeMask(code) {
     i++;
   }
   return mask;
+}
+
+// Load external custom rules (extends/overrides built-in RULES)
+var CUSTOM_RULES_PATH = path.join(__dirname, '..', 'data', 'static-rules.json');
+try {
+  var customData = JSON.parse(fs.readFileSync(CUSTOM_RULES_PATH, 'utf8'));
+  var customRules = customData.rules || [];
+  for (var cri = 0; cri < customRules.length; cri++) {
+    var cr = customRules[cri];
+    if (!cr.id || !cr.pattern || !cr.message) continue;
+    // Check if override of existing rule
+    var existingIdx = -1;
+    for (var eri = 0; eri < RULES.length; eri++) {
+      if (RULES[eri].id === cr.id) { existingIdx = eri; break; }
+    }
+    var entry = { id: cr.id, pattern: new RegExp(cr.pattern, cr.flags || 'g'), message: cr.message };
+    if (cr.disabled) {
+      // Remove rule if disabled
+      if (existingIdx >= 0) RULES.splice(existingIdx, 1);
+    } else if (existingIdx >= 0) {
+      RULES[existingIdx] = entry;
+    } else {
+      RULES.push(entry);
+    }
+  }
+} catch(e) {
+  // No custom rules file — use built-in rules only
 }
 
 /**

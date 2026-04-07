@@ -11,6 +11,10 @@ var fs = require('fs');
 var path = require('path');
 var helpers = require('./helpers.cjs');
 var { recordPipelineMetrics } = require('./metrics.cjs');
+var notify;
+try { notify = require('../adapters/notify.cjs'); } catch(e) { notify = { alert: function() {} }; }
+var lessonExtractor;
+try { lessonExtractor = require('./lesson-extractor.cjs'); } catch(e) { lessonExtractor = { extractLesson: function() {} }; }
 
 // ============ Pipeline Context ============
 
@@ -147,6 +151,13 @@ Pipeline.prototype.run = function(ctx, onProgress) {
       } catch(gateErr) {
         var gateMsg = 'Quality gate failed before ' + stage.name + ': ' + gateErr.message;
         ctx.addLog(stage.name, gateMsg);
+        ctx._pipelineError = true;
+        ctx._failedAtStage = stage.name;
+        ctx._failReason = 'gate: ' + gateErr.message;
+        ctx._failClassification = 'GATE';
+        try { recordPipelineMetrics(ctx, ctx.stageResults); } catch(e) {}
+        try { notify.alert('warning', 'Pipeline gate failed', gateErr.message, { stage: stage.name, classification: 'GATE', taskId: ctx.taskId }); } catch(e) {}
+        try { lessonExtractor.extractLesson(ctx); } catch(e) {}
         if (onProgress) onProgress(stage.name, 'gate-failed', ctx);
         throw new Error(gateMsg);
       }
@@ -202,7 +213,16 @@ Pipeline.prototype.run = function(ctx, onProgress) {
 
         if (onProgress) onProgress(stage.name, 'failed', ctx);
         ctx._pipelineError = true;
+        ctx._failedAtStage = stage.name;
+        ctx._failReason = err.message;
+        // Classify the error
+        try {
+          var errorClassifier = require('./error-classifier.cjs');
+          ctx._failClassification = errorClassifier.classify(err, { stage: stage.name }).type;
+        } catch(ce) { ctx._failClassification = 'UNKNOWN'; }
         try { recordPipelineMetrics(ctx, ctx.stageResults); } catch(e) {}
+        try { notify.alert('critical', 'Pipeline failed', err.message, { stage: stage.name, classification: ctx._failClassification, taskId: ctx.taskId }); } catch(e) {}
+        try { lessonExtractor.extractLesson(ctx); } catch(e) {}
         throw new Error('Pipeline failed at ' + stage.name + ': ' + err.message);
       });
     }

@@ -356,6 +356,12 @@ function reportStatus(taskId, status, extra) {
   const data = { workerId: WORKER_ID, taskId, status, message: (extra && extra.message) || '' };
   if (extra && extra.previewUrl) data.previewUrl = extra.previewUrl;
   if (extra && extra.qualityData) data.qualityData = extra.qualityData;
+  // Forward structured failure attribution
+  if (extra && extra.failedAtStage) data.failedAtStage = extra.failedAtStage;
+  if (extra && extra.failReason) data.failReason = extra.failReason;
+  if (extra && extra.failClassification) data.failClassification = extra.failClassification;
+  if (extra && extra.failedAt) data.failedAt = extra.failedAt;
+  if (extra && extra.durationMs) data.durationMs = extra.durationMs;
   return apiRequest('POST', '/api/worker/status', JSON.stringify(data)).catch(e => {
     log(`Status report failed: ${e.message}`, taskId);
   });
@@ -482,7 +488,28 @@ async function processTask(task) {
 
   } catch (e) {
     log('Task error: ' + e.message, taskId);
-    await reportStatus(taskId, 'failed', { message: '[Linux] Error: ' + e.message.slice(0, 200) });
+
+    // Extract structured failure info from pipeline context or error message
+    var failInfo = { message: '[Linux] Error: ' + e.message.slice(0, 200) };
+    var stageMatch = e.message.match(/Pipeline failed at (\S+):/);
+    var gateMatch = e.message.match(/Quality gate failed before (\S+):/);
+    if (stageMatch) {
+      failInfo.failedAtStage = stageMatch[1];
+      failInfo.failReason = e.message.replace('Pipeline failed at ' + stageMatch[1] + ': ', '');
+    } else if (gateMatch) {
+      failInfo.failedAtStage = gateMatch[1];
+      failInfo.failReason = 'gate: ' + e.message.replace('Quality gate failed before ' + gateMatch[1] + ': ', '');
+    }
+    // Classify error
+    try {
+      var { classify } = require('../engine/error-classifier.cjs');
+      failInfo.failClassification = classify(e).type;
+    } catch(ce) {}
+
+    failInfo.failedAt = new Date().toISOString();
+    failInfo.durationMs = Date.now() - startTime;
+
+    await reportStatus(taskId, 'failed', failInfo);
     clearCheckpoint(taskId);
   }
 }

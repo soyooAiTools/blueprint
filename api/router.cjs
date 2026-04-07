@@ -86,6 +86,7 @@ function matchRoute(method, pathname) {
   if (method === 'GET' && pathname === '/api/dashboard/api-health') return { handler: 'getApiHealth' };
   if (method === 'GET' && pathname === '/api/watchdog') return { handler: 'getWatchdogStatus' };
   if (method === 'POST' && pathname === '/api/watchdog/run') return { handler: 'runWatchdog' };
+  if (method === 'GET' && pathname === '/api/dashboard/pipeline-metrics') return { handler: 'getPipelineMetrics' };
 
   // Serve generated images
   m = pathname.match(/^\/api\/images\/([^/]+)\/(.+)$/);

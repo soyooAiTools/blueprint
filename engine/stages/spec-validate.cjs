@@ -188,6 +188,47 @@ module.exports = {
       }).join('; '));
     }
 
+    // --- 6. Circular reference detection ---
+    // Check if any triggerNext.condition references a previous phase (backwards jump)
+    var phaseIdSet = {};
+    for (var ci = 0; ci < specs.length; ci++) {
+      phaseIdSet[specs[ci].phaseId] = ci;
+    }
+    for (var cri = 0; cri < specs.length; cri++) {
+      var crSpec = specs[cri];
+      var crLabel = 'Spec[' + cri + '] ' + (crSpec.phaseId || 'unnamed');
+      if (crSpec.triggerNext && crSpec.triggerNext.condition) {
+        var crCond = crSpec.triggerNext.condition;
+        // Check if condition text references any earlier phase ID (potential loop)
+        for (var crj = 0; crj <= cri; crj++) {
+          var earlierPhaseId = specs[crj].phaseId;
+          if (earlierPhaseId && crCond.indexOf(earlierPhaseId) >= 0 && crj !== cri) {
+            errors.push(crLabel + ': triggerNext.condition references earlier phase "' + earlierPhaseId +
+              '" (Spec[' + crj + ']) — creates circular dependency. Phase graph must be acyclic (linear forward progression).');
+          }
+        }
+      }
+      // Also check if any spec's nextPhase points backwards (explicit graph cycle)
+      if (crSpec.nextPhase && phaseIdSet[crSpec.nextPhase] !== undefined) {
+        var nextIdx = phaseIdSet[crSpec.nextPhase];
+        if (nextIdx <= cri) {
+          errors.push(crLabel + ': nextPhase "' + crSpec.nextPhase + '" points to Spec[' + nextIdx +
+            '] which is at or before current position — circular reference detected.');
+        }
+      }
+    }
+
+    // --- 7. Unreachable phase detection ---
+    // First phase is always reachable. Subsequent phases are reachable if the previous phase has a valid triggerNext.
+    for (var uri = 1; uri < specs.length; uri++) {
+      var prevSpec = specs[uri - 1];
+      var urLabel = 'Spec[' + uri + '] ' + (specs[uri].phaseId || 'unnamed');
+      if (!prevSpec.triggerNext || !(prevSpec.triggerNext.condition || '').trim()) {
+        warnings.push(urLabel + ': potentially unreachable — previous phase "' +
+          (prevSpec.phaseId || 'unnamed') + '" has no triggerNext.condition to transition here.');
+      }
+    }
+
     // --- Log results ---
     if (autoFixes.length > 0) {
       autoFixes.forEach(function(f) { ctx.addLog('spec-validate', 'AUTO-FIX: ' + f); });
