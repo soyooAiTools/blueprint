@@ -205,10 +205,27 @@ function getDynamicRulesText() {
     }
   } catch(e) {}
   var promoted = loadPromotedRules();
-  if (promoted.length === 0) return '';
-  var lines = ['\n## Auto-Promoted Rules (cross-project validated)\n'];
-  for (var i = 0; i < promoted.length; i++) {
-    lines.push('- ' + promoted[i].description + ' — FIX: ' + (promoted[i].fix || 'see rule'));
+  if (promoted.length === 0) return anomalyRules || '';
+
+  // Tiered injection: all critical, top-10 warning, skip info
+  var criticals = promoted.filter(function(r) { return r.severity === 'critical'; });
+  var warnings = promoted.filter(function(r) { return r.severity === 'warning' || !r.severity; });
+  // Sort warnings by totalOccurrences descending
+  warnings.sort(function(a, b) { return (b.totalOccurrences || 0) - (a.totalOccurrences || 0); });
+  var topWarnings = warnings.slice(0, 10);
+
+  var lines = [];
+  if (criticals.length > 0) {
+    lines.push('\n## Auto-Promoted Rules — CRITICAL (must check)\n');
+    for (var ci = 0; ci < criticals.length; ci++) {
+      lines.push('- ' + criticals[ci].description + ' — FIX: ' + (criticals[ci].fix || 'see rule'));
+    }
+  }
+  if (topWarnings.length > 0) {
+    lines.push('\n## Auto-Promoted Rules — WARNING (top ' + topWarnings.length + ' by frequency)\n');
+    for (var wi = 0; wi < topWarnings.length; wi++) {
+      lines.push('- ' + topWarnings[wi].description + ' — FIX: ' + (topWarnings[wi].fix || 'see rule'));
+    }
   }
   return lines.join('\n') + anomalyRules;
 }
@@ -243,14 +260,17 @@ function autoPromotePendingRules() {
     }
   }
 
-  // Promote rules triggered by ≥2 different projects
+  // Promote rules: critical severity → 1 project enough, others → ≥2 projects
   var promotedDescs = promoted.map(function(p) { return (p.description || '').toLowerCase(); }).join('|||');
   var entries = Object.entries(ruleGroups);
   for (var gi = 0; gi < entries.length; gi++) {
     var key = entries[gi][0];
     var group = entries[gi][1];
     var uniqueProjects = Object.keys(group.projects).length;
-    if (uniqueProjects < 2) continue;
+    // Check if any rule in this group is critical severity
+    var hasCritical = group.rules.some(function(r) { return r.severity === 'critical'; });
+    var threshold = hasCritical ? 1 : 2;
+    if (uniqueProjects < threshold) continue;
 
     // Check if already promoted (by rule key match)
     var alreadyPromoted = false;
@@ -268,10 +288,18 @@ function autoPromotePendingRules() {
     }
 
     if (!alreadyPromoted) {
+      // Determine severity: inherit from rules, prefer the highest
+      var groupSeverity = 'info';
+      for (var si = 0; si < group.rules.length; si++) {
+        var rs = group.rules[si].severity;
+        if (rs === 'critical') { groupSeverity = 'critical'; break; }
+        if (rs === 'warning' && groupSeverity !== 'critical') groupSeverity = 'warning';
+      }
       newPromoted.push({
         description: group.bestDesc,
         rule: key,
         fix: group.bestFix,
+        severity: groupSeverity,
         promotedAt: new Date().toISOString(),
         triggerProjects: Object.keys(group.projects),
         triggerCount: uniqueProjects,

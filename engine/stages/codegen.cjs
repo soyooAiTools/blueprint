@@ -117,18 +117,34 @@ module.exports = {
       ctx.addLog('codegen', 'No specs found — AI will generate phases from storyboard narrative');
     }
 
-    // Task #16: Inject promoted rules into codegen so AI avoids known pitfalls
+    // Task #16: Inject promoted rules into codegen — tiered by severity
+    // critical = all injected, warning = top 10 by frequency, info = skipped
     try {
       var promotedRulesPath = path.join(__dirname, '..', '..', 'worker', 'promoted-rules.json');
       var promotedRules = JSON.parse(fs.readFileSync(promotedRulesPath, 'utf8'));
       if (promotedRules.length > 0) {
-        var rulesText = '\n\n=== KNOWN PITFALLS (auto-promoted from cross-project validation) ===\n';
-        for (var pri = 0; pri < promotedRules.length; pri++) {
-          rulesText += '- ' + promotedRules[pri].description + ' — FIX: ' + (promotedRules[pri].fix || 'see rule') + '\n';
+        var criticalRules = promotedRules.filter(function(r) { return r.severity === 'critical'; });
+        var warningRules = promotedRules.filter(function(r) { return r.severity === 'warning' || !r.severity; });
+        // Sort warnings by frequency (totalOccurrences desc)
+        warningRules.sort(function(a, b) { return (b.totalOccurrences || 0) - (a.totalOccurrences || 0); });
+        var topWarnings = warningRules.slice(0, 10);
+
+        var rulesText = '';
+        if (criticalRules.length > 0) {
+          rulesText += '\n\n=== CRITICAL PITFALLS (all injected, must avoid) ===\n';
+          for (var cri = 0; cri < criticalRules.length; cri++) {
+            rulesText += '- ' + criticalRules[cri].description + ' — FIX: ' + (criticalRules[cri].fix || 'see rule') + '\n';
+          }
         }
-        if (!ctx.blueprint.promotedRulesText) {
+        if (topWarnings.length > 0) {
+          rulesText += '\n=== WARNING PITFALLS (top ' + topWarnings.length + ' by frequency) ===\n';
+          for (var wri = 0; wri < topWarnings.length; wri++) {
+            rulesText += '- ' + topWarnings[wri].description + ' — FIX: ' + (topWarnings[wri].fix || 'see rule') + '\n';
+          }
+        }
+        if (rulesText && !ctx.blueprint.promotedRulesText) {
           ctx.blueprint.promotedRulesText = rulesText;
-          ctx.addLog('codegen', 'Injected ' + promotedRules.length + ' promoted rules into codegen');
+          ctx.addLog('codegen', 'Injected promoted rules: ' + criticalRules.length + ' critical (all), ' + topWarnings.length + '/' + warningRules.length + ' warnings (top by freq)');
         }
       }
     } catch(e) {

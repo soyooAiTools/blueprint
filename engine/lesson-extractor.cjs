@@ -65,12 +65,23 @@ function extractLesson(ctx) {
   var reason = ctx._failReason;
   if (!stage || !reason) return null;
 
-  // Map stage to a rule category
+  // Map stage to a rule category + severity
+  // critical = code will definitely break; warning = likely break; info = best practice
   var ruleCategory = 'General';
-  if (stage === 'review' || stage === 'compile') ruleCategory = 'Code Quality';
-  else if (stage === 'visual-check') ruleCategory = 'Visual / Rendering';
-  else if (stage === 'cua-verify') ruleCategory = 'Interaction / Gameplay';
-  else if (stage === 'spec-validate') ruleCategory = 'Spec Structure';
+  var severity = 'info';
+  if (stage === 'review' || stage === 'compile') {
+    ruleCategory = 'Code Quality';
+    severity = 'critical';
+  } else if (stage === 'visual-check') {
+    ruleCategory = 'Visual / Rendering';
+    severity = 'warning';
+  } else if (stage === 'cua-verify') {
+    ruleCategory = 'Interaction / Gameplay';
+    severity = 'warning';
+  } else if (stage === 'spec-validate') {
+    ruleCategory = 'Spec Structure';
+    severity = 'critical';
+  }
 
   // Build description from failure reason
   var description = reason.substring(0, 500);
@@ -129,6 +140,7 @@ function extractLesson(ctx) {
     description: description,
     rule: ruleCategory,
     fix: fix,
+    severity: severity,
     line: stage + ' stage failure',
     taskId: ctx.taskId || null,
     timestamp: new Date().toISOString(),

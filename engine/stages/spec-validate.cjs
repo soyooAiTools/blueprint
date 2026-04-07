@@ -229,6 +229,70 @@ module.exports = {
       }
     }
 
+    // --- 8. Luna platform feasibility lint ---
+    // Catch specs that describe features Luna cannot implement BEFORE wasting codegen cycles
+    var LUNA_UNSUPPORTED_FEATURES = [
+      { pattern: /tilemap|tile.?map|瓦片/i, name: 'TileMap' },
+      { pattern: /terrain|地形系统/i, name: 'Terrain' },
+      { pattern: /particle.?system|粒子系统|粒子特效/i, name: 'ParticleSystem' },
+      { pattern: /navmesh|nav.?agent|寻路/i, name: 'NavMesh/NavAgent' },
+      { pattern: /animator.?controller|动画状态机|animation.?state/i, name: 'AnimatorController' },
+      { pattern: /physics.?2d|2d.?physics|rigidbody2d/i, name: 'Physics2D' },
+      { pattern: /multi.?scene|场景切换|load.?scene/i, name: 'Multi-Scene' },
+      { pattern: /shader.?graph|visual.?shader/i, name: 'ShaderGraph' },
+      { pattern: /text.?mesh.?pro|tmp_|textmeshpro/i, name: 'TextMeshPro' },
+      { pattern: /character.?controller/i, name: 'CharacterController' },
+      { pattern: /audio.?mixer|混音器/i, name: 'AudioMixer' },
+      { pattern: /cloth|布料/i, name: 'Cloth simulation' },
+      { pattern: /cinemachine/i, name: 'Cinemachine' },
+    ];
+
+    for (var fi = 0; fi < specs.length; fi++) {
+      var fSpec = specs[fi];
+      var fLabel = 'Spec[' + fi + '] ' + (fSpec.phaseId || 'unnamed');
+      // Check all text fields in the spec for unsupported feature references
+      var specText = [
+        fSpec.phaseName || '',
+        (fSpec.triggerNext && fSpec.triggerNext.description) || '',
+        (fSpec.entitiesRequired || []).map(function(e) { return (e.name || '') + ' ' + (e.description || ''); }).join(' '),
+        (fSpec.requiredInteractions || []).join(' '),
+      ].join(' ');
+
+      for (var uf = 0; uf < LUNA_UNSUPPORTED_FEATURES.length; uf++) {
+        if (LUNA_UNSUPPORTED_FEATURES[uf].pattern.test(specText)) {
+          warnings.push(fLabel + ': references Luna-unsupported feature "' +
+            LUNA_UNSUPPORTED_FEATURES[uf].name + '". AI codegen will likely produce non-functional code for this. ' +
+            'Consider simplifying to pool-object-based mechanics.');
+        }
+      }
+    }
+
+    // --- 9. Phase count budget check ---
+    if (specs.length > 15) {
+      warnings.push('Spec has ' + specs.length + ' phases (>15). Code budget may be exceeded — ' +
+        'AI typically generates ~100 lines per phase, >1500 lines risks Opus token exhaustion. ' +
+        'Consider merging simple phases or using phased generation (first 3 phases only).');
+    }
+
+    // --- 10. Total duration sanity ---
+    var totalMinDuration = 0;
+    var totalMaxDuration = 0;
+    for (var di = 0; di < specs.length; di++) {
+      if (specs[di].duration) {
+        totalMinDuration += specs[di].duration.min || 0;
+        totalMaxDuration += specs[di].duration.max || 0;
+      }
+    }
+    if (totalMaxDuration > 120) {
+      warnings.push('Total max duration is ' + totalMaxDuration + 's (>120s). ' +
+        'Playable ads should complete within 30-60s. CUA will timeout at 300s. ' +
+        'Consider shortening phase durations.');
+    }
+    if (totalMinDuration < 5 && specs.length > 3) {
+      warnings.push('Total min duration is only ' + totalMinDuration + 's for ' + specs.length + ' phases. ' +
+        'Phases may auto-complete too quickly — verify player interaction is required.');
+    }
+
     // --- Log results ---
     if (autoFixes.length > 0) {
       autoFixes.forEach(function(f) { ctx.addLog('spec-validate', 'AUTO-FIX: ' + f); });
