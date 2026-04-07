@@ -224,10 +224,24 @@ module.exports = {
           } else {
             analysisPrompt += 'No phase activity detected in console after capture period. The game may be stuck, crashed, or never initialized. Be strict.\n';
           }
+          // Inject console error context — critical runtime errors should cause stricter judgment
+          if (result.consoleErrors && result.consoleErrors.length > 0) {
+            var criticalErrors = result.consoleErrors.filter(function(e) {
+              return e.indexOf('[pageerror]') >= 0 || e.indexOf('TypeError') >= 0 ||
+                     e.indexOf('ReferenceError') >= 0 || e.indexOf('null') >= 0;
+            });
+            if (criticalErrors.length > 0) {
+              analysisPrompt += '\nCRITICAL: ' + criticalErrors.length + ' runtime errors detected:\n' +
+                criticalErrors.slice(0, 5).join('\n') + '\n' +
+                'Runtime errors usually mean broken gameplay. Be very strict.\n';
+            }
+          }
+
           analysisPrompt += 'Scene: ' + sceneDesc + '\n' +
-            'FAIL if: solid color screen, black screen, loading bar, empty scene, no game objects, all frames identical (no progression).\n' +
-            'PASS if: multiple colored game objects visible AND (if multi-frame) some visual change between frames.\n' +
-            'Reply JSON only: {"passed": true/false, "reason": "brief explanation"}';
+            'FAIL if: solid color screen, black screen, loading bar, empty scene, no game objects, all frames identical (no progression), ' +
+            'critical runtime errors in console (TypeError/ReferenceError/null), no interactive elements visible.\n' +
+            'PASS if: multiple colored game objects visible AND some visual change between frames AND no critical runtime errors.\n' +
+            'Reply JSON only: {"passed": true/false, "reason": "brief explanation", "hasInteractiveElements": true/false}';
 
           var claudeProvider = require('../../lib/model-provider.cjs').createProvider('claude', {});
           // Send all frames if multiple available
@@ -245,10 +259,37 @@ module.exports = {
             .then(function(analysis) {
               ctx.addLog('visual-check', (analysis.passed ? 'PASSED' : 'FAILED') + ' — ' + analysis.reason);
 
+              // Additional hard gates even if VLM says passed:
+              // 1. Critical runtime errors → override to fail
+              if (analysis.passed && result.consoleErrors) {
+                var fatalErrors = result.consoleErrors.filter(function(e) {
+                  return e.indexOf('[pageerror]') >= 0 || e.indexOf('TypeError') >= 0 ||
+                         e.indexOf('ReferenceError') >= 0;
+                });
+                if (fatalErrors.length >= 3) {
+                  ctx.addLog('visual-check', 'Overriding VLM pass — ' + fatalErrors.length + ' critical runtime errors');
+                  analysis.passed = false;
+                  analysis.reason = 'Runtime errors: ' + fatalErrors.slice(0, 3).join('; ');
+                }
+              }
+
+              // 2. No phase activity + no console activity after extended capture → warn
+              if (analysis.passed && phaseLog.length === 0 && result.consoleErrors.length === 0 && frameCount >= 3) {
+                ctx.addLog('visual-check', 'Warning: VLM passed but no phase activity and no console output — game may be static');
+                // Don't override, but inject warning for downstream stages
+                if (!ctx.blueprint.feedbackHistory) ctx.blueprint.feedbackHistory = [];
+                ctx.blueprint.feedbackHistory.push({
+                  data: { text: '[visual-check warning] Game appears visually correct but no phase instrumentation detected. CUA should verify interactivity.' },
+                  source: 'visual-check-no-phase-warning',
+                  status: 'info',
+                  timestamp: Date.now(),
+                });
+              }
+
               if (analysis.passed) {
                 ctx.htmlOutput = lastHtmlForVisual;
                 ctx.csCode = lastCsCode;
-                return { done: true, result: { passed: true, rounds: round } };
+                return { done: true, result: { passed: true, rounds: round, phaseLog: phaseLog.length, consoleErrors: (result.consoleErrors || []).length } };
               }
 
               if (round >= maxRounds) {
@@ -276,7 +317,8 @@ module.exports = {
               try {
                 var codeReviewer = require('../../worker/code-reviewer.js');
                 codeReviewer.recordNewIssues([{
-                  severity: 'critical',
+                  severity: 'warning',
+                  stage: 'visual-check',
                   description: '[Visual] ' + analysis.reason.slice(0, 200),
                   rule: 'Visual Check',
                   fix: 'Fix visual layout/rendering issue',

@@ -219,16 +219,22 @@ Pipeline.prototype.run = function(ctx, onProgress) {
         if (onProgress) onProgress(stage.name, 'failed', ctx);
         ctx._pipelineError = true;
         ctx._failedAtStage = stage.name;
-        ctx._failReason = err.message;
-        // Classify the error
+        // Unwrap nested "Pipeline failed at X:" prefixes to get the root cause
+        var rootReason = err.message;
+        var pipelinePrefix = /^Pipeline failed at \w[\w-]*:\s*/;
+        while (pipelinePrefix.test(rootReason)) {
+          rootReason = rootReason.replace(pipelinePrefix, '');
+        }
+        ctx._failReason = rootReason;
+        // Classify the error using the unwrapped reason
         try {
           var errorClassifier = require('./error-classifier.cjs');
-          ctx._failClassification = errorClassifier.classify(err, { stage: stage.name }).type;
+          ctx._failClassification = errorClassifier.classify({ message: rootReason }, { stage: stage.name }).type;
         } catch(ce) { ctx._failClassification = 'UNKNOWN'; }
         try { recordPipelineMetrics(ctx, ctx.stageResults); } catch(e) {}
-        try { notify.alert('critical', 'Pipeline failed', err.message, { stage: stage.name, classification: ctx._failClassification, taskId: ctx.taskId }); } catch(e) {}
+        try { notify.alert('critical', 'Pipeline failed', rootReason, { stage: stage.name, classification: ctx._failClassification, taskId: ctx.taskId }); } catch(e) {}
         try { lessonExtractor.extractLesson(ctx); } catch(e) {}
-        throw new Error('Pipeline failed at ' + stage.name + ': ' + err.message);
+        throw new Error('Pipeline failed at ' + stage.name + ': ' + rootReason);
       });
     }
 

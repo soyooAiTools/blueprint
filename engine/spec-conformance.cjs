@@ -83,6 +83,29 @@ function checkConformance(csCode, blueprint) {
         }
       }
     }
+
+    // 5. Phase transition quality — detect trivial/timer-only transitions
+    //    CUA often fails because phases auto-progress without real player interaction.
+    //    Flag phases that require player action (playerMustAct) but have no interaction handler nearby.
+    if (spec.playerMustAct !== false && inAddCompleted) {
+      // Find the AddCompletedPhase call and check if there's a player-driven condition nearby
+      var addPhaseIdx = csCode.indexOf('AddCompletedPhase("' + phaseId + '"');
+      if (addPhaseIdx >= 0) {
+        // Look at surrounding 500 chars for interaction-related code
+        var surroundStart = Math.max(0, addPhaseIdx - 500);
+        var surroundEnd = Math.min(csCode.length, addPhaseIdx + 500);
+        var surrounding = csCode.substring(surroundStart, surroundEnd);
+        var hasInteraction = /OnPointerClick|OnMouseDown|OnDrag|PointerClick|Input\.GetMouse|EventTrigger|onClick|onPointer/.test(surrounding);
+        var hasTimerOnly = /timer|Timer|elapsed|deltaTime|timeLeft|countdown/i.test(surrounding) && !hasInteraction;
+        if (hasTimerOnly) {
+          issues.push({
+            severity: 'warning',
+            phase: phaseId,
+            message: 'Phase "' + phaseId + '" transition appears timer-only (no player interaction found nearby). CUA will likely fail to verify this phase.',
+          });
+        }
+      }
+    }
   }
 
   var criticals = issues.filter(function(i) { return i.severity === 'critical'; });

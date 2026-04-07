@@ -403,6 +403,8 @@ async function recordNewIssues(issues, taskId) {
         description: issues[i].description,
         rule: normalizeRuleName(issues[i].rule),
         fix: issues[i].fix,
+        severity: issues[i].severity || 'critical',
+        stage: issues[i].stage || 'review',
         line: issues[i].line,
         taskId: taskId,
         timestamp: new Date().toISOString()

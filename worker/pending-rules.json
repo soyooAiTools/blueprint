@@ -5,7 +5,9 @@
     "fix": "Increase RULE_COUNT to cover all gameplay phases, record phase enter times for each, and move progression logic into CheckEventRules() using ruleTriggered/phaseTimer/phaseEnterTimes consistently.",
     "line": "class fields / architecture",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T11:23:45.075Z"
+    "timestamp": "2026-03-31T11:23:45.075Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "Uses List/Dictionary-safe alternatives correctly, but still uses generic-looking array APIs elsewhere? No generics found. However, the code uses ternary operators extensively with string concatenation in UpdateGameState; that's acceptable. The actual hard violation is use of Input.touchCount/Input.GetTouch plus Touch struct may be risky but not forbidden. Main critical issue is elsewhere.",
@@ -13,7 +15,9 @@
     "fix": "See other critical issues.",
     "line": "class fields / TODO_VARIABLES_START",
     "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-31T03:34:04.130Z"
+    "timestamp": "2026-03-31T03:34:04.130Z",
+    "stage": "review",
+    "severity": "critical"
   },
   {
     "description": "Uses List/Dictionary-safe style correctly, but still uses generic syntax indirectly via arrays only; no issue there. Actual critical issue is elsewhere: the code creates runtime UI button instances in gameplay flow, which is not prohibited by itself, but the skeleton note explicitly says pre-created uiCanvas/guideText/scoreText should be used instead of creating new UI structures. More importantly, phase coverage is incomplete versus the validated 11-phase hospital/station management spec in the auto-promoted rules.",
@@ -21,7 +25,9 @@
     "fix": "Implement the full required spec phase set in CheckEventRules() instead of compressing progression into 6 gameplay phases.",
     "line": "class fields / file-wide",
     "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T10:54:40.082Z"
+    "timestamp": "2026-03-31T10:54:40.082Z",
+    "stage": "cua-verify",
+    "severity": "warning"
   },
   {
     "description": "Mutates gameObject.name every frame/update-state with a large JSON string. In Luna this is risky and has caused instability/perf regressions; also bloated names can interfere with object lookup/debugging. While not explicitly banned, this is unsafe in a playable runtime.",
@@ -29,7 +35,9 @@
     "fix": "Expose state through a supported bridge/mechanism instead of renaming the GameObject every update, or update less frequently with constrained payload size.",
     "line": "UpdateGameState()",
     "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T16:34:23.213Z"
+    "timestamp": "2026-03-30T16:34:23.213Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "Creates CTA button every frame after chargeStationState becomes 2? The guard is chargeStationState == 1, so button creation happens once at transition, but there is no protection against repeated CreateButton if state is reset or method re-entered unexpectedly. More importantly, it creates a new UI button instead of using the pre-mapped CTAButton pooled object / precreated UI pattern from skeleton guidance.",
@@ -37,7 +45,9 @@
     "fix": "Use a one-time creation guard and prefer skeleton-provided UI variables/patterns. If creating a button, ensure it is only created once with ctaBtn == null guard.",
     "line": "UpdateChargeStation(float dt)",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T10:41:53.148Z"
+    "timestamp": "2026-03-31T10:41:53.148Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "Calls GFM_UI.CreateText(...), which is an undocumented method. The rules explicitly say undocumented UI helpers like CreateText() may not exist and should be treated as compile-error risks.",
@@ -45,7 +55,9 @@
     "fix": "Replace CreateText() usage with only documented GFM_UI APIs, or implement guidance/UI through pooled scene objects instead.",
     "line": "Start()",
     "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-03-30T16:34:23.211Z"
+    "timestamp": "2026-03-30T16:34:23.211Z",
+    "stage": "compile",
+    "severity": "critical"
   },
   {
     "description": "The rule explicitly says the skeleton pre-creates uiCanvas, guideText, scoreText and they should be used directly instead of creating new ones. This script creates a new canvas and text objects in Start(). This is a documented production-risk violation.",
@@ -53,7 +65,9 @@
     "fix": "Use the pre-created uiCanvas, guideText, and scoreText references from the template; do not recreate the canvas/text in Start().",
     "line": "Start() / Update() / UI creation",
     "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T10:41:30.444Z"
+    "timestamp": "2026-03-31T10:41:30.444Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "Uses Random.Range repeatedly for runtime crowd spawning/movement offsets. Bridge/Luna randomness can be inconsistent and this also creates nondeterministic verification paths for CUA, especially when progression timing depends on moving targets on screen.",
@@ -61,7 +75,9 @@
     "fix": "Replace Random.Range with deterministic predeclared offset arrays or a fixed sequence of literal positions.",
     "line": "UpdateCrowdSystem()",
     "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T03:17:43.171Z"
+    "timestamp": "2026-03-31T03:17:43.171Z",
+    "stage": "cua-verify",
+    "severity": "warning"
   },
   {
     "description": "Input handling relies on Physics.Raycast against pooled objects, but the code never ensures those objects have colliders. In Luna pool setups, collider availability is not guaranteed, so clicks may never resolve to world positions and interaction can fail.",
@@ -69,7 +85,9 @@
     "fix": "Avoid dependence on physics raycasts for core interaction. Convert screen input to a ground-plane/world-plane position directly from camera math, or explicitly verify template-provided colliders exist before using raycasts.",
     "line": "HandleInput()",
     "taskId": "proj_1774794237502_k0rbwx",
-    "timestamp": "2026-03-30T16:25:37.858Z"
+    "timestamp": "2026-03-30T16:25:37.858Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "Camera.backgroundColor is set to (0.45, 0.52, 0.62), which differs from ground color (0.75, 0.78, 0.82) by only 0.30, 0.26, 0.20. At least one RGB channel must differ by ≥ 0.3. Green and blue channels fail; red is exactly 0.30 and too borderline for production safety. Recommended deep sky blue was not used. This can trigger solid-color-screen detection.",
@@ -77,7 +95,9 @@
     "fix": "Use a safer background such as new Color(0.35f, 0.55f, 0.75f) or any color with at least one channel clearly >0.3 different from ground.",
     "line": "Start() camera background setup",
     "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-03-31T03:34:04.131Z"
+    "timestamp": "2026-03-31T03:34:04.131Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "Camera initial positioning is wrong: camFollowOffset is set to (-7,10,-7), then camera position is set to new Vector3(-7,10,-1) + camFollowOffset, resulting in (-14,20,-8). This is far from the play area and likely misses the initial objects on first frame, risking a blank/solid-color screen despite objects being placed.",
@@ -85,7 +105,9 @@
     "fix": "Set the camera to Player position + camFollowOffset, e.g. after placing the player use mainCam.transform.position = Player.transform.position + camFollowOffset, and verify initial framing shows ground plus 3 colored objects.",
     "line": "Start() camera setup",
     "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-03-31T10:41:30.444Z"
+    "timestamp": "2026-03-31T10:41:30.444Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "Although three colored objects are placed in phase 1, there is no guaranteed assignment of the skeleton 'player' variable used by MovePlayer/IsNear/TryCollect/TryDeliver. As written, player remains null, so required interaction systems never work and later phases rely on auto-advance placeholders.",
@@ -93,7 +115,9 @@
     "fix": "Assign player = Player in Start() after finding pooled object, and implement actual interaction-driven phase logic.",
     "line": "Start() and overall class",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T15:43:32.935Z"
+    "timestamp": "2026-03-31T15:43:32.935Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "The script creates a new canvas and new text objects with GFM_UI.CreateCanvas/CreateText even though the skeleton note explicitly says uiCanvas, guideText, and scoreText are pre-created and must be used directly instead of creating new UI structures. This is a documented production-risk violation.",
@@ -101,7 +125,9 @@
     "fix": "Remove runtime canvas/text creation and use the skeleton-provided uiCanvas, guideText, and scoreText references only.",
     "line": "Start()",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-01T00:39:55.765Z"
+    "timestamp": "2026-04-01T00:39:55.765Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "The script creates a runtime CTA button with GFM_UI.CreateButton and triggers it from UpdateChargeStation(). The historical rule set flags runtime CTA button creation as a production-risk pattern and prefers skeleton-provided CTA/UI flow. More importantly, this adds an alternate CTA path outside the required GameEnded()->ShowCTA() end flow.",
@@ -109,7 +135,9 @@
     "fix": "Use the required game-end path only: call Luna.Unity.LifeCycle.GameEnded(); then ShowCTA(); If a visible CTA is needed, use skeleton-provided UI/CTA objects with a one-time guard instead of creating a new button at runtime.",
     "line": "UpdateChargeStation() / ShowCTAButton()",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-01T00:39:55.766Z"
+    "timestamp": "2026-04-01T00:39:55.766Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "Creates a new Canvas and new Text objects at runtime with `GFM_UI.CreateCanvas` and `GFM_UI.CreateText`, despite the rule that skeleton pre-creates `uiCanvas`, `guideText`, and `scoreText` and they should be used directly instead of creating new UI structures.",
@@ -117,7 +145,9 @@
     "fix": "Remove runtime canvas/text creation and use the pre-created `uiCanvas`, `guideText`, and `scoreText` references from the skeleton/template.",
     "line": "Start()",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-01T12:27:01.072Z"
+    "timestamp": "2026-04-01T12:27:01.072Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "Declares Button ctaBtn and uses generic framework types indirectly from Unity UI patterns. More importantly, the script uses arrays safely, but runtime button creation below violates the required CTA flow and skeleton pre-created UI guidance.",
@@ -125,7 +155,9 @@
     "fix": "Remove runtime-created CTA button usage and use the provided ShowCTA() path / skeleton CTA object pattern instead.",
     "line": "TODO_VARIABLES_START",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-01T12:35:23.214Z"
+    "timestamp": "2026-04-01T12:35:23.214Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "Creates a new CTA button at runtime with GFM_UI.CreateButton instead of using the pre-mapped CTAButton/skeleton UI flow. This violates documented skeleton guidance and has caused production regressions.",
@@ -133,7 +165,9 @@
     "fix": "Use the existing CTAButton object or skeleton-provided UI pattern. Do not create a new runtime CTA button for the required end flow.",
     "line": "Game End block in CheckEventRules()",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-01T12:35:23.214Z"
+    "timestamp": "2026-04-01T12:35:23.214Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "The script re-finds the Canvas via GameObject.Find(\"Canvas\") and then creates a runtime joystick with GFM_Joystick.Create(uiCanvas, 180f) instead of relying on skeleton-provided UI wiring. This violates the documented guidance to use pre-created UI variables directly and avoid ad hoc UI setup patterns that have caused runtime issues.",
@@ -141,7 +175,9 @@
     "fix": "Do not re-find or recreate UI infrastructure in gameplay code. Use the skeleton-provided uiCanvas/guideText/scoreText references directly, assuming template injection. Only null-check before use.",
     "line": "Start()",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-01T12:42:28.854Z"
+    "timestamp": "2026-04-01T12:42:28.854Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "Core progression depends on raw Input.GetMouseButtonDown(0) for mining, collecting, delivering, upgrading, gate unlock, apple processing, selling, and charge station activation. There is no touch fallback here for those interactions. On mobile Luna builds this can fail, blocking progression.",
@@ -149,7 +185,9 @@
     "fix": "Replace raw mouse-only progression checks with a supported Luna/GFM input abstraction or handle both touch and mouse in a shared helper used by every interaction.",
     "line": "MovePlayer() and multiple Update() interaction blocks",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-01T12:42:28.854Z"
+    "timestamp": "2026-04-01T12:42:28.854Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "Phase progression uses pure numeric trigger gates such as totalWaterSold >= 2 and totalWaterSold >= 4. The rules explicitly forbid pure numeric triggers that skip interaction. Even though proximity is also checked, these transitions are fundamentally driven by counters instead of a distinct player action completing the phase.",
@@ -157,7 +195,9 @@
     "fix": "Make each progression hinge on an explicit player-driven interaction/state change at the station/gate/button, with counters only as prerequisites, not as the trigger itself.",
     "line": "CheckEventRules() Rule 5 / Rule 7 / Rule 10",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-01T17:09:55.448Z"
+    "timestamp": "2026-04-01T17:09:55.448Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "ShowCTA creates a new runtime CTA button with GFM_UI.CreateButton instead of using the skeleton/precreated UI flow. The production guidance explicitly warns against recreating UI structures when skeleton variables should be used.",
@@ -165,7 +205,9 @@
     "fix": "Use the skeleton-provided CTA/UI path instead of creating a new button at runtime, or guard this behind confirmed template support and use existing precreated UI references.",
     "line": "ShowCTA()",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-01T17:09:55.448Z"
+    "timestamp": "2026-04-01T17:09:55.448Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "Uses Instantiate(...) repeatedly to clone pool objects for enemies, projectiles, and gold drops. The validated Luna workflow requires use of pre-baked pool objects found by exact names; runtime object creation is a frequent source of missing renderer/material/runtime mismatches in Luna playables.",
@@ -173,7 +215,9 @@
     "fix": "Pre-bind enough existing pooled objects by exact pool names into arrays and reuse them by moving them on/off screen (y=-999). Do not instantiate runtime clones.",
     "line": "Start() / enemy/projectile/gold pool initialization",
     "taskId": "proj_1774798766776_1sjld8",
-    "timestamp": "2026-04-02T06:59:04.824Z"
+    "timestamp": "2026-04-02T06:59:04.824Z",
+    "stage": "review",
+    "severity": "critical"
   },
   {
     "description": "Creates a CTA UI button at runtime with GFM_UI.CreateButton instead of using the pre-created CTAButton / skeleton UI flow. The reviewer rules explicitly flag this as a production-risk violation.",
@@ -181,7 +225,9 @@
     "fix": "Use the existing skeleton CTAButton/UI pattern instead of creating a new runtime button. If a button must be shown, wire the existing pre-created element once.",
     "line": "CheckEventRules() rule 10 / Start()",
     "taskId": "proj_1774798766776_1sjld8",
-    "timestamp": "2026-04-02T06:59:04.824Z"
+    "timestamp": "2026-04-02T06:59:04.824Z",
+    "stage": "review",
+    "severity": "critical"
   },
   {
     "description": "Uses non-approved pool names like __Pool_Cube_Red_01, __Pool_Plane_Cyan_01, __Pool_Sphere_Green_01. The documented required names are actual pool names __Pool_Cube_01..50, __Pool_Sphere_01..20, __Pool_Plane_01..10, __Pool_Cylinder_01..10. If those colored names do not exist in the target template, Find returns null and the playable fails/blank screens.",
@@ -189,7 +235,9 @@
     "fix": "Replace every Find string with exact existing pool object names from the allowed numeric pool set, using explicit string literals or a predeclared exact-name array. Null-check every required object after Find.",
     "line": "Start() / all GameObject.Find(...) assignments",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-02T07:05:51.922Z"
+    "timestamp": "2026-04-02T07:05:51.922Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "Looks up and then recreates UI content on a scene Canvas instead of using skeleton pre-created uiCanvas/guideText/scoreText directly. This violates the documented skeleton guidance and is a known production risk.",
@@ -197,7 +245,9 @@
     "fix": "Use the provided uiCanvas, guideText, and scoreText variables from the skeleton/template wiring. Do not Find(\"Canvas\") and do not recreate guide/score text if they are already provided.",
     "line": "Start() / GameObject.Find(\"Canvas\")",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-02T07:05:51.922Z"
+    "timestamp": "2026-04-02T07:05:51.922Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "Creates runtime UI text/button instances even though the skeleton note explicitly says pre-created uiCanvas, guideText, scoreText should be used instead of creating new UI structures. This has caused runtime UI initialization problems in Luna.",
@@ -205,7 +255,9 @@
     "fix": "Reuse skeleton-provided guideText/scoreText and preferred CTA UI flow. If CTA must be shown, wire the existing template CTA control or implement required ShowCTA() flow without creating ad-hoc runtime UI objects.",
     "line": "Start() / GFM_UI.CreateText(...), GFM_UI.CreateText(...), CheckEventRules() / GFM_UI.CreateButton(...)",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-02T07:05:51.923Z"
+    "timestamp": "2026-04-02T07:05:51.923Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "The game end block calls Luna.Unity.LifeCycle.GameEnded() but does not call the required ShowCTA() method that must perform Luna.Unity.Playable.InstallFullGame(). Instead, InstallFullGame() is deferred to a button click callback. The required end-flow pattern is missing.",
@@ -213,7 +265,9 @@
     "fix": "In the end block, call Luna.Unity.LifeCycle.GameEnded(); then call ShowCTA(); Implement ShowCTA() so it calls Luna.Unity.Playable.InstallFullGame(). Keep any visible CTA button separate if desired, but the required GameEnded()->ShowCTA() sequence must exist.",
     "line": "CheckEventRules() Rule 11 / end block",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-02T07:05:51.923Z"
+    "timestamp": "2026-04-02T07:05:51.923Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "gameEnded is set to true immediately after creating the CTA button, and Update() returns early when gameEnded is true. This can prevent any post-end UI/state handling and confirms CTA activation depends entirely on a manually clicked runtime button rather than the required end-flow call.",
@@ -221,7 +275,9 @@
     "fix": "Implement the required ShowCTA() invocation directly in the end block before setting gameEnded, and do not rely solely on runtime button click to trigger InstallFullGame().",
     "line": "CheckEventRules() / Rule 11 then Update()",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-02T07:05:51.924Z"
+    "timestamp": "2026-04-02T07:05:51.924Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "Uses color-suffixed pool names like __Pool_Plane_Green_01, __Pool_Cube_Blue_01, __Pool_Cylinder_Purple_01, etc. The documented required pool names are shape-only names such as __Pool_Cube_01..50, __Pool_Sphere_01..20, __Pool_Plane_01..10, __Pool_Cylinder_01..10. Under the stated rules these names do not exist, so Find will return null and cause runtime failure.",
@@ -229,7 +285,9 @@
     "fix": "Replace all GameObject.Find calls with explicit valid pool literals from the documented shape-only pool naming scheme, e.g. __Pool_Cube_01, __Pool_Sphere_01, __Pool_Plane_01, __Pool_Cylinder_01.",
     "line": "Start() / object Find block",
     "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-04-02T07:12:58.590Z"
+    "timestamp": "2026-04-02T07:12:58.590Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "Uses Instantiate() repeatedly to create extra enemies, bullets, and coins instead of relying on pre-existing pooled objects. The rules require exact pool-object usage and historical production constraints reject runtime-created rendering objects as unsafe for Luna.",
@@ -237,7 +295,9 @@
     "fix": "Pre-bind all needed entities from valid pool objects in Start() and reuse them by moving them on/off screen instead of instantiating clones.",
     "line": "SpawnEnemy(), SpawnCoin(), FireBullet()",
     "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-04-02T07:12:58.591Z"
+    "timestamp": "2026-04-02T07:12:58.591Z",
+    "stage": "visual-check",
+    "severity": "warning"
   },
   {
     "description": "Creates a new CTA button at runtime with GFM_UI.CreateButton instead of following the skeleton/precreated UI pattern. This is explicitly flagged as a production-risk violation in the validated rules.",
@@ -245,7 +305,9 @@
     "fix": "Use the skeleton/template CTA flow or a precreated CTA element instead of creating a new button at runtime.",
     "line": "OnGameEnd()",
     "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-04-02T07:12:58.592Z"
+    "timestamp": "2026-04-02T07:12:58.592Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "The script creates runtime UI text objects with GFM_UI.CreateText when guideText/scoreText are null. The validated skeleton guidance says uiCanvas, guideText, and scoreText are pre-created and should be used directly instead of creating new UI structures at runtime. This has caused runtime issues in production.",
@@ -253,7 +315,9 @@
     "fix": "Remove the fallback CreateText calls. Use only skeleton-provided uiCanvas, guideText, and scoreText references wired by the template.",
     "line": "Start() / UI fallback creation",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-02T07:19:31.716Z"
+    "timestamp": "2026-04-02T07:19:31.716Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "The script manually looks up the camera with GameObject.Find(\"Main Camera\"). Luna templates pre-cache the camera as mainCam and camera lifecycle is template-managed. Relying on a scene-name lookup is unsafe and can return null in template variants.",
@@ -261,7 +325,9 @@
     "fix": "Do not find the camera by scene name. Use the injected mainCam field only, and always null-check before using it.",
     "line": "Start() / camera lookup",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-02T07:19:31.716Z"
+    "timestamp": "2026-04-02T07:19:31.716Z",
+    "stage": "review",
+    "severity": "critical"
   },
   {
     "description": "The script uses Instantiate(...) repeatedly to create gameplay clones from pooled objects. Luna playables are expected to use pre-existing pooled objects found by exact pool names; runtime object creation is a common source of invisible/missing renderers and pool exhaustion mismatches.",
@@ -269,7 +335,9 @@
     "fix": "Predeclare and find exact pool object names for every needed entity instance, store them in arrays, and show/hide them by moving to visible positions or y=-999. Do not instantiate runtime clones.",
     "line": "SpawnIceCrystal(), SpawnIceChunkAt(), SpawnWaterBottle(), SpawnPassengerMain(), SpawnAppleItem(), SpawnAppleProduct(), SpawnPassengerApple()",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-02T07:19:31.717Z"
+    "timestamp": "2026-04-02T07:19:31.717Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "The script never assigns colors to the found pool objects, yet relies on plain numeric pool names like __Pool_Cube_01. Numeric pools are not guaranteed to be visually distinct by default. This violates the requirement that first-frame objects be differently colored and increases blank/solid-color risk.",
@@ -277,7 +345,9 @@
     "fix": "Explicitly assign safe visible colors to the visible objects using the supported rendering path for your template before showing them, ensuring at least 3 visibly different objects are on screen immediately.",
     "line": "Start() / no SetColor or baked-color pool usage",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-02T07:19:31.717Z"
+    "timestamp": "2026-04-02T07:19:31.717Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "Phase progression depends on pure numeric thresholds totalSold >= 2 and gold >= 8. Historical Luna guidance explicitly rejects numeric-only progression jumps because they bypass direct interaction validation and can break CUA verification.",
@@ -285,7 +355,9 @@
     "fix": "Gate these phases on explicit player-driven interactions at the relevant stations with dwell preserved, not only on numeric counters.",
     "line": "CheckEventRules() Rule 5 and Rule 7",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-02T07:19:31.718Z"
+    "timestamp": "2026-04-02T07:19:31.718Z",
+    "stage": "cua-verify",
+    "severity": "warning"
   },
   {
     "description": "Core interaction depends on raw Input.GetMouseButtonDown(0) and raw touch polling. The documented constraint warns this may fail on mobile/Luna and recommends supported GFM/Luna input abstraction rather than custom raw input logic for core gameplay.",
@@ -293,7 +365,9 @@
     "fix": "Use the supported Luna/GFM input abstraction or a validated combined input helper pattern already approved by the template instead of raw mouse/touch checks as the main interaction source.",
     "line": "Update() input handling",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-02T07:19:31.718Z"
+    "timestamp": "2026-04-02T07:19:31.718Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "The script recreates skeleton UI text objects via GFM_UI.CreateText when GuideText/ScoreText are not found. Historical guidance explicitly says the skeleton pre-creates uiCanvas, guideText, and scoreText and they should be used instead of creating new UI structures. Runtime-created text components are also a known Luna rendering risk.",
@@ -301,7 +375,9 @@
     "fix": "Do not create fallback text objects. Rely only on skeleton-provided uiCanvas/guideText/scoreText, or fail safely if they are missing.",
     "line": "Start()",
     "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-04-02T07:24:05.635Z"
+    "timestamp": "2026-04-02T07:24:05.635Z",
+    "stage": "visual-check",
+    "severity": "warning"
   },
   {
     "description": "Phase progression uses a pure numeric/state gate: phase 11 triggers automatically when stateConveyorFactoryToTurretBottom == 2 && stateConveyorFactoryToTurretRight == 2 after dwell time. This is an auto-jump based on counters/states rather than a direct player interaction at the transition moment, which is explicitly disallowed for progression-sensitive gameplay.",
@@ -309,7 +385,9 @@
     "fix": "Make the transition depend on an explicit player-driven interaction in that phase, such as tapping an upgrade/finish pad after both conveyors are built, while preserving the dwell check.",
     "line": "CheckEventRules() rule 10",
     "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-04-02T07:24:05.636Z"
+    "timestamp": "2026-04-02T07:24:05.636Z",
+    "stage": "codegen",
+    "severity": "info"
   },
   {
     "description": "Although 12 internal rules exist, several phase steps described by the gameplay setup are not represented as distinct gated transitions in CheckEventRules(). For example, bottom/right turret loading and turret upgrades are compressed into later phases without their own dedicated transition checks, and the final CTA can be reached without verifying all turret upgrades promised by the guide text. This is a content-regression style phase coverage failure.",
@@ -317,7 +395,9 @@
     "fix": "Implement every intended gameplay phase as its own CheckEventRules() transition with explicit trigger condition and phaseTimer dwell, including separate phases for additional turret loading/upgrades and validated end-state requirements before CTA.",
     "line": "CheckEventRules() overall phase coverage",
     "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-04-02T07:24:05.636Z"
+    "timestamp": "2026-04-02T07:24:05.636Z",
+    "stage": "cua-verify",
+    "severity": "warning"
   },
   {
     "description": "[spec-phase-skipped] Phases not completed (11/11): phase_1774794394690_1, phase_1774794394690_2, phase_1774794394690_3, phase_1774794394690_4, phase_1774794394690_5, phase_1774794394690_6, phase_1774794394690_7, phase_1774794394690_8, phase_1774794394690_9, phase_1774794394690_10, phase_1774794394690_11",
@@ -325,7 +405,9 @@
     "fix": "[spec-phase-skipped] Phases not completed (11/11): phase_1774794394690_1, phase_1774794394690_2, phase_1774794394690_3, phase_1774794394690_4, phase_1774794394690_5, phase_1774794394690_6, phase_1774794394690_7, phase_1774794394690_8, phase_1774794394690_9, phase_1774794394690_10, phase_1774794394690_11",
     "line": "CUA round 1",
     "taskId": "proj_1774794237502_k0rbwx",
-    "timestamp": "2026-04-02T09:13:36.544Z"
+    "timestamp": "2026-04-02T09:13:36.544Z",
+    "stage": "cua-verify",
+    "severity": "warning"
   },
   {
     "description": "[spec-phase-skipped] Phases not completed (11/11): phase_1774799060632_1, phase_1774799060632_2, phase_1774799060632_3, phase_1774799060632_4, phase_1774799060632_5, phase_1774799060632_6, phase_1774799060632_7, phase_1774799060632_8, phase_1774799060632_9, phase_1774799060632_10, phase_1774799060632_11",
@@ -333,7 +415,9 @@
     "fix": "[spec-phase-skipped] Phases not completed (11/11): phase_1774799060632_1, phase_1774799060632_2, phase_1774799060632_3, phase_1774799060632_4, phase_1774799060632_5, phase_1774799060632_6, phase_1774799060632_7, phase_1774799060632_8, phase_1774799060632_9, phase_1774799060632_10, phase_1774799060632_11",
     "line": "CUA round 2",
     "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-04-02T09:13:54.317Z"
+    "timestamp": "2026-04-02T09:13:54.317Z",
+    "stage": "cua-verify",
+    "severity": "warning"
   },
   {
     "description": "[spec-phase-skipped] Phases not completed (9/11): phase_1774799053193_3, phase_1774799053193_4, phase_1774799053193_5, phase_1774799053193_6, phase_1774799053193_7, phase_1774799053193_8, phase_1774799053193_9, phase_1774799053193_10, phase_1774799053193_11",
@@ -341,7 +425,9 @@
     "fix": "[spec-phase-skipped] Phases not completed (9/11): phase_1774799053193_3, phase_1774799053193_4, phase_1774799053193_5, phase_1774799053193_6, phase_1774799053193_7, phase_1774799053193_8, phase_1774799053193_9, phase_1774799053193_10, phase_1774799053193_11",
     "line": "CUA round 1",
     "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-04-02T09:57:02.627Z"
+    "timestamp": "2026-04-02T09:57:02.627Z",
+    "stage": "cua-verify",
+    "severity": "warning"
   },
   {
     "description": "[entity-incomplete] Buildable entities not fully constructed: turret=0 (expected 2=built)",
@@ -349,7 +435,9 @@
     "fix": "[entity-incomplete] Buildable entities not fully constructed: turret=0 (expected 2=built)",
     "line": "CUA round 2",
     "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-04-02T10:01:31.364Z"
+    "timestamp": "2026-04-02T10:01:31.364Z",
+    "stage": "cua-verify",
+    "severity": "warning"
   },
   {
     "description": "[spec-phase-skipped] Phases not completed (8/11): phase_1774798915627_4, phase_1774798915627_5, phase_1774798915627_6, phase_1774798915627_7, phase_1774798915627_8, phase_1774798915627_9, phase_1774798915627_10, phase_1774798915627_11",
@@ -357,7 +445,9 @@
     "fix": "[spec-phase-skipped] Phases not completed (8/11): phase_1774798915627_4, phase_1774798915627_5, phase_1774798915627_6, phase_1774798915627_7, phase_1774798915627_8, phase_1774798915627_9, phase_1774798915627_10, phase_1774798915627_11",
     "line": "CUA round 2",
     "taskId": "proj_1774798766776_1sjld8",
-    "timestamp": "2026-04-02T10:14:26.006Z"
+    "timestamp": "2026-04-02T10:14:26.006Z",
+    "stage": "cua-verify",
+    "severity": "warning"
   },
   {
     "description": "[spec-phase-skipped] Phases not completed (8/11): phase_1774794394690_4, phase_1774794394690_5, phase_1774794394690_6, phase_1774794394690_7, phase_1774794394690_8, phase_1774794394690_9, phase_1774794394690_10, phase_1774794394690_11",
@@ -365,7 +455,9 @@
     "fix": "[spec-phase-skipped] Phases not completed (8/11): phase_1774794394690_4, phase_1774794394690_5, phase_1774794394690_6, phase_1774794394690_7, phase_1774794394690_8, phase_1774794394690_9, phase_1774794394690_10, phase_1774794394690_11",
     "line": "CUA round 1",
     "taskId": "proj_1774794237502_k0rbwx",
-    "timestamp": "2026-04-02T10:17:58.360Z"
+    "timestamp": "2026-04-02T10:17:58.360Z",
+    "stage": "cua-verify",
+    "severity": "warning"
   },
   {
     "description": "[spec-phase-skipped] Phases not completed (9/11): phase_1774710349785_3, phase_1774710349785_4, phase_1774710349785_5, phase_1774710349785_6, phase_1774710349785_7, phase_1774710349785_8, phase_1774710349785_9, phase_1774710349785_10, phase_1774710349785_11",
@@ -373,7 +465,9 @@
     "fix": "[spec-phase-skipped] Phases not completed (9/11): phase_1774710349785_3, phase_1774710349785_4, phase_1774710349785_5, phase_1774710349785_6, phase_1774710349785_7, phase_1774710349785_8, phase_1774710349785_9, phase_1774710349785_10, phase_1774710349785_11",
     "line": "CUA round 1",
     "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-02T10:26:56.565Z"
+    "timestamp": "2026-04-02T10:26:56.565Z",
+    "stage": "cua-verify",
+    "severity": "warning"
   },
   {
     "description": "[spec-phase-skipped] Phases not completed (8/11): phase_1774799060632_4, phase_1774799060632_5, phase_1774799060632_6, phase_1774799060632_7, phase_1774799060632_8, phase_1774799060632_9, phase_1774799060632_10, phase_1774799060632_11",
@@ -381,7 +475,9 @@
     "fix": "[spec-phase-skipped] Phases not completed (8/11): phase_1774799060632_4, phase_1774799060632_5, phase_1774799060632_6, phase_1774799060632_7, phase_1774799060632_8, phase_1774799060632_9, phase_1774799060632_10, phase_1774799060632_11",
     "line": "CUA round 1",
     "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-04-02T10:29:57.337Z"
+    "timestamp": "2026-04-02T10:29:57.337Z",
+    "stage": "cua-verify",
+    "severity": "warning"
   },
   {
     "description": "[spec-phase-skipped] Phases not completed (8/11): phase_1774794448160_4, phase_1774794448160_5, phase_1774794448160_6, phase_1774794448160_7, phase_1774794448160_8, phase_1774794448160_9, phase_1774794448160_10, phase_1774794448160_11",
@@ -389,7 +485,9 @@
     "fix": "[spec-phase-skipped] Phases not completed (8/11): phase_1774794448160_4, phase_1774794448160_5, phase_1774794448160_6, phase_1774794448160_7, phase_1774794448160_8, phase_1774794448160_9, phase_1774794448160_10, phase_1774794448160_11",
     "line": "CUA round 1",
     "taskId": "proj_1774794219517_z43qrz",
-    "timestamp": "2026-04-02T10:38:23.976Z"
+    "timestamp": "2026-04-02T10:38:23.976Z",
+    "stage": "cua-verify",
+    "severity": "warning"
   },
   {
     "description": "[spec-phase-skipped] Phases not completed (10/11): phase_1774799053193_2, phase_1774799053193_3, phase_1774799053193_4, phase_1774799053193_5, phase_1774799053193_6, phase_1774799053193_7, phase_1774799053193_8, phase_1774799053193_9, phase_1774799053193_10, phase_1774799053193_11",
@@ -397,7 +495,9 @@
     "fix": "[spec-phase-skipped] Phases not completed (10/11): phase_1774799053193_2, phase_1774799053193_3, phase_1774799053193_4, phase_1774799053193_5, phase_1774799053193_6, phase_1774799053193_7, phase_1774799053193_8, phase_1774799053193_9, phase_1774799053193_10, phase_1774799053193_11",
     "line": "CUA round 1",
     "taskId": "proj_1774798867290_mwduot",
-    "timestamp": "2026-04-02T15:57:33.160Z"
+    "timestamp": "2026-04-02T15:57:33.160Z",
+    "stage": "cua-verify",
+    "severity": "warning"
   },
   {
     "description": "[entity-incomplete] Buildable entities not fully constructed: conveyor=0 (expected 2=built)",
@@ -405,6 +505,170 @@
     "fix": "[entity-incomplete] Buildable entities not fully constructed: conveyor=0 (expected 2=built)",
     "line": "CUA round 2",
     "taskId": "proj_1774794237502_k0rbwx",
-    "timestamp": "2026-04-03T00:12:44.331Z"
+    "timestamp": "2026-04-03T00:12:44.331Z",
+    "stage": "cua-verify",
+    "severity": "warning"
+  },
+  {
+    "description": "Template clone corrupted: Assets/ directory missing",
+    "rule": "General",
+    "fix": "Review and fix the clone stage failure. ",
+    "line": "clone stage failure",
+    "taskId": "proj_1775536745397_a0bh9w",
+    "timestamp": "2026-04-07T05:04:17.494Z",
+    "autoExtracted": true,
+    "failClassification": "CODE",
+    "stage": "clone",
+    "lastSeenAt": "2026-04-07T05:04:17.500Z",
+    "hitCount": 2,
+    "severity": "info"
+  },
+  {
+    "description": "CUA crashed 3 consecutive rounds",
+    "rule": "Interaction / Gameplay",
+    "fix": "Ensure interactive elements respond to user input and phases progress correctly.",
+    "line": "cua-verify stage failure",
+    "taskId": "proj_1775536760460_ief5nt",
+    "timestamp": "2026-04-07T05:23:52.555Z",
+    "autoExtracted": true,
+    "failClassification": "FATAL",
+    "stage": "cua-verify",
+    "lastSeenAt": "2026-04-07T06:37:00.878Z",
+    "hitCount": 9,
+    "severity": "warning"
+  },
+  {
+    "description": "Pipeline failed at cua-verify: CUA crashed 3 consecutive rounds",
+    "rule": "Visual / Rendering",
+    "fix": "Ensure scene renders correctly: objects visible, movement between frames, no black/solid screens.",
+    "line": "visual-check stage failure",
+    "taskId": "proj_1775536760460_ief5nt",
+    "timestamp": "2026-04-07T05:23:52.557Z",
+    "autoExtracted": true,
+    "failClassification": "FATAL",
+    "stage": "visual-check",
+    "lastSeenAt": "2026-04-07T06:37:00.884Z",
+    "hitCount": 26,
+    "severity": "warning"
+  },
+  {
+    "description": "Pipeline failed at review: Pipeline failed at compile: Pipeline failed at visual-check: Pipeline failed at cua-verify: CUA crashed 3 consecutive rounds",
+    "rule": "General",
+    "fix": "Review and fix the codegen stage failure. ",
+    "line": "codegen stage failure",
+    "taskId": "proj_1775536760460_ief5nt",
+    "timestamp": "2026-04-07T05:23:52.561Z",
+    "autoExtracted": true,
+    "failClassification": "FATAL",
+    "stage": "codegen",
+    "lastSeenAt": "2026-04-07T06:37:00.886Z",
+    "hitCount": 8,
+    "severity": "info"
+  },
+  {
+    "description": "AI coding failed: Claude Code failed (exit 1): Exit code 1",
+    "rule": "General",
+    "fix": "Review and fix the codegen stage failure. ",
+    "line": "codegen stage failure",
+    "taskId": "proj_1775536729085_8rvql2",
+    "timestamp": "2026-04-07T06:18:11.309Z",
+    "autoExtracted": true,
+    "failClassification": "CODE",
+    "stage": "codegen",
+    "severity": "info"
+  },
+  {
+    "description": "gate: No C# code to compile",
+    "rule": "Code Quality",
+    "fix": "Fix compilation error — likely forbidden API usage or Bridge.NET incompatibility.",
+    "line": "compile stage failure",
+    "taskId": "proj_1775536729085_8rvql2",
+    "timestamp": "2026-04-07T06:18:11.324Z",
+    "autoExtracted": true,
+    "failClassification": "GATE",
+    "stage": "compile",
+    "severity": "critical"
+  },
+  {
+    "description": "Quality gate failed before compile: No C# code to compile",
+    "rule": "General",
+    "fix": "Review and fix the clone stage failure. ",
+    "line": "clone stage failure",
+    "taskId": "proj_1775536729085_8rvql2",
+    "timestamp": "2026-04-07T06:18:11.326Z",
+    "autoExtracted": true,
+    "failClassification": "FATAL",
+    "stage": "clone",
+    "severity": "info"
+  },
+  {
+    "description": "The script uses Instantiate(...) repeatedly to create enemies, soldiers, gold, rockets, and projectiles at runtime. The project rules require using pre-existing pooled scene objects via exact GameObject.Find() names, and historical Luna guidance explicitly forbids runtime object creation patterns in this flow. These instantiated objects are not guaranteed to render or behave correctly in Luna and violate the no-runtime-creation/pool-only requirement.",
+    "rule": "Forbidden APIs",
+    "fix": "Remove all Instantiate(...) calls. Use only pre-existing pooled objects found by exact string literals from the allowed pool mapping, and recycle them by moving to y=-999 when hidden.",
+    "line": "Start()",
+    "taskId": "proj_1775536729085_8rvql2",
+    "timestamp": "2026-04-07T06:51:51.695Z",
+    "stage": "review",
+    "severity": "critical"
+  },
+  {
+    "description": "Not all phases are completed through CheckEventRules(). Phase 1 completion is handled by AddCompletedPhase(\"phase_1775536876976_1\") in a separate conditional before ruleTriggered[1], but phases thereafter are inconsistently marked only when the next phase starts. There is no dedicated completion block for the final phase beyond immediate trigger, and the phase architecture is compressed into 11 trigger slots despite RULE_COUNT being 12. This does not satisfy the zero-tolerance requirement that all blueprint phases be implemented cleanly in CheckEventRules() with explicit transition/completion logic.",
+    "rule": "Code Completeness",
+    "fix": "Implement a strict one-block-per-phase structure in CheckEventRules() for every blueprint phase, with explicit completion conditions and matching AddCompletedPhase(...) calls for each phase ID.",
+    "line": "CheckEventRules()",
+    "taskId": "proj_1775536729085_8rvql2",
+    "timestamp": "2026-04-07T06:51:51.696Z",
+    "stage": "codegen",
+    "severity": "info"
+  },
+  {
+    "description": "RULE_COUNT is 12, but the highest referenced ruleTriggered index is 10, meaning only 11 phases are actually implemented. This is a phase-count mismatch and indicates at least one expected phase slot is unused/collapsed.",
+    "rule": "Architecture",
+    "fix": "Align RULE_COUNT and actual implemented phases. If 12 phases are expected, implement ruleTriggered[11] with real player-driven logic and matching phase ID. If only 11 are expected by blueprint, resize arrays and related tracking consistently to 11.",
+    "line": "CheckEventRules() / ruleTriggered array usage",
+    "taskId": "proj_1775536729085_8rvql2",
+    "timestamp": "2026-04-07T06:51:51.697Z",
+    "stage": "codegen",
+    "severity": "info"
+  },
+  {
+    "description": "Rule 1 uses enemySpawnCount >= 2 && playerClickCount >= 1 as the transition gate. This is partly driven by enemy spawner progression rather than a direct player accomplishment for the phase objective. The rules explicitly forbid progression that auto-advances from scripted spawning/counters instead of player interaction/context completion.",
+    "rule": "Architecture",
+    "fix": "Make the phase advance depend on a direct player-driven interaction tied to the tutorial objective, such as the player explicitly selecting/attacking an enemy or interacting with a marked target, not on spawned enemy count.",
+    "line": "CheckEventRules() / phase transition conditions",
+    "taskId": "proj_1775536729085_8rvql2",
+    "timestamp": "2026-04-07T06:51:51.698Z",
+    "stage": "codegen",
+    "severity": "info"
+  },
+  {
+    "description": "Soldiers automatically attack nearby enemies without player input whenever nearEnemy >= 0 and soldierTimer >= 1f. This introduces autoplay combat behavior tied to progression resources and battle outcomes, which violates the rule set's prohibition against auto-driven combat/gameplay progression.",
+    "rule": "Gameplay Logic",
+    "fix": "Require explicit player-triggered soldier attack commands for combat actions that affect progression, or restrict autonomous behavior so it cannot advance tutorial phases/objectives.",
+    "line": "UpdateSoldiers()",
+    "taskId": "proj_1775536729085_8rvql2",
+    "timestamp": "2026-04-07T06:51:51.699Z",
+    "stage": "cua-verify",
+    "severity": "warning"
+  },
+  {
+    "description": "The script overloads gameObject.name with serialized gameplay state JSON. This is a known fragile workaround pattern in Luna and not part of the documented supported APIs for phase/state exposure. It risks breaking template assumptions and is not requested by the validated rule set.",
+    "rule": "Forbidden APIs",
+    "fix": "Remove gameObject.name state serialization. Expose validation state only through approved skeleton/Luna mechanisms if explicitly required by the project template.",
+    "line": "UpdateGameState()",
+    "taskId": "proj_1775536729085_8rvql2",
+    "timestamp": "2026-04-07T06:51:51.699Z",
+    "stage": "review",
+    "severity": "critical"
+  },
+  {
+    "description": "RULE_COUNT is 12 and ruleTriggered is sized to 12, but CheckEventRules() only implements phases/rules 0 through 10. There is no ruleTriggered[11] block, so highest referenced N+1 is 11 while expected phase count from array/config is 12. This is an instant-fail phase count mismatch.",
+    "rule": "Code Completeness",
+    "fix": "Align phase architecture mechanically: either implement ruleTriggered[11] with a real player-driven completion condition and matching phase ID from the blueprint, or resize RULE_COUNT, completedPhases, and phaseEnterTimes consistently to the actual blueprint phase count.",
+    "line": "Start()",
+    "taskId": "proj_1775536729085_8rvql2",
+    "timestamp": "2026-04-07T06:52:08.229Z",
+    "stage": "codegen",
+    "severity": "info"
   }
 ]

@@ -48,9 +48,16 @@ var FATAL_PATTERNS = [
   /not available/i,
   /no (?:code )?generator/i,
   /no reviewer/i,
-  /crashed \d+ consecutive/i,
   /Spec validation failed/i,
   /Quality gate failed/i,
+];
+
+// CUA crashes are infrastructure instability, not fatal config errors.
+// Moved out of FATAL so they get exponential backoff + retry.
+var CUA_INFRA_PATTERNS = [
+  /CUA crashed \d+ consecutive/i,
+  /CUA API unreachable/i,
+  /CUA total time limit/i,
 ];
 
 /**
@@ -66,7 +73,19 @@ function classify(err, context) {
   var msg = (err && err.message) ? err.message : String(err);
   var ctx = context || {};
 
-  // Check FATAL first (highest priority)
+  // CUA-specific infra patterns — check before FATAL since CUA crashes are retryable
+  for (var ci = 0; ci < CUA_INFRA_PATTERNS.length; ci++) {
+    if (CUA_INFRA_PATTERNS[ci].test(msg)) {
+      var cuaConsecutive = (ctx.consecutiveInfra || 0) + 1;
+      if (cuaConsecutive >= 5) {
+        return { type: 'FATAL', retryable: false, backoffMs: 0, reason: 'CUA infra failure persisted after 5 attempts: ' + msg };
+      }
+      var cuaBackoff = Math.min(10000 * Math.pow(2, cuaConsecutive - 1), 80000);
+      return { type: 'INFRA', retryable: true, backoffMs: cuaBackoff, reason: msg };
+    }
+  }
+
+  // Check FATAL (highest priority for non-CUA errors)
   for (var i = 0; i < FATAL_PATTERNS.length; i++) {
     if (FATAL_PATTERNS[i].test(msg)) {
       return { type: 'FATAL', retryable: false, backoffMs: 0, reason: msg };

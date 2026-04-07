@@ -138,7 +138,7 @@ module.exports = {
     var loop = createFixLoop({
       name: 'cua-verify',
       maxRounds: MAX_CUA_ROUNDS,
-      onExhausted: 'throw',
+      onExhausted: 'throw',  // CUA is a hard gate — must pass
       beforeRound: function(ctx, round) {
         ctx.reportStatus('processing', { message: '[Linux] CUA verifying... (round ' + round + '/' + MAX_CUA_ROUNDS + ')', previewUrl: ctx.previewUrl });
       },
@@ -160,6 +160,9 @@ module.exports = {
             if (lastIssueCategory === 'crash') { consecutiveSameIssue++; }
             else { consecutiveSameIssue = 1; lastIssueCategory = 'crash'; }
 
+            // CUA crash is classified as INFRA by error-classifier.cjs,
+            // so fix-loop will retry with backoff without counting against round limit.
+            // Throw so error-classifier can handle it properly.
             if (consecutiveSameIssue >= 3) {
               throw new Error('CUA crashed ' + consecutiveSameIssue + ' consecutive rounds');
             }
@@ -247,11 +250,11 @@ module.exports = {
               });
 
               if (_noProgressRounds >= NO_PROGRESS_EXIT_ROUNDS + 3) {
-                // Hard exit after 8 no-progress rounds
+                // Hard exit after 8 no-progress rounds — code genuinely can't pass
                 throw new Error('No phase progress in ' + _noProgressRounds + ' consecutive rounds. Diagnosis: ' + stuckDiagnosis.summary);
               } else if (_noProgressRounds === NO_PROGRESS_EXIT_ROUNDS) {
                 // Force full regen strategy after 5 rounds, but keep trying
-                ctx.addLog('cua-verify', 'No progress for ' + _noProgressRounds + ' rounds \u2014 escalating to full regen');
+                ctx.addLog('cua-verify', 'No progress for ' + _noProgressRounds + ' rounds — escalating to full regen');
                 consecutiveSameIssue = SAME_ISSUE_REGEN_THRESHOLD;
               }
             }
@@ -264,7 +267,7 @@ module.exports = {
             if (cuaResult.passed && consolePhaseCoverage.length >= 2) {
               var agentActions = (cuaResult.report && cuaResult.report.actions) || [];
               if (agentActions.length === 0) {
-                ctx.addLog('cua-verify', 'All phases completed with 0 agent actions \u2014 overriding to FAIL (autoplay)');
+                ctx.addLog('cua-verify', 'All phases completed with 0 agent actions — overriding to FAIL (autoplay)');
                 cuaResult.passed = false;
                 cuaResult.issues = (cuaResult.issues || []).concat(
                   ['[autoplay-zero-actions] ' + consolePhaseCoverage.length + ' phases completed with 0 agent actions']
@@ -326,7 +329,8 @@ module.exports = {
               var codeReviewer = require('../../worker/code-reviewer.js');
               var cuaIssues = (cuaResult.issues || []).map(function(issueText) {
                 return {
-                  severity: 'critical',
+                  severity: 'warning',
+                  stage: 'cua-verify',
                   description: '[CUA] ' + issueText.slice(0, 200),
                   rule: 'CUA Verification',
                   fix: 'See CUA feedback for details',
