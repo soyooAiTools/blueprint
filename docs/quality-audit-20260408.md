@@ -90,33 +90,48 @@
 
 ### P0 — 立竿见影
 
-1. **将 promoted rules 硬编码进 skeleton**
-   - Camera.backgroundColor 写死 (0.35f, 0.55f, 0.75f)
-   - 移除 GFM_Create.SetColor API 文档引用
-   - Pool 对象颜色在 skeleton 注释中标注
+1. **将 promoted rules 硬编码进 skeleton** ✅ 已完成 (a7a6826)
+   - Camera.backgroundColor 预设 (0.45, 0.52, 0.62)，skeleton 注释禁止修改
+   - 移除所有 GFM_Create.SetColor/Obj 调用，改用 pool 对象 Find
+   - 移除 Destroy 调用，改用 pooled text element
+   - Pool 对象颜色在 PlaceObj 注释中标注
+   - skeleton 头部添加 7 条渲染规则 + 3 条 anti-autoplay 规则
    
-2. **修复 CUA 的 INFRA/FATAL 分类**
-   - API 401、CDP crash → INFRA + 重试
-   - 游戏真的不能玩 → CODE + recode
+2. **修复 CUA 的 INFRA/FATAL 分类** ✅ 已完成 (a7a6826)
+   - FATAL 模式收紧: `/not available/i` → `/(?:generator|reviewer|coder).*not available/i`
+   - 新增 11 个 CUA INFRA 模式 (Xvfb/PlayableAgent/SiliconFlow/Qwen)
+   - PlayableAgent skipped 不再返回 passed:true，改为 passed:false + INFRA 错误
+   - cua-verify 区分 skipped(INFRA 重试) vs passed
 
 ### P1 — 补缺
 
-3. **在 review 加渲染相关 static rules**
-   - 检测 Camera.backgroundColor 设置值
-   - 检测至少 3 个 pool 对象有 transform.position 赋值
-   - 检测不包含 GFM_Create.SetColor 调用
+3. **在 review 加渲染相关 static rules** ✅ 已完成 (a7a6826)
+   - `safe-color-recursion`: SafeColor 递归模式检测
+   - `renderer-material-color`: material.color 赋值检测
+   - `new-material`: new Material() 检测
+   - `render-no-objects`: phase 1 至少 3 个 PlaceObj/position 赋值
 
-4. **激活 lesson-extractor 自动提升链路**
-   - 确认 autoPromotePendingRules() 在 pipeline 完成后被调用
-   - 修复 sourceStage 和 crossProjectCount 的记录
+4. **激活 lesson-extractor 自动提升链路** ✅ 已完成 (a7a6826 + bc6d37d)
+   - pipeline 成功/失败/gate 三条路径均调用 autoPromotePendingRules()
+   - autoPromotePendingRules 已导出供 pipeline.cjs 调用
+   - promoted rules 正确记录 crossProjectCount 和 sourceStage
+   
+5. **skeleton anti-autoplay 交互门控** ✅ 已完成 (a7a6826)
+   - buildRealCondition() 不再 fallback 到纯 timer 条件
+   - 无交互/无实体 phase → 生成 InteractionDone 标志位
+   - playerMustAct + 有实体无交互 → 生成 PlayerActed 标志位
+   - 所有交互标志位自动声明为 bool 变量
 
 ### P2 — 加速
 
-5. **在 compile 后加轻量截图检测**
+6. **metrics JSONL rotation** ✅ 已完成 (a7a6826)
+   - 文件超过 10MB 自动 rename 为 `.bak.{日期}` 并创建新文件
+
+7. **在 compile 后加轻量截图检测** — 待实施
    - 不需要 VLM，纯色/静态帧用像素分析
    - 失败直接 recode，不等到 visual-check
 
-6. **CUA 前增加无头 phase smoke test**
+8. **CUA 前增加无头 phase smoke test** — 待实施
    - Playwright 加载 → 等 5s → 检查 console __PHASE__ 输出
    - 有输出 = instrumentation 正常 → 交给 CUA
 
@@ -131,4 +146,28 @@
 
 ---
 
-*审计人: Claude Opus 4.6 | 日期: 2026-04-08*
+## 七、修复记录
+
+### 2026-04-08 第二批修复 (a7a6826 + bc6d37d)
+
+**修改文件 (8个):**
+| 文件 | 改动 |
+|------|------|
+| `worker/worker-playableagent.js` | 4处 skipped→passed 改为 skipped→failed |
+| `engine/stages/cua-verify.cjs` | 区分 skipped(INFRA重试) vs passed |
+| `engine/error-classifier.cjs` | FATAL收紧 + 新增11个CUA INFRA模式 |
+| `adapters/skeleton-generator.cjs` | 移除SetColor/Obj/Destroy + anti-autoplay标志位 |
+| `engine/static-check.cjs` | 新增4条渲染类规则 |
+| `engine/pipeline.cjs` | 三路径调用autoPromotePendingRules |
+| `worker/code-reviewer.js` | 导出autoPromote + 修复promoted字段 |
+| `engine/metrics.cjs` | JSONL >10MB自动rotation |
+
+**预期影响:**
+- visual-check 通过率: 0% → 预计 >50% (消除纯色屏根因)
+- CUA 误分类为 FATAL: 93% → 预计 <20% (INFRA 正确重试)
+- 学习闭环: 断裂 → 自动运转 (pending→promoted→prompt)
+- autoplay 误通过: 高 → 低 (skeleton 强制交互门控)
+
+---
+
+*审计人: Claude Opus 4.6 | 日期: 2026-04-08 (更新)*
