@@ -16,6 +16,34 @@ try { notify = require('../adapters/notify.cjs'); } catch(e) { notify = { alert:
 var lessonExtractor;
 try { lessonExtractor = require('./lesson-extractor.cjs'); } catch(e) { lessonExtractor = { extractLesson: function() {} }; }
 
+// ============ Pipeline Error ============
+// Custom error that carries root cause + failing stage without message wrapping.
+// This prevents the "Pipeline failed at X: Pipeline failed at Y: ..." nesting problem.
+
+function PipelineError(stage, rootCause, classification) {
+  this.name = 'PipelineError';
+  this.stage = stage;
+  this.rootCause = rootCause;
+  this.classification = classification || 'UNKNOWN';
+  this.message = '[' + stage + '] ' + rootCause;
+}
+PipelineError.prototype = Object.create(Error.prototype);
+PipelineError.prototype.constructor = PipelineError;
+
+/**
+ * Extract the root cause message from any error, unwrapping PipelineError
+ * and legacy "Pipeline failed at X:" prefixes.
+ */
+function unwrapRootCause(err) {
+  if (err && err.name === 'PipelineError') return err.rootCause;
+  var msg = (err && err.message) ? err.message : String(err);
+  var pipelinePrefix = /^(?:Pipeline failed at \w[\w-]*:\s*|\[\w[\w-]*\]\s*)/;
+  while (pipelinePrefix.test(msg)) {
+    msg = msg.replace(pipelinePrefix, '');
+  }
+  return msg;
+}
+
 // ============ Pipeline Context ============
 
 function PipelineContext(task, checkpoint, workerConfig) {
@@ -99,6 +127,22 @@ Pipeline.prototype.run = function(ctx, onProgress) {
 
   // Record pipeline start time for metrics
   ctx._pipelineStartTime = Date.now();
+  // Guard: only record metrics once per pipeline run
+  ctx._metricsRecorded = false;
+
+  // Deduplicate completedStages from checkpoint to prevent cross-run accumulation
+  if (ctx.completedStages && ctx.completedStages.length > 0) {
+    var seen = {};
+    var deduped = [];
+    for (var di = 0; di < ctx.completedStages.length; di++) {
+      var s = ctx.completedStages[di];
+      if (!seen[s]) { seen[s] = true; deduped.push(s); }
+    }
+    if (deduped.length !== ctx.completedStages.length) {
+      ctx.addLog('pipeline', 'Deduplicated completedStages: ' + ctx.completedStages.length + ' → ' + deduped.length);
+      ctx.completedStages = deduped;
+    }
+  }
 
   // Cleanup stale temp dirs from previous runs (older than 2 hours)
   try {
@@ -125,11 +169,14 @@ Pipeline.prototype.run = function(ctx, onProgress) {
 
   function runNext() {
     if (stageIndex >= self.stages.length) {
-      try {
-        recordPipelineMetrics(ctx, ctx.stageResults);
-        ctx.addLog('pipeline', 'Metrics recorded (success)');
-      } catch(e) {
-        ctx.addLog('pipeline', 'Metrics recording failed: ' + e.message);
+      if (!ctx._metricsRecorded) {
+        try {
+          recordPipelineMetrics(ctx, ctx.stageResults);
+          ctx._metricsRecorded = true;
+          ctx.addLog('pipeline', 'Metrics recorded (success)');
+        } catch(e) {
+          ctx.addLog('pipeline', 'Metrics recording failed: ' + e.message);
+        }
       }
       return Promise.resolve(ctx);
     }
@@ -160,11 +207,13 @@ Pipeline.prototype.run = function(ctx, onProgress) {
         ctx._failedAtStage = stage.name;
         ctx._failReason = 'gate: ' + gateErr.message;
         ctx._failClassification = 'GATE';
-        try { recordPipelineMetrics(ctx, ctx.stageResults); } catch(e) {}
+        if (!ctx._metricsRecorded) {
+          try { recordPipelineMetrics(ctx, ctx.stageResults); ctx._metricsRecorded = true; } catch(e) {}
+        }
         try { notify.alert('warning', 'Pipeline gate failed', gateErr.message, { stage: stage.name, classification: 'GATE', taskId: ctx.taskId }); } catch(e) {}
         try { lessonExtractor.extractLesson(ctx); } catch(e) {}
         if (onProgress) onProgress(stage.name, 'gate-failed', ctx);
-        throw new Error(gateMsg);
+        throw new PipelineError(stage.name, 'gate: ' + gateErr.message, 'GATE');
       }
     }
 
@@ -217,24 +266,27 @@ Pipeline.prototype.run = function(ctx, onProgress) {
         }
 
         if (onProgress) onProgress(stage.name, 'failed', ctx);
-        ctx._pipelineError = true;
-        ctx._failedAtStage = stage.name;
-        // Unwrap nested "Pipeline failed at X:" prefixes to get the root cause
-        var rootReason = err.message;
-        var pipelinePrefix = /^Pipeline failed at \w[\w-]*:\s*/;
-        while (pipelinePrefix.test(rootReason)) {
-          rootReason = rootReason.replace(pipelinePrefix, '');
+
+        // Unwrap to root cause — handles both PipelineError and legacy string prefixes
+        var rootReason = unwrapRootCause(err);
+        // If a downstream stage already set the failure context, preserve it
+        // (the first stage to fail is the real root cause)
+        if (!ctx._pipelineError) {
+          ctx._pipelineError = true;
+          ctx._failedAtStage = (err.name === 'PipelineError') ? err.stage : stage.name;
+          ctx._failReason = rootReason;
+          try {
+            var errorClassifier = require('./error-classifier.cjs');
+            ctx._failClassification = errorClassifier.classify({ message: rootReason }, { stage: ctx._failedAtStage }).type;
+          } catch(ce) { ctx._failClassification = 'UNKNOWN'; }
         }
-        ctx._failReason = rootReason;
-        // Classify the error using the unwrapped reason
-        try {
-          var errorClassifier = require('./error-classifier.cjs');
-          ctx._failClassification = errorClassifier.classify({ message: rootReason }, { stage: stage.name }).type;
-        } catch(ce) { ctx._failClassification = 'UNKNOWN'; }
-        try { recordPipelineMetrics(ctx, ctx.stageResults); } catch(e) {}
-        try { notify.alert('critical', 'Pipeline failed', rootReason, { stage: stage.name, classification: ctx._failClassification, taskId: ctx.taskId }); } catch(e) {}
+        if (!ctx._metricsRecorded) {
+          try { recordPipelineMetrics(ctx, ctx.stageResults); ctx._metricsRecorded = true; } catch(e) {}
+        }
+        try { notify.alert('critical', 'Pipeline failed', rootReason, { stage: ctx._failedAtStage, classification: ctx._failClassification, taskId: ctx.taskId }); } catch(e) {}
         try { lessonExtractor.extractLesson(ctx); } catch(e) {}
-        throw new Error('Pipeline failed at ' + stage.name + ': ' + rootReason);
+        // Throw PipelineError with root cause — no re-wrapping
+        throw new PipelineError(ctx._failedAtStage, rootReason, ctx._failClassification);
       });
     }
 
@@ -282,6 +334,8 @@ function createCocosPipeline(options) {
 module.exports = {
   Pipeline: Pipeline,
   PipelineContext: PipelineContext,
+  PipelineError: PipelineError,
+  unwrapRootCause: unwrapRootCause,
   createLunaPipeline: createLunaPipeline,
   createCocosPipeline: createCocosPipeline,
   stages: {

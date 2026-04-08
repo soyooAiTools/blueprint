@@ -495,22 +495,32 @@ async function processTask(task) {
   } catch (e) {
     log('Task error: ' + e.message, taskId);
 
-    // Extract structured failure info from pipeline context or error message
+    // Extract structured failure info from PipelineError or legacy message format
     var failInfo = { message: '[Linux] Error: ' + e.message.slice(0, 200) };
-    var stageMatch = e.message.match(/Pipeline failed at (\S+):/);
-    var gateMatch = e.message.match(/Quality gate failed before (\S+):/);
-    if (stageMatch) {
-      failInfo.failedAtStage = stageMatch[1];
-      failInfo.failReason = e.message.replace('Pipeline failed at ' + stageMatch[1] + ': ', '');
-    } else if (gateMatch) {
-      failInfo.failedAtStage = gateMatch[1];
-      failInfo.failReason = 'gate: ' + e.message.replace('Quality gate failed before ' + gateMatch[1] + ': ', '');
+    if (e.name === 'PipelineError') {
+      // New format: PipelineError carries stage + rootCause directly
+      failInfo.failedAtStage = e.stage;
+      failInfo.failReason = e.rootCause;
+      failInfo.failClassification = e.classification;
+    } else {
+      // Legacy format: parse from message string
+      var stageMatch = e.message.match(/Pipeline failed at (\S+):/);
+      var gateMatch = e.message.match(/Quality gate failed before (\S+):/);
+      if (stageMatch) {
+        failInfo.failedAtStage = stageMatch[1];
+        failInfo.failReason = e.message.replace('Pipeline failed at ' + stageMatch[1] + ': ', '');
+      } else if (gateMatch) {
+        failInfo.failedAtStage = gateMatch[1];
+        failInfo.failReason = 'gate: ' + e.message.replace('Quality gate failed before ' + gateMatch[1] + ': ', '');
+      }
     }
-    // Classify error
-    try {
-      var { classify } = require('../engine/error-classifier.cjs');
-      failInfo.failClassification = classify(e).type;
-    } catch(ce) {}
+    // Classify error (if not already classified by PipelineError)
+    if (!failInfo.failClassification) {
+      try {
+        var { classify } = require('../engine/error-classifier.cjs');
+        failInfo.failClassification = classify(e).type;
+      } catch(ce) {}
+    }
 
     failInfo.failedAt = new Date().toISOString();
     failInfo.durationMs = Date.now() - startTime;

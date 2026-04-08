@@ -52,13 +52,46 @@ var FATAL_PATTERNS = [
   /Quality gate failed/i,
 ];
 
-// CUA crashes are infrastructure instability, not fatal config errors.
+// CUA and visual-check crashes are infrastructure instability, not fatal config errors.
 // Moved out of FATAL so they get exponential backoff + retry.
 var CUA_INFRA_PATTERNS = [
   /CUA crashed \d+ consecutive/i,
   /CUA API unreachable/i,
   /CUA total time limit/i,
+  /CUA.*timeout/i,
+  /playwright.*crash/i,
+  /playwright.*timeout/i,
+  /browser.*closed/i,
+  /browser.*disconnected/i,
+  /Target closed/i,
+  /Page closed/i,
+  /Protocol error/i,
+  /Navigation failed/i,
+  /net::ERR_/i,
+  /VLM.*unreachable/i,
+  /VLM.*timeout/i,
+  /Gemini.*error/i,
+  /screenshot.*failed/i,
+  /visual.check.*crash/i,
+  /headless.*error/i,
+  /CDP.*error/i,
+  /CDP.*disconnect/i,
 ];
+
+/**
+ * Unwrap nested "Pipeline failed at X:" / "[stage] " prefixes to extract root cause.
+ * Also handles PipelineError objects.
+ */
+function unwrapMessage(err) {
+  // Handle PipelineError objects
+  if (err && err.name === 'PipelineError' && err.rootCause) return err.rootCause;
+  var msg = (err && err.message) ? err.message : String(err);
+  var prefix = /^(?:Pipeline failed at \w[\w-]*:\s*|\[\w[\w-]*\]\s*)/;
+  while (prefix.test(msg)) {
+    msg = msg.replace(prefix, '');
+  }
+  return msg;
+}
 
 /**
  * Classify an error.
@@ -70,7 +103,8 @@ var CUA_INFRA_PATTERNS = [
  * @returns {{ type: 'INFRA'|'CODE'|'FATAL', retryable: boolean, backoffMs: number, reason: string }}
  */
 function classify(err, context) {
-  var msg = (err && err.message) ? err.message : String(err);
+  // Always unwrap nested error prefixes before classification
+  var msg = unwrapMessage(err);
   var ctx = context || {};
 
   // CUA-specific infra patterns — check before FATAL since CUA crashes are retryable
@@ -118,4 +152,4 @@ function isInfra(err) {
   return classify(err).type === 'INFRA';
 }
 
-module.exports = { classify: classify, isInfra: isInfra };
+module.exports = { classify: classify, isInfra: isInfra, unwrapMessage: unwrapMessage };

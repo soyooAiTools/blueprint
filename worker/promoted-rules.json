@@ -1,13 +1,13 @@
 [
   {
-    "description": "Start() exists but contains no initialization. Required playable setup is missing — must initialize gameplay state, pooled objects, camera/background in Start().",
+    "description": "Start() must initialize gameplay state, pooled objects, camera/background. Game end flow must call GameEnded() then ShowCTA() with InstallFullGame(). Phase count in CheckEventRules() must match spec exactly — CUA verifies per-phase coverage.",
     "rule": "Code Completeness",
-    "fix": "Initialize gameplay state, pooled objects, camera/background, and required systems in Start(). Move >=3 pool objects to visible positions.",
+    "fix": "1) Initialize state/pool objects/camera in Start(), move >=3 pool objects to visible positions. 2) In gameEnd: call GameEnded() first, then ShowCTA() which calls InstallFullGame(). 3) ruleTriggered[] must have exactly as many entries as spec phases, each with real per-phase conditions.",
     "severity": "critical",
     "promotedAt": "2026-03-29T14:42:07.980Z",
-    "triggerProjects": ["proj_1774794219517_z43qrz", "proj_1774794237502_k0rbwx"],
-    "triggerCount": 2,
-    "totalOccurrences": 2
+    "triggerProjects": ["proj_1774794219517_z43qrz", "proj_1774794237502_k0rbwx", "proj_1774798890698_wxfmbx", "proj_1774709451098_pt2ysl"],
+    "triggerCount": 8,
+    "totalOccurrences": 8
   },
   {
     "description": "Phase coverage incomplete — CUA detects 0 or near-0 phases completed. Usually means auto-progression bypassed intermediate phases or phase transition conditions are trivial/timer-only.",
@@ -20,24 +20,14 @@
     "totalOccurrences": 8
   },
   {
-    "description": "Uses Application.ExternalEval(), which is explicitly unsupported in Luna and can break transpilation/runtime.",
+    "description": "Forbidden runtime APIs: Application.ExternalEval() unsupported in Luna. GFM_UI.CreateText + Destroy() produces invisible/broken text. Never Destroy UI elements — hide by moving off-screen.",
     "rule": "Forbidden APIs",
-    "fix": "Remove ExternalEval usage. Expose state through supported Luna/GFM mechanisms only.",
+    "fix": "1) Remove ExternalEval — use supported Luna/GFM mechanisms. 2) Pre-create reusable text labels (or use skeleton guideText/scoreText) and update content. Never Destroy UI — hide via (0,-999,0).",
     "severity": "critical",
     "promotedAt": "2026-03-29T19:11:24.851Z",
-    "triggerProjects": ["proj_1774709451098_pt2ysl", "proj_1774794219517_z43qrz"],
-    "triggerCount": 2,
-    "totalOccurrences": 2
-  },
-  {
-    "description": "Game end flow must call Luna.Unity.LifeCycle.GameEnded() then ShowCTA() which calls Luna.Unity.Playable.InstallFullGame(). Call order matters: GameEnded() MUST be before InstallFullGame().",
-    "rule": "Code Completeness",
-    "fix": "In the gameEnd block: call GameEnded() first, then ShowCTA(). Ensure ShowCTA() calls InstallFullGame(). Do not reverse order or defer to button click handler.",
-    "severity": "critical",
-    "promotedAt": "2026-04-01T00:20:53.042Z",
-    "triggerProjects": ["proj_1774798890698_wxfmbx", "proj_1774794219517_z43qrz", "proj_1774709451098_pt2ysl"],
-    "triggerCount": 3,
-    "totalOccurrences": 3
+    "triggerProjects": ["proj_1774709451098_pt2ysl", "proj_1774794219517_z43qrz", "proj_1774798867290_mwduot"],
+    "triggerCount": 5,
+    "totalOccurrences": 8
   },
   {
     "description": "Skeleton pre-creates uiCanvas, guideText, scoreText — use those directly instead of creating new UI structures at runtime. Runtime GFM_UI.CreateCanvas/CreateText may be invisible in Luna.",
@@ -48,16 +38,6 @@
     "triggerProjects": ["proj_1774798867290_mwduot", "proj_1774794219517_z43qrz", "proj_1774709451098_pt2ysl"],
     "triggerCount": 3,
     "totalOccurrences": 3
-  },
-  {
-    "description": "Creates runtime floating text via GFM_UI.CreateText then Destroy(). Luna cannot properly initialize runtime text/rendering components — they may be invisible or broken.",
-    "rule": "Forbidden APIs",
-    "fix": "Pre-create a reusable text label (or use skeleton guideText/scoreText) and update its content. Never Destroy UI elements — hide by moving off-screen.",
-    "severity": "critical",
-    "promotedAt": "2026-04-01T00:20:53.042Z",
-    "triggerProjects": ["proj_1774798867290_mwduot", "proj_1774794219517_z43qrz", "proj_1774709451098_pt2ysl"],
-    "triggerCount": 3,
-    "totalOccurrences": 6
   },
   {
     "description": "SafeColor or similar helper implemented as infinite recursion — calls itself unconditionally. Stack overflow causes immediate blank screen.",
@@ -137,16 +117,6 @@
     "promotedAt": "2026-04-07T06:51:51.701Z",
     "triggerProjects": ["proj_1774709451098_pt2ysl", "proj_1775536729085_8rvql2"],
     "triggerCount": 2,
-    "totalOccurrences": 3
-  },
-  {
-    "description": "Phase count in CheckEventRules() must match spec exactly. Do not compress multiple spec phases into fewer ruleTriggered entries — CUA verifies per-phase coverage.",
-    "rule": "Code Completeness",
-    "fix": "Implement full required spec phase set in CheckEventRules(). If spec has 11 phases, ruleTriggered[] must have 11 entries with real per-phase conditions.",
-    "severity": "warning",
-    "promotedAt": "2026-04-01T00:20:53.041Z",
-    "triggerProjects": ["proj_1774798890698_wxfmbx", "proj_1774794219517_z43qrz", "proj_1774709451098_pt2ysl"],
-    "triggerCount": 3,
     "totalOccurrences": 3
   }
 ]
