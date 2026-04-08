@@ -575,7 +575,9 @@
     "autoExtracted": true,
     "failClassification": "CODE",
     "stage": "codegen",
-    "severity": "info"
+    "severity": "info",
+    "lastSeenAt": "2026-04-08T13:26:22.599Z",
+    "hitCount": 3
   },
   {
     "description": "gate: No C# code to compile",
@@ -587,7 +589,9 @@
     "autoExtracted": true,
     "failClassification": "GATE",
     "stage": "compile",
-    "severity": "critical"
+    "severity": "critical",
+    "lastSeenAt": "2026-04-08T13:26:22.625Z",
+    "hitCount": 29
   },
   {
     "description": "Quality gate failed before compile: No C# code to compile",
@@ -599,7 +603,9 @@
     "autoExtracted": true,
     "failClassification": "FATAL",
     "stage": "clone",
-    "severity": "info"
+    "severity": "info",
+    "lastSeenAt": "2026-04-08T11:46:01.164Z",
+    "hitCount": 5
   },
   {
     "description": "The script uses Instantiate(...) repeatedly to create enemies, soldiers, gold, rockets, and projectiles at runtime. The project rules require using pre-existing pooled scene objects via exact GameObject.Find() names, and historical Luna guidance explicitly forbids runtime object creation patterns in this flow. These instantiated objects are not guaranteed to render or behave correctly in Luna and violate the no-runtime-creation/pool-only requirement.",
@@ -670,5 +676,33 @@
     "timestamp": "2026-04-07T06:52:08.229Z",
     "stage": "codegen",
     "severity": "info"
+  },
+  {
+    "description": "AI coding failed: Claude Code failed (exit 1): Invalid API key · Fix external API key\n",
+    "rule": "General",
+    "fix": "AI coding failed: Claude Code failed (exit 1): Invalid API key · Fix external API key\n",
+    "severity": "info",
+    "line": "codegen stage failure",
+    "taskId": "proj_1775610640418_knq32m",
+    "timestamp": "2026-04-08T11:41:32.580Z",
+    "autoExtracted": true,
+    "failClassification": "CODE",
+    "stage": "codegen",
+    "lastSeenAt": "2026-04-08T12:05:56.997Z",
+    "hitCount": 14
+  },
+  {
+    "description": "Cannot find module 'playwright'\nRequire stack:\n- /opt/blueprint-editor/engine/stages/visual-check.cjs\n- /opt/blueprint-editor/engine/pipeline.cjs\n- /opt/blueprint-editor/worker/linux-worker-client.js",
+    "rule": "Visual / Rendering",
+    "fix": "Cannot find module 'playwright'\nRequire stack:\n- /opt/blueprint-editor/engine/stages/visual-check.cjs\n- /opt/blueprint-editor/engine/pipeline.cjs\n- /opt/blueprint-editor/worker/linux-worker-client.js",
+    "severity": "warning",
+    "line": "visual-check stage failure",
+    "taskId": "proj_1775610610026_qapd9n",
+    "timestamp": "2026-04-08T12:30:47.233Z",
+    "autoExtracted": true,
+    "failClassification": "CODE",
+    "stage": "visual-check",
+    "lastSeenAt": "2026-04-08T13:07:51.851Z",
+    "hitCount": 6
   }
 ]

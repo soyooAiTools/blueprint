@@ -5,7 +5,12 @@
     "fix": "1) Initialize state/pool objects/camera in Start(), move >=3 pool objects to visible positions. 2) In gameEnd: call GameEnded() first, then ShowCTA() which calls InstallFullGame(). 3) ruleTriggered[] must have exactly as many entries as spec phases, each with real per-phase conditions.",
     "severity": "critical",
     "promotedAt": "2026-03-29T14:42:07.980Z",
-    "triggerProjects": ["proj_1774794219517_z43qrz", "proj_1774794237502_k0rbwx", "proj_1774798890698_wxfmbx", "proj_1774709451098_pt2ysl"],
+    "triggerProjects": [
+      "proj_1774794219517_z43qrz",
+      "proj_1774794237502_k0rbwx",
+      "proj_1774798890698_wxfmbx",
+      "proj_1774709451098_pt2ysl"
+    ],
     "triggerCount": 8,
     "totalOccurrences": 8
   },
@@ -15,7 +20,11 @@
     "fix": "Ensure every phase has real player-driven transition conditions (not timer-only). Verify ruleTriggered[] array covers ALL spec phases. Check that AddCompletedPhase/ReportPhase is called for each phase.",
     "severity": "critical",
     "promotedAt": "2026-03-29T16:19:54.876Z",
-    "triggerProjects": ["proj_1774794219517_z43qrz", "proj_1774798766776_1sjld8", "proj_1774709451098_pt2ysl"],
+    "triggerProjects": [
+      "proj_1774794219517_z43qrz",
+      "proj_1774798766776_1sjld8",
+      "proj_1774709451098_pt2ysl"
+    ],
     "triggerCount": 3,
     "totalOccurrences": 8
   },
@@ -25,7 +34,11 @@
     "fix": "1) Remove ExternalEval — use supported Luna/GFM mechanisms. 2) Pre-create reusable text labels (or use skeleton guideText/scoreText) and update content. Never Destroy UI — hide via (0,-999,0).",
     "severity": "critical",
     "promotedAt": "2026-03-29T19:11:24.851Z",
-    "triggerProjects": ["proj_1774709451098_pt2ysl", "proj_1774794219517_z43qrz", "proj_1774798867290_mwduot"],
+    "triggerProjects": [
+      "proj_1774709451098_pt2ysl",
+      "proj_1774794219517_z43qrz",
+      "proj_1774798867290_mwduot"
+    ],
     "triggerCount": 5,
     "totalOccurrences": 8
   },
@@ -35,7 +48,11 @@
     "fix": "Use existing skeleton-provided UI variables. If CTA button needed, use skeleton CTAButton pattern. Only create new UI if skeleton doesn't provide the element.",
     "severity": "critical",
     "promotedAt": "2026-04-01T00:20:53.042Z",
-    "triggerProjects": ["proj_1774798867290_mwduot", "proj_1774794219517_z43qrz", "proj_1774709451098_pt2ysl"],
+    "triggerProjects": [
+      "proj_1774798867290_mwduot",
+      "proj_1774794219517_z43qrz",
+      "proj_1774709451098_pt2ysl"
+    ],
     "triggerCount": 3,
     "totalOccurrences": 3
   },
@@ -45,7 +62,10 @@
     "fix": "Ensure color/material helper functions have proper base cases. Colors are pre-baked in pool objects — no runtime color manipulation needed.",
     "severity": "critical",
     "promotedAt": "2026-04-01T00:20:53.042Z",
-    "triggerProjects": ["proj_1774794219517_z43qrz", "proj_1774709451098_pt2ysl"],
+    "triggerProjects": [
+      "proj_1774794219517_z43qrz",
+      "proj_1774709451098_pt2ysl"
+    ],
     "triggerCount": 2,
     "totalOccurrences": 2
   },
@@ -55,7 +75,11 @@
     "fix": "Set Camera.backgroundColor to (0.35f, 0.55f, 0.75f). Set ground color to (0.75f, 0.78f, 0.82f). Ensure >=0.3 difference on at least one RGB channel.",
     "severity": "critical",
     "promotedAt": "2026-04-01T00:20:53.042Z",
-    "triggerProjects": ["proj_1774798890698_wxfmbx", "proj_1774794219517_z43qrz", "proj_1774709451098_pt2ysl"],
+    "triggerProjects": [
+      "proj_1774798890698_wxfmbx",
+      "proj_1774794219517_z43qrz",
+      "proj_1774709451098_pt2ysl"
+    ],
     "triggerCount": 3,
     "totalOccurrences": 3
   },
@@ -65,7 +89,9 @@
     "fix": "Use GameObject.Find(\"__Pool_Cube_Red_01\") to get a red cube. Available shapes: Cube, Sphere, Cylinder, Plane. Available colors: Red, Blue, Green, Yellow, Orange, Purple, White, Brown, Cyan, Pink.",
     "severity": "critical",
     "promotedAt": "2026-04-02T14:00:00.000Z",
-    "triggerProjects": ["all"],
+    "triggerProjects": [
+      "all"
+    ],
     "triggerCount": 99,
     "totalOccurrences": 99
   },
@@ -75,7 +101,9 @@
     "fix": "Do not define duplicate class names. The build pipeline handles stub stripping automatically.",
     "severity": "critical",
     "promotedAt": "2026-04-02T14:00:00.000Z",
-    "triggerProjects": ["all"],
+    "triggerProjects": [
+      "all"
+    ],
     "triggerCount": 99,
     "totalOccurrences": 99
   },
@@ -85,7 +113,10 @@
     "fix": "Guard button creation with if (ctaBtn == null). Prefer skeleton-provided UI flow over runtime GFM_UI.CreateButton.",
     "severity": "warning",
     "promotedAt": "2026-04-01T00:20:53.042Z",
-    "triggerProjects": ["proj_1774798867290_mwduot", "proj_1774709451098_pt2ysl"],
+    "triggerProjects": [
+      "proj_1774798867290_mwduot",
+      "proj_1774709451098_pt2ysl"
+    ],
     "triggerCount": 2,
     "totalOccurrences": 2
   },
@@ -95,7 +126,11 @@
     "fix": "Make phase transitions depend on explicit player-driven events (click/drag/move), not random spawn counts or timing. Minimize Random.Range in gameplay-critical paths.",
     "severity": "warning",
     "promotedAt": "2026-04-01T00:20:53.042Z",
-    "triggerProjects": ["proj_1774794219517_z43qrz", "proj_1774798890698_wxfmbx", "proj_1774709451098_pt2ysl"],
+    "triggerProjects": [
+      "proj_1774794219517_z43qrz",
+      "proj_1774798890698_wxfmbx",
+      "proj_1774709451098_pt2ysl"
+    ],
     "triggerCount": 3,
     "totalOccurrences": 5
   },
@@ -105,7 +140,10 @@
     "fix": "Handle both touch and mouse input. Use GFM/Luna input abstraction when available. Avoid dependence on physics raycasts — convert screen input to world position via camera math.",
     "severity": "warning",
     "promotedAt": "2026-04-01T00:20:53.042Z",
-    "triggerProjects": ["proj_1774794237502_k0rbwx", "proj_1774709451098_pt2ysl"],
+    "triggerProjects": [
+      "proj_1774794237502_k0rbwx",
+      "proj_1774709451098_pt2ysl"
+    ],
     "triggerCount": 2,
     "totalOccurrences": 2
   },
@@ -115,8 +153,101 @@
     "fix": "Gate phase transitions on player accomplishments (entities built, items collected by player action). Align RULE_COUNT with actual spec phase count.",
     "severity": "warning",
     "promotedAt": "2026-04-07T06:51:51.701Z",
-    "triggerProjects": ["proj_1774709451098_pt2ysl", "proj_1775536729085_8rvql2"],
+    "triggerProjects": [
+      "proj_1774709451098_pt2ysl",
+      "proj_1775536729085_8rvql2"
+    ],
     "triggerCount": 2,
     "totalOccurrences": 3
+  },
+  {
+    "description": "Uses List/Dictionary-safe style correctly, but still uses generic syntax indirectly via arrays only; no issue there. Actual critical issue is elsewhere: the code creates runtime UI button instances in gameplay flow, which is not prohibited by itself, but the skeleton note explicitly says pre-created uiCanvas/guideText/scoreText should be used instead of creating new UI structures. More importantly, phase coverage is incomplete versus the validated 11-phase hospital/station management spec in the auto-promoted rules.",
+    "rule": "c language  bridge.net hard limits",
+    "fix": "Implement the full required spec phase set in CheckEventRules() instead of compressing progression into 6 gameplay phases.",
+    "severity": "critical",
+    "promotedAt": "2026-04-08T12:02:24.733Z",
+    "triggerProjects": [
+      "proj_1774798890698_wxfmbx",
+      "proj_1774794219517_z43qrz",
+      "proj_1774709451098_pt2ysl"
+    ],
+    "crossProjectCount": 3,
+    "totalOccurrences": 3,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1,
+      "cua-verify": 1,
+      "codegen": 1
+    }
+  },
+  {
+    "description": "Uses color-suffixed pool names like __Pool_Plane_Green_01, __Pool_Cube_Blue_01, __Pool_Cylinder_Purple_01, etc. The documented required pool names are shape-only names such as __Pool_Cube_01..50, __Pool_Sphere_01..20, __Pool_Plane_01..10, __Pool_Cylinder_01..10. Under the stated rules these names do not exist, so Find will return null and cause runtime failure.",
+    "rule": "object naming  pool objects",
+    "fix": "Replace every Find string with exact existing pool object names from the allowed numeric pool set, using explicit string literals or a predeclared exact-name array. Null-check every required object after Find.",
+    "severity": "info",
+    "promotedAt": "2026-04-08T12:02:24.734Z",
+    "triggerProjects": [
+      "proj_1774709451098_pt2ysl",
+      "proj_1774798890698_wxfmbx"
+    ],
+    "crossProjectCount": 2,
+    "totalOccurrences": 2,
+    "sourceStage": "codegen",
+    "sourceStages": {
+      "codegen": 2
+    }
+  },
+  {
+    "description": "Pipeline failed at review: Pipeline failed at compile: Pipeline failed at visual-check: Pipeline failed at cua-verify: CUA crashed 3 consecutive rounds",
+    "rule": "general",
+    "fix": "AI coding failed: Claude Code failed (exit 1): Invalid API key · Fix external API key\n",
+    "severity": "info",
+    "promotedAt": "2026-04-08T12:02:24.734Z",
+    "triggerProjects": [
+      "proj_1775536745397_a0bh9w",
+      "proj_1775536760460_ief5nt",
+      "proj_1775536729085_8rvql2",
+      "proj_1775610640418_knq32m"
+    ],
+    "crossProjectCount": 4,
+    "totalOccurrences": 5,
+    "sourceStage": "codegen",
+    "sourceStages": {
+      "clone": 2,
+      "codegen": 3
+    }
+  },
+  {
+    "description": "gate: No C# code to compile",
+    "rule": "code quality",
+    "fix": "Fix compilation error — likely forbidden API usage or Bridge.NET incompatibility.",
+    "severity": "critical",
+    "promotedAt": "2026-04-08T12:02:24.734Z",
+    "triggerProjects": [
+      "proj_1775536729085_8rvql2"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "compile",
+    "sourceStages": {
+      "compile": 1
+    }
+  },
+  {
+    "description": "Cannot find module 'playwright'\nRequire stack:\n- /opt/blueprint-editor/engine/stages/visual-check.cjs\n- /opt/blueprint-editor/engine/pipeline.cjs\n- /opt/blueprint-editor/worker/linux-worker-client.js",
+    "rule": "visual  rendering",
+    "fix": "Cannot find module 'playwright'\nRequire stack:\n- /opt/blueprint-editor/engine/stages/visual-check.cjs\n- /opt/blueprint-editor/engine/pipeline.cjs\n- /opt/blueprint-editor/worker/linux-worker-client.js",
+    "severity": "warning",
+    "promotedAt": "2026-04-08T12:30:47.235Z",
+    "triggerProjects": [
+      "proj_1775536760460_ief5nt",
+      "proj_1775610610026_qapd9n"
+    ],
+    "crossProjectCount": 2,
+    "totalOccurrences": 2,
+    "sourceStage": "visual-check",
+    "sourceStages": {
+      "visual-check": 2
+    }
   }
 ]
