@@ -14,9 +14,6 @@ module.exports = {
     env: {
       NODE_ENV: 'production',
       PORT: 3901,
-      GOOGLE_GEMINI_BASE_URL: 'https://sub.mindrix.app',
-      GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',  // loaded from .env
-      GEMINI_MODEL: 'gemini-3.1-pro-preview',
       OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',  // loaded from .env
       OPENAI_BASE_URL: 'https://sub.mindrix.app/v1',
       FEISHU_WEBHOOK_URL: process.env.FEISHU_WEBHOOK_URL || '',  // loaded from .env

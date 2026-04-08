@@ -24,7 +24,7 @@ try {
 const CLAUDE_CMD = process.env.CLAUDE_CMD || 'claude';
 const CLAUDE_TIMEOUT_MS = parseInt(process.env.CLAUDE_TIMEOUT_MS) || 20 * 60 * 1000; // 20 min (12 min timed out when 3 tasks run concurrently through proxy)
 const CLAUDE_MAX_BUDGET = process.env.CLAUDE_MAX_BUDGET_USD || '0'; // 0 = no limit
-const CLAUDE_MODEL = process.env.CLAUDE_CODE_MODEL || 'opus';  // 'opus' is the CLI alias for Claude Opus (claude-opus-4-6 breaks CLI model validation)
+const CLAUDE_MODEL = process.env.CLAUDE_CODE_MODEL || 'opus';
 const GLM_MODEL = process.env.GLM_MODEL || 'glm-5.1';
 const GLM_API_BASE = process.env.GLM_API_BASE || 'https://api.aaxe.cn/api/anthropic';
 const GLM_API_KEY = process.env.GLM_API_KEY || 'oki-d82fb9cf928492b23847db9569dd1f912906cc09135c62fe20b5fa3f0576';
@@ -42,7 +42,7 @@ const LOCK_TIMEOUT_MS = 25 * 60 * 1000; // 25min max wait (slightly over CLAUDE_
 try { fs.mkdirSync(LOCK_DIR, { recursive: true }); } catch(e) {}
 
 function _cleanStaleLocks() {
-  // Remove locks older than 25 min (stale from crashed workers)
+  // Remove locks older than 25 min OR whose owner PID is dead
   try {
     const files = fs.readdirSync(LOCK_DIR);
     const now = Date.now();
@@ -51,9 +51,21 @@ function _cleanStaleLocks() {
       const fp = path.join(LOCK_DIR, f);
       try {
         const stat = fs.statSync(fp);
+        // Time-based stale check
         if (now - stat.mtimeMs > LOCK_TIMEOUT_MS) {
           fs.unlinkSync(fp);
+          continue;
         }
+        // PID-based stale check: if owner process is dead, remove lock
+        try {
+          const content = JSON.parse(fs.readFileSync(fp, 'utf8'));
+          if (content.pid) {
+            try { process.kill(content.pid, 0); } catch(e) {
+              // process.kill(pid, 0) throws if PID doesn't exist
+              fs.unlinkSync(fp);
+            }
+          }
+        } catch(e) {}
       } catch(e) {}
     }
   } catch(e) {}
@@ -300,11 +312,8 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
       cwd: workDir,
       env: {
         ...process.env,
-        // 确保用正确的 API 配置
-        // ANTHROPIC_BASE_URL: not set — let Claude CLI use its default API endpoint (crs.mindrix.app breaks model validation)
-        ANTHROPIC_API_KEY: opts.useGlm ? GLM_API_KEY : (process.env.ANTHROPIC_API_KEY || GLM_API_KEY),  // Keep GLM key as fallback, works with crs.mindrix.app too
-        // 禁止 Claude Code 在内部再次尝试 OAuth
-        CLAUDE_CODE_SIMPLE: '1',
+        // Let Claude CLI use its own auth (OAuth token from CLAUDE_CODE_OAUTH_TOKEN env)
+        // Do NOT override ANTHROPIC_API_KEY — it breaks OAuth when set to a non-Anthropic key
       },
       stdio: ['pipe', 'pipe', 'pipe'],
     });

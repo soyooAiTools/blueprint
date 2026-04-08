@@ -12,7 +12,7 @@
  * Dependencies: dotenv (npm install dotenv)
  */
 
-require('dotenv').config({ path: require('path').join(__dirname, '.env'), override: true });
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env'), override: true });
 
 const http = require('http');
 const https = require('https');
@@ -566,8 +566,16 @@ poll();
 
 // Heartbeat
 setInterval(() => {
+  var currentTaskId = null;
+  var workerStatus = 'idle';
+  if (activeTasks.size > 0) {
+    currentTaskId = activeTasks.keys().next().value;
+    workerStatus = 'busy';
+  }
   apiRequest('POST', '/api/worker/heartbeat', JSON.stringify({
-    workerId: WORKER_ID, type: 'linux', status: 'idle',
+    workerId: WORKER_ID, type: 'linux',
+    status: workerStatus,
+    currentTask: currentTaskId,
     activeTasks: activeTasks.size,
   })).catch(() => {});
 }, HEARTBEAT_INTERVAL);

@@ -18,7 +18,7 @@ const http = require('http');
 const DOUBAO_BASE = 'https://ark.cn-beijing.volces.com/api/v3';
 const DEFAULT_MODEL = 'doubao-seed-2-0-pro-260215';
 
-// Model mapping: Gemini model names → Doubao equivalents
+// Model mapping: legacy Gemini model names → Doubao equivalents
 const MODEL_MAP = {
   'gemini-2.5-flash': DEFAULT_MODEL,
   'gemini-2.5-pro': DEFAULT_MODEL,
@@ -28,8 +28,8 @@ const MODEL_MAP = {
   'gemini-pro-vision': DEFAULT_MODEL,  // seed-2.0-pro supports vision
 };
 
-function mapModel(geminiModel) {
-  return MODEL_MAP[geminiModel] || DEFAULT_MODEL;
+function mapModel(modelName) {
+  return MODEL_MAP[modelName] || DEFAULT_MODEL;
 }
 
 class GoogleGenAI {
@@ -49,7 +49,7 @@ class Models {
    * generateContent — compatible with @google/genai interface
    * 
    * @param {object} params
-   * @param {string} params.model - Gemini model name (auto-mapped to Doubao)
+   * @param {string} params.model - Model name (auto-mapped to Doubao equivalent)
    * @param {Array} params.contents - [{role, parts: [{text}, {inlineData: {mimeType, data}}]}]
    * @param {object} [params.config] - {temperature, maxOutputTokens, systemInstruction, thinkingConfig}
    * @returns {object} { text: string, candidates: [...] }
@@ -59,7 +59,7 @@ class Models {
     const contents = params.contents || [];
     const config = params.config || {};
 
-    // Convert Gemini format → OpenAI format
+    // Convert GoogleGenAI format → OpenAI format
     const messages = [];
 
     // System instruction
@@ -115,7 +115,7 @@ class Models {
     // Call Doubao API
     const responseText = await this._callAPI(payload);
 
-    // Return in Gemini-compatible format
+    // Return in GoogleGenAI-compatible format
     return {
       text: responseText,
       candidates: [{

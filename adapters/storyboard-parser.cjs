@@ -22,24 +22,24 @@ const { GoogleGenAI } = require('./doubao-adapter.cjs');
 // OpenAI SDK no longer needed — storyboard parsing uses Doubao directly
 
 // [Doubao] Single key via relay — no rotation needed
-const _geminiKey = process.env.DOUBAO_API_KEY || '';
-if (!_geminiKey) console.warn('[StoryboardParser] DOUBAO_API_KEY not set — LLM calls will fail');
-function getNextGeminiKey() { return _geminiKey; }
-function getAllGeminiKeys() { return _geminiKey ? [_geminiKey] : []; }
-console.log('[Doubao] Key: ' + (_geminiKey ? _geminiKey.substring(0, 15) + '...' : 'EMPTY'));
+const _doubaoKey = process.env.DOUBAO_API_KEY || '';
+if (!_doubaoKey) console.warn('[StoryboardParser] DOUBAO_API_KEY not set — LLM calls will fail');
+function getDoubaoKey() { return _doubaoKey; }
+function getDoubaoKeys() { return _doubaoKey ? [_doubaoKey] : []; }
+console.log('[Doubao] Key: ' + (_doubaoKey ? _doubaoKey.substring(0, 15) + '...' : 'EMPTY'));
 const CONFIG = {
-  apiKey: _geminiKey,
+  apiKey: _doubaoKey,
   textModel: process.env.DOUBAO_MODEL || 'doubao-seed-2-0-pro-260215',
   imageModel: 'doubao-seed-2-0-pro-260215',
 };
 console.log('[StoryboardParser] API Key prefix:', CONFIG.apiKey ? CONFIG.apiKey.substring(0, 15) + '...' : 'EMPTY');
 
 // [Doubao] Single instance
-const _sdkOpts = { apiKey: _geminiKey, httpOptions: { baseUrl: DOUBAO_BASE_URL } };
-const aiPool = _geminiKey ? [new GoogleGenAI(_sdkOpts)] : [];
+const _sdkOpts = { apiKey: _doubaoKey, httpOptions: { baseUrl: DOUBAO_BASE_URL } };
+const aiPool = _doubaoKey ? [new GoogleGenAI(_sdkOpts)] : [];
 let _keyIndex = 0;
 function getAI() {
-  if (aiPool.length === 0) throw new Error('No Gemini API key configured');
+  if (aiPool.length === 0) throw new Error('No Doubao API key configured');
   return aiPool[0];
 }
 const ai = new GoogleGenAI(_sdkOpts);
@@ -57,7 +57,7 @@ async function extractDocText(filePath) {
   }
 
   if (ext === '.pdf') {
-    // PDF will be sent directly to Gemini as inline data (native PDF support)
+    // PDF will be sent directly to Doubao as inline data (native PDF support)
     return null; // signal caller to use PDF inline
   }
 
@@ -121,10 +121,10 @@ async function parseScript(text, opts = {}) {
   if (docPath) {
     const docExt = path.extname(docPath).toLowerCase();
     if (docExt === '.pdf') {
-      // PDF: save path for Claude Opus 4.6, then try Gemini Files API upload (non-blocking)
+      // PDF: save path for Claude Opus 4.6, then try Doubao Files API upload (non-blocking)
       pdfOriginalPath = docPath;
       try {
-        console.log(`[StoryboardParser] Uploading PDF via Gemini Files API...`);
+        console.log(`[StoryboardParser] Uploading PDF via Doubao Files API...`);
         const uploaded = await ai.files.upload({ file: docPath, config: { mimeType: 'application/pdf' } });
         let file = uploaded;
         while (file.state === 'PROCESSING') {
@@ -133,13 +133,13 @@ async function parseScript(text, opts = {}) {
         }
         if (file.state !== 'ACTIVE') throw new Error(`PDF upload state: ${file.state}`);
         pdfPart = { fileData: { fileUri: file.uri, mimeType: 'application/pdf' } };
-        console.log(`[StoryboardParser] PDF uploaded to Gemini: ${file.uri}`);
-      } catch(geminiUploadErr) {
-        console.warn(`[StoryboardParser] Gemini PDF upload failed (will use Claude Opus 4.6 directly): ${geminiUploadErr.message?.substring(0, 100)}`);
-        // pdfPart stays null — Gemini phases will be skipped if no pdfPart, but Claude Opus 4.6 uses pdfOriginalPath
+        console.log(`[StoryboardParser] PDF uploaded to Doubao: ${file.uri}`);
+      } catch(doubaoUploadErr) {
+        console.warn(`[StoryboardParser] Doubao PDF upload failed (will use Claude Opus 4.6 directly): ${doubaoUploadErr.message?.substring(0, 100)}`);
+        // pdfPart stays null — Doubao phases will be skipped if no pdfPart, but Claude Opus 4.6 uses pdfOriginalPath
       }
     } else if (['.png', '.jpg', '.jpeg', '.webp'].includes(docExt)) {
-      // Image: send as inline data to Gemini for visual understanding
+      // Image: send as inline data to Doubao for visual understanding
       pdfPart = readImagePart(docPath);
       console.log(`[StoryboardParser] 图片文档已读取: ${docPath}`);
     } else {
@@ -266,11 +266,11 @@ ${style ? `10. 额外风格要求：${style}` : ''}
     const extraText = text ? `\n\n补充说明：${text}` : '';
     parts.push({ text: `请解析这份 PDF 文档的内容，根据其中的策划文案/需求设计试玩广告分镜板。${extraText}${analysisContext}` });
   } else if (pdfOriginalPath) {
-    // Gemini upload failed but we have the PDF file — Claude Opus 4.6 will handle it via file_id
+    // Doubao upload failed but we have the PDF file — Claude Opus 4.6 will handle it via file_id
     const analysisContext = imageAnalysis ? `\n\n## 参考图片 AI 分析结果\n${imageAnalysis}` : '';
     const extraText = text ? `\n\n补充说明：${text}` : '';
     parts.push({ text: `请解析 PDF 文档内容，设计试玩广告分镜板。${extraText}${analysisContext}` });
-    console.log('[StoryboardParser] PDF available for Claude Opus 4.6 only (Gemini upload failed)');
+    console.log('[StoryboardParser] PDF available for Claude Opus 4.6 only (Doubao upload failed)');
   } else if (fullText) {
     const analysisContext = imageAnalysis ? `\n\n## 参考图片 AI 分析结果\n${imageAnalysis}\n\n请参考以上图片分析结果，在生成分镜时融入图片中的风格、场景元素和 UI 设计。` : '';
     parts.push({ text: `文案/需求：\n${fullText}${analysisContext}` });
@@ -281,8 +281,8 @@ ${style ? `10. 额外风格要求：${style}` : ''}
     throw new Error('请提供文案、图片或文档中的至少一种作为输入');
   }
 
-  // === Degradation chain: Claude Opus 4.6 → Gemini Pro → Gemini Flash → Flash+resize ===
-  // proxy-doctor no longer needed — Gemini goes via relay direct
+  // === Degradation chain: Claude Opus 4.6 → Doubao Pro → Doubao Flash → Flash+resize ===
+  // proxy-doctor no longer needed — Doubao goes via relay direct
   const notify = require('./notify.cjs');
 
   // Helper: try Claude Opus 4.6 with PDF/images, 2 attempts
@@ -303,7 +303,7 @@ ${style ? `10. 额外风格要求：${style}` : ''}
         });
       } else if (p.fileData && p.fileData.fileUri) {
         // Files API URI — need to download and convert to base64, or use PDF text
-        // For PDF uploaded to Gemini Files API, we need to read original file
+        // For PDF uploaded to Doubao Files API, we need to read original file
         contentParts.push({ type: 'text', text: '[PDF document provided — see file content below]' });
       }
     }
@@ -423,9 +423,9 @@ ${style ? `10. 额外风格要求：${style}` : ''}
     }
   }
 
-  // Helper: try calling Gemini with given config, 2 attempts
-  async function tryGemini(model, partsToUse, thinkingBudget, label) {
-    // Gemini via relay — no proxy pre-flight needed
+  // Helper: try calling Doubao with given config, 2 attempts
+  async function tryDoubao(model, partsToUse, thinkingBudget, label) {
+    // Doubao via relay — no proxy pre-flight needed
 
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
@@ -529,7 +529,7 @@ ${style ? `10. 额外风格要求：${style}` : ''}
 
   // Phase 1: 豆包 Seed 2.0 Pro (primary)
   try {
-    result = await tryGemini(CONFIG.textModel, parts, 1024, 'Phase1:doubao-seed-2.0-pro');
+    result = await tryDoubao(CONFIG.textModel, parts, 1024, 'Phase1:doubao-seed-2.0-pro');
   } catch(phase1Err) {
     console.log('[StoryboardParser] Phase 1 (豆包) failed: ' + phase1Err.message?.substring(0, 100));
     notify.alert('warning', '分镜解析：豆包 失败，缩图重试', phase1Err.message?.substring(0, 100));
@@ -537,7 +537,7 @@ ${style ? `10. 额外风格要求：${style}` : ''}
     // Phase 2: 豆包 + resize (fallback)
     try {
       const resizedParts = await resizeParts(parts);
-      result = await tryGemini(CONFIG.textModel, resizedParts, 0, 'Phase2:doubao+resize');
+      result = await tryDoubao(CONFIG.textModel, resizedParts, 0, 'Phase2:doubao+resize');
     } catch(phase2Err) {
       notify.alert('critical', '分镜解析全部失败（豆包 → 豆包+缩图）', phase2Err.message?.substring(0, 200));
       throw phase2Err;
@@ -562,7 +562,7 @@ ${style ? `10. 额外风格要求：${style}` : ''}
       jsonStr = rawText.replace(/```json?\s*/g, '').replace(/```/g, '').trim();
     }
   }
-  // Clean common Gemini artifacts: stray characters between JSON objects
+  // Clean common Doubao artifacts: stray characters between JSON objects
   jsonStr = jsonStr.replace(/},\s*[a-zA-Z]\s*\{/g, '},{');
   // Remove trailing commas before ] or }
   jsonStr = jsonStr.replace(/,\s*([\]}])/g, '$1');
@@ -624,7 +624,7 @@ ${style ? `10. 额外风格要求：${style}` : ''}
     characterSheet = parsed.characterSheet || {};
     sceneSheet = parsed.sceneSheet || {};
   } else {
-    throw new Error('Gemini 返回格式不正确');
+    throw new Error('Doubao 返回格式不正确');
   }
 
   // Inject character + scene descriptions into each frame prompt
@@ -775,7 +775,7 @@ async function generateImage(prompt, opts = {}, aiInstance) {
     return await generateImageGPT(fullPrompt, { orientation, prevImagePath });
   } catch (gptErr) {
     console.warn('[generateImage] GPT-image-1 failed:', gptErr.message?.substring(0, 120), '— trying Doubao fallback');
-    return await generateImageGemini(fullPrompt, opts, aiInstance);
+    return await generateImageDoubao(fullPrompt, opts, aiInstance);
   }
 }
 
@@ -820,8 +820,8 @@ async function generateImageGPT(prompt, opts = {}) {
   });
 }
 
-// Gemini image generation (fallback)
-async function generateImageGemini(prompt, opts = {}, aiInstance) {
+// Doubao image generation (fallback)
+async function generateImageDoubao(prompt, opts = {}, aiInstance) {
   if (!aiInstance) aiInstance = aiPool[_keyIndex++ % aiPool.length];
   const { styleRefBase64 = null, styleRefMime = null, charRefBase64 = null, charRefMime = null, prevImagePath = null } = opts;
 
@@ -863,7 +863,7 @@ async function generateImageGemini(prompt, opts = {}, aiInstance) {
     if (part.inlineData) imageData = { base64: part.inlineData.data, mimeType: part.inlineData.mimeType };
     if (part.text) textResponse = part.text;
   }
-  if (!imageData) throw new Error('Gemini did not return an image');
+  if (!imageData) throw new Error('Doubao did not return an image');
   return { ...imageData, text: textResponse };
 }
 
@@ -881,7 +881,7 @@ async function generateFrameImages(frames, outputDir, onProgress, { concurrency 
   let completed = 0;
   let prevImagePath = null;
 
-  // Generate frames SEQUENTIALLY for consistency (each frame uses prev as reference via Gemini inlineData)
+  // Generate frames SEQUENTIALLY for consistency (each frame uses prev as reference via Doubao inlineData)
   for (let i = 0; i < frames.length; i++) {
     const frame = frames[i];
     try {

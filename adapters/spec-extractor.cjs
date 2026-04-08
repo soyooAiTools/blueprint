@@ -10,9 +10,9 @@
 const fs = require('fs');
 const path = require('path');
 
-// LLM via model-provider abstraction (Gemini as primary, Doubao as fallback)
+// LLM via Doubao (豆包) directly
 const modelProvider = require('../lib/model-provider.cjs');
-var _specProvider = modelProvider.createProvider('gemini', {});
+var _specProvider = modelProvider.createProvider('doubao', {});
 
 const VERBS = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'worker', 'interaction-verbs.json'), 'utf8'));
 
