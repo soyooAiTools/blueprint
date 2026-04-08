@@ -142,11 +142,14 @@ async function buildFromCS(csCode, opts = {}) {
     }
 
     // Enhanced output validation
-    // Check for empty method bodies (Bridge.NET silent transpilation failure)
+    // Check for method definitions inside Bridge.define (Bridge.NET uses Bridge.define, not prototype)
     var methodPattern = new RegExp(className + '\.prototype\\.');
-    var methodCount = (js.match(new RegExp(className.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\.prototype\\.', 'g')) || []).length;
+    var protoCount = (js.match(new RegExp(className.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\.prototype\\.', 'g')) || []).length;
+    // Also count methods in Bridge.define format: "MethodName: function"
+    var bridgeMethodCount = (js.match(/\b(Start|Update|CheckEventRules|ShowGuide|HandleInput|AddCompletedPhase)\s*:\s*function/g) || []).length;
+    var methodCount = protoCount + bridgeMethodCount;
     if (methodCount < 3) {
-      return { ok: false, error: `${className} has only ${methodCount} prototype methods — Bridge.NET may have silently failed (expected Start/Update/CheckEventRules)` };
+      return { ok: false, error: `${className} has only ${methodCount} methods — Bridge.NET may have silently failed (expected Start/Update/CheckEventRules)` };
     }
 
     // Check for required method names in transpiled output
