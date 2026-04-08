@@ -295,6 +295,12 @@ function autoPromotePendingRules() {
         if (rs === 'critical') { groupSeverity = 'critical'; break; }
         if (rs === 'warning' && groupSeverity !== 'critical') groupSeverity = 'warning';
       }
+      // Collect source stages from all rules in the group
+      var sourceStages = {};
+      for (var sti = 0; sti < group.rules.length; sti++) {
+        var st = group.rules[sti].stage || 'unknown';
+        sourceStages[st] = (sourceStages[st] || 0) + 1;
+      }
       newPromoted.push({
         description: group.bestDesc,
         rule: key,
@@ -302,8 +308,10 @@ function autoPromotePendingRules() {
         severity: groupSeverity,
         promotedAt: new Date().toISOString(),
         triggerProjects: Object.keys(group.projects),
-        triggerCount: uniqueProjects,
-        totalOccurrences: group.rules.length
+        crossProjectCount: uniqueProjects,
+        totalOccurrences: group.rules.length,
+        sourceStage: Object.keys(sourceStages).sort(function(a, b) { return sourceStages[b] - sourceStages[a]; })[0] || 'unknown',
+        sourceStages: sourceStages
       });
     }
   }
@@ -713,4 +721,4 @@ Respond with a JSON object (no markdown, no code fences):
   }
 }
 
-module.exports = { reviewCode, REVIEW_RULES, loadPendingRules, savePendingRules, recordNewIssues, isKnownIssue, PENDING_RULES_PATH };
+module.exports = { reviewCode, REVIEW_RULES, loadPendingRules, savePendingRules, recordNewIssues, isKnownIssue, autoPromotePendingRules, PENDING_RULES_PATH };
