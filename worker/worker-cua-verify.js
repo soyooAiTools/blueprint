@@ -1344,4 +1344,462 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
   });
 }
 
-module.exports = { runCUAVerification, autoPlayVerify, CUA_RESULTS_DIR, MAX_CUA_RETRIES, patchForHeadless, startLocalServer };
+/**
+ * Build a structured diagnosis from CUA verification results.
+ * Returns actionable feedback organized by root cause category with specific fix suggestions.
+ *
+ * @param {object} cuaResult - { passed, issues[], report, skipped }
+ * @param {object} blueprint - Blueprint data (for spec cross-reference)
+ * @param {number} cuaRound - Current CUA retry round
+ * @returns {string} Structured diagnosis text for AI coder
+ */
+function buildStructuredDiagnosis(cuaResult, blueprint, cuaRound) {
+  const issues = cuaResult.issues || [];
+  const report = cuaResult.report || {};
+  const gs = report.gameState || {};
+  const completedPhases = gs.completedPhases || [];
+  const currentPhase = gs.currentPhase || 'unknown';
+  const entityStates = gs.entityStates || {};
+  const variables = gs.variables || {};
+  const exitReason = report.exitReason || 'unknown';
+  const history = report.history || [];
+  const totalSteps = history.length;
+
+  const sections = [];
+
+  // ── Section 1: Summary ──
+  sections.push(`## CUA 验证失败诊断报告 (Round ${cuaRound})`);
+  sections.push('');
+  sections.push(`退出原因: ${exitReason}`);
+  sections.push(`总操作步数: ${totalSteps}`);
+  sections.push(`当前阶段: ${currentPhase}`);
+  sections.push(`已完成阶段: ${completedPhases.length > 0 ? completedPhases.join(' → ') : '(无)'}`);
+  sections.push('');
+
+  // ── Section 2: Root Cause Classification ──
+  const rootCauses = _classifyRootCauses(issues, report, gs);
+  if (rootCauses.length > 0) {
+    sections.push('## 根因分析');
+    sections.push('');
+    rootCauses.forEach(function(rc, idx) {
+      sections.push(`### ${idx + 1}. [${rc.category}] ${rc.summary}`);
+      sections.push(`严重度: ${rc.severity}`);
+      sections.push(`影响: ${rc.impact}`);
+      sections.push('');
+      sections.push('**修复建议:**');
+      rc.fixes.forEach(function(fix) {
+        sections.push(`- ${fix}`);
+      });
+      sections.push('');
+    });
+  }
+
+  // ── Section 3: Phase Flow Analysis ──
+  const specPhases = _getSpecPhases(blueprint);
+  if (specPhases.length > 0) {
+    sections.push('## 阶段流程分析');
+    sections.push('');
+    sections.push('| 阶段 | 状态 | 诊断 |');
+    sections.push('|------|------|------|');
+
+    specPhases.forEach(function(phaseId) {
+      const isCompleted = completedPhases.indexOf(phaseId) >= 0 ||
+        completedPhases.some(function(cp) { return cp.toLowerCase().indexOf(phaseId.toLowerCase()) >= 0 || phaseId.toLowerCase().indexOf(cp.toLowerCase()) >= 0; });
+      const isCurrent = currentPhase === phaseId || currentPhase.indexOf(phaseId) >= 0;
+      let status, diagnosis;
+
+      if (isCompleted) {
+        status = '✅ 已完成';
+        diagnosis = '';
+        // Check dwell time if available
+        if (gs.phaseTimestamps && gs.phaseTimestamps[phaseId]) {
+          const enterTime = gs.phaseTimestamps[phaseId];
+          const nextPhaseIdx = specPhases.indexOf(phaseId) + 1;
+          if (nextPhaseIdx < specPhases.length && gs.phaseTimestamps[specPhases[nextPhaseIdx]]) {
+            const dwell = gs.phaseTimestamps[specPhases[nextPhaseIdx]] - enterTime;
+            if (dwell < 2) diagnosis = '⚡ 过快通过 (' + dwell + 's)，可能缺少交互门控';
+          }
+        }
+      } else if (isCurrent) {
+        status = '🔄 卡住';
+        diagnosis = _diagnoseStuckPhase(phaseId, gs, history, blueprint);
+      } else {
+        status = '❌ 未到达';
+        diagnosis = '被前序阶段阻塞';
+      }
+      sections.push(`| ${phaseId} | ${status} | ${diagnosis} |`);
+    });
+    sections.push('');
+  }
+
+  // ── Section 4: Gameplay Quality Metrics ──
+  const metrics = _computeGameplayMetrics(report, gs, specPhases);
+  sections.push('## 游戏质量指标');
+  sections.push('');
+  sections.push(`- 阶段完成率: ${metrics.phaseCoverage}`);
+  sections.push(`- 操作效率: ${metrics.stepEfficiency} (步数越少越好，说明引导清晰)`);
+  sections.push(`- 卡住检测: ${metrics.staleInfo}`);
+  sections.push(`- 交互多样性: ${metrics.interactionDiversity}`);
+  if (metrics.autoplayRisk !== 'none') {
+    sections.push(`- ⚠️ 自动播放风险: ${metrics.autoplayRisk}`);
+  }
+  sections.push('');
+
+  // ── Section 5: Action Log Summary (last 10 steps) ──
+  if (history.length > 0) {
+    sections.push('## 最后操作记录 (用于定位卡点)');
+    sections.push('');
+    const lastSteps = history.slice(-10);
+    lastSteps.forEach(function(step) {
+      const thought = (step.thinking || step.description || '').slice(0, 120);
+      const action = typeof step.description === 'string' ? step.description.slice(0, 80) : JSON.stringify(step).slice(0, 80);
+      sections.push(`- ${thought}`);
+    });
+    sections.push('');
+  }
+
+  // ── Section 6: Engine / Infrastructure Issues ──
+  if (report.diagnostics) {
+    const diag = report.diagnostics;
+    if (!diag.engineReady) {
+      sections.push('## ⚠️ 引擎未初始化 (基础设施问题，非代码问题)');
+      sections.push('');
+      sections.push('引擎状态: ' + JSON.stringify(diag.engineState || 'unknown'));
+      if (diag.consoleErrors && diag.consoleErrors.length > 0) {
+        sections.push('JS 控制台错误:');
+        diag.consoleErrors.slice(0, 5).forEach(function(e) { sections.push('  - ' + e); });
+      }
+      if (diag.pageErrors && diag.pageErrors.length > 0) {
+        sections.push('页面异常:');
+        diag.pageErrors.slice(0, 5).forEach(function(e) { sections.push('  - ' + e); });
+      }
+      sections.push('');
+    }
+  }
+
+  // ── Section 7: Concrete Fix Instructions ──
+  sections.push('## 修复要求');
+  sections.push('');
+  if (rootCauses.length > 0) {
+    sections.push('请按以下优先级修复:');
+    rootCauses.forEach(function(rc, idx) {
+      sections.push(`${idx + 1}. **${rc.summary}** — ${rc.fixes[0] || '见上方建议'}`);
+    });
+  } else {
+    sections.push('请根据以上诊断信息修复代码，确保所有阶段可通过。');
+  }
+  sections.push('');
+
+  return sections.join('\n');
+}
+
+/**
+ * Classify issues into root cause categories with severity and fix suggestions
+ */
+function _classifyRootCauses(issues, report, gs) {
+  const causes = [];
+  const completedPhases = gs.completedPhases || [];
+  const currentPhase = gs.currentPhase || '';
+
+  for (var i = 0; i < issues.length; i++) {
+    var issue = issues[i];
+    var tag = (issue.match(/^\[([^\]]+)\]/) || [])[1] || 'unknown';
+    var body = issue.replace(/^\[[^\]]+\]\s*/, '');
+
+    switch (tag) {
+      case 'stuck':
+      case 'stuck-pattern':
+        causes.push({
+          category: '阶段卡死',
+          severity: 'CRITICAL',
+          summary: '游戏在 "' + currentPhase + '" 阶段卡住，无法推进',
+          impact: '玩家无法体验后续内容，CUA 无法验证完整流程',
+          fixes: [
+            '检查 "' + currentPhase + '" 的过渡条件是否可达 — 确认条件变量在游戏逻辑中被正确更新',
+            '确保该阶段的交互处理器（点击/拖拽/摇杆）已正确绑定且能改变状态变量',
+            '如果过渡条件依赖 entityState，确认对应的 entityState 会在玩家操作后递增',
+            '检查是否有 if 分支永远为 false（如用了占位条件 phaseTimer >= 999f）'
+          ]
+        });
+        break;
+
+      case 'spec-phase-skipped':
+        causes.push({
+          category: '阶段跳过',
+          severity: 'HIGH',
+          summary: body,
+          impact: '阶段被跳过意味着过渡条件太容易满足或逻辑顺序错误',
+          fixes: [
+            '检查被跳过阶段的前置条件 — 确保需要玩家实际操作才能触发',
+            '不要用 true 或纯时间条件（phaseTimer >= 3f）作为过渡条件 — 必须有交互条件',
+            '确认阶段顺序：每个阶段的触发条件应该依赖前一个阶段的完成状态'
+          ]
+        });
+        break;
+
+      case 'spec-too-fast':
+        causes.push({
+          category: '阶段过快',
+          severity: 'MEDIUM',
+          summary: body,
+          impact: '阶段持续时间太短，玩家没有足够时间操作',
+          fixes: [
+            '增加该阶段的交互门控 — 玩家必须完成操作才能推进',
+            '检查 phaseTimer 最小停留时间是否被正确执行',
+            '避免在阶段初始化时就满足了过渡条件'
+          ]
+        });
+        break;
+
+      case 'uncovered':
+      case 'no-coverage':
+        causes.push({
+          category: '阶段未覆盖',
+          severity: 'CRITICAL',
+          summary: body || 'CUA 无法验证阶段覆盖率',
+          impact: '流程不完整，部分功能未实现或不可达',
+          fixes: [
+            '确保每个阶段的 CheckEventRules() 中都有对应的 ruleTriggered 分支',
+            '确保 ReportPhase() 在每个阶段入口被调用',
+            '确认 gameState JSON 中 completedPhases 正确累加'
+          ]
+        });
+        break;
+
+      case 'cta':
+        causes.push({
+          category: 'CTA 不可达',
+          severity: 'HIGH',
+          summary: 'CTA 按钮未出现或无响应',
+          impact: '试玩广告无法引导下载，投放无效',
+          fixes: [
+            '确保最后一个阶段完成后调用 ShowCTA() 和 Luna.Unity.LifeCycle.GameEnded()',
+            '确认 gameEnded = true 后不再有 return 语句阻止 CTA 渲染',
+            '检查 InstallFullGame() 是否被正确调用'
+          ]
+        });
+        break;
+
+      case 'autoplay-detected':
+      case 'autoplay-no-interaction':
+      case 'autoplay-no-variable-change':
+        causes.push({
+          category: '自动播放',
+          severity: 'CRITICAL',
+          summary: body,
+          impact: '游戏无需玩家操作自动通关 — 违反试玩广告核心要求',
+          fixes: [
+            '每个阶段的过渡条件必须依赖玩家输入（点击/拖拽/摇杆），不能只用计时器',
+            '确保 variables 中有跟踪玩家操作的变量（如 gold, ammo, kills）且在操作后变化',
+            '删除 gameTimer >= X 这类纯时间过渡条件',
+            '检查是否有 Update() 中自动推进阶段的逻辑'
+          ]
+        });
+        break;
+
+      case 'entity-incomplete':
+        causes.push({
+          category: '实体状态不完整',
+          severity: 'MEDIUM',
+          summary: body,
+          impact: '可建造实体未完成建造，游戏体验不完整',
+          fixes: [
+            '确保实体状态变量在玩家操作后正确递增 (0→1→2)',
+            '检查建造/升级逻辑是否需要玩家交互而不是自动完成'
+          ]
+        });
+        break;
+
+      case 'no-content':
+        causes.push({
+          category: '画面无内容',
+          severity: 'CRITICAL',
+          summary: '游戏未正确渲染，VLM 未检测到游戏元素',
+          impact: '游戏可能未加载、黑屏或白屏',
+          fixes: [
+            '检查 Start() 中是否将至少 3 个对象移到可见区域（y >= 0, x 在 -6~6 范围内）',
+            '确认 Camera.backgroundColor 与地面颜色有足够对比度 (RGB 任一通道差 >= 0.3)',
+            '确认对象 localScale 足够大（至少一个维度 >= 1.5）',
+            '检查是否有运行时错误导致 Start() 中断执行'
+          ]
+        });
+        break;
+
+      case 'engine-not-ready':
+      case 'console-errors':
+      case 'page-errors':
+        causes.push({
+          category: '运行时错误',
+          severity: 'CRITICAL',
+          summary: body,
+          impact: '引擎未初始化或存在 JS 运行时错误',
+          fixes: [
+            '检查编译后的代码是否有 NullReferenceException（Find 返回 null 时直接使用）',
+            '所有 GameObject.Find 的结果使用前必须判空：if (obj != null)',
+            '检查是否使用了 Luna 不支持的 API（泛型、LINQ、协程等）'
+          ]
+        });
+        break;
+
+      case 'interaction':
+      case 'critical':
+        causes.push({
+          category: '交互异常',
+          severity: 'HIGH',
+          summary: body,
+          impact: '按钮无响应或场景切换失败',
+          fixes: [
+            '检查 UI 按钮的点击事件是否正确绑定',
+            '确认触摸/点击坐标是否在可交互区域内',
+            '检查是否有遮挡元素阻止了点击'
+          ]
+        });
+        break;
+
+      default:
+        if (body.length > 5) {
+          causes.push({
+            category: '其他',
+            severity: 'LOW',
+            summary: body,
+            impact: '需要进一步分析',
+            fixes: ['根据上述描述定位并修复']
+          });
+        }
+        break;
+    }
+  }
+
+  // Deduplicate by category
+  const seen = {};
+  return causes.filter(function(c) {
+    if (seen[c.category]) return false;
+    seen[c.category] = true;
+    return true;
+  });
+}
+
+/**
+ * Diagnose why a specific phase is stuck
+ */
+function _diagnoseStuckPhase(phaseId, gs, history, blueprint) {
+  const vars = gs.variables || {};
+  const entityStates = gs.entityStates || {};
+  var hints = [];
+
+  // Check if all interaction variables are 0 (no player action registered)
+  var interactionVars = Object.keys(vars).filter(function(k) { return k !== 'gameTimer'; });
+  var allZero = interactionVars.length > 0 && interactionVars.every(function(k) { return vars[k] === 0; });
+  if (allZero) {
+    hints.push('所有交互变量为 0（' + interactionVars.join(', ') + '）— 玩家操作未被游戏逻辑捕获');
+  }
+
+  // Check entity states
+  var stuckEntities = Object.keys(entityStates).filter(function(k) {
+    return String(entityStates[k]) === '0';
+  });
+  if (stuckEntities.length > 0) {
+    hints.push('实体未变化: ' + stuckEntities.join(', ') + ' (state=0)');
+  }
+
+  // Check last actions for repeated patterns
+  if (history.length >= 6) {
+    var lastActions = history.slice(-6).map(function(h) { return h.description || JSON.stringify(h); });
+    var unique = [];
+    lastActions.forEach(function(a) { if (unique.indexOf(a) < 0) unique.push(a); });
+    if (unique.length <= 2) {
+      hints.push('CUA 最后 6 步操作重复（仅 ' + unique.length + ' 种），可能交互方式不匹配');
+    }
+  }
+
+  return hints.length > 0 ? hints.join('; ') : '过渡条件未满足';
+}
+
+/**
+ * Extract spec phase IDs from blueprint
+ */
+function _getSpecPhases(blueprint) {
+  if (!blueprint || !blueprint.nodes) return [];
+  // Phase nodes (V5)
+  var phaseNodes = blueprint.nodes.filter(function(n) { return n.type === 'phaseNode'; });
+  if (phaseNodes.length > 0) {
+    return phaseNodes.map(function(n) { return (n.data || {}).phaseId || n.id; });
+  }
+  // Shot nodes (V3)
+  var shotNodes = blueprint.nodes.filter(function(n) { return n.type === 'shotNode'; });
+  return shotNodes.map(function(n) { return (n.data || {}).name || n.id; });
+}
+
+/**
+ * Compute gameplay quality metrics from CUA report
+ */
+function _computeGameplayMetrics(report, gs, specPhases) {
+  var completedPhases = gs.completedPhases || [];
+  var history = report.history || [];
+  var totalSteps = history.length;
+  var totalSpecPhases = specPhases.length || 1;
+
+  // Phase coverage
+  var coveredCount = specPhases.filter(function(p) {
+    return completedPhases.indexOf(p) >= 0 ||
+      completedPhases.some(function(cp) { return cp.toLowerCase().indexOf(p.toLowerCase()) >= 0; });
+  }).length;
+  var phaseCoverage = coveredCount + '/' + totalSpecPhases + ' (' + Math.round(coveredCount / totalSpecPhases * 100) + '%)';
+
+  // Step efficiency: steps per completed phase
+  var stepsPerPhase = coveredCount > 0 ? (totalSteps / coveredCount).toFixed(1) : 'N/A';
+  var efficiencyRating = coveredCount === 0 ? '无法评估' :
+    (totalSteps / coveredCount <= 5) ? stepsPerPhase + ' 步/阶段 (优秀 — 引导清晰)' :
+    (totalSteps / coveredCount <= 10) ? stepsPerPhase + ' 步/阶段 (正常)' :
+    stepsPerPhase + ' 步/阶段 (偏高 — 引导可能不够清晰)';
+
+  // Stale detection
+  var maxStale = 0;
+  var staleStreaks = 0;
+  var currentStale = 0;
+  for (var i = 1; i < history.length; i++) {
+    var desc = history[i].description || history[i].thinking || '';
+    var prevDesc = history[i-1].description || history[i-1].thinking || '';
+    if (desc === prevDesc || /no.*change|没有.*变化|保持/i.test(desc)) {
+      currentStale++;
+      if (currentStale > maxStale) maxStale = currentStale;
+    } else {
+      if (currentStale >= 3) staleStreaks++;
+      currentStale = 0;
+    }
+  }
+  var staleInfo = maxStale >= 5 ? '连续 ' + maxStale + ' 步无进展 (严重卡顿)' :
+    maxStale >= 3 ? '连续 ' + maxStale + ' 步无进展 (轻微卡顿)' :
+    '无明显卡顿';
+
+  // Interaction diversity
+  var actionTypes = {};
+  history.forEach(function(h) {
+    var action = h.description || '';
+    var type = /click|tap|点击/.test(action) ? 'click' :
+      /swipe|drag|拖|滑/.test(action) ? 'swipe' :
+      /wait|等待/.test(action) ? 'wait' : 'other';
+    actionTypes[type] = (actionTypes[type] || 0) + 1;
+  });
+  var typeCount = Object.keys(actionTypes).filter(function(k) { return k !== 'wait'; }).length;
+  var diversity = typeCount >= 3 ? typeCount + ' 种操作 (多样)' :
+    typeCount >= 2 ? typeCount + ' 种操作 (正常)' :
+    typeCount + ' 种操作 (单一 — 可能缺少交互类型)';
+
+  // Autoplay risk
+  var gameTimer = (gs.variables || {}).gameTimer || 0;
+  var interactionKeys = Object.keys(gs.variables || {}).filter(function(k) { return k !== 'gameTimer'; });
+  var allVarsZero = interactionKeys.length > 0 && interactionKeys.every(function(k) { return gs.variables[k] === 0; });
+  var autoplayRisk = allVarsZero && completedPhases.length > 2 ? '高 — 多阶段完成但所有交互变量为0' :
+    totalSteps === 0 && completedPhases.length > 0 ? '确认 — 无操作即完成阶段' : 'none';
+
+  return {
+    phaseCoverage: phaseCoverage,
+    stepEfficiency: efficiencyRating,
+    staleInfo: staleInfo,
+    interactionDiversity: diversity,
+    autoplayRisk: autoplayRisk
+  };
+}
+
+module.exports = { runCUAVerification, autoPlayVerify, buildStructuredDiagnosis, CUA_RESULTS_DIR, MAX_CUA_RETRIES, patchForHeadless, startLocalServer };

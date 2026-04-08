@@ -268,10 +268,16 @@ module.exports = {
     }
 
     // --- 9. Phase count budget check ---
-    if (specs.length > 15) {
-      warnings.push('Spec has ' + specs.length + ' phases (>15). Code budget may be exceeded — ' +
-        'AI typically generates ~100 lines per phase, >1500 lines risks Opus token exhaustion. ' +
+    // With partial class splitting (>10 phases → auto-split), code budget is ~2400 lines total.
+    // AI generates ~100 lines/phase → 25 phases ≈ 2500 lines (near limit).
+    if (specs.length > 25) {
+      warnings.push('Spec has ' + specs.length + ' phases (>25). Code budget may be exceeded even with partial class splitting — ' +
+        'AI generates ~100 lines per phase, >2500 lines risks Opus token exhaustion across both files. ' +
         'Consider merging simple phases to reduce code budget.');
+    } else if (specs.length > 10) {
+      // Info: will trigger auto-split, not a problem
+      warnings.push('[info] Spec has ' + specs.length + ' phases (>10). Skeleton will auto-split into main + systems files (partial class). ' +
+        'Total code budget: ~2400 lines across two files.');
     }
 
     // --- 10. Total duration sanity ---

@@ -434,36 +434,9 @@ async function processTask(task) {
           log(`CUA resume: round ${cuaRound} failed, fix cycle...`, taskId);
           await reportStatus(taskId, 'processing', { message: `CUAround ${cuaRound} round failed, AI re-coding...` });
 
-          // Build detailed CUA feedback with diagnostics
-          let cuaFeedbackText = 'CUA blueprint flow verification failed (round ' + cuaRound + '):\n' + cuaResult.issues.join('\n');
-          // Add diagnostics if available
-          if (cuaResult.report && cuaResult.report.diagnostics) {
-            const diag = cuaResult.report.diagnostics;
-            if (!diag.engineReady) {
-              cuaFeedbackText += '\n\n⚠️ ENGINE NOT INITIALIZED - This is likely an infrastructure issue, not a code issue.';
-              cuaFeedbackText += '\nEngine state: ' + JSON.stringify(diag.engineState);
-              if (diag.consoleErrors && diag.consoleErrors.length > 0) {
-                cuaFeedbackText += '\nConsole errors:\n' + diag.consoleErrors.slice(0, 10).map(e => '  - ' + e).join('\n');
-              }
-              if (diag.pageErrors && diag.pageErrors.length > 0) {
-                cuaFeedbackText += '\nPage errors:\n' + diag.pageErrors.slice(0, 10).map(e => '  - ' + e).join('\n');
-              }
-            }
-          }
-          // Add gameState phase coverage info
-          if (cuaResult.report && cuaResult.report.gameState) {
-            const gs = cuaResult.report.gameState;
-            cuaFeedbackText += '\n\n📊 Game State at failure:';
-            cuaFeedbackText += '\n  Current Phase: ' + (gs.currentPhase || 'unknown');
-            cuaFeedbackText += '\n  Completed Phases: ' + (gs.completedPhases && gs.completedPhases.length > 0 ? gs.completedPhases.join(', ') : 'none');
-            if (gs.entityStates) {
-              cuaFeedbackText += '\n  Entity States: ' + JSON.stringify(gs.entityStates);
-            }
-            if (gs.variables) {
-              cuaFeedbackText += '\n  Variables: ' + JSON.stringify(gs.variables);
-            }
-          }
-          cuaFeedbackText += '\n\nPlease fix the code to ensure blueprint flow works. Focus on the specific phase/entity that failed.';
+          // Build structured CUA diagnosis with root cause analysis and actionable fix suggestions
+          const { buildStructuredDiagnosis } = require('./worker-cua-verify.js');
+          const cuaFeedbackText = buildStructuredDiagnosis(cuaResult, cuaBlueprint, cuaRound);
           // NOTE: Removed POST /feedback call — handler requires status=reviewing, CUA is in submitted state
           if (cuaBlueprint && cuaBlueprint.nodes) {
             // Inject CUA feedback directly into blueprint for INCREMENTAL FIX mode
@@ -890,8 +863,9 @@ async function processTask(task) {
         notifyEvent(taskId, 'cua_round', `CUAround ${cuaRound}/${MAX_CUA_ROUNDS} round failed (${cuaResult.issues.length} issues): ${cuaResult.issues.slice(0,2).join('; ').slice(0,150)}`, { projectName: task.projectName });
 
         if (cuaRound >= MAX_CUA_ROUNDS) {
-          // Max retries exhausted ?fail the task with details
-          const feedbackText = 'CUA blueprint verification failed (' + MAX_CUA_ROUNDS + ' rounds still failing):\n' + cuaResult.issues.join('\n');
+          // Max retries exhausted — fail the task with structured diagnosis
+          const { buildStructuredDiagnosis: buildFinalDiag } = require('./worker-cua-verify.js');
+          const feedbackText = buildFinalDiag(cuaResult, cuaBlueprint || {}, cuaRound);
           try {
             await apiRequest('POST', '/api/projects/' + taskId + '/feedback', 
               JSON.stringify({ text: feedbackText, source: 'cua-auto' }),
@@ -906,40 +880,21 @@ async function processTask(task) {
           throw new TaskFailedError('CUA verification failed after ' + MAX_CUA_ROUNDS + ' rounds');
         }
 
-        // Not final round ?use CUA feedback to re-code and rebuild
+        // Not final round — use CUA feedback to re-code and rebuild
         log(`CUA round ${cuaRound} failed, starting fix cycle...`, taskId);
-        
-        // Build rich feedback with visual context so AI knows WHAT the screen looks like
-        let visualContext = '';
-        if (cuaResult.report) {
-          if (cuaResult.report.summary) {
-            visualContext += '\n\n## CUA observed screen:\n' + cuaResult.report.summary;
-          }
-          if (cuaResult.report.history && cuaResult.report.history.length > 0) {
-            const lastRound = cuaResult.report.history[cuaResult.report.history.length - 1];
-            if (lastRound.thinking) visualContext += '\n\nGPT last round observation: ' + (lastRound.thinking || '').slice(0, 500);
-          }
-          // Detect uniform/empty scene from score vs coverage mismatch
-          const allUncovered = cuaResult.report.scriptCoverage && cuaResult.report.scriptCoverage.every(s => !s.covered);
-          if (allUncovered) {
-            visualContext += '\n\n⚠️ Critical: All shots uncovered' + (cuaResult.report.scriptCoverage || []).length + ')。This usually means:\n'
-              + '1. Objects invisible\n2. Camera misaligned\n3. Object creation failed'
-              + '2. Camera position/direction wrong, objects not visible\n'
-              + '3. Object creation failed (GFM_Create.Obj() returns null)\n'
-              + 'Check: each object type has different color, camera aimed at scene center, _mainCam.backgroundColor set to sky blue (0.6f,0.8f,1f)';
-          }
-        }
-        
-        const cuaFeedbackText = 'CUA blueprint flow verification failed,fix these issues to pass:\n' + cuaResult.issues.join('\n') + visualContext + '\n\nPlease modify code to fix above issues, ensure all blueprint scenes work in order and reach CTA';
 
         // Re-code with CUA feedback as context
         await reportStatus(taskId, 'processing', { message: `CUAround ${cuaRound} round failed, AI re-coding...` });
-        
+
         // Re-run AI coding (incremental fix with CUA feedback)
         // NOTE: Do NOT use /api/projects/:id/feedback — that handler requires status=reviewing
         // and rejects CUA auto-feedback. Instead, inject directly into blueprint object.
         let fixBlueprint = null;
         try { fixBlueprint = await apiRequest('GET', `/api/tasks/${taskId}/blueprint`); } catch(e) {}
+
+        // Build structured diagnosis with root cause analysis and actionable fix suggestions
+        const { buildStructuredDiagnosis: buildDiag } = require('./worker-cua-verify.js');
+        const cuaFeedbackText = buildDiag(cuaResult, fixBlueprint || {}, cuaRound);
         
         if (fixBlueprint && fixBlueprint.nodes) {
           // Always inject CUA feedback into feedbackHistory for INCREMENTAL FIX mode

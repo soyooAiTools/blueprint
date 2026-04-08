@@ -32,12 +32,13 @@ const ENTITY_COLORS = [
  * Generate C# skeleton from specs
  * @param {Array} specs - Phase specs from spec-extractor
  * @param {object} opts - { projectName, entityPoolMap: {entityName: poolObjName} }
- * @returns {string} C# skeleton code
+ * @returns {string|{main: string, systems: string}} C# skeleton code (single string for ≤10 phases, {main,systems} for >10)
  */
 function generateSkeleton(specs, opts = {}) {
   const totalPhases = specs.length;
   const entityPoolMap = opts.entityPoolMap || {};
   const entityNames = Object.keys(entityPoolMap);
+  const shouldSplit = totalPhases > 10;
   const lines = [];
 
   // Helper: convert spec trigger condition to real C# using entity state variables
@@ -74,7 +75,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('using UnityEngine;');
   lines.push('using UnityEngine.UI;');
   lines.push('');
-  lines.push('public class GameFlowManagerMain : MonoBehaviour');
+  lines.push('public partial class GameFlowManagerMain : MonoBehaviour');
   lines.push('{');
 
   // Phase timer system (skeleton-enforced)
@@ -623,7 +624,64 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    // TODO_UI_END');
   lines.push('}');
 
+  // For large blueprints (>10 phases), split into main + systems files
+  if (shouldSplit) {
+    return _splitSkeleton(lines, specs, allEntities, entityPoolMap, isIdleGame);
+  }
+
   return lines.join('\n');
+}
+
+/**
+ * Split skeleton into main file (phase flow) + systems file (helpers, subsystems)
+ * @returns {{main: string, systems: string}}
+ */
+function _splitSkeleton(allLines, specs, allEntities, entityPoolMap, isIdleGame) {
+  const fullCode = allLines.join('\n');
+
+  // Systems file: helper methods that AI can extend
+  const sysLines = [];
+  sysLines.push('// ========== AUTO-GENERATED SYSTEMS FILE — Subsystems & Helpers ==========');
+  sysLines.push('// This partial class holds reusable systems, helpers, and AI-extensible subsystems.');
+  sysLines.push('// Keep phase flow in GameFlowManagerMain.cs, put game systems here.');
+  sysLines.push('');
+  sysLines.push('using UnityEngine;');
+  sysLines.push('using UnityEngine.UI;');
+  sysLines.push('');
+  sysLines.push('public partial class GameFlowManagerMain');
+  sysLines.push('{');
+  sysLines.push('    // ========== AI SUBSYSTEMS ==========');
+  sysLines.push('    // Put movement systems, spawner systems, combat systems, resource systems here.');
+  sysLines.push('    // The main file calls these from Update() or CheckEventRules().');
+  sysLines.push('');
+  sysLines.push('    // === TODO: AI fills — game subsystems (movement, combat, spawning, economy) ===');
+  sysLines.push('    // TODO_SYSTEMS_START');
+  sysLines.push('');
+  sysLines.push('    // TODO_SYSTEMS_END');
+  sysLines.push('');
+  sysLines.push('    // === TODO: AI fills — UI helpers, input handlers, visual effects ===');
+  sysLines.push('    // TODO_UI_START');
+  sysLines.push('');
+  sysLines.push('    // TODO_UI_END');
+  sysLines.push('}');
+
+  // Main file: remove the TODO_SYSTEMS and TODO_UI sections (moved to Systems file)
+  // Replace them with a comment pointing to the Systems file
+  let mainCode = fullCode;
+  mainCode = mainCode.replace(
+    /    \/\/ === TODO: AI fills — game systems \(UpdatePlayer, UpdateEnemies, etc\.\) ===\n    \/\/ TODO_SYSTEMS_START\n\n    \/\/ TODO_SYSTEMS_END\n/,
+    '    // NOTE: Game subsystems (movement, combat, spawning, etc.) go in GameFlowManagerMain.Systems.cs\n'
+  );
+  mainCode = mainCode.replace(
+    /    \/\/ === TODO: AI fills — ShowGuide, UI helpers, input handlers ===\n    \/\/ TODO_UI_START\n\n    \/\/ TODO_UI_END\n/,
+    '    // NOTE: UI helpers and input handlers go in GameFlowManagerMain.Systems.cs\n'
+  );
+
+  return {
+    main: mainCode,
+    systems: sysLines.join('\n'),
+    split: true
+  };
 }
 
 /**

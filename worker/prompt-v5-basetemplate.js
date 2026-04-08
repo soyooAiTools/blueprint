@@ -195,7 +195,10 @@ function parseBlueprintToPromptV5(blueprint, opts) {
 
   // ========== 1. 任务说明 ==========
   lines.push('# 任务');
-  lines.push('在 GameFlowManagerMain.cs 中实现一个 Luna 试玩广告。如果代码超过 800 行，可将子系统拆分到 GameFlowManagerMain.Systems.cs（使用 partial class）。');
+  lines.push('在 GameFlowManagerMain.cs 中实现一个 Luna 试玩广告。当 phase 数量 > 10 时，骨架会自动拆分为两个文件（partial class）：');
+  lines.push('- **GameFlowManagerMain.cs**：阶段流程（Start、Update、CheckEventRules）');
+  lines.push('- **GameFlowManagerMain.Systems.cs**：游戏子系统（移动、战斗、生成、经济、UI helpers）');
+  lines.push('即使未自动拆分，如果代码超过 800 行，也应主动创建 Systems.cs 拆分子系统。每个文件控制在 800-1200 行。');
   lines.push('');
   lines.push('## ⚡ 核心规则：基础样例工程模式');
   lines.push('场景已预制 160 个带颜色的 3D 对象 + UI 元素。你 **不需要创建任何对象**。');

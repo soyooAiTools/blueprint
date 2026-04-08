@@ -142,13 +142,33 @@ function prepareWorkDir(workDir, blueprint, prompt, skeleton, log, taskId) {
   // 3b. 如果有 skeleton，直接写入 .cs 文件（省去 Claude Code 读 prompt 再复制的时间）
   if (skeleton) {
     const csPath = path.join(managerDir, 'GameFlowManagerMain.cs');
-    fs.writeFileSync(csPath, skeleton);
-    // 同时在 prompt.md 末尾加一行提示
-    fs.appendFileSync(path.join(workDir, 'prompt.md'),
-      '\n\n## CODE SKELETON\n\n'
-      + '⚠️ 骨架代码已预写入 `Assets/Program/Script/Manager/GameFlowManagerMain.cs`。\n'
-      + '请直接在该文件上修改和填充 TODO，不需要从头创建文件。\n'
-      + '规则：不要删除 [SKELETON] 标记行、phaseTimer 检查、CheckEventRules() 跳转条件。\n');
+    if (skeleton.split) {
+      // Multi-file skeleton: main + systems
+      fs.writeFileSync(csPath, skeleton.main);
+      const sysPath = path.join(managerDir, 'GameFlowManagerMain.Systems.cs');
+      fs.writeFileSync(sysPath, skeleton.systems);
+      fs.appendFileSync(path.join(workDir, 'prompt.md'),
+        '\n\n## CODE SKELETON (SPLIT MODE)\n\n'
+        + '⚠️ 骨架代码已拆分为两个文件（partial class）：\n'
+        + '- `GameFlowManagerMain.cs` — 阶段流程（CheckEventRules、Start、Update）\n'
+        + '- `GameFlowManagerMain.Systems.cs` — 游戏子系统（移动、战斗、生成、经济、UI）\n\n'
+        + '**规则：**\n'
+        + '1. 阶段流程代码写在 GameFlowManagerMain.cs 的 TODO 区域\n'
+        + '2. 可复用的游戏子系统（UpdatePlayer, SpawnEnemy, HandleCombat 等）写在 Systems.cs\n'
+        + '3. 每个文件控制在 800-1200 行，合计可达 2400 行\n'
+        + '4. 不要删除 [SKELETON] 标记行、phaseTimer 检查、CheckEventRules() 跳转条件\n'
+        + '5. 两个文件都是 `partial class GameFlowManagerMain`，共享所有字段和方法\n');
+      log(`[claude-code] Split skeleton written: main=${skeleton.main.split('\\n').length} lines, systems=${skeleton.systems.split('\\n').length} lines`, taskId);
+    } else {
+      // Single file skeleton (≤10 phases)
+      const skeletonStr = typeof skeleton === 'string' ? skeleton : skeleton.main || String(skeleton);
+      fs.writeFileSync(csPath, skeletonStr);
+      fs.appendFileSync(path.join(workDir, 'prompt.md'),
+        '\n\n## CODE SKELETON\n\n'
+        + '⚠️ 骨架代码已预写入 `Assets/Program/Script/Manager/GameFlowManagerMain.cs`。\n'
+        + '请直接在该文件上修改和填充 TODO，不需要从头创建文件。\n'
+        + '规则：不要删除 [SKELETON] 标记行、phaseTimer 检查、CheckEventRules() 跳转条件。\n');
+    }
   }
 
   // 4. GFM_Tools.cs — API 参考
@@ -181,7 +201,7 @@ function prepareWorkDir(workDir, blueprint, prompt, skeleton, log, taskId) {
 
   // 6. 创建 build-test.sh — 方便 Claude Code 调用编译验证
   const buildScript = `#!/bin/bash
-# 编译验证脚本：读取 GameFlowManagerMain.cs 并调用 Bridge.NET 编译
+# 编译验证脚本：读取 GameFlowManagerMain.cs (+ Systems.cs) 并调用 Bridge.NET 编译
 CS_FILE="Assets/Program/Script/Manager/GameFlowManagerMain.cs"
 if [ ! -f "$CS_FILE" ]; then
   echo '{"ok":false,"error":"GameFlowManagerMain.cs not found"}'
@@ -191,13 +211,19 @@ fi
 # 读取 C# 代码并发送到编译服务
 CODE=$(cat "$CS_FILE")
 
-# 同时读取 GFM_Tools.cs
-EXTRA=""
-GFM_FILE="Assets/Program/Script/Manager/GFM_Tools.cs"
-if [ -f "$GFM_FILE" ]; then
-  GFM_CODE=$(cat "$GFM_FILE")
-  EXTRA=$(python3 -c "import json,sys; print(json.dumps({'GFM_Tools.cs': open(sys.argv[1]).read()}))" "$GFM_FILE" 2>/dev/null || echo '{}')
-fi
+# 读取所有额外 .cs 文件（GFM_Tools.cs, Systems.cs 等）
+# python3 脚本动态收集 Manager 目录下除主文件外的所有 .cs 文件
+MANAGER_DIR="Assets/Program/Script/Manager"
+EXTRA=$(python3 -c "
+import json, os, sys
+extra = {}
+manager_dir = sys.argv[1]
+main_file = 'GameFlowManagerMain.cs'
+for f in os.listdir(manager_dir):
+    if f.endswith('.cs') and f != main_file:
+        extra[f] = open(os.path.join(manager_dir, f)).read()
+print(json.dumps(extra))
+" "$MANAGER_DIR" 2>/dev/null || echo '{}')
 
 # 构建 JSON payload
 python3 -c "
@@ -401,6 +427,11 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
     if (fs.existsSync(mainFile)) {
       opts.existingCode = fs.readFileSync(mainFile, 'utf-8');
     }
+    // Also track Systems file for split-mode regression detection
+    const sysFile = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.Systems.cs');
+    if (fs.existsSync(sysFile)) {
+      opts.existingSystemsCode = fs.readFileSync(sysFile, 'utf-8');
+    }
   }
   const prompt = promptV5Module.parseBlueprintToPromptV5(blueprint, opts);
   log(`[claude-code] V5 prompt generated: ${prompt.length} chars, mode=${hasFeedback ? 'INCREMENTAL_FIX' : 'FULL_GENERATION'}`, taskId);
@@ -474,7 +505,23 @@ ${feedbackTexts}
 重要：修改后文件行数不应减少。如果你发现文件变短了，说明你错误地重写了整个文件。`;
   } else {
     userPrompt = skeleton
-      ? `请完成以下步骤生成 Luna 试玩广告代码：
+      ? (skeleton.split
+        ? `请完成以下步骤生成 Luna 试玩广告代码（拆分模式）：
+
+1. 阅读 prompt.md 了解详细需求（对象分配表、实体行为、事件规则、拆分规则）
+2. 阅读 GFM_Tools.cs 了解可用 API（只读参考，不要修改）
+3. 阅读 behavior-templates.md 了解行为模板参考
+4. 打开 Assets/Program/Script/Manager/GameFlowManagerMain.cs — 阶段流程骨架
+5. 打开 Assets/Program/Script/Manager/GameFlowManagerMain.Systems.cs — 子系统骨架
+6. 在 GameFlowManagerMain.cs 中填充阶段初始化和过渡逻辑（TODO 区域）
+7. 在 GameFlowManagerMain.Systems.cs 中实现游戏子系统（移动、战斗、生成、经济、UI 等）
+8. 代码必须遵循 CLAUDE.md 中的所有规则
+9. 运行 bash build-test.sh 验证编译是否通过
+10. 如果编译失败，阅读错误信息，修复代码，再次运行 build-test.sh
+11. 重复修复直到编译通过
+
+重要：两个文件都是 partial class，共享所有字段。主文件放阶段流程，Systems 文件放子系统。每个文件 800-1200 行，合计可达 2400 行。`
+        : `请完成以下步骤生成 Luna 试玩广告代码：
 
 1. 阅读 prompt.md 了解详细需求（对象分配表、实体行为、事件规则）
 2. 阅读 GFM_Tools.cs 了解可用 API（只读参考，不要修改）
@@ -486,7 +533,7 @@ ${feedbackTexts}
 8. 如果编译失败，阅读错误信息，修复代码，再次运行 build-test.sh
 9. 重复修复直到编译通过
 
-重要：骨架已在 .cs 文件中，直接在此基础上填充。代码必须完整（通常 1300-1600 行），不要省略任何部分。`
+重要：骨架已在 .cs 文件中，直接在此基础上填充。代码必须完整（通常 1300-1600 行），不要省略任何部分。如果代码超过 800 行，可以创建 GameFlowManagerMain.Systems.cs（partial class）拆分子系统。`)
       : `请完成以下步骤生成 Luna 试玩广告代码：
 
 1. 阅读 blueprint.json 了解蓝图结构（节点、边、实体）
@@ -513,11 +560,12 @@ ${feedbackTexts}
     useGlm: useGlm,
     appendSystemPrompt: hasFeedback
       ? 'INCREMENTAL FIX MODE — CRITICAL RULES:\n'
-        + '1. Use the Edit tool (NOT Write) to modify GameFlowManagerMain.cs\n'
+        + '1. Use the Edit tool (NOT Write) to modify .cs files\n'
         + '2. NEVER rewrite the entire file — only change the specific lines that need fixing\n'
-        + '3. The existing code is 1000+ lines. Your edits must preserve all existing code.\n'
-        + '4. Read the existing .cs file FIRST, then apply targeted edits based on the feedback.\n'
-        + '5. If the file becomes shorter after your edits, you have made a mistake.'
+        + '3. The existing code is 1000+ lines (may be split across GameFlowManagerMain.cs + GameFlowManagerMain.Systems.cs). Your edits must preserve all existing code.\n'
+        + '4. Read ALL existing .cs files FIRST, then apply targeted edits based on the feedback.\n'
+        + '5. If any file becomes shorter after your edits, you have made a mistake.\n'
+        + '6. If GameFlowManagerMain.Systems.cs exists, game subsystems live there — edit it for movement/combat/spawning/economy fixes.'
       : null,
     workDir: clientDir,
   });
@@ -547,16 +595,31 @@ ${feedbackTexts}
   }
 
   const mainSrc = fs.readFileSync(mainFilePath, 'utf-8');
-  const lineCount = mainSrc.split('\n').length;
-  const findCalls = (mainSrc.match(/GameObject\.Find/g) || []).length;
-  const gfmCreateCalls = (mainSrc.match(/GFM_Create\.Obj/g) || []).length;
-  const hasGameEnded = /GameEnded/.test(mainSrc);
+  const mainLineCount = mainSrc.split('\n').length;
 
-  log(`[claude-code] ✅ Code generated: ${lineCount} lines, ${findCalls} Find() calls, ${gfmCreateCalls} GFM_Create.Obj() calls`, taskId);
+  // Check for Systems partial class file
+  const systemsFilePath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.Systems.cs');
+  const hasSystems = fs.existsSync(systemsFilePath);
+  const systemsSrc = hasSystems ? fs.readFileSync(systemsFilePath, 'utf-8') : '';
+  const systemsLineCount = hasSystems ? systemsSrc.split('\n').length : 0;
+
+  // Combined metrics across all partial class files
+  const combinedSrc = mainSrc + '\n' + systemsSrc;
+  const lineCount = mainLineCount + systemsLineCount;
+  const findCalls = (combinedSrc.match(/GameObject\.Find/g) || []).length;
+  const gfmCreateCalls = (combinedSrc.match(/GFM_Create\.Obj/g) || []).length;
+  const hasGameEnded = /GameEnded/.test(combinedSrc);
+
+  if (hasSystems) {
+    log(`[claude-code] ✅ Code generated (split): main=${mainLineCount} lines + systems=${systemsLineCount} lines = ${lineCount} total, ${findCalls} Find() calls`, taskId);
+  } else {
+    log(`[claude-code] ✅ Code generated: ${lineCount} lines, ${findCalls} Find() calls, ${gfmCreateCalls} GFM_Create.Obj() calls`, taskId);
+  }
 
   // === 增量修复回退保护：如果修复后代码变短了超过 30%，恢复原始代码 ===
   if (hasFeedback && opts.existingCode) {
     const origLines = opts.existingCode.split('\n').length;
+    // Compare combined line count (main+systems) against original main file
     if (lineCount < origLines * 0.7) {
       log(`[claude-code] ⚠️ REGRESSION DETECTED: code shrank from ${origLines} to ${lineCount} lines (${Math.round((1 - lineCount/origLines) * 100)}% reduction). Restoring original.`, taskId);
       fs.writeFileSync(mainFilePath, opts.existingCode);
@@ -576,10 +639,13 @@ ${feedbackTexts}
   }
 
   // === Stub 检测：空壳代码不允许进入修复循环 ===
-  // Count real unfilled TODOs (not skeleton section markers like TODO_VARIABLES_START/END)
-  const realTodoCount = (mainSrc.match(/\/\/ TODO(?!_\w+(?:START|END))/gi) || []).length;
+  // Count real unfilled TODOs across all files (not skeleton section markers like TODO_VARIABLES_START/END)
+  const realTodoCount = (combinedSrc.match(/\/\/ TODO(?!_\w+(?:START|END))/gi) || []).length;
   // Check if skeleton was completely unmodified: [SKELETON] markers present AND code didn't grow
-  const skeletonLineCount = skeleton ? skeleton.split('\n').length : 0;
+  const skeletonLineCount = skeleton
+    ? (skeleton.split ? (skeleton.main || '').split('\n').length + (skeleton.systems || '').split('\n').length
+       : (typeof skeleton === 'string' ? skeleton.split('\n').length : 0))
+    : 0;
   const codeGrowthRatio = skeletonLineCount > 0 ? lineCount / skeletonLineCount : 999;
   // Skeleton includes IdleGameKit (~400 lines of working code), so growth ratio is less relevant.
   // Instead check: are TODO sections still unfilled? (realTodoCount > 5 = still a stub)
