@@ -252,4 +252,62 @@
 
 ### 后续
 - V3 格式不再支持，所有项目必须使用 V4 entity-driven 蓝图
+
+---
+
+## 2026-04-08: Gemini清理 + LLM链路修复 + Worker心跳/认证修复
+
+### 影响范围
+全部pipeline任务（64次历史运行0%成功率），3个在跑任务反复失败
+
+### 根因分析
+
+**根因 1：Worker heartbeat 始终上报 idle（linux-worker-client.js:569）**
+- heartbeat 固定发 `status: 'idle'`, 无 `currentTask` 字段
+- watchdog `reclaimStale(300, 180)` 5分钟后判定 desync → 强制回收正在跑的任务
+- 级联效应：任务在 worker 间弹来弹去 → Claude slot lock 泄漏 → API 限流
+
+**根因 2：Claude CLI 认证失败（claude-code-coder.js:317）**
+- env 覆盖 `ANTHROPIC_API_KEY` 为 GLM key + `CLAUDE_CODE_SIMPLE: '1'` 禁用 OAuth
+- 系统实际用 OAuth token (`CLAUDE_CODE_OAUTH_TOKEN`)，不是 API key
+- Claude CLI 2秒退出 exit code 1
+
+**根因 3：Spec提取失败 — Gemini key过期 + DoubaoProvider格式错误**
+- spec-extractor 硬编码 `createProvider('gemini', {})`，Gemini API key 已过期
+- 改为Doubao后发现 DoubaoProvider 将 prompt 字符串直接传给 adapter
+- adapter 的 `for (const c of contents)` 对字符串逐字符迭代，产生垃圾消息
+- system prompt (`{system, user}` 格式) 被丢弃，temperature/maxTokens 未传递
+
+**根因 4：dotenv 路径错误（linux-worker-client.js:15）**
+- `__dirname + '/.env'` 指向 `worker/.env`（不存在）
+- 实际 .env 在 `../`，导致 `DOUBAO_API_KEY` 为空
+
+**根因 5：Slot lock 清理不完整（claude-code-coder.js:44）**
+- 只靠 25min mtime 超时，不检测持锁进程是否存活
+- worker crash 后 lock 残留，占位直到超时
+
+### 修复方案
+
+| 修复项 | 文件 | 改动 |
+|--------|------|------|
+| heartbeat上报busy+taskId | linux-worker-client.js | activeTasks>0时报busy |
+| Claude CLI OAuth认证 | claude-code-coder.js | 移除env覆盖,用OAuth |
+| 去除Gemini依赖 | model-provider.cjs | 删除GeminiProvider,chain改为Doubao→Claude |
+| spec-extractor直连Doubao | spec-extractor.cjs | createProvider('doubao') |
+| DoubaoProvider格式修复 | model-provider.cjs | prompt→[{role,parts}],传system/temp/maxTokens |
+| dotenv路径修复 | linux-worker-client.js | __dirname+'/.env' → '../.env' |
+| PID存活检测 | claude-code-coder.js | process.kill(pid,0)检测死进程 |
+| Gemini变量名清理 | storyboard-parser.cjs, doubao-adapter.cjs | _geminiKey→_doubaoKey等 |
+| ecosystem清理 | ecosystem.config.cjs | 移除GEMINI_*环境变量 |
+
+### 验证结果
+- Spec提取：3个任务全部成功提取11个phase specs（之前100%失败）
+- Claude CLI：Opus 4.6成功启动codegen（之前2秒退出）
+- Heartbeat：worker正确上报busy+taskId（之前被watchdog反复抢任务）
+
+### 教训
+1. 变量命名应与实际服务一致，_geminiKey 实际是 Doubao key 造成长期混淆
+2. dotenv path 用 `__dirname` 时需注意 worker 子目录 vs 项目根目录
+3. LLM adapter 层必须有格式校验，字符串 vs 数组语义差异导致静默失败
+4. heartbeat 是 watchdog 的唯一信号源，错误上报会级联放大为全系统故障
 - `video-to-blueprint.cjs` 仍输出 V3 格式，需后续迁移至 V4
