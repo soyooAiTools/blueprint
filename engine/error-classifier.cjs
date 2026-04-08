@@ -45,7 +45,7 @@ var INFRA_PATTERNS = [
 ];
 
 var FATAL_PATTERNS = [
-  /not available/i,
+  /(?:generator|reviewer|coder).*not available/i,
   /no (?:code )?generator/i,
   /no reviewer/i,
   /Spec validation failed/i,
@@ -59,6 +59,13 @@ var CUA_INFRA_PATTERNS = [
   /CUA API unreachable/i,
   /CUA total time limit/i,
   /CUA.*timeout/i,
+  /CUA infra skip/i,
+  /playableagent-infra/i,
+  /Xvfb.*could not be started/i,
+  /Xvfb.*unavailable/i,
+  /VERIFY_SCRIPT missing/i,
+  /blueprint_verify\.py not found/i,
+  /Local HTTP server failed/i,
   /playwright.*crash/i,
   /playwright.*timeout/i,
   /browser.*closed/i,
@@ -76,6 +83,9 @@ var CUA_INFRA_PATTERNS = [
   /headless.*error/i,
   /CDP.*error/i,
   /CDP.*disconnect/i,
+  /SiliconFlow.*error/i,
+  /SiliconFlow.*timeout/i,
+  /Qwen.*API.*error/i,
 ];
 
 /**

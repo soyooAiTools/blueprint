@@ -15,6 +15,8 @@ var notify;
 try { notify = require('../adapters/notify.cjs'); } catch(e) { notify = { alert: function() {} }; }
 var lessonExtractor;
 try { lessonExtractor = require('./lesson-extractor.cjs'); } catch(e) { lessonExtractor = { extractLesson: function() {} }; }
+var autoPromotePendingRules;
+try { autoPromotePendingRules = require('../worker/code-reviewer.js').autoPromotePendingRules; } catch(e) { autoPromotePendingRules = function() {}; }
 
 // ============ Pipeline Error ============
 // Custom error that carries root cause + failing stage without message wrapping.
@@ -178,6 +180,8 @@ Pipeline.prototype.run = function(ctx, onProgress) {
           ctx.addLog('pipeline', 'Metrics recording failed: ' + e.message);
         }
       }
+      // Auto-promote pending rules on success too (closes learning loop)
+      try { autoPromotePendingRules(); } catch(e) {}
       return Promise.resolve(ctx);
     }
 
@@ -212,6 +216,7 @@ Pipeline.prototype.run = function(ctx, onProgress) {
         }
         try { notify.alert('warning', 'Pipeline gate failed', gateErr.message, { stage: stage.name, classification: 'GATE', taskId: ctx.taskId }); } catch(e) {}
         try { lessonExtractor.extractLesson(ctx); } catch(e) {}
+        try { autoPromotePendingRules(); } catch(e) {}
         if (onProgress) onProgress(stage.name, 'gate-failed', ctx);
         throw new PipelineError(stage.name, 'gate: ' + gateErr.message, 'GATE');
       }
@@ -285,6 +290,8 @@ Pipeline.prototype.run = function(ctx, onProgress) {
         }
         try { notify.alert('critical', 'Pipeline failed', rootReason, { stage: ctx._failedAtStage, classification: ctx._failClassification, taskId: ctx.taskId }); } catch(e) {}
         try { lessonExtractor.extractLesson(ctx); } catch(e) {}
+        // Auto-promote pending rules after lesson extraction (closes learning loop)
+        try { autoPromotePendingRules(); } catch(e) {}
         // Throw PipelineError with root cause — no re-wrapping
         throw new PipelineError(ctx._failedAtStage, rootReason, ctx._failClassification);
       });

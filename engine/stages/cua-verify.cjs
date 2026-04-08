@@ -185,10 +185,17 @@ module.exports = {
               cuaResult.passed = false;
             }
 
-            if (cuaResult.passed || cuaResult.skipped) {
+            // Infra skip (Xvfb down, script missing, etc.) → throw INFRA error for retry
+            if (cuaResult.skipped && !cuaResult.passed) {
+              var skipReason = (cuaResult.issues && cuaResult.issues[0]) || cuaResult.error || 'CUA infra prerequisite missing';
+              ctx.addLog('cua-verify', 'CUA SKIPPED (infra) — will retry: ' + skipReason);
+              throw new Error('CUA infra skip: ' + skipReason);
+            }
+
+            if (cuaResult.passed) {
               ctx.htmlOutput = lastHtmlData;
               ctx.csCode = lastCsCode;
-              ctx.addLog('cua-verify', 'CUA ' + (cuaResult.skipped ? 'SKIPPED' : 'PASSED'));
+              ctx.addLog('cua-verify', 'CUA PASSED');
               ctx.reportStatus('cua_passed', {
                 message: '[Linux] CUA passed (round ' + round + ')!',
                 previewUrl: ctx.previewUrl,

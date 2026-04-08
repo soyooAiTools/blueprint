@@ -47,6 +47,19 @@ var RULES = [
   { id: 'instantiate', pattern: /\bInstantiate\s*\(/g, message: 'Instantiate() forbidden in Luna — use GameObject.Find() from pool' },
   { id: 'add-component', pattern: /\bAddComponent\s*[<(]/g, message: 'AddComponent() forbidden in Luna — components must be pre-baked on pool objects' },
   { id: 'resources-load', pattern: /Resources\.Load/g, message: 'Resources.Load() not supported in Luna — use pool objects' },
+  // --- v3: Rendering & anti-solid-color rules ---
+  { id: 'safe-color-recursion', pattern: /Color\s+SafeColor|SafeColor\s*\(/g, message: 'SafeColor pattern causes infinite recursion in Luna — remove and use literal Color values' },
+  { id: 'renderer-material-color', pattern: /\.material\.color\s*=/g, message: 'Renderer.material.color causes GL_INVALID_OPERATION in Luna — pool objects have pre-baked colors' },
+  { id: 'new-material', pattern: /new\s+Material\s*\(/g, message: 'new Material() not supported in Luna — use GFM_Create.InitMaterialFromScene()' },
+  { id: 'render-no-objects', pattern: null, message: 'Phase 1 must place at least 3 pool objects on screen (anti-solid-color)', custom: function(code) {
+    // Check that first phase (ruleTriggered[0] block) has at least 3 PlaceObj or transform.position calls
+    var phase1Match = code.match(/ruleTriggered\[0\][^}]*\{([\s\S]*?)(?:ruleTriggered\[1\]|$)/);
+    if (!phase1Match) return []; // No phase structure found — skip check
+    var phase1Code = phase1Match[1];
+    var placeCount = (phase1Code.match(/PlaceObj\s*\(|\.transform\.position\s*=/g) || []).length;
+    if (placeCount < 3) return [{ line: 1, text: 'Only ' + placeCount + ' objects placed in phase 1 (need ≥3)' }];
+    return [];
+  }},
 ];
 
 /**

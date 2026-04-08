@@ -141,21 +141,21 @@ function writeSpecsFile(blueprint, taskId) {
 async function runCUAVerification(buildDir, blueprint, taskId, log) {
   // Check prerequisites
   if (!fs.existsSync(VERIFY_SCRIPT)) {
-    log('[PlayableAgent] blueprint_verify.py not found, skipping verification', taskId);
-    return { passed: true, issues: [], skipped: true };
+    log('[PlayableAgent] blueprint_verify.py not found — INFRA FAIL (not skipping)', taskId);
+    return { passed: false, issues: ['[playableagent-infra] blueprint_verify.py not found at ' + VERIFY_SCRIPT], skipped: true, error: 'VERIFY_SCRIPT missing' };
   }
 
   const hasIframe = fs.existsSync(path.join(buildDir, 'iframe.html'));
   const hasIndex = fs.existsSync(path.join(buildDir, 'index.html'));
   if (!hasIframe && !hasIndex) {
-    log('[PlayableAgent] No HTML file in build output, skipping', taskId);
-    return { passed: true, issues: [], skipped: true };
+    log('[PlayableAgent] No HTML file in build output — FAIL', taskId);
+    return { passed: false, issues: ['[playableagent-infra] No HTML file (iframe.html or index.html) in build dir: ' + buildDir], skipped: true, error: 'No HTML file' };
   }
 
   // Ensure Xvfb for WebGL
   if (!ensureXvfb()) {
-    log('[PlayableAgent] Failed to start Xvfb, skipping verification', taskId);
-    return { passed: true, issues: [], skipped: true, error: 'Xvfb unavailable' };
+    log('[PlayableAgent] Failed to start Xvfb — INFRA FAIL (not skipping)', taskId);
+    return { passed: false, issues: ['[playableagent-infra] Xvfb :99 could not be started'], skipped: true, error: 'Xvfb unavailable' };
   }
 
   log('[PlayableAgent] Starting PlayableAgent verification (VLM + __gameState)...', taskId);
@@ -167,8 +167,8 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
 
 
   } catch(e) {
-    log('[PlayableAgent] Failed to start server: ' + e.message, taskId);
-    return { passed: true, issues: [], skipped: true, error: e.message };
+    log('[PlayableAgent] Failed to start server — INFRA FAIL: ' + e.message, taskId);
+    return { passed: false, issues: ['[playableagent-infra] Local HTTP server failed: ' + e.message], skipped: true, error: e.message };
   }
 
   const actualPort = server.address().port;

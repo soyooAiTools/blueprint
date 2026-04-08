@@ -44,25 +44,44 @@ function generateSkeleton(specs, opts = {}) {
   // Helper: convert spec trigger condition to real C# using entity state variables
   // e.g. spec has entitiesRequired: [{name: "iceCrystal", terminalState: 1}]
   //      → generates: iceCrystalState >= 1
+  //
+  // ANTI-AUTOPLAY: Every condition MUST include a player interaction gate.
+  // Timer-only transitions cause CUA to reject (game auto-plays without input).
   function buildRealCondition(spec) {
     const entities = spec.entitiesRequired || [];
-    if (entities.length === 0) {
-      // No entity requirements — check for interaction-based conditions
-      const interactions = spec.requiredInteractions || [];
-      if (interactions.length > 0) {
-        // Use the first interaction verb to generate a flag-based condition
-        const verb = interactions[0].split(':')[0];
-        const target = interactions[0].split(':')[1] || 'action';
-        return target + 'Done == true';
-      }
-      // Fallback: phase timer (AI should still improve this)
-      return 'phaseTimer >= ' + (spec.duration ? spec.duration.max : 5) + 'f /* AI: replace with real gameplay condition */';
+    const interactions = spec.requiredInteractions || [];
+    const mustAct = spec.playerMustAct !== false; // default true
+
+    if (entities.length === 0 && interactions.length === 0) {
+      // No entity or interaction requirements — AI MUST replace this with real gameplay condition
+      // Use an interaction flag that forces player input (anti-autoplay)
+      const phaseId = (spec.phaseId || 'phase').replace(/[^a-zA-Z0-9]/g, '');
+      return phaseId + 'InteractionDone /* AI: MUST replace with real player interaction check — timer alone is FORBIDDEN */';
     }
-    // Build compound condition from entity terminal states
-    const conditions = entities.map(e => {
-      const varName = e.name + 'State';
-      return varName + ' >= ' + e.terminalState;
-    });
+
+    const conditions = [];
+
+    // Entity state conditions
+    if (entities.length > 0) {
+      entities.forEach(e => {
+        conditions.push(e.name + 'State >= ' + e.terminalState);
+      });
+    }
+
+    // Interaction-based conditions
+    if (interactions.length > 0) {
+      const verb = interactions[0].split(':')[0];
+      const target = interactions[0].split(':')[1] || 'action';
+      conditions.push(target + 'Done == true');
+    }
+
+    // If playerMustAct but no interaction condition was added, add a generic one
+    if (mustAct && interactions.length === 0 && entities.length > 0) {
+      // Entity conditions exist but no explicit interaction — add player action flag
+      const phaseId = (spec.phaseId || 'phase').replace(/[^a-zA-Z0-9]/g, '');
+      conditions.push(phaseId + 'PlayerActed /* AI: set to true when player interacts */');
+    }
+
     return conditions.join(' && ');
   }
 
@@ -71,6 +90,21 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('// ========== AUTO-GENERATED SKELETON — DO NOT MODIFY SKELETON LINES ==========');
   lines.push('// Generated from storyboard spec. AI fills TODO sections only.');
   lines.push('// Lines marked [SKELETON] must not be removed or modified.');
+  lines.push('//');
+  lines.push('// *** RENDERING RULES (MUST FOLLOW — violation = build failure) ***');
+  lines.push('// 1. Camera.backgroundColor is pre-set to (0.45, 0.52, 0.62) — do NOT change');
+  lines.push('// 2. NEVER call GFM_Create.SetColor() — it causes GL_INVALID_OPERATION in Luna');
+  lines.push('// 3. NEVER call GFM_Create.Obj() — pool objects already exist, use GameObject.Find()');
+  lines.push('// 4. Pool objects have pre-baked colors (__Pool_Shape_Color_NN) — just position them');
+  lines.push('// 5. Phase 1 must place at least 3 pool objects on screen to prevent solid-color');
+  lines.push('// 6. NEVER call Destroy() — hide objects via position (0, -999, 0)');
+  lines.push('// 7. NEVER use SafeColor or recursive color functions');
+  lines.push('//');
+  lines.push('// *** ANTI-AUTOPLAY RULES (MUST FOLLOW — violation = CUA rejection) ***');
+  lines.push('// 1. Every phase transition MUST require player interaction (click/drag/joystick)');
+  lines.push('// 2. NEVER advance phases based on timer alone — timer is minimum dwell, not trigger');
+  lines.push('// 3. playerMustAct=true phases MUST wait for user input before transitioning');
+  lines.push('//');
   lines.push('');
   lines.push('using UnityEngine;');
   lines.push('using UnityEngine.UI;');
@@ -105,6 +139,34 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    // [SKELETON] Entity states — must reach terminal state');
     allEntities.forEach(name => {
       lines.push(`    int ${name}State = 0; // 0=waiting, 1=building, 2=built [SKELETON]`);
+    });
+    lines.push('');
+  }
+
+  // [SKELETON] Anti-autoplay interaction flags — AI must set these to true on player input
+  const interactionFlags = [];
+  specs.forEach(spec => {
+    const entities = spec.entitiesRequired || [];
+    const interactions = spec.requiredInteractions || [];
+    const mustAct = spec.playerMustAct !== false;
+    const phaseId = (spec.phaseId || 'phase').replace(/[^a-zA-Z0-9]/g, '');
+
+    if (entities.length === 0 && interactions.length === 0) {
+      interactionFlags.push(phaseId + 'InteractionDone');
+    } else if (mustAct && interactions.length === 0 && entities.length > 0) {
+      interactionFlags.push(phaseId + 'PlayerActed');
+    }
+    // Interaction-based flags
+    if (interactions.length > 0) {
+      const target = interactions[0].split(':')[1] || 'action';
+      interactionFlags.push(target + 'Done');
+    }
+  });
+  if (interactionFlags.length > 0) {
+    lines.push('    // [SKELETON] Anti-autoplay flags — AI MUST set these to true when player performs the required interaction');
+    const uniqueFlags = [...new Set(interactionFlags)];
+    uniqueFlags.forEach(flag => {
+      lines.push(`    bool ${flag} = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)`);
     });
     lines.push('');
   }
@@ -225,15 +287,17 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('');
     lines.push('    // [SKELETON] Show carry stack on player back (visual feedback)');
     lines.push('    GameObject[] carryVisuals;');
-    lines.push('    void UpdateCarryVisuals(Color resColor)');
+    lines.push('    void UpdateCarryVisuals()');
     lines.push('    {');
+    lines.push('        // [SKELETON] Carry visuals use pool objects — find them by name');
     lines.push('        if (carryVisuals == null)');
     lines.push('        {');
     lines.push('            carryVisuals = new GameObject[10];');
     lines.push('            for (int i = 0; i < 10; i++)');
     lines.push('            {');
-    lines.push('                carryVisuals[i] = GFM_Create.Obj(PrimitiveType.Cube, Vector3.zero, new Vector3(0.3f,0.3f,0.3f), "carry_" + i);');
-    lines.push('                if (carryVisuals[i] != null) GFM_Create.SetColor(carryVisuals[i], resColor);');
+    lines.push('                // AI: assign carry visual pool objects here via GameObject.Find');
+    lines.push('                // Do NOT use GFM_Create.Obj or GFM_Create.SetColor (both forbidden in Luna)');
+    lines.push('                carryVisuals[i] = GameObject.Find("__Pool_Cube_Yellow_" + (60 + i));');
     lines.push('                HideObj(carryVisuals[i]);');
     lines.push('            }');
     lines.push('        }');
@@ -256,12 +320,15 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    }');
     lines.push('');
     lines.push('    // [SKELETON] Show floating text (+3 gold) effect');
+    lines.push('    // [SKELETON] Floating text — uses a pooled text element, auto-hides after delay');
+    lines.push('    Text floatingText;');
+    lines.push('    float floatingTextTimer = 0f;');
     lines.push('    void ShowFloatingText(Vector3 worldPos, string text, Color color)');
     lines.push('    {');
     lines.push('        if (mainCam == null) return;');
-    lines.push('        // Create temporary UI text that fades');
-    lines.push('        Text ft = GFM_UI.CreateText(uiCanvas, text, Vector2.zero, 24);');
-    lines.push('        if (ft != null) { ft.color = color; Destroy(ft.gameObject, 1.5f); }');
+    lines.push('        // Reuse a single floating text — do NOT use Destroy (forbidden in Luna)');
+    lines.push('        if (floatingText == null) floatingText = GFM_UI.CreateText(uiCanvas, "", Vector2.zero, 24);');
+    lines.push('        if (floatingText != null) { floatingText.text = text; floatingText.color = color; floatingTextTimer = 1.5f; }');
     lines.push('    }');
     lines.push('');
     lines.push('    // ========== END IDLE GAME KIT ==========');
@@ -359,7 +426,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        // IMPORTANT: Do NOT create Canvas again (use uiCanvas). Do NOT use Camera.main (use mainCam).');
   if (isIdleGame) {
     lines.push('        // IMPORTANT for idle games: Use the pre-built MovePlayer(), TryCollect(), TryDeliver() in Update.');
-    lines.push('        //   player = GFM_Create.Obj(PrimitiveType.Capsule, new Vector3(0,0.75f,0), new Vector3(0.8f,0.8f,0.8f), "Player");');
+    lines.push('        //   player = GameObject.Find("__Pool_Capsule_Blue_01"); // use pool object, NOT GFM_Create.Obj');
     lines.push('        //   Then in Update: MovePlayer(); TryCollect(iceSource, "ice", 5, 1.5f); TryDeliver(machine, "ice", 1.5f);');
   }
   lines.push('        // TODO_START_START');
@@ -398,7 +465,7 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        // if (TryCollect(iceSource, "ice", 5, 1.5f)) { /* picked up ice */ }');
     lines.push('        // int delivered = TryDeliver(waterMachine, "ice", 1.5f);');
     lines.push('        // if (delivered > 0) { waterMachineState = 1; /* machine producing */ }');
-    lines.push('        // UpdateCarryVisuals(Color.cyan); // show stack on player back');
+    lines.push('        // UpdateCarryVisuals(); // show stack on player back');
   }
   lines.push('        // TODO_UPDATE_START');
   lines.push('');
@@ -439,13 +506,12 @@ function generateSkeleton(specs, opts = {}) {
 
       // [SKELETON] Anti-solid-color: place first 3 entities in phase 1
       if (visibleEntities.length > 0) {
-        lines.push('            // [SKELETON] Anti-solid-color: show initial objects');
+        lines.push('            // [SKELETON] Anti-solid-color: show initial objects (pool objects have pre-baked colors — do NOT call SetColor)');
         visibleEntities.forEach((eName, vi) => {
           const color = ENTITY_COLORS[vi % ENTITY_COLORS.length];
           const xPos = (vi - 1) * 3; // spread: -3, 0, 3
-          lines.push(`            PlaceObj(${eName}, ${xPos}f, 0.5f, 0f);`);
+          lines.push(`            PlaceObj(${eName}, ${xPos}f, 0.5f, 0f); // pool color: ${color.label} — do NOT call SetColor`);
           lines.push(`            SetScale(${eName}, 2f, 2f, 2f);`);
-          lines.push(`            GFM_Create.SetColor(${eName}, new Color(${color.r}f, ${color.g}f, ${color.b}f)); // ${color.label}`);
         });
         lines.push('');
       }

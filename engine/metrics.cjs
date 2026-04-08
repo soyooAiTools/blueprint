@@ -59,6 +59,17 @@ function recordPipelineMetrics(ctx, stageResults) {
   }
 
   try {
+    // Rotate if file exceeds 10MB
+    try {
+      var stat = fs.statSync(METRICS_FILE);
+      if (stat.size > 10 * 1024 * 1024) {
+        var rotatedPath = METRICS_FILE + '.bak.' + new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        fs.renameSync(METRICS_FILE, rotatedPath);
+        console.log('[metrics] Rotated metrics file to ' + rotatedPath + ' (' + (stat.size / 1048576).toFixed(1) + 'MB)');
+      }
+    } catch(rotateErr) {
+      // rotation check failed — continue writing to existing file
+    }
     fs.appendFileSync(METRICS_FILE, JSON.stringify(record) + '\n');
   } catch(e) {}
 
