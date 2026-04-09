@@ -215,6 +215,7 @@ module.exports = {
             analysisPrompt += 'You are given ' + frameCount + ' frames captured at different times (t=0s, t=3s, t=8s).\n';
             analysisPrompt += 'Check for PROGRESSION: objects should move/change between frames. If all frames are identical, the game may be stuck.\n';
           }
+          var phaseLog = result.phaseLog || [];
           if (phaseLog.length > 0) {
             analysisPrompt += 'Phase progression detected from game instrumentation: ' +
                 phaseLog.map(function(p) { return p.phase; }).join(' \u2192 ') + '\n';
@@ -348,13 +349,14 @@ module.exports = {
                   .then(function(buildResult) {
                     if (!buildResult.ok) throw new Error('Visual fix rebuild failed');
                     ctx.addLog('visual-check', 'Visual fix rebuild OK in ' + buildResult.buildTime + 's');
-                    return helpers.buildRequest(buildUrl, '/build-html', lastCsCode, lastExtraFiles);
-                  })
-                  .then(function(newHtml) {
-                    lastHtmlForVisual = newHtml;
-                    lastExtraFiles = Object.assign({}, ctx.extraFiles);
-                    fs.writeFileSync(path.join(previewDir, 'index.html'), lastHtmlForVisual);
-                    return { done: false };
+                    // Nest /build-html inside /build success to prevent Object→writeFileSync crash
+                    return helpers.buildRequest(buildUrl, '/build-html', lastCsCode, lastExtraFiles)
+                      .then(function(newHtml) {
+                        lastHtmlForVisual = newHtml;
+                        lastExtraFiles = Object.assign({}, ctx.extraFiles);
+                        fs.writeFileSync(path.join(previewDir, 'index.html'), lastHtmlForVisual);
+                        return { done: false };
+                      });
                   })
                   .catch(function(err) {
                     ctx.addLog('visual-check', 'Visual fix rebuild error: ' + err.message);

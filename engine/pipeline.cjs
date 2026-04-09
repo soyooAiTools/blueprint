@@ -272,6 +272,15 @@ Pipeline.prototype.run = function(ctx, onProgress) {
         if (onProgress) onProgress(stage.name, 'completed', ctx);
         return runNext();
       }).catch(function(err) {
+        // CRITICAL: If this error originated from a DOWNSTREAM stage, do NOT
+        // retry the current stage or fire 'failed' for it. Just propagate.
+        // Without this guard, rejection bubbles back through the recursive
+        // .then→runNext chain, causing earlier stages (especially clone with
+        // canRetry:true) to retry and accidentally skip the failing stage.
+        if (err && err.name === 'PipelineError' && err.stage !== stage.name) {
+          throw err;
+        }
+
         ctx.addLog(stage.name, 'attempt ' + attempt + '/' + maxAttempts + ' failed: ' + err.message);
 
         if (attempt < maxAttempts) {

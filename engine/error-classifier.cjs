@@ -54,10 +54,16 @@ var FATAL_PATTERNS = [
 
 // CUA and visual-check crashes are infrastructure instability, not fatal config errors.
 // Moved out of FATAL so they get exponential backoff + retry.
+// CUA time limit is a definitive failure, not a retryable infra issue.
+// Moved to FATAL to prevent fix-loop from retrying (which wastes time and
+// triggers the pipeline error-propagation bug when combined with canRetry stages).
+var CUA_FATAL_PATTERNS = [
+  /CUA total time limit/i,
+];
+
 var CUA_INFRA_PATTERNS = [
   /CUA crashed \d+ consecutive/i,
   /CUA API unreachable/i,
-  /CUA total time limit/i,
   /CUA.*timeout/i,
   /CUA infra skip/i,
   /playableagent-infra/i,
@@ -116,6 +122,13 @@ function classify(err, context) {
   // Always unwrap nested error prefixes before classification
   var msg = unwrapMessage(err);
   var ctx = context || {};
+
+  // CUA definitive failures — always FATAL, no retry
+  for (var cf = 0; cf < CUA_FATAL_PATTERNS.length; cf++) {
+    if (CUA_FATAL_PATTERNS[cf].test(msg)) {
+      return { type: 'FATAL', retryable: false, backoffMs: 0, reason: msg };
+    }
+  }
 
   // CUA-specific infra patterns — check before FATAL since CUA crashes are retryable
   for (var ci = 0; ci < CUA_INFRA_PATTERNS.length; ci++) {

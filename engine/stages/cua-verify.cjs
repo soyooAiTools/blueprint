@@ -98,7 +98,7 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
 }
 
 var MAX_CUA_ROUNDS = 20;
-var MAX_CUA_TOTAL_MS = 30 * 60 * 1000; // 30 min absolute time limit
+var MAX_CUA_TOTAL_MS = 60 * 60 * 1000; // 60 min absolute time limit (Opus fix rounds ~10min each)
 var NO_PROGRESS_EXIT_ROUNDS = 5; // exit if no phase progress in N consecutive rounds
 var SAME_ISSUE_REGEN_THRESHOLD = 3;
 
@@ -110,6 +110,10 @@ module.exports = {
     if (ctx.htmlOutput.length < 10240) throw new Error('HTML output too small (' + ctx.htmlOutput.length + ' bytes) — likely empty build');
   },
   canSkip: function(ctx) {
+    if (process.env.SKIP_CUA === 'true') {
+      console.warn('[CUA-GATE] ⚠️  SKIP_CUA=true — CUA hard gate DISABLED. Set SKIP_CUA= to re-enable.');
+      ctx.addLog('cua-verify', 'WARNING: CUA skipped via SKIP_CUA env — hard gate disabled');
+    }
     return process.env.SKIP_CUA === 'true';
   },
   execute: function(ctx) {
@@ -172,17 +176,13 @@ module.exports = {
             if (!cuaResult) return { done: false };
             try { fs.rmSync(cuaBuildDir, { recursive: true, force: true }); } catch(e) {}
 
-            // Solid color detection
+            // Solid color detection — ALWAYS fail, never auto-pass.
+            // A solid color screen means rendering is broken (no GPU, missing assets,
+            // loading failure, etc.) and should never be treated as a pass.
             if (cuaResult.quickTestDetail && cuaResult.quickTestDetail.solidColor) {
-              if (!cuaResult.quickTestDetail.codeBug) {
-                ctx.addLog('cua-verify', 'Solid black screen (headless no GPU) — passing');
-                ctx.htmlOutput = lastHtmlData;
-                ctx.csCode = lastCsCode;
-                ctx.reportStatus('done', { message: '[Linux] Build OK, CUA通过 (headless无GPU)', previewUrl: ctx.previewUrl });
-                return { done: true, result: { passed: true, round: round, reason: 'headless-pass' } };
-              }
-              cuaResult.issues = ['[quick-test] Solid color screen — objects not visible'];
+              cuaResult.issues = (cuaResult.issues || []).concat(['[quick-test] Solid color screen — rendering broken or GPU unavailable, objects not visible']);
               cuaResult.passed = false;
+              ctx.addLog('cua-verify', 'Solid color screen detected — FAIL (was previously auto-passed, now hard-fail)');
             }
 
             // Infra skip (Xvfb down, script missing, etc.) → throw INFRA error for retry
@@ -190,6 +190,24 @@ module.exports = {
               var skipReason = (cuaResult.issues && cuaResult.issues[0]) || cuaResult.error || 'CUA infra prerequisite missing';
               ctx.addLog('cua-verify', 'CUA SKIPPED (infra) — will retry: ' + skipReason);
               throw new Error('CUA infra skip: ' + skipReason);
+            }
+
+            // Anti-autoplay gate: override passed=true if 0 agent actions
+            // (must run BEFORE the passed check below, or it becomes dead code)
+            if (cuaResult.passed) {
+              var consolePhaseCoverageEarly = helpers.extractPhaseFromConsole(
+                (cuaResult.report && cuaResult.report.diagnostics && cuaResult.report.diagnostics.consoleMessages) || []
+              );
+              if (consolePhaseCoverageEarly.length >= 2) {
+                var agentActionsEarly = (cuaResult.report && cuaResult.report.actions) || [];
+                if (agentActionsEarly.length === 0) {
+                  ctx.addLog('cua-verify', 'All phases completed with 0 agent actions — overriding to FAIL (autoplay)');
+                  cuaResult.passed = false;
+                  cuaResult.issues = (cuaResult.issues || []).concat(
+                    ['[autoplay-zero-actions] ' + consolePhaseCoverageEarly.length + ' phases completed with 0 agent actions']
+                  );
+                }
+              }
             }
 
             if (cuaResult.passed) {
@@ -270,17 +288,7 @@ module.exports = {
               throw new Error('Same issue "' + currentIssueCategory + '" after ' + consecutiveSameIssue + ' rounds (no progress)');
             }
 
-            // Timing-based autoplay detection (complements text-based check)
-            if (cuaResult.passed && consolePhaseCoverage.length >= 2) {
-              var agentActions = (cuaResult.report && cuaResult.report.actions) || [];
-              if (agentActions.length === 0) {
-                ctx.addLog('cua-verify', 'All phases completed with 0 agent actions — overriding to FAIL (autoplay)');
-                cuaResult.passed = false;
-                cuaResult.issues = (cuaResult.issues || []).concat(
-                  ['[autoplay-zero-actions] ' + consolePhaseCoverage.length + ' phases completed with 0 agent actions']
-                );
-              }
-            }
+            // (Anti-autoplay zero-actions check moved BEFORE the cuaResult.passed return above)
 
             // Autoplay detection
             var hasAutoplay = (cuaResult.issues || []).some(function(i) {
@@ -425,13 +433,13 @@ module.exports = {
                   ctx.checkpoint.cuaRound = round;
                   ctx.checkpoint.fixHistory = fixHistory;
 
-                  return helpers.buildRequest(buildUrl, '/build-html', lastCsCode, Object.assign({}, ctx.extraFiles));
-                })
-                .then(function(newHtml) {
-                  lastHtmlData = newHtml;
-                  ctx.addLog('cua-verify', 'Fix HTML: ' + (newHtml.length / 1048576).toFixed(1) + 'MB');
-                  fs.writeFileSync(path.join(previewDir, 'index.html'), lastHtmlData);
-                  return { done: false };
+                  return helpers.buildRequest(buildUrl, '/build-html', lastCsCode, Object.assign({}, ctx.extraFiles))
+                    .then(function(newHtml) {
+                      lastHtmlData = newHtml;
+                      ctx.addLog('cua-verify', 'Fix HTML: ' + (newHtml.length / 1048576).toFixed(1) + 'MB');
+                      fs.writeFileSync(path.join(previewDir, 'index.html'), lastHtmlData);
+                      return { done: false };
+                    });
                 })
                 .catch(function(err) {
                   ctx.addLog('cua-verify', 'Fix rebuild/HTML error: ' + err.message);

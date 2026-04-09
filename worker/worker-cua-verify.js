@@ -926,15 +926,15 @@ async function autoPlayVerify(url, specs, taskId, log, maxDurationSec) {
 
 async function runCUAVerification(buildDir, blueprint, taskId, log) {
   if (!fs.existsSync(LUNA_AGENT_JS)) {
-    log('[CUA] luna-agent.js not found, skipping CUA verification', taskId);
-    return { passed: true, issues: [], skipped: true };
+    log('[CUA] luna-agent.js not found — INFRA FAIL (not skipping)', taskId);
+    return { passed: false, issues: ['[cua-infra] luna-agent.js not found'], skipped: true };
   }
 
   const hasIframe = fs.existsSync(path.join(buildDir, 'iframe.html'));
   const hasIndex = fs.existsSync(path.join(buildDir, 'index.html'));
   if (!hasIframe && !hasIndex) {
-    log('[CUA] No HTML file in build output, skipping CUA', taskId);
-    return { passed: true, issues: [], skipped: true };
+    log('[CUA] No HTML file in build output — FAIL', taskId);
+    return { passed: false, issues: ['[cua-infra] No HTML file in build dir'], skipped: true };
   }
 
   log('[CUA] Starting CUA verification...', taskId);
@@ -945,7 +945,7 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
     log('[CUA] Local preview server started on port ' + LOCAL_PREVIEW_PORT, taskId);
   } catch(e) {
     log('[CUA] Failed to start local server: ' + e.message, taskId);
-    return { passed: true, issues: [], skipped: true, error: e.message };
+    return { passed: false, issues: ['[cua-infra] Local server failed: ' + e.message], skipped: true, error: e.message };
   }
 
   const previewUrl = 'http://127.0.0.1:' + LOCAL_PREVIEW_PORT + '/' + (hasIframe ? 'iframe.html' : 'index.html');
