@@ -22,7 +22,7 @@ try {
 
 // ============ Config ============
 const CLAUDE_CMD = process.env.CLAUDE_CMD || 'claude';
-const CLAUDE_TIMEOUT_MS = parseInt(process.env.CLAUDE_TIMEOUT_MS) || 20 * 60 * 1000; // 20 min (12 min timed out when 3 tasks run concurrently through proxy)
+const CLAUDE_TIMEOUT_MS = parseInt(process.env.CLAUDE_TIMEOUT_MS) || 25 * 60 * 1000; // 25 min (fresh gen can take 15-20min)
 const CLAUDE_MAX_BUDGET = process.env.CLAUDE_MAX_BUDGET_USD || '0'; // 0 = no limit
 const CLAUDE_MODEL = process.env.CLAUDE_CODE_MODEL || 'opus';
 const GLM_MODEL = process.env.GLM_MODEL || 'glm-5.1';
@@ -37,7 +37,7 @@ const BUILD_URL = process.env.LINUX_BUILD_URL || 'http://localhost:3080';
 const MAX_CONCURRENT_CLAUDE = parseInt(process.env.MAX_CONCURRENT_CLAUDE) || 3;
 const LOCK_DIR = '/tmp/claude-code-slots';
 const LOCK_POLL_MS = 5000;   // poll every 5s
-const LOCK_TIMEOUT_MS = 25 * 60 * 1000; // 25min max wait (slightly over CLAUDE_TIMEOUT)
+const LOCK_TIMEOUT_MS = 20 * 60 * 1000; // 20min max wait (slightly over CLAUDE_TIMEOUT)
 
 try { fs.mkdirSync(LOCK_DIR, { recursive: true }); } catch(e) {}
 
@@ -170,7 +170,7 @@ function prepareWorkDir(workDir, blueprint, prompt, skeleton, log, taskId) {
         + '3. 每个文件控制在 800-1200 行，合计可达 2400 行\n'
         + '4. 不要删除 [SKELETON] 标记行、phaseTimer 检查、CheckEventRules() 跳转条件\n'
         + '5. 两个文件都是 `partial class GameFlowManagerMain`，共享所有字段和方法\n');
-      log(`[claude-code] Split skeleton written: main=${skeleton.main.split('\\n').length} lines, systems=${skeleton.systems.split('\\n').length} lines`, taskId);
+      log(`[claude-code] Split skeleton written: main=${skeleton.main.split('\n').length} lines, systems=${skeleton.systems.split('\n').length} lines`, taskId);
     } else {
       // Single file skeleton (≤10 phases)
       const skeletonStr = typeof skeleton === 'string' ? skeleton : skeleton.main || String(skeleton);
@@ -282,11 +282,14 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
   return new Promise((resolve, reject) => {
     const args = [
       '--print',                              // 非交互模式
-      '--model', (opts.useGlm ? GLM_MODEL : CLAUDE_MODEL),
+      '--model', opts.model || (opts.useGlm ? GLM_MODEL : CLAUDE_MODEL),
       '--output-format', 'text',
       // Budget: 0 means no limit; only pass flag if > 0
       ...(parseInt(CLAUDE_MAX_BUDGET) > 0 ? ['--max-budget-usd', CLAUDE_MAX_BUDGET] : []),
       '--no-session-persistence',              // 不保存 session（每次全新）
+      '--effort', opts.effort || 'medium',  // medium effort to avoid 5min API stream timeout during extended thinking
+      '--debug-file', '/tmp/claude-debug-' + (taskId || 'unknown') + '.log',  // debug log for diagnosis
+      '--tools', 'Read,Write,Edit,Bash',  // only essential tools, no Glob/Grep/Agent overhead
       '--system-prompt-file', path.join(workDir, 'CLAUDE.md'),  // 直接传入 system prompt
     ];
 
@@ -318,6 +321,12 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
+    // Track child PID for graceful shutdown cleanup (shared via process global)
+    if (child.pid) {
+      if (!process._activeChildPIDs) process._activeChildPIDs = new Set();
+      process._activeChildPIDs.add(child.pid);
+    }
+
     let stdout = '';
     let stderr = '';
 
@@ -342,6 +351,7 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
 
     child.on('close', (code) => {
       clearTimeout(timer);
+      if (child.pid && process._activeChildPIDs) process._activeChildPIDs.delete(child.pid);
       log(`[claude-code] Process exited with code ${code}, stdout ${stdout.length} chars, stderr ${stderr.length} chars`, taskId);
       
       if (stderr && stderr.length > 0) {
@@ -452,15 +462,20 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
     : (blueprint.storyboardFrames && blueprint.storyboardFrames.length > 0 ? blueprint.storyboardFrames : null);
   if (!hasFeedback && specExtractor && skeletonGenerator && storyboardFrames) {
     try {
-      log('[claude-code] Extracting specs from storyboard frames...', taskId);
-      const specs = await specExtractor.extractSpecs(storyboardFrames, {
-        projectName: blueprint.projectName || taskId,
-        gameType: blueprint.gameType || 'SLG',
-      });
-      log(`[claude-code] Extracted ${specs.length} phase specs`, taskId);
-
       const specsDataDir = process.env.SPECS_DATA_DIR || path.join(__dirname, '..', 'spec-data');
-      specExtractor.saveSpecs(specs, taskId, specsDataDir);
+      // Try cached specs first to avoid redundant Doubao API calls
+      let specs = specExtractor.loadSpecs(taskId, specsDataDir);
+      if (specs && specs.length > 0) {
+        log(`[claude-code] Using cached specs: ${specs.length} phase specs`, taskId);
+      } else {
+        log('[claude-code] Extracting specs from storyboard frames...', taskId);
+        specs = await specExtractor.extractSpecs(storyboardFrames, {
+          projectName: blueprint.projectName || taskId,
+          gameType: blueprint.gameType || 'SLG',
+        });
+        log(`[claude-code] Extracted ${specs.length} phase specs`, taskId);
+        specExtractor.saveSpecs(specs, taskId, specsDataDir);
+      }
 
       // === Generate skeleton for ALL phases (no longer limiting to first 3) ===
       let activeSpecs = specs;
@@ -473,7 +488,9 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
         projectName: blueprint.projectName || taskId,
         entityPoolMap: entityPoolMap
       });
-      log(`[claude-code] Skeleton generated: ${skeleton.split('\n').length} lines (${activeSpecs.length}/${specs.length} phases)`, taskId);
+      const skelLines = typeof skeleton === 'string' ? skeleton.split('\n').length
+        : ((skeleton.main || '').split('\n').length + (skeleton.systems || '').split('\n').length);
+      log(`[claude-code] Skeleton generated: ${skelLines} lines (${activeSpecs.length}/${specs.length} phases)`, taskId);
     } catch (specErr) {
       log(`[claude-code] Spec extraction failed (non-fatal): ${specErr.message}`, taskId);
     }
@@ -513,49 +530,109 @@ ${feedbackTexts}
 
 重要：修改后文件行数不应减少。如果你发现文件变短了，说明你错误地重写了整个文件。`;
   } else {
+    // Inline key file contents to minimize Read tool calls — speeds up fresh gen significantly
+    let inlinePromptMd = '';
+    let inlineBehaviorTemplates = '';
+    let inlineGfmApi = '';
+    try {
+      inlinePromptMd = fs.readFileSync(path.join(clientDir, 'prompt.md'), 'utf-8');
+    } catch(e) {}
+    try {
+      inlineBehaviorTemplates = fs.readFileSync(path.join(clientDir, 'behavior-templates.md'), 'utf-8');
+    } catch(e) {}
+    try {
+      inlineGfmApi = fs.readFileSync(path.join(clientDir, 'GFM_Tools_API.md'), 'utf-8');
+    } catch(e) {}
+
+    // Also inline skeleton contents to avoid Read calls on large skeleton files
+    let inlineSkeletonMain = '';
+    let inlineSkeletonSystems = '';
+    if (skeleton && skeleton.split) {
+      try {
+        inlineSkeletonMain = fs.readFileSync(path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs'), 'utf-8');
+      } catch(e) {}
+      try {
+        inlineSkeletonSystems = fs.readFileSync(path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.Systems.cs'), 'utf-8');
+      } catch(e) {}
+    } else if (skeleton) {
+      try {
+        inlineSkeletonMain = fs.readFileSync(path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs'), 'utf-8');
+      } catch(e) {}
+    }
+
     userPrompt = skeleton
       ? (skeleton.split
-        ? `请完成以下步骤生成 Luna 试玩广告代码（拆分模式）：
+        ? `## 任务：生成 Luna 试玩广告代码（拆分模式）
 
-1. 阅读 prompt.md 了解详细需求（对象分配表、实体行为、事件规则、拆分规则）
-2. 阅读 GFM_Tools.cs 了解可用 API（只读参考，不要修改）
-3. 阅读 behavior-templates.md 了解行为模板参考
-4. 打开 Assets/Program/Script/Manager/GameFlowManagerMain.cs — 阶段流程骨架
-5. 打开 Assets/Program/Script/Manager/GameFlowManagerMain.Systems.cs — 子系统骨架
-6. 在 GameFlowManagerMain.cs 中填充阶段初始化和过渡逻辑（TODO 区域）
-7. 在 GameFlowManagerMain.Systems.cs 中实现游戏子系统（移动、战斗、生成、经济、UI 等）
-8. 代码必须遵循 CLAUDE.md 中的所有规则
-9. 运行 bash build-test.sh 验证编译是否通过
-10. 如果编译失败，阅读错误信息，修复代码，再次运行 build-test.sh
-11. 重复修复直到编译通过
+所有参考信息和骨架代码都在下面。
 
-重要：两个文件都是 partial class，共享所有字段。主文件放阶段流程，Systems 文件放子系统。每个文件 800-1200 行，合计可达 2400 行。`
-        : `请完成以下步骤生成 Luna 试玩广告代码：
+${inlineGfmApi ? '### GFM API 参考\n' + inlineGfmApi + '\n' : ''}
+### 详细需求
+${inlinePromptMd}
 
-1. 阅读 prompt.md 了解详细需求（对象分配表、实体行为、事件规则）
-2. 阅读 GFM_Tools.cs 了解可用 API（只读参考，不要修改）
-3. 阅读 behavior-templates.md 了解行为模板参考
-4. 打开 Assets/Program/Script/Manager/GameFlowManagerMain.cs — 骨架代码已预填充
-5. 填充所有 TODO 标记的部分，实现完整游戏逻辑
-6. 代码必须遵循 CLAUDE.md 中的所有规则
-7. 运行 bash build-test.sh 验证编译是否通过
-8. 如果编译失败，阅读错误信息，修复代码，再次运行 build-test.sh
-9. 重复修复直到编译通过
+### 骨架代码 — GameFlowManagerMain.cs（填充 TODO 区域）
+\`\`\`csharp
+${inlineSkeletonMain}
+\`\`\`
 
-重要：骨架已在 .cs 文件中，直接在此基础上填充。代码必须完整（通常 1300-1600 行），不要省略任何部分。如果代码超过 800 行，可以创建 GameFlowManagerMain.Systems.cs（partial class）拆分子系统。`)
-      : `请完成以下步骤生成 Luna 试玩广告代码：
+### 骨架代码 — GameFlowManagerMain.Systems.cs（实现子系统）
+\`\`\`csharp
+${inlineSkeletonSystems}
+\`\`\`
 
-1. 阅读 blueprint.json 了解蓝图结构（节点、边、实体）
-2. 阅读 prompt.md 了解详细需求（对象分配表、实体行为、事件规则）
-3. 阅读 GFM_Tools.cs 了解可用 API（只读参考，不要修改）
-4. 阅读 behavior-templates.md 了解行为模板参考
-5. 在 Assets/Program/Script/Manager/GameFlowManagerMain.cs 中生成完整代码
-6. 代码必须遵循 CLAUDE.md 中的所有规则
-7. 运行 bash build-test.sh 验证编译是否通过
-8. 如果编译失败，阅读错误信息，修复代码，再次运行 build-test.sh
-9. 重复修复直到编译通过
+## 指令 — 分段编辑（每次一个 phase）
 
-重要：代码必须完整（通常 1300-1600 行），不要省略任何部分。`;
+⚠️ **关键：为了避免 API 超时，每次 Edit 调用只修改一小段代码（一个 TODO 区域）。不要一次 Write 整个文件。**
+
+1. 先 Read 两个 .cs 骨架文件（它们已在磁盘上）
+2. 逐个 TODO 区域使用 Edit 工具替换：
+   - 先填充 GameFlowManagerMain.cs 中的变量声明 TODO
+   - 然后逐个 phase 的 TODO：Phase 1 初始化、Phase 2 初始化... 直到最后一个 phase
+   - 最后填充 GameFlowManagerMain.Systems.cs 中的子系统 TODO
+3. 每个 Edit 只替换一个 TODO 标记区域（约 20-80 行）
+4. 全部填充完成后运行 bash build-test.sh 验证编译
+5. 如果编译失败，用 Edit 修复，再次运行 build-test.sh
+
+两个文件是 partial class，共享所有字段。主文件放阶段流程，Systems 文件放子系统。`
+        : `## 任务：生成 Luna 试玩广告代码
+
+所有参考信息和骨架代码都在下面。
+
+${inlineGfmApi ? '### GFM API 参考\n' + inlineGfmApi + '\n' : ''}
+### 详细需求
+${inlinePromptMd}
+
+### 骨架代码 — GameFlowManagerMain.cs（填充 TODO 区域）
+\`\`\`csharp
+${inlineSkeletonMain}
+\`\`\`
+
+## 指令 — 分段编辑
+
+⚠️ **每次 Edit 调用只修改一个 TODO 区域。不要一次 Write 整个文件。**
+
+1. 先 Read GameFlowManagerMain.cs（已在磁盘上）
+2. 逐个 TODO 区域使用 Edit 工具替换（每次约 20-80 行）
+3. 全部填充完成后运行 bash build-test.sh 验证编译
+4. 如果编译失败，用 Edit 修复，再次运行 build-test.sh
+
+代码必须完整（1300-1600 行），不要省略任何部分。`)
+      : `## 任务：生成 Luna 试玩广告代码
+
+所有参考信息都在下面。
+
+${inlineGfmApi ? '### GFM API 参考\n' + inlineGfmApi + '\n' : ''}
+### 详细需求
+${inlinePromptMd}
+
+## 指令
+
+1. 基于上面的需求，生成完整的 GameFlowManagerMain.cs 代码
+2. 用 Write 工具写入 Assets/Program/Script/Manager/GameFlowManagerMain.cs（注意：先 Read 一下文件）
+3. 运行 bash build-test.sh 验证编译
+4. 如果编译失败，用 Edit 工具修复，再次运行 build-test.sh
+
+代码必须完整（1300-1600 行），不要省略任何部分。`;
   }
 
   // === Step 5: 运行 Claude Code（跨进程信号量，限制并发数）===
@@ -563,10 +640,12 @@ ${feedbackTexts}
   log('[claude-code] 🚀 Starting Claude Code agent...', taskId);
   let result;
   try {
-  const useGlm = false; // All models use Opus 4.6 now (GLM 5.1 removed)
-  log(`[claude-code] Model: Opus 4.6`, taskId);
+  // Use Opus for both fresh and fix — quality matters. Inline prompt + Edit approach avoids 5min timeout.
+  const codegenModel = CLAUDE_MODEL;
+  log(`[claude-code] Model: ${codegenModel === 'haiku' ? 'Haiku 4.5' : codegenModel === 'sonnet' ? 'Sonnet 4.6' : 'Opus 4.6'}`, taskId);
   result = await runClaudeCode(clientDir, userPrompt, log, taskId, {
-    useGlm: useGlm,
+    model: codegenModel,
+    // effort: always 'medium' to avoid API stream timeout (5min) during extended thinking
     appendSystemPrompt: hasFeedback
       ? 'INCREMENTAL FIX MODE — CRITICAL RULES:\n'
         + '1. Use the Edit tool (NOT Write) to modify .cs files\n'

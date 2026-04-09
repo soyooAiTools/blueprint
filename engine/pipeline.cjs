@@ -80,6 +80,14 @@ function PipelineContext(task, checkpoint, workerConfig) {
   // Checkpoint + resume
   this.checkpoint = checkpoint || {};
   this.completedStages = (checkpoint && checkpoint.completedStages) || [];
+
+  // Always load GFM_Tools.cs — checkpoint resume skips clone which normally sets this
+  try {
+    var gfmPath = require('path').join(__dirname, '..', 'worker', 'GFM_Tools.cs');
+    if (require('fs').existsSync(gfmPath)) {
+      this.extraFiles['GFM_Tools.cs'] = require('fs').readFileSync(gfmPath, 'utf-8');
+    }
+  } catch(e) { /* ignore */ }
   this.stageResults = {};
   this.lastStageError = null;
   this.log = [];
@@ -95,6 +103,7 @@ PipelineContext.prototype.saveCheckpointData = function() {
   return {
     completedStages: this.completedStages.slice(),
     csCode: this.csCode,
+    extraFiles: this.extraFiles,
     feedbackHistory: this.blueprint ? this.blueprint.feedbackHistory : [],
     stageResults: this.stageResults,
     cuaRound: this.checkpoint.cuaRound || 0,

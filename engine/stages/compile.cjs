@@ -73,6 +73,7 @@ module.exports = {
             return recode({
               taskId: ctx.taskId,
               currentCode: lastCsCode,
+              extraFiles: lastExtraFiles,
               blueprint: ctx.blueprint,
               label: 'buildfix',
               round: round,
@@ -80,6 +81,14 @@ module.exports = {
             }).then(function(result) {
               if (result.ok) {
                 lastCsCode = result.code;
+                // Pick up partial class files (e.g. Systems.cs) from recode
+                if (result.extraFiles) {
+                  for (var efn in result.extraFiles) {
+                    if (result.extraFiles.hasOwnProperty(efn)) {
+                      lastExtraFiles[efn] = result.extraFiles[efn];
+                    }
+                  }
+                }
                 ctx.addLog('compile', 'Build fix ' + round + ': got fixed code (' + lastCsCode.length + ' chars)');
               } else {
                 ctx.addLog('compile', 'Build fix re-code failed: ' + result.error);

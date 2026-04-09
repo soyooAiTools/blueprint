@@ -57,20 +57,46 @@ function getCheckpointPath(taskId) {
 function saveCheckpoint(taskId, data) {
   const dir = getCheckpointPath(taskId);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'checkpoint.json'), JSON.stringify({
+  var payload = {
     csCode: data.csCode,
     cuaRound: data.cuaRound,
     feedbackHistory: data.feedbackHistory,
     fixHistory: data.fixHistory || [],
+    completedStages: data.completedStages || [],
+    extraFiles: data.extraFiles || {},
+    stageResults: data.stageResults || {},
+    workDir: data.workDir || null,
     savedAt: new Date().toISOString()
-  }));
+  };
+  // htmlOutput can be large (>10MB) — save as separate file to avoid JSON bloat
+  // Use atomic write (tmp + rename) to prevent corruption on SIGTERM
+  if (data.htmlOutput) {
+    var htmlTmp = path.join(dir, 'htmlOutput.bin.tmp');
+    var htmlFinal = path.join(dir, 'htmlOutput.bin');
+    fs.writeFileSync(htmlTmp, data.htmlOutput);
+    fs.renameSync(htmlTmp, htmlFinal);
+    payload.hasHtmlOutput = true;
+  }
+  var jsonTmp = path.join(dir, 'checkpoint.json.tmp');
+  var jsonFinal = path.join(dir, 'checkpoint.json');
+  fs.writeFileSync(jsonTmp, JSON.stringify(payload));
+  fs.renameSync(jsonTmp, jsonFinal);
 }
 
 function loadCheckpoint(taskId) {
-  const fp = path.join(getCheckpointPath(taskId), 'checkpoint.json');
+  const dir = getCheckpointPath(taskId);
+  const fp = path.join(dir, 'checkpoint.json');
   if (fs.existsSync(fp)) {
     try {
-      return JSON.parse(fs.readFileSync(fp, 'utf8'));
+      var data = JSON.parse(fs.readFileSync(fp, 'utf8'));
+      // Load htmlOutput from separate file if it exists
+      if (data.hasHtmlOutput) {
+        var htmlPath = path.join(dir, 'htmlOutput.bin');
+        if (fs.existsSync(htmlPath)) {
+          data.htmlOutput = fs.readFileSync(htmlPath, 'utf8');
+        }
+      }
+      return data;
     } catch (e) { return null; }
   }
   return null;
@@ -274,6 +300,9 @@ const TASK_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
 const activeTasks = new Map();
 let pollLock = false;
 
+// Track child process PIDs for graceful shutdown cleanup
+const activeChildPIDs = new Set();
+
 // ============ Logging ============
 function log(msg, taskId) {
   const ts = new Date().toISOString().slice(11, 19);
@@ -442,19 +471,44 @@ async function processTask(task) {
     // Map checkpoint to pipeline format
     const pipelineCheckpoint = {};
     if (checkpoint && checkpoint.csCode) {
-      // If we have saved code, skip clone+codegen+review and resume from compile
-      pipelineCheckpoint.completedStages = ['clone', 'codegen', 'review'];
+      // Use real completedStages from checkpoint (not hardcoded)
+      if (checkpoint.completedStages && checkpoint.completedStages.length > 0) {
+        pipelineCheckpoint.completedStages = checkpoint.completedStages;
+        log(`[checkpoint] Resuming with completedStages: [${checkpoint.completedStages.join(', ')}]`, taskId);
+      } else {
+        // Legacy checkpoint without completedStages — fall back to old behavior
+        pipelineCheckpoint.completedStages = ['clone', 'codegen', 'review'];
+        log(`[checkpoint] Legacy checkpoint — resuming after review stage`, taskId);
+      }
       pipelineCheckpoint.cuaRound = checkpoint.cuaRound || 0;
       pipelineCheckpoint.fixHistory = checkpoint.fixHistory || [];
-      log(`[checkpoint] Resuming pipeline after review stage (CUA round ${pipelineCheckpoint.cuaRound})`, taskId);
     }
 
     const ctx = new PipelineContext(pipelineTask, pipelineCheckpoint, workerConfig);
 
-    // Restore checkpoint state
+    // Restore full checkpoint state
     if (checkpoint && checkpoint.csCode) {
       ctx.csCode = checkpoint.csCode;
       ctx.blueprint.feedbackHistory = checkpoint.feedbackHistory || [];
+      if (checkpoint.extraFiles) {
+        Object.assign(ctx.extraFiles, checkpoint.extraFiles);
+      }
+      if (checkpoint.stageResults) {
+        ctx.stageResults = checkpoint.stageResults;
+      }
+      if (checkpoint.htmlOutput) {
+        ctx.htmlOutput = checkpoint.htmlOutput;
+        log(`[checkpoint] Restored htmlOutput (${(checkpoint.htmlOutput.length / 1048576).toFixed(1)}MB)`, taskId);
+      }
+      if (checkpoint.workDir && fs.existsSync(checkpoint.workDir)) {
+        ctx.workDir = checkpoint.workDir;
+        log(`[checkpoint] Restored workDir: ${checkpoint.workDir}`, taskId);
+      }
+    }
+
+    // Store pipeline context reference for graceful shutdown
+    if (activeTasks.has(taskId)) {
+      activeTasks.get(taskId).pipelineCtx = ctx;
     }
 
     // === Step 4: Run pipeline ===
@@ -462,14 +516,18 @@ async function processTask(task) {
 
     const onProgress = function(stageName, status, pCtx) {
       log(`[pipeline] ${stageName}: ${status}`, taskId);
-      if (status === 'completed' && pCtx.csCode) {
-        // Save checkpoint after each major stage
+      if (status === 'completed') {
+        // Save full checkpoint after each completed stage
         saveCheckpoint(taskId, {
           csCode: pCtx.csCode,
           cuaRound: pCtx.checkpoint.cuaRound || 0,
-          codingPhase: stageName + '-complete',
           feedbackHistory: pCtx.blueprint.feedbackHistory || [],
           fixHistory: pCtx.checkpoint.fixHistory || [],
+          completedStages: pCtx.completedStages,
+          extraFiles: pCtx.extraFiles,
+          stageResults: pCtx.stageResults,
+          workDir: pCtx.workDir,
+          htmlOutput: pCtx.htmlOutput,
         });
       }
     };
@@ -526,7 +584,8 @@ async function processTask(task) {
     failInfo.durationMs = Date.now() - startTime;
 
     await reportStatus(taskId, 'failed', failInfo);
-    clearCheckpoint(taskId);
+    // Keep checkpoint on failure — allows resume on retry instead of starting from scratch
+    // clearCheckpoint(taskId); // DISABLED: preserve checkpoint for restart resilience
   }
 }
 
@@ -555,17 +614,95 @@ async function poll() {
   }
 }
 
+// ============ Graceful Shutdown ============
+var shuttingDown = false;
+
+function gracefulShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log('[shutdown] ' + signal + ' received — saving checkpoints and cleaning up...');
+
+  // Stop polling and heartbeat timers
+  pollLock = true;
+  try { clearInterval(pollTimer); } catch(e) {}
+  try { clearInterval(heartbeatTimer); } catch(e) {}
+
+  // Kill all tracked child processes (claude CLI, python CUA, etc.)
+  var allPIDs = new Set(activeChildPIDs);
+  if (process._activeChildPIDs) {
+    process._activeChildPIDs.forEach(function(p) { allPIDs.add(p); });
+  }
+  allPIDs.forEach(function(pid) {
+    try {
+      process.kill(pid, 'SIGTERM');
+      log('[shutdown] Killed child PID ' + pid);
+    } catch(e) {
+      // Process already exited — ignore
+    }
+  });
+
+  // Kill entire process tree (children + grandchildren like claude subprocesses)
+  try {
+    var myPid = process.pid;
+    var { execSync } = require('child_process');
+    // pkill -TERM -P sends SIGTERM to all direct children; repeat for grandchildren
+    execSync('pkill -TERM -P ' + myPid + ' 2>/dev/null; sleep 0.1; pkill -TERM -P ' + myPid + ' 2>/dev/null', { timeout: 5000, shell: true });
+    log('[shutdown] Killed child process tree via pkill');
+  } catch(e) {
+    // pkill returns 1 if no processes matched — fine
+  }
+
+  // Save checkpoint for all active tasks
+  var saved = 0;
+  activeTasks.forEach(function(info, taskId) {
+    var ctx = info.pipelineCtx;
+    if (ctx && ctx.csCode) {
+      try {
+        saveCheckpoint(taskId, {
+          csCode: ctx.csCode,
+          cuaRound: ctx.checkpoint ? ctx.checkpoint.cuaRound || 0 : 0,
+          feedbackHistory: ctx.blueprint ? ctx.blueprint.feedbackHistory || [] : [],
+          fixHistory: ctx.checkpoint ? ctx.checkpoint.fixHistory || [] : [],
+          completedStages: ctx.completedStages,
+          extraFiles: ctx.extraFiles,
+          stageResults: ctx.stageResults,
+          workDir: ctx.workDir,
+          htmlOutput: ctx.htmlOutput,
+        });
+        log('[shutdown] Checkpoint saved for ' + taskId + ' (stages: ' + ctx.completedStages.join(',') + ')', taskId);
+        saved++;
+      } catch(e) {
+        log('[shutdown] Failed to save checkpoint for ' + taskId + ': ' + e.message, taskId);
+      }
+    } else {
+      log('[shutdown] No pipeline context for ' + taskId + ' — cannot save', taskId);
+    }
+  });
+
+  log('[shutdown] Saved ' + saved + '/' + activeTasks.size + ' checkpoints. Exiting.');
+  process.exit(0);
+}
+
+process.on('SIGTERM', function() { gracefulShutdown('SIGTERM'); });
+process.on('SIGINT', function() { gracefulShutdown('SIGINT'); });
+
 // ============ Error Handling ============
-process.on('uncaughtException', (e) => { log('UNCAUGHT: ' + e.stack); });
-process.on('unhandledRejection', (e) => { log('UNHANDLED: ' + (e.stack || e)); });
+process.on('uncaughtException', (e) => {
+  log('UNCAUGHT: ' + e.stack);
+  gracefulShutdown('UNCAUGHT_EXCEPTION');
+});
+process.on('unhandledRejection', (e) => {
+  log('UNHANDLED REJECTION: ' + (e && e.stack ? e.stack : e));
+  // Don't crash — log and continue. The task-level catch will handle it.
+});
 
 // ============ Start ============
 log(`Linux Worker starting | ID: ${WORKER_ID} | Server: ${BASE_URL} | Build: ${BUILD_URL}`);
-setInterval(poll, POLL_INTERVAL);
+var pollTimer = setInterval(poll, POLL_INTERVAL);
 poll();
 
 // Heartbeat
-setInterval(() => {
+var heartbeatTimer = setInterval(() => {
   var currentTaskId = null;
   var workerStatus = 'idle';
   if (activeTasks.size > 0) {

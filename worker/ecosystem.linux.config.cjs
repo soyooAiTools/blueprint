@@ -1,0 +1,66 @@
+// PM2 config for Linux workers — restart resilience
+// Usage: pm2 start worker/ecosystem.linux.config.cjs
+module.exports = {
+  apps: [
+    {
+      name: 'linux-worker-1',
+      script: '/opt/blueprint-editor/worker/linux-worker-client.js',
+      cwd: '/opt/blueprint-editor/worker',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      watch: false,
+      kill_timeout: 30000,       // 30s for graceful shutdown (save checkpoint)
+      restart_delay: 5000,       // 5s between restarts
+      max_restarts: 10,
+      min_uptime: '30s',
+      max_memory_restart: '1G',
+      env: {
+        NODE_ENV: 'production',
+        LINUX_WORKER_ID: 'linux-worker-1',
+      },
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      merge_logs: true,
+    },
+    {
+      name: 'linux-worker-2',
+      script: '/opt/blueprint-editor/worker/linux-worker-client.js',
+      cwd: '/opt/blueprint-editor/worker',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      watch: false,
+      kill_timeout: 30000,
+      restart_delay: 5000,
+      max_restarts: 10,
+      min_uptime: '30s',
+      max_memory_restart: '1G',
+      env: {
+        NODE_ENV: 'production',
+        LINUX_WORKER_ID: 'linux-worker-2',
+      },
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      merge_logs: true,
+    },
+    {
+      name: 'linux-worker-3',
+      script: '/opt/blueprint-editor/worker/linux-worker-client.js',
+      cwd: '/opt/blueprint-editor/worker',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      watch: false,
+      kill_timeout: 30000,
+      restart_delay: 5000,
+      max_restarts: 10,
+      min_uptime: '30s',
+      max_memory_restart: '1G',
+      env: {
+        NODE_ENV: 'production',
+        LINUX_WORKER_ID: 'linux-worker-3',
+      },
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      merge_logs: true,
+    },
+  ]
+};

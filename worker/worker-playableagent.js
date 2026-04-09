@@ -20,7 +20,7 @@ const CUA_RESULTS_DIR = path.join(__dirname, 'cua-results');
 let LOCAL_PREVIEW_PORT = 0; // Dynamic port to avoid multi-worker conflicts
 const PYTHON = '/usr/bin/python3.8';
 const VERIFY_SCRIPT = '/root/cua-agent/blueprint_verify.py';
-const MAX_VERIFY_TIMEOUT = 480000; // 5 min
+const MAX_VERIFY_TIMEOUT = 900000; // 15 min (complex games need more CUA steps)
 
 try { fs.mkdirSync(CUA_RESULTS_DIR, { recursive: true }); } catch(e) {}
 
@@ -194,12 +194,14 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
     };
 
     log('[PlayableAgent] Running: ' + PYTHON + ' ' + args.join(' '), taskId);
+    if (!process._activeChildPIDs) process._activeChildPIDs = new Set();
     const child = spawn(PYTHON, args, {
       cwd: '/root/cua-agent',
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: MAX_VERIFY_TIMEOUT
     });
+    if (child.pid) process._activeChildPIDs.add(child.pid);
 
     let stdout = '';
     let stderr = '';
@@ -215,12 +217,13 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
     child.stderr.on('data', d => { stderr += d.toString(); });
 
     const timeout = setTimeout(() => {
-      log('[PlayableAgent] Timeout after 8 minutes, killing', taskId);
+      log('[PlayableAgent] Timeout after 15 minutes, killing', taskId);
       try { child.kill('SIGTERM'); } catch(e) {}
     }, MAX_VERIFY_TIMEOUT);
 
     child.on('close', (code) => {
       clearTimeout(timeout);
+      if (child.pid && process._activeChildPIDs) process._activeChildPIDs.delete(child.pid);
       try { server.close(); } catch(e) {}
 
       log('[PlayableAgent] Process exited with code ' + code, taskId);

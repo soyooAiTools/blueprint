@@ -40,25 +40,31 @@ module.exports = {
   execute: function(ctx) {
     var tempDir = path.join(os.tmpdir(), 'linux-task-' + ctx.taskId);
 
-    // Clean up previous run if exists
-    if (fs.existsSync(tempDir)) {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+    // Reuse existing work directory if it has valid template (restart resilience)
+    if (fs.existsSync(tempDir) && fs.existsSync(path.join(tempDir, 'Assets'))) {
+      ctx.workDir = tempDir;
+      ctx.addLog('clone', 'Reusing existing work directory at ' + tempDir);
+    } else {
+      // Clean up corrupted/incomplete directory
+      if (fs.existsSync(tempDir)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+
+      ctx.addLog('clone', 'Preparing base template...');
+      if (ctx.reportStatus) {
+        ctx.reportStatus('processing', { message: '[Linux] Preparing base template...' });
+      }
+
+      getBaseTemplate(tempDir, function(msg) { ctx.addLog('clone', msg); }, ctx.taskId);
+
+      // Verify template integrity — must have Assets dir and key files
+      if (!fs.existsSync(path.join(tempDir, 'Assets'))) {
+        throw new Error('Template clone corrupted: Assets/ directory missing');
+      }
+
+      ctx.workDir = tempDir;
+      ctx.addLog('clone', 'Base template ready at ' + tempDir);
     }
-
-    ctx.addLog('clone', 'Preparing base template...');
-    if (ctx.reportStatus) {
-      ctx.reportStatus('processing', { message: '[Linux] Preparing base template...' });
-    }
-
-    getBaseTemplate(tempDir, function(msg) { ctx.addLog('clone', msg); }, ctx.taskId);
-
-    // Verify template integrity — must have Assets dir and key files
-    if (!fs.existsSync(path.join(tempDir, 'Assets'))) {
-      throw new Error('Template clone corrupted: Assets/ directory missing');
-    }
-
-    ctx.workDir = tempDir;
-    ctx.addLog('clone', 'Base template ready at ' + tempDir);
 
     // Ensure script output directory exists
     var assetsDir = path.join(tempDir, 'Assets', 'Program', 'Script', 'Manager');

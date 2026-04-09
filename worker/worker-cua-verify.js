@@ -1002,6 +1002,8 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 300000
     });
+    if (!process._activeChildPIDs) process._activeChildPIDs = new Set();
+    if (child.pid) process._activeChildPIDs.add(child.pid);
 
     let stdout = '';
     let stderr = '';
@@ -1021,6 +1023,7 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
 
     child.on('close', async (code) => {
       clearTimeout(timeout);
+      if (child.pid && process._activeChildPIDs) process._activeChildPIDs.delete(child.pid);
       // FIX: server.close() moved to after autoPlay fallback — was causing ERR_CONNECTION_REFUSED race (2026-04-01)
 
       log('[CUA] luna-agent exited with code ' + code, taskId);
