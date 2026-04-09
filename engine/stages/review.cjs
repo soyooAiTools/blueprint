@@ -58,6 +58,7 @@ module.exports = {
     ctx.reportStatus('processing', { message: '[Linux] ' + reviewerName + ' 代码审核中...' });
 
     var reviewedCode = ctx.csCode;
+    var reviewExtraFiles = Object.assign({}, ctx.extraFiles);
 
     // Static pre-check: catch forbidden APIs before burning LLM tokens
     var preCheck = staticCheck(reviewedCode);
@@ -221,6 +222,7 @@ module.exports = {
             fixPromise = patchRecode({
               taskId: ctx.taskId,
               currentCode: reviewedCode,
+              extraFiles: reviewExtraFiles,
               issues: reviewResult.issues,
               blueprint: fixBlueprint,
               label: 'reviewfix',
@@ -232,6 +234,7 @@ module.exports = {
               return recode({
                 taskId: ctx.taskId,
                 currentCode: reviewedCode,
+                extraFiles: reviewExtraFiles,
                 blueprint: fixBlueprint,
                 label: 'reviewfix',
                 round: round,
@@ -242,6 +245,7 @@ module.exports = {
             fixPromise = recode({
               taskId: ctx.taskId,
               currentCode: reviewedCode,
+              extraFiles: reviewExtraFiles,
               blueprint: fixBlueprint,
               label: 'reviewfix',
               round: round,
@@ -252,6 +256,13 @@ module.exports = {
           return fixPromise.then(function(recodeResult) {
             if (recodeResult.ok) {
               reviewedCode = recodeResult.code;
+              if (recodeResult.extraFiles) {
+                for (var efn in recodeResult.extraFiles) {
+                  if (recodeResult.extraFiles.hasOwnProperty(efn)) {
+                    reviewExtraFiles[efn] = recodeResult.extraFiles[efn];
+                  }
+                }
+              }
               ctx.addLog('review', 'Review fix applied (' + reviewedCode.length + ' chars' + (recodeResult.patchApplied ? ', patch mode' : '') + ')');
             }
             return { done: false };

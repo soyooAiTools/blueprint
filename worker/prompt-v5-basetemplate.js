@@ -681,6 +681,16 @@ function parseBlueprintToPromptV5(blueprint, opts) {
     lines.push('```');
   }
 
+  // ========== 11b. 现有 partial class 文件 ==========
+  if (opts.existingSystemsCode) {
+    lines.push('');
+    lines.push('# 现有 partial class 文件: GameFlowManagerMain.Systems.cs');
+    lines.push('> ⚠️ 此文件与主文件共同编译。不要在主文件中重复定义此文件已有的方法，否则会产生CS0111编译错误。');
+    lines.push('```csharp');
+    lines.push(opts.existingSystemsCode);
+    lines.push('```');
+  }
+
   // ========== 12. 历史教训（从生产失败中自动提取） ==========
   try {
     var lessonsLines = [];

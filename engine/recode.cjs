@@ -141,12 +141,24 @@ function patchRecode(opts) {
     );
   }
 
+  // Include partial class files so Claude knows which methods already exist elsewhere
+  var extraFilesContext = '';
+  if (opts.extraFiles) {
+    for (var efKey in opts.extraFiles) {
+      if (opts.extraFiles.hasOwnProperty(efKey)) {
+        extraFilesContext += '\n\nPARTIAL CLASS FILE (' + efKey + ') — compiled together, do NOT redefine methods from this file:\n' + opts.extraFiles[efKey];
+      }
+    }
+  }
+
   var prompt = {
     system: 'You are fixing specific issues in a Luna playable ad C# file. Output ONLY the complete corrected file. No explanations, no markdown fences.',
     user: 'CURRENT FULL CODE:\n' + opts.currentCode + '\n\n' +
+      (extraFilesContext ? extraFilesContext + '\n\n' : '') +
       'ISSUES TO FIX (do NOT modify any other code):\n' + issueDescriptions.join('\n\n') + '\n\n' +
       'Output the COMPLETE corrected file. Only modify lines related to the issues above.\n' +
-      'Do NOT add new features, refactor, or change working code.'
+      'Do NOT add new features, refactor, or change working code.' +
+      (extraFilesContext ? '\nCRITICAL: Do NOT duplicate any method already defined in the partial class files above — this causes CS0111.' : '')
   };
 
   opts.log('patchRecode: fixing ' + opts.issues.length + ' issues via Claude Sonnet');

@@ -330,6 +330,7 @@ module.exports = {
               return recode({
                 taskId: ctx.taskId,
                 currentCode: lastCsCode,
+                extraFiles: lastExtraFiles,
                 blueprint: ctx.blueprint,
                 label: 'vfix',
                 round: round,
@@ -343,6 +344,13 @@ module.exports = {
                 }
 
                 lastCsCode = recodeResult.code;
+                if (recodeResult.extraFiles) {
+                  for (var efn in recodeResult.extraFiles) {
+                    if (recodeResult.extraFiles.hasOwnProperty(efn)) {
+                      lastExtraFiles[efn] = recodeResult.extraFiles[efn];
+                    }
+                  }
+                }
                 ctx.reportStatus('building', { message: '[Linux] 视觉修复重编译 (round ' + (round + 1) + ')...' });
 
                 return helpers.buildRequest(buildUrl, '/build', lastCsCode, lastExtraFiles)
@@ -353,7 +361,6 @@ module.exports = {
                     return helpers.buildRequest(buildUrl, '/build-html', lastCsCode, lastExtraFiles)
                       .then(function(newHtml) {
                         lastHtmlForVisual = newHtml;
-                        lastExtraFiles = Object.assign({}, ctx.extraFiles);
                         fs.writeFileSync(path.join(previewDir, 'index.html'), lastHtmlForVisual);
                         return { done: false };
                       });

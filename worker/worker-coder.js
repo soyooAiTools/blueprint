@@ -1416,6 +1416,10 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
     if (fs.existsSync(mainFile)) {
       opts.existingCode = fs.readFileSync(mainFile, 'utf-8');
     }
+    var sysFile = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.Systems.cs');
+    if (fs.existsSync(sysFile)) {
+      opts.existingSystemsCode = fs.readFileSync(sysFile, 'utf-8');
+    }
   }
   var prompt = promptV5Module.parseBlueprintToPromptV5(blueprint, opts);
 

@@ -384,6 +384,7 @@ module.exports = {
                 cuaFixPromise = patchRecode({
                   taskId: ctx.taskId,
                   currentCode: lastCsCode,
+                  extraFiles: lastExtraFiles,
                   issues: structuredIssues,
                   blueprint: ctx.blueprint,
                   label: 'cuafix',
@@ -395,6 +396,7 @@ module.exports = {
                   return recode({
                     taskId: ctx.taskId,
                     currentCode: lastCsCode,
+                    extraFiles: lastExtraFiles,
                     blueprint: ctx.blueprint,
                     label: 'cuafix',
                     round: round,
@@ -407,6 +409,7 @@ module.exports = {
               cuaFixPromise = recode({
                 taskId: ctx.taskId,
                 currentCode: lastCsCode,
+                extraFiles: lastExtraFiles,
                 blueprint: ctx.blueprint,
                 label: 'cuafix',
                 round: round,
@@ -421,9 +424,17 @@ module.exports = {
               }
 
               lastCsCode = recodeResult.code;
+              // Capture updated extraFiles from recode (e.g. Systems.cs partial class)
+              if (recodeResult.extraFiles) {
+                for (var efKey in recodeResult.extraFiles) {
+                  if (recodeResult.extraFiles.hasOwnProperty(efKey)) {
+                    lastExtraFiles[efKey] = recodeResult.extraFiles[efKey];
+                  }
+                }
+              }
               ctx.reportStatus('building', { message: '[Linux] CUA fix rebuilding... (round ' + (round + 1) + ')' });
 
-              return helpers.buildRequest(buildUrl, '/build', lastCsCode, Object.assign({}, ctx.extraFiles))
+              return helpers.buildRequest(buildUrl, '/build', lastCsCode, Object.assign({}, lastExtraFiles))
                 .then(function(buildResult) {
                   if (!buildResult.ok) {
                     ctx.addLog('cua-verify', 'Fix rebuild failed: ' + (buildResult.error || ''));
@@ -433,7 +444,7 @@ module.exports = {
                   ctx.checkpoint.cuaRound = round;
                   ctx.checkpoint.fixHistory = fixHistory;
 
-                  return helpers.buildRequest(buildUrl, '/build-html', lastCsCode, Object.assign({}, ctx.extraFiles))
+                  return helpers.buildRequest(buildUrl, '/build-html', lastCsCode, Object.assign({}, lastExtraFiles))
                     .then(function(newHtml) {
                       lastHtmlData = newHtml;
                       ctx.addLog('cua-verify', 'Fix HTML: ' + (newHtml.length / 1048576).toFixed(1) + 'MB');
