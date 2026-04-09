@@ -881,10 +881,17 @@ if(_imgSet&&_imgSet.set){
   // Bridge.NET transpiles this to Playcanvas entity._name. We poll all root entities to find it.
   const gameStateBridge = `<script>
 (function(){
+  // AutoPlay mode: if URL has ?autoplay=1, create a flag entity that C# can detect via GameObject.Find
+  var _autoPlayFlagCreated=false;
+  var _autoPlayRequested=new URLSearchParams(window.location.search).get('autoplay')==='1';
   setInterval(function(){
     try{
       var app=pc.app||pc.Application.getApplication();
       if(!app||!app.root)return;
+      // Create autoPlay flag entity once (C# reads via GameObject.Find("__AUTOPLAY_ON__"))
+      if(_autoPlayRequested&&!_autoPlayFlagCreated){
+        try{var fe=new pc.Entity('__AUTOPLAY_ON__');app.root.addChild(fe);_autoPlayFlagCreated=true;}catch(e){}
+      }
       var all=app.root.findByName?null:null;
       // Scan all children recursively for entity with name starting with "GFM|"
       function scan(node){

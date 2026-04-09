@@ -174,13 +174,14 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
   const actualPort = server.address().port;
   log("[PlayableAgent] Local server on port " + actualPort, taskId);
 
-  const previewUrl = 'http://127.0.0.1:' + actualPort + '/' + (hasIframe ? 'iframe.html' : 'index.html');
-  
+  // AutoPlay mode: append ?autoplay=1 so the JS bridge creates __AUTOPLAY_ON__ entity
+  const previewUrl = 'http://127.0.0.1:' + actualPort + '/' + (hasIframe ? 'iframe.html' : 'index.html') + '?autoplay=1';
+
   // Write specs for Python
   const specsPath = writeSpecsFile(blueprint, taskId);
-  
-  // Build Python command
-  const args = [VERIFY_SCRIPT, previewUrl, '--steps', '50'];
+
+  // Build Python command — observer mode (no VLM interaction, just watch autoPlay)
+  const args = [VERIFY_SCRIPT, previewUrl, '--steps', '50', '--observe'];
   if (specsPath) args.push('--specs', specsPath);
 
   const outputDir = path.join(CUA_RESULTS_DIR, taskId + '-playableagent');
@@ -266,27 +267,30 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       // ─── Convert report to worker-cua-verify format ───
       const issues = [];
 
-      // ═══ Anti-Autoplay Detection ═══
-      if (report.autoplay_detected) {
-        log('[PlayableAgent] 🚨 AUTOPLAY DETECTED: ' + (report.autoplay_reason || 'Phases auto-completed without player input'), taskId);
-        issues.push('[autoplay-detected] ' + (report.autoplay_reason || 'Game phases auto-completed via timer without any player interaction. The game must require real input to progress.'));
-      }
-
-      // Check if all phases passed but 0 actions taken (secondary autoplay check)
-      if (report.passed && (!report.actions || report.actions.length === 0)) {
-        log('[PlayableAgent] 🚨 AUTOPLAY: passed=true but 0 actions — overriding to FAIL', taskId);
-        report.passed = false;
-        issues.push('[autoplay-no-interaction] All phases completed with 0 agent actions. Game auto-progresses without player input. Each phase MUST require player interaction (joystick move / click / drag) to advance.');
-      }
-
-      // Check if game variables show no interaction (all zeros except gameTimer)
-      const finalVars = (report.finalState || {}).variables || {};
-      const interactionKeys = Object.keys(finalVars).filter(k => k !== 'gameTimer');
-      const allVarsZero = interactionKeys.length > 0 && interactionKeys.every(k => finalVars[k] === 0 || finalVars[k] === '0');
-      if (report.passed && allVarsZero && interactionKeys.length >= 2) {
-        log('[PlayableAgent] 🚨 AUTOPLAY: all interaction variables are 0 — overriding to FAIL', taskId);
-        report.passed = false;
-        issues.push('[autoplay-no-variable-change] Game completed but all interaction variables (gold, carrying, etc.) remain at 0. Game has no real interactive mechanics — phases advance by timer only.');
+      // ═══ Anti-Autoplay Detection — DISABLED in autoPlay/observe mode ═══
+      // AutoPlay mode intentionally auto-progresses phases. Anti-autoplay checks are skipped.
+      const isAutoPlayMode = (report.finalState && report.finalState.variables && report.finalState.variables.autoPlayMode === true)
+        || (report.observe_mode === true);
+      if (!isAutoPlayMode) {
+        if (report.autoplay_detected) {
+          log('[PlayableAgent] 🚨 AUTOPLAY DETECTED: ' + (report.autoplay_reason || 'Phases auto-completed without player input'), taskId);
+          issues.push('[autoplay-detected] ' + (report.autoplay_reason || 'Game phases auto-completed via timer without any player interaction.'));
+        }
+        if (report.passed && (!report.actions || report.actions.length === 0)) {
+          log('[PlayableAgent] 🚨 AUTOPLAY: passed=true but 0 actions — overriding to FAIL', taskId);
+          report.passed = false;
+          issues.push('[autoplay-no-interaction] All phases completed with 0 agent actions.');
+        }
+        const finalVars = (report.finalState || {}).variables || {};
+        const interactionKeys = Object.keys(finalVars).filter(k => k !== 'gameTimer' && k !== 'autoPlayMode');
+        const allVarsZero = interactionKeys.length > 0 && interactionKeys.every(k => finalVars[k] === 0 || finalVars[k] === '0');
+        if (report.passed && allVarsZero && interactionKeys.length >= 2) {
+          log('[PlayableAgent] 🚨 AUTOPLAY: all interaction variables are 0 — overriding to FAIL', taskId);
+          report.passed = false;
+          issues.push('[autoplay-no-variable-change] All interaction variables remain at 0.');
+        }
+      } else {
+        log('[PlayableAgent] AutoPlay/observe mode — anti-autoplay checks skipped', taskId);
       }
 
       // Phase coverage

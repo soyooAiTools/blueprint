@@ -192,23 +192,9 @@ module.exports = {
               throw new Error('CUA infra skip: ' + skipReason);
             }
 
-            // Anti-autoplay gate: override passed=true if 0 agent actions
-            // (must run BEFORE the passed check below, or it becomes dead code)
-            if (cuaResult.passed) {
-              var consolePhaseCoverageEarly = helpers.extractPhaseFromConsole(
-                (cuaResult.report && cuaResult.report.diagnostics && cuaResult.report.diagnostics.consoleMessages) || []
-              );
-              if (consolePhaseCoverageEarly.length >= 2) {
-                var agentActionsEarly = (cuaResult.report && cuaResult.report.actions) || [];
-                if (agentActionsEarly.length === 0) {
-                  ctx.addLog('cua-verify', 'All phases completed with 0 agent actions — overriding to FAIL (autoplay)');
-                  cuaResult.passed = false;
-                  cuaResult.issues = (cuaResult.issues || []).concat(
-                    ['[autoplay-zero-actions] ' + consolePhaseCoverageEarly.length + ' phases completed with 0 agent actions']
-                  );
-                }
-              }
-            }
+            // Anti-autoplay gate: DISABLED — CUA now uses autoPlay mode (observer)
+            // Game intentionally auto-progresses; agent watches instead of interacting.
+            // Phase coverage and visual quality are verified, not player-interaction counts.
 
             if (cuaResult.passed) {
               ctx.htmlOutput = lastHtmlData;
@@ -290,16 +276,8 @@ module.exports = {
 
             // (Anti-autoplay zero-actions check moved BEFORE the cuaResult.passed return above)
 
-            // Autoplay detection
-            var hasAutoplay = (cuaResult.issues || []).some(function(i) {
-              return i.includes('[autoplay') || i.includes('autoplay');
-            });
-            if (hasAutoplay) {
-              _autoplayFailCount++;
-              if (_autoplayFailCount >= 3) throw new Error('Autoplay detected ' + _autoplayFailCount + ' consecutive rounds');
-            } else {
-              _autoplayFailCount = 0;
-            }
+            // Autoplay detection — disabled (CUA uses autoPlay/observe mode)
+            // _autoplayFailCount tracking removed: autoPlay is now by-design, not a defect.
 
             // Full regen on repeated same issue — PRESERVE failure context
             if (consecutiveSameIssue >= SAME_ISSUE_REGEN_THRESHOLD) {

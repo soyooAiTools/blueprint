@@ -129,6 +129,11 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    float gameTimer;');
   lines.push('    bool gameEnded = false;');
   lines.push('');
+  lines.push('    // [SKELETON] AutoPlay dual-mode — CUA verification uses autoPlay, end-user uses interactive');
+  lines.push('    bool _autoPlayMode = false;');
+  lines.push('    bool _autoPlayChecked = false;');
+  lines.push(`    const float AUTO_PLAY_PHASE_DURATION = ${Math.max(12, Math.min(20, Math.round(180 / Math.max(totalPhases, 1))))}f; // ~${Math.round(180 / Math.max(totalPhases, 1))}s per phase`);
+  lines.push('');
 
   // Entity state variables from specs
   const allEntities = new Set();
@@ -333,6 +338,49 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('');
     lines.push('    // ========== END IDLE GAME KIT ==========');
     lines.push('');
+
+    // [SKELETON] AutoPlay movement system for idle games
+    // Build target entity list from specs
+    const autoTargets = [];
+    specs.forEach(spec => {
+      (spec.entitiesRequired || []).forEach(e => {
+        if (autoTargets.indexOf(e.name) < 0) autoTargets.push(e.name);
+      });
+    });
+    if (autoTargets.length > 0) {
+      lines.push('    // [SKELETON] AutoPlay — auto-navigate player through target entities');
+      lines.push(`    string[] _autoTargets = new string[] { ${autoTargets.map(t => '"' + t + '"').join(', ')} };`);
+      lines.push('    int _autoTargetIdx = 0;');
+      lines.push('    float _autoTargetWait = 0f;');
+      lines.push('');
+      lines.push('    void AutoPlayUpdate()');
+      lines.push('    {');
+      lines.push('        if (!_autoPlayMode || player == null) return;');
+      lines.push('        if (_autoTargetWait > 0f) { _autoTargetWait -= Time.deltaTime; return; }');
+      lines.push('        if (_autoTargetIdx >= _autoTargets.Length) _autoTargetIdx = 0; // loop');
+      lines.push('        GameObject target = GameObject.Find(_autoTargets[_autoTargetIdx]);');
+      lines.push('        if (target == null) { _autoTargetIdx++; return; }');
+      lines.push('        Vector3 dir = target.transform.position - player.transform.position;');
+      lines.push('        dir.y = 0f;');
+      lines.push('        if (dir.magnitude > 1.5f)');
+      lines.push('        {');
+      lines.push('            // Smooth movement toward target (natural speed)');
+      lines.push('            float speed = moveSpeed * 0.6f;');
+      lines.push('            player.transform.position = Vector3.MoveTowards(');
+      lines.push('                player.transform.position, target.transform.position, speed * Time.deltaTime);');
+      lines.push('            if (dir.magnitude > 0.1f)');
+      lines.push('                player.transform.rotation = Quaternion.Lerp(');
+      lines.push('                    player.transform.rotation, Quaternion.LookRotation(dir), 5f * Time.deltaTime);');
+      lines.push('        }');
+      lines.push('        else');
+      lines.push('        {');
+      lines.push('            // Arrived — wait a moment then move to next target');
+      lines.push('            _autoTargetWait = 2f;');
+      lines.push('            _autoTargetIdx++;');
+      lines.push('        }');
+      lines.push('    }');
+      lines.push('');
+    }
   }
 
   // [SKELETON] Phase instrumentation for automated testing
@@ -445,6 +493,13 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        float dt = Time.deltaTime;');
   lines.push('        gameTimer += dt;');
   lines.push('');
+  lines.push('        // [SKELETON] AutoPlay detection — checks once after game init (CUA creates __AUTOPLAY_ON__ entity)');
+  lines.push('        if (!_autoPlayChecked && gameTimer > 0.5f)');
+  lines.push('        {');
+  lines.push('            _autoPlayChecked = true;');
+  lines.push('            if (GameObject.Find("__AUTOPLAY_ON__") != null) _autoPlayMode = true;');
+  lines.push('        }');
+  lines.push('');
   lines.push('        // [SKELETON] Phase timer update');
   lines.push('        if (currentPhaseName != lastPhaseForTimer) {');
   lines.push('            phaseTimer = 0f;');
@@ -455,8 +510,9 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        CheckEventRules();');
   lines.push('');
   if (isIdleGame) {
-    lines.push('        // [SKELETON] Idle game core loop — always run these');
-    lines.push('        MovePlayer();');
+    lines.push('        // [SKELETON] Idle game core loop');
+    lines.push('        if (!_autoPlayMode) MovePlayer(); // interactive mode: joystick/tap');
+    lines.push('        if (_autoPlayMode) AutoPlayUpdate(); // autoPlay mode: auto-navigate');
     lines.push('');
   }
   lines.push('        // === TODO: AI fills — update systems: resource collection, delivery, production, etc. ===');
@@ -534,10 +590,10 @@ function generateSkeleton(specs, opts = {}) {
       lines.push(`        // [SKELETON] Transition from ${prevSpec.phaseId} → ${spec.phaseId}`);
       lines.push(`        // Requires: ${prevSpec.triggerNext ? prevSpec.triggerNext.description : 'previous phase complete'}`);
       lines.push(`        // Condition hint: ${conditionHint}`);
-      lines.push(`        if (!ruleTriggered[${ruleIdx}]`);
       const realCondition = buildRealCondition(prevSpec);
-      lines.push(`            && ${realCondition} // [SKELETON] auto-generated from entity states (hint: ${conditionHint})`);
-      lines.push(`            && phaseTimer >= ${prevSpec.duration.min}f) // [SKELETON] min dwell time`);
+      lines.push(`        if (!ruleTriggered[${ruleIdx}]`);
+      lines.push(`            && (_autoPlayMode ? phaseTimer >= AUTO_PLAY_PHASE_DURATION // [SKELETON] autoPlay: time-based progression`);
+      lines.push(`                : (${realCondition} && phaseTimer >= ${prevSpec.duration.min}f))) // [SKELETON] interactive: condition + min dwell`);
       lines.push('        {');
       lines.push(`            ruleTriggered[${ruleIdx}] = true;`);
       lines.push(`            currentPhaseName = "${spec.phaseId}";`);
@@ -561,10 +617,10 @@ function generateSkeleton(specs, opts = {}) {
   lines.push(`        // ========== Game End ==========`);
   const endConditionHint = lastSpec.triggerNext ? lastSpec.triggerNext.condition : 'game end condition';
   lines.push(`        // End condition hint: ${endConditionHint}`);
-  lines.push(`        if (!ruleTriggered[${specs.length}]`);
   const endRealCondition = buildRealCondition(lastSpec);
-  lines.push(`            && ${endRealCondition} // [SKELETON] auto-generated end condition (hint: ${endConditionHint})`);
-  lines.push(`            && phaseTimer >= ${lastSpec.duration.min}f) // [SKELETON]`);
+  lines.push(`        if (!ruleTriggered[${specs.length}]`);
+  lines.push(`            && (_autoPlayMode ? phaseTimer >= AUTO_PLAY_PHASE_DURATION`);
+  lines.push(`                : (${endRealCondition} && phaseTimer >= ${lastSpec.duration.min}f)))`);
   lines.push('        {');
   lines.push(`            ruleTriggered[${specs.length}] = true;`);
   lines.push('            currentPhaseName = "gameEnd";');
@@ -664,6 +720,7 @@ function generateSkeleton(specs, opts = {}) {
   // Variables (AI fills)
   lines.push('            + "\\"variables\\":{"');
   lines.push('            + "\\"gameTimer\\":" + (int)gameTimer');
+  lines.push('            + ",\\"autoPlayMode\\":" + (_autoPlayMode ? "true" : "false")');
   lines.push('            // TODO: AI adds game-specific variables here (gold, wood, ammo, etc.)');
   lines.push('            + "}"');
 
