@@ -77,11 +77,13 @@ function buildRequest(buildUrl, endpoint, csCode, extraFiles) {
       });
       req.on('error', reject);
       req.on('timeout', function() { req.destroy(); reject(new Error('Build timeout')); });
+      // Socket-level timeout: destroy if no data for 60s (catches socket hang up)
+      req.setTimeout(60000, function() { req.destroy(new Error('Socket timeout (60s no data)')); });
       req.write(body);
       req.end();
     }).catch(function(err) {
       // Retry on timeout/connection errors (not on HTTP 4xx/5xx which are code issues)
-      var isTransient = err.message.indexOf('timeout') >= 0 || err.message.indexOf('ECONNREFUSED') >= 0 || err.message.indexOf('ECONNRESET') >= 0;
+      var isTransient = err.message.indexOf('timeout') >= 0 || err.message.indexOf('ECONNREFUSED') >= 0 || err.message.indexOf('ECONNRESET') >= 0 || err.message.indexOf('socket hang up') >= 0;
       if (isTransient && attempt < MAX_RETRIES) {
         return new Promise(function(resolve) { setTimeout(resolve, 2000 * attempt); }).then(function() {
           return doRequest(attempt + 1);

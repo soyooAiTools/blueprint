@@ -98,7 +98,7 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
 }
 
 var MAX_CUA_ROUNDS = 20;
-var MAX_CUA_TOTAL_MS = 60 * 60 * 1000; // 60 min absolute time limit (Opus fix rounds ~10min each)
+var MAX_CUA_TOTAL_MS = 90 * 60 * 1000; // 90 min absolute time limit (Opus fix rounds ~10min each)
 var NO_PROGRESS_EXIT_ROUNDS = 5; // exit if no phase progress in N consecutive rounds
 var SAME_ISSUE_REGEN_THRESHOLD = 3;
 

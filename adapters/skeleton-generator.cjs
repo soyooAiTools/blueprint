@@ -696,6 +696,42 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('            UpdateGameState();');
   lines.push('            Luna.Unity.LifeCycle.GameEnded();');
   lines.push('        }');
+  lines.push('');
+
+  // [SKELETON] AutoPlay safety net — force phase progression if stuck
+  // This block is AFTER all normal phase transitions. If autoPlay mode and phaseTimer
+  // exceeds 2x the expected duration, force-trigger the next untriggered phase.
+  // This catches cases where AI accidentally broke the autoPlay ternary conditions.
+  lines.push('        // [SKELETON] AutoPlay safety net — force progression if stuck (DO NOT MODIFY)');
+  lines.push('        if (_autoPlayMode && !gameEnded && phaseTimer >= AUTO_PLAY_PHASE_DURATION * 2.5f)');
+  lines.push('        {');
+  for (let ri = 1; ri <= specs.length; ri++) {
+    const targetPhase = ri < specs.length ? specs[ri].phaseId : 'gameEnd';
+    const prevPhase = specs[ri - 1].phaseId;
+    lines.push(`            if (!ruleTriggered[${ri}]) // stuck at ${prevPhase} → force ${targetPhase}`);
+    lines.push('            {');
+    lines.push(`                ruleTriggered[${ri}] = true;`);
+    if (ri < specs.length) {
+      lines.push(`                currentPhaseName = "${targetPhase}";`);
+      lines.push(`                phaseEnterTimes[${ri}] = gameTimer;`);
+      lines.push('                phaseTimer = 0f;');
+      lines.push(`                ReportPhase("${targetPhase}");`);
+      lines.push(`                AddCompletedPhase("${prevPhase}");`);
+    } else {
+      lines.push('                currentPhaseName = "gameEnd";');
+      lines.push('                ReportPhase("gameEnd");');
+      lines.push(`                AddCompletedPhase("${prevPhase}");`);
+      lines.push('                AddCompletedPhase("gameEnd");');
+      lines.push('                gameEnded = true;');
+      lines.push('                ShowCTA();');
+    }
+    lines.push('                _autoPlaySteps++;');
+    lines.push('                UpdateGameState();');
+    lines.push('                return; // only advance one phase per frame');
+    lines.push('            }');
+  }
+  lines.push('        }');
+
   lines.push('    }');
   lines.push('');
 
