@@ -132,6 +132,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    // [SKELETON] AutoPlay dual-mode — CUA verification uses autoPlay, end-user uses interactive');
   lines.push('    bool _autoPlayMode = false;');
   lines.push('    bool _autoPlayChecked = false;');
+  lines.push('    int _autoPlaySteps = 0; // [SKELETON] tracks autoPlay visual progress for CUA');
   lines.push(`    const float AUTO_PLAY_PHASE_DURATION = ${Math.max(12, Math.min(20, Math.round(180 / Math.max(totalPhases, 1))))}f; // ~${Math.round(180 / Math.max(totalPhases, 1))}s per phase`);
   lines.push('');
 
@@ -362,21 +363,24 @@ function generateSkeleton(specs, opts = {}) {
       lines.push('        if (target == null) { _autoTargetIdx++; return; }');
       lines.push('        Vector3 dir = target.transform.position - player.transform.position;');
       lines.push('        dir.y = 0f;');
-      lines.push('        if (dir.magnitude > 1.5f)');
+      lines.push('        if (dir.magnitude > 1.0f)');
       lines.push('        {');
-      lines.push('            // Smooth movement toward target (natural speed)');
-      lines.push('            float speed = moveSpeed * 0.6f;');
+      lines.push('            // Visible movement toward target');
+      lines.push('            float speed = moveSpeed * 1.2f;');
       lines.push('            player.transform.position = Vector3.MoveTowards(');
       lines.push('                player.transform.position, target.transform.position, speed * Time.deltaTime);');
       lines.push('            if (dir.magnitude > 0.1f)');
       lines.push('                player.transform.rotation = Quaternion.Lerp(');
       lines.push('                    player.transform.rotation, Quaternion.LookRotation(dir), 5f * Time.deltaTime);');
+      lines.push('            // [SKELETON] Camera follows player for visual movement');
+      lines.push('            if (mainCam != null) mainCam.transform.LookAt(player.transform.position);');
       lines.push('        }');
       lines.push('        else');
       lines.push('        {');
-      lines.push('            // Arrived — wait a moment then move to next target');
-      lines.push('            _autoTargetWait = 2f;');
+      lines.push('            // Arrived — wait then move to next target');
+      lines.push('            _autoTargetWait = 1.5f;');
       lines.push('            _autoTargetIdx++;');
+      lines.push('            _autoPlaySteps++;');
       lines.push('        }');
       lines.push('    }');
       lines.push('');
@@ -598,8 +602,46 @@ function generateSkeleton(specs, opts = {}) {
       lines.push(`            ruleTriggered[${ruleIdx}] = true;`);
       lines.push(`            currentPhaseName = "${spec.phaseId}";`);
       lines.push(`            phaseEnterTimes[${ruleIdx}] = gameTimer; // [SKELETON]`);
+      lines.push('            phaseTimer = 0f; // [SKELETON] reset timer — prevent batch-firing multiple phases in one frame');
       lines.push(`            ReportPhase("${spec.phaseId}"); // [SKELETON] Phase instrumentation`);
       lines.push('');
+
+      // [SKELETON] AutoPlay visual actions — produce visible changes per phase
+      const activateEntities = spec.activate || [];
+      const camTarget = spec.camera && spec.camera.lookAt ? spec.camera.lookAt : null;
+      const camZoom = spec.camera && spec.camera.zoom ? spec.camera.zoom : 1;
+      lines.push(`            // [SKELETON] AutoPlay visuals for ${spec.phaseName}`);
+      lines.push('            if (_autoPlayMode)');
+      lines.push('            {');
+      // Move camera to focus entity
+      if (camTarget && entityNames.indexOf(camTarget) >= 0) {
+        lines.push(`                if (${camTarget} != null && mainCam != null)`);
+        lines.push(`                    mainCam.transform.LookAt(${camTarget}.transform.position);`);
+      }
+      // Place/activate entities for this phase at spread positions
+      activateEntities.forEach((eName, ai) => {
+        if (entityNames.indexOf(eName) >= 0) {
+          const xOff = (ai - Math.floor(activateEntities.length / 2)) * 3;
+          const zOff = i * 2; // offset forward per phase for visual progression
+          lines.push(`                PlaceObj(${eName}, ${xOff}f, 0.5f, ${zOff}f);`);
+          lines.push(`                SetScale(${eName}, 2.5f, 2.5f, 2.5f);`);
+        }
+      });
+      // Advance entity states for entities required by previous phase
+      (prevSpec.entitiesRequired || []).forEach(e => {
+        if (allEntities.has(e.name)) {
+          lines.push(`                ${e.name}State = ${Math.min(e.terminalState || 2, 2)};`);
+        }
+      });
+      // Move player toward camera target for visible motion
+      if (camTarget && entityNames.indexOf(camTarget) >= 0) {
+        lines.push(`                if (player != null && ${camTarget} != null)`);
+        lines.push(`                    player.transform.position = Vector3.MoveTowards(player.transform.position, ${camTarget}.transform.position, 5f);`);
+      }
+      lines.push('                _autoPlaySteps++;');
+      lines.push('            }');
+      lines.push('');
+
       lines.push(`            // === TODO: AI fills — activate objects for ${spec.phaseName} ===`);
       lines.push(`            // TODO_PHASE_${i + 1}_INIT_START`);
       lines.push('');
@@ -627,6 +669,17 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('            ReportPhase("gameEnd"); // [SKELETON] Phase instrumentation');
   lines.push('            gameEnded = true;');
   lines.push('');
+
+  // [SKELETON] AutoPlay: advance all entity states to terminal at game end
+  if (allEntities.size > 0) {
+    lines.push('            // [SKELETON] AutoPlay: set all entities to terminal state');
+    lines.push('            if (_autoPlayMode)');
+    lines.push('            {');
+    allEntities.forEach(name => {
+      lines.push(`                ${name}State = 2;`);
+    });
+    lines.push('            }');
+  }
 
   // Verify all entities reached terminal state
   if (allEntities.size > 0) {
@@ -721,6 +774,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('            + "\\"variables\\":{"');
   lines.push('            + "\\"gameTimer\\":" + (int)gameTimer');
   lines.push('            + ",\\"autoPlayMode\\":" + (_autoPlayMode ? "true" : "false")');
+  lines.push('            + ",\\"autoPlaySteps\\":" + _autoPlaySteps');
   lines.push('            // TODO: AI adds game-specific variables here (gold, wood, ammo, etc.)');
   lines.push('            + "}"');
 
