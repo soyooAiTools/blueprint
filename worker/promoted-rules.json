@@ -249,5 +249,198 @@
     "sourceStages": {
       "visual-check": 2
     }
+  },
+  {
+    "description": "Phase 4 transitions on firstCrewDelivered == true and phaseTimer >= 4f. firstCrewDelivered is commented as 'set when first crew is picked up', while the phase description requires treating rescued crew / collecting gold. This is not a real phase-specific completion check for treatment and can skip based on prior rescue state rather than current player action.",
+    "rule": "every phase must have real completion conditions  phase progression must require",
+    "fix": "Gate the transition on a true treatment interaction state specific to this phase, such as crew healed in bathroom by player-delivered rescue flow plus required gold interaction flag.",
+    "severity": "critical",
+    "promotedAt": "2026-04-08T17:15:27.700Z",
+    "triggerProjects": [
+      "proj_1775610610026_qapd9n"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Phase 5 requires carryCapacityState >= 3, but in this file carryCapacityState is never modified. The comments say it is 'Set when player purchases carry upgrade', but no such assignment exists in the provided code. As reviewed, phase progression is incomplete and will stall.",
+    "rule": "variables referenced in trigger conditions must be modified somewhere in update",
+    "fix": "Ensure carryCapacityState is explicitly assigned during the carry-upgrade interaction logic, e.g. in UpdateCarryUpgradeClick() or another provided helper method.",
+    "severity": "critical",
+    "promotedAt": "2026-04-08T17:15:27.700Z",
+    "triggerProjects": [
+      "proj_1775610610026_qapd9n"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 3,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 3
+    }
+  },
+  {
+    "description": "The skeleton explicitly says Camera.backgroundColor is pre-set to (0.45, 0.52, 0.62) and must not be changed. The code changes it again to (0.35, 0.55, 0.75). Even if the latter is generally recommended, this file's skeleton forbids modifying that preset.",
+    "rule": "skeleton line  auto-promoted critical camera-background rule",
+    "fix": "Remove the later backgroundColor assignment and keep the skeleton-provided value unchanged.",
+    "severity": "critical",
+    "promotedAt": "2026-04-08T21:24:54.546Z",
+    "triggerProjects": [
+      "proj_1775610610026_qapd9n"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Calls GFM_Create.InitMaterialFromScene(). This API is explicitly forbidden/obsolete in the provided Luna rules and should not be used because pool object colors are pre-baked.",
+    "rule": "forbidden legacy apis  forbidden runtime apis",
+    "fix": "Remove GFM_Create.InitMaterialFromScene() entirely.",
+    "severity": "critical",
+    "promotedAt": "2026-04-09T02:41:17.189Z",
+    "triggerProjects": [
+      "proj_1775610623818_llzzo4"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "The \"data\" argument must be of type string or an instance of Buffer, TypedArray, or DataView. Received an instance of Object",
+    "rule": "interaction  gameplay",
+    "fix": "Investigate why phase \"unknown\" is never reached. The transition condition or interaction handler is likely broken.",
+    "severity": "warning",
+    "promotedAt": "2026-04-09T03:29:40.479Z",
+    "triggerProjects": [
+      "proj_1775536760460_ief5nt",
+      "proj_1775610640418_knq32m"
+    ],
+    "crossProjectCount": 2,
+    "totalOccurrences": 2,
+    "sourceStage": "cua-verify",
+    "sourceStages": {
+      "cua-verify": 2
+    }
+  },
+  {
+    "description": "Phase 2 initialization incorrectly calls AddCompletedPhase(\"phase_1775610864395_1\") instead of marking the current phase or the correct transition semantics. Similar pattern repeats for later phases, always adding the previous phase ID during the next phase init. This produces inaccurate completedPhases tracking and can break CUA phase coverage validation.",
+    "rule": "phase id format  phase completion tracking correctness",
+    "fix": "When a phase is actually completed, call AddCompletedPhase() with that exact phase's Rule ID at the correct completion point. Do not duplicate prior phase IDs during next-phase initialization.",
+    "severity": "critical",
+    "promotedAt": "2026-04-09T14:40:17.165Z",
+    "triggerProjects": [
+      "proj_1775610610026_qapd9n"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Phase 5 transitions when firstCrewTreated == true and gold >= 30 and phaseTimer threshold is met. There is no explicit interaction flag in the condition despite the phase spec requiring player action. This allows progression based purely on accumulated state once thresholds are met.",
+    "rule": "phase transition must require real player interaction not just timerstate",
+    "fix": "Add a true player interaction requirement for this transition, such as a treatment interaction flag and/or gold collection interaction flag that is set only by player action.",
+    "severity": "critical",
+    "promotedAt": "2026-04-10T08:21:26.439Z",
+    "triggerProjects": [
+      "proj_1775610610026_qapd9n"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Phase 10 transitions only on restBedState >= 2 and phaseTimer threshold. This is not a real completion condition for 'base stable operation' and can advance without the required player-driven gold collection objective.",
+    "rule": "every ruletriggeredn block must have a real completion condition tied to player",
+    "fix": "Require a real player accomplishment for Phase 10, such as player-collected gold threshold and a specific interaction flag, not merely restBedState.",
+    "severity": "critical",
+    "promotedAt": "2026-04-10T08:21:26.439Z",
+    "triggerProjects": [
+      "proj_1775610610026_qapd9n"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Several trigger variables are referenced for progression—firstCrewTreated, batchRescueDone, bathroomCapacityState, secondCabinState, restBedState, carryCapacityState, downloadButtonDone, unlockButtonDone, screenDone, playerDone, goldDone—but this file does not show any assignments updating them except resets. Under the mechanical verification rule, progression variables used in CheckEventRules() must be modified somewhere in Update() or helper logic; as reviewed here, the implementation is incomplete and likely stalls.",
+    "rule": "variables referenced in trigger conditions must be declared and modified somewhe",
+    "fix": "Implement explicit state mutations in the gameplay handlers/helper methods and ensure those methods are present and actually called from Update().",
+    "severity": "critical",
+    "promotedAt": "2026-04-10T08:21:26.440Z",
+    "triggerProjects": [
+      "proj_1775610610026_qapd9n"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Several progression flags are satisfied by UpdateAutoPlay() without real user input, including screenDone, upgrade completion flags, build flags, and final downloadButtonDone/phase11InteractDone. This creates non-interactive scripted advancement paths.",
+    "rule": "phase progression must be driven by player interaction never auto-advance via sc",
+    "fix": "Delete auto-setting of any progression flag from non-user-driven code paths. Only actual input handlers should set interaction flags.",
+    "severity": "critical",
+    "promotedAt": "2026-04-10T08:58:58.159Z",
+    "triggerProjects": [
+      "proj_1775610610026_qapd9n"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "The code records AddCompletedPhase(\"gameStart\") for phase 1, which is not a valid blueprint Rule ID. It also marks prior phase IDs during next-phase initialization rather than at the actual completion moment. This breaks phase coverage tracking and violates the required exact Rule ID usage.",
+    "rule": "phase id format critical  addcompletedphase parameter must exactly match bluepri",
+    "fix": "Call AddCompletedPhase() only when that exact phase is completed, using the exact Rule ID string for that phase. Remove \"gameStart\" and stop recording previous phases during next-phase setup.",
+    "severity": "critical",
+    "promotedAt": "2026-04-10T10:42:58.389Z",
+    "triggerProjects": [
+      "proj_1775610640418_knq32m"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Uses UnityEngine.Debug.Log() for phase/state reporting during gameplay flow. While not the highest-level forbidden API, this is a known Luna production risk, and UpdateGameState() is called repeatedly from Start, transitions, and periodic Update. Console spam can destabilize playable verification.",
+    "rule": "common production failure  performance-safe skeleton usage",
+    "fix": "Remove Debug.Log-based phase/state reporting from runtime flow, or guard it behind a compile-time debug flag excluded from Luna builds.",
+    "severity": "critical",
+    "promotedAt": "2026-04-10T11:36:33.214Z",
+    "triggerProjects": [
+      "proj_1775610640418_knq32m"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
   }
 ]
