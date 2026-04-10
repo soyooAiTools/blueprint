@@ -497,11 +497,12 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        float dt = Time.deltaTime;');
   lines.push('        gameTimer += dt;');
   lines.push('');
-  lines.push('        // [SKELETON] AutoPlay detection — checks once after game init (CUA creates __AUTOPLAY_ON__ entity)');
-  lines.push('        if (!_autoPlayChecked && gameTimer > 0.5f)');
+  lines.push('        // [SKELETON] AutoPlay detection — keeps checking until found or timeout (DO NOT MODIFY)');
+  lines.push('        // JS bridge creates __AUTOPLAY_ON__ entity async via setInterval; may arrive after 0.5s');
+  lines.push('        if (!_autoPlayMode && !_autoPlayChecked)');
   lines.push('        {');
-  lines.push('            _autoPlayChecked = true;');
-  lines.push('            if (GameObject.Find("__AUTOPLAY_ON__") != null) _autoPlayMode = true;');
+  lines.push('            if (GameObject.Find("__AUTOPLAY_ON__") != null) { _autoPlayMode = true; _autoPlayChecked = true; }');
+  lines.push('            else if (gameTimer > 3.0f) _autoPlayChecked = true; // stop checking after 3s');
   lines.push('        }');
   lines.push('');
   lines.push('        // [SKELETON] Phase timer update');
