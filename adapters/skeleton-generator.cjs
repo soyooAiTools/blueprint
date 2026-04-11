@@ -572,7 +572,7 @@ function generateSkeleton(specs, opts = {}) {
           const color = ENTITY_COLORS[vi % ENTITY_COLORS.length];
           const xPos = (vi - 1) * 3; // spread: -3, 0, 3
           lines.push(`            PlaceObj(${eName}, ${xPos}f, 0.5f, 0f); // pool color: ${color.label} — do NOT call SetColor`);
-          lines.push(`            SetScale(${eName}, 2f, 2f, 2f);`);
+          lines.push(`            SetScale(${eName}, 1f, 1f, 1f); // keep original scale — avoid oversized black rectangles`);
         });
         lines.push('');
       }
@@ -607,38 +607,17 @@ function generateSkeleton(specs, opts = {}) {
       lines.push(`            ReportPhase("${spec.phaseId}"); // [SKELETON] Phase instrumentation`);
       lines.push('');
 
-      // [SKELETON] AutoPlay visual actions — produce visible changes per phase
-      const activateEntities = spec.activate || [];
+      // [SKELETON] AutoPlay phase transition — advance state + camera only (no PlaceObj to avoid black bars)
       const camTarget = spec.camera && spec.camera.lookAt ? spec.camera.lookAt : null;
-      const camZoom = spec.camera && spec.camera.zoom ? spec.camera.zoom : 1;
-      lines.push(`            // [SKELETON] AutoPlay visuals for ${spec.phaseName}`);
+      lines.push(`            // [SKELETON] AutoPlay state advance for ${spec.phaseName} (DO NOT MODIFY)`);
       lines.push('            if (_autoPlayMode)');
       lines.push('            {');
-      // Move camera to focus entity
-      if (camTarget && entityNames.indexOf(camTarget) >= 0) {
-        lines.push(`                if (${camTarget} != null && mainCam != null)`);
-        lines.push(`                    mainCam.transform.LookAt(${camTarget}.transform.position);`);
-      }
-      // Place/activate entities for this phase at spread positions
-      activateEntities.forEach((eName, ai) => {
-        if (entityNames.indexOf(eName) >= 0) {
-          const xOff = (ai - Math.floor(activateEntities.length / 2)) * 3;
-          const zOff = i * 2; // offset forward per phase for visual progression
-          lines.push(`                PlaceObj(${eName}, ${xOff}f, 0.5f, ${zOff}f);`);
-          lines.push(`                SetScale(${eName}, 2.5f, 2.5f, 2.5f);`);
-        }
-      });
       // Advance entity states for entities required by previous phase
       (prevSpec.entitiesRequired || []).forEach(e => {
         if (allEntities.has(e.name)) {
           lines.push(`                ${e.name}State = ${Math.min(e.terminalState || 2, 2)};`);
         }
       });
-      // Move player toward camera target for visible motion
-      if (camTarget && entityNames.indexOf(camTarget) >= 0) {
-        lines.push(`                if (player != null && ${camTarget} != null)`);
-        lines.push(`                    player.transform.position = Vector3.MoveTowards(player.transform.position, ${camTarget}.transform.position, 5f);`);
-      }
       lines.push('                _autoPlaySteps++;');
       lines.push('            }');
       lines.push('');
