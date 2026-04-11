@@ -673,8 +673,8 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
       });
       lightEnt.setEulerAngles(50, -30, 0);
 
-      // 1.5 Hide all __BaseTemplate children (named objects like Ground, Archer_1 etc)
-      // These overlap with __Pool_* objects and cause visual interference (e.g. green screen from Ground entity)
+      // 1.5 Hide all __BaseTemplate / __LunaPool non-pool children (Ground, Archer_1, etc.)
+      // These overlap with __Pool_* objects and cause visual interference (e.g. black/green screen from Ground entity)
       (function hideBaseTemplate() {
         try {
           function findByName(entity, name) {
@@ -687,22 +687,24 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             }
             return null;
           }
-          var base = findByName(pcApp.root, '__BaseTemplate');
+          // Try both names — Unity exports as __BaseTemplate, Luna may rename to __LunaPool
+          var base = findByName(pcApp.root, '__BaseTemplate') || findByName(pcApp.root, '__LunaPool');
           if (base && base.children) {
             var hidden = 0;
             for (var i = 0; i < base.children.length; i++) {
               var child = base.children[i];
-              // Skip __Pool_ objects — they are used by AI code via GFM_Create.Obj()
+              // Skip __Pool_ objects — they are used by AI code
               if (child.name && child.name.indexOf('__Pool_') === 0) continue;
               // Skip system objects
-              if (child.name && (child.name === 'Main Camera' || child.name === 'Directional Light' 
-                  || child.name === 'EventSystem' || child.name === 'GameManager' || child.name === 'Canvas')) continue;
+              if (child.name && (child.name === 'Main Camera' || child.name === 'Directional Light'
+                  || child.name === 'EventSystem' || child.name === 'GameManager' || child.name === 'Canvas'
+                  || child.name === '__MainLight')) continue;
               if (child.setPosition) {
                 child.setPosition(0, -9999, 0);
                 hidden++;
               }
             }
-            console.log("[AI] Hidden " + hidden + " __BaseTemplate non-pool children");
+            console.log("[AI] Hidden " + hidden + " template non-pool children (root: " + base.name + ")");
           }
         } catch(e) { console.error("[AI] hideBaseTemplate error:", e); }
       })();

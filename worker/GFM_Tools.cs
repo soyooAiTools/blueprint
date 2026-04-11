@@ -666,14 +666,14 @@ public static class GFM_UI
         var rt = canvas.GetComponent<RectTransform>();
         rt.sizeDelta = new Vector2(240, 40);
 
-        // Dark background for readability (VLM needs high contrast)
+        // Subtle background — CUA uses __gameState JSON, not visual labels
         var bgObj = new GameObject("LabelBG", typeof(RectTransform), typeof(Image));
         bgObj.transform.SetParent(canvas.transform, false);
         var bgRect = bgObj.GetComponent<RectTransform>();
         bgRect.sizeDelta = new Vector2(240, 40);
         bgRect.anchoredPosition = Vector2.zero;
         var bgImg = bgObj.GetComponent<Image>();
-        bgImg.color = new Color(0f, 0f, 0f, 0.7f);
+        bgImg.color = new Color(0f, 0f, 0f, 0.0f);
 
         // White text on dark background
         var txtObj = new GameObject("Text", typeof(RectTransform)).AddComponent<Text>();

@@ -458,16 +458,8 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('');
   }
 
-  // [SKELETON] Add world labels to all entities — VLM can read these in screenshots
-  if (entityNames.length > 0) {
-    lines.push('        // [SKELETON] World labels for PlayableAgent VLM identification');
-    entityNames.forEach(name => {
-      // Convert camelCase entity name to readable Chinese-friendly label
-      // e.g., "WaterMachine" → "WaterMachine", "Player" → "Player"
-      lines.push(`        if (${name} != null) GFM_UI.AddWorldLabel(${name}, "${name}", 1.5f);`);
-    });
-    lines.push('');
-  }
+  // [SKELETON] World labels removed — CUA uses __gameState JSON, not visual labels
+  // Black label backgrounds caused ugly UI bars in the final product
 
   // [SKELETON] Ground color and camera background
   const groundEntity = entityNames.find(n => n.toLowerCase().indexOf('ground') >= 0 || n.toLowerCase().indexOf('field') >= 0);
