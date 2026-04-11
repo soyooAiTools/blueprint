@@ -596,9 +596,12 @@ function generateSkeleton(specs, opts = {}) {
       lines.push(`        // Requires: ${prevSpec.triggerNext ? prevSpec.triggerNext.description : 'previous phase complete'}`);
       lines.push(`        // Condition hint: ${conditionHint}`);
       const realCondition = buildRealCondition(prevSpec);
-      lines.push(`        if (!ruleTriggered[${ruleIdx}]`);
-      lines.push(`            && (_autoPlayMode ? phaseTimer >= (AUTO_PLAY_PHASE_DURATION < 15f ? 20f : AUTO_PLAY_PHASE_DURATION) // [SKELETON] autoPlay: 20s per shot minimum (DO NOT MODIFY)`);
-      lines.push(`                : (${realCondition} && phaseTimer >= ${prevSpec.duration.min}f))) // [SKELETON] interactive: condition + min dwell`);
+      // [SKELETON] AutoPlay gate: separate if-block so AI cannot merge/modify the 20f threshold
+      lines.push(`        // [SKELETON] autoPlay 20s gate — DO NOT MODIFY OR REMOVE THIS BLOCK`);
+      lines.push(`        if (_autoPlayMode && !ruleTriggered[${ruleIdx}] && phaseTimer < 20f) {} // wait 20s per shot`);
+      lines.push(`        else if (!ruleTriggered[${ruleIdx}]`);
+      lines.push(`            && (_autoPlayMode ? phaseTimer >= 20f // [SKELETON] 20s per shot (DO NOT MODIFY)`);
+      lines.push(`                : (${realCondition} && phaseTimer >= ${prevSpec.duration.min}f))) // interactive mode`);
       lines.push('        {');
       lines.push(`            ruleTriggered[${ruleIdx}] = true;`);
       lines.push(`            currentPhaseName = "${spec.phaseId}";`);
@@ -640,8 +643,10 @@ function generateSkeleton(specs, opts = {}) {
   const endConditionHint = lastSpec.triggerNext ? lastSpec.triggerNext.condition : 'game end condition';
   lines.push(`        // End condition hint: ${endConditionHint}`);
   const endRealCondition = buildRealCondition(lastSpec);
-  lines.push(`        if (!ruleTriggered[${specs.length}]`);
-  lines.push(`            && (_autoPlayMode ? phaseTimer >= (AUTO_PLAY_PHASE_DURATION < 15f ? 20f : AUTO_PLAY_PHASE_DURATION) // [SKELETON] 20s min (DO NOT MODIFY)`);
+  lines.push(`        // [SKELETON] autoPlay 20s gate — DO NOT MODIFY OR REMOVE THIS BLOCK`);
+  lines.push(`        if (_autoPlayMode && !ruleTriggered[${specs.length}] && phaseTimer < 20f) {} // wait 20s per shot`);
+  lines.push(`        else if (!ruleTriggered[${specs.length}]`);
+  lines.push(`            && (_autoPlayMode ? phaseTimer >= 20f // [SKELETON] 20s per shot (DO NOT MODIFY)`);
   lines.push(`                : (${endRealCondition} && phaseTimer >= ${lastSpec.duration.min}f)))`);
   lines.push('        {');
   lines.push(`            ruleTriggered[${specs.length}] = true;`);

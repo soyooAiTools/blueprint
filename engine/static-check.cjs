@@ -71,6 +71,27 @@ var RULES = [
     }
     return [];
   }},
+  { id: 'autoplay-gate-removed', pattern: null, message: 'AutoPlay 20s gate block was removed — each shot must wait 20s in autoPlay mode', custom: function(code) {
+    // The skeleton generates: if (_autoPlayMode && !ruleTriggered[N] && phaseTimer < 20f) {}
+    // If AI removes this gate, phases will advance instantly
+    if (code.indexOf('_autoPlayMode') >= 0 && code.indexOf('phaseTimer < 20f') < 0) {
+      return [{ line: 1, text: 'Missing "phaseTimer < 20f" gate — skeleton autoPlay gate was deleted by AI' }];
+    }
+    return [];
+  }},
+  { id: 'autoplay-phase-too-fast', pattern: null, message: 'AutoPlay phase uses phaseTimer threshold < 15s — shots must be >= 20s', custom: function(code) {
+    var issues = [];
+    var re = /_autoPlayMode\s*\?\s*phaseTimer\s*>=\s*(\d+)f?\b/g;
+    var m2;
+    while ((m2 = re.exec(code)) !== null) {
+      var threshold = parseInt(m2[1], 10);
+      if (threshold < 15) {
+        var lineNum = code.substring(0, m2.index).split('\n').length;
+        issues.push({ line: lineNum, text: 'autoPlay phaseTimer >= ' + threshold + 'f (must be >= 20f)' });
+      }
+    }
+    return issues;
+  }},
 ];
 
 /**
