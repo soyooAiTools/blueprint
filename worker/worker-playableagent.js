@@ -109,6 +109,7 @@ function writeSpecsFile(blueprint, taskId) {
   // Try loading from spec-data dir first
   const webglDir = path.join(__dirname, '..', 'server-data', 'webgl');
   const specsFiles = [
+    path.join(specsDataDir, taskId, 'specs.json'),  // Doubao-enriched specs with phaseId (preferred)
     path.join(specsDataDir, taskId + '.json'),
     path.join(specsDataDir, taskId + '-specs.json'),
     path.join(webglDir, taskId, 'specs.json'),

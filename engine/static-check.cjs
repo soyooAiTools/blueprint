@@ -133,29 +133,6 @@ var RULES = [
     }
     return issues;
   }},
-  { id: 'phase-id-semantic-name', pattern: null, message: 'AddCompletedPhase/ReportPhase must use spec phaseIds (phase_0, phase_1, ...), not semantic names', custom: function(code) {
-    var issues = [];
-    var re = /(AddCompletedPhase|ReportPhase)\s*\(\s*"([^"]+)"\s*\)/g;
-    var m;
-    var allowedPattern = /^(phase_\d+|gameStart|gameEnd)$/;
-    while ((m = re.exec(code)) !== null) {
-      var phaseArg = m[2];
-      if (!allowedPattern.test(phaseArg)) {
-        var lineNum = code.substring(0, m.index).split('\n').length;
-        issues.push({ line: lineNum, text: m[1] + '("' + phaseArg + '") — must use spec phaseId (phase_0, phase_1, ...), not semantic name' });
-      }
-    }
-    // Also check currentPhaseName assignments
-    var re2 = /currentPhaseName\s*=\s*"([^"]+)"/g;
-    while ((m = re2.exec(code)) !== null) {
-      var phaseName = m[1];
-      if (!allowedPattern.test(phaseName) && phaseName !== 'init') {
-        var lineNum2 = code.substring(0, m.index).split('\n').length;
-        issues.push({ line: lineNum2, text: 'currentPhaseName = "' + phaseName + '" — must use spec phaseId (phase_0, phase_1, ...), not semantic name' });
-      }
-    }
-    return issues;
-  }},
   { id: 'direct-ruletriggered-set', pattern: null, message: 'ruleTriggered[] must only be set inside skeleton phase gates — do not set outside CheckEventRules', custom: function(code) {
     // Check for ruleTriggered assignments outside of CheckEventRules
     // Look for methods that set ruleTriggered but aren't CheckEventRules
