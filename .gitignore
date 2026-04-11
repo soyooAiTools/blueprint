@@ -45,17 +45,21 @@ archive/
 server-data/blueprint.db
 server-data/blueprint.db-shm
 server-data/blueprint.db-wal
+server-data/database.sqlite
 server-data/tasks.db
 server-data/checkpoints/
 server-data/tasks/
 server-data/parse-stats.json
+server-data/metrics/
 data/
+adapters/server-data/
 
 # Spec data (per-project, ephemeral)
 spec-data/
 
 # Python cache
 __pycache__/
+python/__pycache__/
 
 # CLI tools
 cli/
@@ -66,3 +70,7 @@ cli/
 # Build artifacts in public
 public/test.png
 public/shader-test.html
+
+# Old build dist artifacts (keep only latest in frontend/dist/)
+public/assets/
+public/iframe.html

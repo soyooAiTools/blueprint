@@ -746,5 +746,107 @@
     "line": "CheckEventRules / Phase 11 transition",
     "taskId": "proj_1775610610026_qapd9n",
     "timestamp": "2026-04-11T12:32:50.220Z"
+  },
+  {
+    "description": "The file declares and uses GFM_Joystick, but there is no using/import or visible definition in this file. More importantly, Tier 1 review must reject code that relies on unsupported or missing compile context. As reviewed, this file alone is not compile-safe for Bridge.NET without the external type being guaranteed.",
+    "rule": "Forbidden APIs",
+    "fix": "Ensure GFM_Joystick is defined in the project and available to this partial class, or remove the dependency from this file if not guaranteed by the skeleton.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "Start() / TODO_START_START",
+    "taskId": "proj_1775610610026_qapd9n",
+    "timestamp": "2026-04-11T14:52:08.894Z"
+  },
+  {
+    "description": "The file explicitly auto-sets progression flags and terminal states in OnAutoPlayArrive(), and the safety-net block force-advances phases by directly flipping ruleTriggered[] and currentPhaseName. The review rules explicitly forbid autoplay/auto-demo/force-complete paths that advance gameplay state without real interaction.",
+    "rule": "Gameplay Logic",
+    "fix": "Remove auto-setting of progression flags and forced phase advancement. AutoPlay should simulate only legitimate input-driven interactions, not directly complete phases or mutate completion state arbitrarily.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "OnAutoPlayArrive() and CheckEventRules() autoPlay safety net",
+    "taskId": "proj_1775610610026_qapd9n",
+    "timestamp": "2026-04-11T14:52:08.896Z"
+  },
+  {
+    "description": "Phase 8 advances on bathroomUpgradeLevel >= 3 && goldDone == true. This is generic prior-state gating and a broad gold flag, not a specific player-driven second-cabin unlock/build completion interaction.",
+    "rule": "Architecture",
+    "fix": "Add a second-cabin-specific interaction/build completion flag that is set only when the player taps/builds the second cabin during this phase.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "CheckEventRules() / Phase 8 transition",
+    "taskId": "proj_1775610610026_qapd9n",
+    "timestamp": "2026-04-11T14:52:08.898Z"
+  },
+  {
+    "description": "Phase 9 advances on secondCabinState >= 2 && goldDone == true. That can be satisfied by generic state/gold changes and does not verify a bed-specific unlock interaction for this phase.",
+    "rule": "Architecture",
+    "fix": "Require a bed-specific player interaction flag/state change set during the bed unlock action.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "CheckEventRules() / Phase 9 transition",
+    "taskId": "proj_1775610610026_qapd9n",
+    "timestamp": "2026-04-11T14:52:08.899Z"
+  },
+  {
+    "description": "Uses GameObject.Find() with pool names not listed in the project's ONLY valid pool-name assignments: \"__Pool_Plane_White_01\", \"__Pool_Cube_Yellow_04\", \"__Pool_Cube_Yellow_05\", \"__Pool_Sphere_Yellow_01\", and \"__Pool_Sphere_Yellow_02\". Per project constraints, any GameObject.Find() name outside the provided assignment list is wrong and may return null at runtime.",
+    "rule": "Object Naming — Pool Objects",
+    "fix": "Use only the exact provided pool mappings for this project. Do not find extra pool objects by ad-hoc names unless the prompt explicitly assigned them.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "Start()",
+    "taskId": "proj_1775610610026_qapd9n",
+    "timestamp": "2026-04-11T15:07:13.041Z"
+  },
+  {
+    "description": "Autoplay directly sets progression flags and state variables for multiple phases (screenDone, unlockButtonDone, firstCrewDelivered, firstCrewTreated, carryCapacityState, phase6BatchRescueDone, bathroomCapacityState, phase8CabinBuildDone, phase9BedBuildDone, phase10PlayerAction, phase11PlayerAction, downloadButtonDone). Historical rules explicitly flag auto-setting progression variables from non-user-driven code paths as invalid autoplay/scripted advancement.",
+    "rule": "Gameplay Logic",
+    "fix": "Do not mutate progression flags directly from autoplay scripts. If autoplay mode is required for CUA, route through the same interaction handlers used by user input, and do not set completion flags except as a result of those handlers.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "OnAutoPlayArrive(string targetName)",
+    "taskId": "proj_1775610610026_qapd9n",
+    "timestamp": "2026-04-11T15:07:13.042Z"
+  },
+  {
+    "description": "Declares a local variable inside a phase block: \"int phase6StartRescued = rescuedCrew;\" but that variable is never used outside the block and does not persist. More importantly, phase-specific state intended for trigger logic is not stored in a class field. This indicates incomplete phase logic and violates completeness/mechanical verification expectations.",
+    "rule": "C# Language — Bridge.NET Hard Limits",
+    "fix": "Promote needed phase-tracking state to class-level fields and use it in actual transition conditions, or remove dead local state if not needed.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "CheckEventRules() Phase 6 init",
+    "taskId": "proj_1775610610026_qapd9n",
+    "timestamp": "2026-04-11T15:07:13.043Z"
+  },
+  {
+    "description": "Several phase transitions depend on variables that this file does not modify in the provided code path: mainCabinDoorState, unlockButtonDone, playerDone, goldDone, bathroomInteracted, firstCrewDelivered, firstCrewTreated, carryUpgradeLevel, bathroomUpgradeLevel, secondCabinState, restBedState, phase10PlayerAction, phase11PlayerAction, downloadButtonDone. As reviewed in this file, many are only mutated by autoplay, not by visible interactive logic here. The mechanical rule requires trigger variables to be modified somewhere in Update() or helper methods; this file references missing external helpers but does not prove those mutations exist.",
+    "rule": "Code Completeness",
+    "fix": "Implement and show explicit interactive handlers that mutate every trigger variable used by CheckEventRules(), and ensure they are called from Update() in non-autoplay mode.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "CheckEventRules() phase transition blocks",
+    "taskId": "proj_1775610610026_qapd9n",
+    "timestamp": "2026-04-11T15:07:13.045Z"
+  },
+  {
+    "description": "Review blocked: 7 critical issues remain after 4 rounds",
+    "rule": "Code Quality",
+    "fix": "Review blocked: 7 critical issues remain after 4 rounds",
+    "severity": "critical",
+    "line": "review stage failure",
+    "taskId": "proj_1775610610026_qapd9n",
+    "timestamp": "2026-04-11T15:07:13.066Z",
+    "autoExtracted": true,
+    "failClassification": "CODE",
+    "stage": "review"
+  },
+  {
+    "description": "The AutoPlay safety net force-advances phases by setting ruleTriggered/currentPhaseName/AddCompletedPhase without any real interaction condition. This is explicit auto-progression via timer/scripted sequence.",
+    "rule": "Gameplay Logic",
+    "fix": "Remove forced phase advancement. Keep phase transitions dependent on genuine interaction/state conditions only.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "CheckEventRules() AutoPlay safety net",
+    "taskId": "proj_1775610610026_qapd9n",
+    "timestamp": "2026-04-11T15:11:12.832Z"
   }
 ]
