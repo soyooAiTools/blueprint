@@ -41,6 +41,28 @@ function patchForHeadless(content, filename) {
       }
     );
   }
+  // CUA speed: reduce phaseTimer gates from 8-20s to 2s for faster phase progression
+  // Headless Chromium runs at ~0.1x speed, so 2 game-sec ≈ 20 real-sec
+  if (filename.includes('.html') || filename.includes('index')) {
+    patched = patched.replace(/this\.phaseTimer\s*>=\s*(\d+)\.0/g, (match, val) => {
+      var orig = parseInt(val, 10);
+      if (orig >= 5) {
+        fixes++;
+        return 'this.phaseTimer >= 2.0';
+      }
+      return match;
+    });
+    // Also reduce _autoInteractTimer from 3s to 1s
+    patched = patched.replace(/this\._autoInteractTimer\s*>=\s*3\.0/g, () => {
+      fixes++;
+      return 'this._autoInteractTimer >= 1.0';
+    });
+    // Reduce safety net from 50s to 15s for CUA speed
+    patched = patched.replace(/this\.phaseTimer\s*>=\s*\(false\s*\?\s*50\.0\s*:\s*50\.0\)/g, () => {
+      fixes++;
+      return 'this.phaseTimer >= (false ? 15.0 : 15.0)';
+    });
+  }
   return { content: patched, fixes };
 }
 

@@ -1,15 +1,5 @@
 [
   {
-    "description": "RULE_COUNT is 3, phaseEnterTimes is sized to 3, and the flow is not modeled with the required full phase-tracking structure for the many progression steps in the storyboard. This is a content regression versus the required phase-driven implementation.",
-    "rule": "Architecture",
-    "fix": "Increase RULE_COUNT to cover all gameplay phases, record phase enter times for each, and move progression logic into CheckEventRules() using ruleTriggered/phaseTimer/phaseEnterTimes consistently.",
-    "line": "class fields / architecture",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-03-31T11:23:45.075Z",
-    "stage": "codegen",
-    "severity": "info"
-  },
-  {
     "description": "Uses List/Dictionary-safe style correctly, but still uses generic syntax indirectly via arrays only; no issue there. Actual critical issue is elsewhere: the code creates runtime UI button instances in gameplay flow, which is not prohibited by itself, but the skeleton note explicitly says pre-created uiCanvas/guideText/scoreText should be used instead of creating new UI structures. More importantly, phase coverage is incomplete versus the validated 11-phase hospital/station management spec in the auto-promoted rules.",
     "rule": "C# Language — Bridge.NET Hard Limits",
     "fix": "Implement the full required spec phase set in CheckEventRules() instead of compressing progression into 6 gameplay phases.",
@@ -170,32 +160,12 @@
     "severity": "info"
   },
   {
-    "description": "Phase progression uses pure numeric trigger gates such as totalWaterSold >= 2 and totalWaterSold >= 4. The rules explicitly forbid pure numeric triggers that skip interaction. Even though proximity is also checked, these transitions are fundamentally driven by counters instead of a distinct player action completing the phase.",
-    "rule": "Gameplay Logic",
-    "fix": "Make each progression hinge on an explicit player-driven interaction/state change at the station/gate/button, with counters only as prerequisites, not as the trigger itself.",
-    "line": "CheckEventRules() Rule 5 / Rule 7 / Rule 10",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-01T17:09:55.448Z",
-    "stage": "codegen",
-    "severity": "info"
-  },
-  {
     "description": "ShowCTA creates a new runtime CTA button with GFM_UI.CreateButton instead of using the skeleton/precreated UI flow. The production guidance explicitly warns against recreating UI structures when skeleton variables should be used.",
     "rule": "Auto-promoted rule / skeleton UI usage",
     "fix": "Use the skeleton-provided CTA/UI path instead of creating a new button at runtime, or guard this behind confirmed template support and use existing precreated UI references.",
     "line": "ShowCTA()",
     "taskId": "proj_1774709451098_pt2ysl",
     "timestamp": "2026-04-01T17:09:55.448Z",
-    "stage": "codegen",
-    "severity": "info"
-  },
-  {
-    "description": "Uses non-approved pool names like __Pool_Cube_Red_01, __Pool_Plane_Cyan_01, __Pool_Sphere_Green_01. The documented required names are actual pool names __Pool_Cube_01..50, __Pool_Sphere_01..20, __Pool_Plane_01..10, __Pool_Cylinder_01..10. If those colored names do not exist in the target template, Find returns null and the playable fails/blank screens.",
-    "rule": "Object Naming — Pool Objects",
-    "fix": "Replace every Find string with exact existing pool object names from the allowed numeric pool set, using explicit string literals or a predeclared exact-name array. Null-check every required object after Find.",
-    "line": "Start() / all GameObject.Find(...) assignments",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-02T07:05:51.922Z",
     "stage": "codegen",
     "severity": "info"
   },
@@ -260,16 +230,6 @@
     "severity": "info"
   },
   {
-    "description": "The script manually looks up the camera with GameObject.Find(\"Main Camera\"). Luna templates pre-cache the camera as mainCam and camera lifecycle is template-managed. Relying on a scene-name lookup is unsafe and can return null in template variants.",
-    "rule": "Forbidden APIs",
-    "fix": "Do not find the camera by scene name. Use the injected mainCam field only, and always null-check before using it.",
-    "line": "Start() / camera lookup",
-    "taskId": "proj_1774709451098_pt2ysl",
-    "timestamp": "2026-04-02T07:19:31.716Z",
-    "stage": "review",
-    "severity": "critical"
-  },
-  {
     "description": "The script uses Instantiate(...) repeatedly to create gameplay clones from pooled objects. Luna playables are expected to use pre-existing pooled objects found by exact pool names; runtime object creation is a common source of invisible/missing renderers and pool exhaustion mismatches.",
     "rule": "Tier 2 Rule 5 / pooled object usage",
     "fix": "Predeclare and find exact pool object names for every needed entity instance, store them in arrays, and show/hide them by moving to visible positions or y=-999. Do not instantiate runtime clones.",
@@ -320,16 +280,6 @@
     "severity": "warning"
   },
   {
-    "description": "Phase progression uses a pure numeric/state gate: phase 11 triggers automatically when stateConveyorFactoryToTurretBottom == 2 && stateConveyorFactoryToTurretRight == 2 after dwell time. This is an auto-jump based on counters/states rather than a direct player interaction at the transition moment, which is explicitly disallowed for progression-sensitive gameplay.",
-    "rule": "Gameplay Logic",
-    "fix": "Make the transition depend on an explicit player-driven interaction in that phase, such as tapping an upgrade/finish pad after both conveyors are built, while preserving the dwell check.",
-    "line": "CheckEventRules() rule 10",
-    "taskId": "proj_1774798890698_wxfmbx",
-    "timestamp": "2026-04-02T07:24:05.636Z",
-    "stage": "codegen",
-    "severity": "info"
-  },
-  {
     "description": "[spec-phase-skipped] Phases not completed (8/11): phase_1774794448160_4, phase_1774794448160_5, phase_1774794448160_6, phase_1774794448160_7, phase_1774794448160_8, phase_1774794448160_9, phase_1774794448160_10, phase_1774794448160_11",
     "rule": "CUA Verification",
     "fix": "[spec-phase-skipped] Phases not completed (8/11): phase_1774794448160_4, phase_1774794448160_5, phase_1774794448160_6, phase_1774794448160_7, phase_1774794448160_8, phase_1774794448160_9, phase_1774794448160_10, phase_1774794448160_11",
@@ -360,20 +310,6 @@
     "severity": "warning"
   },
   {
-    "description": "CUA crashed 3 consecutive rounds",
-    "rule": "Interaction / Gameplay",
-    "fix": "Ensure interactive elements respond to user input and phases progress correctly.",
-    "line": "cua-verify stage failure",
-    "taskId": "proj_1775536760460_ief5nt",
-    "timestamp": "2026-04-07T05:23:52.555Z",
-    "autoExtracted": true,
-    "failClassification": "FATAL",
-    "stage": "cua-verify",
-    "lastSeenAt": "2026-04-07T06:37:00.878Z",
-    "hitCount": 9,
-    "severity": "warning"
-  },
-  {
     "description": "Pipeline failed at cua-verify: CUA crashed 3 consecutive rounds",
     "rule": "Visual / Rendering",
     "fix": "Ensure scene renders correctly: objects visible, movement between frames, no black/solid screens.",
@@ -386,20 +322,6 @@
     "lastSeenAt": "2026-04-07T06:37:00.884Z",
     "hitCount": 26,
     "severity": "warning"
-  },
-  {
-    "description": "Pipeline failed at review: Pipeline failed at compile: Pipeline failed at visual-check: Pipeline failed at cua-verify: CUA crashed 3 consecutive rounds",
-    "rule": "General",
-    "fix": "Review and fix the codegen stage failure. ",
-    "line": "codegen stage failure",
-    "taskId": "proj_1775536760460_ief5nt",
-    "timestamp": "2026-04-07T05:23:52.561Z",
-    "autoExtracted": true,
-    "failClassification": "FATAL",
-    "stage": "codegen",
-    "lastSeenAt": "2026-04-07T06:37:00.886Z",
-    "hitCount": 8,
-    "severity": "info"
   },
   {
     "description": "gate: No C# code to compile",
@@ -584,40 +506,6 @@
     "hitCount": 12
   },
   {
-    "description": "CUA total time limit exceeded (66min > 60min)",
-    "rule": "Interaction / Gameplay",
-    "fix": "Previous 3 attempts all failed with \"entity-incomplete\". You MUST implement ALL phases. Every phase transition must have real conditions.\n\nPrevious failure context:\nSURGICAL FIX MODE: Do NOT rewrite the entire file. Only modify the specific lines/functions that cause the issue below.\nCUA blueprint f",
-    "severity": "warning",
-    "line": "cua-verify stage failure",
-    "taskId": "proj_1775610610026_qapd9n",
-    "timestamp": "2026-04-09T07:43:55.987Z",
-    "autoExtracted": true,
-    "failClassification": "FATAL",
-    "stage": "cua-verify",
-    "lastSeenAt": "2026-04-10T15:07:37.075Z",
-    "hitCount": 16
-  },
-  {
-    "description": "Uses GameObject.Find on extra object names not present in the project whitelist: __Pool_Cube_Red_03, __Pool_Cube_Red_04, __Pool_Plane_Cyan_02, __Pool_Plane_Cyan_03, __Pool_Cube_Blue_04, __Pool_Cube_Blue_05, and __Ground. The reviewer instructions say these are the ONLY valid pool names for this project; any other names are wrong.",
-    "rule": "Object Naming — Pool Objects",
-    "fix": "Do not find these objects by unsupported names. Restrict object usage to the exact whitelisted pool names provided for this project.",
-    "severity": "critical",
-    "stage": "review",
-    "line": "Start() TODO_START_START",
-    "taskId": "proj_1775610623818_llzzo4",
-    "timestamp": "2026-04-09T14:22:17.034Z"
-  },
-  {
-    "description": "Multiple phase transitions depend on flags/state variables (screenDone, unlockButtonDone, playerDone, goldDone, downloadButtonDone, mainCabinDoorState, carryCapacityState, bathroomCapacityState, secondCabinState, restBedState) that are declared in this file but never modified anywhere in the provided code. As reviewed, phase progression is incomplete and will stall or never reach game end.",
-    "rule": "Code Completeness",
-    "fix": "Implement and show the interaction/update logic that mutates every trigger variable. Example: set screenDone on tap, set mainCabinDoorState when door unlock finishes, set playerDone on actual rescue delivery, set goldDone on qualifying gold collection interactions, set carryCapacityState/bathroomCapacityState/secondCabinState/restBedState during their respective upgrades/builds, and set downloadButtonDone on CTA click.",
-    "severity": "critical",
-    "stage": "review",
-    "line": "CheckEventRules() phases 2-11",
-    "taskId": "proj_1775610610026_qapd9n",
-    "timestamp": "2026-04-09T14:40:17.159Z"
-  },
-  {
     "description": "Phase 2 initialization incorrectly calls AddCompletedPhase(\"phase_1775610864395_1\") instead of marking the current phase or the correct transition semantics. Similar pattern repeats for later phases, always adding the previous phase ID during the next phase init. This produces inaccurate completedPhases tracking and can break CUA phase coverage validation.",
     "rule": "Phase ID Format / phase completion tracking correctness",
     "fix": "When a phase is actually completed, call AddCompletedPhase() with that exact phase's Rule ID at the correct completion point. Do not duplicate prior phase IDs during next-phase initialization.",
@@ -626,76 +514,6 @@
     "line": "CheckEventRules() phase 2 init",
     "taskId": "proj_1775610610026_qapd9n",
     "timestamp": "2026-04-09T14:40:17.161Z"
-  },
-  {
-    "description": "The code uses uiCanvas.transform.Find(\"GuideText\") and uiCanvas.transform.Find(\"ScoreText\") to traverse hierarchy for UI children. Luna rules explicitly warn hierarchy traversal is unstable, and the skeleton note says guideText/scoreText are pre-created and should be used directly rather than discovered this way.",
-    "rule": "Forbidden APIs",
-    "fix": "Remove transform.Find-based child lookup. Use the skeleton-provided guideText and scoreText references directly, or assign them through pre-wired fields in the template.",
-    "severity": "critical",
-    "stage": "review",
-    "line": "Start() / UI lookup block",
-    "taskId": "proj_1775610623818_llzzo4",
-    "timestamp": "2026-04-09T14:40:22.157Z"
-  },
-  {
-    "description": "Multiple phase transitions are not truly player-driven and/or use the wrong completion semantics versus the documented interactions. Examples: phase 3 triggers on iceCollectedCount >= 3 without requiring the phase-specific furnace delivery interaction; phase 11 triggers on appleSoldCount >= 3 and gold >= 500 with no dedicated download-button interaction flag in the trigger; several transitions rely on counters/state only rather than a current-phase interaction action. The rules require every phase to have real player-action completion conditions, not just accumulated counters from prior systems.",
-    "rule": "Code Completeness",
-    "fix": "For each phase, gate transition on a phase-specific interaction flag tied to the required action in that phase (move/click/deliver/collect), plus the dwell timer. Example: phase 3 should require an actual furnace delivery flag; phase 11 should require a click/download interaction flag before completion.",
-    "severity": "critical",
-    "stage": "review",
-    "line": "CheckEventRules() phases 1-11",
-    "taskId": "proj_1775610623818_llzzo4",
-    "timestamp": "2026-04-09T14:40:22.159Z"
-  },
-  {
-    "description": "Several trigger variables are referenced in CheckEventRules() but are not modified anywhere in the provided file: goToIceConfirmButtonDone, playerDone, meltingFurnaceDone, productionLineExitDone, waterSellPointDone, toolUpgradeButtonDone, cabinExpandMarkerDone, irrigateButtonDone, appleDone, downloadButtonDone, miningToolState terminal progression to 3, and newCabinState to 2. The file comment says handlers may exist in GameFlowManagerMain.Systems.cs, but this review is for this GameFlowManagerMain.cs file and the required mutations are not present here. As provided, progression will stall or phases will never complete.",
-    "rule": "Architecture",
-    "fix": "Ensure each trigger/state variable used by CheckEventRules() is explicitly updated by interaction logic reachable from Update() in this file or clearly present in the reviewed partial file set. If the logic is in another partial, include it for review; otherwise implement the mutations here.",
-    "severity": "critical",
-    "stage": "review",
-    "line": "Whole file / TODO comments indicate external systems file",
-    "taskId": "proj_1775610623818_llzzo4",
-    "timestamp": "2026-04-09T14:40:22.162Z"
-  },
-  {
-    "description": "Phase 8 transition depends on miningToolState >= 3 and toolUpgradeButtonDone == true. In the reviewed file, toolUpgradeButtonDone is never set anywhere, and there is no visible logic that upgrades miningToolState to 3. This transition is unreachable.",
-    "rule": "Architecture",
-    "fix": "Implement the second upgrade interaction so player input sets toolUpgradeButtonDone and updates miningToolState to 3.",
-    "severity": "critical",
-    "stage": "review",
-    "line": "CheckEventRules() phase 8",
-    "taskId": "proj_1775610623818_llzzo4",
-    "timestamp": "2026-04-09T14:45:55.149Z"
-  },
-  {
-    "description": "Uses GameObject.Find() with invalid pool names: \"__Pool_Cube_Yellow_04\", \"__Pool_Cube_Yellow_05\", \"__Pool_Cube_Green_02\", and \"__Pool_Cube_Green_03\". The prompt explicitly states the ONLY valid pool names for this project, and these names are not in that whitelist. These Finds will return null in this project mapping and can break crew gameplay/phase progression.",
-    "rule": "Object Naming — Pool Objects",
-    "fix": "Use only the exact provided pool assignments. Do not invent extra pool names. Rework gameplay to use only the mapped objects listed in the project pool-name table, or use other exact valid names provided by the prompt if explicitly assigned.",
-    "severity": "critical",
-    "stage": "review",
-    "line": "Start() / crewObjs initialization",
-    "taskId": "proj_1775610610026_qapd9n",
-    "timestamp": "2026-04-09T14:46:52.304Z"
-  },
-  {
-    "description": "Several trigger conditions rely on interaction flags or state variables that are not modified anywhere in the provided file: goldDone gates phases 6-11, downloadButtonDone gates game end, and state variables like carryCapacityState/bathroomCapacityState are only force-set at phase 11 rather than being updated by their corresponding interactions in this file. As reviewed, phase progression depends on variables with no visible update path here, which violates the mechanical verification rule and risks permanent stalls.",
-    "rule": "Architecture",
-    "fix": "Ensure each trigger variable is explicitly updated by real interaction handlers in Update() or helper methods included in the reviewed implementation, e.g. set goldDone when the player collects required gold for that phase, set downloadButtonDone on CTA click, and set carryCapacityState/bathroomCapacityState/secondCabinState/restBedState at the actual upgrade/build completion points.",
-    "severity": "critical",
-    "stage": "review",
-    "line": "CheckEventRules() phases 6, 8, 9, 10, 11",
-    "taskId": "proj_1775610610026_qapd9n",
-    "timestamp": "2026-04-09T14:46:52.306Z"
-  },
-  {
-    "description": "The file depends on methods and types that are not present in the provided code block: UpdateAutoPlay, UpdatePlayerMovement, HandleInteractiveInput, UpdateCrewSpawner, UpdateDoorBuild, UpdateCabinBuild, UpdateBedBuild, UpdateGoldProduction, UpdateGoldDisplay, SpawnCrewAtIndex, ShowGuide, plus external helper classes. The skeleton note says these may live in GameFlowManagerMain.Systems.cs, but that file is not part of the reviewed submission. As submitted, this code is incomplete and cannot be validated as compile-safe or phase-complete.",
-    "rule": "Code Completeness",
-    "fix": "Provide the companion partial class/source file implementing all referenced methods and confirm all interaction/state mutations required by phase logic occur there. Without that code, this submission must be rejected as incomplete.",
-    "severity": "critical",
-    "stage": "review",
-    "line": "Class references to GFM_Joystick / GFM_Luna / GFM_UI / helper method calls",
-    "taskId": "proj_1775610610026_qapd9n",
-    "timestamp": "2026-04-09T14:46:52.307Z"
   },
   {
     "description": "Review blocked: 2 critical issues remain after 6 rounds",
@@ -708,8 +526,8 @@
     "autoExtracted": true,
     "failClassification": "CODE",
     "stage": "review",
-    "lastSeenAt": "2026-04-10T11:10:15.397Z",
-    "hitCount": 6
+    "lastSeenAt": "2026-04-11T09:28:31.991Z",
+    "hitCount": 7
   },
   {
     "description": "GameObject.Find() constructs pool names dynamically using \"__Pool_Cube_Yellow_\" + (60 + i). Dynamic pool-name construction is explicitly forbidden, and these names are not in the provided exact assignment list for this project.",
@@ -730,56 +548,6 @@
     "line": "Start()",
     "taskId": "proj_1775610623818_llzzo4",
     "timestamp": "2026-04-09T14:56:32.918Z"
-  },
-  {
-    "description": "Uses Camera.main to cache the camera. The rules explicitly prohibit using Camera.main in Luna; the skeleton says use mainCam instead of Camera.main because Camera.main may be null in template runtimes.",
-    "rule": "Forbidden APIs",
-    "fix": "Use the skeleton-provided camera reference initialization path without Camera.main, or assign mainCam through template-provided injection and null-check it before use.",
-    "severity": "critical",
-    "stage": "review",
-    "line": "Start()",
-    "taskId": "proj_1775610623818_llzzo4",
-    "timestamp": "2026-04-09T14:56:32.919Z"
-  },
-  {
-    "description": "Transition to sellBottledWaterForGold depends on productionLineExitDone only, not on collecting the required bottled water amount. This is not a real phase completion check for the described phase.",
-    "rule": "Architecture",
-    "fix": "Gate on waterCollectedCount >= required amount plus player-driven interaction/dwell.",
-    "severity": "critical",
-    "stage": "review",
-    "line": "CheckEventRules() phase 5",
-    "taskId": "proj_1775610623818_llzzo4",
-    "timestamp": "2026-04-09T14:56:32.922Z"
-  },
-  {
-    "description": "Transition to collectSellAppleForGold is gated by irrigateButtonDone only; it does not require appleGrowProgress reaching maturity, despite the phase description explicitly requiring grown apples. This allows invalid progression and fails mechanical coverage expectations.",
-    "rule": "Architecture",
-    "fix": "Require appleGrowProgress >= 100 and a player interaction flag with phaseTimer dwell before transitioning.",
-    "severity": "critical",
-    "stage": "review",
-    "line": "CheckEventRules() phase 10",
-    "taskId": "proj_1775610623818_llzzo4",
-    "timestamp": "2026-04-09T14:56:32.923Z"
-  },
-  {
-    "description": "Transition to guideDownloadFullGame is gated by appleDone only, not by the described completion condition of selling the required apples / earning the required gold. This is an invalid phase completion condition.",
-    "rule": "Architecture",
-    "fix": "Gate on appleSoldCount >= required amount and/or required gold earned from player-driven sales, plus dwell time.",
-    "severity": "critical",
-    "stage": "review",
-    "line": "CheckEventRules() phase 11",
-    "taskId": "proj_1775610623818_llzzo4",
-    "timestamp": "2026-04-09T14:56:32.924Z"
-  },
-  {
-    "description": "Code uses GameObject.Find() with pool names not listed in the project's ONLY valid pool-name assignments: __Pool_Sphere_Yellow_01, __Pool_Sphere_Yellow_02, __Pool_Sphere_Yellow_03, __Pool_Sphere_Yellow_04. The review spec explicitly says any other names in GameObject.Find() are WRONG for this project.",
-    "rule": "Object Naming — Pool Objects",
-    "fix": "Remove those Find() calls and use only the exact project-approved pool objects/mappings provided in the prompt.",
-    "severity": "critical",
-    "stage": "review",
-    "line": "Start() / TODO_START_START",
-    "taskId": "proj_1775610610026_qapd9n",
-    "timestamp": "2026-04-09T15:02:53.230Z"
   },
   {
     "description": "Uses FindObjectOfType(typeof(Camera)) to fetch the camera. This API is explicitly forbidden in Luna and may return null, breaking camera setup/runtime behavior.",
@@ -812,16 +580,6 @@
     "timestamp": "2026-04-09T15:09:17.047Z"
   },
   {
-    "description": "AutoPlay progression advances phases on timer alone for every phase via _autoPlayMode ? phaseTimer >= AUTO_PLAY_PHASE_DURATION. The review rules state phase progression must be player interaction-driven and never auto-advance via timer/scripted sequence. Historical incident notes explicitly flag autoplay/auto-demo as forbidden.",
-    "rule": "Code Completeness",
-    "fix": "Remove timer-only auto-advancement from CheckEventRules(). If CUA support is needed, simulate the same interaction flags/entity state changes through deterministic faux-input actions rather than bypassing phase requirements.",
-    "severity": "critical",
-    "stage": "review",
-    "line": "CheckEventRules() / autoPlay branches",
-    "taskId": "proj_1775610610026_qapd9n",
-    "timestamp": "2026-04-10T07:18:39.548Z"
-  },
-  {
     "description": "Phase 5 transitions when firstCrewTreated == true and gold >= 30 and phaseTimer threshold is met. There is no explicit interaction flag in the condition despite the phase spec requiring player action. This allows progression based purely on accumulated state once thresholds are met.",
     "rule": "Phase transition must require real player interaction, not just timer/state",
     "fix": "Add a true player interaction requirement for this transition, such as a treatment interaction flag and/or gold collection interaction flag that is set only by player action.",
@@ -852,26 +610,6 @@
     "timestamp": "2026-04-10T08:21:26.436Z"
   },
   {
-    "description": "RULE_COUNT is 12 and ruleTriggered has 12 entries, but CheckEventRules() only defines phase blocks for ruleTriggered[0] through ruleTriggered[11], where [11] is gameEnd. The blueprint phase count is 11 real phases plus a separate game-end block, while mechanical verification requires counting actual ruleTriggered[N] references against expected phase count. Using ruleTriggered[11] for gameEnd collapses architecture and makes phase tracking ambiguous versus spec.",
-    "rule": "Architecture",
-    "fix": "Keep ruleTriggered[] aligned to actual blueprint phase count only, and handle game end separately without consuming a blueprint phase slot, or explicitly size/count according to the exact validated spec if gameEnd is included by design everywhere else.",
-    "severity": "critical",
-    "stage": "review",
-    "line": "CheckEventRules() mechanical verification",
-    "taskId": "proj_1775610610026_qapd9n",
-    "timestamp": "2026-04-10T08:58:58.153Z"
-  },
-  {
-    "description": "Phase 4 is 'treat rescued crew', but transition into Phase 4 is gated by rescuedCrew >= 1 and playerDone == true from prior rescue delivery. In gameplay code, treatedCrew is incremented only when delivering to Bathroom, and Bathroom is only shown in Phase 4. This means the phase entrance condition is based on prior rescue state, not a treatment-specific completion state; this mirrors a known production failure called out in the rules.",
-    "rule": "Architecture",
-    "fix": "Use a true prior-phase completion variable for first rescue delivery to enter Phase 4, and reserve treatment-specific flags/states for completion of Phase 4 into Phase 5. Ensure naming and conditions reflect the actual interaction required.",
-    "severity": "critical",
-    "stage": "review",
-    "line": "Phase 4 transition / HandleInteraction()",
-    "taskId": "proj_1775610610026_qapd9n",
-    "timestamp": "2026-04-10T08:58:58.155Z"
-  },
-  {
     "description": "Several progression flags are satisfied by UpdateAutoPlay() without real user input, including screenDone, upgrade completion flags, build flags, and final downloadButtonDone/phase11InteractDone. This creates non-interactive scripted advancement paths.",
     "rule": "Phase progression MUST be driven by player interaction, never auto-advance via scripted sequence",
     "fix": "Delete auto-setting of any progression flag from non-user-driven code paths. Only actual input handlers should set interaction flags.",
@@ -890,16 +628,6 @@
     "line": "HandleInteraction() / currentPhaseName == \"phase_1775610864395_3\"",
     "taskId": "proj_1775610610026_qapd9n",
     "timestamp": "2026-04-10T09:06:44.365Z"
-  },
-  {
-    "description": "The code allows crew delivery to Bathroom whenever Bathroom is visible, regardless of current phase. Once Bathroom appears in phase 4, deliveries can also satisfy later economy goals and flags without enforcing the intended distinct per-phase objectives. This weakens phase isolation and risks phases being completed from generic accumulated state rather than the required phase-specific action sequence.",
-    "rule": "Gameplay Logic",
-    "fix": "Restrict interaction effects by currentPhaseName or dedicated phase-state checks so each phase completion is driven by its own intended interaction, not a shared generic delivery path.",
-    "severity": "critical",
-    "stage": "review",
-    "line": "HandleInteraction() / delivery to Bathroom",
-    "taskId": "proj_1775610610026_qapd9n",
-    "timestamp": "2026-04-10T09:06:44.367Z"
   },
   {
     "description": "Template clone corrupted: Assets/ directory missing",
@@ -954,5 +682,69 @@
     "line": "ReportPhase() and UpdateGameState()",
     "taskId": "proj_1775610640418_knq32m",
     "timestamp": "2026-04-10T11:36:33.207Z"
+  },
+  {
+    "description": "No phase progress in 20 consecutive rounds. Diagnosis: Stuck at phase unknown → unknown, root cause: unknown (20 rounds)",
+    "rule": "Interaction / Gameplay",
+    "fix": "Investigate why phase \"unknown\" is never reached. The transition condition or interaction handler is likely broken.",
+    "severity": "warning",
+    "line": "cua-verify stage failure",
+    "taskId": "proj_1775610623818_llzzo4",
+    "timestamp": "2026-04-11T01:34:01.953Z",
+    "autoExtracted": true,
+    "failClassification": "CODE",
+    "stage": "cua-verify"
+  },
+  {
+    "description": "CUA total time limit exceeded (47min > 45min)",
+    "rule": "Interaction / Gameplay",
+    "fix": "Previous 3 attempts all failed with \"phase-skipped\". You MUST implement ALL phases. Every phase transition must have real conditions.\n\nPrevious failure context:\nSURGICAL FIX MODE: Do NOT rewrite the entire file. Only modify the specific lines/functions that cause the issue below.\nCUA blueprint flow ",
+    "severity": "warning",
+    "line": "cua-verify stage failure",
+    "taskId": "proj_1775610610026_qapd9n",
+    "timestamp": "2026-04-11T11:41:11.853Z",
+    "autoExtracted": true,
+    "failClassification": "FATAL",
+    "stage": "cua-verify"
+  },
+  {
+    "description": "Code calls GameObject.Find(\"__Pool_Cube_Yellow_04\") and GameObject.Find(\"__Pool_Cube_Yellow_05\") for extra crew objects. These names are not in the provided project's ONLY valid pool-name assignment list, which explicitly limits allowed entity mappings. Using undeclared pool names is treated as invalid for this project and risks null objects/runtime blank scene.",
+    "rule": "Object Naming — Pool Objects",
+    "fix": "Use only the exact provided pool assignments for this project. Do not reference __Pool_Cube_Yellow_04 or __Pool_Cube_Yellow_05 unless the prompt explicitly assigns them.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "Start / TODO_VARIABLES_START",
+    "taskId": "proj_1775610610026_qapd9n",
+    "timestamp": "2026-04-11T12:32:50.210Z"
+  },
+  {
+    "description": "ReportPhase uses UnityEngine.Debug.Log for gameplay flow phase reporting. This was explicitly auto-promoted as a production risk in Luna review rules and should not be used in runtime phase/state flow.",
+    "rule": "Auto-promoted critical: Debug.Log runtime reporting risk",
+    "fix": "Remove Debug.Log-based runtime reporting or guard it behind a compile-time debug flag excluded from Luna builds.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "ReportPhase",
+    "taskId": "proj_1775610610026_qapd9n",
+    "timestamp": "2026-04-11T12:32:50.211Z"
+  },
+  {
+    "description": "The autoplay safety net force-advances every phase by directly marking ruleTriggered entries true and changing currentPhaseName/AddCompletedPhase even when required interactions never happened. This is explicitly forbidden auto-progression.",
+    "rule": "Gameplay Logic",
+    "fix": "Remove forced phase advancement paths. Keep minimum dwell timers, but require real interaction/state completion before transitioning.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "CheckEventRules / autoPlay safety net",
+    "taskId": "proj_1775610610026_qapd9n",
+    "timestamp": "2026-04-11T12:32:50.214Z"
+  },
+  {
+    "description": "Phase 11 advances on goldDone == true and phaseTimer >= 3f, which does not enforce the specified playerGold >= 500 condition and is just a generic flag. This allows premature CTA phase entry.",
+    "rule": "Architecture",
+    "fix": "Require the exact specified condition for this phase, including gold threshold and any required player acknowledgement/input.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "CheckEventRules / Phase 11 transition",
+    "taskId": "proj_1775610610026_qapd9n",
+    "timestamp": "2026-04-11T12:32:50.220Z"
   }
 ]
