@@ -86,6 +86,11 @@
 
 - ⛔ 禁止 ForceCompleteAllPhases 或任何"超时强制完成所有阶段"的逻辑
 - ⛔ 禁止用 timer 驱动 Phase 推进（Phase 完成条件不能是"等待N秒"）
+- ⛔ 禁止创建 AutoPlayForceAdvance / ForceAdvance / SkipGate 等绕过 20s 门控的函数
+- ⛔ 禁止修改 `_autoInteractTimer >= 3f` 的阈值（骨架默认 3 秒）
+- ⛔ 禁止修改 safety net 的 `phaseTimer >= 50f` 阈值
+- ⛔ 禁止在 CheckEventRules 的 phase gate 之外设置 ruleTriggered[]
+- ✅ autoPlay 20s gate 确保 CUA 能在每个 phase 截图 — 绕过它会导致 VISUAL FREEZE 验证失败
 - ✅ 每个阶段必须通过玩家交互（点击/拖拽/移动）才能推进
 - ✅ 每个 Phase 最少停留 8 秒
 - ✅ 引导(guide)要清晰告诉玩家下一步操作

@@ -84,7 +84,12 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
   var summary = 'Stuck at phase ' + stuckPhaseId + ' → ' + nextPhaseId + ', root cause: ' + rootCause + ' (' + noProgressRounds + ' rounds)';
 
   var rootCauseAdvice = {
-    visual_freeze: 'Game screen is visually static despite phases completing. The autoPlay code increments phase counters but produces NO visible changes. Fix: (1) Each phase transition MUST move/show/hide entities via transform.Translate, SetActive, SetColor. (2) Update UI text (gold, score, progress). (3) Do NOT just increment variables — create visible side effects.',
+    visual_freeze: 'Game screen is visually static despite phases completing. Phases are completing too fast (batch-firing) so CUA sees no visual change between screenshots.\n' +
+      '⛔ CRITICAL: Do NOT create AutoPlayForceAdvance or any function that bypasses the skeleton 20f gate.\n' +
+      '⛔ Do NOT reduce _autoInteractTimer threshold (must stay >= 3f).\n' +
+      '⛔ Do NOT reduce the safety net threshold (must stay >= 50f).\n' +
+      '⛔ Do NOT set ruleTriggered[] outside of CheckEventRules phase gate blocks.\n' +
+      'Fix: (1) Each phase transition MUST move/show/hide entities via transform.position. (2) Update UI text (gold, score, progress). (3) The 20f autoPlay gate ensures CUA has time to capture screenshots — do NOT bypass it. (4) Each phase should PlaceObj/HideObj at least 2 entities to create visible change.',
     variable_stagnation: 'All gameplay variables (gold, score, count) stayed at initial values. Phase transitions are empty shells without real game logic. Fix: (1) Each phase must UPDATE game variables (gold += reward, score++). (2) Use variables in UI display. (3) Phase transition conditions should depend on these variables, not just phaseTimer.',
     batch_phase_skip: 'Multiple phases completed in one poll interval — phases are timer-skipping without gameplay. Fix: ensure each phase has a minimum 20s duration gate and performs real gameplay actions during that time.',
     rendering_failure: 'Objects are not visible. Check: (1) SetActive(true) is called, (2) objects are positioned within camera view, (3) no Z-fighting or off-screen placement.',
@@ -106,8 +111,8 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
   return { summary: summary, detail: detail, rootCause: rootCause, stuckPhase: stuckPhaseId, nextPhase: nextPhaseId };
 }
 
-var MAX_CUA_ROUNDS = 20;
-var MAX_CUA_TOTAL_MS = 90 * 60 * 1000; // 90 min absolute time limit (Opus fix rounds ~10min each)
+var MAX_CUA_ROUNDS = 10;
+var MAX_CUA_TOTAL_MS = 45 * 60 * 1000; // 45 min absolute time limit (Opus fix rounds ~5min each)
 var NO_PROGRESS_EXIT_ROUNDS = 5; // exit if no phase progress in N consecutive rounds
 var SAME_ISSUE_REGEN_THRESHOLD = 3;
 

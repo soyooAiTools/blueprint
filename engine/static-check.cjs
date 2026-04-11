@@ -103,6 +103,51 @@ var RULES = [
     }
     return issues;
   }},
+  // --- v5: Anti-gate-bypass rules ---
+  { id: 'force-advance-func', pattern: /ForceAdvance|ForceProgress|SkipGate|BypassGate/g, message: 'ForceAdvance/SkipGate functions forbidden — autoPlay 20s gates must NOT be bypassed' },
+  { id: 'autoplay-interact-timer-too-fast', pattern: null, message: 'AutoPlay _autoInteractTimer interval must be >= 2f (skeleton sets 3f)', custom: function(code) {
+    var issues = [];
+    var re = /_autoInteractTimer\s*>=\s*(\d+\.?\d*)f?\b/g;
+    var m;
+    while ((m = re.exec(code)) !== null) {
+      var val = parseFloat(m[1]);
+      if (val < 2.0) {
+        var lineNum = code.substring(0, m.index).split('\n').length;
+        issues.push({ line: lineNum, text: '_autoInteractTimer >= ' + val + 'f (must be >= 2f, skeleton sets 3f)' });
+      }
+    }
+    return issues;
+  }},
+  { id: 'safety-net-threshold-tamper', pattern: null, message: 'AutoPlay safety net threshold must be >= 40f (skeleton sets 50f)', custom: function(code) {
+    // Check for safety net with low phaseTimer threshold
+    var issues = [];
+    // Match: _autoPlayMode && !gameEnded && phaseTimer >= Xf  (the safety net pattern)
+    var re = /_autoPlayMode\s*&&\s*!gameEnded\s*&&\s*(?:this\.)?phaseTimer\s*>=\s*(\d+\.?\d*)f?\b/g;
+    var m;
+    while ((m = re.exec(code)) !== null) {
+      var val = parseFloat(m[1]);
+      if (val < 40) {
+        var lineNum = code.substring(0, m.index).split('\n').length;
+        issues.push({ line: lineNum, text: 'Safety net phaseTimer >= ' + val + 'f (must be >= 40f, skeleton sets 50f)' });
+      }
+    }
+    return issues;
+  }},
+  { id: 'direct-ruletriggered-set', pattern: null, message: 'ruleTriggered[] must only be set inside skeleton phase gates — do not set outside CheckEventRules', custom: function(code) {
+    // Check for ruleTriggered assignments outside of CheckEventRules
+    // Look for methods that set ruleTriggered but aren't CheckEventRules
+    var issues = [];
+    // Find AutoPlayForceAdvance or similar functions that set ruleTriggered
+    var funcRe = /void\s+(AutoPlayForceAdvance|ForceAdvance|AdvancePhase|SkipPhase)\s*\([^)]*\)\s*\{([\s\S]*?)\n    \}/g;
+    var m;
+    while ((m = funcRe.exec(code)) !== null) {
+      if (m[2].indexOf('ruleTriggered') >= 0) {
+        var lineNum = code.substring(0, m.index).split('\n').length;
+        issues.push({ line: lineNum, text: 'Function ' + m[1] + '() sets ruleTriggered — only CheckEventRules may do this' });
+      }
+    }
+    return issues;
+  }},
 ];
 
 /**

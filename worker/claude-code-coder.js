@@ -653,7 +653,13 @@ ${inlinePromptMd}
         + '3. The existing code is 1000+ lines (may be split across GameFlowManagerMain.cs + GameFlowManagerMain.Systems.cs). Your edits must preserve all existing code.\n'
         + '4. Read ALL existing .cs files FIRST, then apply targeted edits based on the feedback.\n'
         + '5. If any file becomes shorter after your edits, you have made a mistake.\n'
-        + '6. If GameFlowManagerMain.Systems.cs exists, game subsystems live there — edit it for movement/combat/spawning/economy fixes.'
+        + '6. If GameFlowManagerMain.Systems.cs exists, game subsystems live there — edit it for movement/combat/spawning/economy fixes.\n'
+        + '⛔ FORBIDDEN PATTERNS (violation = immediate build rejection):\n'
+        + '- Do NOT create AutoPlayForceAdvance, ForceProgress, SkipGate, or any function that bypasses autoPlay 20s gates\n'
+        + '- Do NOT reduce _autoInteractTimer threshold below 3f (skeleton default)\n'
+        + '- Do NOT reduce safety net threshold below 50f\n'
+        + '- Do NOT set ruleTriggered[] outside of CheckEventRules phase gate blocks\n'
+        + '- The 20s autoPlay gates exist so CUA can take screenshots between phases — bypassing them causes VISUAL FREEZE which fails CUA'
       : null,
     workDir: clientDir,
   });

@@ -13,7 +13,7 @@ var { createFixLoop } = require('../fix-loop.cjs');
 var { staticCheck } = require('../static-check.cjs');
 var { checkConformance } = require('../spec-conformance.cjs');
 
-var MAX_REVIEW_ROUNDS = 6;
+var MAX_REVIEW_ROUNDS = 4;
 
 module.exports = {
   name: 'review',
