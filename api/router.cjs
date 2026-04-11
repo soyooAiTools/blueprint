@@ -40,6 +40,9 @@ function matchRoute(method, pathname) {
   // P5: committed callback
   m = pathname.match(/^\/api\/projects\/([^/]+)\/committed$/);
   if (m && method === 'POST') return { handler: 'committedProject', id: m[1] };
+  // SVN commit
+  m = pathname.match(/^\/api\/projects\/([^/]+)\/svn-commit$/);
+  if (m && method === 'POST') return { handler: 'svnCommit', id: m[1] };
 
   // Storyboard routes
   m = pathname.match(/^\/api\/projects\/([^/]+)\/parse-storyboard$/);

@@ -43,6 +43,7 @@ module.exports.init = function(ctx) {
   var resetCUARetries = ctx.resetCUARetries;
 
   var PORT = config.PORT;
+  var DATA_DIR = config.DATA_DIR;
   var PROJECTS_DIR = config.PROJECTS_DIR;
   var WEBGL_DIR = config.WEBGL_DIR;
 
@@ -315,8 +316,36 @@ module.exports.init = function(ctx) {
       var id = params.id;
       var project = readProject(id);
       if (!project) return sendJSON(res, { error: '项目不存在' }, 404);
+      var specs = project.specs || [];
+      // Fallback: read from spec-data file if project.specs is empty
+      if (specs.length === 0) {
+        var specFile = path.join(config.SPEC_DIR || path.join(DATA_DIR, '..', 'spec-data'), id, 'specs.json');
+        if (fs.existsSync(specFile)) {
+          try { specs = JSON.parse(fs.readFileSync(specFile, 'utf-8')); } catch(e) {}
+        }
+      }
+      // Extract entity→visual mapping from compiled WebGL HTML
+      var entityMap = [];
+      var htmlFile = path.join(WEBGL_DIR, id, 'index.html');
+      if (fs.existsSync(htmlFile)) {
+        try {
+          var html = fs.readFileSync(htmlFile, 'utf-8');
+          var re = /this\.(\w+)\s*=\s*UnityEngine\.GameObject\.Find\("(__Pool_(\w+?)_(\w+?)_\d+)"\)/g;
+          var m;
+          var seen = {};
+          while ((m = re.exec(html)) !== null) {
+            var eName = m[1];
+            // Skip internal/decorator names
+            if (/^(groundPlane|crewObj|wallL|wallR|deb\d|pillar)/.test(eName)) continue;
+            if (seen[eName]) continue;
+            seen[eName] = true;
+            entityMap.push({ name: eName, shape: m[3], color: m[4] });
+          }
+        } catch(e) {}
+      }
       sendJSON(res, {
-        specs: project.specs || [],
+        specs: specs,
+        entityMap: entityMap,
         status: project.status,
         projectName: project.name,
       });
@@ -375,6 +404,70 @@ module.exports.init = function(ctx) {
 
       wakeOpenClaw('[蓝图编辑器] Spec 已确认，任务已提交。项目: ' + project.name + ', taskId: ' + taskId);
       sendJSON(res, { success: true, status: 'submitted', specsCount: (project.specs || []).length });
+    },
+
+    svnCommit: function(req, res, body, params) {
+      var id = params.id;
+      var project = readProject(id);
+      if (!project) return sendJSON(res, { error: '项目不存在' }, 404);
+      var svnUrl = (project.svnUrl || '').trim();
+      if (!svnUrl) return sendJSON(res, { error: '该项目未配置 SVN 地址' }, 400);
+
+      var webglDir = path.join(WEBGL_DIR, id);
+      if (!fs.existsSync(webglDir)) return sendJSON(res, { error: '没有可提交的 WebGL 构建文件' }, 400);
+
+      var exec = require('child_process').execSync;
+      var tmpDir = path.join(DATA_DIR, 'svn-tmp', id);
+      if (fs.existsSync(tmpDir)) {
+        try { exec('rm -rf ' + JSON.stringify(tmpDir)); } catch(e) {}
+      }
+      fs.mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        // Checkout SVN target directory
+        exec('svn checkout --depth=infinity ' + JSON.stringify(svnUrl) + ' ' + JSON.stringify(tmpDir) + ' --non-interactive --trust-server-cert-failures=unknown-ca,cn-mismatch,expired', { timeout: 60000 });
+
+        // Copy webgl build files into checkout
+        var buildFiles = fs.readdirSync(webglDir);
+        for (var i = 0; i < buildFiles.length; i++) {
+          var fname = buildFiles[i];
+          if (fname === 'versions' || fname === 'specs.json') continue;
+          var src = path.join(webglDir, fname);
+          var dst = path.join(tmpDir, fname);
+          var stat = fs.statSync(src);
+          if (stat.isDirectory()) {
+            exec('cp -r ' + JSON.stringify(src) + ' ' + JSON.stringify(dst));
+          } else {
+            fs.copyFileSync(src, dst);
+          }
+        }
+
+        // svn add new files (ignore already versioned)
+        try { exec('svn add --force ' + JSON.stringify(tmpDir) + '/*', { cwd: tmpDir }); } catch(e) {}
+
+        // Commit
+        var commitMsg = '提交 WebGL 构建 — ' + (project.name || id);
+        var result = exec('svn commit -m ' + JSON.stringify(commitMsg) + ' --non-interactive --trust-server-cert-failures=unknown-ca,cn-mismatch,expired', { cwd: tmpDir, timeout: 120000 });
+        var output = result.toString().trim();
+
+        // Extract revision number
+        var revMatch = output.match(/Committed revision (\d+)/);
+        var revision = revMatch ? revMatch[1] : null;
+
+        // Update project
+        if (revision) project.svnRevision = revision;
+        project.updatedAt = new Date().toISOString();
+        writeProject(project);
+
+        // Cleanup
+        try { exec('rm -rf ' + JSON.stringify(tmpDir)); } catch(e) {}
+
+        sendJSON(res, { success: true, revision: revision, message: output || '提交成功' });
+      } catch(e) {
+        // Cleanup on error
+        try { exec('rm -rf ' + JSON.stringify(tmpDir)); } catch(e2) {}
+        sendJSON(res, { error: 'SVN 提交失败: ' + e.message }, 500);
+      }
     },
 
     // Expose for other modules that need it

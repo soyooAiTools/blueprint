@@ -5,6 +5,7 @@
 var fs = require('fs');
 var { projectSM } = require("../lib/state-machine.cjs");
 var path = require('path');
+var { optimize: optimizeWebgl } = require('../lib/optimize-webgl.cjs');
 
 module.exports.init = function(ctx) {
   var config = ctx.config;
@@ -67,6 +68,16 @@ module.exports.init = function(ctx) {
         return sendJSON(res, { error: '请提供 html 或 files 字段' }, 400);
       }
 
+      // Optimize and pre-compress HTML files
+      ['index.html', 'iframe.html'].forEach(function(f) {
+        var htmlPath = path.join(webglDir, f);
+        if (fs.existsSync(htmlPath)) {
+          try { optimizeWebgl(htmlPath); } catch(e) {
+            console.error('[upload-webgl] optimize failed for ' + f + ':', e.message);
+          }
+        }
+      });
+
       var uploadedFile = fs.existsSync(path.join(webglDir, 'iframe.html')) ? 'iframe.html' : 'index.html';
       project.webglPath = '/webgl/' + id + '/' + uploadedFile;
       project.updatedAt = new Date().toISOString();
@@ -84,9 +95,16 @@ module.exports.init = function(ctx) {
       var hasWebgl = hasIframe || hasIndex;
       // Prefer iframe.html (actual game) over index.html (Luna Dev Environment)
       var webglFile = hasIframe ? 'iframe.html' : 'index.html';
+      // Cache-bust: append file mtime so browser always loads latest build
+      var cacheBust = '';
+      if (hasWebgl) {
+        try { cacheBust = '?t=' + fs.statSync(path.join(webglDir, webglFile)).mtimeMs.toFixed(0); } catch(e) {}
+      }
+      // Always enable autoplay in preview so all phases auto-advance for viewers
+      var autoplaySuffix = cacheBust ? '&autoplay=1' : '?autoplay=1';
       sendJSON(res, {
         available: hasWebgl,
-        url: hasWebgl ? '/webgl/' + id + '/' + webglFile : null,
+        url: hasWebgl ? '/webgl/' + id + '/' + webglFile + cacheBust + autoplaySuffix : null,
         webglPath: project.webglPath,
       });
     },

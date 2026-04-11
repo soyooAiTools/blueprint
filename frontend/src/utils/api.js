@@ -182,6 +182,11 @@ export async function commitProject(id, svnRevision) {
   return request('/projects/' + id + '/committed', { method: 'POST', body: JSON.stringify({ svnRevision }) });
 }
 
+// SVN commit
+export async function svnCommit(id) {
+  return request('/projects/' + id + '/svn-commit', { method: 'POST' });
+}
+
 export async function deleteProject(id) {
   return request('/projects/' + id, { method: 'DELETE' });
 }

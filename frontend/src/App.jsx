@@ -35,6 +35,8 @@ import {
   getWebglInfo,
   getProject,
   fetchProjects,
+  getSpecs,
+  svnCommit,
 } from './utils/api';
 
 const nodeTypes = {
@@ -203,6 +205,12 @@ function FlowEditor({ project, onBack, initialTab }) {
   // Default to storyboard for new/editing projects (unless explicitly set)
   
   const [webglInfo, setWebglInfo] = useState(null);
+  const [previewSpecs, setPreviewSpecs] = useState([]);
+  const [entityMap, setEntityMap] = useState([]);
+  const [completedPhases, setCompletedPhases] = useState([]);
+  const [currentPhase, setCurrentPhase] = useState('');
+  const [svnCommitting, setSvnCommitting] = useState(false);
+  const [iframeLoading, setIframeLoading] = useState(true);
   const reactFlowInstance = useReactFlow();
   const entityCountRef = useRef((project.entities || []).length || (project.nodes || []).filter((n) => n.type === 'entityNode').length || 1);
   const autoSaveRef = useRef(null);
@@ -262,6 +270,33 @@ function FlowEditor({ project, onBack, initialTab }) {
       }).catch(() => {});
     }
   }, [projectStatus, project.id]);
+
+  // Fetch specs + poll iframe __gameState for phase progress
+  const iframeRef = useRef(null);
+  useEffect(() => {
+    if (activeTab !== 'review') return;
+    getSpecs(project.id).then((data) => {
+      const arr = Array.isArray(data) ? data : (data && data.specs) || [];
+      if (arr.length > 0) setPreviewSpecs(arr);
+      if (data && Array.isArray(data.entityMap)) setEntityMap(data.entityMap);
+    }).catch(() => {});
+  }, [activeTab, project.id]);
+
+  useEffect(() => {
+    if (activeTab !== 'review' || !webglInfo || !webglInfo.available) return;
+    const poll = setInterval(() => {
+      try {
+        const iframe = iframeRef.current;
+        if (!iframe || !iframe.contentWindow) return;
+        const gs = iframe.contentWindow.__gameState;
+        if (gs) {
+          if (Array.isArray(gs.completedPhases)) setCompletedPhases(gs.completedPhases);
+          if (gs.currentPhase) setCurrentPhase(gs.currentPhase);
+        }
+      } catch (e) { /* cross-origin — ignore */ }
+    }, 1000);
+    return () => clearInterval(poll);
+  }, [activeTab, webglInfo]);
 
   // Poll for WebGL build completion
   const buildNotified = useRef(false);
@@ -610,7 +645,7 @@ function FlowEditor({ project, onBack, initialTab }) {
             className={`app-tab ${activeTab === 'review' ? 'app-tab-active' : ''}`}
             onClick={() => setActiveTab('review')}
           >
-            📱 审核
+            📱 预览
           </button>
         )}
       </div>
@@ -675,72 +710,144 @@ function FlowEditor({ project, onBack, initialTab }) {
             />
           </>
         ) : activeTab === 'review' ? (
-          <div className="review-split">
-            <div className="review-left">
-              <div className="preview-status-bar">
-                {projectStatus === 'reviewing' && (
-                  <span className="preview-status-text">👀 开发完成，请审核预览效果</span>
-                )}
-                {projectStatus === 'feedback' && (
-                  <span className="preview-status-text">💬 反馈已提交，等待修改</span>
-                )}
-                {projectStatus === 'approved' && (
-                  <span className="preview-status-text">⏳ 已通过，正在提交 SVN...</span>
-                )}
-                {projectStatus === 'committed' && (
-                  <span className="preview-status-text preview-status-committed">✅ 已提交 SVN</span>
-                )}
+          <div className="preview-center">
+              <div className="preview-toolbar">
                 <button className="preview-refresh-btn" onClick={() => {
-                  const iframe = document.querySelector('.preview-iframe');
-                  if (iframe) { iframe.src = iframe.src; }
+                  if (iframeRef.current) { iframeRef.current.src = iframeRef.current.src; }
+                  setCompletedPhases([]);
+                  setCurrentPhase('');
+                  setIframeLoading(true);
                 }} title="刷新预览">🔄</button>
                 <button className="preview-orientation-btn" onClick={() => setPreviewLandscape(!previewLandscape)}
                   title={previewLandscape ? '切换竖屏' : '切换横屏'}>
                   {previewLandscape ? '📱 竖屏' : '📲 横屏'}
                 </button>
-                {webglInfo && webglInfo.available && (
-                  <button className="preview-autoplay-btn" onClick={() => {
-                    const iframe = document.querySelector('.preview-iframe');
-                    if (iframe) {
-                      const base = webglInfo.url.split('?')[0];
-                      iframe.src = base + '?autoplay=1';
+                <span className="preview-progress-counter">
+                  {completedPhases.length}/{previewSpecs.length} Shots
+                </span>
+                <button className="preview-svn-btn" disabled={svnCommitting} onClick={async () => {
+                  if (!project.svnUrl) {
+                    showAlert('该项目未配置 SVN 地址，请在创建项目时填写');
+                    return;
+                  }
+                  const ok = await showConfirm('确认提交到 SVN？\n目标: ' + project.svnUrl);
+                  if (!ok) return;
+                  setSvnCommitting(true);
+                  try {
+                    const resp = await svnCommit(project.id);
+                    if (resp.error) {
+                      showAlert('SVN 提交失败: ' + resp.error);
+                    } else {
+                      showAlert('SVN 提交成功' + (resp.revision ? ' (r' + resp.revision + ')' : ''));
                     }
-                  }} title="自动播放所有 Shot">
-                    {'▶ 自动播放'}
-                  </button>
-                )}
+                  } catch(e) {
+                    showAlert('SVN 提交失败: ' + e.message);
+                  } finally {
+                    setSvnCommitting(false);
+                  }
+                }}>
+                  {svnCommitting ? '⏳ 提交中...' : '📤 提交SVN'}
+                </button>
               </div>
               {webglInfo && webglInfo.available ? (
-                <div className={`preview-phone-frame ${previewLandscape ? 'landscape' : ''}`}>
-                  {!previewLandscape && <div className="preview-phone-notch" />}
-                  <iframe
-                    className="preview-iframe"
-                    src={webglInfo.url}
-                    title="WebGL Preview"
-                    allow="autoplay; fullscreen; webgl; webgl2"
-                    allowFullScreen
-                    scrolling="no"
-                    style={{ overflow: 'hidden' }}
-                    onLoad={(e) => {
-                      // Luna Dev builds check _isInsideIframe() and won't auto-start in iframes.
-                      // Send postMessage to trigger luna:build + luna:start via setPlaygroundAssetOverrides handler.
-                      // Retry multiple times since the 12MB HTML may still be initializing scripts after iframe load.
-                      const iframe = e.target;
-                      const sendStartMsg = () => {
-                        try {
-                          iframe.contentWindow.postMessage(JSON.stringify({
-                            name: 'setPlaygroundAssetOverrides',
-                            data: '{}'
-                          }), '*');
-                        } catch(err) { console.warn('Failed to send start message to iframe:', err); }
-                      };
-                      sendStartMsg();
-                      // Retry at 500ms, 1500ms, 3000ms in case scripts aren't ready yet
-                      setTimeout(sendStartMsg, 500);
-                      setTimeout(sendStartMsg, 1500);
-                      setTimeout(sendStartMsg, 3000);
-                    }}
-                  />
+                <div className="preview-main-row">
+                  {entityMap.length > 0 && (() => {
+                    const shapeLabel = { Cube: '方块', Sphere: '球', Cylinder: '柱体', Plane: '平面' };
+                    const colorLabel = { Red: '红色', Blue: '蓝色', Green: '绿色', Yellow: '黄色', Orange: '橙色', Purple: '紫色', White: '白色', Brown: '棕色', Cyan: '青色', Pink: '粉色' };
+                    const nameLabel = {
+                      Player: '玩家', MainCabin: '主船舱', CabinDoor: '舱门', CrewSpawner: '船员生成点',
+                      FloatingCrew: '漂浮船员', Bathroom: '浴室', CarryUpgrade: '搬运升级', BathroomUpgrade: '浴室升级',
+                      SecondCabin: '第二船舱', Bed: '床铺', GoldUI: '金币UI', GuideUI: '引导UI', CTAButton: '下载按钮',
+                      Boss: 'Boss', Enemy: '敌人', Obstacle: '障碍物', Coin: '金币', Key: '钥匙', Door: '门',
+                      Chest: '宝箱', NPC: 'NPC', Weapon: '武器', Shield: '盾牌', Trap: '陷阱', Platform: '平台',
+                      Spawner: '生成器', Goal: '目标点', Wall: '墙壁', Floor: '地板', Ceiling: '天花板',
+                      Bullet: '子弹', HealthBar: '血条', Timer: '计时器', Score: '分数', Lives: '生命',
+                    };
+                    return (
+                      <div className="preview-entity-legend">
+                        <div className="preview-shot-title">画面图例</div>
+                        {entityMap.map((e) => (
+                          <div key={e.name} className="preview-entity-item">
+                            <span className={`preview-entity-swatch color-${e.color.toLowerCase()}`}>
+                              {e.shape === 'Cube' ? '■' : e.shape === 'Sphere' ? '●' : e.shape === 'Cylinder' ? '▮' : '▬'}
+                            </span>
+                            <span className="preview-entity-label">
+                              {colorLabel[e.color] || e.color}{shapeLabel[e.shape] || e.shape}
+                            </span>
+                            <span className="preview-entity-name">
+                              {nameLabel[e.name] || e.name.replace(/([A-Z])/g, ' $1').trim()}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                  <div className={`preview-phone-frame preview-phone-large ${previewLandscape ? 'landscape' : ''}`} style={{ position: 'relative' }}>
+                    {!previewLandscape && <div className="preview-phone-notch" />}
+                    {iframeLoading && (
+                      <div className="webgl-loading-overlay">
+                        <div className="webgl-loading-spinner" />
+                        <div className="webgl-loading-text">加载中...</div>
+                        <div className="webgl-loading-hint">Luna WebGL 引擎初始化</div>
+                      </div>
+                    )}
+                    <iframe
+                      ref={iframeRef}
+                      className="preview-iframe"
+                      src={webglInfo.url}
+                      title="WebGL Preview"
+                      allow="autoplay; fullscreen; webgl; webgl2"
+                      allowFullScreen
+                      scrolling="no"
+                      style={{ overflow: 'hidden' }}
+                      onLoad={(e) => {
+                        const iframe = e.target;
+                        const sendStartMsg = () => {
+                          try {
+                            iframe.contentWindow.postMessage(JSON.stringify({
+                              name: 'setPlaygroundAssetOverrides',
+                              data: '{}'
+                            }), '*');
+                          } catch(err) {}
+                        };
+                        sendStartMsg();
+                        setTimeout(sendStartMsg, 500);
+                        setTimeout(sendStartMsg, 1500);
+                        setTimeout(sendStartMsg, 3000);
+                        // Wait for game to actually render (not just HTML load)
+                        const checkReady = setInterval(() => {
+                          try {
+                            const gs = iframe.contentWindow.__gameState;
+                            if (gs || iframe.contentWindow.pc) {
+                              setIframeLoading(false);
+                              clearInterval(checkReady);
+                            }
+                          } catch(err) {}
+                        }, 300);
+                        // Fallback: hide after 8s regardless
+                        setTimeout(() => { setIframeLoading(false); clearInterval(checkReady); }, 8000);
+                      }}
+                    />
+                  </div>
+                  {previewSpecs.length > 0 && (
+                    <div className="preview-shot-list">
+                      <div className="preview-shot-title">Shot 进度</div>
+                      {previewSpecs.map((spec, i) => {
+                        const done = completedPhases.indexOf(spec.phaseId) >= 0;
+                        const active = currentPhase === spec.phaseId && !done;
+                        const desc = spec.triggerNext && spec.triggerNext.description;
+                        return (
+                          <div key={spec.phaseId} className={`preview-shot-item${done ? ' done' : ''}${active ? ' active' : ''}`}>
+                            <span className="preview-shot-num">{i + 1}</span>
+                            <div className="preview-shot-text">
+                              <span className="preview-shot-name">{spec.phaseName}</span>
+                              {desc && <span className="preview-shot-desc">{desc}</span>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="preview-empty">
@@ -762,12 +869,6 @@ function FlowEditor({ project, onBack, initialTab }) {
                       <div className="preview-empty-text">正在构建 WebGL</div>
                       <div className="preview-empty-hint">代码已完成，正在打包中...</div>
                     </>
-                  ) : projectStatus === 'feedback' ? (
-                    <>
-                      <div className="preview-empty-icon">💬</div>
-                      <div className="preview-empty-text">反馈修改中</div>
-                      <div className="preview-empty-hint">Coding Agent 正在根据反馈修改，完成后会推送新版本</div>
-                    </>
                   ) : (
                     <>
                       <div className="preview-empty-icon">📱</div>
@@ -777,31 +878,6 @@ function FlowEditor({ project, onBack, initialTab }) {
                   )}
                 </div>
               )}
-              <div className="preview-actions-vertical">
-                {(projectStatus === 'reviewing' || projectStatus === 'feedback') && (
-                  <>
-                    <button className="preview-action-outline preview-action-approve" onClick={handleApprove}>
-                      ✅ 效果审核通过
-                    </button>
-                    <button
-                      className={`preview-action-outline preview-action-feedback${!hasPendingFeedback ? ' preview-action-disabled' : ''}`}
-                      disabled={!hasPendingFeedback}
-                      title={!hasPendingFeedback ? '请先在右侧添加反馈内容' : ''}
-                      onClick={async () => {
-                        const text = await showPrompt('请输入反馈内容：');
-                        if (text) handleFeedback(text);
-                      }}
-                    >
-                      💬 提交反馈，继续修改
-                    </button>
-                  </>
-                )}
-              </div>
-              {/* feedback history removed per Nick's request — shown in TaskPanel instead */}
-            </div>
-            <div className="review-right">
-              <TaskPanel nodes={nodes} onUpdateNode={onUpdateNode} feedbackSubmitted={feedbackHistory.length > 0} />
-            </div>
           </div>
         ) : (
           <TaskPanel nodes={nodes} onUpdateNode={onUpdateNode} feedbackSubmitted={feedbackHistory.length > 0} />
