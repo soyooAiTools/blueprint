@@ -60,6 +60,17 @@ var RULES = [
     if (placeCount < 3) return [{ line: 1, text: 'Only ' + placeCount + ' objects placed in phase 1 (need ≥3)' }];
     return [];
   }},
+  // --- v4: AutoPlay duration protection ---
+  { id: 'autoplay-duration-tamper', pattern: null, message: 'AUTO_PLAY_PHASE_DURATION must be >= 15 — AI must NOT reduce shot duration', custom: function(code) {
+    var m = code.match(/AUTO_PLAY_PHASE_DURATION\s*=\s*(\d+)/);
+    if (!m) return [];
+    var val = parseInt(m[1], 10);
+    if (val < 15) {
+      var lineNum = code.substring(0, m.index).split('\n').length;
+      return [{ line: lineNum, text: 'AUTO_PLAY_PHASE_DURATION = ' + val + ' (must be >= 15, skeleton sets 20)' }];
+    }
+    return [];
+  }},
 ];
 
 /**

@@ -291,6 +291,8 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   lines.push('- ⛔ 禁止 autoplay/自动演示：不要让游戏在无输入下自动跑完');
   lines.push('- ⛔ 禁止 timer += dt 驱动 Phase 推进');
   lines.push('- ⛔ 禁止 auto-complete: Phase 完成条件不能是"等待N秒"');
+  lines.push('- ⛔ 禁止修改 AUTO_PLAY_PHASE_DURATION 的值（skeleton 设为 20f，必须保持 ≥ 15f）');
+  lines.push('- ⛔ 禁止删除或修改任何带 [SKELETON] ... (DO NOT MODIFY) 注释的代码行');
   lines.push('');
   lines.push('## 正确做法:');
   lines.push('- ✅ 每个 Rule 的条件必须依赖玩家操作结果（eState==2, 距离<阈值, 点击目标）');

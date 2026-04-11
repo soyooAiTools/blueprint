@@ -133,7 +133,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    bool _autoPlayMode = false;');
   lines.push('    bool _autoPlayChecked = false;');
   lines.push('    int _autoPlaySteps = 0; // [SKELETON] tracks autoPlay visual progress for CUA');
-  lines.push(`    const float AUTO_PLAY_PHASE_DURATION = ${Math.max(12, Math.min(20, Math.round(180 / Math.max(totalPhases, 1))))}f; // ~${Math.round(180 / Math.max(totalPhases, 1))}s per phase`);
+  lines.push('    const float AUTO_PLAY_PHASE_DURATION = 20f; // [SKELETON] 20s per shot — DO NOT MODIFY this value (DO NOT MODIFY)');
   lines.push('');
 
   // Entity state variables from specs
@@ -597,7 +597,7 @@ function generateSkeleton(specs, opts = {}) {
       lines.push(`        // Condition hint: ${conditionHint}`);
       const realCondition = buildRealCondition(prevSpec);
       lines.push(`        if (!ruleTriggered[${ruleIdx}]`);
-      lines.push(`            && (_autoPlayMode ? phaseTimer >= AUTO_PLAY_PHASE_DURATION // [SKELETON] autoPlay: time-based progression`);
+      lines.push(`            && (_autoPlayMode ? phaseTimer >= (AUTO_PLAY_PHASE_DURATION < 15f ? 20f : AUTO_PLAY_PHASE_DURATION) // [SKELETON] autoPlay: 20s per shot minimum (DO NOT MODIFY)`);
       lines.push(`                : (${realCondition} && phaseTimer >= ${prevSpec.duration.min}f))) // [SKELETON] interactive: condition + min dwell`);
       lines.push('        {');
       lines.push(`            ruleTriggered[${ruleIdx}] = true;`);
@@ -662,7 +662,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push(`        // End condition hint: ${endConditionHint}`);
   const endRealCondition = buildRealCondition(lastSpec);
   lines.push(`        if (!ruleTriggered[${specs.length}]`);
-  lines.push(`            && (_autoPlayMode ? phaseTimer >= AUTO_PLAY_PHASE_DURATION`);
+  lines.push(`            && (_autoPlayMode ? phaseTimer >= (AUTO_PLAY_PHASE_DURATION < 15f ? 20f : AUTO_PLAY_PHASE_DURATION) // [SKELETON] 20s min (DO NOT MODIFY)`);
   lines.push(`                : (${endRealCondition} && phaseTimer >= ${lastSpec.duration.min}f)))`);
   lines.push('        {');
   lines.push(`            ruleTriggered[${specs.length}] = true;`);
@@ -704,7 +704,7 @@ function generateSkeleton(specs, opts = {}) {
   // exceeds 2x the expected duration, force-trigger the next untriggered phase.
   // This catches cases where AI accidentally broke the autoPlay ternary conditions.
   lines.push('        // [SKELETON] AutoPlay safety net — force progression if stuck (DO NOT MODIFY)');
-  lines.push('        if (_autoPlayMode && !gameEnded && phaseTimer >= AUTO_PLAY_PHASE_DURATION * 2.5f)');
+  lines.push('        if (_autoPlayMode && !gameEnded && phaseTimer >= (AUTO_PLAY_PHASE_DURATION < 15f ? 50f : AUTO_PLAY_PHASE_DURATION * 2.5f)) // [SKELETON] safety net min 50s (DO NOT MODIFY)');
   lines.push('        {');
   for (let ri = 1; ri <= specs.length; ri++) {
     const targetPhase = ri < specs.length ? specs[ri].phaseId : 'gameEnd';
