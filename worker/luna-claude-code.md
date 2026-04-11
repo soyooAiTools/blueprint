@@ -95,6 +95,7 @@
 - ✅ 每个 Phase 最少停留 8 秒
 - ✅ 引导(guide)要清晰告诉玩家下一步操作
 - ✅ 最后一个步骤必须有 `GameEnded()` + CTA 按钮
+- ⛔ **绝对不要修改骨架中的 phaseId 字符串** — `AddCompletedPhase()`、`ReportPhase()`、`currentPhaseName` 中的 phase ID 必须保持骨架生成的原值（如 `"phase_0"`, `"phase_1"` 等）。CUA 验证系统用这些 ID 跟踪进度，改成语义名称会导致 0% 覆盖率
 
 ## AutoPlay 交互模拟（必须实现！）
 

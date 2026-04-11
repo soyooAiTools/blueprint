@@ -595,9 +595,9 @@ function generateSkeleton(specs, opts = {}) {
       lines.push(`        if (!ruleTriggered[${ruleIdx}])`);
       lines.push('        {');
       lines.push(`            ruleTriggered[${ruleIdx}] = true;`);
-      lines.push(`            currentPhaseName = "${spec.phaseId}";`);
+      lines.push(`            currentPhaseName = "${spec.phaseId}"; // [IMMUTABLE] Do NOT change this phaseId`);
       lines.push(`            phaseEnterTimes[${ruleIdx}] = gameTimer; // [SKELETON]`);
-      lines.push(`            ReportPhase("${spec.phaseId}"); // [SKELETON] Phase instrumentation`);
+      lines.push(`            ReportPhase("${spec.phaseId}"); // [IMMUTABLE] CUA uses this exact ID for coverage tracking`);
       lines.push('');
 
       // [SKELETON] Anti-solid-color: place first 3 entities in phase 1
@@ -639,10 +639,10 @@ function generateSkeleton(specs, opts = {}) {
       lines.push(`                : (${realCondition} && phaseTimer >= ${prevSpec.duration.min}f))) // interactive mode`);
       lines.push('        {');
       lines.push(`            ruleTriggered[${ruleIdx}] = true;`);
-      lines.push(`            currentPhaseName = "${spec.phaseId}";`);
+      lines.push(`            currentPhaseName = "${spec.phaseId}"; // [IMMUTABLE] Do NOT change this phaseId`);
       lines.push(`            phaseEnterTimes[${ruleIdx}] = gameTimer; // [SKELETON]`);
       lines.push('            phaseTimer = 0f; // [SKELETON] reset timer — prevent batch-firing multiple phases in one frame');
-      lines.push(`            ReportPhase("${spec.phaseId}"); // [SKELETON] Phase instrumentation`);
+      lines.push(`            ReportPhase("${spec.phaseId}"); // [IMMUTABLE] CUA uses this exact ID for coverage tracking`);
       lines.push('');
 
       // [SKELETON] AutoPlay phase transition — advance state + camera only (no PlaceObj to avoid black bars)
@@ -665,7 +665,7 @@ function generateSkeleton(specs, opts = {}) {
       lines.push('');
       lines.push(`            // TODO_PHASE_${i + 1}_INIT_END`);
       lines.push('');
-      lines.push(`            AddCompletedPhase("${prevSpec.phaseId}");`);
+      lines.push(`            AddCompletedPhase("${prevSpec.phaseId}"); // [IMMUTABLE] Must match spec phaseId exactly`);
       lines.push('            UpdateGameState();');
       lines.push('        }');
     }

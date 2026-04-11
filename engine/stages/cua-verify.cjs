@@ -99,12 +99,36 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
     autoplay_or_idle: 'Game progresses without user input. Check: (1) phase transitions require playerMustAct=true, (2) timer-only transitions should not exist, (3) autoAllowed=false phases must wait for user action.',
   };
 
+  // Phase ID mismatch detection: if completedPhases use semantic names but specs use phase_N
+  var phaseIdMismatchNote = '';
+  if (completedPhases.length > 0 && totalPhases > 0) {
+    var specIds = specs.map(function(s) { return s.phaseId; });
+    var hasMatch = completedPhases.some(function(cp) { return specIds.indexOf(cp) >= 0; });
+    if (!hasMatch) {
+      phaseIdMismatchNote = '\n⛔ PHASE ID MISMATCH: Your code uses AddCompletedPhase("' + completedPhases[0] + '") but CUA expects these EXACT IDs:\n';
+      for (var pi = 0; pi < specs.length; pi++) {
+        phaseIdMismatchNote += '  - AddCompletedPhase("' + specs[pi].phaseId + '")  // ' + (specs[pi].name || 'phase ' + pi) + '\n';
+      }
+      phaseIdMismatchNote += 'Fix: Replace ALL semantic phase names in AddCompletedPhase() and currentPhaseName with the exact IDs above.\n';
+      if (rootCause === 'variable_stagnation' || rootCause === 'unknown') {
+        rootCause = 'phase_id_mismatch';
+      }
+    }
+  } else if (completedPhases.length === 0 && totalPhases > 0) {
+    // No phases completed — include expected IDs as context
+    phaseIdMismatchNote = '\nExpected phase IDs (use these exact strings in AddCompletedPhase):\n';
+    for (var qi = 0; qi < specs.length; qi++) {
+      phaseIdMismatchNote += '  - "' + specs[qi].phaseId + '"  // ' + (specs[qi].name || 'phase ' + qi) + '\n';
+    }
+  }
+
   var detail = '=== CUA STUCK DIAGNOSIS (round ' + noProgressRounds + ') ===\n' +
     'Completed phases: [' + completedPhases.join(' → ') + '] (' + completedPhases.length + '/' + totalPhases + ')\n' +
     'Stuck at: ' + stuckPhaseId + ' → cannot reach: ' + nextPhaseId + '\n' +
     'Root cause: ' + rootCause + '\n' +
     (transitionContext ? transitionContext + '\n' : '') +
     'CUA issues: ' + issueTexts.slice(0, 3).join('; ') + '\n' +
+    phaseIdMismatchNote +
     '\nACTION REQUIRED: ' + (rootCauseAdvice[rootCause] || 'Investigate why phase "' + nextPhaseId + '" is never reached. The transition condition or interaction handler is likely broken.') + '\n' +
     'IMPORTANT: Focus your fix ONLY on the transition from "' + stuckPhaseId + '" to "' + nextPhaseId + '". Do NOT rewrite phases that already work.';
 

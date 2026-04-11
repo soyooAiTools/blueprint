@@ -109,6 +109,7 @@ module.exports = {
           reviewPromise = codexReviewer.reviewCodeWithCodex(reviewedCode, {
             taskId: ctx.taskId,
             log: function(msg) { ctx.addLog('review', msg); },
+            extraFiles: reviewExtraFiles,
           });
         } else if (codeReviewer) {
           reviewPromise = codeReviewer.reviewCode(reviewedCode, {
