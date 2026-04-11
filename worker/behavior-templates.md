@@ -209,6 +209,123 @@ void UpdateProjectiles(float dt) {
 }
 ```
 
+## Carry/Pickup-Deliver（搬运投递）模板
+玩家拾取物品 → 搬运到目标点 → 投递获得奖励
+
+```csharp
+int carrying = 0;          // 当前携带数量
+int carryLimit = 1;         // 搬运上限（可升级）
+int delivered = 0;          // 已投递总数
+
+void UpdateCarry(float dt) {
+    if (carrying < carryLimit) {
+        // 检测靠近可拾取物
+        for (int i = PICKUP_START; i < PICKUP_END; i++) {
+            if (!eActive[i]) continue;
+            float dist = Vector3.Distance(eGo[E_PLAYER].transform.position, eGo[i].transform.position);
+            if (dist < pickupRadius) {
+                carrying++;
+                eGo[i].transform.position = new Vector3(0, -999, 0);
+                eActive[i] = false;
+                break; // 每帧只拾取一个
+            }
+        }
+    }
+    // 检测靠近投递点
+    if (carrying > 0) {
+        float distDrop = Vector3.Distance(eGo[E_PLAYER].transform.position, eGo[E_DROPOFF].transform.position);
+        if (distDrop < dropRadius) {
+            gold += carrying * rewardPerItem;
+            delivered += carrying;
+            carrying = 0;
+            // CheckEventRules 会检测 delivered / gold 变化
+        }
+    }
+}
+```
+
+## Upgradeable（多级升级）模板
+状态: 0(可升级) → 1(level1) → 2(level2) → 3(maxLevel)
+
+```csharp
+int[] upgradeCost = {0, 100, 300, 500};   // 每级升级所需金币
+int[] upgradeValue = {1, 3, 5, 10};        // 每级的效果值（如搬运量、容量）
+
+void UpdateUpgradeable(int idx, float dt) {
+    int level = eState[idx];
+    if (level >= upgradeValue.Length - 1) return; // 已满级
+    float dist = Vector3.Distance(eGo[E_PLAYER].transform.position, eGo[idx].transform.position);
+    if (dist < triggerRadius && gold >= upgradeCost[level + 1]) {
+        gold -= upgradeCost[level + 1];
+        eState[idx] = level + 1;
+        // 应用升级效果，例如:
+        // carryLimit = upgradeValue[eState[idx]];
+        // 或: spawnInterval = baseInterval / upgradeValue[eState[idx]];
+    }
+}
+```
+
+## Drag（拖拽交互）模板
+玩家按住并拖动角色移动（替代摇杆）
+
+```csharp
+bool isDragging = false;
+Vector3 dragStart;
+Vector3 playerStart;
+
+void UpdateDragMovement(float dt) {
+    if (Input.GetMouseButtonDown(0)) {
+        // 射线检测是否点到了玩家附近
+        Vector3 mouseWorld = GetMouseWorldPos();
+        float dist = Vector3.Distance(mouseWorld, eGo[E_PLAYER].transform.position);
+        if (dist < 3f) {
+            isDragging = true;
+            dragStart = mouseWorld;
+            playerStart = eGo[E_PLAYER].transform.position;
+        }
+    }
+    if (Input.GetMouseButton(0) && isDragging) {
+        Vector3 mouseWorld = GetMouseWorldPos();
+        Vector3 delta = mouseWorld - dragStart;
+        delta.y = 0;
+        eGo[E_PLAYER].transform.position = playerStart + delta;
+    }
+    if (Input.GetMouseButtonUp(0)) {
+        isDragging = false;
+    }
+}
+
+Vector3 GetMouseWorldPos() {
+    // 简单实现：将鼠标投射到 y=0 平面
+    Ray ray = mainCam.ScreenPointToRay(Input.mousePosition);
+    float t = -ray.origin.y / ray.direction.y;
+    return ray.origin + ray.direction * t;
+}
+```
+
+## ResourceConverter（资源转化链）模板
+输入资源A → 等待加工 → 输出资源B（适合线性资源流游戏）
+
+```csharp
+void UpdateConverter(int idx, float dt) {
+    if (eState[idx] < 2) return; // 未建好
+    // 投递原料
+    if (carrying > 0) {
+        float dist = Vector3.Distance(eGo[E_PLAYER].transform.position, eGo[idx].transform.position);
+        if (dist < dropRadius) {
+            eTimer[idx] += carrying; // 累积原料
+            carrying = 0;
+        }
+    }
+    // 加工产出
+    if (eTimer[idx] >= convertRatio) {
+        int output = (int)(eTimer[idx] / convertRatio);
+        eTimer[idx] -= output * convertRatio;
+        gold += output * outputValue;
+    }
+}
+```
+
 ## 🚨 禁止的 Anti-Pattern（会导致 CUA 验证 FAIL）
 
 ```csharp

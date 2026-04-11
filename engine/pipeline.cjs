@@ -191,6 +191,13 @@ Pipeline.prototype.run = function(ctx, onProgress) {
       }
       // Auto-promote pending rules on success too (closes learning loop)
       try { autoPromotePendingRules(); } catch(e) {}
+      // Auto-learn behavior templates from successful code
+      try {
+        var templateLearner = require('./template-learner.cjs');
+        templateLearner.learnFromSuccess(ctx);
+      } catch(e) {
+        ctx.addLog('pipeline', 'Template learning skipped: ' + e.message);
+      }
       return Promise.resolve(ctx);
     }
 

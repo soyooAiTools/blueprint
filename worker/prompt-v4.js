@@ -251,8 +251,9 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   // ========== 5.5 必须创建的对象清单 ==========
   lines.push('# ⚠️ 必须创建的对象清单（MANDATORY）');
   lines.push('');
-  lines.push('在 Start() 中，你 **必须** 用 GFM_Create.Obj / GFM_Create.Ground 创建以下所有对象。');
-  lines.push('漏创建任何一个都算 BUG。对象池类型预创建后隐藏在 y=-999。');
+  lines.push('在 Start() 中，你 **必须** 用 GameObject.Find("__Pool_Shape_Color_NN") 获取以下所有对象。');
+  lines.push('⛔ 禁止 GFM_Create.Obj / GFM_Create.Ground / GFM_Create.SetColor（Luna不支持）');
+  lines.push('对象池预创建后隐藏在 y=-999，需要时移到场景中。');
   lines.push('');
 
   var createCount = 0;
@@ -322,12 +323,13 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   lines.push('     // 每条规则独立判断，不依赖其他规则的顺序');
   lines.push('   }');
   lines.push('6. 动态实体（敌人/弹药/金币）用对象池: 预创建数组，隐藏在 y=-999');
-  lines.push('7. 创建3D对象: var go = GFM_Create.Obj(PrimitiveType.Cube, new Vector3(x,y,z), new Vector3(sx,sy,sz), "Name");');
-  lines.push('   签名: GFM_Create.Obj(PrimitiveType type, Vector3 position, Vector3 scale, string name)');
-  lines.push('   PrimitiveType: Cube, Sphere, Cylinder, Capsule, Quad, Plane');
-  lines.push('8. 创建地面: var ground = GFM_Create.Ground(width, depth); // 只有2个float参数');
-  lines.push('   然后: GFM_Create.SetColor(ground, new Color(r,g,b));');
-  lines.push('9. 设颜色: GFM_Create.SetColor(go, new Color(r,g,b));');
+  lines.push('7. 获取3D对象: var go = GameObject.Find("__Pool_Cube_Red_01"); // 从预制池获取');
+  lines.push('   go.transform.position = new Vector3(x,y,z); // 移到场景中=显示');
+  lines.push('   go.transform.localScale = new Vector3(sx,sy,sz); // 设置大小');
+  lines.push('   可用池对象: __Pool_{Cube|Sphere|Cylinder}_{Red|Blue|Green|Yellow|Brown|White|Gray}_{01-99}');
+  lines.push('8. 地面已存在: var ground = GameObject.Find("__Ground");');
+  lines.push('9. ⛔ 禁止: GFM_Create.Obj(), GFM_Create.Ground(), GFM_Create.SetColor(), CreatePrimitive()');
+  lines.push('   池对象颜色已烘焙，直接用不同颜色后缀的池对象代替SetColor');
   lines.push('10. 虚拟摇杆: 在 Start() 中 var joystick = GFM_Joystick.Create(canvas, 200f);');
   lines.push('    在 Update() 中: float h = joystick.Horizontal; float v = joystick.Vertical;');
   lines.push('11. 隐藏对象: transform.position = new Vector3(0, -999, 0); 不用 SetActive(false)');
