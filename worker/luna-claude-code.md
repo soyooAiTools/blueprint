@@ -85,11 +85,31 @@
 ## 阶段流程规则（必须严格遵守）
 
 - ⛔ 禁止 ForceCompleteAllPhases 或任何"超时强制完成所有阶段"的逻辑
-- ⛔ 禁止 autoplay/自动演示
+- ⛔ 禁止用 timer 驱动 Phase 推进（Phase 完成条件不能是"等待N秒"）
 - ✅ 每个阶段必须通过玩家交互（点击/拖拽/移动）才能推进
 - ✅ 每个 Phase 最少停留 8 秒
 - ✅ 引导(guide)要清晰告诉玩家下一步操作
 - ✅ 最后一个步骤必须有 `GameEnded()` + CTA 按钮
+
+## AutoPlay 交互模拟（必须实现！）
+
+骨架有内置 `_autoPlayMode`（自动导航+Phase推进），用于 CUA 自动验证。
+骨架在 autoPlay 玩家到达目标时调用 `OnAutoPlayArrive(string targetName)`。
+**你必须在 OnAutoPlayArrive 中模拟与目标的交互**，使游戏变量真正变化：
+
+```csharp
+void OnAutoPlayArrive(string targetName) {
+    // 根据目标名触发对应交互逻辑
+    if (targetName == "crew") { rescuedCount++; gold += 10; }
+    if (targetName == "tree") { wood++; }
+    scoreText.text = "Gold: " + gold;
+}
+```
+
+- ✅ 每个实体目标都要在 OnAutoPlayArrive 中有对应处理
+- ✅ 必须更新游戏变量（gold, score, count 等）
+- ✅ 必须更新 UI 文字（scoreText, guideText）
+- ⛔ 不要在 OnAutoPlayArrive 中推进 Phase — skeleton 已处理
 
 ## 数值平衡
 

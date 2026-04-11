@@ -43,7 +43,11 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
   var issueTexts = issues.map(function(i) { return typeof i === 'string' ? i : (i.message || i.text || ''); });
   var allIssueText = issueTexts.join(' ').toLowerCase();
 
-  if (allIssueText.indexOf('solid color') >= 0 || allIssueText.indexOf('black screen') >= 0 || allIssueText.indexOf('blank') >= 0) {
+  if (allIssueText.indexOf('visual frozen') >= 0 || allIssueText.indexOf('visual-freeze') >= 0 || allIssueText.indexOf('static') >= 0 && allIssueText.indexOf('screen') >= 0) {
+    rootCause = 'visual_freeze';
+  } else if (allIssueText.indexOf('variable') >= 0 && (allIssueText.indexOf('stagnation') >= 0 || allIssueText.indexOf('initial values') >= 0 || allIssueText.indexOf('remain') >= 0)) {
+    rootCause = 'variable_stagnation';
+  } else if (allIssueText.indexOf('solid color') >= 0 || allIssueText.indexOf('black screen') >= 0 || allIssueText.indexOf('blank') >= 0) {
     rootCause = 'rendering_failure';
   } else if (allIssueText.indexOf('not respond') >= 0 || allIssueText.indexOf('no reaction') >= 0 || allIssueText.indexOf('click') >= 0 && allIssueText.indexOf('nothing') >= 0) {
     rootCause = 'interaction_dead';
@@ -53,6 +57,8 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
     rootCause = 'runtime_error';
   } else if (allIssueText.indexOf('autoplay') >= 0 || allIssueText.indexOf('idle') >= 0) {
     rootCause = 'autoplay_or_idle';
+  } else if (allIssueText.indexOf('batch') >= 0 && allIssueText.indexOf('completion') >= 0) {
+    rootCause = 'batch_phase_skip';
   } else if (issueCategory) {
     rootCause = issueCategory;
   }
@@ -78,6 +84,9 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
   var summary = 'Stuck at phase ' + stuckPhaseId + ' → ' + nextPhaseId + ', root cause: ' + rootCause + ' (' + noProgressRounds + ' rounds)';
 
   var rootCauseAdvice = {
+    visual_freeze: 'Game screen is visually static despite phases completing. The autoPlay code increments phase counters but produces NO visible changes. Fix: (1) Each phase transition MUST move/show/hide entities via transform.Translate, SetActive, SetColor. (2) Update UI text (gold, score, progress). (3) Do NOT just increment variables — create visible side effects.',
+    variable_stagnation: 'All gameplay variables (gold, score, count) stayed at initial values. Phase transitions are empty shells without real game logic. Fix: (1) Each phase must UPDATE game variables (gold += reward, score++). (2) Use variables in UI display. (3) Phase transition conditions should depend on these variables, not just phaseTimer.',
+    batch_phase_skip: 'Multiple phases completed in one poll interval — phases are timer-skipping without gameplay. Fix: ensure each phase has a minimum 20s duration gate and performs real gameplay actions during that time.',
     rendering_failure: 'Objects are not visible. Check: (1) SetActive(true) is called, (2) objects are positioned within camera view, (3) no Z-fighting or off-screen placement.',
     interaction_dead: 'User interactions have no effect. Check: (1) colliders exist on interactive objects, (2) raycast/click handlers are wired up, (3) interaction zone is large enough.',
     phase_transition_broken: 'Phase transition condition never becomes true. Check: (1) the trigger condition variable is actually modified by gameplay, (2) AddCompletedPhase is called with correct phaseId, (3) no early return before the transition check.',

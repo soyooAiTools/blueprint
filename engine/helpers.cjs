@@ -131,6 +131,9 @@ function categorizeIssue(cuaResult) {
   if (cuaResult.quickTestDetail && cuaResult.quickTestDetail.solidColor) return 'solid-color';
   var issues = (cuaResult.issues || []).join(' ').toLowerCase();
   if (issues.includes('solid color') || issues.includes('纯色')) return 'solid-color';
+  if (issues.includes('visual-freeze') || issues.includes('visual frozen')) return 'visual-freeze';
+  if (issues.includes('variable-stagnation') || issues.includes('variable change')) return 'variable-stagnation';
+  if (issues.includes('batch-completion') || issues.includes('batch phase')) return 'batch-completion';
   if (issues.includes('phase-skipped') || issues.includes('phases were skipped')) return 'phase-skipped';
   if (issues.includes('autoplay')) return 'autoplay';
   if (issues.includes('entity-incomplete')) return 'entity-incomplete';
@@ -189,6 +192,9 @@ function getFixHint(type) {
     'cta': 'CTA button was not reached or unresponsive. Ensure final phase completes and CTA calls Luna.Unity.Playable.InstallFullGame(). The CTA must be triggered after the last gameplay phase.' + LUNA_REMINDERS,
     'no-content': 'Game content not visible. Objects must be moved from pool position (y=-999) to visible positions (y>=0). Use transform.position = new Vector3(x, 0, z). Ensure at least 3 objects are visible.' + LUNA_REMINDERS,
     'solid-color': 'Screen is single color. Ground plane must exist at y=0. Move >=3 different-colored __Pool_ objects to y>=0 positions in the first phase\'s Start or initialization.' + LUNA_REMINDERS,
+    'visual-freeze': 'Game screen is visually STATIC despite phases completing. AutoPlay transitions must produce VISIBLE changes: (1) move entities via transform.Translate or transform.position, (2) show/hide objects via SetActive (toggle, not one-way), (3) change colors via GetComponent<Renderer>().material.color, (4) update UI text. Phases that only increment counters with no visual side effects will fail this check.' + LUNA_REMINDERS,
+    'variable-stagnation': 'All game variables (gold, score, count, etc.) remained at initial values throughout gameplay. Phase logic must UPDATE variables: gold += reward on delivery, score++ on completion, count-- on consumption. Variables must be exposed via __gameState so the observer can verify them. Empty phase transitions that just advance phaseTimer are not real gameplay.' + LUNA_REMINDERS,
+    'batch-completion': 'Multiple phases completed in a single poll interval. Each phase must run for at least 20 seconds with visible gameplay. Check that autoPlay duration gate (phaseTimer >= 20f) is enforced for every phase transition.' + LUNA_REMINDERS,
     'engine-not-ready': 'Luna engine failed to initialize. Check for JS errors. Common cause: calling loadSettings on a null reference, or using unsupported C# features that Bridge.NET compiles incorrectly.' + LUNA_REMINDERS,
   };
   return hints[type] || '';

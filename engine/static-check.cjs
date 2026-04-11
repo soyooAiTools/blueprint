@@ -79,6 +79,17 @@ var RULES = [
     }
     return [];
   }},
+  { id: 'autoplay-interact-empty', pattern: null, message: 'OnAutoPlayArrive is empty — must simulate interactions for CUA variable checking', custom: function(code) {
+    // Check if OnAutoPlayArrive exists and has real content (not just TODO comments)
+    var match = code.match(/void\s+OnAutoPlayArrive\s*\(string\s+\w+\)\s*\{([^}]*)\}/s);
+    if (match) {
+      var body = match[1].replace(/\/\/[^\n]*/g, '').trim(); // strip comments
+      if (body.length < 10) {
+        return [{ line: code.substring(0, match.index).split('\n').length, text: 'OnAutoPlayArrive body is empty — must update game variables (gold, score, etc.) when autoPlay player reaches a target' }];
+      }
+    }
+    return [];
+  }},
   { id: 'autoplay-phase-too-fast', pattern: null, message: 'AutoPlay phase uses phaseTimer threshold < 15s — shots must be >= 20s', custom: function(code) {
     var issues = [];
     var re = /_autoPlayMode\s*\?\s*phaseTimer\s*>=\s*(\d+)f?\b/g;

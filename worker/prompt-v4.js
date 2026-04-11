@@ -289,7 +289,6 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   lines.push('## 绝对禁止:');
   lines.push('- ⛔ 禁止 gameTimer / 计时器 驱动的阶段推进（如 if gameTimer > N → completePhase）');
   lines.push('- ⛔ 禁止 ForceCompleteAllPhases 或任何自动完成所有阶段的逻辑');
-  lines.push('- ⛔ 禁止 autoplay/自动演示：不要让游戏在无输入下自动跑完');
   lines.push('- ⛔ 禁止 timer += dt 驱动 Phase 推进');
   lines.push('- ⛔ 禁止 auto-complete: Phase 完成条件不能是"等待N秒"');
   lines.push('- ⛔ 禁止修改 AUTO_PLAY_PHASE_DURATION 的值（skeleton 设为 20f，必须保持 ≥ 15f）');
@@ -301,7 +300,25 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   lines.push('- ✅ 只有玩家完成操作后才调用 AddCompletedPhase');
   lines.push('- ✅ 每个 Phase 显示引导箭头告诉玩家下一步操作');
   lines.push('');
-  lines.push('## CUA 验证检测: Agent 0 个操作完成所有 Phase → FAIL; 交互变量始终为 0 → FAIL');
+  lines.push('## 🔑 AutoPlay 交互模拟（必须实现！）');
+  lines.push('骨架有内置 `_autoPlayMode`（自动导航+Phase推进），用于 CUA 自动验证。');
+  lines.push('骨架会在 autoPlay 玩家到达目标时调用 `OnAutoPlayArrive(string targetName)`。');
+  lines.push('**你必须在 OnAutoPlayArrive 中模拟与目标的交互**，使游戏变量真正变化：');
+  lines.push('```csharp');
+  lines.push('void OnAutoPlayArrive(string targetName) {');
+  lines.push('    // 示例：根据目标名触发对应交互逻辑');
+  lines.push('    if (targetName == "crew") { rescuedCount++; gold += 10; }');
+  lines.push('    if (targetName == "tree") { wood++; }');
+  lines.push('    scoreText.text = "Gold: " + gold;');
+  lines.push('}');
+  lines.push('```');
+  lines.push('- ✅ 每个实体目标都要在 OnAutoPlayArrive 中有对应处理');
+  lines.push('- ✅ OnAutoPlayArrive 必须更新游戏变量（gold, score, count 等）');
+  lines.push('- ✅ OnAutoPlayArrive 必须更新 UI 文字（scoreText, guideText）');
+  lines.push('- ✅ OnAutoPlayArrive 可以移动/显示/隐藏实体，产生视觉变化');
+  lines.push('- ⛔ 不要在 OnAutoPlayArrive 中推进 Phase — skeleton 已处理');
+  lines.push('');
+  lines.push('## CUA 验证检测: 交互变量始终为 0 → FAIL; 画面无变化 → FAIL');
   lines.push('');
 
   // ========== 6. 代码架构要求 ==========

@@ -325,9 +325,26 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
         log('[PlayableAgent] CTA not reached (current phase: ' + currentPhase + ')', taskId);
       }
 
+      // ═══ Visual quality fail reasons from observe mode ═══
+      // The Python agent detects VISUAL FREEZE / VARIABLE STAGNATION / BATCH COMPLETION
+      // and stores them in report.visual_fail_reasons. Propagate as actionable issues.
+      if (report.visual_fail_reasons && Array.isArray(report.visual_fail_reasons)) {
+        for (const reason of report.visual_fail_reasons) {
+          if (reason.toLowerCase().includes('visual frozen') || reason.toLowerCase().includes('static')) {
+            issues.push('[visual-freeze] ' + reason + ' Fix: ensure autoPlay phase transitions trigger visible entity movement, animation, or UI changes (SetActive, Translate, SetColor).');
+          } else if (reason.toLowerCase().includes('variable') || reason.toLowerCase().includes('stagnation')) {
+            issues.push('[variable-stagnation] ' + reason + ' Fix: ensure game logic updates gold/score/count variables during each phase. Phase transitions without side effects are empty shells.');
+          } else if (reason.toLowerCase().includes('batch') || reason.toLowerCase().includes('timer')) {
+            issues.push('[batch-completion] ' + reason + ' Fix: each phase must run for its full duration with real gameplay, not instant timer-skip.');
+          } else {
+            issues.push('[visual-quality] ' + reason);
+          }
+        }
+      }
+
       const passed = report.passed === true;
 
-      log('[PlayableAgent] Result: ' + (passed ? 'PASS' : 'FAIL') + 
+      log('[PlayableAgent] Result: ' + (passed ? 'PASS' : 'FAIL') +
           ' | Coverage: ' + coveredPhases.length + '/' + totalPhases +
           ' | Issues: ' + issues.length, taskId);
 

@@ -339,53 +339,85 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('');
     lines.push('    // ========== END IDLE GAME KIT ==========');
     lines.push('');
-
-    // [SKELETON] AutoPlay movement system for idle games
-    // Build target entity list from specs
-    const autoTargets = [];
-    specs.forEach(spec => {
-      (spec.entitiesRequired || []).forEach(e => {
-        if (autoTargets.indexOf(e.name) < 0) autoTargets.push(e.name);
-      });
-    });
-    if (autoTargets.length > 0) {
-      lines.push('    // [SKELETON] AutoPlay — auto-navigate player through target entities');
-      lines.push(`    string[] _autoTargets = new string[] { ${autoTargets.map(t => '"' + t + '"').join(', ')} };`);
-      lines.push('    int _autoTargetIdx = 0;');
-      lines.push('    float _autoTargetWait = 0f;');
-      lines.push('');
-      lines.push('    void AutoPlayUpdate()');
-      lines.push('    {');
-      lines.push('        if (!_autoPlayMode || player == null) return;');
-      lines.push('        if (_autoTargetWait > 0f) { _autoTargetWait -= Time.deltaTime; return; }');
-      lines.push('        if (_autoTargetIdx >= _autoTargets.Length) _autoTargetIdx = 0; // loop');
-      lines.push('        GameObject target = GameObject.Find(_autoTargets[_autoTargetIdx]);');
-      lines.push('        if (target == null) { _autoTargetIdx++; return; }');
-      lines.push('        Vector3 dir = target.transform.position - player.transform.position;');
-      lines.push('        dir.y = 0f;');
-      lines.push('        if (dir.magnitude > 1.0f)');
-      lines.push('        {');
-      lines.push('            // Visible movement toward target');
-      lines.push('            float speed = moveSpeed * 1.2f;');
-      lines.push('            player.transform.position = Vector3.MoveTowards(');
-      lines.push('                player.transform.position, target.transform.position, speed * Time.deltaTime);');
-      lines.push('            if (dir.magnitude > 0.1f)');
-      lines.push('                player.transform.rotation = Quaternion.Lerp(');
-      lines.push('                    player.transform.rotation, Quaternion.LookRotation(dir), 5f * Time.deltaTime);');
-      lines.push('            // [SKELETON] Camera follows player for visual movement');
-      lines.push('            if (mainCam != null) mainCam.transform.LookAt(player.transform.position);');
-      lines.push('        }');
-      lines.push('        else');
-      lines.push('        {');
-      lines.push('            // Arrived — wait then move to next target');
-      lines.push('            _autoTargetWait = 1.5f;');
-      lines.push('            _autoTargetIdx++;');
-      lines.push('            _autoPlaySteps++;');
-      lines.push('        }');
-      lines.push('    }');
-      lines.push('');
-    }
   }
+
+  // [SKELETON] AutoPlay interaction system — ALWAYS generated (outside isIdleGame block)
+  // Build target entity list from specs — supports both entitiesRequired and activate fields
+  const autoTargets = [];
+  specs.forEach(spec => {
+    (spec.entitiesRequired || []).forEach(e => {
+      if (autoTargets.indexOf(e.name) < 0) autoTargets.push(e.name);
+    });
+    (spec.activate || []).forEach(name => {
+      if (name && !name.match(/UI$|Canvas|Guide|Gold|Score|Text/) && autoTargets.indexOf(name) < 0) {
+        autoTargets.push(name);
+      }
+    });
+  });
+
+  if (autoTargets.length > 0 && isIdleGame) {
+    // Idle games already have MovePlayer — AutoPlayUpdate navigates between targets
+    lines.push('    // [SKELETON] AutoPlay — auto-navigate player through target entities');
+    lines.push(`    string[] _autoTargets = new string[] { ${autoTargets.map(t => '"' + t + '"').join(', ')} };`);
+    lines.push('    int _autoTargetIdx = 0;');
+    lines.push('    float _autoTargetWait = 0f;');
+    lines.push('');
+    lines.push('    void AutoPlayUpdate()');
+    lines.push('    {');
+    lines.push('        if (!_autoPlayMode || player == null) return;');
+    lines.push('        if (_autoTargetWait > 0f) { _autoTargetWait -= Time.deltaTime; return; }');
+    lines.push('        if (_autoTargetIdx >= _autoTargets.Length) _autoTargetIdx = 0;');
+    lines.push('        GameObject target = GameObject.Find(_autoTargets[_autoTargetIdx]);');
+    lines.push('        if (target == null) { _autoTargetIdx++; return; }');
+    lines.push('        Vector3 dir = target.transform.position - player.transform.position;');
+    lines.push('        dir.y = 0f;');
+    lines.push('        if (dir.magnitude > 1.0f)');
+    lines.push('        {');
+    lines.push('            float speed = moveSpeed * 1.2f;');
+    lines.push('            player.transform.position = Vector3.MoveTowards(');
+    lines.push('                player.transform.position, target.transform.position, speed * Time.deltaTime);');
+    lines.push('            if (dir.magnitude > 0.1f)');
+    lines.push('                player.transform.rotation = Quaternion.Lerp(');
+    lines.push('                    player.transform.rotation, Quaternion.LookRotation(dir), 5f * Time.deltaTime);');
+    lines.push('            if (mainCam != null) mainCam.transform.LookAt(player.transform.position);');
+    lines.push('        }');
+    lines.push('        else');
+    lines.push('        {');
+    lines.push('            _autoTargetWait = 1.5f;');
+    lines.push('            _autoTargetIdx++;');
+    lines.push('            _autoPlaySteps++;');
+    lines.push('            OnAutoPlayArrive(_autoTargets[(_autoTargetIdx - 1) % _autoTargets.Length]);');
+    lines.push('        }');
+    lines.push('    }');
+  } else {
+    // Non-idle or no targets — use timer-based periodic interaction trigger
+    lines.push('    // [SKELETON] AutoPlay — periodic interaction trigger for CUA variable checking');
+    lines.push('    float _autoInteractTimer = 0f;');
+    lines.push('');
+    lines.push('    void AutoPlayUpdate()');
+    lines.push('    {');
+    lines.push('        if (!_autoPlayMode) return;');
+    lines.push('        _autoInteractTimer += Time.deltaTime;');
+    lines.push('        if (_autoInteractTimer >= 3f)');
+    lines.push('        {');
+    lines.push('            _autoInteractTimer = 0f;');
+    lines.push('            _autoPlaySteps++;');
+    lines.push('            OnAutoPlayArrive(currentPhaseName);');
+    lines.push('        }');
+    lines.push('    }');
+  }
+  lines.push('');
+  lines.push('    // [SKELETON] Called when autoPlay triggers an interaction (DO NOT REMOVE).');
+  lines.push('    // AI MUST fill this to simulate gameplay — CUA checks variables change.');
+  lines.push('    // [SKELETON] Empty OnAutoPlayArrive = CUA FAIL (variable stagnation)');
+  lines.push('    void OnAutoPlayArrive(string targetName)');
+  lines.push('    {');
+  lines.push('        // === TODO: AI fills — simulate interaction for each phase ===');
+  lines.push('        // Example: if (targetName == "rescuedCrew") { rescuedCount++; gold += 10; }');
+  lines.push('        // TODO_AUTOPLAY_INTERACT_START');
+  lines.push('        // TODO_AUTOPLAY_INTERACT_END');
+  lines.push('    }');
+  lines.push('');
 
   // [SKELETON] Phase instrumentation for automated testing
   lines.push('    // [SKELETON] Phase instrumentation for automated testing');
@@ -517,7 +549,10 @@ function generateSkeleton(specs, opts = {}) {
   if (isIdleGame) {
     lines.push('        // [SKELETON] Idle game core loop');
     lines.push('        if (!_autoPlayMode) MovePlayer(); // interactive mode: joystick/tap');
-    lines.push('        if (_autoPlayMode) AutoPlayUpdate(); // autoPlay mode: auto-navigate');
+  }
+  // AutoPlayUpdate is ALWAYS called — generated for both idle and non-idle games
+  lines.push('        if (_autoPlayMode) AutoPlayUpdate(); // autoPlay mode: trigger interactions for CUA');
+  if (isIdleGame) {
     lines.push('');
   }
   lines.push('        // === TODO: AI fills — update systems: resource collection, delivery, production, etc. ===');
