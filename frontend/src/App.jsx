@@ -698,6 +698,17 @@ function FlowEditor({ project, onBack, initialTab }) {
                   title={previewLandscape ? '切换竖屏' : '切换横屏'}>
                   {previewLandscape ? '📱 竖屏' : '📲 横屏'}
                 </button>
+                {webglInfo && webglInfo.available && (
+                  <button className="preview-autoplay-btn" onClick={() => {
+                    const iframe = document.querySelector('.preview-iframe');
+                    if (iframe) {
+                      const base = webglInfo.url.split('?')[0];
+                      iframe.src = base + '?autoplay=1';
+                    }
+                  }} title="自动播放所有 Shot">
+                    {'▶ 自动播放'}
+                  </button>
+                )}
               </div>
               {webglInfo && webglInfo.available ? (
                 <div className={`preview-phone-frame ${previewLandscape ? 'landscape' : ''}`}>
