@@ -640,8 +640,8 @@
     "autoExtracted": true,
     "failClassification": "CODE",
     "stage": "clone",
-    "lastSeenAt": "2026-04-10T10:14:49.446Z",
-    "hitCount": 2
+    "lastSeenAt": "2026-04-12T00:05:25.141Z",
+    "hitCount": 3
   },
   {
     "description": "The file defines and exposes GFM_Create.InitMaterialFromScene(), an explicitly forbidden/obsolete API in Luna. Even if not called here, keeping forbidden runtime API surface in the gameplay file has caused production misuse and violates the documented constraints.",
@@ -848,5 +848,37 @@
     "line": "CheckEventRules() AutoPlay safety net",
     "taskId": "proj_1775610610026_qapd9n",
     "timestamp": "2026-04-11T15:11:12.832Z"
+  },
+  {
+    "description": "Command failed: cp -r \"/tmp/luna-base-cache/.\" \"/tmp/linux-task-proj_1775951842615_4zvqp6\"\ncp: 无法获取'/tmp/luna-base-cache/.' 的文件状态(stat): 没有那个文件或目录\n",
+    "rule": "General",
+    "fix": "Command failed: cp -r \"/tmp/luna-base-cache/.\" \"/tmp/linux-task-proj_1775951842615_4zvqp6\"\ncp: 无法获取'/tmp/luna-base-cache/.' 的文件状态(stat): 没有那个文件或目录\n",
+    "severity": "info",
+    "line": "clone stage failure",
+    "taskId": "proj_1775951842615_4zvqp6",
+    "timestamp": "2026-04-12T00:05:24.957Z",
+    "autoExtracted": true,
+    "failClassification": "CODE",
+    "stage": "clone"
+  },
+  {
+    "description": "Uses dynamic GameObject.Find(\"__Pool_Cube_Yellow_\" + (60 + i)). Dynamic pool-name construction is explicitly forbidden, and these names are not in the provided valid project pool-name assignments. Bridge.NET string formatting/name generation is unreliable and these pool objects are not guaranteed to exist.",
+    "rule": "Object Naming — Pool Objects",
+    "fix": "Replace with explicit string literals for valid preassigned pool objects only, or remove this carry-visual system if those exact pool objects are not part of the project mapping.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "UpdateCarryVisuals()",
+    "taskId": "proj_1775951828872_ix8iyt",
+    "timestamp": "2026-04-12T00:16:39.139Z"
+  },
+  {
+    "description": "Creates runtime UI via GFM_UI.CreateText(uiCanvas, \"\", Vector2.zero, 24) for floatingText, and also creates uiCanvas/guideText/scoreText at runtime despite the rules stating the skeleton pre-creates these and they should be reused. Runtime UI creation is a known Luna production failure mode.",
+    "rule": "GFM_Tools API Signatures",
+    "fix": "Reuse skeleton-provided uiCanvas, guideText, and scoreText only. Do not create new Text elements at runtime; repurpose an existing text field or predeclare a pooled text in the skeleton if available.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "ShowFloatingText() / Start()",
+    "taskId": "proj_1775951828872_ix8iyt",
+    "timestamp": "2026-04-12T00:16:39.141Z"
   }
 ]

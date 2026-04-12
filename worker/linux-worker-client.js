@@ -27,24 +27,57 @@ const USE_CLAUDE_CODE = process.env.USE_CLAUDE_CODE !== 'false'; // 默认开启
 
 // ============ Base Template Cache (avoid repeated git clones) ============
 const TEMPLATE_CACHE_DIR = path.join(require('os').tmpdir(), 'luna-base-cache');
+const TEMPLATE_CACHE_LOCK = TEMPLATE_CACHE_DIR + '.lock';
 const TEMPLATE_CACHE_MAX_AGE = 3600 * 1000; // 1 hour
+const LOCK_TIMEOUT = 120000; // 2 min max wait
+
+function acquireCacheLock() {
+  const start = Date.now();
+  while (Date.now() - start < LOCK_TIMEOUT) {
+    try {
+      fs.mkdirSync(TEMPLATE_CACHE_LOCK);
+      return true;
+    } catch (e) {
+      try {
+        const lockAge = Date.now() - fs.statSync(TEMPLATE_CACHE_LOCK).mtimeMs;
+        if (lockAge > LOCK_TIMEOUT) {
+          try { fs.rmdirSync(TEMPLATE_CACHE_LOCK); } catch (e2) {}
+          continue;
+        }
+      } catch (e2) { continue; }
+      require('child_process').execSync('sleep 0.5');
+    }
+  }
+  throw new Error('Failed to acquire cache lock after ' + LOCK_TIMEOUT + 'ms');
+}
+
+function releaseCacheLock() {
+  try { fs.rmdirSync(TEMPLATE_CACHE_LOCK); } catch (e) {}
+}
 
 function getBaseTemplate(targetDir, log, taskId) {
   const { execSync } = require('child_process');
-  const cacheValid = fs.existsSync(TEMPLATE_CACHE_DIR)
-    && fs.existsSync(path.join(TEMPLATE_CACHE_DIR, '.git'))
-    && (Date.now() - fs.statSync(TEMPLATE_CACHE_DIR).mtimeMs) < TEMPLATE_CACHE_MAX_AGE;
 
-  if (!cacheValid) {
-    if (fs.existsSync(TEMPLATE_CACHE_DIR)) fs.rmSync(TEMPLATE_CACHE_DIR, { recursive: true, force: true });
-    const repo = process.env.BASE_TEMPLATE_REPO || 'https://github.com/soyooAiTools/luna-base-template.git';
-    execSync(`git clone --depth 1 ${repo} "${TEMPLATE_CACHE_DIR}"`, { timeout: 60000, stdio: 'pipe' });
-    log('[cache] Base template cache refreshed', taskId);
-  } else {
-    log('[cache] Using cached base template', taskId);
+  acquireCacheLock();
+  try {
+    const cacheValid = fs.existsSync(TEMPLATE_CACHE_DIR)
+      && fs.existsSync(path.join(TEMPLATE_CACHE_DIR, '.git'))
+      && fs.existsSync(path.join(TEMPLATE_CACHE_DIR, 'Assets'))
+      && (Date.now() - fs.statSync(TEMPLATE_CACHE_DIR).mtimeMs) < TEMPLATE_CACHE_MAX_AGE;
+
+    if (!cacheValid) {
+      if (fs.existsSync(TEMPLATE_CACHE_DIR)) fs.rmSync(TEMPLATE_CACHE_DIR, { recursive: true, force: true });
+      const repo = process.env.BASE_TEMPLATE_REPO || 'https://github.com/soyooAiTools/luna-base-template.git';
+      execSync(`git clone --depth 1 ${repo} "${TEMPLATE_CACHE_DIR}"`, { timeout: 60000, stdio: 'pipe' });
+      log('[cache] Base template cache refreshed', taskId);
+    } else {
+      log('[cache] Using cached base template', taskId);
+    }
+
+    execSync(`cp -r "${TEMPLATE_CACHE_DIR}/." "${targetDir}"`, { timeout: 30000, stdio: 'pipe' });
+  } finally {
+    releaseCacheLock();
   }
-
-  execSync(`cp -r "${TEMPLATE_CACHE_DIR}/." "${targetDir}"`, { timeout: 30000, stdio: 'pipe' });
 }
 
 // ============ Task Checkpoint (persist best code across worker restarts) ============

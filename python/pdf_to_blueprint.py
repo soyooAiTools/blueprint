@@ -119,6 +119,15 @@ def call_doubao(system_prompt, user_content, max_tokens=65536):
     return text, finish
 
 
+def repair_json(text):
+    """Fix common LLM JSON issues: trailing commas, single-line comments"""
+    import re
+    # Remove single-line comments (// ...)
+    text = re.sub(r'//[^\n]*', '', text)
+    # Remove trailing commas before } or ]
+    text = re.sub(r',\s*([}\]])', r'\1', text)
+    return text
+
 def extract_json(text):
     """Extract JSON from model output"""
     text = text.strip()
@@ -128,14 +137,23 @@ def extract_json(text):
         text = text[:-3]
     text = text.strip()
 
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        import re
-        m = re.search(r'\{[\s\S]*\}', text)
-        if m:
-            return json.loads(m.group())
-        raise ValueError(f"No JSON found in {len(text)} chars")
+    # Try raw first, then repaired
+    for attempt_text in [text, repair_json(text)]:
+        try:
+            return json.loads(attempt_text)
+        except json.JSONDecodeError:
+            pass
+
+    # Fallback: extract outermost {...} and repair
+    import re
+    m = re.search(r'\{[\s\S]*\}', text)
+    if m:
+        for attempt_text in [m.group(), repair_json(m.group())]:
+            try:
+                return json.loads(attempt_text)
+            except json.JSONDecodeError:
+                pass
+    raise ValueError(f"No valid JSON found in {len(text)} chars")
 
 
 def main():
