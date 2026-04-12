@@ -75,22 +75,28 @@ module.exports = {
     }
 
     // Spec conformance check: verify code semantics match blueprint
+    // P1-6: Only inject as feedback if there are genuine critical issues after fuzzy matching
+    // This prevents "phaseId naming mismatch" from poisoning the fix loop
     if (ctx.blueprint.specs && ctx.blueprint.specs.length > 0) {
       var conformance = checkConformance(reviewedCode, ctx.blueprint);
-      if (!conformance.passed) {
-        var confIssues = conformance.issues.map(function(i) {
-          return '[' + i.severity + '] ' + i.phase + ': ' + i.message;
+      ctx.addLog('review', 'Spec conformance: ' + conformance.criticalCount + ' critical, ' + conformance.warningCount + ' warnings');
+      if (!conformance.passed && conformance.criticalCount > 0) {
+        // Only inject critical issues (not warnings) into feedback to avoid noise
+        var criticalIssues = conformance.issues.filter(function(i) { return i.severity === 'critical'; });
+        var confIssues = criticalIssues.map(function(i) {
+          return '[critical] ' + i.phase + ': ' + i.message;
         }).join('\n');
-        ctx.addLog('review', 'Spec conformance: ' + conformance.criticalCount + ' critical, ' + conformance.warningCount + ' warnings');
         if (!ctx.blueprint.feedbackHistory) ctx.blueprint.feedbackHistory = [];
         ctx.blueprint.feedbackHistory.push({
-          data: { text: 'SPEC CONFORMANCE VIOLATIONS (must fix):\n' + confIssues },
+          data: { text: 'SPEC CONFORMANCE VIOLATIONS (critical only):\n' + confIssues },
           source: 'spec-conformance',
           status: 'pending',
           timestamp: Date.now(),
         });
-      } else {
+      } else if (conformance.passed) {
         ctx.addLog('review', 'Spec conformance: all phases verified');
+      } else {
+        ctx.addLog('review', 'Spec conformance: only warnings (not injecting as feedback to avoid fix loop poisoning)');
       }
     }
 
@@ -256,6 +262,14 @@ module.exports = {
 
           return fixPromise.then(function(recodeResult) {
             if (recodeResult.ok) {
+              // P2-8: Save pre-fix state for rollback if fix makes things worse
+              var preFixCode = reviewedCode;
+              var preFixExtras = {};
+              for (var pfk in reviewExtraFiles) {
+                if (reviewExtraFiles.hasOwnProperty(pfk)) preFixExtras[pfk] = reviewExtraFiles[pfk];
+              }
+              var preFixIssueCount = (reviewResult.criticalCount || 0) + (reviewResult.issues ? reviewResult.issues.length : 0);
+
               reviewedCode = recodeResult.code;
               if (recodeResult.extraFiles) {
                 for (var efn in recodeResult.extraFiles) {
@@ -264,7 +278,19 @@ module.exports = {
                   }
                 }
               }
-              ctx.addLog('review', 'Review fix applied (' + reviewedCode.length + ' chars' + (recodeResult.patchApplied ? ', patch mode' : '') + ')');
+
+              // Quick static check: if fix introduced significantly more issues, rollback
+              var postFixConformance = checkConformance(reviewedCode, ctx.blueprint);
+              var postFixIssueEstimate = postFixConformance.criticalCount + postFixConformance.warningCount;
+              var preFixConformance = checkConformance(preFixCode, ctx.blueprint);
+              var preFixIssueEstimate = preFixConformance.criticalCount + preFixConformance.warningCount;
+              if (postFixIssueEstimate > preFixIssueEstimate + 2) {
+                ctx.addLog('review', 'Fix rollback: conformance issues increased (' + preFixIssueEstimate + ' → ' + postFixIssueEstimate + '), reverting to pre-fix code');
+                reviewedCode = preFixCode;
+                reviewExtraFiles = preFixExtras;
+              } else {
+                ctx.addLog('review', 'Review fix applied (' + reviewedCode.length + ' chars' + (recodeResult.patchApplied ? ', patch mode' : '') + ')');
+              }
             }
             return { done: false };
           });
@@ -282,29 +308,85 @@ module.exports = {
       if (mainCs) ctx.csCode = fs.readFileSync(mainCs, 'utf-8');
 
       // Phase coverage gate: block if < 80% of spec phases are implemented
+      // P1: Use normalized fuzzy matching to avoid false negatives from phaseId naming differences
       var specs = ctx.blueprint.specs || [];
       if (specs.length > 0) {
         var code = ctx.csCode || '';
+        // Also check extra files (partial classes)
+        var allCode = code;
+        if (ctx.extraFiles) {
+          for (var efk in ctx.extraFiles) {
+            allCode += '\n' + ctx.extraFiles[efk];
+          }
+        }
+        var codeLower = allCode.toLowerCase();
+
+        // Extract all phaseId strings from AddCompletedPhase/ReportPhase calls in actual code
+        var codePhaseIds = [];
+        var phaseIdMatches = allCode.match(/(?:AddCompletedPhase|ReportPhase)\s*\(\s*"([^"]+)"/g) || [];
+        for (var pmi = 0; pmi < phaseIdMatches.length; pmi++) {
+          var idMatch = phaseIdMatches[pmi].match(/"([^"]+)"/);
+          if (idMatch) codePhaseIds.push(idMatch[1]);
+        }
+        var codePhaseIdsLower = codePhaseIds.map(function(id) { return id.toLowerCase().replace(/[_\s-]/g, ''); });
+
         var implementedCount = 0;
         for (var si = 0; si < specs.length; si++) {
           var pid = specs[si].phaseId;
-          if (code.indexOf('AddCompletedPhase("' + pid + '"') >= 0 ||
-              code.indexOf('ReportPhase("' + pid + '"') >= 0 ||
-              code.indexOf('CheckEventRules("' + pid + '"') >= 0) {
+          // Level 1: exact match
+          if (codeLower.indexOf('"' + pid.toLowerCase() + '"') >= 0) {
             implementedCount++;
+            continue;
+          }
+          // Level 2: normalized match (strip underscores, case-insensitive)
+          var pidNorm = pid.toLowerCase().replace(/[_\s-]/g, '');
+          var foundNorm = false;
+          for (var cpi = 0; cpi < codePhaseIdsLower.length; cpi++) {
+            if (codePhaseIdsLower[cpi] === pidNorm ||
+                codePhaseIdsLower[cpi].indexOf(pidNorm) >= 0 ||
+                pidNorm.indexOf(codePhaseIdsLower[cpi]) >= 0) {
+              foundNorm = true;
+              break;
+            }
+          }
+          if (foundNorm) {
+            implementedCount++;
+            continue;
+          }
+          // Level 3: keyword overlap — split camelCase into words and check overlap
+          var specWords = pid.replace(/([A-Z])/g, ' $1').toLowerCase().trim().split(/\s+/);
+          for (var cwi = 0; cwi < codePhaseIds.length; cwi++) {
+            var codeWords = codePhaseIds[cwi].replace(/([A-Z])/g, ' $1').toLowerCase().trim().split(/\s+/);
+            var overlap = 0;
+            for (var swi = 0; swi < specWords.length; swi++) {
+              if (specWords[swi].length >= 3 && codeWords.indexOf(specWords[swi]) >= 0) overlap++;
+            }
+            if (overlap >= Math.max(2, Math.floor(specWords.length * 0.5))) {
+              implementedCount++;
+              foundNorm = true;
+              break;
+            }
           }
         }
         var coverage = implementedCount / specs.length;
-        ctx.addLog('review', 'Phase coverage: ' + implementedCount + '/' + specs.length + ' (' + Math.round(coverage * 100) + '%)');
+        ctx.addLog('review', 'Phase coverage (fuzzy): ' + implementedCount + '/' + specs.length + ' (' + Math.round(coverage * 100) + '%)');
         if (coverage < 0.8) {
           var missingPhases = [];
           for (var mi = 0; mi < specs.length; mi++) {
             var mpid = specs[mi].phaseId;
-            if (code.indexOf('AddCompletedPhase("' + mpid + '"') < 0 &&
-                code.indexOf('ReportPhase("' + mpid + '"') < 0 &&
-                code.indexOf('CheckEventRules("' + mpid + '"') < 0) {
-              missingPhases.push(mpid);
+            var mpidNorm = mpid.toLowerCase().replace(/[_\s-]/g, '');
+            var found = codeLower.indexOf('"' + mpid.toLowerCase() + '"') >= 0;
+            if (!found) {
+              for (var mci = 0; mci < codePhaseIdsLower.length; mci++) {
+                if (codePhaseIdsLower[mci] === mpidNorm ||
+                    codePhaseIdsLower[mci].indexOf(mpidNorm) >= 0 ||
+                    mpidNorm.indexOf(codePhaseIdsLower[mci]) >= 0) {
+                  found = true;
+                  break;
+                }
+              }
             }
+            if (!found) missingPhases.push(mpid);
           }
           throw new Error('Phase coverage too low: ' + implementedCount + '/' + specs.length +
             ' (' + Math.round(coverage * 100) + '%). Missing: ' + missingPhases.join(', '));

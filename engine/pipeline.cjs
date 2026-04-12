@@ -66,7 +66,7 @@ function PipelineContext(task, checkpoint, workerConfig) {
   this.workerConfig = workerConfig || {
     workerId: process.env.LINUX_WORKER_ID || 'linux-worker-1',
     baseUrl: process.env.LINUX_BASE_URL || 'http://120.55.70.226:3901',
-    buildUrl: process.env.LINUX_BUILD_URL || 'http://120.55.70.226:3080',
+    buildUrl: process.env.LINUX_BUILD_URL || 'http://127.0.0.1:18860',
   };
 
   // Stage state

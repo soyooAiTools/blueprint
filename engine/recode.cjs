@@ -157,7 +157,8 @@ function patchRecode(opts) {
       (extraFilesContext ? extraFilesContext + '\n\n' : '') +
       'ISSUES TO FIX (do NOT modify any other code):\n' + issueDescriptions.join('\n\n') + '\n\n' +
       'Output the COMPLETE corrected file. Only modify lines related to the issues above.\n' +
-      'Do NOT add new features, refactor, or change working code.' +
+      'Do NOT add new features, refactor, or change working code.\n' +
+      'CRITICAL: Do NOT rename or change any existing phaseId strings in AddCompletedPhase(), ReportPhase(), or CheckEventRules() calls. The phase IDs in the existing code are CANONICAL — changing them will break phase tracking.' +
       (extraFilesContext ? '\nCRITICAL: Do NOT duplicate any method already defined in the partial class files above — this causes CS0111.' : '')
   };
 

@@ -463,27 +463,36 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
   if (!hasFeedback && specExtractor && skeletonGenerator && storyboardFrames) {
     try {
       const specsDataDir = process.env.SPECS_DATA_DIR || path.join(__dirname, '..', 'spec-data');
-      // Try cached specs first to avoid redundant Doubao API calls
-      let specs = specExtractor.loadSpecs(taskId, specsDataDir);
-      if (specs && specs.length > 0) {
-        log(`[claude-code] Using cached specs: ${specs.length} phase specs — re-validating entity names`, taskId);
-        // Re-validate cached specs against current blueprint entities
-        const cachedEntities = blueprint.entities || [];
-        if (cachedEntities.length > 0) {
-          const knownNames = new Set(cachedEntities.map(e => e.name).filter(Boolean));
-          let hasInvalid = false;
-          for (const s of specs) {
-            for (const ent of (s.entitiesRequired || [])) {
-              if (ent.name && !knownNames.has(ent.name)) { hasInvalid = true; break; }
+      // P0 FIX: Use blueprint.specs (from DB, same source as review/conformance) as single source of truth
+      // This prevents phaseId mismatch between skeleton (Path B) and review checks (Path A)
+      let specs = (blueprint.specs && blueprint.specs.length > 0) ? blueprint.specs : null;
+      if (specs) {
+        log(`[claude-code] Using blueprint.specs (DB): ${specs.length} phase specs — single source of truth`, taskId);
+      }
+      // Fallback: try cached spec-data
+      if (!specs || specs.length === 0) {
+        specs = specExtractor.loadSpecs(taskId, specsDataDir);
+        if (specs && specs.length > 0) {
+          log(`[claude-code] Using cached specs: ${specs.length} phase specs — re-validating entity names`, taskId);
+          // Re-validate cached specs against current blueprint entities
+          const cachedEntities = blueprint.entities || [];
+          if (cachedEntities.length > 0) {
+            const knownNames = new Set(cachedEntities.map(e => e.name).filter(Boolean));
+            let hasInvalid = false;
+            for (const s of specs) {
+              for (const ent of (s.entitiesRequired || [])) {
+                if (ent.name && !knownNames.has(ent.name)) { hasInvalid = true; break; }
+              }
+              if (hasInvalid) break;
             }
-            if (hasInvalid) break;
-          }
-          if (hasInvalid) {
-            log('[claude-code] Cached specs have entity mismatches — re-extracting', taskId);
-            specs = null;
+            if (hasInvalid) {
+              log('[claude-code] Cached specs have entity mismatches — re-extracting', taskId);
+              specs = null;
+            }
           }
         }
       }
+      // Last resort: extract fresh (and save to both spec-data and blueprint)
       if (!specs || specs.length === 0) {
         log('[claude-code] Extracting specs from storyboard frames...', taskId);
         specs = await specExtractor.extractSpecs(storyboardFrames, {
@@ -493,6 +502,8 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
         });
         log(`[claude-code] Extracted ${specs.length} phase specs`, taskId);
         specExtractor.saveSpecs(specs, taskId, specsDataDir);
+        // Write back to blueprint so review/conformance uses the same phaseIds
+        blueprint.specs = specs;
       }
 
       // === Generate skeleton for ALL phases (no longer limiting to first 3) ===
@@ -677,7 +688,8 @@ ${inlinePromptMd}
         + '- Do NOT reduce _autoInteractTimer threshold below 3f (skeleton default)\n'
         + '- Do NOT reduce safety net threshold below 50f\n'
         + '- Do NOT set ruleTriggered[] outside of CheckEventRules phase gate blocks\n'
-        + '- The 20s autoPlay gates exist so CUA can take screenshots between phases — bypassing them causes VISUAL FREEZE which fails CUA'
+        + '- The 20s autoPlay gates exist so CUA can take screenshots between phases — bypassing them causes VISUAL FREEZE which fails CUA\n'
+        + '- Do NOT rename, change, or replace any existing phaseId strings in AddCompletedPhase(), ReportPhase(), or CheckEventRules() calls. These are CANONICAL identifiers used by downstream validation. Changing them breaks phase tracking and causes false coverage failures.'
       : null,
     workDir: clientDir,
   });

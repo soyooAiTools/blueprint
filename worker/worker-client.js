@@ -19,7 +19,7 @@ const USE_BASE_TEMPLATE = process.env.USE_BASE_TEMPLATE === 'true' || true;
 
 // Linux build mode - uses remote Linux ECS for C#→JS→HTML (faster, no Unity needed)
 const USE_LINUX_BUILD = process.env.USE_LINUX_BUILD === 'true';
-const LINUX_BUILD_URL = process.env.LINUX_BUILD_URL || 'http://100.84.246.49:18860';
+const LINUX_BUILD_URL = process.env.LINUX_BUILD_URL || 'http://127.0.0.1:18860';
 
 // Smart code generator: V5 (base template) or legacy
 function smartGenerateCode(blueprint, clientDir, log, taskId, engine) {

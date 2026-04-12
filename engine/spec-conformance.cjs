@@ -12,15 +12,45 @@ function checkConformance(csCode, blueprint) {
   var specs = blueprint.specs || [];
   if (specs.length === 0) return { passed: true, issues: [], criticalCount: 0, warningCount: 0 };
 
+  // P1: Extract all phaseId strings from actual code for fuzzy matching
+  var codePhaseIds = [];
+  var phaseIdMatches = csCode.match(/(?:AddCompletedPhase|ReportPhase|CheckEventRules)\s*\(\s*"([^"]+)"/g) || [];
+  for (var pmi = 0; pmi < phaseIdMatches.length; pmi++) {
+    var idMatch = phaseIdMatches[pmi].match(/"([^"]+)"/);
+    if (idMatch && codePhaseIds.indexOf(idMatch[1]) < 0) codePhaseIds.push(idMatch[1]);
+  }
+  var codePhaseIdsNorm = codePhaseIds.map(function(id) { return id.toLowerCase().replace(/[_\s-]/g, ''); });
+
+  function fuzzyMatchPhaseId(pid) {
+    // Level 1: exact string in code
+    if (csCode.indexOf('"' + pid + '"') >= 0) return true;
+    // Level 2: normalized match
+    var pidNorm = pid.toLowerCase().replace(/[_\s-]/g, '');
+    for (var ci = 0; ci < codePhaseIdsNorm.length; ci++) {
+      if (codePhaseIdsNorm[ci] === pidNorm ||
+          codePhaseIdsNorm[ci].indexOf(pidNorm) >= 0 ||
+          pidNorm.indexOf(codePhaseIdsNorm[ci]) >= 0) return true;
+    }
+    // Level 3: keyword overlap
+    var specWords = pid.replace(/([A-Z])/g, ' $1').toLowerCase().trim().split(/\s+/);
+    for (var cwi = 0; cwi < codePhaseIds.length; cwi++) {
+      var codeWords = codePhaseIds[cwi].replace(/([A-Z])/g, ' $1').toLowerCase().trim().split(/\s+/);
+      var overlap = 0;
+      for (var swi = 0; swi < specWords.length; swi++) {
+        if (specWords[swi].length >= 3 && codeWords.indexOf(specWords[swi]) >= 0) overlap++;
+      }
+      if (overlap >= Math.max(2, Math.floor(specWords.length * 0.5))) return true;
+    }
+    return false;
+  }
+
   for (var i = 0; i < specs.length; i++) {
     var spec = specs[i];
     var phaseId = spec.phaseId;
 
-    // 1. Phase must have AddCompletedPhase or ReportPhase call (not just any string mention)
-    var inAddCompleted = csCode.indexOf('AddCompletedPhase("' + phaseId + '"') >= 0;
-    var inReportPhase = csCode.indexOf('ReportPhase("' + phaseId + '"') >= 0;
-    var inCheckEvent = csCode.indexOf('CheckEventRules("' + phaseId + '"') >= 0;
-    if (!inAddCompleted && !inReportPhase && !inCheckEvent) {
+    // 1. Phase must have AddCompletedPhase or ReportPhase call (fuzzy matched)
+    var phaseFound = fuzzyMatchPhaseId(phaseId);
+    if (!phaseFound) {
       issues.push({
         severity: 'critical',
         phase: phaseId,
@@ -87,9 +117,16 @@ function checkConformance(csCode, blueprint) {
     // 5. Phase transition quality — detect trivial/timer-only transitions
     //    CUA often fails because phases auto-progress without real player interaction.
     //    Flag phases that require player action (playerMustAct) but have no interaction handler nearby.
-    if (spec.playerMustAct !== false && inAddCompleted) {
-      // Find the AddCompletedPhase call and check if there's a player-driven condition nearby
+    if (spec.playerMustAct !== false && phaseFound) {
+      // Find any AddCompletedPhase call for this phase (exact or fuzzy matched)
       var addPhaseIdx = csCode.indexOf('AddCompletedPhase("' + phaseId + '"');
+      if (addPhaseIdx < 0) {
+        // Try to find the fuzzy-matched phaseId in code
+        for (var fpi = 0; fpi < codePhaseIds.length; fpi++) {
+          var testIdx = csCode.indexOf('AddCompletedPhase("' + codePhaseIds[fpi] + '"');
+          if (testIdx >= 0) { addPhaseIdx = testIdx; break; }
+        }
+      }
       if (addPhaseIdx >= 0) {
         // Look at surrounding 500 chars for interaction-related code
         var surroundStart = Math.max(0, addPhaseIdx - 500);

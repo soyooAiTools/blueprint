@@ -458,5 +458,213 @@
     "sourceStages": {
       "spec-validate": 1
     }
+  },
+  {
+    "description": "Creates runtime UI text with GFM_UI.CreateText for floatingText. Runtime text creation is called out as a production risk in the provided rules, and the skeleton specifically prefers pre-created reusable UI instead of creating new text elements at runtime.",
+    "rule": "forbidden runtime apis  skeleton ui rule",
+    "fix": "Reuse an existing pre-created text element or add a skeleton-provided pooled text reference. Do not create Text at runtime in gameplay flow.",
+    "severity": "critical",
+    "promotedAt": "2026-04-12T10:26:34.237Z",
+    "triggerProjects": [
+      "proj_1775987487967_1kooku"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "AddCompletedPhase uses semantic names like \"openingDisaster\", \"unlockCabinDoor\", \"placeCrewToBath\", \"unlockFirstBed\", \"unlockAllBeds\", \"finalCTA\", and also records prior phases during next-phase init. Project rules require exact blueprint Rule IDs only, and only when that exact phase completes.",
+    "rule": "phase id format  exact rule ids required",
+    "fix": "Replace all AddCompletedPhase parameters with the exact blueprint Rule ID strings and record them at the actual completion moment for that phase only.",
+    "severity": "critical",
+    "promotedAt": "2026-04-12T11:13:56.000Z",
+    "triggerProjects": [
+      "proj_1775987487967_1kooku"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "The code marks previous phases as completed during the next phase's initialization, e.g. phase 2 adds openingDisaster, phase 3 adds unlockMainCabinDoor, etc. Historical failure rule explicitly flags this pattern as invalid because completion must be recorded at the actual completion moment, not when entering the next phase.",
+    "rule": "addcompletedphase timing correctness",
+    "fix": "Move each AddCompletedPhase() call into the exact transition point where that phase's completion condition becomes true.",
+    "severity": "critical",
+    "promotedAt": "2026-04-12T12:24:25.892Z",
+    "triggerProjects": [
+      "proj_1775987487967_1kooku"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Phase 1 init explicitly sets openingDisasterInteractionDone = true without any user interaction. The rules say anti-autoplay flags must be set when the player performs the required interaction; auto-setting them is forbidden.",
+    "rule": "every phase transition must require player interaction never auto-set interactio",
+    "fix": "Set openingDisasterInteractionDone only from a real input handler, e.g. first joystick move or first tap.",
+    "severity": "critical",
+    "promotedAt": "2026-04-12T12:24:25.893Z",
+    "triggerProjects": [
+      "proj_1775987487967_1kooku"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "AutoPlay directly mutates progression resources/state (ice, water, oxygen, gold) based on currentPhaseName instead of performing real player-equivalent interactions through gameplay handlers. This creates scripted advancement paths rather than real interaction-driven progression.",
+    "rule": "forbidden autoplay state mutation bypassing interaction",
+    "fix": "Refactor AutoPlay to drive the player to targets and trigger the same input/interaction functions used by the player, without directly assigning progression state.",
+    "severity": "critical",
+    "promotedAt": "2026-04-12T12:43:56.744Z",
+    "triggerProjects": [
+      "proj_1775987513075_v7jikz"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Phase 10 requires drillState >= 3 and upgradeStationDone == true, but in the provided file drillState is never set to 3 anywhere, and upgradeStationDone is never assigned true anywhere. As reviewed, progression will stall before phase 10.",
+    "rule": "variables referenced in trigger conditions must be modified somewhere",
+    "fix": "Implement ShowDownloadButton() and a real click handler that sets downloadCtaDone = true on user interaction, or wire the CTA to an existing skeleton CTA pattern.",
+    "severity": "critical",
+    "promotedAt": "2026-04-12T12:43:56.744Z",
+    "triggerProjects": [
+      "proj_1775987513075_v7jikz"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 2,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 2
+    }
+  },
+  {
+    "description": "The AutoPlay safety net directly mutates progression flags and entity states for stuck phases: openingDisasterInteractionDone, mainCabinDoorState, phase3FirstCrewRescueDone, phase4CrewDeliveredDone, carryAbilityState, bathtubState, secondCabinState, firstBedUnlockButtonDone, phase10AllBedsDone, downloadButtonDone, etc. The rules explicitly forbid scripted auto-completion paths and require player-driven interaction conditions, even for verification.",
+    "rule": "tier 1.4b  every phase must have real completion conditions progression must req",
+    "fix": "Do not directly set progression flags/entity terminal states in the safety net. AutoPlay must drive the same interaction handlers as the player, not assign completion state variables.",
+    "severity": "critical",
+    "promotedAt": "2026-04-12T12:46:27.789Z",
+    "triggerProjects": [
+      "proj_1775987487967_1kooku"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "AutoPlay arrival directly sets phase-completion flags such as cabinDoorUnlockButtonDone, floatingCrewDone, phase4CrewDeliveredDone, phase3FirstCrewRescueDone, crewDone, phase6BatchRescueDone, firstBedUnlockButtonDone, phase9FirstBedDone, restBedUnlockButtonDone, phase10AllBedsDone, and downloadButtonDone. This is explicit autoplay progression, which the rules forbid.",
+    "rule": "tier 1.4b  every phase must have real condition not scripted flag mutation",
+    "fix": "Refactor AutoPlay so it invokes the same user-input-driven interaction methods used in interactive mode instead of directly toggling progression flags.",
+    "severity": "critical",
+    "promotedAt": "2026-04-12T12:46:27.789Z",
+    "triggerProjects": [
+      "proj_1775987487967_1kooku"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Entity state variables are declared as 0=waiting, 1=building, 2=built, but transitions check for >=3 on carryAbilityState and bathtubState, and later safety net sets restBedState = 6. This breaks the documented state model and indicates inconsistent/incomplete phase logic.",
+    "rule": "tier 1.4b  variables referenced in trigger conditions must be modified somewhere",
+    "fix": "Use a consistent state model. If upgrade levels need 3, declare separate level variables and update them through real interaction handlers. Keep entity state variables within their declared domain.",
+    "severity": "critical",
+    "promotedAt": "2026-04-12T12:46:27.789Z",
+    "triggerProjects": [
+      "proj_1775987487967_1kooku"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "AutoPlay directly mutates progression state and phase-completion flags/resources (ice, water, oxygen, gold, techConsoleDone, recruitConsoleDone, incubatorConsoleDone, upgradeStationDone, unlockNewCabinCtaDone, downloadCtaDone, etc.). The safety net also force-sets completion variables like iceOreDone=true, unloadingAreaDone=true, electrolysisStartButtonDone=true, sellAreaDone=true. This is explicit scripted advancement rather than player-driven interaction.",
+    "rule": "tier 1  4b  tier 1 anti-autoplay every phase must require real player interactio",
+    "fix": "Remove direct state-completion mutations from OnAutoPlayArrive and the safety net. AutoPlay must drive the same input/interaction handlers as the player, not assign completion flags or terminal entity states directly.",
+    "severity": "critical",
+    "promotedAt": "2026-04-12T13:08:02.553Z",
+    "triggerProjects": [
+      "proj_1775987513075_v7jikz"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "AddCompletedPhase uses semantic names like \"landSpaceshipMoveToEntrance\", \"collectIceOre\", \"deliverIceToSmelter\", \"produceOxygenByElectrolyzer\", \"sellOxygenEarnGold\", \"unlockAdvancedDrill\", \"unlockAutoVendorWorker\", \"ctaUnlockNewCabin\", and \"gameEndRedirectDownload\" instead of exact blueprint Rule IDs.",
+    "rule": "tier 1  11 addcompletedphase parameter must exactly match blueprint rule id",
+    "fix": "Replace every AddCompletedPhase argument with the exact blueprint Rule ID strings provided by the spec, and record them only at the true completion point of that phase.",
+    "severity": "critical",
+    "promotedAt": "2026-04-12T13:08:02.553Z",
+    "triggerProjects": [
+      "proj_1775987513075_v7jikz"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Phase 1 completion is based on player z-position > 2f, but OnAutoPlayArrive directly teleports the player beyond the entrance and the safety net also force-sets spaceStationEntranceDone=true. This allows non-interactive scripted completion of the first required player-action phase.",
+    "rule": "tier 1  4b completion conditions must be phase-specific and player-driven",
+    "fix": "Do not teleport/set the completion flag directly in autoplay. Route autoplay through actual movement/input behavior and only set the flag when that movement genuinely reaches the target.",
+    "severity": "critical",
+    "promotedAt": "2026-04-12T13:08:02.553Z",
+    "triggerProjects": [
+      "proj_1775987513075_v7jikz"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "AutoPlay directly invokes progression handlers from non-user-driven code paths to force phase completion. Historical rules explicitly flag this pattern as invalid autoplay/scripted advancement because phase progression must be driven by actual interaction handlers, not safety-net automation that sets completion variables for stuck phases.",
+    "rule": "tier 1 rule 4b  tier 1 completeness  player-action-driven phases",
+    "fix": "Remove safety-net completion of progression flags/states. AutoPlay must drive the same movement/input interaction flow without directly forcing completion, and phase gates must depend on genuine interaction state changes.",
+    "severity": "critical",
+    "promotedAt": "2026-04-12T13:37:43.639Z",
+    "triggerProjects": [
+      "proj_1775987530864_bz8g2g"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
   }
 ]

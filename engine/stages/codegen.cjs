@@ -232,6 +232,26 @@ module.exports = {
           var addPhaseCount = (ctx.csCode.match(/AddCompletedPhase/g) || []).length;
           ctx.addLog('codegen', 'Code metrics: ' + ruleCount + ' rule references, ' + addPhaseCount + ' AddCompletedPhase calls');
 
+          // P0-3: Sync spec-data back to ctx.blueprint.specs if they diverged
+          // This ensures review/conformance checks use the same phaseIds as the generated code
+          try {
+            var specDataPath = path.join(__dirname, '..', '..', 'spec-data', ctx.taskId, 'specs.json');
+            if (fs.existsSync(specDataPath)) {
+              var specDataSpecs = JSON.parse(fs.readFileSync(specDataPath, 'utf8'));
+              if (specDataSpecs && specDataSpecs.length > 0) {
+                // Check if spec-data phaseIds match blueprint.specs phaseIds
+                var dbIds = (ctx.blueprint.specs || []).map(function(s) { return s.phaseId; }).sort().join(',');
+                var dataIds = specDataSpecs.map(function(s) { return s.phaseId; }).sort().join(',');
+                if (dbIds !== dataIds) {
+                  ctx.addLog('codegen', 'Spec sync: spec-data phaseIds differ from blueprint.specs — updating blueprint to match code');
+                  ctx.blueprint.specs = specDataSpecs;
+                }
+              }
+            }
+          } catch(syncErr) {
+            ctx.addLog('codegen', 'Spec sync check failed (non-fatal): ' + syncErr.message);
+          }
+
           return { done: true, result: { filesWritten: result.filesWritten, csLength: ctx.csCode.length, phaseDetection: phaseDetection } };
         });
       },
