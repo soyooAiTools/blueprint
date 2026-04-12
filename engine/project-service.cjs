@@ -100,9 +100,11 @@ async function _extractSpecsAsync(project, taskId, opts) {
   try {
     var specExtractor = require('../adapters/spec-extractor.cjs');
     console.log('[submit] Extracting specs from ' + project.storyboardFrames.length + ' frames...');
+    var projectEntities = (project.blueprint && project.blueprint.entities) || project.entities || [];
     var specs = await specExtractor.extractSpecs(project.storyboardFrames, {
       projectName: project.name,
       gameType: 'SLG',
+      entities: projectEntities,
     });
     project.specs = specs;
     projectSM.forceTransition(project, 'submitted', 'spec-extraction-success');

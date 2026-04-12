@@ -21,7 +21,7 @@ let _bypassProxy = false;
 function getProxyBypass() { return _bypassProxy; }
 
 /**
- * Check if proxy can reach Gemini API
+ * Check if proxy can reach external LLM API
  */
 function check() {
   return new Promise((resolve) => {
@@ -85,7 +85,7 @@ function quickCheck() {
 }
 
 /**
- * Check if direct connection to Gemini works (no proxy)
+ * Check if direct connection to external LLM works (no proxy)
  */
 function checkDirect() {
   return new Promise((resolve) => {
@@ -203,7 +203,7 @@ async function repair() {
   const r3 = await checkDirect();
   if (r3.ok) {
     _bypassProxy = true;
-    notify.alert('warning', '代理不可用，已切换直连模式', '后续 Gemini 调用将不走代理');
+    notify.alert('warning', '代理不可用，已切换直连模式', '后续 LLM 调用将不走代理');
     return { ok: true, method: 'direct' };
   }
 
@@ -235,7 +235,7 @@ async function ensure() {
 
 
 /**
- * Switch specific node within Gemini专线 group via delay test
+ * Switch specific node within proxy group (Clash 'Gemini专线' — legacy name) via delay test
  * Triggers URLTest to pick fastest node automatically
  */
 async function triggerNodeSwitch() {

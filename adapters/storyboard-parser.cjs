@@ -488,7 +488,7 @@ ${style ? `10. 额外风格要求：${style}` : ''}
   }
 
   // Phase 0: Pre-process all images — convert to JPEG, resize, then upload via Files API
-  // gemini-3.1-pro-preview has issues with inlineData images, but works perfectly with Files API references
+  // Doubao Seed 2.0 Pro has issues with inlineData images, but works with Files API references
   const imgCount0 = parts.filter(p => p.inlineData && p.inlineData.data).length;
   console.log('[StoryboardParser] Phase0: ' + parts.length + ' parts total, ' + imgCount0 + ' with inlineData');
   let sharp0;
@@ -510,7 +510,7 @@ ${style ? `10. 额外风格要求：${style}` : ''}
           console.log('[StoryboardParser] Phase0 pre-process: ' + meta.format + ' ' + meta.width + 'x' + meta.height + ' (' + buf.length + 'B) -> JPEG (' + out.length + 'B)');
           buf = out;
         }
-        // Upload via Files API to avoid inlineData issues with gemini-3.1-pro-preview
+        // Upload via Files API to avoid inlineData issues with Doubao
         const tmpPath = '/tmp/phase0_img_' + i + '_' + Date.now() + '.jpg';
         fs.writeFileSync(tmpPath, buf);
         const uploaded = await ai.files.upload({ file: tmpPath, config: { mimeType } });
@@ -678,7 +678,7 @@ async function analyzeImages(imageParts) {
 
 请用中文详细描述，每张图片单独分析。输出纯文本，不要 JSON。`;
 
-  // Upload inlineData images via Files API (gemini-3.1-pro-preview has issues with inlineData)
+  // Upload inlineData images via Files API (Doubao has issues with large inlineData)
   const uploadedParts = [];
   for (let i = 0; i < imageParts.length; i++) {
     const p = imageParts[i];

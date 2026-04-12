@@ -268,7 +268,7 @@ module.exports.init = function(ctx) {
 
           sendSSE({ type: 'progress', percent: 5, stage: '视频上传完成' });
 
-          // Heartbeat for long Gemini calls
+          // Heartbeat for long LLM calls
           var heartbeat = null;
           var startTime = Date.now();
           var lastPercent = 5;
@@ -875,7 +875,7 @@ module.exports.init = function(ctx) {
         console.log('[convert-to-v4] Converting ' + frames.length + ' frames for project ' + projectId);
         sendSSE({ type: 'progress', percent: 10, stage: '准备分镜数据 (' + frames.length + ' 帧)...' });
 
-        // Build prompt for Gemini to extract entities + phases from storyboard frames
+        // Build prompt for Doubao to extract entities + phases from storyboard frames
         var framesDesc = frames.map(function(f, i) {
           var parts = ['帧' + (i+1)];
           if (f.title) parts.push('标题: ' + f.title);
@@ -962,7 +962,7 @@ module.exports.init = function(ctx) {
             doubaoPercent = Math.min(doubaoPercent + 3, 85);
             sendSSE({ type: 'progress', percent: doubaoPercent, stage: '豆包 AI 分析中...' });
           }, 2000);
-          // Fallback via modelProvider chain (Gemini → Claude → Doubao)
+          // Fallback via modelProvider chain (Doubao → Claude)
           var mpChain = modelProvider.createDefaultChain();
           var mpResult = await Promise.race([
             mpChain.generate({ system: systemPrompt, user: userPrompt }, { temperature: 0.3, maxOutputTokens: 65536, timeoutMs: 120000 }),

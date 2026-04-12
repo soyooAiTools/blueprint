@@ -1,16 +1,15 @@
 // Screenshot Review — Take screenshot of WebGL build and AI-review against blueprint
-// Runs on Main ECS (Linux) with Playwright + Gemini
+// Runs on Main ECS (Linux) with Playwright + Doubao
 // Usage: node screenshot-review.cjs <taskId> <blueprintJsonPath> [webglDir]
 // Returns: { ok: true/false, reason: string, screenshotPath: string }
 
 const { chromium } = require('playwright');
-const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_MODEL = 'gemini-2.5-flash';
-const GEMINI_BASE_URL = process.env.GOOGLE_GEMINI_BASE_URL || 'https://sub.mindrix.app';
+const modelProvider = require('../lib/model-provider.cjs');
+var _reviewProvider = modelProvider.createProvider('doubao', {});
+
 const WEBGL_BASE = process.env.WEBGL_BASE || '/opt/blueprint-editor/server-data/webgl';
 const SCREENSHOT_DIR = process.env.SCREENSHOT_DIR || '/tmp/screenshots';
 
@@ -27,21 +26,21 @@ async function takeScreenshot(taskId, webglDir) {
   try {
     browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-gpu'] });
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } }); // iPhone 14 size
-    
+
     // Serve locally via file:// protocol
     await page.goto('file://' + indexPath, { waitUntil: 'networkidle', timeout: 30000 }).catch(() => {});
-    
+
     // Wait for WebGL to render (Luna needs time)
     await page.waitForTimeout(5000);
-    
+
     // Take screenshot
     await page.screenshot({ path: screenshotPath, fullPage: false });
-    
+
     // Take a second screenshot after more time (some games have loading)
     await page.waitForTimeout(3000);
     const screenshot2Path = path.join(SCREENSHOT_DIR, taskId + '_late.png');
     await page.screenshot({ path: screenshot2Path, fullPage: false });
-    
+
     return { ok: true, screenshotPath, screenshot2Path };
   } catch (e) {
     return { ok: false, error: 'Screenshot failed: ' + e.message };
@@ -50,43 +49,16 @@ async function takeScreenshot(taskId, webglDir) {
   }
 }
 
-function callGemini(prompt, imageBase64) {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify({
-      contents: [{
-        parts: [
-          { text: prompt },
-          { inline_data: { mime_type: 'image/png', data: imageBase64 } }
-        ]
-      }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 1000 }
-    });
-
-    const url = new URL(`${GEMINI_BASE_URL}/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`);
-    const opts = {
-      hostname: url.hostname,
-      path: url.pathname + url.search,
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
-      timeout: 30000
-    };
-
-    const req = https.request(opts, (res) => {
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => {
-        try {
-          const data = JSON.parse(Buffer.concat(chunks).toString());
-          const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-          resolve(text);
-        } catch (e) { reject(new Error('Gemini parse error: ' + e.message)); }
-      });
-    });
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('Gemini timeout')); });
-    req.write(body);
-    req.end();
-  });
+async function callVisionLLM(prompt, imageBase64) {
+  var result = await _reviewProvider.generate(
+    {
+      system: 'You are a playable ad screenshot reviewer. Respond only in JSON.',
+      user: prompt,
+      images: [{ data: imageBase64, mimeType: 'image/png' }],
+    },
+    { temperature: 0.1, maxTokens: 1000, timeoutMs: 30000 }
+  );
+  return result.text || '';
 }
 
 async function reviewScreenshot(screenshotPath, blueprint) {
@@ -109,7 +81,7 @@ ${shotSummary}
 ## Your Task:
 Look at this screenshot and answer these questions:
 1. Is the screen BLANK or showing only a solid color? (yes/no)
-2. Does it look like a generic SLG/idle game template (buildings, resources, upgrade buttons)? (yes/no)  
+2. Does it look like a generic SLG/idle game template (buildings, resources, upgrade buttons)? (yes/no)
 3. Does it appear to show content related to the blueprint description above? (yes/no)
 4. Are there visible game objects, UI elements, or interactive content? (yes/no)
 
@@ -123,7 +95,7 @@ Respond in this EXACT format (JSON only, no markdown):
 {"decision": "APPROVE" or "REJECT", "reason": "brief explanation", "blank": true/false, "template": true/false, "relevant": true/false}`;
 
   try {
-    const response = await callGemini(prompt, imageBase64);
+    const response = await callVisionLLM(prompt, imageBase64);
     // Parse JSON from response
     const jsonMatch = response.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
@@ -166,17 +138,17 @@ async function main() {
   // Review both screenshots (use the later one as primary — more likely to have loaded)
   const reviewPath = fs.existsSync(ssResult.screenshot2Path) ? ssResult.screenshot2Path : ssResult.screenshotPath;
   const review = await reviewScreenshot(reviewPath, blueprint);
-  
+
   console.log(JSON.stringify({
     ...review,
     screenshotPath: ssResult.screenshotPath,
     screenshot2Path: ssResult.screenshot2Path
   }));
-  
+
   process.exit(review.ok ? 0 : 1);
 }
 
-module.exports = { takeScreenshot, reviewScreenshot, callGemini };
+module.exports = { takeScreenshot, reviewScreenshot, callVisionLLM };
 
 if (require.main === module) main().catch(e => {
   console.log(JSON.stringify({ ok: false, error: e.message }));

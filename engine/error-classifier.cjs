@@ -83,7 +83,7 @@ var CUA_INFRA_PATTERNS = [
   /net::ERR_/i,
   /VLM.*unreachable/i,
   /VLM.*timeout/i,
-  /Gemini.*error/i,
+  /Doubao.*error/i,
   /screenshot.*failed/i,
   /visual.check.*crash/i,
   /headless.*error/i,

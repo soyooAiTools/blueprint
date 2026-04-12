@@ -837,7 +837,9 @@
     "timestamp": "2026-04-11T15:07:13.066Z",
     "autoExtracted": true,
     "failClassification": "CODE",
-    "stage": "review"
+    "stage": "review",
+    "lastSeenAt": "2026-04-12T01:03:46.267Z",
+    "hitCount": 2
   },
   {
     "description": "The AutoPlay safety net force-advances phases by setting ruleTriggered/currentPhaseName/AddCompletedPhase without any real interaction condition. This is explicit auto-progression via timer/scripted sequence.",
@@ -880,5 +882,189 @@
     "line": "ShowFloatingText() / Start()",
     "taskId": "proj_1775951828872_ix8iyt",
     "timestamp": "2026-04-12T00:16:39.141Z"
+  },
+  {
+    "description": "Uses generic APIs: new GameObject[10] is fine, but GFM_UI.CreateText return is okay; however Input/Get APIs are fine. The actual hard violation present is use of string/Find construction plus runtime UI creation. More importantly, this file also uses Button ctaBtn and Text types while not the issue. Tier-1 compile/runtime blocker remains dynamic Find and forbidden APIs. Additionally, there is no generic GetComponent<T> violation, so not counted separately.",
+    "rule": "C# Language — Bridge.NET Hard Limits",
+    "fix": "Remove dynamic Find usage and forbidden camera/material APIs first.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "UpdateCarryVisuals(), ShowFloatingText(), Start()",
+    "taskId": "proj_1775953351555_f0capg",
+    "timestamp": "2026-04-12T00:36:49.518Z"
+  },
+  {
+    "description": "Contains forced auto-advancement blocks that progress phases when stuck without real player interaction. This is explicitly forbidden autoplay/ForceComplete behavior.",
+    "rule": "Gameplay Logic",
+    "fix": "Remove forced phase advancement. Phase transitions must be driven by actual interaction flags and entity state changes caused by input.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "CheckEventRules() AutoPlay safety net",
+    "taskId": "proj_1775953369017_7k7294",
+    "timestamp": "2026-04-12T00:37:12.851Z"
+  },
+  {
+    "description": "Autoplay directly sets progression flags and entity states such as spaceshipDebrisAreaDone, bulletMakerDone, machineGunDone, goldCollectAreaDone, upgradeConsoleDone, workerUpgradeAreaDone, materialConveyorBuildSpotDone, bulletConveyorBuildSpotDone, machineGunUpgradeDone, and downloadButtonDone. This creates scripted non-interactive advancement paths.",
+    "rule": "Gameplay Logic",
+    "fix": "Do not set progression-completion flags from autoplay/scripted arrival. Only real input handlers should mutate interaction flags used for phase progression.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "OnAutoPlayArrive()",
+    "taskId": "proj_1775953369017_7k7294",
+    "timestamp": "2026-04-12T00:37:12.852Z"
+  },
+  {
+    "description": "Autoplay arrival directly sets progression flags and entity terminal states (e.g. mainCabinDoorDone, floatingCrewDone, carryUpgradeBtnDone, workerDone, newCabinUnlockBtnDone). This is an explicit scripted auto-complete path, violating anti-autoplay requirements.",
+    "rule": "Gameplay Logic",
+    "fix": "Do not set progression/completion flags from autoplay scripts. Only actual input-driven handlers should mutate phase completion flags.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "OnAutoPlayArrive(string targetName)",
+    "taskId": "proj_1775953343484_brnzii",
+    "timestamp": "2026-04-12T00:40:01.759Z"
+  },
+  {
+    "description": "The code uses GameObject.Find() with pool names not listed in the project's ONLY valid pool-name assignments: __Pool_Cube_Orange_01, __Pool_Cube_Green_01, __Pool_Plane_Brown_01, __Pool_Cube_Pink_01, __Pool_Cube_Pink_02, __Pool_Cube_Pink_03, __Pool_Cube_Pink_04, __Pool_Cube_Yellow_03, __Pool_Cube_Yellow_04, __Pool_Cube_Yellow_05, __Pool_Cube_Orange_02, __Pool_Cube_Orange_03, __Pool_Sphere_White_01, __Pool_Sphere_White_02, __Pool_Sphere_White_03, __Pool_Sphere_White_04, __Pool_Sphere_White_05, __Pool_Cube_Brown_02, plus carry visuals __Pool_Cube_Cyan_01..05. The reviewer instructions state the prompt provides exact pool assignments and any other GameObject.Find names are wrong for this project.",
+    "rule": "Object Naming — Pool Objects",
+    "fix": "Use only the explicitly approved project pool names: Player/Base/SpaceshipDebris/Material/BulletMaker/Bullet/TurretLeft/TurretMid/TurretRight/BulletProjectile/EnemySpawnerLeft/EnemySpawnerMid/EnemySpawnerRight/Enemy/Gold/ConveyorMaterial/ConveyorBullet/UITopBar/GuideUI/CTAButton. Remove all unsupported extra Find() names or remap gameplay to the approved pool objects only.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "TODO_VARIABLES_START / Start() / Phase 11",
+    "taskId": "proj_1775953369017_7k7294",
+    "timestamp": "2026-04-12T00:53:24.449Z"
+  },
+  {
+    "description": "The file declares generic collections indirectly forbidden by policy? No List/Dictionary are used, but it does use a partial class with many arrays, which is fine. The real Tier-1 Bridge violation is generic-style engine API usage elsewhere? Not present. However, the file references external types/methods defined outside this file (e.g. HandleClickInteraction, UpdateEnemySpawner, UpdateEnemies, UpdateProjectiles, UpdateGoldDrops) and progression depends on them, but in the reviewed code those required state mutations are not visible.",
+    "rule": "C# Language — Bridge.NET Hard Limits",
+    "fix": "Provide the implementations in the reviewed codebase and ensure they mutate all phase-driving variables. If this file is meant to be reviewed standalone, include the helper partial file or inline the required logic.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "TODO_VARIABLES_START",
+    "taskId": "proj_1775953369017_7k7294",
+    "timestamp": "2026-04-12T00:53:24.451Z"
+  },
+  {
+    "description": "Multiple variables used as mandatory phase conditions are referenced in CheckEventRules() but are not modified anywhere in this file: debrisState, bulletMakerState, bulletState, machineGunState, goldState, workerState, collectToolState, materialConveyorState, bulletConveyorState, downloadCtaState, spaceshipDebrisAreaDone, bulletMakerDone, bulletMakerOutletDone, machineGunDone, goldCollectAreaDone, upgradeConsoleDone, workerUpgradeAreaDone, materialConveyorBuildSpotDone, bulletConveyorBuildSpotDone, machineGunUpgradeDone, downloadButtonDone. In this reviewed file they are only initialized/reset and checked. Without verified mutations, progression stalls or is incomplete.",
+    "rule": "Architecture",
+    "fix": "Implement and show explicit state mutations in Update() or called helpers for every phase-driving variable, e.g. set debrisState/spaceshipDebrisAreaDone on actual debris click/collect, set bulletMakerState/bulletMakerDone on delivery, etc. The reviewer requires visible call-chain evidence.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "CheckEventRules() phases 2-11 and gameEnd",
+    "taskId": "proj_1775953369017_7k7294",
+    "timestamp": "2026-04-12T00:53:24.452Z"
+  },
+  {
+    "description": "AutoPlay mutates gameplay progression state directly: materialCount, bulletCount, turretsFilled, workerUnlocked, collectToolLevel, gold, etc. The skeleton comment even says 'do NOT set completion flags', but phase progression in autoPlay still depends on timer-only gates rather than real interaction conditions. This creates scripted advancement rather than interaction-driven progression.",
+    "rule": "Gameplay Logic",
+    "fix": "AutoPlay may move the player, but phase completion still needs real interaction flags/state transitions tied to the intended gameplay handlers. Do not rely on timer-only autoPlay gates plus synthetic state mutation to satisfy CUA.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "OnAutoPlayArrive()",
+    "taskId": "proj_1775953369017_7k7294",
+    "timestamp": "2026-04-12T00:53:24.454Z"
+  },
+  {
+    "description": "Spec validation failed: 9 error(s):\nSpec[1] buildFirstMachineGunTurret: entity \"machineGunTurret\" not found in blueprint.entities. Known: MainBase, GunTurretSlot1, GunTurret1, Bullet, NormalEnemy, GoldCoin, AreaUnlockBtn, MissileTurretSlot1, MissileTurret1, EliteEnemy\nSpec[2] machineGunTurretActivated: entity \"machineGunTurret\" not found in blueprint.entities. Known: MainBase, GunTurretSlot1, GunTurret1, Bullet, NormalEnemy, GoldCoin, AreaUnlockBtn, MissileTurretSlot1, MissileTurret1, EliteEnemy",
+    "rule": "Spec Structure",
+    "fix": "Spec validation failed: 9 error(s):\nSpec[1] buildFirstMachineGunTurret: entity \"machineGunTurret\" not found in blueprint.entities. Known: MainBase, GunTurretSlot1, GunTurret1, Bullet, NormalEnemy, GoldCoin, AreaUnlockBtn, MissileTurretSlot1, MissileTurret1, EliteEnemy\nSpec[2] machineGunTurretActivat",
+    "severity": "critical",
+    "line": "spec-validate stage failure",
+    "taskId": "proj_1775953376458_0ivdn0",
+    "timestamp": "2026-04-12T00:58:47.833Z",
+    "autoExtracted": true,
+    "failClassification": "FATAL",
+    "stage": "spec-validate",
+    "lastSeenAt": "2026-04-12T01:07:07.825Z",
+    "hitCount": 6
+  },
+  {
+    "description": "Spec validation failed: 7 error(s):\nSpec[2] returnMeltIce: entity \"meltingFurnace\" not found in blueprint.entities. Known: Player, IceMelter, AstronautQueue1, AstronautWater, SellWindow1, IceSpawner, IceBlock, IceCollectible, Chainsaw, BottlingLine\nSpec[3] produceBottledWater: entity \"bottlingLine\" not found in blueprint.entities. Known: Player, IceMelter, AstronautQueue1, AstronautWater, SellWindow1, IceSpawner, IceBlock, IceCollectible, Chainsaw, BottlingLine\nSpec[5] upgradeWeaponToDrill: enti",
+    "rule": "Spec Structure",
+    "fix": "Spec validation failed: 7 error(s):\nSpec[2] returnMeltIce: entity \"meltingFurnace\" not found in blueprint.entities. Known: Player, IceMelter, AstronautQueue1, AstronautWater, SellWindow1, IceSpawner, IceBlock, IceCollectible, Chainsaw, BottlingLine\nSpec[3] produceBottledWater: entity \"bottlingLine\" ",
+    "severity": "critical",
+    "line": "spec-validate stage failure",
+    "taskId": "proj_1775953383598_xad3ow",
+    "timestamp": "2026-04-12T00:58:57.824Z",
+    "autoExtracted": true,
+    "failClassification": "FATAL",
+    "stage": "spec-validate",
+    "lastSeenAt": "2026-04-12T01:07:17.837Z",
+    "hitCount": 6
+  },
+  {
+    "description": "Spec validation failed: 13 error(s):\nSpec[0] initialEnemyAttack: entity \"astronaut\" not found in blueprint.entities. Known: AllyAstronaut, EnemyAstronaut, AllyBaseGate, EnemyRocket, Recycler, GoldCoin, Barrack, ConveyorBelt, DefenseTower, EnemyShip\nSpec[1] upgradeBaseGate: entity \"gate\" not found in blueprint.entities. Known: AllyAstronaut, EnemyAstronaut, AllyBaseGate, EnemyRocket, Recycler, GoldCoin, Barrack, ConveyorBelt, DefenseTower, EnemyShip\nSpec[1] upgradeBaseGate: entity \"dock\" not foun",
+    "rule": "Spec Structure",
+    "fix": "Spec validation failed: 13 error(s):\nSpec[0] initialEnemyAttack: entity \"astronaut\" not found in blueprint.entities. Known: AllyAstronaut, EnemyAstronaut, AllyBaseGate, EnemyRocket, Recycler, GoldCoin, Barrack, ConveyorBelt, DefenseTower, EnemyShip\nSpec[1] upgradeBaseGate: entity \"gate\" not found in",
+    "severity": "critical",
+    "line": "spec-validate stage failure",
+    "taskId": "proj_1775953359325_jjzaur",
+    "timestamp": "2026-04-12T00:59:07.828Z",
+    "autoExtracted": true,
+    "failClassification": "FATAL",
+    "stage": "spec-validate",
+    "lastSeenAt": "2026-04-12T01:07:27.815Z",
+    "hitCount": 6
+  },
+  {
+    "description": "Uses generic API GFM_Joystick.Create(uiCanvas, 180f) is fine, but the file also depends on undeclared partial-method-side symbols/methods for core compile path: HandleClickInteraction(), UpdateEnemySpawner(), UpdateEnemies(), UpdateProjectiles(), UpdateGoldDrops(). In the reviewed file, required gameplay logic is incomplete and cannot be verified as compiled/implemented. Tier-1 completeness requires all referenced trigger variables to be modified somewhere in Update() or helper method and all call chain to exist.",
+    "rule": "C# Language — Bridge.NET Hard Limits",
+    "fix": "Provide the referenced helper methods in the partial class and ensure they are compiled with this file. Verify every progression variable is updated by those methods and that the methods are actually called from Update().",
+    "severity": "critical",
+    "stage": "review",
+    "line": "Start()",
+    "taskId": "proj_1775953369017_7k7294",
+    "timestamp": "2026-04-12T01:03:46.242Z"
+  },
+  {
+    "description": "Multiple phase transitions rely on broad state flags that can be satisfied by autoplay-scripted state writes rather than true phase-specific player actions. Combined with OnAutoPlayArrive setting completion flags directly, the architecture permits non-interactive advancement, which violates the requirement that every phase have real player-driven completion conditions.",
+    "rule": "Architecture",
+    "fix": "For each ruleTriggered[N] transition, use a phase-specific interaction flag set only from actual player input logic for that phase, plus the dwell guard. Remove autoplay-driven completion flag mutation.",
+    "severity": "critical",
+    "stage": "review",
+    "line": "CheckEventRules() / phase conditions overall",
+    "taskId": "proj_1775953369017_7k7294",
+    "timestamp": "2026-04-12T01:03:46.245Z"
+  },
+  {
+    "description": "Spec validation failed: 10 error(s):\nSpec[1] unlockMainCabinDoor: entity \"mainCabinDoor\" not found in blueprint.entities. Known: Player, MainCabin, CabinDoor1, RescueCrew, TreatmentBathtub, GoldCoin, CarryUpgradeBtn, BathtubUpgradeBtn, CabinDoor2, BedModule\nSpec[2] firstRescueDriftingCrew: entity \"rescuedCrew\" not found in blueprint.entities. Known: Player, MainCabin, CabinDoor1, RescueCrew, TreatmentBathtub, GoldCoin, CarryUpgradeBtn, BathtubUpgradeBtn, CabinDoor2, BedModule\nSpec[3] treatRescue",
+    "rule": "Spec Structure",
+    "fix": "Spec validation failed: 10 error(s):\nSpec[1] unlockMainCabinDoor: entity \"mainCabinDoor\" not found in blueprint.entities. Known: Player, MainCabin, CabinDoor1, RescueCrew, TreatmentBathtub, GoldCoin, CarryUpgradeBtn, BathtubUpgradeBtn, CabinDoor2, BedModule\nSpec[2] firstRescueDriftingCrew: entity \"r",
+    "severity": "critical",
+    "line": "spec-validate stage failure",
+    "taskId": "proj_1775953343484_brnzii",
+    "timestamp": "2026-04-12T01:03:47.817Z",
+    "autoExtracted": true,
+    "failClassification": "FATAL",
+    "stage": "spec-validate",
+    "lastSeenAt": "2026-04-12T01:11:57.819Z",
+    "hitCount": 6
+  },
+  {
+    "description": "Spec validation failed: 11 error(s):\nSpec[0] initialCollectShipDebris: entity \"playerBackpack\" not found in blueprint.entities. Known: Player, Base, SpaceshipDebris, Material, BulletMaker, Bullet, TurretLeft, TurretMid, TurretRight, BulletProjectile\nSpec[1] deliverDebrisToBulletMaker: entity \"bulletMaker\" not found in blueprint.entities. Known: Player, Base, SpaceshipDebris, Material, BulletMaker, Bullet, TurretLeft, TurretMid, TurretRight, BulletProjectile\nSpec[2] collectProcessedBullet: entity",
+    "rule": "Spec Structure",
+    "fix": "Spec validation failed: 11 error(s):\nSpec[0] initialCollectShipDebris: entity \"playerBackpack\" not found in blueprint.entities. Known: Player, Base, SpaceshipDebris, Material, BulletMaker, Bullet, TurretLeft, TurretMid, TurretRight, BulletProjectile\nSpec[1] deliverDebrisToBulletMaker: entity \"bullet",
+    "severity": "critical",
+    "line": "spec-validate stage failure",
+    "taskId": "proj_1775953369017_7k7294",
+    "timestamp": "2026-04-12T01:04:17.819Z",
+    "autoExtracted": true,
+    "failClassification": "FATAL",
+    "stage": "spec-validate",
+    "lastSeenAt": "2026-04-12T01:11:57.831Z",
+    "hitCount": 4
+  },
+  {
+    "description": "Spec validation failed: 5 error(s):\nSpec[5] unlockMiningDrill: entity \"drill\" not found in blueprint.entities. Known: PlayerCharacter, SpaceStation, IceBlock, MeltingFurnace, WaterTank, OxygenGenerator, OxygenBalloon, SellTerminal, DrillUnlockArea, SellNpcUnlockArea\nSpec[6] unlockAutoSellWorker: entity \"autoSellWorker\" not found in blueprint.entities. Known: PlayerCharacter, SpaceStation, IceBlock, MeltingFurnace, WaterTank, OxygenGenerator, OxygenBalloon, SellTerminal, DrillUnlockArea, SellNpcU",
+    "rule": "Spec Structure",
+    "fix": "Spec validation failed: 5 error(s):\nSpec[5] unlockMiningDrill: entity \"drill\" not found in blueprint.entities. Known: PlayerCharacter, SpaceStation, IceBlock, MeltingFurnace, WaterTank, OxygenGenerator, OxygenBalloon, SellTerminal, DrillUnlockArea, SellNpcUnlockArea\nSpec[6] unlockAutoSellWorker: ent",
+    "severity": "critical",
+    "line": "spec-validate stage failure",
+    "taskId": "proj_1775953351555_f0capg",
+    "timestamp": "2026-04-12T01:14:07.823Z",
+    "autoExtracted": true,
+    "failClassification": "FATAL",
+    "stage": "spec-validate",
+    "lastSeenAt": "2026-04-12T01:22:27.832Z",
+    "hitCount": 6
   }
 ]

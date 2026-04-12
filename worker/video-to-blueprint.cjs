@@ -3,14 +3,12 @@
 const { execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 
-const { GoogleGenAI } = require('@google/genai');
-
-const GEMINI_BASE_URL = process.env.GOOGLE_GEMINI_BASE_URL || 'https://sub.mindrix.app';
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY || '',
-  httpOptions: { baseUrl: GEMINI_BASE_URL },
-});
+// Doubao (豆包) API for video understanding
+const DOUBAO_API_KEY = process.env.DOUBAO_API_KEY || process.env.ARK_API_KEY || '';
+const DOUBAO_BASE = 'https://ark.cn-beijing.volces.com/api/v3';
+const DOUBAO_VIDEO_MODEL = process.env.DOUBAO_VIDEO_MODEL || 'doubao-seed-2-0-pro-260215';
 
 const BLUEPRINT_PROMPT = `You are a game flow analyst. Analyze this gameplay video and extract a structured blueprint for recreating the game as a playable ad.
 
@@ -198,62 +196,206 @@ function extractThumbnail(videoPath, outPath) {
   });
 }
 
+// ────────────── Doubao API helpers ──────────────
+
 /**
- * Upload video to Gemini File API and wait for processing.
- * @param {string} videoPath - Path to mp4 file
- * @returns {Promise<{uri: string, mimeType: string}>}
+ * Make an HTTPS request to Doubao API (direct, no proxy).
  */
-async function uploadToGemini(videoPath) {
-  console.log('[video-to-blueprint] Uploading video to Gemini File API...');
-  var uploaded = await ai.files.upload({
-    file: videoPath,
-    config: { mimeType: 'video/mp4' }
+function _doubaoRequest(method, apiPath, body, contentType) {
+  return new Promise(function(resolve, reject) {
+    var urlObj = new URL(DOUBAO_BASE + apiPath);
+    var headers = {
+      'Authorization': 'Bearer ' + DOUBAO_API_KEY,
+    };
+    var bodyData;
+    if (body instanceof Buffer) {
+      // multipart — contentType already includes boundary
+      headers['Content-Type'] = contentType;
+      headers['Content-Length'] = body.length;
+      bodyData = body;
+    } else if (body) {
+      bodyData = typeof body === 'string' ? body : JSON.stringify(body);
+      headers['Content-Type'] = contentType || 'application/json';
+      headers['Content-Length'] = Buffer.byteLength(bodyData);
+    }
+
+    // Direct connection (bypass proxy for domestic API)
+    var prevHttps = process.env.HTTPS_PROXY;
+    var prevHttp = process.env.HTTP_PROXY;
+    delete process.env.HTTPS_PROXY;
+    delete process.env.HTTP_PROXY;
+
+    var req = https.request({
+      hostname: urlObj.hostname,
+      port: 443,
+      path: urlObj.pathname + urlObj.search,
+      method: method,
+      headers: headers,
+      timeout: 180000,
+    }, function(res) {
+      var chunks = [];
+      res.on('data', function(c) { chunks.push(c); });
+      res.on('end', function() {
+        if (prevHttps) process.env.HTTPS_PROXY = prevHttps;
+        if (prevHttp) process.env.HTTP_PROXY = prevHttp;
+        var raw = Buffer.concat(chunks).toString();
+        try {
+          resolve(JSON.parse(raw));
+        } catch(e) {
+          reject(new Error('Doubao response parse error: ' + e.message + ' body=' + raw.substring(0, 300)));
+        }
+      });
+    });
+    req.on('error', function(e) {
+      if (prevHttps) process.env.HTTPS_PROXY = prevHttps;
+      if (prevHttp) process.env.HTTP_PROXY = prevHttp;
+      reject(new Error('Doubao request error: ' + e.message));
+    });
+    req.on('timeout', function() {
+      req.destroy();
+      reject(new Error('Doubao API timeout'));
+    });
+    if (bodyData) req.write(bodyData);
+    req.end();
   });
-
-  var file = uploaded;
-  var maxWait = 60; // seconds
-  var waited = 0;
-  while (file.state === 'PROCESSING') {
-    await new Promise(function(r) { setTimeout(r, 2000); });
-    waited += 2;
-    if (waited > maxWait) throw new Error('Gemini file processing timeout (' + maxWait + 's)');
-    file = await ai.files.get({ name: file.name });
-  }
-  if (file.state !== 'ACTIVE') throw new Error('Gemini file upload failed, state: ' + file.state);
-
-  console.log('[video-to-blueprint] Video uploaded: ' + file.uri);
-  return { uri: file.uri, mimeType: 'video/mp4' };
 }
 
 /**
- * Call Gemini to analyze video and output blueprint JSON.
- * @param {{uri: string, mimeType: string}} fileRef
- * @param {number} temperature
- * @returns {Promise<object>} Raw parsed JSON from Gemini
+ * Upload video to Doubao Files API and wait for processing.
+ * @param {string} videoPath - Path to mp4 file
+ * @returns {Promise<string>} file_id for use in Responses API
  */
-async function analyzeVideo(fileRef, temperature) {
+async function uploadVideo(videoPath) {
+  console.log('[video-to-blueprint] Uploading video to Doubao Files API...');
+
+  // Build multipart/form-data manually
+  var boundary = '----DoubaoUpload' + Date.now();
+  var videoData = fs.readFileSync(videoPath);
+  var fileName = path.basename(videoPath);
+
+  var parts = [];
+  // purpose field
+  parts.push(
+    '--' + boundary + '\r\n' +
+    'Content-Disposition: form-data; name="purpose"\r\n\r\n' +
+    'user_data\r\n'
+  );
+  // video fps preprocessing config
+  parts.push(
+    '--' + boundary + '\r\n' +
+    'Content-Disposition: form-data; name="preprocess_configs[video][fps]"\r\n\r\n' +
+    '0.5\r\n'
+  );
+  // file field
+  parts.push(
+    '--' + boundary + '\r\n' +
+    'Content-Disposition: form-data; name="file"; filename="' + fileName + '"\r\n' +
+    'Content-Type: video/mp4\r\n\r\n'
+  );
+
+  var preamble = Buffer.from(parts.join(''));
+  var epilogue = Buffer.from('\r\n--' + boundary + '--\r\n');
+  var fullBody = Buffer.concat([preamble, videoData, epilogue]);
+
+  var contentType = 'multipart/form-data; boundary=' + boundary;
+
+  var result = await _doubaoRequest('POST', '/files', fullBody, contentType);
+
+  if (result.error) {
+    throw new Error('Doubao file upload error: ' + (result.error.message || JSON.stringify(result.error)));
+  }
+
+  var fileId = result.id;
+  if (!fileId) {
+    throw new Error('Doubao file upload: no file id returned: ' + JSON.stringify(result).substring(0, 300));
+  }
+
+  // Wait for file to be processed (poll status)
+  var maxWait = 120; // seconds
+  var waited = 0;
+  var status = result.status || 'uploaded';
+  while (status === 'uploaded' || status === 'processing' || status === 'pending') {
+    if (waited >= maxWait) throw new Error('Doubao file processing timeout (' + maxWait + 's)');
+    await new Promise(function(r) { setTimeout(r, 3000); });
+    waited += 3;
+    try {
+      var check = await _doubaoRequest('GET', '/files/' + fileId, null, null);
+      status = check.status || 'processed';
+      if (check.error) {
+        throw new Error('File status check error: ' + JSON.stringify(check.error));
+      }
+    } catch(e) {
+      console.warn('[video-to-blueprint] File status check failed: ' + e.message);
+    }
+    process.stdout.write('.');
+  }
+
+  console.log('\n[video-to-blueprint] Video uploaded, file_id=' + fileId);
+  return fileId;
+}
+
+/**
+ * Call Doubao Responses API to analyze video and output blueprint JSON.
+ * @param {string} fileId - Doubao file_id from uploadVideo
+ * @param {number} temperature
+ * @returns {Promise<object>} Raw parsed JSON from Doubao
+ */
+async function analyzeVideo(fileId, temperature) {
   temperature = temperature || 0.2;
-  console.log('[video-to-blueprint] Calling Gemini 2.5 Pro (temp=' + temperature + ')...');
+  console.log('[video-to-blueprint] Analyzing video via Doubao (temp=' + temperature + ')...');
 
-  var result = await Promise.race([
-    ai.models.generateContent({
-      model: 'gemini-2.5-pro',
-      contents: [{ role: 'user', parts: [
-        { fileData: { fileUri: fileRef.uri, mimeType: fileRef.mimeType } },
-        { text: BLUEPRINT_PROMPT }
-      ]}],
-      config: {
-        temperature: temperature,
-        maxOutputTokens: 65536,
-        responseMimeType: 'application/json',
-      },
-    }),
-    new Promise(function(_, reject) {
-      setTimeout(function() { reject(new Error('Gemini video analysis timeout (180s)')); }, 180000);
-    })
-  ]);
+  var requestBody = {
+    model: DOUBAO_VIDEO_MODEL,
+    temperature: temperature,
+    max_output_tokens: 65536,
+    input: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'input_video',
+            file_id: fileId,
+          },
+          {
+            type: 'input_text',
+            text: BLUEPRINT_PROMPT,
+          }
+        ]
+      }
+    ]
+  };
 
-  var text = result.text || '';
+  var result = await _doubaoRequest('POST', '/responses', requestBody, 'application/json');
+
+  if (result.error) {
+    throw new Error('Doubao video analysis error: ' + (result.error.message || JSON.stringify(result.error)));
+  }
+
+  // Extract text from Responses API output
+  var text = '';
+  if (result.output) {
+    // Responses API format: output is array of message items
+    var outputItems = Array.isArray(result.output) ? result.output : [];
+    for (var i = 0; i < outputItems.length; i++) {
+      var item = outputItems[i];
+      if (item.type === 'message' && item.content) {
+        var contentArr = Array.isArray(item.content) ? item.content : [];
+        for (var j = 0; j < contentArr.length; j++) {
+          if (contentArr[j].type === 'output_text') {
+            text += contentArr[j].text || '';
+          }
+        }
+      }
+    }
+  }
+  if (!text && result.choices && result.choices[0]) {
+    // Fallback: Chat API format
+    text = result.choices[0].message ? result.choices[0].message.content : '';
+  }
+  if (!text) {
+    throw new Error('Doubao returned empty response: ' + JSON.stringify(result).substring(0, 500));
+  }
+
   // Strip markdown code fences if present
   text = text.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
   return JSON.parse(text);
@@ -262,8 +404,8 @@ async function analyzeVideo(fileRef, temperature) {
 const VALID_SHAPES = ['Cube', 'Sphere', 'Cylinder', 'Ground', 'UI'];
 
 /**
- * Validate and fix blueprint JSON from Gemini.
- * @param {object} raw - Raw blueprint from Gemini
+ * Validate and fix blueprint JSON from LLM.
+ * @param {object} raw - Raw blueprint from LLM
  * @returns {object} Fixed blueprint
  * @throws {Error} If blueprint is unfixable
  */
@@ -404,19 +546,19 @@ async function parseVideo(videoPath, projectId, onProgress) {
   await extractThumbnail(processedPath, path.join(dataDir, 'thumbnail.jpg'));
   var frameFiles = await extractFrames(processedPath, framesDir, 8, actualDuration);
 
-  // Step 4: Upload to Gemini
-  onProgress(30, 'Gemini 视频上传中...');
-  var fileRef = await uploadToGemini(processedPath);
+  // Step 4: Upload video to Doubao Files API
+  onProgress(30, '豆包视频上传中...');
+  var fileId = await uploadVideo(processedPath);
 
-  // Step 5: Analyze video
-  onProgress(50, 'Gemini 视频分析中（约30-90秒）...');
+  // Step 5: Analyze video via Doubao Responses API
+  onProgress(50, '豆包 AI 视频分析中（约30-90秒）...');
   var raw;
   try {
-    raw = await analyzeVideo(fileRef, 0.2);
+    raw = await analyzeVideo(fileId, 0.2);
   } catch(e) {
     console.log('[video-to-blueprint] First attempt failed: ' + e.message);
-    onProgress(60, 'Gemini 重试中 (temperature=0.5)...');
-    raw = await analyzeVideo(fileRef, 0.5);
+    onProgress(60, '豆包 AI 重试中 (temperature=0.5)...');
+    raw = await analyzeVideo(fileId, 0.5);
   }
 
   // Step 6: Validate + fix
@@ -428,8 +570,8 @@ async function parseVideo(videoPath, projectId, onProgress) {
     // If shotNodes < 8, retry once
     if (valErr.message.indexOf('retry needed') !== -1) {
       console.log('[video-to-blueprint] Validation failed (' + valErr.message + '), retrying...');
-      onProgress(85, 'shotNode 不足，Gemini 重试...');
-      raw = await analyzeVideo(fileRef, 0.5);
+      onProgress(85, 'shotNode 不足，豆包 AI 重试...');
+      raw = await analyzeVideo(fileId, 0.5);
       blueprint = validateBlueprint(raw); // Let it throw if still bad
     } else {
       throw valErr;
@@ -453,4 +595,3 @@ module.exports = {
   parseVideo,
   validateBlueprint,
 };
-

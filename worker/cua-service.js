@@ -112,10 +112,7 @@ function runTask(task) {
           }
         }
         task.currentRound = maxRound;
-        // 检测 Gemini 阶段
-        if (logContent.includes('Gemini') && logContent.includes('Uploading')) {
-          task.phase = 'gemini';
-        }
+        // (Gemini phase removed — CUA is the only verification method)
         task.lastLog = lines[lines.length - 1] || '';
       }
     } catch (e) { /* ignore */ }

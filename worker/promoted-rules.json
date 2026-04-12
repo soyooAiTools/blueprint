@@ -442,5 +442,21 @@
     "sourceStages": {
       "review": 1
     }
+  },
+  {
+    "description": "Spec validation failed: 9 error(s):\nSpec[1] buildFirstMachineGunTurret: entity \"machineGunTurret\" not found in blueprint.entities. Known: MainBase, GunTurretSlot1, GunTurret1, Bullet, NormalEnemy, GoldCoin, AreaUnlockBtn, MissileTurretSlot1, MissileTurret1, EliteEnemy\nSpec[2] machineGunTurretActivated: entity \"machineGunTurret\" not found in blueprint.entities. Known: MainBase, GunTurretSlot1, GunTurret1, Bullet, NormalEnemy, GoldCoin, AreaUnlockBtn, MissileTurretSlot1, MissileTurret1, EliteEnemy",
+    "rule": "spec structure",
+    "fix": "Spec validation failed: 9 error(s):\nSpec[1] buildFirstMachineGunTurret: entity \"machineGunTurret\" not found in blueprint.entities. Known: MainBase, GunTurretSlot1, GunTurret1, Bullet, NormalEnemy, GoldCoin, AreaUnlockBtn, MissileTurretSlot1, MissileTurret1, EliteEnemy\nSpec[2] machineGunTurretActivat",
+    "severity": "critical",
+    "promotedAt": "2026-04-12T00:58:47.838Z",
+    "triggerProjects": [
+      "proj_1775953376458_0ivdn0"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "spec-validate",
+    "sourceStages": {
+      "spec-validate": 1
+    }
   }
 ]

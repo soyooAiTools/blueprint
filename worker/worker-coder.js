@@ -1479,6 +1479,7 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
       specs = await specExtractor.extractSpecs(storyboardFrames, {
         projectName: blueprint.projectName || taskId,
         gameType: blueprint.gameType || 'SLG',
+        entities: blueprint.entities || [],
       });
       log('[coder] V5 Spec: extracted ' + specs.length + ' phase specs', taskId);
 

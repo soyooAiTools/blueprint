@@ -238,7 +238,7 @@ export default function SpecReviewPanel({ projectId, onConfirmed, showAlert }) {
     return (
       <div style={{ padding: 40, textAlign: 'center', color: 'rgba(255,255,255,0.5)' }}>
         <div style={{ fontSize: 24, marginBottom: 12, animation: 'spin 2s linear infinite' }}>⚙️</div>
-        <div>Gemini 正在分析分镜，提取体验规格...</div>
+        <div>AI 正在分析分镜，提取体验规格...</div>
         <div style={{ fontSize: 12, marginTop: 8 }}>通常需要 10-30 秒</div>
       </div>
     );

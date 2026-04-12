@@ -466,12 +466,30 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
       // Try cached specs first to avoid redundant Doubao API calls
       let specs = specExtractor.loadSpecs(taskId, specsDataDir);
       if (specs && specs.length > 0) {
-        log(`[claude-code] Using cached specs: ${specs.length} phase specs`, taskId);
-      } else {
+        log(`[claude-code] Using cached specs: ${specs.length} phase specs — re-validating entity names`, taskId);
+        // Re-validate cached specs against current blueprint entities
+        const cachedEntities = blueprint.entities || [];
+        if (cachedEntities.length > 0) {
+          const knownNames = new Set(cachedEntities.map(e => e.name).filter(Boolean));
+          let hasInvalid = false;
+          for (const s of specs) {
+            for (const ent of (s.entitiesRequired || [])) {
+              if (ent.name && !knownNames.has(ent.name)) { hasInvalid = true; break; }
+            }
+            if (hasInvalid) break;
+          }
+          if (hasInvalid) {
+            log('[claude-code] Cached specs have entity mismatches — re-extracting', taskId);
+            specs = null;
+          }
+        }
+      }
+      if (!specs || specs.length === 0) {
         log('[claude-code] Extracting specs from storyboard frames...', taskId);
         specs = await specExtractor.extractSpecs(storyboardFrames, {
           projectName: blueprint.projectName || taskId,
           gameType: blueprint.gameType || 'SLG',
+          entities: blueprint.entities || [],
         });
         log(`[claude-code] Extracted ${specs.length} phase specs`, taskId);
         specExtractor.saveSpecs(specs, taskId, specsDataDir);

@@ -18,7 +18,7 @@ const http = require('http');
 const DOUBAO_BASE = 'https://ark.cn-beijing.volces.com/api/v3';
 const DEFAULT_MODEL = 'doubao-seed-2-0-pro-260215';
 
-// Model mapping: legacy Gemini model names → Doubao equivalents
+// Model mapping: legacy model names → Doubao equivalents (kept for backward compatibility)
 const MODEL_MAP = {
   'gemini-2.5-flash': DEFAULT_MODEL,
   'gemini-2.5-pro': DEFAULT_MODEL,
@@ -55,7 +55,7 @@ class Models {
    * @returns {object} { text: string, candidates: [...] }
    */
   async generateContent(params) {
-    const model = mapModel(params.model || 'gemini-2.5-flash');
+    const model = mapModel(params.model || DEFAULT_MODEL);
     const contents = params.contents || [];
     const config = params.config || {};
 

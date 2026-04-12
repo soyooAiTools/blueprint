@@ -27,7 +27,7 @@ const V4_SCHEMA_PATH = path.join(__dirname, '..', 'docs', 'v4-schema.json');
 const BEHAVIOR_TEMPLATES_PATH = path.join(__dirname, 'behavior-templates.md');
 
 /**
- * 读取图片并转为 Gemini inline data part
+ * 读取图片并转为 LLM inline data part
  */
 function readImagePart(imagePath) {
   var data = fs.readFileSync(imagePath);
@@ -150,10 +150,10 @@ function extractHtmlSnippet(html, maxChars) {
 }
 
 /**
- * 调用 Gemini 生成 V4 蓝图
+ * 调用豆包生成 V4 蓝图
  */
 async function generateBlueprint(analysis, userDescription, metadata, html, log, taskId) {
-  log('[reference-to-blueprint] Generating V4 blueprint via Gemini...', taskId);
+  log('[reference-to-blueprint] Generating V4 blueprint via Doubao...', taskId);
 
   var htmlSnippet = extractHtmlSnippet(html, 8000);
 
@@ -196,7 +196,7 @@ async function generateBlueprint(analysis, userDescription, metadata, html, log,
   // 清理可能的 markdown 包裹
   text = text.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
 
-  log('[reference-to-blueprint] Gemini response: ' + text.length + ' chars', taskId);
+  log('[reference-to-blueprint] Doubao response: ' + text.length + ' chars', taskId);
 
   var blueprint;
   try {
@@ -207,7 +207,7 @@ async function generateBlueprint(analysis, userDescription, metadata, html, log,
     if (jsonMatch) {
       blueprint = JSON.parse(jsonMatch[0]);
     } else {
-      throw new Error('Failed to parse Gemini response as JSON: ' + text.substring(0, 200));
+      throw new Error('Failed to parse Doubao response as JSON: ' + text.substring(0, 200));
     }
   }
 

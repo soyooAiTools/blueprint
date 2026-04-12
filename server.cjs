@@ -16,13 +16,11 @@ try {
   }
 } catch(e) { console.warn('[env] Failed to load .env:', e.message); }
 
-// [config-guard] Refuse to start with wrong model
+// [config-guard] Check LLM provider API key
 (function() {
-  var requiredModel = 'gemini-3.1-pro-preview';
-  var currentModel = process.env.GEMINI_MODEL;
-  if (!currentModel) { console.error('[config-guard] FATAL: GEMINI_MODEL not set'); process.exit(1); }
-  if (currentModel !== requiredModel) { console.error('[config-guard] FATAL: GEMINI_MODEL=' + currentModel + ', expected ' + requiredModel); process.exit(1); }
-  console.log('[config-guard] GEMINI_MODEL=' + currentModel + ' OK');
+  var doubaoKey = process.env.DOUBAO_API_KEY;
+  if (!doubaoKey) { console.warn('[config-guard] WARN: DOUBAO_API_KEY not set — LLM features may fail'); }
+  else { console.log('[config-guard] DOUBAO_API_KEY OK'); }
 })();
 
 var http = require('http');

@@ -1,10 +1,10 @@
 /**
  * Spec Extractor — Extract structured experience specs from storyboard frames
- * 
- * Input: Gemini-generated storyboard frames (JSON array)
+ *
+ * Input: Storyboard frames (JSON array) + blueprint entities
  * Output: Phase specs with duration, interactions, triggers, entity requirements
- * 
- * Uses Gemini second-pass to convert free-text interaction/timing into structured specs.
+ *
+ * Uses Doubao to convert free-text interaction/timing into structured specs.
  */
 
 const fs = require('fs');
@@ -98,6 +98,7 @@ ${buildVerbDoc()}
    - 明确说"自动"的流程
 
 5. **entitiesRequired** 提取所有需要建造/解锁的实体。终态一般是 2（built/completed）。
+   **重要：实体名必须严格使用 blueprint.entities 中给出的 name 值**，不要自行编造或简化名称。如果分镜描述的实体能对应到 blueprint.entities 中的某个实体，则必须使用该实体的精确 name。
 
 6. **triggerNext** 写成 C# 风格的条件表达式。
 
@@ -108,8 +109,8 @@ ${buildVerbDoc()}
 
 /**
  * Extract specs from storyboard frames
- * @param {Array} frames - Gemini-generated storyboard frames
- * @param {object} opts - { projectName, gameType }
+ * @param {Array} frames - Storyboard frames
+ * @param {object} opts - { projectName, gameType, entities }
  * @returns {Array} specs array
  */
 async function extractSpecs(frames, opts = {}) {
@@ -119,7 +120,7 @@ async function extractSpecs(frames, opts = {}) {
 
   // Group frames by chapter for context
   // Assign chapter numbers: if frames lack chapter info, each frame = 1 chapter
-  // This prevents Gemini from merging all frames into a single mega-phase
+  // This prevents LLM from merging all frames into a single mega-phase
   const chapters = {};
   let autoChapter = 1;
   for (const frame of frames) {
@@ -127,7 +128,7 @@ async function extractSpecs(frames, opts = {}) {
     if (!ch) {
       // No chapter assigned — treat each frame as its own chapter
       ch = autoChapter++;
-      frame.chapter = ch;  // mutate so Gemini sees chapter numbers in the JSON
+      frame.chapter = ch;  // mutate so LLM sees chapter numbers in the JSON
     }
     if (!chapters[ch]) chapters[ch] = { title: frame.chapterTitle || frame.title || '', frames: [] };
     chapters[ch].frames.push(frame);
@@ -135,11 +136,19 @@ async function extractSpecs(frames, opts = {}) {
 
   const contextText = JSON.stringify(frames, null, 2);
 
+  // Build entity list section for the prompt
+  const entities = opts.entities || [];
+  let entitySection = '';
+  if (entities.length > 0) {
+    const entityNames = entities.map(e => e.name).filter(Boolean);
+    entitySection = `\n## 蓝图实体列表（blueprint.entities）\n以下是本项目蓝图中已定义的全部实体，entitiesRequired 中的 name 必须严格使用以下名称之一：\n${entityNames.map(n => `- ${n}`).join('\n')}\n\n禁止使用不在上述列表中的实体名。如果分镜描述的实体无法对应到列表中的任何一项，则该 phase 的 entitiesRequired 留空数组。\n`;
+  }
+
   const userPrompt = `以下是一个试玩广告的分镜数据（${frames.length} 帧，${Object.keys(chapters).length} 个章节）：
 
 ${opts.projectName ? `项目名：${opts.projectName}` : ''}
 ${opts.gameType ? `游戏类型：${opts.gameType}` : ''}
-
+${entitySection}
 分镜数据：
 ${contextText}
 
@@ -236,6 +245,52 @@ ${contextText}
 
     // Good enough — break out
     break;
+  }
+
+  // --- Post-extraction: auto-correct entity names against blueprint.entities ---
+  if (entities.length > 0) {
+    const knownNames = new Set(entities.map(e => e.name).filter(Boolean));
+    // Build lowercase→original map for fuzzy matching
+    const lowerMap = {};
+    for (const name of knownNames) {
+      lowerMap[name.toLowerCase()] = name;
+    }
+    let corrected = 0;
+    for (const spec of validated) {
+      for (const ent of spec.entitiesRequired) {
+        if (!ent.name || knownNames.has(ent.name)) continue;
+        // Try case-insensitive exact match
+        const lower = ent.name.toLowerCase();
+        if (lowerMap[lower]) {
+          console.log(`[SpecExtractor] Auto-correct entity: "${ent.name}" → "${lowerMap[lower]}"`);
+          ent.name = lowerMap[lower];
+          corrected++;
+          continue;
+        }
+        // Try substring match: find a known entity whose lowercase name contains or is contained by the spec name
+        let bestMatch = null;
+        for (const known of knownNames) {
+          const kl = known.toLowerCase();
+          if (kl.includes(lower) || lower.includes(kl)) {
+            bestMatch = known;
+            break;
+          }
+        }
+        if (bestMatch) {
+          console.log(`[SpecExtractor] Auto-correct entity (fuzzy): "${ent.name}" → "${bestMatch}"`);
+          ent.name = bestMatch;
+          corrected++;
+        } else {
+          console.warn(`[SpecExtractor] Entity "${ent.name}" not found in blueprint.entities, clearing to avoid validation failure`);
+          ent.name = '';
+        }
+      }
+      // Remove entries with empty names
+      spec.entitiesRequired = spec.entitiesRequired.filter(e => e.name);
+    }
+    if (corrected > 0) {
+      console.log(`[SpecExtractor] Auto-corrected ${corrected} entity name(s) to match blueprint.entities`);
+    }
   }
 
   console.log(`[SpecExtractor] Extracted ${validated.length} phase specs (expected ${expectedCount})`);
