@@ -575,14 +575,33 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('- 初始化时必须有至少 1 个对象在屏幕可见范围内');
   lines.push('');
 
-  // ========== 9. 行为模板 ==========
+  // ========== 9. 行为模板（按需注入：只保留当前实体真正用到的模板） ==========
   if (BEHAVIOR_TEMPLATES) {
-    lines.push('# 行为模板参考');
-    lines.push(BEHAVIOR_TEMPLATES);
-    lines.push('');
+    var usedBehaviors = detectUsedBehaviors(blueprint);
+    var filtered = filterBehaviorTemplates(BEHAVIOR_TEMPLATES, usedBehaviors);
+    if (filtered) {
+      lines.push('# 行为模板参考（仅当前实体用到的）');
+      lines.push(filtered);
+      lines.push('');
+    }
   }
 
   // ========== 10. 反馈修复（结构化 JSON + legacy text fallback）==========
+  // Per-entry char budget: keeps fix-loop prompts from blowing up after several rounds.
+  // Structured path enforces caps on each section; legacy fallback enforces a single
+  // hard cap on the raw text dump.
+  var FEEDBACK_TEXT_CAP = 2500;
+  var FEEDBACK_ISSUE_MSG_CAP = 600;
+  var FEEDBACK_MAX_ISSUES = 5;
+  var FEEDBACK_MAX_DETAIL_ITEMS = 6;
+  var FEEDBACK_MAX_CONSOLE_ERRORS = 6;
+
+  function _truncate(s, n) {
+    if (s == null) return '';
+    s = String(s);
+    return s.length > n ? (s.slice(0, n) + '…(truncated)') : s;
+  }
+
   if (opts.feedback && opts.feedback.length > 0) {
     lines.push('');
     lines.push('# CUA Feedback (Issues to Fix)');
@@ -597,49 +616,65 @@ function parseBlueprintToPromptV5(blueprint, opts) {
       // Structured feedback rendering
       if (fb.data && fb.data.structured) {
         var s = fb.data.structured;
-        lines.push('**Round ' + s.round + ' — ' + s.summary + '**');
+        lines.push('**Round ' + s.round + ' — ' + _truncate(s.summary, 200) + '**');
         lines.push('');
 
-        // Render each issue as actionable item
-        for (var ii = 0; ii < s.issues.length; ii++) {
-          var issue = s.issues[ii];
+        // Render each issue as actionable item (cap count and message length)
+        var issuesToRender = (s.issues || []).slice(0, FEEDBACK_MAX_ISSUES);
+        for (var ii = 0; ii < issuesToRender.length; ii++) {
+          var issue = issuesToRender[ii];
           lines.push('### Issue ' + (ii + 1) + ': [' + issue.type + '] (severity: ' + issue.severity + ')');
-          lines.push(issue.message);
+          lines.push(_truncate(issue.message, FEEDBACK_ISSUE_MSG_CAP));
           if (issue.fix_hint) {
-            lines.push('**How to fix:** ' + issue.fix_hint);
+            lines.push('**How to fix:** ' + _truncate(issue.fix_hint, FEEDBACK_ISSUE_MSG_CAP));
           }
           if (issue.details && issue.details.missing) {
+            var missingItems = issue.details.missing.slice(0, FEEDBACK_MAX_DETAIL_ITEMS);
             lines.push('Missing phases:');
-            for (var mi = 0; mi < issue.details.missing.length; mi++) {
-              var mp = issue.details.missing[mi];
+            for (var mi = 0; mi < missingItems.length; mi++) {
+              var mp = missingItems[mi];
               lines.push('  - ' + mp.phaseId + (mp.trigger ? ' (trigger: ' + mp.trigger + ')' : ''));
+            }
+            if (issue.details.missing.length > FEEDBACK_MAX_DETAIL_ITEMS) {
+              lines.push('  - …(' + (issue.details.missing.length - FEEDBACK_MAX_DETAIL_ITEMS) + ' more)');
             }
           }
           if (issue.details && issue.details.entities) {
+            var entItems = issue.details.entities.slice(0, FEEDBACK_MAX_DETAIL_ITEMS);
             lines.push('Incomplete entities:');
-            for (var ei = 0; ei < issue.details.entities.length; ei++) {
-              var ent = issue.details.entities[ei];
+            for (var ei = 0; ei < entItems.length; ei++) {
+              var ent = entItems[ei];
               lines.push('  - ' + ent.entity + ': current=' + ent.currentState + ', required=' + ent.requiredState + ' (' + ent.stateLabel + ')');
+            }
+            if (issue.details.entities.length > FEEDBACK_MAX_DETAIL_ITEMS) {
+              lines.push('  - …(' + (issue.details.entities.length - FEEDBACK_MAX_DETAIL_ITEMS) + ' more)');
             }
           }
           lines.push('');
+        }
+        if ((s.issues || []).length > FEEDBACK_MAX_ISSUES) {
+          lines.push('… (' + (s.issues.length - FEEDBACK_MAX_ISSUES) + ' more issues truncated)');
         }
 
         // Game state context
         if (s.gameState && s.gameState.completedPhases) {
           lines.push('### Game State at Failure');
           lines.push('- Current Phase: ' + (s.gameState.currentPhase || 'unknown'));
-          lines.push('- Completed Phases: ' + (s.gameState.completedPhases.join(', ') || 'none'));
-          if (s.gameState.entityStates) lines.push('- Entity States: ' + JSON.stringify(s.gameState.entityStates));
-          if (s.gameState.variables) lines.push('- Variables: ' + JSON.stringify(s.gameState.variables));
+          lines.push('- Completed Phases: ' + _truncate((s.gameState.completedPhases.join(', ') || 'none'), 400));
+          if (s.gameState.entityStates) lines.push('- Entity States: ' + _truncate(JSON.stringify(s.gameState.entityStates), 400));
+          if (s.gameState.variables) lines.push('- Variables: ' + _truncate(JSON.stringify(s.gameState.variables), 400));
           lines.push('');
         }
 
-        // Console errors
+        // Console errors (cap count)
         if (s.consoleErrors && s.consoleErrors.length > 0) {
           lines.push('### Console Errors');
-          for (var ce = 0; ce < s.consoleErrors.length; ce++) {
-            lines.push('- ' + s.consoleErrors[ce]);
+          var consoleToRender = s.consoleErrors.slice(0, FEEDBACK_MAX_CONSOLE_ERRORS);
+          for (var ce = 0; ce < consoleToRender.length; ce++) {
+            lines.push('- ' + _truncate(consoleToRender[ce], 300));
+          }
+          if (s.consoleErrors.length > FEEDBACK_MAX_CONSOLE_ERRORS) {
+            lines.push('- …(' + (s.consoleErrors.length - FEEDBACK_MAX_CONSOLE_ERRORS) + ' more errors)');
           }
           lines.push('');
         }
@@ -650,46 +685,90 @@ function parseBlueprintToPromptV5(blueprint, opts) {
           var historyToShow = s.fixHistory.slice(-3);
           for (var fhi = 0; fhi < historyToShow.length; fhi++) {
             var fh = historyToShow[fhi];
-            lines.push('- Round ' + fh.round + ': ' + fh.category + ' — ' + fh.topIssue);
+            lines.push('- Round ' + fh.round + ': ' + fh.category + ' — ' + _truncate(fh.topIssue, 200));
           }
           lines.push('**You must try a DIFFERENT fix strategy.**');
           lines.push('');
         }
       } else {
-        // Legacy fallback: render plain text
-        lines.push(fb.data ? fb.data.text : JSON.stringify(fb));
+        // Legacy fallback: render plain text with hard cap
+        var rawText = fb.data ? fb.data.text : JSON.stringify(fb);
+        lines.push(_truncate(rawText, FEEDBACK_TEXT_CAP));
       }
     }
     lines.push('');
   }
 
   // ========== 11. 现有代码 ==========
+  // Outline 化策略：
+  //   - 完整代码已经在工作区磁盘上，CC CLI 可以用 Read 工具按需读取
+  //   - prompt 里只放 outline（class/字段/函数签名 + 函数体行数注释）+ 与 feedback 相关的 phase 块
+  //   - 避免每轮 fix-loop 都重发整个 1300-1600 行的文件
+  //   - opts.fullExistingCode = true 时退回旧行为（首次调用、debug 用）
   if (opts.existingCode) {
     lines.push('');
-    lines.push('# 现有代码（在此基础上修复）');
-    lines.push('```csharp');
-    lines.push(opts.existingCode);
-    lines.push('```');
+    if (opts.fullExistingCode) {
+      lines.push('# 现有代码（在此基础上修复）');
+      lines.push('```csharp');
+      lines.push(opts.existingCode);
+      lines.push('```');
+    } else {
+      lines.push('# 现有代码概要 — GameFlowManagerMain.cs');
+      lines.push('> ⚠️ 完整文件已在工作区 `Assets/Program/Script/Manager/GameFlowManagerMain.cs`，请用 Read 工具按需读取。下面只列出函数 outline + 与当前 feedback 相关的 phase 代码块。');
+      lines.push('```csharp');
+      lines.push(buildCodeOutline(opts.existingCode));
+      lines.push('```');
+      var relevantBlocks = extractRelevantPhaseBlocks(opts.existingCode, opts.feedback || []);
+      if (relevantBlocks) {
+        lines.push('');
+        lines.push('# 与当前 feedback 相关的 phase 代码块（GameFlowManagerMain.cs）');
+        lines.push('```csharp');
+        lines.push(relevantBlocks);
+        lines.push('```');
+      }
+    }
   }
 
   // ========== 11b. 现有 partial class 文件 ==========
   if (opts.existingSystemsCode) {
     lines.push('');
-    lines.push('# 现有 partial class 文件: GameFlowManagerMain.Systems.cs');
-    lines.push('> ⚠️ 此文件与主文件共同编译。不要在主文件中重复定义此文件已有的方法，否则会产生CS0111编译错误。');
-    lines.push('```csharp');
-    lines.push(opts.existingSystemsCode);
-    lines.push('```');
+    if (opts.fullExistingCode) {
+      lines.push('# 现有 partial class 文件: GameFlowManagerMain.Systems.cs');
+      lines.push('> ⚠️ 此文件与主文件共同编译。不要在主文件中重复定义此文件已有的方法，否则会产生CS0111编译错误。');
+      lines.push('```csharp');
+      lines.push(opts.existingSystemsCode);
+      lines.push('```');
+    } else {
+      lines.push('# 现有代码概要 — GameFlowManagerMain.Systems.cs (partial class)');
+      lines.push('> ⚠️ 此文件与主文件共同编译，partial class 共享所有字段。完整文件已在磁盘 `Assets/Program/Script/Manager/GameFlowManagerMain.Systems.cs`，请用 Read 工具按需读取。');
+      lines.push('> ⚠️ 不要在主文件中重复定义此文件已有的方法，否则会产生CS0111编译错误。');
+      lines.push('```csharp');
+      lines.push(buildCodeOutline(opts.existingSystemsCode));
+      lines.push('```');
+    }
   }
 
-  // ========== 12. 历史教训（从生产失败中自动提取） ==========
+  // ========== 12. 历史教训 + Phase State Machine（统一注入点，避免重复） ==========
+  // 单一来源原则：
+  //   - blueprint.promotedRulesText 由 codegen.cjs 构建（critical 全量 + warning top-10 by freq, 带 severity 分级）
+  //   - blueprint.phaseStateMachineText 由 codegen.cjs 从 specs 构建
+  //   - 这里只消费，不再重复读取 promoted-rules.json
+  if (blueprint.promotedRulesText) {
+    lines.push('');
+    lines.push(blueprint.promotedRulesText);
+  }
+  if (blueprint.phaseStateMachineText) {
+    lines.push('');
+    lines.push(blueprint.phaseStateMachineText);
+  }
+
+  // pending-rules.json 是 codegen.cjs 不覆盖的额外信号（跨项目 ≥2 出现但还未晋升的模式）
+  // 仅注入 promotedRulesText 中没有的去重项，且最多 8 条，避免与 promoted 重复
   try {
-    var lessonsLines = [];
-    // Load top error patterns from pending-rules (cross-project validated)
     var pendingPath = require('path').join(__dirname, 'pending-rules.json');
     if (require('fs').existsSync(pendingPath)) {
       var pending = JSON.parse(require('fs').readFileSync(pendingPath, 'utf-8'));
-      // Group by rule category, count distinct projects per category
+      var promotedTextLower = (blueprint.promotedRulesText || '').toLowerCase();
       var ruleGroups = {};
       for (var pi = 0; pi < pending.length; pi++) {
         var pr = pending[pi];
@@ -698,49 +777,231 @@ function parseBlueprintToPromptV5(blueprint, opts) {
         ruleGroups[ruleKey].count++;
         if (pr.taskId) ruleGroups[ruleKey].projects[pr.taskId] = true;
       }
-      // Sort by cross-project count (most widespread first)
-      var sorted = Object.entries(ruleGroups)
-        .map(function(e) { return { key: e[0], data: e[1], projectCount: Object.keys(e[1].projects).length }; })
-        .filter(function(e) { return e.projectCount >= 2; }) // Only include patterns seen in 2+ projects
+      var sorted = Object.keys(ruleGroups)
+        .map(function(k) { return { key: k, data: ruleGroups[k], projectCount: Object.keys(ruleGroups[k].projects).length }; })
+        .filter(function(e) { return e.projectCount >= 2; })
+        // 去重：promotedRulesText 已经包含的 description 不再注入
+        .filter(function(e) {
+          var descSig = ((e.data.desc || '').toLowerCase()).slice(0, 40);
+          return descSig.length > 0 && promotedTextLower.indexOf(descSig) < 0;
+        })
         .sort(function(a, b) { return b.projectCount - a.projectCount; })
-        .slice(0, 20); // Top 20 patterns (increased from 10)
+        .slice(0, 8);
 
       if (sorted.length > 0) {
-        lessonsLines.push('');
-        lessonsLines.push('# ⚠️ 历史生产失败教训（以下错误在多个项目中反复出现，务必避免）');
-        lessonsLines.push('');
+        lines.push('');
+        lines.push('# ⚠️ 额外的跨项目失败模式（promoted-rules 之外，按出现频次）');
         for (var si = 0; si < sorted.length; si++) {
           var s = sorted[si];
-          lessonsLines.push('- **' + s.key + '** (影响 ' + s.projectCount + ' 个项目, 共 ' + s.data.count + ' 次): ' + (s.data.desc || '').substring(0, 150));
-          if (s.data.fix) lessonsLines.push('  修复: ' + s.data.fix.substring(0, 150));
+          lines.push('- **' + s.key + '** (影响 ' + s.projectCount + ' 项目, ' + s.data.count + ' 次): ' + (s.data.desc || '').substring(0, 120));
+          if (s.data.fix) lines.push('  修复: ' + s.data.fix.substring(0, 120));
         }
       }
     }
-    // Also load promoted-rules (cross-project validated and promoted)
-    var promotedPath = require('path').join(__dirname, 'promoted-rules.json');
-    if (require('fs').existsSync(promotedPath)) {
-      var promoted = JSON.parse(require('fs').readFileSync(promotedPath, 'utf-8'));
-      if (promoted.length > 0 && lessonsLines.length === 0) {
-        lessonsLines.push('');
-        lessonsLines.push('# ⚠️ 已验证的生产规则（跨项目验证通过）');
-      }
-      for (var pri = 0; pri < Math.min(promoted.length, 15); pri++) {
-        var pr = promoted[pri];
-        lessonsLines.push('- ' + (pr.description || '').substring(0, 200) + (pr.fix ? ' — 修复: ' + pr.fix.substring(0, 100) : ''));
-      }
-    }
-    if (lessonsLines.length > 0) {
-      lines.push(lessonsLines.join('\n'));
-    }
   } catch(lessonsErr) {
-    console.warn('[prompt] Failed to load historical lessons (non-fatal): ' + lessonsErr.message);
+    console.warn('[prompt] Failed to load pending lessons (non-fatal): ' + lessonsErr.message);
   }
 
   return lines.join('\n');
 }
 
-module.exports = { 
+// ========== 代码 outline 化 helpers（fix-loop 减少 token 重传） ==========
+
+/**
+ * 把 C# 源码折叠为 outline：保留 class/字段/函数签名，函数体替换为 lines elided 注释。
+ * 适用于 fix-loop 里只需要让 LLM 知道结构、按需 Read 完整文件的场景。
+ *
+ * 函数签名识别采用启发式字符串判断，避免复杂正则：
+ *   - 行尾以 `)` 或 `) {` 结束（去掉行内注释和尾部空白）
+ *   - 行内含括号对 `(...)`
+ *   - 排除控制流关键字（if / for / while / foreach / switch / using / lock / catch / fixed）
+ *   - 排除 lambda 箭头 `=>`
+ */
+function buildCodeOutline(code) {
+  if (!code) return '';
+  var lines = code.split('\n');
+  var out = [];
+  var inFunc = false, funcDepth = 0, funcStartIdx = 0;
+
+  var CONTROL_KW = ['if', 'for', 'foreach', 'while', 'switch', 'using', 'lock', 'catch', 'fixed', 'return', 'throw', 'new'];
+
+  function looksLikeFuncSig(line) {
+    var trimmed = line.replace(/\/\/.*$/, '').replace(/\s+$/, '');
+    if (!trimmed) return false;
+    // 必须包含 ( 和 )
+    var openParen = trimmed.indexOf('(');
+    if (openParen < 0) return false;
+    var closeParen = trimmed.lastIndexOf(')');
+    if (closeParen <= openParen) return false;
+    // 行尾必须是 ) 或 ) { 或 )
+    var tail = trimmed.slice(closeParen + 1).replace(/\s/g, '');
+    if (tail !== '' && tail !== '{') return false;
+    // 排除 lambda
+    if (trimmed.indexOf('=>') >= 0) return false;
+    // 排除控制流关键字开头
+    var leading = trimmed.replace(/^\s*/, '').split(/[\s(]/)[0];
+    for (var ci = 0; ci < CONTROL_KW.length; ci++) {
+      if (leading === CONTROL_KW[ci]) return false;
+    }
+    // 排除属性 / 字段赋值（含 = 但不含 == 且不在 () 内）
+    var beforeParen = trimmed.slice(0, openParen);
+    if (beforeParen.indexOf('=') >= 0 && beforeParen.indexOf('==') < 0) return false;
+    // 必须有标识符紧贴 ( — 即 `Name(` 而不是 ` (`
+    var nameChar = trimmed.charAt(openParen - 1);
+    if (!/[A-Za-z0-9_>]/.test(nameChar)) return false;
+    return true;
+  }
+
+  function countChar(s, ch) {
+    var n = 0;
+    for (var i = 0; i < s.length; i++) if (s.charAt(i) === ch) n++;
+    return n;
+  }
+
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+
+    if (!inFunc) {
+      out.push(line);
+      if (looksLikeFuncSig(line)) {
+        if (line.indexOf('{') >= 0) {
+          inFunc = true;
+          funcDepth = countChar(line, '{') - countChar(line, '}');
+          funcStartIdx = i;
+          if (funcDepth === 0) {
+            // 单行函数体 e.g. void X() { return; }
+            inFunc = false;
+          }
+        } else if (i + 1 < lines.length && lines[i + 1].replace(/\s/g, '') === '{') {
+          // 下一行单独一个 {
+          out.push(lines[i + 1]);
+          i++;
+          inFunc = true;
+          funcDepth = 1;
+          funcStartIdx = i;
+        }
+      }
+    } else {
+      funcDepth += countChar(line, '{');
+      funcDepth -= countChar(line, '}');
+      if (funcDepth <= 0) {
+        var bodyLines = i - funcStartIdx - 1;
+        if (bodyLines > 0) {
+          out.push('    /* ' + bodyLines + ' lines elided -- Read full file for body */');
+        }
+        out.push(line);
+        inFunc = false;
+        funcDepth = 0;
+      }
+    }
+  }
+  return out.join('\n');
+}
+
+/**
+ * 从 feedback 文本里提取被点名的 phaseId / 函数名，回到完整代码里抓相应代码块（前后 ~15 行）。
+ * 保证 LLM 在没有 Read 的情况下也能直接看到出问题的局部代码。
+ */
+function extractRelevantPhaseBlocks(code, feedback) {
+  if (!code || !feedback || feedback.length === 0) return '';
+  var text = '';
+  for (var fi = 0; fi < feedback.length; fi++) {
+    var fb = feedback[fi];
+    text += ' ' + ((fb.data && fb.data.text) || fb.text || '');
+    if (fb.data && fb.data.structured) {
+      var s = fb.data.structured;
+      text += ' ' + (s.summary || '');
+      if (s.issues) for (var ii = 0; ii < s.issues.length; ii++) text += ' ' + (s.issues[ii].message || '');
+    }
+  }
+
+  // 抓 phase_xxx_N / PhaseName / Init/Update/Transition/Phase 函数名等
+  var tokens = {};
+  var phaseMatches = text.match(/phase_\d+_\d+/g) || [];
+  phaseMatches.forEach(function(m) { tokens[m] = true; });
+  var camelPhase = text.match(/\bPhase[A-Z]\w+/g) || [];
+  camelPhase.forEach(function(m) { tokens[m] = true; });
+  var initFns = text.match(/\b(?:Init|Update|Transition|Handle)Phase\w*/g) || [];
+  initFns.forEach(function(m) { tokens[m] = true; });
+
+  var tokenList = Object.keys(tokens).slice(0, 5);
+  if (tokenList.length === 0) return '';
+
+  var lines = code.split('\n');
+  var out = [];
+  var seen = {};
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    for (var t = 0; t < tokenList.length; t++) {
+      if (line.indexOf(tokenList[t]) >= 0) {
+        var from = Math.max(0, i - 3);
+        var to = Math.min(lines.length, i + 18);
+        var key = from + ':' + to;
+        if (seen[key]) continue;
+        seen[key] = true;
+        out.push('// --- L' + (from + 1) + '-' + to + ' (matched: ' + tokenList[t] + ') ---');
+        for (var k = from; k < to; k++) {
+          out.push('L' + (k + 1) + ': ' + lines[k]);
+        }
+        out.push('');
+        i = to; // skip ahead to avoid overlapping blocks
+        break;
+      }
+    }
+    if (out.length > 280) break; // hard cap ~280 lines
+  }
+  return out.join('\n');
+}
+
+// ========== 行为模板按需裁剪 helpers ==========
+// behavior-templates.md 是按 ## Behavior: <Name> 分节的 Markdown
+function filterBehaviorTemplates(text, usedNames) {
+  if (!text) return '';
+  if (!usedNames || usedNames.length === 0) {
+    // No entities use templates → omit the whole section to save tokens
+    return '';
+  }
+  var nameSet = {};
+  usedNames.forEach(function(n) { nameSet[String(n).toLowerCase()] = true; });
+  // Split by `## Behavior:` heading; first chunk is the file header
+  var sections = text.split(/^##\s+Behavior:\s*/m);
+  var header = sections[0] || '';
+  var kept = [header];
+  for (var i = 1; i < sections.length; i++) {
+    var firstWord = (sections[i].split(/[\s\n]/)[0] || '').toLowerCase();
+    if (nameSet[firstWord]) {
+      kept.push('## Behavior: ' + sections[i]);
+    }
+  }
+  // If nothing matched, fall back to header only — better than full 11KB dump
+  return kept.length > 1 ? kept.join('') : header;
+}
+
+function detectUsedBehaviors(blueprint) {
+  var set = {};
+  var entities = (blueprint && blueprint.entities) || [];
+  for (var i = 0; i < entities.length; i++) {
+    var e = entities[i];
+    if (e && e.behaviors && e.behaviors.length) {
+      for (var j = 0; j < e.behaviors.length; j++) {
+        var b = e.behaviors[j];
+        var name = (b && (b.template || b.name || b.type)) || (typeof b === 'string' ? b : '');
+        if (name) set[name] = true;
+      }
+    }
+    // Some blueprints store the behavior name directly on the entity
+    if (e && e.template) set[e.template] = true;
+    if (e && e.behaviorTemplate) set[e.behaviorTemplate] = true;
+  }
+  return Object.keys(set);
+}
+
+module.exports = {
   parseBlueprintToPromptV5: parseBlueprintToPromptV5,
   PREFAB_REGISTRY: PREFAB_REGISTRY,
-  matchPrefabs: matchPrefabs
+  matchPrefabs: matchPrefabs,
+  filterBehaviorTemplates: filterBehaviorTemplates,
+  detectUsedBehaviors: detectUsedBehaviors,
+  buildCodeOutline: buildCodeOutline,
+  extractRelevantPhaseBlocks: extractRelevantPhaseBlocks
 };

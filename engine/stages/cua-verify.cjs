@@ -137,7 +137,7 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
 
 var MAX_CUA_ROUNDS = 10;
 var MAX_CUA_TOTAL_MS = 45 * 60 * 1000; // 45 min absolute time limit (Opus fix rounds ~5min each)
-var NO_PROGRESS_EXIT_ROUNDS = 5; // exit if no phase progress in N consecutive rounds
+var NO_PROGRESS_EXIT_ROUNDS = 4; // exit if no phase progress in N consecutive rounds (was 5 — tightened to save tokens)
 var SAME_ISSUE_REGEN_THRESHOLD = 3;
 
 module.exports = {
@@ -299,10 +299,10 @@ module.exports = {
               });
 
               if (_noProgressRounds >= NO_PROGRESS_EXIT_ROUNDS + 3) {
-                // Hard exit after 8 no-progress rounds — code genuinely can't pass
+                // Hard exit after NO_PROGRESS_EXIT_ROUNDS+3 no-progress rounds — code genuinely can't pass
                 throw new Error('No phase progress in ' + _noProgressRounds + ' consecutive rounds. Diagnosis: ' + stuckDiagnosis.summary);
               } else if (_noProgressRounds === NO_PROGRESS_EXIT_ROUNDS) {
-                // Force full regen strategy after 5 rounds, but keep trying
+                // Force full regen strategy after NO_PROGRESS_EXIT_ROUNDS rounds, but keep trying
                 ctx.addLog('cua-verify', 'No progress for ' + _noProgressRounds + ' rounds — escalating to full regen');
                 consecutiveSameIssue = SAME_ISSUE_REGEN_THRESHOLD;
               }
@@ -395,8 +395,11 @@ module.exports = {
                   message: typeof issueText === 'string' ? issueText : (issueText.message || issueText.text || ''),
                 };
               });
-              var allHaveLines = structuredIssues.every(function(i) { return i.line > 0; });
-              if (allHaveLines) {
+              // patchRecode 走 Sonnet 直出，省 ~150KB token vs full recode。
+              // 旧条件要求所有 issue 都有 line>0，命中率太低；改为只要至少 1 个 issue 有 line 就尝试 patch，
+              // patchRecode 自身失败时再回落到 full recode（双保险）。
+              var someHaveLines = structuredIssues.filter(function(i) { return i.line > 0; }).length >= 1;
+              if (someHaveLines) {
                 cuaFixPromise = patchRecode({
                   taskId: ctx.taskId,
                   currentCode: lastCsCode,

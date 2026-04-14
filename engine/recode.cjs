@@ -116,6 +116,58 @@ function recode(opts) {
  * @param {Function} opts.log         — logging callback(msg)
  * @returns {Promise<{ok:boolean, code?:string, patchApplied?:boolean, error?:string}>}
  */
+/**
+ * Extract C# method signatures from source — used by patchRecode to summarize
+ * partial class files instead of sending the entire file body.
+ *
+ * Heuristic: a method signature line has `(...)` with a name token immediately
+ * before the `(`, optionally followed by `{` or end of line. We skip control-flow
+ * keywords, string-method-calls, and assignment expressions.
+ *
+ * Returns an array of trimmed signature lines (no body, no braces).
+ */
+function extractMethodSignatures(code) {
+  if (!code) return [];
+  var out = [];
+  var lines = code.split('\n');
+  var CONTROL_KW = ['if', 'for', 'foreach', 'while', 'switch', 'using', 'lock', 'catch', 'fixed', 'return', 'throw', 'new'];
+  for (var i = 0; i < lines.length; i++) {
+    var raw = lines[i];
+    // Strip trailing line comments
+    var commentIdx = raw.indexOf('//');
+    var line = commentIdx >= 0 ? raw.slice(0, commentIdx) : raw;
+    var trimmed = line.replace(/\s+$/, '').replace(/^\s+/, '');
+    if (!trimmed) continue;
+    var openParen = trimmed.indexOf('(');
+    if (openParen < 0) continue;
+    var closeParen = trimmed.lastIndexOf(')');
+    if (closeParen <= openParen) continue;
+    var tail = trimmed.slice(closeParen + 1).replace(/\s/g, '');
+    // Must be a top-of-method declaration: ends with `{`, `;` (abstract/interface), or empty (brace on next line)
+    if (tail !== '' && tail !== '{' && tail !== ';') continue;
+    // Skip arrow functions / lambdas
+    if (trimmed.indexOf('=>') >= 0) continue;
+    var leading = trimmed.split(/[\s(]/)[0];
+    var skip = false;
+    for (var ci = 0; ci < CONTROL_KW.length; ci++) {
+      if (leading === CONTROL_KW[ci]) { skip = true; break; }
+    }
+    if (skip) continue;
+    // Skip lines that are clearly assignments or method calls (have `=` before `(` but not `==`)
+    var beforeParen = trimmed.slice(0, openParen);
+    if (beforeParen.indexOf('=') >= 0 && beforeParen.indexOf('==') < 0) continue;
+    // Char immediately before `(` must look like an identifier end
+    var nameChar = trimmed.charAt(openParen - 1);
+    if (!/[A-Za-z0-9_>]/.test(nameChar)) continue;
+    // Must contain at least one space (return type + name) OR start with the constructor name pattern
+    if (beforeParen.indexOf(' ') < 0) continue;
+    // Strip trailing `{` for cleaner output
+    var sig = trimmed.replace(/\s*\{?\s*$/, '');
+    out.push('  ' + sig);
+  }
+  return out;
+}
+
 function patchRecode(opts) {
   var createProvider = require('../lib/model-provider.cjs').createProvider;
   var provider = createProvider('claude', {});
@@ -141,12 +193,18 @@ function patchRecode(opts) {
     );
   }
 
-  // Include partial class files so Claude knows which methods already exist elsewhere
+  // Include partial class method signatures so Claude knows which methods already
+  // exist elsewhere — sending only signatures (not full bodies) saves ~20-40KB per call.
+  // The model only needs to know the *names* to avoid CS0111 redefinition errors;
+  // it does NOT need the implementations (it's not editing those files).
   var extraFilesContext = '';
   if (opts.extraFiles) {
     for (var efKey in opts.extraFiles) {
       if (opts.extraFiles.hasOwnProperty(efKey)) {
-        extraFilesContext += '\n\nPARTIAL CLASS FILE (' + efKey + ') — compiled together, do NOT redefine methods from this file:\n' + opts.extraFiles[efKey];
+        var sigs = extractMethodSignatures(opts.extraFiles[efKey]);
+        if (sigs.length > 0) {
+          extraFilesContext += '\n\nPARTIAL CLASS FILE (' + efKey + ') already defines these methods (compiled together — do NOT redefine, causes CS0111):\n' + sigs.join('\n');
+        }
       }
     }
   }

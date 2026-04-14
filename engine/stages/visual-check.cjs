@@ -12,7 +12,10 @@ var helpers = require('../helpers.cjs');
 var { recode } = require('../recode.cjs');
 var { createFixLoop } = require('../fix-loop.cjs');
 
-var MAX_VISUAL_ROUNDS = 8;
+var MAX_VISUAL_ROUNDS = 5;
+// Early exit if VLM returns the same failure reason 3 rounds in a row — root cause
+// is misdiagnosed and additional fix attempts only burn tokens.
+var SAME_REASON_EXIT = 3;
 
 module.exports = {
   name: 'visual-check',
@@ -38,6 +41,8 @@ module.exports = {
     var lastHtmlForVisual = ctx.htmlOutput;
     var lastCsCode = ctx.csCode;
     var lastExtraFiles = Object.assign({}, ctx.extraFiles);
+    var lastVisualReasonKey = '';
+    var sameReasonCount = 0;
 
     var patchForHeadless;
     try { patchForHeadless = require('../../worker/worker-cua-verify.js').patchForHeadless; } catch(e) {}
@@ -116,39 +121,41 @@ module.exports = {
                       return waitEngine();
                     })
                     .then(function() {
-                      // Multi-frame capture: t=0s, t=3s, t=8s
+                      // Multi-frame capture: 2 base frames at t=0s and t=6s.
+                      // Was 3 frames (0/3/8s) — reduced to save VLM token cost. Two frames
+                      // are sufficient to detect "no progression" (frame[0] vs frame[1]),
+                      // and phaseLog already proves the engine is running.
+                      // JPEG quality 80 is ~70% smaller than PNG for screenshots with no
+                      // perceptible quality loss for "is there a solid color / are there objects" checks.
                       var frames = [];
-                      var frameDelays = [0, 3000, 5000]; // cumulative: 0, 3s, 8s
+                      var frameSchedule = [
+                        { delay: 0, timeMs: 0 },
+                        { delay: 6000, timeMs: 6000 },
+                      ];
                       var frameIdx = 0;
                       function captureNextFrame() {
-                        if (frameIdx >= frameDelays.length) return Promise.resolve();
-                        var delay = frameDelays[frameIdx];
-                        var framePath = screenshotPath.replace('.png', '-f' + frameIdx + '.png');
-                        return page.waitForTimeout(delay)
-                          .then(function() { return page.screenshot({ path: framePath }); })
+                        if (frameIdx >= frameSchedule.length) return Promise.resolve();
+                        var slot = frameSchedule[frameIdx];
+                        var framePath = screenshotPath.replace('.png', '-f' + frameIdx + '.jpg');
+                        return page.waitForTimeout(slot.delay)
+                          .then(function() { return page.screenshot({ path: framePath, type: 'jpeg', quality: 80 }); })
                           .then(function() {
-                            frames.push({ path: framePath, timeMs: (frameIdx === 0 ? 0 : frameIdx === 1 ? 3000 : 8000) });
+                            frames.push({ path: framePath, timeMs: slot.timeMs });
                             frameIdx++;
                             return captureNextFrame();
                           });
                       }
                       return captureNextFrame().then(function() {
-                        // Adaptive capture: extend if no phase activity detected
+                        // Adaptive capture: if no phase activity AND no errors, extend
+                        // by ONE extra frame at t=14s to give a slow-loading game more time.
+                        // Was 2 extra frames (11s + 15s) — reduced to 1 to save tokens.
                         if (phaseLog.length === 0 && consoleErrors.length === 0) {
-                          ctx.addLog('visual-check', 'No phase activity after base capture, extending to 15s');
-                          // Capture 2 more frames at +3s and +4s
-                          return page.waitForTimeout(3000)
+                          ctx.addLog('visual-check', 'No phase activity after base capture, extending to 14s');
+                          return page.waitForTimeout(8000)
                             .then(function() {
-                              var extraPath1 = screenshotPath.replace('.png', '-f3.png');
-                              return page.screenshot({ path: extraPath1 }).then(function() {
-                                frames.push({ path: extraPath1, timeMs: 11000 });
-                                return page.waitForTimeout(4000);
-                              });
-                            })
-                            .then(function() {
-                              var extraPath2 = screenshotPath.replace('.png', '-f4.png');
-                              return page.screenshot({ path: extraPath2 }).then(function() {
-                                frames.push({ path: extraPath2, timeMs: 15000 });
+                              var extraPath = screenshotPath.replace('.png', '-f2.jpg');
+                              return page.screenshot({ path: extraPath, type: 'jpeg', quality: 80 }).then(function() {
+                                frames.push({ path: extraPath, timeMs: 14000 });
                               });
                             })
                             .then(function() {
@@ -212,7 +219,12 @@ module.exports = {
             analysisPrompt += cameraInfo + '\n';
           }
           if (frameCount > 1) {
-            analysisPrompt += 'You are given ' + frameCount + ' frames captured at different times (t=0s, t=3s, t=8s).\n';
+            // Build actual timestamp list from the captured frames so the prompt
+            // matches reality even when adaptive extension fires.
+            var tsList = result.frames.map(function(f) {
+              return 't=' + (f.timeMs / 1000).toFixed(0) + 's';
+            }).join(', ');
+            analysisPrompt += 'You are given ' + frameCount + ' frames captured at different times (' + tsList + ').\n';
             analysisPrompt += 'Check for PROGRESSION: objects should move/change between frames. If all frames are identical, the game may be stuck.\n';
           }
           var phaseLog = result.phaseLog || [];
@@ -259,6 +271,24 @@ module.exports = {
             })
             .then(function(analysis) {
               ctx.addLog('visual-check', (analysis.passed ? 'PASSED' : 'FAILED') + ' — ' + analysis.reason);
+
+              // Same-reason early exit: if VLM returns the same failure reason multiple rounds in a row,
+              // additional fix attempts won't help — exit early to save tokens.
+              if (!analysis.passed) {
+                var reasonKey = (analysis.reason || '').slice(0, 60).toLowerCase().replace(/\s+/g, ' ').trim();
+                if (reasonKey && reasonKey === lastVisualReasonKey) {
+                  sameReasonCount++;
+                  if (sameReasonCount >= SAME_REASON_EXIT - 1) {
+                    ctx.addLog('visual-check', 'Same visual reason ' + (sameReasonCount + 1) + ' rounds in a row — early exit (saves token budget)');
+                    ctx.htmlOutput = lastHtmlForVisual;
+                    ctx.csCode = lastCsCode;
+                    return { done: true, result: { passed: false, rounds: round, earlyExit: 'same-reason', reason: analysis.reason } };
+                  }
+                } else {
+                  sameReasonCount = 0;
+                  lastVisualReasonKey = reasonKey;
+                }
+              }
 
               // Additional hard gates even if VLM says passed:
               // 1. Critical runtime errors → override to fail

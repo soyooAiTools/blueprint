@@ -220,8 +220,12 @@ module.exports = {
             ]),
           });
 
+          // patchRecode 走 Sonnet 直出，不经过 CC CLI / 完整 prompt — 比 full recode 省 ~150KB token。
+          // 旧条件要求所有 issue 都有 line>0，命中率太低（codex 输出经常缺 line）；
+          // 改为只要 ≤3 issue 且至少 1 个有 line 就尝试 patch，patchRecode 自身失败时再回落到 full recode。
+          var issuesWithLine = (reviewResult.issues || []).filter(function(i) { return i.line > 0; });
           var usePatch = reviewResult.issues && reviewResult.issues.length <= 3
-            && reviewResult.issues.every(function(i) { return i.line > 0; });
+            && issuesWithLine.length >= 1;
           var fixLog = function(msg) { ctx.addLog('review', msg); };
 
           var fixPromise;

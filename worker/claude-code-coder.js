@@ -8,6 +8,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { execSync, spawn } = require('child_process');
 
 // 复用现有 prompt 模块
@@ -183,12 +184,13 @@ function prepareWorkDir(workDir, blueprint, prompt, skeleton, log, taskId) {
     }
   }
 
-  // 4. GFM_Tools.cs — API 参考
+  // 4. GFM_Tools.cs — 编译需要的真实源文件（managerDir 那一份）
+  // 注意：以前在 workDir 也放了一份"方便 Claude Code 找到"，但这导致 Claude
+  // 经常 Read 整份 ~48KB 文件，浪费 token。GFM_Tools_API.md 已经在 prompt 里内联
+  // 了完整 API 表面，不需要 Claude 去读源码，所以 workDir 副本已删除。
   const gfmSrc = path.join(__dirname, 'GFM_Tools.cs');
   if (fs.existsSync(gfmSrc)) {
     fs.copyFileSync(gfmSrc, path.join(managerDir, 'GFM_Tools.cs'));
-    // 也在根目录放一份，方便 Claude Code 找到
-    fs.copyFileSync(gfmSrc, path.join(workDir, 'GFM_Tools.cs'));
   }
 
   // 5. behavior-templates.md
@@ -197,13 +199,8 @@ function prepareWorkDir(workDir, blueprint, prompt, skeleton, log, taskId) {
     fs.copyFileSync(behaviorSrc, path.join(workDir, 'behavior-templates.md'));
   }
 
-  // 5b. Inject promoted rules + phase state machine into prompt.md
-  if (blueprint.promotedRulesText) {
-    fs.appendFileSync(path.join(workDir, 'prompt.md'), blueprint.promotedRulesText);
-  }
-  if (blueprint.phaseStateMachineText) {
-    fs.appendFileSync(path.join(workDir, 'prompt.md'), blueprint.phaseStateMachineText);
-  }
+  // 5b. promoted rules + phase state machine 已经由 parseBlueprintToPromptV5 内部注入到 prompt.md，
+  //     这里不再 append（避免与 prompt-v5-basetemplate.js 的统一注入点重复）
 
   // 5c. GFM_Tools_API.md — extended API documentation
   const apiDocSrc = path.join(__dirname, 'GFM_Tools_API.md');
@@ -286,7 +283,9 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
       '--output-format', 'text',
       // Budget: 0 means no limit; only pass flag if > 0
       ...(parseInt(CLAUDE_MAX_BUDGET) > 0 ? ['--max-budget-usd', CLAUDE_MAX_BUDGET] : []),
-      '--no-session-persistence',              // 不保存 session（每次全新）
+      // Note: --no-session-persistence intentionally NOT set so that server-side prompt
+      // cache can hash-match the stable system prompt + tools prefix across fix-loop rounds.
+      // Each round still gets a fresh CLI process; "session" here only affects cache identity.
       '--effort', opts.effort || 'medium',  // medium effort to avoid 5min API stream timeout during extended thinking
       '--debug-file', '/tmp/claude-debug-' + (taskId || 'unknown') + '.log',  // debug log for diagnosis
       '--tools', 'Read,Write,Edit,Bash',  // only essential tools, no Glob/Grep/Agent overhead
@@ -300,6 +299,31 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
 
     log(`[claude-code] Spawning: ${CLAUDE_CMD} ${args.join(' ')}`, taskId);
     log(`[claude-code] Prompt length: ${userPrompt.length} chars`, taskId);
+
+    // === Prompt cache hit instrumentation ===
+    // Server-side prompt cache hashes the stable prefix (system prompt + tools + early user message bytes).
+    // Logging sha1 of:
+    //   - CLAUDE.md file (system prompt) — should be IDENTICAL across all tasks if cache is going to hit
+    //   - userPrompt head 1000 bytes — should be identical across all tasks for the same template/skeleton
+    //   - userPrompt tail 500 bytes — usually task-specific (verifies it varies as expected)
+    // To check cache hit rate: grep '[prompt-cache]' on logs from multiple tasks; head sha1 should match.
+    try {
+      const claudeMdPath = path.join(workDir, 'CLAUDE.md');
+      let claudeMdSha = 'missing';
+      let claudeMdLen = 0;
+      if (fs.existsSync(claudeMdPath)) {
+        const claudeMdContent = fs.readFileSync(claudeMdPath);
+        claudeMdSha = crypto.createHash('sha1').update(claudeMdContent).digest('hex').slice(0, 12);
+        claudeMdLen = claudeMdContent.length;
+      }
+      const headBytes = Buffer.from(userPrompt.slice(0, 1000), 'utf8');
+      const tailBytes = Buffer.from(userPrompt.slice(-500), 'utf8');
+      const headSha = crypto.createHash('sha1').update(headBytes).digest('hex').slice(0, 12);
+      const tailSha = crypto.createHash('sha1').update(tailBytes).digest('hex').slice(0, 12);
+      log(`[prompt-cache] CLAUDE.md sha1=${claudeMdSha} len=${claudeMdLen} | userPrompt headSha=${headSha} tailSha=${tailSha} totalLen=${userPrompt.length}`, taskId);
+    } catch (cacheLogErr) {
+      log(`[prompt-cache] instrumentation error: ${cacheLogErr.message}`, taskId);
+    }
 
     // Record file mtime before spawn to detect actual modifications (Bug fix: skeleton pre-write false positive)
     const mainFileForMtime = path.join(opts.workDir || workDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
@@ -560,14 +584,12 @@ ${feedbackTexts}
 重要：修改后文件行数不应减少。如果你发现文件变短了，说明你错误地重写了整个文件。`;
   } else {
     // Inline key file contents to minimize Read tool calls — speeds up fresh gen significantly
+    // Note: behavior-templates.md is already injected into prompt.md by parseBlueprintToPromptV5
+    // (filtered to only the behaviors actually used by current entities), so no separate inline read.
     let inlinePromptMd = '';
-    let inlineBehaviorTemplates = '';
     let inlineGfmApi = '';
     try {
       inlinePromptMd = fs.readFileSync(path.join(clientDir, 'prompt.md'), 'utf-8');
-    } catch(e) {}
-    try {
-      inlineBehaviorTemplates = fs.readFileSync(path.join(clientDir, 'behavior-templates.md'), 'utf-8');
     } catch(e) {}
     try {
       inlineGfmApi = fs.readFileSync(path.join(clientDir, 'GFM_Tools_API.md'), 'utf-8');
@@ -595,7 +617,7 @@ ${feedbackTexts}
 
 所有参考信息和骨架代码都在下面。
 
-${inlineGfmApi ? '### GFM API 参考\n' + inlineGfmApi + '\n' : ''}
+${inlineGfmApi ? '### GFM API 参考（完整 API 表面 — 不要 Read GFM_Tools.cs，所有可用方法都在下面）\n' + inlineGfmApi + '\n⛔ DO NOT Read GFM_Tools.cs (~48KB) — its complete public API is already inlined above. Reading the source file wastes tokens and gives you no extra information.\n\n' : ''}
 ### 详细需求
 ${inlinePromptMd}
 
@@ -627,7 +649,7 @@ ${inlineSkeletonSystems}
 
 所有参考信息和骨架代码都在下面。
 
-${inlineGfmApi ? '### GFM API 参考\n' + inlineGfmApi + '\n' : ''}
+${inlineGfmApi ? '### GFM API 参考（完整 API 表面 — 不要 Read GFM_Tools.cs，所有可用方法都在下面）\n' + inlineGfmApi + '\n⛔ DO NOT Read GFM_Tools.cs (~48KB) — its complete public API is already inlined above. Reading the source file wastes tokens and gives you no extra information.\n\n' : ''}
 ### 详细需求
 ${inlinePromptMd}
 
@@ -650,7 +672,7 @@ ${inlineSkeletonMain}
 
 所有参考信息都在下面。
 
-${inlineGfmApi ? '### GFM API 参考\n' + inlineGfmApi + '\n' : ''}
+${inlineGfmApi ? '### GFM API 参考（完整 API 表面 — 不要 Read GFM_Tools.cs，所有可用方法都在下面）\n' + inlineGfmApi + '\n⛔ DO NOT Read GFM_Tools.cs (~48KB) — its complete public API is already inlined above. Reading the source file wastes tokens and gives you no extra information.\n\n' : ''}
 ### 详细需求
 ${inlinePromptMd}
 
@@ -675,6 +697,13 @@ ${inlinePromptMd}
   result = await runClaudeCode(clientDir, userPrompt, log, taskId, {
     model: codegenModel,
     // effort: always 'medium' to avoid API stream timeout (5min) during extended thinking
+    // INCREMENTAL FIX MODE rules — kept minimal. The ⛔ FORBIDDEN PATTERNS block
+    // that used to live here was removed 2026-04-14 because it fully duplicated
+    // luna-claude-code.md §L87-98 (autoPlay gates, _autoInteractTimer ≥3f,
+    // safety net ≥50f, ruleTriggered[], VISUAL FREEZE, phaseId preservation).
+    // Sending it twice wasted ~750 bytes per fix round with zero additional signal.
+    // Only the FIX-ONLY rules (Edit-not-Write, no-rewrite, Read-first) stay here
+    // because they'd confuse fresh-gen tasks if moved into CLAUDE.md.
     appendSystemPrompt: hasFeedback
       ? 'INCREMENTAL FIX MODE — CRITICAL RULES:\n'
         + '1. Use the Edit tool (NOT Write) to modify .cs files\n'
@@ -682,14 +711,7 @@ ${inlinePromptMd}
         + '3. The existing code is 1000+ lines (may be split across GameFlowManagerMain.cs + GameFlowManagerMain.Systems.cs). Your edits must preserve all existing code.\n'
         + '4. Read ALL existing .cs files FIRST, then apply targeted edits based on the feedback.\n'
         + '5. If any file becomes shorter after your edits, you have made a mistake.\n'
-        + '6. If GameFlowManagerMain.Systems.cs exists, game subsystems live there — edit it for movement/combat/spawning/economy fixes.\n'
-        + '⛔ FORBIDDEN PATTERNS (violation = immediate build rejection):\n'
-        + '- Do NOT create AutoPlayForceAdvance, ForceProgress, SkipGate, or any function that bypasses autoPlay 20s gates\n'
-        + '- Do NOT reduce _autoInteractTimer threshold below 3f (skeleton default)\n'
-        + '- Do NOT reduce safety net threshold below 50f\n'
-        + '- Do NOT set ruleTriggered[] outside of CheckEventRules phase gate blocks\n'
-        + '- The 20s autoPlay gates exist so CUA can take screenshots between phases — bypassing them causes VISUAL FREEZE which fails CUA\n'
-        + '- Do NOT rename, change, or replace any existing phaseId strings in AddCompletedPhase(), ReportPhase(), or CheckEventRules() calls. These are CANONICAL identifiers used by downstream validation. Changing them breaks phase tracking and causes false coverage failures.'
+        + '6. If GameFlowManagerMain.Systems.cs exists, game subsystems live there — edit it for movement/combat/spawning/economy fixes.'
       : null,
     workDir: clientDir,
   });

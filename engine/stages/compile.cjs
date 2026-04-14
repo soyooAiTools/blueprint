@@ -10,6 +10,9 @@ var { recode } = require('../recode.cjs');
 var { createFixLoop } = require('../fix-loop.cjs');
 
 var MAX_BUILD_FIX_ATTEMPTS = 5;
+// Early exit if the build fails with the same error signature 3 rounds in a row —
+// the AI is stuck on the same root cause, additional rounds will only burn tokens.
+var SAME_BUILD_ERROR_EXIT = 3;
 
 module.exports = {
   name: 'compile',
@@ -22,6 +25,8 @@ module.exports = {
     var buildUrl = ctx.workerConfig.buildUrl;
     var lastCsCode = ctx.csCode;
     var lastExtraFiles = Object.assign({}, ctx.extraFiles);
+    var lastBuildErrSig = '';
+    var sameBuildErrCount = 0;
 
     var loop = createFixLoop({
       name: 'compile',
@@ -54,6 +59,19 @@ module.exports = {
 
             var buildError = buildResult.error || '';
             ctx.addLog('compile', 'Build failed: ' + buildError.slice(0, 1000));
+
+            // Same-error early exit: signature on first ~200 chars of error.
+            // CS error codes (e.g. "CS0117") plus the offending identifier are typically captured here.
+            var errSig = buildError.slice(0, 200);
+            if (errSig && errSig === lastBuildErrSig) {
+              sameBuildErrCount++;
+              if (sameBuildErrCount >= SAME_BUILD_ERROR_EXIT - 1) {
+                throw new Error('Build failed with same error ' + (sameBuildErrCount + 1) + ' rounds in a row — stopping (saves token budget): ' + errSig.slice(0, 160));
+              }
+            } else {
+              lastBuildErrSig = errSig;
+              sameBuildErrCount = 0;
+            }
 
             if (round >= maxRounds) {
               throw new Error('Build failed after ' + maxRounds + ' fix attempts: ' + buildError.slice(0, 200));
