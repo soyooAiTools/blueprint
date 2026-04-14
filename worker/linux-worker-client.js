@@ -324,7 +324,10 @@ function buildStructuredFeedback(round, cuaResult, blueprint, fixHistory) {
 // ============ Config ============
 const WORKER_ID = process.env.LINUX_WORKER_ID || process.env.name || ('linux-worker-' + (process.env.pm_id || '1'));
 const BASE_URL = process.env.LINUX_BASE_URL || 'http://120.55.70.226:3901';
-const BUILD_URL = process.env.LINUX_BUILD_URL || 'http://120.55.70.226:3080';
+// Fallback is local build-api (/opt/luna-poc/build-api.js). The old remote
+// 120.55.70.226:3080 is a zombie (accepts TCP, returns empty reply) and silently
+// turns every compile into ECONNRESET — see memory `feedback_dotenv_path_mismatch`.
+const BUILD_URL = process.env.LINUX_BUILD_URL || 'http://127.0.0.1:18860';
 const POLL_INTERVAL = 10000;       // 10s between polls
 const HEARTBEAT_INTERVAL = 30000;
 const MAX_CUA_ROUNDS = 5;

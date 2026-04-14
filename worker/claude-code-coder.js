@@ -155,7 +155,11 @@ function prepareWorkDir(workDir, blueprint, prompt, skeleton, log, taskId) {
   // 3b. 如果有 skeleton，直接写入 .cs 文件（省去 Claude Code 读 prompt 再复制的时间）
   if (skeleton) {
     const csPath = path.join(managerDir, 'GameFlowManagerMain.cs');
-    if (skeleton.split) {
+    // NOTE: check `typeof object` not `skeleton.split` — a plain string has `.split` as a
+    // method (truthy function), which would otherwise send us into the multi-file branch
+    // and throw `fs.writeFileSync(path, undefined)`. The generator flags split mode with
+    // `split: true` on a returned object.
+    if (typeof skeleton === 'object' && skeleton.split === true) {
       // Multi-file skeleton: main + systems
       fs.writeFileSync(csPath, skeleton.main);
       const sysPath = path.join(managerDir, 'GameFlowManagerMain.Systems.cs');
@@ -244,7 +248,7 @@ if gfm:
     try:
         extra = {'GFM_Tools.cs': open(gfm).read()}
     except: pass
-payload = {'code': code, 'extraFiles': extra}
+payload = {'csCode': code, 'code': code, 'extraFiles': extra}
 print(json.dumps(payload))
 " "$CS_FILE" "$GFM_FILE" | curl -s -X POST ${BUILD_URL}/build \
   -H "Content-Type: application/json" \

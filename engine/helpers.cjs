@@ -46,19 +46,39 @@ function handleResponse(resolve, reject) {
 
 /**
  * Send build request to Bridge.NET build server
- * @param {string} buildUrl - Base URL of build server (e.g. http://120.55.70.226:3080)
+ * @param {string} buildUrl - Base URL of build server (e.g. http://127.0.0.1:18860)
  * @param {string} endpoint - e.g. '/build' or '/build-html'
  * @param {string} csCode - C# source code
  * @param {object} extraFiles - Additional files map
  * @returns {Promise}
+ *
+ * Compatibility shim for two build-api shapes:
+ *   - Legacy (worker/linux-bridge-build.js): expects `code`, has /build + /build-html.
+ *   - Current (/opt/luna-poc/build-api.js at 127.0.0.1:18860): expects `csCode`,
+ *     only /build, returns `htmlBase64` inline.
+ * We send BOTH field names and translate /build-html → /build + base64 decode,
+ * so both servers keep working and stage code is untouched.
  */
 function buildRequest(buildUrl, endpoint, csCode, extraFiles) {
+  // /build-html legacy adapter: current API only has /build but returns htmlBase64.
+  if (endpoint === '/build-html') {
+    return buildRequest(buildUrl, '/build', csCode, extraFiles).then(function(result) {
+      if (result && result.htmlBase64) {
+        return Buffer.from(result.htmlBase64, 'base64');
+      }
+      if (result && Buffer.isBuffer(result)) return result; // legacy server already returned raw HTML
+      var msg = (result && result.error) ? result.error : 'HTML not in build response';
+      throw new Error(msg);
+    });
+  }
+
   var MAX_RETRIES = 2;
 
   function doRequest(attempt) {
     return new Promise(function(resolve, reject) {
       var parsedUrl = new (require('url').URL)(buildUrl + endpoint);
-      var body = JSON.stringify({ code: csCode, className: 'GameFlowManagerMain', extraFiles: extraFiles });
+      // Send both `csCode` (new API) and `code` (legacy API) for compatibility.
+      var body = JSON.stringify({ csCode: csCode, code: csCode, className: 'GameFlowManagerMain', extraFiles: extraFiles });
       var req = http.request({
         hostname: parsedUrl.hostname,
         port: parsedUrl.port,
@@ -71,7 +91,6 @@ function buildRequest(buildUrl, endpoint, csCode, extraFiles) {
         res.on('data', function(c) { chunks.push(c); });
         res.on('end', function() {
           var buf = Buffer.concat(chunks);
-          if (endpoint === '/build-html') return resolve(buf);
           try { resolve(JSON.parse(buf.toString())); } catch(e) { reject(new Error('Bad response: ' + buf.toString().slice(0, 200))); }
         });
       });

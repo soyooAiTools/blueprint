@@ -338,8 +338,8 @@
     "autoExtracted": true,
     "failClassification": "CODE",
     "stage": "cua-verify",
-    "lastSeenAt": "2026-04-09T04:07:14.854Z",
-    "hitCount": 12
+    "lastSeenAt": "2026-04-14T14:13:08.226Z",
+    "hitCount": 31
   },
   {
     "description": "Phase 2 initialization incorrectly calls AddCompletedPhase(\"phase_1775610864395_1\") instead of marking the current phase or the correct transition semantics. Similar pattern repeats for later phases, always adding the previous phase ID during the next phase init. This produces inaccurate completedPhases tracking and can break CUA phase coverage validation.",

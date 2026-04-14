@@ -1,5 +1,66 @@
 # Blueprint 生产事故记录
 
+## 2026-04-14: 3 worker 全线 compile 失败级联 (5 根因 + 1 环境修复)
+
+### 影响范围
+3 个 worker 所有 compile 任务 ECONNRESET / csCode required / ENOENT iframe.html / codegen 同步崩溃。持续近 1 小时才完整定位,每次修一层又出下一层。
+
+### 根因分析
+
+**根因 1:双 .env 路径不匹配,LINUX_BUILD_URL 静默 fallback 到僵尸远端**
+- `linux-worker-client.js:15` dotenv 加载 `__dirname/../.env` → **parent `.env`**(API 密钥),
+  而 `LINUX_BUILD_URL` 等 10 个键写在 `worker/.env` 里
+- 子 `.env` 从未被读到,worker 走硬编码 fallback `http://120.55.70.226:3080`
+- 该端口 LISTEN 但响应 `Empty reply from server`(僵尸服务),所有请求 ECONNRESET
+- 表象指向网络/服务挂了,实际是配置加载错了文件
+
+**根因 2:build-api 字段重命名 `code` → `csCode`,helpers.cjs 未同步**
+- `/opt/luna-poc/build-api.js`(新)要求 `csCode`,legacy `linux-bridge-build.js` 要求 `code`
+- `helpers.cjs:buildRequest` 和 `claude-code-coder.js:247` 的 Python payload 都只发 `code`
+- 修复根因 1 后立即暴露:`{ok:false,error:"csCode required"}`
+
+**根因 3:`/build-html` 端点被移除,HTML 改为 `htmlBase64` 内联**
+- 新 build-api 只有 `/build`,返回 `{ok, buildTime, htmlSize, htmlBase64}`
+- `compile.cjs:49` 还在调 `helpers.buildRequest(buildUrl, '/build-html', ...)` 期望 Buffer
+- 修复根因 2 后立即暴露:`/build-html` 404
+
+**根因 4:`if (skeleton.split)` 方法名 truthy 陷阱**
+- `claude-code-coder.js:158` 想判断 skeleton 是 split-mode 对象(generator 返回 `{main,systems,split:true}`)
+- 但字符串也有 `.split` — `String.prototype.split` 是函数,**永远 truthy**
+- ≤10 phases 返回普通字符串时,分支误入多文件路径,`fs.writeFileSync(path, skeleton.main)` = undefined → 同步 throw
+- 4 个 codegen round 同一秒全失败(特征:时间戳相同 = 同步错误,非 LLM/网络)
+- 以前被"first 3 phases limit"掩盖,改成 all phases 后命中 10 phases 临界
+
+**根因 5:stage4-template 缺 `iframe.html`(环境,非代码)**
+- `linux-bridge-build.js:621` `convertToSingleHTML` 无存在检查 `fs.readFileSync(stage4Dir + '/iframe.html')`
+- `/opt/luna/stage4-template/` 只有 `index.html`,没有 `iframe.html`
+- 用户手动将 iframe.html 放入模板目录后解决
+- 代码侧建议后续在 `convertToSingleHTML` 加 existsSync + generateIframeHTML() fallback(generator 函数已存在但从未被调用)
+
+### 修复方案
+
+| 修复项 | 文件 | 改动 |
+|--------|------|------|
+| LINUX_BUILD_URL 配置到被加载的 .env | `/opt/blueprint-editor/.env` | 新增 `LINUX_BUILD_URL=http://127.0.0.1:18860` |
+| BUILD_URL fallback 去掉僵尸远端 | `worker/linux-worker-client.js:327` | `120.55.70.226:3080` → `127.0.0.1:18860` |
+| buildRequest 双字段兼容 shim | `engine/helpers.cjs` | 同时发 `csCode` 和 `code`,`/build-html` 路由到 `/build` + base64 解码 |
+| build-test.sh Python payload | `worker/claude-code-coder.js:247` | `{'code':code}` → `{'csCode':code, 'code':code}` |
+| skeleton 分支判断改为 typeof | `worker/claude-code-coder.js:158` | `if (skeleton.split)` → `if (typeof skeleton === 'object' && skeleton.split === true)` |
+| pending-rules.json 清理污染 | `worker/pending-rules.json` | 移除 outage 期间误捕获的 csCode required / iframe.html 条目(它们是环境失败,不是代码质量问题) |
+
+### 验证结果
+- Worker 2 proj_1776165800102_yjrgmn 首次完整通过 compile:`Build OK in 7s, HTML: 1.1MB`
+- `[prompt-cache]` 日志显示 CLAUDE.md sha1=`a21fff93e02c` 跨 worker 一致 — prompt cache 应命中
+- Worker 1 zxpzt4 突破 codegen 同步崩溃,进入正常 INCREMENTAL_FIX 流程
+
+### 教训
+1. **dotenv 路径一定要确认加载的是哪个文件** — `grep -l KEY .env worker/.env` 秒验;不要假设近邻的 `.env` 被读到
+2. **fallback 默认值不要是死服务地址** — 宁愿 throw 也不要静默降级到僵尸
+3. **JS `if (obj.X)` 陷阱** — 当 X 是常见方法名(`split`/`map`/`length`/`forEach`)时一定要 `typeof` 或显式比较值
+4. **"N 轮同秒失败"特征** — 几乎一定是同步 throw,不要先怀疑 LLM/网络/超时,直接搜 throw 路径
+5. **Auto-learner 需要 failClassification 白名单** — pending-rules.json 自动捕获机制对 `compile stage failure` 无差别收录,会把环境/网络错误当代码问题注入下次 prompt,长期会放大噪声
+6. **多层级联修复的副作用** — 每修一层就暴露下一层,耗时很长;遇到这种场景要提前假设"这不是最后一层"并做好流水线 health check
+
 ## 2026-04-01: 凌晨6项目全部失败
 
 ### 影响范围
