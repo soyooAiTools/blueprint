@@ -259,13 +259,39 @@ module.exports = {
           var claudeProvider = require('../../lib/model-provider.cjs').createProvider('claude', {});
           // Send all frames if multiple available
           var visionImages = frameCount > 1 ? frameImages.map(function(f) { return f.base64; }) : imgBase64;
+          // === [vision-cost] pre-call instrumentation ===
+          // P2 planning: need ground-truth VLM token cost to decide if 480x320 downsample is worth it.
+          // Logs: frame count, total base64 bytes (what's actually wire-transferred), prompt chars,
+          // round number. Post-call logs: usage.prompt_tokens / completion_tokens returned by the relay.
+          var _visionImageBytes = 0;
+          if (Array.isArray(visionImages)) {
+            for (var _vi = 0; _vi < visionImages.length; _vi++) _visionImageBytes += (visionImages[_vi] || '').length;
+          } else {
+            _visionImageBytes = (visionImages || '').length;
+          }
+          var _visionFrameCount = Array.isArray(visionImages) ? visionImages.length : (visionImages ? 1 : 0);
+          var _visionStartedAt = Date.now();
+          ctx.addLog('visual-check', '[vision-cost] pre round=' + round +
+            ' frames=' + _visionFrameCount +
+            ' base64Bytes=' + _visionImageBytes +
+            ' promptChars=' + analysisPrompt.length);
           return claudeProvider.generateVision(visionImages, analysisPrompt, { model: 'claude-sonnet-4-6', maxTokens: 300, timeoutMs: 60000 })
             .then(function(visionResult) {
+              // [vision-cost] post-call: log actual token usage from relay response (if provided)
+              var u = (visionResult && visionResult.usage) || {};
+              ctx.addLog('visual-check', '[vision-cost] post round=' + round +
+                ' promptTokens=' + (u.prompt_tokens != null ? u.prompt_tokens : 'n/a') +
+                ' completionTokens=' + (u.completion_tokens != null ? u.completion_tokens : 'n/a') +
+                ' totalTokens=' + (u.total_tokens != null ? u.total_tokens : 'n/a') +
+                ' respTextLen=' + ((visionResult && visionResult.text) || '').length +
+                ' elapsedMs=' + (Date.now() - _visionStartedAt));
               var jsonMatch = (visionResult.text || '').match(/\{[\s\S]*\}/);
               if (jsonMatch) return JSON.parse(jsonMatch[0]);
               return { passed: false, reason: 'Could not parse analysis response' };
             })
             .catch(function(err) {
+              ctx.addLog('visual-check', '[vision-cost] error round=' + round +
+                ' elapsedMs=' + (Date.now() - _visionStartedAt) + ' msg=' + err.message);
               ctx.addLog('visual-check', 'Vision API error: ' + err.message);
               return { passed: false, reason: 'Vision API unavailable: ' + err.message };
             })

@@ -197,11 +197,11 @@ function prepareWorkDir(workDir, blueprint, prompt, skeleton, log, taskId) {
     fs.copyFileSync(gfmSrc, path.join(managerDir, 'GFM_Tools.cs'));
   }
 
-  // 5. behavior-templates.md
-  const behaviorSrc = path.join(__dirname, 'behavior-templates.md');
-  if (fs.existsSync(behaviorSrc)) {
-    fs.copyFileSync(behaviorSrc, path.join(workDir, 'behavior-templates.md'));
-  }
+  // 5. behavior-templates.md — NOT copied to workDir (P2-新1, 2026-04-15).
+  // filterBehaviorTemplates() in parseBlueprintToPromptV5 already inlines only the
+  // USED behaviors into prompt.md. Leaving an 11KB copy on disk was poisoning
+  // Claude Code's first Read (~3K tokens wasted per codegen session) — the same
+  // pattern as the GFM_Tools.cs workDir copy fix from P1.
 
   // 5b. promoted rules + phase state machine 已经由 parseBlueprintToPromptV5 内部注入到 prompt.md，
   //     这里不再 append（避免与 prompt-v5-basetemplate.js 的统一注入点重复）
