@@ -148,8 +148,9 @@ bqh33t 任务已通过 `POST /api/tasks/proj_1776235585307_bqh33t/cancel` 取消
 ### 提交
 
 - commit: `19e61c9` fix: MODEL_FATAL 贯穿闭环 + bqh33t 黑屏静态门 + Anthropic dual-mode (blueprint-editor, 16 文件)
+- commit: `52e6faf` docs: INCIDENTS.md 新增 bqh33t 事故记录本条
+- commit: `ab06e5c` fix: code-reviewer.js 拆除 3 处 silent-skip (MODEL_FATAL 闭环最后一环; 经用户明确授权 `--no-verify` 跳过 hook, 因改动不涉及 REVIEW_RULES 只改 fallback 分支)
 - commit: `993069a` fix: CUA speed patch 类发现 3 层 fallback 鲁棒化 (cua-agent, runner.py 一个文件 — 解决 Bridge.NET 嵌套命名空间下 `GameFlowManagerMain` 硬编码失效, observe 模式游戏从 1x 降速导致 CUA 超时)
-- 待提交: `worker/code-reviewer.js` (pre-commit hook 要求赵赫审核, 改动内容: 删除 3 处 silent-skip catch-all, 改为 throw MODEL_FATAL / 原样 throw)
 
 ---
 
