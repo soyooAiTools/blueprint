@@ -1,5 +1,158 @@
 # Blueprint 生产事故记录
 
+## 2026-04-15 晚间: bqh33t 100% 失败 + 流水线 8 层 silent-pass — MODEL_FATAL 贯穿闭环 + 黑屏静态门
+
+### 影响范围
+用户反馈 "blueprint 项目上的任务为什么会失败"。深度调研发现最近 38 个 pipeline metric 全部 0% 成功。典型受害者 `proj_1776235585307_bqh33t` 连续 6 轮 claude-code recode 全部 FATAL `visual_freeze` (138/138 帧全黑), 每轮 ~36 分钟, 合计 ~$50+ token 白烧。根因不是 bqh33t 代码本身, 是**整条流水线丧失了对模型失败的感知能力** — 任何一家中转挂点, 任何一条错误文本带 "parse error" 字样, 流水线都会把它当作 "通过" 继续往下推。
+
+### 三重根因叠加
+
+**根因 1: sub.mindrix.app OpenAI-compat 中转 503 + sk- key 401, 但流水线 8 层 silent-pass 把模型错误吞成 "通过"**
+
+| # | 位置 | 坏行为 |
+|---|------|--------|
+| 1 | `worker/codex-reviewer.js:247` | preflight 失败 → `{passed:true,skipped:true}` |
+| 2 | `worker/code-reviewer.js:585` | 无 OPENAI_API_KEY → silent skip |
+| 3 | `worker/code-reviewer.js:651` | JSON parse 失败 → `{passed:true,parseError:true}` |
+| 4 | `worker/code-reviewer.js:718` | **catch-all** 任何错误 → `{passed:true,error:...}` **最致命** |
+| 5 | `engine/stages/review.cjs:44/127/131` | 无 reviewer / fallback 级联吞 quota |
+| 6 | `engine/recode.cjs:100` | 生成器所有错误 → `{ok:false}` → 调用方 `if(!ok)` 静默继续 |
+| 7 | `engine/stages/visual-check.cjs:292` | Vision API catch → `{passed:false,reason:'Vision API unavailable'}` → fix-loop 继续烧轮 |
+| 8 | `engine/stages/cua-verify.cjs:198` | `runCUAVerification` catch → null → 下一 round |
+
+每一层单独看都是 "防御性编程, 不要因为一个错误崩掉整个任务"。但叠起来效果是: review 层的 $0 catch-all 让 known-broken 的代码直接过门, codegen 层的 `{ok:false}` 让 recode 看起来 "失败了不该继续", 但调用方又只检查 `.ok`; visual-check 把 404/502 包装成 passed:false 丢给 fix-loop; CUA 发现黑屏以为是代码问题, 又触发 6 轮 claude-code recode (每轮 ~36 min, 走的还是同一个 503 的 relay)。
+
+**根因 2: review 阶段静态检查只在入口跑一次, 只注入 feedback**
+
+`engine/stages/review.cjs` 在 `execute()` 最顶部调一次 `staticCheck(reviewedCode)`, 发现违规只往 `ctx.blueprint.feedbackHistory` 塞一条 entry, 不拦截流程。然后进 fix-loop, 如果 LLM reviewer 返 PASS (包括 root cause 1 的 silent-pass), 违规代码就**直接过门**。bqh33t 的 black-screen API (`GFM_Create.Obj` / `SetActive` / `Destroy` / `Instantiate` / `new Material` / 等 11 条规则) 在 codegen / review 从未被硬拦截, 一路畅通到 visual-check / CUA 才在黑屏上崩。
+
+**根因 3: Claude relay 迁移后 ClaudeProvider 还在打死 URL**
+
+之前把 Claude 从 Anthropic 直连改成走 `sub.mindrix.app/v1/chat/completions` (OpenAI-compat), 代码里 URL 硬编码。2026-04-14 `sub.mindrix.app` OpenAI-compat 中转整体 503, `sk-` key 也开始返 401 INVALID_API_KEY。但 `lib/model-provider.cjs ClaudeProvider.generate` 还在往死 URL 发请求, 完全打不通 — 且所有响应体带 "parse error" / "auth failed" 的错误文本被上层 catch-all 吞成 passed:false, fix-loop 不知道 relay 已经没救了, 继续重试。
+
+### 防护分四层落地
+
+**Layer 1: MODEL_FATAL 分类贯穿全链路**
+
+新增 `error-classifier.cjs` 的 `MODEL_FATAL` 类型 (最高优先级, 早于 CUA/INFRA/CODE 所有 pattern)。匹配定性失败特征 (与瞬时故障区分开):
+
+```
+/MODEL_FATAL/i                    // 显式 marker
+/quota.?exceeded/i                // GPT / Codex / Doubao 配额耗尽
+/insufficient.?quota/i            // OpenAI 标准
+/insufficient.?balance/i          // Doubao / SiliconFlow
+/\b402\b/                         // HTTP 402 Payment Required
+/invalid.?api.?key/i              // OpenAI / Doubao 标准
+/authentication.?failed/i         // 通用 auth fail
+/\bunauthoriz(ed|ation)\b/i       // 401 body text
+/API key not valid/i              // Google/Doubao 标准
+/codex.*preflight.*fail/i         // codex-reviewer preflight 显式
+```
+
+`401/403` 从 `INFRA_PATTERNS` 中移除 (定性非瞬时, 重试只会原样 401), 但**保留 429** (短时限流可恢复)。
+
+MODEL_FATAL 路由链:
+```
+provider 层 throw (前缀 MODEL_FATAL:)
+  → fix-loop.cjs 见 classified.type==='MODEL_FATAL' 直接冒泡, 不 recode
+  → pipeline.cjs 在 stage retry 前先 classify, MODEL_FATAL 不 stage-retry
+  → linux-worker-client.js processTask catch 检 failInfo.failClassification
+  → cancelTaskViaApi(taskId, 'worker:model-fatal', reason)
+  → 任务状态转 cancelled (terminal, watchdog 不再抢回重试)
+```
+
+改动的 silent-pass 修复点 (按事故 8 层对应):
+
+| 层 | 文件 | 改动 |
+|---|------|------|
+| 1 | `worker/codex-reviewer.js` | preflight 失败 → `throw MODEL_FATAL`; 另外剥离子进程 `OPENAI_API_KEY/CODEX_API_KEY/OPENAI_BASE_URL` 避免 codex 误用 mindrix key 撞 api.openai.com 拿 401 |
+| 2-4 | `worker/code-reviewer.js` | 无 key → throw MODEL_FATAL (保留 `ALLOW_NO_REVIEWER=true` 本地逃生口); parse 失败 → throw; catch-all 按 quota/auth 正则前缀化 MODEL_FATAL 或原样 throw |
+| 5 | `engine/stages/review.cjs` | "no reviewer available → skipped" 改为 throw MODEL_FATAL; codex→GPT fallback 加 `isDefinitive` 守卫 (GPT-5.4 与 codex 共享同一 OPENAI_API_KEY, 降级只会撞同一 quota 墙) |
+| 6 | `engine/recode.cjs` | result.error 含 MODEL_FATAL → throw; 两处 .catch re-throw |
+| 7 | `engine/stages/visual-check.cjs` | 空 rawText 响应 → throw MODEL_FATAL; 同 reason `"Could not parse analysis response"` / `"Vision API unavailable"` 升级为 MODEL_FATAL (过去 2 轮即取消任务而非烧 6 轮 recode) |
+| 8 | `engine/stages/cua-verify.cjs` | runCUAVerification catch 见 MODEL_FATAL re-throw |
+
+同时 provider 侧在 throw 处前缀化:
+- `lib/model-provider.cjs ClaudeProvider.generate/generateVision`: 响应体 error / HTTP 401 402 403 / parse-fail-on-4xx 全部前缀 `MODEL_FATAL:`
+- `adapters/doubao-adapter.cjs`: `json.error.code + message` 扫 quota/insufficient/401/402/403/invalid_access_key/access_denied/billing 正则, hit 即 MODEL_FATAL 前缀
+- `worker/claude-code-coder.js`: CLI early-exit 时扫 stdout+stderr auth/quota 正则, 命中前缀化
+
+**Layer 2: 11 条黑屏规则 blocking + codegen 前置硬门**
+
+`engine/static-check.cjs` 给 11 条会导致 Luna 黑屏/不可见的规则打 `blocking:true` 标记:
+```
+setactive / create-obj / create-ground / set-color / create-canvas /
+create-primitive / destroy-call / instantiate / add-component /
+renderer-material-color / new-material
+```
+新导出 `getBlockingIssues(code, ctx)` 只返 blocking 标记条目。
+
+`engine/stages/codegen.cjs` 在拿到 csCode 和 extraFiles 后 (review 之前) 立刻扫 blocking issues, 命中则:
+1. 前 10 条带行号摘要塞进 `ctx.blueprint.feedbackHistory`, 下一轮 AI prompt 明确知道要修什么
+2. throw `Blocking static violations: N (first: <msg>)`, 强制 fix-loop 下一轮 recode
+
+代码**连 compile 都到不了**, 把 3 个 stage 的损耗提前到 codegen 入口挡掉。partial class 文件 (GameFlowManagerMain.Systems.cs) 也一起扫。
+
+**Layer 3: review 静态检查搬进 fix-loop 每轮都跑**
+
+`engine/stages/review.cjs` 把原来入口一次性的 `staticCheck()` 删除, 搬进 fix-loop `attempt()` 每轮都跑。命中时合成:
+```js
+{
+  passed: false,
+  source: 'static-precheck',   // 不带 parseError/error 字段
+  feedback: 'STATIC CHECK VIOLATIONS ...',
+  issues: [...],
+  criticalCount: N,
+}
+```
+`source: 'static-precheck'` 且**没有** `parseError`/`error` 字段是关键 — 这样 codex→GPT 降级分支条件不触发, fix-loop 直接走 recode 路径, 不浪费第二次 LLM review。
+
+**Layer 4: Claude provider Anthropic-native dual-mode**
+
+`lib/model-provider.cjs ClaudeProvider` 双模改造:
+- `ANTHROPIC_AUTH_TOKEN` 存在 → 走 `crs.mindrix.app/api/v1/messages` (Anthropic-native, Claude Code CLI 同款中转, 2026-04-15 实测稳定)
+- 否则 → 旧的 `sub.mindrix.app/v1/chat/completions` (legacy fallback)
+
+`generate` / `generateVision` 都适配了双响应格式:
+- Anthropic-native: `content[{type:'text', text:'...'}]` + `usage.input_tokens/output_tokens`
+- OpenAI-compat: `choices[0].message.content` + `usage.prompt_tokens/completion_tokens`
+
+Usage 归一化: `input_tokens → prompt_tokens`, 保持 `visual-check [vision-cost]` 日志跨模一致。
+
+`ecosystem.config.cjs`: `OPENAI_BASE_URL` 硬编码改 env-first (原硬编码覆盖 `.env` 的值导致静默降级), 新增 `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL` 环境变量声明。
+
+### 陷阱 / 教训
+
+1. **"不要因为一个错误崩掉整个任务" 的防御性编程在多层叠加后会变成黑洞。** 每一层的 catch-all 都是 "少数错误变多数成功" 的权衡, 但当错误本身就是 "quota 耗尽 / 中转 503" 这种根本性故障时, 每多一层 catch-all 都等于多烧一倍的钱。**定性失败 (quota/auth/invalid-key) 必须立刻 cancel 任务, 跟瞬时错误 (ECONNRESET/502) 在分类器层面就要区分。**
+2. **401/403 不是 INFRA 错误。** 重试 100 次还是 401。但 429 (rate limit) 是 INFRA — 短时间退避后可以继续。
+3. **静态检查只在流程开头跑一次等于没跑。** 必须在每个 fix-loop 轮次 **前** 都跑, 并且命中时直接合成 passed:false 走 recode, 不能依赖 "下一轮 AI 自己从 feedbackHistory 读出来修"。
+4. **黑屏级规则要在 codegen 阶段就拦截。** 到 review 阶段才拦截意味着白烧一轮 LLM token; 到 visual-check 才拦截意味着白烧 compile + Luna build (~80s) + CUA (~54s)。
+5. **硬编码 URL 的中转迁移是定时炸弹。** `ecosystem.config.cjs` 把 `.env` 的值覆盖掉, 让所有 `process.env.OPENAI_BASE_URL` 读出来都是旧 URL — 改法是 env-first (`process.env.OPENAI_BASE_URL || '默认值'`)。
+6. **codex 子进程环境变量污染。** `~/.codex/auth.json` 用的是 ChatGPT auth mode, 但如果 `OPENAI_API_KEY / CODEX_API_KEY / OPENAI_BASE_URL` 在 env 里就存在, codex 会切到 API key 模式直接撞 `api.openai.com`, 拿 mindrix 中转 key 去撞官方 API 必拿 401。修法是 `spawn()` 时显式从 env 里**剥离**这三个变量。
+
+### 验证
+
+`lib/model-provider.cjs healthCheck()` 三路全绿:
+```
+claude 1710ms  (Anthropic-native via crs.mindrix.app)
+doubao 4501ms
+gpt54  7172ms  (codex preflight cached)
+```
+
+bqh33t 任务已通过 `POST /api/tasks/proj_1776235585307_bqh33t/cancel` 取消, 状态 `cancelled`, 日志 `[Cancel Task] ... cancelled by claude:bqh33t-permanent-failure-2026-04-15`。
+
+### 逃生口
+
+`ALLOW_NO_REVIEWER=true` 环境变量保留无 key 本地测试场景, 默认关闭。
+
+### 提交
+
+- commit: `19e61c9` fix: MODEL_FATAL 贯穿闭环 + bqh33t 黑屏静态门 + Anthropic dual-mode (blueprint-editor, 16 文件)
+- commit: `993069a` fix: CUA speed patch 类发现 3 层 fallback 鲁棒化 (cua-agent, runner.py 一个文件 — 解决 Bridge.NET 嵌套命名空间下 `GameFlowManagerMain` 硬编码失效, observe 模式游戏从 1x 降速导致 CUA 超时)
+- 待提交: `worker/code-reviewer.js` (pre-commit hook 要求赵赫审核, 改动内容: 删除 3 处 silent-skip catch-all, 改为 throw MODEL_FATAL / 原样 throw)
+
+---
+
 ## 2026-04-15 16:40: Port-Guard 把 PM2 God Daemon 当端口占用者 SIGTERM 之 — 4 分钟全站下线
 
 ### 影响范围
