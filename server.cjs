@@ -45,9 +45,12 @@ var { initGracefulShutdown } = require('./lib/lifecycle.cjs');
 var PORT = config.PORT;
 
 // ============ Port Guard ============
-try { killPortOccupier(PORT); } catch (e) { console.warn('[port-guard] skipped:', e.message); }
-
+// Under PM2 cluster mode the LISTEN socket for PORT is held by the PM2 God Daemon
+// (not by any worker process), so ss/lsof would report PM2's PID as the "occupier".
+// Killing it used to cascade-kill ALL apps (incident 2026-04-15 16:40). PM2 handles
+// port conflicts itself during reload, so skip port-guard entirely when under PM2.
 if (!process.env.pm_id) {
+  try { killPortOccupier(PORT); } catch (e) { console.warn('[port-guard] skipped:', e.message); }
   console.warn('\n\u26A0\uFE0F  未通过 PM2 启动！手动测试请用: node server.cjs &  测完记得 kill');
   console.warn('\u26A0\uFE0F  生产启动请用: pm2 start ecosystem.config.js\n');
 }

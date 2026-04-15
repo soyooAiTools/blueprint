@@ -1,5 +1,44 @@
 # Blueprint 生产事故记录
 
+## 2026-04-15 16:40: Port-Guard 把 PM2 God Daemon 当端口占用者 SIGTERM 之 — 4 分钟全站下线
+
+### 影响范围
+`pm2 reload blueprint-editor` 触发级联下线: blueprint-editor + linux-worker-1 + linux-worker-2 三个 apps 同时 `Deleting process`, PM2 daemon 自身优雅退出。nginx 反代 `3901` 无后端 → 外部访问 `playcools.top/webgl/*` 全部 404/502, 持续 4 分钟 (16:40:32 ~ 16:44:54) 直到 `pm2 resurrect`。期间 CUA 太空捡垃圾任务 (bqh33t) 被 SIGINT 中断, 好在 2026-04-09 的 checkpoint 修复救了场, 恢复后继续跑。
+
+### 根因
+**`lib/port-guard.cjs` 与 PM2 cluster 模式的致命冲突**。
+
+`server.cjs` 启动时调用 `killPortOccupier(3901)`, port-guard 用 `ss -tlnp sport = :3901` 找占用者 → SIGTERM。这在「手动 `node server.cjs` 忘了 kill 再启动」场景下是对的, 但 **PM2 cluster 模式下监听 socket 不是 worker 进程持有的**, 而是 PM2 God Daemon 自己持有再分发给 cluster workers:
+
+```
+ss -tlnp
+LISTEN 0 511 *:3901 users:(("PM2 v6.0.14: Go",pid=2349527,fd=3))
+```
+
+所以新 cluster worker 启动时:
+1. port-guard 查 3901 → 看到 PID 2349527
+2. `process.kill(2349527, 'SIGTERM')` → **自杀 PM2 God Daemon**
+3. Daemon 优雅退出 → 杀掉所有 managed apps
+
+只要 cluster 模式 + port-guard 同时存在, 每次 `pm2 reload` (甚至 `pm2 restart`) 都会触发这个 bug。原先的 `feedback_pm2_reload_cascade.md` 错把根因归咎于 `pm2 reload` 语义, 实际上跟 reload/restart 无关 —— 是 port-guard 在 cluster 模式下根本不该运行。
+
+### 修复方案 (双重防护)
+| # | Fix | 文件 | 改动 |
+|---|-----|------|------|
+| 1 | PM2 下跳过 port-guard | `server.cjs` | `if (!process.env.pm_id) { killPortOccupier(PORT); }` — `pm_id` 是 PM2 注入的环境变量, 存在即 run under PM2, PM2 自己会处理端口移交 |
+| 2 | 识别 PM2 拒绝杀 | `lib/port-guard.cjs` | 读 `/proc/<pid>/comm`, 正则匹配 `^PM2\b` 或 `God\s*Daemon` 则 return 不杀 — 防御纵深, 即使未来别的代码路径调用 killPortOccupier 也不会误杀 |
+
+### 陷阱 / 教训
+1. **cluster 模式的 app 不要跑 port-guard/lsof-kill/fuser-k 类逻辑** —— 监听 socket 是 God Daemon 持有的, 杀它就是自杀 daemon → 杀所有 apps
+2. **fork 模式 worker 反而安全** —— linux-worker-1/2 是 fork 模式 (不监听端口), port-guard 不影响它们
+3. **判断是否 run under PM2** 用 `process.env.pm_id` (或 `NODE_APP_INSTANCE`)
+4. **诊断「pm2 突然全挂」** 第一时间看 `/root/.pm2/pm2.log` 有没有 `pm2 has been killed by signal` —— 正常 reload 不会出现, 只有外部 SIGINT/SIGTERM 到 daemon 才会
+
+### 提交
+- commit: `<pending-port-guard>` fix: port-guard SIGTERM PM2 God Daemon 致 4 分钟级联下线
+
+---
+
 ## 2026-04-15: 3 任务无限烧钱 + Dashboard 状态停滞 (6 项 fix-loop 修复 + 5 项 dashboard 修复)
 
 ### 影响范围
