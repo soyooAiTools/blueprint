@@ -942,5 +942,33 @@
     "stage": "cua-verify",
     "lastSeenAt": "2026-04-15T10:42:11.263Z",
     "hitCount": 3
+  },
+  {
+    "description": "codegen aborted: same CODE error repeated 3 rounds, fix-loop not converging: Blocking static violations: 35 (first: SetActive() forbidden in Luna — use position=(0,-999,0) to hide)",
+    "rule": "General",
+    "fix": "codegen aborted: same CODE error repeated 3 rounds, fix-loop not converging: Blocking static violations: 35 (first: SetActive() forbidden in Luna — use position=(0,-999,0) to hide)",
+    "severity": "info",
+    "line": "codegen stage failure",
+    "taskId": "proj_1776266310700_2p50o1",
+    "timestamp": "2026-04-15T15:37:02.128Z",
+    "autoExtracted": true,
+    "failClassification": "CODE",
+    "stage": "codegen",
+    "lastSeenAt": "2026-04-15T15:55:19.654Z",
+    "hitCount": 2
+  },
+  {
+    "description": "review aborted: same CODE error repeated 3 rounds, fix-loop not converging: Review blocked: 1 critical issues remain after 4 rounds",
+    "rule": "Code Quality",
+    "fix": "review aborted: same CODE error repeated 3 rounds, fix-loop not converging: Review blocked: 1 critical issues remain after 4 rounds",
+    "severity": "critical",
+    "line": "review stage failure",
+    "taskId": "proj_1776266310700_2p50o1",
+    "timestamp": "2026-04-15T16:30:18.224Z",
+    "autoExtracted": true,
+    "failClassification": "CODE",
+    "stage": "review",
+    "lastSeenAt": "2026-04-15T17:12:11.082Z",
+    "hitCount": 5
   }
 ]

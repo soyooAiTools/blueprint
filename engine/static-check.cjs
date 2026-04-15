@@ -86,13 +86,32 @@ var RULES = [
     return [];
   }},
   { id: 'autoplay-interact-empty', pattern: null, message: 'OnAutoPlayArrive is empty — must simulate interactions for CUA variable checking', custom: function(code) {
-    // Check if OnAutoPlayArrive exists and has real content (not just TODO comments)
-    var match = code.match(/void\s+OnAutoPlayArrive\s*\(string\s+\w+\)\s*\{([^}]*)\}/s);
-    if (match) {
-      var body = match[1].replace(/\/\/[^\n]*/g, '').trim(); // strip comments
-      if (body.length < 10) {
-        return [{ line: code.substring(0, match.index).split('\n').length, text: 'OnAutoPlayArrive body is empty — must update game variables (gold, score, etc.) when autoPlay player reaches a target' }];
-      }
+    // Check if OnAutoPlayArrive exists and has real content (not just TODO comments).
+    // 2026-04-16: old regex `\{([^}]*)\}` stopped at the first `}` in the body — skeleton
+    // example comments (and real nested blocks) have `}`, which truncated the capture and
+    // made the rule永久误判 2p50o1 为 empty. Fix: strip comments/strings first, then walk
+    // brace depth to find the real matching `}`. Handles arbitrary nesting.
+    var stripped = code
+      .replace(/\/\*[\s\S]*?\*\//g, '')      // block comments
+      .replace(/\/\/[^\n]*/g, '')             // line comments
+      .replace(/"(?:[^"\\]|\\.)*"/g, '""');   // string literals (keep quotes so `""` isn't a token)
+    var sigMatch = stripped.match(/void\s+OnAutoPlayArrive\s*\(\s*string\s+\w+\s*\)\s*\{/);
+    if (!sigMatch) return [];
+    var start = sigMatch.index + sigMatch[0].length;
+    var depth = 1;
+    var end = start;
+    while (end < stripped.length && depth > 0) {
+      var ch = stripped[end];
+      if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (depth === 0) break; }
+      end++;
+    }
+    if (depth !== 0) return [];
+    var body = stripped.substring(start, end).trim();
+    if (body.length < 10) {
+      var sigIdx = code.indexOf('OnAutoPlayArrive');
+      var lineNum = sigIdx >= 0 ? code.substring(0, sigIdx).split('\n').length : 1;
+      return [{ line: lineNum, text: 'OnAutoPlayArrive body is empty — must update game variables (gold, score, etc.) when autoPlay player reaches a target' }];
     }
     return [];
   }},

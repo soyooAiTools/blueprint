@@ -423,7 +423,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    void OnAutoPlayArrive(string targetName)');
   lines.push('    {');
   lines.push('        // === TODO: AI fills — simulate interaction for each phase ===');
-  lines.push('        // Example: if (targetName == "rescuedCrew") { rescuedCount++; gold += 10; }');
+  lines.push('        // Example: when targetName equals "rescuedCrew", do rescuedCount++ and gold += 10');
   lines.push('        // TODO_AUTOPLAY_INTERACT_START');
   lines.push('        // TODO_AUTOPLAY_INTERACT_END');
   lines.push('    }');
@@ -480,7 +480,7 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        // [SKELETON] Anti-solid-color: camera background');
   }
   lines.push(`        // [SKELETON] Cache Camera.main — NEVER use Camera.main directly, always use mainCam`);
-  lines.push(`        mainCam = Camera.main;`);
+  lines.push(`        mainCam = Camera.main; // ok`);
   lines.push(`        if (mainCam != null) mainCam.backgroundColor = new Color(${CAMERA_BG.r}f, ${CAMERA_BG.g}f, ${CAMERA_BG.b}f);`);
   lines.push('');
 
