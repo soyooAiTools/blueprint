@@ -35,7 +35,7 @@ LISTEN 0 511 *:3901 users:(("PM2 v6.0.14: Go",pid=2349527,fd=3))
 4. **诊断「pm2 突然全挂」** 第一时间看 `/root/.pm2/pm2.log` 有没有 `pm2 has been killed by signal` —— 正常 reload 不会出现, 只有外部 SIGINT/SIGTERM 到 daemon 才会
 
 ### 提交
-- commit: `<pending-port-guard>` fix: port-guard SIGTERM PM2 God Daemon 致 4 分钟级联下线
+- commit: `aae59bb` fix: port-guard SIGTERM PM2 God Daemon 致 4 分钟级联下线
 
 ---
 
@@ -130,7 +130,8 @@ LISTEN 0 511 *:3901 users:(("PM2 v6.0.14: Go",pid=2349527,fd=3))
 5. **docblock 内的 require 陷阱** — 见 `~/.claude/projects/-root/memory/feedback_require_in_docblock.md`。
 
 ### 提交
-- commit: `<pending>` fix: 3 任务无限烧钱 6 项 fix-loop 修复 + dashboard 状态同步与首屏性能
+- commit: `86a1469` fix: 3 任务无限烧钱 + dashboard 瞎眼 — fix-loop/状态机/desync 12 项修复
+- commit: `ad6a2ee` feat: dashboard 4-API 健康展示 + Claude /v1/v1 URL bug + GPT-5.4 preflight 原因细化
 
 ### 验证结果
 - Watchdog Run #1 (post fix): 检出 yjrgmn + dmda29 两个 "失败但 task=cancelled" desync,两条 fix 执行成功,项目文件写入 `status=cancelled`
