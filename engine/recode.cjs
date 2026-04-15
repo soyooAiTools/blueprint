@@ -181,8 +181,12 @@ function extractMethodSignatures(code) {
 }
 
 function patchRecode(opts) {
-  var createProvider = require('../lib/model-provider.cjs').createProvider;
-  var provider = createProvider('claude', {});
+  // 2026-04-16: switched from direct Claude API (ClaudeProvider.generateWithRetry)
+  // to spawn Claude Code CLI (--model claude-sonnet-4-6) via runClaudeCodeText.
+  // Reason: unify all Claude calls through the CC CLI relay so failure modes,
+  // MODEL_FATAL detection, and billing are consistent with codegen/review-fix.
+  // The prompt/contract is unchanged — we only swap the transport layer.
+  var claudeCoder = require('../worker/claude-code-coder.js');
 
   var codeLines = opts.currentCode.split('\n');
   var issueDescriptions = [];
@@ -221,41 +225,47 @@ function patchRecode(opts) {
     }
   }
 
-  var prompt = {
-    system: 'You are fixing specific issues in a Luna playable ad C# file. Output ONLY the complete corrected file. No explanations, no markdown fences.',
-    user: 'CURRENT FULL CODE:\n' + opts.currentCode + '\n\n' +
-      (extraFilesContext ? extraFilesContext + '\n\n' : '') +
-      'ISSUES TO FIX (do NOT modify any other code):\n' + issueDescriptions.join('\n\n') + '\n\n' +
-      'Output the COMPLETE corrected file. Only modify lines related to the issues above.\n' +
-      'Do NOT add new features, refactor, or change working code.\n' +
-      'CRITICAL: Do NOT rename or change any existing phaseId strings in AddCompletedPhase(), ReportPhase(), or CheckEventRules() calls. The phase IDs in the existing code are CANONICAL — changing them will break phase tracking.' +
-      (extraFilesContext ? '\nCRITICAL: Do NOT duplicate any method already defined in the partial class files above — this causes CS0111.' : '')
-  };
+  var systemPrompt = 'You are fixing specific issues in a Luna playable ad C# file. Output ONLY the complete corrected file. No explanations, no markdown fences.';
+  var userPrompt = 'CURRENT FULL CODE:\n' + opts.currentCode + '\n\n' +
+    (extraFilesContext ? extraFilesContext + '\n\n' : '') +
+    'ISSUES TO FIX (do NOT modify any other code):\n' + issueDescriptions.join('\n\n') + '\n\n' +
+    'Output the COMPLETE corrected file. Only modify lines related to the issues above.\n' +
+    'Do NOT add new features, refactor, or change working code.\n' +
+    'CRITICAL: Do NOT rename or change any existing phaseId strings in AddCompletedPhase(), ReportPhase(), or CheckEventRules() calls. The phase IDs in the existing code are CANONICAL — changing them will break phase tracking.' +
+    (extraFilesContext ? '\nCRITICAL: Do NOT duplicate any method already defined in the partial class files above — this causes CS0111.' : '');
 
-  opts.log('patchRecode: fixing ' + opts.issues.length + ' issues via Claude Sonnet');
+  opts.log('patchRecode: fixing ' + opts.issues.length + ' issues via Claude Code CLI (Sonnet)');
 
-  return provider.generateWithRetry(prompt, { model: 'claude-sonnet-4-6', maxTokens: 30000, timeoutMs: 180000 }, 2)
-    .then(function(result) {
-      var text = (result.text || '').trim();
-      // Strip markdown fences if present
-      if (text.indexOf('```') === 0) {
-        text = text.replace(/^```[^\n]*\n/, '').replace(/\n```\s*$/, '');
-      }
-      if (text.length < 100) {
-        opts.log('patchRecode: response too short (' + text.length + ' chars)');
-        return { ok: false, error: 'patch response too short', patchApplied: false };
-      }
-      opts.log('patchRecode: got ' + text.length + ' chars');
-      return { ok: true, code: text, patchApplied: true };
-    })
-    .catch(function(err) {
-      opts.log('patchRecode failed: ' + err.message);
+  return claudeCoder.runClaudeCodeText({
+    systemPrompt: systemPrompt,
+    userPrompt: userPrompt,
+    model: 'claude-sonnet-4-6',
+    effort: 'medium',
+    timeoutMs: 240000,
+    minOutputLen: 100,
+    taskId: opts.taskId || 'patch',
+    log: opts.log,
+  }).then(function(result) {
+    if (!result.ok) {
       // MODEL_FATAL propagates so error-classifier can cancel the task.
-      if (err && /MODEL_FATAL/i.test(err.message || '')) {
-        throw err;
+      if (result.error && /MODEL_FATAL/i.test(result.error)) {
+        throw new Error(result.error);
       }
-      return { ok: false, error: err.message, patchApplied: false };
-    });
+      opts.log('patchRecode failed: ' + result.error);
+      return { ok: false, error: result.error, patchApplied: false };
+    }
+    var text = (result.text || '').trim();
+    // Strip markdown fences if present
+    if (text.indexOf('```') === 0) {
+      text = text.replace(/^```[^\n]*\n/, '').replace(/\n```\s*$/, '');
+    }
+    if (text.length < 100) {
+      opts.log('patchRecode: response too short (' + text.length + ' chars)');
+      return { ok: false, error: 'patch response too short', patchApplied: false };
+    }
+    opts.log('patchRecode: got ' + text.length + ' chars');
+    return { ok: true, code: text, patchApplied: true };
+  });
 }
 
 function cleanup(dir) {

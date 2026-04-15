@@ -329,14 +329,25 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
       log(`[prompt-cache] instrumentation error: ${cacheLogErr.message}`, taskId);
     }
 
-    // Record file mtime before spawn to detect actual modifications (Bug fix: skeleton pre-write false positive)
-    const mainFileForMtime = path.join(opts.workDir || workDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
-    let preSpawnMtimeMs = 0;
+    // Record file mtimes before spawn to detect actual modifications (Bug fix: skeleton pre-write false positive)
+    // Track BOTH GameFlowManagerMain.cs and GameFlowManagerMain.Systems.cs — a successful
+    // INCREMENTAL_FIX round may touch only one of them, and a zero-edit round touches neither.
+    // 2026-04-15 fix: zero-edit detection previously only watched GameFlowManagerMain.cs, so a
+    // Round 3 that wasted 2.5 min editing GFM_Tools.cs (which gets overwritten each round)
+    // was treated as successful because exit-code was 0. See project_round3_zero_edit_fix memory.
+    const managerDirForMtime = path.join(opts.workDir || workDir, 'Assets', 'Program', 'Script', 'Manager');
+    const watchedCsFilesForMtime = [
+      path.join(managerDirForMtime, 'GameFlowManagerMain.cs'),
+      path.join(managerDirForMtime, 'GameFlowManagerMain.Systems.cs'),
+    ];
+    const preSpawnMtimes = {};
     try {
-      if (fs.existsSync(mainFileForMtime)) {
-        preSpawnMtimeMs = fs.statSync(mainFileForMtime).mtimeMs;
+      for (const f of watchedCsFilesForMtime) {
+        preSpawnMtimes[f] = fs.existsSync(f) ? fs.statSync(f).mtimeMs : 0;
       }
     } catch (_e) {}
+    // Legacy var kept for any external reference — reflects the main file only
+    let preSpawnMtimeMs = preSpawnMtimes[watchedCsFilesForMtime[0]] || 0;
     const spawnStartTime = Date.now();
 
     const child = spawn(CLAUDE_CMD, args, {
@@ -418,27 +429,49 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
 
       // 即使超时(143)或非零退出，也检查文件是否已实际修改
       // Claude Code 可能在被 kill 前已经写好了文件
-      const mainFile = path.join(opts.workDir || '', 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
+      // 2026-04-15 fix: require EITHER main OR Systems partial class to have newer mtime.
+      // A zero-edit round (Claude wasted time on files that get overwritten or wrong targets)
+      // is now detected even with exit code 0 and rejected as ZERO_EDITS.
       let fileActuallyModified = false;
+      const modifiedFiles = [];
       try {
-        if (opts.workDir && fs.existsSync(mainFile)) {
-          const currentMtimeMs = fs.statSync(mainFile).mtimeMs;
-          fileActuallyModified = currentMtimeMs > preSpawnMtimeMs;
+        if (opts.workDir) {
+          for (const f of watchedCsFilesForMtime) {
+            if (fs.existsSync(f)) {
+              const currentMtimeMs = fs.statSync(f).mtimeMs;
+              if (currentMtimeMs > (preSpawnMtimes[f] || 0)) {
+                fileActuallyModified = true;
+                modifiedFiles.push(path.basename(f));
+              }
+            }
+          }
         }
       } catch (_e) {}
-      
+
       if (code !== 0 && fileActuallyModified) {
-        log(`[claude-code] Process exited non-zero (${code}) but code file was modified after spawn — treating as partial success`, taskId);
+        log(`[claude-code] Process exited non-zero (${code}) but code file was modified after spawn (${modifiedFiles.join(', ')}) — treating as partial success`, taskId);
       } else if (code !== 0 && !fileActuallyModified) {
-        log(`[claude-code] Process exited non-zero (${code}) and code file was NOT modified — treating as failure`, taskId);
+        log(`[claude-code] Process exited non-zero (${code}) and no watched code file was modified — treating as failure`, taskId);
+      } else if (code === 0 && !fileActuallyModified) {
+        log(`[claude-code] ⚠️ Process exited 0 but NO watched .cs file was modified — ZERO-EDIT ROUND (likely Claude edited GFM_Tools.cs or similar non-target file). Treating as failure to force retry with better prompt.`, taskId);
+      } else if (code === 0 && fileActuallyModified) {
+        log(`[claude-code] ✅ Exit 0 and modified: ${modifiedFiles.join(', ')}`, taskId);
       }
 
+      const trueOk = code === 0 && fileActuallyModified;
       resolve({
-        ok: code === 0 || fileActuallyModified,  // file must have been actually modified to count as success
+        ok: trueOk,
         exitCode: code,
         output: stdout,
-        error: (code !== 0 && !fileActuallyModified) ? (stderr || `Exit code ${code}`) : null,
+        error: !trueOk
+          ? (code !== 0 && fileActuallyModified
+              ? null  // partial success path below
+              : (code === 0 && !fileActuallyModified
+                  ? 'ZERO_EDITS: Claude Code exited 0 but did not modify GameFlowManagerMain.cs or GameFlowManagerMain.Systems.cs. It may have edited read-only files (e.g. GFM_Tools.cs) that get restored every round. Re-run with stricter prompt targeting the correct files.'
+                  : (stderr || `Exit code ${code}`)))
+          : null,
         partialSuccess: code !== 0 && fileActuallyModified,
+        modifiedFiles: modifiedFiles,
       });
     });
 
@@ -456,6 +489,135 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
     // 写入 prompt
     child.stdin.write(userPrompt);
     child.stdin.end();
+  });
+}
+
+/**
+ * runClaudeCodeText — 文本模式 Claude Code CLI spawn
+ *
+ * 用于 patchRecode / visual-check 等 "给一段输入(+可选附件文件), 拿一段文本输出" 场景。
+ * 和 runClaudeCode 的关键区别:
+ *   - 不需要 Unity 工程目录; 自己创建 /tmp/cc-text-<taskId>-XXX 临时 workDir
+ *   - 不做 mtime 检查; ok 判据只看 exit code === 0 && stdout.length >= minOutputLen
+ *   - tools 缩到 Read(最小权限, 视觉也靠 Read 加载图片)
+ *   - systemPrompt 写到临时 CLAUDE.md 作为 --system-prompt-file 传入
+ *   - opts.additionalFiles 预写到 workDir, 供 prompt 里指令模型 Read (图片/附件)
+ *
+ * 设计目的: 让所有本来直连 Claude API 的场景(patchRecode / visual-check)统一走
+ * CC CLI relay, 故障特征、MODEL_FATAL 检测、计费归一。
+ *
+ * @param {object} opts
+ * @param {string} opts.systemPrompt - 写入 CLAUDE.md 的系统提示
+ * @param {string} opts.userPrompt - 经 stdin 喂给 CLI 的用户消息
+ * @param {object} [opts.additionalFiles] - 可选 {filename: Buffer|string}, 写入 workDir 根
+ * @param {string} [opts.model] - 默认 claude-sonnet-4-6
+ * @param {string} [opts.effort] - 默认 medium
+ * @param {number} [opts.timeoutMs] - 默认 240000 (4min)
+ * @param {number} [opts.minOutputLen] - 成功判据最小 stdout 长度, 默认 50
+ * @param {function} [opts.log]
+ * @param {string} [opts.taskId]
+ * @returns {Promise<{ok, text, exitCode, error}>}
+ */
+function runClaudeCodeText(opts) {
+  opts = opts || {};
+  const log = opts.log || function() {};
+  const taskId = opts.taskId || 'text';
+  const os = require('os');
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-text-' + taskId + '-'));
+
+  return new Promise(function(resolve) {
+    const finish = function(result) {
+      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch(_) {}
+      resolve(result);
+    };
+
+    // 1. 写 CLAUDE.md (system prompt)
+    try {
+      fs.writeFileSync(path.join(tempDir, 'CLAUDE.md'), opts.systemPrompt || 'You are a helpful assistant.');
+    } catch(e) {
+      return finish({ ok: false, error: 'Failed to write CLAUDE.md: ' + e.message });
+    }
+
+    // 2. 写附件文件 (图片或任何需要 Read 的 blob)
+    if (opts.additionalFiles) {
+      try {
+        const names = Object.keys(opts.additionalFiles);
+        for (const fname of names) {
+          fs.writeFileSync(path.join(tempDir, fname), opts.additionalFiles[fname]);
+        }
+        log('[claude-code-text] wrote ' + names.length + ' additional file(s) to ' + tempDir, taskId);
+      } catch(e) {
+        return finish({ ok: false, error: 'Failed to write additional files: ' + e.message });
+      }
+    }
+
+    const args = [
+      '--print',
+      '--model', opts.model || 'claude-sonnet-4-6',
+      '--output-format', 'text',
+      '--effort', opts.effort || 'medium',
+      '--system-prompt-file', path.join(tempDir, 'CLAUDE.md'),
+      '--tools', 'Read',
+      '--debug-file', '/tmp/claude-text-' + taskId + '.log',
+    ];
+
+    log('[claude-code-text] Spawning: ' + CLAUDE_CMD + ' ' + args.join(' '), taskId);
+    log('[claude-code-text] systemPrompt=' + (opts.systemPrompt || '').length + 'c userPrompt=' + (opts.userPrompt || '').length + 'c cwd=' + tempDir, taskId);
+
+    const child = spawn(CLAUDE_CMD, args, {
+      cwd: tempDir,
+      env: Object.assign({}, process.env),
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    if (child.pid) {
+      if (!process._activeChildPIDs) process._activeChildPIDs = new Set();
+      process._activeChildPIDs.add(child.pid);
+    }
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', function(d) { stdout += d.toString(); });
+    child.stderr.on('data', function(d) { stderr += d.toString(); });
+
+    const timeoutMs = opts.timeoutMs || 240000;
+    const timer = setTimeout(function() {
+      log('[claude-code-text] ⚠️ Timeout ' + (timeoutMs / 1000) + 's, killing', taskId);
+      child.kill('SIGTERM');
+      setTimeout(function() { child.kill('SIGKILL'); }, 5000);
+    }, timeoutMs);
+
+    child.on('close', function(code) {
+      clearTimeout(timer);
+      if (child.pid && process._activeChildPIDs) process._activeChildPIDs.delete(child.pid);
+      log('[claude-code-text] exit=' + code + ' stdout=' + stdout.length + 'c stderr=' + stderr.length + 'c', taskId);
+
+      // MODEL_FATAL 检测 (镜像 runClaudeCode line 413-419 规则)
+      const streams = (stdout || '') + '\n' + (stderr || '');
+      const isModelFatal = /quota|insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|unauthoriz|authentication.?fail|access.?denied|billing/i.test(streams);
+
+      const minOutputLen = opts.minOutputLen != null ? opts.minOutputLen : 50;
+      if (code === 0 && stdout.length >= minOutputLen) {
+        return finish({ ok: true, text: stdout, exitCode: 0 });
+      }
+      const baseErr = stderr || stdout || ('Exit code ' + code);
+      const errorMsg = isModelFatal
+        ? 'MODEL_FATAL: Claude Code CLI text-mode auth/quota — ' + baseErr.slice(0, 300)
+        : baseErr.slice(0, 500);
+      finish({ ok: false, text: stdout, exitCode: code, error: errorMsg });
+    });
+
+    child.on('error', function(err) {
+      clearTimeout(timer);
+      finish({ ok: false, error: 'spawn error: ' + err.message });
+    });
+
+    try {
+      child.stdin.write(opts.userPrompt || '');
+      child.stdin.end();
+    } catch(e) {
+      clearTimeout(timer);
+      finish({ ok: false, error: 'stdin write error: ' + e.message });
+    }
   });
 }
 
@@ -581,21 +743,34 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
 ⚠️ 这是一个 FIX 请求。保持现有代码结构，只修改反馈要求的部分。
 ⚠️ 禁止重写整个文件！使用 Edit 工具做局部修改。
 
+### ⛔ 允许修改的文件（WHITELIST — 只能改这些）
+- \`Assets/Program/Script/Manager/GameFlowManagerMain.cs\`
+- \`Assets/Program/Script/Manager/GameFlowManagerMain.Systems.cs\`（如果存在）
+
+### ⛔ 禁止修改的文件（READ-ONLY — 改了等于白做）
+- \`Assets/Program/Script/Manager/GFM_Tools.cs\` — 工具库文件，每轮结束会被 canonical 版本覆盖。你对它做的任何修改都会被 wipe 掉，纯属浪费时间
+- \`prompt.md\`, \`CLAUDE.md\`, \`GFM_Tools_API.md\` — 需求/参考文档
+- 任何 \`build-*.sh\` 脚本
+
+### ⛔ 静态违规的修复原则
+如果反馈里的违规定位在 \`GFM_Tools.cs\`（例如 "GFM_Tools.cs L133: SetActive() forbidden"），**不要去改 GFM_Tools.cs 本身**（它是 canonical toolkit，不能碰）。违规的真实原因是你的 GameFlowManagerMain.cs/.Systems.cs 中某处调用了会触发这个模式的代码，或者是你自己复制了同名方法/重新实现了类似函数。**去 GameFlowManagerMain.cs 和 Systems.cs 里找禁用 API 的调用并删除/替换**。
+
 ## CUA 验证反馈（必须修复以下问题）：
 ${feedbackTexts}
 
 请完成以下步骤：
 1. 仔细阅读上面的 CUA 反馈，理解具体失败原因
 2. 阅读 prompt.md 了解完整需求
-3. 阅读现有的 Assets/Program/Script/Manager/GameFlowManagerMain.cs
-4. 根据 CUA 反馈做**针对性修改**（使用 Edit 工具，不是 Write）
+3. 阅读现有的 Assets/Program/Script/Manager/GameFlowManagerMain.cs 和 GameFlowManagerMain.Systems.cs（如果存在）
+4. 根据 CUA 反馈做**针对性修改**（使用 Edit 工具，不是 Write）— **只能改上面 WHITELIST 里的两个文件**
 5. 如果反馈说缺少 phase，必须添加完整的 phase 实现代码
 6. 如果反馈说 phase-skipped/game_ended，检查 phase 过渡条件是否正确（不能用 true 占位）
 7. 运行 bash build-test.sh 验证编译
 8. 如果编译失败，修复错误并重试
 9. 编译通过后完成
 
-重要：修改后文件行数不应减少。如果你发现文件变短了，说明你错误地重写了整个文件。`;
+重要：修改后文件行数不应减少。如果你发现文件变短了，说明你错误地重写了整个文件。
+重要：如果你一轮结束时没有对 GameFlowManagerMain.cs 或 GameFlowManagerMain.Systems.cs 做任何 Edit，这一轮会被判定为 ZERO_EDITS 失败并强制重试 — 所以确保你的 Edit 目标正确。`;
   } else {
     // Inline key file contents to minimize Read tool calls — speeds up fresh gen significantly
     // Note: behavior-templates.md is already injected into prompt.md by parseBlueprintToPromptV5
@@ -864,4 +1039,4 @@ ${inlinePromptMd}
   };
 }
 
-module.exports = { generateWithClaudeCode };
+module.exports = { generateWithClaudeCode, runClaudeCodeText };

@@ -256,60 +256,91 @@ module.exports = {
             'PASS if: multiple colored game objects visible AND some visual change between frames AND no critical runtime errors.\n' +
             'Reply JSON only: {"passed": true/false, "reason": "brief explanation", "hasInteractiveElements": true/false}';
 
-          var claudeProvider = require('../../lib/model-provider.cjs').createProvider('claude', {});
-          // Send all frames if multiple available
-          var visionImages = frameCount > 1 ? frameImages.map(function(f) { return f.base64; }) : imgBase64;
-          // === [vision-cost] pre-call instrumentation ===
-          // P2 planning: need ground-truth VLM token cost to decide if 480x320 downsample is worth it.
-          // Logs: frame count, total base64 bytes (what's actually wire-transferred), prompt chars,
-          // round number. Post-call logs: usage.prompt_tokens / completion_tokens returned by the relay.
-          var _visionImageBytes = 0;
-          if (Array.isArray(visionImages)) {
-            for (var _vi = 0; _vi < visionImages.length; _vi++) _visionImageBytes += (visionImages[_vi] || '').length;
-          } else {
-            _visionImageBytes = (visionImages || '').length;
+          // 2026-04-16: switched from direct Claude API (ClaudeProvider.generateVision HTTP POST)
+          // to spawn Claude Code CLI (--model claude-sonnet-4-6) via runClaudeCodeText.
+          // Model stays Sonnet 4.6 — we only change transport so all Claude calls share
+          // the CC CLI relay's failure modes / MODEL_FATAL / billing.
+          // Mechanism: write JPEG frames into tempDir as ./frame1.jpg, ./frame2.jpg, ... and
+          // instruct the model to Read them. CC Read tool natively supports images and
+          // passes them to Sonnet as multimodal content (same pipeline as direct vision API).
+          var claudeCoder = require('../../worker/claude-code-coder.js');
+          var imagesBase64 = frameCount > 1 ? frameImages.map(function(f) { return f.base64; }) : [imgBase64];
+          var _visionAdditionalFiles = {};
+          var _visionFrameNames = [];
+          for (var _fi = 0; _fi < imagesBase64.length; _fi++) {
+            var _fname = 'frame' + (_fi + 1) + '.jpg';
+            _visionAdditionalFiles[_fname] = Buffer.from(imagesBase64[_fi] || '', 'base64');
+            _visionFrameNames.push(_fname);
           }
-          var _visionFrameCount = Array.isArray(visionImages) ? visionImages.length : (visionImages ? 1 : 0);
+
+          var visionSystemPrompt =
+            'You are a visual QA analyst for Luna playable ads. ' +
+            'You will analyze JPEG screenshot frames. ' +
+            'Reply with ONLY a single JSON object of the exact shape requested — no explanation, no markdown fences.';
+
+          var visionUserPrompt =
+            'Use the Read tool to load the following frame image(s) in order:\n' +
+            _visionFrameNames.map(function(f) { return '- ./' + f; }).join('\n') + '\n\n' +
+            'Then analyze them and return the JSON as specified below.\n\n' +
+            analysisPrompt;
+
+          // === [vision-cost] pre-call instrumentation (CLI mode) ===
+          // Base64 bytes reflect what CC will read off disk. Token usage is not available
+          // in CLI --print mode, so post-call we only log respTextLen + elapsedMs.
+          var _visionImageBytes = 0;
+          for (var _vbi = 0; _vbi < imagesBase64.length; _vbi++) _visionImageBytes += (imagesBase64[_vbi] || '').length;
+          var _visionFrameCount = imagesBase64.length;
           var _visionStartedAt = Date.now();
           ctx.addLog('visual-check', '[vision-cost] pre round=' + round +
             ' frames=' + _visionFrameCount +
             ' base64Bytes=' + _visionImageBytes +
-            ' promptChars=' + analysisPrompt.length);
-          return claudeProvider.generateVision(visionImages, analysisPrompt, { model: 'claude-sonnet-4-6', maxTokens: 300, timeoutMs: 60000 })
-            .then(function(visionResult) {
-              // [vision-cost] post-call: log actual token usage from relay response (if provided)
-              var u = (visionResult && visionResult.usage) || {};
+            ' promptChars=' + visionUserPrompt.length +
+            ' mode=cc-cli');
+
+          return claudeCoder.runClaudeCodeText({
+            systemPrompt: visionSystemPrompt,
+            userPrompt: visionUserPrompt,
+            additionalFiles: _visionAdditionalFiles,
+            model: 'claude-sonnet-4-6',
+            effort: 'medium',
+            timeoutMs: 120000, // CC cold start + Read images + inference + margin
+            minOutputLen: 10,  // JSON of {passed, reason, ...} is at least a dozen chars
+            taskId: (ctx.taskId || 'visual') + '-r' + round,
+            log: function(msg) { ctx.addLog('visual-check', msg); },
+          })
+            .then(function(result) {
+              // [vision-cost] post-call (CLI mode — no usage field available)
               ctx.addLog('visual-check', '[vision-cost] post round=' + round +
-                ' promptTokens=' + (u.prompt_tokens != null ? u.prompt_tokens : 'n/a') +
-                ' completionTokens=' + (u.completion_tokens != null ? u.completion_tokens : 'n/a') +
-                ' totalTokens=' + (u.total_tokens != null ? u.total_tokens : 'n/a') +
-                ' respTextLen=' + ((visionResult && visionResult.text) || '').length +
+                ' mode=cc-cli ok=' + result.ok +
+                ' respTextLen=' + ((result && result.text) || '').length +
                 ' elapsedMs=' + (Date.now() - _visionStartedAt));
-              var rawText = (visionResult.text || '').trim();
+              if (!result.ok) {
+                // MODEL_FATAL (quota/auth on CC CLI relay) must propagate so fix-loop aborts.
+                if (result.error && /MODEL_FATAL/i.test(result.error)) {
+                  throw new Error(result.error);
+                }
+                throw new Error('Vision CLI error: ' + (result.error || 'unknown'));
+              }
+              var rawText = (result.text || '').trim();
               var jsonMatch = rawText.match(/\{[\s\S]*\}/);
               if (jsonMatch) return JSON.parse(jsonMatch[0]);
-              // Empty/unparseable response usually means the vision relay is silently
-              // returning text="" on 401/quota — classify as MODEL_FATAL so fix-loop
-              // aborts the task instead of burning recode rounds against dead API.
-              // (bqh33t post-mortem 2026-04-15: relay was 401 but returned empty text,
-              // same-reason early exit marked passed:false, pipeline advanced to CUA
-              // with black screen, 6 × 36min claude-code sessions wasted.)
+              // Empty/unparseable response — bqh33t post-mortem 2026-04-15: dead backend
+              // was returning text="" and pipeline advanced to CUA with a black screen.
+              // Classify as MODEL_FATAL so fix-loop aborts instead of burning recode rounds.
               if (!rawText) {
-                throw new Error('MODEL_FATAL: Vision relay returned empty response (likely auth/quota failure)');
+                throw new Error('MODEL_FATAL: Vision CLI returned empty response (likely auth/quota failure)');
               }
               return { passed: false, reason: 'Could not parse analysis response: ' + rawText.slice(0, 120) };
             })
             .catch(function(err) {
               ctx.addLog('visual-check', '[vision-cost] error round=' + round +
                 ' elapsedMs=' + (Date.now() - _visionStartedAt) + ' msg=' + err.message);
-              ctx.addLog('visual-check', 'Vision API error: ' + err.message);
-              // MODEL_FATAL (quota/auth on Claude Sonnet vision relay) must propagate —
-              // otherwise we silently mark passed=false and burn a recode round against
-              // a dead backend. Re-throw so the outer .catch re-raises to fix-loop.
+              ctx.addLog('visual-check', 'Vision CLI error: ' + err.message);
+              // MODEL_FATAL propagates so error-classifier can cancel the task.
               if (err && /MODEL_FATAL/i.test(err.message || '')) {
                 throw err;
               }
-              return { passed: false, reason: 'Vision API unavailable: ' + err.message };
+              return { passed: false, reason: 'Vision CLI unavailable: ' + err.message };
             })
             .then(function(analysis) {
               ctx.addLog('visual-check', (analysis.passed ? 'PASSED' : 'FAILED') + ' — ' + analysis.reason);
@@ -318,10 +349,10 @@ module.exports = {
               // additional fix attempts won't help — exit early to save tokens.
               if (!analysis.passed) {
                 var reasonKey = (analysis.reason || '').slice(0, 60).toLowerCase().replace(/\s+/g, ' ').trim();
-                // If the reason is "could not parse analysis response" or "vision api unavailable",
+                // If the reason is "could not parse analysis response" or "vision cli unavailable",
                 // that's a dead backend, not a fixable code issue. Escalate to MODEL_FATAL so the
                 // task cancels instead of silently failing 6 recode rounds on known-broken vision.
-                if (/could not parse analysis response|vision api unavailable/.test(reasonKey)) {
+                if (/could not parse analysis response|vision cli unavailable|vision api unavailable/.test(reasonKey)) {
                   throw new Error('MODEL_FATAL: Vision backend not producing valid analysis (' + analysis.reason + ')');
                 }
                 if (reasonKey && reasonKey === lastVisualReasonKey) {

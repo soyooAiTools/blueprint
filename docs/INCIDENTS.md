@@ -1,5 +1,71 @@
 # Blueprint 生产事故记录
 
+## 2026-04-16: visual-check + patchRecode 统一迁移到 Claude Code CLI (Sonnet 4.6)
+
+### 背景
+
+2026-04-15 bqh33t 事故复盘后,MODEL_FATAL 贯穿闭环已经让 Claude relay 的定性失败能被及时捕获并 cancel 任务,**但流水线里仍有两条路径走的是直连 Claude API (HTTP POST crs.mindrix.app/v1/messages)**,和 "全线 Claude Code CLI 化" 的目标不符:
+
+1. **`engine/stages/visual-check.cjs:259`** — CUA 截 JPEG 帧经 `ClaudeProvider.generateVision()` 做 VLM 判分。今天已多次出现 "vision relay 返空 → silent passed:false → fix-loop 继续烧轮"(旧事故见上一节 Layer 4),以及 60s 超时被 MODEL_FATAL 抛出后整任务 cancel 的场景。
+2. **`engine/recode.cjs` `patchRecode`**(review 阶段 ≤3 issue 时的短路优化)— `ClaudeProvider.generateWithRetry(prompt, {model:'claude-sonnet-4-6', timeoutMs:180000}, 2)`。今天 `proj_1776266310700_2p50o1` Round2 fix 吃了 2 轮 180s 超时烧 6 分钟后才 fallback 全量 recode。
+
+### 决策:换传输不换模型
+
+用户定调:**保留 Sonnet 4.6 作为模型**(豆包 vision 可能不如 Sonnet 精细,不切),但把**调用方式**从 "HTTP POST 直连 Claude API" 改成 "spawn `claude --print --model claude-sonnet-4-6`"。这样所有 Claude 调用都走统一的 CC CLI relay,故障特征、MODEL_FATAL 检测、计费全部归一。
+
+**关键使能点**: CC CLI 的 Read 工具原生支持图片(工具描述 "This tool allows Claude Code to read images (eg PNG, JPG, etc)"),所以视觉分析可以走 "把 base64 帧写成临时 `./frame1.jpg` → prompt 指令模型 Read 它们 → CC 把 image content block 塞给 Sonnet" 这条路。
+
+### 改动
+
+**改动 1 — 新增 `runClaudeCodeText` 文本模式 spawn 辅助** (`worker/claude-code-coder.js`)
+
+和现有 `runClaudeCode` 的区别:
+- 自己创建 `/tmp/cc-text-<taskId>-XXX` 临时 workDir,不需要 Unity 工程目录
+- 不做 mtime 检查;ok 判据只看 `exit code === 0 && stdout.length >= minOutputLen`
+- tools 缩到 `Read`(最小权限,视觉也靠它加载图片)
+- `systemPrompt` 写到临时 `CLAUDE.md` 作 `--system-prompt-file` 传入
+- `opts.additionalFiles` 预写到 workDir,供 prompt 里指令模型 Read
+- MODEL_FATAL 检测规则镜像 `runClaudeCode` line 413-419(`/quota|insufficient|\b401\b|...`)
+
+**改动 2 — `visual-check.cjs` 走 CC CLI + Read 图片**
+
+把 `imgBase64` / `frameImages[].base64` 转成 `Buffer`,命名为 `frame1.jpg, frame2.jpg, ...` 通过 `additionalFiles` 塞给 `runClaudeCodeText`。`userPrompt` 开头显式告诉模型 `Use the Read tool to load ./frame1.jpg, ./frame2.jpg, ...`。下游 JSON 解析、同原因早退、硬性 gates 全部保持原契约。超时从 60s 放宽到 120s(CC 冷启动 + Read 图片 + 推理的 margin)。
+
+同原因早退正则扩展为 `/could not parse analysis response|vision cli unavailable|vision api unavailable/` 同时匹配新旧错误文案。
+
+**改动 3 — `recode.cjs patchRecode` 走 CC CLI**
+
+保留所有上下文构建逻辑(`codeLines` / `issueDescriptions` / `extraFilesContext`)和返回契约(`{ok, code, patchApplied, error}`),只把 `provider.generateWithRetry()` 换成 `runClaudeCodeText()`。timeout 从 180s → 240s(CC 冷启动余量)。MODEL_FATAL 传播从 `.catch` 移到 `.then` 里检查 `!result.ok && /MODEL_FATAL/i.test(result.error)`。
+
+### 验证
+
+**Stage A — 脱离 pipeline 的 smoke test (`/tmp/smoke-*.js`)**
+
+| 测试 | 结果 |
+|---|---|
+| 纯文本模式 (systemPrompt + userPrompt → stdout) | ✅ |
+| 图片 Read 模式(真实 5344B JPEG `cua-results/screenshots/round_02.jpg`) | ✅ 7.5s 返回 "2D game scene with light cyan background, two circular objects, two rectangular platforms..." |
+| 超时路径 (timeoutMs=3000) | ✅ SIGTERM 后 SIGKILL,正确返回 `ok:false` |
+| MODEL_FATAL 路径(假 token) | ⚠️  CC CLI 用 OAuth 不走 `ANTHROPIC_API_KEY`,env 污染触达不了 → 测试命中 30s 超时。生产中真实 auth 失败仍能被 regex 捕获(规则针对 stdout/stderr 文本,非 env 污染) |
+
+**Stage B — 集成验证**: `pm2 restart blueprint-editor linux-worker-1 linux-worker-2`,三进程全部 online,worker 心跳重注册,启动日志无 require / syntax 错误。
+
+### 影响与遗留问题
+
+- ✅ 两条直连 Claude API 的路径消失,流水线所有 Claude 调用统一走 CC CLI relay
+- ✅ 故障特征、MODEL_FATAL 检测、计费全部归一
+- ⚠️  **未修复的独立问题**: `proj_1776266310700_2p50o1` 复盘显示 patchRecode 连续 3 轮每次返回**恰好 48175 字符**,static-check 同样的 2 条 blocking violation 没有被修复 → 触发 circuit breaker(same CODE error 3 轮)。这不是传输问题,是 **Sonnet 没有实际修复 static-check 违规** —— 需要独立排查 patchRecode prompt 对 rule 上下文的透传(是否 issue.message 没把 rule 描述带过去,导致模型只看到 "Line X: 问题" 却不知道具体该改什么)。已记录 follow-up。
+
+### 关键文件
+
+| 文件 | 变更 |
+|---|---|
+| `worker/claude-code-coder.js` | 新增 `runClaudeCodeText` + 更新 exports |
+| `engine/stages/visual-check.cjs` | 259-313 段切 CC CLI,图片走 Read 附件 |
+| `engine/recode.cjs` | `patchRecode` 切 CC CLI |
+
+---
+
 ## 2026-04-15 晚间: bqh33t 100% 失败 + 流水线 8 层 silent-pass — MODEL_FATAL 贯穿闭环 + 黑屏静态门
 
 ### 影响范围
