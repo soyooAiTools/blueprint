@@ -583,8 +583,15 @@ async function reviewCode(code, options) {
   var taskId = options.taskId || 'unknown';
 
   if (!OPENAI_API_KEY) {
-    log('[reviewer] No OPENAI_API_KEY, skipping review', taskId);
-    return { passed: true, issues: [], feedback: '', skipped: true };
+    // Escape hatch for test/local environments: ALLOW_NO_REVIEWER=true keeps old skip behavior.
+    // Default is to ABORT the task — silent-pretend-pass was the root cause of the
+    // 2026-04-15 quota-exhausted incident (unreviewed code burned through compile/CUA).
+    if (process.env.ALLOW_NO_REVIEWER === 'true') {
+      log('[reviewer] No OPENAI_API_KEY, skipping review (ALLOW_NO_REVIEWER=true)', taskId);
+      return { passed: true, issues: [], feedback: '', skipped: true };
+    }
+    log('[reviewer] No OPENAI_API_KEY — aborting task (no silent skip)', taskId);
+    throw new Error('MODEL_FATAL: no OPENAI_API_KEY configured');
   }
 
   log('[reviewer] Starting GPT-5.4 adversarial review...', taskId);
@@ -649,8 +656,12 @@ Respond with a JSON object (no markdown, no code fences):
     try {
       review = JSON.parse(reviewText);
     } catch(e) {
-      log('[reviewer] Failed to parse GPT response as JSON, treating as PASS: ' + reviewText.slice(0, 200), taskId);
-      return { passed: true, issues: [], feedback: reviewText, parseError: true };
+      // Parse failure usually means the API returned an HTML error page
+      // (Cloudflare / 502 / auth redirect). Do NOT treat as PASS — throw
+      // so error-classifier can decide: MODEL_FATAL for quota/auth text
+      // patterns, default CODE for transient 502 (fix-loop will recode/retry).
+      log('[reviewer] Failed to parse GPT response as JSON: ' + reviewText.slice(0, 200), taskId);
+      throw new Error('GPT Review parse error: ' + reviewText.slice(0, 100));
     }
 
     var criticalCount = 0;
@@ -716,8 +727,18 @@ Respond with a JSON object (no markdown, no code fences):
     };
 
   } catch(err) {
-    log('[reviewer] GPT review error (non-fatal, treating as PASS): ' + err.message, taskId);
-    return { passed: true, issues: [], feedback: '', error: err.message };
+    // DO NOT silently pretend-pass. The old catch-all {passed:true} was the
+    // most dangerous silent-pass path — it swallowed quota/auth/timeout alike
+    // and let unreviewed code proceed to compile+CUA. Now we throw:
+    //   - Definitive failures (quota/auth/402/invalid-key) → MODEL_FATAL prefix,
+    //     error-classifier catches them and cancels the task.
+    //   - Other errors (ECONNRESET / timeout / 5xx) → propagate as-is, classifier
+    //     routes them to INFRA (retry 5x) or CODE (recode).
+    log('[reviewer] GPT review error — aborting (no silent pass): ' + err.message, taskId);
+    if (/quota|insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|unauthoriz/i.test(err.message)) {
+      throw new Error('MODEL_FATAL: GPT Review failed (' + err.message + ')');
+    }
+    throw err;
   }
 }
 
