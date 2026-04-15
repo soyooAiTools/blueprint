@@ -332,6 +332,11 @@ const POLL_INTERVAL = 10000;       // 10s between polls
 const HEARTBEAT_INTERVAL = 30000;
 const MAX_CUA_ROUNDS = 5;
 const TASK_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
+// Worker start time — reported in heartbeat so watchdog can skip idle-desync
+// reclaim for freshly-started workers (they need a grace period to re-poll
+// and recover activeTasks state; otherwise a race with watchdog re-queues
+// tasks mid-execution, bypassing MAX_CODE_RETRIES).
+const WORKER_START_TIME = Date.now();
 
 const activeTasks = new Map();
 let pollLock = false;
@@ -430,6 +435,40 @@ function reportStatus(taskId, status, extra) {
   return apiRequest('POST', '/api/worker/status', JSON.stringify(data)).catch(e => {
     log(`Status report failed: ${e.message}`, taskId);
   });
+}
+
+// Thrown when a task is found to be cancelled server-side. Carries a distinct
+// name so the outer processTask catch can handle it separately from regular
+// failures (no 'failed' report, no retry counter bump).
+class TaskCancelledError extends Error {
+  constructor(taskId, serverStatus) {
+    super('Task ' + taskId + ' cancelled server-side (status=' + serverStatus + ')');
+    this.name = 'TaskCancelledError';
+    this.taskId = taskId;
+    this.serverStatus = serverStatus;
+  }
+}
+
+// Probe server-side task status. Used between stages to detect manual
+// cancellation; if the task is cancelled (or missing), we throw and the
+// pipeline unwinds cleanly instead of burning more stages (and tokens).
+// Returns the task status string on success; treats network errors as
+// non-cancellation so a transient blueprint-editor hiccup doesn't kill
+// in-progress work.
+async function checkTaskCancelled(taskId) {
+  try {
+    var info = await apiRequest('GET', '/api/tasks/' + taskId + '/status');
+    if (!info || !info.status) return null;
+    if (info.status === 'cancelled') {
+      throw new TaskCancelledError(taskId, info.status);
+    }
+    return info.status;
+  } catch (e) {
+    if (e instanceof TaskCancelledError) throw e;
+    // Network/parse error — swallow. Better to keep running than to abort on
+    // a transient server hiccup.
+    return null;
+  }
 }
 
 function buildRequest(endpoint, csCode, extraFiles) {
@@ -568,7 +607,23 @@ async function processTask(task) {
       }
     };
 
-    await pipeline.run(ctx, onProgress);
+    // Cancellation poller — every 30s, check server-side task status.
+    // If cancelled, set ctx._cancelled so pipeline unwinds at the next stage
+    // boundary. Transient network errors are swallowed inside checkTaskCancelled.
+    var cancelPollHandle = setInterval(function() {
+      checkTaskCancelled(taskId).catch(function(e) {
+        if (e && e.name === 'TaskCancelledError') {
+          ctx._cancelled = true;
+          log('[cancel] Server reports task cancelled — pipeline will unwind', taskId);
+        }
+      });
+    }, 30000);
+
+    try {
+      await pipeline.run(ctx, onProgress);
+    } finally {
+      clearInterval(cancelPollHandle);
+    }
 
     const totalTime = ((Date.now() - startTime) / 1000).toFixed(0);
     log(`Task completed in ${totalTime}s`, taskId);
@@ -587,6 +642,14 @@ async function processTask(task) {
     log(`[checkpoint] Cleared for task ${taskId}`, taskId);
 
   } catch (e) {
+    // Cancellation path — server already set status=cancelled, nothing to report.
+    // Clear the checkpoint (cancelled is terminal, no resume) and any workdir.
+    if (e && e.name === 'TaskCancelledError') {
+      log('Task cancelled server-side — exiting cleanly', taskId);
+      try { clearCheckpoint(taskId); } catch(_) {}
+      return;
+    }
+
     log('Task error: ' + e.message, taskId);
 
     // Extract structured failure info from PipelineError or legacy message format
@@ -750,5 +813,6 @@ var heartbeatTimer = setInterval(() => {
     status: workerStatus,
     currentTask: currentTaskId,
     activeTasks: activeTasks.size,
+    uptime: Math.floor((Date.now() - WORKER_START_TIME) / 1000),
   })).catch(() => {});
 }, HEARTBEAT_INTERVAL);

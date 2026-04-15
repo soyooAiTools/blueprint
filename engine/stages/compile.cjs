@@ -25,8 +25,9 @@ module.exports = {
     var buildUrl = ctx.workerConfig.buildUrl;
     var lastCsCode = ctx.csCode;
     var lastExtraFiles = Object.assign({}, ctx.extraFiles);
-    var lastBuildErrSig = '';
-    var sameBuildErrCount = 0;
+    // Count by signature (not consecutive): catches A->B->A->B oscillation that the
+    // old consecutive-match logic kept resetting on every flip. (P2-新2, 2026-04-15)
+    var errSigCounts = {};
 
     var loop = createFixLoop({
       name: 'compile',
@@ -62,15 +63,14 @@ module.exports = {
 
             // Same-error early exit: signature on first ~200 chars of error.
             // CS error codes (e.g. "CS0117") plus the offending identifier are typically captured here.
+            // We count occurrences across ALL rounds (not just consecutive), so an A->B->A->B
+            // oscillation also trips the gate once either signature reaches the threshold.
             var errSig = buildError.slice(0, 200);
-            if (errSig && errSig === lastBuildErrSig) {
-              sameBuildErrCount++;
-              if (sameBuildErrCount >= SAME_BUILD_ERROR_EXIT - 1) {
-                throw new Error('Build failed with same error ' + (sameBuildErrCount + 1) + ' rounds in a row — stopping (saves token budget): ' + errSig.slice(0, 160));
+            if (errSig) {
+              errSigCounts[errSig] = (errSigCounts[errSig] || 0) + 1;
+              if (errSigCounts[errSig] >= SAME_BUILD_ERROR_EXIT) {
+                throw new Error('Build failed with same error ' + errSigCounts[errSig] + ' times across rounds — stopping (saves token budget): ' + errSig.slice(0, 160));
               }
-            } else {
-              lastBuildErrSig = errSig;
-              sameBuildErrCount = 0;
             }
 
             if (round >= maxRounds) {

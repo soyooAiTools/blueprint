@@ -76,6 +76,10 @@ function matchRoute(method, pathname) {
   if (method === 'GET' && pathname === '/api/worker/poll') return { handler: 'workerPoll' };
   m = pathname.match(/^\/api\/tasks\/([^/]+)\/blueprint$/);
   if (m && method === 'GET') return { handler: 'getTaskBlueprint', taskId: m[1] };
+  m = pathname.match(/^\/api\/tasks\/([^/]+)\/status$/);
+  if (m && method === 'GET') return { handler: 'getTaskStatus', taskId: m[1] };
+  m = pathname.match(/^\/api\/tasks\/([^/]+)\/cancel$/);
+  if (m && method === 'POST') return { handler: 'cancelTask', taskId: m[1] };
   if (method === 'POST' && pathname === '/api/worker/status') return { handler: 'workerStatus' };
   if (method === 'POST' && pathname === '/api/worker/heartbeat') return { handler: 'workerHeartbeat' };
   m = pathname.match(/^\/api\/tasks\/([^/]+)\/upload-build$/);

@@ -75,6 +75,55 @@ module.exports.init = function(ctx) {
       }
     },
 
+    getTaskStatus: function(req, res, body, params) {
+      // Lightweight status probe used by the worker cancellation check.
+      // Returns just {status, statusMessage, assignedTo} — no blueprint, no
+      // metadata — so the worker can poll between stages without blowing up
+      // response size. A missing task returns 404 so the worker can abort too.
+      var taskId = params.taskId;
+      try {
+        var task = taskQueue.get(taskId);
+        if (!task) {
+          return sendJSON(res, { error: 'Task not found', taskId: taskId }, 404);
+        }
+        sendJSON(res, {
+          taskId: task.id,
+          status: task.status,
+          statusMessage: task.status_message || null,
+          assignedTo: task.assigned_to || null,
+        });
+      } catch (e) {
+        console.error('[Get Task Status] Error: ' + e.message);
+        sendJSON(res, { error: 'Status fetch failed: ' + e.message }, 500);
+      }
+    },
+
+    cancelTask: function(req, res, body, params) {
+      var taskId = params.taskId;
+      try {
+        var actor = 'api';
+        try { var parsed = body ? JSON.parse(body) : {}; if (parsed && parsed.actor) actor = parsed.actor; } catch(e) {}
+        var task = taskQueue.get(taskId);
+        if (!task) return sendJSON(res, { error: 'Task not found', taskId: taskId }, 404);
+        taskQueue.cancel(taskId, actor);
+        // Propagate to project JSON so dashboard reflects the change instantly
+        // instead of waiting for the next watchdog cycle.
+        try {
+          var project = readProject(taskId);
+          if (project) {
+            projectSM.forceTransition(project, 'cancelled', actor);
+            project.statusMessage = '[' + actor + '] Cancelled';
+            writeProject(project);
+          }
+        } catch(e) {}
+        console.log('[Cancel Task] ' + taskId + ' cancelled by ' + actor);
+        sendJSON(res, { success: true, taskId: taskId, status: 'cancelled' });
+      } catch (e) {
+        console.error('[Cancel Task] Error: ' + e.message);
+        sendJSON(res, { error: 'Cancel failed: ' + e.message }, 500);
+      }
+    },
+
     workerStatus: function(req, res, body, params) {
       try {
         var data = JSON.parse(body);
@@ -94,7 +143,16 @@ module.exports.init = function(ctx) {
         if (project) {
           // Map cua_passed/done to reviewing — means ready for human review
           var mappedStatus = (status === 'cua_passed' || status === 'done') ? 'reviewing' : status;
-          projectSM.forceTransition(project, mappedStatus, 'worker-' + workerId);
+          // Skip no-op transitions (e.g. worker reports 'processing' on every
+          // fix round; project is already 'processing' or has progressed to
+          // 'building'). Only transition forward, never regress.
+          var isNoop = project.status === mappedStatus;
+          var isRegression = (project.status === 'building' && mappedStatus === 'processing') ||
+                             (project.status === 'developing' && mappedStatus === 'processing') ||
+                             (project.status === 'reviewing' && (mappedStatus === 'processing' || mappedStatus === 'building' || mappedStatus === 'developing'));
+          if (!isNoop && !isRegression) {
+            projectSM.forceTransition(project, mappedStatus, 'worker-' + workerId);
+          }
           if (message) project.statusMessage = message;
           // Persist structured failure attribution
           if (status === 'failed') {

@@ -59,6 +59,7 @@ var FATAL_PATTERNS = [
 // triggers the pipeline error-propagation bug when combined with canRetry stages).
 var CUA_FATAL_PATTERNS = [
   /CUA total time limit/i,
+  /Visual freeze FATAL/i,
 ];
 
 var CUA_INFRA_PATTERNS = [

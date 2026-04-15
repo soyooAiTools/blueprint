@@ -298,6 +298,13 @@ module.exports = {
                 timestamp: Date.now(),
               });
 
+              // visual_freeze 无法通过 claude incremental-fix 修复 —— 画面冻结通常是
+              // Camera/Canvas/初始化问题，不是单行代码改动能解决的。连续 3 round 直接熔断，
+              // 避免每 round 烧 $5-10 的 claude-code 调用。
+              if (stuckDiagnosis.rootCause === 'visual_freeze' && _noProgressRounds >= 3) {
+                throw new Error('Visual freeze FATAL: ' + _noProgressRounds + ' consecutive rounds — not fixable via claude-fix. ' + stuckDiagnosis.summary);
+              }
+
               if (_noProgressRounds >= NO_PROGRESS_EXIT_ROUNDS + 3) {
                 // Hard exit after NO_PROGRESS_EXIT_ROUNDS+3 no-progress rounds — code genuinely can't pass
                 throw new Error('No phase progress in ' + _noProgressRounds + ' consecutive rounds. Diagnosis: ' + stuckDiagnosis.summary);

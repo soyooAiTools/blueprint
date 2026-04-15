@@ -28,11 +28,16 @@ function createFixLoop(config) {
   var attemptFn = config.attempt;
   var beforeRoundFn = config.beforeRound || null;
   var onErrorFn = config.onError || null;
+  // Circuit breaker: if the same CODE error signature repeats this many rounds
+  // in a row, abort the loop. Prevents "AI fix doesn't converge" token burn.
+  var sameErrorThreshold = config.sameErrorThreshold || 3;
 
   return {
     run: function(ctx) {
       var round = 0;
       var consecutiveInfra = 0;
+      var lastErrorSig = null;
+      var sameErrorStreak = 0;
 
       function next() {
         round++;
@@ -46,16 +51,27 @@ function createFixLoop(config) {
 
         ctx.addLog(name, 'Round ' + round + '/' + maxRounds);
 
-        // beforeRound hook (status reporting etc)
+        // beforeRound hook (status reporting etc). Must be awaited — prior
+        // fire-and-forget behavior caused a race where attempt() started
+        // before status was persisted, and async errors vanished silently.
+        var beforePromise = Promise.resolve();
         if (beforeRoundFn) {
-          try { beforeRoundFn(ctx, round, maxRounds); } catch(e) {}
+          beforePromise = Promise.resolve().then(function() {
+            return beforeRoundFn(ctx, round, maxRounds);
+          }).catch(function(e) {
+            // beforeRound errors are non-fatal — log and continue so that
+            // a broken status reporter can't take down the whole pipeline.
+            ctx.addLog(name, 'beforeRound error (non-fatal): ' + (e && e.message ? e.message : String(e)));
+          });
         }
 
-        return Promise.resolve().then(function() {
+        return beforePromise.then(function() {
           return attemptFn(ctx, round, maxRounds);
         }).then(function(outcome) {
-          // Reset infra counter on success
+          // Reset infra + circuit breaker counters on successful attempt
           consecutiveInfra = 0;
+          lastErrorSig = null;
+          sameErrorStreak = 0;
 
           if (outcome.done) {
             return outcome.result;
@@ -69,6 +85,27 @@ function createFixLoop(config) {
           });
 
           ctx.addLog(name, 'Round ' + round + ' error [' + classified.type + ']: ' + classified.reason.slice(0, 200));
+
+          // Circuit breaker — if the same CODE error repeats N rounds in a row,
+          // the fix-loop is not converging. Abort instead of burning more rounds
+          // (and more Claude Code agent tokens) on a fix that demonstrably isn't
+          // working. Only applies to CODE (recode) — INFRA retries are expected
+          // to repeat with the same message and have their own escalation path.
+          if (classified.type === 'CODE') {
+            var sig = (classified.reason || '').slice(0, 120);
+            if (sig && sig === lastErrorSig) {
+              sameErrorStreak++;
+              if (sameErrorStreak >= sameErrorThreshold) {
+                ctx.addLog(name, 'Circuit breaker: same CODE error repeated ' + sameErrorStreak + ' rounds — aborting fix-loop');
+                var breakerErr = new Error(name + ' aborted: same CODE error repeated ' + sameErrorStreak + ' rounds, fix-loop not converging: ' + sig);
+                breakerErr.code = 'FIX_LOOP_CIRCUIT_BREAKER';
+                throw breakerErr;
+              }
+            } else {
+              lastErrorSig = sig;
+              sameErrorStreak = 1;
+            }
+          }
 
           // Let stage handle error if custom handler provided
           if (onErrorFn) {

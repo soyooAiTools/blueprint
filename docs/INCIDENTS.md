@@ -1,5 +1,107 @@
 # Blueprint 生产事故记录
 
+## 2026-04-15: 3 任务无限烧钱 + Dashboard 状态停滞 (6 项 fix-loop 修复 + 5 项 dashboard 修复)
+
+### 影响范围
+3 个任务 (bqh33t, dmda29, yjrgmn) 连续运行 >2 小时未退出,每个任务烧掉预估 >50 美元 token; 与此同时 dashboard 首屏加载 ~10 秒、workers 永远显示 0/3 online、cancelled 状态永远不同步到项目 JSON — 运维侧完全看不到真实状态无法介入,形成"跑飞+瞎眼"复合故障。
+
+### 根因分析
+
+**根因 1: fix-loop `beforeRoundFn` 未 await, 导致 round 计数与实际执行错位**
+- `engine/fix-loop.cjs` 的 retry hook 通过 fire-and-forget 调用,`round++` 继续而副作用还在 pending
+- cua-verify 的 claude-code 生成在第 N 轮还在执行时,日志里已经是第 N+1 轮,circuit breaker 用 round 计数永远触发不到
+- 表象: 3 任务都看到 "CUA round X failed, AI re-coding..." 循环但无退出
+
+**根因 2: 同 CODE error 反复出现但从无熔断**
+- fix-loop 只对连续 round 无进展做检查,同一条错误 A->B->A->B 振荡时每次都 reset counter
+- `visual-check` 的 "Could not parse analysis response" 错误重复 3 轮后仍继续 recode,每轮 ~7 分钟
+- 同理 `compile.cjs` 的 same-error exit 原本用"连续匹配",A->B->A->B 也能逃过
+
+**根因 3: CUA visual_freeze 被错误分类为 CODE 继续重试**
+- error-classifier 的 `CUA_FATAL_PATTERNS` 只有 `CUA total time limit`,visual_freeze 没进 FATAL
+- 画面冻结通常是 Camera/Canvas/初始化问题,claude-code incremental-fix 根本改不动
+- 每轮烧 $5-10 的 claude-code 调用,跑满 10 round 纯浪费
+
+**根因 4: 手动 cancel 无法传到 worker, pipeline 继续烧钱**
+- 无论从 dashboard 点 cancel 还是改 task status,worker 端完全没有机制感知
+- 只能等 worker 任务跑完(或崩溃)才会停下
+
+**根因 5: Watchdog reclaimStale 无限循环没有 retry counter**
+- 任务被 watchdog reclaim 后回到 pending,下一个 worker 拿到后又走 processing,又超时又被 reclaim
+- 无 `infra_retry_count` 限制 → 永远不会走到 permanent_fail
+- 配合根因 1/2/3 形成复利,3 任务反复消耗 token 预算
+
+**根因 6: Watchdog 抢任务 — worker 刚启动就被抢走 checkpoint**
+- worker 重启后在 recover checkpoint(需要几秒到几十秒),watchdog 一轮是 120s
+- 如果 worker 启动时刻正好临近 watchdog cycle,会在 checkpoint 还没稳定时被当成 stale reclaim
+- 表象: bqh33t 在 worker-1 重启后立刻被 watchdog 判定 stale 放回 pending
+
+**根因 7 (dashboard): workers 永远 offline — UTC 时区 bug**
+- `lib/task-queue.cjs` stats() 的 `new Date(last_seen)` 没有 `'Z'` 后缀
+- SQLite 存 UTC 但 JS 按本地时间 (CST) 解析,差 8h
+- `(now - heartbeat) < 90s` 永远 false,所有 worker 显示 offline,online=0
+
+**根因 8 (dashboard): 首屏加载 ~10 秒**
+- `/api/dashboard/api-health` 每次请求同步 ping Doubao (~5.5s) + Claude (~0.4s)
+- 前端 dashboard mount 时调用,阻塞首屏渲染
+- 没有缓存、没有并发去重
+
+**根因 9 (dashboard): 状态机 cancelled 完全缺失**
+- `lib/state-machine.cjs` PROJECT_TRANSITIONS 根本没有 cancelled 条目,大部分非终态也没有 `→ cancelled` 转出
+- `forceTransition` 对无效转换只 warn 不抛,但 cancelled 项目的 status 永远停留在 processing/failed
+- 配合 F14-desync 缺失,UI 上看不到任何 cancelled 项目
+
+**根因 10 (dashboard): Phase 2 F14-desync 只覆盖 3 个 case**
+- `api/dashboard.cjs` runWatchdogCycle 的 desync 检测是硬编码的 3 个分支
+- cancelled/done/cua_passed 都没覆盖,task 已经结束但项目文件还是 processing/failed
+- 没有扫描 cancelled tasks → 手动 cancel 后永远不同步
+
+**根因 11 (日志污染): Worker 每次 fix round 都触发 "Invalid transition: processing → processing"**
+- `api/worker.cjs` workerStatus 每次收到 worker 汇报都 `projectSM.forceTransition`
+- 没有 no-op/regression guard,相同状态/退化转换全部打印 warn
+- 日志被刷屏,真正的问题被掩盖
+
+### 修复方案
+
+| # | Fix | 文件 | 改动 |
+|---|-----|------|------|
+| A | retry counter | `lib/task-queue.cjs` | `reclaimStale()` 给每次 reclaim 累加 `infra_retry_count`,超过 5 次直接 permanent_fail |
+| B | uptime grace | `lib/task-queue.cjs` | worker uptime <180s 的不抢任务 (让刚重启的 worker 稳定 checkpoint) |
+| C | beforeRoundFn await | `engine/fix-loop.cjs` | hook 改成 Promise.resolve().then().catch(),确保下一 round 拿到完成的状态 |
+| D | 同 CODE 错误熔断 | `engine/fix-loop.cjs` | 签名前 120 字符匹配,连续 3 轮同一错误 → 抛 `FIX_LOOP_CIRCUIT_BREAKER` |
+| D' | 同 build 错误计总数 | `engine/stages/compile.cjs` | `errSigCounts` 按签名累计 (不是连续),A->B->A->B 振荡也能触发 |
+| E1 | visual_freeze → FATAL | `engine/error-classifier.cjs` | `CUA_FATAL_PATTERNS` 加 `/Visual freeze FATAL/i` |
+| E2 | visual_freeze 3 轮熔断 | `engine/stages/cua-verify.cjs` | `stuckDiagnosis.rootCause === 'visual_freeze'` 且 `_noProgressRounds >= 3` 直接 throw |
+| F1 | status/cancel 端点 | `api/worker.cjs` `api/router.cjs` | 新增 `GET /api/tasks/:id/status` + `POST /api/tasks/:id/cancel` |
+| F2 | worker poller | `worker/linux-worker-client.js` | processTask 起 30s 间隔 `checkTaskCancelled`,检测到 cancelled 置 `ctx._cancelled` |
+| F3 | pipeline unwind | `engine/pipeline.cjs` | `runNext()` 开头检查 `ctx._cancelled` 抛 `TaskCancelledError`; tryExecute.catch 放行不重试 |
+| F4 | worker catch 识别 | `worker/linux-worker-client.js` | 外层 catch 见 `TaskCancelledError` → 清 checkpoint + 静默 return, 不 `reportStatus('failed')` |
+| G | UTC 时区 fix | `lib/task-queue.cjs` | `new Date(workers[j].last_seen + 'Z')` 强制按 UTC 解析 |
+| H | api-health 缓存 | `api/dashboard.cjs` | 模块级 `apiHealthCache` + 启动 prime + `setInterval(refresh, 30s)`; 请求路径只读缓存 |
+| I | 状态机补 cancelled | `lib/state-machine.cjs` | 所有非终态 PROJECT/TASK TRANSITIONS 加 `→ cancelled`; 终态加 `cancelled: []` |
+| J | F14-desync 扩展 | `api/dashboard.cjs` | `TASK_TO_PROJECT` 映射表覆盖所有 task status (target + compatible[]); 额外扫 `taskQueue.list('cancelled')` 立即同步 |
+| K | no-op/regression 抑制 | `api/worker.cjs` | `workerStatus` 在 forceTransition 前检查 `isNoop` 和 `isRegression` (building→processing 等),跳过不打印 |
+| L | uptime 进 heartbeat | `worker/linux-worker-client.js` | heartbeat payload 加 `uptime: (Date.now() - WORKER_START_TIME)/1000`,配合 Fix B |
+
+### 陷阱 / 教训
+1. **`var { projectSM } = require(...)` 写进 docblock** — 编辑文件头部时,require 不小心插到 `/** ... */` 之间,`node -c` 通过但运行时 `ReferenceError: projectSM is not defined`,F14-desync 首次触发整个 watchdog 崩溃一整轮。教训: 追加顶部 require 必须以 `*/` 之后的行为锚点。
+2. **ScheduleWakeup 无法取代监督闭环** — 没有 dashboard + F14-desync + cancel 机制,"跑飞任务"完全不可见。任何长期 pipeline 必须有外部杀开关,不能只靠内部 circuit breaker。
+3. **UTC vs local time** — SQLite `datetime('now')` 存 UTC (无后缀),JS `new Date(x)` 对无后缀字符串按本地时间解析,差 8h。这个 bug 可以潜伏数月,只要整个链路都在本地读写就不暴露,一旦跨 timezone 比较就全线翻车。
+4. **fix-loop 的 fire-and-forget hook** — JS 的 async 没有强制 await,代码看起来能跑,但 round 计数和实际执行会错位。所有 hook 必须返回 Promise 且被 await。
+5. **docblock 内的 require 陷阱** — 见 `~/.claude/projects/-root/memory/feedback_require_in_docblock.md`。
+
+### 提交
+- commit: `<pending>` fix: 3 任务无限烧钱 6 项 fix-loop 修复 + dashboard 状态同步与首屏性能
+
+### 验证结果
+- Watchdog Run #1 (post fix): 检出 yjrgmn + dmda29 两个 "失败但 task=cancelled" desync,两条 fix 执行成功,项目文件写入 `status=cancelled`
+- `/api/dashboard/api-health` 延迟: 6-10s → 5ms
+- Workers online 显示: 0/3 → 2/3 (真实在线的)
+- bqh33t 继续在 worker-2 checkpoint 恢复跑,未被本次重启打扰 (只重启了 blueprint-editor + idle 的 worker-1)
+- 无 "Invalid transition" 日志
+
+---
+
 ## 2026-04-14: 3 worker 全线 compile 失败级联 (5 根因 + 1 环境修复)
 
 ### 影响范围

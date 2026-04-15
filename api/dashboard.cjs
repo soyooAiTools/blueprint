@@ -1,10 +1,16 @@
 /**
  * Dashboard API handlers
-var { projectSM } = require("../lib/state-machine.cjs");
  * Extracted from server.cjs — dashboard stats, workers, tasks, watchdog
  */
 var fs = require('fs');
 var path = require('path');
+var { projectSM } = require('../lib/state-machine.cjs');
+
+// API health cache — healthCheck() pings Doubao (5-6s) + Claude (0.4s) for
+// every request. Front-end calls this on dashboard load, blocking first render
+// ~6s. Cache results with background refresh so the endpoint returns instantly.
+var apiHealthCache = { data: null, ts: 0, inflight: null };
+var API_HEALTH_TTL_MS = 60 * 1000;
 
 module.exports.init = function(ctx) {
   var taskQueue = ctx.taskQueue;
@@ -16,6 +22,30 @@ module.exports.init = function(ctx) {
   var modelProvider = ctx.modelProvider;
 
   var PROJECTS_DIR = config.PROJECTS_DIR;
+
+  // Refresh apiHealthCache in the background — never awaited from the request
+  // path, so the endpoint always returns the last known snapshot instantly.
+  function refreshApiHealth() {
+    if (apiHealthCache.inflight) return apiHealthCache.inflight;
+    apiHealthCache.inflight = Promise.resolve()
+      .then(function() { return modelProvider.healthCheck(); })
+      .then(function(mpResults) {
+        apiHealthCache.data = mpResults || {};
+        apiHealthCache.ts = Date.now();
+      })
+      .catch(function(e) {
+        // Keep stale data; just record the error so the dashboard can show it.
+        if (!apiHealthCache.data) apiHealthCache.data = {};
+        apiHealthCache.data.healthCheckError = e && e.message ? e.message : String(e);
+        apiHealthCache.ts = Date.now();
+      })
+      .then(function() { apiHealthCache.inflight = null; });
+    return apiHealthCache.inflight;
+  }
+  // Prime the cache on init + schedule periodic refresh so the dashboard never
+  // sees a cold cache after the server has been running > 30s.
+  refreshApiHealth();
+  setInterval(refreshApiHealth, 30 * 1000);
 
   // ─── Core watchdog cycle (shared by interval + manual trigger) ───
   function runWatchdogCycle(trigger) {
@@ -29,35 +59,58 @@ module.exports.init = function(ctx) {
       issues = issues.concat(reclaimResult.issues);
       fixes = fixes.concat(reclaimResult.fixes);
 
-      // Phase 2: Project ↔ Task desync
+      // Phase 2: Project ↔ Task desync — mapping from task status to the project
+      // status that should reflect it. Only sync if the current project status
+      // isn't already in the "compatible" set (e.g. a task in 'processing' may
+      // legitimately correspond to project 'processing' or 'building').
+      // Previously this only covered 3 cases and left cancelled/permanent_fail
+      // projects stuck on stale 'processing' — visible as "dashboard didn't sync".
       var DESYNC_GRACE_MS = 60 * 1000;
+      // Query all non-cancelled tasks AND a batch of cancelled ones so we can
+      // propagate cancellation to project files too.
       var allTasks = taskQueue.listForDashboard(50);
+      var cancelledTasks = taskQueue.list('cancelled') || [];
+      cancelledTasks.forEach(function(t) {
+        allTasks.push({
+          taskId: t.id,
+          status: t.status,
+          updatedAt: t.updated_at,
+        });
+      });
+
+      // Task → project status mapping. `target` is what the project should
+      // become; `compatible` lists project states that are considered already
+      // in-sync and should NOT be touched.
+      var TASK_TO_PROJECT = {
+        pending:     { target: 'submitted', compatible: ['submitted', 'pending', 'assigned'] },
+        assigned:    { target: 'processing', compatible: ['assigned', 'processing', 'building', 'developing'] },
+        processing:  { target: 'processing', compatible: ['processing', 'building', 'developing'] },
+        building:    { target: 'building',   compatible: ['building', 'processing'] },
+        fix_needed:  { target: 'processing', compatible: ['processing', 'building'] },
+        failed:      { target: 'failed',     compatible: ['failed'] },
+        done:        { target: 'reviewing',  compatible: ['reviewing', 'approved', 'committed'] },
+        cua_passed:  { target: 'reviewing',  compatible: ['reviewing', 'approved', 'committed'] },
+        completed:   { target: 'reviewing',  compatible: ['reviewing', 'approved', 'committed'] },
+        cancelled:   { target: 'cancelled',  compatible: ['cancelled', 'committed'] },
+      };
+
       allTasks.forEach(function(t) {
         var proj = readProject(t.taskId);
         if (!proj) return;
         var age = t.updatedAt ? now - new Date(t.updatedAt + 'Z').getTime() : 0;
-        if (age < DESYNC_GRACE_MS) return;
+        // Cancelled tasks should sync immediately (no grace period — manual
+        // cancellations need to propagate to the UI within one watchdog cycle).
+        if (t.status !== 'cancelled' && age < DESYNC_GRACE_MS) return;
 
-        var needSync = false;
-        var newProjStatus = null;
+        var mapping = TASK_TO_PROJECT[t.status];
+        if (!mapping) return;
+        if (mapping.compatible.indexOf(proj.status) >= 0) return;
 
-        if ((t.status === 'pending' || t.status === 'failed') &&
-            (proj.status === 'processing' || proj.status === 'building')) {
-          newProjStatus = t.status === 'failed' ? 'failed' : 'submitted';
-          needSync = true;
-        }
-        if (t.status === 'done' && proj.status === 'processing') {
-          newProjStatus = 'reviewing';
-          needSync = true;
-        }
-
-        if (needSync && newProjStatus) {
-          issues.push('[F14-desync] Project ' + t.taskId + ' "' + proj.status + '" but task "' + t.status + '"');
-          projectSM.forceTransition(proj, newProjStatus, 'watchdog');
-          proj.statusMessage = '[watchdog] Synced: task was ' + t.status;
-          writeProject(proj);
-          fixes.push('[fix] Project ' + t.taskId + ' → ' + newProjStatus);
-        }
+        issues.push('[F14-desync] Project ' + t.taskId + ' "' + proj.status + '" but task "' + t.status + '"');
+        projectSM.forceTransition(proj, mapping.target, 'watchdog');
+        proj.statusMessage = '[watchdog] Synced: task was ' + t.status;
+        writeProject(proj);
+        fixes.push('[fix] Project ' + t.taskId + ' → ' + mapping.target + ' (task=' + t.status + ')');
       });
 
       // Phase 3: Kill zombie child processes
@@ -287,18 +340,18 @@ module.exports.init = function(ctx) {
       });
     },
 
-    getApiHealth: async function(req, res, body, params) {
+    getApiHealth: function(req, res, body, params) {
+      // Serve from cache (populated by refreshApiHealth on init + 30s interval).
+      // If the cache is stale, trigger a background refresh but still return the
+      // stale data — never block the request. First load after server start may
+      // get an empty snapshot; the periodic refresh backfills within ~6s.
       var results = {};
-      // Health checks via modelProvider abstraction
-      try {
-        var mpResults = await modelProvider.healthCheck();
-        Object.assign(results, mpResults);
-      } catch(e) {
-        results.healthCheckError = e.message;
-      }
-      // Blueprint server uptime
+      if (apiHealthCache.data) Object.assign(results, apiHealthCache.data);
+      var age = Date.now() - apiHealthCache.ts;
+      if (age > API_HEALTH_TTL_MS) refreshApiHealth();
+      results._cachedAt = apiHealthCache.ts || null;
+      results._cacheAgeMs = apiHealthCache.ts ? age : null;
       results.server = { status: 'ok', uptimeMs: process.uptime() * 1000, uptimeHuman: Math.round(process.uptime() / 3600) + 'h' };
-
       sendJSON(res, results);
     },
 

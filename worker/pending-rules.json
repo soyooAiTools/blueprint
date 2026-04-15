@@ -457,7 +457,9 @@
     "timestamp": "2026-04-11T11:41:11.853Z",
     "autoExtracted": true,
     "failClassification": "FATAL",
-    "stage": "cua-verify"
+    "stage": "cua-verify",
+    "lastSeenAt": "2026-04-15T07:18:50.289Z",
+    "hitCount": 2
   },
   {
     "description": "ReportPhase uses UnityEngine.Debug.Log for gameplay flow phase reporting. This was explicitly auto-promoted as a production risk in Luna review rules and should not be used in runtime phase/state flow.",
@@ -926,5 +928,17 @@
     "line": "Start()",
     "taskId": "proj_1775987530864_bz8g2g",
     "timestamp": "2026-04-12T14:25:30.088Z"
+  },
+  {
+    "description": "Visual freeze FATAL: 3 consecutive rounds — not fixable via claude-fix. Stuck at phase (none completed) → initialSpaceCollection, root cause: visual_freeze (3 rounds)",
+    "rule": "Interaction / Gameplay",
+    "fix": "=== CUA STUCK DIAGNOSIS (round 3) ===\nCompleted phases: [] (0/11)\nStuck at: (none completed) → cannot reach: initialSpaceCollection\nRoot cause: visual_freeze\nNext phase \"initialSpaceCollection\" requires: interactions=[click:SpaceGarbage, move_to:SpaceGarbage, collect:MetalFragment] trigger=\"player.M",
+    "severity": "warning",
+    "line": "cua-verify stage failure",
+    "taskId": "proj_1776235585307_bqh33t",
+    "timestamp": "2026-04-15T08:38:40.279Z",
+    "autoExtracted": true,
+    "failClassification": "FATAL",
+    "stage": "cua-verify"
   }
 ]

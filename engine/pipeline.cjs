@@ -179,6 +179,16 @@ Pipeline.prototype.run = function(ctx, onProgress) {
   } catch(e) {}
 
   function runNext() {
+    // Cancellation check — worker polls /api/tasks/:id/status in a background
+    // interval and sets ctx._cancelled when the server reports 'cancelled'.
+    // Unwind with TaskCancelledError so the worker's outer catch can exit
+    // without reporting 'failed' or burning another stage.
+    if (ctx._cancelled) {
+      ctx.addLog('pipeline', 'Cancellation detected, unwinding pipeline');
+      var cancelErr = new Error('Task ' + ctx.taskId + ' cancelled server-side');
+      cancelErr.name = 'TaskCancelledError';
+      return Promise.reject(cancelErr);
+    }
     if (stageIndex >= self.stages.length) {
       if (!ctx._metricsRecorded) {
         try {
@@ -279,6 +289,10 @@ Pipeline.prototype.run = function(ctx, onProgress) {
         if (onProgress) onProgress(stage.name, 'completed', ctx);
         return runNext();
       }).catch(function(err) {
+        // Propagate cancellation immediately — no retry, no 'failed' report.
+        if (err && err.name === 'TaskCancelledError') {
+          throw err;
+        }
         // CRITICAL: If this error originated from a DOWNSTREAM stage, do NOT
         // retry the current stage or fire 'failed' for it. Just propagate.
         // Without this guard, rejection bubbles back through the recursive
