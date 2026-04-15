@@ -1,5 +1,86 @@
 # Blueprint 生产事故记录
 
+## 2026-04-16 深夜: patchRecode no-op 死锁 + rule 字段透传 (proj_2p50o1 follow-up)
+
+### 背景
+
+上一节 CC CLI 迁移 (cfccd1c) 遗留的 ⚠️: `proj_1776266310700_2p50o1` 连续 3 轮 patchRecode 返回**字节一致的 48175 char**,static-check 同样 2 条 blocking violation 纹丝不动,Round 4 exhausted 后 circuit breaker 熔断,~6 分钟空转。
+
+另外 `project_2p50o1_postmortem_20260416.md` 复盘记忆已独立定位到这是 **skeleton 和 static-check 正则互相踩雷的 false-positive floor**(`mainCam = Camera.main;` 缺 `// ok` 豁免、`autoplay-interact-empty` 正则被示例注释里的 `}` 截断),并把"patchRecode 字节恒等应视为终止信号"列为 P0。本次落地的就是 postmortem 里的这条 P0,**不是完整修复** —— skeleton / 正则两层 false positive 的修复仍留在工作区未提交(见 §遗留)。
+
+### 根因(排除错的假设)
+
+最初怀疑 "`issue.message` 只透传 'Line X: 问题'",追 `engine/static-check.cjs:283-289` → `engine/stages/review.cjs:121-126` → `engine/recode.cjs:183-210` 链路后**排除**: `static-check.cjs` 构造的 message 一直是带完整规则描述的(例 `"GFM_Create.Obj() forbidden — use GameObject.Find() from pool"`), patchRecode prompt 的 `Problem:` 行也的确把整条 message 透传给了 Sonnet。
+
+真正的失败形态是 **三元叠加**:
+
+1. `review.cjs:121-126` 的 static-precheck mapping **把 `rule` 字段丢了**,Sonnet 看不到规则 id 当 handle,也没法反推语义规则应触达哪个代码区
+2. 几条语义类 custom 规则硬编码 `line: 1`(`render-no-objects` / `autoplay-gate-removed` / `missing-using`), patchRecode 按 `line ± 5` 取片段只能抓到文件头 (`using UnityEngine;`), Sonnet 看不到真正的 phase 结构
+3. **patchRecode 调用方没有"代码真的变了吗"检测** —— Sonnet 返回原文时 `recodeResult.ok === true`, `reviewedCode` 被赋值成字节相同的内容, 下一轮 staticCheck 当然再失败, 链路没任何点能发现 patch 是 no-op, 只能靠 `MAX_REVIEW_ROUNDS=4` 硬撞
+
+配合 prompt 里 "do NOT modify other code" + "Only modify lines related to the issues" 的矛盾约束,Sonnet 在上下文不足时最安全的选择就是返回原文 —— 正好触发 #3。
+
+### 改动
+
+**改动 1 — patchRecode no-op 检测** (`engine/recode.cjs:267-278`)
+
+在 `text.length < 100` 检查之后、成功返回之前,加一步 `text === opts.currentCode` 对比。字节一致 → 返回 `{ok:false, error:'patch no-op: byte-identical output'}`,让调用方 (`review.cjs` 已有的 `if (!patchResult.ok) recode(...)` 分支) **立即 fallback 到 full recode**。full recode 拿到的是完整 V5 prompt(实体表 / skeleton / feedbackHistory),对 `render-no-objects` 这类**合法**语义规则能真正处理。
+
+**改动 2 — patchRecode prompt 显式展示 rule id** (`engine/recode.cjs:204-209`)
+
+`Problem:` 行前加 `[rule-id]` 标签,e.g. `Problem: [render-no-objects] Phase 1 must place at least 3 pool objects...`。`issue.rule` 缺失时(Codex / GPT-5.4 reviewer 产生的 issue)退化成原样。
+
+**改动 3 — `review.cjs` static-precheck mapping 保留 `rule` 字段** (`engine/stages/review.cjs:121-123`)
+
+这是 #2 的前提:从 `{severity, line, message, text}` 补成 `{..., rule: i.rule}`。
+
+**改动 4 — `review.cjs` round FAIL 日志带 rule 列表** (`engine/stages/review.cjs:215-218`)
+
+`Codex review FAIL (2/4), fixing...` → `Codex review FAIL (2/4) [create-obj,setactive], fixing...`,最多 3 条,超出 `,…`。主要是给人看 —— 日志里一眼能看出是哪条规则卡 fix-loop。
+
+### 刻意不做
+
+复盘时过了 5 条改进,只落 #1 / #3 两条:
+
+- **修 `static-check.cjs` 的硬编码 `line: 1`**: #1 上线后语义规则会自动 fallback 到 full recode,line 号不进入 Sonnet prompt 构造,改它 ROI 低。且 static-check custom 规则之前踩过花括号截断坑(见 memory `feedback_static_regex_brace_hazard`),改起来非零风险。
+- **`usePatch` 白名单排除语义规则**: 和 #1 功能重叠 —— #1 事后检测(浪费 1 次 Sonnet 调用),白名单事前拦截(0 浪费),但白名单要维护"哪些是语义规则"名单,容易漏。等 #1 命中数据再决定是否值得预拦截。
+- **per-rule `suggestion` 字段**: 工作量最大,前提假设"full recode 也搞不定语义规则"目前没证据,premature optimization。
+
+### 对 2p50o1 本身的净效果:**不完整**
+
+要诚实标注 —— 这一轮修复对 2p50o1 具体任务**可能不改善总耗时**,因为它的 2 条卡住规则是 skeleton-level false positive(见 postmortem `project_2p50o1_postmortem_20260416.md` §两条永远清不掉的 false positive):
+
+1. `camera-main` L169 — skeleton 自生成的 `mainCam = Camera.main;` 末尾缺 `// ok` 豁免注释, AI 没有修复权限(违规行不在 AI 能改的代码范围)
+2. `autoplay-interact-empty` L102 — 规则正则 `\{([^}]*)\}` 被 skeleton 示例注释里的 `}` 截断, body 被裁成 156 char 纯注释 → strip `//` 后变 0 → 永远 empty
+
+这两条 false positive 对 full recode 和 patchRecode 一视同仁,fallback 并不能让它们消失 —— 可能会把 2p50o1 从"4 轮 patch 空转 ~6 min"变成"4 轮 patch+full-recode 空转 ~更贵"。但对**其它**命中 `render-no-objects` 这类合法语义规则的项目是净收益。
+
+### 2p50o1 真正的终局修复(留给下一轮)
+
+工作区有 4 个 dirty 文件对应 postmortem 的 P0 清单,但**不属于本 commit**(mtime 比本 commit 的编辑早 ~6 分钟,怀疑是上一个 session 的未完成工作):
+
+- `engine/static-check.cjs` — 疑似 P0 #1 `autoplay-interact-empty` 花括号平衡
+- `adapters/skeleton-generator.cjs` — 疑似 P0 #2 / #3 skeleton 示例注释改块注释 + `mainCam = Camera.main; // ok` 豁免
+- `worker/codex-reviewer.js` — 疑似 P0 #4 `GFM_Tools.cs` 排除 + companionNote 矫正
+- `worker/pending-rules.json` — template-learner 自动写入,和 P0 清单无直接关联
+
+需要下一个 session 审核清点后另行 commit。
+
+### 验证
+
+- `node -c engine/recode.cjs` / `node -c engine/stages/review.cjs` 双通过
+- `pm2 restart linux-worker-1 linux-worker-2`,两 worker 都 online,CPU 稳定到 0%,`Saved 0/0 checkpoints` 确认无在飞任务丢失
+- `blueprint-editor` 不重启,减小爆炸半径(避开 port-guard cluster-suicide 复发区,见 aae59bb)
+
+### 关键文件
+
+| 文件 | 变更 |
+|---|---|
+| `engine/recode.cjs` | patchRecode no-op 检测 + `Problem:` 行加 rule 标签 |
+| `engine/stages/review.cjs` | static-precheck mapping 保留 `rule` + round FAIL 日志带 rule 列表 |
+
+---
+
 ## 2026-04-16: visual-check + patchRecode 统一迁移到 Claude Code CLI (Sonnet 4.6)
 
 ### 背景
@@ -54,7 +135,7 @@
 
 - ✅ 两条直连 Claude API 的路径消失,流水线所有 Claude 调用统一走 CC CLI relay
 - ✅ 故障特征、MODEL_FATAL 检测、计费全部归一
-- ⚠️  **未修复的独立问题**: `proj_1776266310700_2p50o1` 复盘显示 patchRecode 连续 3 轮每次返回**恰好 48175 字符**,static-check 同样的 2 条 blocking violation 没有被修复 → 触发 circuit breaker(same CODE error 3 轮)。这不是传输问题,是 **Sonnet 没有实际修复 static-check 违规** —— 需要独立排查 patchRecode prompt 对 rule 上下文的透传(是否 issue.message 没把 rule 描述带过去,导致模型只看到 "Line X: 问题" 却不知道具体该改什么)。已记录 follow-up。
+- ✅ **2026-04-16 深夜已部分修复(见上一节)**: 原怀疑的 "issue.message 没透传 rule 描述" **是错的假设** —— message 一直是完整带规则描述的。真实根因是 patchRecode 调用方没有 "输出=输入" 的 no-op 检测 + `rule` 字段在 static-precheck mapping 里被丢。本次落地 no-op 检测 + rule 字段透传 + round-fail 日志带 rule id;但 2p50o1 本身还依赖 skeleton / static-check 两层 false-positive 的修复(工作区 4 个 dirty 文件对应这些 P0)才能彻底通过。
 
 ### 关键文件
 

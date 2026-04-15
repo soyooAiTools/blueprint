@@ -119,7 +119,7 @@ module.exports = {
             passed: false,
             feedback: 'STATIC CHECK VIOLATIONS (must fix, these bypass LLM review):\n' + staticIssues,
             issues: preCheck.issues.map(function(i) {
-              return { severity: 'critical', line: i.line, message: i.message, text: i.text };
+              return { severity: 'critical', line: i.line, message: i.message, text: i.text, rule: i.rule };
             }),
             criticalCount: preCheck.issues.length,
             source: 'static-precheck',
@@ -212,7 +212,10 @@ module.exports = {
             return { done: true, result: { passed: false, rounds: round, criticalCount: 0, warningOnly: true, warnings: remainingIssues } };
           }
 
-          ctx.addLog('review', reviewerName + ' review FAIL (' + round + '/' + maxRounds + '), fixing...');
+          var failRules = (reviewResult.issues || []).map(function(fri) { return fri.rule; }).filter(Boolean);
+          var uniqFailRules = failRules.filter(function(r, idx) { return failRules.indexOf(r) === idx; });
+          var failRulesTag = uniqFailRules.length > 0 ? ' [' + uniqFailRules.slice(0, 3).join(',') + (uniqFailRules.length > 3 ? ',…' : '') + ']' : '';
+          ctx.addLog('review', reviewerName + ' review FAIL (' + round + '/' + maxRounds + ')' + failRulesTag + ', fixing...');
           ctx.reportStatus('processing', { message: '[Linux] ' + reviewerName + ' 审核失败 (' + round + '/' + maxRounds + ')，AI修复中...' });
 
           // Attach line numbers for issues found in review

@@ -201,10 +201,11 @@ function patchRecode(opts) {
         snippetParts.push('L' + (s + 1) + (s + 1 === issueLine ? ' >>>' : '    ') + ': ' + codeLines[s]);
       }
     }
+    var ruleTag = issue.rule ? '[' + issue.rule + '] ' : '';
     issueDescriptions.push(
       '--- Issue ' + (i + 1) + ' ---\n' +
       'Line: ' + issueLine + '\n' +
-      'Problem: ' + (issue.message || issue.text || '') + '\n' +
+      'Problem: ' + ruleTag + (issue.message || issue.text || '') + '\n' +
       (snippetParts.length > 0 ? 'Code context:\n' + snippetParts.join('\n') : '')
     );
   }
@@ -262,6 +263,19 @@ function patchRecode(opts) {
     if (text.length < 100) {
       opts.log('patchRecode: response too short (' + text.length + ' chars)');
       return { ok: false, error: 'patch response too short', patchApplied: false };
+    }
+    // No-op detection: Sonnet sometimes returns byte-identical input when the
+    // issue context is too thin (e.g. semantic rules with hardcoded line:1 that
+    // point at the file header) combined with the "do NOT modify other code"
+    // prompt constraint — the safest action becomes "return input unchanged".
+    // Without this check the review fix-loop hammers patchRecode 3-4 rounds with
+    // the same ~48K-char payload before exhausting rounds (see proj_1776266310700_2p50o1
+    // postmortem, INCIDENTS.md 2026-04-16). Treat as patch failure so the caller
+    // falls back to full recode(), which has the complete V5 prompt (entity tables,
+    // skeleton, feedbackHistory) and can reason about phase structure.
+    if (text === opts.currentCode) {
+      opts.log('patchRecode: Sonnet returned byte-identical code (' + text.length + ' chars) — no-op, forcing fallback to full recode');
+      return { ok: false, error: 'patch no-op: byte-identical output', patchApplied: false };
     }
     opts.log('patchRecode: got ' + text.length + ' chars');
     return { ok: true, code: text, patchApplied: true };
