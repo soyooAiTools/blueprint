@@ -199,6 +199,13 @@ module.exports = {
             ctx.addLog('cua-verify', 'CUA error: ' + cuaErr.message);
             try { fs.rmSync(cuaBuildDir, { recursive: true, force: true }); } catch(e) {}
 
+            // MODEL_FATAL (Doubao VLM quota/auth) must propagate — otherwise we
+            // silently retry and burn more rounds against a dead model backend.
+            // Throw so error-classifier routes to cancel-task.
+            if (cuaErr && /MODEL_FATAL/i.test(cuaErr.message || '')) {
+              throw cuaErr;
+            }
+
             if (lastIssueCategory === 'crash') { consecutiveSameIssue++; }
             else { consecutiveSameIssue = 1; lastIssueCategory = 'crash'; }
 

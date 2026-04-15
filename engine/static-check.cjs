@@ -8,14 +8,20 @@
 var fs = require('fs');
 var path = require('path');
 
+// `blocking: true` — these rules cause black-screen / invisible render at runtime.
+// The codegen stage treats them as blocking (fail the round + inject feedback)
+// instead of letting the generation advance to review. Rationale (2026-04-15 bqh33t
+// post-mortem): when the LLM reviewer is unavailable/silently passing and visual-check
+// is broken, a single GFM_Create.Obj() call ships black-screen code all the way to
+// CUA. Catching these in codegen stops the damage 3 stages earlier.
 var RULES = [
-  { id: 'setactive', pattern: /\.SetActive\s*\(/g, message: 'SetActive() forbidden in Luna — use position=(0,-999,0) to hide' },
+  { id: 'setactive', pattern: /\.SetActive\s*\(/g, blocking: true, message: 'SetActive() forbidden in Luna — use position=(0,-999,0) to hide' },
   { id: 'camera-main', pattern: /Camera\.main(?!\s*;?\s*\/\/\s*ok)/g, message: 'Camera.main forbidden — use skeleton\'s mainCam variable' },
-  { id: 'create-obj', pattern: /GFM_Create\.Obj\s*\(/g, message: 'GFM_Create.Obj() forbidden — use GameObject.Find() from pool' },
-  { id: 'create-ground', pattern: /GFM_Create\.Ground\s*\(/g, message: 'GFM_Create.Ground() forbidden — __Ground already exists' },
-  { id: 'set-color', pattern: /GFM_Create\.SetColor\s*\(/g, message: 'GFM_Create.SetColor() forbidden — pool objects have baked colors' },
-  { id: 'create-canvas', pattern: /GFM_UI\.CreateCanvas\s*\(/g, message: 'GFM_UI.CreateCanvas() forbidden — use skeleton\'s uiCanvas' },
-  { id: 'create-primitive', pattern: /CreatePrimitive\s*\(/g, message: 'CreatePrimitive() forbidden in Luna — invisible at runtime' },
+  { id: 'create-obj', pattern: /GFM_Create\.Obj\s*\(/g, blocking: true, message: 'GFM_Create.Obj() forbidden — use GameObject.Find() from pool' },
+  { id: 'create-ground', pattern: /GFM_Create\.Ground\s*\(/g, blocking: true, message: 'GFM_Create.Ground() forbidden — __Ground already exists' },
+  { id: 'set-color', pattern: /GFM_Create\.SetColor\s*\(/g, blocking: true, message: 'GFM_Create.SetColor() forbidden — pool objects have baked colors' },
+  { id: 'create-canvas', pattern: /GFM_UI\.CreateCanvas\s*\(/g, blocking: true, message: 'GFM_UI.CreateCanvas() forbidden — use skeleton\'s uiCanvas' },
+  { id: 'create-primitive', pattern: /CreatePrimitive\s*\(/g, blocking: true, message: 'CreatePrimitive() forbidden in Luna — invisible at runtime' },
   { id: 'gfm-tools', pattern: /GFM_Tools\./g, message: 'GFM_Tools does not exist — use GFM_Create, GFM_UI, GFM_Utils, etc.' },
   { id: 'coroutine', pattern: /StartCoroutine\s*\(/g, message: 'Coroutines forbidden in Luna — use Update + timer' },
   { id: 'async-await', pattern: /\basync\b|\bawait\b/g, message: 'async/await forbidden in Luna — use Update + timer' },
@@ -41,16 +47,16 @@ var RULES = [
     message: 'LINQ extension method forbidden in Luna — use manual for loop' },
   { id: 'while-true', pattern: /while\s*\(\s*true\s*\)/g, message: 'while(true) forbidden — use Update() + timer to avoid freezing the game' },
   { id: 'pool-name-typo', pattern: /__Pol_|__Pool(?!_)|__pool_/g, message: 'Possible pool object name typo — correct prefix is __Pool_' },
-  { id: 'destroy-call', pattern: /\bDestroy\s*\(/g, message: 'Destroy() forbidden in Luna — hide objects by moving to (0,-999,0)' },
+  { id: 'destroy-call', pattern: /\bDestroy\s*\(/g, blocking: true, message: 'Destroy() forbidden in Luna — hide objects by moving to (0,-999,0)' },
   { id: 'invoke-call', pattern: /\bInvoke\s*\(\s*"/g, message: 'Invoke("method") forbidden in Luna — use Update() + timer' },
   { id: 'invoke-repeating', pattern: /\bInvokeRepeating\s*\(/g, message: 'InvokeRepeating() forbidden in Luna — use Update() + timer' },
-  { id: 'instantiate', pattern: /\bInstantiate\s*\(/g, message: 'Instantiate() forbidden in Luna — use GameObject.Find() from pool' },
-  { id: 'add-component', pattern: /\bAddComponent\s*[<(]/g, message: 'AddComponent() forbidden in Luna — components must be pre-baked on pool objects' },
+  { id: 'instantiate', pattern: /\bInstantiate\s*\(/g, blocking: true, message: 'Instantiate() forbidden in Luna — use GameObject.Find() from pool' },
+  { id: 'add-component', pattern: /\bAddComponent\s*[<(]/g, blocking: true, message: 'AddComponent() forbidden in Luna — components must be pre-baked on pool objects' },
   { id: 'resources-load', pattern: /Resources\.Load/g, message: 'Resources.Load() not supported in Luna — use pool objects' },
   // --- v3: Rendering & anti-solid-color rules ---
   { id: 'safe-color-recursion', pattern: /Color\s+SafeColor|SafeColor\s*\(/g, message: 'SafeColor pattern causes infinite recursion in Luna — remove and use literal Color values' },
-  { id: 'renderer-material-color', pattern: /\.material\.color\s*=/g, message: 'Renderer.material.color causes GL_INVALID_OPERATION in Luna — pool objects have pre-baked colors' },
-  { id: 'new-material', pattern: /new\s+Material\s*\(/g, message: 'new Material() not supported in Luna — use GFM_Create.InitMaterialFromScene()' },
+  { id: 'renderer-material-color', pattern: /\.material\.color\s*=/g, blocking: true, message: 'Renderer.material.color causes GL_INVALID_OPERATION in Luna — pool objects have pre-baked colors' },
+  { id: 'new-material', pattern: /new\s+Material\s*\(/g, blocking: true, message: 'new Material() not supported in Luna — use GFM_Create.InitMaterialFromScene()' },
   { id: 'render-no-objects', pattern: null, message: 'Phase 1 must place at least 3 pool objects on screen (anti-solid-color)', custom: function(code) {
     // Check that first phase (ruleTriggered[0] block) has at least 3 PlaceObj or transform.position calls
     var phase1Match = code.match(/ruleTriggered\[0\][^}]*\{([\s\S]*?)(?:ruleTriggered\[1\]|$)/);
@@ -253,6 +259,7 @@ function staticCheck(code, ctx) {
           line: customHits[c].line,
           text: customHits[c].text,
           message: rule.message,
+          blocking: !!rule.blocking,
         });
       }
       continue;
@@ -278,6 +285,7 @@ function staticCheck(code, ctx) {
         line: lineNum,
         text: lineText.trim().slice(0, 120),
         message: rule.message,
+        blocking: !!rule.blocking,
       });
     }
   }
@@ -288,4 +296,14 @@ function staticCheck(code, ctx) {
   };
 }
 
-module.exports = { staticCheck: staticCheck, RULES: RULES };
+/**
+ * Filter staticCheck issues to only blocking ones (black-screen / invisible-render rules).
+ * Used by codegen stage to fail a round early when the generated code would produce
+ * a dead playable. Non-blocking issues are still surfaced by review stage static-check.
+ */
+function getBlockingIssues(code, ctx) {
+  var result = staticCheck(code, ctx);
+  return result.issues.filter(function(i) { return i.blocking; });
+}
+
+module.exports = { staticCheck: staticCheck, getBlockingIssues: getBlockingIssues, RULES: RULES };

@@ -304,7 +304,18 @@ Pipeline.prototype.run = function(ctx, onProgress) {
 
         ctx.addLog(stage.name, 'attempt ' + attempt + '/' + maxAttempts + ' failed: ' + err.message);
 
-        if (attempt < maxAttempts) {
+        // MODEL_FATAL short-circuit: never retry a stage when the classifier
+        // says the model backend is unusable (quota/auth/invalid-key). Retrying
+        // just burns tokens against a dead endpoint. Check via classify() so any
+        // stage (not just review) benefits from the short-circuit.
+        var earlyClassified = null;
+        try {
+          var ecModule = require('./error-classifier.cjs');
+          earlyClassified = ecModule.classify(err, { stage: stage.name }).type;
+        } catch(ecErr) {}
+        if (earlyClassified === 'MODEL_FATAL') {
+          ctx.addLog(stage.name, 'MODEL_FATAL classification — skipping stage retries');
+        } else if (attempt < maxAttempts) {
           ctx.lastStageError = { stage: stage.name, error: err.message, attempt: attempt };
           return tryExecute();
         }

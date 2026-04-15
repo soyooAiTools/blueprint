@@ -437,6 +437,15 @@ function reportStatus(taskId, status, extra) {
   });
 }
 
+// POST /api/tasks/:taskId/cancel — used when classify() returns MODEL_FATAL
+// so the task transitions to `cancelled` (terminal, not retried by the server
+// watchdog) instead of `failed` (which is eligible for retry).
+function cancelTaskViaApi(taskId, actor, reason) {
+  var body = { actor: actor || 'worker:model-fatal' };
+  if (reason) body.reason = reason;
+  return apiRequest('POST', '/api/tasks/' + taskId + '/cancel', JSON.stringify(body));
+}
+
 // Thrown when a task is found to be cancelled server-side. Carries a distinct
 // name so the outer processTask catch can handle it separately from regular
 // failures (no 'failed' report, no retry counter bump).
@@ -681,6 +690,24 @@ async function processTask(task) {
 
     failInfo.failedAt = new Date().toISOString();
     failInfo.durationMs = Date.now() - startTime;
+
+    // MODEL_FATAL → cancel the task outright instead of reporting 'failed'.
+    // 'failed' is retried by the server watchdog, which would just burn more
+    // tokens on the same dead model backend. 'cancelled' is terminal.
+    // See project_pipeline_fixes_20260415.md + plans/precious-swimming-pine.md.
+    if (failInfo.failClassification === 'MODEL_FATAL') {
+      log('[worker] MODEL_FATAL detected — cancelling task ' + taskId + ' (reason: ' + (failInfo.failReason || 'unknown') + ')', taskId);
+      try {
+        await cancelTaskViaApi(taskId, 'worker:model-fatal', failInfo.failReason);
+        log('[worker] Task ' + taskId + ' cancelled via API', taskId);
+        // Cancelled is terminal — clear the checkpoint (no resume point).
+        try { clearCheckpoint(taskId); } catch(_) {}
+        return;
+      } catch (cancelErr) {
+        log('[worker] cancelTaskViaApi failed, falling back to reportStatus(failed): ' + cancelErr.message, taskId);
+        // fall through to reportStatus below
+      }
+    }
 
     await reportStatus(taskId, 'failed', failInfo);
     // Keep checkpoint on failure — allows resume on retry instead of starting from scratch

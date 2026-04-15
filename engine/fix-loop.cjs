@@ -120,6 +120,15 @@ function createFixLoop(config) {
             }
           }
 
+          // MODEL_FATAL is the highest-priority terminal error — quota/auth/invalid-key.
+          // Like FATAL, it must NOT retry (the model backend is unusable), but the
+          // worker layer routes it to `cancelled` instead of `failed` via classification
+          // lookup (see linux-worker-client.js processTask catch handler).
+          if (classified.type === 'MODEL_FATAL') {
+            ctx.addLog(name, 'MODEL_FATAL — aborting fix-loop immediately (task will be cancelled)');
+            throw err;
+          }
+
           if (classified.type === 'FATAL') {
             throw err;
           }

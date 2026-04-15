@@ -48,21 +48,22 @@ async function preflightCheck() {
     fs.writeFileSync(path.join(testDir, 'test.txt'), 'hello');
 
     const result = await new Promise((resolve) => {
+      // 2026-04-15: 不再走 mindrix API 中转。改用 codex 内置默认 provider +
+      // ChatGPT auth (~/.codex/auth.json auth_mode=chatgpt)。必须从子进程 env
+      // 里显式剥离 OPENAI_API_KEY / CODEX_API_KEY / OPENAI_BASE_URL — 只要这些
+      // 存在 codex 就会误以为你想用 API key 模式去 api.openai.com,
+      // 然后拿 blueprint-editor .env 里的 mindrix 中转 key 401 invalid_api_key。
+      const { OPENAI_API_KEY, CODEX_API_KEY, OPENAI_BASE_URL, ...cleanEnv } = process.env;
       const child = spawn(CODEX_CMD, [
         'exec',
         '--skip-git-repo-check',
         '--ephemeral',
         '-m', CODEX_MODEL,
         '-s', 'danger-full-access',
-        '-c', 'model_provider="OpenAI"',
         '-C', testDir,
       ], {
         cwd: testDir,
-        env: {
-          ...process.env,
-          CODEX_API_KEY: process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY || '',
-          RUST_LOG: 'error',
-        },
+        env: { ...cleanEnv, RUST_LOG: 'error' },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 
@@ -134,19 +135,18 @@ function runCodexReview(workDir, userPrompt, log, taskId) {
       '--ephemeral',
       '-m', CODEX_MODEL,
       '-s', 'danger-full-access', // bwrap 0.4.0 不支持 --argv0，read-only 模式下无法执行命令
-      '-c', 'model_provider="OpenAI"',
       '-C', workDir,
     ];
 
     log(`[codex-reviewer] Spawning: ${CODEX_CMD} ${args.join(' ')}`, taskId);
 
+    // 2026-04-15: ChatGPT auth 模式, 必须剥离 OPENAI_API_KEY / CODEX_API_KEY /
+    // OPENAI_BASE_URL — 否则 codex 会用 blueprint-editor .env 里的 mindrix 中转 key
+    // 去撞 api.openai.com 拿 401。~/.codex/config.toml 也已删除 [model_providers.OpenAI] 自定义块。
+    const { OPENAI_API_KEY, CODEX_API_KEY, OPENAI_BASE_URL, ...cleanEnv } = process.env;
     const child = spawn(CODEX_CMD, args, {
       cwd: workDir,
-      env: {
-        ...process.env,
-        CODEX_API_KEY: process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY || '',
-        RUST_LOG: 'error',  // 静默 Codex 日志
-      },
+      env: { ...cleanEnv, RUST_LOG: 'error' },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
@@ -244,11 +244,16 @@ async function reviewCodeWithCodex(code, options) {
   const log = options.log || console.log;
   const taskId = options.taskId || 'unknown';
 
-  // One-time preflight: verify codex exec is functional (sandbox + auth)
+  // One-time preflight: verify codex exec is functional (sandbox + auth).
+  // On failure we THROW (prefixed MODEL_FATAL) rather than silently return
+  // {passed:true}. The old skip-pretend-pass let quota-exhausted tasks burn
+  // through compile/CUA with unreviewed code. error-classifier.cjs routes
+  // this to MODEL_FATAL → linux-worker-client cancels the task outright.
   const codexOk = await preflightCheck();
   if (!codexOk) {
-    log('[codex-reviewer] Preflight failed or no API key, skipping review', taskId);
-    return { passed: true, issues: [], feedback: '', skipped: true, skipReason: 'preflight_failed' };
+    const reason = getPreflightReason() || 'unknown';
+    log('[codex-reviewer] Preflight FAIL (' + reason + ') — aborting task (no silent skip)', taskId);
+    throw new Error('MODEL_FATAL: codex preflight failed (' + reason + ')');
   }
 
   log('[codex-reviewer] Starting Codex adversarial review...', taskId);

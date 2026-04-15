@@ -395,12 +395,22 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
       // Bug fix: Check elapsed time + stdout length to detect CLI errors (auth failure, connection error)
       const elapsedMs = Date.now() - spawnStartTime;
       if (code !== 0 && elapsedMs < 10000 && stdout.length < 200) {
-        log(`[claude-code] ❌ CLI error detected: exit code ${code}, elapsed ${elapsedMs}ms, stdout ${stdout.length} chars — treating as hard failure`, taskId);
+        // Scan both streams for quota/auth indicators — if Claude relay rejects
+        // our request, the CLI exits early with the API error dumped to stderr/stdout.
+        // Detected definitive failures get MODEL_FATAL: prefix so error-classifier
+        // routes them to cancel-task instead of burning more retries.
+        const streams = (stdout || '') + '\n' + (stderr || '');
+        const isModelFatal = /quota|insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|unauthoriz|authentication.?fail|access.?denied|billing/i.test(streams);
+        const baseErr = stdout || stderr || `CLI error: exit code ${code} in ${elapsedMs}ms`;
+        const errorMsg = isModelFatal
+          ? `MODEL_FATAL: Claude Code CLI auth/quota failure — ${baseErr.slice(0, 300)}`
+          : baseErr;
+        log(`[claude-code] ❌ CLI error detected: exit code ${code}, elapsed ${elapsedMs}ms, stdout ${stdout.length} chars${isModelFatal ? ' (MODEL_FATAL)' : ''} — treating as hard failure`, taskId);
         resolve({
           ok: false,
           exitCode: code,
           output: stdout,
-          error: stdout || stderr || `CLI error: exit code ${code} in ${elapsedMs}ms`,
+          error: errorMsg,
           partialSuccess: false,
         });
         return;

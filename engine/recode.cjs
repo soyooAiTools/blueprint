@@ -69,7 +69,15 @@ function recode(opts) {
     .then(function(result) {
       if (!result.ok) {
         cleanup(tempDir);
-        return { ok: false, error: result.error || 'generator failed' };
+        // MODEL_FATAL errors must throw — not be returned as {ok:false} — otherwise
+        // the calling stage's `if (!recodeResult.ok)` swallows them and the fix-loop
+        // keeps burning more rounds against a dead model backend. Throwing lets
+        // error-classifier route this to cancel-task.
+        var errMsg = result.error || 'generator failed';
+        if (/MODEL_FATAL/i.test(errMsg)) {
+          throw new Error(errMsg);
+        }
+        return { ok: false, error: errMsg };
       }
 
       var allCs = helpers.findFiles(tempDir, '.cs');
@@ -99,6 +107,10 @@ function recode(opts) {
     })
     .catch(function(err) {
       cleanup(tempDir);
+      // MODEL_FATAL propagates so error-classifier can cancel the task.
+      if (err && /MODEL_FATAL/i.test(err.message || '')) {
+        throw err;
+      }
       return { ok: false, error: err.message };
     });
 }
@@ -238,6 +250,10 @@ function patchRecode(opts) {
     })
     .catch(function(err) {
       opts.log('patchRecode failed: ' + err.message);
+      // MODEL_FATAL propagates so error-classifier can cancel the task.
+      if (err && /MODEL_FATAL/i.test(err.message || '')) {
+        throw err;
+      }
       return { ok: false, error: err.message, patchApplied: false };
     });
 }

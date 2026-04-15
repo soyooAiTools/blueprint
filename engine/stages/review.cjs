@@ -42,8 +42,8 @@ module.exports = {
     var USE_CODEX_REVIEW = process.env.USE_CODEX_REVIEW !== 'false';
 
     if (!USE_CODEX_REVIEW && !codexReviewer && !codeReviewer) {
-      ctx.addLog('review', 'No reviewer available, skipping');
-      return Promise.resolve({ skipped: true });
+      ctx.addLog('review', 'No reviewer module available — aborting (no silent skip)');
+      throw new Error('MODEL_FATAL: no reviewer available (neither codex-reviewer nor code-reviewer loaded)');
     }
 
     var reviewPoolNameMap = null;
@@ -59,20 +59,6 @@ module.exports = {
 
     var reviewedCode = ctx.csCode;
     var reviewExtraFiles = Object.assign({}, ctx.extraFiles);
-
-    // Static pre-check: catch forbidden APIs before burning LLM tokens
-    var preCheck = staticCheck(reviewedCode);
-    if (!preCheck.passed) {
-      var staticIssues = preCheck.issues.map(function(i) { return 'L' + i.line + ': ' + i.message + ' — ' + i.text; }).join('\n');
-      ctx.addLog('review', 'Static pre-check found ' + preCheck.issues.length + ' issues, injecting as feedback');
-      if (!ctx.blueprint.feedbackHistory) ctx.blueprint.feedbackHistory = [];
-      ctx.blueprint.feedbackHistory.push({
-        data: { text: 'STATIC CHECK VIOLATIONS (must fix before review):\n' + staticIssues },
-        source: 'static-precheck',
-        status: 'pending',
-        timestamp: Date.now(),
-      });
-    }
 
     // Spec conformance check: verify code semantics match blueprint
     // P1-6: Only inject as feedback if there are genuine critical issues after fuzzy matching
@@ -110,8 +96,35 @@ module.exports = {
         }
       },
       attempt: function(ctx, round, maxRounds) {
+        // Static pre-check: catch forbidden APIs every round. Runs BEFORE the
+        // LLM reviewer so static violations trigger a recode pass even when:
+        //  - codex preflight fails silently and returns passed:true
+        //  - LLM reviewer misses blocking APIs
+        //  - Network to reviewer is flaky
+        // Before bqh33t 2026-04-15 this check only ran once at the top of
+        // execute() and only injected feedback, which was ignored on clean
+        // reviewer pass — leading to known-broken GFM_Create.Obj() code
+        // advancing to visual-check → cua-verify with black screen.
         var reviewPromise;
-        if (USE_CODEX_REVIEW && codexReviewer) {
+        var preCheck = staticCheck(reviewedCode);
+        if (!preCheck.passed) {
+          var staticIssues = preCheck.issues.map(function(i) {
+            return 'L' + i.line + ': ' + i.message + ' — ' + i.text;
+          }).join('\n');
+          ctx.addLog('review', 'Static check (round ' + round + ') found ' + preCheck.issues.length + ' blocking violations — forcing recode without LLM review');
+          // Synthesize a failed review result so the existing recode path runs.
+          // Uses source='static-precheck' (no parseError/error) so the codex→GPT fallback
+          // branch doesn't trigger — we want a direct recode, not another LLM pass.
+          reviewPromise = Promise.resolve({
+            passed: false,
+            feedback: 'STATIC CHECK VIOLATIONS (must fix, these bypass LLM review):\n' + staticIssues,
+            issues: preCheck.issues.map(function(i) {
+              return { severity: 'critical', line: i.line, message: i.message, text: i.text };
+            }),
+            criticalCount: preCheck.issues.length,
+            source: 'static-precheck',
+          });
+        } else if (USE_CODEX_REVIEW && codexReviewer) {
           reviewPromise = codexReviewer.reviewCodeWithCodex(reviewedCode, {
             taskId: ctx.taskId,
             log: function(msg) { ctx.addLog('review', msg); },
@@ -124,13 +137,24 @@ module.exports = {
             poolNameMap: reviewPoolNameMap,
           });
         } else {
-          return Promise.resolve({ done: true, result: { passed: true, skipped: true } });
+          // Unreachable: the top-of-execute guard already throws MODEL_FATAL
+          // if neither reviewer is loaded. Retained as defense-in-depth —
+          // any future code path that lands here aborts rather than pretending
+          // the review passed.
+          throw new Error('MODEL_FATAL: no reviewer invocation path matched');
         }
 
         return reviewPromise.then(function(reviewResult) {
-          // Codex fallback to GPT-5.4 on env/parse errors
-          if (!reviewResult.passed && (reviewResult.parseError || reviewResult.error) && USE_CODEX_REVIEW && codexReviewer && codeReviewer) {
-            ctx.addLog('review', 'Codex had env/parse error, falling back to GPT-5.4');
+          // Codex → GPT-5.4 fallback, ONLY for transient parse/env errors.
+          // Definitive model failures (quota/auth/402) are now thrown from
+          // codex-reviewer as MODEL_FATAL and reject this promise directly,
+          // so they never reach this .then. This guard is defense-in-depth:
+          // if any future code path returns a fake {error: "quota..."} result,
+          // we refuse to cascade into GPT-5.4 (which shares the same OPENAI_API_KEY
+          // and would hit the same quota wall — doubling the wasted attempt).
+          var isDefinitive = reviewResult.error && /MODEL_FATAL|quota|insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|unauthoriz/i.test(reviewResult.error);
+          if (!reviewResult.passed && (reviewResult.parseError || reviewResult.error) && !isDefinitive && USE_CODEX_REVIEW && codexReviewer && codeReviewer) {
+            ctx.addLog('review', 'Codex had transient env/parse error, falling back to GPT-5.4');
             return codeReviewer.reviewCode(reviewedCode, {
               taskId: ctx.taskId,
               log: function(msg) { ctx.addLog('review', msg); },

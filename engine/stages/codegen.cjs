@@ -9,6 +9,7 @@ var fs = require('fs');
 var path = require('path');
 var helpers = require('../helpers.cjs');
 var { createFixLoop } = require('../fix-loop.cjs');
+var { getBlockingIssues } = require('../static-check.cjs');
 
 module.exports = {
   name: 'codegen',
@@ -195,6 +196,39 @@ module.exports = {
             }
           }
           ctx.addLog('codegen', 'Main CS: ' + mainCsPath + ' (' + ctx.csCode.length + ' chars)');
+
+          // Blocking static-check gate: reject rounds with black-screen-causing API usage
+          // BEFORE advancing to compile. Covers create-obj, create-ground, set-color,
+          // instantiate, destroy, new-material, setactive, etc. Adding this check here
+          // (in addition to review stage) gives us a cheap early-out and feeds specific
+          // lines back to the generator on the next round (2026-04-15 bqh33t fix).
+          var blockingFromMain = getBlockingIssues(ctx.csCode);
+          var blockingFromExtras = [];
+          if (ctx.extraFiles) {
+            for (var efKey in ctx.extraFiles) {
+              if (!ctx.extraFiles.hasOwnProperty(efKey)) continue;
+              var efBlocking = getBlockingIssues(ctx.extraFiles[efKey]);
+              for (var bfi = 0; bfi < efBlocking.length; bfi++) {
+                blockingFromExtras.push(Object.assign({}, efBlocking[bfi], { file: efKey }));
+              }
+            }
+          }
+          var allBlocking = blockingFromMain.concat(blockingFromExtras);
+          if (allBlocking.length > 0) {
+            var blockSummary = allBlocking.slice(0, 10).map(function(i) {
+              return (i.file ? i.file + ' ' : '') + 'L' + i.line + ': ' + i.message + ' — ' + i.text;
+            }).join('\n');
+            ctx.addLog('codegen', 'Blocking static violations (' + allBlocking.length + ') — failing round to force retry:\n' + blockSummary);
+            // Inject as feedback so the next round's AI prompt knows what to fix
+            if (!ctx.blueprint.feedbackHistory) ctx.blueprint.feedbackHistory = [];
+            ctx.blueprint.feedbackHistory.push({
+              data: { text: 'BLOCKING STATIC VIOLATIONS (fix all before retry, these cause black screen):\n' + blockSummary },
+              source: 'codegen-static-block',
+              status: 'pending',
+              timestamp: Date.now(),
+            });
+            throw new Error('Blocking static violations: ' + allBlocking.length + ' (first: ' + allBlocking[0].message + ')');
+          }
 
           if (ctx.reportStatus) {
             ctx.reportStatus('processing', { message: '[Linux] AI coding done (' + result.filesWritten + ' files), building...' });

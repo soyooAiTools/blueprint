@@ -160,7 +160,17 @@ class Models {
           try {
             const json = JSON.parse(body);
             if (json.error) {
-              reject(new Error('Doubao API error: ' + (json.error.message || JSON.stringify(json.error))));
+              const errMsg = json.error.message || JSON.stringify(json.error);
+              const errCode = json.error.code || json.error.type || '';
+              const combined = errCode + ' ' + errMsg;
+              // Definitive model failures (quota / auth / balance) — prefix with
+              // MODEL_FATAL: so engine/error-classifier.cjs routes them to
+              // cancel-task instead of retry. Doubao-specific codes covered:
+              // InvalidParameter.QuotaExceeded / InsufficientBalance /
+              // AccessDenied / InvalidAccessKeyId.NotFound / AuthenticationFailed
+              const isModelFatal = /quota|insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|invalid.?access.?key|unauthoriz|authentication.?fail|access.?denied|billing/i.test(combined);
+              const prefix = isModelFatal ? 'MODEL_FATAL: Doubao API error: ' : 'Doubao API error: ';
+              reject(new Error(prefix + errMsg));
               return;
             }
             const text = json.choices && json.choices[0] && json.choices[0].message

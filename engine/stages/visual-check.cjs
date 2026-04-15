@@ -285,14 +285,30 @@ module.exports = {
                 ' totalTokens=' + (u.total_tokens != null ? u.total_tokens : 'n/a') +
                 ' respTextLen=' + ((visionResult && visionResult.text) || '').length +
                 ' elapsedMs=' + (Date.now() - _visionStartedAt));
-              var jsonMatch = (visionResult.text || '').match(/\{[\s\S]*\}/);
+              var rawText = (visionResult.text || '').trim();
+              var jsonMatch = rawText.match(/\{[\s\S]*\}/);
               if (jsonMatch) return JSON.parse(jsonMatch[0]);
-              return { passed: false, reason: 'Could not parse analysis response' };
+              // Empty/unparseable response usually means the vision relay is silently
+              // returning text="" on 401/quota — classify as MODEL_FATAL so fix-loop
+              // aborts the task instead of burning recode rounds against dead API.
+              // (bqh33t post-mortem 2026-04-15: relay was 401 but returned empty text,
+              // same-reason early exit marked passed:false, pipeline advanced to CUA
+              // with black screen, 6 × 36min claude-code sessions wasted.)
+              if (!rawText) {
+                throw new Error('MODEL_FATAL: Vision relay returned empty response (likely auth/quota failure)');
+              }
+              return { passed: false, reason: 'Could not parse analysis response: ' + rawText.slice(0, 120) };
             })
             .catch(function(err) {
               ctx.addLog('visual-check', '[vision-cost] error round=' + round +
                 ' elapsedMs=' + (Date.now() - _visionStartedAt) + ' msg=' + err.message);
               ctx.addLog('visual-check', 'Vision API error: ' + err.message);
+              // MODEL_FATAL (quota/auth on Claude Sonnet vision relay) must propagate —
+              // otherwise we silently mark passed=false and burn a recode round against
+              // a dead backend. Re-throw so the outer .catch re-raises to fix-loop.
+              if (err && /MODEL_FATAL/i.test(err.message || '')) {
+                throw err;
+              }
               return { passed: false, reason: 'Vision API unavailable: ' + err.message };
             })
             .then(function(analysis) {
@@ -302,6 +318,12 @@ module.exports = {
               // additional fix attempts won't help — exit early to save tokens.
               if (!analysis.passed) {
                 var reasonKey = (analysis.reason || '').slice(0, 60).toLowerCase().replace(/\s+/g, ' ').trim();
+                // If the reason is "could not parse analysis response" or "vision api unavailable",
+                // that's a dead backend, not a fixable code issue. Escalate to MODEL_FATAL so the
+                // task cancels instead of silently failing 6 recode rounds on known-broken vision.
+                if (/could not parse analysis response|vision api unavailable/.test(reasonKey)) {
+                  throw new Error('MODEL_FATAL: Vision backend not producing valid analysis (' + analysis.reason + ')');
+                }
                 if (reasonKey && reasonKey === lastVisualReasonKey) {
                   sameReasonCount++;
                   if (sameReasonCount >= SAME_REASON_EXIT - 1) {

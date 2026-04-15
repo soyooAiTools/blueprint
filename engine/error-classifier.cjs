@@ -8,6 +8,24 @@
  *   FATAL → not retryable, pipeline terminates
  */
 
+// Definitive model failures — immediately terminate the task (MODEL_FATAL).
+// These are NOT transient network blips; they mean the model backend is
+// unusable and retrying will burn tokens for no progress. Checked with the
+// highest priority in classify() so they win over both CUA and INFRA buckets.
+var MODEL_FATAL_PATTERNS = [
+  /MODEL_FATAL/i,                 // our explicit marker (thrown by reviewers)
+  /quota.?exceeded/i,             // GPT / Codex / Doubao quota
+  /insufficient.?quota/i,         // OpenAI standard
+  /insufficient.?balance/i,       // Doubao / SiliconFlow
+  /\b402\b/,                      // HTTP 402 Payment Required
+  /invalid.?api.?key/i,           // OpenAI / Doubao standard
+  /authentication.?failed/i,      // Generic auth fail
+  /\bunauthoriz(ed|ation)\b/i,    // 401 body text
+  /API key not valid/i,           // Google/Doubao standard
+  /no.?API.?key/i,                // our own "key missing" sentinel
+  /codex.*preflight.*fail/i,      // codex-reviewer preflight explicit
+];
+
 var INFRA_PATTERNS = [
   /ECONNREFUSED/i,
   /ECONNRESET/i,
@@ -17,8 +35,8 @@ var INFRA_PATTERNS = [
   /EPIPE/i,
   /EAI_AGAIN/i,
   /ENOTFOUND/i,
-  /\b401\b/,
-  /\b403\b/,
+  // Note: 401/403 removed — they're definitive auth failures, not transient.
+  // MODEL_FATAL_PATTERNS picks them up via /unauthorized/ and similar.
   /\b429\b/,
   /\b502\b/,
   /\b503\b/,
@@ -117,12 +135,21 @@ function unwrapMessage(err) {
  * @param {object} [context] — optional hints
  * @param {string} [context.stage] — which stage threw
  * @param {number} [context.consecutiveInfra] — how many infra errors in a row
- * @returns {{ type: 'INFRA'|'CODE'|'FATAL', retryable: boolean, backoffMs: number, reason: string }}
+ * @returns {{ type: 'MODEL_FATAL'|'INFRA'|'CODE'|'FATAL', retryable: boolean, backoffMs: number, reason: string }}
  */
 function classify(err, context) {
   // Always unwrap nested error prefixes before classification
   var msg = unwrapMessage(err);
   var ctx = context || {};
+
+  // Highest priority: definitive model failures (quota / auth / invalid-key / preflight).
+  // Route these to MODEL_FATAL so the worker can cancel the task outright instead of
+  // burning retries or silently passing review. See project_pipeline_fixes_20260415.md.
+  for (var mf = 0; mf < MODEL_FATAL_PATTERNS.length; mf++) {
+    if (MODEL_FATAL_PATTERNS[mf].test(msg)) {
+      return { type: 'MODEL_FATAL', retryable: false, backoffMs: 0, reason: msg };
+    }
+  }
 
   // CUA definitive failures — always FATAL, no retry
   for (var cf = 0; cf < CUA_FATAL_PATTERNS.length; cf++) {

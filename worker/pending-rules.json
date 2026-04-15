@@ -939,6 +939,8 @@
     "timestamp": "2026-04-15T08:38:40.279Z",
     "autoExtracted": true,
     "failClassification": "FATAL",
-    "stage": "cua-verify"
+    "stage": "cua-verify",
+    "lastSeenAt": "2026-04-15T10:42:11.263Z",
+    "hitCount": 3
   }
 ]
