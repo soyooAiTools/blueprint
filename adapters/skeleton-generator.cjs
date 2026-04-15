@@ -342,14 +342,24 @@ function generateSkeleton(specs, opts = {}) {
   }
 
   // [SKELETON] AutoPlay interaction system — ALWAYS generated (outside isIdleGame block)
-  // Build target entity list from specs — supports both entitiesRequired and activate fields
+  // Build target entity list from specs — supports both entitiesRequired and activate fields.
+  //
+  // 2026-04-15 fix: exclude player-like names (Player, PlayerRobot, Hero, etc.) from
+  // autoTargets. The player IS the navigation subject — using it as a target results in
+  // distance=0, immediate "arrive", _autoTargetIdx++, skip. Not catastrophic but wastes a
+  // slot and skews initialPhase arrivals. More importantly, if the ONLY Phase 1 target is
+  // the player itself, the autoPlay will produce no visible movement → CUA observer sees
+  // visual freeze → FATAL in 3 rounds.
+  const isPlayerName = (n) => /^(Player|PlayerRobot|PlayerChar|Hero|MainChar|Protagonist)/i.test(n || '');
   const autoTargets = [];
   specs.forEach(spec => {
     (spec.entitiesRequired || []).forEach(e => {
-      if (autoTargets.indexOf(e.name) < 0) autoTargets.push(e.name);
+      if (e && e.name && !isPlayerName(e.name) && autoTargets.indexOf(e.name) < 0) {
+        autoTargets.push(e.name);
+      }
     });
     (spec.activate || []).forEach(name => {
-      if (name && !name.match(/UI$|Canvas|Guide|Gold|Score|Text/) && autoTargets.indexOf(name) < 0) {
+      if (name && !isPlayerName(name) && !name.match(/UI$|Canvas|Guide|Gold|Score|Text/) && autoTargets.indexOf(name) < 0) {
         autoTargets.push(name);
       }
     });
