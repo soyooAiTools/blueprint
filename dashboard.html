@@ -40,22 +40,20 @@ th { text-align: left; padding: 8px 10px; color: #8b949e; font-weight: 500; bord
 td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; }
 .badge.ok, .badge.online, .badge.idle, .badge.completed, .badge.done, .badge.cua_passed, .badge.approved, .badge.committed { background: #3fb95022; color: #3fb950; }
-.badge.processing, .badge.developing, .badge.building, .badge.assigned, .badge.submitted, .badge.reviewing { background: #58a6ff22; color: #58a6ff; }
-.badge.pending, .badge.retry_pending, .badge.editing { background: #d2992233; color: #d29922; }
-.badge.failed, .badge.error, .badge.down, .badge.offline { background: #f8514933; color: #f85149; }
+.badge.processing, .badge.developing, .badge.building, .badge.assigned, .badge.submitted, .badge.reviewing, .badge.busy, .badge.spec_extracting { background: #58a6ff22; color: #58a6ff; }
+.badge.pending, .badge.fix_needed, .badge.editing { background: #d2992233; color: #d29922; }
+.badge.failed, .badge.permanent_fail, .badge.offline { background: #f8514933; color: #f85149; }
 .badge.cancelled { background: #48484822; color: #888; }
-.badge.feedback, .badge.review_pass, .badge.review_fail { background: #bc8cff22; color: #bc8cff; }
-.badge.quicktest_pass { background: #3fb95022; color: #3fb950; }
-.badge.quicktest_fail { background: #f8514933; color: #f85149; }
-.badge.cua_pass { background: #3fb95022; color: #3fb950; }
-.badge.cua_fail { background: #f8514933; color: #f85149; }
+.badge.review_pass, .badge.quicktest_pass, .badge.cua_pass { background: #3fb95022; color: #3fb950; }
+.badge.review_fail, .badge.quicktest_fail, .badge.cua_fail { background: #f8514933; color: #f85149; }
 .badge.unknown { background: #484f5833; color: #8b949e; }
 .empty { text-align: center; padding: 32px; color: #484f58; font-size: 13px; }
 .refresh-info { font-size: 11px; color: #484f58; text-align: right; margin-top: 8px; }
 .probe { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; }
 .probe .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 .probe .dot.ok { background: #3fb950; box-shadow: 0 0 6px #3fb95066; }
-.probe .dot.error, .probe .dot.down { background: #f85149; box-shadow: 0 0 6px #f8514966; }
+.probe .dot.error { background: #f85149; box-shadow: 0 0 6px #f8514966; }
+.probe .dot.unknown { background: #484f58; }
 .probe .name { font-size: 13px; font-weight: 500; flex: 1; }
 .probe .latency { font-size: 11px; color: #8b949e; }
 .flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 12px 0; }
@@ -283,18 +281,51 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
     flowHTML += '</div>';
     document.getElementById('projectFlow').innerHTML = flowHTML;
 
-    // API Health
+    // API Health — show all 4 providers (豆包 / Claude / GPT-5.4 / Blueprint).
+    // Backend returns `health.{doubao,claude,gpt54,server}` with shape:
+    //   { status: 'ok'|'error', latencyMs: 123, error?: string }
+    // We always render a placeholder for each so the user immediately sees
+    // which providers exist (vs which are silently missing from the response).
     if (health) {
-      var ah = '';
-      function probeHTML(name, data) {
-        var st = data ? data.status : 'unknown';
-        var lat = data && data.latencyMs ? data.latencyMs + 'ms' : '';
-        var err = data && data.error ? ' · ' + data.error : '';
-        return '<div class="probe"><div class="dot ' + st + '"></div><div class="name">' + name + '</div><div class="latency">' + lat + err + '</div></div>';
+      function probeHTML(name, role, data, metricLabel) {
+        var st = (data && data.status) || 'unknown';
+        var dotCls = st === 'ok' ? 'ok' : (st === 'error' ? 'error' : 'unknown');
+        // Use metricLabel if provided (e.g. uptime for the server probe),
+        // otherwise fall back to latencyMs.
+        var metric = metricLabel || (data && data.latencyMs != null ? data.latencyMs + 'ms' : '—');
+        var err = data && data.error ? ' · <span style="color:#f85149;">' + data.error + '</span>' : '';
+        return '<div class="probe">' +
+          '<div class="dot ' + dotCls + '"></div>' +
+          '<div class="name">' + name +
+            '<div style="font-size:10px;color:#8b949e;font-weight:400;margin-top:1px;">' + role + '</div>' +
+          '</div>' +
+          '<div class="latency">' + metric + err + '</div>' +
+          '</div>';
       }
-      if (health.gpt54) ah += probeHTML('GPT-5.4 (中转)', health.gpt54);
-      if (health.gemini) ah += probeHTML('Gemini (中转)', health.gemini);
-      if (health.server) ah += probeHTML('Blueprint 服务', health.server);
+      var ah = '';
+      ah += probeHTML('豆包 Vision/Pro', 'CUA 视觉验证 + 文本生成', health.doubao);
+      ah += probeHTML('Claude Opus 4.6', '主代码生成 (中转)', health.claude);
+      ah += probeHTML('GPT-5.4', '代码审查 (Codex CLI)', health.gpt54);
+      // Server probe shows uptime instead of a latency number.
+      var serverUptime = '—';
+      if (health.server && health.server.uptimeMs != null) {
+        var s = Math.round(health.server.uptimeMs / 1000);
+        if (s < 60) serverUptime = 'up ' + s + 's';
+        else if (s < 3600) serverUptime = 'up ' + Math.floor(s / 60) + 'm';
+        else serverUptime = 'up ' + Math.floor(s / 3600) + 'h' + Math.floor((s % 3600) / 60) + 'm';
+      }
+      ah += probeHTML('Blueprint 服务', '编辑器 + Worker 调度', health.server, serverUptime);
+      // Surface healthCheck-level error (rare — the cache stores it when
+      // the entire healthCheck() promise rejects, e.g. import failure)
+      if (health.healthCheckError) {
+        ah += '<div style="font-size:11px;color:#f85149;padding:6px 12px;">⚠ healthCheck error: ' + health.healthCheckError + '</div>';
+      }
+      // Cache freshness indicator (informational)
+      if (health._cacheAgeMs != null) {
+        var ageSec = Math.round(health._cacheAgeMs / 1000);
+        var ageStr = ageSec < 60 ? ageSec + 's' : Math.round(ageSec / 60) + 'm';
+        ah += '<div style="font-size:10px;color:#484f58;text-align:right;padding:2px 6px;">缓存于 ' + ageStr + ' 前</div>';
+      }
       document.getElementById('apiHealth').innerHTML = ah || '<div class="empty">检测中...</div>';
     }
 

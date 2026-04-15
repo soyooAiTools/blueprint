@@ -20,6 +20,11 @@ const CODEX_MODEL = process.env.CODEX_REVIEW_MODEL || 'gpt-5.4';
 
 // ============ Preflight Health Check ============
 let _codexPreflightResult = null; // null = not checked, true = ok, false = broken
+let _codexPreflightReason = null; // human-readable failure reason ('quota_exceeded' / 'auth' / etc.)
+let _codexPreflightCheckedAt = null; // ms timestamp of last preflight run
+
+function getPreflightReason() { return _codexPreflightReason; }
+function getPreflightCheckedAt() { return _codexPreflightCheckedAt; }
 
 /**
  * One-time health check: verify codex exec can run (sandbox + auth).
@@ -32,6 +37,8 @@ async function preflightCheck() {
   if (!process.env.CODEX_API_KEY && !process.env.OPENAI_API_KEY) {
     console.log('[codex-reviewer] Preflight SKIP: no API key configured');
     _codexPreflightResult = false;
+    _codexPreflightReason = 'no_api_key';
+    _codexPreflightCheckedAt = Date.now();
     return false;
   }
 
@@ -80,25 +87,38 @@ async function preflightCheck() {
     // Cleanup
     try { fs.rmSync(testDir, { recursive: true, force: true }); } catch (e) {}
 
-    if (result.code === 0 && result.stdout.length > 0) {
+    _codexPreflightCheckedAt = Date.now();
+
+    if (result.code === 0 && result.stdout.length > 0 && !/Quota exceeded/i.test(result.stdout)) {
       console.log('[codex-reviewer] Preflight OK: codex exec working');
       _codexPreflightResult = true;
+      _codexPreflightReason = 'ok';
       return true;
     }
 
-    // Check for known failures
-    if (result.stderr.includes('bwrap') || result.stderr.includes('argv0')) {
-      console.log('[codex-reviewer] Preflight FAIL: bwrap sandbox broken -', result.stderr.substring(0, 200));
-    } else if (result.stderr.includes('401') || result.stderr.includes('auth')) {
-      console.log('[codex-reviewer] Preflight FAIL: authentication issue -', result.stderr.substring(0, 200));
+    // Check for known failures — codex prints "Quota exceeded" / auth errors
+    // to stdout, not stderr, so we have to scan both streams.
+    var combined = (result.stdout || '') + '\n' + (result.stderr || '');
+    if (/Quota exceeded/i.test(combined)) {
+      console.log('[codex-reviewer] Preflight FAIL: quota exceeded');
+      _codexPreflightReason = 'quota_exceeded';
+    } else if (combined.includes('bwrap') || combined.includes('argv0')) {
+      console.log('[codex-reviewer] Preflight FAIL: bwrap sandbox broken -', combined.substring(0, 200));
+      _codexPreflightReason = 'sandbox_broken';
+    } else if (/401|unauthor|auth/i.test(combined)) {
+      console.log('[codex-reviewer] Preflight FAIL: authentication issue -', combined.substring(0, 200));
+      _codexPreflightReason = 'auth_failed';
     } else {
-      console.log(`[codex-reviewer] Preflight FAIL: exit code ${result.code}, stderr: ${result.stderr.substring(0, 200)}`);
+      console.log(`[codex-reviewer] Preflight FAIL: exit code ${result.code}, output: ${combined.substring(0, 200)}`);
+      _codexPreflightReason = 'exit_code_' + result.code;
     }
     _codexPreflightResult = false;
     return false;
   } catch (err) {
     console.log('[codex-reviewer] Preflight FAIL: exception -', err.message);
     _codexPreflightResult = false;
+    _codexPreflightReason = 'exception';
+    _codexPreflightCheckedAt = Date.now();
     return false;
   }
 }
@@ -392,4 +412,4 @@ Rules:
   };
 }
 
-module.exports = { reviewCodeWithCodex, preflightCheck };
+module.exports = { reviewCodeWithCodex, preflightCheck, getPreflightReason, getPreflightCheckedAt };
