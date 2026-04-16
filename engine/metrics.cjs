@@ -58,6 +58,23 @@ function recordPipelineMetrics(ctx, stageResults) {
     record.cuaReason = cua.reason || '';
   }
 
+  // Schema-driven codegen metrics (8 fields per spec Section 6.1)
+  if (ctx && ctx.blueprint) {
+    if (ctx.blueprint.gameSchema) {
+      record.codegenMode = 'schema';
+      record.schemaTokensIn = ctx.blueprint.schemaTokensIn || 0;
+      record.schemaTokensOut = ctx.blueprint.schemaTokensOut || 0;
+      record.templateFillMs = ctx.blueprint.templateFillMs || 0;
+      record.templateCoverage = ctx.blueprint.templateCoverage || 0;
+      record.todoSectionsRemaining = ctx.blueprint.todoSectionsRemaining || 0;
+      record.customLogicUsed = !!(ctx.blueprint.gameSchema.customLogic && ctx.blueprint.gameSchema.customLogic.length > 0);
+      record.customLogicTokensIn = ctx.blueprint.customLogicTokensIn || 0;
+      record.customLogicRounds = ctx.blueprint.customLogicRounds || 0;
+    } else {
+      record.codegenMode = 'legacy';
+    }
+  }
+
   try {
     // Rotate if file exceeds 10MB
     try {
