@@ -1,3 +1,4 @@
+// Source: adapters/spec-extractor.cjs
 /**
  * Spec Extractor — Extract structured experience specs from storyboard frames
  *
@@ -64,14 +65,15 @@ ${buildVerbDoc()}
   
   "entitiesRequired": [
     {
-      "name": "conveyor",             // 实体名
+      "name": "Conveyor",             // 实体名（必须与 blueprint.entities 中的 name 完全一致，包括大小写）
       "terminalState": 2,             // 终态值
       "description": "传送带已建造"
     }
   ],
   
   "playerMustAct": true,              // 是否必须玩家操作
-  "autoAllowed": false                // 是否允许自动完成
+  "autoAllowed": false,               // 是否允许自动完成
+  "formSwitch": "string | null — 如果本阶段解锁了新的玩家形态/载具，填写形态ID（如 'crusherCar'）；否则为 null"
 }
 \`\`\`
 
@@ -98,7 +100,7 @@ ${buildVerbDoc()}
    - 明确说"自动"的流程
 
 5. **entitiesRequired** 提取所有需要建造/解锁的实体。终态一般是 2（built/completed）。
-   **重要：实体名必须严格使用 blueprint.entities 中给出的 name 值**，不要自行编造或简化名称。如果分镜描述的实体能对应到 blueprint.entities 中的某个实体，则必须使用该实体的精确 name。
+   **重要：实体名必须严格使用 blueprint.entities 中给出的 name 值**，不要自行编造或简化名称。如果分镜描述的实体能对应到 blueprint.entities 中的某个实体，则必须使用该实体的精确 name（包括大小写，通常为 PascalCase，如 ForgeWorkshop、MainBase）。
 
 6. **triggerNext** 写成 C# 风格的条件表达式。
 
@@ -141,7 +143,7 @@ async function extractSpecs(frames, opts = {}) {
   let entitySection = '';
   if (entities.length > 0) {
     const entityNames = entities.map(e => e.name).filter(Boolean);
-    entitySection = `\n## 蓝图实体列表（blueprint.entities）\n以下是本项目蓝图中已定义的全部实体，entitiesRequired 中的 name 必须严格使用以下名称之一：\n${entityNames.map(n => `- ${n}`).join('\n')}\n\n禁止使用不在上述列表中的实体名。如果分镜描述的实体无法对应到列表中的任何一项，则该 phase 的 entitiesRequired 留空数组。\n`;
+    entitySection = `\n## 蓝图实体列表（blueprint.entities）\n以下是本项目蓝图中已定义的全部实体，entitiesRequired 中的 name 必须严格使用以下名称之一（完整复制，包括大小写）：\n${entityNames.map(n => `- ${n}`).join('\n')}\n\n禁止使用不在上述列表中的实体名。如果分镜描述的实体无法对应到列表中的任何一项，则该 phase 的 entitiesRequired 留空数组。\n`;
   }
 
   const userPrompt = `以下是一个试玩广告的分镜数据（${frames.length} 帧，${Object.keys(chapters).length} 个章节）：
@@ -232,6 +234,7 @@ ${contextText}
       })),
       playerMustAct: spec.playerMustAct !== false,
       autoAllowed: spec.autoAllowed === true,
+      formSwitch: spec.formSwitch || null,
     }));
 
     // Truncation guard: if we got far fewer specs than expected chapters, retry
