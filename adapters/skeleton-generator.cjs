@@ -200,6 +200,10 @@ function generateSkeleton(specs, opts = {}) {
   const hasResources = specs.some(s => (s.requiredInteractions || []).some(i => i.startsWith('collect:') || i.startsWith('deliver:')));
   const isIdleGame = hasJoystick && hasResources;
   const hasFormSwitch = specs.some(s => !!s.formSwitch);
+  const hasEconomy = specs.some(s => (s.requiredInteractions || []).some(i => {
+    const verb = String(i).split(':')[0];
+    return verb === 'collect' || verb === 'deliver' || verb === 'spend' || verb === 'convert';
+  }));
 
   // [SKELETON] Form-switch system
   if (hasFormSwitch) {
@@ -233,6 +237,57 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    float GetCollectPower() { return (_forms != null && _forms.Length > 0) ? _forms[_currentFormIndex].collectPower : 1f; }');
     lines.push('    float GetCollectRange() { return (_forms != null && _forms.Length > 0) ? _forms[_currentFormIndex].collectRange : 1.5f; }');
     lines.push('    int GetCarryCapacity() { return (_forms != null && _forms.Length > 0) ? _forms[_currentFormIndex].carryCapacity : 10; }');
+    lines.push('');
+  }
+
+  if (hasEconomy) {
+    lines.push('    // [SKELETON] Economy system — AI fills _resources array in Start()');
+    lines.push('    struct ResourceDef {');
+    lines.push('        public string resourceId;');
+    lines.push('        public string displayName;');
+    lines.push('        public string convertFrom; // upstream resource id, empty if primary');
+    lines.push('        public int convertRatio;   // how many upstream = 1 of this');
+    lines.push('    }');
+    lines.push('    ResourceDef[] _resources; // [SKELETON] AI: fill in Start()');
+    lines.push('    System.Collections.Generic.Dictionary<string, int> _inventory = new System.Collections.Generic.Dictionary<string, int>();');
+    lines.push('');
+    lines.push('    void AddResource(string id, int amount) {');
+    lines.push('        if (!_inventory.ContainsKey(id)) _inventory[id] = 0;');
+    lines.push('        _inventory[id] += amount;');
+    lines.push('        UpdateResourceUI();');
+    lines.push('    }');
+    lines.push('');
+    lines.push('    int GetResource(string id) {');
+    lines.push('        return _inventory.ContainsKey(id) ? _inventory[id] : 0;');
+    lines.push('    }');
+    lines.push('');
+    lines.push('    bool TrySpend(string id, int amount) {');
+    lines.push('        if (GetResource(id) < amount) return false;');
+    lines.push('        _inventory[id] -= amount;');
+    lines.push('        UpdateResourceUI();');
+    lines.push('        return true;');
+    lines.push('    }');
+    lines.push('');
+    lines.push('    bool TryConvert(string fromId, string toId) {');
+    lines.push('        if (_resources == null) return false;');
+    lines.push('        ResourceDef toDef = default;');
+    lines.push('        bool found = false;');
+    lines.push('        for (int i = 0; i < _resources.Length; i++) {');
+    lines.push('            if (_resources[i].resourceId == toId) { toDef = _resources[i]; found = true; break; }');
+    lines.push('        }');
+    lines.push('        if (!found || toDef.convertFrom != fromId) return false;');
+    lines.push('        if (GetResource(fromId) < toDef.convertRatio) return false;');
+    lines.push('        _inventory[fromId] -= toDef.convertRatio;');
+    lines.push('        AddResource(toId, 1);');
+    lines.push('        return true;');
+    lines.push('    }');
+    lines.push('');
+    lines.push('    void UpdateResourceUI() {');
+    lines.push('        if (scoreText == null) return;');
+    lines.push('        var parts = new System.Collections.Generic.List<string>();');
+    lines.push('        foreach (var kv in _inventory) { if (kv.Value > 0) parts.Add(kv.Key + ": " + kv.Value); }');
+    lines.push('        scoreText.text = string.Join("  ", parts);');
+    lines.push('    }');
     lines.push('');
   }
 
