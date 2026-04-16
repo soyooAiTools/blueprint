@@ -602,7 +602,14 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
           var fpShort = (r.fingerprint || r.sampleReason || '').slice(0, 80);
           var lastSeenAgo = r.lastSeen ? ago(new Date(r.lastSeen).getTime()) : '-';
           var recipeId = kb.autoFixRecipe ? kb.autoFixRecipe.id : null;
-          var canAutoFix = recipeId ? '<button onclick="triggerAutoFix(\'' + recipeId + '\')" style="background:#1f6feb;color:#fff;border:0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;">自动修复</button>' : '<span style="color:#484f58;font-size:11px;">无 recipe</span>';
+          var canAutoFix;
+          if (!recipeId) {
+            canAutoFix = '<span style="color:#484f58;font-size:11px;">无 recipe</span>';
+          } else if (kb.resolvedBy) {
+            canAutoFix = '<button disabled style="background:#30363d;color:#484f58;border:1px solid #30363d;padding:4px 10px;border-radius:4px;cursor:not-allowed;font-size:11px;" title="已修复 ' + (kb.resolvedBy || '').slice(0, 7) + '">已修复</button>';
+          } else {
+            canAutoFix = '<button onclick="triggerAutoFix(\'' + recipeId + '\')" style="background:#1f6feb;color:#fff;border:0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;">自动修复</button>';
+          }
           fh += '<tr>';
           fh += '<td>' + knowledgeCell + '</td>';
           fh += '<td style="word-break:break-all;max-width:420px;">' + fpShort + '</td>';
