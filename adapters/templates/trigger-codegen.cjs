@@ -5,8 +5,9 @@
  */
 
 function toLowerCamel(name) {
-  if (!name || name.length === 0) return name;
-  return name[0].toLowerCase() + name.slice(1);
+  // Identity: skeleton declares PascalCase variables matching entity names as-is
+  // (e.g. "GameObject TreeSource;", "int HouseState;"), so templates must NOT lowercase.
+  return name || '';
 }
 
 function triggerToCondition(trigger, allEntities) {

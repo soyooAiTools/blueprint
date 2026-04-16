@@ -44,10 +44,11 @@ module.exports = {
           fillResult.templateCoverage.toFixed(2) + ', remaining TODOs=' + fillResult.todoCount +
           ', took ' + ctx.blueprint.templateFillMs + 'ms');
 
-        // Handle split mode
+        // Handle split mode — fill Systems file TODOs too
         if (typeof skeletonResult === 'object' && skeletonResult.systems) {
+          var systemsFill = templateEngine.fillSkeleton(schema, skeletonResult.systems);
           ctx.extraFiles = ctx.extraFiles || {};
-          ctx.extraFiles['GameFlowManagerMain.Systems.cs'] = skeletonResult.systems;
+          ctx.extraFiles['GameFlowManagerMain.Systems.cs'] = systemsFill.code;
         }
 
         // Step 3: Custom logic fill (only if needed)
