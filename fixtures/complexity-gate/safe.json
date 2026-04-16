@@ -1,0 +1,24 @@
+{
+  "description": "8 phases, 1 control mode, 1 econ layer, 6 entities, 1 form switch = should be <=200",
+  "input": {
+    "specs": [
+      {"phaseId":"p1","requiredInteractions":["move_to:tree","collect:wood"],"entitiesRequired":[{"name":"Player","terminalState":0},{"name":"Tree","terminalState":2}]},
+      {"phaseId":"p2","requiredInteractions":["move_to:sawmill","deliver:wood"],"entitiesRequired":[{"name":"Sawmill","terminalState":0}]},
+      {"phaseId":"p3","requiredInteractions":["click:house","spend:gold:50","build:house"],"entitiesRequired":[{"name":"House","terminalState":2}]},
+      {"phaseId":"p4","requiredInteractions":["click:axe","spend:gold:30","upgrade:axe"],"entitiesRequired":[{"name":"Axe","terminalState":2}]},
+      {"phaseId":"p5","requiredInteractions":["move_to:tree","collect:wood"],"entitiesRequired":[]},
+      {"phaseId":"p6","requiredInteractions":["click:barn","spend:gold:100","build:barn"],"entitiesRequired":[{"name":"Barn","terminalState":2}],"formSwitch":"cart"},
+      {"phaseId":"p7","requiredInteractions":["move_to:tree","collect:wood"],"entitiesRequired":[]},
+      {"phaseId":"p8","requiredInteractions":["click:cta"],"entitiesRequired":[]}
+    ],
+    "entities": [
+      {"name":"Player"},{"name":"Tree","terminalState":2},
+      {"name":"Sawmill"},{"name":"House","terminalState":2},
+      {"name":"Axe","terminalState":2},{"name":"Barn","terminalState":2}
+    ]
+  },
+  "expectedResult": {
+    "action": "pass",
+    "scoreMustNotExceed": 200
+  }
+}

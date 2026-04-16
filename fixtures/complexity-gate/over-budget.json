@@ -1,0 +1,30 @@
+{
+  "description": "11 phases, 3 control modes, 3 econ layers, 12 entities, 2 form switches = should be >250",
+  "input": {
+    "specs": [
+      {"phaseId":"p1","requiredInteractions":["move_to:garbage","collect:scrap"],"entitiesRequired":[{"name":"Player","terminalState":0},{"name":"SpaceGarbage","terminalState":2}]},
+      {"phaseId":"p2","requiredInteractions":["move_to:station","deliver:scrap"],"entitiesRequired":[{"name":"SpaceStation","terminalState":0}]},
+      {"phaseId":"p3","requiredInteractions":["click:forge","spend:gold:100","build:forge"],"entitiesRequired":[{"name":"ForgeWorkshop","terminalState":2}]},
+      {"phaseId":"p4","requiredInteractions":["click:drill","spend:gold:50","upgrade:drill"],"entitiesRequired":[{"name":"TripleDrill","terminalState":2}]},
+      {"phaseId":"p5","requiredInteractions":["move_to:garbage","collect:scrap"],"entitiesRequired":[]},
+      {"phaseId":"p6","requiredInteractions":["click:crusher","spend:gold:300","upgrade:crusher"],"entitiesRequired":[{"name":"CrusherCar","terminalState":2}],"formSwitch":"crusherCar"},
+      {"phaseId":"p7","requiredInteractions":["drive:crusher","collect:scrap"],"entitiesRequired":[]},
+      {"phaseId":"p8","requiredInteractions":["click:hydraulic","spend:gold:500","upgrade:hydraulic"],"entitiesRequired":[{"name":"HydraulicCar","terminalState":2}],"formSwitch":"hydraulicCar"},
+      {"phaseId":"p9","requiredInteractions":["drive:hydraulic","collect:scrap"],"entitiesRequired":[]},
+      {"phaseId":"p10","requiredInteractions":["click:cabin","spend:gold:300","build:cabin"],"entitiesRequired":[{"name":"CabinModule","terminalState":2}]},
+      {"phaseId":"p11","requiredInteractions":["click:cta"],"entitiesRequired":[{"name":"CTAButton","terminalState":1}]}
+    ],
+    "entities": [
+      {"name":"Player"},{"name":"SpaceGarbage","terminalState":2},
+      {"name":"SpaceStation"},{"name":"ForgeWorkshop","terminalState":2},
+      {"name":"TripleDrill","terminalState":2},{"name":"CrusherCar","terminalState":2},
+      {"name":"HydraulicCar","terminalState":2},{"name":"CabinModule","terminalState":2},
+      {"name":"CTAButton","terminalState":1},{"name":"MetalShard"},
+      {"name":"GoldUI"},{"name":"GuideUI"}
+    ]
+  },
+  "expectedResult": {
+    "action": "simplify",
+    "scoreMustExceed": 250
+  }
+}
