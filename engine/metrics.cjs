@@ -25,7 +25,7 @@ function recordPipelineMetrics(ctx, stageResults) {
     stages: {},
   };
 
-  var stageNames = ['spec-validate', 'codegen', 'review', 'compile', 'visual-check', 'cua-verify', 'upload'];
+  var stageNames = ['spec-validate', 'complexity-gate', 'codegen', 'method-check', 'review', 'compile', 'visual-check', 'cua-verify', 'upload'];
   for (var i = 0; i < stageNames.length; i++) {
     var name = stageNames[i];
     var sr = stageResults[name];
