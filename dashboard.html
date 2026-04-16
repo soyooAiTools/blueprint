@@ -604,10 +604,21 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
           var recipeId = kb.autoFixRecipe ? kb.autoFixRecipe.id : null;
           var btnId = 'af-' + (recipeId || '').replace(/[^a-zA-Z0-9-]/g, '');
           var canAutoFix;
+          var afState = recipeId ? (_autoFixStates[recipeId] || null) : null;
           if (!recipeId) {
             canAutoFix = '<span style="color:#484f58;font-size:11px;">无 recipe</span>';
+          } else if (afState === 'committed') {
+            var hash = _autoFixCommitHashes[recipeId] || '';
+            canAutoFix = '<span id="' + btnId + '"><span style="color:#3fb950;font-size:11px;">已提交 ' + hash + '</span></span>';
+          } else if (afState === 'done') {
+            canAutoFix = '<span id="' + btnId + '"><button onclick="showAutoFixApproval(\'' + recipeId + '\')" style="background:#238636;color:#fff;border:0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;">批准 commit</button></span>';
+          } else if (afState === 'loading') {
+            canAutoFix = '<span id="' + btnId + '"><button disabled style="background:#30363d;color:#8b949e;border:1px solid #30363d;padding:4px 10px;border-radius:4px;cursor:wait;font-size:11px;">修复中...</button></span>';
+          } else if (afState === 'error') {
+            var errMsg = (_autoFixErrors[recipeId] || '').replace(/"/g, '&quot;').slice(0, 120);
+            canAutoFix = '<span id="' + btnId + '"><button disabled style="background:#da3633;color:#fff;border:0;padding:4px 10px;border-radius:4px;cursor:not-allowed;font-size:11px;" title="' + errMsg + '">失败</button></span>';
           } else if (kb.resolvedBy) {
-            canAutoFix = '<button disabled style="background:#30363d;color:#484f58;border:1px solid #30363d;padding:4px 10px;border-radius:4px;cursor:not-allowed;font-size:11px;" title="已修复 ' + (kb.resolvedBy || '').slice(0, 7) + '">已修复</button>';
+            canAutoFix = '<span id="' + btnId + '"><button disabled style="background:#30363d;color:#484f58;border:1px solid #30363d;padding:4px 10px;border-radius:4px;cursor:not-allowed;font-size:11px;" title="已修复 ' + (kb.resolvedBy || '').slice(0, 7) + '">已修复</button></span>';
           } else {
             canAutoFix = '<span id="' + btnId + '"><button onclick="triggerAutoFix(\'' + recipeId + '\',\'' + btnId + '\')" style="background:#1f6feb;color:#fff;border:0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;">自动修复</button></span>';
           }
@@ -704,31 +715,32 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
     }
   }
 
-  // Auto-fix button flow:
-  //   1. Click "自动修复" → button becomes "修复中..." (disabled)
-  //   2. On success → button becomes "批准 commit" (green)
-  //   3. Click "批准 commit" → modal with diff + diagnosis + "提交" button
-  //   4. Click "提交" → POST /api/auto-fix-commit → done
-  var _autoFixResults = {}; // recipeId → {result}
+  // Auto-fix state tracking — survives refresh() rebuilds
+  // States: null → 'loading' → 'done'/'error' → 'committed'
+  var _autoFixStates = {};       // recipeId → state string
+  var _autoFixResults = {};      // recipeId → API result
+  var _autoFixErrors = {};       // recipeId → error message
+  var _autoFixCommitHashes = {}; // recipeId → commit hash
 
   window.triggerAutoFix = function(recipeId, btnId) {
+    _autoFixStates[recipeId] = 'loading';
+    // Immediately update the button in DOM
     var container = document.getElementById(btnId);
-    if (!container) return;
-    // 1. Loading state
-    container.innerHTML = '<button disabled style="background:#30363d;color:#8b949e;border:1px solid #30363d;padding:4px 10px;border-radius:4px;cursor:wait;font-size:11px;">修复中...</button>';
+    if (container) container.innerHTML = '<button disabled style="background:#30363d;color:#8b949e;border:1px solid #30363d;padding:4px 10px;border-radius:4px;cursor:wait;font-size:11px;">修复中...</button>';
     fetch(BASE + '/api/auto-fix/' + encodeURIComponent(recipeId), { method: 'POST' })
       .then(function(r) { return r.json(); })
       .then(function(result) {
         if (result.error) {
-          container.innerHTML = '<button disabled style="background:#da3633;color:#fff;border:0;padding:4px 10px;border-radius:4px;cursor:not-allowed;font-size:11px;" title="' + result.error.replace(/"/g, '&quot;').slice(0, 120) + '">失败</button>';
+          _autoFixStates[recipeId] = 'error';
+          _autoFixErrors[recipeId] = result.error;
           return;
         }
-        // 2. Success → show "批准 commit" button
+        _autoFixStates[recipeId] = 'done';
         _autoFixResults[recipeId] = result;
-        container.innerHTML = '<button onclick="showAutoFixApproval(\'' + recipeId + '\')" style="background:#238636;color:#fff;border:0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;">批准 commit</button>';
       })
       .catch(function(err) {
-        container.innerHTML = '<button disabled style="background:#da3633;color:#fff;border:0;padding:4px 10px;border-radius:4px;cursor:not-allowed;font-size:11px;" title="' + (err.message || '').slice(0, 80) + '">失败</button>';
+        _autoFixStates[recipeId] = 'error';
+        _autoFixErrors[recipeId] = err.message || 'network error';
       });
   };
 
@@ -779,18 +791,11 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
           alert('Commit 失败: ' + commitResult.error);
           return;
         }
-        // Success — close modal + update button
+        // Success — update state (next refresh will render correctly)
+        _autoFixStates[recipeId] = 'committed';
+        _autoFixCommitHashes[recipeId] = commitResult.commitHash || '';
         if (modal) modal.remove();
-        // Find the button container and mark as committed
-        var containers = document.querySelectorAll('[id^="af-"]');
-        containers.forEach(function(c) {
-          if (c.querySelector('button') && c.querySelector('button').textContent === '批准 commit') {
-            if (c.querySelector('button').onclick && c.querySelector('button').onclick.toString().indexOf(recipeId) >= 0) {
-              c.innerHTML = '<span style="color:#3fb950;font-size:11px;">已提交 ' + (commitResult.commitHash || '') + '</span>';
-            }
-          }
-        });
-        // Simpler: update by recipeId
+        // Also update DOM immediately
         var afBtn = document.getElementById('af-' + recipeId.replace(/[^a-zA-Z0-9-]/g, ''));
         if (afBtn) afBtn.innerHTML = '<span style="color:#3fb950;font-size:11px;">已提交 ' + (commitResult.commitHash || '') + '</span>';
       })
