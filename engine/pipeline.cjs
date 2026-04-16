@@ -357,7 +357,9 @@ Pipeline.prototype.run = function(ctx, onProgress) {
 
 var cloneStage = require('./stages/clone.cjs');
 var specValidateStage = require('./stages/spec-validate.cjs');
+var complexityGateStage = require('./stages/complexity-gate.cjs');
 var codegenStage = require('./stages/codegen.cjs');
+var methodCheckStage = require('./stages/method-check.cjs');
 var reviewStage = require('./stages/review.cjs');
 var compileStage = require('./stages/compile.cjs');
 var visualCheckStage = require('./stages/visual-check.cjs');
@@ -370,7 +372,9 @@ function createLunaPipeline(options) {
   return new Pipeline([
     cloneStage,
     specValidateStage,
+    complexityGateStage,
     codegenStage,
+    methodCheckStage,
     reviewStage,
     compileStage,
     visualCheckStage,
@@ -398,7 +402,9 @@ module.exports = {
   stages: {
     clone: cloneStage,
     specValidate: specValidateStage,
+    complexityGate: complexityGateStage,
     codegen: codegenStage,
+    methodCheck: methodCheckStage,
     review: reviewStage,
     compile: compileStage,
     visualCheck: visualCheckStage,
