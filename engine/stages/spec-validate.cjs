@@ -51,10 +51,15 @@ module.exports = {
 
     // --- 2. Per-spec validation ---
     var entityNames = new Set();
+    var entityLowerToCanonical = {}; // lowercased name → canonical name, for case-insensitive fallback
     if (ctx.blueprint.entities && ctx.blueprint.entities.length > 0) {
       ctx.blueprint.entities.forEach(function(e) {
         entityNames.add(e.name);
-        if (e.poolName) entityNames.add(e.poolName);
+        entityLowerToCanonical[String(e.name).toLowerCase()] = e.name;
+        if (e.poolName) {
+          entityNames.add(e.poolName);
+          entityLowerToCanonical[String(e.poolName).toLowerCase()] = e.poolName;
+        }
       });
     }
 
@@ -74,13 +79,46 @@ module.exports = {
       }
 
       // --- BLOCK: entity references not in blueprint.entities ---
+      // 2026-04-16 (xrbkl1): the LLM spec extractor sometimes camelCases names
+      // (`forgeWorkshop` instead of `ForgeWorkshop`) even though the prompt says
+      // verbatim-copy. Do a case-insensitive fallback and auto-correct the spec
+      // in place — the mismatch is cosmetic, not semantic, and blocking it costs
+      // 4+ re-extractions before a human manually syncs the project.
       if (spec.entitiesRequired && spec.entitiesRequired.length > 0 && entityNames.size > 0) {
         spec.entitiesRequired.forEach(function(ent) {
-          if (!entityNames.has(ent.name)) {
-            errors.push(label + ': entity "' + ent.name + '" not found in blueprint.entities. Known: ' +
-              Array.from(entityNames).slice(0, 10).join(', '));
+          if (entityNames.has(ent.name)) return;
+          var canonical = entityLowerToCanonical[String(ent.name).toLowerCase()];
+          if (canonical) {
+            autoFixes.push(label + ': entity "' + ent.name + '" case-normalized to "' + canonical + '"');
+            ent.name = canonical;
+            return;
           }
+          // Not a case-only difference — emit suggestion based on edit distance
+          var suggestion = _findClosestEntity(ent.name, Array.from(entityNames));
+          var suggestText = suggestion ? ' Did you mean: "' + suggestion + '"?' : '';
+          errors.push(label + ': entity "' + ent.name + '" not found in blueprint.entities.' + suggestText +
+            ' Known: ' + Array.from(entityNames).slice(0, 10).join(', '));
         });
+      }
+
+      // Also case-normalize entity refs inside triggerNext.condition (e.g. "forgeWorkshop.state == 2")
+      if (spec.triggerNext && spec.triggerNext.condition && Object.keys(entityLowerToCanonical).length > 0) {
+        var origCond = spec.triggerNext.condition;
+        var fixedCond = origCond;
+        Object.keys(entityLowerToCanonical).forEach(function(lower) {
+          var canonical = entityLowerToCanonical[lower];
+          // Case-insensitive whole-word match for any variant of the entity name,
+          // then replace with canonical form if it differs.
+          var re = new RegExp('\\b' + _escapeRegex(lower) + '\\b', 'gi');
+          fixedCond = fixedCond.replace(re, function(m) {
+            return m === canonical ? m : canonical;
+          });
+        });
+        if (fixedCond !== origCond) {
+          autoFixes.push(label + ': triggerNext.condition entity names case-normalized ("' +
+            origCond.substring(0, 60) + '" → "' + fixedCond.substring(0, 60) + '")');
+          spec.triggerNext.condition = fixedCond;
+        }
       }
 
       // --- WARN: unknown interaction verbs ---
@@ -324,6 +362,51 @@ module.exports = {
     });
   },
 };
+
+/**
+ * Escape regex metacharacters in a string so it can be used as a literal pattern.
+ */
+function _escapeRegex(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Find the closest known entity name for a typo'd reference.
+ * Uses a cheap Levenshtein distance; returns null if no candidate is within threshold.
+ */
+function _findClosestEntity(name, candidates) {
+  var target = String(name || '').toLowerCase();
+  var threshold = Math.max(2, Math.floor(target.length * 0.4));
+  var best = null;
+  var bestDist = threshold + 1;
+  for (var i = 0; i < candidates.length; i++) {
+    var cand = candidates[i];
+    var d = _editDistance(target, String(cand).toLowerCase());
+    if (d < bestDist) {
+      bestDist = d;
+      best = cand;
+    }
+  }
+  return best;
+}
+
+function _editDistance(a, b) {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  var prev = new Array(b.length + 1);
+  var curr = new Array(b.length + 1);
+  for (var j = 0; j <= b.length; j++) prev[j] = j;
+  for (var i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    for (var k = 1; k <= b.length; k++) {
+      var cost = a.charCodeAt(i - 1) === b.charCodeAt(k - 1) ? 0 : 1;
+      curr[k] = Math.min(curr[k - 1] + 1, prev[k] + 1, prev[k - 1] + cost);
+    }
+    for (var m = 0; m <= b.length; m++) prev[m] = curr[m];
+  }
+  return prev[b.length];
+}
 
 /**
  * Determine expected chapter count from storyboard frames.

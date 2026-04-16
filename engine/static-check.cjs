@@ -158,6 +158,71 @@ var RULES = [
     }
     return issues;
   }},
+  // 2026-04-16 (proj_xrbkl1 postmortem): anti-autoplay flags like `spaceJunkDone` were
+  // ONLY flipped inside OnAutoPlayArrive. In CUA autoPlay mode the skeleton bypasses
+  // these flags via the 20s timer; but in interactive mode (visual pre-check + real
+  // users) the flag never flips, so Phase 2 never triggers, game visually freezes, CUA
+  // burns 45min trying to fix the impossible. Rule: every xxxDone flag read as
+  // `xxxDone == true` in a non-autoplay branch MUST have at least one `xxxDone = true`
+  // assignment OUTSIDE OnAutoPlayArrive (e.g. in a proximity check, raycast handler,
+  // or collision callback). Blocking: dead playable otherwise.
+  { id: 'interactive-done-flag-dead', pattern: null, blocking: true,
+    message: 'Anti-autoplay xxxDone flag has no interactive-mode assignment — game will freeze when autoPlay is disabled',
+    custom: function(code) {
+      var issues = [];
+      // Strip comments/strings so we don't match inside them
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/[^\n]*/g, '')
+        .replace(/"(?:[^"\\]|\\.)*"/g, '""');
+      // Locate OnAutoPlayArrive body via brace-depth walker
+      var sigMatch = stripped.match(/void\s+OnAutoPlayArrive\s*\(\s*string\s+\w+\s*\)\s*\{/);
+      var autoPlayStart = -1, autoPlayEnd = -1;
+      if (sigMatch) {
+        autoPlayStart = sigMatch.index + sigMatch[0].length;
+        var d = 1, p = autoPlayStart;
+        while (p < stripped.length && d > 0) {
+          var ch = stripped[p];
+          if (ch === '{') d++;
+          else if (ch === '}') { d--; if (d === 0) { autoPlayEnd = p; break; } }
+          p++;
+        }
+      }
+      // Collect all Done-flag identifiers referenced in interactive-branch reads
+      // (pattern: "xxxDone == true", "!xxxDone", "xxxDone &&", etc.). These are flags
+      // the phase gate depends on in non-autoplay mode.
+      var flagNames = {};
+      var readRe = /\b(\w+(?:Done|Acted))\b/g;
+      var rm;
+      while ((rm = readRe.exec(stripped)) !== null) {
+        flagNames[rm[1]] = true;
+      }
+      // For each flag: find all `xxxDone = true` assignments, check if any fall outside OnAutoPlayArrive body
+      Object.keys(flagNames).forEach(function(flag) {
+        if (!/(Done|Acted)$/.test(flag)) return;
+        if (flag === 'gameEnded' || flag === 'autoPlayChecked') return; // non-interaction flags
+        var assignRe = new RegExp('\\b' + flag + '\\s*=\\s*true\\b', 'g');
+        var hasOutside = false, hasAny = false, am;
+        while ((am = assignRe.exec(stripped)) !== null) {
+          hasAny = true;
+          if (autoPlayStart < 0 || am.index < autoPlayStart || am.index > autoPlayEnd) {
+            hasOutside = true;
+            break;
+          }
+        }
+        if (hasAny && !hasOutside) {
+          // Flag only set inside OnAutoPlayArrive — interactive mode will never flip it
+          var firstAssign = code.match(new RegExp('\\b' + flag + '\\s*=\\s*true\\b'));
+          var lineNum = firstAssign ? code.substring(0, firstAssign.index).split('\n').length : 1;
+          issues.push({
+            line: lineNum,
+            text: flag + ' is only set in OnAutoPlayArrive — add a non-autoplay assignment (proximity check, raycast, collision)',
+          });
+        }
+      });
+      return issues;
+    },
+  },
   { id: 'direct-ruletriggered-set', pattern: null, message: 'ruleTriggered[] must only be set inside skeleton phase gates — do not set outside CheckEventRules', custom: function(code) {
     // Check for ruleTriggered assignments outside of CheckEventRules
     // Look for methods that set ruleTriggered but aren't CheckEventRules

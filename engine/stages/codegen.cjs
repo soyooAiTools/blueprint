@@ -229,7 +229,7 @@ module.exports = {
             // Inject as feedback so the next round's AI prompt knows what to fix
             if (!ctx.blueprint.feedbackHistory) ctx.blueprint.feedbackHistory = [];
             ctx.blueprint.feedbackHistory.push({
-              data: { text: 'BLOCKING STATIC VIOLATIONS (fix all before retry, these cause black screen):\n' + blockSummary },
+              data: { text: 'BLOCKING STATIC VIOLATIONS (fix all before retry — these produce dead/invisible playables: black screen, visual freeze, or non-interactive game):\n' + blockSummary },
               source: 'codegen-static-block',
               status: 'pending',
               timestamp: Date.now(),

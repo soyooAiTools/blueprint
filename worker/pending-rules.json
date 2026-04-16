@@ -458,8 +458,8 @@
     "autoExtracted": true,
     "failClassification": "FATAL",
     "stage": "cua-verify",
-    "lastSeenAt": "2026-04-16T01:39:17.756Z",
-    "hitCount": 3
+    "lastSeenAt": "2026-04-16T03:22:28.843Z",
+    "hitCount": 4
   },
   {
     "description": "ReportPhase uses UnityEngine.Debug.Log for gameplay flow phase reporting. This was explicitly auto-promoted as a production risk in Luna review rules and should not be used in runtime phase/state flow.",
@@ -982,7 +982,7 @@
     "autoExtracted": true,
     "failClassification": "FATAL",
     "stage": "spec-validate",
-    "lastSeenAt": "2026-04-16T01:50:46.567Z",
-    "hitCount": 3
+    "lastSeenAt": "2026-04-16T02:06:28.349Z",
+    "hitCount": 4
   }
 ]

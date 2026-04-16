@@ -43,7 +43,27 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
   var issueTexts = issues.map(function(i) { return typeof i === 'string' ? i : (i.message || i.text || ''); });
   var allIssueText = issueTexts.join(' ').toLowerCase();
 
-  if (allIssueText.indexOf('visual frozen') >= 0 || allIssueText.indexOf('visual-freeze') >= 0 || allIssueText.indexOf('static') >= 0 && allIssueText.indexOf('screen') >= 0) {
+  // 2026-04-16 (proj_xrbkl1 postmortem): widen visual_freeze keyword set so we actually
+  // short-circuit instead of burning 5 CUA rounds. The VLM often phrases a stuck game as
+  // "virtually identical", "no meaningful visual change", "positions unchanged", "no
+  // phase progression", "visually stuck" — none of which matched the old narrow set.
+  // Also fix A || B || C && D precedence with explicit parens.
+  var VISUAL_FREEZE_PHRASES = [
+    'visual frozen', 'visual-freeze', 'visually frozen', 'visually stuck',
+    'virtually identical', 'no meaningful visual change', 'no phase progression',
+    'essentially unchanged', 'positions .* unchanged', 'no animation', 'no movement',
+    'game is visually stuck', 'frozen despite running',
+  ];
+  var hasVisualFreezePhrase = VISUAL_FREEZE_PHRASES.some(function(p) {
+    return p.indexOf('.*') >= 0 ? new RegExp(p).test(allIssueText) : allIssueText.indexOf(p) >= 0;
+  }) || (allIssueText.indexOf('static') >= 0 && allIssueText.indexOf('screen') >= 0);
+
+  // Terminal fallback: if no phases complete across multiple rounds, the game literally
+  // never starts — that IS a visual freeze regardless of issue text wording.
+  // stuckAtPhase is passed as currentPhaseCompleted from caller; treat <=0 (none completed) as frozen.
+  var noPhasesCompleted = (stuckAtPhase != null && stuckAtPhase <= 0 && completedPhases.length === 0);
+
+  if (hasVisualFreezePhrase || (noPhasesCompleted && noProgressRounds >= 2)) {
     rootCause = 'visual_freeze';
   } else if (allIssueText.indexOf('variable') >= 0 && (allIssueText.indexOf('stagnation') >= 0 || allIssueText.indexOf('initial values') >= 0 || allIssueText.indexOf('remain') >= 0)) {
     rootCause = 'variable_stagnation';
@@ -306,9 +326,14 @@ module.exports = {
               });
 
               // visual_freeze 无法通过 claude incremental-fix 修复 —— 画面冻结通常是
-              // Camera/Canvas/初始化问题，不是单行代码改动能解决的。连续 3 round 直接熔断，
-              // 避免每 round 烧 $5-10 的 claude-code 调用。
-              if (stuckDiagnosis.rootCause === 'visual_freeze' && _noProgressRounds >= 3) {
+              // Camera/Canvas/初始化/交互逻辑缺失问题，不是单行代码改动能解决的。
+              // 连续 3 round 直接熔断，避免每 round 烧 $5-10 的 claude-code 调用。
+              // 2026-04-16 (xrbkl1): threshold was hit in diagnosis path, but issue text
+              // didn't match old narrow keywords so short-circuit never fired and we burned
+              // 45min of CUA. Keyword list widened in _buildStuckDiagnosis and fallback
+              // added for "never completed any phase". Threshold tightened 3 → 2 for
+              // noPhasesCompleted case: if phase 1 can't start in 2 rounds, 3 won't help.
+              if (stuckDiagnosis.rootCause === 'visual_freeze' && _noProgressRounds >= 2) {
                 throw new Error('Visual freeze FATAL: ' + _noProgressRounds + ' consecutive rounds — not fixable via claude-fix. ' + stuckDiagnosis.summary);
               }
 

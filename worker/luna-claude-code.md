@@ -117,6 +117,36 @@ void OnAutoPlayArrive(string targetName) {
 - ✅ 必须更新 UI 文字（scoreText, guideText）
 - ⛔ 不要在 OnAutoPlayArrive 中推进 Phase — skeleton 已处理
 
+## ⛔ xxxDone 标志必须有交互模式路径（2026-04-16 xrbkl1 事故后强制）
+
+**骨架里所有 `xxxDone` / `xxxActed` 布尔标志**（如 `spaceJunkDone`, `recyclingStationDone`, `forgeFoundationDone`…）**必须在两条路径上都能被翻转为 true**：
+
+1. **AutoPlay 路径**：`OnAutoPlayArrive` 里到达目标时 → 翻转标志（CUA 验证用）
+2. **交互路径**：`Update()` 里玩家真正靠近/点击/碰撞时 → 翻转标志（真实玩家、视觉预检用）
+
+**只做 AutoPlay 路径 = 致命错误**：视觉预检 / 真实玩家没有 `_autoPlayMode` 标记，对象永远静止，Phase 1 永远过不去，CUA 会烧 45 min 修复无望。
+
+```csharp
+// ✅ 正确: 两条路径都有
+void Update() {
+    // Interactive path: proximity or click
+    if (!spaceJunkDone && IsNear(SpaceDebris, 1.5f) && Input.GetMouseButtonDown(0)) {
+        scrapCount += 3;
+        spaceJunkDone = true;  // ← 交互路径必写
+    }
+    // ... rest of Update()
+}
+
+void OnAutoPlayArrive(string targetName) {
+    if (targetName == "SpaceDebris") {
+        scrapCount += 3;
+        spaceJunkDone = true;  // ← AutoPlay 路径也要写
+    }
+}
+```
+
+**静态检查规则 `interactive-done-flag-dead` 会拒绝只在 OnAutoPlayArrive 里翻转的标志**，codegen 会 fail 这一轮强制重新生成。
+
 ## 数值平衡
 
 - ⛔ 弩炮/防御建筑禁止自动射击，攻击必须由玩家点击触发
