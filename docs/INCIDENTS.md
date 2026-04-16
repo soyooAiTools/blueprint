@@ -917,3 +917,48 @@ LISTEN 0 511 *:3901 users:(("PM2 v6.0.14: Go",pid=2349527,fd=3))
 3. LLM adapter 层必须有格式校验，字符串 vs 数组语义差异导致静默失败
 4. heartbeat 是 watchdog 的唯一信号源，错误上报会级联放大为全系统故障
 - `video-to-blueprint.cjs` 仍输出 V3 格式，需后续迁移至 V4
+
+---
+
+## 2026-04-16: build-api 6.4.0→7.1.0 升级 — Bridge is not defined 黑屏
+
+### 背景
+proj_1776297105366_xrbkl1 (太空捡垃圾) 视觉预检连续失败：
+`ReferenceError ('Bridge is not defined')` — 全帧黑屏，AI recode 修不好。
+
+### 根因分析
+
+**根因：build-api 版本滞后，与 7.1.0 模板架构不匹配**
+
+| 组件 | 路径 | 版本 | 行数 |
+|------|------|------|------|
+| build-api 使用的 | `/opt/luna-poc/linux-bridge-build.js` | 6.4.0 多文件 | 838 |
+| worker 侧已更新的 | `/opt/blueprint-editor/worker/linux-bridge-build.js` | 7.1.0 单文件 | 1025 |
+
+- 4月2日 stage4-template 迁移到 7.1.0 单文件架构 (`index.html` + `engine/scripts.js`)
+- worker 侧 `linux-bridge-build.js` 同步更新（index.html → iframe.html 兼容复制 + scripts.js 拼接）
+- **build-api (`/opt/luna-poc/`) 从未同步**，仍然用 6.4.0 多文件逻辑（读 iframe.html → inline 19 个独立 engine JS）
+- 4月14日 23:08 有人手动添加了一个 6.4.0 格式的 iframe.html 试图修复，但没有添加对应的引擎文件
+- 结果：18 条 `<script src="engine/...">` 全部 404 → Bridge 未定义 → 黑屏
+
+### 修复
+
+1. **build-api 升级**：`/opt/luna-poc/linux-bridge-build.js` 替换为 worker 侧 7.1.0 版本 (838→1025 行)
+2. **build-api 重启**：kill 旧进程 (pid 1943443, 4月12日启动) → 启动新进程
+3. **stage4-template 清理**：移除 6.4.0 遗留 (iframe.html, engine/unity/bin/, engine/luna/, js/)
+4. **全面清除 6.4.0 残留**：
+   - 删除 5 个备份目录 (~90MB)
+   - 更新 render-iframe.js 默认版本 6.4.0→7.1.0
+   - 更新 worker-cua-verify.js 注释
+   - 更新 deserializers.js 版本字符串
+   - 更新 Pro/luna.json, packages-lock.json, Bee cache 引用
+
+### 验证
+- 烟雾测试：POST /build → 7.3MB HTML（之前坏的 1.1MB），所有引擎 inline 标记存在，0 残留外部标签
+- xrbkl1 重新提交后：CUA 覆盖从 0/11 (visual_freeze) 提升到 10/11 (phase-skipped)
+
+### 教训
+1. build-api 与 worker 共享 `linux-bridge-build.js` 但各自维护副本 — 迁移时必须两端同步
+2. `convertToSingleHTML` 找不到文件时静默 `return match` 是危险设计 — 应该 throw
+3. compile 阶段 `htmlData.length > 10240` 检查不够 — 应验证关键 inline 标记存在
+4. visual-check 识别黑屏但路由到 C# recode — 对构建级故障应走 MODEL_FATAL 而非 recode

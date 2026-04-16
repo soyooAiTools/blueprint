@@ -31,7 +31,7 @@ try { fs.mkdirSync(CUA_RESULTS_DIR, { recursive: true }); } catch(e) {}
 /**
  * Patch Luna build files for Playwright/headless compatibility.
  * 
- * Two known issues in Luna 6.4.0 under headless Chromium:
+ * Two known issues in Luna under headless Chromium:
  *   1. `new Event("xxx")` throws "parameter 1 is not of type Event"
  *      Fix: replace with document.createEvent("Event") + initEvent()
  *   2. UnityEngine.Behaviour$1#isActiveAndEnabled getter crashes on null ref

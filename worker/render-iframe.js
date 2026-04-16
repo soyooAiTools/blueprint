@@ -18,7 +18,7 @@ if (fs.existsSync(lunaJsonPath)) {
 const runtimeAnalysisModules = lunaJson.runtimeAnalysisModules || ['physics3d', 'physics2d', 'particle_system', 'reflection', 'prefabs', 'mecanim'];
 const scenes = lunaJson.scenes || ['Assets/Scenes/templeteScene.unity'];
 const projectId = lunaJson.projectId || '';
-const version = lunaJson.version || '6.4.0';
+const version = lunaJson.version || '7.1.0';
 const startupScene = scenes[0] || 'Assets/Scenes/templeteScene.unity';
 
 const envObj = {

@@ -458,8 +458,8 @@
     "autoExtracted": true,
     "failClassification": "FATAL",
     "stage": "cua-verify",
-    "lastSeenAt": "2026-04-15T07:18:50.289Z",
-    "hitCount": 2
+    "lastSeenAt": "2026-04-16T01:39:17.756Z",
+    "hitCount": 3
   },
   {
     "description": "ReportPhase uses UnityEngine.Debug.Log for gameplay flow phase reporting. This was explicitly auto-promoted as a production risk in Luna review rules and should not be used in runtime phase/state flow.",
@@ -940,8 +940,8 @@
     "autoExtracted": true,
     "failClassification": "FATAL",
     "stage": "cua-verify",
-    "lastSeenAt": "2026-04-15T10:42:11.263Z",
-    "hitCount": 3
+    "lastSeenAt": "2026-04-16T00:52:02.189Z",
+    "hitCount": 4
   },
   {
     "description": "codegen aborted: same CODE error repeated 3 rounds, fix-loop not converging: Blocking static violations: 35 (first: SetActive() forbidden in Luna — use position=(0,-999,0) to hide)",
@@ -970,5 +970,19 @@
     "stage": "review",
     "lastSeenAt": "2026-04-15T17:12:11.082Z",
     "hitCount": 5
+  },
+  {
+    "description": "Spec validation failed: 7 error(s):\nSpec[2] buildForgeWorkshop: entity \"forgeWorkshop\" not found in blueprint.entities. Known: PlayerAstronaut, RecyclingStation, SpaceDebris, MetalScrap, ForgeWorkshop, BasicDrill, CrusherTruck, HydraulicTruck, CanteenModule, DormModule\nSpec[3] upgradeTripleDrill: entity \"drill\" not found in blueprint.entities. Known: PlayerAstronaut, RecyclingStation, SpaceDebris, MetalScrap, ForgeWorkshop, BasicDrill, CrusherTruck, HydraulicTruck, CanteenModule, DormModule\nSpec",
+    "rule": "Spec Structure",
+    "fix": "Spec validation failed: 7 error(s):\nSpec[2] buildForgeWorkshop: entity \"forgeWorkshop\" not found in blueprint.entities. Known: PlayerAstronaut, RecyclingStation, SpaceDebris, MetalScrap, ForgeWorkshop, BasicDrill, CrusherTruck, HydraulicTruck, CanteenModule, DormModule\nSpec[3] upgradeTripleDrill: en",
+    "severity": "critical",
+    "line": "spec-validate stage failure",
+    "taskId": "proj_1776297105366_xrbkl1",
+    "timestamp": "2026-04-16T01:45:56.699Z",
+    "autoExtracted": true,
+    "failClassification": "FATAL",
+    "stage": "spec-validate",
+    "lastSeenAt": "2026-04-16T01:50:46.567Z",
+    "hitCount": 3
   }
 ]

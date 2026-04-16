@@ -1558,7 +1558,7 @@ Deserializers.lunaInitializationTime = "02/17/2026 07:58:25";
 
 Deserializers.lunaDaysRunning = "24.2";
 
-Deserializers.lunaVersion = "6.4.0";
+Deserializers.lunaVersion = "7.1.0";
 
 Deserializers.lunaSHA = "6639120529aa36186c6141b5c3fb20246c28bff0";
 
