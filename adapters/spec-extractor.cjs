@@ -258,11 +258,28 @@ ${contextText}
     for (const name of knownNames) {
       lowerMap[name.toLowerCase()] = name;
     }
+
+    // 2026-04-17: Word-split index for matching LLM-invented names like
+    // "drill"→BasicDrill, "dormitory"→DormModule, "crushTruck"→CrusherTruck.
+    // Split PascalCase/camelCase into words, map each word to canonical names.
+    function splitWords(name) {
+      return name.replace(/([a-z])([A-Z])/g, '$1 $2')
+        .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+        .toLowerCase().split(/[\s_-]+/).filter(w => w.length >= 3);
+    }
+    const wordIndex = {}; // word → Set<canonicalName>
+    for (const name of knownNames) {
+      for (const word of splitWords(name)) {
+        if (!wordIndex[word]) wordIndex[word] = new Set();
+        wordIndex[word].add(name);
+      }
+    }
+
     let corrected = 0;
     for (const spec of validated) {
       for (const ent of spec.entitiesRequired) {
         if (!ent.name || knownNames.has(ent.name)) continue;
-        // Try case-insensitive exact match
+        // Layer 1: Case-insensitive exact match
         const lower = ent.name.toLowerCase();
         if (lowerMap[lower]) {
           console.log(`[SpecExtractor] Auto-correct entity: "${ent.name}" → "${lowerMap[lower]}"`);
@@ -270,7 +287,7 @@ ${contextText}
           corrected++;
           continue;
         }
-        // Try substring match: find a known entity whose lowercase name contains or is contained by the spec name
+        // Layer 2: Substring match
         let bestMatch = null;
         for (const known of knownNames) {
           const kl = known.toLowerCase();
@@ -280,8 +297,49 @@ ${contextText}
           }
         }
         if (bestMatch) {
-          console.log(`[SpecExtractor] Auto-correct entity (fuzzy): "${ent.name}" → "${bestMatch}"`);
+          console.log(`[SpecExtractor] Auto-correct entity (substring): "${ent.name}" → "${bestMatch}"`);
           ent.name = bestMatch;
+          corrected++;
+          continue;
+        }
+        // Layer 3: Word-split match — split the LLM name into words and find
+        // canonical entities sharing the most words. Catches:
+        //   "drill" → BasicDrill (shares word "drill")
+        //   "dormitory" → DormModule (shares prefix "dorm")
+        //   "crushTruck" → CrusherTruck (shares "crush", "truck")
+        const specWords = splitWords(ent.name);
+        const candidates = {}; // canonicalName → matchedWordCount
+        for (const sw of specWords) {
+          // Exact word match
+          if (wordIndex[sw]) {
+            for (const cn of wordIndex[sw]) {
+              candidates[cn] = (candidates[cn] || 0) + 2; // exact = 2 points
+            }
+          }
+          // Prefix match (3+ chars): "dorm" matches "dormitory" word, "crush" matches "crusher"
+          for (const iw of Object.keys(wordIndex)) {
+            if (iw === sw) continue;
+            if (iw.startsWith(sw) || sw.startsWith(iw)) {
+              for (const cn of wordIndex[iw]) {
+                candidates[cn] = (candidates[cn] || 0) + 1; // prefix = 1 point
+              }
+            }
+          }
+        }
+        // Pick highest-scoring candidate
+        let wordBest = null, wordBestScore = 0;
+        for (const cn in candidates) {
+          if (candidates[cn] > wordBestScore) {
+            wordBestScore = candidates[cn];
+            wordBest = cn;
+          }
+        }
+        // score>=2 = confident match (exact word or multi-word overlap)
+        // score==1 = weak match (prefix only) — accept only if it's the sole candidate
+        var candidateCount = Object.keys(candidates).length;
+        if (wordBest && (wordBestScore >= 2 || (wordBestScore === 1 && candidateCount === 1))) {
+          console.log(`[SpecExtractor] Auto-correct entity (word-match, score=${wordBestScore}): "${ent.name}" → "${wordBest}"`);
+          ent.name = wordBest;
           corrected++;
         } else {
           console.warn(`[SpecExtractor] Entity "${ent.name}" not found in blueprint.entities, clearing to avoid validation failure`);

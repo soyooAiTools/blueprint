@@ -235,21 +235,7 @@ module.exports.init = function(ctx) {
           issues.push('[F20-regression] ' + fp.slice(0, 60) + ' (resolved ' + kb.resolvedBy.slice(0,7) + ', ' + postFix.length + ' new hits)');
           fixes.push('[info] Logged regression → server-data/regressions.json');
 
-          // Throttled 飞书 notification
-          var lastNotified = prev && prev.notifiedAt ? new Date(prev.notifiedAt).getTime() : 0;
-          if (now - lastNotified > NOTIFY_THROTTLE_MS) {
-            try {
-              var feishu = require('../worker/feishu-notify.js');
-              feishu.send(frs[0].taskId || 'regression', 'stuck',
-                '[Regression] ' + fp.slice(0, 80) + '\n' +
-                '先前由 ' + kb.resolvedBy.slice(0, 7) + ' 修复\n' +
-                '命中 ' + postFix.length + ' 次\n' +
-                '最近: ' + latestTs,
-                { fingerprint: fp, resolvedBy: kb.resolvedBy }
-              ).catch(function() {});
-              byFp[fp].notifiedAt = new Date().toISOString();
-            } catch(e) {}
-          }
+          // Feishu notification removed 2026-04-17
         });
 
         if (changed) {
@@ -292,17 +278,7 @@ module.exports.init = function(ctx) {
           try {
             fs.writeFileSync(spFile, JSON.stringify(Object.keys(spByTask).map(function(k) { return spByTask[k]; }), null, 2));
           } catch(e) {}
-          // Feishu alert for new silent-passes
-          try {
-            var feishuSP = require('../worker/feishu-notify.js');
-            feishuSP.send('silent-pass', 'warning',
-              '[Silent-Pass] ' + newSPCount + ' 个任务通过CUA但存在假通过信号\n' +
-              successWithSP.slice(0, 5).map(function(r) {
-                return r.taskId + ': ' + (r.cuaSilentPassSignals || []).join(', ');
-              }).join('\n'),
-              {}
-            ).catch(function() {});
-          } catch(e) {}
+          // Feishu alert removed 2026-04-17
           fixes.push('[info] Recorded ' + newSPCount + ' new silent-pass(es) → server-data/silent-passes.json');
         }
       } catch(e) {

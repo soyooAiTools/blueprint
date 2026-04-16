@@ -140,6 +140,20 @@ function normalizeFingerprint(reason) {
   s = s.replace(/round\s+\d+/gi, 'round N');
   // "X rounds" / "X attempts" → "N rounds"
   s = s.replace(/\d+\s+(rounds?|attempts?)/gi, 'N $1');
+  // 2026-04-17: Normalize short numbers in common patterns that caused
+  // auto-fix idle loop — "47min > 45min" vs "51min > 45min" were treated
+  // as separate fingerprints, each bypassing the other's cooldown.
+  // "(Nmin > Nmin)" pattern (CUA time limit exceeded)
+  s = s.replace(/\d+min/g, 'Nmin');
+  // "N error(s)" / "N warning(s)" (spec validation count)
+  s = s.replace(/\d+\s+(error|warning)\(s\)/gi, 'N $1(s)');
+  // Quoted entity names: "forgeWorkshop", "drill", "dormitory" etc.
+  // These vary per task but the root cause is the same class of mismatch
+  s = s.replace(/"[a-zA-Z_]\w*"/g, '"<entity>"');
+  // "Spec[N] phaseId:" — normalize both the index and the per-task phaseId
+  s = s.replace(/Spec\[\d+\]\s*[a-zA-Z]\w*/g, 'Spec[N] <phase>');
+  // "N consecutive" (visual freeze round counts)
+  s = s.replace(/\d+\s+consecutive/gi, 'N consecutive');
   // Collapse whitespace
   s = s.replace(/\s+/g, ' ').trim();
   // Cap at 100 chars to prevent unbounded keys

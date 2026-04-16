@@ -165,10 +165,7 @@ function notifyEvent(taskId, event, message, extra) {
     req.end();
   } catch(e) {}
 
-  // Send to Feishu DM via App Bot API
-  const feishuNotify = require('./feishu-notify.js');
-  const feishuExtra = debugBy ? Object.assign({}, extra || {}, { debugBy }) : extra;
-  feishuNotify.send(taskId, event, message, feishuExtra).catch(() => {});
+  // Feishu DM removed 2026-04-17 — DNS unreachable + app secret invalid
 }
 
 // ============ Resilience Config ============

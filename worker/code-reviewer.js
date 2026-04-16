@@ -467,54 +467,7 @@ async function recordNewIssues(issues, taskId) {
     console.log('[reviewer] Auto-cleanup failed (non-fatal): ' + cleanErr.message);
   }
 
-  // Notify via Feishu webhook (fire-and-forget)
-  try {
-    notifyFeishuNewRules(newIssues, taskId);
-  } catch(e) {
-    console.log('[reviewer] Feishu notify failed (non-fatal): ' + e.message);
-  }
-}
-
-/**
- * Send Feishu notification about new pending rules.
- */
-function notifyFeishuNewRules(newIssues, taskId) {
-  // Use the blueprint project's notify webhook if available
-  var webhookUrl = process.env.FEISHU_WEBHOOK_URL;
-  if (!webhookUrl) {
-    console.log('[reviewer] No FEISHU_WEBHOOK_URL, skipping notification');
-    return;
-  }
-
-  var lines = ['🔔 **审核发现新问题待确认**（任务: ' + taskId + '）\n'];
-  for (var i = 0; i < newIssues.length; i++) {
-    var issue = newIssues[i];
-    lines.push((i + 1) + '. **' + issue.description + '**');
-    lines.push('   规则: ' + (issue.rule || '-') + ' | 建议修复: ' + (issue.fix || '-'));
-  }
-  lines.push('\n请确认是否加入 REVIEW_RULES。确认后告诉小白执行写入。');
-
-  var payload = JSON.stringify({
-    msg_type: 'text',
-    content: { text: lines.join('\n') }
-  });
-
-  var parsed = new URL(webhookUrl);
-  var opts = {
-    hostname: parsed.hostname,
-    port: 443,
-    path: parsed.pathname + parsed.search,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
-  };
-
-  var req = https.request(opts, function(res) {
-    res.on('data', function() {});
-    res.on('end', function() {});
-  });
-  req.on('error', function() {});
-  req.write(payload);
-  req.end();
+  // Feishu webhook notification removed 2026-04-17
 }
 
 /**

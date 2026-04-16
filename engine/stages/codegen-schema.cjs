@@ -161,6 +161,17 @@ function buildSchemaPrompt(ctx) {
   lines.push('8. entities[].initPos: [x,y,z], x范围±6, z范围±4, y>0');
   lines.push('9. entities[].scale >= 0.3');
   lines.push('');
+  // 2026-04-17: Visual change rules — CUA rejects "visual freeze" when phases
+  // transition without observable screen changes. Each phase must produce
+  // visible object movement/appearance/disappearance so CUA screenshots differ.
+  lines.push('## 视觉变化规则（CUA 验证必须）');
+  lines.push('10. 每个 phase 必须有至少 2 个 showEntities 或 hideEntities，确保 phase 切换时画面有明显变化');
+  lines.push('11. 相邻 phase 的 showEntities 不能完全相同——必须有新出现或消失的实体');
+  lines.push('12. 每个 phase 必须有 guideText（中文引导文字），且相邻 phase 的 guideText 不同');
+  lines.push('13. showEntities 的 initPos 在不同 phase 间至少相差 2 个单位（避免物体位置不动导致截图无变化）');
+  lines.push('14. 每个 phase 至少一个 onEnter action（如 add_resource, set_entity_state），让游戏状态随 phase 推进而变化');
+  lines.push('15. 禁止所有 phase 只用 timer trigger——至少 50% 的 phase 必须用 entity_state_reached 或 resource_collected trigger');
+  lines.push('');
   lines.push('## 分镜 Specs');
   lines.push(specs);
   lines.push('');

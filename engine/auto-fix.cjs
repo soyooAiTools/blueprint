@@ -33,6 +33,7 @@ var MEMORY_DIR = '/root/.claude/projects/-root/memory';
 var MEMORY_INDEX = path.join(MEMORY_DIR, 'MEMORY.md');
 var COOLDOWN_MS = 60 * 60 * 1000; // 1h per fingerprint
 var MAX_PER_CYCLE = 2;
+var MAX_RECIPE_APPLIES = 3; // same recipe applied 3× without resolving → manual-only
 
 // Lazy-load runner to avoid circular deps
 var _runner = null;
@@ -517,7 +518,23 @@ async function runAutoFixCycle(topFailReasons) {
     }
 
     // L6: Auto-apply if allowed
+    // 2026-04-17: per-recipe apply cap — if this recipe has been applied N times
+    // without resolving the issue, stop wasting tokens and mark manual-only.
+    // Root cause of old idle loop: different fingerprints (47min vs 51min) mapped
+    // to the same recipe, bypassing per-fingerprint cooldown.
     if (recipe && recipe.autoApply !== false) {
+      var recipeApplyCount = (state.history || []).filter(function(h) {
+        return h.recipe === recipe.id;
+      }).length;
+      if (recipeApplyCount >= MAX_RECIPE_APPLIES) {
+        log('Recipe ' + recipe.id + ' already applied ' + recipeApplyCount + ' times without resolving — marking manual-only');
+        setCooldown(state, fingerprint, 'manual-only');
+        details.push('[L6] Recipe ' + recipe.id + ' exhausted (' + recipeApplyCount + '/' + MAX_RECIPE_APPLIES + ' applies) — manual-only');
+        stats.skipped++;
+        saveState(state);
+        continue;
+      }
+
       stats.attempted++;
       setCooldown(state, fingerprint, 'applying');
       saveState(state);
