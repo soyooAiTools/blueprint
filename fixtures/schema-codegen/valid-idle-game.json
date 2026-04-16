@@ -1,0 +1,85 @@
+{
+  "gameConfig": {
+    "cameraBackground": [0.53, 0.81, 0.92],
+    "groundColor": [0.36, 0.63, 0.25],
+    "moveSpeed": 5,
+    "collectRange": 2.5,
+    "maxCarry": 10
+  },
+  "entities": [
+    {
+      "name": "Tree",
+      "pool": "__Pool_Nature_Tree_01",
+      "initPos": [3, 0, 5],
+      "scale": 1.0,
+      "showInPhase": "phase1"
+    },
+    {
+      "name": "Rock",
+      "pool": "__Pool_Nature_Rock_02",
+      "initPos": [-2, 0, 4],
+      "scale": 0.8,
+      "showInPhase": "phase1"
+    },
+    {
+      "name": "House",
+      "pool": "__Pool_Building_House_01",
+      "initPos": [0, 0, 10],
+      "scale": 1.2,
+      "showInPhase": "phase2",
+      "terminalState": 3
+    },
+    {
+      "name": "CtaButton",
+      "pool": "__Pool_Ui_Button_01",
+      "initPos": [0, 2, 0],
+      "scale": 0.5,
+      "showInPhase": "phase3"
+    }
+  ],
+  "resources": [
+    {
+      "name": "Wood",
+      "entity": "Tree",
+      "convertRatio": 3
+    }
+  ],
+  "phases": [
+    {
+      "phaseId": "phase1",
+      "showEntities": ["Tree", "Rock"],
+      "guideText": "Collect wood from trees!",
+      "trigger": {
+        "type": "resource_collected",
+        "resource": "Wood",
+        "amount": 5
+      },
+      "onEnter": [],
+      "onComplete": []
+    },
+    {
+      "phaseId": "phase2",
+      "showEntities": ["House"],
+      "hideEntities": ["Rock"],
+      "guideText": "Build your house!",
+      "trigger": {
+        "type": "entity_state_reached",
+        "entity": "House",
+        "state": 3
+      },
+      "onEnter": [],
+      "onComplete": []
+    },
+    {
+      "phaseId": "phase3",
+      "showEntities": ["CtaButton"],
+      "guideText": "Great job! Download now!",
+      "trigger": {
+        "type": "click_entity",
+        "entity": "CtaButton"
+      },
+      "onEnter": [],
+      "onComplete": []
+    }
+  ]
+}

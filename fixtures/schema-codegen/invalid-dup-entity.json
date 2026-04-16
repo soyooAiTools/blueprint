@@ -1,0 +1,50 @@
+{
+  "gameConfig": {
+    "cameraBackground": [0.53, 0.81, 0.92],
+    "groundColor": [0.36, 0.63, 0.25],
+    "moveSpeed": 5,
+    "collectRange": 2.5,
+    "maxCarry": 10
+  },
+  "entities": [
+    {
+      "name": "Tree",
+      "pool": "__Pool_Nature_Tree_01",
+      "initPos": [3, 0, 5],
+      "scale": 1.0
+    },
+    {
+      "name": "Tree",
+      "pool": "__Pool_Nature_Tree_02",
+      "initPos": [-3, 0, 5],
+      "scale": 1.2
+    },
+    {
+      "name": "CtaButton",
+      "pool": "__Pool_Ui_Button_01",
+      "initPos": [0, 2, 0],
+      "scale": 0.5
+    }
+  ],
+  "phases": [
+    {
+      "phaseId": "phase1",
+      "showEntities": ["Tree"],
+      "guideText": "Collect wood!",
+      "trigger": {
+        "type": "resource_collected",
+        "resource": "Wood",
+        "amount": 3
+      }
+    },
+    {
+      "phaseId": "phase2",
+      "showEntities": ["CtaButton"],
+      "guideText": "Download now!",
+      "trigger": {
+        "type": "click_entity",
+        "entity": "CtaButton"
+      }
+    }
+  ]
+}

@@ -1,0 +1,337 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://blueprint-editor.local/game-schema.json",
+  "title": "Blueprint Game Schema",
+  "description": "Schema for AI-generated playable ad game definitions",
+  "type": "object",
+  "required": ["gameConfig", "entities", "phases"],
+  "additionalProperties": false,
+  "properties": {
+    "gameConfig": {
+      "type": "object",
+      "required": ["cameraBackground", "groundColor", "moveSpeed", "collectRange", "maxCarry"],
+      "additionalProperties": false,
+      "properties": {
+        "cameraBackground": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "RGB color [r, g, b] for camera background"
+        },
+        "groundColor": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "RGB color [r, g, b] for ground plane"
+        },
+        "moveSpeed": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Player movement speed"
+        },
+        "collectRange": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Range within which player can collect resources"
+        },
+        "maxCarry": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of items the player can carry"
+        }
+      }
+    },
+    "entities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/entity"
+      }
+    },
+    "resources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/resource"
+      }
+    },
+    "forms": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/form"
+      }
+    },
+    "phases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/phase"
+      }
+    },
+    "npcs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/npc"
+      }
+    },
+    "customLogic": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/customLogicEntry"
+      }
+    }
+  },
+  "definitions": {
+    "entity": {
+      "type": "object",
+      "required": ["name", "pool", "initPos", "scale"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique entity name"
+        },
+        "pool": {
+          "type": "string",
+          "pattern": "^__Pool_[A-Z][a-z]+_[A-Z][a-z]+_\\d{2}$",
+          "description": "Asset pool identifier, e.g. __Pool_Nature_Tree_01"
+        },
+        "initPos": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "Initial position [x, y, z]"
+        },
+        "scale": {
+          "type": "number",
+          "minimum": 0.3,
+          "description": "Scale factor, must be >= 0.3"
+        },
+        "showInPhase": {
+          "type": "string",
+          "description": "Phase ID when this entity first becomes visible"
+        },
+        "terminalState": {
+          "type": "integer",
+          "description": "Terminal state index for state machine entities"
+        }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "required": ["name", "entity", "convertRatio"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Resource type name"
+        },
+        "entity": {
+          "type": "string",
+          "description": "Entity name that drops this resource"
+        },
+        "convertRatio": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many raw resources convert to one processed unit"
+        },
+        "maxStock": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum stock limit"
+        }
+      }
+    },
+    "form": {
+      "type": "object",
+      "required": ["name", "from", "to", "cost"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Form transformation name"
+        },
+        "from": {
+          "type": "string",
+          "description": "Source resource name"
+        },
+        "to": {
+          "type": "string",
+          "description": "Target resource name"
+        },
+        "cost": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Cost in source resource units"
+        }
+      }
+    },
+    "trigger": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "resource_collected",
+            "entity_state_reached",
+            "near_entity",
+            "click_entity",
+            "all_built",
+            "enemy_defeated",
+            "timer",
+            "compound"
+          ]
+        },
+        "entity": {
+          "type": "string",
+          "description": "Target entity name (for entity-related triggers)"
+        },
+        "resource": {
+          "type": "string",
+          "description": "Target resource name (for resource_collected)"
+        },
+        "amount": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Required amount (for resource_collected)"
+        },
+        "state": {
+          "type": "integer",
+          "description": "Target state index (for entity_state_reached)"
+        },
+        "range": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Proximity range (for near_entity)"
+        },
+        "seconds": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Timer duration in seconds (for timer)"
+        },
+        "op": {
+          "type": "string",
+          "enum": ["AND", "OR"],
+          "description": "Logical operator for compound triggers"
+        },
+        "triggers": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/trigger" },
+          "description": "Sub-triggers for compound type"
+        }
+      },
+      "additionalProperties": false
+    },
+    "phaseAction": {
+      "type": "object",
+      "required": ["action"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "description": "Action identifier"
+        },
+        "target": {
+          "type": "string",
+          "description": "Target entity or resource"
+        },
+        "value": {
+          "description": "Action parameter value"
+        }
+      },
+      "additionalProperties": false
+    },
+    "phase": {
+      "type": "object",
+      "required": ["phaseId", "showEntities", "trigger"],
+      "additionalProperties": false,
+      "properties": {
+        "phaseId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique phase identifier"
+        },
+        "showEntities": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Entity names to show when this phase starts"
+        },
+        "hideEntities": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Entity names to hide when this phase starts"
+        },
+        "guideText": {
+          "type": "string",
+          "description": "Player instruction text"
+        },
+        "trigger": {
+          "$ref": "#/definitions/trigger"
+        },
+        "onEnter": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/phaseAction" },
+          "description": "Actions executed when phase starts"
+        },
+        "onComplete": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/phaseAction" },
+          "description": "Actions executed when phase completes"
+        }
+      }
+    },
+    "npc": {
+      "type": "object",
+      "required": ["entity", "template"],
+      "additionalProperties": false,
+      "properties": {
+        "entity": {
+          "type": "string",
+          "description": "Entity name this NPC is attached to"
+        },
+        "template": {
+          "type": "string",
+          "enum": [
+            "patrol",
+            "chase_attack",
+            "static_target",
+            "ranged_shooter",
+            "spawner"
+          ],
+          "description": "NPC behavior template"
+        },
+        "params": {
+          "type": "object",
+          "description": "Template-specific parameters",
+          "additionalProperties": true
+        }
+      }
+    },
+    "customLogicEntry": {
+      "type": "object",
+      "required": ["name", "code"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Custom logic block name"
+        },
+        "code": {
+          "type": "string",
+          "description": "Raw C# code snippet"
+        },
+        "insertAt": {
+          "type": "string",
+          "enum": ["Update", "Start", "OnAutoPlayArrive", "OnPhaseEnter"],
+          "description": "Where to inject the code"
+        }
+      }
+    }
+  }
+}

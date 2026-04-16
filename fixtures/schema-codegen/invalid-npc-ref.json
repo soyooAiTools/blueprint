@@ -1,0 +1,49 @@
+{
+  "gameConfig": {
+    "cameraBackground": [0.53, 0.81, 0.92],
+    "groundColor": [0.36, 0.63, 0.25],
+    "moveSpeed": 5,
+    "collectRange": 2.5,
+    "maxCarry": 10
+  },
+  "entities": [
+    {
+      "name": "Soldier",
+      "pool": "__Pool_Character_Soldier_01",
+      "initPos": [0, 0, 0],
+      "scale": 1.0
+    },
+    {
+      "name": "CtaButton",
+      "pool": "__Pool_Ui_Button_01",
+      "initPos": [0, 2, 0],
+      "scale": 0.5
+    }
+  ],
+  "phases": [
+    {
+      "phaseId": "phase1",
+      "showEntities": ["Soldier"],
+      "guideText": "Defeat the ghost!",
+      "trigger": {
+        "type": "enemy_defeated",
+        "entity": "Ghost"
+      }
+    },
+    {
+      "phaseId": "phase2",
+      "showEntities": ["CtaButton"],
+      "guideText": "Download now!",
+      "trigger": {
+        "type": "click_entity",
+        "entity": "CtaButton"
+      }
+    }
+  ],
+  "npcs": [
+    {
+      "entity": "Ghost",
+      "template": "patrol"
+    }
+  ]
+}

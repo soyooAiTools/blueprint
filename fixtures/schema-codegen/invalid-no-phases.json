@@ -1,0 +1,18 @@
+{
+  "gameConfig": {
+    "cameraBackground": [0.53, 0.81, 0.92],
+    "groundColor": [0.36, 0.63, 0.25],
+    "moveSpeed": 5,
+    "collectRange": 2.5,
+    "maxCarry": 10
+  },
+  "entities": [
+    {
+      "name": "Tree",
+      "pool": "__Pool_Nature_Tree_01",
+      "initPos": [3, 0, 5],
+      "scale": 1.0
+    }
+  ],
+  "phases": []
+}
