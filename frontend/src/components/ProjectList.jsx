@@ -228,6 +228,11 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
                     ⚠️ {p.statusMessage.length > 50 ? p.statusMessage.slice(0, 50) + '...' : p.statusMessage}
                   </div>
                 )}
+                {p.status !== 'failed' && p.status !== 'editing' && p.statusMessage && (
+                  <div className="project-card-progress" title={p.statusMessage}>
+                    {p.statusMessage.length > 60 ? p.statusMessage.slice(0, 60) + '...' : p.statusMessage}
+                  </div>
+                )}
                 <div className="project-card-time">
                   <span>更新于 {formatDate(p.updatedAt)}</span>
                 </div>
