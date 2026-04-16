@@ -36,7 +36,11 @@
 | `engine/stages/codegen.cjs` | MODIFY | Router: schema vs legacy |
 | `adapters/skeleton-generator.cjs` | MODIFY | Add TODO_CUSTOM_START/END markers |
 | `engine/metrics.cjs` | MODIFY | Add schema-specific fields |
-| `fixtures/schema-codegen/` | CREATE | Test fixtures for template engine |
+| `fixtures/schema-codegen/valid-idle-game.json` | CREATE | Valid 3-phase test fixture |
+| `fixtures/schema-codegen/invalid-no-phases.json` | CREATE | Empty phases — must fail structural validation |
+| `fixtures/schema-codegen/invalid-npc-ref.json` | CREATE | NPC references non-existent entity — must fail semantic |
+| `fixtures/schema-codegen/invalid-dup-entity.json` | CREATE | Duplicate entity names — must fail semantic |
+| `fixtures/schema-codegen/e2e-idle-game.json` | CREATE | Full E2E test: 5 phases, NPC, economy, custom |
 
 ---
 
@@ -156,7 +160,15 @@ A complete valid schema with 3 phases, 4 entities, 1 resource, no NPC, no custom
 Create `/opt/blueprint-editor/fixtures/schema-codegen/invalid-no-phases.json`:
 A schema with `phases: []` — must fail validation.
 
-- [ ] **Step 5: Run validation tests**
+- [ ] **Step 5: Write additional test fixtures**
+
+Create `/opt/blueprint-editor/fixtures/schema-codegen/invalid-npc-ref.json`:
+A schema with an NPC that references a non-existent entity (e.g., `"entity": "Ghost"` but no entity named "Ghost" exists). Must fail semantic validation.
+
+Create `/opt/blueprint-editor/fixtures/schema-codegen/invalid-dup-entity.json`:
+A schema with two entities sharing the same name (e.g., two entries with `"name": "Tree"`). Must fail semantic validation.
+
+- [ ] **Step 6: Run validation tests**
 
 ```bash
 cd /opt/blueprint-editor && node -e "
@@ -169,6 +181,16 @@ var e2 = v.validateGameSchema(invalid);
 console.log('Invalid schema caught:', e2.length > 0 ? 'PASS' : 'FAIL — should have errors');
 var e3 = v.validateSemantics(valid);
 console.log('Semantics valid:', e3.length === 0 ? 'PASS' : 'FAIL — ' + e3.join('; '));
+
+// NPC entity ref validation
+var badNpc = require('./fixtures/schema-codegen/invalid-npc-ref.json');
+var e4 = v.validateSemantics(badNpc);
+console.log('NPC bad ref caught:', e4.some(function(e){return e.indexOf('non-existent entity')>=0}) ? 'PASS' : 'FAIL');
+
+// Duplicate entity validation
+var dupEnt = require('./fixtures/schema-codegen/invalid-dup-entity.json');
+var e5 = v.validateSemantics(dupEnt);
+console.log('Dup entity caught:', e5.some(function(e){return e.indexOf('Duplicate entity')>=0}) ? 'PASS' : 'FAIL');
 "
 ```
 
@@ -331,17 +353,29 @@ function generatePlacement(schema) {
       lines.push('        HideObj(' + varName + ');');
     }
   }
-  // Camera background color
-  var bg = schema.gameConfig.cameraBackground || [0.53, 0.81, 0.92];
-  lines.push('        mainCam.backgroundColor = new Color(' + bg[0] + 'f, ' + bg[1] + 'f, ' + bg[2] + 'f);');
-  // Ground color
-  var gc = schema.gameConfig.groundColor || [0.75, 0.78, 0.82];
-  lines.push('        if (ground != null && ground.GetComponent<Renderer>() != null)');
-  lines.push('            ground.GetComponent<Renderer>().material.color = new Color(' + gc[0] + 'f, ' + gc[1] + 'f, ' + gc[2] + 'f);');
+  // NOTE: Camera background and ground color handled via in-place regex
+  // replacement in replaceAllTodos() colorOverrides — NOT generated here.
+  // This avoids duplicate assignments (skeleton already has hardcoded Color lines).
   return lines.join('\n');
 }
 
-module.exports = { generatePlacement: generatePlacement };
+/**
+ * Returns color overrides for in-place regex replacement by replaceAllTodos().
+ */
+function getColorOverrides(schema) {
+  var overrides = {};
+  var bg = schema.gameConfig.cameraBackground;
+  if (bg) {
+    overrides.cameraBackground = 'new Color(' + bg[0] + 'f, ' + bg[1] + 'f, ' + bg[2] + 'f)';
+  }
+  var gc = schema.gameConfig.groundColor;
+  if (gc) {
+    overrides.groundColor = 'new Color(' + gc[0] + 'f, ' + gc[1] + 'f, ' + gc[2] + 'f)';
+  }
+  return overrides;
+}
+
+module.exports = { generatePlacement: generatePlacement, getColorOverrides: getColorOverrides };
 ```
 
 - [ ] **Step 2: Write phase-init.cjs**
@@ -396,6 +430,8 @@ function actionToCode(action) {
       return 'ShowFloatingText(player.transform.position, "' + action.text + '", Color.' + (action.color || 'yellow') + ');';
     case 'set_guide':
       return 'guideText.text = "' + (action.text || '').replace(/"/g, '\\"') + '";';
+    case 'spawn_enemies':
+      return 'Spawn' + action.entity + '(' + action.count + ');';
     default:
       return '// TODO: Unknown action ' + action.action;
   }
@@ -570,13 +606,16 @@ function triggerToMirror(trigger, schema) {
   switch (trigger.type) {
     case 'resource_collected':
       return 'AddResource("' + trigger.resource + '", ' + trigger.amount + ');';
+    case 'entity_state_reached':
+      return toLowerCamel(trigger.entity) + 'State = ' + trigger.state + ';';
     case 'near_entity':
-      return toLowerCamel(trigger.entity) + 'Done = true;';
+      return toLowerCamel(trigger.entity) + '.transform.position = player.transform.position;';
     case 'click_entity':
       return toLowerCamel(trigger.entity) + 'Done = true;\n' +
              toLowerCamel(trigger.entity) + 'State++;';
     case 'enemy_defeated':
-      return 'enemiesDefeated = ' + trigger.count + ';';
+      return 'enemiesDefeated = ' + trigger.count + ';\n' +
+             'HideObj(' + toLowerCamel(trigger.entity || 'enemy') + ');';
     case 'all_built':
       var tracked = (schema.entities || []).filter(function(e) { return e.terminalState === 2; });
       return tracked.map(function(e) { return toLowerCamel(e.name) + 'State = 2;'; }).join('\n');
@@ -598,6 +637,8 @@ function actionToMirror(action) {
       return 'AddResource("' + action.resource + '", ' + action.amount + ');';
     case 'switch_form':
       return 'SwitchForm(' + action.formIndex + ');';
+    case 'spawn_enemies':
+      return 'Spawn' + action.entity + '(' + action.count + ');';
     default:
       return '// autoplay: ' + action.action;
   }
@@ -766,7 +807,7 @@ This is the main engine that takes a validated JSON schema + raw skeleton string
  */
 
 var { validateGameSchema, validateSemantics } = require('./schema/validate-schema.cjs');
-var { generatePlacement } = require('./templates/placement.cjs');
+var { generatePlacement, getColorOverrides } = require('./templates/placement.cjs');
 var { generatePhaseInit } = require('./templates/phase-init.cjs');
 var { triggerToCondition } = require('./templates/trigger-codegen.cjs');
 var { generateResourceInit, generateFormInit } = require('./templates/economy.cjs');
@@ -823,7 +864,8 @@ function fillSkeleton(schema, skeleton) {
   // TODO_CUSTOM: customLogic entries as TODO comments
   todoMap['TODO_CUSTOM'] = generateCustomTodos(schema);
 
-  var result = replaceAllTodos(skeleton, todoMap);
+  var colorOverrides = getColorOverrides(schema);
+  var result = replaceAllTodos(skeleton, todoMap, colorOverrides);
   return {
     code: result.code,
     todoCount: result.remainingTodos,
@@ -879,8 +921,12 @@ function generateSystems(schema) {
 
 /**
  * Replace all TODO_X_START...TODO_X_END blocks in skeleton with generated code.
+ * @param {string} skeleton - Raw skeleton string
+ * @param {object} todoMap - { TODO_KEY: 'generated code' }
+ * @param {object} [colorOverrides] - In-place regex replacements for Color() lines
+ *   e.g. { cameraBackground: 'new Color(0.2f, 0.3f, 0.5f)', groundColor: '...' }
  */
-function replaceAllTodos(skeleton, todoMap) {
+function replaceAllTodos(skeleton, todoMap, colorOverrides) {
   var code = skeleton;
   var totalLines = code.split('\n').length;
   var filledLines = 0;
@@ -910,6 +956,22 @@ function replaceAllTodos(skeleton, todoMap) {
     var afterEnd = code.substring(endIdx);
     code = beforeStart + '\n' + content + '\n        ' + afterEnd;
     filledLines += content.split('\n').length;
+  }
+
+  // In-place color overrides (regex replacement on skeleton-hardcoded Color lines)
+  if (colorOverrides) {
+    if (colorOverrides.cameraBackground) {
+      code = code.replace(
+        /mainCam\.backgroundColor\s*=\s*new Color\([^)]+\)/,
+        'mainCam.backgroundColor = ' + colorOverrides.cameraBackground
+      );
+    }
+    if (colorOverrides.groundColor) {
+      code = code.replace(
+        /\.material\.color\s*=\s*new Color\([^)]+\)/,
+        '.material.color = ' + colorOverrides.groundColor
+      );
+    }
   }
 
   return { code: code, remainingTodos: remainingTodos, filledLines: filledLines, totalLines: totalLines };
@@ -1042,11 +1104,9 @@ var { resolveEntities } = require('../../adapters/entity-resolver.cjs');
 var templateEngine = require('../../adapters/codegen-template-engine.cjs');
 var schemaValidator = require('../../adapters/schema/validate-schema.cjs');
 
-var SCHEMA_PROMPT_PATH = path.join(__dirname, '..', '..', 'adapters', 'schema', 'schema-prompt.md');
-
 module.exports = {
   name: 'codegen',
-  canRetry: false,
+  canRetry: true,
 
   execute: function(ctx) {
     ctx.addLog('codegen-schema', 'Starting schema-driven codegen...');
@@ -1113,6 +1173,12 @@ function generateSchemaFromSpecs(ctx) {
       taskId: ctx.taskId,
       log: function(msg) { ctx.addLog('codegen-schema', msg); },
     }).then(function(response) {
+      // Track token usage for metrics
+      if (response.usage) {
+        ctx.blueprint.schemaTokensIn = (ctx.blueprint.schemaTokensIn || 0) + (response.usage.input_tokens || 0);
+        ctx.blueprint.schemaTokensOut = (ctx.blueprint.schemaTokensOut || 0) + (response.usage.output_tokens || 0);
+      }
+
       // Extract JSON from response
       var text = response.text || response || '';
       var jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -1193,24 +1259,40 @@ function buildSchemaPrompt(ctx) {
 
 function fillCustomLogic(ctx, schema) {
   var { createFixLoop } = require('../fix-loop.cjs');
-  var { runClaudeCode } = require('../../worker/claude-code-coder.js');
+  var { runClaudeCodeText } = require('../../worker/claude-code-coder.js');
+
+  ctx.blueprint.customLogicRounds = 0;
 
   var loop = createFixLoop({
     name: 'codegen-custom',
     maxRounds: 3,
     attempt: function(loopCtx, round) {
+      ctx.blueprint.customLogicRounds = round;
       var prompt = buildCustomLogicPrompt(ctx, schema);
-      return runClaudeCode(ctx.workDir, prompt, function(msg) {
-        ctx.addLog('codegen-schema', '[custom R' + round + '] ' + msg);
-      }, ctx.taskId, { model: 'sonnet' }).then(function(result) {
-        if (!result.ok) {
-          throw new Error('Custom logic fill failed: ' + (result.error || '').slice(0, 200));
+      return runClaudeCodeText({
+        prompt: prompt,
+        model: 'sonnet',
+        taskId: ctx.taskId,
+        log: function(msg) { ctx.addLog('codegen-schema', '[custom R' + round + '] ' + msg); },
+      }).then(function(response) {
+        var text = response.text || response || '';
+        // Extract code from response and apply to csCode
+        var codeMatch = text.match(/```(?:csharp|cs)?\n([\s\S]*?)```/);
+        if (codeMatch) {
+          // Replace TODO_CUSTOM section in csCode
+          var startM = '// TODO_CUSTOM_START';
+          var endM = '// TODO_CUSTOM_END';
+          var si = ctx.csCode.indexOf(startM);
+          var ei = ctx.csCode.indexOf(endM);
+          if (si !== -1 && ei !== -1) {
+            ctx.csCode = ctx.csCode.substring(0, si + startM.length) + '\n' +
+              codeMatch[1] + '\n        ' + ctx.csCode.substring(ei);
+          }
         }
-        // Re-read generated file
-        var csPath = path.join(ctx.workDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
-        if (fs.existsSync(csPath)) {
-          ctx.csCode = fs.readFileSync(csPath, 'utf8');
-        }
+
+        // Track token usage
+        ctx.blueprint.customLogicTokensIn = (response.usage && response.usage.input_tokens) || 0;
+
         return { done: true };
       });
     }
@@ -1271,7 +1353,7 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 - [ ] **Step 1: Rename current codegen to legacy**
 
 ```bash
-cd /opt/blueprint-editor && cp engine/stages/codegen.cjs engine/stages/codegen-legacy.cjs
+cd /opt/blueprint-editor && git mv engine/stages/codegen.cjs engine/stages/codegen-legacy.cjs
 ```
 
 - [ ] **Step 2: Write new codegen.cjs router**
@@ -1289,7 +1371,7 @@ var codegenLegacy = require('./codegen-legacy.cjs');
 
 module.exports = {
   name: 'codegen',
-  canRetry: codegenLegacy.canRetry,
+  canRetry: true,
   execute: function(ctx) {
     var useSchema = ctx.blueprint.useSchemaCodegen !== false;
     ctx.addLog('codegen', 'Mode: ' + (useSchema ? 'schema' : 'legacy'));
@@ -1349,17 +1431,21 @@ for (var i = 0; i < 80; i++) {
 
 - [ ] **Step 2: Add schema-specific fields**
 
-In `engine/metrics.cjs`, find where `record` is built (before `fs.appendFileSync`). Add:
+In `engine/metrics.cjs`, find the record building block — after the CUA details section (around line 59, after `record.cuaReason = ...` and its closing brace at line 60), and BEFORE the `try { fs.appendFileSync(...) }` block at line 61. Insert:
 
 ```javascript
-// Schema-driven codegen metrics
+// Schema-driven codegen metrics (8 fields per spec Section 6.1)
 if (ctx && ctx.blueprint) {
   if (ctx.blueprint.gameSchema) {
     record.codegenMode = 'schema';
+    record.schemaTokensIn = ctx.blueprint.schemaTokensIn || 0;
+    record.schemaTokensOut = ctx.blueprint.schemaTokensOut || 0;
+    record.templateFillMs = ctx.blueprint.templateFillMs || 0;
     record.templateCoverage = ctx.blueprint.templateCoverage || 0;
     record.todoSectionsRemaining = ctx.blueprint.todoSectionsRemaining || 0;
-    record.templateFillMs = ctx.blueprint.templateFillMs || 0;
     record.customLogicUsed = !!(ctx.blueprint.gameSchema.customLogic && ctx.blueprint.gameSchema.customLogic.length > 0);
+    record.customLogicTokensIn = ctx.blueprint.customLogicTokensIn || 0;
+    record.customLogicRounds = ctx.blueprint.customLogicRounds || 0;
   } else {
     record.codegenMode = 'legacy';
   }
@@ -1470,3 +1556,12 @@ git commit -m "test: add E2E integration test fixture for schema-driven codegen
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 ```
+
+---
+
+## Deferred to Phase 2
+
+The following spec features are intentionally excluded from this plan and will be implemented after the schema-driven codegen is validated in production:
+
+- **Template Learning Pipeline** (spec Section 6.3): Auto-extraction of customLogic patterns from CUA-passed projects → new template candidates. Requires sufficient production data to identify recurring patterns.
+- **Dashboard Comparison View** (spec Section 6.2): Side-by-side metrics comparison (schema vs legacy) in the existing dashboard. Depends on having enough schema-mode runs to produce meaningful comparisons.
