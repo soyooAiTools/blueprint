@@ -561,9 +561,12 @@ function runClaudeCodeText(opts) {
       '--output-format', 'text',
       '--effort', opts.effort || 'medium',
       '--system-prompt-file', path.join(tempDir, 'CLAUDE.md'),
-      '--tools', 'Read',
       '--debug-file', '/tmp/claude-text-' + taskId + '.log',
     ];
+    // noTools: skip --tools Read → pure text generation, single API round trip
+    if (!opts.noTools) {
+      args.push('--tools', 'Read');
+    }
 
     log('[claude-code-text] Spawning: ' + CLAUDE_CMD + ' ' + args.join(' '), taskId);
     log('[claude-code-text] systemPrompt=' + (opts.systemPrompt || '').length + 'c userPrompt=' + (opts.userPrompt || '').length + 'c cwd=' + tempDir, taskId);
@@ -573,6 +576,15 @@ function runClaudeCodeText(opts) {
     delete cleanEnv.ANTHROPIC_API_KEY;
     delete cleanEnv.ANTHROPIC_AUTH_TOKEN;
     delete cleanEnv.ANTHROPIC_BASE_URL;
+    // PM2 cluster mode drops proxy vars from process.env despite them being in
+    // /proc/PID/environ. CC CLI needs the proxy to reach api.anthropic.com.
+    // Hard-code fallback — this host requires proxy for outbound HTTPS.
+    if (!cleanEnv.HTTPS_PROXY && !cleanEnv.https_proxy) {
+      cleanEnv.HTTPS_PROXY = 'http://127.0.0.1:7890';
+      cleanEnv.HTTP_PROXY = 'http://127.0.0.1:7890';
+      cleanEnv.NO_PROXY = 'localhost,127.0.0.1,120.55.70.226,crs.mindrix.app,*.mindrix.app,*.volces.com,*.siliconflow.cn';
+      log('[claude-code-text] Injected proxy vars (PM2 cluster mode workaround)', taskId);
+    }
 
     const child = spawn(CLAUDE_CMD, args, {
       cwd: tempDir,

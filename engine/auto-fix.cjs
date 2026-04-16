@@ -138,6 +138,12 @@ function parseFileOutputs(text) {
 /**
  * Run sub-agent that actually produces fixed file contents.
  * Returns { ok, filesChanged: [...], diagnosis, error }
+ *
+ * 2026-04-16 rewrite: embed file contents directly in the prompt instead of
+ * making CC CLI use the Read tool. Previous approach had TWO failure modes:
+ *   1. Read tool couldn't find files in tempDir (basename vs full-path mismatch)
+ *   2. Multi-turn tool calls + CC CLI boot overhead exceeded 4-min timeout
+ * New approach: single API round-trip, no tools, completes in 30-60s.
  */
 async function applyRecipe(fingerprintId) {
   var recipes = loadRecipes();
@@ -160,12 +166,14 @@ async function applyRecipe(fingerprintId) {
   var runner = getRunner();
   if (!runner) return { ok: false, error: 'runClaudeCodeText unavailable' };
 
-  // Collect affected files as additional context
-  var additionalFiles = {};
+  // Read affected files and embed in prompt (no Read tool needed)
+  var fileContents = [];
   (recipe.affectedFiles || []).forEach(function(rel) {
     var abs = path.join(REPO_ROOT, rel);
     try {
-      if (fs.existsSync(abs)) additionalFiles[path.basename(rel)] = '// Source: ' + rel + '\n' + fs.readFileSync(abs, 'utf-8');
+      if (fs.existsSync(abs)) {
+        fileContents.push('===CURRENT:' + rel + '===\n' + fs.readFileSync(abs, 'utf-8') + '\n===END===');
+      }
     } catch(e) {}
   });
 
@@ -188,6 +196,7 @@ async function applyRecipe(fingerprintId) {
     '',
     'You may output multiple ===FILE...===ENDFILE=== blocks.',
     'Use the EXACT relative paths from the recipe affectedFiles list.',
+    'Do NOT use any tools. The file contents are already provided below.',
     '',
     '# Recipe: ' + recipe.id,
     '- description: ' + recipe.description,
@@ -199,23 +208,26 @@ async function applyRecipe(fingerprintId) {
   ].join('\n');
 
   var userPrompt = [
-    'Apply the fix described in the recipe.',
-    'The affected files are staged in your working directory. Read them, then output the fixed versions.',
-    'Files available: ' + Object.keys(additionalFiles).join(', '),
-  ].join('\n');
+    'Apply the fix described in the recipe. The current file contents are provided below.',
+    'Output the COMPLETE fixed file content for each file wrapped in ===FILE:path=== / ===ENDFILE=== markers.',
+    '',
+    '# Current file contents',
+    '',
+  ].concat(fileContents).join('\n');
 
-  log('Applying recipe ' + recipe.id + ' (' + (recipe.affectedFiles || []).length + ' files)');
+  log('Applying recipe ' + recipe.id + ' (' + (recipe.affectedFiles || []).length + ' files, prompt=' + (systemPrompt.length + userPrompt.length) + 'c)');
   var result;
   try {
     result = await runner({
       systemPrompt: systemPrompt,
       userPrompt: userPrompt,
-      additionalFiles: additionalFiles,
+      // No additionalFiles — contents embedded in prompt, no Read tool needed
       model: 'claude-sonnet-4-6',
       effort: 'medium',
-      timeoutMs: 4 * 60 * 1000,
+      timeoutMs: 6 * 60 * 1000,
       minOutputLen: 100,
       taskId: 'autofix-' + recipe.id,
+      noTools: true,
       log: function(m) { log(m); },
     });
   } catch(e) {

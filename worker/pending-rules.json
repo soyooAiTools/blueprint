@@ -940,8 +940,8 @@
     "autoExtracted": true,
     "failClassification": "FATAL",
     "stage": "cua-verify",
-    "lastSeenAt": "2026-04-16T08:47:15.820Z",
-    "hitCount": 7
+    "lastSeenAt": "2026-04-16T15:28:49.774Z",
+    "hitCount": 15
   },
   {
     "description": "codegen aborted: same CODE error repeated 3 rounds, fix-loop not converging: Blocking static violations: 35 (first: SetActive() forbidden in Luna — use position=(0,-999,0) to hide)",
@@ -982,8 +982,8 @@
     "autoExtracted": true,
     "failClassification": "FATAL",
     "stage": "spec-validate",
-    "lastSeenAt": "2026-04-16T02:06:28.349Z",
-    "hitCount": 4
+    "lastSeenAt": "2026-04-16T14:41:07.484Z",
+    "hitCount": 10
   },
   {
     "description": "codegen aborted: same CODE error repeated 3 rounds, fix-loop not converging: AI coding failed: Claude Code failed (exit 1): Exit code 1",

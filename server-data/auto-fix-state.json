@@ -1,28 +1,32 @@
 {
   "cooldowns": {
     "Spec validation failed: 7 error(s): Spec[2] buildForgeWorkshop: entity \"forgeWorkshop\" not found in ": {
-      "at": 1776327462139,
-      "status": "manual-only"
+      "at": 1776354637133,
+      "status": "applying"
     },
     "Visual freeze FATAL: 3 consecutive rounds — not fixable via claude-fix. Stuck at phase (none complet": {
-      "at": 1776327822155,
-      "status": "gen-failed"
+      "at": 1776355023165,
+      "status": "manual-only"
     },
     "CUA total time limit exceeded (47min > 45min)": {
-      "at": 1776327953503,
-      "status": "apply-failed"
+      "at": 1776355143156,
+      "status": "applying"
     },
     "CUA total time limit exceeded (51min > 45min)": {
-      "at": 1776328158716,
-      "status": "applied"
+      "at": 1776355332587,
+      "status": "applying"
     },
     "aborted: same CODE error repeated N rounds, fix-loop not converging: AI coding failed: Claude Code f": {
-      "at": 1776328591063,
-      "status": "apply-failed"
+      "at": 1776355722892,
+      "status": "manual-only"
     },
     "Visual freeze FATAL: 2 consecutive rounds — not fixable via claude-fix. Stuck at phase (none complet": {
-      "at": 1776328783688,
+      "at": 1776354637133,
       "status": "manual-only"
+    },
+    "Spec validation failed: 5 error(s): Spec[3] upgradeTripleDrill: entity \"drill\" not found in blueprin": {
+      "at": 1776353922152,
+      "status": "apply-failed"
     }
   },
   "history": [
@@ -33,6 +37,105 @@
       "files": [
         "engine/stages/cua-verify.cjs"
       ]
+    },
+    {
+      "at": "2026-04-16T09:31:26.191Z",
+      "fingerprint": "CUA total time limit exceeded (47min > 45min)",
+      "recipe": "auto-31abab6b",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ]
+    },
+    {
+      "at": "2026-04-16T09:35:43.862Z",
+      "fingerprint": "CUA total time limit exceeded (51min > 45min)",
+      "recipe": "auto-31abab6b",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ]
+    },
+    {
+      "at": "2026-04-16T10:28:40.899Z",
+      "fingerprint": "Spec validation failed: 7 error(s): Spec[2] buildForgeWorkshop: entity \"forgeWorkshop\" not found in ",
+      "recipe": "auto-4eef18d9",
+      "files": [
+        "adapters/spec-extractor.cjs",
+        "engine/stages/spec-validate.cjs"
+      ]
+    },
+    {
+      "at": "2026-04-16T10:35:33.953Z",
+      "fingerprint": "CUA total time limit exceeded (47min > 45min)",
+      "recipe": "auto-31abab6b",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ]
+    },
+    {
+      "at": "2026-04-16T10:39:35.493Z",
+      "fingerprint": "CUA total time limit exceeded (51min > 45min)",
+      "recipe": "auto-31abab6b",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ]
+    },
+    {
+      "at": "2026-04-16T11:39:25.808Z",
+      "fingerprint": "CUA total time limit exceeded (47min > 45min)",
+      "recipe": "auto-31abab6b",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ]
+    },
+    {
+      "at": "2026-04-16T11:43:27.712Z",
+      "fingerprint": "CUA total time limit exceeded (51min > 45min)",
+      "recipe": "auto-31abab6b",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ]
+    },
+    {
+      "at": "2026-04-16T12:41:46.501Z",
+      "fingerprint": "Spec validation failed: 7 error(s): Spec[2] buildForgeWorkshop: entity \"forgeWorkshop\" not found in ",
+      "recipe": "auto-4eef18d9",
+      "files": [
+        "engine/stages/spec-validate.cjs",
+        "adapters/spec-extractor.cjs"
+      ]
+    },
+    {
+      "at": "2026-04-16T12:45:35.482Z",
+      "fingerprint": "CUA total time limit exceeded (47min > 45min)",
+      "recipe": "auto-31abab6b",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ]
+    },
+    {
+      "at": "2026-04-16T12:48:19.958Z",
+      "fingerprint": "CUA total time limit exceeded (51min > 45min)",
+      "recipe": "auto-31abab6b",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ]
+    },
+    {
+      "at": "2026-04-16T13:48:29.546Z",
+      "fingerprint": "Spec validation failed: 7 error(s): Spec[2] buildForgeWorkshop: entity \"forgeWorkshop\" not found in ",
+      "recipe": "auto-4eef18d9",
+      "files": [
+        "engine/stages/spec-validate.cjs"
+      ]
+    },
+    {
+      "at": "2026-04-16T13:51:36.890Z",
+      "fingerprint": "CUA total time limit exceeded (47min > 45min)",
+      "recipe": "auto-31abab6b",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ]
     }
-  ]
+  ],
+  "pendingCommits": {}
 }

@@ -19,6 +19,12 @@ module.exports = {
       // 2026-04-16: ANTHROPIC_AUTH_TOKEN / ANTHROPIC_BASE_URL removed —
       // all Claude calls now go through CC CLI OAuth (same as local Claude Code)
       FEISHU_WEBHOOK_URL: process.env.FEISHU_WEBHOOK_URL || '',  // loaded from .env
+      // Proxy — PM2 cluster mode drops inherited proxy vars from process.env.
+      // CC CLI sub-agents need these to reach api.anthropic.com (direct connection
+      // times out on this host). Without this, auto-fix sub-agents 100% fail.
+      HTTPS_PROXY: process.env.HTTPS_PROXY || '',
+      HTTP_PROXY: process.env.HTTP_PROXY || '',
+      NO_PROXY: process.env.NO_PROXY || '',
     },
     // 日志配置
     error_file: '/root/.pm2/logs/blueprint-editor-error.log',
