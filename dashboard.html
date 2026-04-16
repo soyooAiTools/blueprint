@@ -519,6 +519,11 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       if (!_autoFixStates[pendKey]) {
         var sp = serverPending[pendKey];
         var serverState = sp.state || 'done';
+        // Auto-expire stale loading states (sub-agent killed by server restart)
+        if (serverState === 'loading' && sp.at && (Date.now() - sp.at) > 5 * 60 * 1000) {
+          serverState = 'error';
+          sp.error = 'timeout (sub-agent 超时或服务重启)';
+        }
         _autoFixStates[pendKey] = serverState;
         if (serverState === 'done') _autoFixResults[pendKey] = sp;
         if (serverState === 'error') _autoFixErrors[pendKey] = sp.error || 'unknown';
