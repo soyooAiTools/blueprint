@@ -70,10 +70,13 @@
   ],
   "forms": [
     {
-      "name": "WoodToPlank",
-      "from": "wood",
-      "to": "plank",
-      "cost": 3
+      "formId": "lumberjack",
+      "pool": "__Pool_Cube_Brown_01",
+      "moveSpeed": 4.0,
+      "collectRange": 2.0,
+      "collectPower": 1.5,
+      "carryCapacity": 12,
+      "scale": 1.2
     }
   ],
   "phases": [
@@ -88,7 +91,7 @@
         "amount": 3
       },
       "onEnter": [
-        { "action": "set_guide", "target": "guideText", "value": "Gather 3 wood from the tree!" }
+        { "action": "set_guide", "text": "Gather 3 wood from the tree!" }
       ],
       "onComplete": []
     },
@@ -103,7 +106,7 @@
         "state": 2
       },
       "onEnter": [
-        { "action": "set_guide", "target": "guideText", "value": "Build the house!" }
+        { "action": "set_guide", "text": "Build the house!" }
       ],
       "onComplete": []
     },
@@ -118,9 +121,11 @@
         "range": 2.0
       },
       "onEnter": [
-        { "action": "set_guide", "target": "guideText", "value": "Approach the forge!" }
+        { "action": "set_guide", "text": "Approach the forge!" }
       ],
-      "onComplete": []
+      "onComplete": [
+        { "action": "switch_form", "formIndex": 1 }
+      ]
     },
     {
       "phaseId": "phase4",
@@ -130,10 +135,10 @@
       "trigger": {
         "type": "enemy_defeated",
         "entity": "EnemyCamp",
-        "amount": 2
+        "count": 2
       },
       "onEnter": [
-        { "action": "set_guide", "target": "guideText", "value": "Defeat 2 enemies!" }
+        { "action": "set_guide", "text": "Defeat 2 enemies!" }
       ],
       "onComplete": []
     },
@@ -147,7 +152,7 @@
         "entity": "CtaButton"
       },
       "onEnter": [
-        { "action": "set_guide", "target": "guideText", "value": "Tap to install!" }
+        { "action": "set_guide", "text": "Tap to install!" }
       ],
       "onComplete": []
     }
@@ -167,10 +172,6 @@
     }
   ],
   "customLogic": [
-    {
-      "name": "AutoHealNearForge",
-      "code": "if (IsNear(forge, 3f)) playerHP = Mathf.Min(playerHP + 1, 10);",
-      "insertAt": "Update"
-    }
+    "Auto-heal player when near Forge: if (IsNear(forge, 3f)) playerHP = Mathf.Min(playerHP + 1, 10);"
   ]
 }

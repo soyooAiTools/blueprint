@@ -78,7 +78,8 @@
     "customLogic": {
       "type": "array",
       "items": {
-        "$ref": "#/definitions/customLogicEntry"
+        "type": "string",
+        "description": "Custom logic description for Claude Code to implement"
       }
     }
   },
@@ -148,26 +149,42 @@
     },
     "form": {
       "type": "object",
-      "required": ["name", "from", "to", "cost"],
+      "required": ["formId", "pool", "moveSpeed", "collectRange", "collectPower", "carryCapacity", "scale"],
       "additionalProperties": false,
       "properties": {
-        "name": {
+        "formId": {
           "type": "string",
           "minLength": 1,
-          "description": "Form transformation name"
+          "description": "Unique form identifier"
         },
-        "from": {
+        "pool": {
           "type": "string",
-          "description": "Source resource name"
+          "description": "Pool object name for this form"
         },
-        "to": {
-          "type": "string",
-          "description": "Target resource name"
+        "moveSpeed": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Movement speed in this form"
         },
-        "cost": {
+        "collectRange": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Collection range in this form"
+        },
+        "collectPower": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Collection power in this form"
+        },
+        "carryCapacity": {
           "type": "integer",
           "minimum": 1,
-          "description": "Cost in source resource units"
+          "description": "Carry capacity in this form"
+        },
+        "scale": {
+          "type": "number",
+          "minimum": 0.3,
+          "description": "Scale factor for this form"
         }
       }
     },
@@ -201,6 +218,11 @@
           "minimum": 1,
           "description": "Required amount (for resource_collected)"
         },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Required count (for enemy_defeated)"
+        },
         "state": {
           "type": "integer",
           "description": "Target state index (for entity_state_reached)"
@@ -215,9 +237,9 @@
           "minimum": 0,
           "description": "Timer duration in seconds (for timer)"
         },
-        "op": {
+        "operator": {
           "type": "string",
-          "enum": ["AND", "OR"],
+          "enum": ["and", "or"],
           "description": "Logical operator for compound triggers"
         },
         "triggers": {
@@ -234,15 +256,17 @@
       "properties": {
         "action": {
           "type": "string",
+          "enum": ["set_entity_state", "add_resource", "switch_form", "show_floating_text", "set_guide", "spawn_enemies"],
           "description": "Action identifier"
         },
-        "target": {
-          "type": "string",
-          "description": "Target entity or resource"
-        },
-        "value": {
-          "description": "Action parameter value"
-        }
+        "entity": { "type": "string", "description": "Target entity name" },
+        "state": { "type": "integer", "description": "Target state value" },
+        "resource": { "type": "string", "description": "Resource name" },
+        "amount": { "type": "integer", "description": "Resource amount" },
+        "formIndex": { "type": "integer", "description": "Form index to switch to" },
+        "text": { "type": "string", "description": "Display text" },
+        "color": { "type": "string", "description": "Color name (e.g. yellow, red)" },
+        "count": { "type": "integer", "description": "Spawn count" }
       },
       "additionalProperties": false
     },
@@ -309,27 +333,6 @@
           "type": "object",
           "description": "Template-specific parameters",
           "additionalProperties": true
-        }
-      }
-    },
-    "customLogicEntry": {
-      "type": "object",
-      "required": ["name", "code"],
-      "additionalProperties": false,
-      "properties": {
-        "name": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Custom logic block name"
-        },
-        "code": {
-          "type": "string",
-          "description": "Raw C# code snippet"
-        },
-        "insertAt": {
-          "type": "string",
-          "enum": ["Update", "Start", "OnAutoPlayArrive", "OnPhaseEnter"],
-          "description": "Where to inject the code"
         }
       }
     }
