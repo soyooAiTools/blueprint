@@ -133,7 +133,8 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    bool _autoPlayMode = false;');
   lines.push('    bool _autoPlayChecked = false;');
   lines.push('    int _autoPlaySteps = 0; // [SKELETON] tracks autoPlay visual progress for CUA');
-  lines.push('    const float AUTO_PLAY_PHASE_DURATION = 20f; // [SKELETON] 20s per shot — DO NOT MODIFY this value (DO NOT MODIFY)');
+  lines.push('    int _autoPlayStepsAtPhaseStart = 0; // [SKELETON] tracks autoPlay steps when current phase started');
+  lines.push('    const float AUTO_PLAY_PHASE_DURATION = 12f; // [SKELETON] 12s per shot — DO NOT MODIFY this value (DO NOT MODIFY)');
   lines.push('');
 
   // Entity state variables from specs
@@ -730,17 +731,18 @@ function generateSkeleton(specs, opts = {}) {
       lines.push(`        // Requires: ${prevSpec.triggerNext ? prevSpec.triggerNext.description : 'previous phase complete'}`);
       lines.push(`        // Condition hint: ${conditionHint}`);
       const realCondition = buildRealCondition(prevSpec);
-      // [SKELETON] AutoPlay gate: separate if-block so AI cannot merge/modify the 20f threshold
-      lines.push(`        // [SKELETON] autoPlay 20s gate — DO NOT MODIFY OR REMOVE THIS BLOCK`);
-      lines.push(`        if (_autoPlayMode && !ruleTriggered[${ruleIdx}] && phaseTimer < 20f) {} // wait 20s per shot`);
+      // [SKELETON] AutoPlay gate: require timer + at least one OnAutoPlayArrive call per phase
+      lines.push(`        // [SKELETON] autoPlay 12s gate — DO NOT MODIFY OR REMOVE THIS BLOCK`);
+      lines.push(`        if (_autoPlayMode && !ruleTriggered[${ruleIdx}] && (phaseTimer < 12f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {} // wait 12s + autoPlay action`);
       lines.push(`        else if (!ruleTriggered[${ruleIdx}]`);
-      lines.push(`            && (_autoPlayMode ? phaseTimer >= 20f // [SKELETON] 20s per shot (DO NOT MODIFY)`);
+      lines.push(`            && (_autoPlayMode ? (phaseTimer >= 12f && _autoPlaySteps > _autoPlayStepsAtPhaseStart) // [SKELETON] 12s + autoPlay action (DO NOT MODIFY)`);
       lines.push(`                : (${realCondition} && phaseTimer >= ${prevSpec.duration.min}f))) // interactive mode`);
       lines.push('        {');
       lines.push(`            ruleTriggered[${ruleIdx}] = true;`);
       lines.push(`            currentPhaseName = "${spec.phaseId}"; // [IMMUTABLE] Do NOT change this phaseId`);
       lines.push(`            phaseEnterTimes[${ruleIdx}] = gameTimer; // [SKELETON]`);
       lines.push('            phaseTimer = 0f; // [SKELETON] reset timer — prevent batch-firing multiple phases in one frame');
+      lines.push('            _autoPlayStepsAtPhaseStart = _autoPlaySteps; // [SKELETON] reset per-phase step counter');
       lines.push(`            ReportPhase("${spec.phaseId}"); // [IMMUTABLE] CUA uses this exact ID for coverage tracking`);
       lines.push('');
 
@@ -777,10 +779,10 @@ function generateSkeleton(specs, opts = {}) {
   const endConditionHint = lastSpec.triggerNext ? lastSpec.triggerNext.condition : 'game end condition';
   lines.push(`        // End condition hint: ${endConditionHint}`);
   const endRealCondition = buildRealCondition(lastSpec);
-  lines.push(`        // [SKELETON] autoPlay 20s gate — DO NOT MODIFY OR REMOVE THIS BLOCK`);
-  lines.push(`        if (_autoPlayMode && !ruleTriggered[${specs.length}] && phaseTimer < 20f) {} // wait 20s per shot`);
+  lines.push(`        // [SKELETON] autoPlay 12s gate — DO NOT MODIFY OR REMOVE THIS BLOCK`);
+  lines.push(`        if (_autoPlayMode && !ruleTriggered[${specs.length}] && (phaseTimer < 12f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {} // wait 12s + autoPlay action`);
   lines.push(`        else if (!ruleTriggered[${specs.length}]`);
-  lines.push(`            && (_autoPlayMode ? phaseTimer >= 20f // [SKELETON] 20s per shot (DO NOT MODIFY)`);
+  lines.push(`            && (_autoPlayMode ? (phaseTimer >= 12f && _autoPlaySteps > _autoPlayStepsAtPhaseStart) // [SKELETON] 12s + autoPlay action (DO NOT MODIFY)`);
   lines.push(`                : (${endRealCondition} && phaseTimer >= ${lastSpec.duration.min}f)))`);
   lines.push('        {');
   lines.push(`            ruleTriggered[${specs.length}] = true;`);
@@ -930,6 +932,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('            + "\\"gameTimer\\":" + (int)gameTimer');
   lines.push('            + ",\\"autoPlayMode\\":" + (_autoPlayMode ? "true" : "false")');
   lines.push('            + ",\\"autoPlaySteps\\":" + _autoPlaySteps');
+  lines.push('            + ",\\"autoPlayStepsThisPhase\\":" + (_autoPlaySteps - _autoPlayStepsAtPhaseStart)');
   lines.push('            // TODO: AI adds game-specific variables here (gold, wood, ammo, etc.)');
   lines.push('            + "}"');
 

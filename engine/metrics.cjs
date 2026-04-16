@@ -56,6 +56,10 @@ function recordPipelineMetrics(ctx, stageResults) {
     var cua = stageResults['cua-verify'];
     record.cuaRounds = cua.round || 1;
     record.cuaReason = cua.reason || '';
+    // Silent-pass detection signals (recorded even on success)
+    record.cuaTotalActions = cua.totalActions !== undefined ? cua.totalActions : null;
+    record.cuaSilentPassSignals = cua.silentPassSignals || [];
+    record.cuaSilentPass = !!(cua.silentPassSignals && cua.silentPassSignals.length > 0);
   }
 
   // Schema-driven codegen metrics (8 fields per spec Section 6.1)

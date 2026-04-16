@@ -265,13 +265,23 @@ module.exports = {
             if (cuaResult.passed) {
               ctx.htmlOutput = lastHtmlData;
               ctx.csCode = lastCsCode;
-              ctx.addLog('cua-verify', 'CUA PASSED');
+              var silentSignals = cuaResult.silentPassSignals || [];
+              if (silentSignals.length > 0) {
+                ctx.addLog('cua-verify', 'CUA PASSED (⚠️ silent-pass signals: ' + silentSignals.join(', ') + ')');
+              } else {
+                ctx.addLog('cua-verify', 'CUA PASSED');
+              }
               ctx.reportStatus('cua_passed', {
                 message: '[Linux] CUA passed (round ' + round + ')!',
                 previewUrl: ctx.previewUrl,
                 qualityData: { cuaResult: { passed: true, round: round }, cuaRetries: round },
               });
-              return { done: true, result: { passed: true, round: round } };
+              return { done: true, result: {
+                passed: true,
+                round: round,
+                totalActions: cuaResult.totalActions !== undefined ? cuaResult.totalActions : -1,
+                silentPassSignals: silentSignals,
+              } };
             }
 
             // Infra failure — let error-classifier handle via throw
@@ -398,7 +408,7 @@ module.exports = {
             // Record CUA failures to pending-rules for knowledge retention
             try {
               var codeReviewer = require('../../worker/code-reviewer.js');
-              var cuaIssues = (cuaResult.issues || []).map(function(issueText) {
+              var cuaIssues = (cuaResult.issues || []).map(function(issueText, idx) {
                 return {
                   severity: 'warning',
                   stage: 'cua-verify',
@@ -411,6 +421,7 @@ module.exports = {
               codeReviewer.recordNewIssues(cuaIssues, ctx.taskId).catch(function() {});
             } catch(e) {}
 
+            // Surgical vs full regen hint
             // Pre-recode time guard: if fewer than 5 minutes remain in the wall-clock budget,
             // skip launching another expensive recode/rebuild cycle that would overshoot the limit.
             var elapsedBeforeRecode = Date.now() - cuaStartTime;
@@ -418,7 +429,6 @@ module.exports = {
               throw new Error('CUA total time limit exceeded (' + Math.round(elapsedBeforeRecode / 60000) + 'min > ' + Math.round((MAX_CUA_TOTAL_MS - 5 * 60 * 1000) / 60000) + 'min pre-recode guard)');
             }
 
-            // Surgical vs full regen hint
             var isSurgicalFix = consecutiveSameIssue < SAME_ISSUE_REGEN_THRESHOLD;
             if (isSurgicalFix) {
               ctx.addLog('cua-verify', 'Surgical fix mode');

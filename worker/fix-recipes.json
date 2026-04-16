@@ -39,10 +39,10 @@
   },
   {
     "id": "auto-4eef18d9",
-    "fingerprintPattern": "entity \"[a-z][A-Za-z0-9]+\" not found in blueprint\\.entities",
-    "description": "LLM spec extractor produces camelCase entity references (e.g. forgeWorkshop) while blueprint.entities stores PascalCase; case-sensitive Set lookup emits false-positive blocking errors on every pipeline retry",
-    "risk": "medium",
-    "autoApply": false,
+    "fingerprintPattern": "entity \"[a-z][A-Za-z]+\" not found in",
+    "description": "LLM spec extractor emits camelCase entity names; strict case-sensitive Set lookup in spec-validate blocks the pipeline with no retry path",
+    "risk": "low",
+    "autoApply": true,
     "affectedFiles": [
       "engine/stages/spec-validate.cjs"
     ],
@@ -63,10 +63,10 @@
   },
   {
     "id": "auto-79ef3937",
-    "fingerprintPattern": "fix-loop not converging: AI coding failed: Claude Code failed \\(exit \\d+\\)",
-    "description": "Circuit breaker fires prematurely because CC CLI stdout is discarded in the non-zero-exit error path, producing an invariant 'Exit code 1' signature that trips the same-error threshold every time",
-    "risk": "low",
-    "autoApply": true,
+    "fingerprintPattern": "aborted: same CODE error repeated (N|\\d+) rounds, fix-loop not converging",
+    "description": "CC CLI exit-1 error message drops stdout content, producing a constant 'Exit code 1' string that trips the fix-loop circuit breaker after exactly 3 identical rounds",
+    "risk": "medium",
+    "autoApply": false,
     "affectedFiles": [
       "worker/claude-code-coder.js"
     ],
@@ -75,8 +75,8 @@
   },
   {
     "id": "auto-4395d1e1",
-    "fingerprintPattern": "Visual freeze FATAL: \\d+ consecutive rounds.*Stuck at phase \\(none completed\\).*initialCollectGarbage.*visual_freeze",
-    "description": "visual_freeze FATAL misfires misleading 'batch-firing' fix advice when game never starts (0 phases completed), causing recode to target wrong fix and FATAL to recur across worker retries",
+    "fingerprintPattern": "Visual freeze FATAL: \\d+ consecutive rounds.*Stuck at phase \\(none complet",
+    "description": "noPhasesCompleted cases are mis-classified as visual_freeze, delivering wrong codegen advice on round 1 and guaranteeing FATAL on round 2 — repeated 5× by task-level retries",
     "risk": "medium",
     "autoApply": false,
     "affectedFiles": [
@@ -84,5 +84,17 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-4395d1e1.md"
+  },
+  {
+    "id": "auto-a89f0b63",
+    "fingerprintPattern": "Visual freeze FATAL: \\d+ consecutive rounds — not fixable via claude-fix",
+    "description": "visual_freeze short-circuit fires too late (≥3 rounds) because isProgressing discards 0→1 phase progress and the diagnosis keyword list was too narrow to catch VLM synonym phrasing",
+    "risk": "medium",
+    "autoApply": false,
+    "affectedFiles": [
+      "engine/stages/cua-verify.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-a89f0b63.md"
   }
 ]

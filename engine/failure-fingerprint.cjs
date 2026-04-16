@@ -245,6 +245,7 @@ function bindKnowledge(fingerprint) {
     resolvedBy: resolvedCommit ? resolvedCommit.hash : null,
     resolvedAt: resolvedCommit ? resolvedCommit.date : null,
     autoFixRecipe: autoFixRecipe ? {
+      id: autoFixRecipe.id,
       recipeFile: autoFixRecipe.recipeFile,
       description: autoFixRecipe.description,
       risk: autoFixRecipe.risk,

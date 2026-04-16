@@ -601,8 +601,8 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
           var knowledgeCell = [badgeHTML, badgeTitle, mem ? '<br><span style="color:#8b949e;font-size:11px;">mem: ' + mem + '</span>' : '', commit ? '<br><span style="color:#8b949e;font-size:11px;">git: ' + commit + '</span>' : ''].join(' ');
           var fpShort = (r.fingerprint || r.sampleReason || '').slice(0, 80);
           var lastSeenAgo = r.lastSeen ? ago(new Date(r.lastSeen).getTime()) : '-';
-          var fpId = (r.fingerprint || '').replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40);
-          var canAutoFix = kb.autoFixRecipe ? '<button onclick="triggerAutoFix(\'' + fpId + '\')" style="background:#1f6feb;color:#fff;border:0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;">自动修复</button>' : '<span style="color:#484f58;font-size:11px;">无 recipe</span>';
+          var recipeId = kb.autoFixRecipe ? kb.autoFixRecipe.id : null;
+          var canAutoFix = recipeId ? '<button onclick="triggerAutoFix(\'' + recipeId + '\')" style="background:#1f6feb;color:#fff;border:0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;">自动修复</button>' : '<span style="color:#484f58;font-size:11px;">无 recipe</span>';
           fh += '<tr>';
           fh += '<td>' + knowledgeCell + '</td>';
           fh += '<td style="word-break:break-all;max-width:420px;">' + fpShort + '</td>';

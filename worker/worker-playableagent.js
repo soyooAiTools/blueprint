@@ -369,6 +369,44 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
 
       const passed = report.passed === true;
 
+      // ═══ Silent-pass signal detection (recorded even when passed=true) ═══
+      const silentPassSignals = [];
+      const totalActions = (report.actions || []).length;
+      if (totalActions === 0 && passed) {
+        silentPassSignals.push('zero-actions');
+      }
+      // Uniform phase timing detection
+      const phaseTs = (finalState.phaseTimestamps) ? finalState.phaseTimestamps : {};
+      const tsValues = Object.values(phaseTs).filter(t => typeof t === 'number' && t > 0).sort((a, b) => a - b);
+      if (tsValues.length > 3) {
+        const intervals = [];
+        for (let ti = 1; ti < tsValues.length; ti++) intervals.push(tsValues[ti] - tsValues[ti - 1]);
+        const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+        if (avg > 0) {
+          const stddev = Math.sqrt(intervals.reduce((a, v) => a + (v - avg) * (v - avg), 0) / intervals.length);
+          const cv = stddev / avg;
+          if (cv < 0.15) { // coefficient of variation < 15% → suspiciously uniform
+            silentPassSignals.push('uniform-timing:avg=' + avg.toFixed(1) + 's,cv=' + (cv * 100).toFixed(0) + '%');
+          }
+        }
+      }
+      // Phase order violation (gameEnd not last)
+      const completedList = report.completedPhases || [];
+      if (completedList.length > 1) {
+        const gameEndIdx = completedList.indexOf('gameEnd');
+        if (gameEndIdx >= 0 && gameEndIdx < completedList.length - 1) {
+          silentPassSignals.push('phase-order-violation:gameEnd-not-last');
+        }
+      }
+      // All variables zero (even if already caught above, record as signal)
+      if (allVarsZero && interactionKeys.length >= 2) {
+        silentPassSignals.push('all-vars-zero:' + interactionKeys.length + '-keys');
+      }
+
+      if (silentPassSignals.length > 0) {
+        log('[PlayableAgent] ⚠️ Silent-pass signals detected: ' + silentPassSignals.join(', '), taskId);
+      }
+
       log('[PlayableAgent] Result: ' + (passed ? 'PASS' : 'FAIL') +
           ' | Coverage: ' + coveredPhases.length + '/' + totalPhases +
           ' | Issues: ' + issues.length, taskId);
@@ -377,6 +415,8 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
         passed,
         issues,
         skipped: false,
+        totalActions: totalActions,
+        silentPassSignals: silentPassSignals,
         report: {
           gameState: finalState,
           completedPhases: report.completedPhases || [],

@@ -262,6 +262,53 @@ module.exports.init = function(ctx) {
         issues.push('[error] Regression watcher failed: ' + e.message);
       }
 
+      // Phase 6b: Silent-pass detection — scan successful pipelines for semantic false-passes
+      // success:true + zero actions / uniform timing / phase order violations = CUA didn't really verify
+      try {
+        var spFile = path.join(__dirname, '..', 'server-data', 'silent-passes.json');
+        var existingSP = [];
+        try {
+          if (fs.existsSync(spFile)) existingSP = JSON.parse(fs.readFileSync(spFile, 'utf-8')) || [];
+        } catch(e) { existingSP = []; }
+        var spByTask = {};
+        existingSP.forEach(function(sp) { spByTask[sp.taskId] = sp; });
+
+        var successWithSP = records.filter(function(r) { return r.success && r.cuaSilentPass; });
+        var newSPCount = 0;
+        successWithSP.forEach(function(r) {
+          if (spByTask[r.taskId]) return; // already recorded
+          spByTask[r.taskId] = {
+            taskId: r.taskId,
+            timestamp: r.timestamp,
+            signals: r.cuaSilentPassSignals || [],
+            totalActions: r.cuaTotalActions,
+            detectedAt: new Date().toISOString(),
+          };
+          newSPCount++;
+          issues.push('[F21-silent-pass] ' + r.taskId + ': ' + (r.cuaSilentPassSignals || []).join(', '));
+        });
+
+        if (newSPCount > 0) {
+          try {
+            fs.writeFileSync(spFile, JSON.stringify(Object.keys(spByTask).map(function(k) { return spByTask[k]; }), null, 2));
+          } catch(e) {}
+          // Feishu alert for new silent-passes
+          try {
+            var feishuSP = require('../worker/feishu-notify.js');
+            feishuSP.send('silent-pass', 'warning',
+              '[Silent-Pass] ' + newSPCount + ' 个任务通过CUA但存在假通过信号\n' +
+              successWithSP.slice(0, 5).map(function(r) {
+                return r.taskId + ': ' + (r.cuaSilentPassSignals || []).join(', ');
+              }).join('\n'),
+              {}
+            ).catch(function() {});
+          } catch(e) {}
+          fixes.push('[info] Recorded ' + newSPCount + ' new silent-pass(es) → server-data/silent-passes.json');
+        }
+      } catch(e) {
+        issues.push('[error] Silent-pass watcher failed: ' + e.message);
+      }
+
       // Phase 7: Auto-fix cycle (L5 generate recipe + L6 apply + L7 learn)
       // Async — fire-and-forget so watchdog doesn't block on sub-agent spawns.
       // Results logged to console + server-data/auto-fix-state.json.
