@@ -1,5 +1,107 @@
 # Blueprint 生产事故记录
 
+## 2026-04-16 晚: Dashboard 可观测性事故响应 + Auto-fix 4 层闭环
+
+### 背景
+
+用户打开 dashboard → Pipeline 指标 → "Top 失败原因",看到 45 行失败记录、成功率 0%。肉眼判断"这么多失败一定全坏了",实际上这 45 行是 **5 类根因的同步 retry 副本**(同一个 skeleton.split TypeError 在同秒 throw 4 次、ECONNRESET 每次编译尝试都算一行),每一条都**已经在更早的 commit 里修过**。但 dashboard 没去重、没知识绑定、没回归追踪,看起来像"所有 pipeline 都在烧钱"。
+
+叠加观察到:`blueprint.db` 里躺着 5 个 cancelled 事故 task(bqh33t / 2p50o1 / yjrgmn / zxpzt4 / dmda29)和 **665 条 task_history**,其中 646 条属于这些早已结案的任务;`parse-stats.json` 抱着 25 条最早追溯到 2026-03-20 的解析记录,全程 24/25 成功但占着 "解析统计" tab;`server-data/checkpoints/` 和 `server-data/webgl/` 堆满老 project 目录。
+
+这是**观测性事故**,不是功能事故 —— 根因都修了,只是没人告诉 dashboard 这件事。
+
+### 根因
+
+**观测层 4 个相互独立的缺陷**:
+
+1. **L1 指纹不稳定 + 不去重** —— `engine/metrics.cjs` 的 `topFailReasons` 按 reason 原始子串做 group by,同一个 TypeError 错误里的 taskId / path / line number / round-number 都会让字符串不同,等效于 "没 group by"。同一失败被算 N 次,视觉上把少量根因放大成密集失败面
+2. **L2 没有知识绑定** —— 失败面上每一行都是孤立的,不知道 `feedback_skeleton_truthy_split.md` 写过为什么,也不知道 git log 里有 `529136b fix` 对应它。人的第一反应是"这是什么新错误",然后重新调查一遍
+3. **L3 没有回归闭环** —— 即使曾经修好过,下一次它复发时 dashboard 没有 "你之前修过 → 这是回归" 的告警;和首次发生是一样的展示
+4. **L4 没有自愈通道** —— 即使知道"这个指纹在 `feedback_skeleton_truthy_split.md` 里",也没有按钮让 sub-agent 去按 recipe 出 patch。每次都是人工重新 grep → 重新看 memory → 手写 fix
+
+**数据层 2 个陈旧堆积**:
+- `parseStats` 在 `server-context.cjs:24-30` 启动时一次性读入内存,25 条历史永久常驻,磁盘重置无效 —— 必须 restart 才能刷
+- cancelled 任务在 DB 里没有过期策略,`task_history` 永远累积
+
+### 改动
+
+**L1 — metrics.cjs 指纹去重** (`engine/metrics.cjs`)
+- 新 `normalizeFingerprint(reason)`: 剥 stage 前缀、`\/[\w.\-/]+ → <path>`、`proj_\d{10,}_[a-z0-9]+ → <taskId>`、5+ 位数字 → `<num>`、hex hash → `<hash>`、`round N` / `N rounds?` 归一化,截断到 100 字符
+- `topFailReasons` 改成按 normalized fingerprint 聚合,输出 `{uniqueTasks, retries, firstSeen, lastSeen, failedAtStage, classification}`,按 uniqueTasks 降序而非 retries
+- summary 加 `dataWindow: {from, to, totalRecords}` 给前端贴 stale 警告
+
+**L2 — 失败指纹→知识绑定(新)** (`engine/failure-fingerprint.cjs`)
+- `extractKeywords`: 抓 ALL_CAPS 错误码(ENOENT/ECONNRESET/FATAL)、PascalCase 标识符(GameFlowManagerMain)、引号字串、硬编码领域词典(skeleton/csCode/GFM_Tools/LINUX_BUILD_URL/Visual freeze/CUA 等 21 个)
+- `grepMemoryForFingerprint`: 扫 `~/.claude/projects/-root/memory/*.md`,命中关键词数量打分,top 5
+- `loadGitLog`: `git log --all --since="60 days ago"`,5 分钟 TTL 缓存
+- `grepGitLogForFingerprint`: subject 匹配关键词,`fix:|修复|patch|resolve|hotfix|refactor` 再加 2 分
+- `bindKnowledge(fingerprint)`: 返回 `{memoryHits, commitHits, resolvedBy, resolvedAt, autoFixRecipe}`
+- **关键:resolvedBy 优先级 = recipe.relatedCommits(curated)> 模糊 grep**。`"data argument"` 这种泛词会错配 `9389530 spec data path`,而真实 fix 在 `529136b`;recipe 的 `relatedCommits: ["529136b"]` 显式指定后 L3 才不会误报回归
+- `api/dashboard.cjs getPipelineMetrics` 对每条指纹挂 `.knowledge` 字段
+
+**L3 — 回归守卫** (`api/dashboard.cjs runWatchdogCycle` Phase 6)
+- 扫最近 100 条失败记录,对每条 `bindKnowledge`,任何 `failedAt > resolvedAt` 即判回归
+- 持久化到 `server-data/regressions.json`(upsert by fingerprint)
+- 30 分钟节流调 `worker/feishu-notify.js` 的 `send(taskId, 'stuck', msg, {fingerprint, resolvedBy})`
+- 新 handler `getRegressions` → `GET /api/dashboard/regressions` 返回最近 7 天
+- `dashboard.html` 加 🚨 回归告警卡(红色)在 Top 失败表旁
+
+**L4 — Auto-fix 护栏版**(新,只出 patch 不改 repo)
+- `worker/fix-recipes.json` — JSON manifest,2 条 seed recipe(`skeleton-truthy-split` / `econnreset-buildapi`)
+- `worker/fix-recipes/*.md` — playbook(诊断步骤 + 期望 patch + 验证命令 + DO NOT 清单)
+- `engine/auto-fix.cjs applyRecipe(fingerprintId)`(新):
+  1. `findRecipe` 按 id 精确 / 按 fingerprintPattern 正则匹配
+  2. 读 recipe.md body + 收集 `affectedFiles` 作为 additionalFiles
+  3. 调 `runClaudeCodeText`(sonnet-4-6, effort=medium, 4min, minOutputLen=100)
+  4. 返回 `{ok, recipe, patch, subagentLog, autoApplied:false, notice}`
+- systemPrompt 硬编码三条铁律:不 git commit、不改文件系统、不建议 restart worker(Sonnet 子 agent 读 memory 前这三条最容易违反)
+- 新路由 `POST /api/auto-fix/:fingerprintId` → `runAutoFix` handler
+- **铁律**: `~/.claude/CLAUDE.md` 规定 loop 里 NEVER auto commit,L4 只产出 patch 文本交人审
+- dashboard.html 每行指纹加 🔧 按钮调 `window.triggerAutoFix(id)`,结果开新窗口展示
+
+**数据清理**
+- `blueprint.db`: DELETE 5 cancelled task + 646 history 行 → 剩 1 task(xrbkl1 活动)+ 19 history 行
+- `server-data/checkpoints/`: 5 陈旧目录 → 移入 `server-data/archive-20260416/`
+- `server-data/webgl/`: 6 陈旧目录 → 移入 archive
+- `parse-stats.json`: 磁盘 reset 为 `{total:0,success:0,failed:0,history:[]}`
+- `server-data/database.sqlite`(0 字节遗留)、`tasks.db`(0 字节遗留)→ archive
+- `server-data/metrics/pipeline-metrics.jsonl` → `archive-20260416/pipeline-metrics.jsonl.bak.20260416`
+- `.gitignore` 补加 `server-data/archive*/`、`server-data/regressions.json`、`server-data/cua-reviews/`
+
+**新 reset 端点** `POST /api/dashboard/reset-stats`
+- body `{parse?, metrics?, tasks?, archive?}`,`tasks` 是 opt-in(安全),其它默认开启
+- `parse` 通过**引用 mutation** 直接清 `ctx.parseStats` 内存态(`server-context.cjs` 的 `parseStats` 对象共享给所有 handler,in-place 修改即同步)
+- 避免下次再用 file 手术 + restart 才能清历史
+
+**skill 双向同步**
+- `~/.openclaw/workspace/skills/dashboard/SKILL.md`: 完全重写,从 4-tab 版本追到 7-tab + L1-L4 全貌,新增 "⚠️ 与 blueprint skill 双向同步铁律" 交叉表
+- `~/.openclaw/workspace/skills/blueprint/SKILL.md`: 新增 "⚠️ 与 dashboard skill 双向同步铁律" 章节 + "可观测与自动修复 (L1-L4, 2026-04-16)" section
+
+### 验证
+
+- Restart `blueprint-editor` 时 xrbkl1 正在 CUA round 2 re-code(linux-worker-1 本地 AI 调用,不打 API),空窗 <1s, `reportStatus` catch 吞错不抛 → 任务无缝继续,restart 后直接看到 xrbkl1 推进到 `CUA fix rebuilding round 3`
+- `curl /api/dashboard/stats` 的 `parse` 字段从 25/24/1 变 0/0/0
+- `curl /api/dashboard/regressions` 返回 `{regressions:[],count:0}`
+- `curl /api/dashboard/pipeline-metrics` 返回新 schema(dataWindow、uniqueTasks 等)
+- `POST /api/dashboard/reset-stats` 返回 `{ok:true, report:{parse:"reset (in-memory + disk)"}}`
+- Node 直连测 `bindKnowledge('TypeError: The "data" argument ...')` 返回 `resolvedBy=529136b`(curated 胜出),而非泛词匹配到的 `9389530`
+
+### 遗留
+
+- L2 `phrasesToCheck` 是硬编码数组,新 fingerprint 类需要手动加
+- L4 只有 2 条 recipe,加新指纹要同时改 3 处(`fix-recipes.json` + recipe.md + 验证 regex 命中)
+- 回归告警 30 分钟节流是全局,一周期多个回归只飞书 1 次
+- **`pm2 restart blueprint-editor` 时必须确认 worker 不处于打 API 的阶段**(`upload-build` / `apiRequest GET /api/tasks/:id/blueprint`)。CUA verify / AI coding / Bridge 编译这三个阶段都是安全窗口 —— worker 用 `reportStatus` 上报会被内部 catch 吞错,不影响任务
+
+### 教训
+
+→ **"已修复"不等于"可见已修复"**。每次修 bug 都要问 "下次它复发时 dashboard 会告诉我吗",否则就是在同一个问题上重复花时间
+→ **模糊 grep 不能作为"resolvedBy"的唯一依据**。"data" 这种泛词必然撞车,必须让 recipe 显式声明 relatedCommits
+→ **in-memory 缓存必须有刷新通道**。`parseStats` 这种进程启动时读入的状态,如果只能靠 restart 刷,下次清理就得再停一次服务 —— 必须暴露 reset 端点
+→ **两个 skill 必须双向同步**。dashboard 展示什么字段的背后都是 blueprint 的代码,单边更新 = 下次信息错配
+
+---
+
 ## 2026-04-16 深夜: patchRecode no-op 死锁 + rule 字段透传 (proj_2p50o1 follow-up)
 
 ### 背景

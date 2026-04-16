@@ -1,0 +1,24 @@
+[
+  {
+    "id": "skeleton-truthy-split",
+    "fingerprintPattern": "data.{0,40}(argument|must be of type).{0,80}Received undefined",
+    "description": "skeleton.split truthy 判断导致 fs.writeFileSync 写 undefined",
+    "risk": "low",
+    "requiresApproval": true,
+    "recipeFile": "fix-recipes/skeleton-truthy-split.md",
+    "relatedCommits": ["529136b"],
+    "relatedMemories": ["feedback_skeleton_truthy_split.md"],
+    "affectedFiles": ["worker/claude-code-coder.js"]
+  },
+  {
+    "id": "econnreset-buildapi",
+    "fingerprintPattern": "Build failed.*ECONNRESET",
+    "description": "编译服务器连接被 reset,通常是 LINUX_BUILD_URL 指向僵尸远端而非 127.0.0.1",
+    "risk": "low",
+    "requiresApproval": true,
+    "recipeFile": "fix-recipes/econnreset-buildapi.md",
+    "relatedCommits": ["529136b", "57a9f69"],
+    "relatedMemories": ["feedback_build_url_localhost.md", "feedback_dotenv_path_mismatch.md"],
+    "affectedFiles": [".env", "worker/.env", "engine/stages/compile.cjs"]
+  }
+]

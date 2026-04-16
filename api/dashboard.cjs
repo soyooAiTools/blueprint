@@ -168,6 +168,100 @@ module.exports.init = function(ctx) {
         });
       } catch(e) {}
 
+      // Phase 6: Regression watcher (L3)
+      // Scan latest 100 metrics records. For each failure fingerprint we
+      // compute, ask bindKnowledge if it has a resolvedBy/resolvedAt. If a
+      // record's timestamp is AFTER the resolvedAt (i.e. "fixed 2 days ago but
+      // happened again today"), flag it as a regression.
+      //
+      // Regressions are persisted to server-data/regressions.json (upsert
+      // by fingerprint) and optionally pushed to 飞书 via the existing
+      // feishu-notify.js bot. Throttled: we only fire a 飞书 alert once per
+      // 30 minutes per fingerprint to avoid paging spam.
+      try {
+        var metricsModule = require('../engine/metrics.cjs');
+        var fpModule = require('../engine/failure-fingerprint.cjs');
+        var records = metricsModule.loadRecords(100);
+        var regFile = path.join(__dirname, '..', 'server-data', 'regressions.json');
+        var existing = [];
+        try {
+          if (fs.existsSync(regFile)) existing = JSON.parse(fs.readFileSync(regFile, 'utf-8')) || [];
+        } catch(e) { existing = []; }
+        var byFp = {};
+        existing.forEach(function(r) { byFp[r.fingerprint] = r; });
+
+        var failedRecords = records.filter(function(r) { return !r.success && r.failReason; });
+        var fpToRecords = {};
+        failedRecords.forEach(function(fr) {
+          var fp = metricsModule.normalizeFingerprint(fr.failReason);
+          if (!fpToRecords[fp]) fpToRecords[fp] = [];
+          fpToRecords[fp].push(fr);
+        });
+
+        var NOTIFY_THROTTLE_MS = 30 * 60 * 1000;
+        var changed = false;
+
+        Object.keys(fpToRecords).forEach(function(fp) {
+          var frs = fpToRecords[fp];
+          var kb;
+          try { kb = fpModule.bindKnowledge(fp); } catch(e) { return; }
+          if (!kb.resolvedBy || !kb.resolvedAt) return;
+          var resolvedAtMs = new Date(kb.resolvedAt).getTime();
+          if (!resolvedAtMs) return;
+          // Find records that occurred strictly AFTER resolvedAt
+          var postFix = frs.filter(function(r) {
+            return r.timestamp && new Date(r.timestamp).getTime() > resolvedAtMs;
+          });
+          if (postFix.length === 0) return;
+
+          var latestTs = postFix.reduce(function(acc, r) {
+            return !acc || r.timestamp > acc ? r.timestamp : acc;
+          }, null);
+
+          var prev = byFp[fp];
+          var reg = {
+            fingerprint: fp,
+            sampleReason: frs[0].failReason.slice(0, 200),
+            resolvedBy: kb.resolvedBy,
+            resolvedAt: kb.resolvedAt,
+            regressedAt: latestTs,
+            count: postFix.length,
+            firstRegressedAt: prev ? prev.firstRegressedAt || latestTs : latestTs,
+            notifiedAt: prev ? prev.notifiedAt : null,
+          };
+          byFp[fp] = reg;
+          changed = true;
+
+          issues.push('[F20-regression] ' + fp.slice(0, 60) + ' (resolved ' + kb.resolvedBy.slice(0,7) + ', ' + postFix.length + ' new hits)');
+          fixes.push('[info] Logged regression → server-data/regressions.json');
+
+          // Throttled 飞书 notification
+          var lastNotified = prev && prev.notifiedAt ? new Date(prev.notifiedAt).getTime() : 0;
+          if (now - lastNotified > NOTIFY_THROTTLE_MS) {
+            try {
+              var feishu = require('../worker/feishu-notify.js');
+              feishu.send(frs[0].taskId || 'regression', 'stuck',
+                '[Regression] ' + fp.slice(0, 80) + '\n' +
+                '先前由 ' + kb.resolvedBy.slice(0, 7) + ' 修复\n' +
+                '命中 ' + postFix.length + ' 次\n' +
+                '最近: ' + latestTs,
+                { fingerprint: fp, resolvedBy: kb.resolvedBy }
+              ).catch(function() {});
+              byFp[fp].notifiedAt = new Date().toISOString();
+            } catch(e) {}
+          }
+        });
+
+        if (changed) {
+          try {
+            fs.mkdirSync(path.dirname(regFile), { recursive: true });
+            fs.writeFileSync(regFile, JSON.stringify(Object.keys(byFp).map(function(k) { return byFp[k]; }), null, 2));
+          } catch(e) {}
+        }
+      } catch(e) {
+        issues.push('[error] Regression watcher failed: ' + e.message);
+      }
+
     } catch (e) {
       issues.push('[error] Watchdog cycle error: ' + e.message);
     }
@@ -469,7 +563,18 @@ module.exports.init = function(ctx) {
         var u = new URL(req.url, 'http://localhost');
         var lastN = parseInt(u.searchParams.get('last')) || 50;
         var { getMetricsSummary } = require('../engine/metrics.cjs');
+        var { bindKnowledge } = require('../engine/failure-fingerprint.cjs');
         var summary = getMetricsSummary(lastN);
+
+        // L2: decorate each top fingerprint with memory/git/recipe binding.
+        // Swallow errors per-fingerprint so a git failure doesn't 500 the whole
+        // dashboard — we still want the raw metrics to render.
+        if (summary.topFailReasons) {
+          summary.topFailReasons.forEach(function(fp) {
+            try { fp.knowledge = bindKnowledge(fp.fingerprint); }
+            catch(e) { fp.knowledge = { error: e.message }; }
+          });
+        }
 
         // Also load recent failure history from projects
         var projectFailures = [];
@@ -492,13 +597,141 @@ module.exports.init = function(ctx) {
           }
         } catch(e) {}
 
+        // L3: read regressions.json so the dashboard surfaces active regressions
+        // next to the metrics. Written by runWatchdogCycle's regression phase.
+        var regressions = [];
+        try {
+          var regFile = path.join(__dirname, '..', 'server-data', 'regressions.json');
+          if (fs.existsSync(regFile)) {
+            var regs = JSON.parse(fs.readFileSync(regFile, 'utf-8'));
+            // Only surface regressions from the last 7 days — older ones clutter
+            // the dashboard and probably mean the detection rule is too loose
+            var weekAgo = Date.now() - 7 * 86400 * 1000;
+            regressions = (regs || []).filter(function(r) {
+              return r.regressedAt && new Date(r.regressedAt).getTime() > weekAgo;
+            });
+          }
+        } catch(e) {}
+
         sendJSON(res, {
           pipeline: summary,
           projectFailures: projectFailures,
+          regressions: regressions,
         });
       } catch(e) {
         sendJSON(res, { error: e.message }, 500);
       }
+    },
+
+    getRegressions: function(req, res, body, params) {
+      try {
+        var regFile = path.join(__dirname, '..', 'server-data', 'regressions.json');
+        var data = [];
+        if (fs.existsSync(regFile)) {
+          data = JSON.parse(fs.readFileSync(regFile, 'utf-8')) || [];
+        }
+        sendJSON(res, { regressions: data, count: data.length });
+      } catch(e) {
+        sendJSON(res, { error: e.message }, 500);
+      }
+    },
+
+    runAutoFix: function(req, res, body, params) {
+      try {
+        var autoFix = require('../engine/auto-fix.cjs');
+        autoFix.applyRecipe(params.fingerprintId)
+          .then(function(result) { sendJSON(res, result); })
+          .catch(function(e) { sendJSON(res, { error: e.message }, 500); });
+      } catch(e) {
+        sendJSON(res, { error: e.message }, 500);
+      }
+    },
+
+    /**
+     * POST /api/dashboard/reset-stats
+     * Body (optional): { parse?:bool, tasks?:bool, metrics?:bool, archive?:bool }
+     * Defaults: all true except tasks (requires explicit opt-in — destructive).
+     *
+     * Clears in-memory + on-disk "historical" counters without restarting the server.
+     * Safe because: parseStats is mutated by reference (shared with server.cjs);
+     * cancelled tasks are deleted directly via SQL; metrics file is renamed, not deleted.
+     *
+     * IMPORTANT: we NEVER delete the currently-running task. It's detected by status
+     * filter (status NOT IN ('cancelled','completed','failed')) — anything mid-pipeline
+     * is preserved.
+     */
+    resetStats: function(req, res, body, params) {
+      var opts = {};
+      if (body) {
+        try { opts = JSON.parse(body) || {}; } catch(e) { opts = {}; }
+      }
+      if (opts.parse === undefined) opts.parse = true;
+      if (opts.metrics === undefined) opts.metrics = true;
+      if (opts.archive === undefined) opts.archive = true;
+      // tasks is OPT-IN (explicit) because deleting DB rows is more destructive
+      if (opts.tasks === undefined) opts.tasks = false;
+
+      var report = {};
+
+      // 1. parseStats — mutate in place so both memory & disk update
+      if (opts.parse) {
+        try {
+          parseStats.total = 0;
+          parseStats.success = 0;
+          parseStats.failed = 0;
+          parseStats.totalTimeMs = 0;
+          parseStats.history.length = 0;
+          fs.writeFileSync(config.PARSE_STATS_FILE, JSON.stringify(parseStats, null, 2));
+          report.parse = 'reset (in-memory + disk)';
+        } catch(e) {
+          report.parse = 'error: ' + e.message;
+        }
+      }
+
+      // 2. Cancelled task rows — opt-in only
+      if (opts.tasks) {
+        try {
+          var db = taskQueue.db;
+          // Keep anything that could still be running (processing/pending/etc.)
+          var terminal = ['cancelled', 'completed', 'failed'];
+          var placeholders = terminal.map(function() { return '?'; }).join(',');
+          var histStmt = db.prepare(
+            'DELETE FROM task_history WHERE task_id IN (SELECT id FROM tasks WHERE status IN (' + placeholders + '))'
+          );
+          var taskStmt = db.prepare(
+            'DELETE FROM tasks WHERE status IN (' + placeholders + ')'
+          );
+          var deletedHistory = histStmt.run.apply(histStmt, terminal).changes;
+          var deletedTasks = taskStmt.run.apply(taskStmt, terminal).changes;
+          report.tasks = 'deleted ' + deletedTasks + ' tasks, ' + deletedHistory + ' history rows';
+        } catch(e) {
+          report.tasks = 'error: ' + e.message;
+        }
+      }
+
+      // 3. pipeline-metrics.jsonl → archive (rename, never delete)
+      if (opts.metrics) {
+        try {
+          var metricsFile = path.join(__dirname, '..', 'server-data', 'metrics', 'pipeline-metrics.jsonl');
+          if (fs.existsSync(metricsFile)) {
+            var stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+            fs.renameSync(metricsFile, metricsFile + '.bak.' + stamp);
+            report.metrics = 'archived to pipeline-metrics.jsonl.bak.' + stamp;
+          } else {
+            report.metrics = 'no file to archive';
+          }
+          // Also clear regressions.json since stale resolvedBy links confuse L3
+          var regFile = path.join(__dirname, '..', 'server-data', 'regressions.json');
+          if (fs.existsSync(regFile)) {
+            fs.writeFileSync(regFile, '[]');
+            report.regressions = 'reset to []';
+          }
+        } catch(e) {
+          report.metrics = 'error: ' + e.message;
+        }
+      }
+
+      sendJSON(res, { ok: true, report: report, note: 'tasks deletion is opt-in via body {"tasks":true}' });
     },
 
     // Expose for server.cjs interval usage

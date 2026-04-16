@@ -176,14 +176,18 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
         <div id="stagePassRates"></div>
       </div>
     </div>
+    <div class="card" style="margin-top:16px;">
+      <h3>Top 失败指纹（按 unique 任务数去重）<span id="pipelineDataWindow" style="float:right;font-size:11px;color:#8b949e;font-weight:normal;"></span></h3>
+      <div id="topFailReasons"></div>
+    </div>
     <div class="grid grid-2" style="margin-top:16px;">
-      <div class="card">
-        <h3>Top 失败原因</h3>
-        <div id="topFailReasons"></div>
-      </div>
       <div class="card">
         <h3>趋势 &amp; 错误分类</h3>
         <div id="pipelineTrend"></div>
+      </div>
+      <div class="card">
+        <h3>🚨 回归告警</h3>
+        <div id="regressionAlerts"></div>
       </div>
     </div>
     <div class="card" style="margin-top:16px;">
@@ -556,19 +560,63 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
         document.getElementById('stagePassRates').innerHTML = '<div class="empty">暂无数据</div>';
       }
 
-      // Top failure reasons
+      // Data window indicator — show the time range of the records so
+      // pre-fix stale data is visually obvious instead of masquerading as
+      // "current state".
+      var dw = pm.dataWindow;
+      if (dw && dw.from && dw.to) {
+        var fromStr = fmt(new Date(dw.from).getTime());
+        var toStr = fmt(new Date(dw.to).getTime());
+        var ageHours = Math.round((Date.now() - new Date(dw.to).getTime()) / 3600000);
+        var staleTag = ageHours > 6 ? ' <span style="color:#d29922;">⚠️ 数据 ' + ageHours + 'h 未更新</span>' : '';
+        document.getElementById('pipelineDataWindow').innerHTML = '数据范围: ' + fromStr + ' → ' + toStr + staleTag;
+      } else {
+        document.getElementById('pipelineDataWindow').innerHTML = '';
+      }
+
+      // Top failure fingerprints — new schema: fingerprint / uniqueTasks /
+      // retries / firstSeen / lastSeen / knowledge binding badge / auto-fix
+      // button. Retries count is shown in a muted color to prevent the
+      // "19 retries of 1 stuck task" inflation bug from recurring.
       var tfr = pm.topFailReasons || [];
       if (tfr.length > 0) {
-        var fh = '';
-        tfr.forEach(function(r, i) {
-          fh += '<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid #21262d;font-size:13px;">';
-          fh += '<span style="color:#f85149;font-weight:700;min-width:28px;">' + r.count + '×</span>';
-          fh += '<span style="color:#c9d1d9;word-break:break-all;">' + r.reason + '</span>';
-          fh += '</div>';
+        var fh = '<table style="width:100%;"><thead><tr>';
+        fh += '<th>状态</th><th>指纹</th><th style="text-align:right;">tasks</th><th style="text-align:right;">retries</th><th>stage</th><th>最近</th><th>操作</th>';
+        fh += '</tr></thead><tbody>';
+        tfr.forEach(function(r) {
+          var kb = r.knowledge || {};
+          var badgeHTML, badgeTitle;
+          if (kb.resolvedBy) {
+            badgeHTML = '<span style="color:#3fb950;" title="已修复 ' + (kb.resolvedBy || '') + '">🟢</span>';
+            badgeTitle = '已修复 ' + (kb.resolvedBy || '').slice(0, 7);
+          } else if ((kb.memoryHits || []).length > 0 || (kb.commitHits || []).length > 0) {
+            badgeHTML = '<span style="color:#d29922;" title="已知但未修复">🟡</span>';
+            badgeTitle = '已知未修';
+          } else {
+            badgeHTML = '<span style="color:#f85149;" title="未分类">🔴</span>';
+            badgeTitle = '未分类';
+          }
+          var mem = (kb.memoryHits || []).slice(0, 2).map(function(m) { return m.file; }).join(', ');
+          var commit = (kb.commitHits || []).slice(0, 1).map(function(c) { return c.hash.slice(0, 7) + ' ' + c.subject.slice(0, 40); }).join('');
+          var knowledgeCell = [badgeHTML, badgeTitle, mem ? '<br><span style="color:#8b949e;font-size:11px;">mem: ' + mem + '</span>' : '', commit ? '<br><span style="color:#8b949e;font-size:11px;">git: ' + commit + '</span>' : ''].join(' ');
+          var fpShort = (r.fingerprint || r.sampleReason || '').slice(0, 80);
+          var lastSeenAgo = r.lastSeen ? ago(new Date(r.lastSeen).getTime()) : '-';
+          var fpId = (r.fingerprint || '').replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40);
+          var canAutoFix = kb.autoFixRecipe ? '<button onclick="triggerAutoFix(\'' + fpId + '\')" style="background:#1f6feb;color:#fff;border:0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;">自动修复</button>' : '<span style="color:#484f58;font-size:11px;">无 recipe</span>';
+          fh += '<tr>';
+          fh += '<td>' + knowledgeCell + '</td>';
+          fh += '<td style="word-break:break-all;max-width:420px;">' + fpShort + '</td>';
+          fh += '<td style="text-align:right;font-weight:700;color:#f85149;">' + r.uniqueTasks + '</td>';
+          fh += '<td style="text-align:right;color:#8b949e;">' + r.retries + '</td>';
+          fh += '<td>' + r.failedAtStage + '</td>';
+          fh += '<td>' + lastSeenAgo + '</td>';
+          fh += '<td>' + canAutoFix + '</td>';
+          fh += '</tr>';
         });
+        fh += '</tbody></table>';
         document.getElementById('topFailReasons').innerHTML = fh;
       } else {
-        document.getElementById('topFailReasons').innerHTML = '<div class="empty">无失败原因记录</div>';
+        document.getElementById('topFailReasons').innerHTML = '<div class="empty">无失败记录 🎉</div>';
       }
 
       // Trend + classification
@@ -606,6 +654,23 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       document.getElementById('stagePassRates').innerHTML = '<div class="empty">Pipeline 运行后将自动采集数据</div>';
       document.getElementById('topFailReasons').innerHTML = '<div class="empty">Pipeline 运行后将自动采集数据</div>';
       document.getElementById('pipelineTrend').innerHTML = '<div class="empty">Pipeline 运行后将自动采集数据</div>';
+      document.getElementById('pipelineDataWindow').innerHTML = '';
+    }
+
+    // Regression alerts — populated by L3 watchdog. Each entry is a fingerprint
+    // that was marked resolved by a past commit but reappeared in fresh metrics.
+    var regs = (pipelineMetrics && pipelineMetrics.regressions) || [];
+    if (regs.length > 0) {
+      var rh = '';
+      regs.forEach(function(rg) {
+        rh += '<div style="padding:10px;background:#2d1113;border:1px solid #f8514933;border-radius:6px;margin-bottom:8px;">';
+        rh += '<div style="color:#f85149;font-weight:600;font-size:13px;">🚨 ' + (rg.fingerprint || 'unknown').slice(0, 80) + '</div>';
+        rh += '<div style="font-size:11px;color:#8b949e;margin-top:4px;">之前由 <code>' + (rg.resolvedBy || '').slice(0, 7) + '</code> 修复 · 再次出现 ' + ago(new Date(rg.regressedAt).getTime()) + ' · 命中 ' + rg.count + ' 次</div>';
+        rh += '</div>';
+      });
+      document.getElementById('regressionAlerts').innerHTML = rh;
+    } else {
+      document.getElementById('regressionAlerts').innerHTML = '<div class="empty">无回归告警 ✅</div>';
     }
 
     // Project failures table
@@ -630,6 +695,29 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       document.getElementById('projectFailures').innerHTML = '<div class="empty">暂无项目失败记录</div>';
     }
   }
+
+  // Exposed for the "自动修复" button in Pipeline 指标 tab. Hits the L4
+  // auto-fix endpoint which spawns a sub-agent to produce a patch — patch is
+  // shown for human review, NEVER auto-committed (CLAUDE.md rule).
+  window.triggerAutoFix = function(fingerprintId) {
+    if (!confirm('触发 auto-fix recipe?\n\n指纹: ' + fingerprintId + '\n\n将 spawn sub-agent 生成 patch（不会自动 commit）。')) return;
+    fetch(BASE + '/api/auto-fix/' + encodeURIComponent(fingerprintId), { method: 'POST' })
+      .then(function(r) { return r.json(); })
+      .then(function(result) {
+        if (result.error) {
+          alert('Auto-fix 失败: ' + result.error);
+          return;
+        }
+        var w = window.open('', '_blank');
+        w.document.write('<html><head><title>Auto-fix: ' + fingerprintId + '</title><style>body{font-family:monospace;background:#0d1117;color:#c9d1d9;padding:20px;}pre{background:#161b22;padding:12px;border-radius:6px;overflow:auto;}</style></head><body>');
+        w.document.write('<h2>Auto-fix recipe: ' + (result.recipe || '-') + '</h2>');
+        w.document.write('<h3>Generated Patch</h3><pre>' + (result.patch || '(empty)').replace(/[<>]/g, function(c) { return c === '<' ? '&lt;' : '&gt;'; }) + '</pre>');
+        w.document.write('<h3>Sub-agent Log</h3><pre>' + (result.subagentLog || '').replace(/[<>]/g, function(c) { return c === '<' ? '&lt;' : '&gt;'; }) + '</pre>');
+        w.document.write('<p style="color:#d29922;"><strong>⚠️ 人工 review 后使用 <code>git apply</code> + 正常 commit。该系统遵守 CLAUDE.md 不自动 commit 规则。</strong></p>');
+        w.document.write('</body></html>');
+      })
+      .catch(function(err) { alert('请求失败: ' + err.message); });
+  };
 
   refresh();
   // Live tab refreshes faster (5s)

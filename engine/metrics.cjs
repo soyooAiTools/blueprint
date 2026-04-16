@@ -90,6 +90,53 @@ function loadRecords(lastN) {
   }
 }
 
+/**
+ * Normalize a failure reason into a stable fingerprint.
+ *
+ * Strips dynamic fragments (paths, IDs, hex hashes, numbers, timestamps) so the
+ * same root cause yields the same fingerprint across runs. Keeps the structural
+ * English phrases that identify the defect class.
+ *
+ * 2026-04-16 — introduced to kill "19 retries of one stuck task = 19 separate
+ * fail reasons" display bug.
+ */
+function normalizeFingerprint(reason) {
+  if (!reason) return 'unknown';
+  var s = String(reason);
+  // Drop leading "prefix: " stage tags if present
+  s = s.replace(/^(review|codegen|compile|visual-check|cua-verify|upload|spec-validate)[ :]+/i, '');
+  // Unix paths
+  s = s.replace(/\/[\w.\-/]+/g, '<path>');
+  // Windows paths
+  s = s.replace(/[A-Z]:\\[\w\\.\-]+/g, '<path>');
+  // Task IDs like proj_1774794237502_k0rbwx
+  s = s.replace(/proj_\d{10,}_[a-z0-9]+/gi, '<taskId>');
+  // Standalone long numbers (timestamps, bytes, line offsets)
+  s = s.replace(/\b\d{5,}\b/g, '<num>');
+  // Hex hashes
+  s = s.replace(/\b[a-f0-9]{7,40}\b/g, '<hash>');
+  // "round X" → "round N"
+  s = s.replace(/round\s+\d+/gi, 'round N');
+  // "X rounds" / "X attempts" → "N rounds"
+  s = s.replace(/\d+\s+(rounds?|attempts?)/gi, 'N $1');
+  // Collapse whitespace
+  s = s.replace(/\s+/g, ' ').trim();
+  // Cap at 100 chars to prevent unbounded keys
+  return s.slice(0, 100);
+}
+
+function dataWindow(records) {
+  if (!records.length) return null;
+  var from = null, to = null;
+  for (var i = 0; i < records.length; i++) {
+    var ts = records[i].timestamp;
+    if (!ts) continue;
+    if (!from || ts < from) from = ts;
+    if (!to || ts > to) to = ts;
+  }
+  return { from: from, to: to };
+}
+
 function getMetricsSummary(lastN) {
   var records = loadRecords(lastN);
   if (records.length === 0) return { totalRuns: 0, message: 'No metrics data yet. Run a pipeline to start collecting.' };
@@ -182,19 +229,59 @@ function getMetricsSummary(lastN) {
     };
   }
 
-  // ---- Top failure reasons (deduplicated) ----
-  var reasonCounts = {};
+  // ---- Top failure fingerprints (deduplicated by (taskId, fingerprint)) ----
+  // Previous bug: substring(0,100) as key → 1 stuck task × 19 retries = 19 rows.
+  // Now: group by fingerprint, track uniqueTasks (distinct taskIds) and retries
+  // (total occurrences), plus firstSeen / lastSeen / sampleReason / failedAtStage.
+  var fpData = {};
   for (var ri = 0; ri < failedRecords.length; ri++) {
-    var reason = failedRecords[ri].failReason;
-    if (!reason) continue;
-    // Normalize: take first 100 chars
-    var key = reason.substring(0, 100);
-    reasonCounts[key] = (reasonCounts[key] || 0) + 1;
+    var fr = failedRecords[ri];
+    if (!fr.failReason) continue;
+    var fp = normalizeFingerprint(fr.failReason);
+    if (!fpData[fp]) {
+      fpData[fp] = {
+        fingerprint: fp,
+        sampleReason: fr.failReason.slice(0, 200),
+        uniqueTasks: {},
+        retries: 0,
+        firstSeen: fr.timestamp,
+        lastSeen: fr.timestamp,
+        failedAtStage: fr.failedAtStage || 'unknown',
+        classification: fr.failClassification || 'unknown',
+      };
+    }
+    var slot = fpData[fp];
+    slot.retries += 1;
+    if (fr.taskId) slot.uniqueTasks[fr.taskId] = true;
+    if (fr.timestamp && fr.timestamp < slot.firstSeen) slot.firstSeen = fr.timestamp;
+    if (fr.timestamp && fr.timestamp > slot.lastSeen) slot.lastSeen = fr.timestamp;
   }
-  summary.topFailReasons = Object.keys(reasonCounts)
-    .map(function(k) { return { reason: k, count: reasonCounts[k] }; })
-    .sort(function(a, b) { return b.count - a.count; })
-    .slice(0, 5);
+  summary.topFailReasons = Object.keys(fpData).map(function(k) {
+    var s = fpData[k];
+    return {
+      fingerprint: s.fingerprint,
+      sampleReason: s.sampleReason,
+      uniqueTasks: Object.keys(s.uniqueTasks).length,
+      retries: s.retries,
+      firstSeen: s.firstSeen,
+      lastSeen: s.lastSeen,
+      failedAtStage: s.failedAtStage,
+      classification: s.classification,
+      // Kept for backwards compat with any external consumer that still reads
+      // { reason, count }; both fields now reflect unique-task view, not inflated
+      // retry counts.
+      reason: s.sampleReason.slice(0, 100),
+      count: Object.keys(s.uniqueTasks).length,
+    };
+  }).sort(function(a, b) {
+    // Sort by uniqueTasks desc, then retries desc — a fingerprint hitting 3
+    // different tasks is more actionable than 19 retries of one stuck task.
+    if (b.uniqueTasks !== a.uniqueTasks) return b.uniqueTasks - a.uniqueTasks;
+    return b.retries - a.retries;
+  }).slice(0, 10);
+
+  // ---- Data window (helps dashboard call out stale data) ----
+  summary.dataWindow = dataWindow(records);
 
   return summary;
 }
@@ -261,7 +348,13 @@ function printDiagnostics(lastN) {
   console.log('==========================================\n');
 }
 
-module.exports = { recordPipelineMetrics: recordPipelineMetrics, getMetricsSummary: getMetricsSummary, printDiagnostics: printDiagnostics };
+module.exports = {
+  recordPipelineMetrics: recordPipelineMetrics,
+  getMetricsSummary: getMetricsSummary,
+  printDiagnostics: printDiagnostics,
+  normalizeFingerprint: normalizeFingerprint,
+  loadRecords: loadRecords,
+};
 
 // CLI: node engine/metrics.cjs [lastN]
 if (require.main === module) {

@@ -94,6 +94,10 @@ function matchRoute(method, pathname) {
   if (method === 'GET' && pathname === '/api/watchdog') return { handler: 'getWatchdogStatus' };
   if (method === 'POST' && pathname === '/api/watchdog/run') return { handler: 'runWatchdog' };
   if (method === 'GET' && pathname === '/api/dashboard/pipeline-metrics') return { handler: 'getPipelineMetrics' };
+  if (method === 'GET' && pathname === '/api/dashboard/regressions') return { handler: 'getRegressions' };
+  m = pathname.match(/^\/api\/auto-fix\/([^/]+)$/);
+  if (method === 'POST' && m) return { handler: 'runAutoFix', fingerprintId: decodeURIComponent(m[1]) };
+  if (method === 'POST' && pathname === '/api/dashboard/reset-stats') return { handler: 'resetStats' };
 
   // Serve generated images
   m = pathname.match(/^\/api\/images\/([^/]+)\/(.+)$/);
@@ -136,6 +140,7 @@ function createRouter(handlers) {
       if (route.taskId) params.taskId = route.taskId;
       if (route.projectId) params.projectId = route.projectId;
       if (route.filename) params.filename = route.filename;
+      if (route.fingerprintId) params.fingerprintId = route.fingerprintId;
 
       if (route.rawBody) {
         // Binary upload — pass req directly, handler reads raw body

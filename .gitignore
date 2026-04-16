@@ -51,6 +51,9 @@ server-data/checkpoints/
 server-data/tasks/
 server-data/parse-stats.json
 server-data/metrics/
+server-data/regressions.json
+server-data/cua-reviews/
+server-data/archive*/
 data/
 adapters/server-data/
 
