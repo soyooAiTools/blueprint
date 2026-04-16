@@ -72,8 +72,97 @@ function runStaticCheckTests() {
     return { passed: passed, failed: failed, errors: 0 };
 }
 
+function runComplexityGateTests() {
+    var cg;
+    try { cg = require('../engine/stages/complexity-gate.cjs'); } catch(e) {
+        console.error('  Cannot load complexity-gate.cjs: ' + e.message);
+        return { passed: 0, failed: 0, errors: 1 };
+    }
+
+    var testDir = path.join(fixturesDir, 'complexity-gate');
+    if (!fs.existsSync(testDir)) {
+        console.log('  No fixtures found at ' + testDir);
+        return { passed: 0, failed: 0, errors: 0 };
+    }
+
+    var files = fs.readdirSync(testDir).filter(function(f) { return f.endsWith('.json'); });
+    var passed = 0, failed = 0;
+
+    for (var fi = 0; fi < files.length; fi++) {
+        var fixture = JSON.parse(fs.readFileSync(path.join(testDir, files[fi]), 'utf-8'));
+        if (!fixture.expectedResult) {
+            console.log('  SKIP: ' + files[fi] + ' (no expectedResult)');
+            continue;
+        }
+
+        try {
+            var result = cg.computeScore(fixture.input.specs, fixture.input.entities);
+            if (fixture.expectedResult.scoreMustExceed !== undefined) {
+                assert.ok(result.total > fixture.expectedResult.scoreMustExceed,
+                    'Expected total ' + result.total + ' > ' + fixture.expectedResult.scoreMustExceed);
+            }
+            if (fixture.expectedResult.scoreMustNotExceed !== undefined) {
+                assert.ok(result.total <= fixture.expectedResult.scoreMustNotExceed,
+                    'Expected total ' + result.total + ' <= ' + fixture.expectedResult.scoreMustNotExceed);
+            }
+            console.log('  PASS: ' + files[fi] + ' (score=' + result.total + ')');
+            passed++;
+        } catch(e) {
+            console.log('  FAIL: ' + files[fi] + ' — ' + e.message);
+            failed++;
+        }
+    }
+
+    return { passed: passed, failed: failed, errors: 0 };
+}
+
+function runMethodCheckTests() {
+    var mc;
+    try { mc = require('../engine/stages/method-check.cjs'); } catch(e) {
+        console.error('  Cannot load method-check.cjs: ' + e.message);
+        return { passed: 0, failed: 0, errors: 1 };
+    }
+
+    var testDir = path.join(fixturesDir, 'method-check');
+    if (!fs.existsSync(testDir)) {
+        console.log('  No fixtures found at ' + testDir);
+        return { passed: 0, failed: 0, errors: 0 };
+    }
+
+    var files = fs.readdirSync(testDir).filter(function(f) { return f.endsWith('.json'); });
+    var passed = 0, failed = 0;
+
+    for (var fi = 0; fi < files.length; fi++) {
+        var fixture = JSON.parse(fs.readFileSync(path.join(testDir, files[fi]), 'utf-8'));
+        if (!fixture.expectedResult) {
+            console.log('  SKIP: ' + files[fi] + ' (no expectedResult)');
+            continue;
+        }
+
+        try {
+            var missing = mc.checkCompleteness(fixture.input.csCode);
+            var expectedMissing = fixture.expectedResult.missing;
+            assert.strictEqual(missing.length, expectedMissing.length,
+                'missing length mismatch: got [' + missing.join(', ') + '] expected [' + expectedMissing.join(', ') + ']');
+            for (var mi = 0; mi < expectedMissing.length; mi++) {
+                assert.ok(missing.indexOf(expectedMissing[mi]) >= 0,
+                    'Expected "' + expectedMissing[mi] + '" in missing list, got: [' + missing.join(', ') + ']');
+            }
+            console.log('  PASS: ' + files[fi] + ' (missing=' + JSON.stringify(missing) + ')');
+            passed++;
+        } catch(e) {
+            console.log('  FAIL: ' + files[fi] + ' — ' + e.message);
+            failed++;
+        }
+    }
+
+    return { passed: passed, failed: failed, errors: 0 };
+}
+
 function runStageTests(stageName) {
     if (stageName === 'static-check') return runStaticCheckTests();
+    if (stageName === 'complexity-gate') return runComplexityGateTests();
+    if (stageName === 'method-check') return runMethodCheckTests();
 
     var stage;
     try { stage = require('../engine/stages/' + stageName + '.cjs'); } catch(e) {
@@ -135,7 +224,7 @@ if (args.stage) {
     totalPassed += r.passed; totalFailed += r.failed; totalErrors += r.errors;
 } else {
     // Run all stages that have fixtures
-    var stages = ['static-check', 'spec-validate', 'review', 'compile', 'visual-check', 'cua-verify'];
+    var stages = ['static-check', 'complexity-gate', 'method-check', 'spec-validate', 'review', 'compile', 'visual-check', 'cua-verify'];
     for (var si = 0; si < stages.length; si++) {
         var stName = stages[si];
         var stDir = path.join(fixturesDir, stName);
