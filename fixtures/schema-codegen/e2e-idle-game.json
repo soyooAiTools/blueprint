@@ -1,0 +1,176 @@
+{
+  "gameConfig": {
+    "cameraBackground": [0.4, 0.55, 0.7],
+    "groundColor": [0.6, 0.75, 0.5],
+    "moveSpeed": 5,
+    "collectRange": 1.5,
+    "maxCarry": 8
+  },
+  "entities": [
+    {
+      "name": "TreeSource",
+      "pool": "__Pool_Nature_Tree_01",
+      "initPos": [-4, 0.5, 3],
+      "scale": 1.2,
+      "showInPhase": "start",
+      "terminalState": 2
+    },
+    {
+      "name": "House",
+      "pool": "__Pool_Building_House_01",
+      "initPos": [3, 0.5, 2],
+      "scale": 1.0,
+      "showInPhase": "phase2",
+      "terminalState": 2
+    },
+    {
+      "name": "Forge",
+      "pool": "__Pool_Building_Forge_01",
+      "initPos": [5, 0.5, -2],
+      "scale": 0.8,
+      "showInPhase": "phase3",
+      "terminalState": 2
+    },
+    {
+      "name": "EnemyCamp",
+      "pool": "__Pool_Structure_Camp_01",
+      "initPos": [-5, 0.5, -4],
+      "scale": 0.9,
+      "showInPhase": "phase4",
+      "terminalState": 2
+    },
+    {
+      "name": "CtaButton",
+      "pool": "__Pool_Cube_Gold_01",
+      "initPos": [0, 1, 0],
+      "scale": 0.5,
+      "showInPhase": "phase5",
+      "terminalState": 1
+    },
+    {
+      "name": "StoneSource",
+      "pool": "__Pool_Rock_Grey_02",
+      "initPos": [-2, 0.3, -1],
+      "scale": 0.7,
+      "showInPhase": "start",
+      "terminalState": 2
+    }
+  ],
+  "resources": [
+    {
+      "name": "wood",
+      "entity": "TreeSource",
+      "convertRatio": 3
+    },
+    {
+      "name": "stone",
+      "entity": "StoneSource",
+      "convertRatio": 5
+    }
+  ],
+  "forms": [
+    {
+      "name": "WoodToPlank",
+      "from": "wood",
+      "to": "plank",
+      "cost": 3
+    }
+  ],
+  "phases": [
+    {
+      "phaseId": "phase1",
+      "showEntities": ["TreeSource", "StoneSource"],
+      "hideEntities": [],
+      "guideText": "Gather 3 wood from the tree!",
+      "trigger": {
+        "type": "resource_collected",
+        "resource": "wood",
+        "amount": 3
+      },
+      "onEnter": [
+        { "action": "set_guide", "target": "guideText", "value": "Gather 3 wood from the tree!" }
+      ],
+      "onComplete": []
+    },
+    {
+      "phaseId": "phase2",
+      "showEntities": ["House"],
+      "hideEntities": [],
+      "guideText": "Build the house!",
+      "trigger": {
+        "type": "entity_state_reached",
+        "entity": "House",
+        "state": 2
+      },
+      "onEnter": [
+        { "action": "set_guide", "target": "guideText", "value": "Build the house!" }
+      ],
+      "onComplete": []
+    },
+    {
+      "phaseId": "phase3",
+      "showEntities": ["Forge"],
+      "hideEntities": [],
+      "guideText": "Approach the forge to unlock crafting!",
+      "trigger": {
+        "type": "near_entity",
+        "entity": "Forge",
+        "range": 2.0
+      },
+      "onEnter": [
+        { "action": "set_guide", "target": "guideText", "value": "Approach the forge!" }
+      ],
+      "onComplete": []
+    },
+    {
+      "phaseId": "phase4",
+      "showEntities": ["EnemyCamp"],
+      "hideEntities": [],
+      "guideText": "Defeat 2 enemies at the camp!",
+      "trigger": {
+        "type": "enemy_defeated",
+        "entity": "EnemyCamp",
+        "amount": 2
+      },
+      "onEnter": [
+        { "action": "set_guide", "target": "guideText", "value": "Defeat 2 enemies!" }
+      ],
+      "onComplete": []
+    },
+    {
+      "phaseId": "phase5",
+      "showEntities": ["CtaButton"],
+      "hideEntities": ["EnemyCamp"],
+      "guideText": "Tap to install the full game!",
+      "trigger": {
+        "type": "click_entity",
+        "entity": "CtaButton"
+      },
+      "onEnter": [
+        { "action": "set_guide", "target": "guideText", "value": "Tap to install!" }
+      ],
+      "onComplete": []
+    }
+  ],
+  "npcs": [
+    {
+      "entity": "EnemyCamp",
+      "template": "chase_attack",
+      "params": {
+        "detectRange": 8,
+        "attackRange": 1.5,
+        "attackDamage": 2,
+        "attackInterval": 1.0,
+        "moveSpeed": 3,
+        "hp": 5
+      }
+    }
+  ],
+  "customLogic": [
+    {
+      "name": "AutoHealNearForge",
+      "code": "if (IsNear(forge, 3f)) playerHP = Mathf.Min(playerHP + 1, 10);",
+      "insertAt": "Update"
+    }
+  ]
+}
