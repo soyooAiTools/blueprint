@@ -1559,6 +1559,35 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 
 ---
 
+## Completion Summary (2026-04-16)
+
+**Status: ALL 11 TASKS COMPLETE** — 15 commits total, reviewed by Codex GPT-5.4.
+
+| Commit | Description |
+|--------|-------------|
+| `59a7e84` | Task 1: JSON schema + validator (ajv + 6 semantic checks) |
+| `28759f2` | Task 2: Trigger codegen (8 types → C# conditions) |
+| `ca967e0` | Task 3: Placement + phase-init + economy + custom-todo templates |
+| `460b3a4` | Task 4: AutoPlay mirror (dual-mode OnAutoPlayArrive) |
+| `3ac4033` | Task 5: 5 NPC behavior templates |
+| `66de8b6` | Task 6: Template engine orchestrator (fillSkeleton + replaceAllTodos) |
+| `c881045` | Fix: Economy template field names (r.name/r.entity) |
+| `8a5654b` | Task 7: TODO_CUSTOM markers in skeleton |
+| `177c3c1` | Task 8: codegen-schema.cjs (3-step pipeline stage) |
+| `da606b8` | Task 9: Codegen router + legacy rename |
+| `f506bdc` | Task 10: 9 schema metrics fields |
+| `e7d5713` | Task 11: E2E integration test fixture |
+| `f4a3f41` | Fix: JSON schema ↔ template field alignment (5 areas) |
+| `7e512cd` | Fix: PascalCase entity names + split Systems file fill (Codex P1) |
+| `de31975` | Fix: customLogic prompt PascalCase rule (Codex P2) |
+
+**Codex GPT-5.4 Review Findings:**
+- P1: `toLowerCamel()` broke C# identifiers → fixed to identity function
+- P1: Split mode Systems file unfilled TODOs → now goes through `fillSkeleton()`
+- P2: customLogic strings used lowercase entity names → fixture + prompt fixed
+
+---
+
 ## Deferred to Phase 2
 
 The following spec features are intentionally excluded from this plan and will be implemented after the schema-driven codegen is validated in production:
