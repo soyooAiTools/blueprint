@@ -290,8 +290,9 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       // ─── Convert report to worker-cua-verify format ───
       const issues = [];
 
-      // ═══ Anti-Autoplay Detection — DISABLED in autoPlay/observe mode ═══
-      // AutoPlay mode intentionally auto-progresses phases. Anti-autoplay checks are skipped.
+      // ═══ Anti-Autoplay Detection ═══
+      // observe 模式下只豁免 "autoplay_detected"(观察本来就是看 autoplay),
+      // 但 "0 变量变化" / "shots 全是同一帧" 这类语义级假通过必须继续 gate
       const isAutoPlayMode = (report.finalState && report.finalState.variables && report.finalState.variables.autoPlayMode === true)
         || (report.observe_mode === true);
       if (!isAutoPlayMode) {
@@ -304,16 +305,17 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
           report.passed = false;
           issues.push('[autoplay-no-interaction] All phases completed with 0 agent actions.');
         }
-        const finalVars = (report.finalState || {}).variables || {};
-        const interactionKeys = Object.keys(finalVars).filter(k => k !== 'gameTimer' && k !== 'autoPlayMode');
-        const allVarsZero = interactionKeys.length > 0 && interactionKeys.every(k => finalVars[k] === 0 || finalVars[k] === '0');
-        if (report.passed && allVarsZero && interactionKeys.length >= 2) {
-          log('[PlayableAgent] 🚨 AUTOPLAY: all interaction variables are 0 — overriding to FAIL', taskId);
-          report.passed = false;
-          issues.push('[autoplay-no-variable-change] All interaction variables remain at 0.');
-        }
       } else {
-        log('[PlayableAgent] AutoPlay/observe mode — anti-autoplay checks skipped', taskId);
+        log('[PlayableAgent] observe mode — skipping autoplay_detected/0-actions check (those are expected)', taskId);
+      }
+      // observe 模式下仍然检查: 游戏变量是否真的变化(游戏逻辑是否真的跑了)
+      const finalVars = (report.finalState || {}).variables || {};
+      const interactionKeys = Object.keys(finalVars).filter(k => k !== 'gameTimer' && k !== 'autoPlayMode' && k !== 'phaseTimer' && k !== 'autoPlaySteps');
+      const allVarsZero = interactionKeys.length > 0 && interactionKeys.every(k => finalVars[k] === 0 || finalVars[k] === '0');
+      if (report.passed && allVarsZero && interactionKeys.length >= 2) {
+        log('[PlayableAgent] 🚨 all interaction variables are 0 — overriding to FAIL (even in observe mode)', taskId);
+        report.passed = false;
+        issues.push('[no-variable-change] All interaction variables (gold/score/count/etc) remain at 0 — game logic never ran despite phase completion flags flipping.');
       }
 
       // Phase coverage
