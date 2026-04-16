@@ -193,6 +193,16 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   var prefabMap = matchPrefabs(entities);
   var lines = [];
 
+  // ========== Kit Detection ==========
+  var specs = blueprint.specs || [];
+  var hasFormSwitch = (specs || []).some(function(s) { return !!s.formSwitch; });
+  var hasEconomy = (specs || []).some(function(s) {
+    return (s.requiredInteractions || []).some(function(i) {
+      var verb = String(i).split(':')[0];
+      return verb === 'collect' || verb === 'deliver' || verb === 'spend';
+    });
+  });
+
   // ========== 1. 任务说明 ==========
   lines.push('# 任务');
   lines.push('在 GameFlowManagerMain.cs 中实现一个 Luna 试玩广告。当 phase 数量 > 10 时，骨架会自动拆分为两个文件（partial class）：');
@@ -574,6 +584,38 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('- CheckEventRules 中的 if 条件链必须用 currentPhaseName 串联，确保顺序执行');
   lines.push('- 初始化时必须有至少 1 个对象在屏幕可见范围内');
   lines.push('');
+
+  // ========== 8e. Form-Switch Kit 说明（按需注入）==========
+  if (hasFormSwitch) {
+    lines.push('## Form-Switch Kit (Skeleton Pre-Built)');
+    lines.push('骨架已预建形态切换系统。你只需填 _forms 数组：');
+    lines.push('```csharp');
+    lines.push('_forms = new FormDef[] {');
+    lines.push('    new FormDef { formId="形态1", poolObjectName="__Pool_...", moveSpeed=3.5f, collectRange=1.5f, collectPower=1f, carryCapacity=10, scale=1.5f },');
+    lines.push('    new FormDef { formId="形态2", poolObjectName="__Pool_...", moveSpeed=5f, collectRange=3f, collectPower=5f, carryCapacity=50, scale=2.5f },');
+    lines.push('};');
+    lines.push('```');
+    lines.push('切换形态：`SwitchForm(1);` — 在 CheckEventRules 的 phase 切换里调用');
+    lines.push('MovePlayer/TryCollect 自动读取当前形态数值，你不需要写额外移动代码。');
+    lines.push('**禁止** 为不同形态写独立的移动/采集方法。');
+    lines.push('');
+  }
+
+  // ========== 8f. Economy Kit 说明（按需注入）==========
+  if (hasEconomy) {
+    lines.push('## Economy Kit (Skeleton Pre-Built)');
+    lines.push('骨架已预建资源经济系统。你只需填 _resources 数组：');
+    lines.push('```csharp');
+    lines.push('_resources = new ResourceDef[] {');
+    lines.push('    new ResourceDef { resourceId="wood", displayName="木材", convertFrom="", convertRatio=0 },');
+    lines.push('    new ResourceDef { resourceId="gold", displayName="金币", convertFrom="wood", convertRatio=3 },');
+    lines.push('};');
+    lines.push('```');
+    lines.push('可用方法：AddResource(id, amount), TrySpend(id, amount), TryConvert(fromId, toId), GetResource(id)');
+    lines.push('UI 自动更新（UpdateResourceUI 已预建）。');
+    lines.push('**禁止** 手写 gold/wood/resource 变量和加减逻辑 — 统一用 _inventory 字典。');
+    lines.push('');
+  }
 
   // ========== 9. 行为模板（按需注入：只保留当前实体真正用到的模板） ==========
   if (BEHAVIOR_TEMPLATES) {
