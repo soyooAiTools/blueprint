@@ -23,16 +23,19 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
     }
   }, []);
 
+  const projectsRef = useRef(projects);
+  projectsRef.current = projects;
+
   useEffect(() => {
     loadProjects();
     // Only poll when there are active (in-progress) projects; otherwise stay idle
     const ACTIVE_STATUSES = ['submitted', 'building', 'developing', 'feedback', 'spec_extracting', 'spec_review', 'processing'];
     const timer = setInterval(() => {
-      const hasActive = projects.some((p) => ACTIVE_STATUSES.indexOf(p.status) !== -1);
+      const hasActive = projectsRef.current.some((p) => ACTIVE_STATUSES.indexOf(p.status) !== -1);
       if (hasActive) loadProjects();
     }, 5000);
     return () => clearInterval(timer);
-  }, [loadProjects, projects]);
+  }, [loadProjects]);
 
   const openProject = async (id) => {
     try {

@@ -301,7 +301,7 @@ function FlowEditor({ project, onBack, initialTab }) {
   // Poll for WebGL build completion
   const buildNotified = useRef(false);
   useEffect(() => {
-    if (['submitted', 'building', 'feedback'].indexOf(projectStatus) === -1 || buildNotified.current) return;
+    if (['submitted', 'processing', 'developing', 'building', 'feedback'].indexOf(projectStatus) === -1 || buildNotified.current) return;
     const interval = setInterval(() => {
       getWebglInfo(project.id)
         .then((info) => {
@@ -319,7 +319,7 @@ function FlowEditor({ project, onBack, initialTab }) {
 
   // Poll for status changes
   useEffect(() => {
-    if (['submitted', 'building', 'approved', 'feedback', 'spec_extracting', 'spec_review'].indexOf(projectStatus) === -1) return;
+    if (['submitted', 'processing', 'developing', 'building', 'feedback', 'spec_extracting', 'spec_review'].indexOf(projectStatus) === -1) return;
     const interval = setInterval(() => {
       getProject(project.id)
         .then((p) => {
