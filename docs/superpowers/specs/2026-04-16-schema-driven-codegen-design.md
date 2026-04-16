@@ -63,8 +63,8 @@ Step 3: Claude Code → fill remaining TODO (~20%, ~3min, only if customLogic ex
 }
 ```
 
-- `cameraBackground`: RGB float array [0-1]. Must differ from groundColor by ≥ 0.3 in any channel.
-- `groundColor`: RGB float array. Default neutral gray [0.75, 0.78, 0.82].
+- `cameraBackground`: RGB float array [0-1]. Must differ from groundColor by ≥ 0.3 in any channel. **Template engine overwrites skeleton's hardcoded `CAMERA_BG` line** via in-place replacement (regex match on `new Color(` in the camera init block), not a second assignment.
+- `groundColor`: RGB float array. Default neutral gray [0.75, 0.78, 0.82]. Same in-place replacement for ground material color.
 - `moveSpeed`, `collectRange`, `maxCarry`: Gameplay tuning values injected into skeleton kit.
 
 ### 3.3 entities
@@ -100,7 +100,7 @@ Step 3: Claude Code → fill remaining TODO (~20%, ~3min, only if customLogic ex
 
 - Empty array `[]` if no economy system.
 - `convertFrom`: upstream resource ID, or `null` if primary (collected directly).
-- `convertRatio`: how many upstream units = 1 of this resource.
+- `convertRatio`: integer, minimum 0. How many upstream units = 1 of this resource. 0 for primary resources.
 - Feeds directly into skeleton's Economy Kit `_resources[]` array.
 
 ### 3.5 forms
@@ -250,6 +250,8 @@ function fillSkeleton(schema, skeleton) {
   var errors = validateSchema(schema);
   if (errors.length > 0) throw new Error('Schema validation: ' + errors.join('; '));
 
+  // todoMap keys use bare names; replaceAllTodos() injects content
+  // between {key}_START and {key}_END paired markers in skeleton.
   var todoMap = {};
   todoMap['TODO_VARIABLES'] = generateVariables(schema);
   todoMap['TODO_START'] = generateStart(schema);
@@ -263,8 +265,17 @@ function fillSkeleton(schema, skeleton) {
   todoMap['TODO_AUTOPLAY_INTERACT'] = generateAutoPlay(schema);
   todoMap['TODO_SYSTEMS'] = generateSystems(schema);
   todoMap['TODO_UI'] = generateUI(schema);
+  todoMap['TODO_CUSTOM'] = generateCustomTodos(schema); // customLogic → TODO comments
 
-  var result = replaceAllTodos(skeleton, todoMap);
+  // replaceAllTodos: for each key K, finds "// K_START" and "// K_END"
+  // markers in skeleton and replaces content between them.
+  // Also performs in-place color replacements (camera BG, ground color).
+  var result = replaceAllTodos(skeleton, todoMap, {
+    colorOverrides: {
+      cameraBackground: schema.gameConfig.cameraBackground,
+      groundColor: schema.gameConfig.groundColor,
+    }
+  });
   return {
     code: result.code,
     todoCount: result.remainingTodos,
@@ -321,6 +332,9 @@ For each phase trigger, autoplay-mirror.cjs generates the equivalent simulation:
 | `near_entity` | Player walks to target | Set entity position = player position |
 | `click_entity` | Player clicks entity | `{entity}Done = true; {entity}State++` |
 | `enemy_defeated` | Player fights enemies | `enemiesDefeated = count; HideObj(enemy)` |
+| `all_built` | All entities reach terminal state | Set all tracked entity states to terminalState |
+| `timer` | N/A (always compound) | No mirror needed — skeleton's autoplay safety net handles timeout |
+| `compound` | Combination of above | Mirror each sub-trigger, combine with same operator |
 
 This ensures dual-mode consistency without AI having to manually write both paths.
 
@@ -514,22 +528,47 @@ Reuses lesson-extractor.cjs Jaccard deduplication logic.
 - Step 3 becomes optional (default skip).
 - Legacy path downgraded to emergency fallback.
 
-## 8. What Does NOT Change
+## 8. Edge Cases & Validation Rules
 
-- `skeleton-generator.cjs` — still generates skeleton with TODO markers as before.
+### Schema Validation (game-schema.json enforces)
+
+| Rule | Constraint |
+|------|-----------|
+| `phases` length | Must be ≥ 1. Empty phases array = validation error. |
+| `entities` length | May be 0 (rare but valid — e.g., pure UI game). Template generates no PlaceObj calls. |
+| First phase | `showEntities` must contain ≥ 3 entries (anti-solid-color rule). |
+| Last phase | `trigger` must include `click_entity` type (CTA button). |
+| `timer` trigger | Must appear inside `compound` only, never standalone. |
+| `convertRatio` | Integer ≥ 0. |
+| `pool` values | Must match `__Pool_{Shape}_{Color}_{NN}` regex pattern. |
+| No duplicate entity names | Each entity `name` must be unique. |
+| NPC entity reference | Every `npcs[].entity` must exist in `entities[]`. |
+
+### Combined Kit Edge Case
+
+When form-switch + economy + NPC all active simultaneously:
+- Template generates FormDef, ResourceDef, and NPC methods in that order within TODO_VARIABLES.
+- NPC damage uses `playerHP` variable (always declared when any NPC with `hp` param exists).
+- Economy and form-switch are independent — no cross-interference.
+- Split mode (>10 phases) places NPC methods in Systems.cs TODO_SYSTEMS section.
+
+## 9. What Changes Minimally / Does NOT Change
+
+- `skeleton-generator.cjs` — **Minor modification only**: add `// TODO_CUSTOM_START` / `// TODO_CUSTOM_END` marker pair inside Update() (after existing TODO_UPDATE_END). All other skeleton logic unchanged.
 - `method-check.cjs` — still validates method completeness.
 - `static-check.cjs` — still scans for forbidden API usage.
 - `complexity-gate.cjs` — still scores and gates complexity.
 - `review` / `compile` / `visual-check` / `cua-verify` / `upload` — all downstream stages untouched.
 - `prompt-v5-basetemplate.js` — preserved for legacy path, not used by schema path.
 
-## 9. File Inventory
+## 10. File Inventory
 
 | File | Action | Lines (est.) |
 |------|--------|------|
 | `engine/stages/codegen-schema.cjs` | CREATE | 200 |
 | `engine/stages/codegen-legacy.cjs` | RENAME from current codegen.cjs | 303 (no change) |
 | `engine/stages/codegen.cjs` | MODIFY (router) | 20 |
+| `adapters/skeleton-generator.cjs` | MODIFY (add TODO_CUSTOM markers) | +5 |
 | `adapters/codegen-template-engine.cjs` | CREATE | 250 |
 | `adapters/templates/placement.cjs` | CREATE | 60 |
 | `adapters/templates/phase-init.cjs` | CREATE | 80 |
