@@ -513,12 +513,15 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
     document.getElementById('liveTimelines').innerHTML = liveHTML;
 
     // ========== Pipeline Metrics ==========
-    // Restore pending commit states from server (survives page refresh)
+    // Restore auto-fix button states from server (survives page refresh)
     var serverPending = (pipelineMetrics && pipelineMetrics.pendingCommits) || {};
     for (var pendKey in serverPending) {
       if (!_autoFixStates[pendKey]) {
-        _autoFixStates[pendKey] = 'done';
-        _autoFixResults[pendKey] = serverPending[pendKey];
+        var sp = serverPending[pendKey];
+        var serverState = sp.state || 'done';
+        _autoFixStates[pendKey] = serverState;
+        if (serverState === 'done') _autoFixResults[pendKey] = sp;
+        if (serverState === 'error') _autoFixErrors[pendKey] = sp.error || 'unknown';
       }
     }
     var pm = pipelineMetrics && pipelineMetrics.pipeline;

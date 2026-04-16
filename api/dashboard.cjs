@@ -718,10 +718,42 @@ module.exports.init = function(ctx) {
 
     runAutoFix: function(req, res, body, params) {
       try {
+        var recipeId = params.fingerprintId;
+        var stateFile = path.join(__dirname, '..', 'server-data', 'auto-fix-state.json');
+
+        // Write loading state BEFORE spawning sub-agent (survives page refresh)
+        try {
+          var st = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+          if (!st.pendingCommits) st.pendingCommits = {};
+          st.pendingCommits[recipeId] = { state: 'loading', at: Date.now() };
+          fs.writeFileSync(stateFile, JSON.stringify(st, null, 2));
+        } catch(e) {}
+
         var autoFix = require('../engine/auto-fix.cjs');
-        autoFix.applyRecipe(params.fingerprintId)
-          .then(function(result) { sendJSON(res, result); })
-          .catch(function(e) { sendJSON(res, { error: e.message }, 500); });
+        autoFix.applyRecipe(recipeId)
+          .then(function(result) {
+            // Update state to done or error
+            try {
+              var st2 = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+              if (!st2.pendingCommits) st2.pendingCommits = {};
+              if (result.ok) {
+                st2.pendingCommits[recipeId] = { state: 'done', filesChanged: result.filesChanged, diagnosis: result.diagnosis, at: Date.now() };
+              } else {
+                st2.pendingCommits[recipeId] = { state: 'error', error: result.error || 'unknown', at: Date.now() };
+              }
+              fs.writeFileSync(stateFile, JSON.stringify(st2, null, 2));
+            } catch(e) {}
+            sendJSON(res, result);
+          })
+          .catch(function(e) {
+            try {
+              var st3 = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+              if (!st3.pendingCommits) st3.pendingCommits = {};
+              st3.pendingCommits[recipeId] = { state: 'error', error: e.message, at: Date.now() };
+              fs.writeFileSync(stateFile, JSON.stringify(st3, null, 2));
+            } catch(e2) {}
+            sendJSON(res, { error: e.message }, 500);
+          });
       } catch(e) {
         sendJSON(res, { error: e.message }, 500);
       }

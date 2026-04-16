@@ -255,21 +255,11 @@ async function applyRecipe(fingerprintId) {
   }
 
   log('Recipe ' + recipe.id + ' applied successfully: ' + changedPaths.join(', '));
-
-  // Persist as pending commit so dashboard button survives page refresh
-  var diagText = (result.text || '').split('===FILE')[0].trim().slice(0, 500);
-  try {
-    var st = loadState();
-    if (!st.pendingCommits) st.pendingCommits = {};
-    st.pendingCommits[recipe.id] = { filesChanged: changedPaths, diagnosis: diagText, at: Date.now() };
-    saveState(st);
-  } catch(e) { log('pendingCommits write error: ' + e.message); }
-
   return {
     ok: true,
     recipe: recipe.id,
     filesChanged: changedPaths,
-    diagnosis: diagText,
+    diagnosis: (result.text || '').split('===FILE')[0].trim().slice(0, 500),
   };
 }
 
