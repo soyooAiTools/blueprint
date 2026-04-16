@@ -685,10 +685,18 @@ module.exports.init = function(ctx) {
           }
         } catch(e) {}
 
+        // Load pending commits for dashboard button state
+        var pendingCommits = {};
+        try {
+          var afState = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'server-data', 'auto-fix-state.json'), 'utf-8'));
+          pendingCommits = afState.pendingCommits || {};
+        } catch(e) {}
+
         sendJSON(res, {
           pipeline: summary,
           projectFailures: projectFailures,
           regressions: regressions,
+          pendingCommits: pendingCommits,
         });
       } catch(e) {
         sendJSON(res, { error: e.message }, 500);
@@ -749,6 +757,16 @@ module.exports.init = function(ctx) {
 
         execSync('git commit -m ' + JSON.stringify(msg), { cwd: REPO, timeout: 10000, encoding: 'utf-8' });
         var hash = execSync('git rev-parse --short HEAD', { cwd: REPO, encoding: 'utf-8' }).trim();
+
+        // Clear from pendingCommits
+        try {
+          var stateFile = path.join(REPO, 'server-data', 'auto-fix-state.json');
+          var state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+          if (state.pendingCommits && state.pendingCommits[recipeId]) {
+            delete state.pendingCommits[recipeId];
+            fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
+          }
+        } catch(e) {}
 
         console.log('[auto-fix-commit] Committed ' + recipeId + ' → ' + hash);
         sendJSON(res, { ok: true, commitHash: hash, recipeId: recipeId });

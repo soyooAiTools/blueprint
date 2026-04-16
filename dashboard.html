@@ -513,6 +513,14 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
     document.getElementById('liveTimelines').innerHTML = liveHTML;
 
     // ========== Pipeline Metrics ==========
+    // Restore pending commit states from server (survives page refresh)
+    var serverPending = (pipelineMetrics && pipelineMetrics.pendingCommits) || {};
+    for (var pendKey in serverPending) {
+      if (!_autoFixStates[pendKey]) {
+        _autoFixStates[pendKey] = 'done';
+        _autoFixResults[pendKey] = serverPending[pendKey];
+      }
+    }
     var pm = pipelineMetrics && pipelineMetrics.pipeline;
     if (pm && pm.totalRuns > 0) {
       var pt = '';
