@@ -309,16 +309,13 @@ function FlowEditor({ project, onBack, initialTab }) {
             buildNotified.current = true;
             setWebglInfo(info);
             setProjectStatus('reviewing');
-            showConfirm('🎉 WebGL 构建完成！是否立即查看预览？').then((yes) => {
-              if (yes) setActiveTab('review');
-            });
             clearInterval(interval);
           }
         })
         .catch(() => {});
     }, 10000);
     return () => clearInterval(interval);
-  }, [projectStatus, project.id, showConfirm]);
+  }, [projectStatus, project.id]);
 
   // Poll for status changes
   useEffect(() => {

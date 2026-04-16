@@ -8,6 +8,11 @@ const TOPBAR_STATUS_LABELS = {
     color: '#eab308',
     bg: 'rgba(234,179,8,0.15)',
   },
+  processing: {
+    text: '⚙️ Coding Agent 准备中...',
+    color: '#eab308',
+    bg: 'rgba(234,179,8,0.15)',
+  },
   building: {
     text: '🔨 Coding Agent 开发中...',
     color: '#f97316',

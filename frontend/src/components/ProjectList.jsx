@@ -114,6 +114,7 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
     spec_extracting: '提取规格中...',
     spec_review: '规格待确认',
     submitted: '排队中',
+    processing: '准备中',
     building: '开发中',
     developing: '开发中',
     reviewing: '待审核',

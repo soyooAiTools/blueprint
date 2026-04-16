@@ -1,3 +1,4 @@
+// Source: engine/stages/spec-validate.cjs
 /**
  * Stage: spec-validate — Validate blueprint specs before codegen
  *
