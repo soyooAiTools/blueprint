@@ -172,6 +172,6 @@
     }
   ],
   "customLogic": [
-    "Auto-heal player when near Forge: if (IsNear(forge, 3f)) playerHP = Mathf.Min(playerHP + 1, 10);"
+    "Auto-heal player when near Forge: if (IsNear(Forge, 3f)) playerHP = Mathf.Min(playerHP + 1, 10);"
   ]
 }

@@ -229,6 +229,7 @@ function buildCustomLogicPrompt(ctx, schema) {
   lines.push('2. 不要修改 [SKELETON] 标记的代码');
   lines.push('3. 不要修改模板已生成的代码');
   lines.push('4. 可用 API: PlaceObj, HideObj, SetScale, AddResource, TrySpend, IsNear 等');
+  lines.push('5. 实体变量名使用 PascalCase（与 skeleton 声明一致，如 Forge 不是 forge）');
   lines.push('');
   lines.push('## 需要实现的自定义逻辑');
   for (var i = 0; i < schema.customLogic.length; i++) {
