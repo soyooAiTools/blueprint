@@ -196,7 +196,7 @@ console.log('Dup entity caught:', e5.some(function(e){return e.indexOf('Duplicat
 
 Expected: All PASS.
 
-- [ ] **Step 6: Codex review + commit**
+- [ ] **Step 7: Codex review + commit**
 
 ```bash
 cd /opt/blueprint-editor
@@ -1291,7 +1291,7 @@ function fillCustomLogic(ctx, schema) {
         }
 
         // Track token usage
-        ctx.blueprint.customLogicTokensIn = (response.usage && response.usage.input_tokens) || 0;
+        ctx.blueprint.customLogicTokensIn = (ctx.blueprint.customLogicTokensIn || 0) + ((response.usage && response.usage.input_tokens) || 0);
 
         return { done: true };
       });
