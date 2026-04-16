@@ -33,9 +33,17 @@ function getPreflightCheckedAt() { return _codexPreflightCheckedAt; }
 async function preflightCheck() {
   if (_codexPreflightResult !== null) return _codexPreflightResult;
 
-  // Check API key first (cheap)
-  if (!process.env.CODEX_API_KEY && !process.env.OPENAI_API_KEY) {
-    console.log('[codex-reviewer] Preflight SKIP: no API key configured');
+  // Check auth: API key OR ChatGPT auth file (~/.codex/auth.json)
+  var hasChatGPTAuth = false;
+  try {
+    var authFile = path.join(os.homedir(), '.codex', 'auth.json');
+    if (fs.existsSync(authFile)) {
+      var auth = JSON.parse(fs.readFileSync(authFile, 'utf-8'));
+      hasChatGPTAuth = auth.auth_mode === 'chatgpt' && (auth.tokens || auth.OPENAI_API_KEY);
+    }
+  } catch (e) {}
+  if (!process.env.CODEX_API_KEY && !process.env.OPENAI_API_KEY && !hasChatGPTAuth) {
+    console.log('[codex-reviewer] Preflight SKIP: no API key or ChatGPT auth configured');
     _codexPreflightResult = false;
     _codexPreflightReason = 'no_api_key';
     _codexPreflightCheckedAt = Date.now();
@@ -90,16 +98,19 @@ async function preflightCheck() {
 
     _codexPreflightCheckedAt = Date.now();
 
-    if (result.code === 0 && result.stdout.length > 0 && !/Quota exceeded/i.test(result.stdout)) {
-      console.log('[codex-reviewer] Preflight OK: codex exec working');
+    // Check for known failures first — codex prints "Quota exceeded" / auth
+    // errors to stdout or stderr, so scan both streams.
+    var combined = (result.stdout || '') + '\n' + (result.stderr || '');
+    if (result.code === 0 && !/Quota exceeded/i.test(combined) && !/401|unauthor/i.test(combined)) {
+      // Exit code 0 = codex ran successfully. Don't require stdout content —
+      // in PM2 cluster mode, codex stdout can be empty even on success due to
+      // fd inheritance quirks; actual review runs in worker processes unaffected.
+      console.log('[codex-reviewer] Preflight OK: codex exec exit 0' + (result.stdout.length > 0 ? ' (stdout: ' + result.stdout.length + 'b)' : ' (stdout empty, PM2 cluster mode)'));
       _codexPreflightResult = true;
       _codexPreflightReason = 'ok';
       return true;
     }
 
-    // Check for known failures — codex prints "Quota exceeded" / auth errors
-    // to stdout, not stderr, so we have to scan both streams.
-    var combined = (result.stdout || '') + '\n' + (result.stderr || '');
     if (/Quota exceeded/i.test(combined)) {
       console.log('[codex-reviewer] Preflight FAIL: quota exceeded');
       _codexPreflightReason = 'quota_exceeded';
