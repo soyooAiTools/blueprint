@@ -763,10 +763,28 @@ function FlowEditor({ project, onBack, initialTab }) {
                       Spawner: '生成器', Goal: '目标点', Wall: '墙壁', Floor: '地板', Ceiling: '天花板',
                       Bullet: '子弹', HealthBar: '血条', Timer: '计时器', Score: '分数', Lives: '生命',
                     };
+                    // 从 specs.entitiesRequired[].description 抽取中文短名(state 前缀词之前的部分)
+                    const specNameMap = {};
+                    (previewSpecs || []).forEach((sp) => {
+                      (sp.entitiesRequired || []).forEach((er) => {
+                        if (!er || !er.name || specNameMap[er.name]) return;
+                        const desc = String(er.description || '').trim();
+                        if (!desc) return;
+                        const m = desc.match(/^([\u4e00-\u9fa5]{2,8})(已|可|正在|将|是|会|能|升级|建造|完成|启用|解锁|进入|触发|展示|开始|结束|出现|消失|到达|停止|达到|恢复)/);
+                        specNameMap[er.name] = m ? m[1] : (desc.length > 8 ? desc.slice(0, 8) : desc);
+                      });
+                    });
+                    const toChinese = (e, idx) => {
+                      if (nameLabel[e.name]) return nameLabel[e.name];
+                      if (specNameMap[e.name]) return specNameMap[e.name];
+                      // 兜底: 同色同形状按序号区分
+                      const sameKindIdx = entityMap.filter((x, i) => i <= idx && x.color === e.color && x.shape === e.shape).length;
+                      return `物件${sameKindIdx}`;
+                    };
                     return (
                       <div className="preview-entity-legend">
                         <div className="preview-shot-title">画面图例</div>
-                        {entityMap.map((e) => (
+                        {entityMap.map((e, idx) => (
                           <div key={e.name} className="preview-entity-item">
                             <span className={`preview-entity-swatch color-${e.color.toLowerCase()}`}>
                               {e.shape === 'Cube' ? '■' : e.shape === 'Sphere' ? '●' : e.shape === 'Cylinder' ? '▮' : '▬'}
@@ -775,7 +793,7 @@ function FlowEditor({ project, onBack, initialTab }) {
                               {colorLabel[e.color] || e.color}{shapeLabel[e.shape] || e.shape}
                             </span>
                             <span className="preview-entity-name">
-                              {nameLabel[e.name] || e.name.replace(/([A-Z])/g, ' $1').trim()}
+                              {toChinese(e, idx)}
                             </span>
                           </div>
                         ))}
