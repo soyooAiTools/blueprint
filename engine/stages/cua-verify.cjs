@@ -1,3 +1,4 @@
+// Source: engine/stages/cua-verify.cjs
 /**
  * Stage: cua-verify — CUA verification + auto-fix loop
  *
@@ -409,6 +410,13 @@ module.exports = {
               });
               codeReviewer.recordNewIssues(cuaIssues, ctx.taskId).catch(function() {});
             } catch(e) {}
+
+            // Pre-recode time guard: if fewer than 5 minutes remain in the wall-clock budget,
+            // skip launching another expensive recode/rebuild cycle that would overshoot the limit.
+            var elapsedBeforeRecode = Date.now() - cuaStartTime;
+            if (elapsedBeforeRecode > MAX_CUA_TOTAL_MS - 5 * 60 * 1000) {
+              throw new Error('CUA total time limit exceeded (' + Math.round(elapsedBeforeRecode / 60000) + 'min > ' + Math.round((MAX_CUA_TOTAL_MS - 5 * 60 * 1000) / 60000) + 'min pre-recode guard)');
+            }
 
             // Surgical vs full regen hint
             var isSurgicalFix = consecutiveSameIssue < SAME_ISSUE_REGEN_THRESHOLD;

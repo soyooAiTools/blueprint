@@ -1,0 +1,38 @@
+{
+  "cooldowns": {
+    "Spec validation failed: 7 error(s): Spec[2] buildForgeWorkshop: entity \"forgeWorkshop\" not found in ": {
+      "at": 1776327462139,
+      "status": "manual-only"
+    },
+    "Visual freeze FATAL: 3 consecutive rounds — not fixable via claude-fix. Stuck at phase (none complet": {
+      "at": 1776327822155,
+      "status": "gen-failed"
+    },
+    "CUA total time limit exceeded (47min > 45min)": {
+      "at": 1776327953503,
+      "status": "apply-failed"
+    },
+    "CUA total time limit exceeded (51min > 45min)": {
+      "at": 1776328158716,
+      "status": "applied"
+    },
+    "aborted: same CODE error repeated N rounds, fix-loop not converging: AI coding failed: Claude Code f": {
+      "at": 1776328591063,
+      "status": "apply-failed"
+    },
+    "Visual freeze FATAL: 2 consecutive rounds — not fixable via claude-fix. Stuck at phase (none complet": {
+      "at": 1776328783688,
+      "status": "manual-only"
+    }
+  },
+  "history": [
+    {
+      "at": "2026-04-16T08:29:18.717Z",
+      "fingerprint": "CUA total time limit exceeded (51min > 45min)",
+      "recipe": "auto-31abab6b",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ]
+    }
+  ]
+}

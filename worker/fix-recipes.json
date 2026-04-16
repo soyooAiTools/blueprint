@@ -6,9 +6,15 @@
     "risk": "low",
     "requiresApproval": true,
     "recipeFile": "fix-recipes/skeleton-truthy-split.md",
-    "relatedCommits": ["529136b"],
-    "relatedMemories": ["feedback_skeleton_truthy_split.md"],
-    "affectedFiles": ["worker/claude-code-coder.js"]
+    "relatedCommits": [
+      "529136b"
+    ],
+    "relatedMemories": [
+      "feedback_skeleton_truthy_split.md"
+    ],
+    "affectedFiles": [
+      "worker/claude-code-coder.js"
+    ]
   },
   {
     "id": "econnreset-buildapi",
@@ -17,8 +23,66 @@
     "risk": "low",
     "requiresApproval": true,
     "recipeFile": "fix-recipes/econnreset-buildapi.md",
-    "relatedCommits": ["529136b", "57a9f69"],
-    "relatedMemories": ["feedback_build_url_localhost.md", "feedback_dotenv_path_mismatch.md"],
-    "affectedFiles": [".env", "worker/.env", "engine/stages/compile.cjs"]
+    "relatedCommits": [
+      "529136b",
+      "57a9f69"
+    ],
+    "relatedMemories": [
+      "feedback_build_url_localhost.md",
+      "feedback_dotenv_path_mismatch.md"
+    ],
+    "affectedFiles": [
+      ".env",
+      "worker/.env",
+      "engine/stages/compile.cjs"
+    ]
+  },
+  {
+    "id": "auto-4eef18d9",
+    "fingerprintPattern": "entity \"[a-z][A-Za-z0-9]+\" not found in blueprint\\.entities",
+    "description": "LLM spec extractor produces camelCase entity references (e.g. forgeWorkshop) while blueprint.entities stores PascalCase; case-sensitive Set lookup emits false-positive blocking errors on every pipeline retry",
+    "risk": "medium",
+    "autoApply": false,
+    "affectedFiles": [
+      "engine/stages/spec-validate.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-4eef18d9.md"
+  },
+  {
+    "id": "auto-31abab6b",
+    "fingerprintPattern": "CUA total time limit exceeded \\(\\d+min > \\d+min\\)",
+    "description": "CUA fix loop overshoots the 45-min wall-clock budget because the time guard only fires at round start, not before the expensive recode step",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/cua-verify.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-31abab6b.md"
+  },
+  {
+    "id": "auto-79ef3937",
+    "fingerprintPattern": "fix-loop not converging: AI coding failed: Claude Code failed \\(exit \\d+\\)",
+    "description": "Circuit breaker fires prematurely because CC CLI stdout is discarded in the non-zero-exit error path, producing an invariant 'Exit code 1' signature that trips the same-error threshold every time",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "worker/claude-code-coder.js"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-79ef3937.md"
+  },
+  {
+    "id": "auto-4395d1e1",
+    "fingerprintPattern": "Visual freeze FATAL: \\d+ consecutive rounds.*Stuck at phase \\(none completed\\).*initialCollectGarbage.*visual_freeze",
+    "description": "visual_freeze FATAL misfires misleading 'batch-firing' fix advice when game never starts (0 phases completed), causing recode to target wrong fix and FATAL to recur across worker retries",
+    "risk": "medium",
+    "autoApply": false,
+    "affectedFiles": [
+      "engine/stages/cua-verify.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-4395d1e1.md"
   }
 ]

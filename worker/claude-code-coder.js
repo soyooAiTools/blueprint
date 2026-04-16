@@ -350,13 +350,17 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
     let preSpawnMtimeMs = preSpawnMtimes[watchedCsFilesForMtime[0]] || 0;
     const spawnStartTime = Date.now();
 
+    // Strip relay env vars so CC CLI uses its own OAuth (same as local Claude Code),
+    // not the crs.mindrix.app relay. ANTHROPIC_BASE_URL would redirect all API calls
+    // through the relay; ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN would override OAuth.
+    const cleanEnv = Object.assign({}, process.env);
+    delete cleanEnv.ANTHROPIC_API_KEY;
+    delete cleanEnv.ANTHROPIC_AUTH_TOKEN;
+    delete cleanEnv.ANTHROPIC_BASE_URL;
+
     const child = spawn(CLAUDE_CMD, args, {
       cwd: workDir,
-      env: {
-        ...process.env,
-        // Let Claude CLI use its own auth (OAuth token from CLAUDE_CODE_OAUTH_TOKEN env)
-        // Do NOT override ANTHROPIC_API_KEY — it breaks OAuth when set to a non-Anthropic key
-      },
+      env: cleanEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
@@ -564,9 +568,15 @@ function runClaudeCodeText(opts) {
     log('[claude-code-text] Spawning: ' + CLAUDE_CMD + ' ' + args.join(' '), taskId);
     log('[claude-code-text] systemPrompt=' + (opts.systemPrompt || '').length + 'c userPrompt=' + (opts.userPrompt || '').length + 'c cwd=' + tempDir, taskId);
 
+    // Strip relay env vars — CC CLI should use its own OAuth, same as local Claude Code
+    const cleanEnv = Object.assign({}, process.env);
+    delete cleanEnv.ANTHROPIC_API_KEY;
+    delete cleanEnv.ANTHROPIC_AUTH_TOKEN;
+    delete cleanEnv.ANTHROPIC_BASE_URL;
+
     const child = spawn(CLAUDE_CMD, args, {
       cwd: tempDir,
-      env: Object.assign({}, process.env),
+      env: cleanEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     if (child.pid) {

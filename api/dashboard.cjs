@@ -262,6 +262,31 @@ module.exports.init = function(ctx) {
         issues.push('[error] Regression watcher failed: ' + e.message);
       }
 
+      // Phase 7: Auto-fix cycle (L5 generate recipe + L6 apply + L7 learn)
+      // Async — fire-and-forget so watchdog doesn't block on sub-agent spawns.
+      // Results logged to console + server-data/auto-fix-state.json.
+      try {
+        var metricsForFix = require('../engine/metrics.cjs');
+        var autoFixEngine = require('../engine/auto-fix.cjs');
+        var fixSummary = metricsForFix.getMetricsSummary(50);
+        if (fixSummary.topFailReasons && fixSummary.topFailReasons.length > 0) {
+          // Run async — don't await, don't block watchdog return
+          autoFixEngine.runAutoFixCycle(fixSummary.topFailReasons).then(function(result) {
+            if (result.attempted > 0) {
+              console.log('[watchdog][Phase7] Auto-fix: attempted=' + result.attempted +
+                ' applied=' + result.applied + ' generated=' + result.generated +
+                ' skipped=' + result.skipped);
+              (result.details || []).forEach(function(d) { console.log('[watchdog][Phase7] ' + d); });
+            }
+          }).catch(function(e) {
+            console.error('[watchdog][Phase7] Auto-fix error: ' + e.message);
+          });
+          fixes.push('[info] Phase 7 auto-fix cycle dispatched (' + fixSummary.topFailReasons.length + ' fingerprints)');
+        }
+      } catch(e) {
+        issues.push('[error] Phase 7 auto-fix init failed: ' + e.message);
+      }
+
     } catch (e) {
       issues.push('[error] Watchdog cycle error: ' + e.message);
     }

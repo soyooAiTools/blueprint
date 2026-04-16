@@ -16,8 +16,8 @@ module.exports = {
       PORT: 3901,
       OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',  // loaded from .env
       OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || 'https://sub.mindrix.app/v1',  // loaded from .env (was hardcoded, caused silent override)
-      ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN || '',  // Anthropic-native token (preferred)
-      ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL || '',
+      // 2026-04-16: ANTHROPIC_AUTH_TOKEN / ANTHROPIC_BASE_URL removed —
+      // all Claude calls now go through CC CLI OAuth (same as local Claude Code)
       FEISHU_WEBHOOK_URL: process.env.FEISHU_WEBHOOK_URL || '',  // loaded from .env
     },
     // 日志配置
