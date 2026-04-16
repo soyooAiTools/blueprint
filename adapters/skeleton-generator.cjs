@@ -199,6 +199,42 @@ function generateSkeleton(specs, opts = {}) {
   const hasJoystick = specs.some(s => (s.requiredInteractions || []).some(i => i.startsWith('move_to:')));
   const hasResources = specs.some(s => (s.requiredInteractions || []).some(i => i.startsWith('collect:') || i.startsWith('deliver:')));
   const isIdleGame = hasJoystick && hasResources;
+  const hasFormSwitch = specs.some(s => !!s.formSwitch);
+
+  // [SKELETON] Form-switch system
+  if (hasFormSwitch) {
+    lines.push('    // [SKELETON] Form-switch system — AI fills _forms array in Start()');
+    lines.push('    struct FormDef {');
+    lines.push('        public string formId;');
+    lines.push('        public string poolObjectName;');
+    lines.push('        public float moveSpeed;');
+    lines.push('        public float collectRange;');
+    lines.push('        public float collectPower;');
+    lines.push('        public int carryCapacity;');
+    lines.push('        public float scale;');
+    lines.push('    }');
+    lines.push('    FormDef[] _forms; // [SKELETON] AI: fill in Start() with form definitions');
+    lines.push('    int _currentFormIndex = 0;');
+    lines.push('');
+    lines.push('    // [SKELETON] Switch player form — hides old model, shows new, updates stats');
+    lines.push('    void SwitchForm(int formIndex) {');
+    lines.push('        if (_forms == null || formIndex < 0 || formIndex >= _forms.Length) return;');
+    lines.push('        if (_forms[_currentFormIndex].poolObjectName != "") {');
+    lines.push('            var oldObj = GameObject.Find(_forms[_currentFormIndex].poolObjectName);');
+    lines.push('            if (oldObj != null) oldObj.transform.position = new Vector3(0, -999, 0);');
+    lines.push('        }');
+    lines.push('        _currentFormIndex = formIndex;');
+    lines.push('        var newObj = GameObject.Find(_forms[_currentFormIndex].poolObjectName);');
+    lines.push('        if (newObj != null) {');
+    lines.push('            newObj.transform.position = player != null ? player.transform.position : Vector3.zero;');
+    lines.push('            newObj.transform.localScale = Vector3.one * _forms[_currentFormIndex].scale;');
+    lines.push('        }');
+    lines.push('    }');
+    lines.push('    float GetCollectPower() { return (_forms != null && _forms.Length > 0) ? _forms[_currentFormIndex].collectPower : 1f; }');
+    lines.push('    float GetCollectRange() { return (_forms != null && _forms.Length > 0) ? _forms[_currentFormIndex].collectRange : 1.5f; }');
+    lines.push('    int GetCarryCapacity() { return (_forms != null && _forms.Length > 0) ? _forms[_currentFormIndex].carryCapacity : 10; }');
+    lines.push('');
+  }
 
   if (isIdleGame) {
     lines.push('    // ========== [SKELETON] IDLE GAME KIT — Pre-built systems ==========');
@@ -207,7 +243,11 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    // --- Player Movement (joystick-driven) ---');
     lines.push('    GFM_Joystick joystick;');
     lines.push('    GameObject player;');
-    lines.push('    float moveSpeed = 5f;');
+    if (hasFormSwitch) {
+      lines.push('    float moveSpeed { get { return (_forms != null && _forms.Length > 0) ? _forms[_currentFormIndex].moveSpeed : 5f; } }');
+    } else {
+      lines.push('    float moveSpeed = 5f;');
+    }
     lines.push('    int carrying = 0; // generic resource count on player back');
     lines.push('    string carryingType = ""; // what resource type');
     lines.push('    int gold = 0;');
