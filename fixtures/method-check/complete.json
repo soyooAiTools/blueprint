@@ -1,0 +1,9 @@
+{
+  "description": "All methods called in Update are defined or in safe list",
+  "input": {
+    "csCode": "void Update() {\n  MovePlayer();\n  TryCollect();\n  CheckEventRules();\n  float d = Vector3.Distance(a,b);\n  GameObject.Find(\"x\");\n}\nvoid Start() {}\nvoid MovePlayer() {}\nvoid TryCollect() {}\nvoid CheckEventRules() {}"
+  },
+  "expectedResult": {
+    "missing": []
+  }
+}

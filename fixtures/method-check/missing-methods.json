@@ -1,0 +1,9 @@
+{
+  "description": "Code calls HandleInteractiveClicks and UpdateUI in Update but never defines them",
+  "input": {
+    "csCode": "void Update() {\n  MovePlayer();\n  HandleInteractiveClicks();\n  UpdateShardVisual();\n  UpdateUI();\n  CheckEventRules();\n}\nvoid Start() {}\nvoid MovePlayer() {}\nvoid CheckEventRules() {}"
+  },
+  "expectedResult": {
+    "missing": ["HandleInteractiveClicks", "UpdateShardVisual", "UpdateUI"]
+  }
+}
