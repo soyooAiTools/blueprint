@@ -663,6 +663,8 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        // TODO_UPDATE_START');
   lines.push('');
   lines.push('        // TODO_UPDATE_END');
+  lines.push('        // TODO_CUSTOM_START');
+  lines.push('        // TODO_CUSTOM_END');
   lines.push('    }');
   lines.push('');
 
