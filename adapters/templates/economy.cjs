@@ -10,12 +10,12 @@ function generateResourceInit(schema) {
   for (var i = 0; i < resources.length; i++) {
     var r = resources[i];
     var comma = (i < resources.length - 1) ? ',' : '';
-    lines.push('            new ResourceDef { resourceId="' + r.id + '", displayName="' + r.display + '", convertFrom="' + (r.convertFrom || '') + '", convertRatio=' + (r.convertRatio || 0) + ' }' + comma);
+    lines.push('            new ResourceDef { resourceId="' + r.name + '", displayName="' + r.name + '", convertFrom="' + (r.entity || '') + '", convertRatio=' + (r.convertRatio || 0) + ' }' + comma);
   }
   lines.push('        };');
   // Initialize inventory
   for (var j = 0; j < resources.length; j++) {
-    lines.push('        _inventory["' + resources[j].id + '"] = 0;');
+    lines.push('        _inventory["' + resources[j].name + '"] = 0;');
   }
   return lines.join('\n');
 }
