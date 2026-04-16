@@ -720,6 +720,44 @@ module.exports.init = function(ctx) {
     },
 
     /**
+     * POST /api/auto-fix-commit
+     * Body: { recipeId, filesChanged, diagnosis }
+     * Commits the already-applied auto-fix patch with a standardized message.
+     */
+    commitAutoFix: function(req, res, body) {
+      try {
+        var data = typeof body === 'string' ? JSON.parse(body) : (body || {});
+        var recipeId = data.recipeId;
+        var filesChanged = data.filesChanged || [];
+        var diagnosis = data.diagnosis || '';
+        if (!recipeId) return sendJSON(res, { error: 'missing recipeId' }, 400);
+        if (!filesChanged.length) return sendJSON(res, { error: 'no files to commit' }, 400);
+
+        var REPO = path.join(__dirname, '..');
+        var { execSync } = require('child_process');
+
+        // Stage only the specific files
+        for (var i = 0; i < filesChanged.length; i++) {
+          execSync('git add ' + JSON.stringify(filesChanged[i]), { cwd: REPO, timeout: 5000 });
+        }
+
+        // Build commit message
+        var msg = 'auto-fix(' + recipeId + '): ' + diagnosis.slice(0, 80) + '\n\n'
+          + 'Files: ' + filesChanged.join(', ') + '\n'
+          + 'Applied via dashboard auto-fix button.\n\n'
+          + 'Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>';
+
+        execSync('git commit -m ' + JSON.stringify(msg), { cwd: REPO, timeout: 10000, encoding: 'utf-8' });
+        var hash = execSync('git rev-parse --short HEAD', { cwd: REPO, encoding: 'utf-8' }).trim();
+
+        console.log('[auto-fix-commit] Committed ' + recipeId + ' → ' + hash);
+        sendJSON(res, { ok: true, commitHash: hash, recipeId: recipeId });
+      } catch(e) {
+        sendJSON(res, { error: e.message }, 500);
+      }
+    },
+
+    /**
      * POST /api/dashboard/reset-stats
      * Body (optional): { parse?:bool, tasks?:bool, metrics?:bool, archive?:bool }
      * Defaults: all true except tasks (requires explicit opt-in — destructive).

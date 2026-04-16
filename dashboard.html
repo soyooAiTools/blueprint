@@ -602,13 +602,14 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
           var fpShort = (r.fingerprint || r.sampleReason || '').slice(0, 80);
           var lastSeenAgo = r.lastSeen ? ago(new Date(r.lastSeen).getTime()) : '-';
           var recipeId = kb.autoFixRecipe ? kb.autoFixRecipe.id : null;
+          var btnId = 'af-' + (recipeId || '').replace(/[^a-zA-Z0-9-]/g, '');
           var canAutoFix;
           if (!recipeId) {
             canAutoFix = '<span style="color:#484f58;font-size:11px;">无 recipe</span>';
           } else if (kb.resolvedBy) {
             canAutoFix = '<button disabled style="background:#30363d;color:#484f58;border:1px solid #30363d;padding:4px 10px;border-radius:4px;cursor:not-allowed;font-size:11px;" title="已修复 ' + (kb.resolvedBy || '').slice(0, 7) + '">已修复</button>';
           } else {
-            canAutoFix = '<button onclick="triggerAutoFix(\'' + recipeId + '\')" style="background:#1f6feb;color:#fff;border:0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;">自动修复</button>';
+            canAutoFix = '<span id="' + btnId + '"><button onclick="triggerAutoFix(\'' + recipeId + '\',\'' + btnId + '\')" style="background:#1f6feb;color:#fff;border:0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;">自动修复</button></span>';
           }
           fh += '<tr>';
           fh += '<td>' + knowledgeCell + '</td>';
@@ -703,27 +704,100 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
     }
   }
 
-  // Exposed for the "自动修复" button in Pipeline 指标 tab. Hits the L4
-  // auto-fix endpoint which spawns a sub-agent to produce a patch — patch is
-  // shown for human review, NEVER auto-committed (CLAUDE.md rule).
-  window.triggerAutoFix = function(fingerprintId) {
-    if (!confirm('触发 auto-fix recipe?\n\n指纹: ' + fingerprintId + '\n\n将 spawn sub-agent 生成 patch（不会自动 commit）。')) return;
-    fetch(BASE + '/api/auto-fix/' + encodeURIComponent(fingerprintId), { method: 'POST' })
+  // Auto-fix button flow:
+  //   1. Click "自动修复" → button becomes "修复中..." (disabled)
+  //   2. On success → button becomes "批准 commit" (green)
+  //   3. Click "批准 commit" → modal with diff + diagnosis + "提交" button
+  //   4. Click "提交" → POST /api/auto-fix-commit → done
+  var _autoFixResults = {}; // recipeId → {result}
+
+  window.triggerAutoFix = function(recipeId, btnId) {
+    var container = document.getElementById(btnId);
+    if (!container) return;
+    // 1. Loading state
+    container.innerHTML = '<button disabled style="background:#30363d;color:#8b949e;border:1px solid #30363d;padding:4px 10px;border-radius:4px;cursor:wait;font-size:11px;">修复中...</button>';
+    fetch(BASE + '/api/auto-fix/' + encodeURIComponent(recipeId), { method: 'POST' })
       .then(function(r) { return r.json(); })
       .then(function(result) {
         if (result.error) {
-          alert('Auto-fix 失败: ' + result.error);
+          container.innerHTML = '<button disabled style="background:#da3633;color:#fff;border:0;padding:4px 10px;border-radius:4px;cursor:not-allowed;font-size:11px;" title="' + result.error.replace(/"/g, '&quot;').slice(0, 120) + '">失败</button>';
           return;
         }
-        var w = window.open('', '_blank');
-        w.document.write('<html><head><title>Auto-fix: ' + fingerprintId + '</title><style>body{font-family:monospace;background:#0d1117;color:#c9d1d9;padding:20px;}pre{background:#161b22;padding:12px;border-radius:6px;overflow:auto;}</style></head><body>');
-        w.document.write('<h2>Auto-fix recipe: ' + (result.recipe || '-') + '</h2>');
-        w.document.write('<h3>Generated Patch</h3><pre>' + (result.patch || '(empty)').replace(/[<>]/g, function(c) { return c === '<' ? '&lt;' : '&gt;'; }) + '</pre>');
-        w.document.write('<h3>Sub-agent Log</h3><pre>' + (result.subagentLog || '').replace(/[<>]/g, function(c) { return c === '<' ? '&lt;' : '&gt;'; }) + '</pre>');
-        w.document.write('<p style="color:#d29922;"><strong>⚠️ 人工 review 后使用 <code>git apply</code> + 正常 commit。该系统遵守 CLAUDE.md 不自动 commit 规则。</strong></p>');
-        w.document.write('</body></html>');
+        // 2. Success → show "批准 commit" button
+        _autoFixResults[recipeId] = result;
+        container.innerHTML = '<button onclick="showAutoFixApproval(\'' + recipeId + '\')" style="background:#238636;color:#fff;border:0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;">批准 commit</button>';
       })
-      .catch(function(err) { alert('请求失败: ' + err.message); });
+      .catch(function(err) {
+        container.innerHTML = '<button disabled style="background:#da3633;color:#fff;border:0;padding:4px 10px;border-radius:4px;cursor:not-allowed;font-size:11px;" title="' + (err.message || '').slice(0, 80) + '">失败</button>';
+      });
+  };
+
+  // 3. Modal for reviewing + committing
+  window.showAutoFixApproval = function(recipeId) {
+    var result = _autoFixResults[recipeId];
+    if (!result) return;
+    // Remove existing modal
+    var old = document.getElementById('autofix-modal');
+    if (old) old.remove();
+    // Build modal
+    var esc = function(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+    var files = (result.filesChanged || []).join(', ') || '(none)';
+    var diag = result.diagnosis || '(no diagnosis)';
+    var modal = document.createElement('div');
+    modal.id = 'autofix-modal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = '<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:24px;max-width:700px;width:90%;max-height:80vh;overflow:auto;">'
+      + '<h3 style="margin:0 0 16px;color:#c9d1d9;">Auto-fix: ' + esc(recipeId) + '</h3>'
+      + '<div style="margin-bottom:12px;"><span style="color:#8b949e;">Recipe:</span> <span style="color:#c9d1d9;">' + esc(result.recipe || recipeId) + '</span></div>'
+      + '<div style="margin-bottom:12px;"><span style="color:#8b949e;">修改文件:</span> <span style="color:#58a6ff;">' + esc(files) + '</span></div>'
+      + '<div style="margin-bottom:12px;"><span style="color:#8b949e;">诊断:</span></div>'
+      + '<pre style="background:#0d1117;padding:12px;border-radius:6px;overflow:auto;max-height:300px;color:#c9d1d9;font-size:12px;white-space:pre-wrap;">' + esc(diag) + '</pre>'
+      + '<div style="margin-top:20px;display:flex;gap:12px;justify-content:flex-end;">'
+      + '<button onclick="document.getElementById(\'autofix-modal\').remove()" style="background:#21262d;color:#c9d1d9;border:1px solid #30363d;padding:8px 16px;border-radius:6px;cursor:pointer;">取消</button>'
+      + '<button id="autofix-commit-btn" onclick="commitAutoFix(\'' + recipeId + '\')" style="background:#238636;color:#fff;border:0;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;">提交 commit</button>'
+      + '</div></div>';
+    modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
+    document.body.appendChild(modal);
+  };
+
+  // 4. Commit
+  window.commitAutoFix = function(recipeId) {
+    var result = _autoFixResults[recipeId];
+    if (!result) return;
+    var btn = document.getElementById('autofix-commit-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '提交中...'; btn.style.cursor = 'wait'; btn.style.background = '#30363d'; }
+    fetch(BASE + '/api/auto-fix-commit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipeId: recipeId, filesChanged: result.filesChanged || [], diagnosis: result.diagnosis || '' }),
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(commitResult) {
+        var modal = document.getElementById('autofix-modal');
+        if (commitResult.error) {
+          if (btn) { btn.textContent = '失败'; btn.style.background = '#da3633'; }
+          alert('Commit 失败: ' + commitResult.error);
+          return;
+        }
+        // Success — close modal + update button
+        if (modal) modal.remove();
+        // Find the button container and mark as committed
+        var containers = document.querySelectorAll('[id^="af-"]');
+        containers.forEach(function(c) {
+          if (c.querySelector('button') && c.querySelector('button').textContent === '批准 commit') {
+            if (c.querySelector('button').onclick && c.querySelector('button').onclick.toString().indexOf(recipeId) >= 0) {
+              c.innerHTML = '<span style="color:#3fb950;font-size:11px;">已提交 ' + (commitResult.commitHash || '') + '</span>';
+            }
+          }
+        });
+        // Simpler: update by recipeId
+        var afBtn = document.getElementById('af-' + recipeId.replace(/[^a-zA-Z0-9-]/g, ''));
+        if (afBtn) afBtn.innerHTML = '<span style="color:#3fb950;font-size:11px;">已提交 ' + (commitResult.commitHash || '') + '</span>';
+      })
+      .catch(function(err) {
+        if (btn) { btn.textContent = '失败'; btn.style.background = '#da3633'; }
+        alert('请求失败: ' + err.message);
+      });
   };
 
   refresh();

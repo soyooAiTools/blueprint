@@ -97,6 +97,7 @@ function matchRoute(method, pathname) {
   if (method === 'GET' && pathname === '/api/dashboard/regressions') return { handler: 'getRegressions' };
   m = pathname.match(/^\/api\/auto-fix\/([^/]+)$/);
   if (method === 'POST' && m) return { handler: 'runAutoFix', fingerprintId: decodeURIComponent(m[1]) };
+  if (method === 'POST' && pathname === '/api/auto-fix-commit') return { handler: 'commitAutoFix' };
   if (method === 'POST' && pathname === '/api/dashboard/reset-stats') return { handler: 'resetStats' };
 
   // Serve generated images
