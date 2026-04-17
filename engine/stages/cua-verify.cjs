@@ -157,7 +157,13 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
 }
 
 var MAX_CUA_ROUNDS = 10;
-var MAX_CUA_TOTAL_MS = 45 * 60 * 1000; // 45 min absolute time limit (Opus fix rounds ~5min each)
+// Wall-clock cap: default 75 min, overridable via CUA_TOTAL_TIMEOUT_MS env var.
+// Raised from 45 min — a single Opus recode+rebuild cycle can take 8-10 min on a complex
+// ad, which previously pushed elapsed past the 45 min limit after the 5 min pre-recode
+// guard fired at 40 min. The env override lets operators tune without a code change.
+var MAX_CUA_TOTAL_MS = process.env.CUA_TOTAL_TIMEOUT_MS
+  ? parseInt(process.env.CUA_TOTAL_TIMEOUT_MS, 10)
+  : 75 * 60 * 1000; // 75 min default (Opus fix rounds ~8-10 min each on complex ads)
 var NO_PROGRESS_EXIT_ROUNDS = 4; // exit if no phase progress in N consecutive rounds (was 5 — tightened to save tokens)
 var SAME_ISSUE_REGEN_THRESHOLD = 3;
 
@@ -295,17 +301,23 @@ module.exports = {
             var currentIssueCategory = helpers.categorizeIssue(cuaResult);
             var phaseCoverage = helpers.extractPhaseCoverage(cuaResult);
             var currentPhaseCompleted = phaseCoverage ? phaseCoverage.completed : -1;
+            var completedPhaseIds = (phaseCoverage && phaseCoverage.phases) || [];
 
-            // Prefer console-based phase tracking over VLM analysis
+            // Fallback: console-based phase tracking (if instrumented)
             var consolePhaseCoverage = helpers.extractPhaseFromConsole(
                 (cuaResult.report && cuaResult.report.diagnostics && cuaResult.report.diagnostics.consoleMessages) || []
             );
             if (consolePhaseCoverage.length > 0) {
-                currentPhaseCompleted = consolePhaseCoverage.length;
+                currentPhaseCompleted = Math.max(currentPhaseCompleted, consolePhaseCoverage.length);
                 ctx.addLog('cua-verify', 'Phase progress (instrumented): ' + consolePhaseCoverage.join(' → '));
             }
 
-            var isProgressing = currentPhaseCompleted > lastPhaseCompleted && lastPhaseCompleted > 0;
+            if (currentPhaseCompleted >= 0) {
+              ctx.addLog('cua-verify', 'Phase coverage: ' + currentPhaseCompleted + ' completed' + (completedPhaseIds.length > 0 ? ' [' + completedPhaseIds.slice(-3).join(' → ') + ']' : ''));
+            }
+
+            // First round with phases completed counts as progress (lastPhaseCompleted starts at -1)
+            var isProgressing = currentPhaseCompleted > lastPhaseCompleted && currentPhaseCompleted > 0;
 
             if (isProgressing) {
               consecutiveSameIssue = 1;
@@ -325,7 +337,8 @@ module.exports = {
               _noProgressRounds++;
 
               // Build structured failure attribution for recode context
-              var stuckDiagnosis = _buildStuckDiagnosis(cuaResult, currentPhaseCompleted, currentIssueCategory, _noProgressRounds, ctx.blueprint, consolePhaseCoverage);
+              var diagPhases = completedPhaseIds.length > 0 ? completedPhaseIds : consolePhaseCoverage;
+              var stuckDiagnosis = _buildStuckDiagnosis(cuaResult, currentPhaseCompleted, currentIssueCategory, _noProgressRounds, ctx.blueprint, diagPhases);
               ctx.addLog('cua-verify', 'No-progress diagnosis: ' + stuckDiagnosis.summary);
 
               if (!ctx.blueprint.feedbackHistory) ctx.blueprint.feedbackHistory = [];
@@ -421,12 +434,13 @@ module.exports = {
               codeReviewer.recordNewIssues(cuaIssues, ctx.taskId).catch(function() {});
             } catch(e) {}
 
-            // Surgical vs full regen hint
-            // Pre-recode time guard: if fewer than 5 minutes remain in the wall-clock budget,
+            // Pre-recode time guard: if fewer than 10 minutes remain in the wall-clock budget,
             // skip launching another expensive recode/rebuild cycle that would overshoot the limit.
+            // Buffer raised from 5 min to 10 min so a long Opus+rebuild cycle (~8-10 min) cannot
+            // push total elapsed past MAX_CUA_TOTAL_MS before the attempt() time check fires.
             var elapsedBeforeRecode = Date.now() - cuaStartTime;
-            if (elapsedBeforeRecode > MAX_CUA_TOTAL_MS - 5 * 60 * 1000) {
-              throw new Error('CUA total time limit exceeded (' + Math.round(elapsedBeforeRecode / 60000) + 'min > ' + Math.round((MAX_CUA_TOTAL_MS - 5 * 60 * 1000) / 60000) + 'min pre-recode guard)');
+            if (elapsedBeforeRecode > MAX_CUA_TOTAL_MS - 10 * 60 * 1000) {
+              throw new Error('CUA total time limit exceeded (' + Math.round(elapsedBeforeRecode / 60000) + 'min > ' + Math.round((MAX_CUA_TOTAL_MS - 10 * 60 * 1000) / 60000) + 'min pre-recode guard)');
             }
 
             var isSurgicalFix = consecutiveSameIssue < SAME_ISSUE_REGEN_THRESHOLD;

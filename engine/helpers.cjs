@@ -176,10 +176,24 @@ function categorizeIssue(cuaResult) {
  * Extract phase coverage numbers from CUA result
  */
 function extractPhaseCoverage(cuaResult) {
+  // Source 1: structured report data (most reliable — direct from Python agent)
+  if (cuaResult.report) {
+    var completedPhases = cuaResult.report.completedPhases;
+    var scriptCoverage = cuaResult.report.scriptCoverage;
+    if (Array.isArray(completedPhases) && Array.isArray(scriptCoverage)) {
+      return { completed: completedPhases.length, total: scriptCoverage.length, phases: completedPhases };
+    }
+    if (Array.isArray(completedPhases) && completedPhases.length > 0) {
+      return { completed: completedPhases.length, total: completedPhases.length, phases: completedPhases };
+    }
+  }
+  // Source 2: issue text parsing (handles both old [phase-coverage] and new [spec-phase-skipped] formats)
   var issues = cuaResult.issues || [];
   for (var i = 0; i < issues.length; i++) {
     var m = issues[i].match(/\[phase-coverage\]\s*(\d+)\/(\d+)/);
     if (m) return { completed: parseInt(m[1]), total: parseInt(m[2]) };
+    var m2 = issues[i].match(/\[spec-phase-skipped\]\s*Phases not completed\s*\((\d+)\/(\d+)\)/);
+    if (m2) return { completed: parseInt(m2[2]) - parseInt(m2[1]), total: parseInt(m2[2]) };
   }
   return null;
 }

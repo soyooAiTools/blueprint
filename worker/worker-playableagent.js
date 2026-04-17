@@ -25,6 +25,11 @@ const MAX_VERIFY_TIMEOUT = 900000; // 15 min (complex games need more CUA steps)
 try { fs.mkdirSync(CUA_RESULTS_DIR, { recursive: true }); } catch(e) {}
 
 // ─── Reuse patchForHeadless from worker-cua-verify ───
+// highComplexity flag: for games with many phases (>8), use conservative
+// timer reduction to prevent phase batch-fire. At 5x speed + 2s gates,
+// all phases complete in <1 poll cycle (1.5s) and CUA can't observe them.
+var _patchHighComplexity = false;
+
 function patchForHeadless(content, filename) {
   let patched = content;
   let fixes = 0;
@@ -41,27 +46,35 @@ function patchForHeadless(content, filename) {
       }
     );
   }
-  // CUA speed: reduce phaseTimer gates from 8-20s to 2s for faster phase progression
-  // Headless Chromium runs at ~0.1x speed, so 2 game-sec ≈ 20 real-sec
   if (filename.includes('.html') || filename.includes('index')) {
-    patched = patched.replace(/this\.phaseTimer\s*>=\s*(\d+)\.0/g, (match, val) => {
-      var orig = parseInt(val, 10);
-      if (orig >= 5) {
+    if (_patchHighComplexity) {
+      // High complexity (>8 phases): keep original timer gates, only reduce
+      // extremely high values. With 2x speed this gives ~3s real-time per phase.
+      patched = patched.replace(/this\.phaseTimer\s*>=\s*(\d+)\.0/g, (match, val) => {
+        var orig = parseInt(val, 10);
+        if (orig > 30) { fixes++; return 'this.phaseTimer >= 20.0'; }
+        return match;
+      });
+      patched = patched.replace(/this\._autoInteractTimer\s*>=\s*3\.0/g, () => {
         fixes++;
-        return 'this.phaseTimer >= 2.0';
-      }
-      return match;
-    });
-    // Also reduce _autoInteractTimer from 3s to 1s
-    patched = patched.replace(/this\._autoInteractTimer\s*>=\s*3\.0/g, () => {
-      fixes++;
-      return 'this._autoInteractTimer >= 1.0';
-    });
-    // Reduce safety net from 50s to 15s for CUA speed
-    patched = patched.replace(/this\.phaseTimer\s*>=\s*\(false\s*\?\s*50\.0\s*:\s*50\.0\)/g, () => {
-      fixes++;
-      return 'this.phaseTimer >= (false ? 15.0 : 15.0)';
-    });
+        return 'this._autoInteractTimer >= 2.0';
+      });
+    } else {
+      // Normal complexity (<=8 phases): aggressive reduction for speed
+      patched = patched.replace(/this\.phaseTimer\s*>=\s*(\d+)\.0/g, (match, val) => {
+        var orig = parseInt(val, 10);
+        if (orig >= 5) { fixes++; return 'this.phaseTimer >= 2.0'; }
+        return match;
+      });
+      patched = patched.replace(/this\._autoInteractTimer\s*>=\s*3\.0/g, () => {
+        fixes++;
+        return 'this._autoInteractTimer >= 1.0';
+      });
+      patched = patched.replace(/this\.phaseTimer\s*>=\s*\(false\s*\?\s*50\.0\s*:\s*50\.0\)/g, () => {
+        fixes++;
+        return 'this.phaseTimer >= (false ? 15.0 : 15.0)';
+      });
+    }
   }
   return { content: patched, fixes };
 }
@@ -181,14 +194,21 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
     return { passed: false, issues: ['[playableagent-infra] Xvfb :99 could not be started'], skipped: true, error: 'Xvfb unavailable' };
   }
 
+  // Determine complexity level for CUA speed adaptation
+  const phaseCount = (blueprint.specs || blueprint.phases || []).length;
+  const isHighComplexity = phaseCount > 8;
+  const speedMultiplier = isHighComplexity ? 2 : 5;
+  _patchHighComplexity = isHighComplexity;
+
+  if (isHighComplexity) {
+    log('[PlayableAgent] High complexity detected (' + phaseCount + ' phases) — using ' + speedMultiplier + 'x speed, conservative timer gates', taskId);
+  }
   log('[PlayableAgent] Starting PlayableAgent verification (VLM + __gameState)...', taskId);
 
   // Start local server with headless patches
   let server;
   try {
     server = await startLocalServer(buildDir);
-
-
   } catch(e) {
     log('[PlayableAgent] Failed to start server — INFRA FAIL: ' + e.message, taskId);
     return { passed: false, issues: ['[playableagent-infra] Local HTTP server failed: ' + e.message], skipped: true, error: e.message };
@@ -215,6 +235,7 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       ...process.env,
       DISPLAY: ':99',
       DOUBAO_API_KEY: process.env.DOUBAO_API_KEY || '197cb950-3cf3-4b30-b656-6afaa4306a7a',
+      CUA_SPEED_MULTIPLIER: String(speedMultiplier),
     };
 
     log('[PlayableAgent] Running: ' + PYTHON + ' ' + args.join(' '), taskId);

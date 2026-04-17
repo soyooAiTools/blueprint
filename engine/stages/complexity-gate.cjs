@@ -214,14 +214,22 @@ function buildSimplifyPrompt(specs, entities, scoreResult) {
 
 /**
  * Parse LLM simplification response, extracting JSON from markdown code block or raw.
+ * Handles truncated responses where the closing ``` fence may be absent.
  *
  * @param {string} text
  * @returns {{ specs: Array, entities: Array }}
  */
 function parseSimplifyResponse(text) {
-  // Try to extract from ```json ... ``` block first
+  var raw;
+  // Try to extract from ```json ... ``` block (both opening and closing fences present)
   var match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  var raw = match ? match[1] : text;
+  if (match) {
+    raw = match[1];
+  } else {
+    // Fallback: strip opening fence only (truncated response — closing fence missing)
+    var openMatch = text.match(/```(?:json)?\s*([\s\S]*)/);
+    raw = openMatch ? openMatch[1] : text;
+  }
 
   // Repair trailing commas (common LLM artifact)
   raw = raw.replace(/,\s*([}\]])/g, '$1');
@@ -242,24 +250,17 @@ function parseSimplifyResponse(text) {
  * @param {object} scoreResult
  * @returns {Promise<{ specs: Array, entities: Array }>}
  */
-function callLLMSimplify(ctx, specs, entities, scoreResult) {
-  var prompt = buildSimplifyPrompt(specs, entities, scoreResult);
-
-  // Try ctx.callLLM (injected by harness)
+function callLLMOnce(ctx, prompt) {
   if (ctx.callLLM) {
     return ctx.callLLM(prompt, { model: 'spec' }).then(function(result) {
       return parseSimplifyResponse(result.text || result);
     });
   }
-
-  // Try ctx.blueprint._callLLM (older harness pattern)
   if (ctx.blueprint && ctx.blueprint._callLLM) {
     return ctx.blueprint._callLLM(prompt, { model: 'spec' }).then(function(result) {
       return parseSimplifyResponse(result.text || result);
     });
   }
-
-  // Fallback: use model-provider directly with doubao
   var modelProvider = require('../../lib/model-provider.cjs');
   var provider = modelProvider.createProvider('doubao', {});
   return provider.generateWithRetry(prompt, { maxTokens: 4000 }, 2).then(function(result) {
@@ -267,11 +268,39 @@ function callLLMSimplify(ctx, specs, entities, scoreResult) {
   });
 }
 
+var MAX_SIMPLIFY_ATTEMPTS = 3;
+
+function callLLMSimplify(ctx, specs, entities, scoreResult) {
+  var attempt = 0;
+  var lastErr = null;
+
+  function tryOnce() {
+    attempt++;
+    var prompt = buildSimplifyPrompt(specs, entities, scoreResult);
+    if (attempt >= 2) {
+      prompt += '\n\n⚠️ 重要：直接输出原始 JSON，不要用 ```json 包裹，不要加任何解释文字。只输出 { "specs": [...], "entities": [...] }';
+    }
+    if (attempt >= 3) {
+      prompt += '\n\n强制简化策略：直接删除最后2个阶段，合并所有 formSwitch 阶段为1个。输出精简后的 JSON。';
+    }
+    ctx.addLog('complexity-gate', 'Simplification attempt ' + attempt + '/' + MAX_SIMPLIFY_ATTEMPTS);
+
+    return callLLMOnce(ctx, prompt).catch(function(err) {
+      lastErr = err;
+      ctx.addLog('complexity-gate', 'Simplification attempt ' + attempt + ' failed: ' + err.message);
+      if (attempt < MAX_SIMPLIFY_ATTEMPTS) return tryOnce();
+      throw new Error('complexity-gate: all ' + MAX_SIMPLIFY_ATTEMPTS + ' simplification attempts failed. Last error: ' + lastErr.message);
+    });
+  }
+
+  return tryOnce();
+}
+
 // ============ Stage Export ============
 
 module.exports = {
   name: 'complexity-gate',
-  canRetry: false,
+  canRetry: true,
 
   canSkip: function(ctx) {
     return !ctx.blueprint.specs || ctx.blueprint.specs.length === 0;

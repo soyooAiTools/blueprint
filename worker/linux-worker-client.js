@@ -507,9 +507,28 @@ function buildRequest(endpoint, csCode, extraFiles) {
 // ============ Main Task Processing ============
 
 // ============ Pipeline Integration ============
-const { createLunaPipeline, PipelineContext } = require('../engine/pipeline.cjs');
+// Initial load — will be reloaded per-task to pick up auto-fix changes
+var { createLunaPipeline, PipelineContext } = require('../engine/pipeline.cjs');
+
+function reloadEngineModules() {
+  var engineDir = path.resolve(__dirname, '..', 'engine');
+  var count = 0;
+  Object.keys(require.cache).forEach(function(key) {
+    if (key.startsWith(engineDir)) {
+      delete require.cache[key];
+      count++;
+    }
+  });
+  if (count > 0) {
+    var fresh = require('../engine/pipeline.cjs');
+    createLunaPipeline = fresh.createLunaPipeline;
+    PipelineContext = fresh.PipelineContext;
+    log('[hot-reload] Reloaded ' + count + ' engine modules');
+  }
+}
 
 async function processTask(task) {
+  reloadEngineModules();
   const taskId = task.taskId;
   if (task.originalStatus) { task.status = task.originalStatus; }
   if (task.status === 'commit_needed') { log('Skip commit_needed task', taskId); return; }
