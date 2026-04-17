@@ -46,6 +46,7 @@ module.exports.init = function(ctx) {
   var DATA_DIR = config.DATA_DIR;
   var PROJECTS_DIR = config.PROJECTS_DIR;
   var WEBGL_DIR = config.WEBGL_DIR;
+  var SOURCES_DIR = config.SOURCES_DIR;
 
   // Strip base64 image data from blueprint for agent consumption
   function exportBlueprintForAgent(project) {
@@ -442,11 +443,22 @@ module.exports.init = function(ctx) {
           }
         }
 
+        // Copy C# source files if available
+        var sourcesDir = path.join(SOURCES_DIR, id);
+        if (fs.existsSync(sourcesDir)) {
+          var scriptsDir = path.join(tmpDir, 'Scripts');
+          fs.mkdirSync(scriptsDir, { recursive: true });
+          var srcFiles = fs.readdirSync(sourcesDir);
+          for (var si = 0; si < srcFiles.length; si++) {
+            fs.copyFileSync(path.join(sourcesDir, srcFiles[si]), path.join(scriptsDir, srcFiles[si]));
+          }
+        }
+
         // svn add new files (ignore already versioned)
-        try { exec('svn add --force ' + JSON.stringify(tmpDir) + '/*', { cwd: tmpDir }); } catch(e) {}
+        try { exec('svn add --force --parents ' + JSON.stringify(tmpDir) + '/*', { cwd: tmpDir }); } catch(e) {}
 
         // Commit
-        var commitMsg = '提交 WebGL 构建 — ' + (project.name || id);
+        var commitMsg = '提交 WebGL 构建 + C# 源码 — ' + (project.name || id);
         var result = exec('svn commit -m ' + JSON.stringify(commitMsg) + ' --non-interactive --trust-server-cert-failures=unknown-ca,cn-mismatch,expired', { cwd: tmpDir, timeout: 120000 });
         var output = result.toString().trim();
 

@@ -5,9 +5,12 @@
  * Writes: ctx.htmlOutput, ctx.buildTime
  */
 
+var fs = require('fs');
+var path = require('path');
 var helpers = require('../helpers.cjs');
 var { recode } = require('../recode.cjs');
 var { createFixLoop } = require('../fix-loop.cjs');
+var config = require('../../lib/config.cjs');
 
 var MAX_BUILD_FIX_ATTEMPTS = 5;
 // Early exit if the build fails with the same error signature 3 rounds in a row —
@@ -54,6 +57,21 @@ module.exports = {
                   }
                   ctx.htmlOutput = htmlData;
                   ctx.addLog('compile', 'HTML: ' + (htmlData.length / 1048576).toFixed(1) + 'MB');
+
+                  // Persist C# source for SVN/git archival
+                  try {
+                    var sourcesDir = path.join(config.SOURCES_DIR, ctx.taskId);
+                    fs.mkdirSync(sourcesDir, { recursive: true });
+                    fs.writeFileSync(path.join(sourcesDir, 'GameFlowManagerMain.cs'), lastCsCode, 'utf-8');
+                    var efKeys = Object.keys(lastExtraFiles);
+                    for (var ei = 0; ei < efKeys.length; ei++) {
+                      fs.writeFileSync(path.join(sourcesDir, efKeys[ei]), lastExtraFiles[efKeys[ei]], 'utf-8');
+                    }
+                    ctx.addLog('compile', 'C# source saved to project-sources/' + ctx.taskId);
+                  } catch(saveErr) {
+                    ctx.addLog('compile', 'WARN: Failed to save C# source: ' + saveErr.message);
+                  }
+
                   return { done: true, result: { ok: true, buildTime: buildResult.buildTime, htmlSize: htmlData.length } };
                 });
             }
