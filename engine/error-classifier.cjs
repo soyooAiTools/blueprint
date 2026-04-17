@@ -75,6 +75,12 @@ var FATAL_PATTERNS = [
 // CUA time limit is a definitive failure, not a retryable infra issue.
 // Moved to FATAL to prevent fix-loop from retrying (which wastes time and
 // triggers the pipeline error-propagation bug when combined with canRetry stages).
+// Codegen init failure is a CODE error (full regen needed), not FATAL.
+// Checked before CUA_FATAL so "no phases completed" routes to regen, not termination.
+var CUA_CODE_PATTERNS = [
+  /Codegen init failure/i,
+];
+
 var CUA_FATAL_PATTERNS = [
   /CUA total time limit/i,
   /Visual freeze FATAL/i,
@@ -148,6 +154,13 @@ function classify(err, context) {
   for (var mf = 0; mf < MODEL_FATAL_PATTERNS.length; mf++) {
     if (MODEL_FATAL_PATTERNS[mf].test(msg)) {
       return { type: 'MODEL_FATAL', retryable: false, backoffMs: 0, reason: msg };
+    }
+  }
+
+  // CUA codegen-level failures — regen needed, not terminal
+  for (var cc = 0; cc < CUA_CODE_PATTERNS.length; cc++) {
+    if (CUA_CODE_PATTERNS[cc].test(msg)) {
+      return { type: 'CODE', retryable: true, backoffMs: 0, reason: msg };
     }
   }
 

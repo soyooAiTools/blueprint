@@ -21,6 +21,26 @@
 
 var { classify } = require('./error-classifier.cjs');
 
+function extractErrorSignature(reason) {
+  if (!reason) return 'unknown';
+  var parts = [];
+  var phaseMatch = reason.match(/phase[:\s]+["']?([a-zA-Z_]+)/i)
+    || reason.match(/→\s*([a-zA-Z_]+)/);
+  if (phaseMatch) parts.push('phase:' + phaseMatch[1]);
+  var csMatch = reason.match(/(CS\d{4})/);
+  if (csMatch) {
+    parts.push(csMatch[1]);
+    var defMatch = reason.match(/definition for\s+['"`]?(\w+)/i);
+    if (defMatch) parts.push('sym:' + defMatch[1]);
+  }
+  var typeMatch = reason.match(/(visual[_ ]freeze|noPhasesCompleted|solid[_ ]color|black[_ ]screen|timeout|circuit[_ ]breaker|compilation)/i);
+  if (typeMatch) parts.push(typeMatch[1].replace(/\s+/g, '_'));
+  var methodMatch = reason.match(/method\s+['"`]?(\w+)['"`]?\s+(not found|missing|undefined)/i);
+  if (methodMatch) parts.push('method:' + methodMatch[1]);
+  if (parts.length > 0) return parts.sort().join('|');
+  return reason.replace(/\d+/g, 'N').replace(/\s+/g, ' ').slice(0, 200);
+}
+
 function createFixLoop(config) {
   var name = config.name;
   var maxRounds = config.maxRounds || 5;
@@ -92,7 +112,7 @@ function createFixLoop(config) {
           // working. Only applies to CODE (recode) — INFRA retries are expected
           // to repeat with the same message and have their own escalation path.
           if (classified.type === 'CODE') {
-            var sig = (classified.reason || '').slice(0, 120);
+            var sig = extractErrorSignature(classified.reason);
             if (sig && sig === lastErrorSig) {
               sameErrorStreak++;
               if (sameErrorStreak >= sameErrorThreshold) {

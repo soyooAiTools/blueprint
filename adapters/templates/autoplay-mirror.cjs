@@ -13,14 +13,13 @@ function generateAutoPlay(schema) {
   for (var i = 0; i < phases.length; i++) {
     var phase = phases[i];
     var mirror = triggerToMirror(phase.trigger, schema);
-    if (!mirror) continue;
-    // OnAutoPlayArrive context: simulate interaction for this phase
     lines.push('        if (currentPhaseName == "' + phase.phaseId + '") {');
-    var mirrorLines = mirror.split('\n');
-    for (var j = 0; j < mirrorLines.length; j++) {
-      lines.push('            ' + mirrorLines[j]);
+    if (mirror) {
+      var mirrorLines = mirror.split('\n');
+      for (var j = 0; j < mirrorLines.length; j++) {
+        lines.push('            ' + mirrorLines[j]);
+      }
     }
-    // Set interaction done flags
     lines.push('            ' + phase.phaseId + 'InteractionDone = true;');
     lines.push('            ' + phase.phaseId + 'PlayerActed = true;');
     // onComplete actions

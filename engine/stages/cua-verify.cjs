@@ -64,7 +64,9 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
   // stuckAtPhase is passed as currentPhaseCompleted from caller; treat <=0 (none completed) as frozen.
   var noPhasesCompleted = (stuckAtPhase != null && stuckAtPhase <= 0 && completedPhases.length === 0);
 
-  if (hasVisualFreezePhrase || (noPhasesCompleted && noProgressRounds >= 2)) {
+  if (noPhasesCompleted && noProgressRounds >= 2) {
+    rootCause = 'codegen_init_failure';
+  } else if (hasVisualFreezePhrase) {
     rootCause = 'visual_freeze';
   } else if (allIssueText.indexOf('variable') >= 0 && (allIssueText.indexOf('stagnation') >= 0 || allIssueText.indexOf('initial values') >= 0 || allIssueText.indexOf('remain') >= 0)) {
     rootCause = 'variable_stagnation';
@@ -357,15 +359,12 @@ module.exports = {
               // 45min of CUA. Keyword list widened in _buildStuckDiagnosis and fallback
               // added for "never completed any phase". Threshold tightened 3 → 2 for
               // noPhasesCompleted case: if phase 1 can't start in 2 rounds, 3 won't help.
-              if (stuckDiagnosis.rootCause === 'visual_freeze' && _noProgressRounds >= 2) {
-                // Guard: if we have not yet attempted a full-regen, escalate to it now
-                // instead of throwing FATAL. Surgical (patchRecode) fixes cannot resolve
-                // initialization-level freeze (Camera/Canvas/AutoPlay gate absence).
-                // Only throw FATAL after a full-regen has also failed to make progress.
+              if ((stuckDiagnosis.rootCause === 'visual_freeze' || stuckDiagnosis.rootCause === 'codegen_init_failure') && _noProgressRounds >= 2) {
                 if (consecutiveSameIssue < SAME_ISSUE_REGEN_THRESHOLD) {
-                  ctx.addLog('cua-verify', 'visual_freeze: surgical fix insufficient — escalating to full regen before FATAL (' + _noProgressRounds + ' rounds)');
+                  ctx.addLog('cua-verify', stuckDiagnosis.rootCause + ': surgical fix insufficient — escalating to full regen before FATAL (' + _noProgressRounds + ' rounds)');
                   consecutiveSameIssue = SAME_ISSUE_REGEN_THRESHOLD;
-                  // fall through: the full-regen path below will handle this round
+                } else if (stuckDiagnosis.rootCause === 'codegen_init_failure') {
+                  throw new Error('Codegen init failure: no phases completed after ' + _noProgressRounds + ' rounds of full regen. ' + stuckDiagnosis.summary);
                 } else {
                   throw new Error('Visual freeze FATAL: ' + _noProgressRounds + ' consecutive rounds — surgical and full-regen both failed. ' + stuckDiagnosis.summary);
                 }
@@ -444,13 +443,13 @@ module.exports = {
               codeReviewer.recordNewIssues(cuaIssues, ctx.taskId).catch(function() {});
             } catch(e) {}
 
-            // Pre-recode time guard: if fewer than 10 minutes remain in the wall-clock budget,
-            // skip launching another expensive recode/rebuild cycle that would overshoot the limit.
-            // Buffer raised from 5 min to 10 min so a long Opus+rebuild cycle (~8-10 min) cannot
-            // push total elapsed past MAX_CUA_TOTAL_MS before the attempt() time check fires.
+            // Pre-recode time guard: if fewer than 15 minutes remain in the wall-clock budget,
+            // skip launching another recode/rebuild cycle. Opus recode can take 8-10min, rebuild
+            // 2-4min, so 15min buffer prevents overshoot. Previous 10min buffer was too tight.
             var elapsedBeforeRecode = Date.now() - cuaStartTime;
-            if (elapsedBeforeRecode > MAX_CUA_TOTAL_MS - 10 * 60 * 1000) {
-              throw new Error('CUA total time limit exceeded (' + Math.round(elapsedBeforeRecode / 60000) + 'min > ' + Math.round((MAX_CUA_TOTAL_MS - 10 * 60 * 1000) / 60000) + 'min pre-recode guard)');
+            var RECODE_BUFFER_MS = 15 * 60 * 1000;
+            if (elapsedBeforeRecode > MAX_CUA_TOTAL_MS - RECODE_BUFFER_MS) {
+              throw new Error('CUA total time limit exceeded (' + Math.round(elapsedBeforeRecode / 60000) + 'min > ' + Math.round((MAX_CUA_TOTAL_MS - RECODE_BUFFER_MS) / 60000) + 'min pre-recode guard)');
             }
 
             var isSurgicalFix = consecutiveSameIssue < SAME_ISSUE_REGEN_THRESHOLD;

@@ -237,18 +237,17 @@ function fillCustomLogic(ctx, schema) {
         }
 
         var text = response.text || '';
-        // Extract code from response and apply to csCode
         var codeMatch = text.match(/```(?:csharp|cs)?\n([\s\S]*?)```/);
-        if (codeMatch) {
-          // Replace TODO_CUSTOM section in csCode
-          var startM = '// TODO_CUSTOM_START';
-          var endM = '// TODO_CUSTOM_END';
-          var si = ctx.csCode.indexOf(startM);
-          var ei = ctx.csCode.indexOf(endM);
-          if (si !== -1 && ei !== -1) {
-            ctx.csCode = ctx.csCode.substring(0, si + startM.length) + '\n' +
-              codeMatch[1] + '\n        ' + ctx.csCode.substring(ei);
-          }
+        if (!codeMatch) {
+          throw new Error('Custom logic fill returned no ```csharp code block (response: ' + text.slice(0, 100) + '...)');
+        }
+        var startM = '// TODO_CUSTOM_START';
+        var endM = '// TODO_CUSTOM_END';
+        var si = ctx.csCode.indexOf(startM);
+        var ei = ctx.csCode.indexOf(endM);
+        if (si !== -1 && ei !== -1) {
+          ctx.csCode = ctx.csCode.substring(0, si + startM.length) + '\n' +
+            codeMatch[1] + '\n        ' + ctx.csCode.substring(ei);
         }
 
         return { done: true };
@@ -301,15 +300,46 @@ function _repairSchema(schema) {
     if (!{ cameraBackground: 1, groundColor: 1, moveSpeed: 1, collectRange: 1, maxCarry: 1 }[k]) delete gc[k];
   });
 
-  // Fix entities: strip extra props, pad pool digits
+  // Fix entities: strip extra props, pad pool digits, prevent pool collisions.
+  // Two-pass: (1) validate & register valid pools, (2) assign unique fallbacks.
+  var _FALLBACK_POOLS = [
+    '__Pool_Cube_White_01', '__Pool_Cube_Red_02', '__Pool_Sphere_Blue_03',
+    '__Pool_Cube_Green_04', '__Pool_Cube_Yellow_05', '__Pool_Sphere_White_06',
+    '__Pool_Cube_Brown_07', '__Pool_Capsule_Red_08', '__Pool_Cylinder_Blue_09',
+    '__Pool_Cube_White_10', '__Pool_Sphere_Green_11', '__Pool_Cube_Red_12',
+    '__Pool_Capsule_Yellow_13', '__Pool_Cylinder_White_14', '__Pool_Cube_Blue_15',
+  ];
+  var _usedPools = {};
+  // Pass 1: validate format, register valid unique pools
   (schema.entities || []).forEach(function(e) {
     Object.keys(e).forEach(function(k) { if (!ALLOWED_ENTITY_KEYS[k]) delete e[k]; });
     if (e.pool && !/\d{2}$/.test(e.pool)) {
       e.pool = e.pool.replace(/_(\d)$/, '_0$1');
     }
     if (e.pool && !/^__Pool_[A-Z][a-z]+_[A-Z][a-z]+_\d{2}$/.test(e.pool)) {
-      e.pool = '__Pool_Cube_White_01';
+      e.pool = null;
     }
+    if (e.pool && !_usedPools[e.pool]) {
+      _usedPools[e.pool] = true;
+    } else if (e.pool) {
+      e.pool = null; // duplicate — clear for pass 2
+    }
+  });
+  // Pass 2: assign unique fallback pools for invalid/duplicate entries
+  var _fallbackIdx = 0;
+  (schema.entities || []).forEach(function(e) {
+    if (e.pool) return; // already valid + unique
+    for (; _fallbackIdx < _FALLBACK_POOLS.length; _fallbackIdx++) {
+      if (!_usedPools[_FALLBACK_POOLS[_fallbackIdx]]) {
+        e.pool = _FALLBACK_POOLS[_fallbackIdx];
+        _usedPools[e.pool] = true;
+        _fallbackIdx++;
+        return;
+      }
+    }
+    e.pool = '__Pool_Cube_White_' + String(_fallbackIdx + 16).slice(-2);
+    _usedPools[e.pool] = true;
+    _fallbackIdx++;
   });
 
   // Fix resources: ensure required fields

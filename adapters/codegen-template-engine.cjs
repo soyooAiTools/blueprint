@@ -65,10 +65,14 @@ function fillSkeleton(schema, skeleton) {
 
   var colorOverrides = getColorOverrides(schema);
   var result = replaceAllTodos(skeleton, todoMap, colorOverrides);
+  if (result.missingMarkers && result.missingMarkers.length > 0) {
+    console.error('[template-engine] WARNING: skeleton missing markers for: ' + result.missingMarkers.join(', '));
+  }
   return {
     code: result.code,
     todoCount: result.remainingTodos,
     templateCoverage: result.filledLines / result.totalLines,
+    missingMarkers: result.missingMarkers || [],
   };
 }
 
@@ -84,7 +88,11 @@ function generateVariables(schema) {
   var npcs = schema.npcs || [];
   for (var i = 0; i < npcs.length; i++) {
     var tmpl = NPC_TEMPLATES[npcs[i].template];
-    if (tmpl) lines.push(tmpl.generateVariables(npcs[i]));
+    if (tmpl) {
+      lines.push(tmpl.generateVariables(npcs[i]));
+    } else if (npcs[i].template) {
+      console.error('[template-engine] WARNING: NPC template "' + npcs[i].template + '" not registered, skipping NPC "' + (npcs[i].entity || npcs[i].name || 'unknown') + '"');
+    }
     if (npcs[i].params && npcs[i].params.attackDamage) hasPlayerHP = true;
   }
   if (hasPlayerHP) lines.push('    int playerHP = 10;');
@@ -144,6 +152,7 @@ function replaceAllTodos(skeleton, todoMap, colorOverrides) {
   var totalLines = code.split('\n').length;
   var filledLines = 0;
   var remainingTodos = 0;
+  var missingMarkers = [];
 
   var keys = Object.keys(todoMap);
   for (var i = 0; i < keys.length; i++) {
@@ -154,7 +163,9 @@ function replaceAllTodos(skeleton, todoMap, colorOverrides) {
     var endIdx = code.indexOf(endMarker);
 
     if (startIdx === -1 || endIdx === -1) {
-      // Marker not found in skeleton — skip silently
+      if (/^TODO_PHASE_\d+_INIT$/.test(key) && (todoMap[key] || '').trim().length > 0) {
+        missingMarkers.push(key);
+      }
       continue;
     }
 
@@ -187,7 +198,7 @@ function replaceAllTodos(skeleton, todoMap, colorOverrides) {
     }
   }
 
-  return { code: code, remainingTodos: remainingTodos, filledLines: filledLines, totalLines: totalLines };
+  return { code: code, remainingTodos: remainingTodos, filledLines: filledLines, totalLines: totalLines, missingMarkers: missingMarkers };
 }
 
 module.exports = { fillSkeleton: fillSkeleton, replaceAllTodos: replaceAllTodos };

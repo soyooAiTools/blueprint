@@ -330,7 +330,7 @@ async function generateRecipe(fingerprint, context) {
     'Set risk to "low" if the fix is a config change or a simple guard clause.',
     'Set risk to "medium" if it touches core pipeline logic.',
     'Set risk to "high" if it could affect codegen output or task flow.',
-    'Set autoApply to true for low risk, false for medium/high.',
+    'Set autoApply to true for low and medium risk, false for high only.',
   ].join('\n');
 
   var userPrompt = [
@@ -561,9 +561,25 @@ async function runAutoFixCycle(topFailReasons) {
         details.push('[L6] Apply failed ' + (recipe.id || '') + ': ' + (applyResult.error || '').slice(0, 150));
       }
     } else if (recipe) {
-      details.push('[L6] Recipe ' + recipe.id + ' exists but autoApply=false (risk=' + recipe.risk + ')');
-      setCooldown(state, fingerprint, 'manual-only');
-      stats.skipped++;
+      // Auto-promote medium-risk recipes after 3+ regression hits
+      var regressionHits = (state.regressionHits || {})[recipe.id] || 0;
+      regressionHits++;
+      if (!state.regressionHits) state.regressionHits = {};
+      state.regressionHits[recipe.id] = regressionHits;
+      if (recipe.risk === 'medium' && regressionHits >= 3) {
+        log('Auto-promoting medium-risk recipe ' + recipe.id + ' after ' + regressionHits + ' regression hits');
+        recipe.autoApply = true;
+        var recipes = JSON.parse(fs.readFileSync(RECIPES_FILE, 'utf8'));
+        for (var ri = 0; ri < recipes.length; ri++) {
+          if (recipes[ri].id === recipe.id) { recipes[ri].autoApply = true; break; }
+        }
+        fs.writeFileSync(RECIPES_FILE, JSON.stringify(recipes, null, 2));
+        details.push('[L6] Auto-promoted ' + recipe.id + ' (medium→autoApply after ' + regressionHits + ' hits)');
+      } else {
+        details.push('[L6] Recipe ' + recipe.id + ' exists but autoApply=false (risk=' + recipe.risk + ', hits=' + regressionHits + '/3)');
+        setCooldown(state, fingerprint, 'manual-only');
+        stats.skipped++;
+      }
     }
   }
 

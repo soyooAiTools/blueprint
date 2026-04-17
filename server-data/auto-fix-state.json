@@ -25,23 +25,23 @@
       "status": "manual-only"
     },
     "Unexpected token '`', \"```json { \"... is not valid JSON": {
-      "at": 1776412307934,
+      "at": 1776416363839,
       "status": "manual-only"
     },
     "Spec validation failed: N error(s): Spec[N] <phase>: entity \"<entity>\" not found in blueprint.entiti": {
-      "at": 1776412307934,
+      "at": 1776416363839,
       "status": "gen-failed"
     },
     "Schema validation failed: undefined should NOT have additional properties; undefined should NOT have": {
-      "at": 1776412427912,
+      "at": 1776416363839,
       "status": "manual-only"
     },
     "Phase coverage too low: 0<path> (0%). Missing: initialCollectSpaceJunk, sellShardsGetGold, buildForg": {
-      "at": 1776412691656,
-      "status": "manual-only"
+      "at": 1776416723858,
+      "status": "gen-failed"
     },
     "aborted: same CODE error repeated N rounds, fix-loop not converging: Review blocked: 1 critical issu": {
-      "at": 1776412307934,
+      "at": 1776416363839,
       "status": "manual-only"
     },
     "aborted: same CODE error repeated N rounds, fix-loop not converging: Review blocked: 2 critical issu": {
