@@ -512,9 +512,10 @@ var { createLunaPipeline, PipelineContext } = require('../engine/pipeline.cjs');
 
 function reloadEngineModules() {
   var engineDir = path.resolve(__dirname, '..', 'engine');
+  var adaptersDir = path.resolve(__dirname, '..', 'adapters');
   var count = 0;
   Object.keys(require.cache).forEach(function(key) {
-    if (key.startsWith(engineDir)) {
+    if (key.startsWith(engineDir) || key.startsWith(adaptersDir)) {
       delete require.cache[key];
       count++;
     }
