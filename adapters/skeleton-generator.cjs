@@ -158,12 +158,10 @@ function generateSkeleton(specs, opts = {}) {
     const mustAct = spec.playerMustAct !== false;
     const phaseId = (spec.phaseId || 'phase').replace(/[^a-zA-Z0-9]/g, '');
 
-    if (entities.length === 0 && interactions.length === 0) {
-      interactionFlags.push(phaseId + 'InteractionDone');
-    } else if (mustAct && interactions.length === 0 && entities.length > 0) {
-      interactionFlags.push(phaseId + 'PlayerActed');
-    }
-    // Interaction-based flags
+    // Always declare BOTH flags per phase — autoplay-mirror and template-engine
+    // both set them, so both must exist to avoid undeclared variable errors.
+    interactionFlags.push(phaseId + 'InteractionDone');
+    interactionFlags.push(phaseId + 'PlayerActed');
     if (interactions.length > 0) {
       const target = interactions[0].split(':')[1] || 'action';
       interactionFlags.push(target + 'Done');

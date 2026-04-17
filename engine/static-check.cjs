@@ -20,7 +20,23 @@ var RULES = [
   { id: 'create-obj', pattern: /GFM_Create\.Obj\s*\(/g, blocking: true, message: 'GFM_Create.Obj() forbidden — use GameObject.Find() from pool' },
   { id: 'create-ground', pattern: /GFM_Create\.Ground\s*\(/g, blocking: true, message: 'GFM_Create.Ground() forbidden — __Ground already exists' },
   { id: 'set-color', pattern: /GFM_Create\.SetColor\s*\(/g, blocking: true, message: 'GFM_Create.SetColor() forbidden — pool objects have baked colors' },
-  { id: 'create-canvas', pattern: /GFM_UI\.CreateCanvas\s*\(/g, blocking: true, message: 'GFM_UI.CreateCanvas() forbidden — use skeleton\'s uiCanvas' },
+  { id: 'create-canvas', pattern: null, blocking: true,
+    message: 'GFM_UI.CreateCanvas() forbidden — use skeleton\'s uiCanvas',
+    custom: function(code) {
+      var matches = [];
+      var re = /GFM_UI\.CreateCanvas\s*\(/g;
+      var m;
+      while ((m = re.exec(code)) !== null) matches.push(m.index);
+      if (matches.length <= 1) return [];
+      var issues = [];
+      for (var i = 1; i < matches.length; i++) {
+        var lineNum = code.substring(0, matches[i]).split('\n').length;
+        var lineText = code.split('\n')[lineNum - 1] || '';
+        issues.push({ line: lineNum, text: lineText.trim() });
+      }
+      return issues;
+    },
+  },
   { id: 'create-primitive', pattern: /CreatePrimitive\s*\(/g, blocking: true, message: 'CreatePrimitive() forbidden in Luna — invisible at runtime' },
   { id: 'gfm-tools', pattern: /GFM_Tools\./g, message: 'GFM_Tools does not exist — use GFM_Create, GFM_UI, GFM_Utils, etc.' },
   { id: 'coroutine', pattern: /StartCoroutine\s*\(/g, message: 'Coroutines forbidden in Luna — use Update + timer' },

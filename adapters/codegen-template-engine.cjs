@@ -96,6 +96,20 @@ function generateVariables(schema) {
 
 function generateUpdateBody(schema) {
   var lines = [];
+
+  // Interactive-mode flag handlers: set Done/Acted flags on player input
+  // Mirrors OnAutoPlayArrive flag assignments so flags are set in BOTH paths.
+  var phases = schema.phases || [];
+  if (phases.length > 0) {
+    lines.push('        if (!_autoPlayMode && (Input.GetMouseButtonDown(0) || (Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began))) {');
+    for (var pi = 0; pi < phases.length; pi++) {
+      var pid = phases[pi].phaseId;
+      lines.push('            if (currentPhaseName == "' + pid + '") { ' + pid + 'InteractionDone = true; ' + pid + 'PlayerActed = true; }');
+    }
+    lines.push('        }');
+    lines.push('');
+  }
+
   // NPC update calls
   var npcs = schema.npcs || [];
   for (var i = 0; i < npcs.length; i++) {
