@@ -50,7 +50,7 @@ var RULES = [
   { id: 'get-component-generic', pattern: /GetComponent\s*</g, message: 'GetComponent<T>() forbidden — use (T)GetComponent(typeof(T))' },
   { id: 'force-complete', pattern: /ForceCompleteAllPhases/g, message: 'ForceCompleteAllPhases forbidden — phases must require player interaction' },
   { id: 'external-eval', pattern: /Application\.ExternalEval/g, message: 'Application.ExternalEval() not supported in Luna' },
-  { id: 'newtonsoft', pattern: /Newtonsoft\.Json/g, message: 'Newtonsoft.Json not supported in Luna' },
+  { id: 'json-utility', pattern: /JsonUtility\./g, message: 'UnityEngine.JsonUtility unsupported in Luna — use Newtonsoft.Json instead' },
   { id: 'class-eventpool', pattern: /class\s+EventPool\b/g, message: 'class EventPool conflicts with template — do not define' },
   { id: 'missing-using', pattern: null, message: 'Missing "using UnityEngine;" declaration', custom: function(code) {
     if (code.indexOf('using UnityEngine;') === -1) return [{ line: 1, text: 'File start' }];
@@ -310,6 +310,37 @@ var RULES = [
       return issues;
     },
   },
+  // --- v7: Luna official docs distilled rules (2026-04-18) ---
+  { id: 'sbyte-type', pattern: /\bSByte\b|\bsbyte\b/g, blocking: true, message: 'SByte causes SystemInvalidCastException in Luna — use int instead' },
+  { id: 'navmesh-usage', pattern: /\bNavMesh\b|\bNavMeshAgent\b|\bNavMeshPath\b/g, blocking: true, message: 'NavMesh unsupported in Luna — use manual movement or node-based pathfinding' },
+  { id: 'js-class-name-conflict', pattern: null, blocking: true,
+    message: 'Class name conflicts with JavaScript global — will override browser built-in and crash at runtime',
+    custom: function(code) {
+      var issues = [];
+      var conflicts = ['Number', 'JSON', 'Math', 'Object', 'Array', 'String', 'Symbol',
+        'Function', 'console', 'window', 'navigator', 'Event', 'Worker', 'Crypto'];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/[^\n]*/g, '')
+        .replace(/"(?:[^"\\]|\\.)*"/g, '""');
+      for (var i = 0; i < conflicts.length; i++) {
+        var re = new RegExp('\\bclass\\s+' + conflicts[i] + '\\b', 'g');
+        var m;
+        while ((m = re.exec(stripped)) !== null) {
+          var lineNum = code.substring(0, m.index).split('\n').length;
+          issues.push({ line: lineNum, text: 'class ' + conflicts[i] + ' overrides JavaScript global ' + conflicts[i] });
+        }
+      }
+      return issues;
+    },
+  },
+  { id: 'input-getkey-mouse', pattern: /Input\.GetKey\s*\(\s*KeyCode\.Mouse/g, message: 'Input.GetKey(KeyCode.Mouse0) unsupported in Luna — use Input.GetMouseButton(0)' },
+  { id: 'physics2d-simulate', pattern: /Physics2D\.Simulate\s*\(/g, message: 'Physics2D.Simulate() unsupported in Luna — use Project Settings simulation mode' },
+  { id: 'new-input-system', pattern: /using\s+UnityEngine\.InputSystem/g, blocking: true, message: 'New Input System unsupported in Luna — use legacy Input (Standalone Input Module)' },
+  { id: 'ongui-method', pattern: /void\s+OnGUI\s*\(/g, message: 'OnGUI() unsupported in Luna — use Update loop + UI system' },
+  { id: 'destructor-syntax', pattern: /~[A-Z]\w+\s*\(\s*\)/g, message: 'Destructors unsupported in Bridge.NET — remove ~TypeName()' },
+  { id: 'system-math-lib', pattern: /\bSystem\.Math\b|\bUnity\.Mathematics\b/g, message: 'System.Math / Unity.Mathematics unsupported in Luna — use Mathf or MathF' },
+  { id: 'scene-buildindex', pattern: /GetActiveScene\s*\(\s*\)\.buildIndex/g, message: 'SceneManager.GetActiveScene().buildIndex unsupported in Luna' },
 ];
 
 /**

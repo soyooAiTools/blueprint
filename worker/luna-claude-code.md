@@ -161,7 +161,7 @@ void OnAutoPlayArrive(string targetName) {
 骨架代码已包含 `UpdateGameState()` 方法，会通过 `gameObject.name` 暴露游戏状态 JSON。
 **不要修改或删除** `UpdateGameState()` 方法。
 **不要使用** `Application.ExternalEval()` — Luna 不支持。
-**不要使用** `Newtonsoft.Json` — Luna 不支持。
+**不要使用** `UnityEngine.JsonUtility` — Luna 不支持，如需 JSON 用 `Newtonsoft.Json`。
 
 ## 编译验证
 
