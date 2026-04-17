@@ -172,6 +172,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    // [SKELETON] AutoPlay dual-mode — CUA verification uses autoPlay, end-user uses interactive');
   lines.push('    bool _autoPlayMode = false;');
   lines.push('    bool _autoPlayChecked = false;');
+  lines.push('    float _autoPlayDetectRealTime = -1f; // [SKELETON] wall-clock time when __AUTOPLAY_ON__ detected');
   lines.push('    int _autoPlaySteps = 0; // [SKELETON] tracks autoPlay visual progress for CUA');
   lines.push('    int _autoPlayStepsAtPhaseStart = 0; // [SKELETON] tracks autoPlay steps when current phase started');
   lines.push('    const float AUTO_PLAY_PHASE_DURATION = 12f; // [SKELETON] 12s per shot — DO NOT MODIFY this value (DO NOT MODIFY)');
@@ -706,12 +707,17 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        float dt = Time.deltaTime;');
   lines.push('        gameTimer += dt;');
   lines.push('');
-  lines.push('        // [SKELETON] AutoPlay detection — keeps checking until found or timeout (DO NOT MODIFY)');
-  lines.push('        // JS bridge creates __AUTOPLAY_ON__ entity async via setInterval; may arrive after 0.5s');
+  lines.push('        // [SKELETON] AutoPlay detection — two-stage: detect flag, then delay activation (DO NOT MODIFY)');
+  lines.push('        // Stage 1: detect __AUTOPLAY_ON__ entity from JS bridge');
   lines.push('        if (!_autoPlayMode && !_autoPlayChecked)');
   lines.push('        {');
-  lines.push('            if (GameObject.Find("__AUTOPLAY_ON__") != null) { _autoPlayMode = true; _autoPlayChecked = true; }');
+  lines.push('            if (GameObject.Find("__AUTOPLAY_ON__") != null) { _autoPlayDetectRealTime = Time.realtimeSinceStartup; _autoPlayChecked = true; }');
   lines.push('            else if (gameTimer > 3.0f) _autoPlayChecked = true; // stop checking after 3s');
+  lines.push('        }');
+  lines.push('        // Stage 2: activate after 6 real seconds — CUA observer needs startup time before phases advance');
+  lines.push('        if (!_autoPlayMode && _autoPlayDetectRealTime > 0f && (Time.realtimeSinceStartup - _autoPlayDetectRealTime) >= 6f)');
+  lines.push('        {');
+  lines.push('            _autoPlayMode = true;');
   lines.push('        }');
   lines.push('');
   lines.push('        // [SKELETON] Phase timer update');

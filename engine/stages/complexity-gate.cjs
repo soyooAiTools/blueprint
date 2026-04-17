@@ -226,13 +226,16 @@ function parseSimplifyResponse(text) {
   if (match) {
     raw = match[1];
   } else {
-    // Fallback: strip opening fence only (truncated response — closing fence missing)
-    var openMatch = text.match(/```(?:json)?\s*([\s\S]*)/);
-    raw = openMatch ? openMatch[1] : text;
+    // Fallback: strip ALL code fence markers (truncated response — closing fence missing)
+    raw = text.replace(/```(?:json)?/g, '').trim();
+    if (!raw) raw = text;
   }
 
   // Repair trailing commas (common LLM artifact)
   raw = raw.replace(/,\s*([}\]])/g, '$1');
+
+  // Final safety: strip any leading non-JSON characters (LLM preamble text)
+  raw = raw.replace(/^[^[{]*/, '');
 
   var parsed = JSON.parse(raw.trim());
   if (!Array.isArray(parsed.specs)) throw new Error('LLM response missing "specs" array');
@@ -379,5 +382,6 @@ module.exports = {
   countControlModes: countControlModes,
   countEconLayers: countEconLayers,
   countFormSwitches: countFormSwitches,
-  countStatefulEntities: countStatefulEntities
+  countStatefulEntities: countStatefulEntities,
+  parseSimplifyResponse: parseSimplifyResponse
 };

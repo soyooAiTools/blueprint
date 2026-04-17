@@ -100,8 +100,8 @@ function generateSchemaFromSpecs(ctx) {
 
       // Extract JSON from response (object or array)
       var text = response.text || '';
-      // Strip markdown fences
-      text = text.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '');
+      // Strip all markdown fence markers
+      text = text.replace(/```(?:json)?/g, '').trim();
       var schema;
       try {
         var parsed = JSON.parse(text.trim());

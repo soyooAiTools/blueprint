@@ -122,10 +122,24 @@ module.exports = {
             ent.name = substringMatches[0];
             return;
           } else if (substringMatches.length > 1) {
-            // Multiple substring matches — use edit distance to disambiguate among the candidates.
-            // Auto-fix only when the closest candidate is strictly nearer than every other match
-            // (unambiguous winner). If two candidates are equidistant we fall through to the
-            // blocking error so the author must be explicit.
+            // Multiple substring matches — disambiguate using phase context + edit distance.
+            // Phase context: split phaseId into words, boost candidate sharing more words.
+            // e.g. phaseId="upgradeTripleDrill", entity="drill" → prefer "TripleDrill" over "BasicDrill"
+            var phaseWords = (spec.phaseId || '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[\s_-]+/);
+            var contextBest = null, contextBestScore = -1;
+            substringMatches.forEach(function(cand) {
+              var candWords = cand.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[\s_-]+/);
+              var overlap = 0;
+              candWords.forEach(function(cw) { if (phaseWords.indexOf(cw) >= 0) overlap++; });
+              if (overlap > contextBestScore) { contextBestScore = overlap; contextBest = cand; }
+            });
+            if (contextBestScore >= 1) {
+              autoFixes.push(label + ': entity "' + ent.name + '" phase-context matched among [' +
+                substringMatches.join(', ') + '] → "' + contextBest + '"');
+              ent.name = contextBest;
+              return;
+            }
+            // Fallback: edit distance disambiguation
             var closest = _findClosestEntity(ent.name, substringMatches);
             if (closest) {
               var closestDist = _editDistance(entNameTrimmed.toLowerCase(), String(closest).toLowerCase());
