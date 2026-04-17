@@ -290,19 +290,19 @@ public class Main : MonoBehaviour {
 
   // --- AutoPlay rules ---
 
-  test('AUTO_PLAY_PHASE_DURATION < 15 detected', () => {
+  test('AUTO_PLAY_PHASE_DURATION < 10 detected', () => {
     const code = `using UnityEngine;
 public class Main : MonoBehaviour {
-  float AUTO_PLAY_PHASE_DURATION = 8;
+  float AUTO_PLAY_PHASE_DURATION = 5;
 }`;
     const hit = staticCheck(code).issues.find(i => i.rule === 'autoplay-duration-tamper');
     expect(hit).toBeDefined();
   });
 
-  test('AUTO_PLAY_PHASE_DURATION >= 15 passes', () => {
+  test('AUTO_PLAY_PHASE_DURATION >= 10 passes (skeleton uses 12)', () => {
     const code = `using UnityEngine;
 public class Main : MonoBehaviour {
-  float AUTO_PLAY_PHASE_DURATION = 20;
+  float AUTO_PLAY_PHASE_DURATION = 12;
 }`;
     const hit = staticCheck(code).issues.find(i => i.rule === 'autoplay-duration-tamper');
     expect(hit).toBeUndefined();

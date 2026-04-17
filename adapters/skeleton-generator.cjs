@@ -561,11 +561,45 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    // [SKELETON] Called when autoPlay triggers an interaction (DO NOT REMOVE).');
   lines.push('    // AI MUST fill this to simulate gameplay — CUA checks variables change.');
   lines.push('    // [SKELETON] Empty OnAutoPlayArrive = CUA FAIL (variable stagnation)');
+  lines.push('    // RULE: every xxxDone flag set here MUST ALSO be set in interactive mode');
+  lines.push('    //       (proximity check, raycast, or collision) — otherwise interactive mode freezes.');
   lines.push('    void OnAutoPlayArrive(string targetName)');
   lines.push('    {');
-  lines.push('        // === TODO: AI fills — simulate interaction for each phase ===');
-  lines.push('        // Example: when targetName equals "rescuedCrew", do rescuedCount++ and gold += 10');
   lines.push('        // TODO_AUTOPLAY_INTERACT_START');
+  // Generate phase-specific stubs from specs so AI has clear per-phase guidance
+  for (var apsi = 0; apsi < specs.length; apsi++) {
+    var apSpec = specs[apsi];
+    var apPhaseId = (apSpec.phaseId || 'phase' + apsi).replace(/[^a-zA-Z0-9]/g, '');
+    var apInteractions = apSpec.requiredInteractions || [];
+    var apEntities = apSpec.entitiesRequired || [];
+    lines.push('        if (currentPhaseName == "' + apPhaseId + '")');
+    lines.push('        {');
+    // Generate hints based on what the phase needs
+    if (apEntities.length > 0) {
+      for (var aei = 0; aei < apEntities.length; aei++) {
+        var eName = apEntities[aei].name || apEntities[aei];
+        var eTerminal = apEntities[aei].terminalState || 1;
+        lines.push('            ' + eName + 'State = ' + eTerminal + '; // TODO: AI adjusts — simulate reaching terminal state');
+      }
+    }
+    if (apInteractions.length > 0) {
+      for (var aii = 0; aii < apInteractions.length; aii++) {
+        var parts = apInteractions[aii].split(':');
+        var verb = parts[0];
+        var target = parts[1] || '';
+        if (target && !/^\d/.test(target) && verb !== 'wait' && verb !== 'defend') {
+          lines.push('            ' + target + 'Done = true; // TODO: AI adjusts — must ALSO set in interactive handler');
+        }
+      }
+    }
+    lines.push('            ' + apPhaseId + 'InteractionDone = true;');
+    lines.push('            ' + apPhaseId + 'PlayerActed = true;');
+    lines.push('        }');
+  }
+  if (specs.length === 0) {
+    lines.push('        // TODO: AI fills — simulate interaction for each phase');
+    lines.push('        // Example: if (currentPhaseName == "Phase1") { resourceCount++; phase1Done = true; }');
+  }
   lines.push('        // TODO_AUTOPLAY_INTERACT_END');
   lines.push('    }');
   lines.push('');
