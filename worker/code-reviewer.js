@@ -71,6 +71,11 @@ const REVIEW_RULES = `
 - NO List<T> or Dictionary<K,V> — use arrays
 - NO coroutines — use Update() + deltaTime timer
 - MUST NOT define class/enum named "EventPool" (conflicts with Luna template → CS0101)
+- NO inline out parameters: int.TryParse(s, out int x) → declare x separately before the call
+- NO delegate/lambda inside foreach — Bridge.NET bug causes them not to fire; move outside loop
+- NO SByte type — causes SystemInvalidCastException; use int
+- NO System.Math or Unity.Mathematics — use Mathf or MathF
+- NO destructors ~TypeName() — Bridge.NET does not support them
 
 ### 4. Code Completeness
 - ALL phases from blueprint MUST be implemented in CheckEventRules() (zero tolerance)
@@ -142,7 +147,12 @@ const REVIEW_RULES = `
 
 ### 10. Luna Platform Limitations
 - No TileMap, no New InputSystem, no Terrain, no multi-threading
+- No NavMesh / NavMeshAgent — use manual movement or waypoints
+- No Physics2D.Simulate() — use Project Settings simulation mode
+- No OnGUI() — use Update loop + UI system
+- No JsonUtility — use Newtonsoft.Json (only supported JSON library)
 - Input.GetMouseButtonDown(0) alone may fail on mobile — use GFM/Luna input abstraction or handle both touch and mouse
+- Input.GetKey(KeyCode.Mouse0) unsupported — use Input.GetMouseButton(0)
 - CharacterController poorly supported — use Transform or Rigidbody
 - No animation state machine Exit nodes
 - Vector3Int not supported (cast to Vector3)
@@ -151,6 +161,9 @@ const REVIEW_RULES = `
 - GetComponent<Transform>() ≠ GetComponent<RectTransform>()
 - iOS AppLovin: first touch must pre-play silent audio (GFM_Luna.Init handles this)
 - Time.deltaTime is constant 0.1 in Luna regardless of FPS
+- SceneManager.GetActiveScene().buildIndex unsupported
+- Prefab with X or Y scale = 0 fails to spawn — use 0.1 minimum
+- Prefer explicit types over var — Bridge.NET var can cause "Value cannot be null"
 
 ### 11. Phase ID Format (CRITICAL)
 - AddCompletedPhase() parameter MUST exactly match the blueprint Rule ID (e.g., "phase_1774794448160_1")
