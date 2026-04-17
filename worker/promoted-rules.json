@@ -70,9 +70,9 @@
     "totalOccurrences": 2
   },
   {
-    "description": "Camera.backgroundColor too close to ground color — difference < 0.3 on all RGB channels triggers solid-color-screen detection. Recommended: camera (0.35, 0.55, 0.75) deep sky blue, ground (0.75, 0.78, 0.82) neutral gray.",
+    "description": "Camera.backgroundColor too close to ground color — difference < 0.3 on all RGB channels triggers solid-color-screen detection. Skeleton pre-sets camera (0.45, 0.52, 0.62) — do NOT change. Ground (0.75, 0.78, 0.82) neutral gray.",
     "rule": "Solid-Color Screen Prevention",
-    "fix": "Set Camera.backgroundColor to (0.35f, 0.55f, 0.75f). Set ground color to (0.75f, 0.78f, 0.82f). Ensure >=0.3 difference on at least one RGB channel.",
+    "fix": "Do NOT change Camera.backgroundColor — skeleton pre-sets (0.45f, 0.52f, 0.62f). Set ground color to (0.75f, 0.78f, 0.82f). Ensure >=0.3 difference on at least one RGB channel.",
     "severity": "critical",
     "promotedAt": "2026-04-01T00:20:53.042Z",
     "triggerProjects": [
@@ -283,9 +283,9 @@
     }
   },
   {
-    "description": "The skeleton explicitly says Camera.backgroundColor is pre-set to (0.45, 0.52, 0.62) and must not be changed. The code changes it again to (0.35, 0.55, 0.75). Even if the latter is generally recommended, this file's skeleton forbids modifying that preset.",
-    "rule": "skeleton line  auto-promoted critical camera-background rule",
-    "fix": "Remove the later backgroundColor assignment and keep the skeleton-provided value unchanged.",
+    "description": "Skeleton pre-sets Camera.backgroundColor to (0.45, 0.52, 0.62) — do NOT change. Any re-assignment triggers recode oscillation between skeleton value and review recommendation.",
+    "rule": "Skeleton Camera Background",
+    "fix": "Remove any Camera.backgroundColor assignment — skeleton already sets (0.45f, 0.52f, 0.62f) in Start().",
     "severity": "critical",
     "promotedAt": "2026-04-08T21:24:54.546Z",
     "triggerProjects": [

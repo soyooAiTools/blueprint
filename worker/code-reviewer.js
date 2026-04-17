@@ -98,7 +98,7 @@ const REVIEW_RULES = `
 
 ### 5b. Solid-Color Screen Prevention (CRITICAL)
 - Ground/GroundField plane color MUST be neutral gray (recommended (0.75, 0.78, 0.82)). Any channel saturation > 0.3 from gray midpoint triggers FAIL (e.g. green (0.42, 0.72, 0.38) is BANNED)
-- Camera.backgroundColor MUST differ from ground color by ≥ 0.3 on at least one RGB channel. Recommended: (0.35, 0.55, 0.75) deep sky blue. BANNED: (0.75, 0.82, 0.92) — too close to gray ground, triggers solid-color detection
+- Camera.backgroundColor MUST differ from ground color by ≥ 0.3 on at least one RGB channel. Skeleton pre-sets (0.45, 0.52, 0.62) ��� do NOT change. BANNED: (0.75, 0.82, 0.92) — too close to gray ground, triggers solid-color detection
 - Rule 0 / gameStart MUST position ≥ 3 differently-colored objects at y ≥ -1 in the first frame — prevents solid-color screen if later phases never trigger
 - Main entities (castle, player, hero) MUST have at least one scale dimension ≥ 1.5 to be visible under orthographic camera
 
@@ -185,6 +185,7 @@ function loadPromotedRules() {
 }
 
 function savePromotedRules(rules) {
+  try { fs.copyFileSync(PROMOTED_RULES_PATH, PROMOTED_RULES_PATH + '.bak'); } catch(e) {}
   fs.writeFileSync(PROMOTED_RULES_PATH, JSON.stringify(rules, null, 2), 'utf8');
 }
 

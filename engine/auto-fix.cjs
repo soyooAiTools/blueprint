@@ -248,9 +248,29 @@ async function applyRecipe(fingerprintId) {
     return { ok: false, error: 'No file outputs in sub-agent response', diagnosis: (result.text || '').slice(0, 500), recipe: recipe.id };
   }
 
-  // Write fixed files
+  // Validate and write fixed files
+  var allowedFiles = recipe.affectedFiles || [];
+  var rejectedPaths = [];
   changedPaths.forEach(function(rel) {
-    var abs = path.join(REPO_ROOT, rel);
+    // Path traversal guard: reject ../ and absolute paths
+    if (/\.\.[\\/]/.test(rel) || path.isAbsolute(rel)) {
+      rejectedPaths.push(rel);
+      log('REJECT path traversal: ' + rel);
+      return;
+    }
+    // Whitelist guard: sub-agent output must match recipe.affectedFiles
+    if (allowedFiles.length > 0 && allowedFiles.indexOf(rel) < 0) {
+      rejectedPaths.push(rel);
+      log('REJECT path not in recipe.affectedFiles: ' + rel);
+      return;
+    }
+    // Resolved path must stay within REPO_ROOT
+    var abs = path.resolve(REPO_ROOT, rel);
+    if (!abs.startsWith(REPO_ROOT + path.sep) && abs !== REPO_ROOT) {
+      rejectedPaths.push(rel);
+      log('REJECT resolved path escapes repo: ' + abs);
+      return;
+    }
     try {
       fs.mkdirSync(path.dirname(abs), { recursive: true });
       fs.writeFileSync(abs, fixedFiles[rel]);
@@ -258,6 +278,16 @@ async function applyRecipe(fingerprintId) {
       log('Write failed: ' + rel + ' — ' + e.message);
     }
   });
+  if (rejectedPaths.length > 0) {
+    log('WARNING: ' + rejectedPaths.length + ' path(s) rejected by safety check: ' + rejectedPaths.join(', '));
+  }
+  // Filter changedPaths to only actually written files
+  changedPaths = changedPaths.filter(function(p) { return rejectedPaths.indexOf(p) < 0; });
+  if (changedPaths.length === 0 && rejectedPaths.length > 0) {
+    log('All file outputs rejected — reverting');
+    restoreFiles(backups);
+    return { ok: false, error: 'All paths rejected by safety check', reverted: true, recipe: recipe.id };
+  }
 
   // Verify
   var verifyErrors = verifyFiles(changedPaths);
