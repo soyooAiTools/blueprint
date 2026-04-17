@@ -13,7 +13,7 @@ var { createFixLoop } = require('../fix-loop.cjs');
 var { staticCheck } = require('../static-check.cjs');
 var { checkConformance } = require('../spec-conformance.cjs');
 
-var MAX_REVIEW_ROUNDS = 4;
+var MAX_REVIEW_ROUNDS = 6;
 
 module.exports = {
   name: 'review',
@@ -169,12 +169,9 @@ module.exports = {
               message: ('[Linux] ' + reviewerName + ' 审核通过' + (round > 1 ? ' (第' + round + '轮)' : '')).slice(0, 100),
               qualityData: { reviewResult: { passed: true, reviewer: reviewerName, round: round } },
             });
-            var allCs = helpers.findFiles(ctx.workDir, '.cs');
-            var mainCs = null;
-            for (var i = 0; i < allCs.length; i++) {
-              if (allCs[i].indexOf('GameFlowManagerMain.cs') !== -1) { mainCs = allCs[i]; break; }
-            }
-            if (mainCs) ctx.csCode = fs.readFileSync(mainCs, 'utf-8');
+            // Do NOT read from ctx.workDir here — recode() writes to a fresh temp dir,
+            // leaving ctx.workDir untouched. The authoritative source is the closure
+            // variable reviewedCode, which is synced after every recode pass.
             return { done: true, result: { passed: true, rounds: round } };
           }
 
@@ -330,13 +327,15 @@ module.exports = {
     });
 
     return loop.run(ctx).then(function(result) {
-      // Final update of csCode
-      var allCs = helpers.findFiles(ctx.workDir, '.cs');
-      var mainCs = null;
-      for (var i = 0; i < allCs.length; i++) {
-        if (allCs[i].indexOf('GameFlowManagerMain.cs') !== -1) { mainCs = allCs[i]; break; }
+      // Sync ctx.csCode from the authoritative in-memory reviewedCode.
+      // Do NOT read from ctx.workDir — recode() writes to a fresh temp dir
+      // (/tmp/linux-reviewfix-<id>-<round>/), leaving ctx.workDir untouched.
+      // Reading from disk would clobber ctx.csCode with the stale pre-recode
+      // codegen file, causing the coverage gate below to see 0 phase IDs.
+      ctx.csCode = reviewedCode;
+      if (reviewExtraFiles) {
+        ctx.extraFiles = Object.assign({}, reviewExtraFiles);
       }
-      if (mainCs) ctx.csCode = fs.readFileSync(mainCs, 'utf-8');
 
       // Phase coverage gate: block if < 80% of spec phases are implemented
       // P1: Use normalized fuzzy matching to avoid false negatives from phaseId naming differences
