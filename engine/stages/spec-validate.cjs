@@ -55,11 +55,16 @@ module.exports = {
     var entityLowerToCanonical = {}; // lowercased name → canonical name, for case-insensitive fallback
     if (ctx.blueprint.entities && ctx.blueprint.entities.length > 0) {
       ctx.blueprint.entities.forEach(function(e) {
-        entityNames.add(e.name);
-        entityLowerToCanonical[String(e.name).toLowerCase()] = e.name;
+        // .trim() guards against LLM whitespace artifacts in entity names stored in the blueprint.
+        // Applied to BOTH the Set entry and the canonical map value so that auto-corrected
+        // spec refs never receive a whitespace-polluted name from a dirty blueprint entry.
+        var eName = String(e.name).trim();
+        entityNames.add(eName);
+        entityLowerToCanonical[eName.toLowerCase()] = eName;
         if (e.poolName) {
-          entityNames.add(e.poolName);
-          entityLowerToCanonical[String(e.poolName).toLowerCase()] = e.poolName;
+          var ePoolName = String(e.poolName).trim();
+          entityNames.add(ePoolName);
+          entityLowerToCanonical[ePoolName.toLowerCase()] = ePoolName;
         }
       });
     }
@@ -87,11 +92,57 @@ module.exports = {
       // 4+ re-extractions before a human manually syncs the project.
       if (spec.entitiesRequired && spec.entitiesRequired.length > 0 && entityNames.size > 0) {
         spec.entitiesRequired.forEach(function(ent) {
-          if (entityNames.has(ent.name)) return;
-          var canonical = entityLowerToCanonical[String(ent.name).toLowerCase()];
+          // .trim() here catches LLM whitespace artifacts in spec entity refs
+          var entNameTrimmed = String(ent.name).trim();
+          if (entityNames.has(entNameTrimmed)) {
+            // Silently correct any leading/trailing whitespace in the spec ref
+            if (entNameTrimmed !== ent.name) {
+              autoFixes.push(label + ': entity "' + ent.name + '" whitespace-trimmed to "' + entNameTrimmed + '"');
+              ent.name = entNameTrimmed;
+            }
+            return;
+          }
+          // .trim().toLowerCase() on the lookup key to match the trimmed map keys built above
+          var canonical = entityLowerToCanonical[entNameTrimmed.toLowerCase()];
           if (canonical) {
             autoFixes.push(label + ': entity "' + ent.name + '" case-normalized to "' + canonical + '"');
             ent.name = canonical;
+            return;
+          }
+          // 2026-04-17 (auto-265daa80): LLM writes abbreviated names (e.g. "drill" vs "BasicDrill").
+          // Substring fallback: if exactly one known entity contains the searched token as a
+          // substring (unambiguous), auto-correct in place. Mirrors the case-normalization
+          // auto-fix above — blocking an unambiguous abbreviation wastes 6 server retries.
+          var token = entNameTrimmed.toLowerCase();
+          var substringMatches = Array.from(entityNames).filter(function(n) {
+            return String(n).toLowerCase().indexOf(token) >= 0;
+          });
+          if (substringMatches.length === 1) {
+            autoFixes.push(label + ': entity "' + ent.name + '" substring-matched to "' + substringMatches[0] + '"');
+            ent.name = substringMatches[0];
+            return;
+          } else if (substringMatches.length > 1) {
+            // Multiple substring matches — use edit distance to disambiguate among the candidates.
+            // Auto-fix only when the closest candidate is strictly nearer than every other match
+            // (unambiguous winner). If two candidates are equidistant we fall through to the
+            // blocking error so the author must be explicit.
+            var closest = _findClosestEntity(ent.name, substringMatches);
+            if (closest) {
+              var closestDist = _editDistance(entNameTrimmed.toLowerCase(), String(closest).toLowerCase());
+              var isUnambiguous = substringMatches.every(function(cand) {
+                return cand === closest ||
+                  _editDistance(entNameTrimmed.toLowerCase(), String(cand).toLowerCase()) > closestDist;
+              });
+              if (isUnambiguous) {
+                autoFixes.push(label + ': entity "' + ent.name + '" disambiguated among [' +
+                  substringMatches.join(', ') + '] → "' + closest + '"');
+                ent.name = closest;
+                return;
+              }
+            }
+            // Ambiguous multi-match — fall through to blocking error with full candidate list
+            errors.push(label + ': entity "' + ent.name + '" is ambiguous — matches multiple blueprint entities: [' +
+              substringMatches.join(', ') + ']. Use the exact entity name.');
             return;
           }
           // Not a case-only difference — emit suggestion based on edit distance
@@ -376,7 +427,7 @@ function _escapeRegex(s) {
  * Uses a cheap Levenshtein distance; returns null if no candidate is within threshold.
  */
 function _findClosestEntity(name, candidates) {
-  var target = String(name || '').toLowerCase();
+  var target = String(name || '').trim().toLowerCase();
   var threshold = Math.max(2, Math.floor(target.length * 0.4));
   var best = null;
   var bestDist = threshold + 1;

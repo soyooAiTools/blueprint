@@ -16,7 +16,7 @@ function validateGameSchema(schema) {
   var valid = validate(schema);
   if (valid) return [];
   return validate.errors.map(function (e) {
-    return e.instancePath + ' ' + e.message;
+    return e.dataPath + ' ' + e.message;
   });
 }
 
