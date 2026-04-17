@@ -12,6 +12,16 @@ var { triggerToCondition } = require('./templates/trigger-codegen.cjs');
 var { generateResourceInit, generateFormInit } = require('./templates/economy.cjs');
 var { generateAutoPlay } = require('./templates/autoplay-mirror.cjs');
 var { generateCustomTodos } = require('./templates/custom-todo.cjs');
+var { generateResourceUpdate, generateResourceVariables } = require('./templates/resource-flow.cjs');
+var { generateUpgradeVariables, generateUpgradeUpdate } = require('./templates/upgrade-logic.cjs');
+var { generateCollectUpdate } = require('./templates/interactions/collect-interaction.cjs');
+var { generateDeliverUpdate } = require('./templates/interactions/deliver-sell.cjs');
+var { generateCostClickUpdate } = require('./templates/interactions/cost-gated-click.cjs');
+var { generateInventoryFeedback } = require('./templates/interactions/inventory-feedback.cjs');
+var { generateFormSwitchUpdate } = require('./templates/interactions/form-auto-switch.cjs');
+var { generateScoreDisplay } = require('./templates/interactions/score-display.cjs');
+var { generateCTAHandler } = require('./templates/interactions/cta-handler.cjs');
+var { generateMultiSourceCollect, generateMultiSourceVariables } = require('./templates/interactions/multi-source-collect.cjs');
 
 // NPC behavior template registry
 var NPC_TEMPLATES = {
@@ -20,6 +30,13 @@ var NPC_TEMPLATES = {
   static_target: require('./templates/npc-behaviors/static-target.cjs'),
   ranged_shooter: require('./templates/npc-behaviors/ranged-shooter.cjs'),
   spawner: require('./templates/npc-behaviors/spawner.cjs'),
+  wander: require('./templates/npc-behaviors/wander.cjs'),
+  evade: require('./templates/npc-behaviors/evade.cjs'),
+  defend: require('./templates/npc-behaviors/defend.cjs'),
+  circle: require('./templates/npc-behaviors/circle.cjs'),
+  group_attack: require('./templates/npc-behaviors/group-attack.cjs'),
+  flee_on_hit: require('./templates/npc-behaviors/flee-on-hit.cjs'),
+  boss_multiphase: require('./templates/npc-behaviors/boss-multiphase.cjs'),
 };
 
 function fillSkeleton(schema, skeleton) {
@@ -61,8 +78,18 @@ function fillSkeleton(schema, skeleton) {
   // TODO_UI: (minimal — scoreText already handled by economy kit)
   todoMap['TODO_UI'] = '';
 
-  // TODO_CUSTOM: customLogic entries as TODO comments
-  todoMap['TODO_CUSTOM'] = generateCustomTodos(schema);
+  // TODO_CUSTOM: interaction templates + remaining customLogic TODO comments
+  todoMap['TODO_CUSTOM'] = [
+    generateCollectUpdate(schema),
+    generateMultiSourceCollect(schema),
+    generateInventoryFeedback(schema),
+    generateDeliverUpdate(schema),
+    generateCostClickUpdate(schema),
+    generateFormSwitchUpdate(schema),
+    generateScoreDisplay(schema),
+    generateCTAHandler(schema),
+    generateCustomTodos(schema),
+  ].filter(Boolean).join('\n\n');
 
   var colorOverrides = getColorOverrides(schema);
   var result = replaceAllTodos(skeleton, todoMap, colorOverrides);
@@ -103,6 +130,15 @@ function generateVariables(schema, skeleton) {
   if (npcs.some(function(n) { return n.template === 'chase_attack' || n.template === 'ranged_shooter'; })) {
     lines.push('    int enemiesDefeated = 0;');
   }
+  // Resource flow variables
+  var resourceVars = generateResourceVariables(schema);
+  if (resourceVars) lines.push(resourceVars);
+  // Upgrade/form tracking variables
+  var upgradeVars = generateUpgradeVariables(schema);
+  if (upgradeVars) lines.push(upgradeVars);
+  // Multi-source extra entity variables
+  var multiSrcVars = generateMultiSourceVariables(schema);
+  if (multiSrcVars) lines.push(multiSrcVars);
   return lines.join('\n');
 }
 
@@ -128,6 +164,21 @@ function generateUpdateBody(schema) {
     var tmpl = NPC_TEMPLATES[npcs[i].template];
     if (tmpl) lines.push(tmpl.generateUpdate(npcs[i]));
   }
+
+  // Resource flow: collect/deliver/build loops
+  var resourceUpdate = generateResourceUpdate(schema);
+  if (resourceUpdate) {
+    lines.push('');
+    lines.push(resourceUpdate);
+  }
+
+  // Upgrade/form tracking
+  var upgradeUpdate = generateUpgradeUpdate(schema);
+  if (upgradeUpdate) {
+    lines.push('');
+    lines.push(upgradeUpdate);
+  }
+
   return lines.join('\n');
 }
 

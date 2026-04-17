@@ -325,7 +325,14 @@
             "chase_attack",
             "static_target",
             "ranged_shooter",
-            "spawner"
+            "spawner",
+            "wander",
+            "evade",
+            "defend",
+            "circle",
+            "group_attack",
+            "flee_on_hit",
+            "boss_multiphase"
           ],
           "description": "NPC behavior template"
         },
