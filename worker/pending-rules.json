@@ -968,8 +968,8 @@
     "autoExtracted": true,
     "failClassification": "CODE",
     "stage": "review",
-    "lastSeenAt": "2026-04-15T17:12:11.082Z",
-    "hitCount": 5
+    "lastSeenAt": "2026-04-17T05:13:33.846Z",
+    "hitCount": 8
   },
   {
     "description": "Spec validation failed: 7 error(s):\nSpec[2] buildForgeWorkshop: entity \"forgeWorkshop\" not found in blueprint.entities. Known: PlayerAstronaut, RecyclingStation, SpaceDebris, MetalScrap, ForgeWorkshop, BasicDrill, CrusherTruck, HydraulicTruck, CanteenModule, DormModule\nSpec[3] upgradeTripleDrill: entity \"drill\" not found in blueprint.entities. Known: PlayerAstronaut, RecyclingStation, SpaceDebris, MetalScrap, ForgeWorkshop, BasicDrill, CrusherTruck, HydraulicTruck, CanteenModule, DormModule\nSpec",
@@ -1007,7 +1007,9 @@
     "timestamp": "2026-04-16T16:40:24.649Z",
     "autoExtracted": true,
     "failClassification": "CODE",
-    "stage": "codegen"
+    "stage": "codegen",
+    "lastSeenAt": "2026-04-17T03:25:27.431Z",
+    "hitCount": 2
   },
   {
     "description": "Unexpected token '`', \"```json\n{\n\"... is not valid JSON",
@@ -1034,5 +1036,17 @@
     "autoExtracted": true,
     "failClassification": "CODE",
     "stage": "codegen"
+  },
+  {
+    "description": "Phase coverage too low: 0/11 (0%). Missing: initialCollectSpaceJunk, sellShardsGetGold, buildForgeWorkshop, upgradeToTripleDrill, tripleDrillCollectJunk, upgradeToCrusherVehicle, crusherVehicleCollectJunk, upgradeToHydraulicVehicle, hydraulicVehicleCollectJunk, expandSpaceStation, showFullStationCTA",
+    "rule": "Code Quality",
+    "fix": "Phase coverage too low: 0/11 (0%). Missing: initialCollectSpaceJunk, sellShardsGetGold, buildForgeWorkshop, upgradeToTripleDrill, tripleDrillCollectJunk, upgradeToCrusherVehicle, crusherVehicleCollectJunk, upgradeToHydraulicVehicle, hydraulicVehicleCollectJunk, expandSpaceStation, showFullStationCTA",
+    "severity": "critical",
+    "line": "review stage failure",
+    "taskId": "proj_1776391516726_urbib0",
+    "timestamp": "2026-04-17T04:20:02.259Z",
+    "autoExtracted": true,
+    "failClassification": "CODE",
+    "stage": "review"
   }
 ]

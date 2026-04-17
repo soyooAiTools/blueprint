@@ -1,8 +1,8 @@
 {
   "cooldowns": {
     "Visual freeze FATAL: N consecutive rounds — not fixable via claude-fix. Stuck at phase (none complet": {
-      "at": 1776395267887,
-      "status": "generating"
+      "at": 1776403637595,
+      "status": "manual-only"
     },
     "Spec validation failed: N error(s): Spec[N] upgradeTripleDrill: entity \"<entity>\" not found in bluep": {
       "at": 1776387974094,
@@ -17,24 +17,36 @@
       "status": "manual-only"
     },
     "aborted: same CODE error repeated N rounds, fix-loop not converging: AI coding failed: Claude Code f": {
-      "at": 1776393423173,
+      "at": 1776404507891,
       "status": "manual-only"
     },
     "Schema generation failed: Exit code 143": {
-      "at": 1776393423173,
+      "at": 1776404507891,
       "status": "manual-only"
     },
     "Unexpected token '`', \"```json { \"... is not valid JSON": {
-      "at": 1776392027888,
+      "at": 1776404267919,
       "status": "manual-only"
     },
     "Spec validation failed: N error(s): Spec[N] <phase>: entity \"<entity>\" not found in blueprint.entiti": {
-      "at": 1776391944498,
+      "at": 1776404267919,
       "status": "gen-failed"
     },
     "Schema validation failed: undefined should NOT have additional properties; undefined should NOT have": {
-      "at": 1776393779548,
-      "status": "apply-failed"
+      "at": 1776404886830,
+      "status": "applied"
+    },
+    "Phase coverage too low: 0<path> (0%). Missing: initialCollectSpaceJunk, sellShardsGetGold, buildForg": {
+      "at": 1776404500363,
+      "status": "manual-only"
+    },
+    "aborted: same CODE error repeated N rounds, fix-loop not converging: Review blocked: 1 critical issu": {
+      "at": 1776404507891,
+      "status": "manual-only"
+    },
+    "aborted: same CODE error repeated N rounds, fix-loop not converging: Review blocked: 2 critical issu": {
+      "at": 1776406427893,
+      "status": "manual-only"
     }
   },
   "history": [
@@ -151,6 +163,38 @@
       "recipe": "auto-4565625e",
       "files": [
         "engine/stages/spec-validate.cjs"
+      ]
+    },
+    {
+      "at": "2026-04-17T03:44:06.597Z",
+      "fingerprint": "Schema validation failed: undefined should NOT have additional properties; undefined should NOT have",
+      "recipe": "auto-213f5a35",
+      "files": [
+        "adapters/schema/validate-schema.cjs"
+      ]
+    },
+    {
+      "at": "2026-04-17T04:23:31.865Z",
+      "fingerprint": "Visual freeze FATAL: N consecutive rounds — not fixable via claude-fix. Stuck at phase (none complet",
+      "recipe": "auto-b1675811",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ]
+    },
+    {
+      "at": "2026-04-17T04:46:05.134Z",
+      "fingerprint": "Schema validation failed: undefined should NOT have additional properties; undefined should NOT have",
+      "recipe": "auto-213f5a35",
+      "files": [
+        "adapters/schema/validate-schema.cjs"
+      ]
+    },
+    {
+      "at": "2026-04-17T05:48:06.831Z",
+      "fingerprint": "Schema validation failed: undefined should NOT have additional properties; undefined should NOT have",
+      "recipe": "auto-213f5a35",
+      "files": [
+        "adapters/schema/validate-schema.cjs"
       ]
     }
   ],

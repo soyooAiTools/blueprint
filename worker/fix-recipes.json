@@ -99,9 +99,9 @@
   },
   {
     "id": "auto-b1675811",
-    "fingerprintPattern": "Visual freeze FATAL: \\d+ consecutive rounds.*not fixable via claude-fix.*Stuck at phase \\(none completed\\)",
-    "description": "CUA visual_freeze FATAL fires after only 1 recode attempt because the 'noPhasesCompleted' case is mis-labelled as batch-firing, sending the wrong initialization advice to the AI and wasting the single recode window before FATAL triggers.",
-    "risk": "medium",
+    "fingerprintPattern": "Visual freeze FATAL: \\d+ consecutive rounds[^\\n]*Stuck at phase \\(none completed\\)",
+    "description": "CUA fatal: game never starts, but wrong 'batch-firing' advice is sent to regen — init failure misclassified as visual_freeze",
+    "risk": "high",
     "autoApply": false,
     "affectedFiles": [
       "engine/stages/cua-verify.cjs"
@@ -182,5 +182,17 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-213f5a35.md"
+  },
+  {
+    "id": "auto-09618e16",
+    "fingerprintPattern": "Phase coverage too low: 0\\/(\\d+) \\(0%\\)\\. Missing:",
+    "description": "review stage re-reads stale ctx.workDir disk file instead of in-memory reviewedCode, causing the post-loop phase coverage gate to see 0/N implemented phases",
+    "risk": "medium",
+    "autoApply": false,
+    "affectedFiles": [
+      "engine/stages/review.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-09618e16.md"
   }
 ]
