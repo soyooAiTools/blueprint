@@ -100,8 +100,8 @@
   {
     "id": "auto-b1675811",
     "fingerprintPattern": "Visual freeze FATAL: \\d+ consecutive rounds[^\\n]*Stuck at phase \\(none completed\\)",
-    "description": "CUA fatal: game never starts, but wrong 'batch-firing' advice is sent to regen — init failure misclassified as visual_freeze",
-    "risk": "high",
+    "description": "cua-verify misclassifies zero-phases-completed as visual_freeze and gives batch-firing advice, causing every full-regen to regenerate broken initialization code",
+    "risk": "medium",
     "autoApply": false,
     "affectedFiles": [
       "engine/stages/cua-verify.cjs"
@@ -185,8 +185,8 @@
   },
   {
     "id": "auto-09618e16",
-    "fingerprintPattern": "Phase coverage too low: 0\\/(\\d+) \\(0%\\)\\. Missing:",
-    "description": "review stage re-reads stale ctx.workDir disk file instead of in-memory reviewedCode, causing the post-loop phase coverage gate to see 0/N implemented phases",
+    "fingerprintPattern": "Phase coverage too low: \\d+/\\d+ \\(0%\\)\\.? Missing:",
+    "description": "Review stage exits with 0% phase coverage because codex reviewer passes code that lacks AddCompletedPhase calls, bypassing the spec-conformance feedback injected before the loop",
     "risk": "medium",
     "autoApply": false,
     "affectedFiles": [

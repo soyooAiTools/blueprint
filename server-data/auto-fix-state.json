@@ -1,7 +1,7 @@
 {
   "cooldowns": {
     "Visual freeze FATAL: N consecutive rounds — not fixable via claude-fix. Stuck at phase (none complet": {
-      "at": 1776403637595,
+      "at": 1776415281652,
       "status": "manual-only"
     },
     "Spec validation failed: N error(s): Spec[N] upgradeTripleDrill: entity \"<entity>\" not found in bluep": {
@@ -17,35 +17,35 @@
       "status": "manual-only"
     },
     "aborted: same CODE error repeated N rounds, fix-loop not converging: AI coding failed: Claude Code f": {
-      "at": 1776404507891,
+      "at": 1776408347912,
       "status": "manual-only"
     },
     "Schema generation failed: Exit code 143": {
-      "at": 1776404507891,
+      "at": 1776412427912,
       "status": "manual-only"
     },
     "Unexpected token '`', \"```json { \"... is not valid JSON": {
-      "at": 1776404267919,
+      "at": 1776412307934,
       "status": "manual-only"
     },
     "Spec validation failed: N error(s): Spec[N] <phase>: entity \"<entity>\" not found in blueprint.entiti": {
-      "at": 1776404267919,
+      "at": 1776412307934,
       "status": "gen-failed"
     },
     "Schema validation failed: undefined should NOT have additional properties; undefined should NOT have": {
-      "at": 1776404886830,
-      "status": "applied"
+      "at": 1776412427912,
+      "status": "manual-only"
     },
     "Phase coverage too low: 0<path> (0%). Missing: initialCollectSpaceJunk, sellShardsGetGold, buildForg": {
-      "at": 1776404500363,
+      "at": 1776412691656,
       "status": "manual-only"
     },
     "aborted: same CODE error repeated N rounds, fix-loop not converging: Review blocked: 1 critical issu": {
-      "at": 1776404507891,
+      "at": 1776412307934,
       "status": "manual-only"
     },
     "aborted: same CODE error repeated N rounds, fix-loop not converging: Review blocked: 2 critical issu": {
-      "at": 1776406427893,
+      "at": 1776413628017,
       "status": "manual-only"
     }
   },
@@ -196,6 +196,14 @@
       "files": [
         "adapters/schema/validate-schema.cjs"
       ]
+    },
+    {
+      "at": "2026-04-17T06:52:58.854Z",
+      "fingerprint": "Phase coverage too low: 0<path> (0%). Missing: initialCollectSpaceJunk, sellShardsGetGold, buildForg",
+      "recipe": "auto-09618e16",
+      "files": [
+        "engine/stages/review.cjs"
+      ]
     }
   ],
   "pendingCommits": {
@@ -206,6 +214,14 @@
       ],
       "diagnosis": "The file uses `e.instancePath` (Ajv v8 property) but the installed Ajv is v6.12.6, which exposes `e.dataPath` instead. This causes every validation error message to render as `\"undefined <message>\"`, making errors completely opaque. The fix is to replace `e.instancePath` with `e.dataPath` on line 19.",
       "at": 1776394929444
+    },
+    "auto-747d061e": {
+      "state": "done",
+      "filesChanged": [
+        "engine/stages/codegen-schema.cjs"
+      ],
+      "diagnosis": "**Diagnosis:** The `runClaudeCodeText` call in `generateSchemaFromSpecs` uses a hard-coded `timeoutMs: 120000` (2 minutes), which is insufficient when tool-call round-trips or API latency add overhead. Although `noTools: true` is already present in the current file (preventing the `--tools Read` round-trip), the 2-minute timeout is still too short under load and must be increased. Raising it to 300000 ms (5 minutes) gives schema generation enough headroom without risking indefinite hangs.",
+      "at": 1776407266122
     }
   }
 }
