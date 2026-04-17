@@ -66,7 +66,7 @@
     "fingerprintPattern": "aborted: same CODE error repeated (N|\\d+) rounds, fix-loop not converging",
     "description": "CC CLI exit-1 error message drops stdout content, producing a constant 'Exit code 1' string that trips the fix-loop circuit breaker after exactly 3 identical rounds",
     "risk": "medium",
-    "autoApply": false,
+    "autoApply": true,
     "affectedFiles": [
       "worker/claude-code-coder.js"
     ],
@@ -99,10 +99,10 @@
   },
   {
     "id": "auto-b1675811",
-    "fingerprintPattern": "Visual freeze FATAL: \\d+ consecutive rounds[^\\n]*Stuck at phase \\(none completed\\)",
-    "description": "cua-verify misclassifies zero-phases-completed as visual_freeze and gives batch-firing advice, causing every full-regen to regenerate broken initialization code",
+    "fingerprintPattern": "Visual freeze FATAL: \\d+ consecutive rounds.*Stuck at phase \\(none completed\\).*root cause: visual_freeze",
+    "description": "noPhasesCompleted AND-condition lets visual_freeze win over codegen_init_failure when VLM issue text contains a phase-coverage count, routing zero-progress tasks to a non-retryable FATAL instead of the retryable CODE/full-regen path.",
     "risk": "medium",
-    "autoApply": false,
+    "autoApply": true,
     "affectedFiles": [
       "engine/stages/cua-verify.cjs"
     ],
@@ -185,10 +185,10 @@
   },
   {
     "id": "auto-09618e16",
-    "fingerprintPattern": "Phase coverage too low: \\d+/\\d+ \\(0%\\)\\.? Missing:",
-    "description": "Review stage exits with 0% phase coverage because codex reviewer passes code that lacks AddCompletedPhase calls, bypassing the spec-conformance feedback injected before the loop",
+    "fingerprintPattern": "Phase coverage too low: \\d+\\/\\d+ \\(\\d+%\\)\\. Missing:",
+    "description": "Post-loop phase coverage gate fires with 0% after all review retries are spent because the in-loop pre-check only guarded against zero AddCompletedPhase calls, not against semantically wrong phase IDs",
     "risk": "medium",
-    "autoApply": false,
+    "autoApply": true,
     "affectedFiles": [
       "engine/stages/review.cjs"
     ],

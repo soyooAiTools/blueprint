@@ -1,8 +1,8 @@
 {
   "cooldowns": {
     "Visual freeze FATAL: N consecutive rounds — not fixable via claude-fix. Stuck at phase (none complet": {
-      "at": 1776415281652,
-      "status": "manual-only"
+      "at": 1776439126355,
+      "status": "gen-failed"
     },
     "Spec validation failed: N error(s): Spec[N] upgradeTripleDrill: entity \"<entity>\" not found in bluep": {
       "at": 1776387974094,
@@ -21,31 +21,31 @@
       "status": "manual-only"
     },
     "Schema generation failed: Exit code 143": {
-      "at": 1776412427912,
+      "at": 1776446566337,
       "status": "manual-only"
     },
     "Unexpected token '`', \"```json { \"... is not valid JSON": {
-      "at": 1776416363839,
+      "at": 1776443926335,
       "status": "manual-only"
     },
     "Spec validation failed: N error(s): Spec[N] <phase>: entity \"<entity>\" not found in blueprint.entiti": {
-      "at": 1776416363839,
+      "at": 1776436606342,
       "status": "gen-failed"
     },
     "Schema validation failed: undefined should NOT have additional properties; undefined should NOT have": {
-      "at": 1776416363839,
+      "at": 1776443926336,
       "status": "manual-only"
     },
     "Phase coverage too low: 0<path> (0%). Missing: initialCollectSpaceJunk, sellShardsGetGold, buildForg": {
-      "at": 1776416723858,
+      "at": 1776445246361,
       "status": "gen-failed"
     },
     "aborted: same CODE error repeated N rounds, fix-loop not converging: Review blocked: 1 critical issu": {
-      "at": 1776416363839,
+      "at": 1776443926335,
       "status": "manual-only"
     },
     "aborted: same CODE error repeated N rounds, fix-loop not converging: Review blocked: 2 critical issu": {
-      "at": 1776413628017,
+      "at": 1776445246361,
       "status": "manual-only"
     }
   },
@@ -204,6 +204,62 @@
       "files": [
         "engine/stages/review.cjs"
       ]
+    },
+    {
+      "at": "2026-04-17T09:48:08.540Z",
+      "fingerprint": "Visual freeze FATAL: N consecutive rounds — not fixable via claude-fix. Stuck at phase (none complet",
+      "recipe": "auto-b1675811",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ]
+    },
+    {
+      "at": "2026-04-17T10:11:05.057Z",
+      "fingerprint": "Phase coverage too low: 0<path> (0%). Missing: initialCollectSpaceJunk, sellShardsGetGold, buildForg",
+      "recipe": "auto-09618e16",
+      "files": [
+        "engine/stages/review.cjs"
+      ]
+    },
+    {
+      "at": "2026-04-17T10:22:08.964Z",
+      "fingerprint": "aborted: same CODE error repeated N rounds, fix-loop not converging: Review blocked: 2 critical issu",
+      "recipe": "auto-79ef3937",
+      "files": [
+        "worker/claude-code-coder.js"
+      ]
+    },
+    {
+      "at": "2026-04-17T10:56:51.904Z",
+      "fingerprint": "Visual freeze FATAL: N consecutive rounds — not fixable via claude-fix. Stuck at phase (none complet",
+      "recipe": "auto-b1675811",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ]
+    },
+    {
+      "at": "2026-04-17T11:18:31.384Z",
+      "fingerprint": "aborted: same CODE error repeated N rounds, fix-loop not converging: Review blocked: 1 critical issu",
+      "recipe": "auto-79ef3937",
+      "files": [
+        "worker/claude-code-coder.js"
+      ]
+    },
+    {
+      "at": "2026-04-17T11:25:16.212Z",
+      "fingerprint": "Phase coverage too low: 0<path> (0%). Missing: initialCollectSpaceJunk, sellShardsGetGold, buildForg",
+      "recipe": "auto-09618e16",
+      "files": [
+        "engine/stages/review.cjs"
+      ]
+    },
+    {
+      "at": "2026-04-17T11:31:14.539Z",
+      "fingerprint": "aborted: same CODE error repeated N rounds, fix-loop not converging: Review blocked: 2 critical issu",
+      "recipe": "auto-79ef3937",
+      "files": [
+        "worker/claude-code-coder.js"
+      ]
     }
   ],
   "pendingCommits": {
@@ -223,5 +279,8 @@
       "diagnosis": "**Diagnosis:** The `runClaudeCodeText` call in `generateSchemaFromSpecs` uses a hard-coded `timeoutMs: 120000` (2 minutes), which is insufficient when tool-call round-trips or API latency add overhead. Although `noTools: true` is already present in the current file (preventing the `--tools Read` round-trip), the 2-minute timeout is still too short under load and must be increased. Raising it to 300000 ms (5 minutes) gives schema generation enough headroom without risking indefinite hangs.",
       "at": 1776407266122
     }
+  },
+  "regressionHits": {
+    "auto-79ef3937": 3
   }
 }

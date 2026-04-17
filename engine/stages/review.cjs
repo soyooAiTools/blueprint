@@ -124,24 +124,161 @@ module.exports = {
             criticalCount: preCheck.issues.length,
             source: 'static-precheck',
           });
-        } else if (USE_CODEX_REVIEW && codexReviewer) {
-          reviewPromise = codexReviewer.reviewCodeWithCodex(reviewedCode, {
-            taskId: ctx.taskId,
-            log: function(msg) { ctx.addLog('review', msg); },
-            extraFiles: reviewExtraFiles,
-          });
-        } else if (codeReviewer) {
-          reviewPromise = codeReviewer.reviewCode(reviewedCode, {
-            taskId: ctx.taskId,
-            log: function(msg) { ctx.addLog('review', msg); },
-            poolNameMap: reviewPoolNameMap,
-          });
-        } else {
-          // Unreachable: the top-of-execute guard already throws MODEL_FATAL
-          // if neither reviewer is loaded. Retained as defense-in-depth —
-          // any future code path that lands here aborts rather than pretending
-          // the review passed.
-          throw new Error('MODEL_FATAL: no reviewer invocation path matched');
+        }
+
+        // Phase coverage pre-check: runs after static check passes but BEFORE the LLM
+        // reviewer. The LLM reviewer does not validate AddCompletedPhase() phaseId strings
+        // against the spec, so code that calls AddCompletedPhase("phase1") instead of
+        // AddCompletedPhase("initialCollectSpaceJunk") receives passed:true and exits the
+        // loop immediately, causing the post-loop phase coverage gate to throw with no
+        // retries remaining.
+        // Fix (auto-09618e16): use the same 3-level fuzzy coverage logic as the post-loop
+        // gate so that any coverage < 80% triggers a recode while retries remain, not just
+        // the total-absence (length === 0) case.
+        if (!reviewPromise) {
+          var specPhases = ctx.blueprint.specs || [];
+          if (specPhases.length > 0) {
+            // Build allCode including extra files (partial classes)
+            var preCheckAllCode = reviewedCode;
+            if (reviewExtraFiles) {
+              for (var pefk in reviewExtraFiles) {
+                if (reviewExtraFiles.hasOwnProperty(pefk)) preCheckAllCode += '\n' + reviewExtraFiles[pefk];
+              }
+            }
+            var preCheckCodeLower = preCheckAllCode.toLowerCase();
+
+            // Extract all phaseId strings from AddCompletedPhase/ReportPhase calls
+            var phaseCallMatches = preCheckAllCode.match(/(?:AddCompletedPhase|ReportPhase)\s*\(\s*"([^"]+)"/g) || [];
+            var preCheckPhaseIds = [];
+            for (var pcm = 0; pcm < phaseCallMatches.length; pcm++) {
+              var pcmMatch = phaseCallMatches[pcm].match(/"([^"]+)"/);
+              if (pcmMatch) preCheckPhaseIds.push(pcmMatch[1]);
+            }
+            var preCheckPhaseIdsLower = preCheckPhaseIds.map(function(id) { return id.toLowerCase().replace(/[_\s-]/g, ''); });
+
+            var preCheckImplemented = 0;
+            for (var psi = 0; psi < specPhases.length; psi++) {
+              var ppid = specPhases[psi].phaseId;
+              // Level 1: exact match
+              if (preCheckCodeLower.indexOf('"' + ppid.toLowerCase() + '"') >= 0) {
+                preCheckImplemented++;
+                continue;
+              }
+              // Level 2: normalized match (strip underscores/spaces/dashes, case-insensitive)
+              var ppidNorm = ppid.toLowerCase().replace(/[_\s-]/g, '');
+              var ppidFound = false;
+              for (var pci = 0; pci < preCheckPhaseIdsLower.length; pci++) {
+                if (preCheckPhaseIdsLower[pci] === ppidNorm ||
+                    preCheckPhaseIdsLower[pci].indexOf(ppidNorm) >= 0 ||
+                    ppidNorm.indexOf(preCheckPhaseIdsLower[pci]) >= 0) {
+                  ppidFound = true;
+                  break;
+                }
+              }
+              if (ppidFound) {
+                preCheckImplemented++;
+                continue;
+              }
+              // Level 3: keyword overlap — split camelCase into words and check overlap
+              var ppidWords = ppid.replace(/([A-Z])/g, ' $1').toLowerCase().trim().split(/\s+/);
+              for (var pcwi = 0; pcwi < preCheckPhaseIds.length; pcwi++) {
+                var pcodeWords = preCheckPhaseIds[pcwi].replace(/([A-Z])/g, ' $1').toLowerCase().trim().split(/\s+/);
+                var pcOverlap = 0;
+                for (var pswi = 0; pswi < ppidWords.length; pswi++) {
+                  if (ppidWords[pswi].length >= 3 && pcodeWords.indexOf(ppidWords[pswi]) >= 0) pcOverlap++;
+                }
+                if (pcOverlap >= Math.max(2, Math.floor(ppidWords.length * 0.5))) {
+                  preCheckImplemented++;
+                  ppidFound = true;
+                  break;
+                }
+              }
+            }
+
+            var preCheckCoverage = preCheckImplemented / specPhases.length;
+            if (preCheckCoverage < 0.8) {
+              // Build missing phase list using same fuzzy logic
+              var missingPhaseIds = [];
+              for (var mpi = 0; mpi < specPhases.length; mpi++) {
+                var mppid = specPhases[mpi].phaseId;
+                var mppidNorm = mppid.toLowerCase().replace(/[_\s-]/g, '');
+                var mppidFound = preCheckCodeLower.indexOf('"' + mppid.toLowerCase() + '"') >= 0;
+                if (!mppidFound) {
+                  for (var mpci = 0; mpci < preCheckPhaseIdsLower.length; mpci++) {
+                    if (preCheckPhaseIdsLower[mpci] === mppidNorm ||
+                        preCheckPhaseIdsLower[mpci].indexOf(mppidNorm) >= 0 ||
+                        mppidNorm.indexOf(preCheckPhaseIdsLower[mpci]) >= 0) {
+                      mppidFound = true;
+                      break;
+                    }
+                  }
+                }
+                if (!mppidFound) {
+                  // Also check level-3 keyword overlap before marking missing
+                  var mppidWords = mppid.replace(/([A-Z])/g, ' $1').toLowerCase().trim().split(/\s+/);
+                  for (var mpcwi = 0; mpcwi < preCheckPhaseIds.length && !mppidFound; mpcwi++) {
+                    var mpcodeWords = preCheckPhaseIds[mpcwi].replace(/([A-Z])/g, ' $1').toLowerCase().trim().split(/\s+/);
+                    var mpcOverlap = 0;
+                    for (var mpswi = 0; mpswi < mppidWords.length; mpswi++) {
+                      if (mppidWords[mpswi].length >= 3 && mpcodeWords.indexOf(mppidWords[mpswi]) >= 0) mpcOverlap++;
+                    }
+                    if (mpcOverlap >= Math.max(2, Math.floor(mppidWords.length * 0.5))) {
+                      mppidFound = true;
+                    }
+                  }
+                }
+                if (!mppidFound) missingPhaseIds.push(mppid);
+              }
+              ctx.addLog('review', 'Phase coverage pre-check (round ' + round + '): ' + preCheckImplemented + '/' + specPhases.length +
+                ' (' + Math.round(preCheckCoverage * 100) + '%) — forcing recode without LLM review');
+              reviewPromise = Promise.resolve({
+                passed: false,
+                feedback: 'PHASE COVERAGE FAILURE: Only ' + preCheckImplemented + '/' + specPhases.length +
+                  ' spec phases have matching AddCompletedPhase() calls (' + Math.round(preCheckCoverage * 100) + '%).\n' +
+                  'You MUST call AddCompletedPhase("phaseId") using the EXACT phaseId strings from the spec ' +
+                  'for EACH phase when that phase\'s objective is completed by the player.\n' +
+                  'Missing phases:\n' +
+                  missingPhaseIds.map(function(pid) { return '  - ' + pid; }).join('\n') + '\n\n' +
+                  'Every phase listed in the blueprint spec MUST have a corresponding ' +
+                  'AddCompletedPhase("phaseId") call somewhere in the game logic. ' +
+                  'Do NOT omit any phase. Do NOT use placeholder comments. ' +
+                  'Do NOT use generic names like "phase1" or "phase2" — use the exact phaseId string from the spec.',
+                issues: missingPhaseIds.map(function(pid) {
+                  return {
+                    severity: 'critical',
+                    message: 'Missing AddCompletedPhase("' + pid + '")',
+                    rule: 'phase-coverage',
+                  };
+                }),
+                criticalCount: missingPhaseIds.length,
+                source: 'phase-precheck',
+              });
+            }
+          }
+        }
+
+        // LLM reviewer — only reached when both static check and phase coverage
+        // pre-check pass (i.e. reviewPromise is still unset).
+        if (!reviewPromise) {
+          if (USE_CODEX_REVIEW && codexReviewer) {
+            reviewPromise = codexReviewer.reviewCodeWithCodex(reviewedCode, {
+              taskId: ctx.taskId,
+              log: function(msg) { ctx.addLog('review', msg); },
+              extraFiles: reviewExtraFiles,
+            });
+          } else if (codeReviewer) {
+            reviewPromise = codeReviewer.reviewCode(reviewedCode, {
+              taskId: ctx.taskId,
+              log: function(msg) { ctx.addLog('review', msg); },
+              poolNameMap: reviewPoolNameMap,
+            });
+          } else {
+            // Unreachable: the top-of-execute guard already throws MODEL_FATAL
+            // if neither reviewer is loaded. Retained as defense-in-depth —
+            // any future code path that lands here aborts rather than pretending
+            // the review passed.
+            throw new Error('MODEL_FATAL: no reviewer invocation path matched');
+          }
         }
 
         return reviewPromise.then(function(reviewResult) {

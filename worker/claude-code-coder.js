@@ -463,6 +463,17 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
       }
 
       const trueOk = code === 0 && fileActuallyModified;
+
+      // Build a non-constant error string when stderr is empty so that fix-loop's
+      // circuit breaker does not see three identical signatures and abort prematurely.
+      // Prefer stderr (most diagnostic), then the tail of stdout (actual CC output),
+      // and only fall back to the generic exit-code string as a last resort.
+      const _buildExitError = (exitCode, stdoutStr, stderrStr) => {
+        if (stderrStr && stderrStr.trim()) return stderrStr.slice(0, 500);
+        if (stdoutStr && stdoutStr.trim()) return `stdout: ${stdoutStr.slice(-500)}`;
+        return `Exit code ${exitCode}`;
+      };
+
       resolve({
         ok: trueOk,
         exitCode: code,
@@ -472,7 +483,7 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
               ? null  // partial success path below
               : (code === 0 && !fileActuallyModified
                   ? 'ZERO_EDITS: Claude Code exited 0 but did not modify GameFlowManagerMain.cs or GameFlowManagerMain.Systems.cs. It may have edited read-only files (e.g. GFM_Tools.cs) that get restored every round. Re-run with stricter prompt targeting the correct files.'
-                  : (stderr || `Exit code ${code}`)))
+                  : _buildExitError(code, stdout, stderr)))
           : null,
         partialSuccess: code !== 0 && fileActuallyModified,
         modifiedFiles: modifiedFiles,
@@ -621,7 +632,10 @@ function runClaudeCodeText(opts) {
       if (code === 0 && stdout.length >= minOutputLen) {
         return finish({ ok: true, text: stdout, exitCode: 0 });
       }
-      const baseErr = stderr || stdout || ('Exit code ' + code);
+      // Build a non-constant error string: prefer stderr, then stdout tail, then generic.
+      const baseErr = (stderr && stderr.trim()) ? stderr
+        : (stdout && stdout.trim()) ? `stdout: ${stdout.slice(-500)}`
+        : `Exit code ${code}`;
       const errorMsg = isModelFatal
         ? 'MODEL_FATAL: Claude Code CLI text-mode auth/quota — ' + baseErr.slice(0, 300)
         : baseErr.slice(0, 500);

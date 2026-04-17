@@ -60,9 +60,20 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
   }) || (allIssueText.indexOf('static') >= 0 && allIssueText.indexOf('screen') >= 0);
 
   // Terminal fallback: if no phases complete across multiple rounds, the game literally
-  // never starts — that IS a visual freeze regardless of issue text wording.
-  // stuckAtPhase is passed as currentPhaseCompleted from caller; treat <=0 (none completed) as frozen.
-  var noPhasesCompleted = (stuckAtPhase != null && stuckAtPhase <= 0 && completedPhases.length === 0);
+  // never starts — that IS a codegen init failure regardless of issue text wording.
+  //
+  // FIX (auto-b1675811): The original AND condition required BOTH stuckAtPhase <= 0
+  // (from issue-text numeric parse) AND completedPhases.length === 0 (from
+  // consolePhaseCoverage). These two sources can disagree: e.g. "[phase-coverage] 1/5"
+  // in issue text makes stuckAtPhase=1>0, so the first condition was false and
+  // noPhasesCompleted=false even when consolePhaseCoverage=[] (no phases actually
+  // completed). This let visual_freeze win over codegen_init_failure, routing to FATAL
+  // instead of the retryable CODE path.
+  //
+  // Changed to OR: if EITHER source indicates no phases completed, treat it as such.
+  // consolePhaseCoverage (real instrumented IDs) is more reliable than issue-text parse,
+  // so completedPhases.length === 0 is the primary signal.
+  var noPhasesCompleted = (completedPhases.length === 0) || (stuckAtPhase != null && stuckAtPhase <= 0);
 
   if (noPhasesCompleted && noProgressRounds >= 2) {
     rootCause = 'codegen_init_failure';
