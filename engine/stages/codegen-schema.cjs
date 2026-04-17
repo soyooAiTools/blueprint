@@ -81,12 +81,12 @@ function generateSchemaFromSpecs(ctx) {
     var runClaudeCodeText = require('../../worker/claude-code-coder.js').runClaudeCodeText;
     return runClaudeCodeText({
       userPrompt: promptText,
-      systemPrompt: '你是���玩广告游戏配置生成器。只输出 JSON 对象，不要 markdown 包裹，不��解释。',
+      systemPrompt: '你是试玩广告游戏配置生成器。只输出 JSON 对象，不要 markdown 包裹，不要解释。',
       model: 'claude-haiku-4-5-20251001',
       taskId: ctx.taskId,
       log: function(msg) { ctx.addLog('codegen-schema', msg); },
       effort: 'low',
-      timeoutMs: 120000,
+      timeoutMs: 300000,
       noTools: true,
       minOutputLen: 20,
     }).then(function(response) {
@@ -226,11 +226,11 @@ function fillCustomLogic(ctx, schema) {
       return runClaudeCodeText({
         userPrompt: promptText,
         systemPrompt: '你是 Unity C# 代码填充器。只修改 TODO_CUSTOM 区域。',
-        model: 'claude-sonnet-4-6',
+        model: 'opus',
         taskId: ctx.taskId,
         log: function(msg) { ctx.addLog('codegen-schema', '[custom R' + round + '] ' + msg); },
         effort: 'medium',
-        timeoutMs: 180000,
+        timeoutMs: 300000,
       }).then(function(response) {
         if (!response.ok) {
           throw new Error('Custom logic fill failed: ' + (response.error || '').slice(0, 200));
