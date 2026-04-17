@@ -34,11 +34,11 @@ function generatePhaseInit(phase, schema) {
 function actionToCode(action) {
   switch (action.action) {
     case 'set_entity_state':
-      return toLowerCamel(action.entity) + 'State = ' + action.state + ';';
+      return toLowerCamel(action.entity || 'Unknown') + 'State = ' + (action.state != null ? action.state : 1) + ';';
     case 'add_resource':
       return 'AddResource("' + action.resource + '", ' + action.amount + ');';
     case 'switch_form':
-      return 'SwitchForm(' + action.formIndex + ');';
+      return 'SwitchForm(' + (action.formIndex != null ? action.formIndex : 0) + ');';
     case 'show_floating_text':
       return 'ShowFloatingText(player.transform.position, "' + action.text + '", Color.' + (action.color || 'yellow') + ');';
     case 'set_guide':

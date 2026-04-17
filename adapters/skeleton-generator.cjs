@@ -34,9 +34,46 @@ const ENTITY_COLORS = [
  * @param {object} opts - { projectName, entityPoolMap: {entityName: poolObjName} }
  * @returns {string|{main: string, systems: string}} C# skeleton code (single string for ≤10 phases, {main,systems} for >10)
  */
+const RESERVED_SKELETON_VARS = new Set([
+  'gold', 'moveSpeed', 'collectRange', 'maxCarry', 'carrying', 'carryingType',
+  'player', 'joystick', 'mainCam', 'uiCanvas', 'guideText', 'scoreText',
+  'phaseTimer', 'gameTimer', 'gameEnded', 'currentPhaseName', 'ruleTriggered',
+  'completedPhases', 'completedPhaseCount', 'floatingText', 'floatingTextTimer',
+  'tapMoveTarget', 'hasTapTarget', 'carryVisuals', 'playerHP', 'enemiesDefeated',
+]);
+
 function generateSkeleton(specs, opts = {}) {
   const totalPhases = specs.length;
   const entityPoolMap = opts.entityPoolMap || {};
+
+  // Resolve entity name collisions with skeleton built-in variables
+  const renamedEntities = {};
+  Object.keys(entityPoolMap).forEach(name => {
+    if (RESERVED_SKELETON_VARS.has(name)) {
+      const newName = name + 'Obj';
+      renamedEntities[name] = newName;
+      entityPoolMap[newName] = entityPoolMap[name];
+      delete entityPoolMap[name];
+    }
+  });
+  // Also rename in specs to keep consistent
+  if (Object.keys(renamedEntities).length > 0) {
+    specs = JSON.parse(JSON.stringify(specs));
+    specs.forEach(spec => {
+      (spec.entitiesRequired || []).forEach(e => {
+        if (renamedEntities[e.name]) e.name = renamedEntities[e.name];
+      });
+      (spec.requiredInteractions || []).forEach((interaction, idx) => {
+        Object.keys(renamedEntities).forEach(oldName => {
+          spec.requiredInteractions[idx] = interaction.replace(
+            new RegExp('(^|:)' + oldName + '(:|$)', 'g'),
+            '$1' + renamedEntities[oldName] + '$2'
+          );
+        });
+      });
+    });
+  }
+
   const entityNames = Object.keys(entityPoolMap);
   const shouldSplit = totalPhases > 10;
   const lines = [];
@@ -68,11 +105,14 @@ function generateSkeleton(specs, opts = {}) {
       });
     }
 
-    // Interaction-based conditions
-    if (interactions.length > 0) {
-      const verb = interactions[0].split(':')[0];
-      const target = interactions[0].split(':')[1] || 'action';
+    // Interaction-based conditions — scan all interactions, skip wait/defend
+    for (let ii = 0; ii < interactions.length; ii++) {
+      const verb = interactions[ii].split(':')[0];
+      const target = interactions[ii].split(':')[1] || '';
+      if (!target || verb === 'wait' || verb === 'defend') continue;
+      if (/^\d/.test(target)) continue;
       conditions.push(target + 'Done == true');
+      break; // only need one interaction condition for gate
     }
 
     // If playerMustAct but no interaction condition was added, add a generic one
@@ -137,11 +177,14 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    const float AUTO_PLAY_PHASE_DURATION = 12f; // [SKELETON] 12s per shot — DO NOT MODIFY this value (DO NOT MODIFY)');
   lines.push('');
 
-  // Entity state variables from specs
+  // Entity state variables — from entitiesRequired + all entityPoolMap entries
   const allEntities = new Set();
   specs.forEach(spec => {
     (spec.entitiesRequired || []).forEach(e => allEntities.add(e.name));
   });
+  // Also add all entities in pool map — AI code frequently references {name}State
+  // for entities that only appear in interactions (e.g. RecyclingStation from deliver:)
+  entityNames.forEach(name => allEntities.add(name));
   if (allEntities.size > 0) {
     lines.push('    // [SKELETON] Entity states — must reach terminal state');
     allEntities.forEach(name => {
@@ -162,8 +205,12 @@ function generateSkeleton(specs, opts = {}) {
     // both set them, so both must exist to avoid undeclared variable errors.
     interactionFlags.push(phaseId + 'InteractionDone');
     interactionFlags.push(phaseId + 'PlayerActed');
-    if (interactions.length > 0) {
-      const target = interactions[0].split(':')[1] || 'action';
+    for (let ii = 0; ii < interactions.length; ii++) {
+      const parts = interactions[ii].split(':');
+      const verb = parts[0];
+      const target = parts[1];
+      if (!target || verb === 'wait' || verb === 'defend') continue;
+      if (/^\d/.test(target)) continue; // skip numeric targets (invalid C# identifier)
       interactionFlags.push(target + 'Done');
     }
   });
@@ -886,6 +933,10 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    void SetScale(GameObject obj, float x, float y, float z)');
   lines.push('    {');
   lines.push('        if (obj != null) obj.transform.localScale = new Vector3(x, y, z);');
+  lines.push('    }');
+  lines.push('    void SetScale(GameObject obj, float uniform)');
+  lines.push('    {');
+  lines.push('        if (obj != null) obj.transform.localScale = new Vector3(uniform, uniform, uniform);');
   lines.push('    }');
   lines.push('');
 

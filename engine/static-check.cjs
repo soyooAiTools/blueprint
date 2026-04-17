@@ -240,10 +240,7 @@ var RULES = [
     },
   },
   { id: 'direct-ruletriggered-set', pattern: null, message: 'ruleTriggered[] must only be set inside skeleton phase gates — do not set outside CheckEventRules', custom: function(code) {
-    // Check for ruleTriggered assignments outside of CheckEventRules
-    // Look for methods that set ruleTriggered but aren't CheckEventRules
     var issues = [];
-    // Find AutoPlayForceAdvance or similar functions that set ruleTriggered
     var funcRe = /void\s+(AutoPlayForceAdvance|ForceAdvance|AdvancePhase|SkipPhase)\s*\([^)]*\)\s*\{([\s\S]*?)\n    \}/g;
     var m;
     while ((m = funcRe.exec(code)) !== null) {
@@ -254,6 +251,65 @@ var RULES = [
     }
     return issues;
   }},
+  // --- v6: Codegen syntax safety rules ---
+  { id: 'invalid-identifier', pattern: null, blocking: true,
+    message: 'C# identifier starts with digit — invalid syntax (e.g. "bool 5Done")',
+    custom: function(code) {
+      var issues = [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/[^\n]*/g, '')
+        .replace(/"(?:[^"\\]|\\.)*"/g, '""');
+      var re = /\b(bool|int|float|string|double|GameObject|Vector[23]|Color|Transform)\s+(\d\w*)\b/g;
+      var m;
+      while ((m = re.exec(stripped)) !== null) {
+        var lineNum = code.substring(0, m.index).split('\n').length;
+        issues.push({ line: lineNum, text: m[1] + ' ' + m[2] + ' — variable name cannot start with a digit' });
+      }
+      return issues;
+    },
+  },
+  { id: 'js-undefined-literal', pattern: null, blocking: true,
+    message: 'JS "undefined" leaked into C# code — missing field in schema action or template',
+    custom: function(code) {
+      var issues = [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/[^\n]*/g, '')
+        .replace(/"(?:[^"\\]|\\.)*"/g, '""');
+      var re = /\bundefined\b/g;
+      var m;
+      while ((m = re.exec(stripped)) !== null) {
+        var lineNum = code.substring(0, m.index).split('\n').length;
+        var lineText = code.split('\n')[lineNum - 1] || '';
+        issues.push({ line: lineNum, text: lineText.trim() });
+      }
+      return issues;
+    },
+  },
+  { id: 'setscale-wrong-params', pattern: null, blocking: true,
+    message: 'SetScale() called with wrong number of parameters — use SetScale(obj, x, y, z) or SetScale(obj, uniform)',
+    custom: function(code) {
+      var issues = [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/[^\n]*/g, '')
+        .replace(/"(?:[^"\\]|\\.)*"/g, '""');
+      var re = /\bSetScale\s*\(([^)]*)\)/g;
+      var m;
+      while ((m = re.exec(stripped)) !== null) {
+        if (m[0].indexOf('void SetScale') >= 0) continue;
+        var lineText = code.split('\n')[(code.substring(0, m.index).split('\n').length) - 1] || '';
+        if (lineText.indexOf('void SetScale') >= 0) continue;
+        var args = m[1].split(',');
+        if (args.length !== 2 && args.length !== 4) {
+          var lineNum = code.substring(0, m.index).split('\n').length;
+          issues.push({ line: lineNum, text: 'SetScale has ' + args.length + ' args, expected 2 (obj,uniform) or 4 (obj,x,y,z): ' + lineText.trim() });
+        }
+      }
+      return issues;
+    },
+  },
 ];
 
 /**

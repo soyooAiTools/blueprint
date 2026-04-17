@@ -81,7 +81,7 @@ public partial class GameFlowManagerMain : MonoBehaviour
     bool CanteenBlueprintDone = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
     bool showFullStationCTAInteractionDone = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
     bool showFullStationCTAPlayerActed = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool 5Done = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
+    bool CTAButtonDone = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
 
     // [SKELETON] Object references (auto-mapped from entity→pool)
     GameObject ForgeWorkshop; // → __Pool_Cube_Red_01
@@ -96,7 +96,7 @@ public partial class GameFlowManagerMain : MonoBehaviour
     GameObject MetalShard; // → __Pool_Cube_Cyan_01
     GameObject RecyclingStation; // → __Pool_Cube_Pink_01
     GameObject ForgeBlueprint; // → __Pool_Cube_Red_02
-    GameObject gold; // → __Pool_Cube_Yellow_02
+    GameObject goldObj; // → __Pool_Cube_Yellow_02
     GameObject PlayerSingleDrill; // → __Pool_Cube_Blue_03
     GameObject CanteenBlueprint; // → __Pool_Cube_Blue_04
     GameObject DormBlueprint; // → __Pool_Cube_Green_02
@@ -438,9 +438,11 @@ public partial class GameFlowManagerMain : MonoBehaviour
 
     // === TODO: AI declares pools, counters, and game-specific variables below ===
     // TODO_VARIABLES_START
-    float moveSpeed = 5f;
     float collectRange = 2f;
     int maxCarry = 10;
+    int RecyclingStationState = 0;
+    GameObject SpaceJunk2;
+    GameObject SpaceJunk3;
         // TODO_VARIABLES_END
 
     void Start()
@@ -466,7 +468,7 @@ public partial class GameFlowManagerMain : MonoBehaviour
         MetalShard = GameObject.Find("__Pool_Cube_Cyan_01");
         RecyclingStation = GameObject.Find("__Pool_Cube_Pink_01");
         ForgeBlueprint = GameObject.Find("__Pool_Cube_Red_02");
-        gold = GameObject.Find("__Pool_Cube_Yellow_02");
+        goldObj = GameObject.Find("__Pool_Cube_Yellow_02");
         PlayerSingleDrill = GameObject.Find("__Pool_Cube_Blue_03");
         CanteenBlueprint = GameObject.Find("__Pool_Cube_Blue_04");
         DormBlueprint = GameObject.Find("__Pool_Cube_Green_02");
@@ -813,7 +815,7 @@ public partial class GameFlowManagerMain : MonoBehaviour
                 SetScale(ForgeWorkshop, 1.3f);
                 HideObj(PlayerSingleDrill);
                 guideText.text = "在锻造间升级为三钻头飞船";
-                SwitchForm(undefined);
+                SwitchForm(1);
         // TODO_PHASE_4_INIT_END
 
             AddCompletedPhase("buildForgeWorkshop"); // [IMMUTABLE] Must match spec phaseId exactly
@@ -900,7 +902,7 @@ public partial class GameFlowManagerMain : MonoBehaviour
                 HideObj(SpaceJunk);
                 HideObj(SpaceJunk3);
                 guideText.text = "升级为粉碎车增强收集力";
-                SwitchForm(undefined);
+                SwitchForm(2);
         // TODO_PHASE_6_INIT_END
 
             AddCompletedPhase("tripleDrillCollectJunk"); // [IMMUTABLE] Must match spec phaseId exactly
@@ -987,7 +989,7 @@ public partial class GameFlowManagerMain : MonoBehaviour
                 HideObj(SpaceJunk2);
                 HideObj(SpaceJunk);
                 guideText.text = "升级为液压车解锁终极模式";
-                SwitchForm(undefined);
+                SwitchForm(3);
         // TODO_PHASE_8_INIT_END
 
             AddCompletedPhase("crusherVehicleCollectJunk"); // [IMMUTABLE] Must match spec phaseId exactly
@@ -1341,6 +1343,10 @@ public partial class GameFlowManagerMain : MonoBehaviour
     void SetScale(GameObject obj, float x, float y, float z)
     {
         if (obj != null) obj.transform.localScale = new Vector3(x, y, z);
+    }
+    void SetScale(GameObject obj, float uniform)
+    {
+        if (obj != null) obj.transform.localScale = new Vector3(uniform, uniform, uniform);
     }
 
     // [SKELETON] CTA button — pre-generated, do not remove

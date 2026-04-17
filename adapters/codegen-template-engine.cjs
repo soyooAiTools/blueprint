@@ -34,7 +34,8 @@ function fillSkeleton(schema, skeleton) {
   var todoMap = {};
 
   // TODO_VARIABLES: game config + NPC vars + playerHP if needed
-  todoMap['TODO_VARIABLES'] = generateVariables(schema);
+  // Pass skeleton to skip vars already declared by skeleton kit (idle game etc.)
+  todoMap['TODO_VARIABLES'] = generateVariables(schema, skeleton);
 
   // TODO_START: placement + resource init + form init
   todoMap['TODO_START'] = [
@@ -76,13 +77,16 @@ function fillSkeleton(schema, skeleton) {
   };
 }
 
-function generateVariables(schema) {
+function generateVariables(schema, skeleton) {
   var lines = [];
-  // Game config vars
+  // Game config vars — skip if skeleton already declares them (idle game kit)
   var gc = schema.gameConfig || {};
-  if (gc.moveSpeed) lines.push('    float moveSpeed = ' + gc.moveSpeed + 'f;');
-  if (gc.collectRange) lines.push('    float collectRange = ' + gc.collectRange + 'f;');
-  if (gc.maxCarry) lines.push('    int maxCarry = ' + gc.maxCarry + ';');
+  var skeletonHas = function(varName) {
+    return skeleton && (skeleton.indexOf('float ' + varName) !== -1 || skeleton.indexOf('int ' + varName) !== -1 || skeleton.indexOf(varName + ' { get') !== -1);
+  };
+  if (gc.moveSpeed && !skeletonHas('moveSpeed')) lines.push('    float moveSpeed = ' + gc.moveSpeed + 'f;');
+  if (gc.collectRange && !skeletonHas('collectRange')) lines.push('    float collectRange = ' + gc.collectRange + 'f;');
+  if (gc.maxCarry && !skeletonHas('maxCarry')) lines.push('    int maxCarry = ' + gc.maxCarry + ';');
   // NPC variables
   var hasPlayerHP = false;
   var npcs = schema.npcs || [];

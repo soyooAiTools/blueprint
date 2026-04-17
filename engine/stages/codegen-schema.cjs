@@ -351,12 +351,26 @@ function _repairSchema(schema) {
     });
   });
 
-  // Fix phases: strip extra props from onEnter, normalize action names
+  // Fix phases: strip extra props from onEnter, normalize action names, default required fields
   (schema.phases || []).forEach(function(p) {
     (p.onEnter || []).forEach(function(a) {
       if (!a.action && a.type) { a.action = a.type; delete a.type; }
       if (a.action && ALLOWED_ACTIONS.indexOf(a.action) === -1) {
         a.action = 'set_entity_state';
+      }
+      // Default required fields to prevent JS undefined leaking into C# code
+      if (a.action === 'switch_form' && a.formIndex == null) a.formIndex = 0;
+      if (a.action === 'set_entity_state') {
+        if (!a.entity) a.entity = 'Unknown';
+        if (a.state == null) a.state = 1;
+      }
+      if (a.action === 'add_resource') {
+        if (!a.resource) a.resource = 'default';
+        if (a.amount == null) a.amount = 1;
+      }
+      if (a.action === 'spawn_enemies') {
+        if (!a.entity) a.entity = 'Enemy';
+        if (a.count == null) a.count = 1;
       }
       Object.keys(a).forEach(function(k) { if (!ALLOWED_ACTION_KEYS[k]) delete a[k]; });
     });
