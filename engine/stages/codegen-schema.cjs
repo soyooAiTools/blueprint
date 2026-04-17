@@ -75,6 +75,9 @@ function generateSchemaFromSpecs(ctx) {
     var promptText = buildSchemaPrompt(ctx);
 
     // Call LLM (Sonnet via Claude Code CLI text mode)
+    // noTools: true — schema generation is pure text output; no file reads needed.
+    // Skipping the default --tools Read flag eliminates one extra API round-trip,
+    // keeping total latency well under the 5-minute timeout.
     var runClaudeCodeText = require('../../worker/claude-code-coder.js').runClaudeCodeText;
     return runClaudeCodeText({
       userPrompt: promptText,
@@ -83,7 +86,8 @@ function generateSchemaFromSpecs(ctx) {
       taskId: ctx.taskId,
       log: function(msg) { ctx.addLog('codegen-schema', msg); },
       effort: 'medium',
-      timeoutMs: 120000,
+      timeoutMs: 300000,
+      noTools: true,
       minOutputLen: 20,
     }).then(function(response) {
       if (!response.ok) {
