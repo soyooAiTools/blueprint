@@ -52,7 +52,7 @@ module.exports = {
       if (ctx.blueprint.entities && ctx.blueprint.entities.length > 0) {
         reviewPoolNameMap = promptV5.matchPrefabs(ctx.blueprint.entities);
       }
-    } catch(e) {}
+    } catch(e) { ctx.addLog('review', 'promptV5.matchPrefabs skipped: ' + e.message); }
 
     var reviewerName = (USE_CODEX_REVIEW && codexReviewer) ? 'Codex' : 'GPT-5.4';
     ctx.reportStatus('processing', { message: '[Linux] ' + reviewerName + ' 代码审核中...' });

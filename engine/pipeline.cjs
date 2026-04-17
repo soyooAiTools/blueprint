@@ -200,7 +200,7 @@ Pipeline.prototype.run = function(ctx, onProgress) {
         }
       }
       // Auto-promote pending rules on success too (closes learning loop)
-      try { autoPromotePendingRules(); } catch(e) {}
+      try { autoPromotePendingRules(); } catch(e) { ctx.addLog('pipeline', 'autoPromotePendingRules failed: ' + e.message); }
       // Auto-learn behavior templates from successful code
       try {
         var templateLearner = require('./template-learner.cjs');
@@ -238,11 +238,11 @@ Pipeline.prototype.run = function(ctx, onProgress) {
         ctx._failReason = 'gate: ' + gateErr.message;
         ctx._failClassification = 'GATE';
         if (!ctx._metricsRecorded) {
-          try { recordPipelineMetrics(ctx, ctx.stageResults); ctx._metricsRecorded = true; } catch(e) {}
+          try { recordPipelineMetrics(ctx, ctx.stageResults); ctx._metricsRecorded = true; } catch(e) { ctx.addLog(stage.name, 'Metrics recording failed (gate): ' + e.message); }
         }
-        try { notify.alert('warning', 'Pipeline gate failed', gateErr.message, { stage: stage.name, classification: 'GATE', taskId: ctx.taskId }); } catch(e) {}
-        try { lessonExtractor.extractLesson(ctx); } catch(e) {}
-        try { autoPromotePendingRules(); } catch(e) {}
+        try { notify.alert('warning', 'Pipeline gate failed', gateErr.message, { stage: stage.name, classification: 'GATE', taskId: ctx.taskId }); } catch(e) { ctx.addLog(stage.name, 'Notify failed (gate): ' + e.message); }
+        try { lessonExtractor.extractLesson(ctx); } catch(e) { ctx.addLog(stage.name, 'Lesson extraction failed (gate): ' + e.message); }
+        try { autoPromotePendingRules(); } catch(e) { ctx.addLog(stage.name, 'autoPromote failed (gate): ' + e.message); }
         if (onProgress) onProgress(stage.name, 'gate-failed', ctx);
         throw new PipelineError(stage.name, 'gate: ' + gateErr.message, 'GATE');
       }
@@ -312,7 +312,7 @@ Pipeline.prototype.run = function(ctx, onProgress) {
         try {
           var ecModule = require('./error-classifier.cjs');
           earlyClassified = ecModule.classify(err, { stage: stage.name }).type;
-        } catch(ecErr) {}
+        } catch(ecErr) { ctx.addLog(stage.name, 'error-classifier failed: ' + ecErr.message); }
         if (earlyClassified === 'MODEL_FATAL') {
           ctx.addLog(stage.name, 'MODEL_FATAL classification — skipping stage retries');
         } else if (attempt < maxAttempts) {
@@ -336,12 +336,12 @@ Pipeline.prototype.run = function(ctx, onProgress) {
           } catch(ce) { ctx._failClassification = 'UNKNOWN'; }
         }
         if (!ctx._metricsRecorded) {
-          try { recordPipelineMetrics(ctx, ctx.stageResults); ctx._metricsRecorded = true; } catch(e) {}
+          try { recordPipelineMetrics(ctx, ctx.stageResults); ctx._metricsRecorded = true; } catch(e) { ctx.addLog(stage.name, 'Metrics recording failed: ' + e.message); }
         }
-        try { notify.alert('critical', 'Pipeline failed', rootReason, { stage: ctx._failedAtStage, classification: ctx._failClassification, taskId: ctx.taskId }); } catch(e) {}
-        try { lessonExtractor.extractLesson(ctx); } catch(e) {}
+        try { notify.alert('critical', 'Pipeline failed', rootReason, { stage: ctx._failedAtStage, classification: ctx._failClassification, taskId: ctx.taskId }); } catch(e) { ctx.addLog(stage.name, 'Notify failed: ' + e.message); }
+        try { lessonExtractor.extractLesson(ctx); } catch(e) { ctx.addLog(stage.name, 'Lesson extraction failed: ' + e.message); }
         // Auto-promote pending rules after lesson extraction (closes learning loop)
-        try { autoPromotePendingRules(); } catch(e) {}
+        try { autoPromotePendingRules(); } catch(e) { ctx.addLog(stage.name, 'autoPromote failed: ' + e.message); }
         // Throw PipelineError with root cause — no re-wrapping
         throw new PipelineError(ctx._failedAtStage, rootReason, ctx._failClassification);
       });

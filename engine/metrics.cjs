@@ -92,7 +92,7 @@ function recordPipelineMetrics(ctx, stageResults) {
       // rotation check failed — continue writing to existing file
     }
     fs.appendFileSync(METRICS_FILE, JSON.stringify(record) + '\n');
-  } catch(e) {}
+  } catch(e) { console.error('[metrics] Write failed:', e.message); }
 
   return record;
 }

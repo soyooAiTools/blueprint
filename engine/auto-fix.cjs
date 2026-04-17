@@ -83,7 +83,7 @@ function backupFiles(filePaths) {
     var abs = path.join(REPO_ROOT, rel);
     try {
       if (fs.existsSync(abs)) backups[rel] = fs.readFileSync(abs, 'utf-8');
-    } catch(e) {}
+    } catch(e) { log('backup read failed: ' + rel + ' — ' + e.message); }
   });
   return backups;
 }
@@ -175,7 +175,7 @@ async function applyRecipe(fingerprintId) {
       if (fs.existsSync(abs)) {
         fileContents.push('===CURRENT:' + rel + '===\n' + fs.readFileSync(abs, 'utf-8') + '\n===END===');
       }
-    } catch(e) {}
+    } catch(e) { log('read affected file failed: ' + rel + ' — ' + e.message); }
   });
 
   // Backup
@@ -621,11 +621,20 @@ async function runAutoFixCycle(topFailReasons) {
   }
 }
 
+function validatePath(rel, allowedFiles, repoRoot) {
+  if (/\.\.[\\/]/.test(rel) || path.isAbsolute(rel)) return 'traversal';
+  if (allowedFiles.length > 0 && allowedFiles.indexOf(rel) < 0) return 'not-allowed';
+  var abs = path.resolve(repoRoot, rel);
+  if (!abs.startsWith(repoRoot + path.sep) && abs !== repoRoot) return 'escape';
+  return null;
+}
+
 module.exports = {
   applyRecipe: applyRecipe,
   generateRecipe: generateRecipe,
   autoLearn: autoLearn,
   runAutoFixCycle: runAutoFixCycle,
+  validatePath: validatePath,
   // Exposed for API handler (dashboard manual trigger)
   findRecipe: function(id) {
     var recipes = loadRecipes();
