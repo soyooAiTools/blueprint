@@ -1142,7 +1142,7 @@ public partial class GameFlowManagerMain : MonoBehaviour
         if (_autoPlayMode && !ruleTriggered[11] && (phaseTimer < 12f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {} // wait 12s + autoPlay action
         else if (!ruleTriggered[11]
             && (_autoPlayMode ? (phaseTimer >= 12f && _autoPlaySteps > _autoPlayStepsAtPhaseStart) // [SKELETON] 12s + autoPlay action (DO NOT MODIFY)
-                : (CTAButtonState >= 1 && 5Done == true && phaseTimer >= 5f)))
+                : (CTAButtonState >= 1 && CTAButtonDone == true && phaseTimer >= 5f)))
         {
             ruleTriggered[11] = true;
             currentPhaseName = "gameEnd";
