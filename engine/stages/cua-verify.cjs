@@ -358,7 +358,17 @@ module.exports = {
               // added for "never completed any phase". Threshold tightened 3 → 2 for
               // noPhasesCompleted case: if phase 1 can't start in 2 rounds, 3 won't help.
               if (stuckDiagnosis.rootCause === 'visual_freeze' && _noProgressRounds >= 2) {
-                throw new Error('Visual freeze FATAL: ' + _noProgressRounds + ' consecutive rounds — not fixable via claude-fix. ' + stuckDiagnosis.summary);
+                // Guard: if we have not yet attempted a full-regen, escalate to it now
+                // instead of throwing FATAL. Surgical (patchRecode) fixes cannot resolve
+                // initialization-level freeze (Camera/Canvas/AutoPlay gate absence).
+                // Only throw FATAL after a full-regen has also failed to make progress.
+                if (consecutiveSameIssue < SAME_ISSUE_REGEN_THRESHOLD) {
+                  ctx.addLog('cua-verify', 'visual_freeze: surgical fix insufficient — escalating to full regen before FATAL (' + _noProgressRounds + ' rounds)');
+                  consecutiveSameIssue = SAME_ISSUE_REGEN_THRESHOLD;
+                  // fall through: the full-regen path below will handle this round
+                } else {
+                  throw new Error('Visual freeze FATAL: ' + _noProgressRounds + ' consecutive rounds — surgical and full-regen both failed. ' + stuckDiagnosis.summary);
+                }
               }
 
               if (_noProgressRounds >= NO_PROGRESS_EXIT_ROUNDS + 3) {

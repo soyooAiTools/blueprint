@@ -74,19 +74,19 @@ function generateSchemaFromSpecs(ctx) {
     // Build prompt for Sonnet
     var promptText = buildSchemaPrompt(ctx);
 
-    // Call LLM (Sonnet via Claude Code CLI text mode)
-    // noTools: true — schema generation is pure text output; no file reads needed.
-    // Skipping the default --tools Read flag eliminates one extra API round-trip,
-    // keeping total latency well under the 5-minute timeout.
+    // Call LLM (Haiku via Claude Code CLI text mode)
+    // Haiku is used because Sonnet consistently hangs (0 bytes output, >300s timeout)
+    // on schema prompts >3K chars with Chinese game spec content. Haiku generates
+    // correct schema JSON in <60s for the same 22K-char prompts.
     var runClaudeCodeText = require('../../worker/claude-code-coder.js').runClaudeCodeText;
     return runClaudeCodeText({
       userPrompt: promptText,
-      systemPrompt: '你是试玩广告游戏配置生成器。只输出 JSON 对象，不要 markdown 包裹，不要解释。',
-      model: 'claude-sonnet-4-6',
+      systemPrompt: '你是���玩广告游戏配置生成器。只输出 JSON 对象，不要 markdown 包裹，不��解释。',
+      model: 'claude-haiku-4-5-20251001',
       taskId: ctx.taskId,
       log: function(msg) { ctx.addLog('codegen-schema', msg); },
-      effort: 'medium',
-      timeoutMs: 300000,
+      effort: 'low',
+      timeoutMs: 120000,
       noTools: true,
       minOutputLen: 20,
     }).then(function(response) {
@@ -98,16 +98,31 @@ function generateSchemaFromSpecs(ctx) {
       ctx.blueprint.schemaTokensIn = 0;
       ctx.blueprint.schemaTokensOut = 0;
 
-      // Extract JSON from response
+      // Extract JSON from response (object or array)
       var text = response.text || '';
-      var jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('Schema generation returned no JSON object');
-      }
+      // Strip markdown fences
+      text = text.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '');
       var schema;
-      try { schema = JSON.parse(jsonMatch[0]); } catch(e) {
-        throw new Error('Invalid JSON from schema generation: ' + e.message);
+      try {
+        var parsed = JSON.parse(text.trim());
+        if (Array.isArray(parsed)) {
+          schema = { gameConfig: { gameName: ctx.blueprint.projectName || 'game', maxPlayers: 1, gravity: -9.8 }, entities: (ctx.blueprint.entities || []).map(function(e) { return { name: e.name || e.poolName, pool: e.poolName || '', initPos: [0, 1, 0], scale: 1.0 }; }), resources: [], phases: parsed, npcs: [], customLogic: [] };
+          ctx.addLog('codegen-schema', 'LLM returned phases array — auto-wrapped into full schema');
+        } else {
+          schema = parsed;
+        }
+      } catch(e1) {
+        var jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+          throw new Error('Schema generation returned no JSON object');
+        }
+        try { schema = JSON.parse(jsonMatch[0]); } catch(e2) {
+          throw new Error('Invalid JSON from schema generation: ' + e2.message);
+        }
       }
+
+      // Auto-repair common LLM output issues before validation
+      _repairSchema(schema);
 
       // Validate
       var structErrors = schemaValidator.validateGameSchema(schema);
@@ -135,7 +150,16 @@ function buildSchemaPrompt(ctx) {
   var entities = JSON.stringify(ctx.blueprint.entities || [], null, 2);
 
   var lines = [];
-  lines.push('根据分镜 specs 输出 JSON 配置。');
+  lines.push('根据分镜 specs 输出完整 JSON 配置对象。严格遵守以下字段定义,不添加额外字段:');
+  lines.push('');
+  lines.push('gameConfig (必填): { "cameraBackground": [r,g,b], "groundColor": [r,g,b], "moveSpeed": 5.0, "collectRange": 2.0, "maxCarry": 10 }');
+  lines.push('entities[]: { "name": "实体名", "pool": "__Pool_Shape_Color_NN", "initPos": [x,y,z], "scale": 1.0 } — 只有这4个字段,不加其他');
+  lines.push('resources[]: { "name": "资源名", "entity": "关联实体名", "convertRatio": 1 }');
+  lines.push('phases[]: { "phaseId": "阶段ID", "showEntities": ["实体名"], "hideEntities": [], "guideText": "引导文字", "trigger": {...}, "onEnter": [{...}] }');
+  lines.push('phases[].onEnter[].action 只能是: "set_entity_state" | "add_resource" | "switch_form" | "show_floating_text" | "set_guide" | "spawn_enemies"');
+  lines.push('trigger.state 必须是整数(不是字符串)');
+  lines.push('npcs[]: { "entity": "实体名", "template": "patrol|chase_attack|...", "params": {...} }');
+  lines.push('customLogic[]: 字符串数组,每项是自然语言描述,越少越好');
   lines.push('');
   lines.push('## NPC 行为模板');
   lines.push('- patrol: patrolRadius(float), moveSpeed(float)');
@@ -256,4 +280,72 @@ function buildCustomLogicPrompt(ctx, schema) {
   lines.push(ctx.csCode);
   lines.push('```');
   return lines.join('\n');
+}
+
+var ALLOWED_ENTITY_KEYS = { name: 1, pool: 1, initPos: 1, scale: 1, showInPhase: 1, terminalState: 1 };
+var ALLOWED_ACTION_KEYS = { action: 1, entity: 1, state: 1, resource: 1, amount: 1, formIndex: 1, text: 1, color: 1, count: 1 };
+var ALLOWED_ACTIONS = ['set_entity_state', 'add_resource', 'switch_form', 'show_floating_text', 'set_guide', 'spawn_enemies'];
+
+function _repairSchema(schema) {
+  if (!schema || typeof schema !== 'object') return;
+
+  // Fix gameConfig defaults
+  if (!schema.gameConfig) schema.gameConfig = {};
+  var gc = schema.gameConfig;
+  if (!gc.cameraBackground) gc.cameraBackground = [0.5, 0.7, 1.0];
+  if (!gc.groundColor) gc.groundColor = [0.3, 0.6, 0.2];
+  if (gc.moveSpeed == null) gc.moveSpeed = 5.0;
+  if (gc.collectRange == null) gc.collectRange = 2.0;
+  if (gc.maxCarry == null) gc.maxCarry = 10;
+  Object.keys(gc).forEach(function(k) {
+    if (!{ cameraBackground: 1, groundColor: 1, moveSpeed: 1, collectRange: 1, maxCarry: 1 }[k]) delete gc[k];
+  });
+
+  // Fix entities: strip extra props, pad pool digits
+  (schema.entities || []).forEach(function(e) {
+    Object.keys(e).forEach(function(k) { if (!ALLOWED_ENTITY_KEYS[k]) delete e[k]; });
+    if (e.pool && !/\d{2}$/.test(e.pool)) {
+      e.pool = e.pool.replace(/_(\d)$/, '_0$1');
+    }
+    if (e.pool && !/^__Pool_[A-Z][a-z]+_[A-Z][a-z]+_\d{2}$/.test(e.pool)) {
+      e.pool = '__Pool_Cube_White_01';
+    }
+  });
+
+  // Fix resources: ensure required fields
+  (schema.resources || []).forEach(function(r) {
+    if (!r.entity) r.entity = (schema.entities && schema.entities[0]) ? schema.entities[0].name : 'Unknown';
+    if (r.convertRatio == null) r.convertRatio = 1;
+    Object.keys(r).forEach(function(k) {
+      if (!{ name: 1, entity: 1, convertRatio: 1, maxStock: 1 }[k]) delete r[k];
+    });
+  });
+
+  // Fix phases: strip extra props from onEnter, normalize action names
+  (schema.phases || []).forEach(function(p) {
+    (p.onEnter || []).forEach(function(a) {
+      if (!a.action && a.type) { a.action = a.type; delete a.type; }
+      if (a.action && ALLOWED_ACTIONS.indexOf(a.action) === -1) {
+        a.action = 'set_entity_state';
+      }
+      Object.keys(a).forEach(function(k) { if (!ALLOWED_ACTION_KEYS[k]) delete a[k]; });
+    });
+    (p.onComplete || []).forEach(function(a) {
+      if (!a.action && a.type) { a.action = a.type; delete a.type; }
+      Object.keys(a).forEach(function(k) { if (!ALLOWED_ACTION_KEYS[k]) delete a[k]; });
+    });
+  });
+
+  // Fix triggers: state must be integer
+  function fixTrigger(t) {
+    if (!t) return;
+    if (t.state != null && typeof t.state !== 'number') t.state = parseInt(t.state, 10) || 0;
+    if (Array.isArray(t.triggers)) t.triggers.forEach(fixTrigger);
+  }
+  (schema.phases || []).forEach(function(p) { fixTrigger(p.trigger); });
+
+  // Fix customLogic: ensure array of strings
+  if (schema.customLogic) {
+    schema.customLogic = schema.customLogic.filter(function(x) { return typeof x === 'string'; });
+  }
 }
