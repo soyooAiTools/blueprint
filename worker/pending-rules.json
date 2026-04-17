@@ -996,5 +996,43 @@
     "autoExtracted": true,
     "failClassification": "CODE",
     "stage": "codegen"
+  },
+  {
+    "description": "Schema generation failed: Exit code 143",
+    "rule": "General",
+    "fix": "Schema generation failed: Exit code 143",
+    "severity": "info",
+    "line": "codegen stage failure",
+    "taskId": "proj_1776356247505_z3r0kh",
+    "timestamp": "2026-04-16T16:40:24.649Z",
+    "autoExtracted": true,
+    "failClassification": "CODE",
+    "stage": "codegen"
+  },
+  {
+    "description": "Unexpected token '`', \"```json\n{\n\"... is not valid JSON",
+    "rule": "General",
+    "fix": "Unexpected token '`', \"```json\n{\n\"... is not valid JSON",
+    "severity": "info",
+    "line": "complexity-gate stage failure",
+    "taskId": "proj_1776356247505_z3r0kh",
+    "timestamp": "2026-04-16T16:42:34.160Z",
+    "autoExtracted": true,
+    "failClassification": "CODE",
+    "stage": "complexity-gate",
+    "lastSeenAt": "2026-04-16T16:56:12.924Z",
+    "hitCount": 5
+  },
+  {
+    "description": "Schema validation failed: undefined should NOT have additional properties; undefined should NOT have additional properties; undefined should NOT have additional properties; undefined should have required property 'gameConfig'; undefined should NOT have additional properties; undefined should NOT have additional properties; undefined should NOT have additional properties; undefined should match pattern \"^__Pool_[A-Z][a-z]+_[A-Z][a-z]+_\\d{2}$\"; undefined should have required property 'initPos'; un",
+    "rule": "General",
+    "fix": "Schema validation failed: undefined should NOT have additional properties; undefined should NOT have additional properties; undefined should NOT have additional properties; undefined should have required property 'gameConfig'; undefined should NOT have additional properties; undefined should NOT hav",
+    "severity": "info",
+    "line": "codegen stage failure",
+    "taskId": "proj_1776391516726_urbib0",
+    "timestamp": "2026-04-17T02:39:51.255Z",
+    "autoExtracted": true,
+    "failClassification": "CODE",
+    "stage": "codegen"
   }
 ]

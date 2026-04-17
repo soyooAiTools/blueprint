@@ -96,5 +96,91 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-a89f0b63.md"
+  },
+  {
+    "id": "auto-b1675811",
+    "fingerprintPattern": "Visual freeze FATAL: \\d+ consecutive rounds.*not fixable via claude-fix.*Stuck at phase \\(none completed\\)",
+    "description": "CUA visual_freeze FATAL fires after only 1 recode attempt because the 'noPhasesCompleted' case is mis-labelled as batch-firing, sending the wrong initialization advice to the AI and wasting the single recode window before FATAL triggers.",
+    "risk": "medium",
+    "autoApply": false,
+    "affectedFiles": [
+      "engine/stages/cua-verify.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-b1675811.md"
+  },
+  {
+    "id": "auto-265daa80",
+    "fingerprintPattern": "Spec validation failed: \\d+ error\\(s\\):.*entity \"[^\"]+\" not found in blueprint\\.entities",
+    "description": "LLM spec extractor writes abbreviated entity names (e.g. 'drill' vs 'BasicDrill'); two-tier exact/case-insensitive guard misses them, burning 6 full-pipeline retries per task.",
+    "risk": "medium",
+    "autoApply": false,
+    "affectedFiles": [
+      "engine/stages/spec-validate.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-265daa80.md"
+  },
+  {
+    "id": "auto-7e49ed02",
+    "fingerprintPattern": "CUA total time limit exceeded \\(\\d+min > 45min\\)",
+    "description": "Ambient system env var CUA_TOTAL_TIMEOUT_MS=2700000 (45 min) overrides the code's updated 75-min default, causing legitimate 47-min CUA runs to be killed prematurely.",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      ".env",
+      "worker/.env",
+      "engine/stages/cua-verify.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-7e49ed02.md"
+  },
+  {
+    "id": "auto-747d061e",
+    "fingerprintPattern": "Schema generation failed: Exit code 14[23]",
+    "description": "Schema generation times out (SIGTERM → exit 143) because the 2-minute hardcoded timeout in codegen-schema.cjs is too short for the Claude Code CLI when tool-call overhead adds an extra API round-trip",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/codegen-schema.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-747d061e.md"
+  },
+  {
+    "id": "auto-a3298ef4",
+    "fingerprintPattern": "Unexpected token ['\"`]?`['\"`]?,?\\s*\"```json.*is not valid JSON",
+    "description": "parseSimplifyResponse passes raw ```json-fenced text to JSON.parse when LLM omits closing code fence (truncated response)",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/complexity-gate.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-a3298ef4.md"
+  },
+  {
+    "id": "auto-4565625e",
+    "fingerprintPattern": "Spec validation failed: \\d+ error\\(s\\):.*entity \"[a-z][a-zA-Z]+\" not found in blueprint\\.entities",
+    "description": "LLM camelCases entity names in specs; entityLowerToCanonical canonical values are stored un-trimmed, allowing whitespace-polluted names to escape the auto-fix and reach codegen",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/spec-validate.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-4565625e.md"
+  },
+  {
+    "id": "auto-213f5a35",
+    "fingerprintPattern": "Schema validation failed:.*undefined should (NOT have additional properties|have required)",
+    "description": "Ajv v6 error objects expose `dataPath`, not `instancePath`; validate-schema.cjs uses the v8 property, producing `undefined` in every validation error message",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "adapters/schema/validate-schema.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-213f5a35.md"
   }
 ]
