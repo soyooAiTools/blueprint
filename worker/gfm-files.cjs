@@ -16,6 +16,8 @@ const GFM_FILES = [
   'GFM_Grid.cs',
   'GFM_Pathfinding.cs',
   'GFM_Billboard.cs',
+  'ScriptActivator.cs',
+  'GameSceneCtrl.cs',
 ];
 
 function loadGfmFiles() {

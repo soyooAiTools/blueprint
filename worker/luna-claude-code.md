@@ -81,6 +81,8 @@ GFM_*.cs 工具类在 `Assets/Program/Script/Commons/`（GFM_UI/GFM_Utils/GFM_Po
 - 创建按钮: `GFM_UI.CreateButton(uiCanvas, "Play", new Vector2(0, -100), new Vector2(200, 60), OnClick)`
 - 碰撞检测: `Vector3.Distance(a.position, b.position) < radius`
 - 相机操作: `if (mainCam != null) mainCam.orthographicSize = 6f;` 永远用 mainCam
+- GameSceneCtrl: 骨架已在 Start() 中初始化 `GameSceneCtrl.Init(gameObject)` 并注册所有实体。可用 `GameSceneCtrl.instance.Get("name")` / `.Show("name", pos)` / `.Hide("name")` / `.IsNear("a", "b", range)`
+- ScriptActivator: 池对象上已预烘焙。简单行为可用 `var sa = (ScriptActivator)obj.GetComponent(typeof(ScriptActivator)); if (sa != null) sa.Activate("npc", "patrol", speed, range, 0f);` — 支持 patrol/chase/rotate/bob/orbit。⚠️ 必须先 Show() 移动到场景中再 Activate()（patrol/bob 会记录激活时的位置作为原点）。隐藏时用 `.Deactivate()` + `Hide()` 配合，否则行为会覆盖隐藏位置
 
 ## 阶段流程规则（必须严格遵守）
 

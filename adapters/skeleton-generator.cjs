@@ -635,11 +635,17 @@ function generateSkeleton(specs, opts = {}) {
   // ResetPool removed — using pre-colored pool objects
   lines.push('');
 
-  // [SKELETON] Pre-generated Find() calls
+  // [SKELETON] GameSceneCtrl init + entity registration
   if (entityNames.length > 0) {
-    lines.push('        // [SKELETON] Find all scene objects');
+    lines.push('        // [SKELETON] Scene entity management');
+    lines.push('        GameSceneCtrl.Init(gameObject);');
     entityNames.forEach(name => {
-      lines.push(`        ${name} = GameObject.Find("${entityPoolMap[name]}");`);
+      lines.push(`        GameSceneCtrl.instance.Register("${name}", "${entityPoolMap[name]}");`);
+    });
+    lines.push('');
+    lines.push('        // [SKELETON] Entity variable shortcuts (backed by GameSceneCtrl cache)');
+    entityNames.forEach(name => {
+      lines.push(`        ${name} = GameSceneCtrl.instance.Get("${name}");`);
     });
     lines.push('');
   }

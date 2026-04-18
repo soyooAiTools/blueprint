@@ -81,12 +81,11 @@ function PipelineContext(task, checkpoint, workerConfig) {
   this.checkpoint = checkpoint || {};
   this.completedStages = (checkpoint && checkpoint.completedStages) || [];
 
-  // Always load GFM_Tools.cs — checkpoint resume skips clone which normally sets this
+  // Always load GFM toolkit files — checkpoint resume skips clone which normally sets this
   try {
-    var gfmPath = require('path').join(__dirname, '..', 'worker', 'GFM_Tools.cs');
-    if (require('fs').existsSync(gfmPath)) {
-      this.extraFiles['GFM_Tools.cs'] = require('fs').readFileSync(gfmPath, 'utf-8');
-    }
+    delete this.extraFiles['GFM_Tools.cs']; // remove legacy monolithic file
+    var gfmFiles = require('../worker/gfm-files.cjs').loadGfmFiles();
+    for (var gk in gfmFiles) { if (gfmFiles.hasOwnProperty(gk)) this.extraFiles[gk] = gfmFiles[gk]; }
   } catch(e) { /* ignore */ }
   this.stageResults = {};
   this.lastStageError = null;

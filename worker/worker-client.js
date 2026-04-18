@@ -77,11 +77,9 @@ async function runLinuxBuild(csCode, extraFiles, log, taskId) {
 async function doBuild(clientDir, log, taskId) {
   if (USE_LINUX_BUILD) {
     const csPath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
-    const gfmPath = path.join(__dirname, 'GFM_Tools.cs');
     if (!fs.existsSync(csPath)) return { ok: false, error: 'GameFlowManagerMain.cs not found' };
     const csCode = fs.readFileSync(csPath, 'utf8');
-    const extraFiles = {};
-    if (fs.existsSync(gfmPath)) extraFiles['GFM_Tools.cs'] = fs.readFileSync(gfmPath, 'utf8');
+    const extraFiles = require('./gfm-files.cjs').loadGfmFiles();
     const result = await runLinuxBuild(csCode, extraFiles, log, taskId);
     if (result.ok) {
       // Write HTML to multiple locations for downstream compatibility
@@ -680,17 +678,12 @@ async function processTask(task) {
       // === Linux Build Path: C# �?JS �?HTML via remote API ===
       log('[linux-build] Using Linux build path', taskId);
       const csPath = path.join(CLIENT_DIR, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
-      const gfmPath = path.join(__dirname, 'GFM_Tools.cs');
-      
       if (!fs.existsSync(csPath)) {
         throw new TaskFailedError('GameFlowManagerMain.cs not found at ' + csPath);
       }
-      
+
       const csCode = fs.readFileSync(csPath, 'utf8');
-      const extraFiles = {};
-      if (fs.existsSync(gfmPath)) {
-        extraFiles['GFM_Tools.cs'] = fs.readFileSync(gfmPath, 'utf8');
-      }
+      const extraFiles = require('./gfm-files.cjs').loadGfmFiles();
       
       const linuxResult = await runLinuxBuild(csCode, extraFiles, log, taskId);
       if (!linuxResult.ok) {

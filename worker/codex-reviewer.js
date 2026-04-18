@@ -277,14 +277,11 @@ async function reviewCodeWithCodex(code, options) {
   fs.writeFileSync(path.join(workDir, 'GameFlowManagerMain.cs'), code);
 
   // 写入 partial class 伴生文件 (Systems.cs 等)，避免 Codex 误报 "missing method definitions"
-  // 2026-04-16: EXCLUDE GFM_Tools.cs — it is a canonical read-only toolkit whose internals
-  // legitimately use Camera.main / FindObjectOfType / new Material / Resources.GetBuiltinResource
-  // etc. Feeding it to Codex causes a permanent "critical" floor on every caller of
-  // GFM_Create / GFM_UI helpers (proj_1776266310700_2p50o1 was the trigger). Same root cause
-  // as engine/stages/codegen.cjs:215 exclude, mirrored at the review layer.
+  // Exclude GFM toolkit files — canonical read-only, not AI-generated
+  const _isGfm = require('./gfm-files.cjs').isGfmFile;
   const extraFiles = options.extraFiles || {};
   for (const efName of Object.keys(extraFiles)) {
-    if (efName === 'GFM_Tools.cs') continue;
+    if (efName === 'GFM_Tools.cs' || _isGfm(efName)) continue;
     if (efName.endsWith('.cs') && extraFiles[efName]) {
       fs.writeFileSync(path.join(workDir, efName), extraFiles[efName]);
     }
@@ -331,7 +328,7 @@ async function reviewCodeWithCodex(code, options) {
   // 构建 prompt — 告知 Codex 可能有多个 .cs 文件
   // Exclude GFM_Tools.cs from the companionNote list too — it is NOT a partial-class
   // companion and should not be advertised to Codex as one.
-  const extraFileNames = Object.keys(extraFiles).filter(n => n.endsWith('.cs') && n !== 'GFM_Tools.cs');
+  const extraFileNames = Object.keys(extraFiles).filter(n => n.endsWith('.cs') && n !== 'GFM_Tools.cs' && !_isGfm(n));
   const companionNote = extraFileNames.length > 0
     ? `\n\nIMPORTANT: This project uses C# partial classes. The following companion files are also present and compiled together with GameFlowManagerMain.cs:\n${extraFileNames.map(n => '- ' + n).join('\n')}\nMethods defined in these companion files are NOT missing — they are part of the same class. Do NOT flag them as "missing method definitions".`
     : '';

@@ -10,6 +10,7 @@ var path = require('path');
 var helpers = require('../helpers.cjs');
 var { createFixLoop } = require('../fix-loop.cjs');
 var { getBlockingIssues } = require('../static-check.cjs');
+var _isGfmFile = require('../../worker/gfm-files.cjs').isGfmFile;
 
 module.exports = {
   name: 'codegen',
@@ -207,13 +208,10 @@ module.exports = {
           if (ctx.extraFiles) {
             for (var efKey in ctx.extraFiles) {
               if (!ctx.extraFiles.hasOwnProperty(efKey)) continue;
-              // GFM_Tools.cs is a canonical read-only toolkit (shipped with blueprint-editor).
-              // Its internal pool/indicator implementation legitimately uses SetActive/Instantiate
-              // etc. — these are library internals, NOT AI-generated violations. Every round
-              // restores the canonical version (see claude-code-coder.js:846-851), so scanning
-              // it here just creates a permanent 10-violation floor that no AI round can ever
-              // clear. Root cause of 2026-04-15 Round3-zero-edit stall on proj_1776266310700_2p50o1.
-              if (efKey === 'GFM_Tools.cs') continue;
+              // GFM_*.cs are canonical read-only toolkit files (shipped with blueprint-editor).
+              // Their internal pool/indicator implementation legitimately uses SetActive/Instantiate
+              // etc. — these are library internals, NOT AI-generated violations.
+              if (efKey === 'GFM_Tools.cs' || _isGfmFile(efKey)) continue;
               var efBlocking = getBlockingIssues(ctx.extraFiles[efKey]);
               for (var bfi = 0; bfi < efBlocking.length; bfi++) {
                 blockingFromExtras.push(Object.assign({}, efBlocking[bfi], { file: efKey }));
