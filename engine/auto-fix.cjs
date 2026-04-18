@@ -29,6 +29,7 @@ var { loadRecipes, bindKnowledge, findAutoFixRecipe } = require('./failure-finge
 var REPO_ROOT = path.join(__dirname, '..');
 var RECIPES_FILE = path.join(REPO_ROOT, 'worker', 'fix-recipes.json');
 var STATE_FILE = path.join(REPO_ROOT, 'server-data', 'auto-fix-state.json');
+var BACKUP_ROOT = path.join(REPO_ROOT, 'server-data', 'auto-fix-backups');
 var MEMORY_DIR = '/root/.claude/projects/-root/memory';
 var MEMORY_INDEX = path.join(MEMORY_DIR, 'MEMORY.md');
 var COOLDOWN_MS = 60 * 60 * 1000; // 1h per fingerprint
@@ -93,6 +94,40 @@ function restoreFiles(backups) {
     try { fs.writeFileSync(path.join(REPO_ROOT, rel), backups[rel]); }
     catch(e) { log('restore failed: ' + rel + ' — ' + e.message); }
   });
+}
+
+// Persist a backup snapshot so a later regression can revert the apply.
+// Snapshot lives at server-data/auto-fix-backups/<recipeId>/<rel.path>.
+// Overwrites previous snapshot for the same recipe.
+function saveBackupSnapshot(recipeId, backups) {
+  try {
+    var dir = path.join(BACKUP_ROOT, recipeId);
+    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(dir, { recursive: true });
+    Object.keys(backups).forEach(function(rel) {
+      var abs = path.join(dir, rel);
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      fs.writeFileSync(abs, backups[rel]);
+    });
+    fs.writeFileSync(path.join(dir, '_files.json'), JSON.stringify(Object.keys(backups), null, 2));
+  } catch(e) { log('saveBackupSnapshot failed: ' + e.message); }
+}
+
+function restoreBackupSnapshot(recipeId) {
+  var dir = path.join(BACKUP_ROOT, recipeId);
+  var idx = path.join(dir, '_files.json');
+  if (!fs.existsSync(idx)) return { ok: false, error: 'no snapshot' };
+  try {
+    var files = JSON.parse(fs.readFileSync(idx, 'utf-8'));
+    files.forEach(function(rel) {
+      var src = path.join(dir, rel);
+      var dst = path.join(REPO_ROOT, rel);
+      if (fs.existsSync(src)) fs.writeFileSync(dst, fs.readFileSync(src));
+    });
+    return { ok: true, files: files };
+  } catch(e) {
+    return { ok: false, error: e.message };
+  }
 }
 
 // ─── Verification ───────────────────────────────────────────────────
@@ -298,6 +333,9 @@ async function applyRecipe(fingerprintId) {
   }
 
   log('Recipe ' + recipe.id + ' applied successfully: ' + changedPaths.join(', '));
+  // Persist pre-apply backup so runAutoFixCycle can revert if the recipe turns
+  // out to be wrong (fingerprint re-surfaces after apply).
+  saveBackupSnapshot(recipe.id, backups);
   return {
     ok: true,
     recipe: recipe.id,
@@ -556,6 +594,29 @@ async function runAutoFixCycle(topFailReasons) {
       var recipeApplyCount = (state.history || []).filter(function(h) {
         return h.recipe === recipe.id;
       }).length;
+
+      // Regression check: fingerprint was marked 'applied' previously but it's
+      // back — the recipe is ineffective. Revert the previous apply (restore
+      // from snapshot) and mark manual-only so humans can inspect.
+      var prevCooldown = state.cooldowns && state.cooldowns[fingerprint];
+      if (prevCooldown && prevCooldown.status === 'applied' && recipeApplyCount >= 1) {
+        var revert = restoreBackupSnapshot(recipe.id);
+        if (revert.ok) {
+          log('Regression detected — reverted recipe ' + recipe.id + ' (files: ' + revert.files.join(', ') + ')');
+          details.push('[L6] Regression revert ' + recipe.id + ' → manual-only (files restored: ' + revert.files.join(', ') + ')');
+        } else {
+          log('Regression detected but revert failed (' + revert.error + ') — marking manual-only anyway');
+          details.push('[L6] Regression on ' + recipe.id + ' → manual-only (revert failed: ' + revert.error + ')');
+        }
+        setCooldown(state, fingerprint, 'reverted');
+        // Persist a note so operators see which recipe is invalid.
+        state.invalidRecipes = state.invalidRecipes || {};
+        state.invalidRecipes[recipe.id] = { at: new Date().toISOString(), fingerprint: fingerprint.slice(0, 120), reverted: revert.ok };
+        saveState(state);
+        stats.skipped++;
+        continue;
+      }
+
       if (recipeApplyCount >= MAX_RECIPE_APPLIES) {
         log('Recipe ' + recipe.id + ' already applied ' + recipeApplyCount + ' times without resolving — marking manual-only');
         setCooldown(state, fingerprint, 'manual-only');

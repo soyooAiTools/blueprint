@@ -194,5 +194,18 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-09618e16.md"
+  },
+  {
+    "id": "auto-bb58853e",
+    "fingerprintPattern": "Cannot read properties of undefined \\(reading 'length'\\)",
+    "description": "resolveEntities() crashes on undefined specs in schema codegen — missing null guard at entry",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "adapters/entity-resolver.cjs",
+      "engine/stages/codegen-schema.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-bb58853e.md"
   }
 ]

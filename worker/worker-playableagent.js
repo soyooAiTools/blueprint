@@ -428,7 +428,25 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
         log('[PlayableAgent] ⚠️ Silent-pass signals detected: ' + silentPassSignals.join(', '), taskId);
       }
 
-      log('[PlayableAgent] Result: ' + (passed ? 'PASS' : 'FAIL') +
+      // ═══ Hard-block: semantic silent-pass signals force FAIL ═══
+      // zero-actions alone is expected in observe mode (already exempted above).
+      // uniform-timing / phase-order / all-vars-zero are bugs, not observability noise.
+      // Per feedback_cua_hard_gate: CUA must be a hard gate, never a soft signal.
+      var hardBlockingSignals = silentPassSignals.filter(function(s) {
+        return s.indexOf('uniform-timing') === 0
+            || s.indexOf('phase-order-violation') === 0
+            || s.indexOf('all-vars-zero') === 0;
+      });
+      var effectivePassed = passed;
+      if (passed && hardBlockingSignals.length > 0) {
+        log('[PlayableAgent] 🚨 HARD BLOCK: silent-pass signals override passed=true → FAIL: ' + hardBlockingSignals.join(', '), taskId);
+        effectivePassed = false;
+        hardBlockingSignals.forEach(function(sig) {
+          issues.push('[silent-pass-block] ' + sig + ' — game logic did not run correctly despite phase flags flipping. See feedback_cua_silent_pass_blindspot.md');
+        });
+      }
+
+      log('[PlayableAgent] Result: ' + (effectivePassed ? 'PASS' : 'FAIL') +
           ' | Coverage: ' + coveredPhases.length + '/' + totalPhases +
           ' | Issues: ' + issues.length, taskId);
 

@@ -222,6 +222,8 @@ Pipeline.prototype.run = function(ctx, onProgress) {
     // Optional skip condition
     if (stage.canSkip && stage.canSkip(ctx)) {
       ctx.addLog(stage.name, 'skipped (condition)');
+      ctx._skippedStages = ctx._skippedStages || [];
+      ctx._skippedStages.push({ name: stage.name, reason: 'condition' });
       return runNext();
     }
 
@@ -355,6 +357,7 @@ Pipeline.prototype.run = function(ctx, onProgress) {
 // ============ Real Stage Implementations ============
 
 var cloneStage = require('./stages/clone.cjs');
+var specExtractStage = require('./stages/spec-extract.cjs');
 var specValidateStage = require('./stages/spec-validate.cjs');
 var complexityGateStage = require('./stages/complexity-gate.cjs');
 var codegenStage = require('./stages/codegen.cjs');
@@ -370,6 +373,7 @@ var uploadStage = require('./stages/upload.cjs');
 function createLunaPipeline(options) {
   return new Pipeline([
     cloneStage,
+    specExtractStage,
     specValidateStage,
     complexityGateStage,
     codegenStage,

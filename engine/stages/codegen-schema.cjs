@@ -28,7 +28,10 @@ module.exports = {
 
         // Step 2: Template fill
         var startMs = Date.now();
-        var resolved = resolveEntities(ctx.blueprint.specs, ctx.blueprint.entities);
+        // Guard: only call resolveEntities when specs exist (mirrors codegen-legacy.cjs:43)
+        var resolved = (ctx.blueprint.specs && ctx.blueprint.specs.length > 0)
+          ? resolveEntities(ctx.blueprint.specs, ctx.blueprint.entities)
+          : { entityPoolMap: {}, resolvedSpecs: [], allEntities: {}, poolManifest: null };
         ctx.blueprint.poolManifest = resolved.poolManifest;
         var skeletonResult = generateSkeleton(ctx.blueprint.specs, {
           entityPoolMap: resolved.entityPoolMap,

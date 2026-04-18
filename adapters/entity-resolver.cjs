@@ -16,6 +16,16 @@ var promptV5 = require('../worker/prompt-v5-basetemplate.js');
  * @returns {object} { entityPoolMap: {name: poolName}, resolvedSpecs: specs with poolName added }
  */
 function resolveEntities(specs, blueprintEntities) {
+  // Guard: specs may be undefined/null for legacy blueprints or tasks that skipped spec-extraction
+  if (!specs || specs.length === 0) {
+    return {
+      entityPoolMap: {},
+      resolvedSpecs: [],
+      allEntities: {},
+      poolManifest: buildPoolManifest({}, {}, blueprintEntities),
+    };
+  }
+
   // Collect all unique entity names from specs
   var specEntities = {};
   for (var i = 0; i < specs.length; i++) {

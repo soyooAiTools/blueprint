@@ -9,7 +9,7 @@
       "status": "manual-only"
     },
     "Schema generation failed: Exit code 143": {
-      "at": 1776475537520,
+      "at": 1776479137520,
       "status": "manual-only"
     },
     "Schema validation failed: undefined should NOT have additional properties; undefined should NOT have": {
@@ -17,16 +17,20 @@
       "status": "manual-only"
     },
     "Phase coverage too low: 0<path> (0%). Missing: initialCollectSpaceJunk, sellShardsGetGold, buildForg": {
-      "at": 1776477498394,
-      "status": "manual-only"
+      "at": 1776485617548,
+      "status": "gen-failed"
     },
     "aborted: same CODE error repeated N rounds, fix-loop not converging: Review blocked: 1 critical issu": {
-      "at": 1776476977511,
+      "at": 1776494977554,
       "status": "manual-only"
     },
     "aborted: same CODE error repeated N rounds, fix-loop not converging: Review blocked: 2 critical issu": {
-      "at": 1776477498395,
+      "at": 1776485617548,
       "status": "manual-only"
+    },
+    "Cannot read properties of undefined (reading 'length')": {
+      "at": 1776531353027,
+      "status": "applied"
     }
   },
   "history": [
@@ -240,6 +244,24 @@
       "files": [
         "worker/claude-code-coder.js"
       ]
+    },
+    {
+      "at": "2026-04-18T16:11:00.053Z",
+      "fingerprint": "Cannot read properties of undefined (reading 'length')",
+      "recipe": "auto-bb58853e",
+      "files": [
+        "adapters/entity-resolver.cjs",
+        "engine/stages/codegen-schema.cjs"
+      ]
+    },
+    {
+      "at": "2026-04-18T16:55:53.027Z",
+      "fingerprint": "Cannot read properties of undefined (reading 'length')",
+      "recipe": "auto-bb58853e",
+      "files": [
+        "adapters/entity-resolver.cjs",
+        "engine/stages/codegen-schema.cjs"
+      ]
     }
   ],
   "pendingCommits": {
@@ -258,6 +280,10 @@
       ],
       "diagnosis": "**Diagnosis:** The `runClaudeCodeText` call in `generateSchemaFromSpecs` uses a hard-coded `timeoutMs: 120000` (2 minutes), which is insufficient when tool-call round-trips or API latency add overhead. Although `noTools: true` is already present in the current file (preventing the `--tools Read` round-trip), the 2-minute timeout is still too short under load and must be increased. Raising it to 300000 ms (5 minutes) gives schema generation enough headroom without risking indefinite hangs.",
       "at": 1776407266122
+    },
+    "auto-bb58853e": {
+      "state": "loading",
+      "at": 1776532445776
     }
   },
   "regressionHits": {

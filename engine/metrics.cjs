@@ -22,10 +22,11 @@ function recordPipelineMetrics(ctx, stageResults) {
     failReason: ctx._failReason ? ctx._failReason.substring(0, 500) : null,
     failClassification: ctx._failClassification || null,
     completedStages: ctx.completedStages ? ctx.completedStages.slice() : [],
+    skippedStages: ctx._skippedStages ? ctx._skippedStages.slice() : [],
     stages: {},
   };
 
-  var stageNames = ['spec-validate', 'complexity-gate', 'codegen', 'method-check', 'review', 'compile', 'visual-check', 'cua-verify', 'upload'];
+  var stageNames = ['spec-extract', 'spec-validate', 'complexity-gate', 'codegen', 'method-check', 'review', 'compile', 'visual-check', 'cua-verify', 'upload'];
   for (var i = 0; i < stageNames.length; i++) {
     var name = stageNames[i];
     var sr = stageResults[name];
@@ -273,19 +274,24 @@ function getMetricsSummary(lastN) {
     var fr = failedRecords[ri];
     if (!fr.failReason) continue;
     var fp = normalizeFingerprint(fr.failReason);
-    if (!fpData[fp]) {
-      fpData[fp] = {
+    // Group by (stage, fingerprint) so the same message from codegen vs
+    // spec-validate lands in separate rows — recipe lookup and cooldown
+    // should scope to the stage that actually raised the error.
+    var stage = fr.failedAtStage || 'unknown';
+    var key = stage + '|' + fp;
+    if (!fpData[key]) {
+      fpData[key] = {
         fingerprint: fp,
         sampleReason: fr.failReason.slice(0, 200),
         uniqueTasks: {},
         retries: 0,
         firstSeen: fr.timestamp,
         lastSeen: fr.timestamp,
-        failedAtStage: fr.failedAtStage || 'unknown',
+        failedAtStage: stage,
         classification: fr.failClassification || 'unknown',
       };
     }
-    var slot = fpData[fp];
+    var slot = fpData[key];
     slot.retries += 1;
     if (fr.taskId) slot.uniqueTasks[fr.taskId] = true;
     if (fr.timestamp && fr.timestamp < slot.firstSeen) slot.firstSeen = fr.timestamp;

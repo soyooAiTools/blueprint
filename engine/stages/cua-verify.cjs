@@ -282,25 +282,45 @@ module.exports = {
             // Phase coverage and visual quality are verified, not player-interaction counts.
 
             if (cuaResult.passed) {
-              ctx.htmlOutput = lastHtmlData;
-              ctx.csCode = lastCsCode;
               var silentSignals = cuaResult.silentPassSignals || [];
-              if (silentSignals.length > 0) {
-                ctx.addLog('cua-verify', 'CUA PASSED (⚠️ silent-pass signals: ' + silentSignals.join(', ') + ')');
-              } else {
-                ctx.addLog('cua-verify', 'CUA PASSED');
-              }
-              ctx.reportStatus('cua_passed', {
-                message: '[Linux] CUA passed (round ' + round + ')!',
-                previewUrl: ctx.previewUrl,
-                qualityData: { cuaResult: { passed: true, round: round }, cuaRetries: round },
+              // Hard-block: semantic silent-pass signals override passed=true.
+              // zero-actions alone is expected in observe mode (already exempted
+              // inside worker-playableagent). Other signals mean the game logic
+              // didn't actually run — per feedback_cua_hard_gate, CUA must be a
+              // hard gate, not a soft signal. Enforcing here (not only inside
+              // worker-playableagent) so hot-reload picks it up immediately.
+              var hardBlockers = silentSignals.filter(function(s) {
+                return s.indexOf('uniform-timing') === 0
+                    || s.indexOf('phase-order-violation') === 0
+                    || s.indexOf('all-vars-zero') === 0;
               });
-              return { done: true, result: {
-                passed: true,
-                round: round,
-                totalActions: cuaResult.totalActions !== undefined ? cuaResult.totalActions : -1,
-                silentPassSignals: silentSignals,
-              } };
+              if (hardBlockers.length > 0) {
+                ctx.addLog('cua-verify', '🚨 CUA passed=true overridden by silent-pass hard-block: ' + hardBlockers.join(', '));
+                cuaResult.passed = false;
+                cuaResult.issues = (cuaResult.issues || []).concat(hardBlockers.map(function(s) {
+                  return '[silent-pass-block] ' + s + ' — game logic did not run correctly despite passed=true';
+                }));
+                // Fall through to the normal failure path below.
+              } else {
+                ctx.htmlOutput = lastHtmlData;
+                ctx.csCode = lastCsCode;
+                if (silentSignals.length > 0) {
+                  ctx.addLog('cua-verify', 'CUA PASSED (⚠️ silent-pass signals: ' + silentSignals.join(', ') + ')');
+                } else {
+                  ctx.addLog('cua-verify', 'CUA PASSED');
+                }
+                ctx.reportStatus('cua_passed', {
+                  message: '[Linux] CUA passed (round ' + round + ')!',
+                  previewUrl: ctx.previewUrl,
+                  qualityData: { cuaResult: { passed: true, round: round }, cuaRetries: round },
+                });
+                return { done: true, result: {
+                  passed: true,
+                  round: round,
+                  totalActions: cuaResult.totalActions !== undefined ? cuaResult.totalActions : -1,
+                  silentPassSignals: silentSignals,
+                } };
+              }
             }
 
             // Infra failure — let error-classifier handle via throw

@@ -89,6 +89,7 @@ module.exports.init = function(ctx) {
         config: project.storyboardConfig || {},
       },
       phases: project.phases || [],
+      specs: (Array.isArray(project.specs) && project.specs.length > 0) ? project.specs : [],
       exportedAt: new Date().toISOString()
     };
   }

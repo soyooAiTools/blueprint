@@ -43,6 +43,14 @@ const RESERVED_SKELETON_VARS = new Set([
 ]);
 
 function generateSkeleton(specs, opts = {}) {
+  // Defence in depth: spec-extract stage is supposed to guarantee non-empty
+  // specs before codegen runs. If we still got undefined/empty here, fail with
+  // a message that points at the contract instead of "Cannot read … 'length'".
+  if (!Array.isArray(specs) || specs.length === 0) {
+    const err = new Error('generateSkeleton called with empty/undefined specs — spec-extract stage must populate ctx.blueprint.specs before codegen');
+    err.classification = 'FATAL';
+    throw err;
+  }
   const totalPhases = specs.length;
   const entityPoolMap = opts.entityPoolMap || {};
 
