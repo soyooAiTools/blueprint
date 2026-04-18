@@ -185,8 +185,8 @@
   },
   {
     "id": "auto-09618e16",
-    "fingerprintPattern": "Phase coverage too low: \\d+\\/\\d+ \\(\\d+%\\)\\. Missing:",
-    "description": "Post-loop phase coverage gate fires with 0% after all review retries are spent because the in-loop pre-check only guarded against zero AddCompletedPhase calls, not against semantically wrong phase IDs",
+    "fingerprintPattern": "Phase coverage too low: \\d+\\/\\d+ \\(\\d+%\\)\\. Missing: [a-zA-Z]",
+    "description": "Post-loop phase coverage gate fires with no retries because LLM reviewer silently passed code using wrong/generic phaseId names",
     "risk": "medium",
     "autoApply": true,
     "affectedFiles": [

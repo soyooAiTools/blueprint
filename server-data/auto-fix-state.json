@@ -1,17 +1,5 @@
 {
   "cooldowns": {
-    "Visual freeze FATAL: N consecutive rounds — not fixable via claude-fix. Stuck at phase (none complet": {
-      "at": 1776439126355,
-      "status": "gen-failed"
-    },
-    "Spec validation failed: N error(s): Spec[N] upgradeTripleDrill: entity \"<entity>\" not found in bluep": {
-      "at": 1776387974094,
-      "status": "gen-failed"
-    },
-    "Spec validation failed: N error(s): Spec[N] buildForgeWorkshop: entity \"<entity>\" not found in bluep": {
-      "at": 1776389554066,
-      "status": "gen-failed"
-    },
     "CUA total time limit exceeded (Nmin > Nmin)": {
       "at": 1776393423172,
       "status": "manual-only"
@@ -21,31 +9,23 @@
       "status": "manual-only"
     },
     "Schema generation failed: Exit code 143": {
-      "at": 1776446566337,
+      "at": 1776475537520,
       "status": "manual-only"
-    },
-    "Unexpected token '`', \"```json { \"... is not valid JSON": {
-      "at": 1776443926335,
-      "status": "manual-only"
-    },
-    "Spec validation failed: N error(s): Spec[N] <phase>: entity \"<entity>\" not found in blueprint.entiti": {
-      "at": 1776436606342,
-      "status": "gen-failed"
     },
     "Schema validation failed: undefined should NOT have additional properties; undefined should NOT have": {
-      "at": 1776443926336,
+      "at": 1776476977511,
       "status": "manual-only"
     },
     "Phase coverage too low: 0<path> (0%). Missing: initialCollectSpaceJunk, sellShardsGetGold, buildForg": {
-      "at": 1776445246361,
-      "status": "gen-failed"
+      "at": 1776477498394,
+      "status": "manual-only"
     },
     "aborted: same CODE error repeated N rounds, fix-loop not converging: Review blocked: 1 critical issu": {
-      "at": 1776443926335,
+      "at": 1776476977511,
       "status": "manual-only"
     },
     "aborted: same CODE error repeated N rounds, fix-loop not converging: Review blocked: 2 critical issu": {
-      "at": 1776445246361,
+      "at": 1776477498395,
       "status": "manual-only"
     }
   },
