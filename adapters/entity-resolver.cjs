@@ -92,10 +92,88 @@ function resolveEntities(specs, blueprintEntities) {
     return resolved;
   });
 
+  // Build pool manifest — structured metadata for prompt trimming + debugging
+  var poolManifest = buildPoolManifest(entityPoolMap, specEntities, blueprintEntities);
+
   return {
     entityPoolMap: entityPoolMap,
     resolvedSpecs: resolvedSpecs,
     allEntities: specEntities,
+    poolManifest: poolManifest,
+  };
+}
+
+function buildPoolManifest(entityPoolMap, specEntities, blueprintEntities) {
+  var SHAPES = { Cube: 5, Sphere: 5, Cylinder: 3, Plane: 3 };
+  var COLORS = ['Red', 'Blue', 'Green', 'Yellow', 'Orange', 'Purple', 'White', 'Brown', 'Cyan', 'Pink'];
+  var totalAvailable = 0;
+  var shapeKeys = Object.keys(SHAPES);
+  for (var si = 0; si < shapeKeys.length; si++) totalAvailable += SHAPES[shapeKeys[si]] * COLORS.length;
+
+  var activePool = [];
+  var usedPools = {};
+  var entityNames = Object.keys(entityPoolMap);
+  for (var i = 0; i < entityNames.length; i++) {
+    var eName = entityNames[i];
+    var poolName = entityPoolMap[eName];
+    usedPools[poolName] = true;
+    var parts = poolName.match(/^__Pool_(\w+)_(\w+)_(\d+)$/);
+    var shape = parts ? parts[1] : 'Cube';
+    var color = parts ? parts[2] : 'White';
+
+    var bpEntity = null;
+    if (blueprintEntities) {
+      for (var bi = 0; bi < blueprintEntities.length; bi++) {
+        if (blueprintEntities[bi].name === eName) { bpEntity = blueprintEntities[bi]; break; }
+      }
+    }
+    var specEnt = specEntities[eName];
+
+    activePool.push({
+      poolName: poolName,
+      entity: eName,
+      shape: shape,
+      color: color,
+      role: (bpEntity && bpEntity.template) || 'static',
+      initialVisible: !!(bpEntity && bpEntity.visual && bpEntity.visual.position),
+      initialPos: (bpEntity && bpEntity.visual && bpEntity.visual.position) || null,
+      terminalState: specEnt ? specEnt.terminalState : 1,
+    });
+  }
+
+  // Reserve extra objects of same shape+color for Instantiate overflow
+  var reservedPool = [];
+  var shapeCounts = {};
+  for (var ai = 0; ai < activePool.length; ai++) {
+    var key = activePool[ai].shape + '_' + activePool[ai].color;
+    shapeCounts[key] = (shapeCounts[key] || 0) + 1;
+  }
+  var scKeys = Object.keys(shapeCounts);
+  for (var ri = 0; ri < scKeys.length; ri++) {
+    var scParts = scKeys[ri].split('_');
+    var rShape = scParts[0], rColor = scParts[1];
+    var used = shapeCounts[scKeys[ri]];
+    var max = SHAPES[rShape] || 5;
+    if (used < max) {
+      var nextIdx = used + 1;
+      var reserveCount = Math.min(2, max - used);
+      for (var rx = 0; rx < reserveCount; rx++) {
+        var num = (nextIdx + rx) < 10 ? '0' + (nextIdx + rx) : '' + (nextIdx + rx);
+        var rPoolName = '__Pool_' + rShape + '_' + rColor + '_' + num;
+        if (!usedPools[rPoolName]) {
+          reservedPool.push({ poolName: rPoolName, shape: rShape, color: rColor, purpose: 'instantiate_overflow' });
+        }
+      }
+    }
+  }
+
+  return {
+    version: 1,
+    totalAvailable: totalAvailable,
+    activeCount: activePool.length,
+    activePool: activePool,
+    reservedPool: reservedPool,
+    unusedCount: totalAvailable - activePool.length - reservedPool.length,
   };
 }
 

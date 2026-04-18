@@ -188,14 +188,10 @@ function prepareWorkDir(workDir, blueprint, prompt, skeleton, log, taskId) {
     }
   }
 
-  // 4. GFM_Tools.cs — 编译需要的真实源文件（managerDir 那一份）
-  // 注意：以前在 workDir 也放了一份"方便 Claude Code 找到"，但这导致 Claude
-  // 经常 Read 整份 ~48KB 文件，浪费 token。GFM_Tools_API.md 已经在 prompt 里内联
-  // 了完整 API 表面，不需要 Claude 去读源码，所以 workDir 副本已删除。
-  const gfmSrc = path.join(__dirname, 'GFM_Tools.cs');
-  if (fs.existsSync(gfmSrc)) {
-    fs.copyFileSync(gfmSrc, path.join(managerDir, 'GFM_Tools.cs'));
-  }
+  // 4. GFM toolkit files → Commons/ (split from monolithic GFM_Tools.cs)
+  var gfmHelper = require('./gfm-files.cjs');
+  gfmHelper.copyGfmToProjectDir(workDir);
+  gfmHelper.cleanupLegacyGfm(workDir);
 
   // 5. behavior-templates.md — NOT copied to workDir (P2-新1, 2026-04-15).
   // filterBehaviorTemplates() in parseBlueprintToPromptV5 already inlines only the
@@ -214,44 +210,36 @@ function prepareWorkDir(workDir, blueprint, prompt, skeleton, log, taskId) {
 
   // 6. 创建 build-test.sh — 方便 Claude Code 调用编译验证
   const buildScript = `#!/bin/bash
-# 编译验证脚本：读取 GameFlowManagerMain.cs (+ Systems.cs) 并调用 Bridge.NET 编译
+# 编译验证脚本：读取 GameFlowManagerMain.cs (+ Systems.cs + Commons/GFM_*.cs) 并调用 Bridge.NET 编译
 CS_FILE="Assets/Program/Script/Manager/GameFlowManagerMain.cs"
 if [ ! -f "$CS_FILE" ]; then
   echo '{"ok":false,"error":"GameFlowManagerMain.cs not found"}'
   exit 1
 fi
 
-# 读取 C# 代码并发送到编译服务
-CODE=$(cat "$CS_FILE")
-
-# 读取所有额外 .cs 文件（GFM_Tools.cs, Systems.cs 等）
-# python3 脚本动态收集 Manager 目录下除主文件外的所有 .cs 文件
-MANAGER_DIR="Assets/Program/Script/Manager"
+# 收集 Manager/ 和 Commons/ 下所有额外 .cs 文件
 EXTRA=$(python3 -c "
 import json, os, sys
 extra = {}
-manager_dir = sys.argv[1]
+dirs = ['Assets/Program/Script/Manager', 'Assets/Program/Script/Commons']
 main_file = 'GameFlowManagerMain.cs'
-for f in os.listdir(manager_dir):
-    if f.endswith('.cs') and f != main_file:
-        extra[f] = open(os.path.join(manager_dir, f)).read()
+for d in dirs:
+    if not os.path.isdir(d): continue
+    for f in os.listdir(d):
+        if f.endswith('.cs') and f != main_file:
+            extra[f] = open(os.path.join(d, f)).read()
 print(json.dumps(extra))
-" "$MANAGER_DIR" 2>/dev/null || echo '{}')
+" 2>/dev/null || echo '{}')
 
 # 构建 JSON payload
 python3 -c "
 import json, sys
 code = open(sys.argv[1]).read()
-extra = {}
-gfm = sys.argv[2] if len(sys.argv) > 2 else ''
-if gfm:
-    try:
-        extra = {'GFM_Tools.cs': open(gfm).read()}
-    except: pass
+extra = json.loads(sys.argv[2]) if len(sys.argv) > 2 else {}
 payload = {'csCode': code, 'code': code, 'extraFiles': extra}
 print(json.dumps(payload))
-" "$CS_FILE" "$GFM_FILE" | curl -s -X POST ${BUILD_URL}/build \
-  -H "Content-Type: application/json" \
+" "$CS_FILE" "$EXTRA" | curl -s -X POST \${BUILD_URL}/build \\
+  -H "Content-Type: application/json" \\
   -d @-
 `;
   fs.writeFileSync(path.join(workDir, 'build-test.sh'), buildScript, { mode: 0o755 });
@@ -457,7 +445,7 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
       } else if (code !== 0 && !fileActuallyModified) {
         log(`[claude-code] Process exited non-zero (${code}) and no watched code file was modified — treating as failure`, taskId);
       } else if (code === 0 && !fileActuallyModified) {
-        log(`[claude-code] ⚠️ Process exited 0 but NO watched .cs file was modified — ZERO-EDIT ROUND (likely Claude edited GFM_Tools.cs or similar non-target file). Treating as failure to force retry with better prompt.`, taskId);
+        log(`[claude-code] ⚠️ Process exited 0 but NO watched .cs file was modified — ZERO-EDIT ROUND (likely Claude edited GFM_*.cs in Commons/ or similar non-target file). Treating as failure to force retry with better prompt.`, taskId);
       } else if (code === 0 && fileActuallyModified) {
         log(`[claude-code] ✅ Exit 0 and modified: ${modifiedFiles.join(', ')}`, taskId);
       }
@@ -482,7 +470,7 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
           ? (code !== 0 && fileActuallyModified
               ? null  // partial success path below
               : (code === 0 && !fileActuallyModified
-                  ? 'ZERO_EDITS: Claude Code exited 0 but did not modify GameFlowManagerMain.cs or GameFlowManagerMain.Systems.cs. It may have edited read-only files (e.g. GFM_Tools.cs) that get restored every round. Re-run with stricter prompt targeting the correct files.'
+                  ? 'ZERO_EDITS: Claude Code exited 0 but did not modify GameFlowManagerMain.cs or GameFlowManagerMain.Systems.cs. It may have edited read-only files (e.g. Commons/GFM_*.cs) that get restored every round. Re-run with stricter prompt targeting the correct files.'
                   : _buildExitError(code, stdout, stderr)))
           : null,
         partialSuccess: code !== 0 && fileActuallyModified,
@@ -784,12 +772,12 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
 - \`Assets/Program/Script/Manager/GameFlowManagerMain.Systems.cs\`（如果存在）
 
 ### ⛔ 禁止修改的文件（READ-ONLY — 改了等于白做）
-- \`Assets/Program/Script/Manager/GFM_Tools.cs\` — 工具库文件，每轮结束会被 canonical 版本覆盖。你对它做的任何修改都会被 wipe 掉，纯属浪费时间
+- \`Assets/Program/Script/Commons/GFM_*.cs\` — 工具库文件，每轮结束会被 canonical 版本覆盖。你对它做的任何修改都会被 wipe 掉，纯属浪费时间
 - \`prompt.md\`, \`CLAUDE.md\`, \`GFM_Tools_API.md\` — 需求/参考文档
 - 任何 \`build-*.sh\` 脚本
 
 ### ⛔ 静态违规的修复原则
-如果反馈里的违规定位在 \`GFM_Tools.cs\`（例如 "GFM_Tools.cs L133: SetActive() forbidden"），**不要去改 GFM_Tools.cs 本身**（它是 canonical toolkit，不能碰）。违规的真实原因是你的 GameFlowManagerMain.cs/.Systems.cs 中某处调用了会触发这个模式的代码，或者是你自己复制了同名方法/重新实现了类似函数。**去 GameFlowManagerMain.cs 和 Systems.cs 里找禁用 API 的调用并删除/替换**。
+如果反馈里的违规定位在 \`GFM_*.cs\`（例如 "GFM_UI.cs L133: SetActive() forbidden"），**不要去改 Commons/ 下的 GFM_*.cs 文件**（它们是 canonical toolkit，不能碰）。违规的真实原因是你的 GameFlowManagerMain.cs/.Systems.cs 中某处调用了会触发这个模式的代码，或者是你自己复制了同名方法/重新实现了类似函数。**去 GameFlowManagerMain.cs 和 Systems.cs 里找禁用 API 的调用并删除/替换**。
 
 ## CUA 验证反馈（必须修复以下问题）：
 ${feedbackTexts}
@@ -842,7 +830,7 @@ ${feedbackTexts}
 
 所有参考信息和骨架代码都在下面。
 
-${inlineGfmApi ? '### GFM API 参考（完整 API 表面 — 不要 Read GFM_Tools.cs，所有可用方法都在下面）\n' + inlineGfmApi + '\n⛔ DO NOT Read GFM_Tools.cs (~48KB) — its complete public API is already inlined above. Reading the source file wastes tokens and gives you no extra information.\n\n' : ''}
+${inlineGfmApi ? '### GFM API 参考（完整 API 表面 — 不要 Read Commons/GFM_*.cs，所有可用方法都在下面）\n' + inlineGfmApi + '\n⛔ DO NOT Read GFM_*.cs in Commons/ (~48KB total) — its complete public API is already inlined above. Reading the source file wastes tokens and gives you no extra information.\n\n' : ''}
 ### 详细需求
 ${inlinePromptMd}
 
@@ -874,7 +862,7 @@ ${inlineSkeletonSystems}
 
 所有参考信息和骨架代码都在下面。
 
-${inlineGfmApi ? '### GFM API 参考（完整 API 表面 — 不要 Read GFM_Tools.cs，所有可用方法都在下面）\n' + inlineGfmApi + '\n⛔ DO NOT Read GFM_Tools.cs (~48KB) — its complete public API is already inlined above. Reading the source file wastes tokens and gives you no extra information.\n\n' : ''}
+${inlineGfmApi ? '### GFM API 参考（完整 API 表面 — 不要 Read Commons/GFM_*.cs，所有可用方法都在下面）\n' + inlineGfmApi + '\n⛔ DO NOT Read GFM_*.cs in Commons/ (~48KB total) — its complete public API is already inlined above. Reading the source file wastes tokens and gives you no extra information.\n\n' : ''}
 ### 详细需求
 ${inlinePromptMd}
 
@@ -897,7 +885,7 @@ ${inlineSkeletonMain}
 
 所有参考信息都在下面。
 
-${inlineGfmApi ? '### GFM API 参考（完整 API 表面 — 不要 Read GFM_Tools.cs，所有可用方法都在下面）\n' + inlineGfmApi + '\n⛔ DO NOT Read GFM_Tools.cs (~48KB) — its complete public API is already inlined above. Reading the source file wastes tokens and gives you no extra information.\n\n' : ''}
+${inlineGfmApi ? '### GFM API 参考（完整 API 表面 — 不要 Read Commons/GFM_*.cs，所有可用方法都在下面）\n' + inlineGfmApi + '\n⛔ DO NOT Read GFM_*.cs in Commons/ (~48KB total) — its complete public API is already inlined above. Reading the source file wastes tokens and gives you no extra information.\n\n' : ''}
 ### 详细需求
 ${inlinePromptMd}
 
@@ -1054,12 +1042,10 @@ ${inlinePromptMd}
     log('[claude-code] Post-fix: stripped generic method calls for Luna compatibility', taskId);
   }
 
-  // 确保 GFM_Tools.cs 是正版
-  const canonicalGfm = path.join(__dirname, 'GFM_Tools.cs');
-  const gfmDst = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GFM_Tools.cs');
-  if (fs.existsSync(canonicalGfm)) {
-    fs.copyFileSync(canonicalGfm, gfmDst);
-  }
+  // 确保 GFM toolkit 文件是正版 → Commons/
+  var gfmHelper2 = require('./gfm-files.cjs');
+  gfmHelper2.copyGfmToProjectDir(clientDir);
+  gfmHelper2.cleanupLegacyGfm(clientDir);
 
   return {
     ok: true,

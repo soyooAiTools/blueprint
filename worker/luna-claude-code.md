@@ -6,7 +6,7 @@
 
 在项目目录中生成 `Assets/Program/Script/Manager/GameFlowManagerMain.cs`。
 蓝图 JSON 在 `blueprint.json`，阅读它了解游戏流程。
-参考 `GFM_Tools.cs` 了解可用 API。
+GFM_*.cs 工具类在 `Assets/Program/Script/Commons/`（GFM_UI/GFM_Utils/GFM_Pool/GFM_Luna 等，每个文件一个类），DO NOT Read 它们（~48KB），API 已在 prompt 内联。
 
 ## 核心规则：基础样例工程模式
 
@@ -183,5 +183,5 @@ curl -s -X POST http://localhost:3080/build \
 - 所有代码写入一个文件：`Assets/Program/Script/Manager/GameFlowManagerMain.cs`
 - 代码必须完整，不要省略任何部分
 - 阅读 blueprint.json 了解蓝图需求
-- 阅读 GFM_Tools.cs 了解可用 API
+- GFM_*.cs 工具类已拆分为独立文件（GFM_Audio/Pool/Event/Utils/Joystick/Luna/UI/Create/Grid/Pathfinding/Billboard），DO NOT Read 它们（~48KB），API 已在 prompt 内联
 - 阅读 prompt.md 了解对象分配表和详细需求

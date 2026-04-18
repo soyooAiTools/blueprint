@@ -29,6 +29,7 @@ module.exports = {
         // Step 2: Template fill
         var startMs = Date.now();
         var resolved = resolveEntities(ctx.blueprint.specs, ctx.blueprint.entities);
+        ctx.blueprint.poolManifest = resolved.poolManifest;
         var skeletonResult = generateSkeleton(ctx.blueprint.specs, {
           entityPoolMap: resolved.entityPoolMap,
         });

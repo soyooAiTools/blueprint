@@ -158,6 +158,37 @@ function detectPrefabCollisions(prefabMap) {
   return collisions;
 }
 
+function computeReservePool(prefabMap) {
+  var shapeCounts = {};
+  var usedPools = {};
+  var pKeys = Object.keys(prefabMap);
+  for (var i = 0; i < pKeys.length; i++) {
+    var poolName = prefabMap[pKeys[i]];
+    usedPools[poolName] = true;
+    var m = poolName.match(/^__Pool_(\w+)_(\w+)_(\d+)$/);
+    if (m) {
+      var key = m[1] + '_' + m[2];
+      shapeCounts[key] = (shapeCounts[key] || 0) + 1;
+    }
+  }
+  var reserves = [];
+  var scKeys = Object.keys(shapeCounts);
+  for (var ri = 0; ri < scKeys.length; ri++) {
+    var parts = scKeys[ri].split('_');
+    var shape = parts[0], color = parts[1];
+    var used = shapeCounts[scKeys[ri]];
+    var max = POOL_SHAPES[shape] ? POOL_SHAPES[shape].count : 5;
+    var nextIdx = used + 1;
+    var extra = Math.min(2, max - used);
+    for (var rx = 0; rx < extra; rx++) {
+      var num = (nextIdx + rx) < 10 ? '0' + (nextIdx + rx) : '' + (nextIdx + rx);
+      var rName = '__Pool_' + shape + '_' + color + '_' + num;
+      if (!usedPools[rName]) reserves.push(rName);
+    }
+  }
+  return reserves;
+}
+
 /**
  * V5 蓝图 → AI Prompt（基础样例工程模式）
  */
@@ -352,6 +383,20 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   var totalPool = 50 + 50 + 30 + 30; // 10colors × (5+5+3+3) = 160
   if (entities.length > totalPool) {
     lines.push('⚠️ **POOL EXHAUSTION WARNING**: ' + entities.length + ' entities exceed the pool capacity of ' + totalPool + ' objects. Some entities share the same pool object — merge or reduce entity count.');
+    lines.push('');
+  }
+
+  // ========== 5b. 备用池对象（Pool Manifest） ==========
+  var reservePool = computeReservePool(prefabMap);
+  if (reservePool.length > 0) {
+    lines.push('# 备用池对象（Instantiate 溢出时可用）');
+    lines.push('如果同色同形状的已分配对象用完，可以 Instantiate 复制后使用以下备用对象：');
+    lines.push('');
+    for (var rpi = 0; rpi < reservePool.length; rpi++) {
+      lines.push('- `' + reservePool[rpi] + '`');
+    }
+    lines.push('');
+    lines.push('本项目共使用 ' + Object.keys(prefabMap).length + '/' + totalPool + ' 个池对象。');
     lines.push('');
   }
 

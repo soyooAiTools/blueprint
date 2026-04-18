@@ -204,7 +204,7 @@ var GENERATE_PROMPT = [
   '',
   'AVAILABLE GFM_ classes (DO NOT invent others): GFM_Create, GFM_UI, GFM_Utils, GFM_Audio, GFM_Pool, GFM_Event, GFM_Luna, GFM_Joystick, GFM_Grid, GFM_Pathfinding, GFM_ReturnTimer.',
   'GFM_Billboard does NOT exist. Do NOT reference any GFM_ class not in this list.',
-  'Do NOT modify GFM_Tools.cs — it is a read-only toolkit file.',
+  'Do NOT modify GFM_*.cs in Commons/ — they are read-only toolkit files.',
   '',
   'In Start(), BEFORE creating any objects (Legacy mode):',
   '// V5 MODE: Skip these calls — pool objects are pre-created with baked colors. Use mainCam (pre-cached) and uiCanvas (pre-created).',
@@ -514,7 +514,7 @@ var GENERATE_PROMPT = [
   '- Do NOT use: Boss, Player, Enemy, Worker, Npc, UIManager, CameraManager, or any Controller class — they are empty stubs',
   '- RULE: If a class is listed as "available" but has no documented API, assume it is an EMPTY STUB and implement the logic yourself',
   '- NEVER define classes/enums with names that already exist in the project stubs — this causes CS0101 duplicate definition errors',
-  '- Do NOT redefine ANY class. All utility code is in GFM_Tools.cs (GFM_ prefix). Use them as-is.',
+  '- Do NOT redefine ANY class. All utility code is in GFM_*.cs (Commons/ directory, GFM_ prefix). Use them as-is.',
   '- If you need a helper class, use a UNIQUE name like GFM_EventPool, GFM_Helper, etc. (prefix with GFM_ to avoid conflicts)',
   '- For singletons: `public static GameFlowManagerMain instance;` set in Awake()',
   '- Do NOT define enums that conflict with stub classes (ResourceType, GameState, etc. may exist as empty stubs)',
@@ -595,7 +595,7 @@ var GENERATE_PROMPT = [
   '',
   'CRITICAL: Do NOT define classes named AudioManager, PoolManager, EventManager, EventPool,',
   'BasicExtensions, MonoSingleton, Player, Boss, Npc, LunaManager, CTAManager, etc.',
-  'Use the GFM_ equivalents. All utility logic is in GFM_Tools.cs.',
+  'Use the GFM_ equivalents. All utility logic is in GFM_*.cs (Commons/).',
   '',
   'Generate code that implements the blueprint faithfully and completely.'
 ].join('\n');
@@ -903,14 +903,11 @@ function tryCompileUnity(clientDir, log, taskId) {
     });
   });
 
-  // MANDATORY: Restore original GFM_Tools.cs before every build
-  // AI fix attempts may overwrite it with broken versions
-  var gfmSrcBuild = path.join(path.dirname(__filename), 'GFM_Tools.cs');
-  var gfmDstBuild = path.join(clientDir, 'Assets', 'Program', 'Script', 'GFM_Tools.cs');
-  if (fs.existsSync(gfmSrcBuild)) {
-    fs.copyFileSync(gfmSrcBuild, gfmDstBuild);
-    log('[coder] GFM_Tools.cs restored from original (pre-build)', taskId);
-  }
+  // MANDATORY: Restore GFM toolkit files → Commons/ before every build
+  var _gfm = require('./gfm-files.cjs');
+  _gfm.copyGfmToProjectDir(clientDir);
+  _gfm.cleanupLegacyGfm(clientDir);
+  log('[coder] GFM toolkit files restored to Commons/ (pre-build)', taskId);
 
   // Fix Event.cs stub: it has a duplicate EventPool class that conflicts with EventPool.cs
   var eventCsPath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Utilities', 'Event', 'Event.cs');
@@ -1535,14 +1532,12 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
     log('[coder] V5: Skipping SVN revert — base template scene preserved', taskId);
   }
 
-  // Copy GFM_Tools.cs toolkit（仍需确保存在）
+  // Copy GFM toolkit files → Commons/
   try {
-    var toolsSrc = path.join(__dirname, 'GFM_Tools.cs');
-    var toolsDst = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GFM_Tools.cs');
-    if (fs.existsSync(toolsSrc)) {
-      fs.copyFileSync(toolsSrc, toolsDst);
-      log('[coder] GFM_Tools.cs toolkit copied to project', taskId);
-    }
+    var _gfm5 = require('./gfm-files.cjs');
+    _gfm5.copyGfmToProjectDir(clientDir);
+    _gfm5.cleanupLegacyGfm(clientDir);
+    log('[coder] GFM toolkit files copied to Commons/', taskId);
   } catch(e) {}
 
   // Call AI
@@ -1595,11 +1590,11 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
       log('[coder] ⚠️ WARNING: No GameEnded() call — Luna lifecycle may not end properly', taskId);
     }
 
-    // Restore GFM_Tools.cs
+    // Restore GFM toolkit files → Commons/
     try {
-      var toolsSrc2 = path.join(__dirname, 'GFM_Tools.cs');
-      var toolsDst2 = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GFM_Tools.cs');
-      if (fs.existsSync(toolsSrc2)) fs.copyFileSync(toolsSrc2, toolsDst2);
+      var _gfm5r = require('./gfm-files.cjs');
+      _gfm5r.copyGfmToProjectDir(clientDir);
+      _gfm5r.cleanupLegacyGfm(clientDir);
     } catch(e) {}
 
     return {
@@ -1706,20 +1701,12 @@ async function generateCodeV4(blueprint, clientDir, log, taskId, engine) {
     } catch(e) {}
   }
 
-  // Copy GFM_Tools.cs toolkit
+  // Copy GFM toolkit files → Commons/
   try {
-    var toolsSrc = path.join(__dirname, 'GFM_Tools.cs');
-    var toolsDst = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GFM_Tools.cs');
-    if (fs.existsSync(toolsSrc)) {
-      fs.copyFileSync(toolsSrc, toolsDst);
-      log('[coder] GFM_Tools.cs toolkit copied to project', taskId);
-    }
-    // Remove duplicate from old V3 location to avoid CS0111
-    var oldGfm = path.join(clientDir, 'Assets', 'Program', 'Script', 'GFM_Tools.cs');
-    if (fs.existsSync(oldGfm)) {
-      fs.unlinkSync(oldGfm);
-      log('[coder] Removed duplicate GFM_Tools.cs from old location', taskId);
-    }
+    var _gfm4 = require('./gfm-files.cjs');
+    _gfm4.copyGfmToProjectDir(clientDir);
+    _gfm4.cleanupLegacyGfm(clientDir);
+    log('[coder] GFM toolkit files copied to Commons/', taskId);
   } catch(e) {}
 
   // Scan project context
@@ -1777,19 +1764,12 @@ async function generateCodeV4(blueprint, clientDir, log, taskId, engine) {
       log('[coder] Warning: No GameEnded() call found — Luna lifecycle may not end properly', taskId);
     }
 
-    // Restore GFM_Tools.cs (in case AI overwrote it)
+    // Restore GFM toolkit files → Commons/
     try {
-      var toolsSrc2 = path.join(__dirname, 'GFM_Tools.cs');
-      var toolsDst2 = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GFM_Tools.cs');
-      if (fs.existsSync(toolsSrc2)) {
-        fs.copyFileSync(toolsSrc2, toolsDst2);
-        log('[coder] GFM_Tools.cs restored from original (pre-build)', taskId);
-      }
-      // Remove duplicate from old location
-      var oldGfm2 = path.join(clientDir, 'Assets', 'Program', 'Script', 'GFM_Tools.cs');
-      if (fs.existsSync(oldGfm2)) {
-        fs.unlinkSync(oldGfm2);
-      }
+      var _gfm4r = require('./gfm-files.cjs');
+      _gfm4r.copyGfmToProjectDir(clientDir);
+      _gfm4r.cleanupLegacyGfm(clientDir);
+      log('[coder] GFM toolkit files restored to Commons/ (pre-build)', taskId);
     } catch(e) {}
 
     // Pre-build checks

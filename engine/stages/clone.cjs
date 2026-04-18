@@ -101,16 +101,14 @@ module.exports = {
       ctx.addLog('clone', 'Base template ready at ' + tempDir);
     }
 
-    // Ensure script output directory exists
-    var assetsDir = path.join(tempDir, 'Assets', 'Program', 'Script', 'Manager');
-    fs.mkdirSync(assetsDir, { recursive: true });
+    // Ensure script output directories exist
+    fs.mkdirSync(path.join(tempDir, 'Assets', 'Program', 'Script', 'Manager'), { recursive: true });
+    fs.mkdirSync(path.join(tempDir, 'Assets', 'Program', 'Script', 'Commons'), { recursive: true });
 
-    // Load canonical GFM_Tools.cs
-    var workerDir = path.join(__dirname, '..', '..', 'worker');
-    var canonicalGfm = path.join(workerDir, 'GFM_Tools.cs');
-    if (fs.existsSync(canonicalGfm)) {
-      ctx.extraFiles['GFM_Tools.cs'] = fs.readFileSync(canonicalGfm, 'utf-8');
-    }
+    // Load canonical GFM toolkit files (split from monolithic GFM_Tools.cs)
+    delete ctx.extraFiles['GFM_Tools.cs']; // remove legacy monolithic file
+    var gfmFiles = require('../../worker/gfm-files.cjs').loadGfmFiles();
+    for (var gk in gfmFiles) { if (gfmFiles.hasOwnProperty(gk)) ctx.extraFiles[gk] = gfmFiles[gk]; }
 
     return Promise.resolve({ workDir: tempDir });
   },
