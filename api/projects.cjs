@@ -327,21 +327,32 @@ module.exports.init = function(ctx) {
         }
       }
       // Extract entity→visual mapping from compiled WebGL HTML
+      // Two skeleton patterns coexist:
+      //   new (>=2026-04-18): GameSceneCtrl.instance.Register("EntityName", "__Pool_Shape_Color_NN")
+      //   legacy: this.varName = UnityEngine.GameObject.Find("__Pool_Shape_Color_NN")
       var entityMap = [];
       var htmlFile = path.join(WEBGL_DIR, id, 'index.html');
       if (fs.existsSync(htmlFile)) {
         try {
           var html = fs.readFileSync(htmlFile, 'utf-8');
-          var re = /this\.(\w+)\s*=\s*UnityEngine\.GameObject\.Find\("(__Pool_(\w+?)_(\w+?)_\d+)"\)/g;
-          var m;
           var seen = {};
-          while ((m = re.exec(html)) !== null) {
+          var skipRe = /^(groundPlane|crewObj|wallL|wallR|deb\d|pillar)/;
+          var reNew = /GameSceneCtrl\.instance\.Register\("(\w+)"\s*,\s*"(__Pool_(\w+?)_(\w+?)_\d+)"\)/g;
+          var m;
+          while ((m = reNew.exec(html)) !== null) {
             var eName = m[1];
-            // Skip internal/decorator names
-            if (/^(groundPlane|crewObj|wallL|wallR|deb\d|pillar)/.test(eName)) continue;
+            if (skipRe.test(eName)) continue;
             if (seen[eName]) continue;
             seen[eName] = true;
             entityMap.push({ name: eName, shape: m[3], color: m[4] });
+          }
+          var reOld = /this\.(\w+)\s*=\s*UnityEngine\.GameObject\.Find\("(__Pool_(\w+?)_(\w+?)_\d+)"\)/g;
+          while ((m = reOld.exec(html)) !== null) {
+            var eName2 = m[1];
+            if (skipRe.test(eName2)) continue;
+            if (seen[eName2]) continue;
+            seen[eName2] = true;
+            entityMap.push({ name: eName2, shape: m[3], color: m[4] });
           }
         } catch(e) {}
       }
