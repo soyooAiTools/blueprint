@@ -47,7 +47,7 @@ GFM_*.cs 工具类在 `Assets/Program/Script/Commons/`（GFM_UI/GFM_Utils/GFM_Po
 - 不要定义 `class EventPool`（和模板冲突）
 - 不要用 `transform.parent` / `SetParent` / `FindObjectOfType`
 - 不要用泛型方法：`GetComponent<T>()` → 用 `(T)GetComponent(typeof(T))`
-- 不要用 `Resources.GetBuiltinResource<T>()` → 用 `(T)Resources.GetBuiltinResource(typeof(T), "name")`
+- ⛔ **绝对不要用 `Resources.GetBuiltinResource`（泛型或非泛型）** — Luna runtime 未实现，会抛 "method not implemented" 导致 Start() 崩溃。字体加载由 GFM_UI.CreateText 内部处理（模板已提供 Resources/DefaultFont.ttf）
 - 不要用 `FindObjectOfType<T>()` → 用 `(T)FindObjectOfType(typeof(T))`
 
 ## 场景对象池（已存在，直接 Find 使用）

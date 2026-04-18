@@ -3,8 +3,10 @@
 // 由 GFM_Tools.cs 拆分，AI 编码时直接调用，不要重定义
 // Luna 兼容：无泛型、无 coroutine、无 C#7.0+ 语法、无 LINQ
 // ============================================================
-// 字体加载: 优先 Resources/DefaultFont → 内建 Arial.ttf fallback
-// 模板工程需在 Assets/Resources/ 放一个 DefaultFont.ttf
+// 字体加载: 只用 Resources/DefaultFont
+// ⛔ 不要用 Resources.GetBuiltinResource — Luna runtime 不实现,抛 "not implemented"
+// ⛔ 不要用 Font.CreateDynamicFontFromOSFont — Luna WebGL 无系统字体
+// 模板工程必须在 Assets/Resources/ 放一个 DefaultFont.ttf (模板已内置)
 // ============================================================
 
 using UnityEngine;
@@ -18,8 +20,8 @@ public static class GFM_UI
     {
         if (_cachedFont != null) return _cachedFont;
         _cachedFont = Resources.Load<Font>("DefaultFont");
-        if (_cachedFont == null) _cachedFont = (Font)Resources.GetBuiltinResource(typeof(Font), "Arial.ttf");
-        if (_cachedFont == null) _cachedFont = (Font)Resources.GetBuiltinResource(typeof(Font), "LegacyRuntime.ttf");
+        // 不做 GetBuiltinResource fallback — Luna 不支持会抛错
+        // 如果 DefaultFont 加载失败,返回 null,Text.font=null 会用 UI 默认字体,不崩溃
         return _cachedFont;
     }
 

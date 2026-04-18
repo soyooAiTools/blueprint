@@ -38,6 +38,7 @@ var RULES = [
     },
   },
   { id: 'create-primitive', pattern: /CreatePrimitive\s*\(/g, blocking: true, message: 'CreatePrimitive() forbidden in Luna — invisible at runtime' },
+  { id: 'builtin-resource', pattern: /Resources\s*\.\s*GetBuiltinResource\s*\(/g, blocking: true, message: 'Resources.GetBuiltinResource() not implemented in Luna — use Resources.Load<Font>("DefaultFont") or GFM_UI.CreateText (font handled internally)' },
   { id: 'gfm-tools', pattern: /GFM_Tools\./g, message: 'GFM_Tools does not exist — use GFM_Create, GFM_UI, GFM_Utils, etc.' },
   { id: 'coroutine', pattern: /StartCoroutine\s*\(/g, message: 'Coroutines forbidden in Luna — use Update + timer' },
   { id: 'async-await', pattern: /\basync\b|\bawait\b/g, message: 'async/await forbidden in Luna — use Update + timer' },
