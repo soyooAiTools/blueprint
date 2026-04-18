@@ -191,7 +191,11 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       </div>
     </div>
     <div class="card" style="margin-top:16px;">
-      <h3>项目失败明细</h3>
+      <h3>⚠️ Silent-pass 语义假通过 (Phase 6b · 最近 7 天)</h3>
+      <div id="silentPassAlerts"></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3>项目失败明细 <span style="font-size:11px;color:#8b949e;font-weight:normal;">(点击行展开 failureHistory 时间线)</span></h3>
       <div id="projectFailures"></div>
     </div>
   </div>
@@ -708,28 +712,72 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       document.getElementById('regressionAlerts').innerHTML = '<div class="empty">无回归告警 ✅</div>';
     }
 
-    // Project failures table
+    // Silent-pass alerts — populated by Phase 6b watchdog. Each entry is a task
+    // that passed the pipeline but hit zero-actions / uniform-timing / phase-order
+    // violations / all-vars-zero. Rendered red because silent passes ship bad builds.
+    var sps = (pipelineMetrics && pipelineMetrics.silentPasses) || [];
+    if (sps.length > 0) {
+      var sh = '';
+      sps.forEach(function(sp) {
+        var signals = (sp.signals || []).join(', ') || 'unknown';
+        var actions = sp.totalActions != null ? sp.totalActions : '?';
+        sh += '<div style="padding:10px;background:#2d1113;border:1px solid #f8514933;border-radius:6px;margin-bottom:8px;">';
+        sh += '<div style="color:#f85149;font-weight:600;font-size:13px;">⚠️ ' + (sp.taskId || 'unknown') + '</div>';
+        sh += '<div style="font-size:11px;color:#8b949e;margin-top:4px;">信号: <code>' + signals + '</code> · CUA 动作数: ' + actions + ' · 检测于 ' + ago(new Date(sp.detectedAt || sp.timestamp).getTime()) + '</div>';
+        sh += '</div>';
+      });
+      document.getElementById('silentPassAlerts').innerHTML = sh;
+    } else {
+      document.getElementById('silentPassAlerts').innerHTML = '<div class="empty">无 silent-pass 告警 ✅</div>';
+    }
+
+    // Project failures table with expandable failureHistory timeline
     var pf = pipelineMetrics && pipelineMetrics.projectFailures || [];
+    var pfHistory = (pipelineMetrics && pipelineMetrics.projectFailureHistory) || {};
     if (pf.length > 0) {
-      document.getElementById('projectFailures').innerHTML = tableHTML(
-        ['项目', '状态', '失败 Stage', '错误分类', '失败原因', '失败次数', '时间'],
-        pf.map(function(p) {
-          var lf = p.lastFailure || {};
-          return [
-            p.projectName || p.projectId,
-            badge(p.status),
-            lf.failedAtStage ? '<span style="color:#f85149;font-weight:500;">' + lf.failedAtStage + '</span>' : '-',
-            lf.failClassification ? badge(lf.failClassification === 'CODE' ? 'pending' : lf.failClassification === 'INFRA' ? 'processing' : 'failed').replace('>' + (lf.failClassification === 'CODE' ? 'pending' : lf.failClassification === 'INFRA' ? 'processing' : 'failed') + '<', '>' + lf.failClassification + '<') : '-',
-            lf.failReason ? '<span style="font-size:12px;color:#c9d1d9;">' + (lf.failReason || '').substring(0, 80) + '</span>' : '-',
-            '<span style="font-weight:600;' + (p.failureCount > 3 ? 'color:#f85149;' : '') + '">' + (p.failureCount || 0) + '</span>',
-            lf.failedAt ? ago(new Date(lf.failedAt).getTime()) : '-'
-          ];
-        })
-      );
+      var pfHTML = '<table><thead><tr>';
+      ['项目', '状态', '失败 Stage', '错误分类', '失败原因', '失败次数', '时间'].forEach(function(h) {
+        pfHTML += '<th style="text-align:left;padding:8px;border-bottom:1px solid #30363d;font-size:12px;color:#8b949e;">' + h + '</th>';
+      });
+      pfHTML += '</tr></thead><tbody>';
+      pf.forEach(function(p, idx) {
+        var lf = p.lastFailure || {};
+        var hist = pfHistory[p.projectId] || [];
+        var rowId = 'pfHist_' + idx;
+        var clickable = hist.length > 0 ? 'cursor:pointer;' : '';
+        var indicator = hist.length > 0 ? '<span style="color:#58a6ff;font-size:10px;">▶</span> ' : '';
+        pfHTML += '<tr onclick="window.togglePfHistory && window.togglePfHistory(\'' + rowId + '\')" style="' + clickable + '">';
+        pfHTML += '<td style="padding:8px;border-bottom:1px solid #21262d;">' + indicator + (p.projectName || p.projectId) + '</td>';
+        pfHTML += '<td style="padding:8px;border-bottom:1px solid #21262d;">' + badge(p.status) + '</td>';
+        pfHTML += '<td style="padding:8px;border-bottom:1px solid #21262d;">' + (lf.failedAtStage ? '<span style="color:#f85149;font-weight:500;">' + lf.failedAtStage + '</span>' : '-') + '</td>';
+        pfHTML += '<td style="padding:8px;border-bottom:1px solid #21262d;">' + (lf.failClassification || '-') + '</td>';
+        pfHTML += '<td style="padding:8px;border-bottom:1px solid #21262d;"><span style="font-size:12px;color:#c9d1d9;">' + ((lf.failReason || '-').substring(0, 80)) + '</span></td>';
+        pfHTML += '<td style="padding:8px;border-bottom:1px solid #21262d;"><span style="font-weight:600;' + (p.failureCount > 3 ? 'color:#f85149;' : '') + '">' + (p.failureCount || 0) + '</span></td>';
+        pfHTML += '<td style="padding:8px;border-bottom:1px solid #21262d;">' + (lf.failedAt ? ago(new Date(lf.failedAt).getTime()) : '-') + '</td>';
+        pfHTML += '</tr>';
+        if (hist.length > 0) {
+          pfHTML += '<tr id="' + rowId + '" style="display:none;"><td colspan="7" style="padding:12px 16px;background:#0d1117;border-bottom:1px solid #21262d;">';
+          pfHTML += '<div style="font-size:11px;color:#8b949e;margin-bottom:6px;">最近 ' + hist.length + ' 次失败 (最新在上)：</div>';
+          hist.forEach(function(h) {
+            pfHTML += '<div style="padding:6px 0;border-left:2px solid #30363d;padding-left:10px;margin-bottom:4px;">';
+            pfHTML += '<div style="font-size:11px;color:#8b949e;">' + fmt(h.failedAt || h.timestamp) + ' · <span style="color:#f85149;">' + (h.failedAtStage || 'unknown') + '</span>' + (h.failClassification ? ' · ' + h.failClassification : '') + '</div>';
+            pfHTML += '<div style="font-size:12px;color:#c9d1d9;margin-top:2px;">' + ((h.failReason || h.message || '-').substring(0, 200)) + '</div>';
+            pfHTML += '</div>';
+          });
+          pfHTML += '</td></tr>';
+        }
+      });
+      pfHTML += '</tbody></table>';
+      document.getElementById('projectFailures').innerHTML = pfHTML;
     } else {
       document.getElementById('projectFailures').innerHTML = '<div class="empty">暂无项目失败记录</div>';
     }
   }
+
+  window.togglePfHistory = function(rowId) {
+    var el = document.getElementById(rowId);
+    if (el) el.style.display = (el.style.display === 'none') ? '' : 'none';
+  };
 
   // Auto-fix state tracking — survives refresh() rebuilds
   // States: null → 'loading' → 'done'/'error' → 'committed'

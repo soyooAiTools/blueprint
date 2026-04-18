@@ -668,10 +668,42 @@ module.exports.init = function(ctx) {
           pendingCommits = afState.pendingCommits || {};
         } catch(e) {}
 
+        // Phase 6b output: semantic silent-pass records from the last 7 days.
+        // Mirror the regression 7-day window so the UI stays consistent.
+        var silentPasses = [];
+        try {
+          var spFile = path.join(__dirname, '..', 'server-data', 'silent-passes.json');
+          if (fs.existsSync(spFile)) {
+            var sps = JSON.parse(fs.readFileSync(spFile, 'utf-8')) || [];
+            var weekAgoSP = Date.now() - 7 * 86400 * 1000;
+            silentPasses = sps.filter(function(s) {
+              var ts = s.detectedAt || s.timestamp;
+              return ts && new Date(ts).getTime() > weekAgoSP;
+            });
+          }
+        } catch(e) {}
+
+        // Expand failureHistory for projects that have failed — surface the last
+        // 5 entries so the dashboard can render a timeline without a second round-trip.
+        var projectFailureHistory = {};
+        try {
+          if (fs.existsSync(PROJECTS_DIR)) {
+            projectFailures.forEach(function(pf) {
+              try {
+                var pj = JSON.parse(fs.readFileSync(path.join(PROJECTS_DIR, pf.projectId + '.json'), 'utf-8'));
+                var hist = (pj.failureHistory || []).slice(-5).reverse();
+                if (hist.length > 0) projectFailureHistory[pf.projectId] = hist;
+              } catch(e) {}
+            });
+          }
+        } catch(e) {}
+
         sendJSON(res, {
           pipeline: summary,
           projectFailures: projectFailures,
+          projectFailureHistory: projectFailureHistory,
           regressions: regressions,
+          silentPasses: silentPasses,
           pendingCommits: pendingCommits,
         });
       } catch(e) {
