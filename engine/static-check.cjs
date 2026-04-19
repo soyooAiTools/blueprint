@@ -418,6 +418,43 @@ var RULES = [
       return issues;
     },
   },
+  { id: 'string-concat-in-update', pattern: null,
+    message: '.text string concatenation in Update hot path — assign only when value changes (if (_last != n) { text = "Score: " + n; _last = n; })',
+    custom: function(code) {
+      var issues = [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/[^\n]*/g, '')
+        .replace(/"(?:[^"\\]|\\.)*"/g, '""');
+      var hotFns = ['Update', 'MovePlayer', 'CheckEventRules', 'AutoPlayUpdate'];
+      for (var f = 0; f < hotFns.length; f++) {
+        var fn = hotFns[f];
+        var sigRe = new RegExp('\\b(?:void|IEnumerator)\\s+' + fn + '\\s*\\([^)]*\\)\\s*\\{');
+        var sig = stripped.match(sigRe);
+        if (!sig) continue;
+        var start = sig.index + sig[0].length;
+        var depth = 1, end = start;
+        while (end < stripped.length && depth > 0) {
+          var ch = stripped[end];
+          if (ch === '{') depth++;
+          else if (ch === '}') { depth--; if (depth === 0) break; }
+          end++;
+        }
+        if (depth !== 0) continue;
+        var body = stripped.substring(start, end);
+        // Match: .text = "..." + OR .text = var + OR .text = X + Y
+        var re = /\.text\s*=\s*(?:""|\w+)\s*\+/g;
+        var m;
+        while ((m = re.exec(body)) !== null) {
+          var absIdx = start + m.index;
+          var lineNum = code.substring(0, absIdx).split('\n').length;
+          var lineText = code.split('\n')[lineNum - 1] || '';
+          issues.push({ line: lineNum, text: lineText.trim().slice(0, 120) });
+        }
+      }
+      return issues;
+    },
+  },
 ];
 
 /**

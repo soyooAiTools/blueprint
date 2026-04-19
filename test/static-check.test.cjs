@@ -421,4 +421,46 @@ public class Main : MonoBehaviour {
     const hit = staticCheck(code).issues.find(i => i.rule === 'chained-if-same-var-no-else');
     expect(hit).toBeUndefined();
   });
+
+  test('string concat with .text= in Update detected as warn', () => {
+    const code = `using UnityEngine;
+using UnityEngine.UI;
+public class Main : MonoBehaviour {
+  public Text scoreText;
+  int score;
+  void Update() {
+    scoreText.text = "Score: " + score;
+  }
+}`;
+    const result = staticCheck(code);
+    const hit = result.issues.find(i => i.rule === 'string-concat-in-update');
+    expect(hit).toBeDefined();
+    expect(hit.blocking).toBeFalsy();
+  });
+
+  test('.text= literal only (no concat) in Update is allowed', () => {
+    const code = `using UnityEngine;
+using UnityEngine.UI;
+public class Main : MonoBehaviour {
+  public Text scoreText;
+  void Update() {
+    scoreText.text = "Hello";
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'string-concat-in-update');
+    expect(hit).toBeUndefined();
+  });
+
+  test('.text= concat in Start is allowed (not a hot path)', () => {
+    const code = `using UnityEngine;
+using UnityEngine.UI;
+public class Main : MonoBehaviour {
+  public Text scoreText;
+  void Start() {
+    scoreText.text = "Score: " + 0;
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'string-concat-in-update');
+    expect(hit).toBeUndefined();
+  });
 });
