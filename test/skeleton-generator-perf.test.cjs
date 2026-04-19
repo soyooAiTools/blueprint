@@ -50,3 +50,20 @@ describe('skeleton-generator — PlaceObj/HideObj/SetScale struct copy (T1-1)', 
     expect(scaleU).not.toMatch(/new Vector3/);
   });
 });
+
+describe('skeleton-generator — MovePlayer buf reuse (T1-2)', () => {
+  const code = generateSkeleton(buildMinimalSpec(), { entityPoolMap: { Target: 'Pool_Target' } });
+  const skeleton = typeof code === 'string' ? code : code.main;
+
+  test('MovePlayer body has zero `new Vector3(` calls', () => {
+    const m = skeleton.match(/void MovePlayer\(\)[\s\S]*?^\s*\}\s*$/m);
+    expect(m).toBeTruthy();
+    const body = m[0];
+    const newVecCount = (body.match(/new\s+Vector3\s*\(/g) || []).length;
+    expect(newVecCount).toBe(0);
+  });
+
+  test('class declares `Vector3 _moveBuf` field for reuse', () => {
+    expect(skeleton).toMatch(/Vector3\s+_moveBuf\s*(=|;)/);
+  });
+});

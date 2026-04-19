@@ -365,6 +365,8 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    // [SKELETON] Tap-to-move target (fallback for joystick)');
     lines.push('    Vector3 tapMoveTarget = Vector3.zero;');
     lines.push('    bool hasTapTarget = false;');
+    lines.push('    // [SKELETON] Reusable buffer for per-frame move/look vectors — avoids alloc');
+    lines.push('    Vector3 _moveBuf = Vector3.zero;');
     lines.push('');
     lines.push('    // [SKELETON] Move player by joystick + tap-to-move fallback — call in Update()');
     lines.push('    void MovePlayer()');
@@ -377,9 +379,12 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('            float v = joystick.Vertical;');
     lines.push('            if (Mathf.Abs(h) > 0.1f || Mathf.Abs(v) > 0.1f)');
     lines.push('            {');
-    lines.push('                Vector3 move = new Vector3(h, 0, v) * moveSpeed * Time.deltaTime;');
-    lines.push('                player.transform.position += move;');
-    lines.push('                player.transform.rotation = Quaternion.LookRotation(new Vector3(h, 0, v));');
+    lines.push('                _moveBuf.x = h; _moveBuf.y = 0f; _moveBuf.z = v;');
+    lines.push('                float step = moveSpeed * Time.deltaTime;');
+    lines.push('                var p = player.transform.position;');
+    lines.push('                p.x += _moveBuf.x * step; p.z += _moveBuf.z * step;');
+    lines.push('                player.transform.position = p;');
+    lines.push('                player.transform.rotation = Quaternion.LookRotation(_moveBuf);');
     lines.push('                hasTapTarget = false;');
     lines.push('                return;');
     lines.push('            }');
