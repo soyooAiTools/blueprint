@@ -1,8 +1,8 @@
 const { staticCheck, getBlockingIssues, RULES } = require('../engine/static-check.cjs');
 
 describe('static-check', () => {
-  test('RULES array has 59+ entries', () => {
-    expect(RULES.length).toBeGreaterThanOrEqual(59);
+  test('RULES array has 62+ entries', () => {
+    expect(RULES.length).toBeGreaterThanOrEqual(62);
   });
 
   test('clean code passes', () => {
