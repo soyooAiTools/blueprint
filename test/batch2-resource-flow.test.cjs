@@ -37,3 +37,38 @@ describe('batch2 resource-flow buildCollectBlock', () => {
     expect(out).not.toMatch(directConcat);
   });
 });
+
+describe('batch2 resource-flow IsNear merge by target', () => {
+  test('single IsNear(target) for multiple resources pointing to same target', () => {
+    var schema = {
+      resources: [
+        { name: 'MetalShard', entity: 'MetalSource', convertRatio: 2 },
+        { name: 'Gold', entity: 'MetalSource', convertRatio: 3 },
+      ],
+      phases: [
+        { trigger: { type: 'entity_state_reached', entity: 'ForgeWorkshop', amount: 5 } },
+      ],
+    };
+    var out = generateResourceUpdate(schema);
+    // Count IsNear(ForgeWorkshop, ...) calls in delivery blocks.
+    // Entity names preserve PascalCase per skeleton convention (see trigger-codegen.toLowerCamel identity).
+    var matches = out.match(/IsNear\(ForgeWorkshop,\s*2f\)/g) || [];
+    // Before merge: 2 (one per resource). After merge: 1.
+    expect(matches.length).toBe(1);
+  });
+
+  test('multiple targets still get separate IsNear blocks', () => {
+    var schema = {
+      resources: [
+        { name: 'A', entity: 'SourceA', convertRatio: 1 },
+      ],
+      phases: [
+        { trigger: { type: 'entity_state_reached', entity: 'TargetA', amount: 1 } },
+        { trigger: { type: 'entity_state_reached', entity: 'TargetB', amount: 1 } },
+      ],
+    };
+    var out = generateResourceUpdate(schema);
+    expect(out).toMatch(/IsNear\(TargetA,\s*2f\)/);
+    expect(out).toMatch(/IsNear\(TargetB,\s*2f\)/);
+  });
+});

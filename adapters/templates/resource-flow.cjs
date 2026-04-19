@@ -53,38 +53,42 @@ function buildCollectBlock(resource) {
 
 function buildPhaseBlocks(phase, resources) {
   var trigger = phase && phase.trigger;
-  var lines = [];
-  var relatedResources;
+  if (!trigger) return [];
+  if (trigger.type !== 'entity_state_reached') return [];
+
+  var relatedResources = findRelatedResources(trigger.entity, resources);
+  var targetEntity = toLowerCamel(trigger.entity);
+  var deliverResources = [];
   var i;
-
-  if (!trigger) return lines;
-
-  if (trigger.type === 'entity_state_reached') {
-    relatedResources = findRelatedResources(trigger.entity, resources);
-    for (i = 0; i < relatedResources.length; i++) {
-      if (relatedResources[i].convertRatio > 0) {
-        lines = lines.concat(buildDeliverBlock(trigger, relatedResources[i]));
-        lines.push('');
-      }
+  for (i = 0; i < relatedResources.length; i++) {
+    if (relatedResources[i].convertRatio > 0) {
+      deliverResources.push(relatedResources[i]);
     }
   }
+  if (deliverResources.length === 0) return [];
 
-  return trimTrailingBlankLines(lines);
+  // Merged IsNear block: single proximity check, multiple resource deliveries inside.
+  var lines = ['if (IsNear(' + targetEntity + ', 2f)) {'];
+  for (i = 0; i < deliverResources.length; i++) {
+    lines = lines.concat(buildDeliverBody(trigger, deliverResources[i], targetEntity));
+  }
+  lines.push('}');
+  lines.push('');
+  return lines;
 }
 
-function buildDeliverBlock(trigger, resource) {
+function buildDeliverBody(trigger, resource, targetEntity) {
   var resourceName = resource.name;
-  var targetEntity = toLowerCamel(trigger.entity);
   var requiredAmount = trigger.amount || resource.convertRatio;
 
   return [
-    'if (IsNear(' + targetEntity + ', 2f) && ' + resourceName + 'Carried > 0) {',
-    '    AddResource("' + escapeString(resourceName) + '", ' + resourceName + 'Carried);',
-    '    ' + resourceName + 'Carried = 0;',
-    '    if (GetResource("' + escapeString(resourceName) + '") >= ' + requiredAmount + ') {',
-    '        ' + targetEntity + 'State++;',
+    '    if (' + resourceName + 'Carried > 0) {',
+    '        AddResource("' + escapeString(resourceName) + '", ' + resourceName + 'Carried);',
+    '        ' + resourceName + 'Carried = 0;',
+    '        if (GetResource("' + escapeString(resourceName) + '") >= ' + requiredAmount + ') {',
+    '            ' + targetEntity + 'State++;',
+    '        }',
     '    }',
-    '}'
   ];
 }
 
