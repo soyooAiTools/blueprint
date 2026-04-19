@@ -148,6 +148,11 @@ module.exports.init = function(ctx) {
       } catch(e) {}
 
       // Phase 5: PM2 crash-loop detection
+      // Use unstable_restarts (pm2 increments this only when a child exits
+      // within min_uptime). restart_time is the lifetime counter — it accrues
+      // across weeks of legitimate manual starts/stops/deploys and does NOT
+      // indicate a crash loop. Using restart_time caused worker-1 to be stopped
+      // on every restart once its lifetime count passed 20 (2026-04-20 bug).
       try {
         var execSync4 = require('child_process').execSync;
         var pm2Json = execSync4('pm2 jlist 2>/dev/null', { encoding: 'utf-8', timeout: 5000 });
@@ -155,15 +160,16 @@ module.exports.init = function(ctx) {
         pm2Data.forEach(function(p) {
           if (p.name.indexOf('linux-worker') !== 0) return;
           var env = p.pm2_env || {};
-          if (env.status === 'online' && env.restart_time > 20) {
-            var uptimeMs = Date.now() - (env.pm_uptime || Date.now());
-            if (uptimeMs < 300000 && env.restart_time > 3) {
-              issues.push('[F9-crash-loop] ' + p.name + ' restarted ' + env.restart_time + ' times');
-              try {
-                execSync4('pm2 stop ' + p.name + ' 2>/dev/null', { timeout: 5000 });
-                fixes.push('[fix] Stopped crash-looping ' + p.name);
-              } catch(e) {}
-            }
+          if (env.status !== 'online') return;
+          var unstable = env.unstable_restarts || 0;
+          var uptimeMs = Date.now() - (env.pm_uptime || Date.now());
+          // Crash-loop = many unstable restarts AND still starting up
+          if (unstable > 5 && uptimeMs < 300000) {
+            issues.push('[F9-crash-loop] ' + p.name + ' unstable_restarts=' + unstable + ' within 5min');
+            try {
+              execSync4('pm2 stop ' + p.name + ' 2>/dev/null', { timeout: 5000 });
+              fixes.push('[fix] Stopped crash-looping ' + p.name);
+            } catch(e) {}
           }
         });
       } catch(e) {}
