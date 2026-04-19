@@ -83,3 +83,10 @@ public/shader-test.html
 # Old build dist artifacts (keep only latest in frontend/dist/)
 public/assets/
 public/iframe.html
+
+# Runtime binaries / stray artifacts (should not be tracked)
+tasks.db
+luna-base-template.zip
+stage4new.zip
+.codex
+docs/reference-builds/
