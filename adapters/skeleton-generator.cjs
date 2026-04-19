@@ -344,12 +344,16 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        // Manager 自动更新 scoreText；如果主文件用本地 scoreText，在这里额外拉取展示。');
     lines.push('        if (scoreText == null) return;');
     lines.push('        var mgr = GFM_EconomyManager.Instance;');
-    lines.push('        var parts = new System.Collections.Generic.List<string>();');
+    lines.push('        // Luna 禁用 List<T>，用 string 累加（InvCount 通常 < 10，无性能问题）');
+    lines.push('        string display = "";');
     lines.push('        for (int i = 0; i < mgr.InvCount; i++) {');
     lines.push('            int v = mgr.InvVal(i);');
-    lines.push('            if (v > 0) parts.Add(mgr.InvKey(i) + ": " + v);');
+    lines.push('            if (v > 0) {');
+    lines.push('                if (display.Length > 0) display += "  ";');
+    lines.push('                display += mgr.InvKey(i) + ": " + v;');
+    lines.push('            }');
     lines.push('        }');
-    lines.push('        scoreText.text = string.Join("  ", parts);');
+    lines.push('        scoreText.text = display;');
     lines.push('    }');
     lines.push('');
   }
@@ -502,7 +506,7 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    {');
     lines.push('        if (mainCam == null) return;');
     lines.push('        // Reuse a single floating text — do NOT use Destroy (forbidden in Luna)');
-    lines.push('        if (floatingText == null) floatingText = GFM_UI.CreateText(uiCanvas, "", Vector2.zero, 24);');
+    lines.push('        if (floatingText == null) floatingText = GFM_UI.CreateText(uiCanvas, "", Vector2.zero, 48);');
     lines.push('        if (floatingText != null) { floatingText.text = text; floatingText.color = color; floatingTextTimer = 1.5f; }');
     lines.push('    }');
     lines.push('');
@@ -572,39 +576,43 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    void OnAutoPlayArrive(string targetName)');
   lines.push('    {');
   lines.push('        // TODO_AUTOPLAY_INTERACT_START');
-  // Generate phase-specific stubs from specs so AI has clear per-phase guidance
-  for (var apsi = 0; apsi < specs.length; apsi++) {
-    var apSpec = specs[apsi];
-    var apPhaseId = (apSpec.phaseId || 'phase' + apsi).replace(/[^a-zA-Z0-9]/g, '');
-    var apInteractions = apSpec.requiredInteractions || [];
-    var apEntities = apSpec.entitiesRequired || [];
-    lines.push('        if (currentPhaseName == "' + apPhaseId + '")');
+  // Generate phase-specific stubs as a switch(currentPhaseName) — one case per phase.
+  // Flat switch (rather than chained `if (currentPhaseName == ...)`) keeps the dispatch
+  // readable at 10-13 phases and makes each phase's branch grep-able by phaseId.
+  if (specs.length > 0) {
+    lines.push('        switch (currentPhaseName)');
     lines.push('        {');
-    // Generate hints based on what the phase needs
-    if (apEntities.length > 0) {
-      for (var aei = 0; aei < apEntities.length; aei++) {
-        var eName = apEntities[aei].name || apEntities[aei];
-        var eTerminal = apEntities[aei].terminalState || 1;
-        lines.push('            ' + eName + 'State = ' + eTerminal + '; // TODO: AI adjusts — simulate reaching terminal state');
-      }
-    }
-    if (apInteractions.length > 0) {
-      for (var aii = 0; aii < apInteractions.length; aii++) {
-        var parts = apInteractions[aii].split(':');
-        var verb = parts[0];
-        var target = parts[1] || '';
-        if (target && !/^\d/.test(target) && verb !== 'wait' && verb !== 'defend') {
-          lines.push('            ' + target + 'Done = true; // TODO: AI adjusts — must ALSO set in interactive handler');
+    for (var apsi = 0; apsi < specs.length; apsi++) {
+      var apSpec = specs[apsi];
+      var apPhaseId = (apSpec.phaseId || 'phase' + apsi).replace(/[^a-zA-Z0-9]/g, '');
+      var apInteractions = apSpec.requiredInteractions || [];
+      var apEntities = apSpec.entitiesRequired || [];
+      lines.push('            case "' + apPhaseId + '":');
+      if (apEntities.length > 0) {
+        for (var aei = 0; aei < apEntities.length; aei++) {
+          var eName = apEntities[aei].name || apEntities[aei];
+          var eTerminal = apEntities[aei].terminalState || 1;
+          lines.push('                ' + eName + 'State = ' + eTerminal + '; // TODO: AI adjusts — simulate reaching terminal state');
         }
       }
+      if (apInteractions.length > 0) {
+        for (var aii = 0; aii < apInteractions.length; aii++) {
+          var parts = apInteractions[aii].split(':');
+          var verb = parts[0];
+          var target = parts[1] || '';
+          if (target && !/^\d/.test(target) && verb !== 'wait' && verb !== 'defend') {
+            lines.push('                ' + target + 'Done = true; // TODO: AI adjusts — must ALSO set in interactive handler');
+          }
+        }
+      }
+      lines.push('                ' + apPhaseId + 'InteractionDone = true;');
+      lines.push('                ' + apPhaseId + 'PlayerActed = true;');
+      lines.push('                break;');
     }
-    lines.push('            ' + apPhaseId + 'InteractionDone = true;');
-    lines.push('            ' + apPhaseId + 'PlayerActed = true;');
     lines.push('        }');
-  }
-  if (specs.length === 0) {
+  } else {
     lines.push('        // TODO: AI fills — simulate interaction for each phase');
-    lines.push('        // Example: if (currentPhaseName == "Phase1") { resourceCount++; phase1Done = true; }');
+    lines.push('        // Example: switch (currentPhaseName) { case "Phase1": resourceCount++; phase1Done = true; break; }');
   }
   lines.push('        // TODO_AUTOPLAY_INTERACT_END');
   lines.push('    }');
@@ -698,9 +706,9 @@ function generateSkeleton(specs, opts = {}) {
 
   // [SKELETON] Pre-create Canvas and UI text
   lines.push('        // [SKELETON] Create Canvas and UI text — use uiCanvas/guideText/scoreText directly');
-  lines.push('        uiCanvas = GFM_UI.CreateCanvas(960, 640);');
-  lines.push('        guideText = GFM_UI.CreateText(uiCanvas, "", new Vector2(0, 270), 26);');
-  lines.push('        scoreText = GFM_UI.CreateText(uiCanvas, "Score: 0", new Vector2(340, 290), 20);');
+  lines.push('        uiCanvas = GFM_UI.CreateCanvas(1920, 1080);');
+  lines.push('        guideText = GFM_UI.CreateText(uiCanvas, "", new Vector2(0, 450), 52);');
+  lines.push('        scoreText = GFM_UI.CreateText(uiCanvas, "Score: 0", new Vector2(680, 480), 40);');
   lines.push('');
 
   if (isIdleGame) {
@@ -1103,7 +1111,13 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    // TODO_UI_END');
   lines.push('}');
 
-  // For large blueprints (>10 phases), split into main + systems files
+  // W1b opt-in: 5-partial split (Flow / Input / Resource / UI / Scene).
+  // Activated by explicit flag; leaves legacy 2-file split untouched for existing projects.
+  if (opts.w1bSplit === true) {
+    return _split5Partial(lines, specs, allEntities, entityPoolMap, isIdleGame);
+  }
+
+  // Legacy: 2-file split for large blueprints (>10 phases)
   if (shouldSplit) {
     return _splitSkeleton(lines, specs, allEntities, entityPoolMap, isIdleGame);
   }
@@ -1161,6 +1175,90 @@ function _splitSkeleton(allLines, specs, allEntities, entityPoolMap, isIdleGame)
     systems: sysLines.join('\n'),
     split: true
   };
+}
+
+/**
+ * W1b 5-partial skeleton split.
+ * Returns { main, flow, input, resource, ui, scene }.
+ * Main keeps all existing skeleton content unchanged; companions add Phase dispatch
+ * (Flow) and placeholder partial-class declarations (Input/Resource/UI/Scene).
+ * Later W1b iterations will migrate method bodies from main into the 4 placeholders.
+ */
+function _split5Partial(allLines, specs, allEntities, entityPoolMap, isIdleGame) {
+  const fullCode = allLines.join('\n');
+  return {
+    main: fullCode,
+    flow: _buildFlowPartial(specs),
+    input: _buildStubPartial('Input', 'Player movement, tap/drag detection, joystick'),
+    resource: _buildStubPartial('Resource', 'Economy, inventory, form switch, AddResource/TrySpend'),
+    ui: _buildStubPartial('UI', 'Canvas helpers, guide/score text, floating text'),
+    scene: _buildStubPartial('Scene', 'Entity placement/lifecycle, PlaceObj/HideObj/SetScale'),
+    split: true,
+    mode: 'w1b-5partial',
+  };
+}
+
+/**
+ * Build Flow partial: Phase_OnTap() dispatcher + one Phase_<id>_OnTap() per phase.
+ * Replaces the flat `switch(currentPhaseName) { case: ... = true; }` dispatch with
+ * per-phase methods that AI (and template engine) can fill via TODO markers.
+ * Fields referenced (<id>InteractionDone / <id>PlayerActed) are declared in main
+ * and shared across partials.
+ */
+function _buildFlowPartial(specs) {
+  const lines = [];
+  lines.push('// ========== AUTO-GENERATED FLOW PARTIAL — Phase dispatch + per-phase tap handlers ==========');
+  lines.push('// Owner class: GameFlowManagerMain (partial). Fields in main are shared.');
+  lines.push('');
+  lines.push('using UnityEngine;');
+  lines.push('');
+  lines.push('public partial class GameFlowManagerMain');
+  lines.push('{');
+  lines.push('    // [SKELETON] Interactive-mode tap dispatcher. Update() calls this on player tap');
+  lines.push('    // when !_autoPlayMode. Grep phaseId to locate each Phase_<id>_OnTap() below.');
+  lines.push('    void Phase_OnTap()');
+  lines.push('    {');
+  lines.push('        switch (currentPhaseName)');
+  lines.push('        {');
+  for (let i = 0; i < specs.length; i++) {
+    const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
+    lines.push('            case "' + pid + '": Phase_' + pid + '_OnTap(); break;');
+  }
+  lines.push('        }');
+  lines.push('    }');
+  lines.push('');
+  for (let i = 0; i < specs.length; i++) {
+    const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
+    lines.push('    // [SKELETON] Phase "' + pid + '" tap handler. AI/template fills TODO region.');
+    lines.push('    void Phase_' + pid + '_OnTap()');
+    lines.push('    {');
+    lines.push('        // TODO_PHASE_' + pid + '_ONTAP_START');
+    lines.push('        ' + pid + 'InteractionDone = true;');
+    lines.push('        ' + pid + 'PlayerActed = true;');
+    lines.push('        // TODO_PHASE_' + pid + '_ONTAP_END');
+    lines.push('    }');
+    lines.push('');
+  }
+  lines.push('}');
+  return lines.join('\n');
+}
+
+/**
+ * Build minimal partial-class stub (Input / Resource / UI / Scene).
+ * Satisfies partial-split-enforce rule; method bodies migrate in later iterations.
+ */
+function _buildStubPartial(name, description) {
+  return [
+    '// ========== AUTO-GENERATED ' + name.toUpperCase() + ' PARTIAL — ' + description + ' ==========',
+    '// Placeholder for W1b phase-2 migration. Add ' + name.toLowerCase() + '-related helpers here.',
+    '',
+    'using UnityEngine;',
+    '',
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    // Reserved for ' + name.toLowerCase() + ' methods.',
+    '}',
+  ].join('\n');
 }
 
 /**

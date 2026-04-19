@@ -12,6 +12,7 @@
  *
  * Priority order:
  *   1. Reuse existing ctx.blueprint.specs (from DB export or feedback round)
+ *      — ONLY if all entitiesRequired refs match current ctx.blueprint.entities
  *   2. Load cached spec-data/<taskId>.json
  *   3. Extract fresh from storyboard frames via LLM
  *   4. FATAL if no frames and no cached specs — nothing to generate from
@@ -23,17 +24,41 @@
 var path = require('path');
 var specExtractor = require('../../adapters/spec-extractor.cjs');
 
+/**
+ * Returns true only when every entitiesRequired ref in `specs` resolves to a
+ * known entity name in `entities`.  An empty entities list is treated as
+ * "unconstrained" so that tasks that intentionally have no entities still skip.
+ */
+function specsAreReusable(specs, entities) {
+  if (!Array.isArray(specs) || specs.length === 0) return false;
+  if (!Array.isArray(entities) || entities.length === 0) return true;
+  var known = new Set(entities.map(function(e) { return e.name; }).filter(Boolean));
+  for (var i = 0; i < specs.length; i++) {
+    var ereq = specs[i].entitiesRequired || [];
+    for (var j = 0; j < ereq.length; j++) {
+      if (ereq[j].name && !known.has(ereq[j].name)) return false;
+    }
+  }
+  return true;
+}
+
 module.exports = {
   name: 'spec-extract',
   canRetry: true,
   maxRetries: 1,
 
   canSkip: function(ctx) {
-    // Skip only when we already have valid specs — never skip because of missing
-    // input; missing input must fall through to the FATAL branch so it surfaces
-    // in metrics instead of silently advancing to a crash in codegen.
+    // Skip only when we already have valid specs whose entity references are
+    // consistent with the current blueprint entities.  DB-exported specs with
+    // stale/camelCase names must NOT skip — they need to flow through execute()
+    // so spec-extractor's 3-layer entity-name correction pipeline runs.
+    // Never skip because of *missing* input; missing input must fall through to
+    // the FATAL branch so it surfaces in metrics instead of silently crashing
+    // in codegen.
     var specs = ctx.blueprint && ctx.blueprint.specs;
-    return Array.isArray(specs) && specs.length > 0;
+    if (!Array.isArray(specs) || specs.length === 0) return false;
+    var entities = (ctx.blueprint && ctx.blueprint.entities) || [];
+    return specsAreReusable(specs, entities);
   },
 
   execute: function(ctx) {
@@ -52,17 +77,7 @@ module.exports = {
       if (cached && cached.length > 0) {
         // Re-validate against current entities; drop cache if entity set drifted.
         var entities = bp.entities || [];
-        var reusable = true;
-        if (entities.length > 0) {
-          var known = new Set(entities.map(function(e) { return e.name; }).filter(Boolean));
-          for (var ci = 0; ci < cached.length && reusable; ci++) {
-            var ereq = cached[ci].entitiesRequired || [];
-            for (var ei = 0; ei < ereq.length; ei++) {
-              if (ereq[ei].name && !known.has(ereq[ei].name)) { reusable = false; break; }
-            }
-          }
-        }
-        if (reusable) {
+        if (specsAreReusable(cached, entities)) {
           ctx.blueprint.specs = cached;
           ctx.addLog('spec-extract', 'Using cached specs: ' + cached.length + ' phases');
           return Promise.resolve();

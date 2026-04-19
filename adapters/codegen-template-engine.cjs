@@ -39,7 +39,8 @@ var NPC_TEMPLATES = {
   boss_multiphase: require('./templates/npc-behaviors/boss-multiphase.cjs'),
 };
 
-function fillSkeleton(schema, skeleton) {
+function fillSkeleton(schema, skeleton, opts) {
+  opts = opts || {};
   // Validate
   var structErrors = validateGameSchema(schema);
   var semErrors = validateSemantics(schema);
@@ -66,8 +67,10 @@ function fillSkeleton(schema, skeleton) {
     todoMap['TODO_PHASE_' + (i + 1) + '_INIT'] = generatePhaseInit(schema.phases[i], schema);
   }
 
-  // TODO_UPDATE: NPC update calls + resource collection detection
-  todoMap['TODO_UPDATE'] = generateUpdateBody(schema);
+  // TODO_UPDATE: NPC update calls + resource collection detection.
+  // W1b: when 5-partial split is on, tap dispatch delegates to Phase_OnTap()
+  // defined in GameFlowManagerMain.Flow.cs (companion partial).
+  todoMap['TODO_UPDATE'] = generateUpdateBody(schema, opts);
 
   // TODO_AUTOPLAY_INTERACT: mirror of interactive triggers
   todoMap['TODO_AUTOPLAY_INTERACT'] = generateAutoPlay(schema);
@@ -142,21 +145,35 @@ function generateVariables(schema, skeleton) {
   return lines.join('\n');
 }
 
-function generateUpdateBody(schema) {
+function generateUpdateBody(schema, opts) {
+  opts = opts || {};
   var lines = [];
 
-  // Interactive-mode flag handlers: set Done/Acted flags on player input
+  // Interactive-mode flag handlers: set Done/Acted flags on player input.
   // Mirrors OnAutoPlayArrive flag assignments so flags are set in BOTH paths.
+  // Uses switch(currentPhaseName) instead of flat if-chain — Luna/Bridge.NET
+  // compiles string-switch to a hashmap jump, same runtime cost as if-chain
+  // but flat and grep-able per phase.
   var phases = schema.phases || [];
   if (phases.length > 0) {
-    lines.push('        if (!_autoPlayMode && (Input.GetMouseButtonDown(0) || (Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began))) {');
-    for (var pi = 0; pi < phases.length; pi++) {
-      var pid = phases[pi].phaseId;
-      var prefix = pi === 0 ? 'if' : 'else if';
-      lines.push('            ' + prefix + ' (currentPhaseName == "' + pid + '") { ' + pid + 'InteractionDone = true; ' + pid + 'PlayerActed = true; }');
+    if (opts.w1bSplit) {
+      // W1b: delegate per-phase body to Phase_OnTap() in Flow partial.
+      // Keeps Main's Update() 1 line; each phase's branch lives in its own method.
+      lines.push('        if (!_autoPlayMode && (Input.GetMouseButtonDown(0) || (Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began))) {');
+      lines.push('            Phase_OnTap(); // dispatch to Phase_<id>_OnTap() in GameFlowManagerMain.Flow.cs');
+      lines.push('        }');
+      lines.push('');
+    } else {
+      lines.push('        if (!_autoPlayMode && (Input.GetMouseButtonDown(0) || (Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began))) {');
+      lines.push('            switch (currentPhaseName) {');
+      for (var pi = 0; pi < phases.length; pi++) {
+        var pid = phases[pi].phaseId;
+        lines.push('                case "' + pid + '": ' + pid + 'InteractionDone = true; ' + pid + 'PlayerActed = true; break;');
+      }
+      lines.push('            }');
+      lines.push('        }');
+      lines.push('');
     }
-    lines.push('        }');
-    lines.push('');
   }
 
   // NPC update calls

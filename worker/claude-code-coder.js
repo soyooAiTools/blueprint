@@ -25,7 +25,7 @@ try {
 const CLAUDE_CMD = process.env.CLAUDE_CMD || 'claude';
 const CLAUDE_TIMEOUT_MS = parseInt(process.env.CLAUDE_TIMEOUT_MS) || 25 * 60 * 1000; // 25 min (fresh gen can take 15-20min)
 const CLAUDE_MAX_BUDGET = process.env.CLAUDE_MAX_BUDGET_USD || '0'; // 0 = no limit
-const CLAUDE_MODEL = process.env.CLAUDE_CODE_MODEL || 'opus';
+const CLAUDE_MODEL = process.env.CLAUDE_CODE_MODEL || 'claude-opus-4-7';
 const GLM_MODEL = process.env.GLM_MODEL || 'glm-5.1';
 const GLM_API_BASE = process.env.GLM_API_BASE || 'https://api.aaxe.cn/api/anthropic';
 const GLM_API_KEY = process.env.GLM_API_KEY || 'oki-d82fb9cf928492b23847db9569dd1f912906cc09135c62fe20b5fa3f0576';
@@ -318,16 +318,24 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
     }
 
     // Record file mtimes before spawn to detect actual modifications (Bug fix: skeleton pre-write false positive)
-    // Track BOTH GameFlowManagerMain.cs and GameFlowManagerMain.Systems.cs — a successful
-    // INCREMENTAL_FIX round may touch only one of them, and a zero-edit round touches neither.
-    // 2026-04-15 fix: zero-edit detection previously only watched GameFlowManagerMain.cs, so a
-    // Round 3 that wasted 2.5 min editing GFM_Tools.cs (which gets overwritten each round)
-    // was treated as successful because exit-code was 0. See project_round3_zero_edit_fix memory.
+    // Dynamically scan `GameFlowManagerMain*.cs` — covers Systems.cs AND the W1b 5-partial
+    // split (Flow/Input/Resource/UI/Scene). A successful INCREMENTAL_FIX round may touch
+    // any subset of these; a zero-edit round touches none.
+    // 2026-04-15: added Systems.cs tracking (was main-only). 2026-04-20: switched to dynamic
+    // scan so future partial additions (W1c, ...) don't require editing this list.
     const managerDirForMtime = path.join(opts.workDir || workDir, 'Assets', 'Program', 'Script', 'Manager');
-    const watchedCsFilesForMtime = [
-      path.join(managerDirForMtime, 'GameFlowManagerMain.cs'),
-      path.join(managerDirForMtime, 'GameFlowManagerMain.Systems.cs'),
-    ];
+    const watchedCsFilesForMtime = [];
+    try {
+      const partialFiles = fs.readdirSync(managerDirForMtime)
+        .filter(function(f) { return /^GameFlowManagerMain.*\.cs$/.test(f); });
+      for (const f of partialFiles) {
+        watchedCsFilesForMtime.push(path.join(managerDirForMtime, f));
+      }
+    } catch (_e) {}
+    // Fallback: at least watch the main file so detection is never empty.
+    if (watchedCsFilesForMtime.length === 0) {
+      watchedCsFilesForMtime.push(path.join(managerDirForMtime, 'GameFlowManagerMain.cs'));
+    }
     const preSpawnMtimes = {};
     try {
       for (const f of watchedCsFilesForMtime) {
@@ -470,7 +478,9 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
           ? (code !== 0 && fileActuallyModified
               ? null  // partial success path below
               : (code === 0 && !fileActuallyModified
-                  ? 'ZERO_EDITS: Claude Code exited 0 but did not modify GameFlowManagerMain.cs or GameFlowManagerMain.Systems.cs. It may have edited read-only files (e.g. Commons/GFM_*.cs) that get restored every round. Re-run with stricter prompt targeting the correct files.'
+                  ? ('ZERO_EDITS: Claude Code exited 0 but did not modify any of the watched partial class files: '
+                      + watchedCsFilesForMtime.map(function(f){ return path.basename(f); }).join(', ')
+                      + '. It may have edited read-only files (e.g. Commons/GFM_*.cs) that get restored every round. Re-run with stricter prompt targeting the correct files.')
                   : _buildExitError(code, stdout, stderr)))
           : null,
         partialSuccess: code !== 0 && fileActuallyModified,
@@ -763,14 +773,31 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
       return JSON.stringify(fb);
     }).join('\n---\n');
 
+    // Dynamically enumerate partial class files on disk so W1b 5-partial (or future W1c)
+    // gets listed in whitelist / Read step / ZERO_EDITS warning without hardcoding names.
+    const managerDirForList = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager');
+    let partialFilesList = [];
+    try {
+      partialFilesList = fs.readdirSync(managerDirForList)
+        .filter(function(f) { return /^GameFlowManagerMain.*\.cs$/.test(f); })
+        .sort();
+    } catch (_e) {}
+    if (partialFilesList.length === 0) partialFilesList = ['GameFlowManagerMain.cs'];
+    const whitelistBlock = partialFilesList.map(function(f) {
+      return '- `Assets/Program/Script/Manager/' + f + '`';
+    }).join('\n');
+    const partialNamesInline = partialFilesList.join(' / ');
+    log('[claude-code] INCREMENTAL_FIX watched partials: ' + partialNamesInline, taskId);
+
     userPrompt = `## 增量修复模式
 
 ⚠️ 这是一个 FIX 请求。保持现有代码结构，只修改反馈要求的部分。
 ⚠️ 禁止重写整个文件！使用 Edit 工具做局部修改。
 
-### ⛔ 允许修改的文件（WHITELIST — 只能改这些）
-- \`Assets/Program/Script/Manager/GameFlowManagerMain.cs\`
-- \`Assets/Program/Script/Manager/GameFlowManagerMain.Systems.cs\`（如果存在）
+### ⛔ 允许修改的文件（WHITELIST — 只能改这些 partial class 文件）
+${whitelistBlock}
+
+所有上述文件都是 \`partial class GameFlowManagerMain\`，共享字段与方法签名。**Phase 分派逻辑（\`Phase_<id>_OnTap()\`）在 \`GameFlowManagerMain.Flow.cs\`（如存在）里，不要去主文件找**；游戏子系统在 \`GameFlowManagerMain.Systems.cs\`（如存在）里。按文件名语义定位要改的位置。
 
 ### ⛔ 禁止修改的文件（READ-ONLY — 改了等于白做）
 - \`Assets/Program/Script/Commons/GFM_*.cs\` — 工具库文件，每轮结束会被 canonical 版本覆盖。你对它做的任何修改都会被 wipe 掉，纯属浪费时间
@@ -778,7 +805,7 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
 - 任何 \`build-*.sh\` 脚本
 
 ### ⛔ 静态违规的修复原则
-如果反馈里的违规定位在 \`GFM_*.cs\`（例如 "GFM_UI.cs L133: SetActive() forbidden"），**不要去改 Commons/ 下的 GFM_*.cs 文件**（它们是 canonical toolkit，不能碰）。违规的真实原因是你的 GameFlowManagerMain.cs/.Systems.cs 中某处调用了会触发这个模式的代码，或者是你自己复制了同名方法/重新实现了类似函数。**去 GameFlowManagerMain.cs 和 Systems.cs 里找禁用 API 的调用并删除/替换**。
+如果反馈里的违规定位在 \`GFM_*.cs\`（例如 "GFM_UI.cs L133: SetActive() forbidden"），**不要去改 Commons/ 下的 GFM_*.cs 文件**（它们是 canonical toolkit，不能碰）。违规的真实原因是你的 GameFlowManagerMain*.cs 中某处调用了会触发这个模式的代码，或者是你自己复制了同名方法/重新实现了类似函数。**去 WHITELIST 列出的 partial 文件里找禁用 API 的调用并删除/替换**。
 
 ## CUA 验证反馈（必须修复以下问题）：
 ${feedbackTexts}
@@ -786,16 +813,16 @@ ${feedbackTexts}
 请完成以下步骤：
 1. 仔细阅读上面的 CUA 反馈，理解具体失败原因
 2. 阅读 prompt.md 了解完整需求
-3. 阅读现有的 Assets/Program/Script/Manager/GameFlowManagerMain.cs 和 GameFlowManagerMain.Systems.cs（如果存在）
-4. 根据 CUA 反馈做**针对性修改**（使用 Edit 工具，不是 Write）— **只能改上面 WHITELIST 里的两个文件**
-5. 如果反馈说缺少 phase，必须添加完整的 phase 实现代码
+3. Read 所有 WHITELIST 列出的 partial 文件（${partialFilesList.length} 个）— 完整理解现有代码分布后再动手
+4. 根据 CUA 反馈做**针对性修改**（使用 Edit 工具，不是 Write）— **只能改上面 WHITELIST 里的文件**
+5. 如果反馈说缺少 phase，必须添加完整的 phase 实现代码（通常在 Flow.cs 的 \`Phase_<id>_OnTap()\` 里）
 6. 如果反馈说 phase-skipped/game_ended，检查 phase 过渡条件是否正确（不能用 true 占位）
 7. 运行 bash build-test.sh 验证编译
 8. 如果编译失败，修复错误并重试
 9. 编译通过后完成
 
 重要：修改后文件行数不应减少。如果你发现文件变短了，说明你错误地重写了整个文件。
-重要：如果你一轮结束时没有对 GameFlowManagerMain.cs 或 GameFlowManagerMain.Systems.cs 做任何 Edit，这一轮会被判定为 ZERO_EDITS 失败并强制重试 — 所以确保你的 Edit 目标正确。`;
+重要：如果你一轮结束时没有对任何一个 WHITELIST 里的 partial 文件做 Edit，这一轮会被判定为 ZERO_EDITS 失败并强制重试 — 所以确保你的 Edit 目标正确。`;
   } else {
     // Inline key file contents to minimize Read tool calls — speeds up fresh gen significantly
     // Note: behavior-templates.md is already injected into prompt.md by parseBlueprintToPromptV5
@@ -907,7 +934,7 @@ ${inlinePromptMd}
   try {
   // Use Opus for both fresh and fix — quality matters. Inline prompt + Edit approach avoids 5min timeout.
   const codegenModel = CLAUDE_MODEL;
-  log(`[claude-code] Model: ${codegenModel === 'haiku' ? 'Haiku 4.5' : codegenModel === 'sonnet' ? 'Sonnet 4.6' : 'Opus 4.6'}`, taskId);
+  log(`[claude-code] Model: ${codegenModel === 'haiku' ? 'Haiku 4.5' : codegenModel === 'sonnet' ? 'Sonnet 4.6' : 'Opus 4.7'}`, taskId);
   result = await runClaudeCode(clientDir, userPrompt, log, taskId, {
     model: codegenModel,
     // effort: always 'medium' to avoid API stream timeout (5min) during extended thinking
@@ -922,10 +949,10 @@ ${inlinePromptMd}
       ? 'INCREMENTAL FIX MODE — CRITICAL RULES:\n'
         + '1. Use the Edit tool (NOT Write) to modify .cs files\n'
         + '2. NEVER rewrite the entire file — only change the specific lines that need fixing\n'
-        + '3. The existing code is 1000+ lines (may be split across GameFlowManagerMain.cs + GameFlowManagerMain.Systems.cs). Your edits must preserve all existing code.\n'
-        + '4. Read ALL existing .cs files FIRST, then apply targeted edits based on the feedback.\n'
+        + '3. The existing code is split across multiple `partial class GameFlowManagerMain` files under Assets/Program/Script/Manager/ (e.g. GameFlowManagerMain.cs + GameFlowManagerMain.Flow.cs + .Input.cs + .Resource.cs + .UI.cs + .Scene.cs + .Systems.cs). All of these share fields with the main file. Your edits must preserve all existing code.\n'
+        + '4. Read ALL existing GameFlowManagerMain*.cs partial files FIRST, then apply targeted edits based on the feedback. Do NOT invent file names — use `ls` or `Glob` on the Manager/ directory to discover which partials actually exist.\n'
         + '5. If any file becomes shorter after your edits, you have made a mistake.\n'
-        + '6. If GameFlowManagerMain.Systems.cs exists, game subsystems live there — edit it for movement/combat/spawning/economy fixes.'
+        + '6. Phase dispatch logic (Phase_OnTap, Phase_<id>_OnTap, per-phase trigger checks) lives in GameFlowManagerMain.Flow.cs when that file exists — edit Flow.cs for phase advancement / tap handling / visual-freeze fixes. Systems.cs (if present) owns game subsystems — edit it for movement/combat/spawning/economy fixes.'
       : null,
     workDir: clientDir,
   });

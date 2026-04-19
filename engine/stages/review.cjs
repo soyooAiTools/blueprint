@@ -10,7 +10,7 @@ var path = require('path');
 var helpers = require('../helpers.cjs');
 var { recode, patchRecode } = require('../recode.cjs');
 var { createFixLoop } = require('../fix-loop.cjs');
-var { staticCheck } = require('../static-check.cjs');
+var { staticCheck, getBlockingIssues } = require('../static-check.cjs');
 var { checkConformance } = require('../spec-conformance.cjs');
 
 var MAX_REVIEW_ROUNDS = 6;
@@ -107,21 +107,30 @@ module.exports = {
         // advancing to visual-check → cua-verify with black screen.
         var reviewPromise;
         var preCheck = staticCheck(reviewedCode);
-        if (!preCheck.passed) {
-          var staticIssues = preCheck.issues.map(function(i) {
+        // W1a introduced warning-severity rules (require-member-doc / require-branch-comment /
+        // method-too-long). `preCheck.passed` is `issues.length === 0`, so warnings were
+        // treating the fix-loop as blocking. Filter to blocking issues for the recode
+        // decision; non-blocking issues still get logged as feedback.
+        var preCheckBlocking = (preCheck.issues || []).filter(function(i) { return i.blocking; });
+        var preCheckWarnings = (preCheck.issues || []).filter(function(i) { return !i.blocking; });
+        if (preCheckWarnings.length > 0) {
+          ctx.addLog('review', 'Static check (round ' + round + ') warnings (non-blocking): ' + preCheckWarnings.length);
+        }
+        if (preCheckBlocking.length > 0) {
+          var staticIssues = preCheckBlocking.map(function(i) {
             return 'L' + i.line + ': ' + i.message + ' — ' + i.text;
           }).join('\n');
-          ctx.addLog('review', 'Static check (round ' + round + ') found ' + preCheck.issues.length + ' blocking violations — forcing recode without LLM review');
+          ctx.addLog('review', 'Static check (round ' + round + ') found ' + preCheckBlocking.length + ' blocking violations — forcing recode without LLM review');
           // Synthesize a failed review result so the existing recode path runs.
           // Uses source='static-precheck' (no parseError/error) so the codex→GPT fallback
           // branch doesn't trigger — we want a direct recode, not another LLM pass.
           reviewPromise = Promise.resolve({
             passed: false,
             feedback: 'STATIC CHECK VIOLATIONS (must fix, these bypass LLM review):\n' + staticIssues,
-            issues: preCheck.issues.map(function(i) {
+            issues: preCheckBlocking.map(function(i) {
               return { severity: 'critical', line: i.line, message: i.message, text: i.text, rule: i.rule };
             }),
-            criticalCount: preCheck.issues.length,
+            criticalCount: preCheckBlocking.length,
             source: 'static-precheck',
           });
         }

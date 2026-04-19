@@ -94,11 +94,12 @@ var RULES = [
     }
     return [];
   }},
-  { id: 'autoplay-gate-removed', pattern: null, message: 'AutoPlay 20s gate block was removed — each shot must wait 20s in autoPlay mode', custom: function(code) {
-    // The skeleton generates: if (_autoPlayMode && !ruleTriggered[N] && phaseTimer < 20f) {}
+  { id: 'autoplay-gate-removed', pattern: null, message: 'AutoPlay 12s gate block was removed — each shot must wait 12s in autoPlay mode', custom: function(code) {
+    // The skeleton generates: if (_autoPlayMode && !ruleTriggered[N] && phaseTimer < 12f) {}
+    // Skeleton changed from 20s → 12s (coordinated with CUA speed patch, see feedback_cua_speed_timer_coordination).
     // If AI removes this gate, phases will advance instantly
-    if (code.indexOf('_autoPlayMode') >= 0 && code.indexOf('phaseTimer < 20f') < 0) {
-      return [{ line: 1, text: 'Missing "phaseTimer < 20f" gate — skeleton autoPlay gate was deleted by AI' }];
+    if (code.indexOf('_autoPlayMode') >= 0 && code.indexOf('phaseTimer < 12f') < 0) {
+      return [{ line: 1, text: 'Missing "phaseTimer < 12f" gate — skeleton autoPlay gate was deleted by AI' }];
     }
     return [];
   }},
@@ -480,6 +481,185 @@ var RULES = [
       if (mainDecl[2]) return []; // already partial
       var lineNum = code.substring(0, mainDecl.index).split('\n').length;
       return [{ line: lineNum, text: (mainDecl[0] || '').trim().slice(0, 120) }];
+    },
+  },
+  // --- v9: Codegen quality rules (2026-04-19) — spec 2026-04-19-codegen-quality-systematic ---
+  // 3 blocking (structural, day 1) + 3 warning (thresholds need real-data calibration).
+  //
+  // Blocking 6a: enforce 5-partial split when skeleton generates companions.
+  // Dormant pre-W1b: if no companion files exist yet, rule returns []. Once W1b
+  // ships the 5-partial skeleton, companions appear and the rule enforces completeness.
+  { id: 'partial-split-enforce', pattern: null, blocking: true,
+    message: 'Partial-split incomplete — GameFlowManagerMain must have 5 companions: Flow / Input / Resource / UI / Scene',
+    custom: function(code, ctx) {
+      if (!ctx || !ctx.extraFiles) return [];
+      var needed = ['Flow', 'Input', 'Resource', 'UI', 'Scene'];
+      // Only count expected-name companions. Legacy `.Systems.cs` (pre-W1b placeholder)
+      // is ignored so urbib0-style baselines don't trip the rule before W1b ships.
+      var companions = Object.keys(ctx.extraFiles).filter(function(k) {
+        return /GameFlowManagerMain\.(Flow|Input|Resource|UI|Scene)\.cs$/.test(k);
+      });
+      if (companions.length === 0) return []; // pre-W1b: rule dormant
+      var missing = [];
+      for (var i = 0; i < needed.length; i++) {
+        var found = false;
+        for (var j = 0; j < companions.length; j++) {
+          if (companions[j].indexOf('.' + needed[i] + '.') >= 0) { found = true; break; }
+        }
+        if (!found) missing.push(needed[i]);
+      }
+      if (missing.length === 0) return [];
+      return [{ line: 1, text: 'Missing partial companion(s): ' + missing.join(', ') }];
+    },
+  },
+  // Blocking 6b: ≥4 consecutive `if (X == "literal")` on the same identifier =
+  // phase-dispatch anti-pattern. Switch/case should replace it. Deliberately
+  // narrower than v8's chained-if-same-var-no-else (threshold 3, warning): this
+  // rule targets the 12-phase dispatch pattern user rejected in urbib0.
+  { id: 'long-if-chain', pattern: null, blocking: true,
+    message: 'Long if-chain (≥4) on same identifier — replace with switch(var) { case "x": ...; break; }',
+    custom: function(code) {
+      var issues = [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/[^\n]*/g, '')
+        .replace(/"(?:[^"\\]|\\.)*"/g, '""');
+      var re = /(\belse\s+)?\bif\s*\(\s*(\w+)\s*==\s*""/g;
+      var runs = [], cur = null, m;
+      while ((m = re.exec(stripped)) !== null) {
+        var ident = m[2];
+        if (cur && cur.ident === ident) {
+          cur.count++;
+        } else {
+          cur = { ident: ident, count: 1, firstIdx: m.index };
+          runs.push(cur);
+        }
+      }
+      for (var i = 0; i < runs.length; i++) {
+        if (runs[i].count >= 4) {
+          var lineNum = code.substring(0, runs[i].firstIdx).split('\n').length;
+          issues.push({ line: lineNum, text: runs[i].count + ' chained "if (' + runs[i].ident + ' == ...)" — convert to switch' });
+        }
+      }
+      return issues;
+    },
+  },
+  // Blocking 6c: UnityEvent/event Action/AddListener = indirect event dispatch.
+  // User requirement #7: direct method calls only. Currently zero violations in
+  // pipeline output — rule is anti-regression.
+  { id: 'no-unityevent-in-flow', pattern: null, blocking: true,
+    message: 'UnityEvent / event Action / AddListener forbidden — use direct method call',
+    custom: function(code) {
+      var issues = [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/[^\n]*/g, '');
+      var patterns = [
+        { re: /\bUnityEvent\b/g, why: 'UnityEvent' },
+        { re: /\bpublic\s+event\s+(?:Action|Func)\b/g, why: 'public event Action/Func' },
+        { re: /\.AddListener\s*\(/g, why: '.AddListener(' },
+        { re: /\.RemoveListener\s*\(/g, why: '.RemoveListener(' },
+      ];
+      for (var p = 0; p < patterns.length; p++) {
+        var pr = patterns[p];
+        pr.re.lastIndex = 0;
+        var m;
+        while ((m = pr.re.exec(stripped)) !== null) {
+          var lineNum = code.substring(0, m.index).split('\n').length;
+          issues.push({ line: lineNum, text: pr.why + ' at line ' + lineNum });
+        }
+      }
+      return issues;
+    },
+  },
+  // Warning 6d: method body > 60 lines. Exempt list covers legitimately-long
+  // skeleton scaffolding (CheckEventRules, OnAutoPlayArrive, dispatcher switches).
+  // Threshold to be calibrated at W2 end against real urbib0/successor distribution.
+  { id: 'method-too-long', pattern: null,
+    message: 'Method body > 60 lines — split into smaller named methods (per-phase OnEnter/OnTap)',
+    custom: function(code) {
+      var issues = [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/[^\n]*/g, '');
+      var exempt = ['Update', 'Start', 'Awake', 'EnterPhase', 'HandleTap', 'CheckTrigger',
+        'ExecuteAction', 'CheckEventRules', 'OnAutoPlayArrive', 'AutoPlayUpdate'];
+      var sigRe = /\b(?:public|private|protected|internal)?\s*(?:static\s+)?(?:void|IEnumerator|bool|int|float|string|GameObject|Vector[23]|Color|Transform)\s+(\w+)\s*\([^)]*\)\s*\{/g;
+      var m;
+      while ((m = sigRe.exec(stripped)) !== null) {
+        var name = m[1];
+        if (exempt.indexOf(name) >= 0) continue;
+        var start = m.index + m[0].length;
+        var depth = 1, end = start;
+        while (end < stripped.length && depth > 0) {
+          var ch = stripped[end];
+          if (ch === '{') depth++;
+          else if (ch === '}') { depth--; if (depth === 0) break; }
+          end++;
+        }
+        if (depth !== 0) continue;
+        var body = stripped.substring(start, end);
+        var lineCount = body.split('\n').length;
+        if (lineCount > 60) {
+          var lineNum = code.substring(0, m.index).split('\n').length;
+          issues.push({ line: lineNum, text: name + '() body ' + lineCount + ' lines' });
+        }
+      }
+      return issues;
+    },
+  },
+  // Warning 6e: public/protected members in business code need /// XML doc.
+  // Scoped via class-name sniff to GameFlowManagerMain (skip canonical GFM_* lib).
+  // Turns blocking in W3 once skeleton-generator auto-emits XML doc skeletons.
+  { id: 'require-member-doc', pattern: null,
+    message: 'public/protected member lacks /// XML doc comment',
+    custom: function(code) {
+      if (code.indexOf('class GameFlowManagerMain') < 0) return [];
+      var issues = [];
+      var lines = code.split('\n');
+      var memberRe = /^\s*(?:public|protected)\s+(?!const\b|override\b|partial\b|class\b|static\s+class\b)/;
+      var lifecycle = ['Awake', 'Start', 'Update', 'FixedUpdate', 'LateUpdate',
+        'OnEnable', 'OnDisable', 'OnDestroy', 'OnApplicationPause', 'OnApplicationFocus'];
+      for (var i = 0; i < lines.length; i++) {
+        if (!memberRe.test(lines[i])) continue;
+        var nameMatch = lines[i].match(/\b(\w+)\s*\(/);
+        if (nameMatch && lifecycle.indexOf(nameMatch[1]) >= 0) continue;
+        var j = i - 1;
+        while (j >= 0 && lines[j].trim() === '') j--;
+        if (j < 0) { issues.push({ line: i + 1, text: lines[i].trim().slice(0, 120) }); continue; }
+        var prev = lines[j].trim();
+        var hasDoc = prev.indexOf('///') === 0 ||
+                     prev.slice(-2) === '*/' ||
+                     /^\[[\w,\s]+\]$/.test(prev); // attribute line
+        if (!hasDoc) issues.push({ line: i + 1, text: lines[i].trim().slice(0, 120) });
+      }
+      return issues;
+    },
+  },
+  // Warning 6f: if-branches with magic numbers (>=3 digit) or string literals
+  // should have trailing // comment explaining the condition. Exempts ruleTriggered[]
+  // skeleton patterns and autoPlay gates which carry [SKELETON] banners elsewhere.
+  { id: 'require-branch-comment', pattern: null,
+    message: 'if-condition with magic literal lacks trailing comment — explain the intent',
+    custom: function(code) {
+      var issues = [];
+      var lines = code.split('\n');
+      var ifRe = /\bif\s*\(([^)]*(?:"[^"]*"|\b\d{3,}\b)[^)]*)\)/;
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        var m = line.match(ifRe);
+        if (!m) continue;
+        var cond = m[1];
+        // Exempt trivial null/bool checks in the condition itself (not body)
+        if (/\b(?:null|true|false)\b/.test(cond)) continue;
+        // Exempt skeleton-generated patterns
+        if (/ruleTriggered\[|_autoPlayMode|phaseTimer\s*[<>]=?/.test(cond)) continue;
+        // Trailing // on same line (after stripping strings)?
+        var codePart = line.replace(/"[^"]*"/g, '""');
+        if (codePart.indexOf('//') >= 0) continue;
+        issues.push({ line: i + 1, text: line.trim().slice(0, 120) });
+      }
+      return issues;
     },
   },
 ];

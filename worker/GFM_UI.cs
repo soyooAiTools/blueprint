@@ -25,7 +25,7 @@ public static class GFM_UI
         return _cachedFont;
     }
 
-    public static Canvas CreateCanvas(int refWidth, int refHeight)
+    public static Canvas CreateCanvas(int refWidth = 1920, int refHeight = 1080)
     {
         var obj = new GameObject("Canvas");
         var canvas = obj.AddComponent<Canvas>();

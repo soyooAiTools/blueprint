@@ -10,26 +10,27 @@ function generateAutoPlay(schema) {
   var phases = schema.phases || [];
 
   lines.push('        // Auto-play interaction simulation');
+  lines.push('        switch (currentPhaseName) {');
   for (var i = 0; i < phases.length; i++) {
     var phase = phases[i];
     var mirror = triggerToMirror(phase.trigger, schema);
-    var prefix = i === 0 ? 'if' : 'else if';
-    lines.push('        ' + prefix + ' (currentPhaseName == "' + phase.phaseId + '") {');
+    lines.push('            case "' + phase.phaseId + '": {');
     if (mirror) {
       var mirrorLines = mirror.split('\n');
       for (var j = 0; j < mirrorLines.length; j++) {
-        lines.push('            ' + mirrorLines[j]);
+        lines.push('                ' + mirrorLines[j]);
       }
     }
-    lines.push('            ' + phase.phaseId + 'InteractionDone = true;');
-    lines.push('            ' + phase.phaseId + 'PlayerActed = true;');
-    // onComplete actions
+    lines.push('                ' + phase.phaseId + 'InteractionDone = true;');
+    lines.push('                ' + phase.phaseId + 'PlayerActed = true;');
     var actions = phase.onComplete || [];
     for (var k = 0; k < actions.length; k++) {
-      lines.push('            ' + actionToMirror(actions[k]));
+      lines.push('                ' + actionToMirror(actions[k]));
     }
-    lines.push('        }');
+    lines.push('                break;');
+    lines.push('            }');
   }
+  lines.push('        }');
   return lines.join('\n');
 }
 

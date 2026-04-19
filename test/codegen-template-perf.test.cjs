@@ -1,7 +1,7 @@
 'use strict';
 const { generateAutoPlay } = require('../adapters/templates/autoplay-mirror.cjs');
 
-describe('autoplay-mirror — else if chain (T1-3)', () => {
+describe('autoplay-mirror — switch dispatch (post-W1a)', () => {
   const schema = {
     phases: [
       { phaseId: 'phaseA', trigger: { type: 'resource_collected', resource: 'X', amount: 1 }, onComplete: [] },
@@ -11,21 +11,25 @@ describe('autoplay-mirror — else if chain (T1-3)', () => {
     entities: [],
   };
 
-  test('first phase uses bare `if`, subsequent phases use `else if`', () => {
+  test('uses switch(currentPhaseName) with case per phase', () => {
     const code = generateAutoPlay(schema);
-    expect(code).toMatch(/^\s*if \(currentPhaseName == "phaseA"\)/m);
-    expect(code).toMatch(/\}\s*else if \(currentPhaseName == "phaseB"\)/);
-    expect(code).toMatch(/\}\s*else if \(currentPhaseName == "phaseC"\)/);
-    const bareIfCount = (code.match(/^\s+if \(currentPhaseName/gm) || []).length;
-    expect(bareIfCount).toBe(1);
+    expect(code).toMatch(/switch\s*\(\s*currentPhaseName\s*\)/);
+    expect(code).toMatch(/case\s+"phaseA"\s*:/);
+    expect(code).toMatch(/case\s+"phaseB"\s*:/);
+    expect(code).toMatch(/case\s+"phaseC"\s*:/);
+    // No parallel `if (currentPhaseName == ...)` chain — those are the bad pattern W1a removed.
+    const parallelIf = (code.match(/if \(currentPhaseName ==/g) || []).length;
+    expect(parallelIf).toBe(0);
   });
 });
 
-describe('codegen-template-engine TODO_UPDATE — else if chain (T1-4)', () => {
-  test('first phase click handler uses `if`, rest use `else if` (white-box check)', () => {
+describe('codegen-template-engine TODO_UPDATE — switch dispatch (post-W1a)', () => {
+  test('tap handler uses switch(currentPhaseName), not parallel if-chain', () => {
     const fs = require('fs');
     const src = fs.readFileSync(require.resolve('../adapters/codegen-template-engine.cjs'), 'utf8');
-    // Must include: pi === 0 ? 'if' : 'else if'
-    expect(src).toMatch(/pi === 0 \? ['"]if['"] : ['"]else if['"]/);
+    // Must emit `switch (currentPhaseName)` inside generateUpdateBody.
+    expect(src).toMatch(/switch\s*\(\s*currentPhaseName\s*\)/);
+    // Must not re-introduce the legacy if/else-if ladder.
+    expect(src).not.toMatch(/pi === 0 \? ['"]if['"] : ['"]else if['"]/);
   });
 });

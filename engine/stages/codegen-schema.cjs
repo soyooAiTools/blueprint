@@ -36,10 +36,12 @@ module.exports = {
         var skeletonResult = generateSkeleton(ctx.blueprint.specs, {
           entityPoolMap: resolved.entityPoolMap,
           entities: schema.entities, // carries chineseName / showLabel for world labels
+          w1bSplit: ctx.blueprint.w1bSplit === true, // opt-in: 5-partial skeleton split
         });
         var skeletonStr = typeof skeletonResult === 'string' ? skeletonResult : skeletonResult.main;
+        var isW1bSplit = (typeof skeletonResult === 'object' && skeletonResult.mode === 'w1b-5partial');
 
-        var fillResult = templateEngine.fillSkeleton(schema, skeletonStr);
+        var fillResult = templateEngine.fillSkeleton(schema, skeletonStr, { w1bSplit: isW1bSplit });
         ctx.csCode = fillResult.code;
         ctx.blueprint.templateCoverage = fillResult.templateCoverage;
         ctx.blueprint.todoSectionsRemaining = fillResult.todoCount;
@@ -49,8 +51,21 @@ module.exports = {
           fillResult.templateCoverage.toFixed(2) + ', remaining TODOs=' + fillResult.todoCount +
           ', took ' + ctx.blueprint.templateFillMs + 'ms');
 
-        // Handle split mode — fill Systems file TODOs too
-        if (typeof skeletonResult === 'object' && skeletonResult.systems) {
+        // W1b 5-partial split — write Flow/Input/Resource/UI/Scene companions.
+        // TODO_PHASE_<id>_ONTAP filling inside Flow is deferred to W1b-2b; for now
+        // the stubs ship with default <id>InteractionDone/<id>PlayerActed assignments
+        // which keep the code compilable and anti-autoplay-safe.
+        if (typeof skeletonResult === 'object' && skeletonResult.mode === 'w1b-5partial') {
+          ctx.extraFiles = ctx.extraFiles || {};
+          ctx.extraFiles['GameFlowManagerMain.Flow.cs'] = skeletonResult.flow;
+          ctx.extraFiles['GameFlowManagerMain.Input.cs'] = skeletonResult.input;
+          ctx.extraFiles['GameFlowManagerMain.Resource.cs'] = skeletonResult.resource;
+          ctx.extraFiles['GameFlowManagerMain.UI.cs'] = skeletonResult.ui;
+          ctx.extraFiles['GameFlowManagerMain.Scene.cs'] = skeletonResult.scene;
+          ctx.addLog('codegen-schema', 'W1b 5-partial: wrote 5 companion files to extraFiles');
+        }
+        // Legacy split mode — fill Systems file TODOs too
+        else if (typeof skeletonResult === 'object' && skeletonResult.systems) {
           var systemsFill = templateEngine.fillSkeleton(schema, skeletonResult.systems);
           ctx.extraFiles = ctx.extraFiles || {};
           ctx.extraFiles['GameFlowManagerMain.Systems.cs'] = systemsFill.code;
@@ -127,7 +142,7 @@ function generateSchemaFromSpecs(ctx) {
       }
 
       // Auto-repair common LLM output issues before validation
-      _repairSchema(schema);
+      _repairSchema(schema, ctx.blueprint.entities);
 
       // Validate
       var structErrors = schemaValidator.validateGameSchema(schema);
@@ -288,12 +303,20 @@ function buildCustomLogicPrompt(ctx, schema) {
   return lines.join('\n');
 }
 
-var ALLOWED_ENTITY_KEYS = { name: 1, pool: 1, initPos: 1, scale: 1, showInPhase: 1, terminalState: 1 };
+var ALLOWED_ENTITY_KEYS = { name: 1, chineseName: 1, showLabel: 1, pool: 1, initPos: 1, scale: 1, showInPhase: 1, terminalState: 1 };
 var ALLOWED_ACTION_KEYS = { action: 1, entity: 1, state: 1, resource: 1, amount: 1, formIndex: 1, text: 1, color: 1, count: 1 };
 var ALLOWED_ACTIONS = ['set_entity_state', 'add_resource', 'switch_form', 'show_floating_text', 'set_guide', 'spawn_enemies'];
 
-function _repairSchema(schema) {
+function _repairSchema(schema, blueprintEntities) {
   if (!schema || typeof schema !== 'object') return;
+
+  // Build blueprint entity lookup: name -> label (Chinese display name)
+  // AJV requires chineseName but Haiku --effort low omits it ~30% of runs;
+  // backfill from blueprint.label → entity.name → 'entity' before validation.
+  var _bpLabelByName = {};
+  (blueprintEntities || []).forEach(function(be) {
+    if (be && be.name) _bpLabelByName[be.name] = be.label || be.chineseName || '';
+  });
 
   // Fix gameConfig defaults
   if (!schema.gameConfig) schema.gameConfig = {};
@@ -320,6 +343,10 @@ function _repairSchema(schema) {
   // Pass 1: validate format, register valid unique pools
   (schema.entities || []).forEach(function(e) {
     Object.keys(e).forEach(function(k) { if (!ALLOWED_ENTITY_KEYS[k]) delete e[k]; });
+    // chineseName fallback: blueprint.label → name → 'entity' (prevents Haiku omission from failing validation)
+    if (!e.chineseName || typeof e.chineseName !== 'string' || e.chineseName.length === 0) {
+      e.chineseName = _bpLabelByName[e.name] || e.name || 'entity';
+    }
     if (e.pool && !/\d{2}$/.test(e.pool)) {
       e.pool = e.pool.replace(/_(\d)$/, '_0$1');
     }
