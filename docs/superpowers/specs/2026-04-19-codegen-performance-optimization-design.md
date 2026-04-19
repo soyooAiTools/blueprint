@@ -1,7 +1,7 @@
 # Codegen Performance Optimization Spec
 
 **Date**: 2026-04-19
-**Status**: ✅ Approved — Batch 1 + Batch 3 已落地 (2026-04-19)，Batch 2 待健康项目做 CUA 对照
+**Status**: ✅ Approved — Batch 1 + 2 + 3 已落地 (2026-04-19)，待新项目上线后 observe（CUA 对照需健康项目）
 **Scope**: skeleton-generator + template-engine + static-check 三层的性能问题修复
 **Trigger**: 用户审查 proj_1776391516726_urbib0 (太空捡垃圾) 代码发现 Update new Vector3 / 11 连裸 if / IsNear 重复计算
 
