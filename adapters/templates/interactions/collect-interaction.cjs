@@ -16,9 +16,10 @@ function generateCollectUpdate(schema) {
     var r = resources[i];
     var entity = toLowerCamel(r.entity);
     var cap = r.maxStock || maxCarry;
-    lines.push('        if (' + entity + ' != null && IsNear(' + entity + ', ' + collectRange + 'f)) {');
+    lines.push('        if (_collectCooldown <= 0f && ' + entity + ' != null && IsNear(' + entity + ', ' + collectRange + 'f)) {');
     lines.push('            if (GetResource("' + escapeString(r.name) + '") < ' + cap + ') {');
     lines.push('                AddResource("' + escapeString(r.name) + '", 1);');
+    lines.push('                _collectCooldown = collectCooldownInterval;');
     lines.push('                ' + entity + 'Done = true;');
     lines.push('            }');
     lines.push('        }');
