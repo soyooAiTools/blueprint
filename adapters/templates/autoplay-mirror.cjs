@@ -13,7 +13,8 @@ function generateAutoPlay(schema) {
   for (var i = 0; i < phases.length; i++) {
     var phase = phases[i];
     var mirror = triggerToMirror(phase.trigger, schema);
-    lines.push('        if (currentPhaseName == "' + phase.phaseId + '") {');
+    var prefix = i === 0 ? 'if' : 'else if';
+    lines.push('        ' + prefix + ' (currentPhaseName == "' + phase.phaseId + '") {');
     if (mirror) {
       var mirrorLines = mirror.split('\n');
       for (var j = 0; j < mirrorLines.length; j++) {
