@@ -152,7 +152,8 @@ function generateUpdateBody(schema) {
     lines.push('        if (!_autoPlayMode && (Input.GetMouseButtonDown(0) || (Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began))) {');
     for (var pi = 0; pi < phases.length; pi++) {
       var pid = phases[pi].phaseId;
-      lines.push('            if (currentPhaseName == "' + pid + '") { ' + pid + 'InteractionDone = true; ' + pid + 'PlayerActed = true; }');
+      var prefix = pi === 0 ? 'if' : 'else if';
+      lines.push('            ' + prefix + ' (currentPhaseName == "' + pid + '") { ' + pid + 'InteractionDone = true; ' + pid + 'PlayerActed = true; }');
     }
     lines.push('        }');
     lines.push('');

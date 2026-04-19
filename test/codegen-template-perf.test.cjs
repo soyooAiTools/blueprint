@@ -20,3 +20,12 @@ describe('autoplay-mirror — else if chain (T1-3)', () => {
     expect(bareIfCount).toBe(1);
   });
 });
+
+describe('codegen-template-engine TODO_UPDATE — else if chain (T1-4)', () => {
+  test('first phase click handler uses `if`, rest use `else if` (white-box check)', () => {
+    const fs = require('fs');
+    const src = fs.readFileSync(require.resolve('../adapters/codegen-template-engine.cjs'), 'utf8');
+    // Must include: pi === 0 ? 'if' : 'else if'
+    expect(src).toMatch(/pi === 0 \? ['"]if['"] : ['"]else if['"]/);
+  });
+});
