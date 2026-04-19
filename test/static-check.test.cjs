@@ -307,4 +307,65 @@ public class Main : MonoBehaviour {
     const hit = staticCheck(code).issues.find(i => i.rule === 'autoplay-duration-tamper');
     expect(hit).toBeUndefined();
   });
+
+  // --- v8: Performance hot-path rules (Batch 3) ---
+
+  test('new Vector3 in Update() detected as blocking', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  void Update() {
+    transform.position = new Vector3(1, 2, 3);
+  }
+}`;
+    const result = staticCheck(code);
+    const hit = result.issues.find(i => i.rule === 'update-new-vector-in-hot-path');
+    expect(hit).toBeDefined();
+    expect(hit.blocking).toBe(true);
+    expect(hit.line).toBe(4);
+  });
+
+  test('new Vector3 in Start() is allowed (not a hot path)', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  void Start() {
+    transform.position = new Vector3(1, 2, 3);
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'update-new-vector-in-hot-path');
+    expect(hit).toBeUndefined();
+  });
+
+  test('new Vector3(0,0,0) in Update is allowed (zero vector)', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  void Update() {
+    var zero = new Vector3(0,0,0);
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'update-new-vector-in-hot-path');
+    expect(hit).toBeUndefined();
+  });
+
+  test('new Vector3 in string literal inside Update is ignored', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  void Update() {
+    Debug.Log("example: new Vector3(1,2,3)");
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'update-new-vector-in-hot-path');
+    expect(hit).toBeUndefined();
+  });
+
+  test('new Vector3 in MovePlayer detected as blocking', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  void MovePlayer() {
+    player.transform.position = new Vector3(1, 0, 2);
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'update-new-vector-in-hot-path');
+    expect(hit).toBeDefined();
+    expect(hit.blocking).toBe(true);
+  });
 });

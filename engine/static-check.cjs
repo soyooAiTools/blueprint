@@ -342,6 +342,48 @@ var RULES = [
   { id: 'destructor-syntax', pattern: /~[A-Z]\w+\s*\(\s*\)/g, message: 'Destructors unsupported in Bridge.NET — remove ~TypeName()' },
   { id: 'system-math-lib', pattern: /\bSystem\.Math\b|\bUnity\.Mathematics\b/g, message: 'System.Math / Unity.Mathematics unsupported in Luna — use Mathf or MathF' },
   { id: 'scene-buildindex', pattern: /GetActiveScene\s*\(\s*\)\.buildIndex/g, message: 'SceneManager.GetActiveScene().buildIndex unsupported in Luna' },
+  // --- v8: Performance hot-path rules (Batch 3, 2026-04-19) ---
+  // Batch 1 cleaned skeleton's own hot paths; this rule prevents AI-generated code
+  // from re-introducing `new Vector3` into Update/MovePlayer/CheckEventRules/AutoPlayUpdate.
+  // Each heap alloc × 60fps = measurable GC jitter in Luna's small-memory WebGL env.
+  { id: 'update-new-vector-in-hot-path', pattern: null, blocking: true,
+    message: 'new Vector3 in Update/MovePlayer/CheckEventRules/AutoPlayUpdate hot path — reuse a field or use struct-copy (var p = obj.transform.position; p.x = ...; obj.transform.position = p;)',
+    custom: function(code) {
+      var issues = [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/[^\n]*/g, '')
+        .replace(/"(?:[^"\\]|\\.)*"/g, '""');
+      var hotFns = ['Update', 'MovePlayer', 'CheckEventRules', 'AutoPlayUpdate'];
+      for (var f = 0; f < hotFns.length; f++) {
+        var fn = hotFns[f];
+        var sigRe = new RegExp('\\b(?:void|IEnumerator)\\s+' + fn + '\\s*\\([^)]*\\)\\s*\\{');
+        var sig = stripped.match(sigRe);
+        if (!sig) continue;
+        var start = sig.index + sig[0].length;
+        var depth = 1, end = start;
+        while (end < stripped.length && depth > 0) {
+          var ch = stripped[end];
+          if (ch === '{') depth++;
+          else if (ch === '}') { depth--; if (depth === 0) break; }
+          end++;
+        }
+        if (depth !== 0) continue;
+        var body = stripped.substring(start, end);
+        var re = /\bnew\s+Vector3\s*\(\s*([^)]*)\)/g;
+        var m;
+        while ((m = re.exec(body)) !== null) {
+          var args = m[1].replace(/\s/g, '');
+          // Allow new Vector3(0,0,0) — zero-alloc concept (rarely used, but legal)
+          if (args === '0,0,0' || args === '' || args === '0') continue;
+          var absIdx = start + m.index;
+          var lineNum = code.substring(0, absIdx).split('\n').length;
+          issues.push({ line: lineNum, text: 'new Vector3(' + m[1].trim() + ') inside ' + fn + '()' });
+        }
+      }
+      return issues;
+    },
+  },
 ];
 
 /**
