@@ -455,6 +455,33 @@ var RULES = [
       return issues;
     },
   },
+  // partial class 一致性:extraFiles 里若有 partial class GameFlowManagerMain,
+  // 主文件也必须带 partial 关键字,否则 CS0260。(2026-04-19: 打包工具+AI fix-loop 都可能引入)
+  {
+    id: 'partial-class-mismatch',
+    pattern: null,
+    blocking: true,
+    message: 'partial class mismatch (CS0260): a companion file declares `partial class GameFlowManagerMain` but the main file declares it non-partial — add `partial` keyword to main class',
+    custom: function(code, ctx) {
+      if (!ctx || !ctx.extraFiles) return [];
+      var companionHasPartial = false;
+      for (var efKey in ctx.extraFiles) {
+        if (!ctx.extraFiles.hasOwnProperty(efKey)) continue;
+        if (efKey.indexOf('GameFlowManagerMain') < 0) continue;
+        if (/\bpartial\s+class\s+GameFlowManagerMain\b/.test(ctx.extraFiles[efKey])) {
+          companionHasPartial = true;
+          break;
+        }
+      }
+      if (!companionHasPartial) return [];
+      // Main file must also declare `partial class GameFlowManagerMain`
+      var mainDecl = /\b(public\s+)?(partial\s+)?class\s+GameFlowManagerMain\b/.exec(code);
+      if (!mainDecl) return [];
+      if (mainDecl[2]) return []; // already partial
+      var lineNum = code.substring(0, mainDecl.index).split('\n').length;
+      return [{ line: lineNum, text: (mainDecl[0] || '').trim().slice(0, 120) }];
+    },
+  },
 ];
 
 /**

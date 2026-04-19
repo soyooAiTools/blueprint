@@ -203,7 +203,7 @@ module.exports = {
           // instantiate, destroy, new-material, setactive, etc. Adding this check here
           // (in addition to review stage) gives us a cheap early-out and feeds specific
           // lines back to the generator on the next round (2026-04-15 bqh33t fix).
-          var blockingFromMain = getBlockingIssues(ctx.csCode);
+          var blockingFromMain = getBlockingIssues(ctx.csCode, { extraFiles: ctx.extraFiles });
           var blockingFromExtras = [];
           if (ctx.extraFiles) {
             for (var efKey in ctx.extraFiles) {
