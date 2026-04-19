@@ -46,8 +46,8 @@ function listCsFiles(dir) {
 // ============ Config ============
 const API_BASE = 'https://crs.mindrix.app/api/anthropic';
 const API_KEY = process.env.LLM_API_KEY || 'oki-d82fb9cf928492b23847db9569dd1f912906cc09135c62fe20b5fa3f0576';
-const MODEL_GENERATE = process.env.LLM_MODEL_GENERATE || 'claude-opus-4-6';
-const MODEL_FIX = process.env.LLM_MODEL_FIX || 'claude-opus-4-6';
+const MODEL_GENERATE = process.env.LLM_MODEL_GENERATE || 'claude-opus-4-7';
+const MODEL_FIX = process.env.LLM_MODEL_FIX || 'claude-opus-4-7';
 const MAX_TOKENS = 30000; // Opus max is 32000; leave headroom
 const MAX_FIX_ATTEMPTS = 10;  // Keep retrying until fixed (practical upper bound)
 const PIPELINE_DIR = process.env.LUNA_PIPELINE || 'D:\\Luna\\pipeline';

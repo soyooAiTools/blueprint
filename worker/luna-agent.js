@@ -117,7 +117,7 @@ async function callClaude(client, prompt, screenshotB64) {
 
   try {
     const response = await client.messages.create({
-      model: 'claude-opus-4-6',
+      model: 'claude-opus-4-7',
       max_tokens: 1024,
       messages: [{ role: 'user', content: content }]
     });
@@ -1257,7 +1257,7 @@ async function main() {
   console.log('[Luna Agent] Starting...');
   console.log('[Luna Agent] URL:', config.url);
   console.log('[Luna Agent] Max rounds:', config.rounds);
-  const modelNames = { gpt: 'GPT-5.4 (Chat)', cua: 'GPT-5.4 CUA (直接操控)', claude: 'Claude Opus 4.6' };
+  const modelNames = { gpt: 'GPT-5.4 (Chat)', cua: 'GPT-5.4 CUA (直接操控)', claude: 'Claude Opus 4.7'};
   console.log('[Luna Agent] Model:', modelNames[config.model] || config.model);
   console.log('[Luna Agent] Mode:', config.headed ? 'headed' : 'headless');
 
