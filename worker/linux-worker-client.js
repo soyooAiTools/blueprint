@@ -513,18 +513,34 @@ var { createLunaPipeline, PipelineContext } = require('../engine/pipeline.cjs');
 function reloadEngineModules() {
   var engineDir = path.resolve(__dirname, '..', 'engine');
   var adaptersDir = path.resolve(__dirname, '..', 'adapters');
+  var workerDir = path.resolve(__dirname); // worker/ — where LLM adapters live
+  // Never reload the worker entry script itself: it's the currently-executing
+  // module and dropping its cache entry doesn't give us new code (we're already
+  // running it) but breaks relative require resolution inside it.
+  var selfPath = path.resolve(__filename);
   var count = 0;
+  var workerCount = 0;
   Object.keys(require.cache).forEach(function(key) {
+    if (key === selfPath) return;
+    // Skip node_modules even if they live inside a scanned dir
+    if (key.indexOf('node_modules') !== -1) return;
     if (key.startsWith(engineDir) || key.startsWith(adaptersDir)) {
       delete require.cache[key];
       count++;
+    } else if (key.startsWith(workerDir)) {
+      // Pipeline stages require many worker/ modules (claude-code-coder,
+      // code-reviewer, codex-reviewer, worker-coder, screenshot-review, etc).
+      // Without clearing them, edits to those files stay invisible until a
+      // pm2 restart — exactly the "stale code" symptom that kept recurring.
+      delete require.cache[key];
+      workerCount++;
     }
   });
-  if (count > 0) {
+  if (count > 0 || workerCount > 0) {
     var fresh = require('../engine/pipeline.cjs');
     createLunaPipeline = fresh.createLunaPipeline;
     PipelineContext = fresh.PipelineContext;
-    log('[hot-reload] Reloaded ' + count + ' engine modules');
+    log('[hot-reload] Reloaded ' + count + ' engine/adapters + ' + workerCount + ' worker modules');
   }
 }
 
