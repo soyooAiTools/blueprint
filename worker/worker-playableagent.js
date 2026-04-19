@@ -430,9 +430,16 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
 
       // ═══ Hard-block: semantic silent-pass signals force FAIL ═══
       // zero-actions alone is expected in observe mode (already exempted above).
-      // uniform-timing / phase-order / all-vars-zero are bugs, not observability noise.
-      // Per feedback_cua_hard_gate: CUA must be a hard gate, never a soft signal.
+      // uniform-timing is ALSO expected in observe/autoPlay mode — the autoPlay driver
+      // is a fixed-interval timer (~12s/tick × N phases), so cv ≈ 0% is a physical
+      // consequence of the test harness, not a silent-pass bug. Real silent-pass
+      // would show as all-vars-zero or phase-order-violation, which we still block.
+      // 2026-04-20: previously uniform-timing hard-blocked ALL modes — that locked
+      // out every observe run because autoPlay timers always produce cv < 15%.
+      // Per feedback_cua_hard_gate: CUA is a hard gate, but only on signals that
+      // actually indicate a bug. Timer uniformity in a timer-driven test is not one.
       var hardBlockingSignals = silentPassSignals.filter(function(s) {
+        if (s.indexOf('uniform-timing') === 0 && isAutoPlayMode) return false;
         return s.indexOf('uniform-timing') === 0
             || s.indexOf('phase-order-violation') === 0
             || s.indexOf('all-vars-zero') === 0;
