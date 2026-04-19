@@ -122,9 +122,60 @@ function loadRecords(lastN) {
  * 2026-04-16 — introduced to kill "19 retries of one stuck task = 19 separate
  * fail reasons" display bug.
  */
+/**
+ * Collapse repeated same-prefix clauses into a single "<prefix> (N occurrences)"
+ * form, so 7 inline "entity case mismatch" errors in a single failReason don't
+ * each become an independent fingerprint.
+ *
+ * Matches any line starting with a repeated structural prefix (≥3 hits).
+ * Safe default: returns reason unchanged if no clear cluster is found.
+ */
+function collapseRepeatedClauses(reason) {
+  if (!reason || typeof reason !== 'string') return reason;
+  // Split into candidate clauses — newlines OR leading Spec[N] markers
+  var rawClauses = reason.split(/\n+/).filter(Boolean);
+  if (rawClauses.length < 3) return reason;
+  // Build a structural key per clause: strip Spec[N], quoted strings, numbers
+  function keyOf(line) {
+    return line
+      .replace(/^Spec\[\d+\]\s*[a-zA-Z_]\w*\s*:\s*/, 'Spec[N] <phase>: ')
+      .replace(/"[^"]*"/g, '"<entity>"')
+      .replace(/\b\d+\b/g, 'N')
+      .slice(0, 80);
+  }
+  var byKey = {};
+  rawClauses.forEach(function(c) {
+    var k = keyOf(c);
+    if (!byKey[k]) byKey[k] = { count: 0, first: c };
+    byKey[k].count++;
+  });
+  var keys = Object.keys(byKey);
+  var cluster = keys.filter(function(k) { return byKey[k].count >= 3; });
+  if (cluster.length === 0) return reason;
+  // Rebuild reason: one line per cluster (first sample + count), rest untouched
+  var used = {};
+  var out = [];
+  rawClauses.forEach(function(c) {
+    var k = keyOf(c);
+    if (byKey[k].count >= 3) {
+      if (!used[k]) {
+        out.push(byKey[k].first + ' (' + byKey[k].count + ' occurrences)');
+        used[k] = true;
+      }
+    } else {
+      out.push(c);
+    }
+  });
+  return out.join('\n');
+}
+
 function normalizeFingerprint(reason) {
   if (!reason) return 'unknown';
   var s = String(reason);
+  // 2026-04-19: collapse repeated clauses BEFORE everything else so the rest
+  // of the pipeline sees a fingerprint shape that's stable even when
+  // spec-validate aggregation is bypassed (e.g. legacy records).
+  s = collapseRepeatedClauses(s);
   // Drop leading "prefix: " stage tags if present
   s = s.replace(/^(review|codegen|compile|visual-check|cua-verify|upload|spec-validate)[ :]+/i, '');
   // Unix paths
@@ -155,6 +206,17 @@ function normalizeFingerprint(reason) {
   s = s.replace(/Spec\[\d+\]\s*[a-zA-Z]\w*/g, 'Spec[N] <phase>');
   // "N consecutive" (visual freeze round counts)
   s = s.replace(/\d+\s+consecutive/gi, 'N consecutive');
+  // 2026-04-19: silent-pass-block fingerprint stabilisation.
+  // The tail (" — game logic did not run correctly despite passed=true")
+  // plus the signal class (uniform-timing / phase-order-violation /
+  // all-vars-zero) is the recurring structure. Drop the tail so all three
+  // classes land in matching fingerprints regardless of per-task detail.
+  s = s.replace(/\[silent-pass-block\]\s*([a-z-]+)(?::[^—]*)?\s*—\s*.*$/i, 'silent-pass-block $1');
+  // 2026-04-19: MODEL_FATAL fingerprint stabilisation — route all quota/auth
+  // flavors to MODEL_FATAL:<endpoint> so auto-fix cooldown groups them.
+  s = s.replace(/MODEL_FATAL:?\s*([a-z0-9._-]+)?(?::|\b).*$/i, function(_m, ep) {
+    return 'MODEL_FATAL:' + (ep || 'provider');
+  });
   // Collapse whitespace
   s = s.replace(/\s+/g, ' ').trim();
   // Cap at 100 chars to prevent unbounded keys
@@ -394,6 +456,7 @@ module.exports = {
   getMetricsSummary: getMetricsSummary,
   printDiagnostics: printDiagnostics,
   normalizeFingerprint: normalizeFingerprint,
+  collapseRepeatedClauses: collapseRepeatedClauses,
   loadRecords: loadRecords,
 };
 

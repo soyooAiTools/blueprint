@@ -11,6 +11,9 @@ var fs = require('fs');
 var path = require('path');
 var helpers = require('./helpers.cjs');
 var { recordPipelineMetrics } = require('./metrics.cjs');
+var archiveWriter;
+try { archiveWriter = require('./archive-writer.cjs'); }
+catch(e) { archiveWriter = { appendStageLog: function() {}, writeModelFatal: function() {} }; }
 var notify;
 try { notify = require('../adapters/notify.cjs'); } catch(e) { notify = { alert: function() {} }; }
 var lessonExtractor;
@@ -96,6 +99,11 @@ PipelineContext.prototype.addLog = function(stage, message) {
   var entry = { stage: stage, message: message, at: new Date().toISOString() };
   this.log.push(entry);
   console.log('[pipeline][' + stage + '] ' + message);
+  // Persist to per-task JSONL so stage-by-stage diagnostics survive a failed
+  // pipeline. Previously ctx.log lived only in memory → lost at process exit.
+  try {
+    archiveWriter.appendStageLog(this.taskId, { stage: stage, event: 'log', message: message });
+  } catch(e) { /* never block addLog */ }
 };
 
 PipelineContext.prototype.saveCheckpointData = function() {
@@ -184,6 +192,14 @@ Pipeline.prototype.run = function(ctx, onProgress) {
     // without reporting 'failed' or burning another stage.
     if (ctx._cancelled) {
       ctx.addLog('pipeline', 'Cancellation detected, unwinding pipeline');
+      try {
+        archiveWriter.appendStageLog(ctx.taskId, {
+          stage: 'pipeline', event: 'pipeline-end', success: false,
+          classification: 'CANCELLED',
+          completedStages: ctx.completedStages.slice(),
+          skippedStages: ctx._skippedStages || [],
+        });
+      } catch(e) {}
       var cancelErr = new Error('Task ' + ctx.taskId + ' cancelled server-side');
       cancelErr.name = 'TaskCancelledError';
       return Promise.reject(cancelErr);
@@ -198,6 +214,14 @@ Pipeline.prototype.run = function(ctx, onProgress) {
           ctx.addLog('pipeline', 'Metrics recording failed: ' + e.message);
         }
       }
+      try {
+        archiveWriter.appendStageLog(ctx.taskId, {
+          stage: 'pipeline', event: 'pipeline-end', success: true,
+          completedStages: ctx.completedStages.slice(),
+          skippedStages: ctx._skippedStages || [],
+          totalDurationMs: Date.now() - (ctx._pipelineStartTime || Date.now()),
+        });
+      } catch(e) {}
       // Auto-promote pending rules on success too (closes learning loop)
       try { autoPromotePendingRules(); } catch(e) { ctx.addLog('pipeline', 'autoPromotePendingRules failed: ' + e.message); }
       // Auto-learn behavior templates from successful code
@@ -216,6 +240,12 @@ Pipeline.prototype.run = function(ctx, onProgress) {
     // Skip if already completed (checkpoint resume)
     if (ctx.completedStages.indexOf(stage.name) >= 0) {
       ctx.addLog(stage.name, 'skipped (checkpoint)');
+      try {
+        archiveWriter.appendStageLog(ctx.taskId, {
+          stage: stage.name, event: 'skip', reason: 'checkpoint',
+          completedStagesSnapshot: ctx.completedStages.slice(),
+        });
+      } catch(e) {}
       return runNext();
     }
 
@@ -224,6 +254,12 @@ Pipeline.prototype.run = function(ctx, onProgress) {
       ctx.addLog(stage.name, 'skipped (condition)');
       ctx._skippedStages = ctx._skippedStages || [];
       ctx._skippedStages.push({ name: stage.name, reason: 'condition' });
+      try {
+        archiveWriter.appendStageLog(ctx.taskId, {
+          stage: stage.name, event: 'skip', reason: 'condition',
+          completedStagesSnapshot: ctx.completedStages.slice(),
+        });
+      } catch(e) {}
       return runNext();
     }
 
@@ -241,6 +277,15 @@ Pipeline.prototype.run = function(ctx, onProgress) {
         if (!ctx._metricsRecorded) {
           try { recordPipelineMetrics(ctx, ctx.stageResults); ctx._metricsRecorded = true; } catch(e) { ctx.addLog(stage.name, 'Metrics recording failed (gate): ' + e.message); }
         }
+        try {
+          archiveWriter.appendStageLog(ctx.taskId, {
+            stage: 'pipeline', event: 'pipeline-end', success: false,
+            failedAtStage: stage.name, failReason: 'gate: ' + gateErr.message,
+            classification: 'GATE',
+            completedStages: ctx.completedStages.slice(),
+            skippedStages: ctx._skippedStages || [],
+          });
+        } catch(e) {}
         try { notify.alert('warning', 'Pipeline gate failed', gateErr.message, { stage: stage.name, classification: 'GATE', taskId: ctx.taskId }); } catch(e) { ctx.addLog(stage.name, 'Notify failed (gate): ' + e.message); }
         try { lessonExtractor.extractLesson(ctx); } catch(e) { ctx.addLog(stage.name, 'Lesson extraction failed (gate): ' + e.message); }
         try { autoPromotePendingRules(); } catch(e) { ctx.addLog(stage.name, 'autoPromote failed (gate): ' + e.message); }
@@ -316,6 +361,11 @@ Pipeline.prototype.run = function(ctx, onProgress) {
         } catch(ecErr) { ctx.addLog(stage.name, 'error-classifier failed: ' + ecErr.message); }
         if (earlyClassified === 'MODEL_FATAL') {
           ctx.addLog(stage.name, 'MODEL_FATAL classification — skipping stage retries');
+          // P0 archive: persist raw model backend error so quota/auth failures
+          // never vanish into a truncated failReason.
+          try {
+            archiveWriter.writeModelFatal(err, { taskId: ctx.taskId, stage: stage.name, attempt: attempt });
+          } catch(awErr) { ctx.addLog(stage.name, 'archive-writer MODEL_FATAL failed: ' + awErr.message); }
         } else if (attempt < maxAttempts) {
           ctx.lastStageError = { stage: stage.name, error: err.message, attempt: attempt };
           return tryExecute();
@@ -335,10 +385,28 @@ Pipeline.prototype.run = function(ctx, onProgress) {
             var errorClassifier = require('./error-classifier.cjs');
             ctx._failClassification = errorClassifier.classify({ message: rootReason }, { stage: ctx._failedAtStage }).type;
           } catch(ce) { ctx._failClassification = 'UNKNOWN'; }
+          // Archive MODEL_FATAL if final classification caught it (earlyClassified
+          // path above may have missed it for wrapped PipelineErrors whose inner
+          // message matches MODEL_FATAL patterns only after unwrapping).
+          if (ctx._failClassification === 'MODEL_FATAL' && earlyClassified !== 'MODEL_FATAL') {
+            try {
+              archiveWriter.writeModelFatal(err, { taskId: ctx.taskId, stage: ctx._failedAtStage, attempt: attempt });
+            } catch(awErr) { ctx.addLog(stage.name, 'archive-writer MODEL_FATAL (final) failed: ' + awErr.message); }
+          }
         }
         if (!ctx._metricsRecorded) {
           try { recordPipelineMetrics(ctx, ctx.stageResults); ctx._metricsRecorded = true; } catch(e) { ctx.addLog(stage.name, 'Metrics recording failed: ' + e.message); }
         }
+        try {
+          archiveWriter.appendStageLog(ctx.taskId, {
+            stage: 'pipeline', event: 'pipeline-end', success: false,
+            failedAtStage: ctx._failedAtStage, failReason: rootReason,
+            classification: ctx._failClassification,
+            completedStages: ctx.completedStages.slice(),
+            skippedStages: ctx._skippedStages || [],
+            totalDurationMs: Date.now() - (ctx._pipelineStartTime || Date.now()),
+          });
+        } catch(e) {}
         try { notify.alert('critical', 'Pipeline failed', rootReason, { stage: ctx._failedAtStage, classification: ctx._failClassification, taskId: ctx.taskId }); } catch(e) { ctx.addLog(stage.name, 'Notify failed: ' + e.message); }
         try { lessonExtractor.extractLesson(ctx); } catch(e) { ctx.addLog(stage.name, 'Lesson extraction failed: ' + e.message); }
         // Auto-promote pending rules after lesson extraction (closes learning loop)

@@ -54,6 +54,12 @@ server-data/metrics/
 server-data/regressions.json
 server-data/cua-reviews/
 server-data/archive*/
+server-data/task-logs/
+server-data/auto-fix-backups/
+server-data/model-fatal-index.jsonl
+server-data/silent-passes.json
+server-data/auto-fix-state.json
+server-data/project-sources/
 data/
 adapters/server-data/
 

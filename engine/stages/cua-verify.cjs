@@ -11,6 +11,8 @@ var path = require('path');
 var helpers = require('../helpers.cjs');
 var { recode, patchRecode } = require('../recode.cjs');
 var { createFixLoop } = require('../fix-loop.cjs');
+var archiveWriter;
+try { archiveWriter = require('../archive-writer.cjs'); } catch(e) { archiveWriter = { writeSilentPass: function() {} }; }
 
 /**
  * Build structured diagnosis when CUA is stuck (no phase progress).
@@ -300,12 +302,22 @@ module.exports = {
                 cuaResult.issues = (cuaResult.issues || []).concat(hardBlockers.map(function(s) {
                   return '[silent-pass-block] ' + s + ' — game logic did not run correctly despite passed=true';
                 }));
+                // P0 archive: persist full snapshot so silent-pass is never a black hole.
+                try {
+                  archiveWriter.writeSilentPass(ctx, cuaResult, { round: round, verdict: 'hard-block' });
+                } catch(awErr) { ctx.addLog('cua-verify', 'archive-writer hard-block failed: ' + awErr.message); }
                 // Fall through to the normal failure path below.
               } else {
                 ctx.htmlOutput = lastHtmlData;
                 ctx.csCode = lastCsCode;
                 if (silentSignals.length > 0) {
                   ctx.addLog('cua-verify', 'CUA PASSED (⚠️ silent-pass signals: ' + silentSignals.join(', ') + ')');
+                  // Even for soft-warn signals (e.g. zero-actions exempted in observe mode),
+                  // archive the snapshot so operators can audit whether the exemption was
+                  // really warranted. verdict distinguishes from the hard-block path above.
+                  try {
+                    archiveWriter.writeSilentPass(ctx, cuaResult, { round: round, verdict: 'soft-warn' });
+                  } catch(awErr) { ctx.addLog('cua-verify', 'archive-writer soft-warn failed: ' + awErr.message); }
                 } else {
                   ctx.addLog('cua-verify', 'CUA PASSED');
                 }

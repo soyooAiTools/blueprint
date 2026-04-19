@@ -95,6 +95,11 @@ function matchRoute(method, pathname) {
   if (method === 'POST' && pathname === '/api/watchdog/run') return { handler: 'runWatchdog' };
   if (method === 'GET' && pathname === '/api/dashboard/pipeline-metrics') return { handler: 'getPipelineMetrics' };
   if (method === 'GET' && pathname === '/api/dashboard/regressions') return { handler: 'getRegressions' };
+  // Task archive endpoints (observability)
+  m = pathname.match(/^\/api\/dashboard\/task-log\/([^/]+)$/);
+  if (m && method === 'GET') return { handler: 'getTaskLogArchive', taskId: m[1] };
+  if (method === 'GET' && pathname === '/api/dashboard/auto-fix-archive') return { handler: 'getAutoFixArchive' };
+  if (method === 'GET' && pathname === '/api/dashboard/model-fatal-index') return { handler: 'getModelFatalIndex' };
   m = pathname.match(/^\/api\/auto-fix\/([^/]+)$/);
   if (method === 'POST' && m) return { handler: 'runAutoFix', fingerprintId: decodeURIComponent(m[1]) };
   if (method === 'POST' && pathname === '/api/auto-fix-commit') return { handler: 'commitAutoFix' };

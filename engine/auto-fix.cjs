@@ -25,6 +25,9 @@ var path = require('path');
 var crypto = require('crypto');
 var { execSync } = require('child_process');
 var { loadRecipes, bindKnowledge, findAutoFixRecipe } = require('./failure-fingerprint.cjs');
+var archiveWriter;
+try { archiveWriter = require('./archive-writer.cjs'); }
+catch(e) { archiveWriter = { writeAutoFixAttempt: function() { return null; } }; }
 
 var REPO_ROOT = path.join(__dirname, '..');
 var RECIPES_FILE = path.join(REPO_ROOT, 'worker', 'fix-recipes.json');
@@ -191,16 +194,25 @@ async function applyRecipe(fingerprintId) {
       if (new RegExp(recipes[i].fingerprintPattern, 'i').test(fingerprintId)) { recipe = recipes[i]; break; }
     } catch(e) {}
   }
-  if (!recipe) return { ok: false, error: 'No recipe for: ' + fingerprintId };
+  if (!recipe) {
+    try { archiveWriter.writeAutoFixAttempt({ recipeId: fingerprintId, fingerprint: fingerprintId, outcome: 'no-recipe', error: 'No recipe for: ' + fingerprintId }); } catch(e) {}
+    return { ok: false, error: 'No recipe for: ' + fingerprintId };
+  }
 
   var recipeBody = null;
   try {
     recipeBody = fs.readFileSync(path.join(REPO_ROOT, 'worker', recipe.recipeFile), 'utf-8');
   } catch(e) {}
-  if (!recipeBody) return { ok: false, error: 'Recipe file missing: ' + recipe.recipeFile };
+  if (!recipeBody) {
+    try { archiveWriter.writeAutoFixAttempt({ recipeId: recipe.id, fingerprint: fingerprintId, outcome: 'recipe-file-missing', error: 'Recipe file missing: ' + recipe.recipeFile }); } catch(e) {}
+    return { ok: false, error: 'Recipe file missing: ' + recipe.recipeFile };
+  }
 
   var runner = getRunner();
-  if (!runner) return { ok: false, error: 'runClaudeCodeText unavailable' };
+  if (!runner) {
+    try { archiveWriter.writeAutoFixAttempt({ recipeId: recipe.id, fingerprint: fingerprintId, outcome: 'runner-unavailable', error: 'runClaudeCodeText unavailable' }); } catch(e) {}
+    return { ok: false, error: 'runClaudeCodeText unavailable' };
+  }
 
   // Read affected files and embed in prompt (no Read tool needed)
   var fileContents = [];
@@ -215,6 +227,8 @@ async function applyRecipe(fingerprintId) {
 
   // Backup
   var backups = backupFiles(recipe.affectedFiles || []);
+  // Snapshot "before" content for diff archiving — backups are sufficient (they ARE before)
+  var filesBefore = Object.assign({}, backups);
 
   var systemPrompt = [
     'You are an auto-fix agent for the Blueprint Editor pipeline.',
@@ -253,6 +267,26 @@ async function applyRecipe(fingerprintId) {
 
   log('Applying recipe ' + recipe.id + ' (' + (recipe.affectedFiles || []).length + ' files, prompt=' + (systemPrompt.length + userPrompt.length) + 'c)');
   var result;
+  // Shared archive helper for every early-return path below.
+  var archiveAttempt = function(outcome, extras) {
+    try {
+      archiveWriter.writeAutoFixAttempt(Object.assign({
+        recipeId: recipe.id,
+        fingerprint: fingerprintId,
+        subAgentPrompt: { system: systemPrompt, user: userPrompt },
+        subAgentOutputHead: (result && result.text) || '',
+        subAgentOutputLen: result && result.text ? result.text.length : 0,
+        filesBefore: filesBefore,
+        filesAfter: extras && extras.filesAfter ? extras.filesAfter : {},
+        rejectedPaths: (extras && extras.rejectedPaths) || [],
+        verifyErrors: (extras && extras.verifyErrors) || [],
+        outcome: outcome,
+        reverted: !!(extras && extras.reverted),
+        error: (extras && extras.error) || null,
+        diagnosis: (extras && extras.diagnosis) || '',
+      }, extras || {}));
+    } catch(e) { log('archive-writer failed: ' + e.message); }
+  };
   try {
     result = await runner({
       systemPrompt: systemPrompt,
@@ -267,11 +301,14 @@ async function applyRecipe(fingerprintId) {
       log: function(m) { log(m); },
     });
   } catch(e) {
+    archiveAttempt('sub-agent-threw', { error: 'Sub-agent threw: ' + e.message });
     return { ok: false, error: 'Sub-agent threw: ' + e.message, recipe: recipe.id };
   }
 
   if (!result || !result.ok) {
-    return { ok: false, error: result ? result.error : 'no result', recipe: recipe.id };
+    var resultErr = result ? result.error : 'no result';
+    archiveAttempt('sub-agent-failed', { error: resultErr });
+    return { ok: false, error: resultErr, recipe: recipe.id };
   }
 
   // Parse fixed file outputs
@@ -280,6 +317,10 @@ async function applyRecipe(fingerprintId) {
 
   if (changedPaths.length === 0) {
     log('Sub-agent produced no ===FILE=== blocks — treating as diagnostic-only');
+    archiveAttempt('no-output', {
+      error: 'No file outputs in sub-agent response',
+      diagnosis: (result.text || '').slice(0, 500),
+    });
     return { ok: false, error: 'No file outputs in sub-agent response', diagnosis: (result.text || '').slice(0, 500), recipe: recipe.id };
   }
 
@@ -318,9 +359,18 @@ async function applyRecipe(fingerprintId) {
   }
   // Filter changedPaths to only actually written files
   changedPaths = changedPaths.filter(function(p) { return rejectedPaths.indexOf(p) < 0; });
+  // Build filesAfter snapshot for diff archive (only paths that were actually written).
+  var filesAfter = {};
+  changedPaths.forEach(function(rel) { filesAfter[rel] = fixedFiles[rel]; });
+
   if (changedPaths.length === 0 && rejectedPaths.length > 0) {
     log('All file outputs rejected — reverting');
     restoreFiles(backups);
+    archiveAttempt('all-rejected', {
+      rejectedPaths: rejectedPaths,
+      reverted: true,
+      error: 'All paths rejected by safety check',
+    });
     return { ok: false, error: 'All paths rejected by safety check', reverted: true, recipe: recipe.id };
   }
 
@@ -329,6 +379,13 @@ async function applyRecipe(fingerprintId) {
   if (verifyErrors.length > 0) {
     log('Verification FAILED — reverting: ' + verifyErrors.join('; '));
     restoreFiles(backups);
+    archiveAttempt('verify-failed', {
+      filesAfter: filesAfter,
+      rejectedPaths: rejectedPaths,
+      verifyErrors: verifyErrors,
+      reverted: true,
+      error: 'Verification failed: ' + verifyErrors.join('; '),
+    });
     return { ok: false, error: 'Verification failed: ' + verifyErrors.join('; '), reverted: true, recipe: recipe.id };
   }
 
@@ -336,11 +393,29 @@ async function applyRecipe(fingerprintId) {
   // Persist pre-apply backup so runAutoFixCycle can revert if the recipe turns
   // out to be wrong (fingerprint re-surfaces after apply).
   saveBackupSnapshot(recipe.id, backups);
+  var diagnosisText = (result.text || '').split('===FILE')[0].trim().slice(0, 500);
+  var archiveInfo = null;
+  try {
+    archiveInfo = archiveWriter.writeAutoFixAttempt({
+      recipeId: recipe.id,
+      fingerprint: fingerprintId,
+      subAgentPrompt: { system: systemPrompt, user: userPrompt },
+      subAgentOutputHead: result.text || '',
+      subAgentOutputLen: (result.text || '').length,
+      filesBefore: filesBefore,
+      filesAfter: filesAfter,
+      rejectedPaths: rejectedPaths,
+      verifyErrors: [],
+      outcome: 'applied',
+      diagnosis: diagnosisText,
+    });
+  } catch(e) { log('archive-writer success-path failed: ' + e.message); }
   return {
     ok: true,
     recipe: recipe.id,
     filesChanged: changedPaths,
-    diagnosis: (result.text || '').split('===FILE')[0].trim().slice(0, 500),
+    diagnosis: diagnosisText,
+    archive: archiveInfo,
   };
 }
 
@@ -645,6 +720,8 @@ async function runAutoFixCycle(topFailReasons) {
           fingerprint: fingerprint.slice(0, 100),
           recipe: recipe.id,
           files: applyResult.filesChanged,
+          archiveAttempt: applyResult.archive ? applyResult.archive.attemptHash : null,
+          archivePath: applyResult.archive ? path.relative(REPO_ROOT, applyResult.archive.archivePath) : null,
         });
         // Keep history bounded
         if (state.history.length > 50) state.history = state.history.slice(-50);

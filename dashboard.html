@@ -102,6 +102,7 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
   <div class="tab" data-panel="quality">质量关卡</div>
   <div class="tab" data-panel="parse">解析统计</div>
   <div class="tab" data-panel="pipeline">Pipeline 指标</div>
+  <div class="tab" data-panel="archive">任务归档</div>
 </div>
 <div class="content">
   <!-- Overview -->
@@ -199,6 +200,25 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       <div id="projectFailures"></div>
     </div>
   </div>
+  <!-- Task Archive -->
+  <div class="panel" id="archive">
+    <div class="card">
+      <h3>任务归档查询 <span style="font-size:11px;color:#8b949e;font-weight:normal;">(pipeline.jsonl / silent-pass / model-fatal / auto-fix)</span></h3>
+      <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <input id="archiveTaskIdInput" placeholder="输入 taskId 或从下方点击" style="flex:1;min-width:300px;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:6px 10px;border-radius:4px;font-size:13px;font-family:monospace;" />
+        <button onclick="window.loadArchive && window.loadArchive()" style="background:#1f6feb;color:#fff;border:0;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:12px;">查询</button>
+      </div>
+      <div id="archiveResult" style="min-height:80px;"></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3>最近 MODEL_FATAL 事件 <span style="font-size:11px;color:#8b949e;font-weight:normal;">(全局索引)</span></h3>
+      <div id="modelFatalIndex"></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3>最近 Auto-fix 尝试 <span style="font-size:11px;color:#8b949e;font-weight:normal;">(含 diff)</span></h3>
+      <div id="autoFixArchiveList"></div>
+    </div>
+  </div>
 </div>
 <script>
 (function() {
@@ -208,6 +228,9 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
       tab.classList.add('active');
       document.getElementById(tab.dataset.panel).classList.add('active');
+      if (tab.dataset.panel === 'archive' && typeof window.refreshArchive === 'function') {
+        window.refreshArchive();
+      }
     });
   });
 
@@ -867,6 +890,172 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
         if (btn) { btn.textContent = '失败'; btn.style.background = '#da3633'; }
         alert('请求失败: ' + err.message);
       });
+  };
+
+  // ─── Task archive tab ────────────────────────────────────────────
+  function escHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  window.refreshArchive = function() {
+    Promise.all([
+      fetchJSON('/api/dashboard/model-fatal-index?limit=30'),
+      fetchJSON('/api/dashboard/auto-fix-archive?limit=30'),
+    ]).then(function(results) {
+      var mf = results[0];
+      var af = results[1];
+      var mfEl = document.getElementById('modelFatalIndex');
+      if (mf && mf.entries && mf.entries.length) {
+        var rows = mf.entries.map(function(e) {
+          return [
+            fmt(e.ts),
+            '<code style="color:#58a6ff;cursor:pointer;" onclick="window.prefillArchive(\'' + escHtml(e.taskId) + '\')">' + escHtml((e.taskId || '').slice(0, 24)) + '</code>',
+            escHtml(e.stage || '-'),
+            escHtml(e.endpoint || '-'),
+            escHtml(e.pattern || '-'),
+            '<span style="color:#8b949e;">' + escHtml((e.message || '').slice(0, 80)) + '</span>',
+          ];
+        });
+        mfEl.innerHTML = tableHTML(['时间', 'taskId', 'stage', 'endpoint', 'pattern', '摘要'], rows);
+      } else {
+        mfEl.innerHTML = '<div class="empty">无 MODEL_FATAL 事件 ✅</div>';
+      }
+      var afEl = document.getElementById('autoFixArchiveList');
+      if (af && af.attempts && af.attempts.length) {
+        var afRows = af.attempts.map(function(a) {
+          var outcomeColor = a.outcome === 'applied' ? '#3fb950' : (a.reverted ? '#d29922' : '#f85149');
+          var viewBtn = '<button onclick="window.viewAutoFixAttempt(\'' + escHtml(a.recipeId) + '\',\'' + escHtml(a.attemptHash) + '\')" style="background:#21262d;border:1px solid #30363d;color:#58a6ff;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;">查看</button>';
+          return [
+            fmt(a.ts),
+            '<code>' + escHtml((a.recipeId || '').slice(0, 30)) + '</code>',
+            '<span style="color:' + outcomeColor + ';">' + escHtml(a.outcome || '?') + '</span>',
+            a.reverted ? '<span style="color:#d29922;">reverted</span>' : '-',
+            escHtml((a.filesChanged || []).join(', ').slice(0, 60)),
+            viewBtn,
+          ];
+        });
+        afEl.innerHTML = tableHTML(['时间', 'recipe', 'outcome', 'reverted', '文件', ''], afRows);
+      } else {
+        afEl.innerHTML = '<div class="empty">暂无 auto-fix 归档记录</div>';
+      }
+    });
+  };
+
+  window.prefillArchive = function(taskId) {
+    var inp = document.getElementById('archiveTaskIdInput');
+    if (inp) inp.value = taskId;
+    window.loadArchive();
+  };
+
+  window.loadArchive = function() {
+    var inp = document.getElementById('archiveTaskIdInput');
+    var taskId = inp ? inp.value.trim() : '';
+    var container = document.getElementById('archiveResult');
+    if (!taskId) { container.innerHTML = '<div class="empty">请输入 taskId</div>'; return; }
+    container.innerHTML = '<div class="empty">加载中…</div>';
+    fetchJSON('/api/dashboard/task-log/' + encodeURIComponent(taskId) + '?limit=500').then(function(data) {
+      if (!data || data.error) {
+        container.innerHTML = '<div class="empty">' + escHtml((data && data.error) || '加载失败') + '</div>';
+        return;
+      }
+      var html = '';
+      // Counts summary
+      var counts = {
+        pipeline: (data.pipeline || []).length,
+        silentPass: (data.silentPass || []).length,
+        modelFatal: (data.modelFatal || []).length,
+        autoFix: (data.autoFix || []).length,
+      };
+      html += '<div style="display:flex;gap:16px;margin-bottom:12px;font-size:12px;color:#8b949e;">';
+      html += '<span>pipeline: <strong style="color:#c9d1d9;">' + counts.pipeline + '</strong></span>';
+      html += '<span>silent-pass: <strong style="color:' + (counts.silentPass ? '#f85149' : '#c9d1d9') + ';">' + counts.silentPass + '</strong></span>';
+      html += '<span>MODEL_FATAL: <strong style="color:' + (counts.modelFatal ? '#f85149' : '#c9d1d9') + ';">' + counts.modelFatal + '</strong></span>';
+      html += '<span>auto-fix: <strong style="color:#c9d1d9;">' + counts.autoFix + '</strong></span>';
+      html += '</div>';
+
+      // Pipeline stream (most recent first)
+      if (counts.pipeline) {
+        var tail = (data.pipeline || []).slice(-50).reverse();
+        html += '<h4 style="color:#8b949e;font-size:12px;margin:16px 0 6px;">最近 50 条 pipeline 事件</h4>';
+        html += '<div style="max-height:320px;overflow:auto;border:1px solid #30363d;border-radius:4px;background:#0d1117;padding:8px;font-family:monospace;font-size:11px;line-height:1.5;">';
+        tail.forEach(function(p) {
+          var evt = p.event || 'log';
+          var color = evt === 'pipeline-end' ? (p.success ? '#3fb950' : '#f85149') : (evt === 'skip' ? '#d29922' : '#c9d1d9');
+          var rest = '';
+          if (evt === 'pipeline-end') rest = ' success=' + p.success + ' stage=' + (p.failedAtStage || '-') + ' class=' + (p.classification || '-');
+          else if (evt === 'skip') rest = ' reason=' + (p.reason || '-');
+          else if (p.message) rest = ' ' + p.message;
+          html += '<div style="color:' + color + ';">[' + fmt(p.ts) + '] ' + escHtml(p.stage || '-') + ' · ' + escHtml(evt) + escHtml(rest) + '</div>';
+        });
+        html += '</div>';
+      }
+
+      // Silent-pass detail
+      if (counts.silentPass) {
+        html += '<h4 style="color:#f85149;font-size:12px;margin:16px 0 6px;">⚠️ Silent-pass 快照</h4>';
+        (data.silentPass || []).forEach(function(sp) {
+          html += '<div style="padding:10px;background:#2d1113;border:1px solid #f8514933;border-radius:4px;margin-bottom:8px;font-size:12px;">';
+          html += '<div>verdict=<strong>' + escHtml(sp.verdict) + '</strong> round=' + escHtml(sp.cuaRound) + ' signals=<code>' + escHtml((sp.signals || []).join(',')) + '</code></div>';
+          html += '<div style="color:#8b949e;margin-top:4px;">actions=' + escHtml(sp.totalActions) + ' · phases=' + escHtml((sp.phaseOrder || []).join('→')) + ' · ' + fmt(sp.ts) + '</div>';
+          html += '</div>';
+        });
+      }
+
+      // MODEL_FATAL detail
+      if (counts.modelFatal) {
+        html += '<h4 style="color:#f85149;font-size:12px;margin:16px 0 6px;">💥 MODEL_FATAL 原始响应</h4>';
+        (data.modelFatal || []).forEach(function(mf) {
+          html += '<div style="padding:10px;background:#2d1113;border:1px solid #f8514933;border-radius:4px;margin-bottom:8px;font-size:12px;">';
+          html += '<div>endpoint=<code>' + escHtml(mf.endpoint) + '</code> · model=<code>' + escHtml(mf.model) + '</code> · http=' + escHtml(mf.httpStatus) + ' · pattern=' + escHtml(mf.pattern) + '</div>';
+          html += '<div style="color:#8b949e;margin-top:4px;">' + fmt(mf.ts) + '</div>';
+          html += '<pre style="background:#0d1117;padding:8px;border-radius:4px;margin-top:6px;max-height:180px;overflow:auto;font-size:11px;color:#c9d1d9;">' + escHtml((mf.rawResponseHead || '').slice(0, 2000)) + '</pre>';
+          html += '</div>';
+        });
+      }
+
+      // Auto-fix list (related by fingerprint overlap)
+      if (counts.autoFix) {
+        html += '<h4 style="color:#8b949e;font-size:12px;margin:16px 0 6px;">🔧 关联的 auto-fix 尝试</h4>';
+        var afRows2 = (data.autoFix || []).map(function(a) {
+          var viewBtn = '<button onclick="window.viewAutoFixAttempt(\'' + escHtml(a.recipeId) + '\',\'' + escHtml(a.attemptHash) + '\')" style="background:#21262d;border:1px solid #30363d;color:#58a6ff;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;">查看</button>';
+          return [fmt(a.ts), escHtml(a.recipeId), escHtml(a.outcome), (a.filesChanged || []).join(', '), viewBtn];
+        });
+        html += tableHTML(['时间', 'recipe', 'outcome', '文件', ''], afRows2);
+      }
+
+      container.innerHTML = html;
+    });
+  };
+
+  window.viewAutoFixAttempt = function(recipeId, hash) {
+    fetchJSON('/api/dashboard/auto-fix-archive?recipeId=' + encodeURIComponent(recipeId) + '&hash=' + encodeURIComponent(hash)).then(function(a) {
+      if (!a || a.error) { alert('加载失败: ' + ((a && a.error) || '未知')); return; }
+      var old = document.getElementById('autofix-view-modal');
+      if (old) old.remove();
+      var modal = document.createElement('div');
+      modal.id = 'autofix-view-modal';
+      modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
+      var parsedDiff = (a.parsedFiles || []).map(function(pf) {
+        return '<div style="margin-top:8px;"><div style="color:#8b949e;font-size:11px;">' + escHtml(pf.path) + ' · Δ' + pf.sizeDelta + 'b</div>'
+          + '<pre style="background:#0d1117;padding:8px;border-radius:4px;max-height:260px;overflow:auto;font-size:11px;color:#c9d1d9;">' + escHtml(pf.diffUnified || '(no diff)') + '</pre></div>';
+      }).join('');
+      modal.innerHTML = '<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;max-width:900px;width:95%;max-height:88vh;overflow:auto;">'
+        + '<h3 style="margin:0 0 12px;color:#c9d1d9;">Auto-fix 归档 ' + escHtml(a.recipeId) + ' · ' + escHtml(a.attemptHash) + '</h3>'
+        + '<div style="font-size:12px;color:#8b949e;margin-bottom:8px;">' + fmt(a.ts) + ' · outcome=<strong style="color:#c9d1d9;">' + escHtml(a.outcome) + '</strong>'
+        + (a.reverted ? ' · <span style="color:#d29922;">reverted</span>' : '')
+        + (a.followUpFingerprint ? ' · 回归指纹=<code>' + escHtml(a.followUpFingerprint.slice(0, 60)) + '</code>' : '')
+        + '</div>'
+        + '<div style="font-size:12px;margin-bottom:8px;"><strong>诊断:</strong> <span style="color:#c9d1d9;">' + escHtml(a.diagnosis || '-') + '</span></div>'
+        + (a.error ? '<div style="font-size:12px;margin-bottom:8px;color:#f85149;"><strong>错误:</strong> ' + escHtml(a.error) + '</div>' : '')
+        + '<div style="font-size:12px;color:#8b949e;margin-bottom:4px;">Sub-agent prompt (head):</div>'
+        + '<pre style="background:#0d1117;padding:8px;border-radius:4px;max-height:180px;overflow:auto;font-size:11px;color:#c9d1d9;">' + escHtml(((a.subAgentPrompt || {}).userHead || '').slice(0, 2000)) + '</pre>'
+        + (parsedDiff ? '<div style="margin-top:10px;"><strong style="font-size:12px;">文件变更:</strong>' + parsedDiff + '</div>' : '')
+        + '<div style="margin-top:16px;text-align:right;"><button onclick="document.getElementById(\'autofix-view-modal\').remove()" style="background:#21262d;color:#c9d1d9;border:1px solid #30363d;padding:6px 14px;border-radius:4px;cursor:pointer;">关闭</button></div>'
+        + '</div>';
+      modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
+      document.body.appendChild(modal);
+    });
   };
 
   refresh();

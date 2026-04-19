@@ -414,7 +414,11 @@ module.exports = {
     // --- BLOCK on errors ---
     if (errors.length > 0) {
       errors.forEach(function(e) { ctx.addLog('spec-validate', 'ERROR: ' + e); });
-      throw new Error('Spec validation failed: ' + errors.length + ' error(s):\n' + errors.join('\n'));
+      // Aggregate: collapse same-class errors so metrics fingerprint stays stable.
+      // 2026-04-19: previously 7 entity mismatches became 7 unique fingerprints,
+      // splitting topFailReasons and defeating auto-fix cooldown dedup.
+      var aggregated = _aggregateSpecErrors(errors);
+      throw new Error('Spec validation failed: ' + errors.length + ' error(s):\n' + aggregated.join('\n'));
     }
 
     ctx.addLog('spec-validate', 'Passed (' + specs.length + ' specs, ' +
@@ -434,6 +438,55 @@ module.exports = {
  */
 function _escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Collapse same-class errors so fingerprinting stays stable.
+ *
+ * Strategy: extract a "class key" per error by stripping Spec[N] prefixes,
+ * quoted entity names, and numerics — then group by key. Classes with
+ * ≥3 occurrences are replaced by one aggregated line; the rest pass through
+ * unchanged so unique issues still reach the user verbatim.
+ */
+function _aggregateSpecErrors(errors) {
+  function classify(e) {
+    return String(e)
+      .replace(/^Spec\[\d+\]\s*[a-zA-Z_]\w*\s*:\s*/, 'Spec[N] <phase>: ')
+      .replace(/"[^"]*"/g, '"<entity>"')
+      .replace(/\b\d+\b/g, 'N')
+      .replace(/\[[^\]]+\]/g, function(m) {
+        // Collapse candidate lists "[a, b, c]" to "[...]"
+        return m.indexOf(',') >= 0 ? '[...]' : m;
+      })
+      .slice(0, 120);
+  }
+  var byClass = {};
+  for (var i = 0; i < errors.length; i++) {
+    var key = classify(errors[i]);
+    if (!byClass[key]) byClass[key] = { count: 0, first: errors[i], samples: [] };
+    byClass[key].count++;
+    if (byClass[key].samples.length < 3) byClass[key].samples.push(errors[i]);
+  }
+  var keys = Object.keys(byClass);
+  // If no class has ≥3 hits, leave errors alone — aggregation would only obscure.
+  var hasCluster = keys.some(function(k) { return byClass[k].count >= 3; });
+  if (!hasCluster) return errors;
+
+  var out = [];
+  keys.forEach(function(k) {
+    var slot = byClass[k];
+    if (slot.count >= 3) {
+      out.push(slot.first + ' (and ' + (slot.count - 1) + ' similar occurrences: ' +
+        slot.samples.slice(1).map(function(s) {
+          // Shorten each sample to just the distinguishing part after "Spec[N]"
+          var m = String(s).match(/^Spec\[\d+\][^:]*:\s*(.*)$/);
+          return m ? m[1].slice(0, 60) : s.slice(0, 60);
+        }).join('; ') + ')');
+    } else {
+      slot.samples.forEach(function(s) { out.push(s); });
+    }
+  });
+  return out;
 }
 
 /**

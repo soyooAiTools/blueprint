@@ -1,5 +1,81 @@
 # Blueprint 生产事故记录
 
+## 2026-04-19: 任务级归档闭环（消灭每一个观测盲区）
+
+### 背景
+
+用户提问："现在每次跑的任务、期间遇到的错误、以及修复的问题 都会自动完成记录和归档吗"。审计发现 6 类盲区：
+
+1. **Silent-pass** — `cuaSilentPass` 只在 success=true 时被记录到 metrics，但 **hard-block** 分支（signals 触发把 passed:true 翻转为 false）的 CUA 原始 action 序列、phaseOrder、interactionVars、screenshot URL 全部落地不了。运营事后无法区分"真语义假通过"和"工程师误判"。
+2. **MODEL_FATAL 原始响应** — provider 抛出的 MODEL_FATAL: 只在 classification 里记了一个 pattern 字符串，raw body / http status / endpoint 全部丢失。quota / auth / invalid-key 复现排障只剩 stderr 片段。
+3. **Pipeline stage 日志** — `addLog` 只写内存 + console，worker 一旦 restart 就全丢。skip (checkpoint/condition) / pipeline-end / GATE 失败都没有持久的时间线。
+4. **Auto-fix 尝试** — 运行时 state 写在 `auto-fix-state.json` 里 ~1 行摘要，sub-agent prompt / output / parsed file diff / reject reason / verify error 全部只在进程内存里，进程退出即丢。
+5. **Spec-validate 多错误** — 一次失败可能有 N 条 error，normalizeFingerprint 只看开头 100 字符，N=1 和 N=7 归一成两个不同指纹，dedup 失败。
+6. **无统一 GC** — metrics.cjs 按 10MB 轮转，但新加的 per-task 归档没有统一老化策略。
+
+### 改动
+
+**P0 — 新 `engine/archive-writer.cjs`**
+- 统一 append + 10MB 轮转 + P0 级别 alerts.json 兜底 + BLUEPRINT_ARCHIVE_LEVEL feature flag（`off | critical | full`）
+- 归档布局：
+  ```
+  server-data/task-logs/<taskId>/pipeline.jsonl         # 按 stage 的 log/skip/pipeline-end
+  server-data/task-logs/<taskId>/silent-pass.jsonl      # hard-block + soft-warn 快照
+  server-data/task-logs/<taskId>/model-fatal.jsonl      # 原始 response head + hash
+  server-data/task-logs/auto-fix/<recipe>-<hash>.json   # 每一次 sub-agent 尝试
+  server-data/task-logs/auto-fix/_index.jsonl           # 全局索引
+  server-data/model-fatal-index.jsonl                   # 跨 task 的 MODEL_FATAL 索引
+  ```
+
+**P0 — Silent-pass 零容忍归档** (`engine/stages/cua-verify.cjs`)
+- hard-block 分支 `writeSilentPass(ctx, cuaResult, { round, verdict: 'hard-block' })`
+- soft-warn 分支（signals present 但仍通过）`verdict: 'soft-warn'`
+- 包含 phaseOrder / interactionVars / actionSample（≤250 个、>250 取头 200 + 尾 50 + 中间 `_truncated`）
+
+**P0 — MODEL_FATAL 原始响应** (`engine/pipeline.cjs`)
+- early-detection + final-classification 两路径都 `writeModelFatal(err, { taskId, stage, attempt })`
+- 原始 body head 4KB + SHA-256（前 16 位）+ http status + endpoint + model + retryAttempt
+- 追加到全局 `model-fatal-index.jsonl` 便于排障
+
+**P1 — Pipeline stage 日志持久化** (`engine/pipeline.cjs`)
+- `addLog` 双写：内存 push + console + `archiveWriter.appendStageLog(...)`
+- checkpoint skip / condition skip / pipeline-end（成功/失败/GATE/CANCELLED）全部落盘
+
+**P2 — Auto-fix 诊断归档** (`engine/auto-fix.cjs`)
+- 9 个出口点归档：no-recipe / recipe-file-missing / runner-unavailable / sub-agent-threw / sub-agent-failed / no-output / all-rejected / verify-failed / applied
+- 每次尝试存：system/user prompt head 4KB + hash + len、sub-agent output head 4KB、按文件的 unified diff、rejectedPaths、verifyErrors、followUpFingerprint、reverted 标志
+- `state.history` 带 `archivePath` 指针，dashboard 可以打开"查看尝试详情"
+
+**P3 — Spec-validate 多错误聚合** (`engine/stages/spec-validate.cjs` + `engine/metrics.cjs`)
+- stage 层 `_aggregateSpecErrors`：≥3 条结构键相同的 error 合并为 "<first> (and N-1 similar occurrences: ...)"
+- metrics 层 `collapseRepeatedClauses`：按 `Spec[N] <phase>:` 前缀归一，避免 fingerprint 爆炸
+- 新增正则：`silent-pass-block` + `MODEL_FATAL:?\s*<endpoint>` 稳定化
+
+**Dashboard — 新"任务归档" tab + 3 个 API**
+- `GET /api/dashboard/task-log/:taskId` → `{ pipeline, silentPass, modelFatal, autoFix }`
+- `GET /api/dashboard/auto-fix-archive?recipeId=&hash=` → 单次 attempt 详情
+- `GET /api/dashboard/model-fatal-index?limit=100` → 全局 MODEL_FATAL 索引
+- dashboard.html 新增"任务归档" tab，显示 MODEL_FATAL 索引、Auto-fix 尝试列表（带 diff 查看 modal）、按 taskId 查询聚合视图
+
+**运维 — `scripts/archive-gc.cjs`**
+- 默认 30 天 TTL，dry-run 模式，`--purge` 真删，`--days=N` 覆盖
+- 扫描 task-logs/<taskId>/（整目录以 newest mtime 为准）、auto-fix/*.json、所有 `.bak.*` 轮转备份
+- 可直接挂 cron：`0 4 * * * node /opt/blueprint-editor/scripts/archive-gc.cjs --purge`
+
+### 验证
+
+- 所有 5 个 pipeline 阶段文件 `node -c` 通过
+- `router.matchRoute()` 3 个新 path 返回正确 handler
+- `BLUEPRINT_ARCHIVE_LEVEL=off` 时所有写入静默跳过（P0 除外：critical 仍写）
+- archive-gc 45 天过期测试：dry-run 保留 / --purge 删除
+- `pm2 restart blueprint-editor` 热重载生效，3 个新 endpoint 返回 200
+
+### SKILL.md 同步
+
+~/.claude/skills/ 是 harness 保护目录。详见 `docs/dashboard-skill-update.md` 需要在下次 dontAsk 解除时同步的字段。
+
+---
+
 ## 2026-04-16 晚: Dashboard 可观测性事故响应 + Auto-fix 4 层闭环
 
 ### 背景

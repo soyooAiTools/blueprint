@@ -902,6 +902,77 @@ module.exports.init = function(ctx) {
       sendJSON(res, { ok: true, report: report, note: 'tasks deletion is opt-in via body {"tasks":true}' });
     },
 
+    /**
+     * GET /api/dashboard/task-log/:taskId
+     * Returns { taskId, pipeline[], silentPass[], modelFatal[], autoFix[] }.
+     * Auto-fix entries come from the global index filtered by fingerprint →
+     * taskId correlation kept in the pipeline stream (fallback: return empty
+     * list — UI shows "no attempts for this task").
+     */
+    getTaskLogArchive: function(req, res, body, params) {
+      try {
+        var archiveWriter = require('../engine/archive-writer.cjs');
+        var taskId = params.taskId;
+        if (!taskId) return sendJSON(res, { error: 'missing taskId' }, 400);
+        var u = new URL(req.url, 'http://localhost');
+        var limit = parseInt(u.searchParams.get('limit')) || 500;
+        var data = archiveWriter.readTaskArchive(taskId, limit);
+
+        // Correlate auto-fix attempts to this task by scanning pipeline events
+        // for auto-fix-applied markers AND by fingerprint overlap. Cheap O(index),
+        // bounded by limit.
+        var pipelineFps = {};
+        (data.pipeline || []).forEach(function(p) {
+          if (p && p.fingerprint) pipelineFps[p.fingerprint] = true;
+        });
+        var autoFixIndex = archiveWriter.readAutoFixIndex(500);
+        var relatedFixes = autoFixIndex.filter(function(af) {
+          return af && af.fingerprint && pipelineFps[af.fingerprint];
+        });
+        data.autoFix = relatedFixes;
+        sendJSON(res, data);
+      } catch(e) {
+        sendJSON(res, { error: e.message }, 500);
+      }
+    },
+
+    /**
+     * GET /api/dashboard/auto-fix-archive
+     *   ?recipeId=&hash= → return single attempt JSON
+     *   (no params)      → return index (latest 100)
+     */
+    getAutoFixArchive: function(req, res, body, params) {
+      try {
+        var archiveWriter = require('../engine/archive-writer.cjs');
+        var u = new URL(req.url, 'http://localhost');
+        var recipeId = u.searchParams.get('recipeId');
+        var hash = u.searchParams.get('hash');
+        var limit = parseInt(u.searchParams.get('limit')) || 100;
+        if (recipeId && hash) {
+          var attempt = archiveWriter.readAutoFixAttempt(recipeId, hash);
+          if (!attempt) return sendJSON(res, { error: 'attempt not found' }, 404);
+          return sendJSON(res, attempt);
+        }
+        sendJSON(res, { attempts: archiveWriter.readAutoFixIndex(limit) });
+      } catch(e) {
+        sendJSON(res, { error: e.message }, 500);
+      }
+    },
+
+    /**
+     * GET /api/dashboard/model-fatal-index?limit=100
+     */
+    getModelFatalIndex: function(req, res, body, params) {
+      try {
+        var archiveWriter = require('../engine/archive-writer.cjs');
+        var u = new URL(req.url, 'http://localhost');
+        var limit = parseInt(u.searchParams.get('limit')) || 100;
+        sendJSON(res, { entries: archiveWriter.readModelFatalIndex(limit) });
+      } catch(e) {
+        sendJSON(res, { error: e.message }, 500);
+      }
+    },
+
     // Expose for server.cjs interval usage
     runWatchdogCycle: runWatchdogCycle,
   };
