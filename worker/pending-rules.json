@@ -968,8 +968,8 @@
     "autoExtracted": true,
     "failClassification": "CODE",
     "stage": "review",
-    "lastSeenAt": "2026-04-17T07:37:27.866Z",
-    "hitCount": 11
+    "lastSeenAt": "2026-04-19T04:32:38.176Z",
+    "hitCount": 12
   },
   {
     "description": "Spec validation failed: 7 error(s):\nSpec[2] buildForgeWorkshop: entity \"forgeWorkshop\" not found in blueprint.entities. Known: PlayerAstronaut, RecyclingStation, SpaceDebris, MetalScrap, ForgeWorkshop, BasicDrill, CrusherTruck, HydraulicTruck, CanteenModule, DormModule\nSpec[3] upgradeTripleDrill: entity \"drill\" not found in blueprint.entities. Known: PlayerAstronaut, RecyclingStation, SpaceDebris, MetalScrap, ForgeWorkshop, BasicDrill, CrusherTruck, HydraulicTruck, CanteenModule, DormModule\nSpec",
@@ -1048,5 +1048,19 @@
     "autoExtracted": true,
     "failClassification": "CODE",
     "stage": "review"
+  },
+  {
+    "description": "Cannot read properties of undefined (reading 'length')",
+    "rule": "General",
+    "fix": "Cannot read properties of undefined (reading 'length')",
+    "severity": "info",
+    "line": "codegen stage failure",
+    "taskId": "proj_1776391516726_urbib0",
+    "timestamp": "2026-04-18T15:58:34.945Z",
+    "autoExtracted": true,
+    "failClassification": "CODE",
+    "stage": "codegen",
+    "lastSeenAt": "2026-04-18T16:38:03.118Z",
+    "hitCount": 6
   }
 ]

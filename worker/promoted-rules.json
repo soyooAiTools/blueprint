@@ -202,5 +202,573 @@
     ],
     "triggerCount": 5,
     "totalOccurrences": 5
+  },
+  {
+    "description": "Pipeline failed at cua-verify: CUA crashed 3 consecutive rounds",
+    "rule": "visual  rendering",
+    "fix": "Ensure scene renders correctly: objects visible, movement between frames, no black/solid screens.",
+    "severity": "warning",
+    "promotedAt": "2026-04-18T15:58:34.947Z",
+    "triggerProjects": [
+      "proj_1775536760460_ief5nt",
+      "proj_1775610610026_qapd9n"
+    ],
+    "crossProjectCount": 2,
+    "totalOccurrences": 2,
+    "sourceStage": "visual-check",
+    "sourceStages": {
+      "visual-check": 2
+    }
+  },
+  {
+    "description": "Phase 4 transitions on firstCrewDelivered == true and phaseTimer >= 4f. firstCrewDelivered is commented as 'set when first crew is picked up', while the phase description requires treating rescued crew / collecting gold. This is not a real phase-specific completion check for treatment and can skip based on prior rescue state rather than current player action.",
+    "rule": "every phase must have real completion conditions  phase progression must require",
+    "fix": "Gate the transition on a true treatment interaction state specific to this phase, such as crew healed in bathroom by player-delivered rescue flow plus required gold interaction flag.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.947Z",
+    "triggerProjects": [
+      "proj_1775610610026_qapd9n"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Phase 8 requires secondCabinState >= 2, but secondCabinState is never modified in the provided file except forced to 2 in Phase 11 terminal cleanup. That means the intended progression cannot happen from the shown code.",
+    "rule": "variables referenced in trigger conditions must be modified somewhere in update",
+    "fix": "Set secondCabinState when the player completes the second cabin build interaction, before Phase 9.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.947Z",
+    "triggerProjects": [
+      "proj_1775610610026_qapd9n"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Phase 4 transitions when firstCrewDelivered == true and phaseTimer >= 4f. That is not a phase-specific treatment completion check. It advances based on prior rescue completion instead of the current phase's required treatment/gold interaction. This matches a known production failure pattern called out in the rules.",
+    "rule": "auto-promoted critical phase 4 must use a true treatment interaction state speci",
+    "fix": "Gate the transition to the next phase on a true treatment interaction state, such as firstCrewTreated == true and a gold collection or healing-complete interaction flag specific to this phase.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.948Z",
+    "triggerProjects": [
+      "proj_1775610610026_qapd9n"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "The skeleton explicitly says Camera.backgroundColor is pre-set to (0.45, 0.52, 0.62) and must not be changed. The code changes it again to (0.35, 0.55, 0.75). Even if the latter is generally recommended, this file's skeleton forbids modifying that preset.",
+    "rule": "skeleton line  auto-promoted critical camera-background rule",
+    "fix": "Remove the later backgroundColor assignment and keep the skeleton-provided value unchanged.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.948Z",
+    "triggerProjects": [
+      "proj_1775610610026_qapd9n"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Calls GFM_Create.InitMaterialFromScene(). This API is explicitly forbidden/obsolete in the provided Luna rules and should not be used because pool object colors are pre-baked.",
+    "rule": "forbidden legacy apis  forbidden runtime apis",
+    "fix": "Remove GFM_Create.InitMaterialFromScene() entirely.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.948Z",
+    "triggerProjects": [
+      "proj_1775610623818_llzzo4"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Visual freeze FATAL: 3 consecutive rounds — not fixable via claude-fix. Stuck at phase (none completed) → initialSpaceCollection, root cause: visual_freeze (3 rounds)",
+    "rule": "interaction  gameplay",
+    "fix": "Previous 3 attempts all failed with \"phase-skipped\". You MUST implement ALL phases. Every phase transition must have real conditions.\n\nPrevious failure context:\nSURGICAL FIX MODE: Do NOT rewrite the entire file. Only modify the specific lines/functions that cause the issue below.\nCUA blueprint flow ",
+    "severity": "warning",
+    "promotedAt": "2026-04-18T15:58:34.948Z",
+    "triggerProjects": [
+      "proj_1775610640418_knq32m",
+      "proj_1775610623818_llzzo4",
+      "proj_1775610610026_qapd9n",
+      "proj_1776235585307_bqh33t"
+    ],
+    "crossProjectCount": 4,
+    "totalOccurrences": 4,
+    "sourceStage": "cua-verify",
+    "sourceStages": {
+      "cua-verify": 4
+    }
+  },
+  {
+    "description": "Phase 2 initialization incorrectly calls AddCompletedPhase(\"phase_1775610864395_1\") instead of marking the current phase or the correct transition semantics. Similar pattern repeats for later phases, always adding the previous phase ID during the next phase init. This produces inaccurate completedPhases tracking and can break CUA phase coverage validation.",
+    "rule": "phase id format  phase completion tracking correctness",
+    "fix": "When a phase is actually completed, call AddCompletedPhase() with that exact phase's Rule ID at the correct completion point. Do not duplicate prior phase IDs during next-phase initialization.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.948Z",
+    "triggerProjects": [
+      "proj_1775610610026_qapd9n"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Calls GFM_Create.InitMaterialFromScene(), which is explicitly forbidden/obsolete for Luna because colors are pre-baked into pool objects.",
+    "rule": "forbidden legacy apis",
+    "fix": "Remove GFM_Create.InitMaterialFromScene() entirely.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.948Z",
+    "triggerProjects": [
+      "proj_1775610623818_llzzo4"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Phase 5 transitions when firstCrewTreated == true and gold >= 30 and phaseTimer threshold is met. There is no explicit interaction flag in the condition despite the phase spec requiring player action. This allows progression based purely on accumulated state once thresholds are met.",
+    "rule": "phase transition must require real player interaction not just timerstate",
+    "fix": "Add a true player interaction requirement for this transition, such as a treatment interaction flag and/or gold collection interaction flag that is set only by player action.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.948Z",
+    "triggerProjects": [
+      "proj_1775610610026_qapd9n"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Phase 10 transitions only on restBedState >= 2 and phaseTimer threshold. This is not a real completion condition for 'base stable operation' and can advance without the required player-driven gold collection objective.",
+    "rule": "every ruletriggeredn block must have a real completion condition tied to player",
+    "fix": "Require a real player accomplishment for Phase 10, such as player-collected gold threshold and a specific interaction flag, not merely restBedState.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.948Z",
+    "triggerProjects": [
+      "proj_1775610610026_qapd9n"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Several trigger variables are referenced for progression—firstCrewTreated, batchRescueDone, bathroomCapacityState, secondCabinState, restBedState, carryCapacityState, downloadButtonDone, unlockButtonDone, screenDone, playerDone, goldDone—but this file does not show any assignments updating them except resets. Under the mechanical verification rule, progression variables used in CheckEventRules() must be modified somewhere in Update() or helper logic; as reviewed here, the implementation is incomplete and likely stalls.",
+    "rule": "variables referenced in trigger conditions must be declared and modified somewhe",
+    "fix": "Implement explicit state mutations in the gameplay handlers/helper methods and ensure those methods are present and actually called from Update().",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.948Z",
+    "triggerProjects": [
+      "proj_1775610610026_qapd9n"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Several progression flags are satisfied by UpdateAutoPlay() without real user input, including screenDone, upgrade completion flags, build flags, and final downloadButtonDone/phase11InteractDone. This creates non-interactive scripted advancement paths.",
+    "rule": "phase progression must be driven by player interaction never auto-advance via sc",
+    "fix": "Delete auto-setting of any progression flag from non-user-driven code paths. Only actual input handlers should set interaction flags.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.949Z",
+    "triggerProjects": [
+      "proj_1775610610026_qapd9n"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Schema validation failed: undefined should NOT have additional properties; undefined should NOT have additional properties; undefined should NOT have additional properties; undefined should have required property 'gameConfig'; undefined should NOT have additional properties; undefined should NOT have additional properties; undefined should NOT have additional properties; undefined should match pattern \"^__Pool_[A-Z][a-z]+_[A-Z][a-z]+_\\d{2}$\"; undefined should have required property 'initPos'; un",
+    "rule": "general",
+    "fix": "Schema validation failed: undefined should NOT have additional properties; undefined should NOT have additional properties; undefined should NOT have additional properties; undefined should have required property 'gameConfig'; undefined should NOT have additional properties; undefined should NOT hav",
+    "severity": "info",
+    "promotedAt": "2026-04-18T15:58:34.949Z",
+    "triggerProjects": [
+      "proj_1775610623818_llzzo4",
+      "proj_1775951842615_4zvqp6",
+      "proj_1775987547032_4z0ji1",
+      "proj_1776266310700_2p50o1",
+      "proj_1776322907717_q21d0i",
+      "proj_1776356247505_z3r0kh",
+      "proj_1776391516726_urbib0"
+    ],
+    "crossProjectCount": 7,
+    "totalOccurrences": 9,
+    "sourceStage": "codegen",
+    "sourceStages": {
+      "clone": 2,
+      "codegen": 6,
+      "complexity-gate": 1
+    }
+  },
+  {
+    "description": "The file repeatedly calls AddCompletedPhase() with semantic alias names like \"collectInitialMaterial\", \"deliverMaterialToFactory\", \"collectManufacturedBullet\", \"fillBulletToTurret\", \"collectKillRewardGold\", \"unlockSecondWorker\", \"workerToolAutoUpgrade\", \"buildMaterialConveyor\", \"buildBulletConveyor\", \"upgradeTurretToGatling\", and \"showCtaDownloadGuide\". The rules require exact blueprint Rule IDs only; semantic names are explicitly forbidden.",
+    "rule": "phase id format critical  addcompletedphase parameter must exactly match bluepri",
+    "fix": "Call AddCompletedPhase() only when that exact phase is completed, using the exact Rule ID string for that phase. Remove \"gameStart\" and stop recording previous phases during next-phase setup.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.949Z",
+    "triggerProjects": [
+      "proj_1775610640418_knq32m",
+      "proj_1775987530864_bz8g2g"
+    ],
+    "crossProjectCount": 2,
+    "totalOccurrences": 2,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 2
+    }
+  },
+  {
+    "description": "Uses UnityEngine.Debug.Log() for phase/state reporting during gameplay flow. While not the highest-level forbidden API, this is a known Luna production risk, and UpdateGameState() is called repeatedly from Start, transitions, and periodic Update. Console spam can destabilize playable verification.",
+    "rule": "common production failure  performance-safe skeleton usage",
+    "fix": "Remove Debug.Log-based phase/state reporting from runtime flow, or guard it behind a compile-time debug flag excluded from Luna builds.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.949Z",
+    "triggerProjects": [
+      "proj_1775610640418_knq32m"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "ReportPhase uses UnityEngine.Debug.Log for gameplay flow phase reporting. This was explicitly auto-promoted as a production risk in Luna review rules and should not be used in runtime phase/state flow.",
+    "rule": "auto-promoted critical debug.log runtime reporting risk",
+    "fix": "Remove Debug.Log-based runtime reporting or guard it behind a compile-time debug flag excluded from Luna builds.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.949Z",
+    "triggerProjects": [
+      "proj_1775610610026_qapd9n"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Uses generic API GFM_Joystick.Create(uiCanvas, 180f) is fine, but the file also depends on undeclared partial-method-side symbols/methods for core compile path: HandleClickInteraction(), UpdateEnemySpawner(), UpdateEnemies(), UpdateProjectiles(), UpdateGoldDrops(). In the reviewed file, required gameplay logic is incomplete and cannot be verified as compiled/implemented. Tier-1 completeness requires all referenced trigger variables to be modified somewhere in Update() or helper method and all call chain to exist.",
+    "rule": "c language  bridge.net hard limits",
+    "fix": "Remove all Instantiate(...) calls. Use only pre-existing pool objects found by explicit literal names. If extra entities are needed, map them to additional valid pool objects with explicit GameObject.Find(\"__Pool_...\") literals.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.949Z",
+    "triggerProjects": [
+      "proj_1775953369017_7k7294",
+      "proj_1775987487967_1kooku",
+      "proj_1775987530864_bz8g2g"
+    ],
+    "crossProjectCount": 3,
+    "totalOccurrences": 3,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 3
+    }
+  },
+  {
+    "description": "Spec validation failed: 10 error(s):\nSpec[1] unlockMainCabinDoor: entity \"mainCabinDoor\" not found in blueprint.entities. Known: Player, MainCabin, CabinDoor1, RescueCrew, TreatmentBathtub, GoldCoin, CarryUpgradeBtn, BathtubUpgradeBtn, CabinDoor2, BedModule\nSpec[2] firstRescueDriftingCrew: entity \"rescuedCrew\" not found in blueprint.entities. Known: Player, MainCabin, CabinDoor1, RescueCrew, TreatmentBathtub, GoldCoin, CarryUpgradeBtn, BathtubUpgradeBtn, CabinDoor2, BedModule\nSpec[3] treatRescue",
+    "rule": "spec structure",
+    "fix": "Spec validation failed: 10 error(s):\nSpec[1] unlockMainCabinDoor: entity \"mainCabinDoor\" not found in blueprint.entities. Known: Player, MainCabin, CabinDoor1, RescueCrew, TreatmentBathtub, GoldCoin, CarryUpgradeBtn, BathtubUpgradeBtn, CabinDoor2, BedModule\nSpec[2] firstRescueDriftingCrew: entity \"r",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.949Z",
+    "triggerProjects": [
+      "proj_1775953343484_brnzii",
+      "proj_1775953369017_7k7294",
+      "proj_1775953351555_f0capg",
+      "proj_1776297105366_xrbkl1"
+    ],
+    "crossProjectCount": 4,
+    "totalOccurrences": 4,
+    "sourceStage": "spec-validate",
+    "sourceStages": {
+      "spec-validate": 4
+    }
+  },
+  {
+    "description": "Creates runtime UI text with GFM_UI.CreateText for floatingText. Runtime text creation is called out as a production risk in the provided rules, and the skeleton specifically prefers pre-created reusable UI instead of creating new text elements at runtime.",
+    "rule": "forbidden runtime apis  skeleton ui rule",
+    "fix": "Reuse an existing pre-created text element or add a skeleton-provided pooled text reference. Do not create Text at runtime in gameplay flow.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.950Z",
+    "triggerProjects": [
+      "proj_1775987487967_1kooku"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "AddCompletedPhase uses semantic names like \"openingDisaster\", \"unlockCabinDoor\", \"placeCrewToBath\", \"unlockFirstBed\", \"unlockAllBeds\", \"finalCTA\", and also records prior phases during next-phase init. Project rules require exact blueprint Rule IDs only, and only when that exact phase completes.",
+    "rule": "phase id format  exact rule ids required",
+    "fix": "Replace all AddCompletedPhase parameters with the exact blueprint Rule ID strings and record them at the actual completion moment for that phase only.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.950Z",
+    "triggerProjects": [
+      "proj_1775987487967_1kooku"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Phase coverage too low: 0/11 (0%). Missing: initialCollectSpaceJunk, sellShardsGetGold, buildForgeWorkshop, upgradeToTripleDrill, tripleDrillCollectJunk, upgradeToCrusherVehicle, crusherVehicleCollectJunk, upgradeToHydraulicVehicle, hydraulicVehicleCollectJunk, expandSpaceStation, showFullStationCTA",
+    "rule": "code quality",
+    "fix": "Phase coverage too low: 0/11 (0%). Missing: initialCollectSpaceJunk, sellShardsGetGold, buildForgeWorkshop, upgradeToTripleDrill, tripleDrillCollectJunk, upgradeToCrusherVehicle, crusherVehicleCollectJunk, upgradeToHydraulicVehicle, hydraulicVehicleCollectJunk, expandSpaceStation, showFullStationCTA",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.950Z",
+    "triggerProjects": [
+      "proj_1775987539630_2j19vp",
+      "proj_1775987487967_1kooku",
+      "proj_1775987530864_bz8g2g",
+      "proj_1776266310700_2p50o1",
+      "proj_1776391516726_urbib0"
+    ],
+    "crossProjectCount": 5,
+    "totalOccurrences": 5,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 5
+    }
+  },
+  {
+    "description": "The code marks previous phases as completed during the next phase's initialization, e.g. phase 2 adds openingDisaster, phase 3 adds unlockMainCabinDoor, etc. Historical failure rule explicitly flags this pattern as invalid because completion must be recorded at the actual completion moment, not when entering the next phase.",
+    "rule": "addcompletedphase timing correctness",
+    "fix": "Move each AddCompletedPhase() call into the exact transition point where that phase's completion condition becomes true.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.950Z",
+    "triggerProjects": [
+      "proj_1775987487967_1kooku"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Phase 1 init explicitly sets openingDisasterInteractionDone = true without any user interaction. The rules say anti-autoplay flags must be set when the player performs the required interaction; auto-setting them is forbidden.",
+    "rule": "every phase transition must require player interaction never auto-set interactio",
+    "fix": "Set openingDisasterInteractionDone only from a real input handler, e.g. first joystick move or first tap.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.950Z",
+    "triggerProjects": [
+      "proj_1775987487967_1kooku"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "AutoPlay directly mutates progression resources/state (ice, water, oxygen, gold) based on currentPhaseName instead of performing real player-equivalent interactions through gameplay handlers. This creates scripted advancement paths rather than real interaction-driven progression.",
+    "rule": "forbidden autoplay state mutation bypassing interaction",
+    "fix": "Refactor AutoPlay to drive the player to targets and trigger the same input/interaction functions used by the player, without directly assigning progression state.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.950Z",
+    "triggerProjects": [
+      "proj_1775987513075_v7jikz"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "The game end progression depends on downloadCtaDone == true, but this file does not define ShowDownloadButton() or any callback/handler that sets downloadCtaDone. As reviewed, final progression is incomplete and/or uncompilable.",
+    "rule": "variables referenced in trigger conditions must be modified somewhere",
+    "fix": "Implement ShowDownloadButton() and a real click handler that sets downloadCtaDone = true on user interaction, or wire the CTA to an existing skeleton CTA pattern.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.950Z",
+    "triggerProjects": [
+      "proj_1775987513075_v7jikz"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "The AutoPlay safety net directly mutates progression flags and entity states for stuck phases: openingDisasterInteractionDone, mainCabinDoorState, phase3FirstCrewRescueDone, phase4CrewDeliveredDone, carryAbilityState, bathtubState, secondCabinState, firstBedUnlockButtonDone, phase10AllBedsDone, downloadButtonDone, etc. The rules explicitly forbid scripted auto-completion paths and require player-driven interaction conditions, even for verification.",
+    "rule": "tier 1.4b  every phase must have real completion conditions progression must req",
+    "fix": "Do not directly set progression flags/entity terminal states in the safety net. AutoPlay must drive the same interaction handlers as the player, not assign completion state variables.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.951Z",
+    "triggerProjects": [
+      "proj_1775987487967_1kooku"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "AutoPlay arrival directly sets phase-completion flags such as cabinDoorUnlockButtonDone, floatingCrewDone, phase4CrewDeliveredDone, phase3FirstCrewRescueDone, crewDone, phase6BatchRescueDone, firstBedUnlockButtonDone, phase9FirstBedDone, restBedUnlockButtonDone, phase10AllBedsDone, and downloadButtonDone. This is explicit autoplay progression, which the rules forbid.",
+    "rule": "tier 1.4b  every phase must have real condition not scripted flag mutation",
+    "fix": "Refactor AutoPlay so it invokes the same user-input-driven interaction methods used in interactive mode instead of directly toggling progression flags.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.951Z",
+    "triggerProjects": [
+      "proj_1775987487967_1kooku"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Entity state variables are declared as 0=waiting, 1=building, 2=built, but transitions check for >=3 on carryAbilityState and bathtubState, and later safety net sets restBedState = 6. This breaks the documented state model and indicates inconsistent/incomplete phase logic.",
+    "rule": "tier 1.4b  variables referenced in trigger conditions must be modified somewhere",
+    "fix": "Use a consistent state model. If upgrade levels need 3, declare separate level variables and update them through real interaction handlers. Keep entity state variables within their declared domain.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.951Z",
+    "triggerProjects": [
+      "proj_1775987487967_1kooku"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "AutoPlay directly mutates progression state and phase-completion flags/resources (ice, water, oxygen, gold, techConsoleDone, recruitConsoleDone, incubatorConsoleDone, upgradeStationDone, unlockNewCabinCtaDone, downloadCtaDone, etc.). The safety net also force-sets completion variables like iceOreDone=true, unloadingAreaDone=true, electrolysisStartButtonDone=true, sellAreaDone=true. This is explicit scripted advancement rather than player-driven interaction.",
+    "rule": "tier 1  4b  tier 1 anti-autoplay every phase must require real player interactio",
+    "fix": "Remove direct state-completion mutations from OnAutoPlayArrive and the safety net. AutoPlay must drive the same input/interaction handlers as the player, not assign completion flags or terminal entity states directly.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.951Z",
+    "triggerProjects": [
+      "proj_1775987513075_v7jikz"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "AddCompletedPhase uses semantic names like \"landSpaceshipMoveToEntrance\", \"collectIceOre\", \"deliverIceToSmelter\", \"produceOxygenByElectrolyzer\", \"sellOxygenEarnGold\", \"unlockAdvancedDrill\", \"unlockAutoVendorWorker\", \"ctaUnlockNewCabin\", and \"gameEndRedirectDownload\" instead of exact blueprint Rule IDs.",
+    "rule": "tier 1  11 addcompletedphase parameter must exactly match blueprint rule id",
+    "fix": "Replace every AddCompletedPhase argument with the exact blueprint Rule ID strings provided by the spec, and record them only at the true completion point of that phase.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.951Z",
+    "triggerProjects": [
+      "proj_1775987513075_v7jikz"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Phase 1 completion is based on player z-position > 2f, but OnAutoPlayArrive directly teleports the player beyond the entrance and the safety net also force-sets spaceStationEntranceDone=true. This allows non-interactive scripted completion of the first required player-action phase.",
+    "rule": "tier 1  4b completion conditions must be phase-specific and player-driven",
+    "fix": "Do not teleport/set the completion flag directly in autoplay. Route autoplay through actual movement/input behavior and only set the flag when that movement genuinely reaches the target.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.951Z",
+    "triggerProjects": [
+      "proj_1775987513075_v7jikz"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "AutoPlay directly invokes progression handlers from non-user-driven code paths to force phase completion. Historical rules explicitly flag this pattern as invalid autoplay/scripted advancement because phase progression must be driven by actual interaction handlers, not safety-net automation that sets completion variables for stuck phases.",
+    "rule": "tier 1 rule 4b  tier 1 completeness  player-action-driven phases",
+    "fix": "Remove safety-net completion of progression flags/states. AutoPlay must drive the same movement/input interaction flow without directly forcing completion, and phase gates must depend on genuine interaction state changes.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.951Z",
+    "triggerProjects": [
+      "proj_1775987530864_bz8g2g"
+    ],
+    "crossProjectCount": 1,
+    "totalOccurrences": 1,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 1
+    }
+  },
+  {
+    "description": "Invalid GameObject.Find() pool names are used: __Pool_Sphere_Yellow_02, __Pool_Sphere_Yellow_03, __Pool_Sphere_Yellow_04, __Pool_Cube_Red_05, __Pool_Cube_Green_01, __Pool_Cube_Purple_02, __Pool_Cube_Purple_03, __Pool_Cube_Purple_04, and __Ground. The prompt provides exact valid assignments for this project, and only those names are allowed.",
+    "rule": "object naming  pool objects",
+    "fix": "Only use the exact approved pool names from the project mapping. Do not find extra unnamed objects or __Ground unless explicitly provided by the blueprint.",
+    "severity": "critical",
+    "promotedAt": "2026-04-18T15:58:34.951Z",
+    "triggerProjects": [
+      "proj_1775987539630_2j19vp",
+      "proj_1775987513075_v7jikz",
+      "proj_1775987530864_bz8g2g"
+    ],
+    "crossProjectCount": 3,
+    "totalOccurrences": 3,
+    "sourceStage": "review",
+    "sourceStages": {
+      "review": 3
+    }
   }
 ]

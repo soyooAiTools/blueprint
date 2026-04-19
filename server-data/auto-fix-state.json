@@ -29,8 +29,8 @@
       "status": "manual-only"
     },
     "Cannot read properties of undefined (reading 'length')": {
-      "at": 1776531353027,
-      "status": "applied"
+      "at": 1776589554014,
+      "status": "manual-only"
     }
   },
   "history": [
@@ -262,6 +262,15 @@
         "adapters/entity-resolver.cjs",
         "engine/stages/codegen-schema.cjs"
       ]
+    },
+    {
+      "at": "2026-04-18T18:58:55.786Z",
+      "fingerprint": "Cannot read properties of undefined (reading 'length')",
+      "recipe": "auto-bb58853e",
+      "files": [
+        "adapters/entity-resolver.cjs",
+        "engine/stages/codegen-schema.cjs"
+      ]
     }
   ],
   "pendingCommits": {
@@ -282,11 +291,23 @@
       "at": 1776407266122
     },
     "auto-bb58853e": {
-      "state": "loading",
-      "at": 1776532445776
+      "state": "done",
+      "filesChanged": [
+        "adapters/entity-resolver.cjs",
+        "engine/stages/codegen-schema.cjs"
+      ],
+      "diagnosis": "**Diagnosis:** The recipe targets two locations: (1) `resolveEntities()` in `entity-resolver.cjs` could crash with `TypeError` when `specs` is `undefined` because the first loop accesses `specs.length` unconditionally, and (2) `codegen-schema.cjs` calls `resolveEntities()` without checking whether `ctx.blueprint.specs` exists. Reviewing the provided current file contents, both guards are already present — the early-return null guard at the top of `resolveEntities()` and the conditional ternary i",
+      "at": 1776532575788
     }
   },
   "regressionHits": {
     "auto-79ef3937": 3
+  },
+  "invalidRecipes": {
+    "auto-bb58853e": {
+      "at": "2026-04-18T20:00:25.951Z",
+      "fingerprint": "Cannot read properties of undefined (reading 'length')",
+      "reverted": true
+    }
   }
 }
