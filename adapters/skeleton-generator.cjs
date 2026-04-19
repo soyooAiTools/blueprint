@@ -367,6 +367,10 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    bool hasTapTarget = false;');
     lines.push('    // [SKELETON] Reusable buffer for per-frame move/look vectors — avoids alloc');
     lines.push('    Vector3 _moveBuf = Vector3.zero;');
+    lines.push('    // [SKELETON] Batch 2 collect cooldown infra — shared across all collect templates');
+    lines.push('    float collectCooldownInterval = ' + (specs.gameConfig && specs.gameConfig.collectCooldown ? specs.gameConfig.collectCooldown : 0.3) + 'f;');
+    lines.push('    float _collectCooldown = 0f;');
+    lines.push('    string _lastScoreText = "";');
     lines.push('');
     lines.push('    // [SKELETON] Move player by joystick + tap-to-move fallback — call in Update()');
     lines.push('    void MovePlayer()');
@@ -747,6 +751,9 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('            lastPhaseForTimer = currentPhaseName;');
   lines.push('        }');
   lines.push('        phaseTimer += dt;');
+  if (isIdleGame) {
+    lines.push('        if (_collectCooldown > 0f) _collectCooldown -= Time.deltaTime;');
+  }
   lines.push('');
   lines.push('        CheckEventRules();');
   lines.push('');
