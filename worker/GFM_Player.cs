@@ -3,7 +3,7 @@
 // ----------------------------------------------------------------------------
 // 职责：封装玩家载具相关的一切：
 //       - 玩家 GameObject (池对象 "__Pool_Cylinder_Blue_01") 的定位
-//       - 移动输入（虚拟摇杆优先，Tap-to-move 兜底）
+//       - 移动输入（仅虚拟摇杆;tap-to-move 已移除防双模冲突,2026-04-19）
 //       - 形态系统（FormDef / SwitchForm / 当前形态的数值查询）
 //       - 采集/递送判定（IsNear / TryCollect / TryDeliver）
 //       - 背包 carry 状态
@@ -72,10 +72,6 @@ public class GFM_Player : MonoBehaviour
     private GameObject _player;
     private GFM_Joystick _joystick;
 
-    // 【Tap-to-move 状态】没有摇杆输入时，屏幕点击作为移动目标。
-    private Vector3 _tapMoveTarget = Vector3.zero;
-    private bool _hasTapTarget = false;
-
     // ========================================================================
     // 【背包状态】玩家当前携带物品数 + 物品类型。通用 carry 由 TryCollect/
     // TryDeliver 操作。项目特定的资源数量请直接读 GFM_EconomyManager。
@@ -140,56 +136,21 @@ public class GFM_Player : MonoBehaviour
     }
 
     // ========================================================================
-    // 【玩家移动】
-    //   优先级 1 — 摇杆输入（任一轴 > 0.1 即视为有效输入）
-    //   优先级 2 — Tap-to-move（鼠标点击屏幕，raycast 算落点，走过去）
-    //   忽略屏幕左下 200×200 区域（摇杆自己的区域）
+    // 【玩家移动】仅摇杆输入;tap-to-move 已移除防双模冲突 (2026-04-19)。
+    //   - Horizontal/Vertical 任一 > 0.1 即视为有效输入
+    //   - autoPlay 模式下 Tick() 不调 MovePlayer(),由 GFM_AutoPlay 直接改 Transform
     // ========================================================================
     public void MovePlayer()
     {
-        if (_player == null) return;
+        if (_player == null || _joystick == null) return;
 
-        // 优先级 1：摇杆
-        if (_joystick != null)
+        float h = _joystick.Horizontal;
+        float v = _joystick.Vertical;
+        if (Mathf.Abs(h) > 0.1f || Mathf.Abs(v) > 0.1f)
         {
-            float h = _joystick.Horizontal;
-            float v = _joystick.Vertical;
-            if (Mathf.Abs(h) > 0.1f || Mathf.Abs(v) > 0.1f)
-            {
-                Vector3 move = new Vector3(h, 0, v) * MoveSpeed * Time.deltaTime;
-                _player.transform.position += move;
-                _player.transform.rotation = Quaternion.LookRotation(new Vector3(h, 0, v));
-                _hasTapTarget = false;
-                return;
-            }
-        }
-
-        // 优先级 2：Tap-to-move 点击检测
-        Camera cam = (GFM_CameraController.Instance != null) ? GFM_CameraController.Instance.Main : null;
-        if (Input.GetMouseButtonDown(0) && cam != null)
-        {
-            Vector2 sp = Input.mousePosition;
-            // 忽略摇杆区域 (左下 200×200)
-            if (sp.x > 200f || sp.y > 200f)
-            {
-                Ray ray = cam.ScreenPointToRay(sp);
-                float t = -ray.origin.y / ray.direction.y;
-                if (t > 0f) { _tapMoveTarget = ray.origin + ray.direction * t; _hasTapTarget = true; }
-            }
-        }
-
-        // 向 tap target 移动
-        if (_hasTapTarget)
-        {
-            Vector3 diff = _tapMoveTarget - _player.transform.position;
-            diff.y = 0;
-            if (diff.magnitude > 0.3f)
-            {
-                Vector3 move = diff.normalized * MoveSpeed * Time.deltaTime;
-                _player.transform.position += move;
-                _player.transform.rotation = Quaternion.LookRotation(diff.normalized);
-            }
-            else { _hasTapTarget = false; }
+            Vector3 move = new Vector3(h, 0, v) * MoveSpeed * Time.deltaTime;
+            _player.transform.position += move;
+            _player.transform.rotation = Quaternion.LookRotation(new Vector3(h, 0, v));
         }
     }
 

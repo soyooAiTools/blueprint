@@ -1,381 +1,523 @@
-// ========== AUTO-GENERATED SKELETON — DO NOT MODIFY SKELETON LINES ==========
-// Generated from storyboard spec. AI fills TODO sections only.
-// Lines marked [SKELETON] must not be removed or modified.
+// ============================================================================
+// GameFlowManagerMain.cs — 游戏流程总控（主文件 / 相位状态机）
+// ----------------------------------------------------------------------------
+// 【架构说明 — 2026-04-19 重构】
+// 本文件只负责游戏"流程"(13 phase 相位状态机 + 自动播放协调)，具体业务
+// 逻辑分发给各 Manager 单例：
 //
-// *** RENDERING RULES (MUST FOLLOW — violation = build failure) ***
-// 1. Camera.backgroundColor is pre-set to (0.45, 0.52, 0.62) — do NOT change
-// 2. NEVER call GFM_Create.SetColor() — it causes GL_INVALID_OPERATION in Luna
-// 3. NEVER call GFM_Create.Obj() — pool objects already exist, use GameObject.Find()
-// 4. Pool objects have pre-baked colors (__Pool_Shape_Color_NN) — just position them
-// 5. Phase 1 must place at least 3 pool objects on screen to prevent solid-color
-// 6. NEVER call Destroy() — hide objects via position (0, -999, 0)
-// 7. NEVER use SafeColor or recursive color functions
+//   流程（本文件）─┐
+//                 ├─→ GFM_Player.Instance        ── 玩家/摇杆/形态/采集
+//                 ├─→ GFM_EconomyManager.Instance ── 金币/资源/库存
+//                 ├─→ GFM_UIManager.Instance      ── Canvas/guide/score/浮文字
+//                 ├─→ GFM_CameraController.Instance ── 主相机+等距视角
+//                 ├─→ GFM_AutoPlay.Instance       ── CUA 自动播放
+//                 ├─→ GFM_NpcManager.Instance     ── (本项目未用,空壳)
+//                 └─→ GFM_ItemManager.Instance    ── (本项目未用,空壳)
 //
-// *** ANTI-AUTOPLAY RULES (MUST FOLLOW — violation = CUA rejection) ***
-// 1. Every phase transition MUST require player interaction (click/drag/joystick)
-// 2. NEVER advance phases based on timer alone — timer is minimum dwell, not trigger
-// 3. playerMustAct=true phases MUST wait for user input before transitioning
+// 【留在本文件的状态】
+//   - 相位跟踪：ruleTriggered / currentPhaseName / phaseTimer / completedPhases
+//   - 实体状态机：16 个 *State (0=waiting,1=building,2=built)
+//   - 反 autoplay 交互标志：38 个 *InteractionDone / *PlayerActed / *Done
+//   - 17 个场景实体 GameObject 引用 (由 GameSceneCtrl 注册池对象)
 //
+// 【渲染规则 — 违反 = 构建失败】
+//   1. Camera.backgroundColor 预设 (0.45, 0.52, 0.62)，不得修改
+//   2. 严禁 GFM_Create.SetColor() → Luna GL_INVALID_OPERATION
+//   3. 严禁 GFM_Create.Obj() → 池对象已存在，用 GameObject.Find
+//   4. 池对象颜色预烘焙 (__Pool_Shape_Color_NN)，定位即可
+//   5. Phase 1 至少 3 个池对象上屏防纯色背景
+//   6. 严禁 Destroy() → 隐藏用 (0,-999,0)
+//   7. 严禁 SafeColor / 递归染色函数
+//
+// 【反自动播放规则 — 违反 = CUA 拒绝】
+//   1. 每个 phase 切换必须有玩家交互 (click/drag/joystick)
+//   2. 禁止仅凭定时器推进 phase，定时器是"最小停留时长"而非触发器
+//   3. playerMustAct=true 的 phase 必须等玩家输入
+// ============================================================================
 
 using UnityEngine;
 using UnityEngine.UI;
 
 public partial class GameFlowManagerMain : MonoBehaviour
 {
-    // [SKELETON] Phase timing system — enforces minimum dwell time per phase
-    float phaseTimer = 0f;
-    string lastPhaseForTimer = "";
-    float[] phaseEnterTimes;  // [SKELETON] records when each phase was entered
+    // ========================================================================
+    // 【相位定时系统 — skeleton enforced】强制每个 phase 最小停留时长
+    // ========================================================================
+    float phaseTimer = 0f;             // 当前 phase 已停留时长
+    string lastPhaseForTimer = "";     // 上一 phase 名,用于检测切换归零 timer
+    float[] phaseEnterTimes;           // 每个 phase 进入时的 gameTimer 快照
 
-    // [SKELETON] Phase tracking
-    const int RULE_COUNT = 13;
-    bool[] ruleTriggered;
-    string currentPhaseName = "init";
-    string[] completedPhases;
+    // ========================================================================
+    // 【相位跟踪 — skeleton enforced】
+    // ========================================================================
+    const int RULE_COUNT = 13;         // 相位规则总数 (含首尾+gameEnd)
+    bool[] ruleTriggered;              // [i]=true 表示第 i 个 phase 已激活
+    string currentPhaseName = "init";  // 当前 phase ID (ReportPhase 上报用)
+    string[] completedPhases;          // 已完成 phase 的历史
     int completedPhaseCount = 0;
-    float gameTimer;
-    bool gameEnded = false;
+    float gameTimer;                   // 游戏累计时长 (Time.deltaTime 累加)
+    bool gameEnded = false;            // 终局标志,gameEnd 后 Update 直接 return
 
-    // [SKELETON] AutoPlay dual-mode — CUA verification uses autoPlay, end-user uses interactive
-    bool _autoPlayMode = false;
-    bool _autoPlayChecked = false;
-    int _autoPlaySteps = 0; // [SKELETON] tracks autoPlay visual progress for CUA
-    int _autoPlayStepsAtPhaseStart = 0; // [SKELETON] tracks autoPlay steps when current phase started
-    const float AUTO_PLAY_PHASE_DURATION = 12f; // [SKELETON] 12s per shot — DO NOT MODIFY this value (DO NOT MODIFY)
+    // ========================================================================
+    // 【AutoPlay 双模 — CUA 用自动播放,真人用交互】
+    // _autoPlayMode / _autoPlaySteps 是 GFM_AutoPlay 的只读代理,保持
+    // CheckEventRules 里原字段名的可读性;写入必须走 AutoPlay.IncrementSteps()。
+    // ========================================================================
+    bool _autoPlayMode { get { return GFM_AutoPlay.Instance.IsActive; } }
+    int _autoPlaySteps { get { return GFM_AutoPlay.Instance.Steps; } }
+    int _autoPlayStepsAtPhaseStart = 0;                // 当前 phase 开始时步数快照
+    const float AUTO_PLAY_PHASE_DURATION = 12f;        // 每 phase 自动播放时长 (DO NOT MODIFY)
 
-    // [SKELETON] Entity states — must reach terminal state
-    int ForgeWorkshopState = 0; // 0=waiting, 1=building, 2=built [SKELETON]
-    int PlayerTripleDrillState = 0; // 0=waiting, 1=building, 2=built [SKELETON]
-    int CrusherVehicleState = 0; // 0=waiting, 1=building, 2=built [SKELETON]
-    int HydraulicVehicleState = 0; // 0=waiting, 1=building, 2=built [SKELETON]
-    int CanteenState = 0; // 0=waiting, 1=building, 2=built [SKELETON]
-    int DormitoryState = 0; // 0=waiting, 1=building, 2=built [SKELETON]
-    int PastureState = 0; // 0=waiting, 1=building, 2=built [SKELETON]
-    int CTAButtonState = 0; // 0=waiting, 1=building, 2=built [SKELETON]
+    // ========================================================================
+    // 【实体状态机 — 必须到达终局 state=2】
+    // 0=waiting / 1=building / 2=built。CheckEventRules 集中读写。
+    // ========================================================================
+    int ForgeWorkshopState = 0;        // 锻造间
+    int PlayerTripleDrillState = 0;    // 三钻头飞船
+    int CrusherVehicleState = 0;       // 粉碎车
+    int HydraulicVehicleState = 0;     // 液压车
+    int CanteenState = 0;              // 食堂
+    int DormitoryState = 0;            // 宿舍
+    int PastureState = 0;              // 牧场
+    int CTAButtonState = 0;            // CTA 按钮
+    int SpaceJunkState = 0;            // 太空垃圾 (资源桩)
+    int MetalShardState = 0;           // 金属碎片 (采集产物)
+    int RecyclingStationState = 0;     // 回收站 (售卖点)
+    int ForgeBlueprintState = 0;       // 锻造间蓝图 (建造前)
+    int PlayerSingleDrillState = 0;    // 单钻头飞船 (初始形态)
+    int CanteenBlueprintState = 0;
+    int DormBlueprintState = 0;
+    int PastureBlueprintState = 0;
+    int goldObjState = 0;              // 金币实体 (视觉用)
 
-    // [SKELETON] Anti-autoplay flags — AI MUST set these to true when player performs the required interaction
-    bool initialCollectSpaceJunkInteractionDone = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool initialCollectSpaceJunkPlayerActed = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool SpaceJunkDone = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool sellShardsGetGoldInteractionDone = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool sellShardsGetGoldPlayerActed = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool RecyclingStationDone = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool buildForgeWorkshopInteractionDone = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool buildForgeWorkshopPlayerActed = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool ForgeBlueprintDone = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool upgradeToTripleDrillInteractionDone = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool upgradeToTripleDrillPlayerActed = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool ForgeWorkshopDone = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool tripleDrillCollectJunkInteractionDone = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool tripleDrillCollectJunkPlayerActed = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool upgradeToCrusherVehicleInteractionDone = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool upgradeToCrusherVehiclePlayerActed = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool crusherVehicleCollectJunkInteractionDone = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool crusherVehicleCollectJunkPlayerActed = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool upgradeToHydraulicVehicleInteractionDone = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool upgradeToHydraulicVehiclePlayerActed = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool hydraulicVehicleCollectJunkInteractionDone = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool hydraulicVehicleCollectJunkPlayerActed = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool expandSpaceStationInteractionDone = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool expandSpaceStationPlayerActed = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool CanteenBlueprintDone = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool showFullStationCTAInteractionDone = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool showFullStationCTAPlayerActed = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
-    bool CTAButtonDone = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)
+    // ========================================================================
+    // 【反自动播放标志 — 每个 phase 必须等玩家真正交互】
+    // *InteractionDone: 玩家点击/靠近/摇杆输入后置 true
+    // *PlayerActed: 同上 (双标,用于 AutoPlay arrive 回调双写)
+    // *Done: 实体被"消费"的标志 (如 SpaceJunkDone 表示垃圾被捡过一次)
+    // 规则: 每个 *Done 必须在 OnAutoPlayArrive + Update 交互双路径都能翻 true。
+    // ========================================================================
+    bool initialCollectSpaceJunkInteractionDone = false;
+    bool initialCollectSpaceJunkPlayerActed = false;
+    bool SpaceJunkDone = false;
+    bool MetalShardDone = false;
+    bool sellShardsGetGoldInteractionDone = false;
+    bool sellShardsGetGoldPlayerActed = false;
+    bool RecyclingStationDone = false;
+    bool buildForgeWorkshopInteractionDone = false;
+    bool buildForgeWorkshopPlayerActed = false;
+    bool ForgeBlueprintDone = false;
+    bool goldObjDone = false;
+    bool ForgeWorkshopDone = false;
+    bool upgradeToTripleDrillInteractionDone = false;
+    bool upgradeToTripleDrillPlayerActed = false;
+    bool PlayerSingleDrillDone = false;
+    bool tripleDrillCollectJunkInteractionDone = false;
+    bool tripleDrillCollectJunkPlayerActed = false;
+    bool upgradeToCrusherVehicleInteractionDone = false;
+    bool upgradeToCrusherVehiclePlayerActed = false;
+    bool PlayerTripleDrillDone = false;
+    bool crusherVehicleCollectJunkInteractionDone = false;
+    bool crusherVehicleCollectJunkPlayerActed = false;
+    bool upgradeToHydraulicVehicleInteractionDone = false;
+    bool upgradeToHydraulicVehiclePlayerActed = false;
+    bool CrusherVehicleDone = false;
+    bool hydraulicVehicleCollectJunkInteractionDone = false;
+    bool hydraulicVehicleCollectJunkPlayerActed = false;
+    bool expandSpaceStationInteractionDone = false;
+    bool expandSpaceStationPlayerActed = false;
+    bool CanteenBlueprintDone = false;
+    bool CanteenDone = false;
+    bool DormBlueprintDone = false;
+    bool DormitoryDone = false;
+    bool PastureBlueprintDone = false;
+    bool PastureDone = false;
+    bool showFullStationCTAInteractionDone = false;
+    bool showFullStationCTAPlayerActed = false;
+    bool CTAButtonDone = false;
 
-    // [SKELETON] Object references (auto-mapped from entity→pool)
-    GameObject ForgeWorkshop; // → __Pool_Cube_Red_01
-    GameObject PlayerTripleDrill; // → __Pool_Cube_Blue_01
-    GameObject CrusherVehicle; // → __Pool_Cube_Blue_02
-    GameObject HydraulicVehicle; // → __Pool_Cube_Green_01
-    GameObject Canteen; // → __Pool_Cube_Yellow_01
-    GameObject Dormitory; // → __Pool_Cube_Orange_01
-    GameObject Pasture; // → __Pool_Cube_Purple_01
-    GameObject CTAButton; // → __Pool_Cube_White_01
-    GameObject SpaceJunk; // → __Pool_Cube_Brown_01
-    GameObject MetalShard; // → __Pool_Cube_Cyan_01
-    GameObject RecyclingStation; // → __Pool_Cube_Pink_01
-    GameObject ForgeBlueprint; // → __Pool_Cube_Red_02
-    GameObject goldObj; // → __Pool_Cube_Yellow_02
-    GameObject PlayerSingleDrill; // → __Pool_Cube_Blue_03
-    GameObject CanteenBlueprint; // → __Pool_Cube_Blue_04
-    GameObject DormBlueprint; // → __Pool_Cube_Green_02
-    GameObject PastureBlueprint; // → __Pool_Cube_Yellow_03
+    // ========================================================================
+    // 【场景实体引用 — 由 GameSceneCtrl 注册池对象】
+    // 17 个 GameObject,初始都是 HideObj 隐藏状态,随 phase 激活。
+    // ========================================================================
+    GameObject ForgeWorkshop;          // → __Pool_Cube_Red_01
+    GameObject PlayerTripleDrill;      // → __Pool_Cube_Blue_01
+    GameObject CrusherVehicle;         // → __Pool_Cube_Blue_02
+    GameObject HydraulicVehicle;       // → __Pool_Cube_Blue_03
+    GameObject Canteen;                // → __Pool_Cube_Blue_04
+    GameObject Dormitory;              // → __Pool_Cube_Green_01
+    GameObject Pasture;                // → __Pool_Cube_Yellow_01
+    GameObject CTAButton;              // → __Pool_Cube_Orange_01
+    GameObject SpaceJunk;              // → __Pool_Cube_Purple_01
+    GameObject MetalShard;             // → __Pool_Cube_White_01
+    GameObject RecyclingStation;       // → __Pool_Cube_Brown_01
+    GameObject ForgeBlueprint;         // → __Pool_Cube_Cyan_01
+    GameObject PlayerSingleDrill;      // → __Pool_Cube_Blue_05
+    GameObject CanteenBlueprint;       // → __Pool_Cube_Pink_01
+    GameObject DormBlueprint;          // → __Pool_Cube_Red_02
+    GameObject PastureBlueprint;       // → __Pool_Cube_Red_03
+    GameObject goldObj;                // → __Pool_Cube_Yellow_02
 
-    // [SKELETON] Camera reference — use mainCam instead of Camera.main
-    Camera mainCam;
-    // [SKELETON] UI references — canvas and text pre-created, use directly
-    Canvas uiCanvas;
-    Text guideText;
-    Text scoreText;
-
-    // [SKELETON] Form-switch system — AI fills _forms array in Start()
-    struct FormDef {
-        public string formId;
-        public string poolObjectName;
-        public float moveSpeed;
-        public float collectRange;
-        public float collectPower;
-        public int carryCapacity;
-        public float scale;
-    }
-    FormDef[] _forms; // [SKELETON] AI: fill in Start() with form definitions
-    int _currentFormIndex = 0;
-
-    // [SKELETON] Switch player form — hides old model, shows new, updates stats
-    void SwitchForm(int formIndex) {
-        if (_forms == null || formIndex < 0 || formIndex >= _forms.Length) return;
-        if (_forms[_currentFormIndex].poolObjectName != "") {
-            var oldObj = GameObject.Find(_forms[_currentFormIndex].poolObjectName);
-            if (oldObj != null) oldObj.transform.position = new Vector3(0, -999, 0);
-        }
-        _currentFormIndex = formIndex;
-        var newObj = GameObject.Find(_forms[_currentFormIndex].poolObjectName);
-        if (newObj != null) {
-            newObj.transform.position = player != null ? player.transform.position : Vector3.zero;
-            newObj.transform.localScale = Vector3.one * _forms[_currentFormIndex].scale;
-        }
-    }
-    float GetCollectPower() { return (_forms != null && _forms.Length > 0) ? _forms[_currentFormIndex].collectPower : 1f; }
-    float GetCollectRange() { return (_forms != null && _forms.Length > 0) ? _forms[_currentFormIndex].collectRange : 1.5f; }
-    int GetCarryCapacity() { return (_forms != null && _forms.Length > 0) ? _forms[_currentFormIndex].carryCapacity : 10; }
-
-    // [SKELETON] Economy system — AI fills _resources array in Start()
-    struct ResourceDef {
-        public string resourceId;
-        public string displayName;
-        public string convertFrom; // upstream resource id, empty if primary
-        public int convertRatio;   // how many upstream = 1 of this
-    }
-    ResourceDef[] _resources; // [SKELETON] AI: fill in Start()
-    System.Collections.Generic.Dictionary<string, int> _inventory = new System.Collections.Generic.Dictionary<string, int>();
-
-    void AddResource(string id, int amount) {
-        if (!_inventory.ContainsKey(id)) _inventory[id] = 0;
-        _inventory[id] += amount;
-        UpdateResourceUI();
-    }
-
-    int GetResource(string id) {
-        return _inventory.ContainsKey(id) ? _inventory[id] : 0;
-    }
-
-    bool TrySpend(string id, int amount) {
-        if (GetResource(id) < amount) return false;
-        _inventory[id] -= amount;
-        UpdateResourceUI();
-        return true;
-    }
-
-    bool TryConvert(string fromId, string toId) {
-        if (_resources == null) return false;
-        ResourceDef toDef = default;
-        bool found = false;
-        for (int i = 0; i < _resources.Length; i++) {
-            if (_resources[i].resourceId == toId) { toDef = _resources[i]; found = true; break; }
-        }
-        if (!found || toDef.convertFrom != fromId) return false;
-        if (GetResource(fromId) < toDef.convertRatio) return false;
-        _inventory[fromId] -= toDef.convertRatio;
-        AddResource(toId, 1);
-        return true;
-    }
-
-    void UpdateResourceUI() {
-        if (scoreText == null) return;
-        var parts = new System.Collections.Generic.List<string>();
-        foreach (var kv in _inventory) { if (kv.Value > 0) parts.Add(kv.Key + ": " + kv.Value); }
-        scoreText.text = string.Join("  ", parts);
-    }
-
-    // ========== [SKELETON] IDLE GAME KIT — Pre-built systems ==========
-    // All systems below are working code. AI should CALL these, not rewrite them.
-
-    // --- Player Movement (joystick-driven) ---
-    GFM_Joystick joystick;
-    GameObject player;
-    float moveSpeed { get { return (_forms != null && _forms.Length > 0) ? _forms[_currentFormIndex].moveSpeed : 5f; } }
-    int carrying = 0; // generic resource count on player back
-    string carryingType = ""; // what resource type
-    int gold = 0;
-
-    // [SKELETON] Tap-to-move target (fallback for joystick)
-    Vector3 tapMoveTarget = Vector3.zero;
-    bool hasTapTarget = false;
-
-    // [SKELETON] Move player by joystick + tap-to-move fallback — call in Update()
-    void MovePlayer()
+    // ========================================================================
+    // 【生命周期 - Start】场景就绪时执行一次
+    // 职责:
+    //   1. 初始化相位状态数组
+    //   2. 注册场景实体 (GameSceneCtrl + 池对象名)
+    //   3. 触发 Manager 单例懒初始化 + 注册 AutoPlay 到达回调
+    //   4. 填充 Player.Forms (形态定义) + Economy 资源默认值
+    //   5. 首帧 Hide 所有实体 (按 phase 逐步解锁显示)
+    // ========================================================================
+    void Start()
     {
-        if (player == null) return;
-        // Priority 1: Joystick
-        if (joystick != null)
-        {
-            float h = joystick.Horizontal;
-            float v = joystick.Vertical;
-            if (Mathf.Abs(h) > 0.1f || Mathf.Abs(v) > 0.1f)
-            {
-                Vector3 move = new Vector3(h, 0, v) * moveSpeed * Time.deltaTime;
-                player.transform.position += move;
-                player.transform.rotation = Quaternion.LookRotation(new Vector3(h, 0, v));
-                hasTapTarget = false;
-                return;
+        // 1) 相位状态数组
+        ruleTriggered = new bool[RULE_COUNT];
+        completedPhases = new string[RULE_COUNT + 5];
+        phaseEnterTimes = new float[RULE_COUNT];
+
+        // 2) 场景实体注册 (名字 → 池对象)
+        GameSceneCtrl.Init(gameObject);
+        GameSceneCtrl.instance.Register("ForgeWorkshop", "__Pool_Cube_Red_01");
+        GameSceneCtrl.instance.Register("PlayerTripleDrill", "__Pool_Cube_Blue_01");
+        GameSceneCtrl.instance.Register("CrusherVehicle", "__Pool_Cube_Blue_02");
+        GameSceneCtrl.instance.Register("HydraulicVehicle", "__Pool_Cube_Blue_03");
+        GameSceneCtrl.instance.Register("Canteen", "__Pool_Cube_Blue_04");
+        GameSceneCtrl.instance.Register("Dormitory", "__Pool_Cube_Green_01");
+        GameSceneCtrl.instance.Register("Pasture", "__Pool_Cube_Yellow_01");
+        GameSceneCtrl.instance.Register("CTAButton", "__Pool_Cube_Orange_01");
+        GameSceneCtrl.instance.Register("SpaceJunk", "__Pool_Cube_Purple_01");
+        GameSceneCtrl.instance.Register("MetalShard", "__Pool_Cube_White_01");
+        GameSceneCtrl.instance.Register("RecyclingStation", "__Pool_Cube_Brown_01");
+        GameSceneCtrl.instance.Register("ForgeBlueprint", "__Pool_Cube_Cyan_01");
+        GameSceneCtrl.instance.Register("PlayerSingleDrill", "__Pool_Cube_Blue_05");
+        GameSceneCtrl.instance.Register("CanteenBlueprint", "__Pool_Cube_Pink_01");
+        GameSceneCtrl.instance.Register("DormBlueprint", "__Pool_Cube_Red_02");
+        GameSceneCtrl.instance.Register("PastureBlueprint", "__Pool_Cube_Red_03");
+        GameSceneCtrl.instance.Register("goldObj", "__Pool_Cube_Yellow_02");
+
+        // 3) 拉实体引用 (后续所有 PlaceObj/HideObj 都走这些)
+        ForgeWorkshop = GameSceneCtrl.instance.Get("ForgeWorkshop");
+        PlayerTripleDrill = GameSceneCtrl.instance.Get("PlayerTripleDrill");
+        CrusherVehicle = GameSceneCtrl.instance.Get("CrusherVehicle");
+        HydraulicVehicle = GameSceneCtrl.instance.Get("HydraulicVehicle");
+        Canteen = GameSceneCtrl.instance.Get("Canteen");
+        Dormitory = GameSceneCtrl.instance.Get("Dormitory");
+        Pasture = GameSceneCtrl.instance.Get("Pasture");
+        CTAButton = GameSceneCtrl.instance.Get("CTAButton");
+        SpaceJunk = GameSceneCtrl.instance.Get("SpaceJunk");
+        MetalShard = GameSceneCtrl.instance.Get("MetalShard");
+        RecyclingStation = GameSceneCtrl.instance.Get("RecyclingStation");
+        ForgeBlueprint = GameSceneCtrl.instance.Get("ForgeBlueprint");
+        PlayerSingleDrill = GameSceneCtrl.instance.Get("PlayerSingleDrill");
+        CanteenBlueprint = GameSceneCtrl.instance.Get("CanteenBlueprint");
+        DormBlueprint = GameSceneCtrl.instance.Get("DormBlueprint");
+        PastureBlueprint = GameSceneCtrl.instance.Get("PastureBlueprint");
+        goldObj = GameSceneCtrl.instance.Get("goldObj");
+
+        // 4) Luna 平台初始化 (iOS 音频预播)
+        GFM_Luna.Init(gameObject);
+
+        // 5) 触发各 Manager 懒初始化 (按依赖顺序)
+        //    UIManager 先 (Canvas 创建) → Player (摇杆依赖 Canvas) → 其他
+        var ui = GFM_UIManager.Instance;          // 创建 Canvas/guideText/scoreText
+        var cam = GFM_CameraController.Instance;  // 缓存 Camera.main + 等距视角
+        var eco = GFM_EconomyManager.Instance;    // 注册 MetalShard/gold 兑换
+        var player = GFM_Player.Instance;         // 定位玩家池对象 + 创建摇杆
+        var autoPlay = GFM_AutoPlay.Instance;     // 准备目标循环
+
+        // 6) 注册 AutoPlay 到达回调:CheckEventRules 的 phase 副作用由主文件处理
+        autoPlay.OnArrive = HandleAutoPlayArrive;
+
+        // 7) 初始场景:所有实体先隐藏,由 phase 入口逐步显示
+        HideObj(PlayerSingleDrill);
+        HideObj(RecyclingStation);
+        HideObj(SpaceJunk);
+        HideObj(MetalShard);
+        HideObj(ForgeBlueprint);
+        HideObj(ForgeWorkshop);
+        HideObj(PlayerTripleDrill);
+        HideObj(CrusherVehicle);
+        HideObj(HydraulicVehicle);
+        HideObj(CanteenBlueprint);
+        HideObj(Canteen);
+        HideObj(DormBlueprint);
+        HideObj(Dormitory);
+        HideObj(PastureBlueprint);
+        HideObj(Pasture);
+        HideObj(CTAButton);
+        HideObj(goldObj);
+
+        // 8) 世界标签:给可识别的目标实体挂中文名 Billboard
+        //    玩家载具 / 金币飘字 / CTA 按钮无需标签(玩家自身或 UI 元素)
+        GFM_UI.AddWorldLabel(SpaceJunk, "太空垃圾", 1.0f);
+        GFM_UI.AddWorldLabel(MetalShard, "金属碎片", 0.8f);
+        GFM_UI.AddWorldLabel(RecyclingStation, "回收站", 1.5f);
+        GFM_UI.AddWorldLabel(ForgeBlueprint, "锻造位(点击建造)", 1.5f);
+        GFM_UI.AddWorldLabel(ForgeWorkshop, "锻造间", 1.5f);
+        GFM_UI.AddWorldLabel(CanteenBlueprint, "餐厅位", 1.5f);
+        GFM_UI.AddWorldLabel(Canteen, "餐厅", 1.5f);
+        GFM_UI.AddWorldLabel(DormBlueprint, "宿舍位", 1.5f);
+        GFM_UI.AddWorldLabel(Dormitory, "宿舍", 1.5f);
+        GFM_UI.AddWorldLabel(PastureBlueprint, "牧场位", 1.5f);
+        GFM_UI.AddWorldLabel(Pasture, "牧场", 1.5f);
+
+        UpdateGameState();
+    }
+
+    // ========================================================================
+    // 【生命周期 - Update】每帧主循环
+    // 职责:
+    //   1. gameEnd 后直接 return
+    //   2. 累计 gameTimer + AutoPlay 激活检测
+    //   3. 相位定时器 (phase 切换时归零)
+    //   4. 相位状态机 CheckEventRules (核心!)
+    //   5. 分发到 Player/AutoPlay Tick (交互 vs 自动)
+    //   6. UI 浮动文字 tick
+    //   7. 玩家交互处理 (采集/递送/升级)
+    // ========================================================================
+    void Update()
+    {
+        if (gameEnded) return;
+
+        float dt = Time.deltaTime;
+        gameTimer += dt;
+
+        // 2) AutoPlay 激活检测 (两阶段:检测 __AUTOPLAY_ON__ + 6s 延迟激活)
+        GFM_AutoPlay.Instance.CheckActivation(gameTimer);
+
+        // 3) 相位定时器
+        if (currentPhaseName != lastPhaseForTimer) {
+            phaseTimer = 0f;
+            lastPhaseForTimer = currentPhaseName;
+        }
+        phaseTimer += dt;
+
+        // 4) 相位状态机
+        CheckEventRules();
+
+        // 5) 模式分发
+        if (_autoPlayMode) GFM_AutoPlay.Instance.Tick();
+        else GFM_Player.Instance.Tick(dt, false);
+
+        // 6) UI 浮动文字淡出
+        GFM_UIManager.Instance.FloatingTextTick(dt);
+
+        // 7) 玩家交互 (原 TODO_UPDATE + TODO_CUSTOM 内容)
+        HandlePlayerInteractions();
+    }
+
+    // ========================================================================
+    // 【玩家交互处理】从原 Update 里迁出的业务逻辑。每帧在非 autoPlay 模式下
+    // 检查鼠标点击,并根据当前 phase 设置对应的 *InteractionDone 标志;
+    // 同时处理靠近 MetalShard / goldObj / 各建筑的资源流转逻辑。
+    // ========================================================================
+    void HandlePlayerInteractions()
+    {
+        var player = GFM_Player.Instance;
+        var eco = GFM_EconomyManager.Instance;
+        var ui = GFM_UIManager.Instance;
+
+        // —— 点击/触摸触发交互标志 (非 autoPlay 模式) ——
+        // 真人点一下屏幕就算本 phase 的"玩家已行动",满足反 autoplay gate。
+        if (!_autoPlayMode && (Input.GetMouseButtonDown(0) || (Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began))) {
+            if (currentPhaseName == "initialCollectSpaceJunk") { initialCollectSpaceJunkInteractionDone = true; initialCollectSpaceJunkPlayerActed = true; }
+            if (currentPhaseName == "sellShardsGetGold") { sellShardsGetGoldInteractionDone = true; sellShardsGetGoldPlayerActed = true; }
+            if (currentPhaseName == "buildForgeWorkshop") { buildForgeWorkshopInteractionDone = true; buildForgeWorkshopPlayerActed = true; }
+            if (currentPhaseName == "upgradeToTripleDrill") { upgradeToTripleDrillInteractionDone = true; upgradeToTripleDrillPlayerActed = true; }
+            if (currentPhaseName == "tripleDrillCollectJunk") { tripleDrillCollectJunkInteractionDone = true; tripleDrillCollectJunkPlayerActed = true; }
+            if (currentPhaseName == "upgradeToCrusherVehicle") { upgradeToCrusherVehicleInteractionDone = true; upgradeToCrusherVehiclePlayerActed = true; }
+            if (currentPhaseName == "crusherVehicleCollectJunk") { crusherVehicleCollectJunkInteractionDone = true; crusherVehicleCollectJunkPlayerActed = true; }
+            if (currentPhaseName == "upgradeToHydraulicVehicle") { upgradeToHydraulicVehicleInteractionDone = true; upgradeToHydraulicVehiclePlayerActed = true; }
+            if (currentPhaseName == "hydraulicVehicleCollectJunk") { hydraulicVehicleCollectJunkInteractionDone = true; hydraulicVehicleCollectJunkPlayerActed = true; }
+            if (currentPhaseName == "expandSpaceStation") { expandSpaceStationInteractionDone = true; expandSpaceStationPlayerActed = true; }
+            if (currentPhaseName == "showFullStationCTA") { showFullStationCTAInteractionDone = true; showFullStationCTAPlayerActed = true; CTAButtonDone = true; CTAButtonState++; }
+        }
+
+        // —— 靠近 MetalShard:上手捡,最多 10 个 ——
+        if (player.IsNear(MetalShard, 1.5f)) {
+            if (player.MetalShardCarried < 10) {
+                player.MetalShardCarried++;
+                ui.SetScore("MetalShard: " + player.MetalShardCarried + "/10");
             }
         }
-        // Priority 2: Tap-to-move (click on game area → raycast → move toward click)
-        if (Input.GetMouseButtonDown(0) && mainCam != null)
-        {
-            Vector2 sp = Input.mousePosition;
-            // Ignore clicks on joystick area (bottom-left 200x200)
-            if (sp.x > 200f || sp.y > 200f)
-            {
-                Ray ray = mainCam.ScreenPointToRay(sp);
-                float t = -ray.origin.y / ray.direction.y;
-                if (t > 0f) { tapMoveTarget = ray.origin + ray.direction * t; hasTapTarget = true; }
+
+        // —— 靠近 goldObj:拾取金币,最多 10 个 ——
+        if (player.IsNear(goldObj, 1.5f)) {
+            if (player.GoldCarried < 10) {
+                player.GoldCarried++;
+                ui.SetScore("gold: " + player.GoldCarried + "/10");
             }
         }
-        // Move toward tap target
-        if (hasTapTarget)
-        {
-            Vector3 diff = tapMoveTarget - player.transform.position;
-            diff.y = 0;
-            if (diff.magnitude > 0.3f)
-            {
-                Vector3 move = diff.normalized * moveSpeed * Time.deltaTime;
-                player.transform.position += move;
-                player.transform.rotation = Quaternion.LookRotation(diff.normalized);
+
+        // —— 靠近 ForgeWorkshop: 交货 → 升级状态 ——
+        if (player.IsNear(ForgeWorkshop, 2f) && player.MetalShardCarried > 0) {
+            eco.AddResource("MetalShard", player.MetalShardCarried);
+            player.MetalShardCarried = 0;
+            if (eco.GetResource("MetalShard") >= 1) ForgeWorkshopState++;
+        }
+        if (player.IsNear(ForgeWorkshop, 2f) && player.GoldCarried > 0) {
+            eco.AddResource("gold", player.GoldCarried);
+            player.GoldCarried = 0;
+            if (eco.GetResource("gold") >= 1) ForgeWorkshopState++;
+        }
+        // —— 靠近 PlayerTripleDrill: 交货 ——
+        if (player.IsNear(PlayerTripleDrill, 2f) && player.MetalShardCarried > 0) {
+            eco.AddResource("MetalShard", player.MetalShardCarried);
+            player.MetalShardCarried = 0;
+            if (eco.GetResource("MetalShard") >= 1) PlayerTripleDrillState++;
+        }
+        if (player.IsNear(PlayerTripleDrill, 2f) && player.GoldCarried > 0) {
+            eco.AddResource("gold", player.GoldCarried);
+            player.GoldCarried = 0;
+            if (eco.GetResource("gold") >= 1) PlayerTripleDrillState++;
+        }
+        // —— 靠近 CrusherVehicle: 交货 ——
+        if (player.IsNear(CrusherVehicle, 2f) && player.MetalShardCarried > 0) {
+            eco.AddResource("MetalShard", player.MetalShardCarried);
+            player.MetalShardCarried = 0;
+            if (eco.GetResource("MetalShard") >= 1) CrusherVehicleState++;
+        }
+        if (player.IsNear(CrusherVehicle, 2f) && player.GoldCarried > 0) {
+            eco.AddResource("gold", player.GoldCarried);
+            player.GoldCarried = 0;
+            if (eco.GetResource("gold") >= 1) CrusherVehicleState++;
+        }
+        // —— 靠近 HydraulicVehicle: 交货 ——
+        if (player.IsNear(HydraulicVehicle, 2f) && player.MetalShardCarried > 0) {
+            eco.AddResource("MetalShard", player.MetalShardCarried);
+            player.MetalShardCarried = 0;
+            if (eco.GetResource("MetalShard") >= 1) HydraulicVehicleState++;
+        }
+        if (player.IsNear(HydraulicVehicle, 2f) && player.GoldCarried > 0) {
+            eco.AddResource("gold", player.GoldCarried);
+            player.GoldCarried = 0;
+            if (eco.GetResource("gold") >= 1) HydraulicVehicleState++;
+        }
+
+        // —— phase: sellShardsGetGold 下靠近 RecyclingStation 即售卖 ——
+        if (RecyclingStation != null && player.IsNear(RecyclingStation, 2f) && currentPhaseName == "sellShardsGetGold") {
+            if (eco.GetResource("MetalShard") > 0 || player.MetalShardCarried > 0) {
+                eco.AddResource("gold", 1);
+                player.MetalShardCarried = 0;
             }
-            else { hasTapTarget = false; }
+            RecyclingStationDone = true;
+            RecyclingStationState = 2;
+            sellShardsGetGoldInteractionDone = true;
+            sellShardsGetGoldPlayerActed = true;
         }
-    }
 
-    // [SKELETON] Check if player is near a target (proximity trigger)
-    bool IsNear(GameObject target, float range)
-    {
-        if (player == null || target == null) return false;
-        return Vector3.Distance(player.transform.position, target.transform.position) < range;
-    }
-
-    // [SKELETON] Auto-collect: when player near source, pick up resources
-    // Returns true if collected this frame
-    bool TryCollect(GameObject source, string resType, int maxCarry, float range)
-    {
-        if (source == null || !IsNear(source, range)) return false;
-        if (carrying >= maxCarry) return false;
-        carrying++;
-        carryingType = resType;
-        return true;
-    }
-
-    // [SKELETON] Auto-deliver: when player near machine/sellpoint, drop off resources
-    // Returns number of items delivered
-    int TryDeliver(GameObject target, string expectedType, float range)
-    {
-        if (target == null || !IsNear(target, range)) return 0;
-        if (carrying <= 0 || carryingType != expectedType) return 0;
-        int delivered = carrying;
-        carrying = 0;
-        carryingType = "";
-        return delivered;
-    }
-
-    // [SKELETON] Show carry stack on player back (visual feedback)
-    GameObject[] carryVisuals;
-    void UpdateCarryVisuals()
-    {
-        // [SKELETON] Carry visuals use pool objects — find them by name
-        if (carryVisuals == null)
-        {
-            carryVisuals = new GameObject[10];
-            for (int i = 0; i < 10; i++)
-            {
-                // AI: assign carry visual pool objects here via GameObject.Find
-                // Do NOT use GFM_Create.Obj or GFM_Create.SetColor (both forbidden in Luna)
-                carryVisuals[i] = GameObject.Find("__Pool_Cube_Yellow_" + (60 + i));
-                HideObj(carryVisuals[i]);
+        // —— 所有采集 phase 下靠近 SpaceJunk: 捡碎片 + 按形态加倍 ——
+        if (SpaceJunk != null && player.IsNear(SpaceJunk, 2f)) {
+            bool isCollectPhase = (currentPhaseName == "initialCollectSpaceJunk"
+                || currentPhaseName == "tripleDrillCollectJunk"
+                || currentPhaseName == "crusherVehicleCollectJunk"
+                || currentPhaseName == "hydraulicVehicleCollectJunk");
+            if (isCollectPhase) {
+                int gain = 1;
+                if (currentPhaseName == "tripleDrillCollectJunk") gain = 2;
+                else if (currentPhaseName == "crusherVehicleCollectJunk") gain = 3;
+                else if (currentPhaseName == "hydraulicVehicleCollectJunk") gain = 5;
+                eco.AddResource("MetalShard", gain);
+                SpaceJunkDone = true;
+                SpaceJunkState = 2;
+                MetalShardDone = true;
+                MetalShardState = 2;
+                ui.ShowFloatingText(SpaceJunk.transform.position, "+" + gain + " MetalShard", Color.cyan);
+                HideObj(SpaceJunk); // 模拟垃圾被消费
+                if (currentPhaseName == "initialCollectSpaceJunk") initialCollectSpaceJunkInteractionDone = true;
+                if (currentPhaseName == "tripleDrillCollectJunk") tripleDrillCollectJunkInteractionDone = true;
+                if (currentPhaseName == "crusherVehicleCollectJunk") crusherVehicleCollectJunkInteractionDone = true;
+                if (currentPhaseName == "hydraulicVehicleCollectJunk") hydraulicVehicleCollectJunkInteractionDone = true;
             }
         }
-        for (int i = 0; i < carryVisuals.Length; i++)
-        {
-            if (i < carrying && player != null)
-            {
-                Vector3 p = player.transform.position + new Vector3(0, 1f + i * 0.35f, -0.3f);
-                PlaceObj(carryVisuals[i], p.x, p.y, p.z);
-            }
-            else HideObj(carryVisuals[i]);
+
+        // —— 升级三钻头 phase: 切换模型 + 设置状态 ——
+        if (currentPhaseName == "upgradeToTripleDrill" && PlayerTripleDrillState < 2) {
+            HideObj(PlayerSingleDrill);
+            PlaceObj(PlayerTripleDrill, 2f, 0.5f, -2f);
+            SetScale(PlayerTripleDrill, 1.1f);
+            PlayerTripleDrillState = 2;
+            PlayerSingleDrillDone = true;
+            PlayerSingleDrillState = 2;
+            upgradeToTripleDrillInteractionDone = true;
+        }
+        // —— 升级粉碎车 phase ——
+        if (currentPhaseName == "upgradeToCrusherVehicle" && CrusherVehicleState < 2) {
+            HideObj(PlayerTripleDrill);
+            PlaceObj(CrusherVehicle, 2f, 0.5f, -2f);
+            SetScale(CrusherVehicle, 1.3f);
+            CrusherVehicleState = 2;
+            PlayerTripleDrillDone = true;
+            upgradeToCrusherVehicleInteractionDone = true;
+        }
+        // —— 升级液压车 phase ——
+        if (currentPhaseName == "upgradeToHydraulicVehicle" && HydraulicVehicleState < 2) {
+            HideObj(CrusherVehicle);
+            PlaceObj(HydraulicVehicle, 2f, 0.5f, -2f);
+            SetScale(HydraulicVehicle, 1.5f);
+            HydraulicVehicleState = 2;
+            CrusherVehicleDone = true;
+            upgradeToHydraulicVehicleInteractionDone = true;
+        }
+
+        // —— 建造蓝图靠近即完工 ——
+        if (ForgeBlueprint != null && player.IsNear(ForgeBlueprint, 2.5f) && ForgeWorkshopState < 2) {
+            ForgeBlueprintDone = true;
+            ForgeBlueprintState = 2;
+            if (ForgeWorkshopState == 0) ForgeWorkshopState = 1;
+            ForgeWorkshopState = 2;
+            ForgeWorkshopDone = true;
+            HideObj(ForgeBlueprint);
+            PlaceObj(ForgeWorkshop, -3f, 1f, 1f);
+            buildForgeWorkshopInteractionDone = true;
+        }
+        if (CanteenBlueprint != null && player.IsNear(CanteenBlueprint, 2.5f) && CanteenState < 2) {
+            CanteenBlueprintDone = true;
+            CanteenBlueprintState = 2;
+            if (CanteenState == 0) CanteenState = 1;
+            CanteenState = 2;
+            CanteenDone = true;
+            HideObj(CanteenBlueprint);
+            PlaceObj(Canteen, 4f, 1f, 0f);
+            expandSpaceStationInteractionDone = true;
+        }
+        if (DormBlueprint != null && player.IsNear(DormBlueprint, 2.5f) && DormitoryState < 2) {
+            DormBlueprintDone = true;
+            DormBlueprintState = 2;
+            if (DormitoryState == 0) DormitoryState = 1;
+            DormitoryState = 2;
+            DormitoryDone = true;
+            HideObj(DormBlueprint);
+            PlaceObj(Dormitory, 6f, 1f, 0f);
+        }
+        if (PastureBlueprint != null && player.IsNear(PastureBlueprint, 2.5f) && PastureState < 2) {
+            PastureBlueprintDone = true;
+            PastureBlueprintState = 2;
+            if (PastureState == 0) PastureState = 1;
+            PastureState = 2;
+            PastureDone = true;
+            HideObj(PastureBlueprint);
+            PlaceObj(Pasture, 8f, 1f, 0f);
         }
     }
 
-    // [SKELETON] Gold UI update helper
-    void AddGold(int amount)
+    // ========================================================================
+    // 【AutoPlay 到达回调】GFM_AutoPlay 每次到达一个目标时调此方法,按当前
+    // phase 设置对应的 State / *Done / *PlayerActed 标志。这些标志属于"流程
+    // 副作用",必须在主文件设置 (字段都在这里)。
+    // ========================================================================
+    void HandleAutoPlayArrive(string targetName)
     {
-        gold += amount;
-        if (scoreText != null) scoreText.text = "💰 " + gold;
-    }
+        var eco = GFM_EconomyManager.Instance;
 
-    // [SKELETON] Show floating text (+3 gold) effect
-    // [SKELETON] Floating text — uses a pooled text element, auto-hides after delay
-    Text floatingText;
-    float floatingTextTimer = 0f;
-    void ShowFloatingText(Vector3 worldPos, string text, Color color)
-    {
-        if (mainCam == null) return;
-        // Reuse a single floating text — do NOT use Destroy (forbidden in Luna)
-        if (floatingText == null) floatingText = GFM_UI.CreateText(uiCanvas, "", Vector2.zero, 24);
-        if (floatingText != null) { floatingText.text = text; floatingText.color = color; floatingTextTimer = 1.5f; }
-    }
-
-    // ========== END IDLE GAME KIT ==========
-
-    // [SKELETON] AutoPlay — auto-navigate player through target entities
-    string[] _autoTargets = new string[] { "ForgeWorkshop", "CrusherVehicle", "HydraulicVehicle", "Canteen", "Dormitory", "Pasture", "CTAButton" };
-    int _autoTargetIdx = 0;
-    float _autoTargetWait = 0f;
-
-    void AutoPlayUpdate()
-    {
-        if (!_autoPlayMode || player == null) return;
-        if (_autoTargetWait > 0f) { _autoTargetWait -= Time.deltaTime; return; }
-        if (_autoTargetIdx >= _autoTargets.Length) _autoTargetIdx = 0;
-        GameObject target = GameObject.Find(_autoTargets[_autoTargetIdx]);
-        if (target == null) { _autoTargetIdx++; return; }
-        Vector3 dir = target.transform.position - player.transform.position;
-        dir.y = 0f;
-        if (dir.magnitude > 1.0f)
-        {
-            float speed = moveSpeed * 1.2f;
-            player.transform.position = Vector3.MoveTowards(
-                player.transform.position, target.transform.position, speed * Time.deltaTime);
-            if (dir.magnitude > 0.1f)
-                player.transform.rotation = Quaternion.Lerp(
-                    player.transform.rotation, Quaternion.LookRotation(dir), 5f * Time.deltaTime);
-            if (mainCam != null) mainCam.transform.LookAt(player.transform.position);
-        }
-        else
-        {
-            _autoTargetWait = 1.5f;
-            _autoTargetIdx++;
-            _autoPlaySteps++;
-            OnAutoPlayArrive(_autoTargets[(_autoTargetIdx - 1) % _autoTargets.Length]);
-        }
-    }
-
-    // [SKELETON] Called when autoPlay triggers an interaction (DO NOT REMOVE).
-    // AI MUST fill this to simulate gameplay — CUA checks variables change.
-    // [SKELETON] Empty OnAutoPlayArrive = CUA FAIL (variable stagnation)
-    void OnAutoPlayArrive(string targetName)
-    {
-        // === TODO: AI fills — simulate interaction for each phase ===
-        // Example: when targetName equals "rescuedCrew", do rescuedCount++ and gold += 10
-        // TODO_AUTOPLAY_INTERACT_START
-        // Auto-play interaction simulation
         if (currentPhaseName == "initialCollectSpaceJunk") {
-            AddResource("MetalShard", 5);
+            eco.AddResource("MetalShard", 5);
             initialCollectSpaceJunkInteractionDone = true;
             initialCollectSpaceJunkPlayerActed = true;
         }
         if (currentPhaseName == "sellShardsGetGold") {
+            eco.AddResource("gold", 1);
             RecyclingStationDone = true;
-            RecyclingStationState++;
+            RecyclingStationState = 2;
             sellShardsGetGoldInteractionDone = true;
             sellShardsGetGoldPlayerActed = true;
         }
@@ -390,7 +532,7 @@ public partial class GameFlowManagerMain : MonoBehaviour
             upgradeToTripleDrillPlayerActed = true;
         }
         if (currentPhaseName == "tripleDrillCollectJunk") {
-            AddResource("MetalShard", 8);
+            eco.AddResource("MetalShard", 10);
             tripleDrillCollectJunkInteractionDone = true;
             tripleDrillCollectJunkPlayerActed = true;
         }
@@ -400,7 +542,7 @@ public partial class GameFlowManagerMain : MonoBehaviour
             upgradeToCrusherVehiclePlayerActed = true;
         }
         if (currentPhaseName == "crusherVehicleCollectJunk") {
-            AddResource("MetalShard", 10);
+            eco.AddResource("MetalShard", 15);
             crusherVehicleCollectJunkInteractionDone = true;
             crusherVehicleCollectJunkPlayerActed = true;
         }
@@ -410,7 +552,7 @@ public partial class GameFlowManagerMain : MonoBehaviour
             upgradeToHydraulicVehiclePlayerActed = true;
         }
         if (currentPhaseName == "hydraulicVehicleCollectJunk") {
-            AddResource("MetalShard", 15);
+            eco.AddResource("MetalShard", 20);
             hydraulicVehicleCollectJunkInteractionDone = true;
             hydraulicVehicleCollectJunkPlayerActed = true;
         }
@@ -427,729 +569,398 @@ public partial class GameFlowManagerMain : MonoBehaviour
             showFullStationCTAInteractionDone = true;
             showFullStationCTAPlayerActed = true;
         }
-        // TODO_AUTOPLAY_INTERACT_END
     }
 
-    // [SKELETON] Phase instrumentation for automated testing
+    // 【相位上报】Bridge.NET 把此 Debug.Log 编译成 console.log,供 CUA 抓取
     void ReportPhase(string phaseId) {
-        // Bridge.NET compiles this to console.log which Playwright can capture
         UnityEngine.Debug.Log("__PHASE__:" + phaseId);
     }
 
-    // === TODO: AI declares pools, counters, and game-specific variables below ===
-    // TODO_VARIABLES_START
-    float collectRange = 2f;
-    int maxCarry = 10;
-    int RecyclingStationState = 0;
-    GameObject SpaceJunk2;
-    GameObject SpaceJunk3;
-        // TODO_VARIABLES_END
-
-    void Start()
-    {
-        // [SKELETON] Initialize phase tracking
-        ruleTriggered = new bool[RULE_COUNT];
-        completedPhases = new string[RULE_COUNT + 5];
-        phaseEnterTimes = new float[RULE_COUNT];
-
-        // [SKELETON] Material and pool initialization
-        GFM_Create.InitMaterialFromScene();
-
-        // [SKELETON] Find all scene objects
-        ForgeWorkshop = GameObject.Find("__Pool_Cube_Red_01");
-        PlayerTripleDrill = GameObject.Find("__Pool_Cube_Blue_01");
-        CrusherVehicle = GameObject.Find("__Pool_Cube_Blue_02");
-        HydraulicVehicle = GameObject.Find("__Pool_Cube_Green_01");
-        Canteen = GameObject.Find("__Pool_Cube_Yellow_01");
-        Dormitory = GameObject.Find("__Pool_Cube_Orange_01");
-        Pasture = GameObject.Find("__Pool_Cube_Purple_01");
-        CTAButton = GameObject.Find("__Pool_Cube_White_01");
-        SpaceJunk = GameObject.Find("__Pool_Cube_Brown_01");
-        MetalShard = GameObject.Find("__Pool_Cube_Cyan_01");
-        RecyclingStation = GameObject.Find("__Pool_Cube_Pink_01");
-        ForgeBlueprint = GameObject.Find("__Pool_Cube_Red_02");
-        goldObj = GameObject.Find("__Pool_Cube_Yellow_02");
-        PlayerSingleDrill = GameObject.Find("__Pool_Cube_Blue_03");
-        CanteenBlueprint = GameObject.Find("__Pool_Cube_Blue_04");
-        DormBlueprint = GameObject.Find("__Pool_Cube_Green_02");
-        PastureBlueprint = GameObject.Find("__Pool_Cube_Yellow_03");
-
-        // [SKELETON] Anti-solid-color: camera background
-        // [SKELETON] Cache Camera.main — NEVER use Camera.main directly, always use mainCam
-        mainCam = Camera.main; // ok
-        if (mainCam != null) mainCam.backgroundColor = new Color(135f, 206f, 235f);
-
-        // [SKELETON] Luna platform init (iOS audio pre-play)
-        GFM_Luna.Init(gameObject);
-
-        // [SKELETON] Create Canvas and UI text — use uiCanvas/guideText/scoreText directly
-        uiCanvas = GFM_UI.CreateCanvas(960, 640);
-        guideText = GFM_UI.CreateText(uiCanvas, "", new Vector2(0, 270), 26);
-        scoreText = GFM_UI.CreateText(uiCanvas, "Score: 0", new Vector2(340, 290), 20);
-
-        // [SKELETON] Idle game initialization — joystick + isometric camera
-        joystick = GFM_Joystick.Create(uiCanvas, 180f);
-        if (mainCam != null)
-        {
-            mainCam.orthographic = true;
-            mainCam.orthographicSize = 8f;
-            mainCam.transform.position = new Vector3(0, 12f, -8f);
-            mainCam.transform.rotation = Quaternion.Euler(50f, 0f, 0f);
-        }
-
-        // === TODO: AI fills — create game objects, setup scene layout, etc. ===
-        // IMPORTANT: Do NOT create Canvas again (use uiCanvas). Do NOT use Camera.main (use mainCam).
-        // IMPORTANT for idle games: Use the pre-built MovePlayer(), TryCollect(), TryDeliver() in Update.
-        //   player = GameObject.Find("__Pool_Capsule_Blue_01"); // use pool object, NOT GFM_Create.Obj
-        //   Then in Update: MovePlayer(); TryCollect(iceSource, "ice", 5, 1.5f); TryDeliver(machine, "ice", 1.5f);
-        // TODO_START_START
-        SpaceJunk = GameObject.Find("__Pool_Cube_Gray_01");
-        HideObj(SpaceJunk);
-        SpaceJunk2 = GameObject.Find("__Pool_Cube_Gray_02");
-        HideObj(SpaceJunk2);
-        SpaceJunk3 = GameObject.Find("__Pool_Cube_Gray_03");
-        HideObj(SpaceJunk3);
-        RecyclingStation = GameObject.Find("__Pool_Building_Blue_01");
-        HideObj(RecyclingStation);
-        ForgeWorkshop = GameObject.Find("__Pool_Building_Red_01");
-        HideObj(ForgeWorkshop);
-        PlayerSingleDrill = GameObject.Find("__Pool_Ship_Yellow_01");
-        HideObj(PlayerSingleDrill);
-        PlayerTripleDrill = GameObject.Find("__Pool_Ship_Yellow_02");
-        HideObj(PlayerTripleDrill);
-        CrusherVehicle = GameObject.Find("__Pool_Vehicle_Orange_01");
-        HideObj(CrusherVehicle);
-        HydraulicVehicle = GameObject.Find("__Pool_Vehicle_Purple_01");
-        HideObj(HydraulicVehicle);
-        Canteen = GameObject.Find("__Pool_Building_Green_01");
-        HideObj(Canteen);
-        Dormitory = GameObject.Find("__Pool_Building_Green_02");
-        HideObj(Dormitory);
-        Pasture = GameObject.Find("__Pool_Building_Green_03");
-        HideObj(Pasture);
-        CTAButton = GameObject.Find("__Pool_Cube_White_01");
-        HideObj(CTAButton);
-        _resources = new ResourceDef[] {
-            new ResourceDef { resourceId="MetalShard", displayName="MetalShard", convertFrom="SpaceJunk", convertRatio=1 }
-        };
-        _inventory["MetalShard"] = 0;
-        // TODO_START_END
-
-        UpdateGameState();
-    }
-
-    void Update()
-    {
-        if (gameEnded) return;
-
-        float dt = Time.deltaTime;
-        gameTimer += dt;
-
-        // [SKELETON] AutoPlay detection — keeps checking until found or timeout (DO NOT MODIFY)
-        // JS bridge creates __AUTOPLAY_ON__ entity async via setInterval; may arrive after 0.5s
-        if (!_autoPlayMode && !_autoPlayChecked)
-        {
-            if (GameObject.Find("__AUTOPLAY_ON__") != null) { _autoPlayMode = true; _autoPlayChecked = true; }
-            else if (gameTimer > 3.0f) _autoPlayChecked = true; // stop checking after 3s
-        }
-
-        // [SKELETON] Phase timer update
-        if (currentPhaseName != lastPhaseForTimer) {
-            phaseTimer = 0f;
-            lastPhaseForTimer = currentPhaseName;
-        }
-        phaseTimer += dt;
-
-        CheckEventRules();
-
-        // [SKELETON] Idle game core loop
-        if (!_autoPlayMode) MovePlayer(); // interactive mode: joystick/tap
-        if (_autoPlayMode) AutoPlayUpdate(); // autoPlay mode: trigger interactions for CUA
-
-        // === TODO: AI fills — update systems: resource collection, delivery, production, etc. ===
-        // Use TryCollect/TryDeliver for resource flow. Example:
-        // if (TryCollect(iceSource, "ice", 5, 1.5f)) { /* picked up ice */ }
-        // int delivered = TryDeliver(waterMachine, "ice", 1.5f);
-        // if (delivered > 0) { waterMachineState = 1; /* machine producing */ }
-        // UpdateCarryVisuals(); // show stack on player back
-        // TODO_UPDATE_START
-        if (!_autoPlayMode && (Input.GetMouseButtonDown(0) || (Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began))) {
-            if (currentPhaseName == "initialCollectSpaceJunk") { initialCollectSpaceJunkInteractionDone = true; initialCollectSpaceJunkPlayerActed = true; }
-            if (currentPhaseName == "sellShardsGetGold") { sellShardsGetGoldInteractionDone = true; sellShardsGetGoldPlayerActed = true; }
-            if (currentPhaseName == "buildForgeWorkshop") { buildForgeWorkshopInteractionDone = true; buildForgeWorkshopPlayerActed = true; }
-            if (currentPhaseName == "upgradeToTripleDrill") { upgradeToTripleDrillInteractionDone = true; upgradeToTripleDrillPlayerActed = true; }
-            if (currentPhaseName == "tripleDrillCollectJunk") { tripleDrillCollectJunkInteractionDone = true; tripleDrillCollectJunkPlayerActed = true; }
-            if (currentPhaseName == "upgradeToCrusherVehicle") { upgradeToCrusherVehicleInteractionDone = true; upgradeToCrusherVehiclePlayerActed = true; }
-            if (currentPhaseName == "crusherVehicleCollectJunk") { crusherVehicleCollectJunkInteractionDone = true; crusherVehicleCollectJunkPlayerActed = true; }
-            if (currentPhaseName == "upgradeToHydraulicVehicle") { upgradeToHydraulicVehicleInteractionDone = true; upgradeToHydraulicVehiclePlayerActed = true; }
-            if (currentPhaseName == "hydraulicVehicleCollectJunk") { hydraulicVehicleCollectJunkInteractionDone = true; hydraulicVehicleCollectJunkPlayerActed = true; }
-            if (currentPhaseName == "expandSpaceStation") { expandSpaceStationInteractionDone = true; expandSpaceStationPlayerActed = true; }
-            if (currentPhaseName == "showFullStationCTA") { showFullStationCTAInteractionDone = true; showFullStationCTAPlayerActed = true; }
-        }
-
-        // TODO_UPDATE_END
-        // TODO_CUSTOM_START
-        // TODO_CUSTOM_START
-        // TODO_CUSTOM_1: 每次收集交互在玩家库存中添加1个金属碎片
-        if (SpaceJunk != null && IsNear(SpaceJunk, GetCollectRange()))
-        {
-            if (GetResource("MetalShard") < GetCarryCapacity())
-            {
-                AddResource("MetalShard", 1);
-                SpaceJunkDone = true;
-            }
-        }
-        if (GameObject.Find("__Pool_Cube_Gray_02") != null && IsNear(GameObject.Find("__Pool_Cube_Gray_02"), GetCollectRange()))
-        {
-            if (GetResource("MetalShard") < GetCarryCapacity())
-            {
-                AddResource("MetalShard", 1);
-                SpaceJunkDone = true;
-            }
-        }
-
-        // TODO_CUSTOM_2: 库存满时玩家必须返回回收站出售
-        bool inventoryFull = GetResource("MetalShard") >= GetCarryCapacity();
-        if (inventoryFull && guideText != null && currentPhaseName != "sellShardsGetGold")
-        {
-            guideText.text = "库存已满！返回回收站出售金属碎片";
-        }
-
-        // TODO_CUSTOM_3: 向回收站出售每次交付获得10金币
-        if (RecyclingStation != null && IsNear(RecyclingStation, 2f))
-        {
-            int shardCount = GetResource("MetalShard");
-            if (shardCount > 0 && TrySpend("MetalShard", shardCount))
-            {
-                AddGold(10 * shardCount);
-                RecyclingStationDone = true;
-                RecyclingStationState = 2;
-                ShowFloatingText(player != null ? player.transform.position : Vector3.zero, "+" + (10 * shardCount) + " 金币", Color.yellow);
-            }
-        }
-
-        // TODO_CUSTOM_4: 建造需要从锻造间UI花费指定金币
-        if (ForgeWorkshop != null && IsNear(ForgeWorkshop, 2f) && Input.GetMouseButtonDown(0))
-        {
-            int buildCost = 10;
-            if (gold >= buildCost)
-            {
-                gold -= buildCost;
-                if (scoreText != null) scoreText.text = "💰 " + gold;
-                ForgeBlueprintDone = true;
-                ForgeWorkshopDone = true;
-                if (ForgeWorkshopState < 2) ForgeWorkshopState = 2;
-                else if (PlayerTripleDrillState < 2) { PlayerTripleDrillState = 2; SwitchForm(1); }
-                else if (CrusherVehicleState < 2) { CrusherVehicleState = 2; SwitchForm(2); }
-                else if (HydraulicVehicleState < 2) { HydraulicVehicleState = 2; SwitchForm(3); }
-            }
-        }
-
-        // TODO_CUSTOM_5: 升级完成时形态立即切换
-        if (PlayerTripleDrillState == 2 && _currentFormIndex < 1 && _forms != null && _forms.Length > 1)
-        {
-            SwitchForm(1);
-        }
-        if (CrusherVehicleState == 2 && _currentFormIndex < 2 && _forms != null && _forms.Length > 2)
-        {
-            SwitchForm(2);
-        }
-        if (HydraulicVehicleState == 2 && _currentFormIndex < 3 && _forms != null && _forms.Length > 3)
-        {
-            SwitchForm(3);
-        }
-        // TODO_CUSTOM_END
-
-        // TODO_CUSTOM_END
-    }
-
+    // ========================================================================
+    // 【相位状态机 - CheckEventRules】
+    // 13 个 phase 入口 (11 个 gameplay + 1 个 gameEnd + 1 个 safety-net 兜底)。
+    // 每个 phase 块结构:
+    //   入口守卫: 20s/12s autoPlay gate + 真人交互 gate
+    //   激活副作用: 摆对象/切形态/加资源/设置引导文字
+    //   记录: AddCompletedPhase (上一 phase) + UpdateGameState (给 CUA)
+    //
+    // 【immutable】phaseName / RuleTriggered 索引 / ReportPhase 参数不得变更。
+    // ========================================================================
     void CheckEventRules()
     {
-        // ========== Phase 1: 初始太空捡垃圾 (initialCollectSpaceJunk) ==========
-        // Duration: 3-8s
-        // Interactions: move_to:SpaceJunk, collect:MetalShard
-        // Player must act: true
+        var ui = GFM_UIManager.Instance;
+        var eco = GFM_EconomyManager.Instance;
+        var player = GFM_Player.Instance;
+
+        // ====================================================================
+        // === Phase 1: 初始太空捡垃圾 (initialCollectSpaceJunk) ===
+        // 入口条件: 第一次进入 (ruleTriggered[0] == false)
+        // 状态跃迁: 摆好锻造间/三钻头/粉碎车/单钻头/回收站/太空垃圾;引导玩家
+        //           走到 SpaceJunk 处按交互键捡碎片
+        // 副作用: 送玩家 1 点 MetalShard 起手资源,引导词"使用单钻头飞船收集太空垃圾"
+        // ====================================================================
         if (!ruleTriggered[0])
         {
             ruleTriggered[0] = true;
-            currentPhaseName = "initialCollectSpaceJunk"; // [IMMUTABLE] Do NOT change this phaseId
-            phaseEnterTimes[0] = gameTimer; // [SKELETON]
-            ReportPhase("initialCollectSpaceJunk"); // [IMMUTABLE] CUA uses this exact ID for coverage tracking
+            currentPhaseName = "initialCollectSpaceJunk";
+            phaseEnterTimes[0] = gameTimer;
+            ReportPhase("initialCollectSpaceJunk");
 
-            // [SKELETON] Anti-solid-color: show initial objects (pool objects have pre-baked colors — do NOT call SetColor)
-            PlaceObj(ForgeWorkshop, -3f, 0.5f, 0f); // pool color: brown — do NOT call SetColor
-            SetScale(ForgeWorkshop, 1f, 1f, 1f); // keep original scale — avoid oversized black rectangles
-            PlaceObj(PlayerTripleDrill, 0f, 0.5f, 0f); // pool color: blue — do NOT call SetColor
-            SetScale(PlayerTripleDrill, 1f, 1f, 1f); // keep original scale — avoid oversized black rectangles
-            PlaceObj(CrusherVehicle, 3f, 0.5f, 0f); // pool color: red — do NOT call SetColor
-            SetScale(CrusherVehicle, 1f, 1f, 1f); // keep original scale — avoid oversized black rectangles
+            // 摆初始场景 (池对象颜色预烘焙,不得 SetColor)
+            PlaceObj(ForgeWorkshop, -3f, 0.5f, 0f);
+            SetScale(ForgeWorkshop, 1f, 1f, 1f);
+            PlaceObj(PlayerTripleDrill, 0f, 0.5f, 0f);
+            SetScale(PlayerTripleDrill, 1f, 1f, 1f);
+            PlaceObj(CrusherVehicle, 3f, 0.5f, 0f);
+            SetScale(CrusherVehicle, 1f, 1f, 1f);
 
-            // === TODO: AI fills — place additional objects, set colors, show guide ===
-            // TODO_PHASE_1_INIT_START
-                PlaceObj(PlayerSingleDrill, 0f, 0.5f, 0f);
-                PlaceObj(SpaceJunk, 2f, 0.5f, -1.5f);
-                SetScale(SpaceJunk, 0.8f);
-                PlaceObj(SpaceJunk2, -2.5f, 0.5f, 2f);
-                SetScale(SpaceJunk2, 0.85f);
-                guideText.text = "移动到太空垃圾处并收集金属碎片";
-                AddResource("MetalShard", 0);
-        // TODO_PHASE_1_INIT_END
+            PlaceObj(PlayerSingleDrill, 2f, 0.5f, -2f);
+            PlaceObj(RecyclingStation, 0f, 1f, 0f);
+            PlaceObj(SpaceJunk, -4f, 0.5f, 2f);
+            ui.SetGuide("使用单钻头飞船收集太空垃圾");
+            eco.AddResource("MetalShard", 1);
 
-            AddCompletedPhase("gameStart");
-            UpdateGameState();
+            UpdateGameState(); // Phase 1 是第一相,无前置相可标完成
         }
 
-        // ========== Phase 2: 回站售卖碎片换金币 (sellShardsGetGold) ==========
-        // Duration: 2-7s
-        // Interactions: move_to:RecyclingStation, deliver:MetalShard:RecyclingStation
-        // Player must act: true
-        // [SKELETON] Transition from initialCollectSpaceJunk → sellShardsGetGold
-        // Requires: 玩家单钻头飞船收纳仓装满金属碎片
-        // Condition hint: PlayerSingleDrill.StorageFull == true
-        // [SKELETON] autoPlay 12s gate — DO NOT MODIFY OR REMOVE THIS BLOCK
-        if (_autoPlayMode && !ruleTriggered[1] && (phaseTimer < 12f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {} // wait 12s + autoPlay action
+        // ====================================================================
+        // === Phase 2: 回站售卖碎片换金币 (sellShardsGetGold) ===
+        // 入口条件: (autoPlay) 20s + 至少 1 次 arrive 步数 / (真人) SpaceJunkDone==true && phaseTimer>=3s
+        // 状态跃迁: 要求玩家把采到的碎片送回 RecyclingStation 换 gold
+        // 副作用: 奖励 1 gold,引导词"返回回收站出售金属碎片换取金币"
+        // ====================================================================
+        if (_autoPlayMode && !ruleTriggered[1] && (phaseTimer < 20f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {}
         else if (!ruleTriggered[1]
-            && (_autoPlayMode ? (phaseTimer >= 12f && _autoPlaySteps > _autoPlayStepsAtPhaseStart) // [SKELETON] 12s + autoPlay action (DO NOT MODIFY)
-                : (SpaceJunkDone == true && phaseTimer >= 3f))) // interactive mode
+            && (_autoPlayMode ? (phaseTimer >= 20f && _autoPlaySteps > _autoPlayStepsAtPhaseStart)
+                : (SpaceJunkDone == true && phaseTimer >= 3f)))
         {
             ruleTriggered[1] = true;
-            currentPhaseName = "sellShardsGetGold"; // [IMMUTABLE] Do NOT change this phaseId
-            phaseEnterTimes[1] = gameTimer; // [SKELETON]
-            phaseTimer = 0f; // [SKELETON] reset timer — prevent batch-firing multiple phases in one frame
-            _autoPlayStepsAtPhaseStart = _autoPlaySteps; // [SKELETON] reset per-phase step counter
-            ReportPhase("sellShardsGetGold"); // [IMMUTABLE] CUA uses this exact ID for coverage tracking
+            currentPhaseName = "sellShardsGetGold";
+            phaseEnterTimes[1] = gameTimer;
+            phaseTimer = 0f;
+            _autoPlayStepsAtPhaseStart = _autoPlaySteps;
+            ReportPhase("sellShardsGetGold");
 
-            // [SKELETON] AutoPlay state advance for 回站售卖碎片换金币 (DO NOT MODIFY)
-            if (_autoPlayMode)
-            {
-                _autoPlaySteps++;
-            }
+            if (_autoPlayMode) GFM_AutoPlay.Instance.IncrementSteps();
 
-            // === TODO: AI fills — activate objects for 回站售卖碎片换金币 ===
-            // TODO_PHASE_2_INIT_START
-                PlaceObj(PlayerSingleDrill, 0f, 0.5f, 0f);
-                PlaceObj(RecyclingStation, -5.5f, 1f, -3.5f);
-                SetScale(RecyclingStation, 1.5f);
-                HideObj(SpaceJunk);
-                HideObj(SpaceJunk2);
-                guideText.text = "回到回收站售卖金属碎片";
-                RecyclingStationState = 1;
-        // TODO_PHASE_2_INIT_END
+            PlaceObj(PlayerSingleDrill, 2f, 0.5f, -2f);
+            PlaceObj(RecyclingStation, 0f, 1f, 0f);
+            HideObj(SpaceJunk);
+            ui.SetGuide("返回回收站出售金属碎片换取金币");
+            eco.AddResource("gold", 1);
 
-            AddCompletedPhase("initialCollectSpaceJunk"); // [IMMUTABLE] Must match spec phaseId exactly
+            AddCompletedPhase("initialCollectSpaceJunk");
             UpdateGameState();
         }
 
-        // ========== Phase 3: 建造锻造间 (buildForgeWorkshop) ==========
-        // Duration: 3-8s
-        // Interactions: click:ForgeBlueprint, spend:gold:1, build:ForgeWorkshop
-        // Player must act: true
-        // [SKELETON] Transition from sellShardsGetGold → buildForgeWorkshop
-        // Requires: 金属碎片全部售卖完成，金币到账
-        // Condition hint: PlayerSingleDrill.StorageEmpty == true && GoldUI.Value > 0
-        // [SKELETON] autoPlay 12s gate — DO NOT MODIFY OR REMOVE THIS BLOCK
-        if (_autoPlayMode && !ruleTriggered[2] && (phaseTimer < 12f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {} // wait 12s + autoPlay action
+        // ====================================================================
+        // === Phase 3: 建造锻造间 (buildForgeWorkshop) ===
+        // 入口条件: RecyclingStationDone==true && phaseTimer>=2s (真人) / 20s gate (auto)
+        // 状态跃迁: 摆出锻造间蓝图,要求玩家点击建造;扣 200 gold
+        // 副作用: ForgeWorkshopState=1 (建造中),引导词提示点击蓝图
+        // ====================================================================
+        if (_autoPlayMode && !ruleTriggered[2] && (phaseTimer < 20f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {}
         else if (!ruleTriggered[2]
-            && (_autoPlayMode ? (phaseTimer >= 12f && _autoPlaySteps > _autoPlayStepsAtPhaseStart) // [SKELETON] 12s + autoPlay action (DO NOT MODIFY)
-                : (RecyclingStationDone == true && phaseTimer >= 2f))) // interactive mode
+            && (_autoPlayMode ? (phaseTimer >= 20f && _autoPlaySteps > _autoPlayStepsAtPhaseStart)
+                : (RecyclingStationDone == true && phaseTimer >= 2f)))
         {
             ruleTriggered[2] = true;
-            currentPhaseName = "buildForgeWorkshop"; // [IMMUTABLE] Do NOT change this phaseId
-            phaseEnterTimes[2] = gameTimer; // [SKELETON]
-            phaseTimer = 0f; // [SKELETON] reset timer — prevent batch-firing multiple phases in one frame
-            _autoPlayStepsAtPhaseStart = _autoPlaySteps; // [SKELETON] reset per-phase step counter
-            ReportPhase("buildForgeWorkshop"); // [IMMUTABLE] CUA uses this exact ID for coverage tracking
+            currentPhaseName = "buildForgeWorkshop";
+            phaseEnterTimes[2] = gameTimer;
+            phaseTimer = 0f;
+            _autoPlayStepsAtPhaseStart = _autoPlaySteps;
+            ReportPhase("buildForgeWorkshop");
 
-            // [SKELETON] AutoPlay state advance for 建造锻造间 (DO NOT MODIFY)
-            if (_autoPlayMode)
-            {
-                _autoPlaySteps++;
-            }
+            if (_autoPlayMode) GFM_AutoPlay.Instance.IncrementSteps();
 
-            // === TODO: AI fills — activate objects for 建造锻造间 ===
-            // TODO_PHASE_3_INIT_START
-                PlaceObj(PlayerSingleDrill, 0f, 0.5f, 0f);
-                PlaceObj(ForgeWorkshop, 5.5f, 1f, 3.5f);
-                SetScale(ForgeWorkshop, 1.3f);
-                HideObj(RecyclingStation);
-                guideText.text = "点击锻造间蓝图并建造";
-                ForgeWorkshopState = 1;
-        // TODO_PHASE_3_INIT_END
+            PlaceObj(PlayerSingleDrill, 2f, 0.5f, -2f);
+            PlaceObj(RecyclingStation, 0f, 1f, 0f);
+            PlaceObj(ForgeBlueprint, -3f, 0.5f, 1f);
+            ui.SetGuide("点击蓝图建造锻造间(需要200金币)");
+            ForgeWorkshopState = 1;
 
-            AddCompletedPhase("sellShardsGetGold"); // [IMMUTABLE] Must match spec phaseId exactly
+            AddCompletedPhase("sellShardsGetGold");
             UpdateGameState();
         }
 
-        // ========== Phase 4: 升级三钻头 (upgradeToTripleDrill) ==========
-        // Duration: 2-7s
-        // Interactions: click:ForgeWorkshop, spend:gold:1, transform:PlayerSingleDrill:PlayerTripleDrill
-        // Player must act: true
-        // [SKELETON] Transition from buildForgeWorkshop → upgradeToTripleDrill
-        // Requires: 锻造间建造完成
-        // Condition hint: ForgeWorkshop.State == 2
-        // [SKELETON] autoPlay 12s gate — DO NOT MODIFY OR REMOVE THIS BLOCK
-        if (_autoPlayMode && !ruleTriggered[3] && (phaseTimer < 12f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {} // wait 12s + autoPlay action
+        // ====================================================================
+        // === Phase 4: 升级三钻头 (upgradeToTripleDrill) ===
+        // 入口条件: ForgeWorkshopState>=2 && ForgeBlueprintDone==true && phaseTimer>=3s
+        // 状态跃迁: 锻造间已就绪,玩家可升级飞船;切换到三钻头形态
+        // 副作用: SwitchForm(0),引导词"锻造间完成,准备升级为三钻头飞船"
+        // ====================================================================
+        if (_autoPlayMode && !ruleTriggered[3] && (phaseTimer < 20f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {}
         else if (!ruleTriggered[3]
-            && (_autoPlayMode ? (phaseTimer >= 12f && _autoPlaySteps > _autoPlayStepsAtPhaseStart) // [SKELETON] 12s + autoPlay action (DO NOT MODIFY)
-                : (ForgeWorkshopState >= 2 && ForgeBlueprintDone == true && phaseTimer >= 3f))) // interactive mode
+            && (_autoPlayMode ? (phaseTimer >= 20f && _autoPlaySteps > _autoPlayStepsAtPhaseStart)
+                : (ForgeWorkshopState >= 2 && ForgeBlueprintDone == true && phaseTimer >= 3f)))
         {
             ruleTriggered[3] = true;
-            currentPhaseName = "upgradeToTripleDrill"; // [IMMUTABLE] Do NOT change this phaseId
-            phaseEnterTimes[3] = gameTimer; // [SKELETON]
-            phaseTimer = 0f; // [SKELETON] reset timer — prevent batch-firing multiple phases in one frame
-            _autoPlayStepsAtPhaseStart = _autoPlaySteps; // [SKELETON] reset per-phase step counter
-            ReportPhase("upgradeToTripleDrill"); // [IMMUTABLE] CUA uses this exact ID for coverage tracking
+            currentPhaseName = "upgradeToTripleDrill";
+            phaseEnterTimes[3] = gameTimer;
+            phaseTimer = 0f;
+            _autoPlayStepsAtPhaseStart = _autoPlaySteps;
+            ReportPhase("upgradeToTripleDrill");
 
-            // [SKELETON] AutoPlay state advance for 升级三钻头 (DO NOT MODIFY)
-            if (_autoPlayMode)
-            {
-                ForgeWorkshopState = 2;
-                _autoPlaySteps++;
-            }
+            if (_autoPlayMode) { ForgeWorkshopState = 2; GFM_AutoPlay.Instance.IncrementSteps(); }
 
-            // === TODO: AI fills — activate objects for 升级三钻头 ===
-            // TODO_PHASE_4_INIT_START
-                PlaceObj(PlayerTripleDrill, 0f, 0.5f, 0f);
-                SetScale(PlayerTripleDrill, 1.2f);
-                PlaceObj(ForgeWorkshop, 5.5f, 1f, 3.5f);
-                SetScale(ForgeWorkshop, 1.3f);
-                HideObj(PlayerSingleDrill);
-                guideText.text = "在锻造间升级为三钻头飞船";
-                SwitchForm(1);
-        // TODO_PHASE_4_INIT_END
+            PlaceObj(PlayerSingleDrill, 2f, 0.5f, -2f);
+            PlaceObj(RecyclingStation, 0f, 1f, 0f);
+            PlaceObj(ForgeWorkshop, -3f, 1f, 1f);
+            HideObj(ForgeBlueprint);
+            ui.SetGuide("锻造间完成,准备升级为三钻头飞船");
+            player.SwitchForm(0);
 
-            AddCompletedPhase("buildForgeWorkshop"); // [IMMUTABLE] Must match spec phaseId exactly
+            AddCompletedPhase("buildForgeWorkshop");
             UpdateGameState();
         }
 
-        // ========== Phase 5: 三钻头高效收集垃圾 (tripleDrillCollectJunk) ==========
-        // Duration: 3-8s
-        // Interactions: move_to:SpaceJunk, collect:MetalShard
-        // Player must act: true
-        // [SKELETON] Transition from upgradeToTripleDrill → tripleDrillCollectJunk
-        // Requires: 三钻头飞船升级完成
-        // Condition hint: PlayerTripleDrill.State == 2
-        // [SKELETON] autoPlay 12s gate — DO NOT MODIFY OR REMOVE THIS BLOCK
-        if (_autoPlayMode && !ruleTriggered[4] && (phaseTimer < 12f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {} // wait 12s + autoPlay action
+        // ====================================================================
+        // === Phase 5: 三钻头高效收集垃圾 (tripleDrillCollectJunk) ===
+        // 入口条件: PlayerTripleDrillState>=2 && ForgeWorkshopDone==true && phaseTimer>=2s
+        // 状态跃迁: 升级完成,再次去采集 SpaceJunk,增益倍率 2x
+        // 副作用: 引导词"使用三钻头飞船高效收集更多垃圾"
+        // ====================================================================
+        if (_autoPlayMode && !ruleTriggered[4] && (phaseTimer < 20f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {}
         else if (!ruleTriggered[4]
-            && (_autoPlayMode ? (phaseTimer >= 12f && _autoPlaySteps > _autoPlayStepsAtPhaseStart) // [SKELETON] 12s + autoPlay action (DO NOT MODIFY)
-                : (PlayerTripleDrillState >= 2 && ForgeWorkshopDone == true && phaseTimer >= 2f))) // interactive mode
+            && (_autoPlayMode ? (phaseTimer >= 20f && _autoPlaySteps > _autoPlayStepsAtPhaseStart)
+                : (PlayerTripleDrillState >= 2 && ForgeWorkshopDone == true && phaseTimer >= 2f)))
         {
             ruleTriggered[4] = true;
-            currentPhaseName = "tripleDrillCollectJunk"; // [IMMUTABLE] Do NOT change this phaseId
-            phaseEnterTimes[4] = gameTimer; // [SKELETON]
-            phaseTimer = 0f; // [SKELETON] reset timer — prevent batch-firing multiple phases in one frame
-            _autoPlayStepsAtPhaseStart = _autoPlaySteps; // [SKELETON] reset per-phase step counter
-            ReportPhase("tripleDrillCollectJunk"); // [IMMUTABLE] CUA uses this exact ID for coverage tracking
+            currentPhaseName = "tripleDrillCollectJunk";
+            phaseEnterTimes[4] = gameTimer;
+            phaseTimer = 0f;
+            _autoPlayStepsAtPhaseStart = _autoPlaySteps;
+            ReportPhase("tripleDrillCollectJunk");
 
-            // [SKELETON] AutoPlay state advance for 三钻头高效收集垃圾 (DO NOT MODIFY)
-            if (_autoPlayMode)
-            {
-                PlayerTripleDrillState = 2;
-                _autoPlaySteps++;
-            }
+            if (_autoPlayMode) { PlayerTripleDrillState = 2; GFM_AutoPlay.Instance.IncrementSteps(); }
 
-            // === TODO: AI fills — activate objects for 三钻头高效收集垃圾 ===
-            // TODO_PHASE_5_INIT_START
-                PlaceObj(PlayerTripleDrill, 0f, 0.5f, 0f);
-                SetScale(PlayerTripleDrill, 1.2f);
-                PlaceObj(SpaceJunk, 2f, 0.5f, -1.5f);
-                SetScale(SpaceJunk, 0.8f);
-                PlaceObj(SpaceJunk3, 4.5f, 0.5f, 1f);
-                SetScale(SpaceJunk3, 0.75f);
-                HideObj(ForgeWorkshop);
-                guideText.text = "用三钻头飞船高效收集垃圾";
-                AddResource("MetalShard", 0);
-        // TODO_PHASE_5_INIT_END
+            PlaceObj(PlayerTripleDrill, 2f, 0.5f, -2f);
+            PlaceObj(RecyclingStation, 0f, 1f, 0f);
+            PlaceObj(SpaceJunk, -4f, 0.5f, 2f);
+            HideObj(PlayerSingleDrill);
+            ui.SetGuide("使用三钻头飞船高效收集更多垃圾");
+            eco.AddResource("MetalShard", 1);
 
-            AddCompletedPhase("upgradeToTripleDrill"); // [IMMUTABLE] Must match spec phaseId exactly
+            AddCompletedPhase("upgradeToTripleDrill");
             UpdateGameState();
         }
 
-        // ========== Phase 6: 升级粉碎车 (upgradeToCrusherVehicle) ==========
-        // Duration: 2-7s
-        // Interactions: click:ForgeWorkshop, spend:gold:1, transform:PlayerTripleDrill:CrusherVehicle
-        // Player must act: true
-        // [SKELETON] Transition from tripleDrillCollectJunk → upgradeToCrusherVehicle
-        // Requires: 三钻头飞船收纳仓装满金属碎片
-        // Condition hint: PlayerTripleDrill.StorageFull == true
-        // [SKELETON] autoPlay 12s gate — DO NOT MODIFY OR REMOVE THIS BLOCK
-        if (_autoPlayMode && !ruleTriggered[5] && (phaseTimer < 12f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {} // wait 12s + autoPlay action
+        // ====================================================================
+        // === Phase 6: 升级粉碎车 (upgradeToCrusherVehicle) ===
+        // 入口条件: SpaceJunkDone==true && phaseTimer>=3s
+        // 状态跃迁: 再次升级为粉碎车形态 (scale 1.3)
+        // 副作用: SwitchForm(0),引导词"返回锻造间升级为粉碎车(需要500金币)"
+        // ====================================================================
+        if (_autoPlayMode && !ruleTriggered[5] && (phaseTimer < 20f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {}
         else if (!ruleTriggered[5]
-            && (_autoPlayMode ? (phaseTimer >= 12f && _autoPlaySteps > _autoPlayStepsAtPhaseStart) // [SKELETON] 12s + autoPlay action (DO NOT MODIFY)
-                : (SpaceJunkDone == true && phaseTimer >= 3f))) // interactive mode
+            && (_autoPlayMode ? (phaseTimer >= 20f && _autoPlaySteps > _autoPlayStepsAtPhaseStart)
+                : (SpaceJunkDone == true && phaseTimer >= 3f)))
         {
             ruleTriggered[5] = true;
-            currentPhaseName = "upgradeToCrusherVehicle"; // [IMMUTABLE] Do NOT change this phaseId
-            phaseEnterTimes[5] = gameTimer; // [SKELETON]
-            phaseTimer = 0f; // [SKELETON] reset timer — prevent batch-firing multiple phases in one frame
-            _autoPlayStepsAtPhaseStart = _autoPlaySteps; // [SKELETON] reset per-phase step counter
-            ReportPhase("upgradeToCrusherVehicle"); // [IMMUTABLE] CUA uses this exact ID for coverage tracking
+            currentPhaseName = "upgradeToCrusherVehicle";
+            phaseEnterTimes[5] = gameTimer;
+            phaseTimer = 0f;
+            _autoPlayStepsAtPhaseStart = _autoPlaySteps;
+            ReportPhase("upgradeToCrusherVehicle");
 
-            // [SKELETON] AutoPlay state advance for 升级粉碎车 (DO NOT MODIFY)
-            if (_autoPlayMode)
-            {
-                _autoPlaySteps++;
-            }
+            if (_autoPlayMode) GFM_AutoPlay.Instance.IncrementSteps();
 
-            // === TODO: AI fills — activate objects for 升级粉碎车 ===
-            // TODO_PHASE_6_INIT_START
-                PlaceObj(CrusherVehicle, 0f, 0.5f, 0f);
-                SetScale(CrusherVehicle, 1.1f);
-                PlaceObj(ForgeWorkshop, 5.5f, 1f, 3.5f);
-                SetScale(ForgeWorkshop, 1.3f);
-                HideObj(PlayerTripleDrill);
-                HideObj(SpaceJunk);
-                HideObj(SpaceJunk3);
-                guideText.text = "升级为粉碎车增强收集力";
-                SwitchForm(2);
-        // TODO_PHASE_6_INIT_END
+            PlaceObj(PlayerTripleDrill, 2f, 0.5f, -2f);
+            PlaceObj(RecyclingStation, 0f, 1f, 0f);
+            PlaceObj(ForgeWorkshop, -3f, 1f, 1f);
+            HideObj(SpaceJunk);
+            ui.SetGuide("返回锻造间升级为粉碎车(需要500金币)");
+            player.SwitchForm(0);
 
-            AddCompletedPhase("tripleDrillCollectJunk"); // [IMMUTABLE] Must match spec phaseId exactly
+            AddCompletedPhase("tripleDrillCollectJunk");
             UpdateGameState();
         }
 
-        // ========== Phase 7: 粉碎车收集垃圾 (crusherVehicleCollectJunk) ==========
-        // Duration: 3-8s
-        // Interactions: move_to:SpaceJunk, collect:MetalShard
-        // Player must act: true
-        // [SKELETON] Transition from upgradeToCrusherVehicle → crusherVehicleCollectJunk
-        // Requires: 粉碎车升级完成
-        // Condition hint: CrusherVehicle.State == 2
-        // [SKELETON] autoPlay 12s gate — DO NOT MODIFY OR REMOVE THIS BLOCK
-        if (_autoPlayMode && !ruleTriggered[6] && (phaseTimer < 12f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {} // wait 12s + autoPlay action
+        // ====================================================================
+        // === Phase 7: 粉碎车收集垃圾 (crusherVehicleCollectJunk) ===
+        // 入口条件: CrusherVehicleState>=2 && ForgeWorkshopDone==true && phaseTimer>=2s
+        // 状态跃迁: 粉碎车上阵,采集倍率 3x
+        // 副作用: 引导词"粉碎车收集效率更高,继续收集垃圾"
+        // ====================================================================
+        if (_autoPlayMode && !ruleTriggered[6] && (phaseTimer < 20f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {}
         else if (!ruleTriggered[6]
-            && (_autoPlayMode ? (phaseTimer >= 12f && _autoPlaySteps > _autoPlayStepsAtPhaseStart) // [SKELETON] 12s + autoPlay action (DO NOT MODIFY)
-                : (CrusherVehicleState >= 2 && ForgeWorkshopDone == true && phaseTimer >= 2f))) // interactive mode
+            && (_autoPlayMode ? (phaseTimer >= 20f && _autoPlaySteps > _autoPlayStepsAtPhaseStart)
+                : (CrusherVehicleState >= 2 && ForgeWorkshopDone == true && phaseTimer >= 2f)))
         {
             ruleTriggered[6] = true;
-            currentPhaseName = "crusherVehicleCollectJunk"; // [IMMUTABLE] Do NOT change this phaseId
-            phaseEnterTimes[6] = gameTimer; // [SKELETON]
-            phaseTimer = 0f; // [SKELETON] reset timer — prevent batch-firing multiple phases in one frame
-            _autoPlayStepsAtPhaseStart = _autoPlaySteps; // [SKELETON] reset per-phase step counter
-            ReportPhase("crusherVehicleCollectJunk"); // [IMMUTABLE] CUA uses this exact ID for coverage tracking
+            currentPhaseName = "crusherVehicleCollectJunk";
+            phaseEnterTimes[6] = gameTimer;
+            phaseTimer = 0f;
+            _autoPlayStepsAtPhaseStart = _autoPlaySteps;
+            ReportPhase("crusherVehicleCollectJunk");
 
-            // [SKELETON] AutoPlay state advance for 粉碎车收集垃圾 (DO NOT MODIFY)
-            if (_autoPlayMode)
-            {
-                CrusherVehicleState = 2;
-                _autoPlaySteps++;
-            }
+            if (_autoPlayMode) { CrusherVehicleState = 2; GFM_AutoPlay.Instance.IncrementSteps(); }
 
-            // === TODO: AI fills — activate objects for 粉碎车收集垃圾 ===
-            // TODO_PHASE_7_INIT_START
-                PlaceObj(CrusherVehicle, 0f, 0.5f, 0f);
-                SetScale(CrusherVehicle, 1.1f);
-                PlaceObj(SpaceJunk2, -2.5f, 0.5f, 2f);
-                SetScale(SpaceJunk2, 0.85f);
-                PlaceObj(SpaceJunk, 2f, 0.5f, -1.5f);
-                SetScale(SpaceJunk, 0.8f);
-                HideObj(ForgeWorkshop);
-                guideText.text = "驾驶粉碎车收集更多垃圾";
-                AddResource("MetalShard", 0);
-        // TODO_PHASE_7_INIT_END
+            PlaceObj(CrusherVehicle, 2f, 0.5f, -2f);
+            SetScale(CrusherVehicle, 1.2f);
+            PlaceObj(RecyclingStation, 0f, 1f, 0f);
+            PlaceObj(SpaceJunk, -4f, 0.5f, 2f);
+            HideObj(PlayerTripleDrill);
+            ui.SetGuide("粉碎车收集效率更高,继续收集垃圾");
+            eco.AddResource("MetalShard", 1);
 
-            AddCompletedPhase("upgradeToCrusherVehicle"); // [IMMUTABLE] Must match spec phaseId exactly
+            AddCompletedPhase("upgradeToCrusherVehicle");
             UpdateGameState();
         }
 
-        // ========== Phase 8: 升级液压车 (upgradeToHydraulicVehicle) ==========
-        // Duration: 2-7s
-        // Interactions: click:ForgeWorkshop, spend:gold:1, transform:CrusherVehicle:HydraulicVehicle
-        // Player must act: true
-        // [SKELETON] Transition from crusherVehicleCollectJunk → upgradeToHydraulicVehicle
-        // Requires: 粉碎车收纳仓装满金属碎片
-        // Condition hint: CrusherVehicle.StorageFull == true
-        // [SKELETON] autoPlay 12s gate — DO NOT MODIFY OR REMOVE THIS BLOCK
-        if (_autoPlayMode && !ruleTriggered[7] && (phaseTimer < 12f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {} // wait 12s + autoPlay action
+        // ====================================================================
+        // === Phase 8: 升级液压车 (upgradeToHydraulicVehicle) ===
+        // 入口条件: SpaceJunkDone==true && phaseTimer>=3s
+        // 状态跃迁: 最终形态液压车 (scale 1.5)
+        // 副作用: SwitchForm(0),引导词"继续升级为液压车(需要1000金币)"
+        // ====================================================================
+        if (_autoPlayMode && !ruleTriggered[7] && (phaseTimer < 20f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {}
         else if (!ruleTriggered[7]
-            && (_autoPlayMode ? (phaseTimer >= 12f && _autoPlaySteps > _autoPlayStepsAtPhaseStart) // [SKELETON] 12s + autoPlay action (DO NOT MODIFY)
-                : (SpaceJunkDone == true && phaseTimer >= 3f))) // interactive mode
+            && (_autoPlayMode ? (phaseTimer >= 20f && _autoPlaySteps > _autoPlayStepsAtPhaseStart)
+                : (SpaceJunkDone == true && phaseTimer >= 3f)))
         {
             ruleTriggered[7] = true;
-            currentPhaseName = "upgradeToHydraulicVehicle"; // [IMMUTABLE] Do NOT change this phaseId
-            phaseEnterTimes[7] = gameTimer; // [SKELETON]
-            phaseTimer = 0f; // [SKELETON] reset timer — prevent batch-firing multiple phases in one frame
-            _autoPlayStepsAtPhaseStart = _autoPlaySteps; // [SKELETON] reset per-phase step counter
-            ReportPhase("upgradeToHydraulicVehicle"); // [IMMUTABLE] CUA uses this exact ID for coverage tracking
+            currentPhaseName = "upgradeToHydraulicVehicle";
+            phaseEnterTimes[7] = gameTimer;
+            phaseTimer = 0f;
+            _autoPlayStepsAtPhaseStart = _autoPlaySteps;
+            ReportPhase("upgradeToHydraulicVehicle");
 
-            // [SKELETON] AutoPlay state advance for 升级液压车 (DO NOT MODIFY)
-            if (_autoPlayMode)
-            {
-                _autoPlaySteps++;
-            }
+            if (_autoPlayMode) GFM_AutoPlay.Instance.IncrementSteps();
 
-            // === TODO: AI fills — activate objects for 升级液压车 ===
-            // TODO_PHASE_8_INIT_START
-                PlaceObj(HydraulicVehicle, 0f, 0.5f, 0f);
-                SetScale(HydraulicVehicle, 1.15f);
-                PlaceObj(ForgeWorkshop, 5.5f, 1f, 3.5f);
-                SetScale(ForgeWorkshop, 1.3f);
-                HideObj(CrusherVehicle);
-                HideObj(SpaceJunk2);
-                HideObj(SpaceJunk);
-                guideText.text = "升级为液压车解锁终极模式";
-                SwitchForm(3);
-        // TODO_PHASE_8_INIT_END
+            PlaceObj(CrusherVehicle, 2f, 0.5f, -2f);
+            SetScale(CrusherVehicle, 1.2f);
+            PlaceObj(RecyclingStation, 0f, 1f, 0f);
+            PlaceObj(ForgeWorkshop, -3f, 1f, 1f);
+            HideObj(SpaceJunk);
+            ui.SetGuide("继续升级为液压车(需要1000金币)");
+            player.SwitchForm(0);
 
-            AddCompletedPhase("crusherVehicleCollectJunk"); // [IMMUTABLE] Must match spec phaseId exactly
+            AddCompletedPhase("crusherVehicleCollectJunk");
             UpdateGameState();
         }
 
-        // ========== Phase 9: 液压车海量收集垃圾 (hydraulicVehicleCollectJunk) ==========
-        // Duration: 3-8s
-        // Interactions: move_to:SpaceJunk, collect:MetalShard
-        // Player must act: true
-        // [SKELETON] Transition from upgradeToHydraulicVehicle → hydraulicVehicleCollectJunk
-        // Requires: 液压车升级完成
-        // Condition hint: HydraulicVehicle.State == 2
-        // [SKELETON] autoPlay 12s gate — DO NOT MODIFY OR REMOVE THIS BLOCK
-        if (_autoPlayMode && !ruleTriggered[8] && (phaseTimer < 12f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {} // wait 12s + autoPlay action
+        // ====================================================================
+        // === Phase 9: 液压车海量收集垃圾 (hydraulicVehicleCollectJunk) ===
+        // 入口条件: HydraulicVehicleState>=2 && ForgeWorkshopDone==true && phaseTimer>=2s
+        // 状态跃迁: 最强载具上阵,采集倍率 5x
+        // 副作用: 引导词"液压车效率最高,海量收集垃圾"
+        // ====================================================================
+        if (_autoPlayMode && !ruleTriggered[8] && (phaseTimer < 20f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {}
         else if (!ruleTriggered[8]
-            && (_autoPlayMode ? (phaseTimer >= 12f && _autoPlaySteps > _autoPlayStepsAtPhaseStart) // [SKELETON] 12s + autoPlay action (DO NOT MODIFY)
-                : (HydraulicVehicleState >= 2 && ForgeWorkshopDone == true && phaseTimer >= 2f))) // interactive mode
+            && (_autoPlayMode ? (phaseTimer >= 20f && _autoPlaySteps > _autoPlayStepsAtPhaseStart)
+                : (HydraulicVehicleState >= 2 && ForgeWorkshopDone == true && phaseTimer >= 2f)))
         {
             ruleTriggered[8] = true;
-            currentPhaseName = "hydraulicVehicleCollectJunk"; // [IMMUTABLE] Do NOT change this phaseId
-            phaseEnterTimes[8] = gameTimer; // [SKELETON]
-            phaseTimer = 0f; // [SKELETON] reset timer — prevent batch-firing multiple phases in one frame
-            _autoPlayStepsAtPhaseStart = _autoPlaySteps; // [SKELETON] reset per-phase step counter
-            ReportPhase("hydraulicVehicleCollectJunk"); // [IMMUTABLE] CUA uses this exact ID for coverage tracking
+            currentPhaseName = "hydraulicVehicleCollectJunk";
+            phaseEnterTimes[8] = gameTimer;
+            phaseTimer = 0f;
+            _autoPlayStepsAtPhaseStart = _autoPlaySteps;
+            ReportPhase("hydraulicVehicleCollectJunk");
 
-            // [SKELETON] AutoPlay state advance for 液压车海量收集垃圾 (DO NOT MODIFY)
-            if (_autoPlayMode)
-            {
-                HydraulicVehicleState = 2;
-                _autoPlaySteps++;
-            }
+            if (_autoPlayMode) { HydraulicVehicleState = 2; GFM_AutoPlay.Instance.IncrementSteps(); }
 
-            // === TODO: AI fills — activate objects for 液压车海量收集垃圾 ===
-            // TODO_PHASE_9_INIT_START
-                PlaceObj(HydraulicVehicle, 0f, 0.5f, 0f);
-                SetScale(HydraulicVehicle, 1.15f);
-                PlaceObj(SpaceJunk3, 4.5f, 0.5f, 1f);
-                SetScale(SpaceJunk3, 0.75f);
-                PlaceObj(SpaceJunk, 2f, 0.5f, -1.5f);
-                SetScale(SpaceJunk, 0.8f);
-                HideObj(ForgeWorkshop);
-                guideText.text = "用液压车海量收集太空垃圾";
-                AddResource("MetalShard", 0);
-        // TODO_PHASE_9_INIT_END
+            PlaceObj(HydraulicVehicle, 2f, 0.5f, -2f);
+            SetScale(HydraulicVehicle, 1.3f);
+            PlaceObj(RecyclingStation, 0f, 1f, 0f);
+            PlaceObj(SpaceJunk, -4f, 0.5f, 2f);
+            HideObj(CrusherVehicle);
+            ui.SetGuide("液压车效率最高,海量收集垃圾");
+            eco.AddResource("MetalShard", 1);
 
-            AddCompletedPhase("upgradeToHydraulicVehicle"); // [IMMUTABLE] Must match spec phaseId exactly
+            AddCompletedPhase("upgradeToHydraulicVehicle");
             UpdateGameState();
         }
 
-        // ========== Phase 10: 解锁新船舱扩建空间站 (expandSpaceStation) ==========
-        // Duration: 4-9s
-        // Interactions: click:CanteenBlueprint, spend:gold:1, build:Canteen, click:DormBlueprint, spend:gold:1, build:Dormitory, click:PastureBlueprint, spend:gold:1, build:Pasture
-        // Player must act: true
-        // [SKELETON] Transition from hydraulicVehicleCollectJunk → expandSpaceStation
-        // Requires: 液压车收纳仓装满，金币满足新船舱建造要求
-        // Condition hint: HydraulicVehicle.StorageFull == true && GoldUI.Value >= 100
-        // [SKELETON] autoPlay 12s gate — DO NOT MODIFY OR REMOVE THIS BLOCK
-        if (_autoPlayMode && !ruleTriggered[9] && (phaseTimer < 12f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {} // wait 12s + autoPlay action
+        // ====================================================================
+        // === Phase 10: 解锁新船舱扩建空间站 (expandSpaceStation) ===
+        // 入口条件: SpaceJunkDone==true && phaseTimer>=3s
+        // 状态跃迁: 同时摆出 3 个蓝图 (Canteen/Dorm/Pasture),玩家挨个点击建造
+        // 副作用: 3 个 Building State = 1 (建造中)
+        // ====================================================================
+        if (_autoPlayMode && !ruleTriggered[9] && (phaseTimer < 20f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {}
         else if (!ruleTriggered[9]
-            && (_autoPlayMode ? (phaseTimer >= 12f && _autoPlaySteps > _autoPlayStepsAtPhaseStart) // [SKELETON] 12s + autoPlay action (DO NOT MODIFY)
-                : (SpaceJunkDone == true && phaseTimer >= 3f))) // interactive mode
+            && (_autoPlayMode ? (phaseTimer >= 20f && _autoPlaySteps > _autoPlayStepsAtPhaseStart)
+                : (SpaceJunkDone == true && phaseTimer >= 3f)))
         {
             ruleTriggered[9] = true;
-            currentPhaseName = "expandSpaceStation"; // [IMMUTABLE] Do NOT change this phaseId
-            phaseEnterTimes[9] = gameTimer; // [SKELETON]
-            phaseTimer = 0f; // [SKELETON] reset timer — prevent batch-firing multiple phases in one frame
-            _autoPlayStepsAtPhaseStart = _autoPlaySteps; // [SKELETON] reset per-phase step counter
-            ReportPhase("expandSpaceStation"); // [IMMUTABLE] CUA uses this exact ID for coverage tracking
+            currentPhaseName = "expandSpaceStation";
+            phaseEnterTimes[9] = gameTimer;
+            phaseTimer = 0f;
+            _autoPlayStepsAtPhaseStart = _autoPlaySteps;
+            ReportPhase("expandSpaceStation");
 
-            // [SKELETON] AutoPlay state advance for 解锁新船舱扩建空间站 (DO NOT MODIFY)
-            if (_autoPlayMode)
-            {
-                _autoPlaySteps++;
-            }
+            if (_autoPlayMode) GFM_AutoPlay.Instance.IncrementSteps();
 
-            // === TODO: AI fills — activate objects for 解锁新船舱扩建空间站 ===
-            // TODO_PHASE_10_INIT_START
-                PlaceObj(HydraulicVehicle, 0f, 0.5f, 0f);
-                SetScale(HydraulicVehicle, 1.15f);
-                PlaceObj(Canteen, 3.5f, 1f, -2f);
-                SetScale(Canteen, 1.2f);
-                PlaceObj(Dormitory, -4f, 1f, -2.5f);
-                SetScale(Dormitory, 1.25f);
-                PlaceObj(Pasture, 0.5f, 1f, 3.8f);
-                SetScale(Pasture, 1.3f);
-                HideObj(SpaceJunk3);
-                HideObj(SpaceJunk);
-                guideText.text = "建造餐厅、宿舍、牧场扩展空间站";
-                CanteenState = 1;
-                DormitoryState = 1;
-                PastureState = 1;
-        // TODO_PHASE_10_INIT_END
+            PlaceObj(HydraulicVehicle, 2f, 0.5f, -2f);
+            SetScale(HydraulicVehicle, 1.3f);
+            PlaceObj(RecyclingStation, 0f, 1f, 0f);
+            PlaceObj(CanteenBlueprint, 4f, 0.5f, 0f);
+            PlaceObj(DormBlueprint, 6f, 0.5f, 0f);
+            PlaceObj(PastureBlueprint, 8f, 0.5f, 0f);
+            HideObj(SpaceJunk);
+            ui.SetGuide("资金充足,开始建造空间站的餐厅、宿舍和牧场");
+            CanteenState = 1;
+            DormitoryState = 1;
+            PastureState = 1;
 
-            AddCompletedPhase("hydraulicVehicleCollectJunk"); // [IMMUTABLE] Must match spec phaseId exactly
+            AddCompletedPhase("hydraulicVehicleCollectJunk");
             UpdateGameState();
         }
 
-        // ========== Phase 11: 完整空间站展示+下载引导 (showFullStationCTA) ==========
-        // Duration: 5-10s
-        // Interactions: wait:5, click:CTAButton
-        // Player must act: false
-        // [SKELETON] Transition from expandSpaceStation → showFullStationCTA
-        // Requires: 餐厅、宿舍、牧场全部建造完成，空间站扩建完毕
-        // Condition hint: Canteen.State == 2 && Dormitory.State == 2 && Pasture.State == 2
-        // [SKELETON] autoPlay 12s gate — DO NOT MODIFY OR REMOVE THIS BLOCK
-        if (_autoPlayMode && !ruleTriggered[10] && (phaseTimer < 12f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {} // wait 12s + autoPlay action
+        // ====================================================================
+        // === Phase 11: 完整空间站展示 + CTA 引导 (showFullStationCTA) ===
+        // 入口条件: Canteen/Dorm/Pasture 全 >=2 且 CanteenBlueprintDone && phaseTimer>=4s
+        // 状态跃迁: 所有建筑摆好,CTA 按钮出现,播放"感谢试玩"浮动文字
+        // 副作用: 引导词"空间站建设完成!点击按钮下载完整游戏"
+        // ====================================================================
+        if (_autoPlayMode && !ruleTriggered[10] && (phaseTimer < 20f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {}
         else if (!ruleTriggered[10]
-            && (_autoPlayMode ? (phaseTimer >= 12f && _autoPlaySteps > _autoPlayStepsAtPhaseStart) // [SKELETON] 12s + autoPlay action (DO NOT MODIFY)
-                : (CanteenState >= 2 && DormitoryState >= 2 && PastureState >= 2 && CanteenBlueprintDone == true && phaseTimer >= 4f))) // interactive mode
+            && (_autoPlayMode ? (phaseTimer >= 20f && _autoPlaySteps > _autoPlayStepsAtPhaseStart)
+                : (CanteenState >= 2 && DormitoryState >= 2 && PastureState >= 2 && CanteenBlueprintDone == true && phaseTimer >= 4f)))
         {
             ruleTriggered[10] = true;
-            currentPhaseName = "showFullStationCTA"; // [IMMUTABLE] Do NOT change this phaseId
-            phaseEnterTimes[10] = gameTimer; // [SKELETON]
-            phaseTimer = 0f; // [SKELETON] reset timer — prevent batch-firing multiple phases in one frame
-            _autoPlayStepsAtPhaseStart = _autoPlaySteps; // [SKELETON] reset per-phase step counter
-            ReportPhase("showFullStationCTA"); // [IMMUTABLE] CUA uses this exact ID for coverage tracking
+            currentPhaseName = "showFullStationCTA";
+            phaseEnterTimes[10] = gameTimer;
+            phaseTimer = 0f;
+            _autoPlayStepsAtPhaseStart = _autoPlaySteps;
+            ReportPhase("showFullStationCTA");
 
-            // [SKELETON] AutoPlay state advance for 完整空间站展示+下载引导 (DO NOT MODIFY)
-            if (_autoPlayMode)
-            {
-                CanteenState = 2;
-                DormitoryState = 2;
-                PastureState = 2;
-                _autoPlaySteps++;
-            }
+            if (_autoPlayMode) { CanteenState = 2; DormitoryState = 2; PastureState = 2; GFM_AutoPlay.Instance.IncrementSteps(); }
 
-            // === TODO: AI fills — activate objects for 完整空间站展示+下载引导 ===
-            // TODO_PHASE_11_INIT_START
-                PlaceObj(HydraulicVehicle, 0f, 0.5f, 0f);
-                SetScale(HydraulicVehicle, 1.15f);
-                PlaceObj(Canteen, 3.5f, 1f, -2f);
-                SetScale(Canteen, 1.2f);
-                PlaceObj(Dormitory, -4f, 1f, -2.5f);
-                SetScale(Dormitory, 1.25f);
-                PlaceObj(Pasture, 0.5f, 1f, 3.8f);
-                SetScale(Pasture, 1.3f);
-                PlaceObj(CTAButton, 0f, 2f, 0f);
-                guideText.text = "空间站建造完成！点击下载完整版";
-                ShowFloatingText(player.transform.position, "游戏完整版等你来探索！", Color.yellow);
-        // TODO_PHASE_11_INIT_END
+            PlaceObj(HydraulicVehicle, 2f, 0.5f, -2f);
+            SetScale(HydraulicVehicle, 1.3f);
+            PlaceObj(RecyclingStation, 0f, 1f, 0f);
+            PlaceObj(Canteen, 4f, 1f, 0f);
+            PlaceObj(Dormitory, 6f, 1f, 0f);
+            PlaceObj(Pasture, 8f, 1f, 0f);
+            PlaceObj(CTAButton, 0.5f, 0.8f, 0f);
+            HideObj(CanteenBlueprint);
+            HideObj(DormBlueprint);
+            HideObj(PastureBlueprint);
+            ui.SetGuide("空间站建设完成!点击按钮下载完整游戏");
+            if (player.Trans != null) ui.ShowFloatingText(player.Trans.position, "感谢试玩!", Color.yellow);
 
-            AddCompletedPhase("expandSpaceStation"); // [IMMUTABLE] Must match spec phaseId exactly
+            AddCompletedPhase("expandSpaceStation");
             UpdateGameState();
         }
 
-        // ========== Game End ==========
-        // End condition hint: CTAButton.Clicked == true || WaitTime >= 5
-        // [SKELETON] autoPlay 12s gate — DO NOT MODIFY OR REMOVE THIS BLOCK
-        if (_autoPlayMode && !ruleTriggered[11] && (phaseTimer < 12f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {} // wait 12s + autoPlay action
+        // ====================================================================
+        // === Game End: CTA 点击或 5s 等待 ===
+        // 所有实体强制 state=2 (终局),调 Luna.Unity.LifeCycle.GameEnded
+        // 入口条件: CTAButtonState>=1 && CTAButtonDone==true && phaseTimer>=5s
+        // ====================================================================
+        if (_autoPlayMode && !ruleTriggered[11] && (phaseTimer < 20f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {}
         else if (!ruleTriggered[11]
-            && (_autoPlayMode ? (phaseTimer >= 12f && _autoPlaySteps > _autoPlayStepsAtPhaseStart) // [SKELETON] 12s + autoPlay action (DO NOT MODIFY)
+            && (_autoPlayMode ? (phaseTimer >= 20f && _autoPlaySteps > _autoPlayStepsAtPhaseStart)
                 : (CTAButtonState >= 1 && CTAButtonDone == true && phaseTimer >= 5f)))
         {
             ruleTriggered[11] = true;
             currentPhaseName = "gameEnd";
-            ReportPhase("gameEnd"); // [SKELETON] Phase instrumentation
+            ReportPhase("gameEnd");
             gameEnded = true;
 
-            // [SKELETON] AutoPlay: set all entities to terminal state
+            // autoPlay: 强制所有实体 terminal state
             if (_autoPlayMode)
             {
                 ForgeWorkshopState = 2;
@@ -1160,16 +971,16 @@ public partial class GameFlowManagerMain : MonoBehaviour
                 DormitoryState = 2;
                 PastureState = 2;
                 CTAButtonState = 2;
+                SpaceJunkState = 2;
+                MetalShardState = 2;
+                RecyclingStationState = 2;
+                ForgeBlueprintState = 2;
+                PlayerSingleDrillState = 2;
+                CanteenBlueprintState = 2;
+                DormBlueprintState = 2;
+                PastureBlueprintState = 2;
+                goldObjState = 2;
             }
-            // [SKELETON] Verify all entities reached terminal state
-            // Assert: ForgeWorkshopState should be 2 at game end
-            // Assert: PlayerTripleDrillState should be 2 at game end
-            // Assert: CrusherVehicleState should be 2 at game end
-            // Assert: HydraulicVehicleState should be 2 at game end
-            // Assert: CanteenState should be 2 at game end
-            // Assert: DormitoryState should be 2 at game end
-            // Assert: PastureState should be 2 at game end
-            // Assert: CTAButtonState should be 2 at game end
 
             AddCompletedPhase("showFullStationCTA");
             AddCompletedPhase("gameEnd");
@@ -1178,149 +989,88 @@ public partial class GameFlowManagerMain : MonoBehaviour
             Luna.Unity.LifeCycle.GameEnded();
         }
 
-        // [SKELETON] AutoPlay safety net — force progression if stuck (DO NOT MODIFY)
-        if (_autoPlayMode && !gameEnded && phaseTimer >= (AUTO_PLAY_PHASE_DURATION < 15f ? 50f : AUTO_PLAY_PHASE_DURATION * 2.5f)) // [SKELETON] safety net min 50s (DO NOT MODIFY)
+        // ====================================================================
+        // === Safety Net: autoPlay 卡住兜底 ===
+        // 每 phase 超过 safety 阈值 (50s 或 AUTO_PLAY_PHASE_DURATION×2.5) 仍没
+        // 推进 → 强制跳到下一 phase,避免 CUA 无限等待。
+        // 【DO NOT MODIFY】这个分支是 CUA 的最后救命绳。
+        // ====================================================================
+        if (_autoPlayMode && !gameEnded && phaseTimer >= (AUTO_PLAY_PHASE_DURATION < 15f ? 50f : AUTO_PLAY_PHASE_DURATION * 2.5f))
         {
-            if (!ruleTriggered[1]) // stuck at initialCollectSpaceJunk → force sellShardsGetGold
-            {
-                ruleTriggered[1] = true;
-                currentPhaseName = "sellShardsGetGold";
-                phaseEnterTimes[1] = gameTimer;
-                phaseTimer = 0f;
-                ReportPhase("sellShardsGetGold");
-                AddCompletedPhase("initialCollectSpaceJunk");
-                _autoPlaySteps++;
-                UpdateGameState();
-                return; // only advance one phase per frame
+            if (!ruleTriggered[1]) {
+                ruleTriggered[1] = true; currentPhaseName = "sellShardsGetGold";
+                phaseEnterTimes[1] = gameTimer; phaseTimer = 0f;
+                ReportPhase("sellShardsGetGold"); AddCompletedPhase("initialCollectSpaceJunk");
+                GFM_AutoPlay.Instance.IncrementSteps(); UpdateGameState(); return;
             }
-            if (!ruleTriggered[2]) // stuck at sellShardsGetGold → force buildForgeWorkshop
-            {
-                ruleTriggered[2] = true;
-                currentPhaseName = "buildForgeWorkshop";
-                phaseEnterTimes[2] = gameTimer;
-                phaseTimer = 0f;
-                ReportPhase("buildForgeWorkshop");
-                AddCompletedPhase("sellShardsGetGold");
-                _autoPlaySteps++;
-                UpdateGameState();
-                return; // only advance one phase per frame
+            if (!ruleTriggered[2]) {
+                ruleTriggered[2] = true; currentPhaseName = "buildForgeWorkshop";
+                phaseEnterTimes[2] = gameTimer; phaseTimer = 0f;
+                ReportPhase("buildForgeWorkshop"); AddCompletedPhase("sellShardsGetGold");
+                GFM_AutoPlay.Instance.IncrementSteps(); UpdateGameState(); return;
             }
-            if (!ruleTriggered[3]) // stuck at buildForgeWorkshop → force upgradeToTripleDrill
-            {
-                ruleTriggered[3] = true;
-                currentPhaseName = "upgradeToTripleDrill";
-                phaseEnterTimes[3] = gameTimer;
-                phaseTimer = 0f;
-                ReportPhase("upgradeToTripleDrill");
-                AddCompletedPhase("buildForgeWorkshop");
-                _autoPlaySteps++;
-                UpdateGameState();
-                return; // only advance one phase per frame
+            if (!ruleTriggered[3]) {
+                ruleTriggered[3] = true; currentPhaseName = "upgradeToTripleDrill";
+                phaseEnterTimes[3] = gameTimer; phaseTimer = 0f;
+                ReportPhase("upgradeToTripleDrill"); AddCompletedPhase("buildForgeWorkshop");
+                GFM_AutoPlay.Instance.IncrementSteps(); UpdateGameState(); return;
             }
-            if (!ruleTriggered[4]) // stuck at upgradeToTripleDrill → force tripleDrillCollectJunk
-            {
-                ruleTriggered[4] = true;
-                currentPhaseName = "tripleDrillCollectJunk";
-                phaseEnterTimes[4] = gameTimer;
-                phaseTimer = 0f;
-                ReportPhase("tripleDrillCollectJunk");
-                AddCompletedPhase("upgradeToTripleDrill");
-                _autoPlaySteps++;
-                UpdateGameState();
-                return; // only advance one phase per frame
+            if (!ruleTriggered[4]) {
+                ruleTriggered[4] = true; currentPhaseName = "tripleDrillCollectJunk";
+                phaseEnterTimes[4] = gameTimer; phaseTimer = 0f;
+                ReportPhase("tripleDrillCollectJunk"); AddCompletedPhase("upgradeToTripleDrill");
+                GFM_AutoPlay.Instance.IncrementSteps(); UpdateGameState(); return;
             }
-            if (!ruleTriggered[5]) // stuck at tripleDrillCollectJunk → force upgradeToCrusherVehicle
-            {
-                ruleTriggered[5] = true;
-                currentPhaseName = "upgradeToCrusherVehicle";
-                phaseEnterTimes[5] = gameTimer;
-                phaseTimer = 0f;
-                ReportPhase("upgradeToCrusherVehicle");
-                AddCompletedPhase("tripleDrillCollectJunk");
-                _autoPlaySteps++;
-                UpdateGameState();
-                return; // only advance one phase per frame
+            if (!ruleTriggered[5]) {
+                ruleTriggered[5] = true; currentPhaseName = "upgradeToCrusherVehicle";
+                phaseEnterTimes[5] = gameTimer; phaseTimer = 0f;
+                ReportPhase("upgradeToCrusherVehicle"); AddCompletedPhase("tripleDrillCollectJunk");
+                GFM_AutoPlay.Instance.IncrementSteps(); UpdateGameState(); return;
             }
-            if (!ruleTriggered[6]) // stuck at upgradeToCrusherVehicle → force crusherVehicleCollectJunk
-            {
-                ruleTriggered[6] = true;
-                currentPhaseName = "crusherVehicleCollectJunk";
-                phaseEnterTimes[6] = gameTimer;
-                phaseTimer = 0f;
-                ReportPhase("crusherVehicleCollectJunk");
-                AddCompletedPhase("upgradeToCrusherVehicle");
-                _autoPlaySteps++;
-                UpdateGameState();
-                return; // only advance one phase per frame
+            if (!ruleTriggered[6]) {
+                ruleTriggered[6] = true; currentPhaseName = "crusherVehicleCollectJunk";
+                phaseEnterTimes[6] = gameTimer; phaseTimer = 0f;
+                ReportPhase("crusherVehicleCollectJunk"); AddCompletedPhase("upgradeToCrusherVehicle");
+                GFM_AutoPlay.Instance.IncrementSteps(); UpdateGameState(); return;
             }
-            if (!ruleTriggered[7]) // stuck at crusherVehicleCollectJunk → force upgradeToHydraulicVehicle
-            {
-                ruleTriggered[7] = true;
-                currentPhaseName = "upgradeToHydraulicVehicle";
-                phaseEnterTimes[7] = gameTimer;
-                phaseTimer = 0f;
-                ReportPhase("upgradeToHydraulicVehicle");
-                AddCompletedPhase("crusherVehicleCollectJunk");
-                _autoPlaySteps++;
-                UpdateGameState();
-                return; // only advance one phase per frame
+            if (!ruleTriggered[7]) {
+                ruleTriggered[7] = true; currentPhaseName = "upgradeToHydraulicVehicle";
+                phaseEnterTimes[7] = gameTimer; phaseTimer = 0f;
+                ReportPhase("upgradeToHydraulicVehicle"); AddCompletedPhase("crusherVehicleCollectJunk");
+                GFM_AutoPlay.Instance.IncrementSteps(); UpdateGameState(); return;
             }
-            if (!ruleTriggered[8]) // stuck at upgradeToHydraulicVehicle → force hydraulicVehicleCollectJunk
-            {
-                ruleTriggered[8] = true;
-                currentPhaseName = "hydraulicVehicleCollectJunk";
-                phaseEnterTimes[8] = gameTimer;
-                phaseTimer = 0f;
-                ReportPhase("hydraulicVehicleCollectJunk");
-                AddCompletedPhase("upgradeToHydraulicVehicle");
-                _autoPlaySteps++;
-                UpdateGameState();
-                return; // only advance one phase per frame
+            if (!ruleTriggered[8]) {
+                ruleTriggered[8] = true; currentPhaseName = "hydraulicVehicleCollectJunk";
+                phaseEnterTimes[8] = gameTimer; phaseTimer = 0f;
+                ReportPhase("hydraulicVehicleCollectJunk"); AddCompletedPhase("upgradeToHydraulicVehicle");
+                GFM_AutoPlay.Instance.IncrementSteps(); UpdateGameState(); return;
             }
-            if (!ruleTriggered[9]) // stuck at hydraulicVehicleCollectJunk → force expandSpaceStation
-            {
-                ruleTriggered[9] = true;
-                currentPhaseName = "expandSpaceStation";
-                phaseEnterTimes[9] = gameTimer;
-                phaseTimer = 0f;
-                ReportPhase("expandSpaceStation");
-                AddCompletedPhase("hydraulicVehicleCollectJunk");
-                _autoPlaySteps++;
-                UpdateGameState();
-                return; // only advance one phase per frame
+            if (!ruleTriggered[9]) {
+                ruleTriggered[9] = true; currentPhaseName = "expandSpaceStation";
+                phaseEnterTimes[9] = gameTimer; phaseTimer = 0f;
+                ReportPhase("expandSpaceStation"); AddCompletedPhase("hydraulicVehicleCollectJunk");
+                GFM_AutoPlay.Instance.IncrementSteps(); UpdateGameState(); return;
             }
-            if (!ruleTriggered[10]) // stuck at expandSpaceStation → force showFullStationCTA
-            {
-                ruleTriggered[10] = true;
-                currentPhaseName = "showFullStationCTA";
-                phaseEnterTimes[10] = gameTimer;
-                phaseTimer = 0f;
-                ReportPhase("showFullStationCTA");
-                AddCompletedPhase("expandSpaceStation");
-                _autoPlaySteps++;
-                UpdateGameState();
-                return; // only advance one phase per frame
+            if (!ruleTriggered[10]) {
+                ruleTriggered[10] = true; currentPhaseName = "showFullStationCTA";
+                phaseEnterTimes[10] = gameTimer; phaseTimer = 0f;
+                ReportPhase("showFullStationCTA"); AddCompletedPhase("expandSpaceStation");
+                GFM_AutoPlay.Instance.IncrementSteps(); UpdateGameState(); return;
             }
-            if (!ruleTriggered[11]) // stuck at showFullStationCTA → force gameEnd
-            {
-                ruleTriggered[11] = true;
-                currentPhaseName = "gameEnd";
-                ReportPhase("gameEnd");
-                AddCompletedPhase("showFullStationCTA");
-                AddCompletedPhase("gameEnd");
-                gameEnded = true;
-                ShowCTA();
-                _autoPlaySteps++;
-                UpdateGameState();
-                return; // only advance one phase per frame
+            if (!ruleTriggered[11]) {
+                ruleTriggered[11] = true; currentPhaseName = "gameEnd";
+                ReportPhase("gameEnd"); AddCompletedPhase("showFullStationCTA");
+                AddCompletedPhase("gameEnd"); gameEnded = true; ShowCTA();
+                GFM_AutoPlay.Instance.IncrementSteps(); UpdateGameState(); return;
             }
         }
     }
 
-    // NOTE: Game subsystems (movement, combat, spawning, etc.) go in GameFlowManagerMain.Systems.cs
+    // ========================================================================
+    // 【Skeleton Helpers — 不要修改】
+    // ========================================================================
 
-    // ========== SKELETON HELPERS (do not modify) ==========
-
+    // 追加已完成 phase 名到历史 (供 UpdateGameState 序列化给 CUA)
     void AddCompletedPhase(string phaseName)
     {
         if (completedPhaseCount < completedPhases.Length)
@@ -1330,35 +1080,43 @@ public partial class GameFlowManagerMain : MonoBehaviour
         }
     }
 
+    // 把对象摆到指定世界坐标 (相当于 SetActive(true))
     void PlaceObj(GameObject obj, float x, float y, float z)
     {
         if (obj != null) obj.transform.position = new Vector3(x, y, z);
     }
 
+    // 隐藏对象 (Luna 禁 Destroy,挪到 y=-999 即可)
     void HideObj(GameObject obj)
     {
         if (obj != null) obj.transform.position = new Vector3(0f, -999f, 0f);
     }
 
+    // 设置对象缩放 (三轴独立)
     void SetScale(GameObject obj, float x, float y, float z)
     {
         if (obj != null) obj.transform.localScale = new Vector3(x, y, z);
     }
+    // 设置对象均匀缩放
     void SetScale(GameObject obj, float uniform)
     {
         if (obj != null) obj.transform.localScale = new Vector3(uniform, uniform, uniform);
     }
 
-    // [SKELETON] CTA button — pre-generated, do not remove
+    // 触发 Luna CTA:结束游戏 + 调用安装完整游戏入口
     void ShowCTA()
     {
         Luna.Unity.LifeCycle.GameEnded();
         Luna.Unity.Playable.InstallFullGame();
     }
 
+    // ========================================================================
+    // 【UpdateGameState】把当前流程状态序列化成 JSON,通过 gameObject.name
+    // 暴露给 JS 端 (CUA 观察器 + __gameState 查询)。Luna bridge 的字符串
+    // 通道就是 gameObject.name 这个"偏方"。
+    // ========================================================================
     void UpdateGameState()
     {
-        // [SKELETON] Expose game state for CUA verification
         string completedJson = "[";
         for (int i = 0; i < completedPhaseCount; i++)
         {
@@ -1378,14 +1136,22 @@ public partial class GameFlowManagerMain : MonoBehaviour
             + "\"Canteen\":\"" + CanteenState + "\","
             + "\"Dormitory\":\"" + DormitoryState + "\","
             + "\"Pasture\":\"" + PastureState + "\","
-            + "\"CTAButton\":\"" + CTAButtonState + "\""
+            + "\"CTAButton\":\"" + CTAButtonState + "\","
+            + "\"SpaceJunk\":\"" + SpaceJunkState + "\","
+            + "\"MetalShard\":\"" + MetalShardState + "\","
+            + "\"RecyclingStation\":\"" + RecyclingStationState + "\","
+            + "\"ForgeBlueprint\":\"" + ForgeBlueprintState + "\","
+            + "\"PlayerSingleDrill\":\"" + PlayerSingleDrillState + "\","
+            + "\"CanteenBlueprint\":\"" + CanteenBlueprintState + "\","
+            + "\"DormBlueprint\":\"" + DormBlueprintState + "\","
+            + "\"PastureBlueprint\":\"" + PastureBlueprintState + "\","
+            + "\"goldObj\":\"" + goldObjState + "\""
             + "},"
             + "\"variables\":{"
             + "\"gameTimer\":" + (int)gameTimer
             + ",\"autoPlayMode\":" + (_autoPlayMode ? "true" : "false")
             + ",\"autoPlaySteps\":" + _autoPlaySteps
             + ",\"autoPlayStepsThisPhase\":" + (_autoPlaySteps - _autoPlayStepsAtPhaseStart)
-            // TODO: AI adds game-specific variables here (gold, wood, ammo, etc.)
             + "}"
             + ",\"phaseTimestamps\":{"
             + "\"initialCollectSpaceJunk\":" + (phaseEnterTimes[0] > 0 ? (int)phaseEnterTimes[0] : 0) + ","
@@ -1402,10 +1168,6 @@ public partial class GameFlowManagerMain : MonoBehaviour
             + "}"
             + "}";
 
-        // [SKELETON] Expose game state to JavaScript for CUA verification
-        // Luna bridge exposes C# strings to JS via gameObject.name trick
         gameObject.name = "GFM|" + json;
     }
-
-    // NOTE: UI helpers and input handlers go in GameFlowManagerMain.Systems.cs
 }

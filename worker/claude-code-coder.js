@@ -739,7 +739,8 @@ async function generateWithClaudeCode(blueprint, clientDir, log, taskId, engine)
         : {};
       skeleton = skeletonGenerator.generateSkeleton(activeSpecs, {
         projectName: blueprint.projectName || taskId,
-        entityPoolMap: entityPoolMap
+        entityPoolMap: entityPoolMap,
+        entities: blueprint.entities || []
       });
       const skelLines = typeof skeleton === 'string' ? skeleton.split('\n').length
         : ((skeleton.main || '').split('\n').length + (skeleton.systems || '').split('\n').length);

@@ -53,6 +53,11 @@ function generateSkeleton(specs, opts = {}) {
   }
   const totalPhases = specs.length;
   const entityPoolMap = opts.entityPoolMap || {};
+  // [SKELETON 2026-04-19] entities[] carries chineseName / showLabel for world labels
+  const entityMeta = {};
+  (opts.entities || []).forEach(ent => {
+    if (ent && ent.name) entityMeta[ent.name] = ent;
+  });
 
   // Resolve entity name collisions with skeleton built-in variables
   const renamedEntities = {};
@@ -62,6 +67,11 @@ function generateSkeleton(specs, opts = {}) {
       renamedEntities[name] = newName;
       entityPoolMap[newName] = entityPoolMap[name];
       delete entityPoolMap[name];
+      // carry meta over so chineseName/showLabel survive the rename
+      if (entityMeta[name]) {
+        entityMeta[newName] = Object.assign({}, entityMeta[name], { name: newName });
+        delete entityMeta[name];
+      }
     }
   });
   // Also rename in specs to keep consistent
@@ -645,8 +655,28 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('');
   }
 
-  // [SKELETON] World labels removed — CUA uses __gameState JSON, not visual labels
-  // Black label backgrounds caused ugly UI bars in the final product
+  // [SKELETON 2026-04-19] World labels — Chinese names above player-visible targets.
+  // Reintroduced after ScriptActivator predicate (2026-04-18) stopped calling
+  // GFM_Create.Obj(), which historically auto-attached labels. Label bg uses
+  // alpha=0 (fully transparent), so no ugly black bar.
+  // Opt-out rule: showLabel === false (player vehicle, currency, UI buttons).
+  let _labelsEmitted = 0;
+  entityNames.forEach(name => {
+    const meta = entityMeta[name];
+    if (!meta) return;
+    if (meta.showLabel === false) return;
+    if (!meta.chineseName) return;
+    if (_labelsEmitted === 0) {
+      lines.push('        // [SKELETON] World-space Chinese labels on target entities');
+    }
+    const scale = typeof meta.scale === 'number' ? meta.scale : 1;
+    // height offset = ~top of entity bounding box + 0.5m clearance
+    const heightOffset = (scale * 0.5 + 0.5).toFixed(2);
+    const cnEscaped = meta.chineseName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    lines.push(`        GFM_UI.AddWorldLabel(${name}, "${cnEscaped}", ${heightOffset}f);`);
+    _labelsEmitted++;
+  });
+  if (_labelsEmitted > 0) lines.push('');
 
   // [SKELETON] Ground color and camera background
   const groundEntity = entityNames.find(n => n.toLowerCase().indexOf('ground') >= 0 || n.toLowerCase().indexOf('field') >= 0);

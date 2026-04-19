@@ -67,3 +67,52 @@ describe('skeleton-generator — MovePlayer buf reuse (T1-2)', () => {
     expect(skeleton).toMatch(/Vector3\s+_moveBuf\s*(=|;)/);
   });
 });
+
+describe('skeleton-generator — world labels (2026-04-19)', () => {
+  test('entities with chineseName emit GFM_UI.AddWorldLabel after Register', () => {
+    const specs = buildMinimalSpec();
+    const entities = [
+      { name: 'Target', chineseName: '目标', pool: 'Pool_Target', scale: 1 },
+    ];
+    const code = generateSkeleton(specs, {
+      entityPoolMap: { Target: 'Pool_Target' },
+      entities: entities,
+    });
+    const out = typeof code === 'string' ? code : code.main;
+    expect(out).toMatch(/GFM_UI\.AddWorldLabel\(Target,\s*"目标",/);
+    const registerIdx = out.indexOf('GameSceneCtrl.instance.Register("Target"');
+    const labelIdx = out.indexOf('AddWorldLabel(Target');
+    expect(registerIdx).toBeGreaterThan(-1);
+    expect(labelIdx).toBeGreaterThan(registerIdx);
+  });
+
+  test('showLabel:false suppresses label emission', () => {
+    const specs = buildMinimalSpec();
+    const entities = [
+      { name: 'Target', chineseName: '玩家载具', pool: 'Pool_Target', scale: 1, showLabel: false },
+    ];
+    const code = generateSkeleton(specs, {
+      entityPoolMap: { Target: 'Pool_Target' },
+      entities: entities,
+    });
+    const out = typeof code === 'string' ? code : code.main;
+    expect(out).not.toMatch(/AddWorldLabel\(Target/);
+  });
+
+  test('missing chineseName → no label (graceful)', () => {
+    const specs = buildMinimalSpec();
+    const code = generateSkeleton(specs, {
+      entityPoolMap: { Target: 'Pool_Target' },
+      entities: [{ name: 'Target', pool: 'Pool_Target' }],
+    });
+    const out = typeof code === 'string' ? code : code.main;
+    expect(out).not.toMatch(/AddWorldLabel\(Target/);
+  });
+
+  test('no opts.entities → no labels, no crash', () => {
+    const specs = buildMinimalSpec();
+    const code = generateSkeleton(specs, { entityPoolMap: { Target: 'Pool_Target' } });
+    const out = typeof code === 'string' ? code : code.main;
+    expect(out).not.toMatch(/AddWorldLabel\(/);
+  });
+});

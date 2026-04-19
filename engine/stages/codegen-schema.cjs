@@ -35,6 +35,7 @@ module.exports = {
         ctx.blueprint.poolManifest = resolved.poolManifest;
         var skeletonResult = generateSkeleton(ctx.blueprint.specs, {
           entityPoolMap: resolved.entityPoolMap,
+          entities: schema.entities, // carries chineseName / showLabel for world labels
         });
         var skeletonStr = typeof skeletonResult === 'string' ? skeletonResult : skeletonResult.main;
 
@@ -157,7 +158,7 @@ function buildSchemaPrompt(ctx) {
   lines.push('根据分镜 specs 输出完整 JSON 配置对象。严格遵守以下字段定义,不添加额外字段:');
   lines.push('');
   lines.push('gameConfig (必填): { "cameraBackground": [r,g,b], "groundColor": [r,g,b], "moveSpeed": 5.0, "collectRange": 2.0, "maxCarry": 10 }');
-  lines.push('entities[]: { "name": "实体名", "pool": "__Pool_Shape_Color_NN", "initPos": [x,y,z], "scale": 1.0 } — 只有这4个字段,不加其他');
+  lines.push('entities[]: { "name": "PascalCaseName", "chineseName": "中文名", "showLabel": true, "pool": "__Pool_Shape_Color_NN", "initPos": [x,y,z], "scale": 1.0 } — name 用于 C#,chineseName 是世界标签显示的中文');
   lines.push('resources[]: { "name": "资源名", "entity": "关联实体名", "convertRatio": 1 }');
   lines.push('phases[]: { "phaseId": "阶段ID", "showEntities": ["实体名"], "hideEntities": [], "guideText": "引导文字", "trigger": {...}, "onEnter": [{...}] }');
   lines.push('phases[].onEnter[].action 只能是: "set_entity_state" | "add_resource" | "switch_form" | "show_floating_text" | "set_guide" | "spawn_enemies"');
@@ -192,6 +193,8 @@ function buildSchemaPrompt(ctx) {
   lines.push('7. pool 格式: __Pool_{Shape}_{Color}_{NN}');
   lines.push('8. entities[].initPos: [x,y,z], x范围±6, z范围±4, y>0');
   lines.push('9. entities[].scale >= 0.3');
+  lines.push('9a. **每个 entity 必须有 chineseName**(中文显示名),从 specs/blueprint 上下文中推断。例: ForgeWorkshop→"锻造间", SpaceJunk→"太空垃圾", RecyclingStation→"回收站"。不能留空、不能给英文、不能复制 name 字段');
+  lines.push('9b. showLabel 默认 true(世界空间头顶标签)。以下三类 entity 必须设 showLabel=false:(a) 玩家载具/飞船/avatar(名字含 Player/Ship/Avatar/Vehicle)(b) 货币飘字/金币/gem(名字含 Gold/Coin/Gem/Currency)(c) UI 按钮(名字含 CTAButton/Button/UI)');
   lines.push('');
   // 2026-04-17: Visual change rules — CUA rejects "visual freeze" when phases
   // transition without observable screen changes. Each phase must produce

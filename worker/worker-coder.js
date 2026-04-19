@@ -1492,7 +1492,8 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
       }
       skeleton = skeletonGenerator.generateSkeleton(specs, {
         projectName: blueprint.projectName || taskId,
-        entityPoolMap: entityPoolMap
+        entityPoolMap: entityPoolMap,
+        entities: blueprint.entities || []
       });
       log('[coder] V5 Skeleton: generated ' + skeleton.split('\n').length + ' lines', taskId);
     } catch (specErr) {

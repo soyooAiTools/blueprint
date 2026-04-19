@@ -93,13 +93,23 @@
   "definitions": {
     "entity": {
       "type": "object",
-      "required": ["name", "pool", "initPos", "scale"],
+      "required": ["name", "chineseName", "pool", "initPos", "scale"],
       "additionalProperties": false,
       "properties": {
         "name": {
           "type": "string",
           "minLength": 1,
-          "description": "Unique entity name"
+          "description": "Unique entity name (PascalCase, English, used as C# variable)"
+        },
+        "chineseName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "中文显示名,挂在 3D 场景实体头顶的世界标签。如 ForgeWorkshop -> '锻造间', SpaceJunk -> '太空垃圾'"
+        },
+        "showLabel": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否在场景中显示中文标签。玩家载具/货币飘字/CTA 按钮应设 false,目标建筑/可采集资源应设 true"
         },
         "pool": {
           "type": "string",
