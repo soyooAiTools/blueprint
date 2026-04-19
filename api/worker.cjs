@@ -7,6 +7,7 @@ var path = require('path');
 var url = require('url');
 var AdmZip = require('adm-zip');
 var { projectSM } = require("../lib/state-machine.cjs");
+var { clearCheckpoint } = require('../lib/checkpoint.cjs');
 
 module.exports.init = function(ctx) {
   var taskQueue = ctx.taskQueue;
@@ -116,6 +117,13 @@ module.exports.init = function(ctx) {
             writeProject(project);
           }
         } catch(e) {}
+        // Wipe checkpoint. Without this, shutdown handler may re-serialize
+        // the in-flight ctx, and the next resubmit with the same taskId will
+        // silently resume completedStages and skip codegen.
+        try {
+          var cpResult = clearCheckpoint(taskId);
+          if (cpResult.cleared) console.log('[Cancel Task] checkpoint cleared: ' + taskId);
+        } catch(e) { console.warn('[Cancel Task] checkpoint clear failed: ' + e.message); }
         console.log('[Cancel Task] ' + taskId + ' cancelled by ' + actor);
         sendJSON(res, { success: true, taskId: taskId, status: 'cancelled' });
       } catch (e) {

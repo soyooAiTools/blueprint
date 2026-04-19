@@ -6,6 +6,7 @@
 var fs = require('fs');
 var path = require('path');
 var { projectSM } = require('../lib/state-machine.cjs');
+var { clearCheckpoint } = require('../lib/checkpoint.cjs');
 
 /**
  * Submit a project to the autoCoding pipeline.
@@ -48,6 +49,18 @@ async function submitProject(project, opts) {
 
   // Enqueue or resubmit task
   var existingTask = taskQueue.get(taskId);
+  // Fresh submit (editing/failed, not feedback) wipes any stale checkpoint —
+  // even when the task row was deleted manually (existingTask=null) the file
+  // may still sit on disk from a previous run, and worker.processTask() will
+  // silently resume completedStages from it and skip codegen. Feedback
+  // resubmits keep the checkpoint: those loops deliberately reuse earlier
+  // stages and only re-run review + downstream.
+  if (!isFeedbackResubmit) {
+    try {
+      var cpResult = clearCheckpoint(taskId);
+      if (cpResult.cleared) console.log('[submit] checkpoint wiped for fresh submit: ' + taskId);
+    } catch(e) { console.warn('[submit] checkpoint wipe failed: ' + e.message); }
+  }
   if (isFeedbackResubmit && existingTask) {
     var feedback = null;
     if (project.feedbackHistory && project.feedbackHistory.length > 0) {
