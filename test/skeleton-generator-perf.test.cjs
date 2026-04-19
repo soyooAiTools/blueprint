@@ -29,3 +29,24 @@ describe('skeleton-generator — IsNear no sqrt (T1-5)', () => {
     expect(body).toMatch(/range\s*\*\s*range/);
   });
 });
+
+describe('skeleton-generator — PlaceObj/HideObj/SetScale struct copy (T1-1)', () => {
+  const code = generateSkeleton(buildMinimalSpec(), { entityPoolMap: { Target: 'Pool_Target' } });
+  const skeleton = typeof code === 'string' ? code : code.main;
+
+  test('PlaceObj uses struct-copy pattern, not `new Vector3`', () => {
+    const m = skeleton.match(/void PlaceObj\(GameObject obj, float x, float y, float z\)[\s\S]*?^\s*\}/m);
+    expect(m).toBeTruthy();
+    expect(m[0]).not.toMatch(/new Vector3/);
+    expect(m[0]).toMatch(/obj\.transform\.position\s*=\s*[_a-zA-Z]/);
+  });
+
+  test('HideObj and SetScale also avoid `new Vector3`', () => {
+    const hide = skeleton.match(/void HideObj\(GameObject obj\)[\s\S]*?^\s*\}/m)[0];
+    const scaleXYZ = skeleton.match(/void SetScale\(GameObject obj, float x, float y, float z\)[\s\S]*?^\s*\}/m)[0];
+    const scaleU = skeleton.match(/void SetScale\(GameObject obj, float uniform\)[\s\S]*?^\s*\}/m)[0];
+    expect(hide).not.toMatch(/new Vector3/);
+    expect(scaleXYZ).not.toMatch(/new Vector3/);
+    expect(scaleU).not.toMatch(/new Vector3/);
+  });
+});
