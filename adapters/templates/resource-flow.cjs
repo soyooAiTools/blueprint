@@ -37,12 +37,15 @@ function generateResourceUpdate(schema) {
 function buildCollectBlock(resource) {
   var resourceName = resource.name;
   var sourceEntity = toLowerCamel(resource.entity);
+  var scoreVar = '_score_' + resourceName;
 
   return [
-    'if (IsNear(' + sourceEntity + ', collectRange)) {',
+    'if (_collectCooldown <= 0f && IsNear(' + sourceEntity + ', collectRange)) {',
     '    if (' + resourceName + 'Carried < maxCarry) {',
     '        ' + resourceName + 'Carried++;',
-    '        scoreText.text = "' + escapeString(resourceName) + ': " + ' + resourceName + 'Carried + "/" + maxCarry;',
+    '        _collectCooldown = collectCooldownInterval;',
+    '        string ' + scoreVar + ' = "' + escapeString(resourceName) + ': " + ' + resourceName + 'Carried + "/" + maxCarry;',
+    '        if (_lastScoreText != ' + scoreVar + ') { scoreText.text = ' + scoreVar + '; _lastScoreText = ' + scoreVar + '; }',
     '    }',
     '}'
   ];
