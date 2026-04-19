@@ -14,7 +14,7 @@ function generateScoreDisplay(schema) {
     lines.push('            display += "' + escapeString(r.name) + ': " + GetResource("' + escapeString(r.name) + '") + "  ";');
   }
   lines.push('            if (gold > 0) display += "gold: " + gold;');
-  lines.push('            scoreText.text = display;');
+  lines.push('            if (_lastScoreText != display) { scoreText.text = display; _lastScoreText = display; }');
   lines.push('        }');
   return lines.join('\n');
 }
