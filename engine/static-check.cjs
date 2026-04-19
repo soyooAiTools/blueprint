@@ -384,6 +384,40 @@ var RULES = [
       return issues;
     },
   },
+  { id: 'chained-if-same-var-no-else', pattern: null,
+    message: 'Chained if (X == "...") on same variable without else — use else-if chain or switch for performance and readability',
+    custom: function(code) {
+      var issues = [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/[^\n]*/g, '')
+        .replace(/"(?:[^"\\]|\\.)*"/g, '""');
+      // Scan for bare "if (X == Y)" patterns with preceding non-else context
+      // Strategy: match all "if (ident == ...)" and group by same-ident consecutive runs
+      // where "consecutive" means no `else` token between them.
+      var re = /(\belse\s+)?\bif\s*\(\s*(\w+)\s*==\s*""/g;
+      var m, runs = [], cur = null;
+      while ((m = re.exec(stripped)) !== null) {
+        var hasElse = !!m[1];
+        var ident = m[2];
+        if (hasElse) { cur = null; continue; }
+        if (cur && cur.ident === ident) {
+          cur.count++;
+          cur.lastIdx = m.index;
+        } else {
+          cur = { ident: ident, count: 1, firstIdx: m.index, lastIdx: m.index };
+          runs.push(cur);
+        }
+      }
+      for (var i = 0; i < runs.length; i++) {
+        if (runs[i].count >= 3) {
+          var lineNum = code.substring(0, runs[i].firstIdx).split('\n').length;
+          issues.push({ line: lineNum, text: runs[i].count + ' consecutive bare "if (' + runs[i].ident + ' == ...)" — use else-if' });
+        }
+      }
+      return issues;
+    },
+  },
 ];
 
 /**

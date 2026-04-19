@@ -368,4 +368,57 @@ public class Main : MonoBehaviour {
     expect(hit).toBeDefined();
     expect(hit.blocking).toBe(true);
   });
+
+  test('3+ chained if (X == "...") without else detected as warn', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  void Foo() {
+    if (phase == "p1") { }
+    if (phase == "p2") { }
+    if (phase == "p3") { }
+  }
+}`;
+    const result = staticCheck(code);
+    const hit = result.issues.find(i => i.rule === 'chained-if-same-var-no-else');
+    expect(hit).toBeDefined();
+    expect(hit.blocking).toBeFalsy();
+  });
+
+  test('2 chained if on same var does NOT trigger (threshold is 3)', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  void Foo() {
+    if (phase == "p1") { }
+    if (phase == "p2") { }
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'chained-if-same-var-no-else');
+    expect(hit).toBeUndefined();
+  });
+
+  test('3 chained if but on different vars does NOT trigger', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  void Foo() {
+    if (a == "p1") { }
+    if (b == "p2") { }
+    if (c == "p3") { }
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'chained-if-same-var-no-else');
+    expect(hit).toBeUndefined();
+  });
+
+  test('else if chain does NOT trigger', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  void Foo() {
+    if (phase == "p1") { }
+    else if (phase == "p2") { }
+    else if (phase == "p3") { }
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'chained-if-same-var-no-else');
+    expect(hit).toBeUndefined();
+  });
 });
