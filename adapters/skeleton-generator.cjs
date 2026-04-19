@@ -177,13 +177,13 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    float gameTimer;');
   lines.push('    bool gameEnded = false;');
   lines.push('');
-  lines.push('    // [SKELETON] AutoPlay dual-mode — CUA verification uses autoPlay, end-user uses interactive');
+  lines.push('    // [SKELETON] AutoPlay — state owner is GFM_AutoPlay (canonical library)');
+  lines.push('    // Local snapshots are synced at top of Update() each frame for backward compat');
+  lines.push('    // with downstream skeleton code that reads _autoPlayMode / _autoPlaySteps.');
   lines.push('    bool _autoPlayMode = false;');
-  lines.push('    bool _autoPlayChecked = false;');
-  lines.push('    float _autoPlayDetectRealTime = -1f; // [SKELETON] wall-clock time when __AUTOPLAY_ON__ detected');
-  lines.push('    int _autoPlaySteps = 0; // [SKELETON] tracks autoPlay visual progress for CUA');
-  lines.push('    int _autoPlayStepsAtPhaseStart = 0; // [SKELETON] tracks autoPlay steps when current phase started');
-  lines.push('    const float AUTO_PLAY_PHASE_DURATION = 12f; // [SKELETON] 12s per shot — DO NOT MODIFY this value (DO NOT MODIFY)');
+  lines.push('    int _autoPlaySteps = 0;');
+  lines.push('    int _autoPlayStepsAtPhaseStart = 0; // tracks autoPlay steps when current phase started');
+  lines.push('    const float AUTO_PLAY_PHASE_DURATION = 12f; // [SKELETON] 12s per shot — DO NOT MODIFY this value');
   lines.push('');
 
   // Entity state variables — from entitiesRequired + all entityPoolMap entries
@@ -296,51 +296,49 @@ function generateSkeleton(specs, opts = {}) {
   }
 
   if (hasEconomy) {
-    lines.push('    // [SKELETON] Economy system — AI fills _resources array in Start()');
+    // [SKELETON] Economy system — state lives in GFM_EconomyManager (parallel arrays,
+    // Luna-compatible, no Dictionary). Main file keeps thin delegate stubs so existing
+    // templates that call AddResource/GetResource/TrySpend/TryConvert keep working.
+    lines.push('    // [SKELETON] Economy system — delegated to GFM_EconomyManager (state owner)');
+    lines.push('    // AI fills _resources array in Start(); skeleton syncs it to Manager once.');
     lines.push('    struct ResourceDef {');
     lines.push('        public string resourceId;');
     lines.push('        public string displayName;');
     lines.push('        public string convertFrom; // upstream resource id, empty if primary');
     lines.push('        public int convertRatio;   // how many upstream = 1 of this');
     lines.push('    }');
-    lines.push('    ResourceDef[] _resources; // [SKELETON] AI: fill in Start()');
-    lines.push('    System.Collections.Generic.Dictionary<string, int> _inventory = new System.Collections.Generic.Dictionary<string, int>();');
+    lines.push('    ResourceDef[] _resources; // [SKELETON] AI: fill in Start(); auto-synced to Manager');
     lines.push('');
-    lines.push('    void AddResource(string id, int amount) {');
-    lines.push('        if (!_inventory.ContainsKey(id)) _inventory[id] = 0;');
-    lines.push('        _inventory[id] += amount;');
-    lines.push('        UpdateResourceUI();');
-    lines.push('    }');
-    lines.push('');
-    lines.push('    int GetResource(string id) {');
-    lines.push('        return _inventory.ContainsKey(id) ? _inventory[id] : 0;');
-    lines.push('    }');
-    lines.push('');
-    lines.push('    bool TrySpend(string id, int amount) {');
-    lines.push('        if (GetResource(id) < amount) return false;');
-    lines.push('        _inventory[id] -= amount;');
-    lines.push('        UpdateResourceUI();');
-    lines.push('        return true;');
-    lines.push('    }');
-    lines.push('');
-    lines.push('    bool TryConvert(string fromId, string toId) {');
-    lines.push('        if (_resources == null) return false;');
-    lines.push('        ResourceDef toDef = default;');
-    lines.push('        bool found = false;');
+    lines.push('    // [SKELETON] Sync locally-filled _resources into GFM_EconomyManager (once)');
+    lines.push('    void _SyncResourcesToManager() {');
+    lines.push('        if (_resources == null || _resources.Length == 0) return;');
+    lines.push('        var mgr = GFM_EconomyManager.Instance;');
+    lines.push('        var mgrDefs = new GFM_EconomyManager.ResourceDef[_resources.Length];');
     lines.push('        for (int i = 0; i < _resources.Length; i++) {');
-    lines.push('            if (_resources[i].resourceId == toId) { toDef = _resources[i]; found = true; break; }');
+    lines.push('            mgrDefs[i] = new GFM_EconomyManager.ResourceDef {');
+    lines.push('                resourceId = _resources[i].resourceId,');
+    lines.push('                displayName = _resources[i].displayName,');
+    lines.push('                convertFrom = _resources[i].convertFrom,');
+    lines.push('                convertRatio = _resources[i].convertRatio');
+    lines.push('            };');
     lines.push('        }');
-    lines.push('        if (!found || toDef.convertFrom != fromId) return false;');
-    lines.push('        if (GetResource(fromId) < toDef.convertRatio) return false;');
-    lines.push('        _inventory[fromId] -= toDef.convertRatio;');
-    lines.push('        AddResource(toId, 1);');
-    lines.push('        return true;');
+    lines.push('        mgr.SetResources(mgrDefs);');
     lines.push('    }');
     lines.push('');
+    lines.push('    // [SKELETON] Delegate stubs — forward to GFM_EconomyManager (single source of truth)');
+    lines.push('    void AddResource(string id, int amount) { GFM_EconomyManager.Instance.AddResource(id, amount); }');
+    lines.push('    int GetResource(string id) { return GFM_EconomyManager.Instance.GetResource(id); }');
+    lines.push('    bool TrySpend(string id, int amount) { return GFM_EconomyManager.Instance.TrySpend(id, amount); }');
+    lines.push('    bool TryConvert(string fromId, string toId) { return GFM_EconomyManager.Instance.TryConvert(fromId, toId); }');
     lines.push('    void UpdateResourceUI() {');
+    lines.push('        // Manager 自动更新 scoreText；如果主文件用本地 scoreText，在这里额外拉取展示。');
     lines.push('        if (scoreText == null) return;');
+    lines.push('        var mgr = GFM_EconomyManager.Instance;');
     lines.push('        var parts = new System.Collections.Generic.List<string>();');
-    lines.push('        foreach (var kv in _inventory) { if (kv.Value > 0) parts.Add(kv.Key + ": " + kv.Value); }');
+    lines.push('        for (int i = 0; i < mgr.InvCount; i++) {');
+    lines.push('            int v = mgr.InvVal(i);');
+    lines.push('            if (v > 0) parts.Add(mgr.InvKey(i) + ": " + v);');
+    lines.push('        }');
     lines.push('        scoreText.text = string.Join("  ", parts);');
     lines.push('    }');
     lines.push('');
@@ -527,41 +525,18 @@ function generateSkeleton(specs, opts = {}) {
   });
 
   if (autoTargets.length > 0 && isIdleGame) {
-    // Idle games already have MovePlayer — AutoPlayUpdate navigates between targets
-    lines.push('    // [SKELETON] AutoPlay — auto-navigate player through target entities');
+    // Idle games: GFM_AutoPlay handles navigation. Skeleton captures target list + registers OnArrive in Start.
+    lines.push('    // [SKELETON] AutoPlay targets — passed to GFM_AutoPlay.Instance in Start()');
     lines.push(`    string[] _autoTargets = new string[] { ${autoTargets.map(t => '"' + t + '"').join(', ')} };`);
-    lines.push('    int _autoTargetIdx = 0;');
-    lines.push('    float _autoTargetWait = 0f;');
     lines.push('');
+    lines.push('    // [SKELETON] AutoPlayUpdate — delegates to GFM_AutoPlay.Instance (navigation + OnArrive)');
     lines.push('    void AutoPlayUpdate()');
     lines.push('    {');
-    lines.push('        if (!_autoPlayMode || player == null) return;');
-    lines.push('        if (_autoTargetWait > 0f) { _autoTargetWait -= Time.deltaTime; return; }');
-    lines.push('        if (_autoTargetIdx >= _autoTargets.Length) _autoTargetIdx = 0;');
-    lines.push('        GameObject target = GameObject.Find(_autoTargets[_autoTargetIdx]);');
-    lines.push('        if (target == null) { _autoTargetIdx++; return; }');
-    lines.push('        Vector3 dir = target.transform.position - player.transform.position;');
-    lines.push('        dir.y = 0f;');
-    lines.push('        if (dir.magnitude > 1.0f)');
-    lines.push('        {');
-    lines.push('            float speed = moveSpeed * 1.2f;');
-    lines.push('            player.transform.position = Vector3.MoveTowards(');
-    lines.push('                player.transform.position, target.transform.position, speed * Time.deltaTime);');
-    lines.push('            if (dir.magnitude > 0.1f)');
-    lines.push('                player.transform.rotation = Quaternion.Lerp(');
-    lines.push('                    player.transform.rotation, Quaternion.LookRotation(dir), 5f * Time.deltaTime);');
-    lines.push('            if (mainCam != null) mainCam.transform.LookAt(player.transform.position);');
-    lines.push('        }');
-    lines.push('        else');
-    lines.push('        {');
-    lines.push('            _autoTargetWait = 1.5f;');
-    lines.push('            _autoTargetIdx++;');
-    lines.push('            _autoPlaySteps++;');
-    lines.push('            OnAutoPlayArrive(_autoTargets[(_autoTargetIdx - 1) % _autoTargets.Length]);');
-    lines.push('        }');
+    lines.push('        GFM_AutoPlay.Instance.Tick();');
+    lines.push('        _autoPlaySteps = GFM_AutoPlay.Instance.Steps; // sync local for backward compat');
     lines.push('    }');
   } else {
-    // Non-idle or no targets — use timer-based periodic interaction trigger
+    // Non-idle or no targets — use timer-based periodic interaction trigger (no player navigation needed)
     lines.push('    // [SKELETON] AutoPlay — periodic interaction trigger for CUA variable checking');
     lines.push('    float _autoInteractTimer = 0f;');
     lines.push('');
@@ -573,6 +548,7 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        {');
     lines.push('            _autoInteractTimer = 0f;');
     lines.push('            _autoPlaySteps++;');
+    lines.push('            GFM_AutoPlay.Instance.IncrementSteps(); // sync step count to Manager');
     lines.push('            OnAutoPlayArrive(currentPhaseName);');
     lines.push('        }');
     lines.push('    }');
@@ -720,6 +696,21 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('');
   lines.push('        // TODO_START_END');
   lines.push('');
+  if (hasEconomy) {
+    lines.push('        // [SKELETON] Sync AI-filled _resources into GFM_EconomyManager (state owner)');
+    lines.push('        _SyncResourcesToManager();');
+    lines.push('');
+  }
+  // [SKELETON] Register AutoPlay targets + OnArrive callback with the Manager.
+  // Only the idle-game branch emits `_autoTargets` (non-idle uses timer-based Update path).
+  if (autoTargets.length > 0 && isIdleGame) {
+    lines.push('        // [SKELETON] Register AutoPlay targets with GFM_AutoPlay (state owner)');
+    lines.push('        GFM_AutoPlay.Instance.SetTargets(_autoTargets);');
+    lines.push('');
+  }
+  lines.push('        // [SKELETON] Wire AutoPlay arrival callback — Manager calls OnAutoPlayArrive per target');
+  lines.push('        GFM_AutoPlay.Instance.OnArrive = OnAutoPlayArrive;');
+  lines.push('');
   lines.push('        UpdateGameState();');
   lines.push('    }');
   lines.push('');
@@ -732,18 +723,11 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        float dt = Time.deltaTime;');
   lines.push('        gameTimer += dt;');
   lines.push('');
-  lines.push('        // [SKELETON] AutoPlay detection — two-stage: detect flag, then delay activation (DO NOT MODIFY)');
-  lines.push('        // Stage 1: detect __AUTOPLAY_ON__ entity from JS bridge');
-  lines.push('        if (!_autoPlayMode && !_autoPlayChecked)');
-  lines.push('        {');
-  lines.push('            if (GameObject.Find("__AUTOPLAY_ON__") != null) { _autoPlayDetectRealTime = Time.realtimeSinceStartup; _autoPlayChecked = true; }');
-  lines.push('            else if (gameTimer > 3.0f) _autoPlayChecked = true; // stop checking after 3s');
-  lines.push('        }');
-  lines.push('        // Stage 2: activate after 6 real seconds — CUA observer needs startup time before phases advance');
-  lines.push('        if (!_autoPlayMode && _autoPlayDetectRealTime > 0f && (Time.realtimeSinceStartup - _autoPlayDetectRealTime) >= 6f)');
-  lines.push('        {');
-  lines.push('            _autoPlayMode = true;');
-  lines.push('        }');
+  lines.push('        // [SKELETON] AutoPlay activation — delegated to GFM_AutoPlay.Instance (DO NOT MODIFY)');
+  lines.push('        // Manager does 2-stage detection (flag + 6s real-time delay) internally.');
+  lines.push('        GFM_AutoPlay.Instance.CheckActivation(gameTimer);');
+  lines.push('        _autoPlayMode = GFM_AutoPlay.Instance.IsActive;      // sync local for skeleton reads');
+  lines.push('        _autoPlaySteps = GFM_AutoPlay.Instance.Steps;        // sync step count');
   lines.push('');
   lines.push('        // [SKELETON] Phase timer update');
   lines.push('        if (currentPhaseName != lastPhaseForTimer) {');

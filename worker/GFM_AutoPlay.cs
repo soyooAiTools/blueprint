@@ -1,0 +1,170 @@
+// ============================================================================
+// GFM_AutoPlay.cs — 自动播放控制器（单例）
+// ----------------------------------------------------------------------------
+// 职责：CUA (视觉自动化验证) 模式下代替真实玩家操控游戏。
+//       - 检测 __AUTOPLAY_ON__ 标志实体 → 延迟 6 秒后激活 (等 CUA observer 启动)
+//       - 激活后沿 _autoTargets 列表逐个导航到目标实体
+//       - 到达目标时回调 GameFlowManagerMain.HandleAutoPlayArrive(targetName)
+//         触发该阶段对应的 autoplay 交互副作用（由主文件按 phase 分发）
+//
+// 关键数值 (与 skeleton 约束绑定 — 修改会导致 CUA 失败)：
+//   - 检测后延迟激活 6 秒 (Time.realtimeSinceStartup，不受 speed patch 影响)
+//   - 每个目标到达后等待 1.5 秒才切换下一个 (给 CUA observer 时间截图)
+//   - 导航速度 = Player.MoveSpeed × 1.2
+//
+// 设计约束 (Luna 兼容):
+//   - 不用 Destroy()，防重用 enabled=false
+//   - delegate 回调用 System.Action<string> (Bridge.NET 支持)
+//
+// 外部调用入口 (主文件 Update):
+//   GFM_AutoPlay.Instance.CheckActivation(gameTimer);
+//   if (GFM_AutoPlay.Instance.IsActive) GFM_AutoPlay.Instance.Tick();
+//   int s = GFM_AutoPlay.Instance.Steps;  // 给 CheckEventRules 做 gate
+// ============================================================================
+
+using UnityEngine;
+
+public class GFM_AutoPlay : MonoBehaviour
+{
+    // ========================================================================
+    // 【单例入口】
+    // ========================================================================
+    private static GFM_AutoPlay _instance;
+    public static GFM_AutoPlay Instance
+    {
+        get
+        {
+            if (_instance == null)
+            {
+                var obj = new GameObject("GFM_AutoPlay");
+                _instance = obj.AddComponent<GFM_AutoPlay>();
+            }
+            return _instance;
+        }
+    }
+
+    // ========================================================================
+    // 【状态字段】
+    //   _isActive: 是否已激活 autoPlay 模式 (激活后主 Update 走 Tick 而非玩家输入)
+    //   _checked: 是否已检测过 __AUTOPLAY_ON__ 标志 (避免每帧 Find)
+    //   _detectRealTime: 检测到标志的 wall-clock 时间戳
+    //   _steps: 已完成的自动交互步数 (CheckEventRules 读它做 phase gate)
+    // ========================================================================
+    private bool _isActive = false;
+    private bool _checked = false;
+    private float _detectRealTime = -1f;
+    private int _steps = 0;
+
+    public bool IsActive { get { return _isActive; } }
+    public int Steps { get { return _steps; } }
+    public float DetectRealTime { get { return _detectRealTime; } }
+
+    // 【外部 incremenet 接口】CheckEventRules 在各 phase 入口里需要手动 +1
+    public void IncrementSteps() { _steps++; }
+
+    // ========================================================================
+    // 【目标循环】
+    //   _autoTargets: autoPlay 遍历的实体名列表（主文件在 Start 里 SetTargets 覆盖）
+    //   _autoTargetIdx: 当前目标下标
+    //   _autoTargetWait: 到达后的等待计时 (给 CUA observer 截图时间)
+    // ========================================================================
+    private string[] _autoTargets = new string[] { "CTAButton" }; // 保底：至少有 CTA
+    private int _autoTargetIdx = 0;
+    private float _autoTargetWait = 0f;
+
+    // 【外部注入目标列表】主文件 Start 按 phase 顺序填入要路过的实体名。
+    public void SetTargets(string[] targets)
+    {
+        if (targets != null && targets.Length > 0) _autoTargets = targets;
+    }
+
+    // 【到达回调】主文件注册一个处理器，AutoPlay 到达目标时调它分发 phase 副作用
+    public System.Action<string> OnArrive;
+
+    private bool _inited = false;
+    public void Init()
+    {
+        if (_inited) return;
+        _inited = true;
+    }
+
+    private void Awake()
+    {
+        if (_instance != null && _instance != this) { enabled = false; return; }
+        _instance = this;
+        Init();
+    }
+
+    // ========================================================================
+    // 【两阶段激活检测】— 与 skeleton 契约绑死，不要动数值
+    // Stage 1: 每帧 Find "__AUTOPLAY_ON__"；3s 后停止检测 (没开 autoPlay 就跳过)
+    // Stage 2: 检测到后延迟 6 秒才激活 (等 CUA observer 启动，否则阶段瞬过)
+    // ========================================================================
+    public void CheckActivation(float gameTimer)
+    {
+        // Stage 1：标志探测
+        if (!_isActive && !_checked)
+        {
+            if (GameObject.Find("__AUTOPLAY_ON__") != null)
+            {
+                _detectRealTime = Time.realtimeSinceStartup;
+                _checked = true;
+            }
+            else if (gameTimer > 3.0f) _checked = true;
+        }
+
+        // Stage 2：激活延迟 6s (Time.realtimeSinceStartup 不受 speed patch 影响)
+        if (!_isActive && _detectRealTime > 0f && (Time.realtimeSinceStartup - _detectRealTime) >= 6f)
+        {
+            _isActive = true;
+        }
+    }
+
+    // ========================================================================
+    // 【主循环】IsActive=true 时主 Update 每帧调一次。
+    //   - 到达目标前：沿直线朝目标移动 + 相机 LookAt
+    //   - 到达目标后：等 1.5s，切换下一个目标，调 OnArrive 触发副作用
+    // ========================================================================
+    public void Tick()
+    {
+        if (!_isActive) return;
+        var player = GFM_Player.Instance;
+        if (player == null || player.Go == null) return;
+
+        // 到达后冷却：CUA observer 在这段时间里截图确认画面变化
+        if (_autoTargetWait > 0f) { _autoTargetWait -= Time.deltaTime; return; }
+        if (_autoTargetIdx >= _autoTargets.Length) _autoTargetIdx = 0;
+
+        GameObject target = GameObject.Find(_autoTargets[_autoTargetIdx]);
+        if (target == null) { _autoTargetIdx++; return; }
+
+        Vector3 dir = target.transform.position - player.Trans.position;
+        dir.y = 0f;
+
+        if (dir.magnitude > 1.0f)
+        {
+            // 还没到：直线移动 + 转向 + 相机跟随
+            float speed = player.MoveSpeed * 1.2f;
+            player.Trans.position = Vector3.MoveTowards(
+                player.Trans.position, target.transform.position, speed * Time.deltaTime);
+            if (dir.magnitude > 0.1f)
+            {
+                player.Trans.rotation = Quaternion.Lerp(
+                    player.Trans.rotation, Quaternion.LookRotation(dir), 5f * Time.deltaTime);
+            }
+            if (GFM_CameraController.Instance != null && GFM_CameraController.Instance.IsReady)
+            {
+                GFM_CameraController.Instance.LookAt(player.Trans.position);
+            }
+        }
+        else
+        {
+            // 到了：等 1.5s，切下一个目标，触发 phase 副作用回调
+            _autoTargetWait = 1.5f;
+            _autoTargetIdx++;
+            _steps++;
+            string arrivedTarget = _autoTargets[(_autoTargetIdx - 1) % _autoTargets.Length];
+            if (OnArrive != null) OnArrive(arrivedTarget);
+        }
+    }
+}

@@ -29,7 +29,12 @@ var SKELETON_SAFE = [
 var UNITY_PREFIXES = [
   'Vector3', 'Vector2', 'Quaternion', 'Mathf', 'Input', 'Debug', 'Camera', 'Physics',
   'GameObject', 'Transform', 'Color', 'Time', 'Random', 'String', 'Math', 'Convert',
-  'GFM_Create', 'GFM_UI', 'GFM_Luna'
+  // 无状态工具类
+  'GFM_Create', 'GFM_UI', 'GFM_Luna', 'GFM_Audio', 'GFM_Pool', 'GFM_Event',
+  'GFM_Utils', 'GFM_Grid', 'GFM_Pathfinding', 'GFM_Billboard',
+  // Manager 架构 (都是 .Instance.X 形式调用，但保留做防御)
+  'GFM_EconomyManager', 'GFM_UIManager', 'GFM_CameraController', 'GFM_Player',
+  'GFM_AutoPlay', 'GFM_NpcManager', 'GFM_ItemManager'
 ];
 
 /**

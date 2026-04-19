@@ -5,6 +5,7 @@ const path = require('path');
 const GFM_DIR = __dirname;
 const GFM_DEST_SUBDIR = 'Commons';
 const GFM_FILES = [
+  // 基础工具层 (static class / 无状态)
   'GFM_Audio.cs',
   'GFM_Pool.cs',
   'GFM_Event.cs',
@@ -16,6 +17,15 @@ const GFM_FILES = [
   'GFM_Grid.cs',
   'GFM_Pathfinding.cs',
   'GFM_Billboard.cs',
+  // Manager 架构层 (MonoBehaviour 单例 / 有状态)
+  'GFM_EconomyManager.cs',   // 资源/金币/兑换
+  'GFM_UIManager.cs',        // Canvas/guide/score/floatingText
+  'GFM_CameraController.cs', // 相机缓存 + 正交视角
+  'GFM_Player.cs',           // 玩家载具 + 形态系统 + 采集/递送
+  'GFM_AutoPlay.cs',         // CUA 自动播放控制器
+  'GFM_NpcManager.cs',       // NPC 管理器 (占位)
+  'GFM_ItemManager.cs',      // 物品管理器 (占位)
+  // 场景初始化层
   'ScriptActivator.cs',
   'GameSceneCtrl.cs',
 ];
