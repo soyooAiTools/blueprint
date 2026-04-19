@@ -45,4 +45,10 @@ describe('batch2 skeleton cooldown infrastructure', () => {
     var main = typeof out === 'string' ? out : out.main;
     expect(main).toMatch(/if\s*\(\s*_collectCooldown\s*>\s*0f\s*\)\s*_collectCooldown\s*-=\s*Time\.deltaTime\s*;/);
   });
+
+  test('collectCooldownInterval respects schema gameConfig.collectCooldown', () => {
+    var out = generateSkeleton(makeSpecs(0.5));
+    var main = typeof out === 'string' ? out : out.main;
+    expect(main).toMatch(/float\s+collectCooldownInterval\s*=\s*0\.5f\s*;/);
+  });
 });

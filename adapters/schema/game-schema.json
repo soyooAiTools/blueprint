@@ -40,6 +40,13 @@
           "type": "integer",
           "minimum": 1,
           "description": "Maximum number of items the player can carry"
+        },
+        "collectCooldown": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 2.0,
+          "default": 0.3,
+          "description": "Seconds between consecutive collect actions (global cooldown). Lower = faster resource accumulation, higher = player must wait between pickups."
         }
       }
     },
