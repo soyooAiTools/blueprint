@@ -82,6 +82,7 @@ function getBaseTemplate(targetDir, log, taskId) {
 
 // ============ Task Checkpoint (persist best code across worker restarts) ============
 const CHECKPOINT_DIR = path.join(__dirname, '..', 'server-data', 'checkpoints');
+const checkpointHelper = require('../lib/checkpoint.cjs');
 
 function getCheckpointPath(taskId) {
   return path.join(CHECKPOINT_DIR, taskId);
@@ -99,6 +100,7 @@ function saveCheckpoint(taskId, data) {
     extraFiles: data.extraFiles || {},
     stageResults: data.stageResults || {},
     workDir: data.workDir || null,
+    pipelineVersion: checkpointHelper.computePipelineFingerprint(),
     savedAt: new Date().toISOString()
   };
   // htmlOutput can be large (>10MB) — save as separate file to avoid JSON bloat
@@ -571,9 +573,21 @@ async function processTask(task) {
     log(`Blueprint: ${blueprint.entities.length} entities`, taskId);
 
     // === Step 2: Check checkpoint for resume ===
+    // Plan D: compare stored pipelineVersion vs current codegen fingerprint. On mismatch,
+    // drop codegen + downstream stages (keep pure-upstream clone/spec-*), and wipe restored
+    // csCode / extraFiles / stageResults so the resumed run regenerates from upstream.
     const checkpoint = loadCheckpoint(taskId);
+    let checkpointDecision = null;
     if (checkpoint) {
-      log(`[checkpoint] Resuming from saved checkpoint at ${checkpoint.savedAt}`, taskId);
+      const currentFp = checkpointHelper.computePipelineFingerprint();
+      checkpointDecision = checkpointHelper.reconcileCheckpoint(checkpoint, currentFp);
+      if (checkpointDecision.action === 'resume') {
+        log(`[checkpoint] Resuming (fingerprint match ${currentFp.hash}) from ${checkpoint.savedAt}`, taskId);
+      } else if (checkpointDecision.action === 'resume-legacy') {
+        log(`[checkpoint] Resuming pre-D checkpoint at ${checkpoint.savedAt} — ${checkpointDecision.warn}`, taskId);
+      } else if (checkpointDecision.action === 'invalidate') {
+        log(`[checkpoint] Pipeline fingerprint changed (saved=${checkpointDecision.savedHash} current=${checkpointDecision.currentHash}). Dropping stages: [${checkpointDecision.droppedStages.join(', ')}]. Keeping: [${checkpointDecision.completedStages.join(', ')}]`, taskId);
+      }
     }
 
     // === Step 3: Build pipeline context ===
@@ -590,9 +604,12 @@ async function processTask(task) {
 
     // Map checkpoint to pipeline format
     const pipelineCheckpoint = {};
+    const invalidated = checkpointDecision && checkpointDecision.action === 'invalidate';
     if (checkpoint && checkpoint.csCode) {
-      // Use real completedStages from checkpoint (not hardcoded)
-      if (checkpoint.completedStages && checkpoint.completedStages.length > 0) {
+      if (invalidated) {
+        // Fingerprint mismatch: keep only upstream pure-input stages, force codegen re-run.
+        pipelineCheckpoint.completedStages = checkpointDecision.completedStages;
+      } else if (checkpoint.completedStages && checkpoint.completedStages.length > 0) {
         pipelineCheckpoint.completedStages = checkpoint.completedStages;
         log(`[checkpoint] Resuming with completedStages: [${checkpoint.completedStages.join(', ')}]`, taskId);
       } else {
@@ -600,14 +617,15 @@ async function processTask(task) {
         pipelineCheckpoint.completedStages = ['clone', 'codegen', 'review'];
         log(`[checkpoint] Legacy checkpoint — resuming after review stage`, taskId);
       }
-      pipelineCheckpoint.cuaRound = checkpoint.cuaRound || 0;
-      pipelineCheckpoint.fixHistory = checkpoint.fixHistory || [];
+      pipelineCheckpoint.cuaRound = invalidated ? 0 : (checkpoint.cuaRound || 0);
+      pipelineCheckpoint.fixHistory = invalidated ? [] : (checkpoint.fixHistory || []);
     }
 
     const ctx = new PipelineContext(pipelineTask, pipelineCheckpoint, workerConfig);
 
-    // Restore full checkpoint state
-    if (checkpoint && checkpoint.csCode) {
+    // Restore full checkpoint state — skip csCode/extraFiles/stageResults on invalidate so
+    // downstream stages re-derive from upstream. Keep feedbackHistory (blueprint-level state).
+    if (checkpoint && checkpoint.csCode && !invalidated) {
       ctx.csCode = checkpoint.csCode;
       ctx.blueprint.feedbackHistory = checkpoint.feedbackHistory || [];
       if (checkpoint.extraFiles) {
@@ -624,6 +642,9 @@ async function processTask(task) {
         ctx.workDir = checkpoint.workDir;
         log(`[checkpoint] Restored workDir: ${checkpoint.workDir}`, taskId);
       }
+    } else if (invalidated) {
+      // Preserve feedbackHistory only; everything else must regenerate.
+      ctx.blueprint.feedbackHistory = checkpoint.feedbackHistory || [];
     }
 
     // Store pipeline context reference for graceful shutdown
