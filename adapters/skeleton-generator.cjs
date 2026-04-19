@@ -411,11 +411,13 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        }');
     lines.push('    }');
     lines.push('');
-    lines.push('    // [SKELETON] Check if player is near a target (proximity trigger)');
+    lines.push('    // [SKELETON] Check if player is near a target (proximity trigger) — XZ sqr distance, no sqrt/alloc');
     lines.push('    bool IsNear(GameObject target, float range)');
     lines.push('    {');
     lines.push('        if (player == null || target == null) return false;');
-    lines.push('        return Vector3.Distance(player.transform.position, target.transform.position) < range;');
+    lines.push('        float dx = player.transform.position.x - target.transform.position.x;');
+    lines.push('        float dz = player.transform.position.z - target.transform.position.z;');
+    lines.push('        return (dx * dx + dz * dz) < (range * range);');
     lines.push('    }');
     lines.push('');
     lines.push('    // [SKELETON] Auto-collect: when player near source, pick up resources');
