@@ -968,8 +968,8 @@
     "autoExtracted": true,
     "failClassification": "CODE",
     "stage": "review",
-    "lastSeenAt": "2026-04-19T04:32:38.176Z",
-    "hitCount": 12
+    "lastSeenAt": "2026-04-19T15:23:58.589Z",
+    "hitCount": 16
   },
   {
     "description": "Spec validation failed: 7 error(s):\nSpec[2] buildForgeWorkshop: entity \"forgeWorkshop\" not found in blueprint.entities. Known: PlayerAstronaut, RecyclingStation, SpaceDebris, MetalScrap, ForgeWorkshop, BasicDrill, CrusherTruck, HydraulicTruck, CanteenModule, DormModule\nSpec[3] upgradeTripleDrill: entity \"drill\" not found in blueprint.entities. Known: PlayerAstronaut, RecyclingStation, SpaceDebris, MetalScrap, ForgeWorkshop, BasicDrill, CrusherTruck, HydraulicTruck, CanteenModule, DormModule\nSpec",
@@ -1062,5 +1062,57 @@
     "stage": "codegen",
     "lastSeenAt": "2026-04-18T16:38:03.118Z",
     "hitCount": 6
+  },
+  {
+    "description": "Spec validation failed: 2 error(s):\nSpec[9] expandSpaceStation: entity \"DiningHall\" not found in blueprint.entities. Known: PlayerSingleDrill, RecyclingStation, SpaceJunk, MetalShard, ForgeBlueprint, ForgeWorkshop, PlayerTripleDrill, CrusherUpgrade, CrusherVehicle, HydraulicUpgrade\nSpec[10] showFullStationCTA: entity \"FullSpaceStation\" not found in blueprint.entities. Known: PlayerSingleDrill, RecyclingStation, SpaceJunk, MetalShard, ForgeBlueprint, ForgeWorkshop, PlayerTripleDrill, CrusherUpgra",
+    "rule": "Spec Structure",
+    "fix": "Spec validation failed: 2 error(s):\nSpec[9] expandSpaceStation: entity \"DiningHall\" not found in blueprint.entities. Known: PlayerSingleDrill, RecyclingStation, SpaceJunk, MetalShard, ForgeBlueprint, ForgeWorkshop, PlayerTripleDrill, CrusherUpgrade, CrusherVehicle, HydraulicUpgrade\nSpec[10] showFull",
+    "severity": "critical",
+    "line": "spec-validate stage failure",
+    "taskId": "proj_1776600707434_w1atest",
+    "timestamp": "2026-04-19T12:12:01.921Z",
+    "autoExtracted": true,
+    "failClassification": "FATAL",
+    "stage": "spec-validate",
+    "lastSeenAt": "2026-04-19T12:12:32.012Z",
+    "hitCount": 2
+  },
+  {
+    "description": "Schema validation failed: .entities[0] should have required property 'chineseName'; .entities[1] should have required property 'chineseName'; .entities[2] should have required property 'chineseName'; .entities[3] should have required property 'chineseName'; .entities[4] should have required property 'chineseName'; .entities[5] should have required property 'chineseName'; .entities[6] should have required property 'chineseName'; .entities[7] should have required property 'chineseName'; .entities[",
+    "rule": "General",
+    "fix": "Schema validation failed: .entities[0] should have required property 'chineseName'; .entities[1] should have required property 'chineseName'; .entities[2] should have required property 'chineseName'; .entities[3] should have required property 'chineseName'; .entities[4] should have required property",
+    "severity": "info",
+    "line": "codegen stage failure",
+    "taskId": "proj_1776600707434_w1atest",
+    "timestamp": "2026-04-19T12:52:40.336Z",
+    "autoExtracted": true,
+    "failClassification": "CODE",
+    "stage": "codegen",
+    "lastSeenAt": "2026-04-19T15:04:15.576Z",
+    "hitCount": 5
+  },
+  {
+    "description": "cua-verify aborted: same CODE error repeated 3 rounds, fix-loop not converging: cua-verify aborted: same CODE error repeated N rounds, fix-loop not converging: cua-verify aborted: same CODE error repeated N rounds, fix-loop not converging: cua-verify failed after N rounds",
+    "rule": "Interaction / Gameplay",
+    "fix": "Previous 4 attempts all failed with \"autoplay\". You MUST implement ALL phases. Every phase transition must have real conditions.\n\nPrevious failure context:\nCUA blueprint flow verification failed (round 9):\n[visual-quality] Pre-observation phase contamination: ['initialCollectSpaceJunk'] already comp",
+    "severity": "warning",
+    "line": "cua-verify stage failure",
+    "taskId": "proj_1776600707434_w1atest",
+    "timestamp": "2026-04-19T17:14:30.866Z",
+    "autoExtracted": true,
+    "failClassification": "CODE",
+    "stage": "cua-verify"
+  },
+  {
+    "description": "cua-verify aborted: same CODE error repeated 10 rounds, fix-loop not converging: phase:progress",
+    "rule": "Interaction / Gameplay",
+    "fix": "=== CUA STUCK DIAGNOSIS (round 9) ===\nCompleted phases: [gameStart → initialSpaceJunkCollect → sellShardsForGold → buildForgeWorkshop → upgradeTripleDrill → tripleDrillCollectJunk → upgradeCrusherVehicle → crusherVehicleCollectJunk → upgradeHydraulicVehicle → hydraulicVehicleCollectJunk → expandSpac",
+    "severity": "warning",
+    "line": "cua-verify stage failure",
+    "taskId": "proj_1776613702105_w1btest",
+    "timestamp": "2026-04-19T17:20:43.406Z",
+    "autoExtracted": true,
+    "failClassification": "CODE",
+    "stage": "cua-verify"
   }
 ]

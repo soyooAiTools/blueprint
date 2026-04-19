@@ -29,7 +29,19 @@
       "status": "manual-only"
     },
     "Cannot read properties of undefined (reading 'length')": {
-      "at": 1776589554014,
+      "at": 1776614762418,
+      "status": "manual-only"
+    },
+    "Spec validation failed: N error(s): Spec[N] <phase>: entity \"<entity>\" not found in blueprint.entiti": {
+      "at": 1776617282517,
+      "status": "gen-failed"
+    },
+    "Schema validation failed: .entities[0] should have required property 'chineseName'; .entities[1] sho": {
+      "at": 1776619083236,
+      "status": "reverted"
+    },
+    "aborted: same CODE error repeated N rounds, fix-loop not converging: review aborted: same CODE error": {
+      "at": 1776617403227,
       "status": "manual-only"
     }
   },
@@ -271,6 +283,36 @@
         "adapters/entity-resolver.cjs",
         "engine/stages/codegen-schema.cjs"
       ]
+    },
+    {
+      "at": "2026-04-19T12:19:28.721Z",
+      "fingerprint": "Spec validation failed: N error(s): Spec[N] <phase>: entity \"<entity>\" not found in blueprint.entiti",
+      "recipe": "auto-0bd021ca",
+      "files": [
+        "engine/stages/spec-extract.cjs"
+      ],
+      "archiveAttempt": "eb6054df21",
+      "archivePath": "server-data/task-logs/auto-fix/auto-0bd021ca-eb6054df21.json"
+    },
+    {
+      "at": "2026-04-19T13:10:40.730Z",
+      "fingerprint": "Schema validation failed: .entities[0] should have required property 'chineseName'; .entities[1] sho",
+      "recipe": "auto-5b4304a5",
+      "files": [
+        "engine/stages/codegen-schema.cjs"
+      ],
+      "archiveAttempt": "c30db12cfd",
+      "archivePath": "server-data/task-logs/auto-fix/auto-5b4304a5-c30db12cfd.json"
+    },
+    {
+      "at": "2026-04-19T16:16:13.656Z",
+      "fingerprint": "Schema validation failed: .entities[0] should have required property 'chineseName'; .entities[1] sho",
+      "recipe": "auto-5b4304a5",
+      "files": [
+        "engine/stages/codegen-schema.cjs"
+      ],
+      "archiveAttempt": "47cbdb50bd",
+      "archivePath": "server-data/task-logs/auto-fix/auto-5b4304a5-47cbdb50bd.json"
     }
   ],
   "pendingCommits": {
@@ -307,6 +349,11 @@
     "auto-bb58853e": {
       "at": "2026-04-18T20:00:25.951Z",
       "fingerprint": "Cannot read properties of undefined (reading 'length')",
+      "reverted": true
+    },
+    "auto-5b4304a5": {
+      "at": "2026-04-19T17:18:03.236Z",
+      "fingerprint": "Schema validation failed: .entities[0] should have required property 'chineseName'; .entities[1] sho",
       "reverted": true
     }
   }

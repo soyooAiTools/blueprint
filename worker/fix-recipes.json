@@ -207,5 +207,29 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-bb58853e.md"
+  },
+  {
+    "id": "auto-0bd021ca",
+    "fingerprintPattern": "Spec validation failed: \\d+ error\\(s\\):[\\s\\S]*entity \"[^\"]+\" not found in blueprint\\.entiti",
+    "description": "spec-extract.canSkip is too permissive: DB-sourced specs with stale/camelCase entity names bypass all correction layers, reaching spec-validate (canRetry:false) with unresolvable entity refs",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/spec-extract.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-0bd021ca.md"
+  },
+  {
+    "id": "auto-5b4304a5",
+    "fingerprintPattern": "Schema validation failed:.*\\.entities\\[\\d+\\] should have required property 'chineseName'",
+    "description": "_repairSchema strips chineseName/showLabel from entities before schema validation because ALLOWED_ENTITY_KEYS is missing those keys",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/codegen-schema.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-5b4304a5.md"
   }
 ]
