@@ -134,7 +134,6 @@ module.exports = {
       : (Array.isArray(bp.storyboardFrames) && bp.storyboardFrames.length > 0 ? bp.storyboardFrames : null);
 
     function commitSpecs(specs, source) {
-      ctx.blueprint.specs = specs;
       var afterFp = computeSpecsFingerprint(specs);
       if (beforeFp && afterFp) {
         var cmp = compareFingerprints(beforeFp, afterFp);
@@ -158,6 +157,10 @@ module.exports = {
             '); downstream phaseId string matches may regress');
         }
       }
+      // Only assign after the drift guard — a drift-fatal throw must leave
+      // ctx.blueprint.specs in its original pre-attempt state so that the
+      // canRetry re-entry computes a clean beforeFp from the true baseline.
+      ctx.blueprint.specs = specs;
       ctx.addLog('spec-extract',
         source + ': ' + specs.length + ' phases (fp=' + (afterFp ? afterFp.hash : 'n/a') + ')');
     }

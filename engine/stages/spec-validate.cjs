@@ -31,7 +31,7 @@ try {
 
 module.exports = {
   name: 'spec-validate',
-  canRetry: false,
+  canRetry: true,
   canSkip: function(ctx) {
     // Skip if no specs (AI generates from storyboard narrative)
     return !ctx.blueprint.specs || ctx.blueprint.specs.length === 0;
@@ -91,6 +91,10 @@ module.exports = {
       // in place — the mismatch is cosmetic, not semantic, and blocking it costs
       // 4+ re-extractions before a human manually syncs the project.
       if (spec.entitiesRequired && spec.entitiesRequired.length > 0 && entityNames.size > 0) {
+        // Collect fully-hallucinated entries to strip after the forEach
+        // (cannot splice during iteration).
+        var entsToStrip = [];
+
         spec.entitiesRequired.forEach(function(ent) {
           // .trim() here catches LLM whitespace artifacts in spec entity refs
           var entNameTrimmed = String(ent.name).trim();
@@ -159,12 +163,33 @@ module.exports = {
               substringMatches.join(', ') + ']. Use the exact entity name.');
             return;
           }
-          // Not a case-only difference — emit suggestion based on edit distance
+          // 5th tier: edit-distance auto-fix or strip-and-warn for hallucinated names.
+          // Previously the suggestion was only used for display inside a blocking errors.push(),
+          // which created a permanent dead-end when spec-extract was already completed
+          // (canRetry:false + no recovery path). Now:
+          //   • edit-distance match found  → apply as auto-fix (mirrors tiers 1–4)
+          //   • no match at all            → strip entry + warning (unblocks pipeline)
           var suggestion = _findClosestEntity(ent.name, Array.from(entityNames));
-          var suggestText = suggestion ? ' Did you mean: "' + suggestion + '"?' : '';
-          errors.push(label + ': entity "' + ent.name + '" not found in blueprint.entities.' + suggestText +
-            ' Known: ' + Array.from(entityNames).slice(0, 10).join(', '));
+          if (suggestion) {
+            autoFixes.push(label + ': entity "' + ent.name + '" edit-distance corrected to "' + suggestion + '"');
+            ent.name = suggestion;
+            return;
+          }
+          // Fully hallucinated entity — strip it and warn rather than hard-blocking.
+          // spec-extract is already in completedStages; a hard error here creates a
+          // permanent dead-end requiring a full pipeline restart.
+          warnings.push(label + ': entity "' + ent.name + '" not found in blueprint.entities and no close match found. ' +
+            'Stripped from entitiesRequired to unblock pipeline. ' +
+            'Known: ' + Array.from(entityNames).slice(0, 10).join(', '));
+          entsToStrip.push(ent);
         });
+
+        // Remove fully-hallucinated entries collected during the forEach above.
+        if (entsToStrip.length > 0) {
+          spec.entitiesRequired = spec.entitiesRequired.filter(function(e) {
+            return entsToStrip.indexOf(e) < 0;
+          });
+        }
       }
 
       // Also case-normalize entity refs inside triggerNext.condition (e.g. "forgeWorkshop.state == 2")
@@ -414,6 +439,18 @@ module.exports = {
     // --- BLOCK on errors ---
     if (errors.length > 0) {
       errors.forEach(function(e) { ctx.addLog('spec-validate', 'ERROR: ' + e); });
+      // Invalidate the spec-extract checkpoint so the next worker retry re-runs
+      // spec-extract from scratch. Without this, spec-extract remains in
+      // completedStages and the worker loops forever against the same bad specs.
+      // The specsAreReusable guard in spec-extract.cjs will detect the staleness
+      // and trigger a fresh LLM extraction on the next pass.
+      if (ctx.completedStages && Array.isArray(ctx.completedStages)) {
+        var seIdx = ctx.completedStages.indexOf('spec-extract');
+        if (seIdx >= 0) {
+          ctx.completedStages.splice(seIdx, 1);
+          ctx.addLog('spec-validate', 'Invalidated spec-extract checkpoint to force re-extraction on retry.');
+        }
+      }
       // Aggregate: collapse same-class errors so metrics fingerprint stays stable.
       // 2026-04-19: previously 7 entity mismatches became 7 unique fingerprints,
       // splitting topFailReasons and defeating auto-fix cooldown dedup.
