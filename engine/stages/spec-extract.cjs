@@ -118,6 +118,15 @@ module.exports = {
     // to detect LLM non-determinism producing a different phaseId set than
     // what DB / skeleton / review already reference.
     var beforeFp = computeSpecsFingerprint(bp.specs);
+    // Guard: if the existing specs are already known-stale (entity mismatch is
+    // why we entered execute() at all), the fingerprint above is meaningless as
+    // a comparison baseline.  Nullify it so compareFingerprints() short-circuits
+    // to { status: 'no-comparison' } and the drift check is skipped entirely —
+    // avoiding a false drift-fatal against a valid fresh extraction.
+    var entities = bp.entities || [];
+    if (beforeFp && !specsAreReusable(bp.specs, entities)) {
+      beforeFp = null;
+    }
 
     // Frame source — matches claude-code-coder.js resolution order.
     var frames = (bp.storyboard && Array.isArray(bp.storyboard.frames) && bp.storyboard.frames.length > 0)
@@ -158,7 +167,6 @@ module.exports = {
       var cached = specExtractor.loadSpecs(taskId, specsDataDir);
       if (cached && cached.length > 0) {
         // Re-validate against current entities; drop cache if entity set drifted.
-        var entities = bp.entities || [];
         if (specsAreReusable(cached, entities)) {
           commitSpecs(cached, 'cache');
           return Promise.resolve();
