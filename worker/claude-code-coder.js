@@ -126,6 +126,41 @@ function releaseLock(slot, taskId, log) {
   } catch(e) {}
 }
 
+// ~/.claude-auth-active.json is written by shell helpers (cc-oauth / cc-relay).
+// Read per-spawn so a session switch takes effect without pm2 restart.
+// File shape: { "mode": "oauth" | "relay", "ANTHROPIC_BASE_URL": "...", "ANTHROPIC_AUTH_TOKEN": "..." }
+const AUTH_ACTIVE_FILE = path.join(require('os').homedir(), '.claude-auth-active.json');
+
+function resolveClaudeAuthEnv(baseEnv, log, taskId) {
+  const env = Object.assign({}, baseEnv);
+  let mode = 'oauth';
+  let cfg = null;
+  try {
+    if (fs.existsSync(AUTH_ACTIVE_FILE)) {
+      cfg = JSON.parse(fs.readFileSync(AUTH_ACTIVE_FILE, 'utf8'));
+      if (cfg && cfg.mode === 'relay') mode = 'relay';
+    }
+  } catch (e) {
+    log && log(`[claude-auth] failed to read ${AUTH_ACTIVE_FILE}: ${e.message} — falling back to oauth`, taskId);
+  }
+
+  if (mode === 'relay' && cfg && cfg.ANTHROPIC_BASE_URL && cfg.ANTHROPIC_AUTH_TOKEN) {
+    env.ANTHROPIC_BASE_URL = cfg.ANTHROPIC_BASE_URL;
+    env.ANTHROPIC_AUTH_TOKEN = cfg.ANTHROPIC_AUTH_TOKEN;
+    delete env.ANTHROPIC_API_KEY;
+    delete env.CLAUDE_CODE_OAUTH_TOKEN;
+    log && log(`[claude-auth] mode=relay via ${env.ANTHROPIC_BASE_URL}`, taskId);
+  } else {
+    // OAuth: CC CLI uses CLAUDE_CODE_OAUTH_TOKEN / ~/.claude/.credentials.json.
+    // Strip relay vars so a stale ANTHROPIC_BASE_URL cannot hijack routing.
+    delete env.ANTHROPIC_API_KEY;
+    delete env.ANTHROPIC_AUTH_TOKEN;
+    delete env.ANTHROPIC_BASE_URL;
+    log && log('[claude-auth] mode=oauth', taskId);
+  }
+  return env;
+}
+
 /**
  * 准备 Claude Code 工作目录
  * - 写入 CLAUDE.md（Luna 规则）
@@ -346,13 +381,7 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
     let preSpawnMtimeMs = preSpawnMtimes[watchedCsFilesForMtime[0]] || 0;
     const spawnStartTime = Date.now();
 
-    // Strip relay env vars so CC CLI uses its own OAuth (same as local Claude Code),
-    // not the crs.mindrix.app relay. ANTHROPIC_BASE_URL would redirect all API calls
-    // through the relay; ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN would override OAuth.
-    const cleanEnv = Object.assign({}, process.env);
-    delete cleanEnv.ANTHROPIC_API_KEY;
-    delete cleanEnv.ANTHROPIC_AUTH_TOKEN;
-    delete cleanEnv.ANTHROPIC_BASE_URL;
+    const cleanEnv = resolveClaudeAuthEnv(process.env, log, taskId);
 
     const child = spawn(CLAUDE_CMD, args, {
       cwd: workDir,
@@ -580,11 +609,7 @@ function runClaudeCodeText(opts) {
     log('[claude-code-text] Spawning: ' + CLAUDE_CMD + ' ' + args.join(' '), taskId);
     log('[claude-code-text] systemPrompt=' + (opts.systemPrompt || '').length + 'c userPrompt=' + (opts.userPrompt || '').length + 'c cwd=' + tempDir, taskId);
 
-    // Strip relay env vars — CC CLI should use its own OAuth, same as local Claude Code
-    const cleanEnv = Object.assign({}, process.env);
-    delete cleanEnv.ANTHROPIC_API_KEY;
-    delete cleanEnv.ANTHROPIC_AUTH_TOKEN;
-    delete cleanEnv.ANTHROPIC_BASE_URL;
+    const cleanEnv = resolveClaudeAuthEnv(process.env, log, taskId);
     // PM2 cluster mode drops proxy vars from process.env despite them being in
     // /proc/PID/environ. CC CLI needs the proxy to reach api.anthropic.com.
     // Hard-code fallback — this host requires proxy for outbound HTTPS.
