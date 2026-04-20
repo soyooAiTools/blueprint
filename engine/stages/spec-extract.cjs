@@ -22,6 +22,7 @@
  */
 
 var path = require('path');
+var crypto = require('crypto');
 var specExtractor = require('../../adapters/spec-extractor.cjs');
 
 /**
@@ -40,6 +41,52 @@ function specsAreReusable(specs, entities) {
     }
   }
   return true;
+}
+
+/**
+ * phaseId fingerprint — sorted join + SHA-1. Used to detect LLM non-deterministic
+ * re-extraction producing a different phaseId set than what DB/skeleton/review
+ * already reference (feedback_spec_single_source).
+ */
+function computeSpecsFingerprint(specs) {
+  if (!Array.isArray(specs) || specs.length === 0) return null;
+  var phaseIds = specs.map(function(s) { return s && s.phaseId; }).filter(Boolean).slice().sort();
+  if (phaseIds.length === 0) return null;
+  var hash = crypto.createHash('sha1').update(phaseIds.join('|')).digest('hex').slice(0, 12);
+  return { count: phaseIds.length, phaseIds: phaseIds, hash: hash };
+}
+
+/**
+ * Compare two spec fingerprints. Returns { status, level, overlapPct, ... }.
+ * level ∈ { identical | stable | drift-warn | drift-fatal }.
+ * Overlap ratio uses |intersection| / max(|A|, |B|) so shrinking the set also
+ * counts as drift.
+ */
+function compareFingerprints(before, after) {
+  if (!before || !after) return { status: 'no-comparison' };
+  if (before.hash === after.hash) return { status: 'identical', level: 'identical' };
+  var afterSet = new Set(after.phaseIds);
+  var common = 0;
+  for (var i = 0; i < before.phaseIds.length; i++) {
+    if (afterSet.has(before.phaseIds[i])) common++;
+  }
+  var denom = Math.max(before.count, after.count);
+  var overlapPct = denom > 0 ? common / denom : 0;
+  var level;
+  if (overlapPct >= 0.9) level = 'stable';
+  else if (overlapPct >= 0.5) level = 'drift-warn';
+  else level = 'drift-fatal';
+  var beforeSet = new Set(before.phaseIds);
+  return {
+    status: 'different',
+    level: level,
+    overlapPct: Math.round(overlapPct * 100) / 100,
+    beforeCount: before.count,
+    afterCount: after.count,
+    common: common,
+    onlyBefore: before.phaseIds.filter(function(id) { return !afterSet.has(id); }),
+    onlyAfter: after.phaseIds.filter(function(id) { return !beforeSet.has(id); }),
+  };
 }
 
 module.exports = {
@@ -66,10 +113,45 @@ module.exports = {
     var taskId = ctx.taskId;
     var specsDataDir = process.env.SPECS_DATA_DIR || path.join(__dirname, '..', '..', 'spec-data');
 
+    // Capture pre-extraction fingerprint (if caller already had specs but they
+    // were rejected by canSkip — e.g. entity drift). Used after re-extraction
+    // to detect LLM non-determinism producing a different phaseId set than
+    // what DB / skeleton / review already reference.
+    var beforeFp = computeSpecsFingerprint(bp.specs);
+
     // Frame source — matches claude-code-coder.js resolution order.
     var frames = (bp.storyboard && Array.isArray(bp.storyboard.frames) && bp.storyboard.frames.length > 0)
       ? bp.storyboard.frames
       : (Array.isArray(bp.storyboardFrames) && bp.storyboardFrames.length > 0 ? bp.storyboardFrames : null);
+
+    function commitSpecs(specs, source) {
+      ctx.blueprint.specs = specs;
+      var afterFp = computeSpecsFingerprint(specs);
+      if (beforeFp && afterFp) {
+        var cmp = compareFingerprints(beforeFp, afterFp);
+        if (cmp.level === 'drift-fatal') {
+          var err = new Error(
+            'Spec fingerprint drift (fatal): ' + source +
+            ' produced phaseId set with only ' + cmp.common + '/' + cmp.beforeCount +
+            ' overlap (' + Math.round(cmp.overlapPct * 100) + '%). ' +
+            'LLM non-determinism would break skeleton/review string matching. ' +
+            'onlyBefore=' + JSON.stringify(cmp.onlyBefore.slice(0, 5)) +
+            ' onlyAfter=' + JSON.stringify(cmp.onlyAfter.slice(0, 5))
+          );
+          err.classification = 'FATAL';
+          err.driftComparison = cmp;
+          throw err;
+        }
+        if (cmp.level === 'drift-warn') {
+          ctx.addLog('spec-extract',
+            'WARN fingerprint drift: ' + source + ' overlap=' +
+            Math.round(cmp.overlapPct * 100) + '% (' + cmp.common + '/' + cmp.beforeCount +
+            '); downstream phaseId string matches may regress');
+        }
+      }
+      ctx.addLog('spec-extract',
+        source + ': ' + specs.length + ' phases (fp=' + (afterFp ? afterFp.hash : 'n/a') + ')');
+    }
 
     // Try cached spec-data first — avoids a 30-90s LLM round-trip on retry.
     try {
@@ -78,8 +160,7 @@ module.exports = {
         // Re-validate against current entities; drop cache if entity set drifted.
         var entities = bp.entities || [];
         if (specsAreReusable(cached, entities)) {
-          ctx.blueprint.specs = cached;
-          ctx.addLog('spec-extract', 'Using cached specs: ' + cached.length + ' phases');
+          commitSpecs(cached, 'cache');
           return Promise.resolve();
         }
         ctx.addLog('spec-extract', 'Cached specs stale (entity mismatch) — re-extracting');
@@ -107,11 +188,17 @@ module.exports = {
       if (!Array.isArray(specs) || specs.length === 0) {
         throw new Error('Spec extractor returned 0 phases');
       }
-      ctx.blueprint.specs = specs;
+      commitSpecs(specs, 'fresh-extract');
       try { specExtractor.saveSpecs(specs, taskId, specsDataDir); } catch (e) {
         ctx.addLog('spec-extract', 'saveSpecs failed (non-fatal): ' + e.message);
       }
-      ctx.addLog('spec-extract', 'Extracted ' + specs.length + ' phase specs');
     });
+  },
+
+  // Exposed for unit testing + downstream reuse
+  _internals: {
+    computeSpecsFingerprint: computeSpecsFingerprint,
+    compareFingerprints: compareFingerprints,
+    specsAreReusable: specsAreReusable,
   }
 };
