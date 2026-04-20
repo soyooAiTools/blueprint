@@ -10,10 +10,36 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 // LLM via Doubao (豆包) directly
 const modelProvider = require('../lib/model-provider.cjs');
 var _specProvider = modelProvider.createProvider('doubao', {});
+
+/**
+ * D1: Derive a deterministic 31-bit integer seed from the semantic inputs
+ * that drive spec extraction. Same frames + same entities ⇒ same seed ⇒
+ * (given temperature=0) stable phaseId set across retries, which unblocks
+ * fingerprint drift guards in engine/stages/spec-extract.cjs.
+ *
+ * Uses SHA-1 of a canonicalized payload so reordering entity arrays or
+ * re-parsing frames doesn't perturb the seed.
+ */
+function computeDeterministicSeed(frames, entities) {
+  var entityNames = (entities || []).map(function(e) { return e && e.name; }).filter(Boolean).slice().sort();
+  var frameSummary = (frames || []).map(function(f, i) {
+    return {
+      i: i,
+      chapter: f.chapter || f.chapterId || null,
+      title: f.chapterTitle || f.title || '',
+      interaction: (f.interaction || '').slice(0, 120),
+      timing: f.timing || '',
+    };
+  });
+  var canonical = JSON.stringify({ e: entityNames, f: frameSummary });
+  var hash = crypto.createHash('sha1').update(canonical).digest('hex');
+  return parseInt(hash.slice(0, 8), 16) & 0x7fffffff;
+}
 
 const VERBS = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'worker', 'interaction-verbs.json'), 'utf8'));
 
@@ -138,11 +164,13 @@ async function extractSpecs(frames, opts = {}) {
 
   const contextText = JSON.stringify(frames, null, 2);
 
-  // Build entity list section for the prompt
+  // Build entity list section for the prompt.
+  // D1: sort by name before serializing so entity reordering upstream can't
+  // perturb the LLM prompt (and therefore can't perturb phaseIds).
   const entities = opts.entities || [];
   let entitySection = '';
   if (entities.length > 0) {
-    const entityNames = entities.map(e => e.name).filter(Boolean);
+    const entityNames = entities.map(e => e.name).filter(Boolean).slice().sort();
     entitySection = `\n## 蓝图实体列表（blueprint.entities）\n以下是本项目蓝图中已定义的全部实体，entitiesRequired 中的 name 必须严格使用以下名称之一（完整复制，包括大小写）：\n${entityNames.map(n => `- ${n}`).join('\n')}\n\n禁止使用不在上述列表中的实体名。如果分镜描述的实体无法对应到列表中的任何一项，则该 phase 的 entitiesRequired 留空数组。\n`;
   }
 
@@ -160,16 +188,21 @@ ${contextText}
   const minAcceptable = Math.ceil(expectedCount * 0.5);
   const MAX_TRUNCATION_RETRIES = 2;
 
+  // D1: deterministic seed + temperature=0 to stabilize phaseId set across
+  // reruns on identical inputs. Prior non-determinism was the root cause of
+  // spec-extract drift-fatal false-positives (wv1v 2026-04-20).
+  const deterministicSeed = computeDeterministicSeed(frames, entities);
+
   let validated;
 
   for (let truncRetry = 0; truncRetry <= MAX_TRUNCATION_RETRIES; truncRetry++) {
     let result;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        console.log(`[SpecExtractor] Calling Doubao (attempt ${attempt}/3, round ${truncRetry + 1}/${MAX_TRUNCATION_RETRIES + 1})...`);
+        console.log(`[SpecExtractor] Calling Doubao (attempt ${attempt}/3, round ${truncRetry + 1}/${MAX_TRUNCATION_RETRIES + 1}, seed=${deterministicSeed})...`);
         result = await _specProvider.generate(
           { system: SYSTEM_PROMPT, user: userPrompt },
-          { temperature: 0.2, maxTokens: 16384, timeoutMs: 120000 }
+          { temperature: 0, seed: deterministicSeed, maxTokens: 16384, timeoutMs: 120000 }
         );
         break;
       } catch (err) {
@@ -379,4 +412,4 @@ function loadSpecs(projectId, dataDir) {
   return JSON.parse(fs.readFileSync(specsPath, 'utf8'));
 }
 
-module.exports = { extractSpecs, saveSpecs, loadSpecs };
+module.exports = { extractSpecs, saveSpecs, loadSpecs, _internals: { computeDeterministicSeed } };

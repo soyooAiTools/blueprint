@@ -111,6 +111,12 @@ class Models {
       temperature: config.temperature !== undefined ? config.temperature : 0.3,
       max_tokens: config.maxOutputTokens || 8192,
     };
+    // D1: OpenAI-compatible seed for deterministic sampling.
+    // Opt-in — caller must pass a positive integer. Forwards as-is; backend
+    // decides honor policy (doubao doc: same seed + same params ⇒ same output).
+    if (config.seed !== undefined && Number.isFinite(config.seed)) {
+      payload.seed = Math.floor(config.seed);
+    }
 
     // Call Doubao API
     const responseText = await this._callAPI(payload);
