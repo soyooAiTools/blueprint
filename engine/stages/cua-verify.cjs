@@ -181,6 +181,27 @@ var MAX_CUA_TOTAL_MS = process.env.CUA_TOTAL_TIMEOUT_MS
   : 75 * 60 * 1000; // 75 min default (Opus fix rounds ~8-10 min each on complex ads)
 var NO_PROGRESS_EXIT_ROUNDS = 4; // exit if no phase progress in N consecutive rounds (was 5 — tightened to save tokens)
 var SAME_ISSUE_REGEN_THRESHOLD = 3;
+var LOW_COVERAGE_MIN_PHASES = 3;      // D1 L7: only enforce on non-trivial games
+var LOW_COVERAGE_RATIO = 0.5;         // D1 L7: completedCount / totalPhases floor
+
+/**
+ * 2026-04-20 D1: silent-pass L7 — low-phase-coverage detection.
+ * When VLM reports passed=true but the game only traversed a fraction of
+ * declared phases, it's a false-positive (xrbkl1 postmortem). Returns
+ * the signal string when block is warranted, null otherwise.
+ */
+function detectLowCoverageSignal(cuaResult, totalPhases) {
+  if (totalPhases < LOW_COVERAGE_MIN_PHASES) return null;
+  var phaseCov = helpers.extractPhaseCoverage(cuaResult) || {};
+  var consoleCov = helpers.extractPhaseFromConsole(
+    (cuaResult.report && cuaResult.report.diagnostics && cuaResult.report.diagnostics.consoleMessages) || []
+  );
+  var completedCount = Math.max(phaseCov.completed || 0, consoleCov.length || 0);
+  if (completedCount < Math.ceil(totalPhases * LOW_COVERAGE_RATIO)) {
+    return 'low-phase-coverage-' + completedCount + '/' + totalPhases;
+  }
+  return null;
+}
 
 module.exports = {
   name: 'cua-verify',
@@ -303,6 +324,28 @@ module.exports = {
                     || s.indexOf('phase-order-violation') === 0
                     || s.indexOf('all-vars-zero') === 0;
               });
+
+              // 2026-04-20 D1: 7th silent-pass layer — low-phase-coverage.
+              // Even when all prior signals are clean, passed=true is a
+              // false-positive when the game only traversed a fraction of
+              // declared phases. xrbkl1 postmortem: VLM flagged "looks fine"
+              // while console showed 1/5 phases completed. Applies equally
+              // to autoPlay and interact mode: autoPlay driver is *supposed*
+              // to force phase transitions, so low coverage means the logic
+              // broke regardless of visual.
+              if (hardBlockers.length === 0) {
+                var totalPhases = (ctx.blueprint && ctx.blueprint.specs && ctx.blueprint.specs.length) || 0;
+                var lowCovSig = detectLowCoverageSignal(cuaResult, totalPhases);
+                if (lowCovSig) {
+                  silentSignals.push(lowCovSig);
+                  hardBlockers.push(lowCovSig);
+                  ctx.addLog('cua-verify',
+                    '🚨 silent-pass L7: ' + lowCovSig +
+                    ' — passed=true but coverage below ' +
+                    Math.round(LOW_COVERAGE_RATIO * 100) + '% floor; VLM false-positive');
+                }
+              }
+
               if (hardBlockers.length > 0) {
                 ctx.addLog('cua-verify', '🚨 CUA passed=true overridden by silent-pass hard-block: ' + hardBlockers.join(', '));
                 cuaResult.passed = false;
@@ -611,5 +654,12 @@ module.exports = {
     });
 
     return loop.run(ctx);
+  },
+
+  // Exposed for unit testing (D1 L7 silent-pass detection)
+  _internals: {
+    detectLowCoverageSignal: detectLowCoverageSignal,
+    LOW_COVERAGE_MIN_PHASES: LOW_COVERAGE_MIN_PHASES,
+    LOW_COVERAGE_RATIO: LOW_COVERAGE_RATIO,
   },
 };
