@@ -11,6 +11,7 @@ var path = require('path');
 var helpers = require('../helpers.cjs');
 var { recode, patchRecode } = require('../recode.cjs');
 var { createFixLoop } = require('../fix-loop.cjs');
+var { normalizeFingerprint } = require('../metrics.cjs');
 var archiveWriter;
 try { archiveWriter = require('../archive-writer.cjs'); } catch(e) { archiveWriter = { writeSilentPass: function() {} }; }
 
@@ -239,6 +240,15 @@ module.exports = {
     var lastPhaseCompleted = -1;
     var _autoplayFailCount = 0;
     var _noProgressRounds = 0;
+    // D1 (2026-04-20): fingerprint circuit breaker. urbib0 burned 45min looping
+    // on `uniform-timing:avg=50.0s, cv=0%` + `zero-actions` for 40+ rounds
+    // because `categorizeIssue()` is too coarse to catch it. Normalize the top
+    // issues via metrics.normalizeFingerprint (same dedup function dashboard
+    // uses) and abort when identical fingerprint repeats.
+    var _lastNormalizedFp = null;
+    var _fpRepeatCount = 1;
+    var _maxFpRepeat = 1;
+    var FP_REPEAT_THRESHOLD = 2; // 2 consecutive identical normalized fingerprints → FATAL
 
     var loop = createFixLoop({
       name: 'cua-verify',
@@ -394,6 +404,41 @@ module.exports = {
 
             ctx.addLog('cua-verify', 'FAILED: ' + (cuaResult.issues || []).length + ' issues');
 
+            // D1 fingerprint circuit breaker: fires BEFORE coarse categorizeIssue so
+            // "uniform-timing:avg=50s cv=0%" type persistent loops abort within 2
+            // rounds instead of burning 40. Uses metrics.normalizeFingerprint so the
+            // semantics match dashboard dedup exactly — no dynamic numbers, no
+            // phaseIds, no counters.
+            var _rawFp = (cuaResult.issues || []).slice(0, 3).map(function(i) {
+              return typeof i === 'string' ? i : (i && (i.message || i.text) || '');
+            }).join(' | ');
+            var _currentFp = _rawFp ? normalizeFingerprint(_rawFp) : null;
+            if (_currentFp) {
+              if (_currentFp === _lastNormalizedFp) {
+                _fpRepeatCount++;
+                if (_fpRepeatCount > _maxFpRepeat) _maxFpRepeat = _fpRepeatCount;
+              } else {
+                _fpRepeatCount = 1;
+                _lastNormalizedFp = _currentFp;
+              }
+              if (_fpRepeatCount >= FP_REPEAT_THRESHOLD) {
+                ctx.addLog('cua-verify',
+                  '🚨 Fingerprint repeat FATAL: "' + _currentFp.slice(0, 80) +
+                  '" for ' + _fpRepeatCount + ' consecutive rounds — Claude fix ineffective');
+                ctx.stageResults = ctx.stageResults || {};
+                ctx.stageResults['cua-verify'] = Object.assign({}, ctx.stageResults['cua-verify'] || {}, {
+                  round: round,
+                  maxFingerprintRepeats: _maxFpRepeat,
+                  circuitBreakerTriggered: true,
+                  lastFingerprint: _currentFp,
+                  reason: 'fingerprint-repeat-' + _fpRepeatCount,
+                });
+                throw new Error('Fingerprint repeat FATAL: identical normalized fingerprint "' +
+                  _currentFp.slice(0, 100) + '" for ' + _fpRepeatCount +
+                  ' consecutive rounds; Claude fix ineffective');
+              }
+            }
+
             // Consecutive same-issue detection
             var currentIssueCategory = helpers.categorizeIssue(cuaResult);
             var phaseCoverage = helpers.extractPhaseCoverage(cuaResult);
@@ -427,17 +472,38 @@ module.exports = {
             }
             if (currentPhaseCompleted >= 0) lastPhaseCompleted = currentPhaseCompleted;
 
+            // A.2 (2026-04-20): build stuck diagnosis EVERY failure round (keyword
+            // match cost is negligible) and sticky-write rootCause/stuckPhase/
+            // nextPhase to stageResults so metrics.cjs can persist them.
+            // Previously only the no-progress branch built this, so 58.6% of
+            // failures had no rootCause in metrics.
+            var diagPhases = completedPhaseIds.length > 0 ? completedPhaseIds : consolePhaseCoverage;
+            var stuckDiagnosis = _buildStuckDiagnosis(
+              cuaResult,
+              currentPhaseCompleted,
+              currentIssueCategory,
+              _noProgressRounds + (isProgressing ? 0 : 1), // preview next _noProgressRounds for detail text
+              ctx.blueprint,
+              diagPhases
+            );
+            ctx.stageResults = ctx.stageResults || {};
+            ctx.stageResults['cua-verify'] = Object.assign({}, ctx.stageResults['cua-verify'] || {}, {
+              lastStuckDiagnosis: {
+                rootCause: stuckDiagnosis.rootCause,
+                stuckPhase: stuckDiagnosis.stuckPhase,
+                nextPhase: stuckDiagnosis.nextPhase,
+              },
+            });
+
             // No-progress handling: graduated strategy with failure attribution
             if (isProgressing) {
               _noProgressRounds = 0;
             } else {
               _noProgressRounds++;
 
-              // Build structured failure attribution for recode context
-              var diagPhases = completedPhaseIds.length > 0 ? completedPhaseIds : consolePhaseCoverage;
-              var stuckDiagnosis = _buildStuckDiagnosis(cuaResult, currentPhaseCompleted, currentIssueCategory, _noProgressRounds, ctx.blueprint, diagPhases);
+              // Only push the detailed diagnosis text into feedbackHistory on
+              // no-progress rounds (otherwise we'd spam the recode prompt).
               ctx.addLog('cua-verify', 'No-progress diagnosis: ' + stuckDiagnosis.summary);
-
               if (!ctx.blueprint.feedbackHistory) ctx.blueprint.feedbackHistory = [];
               ctx.blueprint.feedbackHistory.push({
                 data: { text: stuckDiagnosis.detail },

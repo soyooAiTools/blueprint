@@ -84,6 +84,7 @@ var CUA_CODE_PATTERNS = [
 var CUA_FATAL_PATTERNS = [
   /CUA total time limit/i,
   /Visual freeze FATAL/i,
+  /Fingerprint repeat FATAL/i,
 ];
 
 var CUA_INFRA_PATTERNS = [

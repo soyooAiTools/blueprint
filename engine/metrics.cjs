@@ -61,6 +61,16 @@ function recordPipelineMetrics(ctx, stageResults) {
     record.cuaTotalActions = cua.totalActions !== undefined ? cua.totalActions : null;
     record.cuaSilentPassSignals = cua.silentPassSignals || [];
     record.cuaSilentPass = !!(cua.silentPassSignals && cua.silentPassSignals.length > 0);
+    // D1 (2026-04-20): fingerprint circuit breaker observability.
+    record.cuaFingerprintRepeats = cua.maxFingerprintRepeats || 0;
+    record.cuaCircuitBreakerTriggered = !!cua.circuitBreakerTriggered;
+    // A.2 (2026-04-20): stuck diagnosis observability — 58.6% of CUA failures
+    // previously had no rootCause in metrics. Now every failure round populates.
+    if (cua.lastStuckDiagnosis) {
+      record.cuaRootCause  = cua.lastStuckDiagnosis.rootCause  || '';
+      record.cuaStuckPhase = cua.lastStuckDiagnosis.stuckPhase || '';
+      record.cuaNextPhase  = cua.lastStuckDiagnosis.nextPhase  || '';
+    }
   }
 
   // Schema-driven codegen metrics (8 fields per spec Section 6.1)

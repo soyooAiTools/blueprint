@@ -425,7 +425,141 @@ function buildStructuredFeedback(round, cuaResult, blueprint, fixHistory, csCode
     text += '\nTry a different fix strategy.';
   }
 
+  // A.1 (2026-04-20): enrich feedback with 6 cuaResult fields that
+  // buildStructuredFeedback previously dropped. Claude needs these to find
+  // root cause on round 1 — before A.1 it saw only issues + gameState + code
+  // snippets, often not enough. Placed at text END so spec prefix stays in
+  // prompt cache.
+  var report = (cuaResult && cuaResult.report) || {};
+  var diagLines = [];
+
+  // Exit reason (always print if present — short and always informative)
+  if (report.exitReason) {
+    diagLines.push('Exit: ' + String(report.exitReason).slice(0, 200));
+  }
+
+  // Autoplay detection (only when true — observe mode exists by design)
+  if (report.autoplay_detected === true) {
+    var ar = report.autoplay_reason || report.autoplayReason || '';
+    diagLines.push('Autoplay: detected' + (ar ? ' (reason: ' + String(ar).slice(0, 200) + ')' : ''));
+  }
+
+  // Script coverage — only list uncovered steps
+  if (Array.isArray(report.scriptCoverage) && report.scriptCoverage.length > 0) {
+    var total = report.scriptCoverage.length;
+    var uncovered = report.scriptCoverage.filter(function(s) { return s && !s.covered; });
+    var covered = total - uncovered.length;
+    var pct = total > 0 ? Math.round(covered / total * 100) : 0;
+    var covLine = 'Script coverage: ' + covered + '/' + total + ' (' + pct + '%)';
+    if (uncovered.length > 0) {
+      covLine += '. Uncovered:';
+      diagLines.push(covLine);
+      var shown = uncovered.slice(0, 6);
+      for (var ui = 0; ui < shown.length; ui++) {
+        var s = shown[ui];
+        var evidence = s.evidence ? String(s.evidence).slice(0, 80) : '';
+        diagLines.push('  - ' + (s.step || '(unnamed)') + (evidence ? ': ' + evidence : ''));
+      }
+      if (uncovered.length > 6) diagLines.push('  ... ' + (uncovered.length - 6) + ' more');
+    } else {
+      diagLines.push(covLine);
+    }
+  }
+
+  // Visual fails (VLM reasons)
+  if (Array.isArray(report.visual_fail_reasons) && report.visual_fail_reasons.length > 0) {
+    diagLines.push('Visual fails (VLM):');
+    var vshown = report.visual_fail_reasons.slice(0, 5);
+    for (var vi = 0; vi < vshown.length; vi++) {
+      diagLines.push('  - ' + String(vshown[vi]).slice(0, 120));
+    }
+    if (report.visual_fail_reasons.length > 5) {
+      diagLines.push('  ... ' + (report.visual_fail_reasons.length - 5) + ' more');
+    }
+  }
+
+  // Phase timing (derived from phaseTimestamps)
+  var specPhases = (blueprint && Array.isArray(blueprint.specs))
+    ? blueprint.specs.map(function(sp) { return sp && sp.phaseId; }).filter(Boolean)
+    : [];
+  var phaseTs = (report.gameState && report.gameState.phaseTimestamps) || report.phaseTimestamps || null;
+  if (phaseTs && specPhases.length > 0) {
+    var durations = extractPhaseDurations(phaseTs, specPhases);
+    if (durations.length > 0) {
+      diagLines.push('Phase timing:');
+      var dshown = durations.slice(0, 6);
+      for (var di = 0; di < dshown.length; di++) {
+        var d = dshown[di];
+        var deltaStr = d.deltaSec === null ? 'n/a' : d.deltaSec + 's';
+        diagLines.push('  - ' + d.from + '→' + d.to + ': ' + deltaStr + ' [' + d.flag + ']');
+      }
+      if (durations.length > 6) diagLines.push('  ... ' + (durations.length - 6) + ' more phases');
+    }
+  }
+
+  // Missing phases — skip if issues already enumerate them (phase-coverage issue)
+  if (Array.isArray(report.missingPhases) && report.missingPhases.length > 0) {
+    var issueHasMissing = (cuaResult.issues || []).some(function(it) {
+      return typeof it === 'string' && it.toLowerCase().indexOf('missing') >= 0;
+    });
+    if (!issueHasMissing) {
+      diagLines.push('Missing phases: ' + report.missingPhases.join(', '));
+    }
+  }
+
+  if (diagLines.length > 0) {
+    text += '\n\n=== CUA DIAGNOSTICS (round ' + round + ') ===\n' + diagLines.join('\n');
+  }
+
+  // Token guard: cap total feedback text at 8KB. Protects recode prompt
+  // against pathologically long visual_fail_reasons / entity lists.
+  if (text.length > 8000) {
+    text = text.slice(0, 7800) + '\n... [truncated]';
+  }
+
   return { text: text, structured: structured };
+}
+
+/**
+ * A.3 (2026-04-20): derive per-phase dwell deltas from phaseTimestamps.
+ *
+ * phaseTimestamps is { phaseId: secondsSinceStart } keyed by phase. We
+ * walk specPhases in declared order and emit adjacent-pair deltas with
+ * flags to tell Claude WHICH phase broke and HOW. Mirrors the dwell
+ * formula in worker/worker-cua-verify.js:1418-1422.
+ *
+ * Flags:
+ *   batch-fired     delta < 1.0s (multi-phase same-tick completion — trigger likely wrong)
+ *   ok              1.0s <= delta <= 30s
+ *   slow            delta > 30s (autoPlay gate is 12s, 2x+ is suspicious)
+ *   never-completed ts missing but previous phase completed (stuck here)
+ *   never-reached   ts missing and previous also missing (pipeline never got here)
+ */
+function extractPhaseDurations(phaseTimestamps, specPhases) {
+  if (!phaseTimestamps || !Array.isArray(specPhases) || specPhases.length === 0) return [];
+  var out = [];
+  var prevReached = true; // start is implicitly reached
+  var prevTs = 0;
+  for (var i = 0; i < specPhases.length; i++) {
+    var pid = specPhases[i];
+    var ts = (pid in phaseTimestamps) ? phaseTimestamps[pid] : null;
+    var fromId = i === 0 ? 'start' : specPhases[i - 1];
+    var entry = { from: fromId, to: pid, deltaSec: null, flag: 'never-reached' };
+    if (ts !== null && ts !== undefined) {
+      var delta = ts - prevTs;
+      entry.deltaSec = Math.round(delta * 10) / 10;
+      if (delta < 1.0) entry.flag = 'batch-fired';
+      else if (delta > 30) entry.flag = 'slow';
+      else entry.flag = 'ok';
+      prevReached = true;
+      prevTs = ts;
+    } else {
+      entry.flag = prevReached ? 'never-completed' : 'never-reached';
+      prevReached = false;
+    }
+    out.push(entry);
+  }
+  return out;
 }
 
 /**
@@ -453,4 +587,5 @@ module.exports = {
   getFixHint: getFixHint,
   extractCodeContext: extractCodeContext,
   buildStructuredFeedback: buildStructuredFeedback,
+  extractPhaseDurations: extractPhaseDurations,
 };

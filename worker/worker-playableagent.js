@@ -22,7 +22,18 @@ const CUA_RESULTS_DIR = path.join(__dirname, 'cua-results');
 let LOCAL_PREVIEW_PORT = 0; // Dynamic port to avoid multi-worker conflicts
 const PYTHON = '/usr/bin/python3.8';
 const VERIFY_SCRIPT = '/root/cua-agent/blueprint_verify.py';
-const MAX_VERIFY_TIMEOUT = 900000; // 15 min (complex games need more CUA steps)
+
+// G1 (2026-04-20): kill-switch timeout scales with phase count so simple tasks
+// abort faster on Python hangs. Floor 3min / cap 15min — Python agent has its
+// own per-mode timers (observe max_observe_s, interact max_interact_s), so
+// this is the outer safety net, not the primary timer.
+// Formula: max(180, min(phases*60 + 90, 900)) seconds.
+// Table: 1p→180s, 3p→270s, 5p→390s, 8p→570s, 11p→750s, 14p+→900s (cap).
+function computeVerifyTimeoutMs(phaseCount) {
+  var n = Math.max(0, parseInt(phaseCount, 10) || 0);
+  var seconds = Math.max(180, Math.min(n * 60 + 90, 900));
+  return seconds * 1000;
+}
 
 try { fs.mkdirSync(CUA_RESULTS_DIR, { recursive: true }); } catch(e) {}
 
@@ -202,10 +213,13 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
   const speedMultiplier = isHighComplexity ? 2 : 5;
   _patchHighComplexity = isHighComplexity;
 
+  // G1: dynamic outer kill-switch by phase count
+  const verifyTimeoutMs = computeVerifyTimeoutMs(phaseCount);
+
   if (isHighComplexity) {
     log('[PlayableAgent] High complexity detected (' + phaseCount + ' phases) — using ' + speedMultiplier + 'x speed, conservative timer gates', taskId);
   }
-  log('[PlayableAgent] Starting PlayableAgent verification (VLM + __gameState)...', taskId);
+  log('[PlayableAgent] Starting PlayableAgent verification (VLM + __gameState, kill-switch ' + Math.round(verifyTimeoutMs/1000) + 's)...', taskId);
 
   // Start local server with headless patches
   let server;
@@ -246,7 +260,7 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       cwd: '/root/cua-agent',
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: MAX_VERIFY_TIMEOUT
+      timeout: verifyTimeoutMs
     });
     if (child.pid) process._activeChildPIDs.add(child.pid);
 
@@ -264,9 +278,9 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
     child.stderr.on('data', d => { stderr += d.toString(); });
 
     const timeout = setTimeout(() => {
-      log('[PlayableAgent] Timeout after 15 minutes, killing', taskId);
+      log('[PlayableAgent] Timeout after ' + Math.round(verifyTimeoutMs/1000) + 's (dynamic kill-switch), killing', taskId);
       try { child.kill('SIGTERM'); } catch(e) {}
-    }, MAX_VERIFY_TIMEOUT);
+    }, verifyTimeoutMs);
 
     child.on('close', (code) => {
       clearTimeout(timeout);
@@ -515,4 +529,4 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
   });
 }
 
-module.exports = { runCUAVerification, CUA_RESULTS_DIR };
+module.exports = { runCUAVerification, CUA_RESULTS_DIR, computeVerifyTimeoutMs };
