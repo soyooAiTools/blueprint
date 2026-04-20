@@ -39,6 +39,8 @@ var RULES = [
   },
   { id: 'create-primitive', pattern: /CreatePrimitive\s*\(/g, blocking: true, message: 'CreatePrimitive() forbidden in Luna — invisible at runtime' },
   { id: 'builtin-resource', pattern: /Resources\s*\.\s*GetBuiltinResource\s*\(/g, blocking: true, message: 'Resources.GetBuiltinResource() not implemented in Luna — use Resources.Load<Font>("DefaultFont") or GFM_UI.CreateText (font handled internally)' },
+  { id: 'chained-addcomponent-text', pattern: /new\s+GameObject\s*\([^)]*\)\s*\.\s*AddComponent\s*<\s*Text\s*>\s*\(\s*\)/g, blocking: true, message: '链式 new GameObject(...).AddComponent<Text>() 会在 Luna 返回 null → 下一行 Text.font/.text 赋值崩溃。改为 new GameObject(name, typeof(RectTransform), typeof(Text)) 再 GetComponent<Text>()' },
+  { id: 'chained-addcomponent-image', pattern: /new\s+GameObject\s*\([^)]*\)\s*\.\s*AddComponent\s*<\s*Image\s*>\s*\(\s*\)/g, blocking: true, message: '链式 new GameObject(...).AddComponent<Image>() 会在 Luna 返回 null。改为 new GameObject(name, typeof(RectTransform), typeof(Image)) 再 GetComponent<Image>()' },
   { id: 'gfm-tools', pattern: /GFM_Tools\./g, message: 'GFM_Tools does not exist — use GFM_Create, GFM_UI, GFM_Utils, etc.' },
   { id: 'coroutine', pattern: /StartCoroutine\s*\(/g, message: 'Coroutines forbidden in Luna — use Update + timer' },
   { id: 'async-await', pattern: /\basync\b|\bawait\b/g, message: 'async/await forbidden in Luna — use Update + timer' },
@@ -567,6 +569,100 @@ var RULES = [
       }
       if (missing.length === 0) return [];
       return [{ line: 1, text: 'Missing partial companion(s): ' + missing.join(', ') }];
+    },
+  },
+  // Blocking 6c (2026-04-21): duplicate method across partial-class files (CS0111).
+  // nqw7z3 (守护家园) burned its entire 6-round budget on AI re-declaring UpdateWorker,
+  // UpdateEnemyLittle, etc. in Systems.cs when the same names already existed in
+  // main. The compile error IS discovered by the build stage, but each round costs
+  // a ~3-4min Opus recode. Surface it at static-check so fix-loop sees a targeted
+  // fingerprint ("method X duplicated in Y.cs") and Claude can delete or rename
+  // the duplicate without going through a full compile cycle. Only fires when the
+  // main file is actually partial (partial-class-mismatch owns the other branch).
+  {
+    id: 'partial-method-duplicate',
+    pattern: null,
+    blocking: true,
+    message: 'Method already defined in a partial-class companion file (CS0111) — delete the duplicate declaration from the main file or rename one of them',
+    custom: function(code, ctx) {
+      if (!ctx || !ctx.extraFiles) return [];
+      if (!/\bpartial\s+class\s+GameFlowManagerMain\b/.test(code)) return [];
+      var extractSigs = function(src) {
+        var out = [];
+        if (!src) return out;
+        var srcLines = src.split('\n');
+        var CTRL = { if:1,for:1,foreach:1,while:1,switch:1,using:1,lock:1,catch:1,fixed:1,return:1,throw:1,'new':1,'do':1,'else':1 };
+        for (var li = 0; li < srcLines.length; li++) {
+          var raw = srcLines[li];
+          var cIdx = raw.indexOf('//');
+          var line = cIdx >= 0 ? raw.slice(0, cIdx) : raw;
+          var t = line.replace(/^\s+|\s+$/g, '');
+          if (!t) continue;
+          var op = t.indexOf('(');
+          if (op < 0) continue;
+          var cp = t.lastIndexOf(')');
+          if (cp <= op) continue;
+          var tail = t.slice(cp + 1).replace(/\s/g, '');
+          // Method signature tails: empty (brace next line), `{` (brace same line),
+          // `{...}` (same-line body like `void Foo() { }`), or `;` (abstract/interface/partial).
+          var tailOk = (tail === '' || tail === ';' || tail.charAt(0) === '{');
+          if (!tailOk) continue;
+          if (t.indexOf('=>') >= 0) continue;
+          var before = t.slice(0, op);
+          if (before.indexOf('=') >= 0 && before.indexOf('==') < 0) continue;
+          // Strip trailing generic params so `Foo<T>(...)` keeps `Foo` as the name.
+          var beforeNoGeneric = before.replace(/<[^<>]*>\s*$/, '');
+          var nameMatch = /([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(beforeNoGeneric);
+          if (!nameMatch) continue;
+          var methodName = nameMatch[1];
+          if (CTRL[methodName]) continue;
+          // Require ≥2 tokens before the name (return type + name) to skip
+          // constructors/control-flow. Constructors match the class name alone.
+          var preTokens = beforeNoGeneric.replace(/\s+$/, '').split(/\s+/);
+          if (preTokens.length < 2) continue;
+          // Reject expression-statement false positives like `return foo.Bar();`.
+          // The first token must be a modifier or a type keyword, not a control-flow
+          // or call expression root.
+          if (CTRL[preTokens[0]]) continue;
+          // If the token just before the name contains `.`, it's a member-call
+          // expression (e.g. `x = foo.Bar(...)`), not a method declaration.
+          if (preTokens[preTokens.length - 2] && preTokens[preTokens.length - 2].indexOf('.') >= 0) continue;
+          // Arity: count top-level commas+1 in params (0 if empty). Simple split
+          // is imprecise with generics in params, but good enough — CS0111 is
+          // about signature-level match, and Claude's regenerated duplicates are
+          // almost always exact copies.
+          var params = t.slice(op + 1, cp).replace(/^\s+|\s+$/g, '');
+          var arity = params === '' ? 0 : params.split(',').filter(function(p) { return p.replace(/\s/g, '') !== ''; }).length;
+          out.push({ name: methodName, arity: arity, line: li + 1 });
+        }
+        return out;
+      };
+      var companionIndex = {};
+      for (var efKey in ctx.extraFiles) {
+        if (!ctx.extraFiles.hasOwnProperty(efKey)) continue;
+        if (!/GameFlowManagerMain/.test(efKey)) continue;
+        var efCode = ctx.extraFiles[efKey];
+        if (!/\bpartial\s+class\s+GameFlowManagerMain\b/.test(efCode)) continue;
+        var efSigs = extractSigs(efCode);
+        for (var si = 0; si < efSigs.length; si++) {
+          var k = efSigs[si].name + '/' + efSigs[si].arity;
+          if (!companionIndex[k]) companionIndex[k] = efKey;
+        }
+      }
+      if (Object.keys(companionIndex).length === 0) return [];
+      var mainSigs = extractSigs(code);
+      var issues = [];
+      for (var mi = 0; mi < mainSigs.length; mi++) {
+        var ms = mainSigs[mi];
+        var mk = ms.name + '/' + ms.arity;
+        if (companionIndex[mk]) {
+          issues.push({
+            line: ms.line,
+            text: ms.name + '(' + ms.arity + ' param' + (ms.arity === 1 ? '' : 's') + ') duplicated in ' + companionIndex[mk],
+          });
+        }
+      }
+      return issues;
     },
   },
   // Blocking 6b: ≥4 consecutive `if (X == "literal")` on the same identifier =

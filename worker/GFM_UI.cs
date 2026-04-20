@@ -7,6 +7,12 @@
 // ⛔ 不要用 Resources.GetBuiltinResource — Luna runtime 不实现,抛 "not implemented"
 // ⛔ 不要用 Font.CreateDynamicFontFromOSFont — Luna WebGL 无系统字体
 // 模板工程必须在 Assets/Resources/ 放一个 DefaultFont.ttf (模板已内置)
+// ------------------------------------------------------------
+// ⛔⛔ 千万不要用链式 new GameObject(...).AddComponent<Text>()
+// Luna runtime 中未带 RectTransform 的 GameObject 链式 AddComponent 会返回 null,
+// 下一行赋值直接抛 "Cannot set properties of null (setting 'font')"。
+// 正确写法: new GameObject(name, typeof(RectTransform), typeof(Text)),
+// 再用 GetComponent<Text>() 拿引用。
 // ============================================================
 
 using UnityEngine;
@@ -15,14 +21,28 @@ using UnityEngine.UI;
 public static class GFM_UI
 {
     private static Font _cachedFont;
+    private static bool _fontLoadAttempted;
 
     private static Font GetFont()
     {
         if (_cachedFont != null) return _cachedFont;
+        if (_fontLoadAttempted) return null;
+        _fontLoadAttempted = true;
         _cachedFont = Resources.Load<Font>("DefaultFont");
-        // 不做 GetBuiltinResource fallback — Luna 不支持会抛错
-        // 如果 DefaultFont 加载失败,返回 null,Text.font=null 会用 UI 默认字体,不崩溃
+        if (_cachedFont == null) Debug.LogWarning("[GFM_UI] DefaultFont 加载失败, Text 将走 UI 内置默认字体");
         return _cachedFont;
+    }
+
+    // null-safe Text 字段设置，避免 .font = null 在某些 Luna 版本上炸引用链
+    private static void ApplyTextStyle(Text txt, string content, int fontSize, Color color, TextAnchor align)
+    {
+        if (txt == null) return;
+        txt.text = content;
+        var f = GetFont();
+        if (f != null) txt.font = f;
+        txt.fontSize = fontSize;
+        txt.color = color;
+        txt.alignment = align;
     }
 
     public static Canvas CreateCanvas(int refWidth = 1920, int refHeight = 1080)
@@ -48,14 +68,11 @@ public static class GFM_UI
         var btn = obj.GetComponent<Button>();
         if (onClick != null) btn.onClick.AddListener(onClick);
 
-        var txtObj = new GameObject("Text").AddComponent<Text>();
-        txtObj.transform.SetParent(obj.transform, false);
-        txtObj.GetComponent<RectTransform>().sizeDelta = size;
-        txtObj.text = text;
-        txtObj.font = GetFont();
-        txtObj.fontSize = (int)(size.y * 0.4f);
-        txtObj.color = Color.white;
-        txtObj.alignment = TextAnchor.MiddleCenter;
+        var txtGO = new GameObject("Text", typeof(RectTransform), typeof(Text));
+        txtGO.transform.SetParent(obj.transform, false);
+        txtGO.GetComponent<RectTransform>().sizeDelta = size;
+        var txtObj = txtGO.GetComponent<Text>();
+        ApplyTextStyle(txtObj, text, (int)(size.y * 0.4f), Color.white, TextAnchor.MiddleCenter);
 
         return btn;
     }
@@ -68,11 +85,7 @@ public static class GFM_UI
         rect.anchoredPosition = pos;
         rect.sizeDelta = new Vector2(400, fontSize * 2);
         var txt = obj.AddComponent<Text>();
-        txt.text = content;
-        txt.font = GetFont();
-        txt.fontSize = fontSize;
-        txt.color = Color.white;
-        txt.alignment = TextAnchor.MiddleCenter;
+        ApplyTextStyle(txt, content, fontSize, Color.white, TextAnchor.MiddleCenter);
         return txt;
     }
 
@@ -97,17 +110,14 @@ public static class GFM_UI
         var bgImg = bgObj.GetComponent<Image>();
         bgImg.color = new Color(0f, 0f, 0f, 0.0f);
 
-        var txtObj = new GameObject("Text", typeof(RectTransform)).AddComponent<Text>();
-        txtObj.transform.SetParent(canvas.transform, false);
-        var txtRect = txtObj.GetComponent<RectTransform>();
+        var txtGO = new GameObject("Text", typeof(RectTransform), typeof(Text));
+        txtGO.transform.SetParent(canvas.transform, false);
+        var txtRect = txtGO.GetComponent<RectTransform>();
         txtRect.sizeDelta = new Vector2(240, 40);
         txtRect.anchoredPosition = Vector2.zero;
-        txtObj.text = text;
-        txtObj.font = GetFont();
-        txtObj.fontSize = 22;
-        txtObj.color = Color.white;
-        txtObj.alignment = TextAnchor.MiddleCenter;
-        txtObj.horizontalOverflow = HorizontalWrapMode.Overflow;
+        var txtObj = txtGO.GetComponent<Text>();
+        ApplyTextStyle(txtObj, text, 22, Color.white, TextAnchor.MiddleCenter);
+        if (txtObj != null) txtObj.horizontalOverflow = HorizontalWrapMode.Overflow;
 
         labelObj.AddComponent<GFM_Billboard>();
     }
