@@ -291,7 +291,14 @@ module.exports = {
               // didn't actually run — per feedback_cua_hard_gate, CUA must be a
               // hard gate, not a soft signal. Enforcing here (not only inside
               // worker-playableagent) so hot-reload picks it up immediately.
+              // 2026-04-20: uniform-timing must be exempted in observe/autoPlay
+              // mode (autoPlay driver is a fixed-interval timer → cv≈0% is a
+              // physical consequence, not a silent-pass bug). Mirror the worker
+              // layer's isAutoPlayMode exemption to avoid flipping genuine PASS
+              // runs to FAIL. See worker-playableagent.js:441-446.
+              var cuaIsAutoPlayMode = cuaResult.isAutoPlayMode === true;
               var hardBlockers = silentSignals.filter(function(s) {
+                if (s.indexOf('uniform-timing') === 0 && cuaIsAutoPlayMode) return false;
                 return s.indexOf('uniform-timing') === 0
                     || s.indexOf('phase-order-violation') === 0
                     || s.indexOf('all-vars-zero') === 0;

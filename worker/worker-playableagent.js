@@ -458,11 +458,12 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
           ' | Issues: ' + issues.length, taskId);
 
       resolve({
-        passed,
+        passed: effectivePassed,
         issues,
         skipped: false,
         totalActions: totalActions,
         silentPassSignals: silentPassSignals,
+        isAutoPlayMode: isAutoPlayMode,
         report: {
           gameState: finalState,
           completedPhases: report.completedPhases || [],
