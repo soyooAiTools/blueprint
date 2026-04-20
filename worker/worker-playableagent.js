@@ -16,6 +16,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
+const silentPassDetectors = require('../adapters/silent-pass-detectors.cjs');
+
 const CUA_RESULTS_DIR = path.join(__dirname, 'cua-results');
 let LOCAL_PREVIEW_PORT = 0; // Dynamic port to avoid multi-worker conflicts
 const PYTHON = '/usr/bin/python3.8';
@@ -423,6 +425,12 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       if (allVarsZero && interactionKeys.length >= 2) {
         silentPassSignals.push('all-vars-zero:' + interactionKeys.length + '-keys');
       }
+      // D2 L8/L9: delegated to adapters/silent-pass-detectors.cjs so engine
+      // filter (cua-verify.cjs) and unit tests share the exact same rules.
+      var _l8 = silentPassDetectors.detectBatchCompletion(tsValues);
+      if (_l8) silentPassSignals.push(_l8);
+      var _l9 = silentPassDetectors.detectNoPhaseTimestamps(passed, (report.specPhases || []).length, tsValues.length);
+      if (_l9) silentPassSignals.push(_l9);
 
       if (silentPassSignals.length > 0) {
         log('[PlayableAgent] ⚠️ Silent-pass signals detected: ' + silentPassSignals.join(', '), taskId);
@@ -442,7 +450,9 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
         if (s.indexOf('uniform-timing') === 0 && isAutoPlayMode) return false;
         return s.indexOf('uniform-timing') === 0
             || s.indexOf('phase-order-violation') === 0
-            || s.indexOf('all-vars-zero') === 0;
+            || s.indexOf('all-vars-zero') === 0
+            || s.indexOf('batch-completion') === 0
+            || s.indexOf('no-phase-timestamps') === 0;
       });
       var effectivePassed = passed;
       if (passed && hardBlockingSignals.length > 0) {

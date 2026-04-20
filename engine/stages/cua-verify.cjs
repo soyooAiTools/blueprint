@@ -322,7 +322,9 @@ module.exports = {
                 if (s.indexOf('uniform-timing') === 0 && cuaIsAutoPlayMode) return false;
                 return s.indexOf('uniform-timing') === 0
                     || s.indexOf('phase-order-violation') === 0
-                    || s.indexOf('all-vars-zero') === 0;
+                    || s.indexOf('all-vars-zero') === 0
+                    || s.indexOf('batch-completion') === 0
+                    || s.indexOf('no-phase-timestamps') === 0;
               });
 
               // 2026-04-20 D1: 7th silent-pass layer — low-phase-coverage.
