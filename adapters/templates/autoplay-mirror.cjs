@@ -4,6 +4,7 @@
  * directly sets state/resources instead of requiring player input.
  */
 var { toLowerCamel } = require('./trigger-codegen.cjs');
+var { TriggerType, ActionType } = require('./phase-enums.cjs');
 
 function generateAutoPlay(schema) {
   var lines = [];
@@ -37,25 +38,25 @@ function generateAutoPlay(schema) {
 function triggerToMirror(trigger, schema) {
   if (!trigger) return null;
   switch (trigger.type) {
-    case 'resource_collected':
+    case TriggerType.RESOURCE_COLLECTED:
       return 'AddResource("' + trigger.resource + '", ' + trigger.amount + ');';
-    case 'entity_state_reached':
+    case TriggerType.ENTITY_STATE_REACHED:
       return toLowerCamel(trigger.entity) + 'State = ' + trigger.state + ';';
-    case 'near_entity':
+    case TriggerType.NEAR_ENTITY:
       return toLowerCamel(trigger.entity) + '.transform.position = player.transform.position;';
-    case 'click_entity':
+    case TriggerType.CLICK_ENTITY:
       return toLowerCamel(trigger.entity) + 'Done = true;\n' +
              toLowerCamel(trigger.entity) + 'State++;';
-    case 'enemy_defeated':
+    case TriggerType.ENEMY_DEFEATED:
       return 'enemiesDefeated = ' + trigger.count + ';\n' +
              'HideObj(' + toLowerCamel(trigger.entity || 'enemy') + ');';
-    case 'all_built':
+    case TriggerType.ALL_BUILT:
       var tracked = (schema.entities || []).filter(function(e) { return e.terminalState === 2; });
       return tracked.map(function(e) { return toLowerCamel(e.name) + 'State = 2;'; }).join('\n');
-    case 'compound':
+    case TriggerType.COMPOUND:
       var parts = (trigger.triggers || []).map(function(t) { return triggerToMirror(t, schema); }).filter(Boolean);
       return parts.join('\n');
-    case 'timer':
+    case TriggerType.TIMER:
       return null; // Skeleton safety net handles timeout
     default:
       return null;
@@ -64,13 +65,13 @@ function triggerToMirror(trigger, schema) {
 
 function actionToMirror(action) {
   switch (action.action) {
-    case 'set_entity_state':
+    case ActionType.SET_ENTITY_STATE:
       return toLowerCamel(action.entity) + 'State = ' + action.state + ';';
-    case 'add_resource':
+    case ActionType.ADD_RESOURCE:
       return 'AddResource("' + action.resource + '", ' + action.amount + ');';
-    case 'switch_form':
+    case ActionType.SWITCH_FORM:
       return 'SwitchForm(' + action.formIndex + ');';
-    case 'spawn_enemies':
+    case ActionType.SPAWN_ENEMIES:
       return 'Spawn' + action.entity + '(' + action.count + ');';
     default:
       return '// autoplay: ' + action.action;

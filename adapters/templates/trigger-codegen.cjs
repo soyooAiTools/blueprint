@@ -4,6 +4,8 @@
  * and by autoplay-mirror.cjs to generate simulation equivalents.
  */
 
+var { TriggerType } = require('./phase-enums.cjs');
+
 function toLowerCamel(name) {
   // Identity: skeleton declares PascalCase variables matching entity names as-is
   // (e.g. "GameObject TreeSource;", "int HouseState;"), so templates must NOT lowercase.
@@ -13,21 +15,21 @@ function toLowerCamel(name) {
 function triggerToCondition(trigger, allEntities) {
   if (!trigger || !trigger.type) return 'true /* MISSING TRIGGER */';
   switch (trigger.type) {
-    case 'resource_collected':
+    case TriggerType.RESOURCE_COLLECTED:
       return 'GetResource("' + trigger.resource + '") >= ' + trigger.amount;
-    case 'entity_state_reached':
+    case TriggerType.ENTITY_STATE_REACHED:
       return toLowerCamel(trigger.entity) + 'State >= ' + trigger.state;
-    case 'near_entity':
+    case TriggerType.NEAR_ENTITY:
       return 'IsNear(' + toLowerCamel(trigger.entity) + ', ' + trigger.range + 'f)';
-    case 'click_entity':
+    case TriggerType.CLICK_ENTITY:
       return toLowerCamel(trigger.entity) + 'Done == true';
-    case 'all_built':
+    case TriggerType.ALL_BUILT:
       return allBuiltCondition(allEntities);
-    case 'enemy_defeated':
+    case TriggerType.ENEMY_DEFEATED:
       return 'enemiesDefeated >= ' + trigger.count;
-    case 'timer':
+    case TriggerType.TIMER:
       return 'phaseTimer >= ' + trigger.seconds + 'f';
-    case 'compound':
+    case TriggerType.COMPOUND:
       var op = trigger.operator === 'or' ? ' || ' : ' && ';
       var parts = (trigger.triggers || []).map(function(t) {
         return '(' + triggerToCondition(t, allEntities) + ')';
