@@ -95,11 +95,14 @@ var RULES = [
     return [];
   }},
   { id: 'autoplay-gate-removed', pattern: null, message: 'AutoPlay 12s gate block was removed — each shot must wait 12s in autoPlay mode', custom: function(code) {
-    // The skeleton generates: if (_autoPlayMode && !ruleTriggered[N] && phaseTimer < 12f) {}
-    // Skeleton changed from 20s → 12s (coordinated with CUA speed patch, see feedback_cua_speed_timer_coordination).
-    // If AI removes this gate, phases will advance instantly
-    if (code.indexOf('_autoPlayMode') >= 0 && code.indexOf('phaseTimer < 12f') < 0) {
-      return [{ line: 1, text: 'Missing "phaseTimer < 12f" gate — skeleton autoPlay gate was deleted by AI' }];
+    // 2026-04-20: unified gate is now `phaseTimer >= (_autoPlayMode ? 12f : Nf)`
+    // in CheckEventRules. Earlier form `phaseTimer < 12f` is gone. Detect by checking
+    // for the ternary pattern OR the legacy form (both satisfy the "gate exists" intent).
+    if (code.indexOf('_autoPlayMode') < 0) return [];
+    var hasUnified = /_autoPlayMode\s*\?\s*12f\b/.test(code);
+    var hasLegacy = code.indexOf('phaseTimer < 12f') >= 0;
+    if (!hasUnified && !hasLegacy) {
+      return [{ line: 1, text: 'Missing autoPlay phaseTimer gate — expected `phaseTimer >= (_autoPlayMode ? 12f : Nf)` in CheckEventRules' }];
     }
     return [];
   }},
@@ -253,6 +256,60 @@ var RULES = [
     }
     return issues;
   }},
+  // 2026-04-20: Phase gate now binds to EntityAdvanced(GameObject, snapshot) which reads
+  // real transform.position. Direct variable writes (xxxState=N, xxxDone=true,
+  // xxxPlayerActed=true) inside OnAutoPlayArrive previously "faked" phase progression —
+  // CUA saw the variable flip and let the round pass, even when nothing moved on screen
+  // (82frm7/ju5dfu postmortem). Conditions are now observable-only. Any such assignment
+  // inside OnAutoPlayArrive is a block-level violation — AI must use PlaceObj / HideObj /
+  // transform.position to produce a real scene change.
+  { id: 'autoplay-direct-assign-forbidden', pattern: null, blocking: true,
+    message: 'Direct variable assignment in OnAutoPlayArrive — phase gate binds to EntityAdvanced(GameObject). Use PlaceObj/HideObj/transform.position to move the entity instead.',
+    custom: function(code) {
+      var issues = [];
+      // Length-preserving strip — keeps offsets aligned with `code` so line numbers
+      // computed from `stripped` are valid in `code` too. Replaces comment/string
+      // contents with spaces and preserves newlines.
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
+        .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
+      var sigMatch = stripped.match(/void\s+OnAutoPlayArrive\s*\(\s*string\s+\w+\s*\)\s*\{/);
+      if (!sigMatch) return [];
+      var start = sigMatch.index + sigMatch[0].length;
+      var depth = 1, end = start;
+      while (end < stripped.length && depth > 0) {
+        var ch = stripped[end];
+        if (ch === '{') depth++;
+        else if (ch === '}') { depth--; if (depth === 0) break; }
+        end++;
+      }
+      if (depth !== 0) return [];
+      var body = stripped.substring(start, end);
+      var bodyStartLine = stripped.substring(0, start).split('\n').length;
+      var patterns = [
+        { re: /\b(\w+State)\s*=\s*\d+/g, label: 'State assignment' },
+        { re: /\b(\w*Done)\s*=\s*true\b/g, label: 'Done flag assignment' },
+        { re: /\b(\w*PlayerActed)\s*=\s*true\b/g, label: 'PlayerActed assignment' },
+      ];
+      for (var pi = 0; pi < patterns.length; pi++) {
+        var p = patterns[pi];
+        var bm;
+        p.re.lastIndex = 0;
+        while ((bm = p.re.exec(body)) !== null) {
+          var flagName = bm[1];
+          // Whitelist: gameEnded / autoPlayChecked are not interaction flags
+          if (flagName === 'gameEnded' || flagName === 'autoPlayChecked') continue;
+          var lineInBody = body.substring(0, bm.index).split('\n').length - 1;
+          issues.push({
+            line: bodyStartLine + lineInBody,
+            text: p.label + ' "' + bm[0] + '" inside OnAutoPlayArrive — replace with PlaceObj/HideObj/transform.position',
+          });
+        }
+      }
+      return issues;
+    },
+  },
   // --- v6: Codegen syntax safety rules ---
   { id: 'invalid-identifier', pattern: null, blocking: true,
     message: 'C# identifier starts with digit — invalid syntax (e.g. "bool 5Done")',

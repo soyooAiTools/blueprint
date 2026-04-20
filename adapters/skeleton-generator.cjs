@@ -96,51 +96,66 @@ function generateSkeleton(specs, opts = {}) {
   const shouldSplit = totalPhases > 10;
   const lines = [];
 
-  // Helper: convert spec trigger condition to real C# using entity state variables
-  // e.g. spec has entitiesRequired: [{name: "iceCrystal", terminalState: 1}]
-  //      → generates: iceCrystalState >= 1
-  //
-  // ANTI-AUTOPLAY: Every condition MUST include a player interaction gate.
-  // Timer-only transitions cause CUA to reject (game auto-plays without input).
-  function buildRealCondition(spec) {
+  // Helper: list GameObject names that gate a phase's exit condition.
+  // Collects entitiesRequired + non-numeric interaction targets.
+  // These entities must be "advanced" (moved or active-toggled) during the phase
+  // for the phase to exit — see buildRealCondition.
+  function phaseGateEntities(spec) {
     const entities = spec.entitiesRequired || [];
     const interactions = spec.requiredInteractions || [];
-    const mustAct = spec.playerMustAct !== false; // default true
+    const names = [];
+    const seen = {};
 
-    if (entities.length === 0 && interactions.length === 0) {
-      // No entity or interaction requirements — AI MUST replace this with real gameplay condition
-      // Use an interaction flag that forces player input (anti-autoplay)
-      const phaseId = (spec.phaseId || 'phase').replace(/[^a-zA-Z0-9]/g, '');
-      return phaseId + 'InteractionDone /* AI: MUST replace with real player interaction check — timer alone is FORBIDDEN */';
-    }
-
-    const conditions = [];
-
-    // Entity state conditions
-    if (entities.length > 0) {
-      entities.forEach(e => {
-        conditions.push(e.name + 'State >= ' + e.terminalState);
-      });
-    }
-
-    // Interaction-based conditions — scan all interactions, skip wait/defend
+    entities.forEach(e => {
+      if (e && e.name && !seen[e.name]) { names.push(e.name); seen[e.name] = true; }
+    });
     for (let ii = 0; ii < interactions.length; ii++) {
-      const verb = interactions[ii].split(':')[0];
-      const target = interactions[ii].split(':')[1] || '';
+      const parts = interactions[ii].split(':');
+      const verb = parts[0];
+      const target = parts[1];
       if (!target || verb === 'wait' || verb === 'defend') continue;
       if (/^\d/.test(target)) continue;
-      conditions.push(target + 'Done == true');
-      break; // only need one interaction condition for gate
+      if (!seen[target]) { names.push(target); seen[target] = true; }
     }
+    return names;
+  }
 
-    // If playerMustAct but no interaction condition was added, add a generic one
-    if (mustAct && interactions.length === 0 && entities.length > 0) {
-      // Entity conditions exist but no explicit interaction — add player action flag
-      const phaseId = (spec.phaseId || 'phase').replace(/[^a-zA-Z0-9]/g, '');
-      conditions.push(phaseId + 'PlayerActed /* AI: set to true when player interacts */');
+  // Build the phase-exit realCondition. Unlike the old version, this no longer
+  // reads fake flags (xxxState / xxxDone / xxxPlayerActed) — those can be assigned
+  // by AI without any visible gameplay. Instead it binds to actual GameObject state:
+  // a phase exits only when every required entity has moved > 1.5 units from the
+  // position snapshotted at phase entry.
+  //
+  // NOTE: SetActive() is forbidden in Luna (see static-check `setactive` rule),
+  // so EntityAdvanced checks position only. The skeleton's PlaceObj/HideObj
+  // move entities to (y >= 0) or (y = -999) respectively — both count as visible
+  // movement and satisfy the condition.
+  //
+  // CUA alignment: because `EntityAdvanced` reads transform.position directly,
+  // any satisfied condition is guaranteed to produce an observable visual diff.
+  function buildRealCondition(spec) {
+    const names = phaseGateEntities(spec);
+    if (names.length === 0) {
+      // No gate entity — check if this phase is legitimately a wait/defend beat.
+      // wait:N / defend:N interactions mean "hold for N seconds of animation",
+      // the timer gate is the real condition. Letting these through as `true`
+      // means only `phaseTimer >= Xf` controls exit (no fakeable flags involved).
+      const inter = spec.requiredInteractions || [];
+      const onlyTimeBased = inter.length > 0 && inter.every(function(s) {
+        const v = (s || '').split(':')[0];
+        return v === 'wait' || v === 'defend';
+      });
+      if (onlyTimeBased) {
+        return 'true /* time-only beat (wait/defend) — timer alone is the real gate */';
+      }
+      // Otherwise the phase spec is too loose. AI can't fix it by editing C#; block
+      // hard so the bad spec doesn't silently pass.
+      return 'false /* AI: phase spec lacks entities/interactions — add EntityAdvanced(...) check with GameObject + snapshot */';
     }
-
-    return conditions.join(' && ');
+    const parts = names.map(function(n) {
+      return 'EntityAdvanced(' + n + ', _snap_' + n + 'Pos)';
+    });
+    return parts.join(' && ');
   }
 
 
@@ -247,6 +262,20 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    // [SKELETON] Object references (auto-mapped from entity→pool)');
     entityNames.forEach(name => {
       lines.push(`    GameObject ${name}; // → ${entityPoolMap[name]}`);
+    });
+    lines.push('');
+  }
+
+  // [SKELETON 2026-04-20] Per-entity snapshots — captured at phase entry, checked at
+  // phase exit. EntityAdvanced() reads these to decide whether a phase condition is
+  // truly satisfied. This replaces the old xxxState / xxxDone / xxxPlayerActed faking
+  // path (see 2026-04-20 autoplay condition enforcement postmortem).
+  if (entityNames.length > 0) {
+    lines.push('    // [SKELETON] Shared fallback pos for phase-entry snapshots (class field init, not hot path)');
+    lines.push('    Vector3 _snapHidePos = new Vector3(0f, -999f, 0f);');
+    lines.push('    // [SKELETON] Per-entity phase-entry snapshots — DO NOT MODIFY');
+    entityNames.forEach(name => {
+      lines.push(`    Vector3 _snap_${name}Pos;`);
     });
     lines.push('');
   }
@@ -568,51 +597,48 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    }');
   }
   lines.push('');
-  lines.push('    // [SKELETON] Called when autoPlay triggers an interaction (DO NOT REMOVE).');
-  lines.push('    // AI MUST fill this to simulate gameplay — CUA checks variables change.');
-  lines.push('    // [SKELETON] Empty OnAutoPlayArrive = CUA FAIL (variable stagnation)');
-  lines.push('    // RULE: every xxxDone flag set here MUST ALSO be set in interactive mode');
-  lines.push('    //       (proximity check, raycast, or collision) — otherwise interactive mode freezes.');
+  lines.push('    // [SKELETON 2026-04-20] OnAutoPlayArrive — MUST produce OBSERVABLE position changes.');
+  lines.push('    // Phase-exit gate binds to EntityAdvanced() which reads transform.position only.');
+  lines.push('    // Direct variable writes (xxxState=N, xxxDone=true) DO NOT satisfy conditions.');
+  lines.push('    //');
+  lines.push('    // REQUIRED per case — move the phase-required entity by > 1.5 units:');
+  lines.push('    //   1. PlaceObj(entity, x, y, z)                      — show at given position');
+  lines.push('    //   2. HideObj(entity)                                — move to y=-999 (hide)');
+  lines.push('    //   3. entity.transform.position = new Vector3(...)   — direct move');
+  lines.push('    //');
+  lines.push('    // FORBIDDEN in this method (will fail static check):');
+  lines.push('    //   - xxxState = <literal>         (State vars are now read-only)');
+  lines.push('    //   - xxxDone = true               (Done flags no longer gate phases)');
+  lines.push('    //   - xxxPlayerActed = true        (PlayerActed flags no longer gate phases)');
+  lines.push('    //   - entity.SetActive(...)        (forbidden by Luna static-check)');
   lines.push('    void OnAutoPlayArrive(string targetName)');
   lines.push('    {');
   lines.push('        // TODO_AUTOPLAY_INTERACT_START');
-  // Generate phase-specific stubs as a switch(currentPhaseName) — one case per phase.
-  // Flat switch (rather than chained `if (currentPhaseName == ...)`) keeps the dispatch
-  // readable at 10-13 phases and makes each phase's branch grep-able by phaseId.
   if (specs.length > 0) {
     lines.push('        switch (currentPhaseName)');
     lines.push('        {');
     for (var apsi = 0; apsi < specs.length; apsi++) {
       var apSpec = specs[apsi];
       var apPhaseId = (apSpec.phaseId || 'phase' + apsi).replace(/[^a-zA-Z0-9]/g, '');
-      var apInteractions = apSpec.requiredInteractions || [];
       var apEntities = apSpec.entitiesRequired || [];
       lines.push('            case "' + apPhaseId + '":');
+      // Emit GUIDANCE comments listing each entity that must be advanced here.
+      // No auto-generated assignments — AI must write real PlaceObj/SetActive calls.
       if (apEntities.length > 0) {
+        lines.push('                // REQUIRED: produce observable change for each entity below');
         for (var aei = 0; aei < apEntities.length; aei++) {
           var eName = apEntities[aei].name || apEntities[aei];
-          var eTerminal = apEntities[aei].terminalState || 1;
-          lines.push('                ' + eName + 'State = ' + eTerminal + '; // TODO: AI adjusts — simulate reaching terminal state');
+          lines.push('                //   - ' + eName + ': PlaceObj(' + eName + ', x, y, z) or HideObj(' + eName + ') or direct transform.position =');
         }
+      } else {
+        lines.push('                // REQUIRED: call PlaceObj / HideObj / transform.position = ... for the phase-required entity');
       }
-      if (apInteractions.length > 0) {
-        for (var aii = 0; aii < apInteractions.length; aii++) {
-          var parts = apInteractions[aii].split(':');
-          var verb = parts[0];
-          var target = parts[1] || '';
-          if (target && !/^\d/.test(target) && verb !== 'wait' && verb !== 'defend') {
-            lines.push('                ' + target + 'Done = true; // TODO: AI adjusts — must ALSO set in interactive handler');
-          }
-        }
-      }
-      lines.push('                ' + apPhaseId + 'InteractionDone = true;');
-      lines.push('                ' + apPhaseId + 'PlayerActed = true;');
+      lines.push('                // TODO: AI fills — move/activate entities so EntityAdvanced(...) becomes true');
       lines.push('                break;');
     }
     lines.push('        }');
   } else {
-    lines.push('        // TODO: AI fills — simulate interaction for each phase');
-    lines.push('        // Example: switch (currentPhaseName) { case "Phase1": resourceCount++; phase1Done = true; break; }');
+    lines.push('        // TODO: AI fills — move/activate entities so EntityAdvanced(...) becomes true');
   }
   lines.push('        // TODO_AUTOPLAY_INTERACT_END');
   lines.push('    }');
@@ -623,6 +649,21 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    void ReportPhase(string phaseId) {');
   lines.push('        // Bridge.NET compiles this to console.log which Playwright can capture');
   lines.push('        UnityEngine.Debug.Log("__PHASE__:" + phaseId);');
+  lines.push('    }');
+  lines.push('');
+
+  // [SKELETON 2026-04-20] EntityAdvanced — phase-exit gate binds to GameObject state.
+  // Returns true when the entity has moved more than ~1.5 units from its phase-entry
+  // position. This is the ONLY way phase conditions can satisfy — variable
+  // assignments alone (xxxState=N, xxxDone=true) are not readable here.
+  //
+  // Note: SetActive is forbidden in Luna, so we only check position. Use PlaceObj
+  // (show) / HideObj (move to y=-999) / transform.position = ... to advance entities.
+  lines.push('    // [SKELETON] Phase condition helper — reads REAL GameObject position (DO NOT MODIFY)');
+  lines.push('    bool EntityAdvanced(GameObject go, Vector3 snapPos)');
+  lines.push('    {');
+  lines.push('        if (go == null) return false;');
+  lines.push('        return Vector3.Distance(go.transform.position, snapPos) > 1.5f;');
   lines.push('    }');
   lines.push('');
 
@@ -847,6 +888,17 @@ function generateSkeleton(specs, opts = {}) {
         lines.push('');
       }
 
+      // [SKELETON 2026-04-20] Snapshot this phase's entities — phase exit condition
+      // requires these entities to have moved since this snapshot (DO NOT MODIFY)
+      const phase0Gates = phaseGateEntities(spec);
+      if (phase0Gates.length > 0) {
+        lines.push('            // [SKELETON] Snapshot entity positions for phase-exit condition check (DO NOT MODIFY)');
+        phase0Gates.forEach(n => {
+          lines.push(`            _snap_${n}Pos = (${n} != null) ? ${n}.transform.position : _snapHidePos;`);
+        });
+        lines.push('');
+      }
+
       lines.push(`            // === TODO: AI fills — place additional objects, set colors, show guide ===`);
       lines.push(`            // TODO_PHASE_${i + 1}_INIT_START`);
       lines.push('');
@@ -866,35 +918,33 @@ function generateSkeleton(specs, opts = {}) {
       lines.push(`        // Requires: ${prevSpec.triggerNext ? prevSpec.triggerNext.description : 'previous phase complete'}`);
       lines.push(`        // Condition hint: ${conditionHint}`);
       const realCondition = buildRealCondition(prevSpec);
-      // [SKELETON] AutoPlay gate: require timer + at least one OnAutoPlayArrive call per phase
-      lines.push(`        // [SKELETON] autoPlay 12s gate — DO NOT MODIFY OR REMOVE THIS BLOCK`);
-      lines.push(`        if (_autoPlayMode && !ruleTriggered[${ruleIdx}] && (phaseTimer < 12f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {} // wait 12s + autoPlay action`);
-      lines.push(`        else if (!ruleTriggered[${ruleIdx}]`);
-      lines.push(`            && (_autoPlayMode ? (phaseTimer >= 12f && _autoPlaySteps > _autoPlayStepsAtPhaseStart) // [SKELETON] 12s + autoPlay action (DO NOT MODIFY)`);
-      lines.push(`                : (${realCondition} && phaseTimer >= ${prevSpec.duration.min}f))) // interactive mode`);
+      // [SKELETON 2026-04-20] Unified phase-exit gate — same condition in autoPlay + interactive.
+      // realCondition binds to GameObject state (see EntityAdvanced), so autoPlay CANNOT
+      // satisfy by flag assignment alone — AI must move/activate entities in OnAutoPlayArrive.
+      // The 12s floor in autoPlay gives CUA observer time to capture each phase clearly.
+      lines.push(`        // [SKELETON] Phase-exit gate (DO NOT MODIFY OR REMOVE)`);
+      lines.push(`        if (!ruleTriggered[${ruleIdx}]`);
+      lines.push(`            && (${realCondition})`);
+      lines.push(`            && phaseTimer >= (_autoPlayMode ? 12f : ${prevSpec.duration.min}f))`);
       lines.push('        {');
       lines.push(`            ruleTriggered[${ruleIdx}] = true;`);
       lines.push(`            currentPhaseName = "${spec.phaseId}"; // [IMMUTABLE] Do NOT change this phaseId`);
       lines.push(`            phaseEnterTimes[${ruleIdx}] = gameTimer; // [SKELETON]`);
       lines.push('            phaseTimer = 0f; // [SKELETON] reset timer — prevent batch-firing multiple phases in one frame');
-      lines.push('            _autoPlayStepsAtPhaseStart = _autoPlaySteps; // [SKELETON] reset per-phase step counter');
+      lines.push('            _autoPlayStepsAtPhaseStart = _autoPlaySteps; // [SKELETON] kept for backward compat (unused by gate)');
       lines.push(`            ReportPhase("${spec.phaseId}"); // [IMMUTABLE] CUA uses this exact ID for coverage tracking`);
       lines.push('');
 
-      // [SKELETON] AutoPlay phase transition — advance state + camera only (no PlaceObj to avoid black bars)
-      const camTarget = spec.camera && spec.camera.lookAt ? spec.camera.lookAt : null;
-      lines.push(`            // [SKELETON] AutoPlay state advance for ${spec.phaseName} (DO NOT MODIFY)`);
-      lines.push('            if (_autoPlayMode)');
-      lines.push('            {');
-      // Advance entity states for entities required by previous phase
-      (prevSpec.entitiesRequired || []).forEach(e => {
-        if (allEntities.has(e.name)) {
-          lines.push(`                ${e.name}State = ${Math.min(e.terminalState || 2, 2)};`);
-        }
-      });
-      lines.push('                _autoPlaySteps++;');
-      lines.push('            }');
-      lines.push('');
+      // [SKELETON 2026-04-20] Snapshot entities gating THIS phase's exit — must happen
+      // before AI init code runs, so OnAutoPlayArrive's moves count as "advancement".
+      const thisPhaseGates = phaseGateEntities(spec);
+      if (thisPhaseGates.length > 0) {
+        lines.push('            // [SKELETON] Snapshot entity positions for next phase-exit check (DO NOT MODIFY)');
+        thisPhaseGates.forEach(n => {
+          lines.push(`            _snap_${n}Pos = (${n} != null) ? ${n}.transform.position : _snapHidePos;`);
+        });
+        lines.push('');
+      }
 
       lines.push(`            // === TODO: AI fills — activate objects for ${spec.phaseName} ===`);
       lines.push(`            // TODO_PHASE_${i + 1}_INIT_START`);
@@ -914,37 +964,18 @@ function generateSkeleton(specs, opts = {}) {
   const endConditionHint = lastSpec.triggerNext ? lastSpec.triggerNext.condition : 'game end condition';
   lines.push(`        // End condition hint: ${endConditionHint}`);
   const endRealCondition = buildRealCondition(lastSpec);
-  lines.push(`        // [SKELETON] autoPlay 12s gate — DO NOT MODIFY OR REMOVE THIS BLOCK`);
-  lines.push(`        if (_autoPlayMode && !ruleTriggered[${specs.length}] && (phaseTimer < 12f || _autoPlaySteps <= _autoPlayStepsAtPhaseStart)) {} // wait 12s + autoPlay action`);
-  lines.push(`        else if (!ruleTriggered[${specs.length}]`);
-  lines.push(`            && (_autoPlayMode ? (phaseTimer >= 12f && _autoPlaySteps > _autoPlayStepsAtPhaseStart) // [SKELETON] 12s + autoPlay action (DO NOT MODIFY)`);
-  lines.push(`                : (${endRealCondition} && phaseTimer >= ${lastSpec.duration.min}f)))`);
+  // [SKELETON 2026-04-20] Unified game-end gate — no autoPlay bypass, no bulk State=2.
+  // Last phase's entities must actually advance (move/toggle) during the last phase
+  // for gameEnd to trigger.
+  lines.push(`        // [SKELETON] Game-end gate (DO NOT MODIFY OR REMOVE)`);
+  lines.push(`        if (!ruleTriggered[${specs.length}]`);
+  lines.push(`            && (${endRealCondition})`);
+  lines.push(`            && phaseTimer >= (_autoPlayMode ? 12f : ${lastSpec.duration.min}f))`);
   lines.push('        {');
   lines.push(`            ruleTriggered[${specs.length}] = true;`);
   lines.push('            currentPhaseName = "gameEnd";');
   lines.push('            ReportPhase("gameEnd"); // [SKELETON] Phase instrumentation');
   lines.push('            gameEnded = true;');
-  lines.push('');
-
-  // [SKELETON] AutoPlay: advance all entity states to terminal at game end
-  if (allEntities.size > 0) {
-    lines.push('            // [SKELETON] AutoPlay: set all entities to terminal state');
-    lines.push('            if (_autoPlayMode)');
-    lines.push('            {');
-    allEntities.forEach(name => {
-      lines.push(`                ${name}State = 2;`);
-    });
-    lines.push('            }');
-  }
-
-  // Verify all entities reached terminal state
-  if (allEntities.size > 0) {
-    lines.push('            // [SKELETON] Verify all entities reached terminal state');
-    allEntities.forEach(name => {
-      lines.push(`            // Assert: ${name}State should be 2 at game end`);
-    });
-  }
-
   lines.push('');
   lines.push(`            AddCompletedPhase("${lastSpec.phaseId}");`);
   lines.push('            AddCompletedPhase("gameEnd");');
@@ -954,36 +985,23 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        }');
   lines.push('');
 
-  // [SKELETON] AutoPlay safety net — force phase progression if stuck
-  // This block is AFTER all normal phase transitions. If autoPlay mode and phaseTimer
-  // exceeds 2x the expected duration, force-trigger the next untriggered phase.
-  // This catches cases where AI accidentally broke the autoPlay ternary conditions.
-  lines.push('        // [SKELETON] AutoPlay safety net — force progression if stuck (DO NOT MODIFY)');
-  lines.push('        if (_autoPlayMode && !gameEnded && phaseTimer >= (AUTO_PLAY_PHASE_DURATION < 15f ? 50f : AUTO_PLAY_PHASE_DURATION * 2.5f)) // [SKELETON] safety net min 50s (DO NOT MODIFY)');
+  // [SKELETON 2026-04-20] Stuck-phase reporter — LOG ONLY, does NOT bypass conditions.
+  // If a phase runs past 90s without its realCondition satisfying, emit a FATAL marker
+  // that CUA / task supervisor picks up. We do NOT write ruleTriggered[i] here —
+  // the old safety net was the L5 bypass; replacing it with a pure observer keeps
+  // "conditions must be fully satisfied" the only path to phase advancement.
+  lines.push('        // [SKELETON] Stuck-phase reporter — emits __PHASE_STUCK__ when realCondition fails to satisfy (DO NOT MODIFY)');
+  lines.push('        if (!gameEnded && phaseTimer >= 90f)');
   lines.push('        {');
   for (let ri = 1; ri <= specs.length; ri++) {
-    const targetPhase = ri < specs.length ? specs[ri].phaseId : 'gameEnd';
     const prevPhase = specs[ri - 1].phaseId;
-    lines.push(`            if (!ruleTriggered[${ri}]) // stuck at ${prevPhase} → force ${targetPhase}`);
+    lines.push(`            if (!ruleTriggered[${ri}] && currentPhaseName == "${prevPhase}") // stuck at ${prevPhase}`);
     lines.push('            {');
-    lines.push(`                ruleTriggered[${ri}] = true;`);
-    if (ri < specs.length) {
-      lines.push(`                currentPhaseName = "${targetPhase}";`);
-      lines.push(`                phaseEnterTimes[${ri}] = gameTimer;`);
-      lines.push('                phaseTimer = 0f;');
-      lines.push(`                ReportPhase("${targetPhase}");`);
-      lines.push(`                AddCompletedPhase("${prevPhase}");`);
-    } else {
-      lines.push('                currentPhaseName = "gameEnd";');
-      lines.push('                ReportPhase("gameEnd");');
-      lines.push(`                AddCompletedPhase("${prevPhase}");`);
-      lines.push('                AddCompletedPhase("gameEnd");');
-      lines.push('                gameEnded = true;');
-      lines.push('                ShowCTA();');
-    }
-    lines.push('                _autoPlaySteps++;');
-    lines.push('                UpdateGameState();');
-    lines.push('                return; // only advance one phase per frame');
+    lines.push(`                UnityEngine.Debug.Log("__PHASE_STUCK__:${prevPhase}:phaseTimer=" + phaseTimer + ":autoPlay=" + (_autoPlayMode ? "1" : "0"));`);
+    lines.push('                // Reset phaseTimer so we don\'t log every frame. The phase stays un-triggered —');
+    lines.push('                // realCondition must naturally satisfy for advancement.');
+    lines.push('                phaseTimer = 60f; // keep above threshold but avoid per-frame spam');
+    lines.push('                return;');
     lines.push('            }');
   }
   lines.push('        }');

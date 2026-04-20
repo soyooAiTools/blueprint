@@ -41,20 +41,28 @@ function resolveEntities(specs, blueprintEntities) {
     }
   }
 
-  // Also include interaction targets as potential entities
+  // Also include interaction targets as potential entities.
+  // NOTE: count-style verbs (defeat_count:5, collect:IceBlock:5, spend:gold:20)
+  // use the numeric suffix as a quantity, not an entity name. Treating "5" as
+  // an entity leaks into skeleton codegen and produces bogus Register("5",...)
+  // + GameObject Entity5 declarations (see 2026-04-20 82frm7 postmortem).
+  var COUNT_VERBS = { defeat_count: 1, spend: 1, collect: 1, deliver: 1, upgrade: 1, unlock: 1 };
   for (var i = 0; i < specs.length; i++) {
     var interactions = specs[i].requiredInteractions || [];
     for (var k = 0; k < interactions.length; k++) {
       var parts = interactions[k].split(':');
       var verb = parts[0];
       var target = parts[1];
-      if (target && !specEntities[target] && verb !== 'wait' && verb !== 'defend') {
-        specEntities[target] = {
-          name: target,
-          terminalState: 1,
-          description: 'interaction target for ' + verb,
-        };
-      }
+      if (!target || specEntities[target] || verb === 'wait' || verb === 'defend') continue;
+      // Numeric targets are counts/amounts, not entity names.
+      if (/^\d+(\.\d+)?$/.test(target)) continue;
+      // For count-style verbs the "entity" is parts[1] only when it's non-numeric
+      // — guarded above — so this is now safe.
+      specEntities[target] = {
+        name: target,
+        terminalState: 1,
+        description: 'interaction target for ' + verb,
+      };
     }
   }
 
