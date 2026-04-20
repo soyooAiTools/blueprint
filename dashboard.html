@@ -98,70 +98,37 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
   <div class="tab active" data-panel="overview">总览</div>
   <div class="tab" data-panel="workers">Workers</div>
   <div class="tab" data-panel="tasks">任务队列</div>
-  <div class="tab" data-panel="live">实时动态</div>
-  <div class="tab" data-panel="quality">质量关卡</div>
-  <div class="tab" data-panel="parse">解析统计</div>
   <div class="tab" data-panel="pipeline">Pipeline 指标</div>
-  <div class="tab" data-panel="archive">任务归档</div>
 </div>
 <div class="content">
   <!-- Overview -->
   <div class="panel active" id="overview">
     <div class="grid grid-4" id="overviewStats"></div>
-    <div class="grid grid-2" style="margin-top:16px;">
-      <div class="card">
-        <h3>项目流转</h3>
-        <div id="projectFlow"></div>
-      </div>
-      <div class="card">
-        <h3>API 健康</h3>
-        <div id="apiHealth" style="display:flex;flex-direction:column;gap:8px;"></div>
-      </div>
+    <div class="card" style="margin-top:16px;">
+      <h3>API 健康</h3>
+      <div id="apiHealth" style="display:flex;flex-direction:column;gap:8px;"></div>
     </div>
     <div class="card" style="margin-top:16px;">
       <h3>最近任务</h3>
       <div id="recentTasks"></div>
     </div>
     <div class="card" style="margin-top:16px;">
-      <h3>📋 项目链路日志（最近 10 步）</h3>
-      <div id="pipelineLog"></div>
+      <h3>⏱ 各项目阶段耗时 <span style="font-size:11px;color:#8b949e;font-weight:normal;">(从 timeline 按 AI编码 / 构建 / 审查 / QuickTest / CUA / 上传 分桶)</span></h3>
+      <div id="stageDurations"></div>
     </div>
   </div>
   <!-- Workers -->
   <div class="panel" id="workers">
-    <div class="grid grid-4" id="workerStats"></div>
-    <div class="card" style="margin-top:16px;">
+    <div class="card">
       <h3>Worker 列表</h3>
       <div id="workerList"></div>
     </div>
   </div>
   <!-- Tasks -->
   <div class="panel" id="tasks">
-    <div class="grid grid-4" id="taskStats"></div>
-    <div class="card" style="margin-top:16px;">
+    <div class="card">
       <h3>任务队列</h3>
       <div id="taskList"></div>
-    </div>
-  </div>
-  <!-- Live Timeline -->
-  <div class="panel" id="live">
-    <div id="liveTimelines"></div>
-    <div class="refresh-info">每 5 秒自动刷新</div>
-  </div>
-  <!-- Quality Gates -->
-  <div class="panel" id="quality">
-    <div class="grid grid-4" id="qualityStats"></div>
-    <div class="card" style="margin-top:16px;">
-      <h3>任务质量明细</h3>
-      <div id="qualityDetail"></div>
-    </div>
-  </div>
-  <!-- Parse Stats -->
-  <div class="panel" id="parse">
-    <div class="grid grid-4" id="parseStats"></div>
-    <div class="card" style="margin-top:16px;">
-      <h3>最近解析记录</h3>
-      <div id="parseHistory"></div>
     </div>
   </div>
   <!-- Pipeline Metrics -->
@@ -200,25 +167,6 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       <div id="projectFailures"></div>
     </div>
   </div>
-  <!-- Task Archive -->
-  <div class="panel" id="archive">
-    <div class="card">
-      <h3>任务归档查询 <span style="font-size:11px;color:#8b949e;font-weight:normal;">(pipeline.jsonl / silent-pass / model-fatal / auto-fix)</span></h3>
-      <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        <input id="archiveTaskIdInput" placeholder="输入 taskId 或从下方点击" style="flex:1;min-width:300px;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:6px 10px;border-radius:4px;font-size:13px;font-family:monospace;" />
-        <button onclick="window.loadArchive && window.loadArchive()" style="background:#1f6feb;color:#fff;border:0;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:12px;">查询</button>
-      </div>
-      <div id="archiveResult" style="min-height:80px;"></div>
-    </div>
-    <div class="card" style="margin-top:16px;">
-      <h3>最近 MODEL_FATAL 事件 <span style="font-size:11px;color:#8b949e;font-weight:normal;">(全局索引)</span></h3>
-      <div id="modelFatalIndex"></div>
-    </div>
-    <div class="card" style="margin-top:16px;">
-      <h3>最近 Auto-fix 尝试 <span style="font-size:11px;color:#8b949e;font-weight:normal;">(含 diff)</span></h3>
-      <div id="autoFixArchiveList"></div>
-    </div>
-  </div>
 </div>
 <script>
 (function() {
@@ -228,9 +176,6 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
       tab.classList.add('active');
       document.getElementById(tab.dataset.panel).classList.add('active');
-      if (tab.dataset.panel === 'archive' && typeof window.refreshArchive === 'function') {
-        window.refreshArchive();
-      }
     });
   });
 
@@ -290,27 +235,8 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
     var activeTasks = (stats.tasks.processing || 0) + (stats.tasks.assigned || 0) + (stats.tasks.developing || 0) + (stats.tasks.building || 0);
     ov += statCard(activeTasks, '进行中任务', activeTasks > 0 ? 'blue' : 'gray');
     ov += statCard(stats.parse.successRate + '%', '解析成功率', stats.parse.successRate >= 80 ? 'green' : stats.parse.successRate >= 50 ? 'yellow' : 'red', '共 ' + stats.parse.total + ' 次');
-    ov += statCard(stats.parse.avgTimeSec + 's', '平均解析耗时', 'blue', stats.parse.avgTimeSec > 180 ? '⚠️ 偏慢' : '');
+    ov += statCard(stats.tasks.completed || 0, '累计完成任务', 'green', (stats.tasks.failed || 0) > 0 ? '失败 ' + stats.tasks.failed : '');
     document.getElementById('overviewStats').innerHTML = ov;
-
-    // Project flow
-    var p = stats.projects;
-    var flowSteps = [
-      { count: p.editing || 0, lbl: '编辑中', color: 'yellow' },
-      { count: p.submitted || 0, lbl: '已提交', color: 'blue' },
-      { count: p.reviewing || 0, lbl: '审核中', color: 'blue' },
-      { count: p.feedback || 0, lbl: '反馈中', color: 'purple' },
-      { count: p.approved || 0, lbl: '已通过', color: 'green' },
-      { count: p.committed || 0, lbl: '已入库', color: 'green' }
-    ];
-    var flowHTML = '<div style="text-align:center;margin-bottom:8px;font-size:12px;color:#8b949e;">共 ' + p.total + ' 个项目' + (p.failed ? '，<span style="color:#f85149;">' + p.failed + ' 个失败</span>' : '') + '</div>';
-    flowHTML += '<div class="flow" style="justify-content:center;">';
-    flowSteps.forEach(function(s, i) {
-      if (i > 0) flowHTML += '<span class="flow-arrow">→</span>';
-      flowHTML += '<div class="flow-step"><div class="count" style="color:var(--c)">' + s.count + '</div><div class="lbl">' + s.lbl + '</div></div>';
-    });
-    flowHTML += '</div>';
-    document.getElementById('projectFlow').innerHTML = flowHTML;
 
     // API Health — show all 4 providers (豆包 / Claude / GPT-5.4 / Blueprint).
     // Backend returns `health.{doubao,claude,gpt54,server}` with shape:
@@ -351,112 +277,108 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       if (health.healthCheckError) {
         ah += '<div style="font-size:11px;color:#f85149;padding:6px 12px;">⚠ healthCheck error: ' + health.healthCheckError + '</div>';
       }
-      // Cache freshness indicator (informational)
-      if (health._cacheAgeMs != null) {
-        var ageSec = Math.round(health._cacheAgeMs / 1000);
-        var ageStr = ageSec < 60 ? ageSec + 's' : Math.round(ageSec / 60) + 'm';
-        ah += '<div style="font-size:10px;color:#484f58;text-align:right;padding:2px 6px;">缓存于 ' + ageStr + ' 前</div>';
-      }
       document.getElementById('apiHealth').innerHTML = ah || '<div class="empty">检测中...</div>';
     }
 
     // Recent tasks
     var rt = stats.recentTasks || [];
     document.getElementById('recentTasks').innerHTML = tableHTML(
-      ['项目', '状态', '质量', '消息', '预览', 'Worker', '更新时间'],
+      ['项目', '状态', '消息', '预览', 'Worker', '更新时间'],
       rt.slice(0, 5).map(function(t) {
         var preview = t.previewUrl ? '<a href="' + t.previewUrl + '" target="_blank" style="color:#58a6ff;">▶ 预览</a>' : '-';
-        var qIcons = '';
-        if (t.reviewResult === 'pass') qIcons += '📋✅';
-        else if (t.reviewResult === 'fail') qIcons += '📋❌';
-        if (t.quickTestResult === 'pass') qIcons += '🔍✅';
-        else if (t.quickTestResult === 'fail') qIcons += '🔍❌';
-        if (t.cuaResult === 'pass') qIcons += '🤖✅';
-        else if (t.cuaResult === 'fail') qIcons += '🤖❌';
-        if (!qIcons) qIcons = '-';
-        return [t.projectName, badge(t.status), qIcons, (t.statusMessage || '').slice(0, 80), preview, t.workerId || '-', ago(t.updatedAt)];
+        return [t.projectName, badge(t.status), (t.statusMessage || '').slice(0, 80), preview, t.workerId || '-', ago(t.updatedAt)];
       })
     );
 
-    // Pipeline log — show latest 10 timeline entries from active/recent task
-    var pipelineHTML = '';
-    var activeTask = rt.length > 0 ? rt[0] : null;
-    if (activeTask && activeTask.timeline && activeTask.timeline.length > 0) {
-      var entries = activeTask.timeline.slice(-10);
-      var statusIcons = {
-        'pending': '⏳', 'assigned': '📋', 'processing': '🔧', 'building': '🔨',
-        'built': '✅', 'cua_verifying': '🤖', 'completed': '🎉', 'failed': '❌',
-        'developing': '💻', 'uploading': '📤',
-        'code_review_pass': '📋✅', 'code_review_fail': '📋❌',
-        'quicktest_fail': '🔍❌', 'quicktest_pass': '🔍✅',
-        'cua_passed': '🤖✅', 'cua_failed': '🤖❌'
-      };
-      pipelineHTML = '<div style="display:flex;flex-direction:column;gap:6px;">';
-      pipelineHTML += '<div style="color:#8b949e;font-size:13px;margin-bottom:4px;">项目: <span style="color:#58a6ff;font-weight:600;">' + activeTask.projectName + '</span> — ' + badge(activeTask.status) + '</div>';
-      for (var pi = 0; pi < entries.length; pi++) {
-        var e = entries[pi];
-        var icon = statusIcons[e.status] || '▪';
-        var ts = e.timestamp ? new Date(e.timestamp).toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '-';
-        var isLast = pi === entries.length - 1;
-        var borderColor = isLast ? '#58a6ff' : '#30363d';
-        var bgColor = isLast ? 'rgba(88,166,255,0.08)' : 'transparent';
-        pipelineHTML += '<div style="display:flex;align-items:center;gap:10px;padding:6px 10px;border-left:3px solid ' + borderColor + ';background:' + bgColor + ';border-radius:0 4px 4px 0;">';
-        pipelineHTML += '<span style="color:#8b949e;font-size:12px;min-width:60px;">' + ts + '</span>';
-        pipelineHTML += '<span style="font-size:14px;">' + icon + '</span>';
-        pipelineHTML += '<span style="font-size:13px;color:#c9d1d9;">' + (e.message || e.status) + '</span>';
-        if (e.workerId) pipelineHTML += '<span style="font-size:11px;color:#8b949e;margin-left:auto;">' + e.workerId + '</span>';
-        pipelineHTML += '</div>';
+    // ========== Stage durations per project ==========
+    // Bucket each timeline entry into a semantic stage and sum the time
+    // between consecutive entries into that bucket. Running tasks include
+    // time from the last entry to now.
+    var stageOrder = ['等待', 'AI编码', '构建', '审查', 'QuickTest', 'CUA', '上传', '其他'];
+    var stageColors = {
+      '等待':     '#6e7681',
+      'AI编码':   '#58a6ff',
+      '构建':     '#d29922',
+      '审查':     '#bc8cff',
+      'QuickTest':'#3fb950',
+      'CUA':      '#f85149',
+      '上传':     '#79c0ff',
+      '其他':     '#484f58'
+    };
+    function classifyTimelineEntry(e) {
+      var m = (e.message || '').toLowerCase();
+      var s = (e.status || '').toLowerCase();
+      if (s === 'building' || m.indexOf('rebuild') >= 0 || m.indexOf('building') >= 0 || m.indexOf('build') >= 0 && m.indexOf('api') < 0) return '构建';
+      if (m.indexOf('cua') >= 0 || s === 'cua_verifying' || s.indexOf('cua_') === 0) return 'CUA';
+      if (m.indexOf('ai coding') >= 0 || m.indexOf('ai fix') >= 0 || m.indexOf('re-coding') >= 0 || m.indexOf('ai re-') >= 0) return 'AI编码';
+      if (m.indexOf('review') >= 0 || s.indexOf('code_review') === 0 || s === 'reviewing') return '审查';
+      if (m.indexOf('quicktest') >= 0 || s.indexOf('quicktest') === 0) return 'QuickTest';
+      if (s === 'uploading' || m.indexOf('upload') >= 0) return '上传';
+      if (s === 'pending' || s === 'assigned' || s === 'spec_extracting') return '等待';
+      return '其他';
+    }
+    function computeStageDurations(timeline, taskStatus, updatedAt) {
+      var buckets = {};
+      stageOrder.forEach(function(k) { buckets[k] = 0; });
+      if (!timeline || timeline.length === 0) return buckets;
+      for (var i = 0; i < timeline.length - 1; i++) {
+        var dt = (timeline[i + 1].timestamp || 0) - (timeline[i].timestamp || 0);
+        if (dt > 0 && dt < 86400000) buckets[classifyTimelineEntry(timeline[i])] += dt;
       }
-      pipelineHTML += '</div>';
-    } else {
-      pipelineHTML = '<div class="empty">暂无链路日志</div>';
+      var last = timeline[timeline.length - 1];
+      var terminal = ['completed','done','failed','cua_passed','cancelled','permanent_fail'];
+      var isRunning = terminal.indexOf(taskStatus) < 0;
+      if (isRunning && last && last.timestamp) {
+        var endT = Date.now();
+        var dtLast = endT - last.timestamp;
+        if (dtLast > 0 && dtLast < 86400000) buckets[classifyTimelineEntry(last)] += dtLast;
+      }
+      return buckets;
     }
-    document.getElementById('pipelineLog').innerHTML = pipelineHTML;
-
-    // ========== Quality Gates ==========
-    var q = stats.quality || {};
-    var reviewTotal = (q.reviewPassed || 0) + (q.reviewFailed || 0);
-    var reviewRate = reviewTotal > 0 ? Math.round(q.reviewPassed / reviewTotal * 100) : 0;
-    var qtTotal = (q.quickTestPassed || 0) + (q.quickTestFailed || 0);
-    var qtRate = qtTotal > 0 ? Math.round(q.quickTestPassed / qtTotal * 100) : 0;
-    var cuaTotal = (q.cuaPassed || 0) + (q.cuaFailed || 0);
-    var cuaRate = cuaTotal > 0 ? Math.round(q.cuaPassed / cuaTotal * 100) : 0;
-    var qs = '';
-    qs += statCard(reviewRate + '%', '代码审查通过率', reviewRate >= 80 ? 'green' : reviewRate >= 50 ? 'yellow' : 'red', '通过 ' + (q.reviewPassed || 0) + ' / 失败 ' + (q.reviewFailed || 0));
-    qs += statCard(qtRate + '%', 'QuickTest 通过率', qtRate >= 80 ? 'green' : qtRate >= 50 ? 'yellow' : 'red', '通过 ' + (q.quickTestPassed || 0) + ' / 失败 ' + (q.quickTestFailed || 0));
-    qs += statCard(cuaRate + '%', 'CUA 验证通过率', cuaRate >= 80 ? 'green' : cuaRate >= 50 ? 'yellow' : 'red', '通过 ' + (q.cuaPassed || 0) + ' / 失败 ' + (q.cuaFailed || 0));
-    qs += statCard(q.avgCuaRounds || 0, '平均 CUA 轮数', (q.avgCuaRounds || 0) <= 2 ? 'green' : (q.avgCuaRounds || 0) <= 4 ? 'yellow' : 'red');
-    document.getElementById('qualityStats').innerHTML = qs;
-
-    // Quality detail table
-    var qualityRows = rt.filter(function(t) { return t.reviewResult || t.quickTestResult || t.cuaResult; });
-    if (qualityRows.length === 0) {
-      document.getElementById('qualityDetail').innerHTML = '<div class="empty">暂无质量数据（任务完成后将自动显示）</div>';
-    } else {
-      document.getElementById('qualityDetail').innerHTML = tableHTML(
-        ['项目', '审查', 'QuickTest', 'CUA', 'CUA轮数', '问题'],
-        qualityRows.map(function(t) {
-          var reviewBadge = t.reviewResult ? badge(t.reviewResult === 'pass' ? 'review_pass' : 'review_fail').replace('>' + (t.reviewResult === 'pass' ? 'review_pass' : 'review_fail') + '<', '>' + (t.reviewResult === 'pass' ? '✅ 通过' : '❌ 未通过') + '<') : '<span style="color:#484f58;">-</span>';
-          var qtBadge = t.quickTestResult ? badge(t.quickTestResult === 'pass' ? 'quicktest_pass' : 'quicktest_fail').replace('>' + (t.quickTestResult === 'pass' ? 'quicktest_pass' : 'quicktest_fail') + '<', '>' + (t.quickTestResult === 'pass' ? '✅ 通过' : '❌ 未通过') + '<') : '<span style="color:#484f58;">-</span>';
-          var cuaBadge = t.cuaResult ? badge(t.cuaResult === 'pass' ? 'cua_pass' : 'cua_fail').replace('>' + (t.cuaResult === 'pass' ? 'cua_pass' : 'cua_fail') + '<', '>' + (t.cuaResult === 'pass' ? '✅ 通过' : '❌ 未通过') + '<') : '<span style="color:#484f58;">-</span>';
-          var issues = [];
-          if (t.reviewResult === 'fail') issues.push('代码审查未通过');
-          if (t.quickTestResult === 'fail') issues.push('纯色检测异常');
-          if (t.cuaResult === 'fail') issues.push('CUA 验证失败');
-          return [t.projectName, reviewBadge, qtBadge, cuaBadge, t.cuaRetries || '-', issues.length > 0 ? '<span style="color:#f85149;">' + issues.join('; ') + '</span>' : '<span style="color:#3fb950;">全部通过</span>'];
-        })
-      );
+    function fmtDuration(ms) {
+      var s = Math.round(ms / 1000);
+      if (s < 60) return s + 's';
+      var m = Math.floor(s / 60); var rs = s % 60;
+      if (m < 60) return m + 'm' + (rs ? rs + 's' : '');
+      var h = Math.floor(m / 60); var rm = m % 60;
+      return h + 'h' + (rm ? rm + 'm' : '');
     }
+    var stageHTML = '';
+    var tasksForStage = (stats.recentTasks || []).filter(function(t) { return t.timeline && t.timeline.length >= 2; });
+    if (tasksForStage.length === 0) {
+      stageHTML = '<div class="empty">暂无 timeline 数据</div>';
+    } else {
+      tasksForStage.forEach(function(t) {
+        var buckets = computeStageDurations(t.timeline, t.status, t.updatedAt);
+        var total = 0; stageOrder.forEach(function(k) { total += buckets[k]; });
+        if (total <= 0) return;
+        stageHTML += '<div style="margin-bottom:14px;">';
+        stageHTML += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:13px;">';
+        stageHTML += '<span><span style="color:#c9d1d9;font-weight:600;">' + (t.projectName || t.taskId) + '</span> ' + badge(t.status) + '</span>';
+        stageHTML += '<span style="color:#8b949e;font-size:12px;">总 ' + fmtDuration(total) + '</span>';
+        stageHTML += '</div>';
+        // Segmented bar
+        stageHTML += '<div style="display:flex;height:10px;border-radius:4px;overflow:hidden;background:#21262d;margin-bottom:4px;">';
+        stageOrder.forEach(function(k) {
+          if (buckets[k] <= 0) return;
+          var pct = buckets[k] / total * 100;
+          stageHTML += '<div title="' + k + ': ' + fmtDuration(buckets[k]) + '" style="background:' + stageColors[k] + ';width:' + pct.toFixed(2) + '%;"></div>';
+        });
+        stageHTML += '</div>';
+        // Labels
+        stageHTML += '<div style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:#8b949e;">';
+        stageOrder.forEach(function(k) {
+          if (buckets[k] <= 0) return;
+          stageHTML += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + stageColors[k] + ';margin-right:4px;vertical-align:middle;"></span>' + k + ' ' + fmtDuration(buckets[k]) + '</span>';
+        });
+        stageHTML += '</div>';
+        stageHTML += '</div>';
+      });
+      if (!stageHTML) stageHTML = '<div class="empty">暂无有效阶段数据</div>';
+    }
+    document.getElementById('stageDurations').innerHTML = stageHTML;
 
     // ========== Workers ==========
-    var ws = '';
-    ws += statCard(stats.workers.total, '总 Workers', 'blue');
-    ws += statCard(stats.workers.online, '在线', 'green');
-    ws += statCard(stats.workers.offline, '离线', stats.workers.offline > 0 ? 'red' : 'gray');
-    var busyWorkers = (stats.workers.list || []).filter(function(w) { return w.currentTask; }).length;
-    ws += statCard(busyWorkers, '忙碌中', busyWorkers > 0 ? 'yellow' : 'gray');
-    document.getElementById('workerStats').innerHTML = ws;
-
     document.getElementById('workerList').innerHTML = tableHTML(
       ['Worker ID', '状态', '当前任务', '最后心跳'],
       (stats.workers.list || []).map(function(w) {
@@ -465,79 +387,12 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
     );
 
     // ========== Tasks ==========
-    var ts2 = '';
-    ts2 += statCard(stats.tasks.pending || 0, '等待中', 'yellow');
-    ts2 += statCard((stats.tasks.processing || 0) + (stats.tasks.assigned || 0), '执行中', 'blue');
-    ts2 += statCard(stats.tasks.completed || 0, '已完成', 'green');
-    ts2 += statCard(stats.tasks.failed || 0, '失败', (stats.tasks.failed || 0) > 0 ? 'red' : 'gray');
-    document.getElementById('taskStats').innerHTML = ts2;
-
     document.getElementById('taskList').innerHTML = tableHTML(
-      ['项目', '状态', '消息', 'Worker', '进度', '创建时间', '更新时间'],
+      ['项目', '状态', '消息', 'Worker', '创建时间', '更新时间'],
       rt.map(function(t) {
-        var prog = t.progress ? t.progress + '%' : '-';
-        return [t.projectName, badge(t.status), (t.statusMessage || '').slice(0, 40), t.workerId || '-', prog, fmt(t.createdAt), ago(t.updatedAt)];
+        return [t.projectName, badge(t.status), (t.statusMessage || '').slice(0, 40), t.workerId || '-', fmt(t.createdAt), ago(t.updatedAt)];
       })
     );
-
-    // ========== Parse Stats ==========
-    var ps = '';
-    ps += statCard(stats.parse.total, '总次数', 'blue');
-    ps += statCard(stats.parse.success, '成功', 'green');
-    ps += statCard(stats.parse.failed, '失败', (stats.parse.failed || 0) > 0 ? 'red' : 'gray');
-    ps += statCard(stats.parse.avgTimeSec + 's', '平均耗时', 'blue');
-    document.getElementById('parseStats').innerHTML = ps;
-
-    var hist = stats.parse.recentHistory || [];
-    if (hist.length === 0) {
-      document.getElementById('parseHistory').innerHTML = '<div class="empty">暂无解析记录</div>';
-    } else {
-      var hh = '';
-      hist.forEach(function(h) {
-        var icon = h.success ? '✅' : '❌';
-        var detail = h.success
-          ? h.entities + ' 实体, ' + h.phases + ' 阶段, ' + Math.round(h.timeMs / 1000) + 's'
-          : (h.error || '未知错误').slice(0, 60);
-        hh += '<div class="history-item"><span class="icon">' + icon + '</span><span>' + detail + '</span><span class="time">' + ago(h.timestamp) + '</span></div>';
-      });
-      document.getElementById('parseHistory').innerHTML = hh;
-    }
-
-    // ========== Live Timeline ==========
-    var liveHTML = '';
-    var tasksWithTimeline = (stats.recentTasks || []).filter(function(t) { return t.timeline && t.timeline.length > 0; });
-    if (tasksWithTimeline.length === 0) {
-      liveHTML = '<div class="empty">暂无任务动态</div>';
-    } else {
-      tasksWithTimeline.forEach(function(t) {
-        liveHTML += '<div class="card task-card">';
-        liveHTML += '<div class="task-header">';
-        liveHTML += '<span class="task-name">' + (t.projectName || t.taskId) + '</span>';
-        liveHTML += badge(t.status);
-        liveHTML += '</div>';
-        liveHTML += '<div class="timeline">';
-        // Show timeline entries (most recent first for readability, but render oldest first for visual flow)
-        var entries = t.timeline.slice().reverse();
-        entries.forEach(function(e, idx) {
-          var cls = 'tl-item';
-          var msg = e.message || e.status;
-          if (e.status === 'failed' || msg.includes('failed')) cls += ' failed';
-          else if (e.status === 'done' || e.status === 'cua_passed') cls += ' done';
-          else if (e.status === 'building') cls += ' building';
-          else if (msg.includes('AI fixing') || msg.includes('AI re-coding')) cls += ' fixing';
-          else if (e.status === 'processing') cls += ' processing';
-          else cls += ' ok';
-          // Highlight the latest entry
-          var isLatest = idx === 0;
-          liveHTML += '<div class="' + cls + '">';
-          liveHTML += '<div class="tl-msg">' + (isLatest ? '<strong>' : '') + msg + (isLatest ? '</strong>' : '') + '<span class="tl-status badge ' + e.status + '">' + e.status + '</span></div>';
-          liveHTML += '<div class="tl-time">' + ago(e.timestamp) + (e.workerId ? ' · ' + e.workerId : '') + '</div>';
-          liveHTML += '</div>';
-        });
-        liveHTML += '</div></div>';
-      });
-    }
-    document.getElementById('liveTimelines').innerHTML = liveHTML;
 
     // ========== Pipeline Metrics ==========
     // Restore auto-fix button states from server (survives page refresh)
@@ -892,12 +747,13 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       });
   };
 
-  // ─── Task archive tab ────────────────────────────────────────────
+  // ─── Task archive tab (removed) ──────────────────────────────────
   function escHtml(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
+  /* removed
   window.refreshArchive = function() {
     Promise.all([
       fetchJSON('/api/dashboard/model-fatal-index?limit=30'),
@@ -1057,6 +913,7 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       document.body.appendChild(modal);
     });
   };
+  */
 
   refresh();
   // Live tab refreshes faster (5s)
