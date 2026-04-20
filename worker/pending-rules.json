@@ -968,8 +968,8 @@
     "autoExtracted": true,
     "failClassification": "CODE",
     "stage": "review",
-    "lastSeenAt": "2026-04-19T15:23:58.589Z",
-    "hitCount": 16
+    "lastSeenAt": "2026-04-19T18:02:34.880Z",
+    "hitCount": 17
   },
   {
     "description": "Spec validation failed: 7 error(s):\nSpec[2] buildForgeWorkshop: entity \"forgeWorkshop\" not found in blueprint.entities. Known: PlayerAstronaut, RecyclingStation, SpaceDebris, MetalScrap, ForgeWorkshop, BasicDrill, CrusherTruck, HydraulicTruck, CanteenModule, DormModule\nSpec[3] upgradeTripleDrill: entity \"drill\" not found in blueprint.entities. Known: PlayerAstronaut, RecyclingStation, SpaceDebris, MetalScrap, ForgeWorkshop, BasicDrill, CrusherTruck, HydraulicTruck, CanteenModule, DormModule\nSpec",
@@ -1101,7 +1101,9 @@
     "timestamp": "2026-04-19T17:14:30.866Z",
     "autoExtracted": true,
     "failClassification": "CODE",
-    "stage": "cua-verify"
+    "stage": "cua-verify",
+    "lastSeenAt": "2026-04-20T07:27:31.438Z",
+    "hitCount": 3
   },
   {
     "description": "cua-verify aborted: same CODE error repeated 10 rounds, fix-loop not converging: phase:progress",
@@ -1113,6 +1115,34 @@
     "timestamp": "2026-04-19T17:20:43.406Z",
     "autoExtracted": true,
     "failClassification": "CODE",
+    "stage": "cua-verify",
+    "lastSeenAt": "2026-04-19T23:39:56.797Z",
+    "hitCount": 6
+  },
+  {
+    "description": "CUA total time limit exceeded (63min > 60min pre-recode guard)",
+    "rule": "Interaction / Gameplay",
+    "fix": "=== CUA STUCK DIAGNOSIS (round 6) ===\nCompleted phases: [initialCollectSpaceJunk → sellShardToRecyclingStation → buildForgeWorkshop → upgradeToTripleDrill → tripleDrillCollectJunk → upgradeToCrusherVehicle → crusherVehicleCollectJunk → upgradeToHydraulicVehicle → hydraulicVehicleCollectJunk → expand",
+    "severity": "warning",
+    "line": "cua-verify stage failure",
+    "taskId": "proj_1776391516726_urbib0",
+    "timestamp": "2026-04-19T21:16:48.366Z",
+    "autoExtracted": true,
+    "failClassification": "FATAL",
     "stage": "cua-verify"
+  },
+  {
+    "description": "Spec fingerprint drift (fatal): fresh-extract produced phaseId set with only 2/11 overlap (18%). LLM non-determinism would break skeleton/review string matching. onlyBefore=[\"crusherCarCollectGarbage\",\"expandSpaceStation\",\"hydraulicCarCollectGarbage\",\"initialCollectGarbage\",\"sellFragmentsForGold\"] onlyAfter=[\"crusherVehicleCollectJunk\",\"deliverShardToRecyclingStation\",\"expandSpaceStationModules\",\"hydraulicVehicleCollectMassJunk\",\"initialCollectSpaceJunk\"]",
+    "rule": "General",
+    "fix": "Spec fingerprint drift (fatal): fresh-extract produced phaseId set with only 2/11 overlap (18%). LLM non-determinism would break skeleton/review string matching. onlyBefore=[\"crusherCarCollectGarbage\",\"expandSpaceStation\",\"hydraulicCarCollectGarbage\",\"initialCollectGarbage\",\"sellFragmentsForGold\"] o",
+    "severity": "info",
+    "line": "spec-extract stage failure",
+    "taskId": "proj_1776657899775_wv1v",
+    "timestamp": "2026-04-20T04:06:41.019Z",
+    "autoExtracted": true,
+    "failClassification": "CODE",
+    "stage": "spec-extract",
+    "lastSeenAt": "2026-04-20T04:11:25.697Z",
+    "hitCount": 3
   }
 ]

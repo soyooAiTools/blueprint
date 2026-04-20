@@ -1,10 +1,9 @@
 # auto-0bd021ca
-
 ## Diagnosis
-When `ctx.blueprint.specs` is pre-populated from the database export, `spec-extract.canSkip` (line 31-37) returns `true` immediately, skipping the entire stage. This bypasses both the 3-layer entity-name correction in `adapters/spec-extractor.cjs` (case-insensitive → substring → word-split, lines 253-355) **and** the case-sensitive reusability check already present in `spec-extract.execute()` (lines 56-64). The stale camelCase entity refs (e.g. `forgeWorkshop` vs blueprint-canonical `ForgeWorkshop`) then hit `spec-validate`, which is set `canRetry: false`, so a single validation failure terminates the pipeline with no recovery path. While `spec-validate` has its own case-insensitive auto-fix (added 2026-04-16), it only covers pure case differences and not abbreviated or otherwise divergent names, leaving the recurring failures unresolved across 12 retries.
+When the LLM spec-extractor hallucinates entity names (e.g. `"DiningHall"`) that do not exist in `blueprint.entities`, `spec-validate` throws at line 446 with no recovery. Because `spec-extract` is already recorded in `ctx.completedStages`, every subsequent worker retry resumes from checkpoint, skips spec-extract entirely, and re-runs spec-validate against the **same** bad specs — looping until the task is abandoned. The spec-extract stage already has the correct guard (`specsAreReusable` cache-invalidation at spec-extract.cjs:172-177) that would trigger a fresh LLM extraction, but it is never reached because the checkpoint prevents re-entry.
 
 ## Root Cause
-`engine/stages/spec-extract.cjs:31-37` — `canSkip` returns `true` for any non-empty `ctx.blueprint.specs` without checking whether those specs' entity references are consistent with the current `ctx.blueprint.entities`. The reusability check that guards the **file-cache** path (lines 56-64 in `execute`) is never applied to the **DB-loaded** specs path.
+`engine/stages/spec-validate.cjs:34` — `canRetry: false` combined with the blocking `throw` at line 446 that leaves `'spec-extract'` in `ctx.completedStages`. The internal comment at line 169 even names this exact problem (`"canRetry:false + no recovery path"`), but the canRetry flag and the checkpoint invalidation were never corrected to close the loop.
 
 ## Fix
-Promote the entity-reusability check into `canSkip` so stale DB specs force re-extraction (which triggers spec-extractor's full correction pipeline):
+In `engine/stages/spec-validate.cjs`, replace the blocking error block (lines 439–447) with a version that strips `spec-extract` from `ctx.completedStages` before throwing. This causes the next worker retry to re-run spec-extract, which finds the cached specs stale via `specsAreReusable` and triggers a fresh LLM extraction.

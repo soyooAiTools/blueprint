@@ -33,16 +33,28 @@
       "status": "manual-only"
     },
     "Spec validation failed: N error(s): Spec[N] <phase>: entity \"<entity>\" not found in blueprint.entiti": {
-      "at": 1776617282517,
-      "status": "gen-failed"
+      "at": 1776669638499,
+      "status": "applied"
     },
     "Schema validation failed: .entities[0] should have required property 'chineseName'; .entities[1] sho": {
-      "at": 1776619083236,
-      "status": "reverted"
+      "at": 1776670337037,
+      "status": "manual-only"
     },
     "aborted: same CODE error repeated N rounds, fix-loop not converging: review aborted: same CODE error": {
-      "at": 1776617403227,
+      "at": 1776670337036,
       "status": "manual-only"
+    },
+    "aborted: same CODE error repeated N rounds, fix-loop not converging: phase:progress": {
+      "at": 1776670816919,
+      "status": "manual-only"
+    },
+    "aborted: same CODE error repeated N rounds, fix-loop not converging: cua-verify aborted: same CODE e": {
+      "at": 1776670337036,
+      "status": "manual-only"
+    },
+    "Spec fingerprint drift (fatal): fresh-extract produced phaseId set with only 2<path> overlap (18%). ": {
+      "at": 1776670217075,
+      "status": "gen-failed"
     }
   },
   "history": [
@@ -313,6 +325,56 @@
       ],
       "archiveAttempt": "47cbdb50bd",
       "archivePath": "server-data/task-logs/auto-fix/auto-5b4304a5-47cbdb50bd.json"
+    },
+    {
+      "at": "2026-04-19T18:20:30.243Z",
+      "fingerprint": "Schema validation failed: .entities[0] should have required property 'chineseName'; .entities[1] sho",
+      "recipe": "auto-5b4304a5",
+      "files": [
+        "engine/stages/codegen-schema.cjs"
+      ],
+      "archiveAttempt": "21b6c07053",
+      "archivePath": "server-data/task-logs/auto-fix/auto-5b4304a5-21b6c07053.json"
+    },
+    {
+      "at": "2026-04-20T01:46:07.462Z",
+      "fingerprint": "Spec validation failed: N error(s): Spec[N] <phase>: entity \"<entity>\" not found in blueprint.entiti",
+      "recipe": "auto-0bd021ca",
+      "files": [
+        "engine/stages/spec-validate.cjs"
+      ],
+      "archiveAttempt": "707938b51b",
+      "archivePath": "server-data/task-logs/auto-fix/auto-0bd021ca-707938b51b.json"
+    },
+    {
+      "at": "2026-04-20T04:12:23.115Z",
+      "fingerprint": "Spec fingerprint drift (fatal): fresh-extract produced phaseId set with only 2<path> overlap (18%). ",
+      "recipe": "auto-9ce74cf9",
+      "files": [
+        "engine/stages/spec-extract.cjs"
+      ],
+      "archiveAttempt": "060435e725",
+      "archivePath": "server-data/task-logs/auto-fix/auto-9ce74cf9-060435e725.json"
+    },
+    {
+      "at": "2026-04-20T05:17:25.489Z",
+      "fingerprint": "Spec fingerprint drift (fatal): fresh-extract produced phaseId set with only 2<path> overlap (18%). ",
+      "recipe": "auto-9ce74cf9",
+      "files": [
+        "engine/stages/spec-extract.cjs"
+      ],
+      "archiveAttempt": "6ac11ca27a",
+      "archivePath": "server-data/task-logs/auto-fix/auto-9ce74cf9-6ac11ca27a.json"
+    },
+    {
+      "at": "2026-04-20T07:20:38.500Z",
+      "fingerprint": "Spec validation failed: N error(s): Spec[N] <phase>: entity \"<entity>\" not found in blueprint.entiti",
+      "recipe": "auto-0bd021ca",
+      "files": [
+        "engine/stages/spec-validate.cjs"
+      ],
+      "archiveAttempt": "4ad1450fc5",
+      "archivePath": "server-data/task-logs/auto-fix/auto-0bd021ca-4ad1450fc5.json"
     }
   ],
   "pendingCommits": {
@@ -352,7 +414,7 @@
       "reverted": true
     },
     "auto-5b4304a5": {
-      "at": "2026-04-19T17:18:03.236Z",
+      "at": "2026-04-19T19:22:16.590Z",
       "fingerprint": "Schema validation failed: .entities[0] should have required property 'chineseName'; .entities[1] sho",
       "reverted": true
     }
