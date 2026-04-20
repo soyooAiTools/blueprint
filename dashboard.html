@@ -346,10 +346,6 @@ tr.drawer-row > td {
       </div>
     </div>
     <div class="card" style="margin-top:16px;">
-      <h3>最近任务</h3>
-      <div id="recentTasks"></div>
-    </div>
-    <div class="card" style="margin-top:16px;">
       <h3>各项目阶段耗时 <span class="eyebrow">timeline → AI编码 · 审查 · 构建 · CUA · 等待 · QuickTest · 上传</span></h3>
       <div id="stageDurations"></div>
     </div>
@@ -525,15 +521,7 @@ tr.drawer-row > td {
       document.getElementById('apiHealth').innerHTML = ah || '<div class="empty">检测中...</div>';
     }
 
-    // Recent tasks
     var rt = stats.recentTasks || [];
-    document.getElementById('recentTasks').innerHTML = tableHTML(
-      ['项目', '状态', '消息', '预览', 'Worker', '更新时间'],
-      rt.slice(0, 5).map(function(t) {
-        var preview = t.previewUrl ? '<a href="' + t.previewUrl + '" target="_blank" style="color:#58a6ff;">▶ 预览</a>' : '-';
-        return [t.projectName, badge(t.status), (t.statusMessage || '').slice(0, 80), preview, t.workerId || '-', ago(t.updatedAt)];
-      })
-    );
 
     // ========== Stage durations per project ==========
     // Bucket each timeline entry into a semantic stage and sum the time
