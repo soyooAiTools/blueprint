@@ -78,8 +78,18 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
   // so completedPhases.length === 0 is the primary signal.
   var noPhasesCompleted = (completedPhases.length === 0) || (stuckAtPhase != null && stuckAtPhase <= 0);
 
+  // Runtime crashes swamp all other signals. When the WebGL page throws, variables freeze
+  // and LLM issue text legitimately mentions "variables remain at initial" — which was
+  // previously mis-classified as variable_stagnation. Promote crash detection above
+  // variable_stagnation so font-null / TypeError gets its specific advice.
+  var hasNullPropertyError = /cannot set propert(?:y|ies) of null|cannot read propert(?:y|ies) of null|cannot set propert(?:y|ies) of undefined|cannot read propert(?:y|ies) of undefined/.test(allIssueText);
+  var hasTypeErrorLabel = allIssueText.indexOf('typeerror') >= 0 || allIssueText.indexOf('uncaught') >= 0;
   if (noPhasesCompleted && noProgressRounds >= 2) {
     rootCause = 'codegen_init_failure';
+  } else if (hasNullPropertyError) {
+    rootCause = 'null_property_crash';
+  } else if (hasTypeErrorLabel) {
+    rootCause = 'runtime_error';
   } else if (hasVisualFreezePhrase) {
     rootCause = 'visual_freeze';
   } else if (allIssueText.indexOf('variable') >= 0 && (allIssueText.indexOf('stagnation') >= 0 || allIssueText.indexOf('initial values') >= 0 || allIssueText.indexOf('remain') >= 0)) {
@@ -128,6 +138,7 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
       '⛔ Do NOT set ruleTriggered[] outside of CheckEventRules phase gate blocks.\n' +
       'Fix: (1) Each phase transition MUST move/show/hide entities via transform.position. (2) Update UI text (gold, score, progress). (3) The 20f autoPlay gate ensures CUA has time to capture screenshots — do NOT bypass it. (4) Each phase should PlaceObj/HideObj at least 2 entities to create visible change.',
     variable_stagnation: 'All gameplay variables (gold, score, count) stayed at initial values. Phase transitions are empty shells without real game logic. Fix: (1) Each phase must UPDATE game variables (gold += reward, score++). (2) Use variables in UI display. (3) Phase transition conditions should depend on these variables, not just phaseTimer.',
+    null_property_crash: 'Runtime crashed with "Cannot set/read properties of null". In Luna this is almost always: (a) chained `new GameObject(...).AddComponent<Text>()` (link: AddComponent returns null if the GameObject was built without RectTransform — split into `new GameObject(name, typeof(RectTransform), typeof(Text))` then `GetComponent<Text>()`), (b) `GameObject.Find("X")` returned null and you did not null-check, (c) `Resources.Load<Font>` returned null and you assigned it to `.font` without guarding. The whole Update loop halts after the throw, so downstream phases look "stuck" but the root cause is the initial crash. Fix the first TypeError, not the apparent stuck phase.',
     batch_phase_skip: 'Multiple phases completed in one poll interval — phases are timer-skipping without gameplay. Fix: ensure each phase has a minimum 20s duration gate and performs real gameplay actions during that time.',
     rendering_failure: 'Objects are not visible. Check: (1) SetActive(true) is called, (2) objects are positioned within camera view, (3) no Z-fighting or off-screen placement.',
     interaction_dead: 'User interactions have no effect. Check: (1) colliders exist on interactive objects, (2) raycast/click handlers are wired up, (3) interaction zone is large enough.',
@@ -174,12 +185,35 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
 
 var MAX_CUA_ROUNDS = 10;
 // Wall-clock cap: default 75 min, overridable via CUA_TOTAL_TIMEOUT_MS env var.
-// Raised from 45 min — a single Opus recode+rebuild cycle can take 8-10 min on a complex
-// ad, which previously pushed elapsed past the 45 min limit after the 5 min pre-recode
-// guard fired at 40 min. The env override lets operators tune without a code change.
-var MAX_CUA_TOTAL_MS = process.env.CUA_TOTAL_TIMEOUT_MS
-  ? parseInt(process.env.CUA_TOTAL_TIMEOUT_MS, 10)
-  : 75 * 60 * 1000; // 75 min default (Opus fix rounds ~8-10 min each on complex ads)
+// 合法范围 [30min, 120min]，超出夹紧并日志告警——避免运维误写 env 导致 silent cutoff。
+function _clampEnvMs(envName, defaultMs, minMs, maxMs) {
+  var raw = process.env[envName];
+  if (!raw) return defaultMs;
+  var parsed = parseInt(raw, 10);
+  if (!isFinite(parsed) || parsed <= 0) {
+    console.warn('[cua-verify] ' + envName + '=' + raw + ' 不是合法整数, 用默认 ' + defaultMs + 'ms');
+    return defaultMs;
+  }
+  if (parsed < minMs) {
+    console.warn('[cua-verify] ' + envName + '=' + parsed + ' < ' + minMs + ' 下限, 夹紧');
+    return minMs;
+  }
+  if (parsed > maxMs) {
+    console.warn('[cua-verify] ' + envName + '=' + parsed + ' > ' + maxMs + ' 上限, 夹紧');
+    return maxMs;
+  }
+  return parsed;
+}
+var MAX_CUA_TOTAL_MS = _clampEnvMs('CUA_TOTAL_TIMEOUT_MS', 75 * 60 * 1000, 30 * 60 * 1000, 120 * 60 * 1000);
+// Pre-recode buffer: 为一轮 recode+rebuild 预留的尾段时间。2026-04-20 观测到
+// `63min > 60min pre-recode guard`——.env 里 RECODE_BUFFER_MS=900000(15min) 让合法 63min
+// 运行被提前 3min 砍掉。硬编 12min 不再暴露 env override,避免运维改 env 误伤。
+// (历史 env 变量 RECODE_BUFFER_MS 若仍在 .env 中,会被忽略并日志提示。)
+var RECODE_BUFFER_MS = 12 * 60 * 1000;
+if (process.env.RECODE_BUFFER_MS) {
+  console.warn('[cua-verify] 忽略 RECODE_BUFFER_MS env(' + process.env.RECODE_BUFFER_MS + '), 使用硬编 12min — 请从 .env 删除该变量');
+}
+console.log('[cua-verify] MAX_CUA_TOTAL_MS=' + Math.round(MAX_CUA_TOTAL_MS/60000) + 'min, RECODE_BUFFER_MS=' + Math.round(RECODE_BUFFER_MS/60000) + 'min, pre-recode threshold=' + Math.round((MAX_CUA_TOTAL_MS-RECODE_BUFFER_MS)/60000) + 'min');
 var NO_PROGRESS_EXIT_ROUNDS = 4; // exit if no phase progress in N consecutive rounds (was 5 — tightened to save tokens)
 var SAME_ISSUE_REGEN_THRESHOLD = 3;
 var LOW_COVERAGE_MIN_PHASES = 3;      // D1 L7: only enforce on non-trivial games
@@ -248,7 +282,16 @@ module.exports = {
     var _lastNormalizedFp = null;
     var _fpRepeatCount = 1;
     var _maxFpRepeat = 1;
-    var FP_REPEAT_THRESHOLD = 2; // 2 consecutive identical normalized fingerprints → FATAL
+    // 2026-04-21: graduated FP repeat handling (was: hard FATAL at 2).
+    // At 2 repeats, inject an enhanced diagnostic telling Claude its previous
+    // fix did not affect the CUA symptom (with code-changed-or-not hint), then
+    // give it one more round. Only at 3 repeats do we throw FATAL. Reason:
+    // nqw7z3 / w7113b burned their 6-round budget because the breaker fired
+    // at round 2 before Claude had a chance to see that its fix was ineffective.
+    var FP_REPEAT_ENHANCED_AT = 2;
+    var FP_REPEAT_FATAL_AT = 3;
+    var _enhancedDiagInjected = false; // one diagnostic per streak
+    var _codeAtFpStreakStart = null; // snapshot for code-changed detection
 
     var loop = createFixLoop({
       name: 'cua-verify',
@@ -258,10 +301,13 @@ module.exports = {
         ctx.reportStatus('processing', { message: '[Linux] CUA verifying... (round ' + round + '/' + MAX_CUA_ROUNDS + ')', previewUrl: ctx.previewUrl });
       },
       attempt: function(ctx, round) {
-        // Time limit check
+        // Time limit check — use the stricter pre-recode threshold so we don't
+        // start a CUA round that can never finish within the recode budget.
+        // RECODE_BUFFER_MS is now module-level (hoisted from the inline declaration
+        // on the failure path) so it is available here at round entry.
         var elapsed = Date.now() - cuaStartTime;
-        if (elapsed > MAX_CUA_TOTAL_MS) {
-          throw new Error('CUA total time limit exceeded (' + Math.round(elapsed / 60000) + 'min > ' + Math.round(MAX_CUA_TOTAL_MS / 60000) + 'min)');
+        if (elapsed > MAX_CUA_TOTAL_MS - RECODE_BUFFER_MS) {
+          throw new Error('CUA total time limit exceeded (' + Math.round(elapsed / 60000) + 'min > ' + Math.round((MAX_CUA_TOTAL_MS - RECODE_BUFFER_MS) / 60000) + 'min pre-recode guard)');
         }
         var cuaBuildDir = path.join(require('os').tmpdir(), 'linux-cua-' + ctx.taskId + '-r' + round);
         fs.mkdirSync(cuaBuildDir, { recursive: true });
@@ -404,6 +450,21 @@ module.exports = {
 
             ctx.addLog('cua-verify', 'FAILED: ' + (cuaResult.issues || []).length + ' issues');
 
+            // 2026-04-21: surface pre-contamination offset metadata. Non-fatal
+            // pre-contamination (ratio ≤ 50%) no longer appears in issues, but we
+            // still want the offset visible in pipeline logs for observability
+            // and to help downstream detect if observation is systematically late.
+            try {
+              var _preC = cuaResult.report && cuaResult.report.preContamination;
+              if (_preC && _preC.phases && _preC.phases.length > 0) {
+                ctx.addLog('cua-verify',
+                  'Pre-contamination offset: ' + _preC.offset + ' phase(s) pre-fired ' +
+                  '(ratio=' + Math.round((_preC.ratio || 0) * 100) + '%' +
+                  (_preC.fatal ? ', FATAL' : ', non-fatal — deferring to phase-coverage/silent-pass') + '): [' +
+                  (_preC.phases || []).slice(0, 5).join(', ') + ']');
+              }
+            } catch (_preCErr) {}
+
             // D1 fingerprint circuit breaker: fires BEFORE coarse categorizeIssue so
             // "uniform-timing:avg=50s cv=0%" type persistent loops abort within 2
             // rounds instead of burning 40. Uses metrics.normalizeFingerprint so the
@@ -420,11 +481,22 @@ module.exports = {
               } else {
                 _fpRepeatCount = 1;
                 _lastNormalizedFp = _currentFp;
+                _enhancedDiagInjected = false;
+                _codeAtFpStreakStart = lastCsCode;
               }
-              if (_fpRepeatCount >= FP_REPEAT_THRESHOLD) {
+              // [spec-phase-skipped] exemption: normalizeFingerprint() strips numeric
+              // fractions but leaves the unquoted trailing phase-name list intact
+              // (e.g. "exchangeGoldAtStation, buildForgeWorkshop, ..."). Those names
+              // are structurally unreachable until the preceding transition is fixed,
+              // so the fingerprint is round-stable within any given task. The
+              // _noProgressRounds path below already owns escalation (full regen at
+              // NO_PROGRESS_EXIT_ROUNDS, FATAL at +3) — let it decide for this class.
+              var isPhaseSkippedFp = _currentFp.indexOf('spec-phase-skipped') >= 0;
+
+              if (_fpRepeatCount >= FP_REPEAT_FATAL_AT && !isPhaseSkippedFp) {
                 ctx.addLog('cua-verify',
                   '🚨 Fingerprint repeat FATAL: "' + _currentFp.slice(0, 80) +
-                  '" for ' + _fpRepeatCount + ' consecutive rounds — Claude fix ineffective');
+                  '" for ' + _fpRepeatCount + ' consecutive rounds — Claude fix ineffective even after enhanced diagnostic');
                 ctx.stageResults = ctx.stageResults || {};
                 ctx.stageResults['cua-verify'] = Object.assign({}, ctx.stageResults['cua-verify'] || {}, {
                   round: round,
@@ -435,7 +507,40 @@ module.exports = {
                 });
                 throw new Error('Fingerprint repeat FATAL: identical normalized fingerprint "' +
                   _currentFp.slice(0, 100) + '" for ' + _fpRepeatCount +
-                  ' consecutive rounds; Claude fix ineffective');
+                  ' consecutive rounds (enhanced diagnostic also failed); Claude fix ineffective');
+              } else if (_fpRepeatCount >= FP_REPEAT_ENHANCED_AT && !isPhaseSkippedFp && !_enhancedDiagInjected) {
+                // 2nd repeat: inject a hard-worded diagnostic into feedbackHistory
+                // explaining that the previous fix did not change the observed CUA
+                // symptom. Include a code-diff hint so Claude can tell whether it
+                // no-op'd or changed the wrong location. Do not throw — give one
+                // more round; FATAL fires at FP_REPEAT_FATAL_AT if it still repeats.
+                _enhancedDiagInjected = true;
+                var _codeChanged = _codeAtFpStreakStart !== null && lastCsCode !== _codeAtFpStreakStart;
+                var _diagMsg =
+                  '🚨 ENHANCED DIAGNOSTIC — YOUR PREVIOUS FIX DID NOT RESOLVE THE CUA FAILURE.\n' +
+                  'Identical normalized error fingerprint repeated for ' + _fpRepeatCount + ' consecutive rounds.\n' +
+                  '  Fingerprint: ' + _currentFp.slice(0, 200) + '\n' +
+                  '  Code delta: ' + (_codeChanged
+                    ? 'the code WAS modified between rounds but the CUA symptom is identical — your edit targeted the wrong location or logic path'
+                    : 'the code was NOT modified between rounds — you returned the same code with no effective edits') + '\n\n' +
+                  'ACTION REQUIRED: Do not repeat the same edit. Identify a DIFFERENT code path that could produce this symptom ' +
+                  '(phase transition conditions, GameObject initial state/position, event handler wiring, or the skeleton scaffolding). ' +
+                  'If the next round still reproduces this fingerprint, the pipeline will terminate as FATAL.';
+                if (!ctx.blueprint.feedbackHistory) ctx.blueprint.feedbackHistory = [];
+                ctx.blueprint.feedbackHistory.push({
+                  data: { text: _diagMsg },
+                  source: 'cua-fp-enhanced-diagnostic-r' + round,
+                  status: 'pending',
+                  timestamp: Date.now(),
+                });
+                ctx.addLog('cua-verify',
+                  '⚠️ Fingerprint repeat (' + _fpRepeatCount + ') — enhanced diagnostic injected (code ' +
+                  (_codeChanged ? 'changed but symptom persists' : 'unchanged') +
+                  '); one more round before FATAL');
+              } else if (_fpRepeatCount >= FP_REPEAT_ENHANCED_AT && isPhaseSkippedFp) {
+                ctx.addLog('cua-verify',
+                  '⚠️ Fingerprint repeat (' + _fpRepeatCount + ') for [spec-phase-skipped] — ' +
+                  'circuit breaker exempted; deferring to _noProgressRounds escalation');
               }
             }
 
@@ -604,11 +709,10 @@ module.exports = {
               codeReviewer.recordNewIssues(cuaIssues, ctx.taskId).catch(function() {});
             } catch(e) {}
 
-            // Pre-recode time guard: if fewer than 15 minutes remain in the wall-clock budget,
-            // skip launching another recode/rebuild cycle. Opus recode can take 8-10min, rebuild
-            // 2-4min, so 15min buffer prevents overshoot. Previous 10min buffer was too tight.
+            // Pre-recode time guard: RECODE_BUFFER_MS is now module-level (hoisted above),
+            // so this check is consistent with the round-entry guard above. No local
+            // re-declaration needed here.
             var elapsedBeforeRecode = Date.now() - cuaStartTime;
-            var RECODE_BUFFER_MS = 15 * 60 * 1000;
             if (elapsedBeforeRecode > MAX_CUA_TOTAL_MS - RECODE_BUFFER_MS) {
               throw new Error('CUA total time limit exceeded (' + Math.round(elapsedBeforeRecode / 60000) + 'min > ' + Math.round((MAX_CUA_TOTAL_MS - RECODE_BUFFER_MS) / 60000) + 'min pre-recode guard)');
             }
