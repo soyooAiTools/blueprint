@@ -169,7 +169,15 @@ function collapseRepeatedClauses(reason) {
   return out.join('\n');
 }
 
-function normalizeFingerprint(reason) {
+/**
+ * @param {string} reason - raw failure reason text
+ * @param {object} [opts] - { stage?: string } — optional stage prefix for
+ *   disambiguating otherwise-generic errors (e.g. a null-deref can happen
+ *   in any stage; binding stage prevents recipes from false-matching).
+ *   When stage is provided, output becomes "<stage>|<normalized>".
+ *   Callers opt in explicitly; legacy callers keep pre-D3 behavior.
+ */
+function normalizeFingerprint(reason, opts) {
   if (!reason) return 'unknown';
   var s = String(reason);
   // 2026-04-19: collapse repeated clauses BEFORE everything else so the rest
@@ -177,9 +185,22 @@ function normalizeFingerprint(reason) {
   // spec-validate aggregation is bypassed (e.g. legacy records).
   s = collapseRepeatedClauses(s);
   // Drop leading "prefix: " stage tags if present
-  s = s.replace(/^(review|codegen|compile|visual-check|cua-verify|upload|spec-validate)[ :]+/i, '');
-  // Unix paths
-  s = s.replace(/\/[\w.\-/]+/g, '<path>');
+  s = s.replace(/^(review|codegen|compile|visual-check|cua-verify|upload|spec-validate|spec-extract|build|complexity-gate|method-check)[ :]+/i, '');
+  // D3: fraction normalization MUST run before path regex — previously
+  // "2/11 overlap" was swallowed by the path regex as "2<path> overlap",
+  // leaving 9%/18%/27% as distinct fingerprints that each bypassed the
+  // others' cooldowns. Real examples live in server-data/auto-fix-state.json
+  // circa 2026-04-19 ("Spec fingerprint drift", "Phase coverage too low").
+  s = s.replace(/\b(\d+)\s*\/\s*(\d+)\b/g, 'N/N');
+  // D3: percent literals — "(18%)" and "(9%)" were distinct fingerprints.
+  s = s.replace(/\(\s*\d+(?:\.\d+)?\s*%\s*\)/g, '(N%)');
+  s = s.replace(/\b\d+(?:\.\d+)?%/g, 'N%');
+  // Unix paths — require first segment to start with a letter/underscore
+  // AND demand either ≥2 segments or a file extension, so the regex no
+  // longer eats number-fraction tails like "/11 overlap" nor the synthetic
+  // "/N" left behind by the fraction-collapse pass above.
+  s = s.replace(/\/[a-zA-Z_][\w.\-]*(?:\/[\w.\-]+)+/g, '<path>');                    // multi-segment
+  s = s.replace(/\/[a-zA-Z_][\w.\-]*\.[a-zA-Z][\w]*/g, '<path>');                    // single seg with ext
   // Windows paths
   s = s.replace(/[A-Z]:\\[\w\\.\-]+/g, '<path>');
   // Task IDs like proj_1774794237502_k0rbwx
@@ -199,6 +220,12 @@ function normalizeFingerprint(reason) {
   s = s.replace(/\d+min/g, 'Nmin');
   // "N error(s)" / "N warning(s)" (spec validation count)
   s = s.replace(/\d+\s+(error|warning)\(s\)/gi, 'N $1(s)');
+  // D3: "1 critical" vs "2 critical" (review blocker counts)
+  s = s.replace(/\b\d+\s+(critical|blocker|issue)s?/gi, 'N $1');
+  // D3: JSON-schema array indexes — ".entities[0]" vs ".entities[1]" etc.
+  s = s.replace(/(\.[a-zA-Z_]\w*)\[\d+\]/g, '$1[N]');
+  // D3: process exit codes — "Exit code 143" (SIGTERM) vs "Exit code 137" (SIGKILL).
+  s = s.replace(/\bExit\s+code\s+\d+/gi, 'Exit code N');
   // Quoted entity names: "forgeWorkshop", "drill", "dormitory" etc.
   // These vary per task but the root cause is the same class of mismatch
   s = s.replace(/"[a-zA-Z_]\w*"/g, '"<entity>"');
@@ -220,7 +247,15 @@ function normalizeFingerprint(reason) {
   // Collapse whitespace
   s = s.replace(/\s+/g, ' ').trim();
   // Cap at 100 chars to prevent unbounded keys
-  return s.slice(0, 100);
+  var capped = s.slice(0, 100);
+  // D3: optional stage dimension — prepended so recipes can scope themselves
+  // to a single stage and generic errors like "Cannot read properties of
+  // undefined (reading 'length')" no longer cross-match recipes from other
+  // stages. Callers that don't pass a stage get the legacy behavior.
+  if (opts && opts.stage) {
+    return String(opts.stage).toLowerCase() + '|' + capped;
+  }
+  return capped;
 }
 
 function dataWindow(records) {
