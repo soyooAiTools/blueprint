@@ -144,6 +144,21 @@ function generateSchemaFromSpecs(ctx) {
       // Auto-repair common LLM output issues before validation
       _repairSchema(schema, ctx.blueprint.entities);
 
+      // Post-repair regression guard: auto-5b4304a5 (2026-04-19) 修过一次 ALLOWED_ENTITY_KEYS
+      // 漏掉 chineseName/showLabel 致 strip 后验证必挂。如果后续再有人动 allow-list 或
+      // 改 backfill 逻辑让某个 entity 仍然没有 chineseName,这里会记日志 + 强制补一个,
+      // 不再等 validator 抛错耗 retry 额度。
+      if (Array.isArray(schema.entities)) {
+        for (var _ei = 0; _ei < schema.entities.length; _ei++) {
+          var _e = schema.entities[_ei];
+          if (!_e || typeof _e !== 'object') continue;
+          if (!_e.chineseName || typeof _e.chineseName !== 'string' || _e.chineseName.length === 0) {
+            ctx.addLog('codegen-schema', 'WARN: entity[' + _ei + '] chineseName 仍为空 after repair, 强制补' + (_e.name || 'entity') + ' — 检查 _repairSchema/ALLOWED_ENTITY_KEYS 是否回归');
+            _e.chineseName = _e.name || 'entity';
+          }
+        }
+      }
+
       // Validate
       var structErrors = schemaValidator.validateGameSchema(schema);
       var semErrors = schemaValidator.validateSemantics(schema);
