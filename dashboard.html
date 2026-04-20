@@ -3,132 +3,355 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Blueprint Dashboard</title>
+<title>Blueprint · Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
+:root {
+  --bg:         oklch(18% 0.012 260);
+  --bg-2:       oklch(22% 0.014 260);
+  --bg-3:       oklch(26% 0.016 260);
+  --line:       oklch(32% 0.014 260);
+  --line-soft:  oklch(28% 0.012 260);
+  --ink:        oklch(96% 0.010 250);
+  --ink-2:      oklch(78% 0.018 250);
+  --ink-3:      oklch(60% 0.020 250);
+  --ink-4:      oklch(45% 0.018 250);
+  --accent:     oklch(78% 0.13  165);
+  --amber:      oklch(82% 0.13   85);
+  --rust:       oklch(68% 0.17   28);
+  --cobalt:     oklch(74% 0.12  245);
+  --plum:       oklch(72% 0.13  310);
+  --sky:        oklch(80% 0.08  220);
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-pill: 999px;
+}
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f1117; color: #e1e4e8; min-height: 100vh; }
-.header { background: #161b22; padding: 16px 24px; border-bottom: 1px solid #30363d; display: flex; align-items: center; justify-content: space-between; }
-.header h1 { font-size: 18px; font-weight: 600; }
-.header .meta { display: flex; align-items: center; gap: 16px; font-size: 12px; color: #8b949e; }
-.header .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
-.header .dot.ok { background: #3fb950; }
-.header .dot.err { background: #f85149; }
-.tabs { display: flex; background: #161b22; border-bottom: 1px solid #30363d; padding: 0 16px; overflow-x: auto; }
-.tab { padding: 10px 16px; cursor: pointer; font-size: 13px; color: #8b949e; border-bottom: 2px solid transparent; white-space: nowrap; transition: all 0.15s; user-select: none; }
-.tab:hover { color: #e1e4e8; }
-.tab.active { color: #58a6ff; border-bottom-color: #58a6ff; }
-.content { padding: 20px 24px; max-width: 1280px; margin: 0 auto; }
+html, body { background: var(--bg); color: var(--ink); }
+body {
+  font-family: 'Geist', system-ui, -apple-system, sans-serif;
+  font-size: 14px; line-height: 1.55; min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'ss01','cv11';
+}
+.header {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  padding: 28px 40px 18px; border-bottom: 1px solid var(--line);
+}
+.header h1 {
+  font-family: 'Geist', system-ui, sans-serif;
+  font-weight: 600; font-size: 22px; line-height: 1;
+  letter-spacing: -0.015em; color: var(--ink);
+  display: flex; align-items: center; gap: 10px;
+}
+.header h1 em {
+  font-style: normal; font-weight: 500; font-size: 13px;
+  color: var(--accent); background: oklch(78% 0.13 165 / 0.12);
+  padding: 4px 10px; border-radius: var(--r-pill);
+  letter-spacing: 0.01em;
+}
+.header .meta {
+  display: flex; gap: 20px; font-size: 12px; color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  font-family: 'Geist Mono', monospace;
+}
+.header .dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  margin-right: 6px; vertical-align: baseline; background: var(--ink-4);
+}
+.header .dot.ok  { background: var(--accent); box-shadow: 0 0 0 3px oklch(78% 0.13 165 / 0.25); animation: pulse 2.4s infinite; }
+.header .dot.err { background: var(--rust);   box-shadow: 0 0 0 3px oklch(68% 0.17 28 / 0.25); }
+@keyframes pulse {
+  0%,100% { box-shadow: 0 0 0 3px oklch(78% 0.13 165 / 0.28); }
+  50%     { box-shadow: 0 0 0 7px oklch(78% 0.13 165 / 0);    }
+}
+.tabs {
+  display: flex; gap: 6px; padding: 14px 40px; overflow-x: auto;
+  border-bottom: 1px solid var(--line-soft);
+}
+.tab {
+  padding: 8px 16px; font-size: 13px; font-weight: 500;
+  color: var(--ink-3); cursor: pointer;
+  border-radius: var(--r-pill);
+  white-space: nowrap; user-select: none;
+  transition: color 0.15s, background 0.15s;
+}
+.tab:hover { color: var(--ink); background: var(--bg-2); }
+.tab.active { color: var(--ink); background: var(--bg-3); }
+.content { padding: 28px 40px; max-width: 1440px; margin: 0 auto; }
 .panel { display: none; }
 .panel.active { display: block; }
-.grid { display: grid; gap: 16px; margin-bottom: 20px; }
-.grid-4 { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
-.grid-3 { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.grid { display: grid; gap: 14px; margin-bottom: 20px; }
+.grid-4 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.grid-3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
 .grid-2 { grid-template-columns: 1fr 1fr; }
-.card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }
-.card h3 { font-size: 12px; color: #8b949e; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
-.stat-card { text-align: center; padding: 20px 16px; }
-.stat-card .val { font-size: 32px; font-weight: 700; line-height: 1.2; }
-.stat-card .label { font-size: 11px; color: #8b949e; margin-top: 6px; text-transform: uppercase; letter-spacing: 0.3px; }
-.stat-card .sub { font-size: 11px; color: #484f58; margin-top: 2px; }
-.val.blue { color: #58a6ff; }
-.val.green { color: #3fb950; }
-.val.yellow { color: #d29922; }
-.val.red { color: #f85149; }
-.val.gray { color: #8b949e; }
+.card {
+  background: var(--bg-2); border: 1px solid var(--line-soft);
+  border-radius: var(--r-md); padding: 20px 22px;
+}
+.card h3 {
+  font-family: 'Geist', sans-serif;
+  font-weight: 600; font-size: 14px;
+  color: var(--ink); margin-bottom: 16px;
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 12px; letter-spacing: -0.005em;
+}
+.card h3 .eyebrow {
+  font-family: 'Geist', sans-serif;
+  font-size: 11px; color: var(--ink-4); font-weight: 400;
+  letter-spacing: 0; text-transform: none;
+  text-align: right; line-height: 1.4;
+}
+.stat-card {
+  text-align: left; padding: 20px 22px;
+  background: var(--bg-2); border: 1px solid var(--line-soft);
+  border-radius: var(--r-md); position: relative;
+}
+.stat-card .val {
+  font-family: 'Geist', sans-serif;
+  font-weight: 600; font-size: 32px; line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.025em; transition: color 0.3s;
+}
+.stat-card .label {
+  font-size: 12px; color: var(--ink-3); margin-top: 10px;
+  text-transform: none; letter-spacing: 0; font-weight: 400;
+}
+.stat-card .sub {
+  font-size: 11px; color: var(--ink-4); margin-top: 3px;
+  font-family: 'Geist Mono', monospace;
+}
+.val.blue   { color: var(--cobalt); }
+.val.green  { color: var(--accent); }
+.val.yellow { color: var(--amber);  }
+.val.red    { color: var(--rust);   }
+.val.gray   { color: var(--ink-3);  }
+.val.purple { color: var(--plum);   }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th { text-align: left; padding: 8px 10px; color: #8b949e; font-weight: 500; border-bottom: 1px solid #30363d; font-size: 11px; text-transform: uppercase; }
-td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
-.badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; }
-.badge.ok, .badge.online, .badge.idle, .badge.completed, .badge.done, .badge.cua_passed, .badge.approved, .badge.committed { background: #3fb95022; color: #3fb950; }
-.badge.processing, .badge.developing, .badge.building, .badge.assigned, .badge.submitted, .badge.reviewing, .badge.busy, .badge.spec_extracting { background: #58a6ff22; color: #58a6ff; }
-.badge.pending, .badge.fix_needed, .badge.editing { background: #d2992233; color: #d29922; }
-.badge.failed, .badge.permanent_fail, .badge.offline { background: #f8514933; color: #f85149; }
-.badge.cancelled { background: #48484822; color: #888; }
-.badge.review_pass, .badge.quicktest_pass, .badge.cua_pass { background: #3fb95022; color: #3fb950; }
-.badge.review_fail, .badge.quicktest_fail, .badge.cua_fail { background: #f8514933; color: #f85149; }
-.badge.unknown { background: #484f5833; color: #8b949e; }
-.empty { text-align: center; padding: 32px; color: #484f58; font-size: 13px; }
-.refresh-info { font-size: 11px; color: #484f58; text-align: right; margin-top: 8px; }
-.probe { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; }
-.probe .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-.probe .dot.ok { background: #3fb950; box-shadow: 0 0 6px #3fb95066; }
-.probe .dot.error { background: #f85149; box-shadow: 0 0 6px #f8514966; }
-.probe .dot.unknown { background: #484f58; }
-.probe .name { font-size: 13px; font-weight: 500; flex: 1; }
-.probe .latency { font-size: 11px; color: #8b949e; }
-.flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 12px 0; }
-.flow-step { text-align: center; }
-.flow-step .count { font-size: 20px; font-weight: 700; }
-.flow-step .lbl { font-size: 10px; color: #8b949e; text-transform: uppercase; }
-.flow-arrow { color: #30363d; font-size: 18px; }
-.history-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #21262d; font-size: 12px; }
-.history-item:last-child { border-bottom: none; }
-.history-item .icon { font-size: 14px; }
-.history-item .time { color: #8b949e; margin-left: auto; white-space: nowrap; }
-.timeline { position: relative; padding-left: 24px; }
-.timeline::before { content: ''; position: absolute; left: 7px; top: 0; bottom: 0; width: 2px; background: #30363d; }
-.tl-item { position: relative; padding: 8px 0 8px 16px; font-size: 12px; }
-.tl-item::before { content: ''; position: absolute; left: -20px; top: 14px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid #30363d; background: #0d1117; }
-.tl-item.ok::before { border-color: #3fb950; background: #3fb950; }
-.tl-item.processing::before, .tl-item.building::before { border-color: #58a6ff; background: #58a6ff; }
-.tl-item.failed::before, .tl-item.error::before { border-color: #f85149; background: #f85149; }
-.tl-item.fixing::before { border-color: #d29922; background: #d29922; }
-.tl-item.done::before, .tl-item.cua_passed::before { border-color: #3fb950; background: #3fb950; box-shadow: 0 0 6px #3fb95066; }
-.tl-item .tl-msg { color: #e1e4e8; }
-.tl-item .tl-time { color: #484f58; font-size: 11px; margin-top: 2px; }
-.tl-item .tl-status { font-size: 10px; text-transform: uppercase; margin-left: 6px; }
-.task-card { margin-bottom: 16px; }
-.task-card .task-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.task-card .task-name { font-size: 15px; font-weight: 600; }
-@media (max-width: 768px) {
+thead th {
+  text-align: left; padding: 11px 14px;
+  color: var(--ink-3); font-weight: 500;
+  font-size: 12px; text-transform: none; letter-spacing: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2); position: sticky; top: 0; z-index: 2;
+  user-select: none; white-space: nowrap;
+}
+thead th.sortable { cursor: pointer; }
+thead th.sortable:hover { color: var(--ink); }
+thead th.sortable::after  { content: ' ⇅'; opacity: 0.3; font-size: 9px; }
+thead th.sortable.asc::after  { content: ' ↑'; opacity: 1; color: var(--accent); }
+thead th.sortable.desc::after { content: ' ↓'; opacity: 1; color: var(--accent); }
+tbody td {
+  padding: 10px 12px; border-bottom: 1px solid var(--line-soft);
+  font-variant-numeric: tabular-nums; vertical-align: top;
+}
+tbody tr { transition: background 0.12s; }
+tbody tr:hover { background: var(--bg-3); }
+tbody tr.clickable { cursor: pointer; }
+tbody tr.new-row { animation: flashRow 1.6s ease-out; }
+@keyframes flashRow {
+  0%   { background: oklch(72% 0.13 240 / 0.22); }
+  100% { background: transparent; }
+}
+.badge {
+  display: inline-flex; align-items: center;
+  padding: 3px 10px; border-radius: var(--r-pill);
+  font-size: 11px; font-weight: 500; line-height: 1.5;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.badge.ok,.badge.online,.badge.idle,.badge.completed,.badge.done,
+.badge.cua_passed,.badge.approved,.badge.committed,
+.badge.review_pass,.badge.quicktest_pass,.badge.cua_pass
+  { background: oklch(76% 0.14 145 / 0.15); color: var(--accent); }
+.badge.processing,.badge.developing,.badge.building,.badge.assigned,
+.badge.submitted,.badge.reviewing,.badge.busy,.badge.spec_extracting
+  { background: oklch(72% 0.13 240 / 0.15); color: var(--cobalt); }
+.badge.pending,.badge.fix_needed,.badge.editing
+  { background: oklch(80% 0.14 82 / 0.18); color: var(--amber); }
+.badge.failed,.badge.permanent_fail,.badge.offline,
+.badge.review_fail,.badge.quicktest_fail,.badge.cua_fail
+  { background: oklch(66% 0.18 32 / 0.18); color: var(--rust); }
+.badge.cancelled,.badge.unknown
+  { background: oklch(40% 0.018 65 / 0.35); color: var(--ink-3); }
+.empty {
+  text-align: center; padding: 36px;
+  color: var(--ink-4); font-size: 13px; font-style: normal;
+  font-family: 'Geist', sans-serif;
+}
+.probe {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px; background: var(--bg);
+  border: 1px solid var(--line-soft); border-radius: var(--r-sm);
+}
+.probe .dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  background: var(--ink-4);
+}
+.probe .dot.ok      { background: var(--accent); box-shadow: 0 0 0 3px oklch(78% 0.13 165 / 0.25); animation: pulse 2.4s infinite; }
+.probe .dot.error   { background: var(--rust);   box-shadow: 0 0 0 3px oklch(68% 0.17 28 / 0.25); }
+.probe .dot.unknown { background: var(--ink-4); }
+.probe .name   { font-size: 13px; font-weight: 500; flex: 1; color: var(--ink); }
+.probe .role   { font-size: 10px; color: var(--ink-3); margin-top: 2px; font-weight: 400; letter-spacing: 0.02em; }
+.probe .latency{ font-size: 11px; color: var(--ink-3); font-family: 'Geist Mono', monospace; font-variant-numeric: tabular-nums; }
+.gantt { display: flex; flex-direction: column; gap: 16px; }
+.gantt-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 13px; margin-bottom: 6px; gap: 12px;
+}
+.gantt-title { color: var(--ink); font-weight: 500; }
+.gantt-total { color: var(--ink-3); font-family: 'Geist Mono', monospace; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gantt-bar {
+  display: flex; height: 18px; background: var(--bg);
+  border: 1px solid var(--line-soft); border-radius: var(--r-pill); overflow: hidden;
+}
+.gantt-bar .seg { min-width: 2px; transition: filter 0.15s; position: relative; }
+.gantt-bar .seg:hover { filter: brightness(1.25); cursor: help; }
+.gantt-labels {
+  display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px;
+  font-size: 11px; color: var(--ink-3);
+  font-family: 'Geist Mono', monospace; font-variant-numeric: tabular-nums;
+}
+.gantt-labels span { display: inline-flex; align-items: center; gap: 5px; }
+.gantt-labels i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.barcharts { display: flex; flex-direction: column; gap: 12px; }
+.barchart-row .head { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px; gap: 10px; }
+.barchart-row .head .lbl { color: var(--ink-2); }
+.barchart-row .head .qty { color: var(--ink-3); font-family: 'Geist Mono', monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.barchart-row .bar { background: var(--bg); border: 1px solid var(--line-soft); border-radius: var(--r-pill); height: 8px; overflow: hidden; }
+.barchart-row .bar > div { height: 100%; transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1); }
+.alert {
+  padding: 14px 16px; background: oklch(68% 0.17 28 / 0.08);
+  border: 1px solid oklch(68% 0.17 28 / 0.28);
+  border-radius: var(--r-md); margin-bottom: 10px;
+}
+.alert .title { color: var(--rust); font-weight: 500; font-size: 13px; }
+.alert .meta { font-size: 11px; color: var(--ink-3); margin-top: 6px; font-family: 'Geist Mono', monospace; line-height: 1.55; }
+.alert .meta code { background: var(--bg-3); padding: 2px 7px; border-radius: var(--r-sm); color: var(--ink-2); }
+.pill {
+  display: inline-block; padding: 3px 10px; border-radius: var(--r-pill);
+  font-size: 11px; font-weight: 500; background: var(--bg-3);
+  border: 1px solid var(--line-soft); color: var(--ink-2);
+  font-family: 'Geist', sans-serif;
+}
+.btn {
+  background: var(--cobalt); color: oklch(16% 0.01 260);
+  border: 0; padding: 6px 14px; border-radius: var(--r-sm);
+  font-size: 12px; font-weight: 500; cursor: pointer;
+  font-family: inherit; transition: filter 0.15s, transform 0.08s;
+}
+.btn:hover { filter: brightness(1.08); }
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; filter: none; }
+.btn.ghost { background: var(--bg-3); color: var(--ink-2); border: 1px solid var(--line); font-weight: 500; }
+.btn.ghost:hover { background: var(--line-soft); color: var(--ink); filter: none; }
+.btn.danger  { background: var(--rust);   color: oklch(16% 0.01 32); }
+.btn.success { background: var(--accent); color: oklch(16% 0.01 165); }
+.copy {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: transparent; border: 0; color: var(--ink-3); cursor: pointer;
+  font-size: 11px; padding: 3px 7px; border-radius: var(--r-sm);
+  font-family: inherit; transition: color 0.15s, background 0.15s;
+}
+.copy:hover { color: var(--ink); background: var(--bg-3); }
+code {
+  font-family: 'Geist Mono', monospace; font-size: 11px;
+  background: var(--bg-3); padding: 2px 7px; border-radius: var(--r-sm); color: var(--ink-2);
+}
+[data-tip] { position: relative; cursor: help; border-bottom: 1px dotted var(--ink-4); }
+[data-tip]:hover::after {
+  content: attr(data-tip); position: absolute;
+  bottom: calc(100% + 8px); left: 0;
+  white-space: pre-wrap; max-width: 320px;
+  padding: 10px 14px;
+  background: var(--bg-3); border: 1px solid var(--line);
+  border-radius: var(--r-md); color: var(--ink);
+  font-size: 12px; line-height: 1.5; font-style: normal;
+  font-family: 'Geist', sans-serif; font-weight: 400;
+  z-index: 9999; box-shadow: 0 8px 22px oklch(0% 0 0 / 0.35);
+}
+.filter-bar { display: flex; gap: 10px; margin-bottom: 14px; align-items: center; flex-wrap: wrap; }
+.filter-bar input {
+  background: var(--bg-3); color: var(--ink);
+  border: 1px solid var(--line); border-radius: var(--r-pill);
+  padding: 8px 14px; font-size: 13px; font-family: inherit;
+  flex: 1; max-width: 320px; min-width: 200px;
+}
+.filter-bar input::placeholder { color: var(--ink-4); }
+.filter-bar input:focus { outline: none; border-color: var(--accent); background: var(--bg-2); }
+.filter-bar .count { font-size: 11px; color: var(--ink-4); font-family: 'Geist Mono', monospace; margin-left: auto; }
+tr.drawer-row > td {
+  background: var(--bg) !important; padding: 14px 20px !important;
+  border-bottom: 2px solid var(--line);
+}
+.drawer-body {
+  font-size: 12px; line-height: 1.6;
+  font-family: 'Geist Mono', monospace; color: var(--ink-2);
+}
+.toast {
+  position: fixed; bottom: 26px; left: 50%;
+  transform: translateX(-50%) translateY(10px);
+  background: var(--bg-3); border: 1px solid var(--line);
+  color: var(--ink); padding: 11px 20px; border-radius: var(--r-pill);
+  font-size: 13px; opacity: 0;
+  transition: opacity 0.2s, transform 0.2s;
+  z-index: 10000; pointer-events: none;
+  box-shadow: 0 8px 22px oklch(0% 0 0 / 0.35);
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+@media (max-width: 900px) {
   .grid-2 { grid-template-columns: 1fr; }
-  .grid-4 { grid-template-columns: repeat(2, 1fr); }
+  .header, .tabs, .content { padding-left: 20px; padding-right: 20px; }
+  .header { padding-top: 22px; padding-bottom: 14px; }
+  .stat-card .val { font-size: 36px; }
 }
 </style>
 </head>
 <body>
 <div class="header">
-  <h1>📊 Blueprint Dashboard</h1>
+  <h1>Blueprint <em>Observability</em></h1>
   <div class="meta">
     <span id="serverStatus"></span>
-    <span id="lastUpdate">加载中...</span>
+    <span id="lastUpdate">loading…</span>
   </div>
 </div>
 <div class="tabs">
-  <div class="tab active" data-panel="overview">总览</div>
-  <div class="tab" data-panel="workers">Workers</div>
-  <div class="tab" data-panel="tasks">任务队列</div>
+  <div class="tab active" data-panel="overview">运行状态</div>
   <div class="tab" data-panel="pipeline">Pipeline 指标</div>
 </div>
 <div class="content">
-  <!-- Overview -->
+  <!-- Overview (运行状态: KPI + API + Workers + Queue + Recent + Stages) -->
   <div class="panel active" id="overview">
     <div class="grid grid-4" id="overviewStats"></div>
     <div class="card" style="margin-top:16px;">
       <h3>API 健康</h3>
       <div id="apiHealth" style="display:flex;flex-direction:column;gap:8px;"></div>
     </div>
+    <div class="grid grid-2" style="margin-top:16px;">
+      <div class="card">
+        <h3>Workers <span class="eyebrow" id="workerCount"></span></h3>
+        <div class="filter-bar">
+          <input type="text" id="workerFilter" placeholder="按 Worker ID / 任务名过滤…" />
+        </div>
+        <div id="workerList"></div>
+      </div>
+      <div class="card">
+        <h3>任务队列 <span class="eyebrow" id="taskCount"></span></h3>
+        <div class="filter-bar">
+          <input type="text" id="taskFilter" placeholder="按项目 / 状态 / 消息过滤…" />
+        </div>
+        <div id="taskList"></div>
+      </div>
+    </div>
     <div class="card" style="margin-top:16px;">
       <h3>最近任务</h3>
       <div id="recentTasks"></div>
     </div>
     <div class="card" style="margin-top:16px;">
-      <h3>⏱ 各项目阶段耗时 <span style="font-size:11px;color:#8b949e;font-weight:normal;">(从 timeline 按 AI编码 / 构建 / 审查 / QuickTest / CUA / 上传 分桶)</span></h3>
+      <h3>各项目阶段耗时 <span class="eyebrow">timeline → AI编码 · 审查 · 构建 · CUA · 等待 · QuickTest · 上传</span></h3>
       <div id="stageDurations"></div>
-    </div>
-  </div>
-  <!-- Workers -->
-  <div class="panel" id="workers">
-    <div class="card">
-      <h3>Worker 列表</h3>
-      <div id="workerList"></div>
-    </div>
-  </div>
-  <!-- Tasks -->
-  <div class="panel" id="tasks">
-    <div class="card">
-      <h3>任务队列</h3>
-      <div id="taskList"></div>
     </div>
   </div>
   <!-- Pipeline Metrics -->
@@ -145,7 +368,7 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       </div>
     </div>
     <div class="card" style="margin-top:16px;">
-      <h3>Top 失败指纹（按 unique 任务数去重）<span id="pipelineDataWindow" style="float:right;font-size:11px;color:#8b949e;font-weight:normal;"></span></h3>
+      <h3>Top 失败指纹 <span id="pipelineDataWindow" class="eyebrow"></span></h3>
       <div id="topFailReasons"></div>
     </div>
     <div class="grid grid-2" style="margin-top:16px;">
@@ -163,7 +386,7 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       <div id="silentPassAlerts"></div>
     </div>
     <div class="card" style="margin-top:16px;">
-      <h3>项目失败明细 <span style="font-size:11px;color:#8b949e;font-weight:normal;">(点击行展开 failureHistory 时间线)</span></h3>
+      <h3>项目失败明细 <span class="eyebrow">点击行展开失败历史</span></h3>
       <div id="projectFailures"></div>
     </div>
   </div>
@@ -211,6 +434,30 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
     return fetch(BASE + url).then(function(r) { return r.json(); }).catch(function() { return null; });
   }
 
+  function applyFilter(containerId, inputId, countId) {
+    var c = document.getElementById(containerId);
+    var inp = document.getElementById(inputId);
+    if (!c || !inp) return;
+    var q = (inp.value || '').trim().toLowerCase();
+    var rows = c.querySelectorAll('tbody tr');
+    var visible = 0;
+    rows.forEach(function(tr) {
+      if (!q) { tr.style.display = ''; visible++; return; }
+      var txt = (tr.textContent || '').toLowerCase();
+      if (txt.indexOf(q) >= 0) { tr.style.display = ''; visible++; }
+      else { tr.style.display = 'none'; }
+    });
+    var cnt = document.getElementById(countId);
+    if (cnt) cnt.textContent = q ? (visible + ' / ' + rows.length) : (rows.length + ' 条');
+  }
+  function wireFilter(containerId, inputId, countId) {
+    var inp = document.getElementById(inputId);
+    if (inp && !inp._wired) {
+      inp._wired = true;
+      inp.addEventListener('input', function() { applyFilter(containerId, inputId, countId); });
+    }
+  }
+
   async function refresh() {
     var [stats, health, pipelineMetrics] = await Promise.all([
       fetchJSON('/api/dashboard/stats'),
@@ -218,7 +465,7 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       fetchJSON('/api/dashboard/pipeline-metrics')
     ]);
 
-    document.getElementById('lastUpdate').textContent = '更新: ' + fmt(Date.now());
+    document.getElementById('lastUpdate').textContent = 'updated ' + fmt(Date.now());
 
     if (!stats) {
       document.getElementById('overviewStats').innerHTML = '<div class="empty">无法连接服务器</div>';
@@ -227,7 +474,7 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
 
     // Server status in header
     var serverOk = health && health.server && health.server.status === 'ok';
-    document.getElementById('serverStatus').innerHTML = '<span class="dot ' + (serverOk ? 'ok' : 'err') + '"></span>' + (serverOk ? '服务运行中 (' + (health.server.uptimeHuman || '?') + ')' : '服务异常');
+    document.getElementById('serverStatus').innerHTML = '<span class="dot ' + (serverOk ? 'ok' : 'err') + '"></span>' + (serverOk ? 'live · ' + (health.server.uptimeHuman || '?') : 'server offline');
 
     // ========== Overview ==========
     var ov = '';
@@ -247,14 +494,12 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       function probeHTML(name, role, data, metricLabel) {
         var st = (data && data.status) || 'unknown';
         var dotCls = st === 'ok' ? 'ok' : (st === 'error' ? 'error' : 'unknown');
-        // Use metricLabel if provided (e.g. uptime for the server probe),
-        // otherwise fall back to latencyMs.
         var metric = metricLabel || (data && data.latencyMs != null ? data.latencyMs + 'ms' : '—');
-        var err = data && data.error ? ' · <span style="color:#f85149;">' + data.error + '</span>' : '';
+        var err = data && data.error ? ' · <span style="color:var(--rust);">' + data.error + '</span>' : '';
         return '<div class="probe">' +
           '<div class="dot ' + dotCls + '"></div>' +
           '<div class="name">' + name +
-            '<div style="font-size:10px;color:#8b949e;font-weight:400;margin-top:1px;">' + role + '</div>' +
+            '<div class="role">' + role + '</div>' +
           '</div>' +
           '<div class="latency">' + metric + err + '</div>' +
           '</div>';
@@ -275,7 +520,7 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       // Surface healthCheck-level error (rare — the cache stores it when
       // the entire healthCheck() promise rejects, e.g. import failure)
       if (health.healthCheckError) {
-        ah += '<div style="font-size:11px;color:#f85149;padding:6px 12px;">⚠ healthCheck error: ' + health.healthCheckError + '</div>';
+        ah += '<div style="font-size:11px;color:var(--rust);padding:6px 12px;">⚠ healthCheck error: ' + health.healthCheckError + '</div>';
       }
       document.getElementById('apiHealth').innerHTML = ah || '<div class="empty">检测中...</div>';
     }
@@ -295,26 +540,35 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
     // between consecutive entries into that bucket. Running tasks include
     // time from the last entry to now.
     var stageOrder = ['等待', 'AI编码', '构建', '审查', 'QuickTest', 'CUA', '上传', '其他'];
+    // 色值直写 oklch，跟 CSS --accent/--amber/--rust/--cobalt/--plum/--sky 对齐
     var stageColors = {
-      '等待':     '#6e7681',
-      'AI编码':   '#58a6ff',
-      '构建':     '#d29922',
-      '审查':     '#bc8cff',
-      'QuickTest':'#3fb950',
-      'CUA':      '#f85149',
-      '上传':     '#79c0ff',
-      '其他':     '#484f58'
+      '等待':     'oklch(55% 0.022 68)',    // ink-3 灰
+      'AI编码':   'oklch(72% 0.13 240)',    // cobalt 蓝
+      '构建':     'oklch(80% 0.14 82)',     // amber 琥珀
+      '审查':     'oklch(68% 0.14 308)',    // plum 紫 (Codex review)
+      'QuickTest':'oklch(76% 0.14 145)',    // accent evergreen
+      'CUA':      'oklch(66% 0.18 32)',     // rust 视觉验证
+      '上传':     'oklch(78% 0.09 220)',    // sky 淡蓝
+      '其他':     'oklch(40% 0.018 65)'     // ink-4 极暗
     };
     function classifyTimelineEntry(e) {
       var m = (e.message || '').toLowerCase();
       var s = (e.status || '').toLowerCase();
-      if (s === 'building' || m.indexOf('rebuild') >= 0 || m.indexOf('building') >= 0 || m.indexOf('build') >= 0 && m.indexOf('api') < 0) return '构建';
-      if (m.indexOf('cua') >= 0 || s === 'cua_verifying' || s.indexOf('cua_') === 0) return 'CUA';
-      if (m.indexOf('ai coding') >= 0 || m.indexOf('ai fix') >= 0 || m.indexOf('re-coding') >= 0 || m.indexOf('ai re-') >= 0) return 'AI编码';
-      if (m.indexOf('review') >= 0 || s.indexOf('code_review') === 0 || s === 'reviewing') return '审查';
-      if (m.indexOf('quicktest') >= 0 || s.indexOf('quicktest') === 0) return 'QuickTest';
-      if (s === 'uploading' || m.indexOf('upload') >= 0) return '上传';
-      if (s === 'pending' || s === 'assigned' || s === 'spec_extracting') return '等待';
+      // 顺序：先匹配 message 里最具体的动作词，status-based 兜底；中文英文都要覆盖
+      if (m.indexOf('ai coding') >= 0 || m.indexOf('ai fix') >= 0 || m.indexOf('re-coding') >= 0 ||
+          m.indexOf('ai re-') >= 0 || m.indexOf('ai修复') >= 0 || m.indexOf('ai 修复') >= 0) return 'AI编码';
+      if (m.indexOf('codex') >= 0 || m.indexOf('审核') >= 0 || m.indexOf('review') >= 0 ||
+          s.indexOf('code_review') === 0 || s === 'reviewing') return '审查';
+      if (m.indexOf('视觉预检') >= 0 || m.indexOf('视觉修复') >= 0 || m.indexOf('visual') >= 0 ||
+          m.indexOf('cua') >= 0 || s === 'cua_verifying' || s.indexOf('cua_') === 0) return 'CUA';
+      if (m.indexOf('quicktest') >= 0 || m.indexOf('quick test') >= 0 || s.indexOf('quicktest') === 0) return 'QuickTest';
+      if (s === 'uploading' || m.indexOf('upload') >= 0 || m.indexOf('上传') >= 0) return '上传';
+      if (s === 'building' || m.indexOf('rebuild') >= 0 || m.indexOf('building') >= 0 ||
+          m.indexOf('编译') >= 0 || m.indexOf('bridge.net') >= 0 ||
+          (m.indexOf('build') >= 0 && m.indexOf('api') < 0)) return '构建';
+      if (s === 'pending' || s === 'assigned' || s === 'spec_extracting' ||
+          m.indexOf('preparing') >= 0 || m.indexOf('template') >= 0 ||
+          m.indexOf('complexity-gate') >= 0 || m.indexOf('spec') >= 0) return '等待';
       return '其他';
     }
     function computeStageDurations(timeline, taskStatus, updatedAt) {
@@ -348,33 +602,32 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
     if (tasksForStage.length === 0) {
       stageHTML = '<div class="empty">暂无 timeline 数据</div>';
     } else {
+      stageHTML = '<div class="gantt">';
       tasksForStage.forEach(function(t) {
         var buckets = computeStageDurations(t.timeline, t.status, t.updatedAt);
         var total = 0; stageOrder.forEach(function(k) { total += buckets[k]; });
         if (total <= 0) return;
-        stageHTML += '<div style="margin-bottom:14px;">';
-        stageHTML += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:13px;">';
-        stageHTML += '<span><span style="color:#c9d1d9;font-weight:600;">' + (t.projectName || t.taskId) + '</span> ' + badge(t.status) + '</span>';
-        stageHTML += '<span style="color:#8b949e;font-size:12px;">总 ' + fmtDuration(total) + '</span>';
+        stageHTML += '<div>';
+        stageHTML += '<div class="gantt-head">';
+        stageHTML += '<span class="gantt-title">' + (t.projectName || t.taskId) + ' &nbsp;' + badge(t.status) + '</span>';
+        stageHTML += '<span class="gantt-total">total ' + fmtDuration(total) + '</span>';
         stageHTML += '</div>';
-        // Segmented bar
-        stageHTML += '<div style="display:flex;height:10px;border-radius:4px;overflow:hidden;background:#21262d;margin-bottom:4px;">';
+        stageHTML += '<div class="gantt-bar">';
         stageOrder.forEach(function(k) {
           if (buckets[k] <= 0) return;
           var pct = buckets[k] / total * 100;
-          stageHTML += '<div title="' + k + ': ' + fmtDuration(buckets[k]) + '" style="background:' + stageColors[k] + ';width:' + pct.toFixed(2) + '%;"></div>';
+          stageHTML += '<div class="seg" title="' + k + ' · ' + fmtDuration(buckets[k]) + ' · ' + pct.toFixed(1) + '%" style="background:' + stageColors[k] + ';width:' + pct.toFixed(2) + '%;"></div>';
         });
         stageHTML += '</div>';
-        // Labels
-        stageHTML += '<div style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:#8b949e;">';
+        stageHTML += '<div class="gantt-labels">';
         stageOrder.forEach(function(k) {
           if (buckets[k] <= 0) return;
-          stageHTML += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + stageColors[k] + ';margin-right:4px;vertical-align:middle;"></span>' + k + ' ' + fmtDuration(buckets[k]) + '</span>';
+          stageHTML += '<span><i style="background:' + stageColors[k] + ';"></i>' + k + ' ' + fmtDuration(buckets[k]) + '</span>';
         });
-        stageHTML += '</div>';
-        stageHTML += '</div>';
+        stageHTML += '</div></div>';
       });
-      if (!stageHTML) stageHTML = '<div class="empty">暂无有效阶段数据</div>';
+      stageHTML += '</div>';
+      if (stageHTML === '<div class="gantt"></div>') stageHTML = '<div class="empty">暂无有效阶段数据</div>';
     }
     document.getElementById('stageDurations').innerHTML = stageHTML;
 
@@ -385,6 +638,8 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
         return [w.workerId, badge(w.status), w.currentTaskName || w.currentTask || '-', ago(w.lastHeartbeat)];
       })
     );
+    wireFilter('workerList', 'workerFilter', 'workerCount');
+    applyFilter('workerList', 'workerFilter', 'workerCount');
 
     // ========== Tasks ==========
     document.getElementById('taskList').innerHTML = tableHTML(
@@ -393,6 +648,8 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
         return [t.projectName, badge(t.status), (t.statusMessage || '').slice(0, 40), t.workerId || '-', fmt(t.createdAt), ago(t.updatedAt)];
       })
     );
+    wireFilter('taskList', 'taskFilter', 'taskCount');
+    applyFilter('taskList', 'taskFilter', 'taskCount');
 
     // ========== Pipeline Metrics ==========
     // Restore auto-fix button states from server (survives page refresh)
@@ -426,33 +683,35 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       var hotspots = pm.failureHotspots || [];
       if (hotspots.length > 0) {
         var maxCount = hotspots[0].count;
-        var hh = '';
+        var hh = '<div class="barcharts">';
         hotspots.forEach(function(h) {
           var pct = maxCount > 0 ? Math.round(h.count / maxCount * 100) : 0;
-          hh += '<div style="margin-bottom:10px;">';
-          hh += '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span>' + h.stage + '</span><span style="color:#8b949e;">' + h.count + '次 (' + h.pct + ')</span></div>';
-          hh += '<div style="background:#21262d;border-radius:4px;height:8px;overflow:hidden;"><div style="background:#f85149;height:100%;width:' + pct + '%;border-radius:4px;transition:width 0.3s;"></div></div>';
+          hh += '<div class="barchart-row">';
+          hh += '<div class="head"><span class="lbl">' + h.stage + '</span><span class="qty">' + h.count + ' × · ' + h.pct + '</span></div>';
+          hh += '<div class="bar"><div style="background:var(--rust);width:' + pct + '%;"></div></div>';
           hh += '</div>';
         });
+        hh += '</div>';
         document.getElementById('failureHotspots').innerHTML = hh;
       } else {
-        document.getElementById('failureHotspots').innerHTML = '<div class="empty">无失败记录 🎉</div>';
+        document.getElementById('failureHotspots').innerHTML = '<div class="empty">无失败记录</div>';
       }
 
       // Stage pass rates
       var spr = pm.stagePassRates || {};
       var sprKeys = Object.keys(spr);
       if (sprKeys.length > 0) {
-        var sh = '';
+        var sh = '<div class="barcharts">';
         sprKeys.forEach(function(k) {
           var s = spr[k];
           var rate = parseInt(s.rate);
-          var barColor = rate >= 80 ? '#3fb950' : rate >= 50 ? '#d29922' : '#f85149';
-          sh += '<div style="margin-bottom:10px;">';
-          sh += '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span>' + k + '</span><span style="color:#8b949e;">' + s.rate + ' (' + s.passed + '/' + s.attempted + ')</span></div>';
-          sh += '<div style="background:#21262d;border-radius:4px;height:8px;overflow:hidden;"><div style="background:' + barColor + ';height:100%;width:' + rate + '%;border-radius:4px;transition:width 0.3s;"></div></div>';
+          var barColor = rate >= 80 ? 'var(--accent)' : rate >= 50 ? 'var(--amber)' : 'var(--rust)';
+          sh += '<div class="barchart-row">';
+          sh += '<div class="head"><span class="lbl">' + k + '</span><span class="qty">' + s.rate + ' · ' + s.passed + '/' + s.attempted + '</span></div>';
+          sh += '<div class="bar"><div style="background:' + barColor + ';width:' + rate + '%;"></div></div>';
           sh += '</div>';
         });
+        sh += '</div>';
         document.getElementById('stagePassRates').innerHTML = sh;
       } else {
         document.getElementById('stagePassRates').innerHTML = '<div class="empty">暂无数据</div>';
@@ -478,87 +737,101 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       // "19 retries of 1 stuck task" inflation bug from recurring.
       var tfr = pm.topFailReasons || [];
       if (tfr.length > 0) {
-        var fh = '<table style="width:100%;"><thead><tr>';
-        fh += '<th>状态</th><th>指纹</th><th style="text-align:right;">tasks</th><th style="text-align:right;">retries</th><th>stage</th><th>最近</th><th>操作</th>';
+        var fh = '<table><thead><tr>';
+        fh += '<th>KB</th>';
+        fh += '<th>指纹</th>';
+        fh += '<th style="text-align:right;"><span data-tip="有多少个 unique 任务命中此指纹">tasks</span></th>';
+        fh += '<th style="text-align:right;"><span data-tip="同一指纹内的重试次数（含卡住任务）">retries</span></th>';
+        fh += '<th>stage</th><th>最近</th><th>操作</th>';
         fh += '</tr></thead><tbody>';
         tfr.forEach(function(r) {
           var kb = r.knowledge || {};
-          var badgeHTML, badgeTitle;
-          if (kb.resolvedBy) {
-            badgeHTML = '<span style="color:#3fb950;" title="已修复 ' + (kb.resolvedBy || '') + '">🟢</span>';
-            badgeTitle = '已修复 ' + (kb.resolvedBy || '').slice(0, 7);
-          } else if ((kb.memoryHits || []).length > 0 || (kb.commitHits || []).length > 0) {
-            badgeHTML = '<span style="color:#d29922;" title="已知但未修复">🟡</span>';
-            badgeTitle = '已知未修';
-          } else {
-            badgeHTML = '<span style="color:#f85149;" title="未分类">🔴</span>';
-            badgeTitle = '未分类';
-          }
+          var dotColor, badgeTitle;
+          if (kb.resolvedBy) { dotColor = 'var(--accent)'; badgeTitle = '已修复 ' + (kb.resolvedBy || '').slice(0, 7); }
+          else if ((kb.memoryHits || []).length > 0 || (kb.commitHits || []).length > 0) { dotColor = 'var(--amber)'; badgeTitle = '已知未修'; }
+          else { dotColor = 'var(--rust)'; badgeTitle = '未分类'; }
+          var dotHTML = '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:' + dotColor + ';margin-right:6px;vertical-align:middle;"></span>';
           var mem = (kb.memoryHits || []).slice(0, 2).map(function(m) { return m.file; }).join(', ');
           var commit = (kb.commitHits || []).slice(0, 1).map(function(c) { return c.hash.slice(0, 7) + ' ' + c.subject.slice(0, 40); }).join('');
-          var knowledgeCell = [badgeHTML, badgeTitle, mem ? '<br><span style="color:#8b949e;font-size:11px;">mem: ' + mem + '</span>' : '', commit ? '<br><span style="color:#8b949e;font-size:11px;">git: ' + commit + '</span>' : ''].join(' ');
-          var fpShort = (r.fingerprint || r.sampleReason || '').slice(0, 80);
+          var kbExtras = '';
+          if (mem)    kbExtras += '<div style="color:var(--ink-3);font-size:11px;margin-top:3px;font-family:\'Geist Mono\',monospace;">mem: ' + mem + '</div>';
+          if (commit) kbExtras += '<div style="color:var(--ink-3);font-size:11px;margin-top:2px;font-family:\'Geist Mono\',monospace;">git: ' + commit + '</div>';
+          var knowledgeCell = '<div>' + dotHTML + '<span style="font-size:12px;color:var(--ink-2);">' + badgeTitle + '</span></div>' + kbExtras;
+          var fpFull  = (r.fingerprint || r.sampleReason || '');
+          var fpShort = fpFull.slice(0, 80);
+          var fpEsc   = fpFull.replace(/"/g, '&quot;').replace(/'/g, "\\'");
           var lastSeenAgo = r.lastSeen ? ago(new Date(r.lastSeen).getTime()) : '-';
           var recipeId = kb.autoFixRecipe ? kb.autoFixRecipe.id : null;
           var btnId = 'af-' + (recipeId || '').replace(/[^a-zA-Z0-9-]/g, '');
           var canAutoFix;
           var afState = recipeId ? (_autoFixStates[recipeId] || null) : null;
           if (!recipeId) {
-            canAutoFix = '<span style="color:#484f58;font-size:11px;">无 recipe</span>';
+            canAutoFix = '<span style="color:var(--ink-4);font-size:11px;">no recipe</span>';
           } else if (afState === 'committed') {
             var hash = _autoFixCommitHashes[recipeId] || '';
-            canAutoFix = '<span id="' + btnId + '"><span style="color:#3fb950;font-size:11px;">已提交 ' + hash + '</span></span>';
+            canAutoFix = '<span id="' + btnId + '"><span style="color:var(--accent);font-size:11px;">committed ' + hash + '</span></span>';
           } else if (afState === 'done') {
-            canAutoFix = '<span id="' + btnId + '"><button onclick="showAutoFixApproval(\'' + recipeId + '\')" style="background:#238636;color:#fff;border:0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;">批准 commit</button></span>';
+            canAutoFix = '<span id="' + btnId + '"><button class="btn success" onclick="showAutoFixApproval(\'' + recipeId + '\')">批准 commit</button></span>';
           } else if (afState === 'loading') {
-            canAutoFix = '<span id="' + btnId + '"><button disabled style="background:#30363d;color:#8b949e;border:1px solid #30363d;padding:4px 10px;border-radius:4px;cursor:wait;font-size:11px;">修复中...</button></span>';
+            canAutoFix = '<span id="' + btnId + '"><button class="btn" disabled>修复中…</button></span>';
           } else if (afState === 'error') {
             var errMsg = (_autoFixErrors[recipeId] || '').replace(/"/g, '&quot;').slice(0, 120);
-            canAutoFix = '<span id="' + btnId + '"><button disabled style="background:#da3633;color:#fff;border:0;padding:4px 10px;border-radius:4px;cursor:not-allowed;font-size:11px;" title="' + errMsg + '">失败</button></span>';
+            canAutoFix = '<span id="' + btnId + '"><button class="btn danger" disabled title="' + errMsg + '">失败</button></span>';
           } else if (kb.resolvedBy) {
-            canAutoFix = '<span id="' + btnId + '"><button disabled style="background:#30363d;color:#484f58;border:1px solid #30363d;padding:4px 10px;border-radius:4px;cursor:not-allowed;font-size:11px;" title="已修复 ' + (kb.resolvedBy || '').slice(0, 7) + '">已修复</button></span>';
+            canAutoFix = '<span id="' + btnId + '"><button class="btn ghost" disabled title="已修复 ' + (kb.resolvedBy || '').slice(0, 7) + '">已修复</button></span>';
           } else {
-            canAutoFix = '<span id="' + btnId + '"><button onclick="triggerAutoFix(\'' + recipeId + '\',\'' + btnId + '\')" style="background:#1f6feb;color:#fff;border:0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;">自动修复</button></span>';
+            canAutoFix = '<span id="' + btnId + '"><button class="btn" onclick="triggerAutoFix(\'' + recipeId + '\',\'' + btnId + '\')">自动修复</button></span>';
           }
           fh += '<tr>';
-          fh += '<td>' + knowledgeCell + '</td>';
-          fh += '<td style="word-break:break-all;max-width:420px;">' + fpShort + '</td>';
-          fh += '<td style="text-align:right;font-weight:700;color:#f85149;">' + r.uniqueTasks + '</td>';
-          fh += '<td style="text-align:right;color:#8b949e;">' + r.retries + '</td>';
-          fh += '<td>' + r.failedAtStage + '</td>';
-          fh += '<td>' + lastSeenAgo + '</td>';
+          fh += '<td style="min-width:150px;">' + knowledgeCell + '</td>';
+          fh += '<td style="word-break:break-all;max-width:420px;font-family:\'Geist Mono\',monospace;font-size:12px;color:var(--ink-2);">' + fpShort;
+          fh += ' <button class="copy" onclick="copyText(\'' + fpEsc.slice(0,400) + '\',event)" title="copy fingerprint">⧉</button></td>';
+          fh += '<td style="text-align:right;font-weight:600;color:var(--rust);font-family:\'Geist Mono\',monospace;">' + r.uniqueTasks + '</td>';
+          fh += '<td style="text-align:right;color:var(--ink-3);font-family:\'Geist Mono\',monospace;">' + r.retries + '</td>';
+          fh += '<td><span class="pill">' + r.failedAtStage + '</span></td>';
+          fh += '<td style="color:var(--ink-3);font-size:12px;">' + lastSeenAgo + '</td>';
           fh += '<td>' + canAutoFix + '</td>';
           fh += '</tr>';
         });
         fh += '</tbody></table>';
         document.getElementById('topFailReasons').innerHTML = fh;
       } else {
-        document.getElementById('topFailReasons').innerHTML = '<div class="empty">无失败记录 🎉</div>';
+        document.getElementById('topFailReasons').innerHTML = '<div class="empty">无失败记录</div>';
       }
 
       // Trend + classification
       var trendHTML = '';
       if (pm.trend) {
-        var dirIcon = pm.trend.direction === 'improving' ? '📈' : pm.trend.direction === 'declining' ? '📉' : '➡️';
-        var dirColor = pm.trend.direction === 'improving' ? '#3fb950' : pm.trend.direction === 'declining' ? '#f85149' : '#8b949e';
-        trendHTML += '<div style="padding:12px;background:#0d1117;border:1px solid #30363d;border-radius:6px;margin-bottom:12px;">';
-        trendHTML += '<div style="font-size:13px;margin-bottom:8px;">趋势 ' + dirIcon + ' <span style="color:' + dirColor + ';font-weight:600;">' + pm.trend.direction + '</span></div>';
-        trendHTML += '<div style="display:flex;gap:20px;font-size:12px;">';
-        trendHTML += '<span>最近 5 次: <strong>' + pm.trend.recent5SuccessRate + '</strong></span>';
-        trendHTML += '<span>之前 5 次: <strong>' + pm.trend.previous5SuccessRate + '</strong></span>';
+        var dirArrow = pm.trend.direction === 'improving' ? '↗' : pm.trend.direction === 'declining' ? '↘' : '→';
+        var dirColor = pm.trend.direction === 'improving' ? 'var(--accent)' : pm.trend.direction === 'declining' ? 'var(--rust)' : 'var(--ink-3)';
+        trendHTML += '<div style="padding:16px 18px;background:var(--bg);border:1px solid var(--line-soft);border-radius:var(--r-md);margin-bottom:14px;">';
+        trendHTML += '<div style="font-size:13px;margin-bottom:10px;display:flex;gap:10px;align-items:center;">';
+        trendHTML += '<span style="font-size:20px;color:' + dirColor + ';line-height:1;">' + dirArrow + '</span>';
+        trendHTML += '<span style="color:' + dirColor + ';font-weight:500;">' + pm.trend.direction + '</span>';
+        trendHTML += '<span style="color:var(--ink-4);font-size:11px;">成功率趋势</span>';
+        trendHTML += '</div>';
+        trendHTML += '<div style="display:flex;gap:24px;font-size:12px;color:var(--ink-3);font-family:\'Geist Mono\',monospace;">';
+        trendHTML += '<span>最近 5 <strong style="color:var(--ink);">' + pm.trend.recent5SuccessRate + '</strong></span>';
+        trendHTML += '<span>上个 5 <strong style="color:var(--ink);">' + pm.trend.previous5SuccessRate + '</strong></span>';
         trendHTML += '</div></div>';
       }
       var fc = pm.failureClassifications || {};
       var fcKeys = Object.keys(fc);
       if (fcKeys.length > 0) {
-        trendHTML += '<h3 style="font-size:12px;color:#8b949e;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">错误分类</h3>';
-        trendHTML += '<div style="display:flex;gap:12px;flex-wrap:wrap;">';
-        var classColors = { CODE: '#d29922', INFRA: '#58a6ff', FATAL: '#f85149', GATE: '#bc8cff', UNKNOWN: '#8b949e' };
+        trendHTML += '<div style="font-size:12px;color:var(--ink-3);margin-bottom:10px;font-weight:500;">错误分类</div>';
+        trendHTML += '<div style="display:flex;gap:10px;flex-wrap:wrap;">';
+        var classColors = {
+          CODE:    'var(--amber)',
+          INFRA:   'var(--cobalt)',
+          FATAL:   'var(--rust)',
+          GATE:    'var(--plum)',
+          UNKNOWN: 'var(--ink-3)'
+        };
         fcKeys.forEach(function(k) {
-          var c = classColors[k] || '#8b949e';
-          trendHTML += '<div style="background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px 16px;text-align:center;">';
-          trendHTML += '<div style="font-size:22px;font-weight:700;color:' + c + ';">' + fc[k] + '</div>';
-          trendHTML += '<div style="font-size:11px;color:#8b949e;margin-top:2px;">' + k + '</div>';
+          var c = classColors[k] || 'var(--ink-3)';
+          trendHTML += '<div style="background:var(--bg);border:1px solid var(--line-soft);border-radius:var(--r-md);padding:14px 18px;text-align:left;min-width:96px;">';
+          trendHTML += '<div style="font-size:24px;font-weight:600;line-height:1;color:' + c + ';letter-spacing:-0.02em;">' + fc[k] + '</div>';
+          trendHTML += '<div style="font-size:11px;color:var(--ink-4);margin-top:6px;font-weight:500;">' + k + '</div>';
           trendHTML += '</div>';
         });
         trendHTML += '</div>';
@@ -580,33 +853,35 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
     if (regs.length > 0) {
       var rh = '';
       regs.forEach(function(rg) {
-        rh += '<div style="padding:10px;background:#2d1113;border:1px solid #f8514933;border-radius:6px;margin-bottom:8px;">';
-        rh += '<div style="color:#f85149;font-weight:600;font-size:13px;">🚨 ' + (rg.fingerprint || 'unknown').slice(0, 80) + '</div>';
-        rh += '<div style="font-size:11px;color:#8b949e;margin-top:4px;">之前由 <code>' + (rg.resolvedBy || '').slice(0, 7) + '</code> 修复 · 再次出现 ' + ago(new Date(rg.regressedAt).getTime()) + ' · 命中 ' + rg.count + ' 次</div>';
+        var regressed = rg.regressedAt ? ago(new Date(rg.regressedAt).getTime()) : '-';
+        var firstReg = rg.firstRegressedAt && rg.firstRegressedAt !== rg.regressedAt
+          ? ' · 首次复发 ' + ago(new Date(rg.firstRegressedAt).getTime()) : '';
+        rh += '<div class="alert">';
+        rh += '<div class="title">' + (rg.fingerprint || 'unknown').slice(0, 100) + '</div>';
+        rh += '<div class="meta">之前由 <code>' + (rg.resolvedBy || '-').slice(0, 7) + '</code> 修复 · 再次出现 ' + regressed + firstReg + ' · 命中 ' + rg.count + ' 次</div>';
         rh += '</div>';
       });
       document.getElementById('regressionAlerts').innerHTML = rh;
     } else {
-      document.getElementById('regressionAlerts').innerHTML = '<div class="empty">无回归告警 ✅</div>';
+      document.getElementById('regressionAlerts').innerHTML = '<div class="empty">无回归告警</div>';
     }
 
-    // Silent-pass alerts — populated by Phase 6b watchdog. Each entry is a task
-    // that passed the pipeline but hit zero-actions / uniform-timing / phase-order
-    // violations / all-vars-zero. Rendered red because silent passes ship bad builds.
+    // Silent-pass alerts — populated by Phase 6b watchdog
     var sps = (pipelineMetrics && pipelineMetrics.silentPasses) || [];
     if (sps.length > 0) {
       var sh = '';
       sps.forEach(function(sp) {
-        var signals = (sp.signals || []).join(', ') || 'unknown';
+        var sigs = sp.signals || [];
+        var signalPills = sigs.length ? sigs.map(function(s) { return '<code>' + s + '</code>'; }).join(' ') : '<code>unknown</code>';
         var actions = sp.totalActions != null ? sp.totalActions : '?';
-        sh += '<div style="padding:10px;background:#2d1113;border:1px solid #f8514933;border-radius:6px;margin-bottom:8px;">';
-        sh += '<div style="color:#f85149;font-weight:600;font-size:13px;">⚠️ ' + (sp.taskId || 'unknown') + '</div>';
-        sh += '<div style="font-size:11px;color:#8b949e;margin-top:4px;">信号: <code>' + signals + '</code> · CUA 动作数: ' + actions + ' · 检测于 ' + ago(new Date(sp.detectedAt || sp.timestamp).getTime()) + '</div>';
+        sh += '<div class="alert">';
+        sh += '<div class="title">' + (sp.taskId || 'unknown') + '</div>';
+        sh += '<div class="meta">signals ' + signalPills + ' &nbsp;·&nbsp; CUA 动作数 ' + actions + ' &nbsp;·&nbsp; 检测于 ' + ago(new Date(sp.detectedAt || sp.timestamp).getTime()) + '</div>';
         sh += '</div>';
       });
       document.getElementById('silentPassAlerts').innerHTML = sh;
     } else {
-      document.getElementById('silentPassAlerts').innerHTML = '<div class="empty">无 silent-pass 告警 ✅</div>';
+      document.getElementById('silentPassAlerts').innerHTML = '<div class="empty">无 silent-pass 告警</div>';
     }
 
     // Project failures table with expandable failureHistory timeline
@@ -657,6 +932,35 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
     if (el) el.style.display = (el.style.display === 'none') ? '' : 'none';
   };
 
+  window.copyText = function(text, ev) {
+    if (ev && ev.stopPropagation) ev.stopPropagation();
+    var done = function() { showToast('已复制'); };
+    var fail = function() { showToast('复制失败'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(fail);
+    } else {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+        document.body.removeChild(ta); done();
+      } catch (e) { fail(); }
+    }
+  };
+
+  function showToast(msg) {
+    var t = document.getElementById('__toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = '__toast'; t.className = 'toast';
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(t._hideTimer);
+    t._hideTimer = setTimeout(function() { t.classList.remove('show'); }, 1800);
+  }
+
   // Auto-fix state tracking — survives refresh() rebuilds
   // States: null → 'loading' → 'done'/'error' → 'committed'
   var _autoFixStates = {};       // recipeId → state string
@@ -668,7 +972,7 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
     _autoFixStates[recipeId] = 'loading';
     // Immediately update the button in DOM
     var container = document.getElementById(btnId);
-    if (container) container.innerHTML = '<button disabled style="background:#30363d;color:#8b949e;border:1px solid #30363d;padding:4px 10px;border-radius:4px;cursor:wait;font-size:11px;">修复中...</button>';
+    if (container) container.innerHTML = '<button class="btn ghost" disabled style="cursor:wait;">修复中…</button>';
     fetch(BASE + '/api/auto-fix/' + encodeURIComponent(recipeId), { method: 'POST' })
       .then(function(r) { return r.json(); })
       .then(function(result) {
@@ -699,16 +1003,19 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
     var diag = result.diagnosis || '(no diagnosis)';
     var modal = document.createElement('div');
     modal.id = 'autofix-modal';
-    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
-    modal.innerHTML = '<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:24px;max-width:700px;width:90%;max-height:80vh;overflow:auto;">'
-      + '<h3 style="margin:0 0 16px;color:#c9d1d9;">Auto-fix: ' + esc(recipeId) + '</h3>'
-      + '<div style="margin-bottom:12px;"><span style="color:#8b949e;">Recipe:</span> <span style="color:#c9d1d9;">' + esc(result.recipe || recipeId) + '</span></div>'
-      + '<div style="margin-bottom:12px;"><span style="color:#8b949e;">修改文件:</span> <span style="color:#58a6ff;">' + esc(files) + '</span></div>'
-      + '<div style="margin-bottom:12px;"><span style="color:#8b949e;">诊断:</span></div>'
-      + '<pre style="background:#0d1117;padding:12px;border-radius:6px;overflow:auto;max-height:300px;color:#c9d1d9;font-size:12px;white-space:pre-wrap;">' + esc(diag) + '</pre>'
-      + '<div style="margin-top:20px;display:flex;gap:12px;justify-content:flex-end;">'
-      + '<button onclick="document.getElementById(\'autofix-modal\').remove()" style="background:#21262d;color:#c9d1d9;border:1px solid #30363d;padding:8px 16px;border-radius:6px;cursor:pointer;">取消</button>'
-      + '<button id="autofix-commit-btn" onclick="commitAutoFix(\'' + recipeId + '\')" style="background:#238636;color:#fff;border:0;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;">提交 commit</button>'
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:oklch(10% 0 0 / 0.72);backdrop-filter:blur(3px);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;';
+    modal.innerHTML = '<div style="background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r-lg);padding:28px;max-width:720px;width:100%;max-height:85vh;overflow:auto;box-shadow:0 24px 60px oklch(0% 0 0 / 0.4);">'
+      + '<div style="font-size:12px;color:var(--ink-3);margin-bottom:6px;">Auto-fix 审核</div>'
+      + '<h3 style="margin:0 0 22px;font-weight:600;font-size:20px;color:var(--ink);letter-spacing:-.015em;">' + esc(recipeId) + '</h3>'
+      + '<div style="display:grid;grid-template-columns:auto 1fr;gap:10px 16px;margin-bottom:20px;font-size:13px;">'
+      + '<span style="color:var(--ink-3);">Recipe</span><span style="color:var(--ink-2);font-family:\'Geist Mono\',monospace;">' + esc(result.recipe || recipeId) + '</span>'
+      + '<span style="color:var(--ink-3);">修改文件</span><span style="color:var(--cobalt);font-family:\'Geist Mono\',monospace;">' + esc(files) + '</span>'
+      + '</div>'
+      + '<div style="color:var(--ink-3);font-size:12px;margin-bottom:8px;">诊断</div>'
+      + '<pre style="background:var(--bg);padding:14px 16px;border:1px solid var(--line-soft);border-radius:var(--r-md);overflow:auto;max-height:320px;color:var(--ink-2);font-family:\'Geist Mono\',monospace;font-size:12px;line-height:1.6;white-space:pre-wrap;margin:0;">' + esc(diag) + '</pre>'
+      + '<div style="margin-top:24px;display:flex;gap:10px;justify-content:flex-end;">'
+      + '<button class="btn ghost" onclick="document.getElementById(\'autofix-modal\').remove()">取消</button>'
+      + '<button id="autofix-commit-btn" class="btn success" onclick="commitAutoFix(\'' + recipeId + '\')">提交 commit</button>'
       + '</div></div>';
     modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
     document.body.appendChild(modal);
@@ -719,7 +1026,7 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
     var result = _autoFixResults[recipeId];
     if (!result) return;
     var btn = document.getElementById('autofix-commit-btn');
-    if (btn) { btn.disabled = true; btn.textContent = '提交中...'; btn.style.cursor = 'wait'; btn.style.background = '#30363d'; }
+    if (btn) { btn.disabled = true; btn.textContent = '提交中…'; btn.style.cursor = 'wait'; btn.classList.remove('success'); btn.classList.add('ghost'); }
     fetch(BASE + '/api/auto-fix-commit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -729,8 +1036,8 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
       .then(function(commitResult) {
         var modal = document.getElementById('autofix-modal');
         if (commitResult.error) {
-          if (btn) { btn.textContent = '失败'; btn.style.background = '#da3633'; }
-          alert('Commit 失败: ' + commitResult.error);
+          if (btn) { btn.textContent = '失败'; btn.classList.remove('ghost','success'); btn.classList.add('danger'); }
+          showToast('Commit 失败: ' + commitResult.error);
           return;
         }
         // Success — update state (next refresh will render correctly)
@@ -739,181 +1046,15 @@ td { padding: 8px 10px; border-bottom: 1px solid #21262d; }
         if (modal) modal.remove();
         // Also update DOM immediately
         var afBtn = document.getElementById('af-' + recipeId.replace(/[^a-zA-Z0-9-]/g, ''));
-        if (afBtn) afBtn.innerHTML = '<span style="color:#3fb950;font-size:11px;">已提交 ' + (commitResult.commitHash || '') + '</span>';
+        if (afBtn) afBtn.innerHTML = '<span style="color:var(--accent);font-size:11px;font-family:\'Geist Mono\',monospace;">已提交 ' + (commitResult.commitHash || '') + '</span>';
+        showToast('已提交 commit');
       })
       .catch(function(err) {
-        if (btn) { btn.textContent = '失败'; btn.style.background = '#da3633'; }
-        alert('请求失败: ' + err.message);
+        if (btn) { btn.textContent = '失败'; btn.classList.remove('ghost','success'); btn.classList.add('danger'); }
+        showToast('请求失败: ' + err.message);
       });
   };
 
-  // ─── Task archive tab (removed) ──────────────────────────────────
-  function escHtml(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-
-  /* removed
-  window.refreshArchive = function() {
-    Promise.all([
-      fetchJSON('/api/dashboard/model-fatal-index?limit=30'),
-      fetchJSON('/api/dashboard/auto-fix-archive?limit=30'),
-    ]).then(function(results) {
-      var mf = results[0];
-      var af = results[1];
-      var mfEl = document.getElementById('modelFatalIndex');
-      if (mf && mf.entries && mf.entries.length) {
-        var rows = mf.entries.map(function(e) {
-          return [
-            fmt(e.ts),
-            '<code style="color:#58a6ff;cursor:pointer;" onclick="window.prefillArchive(\'' + escHtml(e.taskId) + '\')">' + escHtml((e.taskId || '').slice(0, 24)) + '</code>',
-            escHtml(e.stage || '-'),
-            escHtml(e.endpoint || '-'),
-            escHtml(e.pattern || '-'),
-            '<span style="color:#8b949e;">' + escHtml((e.message || '').slice(0, 80)) + '</span>',
-          ];
-        });
-        mfEl.innerHTML = tableHTML(['时间', 'taskId', 'stage', 'endpoint', 'pattern', '摘要'], rows);
-      } else {
-        mfEl.innerHTML = '<div class="empty">无 MODEL_FATAL 事件 ✅</div>';
-      }
-      var afEl = document.getElementById('autoFixArchiveList');
-      if (af && af.attempts && af.attempts.length) {
-        var afRows = af.attempts.map(function(a) {
-          var outcomeColor = a.outcome === 'applied' ? '#3fb950' : (a.reverted ? '#d29922' : '#f85149');
-          var viewBtn = '<button onclick="window.viewAutoFixAttempt(\'' + escHtml(a.recipeId) + '\',\'' + escHtml(a.attemptHash) + '\')" style="background:#21262d;border:1px solid #30363d;color:#58a6ff;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;">查看</button>';
-          return [
-            fmt(a.ts),
-            '<code>' + escHtml((a.recipeId || '').slice(0, 30)) + '</code>',
-            '<span style="color:' + outcomeColor + ';">' + escHtml(a.outcome || '?') + '</span>',
-            a.reverted ? '<span style="color:#d29922;">reverted</span>' : '-',
-            escHtml((a.filesChanged || []).join(', ').slice(0, 60)),
-            viewBtn,
-          ];
-        });
-        afEl.innerHTML = tableHTML(['时间', 'recipe', 'outcome', 'reverted', '文件', ''], afRows);
-      } else {
-        afEl.innerHTML = '<div class="empty">暂无 auto-fix 归档记录</div>';
-      }
-    });
-  };
-
-  window.prefillArchive = function(taskId) {
-    var inp = document.getElementById('archiveTaskIdInput');
-    if (inp) inp.value = taskId;
-    window.loadArchive();
-  };
-
-  window.loadArchive = function() {
-    var inp = document.getElementById('archiveTaskIdInput');
-    var taskId = inp ? inp.value.trim() : '';
-    var container = document.getElementById('archiveResult');
-    if (!taskId) { container.innerHTML = '<div class="empty">请输入 taskId</div>'; return; }
-    container.innerHTML = '<div class="empty">加载中…</div>';
-    fetchJSON('/api/dashboard/task-log/' + encodeURIComponent(taskId) + '?limit=500').then(function(data) {
-      if (!data || data.error) {
-        container.innerHTML = '<div class="empty">' + escHtml((data && data.error) || '加载失败') + '</div>';
-        return;
-      }
-      var html = '';
-      // Counts summary
-      var counts = {
-        pipeline: (data.pipeline || []).length,
-        silentPass: (data.silentPass || []).length,
-        modelFatal: (data.modelFatal || []).length,
-        autoFix: (data.autoFix || []).length,
-      };
-      html += '<div style="display:flex;gap:16px;margin-bottom:12px;font-size:12px;color:#8b949e;">';
-      html += '<span>pipeline: <strong style="color:#c9d1d9;">' + counts.pipeline + '</strong></span>';
-      html += '<span>silent-pass: <strong style="color:' + (counts.silentPass ? '#f85149' : '#c9d1d9') + ';">' + counts.silentPass + '</strong></span>';
-      html += '<span>MODEL_FATAL: <strong style="color:' + (counts.modelFatal ? '#f85149' : '#c9d1d9') + ';">' + counts.modelFatal + '</strong></span>';
-      html += '<span>auto-fix: <strong style="color:#c9d1d9;">' + counts.autoFix + '</strong></span>';
-      html += '</div>';
-
-      // Pipeline stream (most recent first)
-      if (counts.pipeline) {
-        var tail = (data.pipeline || []).slice(-50).reverse();
-        html += '<h4 style="color:#8b949e;font-size:12px;margin:16px 0 6px;">最近 50 条 pipeline 事件</h4>';
-        html += '<div style="max-height:320px;overflow:auto;border:1px solid #30363d;border-radius:4px;background:#0d1117;padding:8px;font-family:monospace;font-size:11px;line-height:1.5;">';
-        tail.forEach(function(p) {
-          var evt = p.event || 'log';
-          var color = evt === 'pipeline-end' ? (p.success ? '#3fb950' : '#f85149') : (evt === 'skip' ? '#d29922' : '#c9d1d9');
-          var rest = '';
-          if (evt === 'pipeline-end') rest = ' success=' + p.success + ' stage=' + (p.failedAtStage || '-') + ' class=' + (p.classification || '-');
-          else if (evt === 'skip') rest = ' reason=' + (p.reason || '-');
-          else if (p.message) rest = ' ' + p.message;
-          html += '<div style="color:' + color + ';">[' + fmt(p.ts) + '] ' + escHtml(p.stage || '-') + ' · ' + escHtml(evt) + escHtml(rest) + '</div>';
-        });
-        html += '</div>';
-      }
-
-      // Silent-pass detail
-      if (counts.silentPass) {
-        html += '<h4 style="color:#f85149;font-size:12px;margin:16px 0 6px;">⚠️ Silent-pass 快照</h4>';
-        (data.silentPass || []).forEach(function(sp) {
-          html += '<div style="padding:10px;background:#2d1113;border:1px solid #f8514933;border-radius:4px;margin-bottom:8px;font-size:12px;">';
-          html += '<div>verdict=<strong>' + escHtml(sp.verdict) + '</strong> round=' + escHtml(sp.cuaRound) + ' signals=<code>' + escHtml((sp.signals || []).join(',')) + '</code></div>';
-          html += '<div style="color:#8b949e;margin-top:4px;">actions=' + escHtml(sp.totalActions) + ' · phases=' + escHtml((sp.phaseOrder || []).join('→')) + ' · ' + fmt(sp.ts) + '</div>';
-          html += '</div>';
-        });
-      }
-
-      // MODEL_FATAL detail
-      if (counts.modelFatal) {
-        html += '<h4 style="color:#f85149;font-size:12px;margin:16px 0 6px;">💥 MODEL_FATAL 原始响应</h4>';
-        (data.modelFatal || []).forEach(function(mf) {
-          html += '<div style="padding:10px;background:#2d1113;border:1px solid #f8514933;border-radius:4px;margin-bottom:8px;font-size:12px;">';
-          html += '<div>endpoint=<code>' + escHtml(mf.endpoint) + '</code> · model=<code>' + escHtml(mf.model) + '</code> · http=' + escHtml(mf.httpStatus) + ' · pattern=' + escHtml(mf.pattern) + '</div>';
-          html += '<div style="color:#8b949e;margin-top:4px;">' + fmt(mf.ts) + '</div>';
-          html += '<pre style="background:#0d1117;padding:8px;border-radius:4px;margin-top:6px;max-height:180px;overflow:auto;font-size:11px;color:#c9d1d9;">' + escHtml((mf.rawResponseHead || '').slice(0, 2000)) + '</pre>';
-          html += '</div>';
-        });
-      }
-
-      // Auto-fix list (related by fingerprint overlap)
-      if (counts.autoFix) {
-        html += '<h4 style="color:#8b949e;font-size:12px;margin:16px 0 6px;">🔧 关联的 auto-fix 尝试</h4>';
-        var afRows2 = (data.autoFix || []).map(function(a) {
-          var viewBtn = '<button onclick="window.viewAutoFixAttempt(\'' + escHtml(a.recipeId) + '\',\'' + escHtml(a.attemptHash) + '\')" style="background:#21262d;border:1px solid #30363d;color:#58a6ff;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;">查看</button>';
-          return [fmt(a.ts), escHtml(a.recipeId), escHtml(a.outcome), (a.filesChanged || []).join(', '), viewBtn];
-        });
-        html += tableHTML(['时间', 'recipe', 'outcome', '文件', ''], afRows2);
-      }
-
-      container.innerHTML = html;
-    });
-  };
-
-  window.viewAutoFixAttempt = function(recipeId, hash) {
-    fetchJSON('/api/dashboard/auto-fix-archive?recipeId=' + encodeURIComponent(recipeId) + '&hash=' + encodeURIComponent(hash)).then(function(a) {
-      if (!a || a.error) { alert('加载失败: ' + ((a && a.error) || '未知')); return; }
-      var old = document.getElementById('autofix-view-modal');
-      if (old) old.remove();
-      var modal = document.createElement('div');
-      modal.id = 'autofix-view-modal';
-      modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
-      var parsedDiff = (a.parsedFiles || []).map(function(pf) {
-        return '<div style="margin-top:8px;"><div style="color:#8b949e;font-size:11px;">' + escHtml(pf.path) + ' · Δ' + pf.sizeDelta + 'b</div>'
-          + '<pre style="background:#0d1117;padding:8px;border-radius:4px;max-height:260px;overflow:auto;font-size:11px;color:#c9d1d9;">' + escHtml(pf.diffUnified || '(no diff)') + '</pre></div>';
-      }).join('');
-      modal.innerHTML = '<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;max-width:900px;width:95%;max-height:88vh;overflow:auto;">'
-        + '<h3 style="margin:0 0 12px;color:#c9d1d9;">Auto-fix 归档 ' + escHtml(a.recipeId) + ' · ' + escHtml(a.attemptHash) + '</h3>'
-        + '<div style="font-size:12px;color:#8b949e;margin-bottom:8px;">' + fmt(a.ts) + ' · outcome=<strong style="color:#c9d1d9;">' + escHtml(a.outcome) + '</strong>'
-        + (a.reverted ? ' · <span style="color:#d29922;">reverted</span>' : '')
-        + (a.followUpFingerprint ? ' · 回归指纹=<code>' + escHtml(a.followUpFingerprint.slice(0, 60)) + '</code>' : '')
-        + '</div>'
-        + '<div style="font-size:12px;margin-bottom:8px;"><strong>诊断:</strong> <span style="color:#c9d1d9;">' + escHtml(a.diagnosis || '-') + '</span></div>'
-        + (a.error ? '<div style="font-size:12px;margin-bottom:8px;color:#f85149;"><strong>错误:</strong> ' + escHtml(a.error) + '</div>' : '')
-        + '<div style="font-size:12px;color:#8b949e;margin-bottom:4px;">Sub-agent prompt (head):</div>'
-        + '<pre style="background:#0d1117;padding:8px;border-radius:4px;max-height:180px;overflow:auto;font-size:11px;color:#c9d1d9;">' + escHtml(((a.subAgentPrompt || {}).userHead || '').slice(0, 2000)) + '</pre>'
-        + (parsedDiff ? '<div style="margin-top:10px;"><strong style="font-size:12px;">文件变更:</strong>' + parsedDiff + '</div>' : '')
-        + '<div style="margin-top:16px;text-align:right;"><button onclick="document.getElementById(\'autofix-view-modal\').remove()" style="background:#21262d;color:#c9d1d9;border:1px solid #30363d;padding:6px 14px;border-radius:4px;cursor:pointer;">关闭</button></div>'
-        + '</div>';
-      modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
-      document.body.appendChild(modal);
-    });
-  };
-  */
 
   refresh();
   // Live tab refreshes faster (5s)
