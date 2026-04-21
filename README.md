@@ -5,6 +5,18 @@
 - **线上地址**: https://playcools.top/blueprint/
 - **耗时**: 策划文案提交 → 可预览试玩广告 ≈ **3 分钟**
 
+## 关联仓库（GitHub, private under soyooAiTools）
+
+| 仓库 | 本机部署路径 | 角色 |
+|------|------------|------|
+| `soyooAiTools/blueprint`（本仓库） | `/opt/blueprint-editor/` | 主代码：engine / adapters / worker / api / dashboard |
+| `soyooAiTools/blueprint-skill` | `~/.openclaw/workspace/skills/blueprint/` | Claude Code skill 说明书 + references。**改 stage/recipe/static-check 时同步更新此 SKILL.md** |
+| `soyooAiTools/cua-agent` | `/root/cua-agent/` | CUA Python 验证器（observe_mode 6 层防御实现） |
+| `soyooAiTools/luna-base-template` | `/opt/luna-base-template/` | Luna 7.1.0 工程模板的 git 镜像 |
+| `soyooAiTools/luna-poc` | `/opt/luna-poc/` | 本机 build-api 编译服务（127.0.0.1:18860） |
+
+新机部署 5 个 repo 都要 clone；blueprint-skill 必须放在 `~/.openclaw/workspace/skills/blueprint/`，否则 Claude Code 不会加载。
+
 ## 架构
 
 ```

@@ -69,7 +69,12 @@ async function submitProject(project, opts) {
     taskQueue.resubmit(taskId, blueprintExport, feedback);
   } else if (existingTask) {
     taskQueue.updateBlueprint(taskId, blueprintExport);
-    taskQueue.updateStatus(taskId, 'pending', 'resubmitted', 'server');
+    // actor='admin' forces the transition — without this, resubmitting a
+    // 'cancelled' or 'failed' task is rejected by taskSM.validate (terminal
+    // states can't go to 'pending' from a 'server' actor), leaving the task
+    // row stuck while the project row moves forward → watchdog F14-desync
+    // reverts project back to cancelled. (2026-04-20)
+    taskQueue.updateStatus(taskId, 'pending', 'resubmitted', 'admin');
   } else {
     taskQueue.enqueue(taskId, project.id, project.name, blueprintExport, metadata);
   }

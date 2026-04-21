@@ -243,5 +243,79 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-9ce74cf9.md"
+  },
+  {
+    "id": "auto-96cb5031",
+    "fingerprintPattern": "CUA total time limit exceeded \\(\\d+min > \\d+min pre-recode guard\\)",
+    "description": "Pre-recode guard threshold was 60 min (RECODE_BUFFER_MS=15 min in .env) — tasks legitimately running to 64 min were killed 11 min before recode was truly needed",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/cua-verify.cjs",
+      ".env",
+      "worker/.env"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-96cb5031.md"
+  },
+  {
+    "id": "auto-edb29e02",
+    "fingerprintPattern": "\\[spec-phase-skipped\\].*Phases not complete",
+    "description": "CUA [spec-phase-skipped] token had no rootCause branch → resolved to 'unknown', bypassing fast-escalation guard and burning up to 7 recode rounds before FATAL",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/cua-verify.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-edb29e02.md"
+  },
+  {
+    "id": "auto-4f3f9f66",
+    "fingerprintPattern": "Spec fingerprint drift \\(fatal\\):.*fresh-extract.*phaseId set with only \\d+/\\d+ overlap \\(\\d+%\\)",
+    "description": "drift-fatal fires on spec-extract retry because spec-validate mutates entity names in-place on ctx.blueprint.specs, making specsAreReusable() return true so beforeFp is preserved, but the on-disk cache (pre-mutation names) is deemed stale and discarded — forcing a fresh LLM extraction whose non-deterministic phaseIds diverge from the now-entity-corrected baseline",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/spec-extract.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-4f3f9f66.md"
+  },
+  {
+    "id": "auto-6f227669",
+    "fingerprintPattern": "\\[(?:visual-quality|screenshot-timing)\\]\\s*screenshot sharing",
+    "description": "Screenshot-sharing CUA failures hit FP circuit-breaker FATAL (2–3 rounds) because 'screenshot sharing' is absent from VISUAL_FREEZE_PHRASES and has no FP-breaker exemption, so full-regen is never attempted before hard abort.",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/cua-verify.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-6f227669.md"
+  },
+  {
+    "id": "auto-751aeb4f",
+    "fingerprintPattern": "Visual freeze FATAL: \\d+ consecutive rounds — surgical and full-regen both failed",
+    "description": "visual_freeze FATAL fires prematurely (at _noProgressRounds=2) because the cross-streak consecutiveSameIssue counter reaches SAME_ISSUE_REGEN_THRESHOLD within the first two no-progress rounds of a new streak, bypassing the mandatory full-regen attempt",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/cua-verify.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-751aeb4f.md"
+  },
+  {
+    "id": "auto-28eae46e",
+    "fingerprintPattern": "Visual freeze FATAL:\\s*\\d+\\s*consecutive rounds.*surgical and full-regen both failed.*root cause: visual_freeze",
+    "description": "visual_freeze FATAL fires at _noProgressRounds=3 (first post-regen CUA pass), terminating before regenerated code gets a second verification pass",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/cua-verify.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-28eae46e.md"
   }
 ]

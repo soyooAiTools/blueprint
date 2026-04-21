@@ -629,7 +629,18 @@ async function processTask(task) {
       ctx.csCode = checkpoint.csCode;
       ctx.blueprint.feedbackHistory = checkpoint.feedbackHistory || [];
       if (checkpoint.extraFiles) {
-        Object.assign(ctx.extraFiles, checkpoint.extraFiles);
+        // GFM_* canonical files must stay fresh-from-disk (loaded in PipelineContext).
+        // A stale checkpoint from before a GFM fix will otherwise silently override
+        // the on-disk fix for the life of the task (2026-04-20 w7113b Stage 1
+        // realtimeSinceStartup fix was masked by 22:58 checkpoint extraFiles).
+        var gfmList = require('./gfm-files.cjs').GFM_FILES || [];
+        var gfmSet = {};
+        for (var gi = 0; gi < gfmList.length; gi++) gfmSet[gfmList[gi]] = 1;
+        for (var efk in checkpoint.extraFiles) {
+          if (!checkpoint.extraFiles.hasOwnProperty(efk)) continue;
+          if (gfmSet[efk]) continue;
+          ctx.extraFiles[efk] = checkpoint.extraFiles[efk];
+        }
       }
       if (checkpoint.stageResults) {
         ctx.stageResults = checkpoint.stageResults;

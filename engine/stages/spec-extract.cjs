@@ -175,9 +175,16 @@ module.exports = {
           return Promise.resolve();
         }
         ctx.addLog('spec-extract', 'Cached specs stale (entity mismatch) — re-extracting');
+        // The stale cache proves bp.specs was mutated since last extraction;
+        // beforeFp derived from those mutated specs is not a valid baseline for
+        // the upcoming fresh LLM extraction — nullify to skip drift comparison.
+        beforeFp = null;
       }
     } catch (e) {
       ctx.addLog('spec-extract', 'Cache lookup failed: ' + e.message + ' — falling through');
+      // Cache unreadable is also evidence of an inconsistent state; nullify
+      // beforeFp so a fresh extraction is not incorrectly flagged as drift-fatal.
+      beforeFp = null;
     }
 
     if (!frames) {

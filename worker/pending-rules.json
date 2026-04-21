@@ -968,8 +968,8 @@
     "autoExtracted": true,
     "failClassification": "CODE",
     "stage": "review",
-    "lastSeenAt": "2026-04-19T18:02:34.880Z",
-    "hitCount": 17
+    "lastSeenAt": "2026-04-21T03:03:33.803Z",
+    "hitCount": 26
   },
   {
     "description": "Spec validation failed: 7 error(s):\nSpec[2] buildForgeWorkshop: entity \"forgeWorkshop\" not found in blueprint.entities. Known: PlayerAstronaut, RecyclingStation, SpaceDebris, MetalScrap, ForgeWorkshop, BasicDrill, CrusherTruck, HydraulicTruck, CanteenModule, DormModule\nSpec[3] upgradeTripleDrill: entity \"drill\" not found in blueprint.entities. Known: PlayerAstronaut, RecyclingStation, SpaceDebris, MetalScrap, ForgeWorkshop, BasicDrill, CrusherTruck, HydraulicTruck, CanteenModule, DormModule\nSpec",
@@ -1102,8 +1102,8 @@
     "autoExtracted": true,
     "failClassification": "CODE",
     "stage": "cua-verify",
-    "lastSeenAt": "2026-04-20T07:27:31.438Z",
-    "hitCount": 3
+    "lastSeenAt": "2026-04-20T20:22:10.571Z",
+    "hitCount": 14
   },
   {
     "description": "cua-verify aborted: same CODE error repeated 10 rounds, fix-loop not converging: phase:progress",
@@ -1116,8 +1116,8 @@
     "autoExtracted": true,
     "failClassification": "CODE",
     "stage": "cua-verify",
-    "lastSeenAt": "2026-04-19T23:39:56.797Z",
-    "hitCount": 6
+    "lastSeenAt": "2026-04-20T20:40:31.084Z",
+    "hitCount": 9
   },
   {
     "description": "CUA total time limit exceeded (63min > 60min pre-recode guard)",
@@ -1129,7 +1129,9 @@
     "timestamp": "2026-04-19T21:16:48.366Z",
     "autoExtracted": true,
     "failClassification": "FATAL",
-    "stage": "cua-verify"
+    "stage": "cua-verify",
+    "lastSeenAt": "2026-04-20T13:07:39.693Z",
+    "hitCount": 3
   },
   {
     "description": "Spec fingerprint drift (fatal): fresh-extract produced phaseId set with only 2/11 overlap (18%). LLM non-determinism would break skeleton/review string matching. onlyBefore=[\"crusherCarCollectGarbage\",\"expandSpaceStation\",\"hydraulicCarCollectGarbage\",\"initialCollectGarbage\",\"sellFragmentsForGold\"] onlyAfter=[\"crusherVehicleCollectJunk\",\"deliverShardToRecyclingStation\",\"expandSpaceStationModules\",\"hydraulicVehicleCollectMassJunk\",\"initialCollectSpaceJunk\"]",
@@ -1144,5 +1146,45 @@
     "stage": "spec-extract",
     "lastSeenAt": "2026-04-20T04:11:25.697Z",
     "hitCount": 3
+  },
+  {
+    "description": "Fingerprint repeat FATAL: identical normalized fingerprint \"[spec-phase-skipped] Phases not completed (N/N): exchangeGoldAtStation, buildForgeWorkshop, upgradeT\" for 2 consecutive rounds; Claude fix ineffective",
+    "rule": "Interaction / Gameplay",
+    "fix": "Fingerprint repeat FATAL: identical normalized fingerprint \"[spec-phase-skipped] Phases not completed (N/N): exchangeGoldAtStation, buildForgeWorkshop, upgradeT\" for 2 consecutive rounds; Claude fix ineffective",
+    "severity": "warning",
+    "line": "cua-verify stage failure",
+    "taskId": "proj_1776680853909_w7113b",
+    "timestamp": "2026-04-20T15:04:31.190Z",
+    "autoExtracted": true,
+    "failClassification": "FATAL",
+    "stage": "cua-verify",
+    "lastSeenAt": "2026-04-20T16:13:16.117Z",
+    "hitCount": 9
+  },
+  {
+    "description": "Fingerprint repeat FATAL: identical normalized fingerprint \"[visual-quality] Screenshot sharing: 2 spec phases share only 1 screenshot(s). Each phase must have \" for 2 consecutive rounds; Claude fix ineffective",
+    "rule": "Interaction / Gameplay",
+    "fix": "Fingerprint repeat FATAL: identical normalized fingerprint \"[visual-quality] Screenshot sharing: 2 spec phases share only 1 screenshot(s). Each phase must have \" for 2 consecutive rounds; Claude fix ineffective",
+    "severity": "warning",
+    "line": "cua-verify stage failure",
+    "taskId": "proj_1776680895524_s6ae56",
+    "timestamp": "2026-04-20T16:41:18.849Z",
+    "autoExtracted": true,
+    "failClassification": "FATAL",
+    "stage": "cua-verify"
+  },
+  {
+    "description": "Visual freeze FATAL: 2 consecutive rounds — surgical and full-regen both failed. Stuck at phase gameEnd → unknown, root cause: visual_freeze (2 rounds)",
+    "rule": "Interaction / Gameplay",
+    "fix": "=== CUA STUCK DIAGNOSIS (round 2) ===\nCompleted phases: [initialCollectIce → harvestCorn → gameStart → sellPopcornForGold → defeatEnemyLittleInvasion → defeatBossShowCTA → gameEnd] (7/11)\nStuck at: gameEnd → cannot reach: unknown\nRoot cause: visual_freeze\nCUA issues: [spec-phase-skipped] Phases not ",
+    "severity": "warning",
+    "line": "cua-verify stage failure",
+    "taskId": "proj_1776694114846_nqw7z3",
+    "timestamp": "2026-04-20T17:39:12.477Z",
+    "autoExtracted": true,
+    "failClassification": "FATAL",
+    "stage": "cua-verify",
+    "lastSeenAt": "2026-04-20T20:43:03.177Z",
+    "hitCount": 4
   }
 ]

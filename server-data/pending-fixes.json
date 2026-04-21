@@ -1,0 +1,204 @@
+{
+  "updatedAt": "2026-04-21T03:15:55.413Z",
+  "count": 23,
+  "items": [
+    {
+      "id": "pf-4f3f9f6604",
+      "fingerprint": "Spec fingerprint drift (fatal): fresh-extract produced phaseId set with only N/N overlap (N%). LLM n",
+      "reason": "no-recipe-match",
+      "hitCount": 3,
+      "uniqueTasks": 1,
+      "firstSeen": "2026-04-20T04:06:41.014Z",
+      "lastSeen": "2026-04-20T04:11:25.692Z",
+      "sampleError": "Spec fingerprint drift (fatal): fresh-extract produced phaseId set with only 2/11 overlap (18%). LLM non-determinism would break skeleton/review string matching. onlyBefore=[\"crusherCarCollectGarbage\"",
+      "failedAtStage": "spec-extract",
+      "priority": "p2",
+      "suggestedAction": "Failure fingerprint seen >=3 times but no recipe matches. Let L5 auto-generate recipe, or hand-design a static-check rule."
+    },
+    {
+      "id": "pf-28eae46e1b",
+      "fingerprint": "Visual freeze FATAL: N consecutive rounds — surgical and full-regen both failed. Stuck at phase hydr",
+      "reason": "no-recipe-match",
+      "hitCount": 1,
+      "uniqueTasks": 1,
+      "firstSeen": "2026-04-20T20:29:04.521Z",
+      "lastSeen": "2026-04-20T20:29:04.521Z",
+      "sampleError": "Visual freeze FATAL: 3 consecutive rounds — surgical and full-regen both failed. Stuck at phase hydraulicCarCollectGarbage → buildNewCabins, root cause: visual_freeze (3 rounds)",
+      "failedAtStage": "cua-verify",
+      "priority": "p2",
+      "suggestedAction": "Failure fingerprint seen >=3 times but no recipe matches. Let L5 auto-generate recipe, or hand-design a static-check rule."
+    },
+    {
+      "id": "pf-7e49ed02c2",
+      "fingerprint": "CUA total time limit exceeded (Nmin > Nmin)",
+      "reason": "recipe-exhausted",
+      "cooldownAt": "2026-04-17T02:37:03.172Z",
+      "priority": "p0",
+      "suggestedAction": "Recipe applied 3+ times without resolving. Architectural change likely needed."
+    },
+    {
+      "id": "pf-79ef393732",
+      "fingerprint": "aborted: same CODE error repeated N rounds, fix-loop not converging: AI coding failed: Claude Code f",
+      "reason": "recipe-exhausted",
+      "cooldownAt": "2026-04-17T06:45:47.912Z",
+      "priority": "p0",
+      "suggestedAction": "Recipe applied 3+ times without resolving. Architectural change likely needed."
+    },
+    {
+      "id": "pf-747d061e5e",
+      "fingerprint": "Schema generation failed: Exit code 143",
+      "reason": "recipe-exhausted",
+      "cooldownAt": "2026-04-18T02:25:37.520Z",
+      "priority": "p0",
+      "suggestedAction": "Recipe applied 3+ times without resolving. Architectural change likely needed."
+    },
+    {
+      "id": "pf-213f5a355e",
+      "fingerprint": "Schema validation failed: undefined should NOT have additional properties; undefined should NOT have",
+      "reason": "recipe-exhausted",
+      "cooldownAt": "2026-04-18T01:49:37.511Z",
+      "priority": "p0",
+      "suggestedAction": "Recipe applied 3+ times without resolving. Architectural change likely needed."
+    },
+    {
+      "id": "pf-66cfdba89f",
+      "fingerprint": "aborted: same CODE error repeated N rounds, fix-loop not converging: Review blocked: 1 critical issu",
+      "reason": "recipe-exhausted",
+      "cooldownAt": "2026-04-18T06:49:37.554Z",
+      "priority": "p0",
+      "suggestedAction": "Recipe applied 3+ times without resolving. Architectural change likely needed."
+    },
+    {
+      "id": "pf-e2934543c3",
+      "fingerprint": "aborted: same CODE error repeated N rounds, fix-loop not converging: Review blocked: 2 critical issu",
+      "reason": "recipe-exhausted",
+      "cooldownAt": "2026-04-18T04:13:37.548Z",
+      "priority": "p0",
+      "suggestedAction": "Recipe applied 3+ times without resolving. Architectural change likely needed."
+    },
+    {
+      "id": "pf-bb58853e3c",
+      "fingerprint": "Cannot read properties of undefined (reading 'length')",
+      "reason": "recipe-exhausted",
+      "cooldownAt": "2026-04-19T16:06:02.418Z",
+      "priority": "p0",
+      "suggestedAction": "Recipe applied 3+ times without resolving. Architectural change likely needed."
+    },
+    {
+      "id": "pf-5b4304a563",
+      "fingerprint": "Schema validation failed: .entities[0] should have required property 'chineseName'; .entities[1] sho",
+      "reason": "recipe-exhausted",
+      "cooldownAt": "2026-04-20T07:32:17.037Z",
+      "priority": "p0",
+      "suggestedAction": "Recipe applied 3+ times without resolving. Architectural change likely needed."
+    },
+    {
+      "id": "pf-9f6ada354b",
+      "fingerprint": "aborted: same CODE error repeated N rounds, fix-loop not converging: review aborted: same CODE error",
+      "reason": "recipe-exhausted",
+      "cooldownAt": "2026-04-21T02:39:55.414Z",
+      "priority": "p0",
+      "suggestedAction": "Recipe applied 3+ times without resolving. Architectural change likely needed."
+    },
+    {
+      "id": "pf-8bfbf389d4",
+      "fingerprint": "aborted: same CODE error repeated N rounds, fix-loop not converging: phase:progress",
+      "reason": "recipe-exhausted",
+      "cooldownAt": "2026-04-21T02:25:55.416Z",
+      "priority": "p0",
+      "suggestedAction": "Recipe applied 3+ times without resolving. Architectural change likely needed."
+    },
+    {
+      "id": "pf-ae7be7577d",
+      "fingerprint": "aborted: same CODE error repeated N rounds, fix-loop not converging: cua-verify aborted: same CODE e",
+      "reason": "recipe-exhausted",
+      "cooldownAt": "2026-04-21T02:25:55.415Z",
+      "priority": "p0",
+      "suggestedAction": "Recipe applied 3+ times without resolving. Architectural change likely needed."
+    },
+    {
+      "id": "pf-96cb5031ed",
+      "fingerprint": "CUA total time limit exceeded (Nmin > Nmin pre-recode guard)",
+      "reason": "recipe-exhausted",
+      "cooldownAt": "2026-04-21T02:43:26.696Z",
+      "priority": "p0",
+      "suggestedAction": "Recipe applied 3+ times without resolving. Architectural change likely needed."
+    },
+    {
+      "id": "pf-edb29e028d",
+      "fingerprint": "Fingerprint repeat FATAL: identical normalized fingerprint \"[spec-phase-skipped] Phases not complete",
+      "reason": "recipe-exhausted",
+      "cooldownAt": "2026-04-21T03:03:55.410Z",
+      "priority": "p0",
+      "suggestedAction": "Recipe applied 3+ times without resolving. Architectural change likely needed."
+    },
+    {
+      "id": "pf-6f227669d1",
+      "fingerprint": "Fingerprint repeat FATAL: identical normalized fingerprint \"[visual-quality] Screenshot sharing: 2 s",
+      "reason": "recipe-exhausted",
+      "cooldownAt": "2026-04-21T01:30:44.358Z",
+      "priority": "p0",
+      "suggestedAction": "Recipe applied 3+ times without resolving. Architectural change likely needed."
+    },
+    {
+      "id": "pf-751aeb4f10",
+      "fingerprint": "Visual freeze FATAL: N consecutive rounds — surgical and full-regen both failed. Stuck at phase game",
+      "reason": "recipe-exhausted",
+      "cooldownAt": "2026-04-21T02:32:51.595Z",
+      "priority": "p0",
+      "suggestedAction": "Recipe applied 3+ times without resolving. Architectural change likely needed."
+    },
+    {
+      "id": "pf-6a5ff12efb",
+      "fingerprint": "aborted: same CODE error repeated N rounds, fix-loop not converging: phase:skipped",
+      "reason": "recipe-exhausted",
+      "cooldownAt": "2026-04-21T02:43:26.697Z",
+      "priority": "p0",
+      "suggestedAction": "Recipe applied 3+ times without resolving. Architectural change likely needed."
+    },
+    {
+      "id": "pf-9e229fd520",
+      "fingerprint": "Fingerprint repeat FATAL: identical normalized fingerprint \"[visual-quality] screenshot sharing N ph",
+      "reason": "recipe-exhausted",
+      "cooldownAt": "2026-04-21T02:33:55.410Z",
+      "priority": "p0",
+      "suggestedAction": "Recipe applied 3+ times without resolving. Architectural change likely needed."
+    },
+    {
+      "id": "pf-fd829e1e84",
+      "fingerprint": "Cannot read properties of undefined (reading 'length')",
+      "recipeId": "auto-bb58853e",
+      "reason": "regression-reverted",
+      "cooldownAt": "2026-04-18T20:00:25.951Z",
+      "priority": "p0",
+      "suggestedAction": "Recipe caused regression. Revert confirmed=yes. Redesign."
+    },
+    {
+      "id": "pf-ca07c00e68",
+      "fingerprint": "Schema validation failed: .entities[0] should have required property 'chineseName'; .entities[1] sho",
+      "recipeId": "auto-5b4304a5",
+      "reason": "regression-reverted",
+      "cooldownAt": "2026-04-19T19:22:16.590Z",
+      "priority": "p0",
+      "suggestedAction": "Recipe caused regression. Revert confirmed=yes. Redesign."
+    },
+    {
+      "id": "pf-86f5855b28",
+      "fingerprint": "Fingerprint repeat FATAL: identical normalized fingerprint \"[spec-phase-skipped] Phases not complete",
+      "recipeId": "auto-edb29e02",
+      "reason": "regression-reverted",
+      "cooldownAt": "2026-04-20T23:54:44.350Z",
+      "priority": "p0",
+      "suggestedAction": "Recipe caused regression. Revert confirmed=yes. Redesign."
+    },
+    {
+      "id": "pf-8e02053461",
+      "fingerprint": "Fingerprint repeat FATAL: identical normalized fingerprint \"[visual-quality] Screenshot sharing: 2 s",
+      "recipeId": "auto-6f227669",
+      "reason": "regression-reverted",
+      "cooldownAt": "2026-04-21T00:30:44.355Z",
+      "priority": "p0",
+      "suggestedAction": "Recipe caused regression. Revert confirmed=yes. Redesign."
+    }
+  ]
+}

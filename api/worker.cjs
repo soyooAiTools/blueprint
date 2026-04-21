@@ -149,6 +149,14 @@ module.exports.init = function(ctx) {
         // Update project status if exists
         var project = readProject(taskId);
         if (project) {
+          // Cancelled is terminal — worker may still be unwinding mid-stage
+          // and will fire one last status report. Drop it entirely so the
+          // cancellation sticks (prior bug: round-9 'processing' report after
+          // cancel resurrected the task into a 3rd hour of burning compute).
+          if (project.status === 'cancelled') {
+            console.log('[Worker Status] Dropping report for cancelled task ' + taskId + ' (worker=' + workerId + ', reported=' + status + ')');
+            return sendJSON(res, { success: true, taskId: taskId, status: 'cancelled', dropped: true });
+          }
           // Map cua_passed/done to reviewing — means ready for human review
           var mappedStatus = (status === 'cua_passed' || status === 'done') ? 'reviewing' : status;
           // Skip no-op transitions (e.g. worker reports 'processing' on every

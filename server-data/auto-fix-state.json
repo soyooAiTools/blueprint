@@ -33,39 +33,67 @@
       "status": "manual-only"
     },
     "Spec validation failed: N error(s): Spec[N] <phase>: entity \"<entity>\" not found in blueprint.entiti": {
-      "at": 1776669638499,
-      "status": "applied"
+      "at": 1776685996482,
+      "status": "gen-failed"
     },
     "Schema validation failed: .entities[0] should have required property 'chineseName'; .entities[1] sho": {
       "at": 1776670337037,
       "status": "manual-only"
     },
     "aborted: same CODE error repeated N rounds, fix-loop not converging: review aborted: same CODE error": {
-      "at": 1776670337036,
+      "at": 1776739195414,
       "status": "manual-only"
     },
     "aborted: same CODE error repeated N rounds, fix-loop not converging: phase:progress": {
-      "at": 1776670816919,
+      "at": 1776738355416,
       "status": "manual-only"
     },
     "aborted: same CODE error repeated N rounds, fix-loop not converging: cua-verify aborted: same CODE e": {
-      "at": 1776670337036,
+      "at": 1776738355415,
       "status": "manual-only"
     },
     "Spec fingerprint drift (fatal): fresh-extract produced phaseId set with only 2<path> overlap (18%). ": {
       "at": 1776670217075,
       "status": "gen-failed"
+    },
+    "Schema validation failed: .entities[N] should have required property 'chineseName'; .entities[N] sho": {
+      "at": 1776697246297,
+      "status": "gen-failed"
+    },
+    "Spec fingerprint drift (fatal): fresh-extract produced phaseId set with only N/N overlap (N%). LLM n": {
+      "at": 1776738235425,
+      "status": "gen-failed"
+    },
+    "CUA total time limit exceeded (Nmin > Nmin pre-recode guard)": {
+      "at": 1776739406696,
+      "status": "manual-only"
+    },
+    "Fingerprint repeat FATAL: identical normalized fingerprint \"[spec-phase-skipped] Phases not complete": {
+      "at": 1776740635410,
+      "status": "manual-only"
+    },
+    "Fingerprint repeat FATAL: identical normalized fingerprint \"[visual-quality] Screenshot sharing: 2 s": {
+      "at": 1776735044358,
+      "status": "manual-only"
+    },
+    "Visual freeze FATAL: N consecutive rounds — surgical and full-regen both failed. Stuck at phase game": {
+      "at": 1776738771595,
+      "status": "manual-only"
+    },
+    "aborted: same CODE error repeated N rounds, fix-loop not converging: phase:skipped": {
+      "at": 1776739406697,
+      "status": "manual-only"
+    },
+    "Visual freeze FATAL: N consecutive rounds — surgical and full-regen both failed. Stuck at phase hydr": {
+      "at": 1776741449429,
+      "status": "apply-failed"
+    },
+    "Fingerprint repeat FATAL: identical normalized fingerprint \"[visual-quality] screenshot sharing N ph": {
+      "at": 1776738835410,
+      "status": "manual-only"
     }
   },
   "history": [
-    {
-      "at": "2026-04-16T16:22:55.122Z",
-      "fingerprint": "Spec validation failed: N error(s): Spec[N] upgradeTripleDrill: entity \"<entity>\" not found in bluep",
-      "recipe": "auto-265daa80",
-      "files": [
-        "engine/stages/spec-validate.cjs"
-      ]
-    },
     {
       "at": "2026-04-16T16:33:58.115Z",
       "fingerprint": "CUA total time limit exceeded (Nmin > Nmin)",
@@ -375,6 +403,149 @@
       ],
       "archiveAttempt": "4ad1450fc5",
       "archivePath": "server-data/task-logs/auto-fix/auto-0bd021ca-4ad1450fc5.json"
+    },
+    {
+      "at": "2026-04-20T13:39:37.259Z",
+      "fingerprint": "CUA total time limit exceeded (Nmin > Nmin pre-recode guard)",
+      "recipe": "auto-96cb5031",
+      "files": [
+        ".env",
+        "worker/.env"
+      ],
+      "archiveAttempt": "a60924e7ae",
+      "archivePath": "server-data/task-logs/auto-fix/auto-96cb5031-a60924e7ae.json"
+    },
+    {
+      "at": "2026-04-20T14:45:35.976Z",
+      "fingerprint": "CUA total time limit exceeded (Nmin > Nmin pre-recode guard)",
+      "recipe": "auto-96cb5031",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ],
+      "archiveAttempt": "d2627b3002",
+      "archivePath": "server-data/task-logs/auto-fix/auto-96cb5031-d2627b3002.json"
+    },
+    {
+      "at": "2026-04-20T15:52:21.835Z",
+      "fingerprint": "CUA total time limit exceeded (Nmin > Nmin pre-recode guard)",
+      "recipe": "auto-96cb5031",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ],
+      "archiveAttempt": "9cff7ffa40",
+      "archivePath": "server-data/task-logs/auto-fix/auto-96cb5031-9cff7ffa40.json"
+    },
+    {
+      "at": "2026-04-20T16:12:34.859Z",
+      "fingerprint": "Spec fingerprint drift (fatal): fresh-extract produced phaseId set with only N/N overlap (N%). LLM n",
+      "recipe": "auto-4f3f9f66",
+      "files": [
+        "engine/stages/spec-extract.cjs"
+      ],
+      "archiveAttempt": "fa51c9d6e6",
+      "archivePath": "server-data/task-logs/auto-fix/auto-4f3f9f66-fa51c9d6e6.json"
+    },
+    {
+      "at": "2026-04-20T16:19:09.736Z",
+      "fingerprint": "Fingerprint repeat FATAL: identical normalized fingerprint \"[spec-phase-skipped] Phases not complete",
+      "recipe": "auto-edb29e02",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ],
+      "archiveAttempt": "c857bd6308",
+      "archivePath": "server-data/task-logs/auto-fix/auto-edb29e02-c857bd6308.json"
+    },
+    {
+      "at": "2026-04-20T16:50:38.112Z",
+      "fingerprint": "Fingerprint repeat FATAL: identical normalized fingerprint \"[visual-quality] Screenshot sharing: 2 s",
+      "recipe": "auto-6f227669",
+      "files": [
+        "worker/worker-playableagent.js",
+        "engine/metrics.cjs"
+      ],
+      "archiveAttempt": "2c852d83a1",
+      "archivePath": "server-data/task-logs/auto-fix/auto-6f227669-2c852d83a1.json"
+    },
+    {
+      "at": "2026-04-20T17:50:30.999Z",
+      "fingerprint": "Visual freeze FATAL: N consecutive rounds — surgical and full-regen both failed. Stuck at phase game",
+      "recipe": "auto-751aeb4f",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ],
+      "archiveAttempt": "65dc976139",
+      "archivePath": "server-data/task-logs/auto-fix/auto-751aeb4f-65dc976139.json"
+    },
+    {
+      "at": "2026-04-20T17:57:11.019Z",
+      "fingerprint": "Fingerprint repeat FATAL: identical normalized fingerprint \"[visual-quality] Screenshot sharing: 2 s",
+      "recipe": "auto-6f227669",
+      "files": [
+        "engine/metrics.cjs",
+        "worker/worker-playableagent.js"
+      ],
+      "archiveAttempt": "ad6f41829a",
+      "archivePath": "server-data/task-logs/auto-fix/auto-6f227669-ad6f41829a.json"
+    },
+    {
+      "at": "2026-04-20T18:38:27.339Z",
+      "fingerprint": "Fingerprint repeat FATAL: identical normalized fingerprint \"[spec-phase-skipped] Phases not complete",
+      "recipe": "auto-edb29e02",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ],
+      "archiveAttempt": "8ea61ee345",
+      "archivePath": "server-data/task-logs/auto-fix/auto-edb29e02-8ea61ee345.json"
+    },
+    {
+      "at": "2026-04-20T18:59:05.368Z",
+      "fingerprint": "Visual freeze FATAL: N consecutive rounds — surgical and full-regen both failed. Stuck at phase game",
+      "recipe": "auto-751aeb4f",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ],
+      "archiveAttempt": "87857814f8",
+      "archivePath": "server-data/task-logs/auto-fix/auto-751aeb4f-87857814f8.json"
+    },
+    {
+      "at": "2026-04-20T22:11:23.923Z",
+      "fingerprint": "Visual freeze FATAL: N consecutive rounds — surgical and full-regen both failed. Stuck at phase game",
+      "recipe": "auto-751aeb4f",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ],
+      "archiveAttempt": "4b1789aa98",
+      "archivePath": "server-data/task-logs/auto-fix/auto-751aeb4f-4b1789aa98.json"
+    },
+    {
+      "at": "2026-04-20T22:42:46.016Z",
+      "fingerprint": "Visual freeze FATAL: N consecutive rounds — surgical and full-regen both failed. Stuck at phase hydr",
+      "recipe": "auto-28eae46e",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ],
+      "archiveAttempt": "e94f25e9b6",
+      "archivePath": "server-data/task-logs/auto-fix/auto-28eae46e-e94f25e9b6.json"
+    },
+    {
+      "at": "2026-04-20T22:52:52.943Z",
+      "fingerprint": "Fingerprint repeat FATAL: identical normalized fingerprint \"[spec-phase-skipped] Phases not complete",
+      "recipe": "auto-edb29e02",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ],
+      "archiveAttempt": "c297da3464",
+      "archivePath": "server-data/task-logs/auto-fix/auto-edb29e02-c297da3464.json"
+    },
+    {
+      "at": "2026-04-20T23:29:13.727Z",
+      "fingerprint": "Fingerprint repeat FATAL: identical normalized fingerprint \"[visual-quality] Screenshot sharing: 2 s",
+      "recipe": "auto-6f227669",
+      "files": [
+        "engine/stages/cua-verify.cjs"
+      ],
+      "archiveAttempt": "f1c860cf13",
+      "archivePath": "server-data/task-logs/auto-fix/auto-6f227669-f1c860cf13.json"
     }
   ],
   "pendingCommits": {
@@ -416,6 +587,16 @@
     "auto-5b4304a5": {
       "at": "2026-04-19T19:22:16.590Z",
       "fingerprint": "Schema validation failed: .entities[0] should have required property 'chineseName'; .entities[1] sho",
+      "reverted": true
+    },
+    "auto-edb29e02": {
+      "at": "2026-04-20T23:54:44.350Z",
+      "fingerprint": "Fingerprint repeat FATAL: identical normalized fingerprint \"[spec-phase-skipped] Phases not complete",
+      "reverted": true
+    },
+    "auto-6f227669": {
+      "at": "2026-04-21T00:30:44.355Z",
+      "fingerprint": "Fingerprint repeat FATAL: identical normalized fingerprint \"[visual-quality] Screenshot sharing: 2 s",
       "reverted": true
     }
   }

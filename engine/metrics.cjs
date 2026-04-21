@@ -243,6 +243,15 @@ function normalizeFingerprint(reason, opts) {
   s = s.replace(/Spec\[\d+\]\s*[a-zA-Z]\w*/g, 'Spec[N] <phase>');
   // "N consecutive" (visual freeze round counts)
   s = s.replace(/\d+\s+consecutive/gi, 'N consecutive');
+  // 2026-04-21: screenshot-timing fingerprint stabilisation — "Screenshot sharing:
+  // N spec phases share only N screenshot(s)" uses small counts (1–9) that survive
+  // the \b\d{5,}\b filter above and produce distinct fingerprints for tasks with
+  // different phase counts (e.g. 2-phase vs 3-phase tasks), silently bypassing the
+  // per-fingerprint circuit-breaker cooldown on every new task.
+  // FIX: removed `:` from both `[^.:\n]` exclusion classes so the regex can
+  // traverse the colon-space separator ("sharing: N …") and reach the counts.
+  // Normalise the entire message to a fixed shape so all instances land on one key.
+  s = s.replace(/screenshot\s+sharing[^.\n]*\d+[^.\n]*/gi, 'screenshot sharing N phases N screenshots');
   // 2026-04-19: silent-pass-block fingerprint stabilisation.
   // The tail (" — game logic did not run correctly despite passed=true")
   // plus the signal class (uniform-timing / phase-order-violation /

@@ -58,6 +58,23 @@ public class GFM_AutoPlay : MonoBehaviour
     public bool IsActive { get { return _isActive; } }
     public int Steps { get { return _steps; } }
     public float DetectRealTime { get { return _detectRealTime; } }
+    public bool Checked { get { return _checked; } }
+
+    // 【Warmup 完成信号】skeleton 的 phase 0 入口用它做门,防止第 1 帧 fire
+    // 导致 CUA PRE-CONTAMINATION。
+    //   - _checked=false(前 3s 或标志刚找到前): false, 等检测完成
+    //   - _checked=true 且 _detectRealTime<0 (未开 autoPlay): true, 立即放行
+    //   - _checked=true 且 autoPlay 已激活 (_isActive=true): true
+    //   - _checked=true 且 autoPlay 检测到但 warmup 中: false, 继续等 6s
+    public bool WarmupReady
+    {
+        get
+        {
+            if (!_checked) return false;
+            if (_detectRealTime < 0f) return true;
+            return _isActive;
+        }
+    }
 
     // 【外部 incremenet 接口】CheckEventRules 在各 phase 入口里需要手动 +1
     public void IncrementSteps() { _steps++; }
@@ -97,12 +114,19 @@ public class GFM_AutoPlay : MonoBehaviour
 
     // ========================================================================
     // 【两阶段激活检测】— 与 skeleton 契约绑死，不要动数值
-    // Stage 1: 每帧 Find "__AUTOPLAY_ON__"；3s 后停止检测 (没开 autoPlay 就跳过)
+    // Stage 1: 每帧 Find "__AUTOPLAY_ON__"；realtime 5s 后未找到 → 放弃探测 (interactive 模式)
+    //          注意用 Time.realtimeSinceStartup 不能用 gameTimer: CUA 2x/5x speed patch
+    //          会让 gameTimer>3f 在 real t≈1.5s 就触发,此时 PlayCanvas 还没建好
+    //          __AUTOPLAY_ON__ 实体 → 误判为 interactive → WarmupReady 立即放行 →
+    //          Phase 0 在 CUA observer 开前就 fire → PRE-CONTAMINATION 永死。
+    //          (2026-04-20 w7113b 烧了 3 次 CUA 就是这个根因)
     // Stage 2: 检测到后延迟 6 秒才激活 (等 CUA observer 启动，否则阶段瞬过)
+    // Stage 1b: 即使 Stage 1 超时也继续轻探测 (up to realtime 15s),防止慢速
+    //           WebGL init 导致错过 flag。late detect 依旧走 Stage 2 6s 延迟。
     // ========================================================================
     public void CheckActivation(float gameTimer)
     {
-        // Stage 1：标志探测
+        // Stage 1：标志探测 (real time, 不受 speed patch 影响)
         if (!_isActive && !_checked)
         {
             if (GameObject.Find("__AUTOPLAY_ON__") != null)
@@ -110,7 +134,16 @@ public class GFM_AutoPlay : MonoBehaviour
                 _detectRealTime = Time.realtimeSinceStartup;
                 _checked = true;
             }
-            else if (gameTimer > 3.0f) _checked = true;
+            else if (Time.realtimeSinceStartup > 5.0f) _checked = true;
+        }
+
+        // Stage 1b: late-detect — 给 PlayCanvas 慢 init 留余量 (real 5-15s 仍探测)
+        if (!_isActive && _checked && _detectRealTime < 0f && Time.realtimeSinceStartup < 15.0f)
+        {
+            if (GameObject.Find("__AUTOPLAY_ON__") != null)
+            {
+                _detectRealTime = Time.realtimeSinceStartup;
+            }
         }
 
         // Stage 2：激活延迟 6s (Time.realtimeSinceStartup 不受 speed patch 影响)

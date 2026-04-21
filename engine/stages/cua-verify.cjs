@@ -98,6 +98,13 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
     rootCause = 'rendering_failure';
   } else if (allIssueText.indexOf('not respond') >= 0 || allIssueText.indexOf('no reaction') >= 0 || allIssueText.indexOf('click') >= 0 && allIssueText.indexOf('nothing') >= 0) {
     rootCause = 'interaction_dead';
+  } else if (allIssueText.indexOf('spec-phase-skipped') >= 0) {
+    // 2026-04-21 (auto-edb29e02): detect [spec-phase-skipped] before the generic
+    // phase_transition_broken fallthrough. CUA emits this token when blueprint spec
+    // phases were never triggered by the game logic. Without this branch the label
+    // resolves to 'unknown', which is not in the fast-escalation guard, wasting up
+    // to 7 recode rounds before FATAL.
+    rootCause = 'spec_phase_skipped';
   } else if (allIssueText.indexOf('trigger') >= 0 || allIssueText.indexOf('condition') >= 0 || allIssueText.indexOf('transition') >= 0) {
     rootCause = 'phase_transition_broken';
   } else if (allIssueText.indexOf('null') >= 0 || allIssueText.indexOf('error') >= 0 || allIssueText.indexOf('exception') >= 0) {
@@ -145,6 +152,7 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
     phase_transition_broken: 'Phase transition condition never becomes true. Check: (1) the trigger condition variable is actually modified by gameplay, (2) AddCompletedPhase is called with correct phaseId, (3) no early return before the transition check.',
     runtime_error: 'Runtime errors prevent execution. Check: (1) GameObject.Find returns null for missing objects, (2) array index out of bounds, (3) division by zero.',
     autoplay_or_idle: 'Game progresses without user input. Check: (1) phase transitions require playerMustAct=true, (2) timer-only transitions should not exist, (3) autoAllowed=false phases must wait for user action.',
+    spec_phase_skipped: 'CUA reports [spec-phase-skipped]: the blueprint spec phases were never triggered by the game. The AddCompletedPhase() calls for one or more phases are either missing, gated behind a condition that never becomes true, or using the wrong phaseId string. Fix: (1) Verify every spec phase has a corresponding AddCompletedPhase("exact-phase-id") call. (2) Confirm the trigger condition for the blocked phase is actually evaluated each Update tick. (3) Check that phaseId strings match EXACTLY — see expected IDs below. (4) Ensure the phase gate (e.g. currentPhase == PhaseN) is not short-circuited by an early return.',
   };
 
   // Phase ID mismatch detection: if completedPhases use semantic names but specs use phase_N
@@ -292,6 +300,14 @@ module.exports = {
     var FP_REPEAT_FATAL_AT = 3;
     var _enhancedDiagInjected = false; // one diagnostic per streak
     var _codeAtFpStreakStart = null; // snapshot for code-changed detection
+    // FIX (auto-751aeb4f): track whether full-regen was triggered in the
+    // current no-progress streak. _visualFreezeRegenAttempted is scoped to the
+    // streak (reset on isProgressing) and replaces the cross-streak
+    // consecutiveSameIssue < SAME_ISSUE_REGEN_THRESHOLD guard in the
+    // visual_freeze / codegen_init_failure escalation block. This prevents
+    // FATAL from firing at _noProgressRounds=2 when consecutiveSameIssue
+    // carried over from a prior streak already equals the threshold.
+    var _visualFreezeRegenAttempted = false;
 
     var loop = createFixLoop({
       name: 'cua-verify',
@@ -484,13 +500,15 @@ module.exports = {
                 _enhancedDiagInjected = false;
                 _codeAtFpStreakStart = lastCsCode;
               }
-              // [spec-phase-skipped] exemption: normalizeFingerprint() strips numeric
-              // fractions but leaves the unquoted trailing phase-name list intact
-              // (e.g. "exchangeGoldAtStation, buildForgeWorkshop, ..."). Those names
-              // are structurally unreachable until the preceding transition is fixed,
-              // so the fingerprint is round-stable within any given task. The
-              // _noProgressRounds path below already owns escalation (full regen at
-              // NO_PROGRESS_EXIT_ROUNDS, FATAL at +3) — let it decide for this class.
+              // 2026-04-21 (auto-edb29e02): [spec-phase-skipped] exemption.
+              // normalizeFingerprint() strips numeric fractions but leaves the
+              // unquoted trailing phase-name list intact (e.g.
+              // "exchangeGoldAtStation, buildForgeWorkshop, ..."). Those names
+              // are structurally unreachable until the preceding transition is
+              // fixed, so the fingerprint is round-stable within any given task.
+              // The _noProgressRounds path below already owns escalation (full
+              // regen at NO_PROGRESS_EXIT_ROUNDS, FATAL at +3) — let it decide
+              // for this class instead of the FP circuit breaker.
               var isPhaseSkippedFp = _currentFp.indexOf('spec-phase-skipped') >= 0;
 
               if (_fpRepeatCount >= FP_REPEAT_FATAL_AT && !isPhaseSkippedFp) {
@@ -603,6 +621,9 @@ module.exports = {
             // No-progress handling: graduated strategy with failure attribution
             if (isProgressing) {
               _noProgressRounds = 0;
+              // Reset per-streak escalation flag when progress resumes so a fresh
+              // streak always gets a full-regen attempt before FATAL.
+              _visualFreezeRegenAttempted = false;
             } else {
               _noProgressRounds++;
 
@@ -625,14 +646,44 @@ module.exports = {
               // 45min of CUA. Keyword list widened in _buildStuckDiagnosis and fallback
               // added for "never completed any phase". Threshold tightened 3 → 2 for
               // noPhasesCompleted case: if phase 1 can't start in 2 rounds, 3 won't help.
-              if ((stuckDiagnosis.rootCause === 'visual_freeze' || stuckDiagnosis.rootCause === 'codegen_init_failure') && _noProgressRounds >= 2) {
-                if (consecutiveSameIssue < SAME_ISSUE_REGEN_THRESHOLD) {
+              //
+              // FIX (auto-751aeb4f): Use _visualFreezeRegenAttempted (per-streak flag)
+              // instead of consecutiveSameIssue < SAME_ISSUE_REGEN_THRESHOLD to gate the
+              // escalation. consecutiveSameIssue is a cross-streak counter that carries
+              // over from prior streaks; it can already be >= SAME_ISSUE_REGEN_THRESHOLD
+              // when _noProgressRounds first reaches 2, causing FATAL to fire via the
+              // else branch without any full-regen being attempted in the current streak.
+              //
+              // FIX (auto-edb29e02): Add spec_phase_skipped to the fast-escalation guard.
+              // Without this, spec_phase_skipped resolves to 'unknown' in _buildStuckDiagnosis
+              // (no matching branch) and misses this block entirely, burning up to
+              // NO_PROGRESS_EXIT_ROUNDS+3=7 rounds before FATAL instead of 3.
+              //
+              // FIX (auto-28eae46e): Add minimum-rounds guard to the visual_freeze FATAL
+              // branch. Previously the bare else { throw } fired at _noProgressRounds=3
+              // (the very first CUA round after full regen), giving the regenerated code
+              // only one verification pass. visual_freeze is a rendering/animation
+              // deficiency that a full regen can resolve — it needs at least 2 CUA rounds
+              // to confirm progress. codegen_init_failure and spec_phase_skipped retain
+              // their single-shot cutoff (zero phases / wont-fix schema mismatch).
+              if ((stuckDiagnosis.rootCause === 'visual_freeze' || stuckDiagnosis.rootCause === 'codegen_init_failure' || stuckDiagnosis.rootCause === 'spec_phase_skipped') && _noProgressRounds >= 2) {
+                if (!_visualFreezeRegenAttempted) {
                   ctx.addLog('cua-verify', stuckDiagnosis.rootCause + ': surgical fix insufficient — escalating to full regen before FATAL (' + _noProgressRounds + ' rounds)');
                   consecutiveSameIssue = SAME_ISSUE_REGEN_THRESHOLD;
+                  _visualFreezeRegenAttempted = true;
                 } else if (stuckDiagnosis.rootCause === 'codegen_init_failure') {
                   throw new Error('Codegen init failure: no phases completed after ' + _noProgressRounds + ' rounds of full regen. ' + stuckDiagnosis.summary);
+                } else if (stuckDiagnosis.rootCause === 'spec_phase_skipped') {
+                  throw new Error('Spec phase skipped FATAL: blueprint spec phases still not triggered after ' + _noProgressRounds + ' rounds of full regen — AddCompletedPhase calls missing or gated by a condition that never becomes true. ' + stuckDiagnosis.summary);
                 } else {
-                  throw new Error('Visual freeze FATAL: ' + _noProgressRounds + ' consecutive rounds — surgical and full-regen both failed. ' + stuckDiagnosis.summary);
+                  // visual_freeze: require at least 2 CUA rounds post-regen before FATAL.
+                  // Full regen was triggered at _noProgressRounds=2; the regenerated code
+                  // needs until _noProgressRounds=4 to have had 2 verification passes.
+                  // Fall through on rounds 3 to let normal no-progress handling continue.
+                  if (_noProgressRounds >= 4) {
+                    throw new Error('Visual freeze FATAL: ' + _noProgressRounds + ' consecutive rounds — surgical and full-regen both failed. ' + stuckDiagnosis.summary);
+                  }
+                  ctx.addLog('cua-verify', 'visual_freeze: post-regen round ' + _noProgressRounds + ' — waiting for round 4 minimum before FATAL');
                 }
               }
 

@@ -398,6 +398,12 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
             issues.push('[variable-stagnation] ' + reason + ' Fix: ensure game logic updates gold/score/count variables during each phase. Phase transitions without side effects are empty shells.');
           } else if (reason.toLowerCase().includes('batch') || reason.toLowerCase().includes('timer')) {
             issues.push('[batch-completion] ' + reason + ' Fix: each phase must run for its full duration with real gameplay, not instant timer-skip.');
+          } else if (reason.toLowerCase().includes('screenshot')) {
+            // 2026-04-21: "Screenshot sharing: N spec phases share only N screenshot(s)"
+            // — the CUA camera could not capture a distinct frame for every declared phase.
+            // This is NOT a C# logic bug; it means phase transitions do not produce a
+            // sustained (≥2 s) visual change that the camera can actually record.
+            issues.push('[screenshot-timing] ' + reason + ' Fix: ensure each phase transition produces a sustained visual change (≥2 s) so the CUA camera can capture a distinct screenshot per phase. Extend the autoPlay phase duration or add a visible animation/UI update (SetActive, Translate, particle effect) that persists for at least 2 s after the transition trigger.');
           } else {
             issues.push('[visual-quality] ' + reason);
           }
@@ -510,7 +516,13 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
           playableAgent: true,
           model: report.model || 'Qwen/Qwen2.5-VL-72B-Instruct',
           tokens: report.tokens || {},
-          cost: report.cost || 0
+          cost: report.cost || 0,
+          // 2026-04-21: surface pre-contamination metadata so cua-verify.cjs can
+          // report offset info in feedback even when ratio is below fatal threshold.
+          preContamination: report.pre_contamination || null,
+          observedPhaseOffset: typeof report.observed_phase_offset === 'number'
+            ? report.observed_phase_offset
+            : 0
         }
       });
     });

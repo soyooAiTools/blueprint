@@ -6,10 +6,13 @@ html-output/
 *-html/
 .auth_*
 
-worker/.env
+# 2026-04-21: .env / worker/.env 入库 (private repo, soyooAiTools)
+# 新机部署直接 git clone 即可拿到全套配置
+# 若加新密钥不想入库, 用 .env.local (不 tracked)
+.env.local
+worker/.env.local
 
 worker/cua-results/
-.env
 
 # Server data (user uploads, project files)
 server-data/uploads/

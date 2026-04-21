@@ -83,10 +83,16 @@ var classification = classify(new Error('Fingerprint repeat FATAL: identical nor
 assert.strictEqual(classification.type, 'FATAL', '[5.1] must classify as FATAL, not INFRA/CODE — got ' + classification.type);
 assert.strictEqual(classification.retryable, false, '[5.2] must be non-retryable');
 
-// ── Case 6: threshold is 2 (semantic assertion via simulating loop) ────
-// Simulate the in-closure state machine manually to verify the threshold.
-var state = { _lastNormalizedFp: null, _fpRepeatCount: 1, _maxFpRepeat: 1 };
-var THRESHOLD = 2;
+// ── Case 6: graduated thresholds — 2=enhanced diagnostic, 3=FATAL ──────
+// 2026-04-21: was hard-abort at 2; now round 2 injects an enhanced-diagnostic
+// feedback entry (continue) and round 3 aborts. Reason: nqw7z3 / w7113b burned
+// their 6-round budget because the breaker fired before Claude saw that its
+// prior fix was ineffective. Giving one more round with a hard-worded
+// diagnostic recovers genuine fixable cases without re-opening the 40-round
+// token burn regression (count=3 still aborts).
+var state = { _lastNormalizedFp: null, _fpRepeatCount: 1, _maxFpRepeat: 1, _enhancedDiagInjected: false };
+var ENHANCED_AT = 2;
+var FATAL_AT = 3;
 function tick(issues) {
   var fp = buildFp(issues);
   if (!fp) return null;
@@ -96,20 +102,28 @@ function tick(issues) {
   } else {
     state._fpRepeatCount = 1;
     state._lastNormalizedFp = fp;
+    state._enhancedDiagInjected = false;
   }
-  return state._fpRepeatCount >= THRESHOLD ? 'ABORT' : 'CONTINUE';
+  if (state._fpRepeatCount >= FATAL_AT) return 'ABORT';
+  if (state._fpRepeatCount >= ENHANCED_AT && !state._enhancedDiagInjected) {
+    state._enhancedDiagInjected = true;
+    return 'DIAGNOSTIC';
+  }
+  return 'CONTINUE';
 }
 
-assert.strictEqual(tick(round1), 'CONTINUE', '[6.1] round 1 continues (count=1)');
-assert.strictEqual(tick(round2), 'ABORT',    '[6.2] round 2 identical-fp triggers abort (count=2)');
-assert.strictEqual(state._maxFpRepeat, 2,    '[6.3] maxFpRepeat tracks peak');
+assert.strictEqual(tick(round1), 'CONTINUE',   '[6.1] round 1 continues (count=1)');
+assert.strictEqual(tick(round2), 'DIAGNOSTIC', '[6.2] round 2 identical-fp injects diagnostic (count=2)');
+assert.strictEqual(tick(round2), 'ABORT',      '[6.3] round 3 identical-fp aborts FATAL (count=3)');
+assert.strictEqual(state._maxFpRepeat, 3,      '[6.4] maxFpRepeat tracks peak');
 
 // Reset and verify a heterogeneous sequence does NOT trip
-state = { _lastNormalizedFp: null, _fpRepeatCount: 1, _maxFpRepeat: 1 };
-assert.strictEqual(tick(round1),         'CONTINUE', '[6.4] first distinct fp');
-assert.strictEqual(tick(roundDifferent), 'CONTINUE', '[6.5] diff fp resets counter');
-assert.strictEqual(tick(round1),         'CONTINUE', '[6.6] return to fp1 but counter=1');
-assert.strictEqual(tick(round1),         'ABORT',    '[6.7] fp1 twice in a row aborts');
+state = { _lastNormalizedFp: null, _fpRepeatCount: 1, _maxFpRepeat: 1, _enhancedDiagInjected: false };
+assert.strictEqual(tick(round1),         'CONTINUE',   '[6.5] first distinct fp');
+assert.strictEqual(tick(roundDifferent), 'CONTINUE',   '[6.6] diff fp resets counter');
+assert.strictEqual(tick(round1),         'CONTINUE',   '[6.7] return to fp1 but counter=1');
+assert.strictEqual(tick(round1),         'DIAGNOSTIC', '[6.8] fp1 twice → diagnostic');
+assert.strictEqual(tick(round1),         'ABORT',      '[6.9] fp1 thrice → FATAL');
 
 console.log('OK — all D1 circuit-breaker assertions passed');
 console.log('  urbib0 fp:           ' + fp1);

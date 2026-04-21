@@ -1,0 +1,28 @@
+{
+  "updatedAt": "2026-04-21T01:59:32.846Z",
+  "count": 1,
+  "items": [
+    {
+      "id": "pr-85e9c62e9d",
+      "phrase": "UpdateCarryVisuals() constructs pool names dynamically with \\__Pool_Cube_Yellow_\\ + (N + i). Dynamic pool-name construction is explicitly forbidd | rule: Object",
+      "hitCount": 4,
+      "uniqueTasks": 3,
+      "sampleTaskIds": [
+        "proj_1776619679000_w1b2",
+        "proj_1776680853909_w7113b",
+        "proj_1776694114846_nqw7z3"
+      ],
+      "sampleSnippets": [
+        "`UpdateCarryVisuals()` constructs pool names dynamically with `\\\"__Pool_Cube_Yellow_\\\" + (60 + i)`. Dynamic pool-name construction is explicitly forbidd | rule: Object Naming — Pool Objects | fix: Use",
+        "`UpdateCarryVisuals()` constructs pool names dynamically with `\\\"__Pool_Cube_Yellow_\\\" + (60 + i)`. Dynamic pool-name construction is explicitly forbidd | rule: Object Naming — Pool Objects | fix: Rep"
+      ],
+      "suggestedRule": {
+        "slug": "codex-warning-85e9c62e9d",
+        "severity": "warn",
+        "description": "Auto-mined from 4 Codex reviewer warnings: UpdateCarryVisuals() constructs pool names dynamically with \\__Pool_Cube_Yellow_",
+        "regexHint": "UpdateCarryVisuals()\\s+constructs\\s+pool\\s+names\\s+dynamically\\s+with\\s+\\__Pool_Cube_Yellow_\\\\s++\\s+(N\\s++\\s+i).\\s+Dynam"
+      },
+      "status": "candidate"
+    }
+  ]
+}
