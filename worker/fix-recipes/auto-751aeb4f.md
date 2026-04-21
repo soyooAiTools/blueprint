@@ -1,8 +1,12 @@
 # auto-751aeb4f
 ## Diagnosis
-The `visual_freeze` fast-escalation block in `cua-verify.cjs` gated the "first attempt → full regen" vs "already tried → FATAL" decision on `consecutiveSameIssue < SAME_ISSUE_REGEN_THRESHOLD`. Because `consecutiveSameIssue` is a **cross-streak** counter that resets to **1** (not 0) when `isProgressing` fires, it only needs two further no-progress rounds to reach `SAME_ISSUE_REGEN_THRESHOLD` (3). This caused FATAL to fire at `_noProgressRounds=2` — the very round a full-regen *should* have been scheduled — producing the log `"Visual freeze FATAL: 2 consecutive rounds — surgical and full-regen both failed"`.
+In `cua-verify.cjs`, the `visual_freeze` / `codegen_init_failure` escalation block (line 669) used `consecutiveSameIssue < SAME_ISSUE_REGEN_THRESHOLD` to decide whether to attempt a full regen before throwing FATAL. Because `consecutiveSameIssue` is a cross-streak counter—reset only on `isProgressing`, never at the start of a new no-progress streak—it can carry a value ≥ 3 from a prior issue category. When a new `visual_freeze` streak begins and `_noProgressRounds` first reaches 2, the `else` (FATAL) branch fires immediately without ever attempting a full regen in the current streak, producing the error "Visual freeze FATAL: 2 consecutive rounds — surgical and full-regen both failed."
 
-The exact scenario: a prior progress event resets `_noProgressRounds=0` and `consecutiveSameIssue=1`; the next two no-progress rounds of the same category increment `consecutiveSameIssue` to 3, satisfying the old `else { throw }` branch at `_noProgressRounds=2` before `_visualFreezeRegenAttempted` could have been set.
+The fix introduces a per-streak boolean `_visualFreezeRegenAttempted` (initialized `false`, reset to `false` on `isProgressing`) that replaces the cross-streak `consecutiveSameIssue` guard. A companion fix (auto-28eae46e) adds a `_noProgressRounds >= 4` minimum guard so the regenerated code gets at least 2 post-regen CUA verification passes before FATAL is allowed.
 
 ## Root Cause
-`engine/stages/cua-verify.cjs` — the `visual_freeze` escalation block inside the `else { _noProgressRounds++ }` branch (pre-fix lines ≈ 650–670):
+`engine/stages/cua-verify.cjs:670` — old guard `if (consecutiveSameIssue < SAME_ISSUE_REGEN_THRESHOLD)` inside the visual_freeze escalation block was evaluated against a cross-streak counter; when that counter was already ≥ 3, the FATAL `else` branch fired at `_noProgressRounds=2` with no full-regen attempted.
+
+## Fix
+
+### 1. Add per-streak tracker variable (after line 302, before the `createFixLoop` call)
