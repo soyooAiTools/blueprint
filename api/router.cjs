@@ -105,6 +105,11 @@ function matchRoute(method, pathname) {
   if (method === 'POST' && pathname === '/api/auto-fix-commit') return { handler: 'commitAutoFix' };
   if (method === 'POST' && pathname === '/api/dashboard/reset-stats') return { handler: 'resetStats' };
 
+  // Autonomous learning (2026-04-21)
+  if (method === 'GET' && pathname === '/api/learning') return { handler: 'getLearning' };
+  if (method === 'POST' && pathname === '/api/learning/scan-rules') return { handler: 'runScanRules' };
+  if (method === 'POST' && pathname === '/api/learning/promote-rule') return { handler: 'promoteRule' };
+
   // Serve generated images
   m = pathname.match(/^\/api\/images\/([^/]+)\/(.+)$/);
   if (m && method === 'GET') return { handler: 'serveImage', projectId: m[1], filename: m[2] };

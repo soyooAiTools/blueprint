@@ -320,6 +320,7 @@ tr.drawer-row > td {
 <div class="tabs">
   <div class="tab active" data-panel="overview">运行状态</div>
   <div class="tab" data-panel="pipeline">Pipeline 指标</div>
+  <div class="tab" data-panel="learning">自学习</div>
 </div>
 <div class="content">
   <!-- Overview (运行状态: KPI + API + Workers + Queue + Recent + Stages) -->
@@ -384,6 +385,25 @@ tr.drawer-row > td {
     <div class="card" style="margin-top:16px;">
       <h3>项目失败明细 <span class="eyebrow">点击行展开失败历史</span></h3>
       <div id="projectFailures"></div>
+    </div>
+  </div>
+
+  <!-- 自学习面板 (2026-04-21) -->
+  <div class="panel" id="learning">
+    <div class="grid grid-4" id="learningStats"></div>
+    <div class="card" style="margin-top:16px;">
+      <h3>Pending Fixes <span class="eyebrow">auto-fix 放弃 / 无 recipe 匹配的指纹</span></h3>
+      <div id="pendingFixesList"></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3>Pending Rules <span class="eyebrow">Codex reviewer warning 聚类出的候选规则</span>
+        <button id="rescanRulesBtn" style="margin-left:12px;">强制重扫</button>
+      </h3>
+      <div id="pendingRulesList"></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3>Recipe Stats <span class="eyebrow">每条 recipe 的应用/回滚统计</span></h3>
+      <div id="recipeStatsList"></div>
     </div>
   </div>
 </div>
@@ -1044,9 +1064,129 @@ tr.drawer-row > td {
   };
 
 
+  // ========== 自学习面板 (Phase 8) ==========
+  function escapeHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, function(c) {
+      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+    });
+  }
+  async function refreshLearning() {
+    var data = await fetchJSON('/api/learning');
+    if (!data) {
+      document.getElementById('learningStats').innerHTML = '<div class="empty">无法加载自学习数据</div>';
+      return;
+    }
+    var pf = data.pendingFixes || { count: 0, items: [] };
+    var pr = data.pendingRules || { count: 0, items: [] };
+    var rs = data.recipeStats || { count: 0, recipes: [] };
+    var escalate = (rs.recipes || []).filter(function(r) { return r.escalate; });
+
+    var stats = '';
+    stats += statCard(pf.count, 'Pending Fixes', pf.count > 0 ? 'yellow' : 'green');
+    stats += statCard(pr.count, 'Pending Rules', pr.count > 0 ? 'blue' : 'gray');
+    stats += statCard(rs.count, 'Tracked Recipes', 'blue', escalate.length > 0 ? escalate.length + ' 条需升级' : '');
+    var lastScan = data.scanState && data.scanState.lastRunAt ? new Date(data.scanState.lastRunAt) : null;
+    stats += statCard(lastScan ? fmt(lastScan.getTime()) : 'never', '最近规则扫描', 'gray');
+    document.getElementById('learningStats').innerHTML = stats;
+
+    // Pending Fixes list
+    var pfHtml = '';
+    if (pf.items && pf.items.length > 0) {
+      pfHtml = '<table><thead><tr><th>优先级</th><th>原因</th><th>指纹</th><th>命中</th><th>建议</th></tr></thead><tbody>';
+      pf.items.forEach(function(i) {
+        var pri = (i.priority || 'p2').toUpperCase();
+        var priColor = i.priority === 'p0' ? 'red' : i.priority === 'p1' ? 'yellow' : 'gray';
+        pfHtml += '<tr>'
+          + '<td><span class="badge ' + priColor + '">' + pri + '</span></td>'
+          + '<td>' + escapeHtml(i.reason) + '</td>'
+          + '<td style="max-width:400px;overflow:hidden;text-overflow:ellipsis;font-family:Geist Mono,monospace;font-size:11px;">' + escapeHtml(i.fingerprint || i.recipeId || '') + '</td>'
+          + '<td>' + (i.hitCount || '-') + (i.uniqueTasks ? ' / ' + i.uniqueTasks + ' 任务' : '') + '</td>'
+          + '<td style="font-size:11px;color:var(--ink-2);">' + escapeHtml((i.suggestedAction || '').slice(0, 120)) + '</td>'
+          + '</tr>';
+      });
+      pfHtml += '</tbody></table>';
+    } else {
+      pfHtml = '<div class="empty">无 pending fix — auto-fix 自主闭环正常运行</div>';
+    }
+    document.getElementById('pendingFixesList').innerHTML = pfHtml;
+
+    // Pending Rules list
+    var prHtml = '';
+    if (pr.items && pr.items.length > 0) {
+      prHtml = '<table><thead><tr><th>命中</th><th>Warning 聚类</th><th>任务数</th><th>操作</th></tr></thead><tbody>';
+      pr.items.forEach(function(i) {
+        prHtml += '<tr>'
+          + '<td>' + i.hitCount + '</td>'
+          + '<td style="font-family:Geist Mono,monospace;font-size:11px;">' + escapeHtml(i.phrase) + '</td>'
+          + '<td>' + (i.uniqueTasks || 0) + '</td>'
+          + '<td><button onclick="promotePendingRule(\'' + i.id + '\')">Promote</button></td>'
+          + '</tr>';
+      });
+      prHtml += '</tbody></table>';
+    } else {
+      prHtml = '<div class="empty">暂无候选规则 (阈值 ≥3 次)</div>';
+    }
+    document.getElementById('pendingRulesList').innerHTML = prHtml;
+
+    // Recipe Stats
+    var rsHtml = '';
+    if (rs.recipes && rs.recipes.length > 0) {
+      rsHtml = '<table><thead><tr><th>Recipe</th><th>Risk</th><th>Applied</th><th>Reverted</th><th>成功率</th><th>状态</th></tr></thead><tbody>';
+      rs.recipes.slice(0, 20).forEach(function(r) {
+        var flag = r.escalate ? '<span class="badge red">升级</span>'
+          : r.manualOnly ? '<span class="badge yellow">manual</span>'
+          : (r.applied || 0) === 0 ? '<span class="badge gray">未用</span>'
+          : '<span class="badge green">OK</span>';
+        rsHtml += '<tr>'
+          + '<td style="font-family:Geist Mono,monospace;font-size:11px;">' + escapeHtml(r.id) + '</td>'
+          + '<td>' + escapeHtml(r.risk) + '</td>'
+          + '<td>' + r.applied + '</td>'
+          + '<td>' + r.reverted + '</td>'
+          + '<td>' + escapeHtml(r.successRate) + '</td>'
+          + '<td>' + flag + '</td>'
+          + '</tr>';
+      });
+      rsHtml += '</tbody></table>';
+    } else {
+      rsHtml = '<div class="empty">无 recipe 统计</div>';
+    }
+    document.getElementById('recipeStatsList').innerHTML = rsHtml;
+  }
+
+  window.promotePendingRule = function(id) {
+    if (!confirm('Promote rule ' + id + ' ?\n会写入 server-data/promoted-rules.json 等下次 static-check patch 合入。')) return;
+    fetch(BASE + '/api/learning/promote-rule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: id }),
+    }).then(function(r) { return r.json(); })
+      .then(function(d) {
+        showToast(d.ok ? '已 promote (共 ' + d.totalPromoted + ' 条)' : ('失败: ' + (d.error || 'unknown')));
+        refreshLearning();
+      })
+      .catch(function(e) { showToast('请求失败: ' + e.message); });
+  };
+
+  var rescanBtn = document.getElementById('rescanRulesBtn');
+  if (rescanBtn) rescanBtn.addEventListener('click', function() {
+    rescanBtn.textContent = '扫描中...';
+    rescanBtn.disabled = true;
+    fetch(BASE + '/api/learning/scan-rules', { method: 'POST' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        showToast('扫描完成: ' + (d.count || 0) + ' 候选');
+        rescanBtn.textContent = '强制重扫';
+        rescanBtn.disabled = false;
+        refreshLearning();
+      })
+      .catch(function(e) { showToast('扫描失败: ' + e.message); rescanBtn.textContent = '强制重扫'; rescanBtn.disabled = false; });
+  });
+
   refresh();
+  refreshLearning();
   // Live tab refreshes faster (5s)
   setInterval(refresh, 5000);
+  setInterval(refreshLearning, 15000);
 })();
 </script>
 </body>

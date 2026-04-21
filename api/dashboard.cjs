@@ -136,14 +136,13 @@ module.exports.init = function(ctx) {
       // Phase 4: Infrastructure checks
       try {
         var execSync3 = require('child_process').execSync;
-        var buildCheck = execSync3('curl -s --max-time 3 http://localhost:3080/health 2>/dev/null || echo "FAIL"',
+        var buildUrl = process.env.LINUX_BUILD_URL || 'http://127.0.0.1:18860';
+        var buildCheck = execSync3('curl -s --max-time 3 ' + buildUrl + '/health 2>/dev/null || echo "FAIL"',
           { encoding: 'utf-8', timeout: 5000 }).trim();
         if (buildCheck === 'FAIL' || !buildCheck.includes('ok')) {
-          issues.push('[F12-build] Build service (linux-bridge-build:3080) is unreachable');
-          try {
-            execSync3('pm2 restart linux-build 2>/dev/null', { timeout: 10000 });
-            fixes.push('[fix] Restarted linux-build service');
-          } catch(e) {}
+          issues.push('[F12-build] Build service (' + buildUrl + ') is unreachable');
+          // NOTE: build service is run externally (supervisor/systemd), not pm2.
+          // Do not attempt pm2 restart — it does not exist as a pm2 process.
         }
       } catch(e) {}
 
@@ -314,6 +313,22 @@ module.exports.init = function(ctx) {
         }
       } catch(e) {
         issues.push('[error] Phase 7 auto-fix init failed: ' + e.message);
+      }
+
+      // Phase 8: Autonomous learning scans (cheap, synchronous)
+      // - scanPendingFixes: escalations from auto-fix state + unmatched fingerprints
+      // - computeRecipeStats: aggregate recipe success/revert counts
+      // - scanPendingRules: rate-limited (6h), mines Codex warnings for new rules
+      try {
+        var learning = require('../engine/learning.cjs');
+        var pf = learning.scanPendingFixes(fixSummary && fixSummary.topFailReasons);
+        var rs = learning.computeRecipeStats();
+        var pr = learning.scanPendingRules(); // internally rate-limited
+        fixes.push('[info] Phase 8 learning: pending-fixes=' + pf.count +
+          ' recipe-stats=' + rs.count +
+          (pr.skipped ? ' pending-rules=skipped(rate-limit)' : ' pending-rules=' + pr.count));
+      } catch(e) {
+        issues.push('[error] Phase 8 learning failed: ' + e.message);
       }
 
     } catch (e) {
@@ -974,6 +989,67 @@ module.exports.init = function(ctx) {
         var u = new URL(req.url, 'http://localhost');
         var limit = parseInt(u.searchParams.get('limit')) || 100;
         sendJSON(res, { entries: archiveWriter.readModelFatalIndex(limit) });
+      } catch(e) {
+        sendJSON(res, { error: e.message }, 500);
+      }
+    },
+
+    /**
+     * GET /api/learning
+     * Unified accessor for pending-fixes + pending-rules + recipe-stats.
+     */
+    getLearning: function(req, res, body, params) {
+      try {
+        var learning = require('../engine/learning.cjs');
+        sendJSON(res, learning.getLearningSummary());
+      } catch(e) {
+        sendJSON(res, { error: e.message }, 500);
+      }
+    },
+
+    /**
+     * POST /api/learning/scan-rules
+     * Force-run scanPendingRules bypass the 6h rate limit (manual trigger).
+     */
+    runScanRules: function(req, res, body, params) {
+      try {
+        var learning = require('../engine/learning.cjs');
+        var result = learning.scanPendingRules({ force: true });
+        sendJSON(res, result);
+      } catch(e) {
+        sendJSON(res, { error: e.message }, 500);
+      }
+    },
+
+    /**
+     * POST /api/learning/promote-rule  { id, notes? }
+     * Marks a pending-rule as promoted so humans remember it was approved.
+     * Does NOT auto-merge into static-check.cjs (that's intentionally manual —
+     * rule regex needs human review per project-p0p1_batch_20260421 memory).
+     * The rule body is copied into server-data/promoted-rules.json for
+     * inclusion in the next static-check.cjs patch commit.
+     */
+    promoteRule: function(req, res, body, params) {
+      try {
+        var data = typeof body === 'string' ? (body ? JSON.parse(body) : {}) : (body || {});
+        var id = data.id;
+        var notes = data.notes || '';
+        if (!id) return sendJSON(res, { error: 'id required' }, 400);
+        var learning = require('../engine/learning.cjs');
+        var summary = learning.getLearningSummary();
+        var rule = (summary.pendingRules.items || []).filter(function(r) { return r.id === id; })[0];
+        if (!rule) return sendJSON(res, { error: 'rule not found' }, 404);
+        var promotedFile = path.join(__dirname, '..', 'server-data', 'promoted-rules.json');
+        var existing = [];
+        try { existing = JSON.parse(fs.readFileSync(promotedFile, 'utf-8')); } catch(e) {}
+        existing.push({
+          id: id,
+          promotedAt: new Date().toISOString(),
+          notes: notes,
+          rule: rule,
+        });
+        fs.writeFileSync(promotedFile, JSON.stringify(existing, null, 2));
+        sendJSON(res, { ok: true, id: id, totalPromoted: existing.length });
       } catch(e) {
         sendJSON(res, { error: e.message }, 500);
       }
