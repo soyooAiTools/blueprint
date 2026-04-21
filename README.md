@@ -14,8 +14,11 @@
 | `soyooAiTools/cua-agent` | `/root/cua-agent/` | CUA Python 验证器（observe_mode 6 层防御实现） |
 | `soyooAiTools/luna-base-template` | `/opt/luna-base-template/` | Luna 7.1.0 工程模板的 git 镜像 |
 | `soyooAiTools/luna-poc` | `/opt/luna-poc/` | 本机 build-api 编译服务（127.0.0.1:18860） |
+| `soyooAiTools/blueprint-ops` | `/opt/blueprint-ops/` | 部署机本地资产：Luna docs / runtime patches / nginx / cc 切换脚本（symlink 回 /root /etc/nginx） |
+| `soyooAiTools/openclaw-workspace` | `~/.openclaw/workspace/` | 30+ 协调 skill + memory + learnings（dashboard/feedbacksystem 等通过 sub-agent 调用） |
 
-新机部署 5 个 repo 都要 clone；blueprint-skill 必须放在 `~/.openclaw/workspace/skills/blueprint/`，否则 Claude Code 不会加载。
+新机部署 7 个 repo 都要 clone；blueprint-skill 必须放在 `~/.openclaw/workspace/skills/blueprint/`，否则 Claude Code 不会加载。
+blueprint-ops 的内容部署时需 symlink 回原位置（详见该 repo README 的"部署机原始位置"表）。
 
 ## 架构
 
