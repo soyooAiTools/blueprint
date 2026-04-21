@@ -43,9 +43,14 @@ function triggerToMirror(trigger, schema, phaseIdx) {
   var idx = phaseIdx || 0;
   var offX = (idx % 4) * 2 - 3; // vary position so successive phases are distinct moves
   switch (trigger.type) {
-    case TriggerType.RESOURCE_COLLECTED:
-      return 'AddResource("' + trigger.resource + '", ' + trigger.amount + ');\n' +
-             '// NOTE: phase-exit requires the resource GameObject to move — AI must also call PlaceObj';
+    case TriggerType.RESOURCE_COLLECTED: {
+      // Mirror the move emitted by collect-interaction.cjs (HideObj) so the autoPlay
+      // path also satisfies EntityAdvanced(source, _snap) > 1.5. If the trigger names
+      // a source entity we hide it; otherwise fall back to AddResource + comment.
+      var src = trigger.entity ? toLowerCamel(trigger.entity) : null;
+      return 'AddResource("' + trigger.resource + '", ' + trigger.amount + ');' +
+             (src ? '\nif (' + src + ' != null) HideObj(' + src + '); // observable — required by EntityAdvanced' : '');
+    }
     case TriggerType.ENTITY_STATE_REACHED:
       return 'PlaceObj(' + toLowerCamel(trigger.entity) + ', ' + offX + 'f, 0.5f, 0f);';
     case TriggerType.NEAR_ENTITY:

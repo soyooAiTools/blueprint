@@ -305,6 +305,10 @@ function buildCustomLogicPrompt(ctx, schema) {
   lines.push('3. 不要修改模板已生成的代码');
   lines.push('4. 可用 API: PlaceObj, HideObj, SetScale, AddResource, TrySpend, IsNear 等');
   lines.push('5. 实体变量名使用 PascalCase（与 skeleton 声明一致，如 Forge 不是 forge）');
+  lines.push('6. Phase-exit 门使用 EntityAdvanced(X, _snap_XPos) — 读 transform.position > 1.5f。');
+  lines.push('   若 phase P 的退出条件是 EntityAdvanced(X)，P 的交互逻辑必须在玩家触发时位移 X：');
+  lines.push('   调 PlaceObj(X, x, y, z) / HideObj(X) / X.transform.position = new Vector3(...)。');
+  lines.push('   仅写 flag (XDone=true / XState=2 / XPlayerActed=true) **不能**满足 gate，phase 永远不退出。');
   lines.push('');
   lines.push('## 需要实现的自定义逻辑');
   for (var i = 0; i < schema.customLogic.length; i++) {

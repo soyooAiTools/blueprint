@@ -463,4 +463,106 @@ public class Main : MonoBehaviour {
     const hit = staticCheck(code).issues.find(i => i.rule === 'string-concat-in-update');
     expect(hit).toBeUndefined();
   });
+
+  // --- 2026-04-21 phase-entity-init-only (phase-scoped movement check) ---
+
+  test('phase-entity-init-only: X only moved in TODO_PHASE_INIT → blocking', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  GameObject iceOre;
+  Vector3 _snap_iceOrePos;
+  void Update() {
+    // TODO_PHASE_1_INIT_START
+    PlaceObj(iceOre, 2f, 0.5f, 0f);
+    _snap_iceOrePos = iceOre.transform.position;
+    // TODO_PHASE_1_INIT_END
+    if (EntityAdvanced(iceOre, _snap_iceOrePos)) {
+      // phase advances
+    }
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'phase-entity-init-only');
+    expect(hit).toBeDefined();
+    expect(hit.blocking).toBe(true);
+    expect(hit.text).toContain('iceOre');
+  });
+
+  test('phase-entity-init-only: PlaceObj outside init block → pass', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  GameObject iceOre;
+  Vector3 _snap_iceOrePos;
+  void Update() {
+    // TODO_PHASE_1_INIT_START
+    _snap_iceOrePos = iceOre.transform.position;
+    // TODO_PHASE_1_INIT_END
+    if (IsNear(iceOre, 2f)) {
+      PlaceObj(iceOre, 4f, 0.5f, 0f);
+    }
+    if (EntityAdvanced(iceOre, _snap_iceOrePos)) { }
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'phase-entity-init-only');
+    expect(hit).toBeUndefined();
+  });
+
+  test('phase-entity-init-only: HideObj outside init block → pass', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  GameObject iceOre;
+  bool iceOreDone;
+  Vector3 _snap_iceOrePos;
+  void Update() {
+    // TODO_PHASE_1_INIT_START
+    _snap_iceOrePos = iceOre.transform.position;
+    // TODO_PHASE_1_INIT_END
+    if (IsNear(iceOre, 2f)) {
+      iceOreDone = true;
+      HideObj(iceOre);
+    }
+    if (EntityAdvanced(iceOre, _snap_iceOrePos)) { }
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'phase-entity-init-only');
+    expect(hit).toBeUndefined();
+  });
+
+  test('phase-entity-init-only: player whitelist (MovePlayer defined) → pass', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  GameObject player;
+  Vector3 _snap_playerPos;
+  void Update() {
+    // TODO_PHASE_1_INIT_START
+    _snap_playerPos = player.transform.position;
+    // TODO_PHASE_1_INIT_END
+    MovePlayer();
+    if (EntityAdvanced(player, _snap_playerPos)) { }
+  }
+  void MovePlayer() {
+    player.transform.position = player.transform.position + Vector3.forward * 0.1f;
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'phase-entity-init-only');
+    expect(hit).toBeUndefined();
+  });
+
+  test('phase-entity-init-only: direct transform.position= outside init → pass', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  GameObject forge;
+  Vector3 _snap_forgePos;
+  void Update() {
+    // TODO_PHASE_2_INIT_START
+    _snap_forgePos = forge.transform.position;
+    // TODO_PHASE_2_INIT_END
+    if (IsNear(forge, 2f) && Input.GetMouseButtonDown(0)) {
+      forge.transform.position = new Vector3(forge.transform.position.x, forge.transform.position.y + 2f, forge.transform.position.z);
+    }
+    if (EntityAdvanced(forge, _snap_forgePos)) { }
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'phase-entity-init-only');
+    expect(hit).toBeUndefined();
+  });
 });

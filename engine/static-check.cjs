@@ -469,6 +469,81 @@ var RULES = [
       return issues;
     },
   },
+  // 2026-04-21: Phase-scoped movement check. `phase-entity-unbound` only ensures
+  // X has *some* write anywhere; but if X is only written at phase entry (TODO_PHASE_*_INIT)
+  // and nowhere else (no interaction handler, no OnAutoPlayArrive case move), the
+  // gate `EntityAdvanced(X, _snap_XPos)` can't flip during gameplay. Codex reviewer
+  // reported this 6 rounds straight on s6ae56 / nqw7z3 (2026-04-21) and fix-loop
+  // circuit-broke. This rule fires when X's ONLY moves are inside TODO_PHASE_*_INIT
+  // comment-bracketed regions (phase-init-only), not runtime interaction code.
+  { id: 'phase-entity-init-only', pattern: null, blocking: true,
+    message: 'EntityAdvanced(X, _snap_XPos) gate cannot trigger — X is only moved inside TODO_PHASE_*_INIT blocks (phase entry). Add PlaceObj(X)/HideObj(X)/X.transform.position = ... in the matching OnAutoPlayArrive case OR a player-interaction handler.',
+    custom: function(code, ctx) {
+      var issues = [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
+        .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
+      // Whitelist: player + anything moved inside MovePlayer() function body.
+      var whitelist = { player: 1, Player: 1 };
+      var mpMatch = stripped.match(/void\s+MovePlayer\s*\([^)]*\)\s*\{([\s\S]*?)\n\s*\}/);
+      if (mpMatch) {
+        var idRe = /\b([A-Za-z_]\w*)\s*\.\s*transform\s*\.\s*position/g;
+        var idm;
+        while ((idm = idRe.exec(mpMatch[1])) !== null) whitelist[idm[1]] = true;
+      }
+      // Build mask of TODO_PHASE_*_INIT_START .. TODO_PHASE_*_INIT_END regions. Moves
+      // inside these regions are considered "phase-entry-only" and don't count
+      // as runtime moves. We also mask the skeleton comment preamble before each
+      // TODO_PHASE_*_INIT_START (the REMINDER block added to guide AI) — the
+      // commentary shouldn't be treated as runtime movement anyway (we stripped
+      // comments) but this keeps the intent explicit.
+      var initRanges = [];
+      var initRe = /\/\/\s*TODO_PHASE_\d+_INIT_START([\s\S]*?)\/\/\s*TODO_PHASE_\d+_INIT_END/g;
+      // We stripped comments above — TODO_PHASE markers are still raw in `code`
+      // but `stripped` overwrote them with spaces. Scan `code` to find ranges
+      // then map offsets (they align: stripping preserves character positions).
+      var codeInitRe = new RegExp(initRe.source, 'g');
+      var irm;
+      while ((irm = codeInitRe.exec(code)) !== null) {
+        initRanges.push([irm.index, irm.index + irm[0].length]);
+      }
+      function inInit(idx) {
+        for (var rr = 0; rr < initRanges.length; rr++) {
+          if (idx >= initRanges[rr][0] && idx <= initRanges[rr][1]) return true;
+        }
+        return false;
+      }
+      // For each EntityAdvanced(X, _snap_XPos), require at least one move of X
+      // OUTSIDE any TODO_PHASE_*_INIT block. OnAutoPlayArrive case bodies and
+      // Update() hot-path moves both live outside these markers.
+      var eaRe = /\bEntityAdvanced\s*\(\s*([A-Za-z_]\w*)\s*,\s*_snap_\1Pos\s*\)/g;
+      var seen = {};
+      var em;
+      while ((em = eaRe.exec(stripped)) !== null) {
+        var entName = em[1];
+        if (whitelist[entName]) continue;
+        if (seen[entName]) continue;
+        seen[entName] = true;
+        var moveRe = new RegExp(
+          '\\bPlaceObj\\s*\\(\\s*' + entName + '\\b' +
+          '|\\bHideObj\\s*\\(\\s*' + entName + '\\b' +
+          '|\\b' + entName + '\\s*\\.\\s*transform\\s*\\.\\s*position\\s*=',
+          'g'
+        );
+        var hasRuntimeMove = false;
+        var mvm;
+        while ((mvm = moveRe.exec(stripped)) !== null) {
+          if (!inInit(mvm.index)) { hasRuntimeMove = true; break; }
+        }
+        if (!hasRuntimeMove) {
+          var lineNum = code.substring(0, em.index).split('\n').length;
+          issues.push({ line: lineNum, text: 'EntityAdvanced(' + entName + ', _snap_' + entName + 'Pos) — `' + entName + '` only moved inside TODO_PHASE_*_INIT (phase-entry); no runtime move in OnAutoPlayArrive / Update / interaction handler. Gate cannot flip during gameplay.' });
+        }
+      }
+      return issues;
+    },
+  },
   // 2026-04-21: AddCompletedPhase rule-ID consistency. spec_phase_skipped was
   // top-3 CUA root cause (7/61 failures) — AI writes `AddCompletedPhase("X")`
   // where X doesn't match any ReportPhase/currentPhaseName in the file. Catch

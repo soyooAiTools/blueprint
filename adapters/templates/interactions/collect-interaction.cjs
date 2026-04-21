@@ -21,6 +21,7 @@ function generateCollectUpdate(schema) {
     lines.push('                AddResource("' + escapeString(r.name) + '", 1);');
     lines.push('                _collectCooldown = collectCooldownInterval;');
     lines.push('                ' + entity + 'Done = true;');
+    lines.push('                HideObj(' + entity + '); // observable move — satisfies EntityAdvanced() phase-exit gate');
     lines.push('            }');
     lines.push('        }');
     if (i < resources.length - 1) lines.push('');

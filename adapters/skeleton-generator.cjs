@@ -97,15 +97,38 @@ function generateSkeleton(specs, opts = {}) {
   const lines = [];
 
   // Helper: list GameObject names that gate a phase's exit condition.
-  // Collects entitiesRequired + non-numeric interaction targets.
-  // These entities must be "advanced" (moved or active-toggled) during the phase
-  // for the phase to exit — see buildRealCondition.
+  // Prefers entities that will actually be moved by a known interaction template
+  // (collect/deliver/sell/click/spend/build/move_to). Falls back to all
+  // entitiesRequired + non-numeric interaction targets when no interaction is tagged
+  // with a supported verb, to preserve behaviour for wait/defend/custom phases.
+  //
+  // Why: phase-exit binds to EntityAdvanced(X, _snap_XPos). If X has no interaction
+  // that moves it during the phase, the gate is structurally unreachable — codex
+  // reviewer reports "phase X unreachable" and fix-loop circuit-breaks (seen in
+  // s6ae56 / nqw7z3 on 2026-04-21). Keeping only entities that a template moves
+  // prevents that failure mode.
+  const MOVING_VERBS = { collect: 1, deliver: 1, sell: 1, click: 1, spend: 1, build: 1, move_to: 1 };
   function phaseGateEntities(spec) {
     const entities = spec.entitiesRequired || [];
     const interactions = spec.requiredInteractions || [];
+
+    // Preferred: targets of interactions whose verb is known to move the entity.
+    const preferred = [];
+    const preferredSeen = {};
+    for (let ii = 0; ii < interactions.length; ii++) {
+      const parts = interactions[ii].split(':');
+      const verb = parts[0];
+      const target = parts[1];
+      if (!target) continue;
+      if (/^\d/.test(target)) continue;
+      if (!MOVING_VERBS[verb]) continue;
+      if (!preferredSeen[target]) { preferred.push(target); preferredSeen[target] = true; }
+    }
+    if (preferred.length > 0) return preferred;
+
+    // Fallback: original behaviour. Still filter out wait/defend verbs.
     const names = [];
     const seen = {};
-
     entities.forEach(e => {
       if (e && e.name && !seen[e.name]) { names.push(e.name); seen[e.name] = true; }
     });
@@ -868,7 +891,14 @@ function generateSkeleton(specs, opts = {}) {
 
     if (i === 0) {
       // First rule: game start
-      lines.push(`        if (!ruleTriggered[${ruleIdx}])`);
+      // [SKELETON 2026-04-20] Phase 0 warmup gate — prevents CUA PRE-CONTAMINATION.
+      // Without this, phase 0 fires on Update's first frame (before CUA observer
+      // opens its window at ~5-6s), so completedPhases already contains the first
+      // spec phase when CUA starts observing → hard fail, fix-loop cannot recover.
+      // WarmupReady handles both modes:
+      //   - Interactive: false for first 3s (detection window), then true
+      //   - AutoPlay: false until detection + 6s warmup, then true
+      lines.push(`        if (!ruleTriggered[${ruleIdx}] && GFM_AutoPlay.Instance.WarmupReady)`);
       lines.push('        {');
       lines.push(`            ruleTriggered[${ruleIdx}] = true;`);
       lines.push(`            currentPhaseName = "${spec.phaseId}"; // [IMMUTABLE] Do NOT change this phaseId`);
@@ -947,6 +977,12 @@ function generateSkeleton(specs, opts = {}) {
       }
 
       lines.push(`            // === TODO: AI fills — activate objects for ${spec.phaseName} ===`);
+      lines.push(`            // [REMINDER] This phase will exit when EntityAdvanced(X, _snap_XPos) > 1.5 for every X`);
+      lines.push(`            // listed above. The exit gate reads transform.position ONLY. Flag writes`);
+      lines.push(`            // (xxxDone=true / xxxState=N / xxxPlayerActed=true) DO NOT satisfy the gate.`);
+      lines.push(`            // Ensure the phase's player-triggered interaction body (in Update / handlers /`);
+      lines.push(`            // the matching case in OnAutoPlayArrive) calls PlaceObj(X,...) / HideObj(X) /`);
+      lines.push(`            // X.transform.position = ... at least once per required entity.`);
       lines.push(`            // TODO_PHASE_${i + 1}_INIT_START`);
       lines.push('');
       lines.push(`            // TODO_PHASE_${i + 1}_INIT_END`);

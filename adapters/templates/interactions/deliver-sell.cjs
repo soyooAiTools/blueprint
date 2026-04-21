@@ -35,6 +35,7 @@ function generateDeliverUpdate(schema) {
     lines.push('                AddGold(' + t.goldPerUnit + ' * count);');
     lines.push('                ' + entity + 'Done = true;');
     lines.push('                ' + entity + 'State = 2;');
+    lines.push('                ' + entity + '.transform.position = ' + entity + '.transform.position + new Vector3(0f, 2f, 0f); // observable move — satisfies EntityAdvanced() phase-exit gate');
     lines.push('                ShowFloatingText(player != null ? player.transform.position : Vector3.zero, "+" + (' + t.goldPerUnit + ' * count) + " coins", Color.yellow);');
     lines.push('            }');
     lines.push('        }');
