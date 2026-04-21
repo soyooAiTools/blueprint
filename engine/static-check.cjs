@@ -75,7 +75,78 @@ var RULES = [
   // --- v3: Rendering & anti-solid-color rules ---
   { id: 'safe-color-recursion', pattern: /Color\s+SafeColor|SafeColor\s*\(/g, message: 'SafeColor pattern causes infinite recursion in Luna — remove and use literal Color values' },
   { id: 'renderer-material-color', pattern: /\.material\.color\s*=/g, blocking: true, message: 'Renderer.material.color causes GL_INVALID_OPERATION in Luna — pool objects have pre-baked colors' },
-  { id: 'new-material', pattern: /new\s+Material\s*\(/g, blocking: true, message: 'new Material() not supported in Luna — use GFM_Create.InitMaterialFromScene()' },
+  { id: 'new-material', pattern: /new\s+Material\s*\(/g, blocking: true, message: 'new Material() not supported in Luna — pool objects have pre-baked colors, do NOT create materials' },
+  // 2026-04-21: InitMaterialFromScene() calls from user code. The helper lives
+  // in GFM_Create.cs but pool objects already ship with pre-baked colors, so
+  // calling it is obsolete and was flagged as a hard Codex review violation on
+  // w7113b (太空捡垃圾, 2026-04-20 10:41→18:24 critical/warning every round).
+  // Blocking at static-check short-circuits the 6-round review burn.
+  { id: 'forbidden-init-material-from-scene', pattern: null, blocking: true,
+    message: 'GFM_Create.InitMaterialFromScene() is obsolete — pool objects ship with pre-baked colors. Remove the call.',
+    custom: function(code, ctx) {
+      var fileName = (ctx && ctx.filename) || '';
+      // The helper's own declaration site is the only legitimate place — skip
+      // it so we don't flag the canonical lib file.
+      if (/GFM_Create\.cs$/.test(fileName)) return [];
+      var issues = [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
+        .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
+      var re = /\bGFM_Create\s*\.\s*InitMaterialFromScene\s*\(/g;
+      var m;
+      while ((m = re.exec(stripped)) !== null) {
+        var lineNum = code.substring(0, m.index).split('\n').length;
+        issues.push({ line: lineNum, text: 'GFM_Create.InitMaterialFromScene() — pool colors are pre-baked, remove this call' });
+      }
+      return issues;
+    },
+  },
+  // 2026-04-21: Runtime UI creation via GFM_UI.CreateCanvas / GFM_UI.CreateText
+  // in gameplay flow. Skeleton pre-creates uiCanvas / guideText / scoreText
+  // etc. — creating MORE at runtime is a Codex critical warning on every recent
+  // w7113b round. Allow calls inside InitializeGame / Awake / Start (skeleton
+  // bootstrap); block inside CheckEventRules / OnAutoPlayArrive / Update /
+  // phase handlers.
+  { id: 'forbidden-runtime-ui-creation', pattern: null, blocking: true,
+    message: 'GFM_UI.Create{Canvas,Text} in gameplay flow — reuse skeleton-provided uiCanvas / guideText / scoreText refs.',
+    custom: function(code, ctx) {
+      var fileName = (ctx && ctx.filename) || '';
+      // Canonical/Manager lib files are allowed to create UI at init time.
+      if (/(?:^|\/)(GFM_UI|GFM_UIManager)\.cs$/.test(fileName)) return [];
+      var issues = [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
+        .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
+      var gameplayMethods = ['CheckEventRules', 'OnAutoPlayArrive', 'Update', 'LateUpdate', 'FixedUpdate', 'ShowFloatingText', 'UpdateGameState'];
+      for (var mi = 0; mi < gameplayMethods.length; mi++) {
+        var name = gameplayMethods[mi];
+        var sigRe = new RegExp('(?:void|\\w+)\\s+' + name + '\\s*\\([^)]*\\)\\s*\\{', 'g');
+        var sm;
+        while ((sm = sigRe.exec(stripped)) !== null) {
+          var start = sm.index + sm[0].length;
+          var depth = 1, end = start;
+          while (end < stripped.length && depth > 0) {
+            var ch = stripped[end];
+            if (ch === '{') depth++;
+            else if (ch === '}') { depth--; if (depth === 0) break; }
+            end++;
+          }
+          if (depth !== 0) continue;
+          var body = stripped.substring(start, end);
+          var bodyStartLine = stripped.substring(0, start).split('\n').length;
+          var callRe = /\bGFM_UI\s*\.\s*(CreateCanvas|CreateText|CreateImage|AddWorldLabel)\s*\(/g;
+          var cm;
+          while ((cm = callRe.exec(body)) !== null) {
+            var lineInBody = body.substring(0, cm.index).split('\n').length - 1;
+            issues.push({ line: bodyStartLine + lineInBody, text: 'GFM_UI.' + cm[1] + '() inside ' + name + '() — reuse skeleton UI refs (uiCanvas/guideText/scoreText), do not create at runtime' });
+          }
+        }
+      }
+      return issues;
+    },
+  },
   { id: 'render-no-objects', pattern: null, message: 'Phase 1 must place at least 3 pool objects on screen (anti-solid-color)', custom: function(code) {
     // Check that first phase (ruleTriggered[0] block) has at least 3 PlaceObj or transform.position calls
     var phase1Match = code.match(/ruleTriggered\[0\][^}]*\{([\s\S]*?)(?:ruleTriggered\[1\]|$)/);
@@ -307,6 +378,139 @@ var RULES = [
             line: bodyStartLine + lineInBody,
             text: p.label + ' "' + bm[0] + '" inside OnAutoPlayArrive — replace with PlaceObj/HideObj/transform.position',
           });
+        }
+      }
+      return issues;
+    },
+  },
+  // 2026-04-21: Phase-gate condition literal `false`. AI sometimes degenerates
+  // the phase-exit condition to `if (false)` or `&& false &&` — the phase is
+  // unreachable and CUA burns its full budget on visual_freeze. Walk every
+  // `if (!ruleTriggered[N]` block and reject literal `false` inside the gate.
+  { id: 'phase-condition-false-literal', pattern: null, blocking: true,
+    message: 'Phase trigger gate contains literal `false` — phase will never fire. Remove `false` and bind to EntityAdvanced(GameObject, snap).',
+    custom: function(code) {
+      var issues = [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
+        .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
+      var re = /if\s*\(\s*!\s*ruleTriggered\s*\[\s*(\d+)\s*\]/g;
+      var m;
+      while ((m = re.exec(stripped)) !== null) {
+        var start = m.index + m[0].length;
+        var depth = 1, end = start;
+        while (end < stripped.length && depth > 0) {
+          var ch = stripped[end];
+          if (ch === '(') depth++;
+          else if (ch === ')') { depth--; if (depth === 0) break; }
+          end++;
+        }
+        if (depth !== 0) continue;
+        var cond = stripped.substring(start, end);
+        if (/(^|[\s(&|!])false([\s)&|]|$)/.test(cond)) {
+          var lineNum = code.substring(0, m.index).split('\n').length;
+          issues.push({ line: lineNum, text: 'ruleTriggered[' + m[1] + '] gate contains literal `false` — phase never fires' });
+        }
+      }
+      return issues;
+    },
+  },
+  // 2026-04-21: Phase-gate references an entity that is never placed or moved.
+  // AI sometimes writes `EntityAdvanced(FooBar, _snap_FooBarPos)` where FooBar
+  // has no PlaceObj/HideObj/transform.position assignment anywhere in the file
+  // — the gate can never flip and CUA spins on visual_freeze. Require every
+  // entity used in EntityAdvanced() to have at least one write somewhere.
+  { id: 'phase-entity-unbound', pattern: null, blocking: true,
+    message: 'Phase gate references entity with no PlaceObj/HideObj/transform.position anywhere — gate cannot flip. Move the entity in the preceding phase body.',
+    custom: function(code, ctx) {
+      var issues = [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
+        .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
+      var sources = [stripped];
+      if (ctx && ctx.extraFiles) {
+        var keys = Object.keys(ctx.extraFiles);
+        for (var i = 0; i < keys.length; i++) {
+          var src = ctx.extraFiles[keys[i]];
+          if (typeof src === 'string') sources.push(src);
+        }
+      }
+      var allWrites = {};
+      var writeRes = [
+        /\bPlaceObj\s*\(\s*([A-Za-z_]\w*)/g,
+        /\bHideObj\s*\(\s*([A-Za-z_]\w*)/g,
+        /\bSetScale\s*\(\s*([A-Za-z_]\w*)/g,
+        /\b([A-Za-z_]\w*)\s*\.\s*transform\s*\.\s*position\s*=/g,
+        /\b([A-Za-z_]\w*)\s*=\s*Instantiate\s*\(/g,
+        /\b([A-Za-z_]\w*)\s*=\s*GameObject\s*\.\s*Find\s*\(/g,
+      ];
+      for (var si = 0; si < sources.length; si++) {
+        for (var ri = 0; ri < writeRes.length; ri++) {
+          var wre = new RegExp(writeRes[ri].source, 'g');
+          var wm;
+          while ((wm = wre.exec(sources[si])) !== null) {
+            allWrites[wm[1]] = true;
+          }
+        }
+      }
+      var eaRe = /\bEntityAdvanced\s*\(\s*([A-Za-z_]\w*)\s*,/g;
+      var seen = {};
+      var em;
+      while ((em = eaRe.exec(stripped)) !== null) {
+        var name = em[1];
+        if (allWrites[name]) continue;
+        if (seen[name]) continue;
+        seen[name] = true;
+        var lineNum = code.substring(0, em.index).split('\n').length;
+        issues.push({ line: lineNum, text: 'EntityAdvanced(' + name + ', ...) — `' + name + '` has no PlaceObj/HideObj/transform.position anywhere; gate unreachable' });
+      }
+      return issues;
+    },
+  },
+  // 2026-04-21: AddCompletedPhase rule-ID consistency. spec_phase_skipped was
+  // top-3 CUA root cause (7/61 failures) — AI writes `AddCompletedPhase("X")`
+  // where X doesn't match any ReportPhase/currentPhaseName in the file. Catch
+  // at static-check so AI can't drift into semantic names mid-phase instead of
+  // the exact spec phaseId (which ReportPhase ALWAYS uses since it's IMMUTABLE
+  // skeleton boilerplate).
+  { id: 'add-completed-phase-id-mismatch', pattern: null, blocking: true,
+    message: 'AddCompletedPhase(id) must reference an exact spec phaseId. Use a string that also appears in ReportPhase() or currentPhaseName = "...", or a pre-phase sentinel like "gameStart".',
+    custom: function(code, ctx) {
+      var issues = [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); });
+      // Gather legitimate phase IDs from this file AND companion partial files.
+      var sources = [stripped];
+      if (ctx && ctx.extraFiles) {
+        var eks = Object.keys(ctx.extraFiles);
+        for (var ii = 0; ii < eks.length; ii++) {
+          var src = ctx.extraFiles[eks[ii]];
+          if (typeof src === 'string') sources.push(src);
+        }
+      }
+      var validIds = { gameStart: true, gameEnd: true };
+      var gatherRes = [
+        /\bReportPhase\s*\(\s*"([^"]+)"/g,
+        /\bcurrentPhaseName\s*=\s*"([^"]+)"/g,
+      ];
+      for (var si = 0; si < sources.length; si++) {
+        for (var gi = 0; gi < gatherRes.length; gi++) {
+          var gre = new RegExp(gatherRes[gi].source, 'g');
+          var gm;
+          while ((gm = gre.exec(sources[si])) !== null) validIds[gm[1]] = true;
+        }
+      }
+      // Check AddCompletedPhase call sites in this file.
+      var acpRe = /\bAddCompletedPhase\s*\(\s*"([^"]+)"\s*\)/g;
+      var am;
+      while ((am = acpRe.exec(stripped)) !== null) {
+        var id = am[1];
+        if (!validIds[id]) {
+          var lineNum = code.substring(0, am.index).split('\n').length;
+          issues.push({ line: lineNum, text: 'AddCompletedPhase("' + id + '") — id not found in any ReportPhase/currentPhaseName; likely semantic name instead of spec phaseId' });
         }
       }
       return issues;
