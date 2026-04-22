@@ -1,21 +1,13 @@
 # auto-0f4f1f0c
 ## Diagnosis
-`method-check` calls `detectContractViolations` on `buildAggregateCode(ctx.csCode, ctx.extraFiles)` — i.e. the combined text of ALL partial class files. The post-fix block in `generateWithCodex` (worker/codex-code-coder.js ~L1355–1363) applies `.GetComponent<T>()` → non-generic replacement **only to `mainSrc`** (GameFlowManagerMain.cs) and then writes it back. Any `GetComponent<T>` calls emitted by the AI into `Systems.cs`, `Flow.cs`, `Input.cs`, `Resource.cs`, `UI.cs`, or `Scene.cs` are never sanitized, so they survive into `ctx.extraFiles` and trip the `forbidden-generic-api` gate every run.
-
-Separately, the `player-alias-drift` feedback message (`"Generated code must use one consistent skeleton-owned player symbol"`) does not name the canonical form. The AI has no unambiguous instruction to resolve the conflict, so it continues emitting mixed `player`/`Player`/`PlayerAvatar` symbols across the 23 retry iterations.
+`method-check.cjs` pushes contract violation feedback with `data: violations[vi].data` (an array of strings, e.g. `["GetComponent<Text>"]`). However `codex-code-coder.js` extracts feedback text by checking `fb.data && fb.data.text` first, then `fb.text`, finally falling back to `JSON.stringify(fb)`. Since neither `.text` property exists on the array, the AI always receives a raw JSON blob instead of a human-readable fix instruction — it cannot act on it reliably. Simultaneously, the generic-API post-fix in `generateWithCodex` (step 6, lines 1355–1363) only rewrites `GameFlowManagerMain.cs`; any `GetComponent<T>()` calls written by the AI into `GameFlowManagerMain.Systems.cs` survive untouched, are detected by `detectForbiddenGenericApis`, and re-trigger the violation every retry cycle. Both bugs together produce a non-converging loop that exhausts the retry budget (28 retries / 5 tasks).
 
 ## Root Cause
-
-**Primary — `forbidden-generic-api`:**
-`worker/codex-code-coder.js` lines 1355–1363 — post-fix loop is scoped to `mainSrc` only; no equivalent pass over `GameFlowManagerMain.Systems.cs` or any W1b-5-partial companions (`Flow`, `Input`, `Resource`, `UI`, `Scene`).
-
-Also: the existing regex `/\.GetComponent<(\w+)>\(\)/g` does not match the detector's more permissive `/\.GetComponent\s*<\s*...\s*>\s*\(/g`, so AI-emitted forms with whitespace (e.g. `.GetComponent< Renderer >()`) are caught by the gate but missed by the sanitizer.
-
-**Secondary — `player-alias-drift`:**
-`engine/stages/method-check.cjs` line ~352 — the violation message is non-prescriptive; it names the aliases found but not the canonical replacement, so feedback-loop AI repairs fail to converge.
+- **Feedback format mismatch**: `engine/stages/method-check.cjs` line 533 — `data: violations[vi].data` (array) should be `data: { text: violations[vi].message }` (object with `.text`)
+- **Partial post-fix coverage**: `worker/codex-code-coder.js` lines 1355–1364 — post-fix only rewrites the main file; `GameFlowManagerMain.Systems.cs` and other partials are not processed
 
 ## Fix
 
-### 1. `worker/codex-code-coder.js` — extend post-fix to all partial files (lines 1355–1363)
+### 1. `engine/stages/method-check.cjs` — lines 530–540 (contract violation feedback push)
 
-**Replace** the existing post-fix block:
+**Before:**

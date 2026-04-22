@@ -371,13 +371,13 @@
   },
   {
     "id": "auto-0f4f1f0c",
-    "fingerprintPattern": "Codegen contract failed:.*forbidden-generic-api.*player-alias-drift",
-    "description": "Post-fix for generic API calls only sanitizes GameFlowManagerMain.cs (mainSrc); partial class files in extraFiles (Systems/Flow/Input/Resource/UI/Scene) escape the fix and still carry .GetComponent<T>() hits; separately, player-alias-drift feedback message is too vague to guide the AI to a specific canonical form, causing 23-retry loops.",
+    "fingerprintPattern": "Codegen contract failed: forbidden-generic-api(?:,\\s*player-alias-drift)?|Codegen contract failed: player-alias-drift(?:,\\s*forbidden-generic-api)?",
+    "description": "method-check contract feedback lands as raw JSON blob (wrong shape) so the AI never receives actionable text; additionally, the generic-API post-fix in generateWithCodex only covers the main .cs file, leaving Systems.cs violations unpatched — together causing an unresolvable retry loop.",
     "risk": "medium",
     "autoApply": true,
     "affectedFiles": [
-      "worker/codex-code-coder.js",
-      "engine/stages/method-check.cjs"
+      "engine/stages/method-check.cjs",
+      "worker/codex-code-coder.js"
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-0f4f1f0c.md"
@@ -385,13 +385,90 @@
   {
     "id": "auto-1c2e2a5b",
     "fingerprintPattern": "Codegen contract failed:.*(?:duplicate-state-fields|forbidden-generic-api|player-alias-drift)",
-    "description": "method-check never invalidates the codegen checkpoint on contract failure, so retries skip codegen and loop on the same bad code indefinitely",
+    "description": "method-check contract violations loop infinitely because the generic-API post-fix only patches GameFlowManagerMain.cs and silently skips all other partial class files, and feedbackHistory accumulates redundant violation entries on every retry.",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "worker/codex-code-coder.js",
+      "engine/stages/method-check.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-1c2e2a5b.md"
+  },
+  {
+    "id": "auto-69100382",
+    "fingerprintPattern": "complexity-gate: all \\d+ simplification attempts failed\\. Last error: Unexpected end of JSON input",
+    "description": "parseSimplifyResponse catch-block never structurally repairs truncated JSON; both passes fall through to the same broken raw string and re-throw the same SyntaxError",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/complexity-gate.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-69100382.md"
+  },
+  {
+    "id": "auto-2d1db2a0",
+    "fingerprintPattern": "Codegen contract failed: .*invalid-pool-literals|Invalid pool literals detected:",
+    "description": "Generated code rebinds entities with non-blueprint pool names, but the current prompt/review loop does not force the exact allowed literal set back into the repair request.",
+    "risk": "medium",
+    "autoApply": false,
+    "affectedFiles": [
+      "engine/stages/method-check.cjs",
+      "worker/prompt-v5-basetemplate.js",
+      "worker/codex-code-coder.js"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-2d1db2a0.md"
+  },
+  {
+    "id": "auto-a436c2e7",
+    "fingerprintPattern": "Phase gate contract failed: .*phase-entity-init-only|phase-entity-init-only",
+    "description": "Phase gate logic still snapshots entities that only move during Phase_<id>_Init(), so retries keep generating timer-only or init-only progression even after deterministic pre-repair.",
+    "risk": "medium",
+    "autoApply": false,
+    "affectedFiles": [
+      "engine/stages/method-check.cjs",
+      "engine/stages/review.cjs",
+      "worker/prompt-v5-basetemplate.js"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-a436c2e7.md"
+  },
+  {
+    "id": "auto-6ce31094",
+    "fingerprintPattern": "Codegen contract failed:.*forbidden-generic-api",
+    "description": "method-check auto-repair regex \\(\\s*\\) is stricter than detection regex \\( — GetComponent<T>(…) calls with non-whitespace content between parens are detected but not repaired, causing a spurious contract failure after the auto-repair ran",
     "risk": "medium",
     "autoApply": true,
     "affectedFiles": [
       "engine/stages/method-check.cjs"
     ],
     "relatedMemories": [],
-    "recipeFile": "fix-recipes/auto-1c2e2a5b.md"
+    "recipeFile": "fix-recipes/auto-6ce31094.md"
+  },
+  {
+    "id": "auto-b875c1ea",
+    "fingerprintPattern": "Codegen contract failed:.*player-alias-drift",
+    "description": "AI-generated C# mixes multiple player field aliases (player/Player/PlayerAvatar); method-check has no auto-repair path and forces an expensive codegen retry that also fails.",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/method-check.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-b875c1ea.md"
+  },
+  {
+    "id": "auto-d38eeb27",
+    "fingerprintPattern": "duplicate-state-fields",
+    "description": "method-check throws 'Codegen contract failed: duplicate-state-fields' because no auto-repair exists for cross-partial *State field duplication, forcing a failing full-codegen retry loop",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/method-check.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-d38eeb27.md"
   }
 ]

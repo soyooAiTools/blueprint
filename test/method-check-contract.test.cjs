@@ -1,6 +1,7 @@
 const assert = require('assert');
 
 const methodCheck = require('../engine/stages/method-check.cjs');
+const gfmFiles = require('../worker/gfm-files.cjs').loadGfmFiles();
 
 {
   const ctx = {
@@ -53,6 +54,9 @@ const methodCheck = require('../engine/stages/method-check.cjs');
   };
   const violations = methodCheck.detectContractViolations(ctx);
   assert.ok(violations.some(v => v.rule === 'player-alias-drift'));
+  const drift = violations.find(v => v.rule === 'player-alias-drift');
+  assert.strictEqual(drift.data.canonicalAlias, 'Player');
+  assert.ok(/Normalize all player references to `Player`/.test(drift.message));
 }
 
 {
@@ -76,7 +80,8 @@ const methodCheck = require('../engine/stages/method-check.cjs');
   const violations = methodCheck.detectContractViolations(ctx);
   const invalidPools = violations.find(v => v.rule === 'invalid-pool-literals');
   assert.ok(invalidPools);
-  assert.ok(invalidPools.data.includes('__Pool_Cube_Gold_01'));
+  assert.ok(invalidPools.data.invalidPools.includes('__Pool_Cube_Gold_01'));
+  assert.ok(invalidPools.data.allowedPools.includes('__Pool_Cube_Blue_01'));
 }
 
 {
@@ -99,6 +104,57 @@ const methodCheck = require('../engine/stages/method-check.cjs');
   };
   const violations = methodCheck.detectContractViolations(ctx);
   assert.deepStrictEqual(violations, []);
+}
+
+{
+  const ctx = {
+    csCode: [
+      'using UnityEngine;',
+      'public class Demo : MonoBehaviour',
+      '{',
+      '    // player is mentioned in comment only',
+      '    string s = "PlayerAvatar";',
+      '    GameObject player;',
+      '    void Update() { if (player != null) {} }',
+      '}',
+    ].join('\n'),
+    extraFiles: {},
+    blueprint: { entities: [] },
+  };
+  const violations = methodCheck.detectContractViolations(ctx);
+  assert.deepStrictEqual(violations, []);
+}
+
+{
+  const ctx = {
+    csCode: [
+      'using UnityEngine;',
+      'public partial class GameFlowManagerMain : MonoBehaviour',
+      '{',
+      '    void Update() { }',
+      '}',
+    ].join('\n'),
+    extraFiles: gfmFiles,
+    blueprint: { entities: [] },
+  };
+  const violations = methodCheck.detectContractViolations(ctx);
+  assert.deepStrictEqual(violations, []);
+}
+
+{
+  const ctx = {
+    csCode: [
+      'using UnityEngine;',
+      'public partial class GameFlowManagerMain : MonoBehaviour',
+      '{',
+      '    void Update() { var x = gameObject.GetComponent<Renderer>(); }',
+      '}',
+    ].join('\n'),
+    extraFiles: Object.assign({}, gfmFiles),
+    blueprint: { entities: [] },
+  };
+  const violations = methodCheck.detectContractViolations(ctx);
+  assert.ok(violations.some(v => v.rule === 'forbidden-generic-api'));
 }
 
 console.log('method-check contract tests passed');

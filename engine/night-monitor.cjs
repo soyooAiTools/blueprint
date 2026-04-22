@@ -300,6 +300,13 @@ function shouldResubmit(projectState, repoHead) {
   return false;
 }
 
+function isPermanentFailure(project) {
+  var statusMessage = String(project && project.statusMessage || '');
+  var failReason = String(project && project.lastFailure && project.lastFailure.failReason || '');
+  return /Permanently failed after \d+ code retries/i.test(statusMessage) ||
+    /Permanently failed after \d+ code retries/i.test(failReason);
+}
+
 async function runCycle(trigger) {
   ensureDir(INCIDENT_DIR);
   writeHeartbeat({ phase: 'cycle-start', trigger: trigger || 'manual' });
@@ -380,14 +387,17 @@ async function runCycle(trigger) {
     var project = failed[i];
     var projectState = summarizeFailure(project, state, repoHead);
     state.projects[project.id] = projectState;
+    var permanentFailure = isPermanentFailure(project);
     summary.failedProjects.push({
       id: project.id,
       name: project.name || '',
       fingerprint: projectState.fingerprint,
       sameFingerprintCount: projectState.sameFingerprintCount,
       statusMessage: (project.statusMessage || '').slice(0, 240),
+      permanentFailure: permanentFailure,
     });
 
+    if (permanentFailure) continue;
     if (!shouldResubmit(projectState, repoHead)) continue;
     try {
       await requestJson('POST', '/api/projects/' + encodeURIComponent(project.id) + '/submit', {});
@@ -496,4 +506,6 @@ if (require.main === module || process.env.pm_id != null) start();
 module.exports = {
   runCycle: runCycle,
   start: start,
+  shouldResubmit: shouldResubmit,
+  isPermanentFailure: isPermanentFailure,
 };

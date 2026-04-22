@@ -12,7 +12,6 @@
 
 // ============ Safe Lists ============
 var staticCheckStage = require('../static-check.cjs');
-
 /**
  * Methods pre-built by the skeleton that AI can call without defining them.
  */
@@ -237,6 +236,257 @@ function injectMissingHelpers(ctx, missing) {
 }
 
 /**
+ * Strip forbidden generic component API calls (.GetComponent<T>()) from a single
+ * code string, replacing them with the non-generic Bridge-safe overload
+ * (.GetComponent(typeof(T))).  Returns { changed, code }.
+ *
+ * This mirrors the stripping that the legacy codegen path performs via
+ * applyLunaPostFixesToManagerPartials() before writing to disk.  The schema
+ * codegen path never touches disk before method-check runs, so we must repair
+ * in-memory here instead.
+ *
+ * @param {string} code
+ * @returns {{ changed: boolean, code: string }}
+ */
+function stripGenericGetComponentCalls(code) {
+  if (!code) return { changed: false, code: code };
+  var original = String(code);
+  var stripped = original.replace(
+    /\.GetComponent\s*<\s*([A-Za-z_][A-Za-z0-9_.]*)\s*>\s*\(\s*\)/g,
+    '.GetComponent(typeof($1))'
+  );
+  return { changed: stripped !== original, code: stripped };
+}
+
+/**
+ * Auto-repair forbidden generic API calls in ctx.csCode and ctx.extraFiles
+ * before the contract-violation check runs.  Identical in structure to
+ * injectMissingHelpers().
+ *
+ * The schema codegen path sets both fields entirely in-memory and never calls
+ * stripGenericMethodCallsForLuna(), so .GetComponent<T>() calls introduced by
+ * the AI survive intact until this point.  Stripping them here avoids a
+ * wasteful full-codegen retry on a forbidden-generic-api contract failure.
+ *
+ * @param {object} ctx  pipeline context
+ * @returns {boolean}  true if any code was modified
+ */
+function autoRepairForbiddenGenericApis(ctx) {
+  if (!ctx || !ctx.csCode) return false;
+
+  var changed = false;
+
+  var mainResult = stripGenericGetComponentCalls(ctx.csCode);
+  if (mainResult.changed) {
+    ctx.csCode = mainResult.code;
+    changed = true;
+  }
+
+  var extraFiles = ctx.extraFiles || {};
+  Object.keys(extraFiles).forEach(function(name) {
+    var res = stripGenericGetComponentCalls(extraFiles[name]);
+    if (res.changed) {
+      extraFiles[name] = res.code;
+      changed = true;
+    }
+  });
+
+  return changed;
+}
+
+/**
+ * Auto-repair duplicate *State field declarations that appear across multiple
+ * cross-partial files (e.g. GameFlowManagerMain.cs and
+ * GameFlowManagerMain.Resource.cs both declaring `int FooState = 0;`).
+ *
+ * Processing order: ctx.csCode first, then ctx.extraFiles in Object.keys() order.
+ * The first occurrence of each *State field is kept; every subsequent declaration
+ * of the same field name is removed (the whole source line is dropped).
+ *
+ * This mirrors the autoRepairForbiddenGenericApis() pattern and prevents a
+ * duplicate-state-fields contract failure from triggering a wasteful
+ * full-codegen retry loop when the schema codegen path emits the same field
+ * in more than one partial.
+ *
+ * @param {object} ctx  pipeline context
+ * @returns {boolean}  true if any code was modified
+ */
+function autoRepairDuplicateStateFields(ctx) {
+  if (!ctx || !ctx.csCode) return false;
+
+  var changed = false;
+  var seenFields = {};
+
+  // Matches a line whose significant content is a single *State field declaration.
+  // Mirrors the pattern used in detectDuplicateStateFields() but anchored to a line
+  // so we can safely drop the whole line without disturbing surrounding code.
+  var stateFieldLineRe = /^[ \t]*(?:(?:public|private|protected|internal)\s+)?(?:static\s+)?(?:int|float|bool|string)\s+([A-Z][A-Za-z0-9_]*State)\s*(?:=\s*[^;]+)?;[ \t]*$/;
+
+  function removeDuplicatesFromCode(code) {
+    if (!code) return { changed: false, code: code };
+    var original = String(code);
+    var lines = original.split('\n');
+    var resultLines = [];
+    var fileChanged = false;
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      var m = stateFieldLineRe.exec(line);
+      if (m) {
+        var fieldName = m[1];
+        if (seenFields[fieldName]) {
+          // Duplicate across partials — drop this line entirely
+          fileChanged = true;
+          continue;
+        }
+        seenFields[fieldName] = true;
+      }
+      resultLines.push(line);
+    }
+    return { changed: fileChanged, code: resultLines.join('\n') };
+  }
+
+  var mainResult = removeDuplicatesFromCode(ctx.csCode);
+  if (mainResult.changed) {
+    ctx.csCode = mainResult.code;
+    changed = true;
+  }
+
+  var extraFiles = ctx.extraFiles || {};
+  Object.keys(extraFiles).forEach(function(name) {
+    var res = removeDuplicatesFromCode(extraFiles[name]);
+    if (res.changed) {
+      extraFiles[name] = res.code;
+      changed = true;
+    }
+  });
+
+  return changed;
+}
+
+function replaceIdentifierWord(code, fromName, toName) {
+  if (!code || !fromName || !toName || fromName === toName) {
+    return { changed: false, code: code };
+  }
+  var re = new RegExp('\\b' + fromName + '\\b', 'g');
+  var next = String(code).replace(re, toName);
+  return { changed: next !== code, code: next };
+}
+
+function autoRepairPlayerAliasDrift(ctx) {
+  if (!ctx || !ctx.csCode) return false;
+  var aggregateCode = buildTaskAggregateCode(ctx);
+  var aliases = detectPlayerAliasDrift(aggregateCode);
+  if (!aliases || aliases.length === 0) return false;
+
+  var canonicalAlias = chooseCanonicalPlayerAlias(aggregateCode);
+  var changed = false;
+  var extraFiles = ctx.extraFiles || {};
+  var aliasSet = {};
+  for (var i = 0; i < aliases.length; i++) {
+    aliasSet[aliases[i]] = true;
+  }
+  delete aliasSet[canonicalAlias];
+
+  Object.keys(aliasSet).forEach(function(alias) {
+    var mainRes = replaceIdentifierWord(ctx.csCode, alias, canonicalAlias);
+    if (mainRes.changed) {
+      ctx.csCode = mainRes.code;
+      changed = true;
+    }
+    Object.keys(extraFiles).forEach(function(name) {
+      var res = replaceIdentifierWord(extraFiles[name], alias, canonicalAlias);
+      if (res.changed) {
+        extraFiles[name] = res.code;
+        changed = true;
+      }
+    });
+  });
+
+  return changed;
+}
+
+function scorePoolCandidate(invalidPool, candidatePool) {
+  var invalidParts = String(invalidPool || '').split('_');
+  var candidateParts = String(candidatePool || '').split('_');
+  var score = 0;
+  if (invalidParts[2] && candidateParts[2] && invalidParts[2] === candidateParts[2]) score += 5;
+  if (invalidParts[3] && candidateParts[3] && invalidParts[3] === candidateParts[3]) score += 4;
+  if (invalidParts[4] && candidateParts[4] && invalidParts[4] === candidateParts[4]) score += 1;
+  for (var i = 2; i < invalidParts.length; i++) {
+    for (var j = 2; j < candidateParts.length; j++) {
+      if (invalidParts[i] && invalidParts[i] === candidateParts[j]) score += 1;
+    }
+  }
+  return score;
+}
+
+function chooseReplacementPoolLiteral(invalidPool, allowedPools) {
+  if (!invalidPool || !allowedPools || allowedPools.length === 0) return null;
+  if (allowedPools.indexOf(invalidPool) >= 0) return invalidPool;
+  if (allowedPools.length === 1) return allowedPools[0];
+
+  var bestPool = null;
+  var bestScore = -1;
+  var tie = false;
+  for (var i = 0; i < allowedPools.length; i++) {
+    var candidate = allowedPools[i];
+    var score = scorePoolCandidate(invalidPool, candidate);
+    if (score > bestScore) {
+      bestPool = candidate;
+      bestScore = score;
+      tie = false;
+    } else if (score === bestScore) {
+      tie = true;
+    }
+  }
+  if (bestScore <= 0) return null;
+  if (tie && bestScore < 9) return null;
+  return bestPool;
+}
+
+function autoRepairInvalidPoolLiterals(ctx) {
+  if (!ctx || !ctx.csCode) return false;
+  var invalidPools = detectInvalidPoolLiterals(buildTaskAggregateCode(ctx), ctx);
+  if (!invalidPools || invalidPools.length === 0) return false;
+  var allowedPools = collectAllowedPoolList(ctx);
+  if (!allowedPools || allowedPools.length === 0) return false;
+
+  var replacements = {};
+  for (var i = 0; i < invalidPools.length; i++) {
+    var replacement = chooseReplacementPoolLiteral(invalidPools[i], allowedPools);
+    if (replacement && replacement !== invalidPools[i]) {
+      replacements[invalidPools[i]] = replacement;
+    }
+  }
+  if (Object.keys(replacements).length === 0) return false;
+
+  function rewritePools(code) {
+    if (!code) return { changed: false, code: code };
+    var next = String(code);
+    Object.keys(replacements).forEach(function(fromPool) {
+      next = next.split(fromPool).join(replacements[fromPool]);
+    });
+    return { changed: next !== code, code: next };
+  }
+
+  var changed = false;
+  var mainRes = rewritePools(ctx.csCode);
+  if (mainRes.changed) {
+    ctx.csCode = mainRes.code;
+    changed = true;
+  }
+  var extraFiles = ctx.extraFiles || {};
+  Object.keys(extraFiles).forEach(function(name) {
+    var res = rewritePools(extraFiles[name]);
+    if (res.changed) {
+      extraFiles[name] = res.code;
+      changed = true;
+    }
+  });
+  return changed;
+}
+
+/**
  * Invalidate the codegen checkpoint so the next pipeline retry forces a fresh
  * codegen run rather than skipping it.  Mirrors the pattern used in
  * spec-validate.cjs for spec-extract invalidation.
@@ -261,6 +511,56 @@ function buildAggregateCode(csCode, extraFiles) {
     }
   }
   return aggregateCode;
+}
+
+function isTaskPartialFile(fileName) {
+  return /^GameFlowManagerMain.*\.cs$/.test(String(fileName || ''));
+}
+
+function buildTaskPartialCodeBundle(ctx) {
+  var bundle = [{ file: 'main', code: ctx && ctx.csCode || '' }];
+  var extraFiles = ctx && ctx.extraFiles || {};
+  Object.keys(extraFiles).forEach(function(name) {
+    if (!isTaskPartialFile(name)) return;
+    bundle.push({ file: name, code: String(extraFiles[name] || '') });
+  });
+  return bundle;
+}
+
+function buildTaskAggregateCode(ctx) {
+  return buildTaskPartialCodeBundle(ctx).map(function(entry) { return entry.code; }).join('\n');
+}
+
+function collectAllowedPoolList(ctx) {
+  return Object.keys(collectAllowedPoolNames(ctx)).sort();
+}
+
+function pushFeedbackUnique(ctx, entry) {
+  if (!ctx || !ctx.blueprint) return;
+  if (!ctx.blueprint.feedbackHistory) ctx.blueprint.feedbackHistory = [];
+  var history = ctx.blueprint.feedbackHistory;
+  var signature = [
+    entry.source || '',
+    entry.rule || '',
+    entry.file || '',
+    entry.line || '',
+    entry.message || '',
+  ].join('|');
+  for (var i = 0; i < history.length; i++) {
+    var existing = history[i] || {};
+    var existingSig = [
+      existing.source || '',
+      existing.rule || '',
+      existing.file || '',
+      existing.line || '',
+      existing.message || '',
+    ].join('|');
+    if (existingSig === signature) {
+      history[i] = Object.assign({}, existing, entry, { timestamp: new Date().toISOString() });
+      return;
+    }
+  }
+  history.push(entry);
 }
 
 function stripComments(code) {
@@ -296,15 +596,48 @@ function detectForbiddenGenericApis(code) {
 
 function detectPlayerAliasDrift(code) {
   var aliases = [];
+  var scanCode = stripComments(code)
+    .replace(/"(?:\\.|[^"\\])*"/g, '""')
+    .replace(/'(?:\\.|[^'\\])*'/g, "''");
   var patterns = [
-    { name: 'player', re: /(^|[^A-Za-z0-9_])player([^A-Za-z0-9_]|$)/ },
-    { name: 'Player', re: /(^|[^A-Za-z0-9_])Player([^A-Za-z0-9_]|$)/ },
-    { name: 'PlayerAvatar', re: /(^|[^A-Za-z0-9_])PlayerAvatar([^A-Za-z0-9_]|$)/ },
+    {
+      name: 'player',
+      decl: /\b(?:GameObject|Transform|Rigidbody|Collider|CharacterController)\s+player\b/,
+      assign: /\bplayer\s*=/,
+      use: /(^|[^A-Za-z0-9_])player([^A-Za-z0-9_]|$)/
+    },
+    {
+      name: 'Player',
+      decl: /\b(?:GameObject|Transform|Rigidbody|Collider|CharacterController)\s+Player\b/,
+      assign: /\bPlayer\s*=/,
+      use: /(^|[^A-Za-z0-9_])Player([^A-Za-z0-9_]|$)/
+    },
+    {
+      name: 'PlayerAvatar',
+      decl: /\b(?:GameObject|Transform|Rigidbody|Collider|CharacterController)\s+PlayerAvatar\b/,
+      assign: /\bPlayerAvatar\s*=/,
+      use: /(^|[^A-Za-z0-9_])PlayerAvatar([^A-Za-z0-9_]|$)/
+    },
   ];
   patterns.forEach(function(entry) {
-    if (entry.re.test(code || '')) aliases.push(entry.name);
+    if (entry.decl.test(scanCode) || entry.assign.test(scanCode) || entry.use.test(scanCode)) {
+      aliases.push(entry.name);
+    }
   });
   return aliases.length > 1 ? aliases : [];
+}
+
+function chooseCanonicalPlayerAlias(code) {
+  var scanCode = stripComments(code)
+    .replace(/"(?:\\.|[^"\\])*"/g, '""')
+    .replace(/'(?:\\.|[^'\\])*'/g, "''");
+  var preferences = ['player', 'Player', 'PlayerAvatar'];
+  for (var i = 0; i < preferences.length; i++) {
+    var alias = preferences[i];
+    var re = new RegExp('\\b(?:GameObject|Transform|Rigidbody|Collider|CharacterController)\\s+' + alias + '\\b|\\b' + alias + '\\s*=');
+    if (re.test(scanCode)) return alias;
+  }
+  return 'player';
 }
 
 function collectAllowedPoolNames(ctx) {
@@ -340,7 +673,7 @@ function detectInvalidPoolLiterals(code, ctx) {
 }
 
 function detectContractViolations(ctx) {
-  var code = buildAggregateCode(ctx && ctx.csCode, ctx && ctx.extraFiles);
+  var code = buildTaskAggregateCode(ctx);
   var violations = [];
   var duplicateStates = detectDuplicateStateFields(code);
   if (duplicateStates.length > 0) {
@@ -362,20 +695,28 @@ function detectContractViolations(ctx) {
   }
   var playerAliases = detectPlayerAliasDrift(code);
   if (playerAliases.length > 0) {
+    var canonicalPlayerAlias = chooseCanonicalPlayerAlias(code);
     violations.push({
       rule: 'player-alias-drift',
       severity: 'critical',
-      message: 'Mixed player aliases detected: ' + playerAliases.join(', ') + '. Generated code must use one consistent skeleton-owned player symbol.',
-      data: playerAliases,
+      message: 'Mixed player aliases detected: ' + playerAliases.join(', ') + '. Normalize all player references to `' + canonicalPlayerAlias + '` and remove the other aliases.',
+      data: {
+        aliases: playerAliases,
+        canonicalAlias: canonicalPlayerAlias,
+      },
     });
   }
   var invalidPools = detectInvalidPoolLiterals(code, ctx);
   if (invalidPools.length > 0) {
+    var allowedPools = collectAllowedPoolList(ctx);
     violations.push({
       rule: 'invalid-pool-literals',
       severity: 'critical',
-      message: 'Invalid pool literals detected: ' + invalidPools.join(', ') + '. Use only exact pool names from the blueprint/skeleton mapping.',
-      data: invalidPools,
+      message: 'Invalid pool literals detected: ' + invalidPools.join(', ') + '. Allowed pool literals for this task: ' + allowedPools.join(', ') + '. Use only exact pool names from the blueprint/skeleton mapping.',
+      data: {
+        invalidPools: invalidPools,
+        allowedPools: allowedPools,
+      },
     });
   }
   return violations;
@@ -437,6 +778,27 @@ function applyPhaseGatePreRepair(ctx) {
     ctx.extraFiles = extras;
   }
   return { changed: changed, fixes: fixes };
+}
+
+function autoRepairPhaseGateViolations(ctx, maxPasses) {
+  var passes = typeof maxPasses === 'number' ? maxPasses : 2;
+  var changed = false;
+  var fixes = [];
+  var violations = [];
+  for (var pass = 0; pass < passes; pass++) {
+    violations = detectPhaseGateViolations(ctx);
+    if (!violations || violations.length === 0) {
+      return { changed: changed, fixes: fixes, violations: [] };
+    }
+    var repair = applyPhaseGatePreRepair(ctx);
+    if (!repair.changed) {
+      return { changed: changed, fixes: fixes, violations: violations };
+    }
+    changed = true;
+    fixes = fixes.concat(repair.fixes || []);
+  }
+  violations = detectPhaseGateViolations(ctx);
+  return { changed: changed, fixes: fixes, violations: violations };
 }
 
 function detectPhaseGateViolations(ctx) {
@@ -511,6 +873,29 @@ function execute(ctx) {
   }
 
   if (!missing || missing.length === 0) {
+    // AUTO-REPAIR: strip any forbidden generic API calls (.GetComponent<T>()) that
+    // survived in-memory from the schema codegen path before running the contract
+    // check.  The legacy path strips these at disk-write time; we must do it here
+    // for the schema path which never writes to disk before this stage runs.
+    if (autoRepairForbiddenGenericApis(ctx)) {
+      console.log('[method-check] AUTO-REPAIR — stripped forbidden generic API calls (.GetComponent<T>)');
+    }
+
+    // AUTO-REPAIR: remove duplicate *State field declarations that the schema codegen
+    // path can emit across multiple GameFlowManagerMain*.cs partials.  Keeping only
+    // the first occurrence avoids a duplicate-state-fields contract failure and the
+    // wasteful full-codegen retry loop it would otherwise trigger.
+    if (autoRepairDuplicateStateFields(ctx)) {
+      console.log('[method-check] AUTO-REPAIR — removed duplicate *State field declarations across partials');
+    }
+
+    if (autoRepairPlayerAliasDrift(ctx)) {
+      console.log('[method-check] AUTO-REPAIR — normalized player aliases across partials');
+    }
+    if (autoRepairInvalidPoolLiterals(ctx)) {
+      console.log('[method-check] AUTO-REPAIR — rewrote invalid pool literals to allowed blueprint pools');
+    }
+
     var violations = [];
     try {
       violations = detectContractViolations(ctx);
@@ -525,17 +910,17 @@ function execute(ctx) {
 
     console.warn('[method-check] CONTRACT violations:', violations.map(function(v) { return v.rule; }).join(', '));
 
-    if (ctx.blueprint && !ctx.blueprint.feedbackHistory) {
-      ctx.blueprint.feedbackHistory = [];
-    }
-    if (ctx.blueprint && ctx.blueprint.feedbackHistory) {
+    if (ctx.blueprint) {
       for (var vi = 0; vi < violations.length; vi++) {
-        ctx.blueprint.feedbackHistory.push({
+        pushFeedbackUnique(ctx, {
           source: 'codegen-contract-check',
           severity: violations[vi].severity || 'critical',
           rule: violations[vi].rule,
           message: violations[vi].message,
-          data: violations[vi].data,
+          data: {
+            text: violations[vi].message,
+            structured: violations[vi].data,
+          },
           timestamp: new Date().toISOString()
         });
       }
@@ -548,19 +933,20 @@ function execute(ctx) {
 
   var phaseViolations = [];
   try {
-    phaseViolations = detectPhaseGateViolations(ctx);
+    var phaseRepairLoop = autoRepairPhaseGateViolations(ctx, 2);
+    if (phaseRepairLoop.changed) {
+      console.log('[method-check] AUTO-REPAIR — phase gate post-check repair:', phaseRepairLoop.fixes.join(', '));
+    }
+    phaseViolations = phaseRepairLoop.violations || [];
   } catch (phaseErr) {
     console.warn('[method-check] phase gate check threw:', phaseErr && phaseErr.message);
     phaseViolations = [];
   }
   if (phaseViolations.length > 0) {
     console.warn('[method-check] PHASE-GATE violations:', phaseViolations.map(function(v) { return v.rule; }).join(', '));
-    if (ctx.blueprint && !ctx.blueprint.feedbackHistory) {
-      ctx.blueprint.feedbackHistory = [];
-    }
-    if (ctx.blueprint && ctx.blueprint.feedbackHistory) {
+    if (ctx.blueprint) {
       for (var pi = 0; pi < phaseViolations.length; pi++) {
-        ctx.blueprint.feedbackHistory.push({
+        pushFeedbackUnique(ctx, {
           source: 'phase-gate-contract-check',
           severity: phaseViolations[pi].severity,
           rule: phaseViolations[pi].rule,
@@ -584,12 +970,8 @@ function execute(ctx) {
   console.warn('[method-check] MISSING methods:', missing.join(', '));
 
   // Ensure feedbackHistory exists
-  if (ctx.blueprint && !ctx.blueprint.feedbackHistory) {
-    ctx.blueprint.feedbackHistory = [];
-  }
-
-  if (ctx.blueprint && ctx.blueprint.feedbackHistory) {
-    ctx.blueprint.feedbackHistory.push({
+  if (ctx.blueprint) {
+    pushFeedbackUnique(ctx, {
       source: 'method-completeness-check',
       severity: 'critical',
       message: 'The following methods are called in Update() / CheckEventRules() but are not defined anywhere in the generated code: ' + missing.join(', ') + '. Each missing method must be implemented with correct logic — do not remove the call, add the definition.',
@@ -617,8 +999,17 @@ module.exports = {
   detectDuplicateStateFields: detectDuplicateStateFields,
   detectForbiddenGenericApis: detectForbiddenGenericApis,
   detectPlayerAliasDrift: detectPlayerAliasDrift,
+  chooseCanonicalPlayerAlias: chooseCanonicalPlayerAlias,
   detectInvalidPoolLiterals: detectInvalidPoolLiterals,
+  buildTaskAggregateCode: buildTaskAggregateCode,
+  pushFeedbackUnique: pushFeedbackUnique,
   injectMissingHelpers: injectMissingHelpers,
+  autoRepairForbiddenGenericApis: autoRepairForbiddenGenericApis,
+  autoRepairDuplicateStateFields: autoRepairDuplicateStateFields,
+  autoRepairPlayerAliasDrift: autoRepairPlayerAliasDrift,
+  autoRepairInvalidPoolLiterals: autoRepairInvalidPoolLiterals,
+  autoRepairPhaseGateViolations: autoRepairPhaseGateViolations,
+  chooseReplacementPoolLiteral: chooseReplacementPoolLiteral,
   extractMethodDefinitions: extractMethodDefinitions,
   extractMethodCalls: extractMethodCalls,
   SKELETON_SAFE: SKELETON_SAFE

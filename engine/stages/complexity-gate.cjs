@@ -242,12 +242,14 @@ function parseSimplifyResponse(text) {
   try {
     parsed = JSON.parse(raw.trim());
   } catch (err) {
-    // Second pass: common truncated-output repair.
+    // Second pass: structurally repair truncated JSON by closing open braces/brackets.
+    // extractFirstBalancedJsonObject returns null for unclosed JSON; fall back to
+    // repairTruncatedJson which appends the missing closing characters.
     var repaired = raw
       .replace(/,\s*([}\]])/g, '$1')
       .replace(/[\u0000-\u001F]+/g, ' ')
       .trim();
-    repaired = extractFirstBalancedJsonObject(repaired) || repaired;
+    repaired = extractFirstBalancedJsonObject(repaired) || repairTruncatedJson(repaired);
     parsed = JSON.parse(repaired);
   }
   if (!Array.isArray(parsed.specs)) throw new Error('LLM response missing "specs" array');
@@ -284,6 +286,40 @@ function extractFirstBalancedJsonObject(text) {
 }
 
 /**
+ * Repair a truncated JSON string by appending the missing closing `}` / `]` characters.
+ * Walks the string tracking open brace/bracket depth (respecting string literals and
+ * escape sequences) and appends closers in LIFO order.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function repairTruncatedJson(text) {
+  text = String(text || '').trim();
+  var stack = [];
+  var inString = false;
+  var escaped = false;
+  for (var i = 0; i < text.length; i++) {
+    var ch = text[i];
+    if (inString) {
+      if (escaped) { escaped = false; continue; }
+      if (ch === '\\') { escaped = true; continue; }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '{') stack.push('}');
+    else if (ch === '[') stack.push(']');
+    else if (ch === '}' || ch === ']') stack.pop();
+  }
+  // Strip trailing comma before appending closers to avoid invalid JSON
+  var repaired = text.replace(/,\s*$/, '');
+  while (stack.length > 0) {
+    repaired += stack.pop();
+  }
+  return repaired;
+}
+
+/**
  * Call LLM to simplify specs+entities, returning simplified versions.
  * Tries ctx.callLLM first, then ctx.blueprint._callLLM, then falls back to model-provider.
  *
@@ -306,7 +342,7 @@ function callLLMOnce(ctx, prompt) {
   }
   var modelProvider = require('../../lib/model-provider.cjs');
   var provider = modelProvider.createProvider('doubao', {});
-  return provider.generateWithRetry(prompt, { maxTokens: 4000 }, 2).then(function(result) {
+  return provider.generateWithRetry(prompt, { maxTokens: 16000 }, 2).then(function(result) {
     return parseSimplifyResponse(result.text || '');
   });
 }

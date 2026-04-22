@@ -381,6 +381,17 @@ function parseBlueprintToPromptV5(blueprint, opts) {
     lines.push('| ' + e.name + ' | ' + pName + ' | ' + desc + ' |');
   }
   lines.push('');
+  lines.push('允许使用的 pool literal（仅限下列对象，禁止自行拼接或改名）:');
+  var allowedPools = Object.keys(prefabMap).map(function(name) { return prefabMap[name]; });
+  var seenPools = {};
+  var dedupedPools = [];
+  for (var api = 0; api < allowedPools.length; api++) {
+    if (seenPools[allowedPools[api]]) continue;
+    seenPools[allowedPools[api]] = true;
+    dedupedPools.push(allowedPools[api]);
+  }
+  lines.push(dedupedPools.map(function(poolName) { return '`' + poolName + '`'; }).join(', '));
+  lines.push('');
 
   // 检测池对象冲突
   var collisions = detectPrefabCollisions(prefabMap);
@@ -537,6 +548,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('- ✅ 你必须用 PlaceObj / HideObj / transform.position 让关键实体在画面上发生可观察的位移');
   lines.push('- ⛔ 直接写 xxxState = 1 / xxxDone = true / PlayerActed = true 不再推进 phase (静态检查会 block)');
   lines.push('- ⛔ 也不要在骨架之外手工把 ruleTriggered[i] 置 true');
+  lines.push('- ⛔ 只在 `Phase_<id>_Init()` 里移动 gate 实体也不算完成；快照发生在 phase 进入附近，必须在 `OnTap` / `OnAutoPlayArrive` / 运行时交互里再次移动');
   lines.push('');
   lines.push('### Flow.cs 里的 autoPlay handler 正确写法:');
   lines.push('```csharp');
@@ -820,7 +832,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
         }
       } else {
         // Legacy fallback: render plain text with hard cap
-        var rawText = fb.data ? fb.data.text : JSON.stringify(fb);
+        var rawText = (fb.data && fb.data.text) || fb.message || fb.text || JSON.stringify(fb);
         lines.push(_truncate(rawText, FEEDBACK_TEXT_CAP));
       }
     }
@@ -1035,7 +1047,7 @@ function extractRelevantPhaseBlocks(code, feedback) {
   var text = '';
   for (var fi = 0; fi < feedback.length; fi++) {
     var fb = feedback[fi];
-    text += ' ' + ((fb.data && fb.data.text) || fb.text || '');
+    text += ' ' + ((fb.data && fb.data.text) || fb.message || fb.text || '');
     if (fb.data && fb.data.structured) {
       var s = fb.data.structured;
       text += ' ' + (s.summary || '');

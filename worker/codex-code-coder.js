@@ -728,10 +728,14 @@ function runCodexText(opts) {
   const taskId = opts.taskId || 'text';
   const textRunnerMode = opts.backend || DEFAULT_TEXT_RUNNER_MODE;
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-text-' + taskId + '-'));
+  const execDir = opts.workDir || tempDir;
+  const cleanupTempDir = !opts.workDir;
 
   return new Promise(function(resolve) {
     const finish = function(result) {
-      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch(_) {}
+      if (cleanupTempDir) {
+        try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch(_) {}
+      }
       resolve(result);
     };
 
@@ -756,7 +760,7 @@ function runCodexText(opts) {
         for (const fname of names) {
           fs.writeFileSync(path.join(tempDir, fname), opts.additionalFiles[fname]);
         }
-        log('[codex-text] wrote ' + names.length + ' additional file(s) to ' + tempDir, taskId);
+        log('[codex-text] wrote ' + names.length + ' additional file(s) to ' + execDir, taskId);
       } catch(e) {
         return finish({ ok: false, error: 'Failed to write additional files: ' + e.message });
       }
@@ -777,7 +781,7 @@ function runCodexText(opts) {
       }
 
       log('[codex-text] Spawning: ' + CLAUDE_CMD + ' ' + args.join(' '), taskId);
-      log('[codex-text] systemPrompt=' + (opts.systemPrompt || '').length + 'c userPrompt=' + (opts.userPrompt || '').length + 'c cwd=' + tempDir, taskId);
+      log('[codex-text] systemPrompt=' + (opts.systemPrompt || '').length + 'c userPrompt=' + (opts.userPrompt || '').length + 'c cwd=' + execDir, taskId);
 
       const cleanEnv = resolveClaudeAuthEnv(process.env, log, taskId);
       // PM2 cluster mode drops proxy vars from process.env despite them being in
@@ -791,7 +795,7 @@ function runCodexText(opts) {
       }
 
       const child = spawn(CLAUDE_CMD, args, {
-        cwd: tempDir,
+        cwd: execDir,
         env: cleanEnv,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
@@ -850,7 +854,7 @@ function runCodexText(opts) {
     };
 
     if (textRunnerMode === 'codex-exec') {
-      return runCodexExecText(tempDir, opts, log, taskId, function(result) {
+      return runCodexExecText(execDir, tempDir, opts, log, taskId, function(result) {
         var allowFallback = opts.allowBackendFallback !== false;
         if (!result.ok && allowFallback) {
           log('[codex-text] codex-exec failed, auto-fallback to claude-print: ' + (result.error || 'unknown error').slice(0, 200), taskId);
@@ -864,7 +868,7 @@ function runCodexText(opts) {
   });
 }
 
-function runCodexExecText(tempDir, opts, log, taskId, finish) {
+function runCodexExecText(execDir, tempDir, opts, log, taskId, finish) {
   const outputPath = path.join(tempDir, 'codex-last-message.txt');
   const args = [
     'exec',
@@ -872,19 +876,19 @@ function runCodexExecText(tempDir, opts, log, taskId, finish) {
     '--ephemeral',
     '-m', opts.model || 'gpt-5.4',
     '-c', 'model_reasoning_effort="' + (opts.effort || 'medium') + '"',
-    '-s', 'read-only',
-    '-C', tempDir,
+    '-s', opts.execSandbox || 'read-only',
+    '-C', execDir,
     '-o', outputPath,
   ];
 
   log('[codex-text] Spawning experimental exec backend: ' + CODEX_CMD + ' ' + args.join(' '), taskId);
-  log('[codex-text] backend=codex-exec systemPrompt=' + (opts.systemPrompt || '').length + 'c userPrompt=' + (opts.userPrompt || '').length + 'c cwd=' + tempDir, taskId);
+  log('[codex-text] backend=codex-exec systemPrompt=' + (opts.systemPrompt || '').length + 'c userPrompt=' + (opts.userPrompt || '').length + 'c cwd=' + execDir, taskId);
 
   // Match codex-reviewer behavior: prefer ChatGPT auth / CODEX_HOME and avoid
   // accidentally forcing API-key mode via unrelated blueprint-editor env vars.
   const { OPENAI_API_KEY, CODEX_API_KEY, OPENAI_BASE_URL, ...cleanEnv } = process.env;
   const child = spawn(CODEX_CMD, args, {
-    cwd: tempDir,
+    cwd: execDir,
     env: { ...cleanEnv, RUST_LOG: 'error' },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -945,6 +949,53 @@ function runCodexExecText(tempDir, opts, log, taskId, finish) {
     clearTimeout(timer);
     finish({ ok: false, error: 'stdin write error: ' + e.message, backend: 'codex-exec' });
   }
+}
+
+function buildFeedbackText(feedbackItem) {
+  if (!feedbackItem) return '';
+  if (feedbackItem.data && feedbackItem.data.text) return feedbackItem.data.text;
+  if (feedbackItem.message) return feedbackItem.message;
+  if (feedbackItem.text) return feedbackItem.text;
+  return JSON.stringify(feedbackItem);
+}
+
+function stripGenericMethodCallsForLuna(src) {
+  let next = String(src || '');
+  next = next.replace(/Resources\.GetBuiltinResource\s*<\s*([A-Za-z_][A-Za-z0-9_]*)\s*>\s*\(([^)]+)\)/g, '($1)Resources.GetBuiltinResource(typeof($1), $2)');
+  next = next.replace(/FindObjectOfType\s*<\s*([A-Za-z_][A-Za-z0-9_]*)\s*>\s*\(\s*\)/g, '($1)FindObjectOfType(typeof($1))');
+  next = next.replace(/\.GetComponent\s*<\s*([A-Za-z_][A-Za-z0-9_.]*)\s*>\s*\(\s*\)/g, '.GetComponent(typeof($1)) as $1');
+  return next;
+}
+
+function applyLunaPostFixesToManagerPartials(clientDir, log, taskId) {
+  const managerDir = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager');
+  let files = [];
+  try {
+    files = fs.readdirSync(managerDir)
+      .filter(function(file) { return /^GameFlowManagerMain.*\.cs$/.test(file); })
+      .sort();
+  } catch (_err) {
+    files = [];
+  }
+  let changedFiles = [];
+  for (const fileName of files) {
+    const filePath = path.join(managerDir, fileName);
+    let src;
+    try {
+      src = fs.readFileSync(filePath, 'utf-8');
+    } catch (_err) {
+      continue;
+    }
+    const next = stripGenericMethodCallsForLuna(src);
+    if (next !== src) {
+      fs.writeFileSync(filePath, next);
+      changedFiles.push(fileName);
+    }
+  }
+  if (changedFiles.length > 0) {
+    log('[codex-code] Post-fix: stripped generic method calls for Luna compatibility in ' + changedFiles.join(', '), taskId);
+  }
+  return changedFiles;
 }
 
 /**
@@ -1059,11 +1110,8 @@ async function generateWithCodex(blueprint, clientDir, log, taskId, engine) {
   let userPrompt;
   if (hasFeedback) {
     // Extract feedback text to inject directly into prompt (don't rely on AI reading prompt.md)
-    const feedbackTexts = blueprint.feedbackHistory.map(fb => {
-      if (fb.data && fb.data.text) return fb.data.text;
-      if (fb.text) return fb.text;
-      return JSON.stringify(fb);
-    }).join('\n---\n');
+    const feedbackTexts = blueprint.feedbackHistory.map(buildFeedbackText).join('\n---\n');
+    const allowedPools = Array.from(new Set(Object.values(promptV5Module.matchPrefabs(blueprint.entities || []))));
 
     // Dynamically enumerate partial class files on disk so W1b 5-partial (or future W1c)
     // gets listed in whitelist / Read step / ZERO_EDITS warning without hardcoding names.
@@ -1098,6 +1146,13 @@ ${whitelistBlock}
 
 ### ⛔ 静态违规的修复原则
 如果反馈里的违规定位在 \`GFM_*.cs\`（例如 "GFM_UI.cs L133: SetActive() forbidden"），**不要去改 Commons/ 下的 GFM_*.cs 文件**（它们是 canonical toolkit，不能碰）。违规的真实原因是你的 GameFlowManagerMain*.cs 中某处调用了会触发这个模式的代码，或者是你自己复制了同名方法/重新实现了类似函数。**去 WHITELIST 列出的 partial 文件里找禁用 API 的调用并删除/替换**。
+
+### ⛔ 当前任务的硬约束
+- 禁止使用泛型 API：\`GetComponent<T>()\`、\`FindObjectOfType<T>()\`、\`Resources.GetBuiltinResource<T>()\`
+- 如果某个 phase gate 用 \`EntityAdvanced(X, _snap_XPos)\`，那么 **X 必须在 OnTap / OnAutoPlayArrive / 运行时交互里再次移动**
+- 只在 \`Phase_<id>_Init()\` 里移动 X 不算 phase 完成
+- 禁止发明新的 pool literal 或动态拼接 \`__Pool_*\`
+- 当前任务允许的 pool literal 只有这些：${allowedPools.map(function(pool) { return '`' + pool + '`'; }).join(', ')}
 
 ## CUA 验证反馈（必须修复以下问题）：
 ${feedbackTexts}
@@ -1352,16 +1407,8 @@ ${inlinePromptMd}
     log(`[codex-code] ⚠️ WARNING: Code only grew ${codeGrowthRatio.toFixed(1)}x from skeleton (${skeletonLineCount}→${lineCount}). May be partially filled.`, taskId);
   }
 
-  // Post-fix: 替换泛型方法（Luna 不支持）
-  let fixedSrc = mainSrc;
-  fixedSrc = fixedSrc.replace(/Resources\.GetBuiltinResource<(\w+)>\(([^)]+)\)/g, '($1)Resources.GetBuiltinResource(typeof($1), $2)');
-  fixedSrc = fixedSrc.replace(/FindObjectOfType<(\w+)>\(\)/g, '($1)FindObjectOfType(typeof($1))');
-  fixedSrc = fixedSrc.replace(/\.GetComponent<(\w+)>\(\)/g, '.GetComponent(typeof($1)) as $1');
-  
-  if (fixedSrc !== mainSrc) {
-    fs.writeFileSync(mainFilePath, fixedSrc);
-    log('[codex-code] Post-fix: stripped generic method calls for Luna compatibility', taskId);
-  }
+  // Post-fix: 替换所有 partial 文件中的泛型方法（Luna 不支持）
+  applyLunaPostFixesToManagerPartials(clientDir, log, taskId);
 
   // 确保 GFM toolkit 文件是正版 → Commons/
   var gfmHelper2 = require('./gfm-files.cjs');
@@ -1385,6 +1432,9 @@ ${inlinePromptMd}
 module.exports = {
   generateWithCodex,
   runCodexText,
+  buildFeedbackText,
+  stripGenericMethodCallsForLuna,
+  applyLunaPostFixesToManagerPartials,
 
   // Legacy export names kept for non-migrated callers.
   generateWithClaudeCode: generateWithCodex,

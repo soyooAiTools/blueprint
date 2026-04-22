@@ -548,6 +548,8 @@ async function processTask(task) {
   if (task.status === 'commit_needed') { log('Skip commit_needed task', taskId); return; }
 
   const startTime = Date.now();
+  let checkpoint = null;
+  let ctx = null;
   try {
     // === Step 1: Fetch Blueprint ===
     await reportStatus(taskId, 'processing', { message: '[Linux] AI coding...' });
@@ -571,7 +573,7 @@ async function processTask(task) {
     // Plan D: compare stored pipelineVersion vs current codegen fingerprint. On mismatch,
     // drop codegen + downstream stages (keep pure-upstream clone/spec-*), and wipe restored
     // csCode / extraFiles / stageResults so the resumed run regenerates from upstream.
-    const checkpoint = loadCheckpoint(taskId);
+    checkpoint = loadCheckpoint(taskId);
     let checkpointDecision = null;
     if (checkpoint) {
       const currentFp = checkpointHelper.computePipelineFingerprint();
@@ -616,7 +618,7 @@ async function processTask(task) {
       pipelineCheckpoint.fixHistory = invalidated ? [] : (checkpoint.fixHistory || []);
     }
 
-    const ctx = new PipelineContext(pipelineTask, pipelineCheckpoint, workerConfig);
+    ctx = new PipelineContext(pipelineTask, pipelineCheckpoint, workerConfig);
 
     // Restore full checkpoint state — skip csCode/extraFiles/stageResults on invalidate so
     // downstream stages re-derive from upstream. Keep feedbackHistory (blueprint-level state).
@@ -773,6 +775,24 @@ async function processTask(task) {
     }
 
     await reportStatus(taskId, 'failed', failInfo);
+    if (ctx) {
+      try {
+        saveCheckpoint(taskId, {
+          csCode: ctx.csCode || (checkpoint && checkpoint.csCode) || null,
+          cuaRound: ctx.checkpoint ? ctx.checkpoint.cuaRound || 0 : 0,
+          feedbackHistory: ctx.blueprint ? ctx.blueprint.feedbackHistory || [] : [],
+          fixHistory: ctx.checkpoint ? ctx.checkpoint.fixHistory || [] : [],
+          completedStages: ctx.completedStages || [],
+          extraFiles: ctx.extraFiles || {},
+          stageResults: ctx.stageResults || {},
+          workDir: ctx.workDir || null,
+          htmlOutput: ctx.htmlOutput || null,
+        });
+        log('[checkpoint] Failure checkpoint saved for ' + taskId + ' (stages: ' + (ctx.completedStages || []).join(',') + ')', taskId);
+      } catch (saveErr) {
+        log('[checkpoint] Failed to save failure checkpoint for ' + taskId + ': ' + saveErr.message, taskId);
+      }
+    }
     // Keep checkpoint on failure — allows resume on retry instead of starting from scratch
     // clearCheckpoint(taskId); // DISABLED: preserve checkpoint for restart resilience
   }

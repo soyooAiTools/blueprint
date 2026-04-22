@@ -308,6 +308,7 @@ function fillCustomLogic(ctx, schema) {
         systemPrompt: '你是 Unity C# 代码填充器。只修改 TODO_CUSTOM 区域。',
         backend: 'codex-exec',
         model: 'gpt-5.4',
+        workDir: ctx.workDir,
         taskId: ctx.taskId,
         log: function(msg) { ctx.addLog('codegen-schema', '[custom R' + round + '] ' + msg); },
         effort: 'medium',
