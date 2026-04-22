@@ -486,6 +486,26 @@ function autoRepairInvalidPoolLiterals(ctx) {
   return changed;
 }
 
+function autoRepairPartialClassMismatch(ctx) {
+  if (!ctx || !ctx.csCode) return false;
+  if (/\bpartial\s+class\s+GameFlowManagerMain\b/.test(ctx.csCode)) return false;
+
+  var extras = ctx.extraFiles || {};
+  var hasPartialCompanion = Object.keys(extras).some(function(name) {
+    if (!isTaskPartialFile(name)) return false;
+    return /\bpartial\s+class\s+GameFlowManagerMain\b/.test(String(extras[name] || ''));
+  });
+  if (!hasPartialCompanion) return false;
+
+  var updated = String(ctx.csCode).replace(
+    /\b((?:(?:public|private|protected|internal)\s+)?(?:(?:abstract|sealed|static)\s+)*)class\s+GameFlowManagerMain\b/,
+    '$1partial class GameFlowManagerMain'
+  );
+  if (updated === ctx.csCode) return false;
+  ctx.csCode = updated;
+  return true;
+}
+
 /**
  * Invalidate the codegen checkpoint so the next pipeline retry forces a fresh
  * codegen run rather than skipping it.  Mirrors the pattern used in
@@ -773,6 +793,16 @@ function applyPhaseGatePreRepair(ctx) {
     extras[name] = next;
   });
 
+  if (reviewStage.repairPhaseGateRuntimeMovesAcrossPartials) {
+    var crossPhaseFix = reviewStage.repairPhaseGateRuntimeMovesAcrossPartials(mainCode, extras);
+    if (crossPhaseFix && crossPhaseFix.changed) {
+      mainCode = crossPhaseFix.code;
+      extras = crossPhaseFix.extraFiles;
+      changed = true;
+      fixes.push('partials:PhaseGateRuntimeMove x' + crossPhaseFix.fixes);
+    }
+  }
+
   if (changed) {
     ctx.csCode = mainCode;
     ctx.extraFiles = extras;
@@ -865,6 +895,9 @@ function execute(ctx) {
   }
   if (autoRepairInvalidPoolLiterals(ctx)) {
     console.log('[method-check] AUTO-REPAIR — rewrote invalid pool literals to allowed blueprint pools');
+  }
+  if (autoRepairPartialClassMismatch(ctx)) {
+    console.log('[method-check] AUTO-REPAIR — added partial keyword to GameFlowManagerMain main class');
   }
 
   var missing;
@@ -998,6 +1031,7 @@ module.exports = {
   autoRepairDuplicateStateFields: autoRepairDuplicateStateFields,
   autoRepairPlayerAliasDrift: autoRepairPlayerAliasDrift,
   autoRepairInvalidPoolLiterals: autoRepairInvalidPoolLiterals,
+  autoRepairPartialClassMismatch: autoRepairPartialClassMismatch,
   autoRepairPhaseGateViolations: autoRepairPhaseGateViolations,
   chooseReplacementPoolLiteral: chooseReplacementPoolLiteral,
   extractMethodDefinitions: extractMethodDefinitions,

@@ -32,6 +32,44 @@ function die(msg) {
 function readJson(fp) { return JSON.parse(fs.readFileSync(fp, 'utf8')); }
 function writeJson(fp, data) { fs.writeFileSync(fp, JSON.stringify(data, null, 2), 'utf8'); }
 
+function scrubTaskMetadataJsonForRerun(metadataJson) {
+  var raw = metadataJson;
+  if (raw && typeof raw !== 'string') raw = JSON.stringify(raw);
+  if (!raw) raw = '{}';
+  try {
+    var parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      delete parsed.outerFpHistory;
+    }
+    return JSON.stringify(parsed || {});
+  } catch (_err) {
+    return raw;
+  }
+}
+
+function buildTaskReset(task, message) {
+  return {
+    status: 'pending',
+    assigned_to: null,
+    assigned_at: null,
+    retry_after: null,
+    status_message: message,
+    fail_count: 0,
+    infra_retry_count: 0,
+    code_retry_count: 0,
+    metadata_json: scrubTaskMetadataJsonForRerun(task && task.metadata_json),
+  };
+}
+
+function prepareProjectForRerun(project, message, nowIso) {
+  var next = Object.assign({}, project || {});
+  next.status = 'submitted';
+  next.statusMessage = message;
+  next.updatedAt = nowIso || new Date().toISOString();
+  delete next.lastFailure;
+  return next;
+}
+
 function keptStagesFor(fromStage) {
   var idx = STAGE_ORDER.indexOf(fromStage);
   if (idx < 0) die('unsupported --from stage: ' + fromStage);
@@ -83,16 +121,26 @@ function main() {
   var nowIso = new Date().toISOString();
   var message = '[stage-rerun] restart from ' + args.fromStage;
   if (!args.dryRun) {
+    var taskReset = buildTaskReset(task, message);
     queue.db.prepare(
-      "UPDATE tasks SET status='pending', assigned_to=NULL, assigned_at=NULL, retry_after=NULL, status_message=?, updated_at=datetime('now') WHERE id=?"
-    ).run(message, taskId);
+      "UPDATE tasks SET status=?, assigned_to=?, assigned_at=?, retry_after=?, status_message=?, fail_count=?, infra_retry_count=?, code_retry_count=?, metadata_json=?, updated_at=datetime('now') WHERE id=?"
+    ).run(
+      taskReset.status,
+      taskReset.assigned_to,
+      taskReset.assigned_at,
+      taskReset.retry_after,
+      taskReset.status_message,
+      taskReset.fail_count,
+      taskReset.infra_retry_count,
+      taskReset.code_retry_count,
+      taskReset.metadata_json,
+      taskId
+    );
     queue.db.prepare(
       "INSERT INTO task_history (task_id, from_status, to_status, actor, message) VALUES (?, ?, 'pending', 'admin', ?)"
     ).run(taskId, task.status, message);
 
-    project.status = 'submitted';
-    project.statusMessage = message;
-    project.updatedAt = nowIso;
+    project = prepareProjectForRerun(project, message, nowIso);
     writeJson(projectFile, project);
   }
 
@@ -107,4 +155,16 @@ function main() {
   }, null, 2));
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  parseArgs: parseArgs,
+  keptStagesFor: keptStagesFor,
+  scrubCheckpointFor: scrubCheckpointFor,
+  scrubTaskMetadataJsonForRerun: scrubTaskMetadataJsonForRerun,
+  buildTaskReset: buildTaskReset,
+  prepareProjectForRerun: prepareProjectForRerun,
+  main: main,
+};

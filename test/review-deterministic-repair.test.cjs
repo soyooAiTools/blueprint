@@ -1,6 +1,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
+const reviewStage = require('../engine/stages/review.cjs');
 
 const reviewFile = '/opt/blueprint-editor/engine/stages/review.cjs';
 const source = fs.readFileSync(reviewFile, 'utf8');
@@ -20,7 +21,7 @@ function extractFunction(name) {
   return source.slice(start, i);
 }
 
-const sandbox = {};
+const sandbox = { process: { env: {} } };
 vm.createContext(sandbox);
 vm.runInContext([
   extractFunction('rewriteHotPathVectorAllocations'),
@@ -72,6 +73,166 @@ vm.runInContext([
     source: 'codex-review',
     issues: [{ line: 10, rule: 'custom-warning' }],
   }), true);
+}
+
+{
+  const result = reviewStage.rewriteLongIfChainsAsSwitches([
+    'void Update()',
+    '{',
+    '    if (currentPhaseName == "intro")',
+    '    {',
+    '        EnterIntro();',
+    '    }',
+    '    else if (currentPhaseName == "collect")',
+    '    {',
+    '        RunCollect();',
+    '    }',
+    '    else if (currentPhaseName == "sell")',
+    '    {',
+    '        RunSell();',
+    '    }',
+    '    else if (currentPhaseName == "finish")',
+    '    {',
+    '        FinishGame();',
+    '    }',
+    '}',
+  ].join('\n'));
+  assert.strictEqual(result.changed, true);
+  assert.match(result.code, /switch \(currentPhaseName\)/);
+  assert.match(result.code, /case "intro":/);
+  assert.match(result.code, /case "finish":/);
+  assert.doesNotMatch(result.code, /else if \(currentPhaseName ==/);
+}
+
+{
+  const result = reviewStage.rewriteLongIfChainsAsSwitches([
+    'void HandleTap()',
+    '{',
+    '    if (currentPhaseName == "intro")',
+    '    {',
+    '        EnterIntro();',
+    '    }',
+    '',
+    '    if (currentPhaseName == "collect")',
+    '    {',
+    '        RunCollect();',
+    '    }',
+    '',
+    '    if (currentPhaseName == "sell")',
+    '    {',
+    '        RunSell();',
+    '    }',
+    '',
+    '    if (currentPhaseName == "finish")',
+    '    {',
+    '        FinishGame();',
+    '    }',
+    '}',
+  ].join('\n'));
+  assert.strictEqual(result.changed, true);
+  assert.match(result.code, /switch \(currentPhaseName\)/);
+  assert.match(result.code, /case "collect":/);
+  assert.doesNotMatch(result.code, /if \(currentPhaseName == "sell"\)/);
+}
+
+{
+  process.env.OPENAI_API_KEY = '';
+  assert.strictEqual(reviewStage.shouldFallbackToLegacyReviewer({
+    passed: false,
+    parseError: true,
+    error: 'Codex reviewer timed out before producing JSON output',
+  }, true, true, true), false);
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+  assert.strictEqual(reviewStage.shouldFallbackToLegacyReviewer({
+    passed: false,
+    parseError: true,
+    error: 'Codex reviewer timed out before producing JSON output',
+  }, true, true, true), true);
+
+  assert.strictEqual(reviewStage.shouldFallbackToLegacyReviewer({
+    passed: false,
+    parseError: true,
+    error: 'MODEL_FATAL: quota exceeded',
+  }, true, true, true), false);
+
+  delete process.env.OPENAI_API_KEY;
+}
+
+{
+  const mainCode = [
+    'using UnityEngine;',
+    'public partial class GameFlowManagerMain : MonoBehaviour',
+    '{',
+    '    bool _autoPlayMode = false;',
+    '    Vector3 _snap_goldObjPos;',
+    '    GameObject goldObj;',
+    '    bool[] ruleTriggered = new bool[2];',
+    '    string currentPhaseName = "";',
+    '    bool EntityAdvanced(GameObject obj, Vector3 snap) { return false; }',
+    '    void EnterPhase(int ruleIdx, string phaseId, bool resetTimer, bool syncAutoPlayBaseline) { currentPhaseName = phaseId; }',
+    '    void CheckEventRules()',
+    '    {',
+    '        if (!ruleTriggered[1] && EntityAdvanced(goldObj, _snap_goldObjPos))',
+    '        {',
+    '            EnterPhase(1, "buildForge", true, true);',
+    '            Phase_buildForge_Init();',
+    '        }',
+    '    }',
+    '    void Update()',
+    '    {',
+    '        if (!_autoPlayMode && Input.GetMouseButtonDown(0))',
+    '        {',
+    '            Phase_OnTap(); // dispatch to Phase_<id>_OnTap() in GameFlowManagerMain.Flow.cs',
+    '        }',
+    '        // TODO_UPDATE_START',
+    '        // TODO_UPDATE_END',
+    '    }',
+    '}',
+  ].join('\n');
+
+  const flowCode = [
+    'using UnityEngine;',
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    void Phase_OnTap()',
+    '    {',
+    '        switch (currentPhaseName)',
+    '        {',
+    '            case "buildForge": Phase_buildForge_OnTap(); break;',
+    '        }',
+    '    }',
+    '    void OnAutoPlayArrive(string targetName)',
+    '    {',
+    '        switch (currentPhaseName)',
+    '        {',
+    '            case "buildForge": Phase_buildForge_OnAutoPlayArrive(targetName); break;',
+    '        }',
+    '    }',
+    '    void Phase_buildForge_Init()',
+    '    {',
+    '        PlaceObj(goldObj, 1f, 2f, 3f);',
+    '    }',
+    '    void Phase_buildForge_OnTap()',
+    '    {',
+    '        // TODO_PHASE_buildForge_ONTAP_START',
+    '        // TODO_PHASE_buildForge_ONTAP_END',
+    '    }',
+    '    void Phase_buildForge_OnAutoPlayArrive(string targetName)',
+    '    {',
+    '        // TODO_PHASE_buildForge_ONAUTOARRIVE_START',
+    '        // TODO_PHASE_buildForge_ONAUTOARRIVE_END',
+    '    }',
+    '}',
+  ].join('\n');
+
+  const result = reviewStage.repairPhaseGateRuntimeMovesAcrossPartials(mainCode, {
+    'GameFlowManagerMain.Flow.cs': flowCode,
+  });
+  assert.strictEqual(result.changed, true);
+  assert.match(result.code, /Phase_OnTap\(\);[\s\S]*if \(currentPhaseName == "buildForge"\)[\s\S]*PlaceObj\(goldObj, 1f, 2f, 3f\);/);
+  assert.match(result.extraFiles['GameFlowManagerMain.Flow.cs'], /TODO_PHASE_buildForge_ONTAP_START[\s\S]*PlaceObj\(goldObj, 1f, 2f, 3f\);[\s\S]*TODO_PHASE_buildForge_ONTAP_END/);
+  assert.match(result.extraFiles['GameFlowManagerMain.Flow.cs'], /TODO_PHASE_buildForge_ONAUTOARRIVE_START[\s\S]*PlaceObj\(goldObj, 1f, 2f, 3f\);[\s\S]*TODO_PHASE_buildForge_ONAUTOARRIVE_END/);
 }
 
 console.log('review deterministic repair tests passed');

@@ -650,6 +650,532 @@ function repairPhaseGateRuntimeMoves(code) {
   return { code: fixed, changed: fixes > 0, fixes: fixes };
 }
 
+function repairPhaseGateRuntimeMovesAcrossPartials(mainCode, extraFiles) {
+  var nextMain = String(mainCode || '');
+  var nextExtras = Object.assign({}, extraFiles || {});
+  if (!nextMain || nextMain.indexOf('EntityAdvanced(') < 0) {
+    return { code: nextMain, extraFiles: nextExtras, changed: false, fixes: 0 };
+  }
+
+  function extractMethodRange(src, methodName) {
+    var sigRe = new RegExp('\\bvoid\\s+' + methodName + '\\s*\\([^)]*\\)\\s*\\{');
+    var m = sigRe.exec(src);
+    if (!m) return null;
+    var start = m.index;
+    var bodyStart = m.index + m[0].length;
+    var depth = 1;
+    var end = bodyStart;
+    while (end < src.length && depth > 0) {
+      var ch = src[end];
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) break;
+      }
+      end++;
+    }
+    if (depth !== 0) return null;
+    return {
+      start: start,
+      bodyStart: bodyStart,
+      end: end,
+      body: src.substring(bodyStart, end),
+    };
+  }
+
+  function hasMoveInText(src, entityName) {
+    if (!src || !entityName) return false;
+    var moveRe = new RegExp(
+      '\\bPlaceObj\\s*\\(\\s*' + entityName + '\\b' +
+      '|\\bHideObj\\s*\\(\\s*' + entityName + '\\b' +
+      '|\\b' + entityName + '\\s*\\.\\s*transform\\s*\\.\\s*position\\s*=',
+      'g'
+    );
+    return moveRe.test(src);
+  }
+
+  function extractPhaseDefsFromMain(src) {
+    var defsById = {};
+    var startRe = /if\s*\(\s*!ruleTriggered\[(\d+)\][\s\S]*?\)\s*\{/g;
+    var sm;
+    while ((sm = startRe.exec(src)) !== null) {
+      var bodyStart = sm.index + sm[0].length;
+      var depth = 1;
+      var end = bodyStart;
+      while (end < src.length && depth > 0) {
+        var ch = src[end];
+        if (ch === '{') depth++;
+        else if (ch === '}') {
+          depth--;
+          if (depth === 0) break;
+        }
+        end++;
+      }
+      if (depth !== 0) continue;
+      var block = src.substring(sm.index, end + 1);
+      var phaseIdMatch = /\bEnterPhase\s*\(\s*[^,]+,\s*"([^"]+)"/.exec(block);
+      if (!phaseIdMatch) phaseIdMatch = /\bcurrentPhaseName\s*=\s*"([^"]+)"/.exec(block);
+      if (!phaseIdMatch) continue;
+      var phaseId = phaseIdMatch[1];
+      if (!defsById[phaseId]) defsById[phaseId] = { phaseId: phaseId, entities: [] };
+      var seen = {};
+      for (var si = 0; si < defsById[phaseId].entities.length; si++) seen[defsById[phaseId].entities[si]] = true;
+      var entRe = /_snap_([A-Za-z_][A-Za-z0-9_]*)Pos\b/g;
+      var em;
+      while ((em = entRe.exec(block)) !== null) {
+        if (seen[em[1]]) continue;
+        seen[em[1]] = true;
+        defsById[phaseId].entities.push(em[1]);
+      }
+    }
+    return Object.keys(defsById).map(function(key) { return defsById[key]; });
+  }
+
+  function collectInitBodies(filesByName) {
+    var byPhase = {};
+    Object.keys(filesByName).forEach(function(name) {
+      var src = String(filesByName[name] || '');
+      var initRe = /void\s+Phase_([A-Za-z0-9_]+)_Init\s*\(\)\s*\{([\s\S]*?)\n\s*\}/g;
+      var m;
+      while ((m = initRe.exec(src)) !== null) {
+        if (!byPhase[m[1]]) byPhase[m[1]] = m[2];
+      }
+    });
+    return byPhase;
+  }
+
+  function getInitMoveLines(initBody, entityName) {
+    var lines = String(initBody || '').split('\n');
+    var matches = [];
+    for (var i = 0; i < lines.length; i++) {
+      var trimmed = lines[i].trim();
+      if (!trimmed) continue;
+      if (!new RegExp('^(PlaceObj|HideObj)\\s*\\(\\s*' + entityName + '\\b').test(trimmed) &&
+          !new RegExp('^' + entityName + '\\s*\\.\\s*transform\\s*\\.\\s*position\\s*=').test(trimmed)) {
+        continue;
+      }
+      matches.push('        ' + trimmed);
+    }
+    return matches;
+  }
+
+  function buildFallbackMoveLines(entityName, ordinal) {
+    var varName = '__gateMovePos' + ordinal;
+    return [
+      '        if (' + entityName + ' != null)',
+      '        {',
+      '            var ' + varName + ' = ' + entityName + '.transform.position;',
+      '            ' + varName + '.y += 2f;',
+      '            ' + entityName + '.transform.position = ' + varName + ';',
+      '        }',
+    ];
+  }
+
+  function dedupeLines(lines) {
+    var out = [];
+    var seen = {};
+    for (var i = 0; i < lines.length; i++) {
+      var normalized = String(lines[i] || '').trim();
+      if (!normalized || seen[normalized]) continue;
+      seen[normalized] = true;
+      out.push(lines[i]);
+    }
+    return out;
+  }
+
+  function updateHasPhaseScopedMove(src, phaseId, entityName) {
+    var update = extractMethodRange(src, 'Update');
+    if (!update) return false;
+    var body = update.body;
+    var branchRe = new RegExp('currentPhaseName\\s*==\\s*"' + phaseId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"([\\s\\S]{0,1200})', 'g');
+    var bm;
+    while ((bm = branchRe.exec(body)) !== null) {
+      if (hasMoveInText(bm[0], entityName)) return true;
+    }
+    return false;
+  }
+
+  function methodHasPhaseMove(src, methodName, entityName) {
+    var range = extractMethodRange(src, methodName);
+    if (!range) return false;
+    return hasMoveInText(range.body, entityName);
+  }
+
+  function handlerHasPhaseMove(filesByName, phaseId, suffix, entityName) {
+    var methodName = suffix === 'ONTAP' ? ('Phase_' + phaseId + '_OnTap') : ('Phase_' + phaseId + '_OnAutoPlayArrive');
+    var names = Object.keys(filesByName);
+    for (var i = 0; i < names.length; i++) {
+      if (methodHasPhaseMove(filesByName[names[i]], methodName, entityName)) return true;
+    }
+    return false;
+  }
+
+  function insertLinesIntoHandler(src, pid, handlerSuffix, linesToInsert) {
+    if (!linesToInsert || linesToInsert.length === 0) return { code: src, changed: false };
+    var startMarker = '// TODO_PHASE_' + pid + '_' + handlerSuffix + '_START';
+    var endMarker = '// TODO_PHASE_' + pid + '_' + handlerSuffix + '_END';
+    var startIdx = src.indexOf(startMarker);
+    var endIdx = src.indexOf(endMarker);
+    if (startIdx < 0 || endIdx < 0 || endIdx <= startIdx) return { code: src, changed: false };
+    var block = src.substring(startIdx, endIdx);
+    var needsAny = false;
+    for (var i = 0; i < linesToInsert.length; i++) {
+      if (block.indexOf(String(linesToInsert[i]).trim()) < 0) {
+        needsAny = true;
+        break;
+      }
+    }
+    if (!needsAny) return { code: src, changed: false };
+    var insertAt = endIdx;
+    var prefix = src.substring(0, insertAt);
+    if (!/\n\s*$/.test(prefix)) prefix += '\n';
+    var insertion = linesToInsert.join('\n') + '\n';
+    return {
+      code: prefix + insertion + src.substring(insertAt),
+      changed: true,
+    };
+  }
+
+  function insertLinesIntoPreferredHandler(mainSrc, extrasMap, phaseId, suffix, linesToInsert) {
+    var preferred = ['GameFlowManagerMain.Flow.cs'];
+    var keys = Object.keys(extrasMap || {});
+    for (var i = 0; i < keys.length; i++) {
+      if (preferred.indexOf(keys[i]) < 0) preferred.push(keys[i]);
+    }
+    preferred.push('main');
+    var localMain = mainSrc;
+    var localExtras = Object.assign({}, extrasMap || {});
+    for (var pi = 0; pi < preferred.length; pi++) {
+      var name = preferred[pi];
+      var src = name === 'main' ? localMain : localExtras[name];
+      if (typeof src !== 'string') continue;
+      var res = insertLinesIntoHandler(src, phaseId, suffix, linesToInsert);
+      if (!res.changed) continue;
+      if (name === 'main') localMain = res.code;
+      else localExtras[name] = res.code;
+      return { changed: true, code: localMain, extraFiles: localExtras };
+    }
+    return { changed: false, code: localMain, extraFiles: localExtras };
+  }
+
+  function buildUpdateBranchBlock(phaseId, linesToInsert, nestedInTapBlock) {
+    var headIndent = nestedInTapBlock ? '            ' : '        ';
+    var bodyIndent = nestedInTapBlock ? '                ' : '            ';
+    var out = [
+      headIndent + 'if (currentPhaseName == "' + phaseId + '")',
+      headIndent + '{',
+    ];
+    for (var i = 0; i < linesToInsert.length; i++) {
+      out.push(bodyIndent + String(linesToInsert[i] || '').trim());
+    }
+    out.push(headIndent + '}');
+    return out.join('\n');
+  }
+
+  function insertLinesIntoMainUpdate(mainSrc, phaseId, linesToInsert) {
+    if (!linesToInsert || linesToInsert.length === 0) return { code: mainSrc, changed: false };
+    var update = extractMethodRange(mainSrc, 'Update');
+    if (!update) return { code: mainSrc, changed: false };
+    var phaseToken = 'currentPhaseName == "' + phaseId + '"';
+    var existingUpdate = mainSrc.substring(update.bodyStart, update.end);
+    var needed = false;
+    for (var i = 0; i < linesToInsert.length; i++) {
+      if (existingUpdate.indexOf(phaseToken) < 0 || existingUpdate.indexOf(String(linesToInsert[i]).trim()) < 0) {
+        needed = true;
+        break;
+      }
+    }
+    if (!needed) return { code: mainSrc, changed: false };
+
+    var tapIdx = existingUpdate.indexOf('Phase_OnTap();');
+    if (tapIdx >= 0) {
+      var anchorAbs = update.bodyStart + tapIdx;
+      var lineEnd = mainSrc.indexOf('\n', anchorAbs);
+      if (lineEnd < 0) lineEnd = mainSrc.length;
+      var block = '\n' + buildUpdateBranchBlock(phaseId, linesToInsert, true);
+      return {
+        code: mainSrc.slice(0, lineEnd + 1) + block + '\n' + mainSrc.slice(lineEnd + 1),
+        changed: true,
+      };
+    }
+
+    var todoEndIdx = existingUpdate.indexOf('// TODO_UPDATE_END');
+    if (todoEndIdx >= 0) {
+      var insertAt = update.bodyStart + todoEndIdx;
+      var prefix = mainSrc.substring(0, insertAt);
+      if (!/\n\s*$/.test(prefix)) prefix += '\n';
+      return {
+        code: prefix + buildUpdateBranchBlock(phaseId, linesToInsert, false) + '\n' + mainSrc.substring(insertAt),
+        changed: true,
+      };
+    }
+
+    var beforeClose = mainSrc.substring(0, update.end);
+    if (!/\n\s*$/.test(beforeClose)) beforeClose += '\n';
+    return {
+      code: beforeClose + buildUpdateBranchBlock(phaseId, linesToInsert, false) + '\n' + mainSrc.substring(update.end),
+      changed: true,
+    };
+  }
+
+  var phaseDefs = extractPhaseDefsFromMain(nextMain);
+  if (phaseDefs.length === 0) {
+    return { code: nextMain, extraFiles: nextExtras, changed: false, fixes: 0 };
+  }
+
+  var filesByName = Object.assign({ main: nextMain }, nextExtras);
+  var initBodies = collectInitBodies(filesByName);
+  var changed = false;
+  var fixes = 0;
+  var fallbackOrdinal = 0;
+
+  for (var di = 0; di < phaseDefs.length; di++) {
+    var def = phaseDefs[di];
+    if (!def.entities || def.entities.length === 0) continue;
+    var initBody = initBodies[def.phaseId] || '';
+    var mainLines = [];
+    var onTapLines = [];
+    var onAutoLines = [];
+
+    for (var ei = 0; ei < def.entities.length; ei++) {
+      var entityName = def.entities[ei];
+      var moveLines = getInitMoveLines(initBody, entityName);
+      if (moveLines.length === 0) {
+        fallbackOrdinal++;
+        moveLines = buildFallbackMoveLines(entityName, fallbackOrdinal);
+      }
+
+      if (!updateHasPhaseScopedMove(nextMain, def.phaseId, entityName)) {
+        mainLines = mainLines.concat(moveLines);
+      }
+
+      filesByName = Object.assign({ main: nextMain }, nextExtras);
+      if (!handlerHasPhaseMove(filesByName, def.phaseId, 'ONTAP', entityName)) {
+        onTapLines = onTapLines.concat(moveLines);
+      }
+
+      filesByName = Object.assign({ main: nextMain }, nextExtras);
+      if (!handlerHasPhaseMove(filesByName, def.phaseId, 'ONAUTOARRIVE', entityName)) {
+        onAutoLines = onAutoLines.concat(moveLines);
+      }
+    }
+
+    mainLines = dedupeLines(mainLines);
+    onTapLines = dedupeLines(onTapLines);
+    onAutoLines = dedupeLines(onAutoLines);
+
+    if (mainLines.length > 0) {
+      var updateRes = insertLinesIntoMainUpdate(nextMain, def.phaseId, mainLines);
+      if (updateRes.changed) {
+        nextMain = updateRes.code;
+        changed = true;
+        fixes++;
+      }
+    }
+
+    if (onTapLines.length > 0) {
+      var tapRes = insertLinesIntoPreferredHandler(nextMain, nextExtras, def.phaseId, 'ONTAP', onTapLines);
+      if (tapRes.changed) {
+        nextMain = tapRes.code;
+        nextExtras = tapRes.extraFiles;
+        changed = true;
+        fixes++;
+      }
+    }
+
+    if (onAutoLines.length > 0) {
+      var autoRes = insertLinesIntoPreferredHandler(nextMain, nextExtras, def.phaseId, 'ONAUTOARRIVE', onAutoLines);
+      if (autoRes.changed) {
+        nextMain = autoRes.code;
+        nextExtras = autoRes.extraFiles;
+        changed = true;
+        fixes++;
+      }
+    }
+  }
+
+  return { code: nextMain, extraFiles: nextExtras, changed: changed, fixes: fixes };
+}
+
+function rewriteLongIfChainsAsSwitches(code) {
+  if (!code || code.indexOf('if') < 0 || code.indexOf('== "') < 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+
+  function isSpace(ch) {
+    return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r';
+  }
+
+  function skipSpace(src, idx) {
+    var i = idx;
+    while (i < src.length && isSpace(src[i])) i++;
+    return i;
+  }
+
+  function findMatchingBrace(src, openIdx) {
+    var depth = 1;
+    var i = openIdx + 1;
+    while (i < src.length && depth > 0) {
+      var ch = src[i];
+      if (ch === '{') depth++;
+      else if (ch === '}') depth--;
+      i++;
+    }
+    return depth === 0 ? i - 1 : -1;
+  }
+
+  function lineIndent(src, idx) {
+    var lineStart = src.lastIndexOf('\n', idx);
+    lineStart = lineStart < 0 ? 0 : lineStart + 1;
+    var i = lineStart;
+    while (i < src.length && (src[i] === ' ' || src[i] === '\t')) i++;
+    return src.substring(lineStart, i);
+  }
+
+  function stripSharedIndent(body) {
+    var lines = String(body || '').split('\n');
+    while (lines.length > 0 && !lines[0].trim()) lines.shift();
+    while (lines.length > 0 && !lines[lines.length - 1].trim()) lines.pop();
+    if (lines.length === 0) return [];
+    var minIndent = null;
+    for (var i = 0; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      var m = /^(\s*)/.exec(lines[i]);
+      var indent = m ? m[1].length : 0;
+      if (minIndent === null || indent < minIndent) minIndent = indent;
+    }
+    minIndent = minIndent || 0;
+    return lines.map(function(line) {
+      if (!line.trim()) return '';
+      return line.slice(minIndent);
+    });
+  }
+
+  function parseIfBranch(src, idx, expectedIdent) {
+    var header = /^if\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*==\s*"([^"]*)"\s*\)\s*\{/.exec(src.substring(idx));
+    if (!header) return null;
+    var ident = header[1];
+    if (expectedIdent && ident !== expectedIdent) return null;
+    var openIdx = idx + header[0].length - 1;
+    var closeIdx = findMatchingBrace(src, openIdx);
+    if (closeIdx < 0) return null;
+    return {
+      ident: ident,
+      literal: header[2],
+      end: closeIdx + 1,
+      body: src.substring(openIdx + 1, closeIdx),
+    };
+  }
+
+  function parseElseBlock(src, idx) {
+    var header = /^else\s*\{/.exec(src.substring(idx));
+    if (!header) return null;
+    var openIdx = idx + header[0].length - 1;
+    var closeIdx = findMatchingBrace(src, openIdx);
+    if (closeIdx < 0) return null;
+    return {
+      end: closeIdx + 1,
+      body: src.substring(openIdx + 1, closeIdx),
+    };
+  }
+
+  function buildSwitchCode(indent, ident, branches) {
+    var caseIndent = indent + '    ';
+    var bodyIndent = indent + '        ';
+    var lines = [];
+    lines.push(indent + 'switch (' + ident + ')');
+    lines.push(indent + '{');
+    for (var i = 0; i < branches.length; i++) {
+      var branch = branches[i];
+      if (branch.type === 'default') lines.push(caseIndent + 'default:');
+      else lines.push(caseIndent + 'case "' + branch.literal + '":');
+      lines.push(caseIndent + '{');
+      var bodyLines = stripSharedIndent(branch.body);
+      for (var j = 0; j < bodyLines.length; j++) {
+        lines.push(bodyLines[j] ? bodyIndent + bodyLines[j] : '');
+      }
+      lines.push(bodyIndent + 'break;');
+      lines.push(caseIndent + '}');
+    }
+    lines.push(indent + '}');
+    return lines.join('\n');
+  }
+
+  var fixed = String(code);
+  var idx = 0;
+  var fixes = 0;
+  while (idx < fixed.length) {
+    var nextIf = fixed.indexOf('if', idx);
+    if (nextIf < 0) break;
+    var before = fixed.substring(Math.max(0, nextIf - 6), nextIf);
+    if (/else\s*$/.test(before)) {
+      idx = nextIf + 2;
+      continue;
+    }
+    var first = parseIfBranch(fixed, nextIf, null);
+    if (!first) {
+      idx = nextIf + 2;
+      continue;
+    }
+    var branches = [{
+      type: 'case',
+      literal: first.literal,
+      body: first.body,
+    }];
+    var chainEnd = first.end;
+    var ident = first.ident;
+    var caseCount = 1;
+    while (true) {
+      var probe = skipSpace(fixed, chainEnd);
+      if (fixed.substring(probe, probe + 4) !== 'else') break;
+      var afterElse = skipSpace(fixed, probe + 4);
+      if (fixed.substring(afterElse, afterElse + 2) === 'if') {
+        var branch = parseIfBranch(fixed, afterElse, ident);
+        if (!branch) break;
+        branches.push({
+          type: 'case',
+          literal: branch.literal,
+          body: branch.body,
+        });
+        chainEnd = branch.end;
+        caseCount++;
+        continue;
+      }
+      var elseBlock = parseElseBlock(fixed, probe);
+      if (!elseBlock) break;
+      branches.push({
+        type: 'default',
+        body: elseBlock.body,
+      });
+      chainEnd = elseBlock.end;
+      break;
+    }
+    while (true) {
+      var nextProbe = skipSpace(fixed, chainEnd);
+      if (fixed.substring(nextProbe, nextProbe + 2) !== 'if') break;
+      var nextBranch = parseIfBranch(fixed, nextProbe, ident);
+      if (!nextBranch) break;
+      branches.push({
+        type: 'case',
+        literal: nextBranch.literal,
+        body: nextBranch.body,
+      });
+      chainEnd = nextBranch.end;
+      caseCount++;
+    }
+    if (caseCount < 4) {
+      idx = chainEnd;
+      continue;
+    }
+    var replacement = buildSwitchCode(lineIndent(fixed, nextIf), ident, branches);
+    fixed = fixed.slice(0, nextIf) + replacement + fixed.slice(chainEnd);
+    fixes++;
+    idx = nextIf + replacement.length;
+  }
+
+  return { code: fixed, changed: fixes > 0, fixes: fixes };
+}
+
 function collapseLegacyCheckEventRulesStub(code) {
   if (!code || code.indexOf('CheckEventRules_OLD_UNUSED_STUB') < 0) {
     return { code: code, changed: false, fixes: 0 };
@@ -732,6 +1258,12 @@ function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
     changed = true;
     fixes.push('main:PhaseGateShortcutStrip x' + mainGateShortcutFix.fixes);
   }
+  var mainLongIfFix = rewriteLongIfChainsAsSwitches(mainCode);
+  if (mainLongIfFix.changed) {
+    mainCode = mainLongIfFix.code;
+    changed = true;
+    fixes.push('main:LongIfChainSwitch x' + mainLongIfFix.fixes);
+  }
   var nextExtras = Object.assign({}, extraFiles || {});
   Object.keys(nextExtras).forEach(function(name) {
     var stubRes = collapseLegacyCheckEventRulesStub(nextExtras[name]);
@@ -788,6 +1320,33 @@ function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
       changed = true;
       fixes.push(name + ':PhaseGateShortcutStrip x' + gateShortcutRes.fixes);
     }
+    var longIfRes = rewriteLongIfChainsAsSwitches(nextExtras[name]);
+    if (longIfRes.changed) {
+      nextExtras[name] = longIfRes.code;
+      changed = true;
+      fixes.push(name + ':LongIfChainSwitch x' + longIfRes.fixes);
+    }
+  });
+  var crossPhaseGateFix = repairPhaseGateRuntimeMovesAcrossPartials(mainCode, nextExtras);
+  if (crossPhaseGateFix.changed) {
+    mainCode = crossPhaseGateFix.code;
+    nextExtras = crossPhaseGateFix.extraFiles;
+    changed = true;
+    fixes.push('partials:PhaseGateRuntimeMove x' + crossPhaseGateFix.fixes);
+  }
+  var postCrossLongIfFix = rewriteLongIfChainsAsSwitches(mainCode);
+  if (postCrossLongIfFix.changed) {
+    mainCode = postCrossLongIfFix.code;
+    changed = true;
+    fixes.push('main:LongIfChainSwitchPostPhaseGate x' + postCrossLongIfFix.fixes);
+  }
+  Object.keys(nextExtras).forEach(function(name) {
+    var res = rewriteLongIfChainsAsSwitches(nextExtras[name]);
+    if (res.changed) {
+      nextExtras[name] = res.code;
+      changed = true;
+      fixes.push(name + ':LongIfChainSwitchPostPhaseGate x' + res.fixes);
+    }
   });
   return {
     code: mainCode,
@@ -815,6 +1374,22 @@ function shouldUsePatchRecode(reviewResult) {
   return true;
 }
 
+function hasLegacyReviewerApiKey() {
+  return !!(typeof process !== 'undefined' && process && process.env && process.env.OPENAI_API_KEY);
+}
+
+function shouldFallbackToLegacyReviewer(reviewResult, useCodexReview, hasCodexReviewer, hasLegacyReviewer) {
+  if (!reviewResult) return false;
+  var isDefinitive = reviewResult.error && /MODEL_FATAL|quota|insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|unauthoriz/i.test(reviewResult.error);
+  return !reviewResult.passed &&
+    (reviewResult.parseError || reviewResult.error) &&
+    !isDefinitive &&
+    !!useCodexReview &&
+    !!hasCodexReviewer &&
+    !!hasLegacyReviewer &&
+    hasLegacyReviewerApiKey();
+}
+
 function buildReviewFingerprint(reviewResult) {
   if (!reviewResult) return 'review|unknown';
   var issues = (reviewResult.issues || []).slice(0, 6).map(function(issue) {
@@ -838,7 +1413,11 @@ module.exports = {
   canRetry: false,
   normalizeSetScaleCalls: normalizeSetScaleCalls,
   repairPhaseGateRuntimeMoves: repairPhaseGateRuntimeMoves,
+  repairPhaseGateRuntimeMovesAcrossPartials: repairPhaseGateRuntimeMovesAcrossPartials,
   stripInteractionFlagShortcutsFromPhaseGates: stripInteractionFlagShortcutsFromPhaseGates,
+  rewriteLongIfChainsAsSwitches: rewriteLongIfChainsAsSwitches,
+  hasLegacyReviewerApiKey: hasLegacyReviewerApiKey,
+  shouldFallbackToLegacyReviewer: shouldFallbackToLegacyReviewer,
   repairKnownStructuralDamage: repairKnownStructuralDamage,
   canSkip: function(ctx) {
     return process.env.SKIP_CODE_REVIEW === 'true' || !ctx.csCode;
@@ -1106,18 +1685,30 @@ module.exports = {
               log: function(msg) { ctx.addLog('review', msg); },
               extraFiles: reviewExtraFiles,
             });
-          } else if (codeReviewer) {
+          } else if (codeReviewer && hasLegacyReviewerApiKey()) {
+            // Guard: only invoke the legacy GPT-5.4 reviewer when OPENAI_API_KEY is
+            // present. If the key was intentionally removed (Codex ChatGPT auth mode),
+            // code-reviewer.js:594 would immediately throw MODEL_FATAL — crashing every
+            // task in the process run. Skipping to the else-branch produces a clear,
+            // actionable fatal instead.
             reviewPromise = codeReviewer.reviewCode(reviewedCode, {
               taskId: ctx.taskId,
               log: function(msg) { ctx.addLog('review', msg); },
               poolNameMap: reviewPoolNameMap,
             });
           } else {
-            // Unreachable: the top-of-execute guard already throws MODEL_FATAL
-            // if neither reviewer is loaded. Retained as defense-in-depth —
-            // any future code path that lands here aborts rather than pretending
-            // the review passed.
-            throw new Error('MODEL_FATAL: no reviewer invocation path matched');
+            // Reached when:
+            //   (a) codexReviewer failed to load AND codeReviewer is absent, OR
+            //   (b) codexReviewer failed to load AND OPENAI_API_KEY is not set
+            //       (key intentionally removed for Codex ChatGPT auth mode).
+            // In both cases there is no viable reviewer path — abort with an
+            // actionable message rather than cascading into a key-less GPT call.
+            throw new Error('MODEL_FATAL: no reviewer available ' +
+              '(USE_CODEX_REVIEW=' + USE_CODEX_REVIEW +
+              ', codexReviewer=' + !!codexReviewer +
+              ', codeReviewer=' + !!codeReviewer +
+              ', hasLegacyKey=' + hasLegacyReviewerApiKey() + ')' +
+              ' — set USE_CODEX_REVIEW=true or provide OPENAI_API_KEY');
           }
         }
 
@@ -1129,8 +1720,11 @@ module.exports = {
           // if any future code path returns a fake {error: "quota..."} result,
           // we refuse to cascade into GPT-5.4 (which shares the same OPENAI_API_KEY
           // and would hit the same quota wall — doubling the wasted attempt).
-          var isDefinitive = reviewResult.error && /MODEL_FATAL|quota|insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|unauthoriz/i.test(reviewResult.error);
-          if (!reviewResult.passed && (reviewResult.parseError || reviewResult.error) && !isDefinitive && USE_CODEX_REVIEW && codexReviewer && codeReviewer) {
+          var wantsLegacyFallback = !reviewResult.passed && (reviewResult.parseError || reviewResult.error) && USE_CODEX_REVIEW && codexReviewer && codeReviewer;
+          if (wantsLegacyFallback && !hasLegacyReviewerApiKey()) {
+            ctx.addLog('review', 'Codex had transient env/parse error, but GPT-5.4 fallback is unavailable (no OPENAI_API_KEY)');
+          }
+          if (shouldFallbackToLegacyReviewer(reviewResult, USE_CODEX_REVIEW, codexReviewer, codeReviewer)) {
             ctx.addLog('review', 'Codex had transient env/parse error, falling back to GPT-5.4');
             return codeReviewer.reviewCode(reviewedCode, {
               taskId: ctx.taskId,

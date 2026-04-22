@@ -6,6 +6,7 @@
  */
 
 var fs = require('fs');
+var os = require('os');
 var path = require('path');
 var { generateSkeleton } = require('../../adapters/skeleton-generator.cjs');
 var { resolveEntities } = require('../../adapters/entity-resolver.cjs');
@@ -296,27 +297,39 @@ function fillCustomLogic(ctx, schema) {
 
   ctx.blueprint.customLogicRounds = 0;
   ctx.blueprint.customLogicTokensIn = 0;
+  var customWorkDir = prepareCustomLogicWorkspace(ctx);
 
   var loop = createFixLoop({
     name: 'codegen-custom',
     maxRounds: 3,
     attempt: function(loopCtx, round) {
       ctx.blueprint.customLogicRounds = round;
+      syncCustomLogicWorkspace(ctx, customWorkDir);
       var promptText = buildCustomLogicPrompt(ctx, schema);
       return runCodexText({
         userPrompt: promptText,
         systemPrompt: '你是 Unity C# 代码填充器。只修改 TODO_CUSTOM 区域。',
         backend: 'codex-exec',
         model: 'gpt-5.4',
-        workDir: ctx.workDir,
+        workDir: customWorkDir,
         taskId: ctx.taskId,
         log: function(msg) { ctx.addLog('codegen-schema', '[custom R' + round + '] ' + msg); },
         effort: 'medium',
         timeoutMs: 300000,
         allowBackendFallback: true,
+        execSandbox: 'workspace-write',
       }).then(function(response) {
         if (!response.ok) {
           throw new Error('Custom logic fill failed: ' + (response.error || '').slice(0, 200));
+        }
+
+        var workspaceApplied = loadCustomLogicWorkspaceIntoContext(ctx, customWorkDir);
+        if (workspaceApplied) {
+          var workspaceScrub = applyGeneratedCodeContractScrub(ctx);
+          if (workspaceScrub.changed) {
+            ctx.addLog('codegen-schema', '[custom R' + round + '] contract scrub: ' + workspaceScrub.fixes.join(', '));
+          }
+          return { done: true };
         }
 
         var text = response.text || '';
@@ -332,13 +345,99 @@ function fillCustomLogic(ctx, schema) {
           ctx.csCode = ctx.csCode.substring(0, si + startM.length) + '\n' +
             codeMatch[1] + '\n        ' + ctx.csCode.substring(ei);
         }
+        var inlineScrub = applyGeneratedCodeContractScrub(ctx);
+        if (inlineScrub.changed) {
+          ctx.addLog('codegen-schema', '[custom R' + round + '] contract scrub: ' + inlineScrub.fixes.join(', '));
+        }
 
         return { done: true };
       });
     }
   });
 
-  return loop.run(ctx);
+  return loop.run(ctx).then(function(result) {
+    cleanupCustomLogicWorkspace(customWorkDir);
+    return result;
+  }).catch(function(err) {
+    cleanupCustomLogicWorkspace(customWorkDir);
+    throw err;
+  });
+}
+
+function getCustomLogicManagerDir(workDir) {
+  return path.join(workDir, 'Assets', 'Program', 'Script', 'Manager');
+}
+
+function prepareCustomLogicWorkspace(ctx) {
+  var taskId = ctx && ctx.taskId ? ctx.taskId : 'task';
+  var workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegen-custom-' + taskId + '-'));
+  syncCustomLogicWorkspace(ctx, workDir);
+  return workDir;
+}
+
+function syncCustomLogicWorkspace(ctx, workDir) {
+  var managerDir = getCustomLogicManagerDir(workDir);
+  fs.mkdirSync(managerDir, { recursive: true });
+  fs.writeFileSync(path.join(managerDir, 'GameFlowManagerMain.cs'), String(ctx.csCode || ''));
+  var extras = ctx.extraFiles || {};
+  Object.keys(extras).forEach(function(name) {
+    if (typeof extras[name] !== 'string') return;
+    fs.writeFileSync(path.join(managerDir, path.basename(name)), extras[name]);
+  });
+}
+
+function loadCustomLogicWorkspaceIntoContext(ctx, workDir) {
+  var managerDir = getCustomLogicManagerDir(workDir);
+  var mainPath = path.join(managerDir, 'GameFlowManagerMain.cs');
+  if (!fs.existsSync(mainPath)) return false;
+  var nextMain = fs.readFileSync(mainPath, 'utf8');
+  var changed = nextMain !== String(ctx.csCode || '');
+  var nextExtras = Object.assign({}, ctx.extraFiles || {});
+  Object.keys(nextExtras).forEach(function(name) {
+    var extraPath = path.join(managerDir, path.basename(name));
+    if (!fs.existsSync(extraPath)) return;
+    var nextContent = fs.readFileSync(extraPath, 'utf8');
+    if (nextContent !== String(nextExtras[name] || '')) changed = true;
+    nextExtras[name] = nextContent;
+  });
+  if (!changed) return false;
+  ctx.csCode = nextMain;
+  ctx.extraFiles = nextExtras;
+  return true;
+}
+
+function cleanupCustomLogicWorkspace(workDir) {
+  if (!workDir) return;
+  try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (_err) {}
+}
+
+function applyGeneratedCodeContractScrub(ctx) {
+  if (!ctx || !ctx.csCode) return { changed: false, fixes: [] };
+  var methodCheck;
+  try {
+    methodCheck = require('./method-check.cjs');
+  } catch (_err) {
+    return { changed: false, fixes: [] };
+  }
+  var changed = false;
+  var fixes = [];
+  if (methodCheck.autoRepairForbiddenGenericApis && methodCheck.autoRepairForbiddenGenericApis(ctx)) {
+    changed = true;
+    fixes.push('ForbiddenGenericApi');
+  }
+  if (methodCheck.autoRepairDuplicateStateFields && methodCheck.autoRepairDuplicateStateFields(ctx)) {
+    changed = true;
+    fixes.push('DuplicateStateFields');
+  }
+  if (methodCheck.autoRepairPlayerAliasDrift && methodCheck.autoRepairPlayerAliasDrift(ctx)) {
+    changed = true;
+    fixes.push('PlayerAliasDrift');
+  }
+  if (methodCheck.autoRepairInvalidPoolLiterals && methodCheck.autoRepairInvalidPoolLiterals(ctx)) {
+    changed = true;
+    fixes.push('InvalidPoolLiterals');
+  }
+  return { changed: changed, fixes: fixes };
 }
 
 function buildCustomLogicPrompt(ctx, schema) {
@@ -359,6 +458,12 @@ function buildCustomLogicPrompt(ctx, schema) {
   lines.push('   若 phase P 的退出条件是 EntityAdvanced(X)，P 的交互逻辑必须在玩家触发时位移 X：');
   lines.push('   调 PlaceObj(X, x, y, z) / HideObj(X) / X.transform.position = new Vector3(...)。');
   lines.push('   仅写 flag (XDone=true / XState=2 / XPlayerActed=true) **不能**满足 gate，phase 永远不退出。');
+  lines.push('10. 禁止使用泛型 Unity API：不要写 GetComponent<T>() / List<T> / Dictionary<K,V>。');
+  lines.push('11. 不要新声明或重复声明 *State 字段；必须复用 skeleton 里已有的 XxxState。');
+  lines.push('12. Player / player / PlayerAvatar 只能选当前代码里已存在的那一个；绝对不要混用。');
+  lines.push('13. 禁止 remap pool 名，也不要写 blueprint/skeleton 里不存在的 __Pool_* 字面量。');
+  lines.push('14. 同一个标识符的 phase 分发不要写 4 段以上 if/else-if；改用 switch(identifier)。');
+  lines.push('15. 工作区里已经放好了真实的 `Assets/Program/Script/Manager/GameFlowManagerMain*.cs`。优先直接修改这些文件；如果你不能落盘，再输出一个 ```csharp 代码块，只包含 TODO_CUSTOM 区域内容。');
   lines.push('');
   lines.push('## 需要实现的自定义逻辑');
   for (var i = 0; i < schema.customLogic.length; i++) {
@@ -371,6 +476,12 @@ function buildCustomLogicPrompt(ctx, schema) {
   lines.push('```');
   return lines.join('\n');
 }
+
+module.exports._prepareCustomLogicWorkspace = prepareCustomLogicWorkspace;
+module.exports._syncCustomLogicWorkspace = syncCustomLogicWorkspace;
+module.exports._loadCustomLogicWorkspaceIntoContext = loadCustomLogicWorkspaceIntoContext;
+module.exports._cleanupCustomLogicWorkspace = cleanupCustomLogicWorkspace;
+module.exports._applyGeneratedCodeContractScrub = applyGeneratedCodeContractScrub;
 
 function _validateSchema(schema) {
   var structErrors = schemaValidator.validateGameSchema(schema);

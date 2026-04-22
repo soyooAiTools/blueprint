@@ -33,6 +33,45 @@ function splitTopLevelArgs(text) {
   return args;
 }
 
+function isPurePhaseDispatcherBody(body) {
+  var text = String(body || '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return false;
+  return /^switch\s*\(\s*(?:currentPhaseName|phaseName|targetName)\s*\)\s*\{(?:\s*case\s+"[^"]+"\s*:\s*[A-Za-z_][A-Za-z0-9_]*\s*\([^{};]*\)\s*;\s*break;\s*)+(?:default\s*:\s*(?:[A-Za-z_][A-Za-z0-9_]*\s*\([^{};]*\)\s*;\s*)?break;\s*)?\}$/.test(text);
+}
+
+function isSkeletonUpdateGameStateBody(body) {
+  var text = String(body || '');
+  if (text.indexOf('string json =') < 0) return false;
+  var required = [
+    'currentPhase',
+    'completedPhases',
+    'entityStates',
+    'variables',
+    'phaseTimestamps',
+    'gameObject.name',
+  ];
+  for (var i = 0; i < required.length; i++) {
+    if (text.indexOf(required[i]) < 0) return false;
+  }
+  return true;
+}
+
+function isSkeletonTryReportStuckPhaseBody(methodName, body) {
+  if (methodName !== 'TryReportStuckPhase') return false;
+  var text = String(body || '');
+  var caseCount = (text.match(/case\s+"/g) || []).length;
+  var stuckTagCount = (text.match(/__PHASE_STUCK__:/g) || []).length;
+  var returnTrueCount = (text.match(/return true;/g) || []).length;
+  return text.indexOf('switch (currentPhaseName)') >= 0 &&
+    caseCount >= 5 &&
+    stuckTagCount >= 5 &&
+    returnTrueCount >= 5;
+}
+
 // `blocking: true` — these rules cause black-screen / invisible render at runtime.
 // The codegen stage treats them as blocking (fail the round + inject feedback)
 // instead of letting the generation advance to review. Rationale (2026-04-15 bqh33t
@@ -1352,7 +1391,8 @@ var RULES = [
     },
   },
   // Warning 6d: method body > 60 lines. Exempt list covers legitimately-long
-  // skeleton scaffolding (CheckEventRules, OnAutoPlayArrive, dispatcher switches).
+  // skeleton scaffolding (CheckEventRules, phase dispatchers, UpdateGameState,
+  // TryReportStuckPhase).
   // Threshold to be calibrated at W2 end against real urbib0/successor distribution.
   { id: 'method-too-long', pattern: null, blocking: true,
     message: 'Method body too long — split into smaller named methods and keep coordinator methods thin',
@@ -1377,6 +1417,9 @@ var RULES = [
         }
         if (depth !== 0) continue;
         var body = stripped.substring(start, end);
+        if (isPurePhaseDispatcherBody(body)) continue;
+        if (name === 'UpdateGameState' && isSkeletonUpdateGameStateBody(body)) continue;
+        if (isSkeletonTryReportStuckPhaseBody(name, body)) continue;
         var lineCount = body.split('\n').length;
         if (lineCount > 45) {
           var lineNum = code.substring(0, m.index).split('\n').length;
@@ -1585,6 +1628,7 @@ var RULES = [
           }
           if (depth !== 0) continue;
           var body = stripped.substring(start, end);
+          if (isPurePhaseDispatcherBody(body)) continue;
           var lineCount = body.split('\n').length;
           var branchCount = (body.match(/\bif\s*\(|\bswitch\s*\(|\bcase\s+/g) || []).length;
           if (lineCount > 25 || branchCount > 4) {

@@ -20,7 +20,7 @@ const {
 
 // ============ Config ============
 const CODEX_CMD = process.env.CODEX_CMD || 'codex';
-const CODEX_TIMEOUT_MS = parseInt(process.env.CODEX_REVIEW_TIMEOUT_MS) || 3 * 60 * 1000; // 3 min
+const CODEX_TIMEOUT_MS = parseInt(process.env.CODEX_REVIEW_TIMEOUT_MS) || 4 * 60 * 1000; // align with codex-text default
 const CODEX_MODEL = process.env.CODEX_REVIEW_MODEL || 'gpt-5.4';
 
 // ============ Preflight Health Check ============
@@ -140,19 +140,25 @@ async function preflightCheck() {
   }
 }
 
+function buildCodexReviewArgs(workDir, outputPath) {
+  return [
+    'exec',
+    '--skip-git-repo-check',
+    '--ephemeral',
+    '-m', CODEX_MODEL,
+    '-s', 'danger-full-access', // bwrap 0.4.0 不支持 --argv0，read-only 模式下无法执行命令
+    '-C', workDir,
+    '-o', outputPath,
+  ];
+}
+
 /**
  * 运行 Codex exec 进行代码审查
  */
 function runCodexReview(workDir, userPrompt, log, taskId) {
   return new Promise((resolve, reject) => {
-    const args = [
-      'exec',
-      '--skip-git-repo-check',
-      '--ephemeral',
-      '-m', CODEX_MODEL,
-      '-s', 'danger-full-access', // bwrap 0.4.0 不支持 --argv0，read-only 模式下无法执行命令
-      '-C', workDir,
-    ];
+    const outputPath = path.join(workDir, 'codex-review-last-message.txt');
+    const args = buildCodexReviewArgs(workDir, outputPath);
 
     log(`[codex-reviewer] Spawning: ${CODEX_CMD} ${args.join(' ')}`, taskId);
 
@@ -168,6 +174,7 @@ function runCodexReview(workDir, userPrompt, log, taskId) {
 
     let stdout = '';
     let stderr = '';
+    let timedOut = false;
 
     child.stdout.on('data', (data) => {
       stdout += data.toString();
@@ -178,6 +185,7 @@ function runCodexReview(workDir, userPrompt, log, taskId) {
     });
 
     const timer = setTimeout(() => {
+      timedOut = true;
       log(`[codex-reviewer] ⚠️ Timeout (${CODEX_TIMEOUT_MS / 1000}s), killing`, taskId);
       child.kill('SIGTERM');
       setTimeout(() => child.kill('SIGKILL'), 5000);
@@ -185,17 +193,23 @@ function runCodexReview(workDir, userPrompt, log, taskId) {
 
     child.on('close', (code) => {
       clearTimeout(timer);
-      log(`[codex-reviewer] Process exited code=${code}, stdout=${stdout.length} chars`, taskId);
+      let lastMessage = '';
+      try {
+        if (fs.existsSync(outputPath)) lastMessage = fs.readFileSync(outputPath, 'utf8') || '';
+      } catch (_err) {}
+      log(`[codex-reviewer] Process exited code=${code}, last=${lastMessage.length} chars, stdout=${stdout.length} chars, stderr=${stderr.length} chars`, taskId);
       resolve({
         ok: code === 0,
-        output: stdout,
+        output: lastMessage || stdout,
+        rawStdout: stdout,
         error: code !== 0 ? (stderr || `Exit code ${code}`) : null,
+        timedOut: timedOut,
       });
     });
 
     child.on('error', (err) => {
       clearTimeout(timer);
-      resolve({ ok: false, output: '', error: err.message });
+      resolve({ ok: false, output: '', rawStdout: '', error: err.message, timedOut: timedOut });
     });
 
     // 写入 prompt
@@ -370,14 +384,32 @@ Rules:
 
   if (!result.ok && !result.output) {
     log('[codex-reviewer] Codex review error (non-fatal, treating as FAIL): ' + (result.error || '').slice(0, 200), taskId);
-    return { passed: false, issues: ['Codex reviewer failed: ' + (result.error || 'unknown error')], feedback: '', error: result.error };
+    return {
+      passed: false,
+      issues: ['Codex reviewer failed: ' + (result.error || 'unknown error')],
+      feedback: '',
+      error: result.error,
+      timedOut: !!result.timedOut,
+      source: 'codex-reviewer',
+    };
   }
 
   // 解析输出
   const review = parseReviewOutput(result.output);
   if (!review) {
-    log('[codex-reviewer] Failed to parse Codex output as JSON, treating as FAIL (timeout or empty output). Output: ' + result.output.slice(0, 300), taskId);
-    return { passed: false, issues: ['Codex reviewer returned unparseable output (likely timeout)'], feedback: result.output, parseError: true };
+    const parseReason = result.timedOut
+      ? 'Codex reviewer timed out before producing JSON output'
+      : (result.output ? 'Codex reviewer returned unparseable output' : 'Codex reviewer returned empty output');
+    log('[codex-reviewer] Failed to parse Codex output as JSON: ' + parseReason + '. Output: ' + result.output.slice(0, 300), taskId);
+    return {
+      passed: false,
+      issues: [parseReason],
+      feedback: result.output || result.rawStdout || '',
+      parseError: true,
+      error: parseReason,
+      timedOut: !!result.timedOut,
+      source: 'codex-reviewer',
+    };
   }
 
   const issues = review.issues || [];
@@ -434,7 +466,15 @@ Rules:
     criticalCount,
     warningCount,
     codexReview: true,
+    source: 'codex-reviewer',
   };
 }
 
-module.exports = { reviewCodeWithCodex, preflightCheck, getPreflightReason, getPreflightCheckedAt };
+module.exports = {
+  reviewCodeWithCodex,
+  preflightCheck,
+  getPreflightReason,
+  getPreflightCheckedAt,
+  _buildCodexReviewArgs: buildCodexReviewArgs,
+  _parseReviewOutput: parseReviewOutput,
+};

@@ -1,5 +1,112 @@
 # Blueprint 生产事故记录
 
+## 2026-04-23: rerun 假重提 + split-partial phase gate 漏修
+
+### 背景
+
+`2026-04-23 00:00` 到 `00:20`（北京时间，UTC+8）这一轮，6 个历史失败任务被重新从 `codegen` 拉起后，仍然出现两类异常：
+
+- 有任务“刚提交就挂”，表面像 submit / queue 立即失败
+- 也有任务在新的 `review` 轮次里继续卡 `phase-entity-init-only`
+
+深挖后确认，这不是单点故障，而是“假重提 + 预修复漏形态”叠加。
+
+### 根因
+
+1. `engine/stage-rerun.cjs` 只把 task 状态改回 `pending`，没有清：
+   - `fail_count`
+   - `infra_retry_count`
+   - `code_retry_count`
+   - `metadata_json.outerFpHistory`
+
+   结果是 task 虽然重新排队，但下一次再报同一错误时，`lib/task-queue.cjs` 会直接命中 `Outer-retry fingerprint FATAL`。这就是“看起来刚提交就挂”的直接原因。
+
+2. `phase-entity-init-only` 的 deterministic repair 之前默认按“单文件”理解 phase 结构：
+   - 在同一个文件里找 `CheckEventRules()`
+   - 在同一个文件里找 `Phase_<id>_Init()`
+   - 在同一个文件里补 `OnTap/OnAutoPlayArrive`
+
+   但 W1b / split-partial 产物的真实形态是：
+   - 主文件 `GameFlowManagerMain.cs` 里有 `CheckEventRules()` / `EnterPhase(..., "phaseId", ...)`
+   - `GameFlowManagerMain.Flow.cs` 里才有 `Phase_<id>_Init()` / `Phase_<id>_OnTap()` / `Phase_<id>_OnAutoPlayArrive()`
+
+   旧 repair 看不到这条跨文件链，导致 `phase-entity-init-only` 在 split-partial 任务上持续漏修。
+
+3. 同一轮 codegen 里还存在一个次级放大器：
+   - 低 coverage W1b 样本如果 schema 没列出 `customLogic`，旧路径会直接 `No custom logic — skipping text runner entirely`
+   - 半成品 handler 于是被直接送进 `review`
+
+### 改动
+
+**P0 — rerun 真重置** (`engine/stage-rerun.cjs`)
+
+- 新增 task reset helper，统一清：
+  - retry counters
+  - `retry_after`
+  - `outerFpHistory`
+- 同步清 project JSON 的 `lastFailure`
+- 把核心逻辑导出，方便测试，不再只能走 CLI
+
+**P0 — split-partial phase gate repair** (`engine/stages/review.cjs` + `engine/stages/method-check.cjs`)
+
+- 新增 `repairPhaseGateRuntimeMovesAcrossPartials(mainCode, extraFiles)`
+- 从主文件 `CheckEventRules()` 中识别：
+  - `EnterPhase(..., "phaseId", ...)`
+  - 当前 phase gate 依赖的 `_snap_XPos`
+- 再去 companion partials 收集：
+  - `Phase_<id>_Init()`
+  - `Phase_<id>_OnTap()`
+  - `Phase_<id>_OnAutoPlayArrive()`
+- 若实体只在 init 里移动，则：
+  - 把最小 move 语句补进主文件 `Update()` 的当前 phase 分支
+  - 同时补进 `Flow.cs` 的 tap / autoplay handler
+- `method-check` 的 pre-repair 也接入这条跨文件修复链，避免问题拖到 review 才暴露
+
+**P0 — codegen / reviewer 同链路收口**
+
+- `engine/stages/codegen-schema.cjs`
+  - custom logic 改成真实 workspace 落盘，再回读结果
+  - custom logic 完成后立刻跑 contract scrub
+- `adapters/skeleton-generator.cjs`
+  - phase gate entity 只保留会被交互模板真实移动的实体，避免从 `entitiesRequired` 硬凑不可达 gate
+- `worker/codex-reviewer.js`
+  - reviewer 改成优先读 `-o` 输出文件
+  - 默认 timeout 提到 4 分钟
+  - 明确区分 timeout / empty output / parse error
+
+### 验证
+
+- 回归测试通过：
+  - `node test/stage-rerun.test.cjs`
+  - `node test/method-check-phase-gate.test.cjs`
+  - `node test/review-deterministic-repair.test.cjs`
+  - `node test/method-check-auto-repair.test.cjs`
+  - `npm test`
+
+- 线上受控验证：
+  - `proj_1776680853909_w7113b` 于 `2026-04-23 00:29`（北京时间）重新从 `codegen` 拉起
+  - rerun 后 task row 已确认为：
+    - `failCount=0`
+    - `codeRetryCount=0`
+    - `outerFpHistory` 已清空
+  - project JSON 已清空 `lastFailure`
+  - 新日志不再走旧的 `No custom logic` 路径，而是：
+    - `coverage=0.40`
+    - `Custom logic detected (4 items), invoking Codex text runner...`
+
+### 记录 / 归档
+
+- 归档详单：`docs/_archived/2026-04-23-rerun-phase-gate-hardening.md`
+- 值班口径已同步到当前本机 `blueprint-monitor` skill
+
+### 遗留
+
+- 当前验证已经证明：
+  - rerun 不再是假重提
+  - 低 coverage W1b 不再静默跳过 custom logic
+
+- 但还没有证明“这 6 个任务全部成功”。下一步仍应继续盯新一轮 `review`，确认是否从 `phase-entity-init-only / reviewer-timeout` 链上彻底脱落。
+
 ## 2026-04-22: method-check 前移成功，但 contract check 过宽
 
 ### 背景

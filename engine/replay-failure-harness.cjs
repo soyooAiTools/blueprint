@@ -9,16 +9,18 @@
 var fs = require('fs');
 var path = require('path');
 var { staticCheck } = require('./static-check.cjs');
-var { checkCompleteness } = require('./stages/method-check.cjs');
+var methodCheckStage = require('./stages/method-check.cjs');
+var reviewStage = require('./stages/review.cjs');
 var { checkConformance } = require('./spec-conformance.cjs');
 
 function parseArgs(argv) {
-  var out = { projectId: '', workdir: '', json: false };
+  var out = { projectId: '', workdir: '', json: false, applyRepairs: false };
   for (var i = 2; i < argv.length; i++) {
     var arg = argv[i];
     if (arg === '--project' && argv[i + 1]) out.projectId = argv[++i];
     else if (arg === '--workdir' && argv[i + 1]) out.workdir = argv[++i];
     else if (arg === '--json') out.json = true;
+    else if (arg === '--apply-repairs') out.applyRepairs = true;
   }
   return out;
 }
@@ -30,6 +32,14 @@ function die(msg) {
 
 function readJson(fp) {
   return JSON.parse(fs.readFileSync(fp, 'utf8'));
+}
+
+function checkpointFileFor(projectId) {
+  return path.join('/opt/blueprint-editor/server-data/checkpoints', projectId, 'checkpoint.json');
+}
+
+function hasCheckpoint(projectId) {
+  return !!(projectId && fs.existsSync(checkpointFileFor(projectId)));
 }
 
 function findLatestReviewfixWorkdir(projectId) {
@@ -60,8 +70,10 @@ function fallbackTaskWorkdir(projectId) {
 }
 
 function loadManagerSources(workdir, projectId) {
-  var managerDir = path.join(workdir, 'Assets/Program/Script/Manager');
-  var files = fs.existsSync(managerDir) ? fs.readdirSync(managerDir).filter(function(name) {
+  var managerDir = workdir
+    ? path.join(workdir, 'Assets/Program/Script/Manager')
+    : path.join('/opt/blueprint-editor/server-data/checkpoints', projectId || 'checkpoint-only', 'Manager');
+  var files = workdir && fs.existsSync(managerDir) ? fs.readdirSync(managerDir).filter(function(name) {
     return /^GameFlowManagerMain.*\.cs$/.test(name);
   }).sort() : [];
 
@@ -77,7 +89,7 @@ function loadManagerSources(workdir, projectId) {
   }
 
   if (projectId) {
-    var checkpointFile = path.join('/opt/blueprint-editor/server-data/checkpoints', projectId, 'checkpoint.json');
+    var checkpointFile = checkpointFileFor(projectId);
     if (fs.existsSync(checkpointFile)) {
       var checkpoint = readJson(checkpointFile);
       if (!mainCode && checkpoint.csCode) mainCode = String(checkpoint.csCode || '');
@@ -111,10 +123,61 @@ function summarizeIssues(issues) {
   });
 }
 
+function buildAggregateCode(mainCode, extraFiles) {
+  return String(mainCode || '') + '\n' + Object.keys(extraFiles || {}).map(function(name) {
+    return String(extraFiles[name] || '');
+  }).join('\n');
+}
+
+function applyDeterministicRepairs(mainCode, extraFiles, blueprint) {
+  var ctx = {
+    csCode: String(mainCode || ''),
+    extraFiles: Object.assign({}, extraFiles || {}),
+    blueprint: blueprint || {},
+  };
+  var repairsApplied = [];
+
+  function pushRepair(label, changed) {
+    if (changed) repairsApplied.push(label);
+  }
+
+  pushRepair('method-check:forbidden-generic-api', methodCheckStage.autoRepairForbiddenGenericApis(ctx));
+  pushRepair('method-check:duplicate-state-fields', methodCheckStage.autoRepairDuplicateStateFields(ctx));
+  pushRepair('method-check:player-alias-drift', methodCheckStage.autoRepairPlayerAliasDrift(ctx));
+  pushRepair('method-check:invalid-pool-literals', methodCheckStage.autoRepairInvalidPoolLiterals(ctx));
+  pushRepair('method-check:partial-class-mismatch', methodCheckStage.autoRepairPartialClassMismatch(ctx));
+
+  var phaseRepair = methodCheckStage.autoRepairPhaseGateViolations(ctx, 2);
+  if (phaseRepair && phaseRepair.changed) {
+    repairsApplied.push('method-check:phase-gate-violations');
+  }
+
+  var missing = methodCheckStage.checkCompleteness(ctx.csCode, ctx.extraFiles);
+  if (methodCheckStage.injectMissingHelpers(ctx, missing)) {
+    repairsApplied.push('method-check:inject-missing-helpers');
+  }
+
+  var reviewRepair = reviewStage.repairKnownStructuralDamage(ctx.csCode, ctx.extraFiles, blueprint || {});
+  if (reviewRepair && reviewRepair.changed) {
+    ctx.csCode = reviewRepair.code;
+    ctx.extraFiles = reviewRepair.extraFiles;
+    for (var i = 0; i < reviewRepair.fixes.length; i++) {
+      repairsApplied.push('review:' + reviewRepair.fixes[i]);
+    }
+  }
+
+  return {
+    mainCode: ctx.csCode,
+    extraFiles: ctx.extraFiles,
+    aggregateCode: buildAggregateCode(ctx.csCode, ctx.extraFiles),
+    repairsApplied: repairsApplied,
+  };
+}
+
 function main() {
   var args = parseArgs(process.argv);
   if (!args.projectId && !args.workdir) {
-    die('usage: node engine/replay-failure-harness.cjs --project <projectId> | --workdir <path> [--json]');
+    die('usage: node engine/replay-failure-harness.cjs --project <projectId> | --workdir <path> [--json] [--apply-repairs]');
   }
 
   var workdir = args.workdir;
@@ -122,13 +185,15 @@ function main() {
   if (!workdir && projectId) {
     workdir = findLatestReviewfixWorkdir(projectId);
     if (!workdir) workdir = fallbackTaskWorkdir(projectId);
-    if (!workdir) die('No reviewfix workdir found in pipeline logs for ' + projectId);
+    if (!workdir && !hasCheckpoint(projectId)) {
+      die('No reviewfix workdir or checkpoint found for ' + projectId);
+    }
   }
   if (!projectId && workdir) {
     var m = workdir.match(/proj_[^-/]+_[^-/]+_[^-/]+/);
     if (m) projectId = m[0];
   }
-  if (!fs.existsSync(workdir)) die('workdir not found: ' + workdir);
+  if (workdir && !fs.existsSync(workdir)) die('workdir not found: ' + workdir);
 
   var project = null;
   if (projectId) {
@@ -137,16 +202,26 @@ function main() {
   }
 
   var src = loadManagerSources(workdir, projectId);
-  var files = [{ name: src.mainName, code: src.mainCode }];
-  Object.keys(src.extraFiles).forEach(function(name) {
-    files.push({ name: name, code: src.extraFiles[name] });
+  var effective = {
+    mainCode: src.mainCode,
+    extraFiles: src.extraFiles,
+    aggregateCode: src.aggregateCode,
+    repairsApplied: [],
+  };
+  if (args.applyRepairs) {
+    effective = applyDeterministicRepairs(src.mainCode, src.extraFiles, project || {});
+  }
+
+  var files = [{ name: src.mainName, code: effective.mainCode }];
+  Object.keys(effective.extraFiles).forEach(function(name) {
+    files.push({ name: name, code: effective.extraFiles[name] });
   });
 
   var staticIssues = [];
   for (var i = 0; i < files.length; i++) {
     var fileExtra = {};
-    Object.keys(src.extraFiles).forEach(function(name) {
-      if (name !== files[i].name) fileExtra[name] = src.extraFiles[name];
+    Object.keys(effective.extraFiles).forEach(function(name) {
+      if (name !== files[i].name) fileExtra[name] = effective.extraFiles[name];
     });
     var res = staticCheck(files[i].code, {
       filename: path.join(src.managerDir, files[i].name),
@@ -161,12 +236,17 @@ function main() {
   }
   var blocking = staticIssues.filter(function(i) { return !!i.blocking; });
   var warnings = staticIssues.filter(function(i) { return !i.blocking; });
-  var missingMethods = checkCompleteness(src.mainCode, src.extraFiles);
-  var conformance = checkConformance(src.aggregateCode, project || {});
+  var missingMethods = methodCheckStage.checkCompleteness(effective.mainCode, effective.extraFiles);
+  var conformance = checkConformance(effective.aggregateCode, project || {});
 
   var output = {
     projectId: projectId || null,
-    workdir: workdir,
+    workdir: workdir || null,
+    applyRepairs: !!args.applyRepairs,
+    deterministicRepairs: {
+      appliedCount: effective.repairsApplied.length,
+      applied: effective.repairsApplied,
+    },
     files: files.map(function(f) { return f.name; }),
     staticCheck: {
       blockingCount: blocking.length,
@@ -194,6 +274,9 @@ function main() {
 
   console.log('[replay] project=' + (output.projectId || '-') + ' workdir=' + output.workdir);
   console.log('[replay] files=' + output.files.join(', '));
+  if (output.applyRepairs) {
+    console.log('[replay] deterministic repairs=' + output.deterministicRepairs.appliedCount + (output.deterministicRepairs.applied.length ? ' :: ' + output.deterministicRepairs.applied.join(', ') : ''));
+  }
   console.log('[replay] static blocking=' + output.staticCheck.blockingCount + ' warnings=' + output.staticCheck.warningCount);
   output.staticCheck.topBlockingRules.forEach(function(item) {
     console.log('  [blocking] ' + item.rule + ' x' + item.count);

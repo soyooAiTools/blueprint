@@ -1,5 +1,5 @@
 {
-    "csCode": "using UnityEngine;\npublic class GameFlowManagerMain : MonoBehaviour {\n    GameObject mainCam;\n    void Start() {\n        mainCam = GameObject.Find(\"__Camera\");\n        var obj = GameObject.Find(\"__Pool_Cube_Red_01\");\n        obj.transform.position = new Vector3(0, 0, 0);\n    }\n    void Update() {\n        // game logic\n    }\n}",
+    "csCode": "using UnityEngine;\npublic class GameFlowManagerMain : MonoBehaviour {\n    // Main camera reference used by gameplay flow.\n    GameObject mainCam;\n    void Start() {\n        mainCam = GameObject.Find(\"__Camera\");\n        var obj = GameObject.Find(\"__Pool_Cube_Red_01\");\n        obj.transform.position = new Vector3(0, 0, 0);\n    }\n    void Update() {\n        // game logic\n    }\n}",
     "expectedResult": {
         "passed": true,
         "issueRules": []

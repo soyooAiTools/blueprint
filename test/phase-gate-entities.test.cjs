@@ -40,10 +40,11 @@ describe('phaseGateEntities filter', () => {
         duration: { min: 10, max: 20 },
       },
     ];
-    const code = generateSkeleton(specs, {
+    const skeleton = generateSkeleton(specs, {
       entityPoolMap: { player: '__Pool_Player', IceOre: '__Pool_IceOre', BackgroundRock: '__Pool_Rock' },
       entities: [{ name: 'player' }, { name: 'IceOre' }, { name: 'BackgroundRock' }],
     });
+    const code = typeof skeleton === 'string' ? skeleton : skeleton.main;
     const gates = gateEntities(code);
     expect(gates).toContain('IceOre');
     expect(gates).not.toContain('BackgroundRock');
@@ -66,10 +67,11 @@ describe('phaseGateEntities filter', () => {
         duration: { min: 5, max: 5 },
       },
     ];
-    const code = generateSkeleton(specs, {
+    const skeleton = generateSkeleton(specs, {
       entityPoolMap: {},
       entities: [],
     });
+    const code = typeof skeleton === 'string' ? skeleton : skeleton.main;
     expect(code).toMatch(/time-only beat/);
   });
 
@@ -90,14 +92,15 @@ describe('phaseGateEntities filter', () => {
         duration: { min: 5, max: 10 },
       },
     ];
-    const code = generateSkeleton(specs, {
+    const skeleton = generateSkeleton(specs, {
       entityPoolMap: { player: '__Pool_Player', ForgeWorkshop: '__Pool_Forge' },
       entities: [{ name: 'player' }, { name: 'ForgeWorkshop' }],
     });
+    const code = typeof skeleton === 'string' ? skeleton : skeleton.main;
     expect(gateEntities(code)).toContain('ForgeWorkshop');
   });
 
-  test('fallback path: no moving-verb interactions → entitiesRequired populates gate', () => {
+  test('non-moving defend-only interactions no longer populate EntityAdvanced gate', () => {
     const specs = [
       {
         phaseId: 'intro',
@@ -109,20 +112,20 @@ describe('phaseGateEntities filter', () => {
       {
         phaseId: 'defendBase',
         entitiesRequired: [{ name: 'Tower' }],
-        // defend is NOT in MOVING_VERBS — preferred set is empty, fallback runs.
-        // Fallback filters defend out of interactions but still returns Tower from
-        // entitiesRequired (documents current behaviour — defend-only needs
-        // custom downstream handling if Tower won't actually move).
+        // defend is NOT in MOVING_VERBS. The generator must avoid inventing an
+        // unreachable EntityAdvanced(Tower) gate from entitiesRequired alone.
         requiredInteractions: ['defend:Tower'],
         triggerNext: { condition: 'waveCleared' },
         duration: { min: 15, max: 30 },
       },
     ];
-    const code = generateSkeleton(specs, {
+    const skeleton = generateSkeleton(specs, {
       entityPoolMap: { player: '__Pool_Player', Tower: '__Pool_Tower' },
       entities: [{ name: 'player' }, { name: 'Tower' }],
     });
-    expect(gateEntities(code)).toContain('Tower');
+    const code = typeof skeleton === 'string' ? skeleton : skeleton.main;
+    expect(gateEntities(code)).not.toContain('Tower');
+    expect(code).toMatch(/time-only beat/);
   });
 
   test('multiple moving-verb targets: all appear in gate', () => {
@@ -142,10 +145,11 @@ describe('phaseGateEntities filter', () => {
         duration: { min: 10, max: 20 },
       },
     ];
-    const code = generateSkeleton(specs, {
+    const skeleton = generateSkeleton(specs, {
       entityPoolMap: { player: '__Pool_Player', OreA: '__Pool_OreA', OreB: '__Pool_OreB' },
       entities: [{ name: 'player' }, { name: 'OreA' }, { name: 'OreB' }],
     });
+    const code = typeof skeleton === 'string' ? skeleton : skeleton.main;
     const gates = gateEntities(code);
     expect(gates).toContain('OreA');
     expect(gates).toContain('OreB');

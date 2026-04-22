@@ -237,4 +237,28 @@ const methodCheck = require('../engine/stages/method-check.cjs');
   assert.ok(!ctx.extraFiles['GameFlowManagerMain.UI.cs'].includes('LaserTurretState = 1'));
 }
 
+{
+  const ctx = {
+    csCode: [
+      'using UnityEngine;',
+      'public class GameFlowManagerMain : MonoBehaviour',
+      '{',
+      '    void Update() { }',
+      '}',
+    ].join('\n'),
+    extraFiles: {
+      'GameFlowManagerMain.Flow.cs': [
+        'using UnityEngine;',
+        'public partial class GameFlowManagerMain : MonoBehaviour',
+        '{',
+        '    void Tick() { }',
+        '}',
+      ].join('\n'),
+    },
+  };
+  const changed = methodCheck.autoRepairPartialClassMismatch(ctx);
+  assert.strictEqual(changed, true);
+  assert.match(ctx.csCode, /public partial class GameFlowManagerMain : MonoBehaviour/);
+}
+
 console.log('method-check auto-repair tests passed');

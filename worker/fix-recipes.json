@@ -470,5 +470,17 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-d38eeb27.md"
+  },
+  {
+    "id": "auto-430e658c",
+    "fingerprintPattern": "MODEL_FATAL.*no OPENAI_API_KEY",
+    "description": "review stage falls back to legacy GPT reviewer when codex-reviewer fails to load, but OPENAI_API_KEY was removed from env",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/review.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-430e658c.md"
   }
 ]

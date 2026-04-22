@@ -97,24 +97,22 @@ function generateSkeleton(specs, opts = {}) {
   const lines = [];
 
   // Helper: list GameObject names that gate a phase's exit condition.
-  // Prefers entities that will actually be moved by a known interaction template
-  // (collect/deliver/sell/click/spend/build/move_to). Falls back to all
-  // entitiesRequired + non-numeric interaction targets when no interaction is tagged
-  // with a supported verb, to preserve behaviour for wait/defend/custom phases.
+  // Only keep entities that a known interaction template will actually move
+  // (collect/deliver/sell/click/spend/build/move_to).
   //
   // Why: phase-exit binds to EntityAdvanced(X, _snap_XPos). If X has no interaction
   // that moves it during the phase, the gate is structurally unreachable — codex
   // reviewer reports "phase X unreachable" and fix-loop circuit-breaks (seen in
-  // s6ae56 / nqw7z3 on 2026-04-21). Keeping only entities that a template moves
-  // prevents that failure mode.
+  // s6ae56 / nqw7z3 on 2026-04-21). Returning [] here lets buildRealCondition()
+  // deliberately fall back to either a real time-only beat (wait/defend) or a
+  // hard `false /* AI: ... */` gate instead of silently inventing an unreachable
+  // EntityAdvanced(X) condition from decoration-only entitiesRequired.
   const MOVING_VERBS = { collect: 1, deliver: 1, sell: 1, click: 1, spend: 1, build: 1, move_to: 1 };
   function phaseGateEntities(spec) {
-    const entities = spec.entitiesRequired || [];
     const interactions = spec.requiredInteractions || [];
 
-    // Preferred: targets of interactions whose verb is known to move the entity.
-    const preferred = [];
-    const preferredSeen = {};
+    const movingTargets = [];
+    const seen = {};
     for (let ii = 0; ii < interactions.length; ii++) {
       const parts = interactions[ii].split(':');
       const verb = parts[0];
@@ -122,25 +120,9 @@ function generateSkeleton(specs, opts = {}) {
       if (!target) continue;
       if (/^\d/.test(target)) continue;
       if (!MOVING_VERBS[verb]) continue;
-      if (!preferredSeen[target]) { preferred.push(target); preferredSeen[target] = true; }
+      if (!seen[target]) { movingTargets.push(target); seen[target] = true; }
     }
-    if (preferred.length > 0) return preferred;
-
-    // Fallback: original behaviour. Still filter out wait/defend verbs.
-    const names = [];
-    const seen = {};
-    entities.forEach(e => {
-      if (e && e.name && !seen[e.name]) { names.push(e.name); seen[e.name] = true; }
-    });
-    for (let ii = 0; ii < interactions.length; ii++) {
-      const parts = interactions[ii].split(':');
-      const verb = parts[0];
-      const target = parts[1];
-      if (!target || verb === 'wait' || verb === 'defend') continue;
-      if (/^\d/.test(target)) continue;
-      if (!seen[target]) { names.push(target); seen[target] = true; }
-    }
-    return names;
+    return movingTargets;
   }
 
   // Build the phase-exit realCondition. Unlike the old version, this no longer
