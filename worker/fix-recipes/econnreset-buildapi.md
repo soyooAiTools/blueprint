@@ -42,7 +42,7 @@ Commits: `529136b`, `57a9f69`
    (Replace `0` with the actual blueprint-editor pm2 id if different.)
 
 4. **Check the fallback hardcoded defaults in code**:
-   - `worker/claude-code-coder.js:33` — `BUILD_URL = process.env.LINUX_BUILD_URL || 'http://localhost:3080'` ← this 3080 fallback is WRONG on this host; should be `127.0.0.1:18860`
+   - `worker/codex-code-coder.js` — `BUILD_URL = process.env.LINUX_BUILD_URL || 'http://localhost:3080'` ← this 3080 fallback is WRONG on this host; should be `127.0.0.1:18860`
    - `worker/linux-worker-client.js:330` — should fall back to `http://127.0.0.1:18860` ✓
    - `worker/worker-client.js:22` — should fall back to `http://127.0.0.1:18860` ✓
 
@@ -54,7 +54,7 @@ LINUX_BUILD_URL=http://127.0.0.1:18860
 ```
 (And also to `/opt/blueprint-editor/worker/.env` for any process that reads that one.)
 
-**B. If the .env is correct but claude-code-coder.js fallback is wrong** — fix line 33:
+**B. If the .env is correct but codex-code-coder.js fallback is wrong** — fix the fallback:
 ```javascript
 // Before:
 const BUILD_URL = process.env.LINUX_BUILD_URL || 'http://localhost:3080';

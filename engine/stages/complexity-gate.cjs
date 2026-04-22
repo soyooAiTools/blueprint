@@ -236,11 +236,51 @@ function parseSimplifyResponse(text) {
 
   // Final safety: strip any leading non-JSON characters (LLM preamble text)
   raw = raw.replace(/^[^[{]*/, '');
+  raw = extractFirstBalancedJsonObject(raw) || raw;
 
-  var parsed = JSON.parse(raw.trim());
+  var parsed;
+  try {
+    parsed = JSON.parse(raw.trim());
+  } catch (err) {
+    // Second pass: common truncated-output repair.
+    var repaired = raw
+      .replace(/,\s*([}\]])/g, '$1')
+      .replace(/[\u0000-\u001F]+/g, ' ')
+      .trim();
+    repaired = extractFirstBalancedJsonObject(repaired) || repaired;
+    parsed = JSON.parse(repaired);
+  }
   if (!Array.isArray(parsed.specs)) throw new Error('LLM response missing "specs" array');
   if (!Array.isArray(parsed.entities)) throw new Error('LLM response missing "entities" array');
   return parsed;
+}
+
+function extractFirstBalancedJsonObject(text) {
+  text = String(text || '');
+  var start = text.indexOf('{');
+  if (start < 0) return null;
+  var depth = 0;
+  var inString = false;
+  var escaped = false;
+  for (var i = start; i < text.length; i++) {
+    var ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
 }
 
 /**

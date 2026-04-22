@@ -3032,6 +3032,7 @@ html, body, #root {
 .project-status-submitted { background: rgba(136,153,255,0.15); color: #8899ff; }
 .project-status-developing { background: rgba(188,140,255,0.15); color: #bc8cff; }
 .project-status-building { background: rgba(188,140,255,0.15); color: #bc8cff; }
+.project-status-preview_ready { background: rgba(6,182,212,0.15); color: #06b6d4; }
 .project-status-reviewing { background: rgba(88,166,255,0.15); color: #58a6ff; }
 .project-status-feedback { background: rgba(255,159,67,0.15); color: #ff9f43; }
 .project-status-approved { background: rgba(63,185,80,0.15); color: #3fb950; }
@@ -4034,6 +4035,29 @@ html, body, #root {
   overflow: hidden;
 }
 .preview-iframe::-webkit-scrollbar { display: none; }
+
+.preview-input-shield {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  border-radius: 36px;
+  background: rgba(15, 23, 42, 0.02);
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.preview-input-shield-label {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 12px;
+  line-height: 1;
+  pointer-events: none;
+}
 
 /* WebGL Loading Overlay */
 .webgl-loading-overlay {

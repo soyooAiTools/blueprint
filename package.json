@@ -9,7 +9,20 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "node test/stage-regression.cjs",
-    "test:stage": "node test/stage-regression.cjs --stage"
+    "test:stage": "node test/stage-regression.cjs --stage",
+    "learning:export": "node engine/export-learning.cjs",
+    "learning:promote-drafts": "node engine/promote-learning-drafts.cjs",
+    "learning:promote-family-drafts": "node engine/promote-family-drafts.cjs",
+    "learning:promote-governance-drafts": "node engine/promote-governance-drafts.cjs",
+    "learning:promote-implementation-plans": "node engine/promote-implementation-plan-drafts.cjs",
+    "learning:promote-patch-tasks": "node engine/promote-patch-task-drafts.cjs",
+    "learning:promote-patch-runs": "node engine/promote-patch-run-records.cjs",
+    "learning:execute-patch-runs": "node engine/execute-patch-runs.cjs",
+    "learning:promote-patch-feedback": "node engine/promote-patch-feedback-drafts.cjs",
+    "learning:curate-drafts": "node engine/curate-learning-drafts.cjs",
+    "night-monitor": "node engine/night-monitor.cjs",
+    "replay:failure": "node engine/replay-failure-harness.cjs",
+    "rerun:stage": "node engine/stage-rerun.cjs"
   },
   "dependencies": {
     "@google/genai": "^1.46.0",

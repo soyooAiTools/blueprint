@@ -5,7 +5,8 @@
  * codegen-schema, codegen-legacy).
  *
  * Background: Before this stage existed, spec extraction was only inlined in
- * claude-code-coder.js (legacy path). Schema codegen bypassed it entirely and
+ * the coder worker implementation behind `codex-coder.js`. Schema codegen
+ * bypassed it entirely and
  * crashed in generateSkeleton(undefined) with "Cannot read properties of
  * undefined (reading 'length')". api/projects.cjs exportBlueprint also did not
  * forward project.specs to worker even when already cached.
@@ -128,7 +129,7 @@ module.exports = {
       beforeFp = null;
     }
 
-    // Frame source — matches claude-code-coder.js resolution order.
+    // Frame source — matches the worker coder resolution order.
     var frames = (bp.storyboard && Array.isArray(bp.storyboard.frames) && bp.storyboard.frames.length > 0)
       ? bp.storyboard.frames
       : (Array.isArray(bp.storyboardFrames) && bp.storyboardFrames.length > 0 ? bp.storyboardFrames : null);

@@ -20,6 +20,11 @@ export const STATUS_LABELS = {
     color: '#f97316',
     bg: 'rgba(249,115,22,0.15)',
   },
+  preview_ready: {
+    text: '可预览',
+    color: '#06b6d4',
+    bg: 'rgba(6,182,212,0.15)',
+  },
   reviewing: {
     text: '待审核',
     color: '#a855f7',

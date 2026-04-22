@@ -85,6 +85,10 @@ var CUA_FATAL_PATTERNS = [
   /CUA total time limit/i,
   /Visual freeze FATAL/i,
   /Fingerprint repeat FATAL/i,
+  /Observation protocol FATAL/i,
+  /Pre-contamination FATAL/i,
+  /Screenshot sharing FATAL/i,
+  /Batch completion FATAL/i,
 ];
 
 var CUA_INFRA_PATTERNS = [

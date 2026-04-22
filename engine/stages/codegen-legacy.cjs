@@ -1,5 +1,5 @@
 /**
- * Stage: codegen — AI code generation (Claude Code or generateCodeV5)
+ * Stage: codegen — AI code generation via the unified Codex worker entry.
  *
  * Reads: ctx.blueprint, ctx.workDir
  * Writes: ctx.csCode
@@ -21,21 +21,14 @@ module.exports = {
       ctx.reportStatus('processing', { message: '[Linux] AI coding...' });
     }
 
-    var USE_CLAUDE_CODE = process.env.USE_CLAUDE_CODE !== 'false';
-    var coder, claudeCoder;
-    try { coder = require('../../worker/worker-coder.js'); } catch(e) { ctx.addLog('codegen', 'worker-coder.js not loaded: ' + e.message); }
-    try { claudeCoder = require('../../worker/claude-code-coder.js'); } catch(e) { ctx.addLog('codegen', 'claude-code-coder.js not loaded: ' + e.message); }
+    var codexCoder;
+    try { codexCoder = require('../../worker/codex-coder.js'); } catch(e) { ctx.addLog('codegen', 'codex-coder.js not loaded: ' + e.message); }
 
-    var generator;
-    if (USE_CLAUDE_CODE && claudeCoder && claudeCoder.generateWithClaudeCode) {
-      generator = claudeCoder.generateWithClaudeCode;
-      ctx.addLog('codegen', 'Using Claude Code mode');
-    } else if (coder && coder.generateCodeV5) {
-      generator = coder.generateCodeV5;
-      ctx.addLog('codegen', 'Using generateCodeV5 mode');
-    } else {
-      return Promise.reject(new Error('No code generator available (worker-coder.js / claude-code-coder.js)'));
+    var generator = codexCoder && codexCoder.generateWithCodex;
+    if (!generator) {
+      return Promise.reject(new Error('No code generator available (worker/codex-coder.js)'));
     }
+    ctx.addLog('codegen', 'Using Codex worker entry');
 
     var logFn = function(msg) { ctx.addLog('codegen', msg); };
 
@@ -203,7 +196,7 @@ module.exports = {
           // instantiate, destroy, new-material, setactive, etc. Adding this check here
           // (in addition to review stage) gives us a cheap early-out and feeds specific
           // lines back to the generator on the next round (2026-04-15 bqh33t fix).
-          var blockingFromMain = getBlockingIssues(ctx.csCode, { extraFiles: ctx.extraFiles });
+          var blockingFromMain = getBlockingIssues(ctx.csCode, { extraFiles: ctx.extraFiles, blueprint: ctx.blueprint });
           var blockingFromExtras = [];
           if (ctx.extraFiles) {
             for (var efKey in ctx.extraFiles) {
@@ -212,7 +205,7 @@ module.exports = {
               // Their internal pool/indicator implementation legitimately uses SetActive/Instantiate
               // etc. — these are library internals, NOT AI-generated violations.
               if (efKey === 'GFM_Tools.cs' || _isGfmFile(efKey)) continue;
-              var efBlocking = getBlockingIssues(ctx.extraFiles[efKey]);
+              var efBlocking = getBlockingIssues(ctx.extraFiles[efKey], { extraFiles: ctx.extraFiles, blueprint: ctx.blueprint, filename: efKey });
               for (var bfi = 0; bfi < efBlocking.length; bfi++) {
                 blockingFromExtras.push(Object.assign({}, efBlocking[bfi], { file: efKey }));
               }

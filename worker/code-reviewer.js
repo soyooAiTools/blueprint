@@ -52,7 +52,7 @@ const REVIEW_RULES = `
 - FindObjectOfType / FindObjectsOfType — may return null
 - AddComponent(typeof(TextMesh)) or other rendering/text components at runtime — Luna cannot initialize them properly → invisible/broken
 - Application.ExternalEval() — not supported in Luna; arbitrary JS eval breaks transpilation/runtime
-- Camera.main — may be null in Luna template; skeleton pre-caches it as "mainCam" field. Use mainCam instead of Camera.main. Always null-check before use: if (mainCam != null)
+- Camera.main — may be null in Luna template; skeleton pre-caches it as "mainCam" field. Use mainCam instead of Camera.main in gameplay/runtime flow. One-time skeleton cache assignment like mainCam = Camera.main; // ok inside Start/Awake is allowed.
 - Camera.allCameras — camera enumeration is not safe; camera lifecycle is template-managed
 - GetComponentInChildren / GetComponentInParent — hierarchy traversal unstable
 - transform.parent access — may be undefined in Luna, crashes
@@ -166,10 +166,10 @@ const REVIEW_RULES = `
 - Prefer explicit types over var — Bridge.NET var can cause "Value cannot be null"
 
 ### 11. Phase ID Format (CRITICAL)
-- AddCompletedPhase() parameter MUST exactly match the blueprint Rule ID (e.g., "phase_1774794448160_1")
-- Do NOT use semantic names like "openingTutorial", "buildPhase", "phase_BuildHouse"
-- The prompt provides exact Rule IDs for each phase — code MUST use those exact strings
-- currentPhaseName should track progression using these same IDs
+- AddCompletedPhase() / ReportPhase() / currentPhaseName MUST exactly match the phase IDs supplied by the CURRENT blueprint/spec and skeleton
+- If the current spec uses semantic phase IDs (e.g. "initialSpaceBaseDisplay"), keep those exact strings
+- If the current spec uses numbered IDs (e.g. "phase_1774794448160_1"), keep those exact strings
+- Do NOT invent aliases, rename IDs, or mix semantic names with different IDs not present in the current spec
 
 ### 12. Forbidden Legacy APIs
 - GFM_Create.InitMaterialFromScene() — NO LONGER needed; colors are pre-baked at build time

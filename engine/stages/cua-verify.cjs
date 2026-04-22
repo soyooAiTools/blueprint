@@ -91,7 +91,15 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
   } else if (hasTypeErrorLabel) {
     rootCause = 'runtime_error';
   } else if (hasVisualFreezePhrase) {
-    rootCause = 'visual_freeze';
+    // FIX (auto-9742d195): When phases have already completed (completedPhases.length > 0)
+    // but the game appears visually frozen, the screen is static because the game is
+    // waiting for an unmet phase-transition trigger condition — the visual freeze is a
+    // downstream symptom, not the root cause. Assigning 'visual_freeze' here would feed
+    // Claude incorrect batch-firing advice and trigger the visual_freeze fast-escalation
+    // path (FATAL after 3–4 rounds) instead of the appropriate phase_transition_broken
+    // advice. Only assign 'visual_freeze' when no phases have completed yet (the whole
+    // game is frozen from the start).
+    rootCause = completedPhases.length > 0 ? 'phase_transition_broken' : 'visual_freeze';
   } else if (allIssueText.indexOf('variable') >= 0 && (allIssueText.indexOf('stagnation') >= 0 || allIssueText.indexOf('initial values') >= 0 || allIssueText.indexOf('remain') >= 0)) {
     rootCause = 'variable_stagnation';
   } else if (allIssueText.indexOf('solid color') >= 0 || allIssueText.indexOf('black screen') >= 0 || allIssueText.indexOf('blank') >= 0) {
@@ -191,7 +199,7 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
   return { summary: summary, detail: detail, rootCause: rootCause, stuckPhase: stuckPhaseId, nextPhase: nextPhaseId };
 }
 
-var MAX_CUA_ROUNDS = 10;
+var MAX_CUA_ROUNDS = 5;
 // Wall-clock cap: default 75 min, overridable via CUA_TOTAL_TIMEOUT_MS env var.
 // 合法范围 [30min, 120min]，超出夹紧并日志告警——避免运维误写 env 导致 silent cutoff。
 function _clampEnvMs(envName, defaultMs, minMs, maxMs) {
@@ -222,7 +230,7 @@ if (process.env.RECODE_BUFFER_MS) {
   console.warn('[cua-verify] 忽略 RECODE_BUFFER_MS env(' + process.env.RECODE_BUFFER_MS + '), 使用硬编 12min — 请从 .env 删除该变量');
 }
 console.log('[cua-verify] MAX_CUA_TOTAL_MS=' + Math.round(MAX_CUA_TOTAL_MS/60000) + 'min, RECODE_BUFFER_MS=' + Math.round(RECODE_BUFFER_MS/60000) + 'min, pre-recode threshold=' + Math.round((MAX_CUA_TOTAL_MS-RECODE_BUFFER_MS)/60000) + 'min');
-var NO_PROGRESS_EXIT_ROUNDS = 4; // exit if no phase progress in N consecutive rounds (was 5 — tightened to save tokens)
+var NO_PROGRESS_EXIT_ROUNDS = 3; // exit if no phase progress in N consecutive rounds — tighter to reduce long fix-loops
 var SAME_ISSUE_REGEN_THRESHOLD = 3;
 var LOW_COVERAGE_MIN_PHASES = 3;      // D1 L7: only enforce on non-trivial games
 var LOW_COVERAGE_RATIO = 0.5;         // D1 L7: completedCount / totalPhases floor
@@ -243,6 +251,36 @@ function detectLowCoverageSignal(cuaResult, totalPhases) {
   if (completedCount < Math.ceil(totalPhases * LOW_COVERAGE_RATIO)) {
     return 'low-phase-coverage-' + completedCount + '/' + totalPhases;
   }
+  return null;
+}
+
+function detectObservationProtocolFailure(cuaResult) {
+  var report = cuaResult && cuaResult.report || {};
+  var pre = report.preContamination;
+  var issues = (cuaResult && cuaResult.issues || []).map(function(issue) {
+    return typeof issue === 'string' ? issue : (issue && (issue.message || issue.text) || '');
+  });
+  var issueText = issues.join(' | ').toLowerCase();
+  var hasScreenshotSharing = issueText.indexOf('screenshot sharing') >= 0;
+  var hasBatchCompletion = issueText.indexOf('batch completion') >= 0 || issueText.indexOf('batch-completion') >= 0;
+
+  if (pre && pre.fatal) {
+    return {
+      reason: 'Pre-contamination FATAL: ' + pre.offset + '/' + (pre.total || '?') + ' spec phases completed before observe window opened',
+      detail: (pre.phases || []).slice(0, 8).join(', '),
+    };
+  }
+
+  if ((hasScreenshotSharing && hasBatchCompletion) || (hasBatchCompletion && pre && pre.offset > 0)) {
+    return {
+      reason: 'Observation protocol FATAL: multiple spec phases collapsed into a single observe window',
+      detail: issues.filter(function(issue) {
+        var lower = issue.toLowerCase();
+        return lower.indexOf('screenshot sharing') >= 0 || lower.indexOf('batch completion') >= 0 || lower.indexOf('pre-contamination') >= 0;
+      }).slice(0, 3).join(' | '),
+    };
+  }
+
   return null;
 }
 
@@ -480,6 +518,12 @@ module.exports = {
                   (_preC.phases || []).slice(0, 5).join(', ') + ']');
               }
             } catch (_preCErr) {}
+
+            var observationProtocolFailure = detectObservationProtocolFailure(cuaResult);
+            if (observationProtocolFailure) {
+              ctx.addLog('cua-verify', observationProtocolFailure.reason + (observationProtocolFailure.detail ? ' — ' + observationProtocolFailure.detail : ''));
+              throw new Error(observationProtocolFailure.reason + (observationProtocolFailure.detail ? ': ' + observationProtocolFailure.detail : ''));
+            }
 
             // D1 fingerprint circuit breaker: fires BEFORE coarse categorizeIssue so
             // "uniform-timing:avg=50s cv=0%" type persistent loops abort within 2

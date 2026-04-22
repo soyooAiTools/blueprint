@@ -17,11 +17,26 @@
 
 var fs = require('fs');
 var path = require('path');
+var os = require('os');
 var { execSync } = require('child_process');
 
-var MEMORY_DIR = '/root/.claude/projects/-root/memory';
+var CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
+var MEMORY_DIR_CANDIDATES = [
+  path.join(CODEX_HOME, 'projects', '-root', 'memory'),
+  path.join(os.homedir(), '.claude', 'projects', '-root', 'memory'),
+];
+var MEMORY_DIR = MEMORY_DIR_CANDIDATES[0];
 var REPO_DIR = path.join(__dirname, '..');
 var RECIPES_FILE = path.join(__dirname, '..', 'worker', 'fix-recipes.json');
+
+function getReadableMemoryDirs() {
+  var dirs = [];
+  for (var i = 0; i < MEMORY_DIR_CANDIDATES.length; i++) {
+    if (fs.existsSync(MEMORY_DIR_CANDIDATES[i])) dirs.push(MEMORY_DIR_CANDIDATES[i]);
+  }
+  if (dirs.length === 0) dirs.push(MEMORY_DIR);
+  return dirs;
+}
 
 // ─── Keyword extraction ───────────────────────────────────────────────
 
@@ -65,7 +80,7 @@ function extractKeywords(fingerprint) {
 // ─── Memory scan ──────────────────────────────────────────────────────
 
 /**
- * Grep ~/.claude/projects/-root/memory/*.md for any of the keywords.
+ * Grep memory entries under CODEX_HOME first, then legacy ~/.claude fallback.
  * Returns files that match >= 1 keyword, with a score (number of distinct
  * keywords matched) so the caller can sort by relevance.
  */
@@ -73,26 +88,34 @@ function grepMemoryForFingerprint(fingerprint) {
   var kws = extractKeywords(fingerprint);
   if (kws.length === 0) return [];
   var hits = [];
-  var files;
-  try { files = fs.readdirSync(MEMORY_DIR); }
-  catch(e) { return []; }
+  var seenFiles = {};
+  var dirs = getReadableMemoryDirs();
 
-  for (var i = 0; i < files.length; i++) {
-    var f = files[i];
-    if (!f.endsWith('.md') || f === 'MEMORY.md') continue;
-    var body;
-    try { body = fs.readFileSync(path.join(MEMORY_DIR, f), 'utf-8'); }
+  for (var di = 0; di < dirs.length; di++) {
+    var files;
+    try { files = fs.readdirSync(dirs[di]); }
     catch(e) { continue; }
-    var matched = [];
-    for (var k = 0; k < kws.length; k++) {
-      // Case-insensitive simple includes — memory files are short, no need
-      // for regex gymnastics
-      if (body.toLowerCase().indexOf(kws[k].toLowerCase()) >= 0) {
-        matched.push(kws[k]);
+
+    for (var i = 0; i < files.length; i++) {
+      var f = files[i];
+      var dedupeKey = dirs[di] + '::' + f;
+      if (seenFiles[dedupeKey]) continue;
+      seenFiles[dedupeKey] = true;
+      if (!f.endsWith('.md') || f === 'MEMORY.md') continue;
+      var body;
+      try { body = fs.readFileSync(path.join(dirs[di], f), 'utf-8'); }
+      catch(e) { continue; }
+      var matched = [];
+      for (var k = 0; k < kws.length; k++) {
+        // Case-insensitive simple includes — memory files are short, no need
+        // for regex gymnastics
+        if (body.toLowerCase().indexOf(kws[k].toLowerCase()) >= 0) {
+          matched.push(kws[k]);
+        }
       }
-    }
-    if (matched.length > 0) {
-      hits.push({ file: f, matchedKeywords: matched, score: matched.length });
+      if (matched.length > 0) {
+        hits.push({ file: f, path: path.join(dirs[di], f), matchedKeywords: matched, score: matched.length });
+      }
     }
   }
   hits.sort(function(a, b) { return b.score - a.score; });

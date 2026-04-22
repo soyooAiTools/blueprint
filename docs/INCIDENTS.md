@@ -1,5 +1,75 @@
 # Blueprint 生产事故记录
 
+## 2026-04-22: recovery 收口 + review deterministic 修复前移
+
+### 背景
+
+线上目标从"继续调研"切到"继续盯任务、提高成功率"。恢复工作明确要求以 recovery packet 为主，只回看旧 session 最近相关片段，不再把 19MB raw jsonl 全量灌入上下文。核对当前 `/opt/blueprint-editor` 后确认：旧线程里关于 `FinishGame/ShowCTA`、phaseId 口径、`Camera.main // ok` 的那批修复都还在，但最常见 blocker 已换成：
+
+1. `phase-entity-unbound`
+2. `phase-entity-init-only`
+3. `update-new-vector-in-hot-path`
+
+其中 `phase-entity-init-only` 不是 reviewer 误杀，而是新产物里真实存在：phase 切换时先 `Snapshot_<phase>_GateEntities()`，实体只在 `Phase_<id>_Init()` 被 `PlaceObj/HideObj` 一次，后续 `OnTap/OnAutoPlayArrive` 没有任何 runtime move，`EntityAdvanced(...)` 因此永远不会翻转。
+
+### 根因
+
+这是典型的"已经能检出，但还没 deterministic 避开"：
+
+- `engine/static-check.cjs` 已能抓 `phase-entity-unbound / phase-entity-init-only / update-new-vector-in-hot-path`
+- `engine/night-monitor.cjs` 已能重提 failed/stuck 项目
+- 但 `night-monitor` 只会重提，不会修代码；`review` 的 deterministic pre-repair 之前也没有覆盖这两个真实高频形态
+- 结果就是：worker 反复把坏代码送进 review，review 再反复把同类问题交给 fix-loop，烧 round 和在线时长
+
+### 改动
+
+**P0 — review pre-repair 扩到 hot-path anchor offset** (`engine/stages/review.cjs`)
+
+- `rewriteHotPathVectorAllocations()` 新增覆盖：
+
+  ```csharp
+  spawned.transform.position = Anchor.transform.position + new Vector3(rx, 0f, rz);
+  ```
+
+  自动改写为 struct-copy 形式，避免 `update-new-vector-in-hot-path` 继续把系统更新/刷怪路径打回。
+
+**P0 — 新 `repairPhaseGateRuntimeMoves()`** (`engine/stages/review.cjs`)
+
+- 扫 `Snapshot_<phase>_GateEntities()`，找出 gate 依赖的实体
+- 如果实体只在 `Phase_<id>_Init()` 里有 `PlaceObj/HideObj/transform.position`，而 `OnTap/OnAutoPlayArrive` 没有 runtime move：
+  - 优先复制 init 里的最小 move 语句到对应 handler
+  - 若 init 里也没有可复制 move，则补一个最小 `position.y += 2f` 的 fallback nudge
+- 目标不是生成"最优玩法"，而是先避免 phase gate 因空 handler 死锁
+
+**P1 — worker / night-monitor 热生效校验**
+
+- 重启：
+  - `blueprint-editor`
+  - `linux-worker-1..6`
+  - `blueprint-night-monitor`
+- 重启后确认新 worker 立即恢复在线并重新领任务
+
+### 验证
+
+- `node -c /opt/blueprint-editor/engine/stages/review.cjs` 通过
+- 用失败样本 `proj_1776832068682_wmd8at` 本地回放：
+  - `repairPhaseGateRuntimeMoves()` 会把 `sellAppleForProfit` 的空 handler 自动补上 `PlaceObj(Apple, 6f, 0.3f, 3f);`
+  - `rewriteHotPathVectorAllocations()` 会把 `IceMelter/FarmPlot + new Vector3(...)` 改写为 struct-copy
+- PM2 状态确认 `linux-worker-5/6` 热重启后立刻恢复运行
+
+### 记录 / 归档
+
+- recovery 索引已归档到 `docs/_archived/2026-04-22-codex-recovery-019db076.md`
+- 原始来源：
+  - `/root/codex-recovery-019db076.md`
+  - `/root/.codex/sessions/2026/04/21/rollout-2026-04-21T22-34-30-019db076-d17c-7ca2-8973-b99d009cef39.jsonl`
+
+### 遗留
+
+- `phase-entity-unbound` 若仍高频，下一步应继续前移到 skeleton/template，而不是只在 review 兜底
+- `template-engine` 仍有 `TODO_PHASE_n_INIT` marker warning，说明 template/fix-loop 对 skeleton 标记的对齐还没完全稳住
+- worker 日志里仍有 `powershell: 未找到命令`、旧 `.env` 中 `RECODE_BUFFER_MS` 被忽略等运维噪音，虽非本次 P0，但会持续影响排障信号质量
+
 ## 2026-04-19: 任务级归档闭环（消灭每一个观测盲区）
 
 ### 背景
@@ -72,7 +142,7 @@
 
 ### SKILL.md 同步
 
-~/.claude/skills/ 是 harness 保护目录。详见 `docs/dashboard-skill-update.md` 需要在下次 dontAsk 解除时同步的字段。
+当前应同步的 skill 副本位于 `/root/.codex-blueprint/skills/` 或 `~/.codex/memories/skills/`。详见 `docs/dashboard-skill-update.md` 的同步字段；旧 home 下的技能目录只作历史兼容路径理解。
 
 ---
 
@@ -108,7 +178,7 @@
 
 **L2 — 失败指纹→知识绑定(新)** (`engine/failure-fingerprint.cjs`)
 - `extractKeywords`: 抓 ALL_CAPS 错误码(ENOENT/ECONNRESET/FATAL)、PascalCase 标识符(GameFlowManagerMain)、引号字串、硬编码领域词典(skeleton/csCode/GFM_Tools/LINUX_BUILD_URL/Visual freeze/CUA 等 21 个)
-- `grepMemoryForFingerprint`: 扫 `~/.claude/projects/-root/memory/*.md`,命中关键词数量打分,top 5
+- `grepMemoryForFingerprint`: 先扫 `CODEX_HOME/projects/-root/memory/*.md`，再兼容回退旧 home memory 目录，按命中关键词数量打分，top 5
 - `loadGitLog`: `git log --all --since="60 days ago"`,5 分钟 TTL 缓存
 - `grepGitLogForFingerprint`: subject 匹配关键词,`fix:|修复|patch|resolve|hotfix|refactor` 再加 2 分
 - `bindKnowledge(fingerprint)`: 返回 `{memoryHits, commitHits, resolvedBy, resolvedAt, autoFixRecipe}`
@@ -128,11 +198,11 @@
 - `engine/auto-fix.cjs applyRecipe(fingerprintId)`(新):
   1. `findRecipe` 按 id 精确 / 按 fingerprintPattern 正则匹配
   2. 读 recipe.md body + 收集 `affectedFiles` 作为 additionalFiles
-  3. 调 `runClaudeCodeText`(sonnet-4-6, effort=medium, 4min, minOutputLen=100)
+  3. 调 `runCodexText`(sonnet-4-6, effort=medium, 4min, minOutputLen=100)
   4. 返回 `{ok, recipe, patch, subagentLog, autoApplied:false, notice}`
 - systemPrompt 硬编码三条铁律:不 git commit、不改文件系统、不建议 restart worker(Sonnet 子 agent 读 memory 前这三条最容易违反)
 - 新路由 `POST /api/auto-fix/:fingerprintId` → `runAutoFix` handler
-- **铁律**: `~/.claude/CLAUDE.md` 规定 loop 里 NEVER auto commit,L4 只产出 patch 文本交人审
+- **铁律**: 当前 CLI 系统提示约束里规定 loop 里 NEVER auto commit,L4 只产出 patch 文本交人审
 - dashboard.html 每行指纹加 🔧 按钮调 `window.triggerAutoFix(id)`,结果开新窗口展示
 
 **数据清理**
@@ -259,42 +329,42 @@
 
 ---
 
-## 2026-04-16: visual-check + patchRecode 统一迁移到 Claude Code CLI (Sonnet 4.6)
+## 2026-04-16: visual-check + patchRecode 统一迁移到 Codex text runner (Sonnet 4.6)
 
 ### 背景
 
-2026-04-15 bqh33t 事故复盘后,MODEL_FATAL 贯穿闭环已经让 Claude relay 的定性失败能被及时捕获并 cancel 任务,**但流水线里仍有两条路径走的是直连 Claude API (HTTP POST crs.mindrix.app/v1/messages)**,和 "全线 Claude Code CLI 化" 的目标不符:
+2026-04-15 bqh33t 事故复盘后,MODEL_FATAL 贯穿闭环已经让 Claude relay 的定性失败能被及时捕获并 cancel 任务,**但流水线里仍有两条路径走的是直连 Claude API (HTTP POST crs.mindrix.app/v1/messages)**,和“统一到 Codex/CLI 文本入口”的目标不符:
 
 1. **`engine/stages/visual-check.cjs:259`** — CUA 截 JPEG 帧经 `ClaudeProvider.generateVision()` 做 VLM 判分。今天已多次出现 "vision relay 返空 → silent passed:false → fix-loop 继续烧轮"(旧事故见上一节 Layer 4),以及 60s 超时被 MODEL_FATAL 抛出后整任务 cancel 的场景。
 2. **`engine/recode.cjs` `patchRecode`**(review 阶段 ≤3 issue 时的短路优化)— `ClaudeProvider.generateWithRetry(prompt, {model:'claude-sonnet-4-6', timeoutMs:180000}, 2)`。今天 `proj_1776266310700_2p50o1` Round2 fix 吃了 2 轮 180s 超时烧 6 分钟后才 fallback 全量 recode。
 
 ### 决策:换传输不换模型
 
-用户定调:**保留 Sonnet 4.6 作为模型**(豆包 vision 可能不如 Sonnet 精细,不切),但把**调用方式**从 "HTTP POST 直连 Claude API" 改成 "spawn `claude --print --model claude-sonnet-4-6`"。这样所有 Claude 调用都走统一的 CC CLI relay,故障特征、MODEL_FATAL 检测、计费全部归一。
+用户定调:**保留 Sonnet 4.6 作为模型**(豆包 vision 可能不如 Sonnet 精细,不切),但把**调用方式**从 "HTTP POST 直连 Claude API" 改成统一的 CLI 文本入口。这样所有 Claude 调用都走统一的 CLI relay,故障特征、MODEL_FATAL 检测、计费全部归一。
 
 **关键使能点**: CC CLI 的 Read 工具原生支持图片(工具描述 "This tool allows Claude Code to read images (eg PNG, JPG, etc)"),所以视觉分析可以走 "把 base64 帧写成临时 `./frame1.jpg` → prompt 指令模型 Read 它们 → CC 把 image content block 塞给 Sonnet" 这条路。
 
 ### 改动
 
-**改动 1 — 新增 `runClaudeCodeText` 文本模式 spawn 辅助** (`worker/claude-code-coder.js`)
+**改动 1 — 新增文本模式 spawn 辅助**（现入口 `runCodexText`，现实现位于 `worker/codex-code-coder.js`）
 
 和现有 `runClaudeCode` 的区别:
 - 自己创建 `/tmp/cc-text-<taskId>-XXX` 临时 workDir,不需要 Unity 工程目录
 - 不做 mtime 检查;ok 判据只看 `exit code === 0 && stdout.length >= minOutputLen`
 - tools 缩到 `Read`(最小权限,视觉也靠它加载图片)
-- `systemPrompt` 写到临时 `CLAUDE.md` 作 `--system-prompt-file` 传入
+- `systemPrompt` 写到临时系统提示文件作 `--system-prompt-file` 传入
 - `opts.additionalFiles` 预写到 workDir,供 prompt 里指令模型 Read
 - MODEL_FATAL 检测规则镜像 `runClaudeCode` line 413-419(`/quota|insufficient|\b401\b|...`)
 
 **改动 2 — `visual-check.cjs` 走 CC CLI + Read 图片**
 
-把 `imgBase64` / `frameImages[].base64` 转成 `Buffer`,命名为 `frame1.jpg, frame2.jpg, ...` 通过 `additionalFiles` 塞给 `runClaudeCodeText`。`userPrompt` 开头显式告诉模型 `Use the Read tool to load ./frame1.jpg, ./frame2.jpg, ...`。下游 JSON 解析、同原因早退、硬性 gates 全部保持原契约。超时从 60s 放宽到 120s(CC 冷启动 + Read 图片 + 推理的 margin)。
+把 `imgBase64` / `frameImages[].base64` 转成 `Buffer`,命名为 `frame1.jpg, frame2.jpg, ...` 通过文本入口（现名 `runCodexText`）的 `additionalFiles` 塞给 CLI。`userPrompt` 开头显式告诉模型 `Use the Read tool to load ./frame1.jpg, ./frame2.jpg, ...`。下游 JSON 解析、同原因早退、硬性 gates 全部保持原契约。超时从 60s 放宽到 120s(CC 冷启动 + Read 图片 + 推理的 margin)。
 
 同原因早退正则扩展为 `/could not parse analysis response|vision cli unavailable|vision api unavailable/` 同时匹配新旧错误文案。
 
 **改动 3 — `recode.cjs patchRecode` 走 CC CLI**
 
-保留所有上下文构建逻辑(`codeLines` / `issueDescriptions` / `extraFilesContext`)和返回契约(`{ok, code, patchApplied, error}`),只把 `provider.generateWithRetry()` 换成 `runClaudeCodeText()`。timeout 从 180s → 240s(CC 冷启动余量)。MODEL_FATAL 传播从 `.catch` 移到 `.then` 里检查 `!result.ok && /MODEL_FATAL/i.test(result.error)`。
+保留所有上下文构建逻辑(`codeLines` / `issueDescriptions` / `extraFilesContext`)和返回契约(`{ok, code, patchApplied, error}`),只把 `provider.generateWithRetry()` 换成统一文本入口（现名 `runCodexText`）。timeout 从 180s → 240s(CC 冷启动余量)。MODEL_FATAL 传播从 `.catch` 移到 `.then` 里检查 `!result.ok && /MODEL_FATAL/i.test(result.error)`。
 
 ### 验证
 
@@ -319,7 +389,7 @@
 
 | 文件 | 变更 |
 |---|---|
-| `worker/claude-code-coder.js` | 新增 `runClaudeCodeText` + 更新 exports |
+| `worker/codex-code-coder.js` | 文本入口实现（现对外名为 `runCodexText`） |
 | `engine/stages/visual-check.cjs` | 259-313 段切 CC CLI,图片走 Read 附件 |
 | `engine/recode.cjs` | `patchRecode` 切 CC CLI |
 
@@ -400,7 +470,7 @@ provider 层 throw (前缀 MODEL_FATAL:)
 同时 provider 侧在 throw 处前缀化:
 - `lib/model-provider.cjs ClaudeProvider.generate/generateVision`: 响应体 error / HTTP 401 402 403 / parse-fail-on-4xx 全部前缀 `MODEL_FATAL:`
 - `adapters/doubao-adapter.cjs`: `json.error.code + message` 扫 quota/insufficient/401/402/403/invalid_access_key/access_denied/billing 正则, hit 即 MODEL_FATAL 前缀
-- `worker/claude-code-coder.js`: CLI early-exit 时扫 stdout+stderr auth/quota 正则, 命中前缀化
+- `worker/codex-code-coder.js`: CLI early-exit 时扫 stdout+stderr auth/quota 正则, 命中前缀化
 
 **Layer 2: 11 条黑屏规则 blocking + codegen 前置硬门**
 
@@ -435,7 +505,7 @@ renderer-material-color / new-material
 **Layer 4: Claude provider Anthropic-native dual-mode**
 
 `lib/model-provider.cjs ClaudeProvider` 双模改造:
-- `ANTHROPIC_AUTH_TOKEN` 存在 → 走 `crs.mindrix.app/api/v1/messages` (Anthropic-native, Claude Code CLI 同款中转, 2026-04-15 实测稳定)
+- `ANTHROPIC_AUTH_TOKEN` 存在 → 走 `crs.mindrix.app/api/v1/messages` (Anthropic-native，同一条 CLI relay 链路，2026-04-15 实测稳定)
 - 否则 → 旧的 `sub.mindrix.app/v1/chat/completions` (legacy fallback)
 
 `generate` / `generateVision` 都适配了双响应格式:
@@ -606,7 +676,7 @@ LISTEN 0 511 *:3901 users:(("PM2 v6.0.14: Go",pid=2349527,fd=3))
 2. **ScheduleWakeup 无法取代监督闭环** — 没有 dashboard + F14-desync + cancel 机制,"跑飞任务"完全不可见。任何长期 pipeline 必须有外部杀开关,不能只靠内部 circuit breaker。
 3. **UTC vs local time** — SQLite `datetime('now')` 存 UTC (无后缀),JS `new Date(x)` 对无后缀字符串按本地时间解析,差 8h。这个 bug 可以潜伏数月,只要整个链路都在本地读写就不暴露,一旦跨 timezone 比较就全线翻车。
 4. **fix-loop 的 fire-and-forget hook** — JS 的 async 没有强制 await,代码看起来能跑,但 round 计数和实际执行会错位。所有 hook 必须返回 Promise 且被 await。
-5. **docblock 内的 require 陷阱** — 见 `~/.claude/projects/-root/memory/feedback_require_in_docblock.md`。
+5. **docblock 内的 require 陷阱** — 见 `CODEX_HOME/projects/-root/memory/feedback_require_in_docblock.md`（旧环境仍可兼容回退到 legacy home memory 路径）。
 
 ### 提交
 - commit: `86a1469` fix: 3 任务无限烧钱 + dashboard 瞎眼 — fix-loop/状态机/desync 12 项修复
@@ -637,7 +707,7 @@ LISTEN 0 511 *:3901 users:(("PM2 v6.0.14: Go",pid=2349527,fd=3))
 
 **根因 2:build-api 字段重命名 `code` → `csCode`,helpers.cjs 未同步**
 - `/opt/luna-poc/build-api.js`(新)要求 `csCode`,legacy `linux-bridge-build.js` 要求 `code`
-- `helpers.cjs:buildRequest` 和 `claude-code-coder.js:247` 的 Python payload 都只发 `code`
+- `helpers.cjs:buildRequest` 和 coder worker 里的 `build-test.sh` Python payload 都只发 `code`
 - 修复根因 1 后立即暴露:`{ok:false,error:"csCode required"}`
 
 **根因 3:`/build-html` 端点被移除,HTML 改为 `htmlBase64` 内联**
@@ -646,7 +716,7 @@ LISTEN 0 511 *:3901 users:(("PM2 v6.0.14: Go",pid=2349527,fd=3))
 - 修复根因 2 后立即暴露:`/build-html` 404
 
 **根因 4:`if (skeleton.split)` 方法名 truthy 陷阱**
-- `claude-code-coder.js:158` 想判断 skeleton 是 split-mode 对象(generator 返回 `{main,systems,split:true}`)
+- coder worker 里想判断 skeleton 是 split-mode 对象(generator 返回 `{main,systems,split:true}`)
 - 但字符串也有 `.split` — `String.prototype.split` 是函数,**永远 truthy**
 - ≤10 phases 返回普通字符串时,分支误入多文件路径,`fs.writeFileSync(path, skeleton.main)` = undefined → 同步 throw
 - 4 个 codegen round 同一秒全失败(特征:时间戳相同 = 同步错误,非 LLM/网络)
@@ -665,13 +735,13 @@ LISTEN 0 511 *:3901 users:(("PM2 v6.0.14: Go",pid=2349527,fd=3))
 | LINUX_BUILD_URL 配置到被加载的 .env | `/opt/blueprint-editor/.env` | 新增 `LINUX_BUILD_URL=http://127.0.0.1:18860` |
 | BUILD_URL fallback 去掉僵尸远端 | `worker/linux-worker-client.js:327` | `120.55.70.226:3080` → `127.0.0.1:18860` |
 | buildRequest 双字段兼容 shim | `engine/helpers.cjs` | 同时发 `csCode` 和 `code`,`/build-html` 路由到 `/build` + base64 解码 |
-| build-test.sh Python payload | `worker/claude-code-coder.js:247` | `{'code':code}` → `{'csCode':code, 'code':code}` |
-| skeleton 分支判断改为 typeof | `worker/claude-code-coder.js:158` | `if (skeleton.split)` → `if (typeof skeleton === 'object' && skeleton.split === true)` |
+| build-test.sh Python payload | `worker/codex-code-coder.js` | `{'code':code}` → `{'csCode':code, 'code':code}` |
+| skeleton 分支判断改为 typeof | `worker/codex-code-coder.js` | `if (skeleton.split)` → `if (typeof skeleton === 'object' && skeleton.split === true)` |
 | pending-rules.json 清理污染 | `worker/pending-rules.json` | 移除 outage 期间误捕获的 csCode required / iframe.html 条目(它们是环境失败,不是代码质量问题) |
 
 ### 验证结果
 - Worker 2 proj_1776165800102_yjrgmn 首次完整通过 compile:`Build OK in 7s, HTML: 1.1MB`
-- `[prompt-cache]` 日志显示 CLAUDE.md sha1=`a21fff93e02c` 跨 worker 一致 — prompt cache 应命中
+- `[prompt-cache]` 日志显示系统提示文件 sha1 跨 worker 一致 — prompt cache 应命中
 - Worker 1 zxpzt4 突破 codegen 同步崩溃,进入正常 INCREMENTAL_FIX 流程
 
 ### 教训
@@ -867,10 +937,10 @@ LISTEN 0 511 *:3901 users:(("PM2 v6.0.14: Go",pid=2349527,fd=3))
 | # | 修复项 | 文件 | 改动 |
 |---|--------|------|------|
 | 1 | listProjects 单文件容错 | `server.cjs` | map→forEach+try/catch，跳过损坏文件 |
-| 2 | Budget 取消上限 | `worker/claude-code-coder.js` | `--max-budget-usd` 默认 0（不传），不再限制 |
-| 3 | Skeleton 覆盖全部 phase | `worker/claude-code-coder.js` | 移除 `MAX_INITIAL_PHASES=3`，所有 phase 生成骨架 |
+| 2 | Budget 取消上限 | `worker/codex-code-coder.js` | `--max-budget-usd` 默认 0（不传），不再限制 |
+| 3 | Skeleton 覆盖全部 phase | `worker/codex-code-coder.js` | 移除 `MAX_INITIAL_PHASES=3`，所有 phase 生成骨架 |
 | 4 | Codex 审核失败阻断构建 | `worker/linux-worker-client.js` | criticalCount>0 时 return failed，不继续到 CUA |
-| 5 | CUA 反馈直接注入 prompt | `worker/claude-code-coder.js` | 反馈文本直接写进 userPrompt，不依赖 AI 读 prompt.md |
+| 5 | CUA 反馈直接注入 prompt | `worker/codex-code-coder.js` | 反馈文本直接写进 userPrompt，不依赖 AI 读 prompt.md |
 | 6 | FULL_GENERATION 携带原因 | `worker/linux-worker-client.js` | 保留失败摘要+明确指令，避免产出相同代码 |
 
 ### 提交
@@ -893,8 +963,8 @@ LISTEN 0 511 *:3901 users:(("PM2 v6.0.14: Go",pid=2349527,fd=3))
 
 ### 根因分析
 
-**根因 1：Claude Code CLI 秒退被误判为成功**
-- `claude-code-coder.js` 在调用 Claude 前预写 skeleton 到 .cs 文件
+**根因 1：CLI coder 秒退被误判为成功**
+- coder worker 在调用模型前预写 skeleton 到 .cs 文件
 - Claude 退出后检查**文件是否存在**来判断成功 → skeleton 永远存在 → 永远 "partial success"
 - 结果：未修改的 skeleton（满是 `true /* TODO */` 占位符）被当作有效代码
 - 游戏所有 phase 瞬间触发 → 3秒结束 → phase-skipped
@@ -914,8 +984,8 @@ LISTEN 0 511 *:3901 users:(("PM2 v6.0.14: Go",pid=2349527,fd=3))
 
 | 修复项 | 文件 | 改动 |
 |--------|------|------|
-| 骨架误判修复 | `claude-code-coder.js` | 检查文件 mtime 是否变化，而非是否存在 |
-| CLI 秒退检测 | `claude-code-coder.js` | exit code≠0 + <10s + stdout<200字符 → 直接失败 |
+| 骨架误判修复 | `worker/codex-code-coder.js` | 检查文件 mtime 是否变化，而非是否存在 |
+| CLI 秒退检测 | `worker/codex-code-coder.js` | exit code≠0 + <10s + stdout<200字符 → 直接失败 |
 | Spec 截断重试 | `spec-extractor.cjs` | specs 数量 < 50% frames 时自动重试（最多3次） |
 | Clash 路由修复 | mihomo config | global → rule 模式，TUN 保持开启，volces.com 走直连 |
 | **V3 代码全面清除** | 多文件 | 删除 ~1400 行 V3 代码，仅保留 V4 entity-driven 路径 |
@@ -949,7 +1019,7 @@ LISTEN 0 511 *:3901 users:(("PM2 v6.0.14: Go",pid=2349527,fd=3))
 - watchdog `reclaimStale(300, 180)` 5分钟后判定 desync → 强制回收正在跑的任务
 - 级联效应：任务在 worker 间弹来弹去 → Claude slot lock 泄漏 → API 限流
 
-**根因 2：Claude CLI 认证失败（claude-code-coder.js:317）**
+**根因 2：CLI 认证失败（现实现位于 `worker/codex-code-coder.js`）**
 - env 覆盖 `ANTHROPIC_API_KEY` 为 GLM key + `CLAUDE_CODE_SIMPLE: '1'` 禁用 OAuth
 - 系统实际用 OAuth token (`CLAUDE_CODE_OAUTH_TOKEN`)，不是 API key
 - Claude CLI 2秒退出 exit code 1
@@ -964,7 +1034,7 @@ LISTEN 0 511 *:3901 users:(("PM2 v6.0.14: Go",pid=2349527,fd=3))
 - `__dirname + '/.env'` 指向 `worker/.env`（不存在）
 - 实际 .env 在 `../`，导致 `DOUBAO_API_KEY` 为空
 
-**根因 5：Slot lock 清理不完整（claude-code-coder.js:44）**
+**根因 5：Slot lock 清理不完整（现实现位于 `worker/codex-code-coder.js`）**
 - 只靠 25min mtime 超时，不检测持锁进程是否存活
 - worker crash 后 lock 残留，占位直到超时
 
@@ -973,12 +1043,12 @@ LISTEN 0 511 *:3901 users:(("PM2 v6.0.14: Go",pid=2349527,fd=3))
 | 修复项 | 文件 | 改动 |
 |--------|------|------|
 | heartbeat上报busy+taskId | linux-worker-client.js | activeTasks>0时报busy |
-| Claude CLI OAuth认证 | claude-code-coder.js | 移除env覆盖,用OAuth |
+| CLI OAuth认证 | codex-code-coder.js | 移除env覆盖,用OAuth |
 | 去除Gemini依赖 | model-provider.cjs | 删除GeminiProvider,chain改为Doubao→Claude |
 | spec-extractor直连Doubao | spec-extractor.cjs | createProvider('doubao') |
 | DoubaoProvider格式修复 | model-provider.cjs | prompt→[{role,parts}],传system/temp/maxTokens |
 | dotenv路径修复 | linux-worker-client.js | __dirname+'/.env' → '../.env' |
-| PID存活检测 | claude-code-coder.js | process.kill(pid,0)检测死进程 |
+| PID存活检测 | codex-code-coder.js | process.kill(pid,0)检测死进程 |
 | Gemini变量名清理 | storyboard-parser.cjs, doubao-adapter.cjs | _geminiKey→_doubaoKey等 |
 | ecosystem清理 | ecosystem.config.cjs | 移除GEMINI_*环境变量 |
 

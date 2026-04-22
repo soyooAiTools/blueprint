@@ -157,7 +157,8 @@ module.exports.init = function(ctx) {
             console.log('[Worker Status] Dropping report for cancelled task ' + taskId + ' (worker=' + workerId + ', reported=' + status + ')');
             return sendJSON(res, { success: true, taskId: taskId, status: 'cancelled', dropped: true });
           }
-          // Map cua_passed/done to reviewing — means ready for human review
+          // Map terminal verify states to reviewing; preview_ready means preview
+          // is available but deep verification still runs in the background.
           var mappedStatus = (status === 'cua_passed' || status === 'done') ? 'reviewing' : status;
           // Skip no-op transitions (e.g. worker reports 'processing' on every
           // fix round; project is already 'processing' or has progressed to
@@ -165,7 +166,8 @@ module.exports.init = function(ctx) {
           var isNoop = project.status === mappedStatus;
           var isRegression = (project.status === 'building' && mappedStatus === 'processing') ||
                              (project.status === 'developing' && mappedStatus === 'processing') ||
-                             (project.status === 'reviewing' && (mappedStatus === 'processing' || mappedStatus === 'building' || mappedStatus === 'developing'));
+                             (project.status === 'preview_ready' && (mappedStatus === 'processing' || mappedStatus === 'building' || mappedStatus === 'developing')) ||
+                             (project.status === 'reviewing' && (mappedStatus === 'processing' || mappedStatus === 'building' || mappedStatus === 'developing' || mappedStatus === 'preview_ready'));
           if (!isNoop && !isRegression) {
             projectSM.forceTransition(project, mappedStatus, 'worker-' + workerId);
           }
@@ -185,14 +187,14 @@ module.exports.init = function(ctx) {
             project.failureHistory.push(project.lastFailure);
             if (project.failureHistory.length > 10) project.failureHistory = project.failureHistory.slice(-10);
           }
-          // Set webglPath if not already set (CUA passed or done with build available)
-          if ((status === 'cua_passed' || status === 'done') && !project.webglPath) {
+          // Persist preview/build path as soon as preview is available.
+          if ((status === 'preview_ready' || status === 'cua_passed' || status === 'done') && !project.webglPath) {
             var webglDir = path.join(WEBGL_DIR, taskId);
             var hasIframe = fs.existsSync(path.join(webglDir, 'iframe.html'));
             var buildFile = hasIframe ? 'iframe.html' : 'index.html';
             if (fs.existsSync(path.join(webglDir, buildFile))) {
               project.webglPath = '/webgl/' + taskId + '/' + buildFile;
-              project.buildCompletedAt = new Date().toISOString();
+              if (!project.buildCompletedAt) project.buildCompletedAt = new Date().toISOString();
             }
           }
           writeProject(project);

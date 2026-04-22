@@ -16,7 +16,7 @@ var path = require('path');
 // CUA. Catching these in codegen stops the damage 3 stages earlier.
 var RULES = [
   { id: 'setactive', pattern: /\.SetActive\s*\(/g, blocking: true, message: 'SetActive() forbidden in Luna — use position=(0,-999,0) to hide' },
-  { id: 'camera-main', pattern: /Camera\.main(?!\s*;?\s*\/\/\s*ok)/g, message: 'Camera.main forbidden — use skeleton\'s mainCam variable' },
+  { id: 'camera-main', pattern: /Camera\.main(?!\s*;?\s*\/\/\s*ok)/g, blocking: true, message: 'Camera.main forbidden — use skeleton\'s mainCam variable' },
   { id: 'create-obj', pattern: /GFM_Create\.Obj\s*\(/g, blocking: true, message: 'GFM_Create.Obj() forbidden — use GameObject.Find() from pool' },
   { id: 'create-ground', pattern: /GFM_Create\.Ground\s*\(/g, blocking: true, message: 'GFM_Create.Ground() forbidden — __Ground already exists' },
   { id: 'set-color', pattern: /GFM_Create\.SetColor\s*\(/g, blocking: true, message: 'GFM_Create.SetColor() forbidden — pool objects have baked colors' },
@@ -49,7 +49,7 @@ var RULES = [
   { id: 'dict-generic', pattern: /\bDictionary<[^>]+>/g, message: 'Dictionary<K,V> forbidden in Luna — use arrays' },
   { id: 'set-parent', pattern: /\.SetParent\s*\(/g, message: 'SetParent() forbidden in Luna' },
   { id: 'transform-parent', pattern: /\.parent\s*=/g, message: 'transform.parent assignment forbidden in Luna' },
-  { id: 'find-object-of-type', pattern: /FindObjectOfType\s*</g, message: 'FindObjectOfType<T>() forbidden — use (T)FindObjectOfType(typeof(T))' },
+  { id: 'find-object-of-type', pattern: /\bFindObjectOfType\s*(?:<|\()/g, blocking: true, message: 'FindObjectOfType() forbidden in gameplay code — use skeleton references, never runtime scene scans' },
   { id: 'get-component-generic', pattern: /GetComponent\s*</g, message: 'GetComponent<T>() forbidden — use (T)GetComponent(typeof(T))' },
   { id: 'force-complete', pattern: /ForceCompleteAllPhases/g, message: 'ForceCompleteAllPhases forbidden — phases must require player interaction' },
   { id: 'external-eval', pattern: /Application\.ExternalEval/g, message: 'Application.ExternalEval() not supported in Luna' },
@@ -222,6 +222,203 @@ var RULES = [
     }
     return issues;
   }},
+  // 2026-04-21: review fix-loop burned repeatedly on the same terminal-flow bug
+  // across w7113b / s6ae56: ShowCTA() called before GameEnded(), ShowCTA()
+  // itself calling GameEnded(), or ShowCTA() invoked early from Update().
+  // These are deterministic structure bugs, so block them before LLM review.
+  { id: 'showcta-must-not-call-gameended', pattern: null, blocking: true,
+    message: 'ShowCTA() must only perform CTA installation. Do not call Luna.Unity.LifeCycle.GameEnded() inside ShowCTA().',
+    custom: function(code) {
+      var issues = [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
+        .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
+      var sigMatch = stripped.match(/void\s+ShowCTA\s*\(\s*\)\s*\{/);
+      if (!sigMatch) return [];
+      var start = sigMatch.index + sigMatch[0].length;
+      var depth = 1, end = start;
+      while (end < stripped.length && depth > 0) {
+        var ch = stripped[end];
+        if (ch === '{') depth++;
+        else if (ch === '}') { depth--; if (depth === 0) break; }
+        end++;
+      }
+      if (depth !== 0) return [];
+      var body = stripped.substring(start, end);
+      var gameEndedIdx = body.indexOf('Luna.Unity.LifeCycle.GameEnded');
+      if (gameEndedIdx >= 0) {
+        var lineNum = code.substring(0, start + gameEndedIdx).split('\n').length;
+        issues.push({ line: lineNum, text: 'ShowCTA() calls Luna.Unity.LifeCycle.GameEnded() — end flow must call GameEnded() before ShowCTA(), not inside it' });
+      }
+      return issues;
+    },
+  },
+  { id: 'showcta-early-call-forbidden', pattern: null, blocking: true,
+    message: 'ShowCTA() must not be called from Update()/OnAutoPlayArrive()/phase click handlers before the dedicated game-end block.',
+    custom: function(code) {
+      var issues = [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
+        .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
+      var gameplayMethods = ['Update', 'OnAutoPlayArrive'];
+      for (var mi = 0; mi < gameplayMethods.length; mi++) {
+        var name = gameplayMethods[mi];
+        var sigRe = new RegExp('(?:void|\\w+)\\s+' + name + '\\s*\\([^)]*\\)\\s*\\{', 'g');
+        var sm;
+        while ((sm = sigRe.exec(stripped)) !== null) {
+          var start = sm.index + sm[0].length;
+          var depth = 1, end = start;
+          while (end < stripped.length && depth > 0) {
+            var ch = stripped[end];
+            if (ch === '{') depth++;
+            else if (ch === '}') { depth--; if (depth === 0) break; }
+            end++;
+          }
+          if (depth !== 0) continue;
+          var body = stripped.substring(start, end);
+          var callRe = /\bShowCTA\s*\(/g;
+          var cm;
+          while ((cm = callRe.exec(body)) !== null) {
+            var lineInBody = body.substring(0, cm.index).split('\n').length - 1;
+            issues.push({ line: stripped.substring(0, start).split('\n').length + lineInBody, text: 'ShowCTA() called inside ' + name + '() — only the final game-end block may invoke CTA installation' });
+          }
+        }
+      }
+      return issues;
+    },
+  },
+  { id: 'gameended-before-showcta', pattern: null, blocking: true,
+    message: 'Final game-end block must call Luna.Unity.LifeCycle.GameEnded() before ShowCTA(), and must not set gameEnded=true first.',
+    custom: function(code) {
+      var issues = [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
+        .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
+      var sigMatch = stripped.match(/void\s+CheckEventRules\s*\([^)]*\)\s*\{/);
+      if (!sigMatch) return [];
+      var start = sigMatch.index + sigMatch[0].length;
+      var depth = 1, end = start;
+      while (end < stripped.length && depth > 0) {
+        var ch = stripped[end];
+        if (ch === '{') depth++;
+        else if (ch === '}') { depth--; if (depth === 0) break; }
+        end++;
+      }
+      if (depth !== 0) return [];
+      var body = stripped.substring(start, end);
+      var showIdx = body.indexOf('ShowCTA(');
+      if (showIdx < 0) return [];
+      var endIdx = body.indexOf('Luna.Unity.LifeCycle.GameEnded');
+      var gameEndedFlagIdx = body.indexOf('gameEnded = true');
+      if (endIdx < 0 || endIdx > showIdx) {
+        var badLine = code.substring(0, start + showIdx).split('\n').length;
+        issues.push({ line: badLine, text: 'CheckEventRules() calls ShowCTA() before Luna.Unity.LifeCycle.GameEnded() — terminal flow must be GameEnded() then ShowCTA()' });
+      }
+      if (gameEndedFlagIdx >= 0 && (endIdx < 0 || gameEndedFlagIdx < endIdx || gameEndedFlagIdx < showIdx)) {
+        var flagLine = code.substring(0, start + gameEndedFlagIdx).split('\n').length;
+        issues.push({ line: flagLine, text: 'gameEnded = true is set before terminal flow finishes — call GameEnded(), then ShowCTA(), then lock gameEnded' });
+      }
+      return issues;
+    },
+  },
+  { id: 'cta-phase-requires-real-click-gate', pattern: null, blocking: true,
+    message: 'Final CTA/gameEnd transition cannot rely on EntityAdvanced(CTAButton, snap) alone — require a real CTA click/input flag in the game-end gate.',
+    custom: function(code, ctx) {
+      var issues = [];
+      var blueprint = ctx && ctx.blueprint;
+      var specs = blueprint && Array.isArray(blueprint.specs) ? blueprint.specs : null;
+      if (!specs || specs.length === 0) return issues;
+      var lastSpec = specs[specs.length - 1] || {};
+      var phaseId = String(lastSpec.phaseId || 'phase').replace(/[^a-zA-Z0-9]/g, '');
+      var interactions = Array.isArray(lastSpec.requiredInteractions) ? lastSpec.requiredInteractions : [];
+      var cond = String(lastSpec.triggerNext && lastSpec.triggerNext.condition || '');
+      var isCtaPhase = interactions.some(function(x) { return /^(click|tap):/i.test(String(x || '')); }) ||
+        /cta|install|download/i.test(String(lastSpec.phaseId || '') + ' ' + String(lastSpec.phaseName || '') + ' ' + cond);
+      if (!isCtaPhase) return issues;
+
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
+        .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
+
+      var sigMatch = stripped.match(/void\s+CheckEventRules\s*\([^)]*\)\s*\{/);
+      if (!sigMatch) return issues;
+      var start = sigMatch.index + sigMatch[0].length;
+      var depth = 1, end = start;
+      while (end < stripped.length && depth > 0) {
+        var ch = stripped[end];
+        if (ch === '{') depth++;
+        else if (ch === '}') { depth--; if (depth === 0) break; }
+        end++;
+      }
+      if (depth !== 0) return issues;
+      var body = stripped.substring(start, end);
+
+      var gateIdx = body.indexOf('AddCompletedPhase("gameEnd")');
+      if (gateIdx < 0) gateIdx = body.indexOf('ShowCTA(');
+      if (gateIdx < 0) return issues;
+
+      var windowStart = Math.max(0, gateIdx - 500);
+      var windowEnd = Math.min(body.length, gateIdx + 300);
+      var gateWindow = body.substring(windowStart, windowEnd);
+
+      var usesCtaEntityOnly = /EntityAdvanced\s*\(\s*CTAButton\s*,/.test(gateWindow);
+      var hasRealClickFlag = new RegExp(
+        '\\b(' + phaseId + 'InteractionDone|' + phaseId + 'PlayerActed|CTAButtonDone)\\b'
+      ).test(gateWindow);
+
+      if (usesCtaEntityOnly && !hasRealClickFlag) {
+        var lineNum = code.substring(0, start + gateIdx).split('\n').length;
+        issues.push({
+          line: lineNum,
+          text: 'gameEnd gate relies on EntityAdvanced(CTAButton, _snap_CTAButtonPos) without a real CTA click/input flag; require ' + phaseId + 'InteractionDone / ' + phaseId + 'PlayerActed / CTAButtonDone',
+        });
+      }
+      return issues;
+    },
+  },
+  { id: 'phase-gate-shortcircuits-with-interaction-flags', pattern: null, blocking: true,
+    message: 'Non-final phase gate must not use InteractionDone/PlayerActed/xxxDone as an OR shortcut — require real world-state progression, not flag-only bypass.',
+    custom: function(code, ctx) {
+      var issues = [];
+      var blueprint = ctx && ctx.blueprint;
+      var specs = blueprint && Array.isArray(blueprint.specs) ? blueprint.specs : null;
+      if (!specs || specs.length === 0) return issues;
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
+        .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
+      var re = /if\s*\(\s*!\s*ruleTriggered\s*\[\s*(\d+)\s*\]/g;
+      var m;
+      while ((m = re.exec(stripped)) !== null) {
+        var ruleIdx = parseInt(m[1], 10);
+        // Skip first warmup gate and final gameEnd gate.
+        if (!(ruleIdx > 0 && ruleIdx < specs.length)) continue;
+        var start = m.index + m[0].length;
+        var depth = 1, end = start;
+        while (end < stripped.length && depth > 0) {
+          var ch = stripped[end];
+          if (ch === '(') depth++;
+          else if (ch === ')') { depth--; if (depth === 0) break; }
+          end++;
+        }
+        if (depth !== 0) continue;
+        var cond = stripped.substring(start, end);
+        if (cond.indexOf('||') < 0) continue;
+        if (!/\b(\w+(?:InteractionDone|PlayerActed|Done))\b/.test(cond)) continue;
+        var lineNum = code.substring(0, m.index).split('\n').length;
+        issues.push({
+          line: lineNum,
+          text: 'ruleTriggered[' + ruleIdx + '] gate uses OR-shortcut with interaction flags (' +
+            cond.replace(/\s+/g, ' ').trim().slice(0, 140) + ') — require real EntityAdvanced(...) progression instead',
+        });
+      }
+      return issues;
+    },
+  },
   // --- v5: Anti-gate-bypass rules ---
   { id: 'force-advance-func', pattern: /ForceAdvance|ForceProgress|SkipGate|BypassGate/g, message: 'ForceAdvance/SkipGate functions forbidden — autoPlay 20s gates must NOT be bypassed' },
   { id: 'autoplay-interact-timer-too-fast', pattern: null, message: 'AutoPlay _autoInteractTimer interval must be >= 2f (skeleton sets 3f)', custom: function(code) {
@@ -831,6 +1028,8 @@ var RULES = [
     message: 'Partial-split incomplete — GameFlowManagerMain must have 5 companions: Flow / Input / Resource / UI / Scene',
     custom: function(code, ctx) {
       if (!ctx || !ctx.extraFiles) return [];
+      var fileName = ctx && ctx.filename ? String(ctx.filename).split(/[\\/]/).pop() : '';
+      if (fileName && fileName !== 'GameFlowManagerMain.cs') return [];
       var needed = ['Flow', 'Input', 'Resource', 'UI', 'Scene'];
       // Only count expected-name companions. Legacy `.Systems.cs` (pre-W1b placeholder)
       // is ignored so urbib0-style baselines don't trip the rule before W1b ships.
@@ -848,6 +1047,121 @@ var RULES = [
       }
       if (missing.length === 0) return [];
       return [{ line: 1, text: 'Missing partial companion(s): ' + missing.join(', ') }];
+    },
+  },
+  { id: 'main-file-reintroduced-phase-logic', pattern: null, blocking: true,
+    message: 'GameFlowManagerMain.cs reintroduced phase-specific logic — keep phase init / tap / autoplay / snapshot helpers in Flow.cs, not in the main file.',
+    custom: function(code, ctx) {
+      if (!ctx || !ctx.extraFiles) return [];
+      var fileName = ctx && ctx.filename ? String(ctx.filename).split(/[\\/]/).pop() : '';
+      if (fileName && fileName !== 'GameFlowManagerMain.cs') return [];
+      var companions = Object.keys(ctx.extraFiles).filter(function(k) {
+        return /GameFlowManagerMain\.(Flow|Input|Resource|UI|Scene)\.cs$/.test(k);
+      });
+      if (companions.length === 0) return [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
+        .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
+      var patterns = [
+        { re: /\bvoid\s+OnAutoPlayArrive\s*\(\s*string\s+\w+\s*\)/g, label: 'OnAutoPlayArrive() belongs in Flow.cs' },
+        { re: /\bvoid\s+Phase_OnTap\s*\(\s*\)/g, label: 'Phase_OnTap() belongs in Flow.cs' },
+        { re: /\bvoid\s+Phase_[A-Za-z0-9_]+_(?:Init|OnTap|OnAutoPlayArrive)\s*\(/g, label: 'Phase-specific handler belongs in Flow.cs' },
+        { re: /\bvoid\s+Snapshot_[A-Za-z0-9_]+_GateEntities\s*\(/g, label: 'Phase snapshot helper belongs in Flow.cs' },
+        { re: /\bvoid\s+(?:EnterPhase|FinishGame|CompletePhaseProgress|TryReportStuckPhase|SyncAutoPlayState|UpdatePhaseTimer)\s*\(/g, label: 'Shared flow helper belongs in Flow.cs' },
+        { re: /TODO_PHASE_(?:\d+|[A-Za-z0-9_]+)_(?:INIT|ONTAP|ONAUTOARRIVE)_(?:START|END)/g, label: 'Phase TODO scaffold belongs in Flow.cs' },
+      ];
+      var issues = [];
+      patterns.forEach(function(p) {
+        var m;
+        while ((m = p.re.exec(stripped)) !== null) {
+          var lineNum = stripped.substring(0, m.index).split('\n').length;
+          issues.push({ line: lineNum, text: p.label + ': ' + m[0] });
+        }
+      });
+      return issues;
+    },
+  },
+  { id: 'invalid-pool-find-name', pattern: null, blocking: true,
+    message: 'GameObject.Find() uses a pool object name outside the approved entity→pool mapping — bind only the exact blueprint-approved pool objects.',
+    custom: function(code, ctx) {
+      var blueprint = ctx && ctx.blueprint;
+      var entityPoolMap = blueprint && blueprint.entityPoolMap ? blueprint.entityPoolMap : null;
+      if (!entityPoolMap) return [];
+      var allowed = {};
+      Object.keys(entityPoolMap).forEach(function(k) {
+        if (entityPoolMap[k]) allowed[String(entityPoolMap[k])] = true;
+      });
+      if (Object.keys(allowed).length === 0) return [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); });
+      var issues = [];
+      var re = /\bGameObject\.Find\s*\(\s*"([^"\n]+)"\s*\)/g;
+      var m;
+      while ((m = re.exec(stripped)) !== null) {
+        var poolName = String(m[1] || '');
+        if (!/^__Pool_/.test(poolName)) continue;
+        if (allowed[poolName]) continue;
+        var lineNum = code.substring(0, m.index).split('\n').length;
+        issues.push({
+          line: lineNum,
+          text: 'GameObject.Find("' + poolName + '") is outside approved entityPoolMap (' + Object.keys(allowed).slice(0, 4).map(function(name) { return name; }).join(', ') + (Object.keys(allowed).length > 4 ? ', ...' : '') + ')',
+        });
+      }
+      return issues;
+    },
+  },
+  { id: 'updategamestate-skeleton-preserve', pattern: null, blocking: true,
+    message: 'UpdateGameState() was structurally damaged — preserve the skeleton JSON bridge keys and final gameObject.name assignment.',
+    custom: function(code, ctx) {
+      var candidates = [{ file: (ctx && ctx.filename) || 'GameFlowManagerMain.cs', src: code }];
+      if (ctx && ctx.extraFiles) {
+        Object.keys(ctx.extraFiles).forEach(function(key) {
+          candidates.push({ file: key, src: ctx.extraFiles[key] });
+        });
+      }
+      var issues = [];
+      var required = [
+        '\\"currentPhase\\":',
+        '\\"completedPhases\\":',
+        '\\"entityStates\\":{',
+        '\\"variables\\":{',
+        '\\"phaseTimestamps\\":{',
+      ];
+      for (var ci = 0; ci < candidates.length; ci++) {
+        var src = candidates[ci].src || '';
+        var fileName = candidates[ci].file;
+        var sigMatch = /\bvoid\s+UpdateGameState\s*\(\s*\)\s*\{/.exec(src);
+        if (!sigMatch) continue;
+        var start = sigMatch.index + sigMatch[0].length;
+        var depth = 1, end = start;
+        while (end < src.length && depth > 0) {
+          var ch = src[end];
+          if (ch === '{') depth++;
+          else if (ch === '}') { depth--; if (depth === 0) break; }
+          end++;
+        }
+        if (depth !== 0) {
+          issues.push({ line: src.substring(0, sigMatch.index).split('\n').length, text: fileName + ': UpdateGameState() braces are unbalanced' });
+          continue;
+        }
+        var body = src.substring(start, end);
+        var missing = [];
+        for (var ri = 0; ri < required.length; ri++) {
+          if (body.indexOf(required[ri]) < 0) missing.push(required[ri]);
+        }
+        if (!/gameObject\.name\s*=\s*(?:"[^"\n]*"\s*\+\s*)?json\s*;/.test(body)) {
+          missing.push('gameObject.name = json;');
+        }
+        if (missing.length > 0) {
+          issues.push({
+            line: src.substring(0, sigMatch.index).split('\n').length,
+            text: fileName + ': UpdateGameState() missing required bridge markers: ' + missing.slice(0, 3).join(', ') + (missing.length > 3 ? ' ...' : ''),
+          });
+        }
+      }
+      return issues;
     },
   },
   // Blocking 6c (2026-04-21): duplicate method across partial-class files (CS0111).
@@ -869,7 +1183,11 @@ var RULES = [
       var extractSigs = function(src) {
         var out = [];
         if (!src) return out;
-        var srcLines = src.split('\n');
+        var stripped = src
+          .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+          .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
+          .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
+        var srcLines = stripped.split('\n');
         var CTRL = { if:1,for:1,foreach:1,while:1,switch:1,using:1,lock:1,catch:1,fixed:1,return:1,throw:1,'new':1,'do':1,'else':1 };
         for (var li = 0; li < srcLines.length; li++) {
           var raw = srcLines[li];
@@ -917,9 +1235,11 @@ var RULES = [
         return out;
       };
       var companionIndex = {};
+      var currentFile = ctx && ctx.filename ? String(ctx.filename).split(/[\\/]/).pop() : '';
       for (var efKey in ctx.extraFiles) {
         if (!ctx.extraFiles.hasOwnProperty(efKey)) continue;
         if (!/GameFlowManagerMain/.test(efKey)) continue;
+        if (currentFile && efKey === currentFile) continue;
         var efCode = ctx.extraFiles[efKey];
         if (!/\bpartial\s+class\s+GameFlowManagerMain\b/.test(efCode)) continue;
         var efSigs = extractSigs(efCode);
@@ -989,6 +1309,8 @@ var RULES = [
       var patterns = [
         { re: /\bUnityEvent\b/g, why: 'UnityEvent' },
         { re: /\bpublic\s+event\s+(?:Action|Func)\b/g, why: 'public event Action/Func' },
+        { re: /\b(?:SendMessage|BroadcastMessage)\s*\(/g, why: 'SendMessage/BroadcastMessage' },
+        { re: /\bGFM_Event\b/g, why: 'GFM_Event' },
         { re: /\.AddListener\s*\(/g, why: '.AddListener(' },
         { re: /\.RemoveListener\s*\(/g, why: '.RemoveListener(' },
       ];
@@ -1007,15 +1329,14 @@ var RULES = [
   // Warning 6d: method body > 60 lines. Exempt list covers legitimately-long
   // skeleton scaffolding (CheckEventRules, OnAutoPlayArrive, dispatcher switches).
   // Threshold to be calibrated at W2 end against real urbib0/successor distribution.
-  { id: 'method-too-long', pattern: null,
-    message: 'Method body > 60 lines — split into smaller named methods (per-phase OnEnter/OnTap)',
+  { id: 'method-too-long', pattern: null, blocking: true,
+    message: 'Method body too long — split into smaller named methods and keep coordinator methods thin',
     custom: function(code) {
       var issues = [];
       var stripped = code
         .replace(/\/\*[\s\S]*?\*\//g, '')
         .replace(/\/\/[^\n]*/g, '');
-      var exempt = ['Update', 'Start', 'Awake', 'EnterPhase', 'HandleTap', 'CheckTrigger',
-        'ExecuteAction', 'CheckEventRules', 'OnAutoPlayArrive', 'AutoPlayUpdate'];
+      var exempt = ['Update', 'Start', 'Awake', 'CheckEventRules'];
       var sigRe = /\b(?:public|private|protected|internal)?\s*(?:static\s+)?(?:void|IEnumerator|bool|int|float|string|GameObject|Vector[23]|Color|Transform)\s+(\w+)\s*\([^)]*\)\s*\{/g;
       var m;
       while ((m = sigRe.exec(stripped)) !== null) {
@@ -1032,7 +1353,7 @@ var RULES = [
         if (depth !== 0) continue;
         var body = stripped.substring(start, end);
         var lineCount = body.split('\n').length;
-        if (lineCount > 60) {
+        if (lineCount > 45) {
           var lineNum = code.substring(0, m.index).split('\n').length;
           issues.push({ line: lineNum, text: name + '() body ' + lineCount + ' lines' });
         }
@@ -1043,27 +1364,80 @@ var RULES = [
   // Warning 6e: public/protected members in business code need /// XML doc.
   // Scoped via class-name sniff to GameFlowManagerMain (skip canonical GFM_* lib).
   // Turns blocking in W3 once skeleton-generator auto-emits XML doc skeletons.
-  { id: 'require-member-doc', pattern: null,
-    message: 'public/protected member lacks /// XML doc comment',
+  { id: 'require-member-doc', pattern: null, blocking: false,
+    message: 'Every field/method in GameFlowManagerMain partials must carry a descriptive comment',
     custom: function(code) {
-      if (code.indexOf('class GameFlowManagerMain') < 0) return [];
+      if (code.indexOf('GameFlowManagerMain') < 0) return [];
       var issues = [];
       var lines = code.split('\n');
-      var memberRe = /^\s*(?:public|protected)\s+(?!const\b|override\b|partial\b|class\b|static\s+class\b)/;
+      var sanitized = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
+        .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
+      var sanitizedLines = sanitized.split('\n');
       var lifecycle = ['Awake', 'Start', 'Update', 'FixedUpdate', 'LateUpdate',
         'OnEnable', 'OnDisable', 'OnDestroy', 'OnApplicationPause', 'OnApplicationFocus'];
+      var depth = 0;
       for (var i = 0; i < lines.length; i++) {
-        if (!memberRe.test(lines[i])) continue;
-        var nameMatch = lines[i].match(/\b(\w+)\s*\(/);
-        if (nameMatch && lifecycle.indexOf(nameMatch[1]) >= 0) continue;
-        var j = i - 1;
-        while (j >= 0 && lines[j].trim() === '') j--;
-        if (j < 0) { issues.push({ line: i + 1, text: lines[i].trim().slice(0, 120) }); continue; }
-        var prev = lines[j].trim();
-        var hasDoc = prev.indexOf('///') === 0 ||
-                     prev.slice(-2) === '*/' ||
-                     /^\[[\w,\s]+\]$/.test(prev); // attribute line
-        if (!hasDoc) issues.push({ line: i + 1, text: lines[i].trim().slice(0, 120) });
+        var raw = lines[i];
+        var sline = sanitizedLines[i] || '';
+        var trimmed = raw.trim();
+        var sTrimmed = sline.trim();
+        if (depth === 1) {
+          var isDecl = false;
+          if (!/^(if|for|foreach|while|switch|catch|using|return|throw|else|do)\b/.test(sTrimmed)) {
+            if (/^(?:public|private|protected|internal)?\s*(?:static\s+)?(?:readonly\s+)?(?:const\s+)?(?:override\s+)?(?:virtual\s+)?(?:partial\s+)?(?:void|IEnumerator|bool|int|float|string|GameObject|Vector2|Vector3|Vector4|Color|Transform|Text|Canvas|Quaternion|Ray|Material|Image|Sprite|RectTransform|[\w<>]+\[\]?|[A-Z]\w*)\s+\w+\s*\([^;]*\)\s*\{?\s*$/.test(sTrimmed)) {
+              isDecl = true;
+            } else if (/^(?:public|private|protected|internal)?\s*(?:static\s+)?(?:readonly\s+)?(?:const\s+)?(?:bool|int|float|string|GameObject|Vector2|Vector3|Vector4|Color|Transform|Text|Canvas|Quaternion|Ray|Material|Image|Sprite|RectTransform|[\w<>]+\[\]?|[A-Z]\w*)\s+\w+\s*(?:=\s*[^;]+)?;\s*$/.test(sTrimmed)) {
+              isDecl = true;
+            } else if (/^(?:public|private|protected|internal)?\s*(?:static\s+)?(?:bool|int|float|string|GameObject|Vector2|Vector3|Vector4|Color|Transform|Text|Canvas|Quaternion|Ray|Material|Image|Sprite|RectTransform|[\w<>]+\[\]?|[A-Z]\w*)\s+\w+\s*\{\s*get\b/.test(sTrimmed)) {
+              isDecl = true;
+            }
+          }
+          if (isDecl) {
+            if (/\b(class|struct|enum|interface)\b/.test(sTrimmed)) isDecl = false;
+            if (/^\[/.test(trimmed)) isDecl = false;
+          }
+          if (isDecl) {
+            var nameMatch = trimmed.match(/\b(\w+)\s*\(/);
+            if (!nameMatch) nameMatch = trimmed.match(/\b(\w+)\s*(?:=|;|\{)/);
+            if (nameMatch && lifecycle.indexOf(nameMatch[1]) >= 0) {
+              // lifecycle methods still require comments only when explicitly custom-authored elsewhere
+            } else {
+              // Inline trailing comments count as valid docs for skeleton fields
+              // and helpers, e.g. `int gold = 0; // current balance`.
+              var inlineCode = raw;
+              var inlineCommentAt = -1;
+              var inString = false;
+              for (var ii = 0; ii < raw.length - 1; ii++) {
+                if (raw[ii] === '"' && raw[ii - 1] !== '\\') inString = !inString;
+                if (!inString && raw[ii] === '/' && raw[ii + 1] === '/') {
+                  inlineCommentAt = ii;
+                  break;
+                }
+              }
+              if (inlineCommentAt >= 0) {
+                inlineCode = raw.slice(0, inlineCommentAt).trim();
+                if (inlineCode) continue;
+              }
+              var j = i - 1;
+              while (j >= 0 && lines[j].trim() === '') j--;
+              if (j < 0) {
+                issues.push({ line: i + 1, text: trimmed.slice(0, 120) });
+              } else {
+                var prev = lines[j].trim();
+                var hasDoc = prev.indexOf('///') === 0 ||
+                             prev.indexOf('//') === 0 ||
+                             prev.slice(-2) === '*/' ||
+                             /^\[[\w,\s"=]+\]$/.test(prev);
+                if (!hasDoc) issues.push({ line: i + 1, text: trimmed.slice(0, 120) });
+              }
+            }
+          }
+        }
+        var opens = (sline.match(/\{/g) || []).length;
+        var closes = (sline.match(/\}/g) || []).length;
+        depth += opens - closes;
       }
       return issues;
     },
@@ -1071,25 +1445,128 @@ var RULES = [
   // Warning 6f: if-branches with magic numbers (>=3 digit) or string literals
   // should have trailing // comment explaining the condition. Exempts ruleTriggered[]
   // skeleton patterns and autoPlay gates which carry [SKELETON] banners elsewhere.
-  { id: 'require-branch-comment', pattern: null,
-    message: 'if-condition with magic literal lacks trailing comment — explain the intent',
+  { id: 'require-branch-comment', pattern: null, blocking: false,
+    message: 'Each non-trivial condition branch must carry a nearby comment explaining the intent',
     custom: function(code) {
       var issues = [];
       var lines = code.split('\n');
-      var ifRe = /\bif\s*\(([^)]*(?:"[^"]*"|\b\d{3,}\b)[^)]*)\)/;
+      var ifRe = /\bif\s*\(([^)]*)\)/;
       for (var i = 0; i < lines.length; i++) {
         var line = lines[i];
         var m = line.match(ifRe);
         if (!m) continue;
         var cond = m[1];
-        // Exempt trivial null/bool checks in the condition itself (not body)
-        if (/\b(?:null|true|false)\b/.test(cond)) continue;
+        // Only require branch commentary for truly complex conditions.
+        var comparisonOps = (cond.match(/(?:==|!=|<=|>=|<|>)/g) || []).length;
+        var isComplex = cond.indexOf('&&') >= 0 ||
+                        cond.indexOf('||') >= 0 ||
+                        cond.indexOf('?') >= 0 ||
+                        cond.indexOf('"') >= 0 ||
+                        /\b\d{3,}\b/.test(cond) ||
+                        comparisonOps >= 2;
+        if (!isComplex) continue;
         // Exempt skeleton-generated patterns
         if (/ruleTriggered\[|_autoPlayMode|phaseTimer\s*[<>]=?/.test(cond)) continue;
-        // Trailing // on same line (after stripping strings)?
-        var codePart = line.replace(/"[^"]*"/g, '""');
-        if (codePart.indexOf('//') >= 0) continue;
+        var sameLine = line.replace(/"[^"]*"/g, '""');
+        if (sameLine.indexOf('//') >= 0) continue;
+        var prev1 = i > 0 ? lines[i - 1].trim() : '';
+        var prev2 = i > 1 ? lines[i - 2].trim() : '';
+        var next1 = i + 1 < lines.length ? lines[i + 1].trim() : '';
+        if (prev1.indexOf('//') === 0 || prev1.indexOf('///') === 0 || prev2.indexOf('//') === 0 || prev2.indexOf('///') === 0 || next1.indexOf('//') === 0 || next1.indexOf('///') === 0) continue;
         issues.push({ line: i + 1, text: line.trim().slice(0, 120) });
+      }
+      return issues;
+    },
+  },
+  { id: 'multiline-condition-comment-required', pattern: null, blocking: false,
+    message: 'Each multi-line or chained condition block must carry a nearby comment explaining the gating intent',
+    custom: function(code) {
+      var issues = [];
+      var lines = code.split('\n');
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        if (line.indexOf('if') < 0) continue;
+        if (!/\bif\s*\(/.test(line)) continue;
+        var start = i;
+        var block = line;
+        var depth = (line.match(/\(/g) || []).length - (line.match(/\)/g) || []).length;
+        var end = i;
+        while (depth > 0 && end + 1 < lines.length) {
+          end++;
+          block += '\n' + lines[end];
+          depth += (lines[end].match(/\(/g) || []).length - (lines[end].match(/\)/g) || []).length;
+        }
+        var condText = block.replace(/^[\s\S]*?\bif\s*\(/, '').replace(/\)\s*\{?[\s\S]*$/, '');
+        var isMultiline = end > start;
+        var hasChain = /\&\&|\|\|/.test(condText);
+        if (!isMultiline && !hasChain) continue;
+        if (/ruleTriggered\[|_autoPlayMode|phaseTimer\s*[<>]=?|currentPhaseName\s*==/.test(condText)) { i = end; continue; }
+        var inlineComment = false;
+        for (var li = start; li <= end; li++) {
+          if (lines[li].indexOf('//') >= 0 || lines[li].indexOf('/*') >= 0) { inlineComment = true; break; }
+        }
+        if (inlineComment) { i = end; continue; }
+        var prev1 = start > 0 ? lines[start - 1].trim() : '';
+        var prev2 = start > 1 ? lines[start - 2].trim() : '';
+        var next1 = end + 1 < lines.length ? lines[end + 1].trim() : '';
+        var hasNearby = prev1.indexOf('//') === 0 || prev1.indexOf('///') === 0 ||
+                        prev2.indexOf('//') === 0 || prev2.indexOf('///') === 0 ||
+                        next1.indexOf('//') === 0 || next1.indexOf('///') === 0;
+        if (!hasNearby) issues.push({ line: start + 1, text: lines[start].trim().slice(0, 120) });
+        i = end;
+      }
+      return issues;
+    },
+  },
+  { id: 'switch-case-comment-required', pattern: null, blocking: false,
+    message: 'Each switch/case branch in GameFlowManagerMain partials must carry a nearby comment explaining why that branch exists',
+    custom: function(code) {
+      if (code.indexOf('GameFlowManagerMain') < 0) return [];
+      var issues = [];
+      var lines = code.split('\n');
+      for (var i = 0; i < lines.length; i++) {
+        var t = lines[i].trim();
+        if (!(t.indexOf('switch ') === 0 || t.indexOf('switch(') === 0 || t.indexOf('case ') === 0 || t.indexOf('default:') === 0)) continue;
+        if (t.indexOf('//') >= 0) continue;
+        var prev = i > 0 ? lines[i - 1].trim() : '';
+        if (prev.indexOf('//') === 0 || prev.indexOf('///') === 0) continue;
+        issues.push({ line: i + 1, text: t.slice(0, 120) });
+      }
+      return issues;
+    },
+  },
+  { id: 'thin-input-coordinator', pattern: null, blocking: true,
+    message: 'Input coordinator methods must stay thin — split condition analysis into named helper methods',
+    custom: function(code, ctx) {
+      var fileName = (ctx && ctx.filename) || '';
+      if (code.indexOf('GameFlowManagerMain') < 0) return [];
+      var issues = [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/[^\n]*/g, '');
+      var methodNames = ['HandlePlayerInteractions', 'OnAutoPlayArrive', 'Phase_OnTap', 'UpdateInput', 'HandleInput'];
+      for (var mi = 0; mi < methodNames.length; mi++) {
+        var name = methodNames[mi];
+        var sigRe = new RegExp('\\b(?:public|private|protected|internal)?\\s*(?:static\\s+)?(?:void|bool|int|float|string)\\s+' + name + '\\s*\\([^)]*\\)\\s*\\{', 'g');
+        var m;
+        while ((m = sigRe.exec(stripped)) !== null) {
+          var start = m.index + m[0].length;
+          var depth = 1, end = start;
+          while (end < stripped.length && depth > 0) {
+            var ch = stripped[end];
+            if (ch === '{') depth++;
+            else if (ch === '}') { depth--; if (depth === 0) break; }
+            end++;
+          }
+          if (depth !== 0) continue;
+          var body = stripped.substring(start, end);
+          var lineCount = body.split('\n').length;
+          var branchCount = (body.match(/\bif\s*\(|\bswitch\s*\(|\bcase\s+/g) || []).length;
+          if (lineCount > 25 || branchCount > 4) {
+            var lineNum = code.substring(0, m.index).split('\n').length;
+            issues.push({ line: lineNum, text: name + '() in ' + (fileName || 'GameFlowManagerMain') + ' is too large (' + lineCount + ' lines, ' + branchCount + ' branches)' });
+          }
+        }
       }
       return issues;
     },

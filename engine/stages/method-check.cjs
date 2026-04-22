@@ -1,13 +1,13 @@
 // Source: engine/stages/method-check.cjs
 /**
- * Stage: method-check — Advisory check that all methods called in Update()/CheckEventRules()
+ * Stage: method-check — hard check that all methods called in Update()/CheckEventRules()
  * are actually defined in the generated C# code.
  *
- * This stage does NOT block the pipeline. On failure it injects structured feedback
- * into ctx.blueprint.feedbackHistory so the codegen fix-loop can repair the gap.
+ * This stage blocks the pipeline on missing methods, and also injects structured
+ * feedback into ctx.blueprint.feedbackHistory so the codegen fix-loop can repair the gap.
  *
- * Reads:  ctx.csCode
- * Writes: ctx.blueprint.feedbackHistory (push, advisory only)
+ * Reads:  ctx.csCode, ctx.extraFiles
+ * Writes: ctx.blueprint.feedbackHistory (push, blocking on failure)
  */
 
 // ============ Safe Lists ============
@@ -113,7 +113,7 @@ function extractMethodBody(csCode, methodName) {
  */
 function extractMethodCalls(csCode, scopeMethods) {
   var calls = [];
-  var callRe = /\b([A-Z_]\w*)\s*\(/g;
+  var callRe = /(?<![\w.])([A-Z_]\w*)\s*\(/g;
 
   var i;
   for (i = 0; i < scopeMethods.length; i++) {
@@ -121,6 +121,11 @@ function extractMethodCalls(csCode, scopeMethods) {
     if (!body) {
       continue;
     }
+    // Ignore comments so method names mentioned in guidance text do not become
+    // false-positive "missing calls" (e.g. Phase_<id>_OnTap() in comments).
+    body = body
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/\/\/[^\n\r]*/g, ' ');
     var m;
     while ((m = callRe.exec(body)) !== null) {
       var name = m[1];
@@ -146,11 +151,30 @@ function extractMethodCalls(csCode, scopeMethods) {
  * Check whether all methods called inside Update() / CheckEventRules() are
  * accounted for (defined, skeleton-safe, or a Unity prefix).
  *
- * @param {string} csCode
+ * Scans definitions across both ctx.csCode and any ctx.extraFiles (partial
+ * class files generated for large blueprints) so that methods split into a
+ * companion file (e.g. GameFlowManagerMain.Systems.cs) are not falsely
+ * reported as missing.
+ *
+ * @param {string} csCode       primary generated C# file content
+ * @param {object} [extraFiles] map of filename → content for partial class files
  * @returns {string[]}  list of missing method names (empty = all good)
  */
-function checkCompleteness(csCode) {
-  var defined = extractMethodDefinitions(csCode);
+function checkCompleteness(csCode, extraFiles) {
+  // Build an aggregate source that includes all partial class files so that
+  // method definitions living in companion files are visible to the scanner.
+  var aggregateCode = csCode || '';
+  if (extraFiles) {
+    for (var efName in extraFiles) {
+      if (!extraFiles.hasOwnProperty(efName)) continue;
+      aggregateCode += '\n' + String(extraFiles[efName] || '');
+    }
+  }
+
+  // Scan definitions across the full combined source.
+  var defined = extractMethodDefinitions(aggregateCode);
+  // Calls are always extracted from the primary file only (Update/CheckEventRules
+  // live there) — extra files are definition-only partials.
   var called = extractMethodCalls(csCode, ['Update', 'CheckEventRules']);
 
   var missing = [];
@@ -158,7 +182,7 @@ function checkCompleteness(csCode) {
   for (i = 0; i < called.length; i++) {
     var name = called[i];
 
-    // Skip if defined in the code
+    // Skip if defined anywhere in the combined source
     if (defined.indexOf(name) >= 0) {
       continue;
     }
@@ -192,8 +216,6 @@ function checkCompleteness(csCode) {
 /**
  * Execute the method-completeness advisory check.
  *
- * Never rejects — failures are recorded as feedbackHistory entries.
- *
  * @param {object} ctx  pipeline context
  * @returns {Promise<void>}
  */
@@ -204,7 +226,7 @@ function execute(ctx) {
 
   var missing;
   try {
-    missing = checkCompleteness(ctx.csCode);
+    missing = checkCompleteness(ctx.csCode, ctx.extraFiles);
   } catch (err) {
     console.warn('[method-check] checkCompleteness threw:', err && err.message);
     return Promise.resolve();
@@ -232,7 +254,7 @@ function execute(ctx) {
     });
   }
 
-  return Promise.resolve();
+  return Promise.reject(new Error('Method completeness failed: missing methods: ' + missing.join(', ')));
 }
 
 // ============ Exports ============

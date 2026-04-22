@@ -286,7 +286,7 @@ var GENERATE_PROMPT = [
   '- NEVER use Shader.Find() or new Material(shader) directly',
   '',
   '### MUST do:',
-  '- Call Luna.Unity.LifeCycle.GameEnded() when game ends (before CTA)',
+  '- Game end flow must be: Luna.Unity.LifeCycle.GameEnded(); then ShowCTA(); (ShowCTA must call InstallFullGame)',
   '- Use Animator for all animations, NEVER Animation component',
   '- Animator state machine: do NOT connect states to Exit node (causes animation bugs in Luna)',
   '- Animation frame events: avoid placing on first or last frame (often fails to trigger)',
@@ -676,7 +676,7 @@ var FIX_PROMPT = [
   '- GetComponent<Transform>() and GetComponent<RectTransform>() are NOT interchangeable',
   '- DOTween chain calls must be on separate lines to avoid JS transpilation bugs',
   '- Use Luna.Unity.Playable.InstallFullGame() instead of Application.OpenURL',
-  '- Must call Luna.Unity.LifeCycle.GameEnded() when game ends',
+  '- Must call Luna.Unity.LifeCycle.GameEnded() when game ends, then ShowCTA()',
   '- Do NOT create or configure Light components (Light.type is NOT available in Luna Bridge.NET)',
   '- Do NOT use [RuntimeInitializeOnLoadMethod] — Luna ignores it',
   '- The main controller script is GameFlowManagerMain.cs — keep its class name `GameFlowManagerMain`',
@@ -1440,7 +1440,7 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
     + '- NO coroutines/async/await — use Update() + timer pattern\n'
     + '- NO LINQ, NO System.Linq\n'
     + '- Hide with position y=-999, NOT SetActive(false)\n'
-    + '- Game end: Luna.Unity.LifeCycle.GameEnded()\n'
+    + '- Game end: Luna.Unity.LifeCycle.GameEnded(); then ShowCTA()\n'
     + '- CTA: Luna.Unity.Playable.InstallFullGame()\n'
     + '- Collision detection: Vector3.Distance(a.position, b.position) < radius\n'
     + '- Do NOT define class EventPool (conflicts with template)\n'
@@ -1652,7 +1652,7 @@ async function generateCodeV4(blueprint, clientDir, log, taskId, engine) {
     + '- NO SetActive(false) — hide with position = new Vector3(0, -999, 0)\n'
     + '- Joystick: var joystick = GFM_Joystick.Create(canvas, 200f); then in Update: float h = joystick.Horizontal; float v = joystick.Vertical;\n'
     + '- IMPORTANT: There is NO class named "GFM_Tools". Available classes: GFM_Create (3D objects), GFM_Utils (helpers), GFM_UI (ui), GFM_Joystick (joystick), GFM_Audio (sound)\n'
-    + '- Game end: Luna.Unity.LifeCycle.GameEnded()\n'
+    + '- Game end: Luna.Unity.LifeCycle.GameEnded(); then ShowCTA()\n'
     + '- CTA: Luna.Unity.Playable.InstallFullGame()\n'
     + '- Start() must begin with scene cleanup: destroy all root objects except {"Main Camera","Directional Light","EventSystem","GameManager","__MaterialSource"}\n'
     + '- V5: Pool objects pre-exist with baked colors — no ResetPool/InitMaterialFromScene needed\n'

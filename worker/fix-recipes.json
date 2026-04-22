@@ -13,7 +13,7 @@
       "feedback_skeleton_truthy_split.md"
     ],
     "affectedFiles": [
-      "worker/claude-code-coder.js"
+      "worker/codex-code-coder.js"
     ]
   },
   {
@@ -68,7 +68,7 @@
     "risk": "medium",
     "autoApply": true,
     "affectedFiles": [
-      "worker/claude-code-coder.js"
+      "worker/codex-code-coder.js"
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-79ef3937.md"
@@ -138,7 +138,7 @@
   {
     "id": "auto-747d061e",
     "fingerprintPattern": "Schema generation failed: Exit code 14[23]",
-    "description": "Schema generation times out (SIGTERM → exit 143) because the 2-minute hardcoded timeout in codegen-schema.cjs is too short for the Claude Code CLI when tool-call overhead adds an extra API round-trip",
+    "description": "Schema generation times out (SIGTERM → exit 143) because the 2-minute hardcoded timeout in codegen-schema.cjs is too short for the CLI text runner when tool-call overhead adds an extra API round-trip",
     "risk": "low",
     "autoApply": true,
     "affectedFiles": [
@@ -247,7 +247,7 @@
   {
     "id": "auto-96cb5031",
     "fingerprintPattern": "CUA total time limit exceeded \\(\\d+min > 60min pre-recode guard\\)",
-    "description": "RECODE_BUFFER_MS=900000 (15 min) in .env drove the pre-recode guard threshold down to 60 min, killing legitimate CUA runs at 61–64 min before they could reach recode.",
+    "description": "RECODE_BUFFER_MS env var (15 min / 900,000 ms) set the pre-recode guard threshold at 60 min, causing legitimate 63–64 min CUA runs to be killed prematurely before recode had a chance to run.",
     "risk": "low",
     "autoApply": true,
     "affectedFiles": [
@@ -296,10 +296,10 @@
   },
   {
     "id": "auto-751aeb4f",
-    "fingerprintPattern": "Visual freeze FATAL: \\d+ consecutive rounds — surgical and full-regen both failed\\. Stuck at phase \\S+",
-    "description": "visual_freeze FATAL fires prematurely at _noProgressRounds=2 because the full-regen gate used the cross-streak consecutiveSameIssue counter, which could already be saturated (>= SAME_ISSUE_REGEN_THRESHOLD) from a prior failure streak, bypassing the regen attempt entirely.",
-    "risk": "medium",
-    "autoApply": true,
+    "fingerprintPattern": "Visual freeze FATAL: \\d+ consecutive rounds — surgical and full-regen both failed",
+    "description": "visual_freeze FATAL fires at _noProgressRounds=2 with no full-regen attempt because cross-streak consecutiveSameIssue counter carries over from a prior phase-progress streak",
+    "risk": "high",
+    "autoApply": false,
     "affectedFiles": [
       "engine/stages/cua-verify.cjs"
     ],
@@ -308,8 +308,8 @@
   },
   {
     "id": "auto-28eae46e",
-    "fingerprintPattern": "Visual freeze FATAL:\\s*\\d+\\s*consecutive rounds.*surgical and full-regen both failed.*root cause: visual_freeze",
-    "description": "visual_freeze FATAL fires at _noProgressRounds=3 (first post-regen CUA pass), terminating before regenerated code gets a second verification pass",
+    "fingerprintPattern": "Visual freeze FATAL: \\d+ consecutive rounds — surgical and full-regen both failed",
+    "description": "visual_freeze FATAL fired at _noProgressRounds=3 — regenerated code got only 1 post-regen CUA pass before pipeline abort",
     "risk": "medium",
     "autoApply": true,
     "affectedFiles": [
@@ -317,5 +317,56 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-28eae46e.md"
+  },
+  {
+    "id": "auto-9742d195",
+    "fingerprintPattern": "Visual freeze FATAL: \\d+ consecutive rounds.*root cause: visual_freeze",
+    "description": "visual_freeze misclassified when phases already completed — sends wrong batch-firing advice to codegen and triggers premature FATAL escalation at round 3",
+    "risk": "high",
+    "autoApply": false,
+    "affectedFiles": [
+      "engine/stages/cua-verify.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-9742d195.md"
+  },
+  {
+    "id": "auto-04f18491",
+    "fingerprintPattern": "Template marker coverage failed: missing skeleton markers: TODO_PHASE_\\d+_INIT",
+    "description": "W1b 5-partial split: TODO_PHASE_N_INIT markers live in the Flow partial but fillSkeleton is only called on the main skeleton, causing all phase-init markers to be reported missing",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/codegen-schema.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-04f18491.md"
+  },
+  {
+    "id": "auto-6456b8a7",
+    "fingerprintPattern": "Method completeness failed: missing methods: [\\w, _]+",
+    "description": "method-check ignores ctx.extraFiles (partial class files) when scanning for method definitions, producing false-positive 'missing method' failures for all methods generated into Systems.cs",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/method-check.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-6456b8a7.md"
+  },
+  {
+    "id": "auto-d20225c1",
+    "fingerprintPattern": "Schema generation failed:.*stdout:.*(?:ECONNRESET|Unable to connect to API)",
+    "description": "Schema codegen fails with ECONNRESET because HTTPS_PROXY is hardcoded to 127.0.0.1:7890 (not env-configurable), not declared in .env files, and retries fire with zero delay — all 3 attempts exhaust instantly against a downed proxy.",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      ".env",
+      "worker/.env",
+      "engine/stages/codegen-schema.cjs",
+      "worker/codex-code-coder.js"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-d20225c1.md"
   }
 ]

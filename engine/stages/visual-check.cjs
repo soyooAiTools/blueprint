@@ -37,6 +37,10 @@ module.exports = {
     fs.writeFileSync(path.join(previewDir, 'index.html'), ctx.htmlOutput);
     ctx.previewUrl = 'https://playcools.top/webgl/' + ctx.taskId + '/index.html';
     ctx.addLog('visual-check', 'Preview: ' + ctx.previewUrl);
+    ctx.reportStatus('preview_ready', {
+      message: '[Linux] 预览已生成，正在进行深度验证...',
+      previewUrl: ctx.previewUrl,
+    });
 
     var lastHtmlForVisual = ctx.htmlOutput;
     var lastCsCode = ctx.csCode;
@@ -257,13 +261,13 @@ module.exports = {
             'Reply JSON only: {"passed": true/false, "reason": "brief explanation", "hasInteractiveElements": true/false}';
 
           // 2026-04-16: switched from direct Claude API (ClaudeProvider.generateVision HTTP POST)
-          // to spawn Claude Code CLI (--model claude-sonnet-4-6) via runClaudeCodeText.
+          // to spawn the CLI multimodal path via runCodexText.
           // Model stays Sonnet 4.6 — we only change transport so all Claude calls share
           // the CC CLI relay's failure modes / MODEL_FATAL / billing.
           // Mechanism: write JPEG frames into tempDir as ./frame1.jpg, ./frame2.jpg, ... and
           // instruct the model to Read them. CC Read tool natively supports images and
           // passes them to Sonnet as multimodal content (same pipeline as direct vision API).
-          var claudeCoder = require('../../worker/claude-code-coder.js');
+          var codexCoder = require('../../worker/codex-coder.js');
           var imagesBase64 = frameCount > 1 ? frameImages.map(function(f) { return f.base64; }) : [imgBase64];
           var _visionAdditionalFiles = {};
           var _visionFrameNames = [];
@@ -297,11 +301,12 @@ module.exports = {
             ' promptChars=' + visionUserPrompt.length +
             ' mode=cc-cli');
 
-          return claudeCoder.runClaudeCodeText({
+          return codexCoder.runCodexText({
             systemPrompt: visionSystemPrompt,
             userPrompt: visionUserPrompt,
             additionalFiles: _visionAdditionalFiles,
             model: 'claude-sonnet-4-6',
+            backend: process.env.BLUEPRINT_VISUAL_CHECK_TEXT_RUNNER || undefined,
             effort: 'medium',
             timeoutMs: 120000, // CC cold start + Read images + inference + margin
             minOutputLen: 10,  // JSON of {passed, reason, ...} is at least a dozen chars
@@ -311,7 +316,7 @@ module.exports = {
             .then(function(result) {
               // [vision-cost] post-call (CLI mode — no usage field available)
               ctx.addLog('visual-check', '[vision-cost] post round=' + round +
-                ' mode=cc-cli ok=' + result.ok +
+                ' mode=' + (result.backend || 'cc-cli') + ' ok=' + result.ok +
                 ' respTextLen=' + ((result && result.text) || '').length +
                 ' elapsedMs=' + (Date.now() - _visionStartedAt));
               if (!result.ok) {

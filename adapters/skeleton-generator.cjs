@@ -164,10 +164,10 @@ function generateSkeleton(specs, opts = {}) {
       // the timer gate is the real condition. Letting these through as `true`
       // means only `phaseTimer >= Xf` controls exit (no fakeable flags involved).
       const inter = spec.requiredInteractions || [];
-      const onlyTimeBased = inter.length > 0 && inter.every(function(s) {
+      const onlyTimeBased = (inter.length === 0 && !spec.playerMustAct) || (inter.length > 0 && inter.every(function(s) {
         const v = (s || '').split(':')[0];
         return v === 'wait' || v === 'defend';
-      });
+      }));
       if (onlyTimeBased) {
         return 'true /* time-only beat (wait/defend) — timer alone is the real gate */';
       }
@@ -707,9 +707,8 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('');
 
   // [SKELETON] Pre-generated initialization
-  lines.push('        // [SKELETON] Material and pool initialization');
-  lines.push('        GFM_Create.InitMaterialFromScene();');
-  // ResetPool removed — using pre-colored pool objects
+  lines.push('        // [SKELETON] Pool objects already ship with pre-baked colors');
+  // ResetPool / InitMaterialFromScene removed — using pre-colored pool objects
   lines.push('');
 
   // [SKELETON] GameSceneCtrl init + entity registration
@@ -825,20 +824,12 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        float dt = Time.deltaTime;');
   lines.push('        gameTimer += dt;');
   lines.push('');
-  lines.push('        // [SKELETON] AutoPlay activation — delegated to GFM_AutoPlay.Instance (DO NOT MODIFY)');
-  lines.push('        // Manager does 2-stage detection (flag + 6s real-time delay) internally.');
-  lines.push('        GFM_AutoPlay.Instance.CheckActivation(gameTimer);');
-  lines.push('        _autoPlayMode = GFM_AutoPlay.Instance.IsActive;      // sync local for skeleton reads');
-  lines.push('        _autoPlaySteps = GFM_AutoPlay.Instance.Steps;        // sync step count');
+  lines.push('        // Keep update as a coordinator: delegate state sync helpers instead of inlining logic.');
+  lines.push('        SyncAutoPlayState(gameTimer);');
   lines.push('');
-  lines.push('        // [SKELETON] Phase timer update');
-  lines.push('        if (currentPhaseName != lastPhaseForTimer) {');
-  lines.push('            phaseTimer = 0f;');
-  lines.push('            lastPhaseForTimer = currentPhaseName;');
-  lines.push('        }');
-  lines.push('        phaseTimer += dt;');
+  lines.push('        UpdatePhaseTimer(dt);');
   if (isIdleGame) {
-    lines.push('        if (_collectCooldown > 0f) _collectCooldown -= Time.deltaTime;');
+  lines.push('        if (_collectCooldown > 0f) _collectCooldown -= Time.deltaTime;');
   }
   lines.push('');
   lines.push('        CheckEventRules();');
@@ -900,10 +891,7 @@ function generateSkeleton(specs, opts = {}) {
       //   - AutoPlay: false until detection + 6s warmup, then true
       lines.push(`        if (!ruleTriggered[${ruleIdx}] && GFM_AutoPlay.Instance.WarmupReady)`);
       lines.push('        {');
-      lines.push(`            ruleTriggered[${ruleIdx}] = true;`);
-      lines.push(`            currentPhaseName = "${spec.phaseId}"; // [IMMUTABLE] Do NOT change this phaseId`);
-      lines.push(`            phaseEnterTimes[${ruleIdx}] = gameTimer; // [SKELETON]`);
-      lines.push(`            ReportPhase("${spec.phaseId}"); // [IMMUTABLE] CUA uses this exact ID for coverage tracking`);
+      lines.push(`            EnterPhase(${ruleIdx}, "${spec.phaseId}", false, false);`);
       lines.push('');
 
       // [SKELETON] Anti-solid-color: place first 3 entities in phase 1
@@ -922,20 +910,13 @@ function generateSkeleton(specs, opts = {}) {
       // requires these entities to have moved since this snapshot (DO NOT MODIFY)
       const phase0Gates = phaseGateEntities(spec);
       if (phase0Gates.length > 0) {
-        lines.push('            // [SKELETON] Snapshot entity positions for phase-exit condition check (DO NOT MODIFY)');
-        phase0Gates.forEach(n => {
-          lines.push(`            _snap_${n}Pos = (${n} != null) ? ${n}.transform.position : _snapHidePos;`);
-        });
+        lines.push(`            Snapshot_${spec.phaseId}_GateEntities();`);
         lines.push('');
       }
 
-      lines.push(`            // === TODO: AI fills — place additional objects, set colors, show guide ===`);
-      lines.push(`            // TODO_PHASE_${i + 1}_INIT_START`);
+      lines.push(`            Phase_${spec.phaseId}_Init();`);
       lines.push('');
-      lines.push(`            // TODO_PHASE_${i + 1}_INIT_END`);
-      lines.push('');
-      lines.push('            AddCompletedPhase("gameStart");');
-      lines.push('            UpdateGameState();');
+      lines.push('            CompletePhaseProgress("gameStart");');
       lines.push('        }');
     } else {
       // Subsequent rules: require previous phase condition + minimum dwell time
@@ -957,38 +938,20 @@ function generateSkeleton(specs, opts = {}) {
       lines.push(`            && (${realCondition})`);
       lines.push(`            && phaseTimer >= (_autoPlayMode ? 12f : ${prevSpec.duration.min}f))`);
       lines.push('        {');
-      lines.push(`            ruleTriggered[${ruleIdx}] = true;`);
-      lines.push(`            currentPhaseName = "${spec.phaseId}"; // [IMMUTABLE] Do NOT change this phaseId`);
-      lines.push(`            phaseEnterTimes[${ruleIdx}] = gameTimer; // [SKELETON]`);
-      lines.push('            phaseTimer = 0f; // [SKELETON] reset timer — prevent batch-firing multiple phases in one frame');
-      lines.push('            _autoPlayStepsAtPhaseStart = _autoPlaySteps; // [SKELETON] kept for backward compat (unused by gate)');
-      lines.push(`            ReportPhase("${spec.phaseId}"); // [IMMUTABLE] CUA uses this exact ID for coverage tracking`);
+      lines.push(`            EnterPhase(${ruleIdx}, "${spec.phaseId}", true, true);`);
       lines.push('');
 
       // [SKELETON 2026-04-20] Snapshot entities gating THIS phase's exit — must happen
       // before AI init code runs, so OnAutoPlayArrive's moves count as "advancement".
       const thisPhaseGates = phaseGateEntities(spec);
       if (thisPhaseGates.length > 0) {
-        lines.push('            // [SKELETON] Snapshot entity positions for next phase-exit check (DO NOT MODIFY)');
-        thisPhaseGates.forEach(n => {
-          lines.push(`            _snap_${n}Pos = (${n} != null) ? ${n}.transform.position : _snapHidePos;`);
-        });
+        lines.push(`            Snapshot_${spec.phaseId}_GateEntities();`);
         lines.push('');
       }
 
-      lines.push(`            // === TODO: AI fills — activate objects for ${spec.phaseName} ===`);
-      lines.push(`            // [REMINDER] This phase will exit when EntityAdvanced(X, _snap_XPos) > 1.5 for every X`);
-      lines.push(`            // listed above. The exit gate reads transform.position ONLY. Flag writes`);
-      lines.push(`            // (xxxDone=true / xxxState=N / xxxPlayerActed=true) DO NOT satisfy the gate.`);
-      lines.push(`            // Ensure the phase's player-triggered interaction body (in Update / handlers /`);
-      lines.push(`            // the matching case in OnAutoPlayArrive) calls PlaceObj(X,...) / HideObj(X) /`);
-      lines.push(`            // X.transform.position = ... at least once per required entity.`);
-      lines.push(`            // TODO_PHASE_${i + 1}_INIT_START`);
+      lines.push(`            Phase_${spec.phaseId}_Init();`);
       lines.push('');
-      lines.push(`            // TODO_PHASE_${i + 1}_INIT_END`);
-      lines.push('');
-      lines.push(`            AddCompletedPhase("${prevSpec.phaseId}"); // [IMMUTABLE] Must match spec phaseId exactly`);
-      lines.push('            UpdateGameState();');
+      lines.push(`            CompletePhaseProgress("${prevSpec.phaseId}"); // [IMMUTABLE] Must match spec phaseId exactly`);
       lines.push('        }');
     }
     lines.push('');
@@ -1008,16 +971,9 @@ function generateSkeleton(specs, opts = {}) {
   lines.push(`            && (${endRealCondition})`);
   lines.push(`            && phaseTimer >= (_autoPlayMode ? 12f : ${lastSpec.duration.min}f))`);
   lines.push('        {');
-  lines.push(`            ruleTriggered[${specs.length}] = true;`);
-  lines.push('            currentPhaseName = "gameEnd";');
-  lines.push('            ReportPhase("gameEnd"); // [SKELETON] Phase instrumentation');
-  lines.push('            gameEnded = true;');
+  lines.push(`            EnterPhase(${specs.length}, "gameEnd", false, false);`);
   lines.push('');
-  lines.push(`            AddCompletedPhase("${lastSpec.phaseId}");`);
-  lines.push('            AddCompletedPhase("gameEnd");');
-  lines.push('            ShowCTA();');
-  lines.push('            UpdateGameState();');
-  lines.push('            Luna.Unity.LifeCycle.GameEnded();');
+  lines.push(`            FinishGame("${lastSpec.phaseId}");`);
   lines.push('        }');
   lines.push('');
 
@@ -1027,19 +983,9 @@ function generateSkeleton(specs, opts = {}) {
   // the old safety net was the L5 bypass; replacing it with a pure observer keeps
   // "conditions must be fully satisfied" the only path to phase advancement.
   lines.push('        // [SKELETON] Stuck-phase reporter — emits __PHASE_STUCK__ when realCondition fails to satisfy (DO NOT MODIFY)');
-  lines.push('        if (!gameEnded && phaseTimer >= 90f)');
+  lines.push('        if (!gameEnded && phaseTimer >= 90f && TryReportStuckPhase())');
   lines.push('        {');
-  for (let ri = 1; ri <= specs.length; ri++) {
-    const prevPhase = specs[ri - 1].phaseId;
-    lines.push(`            if (!ruleTriggered[${ri}] && currentPhaseName == "${prevPhase}") // stuck at ${prevPhase}`);
-    lines.push('            {');
-    lines.push(`                UnityEngine.Debug.Log("__PHASE_STUCK__:${prevPhase}:phaseTimer=" + phaseTimer + ":autoPlay=" + (_autoPlayMode ? "1" : "0"));`);
-    lines.push('                // Reset phaseTimer so we don\'t log every frame. The phase stays un-triggered —');
-    lines.push('                // realCondition must naturally satisfy for advancement.');
-    lines.push('                phaseTimer = 60f; // keep above threshold but avoid per-frame spam');
-    lines.push('                return;');
-    lines.push('            }');
-  }
+  lines.push('            return;');
   lines.push('        }');
 
   lines.push('    }');
@@ -1061,6 +1007,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        {');
   lines.push('            completedPhases[completedPhaseCount] = phaseName;');
   lines.push('            completedPhaseCount++;');
+  lines.push('            GFM_AutoPlay.Instance.NotifyPhaseProgress(phaseName);');
   lines.push('        }');
   lines.push('    }');
   lines.push('');
@@ -1101,7 +1048,6 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    // [SKELETON] CTA button — pre-generated, do not remove');
   lines.push('    void ShowCTA()');
   lines.push('    {');
-  lines.push('        Luna.Unity.LifeCycle.GameEnded();');
   lines.push('        Luna.Unity.Playable.InstallFullGame();');
   lines.push('    }');
   lines.push('');
@@ -1125,7 +1071,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('            + "\\"completedPhases\\":" + completedJson + ","');
 
   // Entity states
-  lines.push('            + "\\"entityStates\\":{"');
+  lines.push('            + "\\"entityStates\\":{');
   const entityList = Array.from(allEntities);
   entityList.forEach((name, i) => {
     const comma = i < entityList.length - 1 ? ',' : '';
@@ -1134,7 +1080,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('            + "},"');
 
   // Variables (AI fills)
-  lines.push('            + "\\"variables\\":{"');
+  lines.push('            + "\\"variables\\":{');
   lines.push('            + "\\"gameTimer\\":" + (int)gameTimer');
   lines.push('            + ",\\"autoPlayMode\\":" + (_autoPlayMode ? "true" : "false")');
   lines.push('            + ",\\"autoPlaySteps\\":" + _autoPlaySteps');
@@ -1143,7 +1089,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('            + "}"');
 
   // Phase timestamps
-  lines.push('            + ",\\"phaseTimestamps\\":{"');
+  lines.push('            + ",\\"phaseTimestamps\\":{');
   specs.forEach((spec, i) => {
     const comma = i < specs.length - 1 ? ',' : '';
     lines.push(`            + "\\"${spec.phaseId}\\":" + (phaseEnterTimes[${i}] > 0 ? (int)phaseEnterTimes[${i}] : 0) + "${comma}"`);
@@ -1165,10 +1111,15 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    // TODO_UI_END');
   lines.push('}');
 
-  // W1b opt-in: 5-partial split (Flow / Input / Resource / UI / Scene).
-  // Activated by explicit flag; leaves legacy 2-file split untouched for existing projects.
-  if (opts.w1bSplit === true) {
-    return _split5Partial(lines, specs, allEntities, entityPoolMap, isIdleGame);
+  // Default-on: 5-partial split (Flow / Input / Resource / UI / Scene).
+  // Callers may explicitly disable via `w1bSplit: false` for compatibility.
+  if (opts.w1bSplit !== false) {
+    const phaseGateMap = {};
+    specs.forEach((spec, index) => {
+      const pid = (spec.phaseId || 'phase' + index).replace(/[^a-zA-Z0-9]/g, '');
+      phaseGateMap[pid] = phaseGateEntities(spec);
+    });
+    return _split5Partial(lines, specs, allEntities, entityPoolMap, isIdleGame, phaseGateMap);
   }
 
   // Legacy: 2-file split for large blueprints (>10 phases)
@@ -1238,15 +1189,32 @@ function _splitSkeleton(allLines, specs, allEntities, entityPoolMap, isIdleGame)
  * (Flow) and placeholder partial-class declarations (Input/Resource/UI/Scene).
  * Later W1b iterations will migrate method bodies from main into the 4 placeholders.
  */
-function _split5Partial(allLines, specs, allEntities, entityPoolMap, isIdleGame) {
+function _split5Partial(allLines, specs, allEntities, entityPoolMap, isIdleGame, phaseGateMap = {}) {
   const fullCode = allLines.join('\n');
+  const entityList = Array.from(allEntities);
+  let mainCode = fullCode;
+  mainCode = mainCode.replace(
+    /    \/\/ ========== SKELETON HELPERS \(do not modify\) ==========[\s\S]*?    \/\/ === TODO: AI fills — ShowGuide, UI helpers, input handlers ===\n    \/\/ TODO_UI_START\n\n    \/\/ TODO_UI_END\n/,
+    '    // NOTE: Phase bookkeeping helpers live in GameFlowManagerMain.Flow.cs\n' +
+    '    // NOTE: Scene placement helpers live in GameFlowManagerMain.Scene.cs\n' +
+    '    // NOTE: UI / CTA / UpdateGameState helpers live in GameFlowManagerMain.UI.cs\n' +
+    '\n' +
+    '    // NOTE: Input helpers live in GameFlowManagerMain.Input.cs\n'
+  );
+  mainCode = mainCode.replace(
+    /    \/\/ \[SKELETON 2026-04-20\] OnAutoPlayArrive — MUST produce OBSERVABLE position changes\.[\s\S]*?    }\n\n    \/\/ \[SKELETON\] Phase instrumentation for automated testing\n/,
+    '    // NOTE: AutoPlay phase dispatch helpers live in GameFlowManagerMain.Flow.cs\n\n' +
+    '    // [SKELETON] Phase instrumentation for automated testing\n'
+  );
+  const resourceSplit = _extractResourceSections(mainCode);
+  const idleSplit = _extractIdleKitSections(resourceSplit.main);
   return {
-    main: fullCode,
-    flow: _buildFlowPartial(specs),
-    input: _buildStubPartial('Input', 'Player movement, tap/drag detection, joystick'),
-    resource: _buildStubPartial('Resource', 'Economy, inventory, form switch, AddResource/TrySpend'),
-    ui: _buildStubPartial('UI', 'Canvas helpers, guide/score text, floating text'),
-    scene: _buildStubPartial('Scene', 'Entity placement/lifecycle, PlaceObj/HideObj/SetScale'),
+    main: idleSplit.main,
+    flow: _buildFlowPartial(specs, phaseGateMap),
+    input: _buildInputPartial(idleSplit.inputSections),
+    resource: _buildResourcePartial(resourceSplit.sections.concat(idleSplit.resourceSections)),
+    ui: _buildUiPartial(specs, entityList, idleSplit.uiSections),
+    scene: _buildScenePartial(),
     split: true,
     mode: 'w1b-5partial',
   };
@@ -1259,19 +1227,22 @@ function _split5Partial(allLines, specs, allEntities, entityPoolMap, isIdleGame)
  * Fields referenced (<id>InteractionDone / <id>PlayerActed) are declared in main
  * and shared across partials.
  */
-function _buildFlowPartial(specs) {
+function _buildFlowPartial(specs, phaseGateMap = {}) {
   const lines = [];
-  lines.push('// ========== AUTO-GENERATED FLOW PARTIAL — Phase dispatch + per-phase tap handlers ==========');
+  lines.push('// ========== AUTO-GENERATED FLOW PARTIAL — phase orchestration helpers ==========');
   lines.push('// Owner class: GameFlowManagerMain (partial). Fields in main are shared.');
   lines.push('');
   lines.push('using UnityEngine;');
   lines.push('');
   lines.push('public partial class GameFlowManagerMain');
   lines.push('{');
+  lines.push('    // ========== Flow Dispatchers ==========');
+  lines.push('');
   lines.push('    // [SKELETON] Interactive-mode tap dispatcher. Update() calls this on player tap');
   lines.push('    // when !_autoPlayMode. Grep phaseId to locate each Phase_<id>_OnTap() below.');
   lines.push('    void Phase_OnTap()');
   lines.push('    {');
+  lines.push('        // Dispatch the current phase directly to its dedicated tap handler.');
   lines.push('        switch (currentPhaseName)');
   lines.push('        {');
   for (let i = 0; i < specs.length; i++) {
@@ -1280,6 +1251,131 @@ function _buildFlowPartial(specs) {
   }
   lines.push('        }');
   lines.push('    }');
+  lines.push('');
+  lines.push('    // AutoPlay-mode dispatcher. Keep this coordinator thin and delegate phase logic below.');
+  lines.push('    void OnAutoPlayArrive(string targetName)');
+  lines.push('    {');
+  lines.push('        // Dispatch directly to the active phase-specific autoPlay handler.');
+  lines.push('        switch (currentPhaseName)');
+  lines.push('        {');
+  for (let i = 0; i < specs.length; i++) {
+    const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
+    lines.push('            case "' + pid + '": Phase_' + pid + '_OnAutoPlayArrive(targetName); break;');
+  }
+  lines.push('        }');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    // ========== Shared Flow Helpers ==========');
+  lines.push('');
+  lines.push('    // Sync the local autoplay mirrors from GFM_AutoPlay so Update() stays lightweight.');
+  lines.push('    void SyncAutoPlayState(float now)');
+  lines.push('    {');
+  lines.push('        // Manager owns activation timing and step counting. Keep main flow code read-only.');
+  lines.push('        GFM_AutoPlay.Instance.CheckActivation(now);');
+  lines.push('        _autoPlayMode = GFM_AutoPlay.Instance.IsActive;');
+  lines.push('        _autoPlaySteps = GFM_AutoPlay.Instance.Steps;');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    // Reset and advance the per-phase timer whenever the active phase changes.');
+  lines.push('    void UpdatePhaseTimer(float dt)');
+  lines.push('    {');
+  lines.push('        if (currentPhaseName != lastPhaseForTimer)');
+  lines.push('        {');
+  lines.push('            phaseTimer = 0f;');
+  lines.push('            lastPhaseForTimer = currentPhaseName;');
+  lines.push('        }');
+  lines.push('        phaseTimer += dt;');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    // Apply the common state changes that happen whenever flow enters a new phase.');
+  lines.push('    void EnterPhase(int ruleIdx, string phaseId, bool resetTimer, bool syncAutoPlayBaseline)');
+  lines.push('    {');
+  lines.push('        ruleTriggered[ruleIdx] = true;');
+  lines.push('        currentPhaseName = phaseId;');
+  lines.push('        phaseEnterTimes[ruleIdx] = gameTimer;');
+  lines.push('        if (resetTimer) phaseTimer = 0f;');
+  lines.push('        if (syncAutoPlayBaseline) _autoPlayStepsAtPhaseStart = _autoPlaySteps;');
+  lines.push('        ReportPhase(phaseId);');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    // Apply the immutable end-of-game sequence in one place.');
+  lines.push('    void FinishGame(string lastPhaseId)');
+  lines.push('    {');
+  lines.push('        AddCompletedPhase(lastPhaseId);');
+  lines.push('        Luna.Unity.LifeCycle.GameEnded();');
+  lines.push('        ShowCTA();');
+  lines.push('        gameEnded = true;');
+  lines.push('        UpdateGameState();');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    // Apply the common phase-progress bookkeeping after a transition completes.');
+  lines.push('    void CompletePhaseProgress(string completedPhaseId)');
+  lines.push('    {');
+  lines.push('        AddCompletedPhase(completedPhaseId);');
+  lines.push('        UpdateGameState();');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    // Emit one stuck-phase marker and throttle repeats so CUA gets a stable fatal signal.');
+  lines.push('    bool TryReportStuckPhase()');
+  lines.push('    {');
+  lines.push('        switch (currentPhaseName)');
+  lines.push('        {');
+  for (let i = 0; i < specs.length; i++) {
+    const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
+    const ruleIndex = i + 1;
+    lines.push('            case "' + pid + '":');
+    lines.push('                if (!ruleTriggered[' + ruleIndex + '])');
+    lines.push('                {');
+    lines.push('                    UnityEngine.Debug.Log("__PHASE_STUCK__:' + pid + ':phaseTimer=" + phaseTimer + ":autoPlay=" + (_autoPlayMode ? "1" : "0"));');
+    lines.push('                    phaseTimer = 60f;');
+    lines.push('                    return true;');
+    lines.push('                }');
+    lines.push('                break;');
+  }
+  lines.push('        }');
+  lines.push('        return false;');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    // Record a completed phase in order and notify the autoPlay observer immediately.');
+  lines.push('    void AddCompletedPhase(string phaseName)');
+  lines.push('    {');
+  lines.push('        if (completedPhaseCount < completedPhases.Length)');
+  lines.push('        {');
+  lines.push('            completedPhases[completedPhaseCount] = phaseName;');
+  lines.push('            completedPhaseCount++;');
+  lines.push('            GFM_AutoPlay.Instance.NotifyPhaseProgress(phaseName);');
+  lines.push('        }');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    // ========== Phase Init Handlers ==========');
+  lines.push('');
+  for (let i = 0; i < specs.length; i++) {
+    const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
+    lines.push('    // [SKELETON] Phase "' + pid + '" enter/init helper.');
+    lines.push('    // Keep phase-specific placement/guide logic here so CheckEventRules() stays concise.');
+    lines.push('    void Phase_' + pid + '_Init()');
+    lines.push('    {');
+    if (i === 0) {
+      lines.push('        // === TODO: AI fills — place additional objects, set colors, show guide ===');
+      lines.push('        // TODO_PHASE_' + (i + 1) + '_INIT_START');
+      lines.push('');
+      lines.push('        // TODO_PHASE_' + (i + 1) + '_INIT_END');
+    } else {
+      lines.push('        // === TODO: AI fills — activate objects for ' + specs[i].phaseName + ' ===');
+      lines.push('        // [REMINDER] This phase will exit when EntityAdvanced(X, _snap_XPos) > 1.5 for every X');
+      lines.push('        // listed above. The exit gate reads transform.position ONLY. Flag writes');
+      lines.push('        // (xxxDone=true / xxxState=N / xxxPlayerActed=true) DO NOT satisfy the gate.');
+      lines.push("        // Ensure the phase's player-triggered interaction body (in Update / handlers /");
+      lines.push('        // the matching case in OnAutoPlayArrive) calls PlaceObj(X,...) / HideObj(X) /');
+      lines.push('        // X.transform.position = ... at least once per required entity.');
+      lines.push('        // TODO_PHASE_' + (i + 1) + '_INIT_START');
+      lines.push('');
+      lines.push('        // TODO_PHASE_' + (i + 1) + '_INIT_END');
+    }
+    lines.push('    }');
+    lines.push('');
+  }
+  lines.push('    // ========== Phase Tap Handlers ==========');
   lines.push('');
   for (let i = 0; i < specs.length; i++) {
     const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
@@ -1293,8 +1389,142 @@ function _buildFlowPartial(specs) {
     lines.push('    }');
     lines.push('');
   }
+  lines.push('    // ========== Phase AutoPlay Handlers ==========');
+  lines.push('');
+  for (let i = 0; i < specs.length; i++) {
+    const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
+    const entities = specs[i].entitiesRequired || [];
+    lines.push('    // [SKELETON] Phase "' + pid + '" autoPlay handler.');
+    lines.push('    // MUST produce observable position changes so EntityAdvanced(...) can pass.');
+    lines.push('    void Phase_' + pid + '_OnAutoPlayArrive(string targetName)');
+    lines.push('    {');
+    if (entities.length > 0) {
+      lines.push('        // REQUIRED: produce observable change for each entity below');
+      for (let ei = 0; ei < entities.length; ei++) {
+        const eName = entities[ei].name || entities[ei];
+        lines.push('        //   - ' + eName + ': PlaceObj(' + eName + ', x, y, z) or HideObj(' + eName + ') or direct transform.position =');
+      }
+    } else {
+      lines.push('        // REQUIRED: call PlaceObj / HideObj / transform.position = ... for the phase-required entity');
+    }
+    lines.push('        // TODO_PHASE_' + pid + '_ONAUTOARRIVE_START');
+    lines.push('        // TODO: AI fills — move/activate entities so EntityAdvanced(...) becomes true');
+    lines.push('        // targetName is provided by GFM_AutoPlay for phase-specific routing when needed.');
+    lines.push('        // TODO_PHASE_' + pid + '_ONAUTOARRIVE_END');
+    lines.push('    }');
+    lines.push('');
+  }
+  lines.push('    // ========== Phase Snapshot Helpers ==========');
+  lines.push('');
+  for (let i = 0; i < specs.length; i++) {
+    const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
+    const gateEntities = phaseGateMap[pid] || [];
+    if (gateEntities.length === 0) continue;
+    lines.push('    // Capture the current positions of phase-gating entities for later EntityAdvanced(...) checks.');
+    lines.push('    void Snapshot_' + pid + '_GateEntities()');
+    lines.push('    {');
+    gateEntities.forEach(name => {
+      lines.push('        _snap_' + name + 'Pos = (' + name + ' != null) ? ' + name + '.transform.position : _snapHidePos;');
+    });
+    lines.push('    }');
+    lines.push('');
+  }
   lines.push('}');
   return lines.join('\n');
+}
+
+function _extractResourceSections(code) {
+  let mainCode = code;
+  const sections = [];
+
+  const extracts = [
+    {
+      regex: /    struct FormDef \{\n[\s\S]*?    int GetCarryCapacity\(\) \{ return \(_forms != null && _forms\.Length > 0\) \? _forms\[_currentFormIndex\]\.carryCapacity : 10; \}\n\n/,
+      note:
+        '    // NOTE: Form definitions and form-switch helpers live in GameFlowManagerMain.Resource.cs\n\n',
+    },
+    {
+      regex: /    \/\/ \[SKELETON\] Economy system — delegated to GFM_EconomyManager \(state owner\)\n[\s\S]*?        scoreText\.text = display;\n    }\n\n/,
+      note:
+        '    // NOTE: Economy/resource helpers live in GameFlowManagerMain.Resource.cs\n\n',
+    },
+  ];
+
+  extracts.forEach(({ regex, note }) => {
+    const match = mainCode.match(regex);
+    if (!match) return;
+    sections.push(match[0].trimEnd());
+    mainCode = mainCode.replace(regex, note);
+  });
+
+  return { main: mainCode, sections };
+}
+
+function _extractIdleKitSections(code) {
+  let mainCode = code;
+  const inputSections = [];
+  const resourceSections = [];
+  const uiSections = [];
+
+  const extracts = [
+    {
+      target: inputSections,
+      regex: /    \/\/ --- Player Movement \(joystick-driven\) ---\n    GFM_Joystick joystick;\n    GameObject player;\n(?:    float moveSpeed \{ get \{ return \(_forms != null && _forms\.Length > 0\) \? _forms\[_currentFormIndex\]\.moveSpeed : 5f; \} \}\n|    float moveSpeed = 5f;\n)/,
+      note:
+        '    // NOTE: Idle movement state lives in GameFlowManagerMain.Input.cs\n\n',
+    },
+    {
+      target: resourceSections,
+      regex: /    int carrying = 0; \/\/ generic resource count on player back\n    string carryingType = \"\"; \/\/ what resource type\n/,
+      note:
+        '    // NOTE: Idle carry-state lives in GameFlowManagerMain.Resource.cs\n',
+    },
+    {
+      target: inputSections,
+      regex: /    \/\/ \[SKELETON\] Tap-to-move target \(fallback for joystick\)\n    Vector3 tapMoveTarget = Vector3\.zero;\n    bool hasTapTarget = false;\n    \/\/ \[SKELETON\] Reusable buffer for per-frame move\/look vectors — avoids alloc\n    Vector3 _moveBuf = Vector3\.zero;\n/,
+      note:
+        '    // NOTE: Idle tap-move state lives in GameFlowManagerMain.Input.cs\n',
+    },
+    {
+      target: resourceSections,
+      regex: /    \/\/ \[SKELETON\] Batch 2 collect cooldown infra — shared across all collect templates\n    float collectCooldownInterval = [^\n]+\n    float _collectCooldown = 0f;\n    string _lastScoreText = \"\";\n\n/,
+      note:
+        '    // NOTE: Idle collect cooldown state lives in GameFlowManagerMain.Resource.cs\n\n',
+    },
+    {
+      target: uiSections,
+      regex: /    int gold = 0;\n\n/,
+      note:
+        '    // NOTE: Idle score state lives in GameFlowManagerMain.UI.cs\n\n',
+    },
+    {
+      target: inputSections,
+      regex: /    \/\/ \[SKELETON\] Move player by joystick \+ tap-to-move fallback — call in Update\(\)\n    void MovePlayer\(\)\n    \{\n[\s\S]*?    }\n\n/,
+      note:
+        '    // NOTE: Idle movement helpers live in GameFlowManagerMain.Input.cs\n\n',
+    },
+    {
+      target: resourceSections,
+      regex: /    \/\/ \[SKELETON\] Check if player is near a target \(proximity trigger\) — XZ sqr distance, no sqrt\/alloc\n    bool IsNear\(GameObject target, float range\)\n    \{\n[\s\S]*?    }\n\n    \/\/ \[SKELETON\] Auto-collect: when player near source, pick up resources\n    \/\/ Returns true if collected this frame\n    bool TryCollect\(GameObject source, string resType, int maxCarry, float range\)\n    \{\n[\s\S]*?    }\n\n    \/\/ \[SKELETON\] Auto-deliver: when player near machine\/sellpoint, drop off resources\n    \/\/ Returns number of items delivered\n    int TryDeliver\(GameObject target, string expectedType, float range\)\n    \{\n[\s\S]*?    }\n\n    \/\/ \[SKELETON\] Show carry stack on player back \(visual feedback\)\n    GameObject\[] carryVisuals;\n    void UpdateCarryVisuals\(\)\n    \{\n[\s\S]*?    }\n\n/,
+      note:
+        '    // NOTE: Idle collect/deliver helpers live in GameFlowManagerMain.Resource.cs\n\n',
+    },
+    {
+      target: uiSections,
+      regex: /    \/\/ \[SKELETON\] Gold UI update helper\n    void AddGold\(int amount\)\n    \{\n[\s\S]*?    }\n\n    \/\/ \[SKELETON\] Show floating text \(\+3 gold\) effect\n    \/\/ \[SKELETON\] Floating text — uses a pooled text element, auto-hides after delay\n    Text floatingText;\n    float floatingTextTimer = 0f;\n    void ShowFloatingText\(Vector3 worldPos, string text, Color color\)\n    \{\n[\s\S]*?    }\n\n/,
+      note:
+        '    // NOTE: Idle score/floating-text helpers live in GameFlowManagerMain.UI.cs\n\n',
+    },
+  ];
+
+  extracts.forEach(({ target, regex, note }) => {
+    const match = mainCode.match(regex);
+    if (!match) return;
+    target.push(match[0].trimEnd());
+    mainCode = mainCode.replace(regex, note);
+  });
+
+  return { main: mainCode, inputSections, resourceSections, uiSections };
 }
 
 /**
@@ -1304,15 +1534,179 @@ function _buildFlowPartial(specs) {
 function _buildStubPartial(name, description) {
   return [
     '// ========== AUTO-GENERATED ' + name.toUpperCase() + ' PARTIAL — ' + description + ' ==========',
-    '// Placeholder for W1b phase-2 migration. Add ' + name.toLowerCase() + '-related helpers here.',
+    '// Add only ' + name.toLowerCase() + '-related helpers here. Keep this file focused and well-commented.',
     '',
     'using UnityEngine;',
     '',
     'public partial class GameFlowManagerMain',
     '{',
+    '    // TODO_' + name.toUpperCase() + '_METHODS_START',
     '    // Reserved for ' + name.toLowerCase() + ' methods.',
+    '    // TODO_' + name.toUpperCase() + '_METHODS_END',
     '}',
   ].join('\n');
+}
+
+function _buildResourcePartial(sections) {
+  const lines = [];
+  lines.push('// ========== AUTO-GENERATED RESOURCE PARTIAL — economy / inventory / form helpers ==========');
+  lines.push('// Keep resource-facing helpers here so the main file only coordinates phase flow.');
+  lines.push('');
+  lines.push('using UnityEngine;');
+  lines.push('');
+  lines.push('public partial class GameFlowManagerMain');
+  lines.push('{');
+  if (Array.isArray(sections) && sections.length > 0) {
+    sections.forEach((section, index) => {
+      if (index > 0) lines.push('');
+      lines.push(section);
+    });
+    lines.push('');
+  }
+  lines.push('    // TODO_RESOURCE_METHODS_START');
+  lines.push('    // Reserved for resource, inventory, and form-specific methods.');
+  lines.push('    // TODO_RESOURCE_METHODS_END');
+  lines.push('}');
+  return lines.join('\n');
+}
+
+function _buildInputPartial(sections) {
+  const lines = [];
+  lines.push('// ========== AUTO-GENERATED INPUT PARTIAL — player movement / tap handling helpers ==========');
+  lines.push('// Keep input-facing helpers here so the main file stays focused on phase orchestration.');
+  lines.push('');
+  lines.push('using UnityEngine;');
+  lines.push('');
+  lines.push('public partial class GameFlowManagerMain');
+  lines.push('{');
+  if (Array.isArray(sections) && sections.length > 0) {
+    sections.forEach((section, index) => {
+      if (index > 0) lines.push('');
+      lines.push(section);
+    });
+    lines.push('');
+  }
+  lines.push('    // TODO_INPUT_METHODS_START');
+  lines.push('    // Reserved for input-specific methods.');
+  lines.push('    // TODO_INPUT_METHODS_END');
+  lines.push('}');
+  return lines.join('\n');
+}
+
+function _buildScenePartial() {
+  return [
+    '// ========== AUTO-GENERATED SCENE PARTIAL — entity placement / lifecycle helpers ==========',
+    '// Keep scene-facing helpers here so the main file stays focused on flow orchestration.',
+    '',
+    'using UnityEngine;',
+    '',
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    // Place a pooled scene object at a concrete world position.',
+    '    void PlaceObj(GameObject obj, float x, float y, float z)',
+    '    {',
+    '        if (obj == null) return;',
+    '        var pos = obj.transform.position;',
+    '        pos.x = x; pos.y = y; pos.z = z;',
+    '        obj.transform.position = pos;',
+    '    }',
+    '',
+    '    // Hide a pooled scene object by moving it below the playable camera range.',
+    '    void HideObj(GameObject obj)',
+    '    {',
+    '        if (obj == null) return;',
+    '        var pos = obj.transform.position;',
+    '        pos.x = 0f; pos.y = -999f; pos.z = 0f;',
+    '        obj.transform.position = pos;',
+    '    }',
+    '',
+    '    // Apply a non-uniform scene scale to a pooled object.',
+    '    void SetScale(GameObject obj, float x, float y, float z)',
+    '    {',
+    '        if (obj == null) return;',
+    '        var s = obj.transform.localScale;',
+    '        s.x = x; s.y = y; s.z = z;',
+    '        obj.transform.localScale = s;',
+    '    }',
+    '',
+    '    // Apply a uniform scene scale to a pooled object.',
+    '    void SetScale(GameObject obj, float uniform)',
+    '    {',
+    '        if (obj == null) return;',
+    '        var s = obj.transform.localScale;',
+    '        s.x = uniform; s.y = uniform; s.z = uniform;',
+    '        obj.transform.localScale = s;',
+    '    }',
+    '}',
+  ].join('\n');
+}
+
+function _buildUiPartial(specs, entityList, helperSections = []) {
+  const lines = [];
+  lines.push('// ========== AUTO-GENERATED UI PARTIAL — CTA / HUD / exported preview state ==========');
+  lines.push('// Keep UI-facing helpers here so the main file only orchestrates when they are called.');
+  lines.push('');
+  lines.push('using UnityEngine;');
+  lines.push('using UnityEngine.UI;');
+  lines.push('');
+  lines.push('public partial class GameFlowManagerMain');
+  lines.push('{');
+  if (Array.isArray(helperSections) && helperSections.length > 0) {
+    helperSections.forEach((section, index) => {
+      if (index > 0) lines.push('');
+      lines.push(section);
+    });
+    lines.push('');
+  }
+  lines.push('    // Trigger the final CTA directly when the game-end gate succeeds.');
+  lines.push('    void ShowCTA()');
+  lines.push('    {');
+  lines.push('        Luna.Unity.Playable.InstallFullGame();');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    // Serialize current runtime state for preview polling / CUA verification.');
+  lines.push('    void UpdateGameState()');
+  lines.push('    {');
+  lines.push('        string completedJson = "[";');
+  lines.push('        for (int i = 0; i < completedPhaseCount; i++)');
+  lines.push('        {');
+  lines.push('            if (i > 0) completedJson += ",";');
+  lines.push('            completedJson += "\\"" + completedPhases[i] + "\\"";');
+  lines.push('        }');
+  lines.push('        completedJson += "]";');
+  lines.push('');
+  lines.push('        string json = "{"');
+  lines.push('            + "\\"currentPhase\\":\\"" + currentPhaseName + "\\","');
+  lines.push('            + "\\"completedPhases\\":" + completedJson + ","');
+  lines.push('            + "\\"entityStates\\":{');
+  entityList.forEach((name, i) => {
+    const comma = i < entityList.length - 1 ? ',' : '';
+    lines.push(`            + "\\"${name}\\":\\"" + ${name}State + "\\"${comma}"`);
+  });
+  lines.push('            + "},"');
+  lines.push('            + "\\"variables\\":{');
+  lines.push('            + "\\"gameTimer\\":" + (int)gameTimer');
+  lines.push('            + ",\\"autoPlayMode\\":" + (_autoPlayMode ? "true" : "false")');
+  lines.push('            + ",\\"autoPlaySteps\\":" + _autoPlaySteps');
+  lines.push('            + ",\\"autoPlayStepsThisPhase\\":" + (_autoPlaySteps - _autoPlayStepsAtPhaseStart)');
+  lines.push('            // TODO: AI adds game-specific variables here (gold, wood, ammo, etc.)');
+  lines.push('            + "}"');
+  lines.push('            + ",\\"phaseTimestamps\\":{');
+  specs.forEach((spec, i) => {
+    const comma = i < specs.length - 1 ? ',' : '';
+    lines.push(`            + "\\"${spec.phaseId}\\":" + (phaseEnterTimes[${i}] > 0 ? (int)phaseEnterTimes[${i}] : 0) + "${comma}"`);
+  });
+  lines.push('            + "}"');
+  lines.push('            + "}";');
+  lines.push('');
+  lines.push('        gameObject.name = "GFM|" + json;');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    // TODO_UI_START');
+  lines.push('');
+  lines.push('    // TODO_UI_END');
+  lines.push('}');
+  return lines.join('\n');
 }
 
 /**

@@ -5,6 +5,9 @@
 var fs = require('fs');
 var path = require('path');
 var { projectSM } = require('../lib/state-machine.cjs');
+var patchRunArchive = require('../engine/archive-patch-run.cjs');
+
+var LEARNING_ROOT = process.env.BLUEPRINT_LEARNING_REPO || '/opt/blueprint-learning';
 
 // API health cache — healthCheck() pings Doubao (5-6s) + Claude (0.4s) for
 // every request. Front-end calls this on dashboard load, blocking first render
@@ -22,6 +25,231 @@ module.exports.init = function(ctx) {
   var modelProvider = ctx.modelProvider;
 
   var PROJECTS_DIR = config.PROJECTS_DIR;
+
+  function buildFamilyCatalog() {
+    return {
+      'infra.schema_backend': {
+        owner: 'infrastructure',
+        remedy: 'fallback / retry budget / backend health',
+        knowledgeRefs: [
+          'generated/recipes/fix-recipes.mirror.json',
+          'generated/rules/promoted-rules.mirror.json',
+        ],
+      },
+      'codegen.marker_coverage': {
+        owner: 'codegen',
+        remedy: 'skeleton/template fill guard',
+        knowledgeRefs: [
+          'rules/pipeline/template-marker-coverage.json',
+          'recipes/pipeline/fix-template-marker-coverage.json',
+          'incidents/2026-04-22-template-marker-regression.md',
+        ],
+      },
+      'schema.invalid_trigger_shape': {
+        owner: 'schema',
+        remedy: 'deterministic normalizer + validator repair',
+        knowledgeRefs: [
+          'generated/recipes/fix-recipes.mirror.json',
+          'generated/signals/pending-fixes.snapshot.json',
+        ],
+      },
+      'method_check.partial_visibility': {
+        owner: 'method-check',
+        remedy: 'scan main + extraFiles, ignore comment ghosts',
+        knowledgeRefs: [
+          'generated/signals/pending-fixes.snapshot.json',
+          'generated/signals/pending-rules.snapshot.json',
+        ],
+      },
+      'review.nonconverging_structural': {
+        owner: 'review/static-check',
+        remedy: 'promote deterministic guards, stop free-form fix-loop',
+        knowledgeRefs: [
+          'regressions/aborted-same-code-error-repeated-n-rounds-fix-loop-not-converging-review-blocked/meta.json',
+          'generated/signals/pending-fixes.snapshot.json',
+        ],
+      },
+      'review.main_file_reintroduced_phase_logic': {
+        owner: 'static-check',
+        remedy: 'block structural rollback to main file',
+        knowledgeRefs: [
+          'generated/signals/pending-rules.snapshot.json',
+          'generated/rules/promoted-rules.mirror.json',
+        ],
+      },
+      'review.forbidden_init_material_from_scene': {
+        owner: 'static-check',
+        remedy: 'block obsolete Luna material init',
+        knowledgeRefs: [
+          'generated/luna/luna-anomaly-rules.snapshot.js',
+          'generated/signals/pending-rules.snapshot.json',
+        ],
+      },
+      'review.phase_condition_false_literal': {
+        owner: 'static-check',
+        remedy: 'reject dead phase gates before review',
+        knowledgeRefs: [
+          'generated/signals/pending-rules.snapshot.json',
+        ],
+      },
+      'cua.observe_protocol': {
+        owner: 'runtime/cua',
+        remedy: 'observer-ready handshake + early fatal classification',
+        knowledgeRefs: [
+          'generated/recipes/fix-recipes.mirror.json',
+          'generated/regressions/runtime-regressions.mirror.json',
+        ],
+      },
+      'monitor.stuck_or_timeout': {
+        owner: 'night-monitor',
+        remedy: 'stuck detection + cancel/resubmit + stage escalation',
+        knowledgeRefs: [
+          'generated/regressions/runtime-regressions.mirror.json',
+          'generated/signals/pending-fixes.snapshot.json',
+        ],
+      },
+      'complexity_gate.bad_simplify_json': {
+        owner: 'complexity-gate',
+        remedy: 'balanced JSON extraction + repair',
+        knowledgeRefs: [
+          'generated/signals/pending-fixes.snapshot.json',
+        ],
+      },
+      'cua.silent_pass': {
+        owner: 'cua/metrics',
+        remedy: 'silent-pass block + event-centered verification',
+        knowledgeRefs: [
+          'generated/regressions/runtime-regressions.mirror.json',
+        ],
+      },
+      'infra.model_fatal': {
+        owner: 'infrastructure',
+        remedy: 'provider failover / auth / quota guard',
+        knowledgeRefs: [
+          'generated/recipes/fix-recipes.mirror.json',
+        ],
+      },
+      'review.other': {
+        owner: 'review',
+        remedy: 'promote recurring criticals to deterministic rules',
+        knowledgeRefs: [],
+      },
+      'cua.other': {
+        owner: 'cua',
+        remedy: 'tighten early-exit and runtime instrumentation',
+        knowledgeRefs: [],
+      },
+      'generation.other': {
+        owner: 'codegen',
+        remedy: 'improve schema/codegen determinism',
+        knowledgeRefs: [],
+      },
+      'unknown': {
+        owner: 'triage',
+        remedy: 'new family — needs classification',
+        knowledgeRefs: [],
+      },
+    };
+  }
+
+  function enrichFamiliesWithPlaybook(families) {
+    var catalog = buildFamilyCatalog();
+    return (families || []).map(function(item) {
+      var meta = catalog[item.family] || catalog.unknown;
+      var refs = (meta.knowledgeRefs || []).map(function(rel) {
+        var abs = path.join(LEARNING_ROOT, rel);
+        return { path: rel, exists: fs.existsSync(abs) };
+      });
+      return Object.assign({}, item, {
+        owner: meta.owner,
+        remedy: meta.remedy,
+        knowledgeCoverage: refs.filter(function(r) { return r.exists; }).length + '/' + refs.length,
+        knowledgeRefs: refs,
+      });
+    });
+  }
+
+  function readFamilyDraftIndex() {
+    try {
+      var file = path.join(LEARNING_ROOT, 'drafts', 'failure-families', 'index.json');
+      if (!fs.existsSync(file)) return { items: [] };
+      return JSON.parse(fs.readFileSync(file, 'utf-8'));
+    } catch(e) {
+      return { items: [] };
+    }
+  }
+
+  function readGovernanceDraftIndex() {
+    try {
+      var file = path.join(LEARNING_ROOT, 'drafts', 'governance-tasks', 'index.json');
+      if (!fs.existsSync(file)) return { items: [] };
+      return JSON.parse(fs.readFileSync(file, 'utf-8'));
+    } catch(e) {
+      return { items: [] };
+    }
+  }
+
+  function readImplementationPlanIndex() {
+    try {
+      var file = path.join(LEARNING_ROOT, 'drafts', 'implementation-plans', 'index.json');
+      if (!fs.existsSync(file)) return { items: [] };
+      return JSON.parse(fs.readFileSync(file, 'utf-8'));
+    } catch(e) {
+      return { items: [] };
+    }
+  }
+
+  function readPatchTaskIndex() {
+    try {
+      var file = path.join(LEARNING_ROOT, 'drafts', 'patch-tasks', 'index.json');
+      if (!fs.existsSync(file)) return { items: [] };
+      return JSON.parse(fs.readFileSync(file, 'utf-8'));
+    } catch(e) {
+      return { items: [] };
+    }
+  }
+
+  function readPatchRunIndex() {
+    try {
+      var file = path.join(LEARNING_ROOT, 'drafts', 'patch-runs', 'index.json');
+      if (!fs.existsSync(file)) return { items: [] };
+      return JSON.parse(fs.readFileSync(file, 'utf-8'));
+    } catch(e) {
+      return { items: [] };
+    }
+  }
+
+  function readPatchFeedbackIndex() {
+    try {
+      var file = path.join(LEARNING_ROOT, 'drafts', 'patch-feedback', 'index.json');
+      if (!fs.existsSync(file)) return { items: [] };
+      return JSON.parse(fs.readFileSync(file, 'utf-8'));
+    } catch(e) {
+      return { items: [] };
+    }
+  }
+
+  function readGovernanceDraftBodies(index) {
+    var out = {};
+    (index && index.items || []).forEach(function(item) {
+      try {
+        var file = path.join(LEARNING_ROOT, item.file || '');
+        if (fs.existsSync(file)) out[item.id] = JSON.parse(fs.readFileSync(file, 'utf-8'));
+      } catch(e) {}
+    });
+    return out;
+  }
+
+  function readDraftBodies(index) {
+    var out = {};
+    (index && index.items || []).forEach(function(item) {
+      try {
+        var file = path.join(LEARNING_ROOT, item.file || '');
+        if (fs.existsSync(file)) out[item.id] = JSON.parse(fs.readFileSync(file, 'utf-8'));
+      } catch(e) {}
+    });
+    return out;
+  }
 
   // Refresh apiHealthCache in the background — never awaited from the request
   // path, so the endpoint always returns the last known snapshot instantly.
@@ -86,6 +314,7 @@ module.exports.init = function(ctx) {
         assigned:    { target: 'processing', compatible: ['assigned', 'processing', 'building', 'developing'] },
         processing:  { target: 'processing', compatible: ['processing', 'building', 'developing'] },
         building:    { target: 'building',   compatible: ['building', 'processing'] },
+        preview_ready:{ target: 'preview_ready', compatible: ['preview_ready', 'reviewing', 'approved', 'committed'] },
         fix_needed:  { target: 'processing', compatible: ['processing', 'building'] },
         failed:      { target: 'failed',     compatible: ['failed'] },
         done:        { target: 'reviewing',  compatible: ['reviewing', 'approved', 'committed'] },
@@ -321,12 +550,17 @@ module.exports.init = function(ctx) {
       // - scanPendingRules: rate-limited (6h), mines Codex warnings for new rules
       try {
         var learning = require('../engine/learning.cjs');
+        var exportLearning = require('../engine/export-learning.cjs');
+        var promoteDrafts = require('../engine/promote-learning-drafts.cjs');
         var pf = learning.scanPendingFixes(fixSummary && fixSummary.topFailReasons);
         var rs = learning.computeRecipeStats();
         var pr = learning.scanPendingRules(); // internally rate-limited
+        exportLearning.exportAll();
+        promoteDrafts.promoteDrafts();
         fixes.push('[info] Phase 8 learning: pending-fixes=' + pf.count +
           ' recipe-stats=' + rs.count +
-          (pr.skipped ? ' pending-rules=skipped(rate-limit)' : ' pending-rules=' + pr.count));
+          (pr.skipped ? ' pending-rules=skipped(rate-limit)' : ' pending-rules=' + pr.count) +
+          ' export=ok drafts=ok');
       } catch(e) {
         issues.push('[error] Phase 8 learning failed: ' + e.message);
       }
@@ -394,7 +628,7 @@ module.exports.init = function(ctx) {
       var dbStats = taskQueue.dashboardStats();
 
       // Project stats (still from filesystem)
-      var projectStats = { total: 0, editing: 0, submitted: 0, reviewing: 0, approved: 0, feedback: 0, committed: 0, failed: 0 };
+      var projectStats = { total: 0, editing: 0, submitted: 0, preview_ready: 0, reviewing: 0, approved: 0, feedback: 0, committed: 0, failed: 0 };
       try {
         if (fs.existsSync(PROJECTS_DIR)) {
           fs.readdirSync(PROJECTS_DIR).filter(function(f) { return f.endsWith('.json'); }).forEach(function(f) {
@@ -549,6 +783,7 @@ module.exports.init = function(ctx) {
             var validCombos = {
               pending: ['submitted'], assigned: ['processing'], processing: ['processing', 'building'],
               building: ['processing', 'building'], failed: ['failed'],
+              preview_ready: ['preview_ready', 'reviewing'],
               done: ['reviewing', 'committed', 'done'], cua_passed: ['reviewing']
             };
             var allowed = validCombos[taskS] || [];
@@ -644,6 +879,119 @@ module.exports.init = function(ctx) {
             catch(e) { fp.knowledge = { error: e.message }; }
           });
         }
+        summary.failureFamilyPlaybook = enrichFamiliesWithPlaybook(summary.failureFamilies).slice(0, 8);
+        var familyDraftIndex = readFamilyDraftIndex();
+        var familyDraftFiles = {};
+        (familyDraftIndex.items || []).forEach(function(item) {
+          var family = item.family || '';
+          if (family) familyDraftFiles[family] = item.file;
+        });
+        summary.failureFamilyDraftCoverage = (summary.failureFamilyPlaybook || []).map(function(item) {
+          return {
+            family: item.family,
+            draftFile: familyDraftFiles[item.family] || null,
+            hasDraft: !!familyDraftFiles[item.family],
+          };
+        });
+        var governanceDraftIndex = readGovernanceDraftIndex();
+        var governanceDraftBodies = readGovernanceDraftBodies(governanceDraftIndex);
+        summary.governanceDrafts = (governanceDraftIndex.items || []).slice(0, 8).map(function(item) {
+          var body = governanceDraftBodies[item.id] || {};
+          return Object.assign({}, item, {
+            action: body.action || null,
+            suggestedTargets: body.suggestedTargets || [],
+          });
+        });
+        summary.implementationPlans = (readImplementationPlanIndex().items || []).slice(0, 8);
+        var patchTaskIndex = readPatchTaskIndex();
+        var patchTaskBodies = readDraftBodies(patchTaskIndex);
+        summary.patchTasks = (patchTaskIndex.items || []).slice(0, 8).map(function(item) {
+          var body = patchTaskBodies[item.id] || {};
+          return Object.assign({}, item, {
+            executionMode: body.executionMode || null,
+            primaryTarget: body.primaryTarget || null,
+            validationCommands: body.validationCommands || [],
+          });
+        });
+        var patchRunIndex = readPatchRunIndex();
+        var patchRunBodies = readDraftBodies(patchRunIndex);
+        summary.patchRuns = (patchRunIndex.items || []).slice(0, 8).map(function(item) {
+          var body = patchRunBodies[item.id] || {};
+          return Object.assign({}, item, {
+            primaryTarget: body.primaryTarget || null,
+            blockingReason: body.blockingReason || null,
+            validationCommands: body.validationCommands || [],
+            lastExecution: body.lastExecution || null,
+          });
+        });
+        summary.patchRunHistory = patchRunArchive.readPatchRunIndex(12);
+        summary.patchRunSummary = patchRunArchive.getPatchRunSummary(200);
+        var patchFeedbackIndex = readPatchFeedbackIndex();
+        var patchFeedbackBodies = readDraftBodies(patchFeedbackIndex);
+        summary.patchFeedback = (patchFeedbackIndex.items || []).slice(0, 12).map(function(item) {
+          var body = patchFeedbackBodies[item.id] || {};
+          return Object.assign({}, item, {
+            recommendation: body.recommendation || null,
+            totalRuns: body.totalRuns || 0,
+            resultCounts: body.resultCounts || {},
+          });
+        });
+        summary.patchApprovalQueue = (summary.patchFeedback || []).filter(function(item) {
+          return item.queue === 'approval';
+        }).slice(0, 8);
+        summary.patchEscalations = (summary.patchFeedback || []).filter(function(item) {
+          return item.queue === 'escalation';
+        }).slice(0, 8);
+        var wasteByFamily = {};
+        (summary.wasteByFamily || []).forEach(function(item) {
+          wasteByFamily[item.family] = parseFloat(item.minutes || '0') || 0;
+        });
+        var playbookByFamily = {};
+        (summary.failureFamilyPlaybook || []).forEach(function(item) {
+          playbookByFamily[item.family] = item;
+        });
+        summary.failureFamilyPriorities = (summary.failureFamilies || []).map(function(item) {
+          var family = item.family;
+          var playbook = playbookByFamily[family] || null;
+          var knowledgeCoverage = playbook ? String(playbook.knowledgeCoverage || '0/0') : '0/0';
+          var knowledgeCovered = playbook ? parseInt(knowledgeCoverage.split('/')[0], 10) > 0 : false;
+          var hasDraft = !!familyDraftFiles[family];
+          var wasteMinutes = wasteByFamily[family] || 0;
+          var count = item.count || 0;
+          var priority = 'P2';
+          var reason = '已有知识覆盖，继续观察';
+          if (count >= 3 && wasteMinutes >= 10 && !knowledgeCovered && !hasDraft) {
+            priority = 'P0';
+            reason = '高频 + 高浪费 + 无知识覆盖';
+          } else if (count >= 2 && !knowledgeCovered && hasDraft) {
+            priority = 'P1';
+            reason = '高频且已有 draft，优先转 curated';
+          } else if (count >= 2 && knowledgeCovered && wasteMinutes >= 10) {
+            priority = 'P1';
+            reason = '已知问题但仍高浪费，优先加强拦截';
+          } else if (!knowledgeCovered && !hasDraft) {
+            priority = 'P1';
+            reason = '已有重复迹象但知识链未覆盖';
+          }
+          return {
+            family: family,
+            priority: priority,
+            reason: reason,
+            count: count,
+            pct: item.pct,
+            wasteMinutes: wasteMinutes.toFixed(1),
+            owner: playbook ? playbook.owner : 'triage',
+            remedy: playbook ? playbook.remedy : '分类并补充治理方案',
+            knowledgeCoverage: knowledgeCoverage,
+            hasDraft: hasDraft,
+            draftFile: familyDraftFiles[family] || null,
+          };
+        }).sort(function(a, b) {
+          var order = { P0: 0, P1: 1, P2: 2 };
+          if (order[a.priority] !== order[b.priority]) return order[a.priority] - order[b.priority];
+          if ((b.count || 0) !== (a.count || 0)) return (b.count || 0) - (a.count || 0);
+          return (parseFloat(b.wasteMinutes || '0') || 0) - (parseFloat(a.wasteMinutes || '0') || 0);
+        }).slice(0, 8);
 
         // Also load recent failure history from projects
         var projectFailures = [];
@@ -704,6 +1052,77 @@ module.exports.init = function(ctx) {
           }
         } catch(e) {}
 
+        // Night monitor summary — surface stuck/recovery counts directly in
+        // pipeline metrics so the dashboard can show whether the overnight
+        // monitor is actually finding and recovering stuck projects.
+        var nightMonitor = null;
+        try {
+          var nmSummaryFile = path.join(__dirname, '..', 'server-data', 'night-monitor', 'last-summary.json');
+          var nmHeartbeatFile = path.join(__dirname, '..', 'server-data', 'night-monitor', 'heartbeat.json');
+          var nmHistoryFile = path.join(__dirname, '..', 'server-data', 'night-monitor', 'history.jsonl');
+          var nmSummary = fs.existsSync(nmSummaryFile) ? JSON.parse(fs.readFileSync(nmSummaryFile, 'utf-8')) : null;
+          var nmHeartbeat = fs.existsSync(nmHeartbeatFile) ? JSON.parse(fs.readFileSync(nmHeartbeatFile, 'utf-8')) : null;
+          var nmHistory = [];
+          if (fs.existsSync(nmHistoryFile)) {
+            nmHistory = fs.readFileSync(nmHistoryFile, 'utf-8').trim().split('\n').filter(Boolean).map(function(line) {
+              try { return JSON.parse(line); } catch(e) { return null; }
+            }).filter(Boolean);
+          }
+          var dayAgo = Date.now() - 24 * 3600 * 1000;
+          var last24h = nmHistory.filter(function(row) {
+            return row.ts && new Date(row.ts).getTime() >= dayAgo;
+          });
+          var stuckByFingerprint = {};
+          var stuckByKind = {};
+          var recoveredByKind = {};
+          last24h.forEach(function(row) {
+            (row.stuckProjects || []).forEach(function(item) {
+              var fp = item.fingerprint || item.kind || 'unknown';
+              if (!stuckByFingerprint[fp]) stuckByFingerprint[fp] = { fingerprint: fp, count: 0, kind: item.kind || 'unknown', projectIds: {} };
+              stuckByFingerprint[fp].count++;
+              if (item.id) stuckByFingerprint[fp].projectIds[item.id] = true;
+              var kind = item.kind || 'unknown';
+              stuckByKind[kind] = (stuckByKind[kind] || 0) + 1;
+            });
+            (row.recoveredStuck || []).forEach(function(item) {
+              var kind = item.kind || 'unknown';
+              recoveredByKind[kind] = (recoveredByKind[kind] || 0) + 1;
+            });
+          });
+          var topStuckFingerprints = Object.keys(stuckByFingerprint).map(function(k) {
+            return {
+              fingerprint: stuckByFingerprint[k].fingerprint,
+              count: stuckByFingerprint[k].count,
+              kind: stuckByFingerprint[k].kind,
+              uniqueProjects: Object.keys(stuckByFingerprint[k].projectIds).length,
+            };
+          }).sort(function(a, b) { return b.count - a.count; }).slice(0, 8);
+          var recoveryRateByKind = Object.keys(stuckByKind).map(function(kind) {
+            var stuckCount = stuckByKind[kind] || 0;
+            var recoveredCount = recoveredByKind[kind] || 0;
+            return {
+              kind: kind,
+              stuckCount: stuckCount,
+              recoveredCount: recoveredCount,
+              rate: stuckCount > 0 ? Math.round(recoveredCount / stuckCount * 100) + '%' : '0%',
+            };
+          }).sort(function(a, b) { return (b.stuckCount || 0) - (a.stuckCount || 0); });
+          if (nmSummary || nmHeartbeat) {
+            nightMonitor = {
+              lastRunAt: nmSummary && (nmSummary.finishedAt || nmSummary.startedAt) || null,
+              trigger: nmSummary && nmSummary.trigger || null,
+              failedProjects: nmSummary && Array.isArray(nmSummary.failedProjects) ? nmSummary.failedProjects : [],
+              stuckProjects: nmSummary && Array.isArray(nmSummary.stuckProjects) ? nmSummary.stuckProjects : [],
+              resubmitted: nmSummary && Array.isArray(nmSummary.resubmitted) ? nmSummary.resubmitted : [],
+              recoveredStuck: nmSummary && Array.isArray(nmSummary.recoveredStuck) ? nmSummary.recoveredStuck : [],
+              errors: nmSummary && Array.isArray(nmSummary.errors) ? nmSummary.errors : [],
+              heartbeat: nmHeartbeat || null,
+              topStuckFingerprints24h: topStuckFingerprints,
+              recoveryRateByKind24h: recoveryRateByKind,
+            };
+          }
+        } catch(e) {}
+
         // Expand failureHistory for projects that have failed — surface the last
         // 5 entries so the dashboard can render a timeline without a second round-trip.
         var projectFailureHistory = {};
@@ -726,6 +1145,7 @@ module.exports.init = function(ctx) {
           regressions: regressions,
           silentPasses: silentPasses,
           pendingCommits: pendingCommits,
+          nightMonitor: nightMonitor,
         });
       } catch(e) {
         sendJSON(res, { error: e.message }, 500);
@@ -902,6 +1322,11 @@ module.exports.init = function(ctx) {
       if (opts.metrics) {
         try {
           var metricsFile = path.join(__dirname, '..', 'server-data', 'metrics', 'pipeline-metrics.jsonl');
+          var metricsMod = require('../engine/metrics.cjs');
+          metricsMod.writeBaselineMeta({
+            startedAt: new Date().toISOString(),
+            reason: 'dashboard-reset-stats',
+          });
           if (fs.existsSync(metricsFile)) {
             var stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
             fs.renameSync(metricsFile, metricsFile + '.bak.' + stamp);
@@ -909,6 +1334,7 @@ module.exports.init = function(ctx) {
           } else {
             report.metrics = 'no file to archive';
           }
+          report.baseline = 'reset at ' + new Date().toISOString();
           // Also clear regressions.json since stale resolvedBy links confuse L3
           var regFile = path.join(__dirname, '..', 'server-data', 'regressions.json');
           if (fs.existsSync(regFile)) {

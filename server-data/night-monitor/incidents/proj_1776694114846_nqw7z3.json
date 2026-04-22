@@ -1,0 +1,166 @@
+{
+  "projectId": "proj_1776694114846_nqw7z3",
+  "projectName": "守护家园",
+  "status": "failed",
+  "statusMessage": "Outer-retry fingerprint FATAL: \"[Linux] Error: [review] review aborted: same CODE error repeated N rounds, fix-loop not converging: \" repeated 5x across outer retries — saved 0 burn rounds",
+  "fingerprint": "Outer-retry fingerprint FATAL: \"[Linux] Error: [review] review aborted: same CODE error repeated N r",
+  "repoHead": "67d7c9d1631f27632571852277d1ad10752e05aa",
+  "sameFingerprintCount": 1,
+  "capturedAt": "2026-04-22T05:04:56.673Z",
+  "taskTail": [
+    {
+      "ts": "2026-04-22T04:56:50.027Z",
+      "taskId": "proj_1776694114846_nqw7z3",
+      "stage": "review",
+      "event": "log",
+      "message": "Review fix applied (44958 chars)"
+    },
+    {
+      "ts": "2026-04-22T04:56:50.027Z",
+      "taskId": "proj_1776694114846_nqw7z3",
+      "stage": "review",
+      "event": "log",
+      "message": "Round 3/4"
+    },
+    {
+      "ts": "2026-04-22T04:56:50.030Z",
+      "taskId": "proj_1776694114846_nqw7z3",
+      "stage": "review",
+      "event": "log",
+      "message": "Deterministic pre-repair applied: GameFlowManagerMain.Flow.cs:EarlyShowCTA x1, GameFlowManagerMain.Flow.cs:FinishGameFlow x1"
+    },
+    {
+      "ts": "2026-04-22T04:56:50.050Z",
+      "taskId": "proj_1776694114846_nqw7z3",
+      "stage": "review",
+      "event": "log",
+      "message": "Static check (round 3) warnings (non-blocking): 73"
+    },
+    {
+      "ts": "2026-04-22T04:56:50.050Z",
+      "taskId": "proj_1776694114846_nqw7z3",
+      "stage": "review",
+      "event": "log",
+      "message": "Static check (round 3) found 2 blocking violations — forcing recode without LLM review"
+    },
+    {
+      "ts": "2026-04-22T04:56:50.050Z",
+      "taskId": "proj_1776694114846_nqw7z3",
+      "stage": "review",
+      "event": "log",
+      "message": "Static check (round 3) top blocking rules: phase-entity-unbound x1, phase-entity-init-only x1"
+    },
+    {
+      "ts": "2026-04-22T04:56:50.050Z",
+      "taskId": "proj_1776694114846_nqw7z3",
+      "stage": "review",
+      "event": "log",
+      "message": "Review fingerprint repeated 3 rounds — early stop: review|source=static-precheck critical=N critical|phase-entity-unbound|Phase gate references entity with no"
+    },
+    {
+      "ts": "2026-04-22T04:56:50.051Z",
+      "taskId": "proj_1776694114846_nqw7z3",
+      "stage": "review",
+      "event": "log",
+      "message": "Round 3 error [CODE]: Review stalled: same blocking issues repeated 3 rounds (2 critical remain)"
+    },
+    {
+      "ts": "2026-04-22T04:56:50.052Z",
+      "taskId": "proj_1776694114846_nqw7z3",
+      "stage": "review",
+      "event": "log",
+      "message": "Round 4/4"
+    },
+    {
+      "ts": "2026-04-22T04:56:50.055Z",
+      "taskId": "proj_1776694114846_nqw7z3",
+      "stage": "review",
+      "event": "log",
+      "message": "Deterministic pre-repair applied: GameFlowManagerMain.Flow.cs:EarlyShowCTA x1, GameFlowManagerMain.Flow.cs:FinishGameFlow x1"
+    },
+    {
+      "ts": "2026-04-22T04:56:50.072Z",
+      "taskId": "proj_1776694114846_nqw7z3",
+      "stage": "review",
+      "event": "log",
+      "message": "Static check (round 4) warnings (non-blocking): 73"
+    },
+    {
+      "ts": "2026-04-22T04:56:50.072Z",
+      "taskId": "proj_1776694114846_nqw7z3",
+      "stage": "review",
+      "event": "log",
+      "message": "Static check (round 4) found 2 blocking violations — forcing recode without LLM review"
+    },
+    {
+      "ts": "2026-04-22T04:56:50.072Z",
+      "taskId": "proj_1776694114846_nqw7z3",
+      "stage": "review",
+      "event": "log",
+      "message": "Static check (round 4) top blocking rules: phase-entity-unbound x1, phase-entity-init-only x1"
+    },
+    {
+      "ts": "2026-04-22T04:56:50.073Z",
+      "taskId": "proj_1776694114846_nqw7z3",
+      "stage": "review",
+      "event": "log",
+      "message": "Review fingerprint repeated 4 rounds — early stop: review|source=static-precheck critical=N critical|phase-entity-unbound|Phase gate references entity with no"
+    },
+    {
+      "ts": "2026-04-22T04:56:50.073Z",
+      "taskId": "proj_1776694114846_nqw7z3",
+      "stage": "review",
+      "event": "log",
+      "message": "Round 4 error [CODE]: Review stalled: same blocking issues repeated 4 rounds (2 critical remain)"
+    },
+    {
+      "ts": "2026-04-22T04:56:50.073Z",
+      "taskId": "proj_1776694114846_nqw7z3",
+      "stage": "review",
+      "event": "log",
+      "message": "Round 4 error [CODE]: Review stalled: same blocking issues repeated 4 rounds (2 critical remain)"
+    },
+    {
+      "ts": "2026-04-22T04:56:50.074Z",
+      "taskId": "proj_1776694114846_nqw7z3",
+      "stage": "review",
+      "event": "log",
+      "message": "Circuit breaker: same CODE error repeated 3 rounds — aborting fix-loop"
+    },
+    {
+      "ts": "2026-04-22T04:56:50.074Z",
+      "taskId": "proj_1776694114846_nqw7z3",
+      "stage": "review",
+      "event": "log",
+      "message": "Round 4 error [CODE]: review aborted: same CODE error repeated 3 rounds, fix-loop not converging: Review stalled: same blocking issues repeated N rounds (N critical remain)"
+    },
+    {
+      "ts": "2026-04-22T04:56:50.074Z",
+      "taskId": "proj_1776694114846_nqw7z3",
+      "stage": "review",
+      "event": "log",
+      "message": "attempt 1/1 failed: review aborted: same CODE error repeated 3 rounds, fix-loop not converging: Review stalled: same blocking issues repeated N rounds (N critical remain)"
+    },
+    {
+      "ts": "2026-04-22T04:56:50.074Z",
+      "taskId": "proj_1776694114846_nqw7z3",
+      "stage": "pipeline",
+      "event": "pipeline-end",
+      "success": false,
+      "failedAtStage": "review",
+      "failReason": "review aborted: same CODE error repeated 3 rounds, fix-loop not converging: Review stalled: same blocking issues repeated N rounds (N critical remain)",
+      "classification": "CODE",
+      "completedStages": [
+        "clone",
+        "spec-extract",
+        "spec-validate",
+        "complexity-gate",
+        "codegen",
+        "method-check"
+      ],
+      "skippedStages": [],
+      "totalDurationMs": 799279
+    }
+  ],
+  "feedbackHistorySize": 0
+}

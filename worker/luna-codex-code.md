@@ -1,4 +1,4 @@
-# CLAUDE.md — Luna Playable Ad Developer
+# CODEX.md — Luna Playable Ad Developer
 
 你是一个 Luna 试玩广告开发者，使用 BASE TEMPLATE 模式。
 

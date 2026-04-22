@@ -6,7 +6,7 @@
 
 **Architecture:** Three-layer system — (1) Claude Sonnet generates a JSON game schema from specs, (2) a template engine fills skeleton TODO markers with schema-derived C# code, (3) optionally Claude Code fills remaining custom TODO blocks. The existing skeleton-generator.cjs stays unchanged except for adding a TODO_CUSTOM marker pair.
 
-**Tech Stack:** Node.js (CommonJS `var require()`), JSON Schema validation (ajv), C# code generation via string concatenation, Claude Code CLI (`--print` mode) for custom logic fill.
+**Tech Stack:** Node.js (CommonJS `var require()`), JSON Schema validation (ajv), C# code generation via string concatenation, Codex text runner（底层仍是现有 CLI 文本调用）for custom logic fill.
 
 **Spec:** `/opt/blueprint-editor/docs/superpowers/specs/2026-04-16-schema-driven-codegen-design.md`
 
@@ -1165,9 +1165,9 @@ function generateSchemaFromSpecs(ctx) {
     // Build prompt for Sonnet
     var prompt = buildSchemaPrompt(ctx);
 
-    // Call LLM (Sonnet via Claude Code CLI text mode)
-    var runClaudeCodeText = require('../../worker/claude-code-coder.js').runClaudeCodeText;
-    return runClaudeCodeText({
+    // Call LLM (Sonnet via Codex text mode)
+    var runCodexText = require('../../worker/codex-coder.js').runCodexText;
+    return runCodexText({
       prompt: prompt,
       model: 'sonnet',
       taskId: ctx.taskId,
@@ -1259,7 +1259,7 @@ function buildSchemaPrompt(ctx) {
 
 function fillCustomLogic(ctx, schema) {
   var { createFixLoop } = require('../fix-loop.cjs');
-  var { runClaudeCodeText } = require('../../worker/claude-code-coder.js');
+  var runCodexText = require('../../worker/codex-coder.js').runCodexText;
 
   ctx.blueprint.customLogicRounds = 0;
 
@@ -1269,7 +1269,7 @@ function fillCustomLogic(ctx, schema) {
     attempt: function(loopCtx, round) {
       ctx.blueprint.customLogicRounds = round;
       var prompt = buildCustomLogicPrompt(ctx, schema);
-      return runClaudeCodeText({
+      return runCodexText({
         prompt: prompt,
         model: 'sonnet',
         taskId: ctx.taskId,

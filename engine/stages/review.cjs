@@ -12,8 +12,477 @@ var { recode, patchRecode } = require('../recode.cjs');
 var { createFixLoop } = require('../fix-loop.cjs');
 var { staticCheck, getBlockingIssues } = require('../static-check.cjs');
 var { checkConformance } = require('../spec-conformance.cjs');
+var { normalizeFingerprint } = require('../metrics.cjs');
 
-var MAX_REVIEW_ROUNDS = 6;
+var MAX_REVIEW_ROUNDS = 4;
+var REVIEW_REPEAT_BLOCK_AT = 3;
+
+function summarizeRules(issues, limit) {
+  var counts = {};
+  (issues || []).forEach(function(issue) {
+    var key = issue.rule || 'unknown';
+    counts[key] = (counts[key] || 0) + 1;
+  });
+  return Object.keys(counts)
+    .sort(function(a, b) { return counts[b] - counts[a]; })
+    .slice(0, limit || 5)
+    .map(function(key) { return key + ' x' + counts[key]; })
+    .join(', ');
+}
+
+function repairUpdateGameStateBridge(code) {
+  if (!code || code.indexOf('void UpdateGameState()') < 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+  var fixed = code;
+  var fixes = 0;
+  var pairs = [
+    ['+ "\\\"entityStates\\\":{\n', '+ "\\\"entityStates\\\":{"\n'],
+    ['+ "\\\"variables\\\":{\n', '+ "\\\"variables\\\":{"\n'],
+    ['+ ",\\\"phaseTimestamps\\\":{\n', '+ ",\\\"phaseTimestamps\\\":{"\n'],
+  ];
+  for (var i = 0; i < pairs.length; i++) {
+    if (fixed.indexOf(pairs[i][0]) >= 0) {
+      fixed = fixed.split(pairs[i][0]).join(pairs[i][1]);
+      fixes++;
+    }
+  }
+  return { code: fixed, changed: fixes > 0, fixes: fixes };
+}
+
+function stripInitMaterialFromScene(code) {
+  if (!code || code.indexOf('InitMaterialFromScene') < 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+  var lines = code.split('\n');
+  var kept = [];
+  var fixes = 0;
+  for (var i = 0; i < lines.length; i++) {
+    if (/\bGFM_Create\s*\.\s*InitMaterialFromScene\s*\(/.test(lines[i])) {
+      fixes++;
+      continue;
+    }
+    kept.push(lines[i]);
+  }
+  return { code: fixes > 0 ? kept.join('\n') : code, changed: fixes > 0, fixes: fixes };
+}
+
+function stripEarlyShowCTA(code) {
+  if (!code || code.indexOf('ShowCTA(') < 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+  var lines = code.split('\n');
+  var kept = [];
+  var currentMethod = '';
+  var braceDepth = 0;
+  var fixes = 0;
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    var methodMatch = /\b(?:public|private|protected|internal)?\s*(?:static\s+)?(?:void|bool|int|float|string)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)/.exec(line);
+    if (methodMatch) {
+      currentMethod = methodMatch[1];
+      braceDepth = 0;
+    }
+    braceDepth += (line.match(/\{/g) || []).length;
+    braceDepth -= (line.match(/\}/g) || []).length;
+    if (/\bShowCTA\s*\(\s*\)\s*;/.test(line) && currentMethod !== 'ShowCTA' && currentMethod !== 'FinishGame') {
+      fixes++;
+      if (line.indexOf('//') >= 0) kept.push(line.replace(/ShowCTA\s*\(\s*\)\s*;/, '// stripped deterministic early ShowCTA()'));
+      continue;
+    }
+    if (braceDepth <= 0) {
+      currentMethod = '';
+    }
+    kept.push(line);
+  }
+  return { code: fixes > 0 ? kept.join('\n') : code, changed: fixes > 0, fixes: fixes };
+}
+
+function normalizeFinishGameTerminalFlow(code) {
+  if (!code || code.indexOf('void FinishGame(') < 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+  var fixed = code;
+  var fixes = 0;
+  fixed = fixed.replace(/^\s*AddCompletedPhase\s*\(\s*"gameEnd"\s*\)\s*;\s*$/gm, function() {
+    fixes++;
+    return '';
+  });
+  var sigRe = /\bvoid\s+FinishGame\s*\([^)]*\)\s*\{/;
+  var m = sigRe.exec(fixed);
+  if (!m) return { code: fixed, changed: fixes > 0, fixes: fixes };
+  var start = m.index + m[0].length;
+  var depth = 1;
+  var end = start;
+  while (end < fixed.length && depth > 0) {
+    var ch = fixed[end];
+    if (ch === '{') depth++;
+    else if (ch === '}') { depth--; if (depth === 0) break; }
+    end++;
+  }
+  if (depth !== 0) return { code: fixed, changed: fixes > 0, fixes: fixes };
+  var body = fixed.substring(start, end);
+  var hasEnd = body.indexOf('Luna.Unity.LifeCycle.GameEnded();') >= 0;
+  var hasCTA = body.indexOf('ShowCTA();') >= 0;
+  if (hasEnd && !hasCTA) {
+    body = body.replace('Luna.Unity.LifeCycle.GameEnded();', 'Luna.Unity.LifeCycle.GameEnded();\n        ShowCTA();');
+    fixes++;
+  }
+  var endIdx = body.indexOf('Luna.Unity.LifeCycle.GameEnded();');
+  var ctaIdx = body.indexOf('ShowCTA();');
+  if (endIdx >= 0 && ctaIdx >= 0 && ctaIdx < endIdx) {
+    body = body.replace(/\s*ShowCTA\(\);\s*/g, '\n');
+    body = body.replace('Luna.Unity.LifeCycle.GameEnded();', 'Luna.Unity.LifeCycle.GameEnded();\n        ShowCTA();');
+    fixes++;
+  }
+  if (fixes > 0) {
+    fixed = fixed.slice(0, start) + body + fixed.slice(end);
+  }
+  return { code: fixed, changed: fixes > 0, fixes: fixes };
+}
+
+function rewriteHotPathVectorAllocations(code) {
+  if (!code || code.indexOf('new Vector3') < 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+  var fixes = 0;
+  var fixed = code;
+  fixed = fixed.replace(/([A-Za-z_][A-Za-z0-9_]*)\.transform\.position\s*=\s*\1\.transform\.position\s*\+\s*new\s+Vector3\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)\s*;/g,
+    function(_m, obj, dx, dy, dz) {
+      fixes++;
+      return 'var __hpPos = ' + obj + '.transform.position; __hpPos.x += ' + dx.trim() + '; __hpPos.y += ' + dy.trim() + '; __hpPos.z += ' + dz.trim() + '; ' + obj + '.transform.position = __hpPos;';
+    });
+  fixed = fixed.replace(/([A-Za-z_][A-Za-z0-9_]*)\.transform\.position\s*=\s*new\s+Vector3\s*\(\s*\1\.transform\.position\.x\s*,\s*\1\.transform\.position\.y\s*\+\s*([^,]+)\s*,\s*\1\.transform\.position\.z\s*\)\s*;/g,
+    function(_m, obj, dy) {
+      fixes++;
+      return 'var __hpPos = ' + obj + '.transform.position; __hpPos.y += ' + dy.trim() + '; ' + obj + '.transform.position = __hpPos;';
+    });
+  fixed = fixed.replace(/([A-Za-z_][A-Za-z0-9_]*)\.transform\.position\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\.transform\.position\s*\+\s*new\s+Vector3\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)\s*;/g,
+    function(_m, targetObj, anchorObj, dx, dy, dz) {
+      fixes++;
+      var varName = '__hpPos' + fixes;
+      return 'var ' + varName + ' = ' + anchorObj + '.transform.position; ' +
+        varName + '.x += ' + dx.trim() + '; ' +
+        varName + '.y += ' + dy.trim() + '; ' +
+        varName + '.z += ' + dz.trim() + '; ' +
+        targetObj + '.transform.position = ' + varName + ';';
+    });
+  return { code: fixed, changed: fixes > 0, fixes: fixes };
+}
+
+function repairPhaseGateRuntimeMoves(code) {
+  if (!code || code.indexOf('Snapshot_') < 0 || code.indexOf('Phase_') < 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+
+  function extractMethodRange(src, methodName) {
+    var sigRe = new RegExp('\\bvoid\\s+' + methodName + '\\s*\\([^)]*\\)\\s*\\{');
+    var m = sigRe.exec(src);
+    if (!m) return null;
+    var start = m.index;
+    var bodyStart = m.index + m[0].length;
+    var depth = 1;
+    var end = bodyStart;
+    while (end < src.length && depth > 0) {
+      var ch = src[end];
+      if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (depth === 0) break; }
+      end++;
+    }
+    if (depth !== 0) return null;
+    return {
+      start: start,
+      bodyStart: bodyStart,
+      end: end,
+      body: src.substring(bodyStart, end),
+    };
+  }
+
+  function isInsideRanges(idx, ranges) {
+    for (var i = 0; i < ranges.length; i++) {
+      if (idx >= ranges[i].start && idx <= ranges[i].end) return true;
+    }
+    return false;
+  }
+
+  function extractSnapshotEntities(src) {
+    var byPhase = {};
+    var snapRe = /void\s+Snapshot_([A-Za-z0-9_]+)_GateEntities\s*\(\)\s*\{([\s\S]*?)\n\s*\}/g;
+    var sm;
+    while ((sm = snapRe.exec(src)) !== null) {
+      var pid = sm[1];
+      var body = sm[2];
+      var entities = [];
+      var seen = {};
+      var entRe = /_snap_([A-Za-z_][A-Za-z0-9_]*)Pos\b/g;
+      var em;
+      while ((em = entRe.exec(body)) !== null) {
+        if (seen[em[1]]) continue;
+        seen[em[1]] = true;
+        entities.push(em[1]);
+      }
+      if (entities.length > 0) byPhase[pid] = entities;
+    }
+    return byPhase;
+  }
+
+  function collectInitRanges(src, phaseIds) {
+    var ranges = [];
+    for (var i = 0; i < phaseIds.length; i++) {
+      var mr = extractMethodRange(src, 'Phase_' + phaseIds[i] + '_Init');
+      if (mr) ranges.push({ start: mr.start, end: mr.end });
+    }
+    return ranges;
+  }
+
+  function hasRuntimeMove(src, entityName, initRanges) {
+    var moveRe = new RegExp(
+      '\\bPlaceObj\\s*\\(\\s*' + entityName + '\\b' +
+      '|\\bHideObj\\s*\\(\\s*' + entityName + '\\b' +
+      '|\\b' + entityName + '\\s*\\.\\s*transform\\s*\\.\\s*position\\s*=',
+      'g'
+    );
+    var mm;
+    while ((mm = moveRe.exec(src)) !== null) {
+      if (!isInsideRanges(mm.index, initRanges)) return true;
+    }
+    return false;
+  }
+
+  function getInitMoveLines(initBody, entityName) {
+    var lines = initBody.split('\n');
+    var matches = [];
+    for (var i = 0; i < lines.length; i++) {
+      var trimmed = lines[i].trim();
+      if (!trimmed) continue;
+      if (!new RegExp('^(PlaceObj|HideObj)\\s*\\(\\s*' + entityName + '\\b').test(trimmed) &&
+          !new RegExp('^' + entityName + '\\s*\\.\\s*transform\\s*\\.\\s*position\\s*=').test(trimmed)) {
+        continue;
+      }
+      matches.push('        ' + trimmed);
+    }
+    return matches;
+  }
+
+  function buildFallbackMoveLines(entityName, ordinal) {
+    var varName = '__gateMovePos' + ordinal;
+    return [
+      '        if (' + entityName + ' != null)',
+      '        {',
+      '            var ' + varName + ' = ' + entityName + '.transform.position;',
+      '            ' + varName + '.y += 2f;',
+      '            ' + entityName + '.transform.position = ' + varName + ';',
+      '        }',
+    ];
+  }
+
+  function insertLinesIntoHandler(src, pid, handlerSuffix, linesToInsert) {
+    if (!linesToInsert || linesToInsert.length === 0) return { code: src, changed: false };
+    var startMarker = '// TODO_PHASE_' + pid + '_' + handlerSuffix + '_START';
+    var endMarker = '// TODO_PHASE_' + pid + '_' + handlerSuffix + '_END';
+    var startIdx = src.indexOf(startMarker);
+    var endIdx = src.indexOf(endMarker);
+    if (startIdx < 0 || endIdx < 0 || endIdx <= startIdx) return { code: src, changed: false };
+    var block = src.substring(startIdx, endIdx);
+    var needsAny = false;
+    for (var i = 0; i < linesToInsert.length; i++) {
+      if (block.indexOf(linesToInsert[i].trim()) < 0) {
+        needsAny = true;
+        break;
+      }
+    }
+    if (!needsAny) return { code: src, changed: false };
+    var insertAt = endIdx;
+    var prefix = src.substring(0, insertAt);
+    if (!/\n\s*$/.test(prefix)) prefix += '\n';
+    var insertion = linesToInsert.join('\n') + '\n';
+    return {
+      code: prefix + insertion + src.substring(insertAt),
+      changed: true,
+    };
+  }
+
+  var snapshotEntities = extractSnapshotEntities(code);
+  var phaseIds = Object.keys(snapshotEntities);
+  if (phaseIds.length === 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+
+  var initRanges = collectInitRanges(code, phaseIds);
+  var fixed = code;
+  var fixes = 0;
+  var fallbackOrdinal = 0;
+
+  for (var pi = 0; pi < phaseIds.length; pi++) {
+    var pid = phaseIds[pi];
+    var entities = snapshotEntities[pid];
+    if (!entities || entities.length === 0) continue;
+    var initMethod = extractMethodRange(fixed, 'Phase_' + pid + '_Init');
+    if (!initMethod) continue;
+    for (var ei = 0; ei < entities.length; ei++) {
+      var entityName = entities[ei];
+      if (hasRuntimeMove(fixed, entityName, initRanges)) continue;
+      var moveLines = getInitMoveLines(initMethod.body, entityName);
+      if (moveLines.length === 0) {
+        fallbackOrdinal++;
+        moveLines = buildFallbackMoveLines(entityName, fallbackOrdinal);
+      }
+      var onTapRes = insertLinesIntoHandler(fixed, pid, 'ONTAP', moveLines);
+      if (onTapRes.changed) {
+        fixed = onTapRes.code;
+        fixes++;
+      }
+      var onAutoRes = insertLinesIntoHandler(fixed, pid, 'ONAUTOARRIVE', moveLines);
+      if (onAutoRes.changed) {
+        fixed = onAutoRes.code;
+        fixes++;
+      }
+    }
+  }
+
+  return { code: fixed, changed: fixes > 0, fixes: fixes };
+}
+
+function collapseLegacyCheckEventRulesStub(code) {
+  if (!code || code.indexOf('CheckEventRules_OLD_UNUSED_STUB') < 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+  var sigRe = /\bvoid\s+CheckEventRules_OLD_UNUSED_STUB\s*\(\s*\)\s*\{/;
+  var m = sigRe.exec(code);
+  if (!m) return { code: code, changed: false, fixes: 0 };
+  var start = m.index + m[0].length;
+  var depth = 1;
+  var end = start;
+  while (end < code.length && depth > 0) {
+    var ch = code[end];
+    if (ch === '{') depth++;
+    else if (ch === '}') { depth--; if (depth === 0) break; }
+    end++;
+  }
+  if (depth !== 0) return { code: code, changed: false, fixes: 0 };
+  var replacement = m[0] + '\n' +
+    '        // Legacy flow stub collapsed by deterministic pre-repair.\n' +
+    '        // Real flow lives in GameFlowManagerMain.Flow.cs.\n' +
+    '    }';
+  var fixed = code.slice(0, m.index) + replacement + code.slice(end + 1);
+  return { code: fixed, changed: true, fixes: 1 };
+}
+
+function repairKnownStructuralDamage(mainCode, extraFiles) {
+  var changed = false;
+  var fixes = [];
+  var mainStubFix = collapseLegacyCheckEventRulesStub(mainCode);
+  if (mainStubFix.changed) {
+    mainCode = mainStubFix.code;
+    changed = true;
+    fixes.push('main:LegacyCheckEventRulesStub x' + mainStubFix.fixes);
+  }
+  var mainFix = repairUpdateGameStateBridge(mainCode);
+  if (mainFix.changed) {
+    mainCode = mainFix.code;
+    changed = true;
+    fixes.push('main:UpdateGameState x' + mainFix.fixes);
+  }
+  var mainInitFix = stripInitMaterialFromScene(mainCode);
+  if (mainInitFix.changed) {
+    mainCode = mainInitFix.code;
+    changed = true;
+    fixes.push('main:InitMaterialFromScene x' + mainInitFix.fixes);
+  }
+  var mainShowCTAFix = stripEarlyShowCTA(mainCode);
+  if (mainShowCTAFix.changed) {
+    mainCode = mainShowCTAFix.code;
+    changed = true;
+    fixes.push('main:EarlyShowCTA x' + mainShowCTAFix.fixes);
+  }
+  var mainFinishGameFix = normalizeFinishGameTerminalFlow(mainCode);
+  if (mainFinishGameFix.changed) {
+    mainCode = mainFinishGameFix.code;
+    changed = true;
+    fixes.push('main:FinishGameFlow x' + mainFinishGameFix.fixes);
+  }
+  var mainVectorFix = rewriteHotPathVectorAllocations(mainCode);
+  if (mainVectorFix.changed) {
+    mainCode = mainVectorFix.code;
+    changed = true;
+    fixes.push('main:HotVectorAlloc x' + mainVectorFix.fixes);
+  }
+  var mainPhaseGateFix = repairPhaseGateRuntimeMoves(mainCode);
+  if (mainPhaseGateFix.changed) {
+    mainCode = mainPhaseGateFix.code;
+    changed = true;
+    fixes.push('main:PhaseGateRuntimeMove x' + mainPhaseGateFix.fixes);
+  }
+  var nextExtras = Object.assign({}, extraFiles || {});
+  Object.keys(nextExtras).forEach(function(name) {
+    var stubRes = collapseLegacyCheckEventRulesStub(nextExtras[name]);
+    if (stubRes.changed) {
+      nextExtras[name] = stubRes.code;
+      changed = true;
+      fixes.push(name + ':LegacyCheckEventRulesStub x' + stubRes.fixes);
+    }
+    var res = repairUpdateGameStateBridge(nextExtras[name]);
+    if (res.changed) {
+      nextExtras[name] = res.code;
+      changed = true;
+      fixes.push(name + ':UpdateGameState x' + res.fixes);
+    }
+    var initRes = stripInitMaterialFromScene(nextExtras[name]);
+    if (initRes.changed) {
+      nextExtras[name] = initRes.code;
+      changed = true;
+      fixes.push(name + ':InitMaterialFromScene x' + initRes.fixes);
+    }
+    var showCTARes = stripEarlyShowCTA(nextExtras[name]);
+    if (showCTARes.changed) {
+      nextExtras[name] = showCTARes.code;
+      changed = true;
+      fixes.push(name + ':EarlyShowCTA x' + showCTARes.fixes);
+    }
+    var finishGameRes = normalizeFinishGameTerminalFlow(nextExtras[name]);
+    if (finishGameRes.changed) {
+      nextExtras[name] = finishGameRes.code;
+      changed = true;
+      fixes.push(name + ':FinishGameFlow x' + finishGameRes.fixes);
+    }
+    var vectorRes = rewriteHotPathVectorAllocations(nextExtras[name]);
+    if (vectorRes.changed) {
+      nextExtras[name] = vectorRes.code;
+      changed = true;
+      fixes.push(name + ':HotVectorAlloc x' + vectorRes.fixes);
+    }
+    var phaseGateRes = repairPhaseGateRuntimeMoves(nextExtras[name]);
+    if (phaseGateRes.changed) {
+      nextExtras[name] = phaseGateRes.code;
+      changed = true;
+      fixes.push(name + ':PhaseGateRuntimeMove x' + phaseGateRes.fixes);
+    }
+  });
+  return {
+    code: mainCode,
+    extraFiles: nextExtras,
+    changed: changed,
+    fixes: fixes,
+  };
+}
+
+function buildReviewFingerprint(reviewResult) {
+  if (!reviewResult) return 'review|unknown';
+  var issues = (reviewResult.issues || []).slice(0, 6).map(function(issue) {
+    var sev = issue.severity || '';
+    var rule = issue.rule || '';
+    var msg = issue.message || issue.text || '';
+    return sev + '|' + rule + '|' + msg;
+  }).join('\n');
+  var source = reviewResult.source || '';
+  var crit = reviewResult.criticalCount || 0;
+  var body = [
+    'source=' + source,
+    'critical=' + crit,
+    issues || (reviewResult.feedback || '') || 'no-feedback',
+  ].join('\n');
+  return normalizeFingerprint(body, { stage: 'review' });
+}
 
 module.exports = {
   name: 'review',
@@ -59,6 +528,8 @@ module.exports = {
 
     var reviewedCode = ctx.csCode;
     var reviewExtraFiles = Object.assign({}, ctx.extraFiles);
+    var lastReviewFingerprint = null;
+    var sameReviewFingerprintCount = 0;
 
     // Spec conformance check: verify code semantics match blueprint
     // P1-6: Only inject as feedback if there are genuine critical issues after fuzzy matching
@@ -96,6 +567,12 @@ module.exports = {
         }
       },
       attempt: function(ctx, round, maxRounds) {
+        var repaired = repairKnownStructuralDamage(reviewedCode, reviewExtraFiles);
+        if (repaired.changed) {
+          reviewedCode = repaired.code;
+          reviewExtraFiles = repaired.extraFiles;
+          ctx.addLog('review', 'Deterministic pre-repair applied: ' + repaired.fixes.join(', '));
+        }
         // Static pre-check: catch forbidden APIs every round. Runs BEFORE the
         // LLM reviewer so static violations trigger a recode pass even when:
         //  - codex preflight fails silently and returns passed:true
@@ -106,7 +583,7 @@ module.exports = {
         // reviewer pass — leading to known-broken GFM_Create.Obj() code
         // advancing to visual-check → cua-verify with black screen.
         var reviewPromise;
-        var preCheck = staticCheck(reviewedCode);
+        var preCheck = staticCheck(reviewedCode, { extraFiles: reviewExtraFiles, blueprint: ctx.blueprint });
         // W1a introduced warning-severity rules (require-member-doc / require-branch-comment /
         // method-too-long). `preCheck.passed` is `issues.length === 0`, so warnings were
         // treating the fix-loop as blocking. Filter to blocking issues for the recode
@@ -121,6 +598,7 @@ module.exports = {
             return 'L' + i.line + ': ' + i.message + ' — ' + i.text;
           }).join('\n');
           ctx.addLog('review', 'Static check (round ' + round + ') found ' + preCheckBlocking.length + ' blocking violations — forcing recode without LLM review');
+          ctx.addLog('review', 'Static check (round ' + round + ') top blocking rules: ' + summarizeRules(preCheckBlocking, 6));
           // Synthesize a failed review result so the existing recode path runs.
           // Uses source='static-precheck' (no parseError/error) so the codex→GPT fallback
           // branch doesn't trigger — we want a direct recode, not another LLM pass.
@@ -309,7 +787,10 @@ module.exports = {
           }
           return reviewResult;
         }).then(function(reviewResult) {
+          var reviewFingerprint = buildReviewFingerprint(reviewResult);
           if (reviewResult.passed) {
+            lastReviewFingerprint = null;
+            sameReviewFingerprintCount = 0;
             ctx.addLog('review', reviewerName + ' review PASSED' + (round > 1 ? ' (round ' + round + ')' : ''));
             ctx.reportStatus('processing', {
               message: ('[Linux] ' + reviewerName + ' 审核通过' + (round > 1 ? ' (第' + round + '轮)' : '')).slice(0, 100),
@@ -319,6 +800,19 @@ module.exports = {
             // leaving ctx.workDir untouched. The authoritative source is the closure
             // variable reviewedCode, which is synced after every recode pass.
             return { done: true, result: { passed: true, rounds: round } };
+          }
+
+          if (reviewFingerprint === lastReviewFingerprint) sameReviewFingerprintCount++;
+          else {
+            lastReviewFingerprint = reviewFingerprint;
+            sameReviewFingerprintCount = 1;
+          }
+
+          if (sameReviewFingerprintCount >= REVIEW_REPEAT_BLOCK_AT) {
+            var repeatCritCount = reviewResult.criticalCount || 0;
+            ctx.addLog('review', 'Review fingerprint repeated ' + sameReviewFingerprintCount + ' rounds — early stop: ' + reviewFingerprint);
+            throw new Error('Review stalled: same blocking issues repeated ' + sameReviewFingerprintCount + ' rounds' +
+              (repeatCritCount > 0 ? ' (' + repeatCritCount + ' critical remain)' : ''));
           }
 
           if (round >= maxRounds) {

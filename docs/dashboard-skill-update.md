@@ -1,8 +1,96 @@
 # Dashboard / Blueprint SKILL 同步清单（归档系统 2026-04-19）
 
+## 2026-04-22 增量同步：Codex reviewer / night-monitor / 在线任务收口
+
+### 背景
+
+2026-04-21 到 2026-04-22 的线上收口不再只是"归档可见性"问题，而是把 worker 主链切到更 deterministic 的 review/fix-loop：新增 Codex coder/reviewer 路径、night-monitor 自动重提闭环、以及围绕 `phase-entity-unbound` / `phase-entity-init-only` / `update-new-vector-in-hot-path` 的规则与预修复。
+
+本节记录需要同步回 skill 副本的操作知识，避免 skill 还停留在旧的"GPT reviewer + 手工盯日志"认知。
+
+### 需要同步到 `blueprint/references/build-pipeline.md`
+
+新增一节："review deterministic pre-repair + online recovery"
+
+```markdown
+## Review deterministic pre-repair + online recovery
+
+`engine/stages/review.cjs` 在进入 reviewer 前先做 deterministic pre-repair，当前至少包含：
+
+- `repairUpdateGameStateBridge`：修复 UpdateGameState JSON bridge 结构损坏
+- `stripEarlyShowCTA` / `normalizeFinishGameTerminalFlow`：统一终局流为 `GameEnded(); ShowCTA();`
+- `rewriteHotPathVectorAllocations`：把 hot path 中的 `new Vector3(...)` 改写为 struct-copy 形式
+- `repairPhaseGateRuntimeMoves`：当 gate 实体只在 `Phase_<id>_Init()` 里移动、而 `OnTap/OnAutoPlayArrive` 缺 runtime move 时，自动补最小 position change
+
+### 高频 blocker（2026-04-22）
+
+- `phase-entity-unbound`
+- `phase-entity-init-only`
+- `update-new-vector-in-hot-path`
+
+处理优先级：
+1. 先看 static-check top blocking rules
+2. 再看 deterministic pre-repair 是否已命中
+3. 最后才交给 reviewer / incremental fix
+
+### 在线恢复
+
+`engine/night-monitor.cjs` 负责 failed/stuck 项目的自动重提：
+- 记录 fingerprint / sameFingerprintCount / sameStatusCount
+- 在 repo HEAD 变化或冷却期满足时调用 `/api/projects/:id/submit`
+- 事故快照写入 `server-data/night-monitor/`
+
+night-monitor 只负责"重提和归档"，不会自己修复代码根因；真正的 deterministic 修复仍在 review/codegen/static-check 链。
+```
+
+### 需要同步到 `dashboard/references/architecture.md`
+
+新增"Night Monitor / Recovery" 章节
+
+```markdown
+## Night Monitor / Recovery（2026-04-22）
+
+Dashboard / ops 视角需要理解两类自动恢复：
+
+- `watchdog/run`：常规观测与治理流程
+- `engine/night-monitor.cjs`：failed/stuck project 自动重提
+
+### 关键文件
+
+- `server-data/night-monitor-state.json`：持久状态
+- `server-data/night-monitor/summary.json`：最近一轮汇总
+- `server-data/night-monitor/incidents/*.stuck.json`：卡死事故快照
+
+### 判断口径
+
+- 如果任务仍反复卡在相同 fingerprint，但 repo HEAD 已变化，优先看该修复是否已经热生效到 worker / review / night-monitor
+- 如果 top blocking rules 长时间被 `phase-entity-init-only` / `phase-entity-unbound` 占据，说明问题仍停留在生成/预修复层，不是 dashboard 展示问题
+```
+
+### 需要同步到 skill 的 rules / references
+
+- 新 reviewer 主链默认是 Codex reviewer + deterministic pre-repair，不要再假设只有 GPT reviewer。
+- 处理线上失败任务时，优先读 recovery packet 和最近 session 尾部片段，不要整份 session jsonl 全量灌上下文。
+- 盯任务时先核对三类 blocker：`phase-entity-unbound` / `phase-entity-init-only` / `update-new-vector-in-hot-path`。
+- 如果旧修复已经落地到 repo，必须再验证它是否真的进入当前 `worker / night-monitor / review` 流程，而不是只存在于源码里。
+
+### 建议同步到 env / operator notes
+
+```json
+{
+  "USE_CODEX_REVIEW": "true"
+}
+```
+
+并补充备注：
+
+- `RECODE_BUFFER_MS` 目前由运行时硬编码为 12 分钟，旧 `.env` 里的同名变量会被忽略，应从 skill 操作说明里标记为"历史兼容项，不再依赖"
+- 扩 worker 并发时，要同步确认 pm2 里 `linux-worker-4/5/6` 等实例确实已启动并开始领任务
+```
+
 ## 背景
 
-`~/.claude/skills/blueprint/` 和 `~/.claude/skills/dashboard/` 是 harness 保护目录，dontAsk 模式下 Write/Edit 被拒。2026-04-19 落地的任务级归档闭环引入了新 API、新文件布局、新环境变量，需要在下次解除保护时同步到两个 SKILL 的 references/ 和 env.json。
+当前生效的 skill 安装/迁移副本位于 `/root/.codex-blueprint/skills/` 与 `~/.codex/memories/skills/`。本文档记录的是一次需要回写到 skill 副本的归档系统同步项；如果环境仍存在旧 harness 保护目录，也只应视为历史兼容路径。2026-04-19 落地的任务级归档闭环引入了新 API、新文件布局、新环境变量，需要在下次同步 skill 副本时更新到 references/ 和 env.json。
 
 ## 需要同步到 `blueprint/references/build-pipeline.md`
 

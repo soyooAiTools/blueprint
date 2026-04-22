@@ -167,7 +167,7 @@ tbody tr.new-row { animation: flashRow 1.6s ease-out; }
 .badge.review_pass,.badge.quicktest_pass,.badge.cua_pass
   { background: oklch(76% 0.14 145 / 0.15); color: var(--accent); }
 .badge.processing,.badge.developing,.badge.building,.badge.assigned,
-.badge.submitted,.badge.reviewing,.badge.busy,.badge.spec_extracting
+.badge.submitted,.badge.reviewing,.badge.preview_ready,.badge.busy,.badge.spec_extracting
   { background: oklch(72% 0.13 240 / 0.15); color: var(--cobalt); }
 .badge.pending,.badge.fix_needed,.badge.editing
   { background: oklch(80% 0.14 82 / 0.18); color: var(--amber); }
@@ -314,6 +314,7 @@ tr.drawer-row > td {
   <h1>Blueprint <em>Observability</em></h1>
   <div class="meta">
     <span id="serverStatus"></span>
+    <span id="baselineStart">baseline …</span>
     <span id="lastUpdate">loading…</span>
   </div>
 </div>
@@ -354,6 +355,84 @@ tr.drawer-row > td {
   <!-- Pipeline Metrics -->
   <div class="panel" id="pipeline">
     <div class="grid grid-4" id="pipelineTopStats"></div>
+    <div class="grid grid-2" style="margin-top:16px;">
+      <div class="card">
+        <h3>Night Monitor <span id="nightMonitorMeta" class="eyebrow"></span></h3>
+        <div id="nightMonitorStats" class="grid grid-4" style="margin-bottom:0;"></div>
+      </div>
+      <div class="card">
+        <h3>Stuck &amp; Recovery</h3>
+        <div id="nightMonitorActivity"></div>
+      </div>
+    </div>
+    <div class="grid grid-2" style="margin-top:16px;">
+      <div class="card">
+        <h3>24h Top Stuck Fingerprints</h3>
+        <div id="nightMonitorTopStuck"></div>
+      </div>
+      <div class="card">
+        <h3>24h Recovery Rate By Kind</h3>
+        <div id="nightMonitorRecoveryRate"></div>
+      </div>
+    </div>
+    <div class="grid grid-3" style="margin-top:16px;">
+      <div class="card">
+        <h3>Top Failure Families</h3>
+        <div id="failureFamilies"></div>
+      </div>
+      <div class="card">
+        <h3>Wasted Time By Family</h3>
+        <div id="wasteByFamily"></div>
+      </div>
+      <div class="card">
+        <h3>Repeated Non-Converging</h3>
+        <div id="nonConvergingFamilies"></div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3>Family Playbook</h3>
+      <div id="familyPlaybook"></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3>Family Draft Coverage</h3>
+      <div id="familyDraftCoverage"></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3>Priority Queue</h3>
+      <div id="familyPriorityQueue"></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3>Governance Draft Queue</h3>
+      <div id="governanceDraftQueue"></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3>Implementation Plan Queue</h3>
+      <div id="implementationPlanQueue"></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3>Patch Task Queue</h3>
+      <div id="patchTaskQueue"></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3>Patch Run Queue</h3>
+      <div id="patchRunQueue"></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3>Patch Run History</h3>
+      <div id="patchRunHistory"></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3>Patch Run Summary</h3>
+      <div id="patchRunSummary"></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3>Patch Approval Queue</h3>
+      <div id="patchApprovalQueue"></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h3>Patch Escalations</h3>
+      <div id="patchEscalations"></div>
+    </div>
     <div class="grid grid-2" style="margin-top:16px;">
       <div class="card">
         <h3>失败热点（按 Stage）</h3>
@@ -491,12 +570,21 @@ tr.drawer-row > td {
     // Server status in header
     var serverOk = health && health.server && health.server.status === 'ok';
     document.getElementById('serverStatus').innerHTML = '<span class="dot ' + (serverOk ? 'ok' : 'err') + '"></span>' + (serverOk ? 'live · ' + (health.server.uptimeHuman || '?') : 'server offline');
+    var pm0 = pipelineMetrics && pipelineMetrics.pipeline;
+    if (pm0 && pm0.baselineStartedAt) {
+      var baselineText = 'baseline ' + fmt(pm0.baselineStartedAt);
+      if (pm0.baselineReason) baselineText += ' · ' + pm0.baselineReason;
+      document.getElementById('baselineStart').textContent = baselineText;
+    } else {
+      document.getElementById('baselineStart').textContent = 'baseline unknown';
+    }
 
     // ========== Overview ==========
     var ov = '';
     ov += statCard(stats.workers.online + '/' + stats.workers.total, 'Worker 在线', stats.workers.online > 0 ? 'green' : 'red');
     var activeTasks = (stats.tasks.processing || 0) + (stats.tasks.assigned || 0) + (stats.tasks.developing || 0) + (stats.tasks.building || 0);
     ov += statCard(activeTasks, '进行中任务', activeTasks > 0 ? 'blue' : 'gray');
+    ov += statCard(stats.projects.preview_ready || 0, '可预览项目', (stats.projects.preview_ready || 0) > 0 ? 'purple' : 'gray', '后台仍在深度验证');
     ov += statCard(stats.parse.successRate + '%', '解析成功率', stats.parse.successRate >= 80 ? 'green' : stats.parse.successRate >= 50 ? 'yellow' : 'red', '共 ' + stats.parse.total + ' 次');
     ov += statCard(stats.tasks.completed || 0, '累计完成任务', 'green', (stats.tasks.failed || 0) > 0 ? '失败 ' + stats.tasks.failed : '');
     document.getElementById('overviewStats').innerHTML = ov;
@@ -682,10 +770,104 @@ tr.drawer-row > td {
       var srColor = parseFloat(pm.successRate) >= 50 ? 'green' : parseFloat(pm.successRate) >= 20 ? 'yellow' : 'red';
       pt += statCard(pm.successRate, '成功率', srColor, pm.successCount + ' 成功 / ' + pm.failCount + ' 失败');
       pt += statCard(pm.totalRuns, '总运行次数', 'blue');
-      pt += statCard(pm.avgDurationMin + 'm', '平均耗时', 'blue');
+      pt += statCard(pm.avgTimeToFinalVerdictMin + 'm', '平均 TTFV', 'blue', '最终 verdict 时间');
+      pt += statCard(pm.avgTimeToFirstPreviewMin ? (pm.avgTimeToFirstPreviewMin + 'm') : '-', '平均 TTFP', pm.avgTimeToFirstPreviewMin ? 'purple' : 'gray', '首个可预览时间');
+      pt += statCard(pm.previewReadyRate || '-', 'Preview Ready 率', pm.previewReadyRate && parseFloat(pm.previewReadyRate) >= 70 ? 'green' : pm.previewReadyRate ? 'yellow' : 'gray');
+      pt += statCard(pm.previewThenFailedRate || '-', '预览后失败率', pm.previewThenFailedRate && parseFloat(pm.previewThenFailedRate) <= 15 ? 'green' : pm.previewThenFailedRate ? 'yellow' : 'gray', pm.previewThenFailedCount != null ? ('共 ' + pm.previewThenFailedCount + ' 次') : '');
+      pt += statCard(pm.avgEstimatedRetryWasteMin + 'm', '估算重试浪费', parseFloat(pm.avgEstimatedRetryWasteMin) <= 5 ? 'green' : parseFloat(pm.avgEstimatedRetryWasteMin) <= 15 ? 'yellow' : 'red', '按各 stage rounds 估算');
       var bn = pm.bottleneckStage;
       pt += statCard(bn ? bn.stage : '-', '瓶颈 Stage', 'yellow', bn ? '平均 ' + bn.avgRounds + ' 轮' : '');
       document.getElementById('pipelineTopStats').innerHTML = pt;
+
+      var nm = pipelineMetrics && pipelineMetrics.nightMonitor;
+      if (nm) {
+        var hb = nm.heartbeat || {};
+        var nmLastRunMs = nm.lastRunAt ? new Date(nm.lastRunAt).getTime() : 0;
+        var nmLagMin = nmLastRunMs ? Math.round((Date.now() - nmLastRunMs) / 60000) : null;
+        var ns = '';
+        ns += statCard(String((nm.failedProjects || []).length), '本轮 failed', (nm.failedProjects || []).length > 0 ? 'yellow' : 'gray');
+        ns += statCard(String((nm.stuckProjects || []).length), '本轮 stuck', (nm.stuckProjects || []).length > 0 ? 'red' : 'green');
+        ns += statCard(String((nm.resubmitted || []).length), '自动重提', (nm.resubmitted || []).length > 0 ? 'blue' : 'gray');
+        ns += statCard(String((nm.recoveredStuck || []).length), '救回 stuck', (nm.recoveredStuck || []).length > 0 ? 'green' : 'gray');
+        document.getElementById('nightMonitorStats').innerHTML = ns;
+        document.getElementById('nightMonitorMeta').innerHTML =
+          (nm.lastRunAt ? ('上次运行 ' + fmt(new Date(nm.lastRunAt).getTime())) : '未运行') +
+          (hb.nextRunAt ? (' · 下次 ' + fmt(new Date(hb.nextRunAt).getTime())) : '') +
+          (nmLagMin != null ? (nmLagMin > 40 ? ' · <span style="color:var(--rust);">已滞后 ' + nmLagMin + 'min</span>' : ' · lag ' + nmLagMin + 'min') : '');
+
+        var na = '';
+        var stuckByKind = {};
+        (nm.stuckProjects || []).forEach(function(s) {
+          var key = s.kind || 'unknown';
+          stuckByKind[key] = (stuckByKind[key] || 0) + 1;
+        });
+        var recoveredByKind = {};
+        (nm.recoveredStuck || []).forEach(function(s) {
+          var key = s.kind || 'unknown';
+          recoveredByKind[key] = (recoveredByKind[key] || 0) + 1;
+        });
+        var kindKeys = Object.keys(stuckByKind);
+        var recoveredKeys = Object.keys(recoveredByKind);
+        if (kindKeys.length > 0 || recoveredKeys.length > 0) {
+          na += '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">';
+          kindKeys.forEach(function(k) {
+            na += '<span class="pill" style="border-color:oklch(68% 0.17 28 / 0.28);color:var(--rust);">stuck ' + esc(k) + ' × ' + stuckByKind[k] + '</span>';
+          });
+          recoveredKeys.forEach(function(k) {
+            na += '<span class="pill" style="border-color:oklch(78% 0.13 165 / 0.28);color:var(--accent);">recovered ' + esc(k) + ' × ' + recoveredByKind[k] + '</span>';
+          });
+          na += '</div>';
+        }
+        (nm.stuckProjects || []).forEach(function(s) {
+          na += '<div class="alert"><div class="title">' + esc(s.kind || 'stuck') + ' · ' + esc(s.id || '-') + '</div><div class="meta">age=' + esc(String(s.ageMin || 0)) + 'min · sameStatus=' + esc(String(s.sameStatusCount || 0)) + ' · task=' + esc(s.taskStatus || '-') + '<br><code>' + esc((s.fingerprint || '').slice(0, 140)) + '</code><br>' + esc((s.statusMessage || '').slice(0, 180)) + '</div></div>';
+        });
+        (nm.recoveredStuck || []).forEach(function(s) {
+          na += '<div class="alert" style="background:oklch(78% 0.13 165 / 0.08);border-color:oklch(78% 0.13 165 / 0.28);"><div class="title" style="color:var(--accent);">auto-recovered · ' + esc(s.id || '-') + '</div><div class="meta">kind=' + esc(s.kind || '-') + ' · age=' + esc(String(s.ageMin || 0)) + 'min<br><code>' + esc((s.fingerprint || '').slice(0, 140)) + '</code></div></div>';
+        });
+        if (!na) na = '<div class="empty">最近一轮未发现 stuck 项目</div>';
+        document.getElementById('nightMonitorActivity').innerHTML = na;
+
+        var topStuck24 = nm.topStuckFingerprints24h || [];
+        if (topStuck24.length > 0) {
+          var tsh = '<div class="barcharts">';
+          var topBase = topStuck24[0].count || 1;
+          topStuck24.forEach(function(item) {
+            var pct = Math.max(6, Math.round(item.count / topBase * 100));
+            tsh += '<div class="barchart-row">';
+            tsh += '<div class="head"><span class="lbl">' + esc((item.kind || 'unknown')) + '</span><span class="qty">' + item.count + ' × · ' + item.uniqueProjects + ' proj</span></div>';
+            tsh += '<div class="bar"><div style="background:var(--rust);width:' + pct + '%;"></div></div>';
+            tsh += '<div class="meta" style="margin-top:6px;"><code>' + esc((item.fingerprint || '').slice(0, 160)) + '</code></div>';
+            tsh += '</div>';
+          });
+          tsh += '</div>';
+          document.getElementById('nightMonitorTopStuck').innerHTML = tsh;
+        } else {
+          document.getElementById('nightMonitorTopStuck').innerHTML = '<div class="empty">最近 24h 暂无 stuck 历史</div>';
+        }
+
+        var rr24 = nm.recoveryRateByKind24h || [];
+        if (rr24.length > 0) {
+          var rrh = '<div class="barcharts">';
+          rr24.forEach(function(item) {
+            var rateNum = parseInt(item.rate, 10) || 0;
+            var barColor = rateNum >= 70 ? 'var(--accent)' : rateNum >= 40 ? 'var(--amber)' : 'var(--rust)';
+            rrh += '<div class="barchart-row">';
+            rrh += '<div class="head"><span class="lbl">' + esc(item.kind || 'unknown') + '</span><span class="qty">' + esc(item.rate) + ' · ' + item.recoveredCount + '/' + item.stuckCount + '</span></div>';
+            rrh += '<div class="bar"><div style="background:' + barColor + ';width:' + rateNum + '%;"></div></div>';
+            rrh += '</div>';
+          });
+          rrh += '</div>';
+          document.getElementById('nightMonitorRecoveryRate').innerHTML = rrh;
+        } else {
+          document.getElementById('nightMonitorRecoveryRate').innerHTML = '<div class="empty">最近 24h 暂无 recovery 历史</div>';
+        }
+      } else {
+        document.getElementById('nightMonitorStats').innerHTML = '<div class="empty">night monitor 暂无数据</div>';
+        document.getElementById('nightMonitorMeta').innerHTML = '';
+        document.getElementById('nightMonitorActivity').innerHTML = '<div class="empty">night monitor 暂无数据</div>';
+        document.getElementById('nightMonitorTopStuck').innerHTML = '<div class="empty">night monitor 暂无数据</div>';
+        document.getElementById('nightMonitorRecoveryRate').innerHTML = '<div class="empty">night monitor 暂无数据</div>';
+      }
 
       // Failure hotspots bar chart
       var hotspots = pm.failureHotspots || [];
@@ -723,6 +905,279 @@ tr.drawer-row > td {
         document.getElementById('stagePassRates').innerHTML = sh;
       } else {
         document.getElementById('stagePassRates').innerHTML = '<div class="empty">暂无数据</div>';
+      }
+
+      var fams = pm.failureFamilies || [];
+      if (fams.length > 0) {
+        var fhtml = '<div class="barcharts">';
+        var famBase = fams[0].count || 1;
+        fams.slice(0, 8).forEach(function(item) {
+          var pct = Math.max(6, Math.round(item.count / famBase * 100));
+          fhtml += '<div class="barchart-row">';
+          fhtml += '<div class="head"><span class="lbl">' + esc(item.family) + '</span><span class="qty">' + item.count + ' × · ' + item.pct + '</span></div>';
+          fhtml += '<div class="bar"><div style="background:var(--cobalt);width:' + pct + '%;"></div></div>';
+          fhtml += '</div>';
+        });
+        fhtml += '</div>';
+        document.getElementById('failureFamilies').innerHTML = fhtml;
+      } else {
+        document.getElementById('failureFamilies').innerHTML = '<div class="empty">暂无 family 数据</div>';
+      }
+
+      var waste = pm.wasteByFamily || [];
+      if (waste.length > 0) {
+        var whtml = '<div class="barcharts">';
+        var wasteBase = parseFloat(waste[0].minutes || '0') || 1;
+        waste.slice(0, 8).forEach(function(item) {
+          var itemMin = parseFloat(item.minutes || '0') || 0;
+          var pct = Math.max(6, Math.round(itemMin / wasteBase * 100));
+          whtml += '<div class="barchart-row">';
+          whtml += '<div class="head"><span class="lbl">' + esc(item.family) + '</span><span class="qty">' + esc(item.minutes) + ' min</span></div>';
+          whtml += '<div class="bar"><div style="background:var(--amber);width:' + pct + '%;"></div></div>';
+          whtml += '</div>';
+        });
+        whtml += '</div>';
+        document.getElementById('wasteByFamily').innerHTML = whtml;
+      } else {
+        document.getElementById('wasteByFamily').innerHTML = '<div class="empty">暂无 waste 数据</div>';
+      }
+
+      var nc = pm.repeatedNonConvergingFingerprints || [];
+      if (nc.length > 0) {
+        var nch = '';
+        nc.forEach(function(item) {
+          nch += '<div class="alert"><div class="title">' + esc(item.failedAtStage || 'unknown') + ' · ' + item.uniqueTasks + ' proj / ' + item.retries + ' hits</div><div class="meta"><code>' + esc((item.fingerprint || '').slice(0, 160)) + '</code><br>' + esc((item.sampleReason || '').slice(0, 220)) + '</div></div>';
+        });
+        document.getElementById('nonConvergingFamilies').innerHTML = nch;
+      } else {
+        document.getElementById('nonConvergingFamilies').innerHTML = '<div class="empty">暂无 non-converging 指纹</div>';
+      }
+
+      var playbook = pm.failureFamilyPlaybook || [];
+      if (playbook.length > 0) {
+        document.getElementById('familyPlaybook').innerHTML = tableHTML(
+          ['Family', '次数', 'Owner', 'Remedy', 'Knowledge'],
+          playbook.map(function(item) {
+            var refs = (item.knowledgeRefs || []).filter(function(r) { return r.exists; }).map(function(r) { return r.path.split('/').slice(-1)[0]; });
+            return [
+              '<code>' + esc(item.family) + '</code>',
+              String(item.count || 0),
+              esc(item.owner || '-'),
+              esc(item.remedy || '-'),
+              esc(item.knowledgeCoverage || '0/0') + (refs.length ? (' · ' + refs.slice(0, 2).join(', ')) : '')
+            ];
+          })
+        );
+      } else {
+        document.getElementById('familyPlaybook').innerHTML = '<div class="empty">暂无 family playbook 数据</div>';
+      }
+
+      var draftCov = pm.failureFamilyDraftCoverage || [];
+      if (draftCov.length > 0) {
+        document.getElementById('familyDraftCoverage').innerHTML = tableHTML(
+          ['Family', 'Draft', 'Path'],
+          draftCov.map(function(item) {
+            return [
+              '<code>' + esc(item.family) + '</code>',
+              item.hasDraft ? '<span class="pill" style="border-color:oklch(78% 0.13 165 / 0.28);color:var(--accent);">yes</span>' : '<span class="pill" style="color:var(--ink-4);">no</span>',
+              esc(item.draftFile || '-')
+            ];
+          })
+        );
+      } else {
+        document.getElementById('familyDraftCoverage').innerHTML = '<div class="empty">暂无 family draft 数据</div>';
+      }
+
+      var pq = pm.failureFamilyPriorities || [];
+      if (pq.length > 0) {
+        document.getElementById('familyPriorityQueue').innerHTML = tableHTML(
+          ['Priority', 'Family', 'Owner', 'Waste', 'Coverage', 'Reason'],
+          pq.map(function(item) {
+            var pColor = item.priority === 'P0' ? 'var(--rust)' : item.priority === 'P1' ? 'var(--amber)' : 'var(--accent)';
+            return [
+              '<span class="pill" style="border-color:' + pColor + ';color:' + pColor + ';">' + esc(item.priority) + '</span>',
+              '<code>' + esc(item.family) + '</code>',
+              esc(item.owner || '-'),
+              esc(String(item.wasteMinutes || '0')) + ' min',
+              esc(item.knowledgeCoverage || '0/0') + (item.hasDraft ? ' · draft' : ''),
+              esc(item.reason || '-')
+            ];
+          })
+        );
+      } else {
+        document.getElementById('familyPriorityQueue').innerHTML = '<div class="empty">暂无优先级队列数据</div>';
+      }
+
+      var gdq = pm.governanceDrafts || [];
+      if (gdq.length > 0) {
+        document.getElementById('governanceDraftQueue').innerHTML = tableHTML(
+          ['Priority', 'Family', 'Owner', 'Action / Targets', 'Draft'],
+          gdq.map(function(item) {
+            var pColor = item.priority === 'P0' ? 'var(--rust)' : item.priority === 'P1' ? 'var(--amber)' : 'var(--accent)';
+            var targets = (item.suggestedTargets || []).map(function(t) { return (t.type || 'target') + ': ' + (t.path || '-'); }).slice(0, 2).join(' · ');
+            return [
+              '<span class="pill" style="border-color:' + pColor + ';color:' + pColor + ';">' + esc(item.priority || '-') + '</span>',
+              '<code>' + esc(item.family || '-') + '</code>',
+              esc(item.owner || '-'),
+              esc(item.action || '-') + (targets ? (' · ' + esc(targets)) : ''),
+              esc(item.file || '-')
+            ];
+          })
+        );
+      } else {
+        document.getElementById('governanceDraftQueue').innerHTML = '<div class="empty">暂无 governance draft 数据</div>';
+      }
+
+      var ipq = pm.implementationPlans || [];
+      if (ipq.length > 0) {
+        document.getElementById('implementationPlanQueue').innerHTML = tableHTML(
+          ['Priority', 'Family', 'Plan Draft'],
+          ipq.map(function(item) {
+            var pColor = item.priority === 'P0' ? 'var(--rust)' : item.priority === 'P1' ? 'var(--amber)' : 'var(--accent)';
+            return [
+              '<span class="pill" style="border-color:' + pColor + ';color:' + pColor + ';">' + esc(item.priority || '-') + '</span>',
+              '<code>' + esc(item.family || '-') + '</code>',
+              esc(item.file || '-')
+            ];
+          })
+        );
+      } else {
+        document.getElementById('implementationPlanQueue').innerHTML = '<div class="empty">暂无 implementation plan 数据</div>';
+      }
+
+      var ptq = pm.patchTasks || [];
+      if (ptq.length > 0) {
+        document.getElementById('patchTaskQueue').innerHTML = tableHTML(
+          ['Priority', 'Family', 'Mode / Target', 'Validation', 'Draft'],
+          ptq.map(function(item) {
+            var pColor = item.priority === 'P0' ? 'var(--rust)' : item.priority === 'P1' ? 'var(--amber)' : 'var(--accent)';
+            var target = item.primaryTarget && item.primaryTarget.path ? item.primaryTarget.path : '-';
+            var validations = (item.validationCommands || []).length;
+            return [
+              '<span class="pill" style="border-color:' + pColor + ';color:' + pColor + ';">' + esc(item.priority || '-') + '</span>',
+              '<code>' + esc(item.family || '-') + '</code>',
+              esc(item.executionMode || '-') + ' · ' + esc(target),
+              String(validations),
+              esc(item.file || '-')
+            ];
+          })
+        );
+      } else {
+        document.getElementById('patchTaskQueue').innerHTML = '<div class="empty">暂无 patch task 数据</div>';
+      }
+
+      var prq = pm.patchRuns || [];
+      if (prq.length > 0) {
+        document.getElementById('patchRunQueue').innerHTML = tableHTML(
+          ['Priority', 'Family', 'Status', 'Mode / Target', 'Execution', 'Draft'],
+          prq.map(function(item) {
+            var pColor = item.priority === 'P0' ? 'var(--rust)' : item.priority === 'P1' ? 'var(--amber)' : 'var(--accent)';
+            var target = item.primaryTarget && item.primaryTarget.path ? item.primaryTarget.path : '-';
+            var execSummary = '-';
+            if (item.lastExecution) {
+              if (item.lastExecution.passCount != null && item.lastExecution.totalChecks != null) {
+                execSummary = String(item.lastExecution.result || '-') + ' · ' + String(item.lastExecution.passCount) + '/' + String(item.lastExecution.totalChecks);
+              } else {
+                execSummary = String(item.lastExecution.result || '-');
+              }
+            } else if (item.blockingReason) {
+              execSummary = item.blockingReason;
+            }
+            return [
+              '<span class="pill" style="border-color:' + pColor + ';color:' + pColor + ';">' + esc(item.priority || '-') + '</span>',
+              '<code>' + esc(item.family || '-') + '</code>',
+              esc(item.status || '-'),
+              esc(item.executionMode || '-') + ' · ' + esc(target),
+              esc(execSummary),
+              esc(item.file || '-')
+            ];
+          })
+        );
+      } else {
+        document.getElementById('patchRunQueue').innerHTML = '<div class="empty">暂无 patch run 数据</div>';
+      }
+
+      var prh = pm.patchRunHistory || [];
+      if (prh.length > 0) {
+        document.getElementById('patchRunHistory').innerHTML = tableHTML(
+          ['Family', 'Result', 'Executed', 'Archive Record'],
+          prh.map(function(item) {
+            return [
+              '<code>' + esc(item.family || '-') + '</code>',
+              esc(item.result || '-'),
+              esc(item.executedAt || '-'),
+              esc(item.file || '-')
+            ];
+          })
+        );
+      } else {
+        document.getElementById('patchRunHistory').innerHTML = '<div class="empty">暂无 patch run history</div>';
+      }
+
+      var prs = pm.patchRunSummary || null;
+      if (prs && prs.total != null) {
+        var byResult = prs.byResult || [];
+        var byFamily = prs.byFamily || [];
+        var last24h = prs.last24hByResult || [];
+        var html = '';
+        html += '<div class="grid grid-4" style="margin-bottom:12px;">';
+        html += '<div class="metric"><div class="label">Total Runs</div><div class="value">' + esc(String(prs.total)) + '</div></div>';
+        html += '<div class="metric"><div class="label">Last 24h</div><div class="value">' + esc(String(prs.last24hCount || 0)) + '</div></div>';
+        html += '</div>';
+        html += '<div style="margin-bottom:10px;"><strong>By Result</strong></div>';
+        html += byResult.length ? tableHTML(
+          ['Result', 'Count'],
+          byResult.map(function(item) { return [esc(item.result || '-'), String(item.count || 0)]; })
+        ) : '<div class="empty">暂无 result 分布</div>';
+        html += '<div style="margin:12px 0 10px;"><strong>Last 24h By Result</strong></div>';
+        html += last24h.length ? tableHTML(
+          ['Result', 'Count'],
+          last24h.map(function(item) { return [esc(item.result || '-'), String(item.count || 0)]; })
+        ) : '<div class="empty">最近 24h 暂无记录</div>';
+        html += '<div style="margin:12px 0 10px;"><strong>Top Families</strong></div>';
+        html += byFamily.length ? tableHTML(
+          ['Family', 'Count'],
+          byFamily.map(function(item) { return ['<code>' + esc(item.family || '-') + '</code>', String(item.count || 0)]; })
+        ) : '<div class="empty">暂无 family 分布</div>';
+        document.getElementById('patchRunSummary').innerHTML = html;
+      } else {
+        document.getElementById('patchRunSummary').innerHTML = '<div class="empty">暂无 patch run summary</div>';
+      }
+
+      var paq = pm.patchApprovalQueue || [];
+      if (paq.length > 0) {
+        document.getElementById('patchApprovalQueue').innerHTML = tableHTML(
+          ['Family', 'Latest', 'Runs', 'Draft'],
+          paq.map(function(item) {
+            return [
+              '<code>' + esc(item.family || '-') + '</code>',
+              esc(item.latestResult || '-'),
+              String(item.totalRuns || 0),
+              esc(item.file || '-')
+            ];
+          })
+        );
+      } else {
+        document.getElementById('patchApprovalQueue').innerHTML = '<div class="empty">暂无 approval queue</div>';
+      }
+
+      var peg = pm.patchEscalations || [];
+      if (peg.length > 0) {
+        document.getElementById('patchEscalations').innerHTML = tableHTML(
+          ['Priority', 'Family', 'Latest', 'Runs', 'Recommendation'],
+          peg.map(function(item) {
+            var pColor = item.priority === 'P0' ? 'var(--rust)' : item.priority === 'P1' ? 'var(--amber)' : 'var(--accent)';
+            return [
+              '<span class="pill" style="border-color:' + pColor + ';color:' + pColor + ';">' + esc(item.priority || '-') + '</span>',
+              '<code>' + esc(item.family || '-') + '</code>',
+              esc(item.latestResult || '-'),
+              String(item.totalRuns || 0),
+              esc(item.recommendation || '-')
+            ];
+          })
+        );
+      } else {
+        document.getElementById('patchEscalations').innerHTML = '<div class="empty">暂无 escalation queue</div>';
       }
 
       // Data window indicator — show the time range of the records so
@@ -844,10 +1299,52 @@ tr.drawer-row > td {
         });
         trendHTML += '</div>';
       }
+      var previewFailStages = pm.previewThenFailedByStage || [];
+      if (previewFailStages.length > 0) {
+        trendHTML += '<div style="font-size:12px;color:var(--ink-3);margin:14px 0 10px;font-weight:500;">预览后失败 Stage</div>';
+        trendHTML += '<div class="barcharts">';
+        var pfMax = previewFailStages[0].count || 1;
+        previewFailStages.forEach(function(item) {
+          var pct = pfMax > 0 ? Math.round(item.count / pfMax * 100) : 0;
+          trendHTML += '<div class="barchart-row">';
+          trendHTML += '<div class="head"><span class="lbl">' + item.stage + '</span><span class="qty">' + item.count + ' × · ' + item.pct + '</span></div>';
+          trendHTML += '<div class="bar"><div style="background:var(--plum);width:' + pct + '%;"></div></div>';
+          trendHTML += '</div>';
+        });
+        trendHTML += '</div>';
+      }
+      var retryWasteStages = pm.retryWasteByStage || [];
+      if (retryWasteStages.length > 0) {
+        trendHTML += '<div style="font-size:12px;color:var(--ink-3);margin:14px 0 10px;font-weight:500;">估算重试浪费时间</div>';
+        trendHTML += '<div class="barcharts">';
+        var rwMax = parseFloat(retryWasteStages[0].minutes) || 1;
+        retryWasteStages.slice(0, 5).forEach(function(item) {
+          var mins = parseFloat(item.minutes) || 0;
+          var pct = rwMax > 0 ? Math.round(mins / rwMax * 100) : 0;
+          trendHTML += '<div class="barchart-row">';
+          trendHTML += '<div class="head"><span class="lbl">' + item.stage + '</span><span class="qty">' + item.minutes + ' min</span></div>';
+          trendHTML += '<div class="bar"><div style="background:var(--amber);width:' + pct + '%;"></div></div>';
+          trendHTML += '</div>';
+        });
+        trendHTML += '</div>';
+      }
       document.getElementById('pipelineTrend').innerHTML = trendHTML || '<div class="empty">需要 10+ 次运行后显示趋势</div>';
 
     } else {
       document.getElementById('pipelineTopStats').innerHTML = statCard('-', '总运行次数', 'gray', '尚无 Pipeline 运行数据');
+      document.getElementById('nightMonitorStats').innerHTML = '<div class="empty">night monitor 暂无数据</div>';
+      document.getElementById('nightMonitorMeta').innerHTML = '';
+      document.getElementById('nightMonitorActivity').innerHTML = '<div class="empty">night monitor 暂无数据</div>';
+      document.getElementById('nightMonitorTopStuck').innerHTML = '<div class="empty">night monitor 暂无数据</div>';
+      document.getElementById('nightMonitorRecoveryRate').innerHTML = '<div class="empty">night monitor 暂无数据</div>';
+      document.getElementById('failureFamilies').innerHTML = '<div class="empty">Pipeline 运行后将自动采集数据</div>';
+      document.getElementById('wasteByFamily').innerHTML = '<div class="empty">Pipeline 运行后将自动采集数据</div>';
+      document.getElementById('nonConvergingFamilies').innerHTML = '<div class="empty">Pipeline 运行后将自动采集数据</div>';
+      document.getElementById('familyPlaybook').innerHTML = '<div class="empty">Pipeline 运行后将自动采集数据</div>';
+      document.getElementById('familyDraftCoverage').innerHTML = '<div class="empty">Pipeline 运行后将自动采集数据</div>';
+      document.getElementById('familyPriorityQueue').innerHTML = '<div class="empty">Pipeline 运行后将自动采集数据</div>';
+      document.getElementById('governanceDraftQueue').innerHTML = '<div class="empty">Pipeline 运行后将自动采集数据</div>';
+      document.getElementById('implementationPlanQueue').innerHTML = '<div class="empty">Pipeline 运行后将自动采集数据</div>';
       document.getElementById('failureHotspots').innerHTML = '<div class="empty">Pipeline 运行后将自动采集数据</div>';
       document.getElementById('stagePassRates').innerHTML = '<div class="empty">Pipeline 运行后将自动采集数据</div>';
       document.getElementById('topFailReasons').innerHTML = '<div class="empty">Pipeline 运行后将自动采集数据</div>';

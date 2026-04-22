@@ -1,0 +1,357 @@
+{
+  "updatedAt": "2026-04-22T05:04:56.659Z",
+  "items": [
+    {
+      "id": "65fd04921c84",
+      "runId": "draft-run-de476b5e0f",
+      "family": "infra.schema_backend",
+      "result": "skipped",
+      "executedAt": "2026-04-22T05:04:56.659Z",
+      "file": "entries/draft-run-de476b5e0f-65fd04921c84.json"
+    },
+    {
+      "id": "9cbd5a6c8348",
+      "runId": "draft-run-d6c6d46fd3",
+      "family": "codegen.marker_coverage",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T05:04:56.658Z",
+      "file": "entries/draft-run-d6c6d46fd3-9cbd5a6c8348.json"
+    },
+    {
+      "id": "465ef22f7a37",
+      "runId": "draft-run-7dc119c07b",
+      "family": "method_check.partial_visibility",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T05:04:56.658Z",
+      "file": "entries/draft-run-7dc119c07b-465ef22f7a37.json"
+    },
+    {
+      "id": "7ddc5d0542a6",
+      "runId": "draft-run-4341237eb7",
+      "family": "review.nonconverging_structural",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T05:04:56.654Z",
+      "file": "entries/draft-run-4341237eb7-7ddc5d0542a6.json"
+    },
+    {
+      "id": "13bad1bc4491",
+      "runId": "draft-run-de476b5e0f",
+      "family": "infra.schema_backend",
+      "result": "skipped",
+      "executedAt": "2026-04-22T04:43:31.773Z",
+      "file": "entries/draft-run-de476b5e0f-13bad1bc4491.json"
+    },
+    {
+      "id": "a50142fe54ee",
+      "runId": "draft-run-d6c6d46fd3",
+      "family": "codegen.marker_coverage",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T04:43:31.773Z",
+      "file": "entries/draft-run-d6c6d46fd3-a50142fe54ee.json"
+    },
+    {
+      "id": "f6ed27542347",
+      "runId": "draft-run-7dc119c07b",
+      "family": "method_check.partial_visibility",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T04:43:31.770Z",
+      "file": "entries/draft-run-7dc119c07b-f6ed27542347.json"
+    },
+    {
+      "id": "e2216b463307",
+      "runId": "draft-run-4341237eb7",
+      "family": "review.nonconverging_structural",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T04:43:31.770Z",
+      "file": "entries/draft-run-4341237eb7-e2216b463307.json"
+    },
+    {
+      "id": "a5af6d6b3dd3",
+      "runId": "draft-run-de476b5e0f",
+      "family": "infra.schema_backend",
+      "result": "skipped",
+      "executedAt": "2026-04-22T04:39:16.457Z",
+      "file": "entries/draft-run-de476b5e0f-a5af6d6b3dd3.json"
+    },
+    {
+      "id": "f8d0f3081b1d",
+      "runId": "draft-run-d6c6d46fd3",
+      "family": "codegen.marker_coverage",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T04:39:16.453Z",
+      "file": "entries/draft-run-d6c6d46fd3-f8d0f3081b1d.json"
+    },
+    {
+      "id": "0f6245dc56cd",
+      "runId": "draft-run-7dc119c07b",
+      "family": "method_check.partial_visibility",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T04:39:16.451Z",
+      "file": "entries/draft-run-7dc119c07b-0f6245dc56cd.json"
+    },
+    {
+      "id": "ca5ac29d3396",
+      "runId": "draft-run-4341237eb7",
+      "family": "review.nonconverging_structural",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T04:39:16.449Z",
+      "file": "entries/draft-run-4341237eb7-ca5ac29d3396.json"
+    },
+    {
+      "id": "3de26c1ff832",
+      "runId": "draft-run-de476b5e0f",
+      "family": "infra.schema_backend",
+      "result": "skipped",
+      "executedAt": "2026-04-22T04:11:56.225Z",
+      "file": "entries/draft-run-de476b5e0f-3de26c1ff832.json"
+    },
+    {
+      "id": "a6005187b0dc",
+      "runId": "draft-run-d6c6d46fd3",
+      "family": "codegen.marker_coverage",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T04:11:56.224Z",
+      "file": "entries/draft-run-d6c6d46fd3-a6005187b0dc.json"
+    },
+    {
+      "id": "5121d579fb7e",
+      "runId": "draft-run-7dc119c07b",
+      "family": "method_check.partial_visibility",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T04:11:56.224Z",
+      "file": "entries/draft-run-7dc119c07b-5121d579fb7e.json"
+    },
+    {
+      "id": "6ff199a984bd",
+      "runId": "draft-run-4341237eb7",
+      "family": "review.nonconverging_structural",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T04:11:56.223Z",
+      "file": "entries/draft-run-4341237eb7-6ff199a984bd.json"
+    },
+    {
+      "id": "1db6273861eb",
+      "runId": "draft-run-de476b5e0f",
+      "family": "infra.schema_backend",
+      "result": "skipped",
+      "executedAt": "2026-04-22T03:41:56.076Z",
+      "file": "entries/draft-run-de476b5e0f-1db6273861eb.json"
+    },
+    {
+      "id": "f57965e701aa",
+      "runId": "draft-run-d6c6d46fd3",
+      "family": "codegen.marker_coverage",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T03:41:56.076Z",
+      "file": "entries/draft-run-d6c6d46fd3-f57965e701aa.json"
+    },
+    {
+      "id": "50b253168a7a",
+      "runId": "draft-run-7dc119c07b",
+      "family": "method_check.partial_visibility",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T03:41:56.075Z",
+      "file": "entries/draft-run-7dc119c07b-50b253168a7a.json"
+    },
+    {
+      "id": "41c86bde48dd",
+      "runId": "draft-run-4341237eb7",
+      "family": "review.nonconverging_structural",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T03:41:56.075Z",
+      "file": "entries/draft-run-4341237eb7-41c86bde48dd.json"
+    },
+    {
+      "id": "aae87bcd2d9a",
+      "runId": "draft-run-de476b5e0f",
+      "family": "infra.schema_backend",
+      "result": "skipped",
+      "executedAt": "2026-04-22T03:41:24.700Z",
+      "file": "entries/draft-run-de476b5e0f-aae87bcd2d9a.json"
+    },
+    {
+      "id": "6ba0e0e0bab5",
+      "runId": "draft-run-d6c6d46fd3",
+      "family": "codegen.marker_coverage",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T03:41:24.699Z",
+      "file": "entries/draft-run-d6c6d46fd3-6ba0e0e0bab5.json"
+    },
+    {
+      "id": "42497f225a98",
+      "runId": "draft-run-7dc119c07b",
+      "family": "method_check.partial_visibility",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T03:41:24.699Z",
+      "file": "entries/draft-run-7dc119c07b-42497f225a98.json"
+    },
+    {
+      "id": "d40b43e206a0",
+      "runId": "draft-run-4341237eb7",
+      "family": "review.nonconverging_structural",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T03:41:24.698Z",
+      "file": "entries/draft-run-4341237eb7-d40b43e206a0.json"
+    },
+    {
+      "id": "79dd69d52d60",
+      "runId": "draft-run-de476b5e0f",
+      "family": "infra.schema_backend",
+      "result": "skipped",
+      "executedAt": "2026-04-22T03:40:33.969Z",
+      "file": "entries/draft-run-de476b5e0f-79dd69d52d60.json"
+    },
+    {
+      "id": "d21290e10da6",
+      "runId": "draft-run-d6c6d46fd3",
+      "family": "codegen.marker_coverage",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T03:40:33.968Z",
+      "file": "entries/draft-run-d6c6d46fd3-d21290e10da6.json"
+    },
+    {
+      "id": "bbc39a102c57",
+      "runId": "draft-run-7dc119c07b",
+      "family": "method_check.partial_visibility",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T03:40:33.967Z",
+      "file": "entries/draft-run-7dc119c07b-bbc39a102c57.json"
+    },
+    {
+      "id": "08dd870a6260",
+      "runId": "draft-run-4341237eb7",
+      "family": "review.nonconverging_structural",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T03:40:33.965Z",
+      "file": "entries/draft-run-4341237eb7-08dd870a6260.json"
+    },
+    {
+      "id": "5a9da8c05b82",
+      "runId": "draft-run-de476b5e0f",
+      "family": "infra.schema_backend",
+      "result": "skipped",
+      "executedAt": "2026-04-22T03:36:28.734Z",
+      "file": "entries/draft-run-de476b5e0f-5a9da8c05b82.json"
+    },
+    {
+      "id": "730458230c07",
+      "runId": "draft-run-d6c6d46fd3",
+      "family": "codegen.marker_coverage",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T03:36:28.733Z",
+      "file": "entries/draft-run-d6c6d46fd3-730458230c07.json"
+    },
+    {
+      "id": "0f38e6f4669b",
+      "runId": "draft-run-7dc119c07b",
+      "family": "method_check.partial_visibility",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T03:36:28.731Z",
+      "file": "entries/draft-run-7dc119c07b-0f38e6f4669b.json"
+    },
+    {
+      "id": "719e20c84648",
+      "runId": "draft-run-4341237eb7",
+      "family": "review.nonconverging_structural",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T03:36:28.730Z",
+      "file": "entries/draft-run-4341237eb7-719e20c84648.json"
+    },
+    {
+      "id": "d91a930d9ed3",
+      "runId": "draft-run-de476b5e0f",
+      "family": "infra.schema_backend",
+      "result": "skipped",
+      "executedAt": "2026-04-22T03:28:21.425Z",
+      "file": "entries/draft-run-de476b5e0f-d91a930d9ed3.json"
+    },
+    {
+      "id": "db576a613444",
+      "runId": "draft-run-d6c6d46fd3",
+      "family": "codegen.marker_coverage",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T03:28:21.425Z",
+      "file": "entries/draft-run-d6c6d46fd3-db576a613444.json"
+    },
+    {
+      "id": "561ad8ad62e9",
+      "runId": "draft-run-7dc119c07b",
+      "family": "method_check.partial_visibility",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T03:28:21.425Z",
+      "file": "entries/draft-run-7dc119c07b-561ad8ad62e9.json"
+    },
+    {
+      "id": "5808c0536bcd",
+      "runId": "draft-run-4341237eb7",
+      "family": "review.nonconverging_structural",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T03:28:21.424Z",
+      "file": "entries/draft-run-4341237eb7-5808c0536bcd.json"
+    },
+    {
+      "id": "0d9803def279",
+      "runId": "draft-run-de476b5e0f",
+      "family": "infra.schema_backend",
+      "result": "skipped",
+      "executedAt": "2026-04-22T02:58:21.271Z",
+      "file": "entries/draft-run-de476b5e0f-0d9803def279.json"
+    },
+    {
+      "id": "f5810b7ab043",
+      "runId": "draft-run-d6c6d46fd3",
+      "family": "codegen.marker_coverage",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T02:58:21.271Z",
+      "file": "entries/draft-run-d6c6d46fd3-f5810b7ab043.json"
+    },
+    {
+      "id": "06009ec6e0ef",
+      "runId": "draft-run-7dc119c07b",
+      "family": "method_check.partial_visibility",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T02:58:21.270Z",
+      "file": "entries/draft-run-7dc119c07b-06009ec6e0ef.json"
+    },
+    {
+      "id": "6eb386fd9d16",
+      "runId": "draft-run-4341237eb7",
+      "family": "review.nonconverging_structural",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T02:58:21.270Z",
+      "file": "entries/draft-run-4341237eb7-6eb386fd9d16.json"
+    },
+    {
+      "id": "d985e29b5722",
+      "runId": "draft-run-de476b5e0f",
+      "family": "infra.schema_backend",
+      "result": "skipped",
+      "executedAt": "2026-04-22T02:58:20.685Z",
+      "file": "entries/draft-run-de476b5e0f-d985e29b5722.json"
+    },
+    {
+      "id": "7e7499062536",
+      "runId": "draft-run-d6c6d46fd3",
+      "family": "codegen.marker_coverage",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T02:58:20.685Z",
+      "file": "entries/draft-run-d6c6d46fd3-7e7499062536.json"
+    },
+    {
+      "id": "dc7a5aa603d4",
+      "runId": "draft-run-7dc119c07b",
+      "family": "method_check.partial_visibility",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T02:58:20.685Z",
+      "file": "entries/draft-run-7dc119c07b-dc7a5aa603d4.json"
+    },
+    {
+      "id": "9563c023f00a",
+      "runId": "draft-run-4341237eb7",
+      "family": "review.nonconverging_structural",
+      "result": "verified-covered",
+      "executedAt": "2026-04-22T02:58:20.682Z",
+      "file": "entries/draft-run-4341237eb7-9563c023f00a.json"
+    }
+  ]
+}

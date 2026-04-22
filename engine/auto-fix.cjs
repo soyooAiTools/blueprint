@@ -23,6 +23,7 @@
 var fs = require('fs');
 var path = require('path');
 var crypto = require('crypto');
+var os = require('os');
 var { execSync } = require('child_process');
 var { loadRecipes, bindKnowledge, findAutoFixRecipe } = require('./failure-fingerprint.cjs');
 var archiveWriter;
@@ -33,7 +34,11 @@ var REPO_ROOT = path.join(__dirname, '..');
 var RECIPES_FILE = path.join(REPO_ROOT, 'worker', 'fix-recipes.json');
 var STATE_FILE = path.join(REPO_ROOT, 'server-data', 'auto-fix-state.json');
 var BACKUP_ROOT = path.join(REPO_ROOT, 'server-data', 'auto-fix-backups');
-var MEMORY_DIR = '/root/.claude/projects/-root/memory';
+var CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
+var MEMORY_DIR_LEGACY = path.join(os.homedir(), '.claude', 'projects', '-root', 'memory');
+var MEMORY_DIR = fs.existsSync(path.join(CODEX_HOME, 'projects', '-root', 'memory'))
+  ? path.join(CODEX_HOME, 'projects', '-root', 'memory')
+  : MEMORY_DIR_LEGACY;
 var MEMORY_INDEX = path.join(MEMORY_DIR, 'MEMORY.md');
 var COOLDOWN_MS = 60 * 60 * 1000; // 1h per fingerprint
 var MAX_PER_CYCLE = 2;
@@ -43,7 +48,7 @@ var MAX_RECIPE_APPLIES = 3; // same recipe applied 3× without resolving → man
 var _runner = null;
 function getRunner() {
   if (_runner) return _runner;
-  try { _runner = require(path.join(REPO_ROOT, 'worker', 'claude-code-coder.js')).runClaudeCodeText; }
+  try { _runner = require(path.join(REPO_ROOT, 'worker', 'codex-coder.js')).runCodexText; }
   catch(e) { _runner = null; }
   return _runner;
 }
@@ -210,8 +215,8 @@ async function applyRecipe(fingerprintId) {
 
   var runner = getRunner();
   if (!runner) {
-    try { archiveWriter.writeAutoFixAttempt({ recipeId: recipe.id, fingerprint: fingerprintId, outcome: 'runner-unavailable', error: 'runClaudeCodeText unavailable' }); } catch(e) {}
-    return { ok: false, error: 'runClaudeCodeText unavailable' };
+    try { archiveWriter.writeAutoFixAttempt({ recipeId: recipe.id, fingerprint: fingerprintId, outcome: 'runner-unavailable', error: 'runCodexText unavailable' }); } catch(e) {}
+    return { ok: false, error: 'runCodexText unavailable' };
   }
 
   // Read affected files and embed in prompt (no Read tool needed)
@@ -423,7 +428,7 @@ async function applyRecipe(fingerprintId) {
 
 async function generateRecipe(fingerprint, context) {
   var runner = getRunner();
-  if (!runner) return { ok: false, error: 'runClaudeCodeText unavailable' };
+  if (!runner) return { ok: false, error: 'runCodexText unavailable' };
 
   var id = 'auto-' + fpHash(fingerprint);
   context = context || {};
@@ -435,7 +440,8 @@ async function generateRecipe(fingerprint, context) {
     '- engine/pipeline.cjs — 8-stage orchestrator',
     '- engine/stages/compile.cjs, static-check.cjs, visual-check.cjs, cua-verify.cjs, spec-validate.cjs',
     '- engine/recode.cjs — patch recode',
-    '- worker/claude-code-coder.js — CC CLI spawn',
+    '- worker/codex-coder.js — unified Codex entry',
+    '- worker/codex-code-coder.js — Codex code worker implementation',
     '- worker/worker-coder.js — legacy coder',
     '- lib/model-provider.cjs — LLM providers',
     '- .env, worker/.env — config',
@@ -546,6 +552,7 @@ async function generateRecipe(fingerprint, context) {
 
 function autoLearn(fingerprint, recipe, applyResult) {
   try {
+    fs.mkdirSync(MEMORY_DIR, { recursive: true });
     var id = recipe.id || recipe;
     var safeName = 'autofix_' + String(id).replace(/[^a-z0-9_-]/gi, '_');
     var memFile = safeName + '.md';

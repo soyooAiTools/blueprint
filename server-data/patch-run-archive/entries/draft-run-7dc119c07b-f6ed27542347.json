@@ -1,0 +1,30 @@
+{
+  "id": "f6ed27542347",
+  "runId": "draft-run-7dc119c07b",
+  "family": "method_check.partial_visibility",
+  "priority": "P1",
+  "status": "verified-covered",
+  "executionMode": "auto-patch-candidate",
+  "executedAt": "2026-04-22T04:43:31.770Z",
+  "result": "verified-covered",
+  "passCount": 3,
+  "totalChecks": 3,
+  "patchedFiles": [],
+  "blockingReason": null,
+  "primaryTarget": "/opt/blueprint-editor/engine/stages/method-check.cjs",
+  "linkedPatchTask": "draft-patch-7dc119c07b",
+  "checks": [
+    {
+      "name": "reads-extra-files",
+      "pass": true
+    },
+    {
+      "name": "aggregates-extra-files",
+      "pass": true
+    },
+    {
+      "name": "ignores-comment-ghosts",
+      "pass": true
+    }
+  ]
+}

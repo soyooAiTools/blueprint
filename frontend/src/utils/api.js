@@ -71,6 +71,13 @@ export async function fetchProjects() {
   return request('/projects');
 }
 
+export async function fetchTasks(limit) {
+  await migrateIfNeeded();
+  var suffix = '';
+  if (typeof limit === 'number' && limit > 0) suffix = '?limit=' + limit;
+  return request('/tasks' + suffix);
+}
+
 export async function createProject(name, svnUrl, engine) {
   return request('/projects', { method: 'POST', body: JSON.stringify({ name, svnUrl, engine }) });
 }

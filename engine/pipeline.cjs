@@ -93,6 +93,7 @@ function PipelineContext(task, checkpoint, workerConfig) {
   this.stageResults = {};
   this.lastStageError = null;
   this.log = [];
+  this.previewReadyAt = (checkpoint && checkpoint.previewReadyAt) || null;
 }
 
 PipelineContext.prototype.addLog = function(stage, message) {
@@ -115,6 +116,7 @@ PipelineContext.prototype.saveCheckpointData = function() {
     stageResults: this.stageResults,
     cuaRound: this.checkpoint.cuaRound || 0,
     fixHistory: this.checkpoint.fixHistory || [],
+    previewReadyAt: this.previewReadyAt || null,
   };
 };
 
@@ -122,6 +124,9 @@ PipelineContext.prototype.saveCheckpointData = function() {
  * Report task status to blueprint server (convenience method for stages)
  */
 PipelineContext.prototype.reportStatus = function(status, extra) {
+  if (status === 'preview_ready' && !this.previewReadyAt) {
+    this.previewReadyAt = Date.now();
+  }
   return helpers.reportStatus(
     this.workerConfig.baseUrl,
     this.workerConfig.workerId,
@@ -299,6 +304,7 @@ Pipeline.prototype.run = function(ctx, onProgress) {
 
     var maxAttempts = stage.canRetry ? (stage.maxRetries || self.maxRetries) : 1;
     var attempt = 0;
+    var stageStartAt = Date.now();
 
     function tryExecute() {
       attempt++;
@@ -328,7 +334,11 @@ Pipeline.prototype.run = function(ctx, onProgress) {
       return Promise.resolve().then(function() {
         return stage.execute(ctx);
       }).then(function(result) {
-        ctx.stageResults[stage.name] = result;
+        var stageResult = (result && typeof result === 'object') ? Object.assign({}, result) : { value: result };
+        stageResult.durationMs = Date.now() - stageStartAt;
+        if (stageResult.rounds == null) stageResult.rounds = attempt;
+        if (stageResult.passed == null) stageResult.passed = true;
+        ctx.stageResults[stage.name] = stageResult;
         ctx.completedStages.push(stage.name);
         ctx.lastStageError = null;
         ctx.addLog(stage.name, 'completed');
@@ -393,6 +403,14 @@ Pipeline.prototype.run = function(ctx, onProgress) {
               archiveWriter.writeModelFatal(err, { taskId: ctx.taskId, stage: ctx._failedAtStage, attempt: attempt });
             } catch(awErr) { ctx.addLog(stage.name, 'archive-writer MODEL_FATAL (final) failed: ' + awErr.message); }
           }
+        }
+        if (!ctx.stageResults[stage.name]) {
+          ctx.stageResults[stage.name] = {
+            durationMs: Date.now() - stageStartAt,
+            rounds: attempt,
+            passed: false,
+            error: rootReason,
+          };
         }
         if (!ctx._metricsRecorded) {
           try { recordPipelineMetrics(ctx, ctx.stageResults); ctx._metricsRecorded = true; } catch(e) { ctx.addLog(stage.name, 'Metrics recording failed: ' + e.message); }

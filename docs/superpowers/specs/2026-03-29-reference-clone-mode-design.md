@@ -267,7 +267,7 @@ data: {"stage":"done","blueprint":{...}}
 
 **复用的部分 (不需修改):**
 - V4 blueprint schema 和编辑器
-- Claude Code 代码生成 (`claude-code-coder.js`)
+- Codex 代码生成（现实现 `codex-code-coder.js`，并保留 legacy shim 兼容旧调用点）
 - Bridge.NET 编译验证
 - CUA 自动验收 (`worker-cua-verify.js`)
 - 代码审查 (`code-reviewer.js`)

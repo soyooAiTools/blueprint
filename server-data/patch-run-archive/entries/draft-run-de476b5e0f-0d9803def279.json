@@ -1,0 +1,17 @@
+{
+  "id": "0d9803def279",
+  "runId": "draft-run-de476b5e0f",
+  "family": "infra.schema_backend",
+  "priority": "P0",
+  "status": "awaiting-approval",
+  "executionMode": "manual-guarded",
+  "executedAt": "2026-04-22T02:58:21.271Z",
+  "result": "skipped",
+  "passCount": null,
+  "totalChecks": null,
+  "patchedFiles": [],
+  "blockingReason": "Execution mode requires guarded/manual review before code mutation.",
+  "primaryTarget": "/opt/blueprint-editor/engine/stages/codegen-schema.cjs",
+  "linkedPatchTask": "draft-patch-de476b5e0f",
+  "checks": []
+}

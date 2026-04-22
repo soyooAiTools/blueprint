@@ -9,6 +9,23 @@ var path = require('path');
 
 var METRICS_DIR = path.join(__dirname, '..', 'server-data', 'metrics');
 var METRICS_FILE = path.join(METRICS_DIR, 'pipeline-metrics.jsonl');
+var BASELINE_FILE = path.join(METRICS_DIR, 'baseline.json');
+
+function readBaselineMeta() {
+  try {
+    if (!fs.existsSync(BASELINE_FILE)) return null;
+    return JSON.parse(fs.readFileSync(BASELINE_FILE, 'utf-8'));
+  } catch(e) {
+    return null;
+  }
+}
+
+function writeBaselineMeta(meta) {
+  try {
+    fs.mkdirSync(METRICS_DIR, { recursive: true });
+  } catch(e) {}
+  fs.writeFileSync(BASELINE_FILE, JSON.stringify(meta || {}, null, 2) + '\n');
+}
 
 function recordPipelineMetrics(ctx, stageResults) {
   try { fs.mkdirSync(METRICS_DIR, { recursive: true }); } catch(e) {}
@@ -17,6 +34,11 @@ function recordPipelineMetrics(ctx, stageResults) {
     taskId: ctx.taskId,
     timestamp: new Date().toISOString(),
     totalDurationMs: Date.now() - (ctx._pipelineStartTime || Date.now()),
+    hadPreviewReady: !!ctx.previewReadyAt,
+    timeToFirstPreviewMs: ctx.previewReadyAt && ctx._pipelineStartTime
+      ? Math.max(0, ctx.previewReadyAt - ctx._pipelineStartTime)
+      : null,
+    previewUrl: ctx.previewUrl || null,
     success: !ctx._pipelineError,
     failedAtStage: ctx._failedAtStage || null,
     failReason: ctx._failReason ? ctx._failReason.substring(0, 500) : null,
@@ -289,9 +311,68 @@ function dataWindow(records) {
   return { from: from, to: to };
 }
 
+function classifyFailureFamily(record) {
+  var stage = String(record && record.failedAtStage || 'unknown');
+  var raw = String(record && (record.failReason || '') || '');
+  var fp = normalizeFingerprint(raw, { stage: stage });
+  var hay = (stage + ' ' + raw + ' ' + fp).toLowerCase();
+
+  if (/econnreset|request timed out|unable to connect to api|schema generation failed/.test(hay)) {
+    return 'infra.schema_backend';
+  }
+  if (/template marker coverage failed|missing skeleton markers/.test(hay)) {
+    return 'codegen.marker_coverage';
+  }
+  if (/trigger should have required property .type.|trigger should not have additional properties|invalid trigger shape/.test(hay)) {
+    return 'schema.invalid_trigger_shape';
+  }
+  if (/method completeness failed|missing methods:/.test(hay)) {
+    return 'method_check.partial_visibility';
+  }
+  if (/same code error repeated|fix-loop not converging|review aborted/.test(hay)) {
+    return 'review.nonconverging_structural';
+  }
+  if (/main-file-reintroduced-phase-logic/.test(hay)) {
+    return 'review.main_file_reintroduced_phase_logic';
+  }
+  if (/forbidden-init-material-from-scene/.test(hay)) {
+    return 'review.forbidden_init_material_from_scene';
+  }
+  if (/phase-condition-false-literal/.test(hay)) {
+    return 'review.phase_condition_false_literal';
+  }
+  if (/visual freeze|screenshot sharing|batch completion|pre-contamination/.test(hay)) {
+    return 'cua.observe_protocol';
+  }
+  if (/time limit exceeded|no progress timeout|stuck phase|stuck-processing|stuck-review/.test(hay)) {
+    return 'monitor.stuck_or_timeout';
+  }
+  if (/expected ',' or '}' after property value|bad_simplify_json|auto-simplifying/.test(hay)) {
+    return 'complexity_gate.bad_simplify_json';
+  }
+  if (/silent-pass-block/.test(hay)) {
+    return 'cua.silent_pass';
+  }
+  if (/model_fatal/.test(hay)) {
+    return 'infra.model_fatal';
+  }
+  if (/review/.test(stage)) return 'review.other';
+  if (/cua-verify/.test(stage)) return 'cua.other';
+  if (/codegen|method-check|spec-validate|complexity-gate/.test(stage)) return 'generation.other';
+  return 'unknown';
+}
+
 function getMetricsSummary(lastN) {
   var records = loadRecords(lastN);
-  if (records.length === 0) return { totalRuns: 0, message: 'No metrics data yet. Run a pipeline to start collecting.' };
+  var baseline = readBaselineMeta();
+  if (records.length === 0) {
+    return {
+      totalRuns: 0,
+      baselineStartedAt: baseline && baseline.startedAt || null,
+      baselineReason: baseline && baseline.reason || null,
+      message: 'No metrics data yet. Run a pipeline to start collecting.'
+    };
+  }
 
   var successCount = records.filter(function(r) { return r.success; }).length;
   var failedRecords = records.filter(function(r) { return !r.success; });
@@ -302,18 +383,82 @@ function getMetricsSummary(lastN) {
     successCount: successCount,
     failCount: failedRecords.length,
     avgDurationMin: (records.reduce(function(a, r) { return a + (r.totalDurationMs || 0); }, 0) / records.length / 60000).toFixed(1),
+    avgTimeToFinalVerdictMin: (records.reduce(function(a, r) { return a + (r.totalDurationMs || 0); }, 0) / records.length / 60000).toFixed(1),
     stageAvgRounds: {},
+    baselineStartedAt: baseline && baseline.startedAt || null,
+    baselineReason: baseline && baseline.reason || null,
   };
+
+  var retryWasteMs = 0;
+  var retryWasteByStage = {};
+  records.forEach(function(r) {
+    var stages = r.stages || {};
+    Object.keys(stages).forEach(function(stage) {
+      var sr = stages[stage] || {};
+      var rounds = sr.rounds || 1;
+      var durationMs = sr.durationMs || 0;
+      if (rounds <= 1 || durationMs <= 0) return;
+      var estimatedWaste = durationMs * (rounds - 1) / rounds;
+      retryWasteMs += estimatedWaste;
+      retryWasteByStage[stage] = (retryWasteByStage[stage] || 0) + estimatedWaste;
+    });
+  });
+  summary.avgEstimatedRetryWasteMin = (retryWasteMs / records.length / 60000).toFixed(1);
+  summary.retryWasteByStage = Object.keys(retryWasteByStage)
+    .map(function(stage) {
+      return {
+        stage: stage,
+        minutes: (retryWasteByStage[stage] / 60000).toFixed(1),
+      };
+    })
+    .sort(function(a, b) { return parseFloat(b.minutes) - parseFloat(a.minutes); });
+
+  var previewRecords = records.filter(function(r) {
+    return r.timeToFirstPreviewMs !== null && r.timeToFirstPreviewMs !== undefined;
+  });
+  if (previewRecords.length > 0) {
+    var totalTtfp = previewRecords.reduce(function(a, r) { return a + (r.timeToFirstPreviewMs || 0); }, 0);
+    var previewReadyCount = records.filter(function(r) { return r.hadPreviewReady; }).length;
+    var previewThenFailedCount = records.filter(function(r) { return r.hadPreviewReady && !r.success; }).length;
+    var previewThenFailedByStage = {};
+    records.forEach(function(r) {
+      if (!(r.hadPreviewReady && !r.success)) return;
+      var stage = r.failedAtStage || 'unknown';
+      previewThenFailedByStage[stage] = (previewThenFailedByStage[stage] || 0) + 1;
+    });
+    summary.previewReadyRate = (previewReadyCount / records.length * 100).toFixed(1) + '%';
+    summary.avgTimeToFirstPreviewMin = (totalTtfp / previewRecords.length / 60000).toFixed(1);
+    summary.previewThenFailedCount = previewThenFailedCount;
+    summary.previewThenFailedRate = previewReadyCount > 0
+      ? (previewThenFailedCount / previewReadyCount * 100).toFixed(1) + '%'
+      : '0.0%';
+    summary.previewThenFailedByStage = Object.keys(previewThenFailedByStage)
+      .map(function(stage) {
+        return {
+          stage: stage,
+          count: previewThenFailedByStage[stage],
+          pct: previewThenFailedCount > 0
+            ? (previewThenFailedByStage[stage] / previewThenFailedCount * 100).toFixed(0) + '%'
+            : '0%',
+        };
+      })
+      .sort(function(a, b) { return b.count - a.count; });
+  }
 
   // ---- Failure hotspot: which stage fails most ----
   var stageFailCounts = {};
   var classificationCounts = {};
+  var familyCounts = {};
+  var familyWasteMs = {};
   for (var fi = 0; fi < failedRecords.length; fi++) {
     var fr = failedRecords[fi];
     var fStage = fr.failedAtStage || 'unknown';
     stageFailCounts[fStage] = (stageFailCounts[fStage] || 0) + 1;
     var fClass = fr.failClassification || 'unknown';
     classificationCounts[fClass] = (classificationCounts[fClass] || 0) + 1;
+    var family = classifyFailureFamily(fr);
+    familyCounts[family] = (familyCounts[family] || 0) + 1;
+    familyWasteMs[family] = (familyWasteMs[family] || 0) + (fr.totalDurationMs || 0);
   }
   // Sort by count descending
   summary.failureHotspots = Object.keys(stageFailCounts)
@@ -321,6 +466,23 @@ function getMetricsSummary(lastN) {
     .sort(function(a, b) { return b.count - a.count; });
 
   summary.failureClassifications = classificationCounts;
+  summary.failureFamilies = Object.keys(familyCounts)
+    .map(function(k) {
+      return {
+        family: k,
+        count: familyCounts[k],
+        pct: failedRecords.length > 0 ? (familyCounts[k] / failedRecords.length * 100).toFixed(0) + '%' : '0%',
+      };
+    })
+    .sort(function(a, b) { return b.count - a.count; });
+  summary.wasteByFamily = Object.keys(familyWasteMs)
+    .map(function(k) {
+      return {
+        family: k,
+        minutes: (familyWasteMs[k] / 60000).toFixed(1),
+      };
+    })
+    .sort(function(a, b) { return parseFloat(b.minutes) - parseFloat(a.minutes); });
 
   // ---- Bottleneck: stage with highest avg rounds ----
   var bottleneck = { stage: null, avgRounds: 0 };
@@ -436,6 +598,11 @@ function getMetricsSummary(lastN) {
     if (b.uniqueTasks !== a.uniqueTasks) return b.uniqueTasks - a.uniqueTasks;
     return b.retries - a.retries;
   }).slice(0, 10);
+  summary.repeatedNonConvergingFingerprints = summary.topFailReasons
+    .filter(function(item) {
+      return /same code error repeated|fix-loop not converging|review aborted/i.test(String(item.sampleReason || '') + ' ' + String(item.fingerprint || ''));
+    })
+    .slice(0, 8);
 
   // ---- Data window (helps dashboard call out stale data) ----
   summary.dataWindow = dataWindow(records);
@@ -457,6 +624,18 @@ function printDiagnostics(lastN) {
   console.log('  Total runs:    ' + s.totalRuns);
   console.log('  Success rate:  ' + s.successRate + ' (' + s.successCount + '/' + s.totalRuns + ')');
   console.log('  Avg duration:  ' + s.avgDurationMin + ' min');
+  if (s.avgTimeToFirstPreviewMin) {
+    console.log('  Avg TTFP:      ' + s.avgTimeToFirstPreviewMin + ' min');
+    console.log('  Preview rate:  ' + s.previewReadyRate);
+    console.log('  Preview→Fail:  ' + s.previewThenFailedRate + ' (' + s.previewThenFailedCount + ')');
+    if (s.previewThenFailedByStage && s.previewThenFailedByStage.length > 0) {
+      console.log('  Preview→Fail by stage: ' + s.previewThenFailedByStage.map(function(x) {
+        return x.stage + '=' + x.count;
+      }).join(', '));
+    }
+  }
+  console.log('  Avg TTFV:      ' + s.avgTimeToFinalVerdictMin + ' min');
+  console.log('  Retry waste:   ' + s.avgEstimatedRetryWasteMin + ' min/run');
 
   if (s.bottleneckStage) {
     console.log('  Bottleneck:    ' + s.bottleneckStage.stage + ' (avg ' + s.bottleneckStage.avgRounds + ' rounds)');
@@ -510,8 +689,11 @@ module.exports = {
   getMetricsSummary: getMetricsSummary,
   printDiagnostics: printDiagnostics,
   normalizeFingerprint: normalizeFingerprint,
+  classifyFailureFamily: classifyFailureFamily,
   collapseRepeatedClauses: collapseRepeatedClauses,
   loadRecords: loadRecords,
+  readBaselineMeta: readBaselineMeta,
+  writeBaselineMeta: writeBaselineMeta,
 };
 
 // CLI: node engine/metrics.cjs [lastN]

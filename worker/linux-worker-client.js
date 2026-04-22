@@ -18,12 +18,7 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
-let generateCodeV5; try { generateCodeV5 = require('./worker-coder.js').generateCodeV5; } catch(e) {}
-let generateWithClaudeCode; try { generateWithClaudeCode = require('./claude-code-coder.js').generateWithClaudeCode; } catch(e) {}
 let patchForHeadless; try { patchForHeadless = require('./worker-cua-verify.js').patchForHeadless; } catch(e) {}
-
-// Claude Code 模式开关：设为 true 使用 Claude Code CLI agent，false 使用传统 API 调用
-const USE_CLAUDE_CODE = process.env.USE_CLAUDE_CODE !== 'false'; // 默认开启
 
 // ============ Base Template Cache (avoid repeated git clones) ============
 const TEMPLATE_CACHE_DIR = path.join(require('os').tmpdir(), 'luna-base-cache');
@@ -530,7 +525,7 @@ function reloadEngineModules() {
       delete require.cache[key];
       count++;
     } else if (key.startsWith(workerDir)) {
-      // Pipeline stages require many worker/ modules (claude-code-coder,
+      // Pipeline stages require many worker/ modules (codex-coder,
       // code-reviewer, codex-reviewer, worker-coder, screenshot-review, etc).
       // Without clearing them, edits to those files stay invisible until a
       // pm2 restart — exactly the "stale code" symptom that kept recurring.
@@ -821,7 +816,7 @@ function gracefulShutdown(signal) {
   try { clearInterval(pollTimer); } catch(e) {}
   try { clearInterval(heartbeatTimer); } catch(e) {}
 
-  // Kill all tracked child processes (claude CLI, python CUA, etc.)
+  // Kill all tracked child processes (LLM CLI, python CUA, etc.)
   var allPIDs = new Set(activeChildPIDs);
   if (process._activeChildPIDs) {
     process._activeChildPIDs.forEach(function(p) { allPIDs.add(p); });
@@ -835,7 +830,7 @@ function gracefulShutdown(signal) {
     }
   });
 
-  // Kill entire process tree (children + grandchildren like claude subprocesses)
+  // Kill entire process tree (children + grandchildren like nested CLI subprocesses)
   try {
     var myPid = process.pid;
     var { execSync } = require('child_process');

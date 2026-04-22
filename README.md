@@ -139,7 +139,7 @@ blueprint-editor/
 │   ├── codex-reviewer.js           # Codex 代码审核
 │   ├── prompt-v4.js                # V4 prompt 模板
 │   ├── prompt-v5-basetemplate.js   # V5 Base Template prompt
-│   ├── luna-claude-code.md         # Claude Code Luna 开发规范
+│   ├── luna-codex-code.md          # Codex code runner Luna 开发规范
 │   └── behavior-templates.md       # 行为模板文档
 │
 ├── screenshot-review/              # WebGL 白屏检测
@@ -249,15 +249,15 @@ pm2 start ecosystem.config.cjs
 | `DOUBAO_API_KEY` | 豆包 Key（分镜/Spec） | 可选 |
 | `GEMINI_API_KEY` | Gemini Key（视频分析） | 可选 |
 
-### Claude CLI 认证切换（OAuth ↔ 中转站）
+### CLI 认证切换（OAuth ↔ 中转站）
 
-`worker/claude-code-coder.js` 里的 spawn claude 从 `~/.claude-auth-active.json` 读取当前认证模式，shell 会话与 worker 共用同一个 source of truth。
+`worker/codex-code-coder.js` 里的 CLI spawn 优先从 `CODEX_HOME/auth-active.json` 读取当前认证模式，并兼容回退到旧的 home-level auth 标记文件。
 
 - 文件 shape：`{ "mode": "oauth" }` 或 `{ "mode": "relay", "ANTHROPIC_BASE_URL": "...", "ANTHROPIC_AUTH_TOKEN": "..." }`（权限 `600`）
 - 切换命令（本机 `~/.bashrc` 里的 shell 函数）：
   - `cc-oauth [args...]` — 走官方 OAuth（`CLAUDE_CODE_OAUTH_TOKEN`），同时把 active.json 写成 oauth
   - `cc-relay [args...]` — 走中转站（从 `~/.claude-relay.env` 读 URL+Token），同时把 active.json 写成 relay
-- 生效时机：worker hot-reload 每任务清 require 缓存（见 `worker/linux-worker-client.js` 热更新机制），**无需 `pm2 restart`**，下一个任务 spawn claude 即按新模式（日志里会打 `[claude-auth] mode=oauth|relay`）
+- 生效时机：worker hot-reload 每任务清 require 缓存（见 `worker/linux-worker-client.js` 热更新机制），**无需 `pm2 restart`**，下一个任务 spawn CLI 即按新模式（日志里会打 `[codex-auth] mode=oauth|relay`）
 - 未覆盖：`worker/luna-agent.js` 的直连 Anthropic SDK 仍走 `process.env`，不受此机制控制
 
 ## 运维

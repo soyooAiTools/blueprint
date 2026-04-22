@@ -95,14 +95,22 @@ module.exports.init = function(ctx) {
   }
 
   // 删除项目时清理 autoCoding 队列 + 标记任务取消
-  function cleanupAutoCodingTask(projectId) {
-    try {
+function cleanupAutoCodingTask(projectId) {
+  try {
       taskQueue.cancel(projectId, 'server');
       console.log('[autoCoding] 任务已取消 (SQLite): ' + projectId);
     } catch (e) {
       console.warn('[autoCoding] 清理失败: ' + e.message);
-    }
   }
+}
+
+function inferEntityDisplayName(desc) {
+  var text = String(desc || '').trim();
+  if (!text) return '';
+  var m = text.match(/^([\u4e00-\u9fa5A-Za-z]{2,16}?)(已|可|正在|将|是|会|能|升级|建造|完成|启用|解锁|进入|触发|展示|开始|结束|出现|消失|到达|停止|达到|恢复|被|自动)/);
+  if (m && m[1]) return m[1];
+  return text.length > 12 ? text.slice(0, 12) : text;
+}
 
   return {
     listProjects: function(req, res, body, params) {
@@ -326,6 +334,31 @@ module.exports.init = function(ctx) {
           try { specs = JSON.parse(fs.readFileSync(specFile, 'utf-8')); } catch(e) {}
         }
       }
+      var entityHints = {};
+      var blueprint = project.blueprint || {};
+      var nodes = blueprint.nodes || [];
+      nodes.forEach(function(n) {
+        if (!n || n.type !== 'entityNode') return;
+        var d = n.data || {};
+        var name = d.name || n.id;
+        if (!name) return;
+        var hint = entityHints[name] || { aliases: [] };
+        if (d.chineseName) hint.displayName = d.chineseName;
+        else if (d.showLabel) hint.displayName = d.showLabel;
+        if (d.label && hint.aliases.indexOf(d.label) === -1) hint.aliases.push(d.label);
+        entityHints[name] = hint;
+      });
+      specs.forEach(function(sp) {
+        (sp.entitiesRequired || []).forEach(function(er) {
+          if (!er || !er.name) return;
+          var hint = entityHints[er.name] || { aliases: [] };
+          var inferred = inferEntityDisplayName(er.description);
+          if (!hint.displayName && inferred) hint.displayName = inferred;
+          if (er.description && hint.aliases.indexOf(er.description) === -1) hint.aliases.push(er.description);
+          entityHints[er.name] = hint;
+        });
+      });
+
       // Extract entity→visual mapping from compiled WebGL HTML
       // Two skeleton patterns coexist:
       //   new (>=2026-04-18): GameSceneCtrl.instance.Register("EntityName", "__Pool_Shape_Color_NN")
@@ -344,7 +377,14 @@ module.exports.init = function(ctx) {
             if (skipRe.test(eName)) continue;
             if (seen[eName]) continue;
             seen[eName] = true;
-            entityMap.push({ name: eName, shape: m[3], color: m[4] });
+            var hint = entityHints[eName] || {};
+            entityMap.push({
+              name: eName,
+              shape: m[3],
+              color: m[4],
+              displayName: hint.displayName || '',
+              aliases: hint.aliases || [],
+            });
           }
           var reOld = /this\.(\w+)\s*=\s*UnityEngine\.GameObject\.Find\("(__Pool_(\w+?)_(\w+?)_\d+)"\)/g;
           while ((m = reOld.exec(html)) !== null) {
@@ -352,7 +392,14 @@ module.exports.init = function(ctx) {
             if (skipRe.test(eName2)) continue;
             if (seen[eName2]) continue;
             seen[eName2] = true;
-            entityMap.push({ name: eName2, shape: m[3], color: m[4] });
+            var hint2 = entityHints[eName2] || {};
+            entityMap.push({
+              name: eName2,
+              shape: m[3],
+              color: m[4],
+              displayName: hint2.displayName || '',
+              aliases: hint2.aliases || [],
+            });
           }
         } catch(e) {}
       }

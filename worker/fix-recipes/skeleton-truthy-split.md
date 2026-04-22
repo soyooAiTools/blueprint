@@ -3,7 +3,7 @@
 ## Fingerprint signature
 Error messages like:
 - `TypeError: The "data" argument must be of type string or an instance of Buffer. Received undefined`
-- Originating from `fs.writeFileSync` inside `prepareWorkDir` in `worker/claude-code-coder.js`
+- Originating from `fs.writeFileSync` inside `prepareWorkDir` in `worker/codex-code-coder.js`
 - Often retries 3-4 times within the same second because the throw is synchronous
 
 ## Root cause (known)
@@ -14,7 +14,7 @@ Commit fix: `529136b` (check `typeof skeleton === 'object' && skeleton.split ===
 
 ## Diagnostic steps
 
-1. **Read `claude-code-coder.js` lines 150-200**. Locate the `prepareWorkDir` function's `if (skeleton)` block.
+1. **Read `codex-code-coder.js`**. Locate the `prepareWorkDir` function's `if (skeleton)` block.
 2. Confirm whether line ~162 uses:
    - ❌ `if (skeleton.split)` — bug form, always true on strings
    - ❌ `if (skeleton && skeleton.split)` — still bug form
@@ -53,7 +53,7 @@ node -e "const s='hello'; console.log('.split truthy?', !!s.split, 'typeof objec
 And confirm the repo has the correct check:
 
 ```bash
-grep -n "typeof skeleton === 'object' && skeleton.split === true" /opt/blueprint-editor/worker/claude-code-coder.js
+grep -n "typeof skeleton === 'object' && skeleton.split === true" /opt/blueprint-editor/worker/codex-code-coder.js
 ```
 
 If grep finds it, the code is fixed. If grep returns nothing, apply the patch above.

@@ -18,6 +18,11 @@ const TOPBAR_STATUS_LABELS = {
     color: '#f97316',
     bg: 'rgba(249,115,22,0.15)',
   },
+  preview_ready: {
+    text: '📱 预览已生成，深度验证中...',
+    color: '#06b6d4',
+    bg: 'rgba(6,182,212,0.15)',
+  },
   reviewing: {
     text: '👀 开发完成，请审核',
     color: '#a855f7',
@@ -136,7 +141,7 @@ export default function TopBar({
             style={{ color: statusLabel.color, background: statusLabel.bg }}
           >
             {statusLabel.text}
-            {statusMessage && (projectStatus === 'submitted' || projectStatus === 'building' || projectStatus === 'feedback' || projectStatus === 'failed') && (
+            {statusMessage && (projectStatus === 'submitted' || projectStatus === 'building' || projectStatus === 'preview_ready' || projectStatus === 'feedback' || projectStatus === 'failed') && (
               <span className="topbar-status-detail"> — {statusMessage}</span>
             )}
           </span>

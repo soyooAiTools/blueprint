@@ -2,7 +2,7 @@
  * Schema-driven codegen stage.
  * Step 1: Claude Sonnet -> JSON game schema
  * Step 2: Template engine -> fill skeleton TODOs (80%)
- * Step 3: Claude Code -> fill customLogic TODOs (20%, optional)
+ * Step 3: Codex text runner -> fill customLogic TODOs (20%, optional)
  */
 
 var fs = require('fs');
@@ -36,15 +36,28 @@ module.exports = {
         var skeletonResult = generateSkeleton(ctx.blueprint.specs, {
           entityPoolMap: resolved.entityPoolMap,
           entities: schema.entities, // carries chineseName / showLabel for world labels
-          w1bSplit: ctx.blueprint.w1bSplit === true, // opt-in: 5-partial skeleton split
+          w1bSplit: ctx.blueprint.w1bSplit !== false, // default-on: 5-partial skeleton split
         });
         var skeletonStr = typeof skeletonResult === 'string' ? skeletonResult : skeletonResult.main;
         var isW1bSplit = (typeof skeletonResult === 'object' && skeletonResult.mode === 'w1b-5partial');
 
         var fillResult = templateEngine.fillSkeleton(schema, skeletonStr, { w1bSplit: isW1bSplit });
+        var combinedMissingMarkers = (fillResult.missingMarkers || []).slice();
+        var flowFillResult = null;
+        if (isW1bSplit && skeletonResult.flow) {
+          // W1b split keeps phase-init TODO markers in Flow.cs, so fill that
+          // companion before enforcing marker coverage.
+          flowFillResult = templateEngine.fillSkeleton(schema, skeletonResult.flow, { w1bSplit: true });
+          combinedMissingMarkers = combinedMissingMarkers
+            .filter(function(marker) { return !/^TODO_PHASE_\d+_INIT$/.test(marker); })
+            .concat(flowFillResult.missingMarkers || []);
+        }
+        if (combinedMissingMarkers.length > 0) {
+          throw new Error('Template marker coverage failed: missing skeleton markers: ' + combinedMissingMarkers.join(', '));
+        }
         ctx.csCode = fillResult.code;
         ctx.blueprint.templateCoverage = fillResult.templateCoverage;
-        ctx.blueprint.todoSectionsRemaining = fillResult.todoCount;
+        ctx.blueprint.todoSectionsRemaining = fillResult.todoCount + (flowFillResult ? flowFillResult.todoCount : 0);
         ctx.blueprint.templateFillMs = Date.now() - startMs;
 
         ctx.addLog('codegen-schema', 'Template fill done: coverage=' +
@@ -57,7 +70,7 @@ module.exports = {
         // which keep the code compilable and anti-autoplay-safe.
         if (typeof skeletonResult === 'object' && skeletonResult.mode === 'w1b-5partial') {
           ctx.extraFiles = ctx.extraFiles || {};
-          ctx.extraFiles['GameFlowManagerMain.Flow.cs'] = skeletonResult.flow;
+          ctx.extraFiles['GameFlowManagerMain.Flow.cs'] = flowFillResult ? flowFillResult.code : skeletonResult.flow;
           ctx.extraFiles['GameFlowManagerMain.Input.cs'] = skeletonResult.input;
           ctx.extraFiles['GameFlowManagerMain.Resource.cs'] = skeletonResult.resource;
           ctx.extraFiles['GameFlowManagerMain.UI.cs'] = skeletonResult.ui;
@@ -67,6 +80,9 @@ module.exports = {
         // Legacy split mode — fill Systems file TODOs too
         else if (typeof skeletonResult === 'object' && skeletonResult.systems) {
           var systemsFill = templateEngine.fillSkeleton(schema, skeletonResult.systems);
+          if (systemsFill.missingMarkers && systemsFill.missingMarkers.length > 0) {
+            throw new Error('Template marker coverage failed: missing systems skeleton markers: ' + systemsFill.missingMarkers.join(', '));
+          }
           ctx.extraFiles = ctx.extraFiles || {};
           ctx.extraFiles['GameFlowManagerMain.Systems.cs'] = systemsFill.code;
         }
@@ -74,11 +90,11 @@ module.exports = {
         // Step 3: Custom logic fill (only if needed)
         if (schema.customLogic && schema.customLogic.length > 0) {
           ctx.addLog('codegen-schema', 'Custom logic detected (' + schema.customLogic.length +
-            ' items), invoking Claude Code...');
+            ' items), invoking Codex text runner...');
           return fillCustomLogic(ctx, schema);
         }
 
-        ctx.addLog('codegen-schema', 'No custom logic — skipping Claude Code entirely');
+        ctx.addLog('codegen-schema', 'No custom logic — skipping text runner entirely');
       });
   }
 };
@@ -86,6 +102,7 @@ module.exports = {
 function generateSchemaFromSpecs(ctx) {
   var maxRetries = 2;
   var attempt = 0;
+  var runCodexText = require('../../worker/codex-coder.js').runCodexText;
 
   function tryGenerate() {
     attempt++;
@@ -94,80 +111,11 @@ function generateSchemaFromSpecs(ctx) {
     // Build prompt for Sonnet
     var promptText = buildSchemaPrompt(ctx);
 
-    // Call LLM (Haiku via Claude Code CLI text mode)
-    // Haiku is used because Sonnet consistently hangs (0 bytes output, >300s timeout)
-    // on schema prompts >3K chars with Chinese game spec content. Haiku generates
-    // correct schema JSON in <60s for the same 22K-char prompts.
-    var runClaudeCodeText = require('../../worker/claude-code-coder.js').runClaudeCodeText;
-    return runClaudeCodeText({
-      userPrompt: promptText,
-      systemPrompt: '你是试玩广告游戏配置生成器。只输出 JSON 对象，不要 markdown 包裹，不要解释。',
-      model: 'claude-haiku-4-5-20251001',
-      taskId: ctx.taskId,
-      log: function(msg) { ctx.addLog('codegen-schema', msg); },
-      effort: 'low',
-      timeoutMs: 300000,
-      noTools: true,
-      minOutputLen: 20,
-    }).then(function(response) {
+    return generateSchemaTextWithFallback(runCodexText, ctx, promptText).then(function(response) {
       if (!response.ok) {
         throw new Error('Schema generation failed: ' + (response.error || '').slice(0, 300));
       }
-
-      // Token tracking not available from CLI text mode — set to 0
-      ctx.blueprint.schemaTokensIn = 0;
-      ctx.blueprint.schemaTokensOut = 0;
-
-      // Extract JSON from response (object or array)
-      var text = response.text || '';
-      // Strip all markdown fence markers
-      text = text.replace(/```(?:json)?/g, '').trim();
-      var schema;
-      try {
-        var parsed = JSON.parse(text.trim());
-        if (Array.isArray(parsed)) {
-          schema = { gameConfig: { gameName: ctx.blueprint.projectName || 'game', maxPlayers: 1, gravity: -9.8 }, entities: (ctx.blueprint.entities || []).map(function(e) { return { name: e.name || e.poolName, pool: e.poolName || '', initPos: [0, 1, 0], scale: 1.0 }; }), resources: [], phases: parsed, npcs: [], customLogic: [] };
-          ctx.addLog('codegen-schema', 'LLM returned phases array — auto-wrapped into full schema');
-        } else {
-          schema = parsed;
-        }
-      } catch(e1) {
-        var jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) {
-          throw new Error('Schema generation returned no JSON object');
-        }
-        try { schema = JSON.parse(jsonMatch[0]); } catch(e2) {
-          throw new Error('Invalid JSON from schema generation: ' + e2.message);
-        }
-      }
-
-      // Auto-repair common LLM output issues before validation
-      _repairSchema(schema, ctx.blueprint.entities);
-
-      // Post-repair regression guard: auto-5b4304a5 (2026-04-19) 修过一次 ALLOWED_ENTITY_KEYS
-      // 漏掉 chineseName/showLabel 致 strip 后验证必挂。如果后续再有人动 allow-list 或
-      // 改 backfill 逻辑让某个 entity 仍然没有 chineseName,这里会记日志 + 强制补一个,
-      // 不再等 validator 抛错耗 retry 额度。
-      if (Array.isArray(schema.entities)) {
-        for (var _ei = 0; _ei < schema.entities.length; _ei++) {
-          var _e = schema.entities[_ei];
-          if (!_e || typeof _e !== 'object') continue;
-          if (!_e.chineseName || typeof _e.chineseName !== 'string' || _e.chineseName.length === 0) {
-            ctx.addLog('codegen-schema', 'WARN: entity[' + _ei + '] chineseName 仍为空 after repair, 强制补' + (_e.name || 'entity') + ' — 检查 _repairSchema/ALLOWED_ENTITY_KEYS 是否回归');
-            _e.chineseName = _e.name || 'entity';
-          }
-        }
-      }
-
-      // Validate
-      var structErrors = schemaValidator.validateGameSchema(schema);
-      var semErrors = schemaValidator.validateSemantics(schema);
-      var allErrors = structErrors.concat(semErrors);
-      if (allErrors.length > 0) {
-        throw new Error('Schema validation failed: ' + allErrors.join('; '));
-      }
-
-      return schema;
+      return parseAndValidateSchemaResponse(ctx, response.text || '');
     }).catch(function(err) {
       if (attempt <= maxRetries) {
         ctx.addLog('codegen-schema', 'Retry (' + attempt + '): ' + err.message);
@@ -178,6 +126,101 @@ function generateSchemaFromSpecs(ctx) {
   }
 
   return tryGenerate();
+}
+
+function generateSchemaTextWithFallback(runCodexText, ctx, promptText) {
+  var primarySystemPrompt = '你是试玩广告游戏配置生成器。只输出 JSON 对象，不要 markdown 包裹，不要解释。';
+  return runCodexText({
+    userPrompt: promptText,
+    systemPrompt: primarySystemPrompt,
+    model: 'claude-haiku-4-5-20251001',
+    taskId: ctx.taskId,
+    log: function(msg) { ctx.addLog('codegen-schema', msg); },
+    effort: 'low',
+    timeoutMs: 300000,
+    noTools: true,
+    minOutputLen: 20,
+  }).then(function(response) {
+    if (response.ok || !isSchemaInfraError(response.error)) return response;
+    ctx.addLog('codegen-schema', 'Primary schema backend infra failure — falling back to codex-exec');
+    return runCodexText({
+      userPrompt: promptText,
+      systemPrompt: primarySystemPrompt,
+      backend: 'codex-exec',
+      model: 'gpt-5.4-mini',
+      taskId: ctx.taskId,
+      log: function(msg) { ctx.addLog('codegen-schema', '[fallback] ' + msg); },
+      effort: 'low',
+      timeoutMs: 180000,
+      noTools: true,
+      minOutputLen: 20,
+      allowBackendFallback: false,
+    }).then(function(fallbackResponse) {
+      if (fallbackResponse.ok) ctx.addLog('codegen-schema', 'Schema backend fallback succeeded via codex-exec');
+      return fallbackResponse;
+    });
+  });
+}
+
+function isSchemaInfraError(error) {
+  var text = String(error || '');
+  return /ECONNRESET|Request timed out|Unable to connect to API|timed out|socket hang up|ENOTFOUND|EHOSTUNREACH|ECONNREFUSED/i.test(text);
+}
+
+function parseAndValidateSchemaResponse(ctx, text) {
+  // Token tracking not available from CLI text mode — set to 0
+  ctx.blueprint.schemaTokensIn = 0;
+  ctx.blueprint.schemaTokensOut = 0;
+
+  // Extract JSON from response (object or array)
+  text = String(text || '').replace(/```(?:json)?/g, '').trim();
+  var schema;
+  try {
+    var parsed = JSON.parse(text.trim());
+    if (Array.isArray(parsed)) {
+      schema = { gameConfig: { gameName: ctx.blueprint.projectName || 'game', maxPlayers: 1, gravity: -9.8 }, entities: (ctx.blueprint.entities || []).map(function(e) { return { name: e.name || e.poolName, pool: e.poolName || '', initPos: [0, 1, 0], scale: 1.0 }; }), resources: [], phases: parsed, npcs: [], customLogic: [] };
+      ctx.addLog('codegen-schema', 'LLM returned phases array — auto-wrapped into full schema');
+    } else {
+      schema = parsed;
+    }
+  } catch(e1) {
+    var jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('Schema generation returned no JSON object');
+    }
+    try { schema = JSON.parse(jsonMatch[0]); } catch(e2) {
+      throw new Error('Invalid JSON from schema generation: ' + e2.message);
+    }
+  }
+
+  _repairSchema(schema, ctx.blueprint.entities);
+
+  if (Array.isArray(schema.entities)) {
+    for (var _ei = 0; _ei < schema.entities.length; _ei++) {
+      var _e = schema.entities[_ei];
+      if (!_e || typeof _e !== 'object') continue;
+      if (!_e.chineseName || typeof _e.chineseName !== 'string' || _e.chineseName.length === 0) {
+        ctx.addLog('codegen-schema', 'WARN: entity[' + _ei + '] chineseName 仍为空 after repair, 强制补' + (_e.name || 'entity') + ' — 检查 _repairSchema/ALLOWED_ENTITY_KEYS 是否回归');
+        _e.chineseName = _e.name || 'entity';
+      }
+    }
+  }
+
+  var validation = _validateSchema(schema);
+  if (validation.allErrors.length > 0) {
+    var repairedKnownIssues = _repairSchemaValidationErrors(schema, validation.allErrors, ctx);
+    if (repairedKnownIssues > 0) {
+      validation = _validateSchema(schema);
+      if (validation.allErrors.length === 0) {
+        ctx.addLog('codegen-schema', 'Deterministic schema repair fixed ' + repairedKnownIssues + ' validation issue(s) without another LLM retry');
+      }
+    }
+  }
+  if (validation.allErrors.length > 0) {
+    throw new Error('Schema validation failed: ' + validation.allErrors.join('; '));
+  }
+
+  return schema;
 }
 
 function buildSchemaPrompt(ctx) {
@@ -249,7 +292,7 @@ function buildSchemaPrompt(ctx) {
 
 function fillCustomLogic(ctx, schema) {
   var { createFixLoop } = require('../fix-loop.cjs');
-  var { runClaudeCodeText } = require('../../worker/claude-code-coder.js');
+  var runCodexText = require('../../worker/codex-coder.js').runCodexText;
 
   ctx.blueprint.customLogicRounds = 0;
   ctx.blueprint.customLogicTokensIn = 0;
@@ -260,7 +303,7 @@ function fillCustomLogic(ctx, schema) {
     attempt: function(loopCtx, round) {
       ctx.blueprint.customLogicRounds = round;
       var promptText = buildCustomLogicPrompt(ctx, schema);
-      return runClaudeCodeText({
+      return runCodexText({
         userPrompt: promptText,
         systemPrompt: '你是 Unity C# 代码填充器。只修改 TODO_CUSTOM 区域。',
         model: 'opus',
@@ -320,6 +363,16 @@ function buildCustomLogicPrompt(ctx, schema) {
   lines.push(ctx.csCode);
   lines.push('```');
   return lines.join('\n');
+}
+
+function _validateSchema(schema) {
+  var structErrors = schemaValidator.validateGameSchema(schema);
+  var semErrors = schemaValidator.validateSemantics(schema);
+  return {
+    structErrors: structErrors,
+    semErrors: semErrors,
+    allErrors: structErrors.concat(semErrors),
+  };
 }
 
 var ALLOWED_ENTITY_KEYS = { name: 1, chineseName: 1, showLabel: 1, pool: 1, initPos: 1, scale: 1, showInPhase: 1, terminalState: 1 };
@@ -433,16 +486,191 @@ function _repairSchema(schema, blueprintEntities) {
     });
   });
 
-  // Fix triggers: state must be integer
-  function fixTrigger(t) {
-    if (!t) return;
-    if (t.state != null && typeof t.state !== 'number') t.state = parseInt(t.state, 10) || 0;
-    if (Array.isArray(t.triggers)) t.triggers.forEach(fixTrigger);
+  // Fix triggers: infer missing type, normalize common aliases, strip stray
+  // fields, and recurse into compound triggers before validation.
+  function inferTriggerType(t, phaseIdx, phaseCount) {
+    if (!t || typeof t !== 'object') return null;
+    if (typeof t.type === 'string' && t.type) return t.type;
+    if (typeof t.triggerType === 'string' && t.triggerType) return t.triggerType;
+    if (typeof t.condition === 'string' && t.condition) return t.condition;
+    if (typeof t.kind === 'string' && t.kind) return t.kind;
+    if (Array.isArray(t.triggers)) return 'compound';
+    if (t.resource != null || t.amount != null) return 'resource_collected';
+    if (t.state != null) return 'entity_state_reached';
+    if (t.seconds != null) return 'timer';
+    if (t.count != null) return 'enemy_defeated';
+    if (t.range != null) return 'near_entity';
+    if (t.entity != null) return phaseIdx === (phaseCount - 1) ? 'click_entity' : 'near_entity';
+    return 'all_built';
   }
-  (schema.phases || []).forEach(function(p) { fixTrigger(p.trigger); });
+  function normalizeTrigger(t, phaseIdx, phaseCount) {
+    if (!t || typeof t !== 'object') return;
+    if (!t.type || typeof t.type !== 'string') {
+      t.type = inferTriggerType(t, phaseIdx, phaseCount);
+    }
+    if (!t.type && t.triggerType) t.type = t.triggerType;
+    if (!t.type && t.condition) t.type = t.condition;
+    if (!t.type && t.kind) t.type = t.kind;
+    delete t.triggerType;
+    delete t.condition;
+    delete t.kind;
+    if (t.state != null && typeof t.state !== 'number') t.state = parseInt(t.state, 10) || 0;
+    if (t.amount != null && typeof t.amount !== 'number') t.amount = parseInt(t.amount, 10) || 1;
+    if (t.count != null && typeof t.count !== 'number') t.count = parseInt(t.count, 10) || 1;
+    if (t.range != null && typeof t.range !== 'number') t.range = parseFloat(t.range) || 2;
+    if (t.seconds != null && typeof t.seconds !== 'number') t.seconds = parseFloat(t.seconds) || 1;
+    if (t.type === 'compound') {
+      if (!Array.isArray(t.triggers)) t.triggers = [];
+      t.operator = t.operator === 'or' ? 'or' : 'and';
+      t.triggers.forEach(function(child) { normalizeTrigger(child, phaseIdx, phaseCount); });
+    }
+    Object.keys(t).forEach(function(k) {
+      if (!{ type: 1, entity: 1, resource: 1, amount: 1, count: 1, state: 1, range: 1, seconds: 1, operator: 1, triggers: 1 }[k]) {
+        delete t[k];
+      }
+    });
+  }
+  (schema.phases || []).forEach(function(p, idx, arr) { normalizeTrigger(p.trigger, idx, arr.length); });
 
   // Fix customLogic: ensure array of strings
   if (schema.customLogic) {
     schema.customLogic = schema.customLogic.filter(function(x) { return typeof x === 'string'; });
   }
+}
+
+function _repairSchemaValidationErrors(schema, errors, ctx) {
+  if (!schema || !Array.isArray(errors) || errors.length === 0) return 0;
+  var repaired = 0;
+  var entities = Array.isArray(schema.entities) ? schema.entities : [];
+  var entityNames = {};
+  for (var ei = 0; ei < entities.length; ei++) {
+    if (entities[ei] && entities[ei].name) entityNames[entities[ei].name] = true;
+  }
+
+  function logFix(msg) {
+    if (ctx && ctx.addLog) ctx.addLog('codegen-schema', 'repair: ' + msg);
+  }
+
+  function clampEntityScale(idx) {
+    if (!entities[idx]) return false;
+    var cur = Number(entities[idx].scale);
+    if (!isFinite(cur) || cur < 0.3) {
+      entities[idx].scale = 0.3;
+      return true;
+    }
+    return false;
+  }
+
+  function ensureEntityField(idx, field, value) {
+    if (!entities[idx]) return false;
+    if (entities[idx][field] == null || entities[idx][field] === '') {
+      entities[idx][field] = value;
+      return true;
+    }
+    return false;
+  }
+
+  for (var i = 0; i < errors.length; i++) {
+    var err = String(errors[i] || '');
+    var m;
+
+    m = err.match(/^\.entities\[(\d+)\]\.scale should be >= 0\.3$/);
+    if (m && clampEntityScale(parseInt(m[1], 10))) {
+      repaired++;
+      logFix('clamped entities[' + m[1] + '].scale to 0.3');
+      continue;
+    }
+
+    m = err.match(/^\.entities\[(\d+)\]\.scale should be number$/);
+    if (m && clampEntityScale(parseInt(m[1], 10))) {
+      repaired++;
+      logFix('normalized entities[' + m[1] + '].scale to numeric default 0.3');
+      continue;
+    }
+
+    m = err.match(/^\.entities\[(\d+)\] should have required property '([^']+)'$/);
+    if (m) {
+      var entityIdx = parseInt(m[1], 10);
+      var field = m[2];
+      var fixed = false;
+      if (field === 'chineseName') fixed = ensureEntityField(entityIdx, field, (entities[entityIdx] && entities[entityIdx].name) || 'entity');
+      else if (field === 'showLabel') fixed = ensureEntityField(entityIdx, field, true);
+      else if (field === 'scale') fixed = ensureEntityField(entityIdx, field, 1.0);
+      else if (field === 'initPos') fixed = ensureEntityField(entityIdx, field, [0, 1, 0]);
+      else if (field === 'pool') fixed = ensureEntityField(entityIdx, field, '__Pool_Cube_White_01');
+      if (fixed) {
+        repaired++;
+        logFix('filled missing entities[' + entityIdx + '].' + field);
+        continue;
+      }
+    }
+
+    m = err.match(/^Phase ([^ ]+) showEntities references non-existent entity: (.+)$/);
+    if (m) {
+      var phaseIdA = m[1];
+      var badShow = m[2];
+      var phaseA = (schema.phases || []).find(function(p) { return p && p.phaseId === phaseIdA; });
+      if (phaseA && Array.isArray(phaseA.showEntities)) {
+        var nextShow = phaseA.showEntities.filter(function(name) { return entityNames[name]; });
+        if (nextShow.length !== phaseA.showEntities.length) {
+          phaseA.showEntities = nextShow;
+          repaired++;
+          logFix('removed invalid showEntities reference "' + badShow + '" from phase ' + phaseIdA);
+          continue;
+        }
+      }
+    }
+
+    m = err.match(/^Phase ([^ ]+) hideEntities references non-existent entity: (.+)$/);
+    if (m) {
+      var phaseIdB = m[1];
+      var badHide = m[2];
+      var phaseB = (schema.phases || []).find(function(p) { return p && p.phaseId === phaseIdB; });
+      if (phaseB && Array.isArray(phaseB.hideEntities)) {
+        var nextHide = phaseB.hideEntities.filter(function(name) { return entityNames[name]; });
+        if (nextHide.length !== phaseB.hideEntities.length) {
+          phaseB.hideEntities = nextHide;
+          repaired++;
+          logFix('removed invalid hideEntities reference "' + badHide + '" from phase ' + phaseIdB);
+          continue;
+        }
+      }
+    }
+
+    if (/^Last phase trigger must include click_entity/.test(err)) {
+      var lastPhase = schema.phases && schema.phases[schema.phases.length - 1];
+      if (lastPhase) {
+        lastPhase.trigger = {
+          type: 'compound',
+          operator: 'and',
+          triggers: [
+            lastPhase.trigger || { type: 'near_entity', entity: (lastPhase.showEntities && lastPhase.showEntities[0]) || (entities[0] && entities[0].name) || 'CTAButton', range: 2 },
+            { type: 'click_entity', entity: (lastPhase.showEntities && lastPhase.showEntities[0]) || (entities[0] && entities[0].name) || 'CTAButton' },
+          ],
+        };
+        repaired++;
+        logFix('wrapped last phase trigger with click_entity CTA guard');
+        continue;
+      }
+    }
+  }
+
+  // Mechanical post-pass after error-driven repair.
+  if (schema.phases && schema.phases.length > 0) {
+    var firstPhase = schema.phases[0];
+    if (firstPhase && Array.isArray(firstPhase.showEntities) && firstPhase.showEntities.length < 3) {
+      var seen = {};
+      for (var se = 0; se < firstPhase.showEntities.length; se++) seen[firstPhase.showEntities[se]] = true;
+      for (var ae = 0; ae < entities.length && firstPhase.showEntities.length < 3; ae++) {
+        if (entities[ae] && entities[ae].name && !seen[entities[ae].name]) {
+          firstPhase.showEntities.push(entities[ae].name);
+          seen[entities[ae].name] = true;
+          repaired++;
+        }
+      }
+      if (firstPhase.showEntities.length >= 3) logFix('expanded first phase showEntities to satisfy >=3 visibility rule');
+    }
+  }
+
+  return repaired;
 }

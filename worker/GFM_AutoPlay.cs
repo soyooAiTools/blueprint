@@ -2,13 +2,13 @@
 // GFM_AutoPlay.cs — 自动播放控制器（单例）
 // ----------------------------------------------------------------------------
 // 职责：CUA (视觉自动化验证) 模式下代替真实玩家操控游戏。
-//       - 检测 __AUTOPLAY_ON__ 标志实体 → 延迟 6 秒后激活 (等 CUA observer 启动)
+//       - 检测 __AUTOPLAY_ON__ 标志实体 → 等待 __CUA_OBSERVER_READY__ 握手后激活
 //       - 激活后沿 _autoTargets 列表逐个导航到目标实体
 //       - 到达目标时回调 GameFlowManagerMain.HandleAutoPlayArrive(targetName)
 //         触发该阶段对应的 autoplay 交互副作用（由主文件按 phase 分发）
 //
 // 关键数值 (与 skeleton 约束绑定 — 修改会导致 CUA 失败)：
-//   - 检测后延迟激活 6 秒 (Time.realtimeSinceStartup，不受 speed patch 影响)
+//   - autoPlay 仅在 observer-ready 握手后激活，避免观察窗口前偷跑
 //   - 每个目标到达后等待 1.5 秒才切换下一个 (给 CUA observer 时间截图)
 //   - 导航速度 = Player.MoveSpeed × 1.2
 //
@@ -49,11 +49,13 @@ public class GFM_AutoPlay : MonoBehaviour
     //   _checked: 是否已检测过 __AUTOPLAY_ON__ 标志 (避免每帧 Find)
     //   _detectRealTime: 检测到标志的 wall-clock 时间戳
     //   _steps: 已完成的自动交互步数 (CheckEventRules 读它做 phase gate)
+    //   _observerReady: CUA observer 是否已明确发出“开始观察”信号
     // ========================================================================
     private bool _isActive = false;
     private bool _checked = false;
     private float _detectRealTime = -1f;
     private int _steps = 0;
+    private bool _observerReady = false;
 
     public bool IsActive { get { return _isActive; } }
     public int Steps { get { return _steps; } }
@@ -65,7 +67,7 @@ public class GFM_AutoPlay : MonoBehaviour
     //   - _checked=false(前 3s 或标志刚找到前): false, 等检测完成
     //   - _checked=true 且 _detectRealTime<0 (未开 autoPlay): true, 立即放行
     //   - _checked=true 且 autoPlay 已激活 (_isActive=true): true
-    //   - _checked=true 且 autoPlay 检测到但 warmup 中: false, 继续等 6s
+    //   - _checked=true 且 autoPlay 检测到但 CUA 尚未 ready: false
     public bool WarmupReady
     {
         get
@@ -88,6 +90,10 @@ public class GFM_AutoPlay : MonoBehaviour
     private string[] _autoTargets = new string[] { "CTAButton" }; // 保底：至少有 CTA
     private int _autoTargetIdx = 0;
     private float _autoTargetWait = 0f;
+    private bool _awaitingPhaseProgress = false;
+    private bool _progressObserved = false;
+    private float _awaitProgressRealTime = -1f;
+    private string _lastProgressPhase = "";
 
     // 【外部注入目标列表】主文件 Start 按 phase 顺序填入要路过的实体名。
     public void SetTargets(string[] targets)
@@ -97,6 +103,17 @@ public class GFM_AutoPlay : MonoBehaviour
 
     // 【到达回调】主文件注册一个处理器，AutoPlay 到达目标时调它分发 phase 副作用
     public System.Action<string> OnArrive;
+
+    // 【phase 推进通知】skeleton 的 AddCompletedPhase() 在真实完成时调用它。
+    // AutoPlay 只有看到阶段推进后才切下一个目标，避免一个轮询窗口吞掉多个 phase。
+    public void NotifyPhaseProgress(string phaseId)
+    {
+        if (string.IsNullOrEmpty(phaseId)) return;
+        if (_lastProgressPhase == phaseId) return;
+        _lastProgressPhase = phaseId;
+        if (!_awaitingPhaseProgress) return;
+        _progressObserved = true;
+    }
 
     private bool _inited = false;
     public void Init()
@@ -113,16 +130,16 @@ public class GFM_AutoPlay : MonoBehaviour
     }
 
     // ========================================================================
-    // 【两阶段激活检测】— 与 skeleton 契约绑死，不要动数值
+    // 【激活检测】— 与 skeleton 契约绑死
     // Stage 1: 每帧 Find "__AUTOPLAY_ON__"；realtime 5s 后未找到 → 放弃探测 (interactive 模式)
     //          注意用 Time.realtimeSinceStartup 不能用 gameTimer: CUA 2x/5x speed patch
     //          会让 gameTimer>3f 在 real t≈1.5s 就触发,此时 PlayCanvas 还没建好
     //          __AUTOPLAY_ON__ 实体 → 误判为 interactive → WarmupReady 立即放行 →
     //          Phase 0 在 CUA observer 开前就 fire → PRE-CONTAMINATION 永死。
     //          (2026-04-20 w7113b 烧了 3 次 CUA 就是这个根因)
-    // Stage 2: 检测到后延迟 6 秒才激活 (等 CUA observer 启动，否则阶段瞬过)
+    // Stage 2: 检测到后等待 "__CUA_OBSERVER_READY__" 握手，再激活 autoplay
     // Stage 1b: 即使 Stage 1 超时也继续轻探测 (up to realtime 15s),防止慢速
-    //           WebGL init 导致错过 flag。late detect 依旧走 Stage 2 6s 延迟。
+    //           WebGL init 导致错过 flag。late detect 依旧走 Stage 2 握手激活。
     // ========================================================================
     public void CheckActivation(float gameTimer)
     {
@@ -146,8 +163,13 @@ public class GFM_AutoPlay : MonoBehaviour
             }
         }
 
-        // Stage 2：激活延迟 6s (Time.realtimeSinceStartup 不受 speed patch 影响)
-        if (!_isActive && _detectRealTime > 0f && (Time.realtimeSinceStartup - _detectRealTime) >= 6f)
+        // Stage 2：CUA 明确发出 observer-ready 后才允许 autoplay 起跑
+        if (!_observerReady && _detectRealTime > 0f && GameObject.Find("__CUA_OBSERVER_READY__") != null)
+        {
+            _observerReady = true;
+        }
+
+        if (!_isActive && _detectRealTime > 0f && _observerReady)
         {
             _isActive = true;
         }
@@ -164,8 +186,21 @@ public class GFM_AutoPlay : MonoBehaviour
         var player = GFM_Player.Instance;
         if (player == null || player.Go == null) return;
 
-        // 到达后冷却：CUA observer 在这段时间里截图确认画面变化
-        if (_autoTargetWait > 0f) { _autoTargetWait -= Time.deltaTime; return; }
+        // 到达后进入“等待 phase 推进”窗口：先留最短可视时长，再等 AddCompletedPhase 通知。
+        if (_awaitingPhaseProgress)
+        {
+            if (_autoTargetWait > 0f) { _autoTargetWait -= Time.deltaTime; return; }
+            if (_progressObserved || (_awaitProgressRealTime > 0f && (Time.realtimeSinceStartup - _awaitProgressRealTime) >= 8f))
+            {
+                _awaitingPhaseProgress = false;
+                _progressObserved = false;
+                _awaitProgressRealTime = -1f;
+                _autoTargetIdx++;
+                _steps++;
+            }
+            return;
+        }
+
         if (_autoTargetIdx >= _autoTargets.Length) _autoTargetIdx = 0;
 
         GameObject target = GameObject.Find(_autoTargets[_autoTargetIdx]);
@@ -192,11 +227,12 @@ public class GFM_AutoPlay : MonoBehaviour
         }
         else
         {
-            // 到了：等 1.5s，切下一个目标，触发 phase 副作用回调
+            // 到了：先触发 phase 副作用，再等待真实 phase 推进信号切目标。
             _autoTargetWait = 1.5f;
-            _autoTargetIdx++;
-            _steps++;
-            string arrivedTarget = _autoTargets[(_autoTargetIdx - 1) % _autoTargets.Length];
+            _awaitingPhaseProgress = true;
+            _progressObserved = false;
+            _awaitProgressRealTime = Time.realtimeSinceStartup;
+            string arrivedTarget = _autoTargets[_autoTargetIdx];
             if (OnArrive != null) OnArrive(arrivedTarget);
         }
     }

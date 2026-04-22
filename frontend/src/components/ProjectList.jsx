@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { fetchProjects, createProject, deleteProject, getProject } from '../utils/api';
+import { fetchProjects, fetchTasks, createProject, deleteProject, getProject } from '../utils/api';
 
 export default function ProjectList({ user, onSelectProject, onLogout }) {
   const [projects, setProjects] = useState([]);
+  const [taskMap, setTaskMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
@@ -14,7 +15,15 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
     try {
       // Only show loading spinner on first load, not on refresh (prevents flashing)
       if (initialLoad.current) setLoading(true);
-      const list = await fetchProjects();
+      const [list, taskResp] = await Promise.all([
+        fetchProjects(),
+        fetchTasks(100).catch(() => ({ tasks: [] })),
+      ]);
+      const nextTaskMap = {};
+      (taskResp.tasks || []).forEach((t) => {
+        if (t && t.taskId) nextTaskMap[t.taskId] = t;
+      });
+      setTaskMap(nextTaskMap);
       setProjects(list);
     } catch (err) {
       console.error('加载项目列表失败:', err);
@@ -29,13 +38,16 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
   useEffect(() => {
     loadProjects();
     // Only poll when there are active (in-progress) projects; otherwise stay idle
-    const ACTIVE_STATUSES = ['submitted', 'building', 'developing', 'feedback', 'spec_extracting', 'spec_review', 'processing'];
+    const ACTIVE_STATUSES = ['submitted', 'assigned', 'building', 'developing', 'feedback', 'spec_extracting', 'spec_review', 'processing', 'preview_ready'];
     const timer = setInterval(() => {
-      const hasActive = projectsRef.current.some((p) => ACTIVE_STATUSES.indexOf(p.status) !== -1);
+      const hasActive = projectsRef.current.some((p) => {
+        const task = taskMap[p.id];
+        return ACTIVE_STATUSES.indexOf(p.status) !== -1 || (task && ACTIVE_STATUSES.indexOf(task.status) !== -1);
+      });
       if (hasActive) loadProjects();
-    }, 5000);
+    }, 3000);
     return () => clearInterval(timer);
-  }, [loadProjects]);
+  }, [loadProjects, taskMap]);
 
   const openProject = async (id) => {
     try {
@@ -120,6 +132,7 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
     processing: '准备中',
     building: '开发中',
     developing: '开发中',
+    preview_ready: '可预览',
     reviewing: '待审核',
     approved: '已通过',
     feedback: '反馈中',
@@ -208,7 +221,11 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
           {projects.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).map((p) => {
             const shots = getShotCount(p);
             const revisions = getRevisionCount(p);
-            const statusLabel = STATUS_LABELS[p.status] || p.status;
+            const task = taskMap[p.id];
+            const effectiveStatus = task && task.status ? task.status : p.status;
+            const effectiveMessage = task && task.statusMessage ? task.statusMessage : p.statusMessage;
+            const effectiveUpdatedAt = task && task.updatedAt ? task.updatedAt : p.updatedAt;
+            const statusLabel = STATUS_LABELS[effectiveStatus] || effectiveStatus;
             return (
               <div key={p.id} className="project-card" onClick={() => openProject(p.id)}>
                 <div className="project-card-top">
@@ -222,22 +239,22 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
                   {p.engine && <span className={'project-stat project-engine-badge project-engine-' + p.engine}>{ENGINE_LABELS[p.engine] || p.engine}</span>}
                   <span className="project-stat">📷 {shots} 个镜头</span>
                   {revisions > 0 && <span className="project-stat project-stat-rev">🔴 {revisions} 待修</span>}
-                  {p.status && p.status !== 'editing' && (
-                    <span className={'project-stat project-stat-status project-status-' + p.status}>{statusLabel}</span>
+                  {effectiveStatus && effectiveStatus !== 'editing' && (
+                    <span className={'project-stat project-stat-status project-status-' + effectiveStatus}>{statusLabel}</span>
                   )}
                 </div>
-                {p.status === 'failed' && p.statusMessage && (
-                  <div className="project-card-error" title={p.statusMessage}>
-                    ⚠️ {p.statusMessage.length > 50 ? p.statusMessage.slice(0, 50) + '...' : p.statusMessage}
+                {effectiveStatus === 'failed' && effectiveMessage && (
+                  <div className="project-card-error" title={effectiveMessage}>
+                    ⚠️ {effectiveMessage.length > 50 ? effectiveMessage.slice(0, 50) + '...' : effectiveMessage}
                   </div>
                 )}
-                {p.status !== 'failed' && p.status !== 'editing' && p.statusMessage && (
-                  <div className="project-card-progress" title={p.statusMessage}>
-                    {p.statusMessage.length > 60 ? p.statusMessage.slice(0, 60) + '...' : p.statusMessage}
+                {effectiveStatus !== 'failed' && effectiveStatus !== 'editing' && effectiveMessage && (
+                  <div className="project-card-progress" title={effectiveMessage}>
+                    {effectiveMessage.length > 60 ? effectiveMessage.slice(0, 60) + '...' : effectiveMessage}
                   </div>
                 )}
                 <div className="project-card-time">
-                  <span>更新于 {formatDate(p.updatedAt)}</span>
+                  <span>更新于 {formatDate(effectiveUpdatedAt)}</span>
                 </div>
               </div>
             );

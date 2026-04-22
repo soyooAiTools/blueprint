@@ -56,6 +56,191 @@ const defaultEdgeOptions = {
 let idCounter = 100;
 const getNextId = (prefix) => `${prefix}_${++idCounter}`;
 
+const PHASE_WORD_BLACKLIST = new Set(['phase', 'guide', 'trigger', 'show', 'download', 'operation', 'auto', 'first', 'three', 'ripe', 'boost']);
+const PHASE_ALIAS_OVERRIDES = {
+  initialGuideMineIce: ['initialCollectIce', 'initialMiningIce'],
+  deliverIceToWaterTank: ['transportIceToWaterTank'],
+  harvestRipeCorn: ['harvestCorn'],
+  producePopcornFromCorn: ['producePopcorn'],
+  sellPopcornEarnGold: ['sellPopcornForGold'],
+  unlockWorkerAutoOperation: ['unlockWorker'],
+  defeatInvadingLittleEnemies: ['defeatLittleEnemies'],
+  buildThreeTurretsDefense: ['buildTurretDefense'],
+  upgradeCabinBoostPower: ['upgradeCabinAttributes'],
+  defeatBossShowDownloadCTA: ['defeatAlienBoss'],
+};
+const ENTITY_WORD_LABELS = {
+  alien: '异形',
+  base: '基地',
+  blue: '蓝',
+  boss: 'Boss',
+  bullet: '子弹',
+  button: '按钮',
+  cabin: '舱室',
+  character: '角色',
+  corn: '玉米',
+  cta: '下载',
+  desk: '柜台',
+  enemy: '敌人',
+  field: '农田',
+  gold: '金币',
+  ice: '冰',
+  little: '小型',
+  machine: '机器',
+  main: '主',
+  obj: '物体',
+  ore: '矿',
+  player: '玩家',
+  popcorn: '爆米花',
+  sales: '售卖',
+  spaceship: '飞船',
+  tank: '水箱',
+  turret: '炮塔',
+  water: '水',
+  worker: '工人',
+};
+
+function tokenizePhaseKey(value) {
+  return String(value || '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[^A-Za-z0-9]+/g, ' ')
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((part) => !PHASE_WORD_BLACKLIST.has(part));
+}
+
+function normalizePhaseKey(value) {
+  return tokenizePhaseKey(value).join('');
+}
+
+function phaseMatchScore(alias, runtimePhaseId) {
+  const left = tokenizePhaseKey(alias);
+  const right = tokenizePhaseKey(runtimePhaseId);
+  if (!left.length || !right.length) return 0;
+  const leftNorm = left.join('');
+  const rightNorm = right.join('');
+  if (leftNorm === rightNorm) return 100;
+  if (leftNorm && rightNorm && (leftNorm.includes(rightNorm) || rightNorm.includes(leftNorm))) return 95;
+
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  let overlap = 0;
+  leftSet.forEach((part) => {
+    if (rightSet.has(part)) overlap += 1;
+  });
+  const minSize = Math.min(leftSet.size, rightSet.size);
+  const samePrefix = left[0] && right[0] && left[0] === right[0];
+  if (samePrefix && overlap >= minSize) return 90;
+  if (samePrefix && overlap >= Math.max(2, minSize - 1)) return 80;
+  return 0;
+}
+
+function buildSpecPhaseAliases(spec) {
+  const aliasSet = new Set();
+  if (!spec) return aliasSet;
+  [spec.phaseId, spec.phaseName, spec.name, spec.label].forEach((value) => {
+    if (value) aliasSet.add(String(value).trim());
+  });
+  (PHASE_ALIAS_OVERRIDES[spec.phaseId] || []).forEach((value) => aliasSet.add(value));
+  return aliasSet;
+}
+
+function phaseMatchesOrdered(spec, runtimePhaseId, runtimeAlias) {
+  if (!runtimePhaseId) return false;
+  const runtimeNorm = normalizePhaseKey(runtimePhaseId);
+  const aliases = buildSpecPhaseAliases(spec);
+  if (runtimeAlias) aliases.add(String(runtimeAlias).trim());
+  for (const alias of aliases) {
+    const aliasNorm = normalizePhaseKey(alias);
+    if (aliasNorm && aliasNorm === runtimeNorm) return true;
+    if (phaseMatchScore(alias, runtimePhaseId) >= 80) return true;
+  }
+  return false;
+}
+
+function getOrderedPreviewPhaseStates(previewSpecs, completedPhases, currentPhase, runtimePhaseOrder, hasRuntimeSignal) {
+  const runtimeCompleted = Array.from(new Set((completedPhases || []).filter(Boolean)));
+  const statuses = [];
+  let completedCursor = 0;
+  let activeAssigned = false;
+  let firstPendingIndex = -1;
+
+  (previewSpecs || []).forEach((spec, index) => {
+    const runtimeAlias = Array.isArray(runtimePhaseOrder) ? runtimePhaseOrder[index] : '';
+    let done = false;
+    while (completedCursor < runtimeCompleted.length) {
+      if (phaseMatchesOrdered(spec, runtimeCompleted[completedCursor], runtimeAlias)) {
+        done = true;
+        completedCursor += 1;
+        break;
+      }
+      break;
+    }
+
+    const active = !done && !activeAssigned && phaseMatchesOrdered(spec, currentPhase, runtimeAlias);
+    if (!done && active) activeAssigned = true;
+    if (!done && firstPendingIndex === -1) firstPendingIndex = index;
+    statuses.push({ done, active });
+  });
+
+  if (!activeAssigned && hasRuntimeSignal && firstPendingIndex >= 0) {
+    statuses[firstPendingIndex] = { ...statuses[firstPendingIndex], active: true };
+  }
+
+  return statuses;
+}
+
+function splitIdentifierWords(value) {
+  return String(value || '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function containsChinese(value) {
+  return /[\u4e00-\u9fa5]/.test(String(value || ''));
+}
+
+function inferChineseAlias(value) {
+  const text = String(value || '').trim();
+  if (!text || !containsChinese(text)) return '';
+  const match = text.match(/^([\u4e00-\u9fa5A-Za-z]{2,16}?)(已|可|正在|将|是|会|能|升级|建造|完成|启用|解锁|进入|触发|展示|开始|结束|出现|消失|到达|停止|达到|恢复|被|自动)/);
+  if (match && match[1]) return match[1];
+  return text.length > 12 ? text.slice(0, 12) : text;
+}
+
+function toReadableEnglishLabel(name) {
+  const words = splitIdentifierWords(name);
+  if (!words.length) return String(name || '').trim();
+  const mapped = words.map((word) => {
+    const lower = word.toLowerCase();
+    return ENTITY_WORD_LABELS[lower] || word;
+  });
+  if (mapped.some((word, idx) => word !== words[idx])) return mapped.join('');
+  return words.join(' ');
+}
+
+function formatEntityDisplayName(entity) {
+  const displayName = String(entity && entity.displayName || '').trim();
+  if (displayName) return displayName;
+
+  const aliasCandidates = []
+    .concat(Array.isArray(entity && entity.aliases) ? entity.aliases : [])
+    .map(inferChineseAlias)
+    .filter(Boolean)
+    .sort((a, b) => a.length - b.length);
+  if (aliasCandidates.length > 0) return aliasCandidates[0];
+
+  const readable = toReadableEnglishLabel(entity && entity.name);
+  if (readable) return readable;
+  return String(entity && entity.name || '未命名对象').trim() || '未命名对象';
+}
+
 /**
  * V4 方案A: 从 entities 数组生成画布上的实体节点和条件连线
  */
@@ -209,6 +394,8 @@ function FlowEditor({ project, onBack, initialTab }) {
   const [entityMap, setEntityMap] = useState([]);
   const [completedPhases, setCompletedPhases] = useState([]);
   const [currentPhase, setCurrentPhase] = useState('');
+  const [runtimePhaseOrder, setRuntimePhaseOrder] = useState([]);
+  const [hasRuntimePhaseSignal, setHasRuntimePhaseSignal] = useState(false);
   const [svnCommitting, setSvnCommitting] = useState(false);
   const [iframeLoading, setIframeLoading] = useState(true);
   const reactFlowInstance = useReactFlow();
@@ -251,7 +438,7 @@ function FlowEditor({ project, onBack, initialTab }) {
 
   // Fetch WebGL info + feedback history when status warrants it
   useEffect(() => {
-    if (['reviewing', 'approved', 'committed', 'feedback', 'done'].indexOf(projectStatus) >= 0) {
+    if (['preview_ready', 'reviewing', 'approved', 'committed', 'feedback', 'done'].indexOf(projectStatus) >= 0) {
       getWebglInfo(project.id).then(setWebglInfo).catch(() => {});
       getProject(project.id).then((p) => {
         if (p.feedbackHistory && p.feedbackHistory.length > 0) {
@@ -273,6 +460,8 @@ function FlowEditor({ project, onBack, initialTab }) {
 
   // Fetch specs + poll iframe __gameState for phase progress
   const iframeRef = useRef(null);
+  const previewPhaseStates = getOrderedPreviewPhaseStates(previewSpecs, completedPhases, currentPhase, runtimePhaseOrder, hasRuntimePhaseSignal);
+  const matchedPreviewPhaseCount = previewPhaseStates.filter((item) => item.done).length;
   useEffect(() => {
     if (activeTab !== 'review') return;
     getSpecs(project.id).then((data) => {
@@ -290,8 +479,13 @@ function FlowEditor({ project, onBack, initialTab }) {
         if (!iframe || !iframe.contentWindow) return;
         const gs = iframe.contentWindow.__gameState;
         if (gs) {
+          setHasRuntimePhaseSignal(true);
           if (Array.isArray(gs.completedPhases)) setCompletedPhases(gs.completedPhases);
-          if (gs.currentPhase) setCurrentPhase(gs.currentPhase);
+          if (typeof gs.currentPhase === 'string') setCurrentPhase(gs.currentPhase);
+          if (gs.phaseTimestamps && typeof gs.phaseTimestamps === 'object') {
+            const orderedRuntimePhases = Object.keys(gs.phaseTimestamps);
+            if (orderedRuntimePhases.length > 0) setRuntimePhaseOrder(orderedRuntimePhases);
+          }
         }
       } catch (e) { /* cross-origin — ignore */ }
     }, 1000);
@@ -308,7 +502,7 @@ function FlowEditor({ project, onBack, initialTab }) {
           if (info && info.available && !buildNotified.current) {
             buildNotified.current = true;
             setWebglInfo(info);
-            setProjectStatus('reviewing');
+            setProjectStatus('preview_ready');
             clearInterval(interval);
           }
         })
@@ -319,7 +513,7 @@ function FlowEditor({ project, onBack, initialTab }) {
 
   // Poll for status changes
   useEffect(() => {
-    if (['submitted', 'processing', 'developing', 'building', 'feedback', 'spec_extracting', 'spec_review'].indexOf(projectStatus) === -1) return;
+    if (['submitted', 'processing', 'developing', 'building', 'preview_ready', 'feedback', 'spec_extracting', 'spec_review'].indexOf(projectStatus) === -1) return;
     const interval = setInterval(() => {
       getProject(project.id)
         .then((p) => {
@@ -637,7 +831,7 @@ function FlowEditor({ project, onBack, initialTab }) {
           </button>
         )}
 
-        {['reviewing', 'approved', 'committed', 'feedback'].indexOf(projectStatus) >= 0 && (
+        {['preview_ready', 'reviewing', 'approved', 'committed', 'feedback'].indexOf(projectStatus) >= 0 && (
           <button
             className={`app-tab ${activeTab === 'review' ? 'app-tab-active' : ''}`}
             onClick={() => setActiveTab('review')}
@@ -720,7 +914,7 @@ function FlowEditor({ project, onBack, initialTab }) {
                   {previewLandscape ? '📱 竖屏' : '📲 横屏'}
                 </button>
                 <span className="preview-progress-counter">
-                  {completedPhases.length}/{previewSpecs.length} Shots
+                  {matchedPreviewPhaseCount}/{previewSpecs.length} Shots
                 </span>
                 <button className="preview-svn-btn" disabled={svnCommitting} onClick={async () => {
                   if (!project.svnUrl) {
@@ -751,37 +945,10 @@ function FlowEditor({ project, onBack, initialTab }) {
                   {entityMap.length > 0 && (() => {
                     const shapeLabel = { Cube: '方块', Sphere: '球', Cylinder: '柱体', Plane: '平面' };
                     const colorLabel = { Red: '红色', Blue: '蓝色', Green: '绿色', Yellow: '黄色', Orange: '橙色', Purple: '紫色', White: '白色', Brown: '棕色', Cyan: '青色', Pink: '粉色' };
-                    const nameLabel = {
-                      Player: '玩家', MainCabin: '主船舱', CabinDoor: '舱门', CrewSpawner: '船员生成点',
-                      FloatingCrew: '漂浮船员', Bathroom: '浴室', CarryUpgrade: '搬运升级', BathroomUpgrade: '浴室升级',
-                      SecondCabin: '第二船舱', Bed: '床铺', GoldUI: '金币UI', GuideUI: '引导UI', CTAButton: '下载按钮',
-                      Boss: 'Boss', Enemy: '敌人', Obstacle: '障碍物', Coin: '金币', Key: '钥匙', Door: '门',
-                      Chest: '宝箱', NPC: 'NPC', Weapon: '武器', Shield: '盾牌', Trap: '陷阱', Platform: '平台',
-                      Spawner: '生成器', Goal: '目标点', Wall: '墙壁', Floor: '地板', Ceiling: '天花板',
-                      Bullet: '子弹', HealthBar: '血条', Timer: '计时器', Score: '分数', Lives: '生命',
-                    };
-                    // 从 specs.entitiesRequired[].description 抽取中文短名(state 前缀词之前的部分)
-                    const specNameMap = {};
-                    (previewSpecs || []).forEach((sp) => {
-                      (sp.entitiesRequired || []).forEach((er) => {
-                        if (!er || !er.name || specNameMap[er.name]) return;
-                        const desc = String(er.description || '').trim();
-                        if (!desc) return;
-                        const m = desc.match(/^([\u4e00-\u9fa5]{2,8})(已|可|正在|将|是|会|能|升级|建造|完成|启用|解锁|进入|触发|展示|开始|结束|出现|消失|到达|停止|达到|恢复)/);
-                        specNameMap[er.name] = m ? m[1] : (desc.length > 8 ? desc.slice(0, 8) : desc);
-                      });
-                    });
-                    const toChinese = (e, idx) => {
-                      if (nameLabel[e.name]) return nameLabel[e.name];
-                      if (specNameMap[e.name]) return specNameMap[e.name];
-                      // 兜底: 同色同形状按序号区分
-                      const sameKindIdx = entityMap.filter((x, i) => i <= idx && x.color === e.color && x.shape === e.shape).length;
-                      return `物件${sameKindIdx}`;
-                    };
                     return (
                       <div className="preview-entity-legend">
                         <div className="preview-shot-title">画面图例</div>
-                        {entityMap.map((e, idx) => (
+                        {entityMap.map((e) => (
                           <div key={e.name} className="preview-entity-item">
                             <span className={`preview-entity-swatch color-${e.color.toLowerCase()}`}>
                               {e.shape === 'Cube' ? '■' : e.shape === 'Sphere' ? '●' : e.shape === 'Cylinder' ? '▮' : '▬'}
@@ -790,7 +957,7 @@ function FlowEditor({ project, onBack, initialTab }) {
                               {colorLabel[e.color] || e.color}{shapeLabel[e.shape] || e.shape}
                             </span>
                             <span className="preview-entity-name">
-                              {toChinese(e, idx)}
+                              {formatEntityDisplayName(e)}
                             </span>
                           </div>
                         ))}
@@ -843,13 +1010,17 @@ function FlowEditor({ project, onBack, initialTab }) {
                         setTimeout(() => { setIframeLoading(false); clearInterval(checkReady); }, 8000);
                       }}
                     />
+                    <div className="preview-input-shield" title="预览模式已禁用手动操作">
+                      <span className="preview-input-shield-label">预览模式已禁用手动操作</span>
+                    </div>
                   </div>
                   {previewSpecs.length > 0 && (
-                    <div className="preview-shot-list">
+                  <div className="preview-shot-list">
                       <div className="preview-shot-title">Shot 进度</div>
                       {previewSpecs.map((spec, i) => {
-                        const done = completedPhases.indexOf(spec.phaseId) >= 0;
-                        const active = currentPhase === spec.phaseId && !done;
+                        const phaseState = previewPhaseStates[i] || { done: false, active: false };
+                        const done = phaseState.done;
+                        const active = phaseState.active;
                         const desc = spec.triggerNext && spec.triggerNext.description;
                         return (
                           <div key={spec.phaseId} className={`preview-shot-item${done ? ' done' : ''}${active ? ' active' : ''}`}>

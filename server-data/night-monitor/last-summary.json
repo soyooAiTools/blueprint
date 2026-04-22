@@ -1,0 +1,39 @@
+{
+  "trigger": "startup",
+  "startedAt": "2026-04-22T05:04:56.420Z",
+  "repoHead": "67d7c9d1631f27632571852277d1ad10752e05aa",
+  "watchdog": {
+    "trigger": "manual",
+    "timestamp": "2026-04-22T05:04:56.636Z",
+    "issues": [
+      "[F20-regression] Template marker coverage failed: missing skeleton markers: T (resolved 4ac1e5f, 5 new hits)",
+      "[F20-regression] aborted: same CODE error repeated N rounds, fix-loop not con (resolved 319839d, 8 new hits)",
+      "[F20-regression] aborted: same CODE error repeated N rounds, fix-loop not con (resolved 319839d, 6 new hits)"
+    ],
+    "fixes": [
+      "[info] Logged regression → server-data/regressions.json",
+      "[info] Logged regression → server-data/regressions.json",
+      "[info] Logged regression → server-data/regressions.json",
+      "[info] Phase 7 auto-fix cycle dispatched (5 fingerprints)",
+      "[info] Phase 8 learning: pending-fixes=2 recipe-stats=29 pending-rules=skipped(rate-limit) export=ok drafts=ok"
+    ],
+    "healthy": false,
+    "issueCount": 3,
+    "fixCount": 5
+  },
+  "learning": "ok",
+  "failedProjects": [
+    {
+      "id": "proj_1776694114846_nqw7z3",
+      "name": "守护家园",
+      "fingerprint": "Outer-retry fingerprint FATAL: \"[Linux] Error: [review] review aborted: same CODE error repeated N r",
+      "sameFingerprintCount": 1,
+      "statusMessage": "Outer-retry fingerprint FATAL: \"[Linux] Error: [review] review aborted: same CODE error repeated N rounds, fix-loop not converging: \" repeated 5x across outer retries — saved 0 burn rounds"
+    }
+  ],
+  "stuckProjects": [],
+  "resubmitted": [],
+  "recoveredStuck": [],
+  "errors": [],
+  "finishedAt": "2026-04-22T05:04:56.673Z"
+}

@@ -46,7 +46,7 @@ Assets/
 |------|------|------|
 | `luna-base-template` 仓库 | 按上述结构重组 Assets/ 目录 | 低 — 纯资源移动 |
 | `worker/gfm-files.cjs` | `copyGfmToProject()` 目标改为 `Commons/` | 低 |
-| `worker/claude-code-coder.js` | GFM 复制目标路径从 `Manager/` 改为 `Commons/` | 低 |
+| `worker/codex-code-coder.js` | GFM 复制目标路径从 `Manager/` 改为 `Commons/` | 低 |
 | `worker/worker-coder.js` | 同上，4 处复制路径更新 | 低 |
 | `engine/stages/compile.cjs` | 源码保存路径可能需更新 | 低 |
 | Luna 构建系统 | 验证 build-api 能正确编译新路径下的 .cs 文件 | **中** — 需实测 |
@@ -151,7 +151,7 @@ After:
 | `worker/gfm-files.cjs` | GFM_FILES 列表新增 `GameSceneCtrl.cs` | 低 |
 | `adapters/skeleton-generator.cjs` | Start() 中 Find 改为 Register，位置操作改为 Show/Hide | **中** |
 | `adapters/templates/placement.cjs` | 位置设置改用 GameSceneCtrl API | 中 |
-| `worker/luna-claude-code.md` | 文档新增 GameSceneCtrl API 说明 | 低 |
+| `worker/luna-codex-code.md` | 文档新增 GameSceneCtrl API 说明 | 低 |
 | `worker/GFM_Tools_API.md` | 新增 GameSceneCtrl 章节 | 低 |
 | `engine/static-check.cjs` | 可选：新增规则检测裸 `GameObject.Find` 建议用 GameSceneCtrl | 低 |
 
@@ -300,7 +300,7 @@ void Start() {
 | `adapters/skeleton-generator.cjs` | NPC 行为检测 → 生成 `Activate()` 调用 | 中 |
 | `adapters/templates/` NPC 模板 | 12 个 NPC 模板改为调用 ScriptActivator | 中 |
 | `engine/static-check.cjs` | AddComponent 规则加白名单：`GetComponent<ScriptActivator>` 放行 | 低 |
-| `worker/luna-claude-code.md` | 新增 ScriptActivator API 文档 | 低 |
+| `worker/luna-codex-code.md` | 新增 ScriptActivator API 文档 | 低 |
 
 ### 注意：GetComponent 不受限制
 

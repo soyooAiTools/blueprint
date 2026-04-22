@@ -1576,8 +1576,8 @@ function _classifyRootCauses(issues, report, gs) {
           summary: 'CTA 按钮未出现或无响应',
           impact: '试玩广告无法引导下载，投放无效',
           fixes: [
-            '确保最后一个阶段完成后调用 ShowCTA() 和 Luna.Unity.LifeCycle.GameEnded()',
-            '确认 gameEnded = true 后不再有 return 语句阻止 CTA 渲染',
+            '确保最后一个阶段完成后先调用 Luna.Unity.LifeCycle.GameEnded()，再调用 ShowCTA()',
+            '确认不要在 ShowCTA() 内再次调用 GameEnded()，且 gameEnded = true 不要早于终局 CTA 流程',
             '检查 InstallFullGame() 是否被正确调用'
           ]
         });
