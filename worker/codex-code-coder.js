@@ -27,6 +27,8 @@ const CODEX_CMD = process.env.CODEX_CMD || 'codex';
 const CLAUDE_TIMEOUT_MS = parseInt(process.env.CLAUDE_TIMEOUT_MS) || 25 * 60 * 1000; // 25 min (fresh gen can take 15-20min)
 const CLAUDE_MAX_BUDGET = process.env.CLAUDE_MAX_BUDGET_USD || '0'; // 0 = no limit
 const CLAUDE_MODEL = process.env.CLAUDE_CODE_MODEL || 'claude-opus-4-7';
+const CODEX_CODE_MODEL = process.env.CODEX_CODE_MODEL || 'gpt-5.4';
+const CODEX_CODE_BACKEND = process.env.CODEX_CODE_BACKEND || 'codex-exec';
 const GLM_MODEL = process.env.GLM_MODEL || 'glm-5.1';
 const GLM_API_BASE = process.env.GLM_API_BASE || 'https://api.aaxe.cn/api/anthropic';
 const GLM_API_KEY = process.env.GLM_API_KEY || 'oki-d82fb9cf928492b23847db9569dd1f912906cc09135c62fe20b5fa3f0576';
@@ -554,6 +556,146 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
   });
 }
 
+function runCodexExecCode(workDir, userPrompt, log, taskId, opts) {
+  opts = opts || {};
+  var finalPrompt = opts.appendSystemPrompt
+    ? ('Additional execution rules:\n' + opts.appendSystemPrompt + '\n\nTask:\n' + userPrompt)
+    : userPrompt;
+
+  return new Promise((resolve) => {
+    const outputPath = path.join(workDir, 'codex-last-message.txt');
+    const args = [
+      'exec',
+      '--skip-git-repo-check',
+      '--ephemeral',
+      '-m', opts.model || CODEX_CODE_MODEL,
+      '-c', 'model_reasoning_effort="' + (opts.effort || 'medium') + '"',
+      '-s', 'danger-full-access',
+      '-C', workDir,
+      '-o', outputPath,
+    ];
+
+    log(`[codex-code] Spawning codex exec: ${CODEX_CMD} ${args.join(' ')}`, taskId);
+    log(`[codex-code] Prompt length: ${finalPrompt.length} chars`, taskId);
+
+    const managerDirForMtime = path.join(opts.workDir || workDir, 'Assets', 'Program', 'Script', 'Manager');
+    const watchedCsFilesForMtime = [];
+    try {
+      const partialFiles = fs.readdirSync(managerDirForMtime)
+        .filter(function(f) { return /^GameFlowManagerMain.*\.cs$/.test(f); });
+      for (const f of partialFiles) watchedCsFilesForMtime.push(path.join(managerDirForMtime, f));
+    } catch (_e) {}
+    if (watchedCsFilesForMtime.length === 0) {
+      watchedCsFilesForMtime.push(path.join(managerDirForMtime, 'GameFlowManagerMain.cs'));
+    }
+    const preSpawnMtimes = {};
+    try {
+      for (const f of watchedCsFilesForMtime) preSpawnMtimes[f] = fs.existsSync(f) ? fs.statSync(f).mtimeMs : 0;
+    } catch (_e) {}
+    const spawnStartTime = Date.now();
+
+    const { OPENAI_API_KEY, CODEX_API_KEY, OPENAI_BASE_URL, ...cleanEnv } = process.env;
+    const child = spawn(CODEX_CMD, args, {
+      cwd: workDir,
+      env: { ...cleanEnv, RUST_LOG: 'error' },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    if (child.pid) {
+      if (!process._activeChildPIDs) process._activeChildPIDs = new Set();
+      process._activeChildPIDs.add(child.pid);
+    }
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (data) => { stdout += data.toString(); });
+    child.stderr.on('data', (data) => { stderr += data.toString(); });
+
+    const timer = setTimeout(() => {
+      log(`[codex-code] ⚠️ Timeout (${CLAUDE_TIMEOUT_MS / 1000}s), killing process`, taskId);
+      child.kill('SIGTERM');
+      setTimeout(() => child.kill('SIGKILL'), 5000);
+    }, CLAUDE_TIMEOUT_MS);
+
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (child.pid && process._activeChildPIDs) process._activeChildPIDs.delete(child.pid);
+      log(`[codex-code] codex exec exited with code ${code}, stdout ${stdout.length} chars, stderr ${stderr.length} chars`, taskId);
+
+      let fileActuallyModified = false;
+      const modifiedFiles = [];
+      try {
+        for (const f of watchedCsFilesForMtime) {
+          if (fs.existsSync(f)) {
+            const currentMtimeMs = fs.statSync(f).mtimeMs;
+            if (currentMtimeMs > (preSpawnMtimes[f] || 0)) {
+              fileActuallyModified = true;
+              modifiedFiles.push(path.basename(f));
+            }
+          }
+        }
+      } catch (_e) {}
+
+      let finalOutput = stdout;
+      try {
+        if (fs.existsSync(outputPath)) finalOutput = fs.readFileSync(outputPath, 'utf8') || stdout;
+      } catch (_e) {}
+
+      const elapsedMs = Date.now() - spawnStartTime;
+      const streams = (stdout || '') + '\n' + (stderr || '');
+      const isModelFatal = /quota|insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|unauthoriz|authentication.?fail|access.?denied|billing/i.test(streams);
+      const buildExitError = function(exitCode, stdoutStr, stderrStr) {
+        if (stderrStr && stderrStr.trim()) return stderrStr.slice(0, 500);
+        if (stdoutStr && stdoutStr.trim()) return `stdout: ${stdoutStr.slice(-500)}`;
+        return `Exit code ${exitCode}`;
+      };
+
+      if (code !== 0 && elapsedMs < 10000 && stdout.length < 200 && !fileActuallyModified) {
+        const baseErr = stdout || stderr || `CLI error: exit code ${code} in ${elapsedMs}ms`;
+        return resolve({
+          ok: false,
+          exitCode: code,
+          output: finalOutput,
+          error: isModelFatal
+            ? `MODEL_FATAL: Codex code runner auth/quota failure — ${baseErr.slice(0, 300)}`
+            : baseErr,
+          partialSuccess: false,
+        });
+      }
+
+      const trueOk = code === 0 && fileActuallyModified;
+      resolve({
+        ok: trueOk,
+        exitCode: code,
+        output: finalOutput,
+        error: !trueOk
+          ? (code !== 0 && fileActuallyModified
+              ? null
+              : (code === 0 && !fileActuallyModified
+                  ? ('ZERO_EDITS: codex exec exited 0 but did not modify any watched GameFlowManagerMain*.cs file.')
+                  : buildExitError(code, stdout, stderr)))
+          : null,
+        partialSuccess: code !== 0 && fileActuallyModified,
+        modifiedFiles: modifiedFiles,
+      });
+    });
+
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      resolve({
+        ok: false,
+        exitCode: -1,
+        output: '',
+        error: err.message,
+        partialSuccess: false,
+      });
+    });
+
+    child.stdin.write(finalPrompt);
+    child.stdin.end();
+  });
+}
+
 /**
  * runCodexText — 文本模式 CLI spawn
  *
@@ -1077,15 +1219,16 @@ ${inlinePromptMd}
 代码必须完整（1300-1600 行），不要省略任何部分。`;
   }
 
-  // === Step 5: 运行 Claude Code（跨进程信号量，限制并发数）===
+  // === Step 5: 运行代码 agent（跨进程信号量，限制并发数）===
   const slot = await acquireLock(taskId, log);
   log('[codex-code] 🚀 Starting Codex code agent...', taskId);
   let result;
   try {
-  // Use Opus for both fresh and fix — quality matters. Inline prompt + Edit approach avoids 5min timeout.
-  const codegenModel = CLAUDE_MODEL;
-  log(`[codex-code] Model: ${codegenModel === 'haiku' ? 'Haiku 4.5' : codegenModel === 'sonnet' ? 'Sonnet 4.6' : 'Opus 4.7'}`, taskId);
-  result = await runClaudeCode(clientDir, userPrompt, log, taskId, {
+  const codegenBackend = CODEX_CODE_BACKEND;
+  const codegenModel = codegenBackend === 'codex-exec' ? CODEX_CODE_MODEL : CLAUDE_MODEL;
+  log(`[codex-code] Backend: ${codegenBackend}`, taskId);
+  log(`[codex-code] Model: ${codegenModel}`, taskId);
+  result = await (codegenBackend === 'codex-exec' ? runCodexExecCode : runClaudeCode)(clientDir, userPrompt, log, taskId, {
     model: codegenModel,
     // effort: always 'medium' to avoid API stream timeout (5min) during extended thinking
     // INCREMENTAL FIX MODE rules — kept minimal. The ⛔ FORBIDDEN PATTERNS block

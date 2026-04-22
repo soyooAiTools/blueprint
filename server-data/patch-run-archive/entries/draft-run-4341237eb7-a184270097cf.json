@@ -1,0 +1,38 @@
+{
+  "id": "a184270097cf",
+  "runId": "draft-run-4341237eb7",
+  "family": "review.nonconverging_structural",
+  "priority": "P1",
+  "status": "verified-covered",
+  "executionMode": "auto-patch-candidate",
+  "executedAt": "2026-04-22T06:32:49.353Z",
+  "result": "verified-covered",
+  "passCount": 5,
+  "totalChecks": 5,
+  "patchedFiles": [],
+  "blockingReason": null,
+  "primaryTarget": "/opt/blueprint-editor/engine/static-check.cjs",
+  "linkedPatchTask": "draft-patch-4341237eb7",
+  "checks": [
+    {
+      "name": "review-early-stop",
+      "pass": true
+    },
+    {
+      "name": "review-round-cap",
+      "pass": true
+    },
+    {
+      "name": "main-file-reintroduced-guard",
+      "pass": true
+    },
+    {
+      "name": "invalid-pool-find-name-guard",
+      "pass": true
+    },
+    {
+      "name": "updategamestate-preserve-guard",
+      "pass": true
+    }
+  ]
+}

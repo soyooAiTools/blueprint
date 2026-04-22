@@ -172,6 +172,7 @@ module.exports.init = function(ctx) {
             projectSM.forceTransition(project, mappedStatus, 'worker-' + workerId);
           }
           if (message) project.statusMessage = message;
+          project.updatedAt = new Date().toISOString();
           // Persist structured failure attribution
           if (status === 'failed') {
             project.lastFailure = {
@@ -213,6 +214,7 @@ module.exports.init = function(ctx) {
           if (project) {
             projectSM.forceTransition(project, 'failed', 'worker-permanent-fail');
             project.statusMessage = result.status_message;
+            project.updatedAt = new Date().toISOString();
             writeProject(project);
           }
         }
@@ -222,6 +224,7 @@ module.exports.init = function(ctx) {
           if (project) {
             projectSM.forceTransition(project, 'submitted', 'worker-auto-retry');
             project.statusMessage = result.status_message;
+            project.updatedAt = new Date().toISOString();
             writeProject(project);
           }
         }

@@ -1,0 +1,17 @@
+{
+  "id": "7c4d5cdb2456",
+  "runId": "draft-run-07510e3d63",
+  "family": "generation.other",
+  "priority": "P0",
+  "status": "verification-missing",
+  "executionMode": "auto-patch-candidate",
+  "executedAt": "2026-04-22T09:02:50.163Z",
+  "result": "verification-missing",
+  "passCount": null,
+  "totalChecks": null,
+  "patchedFiles": [],
+  "blockingReason": null,
+  "primaryTarget": null,
+  "linkedPatchTask": "draft-patch-07510e3d63",
+  "checks": []
+}

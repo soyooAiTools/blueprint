@@ -1,0 +1,34 @@
+{
+  "id": "85fe2c9c5141",
+  "runId": "draft-run-d6c6d46fd3",
+  "family": "codegen.marker_coverage",
+  "priority": "P1",
+  "status": "verified-covered",
+  "executionMode": "auto-patch-candidate",
+  "executedAt": "2026-04-22T06:32:49.354Z",
+  "result": "verified-covered",
+  "passCount": 4,
+  "totalChecks": 4,
+  "patchedFiles": [],
+  "blockingReason": null,
+  "primaryTarget": "/opt/blueprint-editor/engine/stages/codegen-schema.cjs",
+  "linkedPatchTask": "draft-patch-d6c6d46fd3",
+  "checks": [
+    {
+      "name": "combined-marker-coverage",
+      "pass": true
+    },
+    {
+      "name": "flow-companion-fill",
+      "pass": true
+    },
+    {
+      "name": "filters-phase-init-markers",
+      "pass": true
+    },
+    {
+      "name": "writes-flow-extra-file",
+      "pass": true
+    }
+  ]
+}

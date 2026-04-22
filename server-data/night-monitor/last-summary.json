@@ -1,21 +1,21 @@
 {
-  "trigger": "startup",
-  "startedAt": "2026-04-22T05:04:56.420Z",
-  "repoHead": "67d7c9d1631f27632571852277d1ad10752e05aa",
+  "trigger": "interval",
+  "startedAt": "2026-04-22T10:02:50.449Z",
+  "repoHead": "f8daa191a7b840326bf65f4d13e63c79a69c1810",
   "watchdog": {
     "trigger": "manual",
-    "timestamp": "2026-04-22T05:04:56.636Z",
+    "timestamp": "2026-04-22T10:02:50.587Z",
     "issues": [
       "[F20-regression] Template marker coverage failed: missing skeleton markers: T (resolved 4ac1e5f, 5 new hits)",
-      "[F20-regression] aborted: same CODE error repeated N rounds, fix-loop not con (resolved 319839d, 8 new hits)",
-      "[F20-regression] aborted: same CODE error repeated N rounds, fix-loop not con (resolved 319839d, 6 new hits)"
+      "[F20-regression] aborted: same CODE error repeated N rounds, fix-loop not con (resolved 319839d, 20 new hits)",
+      "[F20-regression] aborted: same CODE error repeated N rounds, fix-loop not con (resolved 319839d, 11 new hits)"
     ],
     "fixes": [
       "[info] Logged regression → server-data/regressions.json",
       "[info] Logged regression → server-data/regressions.json",
       "[info] Logged regression → server-data/regressions.json",
       "[info] Phase 7 auto-fix cycle dispatched (5 fingerprints)",
-      "[info] Phase 8 learning: pending-fixes=2 recipe-stats=29 pending-rules=skipped(rate-limit) export=ok drafts=ok"
+      "[info] Phase 8 learning: pending-fixes=8 recipe-stats=31 pending-rules=skipped(rate-limit) export=ok drafts=ok"
     ],
     "healthy": false,
     "issueCount": 3,
@@ -24,16 +24,82 @@
   "learning": "ok",
   "failedProjects": [
     {
-      "id": "proj_1776694114846_nqw7z3",
-      "name": "守护家园",
-      "fingerprint": "Outer-retry fingerprint FATAL: \"[Linux] Error: [review] review aborted: same CODE error repeated N r",
+      "id": "proj_1776680853909_w7113b",
+      "name": "太空捡垃圾",
+      "fingerprint": "Outer-retry fingerprint FATAL: \"[Linux] Error: [method-check] Codegen contract failed: forbidden-gen",
       "sameFingerprintCount": 1,
-      "statusMessage": "Outer-retry fingerprint FATAL: \"[Linux] Error: [review] review aborted: same CODE error repeated N rounds, fix-loop not converging: \" repeated 5x across outer retries — saved 0 burn rounds"
+      "statusMessage": "Outer-retry fingerprint FATAL: \"[Linux] Error: [method-check] Codegen contract failed: forbidden-generic-api, player-alias-drift\" repeated 9x across outer retries — saved 0 burn rounds"
+    },
+    {
+      "id": "proj_1776680895524_s6ae56",
+      "name": "太空游侠",
+      "fingerprint": "Outer-retry fingerprint FATAL: \"[Linux] Error: [method-check] Codegen contract failed: forbidden-gen",
+      "sameFingerprintCount": 1,
+      "statusMessage": "Outer-retry fingerprint FATAL: \"[Linux] Error: [method-check] Codegen contract failed: forbidden-generic-api, player-alias-drift\" repeated 2x across outer retries — saved 0 burn rounds"
+    },
+    {
+      "id": "proj_1776832003298_8u6x0n",
+      "name": "回收子弹",
+      "fingerprint": "Outer-retry fingerprint FATAL: \"[Linux] Error: [method-check] Codegen contract failed: duplicate-sta",
+      "sameFingerprintCount": 1,
+      "statusMessage": "Outer-retry fingerprint FATAL: \"[Linux] Error: [method-check] Codegen contract failed: duplicate-state-fields, forbidden-generic-api\" repeated 7x across outer retries — saved 0 burn rounds"
+    },
+    {
+      "id": "proj_1776832015099_axudno",
+      "name": "子弹模具",
+      "fingerprint": "Permanently failed after 14 code retries",
+      "sameFingerprintCount": 1,
+      "statusMessage": "Permanently failed after 14 code retries"
+    },
+    {
+      "id": "proj_1776832034125_ll9a4d",
+      "name": "制作子弹",
+      "fingerprint": "Permanently failed after 9 code retries",
+      "sameFingerprintCount": 1,
+      "statusMessage": "Permanently failed after 9 code retries"
+    },
+    {
+      "id": "proj_1776832054666_vtpwu5",
+      "name": "太空卖氧气",
+      "fingerprint": "Outer-retry fingerprint FATAL: \"[Linux] Error: [method-check] Codegen contract failed: forbidden-gen",
+      "sameFingerprintCount": 1,
+      "statusMessage": "Outer-retry fingerprint FATAL: \"[Linux] Error: [method-check] Codegen contract failed: forbidden-generic-api, player-alias-drift\" repeated 8x across outer retries — saved 0 burn rounds"
     }
   ],
   "stuckProjects": [],
-  "resubmitted": [],
+  "resubmitted": [
+    {
+      "id": "proj_1776680853909_w7113b",
+      "fingerprint": "Outer-retry fingerprint FATAL: \"[Linux] Error: [method-check] Codegen contract failed: forbidden-gen",
+      "sameFingerprintCount": 1
+    },
+    {
+      "id": "proj_1776680895524_s6ae56",
+      "fingerprint": "Outer-retry fingerprint FATAL: \"[Linux] Error: [method-check] Codegen contract failed: forbidden-gen",
+      "sameFingerprintCount": 1
+    },
+    {
+      "id": "proj_1776832003298_8u6x0n",
+      "fingerprint": "Outer-retry fingerprint FATAL: \"[Linux] Error: [method-check] Codegen contract failed: duplicate-sta",
+      "sameFingerprintCount": 1
+    },
+    {
+      "id": "proj_1776832015099_axudno",
+      "fingerprint": "Permanently failed after 14 code retries",
+      "sameFingerprintCount": 1
+    },
+    {
+      "id": "proj_1776832034125_ll9a4d",
+      "fingerprint": "Permanently failed after 9 code retries",
+      "sameFingerprintCount": 1
+    },
+    {
+      "id": "proj_1776832054666_vtpwu5",
+      "fingerprint": "Outer-retry fingerprint FATAL: \"[Linux] Error: [method-check] Codegen contract failed: forbidden-gen",
+      "sameFingerprintCount": 1
+    }
+  ],
   "recoveredStuck": [],
   "errors": [],
-  "finishedAt": "2026-04-22T05:04:56.673Z"
+  "finishedAt": "2026-04-22T10:02:50.642Z"
 }

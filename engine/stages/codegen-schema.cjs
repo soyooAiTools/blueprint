@@ -306,11 +306,13 @@ function fillCustomLogic(ctx, schema) {
       return runCodexText({
         userPrompt: promptText,
         systemPrompt: '你是 Unity C# 代码填充器。只修改 TODO_CUSTOM 区域。',
-        model: 'opus',
+        backend: 'codex-exec',
+        model: 'gpt-5.4',
         taskId: ctx.taskId,
         log: function(msg) { ctx.addLog('codegen-schema', '[custom R' + round + '] ' + msg); },
         effort: 'medium',
         timeoutMs: 300000,
+        allowBackendFallback: true,
       }).then(function(response) {
         if (!response.ok) {
           throw new Error('Custom logic fill failed: ' + (response.error || '').slice(0, 200));
@@ -346,9 +348,13 @@ function buildCustomLogicPrompt(ctx, schema) {
   lines.push('1. 只修改 TODO_CUSTOM_START 和 TODO_CUSTOM_END 之间的代码');
   lines.push('2. 不要修改 [SKELETON] 标记的代码');
   lines.push('3. 不要修改模板已生成的代码');
-  lines.push('4. 可用 API: PlaceObj, HideObj, SetScale, AddResource, TrySpend, IsNear 等');
-  lines.push('5. 实体变量名使用 PascalCase（与 skeleton 声明一致，如 Forge 不是 forge）');
-  lines.push('6. Phase-exit 门使用 EntityAdvanced(X, _snap_XPos) — 读 transform.position > 1.5f。');
+  lines.push('4. 只能使用当前代码里已经存在的方法、字段、实体变量名和 safe API。');
+  lines.push('5. 不要发明新的 helper 方法，不要调用代码中不存在的方法。把逻辑直接内联在 TODO_CUSTOM 区域。');
+  lines.push('6. 可用 safe API: PlaceObj, HideObj, SetScale, AddResource, TrySpend, IsNear, AddGold, ShowFloatingText 等。');
+  lines.push('7. 实体变量名使用 PascalCase，且大小写必须与当前代码完全一致（如 Forge 不是 forge，Player 不是 player）。');
+  lines.push('8. 如果你需要“worker/auto/queue/tick”之类行为，不要发明 AutoWorkerTick / UpdateWorkers / SpawnEnemy 这类 helper；');
+  lines.push('   只能复用当前代码里已经定义的方法，或直接写最小内联逻辑。');
+  lines.push('9. Phase-exit 门使用 EntityAdvanced(X, _snap_XPos) — 读 transform.position > 1.5f。');
   lines.push('   若 phase P 的退出条件是 EntityAdvanced(X)，P 的交互逻辑必须在玩家触发时位移 X：');
   lines.push('   调 PlaceObj(X, x, y, z) / HideObj(X) / X.transform.position = new Vector3(...)。');
   lines.push('   仅写 flag (XDone=true / XState=2 / XPlayerActed=true) **不能**满足 gate，phase 永远不退出。');

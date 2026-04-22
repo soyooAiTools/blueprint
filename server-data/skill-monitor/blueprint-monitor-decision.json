@@ -1,0 +1,23 @@
+{
+  "ts": "2026-04-22T10:12:26.904Z",
+  "counts": {
+    "projects": 6,
+    "processing": 0,
+    "failed": 6,
+    "done-or-reviewing": 0
+  },
+  "decision": {
+    "recommendation": "recover-failed-projects",
+    "nextAction": "resubmit-and-watch",
+    "reason": "6 failed project(s) still present; keep auto-resubmit as the only automatic write action.",
+    "actionGuard": "monitor is intentionally in guard mode for code-level auto-fix",
+    "nightState": "night-monitor stuck=0 resubmitted=6"
+  },
+  "actionSummary": {
+    "autoFixTriggered": 0,
+    "resubmitted": 4,
+    "errors": 0,
+    "skipped": 0,
+    "deferred": 0
+  }
+}

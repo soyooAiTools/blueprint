@@ -1,90 +1,95 @@
 {
-  "cycles": 27,
+  "cycles": 38,
   "projects": {
     "proj_1776680853909_w7113b": {
-      "fingerprint": "[watchdog] Synced: task was failed",
+      "fingerprint": "Outer-retry fingerprint FATAL: \"[Linux] Error: [method-check] Codegen contract failed: forbidden-gen",
       "sameFingerprintCount": 1,
-      "lastRepoHead": "67d7c9d1631f27632571852277d1ad10752e05aa",
-      "lastSeenAt": "2026-04-22T05:04:56.666Z",
-      "lastStatusMessage": "[Linux] Codex 审核失败 (1/4)，AI修复中...",
+      "lastRepoHead": "f8daa191a7b840326bf65f4d13e63c79a69c1810",
+      "lastSeenAt": "2026-04-22T10:02:50.607Z",
+      "lastStatusMessage": "Outer-retry fingerprint FATAL: \"[Linux] Error: [method-check] Codegen contract failed: forbidden-generic-api, player-alias-drift\" repeated 9x across outer retries — saved 0 burn rounds",
       "lastIncidentFile": "../../../root/night-monitor/incidents/proj_1776680853909_w7113b.json",
-      "lastResubmitAt": "2026-04-22T04:39:16.494Z",
-      "lastResubmitHead": "67d7c9d1631f27632571852277d1ad10752e05aa",
-      "lastStatus": "processing",
-      "sameStatusCount": 2,
-      "lastTaskStatus": "processing",
-      "lastTaskUpdatedAt": "2026-04-22 04:43:27"
+      "lastResubmitAt": "2026-04-22T10:02:50.611Z",
+      "lastResubmitHead": "f8daa191a7b840326bf65f4d13e63c79a69c1810"
     },
     "proj_1776680895524_s6ae56": {
-      "fingerprint": "Outer-retry fingerprint FATAL: \"[Linux] Error: [review] review aborted: same CODE error repeated N r",
+      "fingerprint": "Outer-retry fingerprint FATAL: \"[Linux] Error: [method-check] Codegen contract failed: forbidden-gen",
       "sameFingerprintCount": 1,
-      "lastRepoHead": "67d7c9d1631f27632571852277d1ad10752e05aa",
-      "lastSeenAt": "2026-04-22T05:04:56.667Z",
-      "lastStatusMessage": "[Linux] Codex 审核 (4/4)...",
+      "lastRepoHead": "f8daa191a7b840326bf65f4d13e63c79a69c1810",
+      "lastSeenAt": "2026-04-22T10:02:50.618Z",
+      "lastStatusMessage": "Outer-retry fingerprint FATAL: \"[Linux] Error: [method-check] Codegen contract failed: forbidden-generic-api, player-alias-drift\" repeated 2x across outer retries — saved 0 burn rounds",
       "lastIncidentFile": "../../../root/night-monitor/incidents/proj_1776680895524_s6ae56.json",
-      "lastResubmitAt": "2026-04-22T04:43:31.803Z",
-      "lastResubmitHead": "67d7c9d1631f27632571852277d1ad10752e05aa",
-      "lastStatus": "processing",
-      "sameStatusCount": 1,
-      "lastTaskStatus": "processing",
-      "lastTaskUpdatedAt": "2026-04-22 05:04:36"
+      "lastResubmitAt": "2026-04-22T10:02:50.623Z",
+      "lastResubmitHead": "f8daa191a7b840326bf65f4d13e63c79a69c1810"
     },
     "proj_1776694114846_nqw7z3": {
       "fingerprint": "Outer-retry fingerprint FATAL: \"[Linux] Error: [review] review aborted: same CODE error repeated N r",
       "sameFingerprintCount": 1,
-      "lastRepoHead": "67d7c9d1631f27632571852277d1ad10752e05aa",
-      "lastSeenAt": "2026-04-22T05:04:56.673Z",
-      "lastStatusMessage": "Outer-retry fingerprint FATAL: \"[Linux] Error: [review] review aborted: same CODE error repeated N rounds, fix-loop not converging: \" repeated 5x across outer retries — saved 0 burn rounds",
+      "lastRepoHead": "f8daa191a7b840326bf65f4d13e63c79a69c1810",
+      "lastSeenAt": "2026-04-22T07:02:49.529Z",
+      "lastStatusMessage": "[Linux] Preparing base template...",
       "lastIncidentFile": "../../../root/night-monitor/incidents/proj_1776694114846_nqw7z3.json",
-      "lastResubmitAt": "2026-04-22T04:39:16.507Z",
-      "lastResubmitHead": "67d7c9d1631f27632571852277d1ad10752e05aa"
+      "lastResubmitAt": "2026-04-22T05:43:07.756Z",
+      "lastResubmitHead": "f8daa191a7b840326bf65f4d13e63c79a69c1810",
+      "lastStatus": "processing",
+      "sameStatusCount": 1,
+      "lastTaskStatus": "processing",
+      "lastTaskUpdatedAt": "2026-04-22 07:02:27"
     },
     "proj_1776832003298_8u6x0n": {
-      "lastStatus": "processing",
-      "lastStatusMessage": "[Linux] Codex 审核失败 (1/4)，AI修复中...",
-      "sameStatusCount": 2,
-      "lastSeenAt": "2026-04-22T05:04:56.667Z",
-      "lastRepoHead": "67d7c9d1631f27632571852277d1ad10752e05aa",
-      "lastTaskStatus": "processing",
-      "lastTaskUpdatedAt": "2026-04-22 04:43:18"
+      "fingerprint": "Outer-retry fingerprint FATAL: \"[Linux] Error: [method-check] Codegen contract failed: duplicate-sta",
+      "sameFingerprintCount": 1,
+      "lastRepoHead": "f8daa191a7b840326bf65f4d13e63c79a69c1810",
+      "lastSeenAt": "2026-04-22T10:02:50.624Z",
+      "lastStatusMessage": "Outer-retry fingerprint FATAL: \"[Linux] Error: [method-check] Codegen contract failed: duplicate-state-fields, forbidden-generic-api\" repeated 7x across outer retries — saved 0 burn rounds",
+      "lastIncidentFile": "../../../root/night-monitor/incidents/proj_1776832003298_8u6x0n.json",
+      "lastResubmitAt": "2026-04-22T10:02:50.628Z",
+      "lastResubmitHead": "f8daa191a7b840326bf65f4d13e63c79a69c1810"
     },
     "proj_1776832015099_axudno": {
-      "lastStatus": "processing",
-      "lastStatusMessage": "[Linux] Codex 审核 (2/4)...",
-      "sameStatusCount": 2,
-      "lastSeenAt": "2026-04-22T05:04:56.667Z",
-      "lastRepoHead": "67d7c9d1631f27632571852277d1ad10752e05aa",
-      "lastTaskStatus": "processing",
-      "lastTaskUpdatedAt": "2026-04-22 04:43:27"
+      "fingerprint": "Permanently failed after 14 code retries",
+      "sameFingerprintCount": 1,
+      "lastRepoHead": "f8daa191a7b840326bf65f4d13e63c79a69c1810",
+      "lastSeenAt": "2026-04-22T10:02:50.629Z",
+      "lastStatusMessage": "Permanently failed after 14 code retries",
+      "lastIncidentFile": "../../../root/night-monitor/incidents/proj_1776832015099_axudno.json",
+      "lastResubmitAt": "2026-04-22T10:02:50.633Z",
+      "lastResubmitHead": "f8daa191a7b840326bf65f4d13e63c79a69c1810"
     },
     "proj_1776832034125_ll9a4d": {
-      "lastStatus": "processing",
-      "lastStatusMessage": "[Linux] Codex 审核失败 (2/4)，AI修复中...",
-      "sameStatusCount": 3,
-      "lastSeenAt": "2026-04-22T05:04:56.667Z",
-      "lastRepoHead": "67d7c9d1631f27632571852277d1ad10752e05aa",
-      "lastTaskStatus": "processing",
-      "lastTaskUpdatedAt": "2026-04-22 04:43:27"
+      "fingerprint": "Permanently failed after 9 code retries",
+      "sameFingerprintCount": 1,
+      "lastRepoHead": "f8daa191a7b840326bf65f4d13e63c79a69c1810",
+      "lastSeenAt": "2026-04-22T10:02:50.633Z",
+      "lastStatusMessage": "Permanently failed after 9 code retries",
+      "lastIncidentFile": "../../../root/night-monitor/incidents/proj_1776832034125_ll9a4d.json",
+      "lastResubmitAt": "2026-04-22T10:02:50.637Z",
+      "lastResubmitHead": "f8daa191a7b840326bf65f4d13e63c79a69c1810"
     },
     "proj_1776832054666_vtpwu5": {
-      "lastStatus": "processing",
-      "lastStatusMessage": "[Linux] Codex 审核失败 (2/4)，AI修复中...",
-      "sameStatusCount": 2,
-      "lastSeenAt": "2026-04-22T05:04:56.667Z",
-      "lastRepoHead": "67d7c9d1631f27632571852277d1ad10752e05aa",
-      "lastTaskStatus": "processing",
-      "lastTaskUpdatedAt": "2026-04-22 04:43:18"
+      "fingerprint": "Outer-retry fingerprint FATAL: \"[Linux] Error: [method-check] Codegen contract failed: forbidden-gen",
+      "sameFingerprintCount": 1,
+      "lastRepoHead": "f8daa191a7b840326bf65f4d13e63c79a69c1810",
+      "lastSeenAt": "2026-04-22T10:02:50.638Z",
+      "lastStatusMessage": "Outer-retry fingerprint FATAL: \"[Linux] Error: [method-check] Codegen contract failed: forbidden-generic-api, player-alias-drift\" repeated 8x across outer retries — saved 0 burn rounds",
+      "lastIncidentFile": "../../../root/night-monitor/incidents/proj_1776832054666_vtpwu5.json",
+      "lastResubmitAt": "2026-04-22T10:02:50.642Z",
+      "lastResubmitHead": "f8daa191a7b840326bf65f4d13e63c79a69c1810"
     },
     "proj_1776832068682_wmd8at": {
-      "lastStatus": "processing",
-      "lastStatusMessage": "[Linux] Codex 审核失败 (2/4)，AI修复中...",
-      "sameStatusCount": 2,
-      "lastSeenAt": "2026-04-22T05:04:56.667Z",
-      "lastRepoHead": "67d7c9d1631f27632571852277d1ad10752e05aa",
-      "lastTaskStatus": "processing",
-      "lastTaskUpdatedAt": "2026-04-22 04:43:18"
+      "fingerprint": "[Linux] Error: [method-check] Method completeness failed: missing methods: TrySpendGold",
+      "sameFingerprintCount": 1,
+      "lastRepoHead": "f8daa191a7b840326bf65f4d13e63c79a69c1810",
+      "lastSeenAt": "2026-04-22T07:02:49.529Z",
+      "lastStatusMessage": "[watchdog] Permanently failed after 6 re-queues (worker idle desync after restart). Last: [Linux] Codex 审核失败 (1/4)，AI修复中...",
+      "lastIncidentFile": "../../../root/night-monitor/incidents/proj_1776832068682_wmd8at.json",
+      "lastResubmitAt": "2026-04-22T06:32:49.367Z",
+      "lastResubmitHead": "f8daa191a7b840326bf65f4d13e63c79a69c1810",
+      "lastStatus": "submitted",
+      "sameStatusCount": 1,
+      "lastTaskStatus": "pending",
+      "lastTaskUpdatedAt": "2026-04-22 06:59:21"
     }
   },
-  "lastRepoHead": "67d7c9d1631f27632571852277d1ad10752e05aa",
-  "lastRunAt": "2026-04-22T05:04:56.673Z"
+  "lastRepoHead": "f8daa191a7b840326bf65f4d13e63c79a69c1810",
+  "lastRunAt": "2026-04-22T10:02:50.642Z"
 }

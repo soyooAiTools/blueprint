@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-04-22T03:32:44.449Z",
+  "updatedAt": "2026-04-22T09:32:50.379Z",
   "count": 2,
   "items": [
     {
@@ -27,11 +27,12 @@
     {
       "id": "pr-2c22bf05de",
       "phrase": "GameObject.Find(\\__Pool_Cube_Yellow_\\ + (N + i)) constructs pool names dynamically. The rules explicitly forbid dynamic pool-name construction and | rule: Objec",
-      "hitCount": 3,
-      "uniqueTasks": 2,
+      "hitCount": 4,
+      "uniqueTasks": 3,
       "sampleTaskIds": [
         "proj_1776391516726_urbib0",
-        "proj_1776680853909_w7113b"
+        "proj_1776680853909_w7113b",
+        "proj_1776832015099_axudno"
       ],
       "sampleSnippets": [
         "`GameObject.Find(\\\"__Pool_Cube_Yellow_\\\" + (60 + i))` constructs pool names dynamically. The rules explicitly forbid dynamic pool-name construction and  | rule: Object Naming — Pool Objects | fix: Rep",
@@ -40,7 +41,7 @@
       "suggestedRule": {
         "slug": "codex-warning-2c22bf05de",
         "severity": "warn",
-        "description": "Auto-mined from 3 Codex reviewer warnings: GameObject.Find(\\__Pool_Cube_Yellow_\\ + (N + i)) constructs pool names dynamical",
+        "description": "Auto-mined from 4 Codex reviewer warnings: GameObject.Find(\\__Pool_Cube_Yellow_\\ + (N + i)) constructs pool names dynamical",
         "regexHint": "GameObject.Find(\\__Pool_Cube_Yellow_\\\\s++\\s+(N\\s++\\s+i))\\s+constructs\\s+pool\\s+names\\s+dynamically.\\s+The\\s+rules\\s+expl"
       },
       "status": "candidate"

@@ -1224,8 +1224,8 @@ function _split5Partial(allLines, specs, allEntities, entityPoolMap, isIdleGame,
  * Build Flow partial: Phase_OnTap() dispatcher + one Phase_<id>_OnTap() per phase.
  * Replaces the flat `switch(currentPhaseName) { case: ... = true; }` dispatch with
  * per-phase methods that AI (and template engine) can fill via TODO markers.
- * Fields referenced (<id>InteractionDone / <id>PlayerActed) are declared in main
- * and shared across partials.
+ * Phase helpers are generated empty-by-default; templates must add observable
+ * entity movement in TODO regions instead of relying on flag-only shortcuts.
  */
 function _buildFlowPartial(specs, phaseGateMap = {}) {
   const lines = [];
@@ -1383,8 +1383,8 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
     lines.push('    void Phase_' + pid + '_OnTap()');
     lines.push('    {');
     lines.push('        // TODO_PHASE_' + pid + '_ONTAP_START');
-    lines.push('        ' + pid + 'InteractionDone = true;');
-    lines.push('        ' + pid + 'PlayerActed = true;');
+    lines.push('        // TODO: AI/template fills — produce observable movement or other real gameplay progress here.');
+    lines.push('        // Do NOT rely on ' + pid + 'InteractionDone / ' + pid + 'PlayerActed alone to advance the phase.');
     lines.push('        // TODO_PHASE_' + pid + '_ONTAP_END');
     lines.push('    }');
     lines.push('');

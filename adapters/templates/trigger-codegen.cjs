@@ -22,7 +22,7 @@ function triggerToCondition(trigger, allEntities) {
     case TriggerType.NEAR_ENTITY:
       return 'IsNear(' + toLowerCamel(trigger.entity) + ', ' + trigger.range + 'f)';
     case TriggerType.CLICK_ENTITY:
-      return toLowerCamel(trigger.entity) + 'Done == true';
+      return 'IsNear(' + toLowerCamel(trigger.entity) + ', 2f) && Input.GetMouseButtonDown(0)';
     case TriggerType.ALL_BUILT:
       return allBuiltCondition(allEntities);
     case TriggerType.ENEMY_DEFEATED:

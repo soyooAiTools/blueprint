@@ -37,14 +37,18 @@ function generateCostClickUpdate(schema) {
       lines.push('                if (scoreText != null) scoreText.text = "gold: " + gold;');
       lines.push('                ' + entity + 'Done = true;');
       lines.push('                ' + entity + 'State = 2;');
-      lines.push('                ' + entity + '.transform.position = new Vector3(' + entity + '.transform.position.x, ' + entity + '.transform.position.y + 2f, ' + entity + '.transform.position.z); // observable move — satisfies EntityAdvanced() phase-exit gate');
+      lines.push('                var ' + entity + 'Pos = ' + entity + '.transform.position;');
+      lines.push('                ' + entity + 'Pos.y += 2f; // observable move — satisfies EntityAdvanced() phase-exit gate');
+      lines.push('                ' + entity + '.transform.position = ' + entity + 'Pos;');
       lines.push('            }');
       lines.push('        }');
     } else {
       lines.push('        if (' + entity + ' != null && IsNear(' + entity + ', 2f) && Input.GetMouseButtonDown(0)) {');
       lines.push('            ' + entity + 'Done = true;');
       lines.push('            ' + entity + 'State = 2;');
-      lines.push('            ' + entity + '.transform.position = new Vector3(' + entity + '.transform.position.x, ' + entity + '.transform.position.y + 2f, ' + entity + '.transform.position.z); // observable move — satisfies EntityAdvanced() phase-exit gate');
+      lines.push('            var ' + entity + 'Pos = ' + entity + '.transform.position;');
+      lines.push('            ' + entity + 'Pos.y += 2f; // observable move — satisfies EntityAdvanced() phase-exit gate');
+      lines.push('            ' + entity + '.transform.position = ' + entity + 'Pos;');
       lines.push('        }');
     }
     if (i < clicks.length - 1) lines.push('');

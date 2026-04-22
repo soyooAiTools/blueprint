@@ -88,6 +88,46 @@ Dashboard / ops 视角需要理解两类自动恢复：
 - 扩 worker 并发时，要同步确认 pm2 里 `linux-worker-4/5/6` 等实例确实已启动并开始领任务
 ```
 
+## 2026-04-22 增量同步：system hardening + deep-research skill
+
+### 需要同步到 blueprint / operator skill 的认知
+
+- `method-check` 不再只是查缺方法，已经前移承担 contract check + phase-gate pre-repair。
+- 当前高频 contract 规则包括：
+  - `duplicate-state-fields`
+  - `forbidden-generic-api`
+  - `player-alias-drift`
+  - `invalid-pool-literals`
+- 调研线上失败时，不能只看最终 `method-check` 指纹；要区分：
+  - 真实任务代码问题
+  - 共享 `GFM_*.cs` 带来的 contract 噪音
+
+### deep-research skill 状态
+
+2026-04-22 已安装到：
+
+```text
+~/.codex/skills/deep-research/
+```
+
+来源：
+
+```text
+dashhuang/deep-research-skill
+```
+
+注意：
+
+- skill 文件安装完成，不代表当前会话已经自动加载
+- 只有在 Codex 重启或新会话初始化后，它才会出现在 `Available skills`
+
+### 归档入口
+
+本轮完整归档见：
+
+- `docs/_archived/2026-04-22-blueprint-system-hardening-and-skill-sync.md`
+- `server-data/analysis/2026-04-22-blueprint-root-cause-report.md`
+
 ## 背景
 
 当前生效的 skill 安装/迁移副本位于 `/root/.codex-blueprint/skills/` 与 `~/.codex/memories/skills/`。本文档记录的是一次需要回写到 skill 副本的归档系统同步项；如果环境仍存在旧 harness 保护目录，也只应视为历史兼容路径。2026-04-19 落地的任务级归档闭环引入了新 API、新文件布局、新环境变量，需要在下次同步 skill 副本时更新到 references/ 和 env.json。

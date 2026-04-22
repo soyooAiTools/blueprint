@@ -8,7 +8,6 @@
 var { validateGameSchema, validateSemantics } = require('./schema/validate-schema.cjs');
 var { generatePlacement, getColorOverrides } = require('./templates/placement.cjs');
 var { generatePhaseInit } = require('./templates/phase-init.cjs');
-var { triggerToCondition } = require('./templates/trigger-codegen.cjs');
 var { generateResourceInit, generateFormInit } = require('./templates/economy.cjs');
 var { generateAutoPlay } = require('./templates/autoplay-mirror.cjs');
 var { generateCustomTodos } = require('./templates/custom-todo.cjs');
@@ -149,11 +148,9 @@ function generateUpdateBody(schema, opts) {
   opts = opts || {};
   var lines = [];
 
-  // Interactive-mode flag handlers: set Done/Acted flags on player input.
-  // Mirrors OnAutoPlayArrive flag assignments so flags are set in BOTH paths.
-  // Uses switch(currentPhaseName) instead of flat if-chain — Luna/Bridge.NET
-  // compiles string-switch to a hashmap jump, same runtime cost as if-chain
-  // but flat and grep-able per phase.
+  // Interactive-mode handling is phase/template-specific.
+  // Do NOT inject generic InteractionDone/PlayerActed shortcuts here — those
+  // no longer satisfy phase gates and only teach the model the wrong pattern.
   var phases = schema.phases || [];
   if (phases.length > 0) {
     if (opts.w1bSplit) {
@@ -161,16 +158,6 @@ function generateUpdateBody(schema, opts) {
       // Keeps Main's Update() 1 line; each phase's branch lives in its own method.
       lines.push('        if (!_autoPlayMode && (Input.GetMouseButtonDown(0) || (Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began))) {');
       lines.push('            Phase_OnTap(); // dispatch to Phase_<id>_OnTap() in GameFlowManagerMain.Flow.cs');
-      lines.push('        }');
-      lines.push('');
-    } else {
-      lines.push('        if (!_autoPlayMode && (Input.GetMouseButtonDown(0) || (Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began))) {');
-      lines.push('            switch (currentPhaseName) {');
-      for (var pi = 0; pi < phases.length; pi++) {
-        var pid = phases[pi].phaseId;
-        lines.push('                case "' + pid + '": ' + pid + 'InteractionDone = true; ' + pid + 'PlayerActed = true; break;');
-      }
-      lines.push('            }');
       lines.push('        }');
       lines.push('');
     }

@@ -147,31 +147,160 @@ function rewriteHotPathVectorAllocations(code) {
   }
   var fixes = 0;
   var fixed = code;
+  function buildStructCopy(varName, anchorExpr, dx, dy, dz, targetExpr) {
+    var parts = ['var ' + varName + ' = ' + anchorExpr + ';'];
+    if (dx && dx.trim() && dx.trim() !== '0') parts.push(varName + '.x += ' + dx.trim() + ';');
+    if (dy && dy.trim() && dy.trim() !== '0') parts.push(varName + '.y += ' + dy.trim() + ';');
+    if (dz && dz.trim() && dz.trim() !== '0') parts.push(varName + '.z += ' + dz.trim() + ';');
+    parts.push(targetExpr + ' = ' + varName + ';');
+    return parts.join(' ');
+  }
+  function normalizeDelta(raw) {
+    var text = String(raw || '').trim();
+    if (!text) return '';
+    return text.replace(/^\+\s*/, '').trim();
+  }
   fixed = fixed.replace(/([A-Za-z_][A-Za-z0-9_]*)\.transform\.position\s*=\s*\1\.transform\.position\s*\+\s*new\s+Vector3\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)\s*;/g,
     function(_m, obj, dx, dy, dz) {
       fixes++;
-      return 'var __hpPos = ' + obj + '.transform.position; __hpPos.x += ' + dx.trim() + '; __hpPos.y += ' + dy.trim() + '; __hpPos.z += ' + dz.trim() + '; ' + obj + '.transform.position = __hpPos;';
+      return buildStructCopy('__hpPos' + fixes, obj + '.transform.position', dx, dy, dz, obj + '.transform.position');
     });
   fixed = fixed.replace(/([A-Za-z_][A-Za-z0-9_]*)\.transform\.position\s*=\s*new\s+Vector3\s*\(\s*\1\.transform\.position\.x\s*,\s*\1\.transform\.position\.y\s*\+\s*([^,]+)\s*,\s*\1\.transform\.position\.z\s*\)\s*;/g,
     function(_m, obj, dy) {
       fixes++;
-      return 'var __hpPos = ' + obj + '.transform.position; __hpPos.y += ' + dy.trim() + '; ' + obj + '.transform.position = __hpPos;';
+      return buildStructCopy('__hpPos' + fixes, obj + '.transform.position', '', dy, '', obj + '.transform.position');
     });
   fixed = fixed.replace(/([A-Za-z_][A-Za-z0-9_]*)\.transform\.position\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\.transform\.position\s*\+\s*new\s+Vector3\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)\s*;/g,
     function(_m, targetObj, anchorObj, dx, dy, dz) {
       fixes++;
-      var varName = '__hpPos' + fixes;
-      return 'var ' + varName + ' = ' + anchorObj + '.transform.position; ' +
-        varName + '.x += ' + dx.trim() + '; ' +
-        varName + '.y += ' + dy.trim() + '; ' +
-        varName + '.z += ' + dz.trim() + '; ' +
-        targetObj + '.transform.position = ' + varName + ';';
+      return buildStructCopy('__hpPos' + fixes, anchorObj + '.transform.position', dx, dy, dz, targetObj + '.transform.position');
+    });
+  fixed = fixed.replace(/([A-Za-z_][A-Za-z0-9_]*)\.transform\.position\s*\+=\s*new\s+Vector3\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)\s*;/g,
+    function(_m, obj, dx, dy, dz) {
+      fixes++;
+      return buildStructCopy('__hpPos' + fixes, obj + '.transform.position', dx, dy, dz, obj + '.transform.position');
+    });
+  fixed = fixed.replace(/\b(var|Vector3)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\.transform\.position\s*\+\s*new\s+Vector3\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)\s*;/g,
+    function(_m, decl, varName, anchorObj, dx, dy, dz) {
+      fixes++;
+      return decl + ' ' + varName + ' = ' + anchorObj + '.transform.position; ' +
+        (dx && dx.trim() && dx.trim() !== '0' ? varName + '.x += ' + dx.trim() + '; ' : '') +
+        (dy && dy.trim() && dy.trim() !== '0' ? varName + '.y += ' + dy.trim() + '; ' : '') +
+        (dz && dz.trim() && dz.trim() !== '0' ? varName + '.z += ' + dz.trim() + '; ' : '');
+    });
+  fixed = fixed.replace(/([A-Za-z_][A-Za-z0-9_]*)\.transform\.position\s*=\s*new\s+Vector3\s*\(\s*\1\.transform\.position\.x\s*([+-]\s*[^,()]+)?\s*,\s*\1\.transform\.position\.y\s*([+-]\s*[^,()]+)?\s*,\s*\1\.transform\.position\.z\s*([+-]\s*[^,)]+)?\s*\)\s*;/g,
+    function(_m, obj, dx, dy, dz) {
+      var ndx = normalizeDelta(dx);
+      var ndy = normalizeDelta(dy);
+      var ndz = normalizeDelta(dz);
+      if (!ndx && !ndy && !ndz) return _m;
+      fixes++;
+      return buildStructCopy('__hpPos' + fixes, obj + '.transform.position', ndx, ndy, ndz, obj + '.transform.position');
     });
   return { code: fixed, changed: fixes > 0, fixes: fixes };
 }
 
+function stripInteractionFlagShortcutsFromPhaseGates(code, blueprint) {
+  if (!code || code.indexOf('ruleTriggered[') < 0 || code.indexOf('||') < 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+  var specCount = blueprint && Array.isArray(blueprint.specs) ? blueprint.specs.length : 0;
+  if (specCount <= 1) return { code: code, changed: false, fixes: 0 };
+  var fixed = code;
+  var fixes = 0;
+  function splitTopLevelOr(text) {
+    var parts = [];
+    var start = 0;
+    var depth = 0;
+    for (var i = 0; i < text.length - 1; i++) {
+      var ch = text[i];
+      if (ch === '(') depth++;
+      else if (ch === ')') depth = Math.max(0, depth - 1);
+      if (depth === 0 && text[i] === '|' && text[i + 1] === '|') {
+        parts.push(text.substring(start, i));
+        start = i + 2;
+        i++;
+      }
+    }
+    parts.push(text.substring(start));
+    return parts;
+  }
+  function isFlagOnlyTerm(text) {
+    var normalized = String(text || '').trim()
+      .replace(/^\(+\s*/, '')
+      .replace(/\s*\)+$/, '')
+      .trim();
+    return /^[A-Za-z_][A-Za-z0-9_]*(?:InteractionDone|PlayerActed|Done)$/.test(normalized);
+  }
+  function stripGroups(text) {
+    var out = '';
+    var changedLocal = 0;
+    for (var i = 0; i < text.length; i++) {
+      if (text[i] !== '(') {
+        out += text[i];
+        continue;
+      }
+      var start = i;
+      var depth = 1;
+      var end = i + 1;
+      while (end < text.length && depth > 0) {
+        if (text[end] === '(') depth++;
+        else if (text[end] === ')') depth--;
+        end++;
+      }
+      if (depth !== 0) {
+        out += text.slice(start);
+        break;
+      }
+      var inner = text.substring(start + 1, end - 1);
+      var rewrittenInner = stripGroups(inner);
+      var pieces = splitTopLevelOr(rewrittenInner);
+      if (pieces.length > 1) {
+        var kept = pieces.filter(function(piece) { return !isFlagOnlyTerm(piece); });
+        if (kept.length > 0 && kept.length < pieces.length) {
+          rewrittenInner = kept.join(' || ').trim();
+          changedLocal++;
+        } else {
+          rewrittenInner = rewrittenInner.trim();
+        }
+      }
+      out += '(' + rewrittenInner + ')';
+      i = end - 1;
+    }
+    return changedLocal > 0 ? out : text;
+  }
+  var re = /if\s*\(\s*!\s*ruleTriggered\[\s*(\d+)\s*\]/g;
+  var m;
+  while ((m = re.exec(fixed)) !== null) {
+    var ruleIdx = parseInt(m[1], 10);
+    if (!(ruleIdx > 0 && ruleIdx < specCount)) continue;
+    var condStart = m.index + m[0].length;
+    var depth = 1;
+    var condEnd = condStart;
+    while (condEnd < fixed.length && depth > 0) {
+      var ch = fixed[condEnd];
+      if (ch === '(') depth++;
+      else if (ch === ')') {
+        depth--;
+        if (depth === 0) break;
+      }
+      condEnd++;
+    }
+    if (depth !== 0) continue;
+    var cond = fixed.substring(condStart, condEnd);
+    if (cond.indexOf('||') < 0) continue;
+    var nextCond = stripGroups(cond).replace(/\s{2,}/g, ' ');
+    if (nextCond === cond) continue;
+    if (/\(\s*\)/.test(nextCond) || /\|\|\s*\)|\(\s*\|\||&&\s*&&|\|\|\s*\|\||&&\s*\)/.test(nextCond)) continue;
+    fixed = fixed.slice(0, condStart) + nextCond + fixed.slice(condEnd);
+    fixes++;
+    re.lastIndex = 0;
+  }
+  return { code: fixed, changed: fixes > 0, fixes: fixes };
+}
+
 function repairPhaseGateRuntimeMoves(code) {
-  if (!code || code.indexOf('Snapshot_') < 0 || code.indexOf('Phase_') < 0) {
+  if (!code || code.indexOf('EntityAdvanced(') < 0) {
     return { code: code, changed: false, fixes: 0 };
   }
 
@@ -235,6 +364,16 @@ function repairPhaseGateRuntimeMoves(code) {
     return ranges;
   }
 
+  function collectTodoInitRanges(src) {
+    var ranges = [];
+    var re = /\/\/\s*TODO_PHASE_(\d+)_INIT_START[\s\S]*?\/\/\s*TODO_PHASE_\1_INIT_END/g;
+    var m;
+    while ((m = re.exec(src)) !== null) {
+      ranges.push({ start: m.index, end: m.index + m[0].length });
+    }
+    return ranges;
+  }
+
   function hasRuntimeMove(src, entityName, initRanges) {
     var moveRe = new RegExp(
       '\\bPlaceObj\\s*\\(\\s*' + entityName + '\\b' +
@@ -262,6 +401,12 @@ function repairPhaseGateRuntimeMoves(code) {
       matches.push('        ' + trimmed);
     }
     return matches;
+  }
+
+  function indentLines(lines, prefix) {
+    return (lines || []).map(function(line) {
+      return prefix + String(line || '').trim();
+    });
   }
 
   function buildFallbackMoveLines(entityName, ordinal) {
@@ -302,17 +447,86 @@ function repairPhaseGateRuntimeMoves(code) {
     };
   }
 
-  var snapshotEntities = extractSnapshotEntities(code);
-  var phaseIds = Object.keys(snapshotEntities);
-  if (phaseIds.length === 0) {
-    return { code: code, changed: false, fixes: 0 };
+  function extractInlinePhaseDefs(src) {
+    var defs = [];
+    var startRe = /if\s*\(\s*!ruleTriggered\[(\d+)\][\s\S]*?\)\s*\{/g;
+    var sm;
+    while ((sm = startRe.exec(src)) !== null) {
+      var phaseOrdinal = sm[1];
+      var bodyStart = sm.index + sm[0].length;
+      var depth = 1;
+      var end = bodyStart;
+      while (end < src.length && depth > 0) {
+        var ch = src[end];
+        if (ch === '{') depth++;
+        else if (ch === '}') { depth--; if (depth === 0) break; }
+        end++;
+      }
+      if (depth !== 0) continue;
+      var body = src.substring(bodyStart, end);
+      var phaseIdMatch = /currentPhaseName\s*=\s*"([^"]+)"/.exec(body);
+      if (!phaseIdMatch) continue;
+      var phaseId = phaseIdMatch[1];
+      var entities = [];
+      var seen = {};
+      var entRe = /_snap_([A-Za-z_][A-Za-z0-9_]*)Pos\b/g;
+      var em;
+      while ((em = entRe.exec(body)) !== null) {
+        if (seen[em[1]]) continue;
+        seen[em[1]] = true;
+        entities.push(em[1]);
+      }
+      var initRe = new RegExp('//\\s*TODO_PHASE_' + phaseOrdinal + '_INIT_START([\\s\\S]*?)//\\s*TODO_PHASE_' + phaseOrdinal + '_INIT_END');
+      var initMatch = initRe.exec(body);
+      defs.push({
+        phaseId: phaseId,
+        phaseOrdinal: phaseOrdinal,
+        entities: entities,
+        initBody: initMatch ? initMatch[1] : '',
+      });
+    }
+    return defs;
   }
 
-  var initRanges = collectInitRanges(code, phaseIds);
+  function insertLinesIntoSwitchCase(src, methodName, phaseId, linesToInsert) {
+    if (!linesToInsert || linesToInsert.length === 0) return { code: src, changed: false };
+    var methodRange = extractMethodRange(src, methodName);
+    if (!methodRange) return { code: src, changed: false };
+    var methodBody = src.substring(methodRange.bodyStart, methodRange.end);
+    var caseToken = 'case "' + phaseId + '":';
+    var caseIdx = methodBody.indexOf(caseToken);
+    if (caseIdx < 0) return { code: src, changed: false };
+    var absCaseIdx = methodRange.bodyStart + caseIdx;
+    var nextCaseIdx = src.indexOf('\n    case "', absCaseIdx + caseToken.length);
+    var nextDefaultIdx = src.indexOf('\n    default:', absCaseIdx + caseToken.length);
+    var blockEnd = methodRange.end;
+    if (nextCaseIdx >= 0 && nextCaseIdx < blockEnd) blockEnd = nextCaseIdx;
+    if (nextDefaultIdx >= 0 && nextDefaultIdx < blockEnd) blockEnd = nextDefaultIdx;
+    var block = src.substring(absCaseIdx, blockEnd);
+    var needed = false;
+    for (var i = 0; i < linesToInsert.length; i++) {
+      if (block.indexOf(String(linesToInsert[i]).trim()) < 0) {
+        needed = true;
+        break;
+      }
+    }
+    if (!needed) return { code: src, changed: false };
+    var breakIdx = block.lastIndexOf('\n        break;');
+    var insertAt = breakIdx >= 0 ? absCaseIdx + breakIdx + 1 : blockEnd;
+    var prefix = src.substring(0, insertAt);
+    if (!/\n\s*$/.test(prefix)) prefix += '\n';
+    return {
+      code: prefix + linesToInsert.join('\n') + '\n' + src.substring(insertAt),
+      changed: true,
+    };
+  }
+
+  var snapshotEntities = extractSnapshotEntities(code);
+  var phaseIds = Object.keys(snapshotEntities);
   var fixed = code;
   var fixes = 0;
   var fallbackOrdinal = 0;
-
+  var legacyInitRanges = collectInitRanges(fixed, phaseIds);
   for (var pi = 0; pi < phaseIds.length; pi++) {
     var pid = phaseIds[pi];
     var entities = snapshotEntities[pid];
@@ -321,7 +535,7 @@ function repairPhaseGateRuntimeMoves(code) {
     if (!initMethod) continue;
     for (var ei = 0; ei < entities.length; ei++) {
       var entityName = entities[ei];
-      if (hasRuntimeMove(fixed, entityName, initRanges)) continue;
+      if (hasRuntimeMove(fixed, entityName, legacyInitRanges)) continue;
       var moveLines = getInitMoveLines(initMethod.body, entityName);
       if (moveLines.length === 0) {
         fallbackOrdinal++;
@@ -335,6 +549,35 @@ function repairPhaseGateRuntimeMoves(code) {
       var onAutoRes = insertLinesIntoHandler(fixed, pid, 'ONAUTOARRIVE', moveLines);
       if (onAutoRes.changed) {
         fixed = onAutoRes.code;
+        fixes++;
+      }
+    }
+  }
+
+  var inlineDefs = extractInlinePhaseDefs(fixed);
+  if (inlineDefs.length === 0) {
+    return { code: fixed, changed: fixes > 0, fixes: fixes };
+  }
+  var inlineInitRanges = collectTodoInitRanges(fixed);
+  for (var ii = 0; ii < inlineDefs.length; ii++) {
+    var def = inlineDefs[ii];
+    if (!def.entities || def.entities.length === 0) continue;
+    for (var ij = 0; ij < def.entities.length; ij++) {
+      var inlineEntity = def.entities[ij];
+      if (hasRuntimeMove(fixed, inlineEntity, inlineInitRanges)) continue;
+      var inlineMoves = indentLines(getInitMoveLines(def.initBody, inlineEntity), '            ');
+      if (inlineMoves.length === 0) {
+        fallbackOrdinal++;
+        inlineMoves = indentLines(buildFallbackMoveLines(inlineEntity, fallbackOrdinal), '            ');
+      }
+      var updateRes = insertLinesIntoSwitchCase(fixed, 'Update', def.phaseId, inlineMoves);
+      if (updateRes.changed) {
+        fixed = updateRes.code;
+        fixes++;
+      }
+      var autoRes = insertLinesIntoSwitchCase(fixed, 'OnAutoPlayArrive', def.phaseId, inlineMoves);
+      if (autoRes.changed) {
+        fixed = autoRes.code;
         fixes++;
       }
     }
@@ -368,7 +611,7 @@ function collapseLegacyCheckEventRulesStub(code) {
   return { code: fixed, changed: true, fixes: 1 };
 }
 
-function repairKnownStructuralDamage(mainCode, extraFiles) {
+function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
   var changed = false;
   var fixes = [];
   var mainStubFix = collapseLegacyCheckEventRulesStub(mainCode);
@@ -412,6 +655,12 @@ function repairKnownStructuralDamage(mainCode, extraFiles) {
     mainCode = mainPhaseGateFix.code;
     changed = true;
     fixes.push('main:PhaseGateRuntimeMove x' + mainPhaseGateFix.fixes);
+  }
+  var mainGateShortcutFix = stripInteractionFlagShortcutsFromPhaseGates(mainCode, blueprint);
+  if (mainGateShortcutFix.changed) {
+    mainCode = mainGateShortcutFix.code;
+    changed = true;
+    fixes.push('main:PhaseGateShortcutStrip x' + mainGateShortcutFix.fixes);
   }
   var nextExtras = Object.assign({}, extraFiles || {});
   Object.keys(nextExtras).forEach(function(name) {
@@ -457,6 +706,12 @@ function repairKnownStructuralDamage(mainCode, extraFiles) {
       changed = true;
       fixes.push(name + ':PhaseGateRuntimeMove x' + phaseGateRes.fixes);
     }
+    var gateShortcutRes = stripInteractionFlagShortcutsFromPhaseGates(nextExtras[name], blueprint);
+    if (gateShortcutRes.changed) {
+      nextExtras[name] = gateShortcutRes.code;
+      changed = true;
+      fixes.push(name + ':PhaseGateShortcutStrip x' + gateShortcutRes.fixes);
+    }
   });
   return {
     code: mainCode,
@@ -464,6 +719,24 @@ function repairKnownStructuralDamage(mainCode, extraFiles) {
     changed: changed,
     fixes: fixes,
   };
+}
+
+function shouldUsePatchRecode(reviewResult) {
+  var issues = reviewResult && reviewResult.issues || [];
+  var issuesWithLine = issues.filter(function(i) { return i.line > 0; });
+  if (!(issues.length <= 3 && issuesWithLine.length >= 1)) return false;
+  if (!reviewResult || reviewResult.source === 'static-precheck' || reviewResult.source === 'phase-precheck') return false;
+  var blockedRules = {
+    'phase-entity-unbound': true,
+    'phase-entity-init-only': true,
+    'phase-gate-shortcircuits-with-interaction-flags': true,
+    'update-new-vector-in-hot-path': true,
+    'phase-coverage': true,
+  };
+  for (var i = 0; i < issues.length; i++) {
+    if (blockedRules[issues[i].rule]) return false;
+  }
+  return true;
 }
 
 function buildReviewFingerprint(reviewResult) {
@@ -487,6 +760,9 @@ function buildReviewFingerprint(reviewResult) {
 module.exports = {
   name: 'review',
   canRetry: false,
+  repairPhaseGateRuntimeMoves: repairPhaseGateRuntimeMoves,
+  stripInteractionFlagShortcutsFromPhaseGates: stripInteractionFlagShortcutsFromPhaseGates,
+  repairKnownStructuralDamage: repairKnownStructuralDamage,
   canSkip: function(ctx) {
     return process.env.SKIP_CODE_REVIEW === 'true' || !ctx.csCode;
   },
@@ -567,7 +843,7 @@ module.exports = {
         }
       },
       attempt: function(ctx, round, maxRounds) {
-        var repaired = repairKnownStructuralDamage(reviewedCode, reviewExtraFiles);
+        var repaired = repairKnownStructuralDamage(reviewedCode, reviewExtraFiles, ctx.blueprint);
         if (repaired.changed) {
           reviewedCode = repaired.code;
           reviewExtraFiles = repaired.extraFiles;
@@ -887,9 +1163,7 @@ module.exports = {
           // patchRecode 走 Sonnet 直出，不经过 CC CLI / 完整 prompt — 比 full recode 省 ~150KB token。
           // 旧条件要求所有 issue 都有 line>0，命中率太低（codex 输出经常缺 line）；
           // 改为只要 ≤3 issue 且至少 1 个有 line 就尝试 patch，patchRecode 自身失败时再回落到 full recode。
-          var issuesWithLine = (reviewResult.issues || []).filter(function(i) { return i.line > 0; });
-          var usePatch = reviewResult.issues && reviewResult.issues.length <= 3
-            && issuesWithLine.length >= 1;
+          var usePatch = shouldUsePatchRecode(reviewResult);
           var fixLog = function(msg) { ctx.addLog('review', msg); };
 
           var fixPromise;

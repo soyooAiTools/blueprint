@@ -1,0 +1,58 @@
+{
+  "ts": "2026-04-22T10:12:26.904Z",
+  "ok": true,
+  "intervalSec": 300,
+  "autoAct": true,
+  "policy": {
+    "liveFixRisk": "low",
+    "maxProcessingForLiveFix": 0,
+    "alertOnlyMinRisk": "medium"
+  },
+  "counts": {
+    "projects": 6,
+    "processing": 0,
+    "failed": 6,
+    "done-or-reviewing": 0
+  },
+  "actionSummary": {
+    "autoFixTriggered": 0,
+    "resubmitted": 4,
+    "errors": 0,
+    "skipped": 0,
+    "deferred": 0
+  },
+  "recentActions": [
+    {
+      "ts": "2026-04-22T10:12:27.006Z",
+      "type": "resubmit",
+      "status": "ok",
+      "projectId": "proj_1776680853909_w7113b",
+      "fingerprint": "contract failed: forbidden-generic-api, player-alias-drift",
+      "note": "spec_extracting"
+    },
+    {
+      "ts": "2026-04-22T10:12:27.010Z",
+      "type": "resubmit",
+      "status": "ok",
+      "projectId": "proj_1776680895524_s6ae56",
+      "fingerprint": "contract failed: duplicate-state-fields, forbidden-generic-api, player-alias-drift",
+      "note": "spec_extracting"
+    },
+    {
+      "ts": "2026-04-22T10:12:27.014Z",
+      "type": "resubmit",
+      "status": "ok",
+      "projectId": "proj_1776832015099_axudno",
+      "fingerprint": "contract failed: forbidden-generic-api, player-alias-drift",
+      "note": "spec_extracting"
+    },
+    {
+      "ts": "2026-04-22T10:12:27.018Z",
+      "type": "resubmit",
+      "status": "ok",
+      "projectId": "proj_1776832054666_vtpwu5",
+      "fingerprint": "contract failed: forbidden-generic-api, player-alias-drift",
+      "note": "spec_extracting"
+    }
+  ]
+}

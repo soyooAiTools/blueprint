@@ -368,5 +368,30 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-d20225c1.md"
+  },
+  {
+    "id": "auto-0f4f1f0c",
+    "fingerprintPattern": "Codegen contract failed:.*forbidden-generic-api.*player-alias-drift",
+    "description": "Post-fix for generic API calls only sanitizes GameFlowManagerMain.cs (mainSrc); partial class files in extraFiles (Systems/Flow/Input/Resource/UI/Scene) escape the fix and still carry .GetComponent<T>() hits; separately, player-alias-drift feedback message is too vague to guide the AI to a specific canonical form, causing 23-retry loops.",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "worker/codex-code-coder.js",
+      "engine/stages/method-check.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-0f4f1f0c.md"
+  },
+  {
+    "id": "auto-1c2e2a5b",
+    "fingerprintPattern": "Codegen contract failed:.*(?:duplicate-state-fields|forbidden-generic-api|player-alias-drift)",
+    "description": "method-check never invalidates the codegen checkpoint on contract failure, so retries skip codegen and loop on the same bad code indefinitely",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/method-check.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-1c2e2a5b.md"
   }
 ]

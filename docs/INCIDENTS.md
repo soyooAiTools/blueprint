@@ -1,5 +1,35 @@
 # Blueprint 生产事故记录
 
+## 2026-04-22: method-check 前移成功，但 contract check 过宽
+
+### 背景
+
+在把 compile / phase 类问题前移到 `method-check` 之后，线上一批任务不再主要死在 review，而是统一死在：
+
+- `forbidden-generic-api`
+- `player-alias-drift`
+- 少量 `duplicate-state-fields`
+
+这代表前移方向是对的，但不等于当前 contract 规则已经合理。
+
+### 新结论
+
+- `forbidden-generic-api` 当前直接聚合 `ctx.csCode + ctx.extraFiles` 全量扫描，会把共享 `GFM_*.cs` 也算入任务责任
+- `player-alias-drift` 在部分任务上是真问题，尤其是 `player / Player / PlayerAvatar` 混用
+- 因此当前失败面是“真实生成问题 + 共享 helper 噪音”叠加，不该只看表面指纹
+
+### 处理原则
+
+1. 保留 `method-check` 前移
+2. 收窄 `forbidden-generic-api` 的扫描范围
+3. 保留 `player-alias-drift`，但改成只看真实对象定义 / 赋值 / 使用
+4. 不再对同一外层指纹无限 resubmit
+
+### 归档
+
+- `server-data/analysis/2026-04-22-blueprint-root-cause-report.md`
+- `docs/_archived/2026-04-22-blueprint-system-hardening-and-skill-sync.md`
+
 ## 2026-04-22: recovery 收口 + review deterministic 修复前移
 
 ### 背景

@@ -86,7 +86,7 @@ const REVIEW_RULES = `
 - Must NOT modify or redefine GFM_Tools.cs classes
 ### 4b. Phase Architecture Verification (MECHANICAL CHECK — count, don't guess)
 - Count all ruleTriggered[N] references in CheckEventRules() — the highest N+1 MUST equal the expected phase count from blueprint
-- Every ruleTriggered[N] block MUST have a real condition (NOT just "true" or timer-only) — at least one entity state check or interaction flag
+- Every ruleTriggered[N] block MUST have a real condition (NOT just "true" or timer-only) — require observable world-state checks such as EntityAdvanced(GameObject, _snap_XPos), resource/counter thresholds, or other state the player changes through gameplay. Interaction flags alone are NOT sufficient
 - Every phase transition MUST include a phaseTimer >= Nf dwell guard (prevents instant skip)
 - Every phase MUST have real completion conditions (entity states, interaction flags, counters) — NOT timer-only or unconditional. Phase progression MUST require actual player actions (click/drag/move), never auto-complete
 - Variables referenced in trigger conditions (e.g. iceCrystalState, goldState) MUST be declared and MUST be modified somewhere in Update() or a helper method
