@@ -25,6 +25,42 @@ const gfmFiles = require('../worker/gfm-files.cjs').loadGfmFiles();
   const ctx = {
     csCode: [
       'using UnityEngine;',
+      'public partial class GameFlowManagerMain : MonoBehaviour',
+      '{',
+      '    int LaserTurretState = 0; // [SKELETON]',
+      '    int EnemyState = 0; // [SKELETON]',
+      '}',
+    ].join('\n'),
+    extraFiles: {
+      'GameFlowManagerMain.UI.cs': [
+        'public partial class GameFlowManagerMain',
+        '{',
+        '    int LaserTurretState = 1; // AI duplicate with trailing comment',
+        '}',
+      ].join('\n'),
+      'GameFlowManagerMain.Resource.cs': [
+        'public partial class GameFlowManagerMain',
+        '{',
+        '    int EnemyState = 2; /* another duplicate with trailing block comment */',
+        '}',
+      ].join('\n'),
+    },
+    blueprint: { entities: [] },
+  };
+  const changed = methodCheck.autoRepairDuplicateStateFields(ctx);
+  assert.strictEqual(changed, true);
+  assert.ok(ctx.csCode.includes('int LaserTurretState = 0; // [SKELETON]'));
+  assert.ok(ctx.csCode.includes('int EnemyState = 0; // [SKELETON]'));
+  assert.ok(!ctx.extraFiles['GameFlowManagerMain.UI.cs'].includes('LaserTurretState = 1'));
+  assert.ok(!ctx.extraFiles['GameFlowManagerMain.Resource.cs'].includes('EnemyState = 2'));
+  const violations = methodCheck.detectContractViolations(ctx);
+  assert.ok(!violations.some(v => v.rule === 'duplicate-state-fields'));
+}
+
+{
+  const ctx = {
+    csCode: [
+      'using UnityEngine;',
       'public class Demo : MonoBehaviour',
       '{',
       '    Rigidbody rb;',

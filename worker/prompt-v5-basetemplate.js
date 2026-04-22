@@ -7,6 +7,7 @@
 
 var fs = require('fs');
 var path = require('path');
+var isSkeletonReviewFalsePositive = require('./code-reviewer.js').isSkeletonReviewFalsePositive;
 
 // 加载行为模板文档
 var BEHAVIOR_TEMPLATES = '';
@@ -534,7 +535,8 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('');
   lines.push('### 模式 B: AutoPlay 模式 (_autoPlayMode == true) — CUA 自动验证用');
   lines.push('- 角色/NPC 自动沿路径移动（不需要用户输入）');
-  lines.push('- 每个 Phase 自动演出 ~15-20 秒后推进（骨架 CheckEventRules 已处理）');
+  lines.push('- AutoPlay 只负责自动移动/触达目标；Phase 仍必须靠真实实体位移或交互结果推进');
+  lines.push('- 允许短暂停留给 CUA 观察，但不能靠 timer 直接推进 phase');
   lines.push('- 运动必须平滑自然（Vector3.MoveTowards + Quaternion.Lerp）');
   lines.push('- 速度适中（moveSpeed * 0.5~0.7），不要瞬移');
   lines.push('- 每个 Phase 的关键实体必须在画面中可见');
@@ -554,7 +556,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('```csharp');
   lines.push('void Phase_phase1_OnAutoPlayArrive(string targetName) {');
   lines.push('    PlaceObj(Barracks, 2f, 0.5f, 0f);    // 把兵营放到新位置 — 可观察');
-  lines.push('    AddResource("gold", 10);             // 资源更新');
+  lines.push('    // 如需给资源，走与玩家一致的交互/收集 helper，不要直接改 gold/resources');
   lines.push('}');
   lines.push('');
   lines.push('void Phase_phase2_OnAutoPlayArrive(string targetName) {');
@@ -649,7 +651,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('  // 最终 Rule: 所有阶段完成 → 结束游戏');
   lines.push('  if (currentPhaseName == "phase_final") {');
   lines.push('    Luna.Unity.LifeCycle.GameEnded();');
-  lines.push('    ShowCTAButton();');
+  lines.push('    ShowCTA();');
   lines.push('  }');
   lines.push('}');
   lines.push('```');
@@ -678,7 +680,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('');
   lines.push('## ⚠️ 关键提醒');
   lines.push('- AddCompletedPhase / ReportPhase / currentPhaseName 必须严格使用当前 spec 里的 `phaseId` 原值。若 spec 是语义名，就用语义名；若 spec 是 `phase_...`，就用 `phase_...`。不要自己改名或混用别名。');
-  lines.push('- 每个 Phase 推进必须由玩家操作触发（距离判定/点击/拖拽），绝对不能用 timer');
+  lines.push('- 每个 Phase 推进必须由真实世界状态变化触发（玩家操作 / AutoPlay 到达后的实体位移）；不能把 timer 当唯一完成条件');
   lines.push('- CheckEventRules 中的 if 条件链必须用 currentPhaseName 串联，确保顺序执行');
   lines.push('- 初始化时必须有至少 1 个对象在屏幕可见范围内');
   lines.push('');
@@ -912,6 +914,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
       var ruleGroups = {};
       for (var pi = 0; pi < pending.length; pi++) {
         var pr = pending[pi];
+        if (isSkeletonReviewFalsePositive(pr)) continue;
         var ruleKey = (pr.rule || 'unknown').toLowerCase().replace(/[^a-z0-9 ]/g, '').substring(0, 60);
         if (!ruleGroups[ruleKey]) ruleGroups[ruleKey] = { count: 0, projects: {}, fix: pr.fix, desc: pr.description };
         ruleGroups[ruleKey].count++;

@@ -11,6 +11,7 @@
 var fs = require('fs');
 var path = require('path');
 var crypto = require('crypto');
+var summarizePendingRules = require('./pending-rule-candidates.cjs').summarizePendingRules;
 
 var REPO_ROOT = path.join(__dirname, '..');
 var LEARNING_ROOT = process.env.BLUEPRINT_LEARNING_REPO || '/opt/blueprint-learning';
@@ -177,7 +178,10 @@ function exportDraftGroup(groupName, items) {
 
 function promoteDrafts() {
   var pendingFixes = readJson(path.join(DATA_DIR, 'pending-fixes.json'), { items: [] });
-  var pendingRules = readJson(path.join(DATA_DIR, 'pending-rules.json'), { items: [] });
+  var pendingRules = summarizePendingRules(
+    readJson(path.join(REPO_ROOT, 'worker', 'pending-rules.json'), []),
+    { updatedAt: new Date().toISOString() }
+  );
   var regressions = readJson(path.join(DATA_DIR, 'regressions.json'), []);
 
   var fixDrafts = (pendingFixes.items || []).map(normalizePendingFix);

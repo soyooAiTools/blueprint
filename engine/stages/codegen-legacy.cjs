@@ -11,6 +11,7 @@ var helpers = require('../helpers.cjs');
 var { createFixLoop } = require('../fix-loop.cjs');
 var { getBlockingIssues } = require('../static-check.cjs');
 var _isGfmFile = require('../../worker/gfm-files.cjs').isGfmFile;
+var loadInjectablePromotedRules = require('../../worker/code-reviewer.js').loadInjectablePromotedRules;
 
 module.exports = {
   name: 'codegen',
@@ -115,8 +116,7 @@ module.exports = {
     // Task #16: Inject promoted rules into codegen — tiered by severity
     // critical = all injected, warning = top 10 by frequency, info = skipped
     try {
-      var promotedRulesPath = path.join(__dirname, '..', '..', 'worker', 'promoted-rules.json');
-      var promotedRules = JSON.parse(fs.readFileSync(promotedRulesPath, 'utf8'));
+      var promotedRules = loadInjectablePromotedRules();
       if (promotedRules.length > 0) {
         var criticalRules = promotedRules.filter(function(r) { return r.severity === 'critical'; });
         var warningRules = promotedRules.filter(function(r) { return r.severity === 'warning' || !r.severity; });

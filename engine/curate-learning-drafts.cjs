@@ -32,6 +32,21 @@ function writeJson(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n', 'utf8');
 }
 
+function removeFileIfExists(file) {
+  try {
+    fs.unlinkSync(file);
+  } catch (e) {
+    if (!e || e.code !== 'ENOENT') throw e;
+  }
+}
+
+function isDraftOwnedTarget(file, draftId) {
+  if (!fs.existsSync(file)) return false;
+  if (path.basename(file) === draftId + '.json') return true;
+  var body = readJson(file, null);
+  return !!(body && body.sourceDraft === draftId);
+}
+
 function parseArgs(argv) {
   var out = { all: false, group: null, id: null };
   for (var i = 0; i < argv.length; i++) {
@@ -73,7 +88,18 @@ function targetPathForDraft(draft) {
   return path.join(LEARNING_ROOT, 'rules', 'systemic', draft.id + '.json');
 }
 
+function isApprovedDraft(draft) {
+  if (!draft) return false;
+  if (draft.reviewStatus === 'approved') return true;
+  return !!(draft.review && draft.review.approvedAt);
+}
+
+function curatedStatusForDraft(draft) {
+  return isApprovedDraft(draft) ? 'active' : 'review-needed';
+}
+
 function curatedBodyForDraft(draft) {
+  if (!isApprovedDraft(draft)) return null;
   if (draft.sourceType === 'regression') {
     return {
       id: draft.id,
@@ -85,6 +111,7 @@ function curatedBodyForDraft(draft) {
       regressedAt: draft.evidence && draft.evidence.regressedAt || null,
       impactedProjects: draft.evidence && draft.evidence.sampleTaskIds || [],
       status: 'active',
+      sourceDraft: draft.id,
       notes: draft.suggestedAction || ''
     };
   }
@@ -112,18 +139,36 @@ function curatedBodyForDraft(draft) {
 function curateOne(fileInfo) {
   var draft = readJson(fileInfo.file, null);
   if (!draft) return { ok: false, file: fileInfo.file, error: 'invalid json' };
-  if (draft.status === 'promoted') return { ok: true, file: fileInfo.file, skipped: true };
+  if (draft.status === 'promoted' && isApprovedDraft(draft)) return { ok: true, file: fileInfo.file, skipped: true };
 
   var target = targetPathForDraft(draft);
-  var body = curatedBodyForDraft(draft);
-  writeJson(target, body);
-
-  draft.status = 'promoted';
-  draft.promotedAt = new Date().toISOString();
-  draft.curatedPath = path.relative(LEARNING_ROOT, target);
+  var now = new Date().toISOString();
+  var approved = isApprovedDraft(draft);
+  if (approved) {
+    var body = curatedBodyForDraft(draft);
+    writeJson(target, body);
+    draft.status = 'promoted';
+    draft.curatedStatus = 'active';
+    draft.curatedAt = now;
+    draft.promotedAt = now;
+    draft.curatedPath = path.relative(LEARNING_ROOT, target);
+  } else {
+    if (isDraftOwnedTarget(target, draft.id)) removeFileIfExists(target);
+    draft.status = 'candidate';
+    draft.curatedStatus = 'review-needed';
+    draft.curatedAt = now;
+    draft.recommendedCuratedPath = path.relative(LEARNING_ROOT, target);
+    delete draft.promotedAt;
+    delete draft.curatedPath;
+  }
   writeJson(fileInfo.file, draft);
 
-  return { ok: true, file: fileInfo.file, target: target };
+  return {
+    ok: true,
+    file: fileInfo.file,
+    target: approved ? target : null,
+    curatedStatus: approved ? 'active' : 'review-needed'
+  };
 }
 
 function curateDrafts(opts) {
@@ -141,7 +186,8 @@ function curateDrafts(opts) {
   var summary = {
     curatedAt: new Date().toISOString(),
     total: results.length,
-    promoted: results.filter(function(r) { return r.ok && !r.skipped; }).length,
+    promoted: results.filter(function(r) { return r.ok && r.curatedStatus === 'active'; }).length,
+    reviewNeeded: results.filter(function(r) { return r.ok && r.curatedStatus === 'review-needed'; }).length,
     skipped: results.filter(function(r) { return r.skipped; }).length,
     errors: results.filter(function(r) { return !r.ok; })
   };
@@ -154,5 +200,8 @@ if (require.main === module) {
 }
 
 module.exports = {
-  curateDrafts: curateDrafts
+  curateDrafts: curateDrafts,
+  isApprovedDraft: isApprovedDraft,
+  curatedStatusForDraft: curatedStatusForDraft,
+  curatedBodyForDraft: curatedBodyForDraft
 };

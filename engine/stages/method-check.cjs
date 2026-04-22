@@ -320,7 +320,7 @@ function autoRepairDuplicateStateFields(ctx) {
   // Matches a line whose significant content is a single *State field declaration.
   // Mirrors the pattern used in detectDuplicateStateFields() but anchored to a line
   // so we can safely drop the whole line without disturbing surrounding code.
-  var stateFieldLineRe = /^[ \t]*(?:(?:public|private|protected|internal)\s+)?(?:static\s+)?(?:int|float|bool|string)\s+([A-Z][A-Za-z0-9_]*State)\s*(?:=\s*[^;]+)?;[ \t]*$/;
+  var stateFieldLineRe = /^[ \t]*(?:(?:public|private|protected|internal)\s+)?(?:static\s+)?(?:int|float|bool|string)\s+([A-Z][A-Za-z0-9_]*State)\s*(?:=\s*[^;]+)?;[ \t]*(?:(?:\/\/.*)|(?:\/\*.*\*\/\s*))?$/;
 
   function removeDuplicatesFromCode(code) {
     if (!code) return { changed: false, code: code };
@@ -854,6 +854,19 @@ function execute(ctx) {
     console.log('[method-check] AUTO-REPAIR — phase gate pre-repair:', phaseRepair.fixes.join(', '));
   }
 
+  if (autoRepairForbiddenGenericApis(ctx)) {
+    console.log('[method-check] AUTO-REPAIR — stripped forbidden generic API calls (.GetComponent<T>)');
+  }
+  if (autoRepairDuplicateStateFields(ctx)) {
+    console.log('[method-check] AUTO-REPAIR — removed duplicate *State field declarations across partials');
+  }
+  if (autoRepairPlayerAliasDrift(ctx)) {
+    console.log('[method-check] AUTO-REPAIR — normalized player aliases across partials');
+  }
+  if (autoRepairInvalidPoolLiterals(ctx)) {
+    console.log('[method-check] AUTO-REPAIR — rewrote invalid pool literals to allowed blueprint pools');
+  }
+
   var missing;
   try {
     missing = checkCompleteness(ctx.csCode, ctx.extraFiles);
@@ -873,29 +886,6 @@ function execute(ctx) {
   }
 
   if (!missing || missing.length === 0) {
-    // AUTO-REPAIR: strip any forbidden generic API calls (.GetComponent<T>()) that
-    // survived in-memory from the schema codegen path before running the contract
-    // check.  The legacy path strips these at disk-write time; we must do it here
-    // for the schema path which never writes to disk before this stage runs.
-    if (autoRepairForbiddenGenericApis(ctx)) {
-      console.log('[method-check] AUTO-REPAIR — stripped forbidden generic API calls (.GetComponent<T>)');
-    }
-
-    // AUTO-REPAIR: remove duplicate *State field declarations that the schema codegen
-    // path can emit across multiple GameFlowManagerMain*.cs partials.  Keeping only
-    // the first occurrence avoids a duplicate-state-fields contract failure and the
-    // wasteful full-codegen retry loop it would otherwise trigger.
-    if (autoRepairDuplicateStateFields(ctx)) {
-      console.log('[method-check] AUTO-REPAIR — removed duplicate *State field declarations across partials');
-    }
-
-    if (autoRepairPlayerAliasDrift(ctx)) {
-      console.log('[method-check] AUTO-REPAIR — normalized player aliases across partials');
-    }
-    if (autoRepairInvalidPoolLiterals(ctx)) {
-      console.log('[method-check] AUTO-REPAIR — rewrote invalid pool literals to allowed blueprint pools');
-    }
-
     var violations = [];
     try {
       violations = detectContractViolations(ctx);

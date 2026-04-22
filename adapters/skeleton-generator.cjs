@@ -520,21 +520,18 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    GameObject[] carryVisuals;');
     lines.push('    void UpdateCarryVisuals()');
     lines.push('    {');
-    lines.push('        // [SKELETON] Carry visuals use pool objects — find them by name');
+    lines.push('        // [SKELETON] Carry visuals are optional. Default to no-op unless the spec wires explicit pooled props.');
     lines.push('        if (carryVisuals == null)');
     lines.push('        {');
-    lines.push('            carryVisuals = new GameObject[10];');
-    lines.push('            for (int i = 0; i < 10; i++)');
-    lines.push('            {');
-    lines.push('                // AI: assign carry visual pool objects here via GameObject.Find');
-    lines.push('                // Do NOT use GFM_Create.Obj or GFM_Create.SetColor (both forbidden in Luna)');
-    lines.push('                carryVisuals[i] = GameObject.Find("__Pool_Cube_Yellow_" + (60 + i));');
-    lines.push('                HideObj(carryVisuals[i]);');
-    lines.push('            }');
+    lines.push('            carryVisuals = new GameObject[0];');
+    lines.push('        }');
+    lines.push('        if (carryVisuals.Length == 0 || player == null)');
+    lines.push('        {');
+    lines.push('            return;');
     lines.push('        }');
     lines.push('        for (int i = 0; i < carryVisuals.Length; i++)');
     lines.push('        {');
-    lines.push('            if (i < carrying && player != null)');
+    lines.push('            if (i < carrying)');
     lines.push('            {');
     lines.push('                Vector3 p = player.transform.position + new Vector3(0, 1f + i * 0.35f, -0.3f);');
     lines.push('                PlaceObj(carryVisuals[i], p.x, p.y, p.z);');
@@ -557,9 +554,11 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    void ShowFloatingText(Vector3 worldPos, string text, Color color)');
     lines.push('    {');
     lines.push('        if (mainCam == null) return;');
-    lines.push('        // Reuse a single floating text — do NOT use Destroy (forbidden in Luna)');
-    lines.push('        if (floatingText == null) floatingText = GFM_UI.CreateText(uiCanvas, "", Vector2.zero, 48);');
-    lines.push('        if (floatingText != null) { floatingText.text = text; floatingText.color = color; floatingTextTimer = 1.5f; }');
+    lines.push('        // Optional helper: caller may wire a pre-created pooled text element into floatingText.');
+    lines.push('        if (floatingText == null) return;');
+    lines.push('        floatingText.text = text;');
+    lines.push('        floatingText.color = color;');
+    lines.push('        floatingTextTimer = 1.5f;');
     lines.push('    }');
     lines.push('');
     lines.push('    // ========== END IDLE GAME KIT ==========');
@@ -602,21 +601,15 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        _autoPlaySteps = GFM_AutoPlay.Instance.Steps; // sync local for backward compat');
     lines.push('    }');
   } else {
-    // Non-idle or no targets — use timer-based periodic interaction trigger (no player navigation needed)
-    lines.push('    // [SKELETON] AutoPlay — periodic interaction trigger for CUA variable checking');
-    lines.push('    float _autoInteractTimer = 0f;');
+    // Non-idle or no targets — keep AutoPlay passive. Phase completion must still
+    // come from real input/world-state changes, not timer-driven callbacks.
+    lines.push('    // [SKELETON] AutoPlay — passive mode when no explicit navigation targets exist');
     lines.push('');
     lines.push('    void AutoPlayUpdate()');
     lines.push('    {');
     lines.push('        if (!_autoPlayMode) return;');
-    lines.push('        _autoInteractTimer += Time.deltaTime;');
-    lines.push('        if (_autoInteractTimer >= 3f)');
-    lines.push('        {');
-    lines.push('            _autoInteractTimer = 0f;');
-    lines.push('            _autoPlaySteps++;');
-    lines.push('            GFM_AutoPlay.Instance.IncrementSteps(); // sync step count to Manager');
-    lines.push('            OnAutoPlayArrive(currentPhaseName);');
-    lines.push('        }');
+    lines.push('        // Intentionally no timer-driven OnAutoPlayArrive() here.');
+    lines.push('        // Non-idle flows must still be verifiable via real player/CUA interactions.');
     lines.push('    }');
   }
   lines.push('');

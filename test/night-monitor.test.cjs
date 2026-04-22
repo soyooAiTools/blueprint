@@ -27,4 +27,22 @@ const nightMonitor = require('../engine/night-monitor.cjs');
   assert.strictEqual(should, true);
 }
 
+{
+  const should = nightMonitor.shouldResubmit({
+    sameFingerprintCount: 3,
+    lastResubmitAt: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
+    lastResubmitHead: 'head-a',
+  }, 'head-a');
+  assert.strictEqual(should, false);
+}
+
+{
+  const should = nightMonitor.shouldResubmit({
+    sameFingerprintCount: 4,
+    lastResubmitAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+    lastResubmitHead: 'head-a',
+  }, 'head-b');
+  assert.strictEqual(should, true);
+}
+
 console.log('night-monitor tests passed');

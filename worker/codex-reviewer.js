@@ -11,7 +11,12 @@ const os = require('os');
 const { spawn } = require('child_process');
 
 // 复用现有 review 规则
-const { REVIEW_RULES, loadPendingRules, PENDING_RULES_PATH } = require('./code-reviewer.js');
+const {
+  REVIEW_RULES,
+  loadPendingRules,
+  loadInjectablePromotedRules,
+  isSkeletonReviewFalsePositive,
+} = require('./code-reviewer.js');
 
 // ============ Config ============
 const CODEX_CMD = process.env.CODEX_CMD || 'codex';
@@ -290,22 +295,19 @@ async function reviewCodeWithCodex(code, options) {
   // 写入 review rules 文件 (包含动态规则)
   var dynamicRulesText = '';
   try {
-    var promotedPath = path.join(__dirname, 'promoted-rules.json');
-    if (fs.existsSync(promotedPath)) {
-      var promoted = JSON.parse(fs.readFileSync(promotedPath, 'utf-8'));
-      if (promoted.length > 0) {
-        dynamicRulesText = '\n\n## Auto-Promoted Rules (cross-project validated failures)\n';
-        for (var dri = 0; dri < promoted.length; dri++) {
-          dynamicRulesText += '- ' + (promoted[dri].description || '') + ' — FIX: ' + (promoted[dri].fix || 'see rule') + '\n';
-        }
+    var promoted = loadInjectablePromotedRules();
+    if (promoted.length > 0) {
+      dynamicRulesText = '\n\n## Auto-Promoted Rules (recurring cross-project failures)\n';
+      for (var dri = 0; dri < promoted.length; dri++) {
+        dynamicRulesText += '- ' + (promoted[dri].description || '') + ' — FIX: ' + (promoted[dri].fix || 'see rule') + '\n';
       }
     }
     // Also inject top pending-rules patterns (seen in 2+ projects)
-    var pendingPath = path.join(__dirname, 'pending-rules.json');
-    if (fs.existsSync(pendingPath)) {
-      var pending = JSON.parse(fs.readFileSync(pendingPath, 'utf-8'));
+    var pending = loadPendingRules();
+    if (pending.length > 0) {
       var ruleGroups = {};
       for (var pri = 0; pri < pending.length; pri++) {
+        if (isSkeletonReviewFalsePositive(pending[pri])) continue;
         var rKey = (pending[pri].rule || 'unknown').substring(0, 60);
         if (!ruleGroups[rKey]) ruleGroups[rKey] = { projects: {}, desc: pending[pri].description, fix: pending[pri].fix };
         if (pending[pri].taskId) ruleGroups[rKey].projects[pending[pri].taskId] = true;
@@ -340,7 +342,9 @@ Read the file REVIEW_RULES.md to understand all the constraint rules, then read 
 Be adversarial — find ALL violations. Do NOT rubber-stamp.
 
 IMPORTANT EXCEPTIONS — these are NOT violations:
-- OnAutoPlayArrive() is a REQUIRED skeleton method for CUA (Computer Use Agent) automated testing. It intentionally sets progression flags so the game can be verified automatically. Do NOT flag it as "autoplay/auto-demo violation".
+- OnAutoPlayArrive() is a REQUIRED skeleton method for CUA (Computer Use Agent) automated testing. It may move/hide/show phase-gate entities or call phase helpers so the game can be verified automatically. Do NOT flag it as "autoplay/auto-demo violation".
+- ReportPhase("__PHASE__:...") and TryReportStuckPhase("__PHASE_STUCK__:...") are REQUIRED skeleton diagnostics for automated verification. Do NOT flag those helper-scoped Debug.Log calls as console-spam violations.
+- UpdateCarryVisuals() and ShowFloatingText() are optional skeleton helpers. A no-op implementation is acceptable; do NOT require runtime object creation or dynamic pool-name construction inside them.
 - The safety net (phaseTimer >= 50f with _autoPlayMode) is a REQUIRED skeleton feature that prevents CUA from getting stuck on broken phases. Do NOT flag it as "forced phase advancement".
 - These two features exist because CUA needs to observe the game playing itself — they are part of the testing infrastructure, not cheating.
 

@@ -24,6 +24,7 @@ const sandbox = {};
 vm.createContext(sandbox);
 vm.runInContext([
   extractFunction('rewriteHotPathVectorAllocations'),
+  extractFunction('normalizeSetScaleCalls'),
   extractFunction('stripInteractionFlagShortcutsFromPhaseGates'),
   extractFunction('shouldUsePatchRecode'),
 ].join('\n'), sandbox);
@@ -39,6 +40,17 @@ vm.runInContext([
   assert.match(result.code, /Vector3 p = bar\.transform\.position; p\.y \+= 3f;/);
   assert.match(result.code, /baz\.transform\.position = __hpPos3;/);
   assert.doesNotMatch(result.code, /foo\.transform\.position \+= new Vector3/);
+}
+
+{
+  const result = sandbox.normalizeSetScaleCalls(
+    'void Apply(){ SetScale(Player, scale, scale, scale); SetScale(Crate, 1f, 2f, 3f, 1f); }'
+  );
+  assert.strictEqual(result.changed, true);
+  assert.match(result.code, /SetScale\(Player, scale\);/);
+  assert.match(result.code, /SetScale\(Crate, 1f, 2f, 3f\);/);
+  assert.doesNotMatch(result.code, /SetScale\(Player, scale, scale, scale\)/);
+  assert.doesNotMatch(result.code, /SetScale\(Crate, 1f, 2f, 3f, 1f\)/);
 }
 
 {

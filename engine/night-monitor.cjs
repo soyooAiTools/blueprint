@@ -295,8 +295,8 @@ function shouldResubmit(projectState, repoHead) {
   var sameHeadAsLastSubmit = projectState.lastResubmitHead === repoHead;
   if (!lastResubmitAt) return true;
   if (!sameHeadAsLastSubmit) return true;
+  if ((projectState.sameFingerprintCount || 0) >= 3) return false;
   if ((projectState.sameFingerprintCount || 0) <= 2 && age >= INTERVAL_MS) return true;
-  if ((projectState.sameFingerprintCount || 0) > 2 && age >= (4 * INTERVAL_MS)) return true;
   return false;
 }
 

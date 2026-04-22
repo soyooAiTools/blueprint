@@ -159,4 +159,82 @@ const methodCheck = require('../engine/stages/method-check.cjs');
   assert.deepStrictEqual(repair.violations, []);
 }
 
+{
+  const ctx = {
+    csCode: [
+      'using UnityEngine;',
+      'public partial class GameFlowManagerMain : MonoBehaviour',
+      '{',
+      '    Vector3 _snap_OxygenTankPos;',
+      '    GameObject OxygenTank;',
+      '    bool[] ruleTriggered = new bool[3];',
+      '    string currentPhaseName = "";',
+      '    bool EntityAdvanced(GameObject obj, Vector3 snap) { return false; }',
+      '    void Update()',
+      '    {',
+      '        if (!ruleTriggered[2] && phaseTimer >= 1f)',
+      '        {',
+      '            currentPhaseName = "sellOxygen";',
+      '            // TODO_PHASE_2_INIT_START',
+      '            PlaceObj(OxygenTank, 0f, 1f, 2f);',
+      '            _snap_OxygenTankPos = OxygenTank.transform.position;',
+      '            // TODO_PHASE_2_INIT_END',
+      '        }',
+      '        if (currentPhaseName == "sellOxygen")',
+      '        {',
+      '        }',
+      '        if (!ruleTriggered[2] && EntityAdvanced(OxygenTank, _snap_OxygenTankPos))',
+      '        {',
+      '            ruleTriggered[2] = true;',
+      '        }',
+      '    }',
+      '    void OnAutoPlayArrive(string phaseName) { }',
+      '    float phaseTimer;',
+      '    void PlaceObj(GameObject obj, float x, float y, float z) {}',
+      '}',
+    ].join('\n'),
+    extraFiles: {},
+    blueprint: { entities: [] },
+  };
+  const before = methodCheck.detectPhaseGateViolations(ctx);
+  assert.ok(before.some(v => v.rule === 'phase-entity-init-only'));
+  const repair = methodCheck.autoRepairPhaseGateViolations(ctx, 2);
+  assert.strictEqual(repair.changed, true);
+  assert.deepStrictEqual(repair.violations, []);
+  assert.match(ctx.csCode, /if \(currentPhaseName == "sellOxygen"\)[\s\S]*PlaceObj\(OxygenTank, 0f, 1f, 2f\);/);
+}
+
+{
+  const ctx = {
+    csCode: [
+      'using UnityEngine;',
+      'public partial class GameFlowManagerMain : MonoBehaviour',
+      '{',
+      '    int LaserTurretState = 0;',
+      '    void Update()',
+      '    {',
+      '        CustomAIOnlyHelper();',
+      '    }',
+      '}',
+    ].join('\n'),
+    extraFiles: {
+      'GameFlowManagerMain.UI.cs': [
+        'using UnityEngine;',
+        'public partial class GameFlowManagerMain : MonoBehaviour',
+        '{',
+        '    int LaserTurretState = 1;',
+        '}',
+      ].join('\n'),
+    },
+    blueprint: {
+      entities: [
+        { pool: '__Pool_Cube_Blue_01' },
+      ],
+      feedbackHistory: [],
+    },
+  };
+  methodCheck.execute(ctx).catch(function() {});
+  assert.ok(!ctx.extraFiles['GameFlowManagerMain.UI.cs'].includes('LaserTurretState = 1'));
+}
+
 console.log('method-check auto-repair tests passed');

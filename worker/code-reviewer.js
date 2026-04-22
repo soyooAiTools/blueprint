@@ -185,8 +185,8 @@ const REVIEW_RULES = `
 - Main code in GameFlowManagerMain.cs (may use partial class for large files)
 `;
 
-// Dynamic rules: auto-promoted from pending-rules when ≥2 different projects hit the same issue.
-// Kept lean — only rules that survived cross-project validation get promoted.
+// Dynamic rules: auto-promoted from pending-rules when the same issue recurs
+// across multiple projects. Single-project spikes stay in pending-rules.
 const PROMOTED_RULES_PATH = path.join(__dirname, 'promoted-rules.json');
 
 function loadPromotedRules() {
@@ -202,6 +202,42 @@ function savePromotedRules(rules) {
   fs.writeFileSync(PROMOTED_RULES_PATH, JSON.stringify(rules, null, 2), 'utf8');
 }
 
+function isSkeletonReviewFalsePositive(rule) {
+  var text = [
+    rule && rule.rule || '',
+    rule && rule.description || '',
+    rule && rule.fix || '',
+    rule && rule.line || '',
+  ].join(' ').toLowerCase();
+  if (!text) return false;
+  if (text.indexOf('__phase__:') >= 0 || text.indexOf('__phase_stuck__:') >= 0) return true;
+  if (text.indexOf('reportphase') >= 0 || text.indexOf('tryreportstuckphase') >= 0) return true;
+  if (text.indexOf('showfloatingtext') >= 0 && text.indexOf('createtext') >= 0) return true;
+  if (
+    text.indexOf('updatecarryvisuals') >= 0 &&
+    (text.indexOf('dynamic pool') >= 0 || text.indexOf('pool names dynamically') >= 0)
+  ) return true;
+  return false;
+}
+
+function getPromotedRuleProjectCount(rule) {
+  if (!rule || typeof rule !== 'object') return 0;
+  if (typeof rule.crossProjectCount === 'number') return rule.crossProjectCount;
+  if (Array.isArray(rule.triggerProjects)) return rule.triggerProjects.length;
+  if (typeof rule.triggerCount === 'number') return rule.triggerCount;
+  return 0;
+}
+
+function isInjectablePromotedRule(rule) {
+  if (!rule) return false;
+  if (isSkeletonReviewFalsePositive(rule)) return false;
+  return getPromotedRuleProjectCount(rule) >= 2;
+}
+
+function loadInjectablePromotedRules() {
+  return loadPromotedRules().filter(isInjectablePromotedRule);
+}
+
 function getDynamicRulesText() {
   // Inject anomaly detection rules (from luna-anomaly-rules.js)
   var anomalyRules = '';
@@ -210,7 +246,7 @@ function getDynamicRulesText() {
     if (require('fs').existsSync(anomalyPath)) {
       anomalyRules = '\n\n## Runtime Anomaly Prevention (auto-extracted)\n' +
         '- No object creation in Update() without pooling (leak risk)\n' +
-        '- Phase timers must have max-duration auto-advance (stuck prevention)\n' +
+        '- Phase timers may emit stuck diagnostics, but they must NOT auto-complete phases or replace real interaction gates\n' +
         '- Null-check all UI text values before display (NaN/undefined/null prevention)\n' +
         '- Player movement must be clamped within bounds (out-of-bounds prevention)\n' +
         '- Start() must move >=3 pool objects to visible positions (empty scene prevention)\n' +
@@ -218,7 +254,7 @@ function getDynamicRulesText() {
         '- Use pooling (y=-999) instead of Destroy() for hiding objects (mass disappear prevention)\n';
     }
   } catch(e) {}
-  var promoted = loadPromotedRules();
+  var promoted = loadInjectablePromotedRules();
   if (promoted.length === 0) return anomalyRules || '';
 
   // Tiered injection: all critical, top-10 warning, skip info
@@ -274,16 +310,13 @@ function autoPromotePendingRules() {
     }
   }
 
-  // Promote rules: critical severity → 1 project enough, others → ≥2 projects
-  var promotedDescs = promoted.map(function(p) { return (p.description || '').toLowerCase(); }).join('|||');
+  // Promote rules only after they recur across multiple projects.
   var entries = Object.entries(ruleGroups);
   for (var gi = 0; gi < entries.length; gi++) {
     var key = entries[gi][0];
     var group = entries[gi][1];
     var uniqueProjects = Object.keys(group.projects).length;
-    // Check if any rule in this group is critical severity
-    var hasCritical = group.rules.some(function(r) { return r.severity === 'critical'; });
-    var threshold = hasCritical ? 1 : 2;
+    var threshold = 2;
     if (uniqueProjects < threshold) continue;
 
     // Check if already promoted (by rule key match)
@@ -333,7 +366,7 @@ function autoPromotePendingRules() {
   if (newPromoted.length > 0) {
     promoted = promoted.concat(newPromoted);
     savePromotedRules(promoted);
-    console.log('[reviewer] Auto-promoted ' + newPromoted.length + ' rules from pending (cross-project validated)');
+    console.log('[reviewer] Auto-promoted ' + newPromoted.length + ' recurring rules from pending');
   }
 }
 
@@ -571,6 +604,12 @@ Every rule below comes from real production incidents. If you miss a violation, 
 ${REVIEW_RULES}
 ${getDynamicRulesText()}
 
+## IMPORTANT EXCEPTIONS
+- OnAutoPlayArrive() is a REQUIRED skeleton method for CUA verification. It may move/hide/show phase-gate entities or call phase helpers. Do NOT flag it as an autoplay/demo cheat by itself.
+- ReportPhase("__PHASE__:...") and TryReportStuckPhase("__PHASE_STUCK__:...") are REQUIRED skeleton diagnostics. Do NOT flag those helper-scoped Debug.Log markers as console-spam violations.
+- UpdateCarryVisuals() and ShowFloatingText() are optional skeleton helpers. A no-op implementation is acceptable; do NOT require runtime object creation or dynamic pool-name construction inside them.
+- The safety net (phaseTimer >= 50f with _autoPlayMode) is a REQUIRED stuck-prevention guard. Do NOT flag it as forced phase advancement.
+
 ## Review Strategy — TIERED CHECKING (IMPORTANT)
 Check rules IN ORDER of tier. If Tier 1 has ANY violation, you may STOP checking lower tiers.
 This prevents wasting attention on Tier 3 style issues when critical Tier 1 bugs exist.
@@ -709,4 +748,17 @@ Respond with a JSON object (no markdown, no code fences):
   }
 }
 
-module.exports = { reviewCode, REVIEW_RULES, loadPendingRules, savePendingRules, recordNewIssues, isKnownIssue, autoPromotePendingRules, PENDING_RULES_PATH };
+module.exports = {
+  reviewCode,
+  REVIEW_RULES,
+  loadPendingRules,
+  savePendingRules,
+  recordNewIssues,
+  isKnownIssue,
+  autoPromotePendingRules,
+  isSkeletonReviewFalsePositive,
+  getPromotedRuleProjectCount,
+  isInjectablePromotedRule,
+  loadInjectablePromotedRules,
+  PENDING_RULES_PATH
+};

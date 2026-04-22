@@ -7,18 +7,20 @@
  * - worker/promoted-rules.json
  * - worker/fix-recipes.json
  * - worker/luna-anomaly-rules.js
+ * - worker/pending-rules.json
  * - server-data/regressions.json
  * - server-data/pending-fixes.json
- * - server-data/pending-rules.json
  *
  * The goal is not to replace curated assets in the learning repo. Instead,
- * this script writes a generated mirror under `generated/` so the learning repo
- * can serve as the single long-lived knowledge source without mixing in the
- * editor's runtime state files directly.
+ * this script writes generated mirrors and snapshots under `generated/` so the
+ * learning repo can keep durable reference data without pretending to be the
+ * live runtime config source.
  */
 
 var fs = require('fs');
 var path = require('path');
+var loadInjectablePromotedRules = require('../worker/code-reviewer.js').loadInjectablePromotedRules;
+var summarizePendingRules = require('./pending-rule-candidates.cjs').summarizePendingRules;
 
 var REPO_ROOT = path.join(__dirname, '..');
 var LEARNING_ROOT = process.env.BLUEPRINT_LEARNING_REPO || '/opt/blueprint-learning';
@@ -143,11 +145,11 @@ function mapRegressions(regressions) {
 }
 
 function exportAll() {
-  var promotedRules = readJson(path.join(REPO_ROOT, 'worker', 'promoted-rules.json'), []);
+  var promotedRules = loadInjectablePromotedRules();
   var fixRecipes = readJson(path.join(REPO_ROOT, 'worker', 'fix-recipes.json'), []);
+  var workerPendingRules = readJson(path.join(REPO_ROOT, 'worker', 'pending-rules.json'), []);
   var regressions = readJson(path.join(REPO_ROOT, 'server-data', 'regressions.json'), []);
   var pendingFixes = readJson(path.join(REPO_ROOT, 'server-data', 'pending-fixes.json'), { items: [] });
-  var pendingRules = readJson(path.join(REPO_ROOT, 'server-data', 'pending-rules.json'), { items: [] });
   var lunaRulesSource = fs.readFileSync(path.join(REPO_ROOT, 'worker', 'luna-anomaly-rules.js'), 'utf8');
 
   ensureDir(OUTPUT_ROOT);
@@ -155,6 +157,7 @@ function exportAll() {
   var promotedMirror = mapPromotedRules(promotedRules);
   var recipeMirror = mapRecipes(fixRecipes);
   var regressionMirror = mapRegressions(regressions);
+  var pendingRules = summarizePendingRules(workerPendingRules);
 
   writeJson(path.join(OUTPUT_ROOT, 'rules', 'promoted-rules.mirror.json'), promotedMirror);
   writeJson(path.join(OUTPUT_ROOT, 'recipes', 'fix-recipes.mirror.json'), recipeMirror);

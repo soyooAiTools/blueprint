@@ -200,6 +200,27 @@ function rewriteHotPathVectorAllocations(code) {
   return { code: fixed, changed: fixes > 0, fixes: fixes };
 }
 
+function normalizeSetScaleCalls(code) {
+  if (!code || code.indexOf('SetScale(') < 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+  var fixes = 0;
+  var fixed = code;
+  fixed = fixed.replace(/\bSetScale\s*\(\s*([^,\n()]+?)\s*,\s*([^,\n()]+?)\s*,\s*\2\s*,\s*\2\s*\)\s*;/g, function(_m, obj, uniform) {
+    fixes++;
+    return 'SetScale(' + obj.trim() + ', ' + uniform.trim() + ');';
+  });
+  fixed = fixed.replace(/\bSetScale\s*\(\s*([^,\n()]+?)\s*,\s*([^,\n()]+?)\s*,\s*([^,\n()]+?)\s*,\s*([^,\n()]+?)\s*,\s*([^,\n()]+?)\s*\)\s*;/g, function(_m, obj, x, y, z, extra) {
+    var extraNorm = String(extra || '').trim();
+    if (extraNorm === '0' || extraNorm === '0f' || extraNorm === '1' || extraNorm === '1f') {
+      fixes++;
+      return 'SetScale(' + obj.trim() + ', ' + x.trim() + ', ' + y.trim() + ', ' + z.trim() + ');';
+    }
+    return _m;
+  });
+  return { code: fixed, changed: fixes > 0, fixes: fixes };
+}
+
 function stripInteractionFlagShortcutsFromPhaseGates(code, blueprint) {
   if (!code || code.indexOf('ruleTriggered[') < 0 || code.indexOf('||') < 0) {
     return { code: code, changed: false, fixes: 0 };
@@ -521,6 +542,43 @@ function repairPhaseGateRuntimeMoves(code) {
     };
   }
 
+  function insertLinesIntoCurrentPhaseBranch(src, methodName, phaseId, linesToInsert) {
+    if (!linesToInsert || linesToInsert.length === 0) return { code: src, changed: false };
+    var methodRange = extractMethodRange(src, methodName);
+    if (!methodRange) return { code: src, changed: false };
+    var methodBody = src.substring(methodRange.bodyStart, methodRange.end);
+    var branchRe = new RegExp('if\\s*\\(\\s*currentPhaseName\\s*==\\s*"' + phaseId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"\\s*\\)\\s*\\{', 'g');
+    var branchMatch = branchRe.exec(methodBody);
+    if (!branchMatch) return { code: src, changed: false };
+    var blockStart = methodRange.bodyStart + branchMatch.index;
+    var bodyStart = blockStart + branchMatch[0].length;
+    var depth = 1;
+    var end = bodyStart;
+    while (end < src.length && depth > 0) {
+      var ch = src[end];
+      if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (depth === 0) break; }
+      end++;
+    }
+    if (depth !== 0) return { code: src, changed: false };
+    var block = src.substring(blockStart, end);
+    var needed = false;
+    for (var i = 0; i < linesToInsert.length; i++) {
+      if (block.indexOf(String(linesToInsert[i]).trim()) < 0) {
+        needed = true;
+        break;
+      }
+    }
+    if (!needed) return { code: src, changed: false };
+    var insertAt = end;
+    var prefix = src.substring(0, insertAt);
+    if (!/\n\s*$/.test(prefix)) prefix += '\n';
+    return {
+      code: prefix + linesToInsert.join('\n') + '\n' + src.substring(insertAt),
+      changed: true,
+    };
+  }
+
   var snapshotEntities = extractSnapshotEntities(code);
   var phaseIds = Object.keys(snapshotEntities);
   var fixed = code;
@@ -571,11 +629,17 @@ function repairPhaseGateRuntimeMoves(code) {
         inlineMoves = indentLines(buildFallbackMoveLines(inlineEntity, fallbackOrdinal), '            ');
       }
       var updateRes = insertLinesIntoSwitchCase(fixed, 'Update', def.phaseId, inlineMoves);
+      if (!updateRes.changed) {
+        updateRes = insertLinesIntoCurrentPhaseBranch(fixed, 'Update', def.phaseId, inlineMoves);
+      }
       if (updateRes.changed) {
         fixed = updateRes.code;
         fixes++;
       }
       var autoRes = insertLinesIntoSwitchCase(fixed, 'OnAutoPlayArrive', def.phaseId, inlineMoves);
+      if (!autoRes.changed) {
+        autoRes = insertLinesIntoCurrentPhaseBranch(fixed, 'OnAutoPlayArrive', def.phaseId, inlineMoves);
+      }
       if (autoRes.changed) {
         fixed = autoRes.code;
         fixes++;
@@ -650,6 +714,12 @@ function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
     changed = true;
     fixes.push('main:HotVectorAlloc x' + mainVectorFix.fixes);
   }
+  var mainSetScaleFix = normalizeSetScaleCalls(mainCode);
+  if (mainSetScaleFix.changed) {
+    mainCode = mainSetScaleFix.code;
+    changed = true;
+    fixes.push('main:SetScaleNormalize x' + mainSetScaleFix.fixes);
+  }
   var mainPhaseGateFix = repairPhaseGateRuntimeMoves(mainCode);
   if (mainPhaseGateFix.changed) {
     mainCode = mainPhaseGateFix.code;
@@ -699,6 +769,12 @@ function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
       nextExtras[name] = vectorRes.code;
       changed = true;
       fixes.push(name + ':HotVectorAlloc x' + vectorRes.fixes);
+    }
+    var setScaleRes = normalizeSetScaleCalls(nextExtras[name]);
+    if (setScaleRes.changed) {
+      nextExtras[name] = setScaleRes.code;
+      changed = true;
+      fixes.push(name + ':SetScaleNormalize x' + setScaleRes.fixes);
     }
     var phaseGateRes = repairPhaseGateRuntimeMoves(nextExtras[name]);
     if (phaseGateRes.changed) {
@@ -760,6 +836,7 @@ function buildReviewFingerprint(reviewResult) {
 module.exports = {
   name: 'review',
   canRetry: false,
+  normalizeSetScaleCalls: normalizeSetScaleCalls,
   repairPhaseGateRuntimeMoves: repairPhaseGateRuntimeMoves,
   stripInteractionFlagShortcutsFromPhaseGates: stripInteractionFlagShortcutsFromPhaseGates,
   repairKnownStructuralDamage: repairKnownStructuralDamage,

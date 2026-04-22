@@ -8,6 +8,31 @@
 var fs = require('fs');
 var path = require('path');
 
+function splitTopLevelArgs(text) {
+  var args = [];
+  var current = '';
+  var parenDepth = 0;
+  var bracketDepth = 0;
+  var braceDepth = 0;
+  for (var i = 0; i < text.length; i++) {
+    var ch = text[i];
+    if (ch === ',' && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
+      if (current.trim()) args.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += ch;
+    if (ch === '(') parenDepth++;
+    else if (ch === ')') parenDepth = Math.max(0, parenDepth - 1);
+    else if (ch === '[') bracketDepth++;
+    else if (ch === ']') bracketDepth = Math.max(0, bracketDepth - 1);
+    else if (ch === '{') braceDepth++;
+    else if (ch === '}') braceDepth = Math.max(0, braceDepth - 1);
+  }
+  if (current.trim()) args.push(current.trim());
+  return args;
+}
+
 // `blocking: true` — these rules cause black-screen / invisible render at runtime.
 // The codegen stage treats them as blocking (fail the round + inject feedback)
 // instead of letting the generation advance to review. Rationale (2026-04-15 bqh33t
@@ -838,7 +863,7 @@ var RULES = [
         if (m[0].indexOf('void SetScale') >= 0) continue;
         var lineText = code.split('\n')[(code.substring(0, m.index).split('\n').length) - 1] || '';
         if (lineText.indexOf('void SetScale') >= 0) continue;
-        var args = m[1].split(',');
+        var args = splitTopLevelArgs(m[1]);
         if (args.length !== 2 && args.length !== 4) {
           var lineNum = code.substring(0, m.index).split('\n').length;
           issues.push({ line: lineNum, text: 'SetScale has ' + args.length + ' args, expected 2 (obj,uniform) or 4 (obj,x,y,z): ' + lineText.trim() });
