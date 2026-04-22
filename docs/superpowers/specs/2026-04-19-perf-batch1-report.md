@@ -55,7 +55,7 @@ Fixture 修正：PhaseSpec 使用 `Array<PhaseSpec>` 原生形状（非包装 `{
 
 **task 6 状态：pipeline 未能重跑到 CUA 阶段**。
 
-- 触发方式：`POST /api/projects/proj_1776391516726_urbib0/feedback` → `taskQueue.resubmit()`
+- 触发方式：当时通过 `POST /api/projects/proj_1776391516726_urbib0/feedback` 触发自动重提；该自动重提链路已在 2026-04-23 移除
 - 失败模式：6 轮 review fix-loop 后仍因**项目固有 semantic 错误**被阻断（invalid pool names / player not initialized / autoplay concept names / HydraulicVehicle pool mapping / `lastFailure = "Cannot read properties of undefined (reading 'length')"`）
 - 历史记录核对：同项目在 Batch 1 改动**之前**的多次运行也是同一失败栈，即**不是 Batch 1 引入的回归**。
 

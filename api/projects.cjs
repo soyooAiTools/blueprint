@@ -248,19 +248,6 @@ function inferEntityDisplayName(desc) {
       project.updatedAt = new Date().toISOString();
       writeProject(project);
 
-      // Auto-resubmit to autoCoding pipeline after feedback (SQLite TaskQueue)
-      try {
-        console.log('[feedback] Auto-resubmitting project ' + id + ' to autoCoding pipeline...');
-        var taskId = id;
-        var blueprintExport = exportBlueprintForAgent(project);
-        var feedback = project.feedbackHistory[project.feedbackHistory.length - 1];
-        taskQueue.resubmit(taskId, blueprintExport, feedback);
-        console.log('[feedback] Task resubmitted via SQLite: ' + taskId);
-        wakeOpenClaw('Feedback resubmitted for ' + project.name);
-      } catch(e) {
-        console.error('[feedback] Auto-resubmit failed: ' + e.message);
-      }
-
       sendJSON(res, { success: true, status: project.status, feedbackId: entry.id });
     },
 

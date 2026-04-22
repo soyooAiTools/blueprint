@@ -47,8 +47,8 @@
 这是典型的"已经能检出，但还没 deterministic 避开"：
 
 - `engine/static-check.cjs` 已能抓 `phase-entity-unbound / phase-entity-init-only / update-new-vector-in-hot-path`
-- `engine/night-monitor.cjs` 已能重提 failed/stuck 项目
-- 但 `night-monitor` 只会重提，不会修代码；`review` 的 deterministic pre-repair 之前也没有覆盖这两个真实高频形态
+- 当时存在一个 `night-monitor` 自动重提 daemon，但它已在 2026-04-23 移除
+- 当时的问题是：自动重提不会修代码；`review` 的 deterministic pre-repair 之前也没有覆盖这两个真实高频形态
 - 结果就是：worker 反复把坏代码送进 review，review 再反复把同类问题交给 fix-loop，烧 round 和在线时长
 
 ### 改动
@@ -71,12 +71,11 @@
   - 若 init 里也没有可复制 move，则补一个最小 `position.y += 2f` 的 fallback nudge
 - 目标不是生成"最优玩法"，而是先避免 phase gate 因空 handler 死锁
 
-**P1 — worker / night-monitor 热生效校验**
+**P1 — worker / recovery 热生效校验**
 
 - 重启：
   - `blueprint-editor`
   - `linux-worker-1..6`
-  - `blueprint-night-monitor`
 - 重启后确认新 worker 立即恢复在线并重新领任务
 
 ### 验证

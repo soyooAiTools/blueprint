@@ -43,7 +43,7 @@ function defaultOwner(family) {
   if (/^infra\./.test(family)) return 'infrastructure';
   if (/^review\./.test(family)) return 'review/static-check';
   if (/^cua\./.test(family)) return 'cua';
-  if (/^monitor\./.test(family)) return 'night-monitor';
+  if (/^monitor\./.test(family)) return 'watchdog';
   if (/^schema\./.test(family)) return 'schema';
   if (/^codegen\./.test(family) || /^generation\./.test(family)) return 'codegen';
   if (/^method_check\./.test(family)) return 'method-check';
@@ -62,7 +62,7 @@ function defaultRemedy(family) {
     'review.forbidden_init_material_from_scene': 'Reject obsolete Luna material init calls before review.',
     'review.phase_condition_false_literal': 'Reject dead phase gates before review/compile.',
     'cua.observe_protocol': 'Use observer-ready handshake and early fatal exit for protocol failures.',
-    'monitor.stuck_or_timeout': 'Detect stuck processing/review states and cancel+resubmit with escalation.',
+    'monitor.stuck_or_timeout': 'Detect stuck processing/review states earlier and surface them for manual recovery.',
     'complexity_gate.bad_simplify_json': 'Use balanced JSON extraction and repair for simplify responses.',
     'cua.silent_pass': 'Strengthen semantic silent-pass detection and event-centered verification.',
     'infra.model_fatal': 'Improve provider failover and auth/quota isolation.',

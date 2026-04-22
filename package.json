@@ -20,8 +20,8 @@
     "learning:execute-patch-runs": "node engine/execute-patch-runs.cjs",
     "learning:promote-patch-feedback": "node engine/promote-patch-feedback-drafts.cjs",
     "learning:curate-drafts": "node engine/curate-learning-drafts.cjs",
-    "night-monitor": "node engine/night-monitor.cjs",
     "replay:failure": "node engine/replay-failure-harness.cjs",
+    "replay:failure:batch": "node engine/replay-failure-batch.cjs",
     "rerun:stage": "node engine/stage-rerun.cjs"
   },
   "dependencies": {

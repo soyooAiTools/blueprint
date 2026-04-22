@@ -54,12 +54,11 @@ function buildPlan(draft) {
     steps = [
       'Tighten schema backend fallback in codegen-schema before retry budget is consumed.',
       'Classify transport/connectivity errors as infra earlier so they skip code fix-loops.',
-      'Escalate repeated infra failures in night-monitor instead of blind resubmit loops.'
+      'Escalate repeated infra failures through dashboard/watchdog diagnostics instead of blind resubmit loops.'
     ];
     validation = [
       'node -c /opt/blueprint-editor/engine/stages/codegen-schema.cjs',
-      'node -c /opt/blueprint-editor/engine/error-classifier.cjs',
-      'node -c /opt/blueprint-editor/engine/night-monitor.cjs'
+      'node -c /opt/blueprint-editor/engine/error-classifier.cjs'
     ];
   } else if (family === 'review.nonconverging_structural') {
     steps = [

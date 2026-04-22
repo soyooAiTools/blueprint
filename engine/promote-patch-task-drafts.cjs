@@ -66,8 +66,7 @@ function buildPatchTask(plan) {
       shouldUseApplyPatch: true,
       shouldRestartServices: true,
       services: [
-        'blueprint-editor',
-        'blueprint-night-monitor'
+        'blueprint-editor'
       ]
     },
     expectedOutcome: plan.expectedOutcome || ('Reduce recurrence of ' + family + '.'),

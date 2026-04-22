@@ -101,8 +101,8 @@ module.exports.init = function(ctx) {
         ],
       },
       'monitor.stuck_or_timeout': {
-        owner: 'night-monitor',
-        remedy: 'stuck detection + cancel/resubmit + stage escalation',
+        owner: 'watchdog',
+        remedy: 'stuck detection + manual recovery escalation',
         knowledgeRefs: [
           'generated/regressions/runtime-regressions.mirror.json',
           'generated/signals/pending-fixes.snapshot.json',
@@ -1052,76 +1052,12 @@ module.exports.init = function(ctx) {
           }
         } catch(e) {}
 
-        // Night monitor summary — surface stuck/recovery counts directly in
-        // pipeline metrics so the dashboard can show whether the overnight
-        // monitor is actually finding and recovering stuck projects.
-        var nightMonitor = null;
-        try {
-          var nmSummaryFile = path.join(__dirname, '..', 'server-data', 'night-monitor', 'last-summary.json');
-          var nmHeartbeatFile = path.join(__dirname, '..', 'server-data', 'night-monitor', 'heartbeat.json');
-          var nmHistoryFile = path.join(__dirname, '..', 'server-data', 'night-monitor', 'history.jsonl');
-          var nmSummary = fs.existsSync(nmSummaryFile) ? JSON.parse(fs.readFileSync(nmSummaryFile, 'utf-8')) : null;
-          var nmHeartbeat = fs.existsSync(nmHeartbeatFile) ? JSON.parse(fs.readFileSync(nmHeartbeatFile, 'utf-8')) : null;
-          var nmHistory = [];
-          if (fs.existsSync(nmHistoryFile)) {
-            nmHistory = fs.readFileSync(nmHistoryFile, 'utf-8').trim().split('\n').filter(Boolean).map(function(line) {
-              try { return JSON.parse(line); } catch(e) { return null; }
-            }).filter(Boolean);
-          }
-          var dayAgo = Date.now() - 24 * 3600 * 1000;
-          var last24h = nmHistory.filter(function(row) {
-            return row.ts && new Date(row.ts).getTime() >= dayAgo;
-          });
-          var stuckByFingerprint = {};
-          var stuckByKind = {};
-          var recoveredByKind = {};
-          last24h.forEach(function(row) {
-            (row.stuckProjects || []).forEach(function(item) {
-              var fp = item.fingerprint || item.kind || 'unknown';
-              if (!stuckByFingerprint[fp]) stuckByFingerprint[fp] = { fingerprint: fp, count: 0, kind: item.kind || 'unknown', projectIds: {} };
-              stuckByFingerprint[fp].count++;
-              if (item.id) stuckByFingerprint[fp].projectIds[item.id] = true;
-              var kind = item.kind || 'unknown';
-              stuckByKind[kind] = (stuckByKind[kind] || 0) + 1;
-            });
-            (row.recoveredStuck || []).forEach(function(item) {
-              var kind = item.kind || 'unknown';
-              recoveredByKind[kind] = (recoveredByKind[kind] || 0) + 1;
-            });
-          });
-          var topStuckFingerprints = Object.keys(stuckByFingerprint).map(function(k) {
-            return {
-              fingerprint: stuckByFingerprint[k].fingerprint,
-              count: stuckByFingerprint[k].count,
-              kind: stuckByFingerprint[k].kind,
-              uniqueProjects: Object.keys(stuckByFingerprint[k].projectIds).length,
-            };
-          }).sort(function(a, b) { return b.count - a.count; }).slice(0, 8);
-          var recoveryRateByKind = Object.keys(stuckByKind).map(function(kind) {
-            var stuckCount = stuckByKind[kind] || 0;
-            var recoveredCount = recoveredByKind[kind] || 0;
-            return {
-              kind: kind,
-              stuckCount: stuckCount,
-              recoveredCount: recoveredCount,
-              rate: stuckCount > 0 ? Math.round(recoveredCount / stuckCount * 100) + '%' : '0%',
-            };
-          }).sort(function(a, b) { return (b.stuckCount || 0) - (a.stuckCount || 0); });
-          if (nmSummary || nmHeartbeat) {
-            nightMonitor = {
-              lastRunAt: nmSummary && (nmSummary.finishedAt || nmSummary.startedAt) || null,
-              trigger: nmSummary && nmSummary.trigger || null,
-              failedProjects: nmSummary && Array.isArray(nmSummary.failedProjects) ? nmSummary.failedProjects : [],
-              stuckProjects: nmSummary && Array.isArray(nmSummary.stuckProjects) ? nmSummary.stuckProjects : [],
-              resubmitted: nmSummary && Array.isArray(nmSummary.resubmitted) ? nmSummary.resubmitted : [],
-              recoveredStuck: nmSummary && Array.isArray(nmSummary.recoveredStuck) ? nmSummary.recoveredStuck : [],
-              errors: nmSummary && Array.isArray(nmSummary.errors) ? nmSummary.errors : [],
-              heartbeat: nmHeartbeat || null,
-              topStuckFingerprints24h: topStuckFingerprints,
-              recoveryRateByKind24h: recoveryRateByKind,
-            };
-          }
-        } catch(e) {}
+        var nightMonitor = {
+          enabled: false,
+          removed: true,
+          removedAt: '2026-04-23',
+          note: 'night-monitor has been removed; use watchdog/task logs for recovery triage.',
+        };
 
         // Expand failureHistory for projects that have failed — surface the last
         // 5 entries so the dashboard can render a timeline without a second round-trip.

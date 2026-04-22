@@ -1,10 +1,10 @@
 # Dashboard / Blueprint SKILL 同步清单（归档系统 2026-04-19）
 
-## 2026-04-22 增量同步：Codex reviewer / night-monitor / 在线任务收口
+## 2026-04-22 增量同步：Codex reviewer / 在线任务收口
 
 ### 背景
 
-2026-04-21 到 2026-04-22 的线上收口不再只是"归档可见性"问题，而是把 worker 主链切到更 deterministic 的 review/fix-loop：新增 Codex coder/reviewer 路径、night-monitor 自动重提闭环、以及围绕 `phase-entity-unbound` / `phase-entity-init-only` / `update-new-vector-in-hot-path` 的规则与预修复。
+2026-04-21 到 2026-04-22 的线上收口不再只是"归档可见性"问题，而是把 worker 主链切到更 deterministic 的 review/fix-loop：新增 Codex coder/reviewer 路径，以及围绕 `phase-entity-unbound` / `phase-entity-init-only` / `update-new-vector-in-hot-path` 的规则与预修复。
 
 本节记录需要同步回 skill 副本的操作知识，避免 skill 还停留在旧的"GPT reviewer + 手工盯日志"认知。
 
@@ -35,35 +35,36 @@
 
 ### 在线恢复
 
-`engine/night-monitor.cjs` 负责 failed/stuck 项目的自动重提：
-- 记录 fingerprint / sameFingerprintCount / sameStatusCount
-- 在 repo HEAD 变化或冷却期满足时调用 `/api/projects/:id/submit`
-- 事故快照写入 `server-data/night-monitor/`
+`night-monitor` 已在 2026-04-23 移除，原因是自动恢复职责与 skill / ops 层重叠、设计边界不清。
 
-night-monitor 只负责"重提和归档"，不会自己修复代码根因；真正的 deterministic 修复仍在 review/codegen/static-check 链。
+当前口径：
+
+- 不再有 failed/stuck project 的独立自动重提 daemon
+- `POST /api/projects/:id/feedback` 只记录反馈并把项目置为 `feedback`，不会自动重提
+- 恢复信息优先通过 `watchdog/run`、dashboard 信号和 task log 判断
+- 真正的 deterministic 修复仍在 review/codegen/static-check 链
 ```
 
 ### 需要同步到 `dashboard/references/architecture.md`
 
-新增"Night Monitor / Recovery" 章节
+新增"Recovery / Watchdog" 章节
 
 ```markdown
-## Night Monitor / Recovery（2026-04-22）
+## Recovery / Watchdog（2026-04-22, updated 2026-04-23）
 
-Dashboard / ops 视角需要理解两类自动恢复：
+Dashboard / ops 视角当前主要理解：
 
 - `watchdog/run`：常规观测与治理流程
-- `engine/night-monitor.cjs`：failed/stuck project 自动重提
 
 ### 关键文件
 
-- `server-data/night-monitor-state.json`：持久状态
-- `server-data/night-monitor/summary.json`：最近一轮汇总
-- `server-data/night-monitor/incidents/*.stuck.json`：卡死事故快照
+- `server-data/task-logs/<taskId>/pipeline.jsonl`：任务尾部与失败点
+- `server-data/skill-monitor/*`：skill 侧巡检与 auto-fix 动作
+- `server-data/regressions.json`：回归聚合信号
 
 ### 判断口径
 
-- 如果任务仍反复卡在相同 fingerprint，但 repo HEAD 已变化，优先看该修复是否已经热生效到 worker / review / night-monitor
+- 如果任务仍反复卡在相同 fingerprint，但 repo HEAD 已变化，优先看该修复是否已经热生效到 worker / review / watchdog
 - 如果 top blocking rules 长时间被 `phase-entity-init-only` / `phase-entity-unbound` 占据，说明问题仍停留在生成/预修复层，不是 dashboard 展示问题
 ```
 
@@ -72,7 +73,7 @@ Dashboard / ops 视角需要理解两类自动恢复：
 - 新 reviewer 主链默认是 Codex reviewer + deterministic pre-repair，不要再假设只有 GPT reviewer。
 - 处理线上失败任务时，优先读 recovery packet 和最近 session 尾部片段，不要整份 session jsonl 全量灌上下文。
 - 盯任务时先核对三类 blocker：`phase-entity-unbound` / `phase-entity-init-only` / `update-new-vector-in-hot-path`。
-- 如果旧修复已经落地到 repo，必须再验证它是否真的进入当前 `worker / night-monitor / review` 流程，而不是只存在于源码里。
+- 如果旧修复已经落地到 repo，必须再验证它是否真的进入当前 `worker / watchdog / review` 流程，而不是只存在于源码里。
 
 ### 建议同步到 env / operator notes
 

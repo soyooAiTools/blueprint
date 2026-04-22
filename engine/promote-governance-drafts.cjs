@@ -32,7 +32,7 @@ function classifyAction(owner, family) {
   if (owner === 'static-check') return 'add-deterministic-guard';
   if (owner === 'review/static-check') return 'promote-structural-rule';
   if (owner === 'infrastructure') return 'add-fallback-or-health-guard';
-  if (owner === 'night-monitor') return 'improve-monitor-recovery';
+  if (owner === 'watchdog') return 'tighten-watchdog-diagnostics';
   if (owner === 'schema') return 'tighten-schema-normalizer';
   if (owner === 'method-check') return 'tighten-partial-scan';
   if (owner === 'complexity-gate') return 'repair-parser';
@@ -47,7 +47,6 @@ function suggestedTargets(owner, family) {
   if (family === 'infra.schema_backend') {
     targets.push({ type: 'file', path: '/opt/blueprint-editor/engine/stages/codegen-schema.cjs', why: 'schema backend fallback / infra classification' });
     targets.push({ type: 'file', path: '/opt/blueprint-editor/engine/error-classifier.cjs', why: 'classify schema relay failures as infra early' });
-    targets.push({ type: 'file', path: '/opt/blueprint-editor/engine/night-monitor.cjs', why: 'escalate repeated infra failures instead of blind resubmit' });
   } else if (family === 'codegen.marker_coverage') {
     targets.push({ type: 'file', path: '/opt/blueprint-editor/engine/stages/codegen-schema.cjs', why: 'combined marker coverage for split outputs' });
     targets.push({ type: 'file', path: '/opt/blueprint-editor/adapters/skeleton-generator.cjs', why: 'preserve TODO markers across split generation' });
@@ -63,7 +62,7 @@ function suggestedTargets(owner, family) {
     targets.push({ type: 'file', path: '/opt/blueprint-editor/engine/stages/codegen-schema.cjs', why: 'tighten deterministic trigger normalizer' });
     targets.push({ type: 'draft', path: 'drafts/failure-families/', why: 'promote family draft once generated' });
   } else if (family === 'monitor.stuck_or_timeout') {
-    targets.push({ type: 'file', path: '/opt/blueprint-editor/engine/night-monitor.cjs', why: 'stuck detection / recovery policy' });
+    targets.push({ type: 'file', path: '/opt/blueprint-editor/lib/watchdog.cjs', why: 'stuck detection / diagnostic policy' });
     targets.push({ type: 'file', path: '/opt/blueprint-editor/dashboard.html', why: 'surface stuck/recovery telemetry and priority' });
   } else if (family === 'complexity_gate.bad_simplify_json') {
     targets.push({ type: 'file', path: '/opt/blueprint-editor/engine/stages/complexity-gate.cjs', why: 'balanced JSON extraction and repair' });
@@ -112,7 +111,7 @@ function promoteGovernanceDrafts() {
   (summary.wasteByFamily || []).forEach(function(item) { wasteIndex[item.family] = parseFloat(item.minutes || '0') || 0; });
 
   // Rebuild the same priority heuristics used by dashboard so the draft layer
-  // stays deterministic even when run headless from night-monitor.
+  // stays deterministic even when run headless from recovery automation.
   var top = priorities.map(function(item) {
     var family = item.family;
     var wasteMinutes = wasteIndex[family] || 0;
@@ -127,7 +126,7 @@ function promoteGovernanceDrafts() {
     else if (family === 'schema.invalid_trigger_shape') { owner = 'schema'; remedy = 'Normalize invalid trigger JSON deterministically before schema validation.'; }
     else if (family === 'method_check.partial_visibility') { owner = 'method-check'; remedy = 'Scan main + companion partial files and ignore comment ghosts.'; }
     else if (family === 'review.nonconverging_structural') { owner = 'review/static-check'; remedy = 'Convert recurring structural review failures into deterministic static guards.'; }
-    else if (family === 'monitor.stuck_or_timeout') { owner = 'night-monitor'; remedy = 'Detect stuck processing/review states and cancel+resubmit with escalation.'; }
+    else if (family === 'monitor.stuck_or_timeout') { owner = 'watchdog'; remedy = 'Detect stuck processing/review states earlier and surface them for manual recovery.'; }
     else if (family === 'complexity_gate.bad_simplify_json') { owner = 'complexity-gate'; remedy = 'Use balanced JSON extraction and repair for simplify responses.'; }
     var priority = 'P2';
     var reason = '已有知识覆盖，继续观察';
