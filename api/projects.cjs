@@ -4,7 +4,7 @@
  */
 var fs = require('fs');
 var { projectSM } = require('../lib/state-machine.cjs');
-var { ensureProjectPlans, writePlansArtifact } = require('../adapters/assembly-plan-pipeline.cjs');
+var { ensureProjectPlans } = require('../adapters/assembly-plan-pipeline.cjs');
 
 /**
  * Validate project state transition. Returns error string or null if valid.
@@ -430,60 +430,24 @@ function inferEntityDisplayName(desc) {
         }
       } catch(e) { /* no body or parse error, keep existing specs */ }
 
-      ensureProjectPlans(project);
-      project.planReview = {
-        confirmedAt: new Date().toISOString(),
-        specCount: Array.isArray(project.specs) ? project.specs.length : 0,
-        moduleInstanceCount: project.plans && project.plans.assemblyPlan && Array.isArray(project.plans.assemblyPlan.moduleInstances)
-          ? project.plans.assemblyPlan.moduleInstances.length
-          : 0,
-        cuaStepCount: project.plans && project.plans.cuaPlan && Array.isArray(project.plans.cuaPlan.steps)
-          ? project.plans.cuaPlan.steps.length
-          : 0,
-        unresolvedCount: project.plans && project.plans.assemblyPlan && Array.isArray(project.plans.assemblyPlan.unresolved)
-          ? project.plans.assemblyPlan.unresolved.length
-          : 0,
-      };
-
-      // Save specs for CUA verification
+      var projectService = require('../engine/project-service.cjs');
       try {
-        var specsDir = path.join(WEBGL_DIR, id);
-        fs.mkdirSync(specsDir, { recursive: true });
-        fs.writeFileSync(path.join(specsDir, 'specs.json'), JSON.stringify(project.specs, null, 2), 'utf-8');
-        writePlansArtifact(specsDir, project.plans);
-        console.log('[confirm-specs] Specs saved for CUA verification: ' + project.specs.length + ' phases');
+        var result = projectService.confirmProjectSpecs(project, {
+          taskQueue: taskQueue,
+          writeProject: writeProject,
+          wakeOpenClaw: wakeOpenClaw,
+          exportBlueprintForAgent: exportBlueprintForAgent,
+          PORT: PORT,
+          WEBGL_DIR: WEBGL_DIR,
+        }, {
+          mode: 'manual',
+          reason: 'manual_confirm',
+          statusReason: 'specs confirmed',
+        });
+        sendJSON(res, { success: true, status: result.status, specsCount: (project.specs || []).length });
       } catch(e) {
-        console.error('[confirm-specs] Failed to save specs for CUA:', e.message);
+        sendJSON(res, { error: e.message }, 400);
       }
-
-      // Now proceed with normal submit flow via SQLite TaskQueue
-      var taskId = id;
-      var blueprintExport = exportBlueprintForAgent(project);
-      blueprintExport.specs = project.specs;
-
-      // Update or create task in SQLite
-      var existingTask = taskQueue.get(taskId);
-      if (existingTask) {
-        taskQueue.updateBlueprint(taskId, blueprintExport);
-        taskQueue.updateStatus(taskId, 'pending', 'specs confirmed', 'server');
-      } else {
-        var metadata = {
-          svnUrl: project.svnUrl || '',
-          blueprintEditorId: id,
-          blueprintServerUrl: 'http://localhost:' + PORT,
-          source: 'blueprint-editor',
-        };
-        taskQueue.enqueue(taskId, id, project.name, blueprintExport, metadata);
-      }
-
-      var submitErr = validateProjectTransition(project, 'submitted');
-      if (submitErr) return sendJSON(res, { error: submitErr }, 400);
-      project.status = 'submitted';
-      project.updatedAt = new Date().toISOString();
-      writeProject(project);
-
-      wakeOpenClaw('[蓝图编辑器] Spec 已确认，任务已提交。项目: ' + project.name + ', taskId: ' + taskId);
-      sendJSON(res, { success: true, status: 'submitted', specsCount: (project.specs || []).length });
     },
 
     svnCommit: function(req, res, body, params) {

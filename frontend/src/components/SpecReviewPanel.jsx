@@ -368,7 +368,7 @@ export default function SpecReviewPanel({ projectId, onConfirmed, showAlert }) {
         </h3>
         <p style={{ margin: '8px 0 0', fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>
           以下是从分镜自动提取的 {specs.length} 个阶段体验规格，以及对应的 assembly / CUA 计划。
-          请检查后确认，确认后将进入 assembly-first 编码流水线。
+          正常项目会自动确认并直接进入编码；只有检测到异常待检查项时，才会停留在这个人工确认页。
         </p>
       </div>
 
@@ -410,7 +410,7 @@ export default function SpecReviewPanel({ projectId, onConfirmed, showAlert }) {
             cursor: confirming ? 'wait' : 'pointer',
           }}
         >
-          {confirming ? '提交中...' : '✅ 确认规格/计划并开始编码'}
+          {confirming ? '提交中...' : '✅ 人工确认并继续编码'}
         </button>
       </div>
     </div>

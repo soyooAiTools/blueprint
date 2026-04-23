@@ -127,7 +127,7 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
   const STATUS_LABELS = {
     editing: '编辑中',
     spec_extracting: '提取规格中...',
-    spec_review: '规格待确认',
+    spec_review: '计划待检查',
     submitted: '排队中',
     processing: '准备中',
     building: '开发中',
