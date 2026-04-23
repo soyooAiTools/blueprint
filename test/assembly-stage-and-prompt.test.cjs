@@ -1,6 +1,7 @@
 var assert = require('assert');
 
 var assemblyStage = require('../engine/stages/assembly-plan.cjs');
+var assemblyComplexityGateStage = require('../engine/stages/assembly-complexity-gate.cjs');
 var codegenSchemaStage = require('../engine/stages/codegen-schema.cjs');
 var pipeline = require('../engine/pipeline.cjs');
 
@@ -63,6 +64,11 @@ assert.ok(result.moduleInstanceCount >= 4, 'moduleInstanceCount should be popula
 assert.ok(result.cuaStepCount >= 2, 'cuaStepCount should be populated');
 assert.ok(ctx.blueprint.assemblyCoverage > 0, 'assemblyCoverage should be set');
 
+var gateResult = assemblyComplexityGateStage.execute(ctx);
+assert.ok(ctx.blueprint.assemblyDecision, 'assembly-complexity-gate should set assemblyDecision');
+assert.ok(ctx.blueprint.assemblyRiskLevel, 'assembly-complexity-gate should set assemblyRiskLevel');
+assert.ok(gateResult.decision, 'assembly-complexity-gate should return a decision');
+
 var prompt = codegenSchemaStage._internals.buildSchemaPrompt(ctx);
 assert.ok(prompt.indexOf('## Assembly Plan（必须遵守）') >= 0, 'schema prompt should include assembly plan section');
 assert.ok(prompt.indexOf('"phaseBindings"') >= 0, 'schema prompt should include phaseBindings');
@@ -71,8 +77,10 @@ assert.ok(prompt.indexOf('"stateOwners"') >= 0, 'schema prompt should include st
 var stageNames = pipeline.createLunaPipeline().stages.map(function(stage) { return stage.name; });
 var complexityIdx = stageNames.indexOf('complexity-gate');
 var assemblyIdx = stageNames.indexOf('assembly-plan');
+var assemblyGateIdx = stageNames.indexOf('assembly-complexity-gate');
 var codegenIdx = stageNames.indexOf('codegen');
 assert.ok(complexityIdx >= 0 && assemblyIdx > complexityIdx, 'assembly-plan should run after complexity-gate');
-assert.ok(codegenIdx > assemblyIdx, 'assembly-plan should run before codegen');
+assert.ok(assemblyGateIdx > assemblyIdx, 'assembly-complexity-gate should run after assembly-plan');
+assert.ok(codegenIdx > assemblyGateIdx, 'assembly-complexity-gate should run before codegen');
 
 console.log('assembly-stage-and-prompt tests passed');

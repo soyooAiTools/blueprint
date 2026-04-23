@@ -48,7 +48,7 @@ function recordPipelineMetrics(ctx, stageResults) {
     stages: {},
   };
 
-  var stageNames = ['spec-extract', 'spec-validate', 'complexity-gate', 'assembly-plan', 'codegen', 'method-check', 'review', 'compile', 'visual-check', 'cua-verify', 'upload'];
+  var stageNames = ['spec-extract', 'spec-validate', 'complexity-gate', 'assembly-plan', 'assembly-complexity-gate', 'codegen', 'method-check', 'review', 'compile', 'visual-check', 'cua-verify', 'upload'];
   for (var i = 0; i < stageNames.length; i++) {
     var name = stageNames[i];
     var sr = stageResults[name];
@@ -130,8 +130,12 @@ function recordPipelineMetrics(ctx, stageResults) {
         : ((ctx.blueprint.planValidation && ctx.blueprint.planValidation.warnings || []).length);
       record.assemblyCoverage = ctx.blueprint.assemblyCoverage != null ? ctx.blueprint.assemblyCoverage : null;
       record.assemblyFallbackRequired = record.assemblyUnresolvedCount > 0;
+      record.assemblyDecision = ctx.blueprint.assemblyDecision || null;
+      record.assemblyRiskLevel = ctx.blueprint.assemblyRiskLevel || null;
       record.codegenInputMode = ctx.blueprint.gameSchema ? 'assembly-first' : 'assembly-plan-ready';
     }
+    record.legacyComplexityScore = ctx.blueprint.legacyComplexityScore != null ? ctx.blueprint.legacyComplexityScore : null;
+    record.legacyComplexityBand = ctx.blueprint.legacyComplexityBand || null;
   }
 
   try {
@@ -239,7 +243,7 @@ function normalizeFingerprint(reason, opts) {
   // spec-validate aggregation is bypassed (e.g. legacy records).
   s = collapseRepeatedClauses(s);
   // Drop leading "prefix: " stage tags if present
-  s = s.replace(/^(review|codegen|compile|visual-check|cua-verify|upload|spec-validate|spec-extract|build|complexity-gate|method-check)[ :]+/i, '');
+  s = s.replace(/^(review|codegen|compile|visual-check|cua-verify|upload|spec-validate|spec-extract|build|complexity-gate|assembly-complexity-gate|method-check)[ :]+/i, '');
   // D3: fraction normalization MUST run before path regex — previously
   // "2/11 overlap" was swallowed by the path regex as "2<path> overlap",
   // leaving 9%/18%/27% as distinct fingerprints that each bypassed the
@@ -380,7 +384,7 @@ function classifyFailureFamily(record) {
   }
   if (/review/.test(stage)) return 'review.other';
   if (/cua-verify/.test(stage)) return 'cua.other';
-  if (/assembly-plan|codegen|method-check|spec-validate|complexity-gate/.test(stage)) return 'generation.other';
+  if (/assembly-plan|assembly-complexity-gate|codegen|method-check|spec-validate|complexity-gate/.test(stage)) return 'generation.other';
   return 'unknown';
 }
 
@@ -522,7 +526,7 @@ function getMetricsSummary(lastN) {
 
   // ---- Per-stage pass rate ----
   summary.stagePassRates = {};
-  var allStages = ['spec-extract', 'spec-validate', 'complexity-gate', 'assembly-plan', 'codegen', 'review', 'compile', 'visual-check', 'cua-verify', 'upload'];
+  var allStages = ['spec-extract', 'spec-validate', 'complexity-gate', 'assembly-plan', 'assembly-complexity-gate', 'codegen', 'review', 'compile', 'visual-check', 'cua-verify', 'upload'];
   for (var si = 0; si < allStages.length; si++) {
     var sn = allStages[si];
     var attempted = records.filter(function(r) { return r.stages[sn] || r.failedAtStage === sn; }).length;

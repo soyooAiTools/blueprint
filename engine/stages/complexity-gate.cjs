@@ -1,17 +1,16 @@
 // Source: engine/stages/complexity-gate.cjs
 /**
- * Stage: complexity-gate — Score spec complexity before codegen
+ * Stage: complexity-gate — Legacy spec complexity telemetry
  *
  * Scoring formula:
  *   (codePhases*10) + (controlModes*40) + (econLayers*20) + (statefulEntities*5) + (formSwitches*15)
  *
- * Thresholds:
- *   <=200  : safe   — pass through
- *   201-250: warn   — log warning, continue
- *   >250   : auto-simplify via LLM, fail if simplified score still >250
+ * In assembly-first mode this score is no longer a primary decision gate.
+ * It is retained only for telemetry / historical comparison against older
+ * spec-driven tasks.
  *
  * Reads:  ctx.blueprint.specs, ctx.blueprint.entities
- * Writes: ctx.blueprint.specs (possibly simplified)
+ * Writes: ctx.blueprint.legacyComplexity*
  */
 
 var path = require('path');
@@ -379,7 +378,7 @@ function callLLMSimplify(ctx, specs, entities, scoreResult) {
 
 module.exports = {
   name: 'complexity-gate',
-  canRetry: true,
+  canRetry: false,
 
   canSkip: function(ctx) {
     return !ctx.blueprint.specs || ctx.blueprint.specs.length === 0;
@@ -389,67 +388,31 @@ module.exports = {
     var specs = ctx.blueprint.specs || [];
     var entities = ctx.blueprint.entities || [];
 
-    ctx.addLog('complexity-gate', 'Computing spec complexity score...');
+    ctx.addLog('complexity-gate', 'Computing legacy spec complexity score (telemetry-only)...');
 
     var result = computeScore(specs, entities);
     var score = result.total;
     var bd = result.breakdown;
+    var band = score <= 200 ? 'safe' : (score <= 250 ? 'warn' : 'over_budget');
+
+    ctx.blueprint.legacyComplexityScore = score;
+    ctx.blueprint.legacyComplexityBreakdown = bd;
+    ctx.blueprint.legacyComplexityBand = band;
+    ctx.blueprint.legacyComplexityDecision = 'telemetry_only';
 
     ctx.addLog('complexity-gate',
-      'Score: ' + score +
+      'Legacy score: ' + score +
       ' (phases=' + bd.codePhases +
       ' controlModes=' + bd.controlModes +
       ' econLayers=' + bd.econLayers +
       ' statefulEntities=' + bd.statefulEntities +
-      ' formSwitches=' + bd.formSwitches + ')'
+      ' formSwitches=' + bd.formSwitches + ', band=' + band + ', action=telemetry-only)'
     );
 
-    // <=200: safe, pass through
-    if (score <= 200) {
-      ctx.addLog('complexity-gate', 'Score ' + score + ' <=200: SAFE — proceeding to codegen');
-      if (ctx.reportStatus) {
-        ctx.reportStatus('processing', { message: '[complexity-gate] Score ' + score + ' safe' });
-      }
-      return Promise.resolve();
-    }
-
-    // 201-250: warn, continue
-    if (score <= 250) {
-      ctx.addLog('complexity-gate', 'WARN: Score ' + score + ' is 201-250 — complex but within auto-simplify threshold. Proceeding with caution.');
-      if (ctx.reportStatus) {
-        ctx.reportStatus('processing', { message: '[complexity-gate] Score ' + score + ' warn — complex but proceeding' });
-      }
-      return Promise.resolve();
-    }
-
-    // >250: auto-simplify
-    ctx.addLog('complexity-gate', 'Score ' + score + ' >250 — triggering LLM auto-simplification');
-    if (ctx.reportStatus) {
-      ctx.reportStatus('processing', { message: '[complexity-gate] Score ' + score + ' >250, auto-simplifying...' });
-    }
-
-    return callLLMSimplify(ctx, specs, entities, result).then(function(simplified) {
-      ctx.addLog('complexity-gate', 'LLM returned simplified specs (' + simplified.specs.length + ' phases) and entities (' + simplified.entities.length + ')');
-
-      var newResult = computeScore(simplified.specs, simplified.entities);
-      var newScore = newResult.total;
-      ctx.addLog('complexity-gate', 'Re-score after simplification: ' + newScore);
-
-      if (newScore > 250) {
-        throw new Error(
-          'complexity-gate: LLM simplification did not reduce score to <=250 (got ' + newScore + '). ' +
-          'Please manually reduce phase count, form switches, or control modes.'
-        );
-      }
-
-      // Apply simplified specs and entities
-      ctx.blueprint.specs = simplified.specs;
-      ctx.blueprint.entities = simplified.entities;
-
-      ctx.addLog('complexity-gate', 'Auto-simplification succeeded: score ' + score + ' → ' + newScore);
-      if (ctx.reportStatus) {
-        ctx.reportStatus('processing', { message: '[complexity-gate] Simplified: ' + score + ' → ' + newScore });
-      }
+    return Promise.resolve({
+      legacyComplexityScore: score,
+      legacyComplexityBand: band,
+      telemetryOnly: true
     });
   },
 

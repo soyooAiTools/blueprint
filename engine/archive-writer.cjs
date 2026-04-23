@@ -151,6 +151,10 @@ function writeSilentPass(ctx, cuaResult, extras) {
       assemblyUnresolvedCount: ctx.blueprint.assemblyUnresolvedCount != null
         ? ctx.blueprint.assemblyUnresolvedCount
         : ((ctx.blueprint.plans && ctx.blueprint.plans.assemblyPlan && ctx.blueprint.plans.assemblyPlan.unresolved || []).length),
+      assemblyDecision: ctx.blueprint.assemblyDecision || null,
+      assemblyRiskLevel: ctx.blueprint.assemblyRiskLevel || null,
+      legacyComplexityScore: ctx.blueprint.legacyComplexityScore != null ? ctx.blueprint.legacyComplexityScore : null,
+      legacyComplexityBand: ctx.blueprint.legacyComplexityBand || null,
     } : null,
   };
 

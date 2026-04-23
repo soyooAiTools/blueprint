@@ -451,6 +451,7 @@ var specExtractStage = require('./stages/spec-extract.cjs');
 var specValidateStage = require('./stages/spec-validate.cjs');
 var complexityGateStage = require('./stages/complexity-gate.cjs');
 var assemblyPlanStage = require('./stages/assembly-plan.cjs');
+var assemblyComplexityGateStage = require('./stages/assembly-complexity-gate.cjs');
 var codegenStage = require('./stages/codegen.cjs');
 var methodCheckStage = require('./stages/method-check.cjs');
 var reviewStage = require('./stages/review.cjs');
@@ -468,6 +469,7 @@ function createLunaPipeline(options) {
     specValidateStage,
     complexityGateStage,
     assemblyPlanStage,
+    assemblyComplexityGateStage,
     codegenStage,
     methodCheckStage,
     reviewStage,
