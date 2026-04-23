@@ -84,13 +84,50 @@ function addCandidateToken(tokens, token) {
   tokens.push(text);
 }
 
+function toPascalLikeToken(text) {
+  var camel = toCamelLikeToken(text);
+  if (!camel) return '';
+  return camel.charAt(0).toUpperCase() + camel.slice(1);
+}
+
 function buildStateWriteSignals(state) {
   var text = String(state || '').trim();
   var tokens = [];
   if (!text) return tokens;
 
   var dotParts = text.split('.');
+  var owner = dotParts.length > 1 ? dotParts[0] : '';
   var leaf = dotParts[dotParts.length - 1];
+  var leafPascal = toPascalLikeToken(leaf);
+
+  function addEntityOwnerSignals() {
+    if (!owner || !leafPascal) return;
+    addCandidateToken(tokens, owner + leafPascal);
+    if (leaf === 'buildState' || leaf === 'upgradeLevel') addCandidateToken(tokens, owner + 'State');
+    if (leaf === 'buildTimer') addCandidateToken(tokens, owner + 'BuildTimer');
+    if (leaf === 'clicked') addCandidateToken(tokens, owner + 'Clicked');
+    if (leaf === 'triggered') addCandidateToken(tokens, owner + 'Triggered');
+    if (leaf === 'currentTarget') {
+      addCandidateToken(tokens, owner + 'CurrentTarget');
+      addCandidateToken(tokens, owner + 'Target');
+    }
+    if (leaf === 'cooldownTimer') {
+      addCandidateToken(tokens, owner + 'CooldownTimer');
+      addCandidateToken(tokens, owner + 'FireTimer');
+      addCandidateToken(tokens, owner + 'SpawnTimer');
+      addCandidateToken(tokens, owner + 'AttackTimer');
+    }
+    if (leaf === 'hp') addCandidateToken(tokens, owner + 'HP');
+    if (leaf === 'deathState') addCandidateToken(tokens, owner + 'DeathState');
+    if (leaf === 'dragState') addCandidateToken(tokens, owner + 'DragState');
+    if (leaf === 'holdState') addCandidateToken(tokens, owner + 'HoldState');
+  }
+
+  if (dotParts.length === 2 && owner !== 'ui' && owner !== 'camera' && owner !== 'economy') {
+    addEntityOwnerSignals();
+    return tokens;
+  }
+
   addCandidateToken(tokens, leaf);
   addCandidateToken(tokens, toCamelLikeToken(text));
   addCandidateToken(tokens, text.replace(/[^\w]/g, ''));
@@ -105,13 +142,46 @@ function buildStateWriteSignals(state) {
     addCandidateToken(tokens, toCamelLikeToken(dotParts[1]));
     if (dotParts[1] === 'resources') addCandidateToken(tokens, 'resource');
   }
-  if (dotParts.length === 2 && dotParts[0] !== 'ui' && dotParts[0] !== 'camera' && dotParts[0] !== 'economy') {
-    var leafCamel = toCamelLikeToken(dotParts[1]);
-    addCandidateToken(tokens, dotParts[0] + leafCamel.charAt(0).toUpperCase() + leafCamel.slice(1));
-    addCandidateToken(tokens, dotParts[1]);
-  }
 
   return tokens;
+}
+
+function isStrictAssemblyOwnerState(state) {
+  var text = String(state || '').trim();
+  if (!text) return false;
+  if (/[<>]/.test(text)) return false;
+
+  if (text === 'economy.gold' || text === 'economy.resources') return true;
+  if (text === 'input.tapState' || text === 'phase.timerState' || text === 'game.endState' || text === 'player.formId') return true;
+
+  if (/^(camera|ui|spawn|projectile|system)\./.test(text)) return false;
+  if (text === 'player.position') return false;
+
+  var dotParts = text.split('.');
+  var leaf = dotParts[dotParts.length - 1];
+  if (!leaf) return false;
+
+  if (leaf === 'position' ||
+      leaf === 'visibleState' ||
+      leaf === 'spawnState' ||
+      leaf === 'visualVariant' ||
+      leaf === 'animationState') {
+    return false;
+  }
+
+  return [
+    'buildState',
+    'buildTimer',
+    'upgradeLevel',
+    'triggered',
+    'clicked',
+    'dragState',
+    'holdState',
+    'currentTarget',
+    'cooldownTimer',
+    'hp',
+    'deathState'
+  ].indexOf(leaf) >= 0;
 }
 
 function fileMayWriteState(fileContent, state) {
@@ -373,6 +443,7 @@ function detectAssemblyContractViolations(ctx) {
     var moduleInstance = moduleIndex[owner.moduleInstanceId] || {};
     var allowedFiles = uniq(toArray(moduleInstance.ownerFiles).filter(Boolean));
     if (!owner.state || allowedFiles.length === 0) continue;
+    if (!isStrictAssemblyOwnerState(owner.state)) continue;
 
     var violatingFiles = [];
     Object.keys(extraFiles).forEach(function(file) {
@@ -418,6 +489,7 @@ function detectAssemblyContractViolations(ctx) {
 module.exports = {
   buildAggregateCodeFromContext: buildAggregateCodeFromContext,
   extractAssemblySlotOwnership: extractAssemblySlotOwnership,
+  isStrictAssemblyOwnerState: isStrictAssemblyOwnerState,
   fileMayWriteState: fileMayWriteState,
   extractReportedPhaseIds: extractReportedPhaseIds,
   computePhaseCoverage: computePhaseCoverage,

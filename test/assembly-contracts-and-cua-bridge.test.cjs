@@ -102,6 +102,36 @@ assert.strictEqual(
   false,
   'comment-only state mentions should be ignored'
 );
+assert.strictEqual(
+  assemblyPlanContracts.fileMayWriteState('string buildState = BuildEntityBuildState(stateCode);', 'Barrack.buildState'),
+  false,
+  'entity build state should not be falsely matched by a local helper variable name'
+);
+assert.strictEqual(
+  assemblyPlanContracts.fileMayWriteState('BarrackState = Mathf.Max(BarrackState, 2);', 'Barrack.buildState'),
+  true,
+  'entity build state should map to the owning skeleton field alias'
+);
+assert.strictEqual(
+  assemblyPlanContracts.fileMayWriteState('OurBaseState++;', 'OurBase.upgradeLevel'),
+  true,
+  'upgrade level should recognize the shared buildable state field alias'
+);
+assert.strictEqual(
+  assemblyPlanContracts.isStrictAssemblyOwnerState('ConveyorBelt.buildState'),
+  true,
+  'entity build state should remain a strict owner state'
+);
+assert.strictEqual(
+  assemblyPlanContracts.isStrictAssemblyOwnerState('ConveyorBelt.position'),
+  false,
+  'entity position should be treated as a shared runtime state'
+);
+assert.strictEqual(
+  assemblyPlanContracts.isStrictAssemblyOwnerState('ui.scoreText'),
+  false,
+  'shared UI feedback state should not use strict ownership'
+);
 
 var ownerMismatchCtx = {
   csCode: 'void Update() { AddCompletedPhase("intro"); AddCompletedPhase("build"); }',
@@ -122,7 +152,7 @@ var ownerMismatchCtx = {
       '// [ASSEMBLY SLOT] system::guide_ui',
       '// [ASSEMBLY SLOT] system::highlight_target',
       '// [ASSEMBLY SLOT] system::world_label',
-      'void WrongWrite() { buildState = 1; }'
+      'void WrongWrite() { ConveyorBeltState = 1; }'
     ].join('\n'),
     'GameFlowManagerMain.Scene.cs': [
       '// [ASSEMBLY SLOT] Player::visual_binding',
@@ -146,6 +176,10 @@ assert.ok(
 assert.ok(
   ownerMismatchViolations.some(function(item) { return item.rule === 'assembly-state-owner-mismatch' && item.data.state === 'ConveyorBelt.buildState'; }),
   'state writes from a non-owner file should be reported'
+);
+assert.ok(
+  !ownerMismatchViolations.some(function(item) { return item.rule === 'assembly-state-owner-mismatch' && item.data.state === 'ConveyorBelt.position'; }),
+  'shared runtime position state should not be flagged as an ownership violation'
 );
 
 var derivedSpecs = buildSpecsFromPlans(plans);
