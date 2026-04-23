@@ -5,6 +5,7 @@
 var fs = require('fs');
 var { projectSM } = require('../lib/state-machine.cjs');
 var { ensureProjectPlans } = require('../adapters/assembly-plan-pipeline.cjs');
+var { normalizeProjectBlueprint } = require('../lib/project-blueprint-normalizer.cjs');
 
 /**
  * Validate project state transition. Returns error string or null if valid.
@@ -51,6 +52,7 @@ module.exports.init = function(ctx) {
 
   // Strip base64 image data from blueprint for agent consumption
   function exportBlueprintForAgent(project) {
+    normalizeProjectBlueprint(project);
     ensureProjectPlans(project);
     var bp = JSON.parse(JSON.stringify(project.blueprint || {}));
     var nodes = bp.nodes || [];
@@ -212,6 +214,7 @@ function inferEntityDisplayName(desc) {
         project.blueprint.phases = data.phases;
         project.phases = data.phases;
       }
+      normalizeProjectBlueprint(project);
       ensureProjectPlans(project);
       project.updatedAt = new Date().toISOString();
       writeProject(project);

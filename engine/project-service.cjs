@@ -177,6 +177,7 @@ async function submitProject(project, opts) {
   }
 
   project.autoCodingTaskId = taskId;
+  project.statusMessage = null;
   project.updatedAt = new Date().toISOString();
 
   // Storyboard projects must confirm extracted specs before entering the queue.

@@ -753,14 +753,14 @@ function FlowEditor({ project, onBack, initialTab }) {
 
   const handleSubmit = useCallback(async () => {
     try {
-      await saveBlueprint(project.id, nodes, edges, projectName, { objectRegistry, globalParams, globalSettings });
+      await saveBlueprint(project.id, nodes, edges, projectName, { objectRegistry, globalParams, globalSettings, entities });
       const result = await submitProject(project.id);
       setProjectStatus(result.status);
       await showAlert('✅ 已成功提交给 Coding Agent！');
     } catch (err) {
       await showAlert('提交失败: ' + err.message);
     }
-  }, [project.id, nodes, edges, projectName, showAlert]);
+  }, [project.id, nodes, edges, projectName, objectRegistry, globalParams, globalSettings, entities, showAlert]);
 
   const handleApprove = useCallback(async () => {
     try {
