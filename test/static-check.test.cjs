@@ -137,6 +137,72 @@ public class Main : MonoBehaviour {
     expect(hit).toBeDefined();
   });
 
+  test('partial-method-duplicate does not misread IsNear call continuations as declarations', () => {
+    const mainCode = `using UnityEngine;
+public partial class GameFlowManagerMain : MonoBehaviour {
+  bool IsNear(GameObject target, float range) { return true; }
+}`;
+    const inputCode = `using UnityEngine;
+public partial class GameFlowManagerMain {
+  void HandleTap() {
+    if (RocketDebris != null
+        && IsNear(RocketDebris, 2f))
+    {
+      RocketDebrisState = 1;
+    }
+  }
+}`;
+    const result = staticCheck(mainCode, {
+      filename: 'GameFlowManagerMain.cs',
+      extraFiles: {
+        'GameFlowManagerMain.Input.cs': inputCode,
+      },
+    });
+    const hit = result.issues.find(i => i.rule === 'partial-method-duplicate');
+    expect(hit).toBeUndefined();
+  });
+
+  test('updategamestate-skeleton-preserve accepts helper-based bridge structure', () => {
+    const code = `using UnityEngine;
+public partial class GameFlowManagerMain : MonoBehaviour {
+  string BuildEntityStatesJson() { return "{}"; }
+  string BuildVariablesJson() { return "{}"; }
+  string BuildUiStateJson() { return "{}"; }
+  string BuildCameraStateJson() { return "{}"; }
+  void UpdateGameState() {
+    string completedJson = "[]";
+    string json = "{"
+      + "\\"currentPhase\\":\\"phase1\\","
+      + "\\"completedPhases\\":" + completedJson + ","
+      + "\\"entityStates\\":" + BuildEntityStatesJson() + ","
+      + "\\"variables\\":" + BuildVariablesJson() + ","
+      + "\\"uiState\\":" + BuildUiStateJson() + ","
+      + "\\"cameraState\\":" + BuildCameraStateJson() + ","
+      + "\\"phaseTimestamps\\":{}"
+      + "}";
+    gameObject.name = "GFM|" + json;
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'updategamestate-skeleton-preserve');
+    expect(hit).toBeUndefined();
+  });
+
+  test('updategamestate-skeleton-preserve blocks missing helper bridge keys', () => {
+    const code = `using UnityEngine;
+public partial class GameFlowManagerMain : MonoBehaviour {
+  void UpdateGameState() {
+    string json = "{"
+      + "\\"currentPhase\\":\\"phase1\\","
+      + "\\"completedPhases\\":[]"
+      + "}";
+    gameObject.name = json;
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'updategamestate-skeleton-preserve');
+    expect(hit).toBeDefined();
+    expect(hit.blocking).toBe(true);
+  });
+
   // --- v6 rules ---
 
   test('invalid identifier (digit start) detected as blocking', () => {
@@ -563,6 +629,21 @@ public class Main : MonoBehaviour {
   }
 }`;
     const hit = staticCheck(code).issues.find(i => i.rule === 'phase-entity-init-only');
+    expect(hit).toBeUndefined();
+  });
+
+  test('setscale-wrong-params ignores valid SetScale with nested parentheses in args', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  GameObject ConveyorBelt;
+  float gameTimer;
+  void Tick(float next) {
+    SetScale(ConveyorBelt, next, 0.25f + Mathf.Abs(Mathf.Sin(gameTimer * 8f)) * 0.15f, next);
+  }
+  void SetScale(GameObject obj, float x, float y, float z) {}
+  void SetScale(GameObject obj, float uniform) {}
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'setscale-wrong-params');
     expect(hit).toBeUndefined();
   });
 });

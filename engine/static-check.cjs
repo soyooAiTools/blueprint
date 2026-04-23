@@ -33,6 +33,43 @@ function splitTopLevelArgs(text) {
   return args;
 }
 
+function findInvocationCalls(code, methodName, mask) {
+  var calls = [];
+  if (!code || !methodName) return calls;
+  var nameLen = methodName.length;
+  var localMask = mask || buildCodeMask(code);
+  function isIdent(ch) {
+    return !!ch && /[A-Za-z0-9_]/.test(ch);
+  }
+  for (var i = 0; i <= code.length - nameLen; i++) {
+    if (!localMask[i]) continue;
+    if (code.substr(i, nameLen) !== methodName) continue;
+    if (isIdent(code[i - 1]) || isIdent(code[i + nameLen])) continue;
+    var j = i + nameLen;
+    while (j < code.length && /\s/.test(code[j])) j++;
+    if (code[j] !== '(') continue;
+    var openIdx = j;
+    var depth = 1;
+    j++;
+    while (j < code.length && depth > 0) {
+      if (localMask[j]) {
+        if (code[j] === '(') depth++;
+        else if (code[j] === ')') depth--;
+      }
+      j++;
+    }
+    if (depth !== 0) continue;
+    calls.push({
+      index: i,
+      openIndex: openIdx,
+      closeIndex: j - 1,
+      argsText: code.substring(openIdx + 1, j - 1),
+    });
+    i = j - 1;
+  }
+  return calls;
+}
+
 function isPurePhaseDispatcherBody(body) {
   var text = String(body || '')
     .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -892,19 +929,15 @@ var RULES = [
     message: 'SetScale() called with wrong number of parameters — use SetScale(obj, x, y, z) or SetScale(obj, uniform)',
     custom: function(code) {
       var issues = [];
-      var stripped = code
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/\/\/[^\n]*/g, '')
-        .replace(/"(?:[^"\\]|\\.)*"/g, '""');
-      var re = /\bSetScale\s*\(([^)]*)\)/g;
-      var m;
-      while ((m = re.exec(stripped)) !== null) {
-        if (m[0].indexOf('void SetScale') >= 0) continue;
-        var lineText = code.split('\n')[(code.substring(0, m.index).split('\n').length) - 1] || '';
+      var mask = buildCodeMask(code);
+      var calls = findInvocationCalls(code, 'SetScale', mask);
+      for (var i = 0; i < calls.length; i++) {
+        var call = calls[i];
+        var lineNum = code.substring(0, call.index).split('\n').length;
+        var lineText = code.split('\n')[lineNum - 1] || '';
         if (lineText.indexOf('void SetScale') >= 0) continue;
-        var args = splitTopLevelArgs(m[1]);
+        var args = splitTopLevelArgs(call.argsText);
         if (args.length !== 2 && args.length !== 4) {
-          var lineNum = code.substring(0, m.index).split('\n').length;
           issues.push({ line: lineNum, text: 'SetScale has ' + args.length + ' args, expected 2 (obj,uniform) or 4 (obj,x,y,z): ' + lineText.trim() });
         }
       }
@@ -1189,9 +1222,6 @@ var RULES = [
       var required = [
         '\\"currentPhase\\":',
         '\\"completedPhases\\":',
-        '\\"entityStates\\":{',
-        '\\"variables\\":{',
-        '\\"phaseTimestamps\\":{',
       ];
       for (var ci = 0; ci < candidates.length; ci++) {
         var src = candidates[ci].src || '';
@@ -1214,6 +1244,36 @@ var RULES = [
         var missing = [];
         for (var ri = 0; ri < required.length; ri++) {
           if (body.indexOf(required[ri]) < 0) missing.push(required[ri]);
+        }
+        var bridgeChecks = [
+          {
+            label: '\\"entityStates\\":{ | BuildEntityStatesJson()',
+            ok: body.indexOf('\\"entityStates\\":{') >= 0 ||
+              (body.indexOf('\\"entityStates\\":') >= 0 && /BuildEntityStatesJson\s*\(/.test(body)),
+          },
+          {
+            label: '\\"variables\\":{ | BuildVariablesJson()',
+            ok: body.indexOf('\\"variables\\":{') >= 0 ||
+              (body.indexOf('\\"variables\\":') >= 0 && /BuildVariablesJson\s*\(/.test(body)),
+          },
+          {
+            label: '\\"phaseTimestamps\\":{ | BuildPhaseTimestampsJson()',
+            ok: body.indexOf('\\"phaseTimestamps\\":{') >= 0 ||
+              (body.indexOf('\\"phaseTimestamps\\":') >= 0 && /BuildPhaseTimestampsJson\s*\(/.test(body)),
+          },
+          {
+            label: '\\"uiState\\":{ | BuildUiStateJson()',
+            ok: body.indexOf('\\"uiState\\":{') >= 0 ||
+              (body.indexOf('\\"uiState\\":') >= 0 && /BuildUiStateJson\s*\(/.test(body)),
+          },
+          {
+            label: '\\"cameraState\\":{ | BuildCameraStateJson()',
+            ok: body.indexOf('\\"cameraState\\":{') >= 0 ||
+              (body.indexOf('\\"cameraState\\":') >= 0 && /BuildCameraStateJson\s*\(/.test(body)),
+          }
+        ];
+        for (var bi = 0; bi < bridgeChecks.length; bi++) {
+          if (!bridgeChecks[bi].ok) missing.push(bridgeChecks[bi].label);
         }
         if (!/gameObject\.name\s*=\s*(?:"[^"\n]*"\s*\+\s*)?json\s*;/.test(body)) {
           missing.push('gameObject.name = json;');
@@ -1253,6 +1313,9 @@ var RULES = [
           .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
         var srcLines = stripped.split('\n');
         var CTRL = { if:1,for:1,foreach:1,while:1,switch:1,using:1,lock:1,catch:1,fixed:1,return:1,throw:1,'new':1,'do':1,'else':1 };
+        var isTypeLikeToken = function(token) {
+          return /^[A-Za-z_][A-Za-z0-9_<>,\[\].?]*$/.test(String(token || ''));
+        };
         for (var li = 0; li < srcLines.length; li++) {
           var raw = srcLines[li];
           var cIdx = raw.indexOf('//');
@@ -1285,9 +1348,11 @@ var RULES = [
           // The first token must be a modifier or a type keyword, not a control-flow
           // or call expression root.
           if (CTRL[preTokens[0]]) continue;
+          if (!isTypeLikeToken(preTokens[0])) continue;
           // If the token just before the name contains `.`, it's a member-call
           // expression (e.g. `x = foo.Bar(...)`), not a method declaration.
           if (preTokens[preTokens.length - 2] && preTokens[preTokens.length - 2].indexOf('.') >= 0) continue;
+          if (preTokens[preTokens.length - 2] && !isTypeLikeToken(preTokens[preTokens.length - 2])) continue;
           // Arity: count top-level commas+1 in params (0 if empty). Simple split
           // is imprecise with generics in params, but good enough — CS0111 is
           // about signature-level match, and Claude's regenerated duplicates are
