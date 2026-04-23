@@ -9,6 +9,28 @@ var AdmZip = require('adm-zip');
 var { projectSM } = require("../lib/state-machine.cjs");
 var { clearCheckpoint } = require('../lib/checkpoint.cjs');
 
+var PREQUEUE_PROJECT_STATUSES = ['spec_extracting', 'spec_review'];
+var INACTIVE_TASK_STATUSES = ['pending', 'failed', 'done', 'cua_passed', 'completed', 'cancelled'];
+
+function shouldDropWorkerReport(task, project, workerId, status, mappedStatus) {
+  if (!task) return 'task not found';
+  if (project && project.status === 'cancelled') return 'project cancelled';
+  if (project && PREQUEUE_PROJECT_STATUSES.indexOf(project.status) >= 0) {
+    return 'project not yet submitted';
+  }
+  if (task.assigned_to && workerId && task.assigned_to !== workerId) {
+    return 'task currently assigned to ' + task.assigned_to;
+  }
+  if (!task.assigned_to && INACTIVE_TASK_STATUSES.indexOf(task.status) >= 0) {
+    return 'task is ' + task.status + ' and unassigned';
+  }
+  if (project && project.status === 'failed') {
+    if (task.status === 'failed') return 'project/task already failed';
+    if (mappedStatus !== 'failed') return 'project already failed';
+  }
+  return null;
+}
+
 module.exports.init = function(ctx) {
   var taskQueue = ctx.taskQueue;
   var config = ctx.config;
@@ -146,8 +168,16 @@ module.exports.init = function(ctx) {
 
         console.log('[Worker Status] ' + workerId + ' - Task ' + taskId + ': ' + status + (message ? ' (' + message + ')' : ''));
 
+        var task = taskQueue.get(taskId);
         // Update project status if exists
         var project = readProject(taskId);
+        var mappedStatus = (status === 'cua_passed' || status === 'done') ? 'reviewing' : status;
+        var dropReason = shouldDropWorkerReport(task, project, workerId, status, mappedStatus);
+        if (dropReason) {
+          console.log('[Worker Status] Dropping stale report for task ' + taskId + ' (worker=' + workerId + ', reported=' + status + ', reason=' + dropReason + ')');
+          return sendJSON(res, { success: true, taskId: taskId, status: status, dropped: true, reason: dropReason });
+        }
+
         if (project) {
           // Cancelled is terminal — worker may still be unwinding mid-stage
           // and will fire one last status report. Drop it entirely so the
@@ -157,9 +187,6 @@ module.exports.init = function(ctx) {
             console.log('[Worker Status] Dropping report for cancelled task ' + taskId + ' (worker=' + workerId + ', reported=' + status + ')');
             return sendJSON(res, { success: true, taskId: taskId, status: 'cancelled', dropped: true });
           }
-          // Map terminal verify states to reviewing; preview_ready means preview
-          // is available but deep verification still runs in the background.
-          var mappedStatus = (status === 'cua_passed' || status === 'done') ? 'reviewing' : status;
           // Skip no-op transitions (e.g. worker reports 'processing' on every
           // fix round; project is already 'processing' or has progressed to
           // 'building'). Only transition forward, never regress.
@@ -211,7 +238,7 @@ module.exports.init = function(ctx) {
 
         // If result shows permanent fail, update project
         if (result && result.status === 'failed' && result.code_retry_count > 5) {
-          if (project) {
+          if (project && project.status !== 'failed') {
             projectSM.forceTransition(project, 'failed', 'worker-permanent-fail');
             project.statusMessage = result.status_message;
             project.updatedAt = new Date().toISOString();
