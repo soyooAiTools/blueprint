@@ -71,6 +71,22 @@ assert.ok(emitted.files.scene.indexOf('AssemblySlot_Scene_Player__visual_binding
 assert.ok(emitted.files.ui.indexOf('AssemblySlot_UI_system__guide_ui') >= 0, 'ui system slot missing');
 assert.ok(emitted.files.flow.indexOf('[ASSEMBLY PHASE] phaseId=intro') >= 0, 'flow phase annotation missing');
 assert.ok(emitted.files.flow.indexOf('AssemblySlot_Flow_ConveyorBelt__build_progress') >= 0, 'flow slot missing');
+assert.ok(emitted.files.flow.indexOf('cameraFocusTarget = "ConveyorBelt";') >= 0 || emitted.files.scene.indexOf('cameraFocusTarget = "ConveyorBelt";') >= 0, 'camera focus slot should bind phase target');
+assert.ok(emitted.files.flow.indexOf('mainCam.orthographicSize = ') >= 0 || emitted.files.scene.indexOf('mainCam.orthographicSize = ') >= 0, 'camera zoom slot should emit deterministic ortho size');
+assert.ok(emitted.files.main.indexOf('AssemblyRunFlowSlots();') >= 0, 'main should tick flow assembly runner');
+assert.ok(emitted.files.main.indexOf('AssemblyRunUISlots();') >= 0, 'main should tick ui assembly runner');
+assert.ok(/^\s*\/\/\s*"target":\s*".+"/m.test(emitted.files.input), 'multiline params should stay commented');
+assert.ok(!/^\s*"target":\s*".+"/m.test(emitted.files.input), 'raw JSON params should not leak into C#');
+
+var commentedJsonLines = assemblyEmitter.buildCommentedJsonLines('    // params: ', { target: 'OurBase', nested: { level: 2 } });
+assert.deepStrictEqual(commentedJsonLines, [
+  '    // params: {',
+  '    //   "target": "OurBase",',
+  '    //   "nested": {',
+  '    //     "level": 2',
+  '    //   }',
+  '    // }'
+], 'commented JSON lines should prefix every line');
 
 var generatedFlow = emitted.files.flow
   .replace('// ownerFile: GameFlowManagerMain.Flow.cs', '// ownerFile: HACKED')
@@ -90,5 +106,43 @@ var noSlotMerge = assemblyEmitter.mergeAssemblySlotEdits(
 );
 assert.strictEqual(noSlotMerge.content.indexOf('Debug.Log("hack");') === -1, true, 'files without slots should stay on baseline');
 assert.strictEqual(noSlotMerge.strippedEditCount > 0, true, 'non-slot edits should be reported as stripped');
+
+var genericSkeleton = {
+  mode: 'w1b-5partial',
+  main: 'public partial class GameFlowManagerMain\n{\n    void Update()\n    {\n        // TODO_CUSTOM_START\n        // TODO_CUSTOM_END\n    }\n}\n',
+  flow: 'public partial class GameFlowManagerMain\n{\n}\n',
+  input: 'public partial class GameFlowManagerMain\n{\n    // TODO_INPUT_METHODS_START\n    // TODO_INPUT_METHODS_END\n}\n',
+  resource: 'public partial class GameFlowManagerMain\n{\n    // TODO_RESOURCE_METHODS_START\n    // TODO_RESOURCE_METHODS_END\n}\n',
+  ui: 'public partial class GameFlowManagerMain\n{\n    // TODO_UI_START\n    // TODO_UI_END\n}\n',
+  scene: 'public partial class GameFlowManagerMain\n{\n}\n'
+};
+var genericPlans = {
+  assemblyPlan: {
+    moduleInstances: [
+      {
+        id: 'Recycler::deliver_to_target',
+        moduleId: 'deliver_to_target',
+        entity: 'Recycler',
+        params: { resource: 'debris', target: 'Recycler', reward: 2, rewardResource: 'energy' },
+        ownerFiles: ['GameFlowManagerMain.Resource.cs'],
+        statesWritten: ['economy.resources'],
+        sources: ['test'],
+        sourceAtomIds: ['atom_001']
+      }
+    ],
+    fileOwners: [
+      { file: 'GameFlowManagerMain.Resource.cs', moduleInstanceIds: ['Recycler::deliver_to_target'] }
+    ],
+    phaseBindings: [],
+    stateOwners: [],
+    eventGraph: [],
+    unresolved: []
+  },
+  cuaPlan: { steps: [] }
+};
+var genericEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(genericSkeleton, genericPlans);
+assert.ok(genericEmitted.files.resource.indexOf('AddResource("energy", 2 * deliverCount);') >= 0, 'deliver slot should grant parameterized reward resource');
+assert.ok(genericEmitted.files.resource.indexOf('AddGold(2 * deliverCount);') === -1, 'non-gold deliver reward should not hardcode AddGold');
+assert.ok(genericEmitted.files.resource.indexOf('" energy"') >= 0, 'floating text should use parameterized reward label');
 
 console.log('assembly-emitter tests passed');
