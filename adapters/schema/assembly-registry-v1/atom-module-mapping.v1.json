@@ -1,0 +1,198 @@
+{
+  "version": "atom-module-mapping-v1",
+  "description": "Mapping from storyboard atoms to runtime modules and CUA assertions.",
+  "items": [
+    {
+      "atomId": "move_to",
+      "moduleCombo": ["player_input_joystick", "move_to_target"],
+      "requiredSignals": ["player_position_changed", "distance_to_target_below_threshold"],
+      "cuaAssertions": ["player_position_changed", "distance_to_target_below_threshold"]
+    },
+    {
+      "atomId": "tap_target",
+      "moduleCombo": ["player_input_tap", "click_trigger"],
+      "requiredSignals": ["tap_registered", "entity_state_changed"],
+      "cuaAssertions": ["tap_registered", "entity_state_changed"]
+    },
+    {
+      "atomId": "drag_to_target",
+      "moduleCombo": ["drag_trigger", "deliver_to_target"],
+      "requiredSignals": ["drag_path_completed", "entity_state_changed"],
+      "cuaAssertions": ["drag_path_completed", "entity_state_changed"]
+    },
+    {
+      "atomId": "hold_target",
+      "moduleCombo": ["hold_trigger"],
+      "requiredSignals": ["tap_registered", "entity_state_changed"],
+      "cuaAssertions": ["tap_registered", "entity_state_changed"]
+    },
+    {
+      "atomId": "collect_nearby",
+      "moduleCombo": ["collect_on_near", "inventory_wallet"],
+      "requiredSignals": ["resource_incremented", "source_hidden_or_moved"],
+      "cuaAssertions": ["resource_incremented", "source_hidden_or_moved", "phase_advanced"]
+    },
+    {
+      "atomId": "deliver_to",
+      "moduleCombo": ["deliver_to_target", "inventory_wallet", "score_feedback"],
+      "requiredSignals": ["inventory_decremented", "reward_incremented", "score_text_changed"],
+      "cuaAssertions": ["inventory_decremented", "reward_incremented", "score_text_changed"]
+    },
+    {
+      "atomId": "spend_resource",
+      "moduleCombo": ["cost_gate", "inventory_wallet"],
+      "requiredSignals": ["resource_decremented"],
+      "cuaAssertions": ["resource_decremented"]
+    },
+    {
+      "atomId": "build_entity",
+      "moduleCombo": ["cost_gate", "build_progress", "activate_targets"],
+      "requiredSignals": ["resource_decremented", "entity_state_equals_built", "downstream_entity_visible"],
+      "cuaAssertions": ["resource_decremented", "entity_state_equals_built", "downstream_entity_visible", "phase_advanced"]
+    },
+    {
+      "atomId": "upgrade_entity",
+      "moduleCombo": ["click_trigger", "cost_gate", "upgrade_progress", "visual_variant_swap"],
+      "requiredSignals": ["resource_decremented", "upgrade_level_changed", "visual_variant_changed"],
+      "cuaAssertions": ["resource_decremented", "upgrade_level_changed", "visual_variant_changed"]
+    },
+    {
+      "atomId": "attack_target",
+      "moduleCombo": ["target_acquire", "projectile_emit", "apply_damage"],
+      "requiredSignals": ["projectile_visible", "target_hp_decreased_or_target_dead"],
+      "cuaAssertions": ["projectile_visible", "target_hp_decreased_or_target_dead"]
+    },
+    {
+      "atomId": "defeat_target",
+      "moduleCombo": ["damageable", "on_death_drop"],
+      "requiredSignals": ["target_removed_or_hidden", "loot_visible"],
+      "cuaAssertions": ["target_removed_or_hidden", "loot_visible", "phase_advanced"]
+    },
+    {
+      "atomId": "defend_duration",
+      "moduleCombo": ["spawn_interval", "damageable", "phase_gate_timer"],
+      "requiredSignals": ["phase_advanced"],
+      "cuaAssertions": ["phase_advanced"]
+    },
+    {
+      "atomId": "activate_entity",
+      "moduleCombo": ["visual_binding", "spawn_once"],
+      "requiredSignals": ["downstream_entity_visible"],
+      "cuaAssertions": ["downstream_entity_visible"]
+    },
+    {
+      "atomId": "deactivate_entity",
+      "moduleCombo": ["visual_binding"],
+      "requiredSignals": ["target_removed_or_hidden"],
+      "cuaAssertions": ["target_removed_or_hidden"]
+    },
+    {
+      "atomId": "set_state",
+      "moduleCombo": ["build_progress"],
+      "requiredSignals": ["entity_state_changed"],
+      "cuaAssertions": ["entity_state_changed"]
+    },
+    {
+      "atomId": "add_resource",
+      "moduleCombo": ["inventory_wallet"],
+      "requiredSignals": ["resource_incremented"],
+      "cuaAssertions": ["resource_incremented"]
+    },
+    {
+      "atomId": "remove_resource",
+      "moduleCombo": ["inventory_wallet", "cost_gate"],
+      "requiredSignals": ["resource_decremented"],
+      "cuaAssertions": ["resource_decremented"]
+    },
+    {
+      "atomId": "add_score",
+      "moduleCombo": ["score_feedback", "inventory_wallet"],
+      "requiredSignals": ["reward_incremented", "score_text_changed"],
+      "cuaAssertions": ["reward_incremented", "score_text_changed"]
+    },
+    {
+      "atomId": "change_color",
+      "moduleCombo": ["visual_variant_swap"],
+      "requiredSignals": ["visual_variant_changed"],
+      "cuaAssertions": ["visual_variant_changed"]
+    },
+    {
+      "atomId": "spawn_entity",
+      "moduleCombo": ["spawn_once"],
+      "requiredSignals": ["downstream_entity_visible"],
+      "cuaAssertions": ["downstream_entity_visible"]
+    },
+    {
+      "atomId": "apply_damage",
+      "moduleCombo": ["apply_damage", "damageable"],
+      "requiredSignals": ["target_hp_decreased_or_target_dead"],
+      "cuaAssertions": ["target_hp_decreased_or_target_dead"]
+    },
+    {
+      "atomId": "drop_loot",
+      "moduleCombo": ["on_death_drop", "spawn_once"],
+      "requiredSignals": ["loot_visible"],
+      "cuaAssertions": ["loot_visible"]
+    },
+    {
+      "atomId": "switch_form",
+      "moduleCombo": ["form_switch"],
+      "requiredSignals": ["entity_state_changed"],
+      "cuaAssertions": ["entity_state_changed"]
+    },
+    {
+      "atomId": "camera_focus",
+      "moduleCombo": ["camera_focus"],
+      "requiredSignals": ["camera_orientation_changed"],
+      "cuaAssertions": ["camera_orientation_changed"]
+    },
+    {
+      "atomId": "camera_lift",
+      "moduleCombo": ["camera_lift"],
+      "requiredSignals": ["camera_height_changed_or_view_widened"],
+      "cuaAssertions": ["camera_height_changed_or_view_widened"]
+    },
+    {
+      "atomId": "camera_zoom",
+      "moduleCombo": ["camera_zoom"],
+      "requiredSignals": ["camera_zoom_changed"],
+      "cuaAssertions": ["camera_zoom_changed"]
+    },
+    {
+      "atomId": "highlight_target",
+      "moduleCombo": ["highlight_target"],
+      "requiredSignals": ["highlight_overlay_visible"],
+      "cuaAssertions": ["highlight_overlay_visible"]
+    },
+    {
+      "atomId": "show_guide",
+      "moduleCombo": ["guide_ui"],
+      "requiredSignals": ["guide_text_visible"],
+      "cuaAssertions": ["guide_text_visible"]
+    },
+    {
+      "atomId": "show_floating_text",
+      "moduleCombo": ["floating_text_feedback"],
+      "requiredSignals": ["floating_text_visible"],
+      "cuaAssertions": ["floating_text_visible"]
+    },
+    {
+      "atomId": "show_score_feedback",
+      "moduleCombo": ["score_feedback"],
+      "requiredSignals": ["score_text_changed"],
+      "cuaAssertions": ["score_text_changed"]
+    },
+    {
+      "atomId": "play_pop_animation",
+      "moduleCombo": ["pop_animation"],
+      "requiredSignals": ["visual_variant_changed"],
+      "cuaAssertions": ["visual_variant_changed"]
+    },
+    {
+      "atomId": "show_world_label",
+      "moduleCombo": ["world_label"],
+      "requiredSignals": ["guide_text_visible"],
+      "cuaAssertions": ["guide_text_visible"]
+    }
+  ]
+}

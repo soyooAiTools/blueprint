@@ -87,6 +87,7 @@ function saveCheckpoint(taskId, data) {
   const dir = getCheckpointPath(taskId);
   fs.mkdirSync(dir, { recursive: true });
   var payload = {
+    blueprint: data.blueprint || null,
     csCode: data.csCode,
     cuaRound: data.cuaRound,
     feedbackHistory: data.feedbackHistory,
@@ -602,17 +603,20 @@ async function processTask(task) {
     // Map checkpoint to pipeline format
     const pipelineCheckpoint = {};
     const invalidated = checkpointDecision && checkpointDecision.action === 'invalidate';
-    if (checkpoint && checkpoint.csCode) {
+    if (checkpoint) {
       if (invalidated) {
         // Fingerprint mismatch: keep only upstream pure-input stages, force codegen re-run.
         pipelineCheckpoint.completedStages = checkpointDecision.completedStages;
       } else if (checkpoint.completedStages && checkpoint.completedStages.length > 0) {
         pipelineCheckpoint.completedStages = checkpoint.completedStages;
         log(`[checkpoint] Resuming with completedStages: [${checkpoint.completedStages.join(', ')}]`, taskId);
-      } else {
+      } else if (checkpoint.csCode) {
         // Legacy checkpoint without completedStages — fall back to old behavior
         pipelineCheckpoint.completedStages = ['clone', 'codegen', 'review'];
         log(`[checkpoint] Legacy checkpoint — resuming after review stage`, taskId);
+      }
+      if (checkpoint.blueprint && typeof checkpoint.blueprint === 'object') {
+        pipelineCheckpoint.blueprint = checkpoint.blueprint;
       }
       pipelineCheckpoint.cuaRound = invalidated ? 0 : (checkpoint.cuaRound || 0);
       pipelineCheckpoint.fixHistory = invalidated ? [] : (checkpoint.fixHistory || []);
@@ -622,9 +626,11 @@ async function processTask(task) {
 
     // Restore full checkpoint state — skip csCode/extraFiles/stageResults on invalidate so
     // downstream stages re-derive from upstream. Keep feedbackHistory (blueprint-level state).
-    if (checkpoint && checkpoint.csCode && !invalidated) {
-      ctx.csCode = checkpoint.csCode;
-      ctx.blueprint.feedbackHistory = checkpoint.feedbackHistory || [];
+    if (checkpoint && !invalidated) {
+      ctx.blueprint.feedbackHistory = checkpoint.feedbackHistory || ctx.blueprint.feedbackHistory || [];
+      if (checkpoint.csCode) {
+        ctx.csCode = checkpoint.csCode;
+      }
       if (checkpoint.extraFiles) {
         // GFM_* canonical files must stay fresh-from-disk (loaded in PipelineContext).
         // A stale checkpoint from before a GFM fix will otherwise silently override
@@ -668,6 +674,7 @@ async function processTask(task) {
       if (status === 'completed') {
         // Save full checkpoint after each completed stage
         saveCheckpoint(taskId, {
+          blueprint: pCtx.blueprint,
           csCode: pCtx.csCode,
           cuaRound: pCtx.checkpoint.cuaRound || 0,
           feedbackHistory: pCtx.blueprint.feedbackHistory || [],
@@ -778,6 +785,7 @@ async function processTask(task) {
     if (ctx) {
       try {
         saveCheckpoint(taskId, {
+          blueprint: ctx.blueprint || null,
           csCode: ctx.csCode || (checkpoint && checkpoint.csCode) || null,
           cuaRound: ctx.checkpoint ? ctx.checkpoint.cuaRound || 0 : 0,
           feedbackHistory: ctx.blueprint ? ctx.blueprint.feedbackHistory || [] : [],
@@ -868,6 +876,7 @@ function gracefulShutdown(signal) {
     if (ctx && ctx.csCode) {
       try {
         saveCheckpoint(taskId, {
+          blueprint: ctx.blueprint,
           csCode: ctx.csCode,
           cuaRound: ctx.checkpoint ? ctx.checkpoint.cuaRound || 0 : 0,
           feedbackHistory: ctx.blueprint ? ctx.blueprint.feedbackHistory || [] : [],

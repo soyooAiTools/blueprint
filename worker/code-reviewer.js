@@ -643,6 +643,11 @@ Respond with a JSON object (no markdown, no code fences):
       systemPrompt += '- ' + entity + ' → ' + options.poolNameMap[entity] + '\n';
     });
   }
+  if (options.assemblyPlanSummary) {
+    systemPrompt += '\n\n## Project-specific Assembly Contract\n';
+    systemPrompt += 'This contract is authoritative for phase IDs, partial-file ownership, state ownership, and CUA expectations. Treat any mismatch as a violation.\n';
+    systemPrompt += options.assemblyPlanSummary + '\n';
+  }
   var userMessage = `Review this GameFlowManagerMain.cs for Luna/Bridge.NET constraint violations:\n\n\`\`\`csharp\n${code}\n\`\`\``;
 
   // Truncate if too long (GPT context limit)

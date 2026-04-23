@@ -10,6 +10,109 @@ const INTERACTION_CATEGORIES = {
   slg: ['recruit', 'deploy', 'merge', 'assign', 'expand', 'rally', 'scout', 'trade'],
 };
 
+function summarizeAction(action) {
+  const kind = String(action?.kind || action?.type || '').trim();
+  if (!kind) return '';
+  const target = action?.target || action?.to || action?.item || '';
+  return target ? `${kind}:${target}` : kind;
+}
+
+function PlanReviewPanel({ plans, planValidation }) {
+  if (!plans?.assemblyPlan) return null;
+
+  const atoms = plans.storyboardAtomPlan?.items || [];
+  const modules = plans.assemblyPlan?.moduleInstances || [];
+  const cuaSteps = plans.cuaPlan?.steps || [];
+  const unresolved = plans.assemblyPlan?.unresolved || [];
+  const warnings = planValidation?.warnings || [];
+  const errors = planValidation?.errors || [];
+
+  return (
+    <div style={{
+      background: 'rgba(16,185,129,0.08)',
+      border: '1px solid rgba(16,185,129,0.22)',
+      borderRadius: 12,
+      padding: 16,
+      marginBottom: 16,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 10 }}>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>🧩 Assembly Plan Review</div>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 4 }}>
+            分镜原子、实体模块和 CUA 断言已预编译。这里确认的是装配链，而不只是旧 spec。
+          </div>
+        </div>
+        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', fontFamily: 'monospace' }}>
+          {plans.registryVersion || plans.storyboardAtomPlan?.registryVersion || 'assembly-registry-v1'}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 13, marginBottom: 12 }}>
+        <span>🎬 {atoms.length} 个 atoms</span>
+        <span>🧱 {modules.length} 个 modules</span>
+        <span>🧪 {cuaSteps.length} 个 CUA steps</span>
+        <span>📁 {(plans.assemblyPlan?.fileOwners || []).length} 个 owner files</span>
+        <span>⚠️ {unresolved.length} 个 unresolved</span>
+      </div>
+
+      {(warnings.length > 0 || errors.length > 0) && (
+        <div style={{
+          background: 'rgba(245,158,11,0.08)',
+          border: '1px solid rgba(245,158,11,0.25)',
+          borderRadius: 10,
+          padding: 12,
+          marginBottom: 12,
+          fontSize: 12,
+          color: 'rgba(255,255,255,0.78)',
+        }}>
+          {errors.length > 0 && <div style={{ marginBottom: warnings.length > 0 ? 8 : 0 }}>❌ {errors.join(' | ')}</div>}
+          {warnings.length > 0 && <div>⚠️ {warnings.join(' | ')}</div>}
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gap: 10 }}>
+        {cuaSteps.map((step, index) => (
+          <div key={step.id || step.phaseId || index} style={{
+            borderRadius: 10,
+            padding: 12,
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid rgba(255,255,255,0.08)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
+              <div style={{ color: '#fff', fontWeight: 600 }}>
+                Phase {index + 1}: {step.phaseId || step.id}
+              </div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>{step.mode || 'act_and_assert'}</div>
+            </div>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.72)', marginBottom: 6 }}>
+              动作: {(step.actions || []).map(summarizeAction).filter(Boolean).join(' / ') || 'observe_only'}
+            </div>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
+              信号: {(step.expectedSignals || []).join(', ') || 'none'}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {unresolved.length > 0 && (
+        <div style={{
+          marginTop: 12,
+          fontSize: 12,
+          color: 'rgba(255,255,255,0.68)',
+          background: 'rgba(239,68,68,0.08)',
+          border: '1px solid rgba(239,68,68,0.18)',
+          borderRadius: 10,
+          padding: 12,
+          whiteSpace: 'pre-wrap',
+          fontFamily: 'monospace',
+        }}>
+          {JSON.stringify(unresolved, null, 2)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SpecCard({ spec, index, onChange }) {
   const [expanded, setExpanded] = useState(true);
 
@@ -178,6 +281,8 @@ export default function SpecReviewPanel({ projectId, onConfirmed, showAlert }) {
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState(false);
   const [projectName, setProjectName] = useState('');
+  const [plans, setPlans] = useState(null);
+  const [planValidation, setPlanValidation] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -190,6 +295,8 @@ export default function SpecReviewPanel({ projectId, onConfirmed, showAlert }) {
         setSpecs(data.specs || []);
         setStatus(data.status);
         setProjectName(data.projectName || '');
+        setPlans(data.plans || null);
+        setPlanValidation(data.planValidation || null);
         setLoading(false);
 
         // If still extracting, poll every 3s
@@ -260,8 +367,8 @@ export default function SpecReviewPanel({ projectId, onConfirmed, showAlert }) {
           📋 体验规格确认 — {projectName}
         </h3>
         <p style={{ margin: '8px 0 0', fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>
-          以下是从分镜自动提取的 {specs.length} 个阶段的体验规格。请检查并修改后确认。
-          确认后将进入 AI 编码流水线。
+          以下是从分镜自动提取的 {specs.length} 个阶段体验规格，以及对应的 assembly / CUA 计划。
+          请检查后确认，确认后将进入 assembly-first 编码流水线。
         </p>
       </div>
 
@@ -282,6 +389,8 @@ export default function SpecReviewPanel({ projectId, onConfirmed, showAlert }) {
         <span>🏗 {specs.reduce((s, sp) => s + (sp.entitiesRequired?.length || 0), 0)} 个实体</span>
       </div>
 
+      <PlanReviewPanel plans={plans} planValidation={planValidation} />
+
       {specs.map((spec, i) => (
         <SpecCard key={i} spec={spec} index={i} onChange={handleSpecChange} />
       ))}
@@ -301,7 +410,7 @@ export default function SpecReviewPanel({ projectId, onConfirmed, showAlert }) {
             cursor: confirming ? 'wait' : 'pointer',
           }}
         >
-          {confirming ? '提交中...' : '✅ 确认规格并开始编码'}
+          {confirming ? '提交中...' : '✅ 确认规格/计划并开始编码'}
         </button>
       </div>
     </div>

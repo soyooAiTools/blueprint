@@ -11,6 +11,8 @@ var { projectSM } = require("../lib/state-machine.cjs");
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { buildSpecsFromPlans } = require('./cua-plan-bridge.cjs');
+const { summarizePlayableAgentReport } = require('../worker/worker-playableagent.js');
 
 const PYTHON = '/usr/bin/python3.8';
 const VERIFY_SCRIPT = '/root/cua-agent/blueprint_verify.py';
@@ -50,6 +52,8 @@ function triggerCUAReview(project, readProject, writeProject) {
 
   // Write specs if available
   let specsArg = [];
+  let plansArg = [];
+  const planPack = project.plans || (project.blueprint && project.blueprint.plans) || null;
   if (project.blueprint && project.blueprint.nodes) {
     const phaseNodes = project.blueprint.nodes.filter(n => n.type === 'phaseNode');
     if (phaseNodes.length > 0) {
@@ -65,12 +69,25 @@ function triggerCUAReview(project, readProject, writeProject) {
       specsArg = ['--specs', specsPath];
     }
   }
+  if (specsArg.length === 0) {
+    const planSpecs = buildSpecsFromPlans(planPack);
+    if (planSpecs.length > 0) {
+      const specsPath = path.join(CUA_RESULTS_DIR, taskId + '-specs.json');
+      fs.writeFileSync(specsPath, JSON.stringify(planSpecs, null, 2), 'utf-8');
+      specsArg = ['--specs', specsPath];
+    }
+  }
+  if (planPack) {
+    const plansPath = path.join(CUA_RESULTS_DIR, taskId + '-plans.json');
+    fs.writeFileSync(plansPath, JSON.stringify(planPack, null, 2), 'utf-8');
+    plansArg = ['--plans', plansPath];
+  }
 
   console.log('[CUA Review] Starting PlayableAgent review for ' + taskId);
   console.log('[CUA Review] URL: ' + previewUrl);
   console.log('[CUA Review] Retry: ' + retries + '/' + MAX_AUTO_RETRIES);
 
-  const args = [VERIFY_SCRIPT, previewUrl, '--steps', '30', ...specsArg];
+  const args = [VERIFY_SCRIPT, previewUrl, '--steps', '30', ...specsArg, ...plansArg];
 
   const child = spawn(PYTHON, args, {
     cwd: '/root/cua-agent',
@@ -114,27 +131,17 @@ function triggerCUAReview(project, readProject, writeProject) {
       return;
     }
 
-    // Evaluate
-    const passed = report.passed === true;
-    const issues = [];
+    const normalized = summarizePlayableAgentReport(report, taskId, function(message) {
+      console.log(message);
+    });
+    const passed = normalized.passed === true;
+    const issues = normalized.issues || [];
+    const finalState = (normalized.report && normalized.report.gameState) || report.finalState || {};
+    const coveredPhases = report.coveredPhases || (normalized.report && normalized.report.completedPhases) || [];
     const missingPhases = report.missingPhases || [];
-    const coveredPhases = report.coveredPhases || [];
 
-    if (missingPhases.length > 0) {
-      issues.push('[Phase覆盖] 未完成的Phase: ' + missingPhases.join(', '));
-    }
-
-    const finalState = report.finalState || {};
-    if (finalState.entityStates) {
-      const BUILDABLE_KEYS = ['conveyor', 'woodHouse', 'turret'];
-      BUILDABLE_KEYS.forEach(key => {
-        if (finalState.entityStates[key] !== undefined && String(finalState.entityStates[key]) !== '2') {
-          issues.push('[实体未完成] ' + key + '=' + finalState.entityStates[key] + ' (expected 2=built)');
-        }
-      });
-    }
-
-    console.log('[CUA Review] Passed: ' + passed + ', Coverage: ' + coveredPhases.length + '/' + (report.specPhases || []).length + ', Issues: ' + issues.length);
+    console.log('[CUA Review] Passed: ' + passed + ', Coverage: ' + coveredPhases.length + '/' + (report.specPhases || []).length +
+      ', Signals: ' + (normalized.signalCoverage || 'n/a') + ', Issues: ' + issues.length);
 
     const latestProject = readProject(taskId);
     if (!latestProject) return;
@@ -145,8 +152,16 @@ function triggerCUAReview(project, readProject, writeProject) {
 
     if (passed) {
       console.log('[CUA Review] ✅ PASSED');
-      latestProject.statusMessage = 'PlayableAgent验证通过 (覆盖: ' + coveredPhases.length + '/' + (report.specPhases || []).length + ')，等待人工确认';
-      latestProject.cuaReview = { passed: true, coverage: coveredPhases.length + '/' + (report.specPhases || []).length, timestamp: new Date().toISOString() };
+      latestProject.statusMessage = 'PlayableAgent验证通过 (覆盖: ' + coveredPhases.length + '/' + (report.specPhases || []).length +
+        (normalized.signalCoverage ? ', 信号: ' + normalized.signalCoverage : '') + ')，等待人工确认';
+      latestProject.cuaReview = {
+        passed: true,
+        coverage: coveredPhases.length + '/' + (report.specPhases || []).length,
+        signalCoverage: normalized.signalCoverage || null,
+        planCoverage: normalized.planCoverage || null,
+        missingPhases: missingPhases,
+        timestamp: new Date().toISOString()
+      };
       writeProject(latestProject);
     } else {
       console.log('[CUA Review] ❌ FAILED — auto-submitting feedback');
@@ -154,7 +169,9 @@ function triggerCUAReview(project, readProject, writeProject) {
 
       const feedbackText = 'PlayableAgent自动验证不通过:\n' + issues.join('\n')
         + (finalState.currentPhase ? '\n\n当前Phase: ' + finalState.currentPhase : '')
-        + (finalState.completedPhases ? '\n已完成: ' + JSON.stringify(finalState.completedPhases) : '');
+        + (finalState.completedPhases ? '\n已完成: ' + JSON.stringify(finalState.completedPhases) : '')
+        + (normalized.signalCoverage ? '\n信号覆盖: ' + normalized.signalCoverage : '')
+        + (normalized.planCoverage ? '\n计划覆盖: ' + normalized.planCoverage : '');
 
       if (!latestProject.feedbackHistory) latestProject.feedbackHistory = [];
       latestProject.feedbackHistory.push({
@@ -166,7 +183,15 @@ function triggerCUAReview(project, readProject, writeProject) {
 
       projectSM.forceTransition(latestProject, 'submitted', 'cua-auto-retry');
       latestProject.statusMessage = 'PlayableAgent验证不通过，自动重新编码 (retry ' + (retries + 1) + '/' + MAX_AUTO_RETRIES + ')';
-      latestProject.cuaReview = { passed: false, issues: issues.length, timestamp: new Date().toISOString() };
+      latestProject.cuaReview = {
+        passed: false,
+        issues: issues.length,
+        signalCoverage: normalized.signalCoverage || null,
+        planCoverage: normalized.planCoverage || null,
+        missingPhases: missingPhases,
+        missingSignals: normalized.missingSignals || [],
+        timestamp: new Date().toISOString()
+      };
       writeProject(latestProject);
     }
   });

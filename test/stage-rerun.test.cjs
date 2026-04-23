@@ -44,4 +44,25 @@ const stageRerun = require('../engine/stage-rerun.cjs');
   assert.strictEqual(project.failureHistory.length, 1);
 }
 
+{
+  const checkpoint = stageRerun.scrubCheckpointFor('assembly-plan', {
+    completedStages: ['clone', 'spec-extract', 'spec-validate', 'complexity-gate', 'assembly-plan', 'codegen'],
+    stageResults: {
+      clone: { passed: true },
+      'spec-extract': { passed: true },
+      'spec-validate': { passed: true },
+      'complexity-gate': { passed: true },
+      'assembly-plan': { passed: true },
+      codegen: { passed: true },
+    },
+    csCode: 'old code',
+    extraFiles: { 'GameFlowManagerMain.cs': 'old code' },
+  });
+
+  assert.deepStrictEqual(checkpoint.completedStages, ['clone', 'spec-extract', 'spec-validate', 'complexity-gate']);
+  assert.ok(!Object.prototype.hasOwnProperty.call(checkpoint.stageResults, 'assembly-plan'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(checkpoint, 'csCode'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(checkpoint, 'extraFiles'));
+}
+
 console.log('stage-rerun tests passed');

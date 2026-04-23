@@ -17,6 +17,7 @@ const fs = require('fs');
 const path = require('path');
 
 const silentPassDetectors = require('../adapters/silent-pass-detectors.cjs');
+const { buildSpecsFromPlans } = require('../adapters/cua-plan-bridge.cjs');
 
 const CUA_RESULTS_DIR = path.join(__dirname, 'cua-results');
 let LOCAL_PREVIEW_PORT = 0; // Dynamic port to avoid multi-worker conflicts
@@ -168,7 +169,10 @@ function writeSpecsFile(blueprint, taskId) {
     }
   }
   // Fall back to blueprint.specs or blueprint.phases — write to disk for Python
-  const specs = blueprint.specs || blueprint.phases || [];
+  let specs = blueprint.specs || blueprint.phases || [];
+  if ((!specs || specs.length === 0) && blueprint.plans) {
+    specs = buildSpecsFromPlans(blueprint.plans);
+  }
   if (specs.length > 0) {
     fs.mkdirSync(specsDataDir, { recursive: true });
     const outPath = path.join(specsDataDir, taskId + '-specs.json');
@@ -176,6 +180,227 @@ function writeSpecsFile(blueprint, taskId) {
     return outPath;
   }
   throw new Error('No phase specs available (no file on disk and no specs/phases in blueprint)');
+}
+
+function writePlansFile(blueprint, taskId) {
+  if (!blueprint || !blueprint.plans) return null;
+  const specsDataDir = process.env.SPECS_DATA_DIR || path.join(__dirname, '..', 'spec-data');
+  const targetDir = path.join(specsDataDir, taskId);
+  fs.mkdirSync(targetDir, { recursive: true });
+  const outPath = path.join(targetDir, 'plans.json');
+  fs.writeFileSync(outPath, JSON.stringify(blueprint.plans, null, 2));
+  return outPath;
+}
+
+function buildScriptCoverage(report) {
+  return (report.specPhases || []).map(phaseId => ({
+    step: phaseId,
+    covered: (report.coveredPhases || []).includes(phaseId),
+    evidence: 'PlayableAgent VLM + __gameState'
+  }));
+}
+
+function summarizePlayableAgentReport(report, taskId, log) {
+  report = report || {};
+  var issues = [];
+  var logger = typeof log === 'function' ? log : function() {};
+
+  // ═══ Anti-Autoplay Detection ═══
+  var isAutoPlayMode = (report.finalState && report.finalState.variables && report.finalState.variables.autoPlayMode === true)
+    || (report.observe_mode === true);
+  if (!isAutoPlayMode) {
+    if (report.autoplay_detected) {
+      logger('[PlayableAgent] 🚨 AUTOPLAY DETECTED: ' + (report.autoplay_reason || 'Phases auto-completed without player input'), taskId);
+      issues.push('[autoplay-detected] ' + (report.autoplay_reason || 'Game phases auto-completed via timer without any player interaction.'));
+    }
+    if (report.passed && (!report.actions || report.actions.length === 0)) {
+      logger('[PlayableAgent] 🚨 AUTOPLAY: passed=true but 0 actions — overriding to FAIL', taskId);
+      report.passed = false;
+      issues.push('[autoplay-no-interaction] All phases completed with 0 agent actions.');
+    }
+  } else {
+    logger('[PlayableAgent] observe mode — skipping autoplay_detected/0-actions check (those are expected)', taskId);
+  }
+
+  // observe 模式下仍然检查: 游戏变量是否真的变化
+  const finalVars = (report.finalState || {}).variables || {};
+  const interactionKeys = Object.keys(finalVars).filter(k => k !== 'gameTimer' && k !== 'autoPlayMode' && k !== 'phaseTimer' && k !== 'autoPlaySteps');
+  const allVarsZero = interactionKeys.length > 0 && interactionKeys.every(k => finalVars[k] === 0 || finalVars[k] === '0');
+  if (report.passed && allVarsZero && interactionKeys.length >= 2) {
+    logger('[PlayableAgent] 🚨 all interaction variables are 0 — overriding to FAIL (even in observe mode)', taskId);
+    report.passed = false;
+    issues.push('[no-variable-change] All interaction variables (gold/score/count/etc) remain at 0 — game logic never ran despite phase completion flags flipping.');
+  }
+
+  const missingPhases = report.missingPhases || [];
+  const coveredPhases = report.coveredPhases || [];
+  const totalPhases = (report.specPhases || []).length;
+  if (missingPhases.length > 0) {
+    issues.push('[spec-phase-skipped] Phases not completed (' + missingPhases.length + '/' + totalPhases + '): ' + missingPhases.join(', '));
+  }
+
+  const finalState = report.finalState || {};
+  if (finalState.entityStates) {
+    const BUILDABLE_KEYS = ['conveyor', 'woodHouse', 'turret'];
+    const incompleteEntities = [];
+    BUILDABLE_KEYS.forEach(key => {
+      if (finalState.entityStates[key] !== undefined && String(finalState.entityStates[key]) !== '2') {
+        incompleteEntities.push(key + '=' + finalState.entityStates[key] + ' (expected 2=built)');
+      }
+    });
+    if (incompleteEntities.length > 0) {
+      issues.push('[entity-incomplete] Buildable entities not fully constructed: ' + incompleteEntities.join(', '));
+    }
+  }
+
+  const currentPhase = finalState.currentPhase || '';
+  const ctaReached = ['gameEnd', 'cta', 'CTA', 'ctaPhase'].includes(currentPhase);
+  if (!ctaReached && totalPhases > 0 && coveredPhases.length < totalPhases) {
+    logger('[PlayableAgent] CTA not reached (current phase: ' + currentPhase + ')', taskId);
+  }
+
+  if (report.visual_fail_reasons && Array.isArray(report.visual_fail_reasons)) {
+    for (const reason of report.visual_fail_reasons) {
+      if (reason.toLowerCase().includes('visual frozen') || reason.toLowerCase().includes('static')) {
+        issues.push('[visual-freeze] ' + reason + ' Fix: ensure autoPlay phase transitions trigger visible entity movement, animation, or UI changes (SetActive, Translate, SetColor).');
+      } else if (reason.toLowerCase().includes('variable') || reason.toLowerCase().includes('stagnation')) {
+        issues.push('[variable-stagnation] ' + reason + ' Fix: ensure game logic updates gold/score/count variables during each phase. Phase transitions without side effects are empty shells.');
+      } else if (reason.toLowerCase().includes('batch') || reason.toLowerCase().includes('timer')) {
+        issues.push('[batch-completion] ' + reason + ' Fix: each phase must run for its full duration with real gameplay, not instant timer-skip.');
+      } else if (reason.toLowerCase().includes('screenshot')) {
+        issues.push('[screenshot-timing] ' + reason + ' Fix: ensure each phase transition produces a sustained visual change (≥2 s) so the CUA camera can capture a distinct screenshot per phase. Extend the autoPlay phase duration or add a visible animation/UI update (SetActive, Translate, particle effect) that persists for at least 2 s after the transition trigger.');
+      } else {
+        issues.push('[visual-quality] ' + reason);
+      }
+    }
+  }
+
+  const signalCoverage = report.signalCoverage || null;
+  const signalValidationPassed = report.signalValidationPassed !== false;
+  const coveredSignals = Array.isArray(report.coveredSignals) ? report.coveredSignals.slice() : [];
+  const missingSignals = Array.isArray(report.missingSignals) ? report.missingSignals.slice() : [];
+  const unsupportedSignals = Array.isArray(report.unsupportedSignals) ? report.unsupportedSignals.slice() : [];
+  const planCoverage = report.planCoverage || null;
+
+  if (!signalValidationPassed || missingSignals.length > 0) {
+    report.passed = false;
+    if (!report.exitReason) report.exitReason = 'signal_validation_failed';
+    issues.push('[signal-coverage] Missing expected signals (' + missingSignals.length + (signalCoverage ? ', coverage=' + signalCoverage : '') + '): ' + missingSignals.slice(0, 8).join(', '));
+    if (missingSignals.length > 8) {
+      issues.push('[signal-coverage-detail] ' + (missingSignals.length - 8) + ' more signals missing beyond first 8.');
+    }
+  }
+  if (unsupportedSignals.length > 0) {
+    logger('[PlayableAgent] Unsupported signal assertions (non-blocking): ' + unsupportedSignals.join(', '), taskId);
+  }
+
+  const passed = report.passed === true;
+
+  const silentPassSignals = [];
+  const totalActions = (report.actions || []).length;
+  if (totalActions === 0 && passed) {
+    silentPassSignals.push('zero-actions');
+  }
+  const phaseTs = (finalState.phaseTimestamps) ? finalState.phaseTimestamps : {};
+  const tsValues = Object.values(phaseTs).filter(t => typeof t === 'number' && t > 0).sort((a, b) => a - b);
+  if (tsValues.length > 3) {
+    const intervals = [];
+    for (let ti = 1; ti < tsValues.length; ti++) intervals.push(tsValues[ti] - tsValues[ti - 1]);
+    const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+    if (avg > 0) {
+      const stddev = Math.sqrt(intervals.reduce((a, v) => a + (v - avg) * (v - avg), 0) / intervals.length);
+      const cv = stddev / avg;
+      if (cv < 0.15) {
+        silentPassSignals.push('uniform-timing:avg=' + avg.toFixed(1) + 's,cv=' + (cv * 100).toFixed(0) + '%');
+      }
+    }
+  }
+  const completedList = report.completedPhases || [];
+  if (completedList.length > 1) {
+    const gameEndIdx = completedList.indexOf('gameEnd');
+    if (gameEndIdx >= 0 && gameEndIdx < completedList.length - 1) {
+      silentPassSignals.push('phase-order-violation:gameEnd-not-last');
+    }
+  }
+  if (allVarsZero && interactionKeys.length >= 2) {
+    silentPassSignals.push('all-vars-zero:' + interactionKeys.length + '-keys');
+  }
+  var _l8 = silentPassDetectors.detectBatchCompletion(tsValues);
+  if (_l8) silentPassSignals.push(_l8);
+  var _l9 = silentPassDetectors.detectNoPhaseTimestamps(passed, (report.specPhases || []).length, tsValues.length);
+  if (_l9) silentPassSignals.push(_l9);
+  if (silentPassSignals.length > 0) {
+    logger('[PlayableAgent] ⚠️ Silent-pass signals detected: ' + silentPassSignals.join(', '), taskId);
+  }
+
+  var hardBlockingSignals = silentPassSignals.filter(function(s) {
+    if (s.indexOf('uniform-timing') === 0 && isAutoPlayMode) return false;
+    return s.indexOf('uniform-timing') === 0
+        || s.indexOf('phase-order-violation') === 0
+        || s.indexOf('all-vars-zero') === 0
+        || s.indexOf('batch-completion') === 0
+        || s.indexOf('no-phase-timestamps') === 0;
+  });
+  var effectivePassed = passed;
+  if (passed && hardBlockingSignals.length > 0) {
+    logger('[PlayableAgent] 🚨 HARD BLOCK: silent-pass signals override passed=true → FAIL: ' + hardBlockingSignals.join(', '), taskId);
+    effectivePassed = false;
+    if (!report.exitReason) report.exitReason = 'silent_pass_blocked';
+    hardBlockingSignals.forEach(function(sig) {
+      issues.push('[silent-pass-block] ' + sig + ' — game logic did not run correctly despite phase flags flipping. See feedback_cua_silent_pass_blindspot.md');
+    });
+  }
+
+  logger('[PlayableAgent] Result: ' + (effectivePassed ? 'PASS' : 'FAIL') +
+      ' | Coverage: ' + coveredPhases.length + '/' + totalPhases +
+      (signalCoverage ? ' | Signals: ' + signalCoverage : '') +
+      ' | Issues: ' + issues.length, taskId);
+
+  return {
+    passed: effectivePassed,
+    issues,
+    skipped: false,
+    totalActions: totalActions,
+    silentPassSignals: silentPassSignals,
+    isAutoPlayMode: isAutoPlayMode,
+    signalCoverage: signalCoverage,
+    signalValidationPassed: signalValidationPassed,
+    coveredSignals: coveredSignals,
+    missingSignals: missingSignals,
+    unsupportedSignals: unsupportedSignals,
+    planCoverage: planCoverage,
+    report: {
+      gameState: finalState,
+      completedPhases: report.completedPhases || [],
+      scriptCoverage: buildScriptCoverage(report),
+      diagnostics: {
+        engineReady: true,
+        consoleErrors: [],
+        pageErrors: []
+      },
+      exitReason: report.exitReason || (effectivePassed ? 'completed' : 'verification_failed'),
+      ctaStatus: ctaReached ? 'found' : 'not_checked',
+      history: (report.actions || []).map(a => ({
+        thinking: a.thought || '',
+        description: JSON.stringify(a.action || {})
+      })),
+      playableAgent: true,
+      model: report.model || 'Qwen/Qwen2.5-VL-72B-Instruct',
+      tokens: report.tokens || {},
+      cost: report.cost || 0,
+      preContamination: report.pre_contamination || null,
+      observedPhaseOffset: typeof report.observed_phase_offset === 'number'
+        ? report.observed_phase_offset
+        : 0,
+      planCoverage: planCoverage,
+      signalCoverage: signalCoverage,
+      signalValidationPassed: signalValidationPassed,
+      coveredSignals: coveredSignals,
+      missingSignals: missingSignals,
+      unsupportedSignals: unsupportedSignals,
+      signalAssertions: Array.isArray(report.signalAssertions) ? report.signalAssertions : [],
+    }
+  };
 }
 
 /**
@@ -208,7 +433,11 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
   }
 
   // Determine complexity level for CUA speed adaptation
-  const phaseCount = (blueprint.specs || blueprint.phases || []).length;
+  const phaseCount = (
+    (blueprint.plans && blueprint.plans.cuaPlan && Array.isArray(blueprint.plans.cuaPlan.steps) && blueprint.plans.cuaPlan.steps.length > 0)
+      ? blueprint.plans.cuaPlan.steps.length
+      : (blueprint.specs || blueprint.phases || []).length
+  );
   const isHighComplexity = phaseCount > 8;
   const speedMultiplier = isHighComplexity ? 2 : 5;
   _patchHighComplexity = isHighComplexity;
@@ -238,10 +467,15 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
 
   // Write specs for Python
   const specsPath = writeSpecsFile(blueprint, taskId);
+  const plansPath = writePlansFile(blueprint, taskId);
+  if (plansPath) {
+    log('[PlayableAgent] Assembly/CUA plans saved: ' + plansPath, taskId);
+  }
 
   // Build Python command — observer mode (no VLM interaction, just watch autoPlay)
   const args = [VERIFY_SCRIPT, previewUrl, '--steps', '50', '--observe'];
   if (specsPath) args.push('--specs', specsPath);
+  if (plansPath) args.push('--plans', plansPath);
 
   const outputDir = path.join(CUA_RESULTS_DIR, taskId + '-playableagent');
   const logPath = path.join(CUA_RESULTS_DIR, taskId + '-playableagent.log');
@@ -324,207 +558,7 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
         return;
       }
 
-      // ─── Convert report to worker-cua-verify format ───
-      const issues = [];
-
-      // ═══ Anti-Autoplay Detection ═══
-      // observe 模式下只豁免 "autoplay_detected"(观察本来就是看 autoplay),
-      // 但 "0 变量变化" / "shots 全是同一帧" 这类语义级假通过必须继续 gate
-      const isAutoPlayMode = (report.finalState && report.finalState.variables && report.finalState.variables.autoPlayMode === true)
-        || (report.observe_mode === true);
-      if (!isAutoPlayMode) {
-        if (report.autoplay_detected) {
-          log('[PlayableAgent] 🚨 AUTOPLAY DETECTED: ' + (report.autoplay_reason || 'Phases auto-completed without player input'), taskId);
-          issues.push('[autoplay-detected] ' + (report.autoplay_reason || 'Game phases auto-completed via timer without any player interaction.'));
-        }
-        if (report.passed && (!report.actions || report.actions.length === 0)) {
-          log('[PlayableAgent] 🚨 AUTOPLAY: passed=true but 0 actions — overriding to FAIL', taskId);
-          report.passed = false;
-          issues.push('[autoplay-no-interaction] All phases completed with 0 agent actions.');
-        }
-      } else {
-        log('[PlayableAgent] observe mode — skipping autoplay_detected/0-actions check (those are expected)', taskId);
-      }
-      // observe 模式下仍然检查: 游戏变量是否真的变化(游戏逻辑是否真的跑了)
-      const finalVars = (report.finalState || {}).variables || {};
-      const interactionKeys = Object.keys(finalVars).filter(k => k !== 'gameTimer' && k !== 'autoPlayMode' && k !== 'phaseTimer' && k !== 'autoPlaySteps');
-      const allVarsZero = interactionKeys.length > 0 && interactionKeys.every(k => finalVars[k] === 0 || finalVars[k] === '0');
-      if (report.passed && allVarsZero && interactionKeys.length >= 2) {
-        log('[PlayableAgent] 🚨 all interaction variables are 0 — overriding to FAIL (even in observe mode)', taskId);
-        report.passed = false;
-        issues.push('[no-variable-change] All interaction variables (gold/score/count/etc) remain at 0 — game logic never ran despite phase completion flags flipping.');
-      }
-
-      // Phase coverage
-      const missingPhases = report.missingPhases || [];
-      const coveredPhases = report.coveredPhases || [];
-      const totalPhases = (report.specPhases || []).length;
-
-      if (missingPhases.length > 0) {
-        issues.push('[spec-phase-skipped] Phases not completed (' + missingPhases.length + '/' + totalPhases + '): ' + missingPhases.join(', '));
-      }
-
-      // Check entity states
-      const finalState = report.finalState || {};
-      if (finalState.entityStates) {
-        const BUILDABLE_KEYS = ['conveyor', 'woodHouse', 'turret'];
-        const incompleteEntities = [];
-        BUILDABLE_KEYS.forEach(key => {
-          if (finalState.entityStates[key] !== undefined && String(finalState.entityStates[key]) !== '2') {
-            incompleteEntities.push(key + '=' + finalState.entityStates[key] + ' (expected 2=built)');
-          }
-        });
-        if (incompleteEntities.length > 0) {
-          issues.push('[entity-incomplete] Buildable entities not fully constructed: ' + incompleteEntities.join(', '));
-        }
-      }
-
-      // Check game ended / CTA reached
-      const currentPhase = finalState.currentPhase || '';
-      const ctaReached = ['gameEnd', 'cta', 'CTA', 'ctaPhase'].includes(currentPhase);
-      if (!ctaReached && totalPhases > 0 && coveredPhases.length < totalPhases) {
-        // Not a blocking issue — CTA may not be needed for all games
-        log('[PlayableAgent] CTA not reached (current phase: ' + currentPhase + ')', taskId);
-      }
-
-      // ═══ Visual quality fail reasons from observe mode ═══
-      // The Python agent detects VISUAL FREEZE / VARIABLE STAGNATION / BATCH COMPLETION
-      // and stores them in report.visual_fail_reasons. Propagate as actionable issues.
-      if (report.visual_fail_reasons && Array.isArray(report.visual_fail_reasons)) {
-        for (const reason of report.visual_fail_reasons) {
-          if (reason.toLowerCase().includes('visual frozen') || reason.toLowerCase().includes('static')) {
-            issues.push('[visual-freeze] ' + reason + ' Fix: ensure autoPlay phase transitions trigger visible entity movement, animation, or UI changes (SetActive, Translate, SetColor).');
-          } else if (reason.toLowerCase().includes('variable') || reason.toLowerCase().includes('stagnation')) {
-            issues.push('[variable-stagnation] ' + reason + ' Fix: ensure game logic updates gold/score/count variables during each phase. Phase transitions without side effects are empty shells.');
-          } else if (reason.toLowerCase().includes('batch') || reason.toLowerCase().includes('timer')) {
-            issues.push('[batch-completion] ' + reason + ' Fix: each phase must run for its full duration with real gameplay, not instant timer-skip.');
-          } else if (reason.toLowerCase().includes('screenshot')) {
-            // 2026-04-21: "Screenshot sharing: N spec phases share only N screenshot(s)"
-            // — the CUA camera could not capture a distinct frame for every declared phase.
-            // This is NOT a C# logic bug; it means phase transitions do not produce a
-            // sustained (≥2 s) visual change that the camera can actually record.
-            issues.push('[screenshot-timing] ' + reason + ' Fix: ensure each phase transition produces a sustained visual change (≥2 s) so the CUA camera can capture a distinct screenshot per phase. Extend the autoPlay phase duration or add a visible animation/UI update (SetActive, Translate, particle effect) that persists for at least 2 s after the transition trigger.');
-          } else {
-            issues.push('[visual-quality] ' + reason);
-          }
-        }
-      }
-
-      const passed = report.passed === true;
-
-      // ═══ Silent-pass signal detection (recorded even when passed=true) ═══
-      const silentPassSignals = [];
-      const totalActions = (report.actions || []).length;
-      if (totalActions === 0 && passed) {
-        silentPassSignals.push('zero-actions');
-      }
-      // Uniform phase timing detection
-      const phaseTs = (finalState.phaseTimestamps) ? finalState.phaseTimestamps : {};
-      const tsValues = Object.values(phaseTs).filter(t => typeof t === 'number' && t > 0).sort((a, b) => a - b);
-      if (tsValues.length > 3) {
-        const intervals = [];
-        for (let ti = 1; ti < tsValues.length; ti++) intervals.push(tsValues[ti] - tsValues[ti - 1]);
-        const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
-        if (avg > 0) {
-          const stddev = Math.sqrt(intervals.reduce((a, v) => a + (v - avg) * (v - avg), 0) / intervals.length);
-          const cv = stddev / avg;
-          if (cv < 0.15) { // coefficient of variation < 15% → suspiciously uniform
-            silentPassSignals.push('uniform-timing:avg=' + avg.toFixed(1) + 's,cv=' + (cv * 100).toFixed(0) + '%');
-          }
-        }
-      }
-      // Phase order violation (gameEnd not last)
-      const completedList = report.completedPhases || [];
-      if (completedList.length > 1) {
-        const gameEndIdx = completedList.indexOf('gameEnd');
-        if (gameEndIdx >= 0 && gameEndIdx < completedList.length - 1) {
-          silentPassSignals.push('phase-order-violation:gameEnd-not-last');
-        }
-      }
-      // All variables zero (even if already caught above, record as signal)
-      if (allVarsZero && interactionKeys.length >= 2) {
-        silentPassSignals.push('all-vars-zero:' + interactionKeys.length + '-keys');
-      }
-      // D2 L8/L9: delegated to adapters/silent-pass-detectors.cjs so engine
-      // filter (cua-verify.cjs) and unit tests share the exact same rules.
-      var _l8 = silentPassDetectors.detectBatchCompletion(tsValues);
-      if (_l8) silentPassSignals.push(_l8);
-      var _l9 = silentPassDetectors.detectNoPhaseTimestamps(passed, (report.specPhases || []).length, tsValues.length);
-      if (_l9) silentPassSignals.push(_l9);
-
-      if (silentPassSignals.length > 0) {
-        log('[PlayableAgent] ⚠️ Silent-pass signals detected: ' + silentPassSignals.join(', '), taskId);
-      }
-
-      // ═══ Hard-block: semantic silent-pass signals force FAIL ═══
-      // zero-actions alone is expected in observe mode (already exempted above).
-      // uniform-timing is ALSO expected in observe/autoPlay mode — the autoPlay driver
-      // is a fixed-interval timer (~12s/tick × N phases), so cv ≈ 0% is a physical
-      // consequence of the test harness, not a silent-pass bug. Real silent-pass
-      // would show as all-vars-zero or phase-order-violation, which we still block.
-      // 2026-04-20: previously uniform-timing hard-blocked ALL modes — that locked
-      // out every observe run because autoPlay timers always produce cv < 15%.
-      // Per feedback_cua_hard_gate: CUA is a hard gate, but only on signals that
-      // actually indicate a bug. Timer uniformity in a timer-driven test is not one.
-      var hardBlockingSignals = silentPassSignals.filter(function(s) {
-        if (s.indexOf('uniform-timing') === 0 && isAutoPlayMode) return false;
-        return s.indexOf('uniform-timing') === 0
-            || s.indexOf('phase-order-violation') === 0
-            || s.indexOf('all-vars-zero') === 0
-            || s.indexOf('batch-completion') === 0
-            || s.indexOf('no-phase-timestamps') === 0;
-      });
-      var effectivePassed = passed;
-      if (passed && hardBlockingSignals.length > 0) {
-        log('[PlayableAgent] 🚨 HARD BLOCK: silent-pass signals override passed=true → FAIL: ' + hardBlockingSignals.join(', '), taskId);
-        effectivePassed = false;
-        hardBlockingSignals.forEach(function(sig) {
-          issues.push('[silent-pass-block] ' + sig + ' — game logic did not run correctly despite phase flags flipping. See feedback_cua_silent_pass_blindspot.md');
-        });
-      }
-
-      log('[PlayableAgent] Result: ' + (effectivePassed ? 'PASS' : 'FAIL') +
-          ' | Coverage: ' + coveredPhases.length + '/' + totalPhases +
-          ' | Issues: ' + issues.length, taskId);
-
-      resolve({
-        passed: effectivePassed,
-        issues,
-        skipped: false,
-        totalActions: totalActions,
-        silentPassSignals: silentPassSignals,
-        isAutoPlayMode: isAutoPlayMode,
-        report: {
-          gameState: finalState,
-          completedPhases: report.completedPhases || [],
-          scriptCoverage: (report.specPhases || []).map(phaseId => ({
-            step: phaseId,
-            covered: (report.coveredPhases || []).includes(phaseId),
-            evidence: 'PlayableAgent VLM + __gameState'
-          })),
-          diagnostics: {
-            engineReady: true,
-            consoleErrors: [],
-            pageErrors: []
-          },
-          exitReason: report.exitReason || (passed ? 'completed' : 'phases_incomplete'),
-          ctaStatus: ctaReached ? 'found' : 'not_checked',
-          history: (report.actions || []).map(a => ({
-            thinking: a.thought || '',
-            description: JSON.stringify(a.action || {})
-          })),
-          playableAgent: true,
-          model: report.model || 'Qwen/Qwen2.5-VL-72B-Instruct',
-          tokens: report.tokens || {},
-          cost: report.cost || 0,
-          // 2026-04-21: surface pre-contamination metadata so cua-verify.cjs can
-          // report offset info in feedback even when ratio is below fatal threshold.
-          preContamination: report.pre_contamination || null,
-          observedPhaseOffset: typeof report.observed_phase_offset === 'number'
-            ? report.observed_phase_offset
-            : 0
-        }
-      });
+      resolve(summarizePlayableAgentReport(report, taskId, log));
     });
 
     child.on('error', (err) => {
@@ -541,4 +575,10 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
   });
 }
 
-module.exports = { runCUAVerification, CUA_RESULTS_DIR, computeVerifyTimeoutMs };
+module.exports = {
+  runCUAVerification,
+  CUA_RESULTS_DIR,
+  computeVerifyTimeoutMs,
+  writeSpecsFile,
+  summarizePlayableAgentReport,
+};

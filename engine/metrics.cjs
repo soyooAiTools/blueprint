@@ -48,7 +48,7 @@ function recordPipelineMetrics(ctx, stageResults) {
     stages: {},
   };
 
-  var stageNames = ['spec-extract', 'spec-validate', 'complexity-gate', 'codegen', 'method-check', 'review', 'compile', 'visual-check', 'cua-verify', 'upload'];
+  var stageNames = ['spec-extract', 'spec-validate', 'complexity-gate', 'assembly-plan', 'codegen', 'method-check', 'review', 'compile', 'visual-check', 'cua-verify', 'upload'];
   for (var i = 0; i < stageNames.length; i++) {
     var name = stageNames[i];
     var sr = stageResults[name];
@@ -79,6 +79,11 @@ function recordPipelineMetrics(ctx, stageResults) {
     var cua = stageResults['cua-verify'];
     record.cuaRounds = cua.round || 1;
     record.cuaReason = cua.reason || '';
+    record.cuaPlanCoverage = cua.planCoverage || null;
+    record.cuaSignalCoverage = cua.signalCoverage || null;
+    record.cuaSignalValidationPassed = cua.signalValidationPassed !== false;
+    record.cuaMissingSignalCount = cua.missingSignalCount || 0;
+    record.cuaUnsupportedSignalCount = cua.unsupportedSignalCount || 0;
     // Silent-pass detection signals (recorded even on success)
     record.cuaTotalActions = cua.totalActions !== undefined ? cua.totalActions : null;
     record.cuaSilentPassSignals = cua.silentPassSignals || [];
@@ -107,8 +112,25 @@ function recordPipelineMetrics(ctx, stageResults) {
       record.customLogicUsed = !!(ctx.blueprint.gameSchema.customLogic && ctx.blueprint.gameSchema.customLogic.length > 0);
       record.customLogicTokensIn = ctx.blueprint.customLogicTokensIn || 0;
       record.customLogicRounds = ctx.blueprint.customLogicRounds || 0;
+      record.customLogicScopeFixCount = ctx.blueprint.customLogicScopeFixCount || 0;
     } else {
       record.codegenMode = 'legacy';
+    }
+    if (ctx.blueprint.plans) {
+      record.planRegistryVersion = ctx.blueprint.plans.registryVersion || null;
+      record.storyboardAtomCount = ctx.blueprint.storyboardAtomCount || ((ctx.blueprint.plans.storyboardAtomPlan && ctx.blueprint.plans.storyboardAtomPlan.items || []).length);
+      record.moduleInstanceCount = ctx.blueprint.moduleInstanceCount || ((ctx.blueprint.plans.assemblyPlan && ctx.blueprint.plans.assemblyPlan.moduleInstances || []).length);
+      record.assemblySlotCount = ctx.blueprint.assemblySlotCount != null ? ctx.blueprint.assemblySlotCount : 0;
+      record.cuaPlanSteps = ctx.blueprint.cuaPlanStepCount || ((ctx.blueprint.plans.cuaPlan && ctx.blueprint.plans.cuaPlan.steps || []).length);
+      record.assemblyUnresolvedCount = ctx.blueprint.assemblyUnresolvedCount != null
+        ? ctx.blueprint.assemblyUnresolvedCount
+        : ((ctx.blueprint.plans.assemblyPlan && ctx.blueprint.plans.assemblyPlan.unresolved || []).length);
+      record.planValidationWarnings = ctx.blueprint.planValidationWarningCount != null
+        ? ctx.blueprint.planValidationWarningCount
+        : ((ctx.blueprint.planValidation && ctx.blueprint.planValidation.warnings || []).length);
+      record.assemblyCoverage = ctx.blueprint.assemblyCoverage != null ? ctx.blueprint.assemblyCoverage : null;
+      record.assemblyFallbackRequired = record.assemblyUnresolvedCount > 0;
+      record.codegenInputMode = ctx.blueprint.gameSchema ? 'assembly-first' : 'assembly-plan-ready';
     }
   }
 
@@ -358,7 +380,7 @@ function classifyFailureFamily(record) {
   }
   if (/review/.test(stage)) return 'review.other';
   if (/cua-verify/.test(stage)) return 'cua.other';
-  if (/codegen|method-check|spec-validate|complexity-gate/.test(stage)) return 'generation.other';
+  if (/assembly-plan|codegen|method-check|spec-validate|complexity-gate/.test(stage)) return 'generation.other';
   return 'unknown';
 }
 
@@ -500,7 +522,7 @@ function getMetricsSummary(lastN) {
 
   // ---- Per-stage pass rate ----
   summary.stagePassRates = {};
-  var allStages = ['spec-validate', 'codegen', 'review', 'compile', 'visual-check', 'cua-verify', 'upload'];
+  var allStages = ['spec-extract', 'spec-validate', 'complexity-gate', 'assembly-plan', 'codegen', 'review', 'compile', 'visual-check', 'cua-verify', 'upload'];
   for (var si = 0; si < allStages.length; si++) {
     var sn = allStages[si];
     var attempted = records.filter(function(r) { return r.stages[sn] || r.failedAtStage === sn; }).length;
@@ -528,6 +550,52 @@ function getMetricsSummary(lastN) {
   if (reviewRecords.length > 0) {
     var warningOnly = reviewRecords.filter(function(r) { return r.reviewWarningOnly; }).length;
     summary.reviewWarningOnlyRate = (warningOnly / reviewRecords.length * 100).toFixed(1) + '%';
+  }
+
+  var assemblyRecords = records.filter(function(r) {
+    return r.storyboardAtomCount !== undefined || r.assemblyCoverage !== undefined;
+  });
+  if (assemblyRecords.length > 0) {
+    var totalAtoms = 0;
+    var totalModules = 0;
+    var totalSlots = 0;
+    var totalSteps = 0;
+    var totalCoverage = 0;
+    var coverageCount = 0;
+    var fallbackCount = 0;
+    var totalScopeFixes = 0;
+    var signalCoverageCovered = 0;
+    var signalCoverageTotal = 0;
+    var signalCoverageCount = 0;
+    var signalValidationFailures = 0;
+    assemblyRecords.forEach(function(r) {
+      totalAtoms += r.storyboardAtomCount || 0;
+      totalModules += r.moduleInstanceCount || 0;
+      totalSlots += r.assemblySlotCount || 0;
+      totalSteps += r.cuaPlanSteps || 0;
+      if (r.assemblyCoverage !== null && r.assemblyCoverage !== undefined) {
+        totalCoverage += r.assemblyCoverage;
+        coverageCount++;
+      }
+      if (r.assemblyFallbackRequired) fallbackCount++;
+      totalScopeFixes += r.customLogicScopeFixCount || 0;
+      if (r.cuaSignalCoverage && /^\d+\/\d+$/.test(r.cuaSignalCoverage)) {
+        var parts = r.cuaSignalCoverage.split('/');
+        signalCoverageCovered += parseInt(parts[0], 10) || 0;
+        signalCoverageTotal += parseInt(parts[1], 10) || 0;
+        signalCoverageCount++;
+      }
+      if (r.cuaSignalValidationPassed === false) signalValidationFailures++;
+    });
+    summary.avgStoryboardAtoms = (totalAtoms / assemblyRecords.length).toFixed(1);
+    summary.avgModuleInstances = (totalModules / assemblyRecords.length).toFixed(1);
+    summary.avgAssemblySlots = (totalSlots / assemblyRecords.length).toFixed(1);
+    summary.avgCuaPlanSteps = (totalSteps / assemblyRecords.length).toFixed(1);
+    summary.avgAssemblyCoverage = coverageCount > 0 ? (totalCoverage / coverageCount * 100).toFixed(1) + '%' : null;
+    summary.assemblyFallbackRate = (fallbackCount / assemblyRecords.length * 100).toFixed(1) + '%';
+    summary.avgCustomLogicScopeFixes = (totalScopeFixes / assemblyRecords.length).toFixed(1);
+    summary.avgCuaSignalCoverage = signalCoverageTotal > 0 ? (signalCoverageCovered / signalCoverageTotal * 100).toFixed(1) + '%' : null;
+    summary.cuaSignalFailureRate = signalCoverageCount > 0 ? (signalValidationFailures / signalCoverageCount * 100).toFixed(1) + '%' : null;
   }
 
   // ---- Trend: last 5 vs previous 5 ----
@@ -664,6 +732,19 @@ function printDiagnostics(lastN) {
       var sp = s.stagePassRates[stages[pi]];
       console.log('    ' + stages[pi] + ': ' + sp.rate + ' (' + sp.passed + '/' + sp.attempted + ')');
     }
+  }
+
+  if (s.avgStoryboardAtoms) {
+    console.log('\n  --- Assembly Plan ---');
+    console.log('    Avg atoms:     ' + s.avgStoryboardAtoms);
+    console.log('    Avg modules:   ' + s.avgModuleInstances);
+    console.log('    Avg slots:     ' + s.avgAssemblySlots);
+    console.log('    Avg CUA steps: ' + s.avgCuaPlanSteps);
+    if (s.avgAssemblyCoverage) console.log('    Avg coverage:  ' + s.avgAssemblyCoverage);
+    if (s.avgCuaSignalCoverage) console.log('    Avg signals:   ' + s.avgCuaSignalCoverage);
+    if (s.cuaSignalFailureRate) console.log('    Signal fails:  ' + s.cuaSignalFailureRate);
+    if (s.avgCustomLogicScopeFixes) console.log('    Scope scrubs:  ' + s.avgCustomLogicScopeFixes);
+    console.log('    Fallback rate: ' + s.assemblyFallbackRate);
   }
 
   if (s.topFailReasons && s.topFailReasons.length > 0) {

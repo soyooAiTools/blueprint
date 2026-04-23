@@ -10,6 +10,7 @@ var os = require('os');
 var path = require('path');
 var { generateSkeleton } = require('../../adapters/skeleton-generator.cjs');
 var { resolveEntities } = require('../../adapters/entity-resolver.cjs');
+var assemblyEmitter = require('../../adapters/assembly-emitter.cjs');
 var templateEngine = require('../../adapters/codegen-template-engine.cjs');
 var schemaValidator = require('../../adapters/schema/validate-schema.cjs');
 
@@ -19,6 +20,11 @@ module.exports = {
 
   execute: function(ctx) {
     ctx.addLog('codegen-schema', 'Starting schema-driven codegen...');
+    if (ctx.blueprint && ctx.blueprint.plans && ctx.blueprint.plans.assemblyPlan) {
+      var moduleCount = (ctx.blueprint.plans.assemblyPlan.moduleInstances || []).length;
+      var cuaSteps = (ctx.blueprint.plans.cuaPlan && ctx.blueprint.plans.cuaPlan.steps || []).length;
+      ctx.addLog('codegen-schema', 'Assembly plan detected: ' + moduleCount + ' module instances, ' + cuaSteps + ' CUA steps');
+    }
 
     // Step 1: Generate JSON schema via Sonnet
     return generateSchemaFromSpecs(ctx)
@@ -39,8 +45,15 @@ module.exports = {
           entities: schema.entities, // carries chineseName / showLabel for world labels
           w1bSplit: ctx.blueprint.w1bSplit !== false, // default-on: 5-partial skeleton split
         });
-        var skeletonStr = typeof skeletonResult === 'string' ? skeletonResult : skeletonResult.main;
         var isW1bSplit = (typeof skeletonResult === 'object' && skeletonResult.mode === 'w1b-5partial');
+        if (isW1bSplit && ctx.blueprint && ctx.blueprint.plans && ctx.blueprint.plans.assemblyPlan) {
+          var emitted = assemblyEmitter.applyAssemblyPlanToSkeleton(skeletonResult, ctx.blueprint.plans);
+          skeletonResult = emitted.files;
+          ctx.blueprint.assemblySlotCount = emitted.slotCount;
+          ctx.blueprint.assemblyOwnerSummary = emitted.ownerSummary;
+          ctx.addLog('codegen-schema', 'Deterministic assembly scaffold emitted: ' + emitted.slotCount + ' owner slot(s)');
+        }
+        var skeletonStr = typeof skeletonResult === 'string' ? skeletonResult : skeletonResult.main;
 
         var fillResult = templateEngine.fillSkeleton(schema, skeletonStr, { w1bSplit: isW1bSplit });
         var combinedMissingMarkers = (fillResult.missingMarkers || []).slice();
@@ -97,6 +110,10 @@ module.exports = {
 
         ctx.addLog('codegen-schema', 'No custom logic — skipping text runner entirely');
       });
+  },
+  _internals: {
+    buildSchemaPrompt: buildSchemaPrompt,
+    summarizePlansForPrompt: summarizePlansForPrompt
   }
 };
 
@@ -227,6 +244,7 @@ function parseAndValidateSchemaResponse(ctx, text) {
 function buildSchemaPrompt(ctx) {
   var specs = JSON.stringify(ctx.blueprint.specs, null, 2);
   var entities = JSON.stringify(ctx.blueprint.entities || [], null, 2);
+  var plansSummary = summarizePlansForPrompt(ctx.blueprint.plans);
 
   var lines = [];
   lines.push('根据分镜 specs 输出完整 JSON 配置对象。严格遵守以下字段定义,不添加额外字段:');
@@ -280,7 +298,17 @@ function buildSchemaPrompt(ctx) {
   lines.push('13. showEntities 的 initPos 在不同 phase 间至少相差 2 个单位（避免物体位置不动导致截图无变化）');
   lines.push('14. 每个 phase 至少一个 onEnter action（如 add_resource, set_entity_state），让游戏状态随 phase 推进而变化');
   lines.push('15. 禁止所有 phase 只用 timer trigger——至少 50% 的 phase 必须用 entity_state_reached 或 resource_collected trigger');
+  if (plansSummary) {
+    lines.push('16. 你必须优先遵守下面的 Assembly Plan；不要重新发明实体模块组合、状态 owner、phase 顺序。');
+    lines.push('17. 优先把 module 实现映射为 schema 的 phases/onEnter/resources/npcs；只有 unresolved 项才允许落入 customLogic。');
+    lines.push('18. 如果 Assembly Plan 指定了 state owner，不要让多个 phase/onEnter 重复写同一业务状态。');
+  }
   lines.push('');
+  if (plansSummary) {
+    lines.push('## Assembly Plan（必须遵守）');
+    lines.push(plansSummary);
+    lines.push('');
+  }
   lines.push('## 分镜 Specs');
   lines.push(specs);
   lines.push('');
@@ -289,6 +317,53 @@ function buildSchemaPrompt(ctx) {
   lines.push('');
   lines.push('只输出 JSON 对象，不要 markdown 包裹，不要解释。');
   return lines.join('\n');
+}
+
+function summarizePlansForPrompt(plans) {
+  if (!plans || !plans.assemblyPlan) return '';
+  var summary = {
+    registryVersion: plans.registryVersion || null,
+    storyboardAtoms: ((plans.storyboardAtomPlan && plans.storyboardAtomPlan.items) || []).map(function(atom) {
+      return {
+        id: atom.id,
+        atomId: atom.atomId,
+        phaseId: atom.phaseId,
+        params: atom.params || {}
+      };
+    }),
+    entities: ((plans.entityPlan && plans.entityPlan.entities) || []).map(function(entity) {
+      return {
+        name: entity.name,
+        archetypeId: entity.archetypeId || null,
+        modules: (entity.modules || []).map(function(module) { return module.moduleId; })
+      };
+    }),
+    systemModules: ((plans.entityPlan && plans.entityPlan.systemModules) || []).map(function(module) {
+      return module.moduleId;
+    }),
+    phaseBindings: ((plans.assemblyPlan && plans.assemblyPlan.phaseBindings) || []).map(function(binding) {
+      return {
+        phaseId: binding.phaseId,
+        activateEntities: binding.activateEntities || [],
+        atomIds: binding.atomIds || [],
+        completionSignals: binding.completionSignals || []
+      };
+    }),
+    stateOwners: ((plans.assemblyPlan && plans.assemblyPlan.stateOwners) || []).map(function(owner) {
+      return {
+        state: owner.state,
+        moduleInstanceId: owner.moduleInstanceId
+      };
+    }),
+    fileOwners: ((plans.assemblyPlan && plans.assemblyPlan.fileOwners) || []).map(function(owner) {
+      return {
+        file: owner.file,
+        moduleInstanceIds: owner.moduleInstanceIds || []
+      };
+    }),
+    unresolved: (plans.assemblyPlan && plans.assemblyPlan.unresolved) || []
+  };
+  return JSON.stringify(summary, null, 2);
 }
 
 function fillCustomLogic(ctx, schema) {
@@ -325,6 +400,10 @@ function fillCustomLogic(ctx, schema) {
 
         var workspaceApplied = loadCustomLogicWorkspaceIntoContext(ctx, customWorkDir);
         if (workspaceApplied) {
+          var scopeFixes = (ctx.blueprint && ctx.blueprint.lastCustomLogicScopeFixes) || [];
+          if (scopeFixes.length > 0) {
+            ctx.addLog('codegen-schema', '[custom R' + round + '] scope scrub: ' + scopeFixes.join(', '));
+          }
           var workspaceScrub = applyGeneratedCodeContractScrub(ctx);
           if (workspaceScrub.changed) {
             ctx.addLog('codegen-schema', '[custom R' + round + '] contract scrub: ' + workspaceScrub.fixes.join(', '));
@@ -368,6 +447,58 @@ function getCustomLogicManagerDir(workDir) {
   return path.join(workDir, 'Assets', 'Program', 'Script', 'Manager');
 }
 
+function normalizeGeneratedCodeText(text) {
+  return String(text || '').replace(/\r\n/g, '\n');
+}
+
+function mergeNamedTodoRegion(baselineContent, generatedContent, regionName) {
+  var baseline = normalizeGeneratedCodeText(baselineContent);
+  var generated = normalizeGeneratedCodeText(generatedContent);
+  var escaped = String(regionName || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  var re = new RegExp('(^[ \\t]*)\\/\\/ TODO_' + escaped + '_START\\s*\\n([\\s\\S]*?)^\\1\\/\\/ TODO_' + escaped + '_END', 'm');
+  var baselineMatch = re.exec(baseline);
+  if (!baselineMatch) {
+    return {
+      content: baseline,
+      preservedRegion: false,
+      strippedEditCount: generated !== baseline ? 1 : 0,
+    };
+  }
+  var generatedMatch = re.exec(generated);
+  if (!generatedMatch) {
+    return {
+      content: baseline,
+      preservedRegion: false,
+      strippedEditCount: generated !== baseline ? 1 : 0,
+    };
+  }
+
+  var body = String(generatedMatch[2] || '');
+  if (body && !/\n$/.test(body)) body += '\n';
+  var merged = baseline.replace(re, function(_match, indent) {
+    return indent + '// TODO_' + regionName + '_START\n' + body + indent + '// TODO_' + regionName + '_END';
+  });
+  var maskedBaseline = baseline.replace(re, function(_match, indent) {
+    return indent + '// TODO_' + regionName + '_START\n' + indent + '// [TODO REGION REDACTED]\n' + indent + '// TODO_' + regionName + '_END';
+  });
+  var maskedGenerated = generated.replace(re, function(_match, indent) {
+    return indent + '// TODO_' + regionName + '_START\n' + indent + '// [TODO REGION REDACTED]\n' + indent + '// TODO_' + regionName + '_END';
+  });
+
+  return {
+    content: merged,
+    preservedRegion: normalizeGeneratedCodeText(generatedMatch[2]) !== normalizeGeneratedCodeText(baselineMatch[2]),
+    strippedEditCount: maskedBaseline !== maskedGenerated ? 1 : 0,
+  };
+}
+
+function shouldEnforceAssemblySlotScope(ctx, fileName, content) {
+  var text = String(content || '');
+  if (/AssemblySlot_/.test(text) || /\[ASSEMBLY OWNER MANIFEST\]/.test(text)) return true;
+  var ownerSummary = ctx && ctx.blueprint && ctx.blueprint.assemblyOwnerSummary;
+  return !!(ownerSummary && Object.prototype.hasOwnProperty.call(ownerSummary, fileName));
+}
+
 function prepareCustomLogicWorkspace(ctx) {
   var taskId = ctx && ctx.taskId ? ctx.taskId : 'task';
   var workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegen-custom-' + taskId + '-'));
@@ -390,17 +521,39 @@ function loadCustomLogicWorkspaceIntoContext(ctx, workDir) {
   var managerDir = getCustomLogicManagerDir(workDir);
   var mainPath = path.join(managerDir, 'GameFlowManagerMain.cs');
   if (!fs.existsSync(mainPath)) return false;
-  var nextMain = fs.readFileSync(mainPath, 'utf8');
+  ctx.blueprint = ctx.blueprint || {};
+  ctx.blueprint.lastCustomLogicScopeFixes = [];
+
+  var workspaceTouched = false;
+  var nextMainRaw = fs.readFileSync(mainPath, 'utf8');
+  if (nextMainRaw !== String(ctx.csCode || '')) workspaceTouched = true;
+  var mainMerge = mergeNamedTodoRegion(String(ctx.csCode || ''), nextMainRaw, 'CUSTOM');
+  if (mainMerge.strippedEditCount > 0) {
+    ctx.blueprint.lastCustomLogicScopeFixes.push('GameFlowManagerMain.cs:TODO_CUSTOM');
+  }
+  var nextMain = mainMerge.content;
   var changed = nextMain !== String(ctx.csCode || '');
   var nextExtras = Object.assign({}, ctx.extraFiles || {});
   Object.keys(nextExtras).forEach(function(name) {
     var extraPath = path.join(managerDir, path.basename(name));
     if (!fs.existsSync(extraPath)) return;
-    var nextContent = fs.readFileSync(extraPath, 'utf8');
-    if (nextContent !== String(nextExtras[name] || '')) changed = true;
+    var currentContent = String(nextExtras[name] || '');
+    var nextContentRaw = fs.readFileSync(extraPath, 'utf8');
+    if (nextContentRaw !== currentContent) workspaceTouched = true;
+    var nextContent = nextContentRaw;
+    if (shouldEnforceAssemblySlotScope(ctx, name, currentContent)) {
+      var slotMerge = assemblyEmitter.mergeAssemblySlotEdits(currentContent, nextContentRaw);
+      nextContent = slotMerge.content;
+      if (slotMerge.strippedEditCount > 0) {
+        ctx.blueprint.lastCustomLogicScopeFixes.push(name + ':AssemblySlot');
+      }
+    }
+    if (nextContent !== currentContent) changed = true;
     nextExtras[name] = nextContent;
   });
-  if (!changed) return false;
+  ctx.blueprint.customLogicScopeFixCount = (ctx.blueprint.customLogicScopeFixCount || 0) +
+    ctx.blueprint.lastCustomLogicScopeFixes.length;
+  if (!changed) return workspaceTouched;
   ctx.csCode = nextMain;
   ctx.extraFiles = nextExtras;
   return true;
@@ -464,6 +617,14 @@ function buildCustomLogicPrompt(ctx, schema) {
   lines.push('13. 禁止 remap pool 名，也不要写 blueprint/skeleton 里不存在的 __Pool_* 字面量。');
   lines.push('14. 同一个标识符的 phase 分发不要写 4 段以上 if/else-if；改用 switch(identifier)。');
   lines.push('15. 工作区里已经放好了真实的 `Assets/Program/Script/Manager/GameFlowManagerMain*.cs`。优先直接修改这些文件；如果你不能落盘，再输出一个 ```csharp 代码块，只包含 TODO_CUSTOM 区域内容。');
+  lines.push('16. 如果文件里存在 `AssemblySlot_*` 或 `[ASSEMBLY SLOT]`，优先在对应 owner file 的 slot 内实现，不要把逻辑写到错误 partial。');
+  lines.push('17. Flow/Input/Resource/UI/Scene 的 owner 分工必须遵守 assembly scaffold；不要跨文件挪 state owner。');
+  lines.push('18. `GameFlowManagerMain.cs` 里只有 `TODO_CUSTOM` 区域会被保留；assembly owner file 里只有 `TODO_AssemblySlot_*` 区域会被保留，其他改动会被丢弃。');
+  if (ctx.blueprint && ctx.blueprint.assemblyOwnerSummary) {
+    lines.push('');
+    lines.push('## Assembly Owner Scaffold');
+    lines.push(JSON.stringify(ctx.blueprint.assemblyOwnerSummary, null, 2));
+  }
   lines.push('');
   lines.push('## 需要实现的自定义逻辑');
   for (var i = 0; i < schema.customLogic.length; i++) {
@@ -482,6 +643,7 @@ module.exports._syncCustomLogicWorkspace = syncCustomLogicWorkspace;
 module.exports._loadCustomLogicWorkspaceIntoContext = loadCustomLogicWorkspaceIntoContext;
 module.exports._cleanupCustomLogicWorkspace = cleanupCustomLogicWorkspace;
 module.exports._applyGeneratedCodeContractScrub = applyGeneratedCodeContractScrub;
+module.exports._mergeNamedTodoRegion = mergeNamedTodoRegion;
 
 function _validateSchema(schema) {
   var structErrors = schemaValidator.validateGameSchema(schema);

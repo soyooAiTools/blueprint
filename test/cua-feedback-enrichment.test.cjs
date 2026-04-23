@@ -115,28 +115,43 @@ r7b.report.missingPhases = ['play', 'end'];
 var fb7b = buildStructuredFeedback(1, r7b, makeBlueprint(['intro', 'tutorial', 'play', 'end']), [], '');
 assert.ok(fb7b.text.indexOf('Missing phases: play, end') >= 0, '[7.2] emitted when issue silent');
 
+// ── Case 8: plan/signal coverage diagnostics ─────────────────────────
+
+var r8 = makeCuaResult();
+r8.report.planCoverage = '2/3';
+r8.report.signalCoverage = '1/3';
+r8.report.signalValidationPassed = false;
+r8.report.missingSignals = ['build:entity_state_equals_built', 'intro:guide_text_visible'];
+r8.report.unsupportedSignals = ['intro:camera_orientation_changed'];
+var fb8 = buildStructuredFeedback(2, r8, makeBlueprint(['intro', 'build', 'end']), [], '');
+assert.ok(fb8.text.indexOf('Plan coverage: 2/3') >= 0, '[8.1] plan coverage emitted');
+assert.ok(fb8.text.indexOf('Signal coverage: 1/3 (FAILED)') >= 0, '[8.2] signal coverage emitted');
+assert.ok(fb8.text.indexOf('Missing signals:') >= 0, '[8.3] missing signals header');
+assert.ok(fb8.text.indexOf('build:entity_state_equals_built') >= 0, '[8.4] first missing signal listed');
+assert.ok(fb8.text.indexOf('Unsupported signals (non-blocking): intro:camera_orientation_changed') >= 0, '[8.5] unsupported signals listed');
+
 // ── Case 8: extractPhaseDurations unit cases ──────────────────────────
 
 var d1 = extractPhaseDurations({ a: 0.1, b: 0.2, c: 0.3 }, ['a', 'b', 'c']);
-assert.strictEqual(d1.length, 3, '[8.1] three entries');
-assert.strictEqual(d1[0].flag, 'batch-fired', '[8.2] a starts < 1s');
-assert.strictEqual(d1[1].flag, 'batch-fired', '[8.3] b-a < 1s');
-assert.strictEqual(d1[2].flag, 'batch-fired', '[8.4] c-b < 1s');
+assert.strictEqual(d1.length, 3, '[9.1] three entries');
+assert.strictEqual(d1[0].flag, 'batch-fired', '[9.2] a starts < 1s');
+assert.strictEqual(d1[1].flag, 'batch-fired', '[9.3] b-a < 1s');
+assert.strictEqual(d1[2].flag, 'batch-fired', '[9.4] c-b < 1s');
 
 var d2 = extractPhaseDurations({ a: 12, b: 50 }, ['a', 'b', 'c']);
-assert.strictEqual(d2[0].flag, 'ok',            '[8.5] a=12 is ok');
-assert.strictEqual(d2[1].flag, 'slow',          '[8.6] b-a=38 is slow');
-assert.strictEqual(d2[2].flag, 'never-completed','[8.7] c missing after b completed');
+assert.strictEqual(d2[0].flag, 'ok',            '[9.5] a=12 is ok');
+assert.strictEqual(d2[1].flag, 'slow',          '[9.6] b-a=38 is slow');
+assert.strictEqual(d2[2].flag, 'never-completed','[9.7] c missing after b completed');
 
 var d3 = extractPhaseDurations({}, ['a', 'b']);
-assert.strictEqual(d3[0].flag, 'never-completed', '[8.8] a missing, start reached → never-completed');
-assert.strictEqual(d3[1].flag, 'never-reached',   '[8.9] b missing, a also missing → never-reached');
+assert.strictEqual(d3[0].flag, 'never-completed', '[9.8] a missing, start reached → never-completed');
+assert.strictEqual(d3[1].flag, 'never-reached',   '[9.9] b missing, a also missing → never-reached');
 
 var d4 = extractPhaseDurations(null, ['a']);
-assert.deepStrictEqual(d4, [], '[8.10] null phaseTimestamps → []');
+assert.deepStrictEqual(d4, [], '[9.10] null phaseTimestamps → []');
 
 var d5 = extractPhaseDurations({ a: 5 }, []);
-assert.deepStrictEqual(d5, [], '[8.11] empty specPhases → []');
+assert.deepStrictEqual(d5, [], '[9.11] empty specPhases → []');
 
 console.log('OK — all CUA feedback enrichment assertions passed');
 console.log('  sample visual block:');

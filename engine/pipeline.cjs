@@ -64,6 +64,9 @@ function PipelineContext(task, checkpoint, workerConfig) {
   } catch(e) {
     this.blueprint = {};
   }
+  if (checkpoint && checkpoint.blueprint && typeof checkpoint.blueprint === 'object') {
+    this.blueprint = JSON.parse(JSON.stringify(checkpoint.blueprint));
+  }
 
   // Worker config (URLs, IDs)
   this.workerConfig = workerConfig || {
@@ -110,6 +113,7 @@ PipelineContext.prototype.addLog = function(stage, message) {
 PipelineContext.prototype.saveCheckpointData = function() {
   return {
     completedStages: this.completedStages.slice(),
+    blueprint: this.blueprint ? JSON.parse(JSON.stringify(this.blueprint)) : null,
     csCode: this.csCode,
     extraFiles: this.extraFiles,
     feedbackHistory: this.blueprint ? this.blueprint.feedbackHistory : [],
@@ -446,6 +450,7 @@ var cloneStage = require('./stages/clone.cjs');
 var specExtractStage = require('./stages/spec-extract.cjs');
 var specValidateStage = require('./stages/spec-validate.cjs');
 var complexityGateStage = require('./stages/complexity-gate.cjs');
+var assemblyPlanStage = require('./stages/assembly-plan.cjs');
 var codegenStage = require('./stages/codegen.cjs');
 var methodCheckStage = require('./stages/method-check.cjs');
 var reviewStage = require('./stages/review.cjs');
@@ -462,6 +467,7 @@ function createLunaPipeline(options) {
     specExtractStage,
     specValidateStage,
     complexityGateStage,
+    assemblyPlanStage,
     codegenStage,
     methodCheckStage,
     reviewStage,
@@ -490,8 +496,10 @@ module.exports = {
   createCocosPipeline: createCocosPipeline,
   stages: {
     clone: cloneStage,
+    specExtract: specExtractStage,
     specValidate: specValidateStage,
     complexityGate: complexityGateStage,
+    assemblyPlan: assemblyPlanStage,
     codegen: codegenStage,
     methodCheck: methodCheckStage,
     review: reviewStage,

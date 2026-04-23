@@ -1,0 +1,8 @@
+{
+  "version": "registry-pack-v1",
+  "description": "Manifest for assembly-first registry pack v1.",
+  "storyboardAtoms": "./storyboard-atoms.v1.json",
+  "runtimeModules": "./runtime-modules.v1.json",
+  "cuaAssertions": "./cua-assertions.v1.json",
+  "mappings": "./atom-module-mapping.v1.json"
+}

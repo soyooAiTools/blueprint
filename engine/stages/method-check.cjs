@@ -12,6 +12,7 @@
 
 // ============ Safe Lists ============
 var staticCheckStage = require('../static-check.cjs');
+var assemblyPlanContracts = require('../assembly-plan-contracts.cjs');
 /**
  * Methods pre-built by the skeleton that AI can call without defining them.
  */
@@ -739,7 +740,7 @@ function detectContractViolations(ctx) {
       },
     });
   }
-  return violations;
+  return violations.concat(assemblyPlanContracts.detectAssemblyContractViolations(ctx));
 }
 
 function applyPhaseGatePreRepair(ctx) {

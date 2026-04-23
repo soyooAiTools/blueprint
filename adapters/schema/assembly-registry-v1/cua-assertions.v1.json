@@ -1,0 +1,136 @@
+{
+  "version": "cua-assertions-v1",
+  "description": "Machine-readable assertion vocabulary for module-aware CUA.",
+  "items": [
+    {
+      "id": "player_position_changed",
+      "kind": "motion",
+      "description": "Player or actor position changed from previous observation."
+    },
+    {
+      "id": "distance_to_target_below_threshold",
+      "kind": "motion",
+      "description": "Actor is within configured threshold of target."
+    },
+    {
+      "id": "tap_registered",
+      "kind": "input",
+      "description": "A tap input was accepted and associated interaction began."
+    },
+    {
+      "id": "drag_path_completed",
+      "kind": "input",
+      "description": "Dragged object reached its target path end."
+    },
+    {
+      "id": "resource_incremented",
+      "kind": "state",
+      "description": "A tracked resource increased."
+    },
+    {
+      "id": "resource_decremented",
+      "kind": "state",
+      "description": "A tracked resource decreased."
+    },
+    {
+      "id": "inventory_decremented",
+      "kind": "state",
+      "description": "Inventory or carried item count decreased."
+    },
+    {
+      "id": "reward_incremented",
+      "kind": "state",
+      "description": "Reward, gold, or score value increased."
+    },
+    {
+      "id": "entity_state_changed",
+      "kind": "state",
+      "description": "A named entity state field changed."
+    },
+    {
+      "id": "entity_state_equals_built",
+      "kind": "state",
+      "description": "A buildable entity reached built/completed state."
+    },
+    {
+      "id": "upgrade_level_changed",
+      "kind": "state",
+      "description": "An upgrade level changed."
+    },
+    {
+      "id": "target_hp_decreased_or_target_dead",
+      "kind": "state",
+      "description": "A target took damage or died."
+    },
+    {
+      "id": "target_removed_or_hidden",
+      "kind": "visual",
+      "description": "A target object was hidden or moved out of active scene."
+    },
+    {
+      "id": "source_hidden_or_moved",
+      "kind": "visual",
+      "description": "A source object was hidden or moved after interaction."
+    },
+    {
+      "id": "downstream_entity_visible",
+      "kind": "visual",
+      "description": "A newly activated or spawned entity became visible."
+    },
+    {
+      "id": "projectile_visible",
+      "kind": "visual",
+      "description": "A projectile became visible in scene."
+    },
+    {
+      "id": "loot_visible",
+      "kind": "visual",
+      "description": "Loot or collectible became visible."
+    },
+    {
+      "id": "guide_text_visible",
+      "kind": "ui",
+      "description": "Guide text is visible and updated."
+    },
+    {
+      "id": "floating_text_visible",
+      "kind": "ui",
+      "description": "Floating feedback text is visible."
+    },
+    {
+      "id": "score_text_changed",
+      "kind": "ui",
+      "description": "Score or reward UI text changed."
+    },
+    {
+      "id": "highlight_overlay_visible",
+      "kind": "ui",
+      "description": "Highlight overlay or equivalent emphasis is visible."
+    },
+    {
+      "id": "visual_variant_changed",
+      "kind": "visual",
+      "description": "A visible object variant, color state, or presentation variant changed."
+    },
+    {
+      "id": "camera_orientation_changed",
+      "kind": "camera",
+      "description": "Camera orientation or look direction changed."
+    },
+    {
+      "id": "camera_height_changed_or_view_widened",
+      "kind": "camera",
+      "description": "Camera height or overall view coverage increased."
+    },
+    {
+      "id": "camera_zoom_changed",
+      "kind": "camera",
+      "description": "Camera zoom or orthographic size changed."
+    },
+    {
+      "id": "phase_advanced",
+      "kind": "phase",
+      "description": "The phase advanced to the next declared phase binding."
+    }
+  ]
+}

@@ -7,6 +7,7 @@ var path = require('path');
 var Busboy = require('busboy');
 var storyboardParser = require('../adapters/storyboard-parser.cjs');
 var storyboardPdf = require('../adapters/storyboard-pdf.cjs');
+var { ensureProjectPlans } = require('../adapters/assembly-plan-pipeline.cjs');
 
 module.exports.init = function(ctx) {
   var config = ctx.config;
@@ -162,6 +163,7 @@ module.exports.init = function(ctx) {
               proj.storyboardConfig = parserConfig;
               proj.characterSheet = frames.characterSheet || {};
               proj.sceneSheet = frames.sceneSheet || {};
+              ensureProjectPlans(proj);
               proj.updatedAt = new Date().toISOString();
               writeProject(proj);
               console.log('[parse-storyboard] Saved', (frames.frames || []).length, 'frames to project', projectId);
@@ -829,6 +831,7 @@ module.exports.init = function(ctx) {
         project.phases = v4Data.phases;
         project.globalSettings = v4Data.globalSettings || {};
         project.version = 4;
+        ensureProjectPlans(project);
         writeProject(project);
 
         console.log('[parse-and-blueprint] Done: ' + v4Data.entities.length + ' entities, ' + v4Data.phases.length + ' phases, ' + (v4Data.storyboardFrames || []).length + ' frames');
@@ -1008,6 +1011,7 @@ module.exports.init = function(ctx) {
         project.phases = v4Data.phases;
         project.globalSettings = v4Data.globalSettings || {};
         project.version = 4;
+        ensureProjectPlans(project);
         writeProject(project);
 
         sendSSE({ type: 'progress', percent: 100, stage: '完成！' });
@@ -1189,6 +1193,7 @@ module.exports.init = function(ctx) {
           screenshotCount: analysis.screenshots.length,
           interactionCount: analysis.interactionFlow.length,
         };
+        ensureProjectPlans(project);
         project.updatedAt = new Date().toISOString();
         writeProject(project);
 

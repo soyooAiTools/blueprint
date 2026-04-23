@@ -152,6 +152,7 @@ function categorizeIssue(cuaResult) {
   if (issues.includes('solid color') || issues.includes('纯色')) return 'solid-color';
   if (issues.includes('visual-freeze') || issues.includes('visual frozen')) return 'visual-freeze';
   if (issues.includes('variable-stagnation') || issues.includes('variable change')) return 'variable-stagnation';
+  if (issues.includes('signal-coverage') || issues.includes('missing expected signals')) return 'signal-coverage';
   if (issues.includes('batch-completion') || issues.includes('batch phase')) return 'batch-completion';
   if (issues.includes('phase-skipped') || issues.includes('phases were skipped')) return 'phase-skipped';
   if (issues.includes('autoplay')) return 'autoplay';
@@ -202,7 +203,7 @@ function extractPhaseCoverage(cuaResult) {
  * Map issue type to severity level
  */
 function getIssueSeverity(type) {
-  var HIGH = ['phase-coverage', 'entity-incomplete', 'stuck', 'engine-not-ready', 'no-content', 'stuck-pattern', 'no-coverage'];
+  var HIGH = ['phase-coverage', 'entity-incomplete', 'stuck', 'engine-not-ready', 'no-content', 'stuck-pattern', 'no-coverage', 'signal-coverage'];
   var MEDIUM = ['uncovered', 'cta', 'solid-color', 'interaction', 'suspicious-script'];
   if (HIGH.indexOf(type) >= 0) return 'high';
   if (MEDIUM.indexOf(type) >= 0) return 'medium';
@@ -228,6 +229,7 @@ function getFixHint(type) {
     'visual-freeze': 'Game screen is visually STATIC despite phases completing. AutoPlay transitions must produce VISIBLE changes: (1) move entities via transform.Translate or transform.position, (2) show/hide objects via SetActive (toggle, not one-way), (3) change colors via GetComponent<Renderer>().material.color, (4) update UI text. Phases that only increment counters with no visual side effects will fail this check.' + LUNA_REMINDERS,
     'variable-stagnation': 'All game variables (gold, score, count, etc.) remained at initial values throughout gameplay. Phase logic must UPDATE variables: gold += reward on delivery, score++ on completion, count-- on consumption. Variables must be exposed via __gameState so the observer can verify them. Empty phase transitions that just advance phaseTimer are not real gameplay.' + LUNA_REMINDERS,
     'batch-completion': 'Multiple phases completed in a single poll interval. Each phase must run for at least 20 seconds with visible gameplay. Check that autoPlay duration gate (phaseTimer >= 20f) is enforced for every phase transition.' + LUNA_REMINDERS,
+    'signal-coverage': 'Phase IDs may complete, but required module contracts did not emit observable signals. Fix the specific runtime modules tied to the missing signals: build_progress should drive built state, guide_ui should update guideText, score_feedback should update scoreText, floating_text_feedback should emit floatingText, camera_* modules should update camera variables. Do not only flip phase flags — make the underlying state/UI/camera effects observable via __gameState.' + LUNA_REMINDERS,
     'engine-not-ready': 'Luna engine failed to initialize. Check for JS errors. Common cause: calling loadSettings on a null reference, or using unsupported C# features that Bridge.NET compiles incorrectly.' + LUNA_REMINDERS,
   };
   return hints[type] || '';
@@ -505,6 +507,29 @@ function buildStructuredFeedback(round, cuaResult, blueprint, fixHistory, csCode
     if (!issueHasMissing) {
       diagLines.push('Missing phases: ' + report.missingPhases.join(', '));
     }
+  }
+
+  // Plan / signal coverage — assembly-first specific diagnostics
+  if (report.planCoverage) {
+    diagLines.push('Plan coverage: ' + String(report.planCoverage));
+  }
+  if (report.signalCoverage) {
+    var signalLine = 'Signal coverage: ' + String(report.signalCoverage);
+    if (report.signalValidationPassed === false) signalLine += ' (FAILED)';
+    diagLines.push(signalLine);
+  }
+  if (Array.isArray(report.missingSignals) && report.missingSignals.length > 0) {
+    diagLines.push('Missing signals:');
+    var missingShown = report.missingSignals.slice(0, 8);
+    for (var ms = 0; ms < missingShown.length; ms++) {
+      diagLines.push('  - ' + String(missingShown[ms]).slice(0, 120));
+    }
+    if (report.missingSignals.length > 8) {
+      diagLines.push('  ... ' + (report.missingSignals.length - 8) + ' more');
+    }
+  }
+  if (Array.isArray(report.unsupportedSignals) && report.unsupportedSignals.length > 0) {
+    diagLines.push('Unsupported signals (non-blocking): ' + report.unsupportedSignals.slice(0, 6).join(', '));
   }
 
   if (diagLines.length > 0) {

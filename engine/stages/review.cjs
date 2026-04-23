@@ -13,6 +13,7 @@ var { createFixLoop } = require('../fix-loop.cjs');
 var { staticCheck, getBlockingIssues } = require('../static-check.cjs');
 var { checkConformance } = require('../spec-conformance.cjs');
 var { normalizeFingerprint } = require('../metrics.cjs');
+var assemblyPlanContracts = require('../assembly-plan-contracts.cjs');
 
 var MAX_REVIEW_ROUNDS = 4;
 var REVIEW_REPEAT_BLOCK_AT = 3;
@@ -1460,6 +1461,7 @@ module.exports = {
 
     var reviewedCode = ctx.csCode;
     var reviewExtraFiles = Object.assign({}, ctx.extraFiles);
+    var reviewPlanSummary = assemblyPlanContracts.buildReviewPlanGuidance(ctx.blueprint && ctx.blueprint.plans);
     var lastReviewFingerprint = null;
     var sameReviewFingerprintCount = 0;
 
@@ -1555,8 +1557,9 @@ module.exports = {
         // gate so that any coverage < 80% triggers a recode while retries remain, not just
         // the total-absence (length === 0) case.
         if (!reviewPromise) {
-          var specPhases = ctx.blueprint.specs || [];
-          if (specPhases.length > 0) {
+          var expectedPhaseIds = assemblyPlanContracts.collectExpectedPhaseIds(ctx.blueprint);
+          var expectedPhaseSource = assemblyPlanContracts.getExpectedPhaseSource(ctx.blueprint);
+          if (expectedPhaseIds.length > 0) {
             // Build allCode including extra files (partial classes)
             var preCheckAllCode = reviewedCode;
             if (reviewExtraFiles) {
@@ -1564,112 +1567,32 @@ module.exports = {
                 if (reviewExtraFiles.hasOwnProperty(pefk)) preCheckAllCode += '\n' + reviewExtraFiles[pefk];
               }
             }
-            var preCheckCodeLower = preCheckAllCode.toLowerCase();
-
-            // Extract all phaseId strings from AddCompletedPhase/ReportPhase calls
-            var phaseCallMatches = preCheckAllCode.match(/(?:AddCompletedPhase|ReportPhase)\s*\(\s*"([^"]+)"/g) || [];
-            var preCheckPhaseIds = [];
-            for (var pcm = 0; pcm < phaseCallMatches.length; pcm++) {
-              var pcmMatch = phaseCallMatches[pcm].match(/"([^"]+)"/);
-              if (pcmMatch) preCheckPhaseIds.push(pcmMatch[1]);
-            }
-            var preCheckPhaseIdsLower = preCheckPhaseIds.map(function(id) { return id.toLowerCase().replace(/[_\s-]/g, ''); });
-
-            var preCheckImplemented = 0;
-            for (var psi = 0; psi < specPhases.length; psi++) {
-              var ppid = specPhases[psi].phaseId;
-              // Level 1: exact match
-              if (preCheckCodeLower.indexOf('"' + ppid.toLowerCase() + '"') >= 0) {
-                preCheckImplemented++;
-                continue;
-              }
-              // Level 2: normalized match (strip underscores/spaces/dashes, case-insensitive)
-              var ppidNorm = ppid.toLowerCase().replace(/[_\s-]/g, '');
-              var ppidFound = false;
-              for (var pci = 0; pci < preCheckPhaseIdsLower.length; pci++) {
-                if (preCheckPhaseIdsLower[pci] === ppidNorm ||
-                    preCheckPhaseIdsLower[pci].indexOf(ppidNorm) >= 0 ||
-                    ppidNorm.indexOf(preCheckPhaseIdsLower[pci]) >= 0) {
-                  ppidFound = true;
-                  break;
-                }
-              }
-              if (ppidFound) {
-                preCheckImplemented++;
-                continue;
-              }
-              // Level 3: keyword overlap — split camelCase into words and check overlap
-              var ppidWords = ppid.replace(/([A-Z])/g, ' $1').toLowerCase().trim().split(/\s+/);
-              for (var pcwi = 0; pcwi < preCheckPhaseIds.length; pcwi++) {
-                var pcodeWords = preCheckPhaseIds[pcwi].replace(/([A-Z])/g, ' $1').toLowerCase().trim().split(/\s+/);
-                var pcOverlap = 0;
-                for (var pswi = 0; pswi < ppidWords.length; pswi++) {
-                  if (ppidWords[pswi].length >= 3 && pcodeWords.indexOf(ppidWords[pswi]) >= 0) pcOverlap++;
-                }
-                if (pcOverlap >= Math.max(2, Math.floor(ppidWords.length * 0.5))) {
-                  preCheckImplemented++;
-                  ppidFound = true;
-                  break;
-                }
-              }
-            }
-
-            var preCheckCoverage = preCheckImplemented / specPhases.length;
+            var preCoverageInfo = assemblyPlanContracts.computePhaseCoverage(preCheckAllCode, expectedPhaseIds);
+            var preCheckImplemented = preCoverageInfo.implementedCount;
+            var preCheckCoverage = preCoverageInfo.coverage;
             if (preCheckCoverage < 0.8) {
-              // Build missing phase list using same fuzzy logic
-              var missingPhaseIds = [];
-              for (var mpi = 0; mpi < specPhases.length; mpi++) {
-                var mppid = specPhases[mpi].phaseId;
-                var mppidNorm = mppid.toLowerCase().replace(/[_\s-]/g, '');
-                var mppidFound = preCheckCodeLower.indexOf('"' + mppid.toLowerCase() + '"') >= 0;
-                if (!mppidFound) {
-                  for (var mpci = 0; mpci < preCheckPhaseIdsLower.length; mpci++) {
-                    if (preCheckPhaseIdsLower[mpci] === mppidNorm ||
-                        preCheckPhaseIdsLower[mpci].indexOf(mppidNorm) >= 0 ||
-                        mppidNorm.indexOf(preCheckPhaseIdsLower[mpci]) >= 0) {
-                      mppidFound = true;
-                      break;
-                    }
-                  }
-                }
-                if (!mppidFound) {
-                  // Also check level-3 keyword overlap before marking missing
-                  var mppidWords = mppid.replace(/([A-Z])/g, ' $1').toLowerCase().trim().split(/\s+/);
-                  for (var mpcwi = 0; mpcwi < preCheckPhaseIds.length && !mppidFound; mpcwi++) {
-                    var mpcodeWords = preCheckPhaseIds[mpcwi].replace(/([A-Z])/g, ' $1').toLowerCase().trim().split(/\s+/);
-                    var mpcOverlap = 0;
-                    for (var mpswi = 0; mpswi < mppidWords.length; mpswi++) {
-                      if (mppidWords[mpswi].length >= 3 && mpcodeWords.indexOf(mppidWords[mpswi]) >= 0) mpcOverlap++;
-                    }
-                    if (mpcOverlap >= Math.max(2, Math.floor(mppidWords.length * 0.5))) {
-                      mppidFound = true;
-                    }
-                  }
-                }
-                if (!mppidFound) missingPhaseIds.push(mppid);
-              }
-              ctx.addLog('review', 'Phase coverage pre-check (round ' + round + '): ' + preCheckImplemented + '/' + specPhases.length +
+              ctx.addLog('review', 'Phase coverage pre-check (round ' + round + '): ' + preCheckImplemented + '/' + expectedPhaseIds.length +
                 ' (' + Math.round(preCheckCoverage * 100) + '%) — forcing recode without LLM review');
               reviewPromise = Promise.resolve({
                 passed: false,
-                feedback: 'PHASE COVERAGE FAILURE: Only ' + preCheckImplemented + '/' + specPhases.length +
-                  ' spec phases have matching AddCompletedPhase() calls (' + Math.round(preCheckCoverage * 100) + '%).\n' +
-                  'You MUST call AddCompletedPhase("phaseId") using the EXACT phaseId strings from the spec ' +
-                  'for EACH phase when that phase\'s objective is completed by the player.\n' +
+                feedback: 'PHASE COVERAGE FAILURE: Only ' + preCheckImplemented + '/' + expectedPhaseIds.length +
+                  ' expected phases from the ' + expectedPhaseSource + ' contract have matching AddCompletedPhase() calls (' + Math.round(preCheckCoverage * 100) + '%).\n' +
+                  'You MUST call AddCompletedPhase("phaseId") using the EXACT phaseId strings from the active ' + expectedPhaseSource +
+                  ' contract for EACH phase when that phase\'s objective is completed by the player.\n' +
                   'Missing phases:\n' +
-                  missingPhaseIds.map(function(pid) { return '  - ' + pid; }).join('\n') + '\n\n' +
-                  'Every phase listed in the blueprint spec MUST have a corresponding ' +
+                  preCoverageInfo.missingPhaseIds.map(function(pid) { return '  - ' + pid; }).join('\n') + '\n\n' +
+                  'Every phase listed in the active phase contract MUST have a corresponding ' +
                   'AddCompletedPhase("phaseId") call somewhere in the game logic. ' +
                   'Do NOT omit any phase. Do NOT use placeholder comments. ' +
-                  'Do NOT use generic names like "phase1" or "phase2" — use the exact phaseId string from the spec.',
-                issues: missingPhaseIds.map(function(pid) {
+                  'Do NOT use generic names like "phase1" or "phase2" — use the exact phaseId string from the active contract.',
+                issues: preCoverageInfo.missingPhaseIds.map(function(pid) {
                   return {
                     severity: 'critical',
                     message: 'Missing AddCompletedPhase("' + pid + '")',
                     rule: 'phase-coverage',
                   };
                 }),
-                criticalCount: missingPhaseIds.length,
+                criticalCount: preCoverageInfo.missingPhaseIds.length,
                 source: 'phase-precheck',
               });
             }
@@ -1684,6 +1607,7 @@ module.exports = {
               taskId: ctx.taskId,
               log: function(msg) { ctx.addLog('review', msg); },
               extraFiles: reviewExtraFiles,
+              assemblyPlanSummary: reviewPlanSummary,
             });
           } else if (codeReviewer && hasLegacyReviewerApiKey()) {
             // Guard: only invoke the legacy GPT-5.4 reviewer when OPENAI_API_KEY is
@@ -1695,6 +1619,7 @@ module.exports = {
               taskId: ctx.taskId,
               log: function(msg) { ctx.addLog('review', msg); },
               poolNameMap: reviewPoolNameMap,
+              assemblyPlanSummary: reviewPlanSummary,
             });
           } else {
             // Reached when:
@@ -1730,6 +1655,7 @@ module.exports = {
               taskId: ctx.taskId,
               log: function(msg) { ctx.addLog('review', msg); },
               poolNameMap: reviewPoolNameMap,
+              assemblyPlanSummary: reviewPlanSummary,
             });
           }
           return reviewResult;
@@ -1924,87 +1850,13 @@ module.exports = {
 
       // Phase coverage gate: block if < 80% of spec phases are implemented
       // P1: Use normalized fuzzy matching to avoid false negatives from phaseId naming differences
-      var specs = ctx.blueprint.specs || [];
-      if (specs.length > 0) {
-        var code = ctx.csCode || '';
-        // Also check extra files (partial classes)
-        var allCode = code;
-        if (ctx.extraFiles) {
-          for (var efk in ctx.extraFiles) {
-            allCode += '\n' + ctx.extraFiles[efk];
-          }
-        }
-        var codeLower = allCode.toLowerCase();
-
-        // Extract all phaseId strings from AddCompletedPhase/ReportPhase calls in actual code
-        var codePhaseIds = [];
-        var phaseIdMatches = allCode.match(/(?:AddCompletedPhase|ReportPhase)\s*\(\s*"([^"]+)"/g) || [];
-        for (var pmi = 0; pmi < phaseIdMatches.length; pmi++) {
-          var idMatch = phaseIdMatches[pmi].match(/"([^"]+)"/);
-          if (idMatch) codePhaseIds.push(idMatch[1]);
-        }
-        var codePhaseIdsLower = codePhaseIds.map(function(id) { return id.toLowerCase().replace(/[_\s-]/g, ''); });
-
-        var implementedCount = 0;
-        for (var si = 0; si < specs.length; si++) {
-          var pid = specs[si].phaseId;
-          // Level 1: exact match
-          if (codeLower.indexOf('"' + pid.toLowerCase() + '"') >= 0) {
-            implementedCount++;
-            continue;
-          }
-          // Level 2: normalized match (strip underscores, case-insensitive)
-          var pidNorm = pid.toLowerCase().replace(/[_\s-]/g, '');
-          var foundNorm = false;
-          for (var cpi = 0; cpi < codePhaseIdsLower.length; cpi++) {
-            if (codePhaseIdsLower[cpi] === pidNorm ||
-                codePhaseIdsLower[cpi].indexOf(pidNorm) >= 0 ||
-                pidNorm.indexOf(codePhaseIdsLower[cpi]) >= 0) {
-              foundNorm = true;
-              break;
-            }
-          }
-          if (foundNorm) {
-            implementedCount++;
-            continue;
-          }
-          // Level 3: keyword overlap — split camelCase into words and check overlap
-          var specWords = pid.replace(/([A-Z])/g, ' $1').toLowerCase().trim().split(/\s+/);
-          for (var cwi = 0; cwi < codePhaseIds.length; cwi++) {
-            var codeWords = codePhaseIds[cwi].replace(/([A-Z])/g, ' $1').toLowerCase().trim().split(/\s+/);
-            var overlap = 0;
-            for (var swi = 0; swi < specWords.length; swi++) {
-              if (specWords[swi].length >= 3 && codeWords.indexOf(specWords[swi]) >= 0) overlap++;
-            }
-            if (overlap >= Math.max(2, Math.floor(specWords.length * 0.5))) {
-              implementedCount++;
-              foundNorm = true;
-              break;
-            }
-          }
-        }
-        var coverage = implementedCount / specs.length;
-        ctx.addLog('review', 'Phase coverage (fuzzy): ' + implementedCount + '/' + specs.length + ' (' + Math.round(coverage * 100) + '%)');
-        if (coverage < 0.8) {
-          var missingPhases = [];
-          for (var mi = 0; mi < specs.length; mi++) {
-            var mpid = specs[mi].phaseId;
-            var mpidNorm = mpid.toLowerCase().replace(/[_\s-]/g, '');
-            var found = codeLower.indexOf('"' + mpid.toLowerCase() + '"') >= 0;
-            if (!found) {
-              for (var mci = 0; mci < codePhaseIdsLower.length; mci++) {
-                if (codePhaseIdsLower[mci] === mpidNorm ||
-                    codePhaseIdsLower[mci].indexOf(mpidNorm) >= 0 ||
-                    mpidNorm.indexOf(codePhaseIdsLower[mci]) >= 0) {
-                  found = true;
-                  break;
-                }
-              }
-            }
-            if (!found) missingPhases.push(mpid);
-          }
-          throw new Error('Phase coverage too low: ' + implementedCount + '/' + specs.length +
-            ' (' + Math.round(coverage * 100) + '%). Missing: ' + missingPhases.join(', '));
+      var expectedPhaseIds = assemblyPlanContracts.collectExpectedPhaseIds(ctx.blueprint);
+      if (expectedPhaseIds.length > 0) {
+        var coverageInfo = assemblyPlanContracts.computePhaseCoverage(assemblyPlanContracts.buildAggregateCodeFromContext(ctx), expectedPhaseIds);
+        ctx.addLog('review', 'Phase coverage (fuzzy): ' + coverageInfo.implementedCount + '/' + coverageInfo.expectedPhaseIds.length + ' (' + Math.round(coverageInfo.coverage * 100) + '%)');
+        if (coverageInfo.coverage < 0.8) {
+          throw new Error('Phase coverage too low: ' + coverageInfo.implementedCount + '/' + coverageInfo.expectedPhaseIds.length +
+            ' (' + Math.round(coverageInfo.coverage * 100) + '%). Missing: ' + coverageInfo.missingPhaseIds.join(', '));
         }
       }
 

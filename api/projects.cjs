@@ -4,6 +4,7 @@
  */
 var fs = require('fs');
 var { projectSM } = require('../lib/state-machine.cjs');
+var { ensureProjectPlans, writePlansArtifact } = require('../adapters/assembly-plan-pipeline.cjs');
 
 /**
  * Validate project state transition. Returns error string or null if valid.
@@ -50,7 +51,8 @@ module.exports.init = function(ctx) {
 
   // Strip base64 image data from blueprint for agent consumption
   function exportBlueprintForAgent(project) {
-    var bp = JSON.parse(JSON.stringify(project.blueprint));
+    ensureProjectPlans(project);
+    var bp = JSON.parse(JSON.stringify(project.blueprint || {}));
     var nodes = bp.nodes || [];
     for (var i = 0; i < nodes.length; i++) {
       var d = nodes[i].data;
@@ -88,8 +90,10 @@ module.exports.init = function(ctx) {
         sceneSheet: project.sceneSheet || {},
         config: project.storyboardConfig || {},
       },
-      phases: project.phases || [],
+      phases: (project.phases && project.phases.length > 0) ? project.phases : (bp.phases || []),
       specs: (Array.isArray(project.specs) && project.specs.length > 0) ? project.specs : [],
+      plans: project.plans || null,
+      planValidation: project.planValidation || null,
       exportedAt: new Date().toISOString()
     };
   }
@@ -195,9 +199,20 @@ function inferEntityDisplayName(desc) {
         projectName: data.projectName || (project.blueprint && project.blueprint.projectName) || '',
       };
       // V4 全局设置
-      if (data.globalSettings !== undefined) project.blueprint.globalSettings = data.globalSettings;
+      if (data.globalSettings !== undefined) {
+        project.blueprint.globalSettings = data.globalSettings;
+        project.globalSettings = data.globalSettings;
+      }
       // V4 实体列表
-      if (data.entities !== undefined) project.blueprint.entities = data.entities;
+      if (data.entities !== undefined) {
+        project.blueprint.entities = data.entities;
+        project.entities = data.entities;
+      }
+      if (data.phases !== undefined) {
+        project.blueprint.phases = data.phases;
+        project.phases = data.phases;
+      }
+      ensureProjectPlans(project);
       project.updatedAt = new Date().toISOString();
       writeProject(project);
       sendJSON(res, { success: true, updatedAt: project.updatedAt });
@@ -395,6 +410,8 @@ function inferEntityDisplayName(desc) {
         entityMap: entityMap,
         status: project.status,
         projectName: project.name,
+        plans: project.plans || null,
+        planValidation: project.planValidation || null,
       });
     },
 
@@ -413,11 +430,27 @@ function inferEntityDisplayName(desc) {
         }
       } catch(e) { /* no body or parse error, keep existing specs */ }
 
+      ensureProjectPlans(project);
+      project.planReview = {
+        confirmedAt: new Date().toISOString(),
+        specCount: Array.isArray(project.specs) ? project.specs.length : 0,
+        moduleInstanceCount: project.plans && project.plans.assemblyPlan && Array.isArray(project.plans.assemblyPlan.moduleInstances)
+          ? project.plans.assemblyPlan.moduleInstances.length
+          : 0,
+        cuaStepCount: project.plans && project.plans.cuaPlan && Array.isArray(project.plans.cuaPlan.steps)
+          ? project.plans.cuaPlan.steps.length
+          : 0,
+        unresolvedCount: project.plans && project.plans.assemblyPlan && Array.isArray(project.plans.assemblyPlan.unresolved)
+          ? project.plans.assemblyPlan.unresolved.length
+          : 0,
+      };
+
       // Save specs for CUA verification
       try {
         var specsDir = path.join(WEBGL_DIR, id);
         fs.mkdirSync(specsDir, { recursive: true });
         fs.writeFileSync(path.join(specsDir, 'specs.json'), JSON.stringify(project.specs, null, 2), 'utf-8');
+        writePlansArtifact(specsDir, project.plans);
         console.log('[confirm-specs] Specs saved for CUA verification: ' + project.specs.length + ' phases');
       } catch(e) {
         console.error('[confirm-specs] Failed to save specs for CUA:', e.message);

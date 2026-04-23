@@ -1,0 +1,436 @@
+{
+  "version": "runtime-modules-v1",
+  "description": "Machine-readable runtime module registry for assembly-first pipeline.",
+  "items": [
+    {
+      "id": "visual_binding",
+      "level": "L1",
+      "description": "Binds pool object, position, scale, and visibility behavior for an entity.",
+      "params": ["pool", "position", "scale", "spawnStyle"],
+      "ownerFiles": ["GameFlowManagerMain.Scene.cs"],
+      "statesWritten": ["<entity>.visibleState"],
+      "autoplayMirror": "n/a",
+      "observableFeedback": ["entity_visible", "entity_hidden", "entity_position_changed"],
+      "sourceAssets": ["skeleton-generator.cjs", "PlaceObj", "HideObj", "SetScale"]
+    },
+    {
+      "id": "player_input_joystick",
+      "level": "L1",
+      "description": "Moves player using joystick or directional input.",
+      "params": ["speed"],
+      "ownerFiles": ["GameFlowManagerMain.Input.cs"],
+      "statesWritten": ["player.position"],
+      "autoplayMirror": "mirrored",
+      "observableFeedback": ["player_position_changed"],
+      "sourceAssets": ["GFM_Joystick", "MovePlayer"]
+    },
+    {
+      "id": "player_input_tap",
+      "level": "L1",
+      "description": "Processes tap input for click-driven interactions.",
+      "params": ["raycastLayer"],
+      "ownerFiles": ["GameFlowManagerMain.Input.cs"],
+      "statesWritten": ["input.tapState"],
+      "autoplayMirror": "mirrored",
+      "observableFeedback": ["tap_registered"],
+      "sourceAssets": ["Input.GetMouseButtonDown", "Phase_OnTap"]
+    },
+    {
+      "id": "move_to_target",
+      "level": "L1",
+      "description": "Moves an entity toward a target until stop range is met.",
+      "params": ["target", "speed", "stopRange"],
+      "ownerFiles": ["GameFlowManagerMain.Flow.cs"],
+      "statesWritten": ["<entity>.position"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["entity_position_changed"],
+      "sourceAssets": ["GFM_Player", "Vector3.MoveTowards", "GFM_AutoPlay"]
+    },
+    {
+      "id": "proximity_trigger",
+      "level": "L1",
+      "description": "Triggers when actor or entity enters a radius around target.",
+      "params": ["target", "radius"],
+      "ownerFiles": ["GameFlowManagerMain.Flow.cs"],
+      "statesWritten": ["<entity>.triggered"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["distance_to_target_below_threshold"],
+      "sourceAssets": ["IsNear"]
+    },
+    {
+      "id": "click_trigger",
+      "level": "L1",
+      "description": "Triggers when player taps a target.",
+      "params": ["target"],
+      "ownerFiles": ["GameFlowManagerMain.Input.cs"],
+      "statesWritten": ["<entity>.clicked"],
+      "autoplayMirror": "mirrored",
+      "observableFeedback": ["tap_registered"],
+      "sourceAssets": ["cost-gated-click.cjs", "Input.GetMouseButtonDown"]
+    },
+    {
+      "id": "drag_trigger",
+      "level": "L1",
+      "description": "Tracks dragging an object from a source to a drop target.",
+      "params": ["from", "to", "dropRadius"],
+      "ownerFiles": ["GameFlowManagerMain.Input.cs"],
+      "statesWritten": ["<entity>.dragState"],
+      "autoplayMirror": "limited",
+      "observableFeedback": ["drag_path_completed", "entity_position_changed"],
+      "sourceAssets": ["interaction-verbs.drag"]
+    },
+    {
+      "id": "hold_trigger",
+      "level": "L1",
+      "description": "Tracks sustained press on a target.",
+      "params": ["target", "duration"],
+      "ownerFiles": ["GameFlowManagerMain.Input.cs"],
+      "statesWritten": ["<entity>.holdState"],
+      "autoplayMirror": "mirrored",
+      "observableFeedback": ["tap_registered"],
+      "sourceAssets": ["interaction-verbs.hold"]
+    },
+    {
+      "id": "cost_gate",
+      "level": "L1",
+      "description": "Consumes resources as a prerequisite for another action.",
+      "params": ["resource", "amount"],
+      "ownerFiles": ["GameFlowManagerMain.Resource.cs"],
+      "statesWritten": ["economy.gold", "economy.resources"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["resource_decremented"],
+      "sourceAssets": ["TrySpend", "cost-gated-click.cjs"]
+    },
+    {
+      "id": "inventory_wallet",
+      "level": "L1",
+      "description": "Owns inventory and economy resource state.",
+      "params": ["resourceKinds"],
+      "ownerFiles": ["GameFlowManagerMain.Resource.cs"],
+      "statesWritten": ["economy.resources", "economy.gold"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["resource_incremented", "resource_decremented", "score_text_changed"],
+      "sourceAssets": ["AddResource", "TrySpend", "AddGold", "GetResource"]
+    },
+    {
+      "id": "build_progress",
+      "level": "L1",
+      "description": "Advances an entity from waiting to building to built.",
+      "params": ["buildTime"],
+      "ownerFiles": ["GameFlowManagerMain.Flow.cs"],
+      "statesWritten": ["<entity>.buildState", "<entity>.buildTimer"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["entity_state_equals_built"],
+      "sourceAssets": ["Buildable template", "build: entities"]
+    },
+    {
+      "id": "upgrade_progress",
+      "level": "L1",
+      "description": "Advances an entity upgrade level and unlock effects.",
+      "params": ["levels", "costs"],
+      "ownerFiles": ["GameFlowManagerMain.Flow.cs"],
+      "statesWritten": ["<entity>.upgradeLevel"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["upgrade_level_changed", "visual_variant_changed"],
+      "sourceAssets": ["upgrade-logic.cjs"]
+    },
+    {
+      "id": "collect_on_near",
+      "level": "L1",
+      "description": "Collects an item when actor enters collection range.",
+      "params": ["resource", "item", "count", "range"],
+      "ownerFiles": ["GameFlowManagerMain.Resource.cs"],
+      "statesWritten": ["economy.resources"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["resource_incremented", "source_hidden_or_moved"],
+      "sourceAssets": ["collect-interaction.cjs"]
+    },
+    {
+      "id": "deliver_to_target",
+      "level": "L1",
+      "description": "Consumes carried inventory at a target and grants reward.",
+      "params": ["resource", "target", "reward"],
+      "ownerFiles": ["GameFlowManagerMain.Resource.cs"],
+      "statesWritten": ["economy.resources", "economy.gold"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["inventory_decremented", "reward_incremented", "score_text_changed"],
+      "sourceAssets": ["deliver-sell.cjs"]
+    },
+    {
+      "id": "spawn_once",
+      "level": "L1",
+      "description": "Spawns an entity immediately at a given position.",
+      "params": ["entity", "position"],
+      "ownerFiles": ["GameFlowManagerMain.Scene.cs"],
+      "statesWritten": ["<entity>.spawnState"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["downstream_entity_visible"],
+      "sourceAssets": ["PlaceObj", "GameObject.Find"]
+    },
+    {
+      "id": "spawn_interval",
+      "level": "L1",
+      "description": "Spawns entities at intervals while respecting max alive constraints.",
+      "params": ["entity", "interval", "maxAlive", "position"],
+      "ownerFiles": ["GameFlowManagerMain.Flow.cs"],
+      "statesWritten": ["spawn.timer", "spawn.aliveCount"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["downstream_entity_visible"],
+      "sourceAssets": ["npc-behaviors/spawner.cjs"]
+    },
+    {
+      "id": "target_acquire",
+      "level": "L1",
+      "description": "Finds and stores a valid target in range.",
+      "params": ["targetTag", "range"],
+      "ownerFiles": ["GameFlowManagerMain.Flow.cs"],
+      "statesWritten": ["<entity>.currentTarget"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["entity_state_changed"],
+      "sourceAssets": ["npc-behaviors/chase-attack.cjs", "npc-behaviors/ranged-shooter.cjs"]
+    },
+    {
+      "id": "projectile_emit",
+      "level": "L1",
+      "description": "Emits and updates projectiles toward acquired targets.",
+      "params": ["projectile", "speed", "damage", "cooldown"],
+      "ownerFiles": ["GameFlowManagerMain.Flow.cs"],
+      "statesWritten": ["projectile.count", "projectile.cooldown"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["projectile_visible"],
+      "sourceAssets": ["npc-behaviors/ranged-shooter.cjs", "Projectile template"]
+    },
+    {
+      "id": "cooldown",
+      "level": "L1",
+      "description": "Maintains a reusable cooldown timer for repeated actions.",
+      "params": ["seconds"],
+      "ownerFiles": ["GameFlowManagerMain.Flow.cs"],
+      "statesWritten": ["<entity>.cooldownTimer"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["entity_state_changed"],
+      "sourceAssets": ["npc-behaviors/ranged-shooter.cjs"]
+    },
+    {
+      "id": "damageable",
+      "level": "L1",
+      "description": "Owns hp, death, and damage handling for an entity.",
+      "params": ["hp", "maxHp"],
+      "ownerFiles": ["GameFlowManagerMain.Flow.cs"],
+      "statesWritten": ["<entity>.hp", "<entity>.deathState"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["target_hp_decreased_or_target_dead", "target_removed_or_hidden"],
+      "sourceAssets": ["Damageable template", "npc-behaviors/chase-attack.cjs"]
+    },
+    {
+      "id": "apply_damage",
+      "level": "L1",
+      "description": "Applies damage into a damageable entity.",
+      "params": ["amount", "source"],
+      "ownerFiles": ["GameFlowManagerMain.Flow.cs"],
+      "statesWritten": ["<entity>.hp"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["target_hp_decreased_or_target_dead"],
+      "sourceAssets": ["npc-behaviors/chase-attack.cjs", "npc-behaviors/ranged-shooter.cjs"]
+    },
+    {
+      "id": "on_death_drop",
+      "level": "L1",
+      "description": "Spawns loot or rewards after entity death.",
+      "params": ["item", "count"],
+      "ownerFiles": ["GameFlowManagerMain.Flow.cs"],
+      "statesWritten": ["<entity>.deathState"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["loot_visible"],
+      "sourceAssets": ["entity-architecture-proposal.md", "qmjs-v4-blueprint.json"]
+    },
+    {
+      "id": "activate_targets",
+      "level": "L1",
+      "description": "Activates a list of dependent targets after an upstream action completes.",
+      "params": ["targets"],
+      "ownerFiles": ["GameFlowManagerMain.Flow.cs"],
+      "statesWritten": ["<target>.visibleState"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["downstream_entity_visible"],
+      "sourceAssets": ["phase-init.cjs"]
+    },
+    {
+      "id": "form_switch",
+      "level": "L1",
+      "description": "Switches current player form and related stats.",
+      "params": ["formId"],
+      "ownerFiles": ["GameFlowManagerMain.Flow.cs"],
+      "statesWritten": ["player.formId"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["entity_state_changed"],
+      "sourceAssets": ["form-auto-switch.cjs", "SwitchForm"]
+    },
+    {
+      "id": "phase_gate_timer",
+      "level": "L1",
+      "description": "Adds explicit duration gate to a phase without making it the sole trigger.",
+      "params": ["seconds"],
+      "ownerFiles": ["GameFlowManagerMain.Flow.cs"],
+      "statesWritten": ["phase.timerState"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["phase_advanced"],
+      "sourceAssets": ["phaseTimer", "AUTO_PLAY_PHASE_DURATION"]
+    },
+    {
+      "id": "cta_finish",
+      "level": "L1",
+      "description": "Shows final CTA and ends the game in the allowed order.",
+      "params": ["target"],
+      "ownerFiles": ["GameFlowManagerMain.UI.cs"],
+      "statesWritten": ["game.endState"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["downstream_entity_visible"],
+      "sourceAssets": ["ShowCTA", "cta-handler.cjs"]
+    },
+    {
+      "id": "guide_ui",
+      "level": "L1",
+      "description": "Writes guide text to the prebuilt guide UI.",
+      "params": ["text"],
+      "ownerFiles": ["GameFlowManagerMain.UI.cs"],
+      "statesWritten": ["ui.guideText"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["guide_text_visible"],
+      "sourceAssets": ["guideText", "set_guide"]
+    },
+    {
+      "id": "floating_text_feedback",
+      "level": "L1",
+      "description": "Shows floating feedback text near actor or world anchor.",
+      "params": ["text", "color", "anchor"],
+      "ownerFiles": ["GameFlowManagerMain.UI.cs"],
+      "statesWritten": ["ui.floatingTextState"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["floating_text_visible"],
+      "sourceAssets": ["ShowFloatingText", "inventory-feedback.cjs"]
+    },
+    {
+      "id": "score_feedback",
+      "level": "L1",
+      "description": "Updates score or reward UI feedback.",
+      "params": ["resource", "label"],
+      "ownerFiles": ["GameFlowManagerMain.UI.cs"],
+      "statesWritten": ["ui.scoreText"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["score_text_changed"],
+      "sourceAssets": ["score-display.cjs", "scoreText"]
+    },
+    {
+      "id": "world_label",
+      "level": "L1",
+      "description": "Shows a world-space label attached to an entity.",
+      "params": ["text", "target"],
+      "ownerFiles": ["GameFlowManagerMain.UI.cs"],
+      "statesWritten": ["ui.worldLabelState"],
+      "autoplayMirror": "n/a",
+      "observableFeedback": ["guide_text_visible"],
+      "sourceAssets": ["GFM_Billboard", "showLabel"]
+    },
+    {
+      "id": "camera_focus",
+      "level": "L1",
+      "description": "Focuses the camera on a target position.",
+      "params": ["target"],
+      "ownerFiles": ["GameFlowManagerMain.Flow.cs", "GameFlowManagerMain.Scene.cs"],
+      "statesWritten": ["camera.focusTarget"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["camera_orientation_changed"],
+      "sourceAssets": ["GFM_CameraController.LookAt"]
+    },
+    {
+      "id": "camera_lift",
+      "level": "L1",
+      "description": "Raises or pulls back camera height over duration.",
+      "params": ["amount", "duration"],
+      "ownerFiles": ["GameFlowManagerMain.Flow.cs", "GameFlowManagerMain.Scene.cs"],
+      "statesWritten": ["camera.heightOffset"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["camera_height_changed_or_view_widened"],
+      "sourceAssets": ["GFM_CameraController (needs extension)"]
+    },
+    {
+      "id": "camera_zoom",
+      "level": "L1",
+      "description": "Adjusts camera zoom or orthographic size.",
+      "params": ["value", "duration"],
+      "ownerFiles": ["GameFlowManagerMain.Flow.cs", "GameFlowManagerMain.Scene.cs"],
+      "statesWritten": ["camera.zoomValue"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["camera_zoom_changed"],
+      "sourceAssets": ["GFM_CameraController (needs extension)"]
+    },
+    {
+      "id": "highlight_target",
+      "level": "L1",
+      "description": "Highlights a target using overlay or variant emphasis.",
+      "params": ["target", "style"],
+      "ownerFiles": ["GameFlowManagerMain.UI.cs"],
+      "statesWritten": ["ui.highlightState"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["highlight_overlay_visible"],
+      "sourceAssets": ["guide UI overlay", "visual variant swap"]
+    },
+    {
+      "id": "visual_variant_swap",
+      "level": "L1",
+      "description": "Swaps visible object to another pool-backed visual variant.",
+      "params": ["entity", "variantId"],
+      "ownerFiles": ["GameFlowManagerMain.Scene.cs"],
+      "statesWritten": ["<entity>.visualVariant"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["visual_variant_changed"],
+      "sourceAssets": ["pool variant swap", "HideObj", "PlaceObj"]
+    },
+    {
+      "id": "pop_animation",
+      "level": "L1",
+      "description": "Applies visible punch/pop animation via scale or position deltas.",
+      "params": ["target", "intensity", "duration"],
+      "ownerFiles": ["GameFlowManagerMain.Flow.cs"],
+      "statesWritten": ["<entity>.animationState"],
+      "autoplayMirror": "supported",
+      "observableFeedback": ["visual_variant_changed"],
+      "sourceAssets": ["observable move fallback"]
+    }
+  ],
+  "archetypes": [
+    {
+      "id": "buildable_station",
+      "modules": ["visual_binding", "proximity_trigger", "cost_gate", "build_progress", "activate_targets"]
+    },
+    {
+      "id": "collectible_pickup",
+      "modules": ["visual_binding", "collect_on_near"]
+    },
+    {
+      "id": "carry_deliver_loop",
+      "modules": ["collect_on_near", "inventory_wallet", "deliver_to_target", "score_feedback"]
+    },
+    {
+      "id": "tap_shooter",
+      "modules": ["click_trigger", "target_acquire", "projectile_emit", "cooldown"]
+    },
+    {
+      "id": "basic_enemy",
+      "modules": ["visual_binding", "move_to_target", "damageable", "on_death_drop"]
+    },
+    {
+      "id": "enemy_spawner",
+      "modules": ["spawn_interval"]
+    },
+    {
+      "id": "upgradeable_building",
+      "modules": ["click_trigger", "cost_gate", "upgrade_progress", "visual_variant_swap"]
+    },
+    {
+      "id": "cta_terminal",
+      "modules": ["guide_ui", "cta_finish"]
+    }
+  ]
+}

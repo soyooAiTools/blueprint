@@ -132,10 +132,25 @@ function writeSilentPass(ctx, cuaResult, extras) {
     interactionVars: (cuaResult && cuaResult.interactionVars) || (cuaResult && cuaResult.report && cuaResult.report.interactionVars) || null,
     screenshots: (cuaResult && cuaResult.screenshots) || (cuaResult && cuaResult.report && cuaResult.report.screenshots) || [],
     issuesHead: ((cuaResult && cuaResult.issues) || []).slice(0, 5),
+    signalCoverage: cuaResult && (cuaResult.signalCoverage || (cuaResult.report && cuaResult.report.signalCoverage)) || null,
+    planCoverage: cuaResult && (cuaResult.planCoverage || (cuaResult.report && cuaResult.report.planCoverage)) || null,
+    missingSignals: ((cuaResult && cuaResult.missingSignals) || (cuaResult && cuaResult.report && cuaResult.report.missingSignals) || []).slice(0, 12),
+    unsupportedSignals: ((cuaResult && cuaResult.unsupportedSignals) || (cuaResult && cuaResult.report && cuaResult.report.unsupportedSignals) || []).slice(0, 12),
     blueprintDigest: ctx.blueprint ? {
       name: ctx.blueprint.name || null,
       specsCount: (ctx.blueprint.specs || []).length,
       entitiesCount: (ctx.blueprint.entities || []).length,
+      cuaPlanSteps: ctx.blueprint.cuaPlanStepCount != null
+        ? ctx.blueprint.cuaPlanStepCount
+        : ((ctx.blueprint.plans && ctx.blueprint.plans.cuaPlan && ctx.blueprint.plans.cuaPlan.steps || []).length),
+      moduleInstanceCount: ctx.blueprint.moduleInstanceCount != null
+        ? ctx.blueprint.moduleInstanceCount
+        : ((ctx.blueprint.plans && ctx.blueprint.plans.assemblyPlan && ctx.blueprint.plans.assemblyPlan.moduleInstances || []).length),
+      assemblySlotCount: ctx.blueprint.assemblySlotCount != null ? ctx.blueprint.assemblySlotCount : 0,
+      customLogicScopeFixCount: ctx.blueprint.customLogicScopeFixCount != null ? ctx.blueprint.customLogicScopeFixCount : 0,
+      assemblyUnresolvedCount: ctx.blueprint.assemblyUnresolvedCount != null
+        ? ctx.blueprint.assemblyUnresolvedCount
+        : ((ctx.blueprint.plans && ctx.blueprint.plans.assemblyPlan && ctx.blueprint.plans.assemblyPlan.unresolved || []).length),
     } : null,
   };
 

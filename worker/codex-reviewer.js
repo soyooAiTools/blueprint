@@ -340,6 +340,9 @@ async function reviewCodeWithCodex(code, options) {
     }
   } catch(e) {}
   fs.writeFileSync(path.join(workDir, 'REVIEW_RULES.md'), REVIEW_RULES + dynamicRulesText);
+  if (options.assemblyPlanSummary) {
+    fs.writeFileSync(path.join(workDir, 'ASSEMBLY_PLAN.md'), String(options.assemblyPlanSummary || ''));
+  }
 
   // 构建 prompt — 告知 Codex 可能有多个 .cs 文件
   // Exclude GFM_Tools.cs from the companionNote list too — it is NOT a partial-class
@@ -349,9 +352,12 @@ async function reviewCodeWithCodex(code, options) {
     ? `\n\nIMPORTANT: This project uses C# partial classes. The following companion files are also present and compiled together with GameFlowManagerMain.cs:\n${extraFileNames.map(n => '- ' + n).join('\n')}\nMethods defined in these companion files are NOT missing — they are part of the same class. Do NOT flag them as "missing method definitions".`
     : '';
 
+  const planNote = options.assemblyPlanSummary
+    ? '\n\nIMPORTANT: This task also has a project-specific assembly contract. Read ASSEMBLY_PLAN.md and treat it as a hard requirement: phase IDs, owner files, state owners, and CUA steps must stay aligned with that contract.'
+    : '';
   const userPrompt = `You are a strict code reviewer for Luna (Unity-to-HTML5) playable ads.
 
-Read the file REVIEW_RULES.md to understand all the constraint rules, then read ALL .cs files in this directory and check GameFlowManagerMain.cs against every rule.${companionNote}
+Read the file REVIEW_RULES.md to understand all the constraint rules, then read ALL .cs files in this directory and check GameFlowManagerMain.cs against every rule.${companionNote}${planNote}
 
 Be adversarial — find ALL violations. Do NOT rubber-stamp.
 

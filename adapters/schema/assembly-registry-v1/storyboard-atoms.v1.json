@@ -1,0 +1,294 @@
+{
+  "version": "storyboard-atoms-v1",
+  "description": "Machine-readable storyboard atom registry for assembly-first pipeline.",
+  "items": [
+    {
+      "id": "move_to",
+      "category": "interaction",
+      "description": "Actor moves to target until within a stop range.",
+      "params": ["actor", "target", "range"],
+      "mapsToModules": ["player_input_joystick", "move_to_target", "proximity_trigger"],
+      "cuaAssertions": ["player_position_changed", "distance_to_target_below_threshold"],
+      "sourceVerbs": ["move_to"]
+    },
+    {
+      "id": "tap_target",
+      "category": "interaction",
+      "description": "Actor taps a target to trigger interaction.",
+      "params": ["actor", "target"],
+      "mapsToModules": ["player_input_tap", "click_trigger"],
+      "cuaAssertions": ["tap_registered", "entity_state_changed"],
+      "sourceVerbs": ["click"]
+    },
+    {
+      "id": "drag_to_target",
+      "category": "interaction",
+      "description": "Actor drags an object from source to destination target.",
+      "params": ["actor", "from", "to", "dropRadius"],
+      "mapsToModules": ["drag_trigger", "deliver_to_target"],
+      "cuaAssertions": ["drag_path_completed", "entity_state_changed"],
+      "sourceVerbs": ["drag"]
+    },
+    {
+      "id": "hold_target",
+      "category": "interaction",
+      "description": "Actor holds on a target for a minimum duration.",
+      "params": ["actor", "target", "duration"],
+      "mapsToModules": ["hold_trigger"],
+      "cuaAssertions": ["tap_registered", "entity_state_changed"],
+      "sourceVerbs": ["hold"]
+    },
+    {
+      "id": "collect_nearby",
+      "category": "interaction",
+      "description": "Actor collects an item when near the source.",
+      "params": ["actor", "target", "item", "count"],
+      "mapsToModules": ["collect_on_near", "inventory_wallet"],
+      "cuaAssertions": ["resource_incremented", "source_hidden_or_moved"],
+      "sourceVerbs": ["collect"]
+    },
+    {
+      "id": "deliver_to",
+      "category": "interaction",
+      "description": "Actor delivers items to a target building or sell point.",
+      "params": ["actor", "item", "target"],
+      "mapsToModules": ["deliver_to_target", "inventory_wallet", "score_feedback"],
+      "cuaAssertions": ["inventory_decremented", "reward_incremented", "score_text_changed"],
+      "sourceVerbs": ["deliver"]
+    },
+    {
+      "id": "spend_resource",
+      "category": "interaction",
+      "description": "Consumes a resource amount as a gate before another action.",
+      "params": ["resource", "amount", "target"],
+      "mapsToModules": ["cost_gate", "inventory_wallet"],
+      "cuaAssertions": ["resource_decremented"],
+      "sourceVerbs": ["spend"]
+    },
+    {
+      "id": "build_entity",
+      "category": "interaction",
+      "description": "Builds a target entity through a gated progress action.",
+      "params": ["actor", "target"],
+      "mapsToModules": ["cost_gate", "build_progress", "activate_targets"],
+      "cuaAssertions": ["resource_decremented", "entity_state_equals_built", "downstream_entity_visible"],
+      "sourceVerbs": ["build"]
+    },
+    {
+      "id": "upgrade_entity",
+      "category": "interaction",
+      "description": "Upgrades a target entity to a higher level.",
+      "params": ["actor", "target", "level"],
+      "mapsToModules": ["click_trigger", "cost_gate", "upgrade_progress", "visual_variant_swap"],
+      "cuaAssertions": ["resource_decremented", "upgrade_level_changed", "visual_variant_changed"],
+      "sourceVerbs": ["upgrade"]
+    },
+    {
+      "id": "attack_target",
+      "category": "interaction",
+      "description": "Performs an attack against a target.",
+      "params": ["actor", "target", "mode"],
+      "mapsToModules": ["target_acquire", "projectile_emit", "apply_damage"],
+      "cuaAssertions": ["projectile_visible", "target_hp_decreased_or_target_dead"],
+      "sourceVerbs": ["attack"]
+    },
+    {
+      "id": "defeat_target",
+      "category": "interaction",
+      "description": "Represents the defeat of a target enemy or boss.",
+      "params": ["target"],
+      "mapsToModules": ["damageable", "on_death_drop"],
+      "cuaAssertions": ["target_removed_or_hidden", "loot_visible"],
+      "sourceVerbs": ["defeat", "defeat_count"]
+    },
+    {
+      "id": "defend_duration",
+      "category": "interaction",
+      "description": "Defend for a duration while waves or threats are active.",
+      "params": ["duration"],
+      "mapsToModules": ["spawn_interval", "damageable", "phase_gate_timer"],
+      "cuaAssertions": ["phase_advanced"],
+      "sourceVerbs": ["defend"]
+    },
+    {
+      "id": "activate_entity",
+      "category": "state",
+      "description": "Makes an entity appear or become active in scene.",
+      "params": ["entity"],
+      "mapsToModules": ["visual_binding", "spawn_once"],
+      "cuaAssertions": ["downstream_entity_visible"],
+      "sourceVerbs": ["appear"]
+    },
+    {
+      "id": "deactivate_entity",
+      "category": "state",
+      "description": "Hides or deactivates an entity from active play space.",
+      "params": ["entity"],
+      "mapsToModules": ["visual_binding"],
+      "cuaAssertions": ["target_removed_or_hidden"],
+      "sourceVerbs": ["disappear"]
+    },
+    {
+      "id": "set_state",
+      "category": "state",
+      "description": "Writes a business state field to a target value.",
+      "params": ["entity", "field", "value"],
+      "mapsToModules": ["build_progress", "upgrade_progress", "damageable", "phase_gate_timer"],
+      "cuaAssertions": ["entity_state_changed"],
+      "sourceVerbs": ["transform"]
+    },
+    {
+      "id": "add_resource",
+      "category": "state",
+      "description": "Adds a resource to the wallet or inventory.",
+      "params": ["resource", "amount"],
+      "mapsToModules": ["inventory_wallet"],
+      "cuaAssertions": ["resource_incremented"],
+      "sourceVerbs": []
+    },
+    {
+      "id": "remove_resource",
+      "category": "state",
+      "description": "Removes a resource from the wallet or inventory.",
+      "params": ["resource", "amount"],
+      "mapsToModules": ["inventory_wallet", "cost_gate"],
+      "cuaAssertions": ["resource_decremented"],
+      "sourceVerbs": []
+    },
+    {
+      "id": "add_score",
+      "category": "state",
+      "description": "Adds score, gold, or reward feedback after an action.",
+      "params": ["amount", "label"],
+      "mapsToModules": ["score_feedback", "inventory_wallet"],
+      "cuaAssertions": ["reward_incremented", "score_text_changed"],
+      "sourceVerbs": []
+    },
+    {
+      "id": "change_color",
+      "category": "state",
+      "description": "Changes the visible color or visual state through a variant swap.",
+      "params": ["entity", "variant"],
+      "mapsToModules": ["visual_variant_swap"],
+      "cuaAssertions": ["visual_variant_changed"],
+      "sourceVerbs": []
+    },
+    {
+      "id": "spawn_entity",
+      "category": "state",
+      "description": "Spawns an entity immediately or via a spawning source.",
+      "params": ["entity", "source", "position"],
+      "mapsToModules": ["spawn_once", "spawn_interval"],
+      "cuaAssertions": ["downstream_entity_visible"],
+      "sourceVerbs": ["appear"]
+    },
+    {
+      "id": "apply_damage",
+      "category": "state",
+      "description": "Applies direct damage to a target entity.",
+      "params": ["entity", "amount"],
+      "mapsToModules": ["apply_damage", "damageable"],
+      "cuaAssertions": ["target_hp_decreased_or_target_dead"],
+      "sourceVerbs": []
+    },
+    {
+      "id": "drop_loot",
+      "category": "state",
+      "description": "Drops a collectible or loot object after completion or death.",
+      "params": ["entity", "item", "count"],
+      "mapsToModules": ["on_death_drop", "spawn_once"],
+      "cuaAssertions": ["loot_visible"],
+      "sourceVerbs": []
+    },
+    {
+      "id": "switch_form",
+      "category": "state",
+      "description": "Switches player form, vehicle, or avatar variant.",
+      "params": ["formId"],
+      "mapsToModules": ["form_switch"],
+      "cuaAssertions": ["entity_state_changed"],
+      "sourceVerbs": []
+    },
+    {
+      "id": "camera_focus",
+      "category": "presentation",
+      "description": "Focuses camera on a target so it remains in main view.",
+      "params": ["target"],
+      "mapsToModules": ["camera_focus"],
+      "cuaAssertions": ["camera_orientation_changed"],
+      "sourceVerbs": []
+    },
+    {
+      "id": "camera_lift",
+      "category": "presentation",
+      "description": "Raises or pulls back the camera to widen view.",
+      "params": ["amount", "duration"],
+      "mapsToModules": ["camera_lift"],
+      "cuaAssertions": ["camera_height_changed_or_view_widened"],
+      "sourceVerbs": []
+    },
+    {
+      "id": "camera_zoom",
+      "category": "presentation",
+      "description": "Zooms camera in or out.",
+      "params": ["value", "duration"],
+      "mapsToModules": ["camera_zoom"],
+      "cuaAssertions": ["camera_zoom_changed"],
+      "sourceVerbs": []
+    },
+    {
+      "id": "highlight_target",
+      "category": "presentation",
+      "description": "Highlights a target with overlay, ring, or variant emphasis.",
+      "params": ["target", "style"],
+      "mapsToModules": ["highlight_target"],
+      "cuaAssertions": ["highlight_overlay_visible"],
+      "sourceVerbs": []
+    },
+    {
+      "id": "show_guide",
+      "category": "presentation",
+      "description": "Shows or updates guide text for the current step.",
+      "params": ["text"],
+      "mapsToModules": ["guide_ui"],
+      "cuaAssertions": ["guide_text_visible"],
+      "sourceVerbs": []
+    },
+    {
+      "id": "show_floating_text",
+      "category": "presentation",
+      "description": "Shows floating world-space or player-anchored feedback text.",
+      "params": ["text", "color", "anchor"],
+      "mapsToModules": ["floating_text_feedback"],
+      "cuaAssertions": ["floating_text_visible"],
+      "sourceVerbs": []
+    },
+    {
+      "id": "show_score_feedback",
+      "category": "presentation",
+      "description": "Shows score, gold, or reward UI feedback.",
+      "params": ["amount", "label"],
+      "mapsToModules": ["score_feedback"],
+      "cuaAssertions": ["score_text_changed"],
+      "sourceVerbs": []
+    },
+    {
+      "id": "play_pop_animation",
+      "category": "presentation",
+      "description": "Applies a visible pop or punch animation to a target.",
+      "params": ["target", "intensity", "duration"],
+      "mapsToModules": ["pop_animation"],
+      "cuaAssertions": ["visual_variant_changed"],
+      "sourceVerbs": []
+    },
+    {
+      "id": "show_world_label",
+      "category": "presentation",
+      "description": "Shows a world-space label attached to a target.",
+      "params": ["target", "text"],
+      "mapsToModules": ["world_label"],
+      "cuaAssertions": ["guide_text_visible"],
+      "sourceVerbs": []
+    }
+  ]
+}

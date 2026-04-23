@@ -300,6 +300,13 @@ module.exports = {
   },
   execute: function(ctx) {
     ctx.addLog('cua-verify', 'Starting CUA verification...');
+    var expectedPlanSteps = (ctx.blueprint && ctx.blueprint.plans && ctx.blueprint.plans.cuaPlan && ctx.blueprint.plans.cuaPlan.steps || []).length;
+    if (expectedPlanSteps > 0) {
+      ctx.addLog('cua-verify', 'Module-aware CUA plan active: ' + expectedPlanSteps + ' steps');
+      ctx.stageResults['cua-verify'] = Object.assign({}, ctx.stageResults['cua-verify'] || {}, {
+        expectedPlanSteps: expectedPlanSteps
+      });
+    }
     var cuaStartTime = Date.now();
     var buildUrl = ctx.workerConfig.buildUrl;
 
@@ -393,6 +400,32 @@ module.exports = {
           .then(function(cuaResult) {
             if (!cuaResult) return { done: false };
             try { fs.rmSync(cuaBuildDir, { recursive: true, force: true }); } catch(e) {}
+
+            var signalCoverage = cuaResult.signalCoverage || (cuaResult.report && cuaResult.report.signalCoverage) || null;
+            var planCoverage = cuaResult.planCoverage || (cuaResult.report && cuaResult.report.planCoverage) || null;
+            var signalValidationPassed = cuaResult.signalValidationPassed;
+            if (signalValidationPassed === undefined && cuaResult.report) {
+              signalValidationPassed = cuaResult.report.signalValidationPassed;
+            }
+            var missingSignals = cuaResult.missingSignals || (cuaResult.report && cuaResult.report.missingSignals) || [];
+            var unsupportedSignals = cuaResult.unsupportedSignals || (cuaResult.report && cuaResult.report.unsupportedSignals) || [];
+
+            ctx.stageResults['cua-verify'] = Object.assign({}, ctx.stageResults['cua-verify'] || {}, {
+              round: round,
+              planCoverage: planCoverage,
+              signalCoverage: signalCoverage,
+              signalValidationPassed: signalValidationPassed !== false,
+              missingSignalCount: missingSignals.length,
+              unsupportedSignalCount: unsupportedSignals.length,
+              missingSignals: missingSignals.slice(0, 12),
+              unsupportedSignals: unsupportedSignals.slice(0, 12),
+            });
+            if (signalCoverage || planCoverage) {
+              ctx.addLog('cua-verify', 'Plan/signal coverage: plan=' + (planCoverage || 'n/a') + ', signal=' + (signalCoverage || 'n/a'));
+            }
+            if (signalValidationPassed === false && missingSignals.length > 0) {
+              ctx.addLog('cua-verify', 'Signal validation failed: ' + missingSignals.slice(0, 8).join(', '));
+            }
 
             // Solid color detection — ALWAYS fail, never auto-pass.
             // A solid color screen means rendering is broken (no GPU, missing assets,
@@ -493,6 +526,11 @@ module.exports = {
                   round: round,
                   totalActions: cuaResult.totalActions !== undefined ? cuaResult.totalActions : -1,
                   silentPassSignals: silentSignals,
+                  planCoverage: planCoverage,
+                  signalCoverage: signalCoverage,
+                  signalValidationPassed: signalValidationPassed !== false,
+                  missingSignalCount: missingSignals.length,
+                  unsupportedSignalCount: unsupportedSignals.length,
                 } };
               }
             }
