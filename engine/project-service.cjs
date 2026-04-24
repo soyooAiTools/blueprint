@@ -6,7 +6,7 @@
 var fs = require('fs');
 var path = require('path');
 var { projectSM } = require('../lib/state-machine.cjs');
-var { clearCheckpoint } = require('../lib/checkpoint.cjs');
+var { clearCheckpoint, readCheckpoint, inferResumeStage } = require('../lib/checkpoint.cjs');
 var { ensureProjectPlans, writePlansArtifact } = require('../adapters/assembly-plan-pipeline.cjs');
 
 function toArray(value) {
@@ -74,6 +74,30 @@ function saveSpecsArtifacts(project, taskId, WEBGL_DIR) {
   }
 }
 
+function canReuseExtractedSpecs(project) {
+  if (!project) return false;
+  if (project.status !== 'failed' && project.status !== 'cancelled') return false;
+  if (toArray(project.storyboardFrames).length <= 0) return false;
+  if (toArray(project.specs).length <= 0) return false;
+  if (!project.plans || !project.plans.assemblyPlan || !project.plans.cuaPlan) return false;
+
+  var decision = getSpecReviewDecision(project);
+  return !decision.requiresManualReview;
+}
+
+function getCancelledResumeInfo(project) {
+  if (!project || project.status !== 'cancelled') return null;
+  var checkpoint = readCheckpoint(project.id);
+  if (!checkpoint) return null;
+  var resumeStage = inferResumeStage(checkpoint);
+  if (!resumeStage) return null;
+  return {
+    checkpoint: checkpoint,
+    resumeStage: resumeStage,
+    completedStages: toArray(checkpoint.completedStages),
+  };
+}
+
 function confirmProjectSpecs(project, opts, extra) {
   extra = extra || {};
   ensureProjectPlans(project);
@@ -137,7 +161,7 @@ async function submitProject(project, opts) {
   var WEBGL_DIR = opts.WEBGL_DIR;
 
   // Validate transition
-  var allowed = ['editing', 'feedback', 'failed'];
+  var allowed = ['editing', 'feedback', 'failed', 'cancelled'];
   if (allowed.indexOf(project.status) < 0) {
     throw new Error('当前状态「' + project.status + '」不允许提交');
   }
@@ -147,6 +171,8 @@ async function submitProject(project, opts) {
 
   var taskId = project.id;
   var isFeedbackResubmit = project.status === 'feedback';
+  var cancelledResume = getCancelledResumeInfo(project);
+  var isCancelledResume = !!cancelledResume;
   var hasStoryboard = project.storyboardFrames && project.storyboardFrames.length > 0;
 
   // Export blueprint (strip base64 images)
@@ -169,7 +195,7 @@ async function submitProject(project, opts) {
   // silently resume completedStages from it and skip codegen. Feedback
   // resubmits keep the checkpoint: those loops deliberately reuse earlier
   // stages and only re-run review + downstream.
-  if (!isFeedbackResubmit) {
+  if (!isFeedbackResubmit && !isCancelledResume) {
     try {
       var cpResult = clearCheckpoint(taskId);
       if (cpResult.cleared) console.log('[submit] checkpoint wiped for fresh submit: ' + taskId);
@@ -179,9 +205,50 @@ async function submitProject(project, opts) {
   project.autoCodingTaskId = taskId;
   project.statusMessage = null;
   project.updatedAt = new Date().toISOString();
+  delete project.lastFailure;
+
+  if (isCancelledResume) {
+    var resumeMessage = 'resumed from cancelled @ ' + cancelledResume.resumeStage;
+    if (existingTask) {
+      taskQueue.updateBlueprint(taskId, blueprintExport);
+      if (typeof taskQueue.resetForRerun === 'function') {
+        taskQueue.resetForRerun(taskId, resumeMessage, 'admin');
+      } else {
+        taskQueue.updateStatus(taskId, 'pending', resumeMessage, 'admin');
+      }
+    } else {
+      taskQueue.enqueue(taskId, project.id, project.name, blueprintExport, metadata);
+    }
+
+    var resumeResult = projectSM.validate(project.status, 'submitted');
+    if (!resumeResult.valid) throw new Error(resumeResult.error);
+
+    project.status = 'submitted';
+    project.statusMessage = '恢复已取消任务，从 ' + cancelledResume.resumeStage + ' 继续执行';
+    project.updatedAt = new Date().toISOString();
+    writeProject(project);
+    wakeOpenClaw('[蓝图编辑器] 已恢复取消任务并从 ' + cancelledResume.resumeStage + ' 继续。项目: ' + project.name + ', taskId: ' + taskId);
+    return {
+      status: 'submitted',
+      taskId: taskId,
+      resumedFromStage: cancelledResume.resumeStage,
+      message: project.statusMessage,
+    };
+  }
 
   // Storyboard projects must confirm extracted specs before entering the queue.
   if (hasStoryboard && !isFeedbackResubmit) {
+    if (canReuseExtractedSpecs(project)) {
+      return confirmProjectSpecs(project, opts, {
+        mode: 'auto',
+        reason: 'reuse_existing_specs',
+        decision: getSpecReviewDecision(project),
+        statusReason: 'reused extracted specs',
+        statusMessage: '复用已有规格/计划，任务已重新提交编码队列',
+        metadata: metadata,
+      });
+    }
+
     projectSM.forceTransition(project, 'spec_extracting', 'submit-service');
     writeProject(project);
 
@@ -282,6 +349,8 @@ module.exports = {
   submitProject: submitProject,
   confirmProjectSpecs: confirmProjectSpecs,
   _internals: {
+    canReuseExtractedSpecs: canReuseExtractedSpecs,
+    getCancelledResumeInfo: getCancelledResumeInfo,
     getSpecReviewDecision: getSpecReviewDecision,
     buildPlanReviewRecord: buildPlanReviewRecord,
     humanizeReviewReason: humanizeReviewReason,

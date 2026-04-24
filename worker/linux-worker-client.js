@@ -78,6 +78,8 @@ function getBaseTemplate(targetDir, log, taskId) {
 // ============ Task Checkpoint (persist best code across worker restarts) ============
 const CHECKPOINT_DIR = path.join(__dirname, '..', 'server-data', 'checkpoints');
 const checkpointHelper = require('../lib/checkpoint.cjs');
+const Database = require('better-sqlite3');
+const TASK_DB_PATH = path.join(__dirname, '..', 'server-data', 'blueprint.db');
 
 function getCheckpointPath(taskId) {
   return path.join(CHECKPOINT_DIR, taskId);
@@ -137,6 +139,20 @@ function clearCheckpoint(taskId) {
   const dir = getCheckpointPath(taskId);
   if (fs.existsSync(dir)) {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function readTaskSnapshotForShutdown(taskId) {
+  var db = null;
+  try {
+    db = new Database(TASK_DB_PATH, { readonly: true, fileMustExist: true });
+    return db.prepare('SELECT id, status, assigned_to FROM tasks WHERE id = ?').get(taskId) || null;
+  } catch (_e) {
+    return null;
+  } finally {
+    if (db) {
+      try { db.close(); } catch (_closeErr) {}
+    }
   }
 }
 
@@ -438,9 +454,10 @@ function reportStatus(taskId, status, extra) {
 // POST /api/tasks/:taskId/cancel — used when classify() returns MODEL_FATAL
 // so the task transitions to `cancelled` (terminal, not retried by the server
 // watchdog) instead of `failed` (which is eligible for retry).
-function cancelTaskViaApi(taskId, actor, reason) {
+function cancelTaskViaApi(taskId, actor, reason, options) {
   var body = { actor: actor || 'worker:model-fatal' };
   if (reason) body.reason = reason;
+  if (options && options.preserveCheckpoint) body.preserveCheckpoint = true;
   return apiRequest('POST', '/api/tasks/' + taskId + '/cancel', JSON.stringify(body));
 }
 
@@ -770,10 +787,15 @@ async function processTask(task) {
     if (failInfo.failClassification === 'MODEL_FATAL') {
       log('[worker] MODEL_FATAL detected — cancelling task ' + taskId + ' (reason: ' + (failInfo.failReason || 'unknown') + ')', taskId);
       try {
-        await cancelTaskViaApi(taskId, 'worker:model-fatal', failInfo.failReason);
+        var cancelResult = await cancelTaskViaApi(taskId, 'worker:model-fatal', failInfo.failReason, {
+          preserveCheckpoint: true,
+        });
         log('[worker] Task ' + taskId + ' cancelled via API', taskId);
-        // Cancelled is terminal — clear the checkpoint (no resume point).
-        try { clearCheckpoint(taskId); } catch(_) {}
+        if (!(cancelResult && cancelResult.checkpointPreserved)) {
+          try { clearCheckpoint(taskId); } catch(_) {}
+        } else {
+          log('[worker] Checkpoint preserved for resumable cancel', taskId);
+        }
         return;
       } catch (cancelErr) {
         log('[worker] cancelTaskViaApi failed, falling back to reportStatus(failed): ' + cancelErr.message, taskId);
@@ -875,6 +897,12 @@ function gracefulShutdown(signal) {
     var ctx = info.pipelineCtx;
     if (ctx && ctx.csCode) {
       try {
+        var taskSnapshot = readTaskSnapshotForShutdown(taskId);
+        var decision = checkpointHelper.shouldSaveCheckpointOnShutdown(taskSnapshot, WORKER_ID);
+        if (!decision.ok) {
+          log('[shutdown] Skip checkpoint for ' + taskId + ' — ' + decision.reason, taskId);
+          return;
+        }
         saveCheckpoint(taskId, {
           blueprint: ctx.blueprint,
           csCode: ctx.csCode,

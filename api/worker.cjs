@@ -125,7 +125,12 @@ module.exports.init = function(ctx) {
       var taskId = params.taskId;
       try {
         var actor = 'api';
-        try { var parsed = body ? JSON.parse(body) : {}; if (parsed && parsed.actor) actor = parsed.actor; } catch(e) {}
+        var preserveCheckpoint = false;
+        try {
+          var parsed = body ? JSON.parse(body) : {};
+          if (parsed && parsed.actor) actor = parsed.actor;
+          preserveCheckpoint = !!(parsed && parsed.preserveCheckpoint);
+        } catch(e) {}
         var task = taskQueue.get(taskId);
         if (!task) return sendJSON(res, { error: 'Task not found', taskId: taskId }, 404);
         taskQueue.cancel(taskId, actor);
@@ -139,15 +144,19 @@ module.exports.init = function(ctx) {
             writeProject(project);
           }
         } catch(e) {}
-        // Wipe checkpoint. Without this, shutdown handler may re-serialize
-        // the in-flight ctx, and the next resubmit with the same taskId will
-        // silently resume completedStages and skip codegen.
-        try {
-          var cpResult = clearCheckpoint(taskId);
-          if (cpResult.cleared) console.log('[Cancel Task] checkpoint cleared: ' + taskId);
-        } catch(e) { console.warn('[Cancel Task] checkpoint clear failed: ' + e.message); }
+        if (!preserveCheckpoint) {
+          // Wipe checkpoint. Without this, shutdown handler may re-serialize
+          // the in-flight ctx, and the next resubmit with the same taskId will
+          // silently resume completedStages and skip codegen.
+          try {
+            var cpResult = clearCheckpoint(taskId);
+            if (cpResult.cleared) console.log('[Cancel Task] checkpoint cleared: ' + taskId);
+          } catch(e) { console.warn('[Cancel Task] checkpoint clear failed: ' + e.message); }
+        } else {
+          console.log('[Cancel Task] checkpoint preserved for resumable cancel: ' + taskId);
+        }
         console.log('[Cancel Task] ' + taskId + ' cancelled by ' + actor);
-        sendJSON(res, { success: true, taskId: taskId, status: 'cancelled' });
+        sendJSON(res, { success: true, taskId: taskId, status: 'cancelled', checkpointPreserved: preserveCheckpoint });
       } catch (e) {
         console.error('[Cancel Task] Error: ' + e.message);
         sendJSON(res, { error: 'Cancel failed: ' + e.message }, 500);
