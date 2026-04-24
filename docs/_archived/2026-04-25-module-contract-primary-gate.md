@@ -101,6 +101,27 @@ After deploy, confirm:
 - CUA reports include `visual_smoke`
 - signal failures mention missing phase evidence instead of vague visual mismatch when schema evidence is required
 
+## Deployment Record
+
+Source commits pushed:
+- `/opt/blueprint-editor`: `c7b4f89` `feat: make module contract the runtime gate`
+- `/root/cua-agent`: `3e77f0a` `feat: add deterministic visual smoke gates`
+
+Deployment executed on 2026-04-25 00:14-00:18 CST:
+
+```bash
+pm2 restart blueprint-editor linux-worker-1 linux-worker-2 linux-worker-3 linux-worker-4 linux-worker-5 linux-worker-6
+```
+
+PM2 reported these processes online after restart:
+- `blueprint-editor`
+- `linux-worker-1`
+- `linux-worker-2`
+- `linux-worker-3`
+- `linux-worker-4`
+- `linux-worker-5`
+- `linux-worker-6`
+
 ## Local-Only Records
 
 The following host-local files were updated alongside this archived record:
