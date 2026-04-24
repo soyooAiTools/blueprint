@@ -76,6 +76,40 @@ function validateAssemblyRegistry(registry) {
     _pushArrayFieldErrors(moduleItem, 'ownerFiles', moduleLabel, errors);
     _pushArrayFieldErrors(moduleItem, 'statesWritten', moduleLabel, errors);
     _pushArrayFieldErrors(moduleItem, 'observableFeedback', moduleLabel, errors);
+    _pushArrayFieldErrors(moduleItem, 'expectedSignals', moduleLabel, errors);
+    _pushArrayFieldErrors(moduleItem, 'phaseEvidenceSchema', moduleLabel, errors);
+    for (var ofi = 0; ofi < (moduleItem.observableFeedback || []).length; ofi++) {
+      var feedbackSignal = moduleItem.observableFeedback[ofi];
+      if (!assertionIndex[feedbackSignal]) {
+        errors.push(moduleLabel + ' observableFeedback references unknown CUA assertion: ' + feedbackSignal);
+      }
+    }
+    for (var esi = 0; esi < (moduleItem.expectedSignals || []).length; esi++) {
+      var expectedSignal = moduleItem.expectedSignals[esi];
+      if (!assertionIndex[expectedSignal]) {
+        errors.push(moduleLabel + ' expectedSignals references unknown CUA assertion: ' + expectedSignal);
+      }
+    }
+    var schemaSignals = {};
+    for (var pse = 0; pse < (moduleItem.phaseEvidenceSchema || []).length; pse++) {
+      var schemaEntry = moduleItem.phaseEvidenceSchema[pse] || {};
+      if (!schemaEntry.signal) {
+        errors.push(moduleLabel + '.phaseEvidenceSchema[' + pse + '] missing signal');
+        continue;
+      }
+      schemaSignals[schemaEntry.signal] = true;
+      if (!assertionIndex[schemaEntry.signal]) {
+        errors.push(moduleLabel + '.phaseEvidenceSchema[' + pse + '] references unknown CUA assertion: ' + schemaEntry.signal);
+      }
+      if (!schemaEntry.phaseEvidencePath && !schemaEntry.variableEvidenceKey) {
+        errors.push(moduleLabel + '.phaseEvidenceSchema[' + pse + '] missing evidence path');
+      }
+    }
+    for (var ess = 0; ess < (moduleItem.expectedSignals || []).length; ess++) {
+      if (!schemaSignals[moduleItem.expectedSignals[ess]]) {
+        errors.push(moduleLabel + '.phaseEvidenceSchema missing expected signal: ' + moduleItem.expectedSignals[ess]);
+      }
+    }
     if (!moduleItem.autoplayMirror) warnings.push(moduleLabel + '.autoplayMirror missing');
   }
 

@@ -68,6 +68,34 @@ v1 的每个条目都至少要回答：
 3. 会产生哪些 observable feedback
 4. CUA 应该断言什么
 
+从 2026-04-25 起，`observableFeedback` 不再只是说明性字段。加载 registry 时会派生：
+
+- `expectedSignals`: runtime-contract 必须覆盖的程序化 signal 列表
+- `phaseEvidenceSchema`: codegen 必须在对应 phase 写出的结构化证据路径
+
+当 `phaseEvidenceSchema` 存在时，资源变化、距离达成、升级、HP 变化、相机变化等容易被截图差分误判的 signal 必须提供 phase-scoped evidence，例如：
+
+```json
+{
+  "phaseEvidence": {
+    "build": {
+      "resource_decremented": { "before": 5, "after": 3 },
+      "entity_state_equals_built": true
+    }
+  }
+}
+```
+
+或等价扁平键：
+
+```json
+{
+  "variables": {
+    "evidence.build.resource_decremented.delta": -2
+  }
+}
+```
+
 ---
 
 ## 3. 命名规范

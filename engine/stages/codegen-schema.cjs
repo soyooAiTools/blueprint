@@ -304,6 +304,7 @@ function buildSchemaPrompt(ctx) {
     lines.push('16. 你必须优先遵守下面的 Assembly Plan；不要重新发明实体模块组合、状态 owner、phase 顺序。');
     lines.push('17. 优先把 module 实现映射为 schema 的 phases/onEnter/resources/npcs；只有 unresolved 项才允许落入 customLogic。');
     lines.push('18. 如果 Assembly Plan 指定了 state owner，不要让多个 phase/onEnter 重复写同一业务状态。');
+    lines.push('19. 对每个 cuaSteps.phaseEvidenceSchema 声明的 signal，必须在对应 phase 写入 phaseEvidence 或 variables["evidence.<phase>.<signal>..."]；缺失会被 runtime contract 判失败。');
   }
   lines.push('');
   if (plansSummary) {
@@ -349,6 +350,22 @@ function summarizePlansForPrompt(plans) {
         activateEntities: binding.activateEntities || [],
         atomIds: binding.atomIds || [],
         completionSignals: binding.completionSignals || []
+      };
+    }),
+    moduleContracts: ((plans.assemblyPlan && plans.assemblyPlan.moduleInstances) || []).map(function(module) {
+      return {
+        id: module.id,
+        moduleId: module.moduleId,
+        expectedSignals: module.expectedSignals || [],
+        observableFeedback: module.observableFeedback || [],
+        phaseEvidenceSchema: module.phaseEvidenceSchema || []
+      };
+    }),
+    cuaSteps: ((plans.cuaPlan && plans.cuaPlan.steps) || []).map(function(step) {
+      return {
+        phaseId: step.phaseId,
+        expectedSignals: step.expectedSignals || [],
+        phaseEvidenceSchema: step.phaseEvidenceSchema || []
       };
     }),
     stateOwners: ((plans.assemblyPlan && plans.assemblyPlan.stateOwners) || []).map(function(owner) {

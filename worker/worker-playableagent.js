@@ -371,6 +371,7 @@ function summarizePlayableAgentReport(report, taskId, log) {
     unsupportedSignals: unsupportedSignals,
     planCoverage: planCoverage,
     visualFailReasons: Array.isArray(report.visual_fail_reasons) ? report.visual_fail_reasons.slice() : [],
+    visualSmoke: report.visual_smoke || null,
     exitReason: report.exitReason || (effectivePassed ? 'completed' : 'verification_failed'),
     report: {
       gameState: finalState,
@@ -403,6 +404,7 @@ function summarizePlayableAgentReport(report, taskId, log) {
       unsupportedSignals: unsupportedSignals,
       signalAssertions: Array.isArray(report.signalAssertions) ? report.signalAssertions : [],
       visualFailReasons: Array.isArray(report.visual_fail_reasons) ? report.visual_fail_reasons.slice() : [],
+      visualSmoke: report.visual_smoke || null,
       hardBlockingSilentSignals: hardBlockingSignals.slice(),
     }
   };

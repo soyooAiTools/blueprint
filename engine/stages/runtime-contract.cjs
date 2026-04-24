@@ -37,6 +37,7 @@ function buildEscalationReasons(meta) {
   if (!meta.hasGameState) reasons.push('missing-game-state');
   if ((meta.unsupportedSignals || []).length > 0) reasons.push('unsupported-signals');
   if (!meta.planPassed) reasons.push('plan-coverage-incomplete');
+  if (!meta.moduleContractReady) reasons.push('module-contract-incomplete');
   if (!meta.signalPassed) reasons.push('signal-validation-failed');
   if ((meta.hardBlockingSignals || []).length > 0) reasons.push('silent-pass-blocked');
   if (!meta.visualSmokePassed) reasons.push('visual-smoke-failed');
@@ -62,14 +63,18 @@ function summarizeRuntimeContractResult(result) {
   var hardBlockingSignals = result.hardBlockingSilentSignals || buildHardBlockingSignals(silentSignals, result.isAutoPlayMode === true);
   var hasGameState = !!(result.report && result.report.gameState);
   var planPassed = !!(planParts && planParts.total > 0 && planParts.covered >= planParts.total);
-  var signalPassed = result.signalValidationPassed !== false && missingSignals.length === 0;
+  // Gray policy for module-contract-as-primary-gate: only skip heavy CUA when
+  // the run exposes an actual signal contract and every declared signal is covered.
+  var moduleContractReady = !!(signalParts && signalParts.total > 0);
+  var signalPassed = moduleContractReady && result.signalValidationPassed !== false && missingSignals.length === 0;
   var visualSmokePassed = visualFailReasons.length === 0;
   var evidenceReliable = hasGameState && unsupportedSignals.length === 0;
-  var contractPassed = evidenceReliable && planPassed && signalPassed && hardBlockingSignals.length === 0 && visualSmokePassed;
+  var contractPassed = evidenceReliable && planPassed && moduleContractReady && signalPassed && hardBlockingSignals.length === 0 && visualSmokePassed;
   var escalationReasons = buildEscalationReasons({
     hasGameState: hasGameState,
     unsupportedSignals: unsupportedSignals,
     planPassed: planPassed,
+    moduleContractReady: moduleContractReady,
     signalPassed: signalPassed,
     hardBlockingSignals: hardBlockingSignals,
     visualSmokePassed: visualSmokePassed,
@@ -87,6 +92,7 @@ function summarizeRuntimeContractResult(result) {
     planTotalCount: planParts ? planParts.total : null,
     signalCoveredCount: signalParts ? signalParts.covered : null,
     signalTotalCount: signalParts ? signalParts.total : null,
+    moduleContractReady: moduleContractReady,
     missingSignalCount: missingSignals.length,
     unsupportedSignalCount: unsupportedSignals.length,
     missingSignals: missingSignals.slice(0, 12),
@@ -96,6 +102,7 @@ function summarizeRuntimeContractResult(result) {
     visualFailCount: visualFailReasons.length,
     visualFailReasons: visualFailReasons.slice(0, 12),
     visualSmokePassed: visualSmokePassed,
+    visualSmoke: (result.report && result.report.visualSmoke) || result.visualSmoke || null,
     hasGameState: hasGameState,
     evidenceReliable: evidenceReliable,
     totalActions: result.totalActions !== undefined ? result.totalActions : -1,
@@ -178,6 +185,7 @@ function runRuntimeContractPass(ctx, options) {
 module.exports = {
   name: 'runtime-contract',
   canRetry: false,
+  summarizeRuntimeContractResult: summarizeRuntimeContractResult,
   assertBefore: function(ctx) {
     if (!ctx.htmlOutput) throw new Error('No HTML output from compile stage');
     if (ctx.htmlOutput.length < 10240) throw new Error('HTML output too small (' + ctx.htmlOutput.length + ' bytes) — likely empty build');

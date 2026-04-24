@@ -79,6 +79,22 @@ var buildStep = plans.cuaPlan.steps.find(function(step) { return step.phaseId ==
 assert.ok(buildStep, 'build cua step missing');
 assert.ok(buildStep.actions.some(function(action) { return action.kind === 'build'; }), 'build action missing');
 assert.ok(buildStep.expectedSignals.indexOf('entity_state_equals_built') >= 0, 'build completion signal missing');
+assert.ok(
+  buildStep.phaseEvidenceSchema.some(function(entry) { return entry.signal === 'entity_state_equals_built'; }),
+  'build phase evidence schema missing entity_state_equals_built'
+);
+var conveyorBuildModule = plans.assemblyPlan.moduleInstances.find(function(module) {
+  return module.id === 'ConveyorBelt::build_progress';
+});
+assert.ok(conveyorBuildModule, 'build_progress module instance missing');
+assert.ok(
+  conveyorBuildModule.expectedSignals.indexOf('entity_state_equals_built') >= 0,
+  'module contract expected signal missing'
+);
+assert.ok(
+  conveyorBuildModule.phaseEvidenceSchema.some(function(entry) { return entry.signal === 'entity_state_equals_built'; }),
+  'module contract phase evidence schema missing'
+);
 assert.ok(plans.storyboardAtomPlan.items.every(function(item) {
   return item.phaseId === 'intro' || item.phaseId === 'build';
 }), 'storyboard atoms should use canonical spec phase IDs');

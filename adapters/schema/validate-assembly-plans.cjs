@@ -140,6 +140,36 @@ function validateAssemblyPlans(plans, registry) {
     if (moduleInstance.entity && !entityIndex[moduleInstance.entity]) {
       errors.push(moduleLabel + ' references unknown entity: ' + moduleInstance.entity);
     }
+    var moduleExpectedSignals = _ensureArray(moduleInstance.expectedSignals, moduleLabel + '.expectedSignals', errors);
+    var moduleObservableFeedback = _ensureArray(moduleInstance.observableFeedback, moduleLabel + '.observableFeedback', errors);
+    var moduleEvidenceSchema = _ensureArray(moduleInstance.phaseEvidenceSchema, moduleLabel + '.phaseEvidenceSchema', errors);
+    for (var me = 0; me < moduleExpectedSignals.length; me++) {
+      if (!assertionRegistry[moduleExpectedSignals[me]]) {
+        errors.push(moduleLabel + ' references unknown expected signal: ' + moduleExpectedSignals[me]);
+      }
+    }
+    for (var mo = 0; mo < moduleObservableFeedback.length; mo++) {
+      if (!assertionRegistry[moduleObservableFeedback[mo]]) {
+        errors.push(moduleLabel + ' references unknown observable feedback: ' + moduleObservableFeedback[mo]);
+      }
+    }
+    var moduleSchemaSignals = {};
+    for (var mp = 0; mp < moduleEvidenceSchema.length; mp++) {
+      var moduleSchemaEntry = moduleEvidenceSchema[mp] || {};
+      if (!moduleSchemaEntry.signal) {
+        errors.push(moduleLabel + '.phaseEvidenceSchema[' + mp + '] missing signal');
+        continue;
+      }
+      moduleSchemaSignals[moduleSchemaEntry.signal] = true;
+      if (!assertionRegistry[moduleSchemaEntry.signal]) {
+        errors.push(moduleLabel + '.phaseEvidenceSchema[' + mp + '] references unknown signal: ' + moduleSchemaEntry.signal);
+      }
+    }
+    for (var ms = 0; ms < moduleExpectedSignals.length; ms++) {
+      if (!moduleSchemaSignals[moduleExpectedSignals[ms]]) {
+        errors.push(moduleLabel + '.phaseEvidenceSchema missing expected signal: ' + moduleExpectedSignals[ms]);
+      }
+    }
   }
 
   var seenState = {};
@@ -204,7 +234,8 @@ function validateAssemblyPlans(plans, registry) {
     if (!phaseBindingIndex[step.phaseId]) {
       errors.push(stepLabel + ' references unknown phaseId: ' + step.phaseId);
     }
-    var expectedSignals = _ensureArray(step.expectedSignals || [], stepLabel + '.expectedSignals', errors);
+    var expectedSignals = _ensureArray(step.expectedSignals, stepLabel + '.expectedSignals', errors);
+    var phaseEvidenceSchema = _ensureArray(step.phaseEvidenceSchema, stepLabel + '.phaseEvidenceSchema', errors);
     var actionAtoms = _ensureArray(step.atomIds || [], stepLabel + '.atomIds', errors);
     for (var ca = 0; ca < actionAtoms.length; ca++) {
       if (!atomIndex[actionAtoms[ca]]) {
@@ -214,6 +245,26 @@ function validateAssemblyPlans(plans, registry) {
     for (var ce = 0; ce < expectedSignals.length; ce++) {
       if (!assertionRegistry[expectedSignals[ce]]) {
         errors.push(stepLabel + ' references unknown assertion: ' + expectedSignals[ce]);
+      }
+    }
+    var stepSchemaSignals = {};
+    for (var pes = 0; pes < phaseEvidenceSchema.length; pes++) {
+      var stepSchemaEntry = phaseEvidenceSchema[pes] || {};
+      if (!stepSchemaEntry.signal) {
+        errors.push(stepLabel + '.phaseEvidenceSchema[' + pes + '] missing signal');
+        continue;
+      }
+      stepSchemaSignals[stepSchemaEntry.signal] = true;
+      if (!assertionRegistry[stepSchemaEntry.signal]) {
+        errors.push(stepLabel + '.phaseEvidenceSchema[' + pes + '] references unknown assertion: ' + stepSchemaEntry.signal);
+      }
+      if (!stepSchemaEntry.phaseEvidencePath && !stepSchemaEntry.variableEvidenceKey) {
+        errors.push(stepLabel + '.phaseEvidenceSchema[' + pes + '] missing evidence path');
+      }
+    }
+    for (var ces = 0; ces < expectedSignals.length; ces++) {
+      if (!stepSchemaSignals[expectedSignals[ces]]) {
+        errors.push(stepLabel + '.phaseEvidenceSchema missing expected signal: ' + expectedSignals[ces]);
       }
     }
   }

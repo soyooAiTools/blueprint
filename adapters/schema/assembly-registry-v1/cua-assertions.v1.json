@@ -73,6 +73,21 @@
       "description": "A source object was hidden or moved after interaction."
     },
     {
+      "id": "entity_visible",
+      "kind": "visual",
+      "description": "A named entity is visible in scene or appears in entity state."
+    },
+    {
+      "id": "entity_hidden",
+      "kind": "visual",
+      "description": "A named entity is hidden, inactive, removed, or moved out of scene."
+    },
+    {
+      "id": "entity_position_changed",
+      "kind": "motion",
+      "description": "A named entity position changed from previous observation."
+    },
+    {
       "id": "downstream_entity_visible",
       "kind": "visual",
       "description": "A newly activated or spawned entity became visible."

@@ -363,6 +363,7 @@ function buildReviewPlanGuidance(plans) {
         phaseId: step.phaseId,
         actions: toArray(step.actions).map(summarizeAction).filter(Boolean),
         expectedSignals: toArray(step.expectedSignals),
+        phaseEvidenceSchema: toArray(step.phaseEvidenceSchema),
       };
     }),
     unresolved: toArray(plans.assemblyPlan && plans.assemblyPlan.unresolved),

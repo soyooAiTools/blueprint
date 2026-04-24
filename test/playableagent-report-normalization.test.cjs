@@ -20,6 +20,11 @@ var report = {
   coveredSignals: ['intro:guide_text_visible'],
   missingSignals: ['build:entity_state_equals_built', 'build:downstream_entity_visible'],
   unsupportedSignals: ['intro:camera_orientation_changed'],
+  visual_smoke: {
+    screenQualityCounts: { normal: 3 },
+    maxBadScreenStreak: 0,
+    lastBadScreenQuality: ''
+  },
   finalState: {
     currentPhase: 'build',
     completedPhases: ['intro', 'build'],
@@ -48,9 +53,11 @@ assert.ok(
 assert.strictEqual(normalized.report.signalCoverage, '1/3', '[1.8] normalized report exposes signal coverage');
 assert.strictEqual(normalized.report.planCoverage, '2/3', '[1.9] normalized report exposes plan coverage');
 assert.strictEqual(normalized.report.signalValidationPassed, false, '[1.10] normalized report exposes validation flag');
+assert.deepStrictEqual(normalized.visualSmoke, report.visual_smoke, '[1.11] visual smoke summary propagated');
+assert.deepStrictEqual(normalized.report.visualSmoke, report.visual_smoke, '[1.12] normalized report exposes visual smoke');
 assert.ok(
   logs.some(function(message) { return message.indexOf('Unsupported signal assertions') >= 0; }),
-  '[1.11] unsupported signals should be logged as non-blocking'
+  '[1.13] unsupported signals should be logged as non-blocking'
 );
 
 console.log('playableagent-report-normalization tests passed');

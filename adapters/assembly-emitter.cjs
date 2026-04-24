@@ -392,8 +392,11 @@ function buildSlotMethod(fileName, moduleInstance, plans) {
   lines.push('    // entity: ' + (moduleInstance.entity || 'system'));
   lines.push('    // ownerFile: ' + fileName);
   lines.push('    // statesWritten: ' + (toArray(moduleInstance.statesWritten).length > 0 ? toArray(moduleInstance.statesWritten).join(', ') : '(none)'));
+  lines.push('    // expectedSignals: ' + (toArray(moduleInstance.expectedSignals).length > 0 ? toArray(moduleInstance.expectedSignals).join(', ') : '(none)'));
+  lines.push('    // observableFeedback: ' + (toArray(moduleInstance.observableFeedback).length > 0 ? toArray(moduleInstance.observableFeedback).join(', ') : '(none)'));
   lines.push('    // sourceAtoms: ' + (toArray(moduleInstance.sourceAtomIds).length > 0 ? toArray(moduleInstance.sourceAtomIds).join(', ') : '(none)'));
   Array.prototype.push.apply(lines, buildCommentedJsonLines('    // params: ', moduleInstance.params));
+  Array.prototype.push.apply(lines, buildCommentedJsonLines('    // phaseEvidenceSchema: ', moduleInstance.phaseEvidenceSchema || []));
   lines.push('    void ' + methodName + '()');
   lines.push('    {');
   lines.push('        // TODO_' + methodName + '_START');
@@ -471,6 +474,12 @@ function buildPhaseCommentLines(fileName, phaseBinding, plans) {
   lines.push('        // [ASSEMBLY PHASE] phaseId=' + phaseBinding.phaseId);
   lines.push('        // activateEntities: ' + (toArray(phaseBinding.activateEntities).length > 0 ? toArray(phaseBinding.activateEntities).join(', ') : '(none)'));
   lines.push('        // completionSignals: ' + (toArray(phaseBinding.completionSignals).length > 0 ? toArray(phaseBinding.completionSignals).join(', ') : '(none)'));
+  var cuaSteps = plans && plans.cuaPlan && Array.isArray(plans.cuaPlan.steps) ? plans.cuaPlan.steps : [];
+  for (var si = 0; si < cuaSteps.length; si++) {
+    if (cuaSteps[si].phaseId !== phaseBinding.phaseId) continue;
+    lines.push('        // phaseEvidenceSchema: ' + JSON.stringify(cuaSteps[si].phaseEvidenceSchema || []));
+    break;
+  }
   if (fileModules.length > 0) {
     lines.push('        // ownerSlots(' + ownerTag(fileName) + '): ' + fileModules.map(function(item) { return item.id; }).join(', '));
   }

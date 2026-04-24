@@ -57,6 +57,7 @@ assert.ok(plans.validation.ok, 'plans should validate');
 var guidance = assemblyPlanContracts.buildReviewPlanGuidance(plans);
 assert.ok(guidance.indexOf('"fileOwners"') >= 0, 'review guidance should include file owners');
 assert.ok(guidance.indexOf('"cuaSteps"') >= 0, 'review guidance should include cua steps');
+assert.ok(guidance.indexOf('"phaseEvidenceSchema"') >= 0, 'review guidance should include phase evidence schema');
 
 assert.deepStrictEqual(
   assemblyPlanContracts.collectExpectedPhaseIds({ specs: project.specs, plans: plans }),

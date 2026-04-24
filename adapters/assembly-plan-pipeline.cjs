@@ -1,7 +1,7 @@
 var fs = require('fs');
 var path = require('path');
 
-var { loadAssemblyRegistry } = require('./schema/load-assembly-registry.cjs');
+var { loadAssemblyRegistry, buildPhaseEvidenceSchema } = require('./schema/load-assembly-registry.cjs');
 var { validateAssemblyPlans } = require('./schema/validate-assembly-plans.cjs');
 
 var INTERACTION_VERBS_PATH = path.join(__dirname, '..', 'worker', 'interaction-verbs.json');
@@ -913,6 +913,9 @@ function buildAssemblyPlan(ctx, storyboardAtomPlan, entityPlan, registry, regist
       params: clone(params || {}),
       ownerFiles: clone(moduleDef.ownerFiles || []),
       statesWritten: [],
+      observableFeedback: clone(moduleDef.observableFeedback || []),
+      expectedSignals: clone(moduleDef.expectedSignals || moduleDef.observableFeedback || []),
+      phaseEvidenceSchema: clone(moduleDef.phaseEvidenceSchema || []),
       sources: uniq((sources || []).slice()),
       sourceAtomIds: uniq((sourceAtomIds || []).slice())
     };
@@ -1089,6 +1092,10 @@ function buildCUAAction(atom) {
   return null;
 }
 
+function buildCUAStepEvidenceSchema(phaseId, expectedSignals, registryIndex) {
+  return buildPhaseEvidenceSchema(expectedSignals, registryIndex.assertionIndex || {}, phaseId);
+}
+
 function buildCUAPlan(storyboardAtomPlan, assemblyPlan, registryIndex) {
   var steps = [];
   for (var i = 0; i < assemblyPlan.phaseBindings.length; i++) {
@@ -1127,6 +1134,7 @@ function buildCUAPlan(storyboardAtomPlan, assemblyPlan, registryIndex) {
       actions: actions,
       mode: actions.length > 0 ? 'act_and_assert' : 'observe_only',
       expectedSignals: expectedSignals,
+      phaseEvidenceSchema: buildCUAStepEvidenceSchema(binding.phaseId, expectedSignals, registryIndex),
       assertionsByKind: categorized
     });
   }
