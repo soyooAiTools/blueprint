@@ -65,4 +65,11 @@ const stageRerun = require('../engine/stage-rerun.cjs');
   assert.ok(!Object.prototype.hasOwnProperty.call(checkpoint, 'extraFiles'));
 }
 
+{
+  assert.deepStrictEqual(
+    stageRerun.keptStagesFor('compile'),
+    ['clone', 'spec-extract', 'spec-validate', 'complexity-gate', 'assembly-plan', 'assembly-complexity-gate', 'codegen', 'method-check', 'review']
+  );
+}
+
 console.log('stage-rerun tests passed');

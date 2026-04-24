@@ -48,7 +48,7 @@ function recordPipelineMetrics(ctx, stageResults) {
     stages: {},
   };
 
-  var stageNames = ['spec-extract', 'spec-validate', 'complexity-gate', 'assembly-plan', 'assembly-complexity-gate', 'codegen', 'method-check', 'review', 'compile', 'visual-check', 'cua-verify', 'upload'];
+  var stageNames = ['spec-extract', 'spec-validate', 'complexity-gate', 'assembly-plan', 'assembly-complexity-gate', 'codegen', 'method-check', 'review', 'compile', 'visual-check', 'runtime-contract', 'cua-verify', 'upload'];
   for (var i = 0; i < stageNames.length; i++) {
     var name = stageNames[i];
     var sr = stageResults[name];
@@ -72,6 +72,19 @@ function recordPipelineMetrics(ctx, stageResults) {
   if (stageResults.review) {
     record.reviewRounds = stageResults.review.rounds || 1;
     record.reviewWarningOnly = !!stageResults.review.warningOnly;
+  }
+
+  if (stageResults['runtime-contract']) {
+    var rc = stageResults['runtime-contract'];
+    record.runtimeContractPassed = rc.contractPassed === true;
+    record.runtimeContractNeedsEscalation = rc.needsEscalation !== false;
+    record.runtimeContractPlanCoverage = rc.planCoverage || null;
+    record.runtimeContractSignalCoverage = rc.signalCoverage || null;
+    record.runtimeContractSignalValidationPassed = rc.signalValidationPassed !== false;
+    record.runtimeContractMissingSignalCount = rc.missingSignalCount || 0;
+    record.runtimeContractUnsupportedSignalCount = rc.unsupportedSignalCount || 0;
+    record.runtimeContractVisualFailCount = rc.visualFailCount || 0;
+    record.runtimeContractSilentPassSignals = rc.silentPassSignals || [];
   }
 
   // CUA details
@@ -243,7 +256,7 @@ function normalizeFingerprint(reason, opts) {
   // spec-validate aggregation is bypassed (e.g. legacy records).
   s = collapseRepeatedClauses(s);
   // Drop leading "prefix: " stage tags if present
-  s = s.replace(/^(review|codegen|compile|visual-check|cua-verify|upload|spec-validate|spec-extract|build|complexity-gate|assembly-complexity-gate|method-check)[ :]+/i, '');
+  s = s.replace(/^(review|codegen|compile|visual-check|runtime-contract|cua-verify|upload|spec-validate|spec-extract|build|complexity-gate|assembly-complexity-gate|method-check)[ :]+/i, '');
   // D3: fraction normalization MUST run before path regex — previously
   // "2/11 overlap" was swallowed by the path regex as "2<path> overlap",
   // leaving 9%/18%/27% as distinct fingerprints that each bypassed the
@@ -383,7 +396,7 @@ function classifyFailureFamily(record) {
     return 'infra.model_fatal';
   }
   if (/review/.test(stage)) return 'review.other';
-  if (/cua-verify/.test(stage)) return 'cua.other';
+  if (/runtime-contract|cua-verify/.test(stage)) return 'cua.other';
   if (/assembly-plan|assembly-complexity-gate|codegen|method-check|spec-validate|complexity-gate/.test(stage)) return 'generation.other';
   return 'unknown';
 }
@@ -512,7 +525,7 @@ function getMetricsSummary(lastN) {
 
   // ---- Bottleneck: stage with highest avg rounds ----
   var bottleneck = { stage: null, avgRounds: 0 };
-  ['review', 'compile', 'visual-check', 'cua-verify'].forEach(function(sn) {
+  ['review', 'compile', 'visual-check', 'runtime-contract', 'cua-verify'].forEach(function(sn) {
     var rounds = records.map(function(r) { return r.stages[sn] ? r.stages[sn].rounds : 0; }).filter(function(r) { return r > 0; });
     if (rounds.length > 0) {
       var avg = rounds.reduce(function(a, b) { return a + b; }, 0) / rounds.length;
@@ -526,7 +539,7 @@ function getMetricsSummary(lastN) {
 
   // ---- Per-stage pass rate ----
   summary.stagePassRates = {};
-  var allStages = ['spec-extract', 'spec-validate', 'complexity-gate', 'assembly-plan', 'assembly-complexity-gate', 'codegen', 'review', 'compile', 'visual-check', 'cua-verify', 'upload'];
+  var allStages = ['spec-extract', 'spec-validate', 'complexity-gate', 'assembly-plan', 'assembly-complexity-gate', 'codegen', 'review', 'compile', 'visual-check', 'runtime-contract', 'cua-verify', 'upload'];
   for (var si = 0; si < allStages.length; si++) {
     var sn = allStages[si];
     var attempted = records.filter(function(r) { return r.stages[sn] || r.failedAtStage === sn; }).length;

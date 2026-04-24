@@ -93,7 +93,9 @@ function PipelineContext(task, checkpoint, workerConfig) {
     var gfmFiles = require('../worker/gfm-files.cjs').loadGfmFiles();
     for (var gk in gfmFiles) { if (gfmFiles.hasOwnProperty(gk)) this.extraFiles[gk] = gfmFiles[gk]; }
   } catch(e) { /* ignore */ }
-  this.stageResults = {};
+  this.stageResults = (checkpoint && checkpoint.stageResults)
+    ? JSON.parse(JSON.stringify(checkpoint.stageResults))
+    : {};
   this.lastStageError = null;
   this.log = [];
   this.previewReadyAt = (checkpoint && checkpoint.previewReadyAt) || null;
@@ -457,6 +459,7 @@ var methodCheckStage = require('./stages/method-check.cjs');
 var reviewStage = require('./stages/review.cjs');
 var compileStage = require('./stages/compile.cjs');
 var visualCheckStage = require('./stages/visual-check.cjs');
+var runtimeContractStage = require('./stages/runtime-contract.cjs');
 var cuaVerifyStage = require('./stages/cua-verify.cjs');
 var uploadStage = require('./stages/upload.cjs');
 
@@ -475,6 +478,7 @@ function createLunaPipeline(options) {
     reviewStage,
     compileStage,
     visualCheckStage,
+    runtimeContractStage,
     cuaVerifyStage,
     uploadStage,
   ], options);
@@ -507,6 +511,7 @@ module.exports = {
     review: reviewStage,
     compile: compileStage,
     visualCheck: visualCheckStage,
+    runtimeContract: runtimeContractStage,
     cuaVerify: cuaVerifyStage,
     upload: uploadStage,
   },

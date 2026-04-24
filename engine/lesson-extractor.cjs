@@ -75,7 +75,7 @@ function extractLesson(ctx) {
   } else if (stage === 'visual-check') {
     ruleCategory = 'Visual / Rendering';
     severity = 'warning';
-  } else if (stage === 'cua-verify') {
+  } else if (stage === 'runtime-contract' || stage === 'cua-verify') {
     ruleCategory = 'Interaction / Gameplay';
     severity = 'warning';
   } else if (stage === 'spec-validate') {
@@ -112,7 +112,7 @@ function extractLesson(ctx) {
     // Extract actual compiler error from reason
     var errorMatch = reason.match(/error\s+CS\d+[^\n]*/i);
     fix = errorMatch ? errorMatch[0].substring(0, 300) : 'Fix compilation error: ' + reason.substring(0, 200);
-  } else if (stage === 'visual-check' || stage === 'cua-verify') {
+  } else if (stage === 'visual-check' || stage === 'runtime-contract' || stage === 'cua-verify') {
     // Use last diagnosis from fix-loop feedback if available
     if (lastDiagnosis) {
       var actionMatch = lastDiagnosis.match(/ACTION REQUIRED:\s*([^\n]+)/);
