@@ -44,6 +44,27 @@ function withStubbedSpecExtractor(specs, fn) {
     });
 }
 
+function withThrowingSpecExtractor(fn) {
+  var specExtractorPath = require.resolve('../adapters/spec-extractor.cjs');
+  var original = require.cache[specExtractorPath];
+  require.cache[specExtractorPath] = {
+    id: specExtractorPath,
+    filename: specExtractorPath,
+    loaded: true,
+    exports: {
+      extractSpecs: async function() {
+        throw new Error('extractSpecs should not be called');
+      }
+    }
+  };
+  return Promise.resolve()
+    .then(fn)
+    .finally(function() {
+      if (original) require.cache[specExtractorPath] = original;
+      else delete require.cache[specExtractorPath];
+    });
+}
+
 function createProject(id) {
   return {
     id: id,
@@ -175,6 +196,46 @@ function createHarness(tmpRoot) {
     assert.strictEqual(harness.taskQueue.queued.length, 0, 'manual review path should not enqueue task');
     assert.ok(fs.existsSync(path.join(tmpRoot, 'webgl', 'proj_manual_review', 'specs.json')), 'specs artifact missing for manual review');
     assert.ok(fs.existsSync(path.join(tmpRoot, 'webgl', 'proj_manual_review', 'plans.json')), 'plans artifact missing for manual review');
+  });
+
+  await withThrowingSpecExtractor(async function() {
+    var harness = createHarness(tmpRoot);
+    var project = createProject('proj_reuse_specs');
+    project.status = 'failed';
+    project.specs = [
+      { phaseId: 'intro', phaseName: 'Intro', requiredInteractions: ['move_to:ConveyorBelt'], duration: { min: 10, max: 20 } }
+    ];
+    harness.setProject(project);
+
+    var result = await projectService.submitProject(harness.getProject(), harness.opts);
+    assert.strictEqual(result.status, 'submitted', 'failed resubmit should reuse existing specs/plans');
+
+    project = harness.getProject();
+    assert.strictEqual(project.status, 'submitted', 'reuse path should submit immediately');
+    assert.ok(project.planReview && project.planReview.autoConfirmed, 'reuse path should still record auto confirm');
+    assert.strictEqual(project.planReview.reason, 'reuse_existing_specs', 'reuse path should record reuse reason');
+    assert.match(project.statusMessage || '', /复用已有规格\/计划/, 'reuse path should mention plan reuse');
+    assert.strictEqual(harness.taskQueue.queued.length, 1, 'reuse path should enqueue task');
+  });
+
+  await withThrowingSpecExtractor(async function() {
+    var harness = createHarness(tmpRoot);
+    var project = createProject('proj_reuse_cancelled_specs');
+    project.status = 'cancelled';
+    project.specs = [
+      { phaseId: 'intro', phaseName: 'Intro', requiredInteractions: ['move_to:ConveyorBelt'], duration: { min: 10, max: 20 } }
+    ];
+    harness.setProject(project);
+
+    var result = await projectService.submitProject(harness.getProject(), harness.opts);
+    assert.strictEqual(result.status, 'submitted', 'cancelled resubmit should reuse existing specs/plans when checkpoint is absent');
+
+    project = harness.getProject();
+    assert.strictEqual(project.status, 'submitted', 'cancelled reuse path should submit immediately');
+    assert.ok(project.planReview && project.planReview.autoConfirmed, 'cancelled reuse path should still record auto confirm');
+    assert.strictEqual(project.planReview.reason, 'reuse_existing_specs', 'cancelled reuse path should record reuse reason');
+    assert.match(project.statusMessage || '', /复用已有规格\/计划/, 'cancelled reuse path should mention plan reuse');
+    assert.strictEqual(harness.taskQueue.queued.length, 1, 'cancelled reuse path should enqueue task');
   });
 
   fs.rmSync(tmpRoot, { recursive: true, force: true });

@@ -117,6 +117,11 @@ function createCtx() {
 }
 
 {
+  var cancelledProjectValidate = projectSM.validate('cancelled', 'submitted');
+  assert.strictEqual(cancelledProjectValidate.valid, true, 'cancelled projects should be allowed to resume via submit');
+}
+
+{
   var taskValidate = require('../lib/state-machine.cjs').taskSM.validate('processing', 'pending');
   assert.strictEqual(taskValidate.valid, true, 'processing tasks should be allowed to requeue to pending');
   var cancelledValidate = require('../lib/state-machine.cjs').taskSM.validate('cancelled', 'pending');
