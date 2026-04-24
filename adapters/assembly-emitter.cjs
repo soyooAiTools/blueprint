@@ -93,6 +93,51 @@ function buildPhaseBindingIndex(plans) {
   return index;
 }
 
+function buildCuaStepIndex(plans) {
+  var steps = plans && plans.cuaPlan && Array.isArray(plans.cuaPlan.steps)
+    ? plans.cuaPlan.steps
+    : [];
+  var index = {};
+  for (var i = 0; i < steps.length; i++) {
+    if (!steps[i] || !steps[i].phaseId) continue;
+    index[steps[i].phaseId] = steps[i];
+  }
+  return index;
+}
+
+function hasSignal(expectedSignals, signal) {
+  return toArray(expectedSignals).map(function(item) { return String(item || ''); }).indexOf(signal) >= 0;
+}
+
+function isCSharpIdentifier(value) {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(String(value || ''));
+}
+
+function firstActionTarget(step, kinds) {
+  var allowed = {};
+  for (var k = 0; k < (kinds || []).length; k++) allowed[String(kinds[k]).toLowerCase()] = true;
+  var actions = toArray(step && step.actions);
+  for (var i = 0; i < actions.length; i++) {
+    var action = actions[i] || {};
+    var kind = String(action.kind || action.type || '').toLowerCase();
+    var target = action.target || action.to || action.item || '';
+    if (!allowed[kind] || !isCSharpIdentifier(target)) continue;
+    return String(target);
+  }
+  return '';
+}
+
+function hasActionKind(step, kinds) {
+  var allowed = {};
+  for (var k = 0; k < (kinds || []).length; k++) allowed[String(kinds[k]).toLowerCase()] = true;
+  var actions = toArray(step && step.actions);
+  for (var i = 0; i < actions.length; i++) {
+    var kind = String((actions[i] || {}).kind || (actions[i] || {}).type || '').toLowerCase();
+    if (allowed[kind]) return true;
+  }
+  return false;
+}
+
 function phaseIdsForModule(plans, fileName, moduleInstance) {
   var phaseBindings = plans && plans.assemblyPlan && Array.isArray(plans.assemblyPlan.phaseBindings)
     ? plans.assemblyPlan.phaseBindings
@@ -804,6 +849,7 @@ function buildPhaseCommentLines(fileName, phaseBinding, plans) {
 function annotateFlowPhaseMethods(flowCode, plans) {
   var content = String(flowCode || '');
   var phaseIndex = buildPhaseBindingIndex(plans);
+  var stepIndex = buildCuaStepIndex(plans);
   Object.keys(phaseIndex).forEach(function(phaseId) {
     var suffix = sanitizeId(String(phaseId || '').replace(/[^A-Za-z0-9]/g, ''));
     content = injectMethodManifest(
@@ -825,8 +871,64 @@ function annotateFlowPhaseMethods(flowCode, plans) {
         '        // cuaActions: ' + summarizePhaseActions(plans, phaseId),
       ])
     );
+    content = injectAutoplayFallbackEvidence(content, suffix, phaseIndex[phaseId], stepIndex[phaseId]);
   });
   return content;
+}
+
+function injectAutoplayFallbackEvidence(content, suffix, phaseBinding, step) {
+  if (!step && !phaseBinding) return content;
+  var phaseId = String((phaseBinding && phaseBinding.phaseId) || (step && step.phaseId) || suffix || '');
+  var expectedSignals = uniq(toArray(phaseBinding && phaseBinding.completionSignals).concat(toArray(step && step.expectedSignals)));
+  var lines = [];
+  var targetRemovedTarget = firstActionTarget(step, ['observe_defeat', 'defeat']);
+
+  if (hasSignal(expectedSignals, 'target_hp_decreased_or_target_dead') && hasActionKind(step, ['attack', 'observe_defeat', 'defeat'])) {
+    lines.push('            RecordPhaseEvidenceFlag("' + phaseId.replace(/"/g, '\\"') + '", "target_hp_decreased_or_target_dead");');
+  }
+
+  if (hasSignal(expectedSignals, 'target_removed_or_hidden') && (targetRemovedTarget || hasActionKind(step, ['observe_defeat', 'defeat']))) {
+    if (targetRemovedTarget) {
+      lines.push('            if (' + targetRemovedTarget + ' != null) HideObj(' + targetRemovedTarget + ');');
+      lines.push('            ' + targetRemovedTarget + 'Done = true;');
+      lines.push('            ' + targetRemovedTarget + 'State = Mathf.Max(' + targetRemovedTarget + 'State, 3);');
+    }
+    lines.push('            RecordPhaseEvidenceFlag("' + phaseId.replace(/"/g, '\\"') + '", "target_removed_or_hidden");');
+  }
+
+  if (hasSignal(expectedSignals, 'source_hidden_or_moved') && hasActionKind(step, ['approach_collect', 'collect', 'deliver', 'sell'])) {
+    lines.push('            RecordPhaseEvidenceFlag("' + phaseId.replace(/"/g, '\\"') + '", "source_hidden_or_moved");');
+  }
+
+  if (hasSignal(expectedSignals, 'player_position_changed') && hasActionKind(step, ['move_to'])) {
+    lines.push('            RecordPhaseEvidenceFlag("' + phaseId.replace(/"/g, '\\"') + '", "player_position_changed");');
+  }
+
+  if (hasSignal(expectedSignals, 'loot_visible') && targetRemovedTarget) {
+    lines.push('            RecordPhaseEvidenceFlag("' + phaseId.replace(/"/g, '\\"') + '", "loot_visible");');
+  }
+
+  if (lines.length === 0) return content;
+
+  var marker = '// [ASSEMBLY FALLBACK EVIDENCE] action-backed signal evidence';
+  var start = '// TODO_PHASE_' + suffix + '_ONAUTOARRIVE_START';
+  var end = '// TODO_PHASE_' + suffix + '_ONAUTOARRIVE_END';
+  var startIdx = content.indexOf(start);
+  var endIdx = content.indexOf(end, startIdx >= 0 ? startIdx : 0);
+  if (startIdx < 0 || endIdx < 0 || endIdx <= startIdx) return content;
+
+  var region = content.substring(startIdx, endIdx);
+  if (region.indexOf(marker) >= 0) return content;
+
+  var phaseLiteral = phaseId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/"/g, '\\"');
+  var guideLineRe = new RegExp('(RecordPhaseEvidenceFlag\\("' + phaseLiteral + '", "guide_text_visible"\\);\\n)');
+  if (!guideLineRe.test(region)) return content;
+
+  var insertion = [
+    '            ' + marker + ' from CUA actions.',
+  ].concat(lines).join('\n') + '\n';
+  var nextRegion = region.replace(guideLineRe, '$1' + insertion);
+  return content.substring(0, startIdx) + nextRegion + content.substring(endIdx);
 }
 
 function summarizePhaseActions(plans, phaseId) {

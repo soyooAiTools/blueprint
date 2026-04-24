@@ -159,4 +159,95 @@ assert.ok(genericEmitted.files.resource.indexOf('RecordPhaseEvidenceFlag(current
 assert.ok(genericEmitted.files.resource.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "reward_incremented")') >= 0, 'deliver slot should record reward evidence');
 assert.ok(genericEmitted.files.resource.indexOf('" energy"') >= 0, 'floating text should use parameterized reward label');
 
+var fallbackSkeleton = {
+  mode: 'w1b-5partial',
+  main: 'public partial class GameFlowManagerMain\n{\n    void Update()\n    {\n        // TODO_CUSTOM_START\n        // TODO_CUSTOM_END\n    }\n}\n',
+  flow: [
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    void Phase_buildDefenseTower_OnAutoPlayArrive(string targetName)',
+    '    {',
+    '        // TODO_PHASE_buildDefenseTower_ONAUTOARRIVE_START',
+    '        if (!buildDefenseTowerInteractionDone && !buildDefenseTowerPlayerActed)',
+    '        {',
+    '            RecordPhaseEvidenceFlag("buildDefenseTower", "guide_text_visible");',
+    '        }',
+    '        // TODO_PHASE_buildDefenseTower_ONAUTOARRIVE_END',
+    '    }',
+    '    void Phase_buildConveyorBelt_OnAutoPlayArrive(string targetName)',
+    '    {',
+    '        // TODO_PHASE_buildConveyorBelt_ONAUTOARRIVE_START',
+    '        if (!buildConveyorBeltInteractionDone && !buildConveyorBeltPlayerActed)',
+    '        {',
+    '            RecordPhaseEvidenceFlag("buildConveyorBelt", "guide_text_visible");',
+    '        }',
+    '        // TODO_PHASE_buildConveyorBelt_ONAUTOARRIVE_END',
+    '    }',
+    '    void Phase_occupyEnemyBaseCTA_OnAutoPlayArrive(string targetName)',
+    '    {',
+    '        // TODO_PHASE_occupyEnemyBaseCTA_ONAUTOARRIVE_START',
+    '        if (!occupyEnemyBaseCTAInteractionDone && !occupyEnemyBaseCTAPlayerActed)',
+    '        {',
+    '            RecordPhaseEvidenceFlag("occupyEnemyBaseCTA", "guide_text_visible");',
+    '        }',
+    '        // TODO_PHASE_occupyEnemyBaseCTA_ONAUTOARRIVE_END',
+    '    }',
+    '}',
+    ''
+  ].join('\n'),
+  input: genericSkeleton.input,
+  resource: genericSkeleton.resource,
+  ui: genericSkeleton.ui,
+  scene: genericSkeleton.scene
+};
+var fallbackPlans = {
+  assemblyPlan: {
+    moduleInstances: [],
+    fileOwners: [],
+    phaseBindings: [
+      {
+        phaseId: 'buildDefenseTower',
+        completionSignals: ['guide_text_visible', 'target_hp_decreased_or_target_dead']
+      },
+      {
+        phaseId: 'buildConveyorBelt',
+        completionSignals: ['guide_text_visible', 'source_hidden_or_moved', 'player_position_changed']
+      },
+      {
+        phaseId: 'occupyEnemyBaseCTA',
+        completionSignals: ['guide_text_visible', 'target_removed_or_hidden', 'loot_visible']
+      }
+    ],
+    stateOwners: [],
+    eventGraph: [],
+    unresolved: []
+  },
+  cuaPlan: {
+    steps: [
+      {
+        phaseId: 'buildDefenseTower',
+        actions: [{ kind: 'attack', target: 'Gold' }],
+        expectedSignals: ['target_hp_decreased_or_target_dead']
+      },
+      {
+        phaseId: 'buildConveyorBelt',
+        actions: [{ kind: 'approach_collect', target: 'RocketDebris' }, { kind: 'move_to', target: 'ConveyorBelt' }],
+        expectedSignals: ['source_hidden_or_moved', 'player_position_changed']
+      },
+      {
+        phaseId: 'occupyEnemyBaseCTA',
+        actions: [{ kind: 'observe_defeat', target: 'EnemyBase' }],
+        expectedSignals: ['target_removed_or_hidden', 'loot_visible']
+      }
+    ]
+  }
+};
+var fallbackEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(fallbackSkeleton, fallbackPlans);
+assert.ok(fallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag("buildDefenseTower", "target_hp_decreased_or_target_dead")') >= 0, 'autoplay fallback should record action-backed damage evidence');
+assert.ok(fallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag("buildConveyorBelt", "source_hidden_or_moved")') >= 0, 'autoplay fallback should record action-backed collect movement evidence');
+assert.ok(fallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag("buildConveyorBelt", "player_position_changed")') >= 0, 'autoplay fallback should record action-backed move_to evidence');
+assert.ok(fallbackEmitted.files.flow.indexOf('if (EnemyBase != null) HideObj(EnemyBase);') >= 0, 'autoplay fallback should hide defeated target when action names one');
+assert.ok(fallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag("occupyEnemyBaseCTA", "target_removed_or_hidden")') >= 0, 'autoplay fallback should record target removal evidence');
+assert.ok(fallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag("occupyEnemyBaseCTA", "loot_visible")') >= 0, 'autoplay fallback should record death drop evidence for observe_defeat');
+
 console.log('assembly-emitter tests passed');
