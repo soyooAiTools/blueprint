@@ -61,6 +61,35 @@ const gfmFiles = require('../worker/gfm-files.cjs').loadGfmFiles();
   const ctx = {
     csCode: [
       'using UnityEngine;',
+      'public partial class GameFlowManagerMain : MonoBehaviour',
+      '{',
+      '    GameObject GoldRecycler; // [SKELETON]',
+      '    void Update() { }',
+      '}',
+    ].join('\n'),
+    extraFiles: {
+      'GameFlowManagerMain.UI.cs': [
+        'using UnityEngine;',
+        'public partial class GameFlowManagerMain : MonoBehaviour',
+        '{',
+        '    GameObject GoldRecycler;',
+        '}',
+      ].join('\n'),
+    },
+    blueprint: { entities: [] },
+  };
+  const violations = methodCheck.detectContractViolations(ctx);
+  assert.ok(violations.some(v => v.rule === 'duplicate-object-fields'));
+  const changed = methodCheck.autoRepairDuplicateObjectFields(ctx);
+  assert.strictEqual(changed, true);
+  assert.ok(!ctx.extraFiles['GameFlowManagerMain.UI.cs'].includes('GameObject GoldRecycler;'));
+  assert.ok(!methodCheck.detectContractViolations(ctx).some(v => v.rule === 'duplicate-object-fields'));
+}
+
+{
+  const ctx = {
+    csCode: [
+      'using UnityEngine;',
       'public class Demo : MonoBehaviour',
       '{',
       '    Rigidbody rb;',
@@ -72,6 +101,43 @@ const gfmFiles = require('../worker/gfm-files.cjs').loadGfmFiles();
   };
   const violations = methodCheck.detectContractViolations(ctx);
   assert.ok(violations.some(v => v.rule === 'forbidden-generic-api'));
+}
+
+{
+  const ctx = {
+    csCode: [
+      'using UnityEngine;',
+      'public class Demo : MonoBehaviour',
+      '{',
+      '    void Update() { if (IsNear(, 2f)) { } }',
+      '}',
+    ].join('\n'),
+    extraFiles: {},
+    blueprint: { entities: [] },
+  };
+  const violations = methodCheck.detectContractViolations(ctx);
+  assert.ok(violations.some(v => v.rule === 'malformed-isnear-call'));
+  const changed = methodCheck.autoRepairMalformedIsNear(ctx);
+  assert.strictEqual(changed, true);
+  assert.ok(!/IsNear\(\s*,/.test(ctx.csCode));
+}
+
+{
+  const ctx = {
+    csCode: [
+      'using UnityEngine;',
+      'public class Demo : MonoBehaviour',
+      '{',
+      '    void Update() { var rb = gameObject.GetComponent<Rigidbody>(); ((Rigidbody)gameObject.GetComponent(typeof(Rigidbody))).velocity = Vector3.zero; }',
+      '}',
+    ].join('\n'),
+    extraFiles: {},
+    blueprint: { entities: [] },
+  };
+  const changed = methodCheck.autoRepairForbiddenGenericApis(ctx);
+  assert.strictEqual(changed, true);
+  assert.ok(ctx.csCode.includes('var rb = ((Rigidbody)gameObject.GetComponent(typeof(Rigidbody)));'));
+  assert.ok(!/GetComponent\s*</.test(ctx.csCode));
 }
 
 {
@@ -191,6 +257,56 @@ const gfmFiles = require('../worker/gfm-files.cjs').loadGfmFiles();
   };
   const violations = methodCheck.detectContractViolations(ctx);
   assert.ok(violations.some(v => v.rule === 'forbidden-generic-api'));
+}
+
+{
+  const ctx = {
+    csCode: [
+      'using UnityEngine;',
+      'using UnityEngine.UI;',
+      'public partial class GameFlowManagerMain : MonoBehaviour',
+      '{',
+      '    float phaseTimer = 0f;',
+      '    string lastPhaseForTimer = "";',
+      '    string currentPhaseName = "init";',
+      '    bool _autoPlayMode = false;',
+      '    int _autoPlaySteps = 0;',
+      '    int _autoPlayStepsAtPhaseStart = 0;',
+      '    float gameTimer = 0f;',
+      '    bool gameEnded = false;',
+      '    bool[] ruleTriggered;',
+      '    string[] completedPhases;',
+      '    int completedPhaseCount = 0;',
+      '    float[] phaseEnterTimes;',
+      '    Text guideText;',
+      '    Text scoreText;',
+      '    void Start() { _inventory["Gold"] = 0; _SyncResourcesToManager(); GFM_AutoPlay.Instance.OnArrive = OnAutoPlayArrive; }',
+      '    void Update() { SyncAutoPlayState(gameTimer); UpdatePhaseTimer(Time.deltaTime); if (_collectCooldown <= 0f && IsNear(null, collectCooldownInterval)) { if (_lastScoreText != "x") _lastScoreText = "x"; AddGold(1); ShowFloatingText(player != null ? player.transform.position : Vector3.zero, "x", Color.yellow); } }',
+      '    void AddCompletedPhase(string phaseName) { }',
+      '    void ReportPhase(string phaseId) { }',
+      '    void UpdateGameState() { }',
+      '    void ShowCTA() { }',
+      '    void Phase_OnTap() { }',
+      '}',
+    ].join('\n'),
+    extraFiles: Object.assign({}, gfmFiles),
+    blueprint: { entities: [] },
+  };
+  const changed = methodCheck.autoRepairMissingSkeletonBridgeInfra(ctx);
+  assert.strictEqual(changed, true);
+  assert.ok(ctx.csCode.includes('ResourceDef[] _resources;'));
+  assert.ok(ctx.csCode.includes('InventoryCompat _inventory = new InventoryCompat();'));
+  assert.ok(ctx.csCode.includes('float collectCooldownInterval = 0.3f;'));
+  assert.ok(ctx.csCode.includes('float _collectCooldown = 0f;'));
+  assert.ok(ctx.csCode.includes('string _lastScoreText = "";'));
+  assert.ok(ctx.csCode.includes('GameObject player'));
+  assert.ok(ctx.csCode.includes('void SyncAutoPlayState(float now)'));
+  assert.ok(ctx.csCode.includes('void UpdatePhaseTimer(float dt)'));
+  assert.ok(ctx.csCode.includes('void _SyncResourcesToManager()'));
+  assert.ok(ctx.csCode.includes('bool IsNear(GameObject target, float range)'));
+  assert.ok(ctx.csCode.includes('void AddGold(int amount)'));
+  assert.ok(ctx.csCode.includes('void ShowFloatingText(Vector3 worldPos, string text, Color color)'));
+  assert.ok(ctx.csCode.includes('void OnAutoPlayArrive(string targetName)'));
 }
 
 console.log('method-check contract tests passed');

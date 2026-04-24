@@ -10,6 +10,63 @@ var path = require('path');
 
 // ============ File Helpers ============
 
+function buildGameStateBridgeScript() {
+  return `<script>
+(function(){
+  // AutoPlay mode: if URL has ?autoplay=1, create a flag entity that C# can detect via GameObject.Find
+  var _autoPlayFlagCreated=false;
+  var _observerReadyFlagCreated=false;
+  var _autoPlayRequested=new URLSearchParams(window.location.search).get('autoplay')==='1';
+  window.__CUA_OBSERVER_READY__ = !!window.__CUA_OBSERVER_READY__;
+  setInterval(function(){
+    try{
+      var app=pc.app||pc.Application.getApplication();
+      if(!app||!app.root)return;
+      // Create autoPlay flag entity once (C# reads via GameObject.Find("__AUTOPLAY_ON__"))
+      if(_autoPlayRequested&&!_autoPlayFlagCreated){
+        try{var fe=new pc.Entity('__AUTOPLAY_ON__');app.root.addChild(fe);_autoPlayFlagCreated=true;}catch(e){}
+      }
+      // Create observer-ready flag only after CUA has actually started observing.
+      if(window.__CUA_OBSERVER_READY__&&!_observerReadyFlagCreated){
+        try{var oe=new pc.Entity('__CUA_OBSERVER_READY__');app.root.addChild(oe);_observerReadyFlagCreated=true;}catch(e){}
+      }
+      // Scan all children recursively for entity with name starting with "GFM|"
+      function scan(node){
+        if(!node)return null;
+        var n=node._name||node.name||'';
+        if(n.indexOf('GFM|')===0)return n;
+        var c=node._children||node.children||[];
+        for(var i=0;i<c.length;i++){var r=scan(c[i]);if(r)return r;}
+        return null;
+      }
+      var found=scan(app.root);
+      if(found){try{window.__gameState=JSON.parse(found.substring(4))}catch(e){}}
+    }catch(e){}
+  },500);
+})();
+<\/script>`;
+}
+
+function injectGameStateBridgeHtml(html) {
+  var inputIsBuffer = Buffer.isBuffer(html);
+  var text = inputIsBuffer ? html.toString('utf8') : String(html || '');
+  if (!text) return inputIsBuffer ? Buffer.from('') : '';
+  var hasAutoPlayBridge = text.indexOf('var _autoPlayFlagCreated=false;') >= 0;
+  var hasObserverBridge = text.indexOf('var _observerReadyFlagCreated=false;') >= 0 ||
+    text.indexOf('window.__CUA_OBSERVER_READY__ = !!window.__CUA_OBSERVER_READY__;') >= 0;
+  var hasGameStateBridge = text.indexOf('window.__gameState=JSON.parse') >= 0;
+  if (hasAutoPlayBridge && hasObserverBridge && hasGameStateBridge) {
+    return html;
+  }
+  var bridge = buildGameStateBridgeScript();
+  if (text.indexOf('</body>') >= 0) {
+    text = text.replace('</body>', bridge + '</body>');
+  } else {
+    text += bridge;
+  }
+  return inputIsBuffer ? Buffer.from(text, 'utf8') : text;
+}
+
 /**
  * Recursively find files by extension in a directory
  */
@@ -64,9 +121,9 @@ function buildRequest(buildUrl, endpoint, csCode, extraFiles) {
   if (endpoint === '/build-html') {
     return buildRequest(buildUrl, '/build', csCode, extraFiles).then(function(result) {
       if (result && result.htmlBase64) {
-        return Buffer.from(result.htmlBase64, 'base64');
+        return injectGameStateBridgeHtml(Buffer.from(result.htmlBase64, 'base64'));
       }
-      if (result && Buffer.isBuffer(result)) return result; // legacy server already returned raw HTML
+      if (result && Buffer.isBuffer(result)) return injectGameStateBridgeHtml(result); // legacy server already returned raw HTML
       var msg = (result && result.error) ? result.error : 'HTML not in build response';
       throw new Error(msg);
     });
@@ -604,6 +661,7 @@ function extractPhaseFromConsole(consoleMessages) {
 module.exports = {
   findFiles: findFiles,
   buildRequest: buildRequest,
+  injectGameStateBridgeHtml: injectGameStateBridgeHtml,
   reportStatus: reportStatus,
   categorizeIssue: categorizeIssue,
   extractPhaseFromConsole: extractPhaseFromConsole,

@@ -66,7 +66,7 @@ async function preflightCheck() {
       // 里显式剥离 OPENAI_API_KEY / CODEX_API_KEY / OPENAI_BASE_URL — 只要这些
       // 存在 codex 就会误以为你想用 API key 模式去 api.openai.com,
       // 然后拿 blueprint-editor .env 里的 mindrix 中转 key 401 invalid_api_key。
-      const { OPENAI_API_KEY, CODEX_API_KEY, OPENAI_BASE_URL, ...cleanEnv } = process.env;
+      const { OPENAI_API_KEY, CODEX_API_KEY, OPENAI_BASE_URL, HTTP_PROXY, HTTPS_PROXY, http_proxy, https_proxy, ALL_PROXY, all_proxy, NO_PROXY, no_proxy, ...cleanEnv } = process.env;
       const child = spawn(CODEX_CMD, [
         'exec',
         '--skip-git-repo-check',
@@ -165,7 +165,7 @@ function runCodexReview(workDir, userPrompt, log, taskId) {
     // 2026-04-15: ChatGPT auth 模式, 必须剥离 OPENAI_API_KEY / CODEX_API_KEY /
     // OPENAI_BASE_URL — 否则 codex 会用 blueprint-editor .env 里的 mindrix 中转 key
     // 去撞 api.openai.com 拿 401。~/.codex/config.toml 也已删除 [model_providers.OpenAI] 自定义块。
-    const { OPENAI_API_KEY, CODEX_API_KEY, OPENAI_BASE_URL, ...cleanEnv } = process.env;
+    const { OPENAI_API_KEY, CODEX_API_KEY, OPENAI_BASE_URL, HTTP_PROXY, HTTPS_PROXY, http_proxy, https_proxy, ALL_PROXY, all_proxy, NO_PROXY, no_proxy, ...cleanEnv } = process.env;
     const child = spawn(CODEX_CMD, args, {
       cwd: workDir,
       env: { ...cleanEnv, RUST_LOG: 'error' },

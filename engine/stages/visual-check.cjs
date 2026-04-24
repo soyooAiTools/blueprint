@@ -17,8 +17,14 @@ var MAX_VISUAL_ROUNDS = 5;
 // is misdiagnosed and additional fix attempts only burn tokens.
 var SAME_REASON_EXIT = 3;
 
+function isVisualInfraFailureReason(reason) {
+  var text = String(reason || '').toLowerCase();
+  return /vision cli unavailable|vision api unavailable|vision cli returned empty response|could not parse analysis response|vision backend not producing valid analysis|exit code 143/.test(text);
+}
+
 module.exports = {
   name: 'visual-check',
+  _isVisualInfraFailureReason: isVisualInfraFailureReason,
   canRetry: false,
   assertBefore: function(ctx) {
     if (!ctx.htmlOutput) throw new Error('No HTML output from compile stage');
@@ -320,10 +326,6 @@ module.exports = {
                 ' respTextLen=' + ((result && result.text) || '').length +
                 ' elapsedMs=' + (Date.now() - _visionStartedAt));
               if (!result.ok) {
-                // MODEL_FATAL (quota/auth on CC CLI relay) must propagate so fix-loop aborts.
-                if (result.error && /MODEL_FATAL/i.test(result.error)) {
-                  throw new Error(result.error);
-                }
                 throw new Error('Vision CLI error: ' + (result.error || 'unknown'));
               }
               var rawText = (result.text || '').trim();
@@ -338,14 +340,21 @@ module.exports = {
               return { passed: false, reason: 'Could not parse analysis response: ' + rawText.slice(0, 120) };
             })
             .catch(function(err) {
+              var errMsg = err && err.message ? err.message : 'unknown';
               ctx.addLog('visual-check', '[vision-cost] error round=' + round +
-                ' elapsedMs=' + (Date.now() - _visionStartedAt) + ' msg=' + err.message);
-              ctx.addLog('visual-check', 'Vision CLI error: ' + err.message);
-              // MODEL_FATAL propagates so error-classifier can cancel the task.
-              if (err && /MODEL_FATAL/i.test(err.message || '')) {
+                ' elapsedMs=' + (Date.now() - _visionStartedAt) + ' msg=' + errMsg);
+              ctx.addLog('visual-check', 'Vision CLI error: ' + errMsg);
+              // Preserve real MODEL_FATALs (e.g. auth/quota) but allow the visual
+              // stage to degrade gracefully when the vision backend simply times out
+              // or returns no parseable analysis. CUA remains the real hard gate.
+              if (err && /MODEL_FATAL/i.test(errMsg) && !isVisualInfraFailureReason(errMsg)) {
                 throw err;
               }
-              return { passed: false, reason: 'Vision CLI unavailable: ' + err.message };
+              return {
+                passed: false,
+                reason: 'Vision CLI unavailable: ' + errMsg,
+                infraDegraded: true,
+              };
             })
             .then(function(analysis) {
               ctx.addLog('visual-check', (analysis.passed ? 'PASSED' : 'FAILED') + ' — ' + analysis.reason);
@@ -354,11 +363,22 @@ module.exports = {
               // additional fix attempts won't help — exit early to save tokens.
               if (!analysis.passed) {
                 var reasonKey = (analysis.reason || '').slice(0, 60).toLowerCase().replace(/\s+/g, ' ').trim();
-                // If the reason is "could not parse analysis response" or "vision cli unavailable",
-                // that's a dead backend, not a fixable code issue. Escalate to MODEL_FATAL so the
-                // task cancels instead of silently failing 6 recode rounds on known-broken vision.
-                if (/could not parse analysis response|vision cli unavailable|vision api unavailable/.test(reasonKey)) {
-                  throw new Error('MODEL_FATAL: Vision backend not producing valid analysis (' + analysis.reason + ')');
+                if (analysis.infraDegraded || isVisualInfraFailureReason(reasonKey)) {
+                  ctx.addLog('visual-check', 'Vision backend degraded after preview capture — continuing with warning: ' + analysis.reason);
+                  if (!ctx.blueprint.feedbackHistory) ctx.blueprint.feedbackHistory = [];
+                  ctx.blueprint.feedbackHistory.push({
+                    data: { text: '[visual-check warning] Vision backend unavailable, skipped visual QA: ' + analysis.reason },
+                    source: 'visual-check-infra-warning',
+                    status: 'info',
+                    timestamp: Date.now(),
+                  });
+                  ctx.visualCheckDegraded = true;
+                  ctx.htmlOutput = lastHtmlForVisual;
+                  ctx.csCode = lastCsCode;
+                  return {
+                    done: true,
+                    result: { passed: true, degraded: true, reason: analysis.reason },
+                  };
                 }
                 if (reasonKey && reasonKey === lastVisualReasonKey) {
                   sameReasonCount++;

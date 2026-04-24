@@ -24,6 +24,7 @@ const ctx = {
       'public partial class GameFlowManagerMain : MonoBehaviour',
       '{',
       '    int LaserTurretState = 1;',
+      '    GameObject Player;',
       '    void Tick() { PlayerAvatar = Player; }',
       '}',
     ].join('\n'),
@@ -39,6 +40,7 @@ const result = codegenSchema._applyGeneratedCodeContractScrub(ctx);
 assert.strictEqual(result.changed, true);
 assert.ok(result.fixes.includes('ForbiddenGenericApi'));
 assert.ok(result.fixes.includes('DuplicateStateFields'));
+assert.ok(result.fixes.includes('DuplicateObjectFields'));
 assert.ok(result.fixes.includes('PlayerAliasDrift'));
 assert.ok(result.fixes.includes('InvalidPoolLiterals'));
 assert.deepStrictEqual(methodCheck.detectContractViolations(ctx), []);

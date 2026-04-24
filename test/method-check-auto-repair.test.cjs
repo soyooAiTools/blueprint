@@ -6,6 +6,92 @@ const methodCheck = require('../engine/stages/method-check.cjs');
   const ctx = {
     csCode: [
       'using UnityEngine;',
+      'public partial class GameFlowManagerMain : MonoBehaviour',
+      '{',
+      '    float moveSpeed = 5f; // [SKELETON]',
+      '    bool DefenseTowerDone = false; // [SKELETON]',
+      '    void Update()',
+      '    {',
+      '        float moveSpeed = 1f;',
+      '        bool DefenseTowerDone = false;',
+      '    }',
+      '}',
+    ].join('\n'),
+    extraFiles: {
+      'GameFlowManagerMain.Flow.cs': [
+        'using UnityEngine;',
+        'public partial class GameFlowManagerMain : MonoBehaviour',
+        '{',
+        '    float moveSpeed = 8f;',
+        '    bool DefenseTowerDone = false;',
+        '}',
+      ].join('\n'),
+    },
+  };
+  const changed = methodCheck.autoRepairDuplicateSimpleFields(ctx);
+  assert.strictEqual(changed, true);
+  assert.match(ctx.csCode, /float moveSpeed = 5f;/);
+  assert.match(ctx.csCode, /bool DefenseTowerDone = false; \/\/ \[SKELETON\]/);
+  assert.match(ctx.csCode, /float moveSpeed = 1f;/);
+  assert.match(ctx.csCode, /bool DefenseTowerDone = false;\n    }\n}$/);
+  assert.doesNotMatch(ctx.extraFiles['GameFlowManagerMain.Flow.cs'], /float moveSpeed = 8f;/);
+  assert.doesNotMatch(ctx.extraFiles['GameFlowManagerMain.Flow.cs'], /bool DefenseTowerDone = false;/);
+}
+
+{
+  const ctx = {
+    csCode: [
+      'using UnityEngine;',
+      'public class FirstManager : MonoBehaviour',
+      '{',
+      '    private bool _inited = false;',
+      '}',
+    ].join('\n'),
+    extraFiles: {
+      'SecondManager.cs': [
+        'using UnityEngine;',
+        'public class SecondManager : MonoBehaviour',
+        '{',
+        '    private bool _inited = false;',
+        '}',
+      ].join('\n'),
+    },
+  };
+  const changed = methodCheck.autoRepairDuplicateSimpleFields(ctx);
+  assert.strictEqual(changed, false);
+  assert.match(ctx.csCode, /private bool _inited = false;/);
+  assert.match(ctx.extraFiles['SecondManager.cs'], /private bool _inited = false;/);
+}
+
+{
+  const ctx = {
+    csCode: [
+      'using UnityEngine;',
+      'public class CameraOwner : MonoBehaviour',
+      '{',
+      '    GameObject target;',
+      '}',
+    ].join('\n'),
+    extraFiles: {
+      'PlayerOwner.cs': [
+        'using UnityEngine;',
+        'public class PlayerOwner : MonoBehaviour',
+        '{',
+        '    GameObject target;',
+        '}',
+      ].join('\n'),
+    },
+  };
+  const changed = methodCheck.autoRepairDuplicateObjectFields(ctx);
+  assert.strictEqual(changed, false);
+  assert.match(ctx.csCode, /GameObject target;/);
+  assert.match(ctx.extraFiles['PlayerOwner.cs'], /GameObject target;/);
+}
+
+{
+  const ctx = {
+    csCode: [
+      'using UnityEngine;',
       'public class Demo : MonoBehaviour',
       '{',
       '    GameObject Worker1;',
@@ -49,6 +135,43 @@ const methodCheck = require('../engine/stages/method-check.cjs');
   assert.deepStrictEqual(missing, []);
   const changed = methodCheck.injectMissingHelpers(ctx, missing);
   assert.strictEqual(changed, false);
+}
+
+{
+  const ctx = {
+    csCode: [
+      'using UnityEngine;',
+      'using UnityEngine.UI;',
+      'public class Demo : MonoBehaviour',
+      '{',
+      '    Canvas uiCanvas;',
+      '    Text guideText;',
+      '    Text scoreText;',
+      '    GameObject target;',
+      '    void Start()',
+      '    {',
+      '        AddLocalWorldLabel(target, "目标", 1.5f);',
+      '        uiCanvas = CreateLocalCanvas(1920, 1080);',
+      '        guideText = CreateLocalText(uiCanvas, "GuideText", "点击目标", new Vector2(0, 100), 42);',
+      '        scoreText = CreateLocalText(uiCanvas, "ScoreText", "Score: 0", new Vector2(0, 0), 32);',
+      '    }',
+      '    void Update() { }',
+      '}',
+    ].join('\n'),
+    extraFiles: {},
+  };
+  const beforeMissing = methodCheck.checkCompleteness(ctx.csCode, ctx.extraFiles).sort();
+  assert.deepStrictEqual(beforeMissing, ['AddLocalWorldLabel', 'CreateLocalCanvas', 'CreateLocalText']);
+
+  const changed = methodCheck.autoRepairLocalUiHelperAliases(ctx);
+  assert.strictEqual(changed, true);
+  assert.match(ctx.csCode, /GFM_UI\.AddWorldLabel\(target, "目标", 1\.5f\)/);
+  assert.match(ctx.csCode, /uiCanvas = GFM_UI\.CreateCanvas\(1920, 1080\)/);
+  assert.match(ctx.csCode, /guideText = GFM_UI\.CreateText\(uiCanvas, "点击目标", new Vector2\(0, 100\), 42\)/);
+  assert.match(ctx.csCode, /scoreText = GFM_UI\.CreateText\(uiCanvas, "Score: 0", new Vector2\(0, 0\), 32\)/);
+
+  const afterMissing = methodCheck.checkCompleteness(ctx.csCode, ctx.extraFiles);
+  assert.deepStrictEqual(afterMissing, []);
 }
 
 {
@@ -259,6 +382,33 @@ const methodCheck = require('../engine/stages/method-check.cjs');
   const changed = methodCheck.autoRepairPartialClassMismatch(ctx);
   assert.strictEqual(changed, true);
   assert.match(ctx.csCode, /public partial class GameFlowManagerMain : MonoBehaviour/);
+}
+
+{
+  const ctx = {
+    csCode: [
+      'using UnityEngine;',
+      'public partial class GameFlowManagerMain : MonoBehaviour',
+      '{',
+      '    void Update() { }',
+      '}',
+    ].join('\n'),
+    extraFiles: {
+      'GameFlowManagerMain.Flow.cs': [
+        'using UnityEngine;',
+        'public partial class GameFlowManagerMain',
+        '{',
+        '    GameObject EnemyAstronaut;',
+        '    void Phase_enemyAttack_OnTap()',
+        '    {',
+        '        SpawnEnemyAstronaut(1);',
+        '    }',
+        '}',
+      ].join('\n'),
+    },
+  };
+  const missing = methodCheck.checkCompleteness(ctx.csCode, ctx.extraFiles);
+  assert.deepStrictEqual(missing, ['SpawnEnemyAstronaut']);
 }
 
 console.log('method-check auto-repair tests passed');

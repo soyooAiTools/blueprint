@@ -12,6 +12,20 @@ var os = require('os');
 var helpers = require('./helpers.cjs');
 var cloneStage = require('./stages/clone.cjs');
 
+function collectManagerPartialOutputs(rootDir) {
+  var out = {};
+  if (!rootDir || !fs.existsSync(rootDir)) return out;
+  var allCs = helpers.findFiles(rootDir, '.cs');
+  for (var i = 0; i < allCs.length; i++) {
+    var file = allCs[i];
+    var base = path.basename(file);
+    if (!/^GameFlowManagerMain(?:\.[A-Za-z0-9_]+)?\.cs$/.test(base)) continue;
+    if (base === 'GameFlowManagerMain.cs') continue;
+    out[base] = fs.readFileSync(file, 'utf-8');
+  }
+  return out;
+}
+
 /**
  * Re-generate code in a fresh template directory.
  *
@@ -87,16 +101,11 @@ function recode(opts) {
 
       var code = fs.readFileSync(mainCs, 'utf-8');
 
-      // Collect partial class files from recode output
-      var recodedExtras = {};
-      var partialNames = ['GameFlowManagerMain.Systems.cs'];
-      for (var pi = 0; pi < partialNames.length; pi++) {
-        for (var ci = 0; ci < allCs.length; ci++) {
-          if (allCs[ci].indexOf(partialNames[pi]) !== -1) {
-            recodedExtras[partialNames[pi]] = fs.readFileSync(allCs[ci], 'utf-8');
-          }
-        }
-      }
+      // Collect all partial class files from recode output. Assembly-first tasks
+      // now split logic across Flow/Input/Resource/UI/Scene/System partials, so
+      // returning only Systems.cs causes compile-fix to silently drop edits or
+      // reason against stale partial ownership.
+      var recodedExtras = collectManagerPartialOutputs(tempDir);
       cleanup(tempDir);
       return { ok: true, code: code, extraFiles: recodedExtras };
     })
@@ -281,4 +290,8 @@ function cleanup(dir) {
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch(e) {}
 }
 
-module.exports = { recode: recode, patchRecode: patchRecode };
+module.exports = {
+  recode: recode,
+  patchRecode: patchRecode,
+  _collectManagerPartialOutputs: collectManagerPartialOutputs,
+};

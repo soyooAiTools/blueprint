@@ -1,7 +1,8 @@
 // Source: engine/stages/method-check.cjs
 /**
- * Stage: method-check — hard check that all methods called in Update()/CheckEventRules()
- * are actually defined in the generated C# code.
+ * Stage: method-check — hard check that all methods called in lifecycle entry
+ * methods (Awake/Start/Update/LateUpdate/FixedUpdate/CheckEventRules) are
+ * actually defined in the generated C# code.
  *
  * This stage blocks the pipeline on missing methods, and also injects structured
  * feedback into ctx.blueprint.feedbackHistory so the codegen fix-loop can repair the gap.
@@ -43,6 +44,15 @@ var UNITY_PREFIXES = [
  */
 var CS_KEYWORDS = [
   'if', 'for', 'while', 'switch', 'catch', 'typeof', 'sizeof', 'new', 'return'
+];
+
+var ENTRY_SCOPE_METHODS = [
+  'Awake',
+  'Start',
+  'Update',
+  'LateUpdate',
+  'FixedUpdate',
+  'CheckEventRules'
 ];
 
 // ============ Helpers ============
@@ -109,7 +119,7 @@ function extractMethodBody(csCode, methodName) {
  * (i.e. PascalCase / constant-style identifiers).
  *
  * @param {string} csCode
- * @param {string[]} scopeMethods  e.g. ['Update', 'CheckEventRules']
+ * @param {string[]} scopeMethods  e.g. ['Start', 'Update', 'CheckEventRules']
  * @returns {string[]}  unique list of called names
  */
 function extractMethodCalls(csCode, scopeMethods) {
@@ -148,8 +158,19 @@ function extractMethodCalls(csCode, scopeMethods) {
   return calls;
 }
 
+function deriveScopeMethods(aggregateCode) {
+  var scope = ENTRY_SCOPE_METHODS.slice();
+  if (!aggregateCode) return scope;
+  var extraRe = /\b(?:void|int|float|bool|string|double|long|char|IEnumerator|FormDef|ResourceDef|\w+[\[\]<>]*)\s+((?:Phase|AssemblySlot|Snapshot)_[A-Za-z0-9_]+|Phase_OnTap|OnAutoPlayArrive)\s*\(/g;
+  var m;
+  while ((m = extraRe.exec(aggregateCode)) !== null) {
+    if (scope.indexOf(m[1]) < 0) scope.push(m[1]);
+  }
+  return scope;
+}
+
 /**
- * Check whether all methods called inside Update() / CheckEventRules() are
+ * Check whether all methods called inside lifecycle entry methods are
  * accounted for (defined, skeleton-safe, or a Unity prefix).
  *
  * @param {string} csCode
@@ -166,7 +187,7 @@ function checkCompleteness(csCode, extraFiles) {
   }
 
   var defined = extractMethodDefinitions(aggregateCode);
-  var called = extractMethodCalls(csCode, ['Update', 'CheckEventRules']);
+  var called = extractMethodCalls(aggregateCode, deriveScopeMethods(aggregateCode));
 
   var missing = [];
   var i;
@@ -236,6 +257,658 @@ function injectMissingHelpers(ctx, missing) {
   return changed;
 }
 
+function hasTaskFieldOrProperty(code, name) {
+  if (!code || !name) return false;
+  var re = new RegExp('\\b(?:GameObject|Transform|Camera|Canvas|Text|Image|Button|Slider|RectTransform|GFM_Joystick|float|int|bool|string|ResourceDef\\[\\]|FormDef\\[\\]|Vector3)\\s+' + name + '\\s*(?:[;=\\{])');
+  return re.test(stripComments(code));
+}
+
+function hasTaskMethodDefinition(code, name) {
+  if (!code || !name) return false;
+  var re = new RegExp('\\b(?:void|bool|int|float|string|double|long|char|IEnumerator|FormDef|ResourceDef|[A-Za-z_][A-Za-z0-9_<>\\[\\]]*)\\s+' + name + '\\s*\\(');
+  return re.test(stripComments(code));
+}
+
+function hasTaskTypeDefinition(code, name, kind) {
+  if (!code || !name || !kind) return false;
+  var re = new RegExp('\\b' + kind + '\\s+' + name + '\\b');
+  return re.test(stripComments(code));
+}
+
+function referencesTaskIdentifier(code, name) {
+  if (!code || !name) return false;
+  var re = new RegExp('\\b' + name + '\\b');
+  return re.test(stripComments(code));
+}
+
+function referencesTaskCall(code, name) {
+  if (!code || !name) return false;
+  var re = new RegExp('\\b' + name + '\\s*\\(');
+  return re.test(stripComments(code));
+}
+
+function insertBeforeMarkerOrStart(code, marker, block) {
+  if (!code || !block) return code;
+  var text = String(code);
+  var markerIdx = marker ? text.indexOf(marker) : -1;
+  if (markerIdx >= 0) {
+    return text.slice(0, markerIdx) + block + '\n' + text.slice(markerIdx);
+  }
+  var startMatch = /\n[ \t]*void\s+Start\s*\(/.exec(text);
+  if (startMatch) {
+    return text.slice(0, startMatch.index + 1) + block + '\n' + text.slice(startMatch.index + 1);
+  }
+  return appendHelperBeforeClassEnd(text, block);
+}
+
+function autoRepairMissingSkeletonBridgeInfra(ctx) {
+  if (!ctx || !ctx.csCode) return false;
+
+  var taskCode = buildTaskAggregateCode(ctx);
+  if (!taskCode) return false;
+
+  var changed = false;
+  var fieldBlocks = [];
+  var methodBlocks = [];
+  var needsEconomyBridge = false;
+  var hasPlayerAssignment = /\bplayer\s*=/.test(stripComments(taskCode));
+
+  function ensureFieldBlock(signatureRe, lines) {
+    if (signatureRe.test(stripComments(ctx.csCode))) return;
+    fieldBlocks.push(lines.join('\n'));
+  }
+
+  function ensureMethodBlock(name, lines) {
+    if (hasTaskMethodDefinition(taskCode, name)) return;
+    methodBlocks.push(lines.join('\n'));
+  }
+
+  if ((referencesTaskIdentifier(taskCode, '_resources') || referencesTaskCall(taskCode, '_SyncResourcesToManager')) &&
+      !hasTaskTypeDefinition(taskCode, 'ResourceDef', 'struct')) {
+    fieldBlocks.push([
+      '    // [AUTO-REPAIR] Rehydrated skeleton economy bridge type.',
+      '    struct ResourceDef',
+      '    {',
+      '        public string resourceId;',
+      '        public string displayName;',
+      '        public string convertFrom;',
+      '        public int convertRatio;',
+      '    }'
+    ].join('\n'));
+    changed = true;
+  }
+
+  if ((referencesTaskIdentifier(taskCode, '_resources') || referencesTaskCall(taskCode, '_SyncResourcesToManager')) &&
+      !hasTaskFieldOrProperty(taskCode, '_resources')) {
+    fieldBlocks.push([
+      '    // [AUTO-REPAIR] Rehydrated skeleton economy bridge storage.',
+      '    ResourceDef[] _resources;'
+    ].join('\n'));
+    changed = true;
+    needsEconomyBridge = true;
+  }
+
+  if (referencesTaskIdentifier(taskCode, '_inventory') &&
+      !/\b_inventory\s*(?:=|;|\{)/.test(stripComments(taskCode))) {
+    fieldBlocks.push([
+      '    // [AUTO-REPAIR] Legacy inventory shim for templates that still emit _inventory["Gold"].',
+      '    class InventoryCompat',
+      '    {',
+      '        public int this[string id]',
+      '        {',
+      '            get { var mgr = GFM_EconomyManager.Instance; return mgr != null ? mgr.GetResource(id) : 0; }',
+      '            set',
+      '            {',
+      '                var mgr = GFM_EconomyManager.Instance;',
+      '                if (mgr == null) return;',
+      '                int current = mgr.GetResource(id);',
+      '                if (value > current) mgr.AddResource(id, value - current);',
+      '                else if (value < current) mgr.TrySpend(id, current - value);',
+      '            }',
+      '        }',
+      '    }',
+      '    InventoryCompat _inventory = new InventoryCompat();'
+    ].join('\n'));
+    changed = true;
+    needsEconomyBridge = true;
+  }
+
+  if (referencesTaskIdentifier(taskCode, 'player') && !hasTaskFieldOrProperty(taskCode, 'player')) {
+    if (hasPlayerAssignment) {
+      fieldBlocks.push([
+        '    // [AUTO-REPAIR] Compile-safe player bridge field for generated templates.',
+        '    GameObject player;'
+      ].join('\n'));
+    } else {
+      fieldBlocks.push([
+        '    // [AUTO-REPAIR] Compile-safe player bridge property for generated templates.',
+        '    GameObject player',
+        '    {',
+        '        get',
+        '        {',
+        '            var gp = GFM_Player.Instance;',
+        '            return gp != null ? gp.Go : null;',
+        '        }',
+        '    }'
+      ].join('\n'));
+    }
+    changed = true;
+  }
+
+  if (referencesTaskIdentifier(taskCode, 'collectCooldownInterval') &&
+      !/\bfloat\s+collectCooldownInterval\b/.test(stripComments(taskCode))) {
+    fieldBlocks.push([
+      '    // [AUTO-REPAIR] Batch-2 collect cooldown infra.',
+      '    float collectCooldownInterval = 0.3f;'
+    ].join('\n'));
+    changed = true;
+  }
+  if (referencesTaskIdentifier(taskCode, '_collectCooldown') &&
+      !/\bfloat\s+_collectCooldown\b/.test(stripComments(taskCode))) {
+    fieldBlocks.push([
+      '    float _collectCooldown = 0f;'
+    ].join('\n'));
+    changed = true;
+  }
+  if (referencesTaskIdentifier(taskCode, '_lastScoreText') &&
+      !/\bstring\s+_lastScoreText\b/.test(stripComments(taskCode))) {
+    fieldBlocks.push([
+      '    string _lastScoreText = "";'
+    ].join('\n'));
+    changed = true;
+  }
+
+  if ((referencesTaskCall(taskCode, 'AddResource') ||
+       referencesTaskCall(taskCode, 'GetResource') ||
+       referencesTaskCall(taskCode, 'TrySpend') ||
+       referencesTaskCall(taskCode, 'TryConvert') ||
+       referencesTaskCall(taskCode, 'UpdateResourceUI') ||
+       referencesTaskCall(taskCode, '_SyncResourcesToManager')) &&
+      !needsEconomyBridge) {
+    needsEconomyBridge = true;
+  }
+
+  if (needsEconomyBridge && !hasTaskMethodDefinition(taskCode, '_SyncResourcesToManager')) {
+    methodBlocks.push([
+      '    // [AUTO-REPAIR] Sync locally-filled resource defs into GFM_EconomyManager.',
+      '    void _SyncResourcesToManager()',
+      '    {',
+      '        if (_resources == null || _resources.Length == 0) return;',
+      '        var mgr = GFM_EconomyManager.Instance;',
+      '        if (mgr == null) return;',
+      '        var defs = new GFM_EconomyManager.ResourceDef[_resources.Length];',
+      '        for (int i = 0; i < _resources.Length; i++)',
+      '        {',
+      '            defs[i] = new GFM_EconomyManager.ResourceDef',
+      '            {',
+      '                resourceId = _resources[i].resourceId,',
+      '                displayName = _resources[i].displayName,',
+      '                convertFrom = _resources[i].convertFrom,',
+      '                convertRatio = _resources[i].convertRatio',
+      '            };',
+      '        }',
+      '        mgr.SetResources(defs);',
+      '    }'
+    ].join('\n'));
+    changed = true;
+  }
+
+  [
+    {
+      name: 'AddResource',
+      body: [
+        '    void AddResource(string id, int amount)',
+        '    {',
+        '        var mgr = GFM_EconomyManager.Instance;',
+        '        if (mgr != null) mgr.AddResource(id, amount);',
+        '    }'
+      ]
+    },
+    {
+      name: 'GetResource',
+      body: [
+        '    int GetResource(string id)',
+        '    {',
+        '        var mgr = GFM_EconomyManager.Instance;',
+        '        return mgr != null ? mgr.GetResource(id) : 0;',
+        '    }'
+      ]
+    },
+    {
+      name: 'TrySpend',
+      body: [
+        '    bool TrySpend(string id, int amount)',
+        '    {',
+        '        var mgr = GFM_EconomyManager.Instance;',
+        '        return mgr != null && mgr.TrySpend(id, amount);',
+        '    }'
+      ]
+    },
+    {
+      name: 'TryConvert',
+      body: [
+        '    bool TryConvert(string fromId, string toId)',
+        '    {',
+        '        var mgr = GFM_EconomyManager.Instance;',
+        '        return mgr != null && mgr.TryConvert(fromId, toId);',
+        '    }'
+      ]
+    },
+    {
+      name: 'UpdateResourceUI',
+      body: [
+        '    void UpdateResourceUI()',
+        '    {',
+        '        var ui = GFM_UIManager.Instance;',
+        '        if (ui != null) ui.UpdateResourceUI();',
+        '    }'
+      ]
+    }
+  ].forEach(function(entry) {
+    if (referencesTaskCall(taskCode, entry.name) && !hasTaskMethodDefinition(taskCode, entry.name)) {
+      methodBlocks.push(entry.body.join('\n'));
+      changed = true;
+    }
+  });
+
+  [
+    {
+      name: 'SyncAutoPlayState',
+      body: [
+        '    void SyncAutoPlayState(float now)',
+        '    {',
+        '        var auto = GFM_AutoPlay.Instance;',
+        '        if (auto == null) return;',
+        '        auto.CheckActivation(now);',
+        '        _autoPlayMode = auto.IsActive;',
+        '        _autoPlaySteps = auto.Steps;',
+        '    }'
+      ]
+    },
+    {
+      name: 'UpdatePhaseTimer',
+      body: [
+        '    void UpdatePhaseTimer(float dt)',
+        '    {',
+        '        if (currentPhaseName != lastPhaseForTimer)',
+        '        {',
+        '            phaseTimer = 0f;',
+        '            lastPhaseForTimer = currentPhaseName;',
+        '        }',
+        '        phaseTimer += dt;',
+        '    }'
+      ]
+    },
+    {
+      name: 'IsNear',
+      body: [
+        '    bool IsNear(GameObject target, float range)',
+        '    {',
+        '        var gp = GFM_Player.Instance;',
+        '        return gp != null && gp.IsNear(target, range);',
+        '    }'
+      ]
+    },
+    {
+      name: 'AddGold',
+      body: [
+        '    void AddGold(int amount)',
+        '    {',
+        '        var mgr = GFM_EconomyManager.Instance;',
+        '        if (mgr != null) mgr.AddGold(amount);',
+        '    }'
+      ]
+    },
+    {
+      name: 'ShowFloatingText',
+      body: [
+        '    void ShowFloatingText(Vector3 worldPos, string text, Color color)',
+        '    {',
+        '        var ui = GFM_UIManager.Instance;',
+        '        if (ui != null) ui.ShowFloatingText(worldPos, text, color);',
+        '        else if (guideText != null)',
+        '        {',
+        '            guideText.text = text;',
+        '            guideText.color = color;',
+        '        }',
+        '    }'
+      ]
+    },
+    {
+      name: 'MovePlayer',
+      body: [
+        '    void MovePlayer()',
+        '    {',
+        '        var gp = GFM_Player.Instance;',
+        '        if (gp != null) gp.Tick(Time.deltaTime, _autoPlayMode);',
+        '    }'
+      ]
+    },
+    {
+      name: 'TryCollect',
+      body: [
+        '    bool TryCollect(GameObject source, string resType, int maxCarry, float range)',
+        '    {',
+        '        var gp = GFM_Player.Instance;',
+        '        return gp != null && gp.TryCollect(source, resType, maxCarry, range);',
+        '    }'
+      ]
+    },
+    {
+      name: 'TryDeliver',
+      body: [
+        '    int TryDeliver(GameObject target, string expectedType, float range)',
+        '    {',
+        '        var gp = GFM_Player.Instance;',
+        '        return gp != null ? gp.TryDeliver(target, expectedType, range) : 0;',
+        '    }'
+      ]
+    },
+    {
+      name: 'UpdateCarryVisuals',
+      body: [
+        '    void UpdateCarryVisuals()',
+        '    {',
+        '        var gp = GFM_Player.Instance;',
+        '        if (gp != null) gp.UpdateCarryVisuals();',
+        '    }'
+      ]
+    },
+    {
+      name: 'SwitchForm',
+      body: [
+        '    void SwitchForm(int formIndex)',
+        '    {',
+        '        var gp = GFM_Player.Instance;',
+        '        if (gp != null) gp.SwitchForm(formIndex);',
+        '    }'
+      ]
+    },
+    {
+      name: 'GetCollectPower',
+      body: [
+        '    float GetCollectPower()',
+        '    {',
+        '        var gp = GFM_Player.Instance;',
+        '        return gp != null ? gp.GetCollectPower() : 1f;',
+        '    }'
+      ]
+    },
+    {
+      name: 'GetCollectRange',
+      body: [
+        '    float GetCollectRange()',
+        '    {',
+        '        var gp = GFM_Player.Instance;',
+        '        return gp != null ? gp.GetCollectRange() : 1.5f;',
+        '    }'
+      ]
+    },
+    {
+      name: 'GetCarryCapacity',
+      body: [
+        '    int GetCarryCapacity()',
+        '    {',
+        '        var gp = GFM_Player.Instance;',
+        '        return gp != null ? gp.GetCarryCapacity() : 10;',
+        '    }'
+      ]
+    },
+    {
+      name: 'OnAutoPlayArrive',
+      body: [
+        '    void OnAutoPlayArrive(string targetName)',
+        '    {',
+        '        Phase_OnTap();',
+        '    }'
+      ]
+    },
+    {
+      name: 'EnterPhase',
+      body: [
+        '    void EnterPhase(int ruleIdx, string phaseId, bool resetTimer, bool syncAutoPlayBaseline)',
+        '    {',
+        '        ruleTriggered[ruleIdx] = true;',
+        '        currentPhaseName = phaseId;',
+        '        if (phaseEnterTimes != null && ruleIdx >= 0 && ruleIdx < phaseEnterTimes.Length) phaseEnterTimes[ruleIdx] = gameTimer;',
+        '        if (resetTimer) phaseTimer = 0f;',
+        '        if (syncAutoPlayBaseline) _autoPlayStepsAtPhaseStart = _autoPlaySteps;',
+        '        ReportPhase(phaseId);',
+        '    }'
+      ]
+    },
+    {
+      name: 'CompletePhaseProgress',
+      body: [
+        '    void CompletePhaseProgress(string completedPhaseId)',
+        '    {',
+        '        AddCompletedPhase(completedPhaseId);',
+        '        UpdateGameState();',
+        '    }'
+      ]
+    },
+    {
+      name: 'FinishGame',
+      body: [
+        '    void FinishGame(string lastPhaseId)',
+        '    {',
+        '        AddCompletedPhase(lastPhaseId);',
+        '        Luna.Unity.LifeCycle.GameEnded();',
+        '        ShowCTA();',
+        '        gameEnded = true;',
+        '        UpdateGameState();',
+        '    }'
+      ]
+    },
+    {
+      name: 'TryReportStuckPhase',
+      body: [
+        '    bool TryReportStuckPhase()',
+        '    {',
+        '        return false;',
+        '    }'
+      ]
+    }
+  ].forEach(function(entry) {
+    var isReferenced = entry.name === 'OnAutoPlayArrive'
+      ? referencesTaskIdentifier(taskCode, entry.name)
+      : referencesTaskCall(taskCode, entry.name);
+    if (isReferenced && !hasTaskMethodDefinition(taskCode, entry.name)) {
+      methodBlocks.push(entry.body.join('\n'));
+      changed = true;
+    }
+  });
+
+  if (fieldBlocks.length > 0) {
+    ctx.csCode = insertBeforeMarkerOrStart(ctx.csCode, '    // TODO_VARIABLES_END', fieldBlocks.join('\n\n'));
+  }
+  if (methodBlocks.length > 0) {
+    ctx.csCode = appendHelperBeforeClassEnd(ctx.csCode, '\n    // [AUTO-REPAIR] Rehydrated skeleton bridge helpers.\n' + methodBlocks.join('\n\n') + '\n');
+  }
+
+  return changed;
+}
+
+function splitTopLevelArgs(text) {
+  var args = [];
+  var current = '';
+  var parenDepth = 0;
+  var bracketDepth = 0;
+  var braceDepth = 0;
+  for (var i = 0; i < text.length; i++) {
+    var ch = text[i];
+    if (ch === ',' && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
+      if (current.trim()) args.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += ch;
+    if (ch === '(') parenDepth++;
+    else if (ch === ')') parenDepth = Math.max(0, parenDepth - 1);
+    else if (ch === '[') bracketDepth++;
+    else if (ch === ']') bracketDepth = Math.max(0, bracketDepth - 1);
+    else if (ch === '{') braceDepth++;
+    else if (ch === '}') braceDepth = Math.max(0, braceDepth - 1);
+  }
+  if (current.trim()) args.push(current.trim());
+  return args;
+}
+
+function buildCodeMask(code) {
+  var mask = new Uint8Array(code.length);
+  var i = 0;
+  while (i < code.length) {
+    if (code[i] === '/' && code[i + 1] === '/') {
+      while (i < code.length && code[i] !== '\n') i++;
+      continue;
+    }
+    if (code[i] === '/' && code[i + 1] === '*') {
+      i += 2;
+      while (i < code.length - 1 && !(code[i] === '*' && code[i + 1] === '/')) i++;
+      i += 2;
+      continue;
+    }
+    if (code[i] === '@' && code[i + 1] === '"') {
+      i += 2;
+      while (i < code.length) {
+        if (code[i] === '"' && code[i + 1] === '"') { i += 2; continue; }
+        if (code[i] === '"') { i++; break; }
+        i++;
+      }
+      continue;
+    }
+    if (code[i] === '"') {
+      i++;
+      while (i < code.length && code[i] !== '"' && code[i] !== '\n') {
+        if (code[i] === '\\') i++;
+        i++;
+      }
+      if (i < code.length) i++;
+      continue;
+    }
+    if (code[i] === '\'') {
+      i++;
+      if (i < code.length && code[i] === '\\') i++;
+      i++;
+      if (i < code.length && code[i] === '\'') i++;
+      continue;
+    }
+    mask[i] = 1;
+    i++;
+  }
+  return mask;
+}
+
+function findInvocationCalls(code, methodName, mask) {
+  var calls = [];
+  if (!code || !methodName) return calls;
+  var nameLen = methodName.length;
+  var localMask = mask || buildCodeMask(code);
+  function isIdent(ch) {
+    return !!ch && /[A-Za-z0-9_]/.test(ch);
+  }
+  for (var i = 0; i <= code.length - nameLen; i++) {
+    if (!localMask[i]) continue;
+    if (code.substr(i, nameLen) !== methodName) continue;
+    if (isIdent(code[i - 1]) || isIdent(code[i + nameLen])) continue;
+    var j = i + nameLen;
+    while (j < code.length && /\s/.test(code[j])) j++;
+    if (code[j] !== '(') continue;
+    var openIdx = j;
+    var depth = 1;
+    j++;
+    while (j < code.length && depth > 0) {
+      if (localMask[j]) {
+        if (code[j] === '(') depth++;
+        else if (code[j] === ')') depth--;
+      }
+      j++;
+    }
+    if (depth !== 0) continue;
+    calls.push({
+      index: i,
+      openIndex: openIdx,
+      closeIndex: j - 1,
+      argsText: code.substring(openIdx + 1, j - 1),
+    });
+    i = j - 1;
+  }
+  return calls;
+}
+
+function rewriteLocalUiHelperAliases(code) {
+  if (!code) return { changed: false, code: code };
+
+  var next = String(code);
+  var changed = false;
+
+  var replaced = next.replace(/\bAddLocalWorldLabel\s*\(/g, 'GFM_UI.AddWorldLabel(');
+  if (replaced !== next) {
+    next = replaced;
+    changed = true;
+  }
+
+  replaced = next.replace(/\bCreateLocalCanvas\s*\(/g, 'GFM_UI.CreateCanvas(');
+  if (replaced !== next) {
+    next = replaced;
+    changed = true;
+  }
+
+  var mask = buildCodeMask(next);
+  var calls = findInvocationCalls(next, 'CreateLocalText', mask);
+  if (calls.length === 0) {
+    return { changed: changed, code: next };
+  }
+
+  var pieces = [];
+  var cursor = 0;
+  var rewritten = false;
+  for (var i = 0; i < calls.length; i++) {
+    var call = calls[i];
+    var args = splitTopLevelArgs(call.argsText);
+    var replacement = null;
+    if (args.length === 5) {
+      replacement = 'GFM_UI.CreateText(' + [args[0], args[2], args[3], args[4]].join(', ') + ')';
+    } else if (args.length === 4) {
+      replacement = 'GFM_UI.CreateText(' + args.join(', ') + ')';
+    }
+    if (!replacement) continue;
+    pieces.push(next.slice(cursor, call.index));
+    pieces.push(replacement);
+    cursor = call.closeIndex + 1;
+    rewritten = true;
+  }
+
+  if (!rewritten) {
+    return { changed: changed, code: next };
+  }
+
+  pieces.push(next.slice(cursor));
+  return { changed: true, code: pieces.join('') };
+}
+
+function autoRepairLocalUiHelperAliases(ctx) {
+  if (!ctx || !ctx.csCode) return false;
+
+  var changed = false;
+  var mainResult = rewriteLocalUiHelperAliases(ctx.csCode);
+  if (mainResult.changed) {
+    ctx.csCode = mainResult.code;
+    changed = true;
+  }
+
+  var extraFiles = ctx.extraFiles || {};
+  Object.keys(extraFiles).forEach(function(name) {
+    var res = rewriteLocalUiHelperAliases(extraFiles[name]);
+    if (res.changed) {
+      extraFiles[name] = res.code;
+      changed = true;
+    }
+  });
+
+  return changed;
+}
+
 /**
  * Strip forbidden generic component API calls (.GetComponent<T>()) from a single
  * code string, replacing them with the non-generic Bridge-safe overload
@@ -253,8 +926,8 @@ function stripGenericGetComponentCalls(code) {
   if (!code) return { changed: false, code: code };
   var original = String(code);
   var stripped = original.replace(
-    /\.GetComponent\s*<\s*([A-Za-z_][A-Za-z0-9_.]*)\s*>\s*\(\s*\)/g,
-    '.GetComponent(typeof($1))'
+    /((?:this|base|[A-Za-z_][A-Za-z0-9_]*)(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\.GetComponent\s*<\s*([A-Za-z_][A-Za-z0-9_.]*)\s*>\s*\(\s*[^)]*\)/g,
+    '(($2)$1.GetComponent(typeof($2)))'
   );
   return { changed: stripped !== original, code: stripped };
 }
@@ -286,6 +959,52 @@ function autoRepairForbiddenGenericApis(ctx) {
   var extraFiles = ctx.extraFiles || {};
   Object.keys(extraFiles).forEach(function(name) {
     var res = stripGenericGetComponentCalls(extraFiles[name]);
+    if (res.changed) {
+      extraFiles[name] = res.code;
+      changed = true;
+    }
+  });
+
+  return changed;
+}
+
+function detectMalformedIsNearCalls(code) {
+  if (!code || code.indexOf('IsNear(') < 0) return [];
+  var invalid = [];
+  var re = /IsNear\s*\(\s*,\s*([^)]+)\)/g;
+  var m;
+  while ((m = re.exec(String(code)))) {
+    var snippet = 'IsNear(, ' + String(m[1] || '').trim() + ')';
+    if (invalid.indexOf(snippet) < 0) invalid.push(snippet);
+  }
+  return invalid;
+}
+
+function stripMalformedIsNearCalls(code) {
+  if (!code || code.indexOf('IsNear(') < 0) {
+    return { changed: false, code: code };
+  }
+  var fixes = 0;
+  var next = String(code).replace(/IsNear\s*\(\s*,\s*([^)]+)\)/g, function() {
+    fixes++;
+    return 'false /* stripped malformed IsNear */';
+  });
+  return { changed: fixes > 0, code: next };
+}
+
+function autoRepairMalformedIsNear(ctx) {
+  if (!ctx || !ctx.csCode) return false;
+
+  var changed = false;
+  var mainResult = stripMalformedIsNearCalls(ctx.csCode);
+  if (mainResult.changed) {
+    ctx.csCode = mainResult.code;
+    changed = true;
+  }
+
+  var extraFiles = ctx.extraFiles || {};
+  Object.keys(extraFiles).forEach(function(name) {
+    var res = stripMalformedIsNearCalls(extraFiles[name]);
     if (res.changed) {
       extraFiles[name] = res.code;
       changed = true;
@@ -342,6 +1061,132 @@ function autoRepairDuplicateStateFields(ctx) {
         seenFields[fieldName] = true;
       }
       resultLines.push(line);
+    }
+    return { changed: fileChanged, code: resultLines.join('\n') };
+  }
+
+  var mainResult = removeDuplicatesFromCode(ctx.csCode);
+  if (mainResult.changed) {
+    ctx.csCode = mainResult.code;
+    changed = true;
+  }
+
+  var extraFiles = ctx.extraFiles || {};
+  Object.keys(extraFiles).forEach(function(name) {
+    var res = removeDuplicatesFromCode(extraFiles[name]);
+    if (res.changed) {
+      extraFiles[name] = res.code;
+      changed = true;
+    }
+  });
+
+  return changed;
+}
+
+function autoRepairDuplicateSimpleFields(ctx) {
+  if (!ctx || !ctx.csCode) return false;
+
+  var changed = false;
+  var seenFieldsByClass = {};
+  var simpleFieldLineRe = /^[ \t]*(?:(?:public|private|protected|internal)\s+)?(?:static\s+)?(?:readonly\s+)?(?:(?:int|float|bool|string|double|long|Vector2|Vector3|Color)(?:\[\])?)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:=\s*[^;]+)?;[ \t]*(?:(?:\/\/.*)|(?:\/\*.*\*\/\s*))?$/;
+  var classDeclRe = /\b(?:public|private|protected|internal)?\s*(?:static\s+)?(?:partial\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)\b/;
+
+  function removeDuplicatesFromCode(code) {
+    if (!code) return { changed: false, code: code };
+    var original = String(code);
+    var lines = original.split('\n');
+    var resultLines = [];
+    var fileChanged = false;
+    var depth = 0;
+    var currentClass = null;
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      if (depth === 0) {
+        var classMatch = classDeclRe.exec(line);
+        if (classMatch) currentClass = classMatch[1];
+      }
+      var m = depth === 1 ? simpleFieldLineRe.exec(line) : null;
+      if (m) {
+        var fieldName = m[1];
+        var classKey = currentClass || '__GLOBAL__';
+        if (!seenFieldsByClass[classKey]) seenFieldsByClass[classKey] = {};
+        if (seenFieldsByClass[classKey][fieldName]) {
+          fileChanged = true;
+          simpleFieldLineRe.lastIndex = 0;
+          continue;
+        }
+        seenFieldsByClass[classKey][fieldName] = true;
+        simpleFieldLineRe.lastIndex = 0;
+      }
+      resultLines.push(line);
+      var opens = (line.match(/\{/g) || []).length;
+      var closes = (line.match(/\}/g) || []).length;
+      depth += opens - closes;
+      if (depth < 0) depth = 0;
+      if (depth === 0 && closes > 0) currentClass = null;
+    }
+    return { changed: fileChanged, code: resultLines.join('\n') };
+  }
+
+  var mainResult = removeDuplicatesFromCode(ctx.csCode);
+  if (mainResult.changed) {
+    ctx.csCode = mainResult.code;
+    changed = true;
+  }
+
+  var extraFiles = ctx.extraFiles || {};
+  Object.keys(extraFiles).forEach(function(name) {
+    var res = removeDuplicatesFromCode(extraFiles[name]);
+    if (res.changed) {
+      extraFiles[name] = res.code;
+      changed = true;
+    }
+  });
+
+  return changed;
+}
+
+function autoRepairDuplicateObjectFields(ctx) {
+  if (!ctx || !ctx.csCode) return false;
+
+  var changed = false;
+  var seenFieldsByClass = {};
+  var objectFieldLineRe = /^[ \t]*(?:(?:public|private|protected|internal)\s+)?(?:static\s+)?(?:GameObject(?:\[\])?|Transform|Camera|Canvas|Text|Image|Button|Slider|RectTransform|GFM_Joystick)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:=\s*[^;]+)?;[ \t]*(?:(?:\/\/.*)|(?:\/\*.*\*\/\s*))?$/;
+  var classDeclRe = /\b(?:public|private|protected|internal)?\s*(?:static\s+)?(?:partial\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)\b/;
+
+  function removeDuplicatesFromCode(code) {
+    if (!code) return { changed: false, code: code };
+    var original = String(code);
+    var lines = original.split('\n');
+    var resultLines = [];
+    var fileChanged = false;
+    var depth = 0;
+    var currentClass = null;
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      if (depth === 0) {
+        var classMatch = classDeclRe.exec(line);
+        if (classMatch) currentClass = classMatch[1];
+      }
+      var m = depth === 1 ? objectFieldLineRe.exec(line) : null;
+      if (m) {
+        var fieldName = m[1];
+        var classKey = currentClass || '__GLOBAL__';
+        if (!seenFieldsByClass[classKey]) seenFieldsByClass[classKey] = {};
+        if (seenFieldsByClass[classKey][fieldName]) {
+          fileChanged = true;
+          objectFieldLineRe.lastIndex = 0;
+          continue;
+        }
+        seenFieldsByClass[classKey][fieldName] = true;
+        objectFieldLineRe.lastIndex = 0;
+      }
+      resultLines.push(line);
+      var opens = (line.match(/\{/g) || []).length;
+      var closes = (line.match(/\}/g) || []).length;
+      depth += opens - closes;
+      if (depth < 0) depth = 0;
+      if (depth === 0 && closes > 0) currentClass = null;
     }
     return { changed: fileChanged, code: resultLines.join('\n') };
   }
@@ -604,6 +1449,40 @@ function detectDuplicateStateFields(code) {
   return duplicates.sort();
 }
 
+function collectTopLevelFieldNames(code, lineRe) {
+  var counts = {};
+  var text = String(code || '');
+  var lines = text.split('\n');
+  var depth = 0;
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    if (!/^[ \t]*\/\//.test(line) && depth === 1) {
+      var m = lineRe.exec(line);
+      if (m && m[1]) {
+        counts[m[1]] = (counts[m[1]] || 0) + 1;
+      }
+      lineRe.lastIndex = 0;
+    }
+    var opens = (line.match(/\{/g) || []).length;
+    var closes = (line.match(/\}/g) || []).length;
+    depth += opens - closes;
+    if (depth < 0) depth = 0;
+  }
+  return counts;
+}
+
+function detectDuplicateObjectFields(code) {
+  var duplicates = [];
+  var counts = collectTopLevelFieldNames(
+    code,
+    /^[ \t]*(?:(?:public|private|protected|internal)\s+)?(?:static\s+)?(?:GameObject(?:\[\])?|Transform|Camera|Canvas|Text|Image|Button|Slider|RectTransform|GFM_Joystick)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:=\s*[^;]+)?;[ \t]*(?:(?:\/\/.*)|(?:\/\*.*\*\/\s*))?$/
+  );
+  Object.keys(counts).forEach(function(name) {
+    if (counts[name] > 1) duplicates.push(name);
+  });
+  return duplicates.sort();
+}
+
 function detectForbiddenGenericApis(code) {
   var hits = [];
   var re = /\.GetComponent\s*<\s*([A-Za-z_][A-Za-z0-9_.]*)\s*>\s*\(/g;
@@ -705,6 +1584,15 @@ function detectContractViolations(ctx) {
       data: duplicateStates,
     });
   }
+  var duplicateObjects = detectDuplicateObjectFields(code);
+  if (duplicateObjects.length > 0) {
+    violations.push({
+      rule: 'duplicate-object-fields',
+      severity: 'critical',
+      message: 'Duplicate object reference fields detected: ' + duplicateObjects.join(', ') + '. Reuse skeleton-owned GameObject/UI fields instead of redeclaring them in generated/custom code.',
+      data: duplicateObjects,
+    });
+  }
   var genericApis = detectForbiddenGenericApis(code);
   if (genericApis.length > 0) {
     violations.push({
@@ -740,6 +1628,15 @@ function detectContractViolations(ctx) {
       },
     });
   }
+  var malformedIsNear = detectMalformedIsNearCalls(code);
+  if (malformedIsNear.length > 0) {
+    violations.push({
+      rule: 'malformed-isnear-call',
+      severity: 'critical',
+      message: 'Malformed IsNear calls detected: ' + malformedIsNear.join(', ') + '. Missing target entities must be resolved or stripped before compile.',
+      data: malformedIsNear,
+    });
+  }
   return violations.concat(assemblyPlanContracts.detectAssemblyContractViolations(ctx));
 }
 
@@ -772,6 +1669,14 @@ function applyPhaseGatePreRepair(ctx) {
       fixes.push('main:PhaseGateRuntimeMove x' + mainPhaseFix.fixes);
     }
   }
+  if (reviewStage.normalizePhaseGateConditionalDeclarations) {
+    var mainPhaseNormalize = reviewStage.normalizePhaseGateConditionalDeclarations(mainCode);
+    if (mainPhaseNormalize && mainPhaseNormalize.changed) {
+      mainCode = mainPhaseNormalize.code;
+      changed = true;
+      fixes.push('main:PhaseGateConditionalNormalize x' + mainPhaseNormalize.fixes);
+    }
+  }
 
   Object.keys(extras).forEach(function(name) {
     var next = extras[name];
@@ -791,6 +1696,14 @@ function applyPhaseGatePreRepair(ctx) {
         fixes.push(name + ':PhaseGateRuntimeMove x' + phaseRes.fixes);
       }
     }
+    if (reviewStage.normalizePhaseGateConditionalDeclarations) {
+      var phaseNormalizeRes = reviewStage.normalizePhaseGateConditionalDeclarations(next);
+      if (phaseNormalizeRes && phaseNormalizeRes.changed) {
+        next = phaseNormalizeRes.code;
+        changed = true;
+        fixes.push(name + ':PhaseGateConditionalNormalize x' + phaseNormalizeRes.fixes);
+      }
+    }
     extras[name] = next;
   });
 
@@ -802,6 +1715,22 @@ function applyPhaseGatePreRepair(ctx) {
       changed = true;
       fixes.push('partials:PhaseGateRuntimeMove x' + crossPhaseFix.fixes);
     }
+  }
+  if (reviewStage.normalizePhaseGateConditionalDeclarations) {
+    var postCrossMainNormalize = reviewStage.normalizePhaseGateConditionalDeclarations(mainCode);
+    if (postCrossMainNormalize && postCrossMainNormalize.changed) {
+      mainCode = postCrossMainNormalize.code;
+      changed = true;
+      fixes.push('main:PhaseGateConditionalNormalizePost x' + postCrossMainNormalize.fixes);
+    }
+    Object.keys(extras).forEach(function(name) {
+      var normalizeRes = reviewStage.normalizePhaseGateConditionalDeclarations(extras[name]);
+      if (normalizeRes && normalizeRes.changed) {
+        extras[name] = normalizeRes.code;
+        changed = true;
+        fixes.push(name + ':PhaseGateConditionalNormalizePost x' + normalizeRes.fixes);
+      }
+    });
   }
 
   if (changed) {
@@ -891,6 +1820,12 @@ function execute(ctx) {
   if (autoRepairDuplicateStateFields(ctx)) {
     console.log('[method-check] AUTO-REPAIR — removed duplicate *State field declarations across partials');
   }
+  if (autoRepairDuplicateSimpleFields(ctx)) {
+    console.log('[method-check] AUTO-REPAIR — removed duplicate scalar/bool field declarations across partials');
+  }
+  if (autoRepairDuplicateObjectFields(ctx)) {
+    console.log('[method-check] AUTO-REPAIR — removed duplicate object/UI field declarations across partials');
+  }
   if (autoRepairPlayerAliasDrift(ctx)) {
     console.log('[method-check] AUTO-REPAIR — normalized player aliases across partials');
   }
@@ -899,6 +1834,12 @@ function execute(ctx) {
   }
   if (autoRepairPartialClassMismatch(ctx)) {
     console.log('[method-check] AUTO-REPAIR — added partial keyword to GameFlowManagerMain main class');
+  }
+  if (autoRepairLocalUiHelperAliases(ctx)) {
+    console.log('[method-check] AUTO-REPAIR — normalized invented local UI helper aliases to GFM_UI');
+  }
+  if (autoRepairMissingSkeletonBridgeInfra(ctx)) {
+    console.log('[method-check] AUTO-REPAIR — rehydrated missing skeleton bridge infra');
   }
 
   var missing;
@@ -998,7 +1939,7 @@ function execute(ctx) {
     pushFeedbackUnique(ctx, {
       source: 'method-completeness-check',
       severity: 'critical',
-      message: 'The following methods are called in Update() / CheckEventRules() but are not defined anywhere in the generated code: ' + missing.join(', ') + '. Each missing method must be implemented with correct logic — do not remove the call, add the definition.',
+      message: 'The following methods are called in lifecycle entry methods (Awake/Start/Update/LateUpdate/FixedUpdate/CheckEventRules) but are not defined anywhere in the generated code: ' + missing.join(', ') + '. Each missing method must be implemented with correct logic — do not remove the call, add the definition.',
       missing: missing,
       timestamp: new Date().toISOString()
     });
@@ -1021,6 +1962,7 @@ module.exports = {
   detectPhaseGateViolations: detectPhaseGateViolations,
   applyPhaseGatePreRepair: applyPhaseGatePreRepair,
   detectDuplicateStateFields: detectDuplicateStateFields,
+  detectDuplicateObjectFields: detectDuplicateObjectFields,
   detectForbiddenGenericApis: detectForbiddenGenericApis,
   detectPlayerAliasDrift: detectPlayerAliasDrift,
   chooseCanonicalPlayerAlias: chooseCanonicalPlayerAlias,
@@ -1029,13 +1971,20 @@ module.exports = {
   pushFeedbackUnique: pushFeedbackUnique,
   injectMissingHelpers: injectMissingHelpers,
   autoRepairForbiddenGenericApis: autoRepairForbiddenGenericApis,
+  autoRepairMalformedIsNear: autoRepairMalformedIsNear,
   autoRepairDuplicateStateFields: autoRepairDuplicateStateFields,
+  autoRepairDuplicateSimpleFields: autoRepairDuplicateSimpleFields,
+  autoRepairDuplicateObjectFields: autoRepairDuplicateObjectFields,
   autoRepairPlayerAliasDrift: autoRepairPlayerAliasDrift,
   autoRepairInvalidPoolLiterals: autoRepairInvalidPoolLiterals,
   autoRepairPartialClassMismatch: autoRepairPartialClassMismatch,
+  autoRepairLocalUiHelperAliases: autoRepairLocalUiHelperAliases,
+  autoRepairMissingSkeletonBridgeInfra: autoRepairMissingSkeletonBridgeInfra,
   autoRepairPhaseGateViolations: autoRepairPhaseGateViolations,
   chooseReplacementPoolLiteral: chooseReplacementPoolLiteral,
+  detectMalformedIsNearCalls: detectMalformedIsNearCalls,
   extractMethodDefinitions: extractMethodDefinitions,
   extractMethodCalls: extractMethodCalls,
+  ENTRY_SCOPE_METHODS: ENTRY_SCOPE_METHODS,
   SKELETON_SAFE: SKELETON_SAFE
 };

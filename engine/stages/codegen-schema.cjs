@@ -113,7 +113,8 @@ module.exports = {
   },
   _internals: {
     buildSchemaPrompt: buildSchemaPrompt,
-    summarizePlansForPrompt: summarizePlansForPrompt
+    summarizePlansForPrompt: summarizePlansForPrompt,
+    isSchemaInfraError: isSchemaInfraError,
   }
 };
 
@@ -151,30 +152,30 @@ function generateSchemaTextWithFallback(runCodexText, ctx, promptText) {
   return runCodexText({
     userPrompt: promptText,
     systemPrompt: primarySystemPrompt,
-    model: 'claude-haiku-4-5-20251001',
+    backend: 'codex-exec',
+    model: 'gpt-5.4-mini',
     taskId: ctx.taskId,
     log: function(msg) { ctx.addLog('codegen-schema', msg); },
     effort: 'low',
-    timeoutMs: 300000,
+    timeoutMs: 180000,
     noTools: true,
     minOutputLen: 20,
   }).then(function(response) {
     if (response.ok || !isSchemaInfraError(response.error)) return response;
-    ctx.addLog('codegen-schema', 'Primary schema backend infra failure — falling back to codex-exec');
+    ctx.addLog('codegen-schema', 'Primary schema backend infra failure — falling back to claude-print');
     return runCodexText({
       userPrompt: promptText,
       systemPrompt: primarySystemPrompt,
-      backend: 'codex-exec',
-      model: 'gpt-5.4-mini',
+      model: 'claude-haiku-4-5-20251001',
       taskId: ctx.taskId,
       log: function(msg) { ctx.addLog('codegen-schema', '[fallback] ' + msg); },
       effort: 'low',
-      timeoutMs: 180000,
+      timeoutMs: 300000,
       noTools: true,
       minOutputLen: 20,
       allowBackendFallback: false,
     }).then(function(fallbackResponse) {
-      if (fallbackResponse.ok) ctx.addLog('codegen-schema', 'Schema backend fallback succeeded via codex-exec');
+      if (fallbackResponse.ok) ctx.addLog('codegen-schema', 'Schema backend fallback succeeded via claude-print');
       return fallbackResponse;
     });
   });
@@ -182,7 +183,7 @@ function generateSchemaTextWithFallback(runCodexText, ctx, promptText) {
 
 function isSchemaInfraError(error) {
   var text = String(error || '');
-  return /ECONNRESET|Request timed out|Unable to connect to API|timed out|socket hang up|ENOTFOUND|EHOSTUNREACH|ECONNREFUSED/i.test(text);
+  return /ECONNRESET|Request timed out|Unable to connect to API|timed out|socket hang up|ENOTFOUND|EHOSTUNREACH|ECONNREFUSED|Connection error/i.test(text);
 }
 
 function parseAndValidateSchemaResponse(ctx, text) {
@@ -262,7 +263,8 @@ function buildSchemaPrompt(ctx) {
   lines.push('- patrol: patrolRadius(float), moveSpeed(float)');
   lines.push('- chase_attack: detectRange, attackRange, attackDamage, attackInterval, moveSpeed, hp');
   lines.push('- static_target: hp, interactionVerb');
-  lines.push('- ranged_shooter: detectRange, fireRange, projectileSpeed, damage, fireInterval, hp');
+  lines.push('- ranged_shooter: projectile, detectRange, fireRange, projectileSpeed, damage, fireInterval, hp');
+  lines.push('- boss_multiphase: projectile, detectRange, attackRange, attackDamage, attackInterval, moveSpeed, fireRange, projectileSpeed, projectileDamage, fireInterval, hp');
   lines.push('- spawner: spawnEntity, spawnInterval, maxAlive, spawnRadius');
   lines.push('');
   lines.push('## Trigger 类型');
@@ -276,7 +278,7 @@ function buildSchemaPrompt(ctx) {
   lines.push('- compound: {triggers[], operator: "and"|"or"}');
   lines.push('');
   lines.push('## 规则');
-  lines.push('1. entities 中每个 name 必须在 specs 的 entitiesRequired 中存在');
+  lines.push('1. entities 必须覆盖 blueprint / assembly plan 里的全部运行时实体；不要因为 specs 里没显式 required 就删掉 spawner 产物、bullet、helper machine 等实体');
   lines.push('2. phase 数量必须与 specs 数量一致');
   lines.push('3. 第一个 phase 的 showEntities >= 3 个');
   lines.push('4. 最后一个 phase 的 trigger 必须包含 click_entity');
@@ -578,9 +580,17 @@ function applyGeneratedCodeContractScrub(ctx) {
     changed = true;
     fixes.push('ForbiddenGenericApi');
   }
+  if (methodCheck.autoRepairMalformedIsNear && methodCheck.autoRepairMalformedIsNear(ctx)) {
+    changed = true;
+    fixes.push('MalformedIsNear');
+  }
   if (methodCheck.autoRepairDuplicateStateFields && methodCheck.autoRepairDuplicateStateFields(ctx)) {
     changed = true;
     fixes.push('DuplicateStateFields');
+  }
+  if (methodCheck.autoRepairDuplicateObjectFields && methodCheck.autoRepairDuplicateObjectFields(ctx)) {
+    changed = true;
+    fixes.push('DuplicateObjectFields');
   }
   if (methodCheck.autoRepairPlayerAliasDrift && methodCheck.autoRepairPlayerAliasDrift(ctx)) {
     changed = true;
@@ -644,6 +654,8 @@ module.exports._loadCustomLogicWorkspaceIntoContext = loadCustomLogicWorkspaceIn
 module.exports._cleanupCustomLogicWorkspace = cleanupCustomLogicWorkspace;
 module.exports._applyGeneratedCodeContractScrub = applyGeneratedCodeContractScrub;
 module.exports._mergeNamedTodoRegion = mergeNamedTodoRegion;
+module.exports._repairSchema = _repairSchema;
+module.exports._validateSchema = _validateSchema;
 
 function _validateSchema(schema) {
   var structErrors = schemaValidator.validateGameSchema(schema);
@@ -659,6 +671,83 @@ var ALLOWED_ENTITY_KEYS = { name: 1, chineseName: 1, showLabel: 1, pool: 1, init
 var ALLOWED_ACTION_KEYS = { action: 1, entity: 1, state: 1, resource: 1, amount: 1, formIndex: 1, text: 1, color: 1, count: 1 };
 var ALLOWED_ACTIONS = ['set_entity_state', 'add_resource', 'switch_form', 'show_floating_text', 'set_guide', 'spawn_enemies'];
 
+function inferEntityShowLabel(name) {
+  var text = String(name || '');
+  if (/Player|Ship|Avatar|Vehicle/i.test(text)) return false;
+  if (/^(Gold|Coin|Gem|Currency)$/i.test(text)) return false;
+  if (/CTAButton|Button|UIButton|UI/i.test(text)) return false;
+  return true;
+}
+
+function clampNumber(value, min, max, fallback) {
+  var num = Number(value);
+  if (!isFinite(num)) return fallback;
+  if (num < min) return min;
+  if (num > max) return max;
+  return num;
+}
+
+function normalizeInitPos(pos) {
+  var arr = Array.isArray(pos) ? pos : [];
+  var x = clampNumber(arr[0], -6, 6, 0);
+  var y = clampNumber(arr[1], 0.5, 6, 1);
+  var z = clampNumber(arr[2], -4, 4, 0);
+  return [x, y, z];
+}
+
+function parseBlueprintInitPos(value) {
+  if (Array.isArray(value)) return normalizeInitPos(value);
+  var text = String(value || '');
+  var nums = text.match(/-?\d+(?:\.\d+)?/g);
+  if (!nums || nums.length < 3) return [0, 1, 0];
+  return normalizeInitPos([parseFloat(nums[0]), parseFloat(nums[1]), parseFloat(nums[2])]);
+}
+
+function parseBlueprintScale(value) {
+  if (typeof value === 'number') return clampNumber(value, 0.3, 8, 1);
+  var text = String(value || '');
+  var nums = text.match(/-?\d+(?:\.\d+)?/g);
+  if (!nums || nums.length === 0) return 1;
+  return clampNumber(parseFloat(nums[0]), 0.3, 8, 1);
+}
+
+function inferDefaultEnemyEntity(schema, blueprintEntities) {
+  var seen = {};
+  var candidates = [];
+
+  function score(name) {
+    var text = String(name || '');
+    var total = 0;
+    if (/Enemy/i.test(text)) total += 40;
+    if (/Astronaut|Soldier|Unit|Troop|Mob|Minion|Bot|Drone|Walker/i.test(text)) total += 30;
+    if (/Base|Button|CTA|Recycler|Gold|Tower|Belt|Debris|Bullet/i.test(text)) total -= 80;
+    return total;
+  }
+
+  function pushName(name) {
+    if (!name || seen[name]) return;
+    seen[name] = true;
+    candidates.push(name);
+  }
+
+  (schema && schema.npcs || []).forEach(function(npc) {
+    if (npc && npc.entity) pushName(npc.entity);
+  });
+  (schema && schema.entities || []).forEach(function(entity) {
+    if (entity && entity.name) pushName(entity.name);
+  });
+  (blueprintEntities || []).forEach(function(entity) {
+    if (entity && entity.name) pushName(entity.name);
+  });
+
+  candidates.sort(function(a, b) { return score(b) - score(a); });
+  return candidates.length > 0 && score(candidates[0]) > 0 ? candidates[0] : null;
+}
+
+function hasNamedRef(value) {
+  return String(value || '').trim().length > 0;
+}
+
 function _repairSchema(schema, blueprintEntities) {
   if (!schema || typeof schema !== 'object') return;
 
@@ -670,6 +759,52 @@ function _repairSchema(schema, blueprintEntities) {
     if (be && be.name) _bpLabelByName[be.name] = be.label || be.chineseName || '';
   });
 
+  var _defaultEnemyEntity = inferDefaultEnemyEntity(schema, blueprintEntities);
+
+  function pickDefaultResourceName() {
+    var resources = schema.resources || [];
+    for (var i = 0; i < resources.length; i++) {
+      if (resources[i] && hasNamedRef(resources[i].name)) return String(resources[i].name).trim();
+    }
+    return '';
+  }
+
+  function pickCtaEntityName() {
+    var candidates = []
+      .concat(schema.entities || [])
+      .concat(blueprintEntities || []);
+    for (var i = 0; i < candidates.length; i++) {
+      var name = String(candidates[i] && candidates[i].name || '').trim();
+      if (/CTA|Button/i.test(name)) return name;
+    }
+    return '';
+  }
+
+  function pickPhaseFallbackEntity(phase, phaseIdx, phaseCount) {
+    if (phase && Array.isArray(phase.showEntities)) {
+      for (var i = 0; i < phase.showEntities.length; i++) {
+        if (hasNamedRef(phase.showEntities[i])) return String(phase.showEntities[i]).trim();
+      }
+    }
+    if (phase && Array.isArray(phase.hideEntities)) {
+      for (var j = 0; j < phase.hideEntities.length; j++) {
+        if (hasNamedRef(phase.hideEntities[j])) return String(phase.hideEntities[j]).trim();
+      }
+    }
+    if (phaseIdx === phaseCount - 1) {
+      var ctaEntity = pickCtaEntityName();
+      if (ctaEntity) return ctaEntity;
+    }
+    var entities = schema.entities || [];
+    for (var k = 0; k < entities.length; k++) {
+      if (entities[k] && hasNamedRef(entities[k].name)) return String(entities[k].name).trim();
+    }
+    for (var m = 0; m < (blueprintEntities || []).length; m++) {
+      if (blueprintEntities[m] && hasNamedRef(blueprintEntities[m].name)) return String(blueprintEntities[m].name).trim();
+    }
+    return '';
+  }
+
   // Fix gameConfig defaults
   if (!schema.gameConfig) schema.gameConfig = {};
   var gc = schema.gameConfig;
@@ -680,6 +815,51 @@ function _repairSchema(schema, blueprintEntities) {
   if (gc.maxCarry == null) gc.maxCarry = 10;
   Object.keys(gc).forEach(function(k) {
     if (!{ cameraBackground: 1, groundColor: 1, moveSpeed: 1, collectRange: 1, maxCarry: 1 }[k]) delete gc[k];
+  });
+
+  if (!Array.isArray(schema.entities)) schema.entities = [];
+
+  var _schemaEntityByName = {};
+  (schema.entities || []).forEach(function(e) {
+    if (e && e.name) _schemaEntityByName[e.name] = e;
+  });
+
+  (blueprintEntities || []).forEach(function(be) {
+    if (!be || !be.name) return;
+    var existing = _schemaEntityByName[be.name];
+    if (!existing) {
+      existing = {
+        name: be.name,
+        chineseName: _bpLabelByName[be.name] || be.name || 'entity',
+        showLabel: inferEntityShowLabel(be.name),
+        pool: be.pool || be.poolName || null,
+        initPos: parseBlueprintInitPos(be.visual && be.visual.position),
+        scale: parseBlueprintScale(be.visual && be.visual.scale),
+        terminalState: be.terminalState || 1,
+      };
+      schema.entities.push(existing);
+      _schemaEntityByName[be.name] = existing;
+      return;
+    }
+
+    if (!existing.chineseName || typeof existing.chineseName !== 'string' || existing.chineseName.length === 0) {
+      existing.chineseName = _bpLabelByName[be.name] || be.name || 'entity';
+    }
+    if (typeof existing.showLabel !== 'boolean') {
+      existing.showLabel = inferEntityShowLabel(be.name);
+    }
+    if (!Array.isArray(existing.initPos) || existing.initPos.length < 3) {
+      existing.initPos = parseBlueprintInitPos(be.visual && be.visual.position);
+    }
+    if (existing.scale == null) {
+      existing.scale = parseBlueprintScale(be.visual && be.visual.scale);
+    }
+    if (!existing.pool && (be.pool || be.poolName)) {
+      existing.pool = be.pool || be.poolName;
+    }
+    if (existing.terminalState == null && be.terminalState != null) {
+      existing.terminalState = be.terminalState;
+    }
   });
 
   // Fix entities: strip extra props, pad pool digits, prevent pool collisions.
@@ -755,14 +935,36 @@ function _repairSchema(schema, blueprintEntities) {
         if (a.amount == null) a.amount = 1;
       }
       if (a.action === 'spawn_enemies') {
-        if (!a.entity) a.entity = 'Enemy';
+        if (!a.entity || /^Enemy$/i.test(String(a.entity)) || /^Unknown$/i.test(String(a.entity))) {
+          a.entity = _defaultEnemyEntity || 'Enemy';
+        }
         if (a.count == null) a.count = 1;
       }
       Object.keys(a).forEach(function(k) { if (!ALLOWED_ACTION_KEYS[k]) delete a[k]; });
     });
+    p.onEnter = (p.onEnter || []).filter(function(a) {
+      if (!a || !a.action) return false;
+      if (a.action === 'set_entity_state' && (!a.entity || /^Enemy$/i.test(String(a.entity)) || /^Unknown$/i.test(String(a.entity)))) return false;
+      if (a.action === 'add_resource' && (!a.resource || /^default$/i.test(String(a.resource)))) return false;
+      if (a.action === 'show_floating_text' && (a.text == null || String(a.text) === 'undefined')) return false;
+      return true;
+    });
     (p.onComplete || []).forEach(function(a) {
       if (!a.action && a.type) { a.action = a.type; delete a.type; }
+      if (a.action === 'spawn_enemies') {
+        if (!a.entity || /^Enemy$/i.test(String(a.entity)) || /^Unknown$/i.test(String(a.entity))) {
+          a.entity = _defaultEnemyEntity || 'Enemy';
+        }
+        if (a.count == null) a.count = 1;
+      }
       Object.keys(a).forEach(function(k) { if (!ALLOWED_ACTION_KEYS[k]) delete a[k]; });
+    });
+    p.onComplete = (p.onComplete || []).filter(function(a) {
+      if (!a || !a.action) return false;
+      if (a.action === 'set_entity_state' && (!a.entity || /^Enemy$/i.test(String(a.entity)) || /^Unknown$/i.test(String(a.entity)))) return false;
+      if (a.action === 'add_resource' && (!a.resource || /^default$/i.test(String(a.resource)))) return false;
+      if (a.action === 'show_floating_text' && (a.text == null || String(a.text) === 'undefined')) return false;
+      return true;
     });
   });
 
@@ -783,7 +985,26 @@ function _repairSchema(schema, blueprintEntities) {
     if (t.entity != null) return phaseIdx === (phaseCount - 1) ? 'click_entity' : 'near_entity';
     return 'all_built';
   }
-  function normalizeTrigger(t, phaseIdx, phaseCount) {
+  function wrapStandaloneTimerTrigger(t) {
+    if (!t || typeof t !== 'object' || t.type !== 'timer') return false;
+    var seconds = Number(t.seconds);
+    if (!isFinite(seconds) || seconds < 0) seconds = 1;
+    t.type = 'compound';
+    t.operator = 'and';
+    t.triggers = [
+      { type: 'timer', seconds: seconds },
+      { type: 'timer', seconds: seconds },
+    ];
+    delete t.entity;
+    delete t.resource;
+    delete t.amount;
+    delete t.count;
+    delete t.state;
+    delete t.range;
+    delete t.seconds;
+    return true;
+  }
+  function normalizeTrigger(t, phaseIdx, phaseCount, insideCompound) {
     if (!t || typeof t !== 'object') return;
     if (!t.type || typeof t.type !== 'string') {
       t.type = inferTriggerType(t, phaseIdx, phaseCount);
@@ -799,10 +1020,20 @@ function _repairSchema(schema, blueprintEntities) {
     if (t.count != null && typeof t.count !== 'number') t.count = parseInt(t.count, 10) || 1;
     if (t.range != null && typeof t.range !== 'number') t.range = parseFloat(t.range) || 2;
     if (t.seconds != null && typeof t.seconds !== 'number') t.seconds = parseFloat(t.seconds) || 1;
+    if ((t.type === 'entity_state_reached' || t.type === 'near_entity' || t.type === 'click_entity') && !hasNamedRef(t.entity)) {
+      t.entity = pickPhaseFallbackEntity(schema.phases && schema.phases[phaseIdx], phaseIdx, phaseCount);
+    }
+    if (t.type === 'entity_state_reached' && t.state == null) t.state = 1;
+    if (t.type === 'near_entity' && (!isFinite(Number(t.range)) || Number(t.range) <= 0)) t.range = 2;
+    if (t.type === 'resource_collected') {
+      if (!hasNamedRef(t.resource)) t.resource = pickDefaultResourceName();
+      if (t.amount == null || !isFinite(Number(t.amount))) t.amount = 1;
+    }
+    if (!insideCompound) wrapStandaloneTimerTrigger(t);
     if (t.type === 'compound') {
       if (!Array.isArray(t.triggers)) t.triggers = [];
       t.operator = t.operator === 'or' ? 'or' : 'and';
-      t.triggers.forEach(function(child) { normalizeTrigger(child, phaseIdx, phaseCount); });
+      t.triggers.forEach(function(child) { normalizeTrigger(child, phaseIdx, phaseCount, true); });
     }
     Object.keys(t).forEach(function(k) {
       if (!{ type: 1, entity: 1, resource: 1, amount: 1, count: 1, state: 1, range: 1, seconds: 1, operator: 1, triggers: 1 }[k]) {
@@ -810,7 +1041,7 @@ function _repairSchema(schema, blueprintEntities) {
       }
     });
   }
-  (schema.phases || []).forEach(function(p, idx, arr) { normalizeTrigger(p.trigger, idx, arr.length); });
+  (schema.phases || []).forEach(function(p, idx, arr) { normalizeTrigger(p.trigger, idx, arr.length, false); });
 
   // Fix customLogic: ensure array of strings
   if (schema.customLogic) {

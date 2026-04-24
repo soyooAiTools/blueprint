@@ -1,0 +1,8 @@
+{
+  "csCode": "using UnityEngine;\npublic class Main : MonoBehaviour {\n    GameObject ConveyorBelt;\n    float gameTimer;\n    void Tick(float next) {\n        SetScale(ConveyorBelt, next, 0.25f + Mathf.Abs(Mathf.Sin(gameTimer * 8f)) * 0.15f, next);\n    }\n    void SetScale(GameObject obj, float x, float y, float z) {}\n    void SetScale(GameObject obj, float uniform) {}\n}",
+  "expectedResult": {
+    "passed": true,
+    "issueRules": []
+  },
+  "description": "Nested parentheses inside SetScale args should not trigger wrong-params false positives"
+}

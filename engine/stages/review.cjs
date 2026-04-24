@@ -149,12 +149,23 @@ function rewriteHotPathVectorAllocations(code) {
   }
   var fixes = 0;
   var fixed = code;
+  function isZeroDelta(raw) {
+    var text = String(raw || '').replace(/\s/g, '');
+    return /^[-+]?0(?:\.0+)?(?:f|d|m)?$/i.test(text);
+  }
   function buildStructCopy(varName, anchorExpr, dx, dy, dz, targetExpr) {
     var parts = ['var ' + varName + ' = ' + anchorExpr + ';'];
-    if (dx && dx.trim() && dx.trim() !== '0') parts.push(varName + '.x += ' + dx.trim() + ';');
-    if (dy && dy.trim() && dy.trim() !== '0') parts.push(varName + '.y += ' + dy.trim() + ';');
-    if (dz && dz.trim() && dz.trim() !== '0') parts.push(varName + '.z += ' + dz.trim() + ';');
+    if (dx && dx.trim() && !isZeroDelta(dx)) parts.push(varName + '.x += ' + dx.trim() + ';');
+    if (dy && dy.trim() && !isZeroDelta(dy)) parts.push(varName + '.y += ' + dy.trim() + ';');
+    if (dz && dz.trim() && !isZeroDelta(dz)) parts.push(varName + '.z += ' + dz.trim() + ';');
     parts.push(targetExpr + ' = ' + varName + ';');
+    return parts.join(' ');
+  }
+  function buildVectorCopy(varName, anchorExpr, dx, dy, dz, declarationKeyword) {
+    var parts = [(declarationKeyword ? declarationKeyword + ' ' : '') + varName + ' = ' + anchorExpr + ';'];
+    if (dx && dx.trim() && !isZeroDelta(dx)) parts.push(varName + '.x += ' + dx.trim() + ';');
+    if (dy && dy.trim() && !isZeroDelta(dy)) parts.push(varName + '.y += ' + dy.trim() + ';');
+    if (dz && dz.trim() && !isZeroDelta(dz)) parts.push(varName + '.z += ' + dz.trim() + ';');
     return parts.join(' ');
   }
   function normalizeDelta(raw) {
@@ -185,10 +196,12 @@ function rewriteHotPathVectorAllocations(code) {
   fixed = fixed.replace(/\b(var|Vector3)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\.transform\.position\s*\+\s*new\s+Vector3\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)\s*;/g,
     function(_m, decl, varName, anchorObj, dx, dy, dz) {
       fixes++;
-      return decl + ' ' + varName + ' = ' + anchorObj + '.transform.position; ' +
-        (dx && dx.trim() && dx.trim() !== '0' ? varName + '.x += ' + dx.trim() + '; ' : '') +
-        (dy && dy.trim() && dy.trim() !== '0' ? varName + '.y += ' + dy.trim() + '; ' : '') +
-        (dz && dz.trim() && dz.trim() !== '0' ? varName + '.z += ' + dz.trim() + '; ' : '');
+      return buildVectorCopy(varName, anchorObj + '.transform.position', dx, dy, dz, decl);
+    });
+  fixed = fixed.replace(/(^|[;\s{}])([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\.transform\.position\s*\+\s*new\s+Vector3\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)\s*;/gm,
+    function(_m, prefix, varName, anchorObj, dx, dy, dz) {
+      fixes++;
+      return prefix + buildVectorCopy(varName, anchorObj + '.transform.position', dx, dy, dz, '');
     });
   fixed = fixed.replace(/([A-Za-z_][A-Za-z0-9_]*)\.transform\.position\s*=\s*new\s+Vector3\s*\(\s*\1\.transform\.position\.x\s*([+-]\s*[^,()]+)?\s*,\s*\1\.transform\.position\.y\s*([+-]\s*[^,()]+)?\s*,\s*\1\.transform\.position\.z\s*([+-]\s*[^,)]+)?\s*\)\s*;/g,
     function(_m, obj, dx, dy, dz) {
@@ -999,6 +1012,29 @@ function repairPhaseGateRuntimeMovesAcrossPartials(mainCode, extraFiles) {
   return { code: nextMain, extraFiles: nextExtras, changed: changed, fixes: fixes };
 }
 
+function normalizePhaseGateConditionalDeclarations(code) {
+  if (!code || code.indexOf('__gateMovePos') < 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+
+  var fixes = 0;
+  var next = String(code || '');
+  var re = /^([ \t]*)if\s*\(([^)\n]+)\)\s*\n[ \t]*var\s+(__gateMovePos\d+)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\.transform\.position;\s*\n[ \t]*\3\.y\s*\+=\s*2f;\s*\n[ \t]*\4\.transform\.position\s*=\s*\3;/gm;
+  next = next.replace(re, function(_, indent, condition, varName, entityName) {
+    fixes++;
+    return [
+      indent + 'if (' + condition + ')',
+      indent + '{',
+      indent + '    var ' + varName + ' = ' + entityName + '.transform.position;',
+      indent + '    ' + varName + '.y += 2f;',
+      indent + '    ' + entityName + '.transform.position = ' + varName + ';',
+      indent + '}'
+    ].join('\n');
+  });
+
+  return { code: next, changed: fixes > 0, fixes: fixes };
+}
+
 function rewriteLongIfChainsAsSwitches(code) {
   if (!code || code.indexOf('if') < 0 || code.indexOf('== "') < 0) {
     return { code: code, changed: false, fixes: 0 };
@@ -1254,6 +1290,12 @@ function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
     changed = true;
     fixes.push('main:PhaseGateRuntimeMove x' + mainPhaseGateFix.fixes);
   }
+  var mainPhaseGateNormalize = normalizePhaseGateConditionalDeclarations(mainCode);
+  if (mainPhaseGateNormalize.changed) {
+    mainCode = mainPhaseGateNormalize.code;
+    changed = true;
+    fixes.push('main:PhaseGateConditionalNormalize x' + mainPhaseGateNormalize.fixes);
+  }
   var mainGateShortcutFix = stripInteractionFlagShortcutsFromPhaseGates(mainCode, blueprint);
   if (mainGateShortcutFix.changed) {
     mainCode = mainGateShortcutFix.code;
@@ -1316,6 +1358,12 @@ function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
       changed = true;
       fixes.push(name + ':PhaseGateRuntimeMove x' + phaseGateRes.fixes);
     }
+    var phaseGateNormalizeRes = normalizePhaseGateConditionalDeclarations(nextExtras[name]);
+    if (phaseGateNormalizeRes.changed) {
+      nextExtras[name] = phaseGateNormalizeRes.code;
+      changed = true;
+      fixes.push(name + ':PhaseGateConditionalNormalize x' + phaseGateNormalizeRes.fixes);
+    }
     var gateShortcutRes = stripInteractionFlagShortcutsFromPhaseGates(nextExtras[name], blueprint);
     if (gateShortcutRes.changed) {
       nextExtras[name] = gateShortcutRes.code;
@@ -1336,6 +1384,20 @@ function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
     changed = true;
     fixes.push('partials:PhaseGateRuntimeMove x' + crossPhaseGateFix.fixes);
   }
+  var postCrossMainNormalize = normalizePhaseGateConditionalDeclarations(mainCode);
+  if (postCrossMainNormalize.changed) {
+    mainCode = postCrossMainNormalize.code;
+    changed = true;
+    fixes.push('main:PhaseGateConditionalNormalizePost x' + postCrossMainNormalize.fixes);
+  }
+  Object.keys(nextExtras).forEach(function(name) {
+    var normalizeRes = normalizePhaseGateConditionalDeclarations(nextExtras[name]);
+    if (normalizeRes.changed) {
+      nextExtras[name] = normalizeRes.code;
+      changed = true;
+      fixes.push(name + ':PhaseGateConditionalNormalizePost x' + normalizeRes.fixes);
+    }
+  });
   var postCrossLongIfFix = rewriteLongIfChainsAsSwitches(mainCode);
   if (postCrossLongIfFix.changed) {
     mainCode = postCrossLongIfFix.code;
@@ -1380,9 +1442,13 @@ function hasLegacyReviewerApiKey() {
   return !!(typeof process !== 'undefined' && process && process.env && process.env.OPENAI_API_KEY);
 }
 
+function isDefinitiveReviewerFailure(text) {
+  return /MODEL_FATAL|quota|insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|unauthoriz/i.test(String(text || ''));
+}
+
 function shouldFallbackToLegacyReviewer(reviewResult, useCodexReview, hasCodexReviewer, hasLegacyReviewer) {
   if (!reviewResult) return false;
-  var isDefinitive = reviewResult.error && /MODEL_FATAL|quota|insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|unauthoriz/i.test(reviewResult.error);
+  var isDefinitive = reviewResult.error && isDefinitiveReviewerFailure(reviewResult.error);
   return !reviewResult.passed &&
     (reviewResult.parseError || reviewResult.error) &&
     !isDefinitive &&
@@ -1390,6 +1456,22 @@ function shouldFallbackToLegacyReviewer(reviewResult, useCodexReview, hasCodexRe
     !!hasCodexReviewer &&
     !!hasLegacyReviewer &&
     hasLegacyReviewerApiKey();
+}
+
+function shouldUseDeterministicReviewFallback(reviewFailure, useCodexReview, hasCodexReviewer, hasLegacyReviewer) {
+  if (!reviewFailure) return false;
+
+  var text = '';
+  if (typeof reviewFailure === 'string') text = reviewFailure;
+  else text = String(reviewFailure.error || reviewFailure.message || '');
+
+  if (isDefinitiveReviewerFailure(text)) return false;
+
+  var looksTransient = !!(reviewFailure.parseError || reviewFailure.timedOut) ||
+    /timeout|parse error|empty output|unparseable output|socket hang up|econnreset|econnrefused|enotfound|eai_again|enetunreach|ehostunreach|\b502\b|\b503\b|\b504\b/i.test(text);
+  if (!looksTransient) return false;
+
+  return (!!useCodexReview && !!hasCodexReviewer) || !!hasLegacyReviewer;
 }
 
 function buildReviewFingerprint(reviewResult) {
@@ -1416,10 +1498,12 @@ module.exports = {
   normalizeSetScaleCalls: normalizeSetScaleCalls,
   repairPhaseGateRuntimeMoves: repairPhaseGateRuntimeMoves,
   repairPhaseGateRuntimeMovesAcrossPartials: repairPhaseGateRuntimeMovesAcrossPartials,
+  normalizePhaseGateConditionalDeclarations: normalizePhaseGateConditionalDeclarations,
   stripInteractionFlagShortcutsFromPhaseGates: stripInteractionFlagShortcutsFromPhaseGates,
   rewriteLongIfChainsAsSwitches: rewriteLongIfChainsAsSwitches,
   hasLegacyReviewerApiKey: hasLegacyReviewerApiKey,
   shouldFallbackToLegacyReviewer: shouldFallbackToLegacyReviewer,
+  shouldUseDeterministicReviewFallback: shouldUseDeterministicReviewFallback,
   repairKnownStructuralDamage: repairKnownStructuralDamage,
   canSkip: function(ctx) {
     return process.env.SKIP_CODE_REVIEW === 'true' || !ctx.csCode;
@@ -1661,6 +1745,19 @@ module.exports = {
           }
           return reviewResult;
         }).then(function(reviewResult) {
+          if (shouldUseDeterministicReviewFallback(reviewResult, USE_CODEX_REVIEW, codexReviewer, codeReviewer)) {
+            var fallbackWarning = {
+              severity: 'warning',
+              rule: 'reviewer-infra-fallback',
+              message: 'Reviewer infrastructure degraded after deterministic prechecks: ' + String(reviewResult.error || 'transient reviewer failure'),
+              source: reviewResult.source || 'reviewer',
+            };
+            ctx.addLog('review', 'Reviewer degraded after deterministic prechecks — continuing with warning: ' + fallbackWarning.message);
+            ctx.reviewWarnings = (ctx.reviewWarnings || []).concat([fallbackWarning]);
+            ctx.reportStatus('processing', { message: '[Linux] Reviewer 降级，继续后续验证...' });
+            return { done: true, result: { passed: false, rounds: round, criticalCount: 0, warningOnly: true, warnings: ctx.reviewWarnings, degradedReview: true } };
+          }
+
           var reviewFingerprint = buildReviewFingerprint(reviewResult);
           if (reviewResult.passed) {
             lastReviewFingerprint = null;
@@ -1831,9 +1928,24 @@ module.exports = {
               } else {
                 ctx.addLog('review', 'Review fix applied (' + reviewedCode.length + ' chars' + (recodeResult.patchApplied ? ', patch mode' : '') + ')');
               }
-            }
+              }
             return { done: false };
           });
+        }).catch(function(reviewErr) {
+          if (shouldUseDeterministicReviewFallback(reviewErr, USE_CODEX_REVIEW, codexReviewer, codeReviewer)) {
+            var fallbackText = String(reviewErr && reviewErr.message || reviewErr || 'transient reviewer failure');
+            var fallbackWarning = {
+              severity: 'warning',
+              rule: 'reviewer-infra-fallback',
+              message: 'Reviewer infrastructure degraded after deterministic prechecks: ' + fallbackText,
+              source: 'reviewer',
+            };
+            ctx.addLog('review', 'Reviewer degraded after deterministic prechecks — continuing with warning: ' + fallbackWarning.message);
+            ctx.reviewWarnings = (ctx.reviewWarnings || []).concat([fallbackWarning]);
+            ctx.reportStatus('processing', { message: '[Linux] Reviewer 降级，继续后续验证...' });
+            return { done: true, result: { passed: false, rounds: round, criticalCount: 0, warningOnly: true, warnings: ctx.reviewWarnings, degradedReview: true } };
+          }
+          throw reviewErr;
         });
       },
     });
