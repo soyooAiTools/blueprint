@@ -36,6 +36,39 @@ function hasClickEntityTrigger(trigger) {
   return false;
 }
 
+function hasNamedRef(value) {
+  return String(value || '').trim().length > 0;
+}
+
+function validateTriggerRefs(trigger, phaseId, entityNames, resourceNames, errors) {
+  if (!trigger || typeof trigger !== 'object') return;
+  if (trigger.type === 'compound' && Array.isArray(trigger.triggers)) {
+    for (var i = 0; i < trigger.triggers.length; i++) {
+      validateTriggerRefs(trigger.triggers[i], phaseId, entityNames, resourceNames, errors);
+    }
+    return;
+  }
+  if (trigger.type === 'entity_state_reached' || trigger.type === 'near_entity' || trigger.type === 'click_entity') {
+    if (!hasNamedRef(trigger.entity)) {
+      errors.push('Phase ' + phaseId + ' trigger ' + trigger.type + ' missing entity');
+      return;
+    }
+    if (!entityNames[trigger.entity]) {
+      errors.push('Phase ' + phaseId + ' trigger ' + trigger.type + ' references non-existent entity: ' + trigger.entity);
+    }
+    return;
+  }
+  if (trigger.type === 'resource_collected') {
+    if (!hasNamedRef(trigger.resource)) {
+      errors.push('Phase ' + phaseId + ' trigger resource_collected missing resource');
+      return;
+    }
+    if (!resourceNames[trigger.resource]) {
+      errors.push('Phase ' + phaseId + ' trigger resource_collected references non-existent resource: ' + trigger.resource);
+    }
+  }
+}
+
 /**
  * Validate semantic constraints that cannot be expressed in JSON Schema alone.
  * Assumes the schema has already passed structural validation (validateGameSchema).
@@ -114,10 +147,17 @@ function validateSemantics(schema) {
 
   // Resource entity references must exist
   var resources = schema.resources || [];
+  var resourceNames = {};
   for (var r = 0; r < resources.length; r++) {
+    if (resources[r] && resources[r].name) resourceNames[resources[r].name] = true;
     if (resources[r].entity && !entityNames[resources[r].entity]) {
       errors.push('Resource ' + resources[r].name + ' references non-existent entity: ' + resources[r].entity);
     }
+  }
+
+  for (var t = 0; t < schema.phases.length; t++) {
+    var phaseForTrigger = schema.phases[t];
+    validateTriggerRefs(phaseForTrigger && phaseForTrigger.trigger, phaseForTrigger && phaseForTrigger.phaseId, entityNames, resourceNames, errors);
   }
 
   return errors;

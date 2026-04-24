@@ -1,4 +1,4 @@
-var { toLowerCamel } = require('../trigger-codegen.cjs');
+var { toLowerCamel, hasEntityRef } = require('../trigger-codegen.cjs');
 
 function escapeString(value) {
   return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -11,9 +11,11 @@ function findExtraSources(schema) {
 
   for (var i = 0; i < resources.length; i++) {
     var baseName = resources[i].entity;
+    if (!hasEntityRef(baseName)) continue;
     var extras = [];
     for (var j = 0; j < entities.length; j++) {
       var eName = entities[j].name;
+      if (!hasEntityRef(eName)) continue;
       if (eName !== baseName && eName.indexOf(baseName) === 0) {
         extras.push(eName);
       }
@@ -41,6 +43,7 @@ function generateMultiSourceCollect(schema) {
   for (var i = 0; i < groups.length; i++) {
     var g = groups[i];
     for (var j = 0; j < g.extraEntities.length; j++) {
+      if (!hasEntityRef(g.primaryEntity) || !hasEntityRef(g.extraEntities[j])) continue;
       var entity = toLowerCamel(g.extraEntities[j]);
       var primary = toLowerCamel(g.primaryEntity);
       lines.push('        if (' + entity + ' != null && IsNear(' + entity + ', ' + collectRange + 'f)) {');
@@ -63,6 +66,7 @@ function generateMultiSourceVariables(schema) {
   for (var i = 0; i < groups.length; i++) {
     var extras = groups[i].extraEntities;
     for (var j = 0; j < extras.length; j++) {
+      if (!hasEntityRef(extras[j])) continue;
       lines.push('    GameObject ' + toLowerCamel(extras[j]) + ';');
     }
   }

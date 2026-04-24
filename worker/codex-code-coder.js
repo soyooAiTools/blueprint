@@ -594,7 +594,7 @@ function runCodexExecCode(workDir, userPrompt, log, taskId, opts) {
     } catch (_e) {}
     const spawnStartTime = Date.now();
 
-    const { OPENAI_API_KEY, CODEX_API_KEY, OPENAI_BASE_URL, ...cleanEnv } = process.env;
+    const { OPENAI_API_KEY, CODEX_API_KEY, OPENAI_BASE_URL, HTTP_PROXY, HTTPS_PROXY, http_proxy, https_proxy, ALL_PROXY, all_proxy, NO_PROXY, no_proxy, ...cleanEnv } = process.env;
     const child = spawn(CODEX_CMD, args, {
       cwd: workDir,
       env: { ...cleanEnv, RUST_LOG: 'error' },
@@ -886,7 +886,7 @@ function runCodexExecText(execDir, tempDir, opts, log, taskId, finish) {
 
   // Match codex-reviewer behavior: prefer ChatGPT auth / CODEX_HOME and avoid
   // accidentally forcing API-key mode via unrelated blueprint-editor env vars.
-  const { OPENAI_API_KEY, CODEX_API_KEY, OPENAI_BASE_URL, ...cleanEnv } = process.env;
+  const { OPENAI_API_KEY, CODEX_API_KEY, OPENAI_BASE_URL, HTTP_PROXY, HTTPS_PROXY, http_proxy, https_proxy, ALL_PROXY, all_proxy, NO_PROXY, no_proxy, ...cleanEnv } = process.env;
   const child = spawn(CODEX_CMD, args, {
     cwd: execDir,
     env: { ...cleanEnv, RUST_LOG: 'error' },
@@ -963,7 +963,139 @@ function stripGenericMethodCallsForLuna(src) {
   let next = String(src || '');
   next = next.replace(/Resources\.GetBuiltinResource\s*<\s*([A-Za-z_][A-Za-z0-9_]*)\s*>\s*\(([^)]+)\)/g, '($1)Resources.GetBuiltinResource(typeof($1), $2)');
   next = next.replace(/FindObjectOfType\s*<\s*([A-Za-z_][A-Za-z0-9_]*)\s*>\s*\(\s*\)/g, '($1)FindObjectOfType(typeof($1))');
-  next = next.replace(/\.GetComponent\s*<\s*([A-Za-z_][A-Za-z0-9_.]*)\s*>\s*\(\s*\)/g, '.GetComponent(typeof($1)) as $1');
+  next = next.replace(/((?:this|base|[A-Za-z_][A-Za-z0-9_]*)(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\.GetComponent\s*<\s*([A-Za-z_][A-Za-z0-9_.]*)\s*>\s*\(\s*\)/g, '(($2)$1.GetComponent(typeof($2)))');
+  next = next.replace(/\bAddLocalWorldLabel\s*\(/g, 'GFM_UI.AddWorldLabel(');
+  next = next.replace(/\bCreateLocalCanvas\s*\(/g, 'GFM_UI.CreateCanvas(');
+
+  function splitTopLevelArgs(text) {
+    const args = [];
+    let current = '';
+    let parenDepth = 0;
+    let bracketDepth = 0;
+    let braceDepth = 0;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === ',' && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
+        if (current.trim()) args.push(current.trim());
+        current = '';
+        continue;
+      }
+      current += ch;
+      if (ch === '(') parenDepth++;
+      else if (ch === ')') parenDepth = Math.max(0, parenDepth - 1);
+      else if (ch === '[') bracketDepth++;
+      else if (ch === ']') bracketDepth = Math.max(0, bracketDepth - 1);
+      else if (ch === '{') braceDepth++;
+      else if (ch === '}') braceDepth = Math.max(0, braceDepth - 1);
+    }
+    if (current.trim()) args.push(current.trim());
+    return args;
+  }
+
+  function buildCodeMask(code) {
+    const mask = new Uint8Array(code.length);
+    let i = 0;
+    while (i < code.length) {
+      if (code[i] === '/' && code[i + 1] === '/') {
+        while (i < code.length && code[i] !== '\n') i++;
+        continue;
+      }
+      if (code[i] === '/' && code[i + 1] === '*') {
+        i += 2;
+        while (i < code.length - 1 && !(code[i] === '*' && code[i + 1] === '/')) i++;
+        i += 2;
+        continue;
+      }
+      if (code[i] === '@' && code[i + 1] === '"') {
+        i += 2;
+        while (i < code.length) {
+          if (code[i] === '"' && code[i + 1] === '"') { i += 2; continue; }
+          if (code[i] === '"') { i++; break; }
+          i++;
+        }
+        continue;
+      }
+      if (code[i] === '"') {
+        i++;
+        while (i < code.length && code[i] !== '"' && code[i] !== '\n') {
+          if (code[i] === '\\') i++;
+          i++;
+        }
+        if (i < code.length) i++;
+        continue;
+      }
+      if (code[i] === '\'') {
+        i++;
+        if (i < code.length && code[i] === '\\') i++;
+        i++;
+        if (i < code.length && code[i] === '\'') i++;
+        continue;
+      }
+      mask[i] = 1;
+      i++;
+    }
+    return mask;
+  }
+
+  function findInvocationCalls(code, methodName) {
+    const calls = [];
+    const nameLen = methodName.length;
+    const mask = buildCodeMask(code);
+    function isIdent(ch) {
+      return !!ch && /[A-Za-z0-9_]/.test(ch);
+    }
+    for (let i = 0; i <= code.length - nameLen; i++) {
+      if (!mask[i]) continue;
+      if (code.substr(i, nameLen) !== methodName) continue;
+      if (isIdent(code[i - 1]) || isIdent(code[i + nameLen])) continue;
+      let j = i + nameLen;
+      while (j < code.length && /\s/.test(code[j])) j++;
+      if (code[j] !== '(') continue;
+      const openIdx = j;
+      let depth = 1;
+      j++;
+      while (j < code.length && depth > 0) {
+        if (mask[j]) {
+          if (code[j] === '(') depth++;
+          else if (code[j] === ')') depth--;
+        }
+        j++;
+      }
+      if (depth !== 0) continue;
+      calls.push({
+        index: i,
+        closeIndex: j - 1,
+        argsText: code.substring(openIdx + 1, j - 1),
+      });
+      i = j - 1;
+    }
+    return calls;
+  }
+
+  const calls = findInvocationCalls(next, 'CreateLocalText');
+  if (calls.length > 0) {
+    const pieces = [];
+    let cursor = 0;
+    let rewritten = false;
+    for (const call of calls) {
+      const args = splitTopLevelArgs(call.argsText);
+      let replacement = null;
+      if (args.length === 5) {
+        replacement = 'GFM_UI.CreateText(' + [args[0], args[2], args[3], args[4]].join(', ') + ')';
+      } else if (args.length === 4) {
+        replacement = 'GFM_UI.CreateText(' + args.join(', ') + ')';
+      }
+      if (!replacement) continue;
+      pieces.push(next.slice(cursor, call.index));
+      pieces.push(replacement);
+      cursor = call.closeIndex + 1;
+      rewritten = true;
+    }
+    if (rewritten) {
+      pieces.push(next.slice(cursor));
+      next = pieces.join('');
+    }
+  }
   return next;
 }
 

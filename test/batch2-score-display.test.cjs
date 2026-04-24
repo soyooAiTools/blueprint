@@ -6,6 +6,7 @@ describe('batch2 score-display diff gate', () => {
     var out = generateScoreDisplay(schema);
     expect(out).toMatch(/_lastScoreText\s*!=\s*display/);
     expect(out).toMatch(/_lastScoreText\s*=\s*display/);
+    expect(out).not.toMatch(/\bgold\b/);
   });
 
   test('empty resources produces empty output (no regression)', () => {

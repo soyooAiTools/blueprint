@@ -13,7 +13,6 @@ function generateScoreDisplay(schema) {
     var r = resources[i];
     lines.push('            display += "' + escapeString(r.name) + ': " + GetResource("' + escapeString(r.name) + '") + "  ";');
   }
-  lines.push('            if (gold > 0) display += "gold: " + gold;');
   lines.push('            if (_lastScoreText != display) { scoreText.text = display; _lastScoreText = display; }');
   lines.push('        }');
   return lines.join('\n');

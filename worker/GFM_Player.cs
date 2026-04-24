@@ -66,8 +66,8 @@ public class GFM_Player : MonoBehaviour
     // 【玩家本体】player GameObject 是场景里的"可控胶囊"池对象；joystick 是
     // 贴在 Canvas 上的虚拟摇杆。
     // ========================================================================
-    public GameObject Go { get { return _player; } }
-    public Transform Trans { get { return _player != null ? _player.transform : null; } }
+    public GameObject Go { get { if (_player == null) EnsurePlayerObject(); return _player; } }
+    public Transform Trans { get { var go = Go; return go != null ? go.transform : null; } }
 
     private GameObject _player;
     private GFM_Joystick _joystick;
@@ -82,6 +82,14 @@ public class GFM_Player : MonoBehaviour
     // 【玩家池对象名】可在主文件 Start 里改成项目自己的池对象名；默认胶囊。
     // 典型："__Pool_Cylinder_Blue_01" / "__Pool_Capsule_01" / "__Pool_Cube_01"
     public string PlayerPoolName = "__Pool_Cylinder_Blue_01";
+
+    private static readonly string[] _playerFallbackPools = new string[] {
+        "__Pool_Cylinder_Blue_01",
+        "__Pool_Cylinder_01",
+        "__Pool_Capsule_01",
+        "__Pool_Cube_Blue_01",
+        "__Pool_Cube_01"
+    };
 
     // 【当前形态移动速度】供 MovePlayer/外部使用。未初始化 fallback 5f。
     public float MoveSpeed { get { return (Forms != null && Forms.Length > 0) ? Forms[_currentFormIndex].moveSpeed : 5f; } }
@@ -100,8 +108,7 @@ public class GFM_Player : MonoBehaviour
         _inited = true;
 
         // 1) 玩家池对象（PlayerPoolName 可由主文件 Start 覆盖）
-        _player = GameObject.Find(PlayerPoolName);
-        if (_player != null) _player.transform.position = new Vector3(0f, 0.5f, 0f);
+        EnsurePlayerObject();
 
         // 2) 虚拟摇杆 (依赖 Canvas — 这里会触发 UIManager 懒初始化)
         if (GFM_UIManager.Instance != null && GFM_UIManager.Instance.Canvas != null)
@@ -142,15 +149,16 @@ public class GFM_Player : MonoBehaviour
     // ========================================================================
     public void MovePlayer()
     {
-        if (_player == null || _joystick == null) return;
+        var go = Go;
+        if (go == null || _joystick == null) return;
 
         float h = _joystick.Horizontal;
         float v = _joystick.Vertical;
         if (Mathf.Abs(h) > 0.1f || Mathf.Abs(v) > 0.1f)
         {
             Vector3 move = new Vector3(h, 0, v) * MoveSpeed * Time.deltaTime;
-            _player.transform.position += move;
-            _player.transform.rotation = Quaternion.LookRotation(new Vector3(h, 0, v));
+            go.transform.position += move;
+            go.transform.rotation = Quaternion.LookRotation(new Vector3(h, 0, v));
         }
     }
 
@@ -159,8 +167,9 @@ public class GFM_Player : MonoBehaviour
     // ========================================================================
     public bool IsNear(GameObject target, float range)
     {
-        if (_player == null || target == null) return false;
-        return Vector3.Distance(_player.transform.position, target.transform.position) < range;
+        var go = Go;
+        if (go == null || target == null) return false;
+        return Vector3.Distance(go.transform.position, target.transform.position) < range;
     }
 
     // ========================================================================
@@ -212,6 +221,7 @@ public class GFM_Player : MonoBehaviour
     public void SwitchForm(int formIndex)
     {
         if (Forms == null || formIndex < 0 || formIndex >= Forms.Length) return;
+        var currentPlayer = Go;
 
         // 1) 挪走旧形态模型
         if (Forms[_currentFormIndex].poolObjectName != "")
@@ -225,9 +235,49 @@ public class GFM_Player : MonoBehaviour
         var newObj = GameObject.Find(Forms[_currentFormIndex].poolObjectName);
         if (newObj != null)
         {
-            newObj.transform.position = _player != null ? _player.transform.position : Vector3.zero;
+            newObj.transform.position = currentPlayer != null ? currentPlayer.transform.position : Vector3.zero;
             newObj.transform.localScale = Vector3.one * Forms[_currentFormIndex].scale;
         }
+    }
+
+    private bool EnsurePlayerObject()
+    {
+        if (_player != null) return true;
+
+        if (PlayerPoolName != "")
+        {
+            _player = GameObject.Find(PlayerPoolName);
+        }
+
+        if (_player == null)
+        {
+            for (int i = 0; i < _playerFallbackPools.Length; i++)
+            {
+                var candidate = _playerFallbackPools[i];
+                if (candidate == PlayerPoolName) continue;
+                _player = GameObject.Find(candidate);
+                if (_player != null)
+                {
+                    PlayerPoolName = candidate;
+                    break;
+                }
+            }
+        }
+
+        if (_player == null)
+        {
+            _player = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            _player.name = PlayerPoolName != "" ? PlayerPoolName : "__AutoPlayer";
+            _player.transform.localScale = new Vector3(0.8f, 1f, 0.8f);
+        }
+
+        if (_player != null)
+        {
+            _player.transform.position = new Vector3(0f, 0.5f, 0f);
+            return true;
+        }
+
+        return false;
     }
 
     // 【当前形态属性查询】供 CheckEventRules / TryCollect 使用。

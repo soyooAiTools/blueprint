@@ -73,6 +73,7 @@ describe('phaseGateEntities filter', () => {
     });
     const code = typeof skeleton === 'string' ? skeleton : skeleton.main;
     expect(code).toMatch(/time-only beat/);
+    expect(code).toMatch(/DetectRealTime <= 0f \|\| GFM_AutoPlay\.Instance\.IsActive/);
   });
 
   test('click:entity keeps clickable target in gate', () => {
@@ -126,6 +127,7 @@ describe('phaseGateEntities filter', () => {
     const code = typeof skeleton === 'string' ? skeleton : skeleton.main;
     expect(gateEntities(code)).not.toContain('Tower');
     expect(code).toMatch(/time-only beat/);
+    expect(code).toMatch(/DetectRealTime <= 0f \|\| GFM_AutoPlay\.Instance\.IsActive/);
   });
 
   test('multiple moving-verb targets: all appear in gate', () => {

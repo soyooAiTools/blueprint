@@ -1,4 +1,4 @@
-var { toLowerCamel } = require('./trigger-codegen.cjs');
+var { toLowerCamel, resolveSpawnEntityName } = require('./trigger-codegen.cjs');
 var { ActionType } = require('./phase-enums.cjs');
 
 function generatePhaseInit(phase, schema) {
@@ -27,25 +27,35 @@ function generatePhaseInit(phase, schema) {
   // onEnter actions
   var actions = phase.onEnter || [];
   for (var k = 0; k < actions.length; k++) {
-    lines.push('                ' + actionToCode(actions[k]));
+    lines.push('                ' + actionToCode(actions[k], schema));
   }
   return lines.join('\n');
 }
 
-function actionToCode(action) {
+function actionToCode(action, schema) {
   switch (action.action) {
     case ActionType.SET_ENTITY_STATE:
-      return toLowerCamel(action.entity || 'Unknown') + 'State = ' + (action.state != null ? action.state : 1) + ';';
+      if (!action.entity || /^Enemy$/i.test(String(action.entity)) || /^Unknown$/i.test(String(action.entity))) {
+        return '// skipped unresolved set_entity_state';
+      }
+      return toLowerCamel(action.entity) + 'State = ' + (action.state != null ? action.state : 1) + ';';
     case ActionType.ADD_RESOURCE:
+      if (!action.resource || /^default$/i.test(String(action.resource))) {
+        return '// skipped unresolved add_resource';
+      }
       return 'AddResource("' + action.resource + '", ' + action.amount + ');';
     case ActionType.SWITCH_FORM:
       return 'SwitchForm(' + (action.formIndex != null ? action.formIndex : 0) + ');';
     case ActionType.SHOW_FLOATING_TEXT:
+      if (action.text == null || String(action.text) === 'undefined') {
+        return '// skipped unresolved floating_text';
+      }
       return 'ShowFloatingText(player.transform.position, "' + action.text + '", Color.' + (action.color || 'yellow') + ');';
     case ActionType.SET_GUIDE:
       return 'guideText.text = "' + (action.text || '').replace(/"/g, '\\"') + '";';
     case ActionType.SPAWN_ENEMIES:
-      return 'Spawn' + action.entity + '(' + action.count + ');';
+      var target = resolveSpawnEntityName(action, schema);
+      return 'Spawn' + target + '(' + (action.count != null ? action.count : 1) + ');';
     default:
       return '// TODO: Unknown action ' + action.action;
   }

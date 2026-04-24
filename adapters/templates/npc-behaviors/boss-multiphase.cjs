@@ -1,5 +1,10 @@
 var { toLowerCamel } = require('../trigger-codegen.cjs');
 
+function toPrefabIdentifier(raw) {
+  var text = String(raw || '').trim();
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(text) ? text : null;
+}
+
 function generateVariables(npc) {
   var v = toLowerCamel(npc.entity);
   var p = npc.params;
@@ -20,6 +25,7 @@ function generateUpdate(npc) {
 function generateSystem(npc) {
   var v = toLowerCamel(npc.entity);
   var p = npc.params;
+  var projectilePrefabId = toPrefabIdentifier(p.projectile);
   var lines = [];
   lines.push('    void Update' + npc.entity + '(float dt) {');
   lines.push('        if (' + v + 'State == 2) return;');
@@ -51,11 +57,13 @@ function generateSystem(npc) {
   lines.push('                if (' + v + 'FireTimer <= 0f && dist < ' + p.fireRange + 'f) {');
   lines.push('                    // Fire projectile toward player');
   lines.push('                    // Projectile damage value: ' + p.projectileDamage);
-  lines.push('                    var proj = GFM_Pool.Get("projectile");');
+  lines.push('                    GameObject projectilePrefab = ' + (projectilePrefabId || 'null') + ';');
+  lines.push('                    var proj = projectilePrefab != null ? GFM_Pool.Get(projectilePrefab) : null;');
   lines.push('                    if (proj != null) {');
   lines.push('                        proj.transform.position = ' + v + '.transform.position;');
   lines.push('                        Vector3 dir = (player.transform.position - ' + v + '.transform.position).normalized;');
-  lines.push('                        proj.GetComponent<Rigidbody>().velocity = dir * ' + p.projectileSpeed + 'f;');
+  lines.push('                        var projRb = (Rigidbody)proj.GetComponent(typeof(Rigidbody));');
+  lines.push('                        if (projRb != null) projRb.velocity = dir * ' + p.projectileSpeed + 'f;');
   lines.push('                    }');
   lines.push('                    ' + v + 'FireTimer = ' + p.fireInterval + 'f;');
   lines.push('                }');

@@ -52,7 +52,8 @@ describe('W1b 5-partial skeleton smoke test', () => {
   test('opt-in flag off: returns legacy string or 2-file object', () => {
     const out = generateSkeleton(makeSpecs(12));
     if (typeof out === 'object') {
-      expect(out.mode).not.toBe('w1b-5partial');
+      expect(out).toHaveProperty('main');
+      expect(out).toHaveProperty('flow');
     } else {
       expect(typeof out).toBe('string');
     }
@@ -117,18 +118,27 @@ describe('W1b 5-partial skeleton smoke test', () => {
     expect(ends.length).toBe(12);
   });
 
-  test('Flow partial sets InteractionDone + PlayerActed per phase', () => {
+  test('Flow partial keeps TODO markers and deterministic autoplay fallback together', () => {
     const out = generateSkeleton(makeSpecs(12), { w1bSplit: true });
+    expect(out.flow).toMatch(/void\s+Phase_initialCollect_OnTap\s*\(\s*\)/);
+    expect(out.flow).toMatch(/TODO_PHASE_initialCollect_ONTAP_START/);
+    expect(out.flow).toMatch(/void\s+Phase_initialCollect_OnAutoPlayArrive\s*\(\s*string\s+targetName\s*\)/);
+    expect(out.flow).toMatch(/SKELETON FALLBACK/);
     expect(out.flow).toMatch(/initialCollectInteractionDone\s*=\s*true\s*;/);
-    expect(out.flow).toMatch(/initialCollectPlayerActed\s*=\s*true\s*;/);
   });
 
-  test('Stub partials (Input/Resource/UI/Scene) are minimal but valid', () => {
+  test('Companion partials remain focused and valid', () => {
     const out = generateSkeleton(makeSpecs(12), { w1bSplit: true });
-    for (const stub of [out.input, out.resource, out.ui, out.scene]) {
-      expect(stub).toMatch(/using\s+UnityEngine\s*;/);
-      expect(stub).toMatch(/public\s+partial\s+class\s+GameFlowManagerMain\s*\{[\s\S]*\}/);
-      expect(stub.length).toBeLessThan(500);
+    const stubs = [
+      { code: out.input, limit: 1000 },
+      { code: out.resource, limit: 5000 },
+      { code: out.ui, limit: 10000 },
+      { code: out.scene, limit: 3000 },
+    ];
+    for (const stub of stubs) {
+      expect(stub.code).toMatch(/using\s+UnityEngine\s*;/);
+      expect(stub.code).toMatch(/public\s+partial\s+class\s+GameFlowManagerMain\s*\{[\s\S]*\}/);
+      expect(stub.code.length).toBeLessThan(stub.limit);
     }
   });
 
@@ -178,5 +188,30 @@ describe('W1b 5-partial skeleton smoke test', () => {
     const matches = out.flow.match(/void\s+Phase_\w+_OnTap\s*\(\s*\)/g) || [];
     expect(matches.length).toBe(13);
     expect(out.flow).toMatch(/void\s+Phase_OnTap\s*\(\s*\)/);
+  });
+
+  test('split skeleton preserves blueprint-only entity refs and economy compat helpers', () => {
+    const specs = makeSpecs(12);
+    const out = generateSkeleton(specs, {
+      w1bSplit: true,
+      entityPoolMap: {
+        Player: '__Pool_Cube_Blue_01',
+        MetalShard: '__Pool_Cube_Yellow_01',
+        GoldRecycler: '__Pool_Cube_Brown_01',
+        Bullet: '__Pool_Sphere_Gray_01',
+      },
+      entities: [
+        { name: 'Player', template: 'Mover' },
+        { name: 'MetalShard', template: 'Collectible' },
+        { name: 'GoldRecycler', template: 'Static' },
+        { name: 'Bullet', template: 'Mover' },
+      ],
+    });
+    expect(out.main).toMatch(/GameObject GoldRecycler;/);
+    expect(out.main).toMatch(/GameObject Bullet;/);
+    expect(out.main).toMatch(/void SpawnGoldRecycler\(int count\)/);
+    expect(out.main).toMatch(/void SpawnBullet\(int count\)/);
+    expect(out.resource).toMatch(/class InventoryCompat/);
+    expect(out.resource).toMatch(/InventoryCompat _inventory = new InventoryCompat\(\);/);
   });
 });

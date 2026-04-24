@@ -66,6 +66,27 @@ function resolveEntities(specs, blueprintEntities) {
     }
   }
 
+  // Assembly-first projects often contain runtime entities that never appear in
+  // spec.entitiesRequired, for example spawner outputs, helper machines, bullets,
+  // or chain-linked workers. If we only resolve spec-visible entities, skeleton
+  // generation under-declares GameObject fields/state vars and later AI/template
+  // code references undeclared symbols (GoldRecycler / TowerShooter / Bullet ...).
+  //
+  // Treat every blueprint entity as a first-class runtime entity so the pool map
+  // and skeleton stay aligned with the actual node graph, not just the reduced
+  // experience-contract view.
+  if (Array.isArray(blueprintEntities)) {
+    for (var bp = 0; bp < blueprintEntities.length; bp++) {
+      var bpEntity = blueprintEntities[bp];
+      if (!bpEntity || !bpEntity.name || specEntities[bpEntity.name]) continue;
+      specEntities[bpEntity.name] = {
+        name: bpEntity.name,
+        terminalState: bpEntity.terminalState || 1,
+        description: bpEntity.description || 'blueprint entity',
+      };
+    }
+  }
+
   // Build entity list compatible with matchPrefabs format
   var entityList = [];
   var specEntityNames = Object.keys(specEntities);

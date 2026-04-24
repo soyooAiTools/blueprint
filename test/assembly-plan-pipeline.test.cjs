@@ -43,8 +43,8 @@ var project = {
     }
   ],
   phases: [
-    { id: 1, name: 'intro', activate: ['Player', 'ConveyorBelt'], guide: '靠近传送带', camera: { lookAt: 'ConveyorBelt', zoom: 1.2 } },
-    { id: 2, name: 'build', activate: ['Turret'], guide: '建造并查看炮塔' }
+    { id: 1, name: '靠近传送带', activate: ['Player', 'ConveyorBelt'], guide: '靠近传送带', camera: { lookAt: 'ConveyorBelt', zoom: 1.2 } },
+    { id: 2, name: '建造炮塔', activate: ['Turret'], guide: '建造并查看炮塔' }
   ],
   specs: [
     { phaseId: 'intro', requiredInteractions: ['move_to:ConveyorBelt'] },
@@ -79,5 +79,26 @@ var buildStep = plans.cuaPlan.steps.find(function(step) { return step.phaseId ==
 assert.ok(buildStep, 'build cua step missing');
 assert.ok(buildStep.actions.some(function(action) { return action.kind === 'build'; }), 'build action missing');
 assert.ok(buildStep.expectedSignals.indexOf('entity_state_equals_built') >= 0, 'build completion signal missing');
+assert.ok(plans.storyboardAtomPlan.items.every(function(item) {
+  return item.phaseId === 'intro' || item.phaseId === 'build';
+}), 'storyboard atoms should use canonical spec phase IDs');
+assert.ok(player.phaseRefs.indexOf('intro') >= 0, 'player phaseRefs should use canonical intro phaseId');
+assert.ok(conveyor.phaseRefs.indexOf('intro') >= 0, 'conveyor phaseRefs should use canonical intro phaseId');
+assert.ok(plans.assemblyPlan.phaseBindings.every(function(binding, index) {
+  return binding.phaseId === (index === 0 ? 'intro' : 'build');
+}), 'assembly phaseBindings should use canonical spec phase IDs');
+
+var genericSpendPlans = buildProjectPlans({
+  name: 'GenericSpendDefaults',
+  storyboardFrames: [],
+  entities: project.entities,
+  phases: [{ id: 1, name: '花费资源', activate: ['ConveyorBelt'] }],
+  specs: [{ phaseId: 'spendPhase', requiredInteractions: ['spend::2:ConveyorBelt'] }]
+});
+var spendTarget = genericSpendPlans.entityPlan.entities.find(function(entity) { return entity.name === 'ConveyorBelt'; });
+var spendGate = spendTarget.modules.find(function(module) { return module.moduleId === 'cost_gate'; });
+assert.ok(spendGate, 'generic spend should resolve to cost_gate');
+assert.strictEqual(spendGate.params.resource, 'resource', 'empty spend resource should default to generic resource kind');
+assert.strictEqual(spendGate.params.amount, 2, 'generic spend amount should be preserved');
 
 console.log('assembly-plan-pipeline tests passed');

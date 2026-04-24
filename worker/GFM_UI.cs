@@ -12,7 +12,7 @@
 // Luna runtime 中未带 RectTransform 的 GameObject 链式 AddComponent 会返回 null,
 // 下一行赋值直接抛 "Cannot set properties of null (setting 'font')"。
 // 正确写法: new GameObject(name, typeof(RectTransform), typeof(Text)),
-// 再用 GetComponent<Text>() 拿引用。
+// 再用 (Text)GetComponent(typeof(Text)) 拿引用。
 // ============================================================
 
 using UnityEngine;
@@ -61,17 +61,17 @@ public static class GFM_UI
     {
         var obj = new GameObject("Btn_" + text, typeof(RectTransform), typeof(Image), typeof(Button));
         obj.transform.SetParent(canvas.transform, false);
-        var rect = obj.GetComponent<RectTransform>();
+        var rect = (RectTransform)obj.GetComponent(typeof(RectTransform));
         rect.anchoredPosition = pos;
         rect.sizeDelta = size;
-        obj.GetComponent<Image>().color = new Color(0.2f, 0.7f, 0.3f);
-        var btn = obj.GetComponent<Button>();
+        ((Image)obj.GetComponent(typeof(Image))).color = new Color(0.2f, 0.7f, 0.3f);
+        var btn = (Button)obj.GetComponent(typeof(Button));
         if (onClick != null) btn.onClick.AddListener(onClick);
 
         var txtGO = new GameObject("Text", typeof(RectTransform), typeof(Text));
         txtGO.transform.SetParent(obj.transform, false);
-        txtGO.GetComponent<RectTransform>().sizeDelta = size;
-        var txtObj = txtGO.GetComponent<Text>();
+        ((RectTransform)txtGO.GetComponent(typeof(RectTransform))).sizeDelta = size;
+        var txtObj = (Text)txtGO.GetComponent(typeof(Text));
         ApplyTextStyle(txtObj, text, (int)(size.y * 0.4f), Color.white, TextAnchor.MiddleCenter);
 
         return btn;
@@ -81,7 +81,7 @@ public static class GFM_UI
     {
         var obj = new GameObject("Text_" + content, typeof(RectTransform));
         obj.transform.SetParent(canvas.transform, false);
-        var rect = obj.GetComponent<RectTransform>();
+        var rect = (RectTransform)obj.GetComponent(typeof(RectTransform));
         rect.anchoredPosition = pos;
         rect.sizeDelta = new Vector2(400, fontSize * 2);
         var txt = obj.AddComponent<Text>();
@@ -99,23 +99,23 @@ public static class GFM_UI
         canvas.transform.SetParent(target.transform, false);
         canvas.transform.localPosition = new Vector3(0, heightOffset, 0);
         canvas.transform.localScale = new Vector3(0.015f, 0.015f, 0.015f);
-        var rt = canvas.GetComponent<RectTransform>();
+        var rt = (RectTransform)canvas.GetComponent(typeof(RectTransform));
         rt.sizeDelta = new Vector2(240, 40);
 
         var bgObj = new GameObject("LabelBG", typeof(RectTransform), typeof(Image));
         bgObj.transform.SetParent(canvas.transform, false);
-        var bgRect = bgObj.GetComponent<RectTransform>();
+        var bgRect = (RectTransform)bgObj.GetComponent(typeof(RectTransform));
         bgRect.sizeDelta = new Vector2(240, 40);
         bgRect.anchoredPosition = Vector2.zero;
-        var bgImg = bgObj.GetComponent<Image>();
+        var bgImg = (Image)bgObj.GetComponent(typeof(Image));
         bgImg.color = new Color(0f, 0f, 0f, 0.0f);
 
         var txtGO = new GameObject("Text", typeof(RectTransform), typeof(Text));
         txtGO.transform.SetParent(canvas.transform, false);
-        var txtRect = txtGO.GetComponent<RectTransform>();
+        var txtRect = (RectTransform)txtGO.GetComponent(typeof(RectTransform));
         txtRect.sizeDelta = new Vector2(240, 40);
         txtRect.anchoredPosition = Vector2.zero;
-        var txtObj = txtGO.GetComponent<Text>();
+        var txtObj = (Text)txtGO.GetComponent(typeof(Text));
         ApplyTextStyle(txtObj, text, 22, Color.white, TextAnchor.MiddleCenter);
         if (txtObj != null) txtObj.horizontalOverflow = HorizontalWrapMode.Overflow;
 
@@ -126,34 +126,34 @@ public static class GFM_UI
     {
         var obj = new GameObject("ProgressBar", typeof(RectTransform), typeof(Slider));
         obj.transform.SetParent(canvas.transform, false);
-        var rect = obj.GetComponent<RectTransform>();
+        var rect = (RectTransform)obj.GetComponent(typeof(RectTransform));
         rect.anchoredPosition = pos;
         rect.sizeDelta = size;
 
         var bgObj = new GameObject("Background", typeof(RectTransform), typeof(Image));
         bgObj.transform.SetParent(obj.transform, false);
-        var bgRect = bgObj.GetComponent<RectTransform>();
+        var bgRect = (RectTransform)bgObj.GetComponent(typeof(RectTransform));
         bgRect.anchorMin = Vector2.zero;
         bgRect.anchorMax = Vector2.one;
         bgRect.sizeDelta = Vector2.zero;
-        bgObj.GetComponent<Image>().color = new Color(0.2f, 0.2f, 0.2f, 0.8f);
+        ((Image)bgObj.GetComponent(typeof(Image))).color = new Color(0.2f, 0.2f, 0.2f, 0.8f);
 
         var fillArea = new GameObject("Fill Area", typeof(RectTransform));
         fillArea.transform.SetParent(obj.transform, false);
-        var faRect = fillArea.GetComponent<RectTransform>();
+        var faRect = (RectTransform)fillArea.GetComponent(typeof(RectTransform));
         faRect.anchorMin = Vector2.zero;
         faRect.anchorMax = Vector2.one;
         faRect.sizeDelta = Vector2.zero;
 
         var fillObj = new GameObject("Fill", typeof(RectTransform), typeof(Image));
         fillObj.transform.SetParent(fillArea.transform, false);
-        var fRect = fillObj.GetComponent<RectTransform>();
+        var fRect = (RectTransform)fillObj.GetComponent(typeof(RectTransform));
         fRect.anchorMin = Vector2.zero;
         fRect.anchorMax = Vector2.one;
         fRect.sizeDelta = Vector2.zero;
-        fillObj.GetComponent<Image>().color = fillColor;
+        ((Image)fillObj.GetComponent(typeof(Image))).color = fillColor;
 
-        var slider = obj.GetComponent<Slider>();
+        var slider = (Slider)obj.GetComponent(typeof(Slider));
         slider.fillRect = fRect;
         slider.interactable = false;
         slider.value = 1f;

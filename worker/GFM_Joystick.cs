@@ -30,21 +30,21 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
 
         var bgObj = new GameObject("JoystickBG", typeof(RectTransform), typeof(Image));
         bgObj.transform.SetParent(canvas.transform, false);
-        var bgRect = bgObj.GetComponent<RectTransform>();
+        var bgRect = (RectTransform)bgObj.GetComponent(typeof(RectTransform));
         bgRect.sizeDelta = new Vector2(size, size);
         bgRect.anchorMin = new Vector2(0, 0);
         bgRect.anchorMax = new Vector2(0, 0);
         bgRect.pivot = new Vector2(0.5f, 0.5f);
         bgRect.anchoredPosition = new Vector2(size * 0.8f, size * 0.8f);
-        var bgImg = bgObj.GetComponent<Image>();
+        var bgImg = (Image)bgObj.GetComponent(typeof(Image));
         bgImg.color = new Color(1f, 1f, 1f, 0.3f);
 
         var handleObj = new GameObject("JoystickHandle", typeof(RectTransform), typeof(Image));
         handleObj.transform.SetParent(bgObj.transform, false);
-        var handleRect = handleObj.GetComponent<RectTransform>();
+        var handleRect = (RectTransform)handleObj.GetComponent(typeof(RectTransform));
         handleRect.sizeDelta = new Vector2(size * 0.4f, size * 0.4f);
         handleRect.anchoredPosition = Vector2.zero;
-        var handleImg = handleObj.GetComponent<Image>();
+        var handleImg = (Image)handleObj.GetComponent(typeof(Image));
         handleImg.color = new Color(1f, 1f, 1f, 0.6f);
 
         instance = bgObj.AddComponent<GFM_Joystick>();

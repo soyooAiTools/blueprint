@@ -124,7 +124,7 @@ public static class GFM_Utils
             if (digit >= numSprites.Count) continue;
             var child = parent.GetChild(i);
             child.gameObject.SetActive(true);
-            var img = child.GetComponent<Image>();
+            var img = (Image)child.GetComponent(typeof(Image));
             if (img != null)
             {
                 img.sprite = numSprites[digit];
@@ -132,7 +132,7 @@ public static class GFM_Utils
             }
             else
             {
-                var sr = child.GetComponent<SpriteRenderer>();
+                var sr = (SpriteRenderer)child.GetComponent(typeof(SpriteRenderer));
                 if (sr != null) sr.sprite = numSprites[digit];
             }
         }

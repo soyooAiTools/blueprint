@@ -1,4 +1,4 @@
-var { toLowerCamel } = require('../trigger-codegen.cjs');
+var { toLowerCamel, hasEntityRef } = require('../trigger-codegen.cjs');
 
 function escapeString(value) {
   return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -14,6 +14,7 @@ function generateCollectUpdate(schema) {
   var lines = [];
   for (var i = 0; i < resources.length; i++) {
     var r = resources[i];
+    if (!r || !r.name || !hasEntityRef(r.entity)) continue;
     var entity = toLowerCamel(r.entity);
     var cap = r.maxStock || maxCarry;
     lines.push('        if (_collectCooldown <= 0f && ' + entity + ' != null && IsNear(' + entity + ', ' + collectRange + 'f)) {');

@@ -482,5 +482,29 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-430e658c.md"
+  },
+  {
+    "id": "auto-f6349129",
+    "fingerprintPattern": "assembly-state-owner-mismatch(?:,\\s*assembly-state-owner-mismatch)+",
+    "description": "method-check has no auto-repair for assembly-state-owner-mismatch, so the violation survives every codegen retry unchanged",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/method-check.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-f6349129.md"
+  },
+  {
+    "id": "auto-3f0aaa8b",
+    "fingerprintPattern": "Pre-contamination FATAL: \\d+/\\? spec phases completed before observe window opened",
+    "description": "detectObservationProtocolFailure throws FATAL unconditionally on first occurrence, bypassing the recode path and burning task retries against identical un-fixed code",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/cua-verify.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-3f0aaa8b.md"
   }
 ]

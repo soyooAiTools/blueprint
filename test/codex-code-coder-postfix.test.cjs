@@ -31,10 +31,16 @@ const coder = require('../worker/codex-code-coder.js');
     'var b = obj.GetComponent< Renderer >();',
     'var c = FindObjectOfType<Camera>();',
     'var d = Resources.GetBuiltinResource<Font>("Arial.ttf");',
+    'AddLocalWorldLabel(target, "基地", 1.5f);',
+    'uiCanvas = CreateLocalCanvas(1920, 1080);',
+    'guideText = CreateLocalText(uiCanvas, "GuideText", "点击", new Vector2(0, 100), 42);',
   ].join('\n'));
-  assert.ok(fixed.includes('obj.GetComponent(typeof(Renderer)) as Renderer'));
+  assert.ok(fixed.includes('((Renderer)obj.GetComponent(typeof(Renderer)))'));
   assert.ok(fixed.includes('(Camera)FindObjectOfType(typeof(Camera))'));
   assert.ok(fixed.includes('(Font)Resources.GetBuiltinResource(typeof(Font), "Arial.ttf")'));
+  assert.ok(fixed.includes('GFM_UI.AddWorldLabel(target, "基地", 1.5f);'));
+  assert.ok(fixed.includes('uiCanvas = GFM_UI.CreateCanvas(1920, 1080);'));
+  assert.ok(fixed.includes('guideText = GFM_UI.CreateText(uiCanvas, "点击", new Vector2(0, 100), 42);'));
   assert.ok(!/GetComponent\s*</.test(fixed));
 }
 
@@ -56,9 +62,18 @@ const coder = require('../worker/codex-code-coder.js');
   const main = fs.readFileSync(path.join(managerDir, 'GameFlowManagerMain.cs'), 'utf-8');
   const systems = fs.readFileSync(path.join(managerDir, 'GameFlowManagerMain.Systems.cs'), 'utf-8');
   const flow = fs.readFileSync(path.join(managerDir, 'GameFlowManagerMain.Flow.cs'), 'utf-8');
-  assert.ok(main.includes('GetComponent(typeof(Renderer)) as Renderer'));
-  assert.ok(systems.includes('GetComponent(typeof(Rigidbody)) as Rigidbody'));
+  assert.ok(main.includes('((Renderer)obj.GetComponent(typeof(Renderer)))'));
+  assert.ok(systems.includes('((Rigidbody)other.GetComponent(typeof(Rigidbody)))'));
   assert.ok(flow.includes('(Camera)FindObjectOfType(typeof(Camera))'));
+}
+
+{
+  const gfmFiles = require('../worker/gfm-files.cjs').loadGfmFiles();
+  Object.keys(gfmFiles).forEach(function(name) {
+    if (!/^GFM_.*\.cs$/.test(name)) return;
+    assert.ok(!/GetComponent\s*</.test(gfmFiles[name]), name + ' should not contain generic GetComponent<T>()');
+    assert.ok(!/FindObjectOfType\s*</.test(gfmFiles[name]), name + ' should not contain generic FindObjectOfType<T>()');
+  });
 }
 
 console.log('codex-code-coder post-fix tests passed');

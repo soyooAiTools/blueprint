@@ -29,12 +29,12 @@ public static class GFM_Create
         var matSource = GameObject.Find("__MaterialSource");
         if (matSource != null)
         {
-            var r = matSource.GetComponent<Renderer>();
+            var r = (Renderer)matSource.GetComponent(typeof(Renderer));
             if (r != null) _baseMat = new Material(r.sharedMaterial);
         }
         if (_baseMat == null)
         {
-            var anyRenderer = UnityEngine.Object.FindObjectOfType<Renderer>();
+            var anyRenderer = (Renderer)UnityEngine.Object.FindObjectOfType(typeof(Renderer));
             if (anyRenderer != null) _baseMat = new Material(anyRenderer.sharedMaterial);
         }
         if (_baseMat == null) _baseMat = new Material(Shader.Find("Standard"));
@@ -81,7 +81,7 @@ public static class GFM_Create
         obj.transform.localScale = scale;
         if (_baseMat != null)
         {
-            var r = obj.GetComponent<Renderer>();
+            var r = (Renderer)obj.GetComponent(typeof(Renderer));
             if (r != null) r.material = new Material(_baseMat);
         }
         return obj;
@@ -106,7 +106,7 @@ public static class GFM_Create
                                type == PrimitiveType.Cylinder ? new Color(0.5f, 0.5f, 0.55f) :
                                type == PrimitiveType.Plane ? new Color(0.35f, 0.25f, 0.15f) :
                                new Color(0.6f, 0.6f, 0.6f);
-            var renderer = obj.GetComponent<Renderer>();
+            var renderer = (Renderer)obj.GetComponent(typeof(Renderer));
             if (renderer != null && _baseMat != null)
             {
                 var mat = new Material(_baseMat);
@@ -128,7 +128,7 @@ public static class GFM_Create
         obj.name = "Ground";
         if (_baseMat != null)
         {
-            var r = obj.GetComponent<Renderer>();
+            var r = (Renderer)obj.GetComponent(typeof(Renderer));
             if (r != null)
             {
                 var mat = new Material(_baseMat);
@@ -142,7 +142,7 @@ public static class GFM_Create
     public static void SetColor(GameObject obj, Color color)
     {
         if (obj == null) return;
-        var r = obj.GetComponent<Renderer>();
+        var r = (Renderer)obj.GetComponent(typeof(Renderer));
         if (r != null)
         {
             if (r.material != null) r.material.color = color;

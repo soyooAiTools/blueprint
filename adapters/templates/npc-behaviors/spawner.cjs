@@ -1,5 +1,10 @@
 var { toLowerCamel } = require('../trigger-codegen.cjs');
 
+function toPrefabIdentifier(raw) {
+  var text = String(raw || '').trim();
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(text) ? text : null;
+}
+
 function generateVariables(npc) {
   var v = toLowerCamel(npc.entity);
   var lines = [];
@@ -15,11 +20,13 @@ function generateUpdate(npc) {
 function generateSystem(npc) {
   var v = toLowerCamel(npc.entity);
   var p = npc.params;
+  var prefabId = toPrefabIdentifier(p.spawnEntity);
   var lines = [];
   lines.push('    void Update' + npc.entity + 'Spawner(float dt) {');
   lines.push('        ' + v + 'SpawnTimer -= dt;');
   lines.push('        if (' + v + 'SpawnTimer <= 0f && ' + v + 'AliveCount < ' + p.maxAlive + ') {');
-  lines.push('            var spawned = GFM_Pool.Get("' + p.spawnEntity + '");');
+  lines.push('            GameObject spawnPrefab = ' + (prefabId || 'null') + ';');
+  lines.push('            var spawned = spawnPrefab != null ? GFM_Pool.Get(spawnPrefab) : null;');
   lines.push('            if (spawned != null) {');
   lines.push('                float rx = UnityEngine.Random.Range(-' + p.spawnRadius + 'f, ' + p.spawnRadius + 'f);');
   lines.push('                float rz = UnityEngine.Random.Range(-' + p.spawnRadius + 'f, ' + p.spawnRadius + 'f);');

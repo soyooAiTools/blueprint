@@ -72,7 +72,7 @@ public class GFM_Pool : MonoBehaviour
     public static void ReturnAfter(GameObject obj, float delay)
     {
         if (instance == null || obj == null) return;
-        var timer = obj.GetComponent<GFM_ReturnTimer>();
+        var timer = (GFM_ReturnTimer)obj.GetComponent(typeof(GFM_ReturnTimer));
         if (timer == null) timer = obj.AddComponent<GFM_ReturnTimer>();
         timer.StartTimer(delay);
     }

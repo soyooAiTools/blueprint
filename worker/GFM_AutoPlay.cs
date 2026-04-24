@@ -203,8 +203,8 @@ public class GFM_AutoPlay : MonoBehaviour
 
         if (_autoTargetIdx >= _autoTargets.Length) _autoTargetIdx = 0;
 
-        GameObject target = GameObject.Find(_autoTargets[_autoTargetIdx]);
-        if (target == null) { _autoTargetIdx++; return; }
+        GameObject target = ResolveTarget(_autoTargets[_autoTargetIdx]);
+        if (target == null || target.transform.position.y < -900f) { _autoTargetIdx++; return; }
 
         Vector3 dir = target.transform.position - player.Trans.position;
         dir.y = 0f;
@@ -235,5 +235,18 @@ public class GFM_AutoPlay : MonoBehaviour
             string arrivedTarget = _autoTargets[_autoTargetIdx];
             if (OnArrive != null) OnArrive(arrivedTarget);
         }
+    }
+
+    private GameObject ResolveTarget(string targetName)
+    {
+        if (string.IsNullOrEmpty(targetName)) return null;
+
+        if (GameSceneCtrl.instance != null)
+        {
+            var mapped = GameSceneCtrl.instance.Get(targetName);
+            if (mapped != null) return mapped;
+        }
+
+        return GameObject.Find(targetName);
     }
 }

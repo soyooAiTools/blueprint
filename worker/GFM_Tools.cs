@@ -173,7 +173,7 @@ public class GFM_Pool : MonoBehaviour
     public static void ReturnAfter(GameObject obj, float delay)
     {
         if (instance == null || obj == null) return;
-        var timer = obj.GetComponent<GFM_ReturnTimer>();
+        var timer = (GFM_ReturnTimer)obj.GetComponent(typeof(GFM_ReturnTimer));
         if (timer == null) timer = obj.AddComponent<GFM_ReturnTimer>();
         timer.StartTimer(delay);
     }
@@ -427,7 +427,7 @@ public static class GFM_Utils
             if (digit >= numSprites.Count) continue;
             var child = parent.GetChild(i);
             child.gameObject.SetActive(true);
-            var img = child.GetComponent<Image>();
+            var img = (Image)child.GetComponent(typeof(Image));
             if (img != null)
             {
                 img.sprite = numSprites[digit];
@@ -435,7 +435,7 @@ public static class GFM_Utils
             }
             else
             {
-                var sr = child.GetComponent<SpriteRenderer>();
+                var sr = (SpriteRenderer)child.GetComponent(typeof(SpriteRenderer));
                 if (sr != null) sr.sprite = numSprites[digit];
             }
         }
@@ -480,22 +480,22 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
         // 背景
         var bgObj = new GameObject("JoystickBG", typeof(RectTransform), typeof(Image));
         bgObj.transform.SetParent(canvas.transform, false);
-        var bgRect = bgObj.GetComponent<RectTransform>();
+        var bgRect = (RectTransform)bgObj.GetComponent(typeof(RectTransform));
         bgRect.sizeDelta = new Vector2(size, size);
         bgRect.anchorMin = new Vector2(0, 0);
         bgRect.anchorMax = new Vector2(0, 0);
         bgRect.pivot = new Vector2(0.5f, 0.5f);
         bgRect.anchoredPosition = new Vector2(size * 0.8f, size * 0.8f);
-        var bgImg = bgObj.GetComponent<Image>();
+        var bgImg = (Image)bgObj.GetComponent(typeof(Image));
         bgImg.color = new Color(1f, 1f, 1f, 0.3f);
 
         // 摇杆
         var handleObj = new GameObject("JoystickHandle", typeof(RectTransform), typeof(Image));
         handleObj.transform.SetParent(bgObj.transform, false);
-        var handleRect = handleObj.GetComponent<RectTransform>();
+        var handleRect = (RectTransform)handleObj.GetComponent(typeof(RectTransform));
         handleRect.sizeDelta = new Vector2(size * 0.4f, size * 0.4f);
         handleRect.anchoredPosition = Vector2.zero;
-        var handleImg = handleObj.GetComponent<Image>();
+        var handleImg = (Image)handleObj.GetComponent(typeof(Image));
         handleImg.color = new Color(1f, 1f, 1f, 0.6f);
 
         instance = bgObj.AddComponent<GFM_Joystick>();
@@ -616,16 +616,16 @@ public static class GFM_UI
     {
         var obj = new GameObject("Btn_" + text, typeof(RectTransform), typeof(Image), typeof(Button));
         obj.transform.SetParent(canvas.transform, false);
-        var rect = obj.GetComponent<RectTransform>();
+        var rect = (RectTransform)obj.GetComponent(typeof(RectTransform));
         rect.anchoredPosition = pos;
         rect.sizeDelta = size;
-        obj.GetComponent<Image>().color = new Color(0.2f, 0.7f, 0.3f);
-        var btn = obj.GetComponent<Button>();
+        ((Image)obj.GetComponent(typeof(Image))).color = new Color(0.2f, 0.7f, 0.3f);
+        var btn = (Button)obj.GetComponent(typeof(Button));
         if (onClick != null) btn.onClick.AddListener(onClick);
 
         var txtObj = new GameObject("Text").AddComponent<Text>();
         txtObj.transform.SetParent(obj.transform, false);
-        txtObj.GetComponent<RectTransform>().sizeDelta = size;
+        ((RectTransform)txtObj.GetComponent(typeof(RectTransform))).sizeDelta = size;
         txtObj.text = text;
         txtObj.font = (Font)Resources.GetBuiltinResource(typeof(Font), "Arial.ttf");
         txtObj.fontSize = (int)(size.y * 0.4f);
@@ -640,7 +640,7 @@ public static class GFM_UI
     {
         var obj = new GameObject("Text_" + content, typeof(RectTransform));
         obj.transform.SetParent(canvas.transform, false);
-        var rect = obj.GetComponent<RectTransform>();
+        var rect = (RectTransform)obj.GetComponent(typeof(RectTransform));
         rect.anchoredPosition = pos;
         rect.sizeDelta = new Vector2(400, fontSize * 2);
         var txt = obj.AddComponent<Text>();
@@ -663,22 +663,22 @@ public static class GFM_UI
         canvas.transform.SetParent(target.transform, false);
         canvas.transform.localPosition = new Vector3(0, heightOffset, 0);
         canvas.transform.localScale = new Vector3(0.015f, 0.015f, 0.015f);
-        var rt = canvas.GetComponent<RectTransform>();
+        var rt = (RectTransform)canvas.GetComponent(typeof(RectTransform));
         rt.sizeDelta = new Vector2(240, 40);
 
         // Subtle background — CUA uses __gameState JSON, not visual labels
         var bgObj = new GameObject("LabelBG", typeof(RectTransform), typeof(Image));
         bgObj.transform.SetParent(canvas.transform, false);
-        var bgRect = bgObj.GetComponent<RectTransform>();
+        var bgRect = (RectTransform)bgObj.GetComponent(typeof(RectTransform));
         bgRect.sizeDelta = new Vector2(240, 40);
         bgRect.anchoredPosition = Vector2.zero;
-        var bgImg = bgObj.GetComponent<Image>();
+        var bgImg = (Image)bgObj.GetComponent(typeof(Image));
         bgImg.color = new Color(0f, 0f, 0f, 0.0f);
 
         // White text on dark background
         var txtObj = new GameObject("Text", typeof(RectTransform)).AddComponent<Text>();
         txtObj.transform.SetParent(canvas.transform, false);
-        var txtRect = txtObj.GetComponent<RectTransform>();
+        var txtRect = (RectTransform)txtObj.GetComponent(typeof(RectTransform));
         txtRect.sizeDelta = new Vector2(240, 40);
         txtRect.anchoredPosition = Vector2.zero;
         txtObj.text = text;
@@ -697,36 +697,36 @@ public static class GFM_UI
     {
         var obj = new GameObject("ProgressBar", typeof(RectTransform), typeof(Slider));
         obj.transform.SetParent(canvas.transform, false);
-        var rect = obj.GetComponent<RectTransform>();
+        var rect = (RectTransform)obj.GetComponent(typeof(RectTransform));
         rect.anchoredPosition = pos;
         rect.sizeDelta = size;
 
         // Background
         var bgObj = new GameObject("Background", typeof(RectTransform), typeof(Image));
         bgObj.transform.SetParent(obj.transform, false);
-        var bgRect = bgObj.GetComponent<RectTransform>();
+        var bgRect = (RectTransform)bgObj.GetComponent(typeof(RectTransform));
         bgRect.anchorMin = Vector2.zero;
         bgRect.anchorMax = Vector2.one;
         bgRect.sizeDelta = Vector2.zero;
-        bgObj.GetComponent<Image>().color = new Color(0.2f, 0.2f, 0.2f, 0.8f);
+        ((Image)bgObj.GetComponent(typeof(Image))).color = new Color(0.2f, 0.2f, 0.2f, 0.8f);
 
         // Fill area
         var fillArea = new GameObject("Fill Area", typeof(RectTransform));
         fillArea.transform.SetParent(obj.transform, false);
-        var faRect = fillArea.GetComponent<RectTransform>();
+        var faRect = (RectTransform)fillArea.GetComponent(typeof(RectTransform));
         faRect.anchorMin = Vector2.zero;
         faRect.anchorMax = Vector2.one;
         faRect.sizeDelta = Vector2.zero;
 
         var fillObj = new GameObject("Fill", typeof(RectTransform), typeof(Image));
         fillObj.transform.SetParent(fillArea.transform, false);
-        var fRect = fillObj.GetComponent<RectTransform>();
+        var fRect = (RectTransform)fillObj.GetComponent(typeof(RectTransform));
         fRect.anchorMin = Vector2.zero;
         fRect.anchorMax = Vector2.one;
         fRect.sizeDelta = Vector2.zero;
-        fillObj.GetComponent<Image>().color = fillColor;
+        ((Image)fillObj.GetComponent(typeof(Image))).color = fillColor;
 
-        var slider = obj.GetComponent<Slider>();
+        var slider = (Slider)obj.GetComponent(typeof(Slider));
         slider.fillRect = fRect;
         slider.interactable = false;
         slider.value = 1f;
@@ -770,12 +770,12 @@ public static class GFM_Create
         var matSource = GameObject.Find("__MaterialSource");
         if (matSource != null)
         {
-            var r = matSource.GetComponent<Renderer>();
+            var r = (Renderer)matSource.GetComponent(typeof(Renderer));
             if (r != null) _baseMat = new Material(r.sharedMaterial);
         }
         if (_baseMat == null)
         {
-            var anyRenderer = UnityEngine.Object.FindObjectOfType<Renderer>();
+            var anyRenderer = (Renderer)UnityEngine.Object.FindObjectOfType(typeof(Renderer));
             if (anyRenderer != null) _baseMat = new Material(anyRenderer.sharedMaterial);
         }
         if (_baseMat == null) _baseMat = new Material(Shader.Find("Standard"));
@@ -826,7 +826,7 @@ public static class GFM_Create
         obj.transform.localScale = scale;
         if (_baseMat != null)
         {
-            var r = obj.GetComponent<Renderer>();
+            var r = (Renderer)obj.GetComponent(typeof(Renderer));
             if (r != null) r.material = new Material(_baseMat);
         }
         return obj;
@@ -855,7 +855,7 @@ public static class GFM_Create
                                type == PrimitiveType.Cylinder ? new Color(0.5f, 0.5f, 0.55f) :  // steel gray
                                type == PrimitiveType.Plane ? new Color(0.35f, 0.25f, 0.15f) :   // dark brown
                                new Color(0.6f, 0.6f, 0.6f);                                     // light gray
-            var renderer = obj.GetComponent<Renderer>();
+            var renderer = (Renderer)obj.GetComponent(typeof(Renderer));
             if (renderer != null && _baseMat != null)
             {
                 var mat = new Material(_baseMat);
@@ -878,7 +878,7 @@ public static class GFM_Create
         obj.name = "Ground";
         if (_baseMat != null)
         {
-            var r = obj.GetComponent<Renderer>();
+            var r = (Renderer)obj.GetComponent(typeof(Renderer));
             if (r != null)
             {
                 var mat = new Material(_baseMat);
@@ -893,7 +893,7 @@ public static class GFM_Create
     public static void SetColor(GameObject obj, Color color)
     {
         if (obj == null) return;
-        var r = obj.GetComponent<Renderer>();
+        var r = (Renderer)obj.GetComponent(typeof(Renderer));
         if (r != null)
         {
             if (r.material != null) r.material.color = color;

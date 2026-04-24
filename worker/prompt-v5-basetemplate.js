@@ -713,7 +713,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
     lines.push('```');
     lines.push('可用方法：AddResource(id, amount), TrySpend(id, amount), TryConvert(fromId, toId), GetResource(id)');
     lines.push('UI 自动更新（UpdateResourceUI 已预建）。');
-    lines.push('**禁止** 手写 gold/wood/resource 变量和加减逻辑 — 统一用 _inventory 字典。');
+    lines.push('**禁止** 手写 gold/wood/resource 变量和加减逻辑 — 优先用 AddResource/GetResource/TrySpend/TryConvert；旧模板里的 _inventory[...] 仅作为兼容别名。');
     lines.push('');
   }
 

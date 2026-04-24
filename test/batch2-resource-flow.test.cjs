@@ -71,4 +71,28 @@ describe('batch2 resource-flow IsNear merge by target', () => {
     expect(out).toMatch(/IsNear\(TargetA,\s*2f\)/);
     expect(out).toMatch(/IsNear\(TargetB,\s*2f\)/);
   });
+
+  test('missing trigger entity does not emit malformed IsNear call', () => {
+    var schema = {
+      resources: [
+        { name: 'RocketDebris', entity: 'RocketDebris', convertRatio: 1 },
+      ],
+      phases: [
+        { trigger: { type: 'entity_state_reached', entity: '', amount: 1 } },
+      ],
+    };
+    var out = generateResourceUpdate(schema);
+    expect(out).not.toMatch(/IsNear\(\s*,/);
+  });
+
+  test('missing resource entity skips collect block instead of emitting malformed IsNear call', () => {
+    var schema = {
+      resources: [
+        { name: 'Gold', entity: '', convertRatio: 0 },
+      ],
+      phases: [],
+    };
+    var out = generateResourceUpdate(schema);
+    expect(out).not.toMatch(/IsNear\(\s*,/);
+  });
 });

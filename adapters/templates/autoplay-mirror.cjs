@@ -5,7 +5,7 @@
  * transform.position + activeSelf. Direct variable writes no longer satisfy
  * conditions — each trigger must produce an observable GameObject change.
  */
-var { toLowerCamel } = require('./trigger-codegen.cjs');
+var { toLowerCamel, resolveSpawnEntityName } = require('./trigger-codegen.cjs');
 var { TriggerType, ActionType } = require('./phase-enums.cjs');
 
 function generateAutoPlay(schema) {
@@ -26,7 +26,7 @@ function generateAutoPlay(schema) {
     }
     var actions = phase.onComplete || [];
     for (var k = 0; k < actions.length; k++) {
-      lines.push('                ' + actionToMirror(actions[k]));
+      lines.push('                ' + actionToMirror(actions[k], schema));
     }
     lines.push('                break;');
     lines.push('            }');
@@ -75,7 +75,7 @@ function triggerToMirror(trigger, schema, phaseIdx) {
   }
 }
 
-function actionToMirror(action) {
+function actionToMirror(action, schema) {
   switch (action.action) {
     case ActionType.SET_ENTITY_STATE:
       // State field is now read-only for phase gate — emit an observable move instead.
@@ -85,7 +85,8 @@ function actionToMirror(action) {
     case ActionType.SWITCH_FORM:
       return 'SwitchForm(' + action.formIndex + ');';
     case ActionType.SPAWN_ENEMIES:
-      return 'Spawn' + action.entity + '(' + action.count + ');';
+      var target = resolveSpawnEntityName(action, schema);
+      return 'Spawn' + target + '(' + (action.count != null ? action.count : 1) + ');';
     default:
       return '// autoplay: ' + action.action;
   }

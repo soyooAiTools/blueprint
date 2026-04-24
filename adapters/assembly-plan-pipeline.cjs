@@ -281,8 +281,8 @@ function findPlayerEntityName(entities) {
 }
 
 function findPhaseIdForIndex(ctx, index) {
-  if (ctx.phases[index]) return normalizePhaseId(ctx.phases[index].name || ctx.phases[index].id, index);
   if (ctx.specs[index]) return normalizePhaseId(ctx.specs[index].phaseId || ctx.specs[index].name, index);
+  if (ctx.phases[index]) return normalizePhaseId(ctx.phases[index].name || ctx.phases[index].id, index);
   if (ctx.storyboardFrames[index]) {
     var frame = ctx.storyboardFrames[index];
     return normalizePhaseId(frame.phaseId || frame.title || frame.chapterTitle || frame.chapter, index);
@@ -320,7 +320,7 @@ function parseInteraction(rawInteraction, entityLookup, defaultActor) {
     params.item = resolveEntityName(parts[1], entityLookup);
     params.target = resolveEntityName(parts[2], entityLookup);
   } else if (verb === 'spend') {
-    params.resource = parts[1] || 'gold';
+    params.resource = parts[1] || 'resource';
     params.amount = asNumber(parts[2], 1);
     params.target = resolveEntityName(parts[3], entityLookup);
   } else if (verb === 'build') {
@@ -472,7 +472,7 @@ function buildStoryboardAtomPlan(ctx, registry, registryIndex) {
 
   for (var pi = 0; pi < ctx.phases.length; pi++) {
     var phase = ctx.phases[pi] || {};
-    var phaseId2 = normalizePhaseId(phase.name || phase.id, pi);
+    var phaseId2 = findPhaseIdForIndex(ctx, pi);
     if (phase.guide) {
       collector.add('show_guide', phaseId2, { text: String(phase.guide) }, {
         kind: 'phase_guide',
@@ -562,7 +562,7 @@ function deriveEntityModuleParams(moduleId, entity) {
   } else if (moduleId === 'cost_gate') {
     if (trigger.params && trigger.params.cost) {
       var resourceKeys = Object.keys(trigger.params.cost);
-      params.resource = resourceKeys[0] || 'gold';
+      params.resource = resourceKeys[0] || 'resource';
       params.amount = trigger.params.cost[params.resource] || 1;
     }
   } else if (moduleId === 'build_progress') {
@@ -640,8 +640,10 @@ function deriveAtomModuleParams(moduleId, atom) {
   } else if (moduleId === 'deliver_to_target') {
     out.resource = params.item || params.resource || '';
     out.target = params.target || params.to || '';
+    if (params.reward !== undefined && params.reward !== null && params.reward !== '') out.reward = params.reward;
+    if (params.rewardResource) out.rewardResource = params.rewardResource;
   } else if (moduleId === 'cost_gate') {
-    out.resource = params.resource || 'gold';
+    out.resource = params.resource || 'resource';
     out.amount = params.amount || 1;
   } else if (moduleId === 'build_progress') {
     out.buildTime = params.buildTime || 1;
@@ -797,7 +799,7 @@ function buildEntityPlan(ctx, storyboardAtomPlan, registry, registryIndex) {
 
   for (var p = 0; p < ctx.phases.length; p++) {
     var phase = ctx.phases[p] || {};
-    var phaseId = normalizePhaseId(phase.name || phase.id, p);
+    var phaseId = findPhaseIdForIndex(ctx, p);
     var activate = toArray(phase.activate);
     for (var ap = 0; ap < activate.length; ap++) {
       if (entityMap[activate[ap]]) pushUnique(entityMap[activate[ap]].phaseRefs, phaseId);

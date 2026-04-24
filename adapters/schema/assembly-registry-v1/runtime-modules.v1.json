@@ -137,7 +137,7 @@
     {
       "id": "collect_on_near",
       "level": "L1",
-      "description": "Collects an item when actor enters collection range.",
+      "description": "Collects an item when actor enters collection range; collected content stays in params rather than module identity.",
       "params": ["resource", "item", "count", "range"],
       "ownerFiles": ["GameFlowManagerMain.Resource.cs"],
       "statesWritten": ["economy.resources"],
@@ -148,8 +148,8 @@
     {
       "id": "deliver_to_target",
       "level": "L1",
-      "description": "Consumes carried inventory at a target and grants reward.",
-      "params": ["resource", "target", "reward"],
+      "description": "Consumes carried inventory at a target and grants a parameterized reward resource.",
+      "params": ["resource", "target", "reward", "rewardResource"],
       "ownerFiles": ["GameFlowManagerMain.Resource.cs"],
       "statesWritten": ["economy.resources", "economy.gold"],
       "autoplayMirror": "supported",
@@ -313,7 +313,7 @@
     {
       "id": "score_feedback",
       "level": "L1",
-      "description": "Updates score or reward UI feedback.",
+      "description": "Updates score or reward UI feedback using parameterized resource labels.",
       "params": ["resource", "label"],
       "ownerFiles": ["GameFlowManagerMain.UI.cs"],
       "statesWritten": ["ui.scoreText"],

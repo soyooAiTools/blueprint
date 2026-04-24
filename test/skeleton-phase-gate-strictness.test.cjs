@@ -27,5 +27,8 @@ const code = typeof skeleton === 'string' ? skeleton : skeleton.main;
 
 assert.doesNotMatch(code, /EntityAdvanced\(Tower,\s*_snap_TowerPos\)/);
 assert.match(code, /time-only beat/);
+assert.match(code, /DetectRealTime <= 0f \|\| GFM_AutoPlay\.Instance\.IsActive/);
+assert.match(code, /currentPhaseName == "intro"/);
+assert.match(code, /currentPhaseName == "defendBase"/);
 
 console.log('skeleton phase-gate strictness tests passed');

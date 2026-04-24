@@ -1,5 +1,6 @@
 var triggerHelpers = require('./trigger-codegen.cjs');
 var toLowerCamel = triggerHelpers.toLowerCamel;
+var hasEntityRef = triggerHelpers.hasEntityRef;
 
 function generateResourceVariables(schema) {
   var resources = schema.resources || [];
@@ -35,6 +36,7 @@ function generateResourceUpdate(schema) {
 }
 
 function buildCollectBlock(resource) {
+  if (!resource || !resource.name || !hasEntityRef(resource.entity)) return [];
   var resourceName = resource.name;
   var sourceEntity = toLowerCamel(resource.entity);
   var scoreVar = '_score_' + resourceName;
@@ -55,6 +57,7 @@ function buildPhaseBlocks(phase, resources) {
   var trigger = phase && phase.trigger;
   if (!trigger) return [];
   if (trigger.type !== 'entity_state_reached') return [];
+  if (!hasEntityRef(trigger.entity)) return [];
 
   var relatedResources = findRelatedResources(trigger.entity, resources);
   var targetEntity = toLowerCamel(trigger.entity);
@@ -93,11 +96,13 @@ function buildDeliverBody(trigger, resource, targetEntity) {
 }
 
 function findRelatedResources(targetEntity, resources) {
+  if (!hasEntityRef(targetEntity)) return [];
   var directMatches = [];
   var positiveRatio = [];
   var i;
 
   for (i = 0; i < resources.length; i++) {
+    if (!resources[i] || !hasEntityRef(resources[i].entity)) continue;
     if (resources[i].convertRatio > 0) {
       positiveRatio.push(resources[i]);
     }
