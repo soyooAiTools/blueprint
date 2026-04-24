@@ -384,7 +384,6 @@ function buildDeterministicVisualBindingLines(moduleInstance, plans) {
   lines.push('            PlaceObj(' + entity + ', ' + vectorArgs(params.position, [0, 0.5, 0]) + ');');
   lines.push('        }');
   lines.push('        SetScale(' + entity + ', ' + scaleArgs(params.scale) + ');');
-  lines.push('        ' + entity + 'State = Mathf.Max(' + entity + 'State, 1);');
   lines.push(recordFlag('entity_visible'));
   lines.push(recordFlag('entity_position_changed'));
   return lines;
@@ -403,8 +402,7 @@ function buildDeterministicClickLines(moduleInstance, plans) {
   if (isIdentifier(target)) {
     lines.push('        if (' + target + ' != null)');
     lines.push('        {');
-    lines.push('            ' + target + 'State = Mathf.Max(' + target + 'State, 1);');
-    lines.push(recordFlag('entity_state_changed'));
+    lines.push('            // Click ownership is input-scoped; build/state transitions are handled by Flow owner slots.');
     lines.push('        }');
   }
   return lines;
@@ -441,8 +439,6 @@ function buildDeterministicProximityLines(moduleInstance, plans) {
   lines.push('        if (__assemblyDistance <= ' + csFloat(radius, 2) + ')');
   lines.push('        {');
   lines.push('            RecordPhaseEvidenceDistance(currentPhaseName, "distance_to_target_below_threshold", __assemblyDistance);');
-  lines.push('            ' + target + 'State = Mathf.Max(' + target + 'State, 1);');
-  lines.push(recordFlag('entity_state_changed'));
   lines.push('        }');
   return lines;
 }
@@ -457,10 +453,7 @@ function buildDeterministicCostGateLines(moduleInstance, plans) {
   lines.push('        if (!TrySpend("' + escapeCsString(resource) + '", ' + (isFinite(amount) ? Math.max(1, Math.floor(amount)) : 1) + ')) return;');
   lines.push('        ' + doneField + ' = true;');
   lines.push('        UpdateResourceUI();');
-  if (isIdentifier(target)) {
-    lines.push('        ' + target + 'State = Mathf.Max(' + target + 'State, 1);');
-    lines.push(recordFlag('entity_state_changed'));
-  }
+  lines.push(recordFlag('resource_decremented'));
   return lines;
 }
 
@@ -569,7 +562,6 @@ function buildDeterministicVariantLines(moduleInstance, plans) {
   lines.push('        if (' + entity + ' == null) return;');
   lines.push('        if (' + entity + '.transform.position.y < -900f) PlaceObj(' + entity + ', 0f, 0.5f, 0f);');
   lines.push('        SetScale(' + entity + ', 1.08f, 1.08f, 1.08f);');
-  lines.push('        ' + entity + 'State = Mathf.Max(' + entity + 'State, 2);');
   lines.push(recordFlag('visual_variant_changed'));
   return lines;
 }

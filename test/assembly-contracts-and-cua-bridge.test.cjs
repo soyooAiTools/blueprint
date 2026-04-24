@@ -119,6 +119,16 @@ assert.strictEqual(
   'upgrade level should recognize the shared buildable state field alias'
 );
 assert.strictEqual(
+  assemblyPlanContracts.fileMayWriteState('if (Gold == null) return;', 'economy.gold'),
+  false,
+  'economy gold writes should not treat equality checks as assignments'
+);
+assert.strictEqual(
+  assemblyPlanContracts.fileMayWriteState('Gold.transform.position = Vector3.zero;', 'economy.gold'),
+  false,
+  'economy gold writes should not confuse Gold GameObject mutations with resource balance'
+);
+assert.strictEqual(
   assemblyPlanContracts.isStrictAssemblyOwnerState('ConveyorBelt.buildState'),
   true,
   'entity build state should remain a strict owner state'

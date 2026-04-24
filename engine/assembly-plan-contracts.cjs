@@ -189,7 +189,7 @@ function fileMayWriteState(fileContent, state) {
   var candidates = buildStateWriteSignals(state);
   if (candidates.length === 0) return false;
   for (var i = 0; i < candidates.length; i++) {
-    var assignmentRe = new RegExp('\\b' + escapeRegex(candidates[i]) + '\\b\\s*(?:[+\\-*/]?=|\\+\\+|--)', 'i');
+    var assignmentRe = new RegExp('\\b' + escapeRegex(candidates[i]) + '\\b\\s*(?:[+\\-*/]?=(?!=)|\\+\\+|--)', 'i');
     if (assignmentRe.test(code)) return true;
   }
   return false;
