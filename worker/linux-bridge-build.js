@@ -900,18 +900,36 @@ if(_imgSet&&_imgSet.set){
       if(window.__CUA_OBSERVER_READY__&&!_observerReadyFlagCreated){
         try{var oe=new pc.Entity('__CUA_OBSERVER_READY__');app.root.addChild(oe);_observerReadyFlagCreated=true;}catch(e){}
       }
-      var all=app.root.findByName?null:null;
-      // Scan all children recursively for entity with name starting with "GFM|"
-      function scan(node){
-        if(!node)return null;
-        var n=node._name||node.name||'';
-        if(n.indexOf('GFM|')===0)return n;
-        var c=node._children||node.children||[];
-        for(var i=0;i<c.length;i++){var r=scan(c[i]);if(r)return r;}
-        return null;
+      // Scan all children recursively and choose the freshest GFM state.
+      // Luna can leave multiple renamed GFM entities in the tree; CUA must read
+      // the one with the most advanced phase evidence, not the first child.
+      function scoreState(s){
+        if(!s)return -1;
+        var completed=Array.isArray(s.completedPhases)?s.completedPhases.length:0;
+        var timer=s.variables&&typeof s.variables.gameTimer==='number'?s.variables.gameTimer:0;
+        var ts=0;
+        var stamps=s.phaseTimestamps||{};
+        for(var k in stamps){if(Object.prototype.hasOwnProperty.call(stamps,k)){var v=Number(stamps[k])||0;if(v>ts)ts=v;}}
+        return completed*1000000+ts*1000+timer;
       }
-      var found=scan(app.root);
-      if(found){try{window.__gameState=JSON.parse(found.substring(4))}catch(e){}}
+      function consider(raw,best){
+        try{
+          var state=JSON.parse(raw.substring(4));
+          var score=scoreState(state);
+          if(!best||score>best.score)return{state:state,score:score};
+        }catch(e){}
+        return best;
+      }
+      function scan(node,best){
+        if(!node)return best;
+        var n=node._name||node.name||'';
+        if(n.indexOf('GFM|')===0)best=consider(n,best);
+        var c=node._children||node.children||[];
+        for(var i=0;i<c.length;i++){best=scan(c[i],best);}
+        return best;
+      }
+      var best=scan(app.root,null);
+      if(best&&best.state){window.__gameState=best.state;}
     }catch(e){}
   },500);
 })();

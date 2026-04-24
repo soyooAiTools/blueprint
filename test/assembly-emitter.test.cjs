@@ -73,6 +73,14 @@ assert.ok(emitted.files.flow.indexOf('[ASSEMBLY PHASE] phaseId=intro') >= 0, 'fl
 assert.ok(emitted.files.flow.indexOf('AssemblySlot_Flow_ConveyorBelt__build_progress') >= 0, 'flow slot missing');
 assert.ok(emitted.files.flow.indexOf('cameraFocusTarget = "ConveyorBelt";') >= 0 || emitted.files.scene.indexOf('cameraFocusTarget = "ConveyorBelt";') >= 0, 'camera focus slot should bind phase target');
 assert.ok(emitted.files.flow.indexOf('mainCam.orthographicSize = ') >= 0 || emitted.files.scene.indexOf('mainCam.orthographicSize = ') >= 0, 'camera zoom slot should emit deterministic ortho size');
+assert.ok(emitted.files.flow.indexOf('Vector3.MoveTowards(__assemblyBefore, ConveyorBelt.transform.position') >= 0, 'move_to_target slot should move actor toward target');
+assert.ok(emitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "player_position_changed")') >= 0, 'move_to_target should record player motion evidence');
+assert.ok(emitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "entity_state_equals_built")') >= 0, 'build_progress should record built evidence');
+assert.ok(emitted.files.input.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "tap_registered")') >= 0, 'tap/click slot should record tap evidence');
+assert.ok(emitted.files.resource.indexOf('TrySpend("gold", 1)') >= 0, 'cost_gate should spend configured resource through owner API');
+assert.ok(emitted.files.scene.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "entity_visible")') >= 0, 'visual_binding should record visibility evidence');
+assert.ok(emitted.files.ui.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "guide_text_visible")') >= 0, 'guide_ui should record guide evidence');
+assert.ok(emitted.files.scene.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "camera_zoom_changed")') >= 0, 'camera slots should record camera evidence');
 assert.ok(emitted.files.main.indexOf('AssemblyRunFlowSlots();') >= 0, 'main should tick flow assembly runner');
 assert.ok(emitted.files.main.indexOf('AssemblyRunUISlots();') >= 0, 'main should tick ui assembly runner');
 assert.ok(/^\s*\/\/\s*"target":\s*".+"/m.test(emitted.files.input), 'multiline params should stay commented');
@@ -91,8 +99,8 @@ assert.deepStrictEqual(commentedJsonLines, [
 var generatedFlow = emitted.files.flow
   .replace('// ownerFile: GameFlowManagerMain.Flow.cs', '// ownerFile: HACKED')
   .replace(
-    '// Implement only `build_progress` for `ConveyorBelt` in this owner file.',
-    '        PlaceObj(ConveyorBelt, 1f, 2f, 3f);'
+    '        ConveyorBeltState = 2;',
+    '        ConveyorBeltState = 2;\n        PlaceObj(ConveyorBelt, 1f, 2f, 3f);'
   );
 var mergedFlow = assemblyEmitter.mergeAssemblySlotEdits(emitted.files.flow, generatedFlow);
 assert.strictEqual(mergedFlow.preservedSlotCount > 0, true, 'slot merge should preserve slot body edits');
@@ -143,6 +151,8 @@ var genericPlans = {
 var genericEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(genericSkeleton, genericPlans);
 assert.ok(genericEmitted.files.resource.indexOf('AddResource("energy", 2 * deliverCount);') >= 0, 'deliver slot should grant parameterized reward resource');
 assert.ok(genericEmitted.files.resource.indexOf('AddGold(2 * deliverCount);') === -1, 'non-gold deliver reward should not hardcode AddGold');
+assert.ok(genericEmitted.files.resource.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "inventory_decremented")') >= 0, 'deliver slot should record inventory evidence');
+assert.ok(genericEmitted.files.resource.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "reward_incremented")') >= 0, 'deliver slot should record reward evidence');
 assert.ok(genericEmitted.files.resource.indexOf('" energy"') >= 0, 'floating text should use parameterized reward label');
 
 console.log('assembly-emitter tests passed');

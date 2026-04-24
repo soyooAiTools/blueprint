@@ -9,6 +9,9 @@ const helpers = require('../engine/helpers.cjs');
   assert.match(out, /__CUA_OBSERVER_READY__/);
   assert.match(out, /_observerReadyFlagCreated/);
   assert.match(out, /window\.__gameState/);
+  assert.match(out, /scoreState/);
+  assert.match(out, /completedPhases/);
+  assert.match(out, /window\.__gameState=best\.state/);
   assert.ok(out.indexOf('</body>') > out.indexOf('__CUA_OBSERVER_READY__'));
 }
 

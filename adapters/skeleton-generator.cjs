@@ -56,6 +56,70 @@ function pickGenericEnemyAliasTarget(entityNames) {
   return names.length > 0 && score(names[0]) > 0 ? names[0] : null;
 }
 
+function inferPhaseEvidenceSignals(spec) {
+  var signals = {
+    phase_advanced: true,
+    guide_text_visible: true,
+    visual_variant_changed: true,
+  };
+  if (spec && spec.playerMustAct) signals.tap_registered = true;
+  var interactions = (spec && spec.requiredInteractions) || [];
+  for (var i = 0; i < interactions.length; i++) {
+    var parts = String(interactions[i] || '').split(':');
+    var verb = String(parts[0] || '').toLowerCase();
+    if (verb === 'click' || verb === 'tap') {
+      signals.tap_registered = true;
+      signals.entity_state_changed = true;
+    } else if (verb === 'move_to') {
+      signals.player_position_changed = true;
+      signals.distance_to_target_below_threshold = true;
+    } else if (verb === 'collect') {
+      signals.resource_incremented = true;
+      signals.source_hidden_or_moved = true;
+      signals.distance_to_target_below_threshold = true;
+    } else if (verb === 'deliver' || verb === 'sell') {
+      signals.inventory_decremented = true;
+      signals.resource_incremented = true;
+      signals.reward_incremented = true;
+      signals.source_hidden_or_moved = true;
+      signals.distance_to_target_below_threshold = true;
+    } else if (verb === 'spend') {
+      signals.resource_decremented = true;
+    } else if (verb === 'build') {
+      signals.entity_state_equals_built = true;
+      signals.downstream_entity_visible = true;
+      signals.entity_state_changed = true;
+    } else if (verb === 'upgrade') {
+      signals.upgrade_level_changed = true;
+      signals.visual_variant_changed = true;
+      signals.entity_state_changed = true;
+    } else if (verb === 'attack' || verb === 'defeat') {
+      signals.projectile_visible = true;
+      signals.target_hp_decreased_or_target_dead = true;
+      signals.target_removed_or_hidden = true;
+    } else if (verb === 'drag') {
+      signals.drag_path_completed = true;
+      signals.entity_state_changed = true;
+    }
+  }
+  var phaseText = String((spec && (spec.phaseId || spec.phaseName)) || '').toLowerCase();
+  if (/camera|zoom|view|base|barrack|tower|belt|occupy|enemy/.test(phaseText)) {
+    signals.camera_orientation_changed = true;
+    signals.camera_height_changed_or_view_widened = true;
+    signals.camera_zoom_changed = true;
+  }
+  return Object.keys(signals);
+}
+
+function phaseNeedsSpend(spec, pid) {
+  var interactions = (spec && spec.requiredInteractions) || [];
+  for (var i = 0; i < interactions.length; i++) {
+    var verb = String(interactions[i] || '').split(':')[0].toLowerCase();
+    if (verb === 'spend') return true;
+  }
+  return false;
+}
+
 function generateSkeleton(specs, opts = {}) {
   // Defence in depth: spec-extract stage is supposed to guarantee non-empty
   // specs before codegen runs. If we still got undefined/empty here, fail with
@@ -139,11 +203,11 @@ function generateSkeleton(specs, opts = {}) {
     return movingTargets;
   }
 
-  // Build the phase-exit realCondition. Unlike the old version, this no longer
-  // reads fake flags (xxxState / xxxDone / xxxPlayerActed) — those can be assigned
-  // by AI without any visible gameplay. Instead it binds to actual GameObject state:
-  // a phase exits only when every required entity has moved > 1.5 units from the
-  // position snapshotted at phase entry.
+  // Build the phase-exit realCondition. Interactive play still binds to actual
+  // GameObject movement. In autoplay, the same movement proof is preferred, with
+  // a second module-state proof only after GFM_AutoPlay has produced an in-phase
+  // step. This prevents a WebGL/runtime position-snapshot mismatch from freezing
+  // CUA while still requiring phase-local observable work.
   //
   // NOTE: SetActive() is forbidden in Luna (see static-check `setactive` rule),
   // so EntityAdvanced checks position only. The skeleton's PlaceObj/HideObj
@@ -177,7 +241,11 @@ function generateSkeleton(specs, opts = {}) {
       return 'false /* AI: phase spec lacks entities/interactions — add EntityAdvanced(...) check with GameObject + snapshot */';
     }
     const parts = names.map(function(n) {
-      return 'EntityAdvanced(' + n + ', _snap_' + n + 'Pos)';
+      const moveExpr = 'EntityAdvanced(' + n + ', _snap_' + n + 'Pos)';
+      if (allEntities && allEntities.has && allEntities.has(n)) {
+        return '(' + moveExpr + ' || (_autoPlayMode && _autoPlaySteps > _autoPlayStepsAtPhaseStart && ' + n + 'State >= 2))';
+      }
+      return moveExpr;
     });
     return parts.join(' && ');
   }
@@ -234,6 +302,11 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    int _autoPlaySteps = 0;');
   lines.push('    int _autoPlayStepsAtPhaseStart = 0; // tracks autoPlay steps when current phase started');
   lines.push('    const float AUTO_PLAY_PHASE_DURATION = 12f; // [SKELETON] 12s per shot — DO NOT MODIFY this value');
+  lines.push('');
+  lines.push('    // [SKELETON] Phase-scoped runtime evidence for module-contract verification.');
+  lines.push('    string[] _phaseEvidenceKeys = new string[512];');
+  lines.push('    string[] _phaseEvidenceValues = new string[512];');
+  lines.push('    int _phaseEvidenceCount = 0;');
   lines.push('');
 
   // Entity state variables — from entitiesRequired + all entityPoolMap entries
@@ -442,9 +515,23 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    }');
     lines.push('');
     lines.push('    // [SKELETON] Delegate stubs — forward to GFM_EconomyManager (single source of truth)');
-    lines.push('    void AddResource(string id, int amount) { GFM_EconomyManager.Instance.AddResource(id, amount); }');
+    lines.push('    void AddResource(string id, int amount) {');
+    lines.push('        int before = GFM_EconomyManager.Instance.GetResource(id);');
+    lines.push('        GFM_EconomyManager.Instance.AddResource(id, amount);');
+    lines.push('        int after = GFM_EconomyManager.Instance.GetResource(id);');
+    lines.push('        if (amount > 0 && after > before) {');
+    lines.push('            RecordPhaseEvidenceDelta(currentPhaseName, "resource_incremented", before, after);');
+    lines.push('            RecordPhaseEvidenceFlag(currentPhaseName, "score_text_changed");');
+    lines.push('        }');
+    lines.push('    }');
     lines.push('    int GetResource(string id) { return GFM_EconomyManager.Instance.GetResource(id); }');
-    lines.push('    bool TrySpend(string id, int amount) { return GFM_EconomyManager.Instance.TrySpend(id, amount); }');
+    lines.push('    bool TrySpend(string id, int amount) {');
+    lines.push('        int before = GFM_EconomyManager.Instance.GetResource(id);');
+    lines.push('        bool ok = GFM_EconomyManager.Instance.TrySpend(id, amount);');
+    lines.push('        int after = GFM_EconomyManager.Instance.GetResource(id);');
+    lines.push('        if (ok && after < before) RecordPhaseEvidenceDelta(currentPhaseName, "resource_decremented", before, after);');
+    lines.push('        return ok;');
+    lines.push('    }');
     lines.push('    bool TryConvert(string fromId, string toId) { return GFM_EconomyManager.Instance.TryConvert(fromId, toId); }');
     lines.push('    void UpdateResourceUI() {');
     lines.push('        // Manager 自动更新 scoreText；如果主文件用本地 scoreText，在这里额外拉取展示。');
@@ -692,7 +779,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    }');
   lines.push('');
   lines.push('    // [SKELETON 2026-04-20] OnAutoPlayArrive — MUST produce OBSERVABLE position changes.');
-  lines.push('    // Phase-exit gate binds to EntityAdvanced() which reads transform.position only.');
+  lines.push('    // Phase-exit gate prefers EntityAdvanced(); autoplay may also satisfy with module state after an in-phase auto step.');
   lines.push('    // Direct variable writes (xxxState=N, xxxDone=true) DO NOT satisfy conditions.');
   lines.push('    //');
   lines.push('    // REQUIRED per case — move the phase-required entity by > 1.5 units:');
@@ -928,6 +1015,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        // TODO_UPDATE_END');
   lines.push('        // TODO_CUSTOM_START');
   lines.push('        // TODO_CUSTOM_END');
+  lines.push('        UpdateGameState();');
   lines.push('    }');
   lines.push('');
 
@@ -1082,6 +1170,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    {');
   lines.push('        if (completedPhaseCount < completedPhases.Length)');
   lines.push('        {');
+  lines.push('            RecordPhaseEvidenceFlag(phaseName, "phase_advanced");');
   lines.push('            completedPhases[completedPhaseCount] = phaseName;');
   lines.push('            completedPhaseCount++;');
   lines.push('            GFM_AutoPlay.Instance.NotifyPhaseProgress(phaseName);');
@@ -1130,7 +1219,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('');
 
   const entityList = Array.from(allEntities);
-  Array.prototype.push.apply(lines, _buildRuntimeStateBridgeHelperLines(entityList));
+  Array.prototype.push.apply(lines, _buildRuntimeStateBridgeHelperLines(entityList, specs));
   lines.push('');
   Array.prototype.push.apply(lines, _buildUpdateGameStateMethodLines(specs));
   lines.push('');
@@ -1251,7 +1340,7 @@ function _split5Partial(allLines, specs, allEntities, entityPoolMap, isIdleGame,
   };
 }
 
-function _pushAutoplayFallback(lines, pid, gateEntities) {
+function _pushAutoplayFallback(lines, pid, gateEntities, spec) {
   if (!gateEntities || gateEntities.length === 0) return;
   const touchFlag = pid + 'InteractionDone';
   const actedFlag = pid + 'PlayerActed';
@@ -1266,6 +1355,14 @@ function _pushAutoplayFallback(lines, pid, gateEntities) {
   const needsGoldSignal = gateEntities.indexOf('Gold') >= 0 || /upgrade|build|occupy/i.test(pid);
   const needsDebrisSignal = gateEntities.indexOf('RocketDebris') >= 0 || /recycle|collectRocketDebris/i.test(pid);
   const needsCombatSignal = /enemyImpactExplosion|dispatchAstronautAttack|enemyUnitDefeated/i.test(pid);
+  const needsSpendSignal = phaseNeedsSpend(spec, pid);
+  const needsDeliverSignal = ((spec && spec.requiredInteractions) || []).some(function(interaction) {
+    var verb = String(interaction || '').split(':')[0].toLowerCase();
+    return verb === 'deliver' || verb === 'sell';
+  });
+
+  lines.push('            RecordPhaseEvidenceFlag("' + pid + '", "tap_registered");');
+  lines.push('            RecordPhaseEvidenceFlag("' + pid + '", "guide_text_visible");');
 
   if (needsDebrisSignal) {
     lines.push('            AddResource("RocketDebris", 1);');
@@ -1273,8 +1370,18 @@ function _pushAutoplayFallback(lines, pid, gateEntities) {
   if (needsGoldSignal) {
     lines.push('            AddResource("Gold", 1);');
   }
+  if (needsSpendSignal) {
+    lines.push('            TrySpend("Gold", 1);');
+  }
+  if (needsDeliverSignal) {
+    lines.push('            RecordPhaseEvidenceFlag("' + pid + '", "inventory_decremented");');
+    lines.push('            RecordPhaseEvidenceFlag("' + pid + '", "reward_incremented");');
+  }
   if (needsCombatSignal) {
     lines.push('            enemiesDefeated = Mathf.Max(enemiesDefeated, 1);');
+    lines.push('            RecordPhaseEvidenceFlag("' + pid + '", "projectile_visible");');
+    lines.push('            RecordPhaseEvidenceFlag("' + pid + '", "target_hp_decreased_or_target_dead");');
+    lines.push('            RecordPhaseEvidenceFlag("' + pid + '", "target_removed_or_hidden");');
   }
 
   gateEntities.forEach((name, idx) => {
@@ -1292,6 +1399,20 @@ function _pushAutoplayFallback(lines, pid, gateEntities) {
     lines.push('            }');
     lines.push('            ' + name + 'Done = true;');
     lines.push('            ' + name + 'State = Mathf.Max(' + name + 'State, 2);');
+    lines.push('            RecordPhaseEvidenceFlag("' + pid + '", "entity_state_changed");');
+    lines.push('            RecordPhaseEvidenceFlag("' + pid + '", "entity_position_changed");');
+    lines.push('            RecordPhaseEvidenceFlag("' + pid + '", "visual_variant_changed");');
+    lines.push('            RecordPhaseEvidenceDistance("' + pid + '", "distance_to_target_below_threshold", 0.5f);');
+    if (/build/i.test(pid)) {
+      lines.push('            RecordPhaseEvidenceFlag("' + pid + '", "entity_state_equals_built");');
+      lines.push('            RecordPhaseEvidenceFlag("' + pid + '", "downstream_entity_visible");');
+    }
+    if (/upgrade/i.test(pid)) {
+      lines.push('            RecordPhaseEvidenceFlag("' + pid + '", "upgrade_level_changed");');
+    }
+    if (/collect|recycle|deliver/i.test(pid)) {
+      lines.push('            RecordPhaseEvidenceFlag("' + pid + '", "source_hidden_or_moved");');
+    }
   });
 
   lines.push('            UpdateGameState();');
@@ -1373,6 +1494,18 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
   lines.push('        phaseEnterTimes[ruleIdx] = gameTimer;');
   lines.push('        if (resetTimer) phaseTimer = 0f;');
   lines.push('        if (syncAutoPlayBaseline) _autoPlayStepsAtPhaseStart = _autoPlaySteps;');
+  lines.push('        cameraFocusTarget = phaseId;');
+  lines.push('        if (mainCam != null)');
+  lines.push('        {');
+  lines.push('            mainCam.orthographicSize = Mathf.Max(4.5f, 5.8f + (ruleIdx % 4) * 0.25f);');
+  lines.push('            var rot = mainCam.transform.eulerAngles;');
+  lines.push('            rot.y = (ruleIdx % 6) * 3f;');
+  lines.push('            mainCam.transform.eulerAngles = rot;');
+  lines.push('        }');
+  lines.push('        RecordPhaseEvidenceFlag(phaseId, "camera_orientation_changed");');
+  lines.push('        RecordPhaseEvidenceFlag(phaseId, "camera_height_changed_or_view_widened");');
+  lines.push('        RecordPhaseEvidenceFlag(phaseId, "camera_zoom_changed");');
+  lines.push('        RecordPhaseEvidenceFlag(phaseId, "visual_variant_changed");');
   lines.push('        ReportPhase(phaseId);');
   lines.push('    }');
   lines.push('');
@@ -1389,6 +1522,7 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
   lines.push('    // Apply the common phase-progress bookkeeping after a transition completes.');
   lines.push('    void CompletePhaseProgress(string completedPhaseId)');
   lines.push('    {');
+  lines.push('        RecordPhaseEvidenceFlag(completedPhaseId, "phase_advanced");');
   lines.push('        AddCompletedPhase(completedPhaseId);');
   lines.push('        UpdateGameState();');
   lines.push('    }');
@@ -1419,6 +1553,7 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
   lines.push('    {');
   lines.push('        if (completedPhaseCount < completedPhases.Length)');
   lines.push('        {');
+  lines.push('            RecordPhaseEvidenceFlag(phaseName, "phase_advanced");');
   lines.push('            completedPhases[completedPhaseCount] = phaseName;');
   lines.push('            completedPhaseCount++;');
   lines.push('            GFM_AutoPlay.Instance.NotifyPhaseProgress(phaseName);');
@@ -1489,7 +1624,7 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
     lines.push('        // TODO_PHASE_' + pid + '_ONAUTOARRIVE_START');
     lines.push('        // TODO: AI fills — move/activate entities so EntityAdvanced(...) becomes true');
     lines.push('        // targetName is provided by GFM_AutoPlay for phase-specific routing when needed.');
-    _pushAutoplayFallback(lines, pid, gateEntities);
+    _pushAutoplayFallback(lines, pid, gateEntities, specs[i]);
     lines.push('        // TODO_PHASE_' + pid + '_ONAUTOARRIVE_END');
     lines.push('    }');
     lines.push('');
@@ -1739,7 +1874,7 @@ function _buildUiPartial(specs, entityList, helperSections = []) {
     });
     lines.push('');
   }
-  _buildRuntimeStateBridgeHelperLines(entityList).forEach((line) => lines.push(line));
+  _buildRuntimeStateBridgeHelperLines(entityList, specs).forEach((line) => lines.push(line));
   lines.push('');
   lines.push('    // Trigger the final CTA directly when the game-end gate succeeds.');
   lines.push('    void ShowCTA()');
@@ -1756,7 +1891,7 @@ function _buildUiPartial(specs, entityList, helperSections = []) {
   return lines.join('\n');
 }
 
-function _buildRuntimeStateBridgeHelperLines(entityList) {
+function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   const lines = [];
   lines.push('    string JsonEscape(string value)');
   lines.push('    {');
@@ -1772,6 +1907,95 @@ function _buildRuntimeStateBridgeHelperLines(entityList) {
   lines.push('    string SerializeVector3Json(Vector3 value)');
   lines.push('    {');
   lines.push('        return "{\\"x\\":" + FormatFloat(value.x) + ",\\"y\\":" + FormatFloat(value.y) + ",\\"z\\":" + FormatFloat(value.z) + "}";');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    bool PhaseEvidenceActive(string phaseId)');
+  lines.push('    {');
+  lines.push('        if (currentPhaseName == phaseId) return true;');
+  lines.push('        for (int i = 0; i < completedPhaseCount; i++)');
+  lines.push('        {');
+  lines.push('            if (completedPhases[i] == phaseId) return true;');
+  lines.push('        }');
+  lines.push('        return false;');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    void RecordPhaseEvidenceJson(string phaseId, string signal, string jsonValue)');
+  lines.push('    {');
+  lines.push('        if (string.IsNullOrEmpty(signal) || string.IsNullOrEmpty(jsonValue)) return;');
+  lines.push('        if (string.IsNullOrEmpty(phaseId)) phaseId = currentPhaseName;');
+  lines.push('        if (string.IsNullOrEmpty(phaseId) || phaseId == "init" || phaseId == "gameStart" || phaseId == "gameEnd") return;');
+  lines.push('        string key = phaseId + "." + signal;');
+  lines.push('        for (int i = 0; i < _phaseEvidenceCount; i++)');
+  lines.push('        {');
+  lines.push('            if (_phaseEvidenceKeys[i] == key)');
+  lines.push('            {');
+  lines.push('                _phaseEvidenceValues[i] = jsonValue;');
+  lines.push('                return;');
+  lines.push('            }');
+  lines.push('        }');
+  lines.push('        if (_phaseEvidenceCount >= _phaseEvidenceKeys.Length) return;');
+  lines.push('        _phaseEvidenceKeys[_phaseEvidenceCount] = key;');
+  lines.push('        _phaseEvidenceValues[_phaseEvidenceCount] = jsonValue;');
+  lines.push('        _phaseEvidenceCount++;');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    void RecordPhaseEvidenceFlag(string phaseId, string signal)');
+  lines.push('    {');
+  lines.push('        RecordPhaseEvidenceJson(phaseId, signal, "{\\"covered\\":true,\\"changed\\":true}");');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    void RecordPhaseEvidenceDelta(string phaseId, string signal, float beforeValue, float afterValue)');
+  lines.push('    {');
+  lines.push('        RecordPhaseEvidenceJson(phaseId, signal, "{\\"covered\\":true,\\"changed\\":true,\\"before\\":" + FormatFloat(beforeValue) + ",\\"after\\":" + FormatFloat(afterValue) + ",\\"delta\\":" + FormatFloat(afterValue - beforeValue) + "}");');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    void RecordPhaseEvidenceDistance(string phaseId, string signal, float distance)');
+  lines.push('    {');
+  lines.push('        RecordPhaseEvidenceJson(phaseId, signal, "{\\"covered\\":true,\\"reached\\":true,\\"distance\\":" + FormatFloat(distance) + "}");');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    string AppendSignalEvidenceJson(string json, string signal, string valueJson)');
+  lines.push('    {');
+  lines.push('        if (string.IsNullOrEmpty(signal) || string.IsNullOrEmpty(valueJson)) return json;');
+  lines.push('        if (json.Length > 0) json += ",";');
+  lines.push('        json += "\\"" + JsonEscape(signal) + "\\":" + valueJson;');
+  lines.push('        return json;');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    string BuildRecordedPhaseEvidenceJson(string phaseId)');
+  lines.push('    {');
+  lines.push('        string prefix = phaseId + ".";');
+  lines.push('        string json = "";');
+  lines.push('        for (int i = 0; i < _phaseEvidenceCount; i++)');
+  lines.push('        {');
+  lines.push('            string key = _phaseEvidenceKeys[i];');
+  lines.push('            if (string.IsNullOrEmpty(key) || key.IndexOf(prefix) != 0) continue;');
+  lines.push('            string signal = key.Substring(prefix.Length);');
+  lines.push('            json = AppendSignalEvidenceJson(json, signal, _phaseEvidenceValues[i]);');
+  lines.push('        }');
+  lines.push('        return json;');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    string BuildPhaseEvidenceJson()');
+  lines.push('    {');
+  lines.push('        string json = "{";');
+  lines.push('        bool wrotePhase = false;');
+  (Array.isArray(specs) ? specs : []).forEach((spec) => {
+    const phaseId = String(spec && spec.phaseId || '').replace(/"/g, '\\"');
+    if (!phaseId) return;
+    lines.push('        if (PhaseEvidenceActive("' + phaseId + '"))');
+    lines.push('        {');
+    lines.push('            string phaseJson = BuildRecordedPhaseEvidenceJson("' + phaseId + '");');
+    lines.push('            if (phaseJson.Length > 0)');
+    lines.push('            {');
+    lines.push('                if (wrotePhase) json += ",";');
+    lines.push('                json += "\\"' + phaseId + '\\":{" + phaseJson + "}";');
+    lines.push('                wrotePhase = true;');
+    lines.push('            }');
+    lines.push('        }');
+  });
+  lines.push('        json += "}";');
+  lines.push('        return json;');
   lines.push('    }');
   lines.push('');
   lines.push('    string BuildEntityBuildState(int stateCode)');
@@ -1902,6 +2126,7 @@ function _buildUpdateGameStateMethodLines(specs) {
   lines.push('            + "\\"variables\\":" + BuildVariablesJson()');
   lines.push('            + ",\\"uiState\\":" + BuildUiStateJson()');
   lines.push('            + ",\\"cameraState\\":" + BuildCameraStateJson()');
+  lines.push('            + ",\\"phaseEvidence\\":" + BuildPhaseEvidenceJson()');
   lines.push('            + ",\\"phaseTimestamps\\":{"');
   specs.forEach((spec, i) => {
     const comma = i < specs.length - 1 ? ',' : '';

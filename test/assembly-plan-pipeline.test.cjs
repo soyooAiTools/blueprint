@@ -103,6 +103,15 @@ assert.ok(conveyor.phaseRefs.indexOf('intro') >= 0, 'conveyor phaseRefs should u
 assert.ok(plans.assemblyPlan.phaseBindings.every(function(binding, index) {
   return binding.phaseId === (index === 0 ? 'intro' : 'build');
 }), 'assembly phaseBindings should use canonical spec phase IDs');
+assert.ok(
+  plans.assemblyPlan.unresolved.every(function(item) { return item.kind !== 'state_owner_conflict'; }),
+  'P0 module plan should not emit state owner conflicts'
+);
+var playerMoveModule = plans.assemblyPlan.moduleInstances.find(function(module) {
+  return module.id === 'Player::move_to_target';
+});
+assert.ok(playerMoveModule, 'move_to atom should attach move_to_target to actor/player');
+assert.strictEqual(playerMoveModule.params.target, 'ConveyorBelt', 'move_to_target actor module should preserve target param');
 
 var genericSpendPlans = buildProjectPlans({
   name: 'GenericSpendDefaults',

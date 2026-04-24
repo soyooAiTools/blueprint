@@ -47,19 +47,25 @@ public static class GFM_UI
 
     public static Canvas CreateCanvas(int refWidth = 1920, int refHeight = 1080)
     {
-        var obj = new GameObject("Canvas");
-        var canvas = obj.AddComponent<Canvas>();
+        var obj = new GameObject("Canvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+        if (obj == null) return null;
+        var canvas = (Canvas)obj.GetComponent(typeof(Canvas));
+        if (canvas == null) return null;
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        var scaler = obj.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(refWidth, refHeight);
-        obj.AddComponent<GraphicRaycaster>();
+        var scaler = (CanvasScaler)obj.GetComponent(typeof(CanvasScaler));
+        if (scaler != null)
+        {
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(refWidth, refHeight);
+        }
         return canvas;
     }
 
     public static Button CreateButton(Canvas canvas, string text, Vector2 pos, Vector2 size, UnityEngine.Events.UnityAction onClick)
     {
+        if (canvas == null || canvas.transform == null) return null;
         var obj = new GameObject("Btn_" + text, typeof(RectTransform), typeof(Image), typeof(Button));
+        if (obj == null || obj.transform == null) return null;
         obj.transform.SetParent(canvas.transform, false);
         var rect = (RectTransform)obj.GetComponent(typeof(RectTransform));
         rect.anchoredPosition = pos;
@@ -79,12 +85,16 @@ public static class GFM_UI
 
     public static Text CreateText(Canvas canvas, string content, Vector2 pos, int fontSize)
     {
-        var obj = new GameObject("Text_" + content, typeof(RectTransform));
+        if (canvas == null || canvas.transform == null) return null;
+        var obj = new GameObject("Text_" + (content == null ? "" : content), typeof(RectTransform), typeof(Text));
+        if (obj == null || obj.transform == null) return null;
         obj.transform.SetParent(canvas.transform, false);
         var rect = (RectTransform)obj.GetComponent(typeof(RectTransform));
+        if (rect == null) return null;
         rect.anchoredPosition = pos;
         rect.sizeDelta = new Vector2(400, fontSize * 2);
-        var txt = obj.AddComponent<Text>();
+        var txt = (Text)obj.GetComponent(typeof(Text));
+        if (txt == null) return null;
         ApplyTextStyle(txt, content, fontSize, Color.white, TextAnchor.MiddleCenter);
         return txt;
     }
@@ -92,14 +102,17 @@ public static class GFM_UI
     public static void AddWorldLabel(GameObject target, string text, float heightOffset)
     {
         if (target == null) return;
-        var labelObj = new GameObject("Label_" + text);
-        var canvas = labelObj.AddComponent<Canvas>();
+        var labelObj = new GameObject("Label_" + text, typeof(RectTransform), typeof(Canvas));
+        if (labelObj == null || labelObj.transform == null) return;
+        var canvas = (Canvas)labelObj.GetComponent(typeof(Canvas));
+        if (canvas == null) return;
         canvas.renderMode = RenderMode.WorldSpace;
         canvas.sortingOrder = 100;
         canvas.transform.SetParent(target.transform, false);
         canvas.transform.localPosition = new Vector3(0, heightOffset, 0);
         canvas.transform.localScale = new Vector3(0.015f, 0.015f, 0.015f);
         var rt = (RectTransform)canvas.GetComponent(typeof(RectTransform));
+        if (rt == null) return;
         rt.sizeDelta = new Vector2(240, 40);
 
         var bgObj = new GameObject("LabelBG", typeof(RectTransform), typeof(Image));

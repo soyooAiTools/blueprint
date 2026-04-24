@@ -30,6 +30,14 @@ function ownerTag(fileName) {
   return match ? match[1] : 'File';
 }
 
+function slotMethodName(fileName, moduleInstance) {
+  return 'AssemblySlot_' + ownerTag(fileName) + '_' + sanitizeId(moduleInstance.id);
+}
+
+function slotDoneFieldName(fileName, moduleInstance) {
+  return '__assemblyDone_' + slotMethodName(fileName, moduleInstance);
+}
+
 function prettyJson(value) {
   var json = JSON.stringify(value || {}, null, 2);
   return json === '{}' ? '{}' : json;
@@ -134,11 +142,73 @@ function buildDeterministicGuideLines(plans) {
     lines.push('                break;');
   }
   lines.push('        }');
+  lines.push('        if (!string.IsNullOrEmpty(guideText.text)) RecordPhaseEvidenceFlag(currentPhaseName, "guide_text_visible");');
   return lines;
 }
 
 function isIdentifier(value) {
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test(String(value || ''));
+}
+
+function escapeCsString(value) {
+  return String(value == null ? '' : value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function csFloat(value, fallback) {
+  var n = Number(value);
+  if (!isFinite(n)) n = Number(fallback);
+  if (!isFinite(n)) n = 0;
+  return n.toFixed(2) + 'f';
+}
+
+function parseNumberTuple(value, fallback) {
+  var text = String(value || '').replace(/[()]/g, ' ').replace(/[x×*]/g, ',');
+  var parts = text.split(/[,\s]+/).filter(Boolean);
+  var out = [];
+  for (var i = 0; i < parts.length; i++) {
+    var n = Number(parts[i]);
+    if (isFinite(n)) out.push(n);
+  }
+  var fb = fallback || [];
+  return [
+    out.length > 0 ? out[0] : (fb.length > 0 ? fb[0] : 0),
+    out.length > 1 ? out[1] : (fb.length > 1 ? fb[1] : 0.5),
+    out.length > 2 ? out[2] : (fb.length > 2 ? fb[2] : 0),
+  ];
+}
+
+function vectorArgs(value, fallback) {
+  var parts = parseNumberTuple(value, fallback || [0, 0.5, 0]);
+  return csFloat(parts[0]) + ', ' + csFloat(parts[1]) + ', ' + csFloat(parts[2]);
+}
+
+function scaleArgs(value) {
+  var parts = parseNumberTuple(value, [1, 1, 1]);
+  return csFloat(parts[0], 1) + ', ' + csFloat(parts[1], 1) + ', ' + csFloat(parts[2], 1);
+}
+
+function planEntityIndex(plans) {
+  var index = {};
+  var entities = plans && plans.entityPlan && Array.isArray(plans.entityPlan.entities)
+    ? plans.entityPlan.entities
+    : [];
+  for (var i = 0; i < entities.length; i++) {
+    if (entities[i] && entities[i].name) index[entities[i].name] = true;
+  }
+  return index;
+}
+
+function planHasEntity(plans, entityName) {
+  return !!planEntityIndex(plans)[entityName];
+}
+
+function moduleTarget(moduleInstance) {
+  var params = moduleInstance && moduleInstance.params || {};
+  return params.target || params.entity || moduleInstance.entity || '';
+}
+
+function recordFlag(signal) {
+  return '        RecordPhaseEvidenceFlag(currentPhaseName, "' + signal + '");';
 }
 
 function buildCameraPhaseMap(plans, moduleInstance) {
@@ -191,6 +261,7 @@ function buildDeterministicCameraFocusLines(moduleInstance, plans) {
     lines.push('                break;');
   }
   lines.push('        }');
+  lines.push('        RecordPhaseEvidenceFlag(currentPhaseName, "camera_orientation_changed");');
   return lines;
 }
 
@@ -211,6 +282,7 @@ function buildDeterministicCameraZoomLines(moduleInstance, plans) {
     lines.push('                break;');
   }
   lines.push('        }');
+  lines.push('        RecordPhaseEvidenceFlag(currentPhaseName, "camera_zoom_changed");');
   return lines;
 }
 
@@ -236,6 +308,7 @@ function buildDeterministicCameraLiftLines(moduleInstance, plans) {
     lines.push('                }');
   }
   lines.push('        }');
+  lines.push('        RecordPhaseEvidenceFlag(currentPhaseName, "camera_height_changed_or_view_widened");');
   return lines;
 }
 
@@ -249,6 +322,7 @@ function buildDeterministicScoreLines(moduleInstance) {
     lines.push('            scoreText.text = "' + String(label).replace(/"/g, '\\"') + ': " + GetResource("' + String(label).replace(/"/g, '\\"') + '");');
     lines.push('        }');
   }
+  lines.push('        if (scoreText != null && scoreText.text.Length > 0) RecordPhaseEvidenceFlag(currentPhaseName, "score_text_changed");');
   return lines;
 }
 
@@ -261,11 +335,13 @@ function buildDeterministicCollectLines(moduleInstance, plans) {
   var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Resource.cs', moduleInstance));
   lines.push('        if (' + entityVar + ' == null) return;');
   lines.push('        if (' + entityVar + '.transform.position.y < -900f) return;');
-  lines.push('        if (IsNear(' + entityVar + ', ' + range + 'f))');
+  lines.push('        if (GFM_Player.Instance.IsNear(' + entityVar + ', ' + csFloat(range, 1.5) + '))');
   lines.push('        {');
   lines.push('            AddResource("' + String(resource).replace(/"/g, '\\"') + '", ' + (isFinite(count) ? count : 1) + ');');
   lines.push('            HideObj(' + entityVar + ');');
   lines.push('            ' + entityVar + 'State = Mathf.Max(' + entityVar + 'State, 1);');
+  lines.push('            RecordPhaseEvidenceDistance(currentPhaseName, "distance_to_target_below_threshold", ' + csFloat(range, 1.5) + ');');
+  lines.push('            RecordPhaseEvidenceFlag(currentPhaseName, "source_hidden_or_moved");');
   lines.push('            UpdateResourceUI();');
   lines.push('        }');
   return lines;
@@ -279,25 +355,269 @@ function buildDeterministicDeliverLines(moduleInstance, plans) {
   var reward = moduleInstance.params && moduleInstance.params.reward != null ? Number(moduleInstance.params.reward) : 1;
   var rewardResource = moduleInstance.params && (moduleInstance.params.rewardResource || 'gold');
   var rewardLabel = String(rewardResource || 'reward');
-  var rewardCall = String(rewardResource || '').toLowerCase() === 'gold'
-    ? '            AddGold(' + (isFinite(reward) ? reward : 1) + ' * deliverCount);'
-    : '            AddResource("' + rewardLabel.replace(/"/g, '\\"') + '", ' + (isFinite(reward) ? reward : 1) + ' * deliverCount);';
+  var rewardCall = '            AddResource("' + rewardLabel.replace(/"/g, '\\"') + '", ' + (isFinite(reward) ? reward : 1) + ' * deliverCount);';
   var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Resource.cs', moduleInstance));
   lines.push('        if (' + targetVar + ' == null) return;');
   lines.push('        int deliverCount = GetResource("' + String(resource).replace(/"/g, '\\"') + '");');
   lines.push('        if (deliverCount <= 0) return;');
-  lines.push('        if (IsNear(' + targetVar + ', 2f) && TrySpend("' + String(resource).replace(/"/g, '\\"') + '", deliverCount))');
+  lines.push('        if (GFM_Player.Instance.IsNear(' + targetVar + ', 2f) && TrySpend("' + String(resource).replace(/"/g, '\\"') + '", deliverCount))');
   lines.push('        {');
+  lines.push('            RecordPhaseEvidenceFlag(currentPhaseName, "inventory_decremented");');
   lines.push(rewardCall);
+  lines.push('            RecordPhaseEvidenceFlag(currentPhaseName, "reward_incremented");');
   lines.push('            ' + targetVar + 'State = Mathf.Max(' + targetVar + 'State, 2);');
   lines.push('            UpdateResourceUI();');
-  lines.push('            ShowFloatingText(player != null ? player.transform.position : Vector3.zero, "+" + (' + (isFinite(reward) ? reward : 1) + ' * deliverCount) + " ' + rewardLabel.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '", Color.yellow);');
+  lines.push('            var __assemblyPlayer = GFM_Player.Instance.Go;');
+  lines.push('            ShowFloatingText(__assemblyPlayer != null ? __assemblyPlayer.transform.position : Vector3.zero, "+" + (' + (isFinite(reward) ? reward : 1) + ' * deliverCount) + " ' + rewardLabel.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '", Color.yellow);');
   lines.push('        }');
+  return lines;
+}
+
+function buildDeterministicVisualBindingLines(moduleInstance, plans) {
+  var entity = moduleInstance && moduleInstance.entity;
+  if (!isIdentifier(entity)) return [];
+  var params = moduleInstance.params || {};
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Scene.cs', moduleInstance));
+  lines.push('        if (' + entity + ' == null) return;');
+  lines.push('        if (' + entity + '.transform.position.y < -900f)');
+  lines.push('        {');
+  lines.push('            PlaceObj(' + entity + ', ' + vectorArgs(params.position, [0, 0.5, 0]) + ');');
+  lines.push('        }');
+  lines.push('        SetScale(' + entity + ', ' + scaleArgs(params.scale) + ');');
+  lines.push('        ' + entity + 'State = Mathf.Max(' + entity + 'State, 1);');
+  lines.push(recordFlag('entity_visible'));
+  lines.push(recordFlag('entity_position_changed'));
+  return lines;
+}
+
+function buildDeterministicTapLines(moduleInstance, plans) {
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Input.cs', moduleInstance));
+  lines.push('        if (!_autoPlayMode && !Input.GetMouseButtonDown(0)) return;');
+  lines.push(recordFlag('tap_registered'));
+  return lines;
+}
+
+function buildDeterministicClickLines(moduleInstance, plans) {
+  var target = moduleTarget(moduleInstance);
+  var lines = buildDeterministicTapLines(moduleInstance, plans);
+  if (isIdentifier(target)) {
+    lines.push('        if (' + target + ' != null)');
+    lines.push('        {');
+    lines.push('            ' + target + 'State = Mathf.Max(' + target + 'State, 1);');
+    lines.push(recordFlag('entity_state_changed'));
+    lines.push('        }');
+  }
+  return lines;
+}
+
+function buildDeterministicMoveLines(moduleInstance, plans) {
+  var actor = moduleInstance && moduleInstance.entity;
+  var target = moduleInstance && moduleInstance.params && moduleInstance.params.target;
+  if (!isIdentifier(actor) || !isIdentifier(target) || actor === target) return [];
+  var speed = moduleInstance.params && moduleInstance.params.speed != null ? Number(moduleInstance.params.speed) : 5;
+  var stopRange = moduleInstance.params && moduleInstance.params.stopRange != null ? Number(moduleInstance.params.stopRange) : 1.5;
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  lines.push('        if (' + actor + ' == null || ' + target + ' == null) return;');
+  lines.push('        var __assemblyBefore = ' + actor + '.transform.position;');
+  lines.push('        var __assemblyNext = Vector3.MoveTowards(__assemblyBefore, ' + target + '.transform.position, ' + csFloat(speed, 5) + ' * Time.deltaTime);');
+  lines.push('        ' + actor + '.transform.position = __assemblyNext;');
+  lines.push('        if (Vector3.Distance(__assemblyBefore, __assemblyNext) > 0.01f)');
+  lines.push('        {');
+  lines.push(/player/i.test(actor) ? recordFlag('player_position_changed') : recordFlag('entity_position_changed'));
+  lines.push('        }');
+  lines.push('        float __assemblyDistance = Vector3.Distance(' + actor + '.transform.position, ' + target + '.transform.position);');
+  lines.push('        if (__assemblyDistance <= ' + csFloat(stopRange, 1.5) + ') RecordPhaseEvidenceDistance(currentPhaseName, "distance_to_target_below_threshold", __assemblyDistance);');
+  return lines;
+}
+
+function buildDeterministicProximityLines(moduleInstance, plans) {
+  var target = moduleTarget(moduleInstance);
+  if (!isIdentifier(target)) return [];
+  var radius = moduleInstance.params && moduleInstance.params.radius != null ? Number(moduleInstance.params.radius) : 2;
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  lines.push('        var __assemblyActor = GFM_Player.Instance.Go;');
+  lines.push('        if (__assemblyActor == null || ' + target + ' == null) return;');
+  lines.push('        float __assemblyDistance = Vector3.Distance(__assemblyActor.transform.position, ' + target + '.transform.position);');
+  lines.push('        if (__assemblyDistance <= ' + csFloat(radius, 2) + ')');
+  lines.push('        {');
+  lines.push('            RecordPhaseEvidenceDistance(currentPhaseName, "distance_to_target_below_threshold", __assemblyDistance);');
+  lines.push('            ' + target + 'State = Mathf.Max(' + target + 'State, 1);');
+  lines.push(recordFlag('entity_state_changed'));
+  lines.push('        }');
+  return lines;
+}
+
+function buildDeterministicCostGateLines(moduleInstance, plans) {
+  var target = moduleTarget(moduleInstance);
+  var resource = moduleInstance.params && (moduleInstance.params.resource || 'resource');
+  var amount = moduleInstance.params && moduleInstance.params.amount != null ? Number(moduleInstance.params.amount) : 1;
+  var doneField = slotDoneFieldName('GameFlowManagerMain.Resource.cs', moduleInstance);
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Resource.cs', moduleInstance));
+  lines.push('        if (' + doneField + ') return;');
+  lines.push('        if (!TrySpend("' + escapeCsString(resource) + '", ' + (isFinite(amount) ? Math.max(1, Math.floor(amount)) : 1) + ')) return;');
+  lines.push('        ' + doneField + ' = true;');
+  lines.push('        UpdateResourceUI();');
+  if (isIdentifier(target)) {
+    lines.push('        ' + target + 'State = Mathf.Max(' + target + 'State, 1);');
+    lines.push(recordFlag('entity_state_changed'));
+  }
+  return lines;
+}
+
+function buildDeterministicBuildLines(moduleInstance, plans) {
+  var entity = moduleTarget(moduleInstance);
+  if (!isIdentifier(entity)) return [];
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  lines.push('        if (' + entity + ' == null || ' + entity + 'State >= 2) return;');
+  lines.push('        if (' + entity + '.transform.position.y < -900f) PlaceObj(' + entity + ', 0f, 0.5f, 0f);');
+  lines.push('        ' + entity + 'State = 2;');
+  lines.push(recordFlag('entity_state_changed'));
+  lines.push(recordFlag('entity_state_equals_built'));
+  lines.push(recordFlag('visual_variant_changed'));
+  lines.push(recordFlag('downstream_entity_visible'));
+  return lines;
+}
+
+function buildDeterministicUpgradeLines(moduleInstance, plans) {
+  var entity = moduleTarget(moduleInstance);
+  if (!isIdentifier(entity)) return [];
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  lines.push('        if (' + entity + ' == null || ' + entity + 'State >= 2) return;');
+  lines.push('        ' + entity + 'State = 2;');
+  lines.push(recordFlag('upgrade_level_changed'));
+  lines.push(recordFlag('visual_variant_changed'));
+  lines.push(recordFlag('entity_state_changed'));
+  return lines;
+}
+
+function buildDeterministicTargetAcquireLines(moduleInstance, plans) {
+  var actor = moduleInstance && moduleInstance.entity;
+  if (!isIdentifier(actor)) return [];
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  lines.push('        if (' + actor + ' == null) return;');
+  lines.push('        ' + actor + 'State = Mathf.Max(' + actor + 'State, 1);');
+  lines.push(recordFlag('entity_state_changed'));
+  return lines;
+}
+
+function buildDeterministicProjectileLines(moduleInstance, plans) {
+  var actor = moduleInstance && moduleInstance.entity;
+  if (!isIdentifier(actor)) return [];
+  var projectile = moduleInstance.params && moduleInstance.params.projectile;
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  lines.push('        if (' + actor + ' == null) return;');
+  if (isIdentifier(projectile) && planHasEntity(plans, projectile)) {
+    lines.push('        if (' + projectile + ' != null)');
+    lines.push('        {');
+    lines.push('            var __assemblyProjectilePos = ' + actor + '.transform.position;');
+    lines.push('            __assemblyProjectilePos.y += 0.6f;');
+    lines.push('            __assemblyProjectilePos.x += 0.5f;');
+    lines.push('            PlaceObj(' + projectile + ', __assemblyProjectilePos.x, __assemblyProjectilePos.y, __assemblyProjectilePos.z);');
+    lines.push('        }');
+  } else {
+    lines.push('        var __assemblyAttackFlash = ' + actor + '.transform.position;');
+    lines.push('        __assemblyAttackFlash.y += 0.05f;');
+    lines.push('        ' + actor + '.transform.position = __assemblyAttackFlash;');
+  }
+  lines.push('        ' + actor + 'State = Mathf.Max(' + actor + 'State, 1);');
+  lines.push(recordFlag('projectile_visible'));
+  return lines;
+}
+
+function buildDeterministicDamageLines(moduleInstance, plans) {
+  var target = moduleTarget(moduleInstance);
+  if (!isIdentifier(target)) return [];
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  lines.push('        if (' + target + ' == null || ' + target + 'State >= 2) return;');
+  lines.push('        ' + target + 'State = 2;');
+  lines.push('        HideObj(' + target + ');');
+  lines.push(recordFlag('target_hp_decreased_or_target_dead'));
+  lines.push(recordFlag('target_removed_or_hidden'));
+  return lines;
+}
+
+function buildDeterministicDamageableLines(moduleInstance, plans) {
+  var target = moduleTarget(moduleInstance);
+  if (!isIdentifier(target)) return [];
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  lines.push('        if (' + target + ' == null) return;');
+  lines.push('        ' + target + 'State = Mathf.Max(' + target + 'State, 1);');
+  return lines;
+}
+
+function buildDeterministicActivateLines(moduleInstance, plans) {
+  var targets = toArray(moduleInstance && moduleInstance.params && moduleInstance.params.targets);
+  var validTargets = targets.filter(isIdentifier);
+  if (validTargets.length === 0) return [];
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  for (var i = 0; i < validTargets.length; i++) {
+    var target = validTargets[i];
+    lines.push('        if (' + target + ' != null && ' + target + '.transform.position.y < -900f)');
+    lines.push('        {');
+    lines.push('            PlaceObj(' + target + ', 0f, 0.5f, 0f);');
+    lines.push('            ' + target + 'State = Mathf.Max(' + target + 'State, 1);');
+    lines.push('        }');
+  }
+  lines.push(recordFlag('downstream_entity_visible'));
+  return lines;
+}
+
+function buildDeterministicVariantLines(moduleInstance, plans) {
+  var entity = moduleTarget(moduleInstance);
+  if (!isIdentifier(entity)) return [];
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Scene.cs', moduleInstance));
+  lines.push('        if (' + entity + ' == null) return;');
+  lines.push('        if (' + entity + '.transform.position.y < -900f) PlaceObj(' + entity + ', 0f, 0.5f, 0f);');
+  lines.push('        SetScale(' + entity + ', 1.08f, 1.08f, 1.08f);');
+  lines.push('        ' + entity + 'State = Mathf.Max(' + entity + 'State, 2);');
+  lines.push(recordFlag('visual_variant_changed'));
   return lines;
 }
 
 function buildDeterministicBodyLines(fileName, moduleInstance, plans) {
   var moduleId = moduleInstance && moduleInstance.moduleId;
+  if (fileName === 'GameFlowManagerMain.Scene.cs' && moduleId === 'visual_binding') {
+    return buildDeterministicVisualBindingLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.Scene.cs' && moduleId === 'visual_variant_swap') {
+    return buildDeterministicVariantLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.Input.cs' && moduleId === 'player_input_tap') {
+    return buildDeterministicTapLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.Input.cs' && moduleId === 'click_trigger') {
+    return buildDeterministicClickLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.Flow.cs' && moduleId === 'move_to_target') {
+    return buildDeterministicMoveLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.Flow.cs' && moduleId === 'proximity_trigger') {
+    return buildDeterministicProximityLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.Resource.cs' && moduleId === 'cost_gate') {
+    return buildDeterministicCostGateLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.Flow.cs' && moduleId === 'build_progress') {
+    return buildDeterministicBuildLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.Flow.cs' && moduleId === 'upgrade_progress') {
+    return buildDeterministicUpgradeLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.Flow.cs' && moduleId === 'target_acquire') {
+    return buildDeterministicTargetAcquireLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.Flow.cs' && moduleId === 'projectile_emit') {
+    return buildDeterministicProjectileLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.Flow.cs' && moduleId === 'apply_damage') {
+    return buildDeterministicDamageLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.Flow.cs' && moduleId === 'damageable') {
+    return buildDeterministicDamageableLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.Flow.cs' && moduleId === 'activate_targets') {
+    return buildDeterministicActivateLines(moduleInstance, plans);
+  }
   if (fileName === 'GameFlowManagerMain.Resource.cs' && moduleId === 'collect_on_near') {
     return buildDeterministicCollectLines(moduleInstance, plans);
   }
@@ -383,10 +703,13 @@ function buildOwnerManifestLines(fileName, moduleInstances, plans) {
 }
 
 function buildSlotMethod(fileName, moduleInstance, plans) {
-  var tag = ownerTag(fileName);
-  var methodName = 'AssemblySlot_' + tag + '_' + sanitizeId(moduleInstance.id);
+  var methodName = slotMethodName(fileName, moduleInstance);
   var deterministicBody = buildDeterministicBodyLines(fileName, moduleInstance, plans);
   var lines = [];
+  if (moduleInstance.moduleId === 'cost_gate') {
+    lines.push('    bool ' + slotDoneFieldName(fileName, moduleInstance) + ' = false;');
+    lines.push('');
+  }
   lines.push('    // [ASSEMBLY SLOT] ' + moduleInstance.id);
   lines.push('    // moduleId: ' + moduleInstance.moduleId);
   lines.push('    // entity: ' + (moduleInstance.entity || 'system'));

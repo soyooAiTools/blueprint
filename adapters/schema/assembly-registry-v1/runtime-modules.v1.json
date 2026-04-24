@@ -96,7 +96,7 @@
       "description": "Consumes resources as a prerequisite for another action.",
       "params": ["resource", "amount"],
       "ownerFiles": ["GameFlowManagerMain.Resource.cs"],
-      "statesWritten": ["economy.gold", "economy.resources"],
+      "statesWritten": ["cost.spendRequest"],
       "autoplayMirror": "supported",
       "observableFeedback": ["resource_decremented"],
       "sourceAssets": ["TrySpend", "cost-gated-click.cjs"]
@@ -140,7 +140,7 @@
       "description": "Collects an item when actor enters collection range; collected content stays in params rather than module identity.",
       "params": ["resource", "item", "count", "range"],
       "ownerFiles": ["GameFlowManagerMain.Resource.cs"],
-      "statesWritten": ["economy.resources"],
+      "statesWritten": ["<entity>.collectState"],
       "autoplayMirror": "supported",
       "observableFeedback": ["resource_incremented", "source_hidden_or_moved"],
       "sourceAssets": ["collect-interaction.cjs"]
@@ -151,7 +151,7 @@
       "description": "Consumes carried inventory at a target and grants a parameterized reward resource.",
       "params": ["resource", "target", "reward", "rewardResource"],
       "ownerFiles": ["GameFlowManagerMain.Resource.cs"],
-      "statesWritten": ["economy.resources", "economy.gold"],
+      "statesWritten": ["<entity>.deliverState"],
       "autoplayMirror": "supported",
       "observableFeedback": ["inventory_decremented", "reward_incremented", "score_text_changed"],
       "sourceAssets": ["deliver-sell.cjs"]
@@ -228,7 +228,7 @@
       "description": "Applies damage into a damageable entity.",
       "params": ["amount", "source"],
       "ownerFiles": ["GameFlowManagerMain.Flow.cs"],
-      "statesWritten": ["<entity>.hp"],
+      "statesWritten": ["<entity>.damageRequest"],
       "autoplayMirror": "supported",
       "observableFeedback": ["target_hp_decreased_or_target_dead"],
       "sourceAssets": ["npc-behaviors/chase-attack.cjs", "npc-behaviors/ranged-shooter.cjs"]

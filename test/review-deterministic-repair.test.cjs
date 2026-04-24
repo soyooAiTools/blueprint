@@ -264,6 +264,65 @@ vm.runInContext([
 }
 
 {
+  const mainCode = [
+    'using UnityEngine;',
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    string currentPhaseName;',
+    '    bool[] ruleTriggered;',
+    '    Vector3 _snap_GoldPos;',
+    '    GameObject Gold;',
+    '    void Update()',
+    '    {',
+    '        Phase_OnTap();',
+    '    }',
+    '    void CheckEventRules()',
+    '    {',
+    '        if (!ruleTriggered[1]',
+    '            && currentPhaseName == "recycleDebrisGetGold"',
+    '            && EntityAdvanced(Gold, _snap_GoldPos))',
+    '        {',
+    '            EnterPhase(1, "buildDefenseTower", true, true);',
+    '        }',
+    '    }',
+    '    bool EntityAdvanced(GameObject go, Vector3 snapPos) { return true; }',
+    '    void EnterPhase(int i, string p, bool r, bool s) {}',
+    '}',
+  ].join('\n');
+
+  const flowCode = [
+    'using UnityEngine;',
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    void Phase_OnTap() {}',
+    '    void Phase_recycleDebrisGetGold_Init()',
+    '    {',
+    '        PlaceObj(Gold, -3.8f, 0.5f, -1.2f);',
+    '    }',
+    '    void Phase_recycleDebrisGetGold_OnTap()',
+    '    {',
+    '        // TODO_PHASE_recycleDebrisGetGold_ONTAP_START',
+    '        PlaceObj(Gold, -3.7f, 0.5f, -1.1f);',
+    '        // TODO_PHASE_recycleDebrisGetGold_ONTAP_END',
+    '    }',
+    '    void Phase_recycleDebrisGetGold_OnAutoPlayArrive(string targetName)',
+    '    {',
+    '        // TODO_PHASE_recycleDebrisGetGold_ONAUTOARRIVE_START',
+    '        PlaceObj(Gold, -3.7f, 0.5f, -1.1f);',
+    '        // TODO_PHASE_recycleDebrisGetGold_ONAUTOARRIVE_END',
+    '    }',
+    '}',
+  ].join('\n');
+
+  const result = reviewStage.repairPhaseGateRuntimeMovesAcrossPartials(mainCode, {
+    'GameFlowManagerMain.Flow.cs': flowCode,
+  });
+  assert.strictEqual(result.changed, true);
+  assert.match(result.extraFiles['GameFlowManagerMain.Flow.cs'], /__gateMovePos_recycleDebrisGetGold_Gold = Gold\.transform\.position/);
+  assert.match(result.extraFiles['GameFlowManagerMain.Flow.cs'], /__gateMovePos_recycleDebrisGetGold_Gold\.y \+= 2f/);
+}
+
+{
   const broken = [
     'using UnityEngine;',
     'public partial class GameFlowManagerMain',
@@ -280,6 +339,25 @@ vm.runInContext([
   const normalized = reviewStage.normalizePhaseGateConditionalDeclarations(broken);
   assert.strictEqual(normalized.changed, true);
   assert.match(normalized.code, /if \(Gold != null\)\s*\{\s*var __gateMovePos4 = Gold\.transform\.position;[\s\S]*Gold\.transform\.position = __gateMovePos4;\s*\}/);
+}
+
+{
+  const broken = [
+    'using UnityEngine;',
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    void Phase_recycleDebrisGetGold_OnTap()',
+    '    {',
+    '        if (Gold != null)',
+    '            var __gateMovePos_recycleDebrisGetGold_Gold = Gold.transform.position;',
+    '            __gateMovePos_recycleDebrisGetGold_Gold.y += 2f;',
+    '            Gold.transform.position = __gateMovePos_recycleDebrisGetGold_Gold;',
+    '    }',
+    '}',
+  ].join('\n');
+  const normalized = reviewStage.normalizePhaseGateConditionalDeclarations(broken);
+  assert.strictEqual(normalized.changed, true);
+  assert.match(normalized.code, /if \(Gold != null\)\s*\{\s*var __gateMovePos_recycleDebrisGetGold_Gold = Gold\.transform\.position;[\s\S]*Gold\.transform\.position = __gateMovePos_recycleDebrisGetGold_Gold;\s*\}/);
 }
 
 console.log('review deterministic repair tests passed');

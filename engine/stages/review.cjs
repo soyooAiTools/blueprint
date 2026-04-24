@@ -445,8 +445,9 @@ function repairPhaseGateRuntimeMoves(code) {
     });
   }
 
-  function buildFallbackMoveLines(entityName, ordinal) {
-    var varName = '__gateMovePos' + ordinal;
+  function buildFallbackMoveLines(entityName, ordinal, phaseId) {
+    var safePhase = phaseId ? String(phaseId).replace(/[^A-Za-z0-9_]/g, '_') : '';
+    var varName = safePhase ? ('__gateMovePos_' + safePhase + '_' + entityName) : ('__gateMovePos' + ordinal);
     return [
       '        if (' + entityName + ' != null)',
       '        {',
@@ -728,7 +729,8 @@ function repairPhaseGateRuntimeMovesAcrossPartials(mainCode, extraFiles) {
       }
       if (depth !== 0) continue;
       var block = src.substring(sm.index, end + 1);
-      var phaseIdMatch = /\bEnterPhase\s*\(\s*[^,]+,\s*"([^"]+)"/.exec(block);
+      var phaseIdMatch = /\bcurrentPhaseName\s*==\s*"([^"]+)"/.exec(block);
+      if (!phaseIdMatch) phaseIdMatch = /\bEnterPhase\s*\(\s*[^,]+,\s*"([^"]+)"/.exec(block);
       if (!phaseIdMatch) phaseIdMatch = /\bcurrentPhaseName\s*=\s*"([^"]+)"/.exec(block);
       if (!phaseIdMatch) continue;
       var phaseId = phaseIdMatch[1];
@@ -774,8 +776,9 @@ function repairPhaseGateRuntimeMovesAcrossPartials(mainCode, extraFiles) {
     return matches;
   }
 
-  function buildFallbackMoveLines(entityName, ordinal) {
-    var varName = '__gateMovePos' + ordinal;
+  function buildFallbackMoveLines(entityName, ordinal, phaseId) {
+    var safePhase = phaseId ? String(phaseId).replace(/[^A-Za-z0-9_]/g, '_') : '';
+    var varName = safePhase ? ('__gateMovePos_' + safePhase + '_' + entityName) : ('__gateMovePos' + ordinal);
     return [
       '        if (' + entityName + ' != null)',
       '        {',
@@ -959,6 +962,8 @@ function repairPhaseGateRuntimeMovesAcrossPartials(mainCode, extraFiles) {
         fallbackOrdinal++;
         moveLines = buildFallbackMoveLines(entityName, fallbackOrdinal);
       }
+      fallbackOrdinal++;
+      var forceMoveLines = buildFallbackMoveLines(entityName, fallbackOrdinal, def.phaseId);
 
       if (!updateHasPhaseScopedMove(nextMain, def.phaseId, entityName)) {
         mainLines = mainLines.concat(moveLines);
@@ -968,11 +973,13 @@ function repairPhaseGateRuntimeMovesAcrossPartials(mainCode, extraFiles) {
       if (!handlerHasPhaseMove(filesByName, def.phaseId, 'ONTAP', entityName)) {
         onTapLines = onTapLines.concat(moveLines);
       }
+      onTapLines = onTapLines.concat(forceMoveLines);
 
       filesByName = Object.assign({ main: nextMain }, nextExtras);
       if (!handlerHasPhaseMove(filesByName, def.phaseId, 'ONAUTOARRIVE', entityName)) {
         onAutoLines = onAutoLines.concat(moveLines);
       }
+      onAutoLines = onAutoLines.concat(forceMoveLines);
     }
 
     mainLines = dedupeLines(mainLines);
@@ -1019,7 +1026,7 @@ function normalizePhaseGateConditionalDeclarations(code) {
 
   var fixes = 0;
   var next = String(code || '');
-  var re = /^([ \t]*)if\s*\(([^)\n]+)\)\s*\n[ \t]*var\s+(__gateMovePos\d+)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\.transform\.position;\s*\n[ \t]*\3\.y\s*\+=\s*2f;\s*\n[ \t]*\4\.transform\.position\s*=\s*\3;/gm;
+  var re = /^([ \t]*)if\s*\(([^)\n]+)\)\s*\n[ \t]*var\s+(__gateMovePos[A-Za-z0-9_]*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\.transform\.position;\s*\n[ \t]*\3\.y\s*\+=\s*2f;\s*\n[ \t]*\4\.transform\.position\s*=\s*\3;/gm;
   next = next.replace(re, function(_, indent, condition, varName, entityName) {
     fixes++;
     return [

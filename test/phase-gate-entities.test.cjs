@@ -99,6 +99,7 @@ describe('phaseGateEntities filter', () => {
     });
     const code = typeof skeleton === 'string' ? skeleton : skeleton.main;
     expect(gateEntities(code)).toContain('ForgeWorkshop');
+    expect(code).toMatch(/EntityAdvanced\(ForgeWorkshop, _snap_ForgeWorkshopPos\) \|\| \(_autoPlayMode && _autoPlaySteps > _autoPlayStepsAtPhaseStart && ForgeWorkshopState >= 2\)/);
   });
 
   test('non-moving defend-only interactions no longer populate EntityAdvanced gate', () => {

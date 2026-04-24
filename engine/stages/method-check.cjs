@@ -564,9 +564,7 @@ function autoRepairMissingSkeletonBridgeInfra(ctx) {
       body: [
         '    void ShowFloatingText(Vector3 worldPos, string text, Color color)',
         '    {',
-        '        var ui = GFM_UIManager.Instance;',
-        '        if (ui != null) ui.ShowFloatingText(worldPos, text, color);',
-        '        else if (guideText != null)',
+        '        if (guideText != null)',
         '        {',
         '            guideText.text = text;',
         '            guideText.color = color;',

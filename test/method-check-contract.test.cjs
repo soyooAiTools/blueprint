@@ -306,6 +306,7 @@ const gfmFiles = require('../worker/gfm-files.cjs').loadGfmFiles();
   assert.ok(ctx.csCode.includes('bool IsNear(GameObject target, float range)'));
   assert.ok(ctx.csCode.includes('void AddGold(int amount)'));
   assert.ok(ctx.csCode.includes('void ShowFloatingText(Vector3 worldPos, string text, Color color)'));
+  assert.ok(!ctx.csCode.includes('GFM_UIManager.Instance'));
   assert.ok(ctx.csCode.includes('void OnAutoPlayArrive(string targetName)'));
 }
 

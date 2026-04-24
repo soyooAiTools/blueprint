@@ -58,11 +58,18 @@ public class GFM_UIManager : MonoBehaviour
     // ------------------------------------------------------------------------
     public void Init()
     {
-        if (_inited) return;
+        if (_inited && _canvas != null) return;
         _inited = true;
-        _canvas = GFM_UI.CreateCanvas(960, 640);
-        _guideText = GFM_UI.CreateText(_canvas, "", new Vector2(0, 270), 26);
-        _scoreText = GFM_UI.CreateText(_canvas, "Score: 0", new Vector2(340, 290), 20);
+        if (_canvas == null) _canvas = GFM_UI.CreateCanvas(960, 640);
+        if (_canvas == null) return;
+        if (_guideText == null) _guideText = GFM_UI.CreateText(_canvas, "", new Vector2(0, 270), 26);
+        if (_scoreText == null) _scoreText = GFM_UI.CreateText(_canvas, "Score: 0", new Vector2(340, 290), 20);
+    }
+
+    private bool EnsureInit()
+    {
+        if (!_inited || _canvas == null) Init();
+        return _canvas != null;
     }
 
     private void Awake()
@@ -78,6 +85,7 @@ public class GFM_UIManager : MonoBehaviour
     // ------------------------------------------------------------------------
     public void SetGuide(string text)
     {
+        if (_guideText == null) EnsureInit();
         if (_guideText != null) _guideText.text = text;
     }
 
@@ -87,6 +95,7 @@ public class GFM_UIManager : MonoBehaviour
     // ------------------------------------------------------------------------
     public void SetScore(string text)
     {
+        if (_scoreText == null) EnsureInit();
         if (_scoreText != null) _scoreText.text = text;
     }
 
@@ -94,6 +103,7 @@ public class GFM_UIManager : MonoBehaviour
     // 调用方：EconomyManager.AddResource / TrySpend / TryConvert。
     public void UpdateResourceUI()
     {
+        if (_scoreText == null) EnsureInit();
         if (_scoreText == null) return;
         if (GFM_EconomyManager.Instance == null) return;
         string s = "";
@@ -118,6 +128,7 @@ public class GFM_UIManager : MonoBehaviour
     // ------------------------------------------------------------------------
     public void ShowFloatingText(Vector3 worldPos, string text, Color color)
     {
+        if (!EnsureInit()) return;
         if (_floatingText == null) _floatingText = GFM_UI.CreateText(_canvas, "", Vector2.zero, 24);
         if (_floatingText != null)
         {

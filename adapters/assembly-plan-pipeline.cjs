@@ -529,6 +529,12 @@ function addModuleEntry(record, moduleId, source, params, sourceAtomId) {
     var keys = Object.keys(params);
     for (var i = 0; i < keys.length; i++) {
       if (params[keys[i]] !== undefined && params[keys[i]] !== '') {
+        if (moduleId === 'cost_gate' && keys[i] === 'resource' && entry.params.resource && params[keys[i]] === 'resource' && source !== 'atom:spend_resource') {
+          continue;
+        }
+        if (moduleId === 'cost_gate' && keys[i] === 'amount' && entry.params.amount && Number(params[keys[i]]) === 1) {
+          continue;
+        }
         entry.params[keys[i]] = params[keys[i]];
       }
     }
@@ -823,11 +829,15 @@ function buildEntityPlan(ctx, storyboardAtomPlan, registry, registryIndex) {
         addModuleEntry(entityMap[actorEntityName], moduleId, 'atom:' + atom.atomId, moduleParams, atom.id);
         continue;
       }
-      var ownerName = targetEntityName && entityMap[targetEntityName] ? targetEntityName : null;
+      var ownerName = null;
+      if ((moduleId === 'move_to_target' || moduleId === 'target_acquire' || moduleId === 'projectile_emit') && entityMap[actorEntityName]) {
+        ownerName = actorEntityName;
+      }
+      if (!ownerName && moduleId === 'apply_damage' && atom.params && atom.params.target && entityMap[atom.params.target]) ownerName = atom.params.target;
+      if (!ownerName && targetEntityName && entityMap[targetEntityName]) ownerName = targetEntityName;
       if (!ownerName && atom.params && atom.params.target && entityMap[atom.params.target]) ownerName = atom.params.target;
       if (!ownerName && atom.params && atom.params.from && entityMap[atom.params.from]) ownerName = atom.params.from;
       if (!ownerName && atom.params && atom.params.entity && entityMap[atom.params.entity]) ownerName = atom.params.entity;
-      if (!ownerName && entityMap[actorEntityName] && moduleId === 'move_to_target') ownerName = actorEntityName;
       if (ownerName && entityMap[ownerName]) {
         addModuleEntry(entityMap[ownerName], moduleId, 'atom:' + atom.atomId, moduleParams, atom.id);
       } else {
