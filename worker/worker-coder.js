@@ -1462,7 +1462,15 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
     + '}\n'
     + '```\n'
     + 'Call UpdateGameState() whenever phase changes, entities are created/destroyed, or key variables change.\n'
-    + 'This is required for CUA automated testing to verify blueprint flow coverage.\n';
+    + 'This is required for CUA automated testing to verify blueprint flow coverage.\n'
+    + 'For signals that are ambiguous in before/after snapshots (resource spend/gain, upgrade level changes, camera changes, near-target arrival, source consumed/hidden, HP drops), also export explicit per-phase evidence.\n'
+    + 'Preferred format:\n'
+    + '- state["phaseEvidence"] = { "phaseId": { "signal_id": true | number | { delta, before, after, distance, changed, consumed } } }\n'
+    + '- or flatten into variables with keys like:\n'
+    + '  variables["evidence.upgradeOurBase.resource_decremented"] = 1\n'
+    + '  variables["evidence.dispatchAstronautAttack.distance_to_target_below_threshold.distance"] = 1.2\n'
+    + '  variables["evidence.recycleDebrisGetGold.source_hidden_or_moved"] = 1\n'
+    + 'Only write evidence when the signal truly happens, and scope it to the current phase.\n';
 
   // === Spec System: Extract specs + generate skeleton (if storyboard frames available) ===
   var skeleton = null;

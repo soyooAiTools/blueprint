@@ -29,6 +29,7 @@ GFM_*.cs 工具类在 `Assets/Program/Script/Commons/`（GFM_UI/GFM_Utils/GFM_Po
 - `Text scoreText` — 分数文字，直接设 `scoreText.text = "..."` 更新内容
 - 需要更多 UI 文字可以用: `GFM_UI.CreateText(uiCanvas, "text", pos, fontSize)`
 - 需要按钮可以用: `GFM_UI.CreateButton(uiCanvas, "text", pos, size, onClick)`
+- 不要自创 UI helper 包装名，例如 `CreateLocalCanvas` / `CreateLocalText` / `AddLocalWorldLabel`；直接使用 `uiCanvas` 或 `GFM_UI.CreateText` / `GFM_UI.AddWorldLabel`
 
 ## ⛔ 绝对禁止
 
@@ -164,6 +165,36 @@ void OnAutoPlayArrive(string targetName) {
 **不要修改或删除** `UpdateGameState()` 方法。
 **不要使用** `Application.ExternalEval()` — Luna 不支持。
 **不要使用** `UnityEngine.JsonUtility` — Luna 不支持，如需 JSON 用 `Newtonsoft.Json`。
+
+对这些容易被 `before/after` 截图差分误判的 signal：
+- `resource_incremented`
+- `resource_decremented`
+- `upgrade_level_changed`
+- `distance_to_target_below_threshold`
+- `camera_orientation_changed`
+- `camera_zoom_changed`
+- `source_hidden_or_moved`
+- `target_hp_decreased_or_target_dead`
+
+除了正常更新 `entityStates / variables / uiState / cameraState`，还应导出显式证据，优先用：
+
+```csharp
+phaseEvidence["upgradeOurBase"]["resource_decremented"] = 1;
+phaseEvidence["upgradeOurBase"]["upgrade_level_changed"] = new { before = 1, after = 2 };
+phaseEvidence["dispatchAstronautAttack"]["distance_to_target_below_threshold"] = new { distance = 1.2f };
+```
+
+如果不方便新增顶层 `phaseEvidence`，至少把等价的扁平键写进 `variables`：
+
+```csharp
+variables["evidence.upgradeOurBase.resource_decremented"] = 1;
+variables["evidence.dispatchAstronautAttack.distance_to_target_below_threshold.distance"] = 1.2f;
+```
+
+要求：
+- 证据只在对应 phase 发生时写入
+- 不要跨 phase 复用同一个证据键
+- 优先写 phase-scope key，不要只写全局布尔量
 
 ## 编译验证
 

@@ -40,6 +40,7 @@ function repairUpdateGameStateBridge(code) {
   var pairs = [
     ['+ "\\\"entityStates\\\":{\n', '+ "\\\"entityStates\\\":{"\n'],
     ['+ "\\\"variables\\\":{\n', '+ "\\\"variables\\\":{"\n'],
+    ['+ ",\\\"phaseEvidence\\\":{\n', '+ ",\\\"phaseEvidence\\\":{"\n'],
     ['+ ",\\\"phaseTimestamps\\\":{\n', '+ ",\\\"phaseTimestamps\\\":{"\n'],
   ];
   for (var i = 0; i < pairs.length; i++) {

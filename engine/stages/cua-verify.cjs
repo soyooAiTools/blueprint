@@ -12,6 +12,8 @@ var helpers = require('../helpers.cjs');
 var { recode, patchRecode } = require('../recode.cjs');
 var { createFixLoop } = require('../fix-loop.cjs');
 var { normalizeFingerprint } = require('../metrics.cjs');
+var runtimeContractStage;
+try { runtimeContractStage = require('./runtime-contract.cjs'); } catch(e) { runtimeContractStage = null; }
 var archiveWriter;
 try { archiveWriter = require('../archive-writer.cjs'); } catch(e) { archiveWriter = { writeSilentPass: function() {} }; }
 
@@ -292,6 +294,26 @@ module.exports = {
     if (ctx.htmlOutput.length < 10240) throw new Error('HTML output too small (' + ctx.htmlOutput.length + ' bytes) — likely empty build');
   },
   canSkip: function(ctx) {
+    var runtimeContract = ctx && ctx.stageResults && ctx.stageResults['runtime-contract'];
+    if (runtimeContract && runtimeContract.needsEscalation === false) {
+      ctx.stageResults['cua-verify'] = {
+        passed: true,
+        skipped: true,
+        skippedByRuntimeContract: true,
+        rounds: 0,
+        durationMs: 0,
+        reason: 'runtime-contract-passed',
+        planCoverage: runtimeContract.planCoverage || null,
+        signalCoverage: runtimeContract.signalCoverage || null,
+        signalValidationPassed: runtimeContract.signalValidationPassed !== false,
+        missingSignalCount: runtimeContract.missingSignalCount || 0,
+        unsupportedSignalCount: runtimeContract.unsupportedSignalCount || 0,
+        silentPassSignals: runtimeContract.silentPassSignals || [],
+        totalActions: runtimeContract.totalActions !== undefined ? runtimeContract.totalActions : null,
+      };
+      ctx.addLog('cua-verify', 'Skipping heavy CUA — runtime contract already passed');
+      return true;
+    }
     if (process.env.SKIP_CUA === 'true') {
       console.warn('[CUA-GATE] ⚠️  SKIP_CUA=true — CUA hard gate DISABLED. Set SKIP_CUA= to re-enable.');
       ctx.addLog('cua-verify', 'WARNING: CUA skipped via SKIP_CUA env — hard gate disabled');
@@ -946,7 +968,78 @@ module.exports = {
                       lastHtmlData = newHtml;
                       ctx.addLog('cua-verify', 'Fix HTML: ' + (newHtml.length / 1048576).toFixed(1) + 'MB');
                       fs.writeFileSync(path.join(previewDir, 'index.html'), lastHtmlData);
-                      return { done: false };
+                      if (!runtimeContractStage || typeof runtimeContractStage.runRuntimeContractPass !== 'function') {
+                        return { done: false };
+                      }
+
+                      ctx.htmlOutput = lastHtmlData;
+                      return runtimeContractStage.runRuntimeContractPass(ctx, {
+                        stageName: 'cua-verify',
+                        reportStatus: false,
+                        writeStageResult: true,
+                        statusPrefix: '[Linux] Post-fix runtime contract',
+                      }).then(function(contractResult) {
+                        if (contractResult && contractResult.needsEscalation === false) {
+                          ctx.csCode = lastCsCode;
+                          ctx.extraFiles = Object.assign({}, lastExtraFiles);
+                          ctx.stageResults['cua-verify'] = Object.assign({}, ctx.stageResults['cua-verify'] || {}, {
+                            passed: true,
+                            skipped: true,
+                            skippedByRuntimeContract: true,
+                            postFixRuntimeContract: true,
+                            round: round,
+                            rounds: round,
+                            reason: 'runtime-contract-passed-after-fix',
+                            planCoverage: contractResult.planCoverage || null,
+                            signalCoverage: contractResult.signalCoverage || null,
+                            signalValidationPassed: contractResult.signalValidationPassed !== false,
+                            missingSignalCount: contractResult.missingSignalCount || 0,
+                            unsupportedSignalCount: contractResult.unsupportedSignalCount || 0,
+                            missingSignals: (contractResult.missingSignals || []).slice(0, 12),
+                            unsupportedSignals: (contractResult.unsupportedSignals || []).slice(0, 12),
+                            silentPassSignals: contractResult.silentPassSignals || [],
+                            totalActions: contractResult.totalActions !== undefined ? contractResult.totalActions : null,
+                          });
+                          ctx.addLog('cua-verify', 'Post-fix runtime contract passed — skipping remaining heavy CUA rounds');
+                          ctx.reportStatus('cua_passed', {
+                            message: '[Linux] Runtime contract passed after fix, heavy CUA skipped',
+                            previewUrl: ctx.previewUrl,
+                            qualityData: {
+                              cuaResult: {
+                                passed: true,
+                                skippedByRuntimeContract: true,
+                                round: round,
+                              },
+                              cuaRetries: round,
+                            },
+                          });
+                          return {
+                            done: true,
+                            result: {
+                              passed: true,
+                              round: round,
+                              skippedByRuntimeContract: true,
+                              totalActions: contractResult.totalActions !== undefined ? contractResult.totalActions : -1,
+                              silentPassSignals: contractResult.silentPassSignals || [],
+                              planCoverage: contractResult.planCoverage || null,
+                              signalCoverage: contractResult.signalCoverage || null,
+                              signalValidationPassed: contractResult.signalValidationPassed !== false,
+                              missingSignalCount: contractResult.missingSignalCount || 0,
+                              unsupportedSignalCount: contractResult.unsupportedSignalCount || 0,
+                            }
+                          };
+                        }
+
+                        ctx.addLog('cua-verify',
+                          'Post-fix runtime contract still needs escalation: ' +
+                          ((contractResult && contractResult.escalationReasons && contractResult.escalationReasons.length > 0)
+                            ? contractResult.escalationReasons.join(', ')
+                            : 'unknown'));
+                        return { done: false };
+                      }).catch(function(err) {
+                        ctx.addLog('cua-verify', 'Post-fix runtime contract recheck failed: ' + err.message);
+                        return { done: false };
+                      });
                     });
                 })
                 .catch(function(err) {
