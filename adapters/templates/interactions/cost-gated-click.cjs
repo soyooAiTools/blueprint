@@ -1,4 +1,5 @@
 var { toLowerCamel } = require('../trigger-codegen.cjs');
+var { resourceIdExpr } = require('../resource-ids.cjs');
 
 function escapeString(value) {
   return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -33,10 +34,9 @@ function generateCostClickUpdate(schema) {
       lines.push('        // Paid-click gate: entity must be reachable and tapped before spending the resource cost.');
       lines.push('        if (' + entity + ' != null && IsNear(' + entity + ', 2f) && Input.GetMouseButtonDown(0)) {');
       lines.push('            int cost = ' + c.cost + ';');
-      lines.push('            // Cost gate: spend only when the wallet has enough gold for this click action.');
-      lines.push('            if (gold >= cost) {');
-      lines.push('                gold -= cost;');
-      lines.push('                if (scoreText != null) scoreText.text = "gold: " + gold;');
+      lines.push('            // Cost gate: spend only when the canonical economy manager has enough resource.');
+      lines.push('            if (TrySpend(' + resourceIdExpr(c.costResource || 'gold') + ', cost)) {');
+      lines.push('                if (scoreText != null) scoreText.text = "' + escapeString(c.costResource || 'gold') + ': " + GetResource(' + resourceIdExpr(c.costResource || 'gold') + ');');
       lines.push('                ' + entity + 'Done = true;');
       lines.push('                ' + entity + 'State = 2;');
       lines.push('                var ' + entity + 'Pos = ' + entity + '.transform.position;');

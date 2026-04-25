@@ -14,6 +14,7 @@ public class GFM_Audio : MonoBehaviour
     private AudioSource _sfxSource;
     private bool _muted = false;
 
+    // 初始化音频管理器，并准备背景音乐与音效播放入口。
     public static GFM_Audio Init(GameObject parent)
     {
         if (instance != null) return instance;
@@ -32,6 +33,7 @@ public class GFM_Audio : MonoBehaviour
         return instance;
     }
 
+    // 播放或切换背景音乐。
     public void PlayBGM(AudioClip clip)
     {
         if (clip == null || _bgmSource == null) return;
@@ -39,17 +41,20 @@ public class GFM_Audio : MonoBehaviour
         if (!_muted) _bgmSource.Play();
     }
 
+    // 停止当前背景音乐。
     public void StopBGM()
     {
         if (_bgmSource != null) _bgmSource.Stop();
     }
 
+    // 播放一次性音效。
     public void PlaySFX(AudioClip clip)
     {
         if (clip == null || _sfxSource == null || _muted) return;
         _sfxSource.PlayOneShot(clip);
     }
 
+    // 按指定音高播放一次性音效，用于强调反馈。
     public void PlayPitch(AudioClip clip, int index)
     {
         if (clip == null || _sfxSource == null || _muted) return;
@@ -62,6 +67,7 @@ public class GFM_Audio : MonoBehaviour
         _sfxSource.Play();
     }
 
+    // 统一切换背景音乐和音效静音状态。
     public void SetMute(bool mute)
     {
         _muted = mute;

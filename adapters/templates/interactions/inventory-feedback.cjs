@@ -1,6 +1,4 @@
-function escapeString(value) {
-  return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-}
+var { resourceIdExpr, escapeCsString } = require('../resource-ids.cjs');
 
 function generateInventoryFeedback(schema) {
   var resources = schema.resources || [];
@@ -13,8 +11,8 @@ function generateInventoryFeedback(schema) {
     var r = resources[i];
     var cap = r.maxStock || maxCarry;
     lines.push('        // Full-inventory gate: show delivery guidance when the carried resource reaches capacity.');
-    lines.push('        if (GetResource("' + escapeString(r.name) + '") >= ' + cap + ') {');
-    lines.push('            if (guideText != null) guideText.text = "' + escapeString(r.name) + ' full! Deliver to continue.";');
+    lines.push('        if (GetResource(' + resourceIdExpr(r.name) + ') >= ' + cap + ') {');
+    lines.push('            SetGuideText("' + escapeCsString(r.name) + ' full! Deliver to continue.");');
     lines.push('        }');
     if (i < resources.length - 1) lines.push('');
   }

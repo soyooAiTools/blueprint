@@ -5,6 +5,7 @@
  */
 
 var { TriggerType } = require('./phase-enums.cjs');
+var { resourceIdExpr } = require('./resource-ids.cjs');
 
 function toLowerCamel(name) {
   // Identity: skeleton declares PascalCase variables matching entity names as-is
@@ -64,7 +65,7 @@ function triggerToCondition(trigger, allEntities) {
   if (!trigger || !trigger.type) return 'true /* MISSING TRIGGER */';
   switch (trigger.type) {
     case TriggerType.RESOURCE_COLLECTED:
-      return 'GetResource("' + trigger.resource + '") >= ' + trigger.amount;
+      return 'GetResource(' + resourceIdExpr(trigger.resource) + ') >= ' + trigger.amount;
     case TriggerType.ENTITY_STATE_REACHED:
       if (!hasEntityRef(trigger.entity)) return 'false /* unresolved entity_state_reached */';
       return toLowerCamel(trigger.entity) + 'State >= ' + trigger.state;

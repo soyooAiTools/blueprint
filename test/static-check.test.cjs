@@ -228,6 +228,45 @@ public partial class GameFlowManagerMain {
     expect(hit.blocking).toBe(true);
   });
 
+  test('canonical entity binding forbids direct pool lookup in GameFlowManagerMain', () => {
+    const code = `using UnityEngine;
+public partial class GameFlowManagerMain : MonoBehaviour {
+  string[] _entityBindingIds = new string[] { "Hero" };
+  void Start() {
+    Hero = GameObject.Find("__Pool_Hero");
+  }
+  GameObject Hero; // bound entity
+}`;
+    const hit = staticCheck(code, { filename: 'GameFlowManagerMain.cs' }).issues.find(i => i.rule === 'canonical-entity-find-forbidden');
+    expect(hit).toBeDefined();
+    expect(hit.blocking).toBe(true);
+  });
+
+  test('autoplay fallback is forbidden in tap handlers', () => {
+    const code = `using UnityEngine;
+public partial class GameFlowManagerMain {
+  void Phase_upgrade_OnTap() {
+    if (ShouldRunAutoPlayFallback()) { }
+  }
+}`;
+    const hit = staticCheck(code, { filename: 'GameFlowManagerMain.Flow.cs' }).issues.find(i => i.rule === 'autoplay-fallback-in-ontap');
+    expect(hit).toBeDefined();
+    expect(hit.blocking).toBe(true);
+  });
+
+  test('resource api calls require canonical resource ids when helper exists', () => {
+    const code = `using UnityEngine;
+public partial class GameFlowManagerMain {
+  void Foo() {
+    AddResource("Gold", 1);
+    AddResource(GFM_ResourceIds.Gold, 1);
+  }
+}`;
+    const hit = staticCheck(code, { filename: 'GameFlowManagerMain.Resource.cs' }).issues.find(i => i.rule === 'raw-resource-string-call');
+    expect(hit).toBeDefined();
+    expect(hit.blocking).toBe(true);
+  });
+
   test('updategamestate-skeleton-preserve accepts helper-based bridge structure', () => {
     const code = `using UnityEngine;
 public partial class GameFlowManagerMain : MonoBehaviour {

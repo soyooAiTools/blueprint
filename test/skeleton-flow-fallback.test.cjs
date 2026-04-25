@@ -59,17 +59,20 @@ const ui = skeleton.ui;
 const resource = skeleton.resource;
 assert.match(
   flow,
-  /void Phase_upgradeOurBase_OnAutoPlayArrive\(string targetName\)[\s\S]*if \(!upgradeOurBaseInteractionDone && !upgradeOurBasePlayerActed\)/,
+  /void Phase_upgradeOurBase_OnAutoPlayArrive\(string targetName\)[\s\S]*if \(ShouldRunAutoPlayFallback\(\) && !upgradeOurBaseInteractionDone && !upgradeOurBasePlayerActed\)/,
 );
-assert.match(flow, /AddResource\("Gold", 1\);/);
-assert.match(flow, /TrySpend\("Gold", 1\);/);
+assert.match(flow, /AddResource\(GFM_ResourceIds\.Gold, 1\);/);
+assert.match(flow, /TrySpend\(GFM_ResourceIds\.Gold, 1\);/);
 assert.match(flow, /RecordPhaseEvidenceDistance\("collectRocketDebris", "distance_to_target_below_threshold", 0\.5f\);/);
 assert.match(flow, /RecordPhaseEvidenceFlag\("buildDefenseTower", "entity_state_equals_built"\);/);
 assert.match(resource, /RecordPhaseEvidenceDelta\(currentPhaseName, "resource_decremented"/);
 assert.match(ui, /BuildPhaseEvidenceJson\(\)/);
 assert.match(flow, /OurBaseDone = true;/);
 assert.match(flow, /GoldDone = true;/);
-assert.match(flow, /AddResource\("RocketDebris", 1\);/);
+assert.match(flow, /AddResource\(GFM_ResourceIds\.RocketDebris, 1\);/);
 assert.match(flow, /UpdateGameState\(\);/);
+const tapBody = flow.match(/void Phase_upgradeOurBase_OnTap\(\)[\s\S]*?TODO_PHASE_upgradeOurBase_ONTAP_END/);
+assert.ok(tapBody, 'tap handler should exist');
+assert.doesNotMatch(tapBody[0], /ShouldRunAutoPlayFallback|SKELETON FALLBACK/);
 
 console.log('skeleton flow fallback tests passed');

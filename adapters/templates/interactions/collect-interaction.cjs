@@ -1,4 +1,5 @@
 var { toLowerCamel, hasEntityRef } = require('../trigger-codegen.cjs');
+var { resourceIdExpr } = require('../resource-ids.cjs');
 
 function escapeString(value) {
   return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -20,8 +21,8 @@ function generateCollectUpdate(schema) {
     lines.push('        // Collection gate: player must be near the source, cooldown must be ready, and source object must exist.');
     lines.push('        if (_collectCooldown <= 0f && ' + entity + ' != null && IsNear(' + entity + ', ' + collectRange + 'f)) {');
     lines.push('            // Capacity gate: collect only while the resource stack is below its configured cap.');
-    lines.push('            if (GetResource("' + escapeString(r.name) + '") < ' + cap + ') {');
-    lines.push('                AddResource("' + escapeString(r.name) + '", 1);');
+    lines.push('            if (GetResource(' + resourceIdExpr(r.name) + ') < ' + cap + ') {');
+    lines.push('                AddResource(' + resourceIdExpr(r.name) + ', 1);');
     lines.push('                _collectCooldown = collectCooldownInterval;');
     lines.push('                ' + entity + 'Done = true;');
     lines.push('                HideObj(' + entity + '); // observable move — satisfies EntityAdvanced() phase-exit gate');

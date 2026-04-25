@@ -23,6 +23,7 @@ public class GFM_Event : MonoBehaviour
     }
     private Queue<PendingEvent> _pending = new Queue<PendingEvent>();
 
+    // 初始化事件中心并清空历史监听。
     public static GFM_Event Init(GameObject parent)
     {
         if (instance != null) return instance;
@@ -41,6 +42,7 @@ public class GFM_Event : MonoBehaviour
         }
     }
 
+    // 注册一个事件监听回调。
     public static void Subscribe(int eventId, GFM_EventHandler handler)
     {
         if (instance == null) return;
@@ -50,6 +52,7 @@ public class GFM_Event : MonoBehaviour
             instance._subscribers[eventId].Add(handler);
     }
 
+    // 移除一个事件监听回调。
     public static void Unsubscribe(int eventId, GFM_EventHandler handler)
     {
         if (instance == null) return;
@@ -57,18 +60,21 @@ public class GFM_Event : MonoBehaviour
             instance._subscribers[eventId].Remove(handler);
     }
 
+    // 派发事件并携带一个参数。
     public static void Fire(int eventId, object sender, string data)
     {
         if (instance == null) return;
         instance._pending.Enqueue(new PendingEvent { id = eventId, sender = sender, data = data });
     }
 
+    // 立即派发无参数事件。
     public static void FireNow(int eventId, object sender, string data)
     {
         if (instance == null) return;
         instance.Dispatch(eventId, sender, data);
     }
 
+    // 执行指定事件的所有监听回调。
     private void Dispatch(int eventId, object sender, string data)
     {
         if (!_subscribers.ContainsKey(eventId)) return;
@@ -79,6 +85,7 @@ public class GFM_Event : MonoBehaviour
         }
     }
 
+    // 清空所有事件监听。
     public static void Clear()
     {
         if (instance != null) instance._subscribers.Clear();

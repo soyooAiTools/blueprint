@@ -15,6 +15,7 @@ public class ScriptActivator : MonoBehaviour
     private Vector3 _patrolOrigin;
     private float _timer = 0f;
 
+    // 激活目标脚本或组件。
     public void Activate(string role, string behavior, float p1, float p2, float p3)
     {
         this.role = role;
@@ -26,8 +27,10 @@ public class ScriptActivator : MonoBehaviour
         _activated = true;
     }
 
+    // 设置需要被激活控制的目标组件。
     public void SetTarget(Transform t) { target = t; }
 
+    // 停用目标脚本或组件。
     public void Deactivate()
     {
         _activated = false;
@@ -35,6 +38,7 @@ public class ScriptActivator : MonoBehaviour
         behavior = "";
     }
 
+    // 返回当前目标是否处于激活状态。
     public bool IsActivated() { return _activated; }
 
     void Update()

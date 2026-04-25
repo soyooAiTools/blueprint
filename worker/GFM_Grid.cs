@@ -55,12 +55,14 @@ public class GFM_Grid
         }
     }
 
+    // 设置指定网格节点是否可通行。
     public void SetWalkable(int x, int y, bool walkable)
     {
         if (x >= 0 && x < width && y >= 0 && y < height)
             nodes[x, y].walkable = walkable;
     }
 
+    // 批量设置矩形区域内的网格可通行状态。
     public void SetWalkableRect(int xMin, int yMin, int xMax, int yMax, bool walkable)
     {
         for (int x = Mathf.Max(0, xMin); x <= Mathf.Min(width - 1, xMax); x++)
@@ -68,12 +70,14 @@ public class GFM_Grid
                 nodes[x, y].walkable = walkable;
     }
 
+    // 按世界坐标设置所在网格节点可通行状态。
     public void SetWalkableByWorldPos(Vector3 worldPos, bool walkable)
     {
         GFM_GridNode node = GetNodeFromWorldPos(worldPos);
         if (node != null) node.walkable = walkable;
     }
 
+    // 根据场景碰撞体检测障碍并更新网格。
     public void DetectObstacles(LayerMask obstacleLayer, float checkHeight)
     {
         for (int x = 0; x < width; x++)
@@ -87,6 +91,7 @@ public class GFM_Grid
         }
     }
 
+    // 把世界坐标转换为网格节点。
     public GFM_GridNode GetNodeFromWorldPos(Vector3 worldPos)
     {
         int x = Mathf.FloorToInt((worldPos.x - origin.x) / cellSize);
@@ -95,11 +100,13 @@ public class GFM_Grid
         return nodes[x, z];
     }
 
+    // 把网格节点转换回世界坐标。
     public Vector3 NodeToWorldPos(GFM_GridNode node)
     {
         return new Vector3(node.worldX, origin.y, node.worldZ);
     }
 
+    // 获取指定节点周围可用于寻路的邻居节点。
     public List<GFM_GridNode> GetNeighbors(GFM_GridNode node, bool allowDiagonal)
     {
         List<GFM_GridNode> neighbors = new List<GFM_GridNode>();
@@ -132,6 +139,7 @@ public class GFM_Grid
         return neighbors;
     }
 
+    // 查找距离指定节点最近的可通行节点。
     public GFM_GridNode FindNearestWalkable(Vector3 worldPos)
     {
         GFM_GridNode node = GetNodeFromWorldPos(worldPos);

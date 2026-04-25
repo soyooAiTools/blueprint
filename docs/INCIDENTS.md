@@ -1,5 +1,24 @@
 # Blueprint 生产事故记录
 
+## 2026-04-25: SVN 提交后的程序员交付版清理
+
+### 背景
+
+Blueprint 审核通过前需要保留 `[ASSEMBLY SLOT]`、`[ASSEMBLY PHASE]`、`phaseEvidenceSchema`、`TODO_*` 等机器契约，供 method-check、runtime-contract、CUA 和自动修复链路追踪。但点击“提交 SVN”后，项目进入程序员接手阶段，后续不再走 Blueprint 自动审核，这些契约注释和 `BlueprintArtifacts/` 会降低代码可读性。
+
+### 修复
+
+- 新增 `lib/programmer-delivery-cleaner.cjs`，只在交付目录中移除机器契约注释、验证附件，并生成 `PROGRAMMER_HANDOFF.md`。
+- `/api/projects/:id/svn-commit` 在临时 SVN checkout 内执行清理；不修改 `server-data/project-sources/**`、公开 WebGL 产物或审核前源码。
+- `scripts/export-unity-project.sh` 增加 `--programmer-delivery`，手工导出完整 Unity 工程时也可生成同口径的程序员交付版。
+
+### 验证
+
+- `node -c lib/programmer-delivery-cleaner.cjs`
+- `node -c api/projects.cjs`
+- `node test/programmer-delivery-cleaner.test.cjs`
+- 对当前完整 Unity 工程副本演练：处理 65 个 C# 文件，修改 15 个，移除 1279 行机器契约注释，残留契约注释为 0。
+
 ## 2026-04-25: assembly 覆盖完整但实现覆盖不完整，导致 custom codegen 仍被触发
 
 ### 背景

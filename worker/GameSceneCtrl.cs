@@ -12,6 +12,7 @@ public class GameSceneCtrl
     private int _count = 0;
     private const int MAX = 64;
 
+    // 初始化场景实体控制器和实体缓存。
     public static GameSceneCtrl Init(GameObject parent)
     {
         if (instance != null) return instance;
@@ -21,15 +22,25 @@ public class GameSceneCtrl
         return instance;
     }
 
+    // 注册实体名与场景物体的绑定关系。
     public void Register(string name, string poolName)
     {
-        if (_count >= MAX) return;
         var go = GameObject.Find(poolName);
+        for (int i = 0; i < _count; i++)
+        {
+            if (_names[i] == name)
+            {
+                _objects[i] = go;
+                return;
+            }
+        }
+        if (_count >= MAX) return;
         _names[_count] = name;
         _objects[_count] = go;
         _count++;
     }
 
+    // 按实体名获取已注册的场景物体。
     public GameObject Get(string name)
     {
         for (int i = 0; i < _count; i++)
@@ -39,24 +50,28 @@ public class GameSceneCtrl
         return null;
     }
 
+    // 显示实体并放置到指定世界坐标。
     public void Show(string name, Vector3 pos)
     {
         var go = Get(name);
         if (go != null) go.transform.position = pos;
     }
 
+    // 隐藏实体到镜头外。
     public void Hide(string name)
     {
         var go = Get(name);
         if (go != null) go.transform.position = new Vector3(0, -999, 0);
     }
 
+    // 设置实体缩放。
     public void SetScale(string name, Vector3 scale)
     {
         var go = Get(name);
         if (go != null) go.transform.localScale = scale;
     }
 
+    // 判断两个实体或实体与坐标是否足够接近。
     public bool IsNear(string a, string b, float range)
     {
         var ga = Get(a);
@@ -65,6 +80,7 @@ public class GameSceneCtrl
         return Vector3.Distance(ga.transform.position, gb.transform.position) < range;
     }
 
+    // 判断两个实体或实体与坐标是否足够接近。
     public bool IsNear(string a, GameObject b, float range)
     {
         var ga = Get(a);
@@ -72,6 +88,7 @@ public class GameSceneCtrl
         return Vector3.Distance(ga.transform.position, b.transform.position) < range;
     }
 
+    // 从已注册实体中查找离指定位置最近的一个。
     public string FindNearest(string origin, string[] candidates)
     {
         var go = Get(origin);

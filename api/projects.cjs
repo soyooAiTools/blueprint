@@ -6,6 +6,7 @@ var fs = require('fs');
 var { projectSM } = require('../lib/state-machine.cjs');
 var { ensureProjectPlans } = require('../adapters/assembly-plan-pipeline.cjs');
 var { normalizeProjectBlueprint } = require('../lib/project-blueprint-normalizer.cjs');
+var programmerDeliveryCleaner = require('../lib/programmer-delivery-cleaner.cjs');
 
 /**
  * Validate project state transition. Returns error string or null if valid.
@@ -500,11 +501,13 @@ function inferEntityDisplayName(desc) {
           }
         }
 
+        var deliverySummary = programmerDeliveryCleaner.cleanProgrammerDelivery(tmpDir, { project: project });
+
         // svn add new files (ignore already versioned)
         try { exec('svn add --force --parents ' + JSON.stringify(tmpDir) + '/*', { cwd: tmpDir }); } catch(e) {}
 
         // Commit
-        var commitMsg = '提交 WebGL 构建 + C# 源码 — ' + (project.name || id);
+        var commitMsg = '提交程序员交付版 WebGL + C# 源码 — ' + (project.name || id);
         var result = exec('svn commit -m ' + JSON.stringify(commitMsg) + ' --non-interactive --trust-server-cert-failures=unknown-ca,cn-mismatch,expired', { cwd: tmpDir, timeout: 120000 });
         var output = result.toString().trim();
 
@@ -520,7 +523,7 @@ function inferEntityDisplayName(desc) {
         // Cleanup
         try { exec('rm -rf ' + JSON.stringify(tmpDir)); } catch(e) {}
 
-        sendJSON(res, { success: true, revision: revision, message: output || '提交成功' });
+        sendJSON(res, { success: true, revision: revision, message: output || '提交成功', programmerDelivery: deliverySummary });
       } catch(e) {
         // Cleanup on error
         try { exec('rm -rf ' + JSON.stringify(tmpDir)); } catch(e2) {}

@@ -1,3 +1,5 @@
+var { resourceIdExpr } = require('./templates/resource-ids.cjs');
+
 function toArray(value) {
   if (Array.isArray(value)) return value;
   if (value == null || value === '') return [];
@@ -183,7 +185,7 @@ function buildDeterministicGuideLines(plans) {
   lines.push('        {');
   for (var i = 0; i < guideMap.length; i++) {
     lines.push('            case "' + guideMap[i].phaseId.replace(/"/g, '\\"') + '":');
-    lines.push('                if (guideText.text != "' + guideMap[i].guide.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '") guideText.text = "' + guideMap[i].guide.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '";');
+    lines.push('                if (guideText.text != "' + guideMap[i].guide.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '") SetGuideText("' + guideMap[i].guide.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '");');
     lines.push('                break;');
   }
   lines.push('        }');
@@ -401,9 +403,9 @@ function buildDeterministicScoreLines(moduleInstance) {
   var lines = [];
   lines.push('        UpdateResourceUI();');
   if (label) {
-    lines.push('        if (scoreText != null && scoreText.text.Length == 0 && GetResource("' + String(label).replace(/"/g, '\\"') + '") > 0)');
+    lines.push('        if (scoreText != null && scoreText.text.Length == 0 && GetResource(' + resourceIdExpr(label) + ') > 0)');
     lines.push('        {');
-    lines.push('            scoreText.text = "' + String(label).replace(/"/g, '\\"') + ': " + GetResource("' + String(label).replace(/"/g, '\\"') + '");');
+    lines.push('            scoreText.text = "' + String(label).replace(/"/g, '\\"') + ': " + GetResource(' + resourceIdExpr(label) + ');');
     lines.push('        }');
   }
   lines.push('        if (scoreText != null && scoreText.text.Length > 0) RecordPhaseEvidenceFlag(currentPhaseName, "score_text_changed");');
@@ -514,7 +516,7 @@ function buildDeterministicInventoryWalletLines(moduleInstance, plans) {
   lines.push('        UpdateResourceUI();');
   for (var i = 0; i < resourceKinds.length; i++) {
     var resource = escapeCsString(resourceKinds[i]);
-    lines.push('        if (GetResource("' + resource + '") > 0) RecordPhaseEvidenceFlag(currentPhaseName, "resource_incremented");');
+    lines.push('        if (GetResource(' + resourceIdExpr(resource) + ') > 0) RecordPhaseEvidenceFlag(currentPhaseName, "resource_incremented");');
   }
   lines.push('        if (scoreText != null && scoreText.text.Length > 0) RecordPhaseEvidenceFlag(currentPhaseName, "score_text_changed");');
   return lines;
@@ -535,7 +537,7 @@ function buildDeterministicWorldLabelLines(moduleInstance, plans) {
   var params = moduleInstance && moduleInstance.params || {};
   var text = escapeCsString(params.text || params.label || params.guide || 'Tap');
   var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.UI.cs', moduleInstance));
-  lines.push('        if (guideText != null) guideText.text = "' + text + '";');
+  lines.push('        SetGuideText("' + text + '");');
   lines.push(recordFlag('guide_text_visible'));
   return lines;
 }
@@ -591,7 +593,7 @@ function buildDeterministicCollectLines(moduleInstance, plans) {
   var range = moduleInstance.params && moduleInstance.params.range != null ? Number(moduleInstance.params.range) : 1.5;
   var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Resource.cs', moduleInstance));
   if (!isIdentifier(entityVar) || !planHasEntity(plans, entityVar)) {
-    lines.push('        AddResource("' + escapeCsString(resource || 'resource') + '", ' + (isFinite(count) ? count : 1) + ');');
+    lines.push('        AddResource(' + resourceIdExpr(resource || 'resource') + ', ' + (isFinite(count) ? count : 1) + ');');
     lines.push('        UpdateResourceUI();');
     lines.push(recordFlag('resource_incremented'));
     lines.push(recordFlag('source_hidden_or_moved'));
@@ -601,7 +603,7 @@ function buildDeterministicCollectLines(moduleInstance, plans) {
   lines.push('        if (' + entityVar + '.transform.position.y < -900f) return;');
   lines.push('        if (GFM_Player.Instance.IsNear(' + entityVar + ', ' + csFloat(range, 1.5) + '))');
   lines.push('        {');
-  lines.push('            AddResource("' + String(resource).replace(/"/g, '\\"') + '", ' + (isFinite(count) ? count : 1) + ');');
+  lines.push('            AddResource(' + resourceIdExpr(resource) + ', ' + (isFinite(count) ? count : 1) + ');');
   lines.push('            HideObj(' + entityVar + ');');
   lines.push('            ' + entityVar + 'State = Mathf.Max(' + entityVar + 'State, 1);');
   lines.push('            RecordPhaseEvidenceDistance(currentPhaseName, "distance_to_target_below_threshold", ' + csFloat(range, 1.5) + ');');
@@ -619,12 +621,12 @@ function buildDeterministicDeliverLines(moduleInstance, plans) {
   var reward = moduleInstance.params && moduleInstance.params.reward != null ? Number(moduleInstance.params.reward) : 1;
   var rewardResource = moduleInstance.params && (moduleInstance.params.rewardResource || 'gold');
   var rewardLabel = String(rewardResource || 'reward');
-  var rewardCall = '            AddResource("' + rewardLabel.replace(/"/g, '\\"') + '", ' + (isFinite(reward) ? reward : 1) + ' * deliverCount);';
+  var rewardCall = '            AddResource(' + resourceIdExpr(rewardLabel) + ', ' + (isFinite(reward) ? reward : 1) + ' * deliverCount);';
   var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Resource.cs', moduleInstance));
   lines.push('        if (' + targetVar + ' == null) return;');
-  lines.push('        int deliverCount = GetResource("' + String(resource).replace(/"/g, '\\"') + '");');
+  lines.push('        int deliverCount = GetResource(' + resourceIdExpr(resource) + ');');
   lines.push('        if (deliverCount <= 0) return;');
-  lines.push('        if (GFM_Player.Instance.IsNear(' + targetVar + ', 2f) && TrySpend("' + String(resource).replace(/"/g, '\\"') + '", deliverCount))');
+  lines.push('        if (GFM_Player.Instance.IsNear(' + targetVar + ', 2f) && TrySpend(' + resourceIdExpr(resource) + ', deliverCount))');
   lines.push('        {');
   lines.push('            RecordPhaseEvidenceFlag(currentPhaseName, "inventory_decremented");');
   lines.push(rewardCall);
@@ -735,7 +737,7 @@ function buildDeterministicCostGateLines(moduleInstance, plans) {
   var doneField = slotDoneFieldName('GameFlowManagerMain.Resource.cs', moduleInstance);
   var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Resource.cs', moduleInstance));
   lines.push('        if (' + doneField + ') return;');
-  lines.push('        if (!TrySpend("' + escapeCsString(resource) + '", ' + (isFinite(amount) ? Math.max(1, Math.floor(amount)) : 1) + ')) return;');
+  lines.push('        if (!TrySpend(' + resourceIdExpr(resource) + ', ' + (isFinite(amount) ? Math.max(1, Math.floor(amount)) : 1) + ')) return;');
   lines.push('        ' + doneField + ' = true;');
   lines.push('        UpdateResourceUI();');
   lines.push(recordFlag('resource_decremented'));

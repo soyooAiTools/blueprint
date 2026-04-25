@@ -17,6 +17,7 @@ const GFM_FILES = [
   'GFM_Grid.cs',
   'GFM_Pathfinding.cs',
   'GFM_Billboard.cs',
+  'GFM_ResourceIds.cs',
   // Manager 架构层 (MonoBehaviour 单例 / 有状态)
   'GFM_EconomyManager.cs',   // 资源/金币/兑换
   'GFM_UIManager.cs',        // Canvas/guide/score/floatingText

@@ -1,6 +1,7 @@
 var triggerHelpers = require('./trigger-codegen.cjs');
 var toLowerCamel = triggerHelpers.toLowerCamel;
 var hasEntityRef = triggerHelpers.hasEntityRef;
+var { resourceIdExpr } = require('./resource-ids.cjs');
 
 function generateResourceVariables(schema) {
   var resources = schema.resources || [];
@@ -92,10 +93,10 @@ function buildDeliverBody(trigger, resource, targetEntity) {
   return [
     '    // Convert carried "' + escapeString(resourceName) + '" only when there is something to deliver.',
     '    if (' + resourceName + 'Carried > 0) {',
-    '        AddResource("' + escapeString(resourceName) + '", ' + resourceName + 'Carried);',
+    '        AddResource(' + resourceIdExpr(resourceName) + ', ' + resourceName + 'Carried);',
     '        ' + resourceName + 'Carried = 0;',
     '        // Advance target state only after the required converted resource amount exists.',
-    '        if (GetResource("' + escapeString(resourceName) + '") >= ' + requiredAmount + ') {',
+    '        if (GetResource(' + resourceIdExpr(resourceName) + ') >= ' + requiredAmount + ') {',
     '            ' + targetEntity + 'State++;',
     '        }',
     '    }',

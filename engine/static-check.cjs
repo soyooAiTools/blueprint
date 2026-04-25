@@ -283,6 +283,7 @@ var RULES = [
     // in CheckEventRules. Earlier form `phaseTimer < 12f` is gone. Detect by checking
     // for the ternary pattern OR the legacy form (both satisfy the "gate exists" intent).
     if (code.indexOf('_autoPlayMode') < 0) return [];
+    if (!/\bvoid\s+CheckEventRules\s*\(/.test(code) && code.indexOf('AUTO_PLAY_PHASE_DURATION') < 0) return [];
     var hasUnified = /_autoPlayMode\s*\?\s*12f\b/.test(code);
     var hasLegacy = code.indexOf('phaseTimer < 12f') >= 0;
     if (!hasUnified && !hasLegacy) {
@@ -1215,6 +1216,102 @@ var RULES = [
         issues.push({
           line: lineNum,
           text: 'GameObject.Find("' + poolName + '") is outside approved entityPoolMap (' + Object.keys(allowed).slice(0, 4).map(function(name) { return name; }).join(', ') + (Object.keys(allowed).length > 4 ? ', ...' : '') + ')',
+        });
+      }
+      return issues;
+    },
+  },
+  { id: 'canonical-entity-find-forbidden', pattern: null, blocking: true,
+    message: 'GameObject.Find("__Pool_*") is forbidden in GameFlowManagerMain when entity bindings are canonical — use RegisterEntityBindings()/GameSceneCtrl once, then reuse fields.',
+    custom: function(code, ctx) {
+      var fileName = ctx && ctx.filename ? String(ctx.filename).split(/[\\/]/).pop() : '';
+      if (!/^GameFlowManagerMain(?:\.[A-Za-z]+)?\.cs$/.test(fileName)) return [];
+      var hasBindingTable = code.indexOf('_entityBindingIds') >= 0 || code.indexOf('RegisterEntityBindings()') >= 0;
+      if (!hasBindingTable && ctx && ctx.extraFiles) {
+        Object.keys(ctx.extraFiles).forEach(function(key) {
+          var src = ctx.extraFiles[key] || '';
+          if (src.indexOf('_entityBindingIds') >= 0 || src.indexOf('RegisterEntityBindings()') >= 0) hasBindingTable = true;
+        });
+      }
+      if (!hasBindingTable) return [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); });
+      var issues = [];
+      var re = /\bGameObject\.Find\s*\(\s*"(__Pool_[^"\n]+)"\s*\)/g;
+      var m;
+      while ((m = re.exec(stripped)) !== null) {
+        issues.push({
+          line: code.substring(0, m.index).split('\n').length,
+          text: 'Direct pool lookup ' + m[0] + ' splits entity ownership; add it to _entityBindingIds/_entityBindingPools instead.',
+        });
+      }
+      return issues;
+    },
+  },
+  { id: 'autoplay-fallback-in-ontap', pattern: null, blocking: true,
+    message: 'AutoPlay fallback leaked into Phase_*_OnTap(); fallback belongs only in Phase_*_OnAutoPlayArrive().',
+    custom: function(code, ctx) {
+      var fileName = ctx && ctx.filename ? String(ctx.filename).split(/[\\/]/).pop() : '';
+      if (fileName && fileName.indexOf('GameFlowManagerMain') !== 0) return [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
+        .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
+      var issues = [];
+      var sigRe = /\bvoid\s+(Phase_[A-Za-z0-9_]+_OnTap)\s*\(\s*\)\s*\{/g;
+      var m;
+      while ((m = sigRe.exec(stripped)) !== null) {
+        var start = m.index + m[0].length;
+        var depth = 1;
+        var end = start;
+        while (end < stripped.length && depth > 0) {
+          var ch = stripped[end];
+          if (ch === '{') depth++;
+          else if (ch === '}') { depth--; if (depth === 0) break; }
+          end++;
+        }
+        if (depth !== 0) continue;
+        var body = stripped.substring(start, end);
+        if (/\bShouldRunAutoPlayFallback\s*\(/.test(body) || /\bAUTO_PLAY_PHASE_DURATION\b/.test(body)) {
+          issues.push({
+            line: stripped.substring(0, m.index).split('\n').length,
+            text: m[1] + ' contains AutoPlay fallback logic; keep real tap handling explicit.',
+          });
+        }
+      }
+      return issues;
+    },
+  },
+  { id: 'raw-resource-string-call', pattern: null, blocking: true,
+    message: 'Resource API calls must use GFM_ResourceIds constants/Normalize(), not raw string ids.',
+    custom: function(code, ctx) {
+      var fileName = ctx && ctx.filename ? String(ctx.filename).split(/[\\/]/).pop() : '';
+      if (fileName && !/^GameFlowManagerMain(?:\.[A-Za-z]+)?\.cs$/.test(fileName)) return [];
+      var hasResourceIds = code.indexOf('GFM_ResourceIds') >= 0;
+      if (!hasResourceIds && ctx && ctx.extraFiles) {
+        Object.keys(ctx.extraFiles).forEach(function(key) {
+          if ((ctx.extraFiles[key] || '').indexOf('GFM_ResourceIds') >= 0) hasResourceIds = true;
+        });
+      }
+      if (!hasResourceIds) return [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); });
+      var issues = [];
+      var callRe = /\b(AddResource|GetResource|TrySpend|TryConvert)\s*\(\s*"([^"\n]+)"/g;
+      var m;
+      while ((m = callRe.exec(stripped)) !== null) {
+        issues.push({
+          line: code.substring(0, m.index).split('\n').length,
+          text: m[1] + '("' + m[2] + '", ...) should use GFM_ResourceIds.' + (/^gold$/i.test(m[2]) ? 'Gold' : 'Normalize("' + m[2] + '")'),
+        });
+      }
+      var invRe = /\b_inventory\s*\[\s*"([^"\n]+)"\s*\]/g;
+      while ((m = invRe.exec(stripped)) !== null) {
+        issues.push({
+          line: code.substring(0, m.index).split('\n').length,
+          text: '_inventory["' + m[1] + '"] should use _inventory[GFM_ResourceIds.Normalize("' + m[1] + '")]',
         });
       }
       return issues;

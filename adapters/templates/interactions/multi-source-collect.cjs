@@ -1,4 +1,5 @@
 var { toLowerCamel, hasEntityRef } = require('../trigger-codegen.cjs');
+var { resourceIdExpr } = require('../resource-ids.cjs');
 
 function escapeString(value) {
   return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -49,8 +50,8 @@ function generateMultiSourceCollect(schema) {
       lines.push('        // Collect from alternate source only when it is visible and within range.');
       lines.push('        if (' + entity + ' != null && IsNear(' + entity + ', ' + collectRange + 'f)) {');
       lines.push('            // Keep total "' + escapeString(g.resourceName) + '" below maxCarry before adding one unit.');
-      lines.push('            if (GetResource("' + escapeString(g.resourceName) + '") < ' + maxCarry + ') {');
-      lines.push('                AddResource("' + escapeString(g.resourceName) + '", 1);');
+      lines.push('            if (GetResource(' + resourceIdExpr(g.resourceName) + ') < ' + maxCarry + ') {');
+      lines.push('                AddResource(' + resourceIdExpr(g.resourceName) + ', 1);');
       lines.push('                ' + primary + 'Done = true;');
       lines.push('            }');
       lines.push('        }');

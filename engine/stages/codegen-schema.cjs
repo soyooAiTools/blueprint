@@ -722,11 +722,15 @@ function buildCustomLogicPrompt(ctx, schema) {
   lines.push('11. 不要新声明或重复声明 *State 字段；必须复用 skeleton 里已有的 XxxState。');
   lines.push('12. Player / player / PlayerAvatar 只能选当前代码里已存在的那一个；绝对不要混用。');
   lines.push('13. 禁止 remap pool 名，也不要写 blueprint/skeleton 里不存在的 __Pool_* 字面量。');
-  lines.push('14. 同一个标识符的 phase 分发不要写 4 段以上 if/else-if；改用 switch(identifier)。');
-  lines.push('15. 工作区里已经放好了真实的 `Assets/Program/Script/Manager/GameFlowManagerMain*.cs`。优先直接修改这些文件；如果你不能落盘，再输出一个 ```csharp 代码块，只包含 TODO_CUSTOM 区域内容。');
-  lines.push('16. 如果文件里存在 `AssemblySlot_*` 或 `[ASSEMBLY SLOT]`，优先在对应 owner file 的 slot 内实现，不要把逻辑写到错误 partial。');
-  lines.push('17. Flow/Input/Resource/UI/Scene 的 owner 分工必须遵守 assembly scaffold；不要跨文件挪 state owner。');
-  lines.push('18. `GameFlowManagerMain.cs` 里只有 `TODO_CUSTOM` 区域会被保留；assembly owner file 里只有 `TODO_AssemblySlot_*` 区域会被保留，其他改动会被丢弃。');
+  lines.push('14. 不要直接写 `GameObject.Find("__Pool_*")`；实体引用已经由 `RegisterEntityBindings()/GameSceneCtrl` 统一绑定。');
+  lines.push('15. 资源 API 必须使用 `GFM_ResourceIds.Gold` / `GFM_ResourceIds.Normalize("...")`，不要写 `AddResource("Gold", ...)` 这种裸字符串。');
+  lines.push('16. guide 文案统一调用 `SetGuideText("...")`，不要直接写 `guideText.text = ...`。');
+  lines.push('17. AutoPlay fallback 只能留在 `Phase_*_OnAutoPlayArrive()`；真实点击 `Phase_*_OnTap()` 必须写显式玩家交互逻辑。');
+  lines.push('18. 同一个标识符的 phase 分发不要写 4 段以上 if/else-if；改用 switch(identifier)。');
+  lines.push('19. 工作区里已经放好了真实的 `Assets/Program/Script/Manager/GameFlowManagerMain*.cs`。优先直接修改这些文件；如果你不能落盘，再输出一个 ```csharp 代码块，只包含 TODO_CUSTOM 区域内容。');
+  lines.push('20. 如果文件里存在 `AssemblySlot_*` 或 `[ASSEMBLY SLOT]`，优先在对应 owner file 的 slot 内实现，不要把逻辑写到错误 partial。');
+  lines.push('21. Flow/Input/Resource/UI/Scene 的 owner 分工必须遵守 assembly scaffold；不要跨文件挪 state owner。');
+  lines.push('22. `GameFlowManagerMain.cs` 里只有 `TODO_CUSTOM` 区域会被保留；assembly owner file 里只有 `TODO_AssemblySlot_*` 区域会被保留，其他改动会被丢弃。');
   if (ctx.blueprint && ctx.blueprint.assemblyOwnerSummary) {
     lines.push('');
     lines.push('## Assembly Owner Scaffold');

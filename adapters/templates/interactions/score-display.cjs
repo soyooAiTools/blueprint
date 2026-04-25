@@ -1,3 +1,5 @@
+var { resourceIdExpr } = require('../resource-ids.cjs');
+
 function escapeString(value) {
   return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
@@ -11,7 +13,7 @@ function generateScoreDisplay(schema) {
   lines.push('            string display = "";');
   for (var i = 0; i < resources.length; i++) {
     var r = resources[i];
-    lines.push('            display += "' + escapeString(r.name) + ': " + GetResource("' + escapeString(r.name) + '") + "  ";');
+    lines.push('            display += "' + escapeString(r.name) + ': " + GetResource(' + resourceIdExpr(r.name) + ') + "  ";');
   }
   lines.push('            // Score HUD gate: update Unity UI only when the composed resource text changes.');
   lines.push('            if (_lastScoreText != display) { scoreText.text = display; _lastScoreText = display; }');

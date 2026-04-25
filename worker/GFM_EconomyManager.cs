@@ -11,9 +11,9 @@
 //   - 不调 Destroy()，防重用 enabled=false
 //
 // 外部调用入口 (示例):
-//   GFM_EconomyManager.Instance.AddResource("MetalShard", 5);
+//   GFM_EconomyManager.Instance.AddResource(GFM_ResourceIds.Normalize("MetalShard"), 5);
 //   int g = GFM_EconomyManager.Instance.Gold;
-//   if (GFM_EconomyManager.Instance.TrySpend("gold", 10)) { ... }
+//   if (GFM_EconomyManager.Instance.TrySpend(GFM_ResourceIds.Gold, 10)) { ... }
 // ============================================================================
 
 using UnityEngine;
@@ -58,7 +58,7 @@ public class GFM_EconomyManager : MonoBehaviour
     private int[] _invVals = new int[32];
     private int _invCount = 0;
 
-    // 【金币】老代码专门维护的独立字段，保留兼容；也可通过 GetResource("gold") 获取。
+    // 【金币】老代码专门维护的独立字段，保留兼容；也可通过 GetResource(GFM_ResourceIds.Gold) 获取。
     public int Gold { get { return _gold; } }
     private int _gold = 0;
 
@@ -66,6 +66,7 @@ public class GFM_EconomyManager : MonoBehaviour
     // 【初始化】首次 Awake 时执行一次；外部如需复位可再调（目前幂等）。
     // ------------------------------------------------------------------------
     private bool _inited = false;
+    // 初始化经济系统的资源表、背包表和默认数值。
     public void Init()
     {
         if (_inited) return;
@@ -77,6 +78,14 @@ public class GFM_EconomyManager : MonoBehaviour
     // 【外部注入资源定义】主文件 Start 时调一次即可。不 reset 已有库存。
     public void SetResources(ResourceDef[] defs)
     {
+        if (defs != null)
+        {
+            for (int i = 0; i < defs.Length; i++)
+            {
+                defs[i].resourceId = NormalizeResourceId(defs[i].resourceId);
+                defs[i].convertFrom = NormalizeResourceId(defs[i].convertFrom);
+            }
+        }
         _resources = defs;
     }
 
@@ -93,23 +102,42 @@ public class GFM_EconomyManager : MonoBehaviour
     // ------------------------------------------------------------------------
     private int _InvIndex(string id)
     {
+        id = NormalizeResourceId(id);
         for (int i = 0; i < _invCount; i++) { if (_invKeys[i] == id) return i; }
         return -1;
+    }
+
+    // 【资源 ID 归一】避免 "gold"/"Gold" 在库存里分裂成两份事实来源。
+    private string NormalizeResourceId(string id)
+    {
+        string normalized = GFM_ResourceIds.Normalize(id);
+        if (_resources != null)
+        {
+            string lower = normalized.ToLower();
+            for (int i = 0; i < _resources.Length; i++)
+            {
+                string rid = _resources[i].resourceId;
+                if (rid != null && rid.ToLower() == lower) return rid;
+            }
+        }
+        return normalized;
     }
 
     // 【增加资源】未注册的自动注册；UI 自动刷新。
     public void AddResource(string id, int amount)
     {
+        id = NormalizeResourceId(id);
         int idx = _InvIndex(id);
         if (idx < 0) { _invKeys[_invCount] = id; _invVals[_invCount] = 0; idx = _invCount; _invCount++; }
         _invVals[idx] += amount;
-        if (id == "gold") _gold = _invVals[idx]; // 同步 _gold 缓存
+        if (id == GFM_ResourceIds.Gold) _gold = _invVals[idx]; // 同步 _gold 缓存
         if (GFM_UIManager.Instance != null) GFM_UIManager.Instance.UpdateResourceUI();
     }
 
     // 【查询资源】未注册返回 0。
     public int GetResource(string id)
     {
+        id = NormalizeResourceId(id);
         int idx = _InvIndex(id);
         return idx < 0 ? 0 : _invVals[idx];
     }
@@ -117,10 +145,11 @@ public class GFM_EconomyManager : MonoBehaviour
     // 【尝试消费】余量足够则扣减并返回 true；不足返回 false。
     public bool TrySpend(string id, int amount)
     {
+        id = NormalizeResourceId(id);
         int idx = _InvIndex(id);
         if (idx < 0 || _invVals[idx] < amount) return false;
         _invVals[idx] -= amount;
-        if (id == "gold") _gold = _invVals[idx];
+        if (id == GFM_ResourceIds.Gold) _gold = _invVals[idx];
         if (GFM_UIManager.Instance != null) GFM_UIManager.Instance.UpdateResourceUI();
         return true;
     }
@@ -130,6 +159,8 @@ public class GFM_EconomyManager : MonoBehaviour
     public bool TryConvert(string fromId, string toId)
     {
         if (_resources == null) return false;
+        fromId = NormalizeResourceId(fromId);
+        toId = NormalizeResourceId(toId);
         ResourceDef toDef = default;
         bool found = false;
         for (int i = 0; i < _resources.Length; i++)
@@ -144,10 +175,10 @@ public class GFM_EconomyManager : MonoBehaviour
         return true;
     }
 
-    // 【加金币】等价于 AddResource("gold", amount)，保留老接口便于迁移。
+    // 【加金币】等价于 AddResource(GFM_ResourceIds.Gold, amount)，保留老接口便于迁移。
     public void AddGold(int amount)
     {
-        AddResource("gold", amount);
+        AddResource(GFM_ResourceIds.Gold, amount);
     }
 
     // ------------------------------------------------------------------------
@@ -155,6 +186,8 @@ public class GFM_EconomyManager : MonoBehaviour
     // 拼成显示字符串。直接暴露迭代接口避免返回 Dictionary。
     // ------------------------------------------------------------------------
     public int InvCount { get { return _invCount; } }
+    // 读取指定背包槽位的资源 ID。
     public string InvKey(int i) { return (i >= 0 && i < _invCount) ? _invKeys[i] : ""; }
+    // 读取指定背包槽位的资源数量。
     public int InvVal(int i) { return (i >= 0 && i < _invCount) ? _invVals[i] : 0; }
 }

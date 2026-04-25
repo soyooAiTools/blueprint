@@ -66,6 +66,7 @@ public class GFM_UIManager : MonoBehaviour
         if (_scoreText == null) _scoreText = GFM_UI.CreateText(_canvas, "Score: 0", new Vector2(720, 480), 34);
     }
 
+    // 确保 UI 管理器已经初始化并拥有根画布。
     private bool EnsureInit()
     {
         if (!_inited || _canvas == null) Init();

@@ -356,14 +356,15 @@ function autoRepairMissingSkeletonBridgeInfra(ctx) {
       '    {',
       '        public int this[string id]',
       '        {',
-      '            get { var mgr = GFM_EconomyManager.Instance; return mgr != null ? mgr.GetResource(id) : 0; }',
+      '            get { var mgr = GFM_EconomyManager.Instance; return mgr != null ? mgr.GetResource(GFM_ResourceIds.Normalize(id)) : 0; }',
       '            set',
       '            {',
       '                var mgr = GFM_EconomyManager.Instance;',
       '                if (mgr == null) return;',
-      '                int current = mgr.GetResource(id);',
-      '                if (value > current) mgr.AddResource(id, value - current);',
-      '                else if (value < current) mgr.TrySpend(id, current - value);',
+      '                string rid = GFM_ResourceIds.Normalize(id);',
+      '                int current = mgr.GetResource(rid);',
+      '                if (value > current) mgr.AddResource(rid, value - current);',
+      '                else if (value < current) mgr.TrySpend(rid, current - value);',
       '            }',
       '        }',
       '    }',
@@ -441,9 +442,9 @@ function autoRepairMissingSkeletonBridgeInfra(ctx) {
       '        {',
       '            defs[i] = new GFM_EconomyManager.ResourceDef',
       '            {',
-      '                resourceId = _resources[i].resourceId,',
+      '                resourceId = GFM_ResourceIds.Normalize(_resources[i].resourceId),',
       '                displayName = _resources[i].displayName,',
-      '                convertFrom = _resources[i].convertFrom,',
+      '                convertFrom = GFM_ResourceIds.Normalize(_resources[i].convertFrom),',
       '                convertRatio = _resources[i].convertRatio',
       '            };',
       '        }',
@@ -460,7 +461,7 @@ function autoRepairMissingSkeletonBridgeInfra(ctx) {
         '    void AddResource(string id, int amount)',
         '    {',
         '        var mgr = GFM_EconomyManager.Instance;',
-        '        if (mgr != null) mgr.AddResource(id, amount);',
+        '        if (mgr != null) mgr.AddResource(GFM_ResourceIds.Normalize(id), amount);',
         '    }'
       ]
     },
@@ -470,7 +471,7 @@ function autoRepairMissingSkeletonBridgeInfra(ctx) {
         '    int GetResource(string id)',
         '    {',
         '        var mgr = GFM_EconomyManager.Instance;',
-        '        return mgr != null ? mgr.GetResource(id) : 0;',
+        '        return mgr != null ? mgr.GetResource(GFM_ResourceIds.Normalize(id)) : 0;',
         '    }'
       ]
     },
@@ -480,7 +481,7 @@ function autoRepairMissingSkeletonBridgeInfra(ctx) {
         '    bool TrySpend(string id, int amount)',
         '    {',
         '        var mgr = GFM_EconomyManager.Instance;',
-        '        return mgr != null && mgr.TrySpend(id, amount);',
+        '        return mgr != null && mgr.TrySpend(GFM_ResourceIds.Normalize(id), amount);',
         '    }'
       ]
     },
@@ -490,7 +491,7 @@ function autoRepairMissingSkeletonBridgeInfra(ctx) {
         '    bool TryConvert(string fromId, string toId)',
         '    {',
         '        var mgr = GFM_EconomyManager.Instance;',
-        '        return mgr != null && mgr.TryConvert(fromId, toId);',
+        '        return mgr != null && mgr.TryConvert(GFM_ResourceIds.Normalize(fromId), GFM_ResourceIds.Normalize(toId));',
         '    }'
       ]
     },

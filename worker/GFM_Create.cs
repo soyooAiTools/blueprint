@@ -19,11 +19,13 @@ public static class GFM_Create
     private const int MAX_PLANES = 10;
     private const int MAX_CYLINDERS = 10;
 
+    // 设置对象创建工具复用的基础材质。
     public static void SetBaseMaterial(Material mat)
     {
         _baseMat = mat;
     }
 
+    // 从场景物体读取可用材质，供后续对象复用。
     public static Material InitMaterialFromScene()
     {
         var matSource = GameObject.Find("__MaterialSource");
@@ -56,6 +58,7 @@ public static class GFM_Create
         return _baseMat;
     }
 
+    // 从对象池取出指定基础形状，并应用位置与缩放。
     private static GameObject PoolGet(PrimitiveType type, Vector3 pos, Vector3 scale)
     {
         string prefix; int idx; int max;
@@ -87,6 +90,7 @@ public static class GFM_Create
         return obj;
     }
 
+    // 回收并隐藏当前由创建工具生成的对象。
     public static void ResetPool()
     {
         _cubeIdx = 0; _sphereIdx = 0; _planeIdx = 0; _cylinderIdx = 0;
@@ -96,6 +100,7 @@ public static class GFM_Create
         for (int i = 1; i <= MAX_CYLINDERS; i++) { var o = GameObject.Find("__Pool_Cylinder_" + i.ToString("D2")); if (o != null) o.transform.position = new Vector3(0, -9999, 0); }
     }
 
+    // 创建或复用一个基础形状对象，并设置标签名。
     public static GameObject Obj(PrimitiveType type, Vector3 pos, Vector3 scale, string label)
     {
         var obj = PoolGet(type, pos, scale);
@@ -122,6 +127,7 @@ public static class GFM_Create
         return obj;
     }
 
+    // 创建或复用地面平面。
     public static GameObject Ground(float width, float depth)
     {
         var obj = PoolGet(PrimitiveType.Plane, Vector3.zero, new Vector3(width / 10f, 1, depth / 10f));
@@ -139,6 +145,7 @@ public static class GFM_Create
         return obj;
     }
 
+    // 设置物体材质颜色；Luna 导出时应谨慎使用。
     public static void SetColor(GameObject obj, Color color)
     {
         if (obj == null) return;

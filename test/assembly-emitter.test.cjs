@@ -77,7 +77,7 @@ assert.ok(emitted.files.flow.indexOf('Vector3.MoveTowards(__assemblyBefore, Conv
 assert.ok(emitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "player_position_changed")') >= 0, 'move_to_target should record player motion evidence');
 assert.ok(emitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "entity_state_equals_built")') >= 0, 'build_progress should record built evidence');
 assert.ok(emitted.files.input.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "tap_registered")') >= 0, 'tap/click slot should record tap evidence');
-assert.ok(emitted.files.resource.indexOf('TrySpend("gold", 1)') >= 0, 'cost_gate should spend configured resource through owner API');
+assert.ok(emitted.files.resource.indexOf('TrySpend(GFM_ResourceIds.Gold, 1)') >= 0, 'cost_gate should spend configured resource through owner API');
 assert.ok(emitted.files.resource.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "resource_decremented")') >= 0, 'cost_gate should record resource decrement evidence');
 assert.ok(emitted.files.input.indexOf('ConveyorBeltState = Mathf.Max') === -1, 'click/input slots must not mutate build state owner fields');
 assert.ok(emitted.files.resource.indexOf('ConveyorBeltState = Mathf.Max') === -1, 'cost slots must not mutate build state owner fields');
@@ -153,7 +153,7 @@ var genericPlans = {
   cuaPlan: { steps: [] }
 };
 var genericEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(genericSkeleton, genericPlans);
-assert.ok(genericEmitted.files.resource.indexOf('AddResource("energy", 2 * deliverCount);') >= 0, 'deliver slot should grant parameterized reward resource');
+assert.ok(genericEmitted.files.resource.indexOf('AddResource(GFM_ResourceIds.Normalize("energy"), 2 * deliverCount);') >= 0, 'deliver slot should grant parameterized reward resource');
 assert.ok(genericEmitted.files.resource.indexOf('AddGold(2 * deliverCount);') === -1, 'non-gold deliver reward should not hardcode AddGold');
 assert.ok(genericEmitted.files.resource.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "inventory_decremented")') >= 0, 'deliver slot should record inventory evidence');
 assert.ok(genericEmitted.files.resource.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "reward_incremented")') >= 0, 'deliver slot should record reward evidence');
@@ -461,8 +461,8 @@ assert.ok(implementationEmitted.files.input.indexOf('RecordPhaseEvidenceFlag(cur
 assert.ok(implementationEmitted.files.flow.indexOf('HideObj(EnemyBase);') >= 0, 'system damage fallback should hide a concrete enemy target');
 assert.ok(implementationEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "projectile_visible")') >= 0, 'system projectile fallback should record projectile evidence');
 assert.ok(implementationEmitted.files.flow.indexOf('DefenseTowerState = Mathf.Max(DefenseTowerState, 1);') >= 0, 'activate_targets fallback should activate its owner when targets are empty');
-assert.ok(implementationEmitted.files.resource.indexOf('AddResource("gold", 1);') >= 0, 'system collect fallback should add the configured resource');
-assert.ok(implementationEmitted.files.resource.indexOf('GetResource("gold") > 0') >= 0, 'inventory_wallet should observe configured resource kinds');
+assert.ok(implementationEmitted.files.resource.indexOf('AddResource(GFM_ResourceIds.Gold, 1);') >= 0, 'system collect fallback should add the configured resource');
+assert.ok(implementationEmitted.files.resource.indexOf('GetResource(GFM_ResourceIds.Gold) > 0') >= 0, 'inventory_wallet should observe configured resource kinds');
 assert.ok(implementationEmitted.files.ui.indexOf('ShowCTA();') >= 0, 'cta_finish should deterministically show CTA');
 assert.ok(implementationEmitted.files.ui.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "guide_text_visible")') >= 0, 'CTA guide_ui should still emit guide evidence');
 assert.ok(implementationEmitted.files.scene.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "visual_variant_changed")') >= 0, 'system visual variant fallback should record visual evidence');

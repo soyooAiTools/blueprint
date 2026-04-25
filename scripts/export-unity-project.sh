@@ -10,7 +10,7 @@
 #      保持原样，避免破坏后续自动修复链路。
 #
 # 用法：
-#   ./scripts/export-unity-project.sh <taskId> [--strip-luna] [--out /path/to.tar.gz]
+#   ./scripts/export-unity-project.sh <taskId> [--strip-luna] [--programmer-delivery] [--out /path/to.tar.gz]
 #
 # 示例：
 #   ./scripts/export-unity-project.sh proj_1776391516726_urbib0 --strip-luna
@@ -21,19 +21,21 @@ set -euo pipefail
 TASK_ID="${1:-}"
 STRIP_LUNA=0
 LOCALIZE_COMMENTS=1
+PROGRAMMER_DELIVERY=0
 OUT=""
 shift || true
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --strip-luna) STRIP_LUNA=1; shift ;;
     --keep-comment-language) LOCALIZE_COMMENTS=0; shift ;;
+    --programmer-delivery) PROGRAMMER_DELIVERY=1; shift ;;
     --out) OUT="$2"; shift 2 ;;
     *) echo "Unknown flag: $1" >&2; exit 2 ;;
   esac
 done
 
 if [ -z "$TASK_ID" ]; then
-  echo "Usage: $0 <taskId> [--strip-luna] [--keep-comment-language] [--out /path/to.tar.gz]" >&2
+  echo "Usage: $0 <taskId> [--strip-luna] [--programmer-delivery] [--keep-comment-language] [--out /path/to.tar.gz]" >&2
   exit 2
 fi
 
@@ -50,7 +52,7 @@ OUT="${OUT:-/root/$TASK_ID-unity-project.tar.gz}"
 [ -d "$SRC" ] || { echo "FAIL: project sources missing: $SRC" >&2; exit 1; }
 [ -d "$BASE" ] || { echo "FAIL: luna base template missing: $BASE" >&2; exit 1; }
 
-echo "[export] task=$TASK_ID strip-luna=$STRIP_LUNA localize-comments=$LOCALIZE_COMMENTS base=$BASE out=$OUT"
+echo "[export] task=$TASK_ID strip-luna=$STRIP_LUNA localize-comments=$LOCALIZE_COMMENTS programmer-delivery=$PROGRAMMER_DELIVERY base=$BASE out=$OUT"
 
 # ── Step 1: 以基础模板铺底（command cp 绕过 cp alias） ──────────
 mkdir -p "$WORK"
@@ -151,20 +153,22 @@ fi
 
 # ── Step 7: 附带 Blueprint 验证产物（可选） ───────────────────────────────
 ARTIFACT_DIR="$WORK/BlueprintArtifacts"
-mkdir -p "$ARTIFACT_DIR"
-for artifact in \
-  "$BP_ROOT/server-data/webgl/$TASK_ID/index.html:webgl-index.html" \
-  "$BP_ROOT/server-data/webgl/$TASK_ID/specs.json:specs.json" \
-  "$BP_ROOT/server-data/webgl/$TASK_ID/plans.json:plans.json" \
-  "$BP_ROOT/server-data/projects/$TASK_ID.json:$TASK_ID.json"; do
-  src="${artifact%%:*}"
-  dst="${artifact##*:}"
-  if [ -f "$src" ]; then
-    command cp -rf "$src" "$ARTIFACT_DIR/$dst"
+if [ "$PROGRAMMER_DELIVERY" -eq 0 ]; then
+  mkdir -p "$ARTIFACT_DIR"
+  for artifact in \
+    "$BP_ROOT/server-data/webgl/$TASK_ID/index.html:webgl-index.html" \
+    "$BP_ROOT/server-data/webgl/$TASK_ID/specs.json:specs.json" \
+    "$BP_ROOT/server-data/webgl/$TASK_ID/plans.json:plans.json" \
+    "$BP_ROOT/server-data/projects/$TASK_ID.json:$TASK_ID.json"; do
+    src="${artifact%%:*}"
+    dst="${artifact##*:}"
+    if [ -f "$src" ]; then
+      command cp -rf "$src" "$ARTIFACT_DIR/$dst"
+    fi
+  done
+  if [ -z "$(find "$ARTIFACT_DIR" -type f -print -quit)" ]; then
+    rmdir "$ARTIFACT_DIR"
   fi
-done
-if [ -z "$(find "$ARTIFACT_DIR" -type f -print -quit)" ]; then
-  rmdir "$ARTIFACT_DIR"
 fi
 
 # ── Step 8: 写入 README ───────────────────────────────────────────────
@@ -174,6 +178,7 @@ cat > "$WORK/README.md" <<EOF
 导出时间：$(date -Iseconds)
 是否剥离 Luna：$([ "$STRIP_LUNA" -eq 1 ] && echo "是" || echo "否")
 是否中文化 C# 注释：$([ "$LOCALIZE_COMMENTS" -eq 1 ] && echo "是" || echo "否")
+是否程序员交付版清理：$([ "$PROGRAMMER_DELIVERY" -eq 1 ] && echo "是" || echo "否")
 
 ## 目录
 - Assets/Program/Script/Manager/  — GameFlowManagerMain.cs 及 partial 文件
@@ -185,7 +190,22 @@ cat > "$WORK/README.md" <<EOF
 
 ## 打开方式
 Unity Hub → Add → 选择此文件夹根目录，使用 Unity 2022 LTS 打开。
+
+## 程序员交付边界
+- GameFlowManagerMain.cs 负责启动、实体绑定、主 Update 调度和通用 helper；phase 逻辑在 GameFlowManagerMain.Flow.cs。
+- Flow/Input/Resource/UI/Scene partial 按 owner 分工维护，不要把 phase、资源、UI、场景逻辑混到同一个文件。
+- 实体引用只来自 RegisterEntityBindings()/GameSceneCtrl，不要在 TODO 区直接 GameObject.Find("__Pool_*") 覆盖字段。
+- 资源 API 使用 GFM_ResourceIds.Gold / GFM_ResourceIds.Normalize("...")，不要裸写 "gold"/"Gold"。
+- 引导文案统一调用 SetGuideText()；guideText.text 只应在这个 helper 内落地。
+- AssemblySlot_* 是装配/验证合约槽位；如果 runner 被关闭，它们不是主运行路径。
+
+## 环境注意
+- Packages/manifest.json 可能包含 Luna/Playworks 本机 file: 依赖；交接前请把它改成团队机器可访问的安装路径或包源。
 EOF
+
+if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
+  node "$BP_ROOT/lib/programmer-delivery-cleaner.cjs" "$WORK"
+fi
 
 # ── Step 9: 打包归档（使用友好的文件夹名） ───────────────────
 FRIENDLY="${TASK_ID}-unity-project"

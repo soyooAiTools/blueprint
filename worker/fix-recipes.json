@@ -521,14 +521,13 @@
   },
   {
     "id": "auto-b49a65c6",
-    "fingerprintPattern": "Codegen contract failed:.*assembly-module-owner-mismatch",
-    "description": "method-check rejects assembly slots after machine-readable '[ASSEMBLY SLOT]' comments are localized or owner-slot parsing no longer matches generated partial files",
+    "fingerprintPattern": "Codegen contract failed:.*assembly-module-owner-mismatch(?:,\\s*assembly-module-owner-mismatch){2,}",
+    "description": "AI-generated partial files omit `// [ASSEMBLY SLOT] <id>` markers; violation message never tells the AI the required syntax, so all 3 retries fail identically with no auto-repair path.",
     "risk": "medium",
     "autoApply": true,
     "affectedFiles": [
       "engine/assembly-plan-contracts.cjs",
-      "engine/stages/method-check.cjs",
-      "lib/csharp-comment-localizer.cjs"
+      "engine/stages/method-check.cjs"
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-b49a65c6.md"

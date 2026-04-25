@@ -30,6 +30,7 @@ public class GFM_Audio : MonoBehaviour
     private AudioSource _sfxSource;
     private bool _muted = false;
 
+    // 初始化该工具模块所需的运行时对象和缓存。
     public static GFM_Audio Init(GameObject parent)
     {
         if (instance != null) return instance;
@@ -52,6 +53,7 @@ public class GFM_Audio : MonoBehaviour
         return instance;
     }
 
+    // 播放或切换背景音乐。
     public void PlayBGM(AudioClip clip)
     {
         if (clip == null || _bgmSource == null) return;
@@ -59,11 +61,13 @@ public class GFM_Audio : MonoBehaviour
         if (!_muted) _bgmSource.Play();
     }
 
+    // 停止当前背景音乐。
     public void StopBGM()
     {
         if (_bgmSource != null) _bgmSource.Stop();
     }
 
+    // 播放一次性音效。
     public void PlaySFX(AudioClip clip)
     {
         if (clip == null || _sfxSource == null || _muted) return;
@@ -85,6 +89,7 @@ public class GFM_Audio : MonoBehaviour
         _sfxSource.Play();
     }
 
+    // 统一切换背景音乐和音效静音状态。
     public void SetMute(bool mute)
     {
         _muted = mute;
@@ -111,6 +116,7 @@ public class GFM_Pool : MonoBehaviour
     private Dictionary<int, GameObject> _prefabMap = new Dictionary<int, GameObject>(); // objId → prefab
     private Transform _poolRoot;
 
+    // 初始化该工具模块所需的运行时对象和缓存。
     public static GFM_Pool Init(GameObject parent)
     {
         if (instance != null) return instance;
@@ -183,6 +189,7 @@ public class GFM_Pool : MonoBehaviour
 public class GFM_ReturnTimer : MonoBehaviour
 {
     private float _timer = -1f;
+    // 启动延迟归还计时器。
     public void StartTimer(float delay) { _timer = delay; }
     void Update()
     {
@@ -220,6 +227,7 @@ public class GFM_Event : MonoBehaviour
     }
     private Queue<PendingEvent> _pending = new Queue<PendingEvent>();
 
+    // 初始化该工具模块所需的运行时对象和缓存。
     public static GFM_Event Init(GameObject parent)
     {
         if (instance != null) return instance;
@@ -238,6 +246,7 @@ public class GFM_Event : MonoBehaviour
         }
     }
 
+    // 注册一个事件监听回调。
     public static void Subscribe(int eventId, GFM_EventHandler handler)
     {
         if (instance == null) return;
@@ -247,6 +256,7 @@ public class GFM_Event : MonoBehaviour
             instance._subscribers[eventId].Add(handler);
     }
 
+    // 移除一个事件监听回调。
     public static void Unsubscribe(int eventId, GFM_EventHandler handler)
     {
         if (instance == null) return;
@@ -268,6 +278,7 @@ public class GFM_Event : MonoBehaviour
         instance.Dispatch(eventId, sender, data);
     }
 
+    // 执行指定事件的所有监听回调。
     private void Dispatch(int eventId, object sender, string data)
     {
         if (!_subscribers.ContainsKey(eventId)) return;
@@ -501,12 +512,14 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
         return instance;
     }
 
+    // 处理摇杆按下，开始记录拖拽方向。
     public void OnPointerDown(PointerEventData eventData)
     {
         _dragging = true;
         OnDrag(eventData);
     }
 
+    // 处理摇杆拖拽并更新方向向量。
     public void OnDrag(PointerEventData eventData)
     {
         Vector2 localPos;
@@ -519,6 +532,7 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
         }
     }
 
+    // 处理摇杆松开并重置方向。
     public void OnPointerUp(PointerEventData eventData)
     {
         _dragging = false;
@@ -543,6 +557,7 @@ public class GFM_Luna : MonoBehaviour
     private bool _isFirst = true;
     private bool _isGameOver = false;
 
+    // 初始化该工具模块所需的运行时对象和缓存。
     public static GFM_Luna Init(GameObject parent)
     {
         if (instance != null) return instance;
@@ -564,17 +579,20 @@ public class GFM_Luna : MonoBehaviour
         }
     }
 
+    // 触发试玩结束并上报 Luna 生命周期。
     public static void GameOver()
     {
         if (instance != null) instance._isGameOver = true;
         Luna.Unity.LifeCycle.GameEnded();
     }
 
+    // 跳转到安装或商店入口。
     public static void GotoStore()
     {
         Luna.Unity.Playable.InstallFullGame();
     }
 
+    // 返回当前是否已经触发游戏结束。
     public static bool IsGameOver()
     {
         return instance != null && instance._isGameOver;

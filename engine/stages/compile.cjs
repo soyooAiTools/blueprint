@@ -12,6 +12,7 @@ var { recode } = require('../recode.cjs');
 var { createFixLoop } = require('../fix-loop.cjs');
 var config = require('../../lib/config.cjs');
 var commentLocalizer = require('../../lib/csharp-comment-localizer.cjs');
+var { resourceIdExpr } = require('../../adapters/templates/resource-ids.cjs');
 
 var MAX_BUILD_FIX_ATTEMPTS = 5;
 // Early exit if the build fails with the same error signature 3 rounds in a row —
@@ -107,7 +108,7 @@ function rewriteLegacyScoreDisplayAliases(code, blueprint) {
       var canonical = resolveResourceAlias(alias, blueprint);
       if (!canonical || canonical === alias) return match;
       fixes++;
-      return 'if (GetResource("' + canonical + '") > 0) display += ' + labelLiteral + ' + GetResource("' + canonical + '");';
+      return 'if (GetResource(' + resourceIdExpr(canonical) + ') > 0) display += ' + labelLiteral + ' + GetResource(' + resourceIdExpr(canonical) + ');';
     }
   );
   return { code: fixed, changed: fixes > 0, fixes: fixes };

@@ -116,6 +116,7 @@ public class GFM_AutoPlay : MonoBehaviour
     }
 
     private bool _inited = false;
+    // 初始化自动播放目标列表、到达回调和阶段运行状态。
     public void Init()
     {
         if (_inited) return;
@@ -237,6 +238,7 @@ public class GFM_AutoPlay : MonoBehaviour
         }
     }
 
+    // 根据目标名解析当前可导航的场景物体。
     private GameObject ResolveTarget(string targetName)
     {
         if (string.IsNullOrEmpty(targetName)) return null;

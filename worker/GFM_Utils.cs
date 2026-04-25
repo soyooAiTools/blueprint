@@ -10,6 +10,7 @@ using System.Collections.Generic;
 
 public static class GFM_Utils
 {
+    // 判断两个世界坐标是否在指定距离内。
     public static bool IsInRange(float distance, Vector3 a, Vector3 b, bool includeY)
     {
         Vector3 va = new Vector3(a.x, includeY ? a.y : 0, a.z);
@@ -17,6 +18,7 @@ public static class GFM_Utils
         return Vector3.Distance(va, vb) < distance;
     }
 
+    // 判断世界坐标是否处于当前相机视口内。
     public static bool IsOnScreen(Transform obj)
     {
         if (obj == null || Camera.main == null) return false;
@@ -24,17 +26,20 @@ public static class GFM_Utils
         return sp.x >= 0 && sp.x <= Screen.width && sp.y >= 0 && sp.y <= Screen.height && sp.z > 0;
     }
 
+    // 判断动画器是否正在播放指定动画状态。
     public static bool IsPlayingAnim(Animator animator, string name)
     {
         if (animator == null) return false;
         return animator.GetCurrentAnimatorStateInfo(0).IsName(name);
     }
 
+    // 判断两个矩形是否重叠。
     public static bool RectsOverlap(Vector2 min1, Vector2 max1, Vector2 min2, Vector2 max2)
     {
         return !(min1.x > max2.x || max1.x < min2.x || min1.y > max2.y || max1.y < min2.y);
     }
 
+    // 把世界坐标转换到 UI 画布坐标。
     public static Vector2 WorldToUI(Vector3 worldPos, RectTransform canvasRect)
     {
         if (Camera.main == null) return Vector2.zero;
@@ -46,6 +51,7 @@ public static class GFM_Utils
         );
     }
 
+    // 更新离屏目标指示器的位置和方向。
     public static void UpdateOffScreenIndicator(Transform target, RectTransform indicator, Camera cam)
     {
         if (target == null || indicator == null || cam == null) return;
@@ -67,6 +73,7 @@ public static class GFM_Utils
         }
     }
 
+    // 按 Tag 查找距离最近的场景物体。
     public static GameObject FindClosestByTag(Vector3 origin, string tag, float maxDist)
     {
         GameObject[] objs = GameObject.FindGameObjectsWithTag(tag);
@@ -81,6 +88,7 @@ public static class GFM_Utils
         return closest;
     }
 
+    // 在给定列表中查找距离最近的物体。
     public static Transform FindClosestInList(List<Transform> targets, Vector3 origin)
     {
         if (targets == null) return null;
@@ -95,6 +103,7 @@ public static class GFM_Utils
         return closest;
     }
 
+    // 围绕中心点生成一组环形分布位置。
     public static List<Vector3> GenerateCirclePositions(int rings, int pointsPerRing, float radiusStep, int pointIncrement)
     {
         List<Vector3> points = new List<Vector3>();
@@ -112,6 +121,7 @@ public static class GFM_Utils
         return points;
     }
 
+    // 把数值写入 Text 文本控件。
     public static void SetNumberDisplay(Transform parent, List<Sprite> numSprites, int number)
     {
         if (parent == null || numSprites == null) return;

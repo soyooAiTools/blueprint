@@ -1,5 +1,6 @@
 var { toLowerCamel, resolveSpawnEntityName } = require('./trigger-codegen.cjs');
 var { ActionType } = require('./phase-enums.cjs');
+var { resourceIdExpr, escapeCsString } = require('./resource-ids.cjs');
 
 function generatePhaseInit(phase, schema) {
   var lines = [];
@@ -22,7 +23,7 @@ function generatePhaseInit(phase, schema) {
   }
   // Guide text
   if (phase.guideText) {
-    lines.push('                guideText.text = "' + phase.guideText.replace(/"/g, '\\"') + '";');
+    lines.push('                SetGuideText("' + escapeCsString(phase.guideText) + '");');
   }
   // onEnter actions
   var actions = phase.onEnter || [];
@@ -43,7 +44,7 @@ function actionToCode(action, schema) {
       if (!action.resource || /^default$/i.test(String(action.resource))) {
         return '// skipped unresolved add_resource';
       }
-      return 'AddResource("' + action.resource + '", ' + action.amount + ');';
+      return 'AddResource(' + resourceIdExpr(action.resource) + ', ' + action.amount + ');';
     case ActionType.SWITCH_FORM:
       return 'SwitchForm(' + (action.formIndex != null ? action.formIndex : 0) + ');';
     case ActionType.SHOW_FLOATING_TEXT:
@@ -52,7 +53,7 @@ function actionToCode(action, schema) {
       }
       return 'ShowFloatingText(player.transform.position, "' + action.text + '", Color.' + (action.color || 'yellow') + ');';
     case ActionType.SET_GUIDE:
-      return 'guideText.text = "' + (action.text || '').replace(/"/g, '\\"') + '";';
+      return 'SetGuideText("' + escapeCsString(action.text || '') + '");';
     case ActionType.SPAWN_ENEMIES:
       var target = resolveSpawnEntityName(action, schema);
       return 'Spawn' + target + '(' + (action.count != null ? action.count : 1) + ');';

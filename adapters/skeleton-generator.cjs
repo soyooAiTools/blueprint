@@ -9,7 +9,7 @@
  * - Every phase transition requires spec.triggerNext.condition
  * - AI can only fill TODO sections, cannot remove skeleton-enforced code
  * - All entities must reach terminal state before game ends
- * - Start() is pre-populated with Find() calls, colors, camera, GFM_Luna.Init()
+ * - Start() is pre-populated with entity binding, colors, camera, GFM_Luna.Init()
  * - ShowCTA() is pre-generated with InstallFullGame()
  * - Phase 1 places 3 objects to prevent solid-color screen
  */
@@ -54,6 +54,10 @@ function pickGenericEnemyAliasTarget(entityNames) {
   }
   names.sort(function(a, b) { return score(b) - score(a); });
   return names.length > 0 && score(names[0]) > 0 ? names[0] : null;
+}
+
+function csString(value) {
+  return String(value == null ? '' : value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
 function inferPhaseEvidenceSignals(spec) {
@@ -245,7 +249,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('// *** 渲染约束（违反会导致构建或 Luna 运行失败） ***');
   lines.push('// 1. Camera.backgroundColor 已预设为 (0.45, 0.52, 0.62)，不要修改');
   lines.push('// 2. 不要调用 GFM_Create.SetColor()，Luna 下会触发 GL_INVALID_OPERATION');
-  lines.push('// 3. 不要调用 GFM_Create.Obj()，对象池已经存在，请用 GameObject.Find() 绑定');
+  lines.push('// 3. 不要调用 GFM_Create.Obj()；对象池绑定统一走 GameSceneCtrl/RegisterEntityBindings()');
   lines.push('// 4. 对象池物体已预烘焙颜色（__Pool_Shape_Color_NN），只需要移动位置');
   lines.push('// 5. Phase 1 至少摆出 3 个对象池物体，避免首屏纯色');
   lines.push('// 6. 不要调用 Destroy()，隐藏物体统一移动到 (0, -999, 0)');
@@ -345,26 +349,81 @@ function generateSkeleton(specs, opts = {}) {
     });
     lines.push('');
 
-    lines.push('    // [SKELETON] Spawn compatibility helpers：兼容旧模板的 Spawn<Entity>(count)，实际只移动已映射对象池物体。');
+    lines.push('    // [SKELETON] Entity binding table：唯一实体→对象池来源，避免 TODO 区二次 GameObject.Find 覆盖引用。');
+    lines.push('    string[] _entityBindingIds = new string[] {');
+    entityNames.forEach((name, idx) => {
+      const comma = idx < entityNames.length - 1 ? ',' : '';
+      lines.push('        "' + csString(name) + '"' + comma);
+    });
+    lines.push('    };');
+    lines.push('    string[] _entityBindingPools = new string[] {');
+    entityNames.forEach((name, idx) => {
+      const comma = idx < entityNames.length - 1 ? ',' : '';
+      lines.push('        "' + csString(entityPoolMap[name]) + '"' + comma);
+    });
+    lines.push('    };');
+    lines.push('');
+    lines.push('    // [SKELETON] 注册实体绑定：所有字段引用都从 GameSceneCtrl 缓存读取。');
+    lines.push('    void RegisterEntityBindings()');
+    lines.push('    {');
+    lines.push('        for (int i = 0; i < _entityBindingIds.Length; i++)');
+    lines.push('        {');
+    lines.push('            GameSceneCtrl.instance.Register(_entityBindingIds[i], _entityBindingPools[i]);');
+    lines.push('        }');
+    lines.push('    }');
+    lines.push('');
+    lines.push('    // [SKELETON] 刷新 GameObject 字段引用，gameplay/UI/preview 共用同一批对象。');
+    lines.push('    void RefreshEntityReferences()');
+    lines.push('    {');
     entityNames.forEach(name => {
-      lines.push(`    void Spawn${name}(int count)`);
-      lines.push('    {');
-      lines.push(`        if (${name} == null) return;`);
-      lines.push(`        var __spawnPos = ${name}.transform.position;`);
-      lines.push('        if (__spawnPos.y < -500f)');
-      lines.push('        {');
-      lines.push('            __spawnPos = new Vector3(0f, 0.5f, 0f);');
-      lines.push('        }');
-      lines.push('        if (count > 1) __spawnPos.x += 0.6f * (count - 1);');
-      lines.push(`        PlaceObj(${name}, __spawnPos.x, __spawnPos.y, __spawnPos.z);`);
-      lines.push(`        ${name}State = Mathf.Max(${name}State, 1);`);
-      lines.push('    }');
+      lines.push('        ' + name + ' = GameSceneCtrl.instance.Get("' + csString(name) + '");');
+    });
+    lines.push('    }');
+    lines.push('');
+    lines.push('    // [SKELETON] 启动时输出缺失池对象，便于交付后定位场景命名漂移。');
+    lines.push('    void ValidateEntityBindings()');
+    lines.push('    {');
+    lines.push('        for (int i = 0; i < _entityBindingIds.Length; i++)');
+    lines.push('        {');
+    lines.push('            if (GameSceneCtrl.instance.Get(_entityBindingIds[i]) == null)');
+    lines.push('            {');
+    lines.push('                Debug.LogWarning("[EntityBinding] Missing pool object for " + _entityBindingIds[i] + ": " + _entityBindingPools[i]);');
+    lines.push('            }');
+    lines.push('        }');
+    lines.push('    }');
+    lines.push('');
+    lines.push('    // [SKELETON] 开局先隐藏所有绑定实体，phase init 再显式摆放可见对象。');
+    lines.push('    void HideAllBoundEntities()');
+    lines.push('    {');
+    entityNames.forEach(name => {
+      lines.push('        HideObj(' + name + ');');
+    });
+    lines.push('    }');
+    lines.push('');
+
+    lines.push('    // [SKELETON] Spawn compatibility helpers：兼容旧模板的 Spawn<Entity>(count)，实际只移动已映射对象池物体。');
+    lines.push('    void SpawnBoundEntity(GameObject entity, ref int entityState, int count)');
+    lines.push('    {');
+    lines.push('        if (entity == null) return;');
+    lines.push('        var __spawnPos = entity.transform.position;');
+    lines.push('        if (__spawnPos.y < -500f)');
+    lines.push('        {');
+    lines.push('            __spawnPos = new Vector3(0f, 0.5f, 0f);');
+    lines.push('        }');
+    lines.push('        if (count > 1) __spawnPos.x += 0.6f * (count - 1);');
+    lines.push('        PlaceObj(entity, __spawnPos.x, __spawnPos.y, __spawnPos.z);');
+    lines.push('        entityState = Mathf.Max(entityState, 1);');
+    lines.push('    }');
+    lines.push('');
+    entityNames.forEach(name => {
+      lines.push(`    // 旧模板调用 Spawn${name}(count) 时，实际显示并标记 ${name}。`);
+      lines.push(`    void Spawn${name}(int count) { SpawnBoundEntity(${name}, ref ${name}State, count); }`);
       lines.push('');
     });
 
     var genericEnemyAliasTarget = pickGenericEnemyAliasTarget(entityNames);
     if (genericEnemyAliasTarget && genericEnemyAliasTarget !== 'Enemy') {
-      lines.push('    // [SKELETON] SpawnEnemy alias：旧模板可能仍调用 SpawnEnemy(count)，这里映射到主敌方单位。');
+      lines.push('    // 兼容仍调用 SpawnEnemy(count) 的旧模板，把它转发给本项目的主敌人单位。');
       lines.push('    void SpawnEnemy(int count)');
       lines.push('    {');
       lines.push('        Spawn' + genericEnemyAliasTarget + '(count);');
@@ -392,7 +451,16 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    Text scoreText;');
   lines.push('    Text floatingText;');
   lines.push('    float floatingTextTimer = 0f;');
+  lines.push('    string _currentGuideText = "";');
   lines.push('    string cameraFocusTarget = "";');
+  lines.push('');
+  lines.push('    // [SKELETON] Guide text 单一写入口；phase/template 不直接写 guideText.text。');
+  lines.push('    void SetGuideText(string text)');
+  lines.push('    {');
+  lines.push('        _currentGuideText = text == null ? "" : text;');
+  lines.push('        if (guideText != null) guideText.text = _currentGuideText;');
+  lines.push('        if (_currentGuideText.Length > 0) RecordPhaseEvidenceFlag(currentPhaseName, "guide_text_visible");');
+  lines.push('    }');
   lines.push('');
 
   // 识别 idle/tycoon 模式：同时具备摇杆和资源交互。
@@ -453,17 +521,21 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    }');
     lines.push('    ResourceDef[] _resources; // [SKELETON] Start() 填充后自动同步到 Manager');
     lines.push('');
+    lines.push('    // [SKELETON] 资源 id 统一归一，避免 "gold"/"Gold" 分裂成两份库存。');
+    lines.push('    string NormalizeResourceId(string id) { return GFM_ResourceIds.Normalize(id); }');
+    lines.push('');
     lines.push('    // [SKELETON] 旧版背包兼容层：让 _inventory["Gold"] 风格读写仍能编译。');
     lines.push('    // 运行时状态仍由 GFM_EconomyManager 单一维护。');
     lines.push('    class InventoryCompat');
     lines.push('    {');
     lines.push('        public int this[string id]');
     lines.push('        {');
-    lines.push('            get { return GFM_EconomyManager.Instance.GetResource(id); }');
+    lines.push('            get { return GFM_EconomyManager.Instance.GetResource(GFM_ResourceIds.Normalize(id)); }');
     lines.push('            set {');
-    lines.push('                int current = GFM_EconomyManager.Instance.GetResource(id);');
-    lines.push('                if (value > current) GFM_EconomyManager.Instance.AddResource(id, value - current);');
-    lines.push('                else if (value < current) GFM_EconomyManager.Instance.TrySpend(id, current - value);');
+    lines.push('                string rid = GFM_ResourceIds.Normalize(id);');
+    lines.push('                int current = GFM_EconomyManager.Instance.GetResource(rid);');
+    lines.push('                if (value > current) GFM_EconomyManager.Instance.AddResource(rid, value - current);');
+    lines.push('                else if (value < current) GFM_EconomyManager.Instance.TrySpend(rid, current - value);');
     lines.push('            }');
     lines.push('        }');
     lines.push('    }');
@@ -476,9 +548,9 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        var mgrDefs = new GFM_EconomyManager.ResourceDef[_resources.Length];');
     lines.push('        for (int i = 0; i < _resources.Length; i++) {');
     lines.push('            mgrDefs[i] = new GFM_EconomyManager.ResourceDef {');
-    lines.push('                resourceId = _resources[i].resourceId,');
+    lines.push('                resourceId = NormalizeResourceId(_resources[i].resourceId),');
     lines.push('                displayName = _resources[i].displayName,');
-    lines.push('                convertFrom = _resources[i].convertFrom,');
+    lines.push('                convertFrom = NormalizeResourceId(_resources[i].convertFrom),');
     lines.push('                convertRatio = _resources[i].convertRatio');
     lines.push('            };');
     lines.push('        }');
@@ -487,6 +559,7 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('');
     lines.push('    // [SKELETON] 委托桩：统一转发到 GFM_EconomyManager。');
     lines.push('    void AddResource(string id, int amount) {');
+    lines.push('        id = NormalizeResourceId(id);');
     lines.push('        int before = GFM_EconomyManager.Instance.GetResource(id);');
     lines.push('        GFM_EconomyManager.Instance.AddResource(id, amount);');
     lines.push('        int after = GFM_EconomyManager.Instance.GetResource(id);');
@@ -496,9 +569,10 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('            RecordPhaseEvidenceFlag(currentPhaseName, "score_text_changed");');
     lines.push('        }');
     lines.push('    }');
-    lines.push('    int GetResource(string id) { return GFM_EconomyManager.Instance.GetResource(id); }');
+    lines.push('    int GetResource(string id) { return GFM_EconomyManager.Instance.GetResource(NormalizeResourceId(id)); }');
     lines.push('    // 通过 manager 扣减资源，并记录可观测的资源减少 evidence。');
     lines.push('    bool TrySpend(string id, int amount) {');
+    lines.push('        id = NormalizeResourceId(id);');
     lines.push('        int before = GFM_EconomyManager.Instance.GetResource(id);');
     lines.push('        bool ok = GFM_EconomyManager.Instance.TrySpend(id, amount);');
     lines.push('        int after = GFM_EconomyManager.Instance.GetResource(id);');
@@ -506,7 +580,7 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        if (ok && after < before) RecordPhaseEvidenceDelta(currentPhaseName, "resource_decremented", before, after);');
     lines.push('        return ok;');
     lines.push('    }');
-    lines.push('    bool TryConvert(string fromId, string toId) { return GFM_EconomyManager.Instance.TryConvert(fromId, toId); }');
+    lines.push('    bool TryConvert(string fromId, string toId) { return GFM_EconomyManager.Instance.TryConvert(NormalizeResourceId(fromId), NormalizeResourceId(toId)); }');
     lines.push('    // 将 manager 库存同步到 scoreText，供轻量 HUD 刷新使用。');
     lines.push('    void UpdateResourceUI() {');
     lines.push('        // Manager 自动更新 scoreText；如果主文件用本地 scoreText，在这里额外拉取展示。');
@@ -839,14 +913,11 @@ function generateSkeleton(specs, opts = {}) {
   if (entityNames.length > 0) {
     lines.push('        // [SKELETON] 场景实体管理');
     lines.push('        GameSceneCtrl.Init(gameObject);');
-    entityNames.forEach(name => {
-      lines.push(`        GameSceneCtrl.instance.Register("${name}", "${entityPoolMap[name]}");`);
-    });
+    lines.push('        RegisterEntityBindings();');
     lines.push('');
     lines.push('        // [SKELETON] 实体变量快捷引用（由 GameSceneCtrl 缓存支持）');
-    entityNames.forEach(name => {
-      lines.push(`        ${name} = GameSceneCtrl.instance.Get("${name}");`);
-    });
+    lines.push('        RefreshEntityReferences();');
+    lines.push('        ValidateEntityBindings();');
     lines.push('');
   }
 
@@ -912,7 +983,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        // 重要：不要再次创建 Canvas；使用 uiCanvas。不要使用 Camera.main；使用 mainCam。');
   if (isIdleGame) {
     lines.push('        // Idle 项目请在 Update() 调用预置的 MovePlayer()/TryCollect()/TryDeliver()。');
-    lines.push('        //   player = GameObject.Find("__Pool_Capsule_Blue_01"); // 使用对象池物体，不调用 GFM_Create.Obj');
+    lines.push('        //   player = GFM_Player.Instance.Go; // 复用已绑定玩家对象，不在 TODO 区直接 Find 对象池');
     lines.push('        //   Update 示例：MovePlayer(); TryCollect(iceSource, "ice", 5, 1.5f); TryDeliver(machine, "ice", 1.5f);');
   }
   lines.push('        // TODO_START_START');
@@ -1289,9 +1360,9 @@ function _pushAutoplayFallback(lines, pid, gateEntities, spec) {
   if (!gateEntities || gateEntities.length === 0) return;
   const touchFlag = pid + 'InteractionDone';
   const actedFlag = pid + 'PlayerActed';
-  lines.push('        // [SKELETON FALLBACK] AI 留空 phase handler 时，仍保持确定性推进。');
+  lines.push('        // [SKELETON FALLBACK] 仅服务 AutoPlay/CUA；真实点击路径不能靠 fallback 伪造进度。');
   lines.push('        // 这里会移动实体并写入少量玩法变量，让 CUA 看到真实进度。');
-  lines.push('        if (!' + touchFlag + ' && !' + actedFlag + ')');
+  lines.push('        if (ShouldRunAutoPlayFallback() && !' + touchFlag + ' && !' + actedFlag + ')');
   lines.push('        {');
   lines.push('            ' + touchFlag + ' = true;');
   lines.push('            ' + actedFlag + ' = true;');
@@ -1309,13 +1380,13 @@ function _pushAutoplayFallback(lines, pid, gateEntities, spec) {
   lines.push('            RecordPhaseEvidenceFlag("' + pid + '", "guide_text_visible");');
 
   if (needsDebrisSignal) {
-    lines.push('            AddResource("RocketDebris", 1);');
+    lines.push('            AddResource(GFM_ResourceIds.RocketDebris, 1);');
   }
   if (needsGoldSignal) {
-    lines.push('            AddResource("Gold", 1);');
+    lines.push('            AddResource(GFM_ResourceIds.Gold, 1);');
   }
   if (needsSpendSignal) {
-    lines.push('            TrySpend("Gold", 1);');
+    lines.push('            TrySpend(GFM_ResourceIds.Gold, 1);');
   }
   if (needsDeliverSignal) {
     lines.push('            RecordPhaseEvidenceFlag("' + pid + '", "inventory_decremented");');
@@ -1417,6 +1488,12 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
   lines.push('        GFM_AutoPlay.Instance.CheckActivation(now);');
   lines.push('        _autoPlayMode = GFM_AutoPlay.Instance.IsActive;');
   lines.push('        _autoPlaySteps = GFM_AutoPlay.Instance.Steps;');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    // fallback 只能服务 AutoPlay/CUA，真实交互路径不能靠它伪造资源和状态。');
+  lines.push('    bool ShouldRunAutoPlayFallback()');
+  lines.push('    {');
+  lines.push('        return _autoPlayMode;');
   lines.push('    }');
   lines.push('');
   lines.push('    // 当前 phase 变化时重置 phase 计时器，并在每帧推进。');
@@ -1534,11 +1611,9 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
   lines.push('');
   for (let i = 0; i < specs.length; i++) {
     const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
-    const gateEntities = phaseGateMap[pid] || [];
     lines.push('    // [SKELETON] Phase "' + pid + '" 点击 handler，补充交互逻辑或复用模板。');
     lines.push('    void Phase_' + pid + '_OnTap()');
     lines.push('    {');
-    _pushAutoplayFallback(lines, pid, gateEntities, specs[i]);
     lines.push('        // TODO_PHASE_' + pid + '_ONTAP_START');
     lines.push('        // TODO：在这里产生可观察位移或其他真实玩法进度。');
     lines.push('        // 不要只依赖 ' + pid + 'InteractionDone / ' + pid + 'PlayerActed 推进 phase。');

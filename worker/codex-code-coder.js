@@ -1284,6 +1284,10 @@ ${whitelistBlock}
 - 如果某个 phase gate 用 \`EntityAdvanced(X, _snap_XPos)\`，那么 **X 必须在 OnTap / OnAutoPlayArrive / 运行时交互里再次移动**
 - 只在 \`Phase_<id>_Init()\` 里移动 X 不算 phase 完成
 - 禁止发明新的 pool literal 或动态拼接 \`__Pool_*\`
+- 不要直接写 \`GameObject.Find("__Pool_*")\`；实体引用统一来自 \`RegisterEntityBindings()/GameSceneCtrl\`
+- 资源 API 使用 \`GFM_ResourceIds.Gold\` 或 \`GFM_ResourceIds.Normalize("...")\`，不要裸写 \`AddResource("Gold", ...)\`
+- 引导文案使用 \`SetGuideText("...")\`，不要直接写 \`guideText.text = ...\`
+- AutoPlay fallback 只能在 \`Phase_*_OnAutoPlayArrive()\`，不要塞进 \`Phase_*_OnTap()\`
 - 当前任务允许的 pool literal 只有这些：${allowedPools.map(function(pool) { return '`' + pool + '`'; }).join(', ')}
 
 ## CUA 验证反馈（必须修复以下问题）：
@@ -1432,7 +1436,8 @@ ${inlinePromptMd}
         + '3. The existing code is split across multiple `partial class GameFlowManagerMain` files under Assets/Program/Script/Manager/ (e.g. GameFlowManagerMain.cs + GameFlowManagerMain.Flow.cs + .Input.cs + .Resource.cs + .UI.cs + .Scene.cs + .Systems.cs). All of these share fields with the main file. Your edits must preserve all existing code.\n'
         + '4. Read ALL existing GameFlowManagerMain*.cs partial files FIRST, then apply targeted edits based on the feedback. Do NOT invent file names — use `ls` or `Glob` on the Manager/ directory to discover which partials actually exist.\n'
         + '5. If any file becomes shorter after your edits, you have made a mistake.\n'
-        + '6. Phase dispatch logic (Phase_OnTap, Phase_<id>_OnTap, per-phase trigger checks) lives in GameFlowManagerMain.Flow.cs when that file exists — edit Flow.cs for phase advancement / tap handling / visual-freeze fixes. Systems.cs (if present) owns game subsystems — edit it for movement/combat/spawning/economy fixes.'
+        + '6. Phase dispatch logic (Phase_OnTap, Phase_<id>_OnTap, per-phase trigger checks) lives in GameFlowManagerMain.Flow.cs when that file exists — edit Flow.cs for phase advancement / tap handling / visual-freeze fixes. Systems.cs (if present) owns game subsystems — edit it for movement/combat/spawning/economy fixes.\n'
+        + '7. Do not add direct GameObject.Find("__Pool_*") in GameFlowManagerMain*.cs; use existing bound entity fields. Use GFM_ResourceIds for resource API calls and SetGuideText for guide text.'
       : null,
     workDir: clientDir,
   });

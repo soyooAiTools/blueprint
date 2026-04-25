@@ -23,6 +23,7 @@ public static class GFM_UI
     private static Font _cachedFont;
     private static bool _fontLoadAttempted;
 
+    // 获取运行时 UI 使用的默认字体。
     private static Font GetFont()
     {
         if (_cachedFont != null) return _cachedFont;
@@ -45,6 +46,7 @@ public static class GFM_UI
         txt.alignment = align;
     }
 
+    // 创建 1920x1080 的运行时 UI 画布。
     public static Canvas CreateCanvas(int refWidth = 1920, int refHeight = 1080)
     {
         var obj = new GameObject("Canvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
@@ -61,6 +63,7 @@ public static class GFM_UI
         return canvas;
     }
 
+    // 创建按钮并设置文案、位置和点击事件。
     public static Button CreateButton(Canvas canvas, string text, Vector2 pos, Vector2 size, UnityEngine.Events.UnityAction onClick)
     {
         if (canvas == null || canvas.transform == null) return null;
@@ -83,6 +86,7 @@ public static class GFM_UI
         return btn;
     }
 
+    // 创建 Text 文本控件并应用基础样式。
     public static Text CreateText(Canvas canvas, string content, Vector2 pos, int fontSize)
     {
         if (canvas == null || canvas.transform == null) return null;
@@ -99,6 +103,7 @@ public static class GFM_UI
         return txt;
     }
 
+    // 在世界坐标上方创建跟随标签。
     public static void AddWorldLabel(GameObject target, string text, float heightOffset)
     {
         if (target == null) return;
@@ -135,6 +140,7 @@ public static class GFM_UI
         labelObj.AddComponent<GFM_Billboard>();
     }
 
+    // 创建一个可复用的进度条 UI。
     public static Slider CreateProgressBar(Canvas canvas, Vector2 pos, Vector2 size, Color fillColor)
     {
         var obj = new GameObject("ProgressBar", typeof(RectTransform), typeof(Slider));

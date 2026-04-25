@@ -1,6 +1,7 @@
 /**
  * Economy template — generates ResourceDef[] init and flow calls.
  */
+var { resourceIdExpr, escapeCsString } = require('./resource-ids.cjs');
 
 function generateResourceInit(schema) {
   var resources = schema.resources || [];
@@ -10,12 +11,12 @@ function generateResourceInit(schema) {
   for (var i = 0; i < resources.length; i++) {
     var r = resources[i];
     var comma = (i < resources.length - 1) ? ',' : '';
-    lines.push('            new ResourceDef { resourceId="' + r.name + '", displayName="' + r.name + '", convertFrom="' + (r.entity || '') + '", convertRatio=' + (r.convertRatio || 0) + ' }' + comma);
+    lines.push('            new ResourceDef { resourceId=' + resourceIdExpr(r.name) + ', displayName="' + escapeCsString(r.name) + '", convertFrom=' + resourceIdExpr(r.entity || '') + ', convertRatio=' + (r.convertRatio || 0) + ' }' + comma);
   }
   lines.push('        };');
   // Initialize inventory
   for (var j = 0; j < resources.length; j++) {
-    lines.push('        _inventory["' + resources[j].name + '"] = 0;');
+    lines.push('        _inventory[' + resourceIdExpr(resources[j].name) + '] = 0;');
   }
   return lines.join('\n');
 }

@@ -12,6 +12,7 @@ public class GFM_Luna : MonoBehaviour
     private bool _isFirst = true;
     private bool _isGameOver = false;
 
+    // 初始化 Luna 交互桥接状态。
     public static GFM_Luna Init(GameObject parent)
     {
         if (instance != null) return instance;
@@ -32,17 +33,20 @@ public class GFM_Luna : MonoBehaviour
         }
     }
 
+    // 触发试玩结束并上报 Luna 生命周期。
     public static void GameOver()
     {
         if (instance != null) instance._isGameOver = true;
         Luna.Unity.LifeCycle.GameEnded();
     }
 
+    // 跳转到安装或商店入口。
     public static void GotoStore()
     {
         Luna.Unity.Playable.InstallFullGame();
     }
 
+    // 返回当前是否已经触发游戏结束。
     public static bool IsGameOver()
     {
         return instance != null && instance._isGameOver;

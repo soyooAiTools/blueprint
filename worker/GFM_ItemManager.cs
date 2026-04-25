@@ -46,6 +46,7 @@ public class GFM_ItemManager : MonoBehaviour
     }
 
     private bool _inited = false;
+    // 初始化物品管理器并清空掉落物状态。
     public void Init()
     {
         if (_inited) return;
@@ -77,12 +78,14 @@ public class GFM_ItemManager : MonoBehaviour
         return -1;
     }
 
+    // 拾取指定物品并返回是否成功。
     public bool PickupItem(int itemSlotId)
     {
         // TODO (未来项目): 按 slot 找到对象，挪到 (0,-999,0)，EconomyManager.AddResource
         return false;
     }
 
+    // 在指定位置掉落一个物品。
     public void DropItem(string itemId, Vector3 pos)
     {
         // TODO (未来项目): 从 inventory 扣 1 个，Spawn 到 pos

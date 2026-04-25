@@ -7,6 +7,7 @@
  */
 var { toLowerCamel, resolveSpawnEntityName } = require('./trigger-codegen.cjs');
 var { TriggerType, ActionType } = require('./phase-enums.cjs');
+var { resourceIdExpr } = require('./resource-ids.cjs');
 
 function generateAutoPlay(schema) {
   var lines = [];
@@ -48,7 +49,7 @@ function triggerToMirror(trigger, schema, phaseIdx) {
       // path also satisfies EntityAdvanced(source, _snap) > 1.5. If the trigger names
       // a source entity we hide it; otherwise fall back to AddResource + comment.
       var src = trigger.entity ? toLowerCamel(trigger.entity) : null;
-      return 'AddResource("' + trigger.resource + '", ' + trigger.amount + ');' +
+      return 'AddResource(' + resourceIdExpr(trigger.resource) + ', ' + trigger.amount + ');' +
              (src ? '\nif (' + src + ' != null) HideObj(' + src + '); // observable — required by EntityAdvanced' : '');
     }
     case TriggerType.ENTITY_STATE_REACHED:
@@ -81,7 +82,7 @@ function actionToMirror(action, schema) {
       // State field is now read-only for phase gate — emit an observable move instead.
       return 'PlaceObj(' + toLowerCamel(action.entity) + ', ' + ((action.state || 1) * 2) + 'f, 0.5f, 0f); // observable — required by EntityAdvanced';
     case ActionType.ADD_RESOURCE:
-      return 'AddResource("' + action.resource + '", ' + action.amount + ');';
+      return 'AddResource(' + resourceIdExpr(action.resource) + ', ' + action.amount + ');';
     case ActionType.SWITCH_FORM:
       return 'SwitchForm(' + action.formIndex + ');';
     case ActionType.SPAWN_ENEMIES:

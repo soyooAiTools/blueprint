@@ -1,4 +1,5 @@
 var { toLowerCamel } = require('../trigger-codegen.cjs');
+var { resourceIdExpr } = require('../resource-ids.cjs');
 
 function escapeString(value) {
   return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -31,9 +32,9 @@ function generateDeliverUpdate(schema) {
     var resName = resources.length > 0 ? resources[0].name : 'resource';
     lines.push('        // Delivery gate: player must stand near the target before inventory can be exchanged.');
     lines.push('        if (' + entity + ' != null && IsNear(' + entity + ', 2f)) {');
-    lines.push('            int count = GetResource("' + escapeString(resName) + '");');
+    lines.push('            int count = GetResource(' + resourceIdExpr(resName) + ');');
     lines.push('            // Sell gate: only convert resources after confirming a positive count and successful spend.');
-    lines.push('            if (count > 0 && TrySpend("' + escapeString(resName) + '", count)) {');
+    lines.push('            if (count > 0 && TrySpend(' + resourceIdExpr(resName) + ', count)) {');
     lines.push('                AddGold(' + t.goldPerUnit + ' * count);');
     lines.push('                ' + entity + 'Done = true;');
     lines.push('                ' + entity + 'State = 2;');

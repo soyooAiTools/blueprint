@@ -12,6 +12,7 @@ public static class GFM_Pathfinding
     public static bool allowDiagonal = true;
     public static int maxSteps = 6000;
 
+    // 计算从起点到终点的网格路径。
     public static List<Vector3> FindPath(GFM_Grid grid, Vector3 startPos, Vector3 endPos)
     {
         GFM_GridNode startNode = grid.GetNodeFromWorldPos(startPos);
@@ -75,6 +76,7 @@ public static class GFM_Pathfinding
         return null;
     }
 
+    // 计算寻路启发式距离。
     private static int GetHeuristic(GFM_GridNode a, GFM_GridNode b)
     {
         int dx = Mathf.Abs(a.row - b.row);
@@ -83,6 +85,7 @@ public static class GFM_Pathfinding
         return 14 * dx + 10 * (dz - dx);
     }
 
+    // 从终点节点回溯生成完整路径。
     private static List<Vector3> RetracePath(GFM_Grid grid, GFM_GridNode start, GFM_GridNode end)
     {
         List<Vector3> path = new List<Vector3>();
@@ -97,6 +100,7 @@ public static class GFM_Pathfinding
         return path;
     }
 
+    // 按路径推进物体移动。
     public static Vector3 MoveAlongPath(List<Vector3> path, ref int pathIndex, Vector3 currentPos, float step)
     {
         if (path == null || pathIndex >= path.Count) return currentPos;
@@ -107,6 +111,7 @@ public static class GFM_Pathfinding
         return newPos;
     }
 
+    // 压缩路径拐点，减少无意义中间节点。
     public static List<Vector3> SimplifyPath(List<Vector3> path)
     {
         if (path == null || path.Count <= 2) return path;

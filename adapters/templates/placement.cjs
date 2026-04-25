@@ -8,19 +8,19 @@ var { toLowerCamel } = require('./trigger-codegen.cjs');
 function generatePlacement(schema) {
   var lines = [];
   var entities = schema.entities || [];
+  if (entities.length > 0) {
+    lines.push('        // Entity refs are already bound by RegisterEntityBindings()/RefreshEntityReferences().');
+    lines.push('        HideAllBoundEntities();');
+  }
   for (var i = 0; i < entities.length; i++) {
     var e = entities[i];
     var varName = toLowerCamel(e.name);
-    // Find pool object
-    lines.push('        ' + varName + ' = GameObject.Find("' + e.pool + '");');
     // Initial position — hide off-screen if not shown at start
     if (e.showInPhase === 'start') {
       lines.push('        PlaceObj(' + varName + ', ' + e.initPos[0] + 'f, ' + e.initPos[1] + 'f, ' + e.initPos[2] + 'f);');
       if (e.scale && e.scale !== 1.0) {
         lines.push('        SetScale(' + varName + ', ' + e.scale + 'f);');
       }
-    } else {
-      lines.push('        HideObj(' + varName + ');');
     }
   }
   // NOTE: Camera background and ground color handled via in-place regex

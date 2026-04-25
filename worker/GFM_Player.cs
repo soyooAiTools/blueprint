@@ -203,6 +203,7 @@ public class GFM_Player : MonoBehaviour
     // 保留接口是为了和 skeleton 行为一致。
     // ========================================================================
     private GameObject[] _carryVisuals;
+    // 刷新玩家携带物的显示状态。
     public void UpdateCarryVisuals()
     {
         if (_carryVisuals == null)
@@ -240,6 +241,7 @@ public class GFM_Player : MonoBehaviour
         }
     }
 
+    // 确保玩家实体存在并完成必要组件初始化。
     private bool EnsurePlayerObject()
     {
         if (_player != null) return true;
@@ -282,7 +284,9 @@ public class GFM_Player : MonoBehaviour
 
     // 【当前形态属性查询】供 CheckEventRules / TryCollect 使用。
     public float GetCollectPower() { return (Forms != null && Forms.Length > 0) ? Forms[_currentFormIndex].collectPower : 1f; }
+    // 获取玩家当前采集半径。
     public float GetCollectRange() { return (Forms != null && Forms.Length > 0) ? Forms[_currentFormIndex].collectRange : 1.5f; }
+    // 获取玩家当前可携带资源上限。
     public int GetCarryCapacity() { return (Forms != null && Forms.Length > 0) ? Forms[_currentFormIndex].carryCapacity : 10; }
     public int CurrentFormIndex { get { return _currentFormIndex; } }
 }

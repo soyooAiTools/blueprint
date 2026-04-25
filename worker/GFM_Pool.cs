@@ -15,6 +15,7 @@ public class GFM_Pool : MonoBehaviour
     private Dictionary<int, GameObject> _prefabMap = new Dictionary<int, GameObject>();
     private Transform _poolRoot;
 
+    // 初始化通用对象池根节点和缓存表。
     public static GFM_Pool Init(GameObject parent)
     {
         if (instance != null) return instance;
@@ -25,6 +26,7 @@ public class GFM_Pool : MonoBehaviour
         return instance;
     }
 
+    // 预加载指定 prefab 的对象池实例。
     public void Preload(GameObject prefab, int count)
     {
         if (prefab == null) return;
@@ -39,6 +41,7 @@ public class GFM_Pool : MonoBehaviour
         }
     }
 
+    // 从对象池获取一个可用实例。
     public static GameObject Get(GameObject prefab)
     {
         if (instance == null || prefab == null) return null;
@@ -54,6 +57,7 @@ public class GFM_Pool : MonoBehaviour
         return newObj;
     }
 
+    // 将对象归还对象池并隐藏。
     public static void Return(GameObject obj)
     {
         if (instance == null || obj == null) return;
@@ -69,6 +73,7 @@ public class GFM_Pool : MonoBehaviour
         }
     }
 
+    // 延迟归还对象池实例。
     public static void ReturnAfter(GameObject obj, float delay)
     {
         if (instance == null || obj == null) return;
@@ -81,6 +86,7 @@ public class GFM_Pool : MonoBehaviour
 public class GFM_ReturnTimer : MonoBehaviour
 {
     private float _timer = -1f;
+    // 启动延迟归还计时协程。
     public void StartTimer(float delay) { _timer = delay; }
     void Update()
     {

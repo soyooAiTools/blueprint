@@ -43,6 +43,7 @@ public class GFM_NpcManager : MonoBehaviour
     }
 
     private bool _inited = false;
+    // 初始化 NPC 管理器和对象池引用。
     public void Init()
     {
         if (_inited) return;
@@ -74,6 +75,7 @@ public class GFM_NpcManager : MonoBehaviour
         return -1;
     }
 
+    // 隐藏并回收指定 NPC。
     public void DespawnNpc(int npcId)
     {
         // TODO (未来项目): 按 npcId 找到对应对象，挪到 (0,-999,0) 隐藏

@@ -10,6 +10,7 @@ public class GFM_Billboard : MonoBehaviour
 {
     Camera cam;
     void Start() { cam = Camera.main; }
+    // 每帧让世界空间标签面向相机，避免文字背对玩家。
     void LateUpdate()
     {
         if (cam == null) { cam = Camera.main; if (cam == null) return; }

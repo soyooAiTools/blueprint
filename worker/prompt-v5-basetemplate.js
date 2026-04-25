@@ -261,7 +261,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('场景已预制 160 个带颜色的 3D 对象 + UI 元素。你 **不需要创建任何对象**。');
   lines.push('');
   lines.push('你只需要：');
-  lines.push('1. `GameObject.Find("名称")` 获取对象引用');
+  lines.push('1. 优先使用骨架中已经绑定好的实体字段；如果代码里有 `RegisterEntityBindings()`，不要再写 `GameObject.Find("__Pool_*")`');
   lines.push('2. `transform.position = new Vector3(x,y,z)` 移动到场景中（显示）');
   lines.push('3. `transform.position = new Vector3(0,-999,0)` 移到远处（隐藏）');
   lines.push('4. 颜色已烘焙 — 直接 Find 对应颜色的 `__Pool_{Shape}_{Color}_{NN}` 对象，无需 SetColor');
@@ -270,7 +270,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('## 骨架已预创建的变量（直接使用，不要重新创建）');
   lines.push('- `Camera mainCam` — 已缓存的相机，绝对不要用 Camera.main，用 mainCam');
   lines.push('- `Canvas uiCanvas` — 已创建的 Canvas，不要再创建');
-  lines.push('- `Text guideText` — 引导文字，设 guideText.text = "..." 更新');
+  lines.push('- `Text guideText` — 引导文字，优先调用 `SetGuideText("...")` 更新');
   lines.push('- `Text scoreText` — 分数文字，设 scoreText.text = "..." 更新');
   lines.push('');
   lines.push('## ⛔ 绝对禁止');
@@ -278,6 +278,8 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('- **绝对不要用 GFM_UI.CreateCanvas()** — 用 uiCanvas');
   lines.push('- **绝对不要用 SetActive()** — Luna 中会导致对象永久消失');
   lines.push('- 不要用 GFM_Create.Obj() / GFM_Create.Ground() — 对象已存在');
+  lines.push('- 如果骨架已经生成 `_entityBindingIds/_entityBindingPools`，不要在 TODO 区直接 `GameObject.Find("__Pool_*")` 覆盖实体字段');
+  lines.push('- 资源 API 使用 `GFM_ResourceIds.Gold` / `GFM_ResourceIds.Normalize("...")`，不要裸写 `AddResource("Gold", ...)`');
   lines.push('- 不要用 CreatePrimitive() — 在 Luna 中不可见');
   lines.push('- 不要用泛型 List<T> / Dictionary<K,V> — 用数组');
   lines.push('- 不要用 coroutine / async / await — 用 Update + timer');
@@ -370,7 +372,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
 
   // ========== 5. 对象分配表 ==========
   lines.push('# 对象分配表');
-  lines.push('以下是蓝图实体 → 场景对象的映射。用 GameObject.Find 获取。');
+  lines.push('以下是蓝图实体 → 场景对象的映射。新骨架会用 RegisterEntityBindings 自动绑定；不要在 TODO 区重复 Find。');
   lines.push('对象名格式为 __Pool_[Shape]_[Color]_[NN]（如 __Pool_Cube_Red_01），颜色已烘焙，这些是场景中已存在的 3D 对象。');
   lines.push('');
   lines.push('| 蓝图实体 | 场景对象名 | 说明 |');
@@ -515,7 +517,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('- 游戏结束: `Luna.Unity.LifeCycle.GameEnded()`');
   lines.push('- CTA: `Luna.Unity.Playable.InstallFullGame()`');
   lines.push('- 时间延迟: 用 `timer += Time.deltaTime; if (timer > X)` 代替 WaitForSeconds');
-  lines.push('- UI 文字: `GameObject.Find("ScoreText").GetComponent<Text>().text = "xxx"`');
+  lines.push('- UI 文字: guide 用 `SetGuideText("xxx")`；score 用已存在的 `scoreText` 字段，避免新 Find');
   lines.push('- 碰撞检测: `Vector3.Distance(a.position, b.position) < radius`');
   lines.push('- 不要用 transform.parent / SetParent / FindObjectOfType');
   lines.push('- 不要定义 class EventPool（和模板冲突）');

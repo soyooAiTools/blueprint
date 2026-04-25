@@ -24,6 +24,7 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
     private float _radius;
     private Vector2 _bgStartPos;
 
+    // 创建运行时摇杆 UI 并绑定输入事件。
     public static GFM_Joystick Create(Canvas canvas, float size)
     {
         if (instance != null) return instance;
@@ -56,12 +57,14 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
         return instance;
     }
 
+    // 处理摇杆按下，开始记录拖拽方向。
     public void OnPointerDown(PointerEventData eventData)
     {
         _dragging = true;
         OnDrag(eventData);
     }
 
+    // 处理摇杆拖拽并更新方向向量。
     public void OnDrag(PointerEventData eventData)
     {
         Vector2 localPos;
@@ -74,6 +77,7 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
         }
     }
 
+    // 处理摇杆松开并重置方向。
     public void OnPointerUp(PointerEventData eventData)
     {
         _dragging = false;
