@@ -256,12 +256,9 @@ function detectLowCoverageSignal(cuaResult, totalPhases) {
   return null;
 }
 
-// FIX (auto-6f227669): isFingerprintCircuitBreakerExempt — exempt 'screenshot sharing'
-// fingerprint class from the FP circuit breaker so _noProgressRounds escalation (full
-// regen at rounds >= 2) gets a chance to run before hard FATAL. Without this exemption,
-// the FP breaker would fire FATAL at 3 identical rounds even though 'screenshot sharing'
-// is now in VISUAL_FREEZE_PHRASES and the visual_freeze/codegen_init_failure escalation
-// path is the correct handler.
+// 指纹断路器豁免：`screenshot sharing` / `screenshot-timing` 这类问题
+// 应交给 no-progress/full-regen 路径先处理，避免在有机会重生成前被
+// 重复指纹断路器直接判为 FATAL。
 function isFingerprintCircuitBreakerExempt(fp) {
   var text = String(fp || '').toLowerCase();
   if (!text) return false;
@@ -651,23 +648,12 @@ module.exports = {
                 _enhancedDiagInjected = false;
                 _codeAtFpStreakStart = lastCsCode;
               }
-              // 2026-04-21 (auto-edb29e02): [spec-phase-skipped] exemption.
-              // normalizeFingerprint() strips numeric fractions but leaves the
-              // unquoted trailing phase-name list intact (e.g.
-              // "exchangeGoldAtStation, buildForgeWorkshop, ..."). Those names
-              // are structurally unreachable until the preceding transition is
-              // fixed, so the fingerprint is round-stable within any given task.
-              // The _noProgressRounds path below already owns escalation (full
-              // regen at NO_PROGRESS_EXIT_ROUNDS, FATAL at +3) — let it decide
-              // for this class instead of the FP circuit breaker.
-              //
-              // FIX (auto-6f227669): [screenshot-sharing] exemption.
-              // 'screenshot sharing' is now in VISUAL_FREEZE_PHRASES so
-              // _buildStuckDiagnosis assigns rootCause='visual_freeze' (or
-              // 'phase_transition_broken' if phases already completed). The
-              // _noProgressRounds escalation path (full-regen at >= 2, FATAL at
-              // >= 4) is the correct handler — exempt from FP circuit breaker so
-              // it gets a chance to attempt full-regen before hard abort.
+              // 2026-04-21 (auto-edb29e02)：[spec-phase-skipped] 豁免。
+              // normalizeFingerprint() 会剥掉数字比例，但保留未加引号的尾部
+              // phase 名列表（例如 "exchangeGoldAtStation, buildForgeWorkshop, ..."）。
+              // 在前置 transition 修好前，这些 phase 结构上不可达，所以同一任务内
+              // 指纹会稳定重复。这里让 _noProgressRounds 路径负责升级
+              //（NO_PROGRESS_EXIT_ROUNDS 时 full regen，+3 后 FATAL）。
               var isExemptFp = isFingerprintCircuitBreakerExempt(_currentFp);
               var exemptLabel = _currentFp.indexOf('spec-phase-skipped') >= 0
                 ? '[spec-phase-skipped]'

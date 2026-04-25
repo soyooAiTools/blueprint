@@ -13,6 +13,7 @@ var { resolveEntities } = require('../../adapters/entity-resolver.cjs');
 var assemblyEmitter = require('../../adapters/assembly-emitter.cjs');
 var templateEngine = require('../../adapters/codegen-template-engine.cjs');
 var schemaValidator = require('../../adapters/schema/validate-schema.cjs');
+var commentLocalizer = require('../../lib/csharp-comment-localizer.cjs');
 
 module.exports = {
   name: 'codegen',
@@ -109,14 +110,27 @@ module.exports = {
         }
 
         ctx.addLog('codegen-schema', 'No custom logic — skipping text runner entirely');
+      })
+      .then(function(result) {
+        var commentStats = localizeGeneratedCSharpComments(ctx);
+        if (commentStats.changed) {
+          ctx.addLog('codegen-schema', 'Localized generated C# comments to Chinese: ' +
+            commentStats.localizedComments + ' comment(s) in ' + commentStats.changedFiles + '/' + commentStats.files + ' file(s)');
+        }
+        return result;
       });
   },
   _internals: {
     buildSchemaPrompt: buildSchemaPrompt,
     summarizePlansForPrompt: summarizePlansForPrompt,
     isSchemaInfraError: isSchemaInfraError,
+    localizeGeneratedCSharpComments: localizeGeneratedCSharpComments,
   }
 };
+
+function localizeGeneratedCSharpComments(ctx) {
+  return commentLocalizer.localizeContextCSharpComments(ctx);
+}
 
 function generateSchemaFromSpecs(ctx) {
   var maxRetries = 2;

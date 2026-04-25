@@ -160,29 +160,27 @@ function phaseMatchesOrdered(spec, runtimePhaseId, runtimeAlias) {
   return false;
 }
 
+function isRuntimeMetaPhase(phaseId) {
+  const norm = normalizePhaseKey(phaseId);
+  return norm === 'gamestart' || norm === 'start' || norm === 'init' || norm === 'initialize' || norm === 'gameend';
+}
+
 function getOrderedPreviewPhaseStates(previewSpecs, completedPhases, currentPhase, runtimePhaseOrder, hasRuntimeSignal) {
-  const runtimeCompleted = Array.from(new Set((completedPhases || []).filter(Boolean)));
-  const statuses = [];
-  let completedCursor = 0;
+  const runtimeCompleted = Array.from(new Set((completedPhases || []).filter(Boolean)))
+    .filter((phaseId) => !isRuntimeMetaPhase(phaseId));
+  const runtimeOrder = Array.from(new Set((runtimePhaseOrder || []).filter(Boolean)))
+    .filter((phaseId) => !isRuntimeMetaPhase(phaseId));
   let activeAssigned = false;
   let firstPendingIndex = -1;
 
-  (previewSpecs || []).forEach((spec, index) => {
-    const runtimeAlias = Array.isArray(runtimePhaseOrder) ? runtimePhaseOrder[index] : '';
-    let done = false;
-    while (completedCursor < runtimeCompleted.length) {
-      if (phaseMatchesOrdered(spec, runtimeCompleted[completedCursor], runtimeAlias)) {
-        done = true;
-        completedCursor += 1;
-        break;
-      }
-      break;
-    }
+  const statuses = (previewSpecs || []).map((spec, index) => {
+    const runtimeAlias = runtimeOrder[index] || '';
+    const done = runtimeCompleted.some((phaseId) => phaseMatchesOrdered(spec, phaseId, runtimeAlias));
 
     const active = !done && !activeAssigned && phaseMatchesOrdered(spec, currentPhase, runtimeAlias);
     if (!done && active) activeAssigned = true;
     if (!done && firstPendingIndex === -1) firstPendingIndex = index;
-    statuses.push({ done, active });
+    return { done, active };
   });
 
   if (!activeAssigned && hasRuntimeSignal && firstPendingIndex >= 0) {

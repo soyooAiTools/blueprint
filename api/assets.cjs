@@ -100,11 +100,12 @@ module.exports.init = function(ctx) {
       if (hasWebgl) {
         try { cacheBust = '?t=' + fs.statSync(path.join(webglDir, webglFile)).mtimeMs.toFixed(0); } catch(e) {}
       }
-      // Always enable autoplay in preview so all phases auto-advance for viewers
-      var autoplaySuffix = cacheBust ? '&autoplay=1' : '?autoplay=1';
+      // Public preview autoplay is the bridge default. Do not append autoplay=1
+      // here: that parameter is reserved for CUA observe mode and waits for the
+      // observer-ready handshake before starting.
       sendJSON(res, {
         available: hasWebgl,
-        url: hasWebgl ? '/webgl/' + id + '/' + webglFile + cacheBust + autoplaySuffix : null,
+        url: hasWebgl ? '/webgl/' + id + '/' + webglFile + cacheBust : null,
         webglPath: project.webglPath,
       });
     },

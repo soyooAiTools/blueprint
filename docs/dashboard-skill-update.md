@@ -1,5 +1,19 @@
 # Dashboard / Blueprint SKILL 同步清单（归档系统 2026-04-19）
 
+## 2026-04-25 增量同步：完整 Unity 工程导出 + 注释中文化
+
+### 已同步到 Blueprint monitor skill
+
+- 用户要“完整 Unity 工程文件”时，不能只给 `.cs`，必须导出包含 `Assets/`、`Packages/`、`ProjectSettings/`、`luna.json`、`tools/` 的完整工程。
+- 标准入口是 `scripts/export-unity-project.sh <taskId> --out <tar.gz>`。
+- 导出脚本默认中文化 C# 注释，并保留 `TODO_*` / `[SKELETON]` / `[ASSEMBLY]` / API 名 / signal 名等机器标记。
+- `codegen-schema` 与 `compile` 已接入统一 localizer；新增生成器时应复用 `lib/csharp-comment-localizer.cjs`。
+- `server-data/exports/**` 是本机导出产物，除非明确要求，不进入发布提交。
+
+### 归档入口
+
+- `docs/_archived/2026-04-25-unity-export-comment-localization.md`
+
 ## 2026-04-25 最终同步：公开预览发布收尾
 
 ### 已同步到 Blueprint monitor skill

@@ -11,11 +11,26 @@ var helpers = require('../helpers.cjs');
 var { recode } = require('../recode.cjs');
 var { createFixLoop } = require('../fix-loop.cjs');
 var config = require('../../lib/config.cjs');
+var commentLocalizer = require('../../lib/csharp-comment-localizer.cjs');
 
 var MAX_BUILD_FIX_ATTEMPTS = 5;
 // Early exit if the build fails with the same error signature 3 rounds in a row —
 // the AI is stuck on the same root cause, additional rounds will only burn tokens.
 var SAME_BUILD_ERROR_EXIT = 3;
+
+function localizeCompileInputs(csCode, extraFiles) {
+  var localCtx = {
+    csCode: String(csCode || ''),
+    extraFiles: Object.assign({}, extraFiles || {}),
+  };
+  var stats = commentLocalizer.localizeContextCSharpComments(localCtx);
+  return {
+    changed: stats.changed,
+    stats: stats,
+    csCode: localCtx.csCode,
+    extraFiles: localCtx.extraFiles,
+  };
+}
 
 function collectBlueprintEntities(blueprint) {
   return blueprint && Array.isArray(blueprint.entities) ? blueprint.entities : [];
@@ -251,6 +266,14 @@ module.exports = {
           lastCsCode = deterministicRepair.code;
           lastExtraFiles = deterministicRepair.extraFiles;
           ctx.addLog('compile', 'Deterministic pre-build repair applied: ' + deterministicRepair.fixes.join(', '));
+        }
+        var localized = localizeCompileInputs(lastCsCode, lastExtraFiles);
+        if (localized.changed) {
+          lastCsCode = localized.csCode;
+          lastExtraFiles = localized.extraFiles;
+          ctx.addLog('compile', 'Localized C# comments before build: ' +
+            localized.stats.localizedComments + ' comment(s) in ' +
+            localized.stats.changedFiles + '/' + localized.stats.files + ' file(s)');
         }
         return helpers.buildRequest(buildUrl, '/build', lastCsCode, lastExtraFiles)
           .catch(function(e) { return { ok: false, error: e.message }; })

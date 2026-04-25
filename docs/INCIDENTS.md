@@ -1,5 +1,26 @@
 # Blueprint 生产事故记录
 
+## 2026-04-25: 完整 Unity 工程导出与 C# 注释中文化收口
+
+### 背景
+
+任务 `proj_1776912973985_5o2lyu` 通过公开预览修复后，需要提供可在 Unity Hub 中直接打开的完整工程，而不是只导出 `server-data/project-sources/<taskId>` 下的 C# 文件。同时，生成产物里的英文注释需要默认中文化，避免交付工程仍混入大量英文骨架说明。
+
+### 修复
+
+- `scripts/export-unity-project.sh` 改为导出完整工程目录：`Assets/`、`Packages/`、`ProjectSettings/`、`luna.json`、`tools/`，并附带 `BlueprintArtifacts/`。
+- 导出脚本会复制所有 `GameFlowManagerMain*.cs` partial，避免只带主文件或 `Systems` 文件导致 Unity partial class 不完整。
+- 新增 `lib/csharp-comment-localizer.cjs`，默认只中文化 C# 注释，保留 `TODO_*`、`[SKELETON]`、`[ASSEMBLY]`、API 名、变量名和 signal 名等机器标记。
+- `codegen-schema` 与 `compile` 阶段接入注释中文化兜底，让后续生成链路默认产出中文注释。
+- `/api/assets` 不再给公开 WebGL 地址追加 `autoplay=1`，该参数只用于 CUA observe 路径；公开预览依赖默认桥接自动播放。
+- Dashboard phase 状态过滤 `gameStart` / `gameEnd` 等运行时 meta phase，避免预览步骤显示错位。
+
+### 验证
+
+- 完整工程导出产物：`server-data/exports/proj_1776912973985_5o2lyu_unity_project.tar.gz`。
+- 回归覆盖：`test/csharp-comment-localizer.test.cjs`、`test/api-webgl-url.test.cjs`、`test/preview-phase-states.test.cjs`。
+- 归档：`docs/_archived/2026-04-25-unity-export-comment-localization.md`。
+
 ## 2026-04-25: CUA 通过但公开预览停在第一 SHOT
 
 ### 背景
