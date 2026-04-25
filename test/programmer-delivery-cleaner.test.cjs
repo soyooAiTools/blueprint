@@ -51,7 +51,10 @@ try {
   assert.strictEqual(summary.removedArtifactDirs, 1);
   assert.ok(!fs.existsSync(path.join(tmp, 'BlueprintArtifacts')));
   assert.ok(fs.existsSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md')));
+  assert.ok(fs.existsSync(path.join(tmp, 'CODE_RELATION_GRAPH.md')));
+  assert.ok(fs.existsSync(path.join(tmp, 'CODE_RELATION_GRAPH.html')));
   assert.match(fs.readFileSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md'), 'utf8'), /程序员交付版说明/);
+  assert.match(fs.readFileSync(path.join(tmp, 'CODE_RELATION_GRAPH.md'), 'utf8'), /代码关系图/);
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
 }

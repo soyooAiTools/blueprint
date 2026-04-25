@@ -1,5 +1,30 @@
 # Blueprint 生产事故记录
 
+## 2026-04-25: 交付工程代码关系图系统化
+
+### 背景
+
+程序员接手完整 Unity 工程时，需要理解 `GameFlowManagerMain`、partial 文件、`Commons/GFM_*` 通用库、阶段流、AutoPlay/CUA 与 CTA 的调用关系。单独给某个任务手工补关系图不可复用，后续导出仍会缺失。
+
+### 修复
+
+- 新增 `lib/code-relation-graph-writer.cjs`，生成 `CODE_RELATION_GRAPH.md` 和可直接浏览器打开的 `CODE_RELATION_GRAPH.html`。
+- `scripts/export-unity-project.sh` 每次完整 Unity 工程导出都会写入关系图，并把入口加入 `README.md`。
+- `lib/programmer-delivery-cleaner.cjs` 在 SVN 程序员交付版清理后也生成同一套关系图。
+- `test/programmer-delivery-cleaner.test.cjs` 增加关系图生成断言。
+
+### 验证
+
+- `node -c lib/code-relation-graph-writer.cjs`
+- `node -c lib/programmer-delivery-cleaner.cjs`
+- `bash -n scripts/export-unity-project.sh`
+- `node test/programmer-delivery-cleaner.test.cjs`
+- `scripts/export-unity-project.sh proj_1776912973985_5o2lyu --programmer-delivery --out /tmp/proj_1776912973985_5o2lyu-systemic-graph.tar.gz`，tar 包确认包含 `CODE_RELATION_GRAPH.md/html`。
+
+### 归档
+
+- `docs/_archived/2026-04-25-code-relation-graph-handoff.md`
+
 ## 2026-04-25: SVN 提交后的程序员交付版清理
 
 ### 背景

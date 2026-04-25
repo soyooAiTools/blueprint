@@ -184,6 +184,8 @@ cat > "$WORK/README.md" <<EOF
 - Assets/Program/Script/Manager/  — GameFlowManagerMain.cs 及 partial 文件
 - Assets/Program/Script/Commons/  — GFM_*.cs canonical 工具库
 - Assets/Scenes/templeteScene.unity — 预烘焙对象池场景
+- CODE_RELATION_GRAPH.md — 代码关系图、运行时调用链和维护入口
+- CODE_RELATION_GRAPH.html — 可直接用浏览器打开的图表化关系图
 - BlueprintArtifacts/ — 已验证 WebGL 与 Blueprint 规格/计划元数据（如果存在）
 - Packages/manifest.json — Unity 包依赖
 - ProjectSettings/ — Tags/Layers/Input/Graphics 等工程设置
@@ -202,6 +204,8 @@ Unity Hub → Add → 选择此文件夹根目录，使用 Unity 2022 LTS 打开
 ## 环境注意
 - Packages/manifest.json 可能包含 Luna/Playworks 本机 file: 依赖；交接前请把它改成团队机器可访问的安装路径或包源。
 EOF
+
+node "$BP_ROOT/lib/code-relation-graph-writer.cjs" "$WORK" "$TASK_ID"
 
 if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
   node "$BP_ROOT/lib/programmer-delivery-cleaner.cjs" "$WORK"
