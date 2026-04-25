@@ -256,6 +256,12 @@ function detectLowCoverageSignal(cuaResult, totalPhases) {
   return null;
 }
 
+// FIX (auto-6f227669): isFingerprintCircuitBreakerExempt — exempt 'screenshot sharing'
+// fingerprint class from the FP circuit breaker so _noProgressRounds escalation (full
+// regen at rounds >= 2) gets a chance to run before hard FATAL. Without this exemption,
+// the FP breaker would fire FATAL at 3 identical rounds even though 'screenshot sharing'
+// is now in VISUAL_FREEZE_PHRASES and the visual_freeze/codegen_init_failure escalation
+// path is the correct handler.
 function isFingerprintCircuitBreakerExempt(fp) {
   var text = String(fp || '').toLowerCase();
   if (!text) return false;
@@ -654,6 +660,14 @@ module.exports = {
               // The _noProgressRounds path below already owns escalation (full
               // regen at NO_PROGRESS_EXIT_ROUNDS, FATAL at +3) — let it decide
               // for this class instead of the FP circuit breaker.
+              //
+              // FIX (auto-6f227669): [screenshot-sharing] exemption.
+              // 'screenshot sharing' is now in VISUAL_FREEZE_PHRASES so
+              // _buildStuckDiagnosis assigns rootCause='visual_freeze' (or
+              // 'phase_transition_broken' if phases already completed). The
+              // _noProgressRounds escalation path (full-regen at >= 2, FATAL at
+              // >= 4) is the correct handler — exempt from FP circuit breaker so
+              // it gets a chance to attempt full-regen before hard abort.
               var isExemptFp = isFingerprintCircuitBreakerExempt(_currentFp);
               var exemptLabel = _currentFp.indexOf('spec-phase-skipped') >= 0
                 ? '[spec-phase-skipped]'

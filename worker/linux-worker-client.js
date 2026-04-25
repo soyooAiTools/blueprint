@@ -559,6 +559,41 @@ function reloadEngineModules() {
   }
 }
 
+var PIPELINE_STAGE_ORDER = ['clone', 'spec-extract', 'spec-validate', 'complexity-gate', 'assembly-plan', 'assembly-complexity-gate', 'codegen', 'method-check', 'review', 'compile', 'visual-check', 'runtime-contract', 'cua-verify', 'upload'];
+
+function shouldRebuildAfterPublicPreviewFailure(blueprint) {
+  var failure = blueprint && blueprint.lastFailure;
+  if (!failure || String(failure.failedAtStage || '') !== 'upload') return false;
+  var reason = String(failure.failReason || failure.reason || failure.message || '');
+  return reason.indexOf('Public preview did not progress') >= 0 ||
+    reason.indexOf('public-preview-') >= 0;
+}
+
+function invalidateCheckpointFromStage(checkpoint, fromStage) {
+  if (!checkpoint) return [];
+  var fromIdx = PIPELINE_STAGE_ORDER.indexOf(fromStage);
+  if (fromIdx < 0) return [];
+  var keep = {};
+  for (var i = 0; i < fromIdx; i++) keep[PIPELINE_STAGE_ORDER[i]] = true;
+  var before = Array.isArray(checkpoint.completedStages) ? checkpoint.completedStages : [];
+  var dropped = [];
+  checkpoint.completedStages = before.filter(function(stage) {
+    if (keep[stage]) return true;
+    dropped.push(stage);
+    return false;
+  });
+  if (checkpoint.stageResults) {
+    Object.keys(checkpoint.stageResults).forEach(function(stage) {
+      if (!keep[stage]) delete checkpoint.stageResults[stage];
+    });
+  }
+  delete checkpoint.htmlOutput;
+  delete checkpoint.hasHtmlOutput;
+  delete checkpoint.previewReadyAt;
+  checkpoint.cuaRound = 0;
+  return dropped;
+}
+
 async function processTask(task) {
   reloadEngineModules();
   const taskId = task.taskId;
@@ -602,6 +637,13 @@ async function processTask(task) {
         log(`[checkpoint] Resuming pre-D checkpoint at ${checkpoint.savedAt} — ${checkpointDecision.warn}`, taskId);
       } else if (checkpointDecision.action === 'invalidate') {
         log(`[checkpoint] Pipeline fingerprint changed (saved=${checkpointDecision.savedHash} current=${checkpointDecision.currentHash}). Dropping stages: [${checkpointDecision.droppedStages.join(', ')}]. Keeping: [${checkpointDecision.completedStages.join(', ')}]`, taskId);
+      }
+      if (shouldRebuildAfterPublicPreviewFailure(blueprint)) {
+        const dropped = invalidateCheckpointFromStage(checkpoint, 'compile');
+        if (dropped.length > 0) {
+          log('[checkpoint] Public preview upload failure detected; forcing compile rebuild. Dropped stages: [' + dropped.join(', ') + ']', taskId);
+          checkpointDecision = { action: 'resume', completedStages: checkpoint.completedStages };
+        }
       }
     }
 

@@ -506,5 +506,17 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-3f0aaa8b.md"
+  },
+  {
+    "id": "auto-1b581a74",
+    "fingerprintPattern": "public-preview-no-game-state",
+    "description": "upload stage probes public HTTPS URL without waiting for Unity WebGL game state to initialize, causing premature deadline expiry",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/upload.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-1b581a74.md"
   }
 ]

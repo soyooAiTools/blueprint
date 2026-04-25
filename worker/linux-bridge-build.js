@@ -508,12 +508,19 @@ function injectGameManager(stage4Dir, className) {
     return _origGetCtx.call(this, type, attrs);
   };
 })();
-// Fallback: if pi.ready() never fires, manually trigger startGame() after 3s
+// Fallback: if the standalone preview never receives a platform start event,
+// trigger Luna's normal start path instead of calling startGame() directly.
+// Direct startGame() bypasses dependency waits (Box2D/Mecanim) and can leave
+// the public preview stuck with a partially initialized engine.
 (function() {
   var _sgTimer = setTimeout(function() {
-    if (typeof window.app === 'undefined' && typeof window.startGame === 'function') {
-      console.log("[AI] pi.ready() did not fire — manually calling startGame()");
-      try { window.startGame(); } catch(e) { console.error("[AI] startGame() error:", e); }
+    if (typeof window.app === 'undefined') {
+      console.log("[AI] preview start fallback — dispatching luna:start");
+      try {
+        window.dispatchEvent(new Event("luna:build"));
+        window.dispatchEvent(new Event("luna:start"));
+        window.dispatchEvent(new Event("playground:started"));
+      } catch(e) { console.error("[AI] luna:start fallback error:", e); }
     }
   }, 3000);
   // Cancel timer if app is created normally

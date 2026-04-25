@@ -922,12 +922,15 @@ function injectAutoplayFallbackEvidence(content, suffix, phaseBinding, step) {
 
   var phaseLiteral = phaseId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/"/g, '\\"');
   var guideLineRe = new RegExp('(RecordPhaseEvidenceFlag\\("' + phaseLiteral + '", "guide_text_visible"\\);\\n)');
-  if (!guideLineRe.test(region)) return content;
-
   var insertion = [
     '            ' + marker + ' from CUA actions.',
   ].concat(lines).join('\n') + '\n';
-  var nextRegion = region.replace(guideLineRe, '$1' + insertion);
+  var nextRegion;
+  if (guideLineRe.test(region)) {
+    nextRegion = region.replace(guideLineRe, '$1' + insertion);
+  } else {
+    nextRegion = region.replace(start, start + '\n' + insertion);
+  }
   return content.substring(0, startIdx) + nextRegion + content.substring(endIdx);
 }
 

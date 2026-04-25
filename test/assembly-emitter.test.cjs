@@ -250,4 +250,51 @@ assert.ok(fallbackEmitted.files.flow.indexOf('if (EnemyBase != null) HideObj(Ene
 assert.ok(fallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag("occupyEnemyBaseCTA", "target_removed_or_hidden")') >= 0, 'autoplay fallback should record target removal evidence');
 assert.ok(fallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag("occupyEnemyBaseCTA", "loot_visible")') >= 0, 'autoplay fallback should record death drop evidence for observe_defeat');
 
+var narrativeMoveSkeleton = {
+  mode: 'w1b-5partial',
+  main: fallbackSkeleton.main,
+  flow: [
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    void Phase_enemyAttackWarning_OnAutoPlayArrive(string targetName)',
+    '    {',
+    '        // TODO_PHASE_enemyAttackWarning_ONAUTOARRIVE_START',
+    '        // TODO: narrative intro has no generated fallback body.',
+    '        // TODO_PHASE_enemyAttackWarning_ONAUTOARRIVE_END',
+    '    }',
+    '}',
+    ''
+  ].join('\n'),
+  input: genericSkeleton.input,
+  resource: genericSkeleton.resource,
+  ui: genericSkeleton.ui,
+  scene: genericSkeleton.scene
+};
+var narrativeMovePlans = {
+  assemblyPlan: {
+    moduleInstances: [],
+    fileOwners: [],
+    phaseBindings: [
+      {
+        phaseId: 'enemyAttackWarning',
+        completionSignals: ['guide_text_visible', 'player_position_changed']
+      }
+    ],
+    stateOwners: [],
+    eventGraph: [],
+    unresolved: []
+  },
+  cuaPlan: {
+    steps: [
+      {
+        phaseId: 'enemyAttackWarning',
+        actions: [{ kind: 'move_to', actor: 'Player', target: 'narrative intro target text' }],
+        expectedSignals: ['player_position_changed']
+      }
+    ]
+  }
+};
+var narrativeMoveEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(narrativeMoveSkeleton, narrativeMovePlans);
+assert.ok(narrativeMoveEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag("enemyAttackWarning", "player_position_changed")') >= 0, 'autoplay fallback should record narrative move_to player motion even without a guide-text anchor');
+
 console.log('assembly-emitter tests passed');
