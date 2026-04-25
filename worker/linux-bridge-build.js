@@ -513,8 +513,19 @@ function injectGameManager(stage4Dir, className) {
 // Direct startGame() bypasses dependency waits (Box2D/Mecanim) and can leave
 // the public preview stuck with a partially initialized engine.
 (function() {
-  var _sgTimer = setTimeout(function() {
+  var _sgAttempts = 0;
+  var _sgTimer = null;
+  function _dispatchStandaloneStart() {
     if (typeof window.app === 'undefined') {
+      if (typeof window.startGame !== 'function') {
+        _sgAttempts++;
+        if (_sgAttempts < 240) {
+          _sgTimer = setTimeout(_dispatchStandaloneStart, 500);
+        } else {
+          console.error("[AI] preview start fallback — startGame unavailable");
+        }
+        return;
+      }
       console.log("[AI] preview start fallback — dispatching luna:start");
       try {
         window.dispatchEvent(new Event("luna:build"));
@@ -522,7 +533,8 @@ function injectGameManager(stage4Dir, className) {
         window.dispatchEvent(new Event("playground:started"));
       } catch(e) { console.error("[AI] luna:start fallback error:", e); }
     }
-  }, 3000);
+  }
+  _sgTimer = setTimeout(_dispatchStandaloneStart, 3000);
   // Cancel timer if app is created normally
   var _origDesc = Object.getOwnPropertyDescriptor(window, 'app');
   if (!_origDesc || !_origDesc.get) {

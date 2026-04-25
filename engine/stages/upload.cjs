@@ -18,7 +18,7 @@ function extractSpecs(blueprint) {
 }
 
 function sanitizePhaseId(value) {
-  return String(value || '').replace(/[^a-zA-Z0-9]/g, '');
+  return String(value || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
 }
 
 function getStatePhase(state) {
@@ -70,6 +70,50 @@ function appendCacheBuster(url) {
   return String(url || '') + sep + 'publicPreviewProbe=' + Date.now();
 }
 
+function captureVisualFrame(page, sharp) {
+  if (!sharp) return Promise.resolve(null);
+  return page.screenshot({ type: 'jpeg', quality: 72 }).then(function(buffer) {
+    return sharp(buffer)
+      .removeAlpha()
+      .resize(160, 120, { fit: 'fill' })
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+  }).then(function(frame) {
+    return {
+      data: frame.data,
+      width: frame.info.width,
+      height: frame.info.height,
+      channels: frame.info.channels,
+    };
+  }).catch(function() {
+    return null;
+  });
+}
+
+function visualDiffRatio(a, b) {
+  if (!a || !b || !a.data || !b.data) return 0;
+  var aChannels = a.channels || 3;
+  var bChannels = b.channels || 3;
+  var channels = Math.min(aChannels, bChannels, 3);
+  var pixels = Math.min(
+    Math.floor(a.data.length / aChannels),
+    Math.floor(b.data.length / bChannels)
+  );
+  if (!pixels || channels <= 0) return 0;
+
+  var changed = 0;
+  for (var i = 0; i < pixels; i++) {
+    var ai = i * aChannels;
+    var bi = i * bChannels;
+    var delta = 0;
+    for (var c = 0; c < channels; c++) {
+      delta += Math.abs(a.data[ai + c] - b.data[bi + c]);
+    }
+    if (delta > 35) changed++;
+  }
+  return changed / pixels;
+}
+
 function verifyPublicPreviewProgress(ctx, previewUrl) {
   if (process.env.SKIP_PUBLIC_PREVIEW_VERIFY === 'true') {
     return Promise.resolve({ skipped: true, reason: 'skipped-by-env' });
@@ -89,14 +133,32 @@ function verifyPublicPreviewProgress(ctx, previewUrl) {
   var context;
   var page;
   var consoleMessages = [];
+  var sharp = null;
+  var visualBaseline = null;
+  var visualLastFrame = null;
+  var visualMaxDiff = 0;
+  var visualFrames = 0;
+  var minVisualDiff = parseFloat(process.env.PUBLIC_PREVIEW_MIN_VISUAL_DIFF_RATIO || '0.005');
+  if (!Number.isFinite(minVisualDiff) || minVisualDiff < 0) minVisualDiff = 0.005;
   var targetSpecCount = Math.min(Math.max(specs.length, 1), specs.length <= 3 ? specs.length : 3);
   var deadlineMs = parseInt(process.env.PUBLIC_PREVIEW_VERIFY_WINDOW_MS || '70000', 10);
   if (!Number.isFinite(deadlineMs) || deadlineMs < 10000) deadlineMs = 70000;
 
   // How long to wait for Unity WebGL engine init (window.__gameState) before
   // starting the progress-sampling deadline clock.
-  var gameStateInitTimeoutMs = parseInt(process.env.PUBLIC_PREVIEW_GAME_STATE_INIT_MS || '25000', 10);
-  if (!Number.isFinite(gameStateInitTimeoutMs) || gameStateInitTimeoutMs < 5000) gameStateInitTimeoutMs = 25000;
+  var gameStateInitTimeoutMs = parseInt(
+    process.env.PUBLIC_PREVIEW_GAME_STATE_INIT_TIMEOUT_MS ||
+    process.env.PUBLIC_PREVIEW_GAME_STATE_INIT_MS ||
+    '90000',
+    10
+  );
+  if (!Number.isFinite(gameStateInitTimeoutMs) || gameStateInitTimeoutMs < 5000) gameStateInitTimeoutMs = 90000;
+
+  if (process.env.SKIP_PUBLIC_PREVIEW_VISUAL_VERIFY !== 'true') {
+    try { sharp = require('sharp'); } catch(e) {
+      return Promise.reject(new Error('Public preview visual verifier unavailable: sharp not installed'));
+    }
+  }
 
   ctx.addLog('upload', 'Verifying public preview default progress...');
 
@@ -122,9 +184,15 @@ function verifyPublicPreviewProgress(ctx, previewUrl) {
     // Wait for Unity WebGL WASM compilation and engine init to complete before
     // starting the progress-sampling deadline clock.  Without this guard the
     // 70-second deadline expires before window.__gameState is ever written.
-    ctx.addLog('upload', 'Waiting for Unity engine init (window.__gameState)…');
+    ctx.addLog('upload', 'Waiting for Unity engine init (window.app/window.__gameState)…');
     return page.waitForFunction(
-      function() { return !!(window.__gameState || (typeof window.__getGameState === 'function' && window.__getGameState())); },
+      function() {
+        if (window.__gameState) return true;
+        if (typeof window.__getGameState === 'function') {
+          try { if (window.__getGameState()) return true; } catch(e) {}
+        }
+        return !!(window.app && window.app.app);
+      },
       null,
       { timeout: gameStateInitTimeoutMs }
     ).then(function() {
@@ -138,6 +206,14 @@ function verifyPublicPreviewProgress(ctx, previewUrl) {
       );
     });
   }).then(function() {
+    return captureVisualFrame(page, sharp).then(function(frame) {
+      if (frame) {
+        visualBaseline = frame;
+        visualLastFrame = frame;
+        visualFrames = 1;
+      }
+    });
+  }).then(function() {
     // Deadline clock starts only after engine is confirmed ready.
     var deadline = Date.now() + deadlineMs;
     var firstState = null;
@@ -147,44 +223,99 @@ function verifyPublicPreviewProgress(ctx, previewUrl) {
     var lastPhase = '';
 
     function sample() {
+      function timeoutResult(state) {
+        return {
+          passed: false,
+          reason: state ? 'public-preview-no-progress' : 'public-preview-no-game-state',
+          phaseBefore: getStatePhase(firstState),
+          phaseAfter: getStatePhase(bestState || state),
+          completedBefore: firstState ? getSpecCompletedCount(firstState, specs) : 0,
+          completedAfter: Math.max(bestCount, 0),
+          targetCompleted: targetSpecCount,
+          phaseChanges: phaseChanges,
+          visualMaxDiff: visualMaxDiff,
+          visualFrames: visualFrames,
+          console: consoleMessages.slice(-8),
+        };
+      }
+
+      function successOrVisualFailure(phase, count) {
+        if (visualBaseline && visualMaxDiff < minVisualDiff) {
+          return {
+            passed: false,
+            reason: 'public-preview-visual-frozen',
+            phaseBefore: getStatePhase(firstState),
+            phaseAfter: phase,
+            completedBefore: getSpecCompletedCount(firstState, specs),
+            completedAfter: count,
+            targetCompleted: targetSpecCount,
+            phaseChanges: phaseChanges,
+            visualMaxDiff: visualMaxDiff,
+            visualFrames: visualFrames,
+            visualMinDiff: minVisualDiff,
+            console: consoleMessages.slice(-8),
+          };
+        }
+
+        return {
+          passed: true,
+          reason: 'public-preview-progressed',
+          phaseBefore: getStatePhase(firstState),
+          phaseAfter: phase,
+          completedBefore: getSpecCompletedCount(firstState, specs),
+          completedAfter: count,
+          targetCompleted: targetSpecCount,
+          phaseChanges: phaseChanges,
+          visualMaxDiff: visualMaxDiff,
+          visualFrames: visualFrames,
+          console: consoleMessages.slice(-8),
+        };
+      }
+
       return readGameState(page).then(function(state) {
         if (state) {
           if (!firstState) firstState = state;
           var phase = getStatePhase(state);
-          if (lastPhase && phase && phase !== lastPhase) phaseChanges++;
+          var phaseChanged = !!(lastPhase && phase && phase !== lastPhase);
+          if (phaseChanged) phaseChanges++;
           if (phase) lastPhase = phase;
           var count = getSpecCompletedCount(state, specs);
+          var countImproved = count > bestCount;
           if (count > bestCount) {
             bestCount = count;
             bestState = state;
           }
-          if (isTerminalPhase(phase) || count >= targetSpecCount) {
-            return {
-              passed: true,
-              reason: 'public-preview-progressed',
-              phaseBefore: getStatePhase(firstState),
-              phaseAfter: phase,
-              completedBefore: getSpecCompletedCount(firstState, specs),
-              completedAfter: count,
-              targetCompleted: targetSpecCount,
-              phaseChanges: phaseChanges,
-              console: consoleMessages.slice(-8),
-            };
+
+          var doneEnough = isTerminalPhase(phase) || count >= targetSpecCount;
+          var shouldCapture = !!(visualBaseline && (phaseChanged || countImproved || doneEnough));
+          var afterVisual = shouldCapture
+            ? captureVisualFrame(page, sharp).then(function(frame) {
+              if (frame) {
+                var fromBaseline = visualDiffRatio(visualBaseline, frame);
+                var fromLast = visualDiffRatio(visualLastFrame, frame);
+                visualMaxDiff = Math.max(visualMaxDiff, fromBaseline, fromLast);
+                visualLastFrame = frame;
+                visualFrames++;
+              }
+            })
+            : Promise.resolve();
+
+          if (doneEnough) {
+            return afterVisual.then(function() {
+              return successOrVisualFailure(phase, count);
+            });
+          }
+
+          if (shouldCapture) {
+            return afterVisual.then(function() {
+              if (Date.now() >= deadline) return timeoutResult(state);
+              return page.waitForTimeout(1000).then(sample);
+            });
           }
         }
 
         if (Date.now() >= deadline) {
-          return {
-            passed: false,
-            reason: state ? 'public-preview-no-progress' : 'public-preview-no-game-state',
-            phaseBefore: getStatePhase(firstState),
-            phaseAfter: getStatePhase(bestState || state),
-            completedBefore: firstState ? getSpecCompletedCount(firstState, specs) : 0,
-            completedAfter: Math.max(bestCount, 0),
-            targetCompleted: targetSpecCount,
-            phaseChanges: phaseChanges,
-            console: consoleMessages.slice(-8),
-          };
+          return timeoutResult(state);
         }
 
         return page.waitForTimeout(1000).then(sample);
@@ -199,7 +330,8 @@ function verifyPublicPreviewProgress(ctx, previewUrl) {
     }
     ctx.addLog('upload',
       'Public preview progress OK: ' + result.phaseBefore + ' → ' + result.phaseAfter +
-      ' completed=' + result.completedAfter + '/' + result.targetCompleted);
+      ' completed=' + result.completedAfter + '/' + result.targetCompleted +
+      (result.visualFrames ? ' visualDiff=' + (result.visualMaxDiff || 0).toFixed(3) : ''));
     return result;
   }).then(function(result) {
     return (context ? context.close().catch(function() {}) : Promise.resolve()).then(function() {
@@ -271,4 +403,8 @@ module.exports = {
     });
   },
   _verifyPublicPreviewProgress: verifyPublicPreviewProgress,
+  _internals: {
+    visualDiffRatio: visualDiffRatio,
+    getSpecCompletedCount: getSpecCompletedCount,
+  },
 };

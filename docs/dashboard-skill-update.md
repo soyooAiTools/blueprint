@@ -1,5 +1,44 @@
 # Dashboard / Blueprint SKILL 同步清单（归档系统 2026-04-19）
 
+## 2026-04-25 增量同步：公开预览默认入口验证
+
+### 需要同步到 Blueprint / dashboard / operator skill
+
+- CUA 通过不再等价于公开裸预览可用；必须区分：
+  - CUA observe 路径：`iframe.html?autoplay=1` + observer-ready + PlayableAgent
+  - 审核/用户路径：公开 HTTPS `index.html`
+- `runtime-contract` 需要先跑 default preview probe，不能只用 PlayableAgent PASS 跳过后续门禁。
+- `upload` 阶段必须验证真实公开 URL：
+  - 先等待 `window.app` 或 `window.__gameState` / `window.__getGameState()` 初始化
+  - 再开始推进 deadline
+  - 要求前 3 个 spec phase 或 terminal state
+  - 同时检查 screenshot pixel diff，避免状态推进但画面/镜头停在第一 SHOT
+- 如果 upload 报 `Public preview did not progress` / `public-preview-*`，worker checkpoint 必须从 `compile` 起失效，不能复用旧 HTML。
+- 公开 fallback 派发 `luna:start` 前必须等 `window.startGame` 已经解析完成；大型 inline HTML 可能超过 3s 才到达 startup script。
+- `done` / `cua_passed` 在服务端会映射到 `reviewing`，这是进入人工审核的正常状态，不应误判为 pipeline 未完成。
+
+### 需要同步到 incident / archive
+
+- 事故记录：`docs/INCIDENTS.md`
+- 完整归档：`docs/_archived/2026-04-25-public-preview-cua-gap.md`
+
+### 需要同步到 operator command notes
+
+公开预览手工复测优先使用 upload stage 导出的探针，而不是只看 CUA：
+
+```bash
+node - <<'NODE'
+const upload = require('./engine/stages/upload.cjs');
+const fs = require('fs');
+const taskId = 'proj_1776912973985_5o2lyu';
+const specs = JSON.parse(fs.readFileSync('server-data/webgl/' + taskId + '/specs.json', 'utf8'));
+const ctx = { taskId, blueprint: { specs }, addLog(stage, msg) { console.log('[' + stage + '] ' + msg); } };
+upload._verifyPublicPreviewProgress(ctx, 'https://playcools.top/webgl/' + taskId + '/index.html')
+  .then(result => console.log(JSON.stringify(result, null, 2)))
+  .catch(err => { console.error(err.stack || err); process.exit(1); });
+NODE
+```
+
 ## 2026-04-22 增量同步：Codex reviewer / 在线任务收口
 
 ### 背景

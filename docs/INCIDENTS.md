@@ -1,5 +1,39 @@
 # Blueprint 生产事故记录
 
+## 2026-04-25: CUA 通过但公开预览停在第一 SHOT
+
+### 背景
+
+任务 `proj_1776912973985_5o2lyu` 显示已通过 CUA 并进入审核，但公开地址
+`https://playcools.top/webgl/proj_1776912973985_5o2lyu/index.html` 裸预览停在第一 SHOT，没有继续推进。
+
+### 根因
+
+1. 验证面不一致：CUA / runtime-contract 主要观察本地 `iframe.html?autoplay=1`，且有 observer-ready、PlayableAgent 和 speed patch；用户看到的是公开裸 `index.html`。
+2. 公开预览 fallback 直接调用 `window.startGame()`，绕过 Luna 生命周期初始化，线上出现 `$ctor1` / `Cannot read properties of null (reading 'b2Vec2')`。
+3. upload 失败后 checkpoint 复用旧 `htmlOutput`，导致重试可能跳过 compile 并继续上传旧 HTML。
+4. `move_to` 叙事阶段缺少 action-backed evidence，导致 `enemyAttackWarning:player_position_changed` signal 缺失。
+
+### 修复
+
+- `runtime-contract` 增加裸 `index.html` default preview probe，阻止“CUA PASS 但默认预览不推进”的 skip。
+- `upload` 增加真实 HTTPS 公开预览验证：等待 Unity `window.app` / `__gameState` 初始化后再计时，要求前 3 个 spec phase 或终局推进；并增加 screenshot pixel diff，防止状态推进但画面/镜头冻结。
+- `linux-bridge-build.js` 与 `/opt/luna-poc/linux-bridge-build.js` 的 fallback 改为派发 `luna:build` / `luna:start` / `playground:started`，不再直接 `startGame()`。
+- `linux-worker-client.js` 对 `public-preview-*` upload 失败从 `compile` 起失效 checkpoint。
+- `assembly-emitter` 在缺少 guide-text anchor 时仍为 `move_to` action 注入 fallback evidence。
+
+### 验证
+
+- Runtime contract / PlayableAgent：`11/11` phases，`101/101` signals，PASS。
+- Upload 公开预览：`init/enemyAttackWarning → dispatchAstronautAttack`，`completed=3/3`。
+- 增强公开探针复测：visual diff `0.025`，高于冻结阈值 `0.005`。
+- 回归：`node test/assembly-emitter.test.cjs`、`node test/build-html-bridge.test.cjs`、`node test/linux-bridge-start-fallback.test.cjs`、`node test/upload-public-preview.test.cjs`。
+
+### 运维记录
+
+- `/opt/luna-poc/build-api.js` 已切到 PM2 进程 `luna-build-api`，健康检查 `{"ok":true,"service":"linux-build-api"}`。
+- 归档：`docs/_archived/2026-04-25-public-preview-cua-gap.md`。
+
 ## 2026-04-23: rerun 假重提 + split-partial phase gate 漏修
 
 ### 背景
