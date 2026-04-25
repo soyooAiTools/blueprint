@@ -1,5 +1,30 @@
 # Dashboard / Blueprint SKILL 同步清单（归档系统 2026-04-19）
 
+## 2026-04-25 最终同步：公开预览发布收尾
+
+### 已同步到 Blueprint monitor skill
+
+- 发布收尾不能只看 CUA PASS 或任务状态，要同时记录：
+  - monitor snapshot
+  - task table active / failed 查询
+  - PM2 进程状态
+  - `luna-build-api` health
+  - 裸公开 URL 实时探针
+  - `/opt/luna-poc/linux-bridge-build.js` 与仓库 canonical bridge 是否一致
+- `done` / `cua_passed` 被 API 映射成 `reviewing` 是正常人工审核状态，必须结合 `pipeline-end success=true` 与 upload public probe 判断。
+- 运行态文件 `server-data/**` 不进入发布提交；只提交源码、测试、文档和归档记录。
+
+### 本轮发布收尾结果
+
+- 当前线上无 pending / queued / processing / failed / stuck / reviewing 待处理任务。
+- 公开预览实时探针通过：
+  - `enemyAttackWarning -> dispatchAstronautAttack`
+  - `completed=3/3`
+  - `visualDiff=0.031`
+- 归档入口：
+  - `docs/_archived/2026-04-25-public-preview-cua-gap.md`
+  - `docs/_archived/2026-04-25-public-preview-deployment-closeout.md`
+
 ## 2026-04-25 增量同步：公开预览默认入口验证
 
 ### 需要同步到 Blueprint / dashboard / operator skill
