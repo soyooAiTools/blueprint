@@ -70,3 +70,17 @@ The verification surface did not match the user-facing surface:
 - Build API is supervised by PM2 as `luna-build-api`.
 - Health endpoint: `http://127.0.0.1:18860/health`.
 - Project status remains `reviewing` after CUA/done because worker reports `done` / `cua_passed` are mapped to review state by `api/worker.cjs`.
+
+## Deployment Record
+
+- Commit pushed: `6bbaeff` (`fix: harden public preview visual gate`) to `origin/main`.
+- Local production PM2 restarted:
+  - `blueprint-editor`
+  - `linux-worker-1` through `linux-worker-6`
+  - `luna-build-api`
+- PM2 process list saved with `pm2 save`.
+- Local health check passed: `GET http://127.0.0.1:18860/health` returned `{"ok":true,"service":"linux-build-api"}`.
+- Remote Windows worker deploy path is currently blocked:
+  - Existing deploy script requires undeclared Node module `ssh2`; temporary `/tmp` install was used to execute the same path.
+  - Main ECS could connect, but worker `42.121.160.107` had a changed host key and then rejected the configured `Administrator` + `/root/.ssh/worker_key` credential.
+  - Result: `Permission denied (publickey,password)` on worker pull/check/restart. This needs operator credential/host ownership confirmation before remote worker sync can be completed.
