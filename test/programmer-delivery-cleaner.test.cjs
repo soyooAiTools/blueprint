@@ -41,7 +41,9 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'programmer-delivery-'));
 try {
   fs.mkdirSync(path.join(tmp, 'Scripts'), { recursive: true });
   fs.mkdirSync(path.join(tmp, 'BlueprintArtifacts'), { recursive: true });
+  fs.mkdirSync(path.join(tmp, 'tools'), { recursive: true });
   fs.writeFileSync(path.join(tmp, 'BlueprintArtifacts', 'specs.json'), '{}');
+  fs.writeFileSync(path.join(tmp, 'tools', 'build-unitypackage.sh'), '#!/bin/sh\n');
   fs.writeFileSync(path.join(tmp, 'Scripts', 'GameFlowManagerMain.cs'), input);
   const summary = cleaner.cleanProgrammerDelivery(tmp, {
     project: { id: 'proj_test', name: '测试项目' }
@@ -49,11 +51,14 @@ try {
   assert.strictEqual(summary.csFiles, 1);
   assert.strictEqual(summary.changedFiles, 1);
   assert.strictEqual(summary.removedArtifactDirs, 1);
+  assert.strictEqual(summary.removedToolDirs, 1);
   assert.ok(!fs.existsSync(path.join(tmp, 'BlueprintArtifacts')));
+  assert.ok(!fs.existsSync(path.join(tmp, 'tools')));
   assert.ok(fs.existsSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md')));
   assert.ok(fs.existsSync(path.join(tmp, 'CODE_RELATION_GRAPH.md')));
   assert.ok(fs.existsSync(path.join(tmp, 'CODE_RELATION_GRAPH.html')));
   assert.match(fs.readFileSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md'), 'utf8'), /程序员交付版说明/);
+  assert.match(fs.readFileSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md'), 'utf8'), /移除 tools 目录数：1/);
   assert.match(fs.readFileSync(path.join(tmp, 'CODE_RELATION_GRAPH.md'), 'utf8'), /代码关系图/);
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });

@@ -12,6 +12,7 @@
 - `scripts/export-unity-project.sh` 每次完整 Unity 工程导出都会写入关系图，并把入口加入 `README.md`。
 - `lib/programmer-delivery-cleaner.cjs` 在 SVN 程序员交付版清理后也生成同一套关系图。
 - `test/programmer-delivery-cleaner.test.cjs` 增加关系图生成断言。
+- 后续补充：程序员交付版会移除根目录 `tools/`，避免把构建/转换辅助脚本提交到交付仓库；普通审核前完整工程导出仍保留。
 
 ### 验证
 
