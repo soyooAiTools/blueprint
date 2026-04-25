@@ -117,3 +117,30 @@ Verification:
   - No `TODO: AI`, `AI 填充`, or `AI/模板填充` residue remained in the export project.
   - `[ASSEMBLY SLOT]` count remained `106`.
   - No `[装配槽]` or `[装配阶段]` contract mistranslation found.
+
+## Deployment Record
+
+Timestamp: `2026-04-25 18:30 CST`
+
+Repositories:
+
+- Main repo pushed: `soyooAiTools/blueprint@0dc0cda`
+- Blueprint skill source pushed: `soyooAiTools/blueprint-skill@758360f`
+- Installed local skill copy updated under `/root/.codex/skills/blueprint`.
+
+Local deployment:
+
+- `scripts/deploy/deploy.sh` pulled `origin/main` and validated `.env`.
+- The script expected a PM2 process named `blueprint`, but this host uses `blueprint-editor`.
+- Restarted the actual PM2 processes with `--update-env`:
+  - `blueprint-editor`
+  - `linux-worker-1` through `linux-worker-6`
+- Post-restart `pm2 list` showed those processes `online`.
+
+Remote worker deployment:
+
+- `scripts/deploy-to-worker.cjs` initially could not start because `ssh2` is not installed in the repo dependencies.
+- Used a temporary dependency install under `/tmp/blueprint-deploy-deps` to avoid changing `package.json` or `package-lock.json`.
+- Connected to the main ECS, but the nested worker SSH target refused port 22:
+  - `ssh: connect to host 42.121.160.107 port 22: Connection refused`
+- Remote worker restart was not completed; the blocker is worker SSH reachability, not this code change.
