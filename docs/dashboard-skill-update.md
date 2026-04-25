@@ -210,7 +210,7 @@ dashhuang/deep-research-skill
 
 ## 背景
 
-当前生效的 skill 安装/迁移副本位于 `/root/.codex-blueprint/skills/` 与 `~/.codex/memories/skills/`。本文档记录的是一次需要回写到 skill 副本的归档系统同步项；如果环境仍存在旧 harness 保护目录，也只应视为历史兼容路径。2026-04-19 落地的任务级归档闭环引入了新 API、新文件布局、新环境变量，需要在下次同步 skill 副本时更新到 references/ 和 env.json。
+当前 canonical skill 安装副本位于 `/root/.codex/skills/`。旧 `/root/.codex-blueprint/skills/` 与 `~/.codex/memories/skills/` 目录已移除，不再作为同步目标。本文档记录的是一次需要回写到 skill 副本的归档系统同步项；如果环境仍存在旧 harness 保护目录，也只应视为历史兼容路径。2026-04-19 落地的任务级归档闭环引入了新 API、新文件布局、新环境变量，需要在下次同步 skill 副本时更新到 references/ 和 env.json。
 
 ## 需要同步到 `blueprint/references/build-pipeline.md`
 

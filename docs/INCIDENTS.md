@@ -335,7 +335,7 @@
 
 ### SKILL.md 同步
 
-当前应同步的 skill 副本位于 `/root/.codex-blueprint/skills/` 或 `~/.codex/memories/skills/`。详见 `docs/dashboard-skill-update.md` 的同步字段；旧 home 下的技能目录只作历史兼容路径理解。
+当前应同步的 canonical skill 副本位于 `/root/.codex/skills/`。旧 `/root/.codex-blueprint/skills/` 与 `~/.codex/memories/skills/` 目录已移除，不再作为同步目标。详见 `docs/dashboard-skill-update.md` 的同步字段。
 
 ---
 
