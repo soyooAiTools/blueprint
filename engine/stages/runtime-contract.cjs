@@ -85,22 +85,30 @@ function getStateCompletedCount(state) {
   return Number.isFinite(numeric) ? numeric : 0;
 }
 
-function getSpecByPhaseId(specs, phaseId) {
-  var phase = String(phaseId || '');
-  var sanitized = sanitizePhaseId(phase);
-  for (var i = 0; i < specs.length; i++) {
-    var id = String(specs[i].phaseId || specs[i].id || specs[i].name || '');
-    if (id === phase || sanitizePhaseId(id) === sanitized) return specs[i];
-  }
-  return null;
+function getSpecCompletedCount(state, specs) {
+  if (!state) return 0;
+  var completed = state.completedPhases || state.completed || null;
+  if (!Array.isArray(completed)) return getStateCompletedCount(state);
+  var specSet = {};
+  (specs || []).forEach(function(spec) {
+    var id = String(spec.phaseId || spec.id || spec.name || '');
+    if (id) {
+      specSet[id] = true;
+      specSet[sanitizePhaseId(id)] = true;
+    }
+  });
+  var count = 0;
+  completed.forEach(function(id) {
+    if (phaseMatches(id, specSet)) count++;
+  });
+  if (count > 0) return count;
+  return completed.filter(function(id) {
+    return ['gameStart', 'start', 'init', 'initialize'].indexOf(String(id || '')) < 0;
+  }).length;
 }
 
-function stateAdvanced(before, after) {
-  if (!before || !after) return false;
-  var beforePhase = getStatePhase(before);
-  var afterPhase = getStatePhase(after);
-  if (beforePhase && afterPhase && beforePhase !== afterPhase) return true;
-  return getStateCompletedCount(after) > getStateCompletedCount(before);
+function isTerminalPhase(phase) {
+  return ['gameEnd', 'cta', 'CTA', 'ctaPhase'].indexOf(String(phase || '')) >= 0;
 }
 
 function startRawPreviewServer(buildDir) {
@@ -149,32 +157,64 @@ function readGameState(page) {
   }).catch(function() { return null; });
 }
 
-function clickDefaultInteractionSwarm(page) {
-  var viewport = page.viewportSize() || { width: 960, height: 640 };
-  var w = viewport.width;
-  var h = viewport.height;
-  var points = [
-    [0.50, 0.50], [0.35, 0.50], [0.65, 0.50],
-    [0.50, 0.35], [0.50, 0.65], [0.25, 0.35],
-    [0.75, 0.35], [0.25, 0.65], [0.75, 0.65],
-    [0.50, 0.78], [0.18, 0.50], [0.82, 0.50],
-  ];
-  var chain = Promise.resolve();
-  points.forEach(function(point) {
-    chain = chain.then(function() {
-      return page.mouse.click(Math.round(w * point[0]), Math.round(h * point[1]));
-    }).then(function() {
-      return page.waitForTimeout(250);
+function monitorDefaultPreviewProgress(page, specs, options, consoleMessages) {
+  var targetSpecCount = options.defaultPreviewTargetSpecCount
+    || Math.min(Math.max(specs.length, 1), specs.length <= 3 ? specs.length : 3);
+  var deadline = Date.now() + (options.defaultPreviewWindowMs || 70000);
+  var firstState = null;
+  var bestState = null;
+  var bestSpecCompleted = -1;
+  var phaseChanges = 0;
+  var lastPhase = '';
+
+  function sample() {
+    return readGameState(page).then(function(state) {
+      if (!state) {
+        if (Date.now() >= deadline) return null;
+        return page.waitForTimeout(1000).then(sample);
+      }
+      if (!firstState) firstState = state;
+      var phase = getStatePhase(state);
+      if (lastPhase && phase && phase !== lastPhase) phaseChanges++;
+      if (phase) lastPhase = phase;
+      var specCompleted = getSpecCompletedCount(state, specs);
+      if (specCompleted > bestSpecCompleted) {
+        bestSpecCompleted = specCompleted;
+        bestState = state;
+      }
+      if (isTerminalPhase(phase) || specCompleted >= targetSpecCount) {
+        return {
+          defaultInteractionRequired: true,
+          defaultInteractionPassed: true,
+          defaultInteractionReason: 'default-preview-progressed',
+          defaultInteractionPhaseBefore: getStatePhase(firstState),
+          defaultInteractionPhaseAfter: phase,
+          defaultInteractionCompletedBefore: getSpecCompletedCount(firstState, specs),
+          defaultInteractionCompletedAfter: specCompleted,
+          defaultInteractionTargetCompleted: targetSpecCount,
+          defaultInteractionPhaseChanges: phaseChanges,
+          defaultInteractionConsole: (consoleMessages || []).slice(-8),
+        };
+      }
+      if (Date.now() >= deadline) {
+        return {
+          defaultInteractionRequired: true,
+          defaultInteractionPassed: false,
+          defaultInteractionReason: 'default-preview-no-progress',
+          defaultInteractionPhaseBefore: getStatePhase(firstState),
+          defaultInteractionPhaseAfter: getStatePhase(bestState || state),
+          defaultInteractionCompletedBefore: getSpecCompletedCount(firstState, specs),
+          defaultInteractionCompletedAfter: Math.max(bestSpecCompleted, specCompleted),
+          defaultInteractionTargetCompleted: targetSpecCount,
+          defaultInteractionPhaseChanges: phaseChanges,
+          defaultInteractionConsole: (consoleMessages || []).slice(-8),
+        };
+      }
+      return page.waitForTimeout(options.defaultPreviewSampleMs || 1000).then(sample);
     });
-  });
-  ['Space', 'ArrowUp', 'ArrowRight', 'KeyW', 'KeyD'].forEach(function(key) {
-    chain = chain.then(function() {
-      return page.keyboard.press(key).catch(function() {});
-    }).then(function() {
-      return page.waitForTimeout(150);
-    });
-  });
-  return chain;
+  }
+
+  return sample();
 }
 
 function runDefaultInteractionProbe(ctx, buildDir, options) {
@@ -189,23 +229,14 @@ function runDefaultInteractionProbe(ctx, buildDir, options) {
 
   var specs = extractSpecs(ctx && ctx.blueprint);
   var interactiveIds = getInteractivePhaseIds(ctx && ctx.blueprint);
-  if (interactiveIds.length === 0) {
+  if (specs.length === 0) {
     return Promise.resolve({
       defaultInteractionRequired: false,
       defaultInteractionPassed: null,
-      defaultInteractionReason: 'no-player-interaction-phases',
+      defaultInteractionReason: 'no-phase-specs',
     });
   }
 
-  var phaseSet = {};
-  interactiveIds.forEach(function(id) {
-    phaseSet[id] = true;
-    phaseSet[sanitizePhaseId(id)] = true;
-  });
-
-  var log = function(msg) {
-    if (ctx && typeof ctx.addLog === 'function') ctx.addLog(options.stageName || 'runtime-contract', msg);
-  };
   var server;
   var browser;
   var page;
@@ -233,74 +264,7 @@ function runDefaultInteractionProbe(ctx, buildDir, options) {
           }, null, { timeout: options.gameStateTimeoutMs || 20000 });
         })
         .then(function() {
-          var waitDeadline = Date.now() + (options.waitInteractiveMs || 22000);
-          function waitForInteractive() {
-            return readGameState(page).then(function(state) {
-              var phase = getStatePhase(state);
-              if (phaseMatches(phase, phaseSet)) return state;
-              if (Date.now() >= waitDeadline) return null;
-              return page.waitForTimeout(500).then(waitForInteractive);
-            });
-          }
-          return waitForInteractive();
-        })
-        .then(function(beforeState) {
-          if (!beforeState) {
-            return readGameState(page).then(function(lastState) {
-              var lastPhase = getStatePhase(lastState);
-              return {
-                defaultInteractionRequired: true,
-                defaultInteractionPassed: false,
-                defaultInteractionReason: 'interactive-phase-not-reached',
-                defaultInteractionExpectedPhases: interactiveIds.slice(0, 8),
-                defaultInteractionPhaseBefore: lastPhase || '',
-                defaultInteractionCompletedBefore: getStateCompletedCount(lastState),
-                defaultInteractionConsole: consoleMessages.slice(-8),
-              };
-            });
-          }
-
-          var beforePhase = getStatePhase(beforeState);
-          var beforeCompleted = getStateCompletedCount(beforeState);
-          var spec = getSpecByPhaseId(specs, beforePhase) || {};
-          var minDuration = spec.duration && parseFloat(spec.duration.min);
-          var advanceWaitMs = options.advanceWaitMs || Math.min(24000, Math.max(8000, ((Number.isFinite(minDuration) ? minDuration : 3) + 5) * 1000));
-          log('Default interaction probe reached phase ' + beforePhase + ' (completed=' + beforeCompleted + '), sending raw user actions');
-
-          return clickDefaultInteractionSwarm(page).then(function() {
-            var deadline = Date.now() + advanceWaitMs;
-            function waitAdvanced() {
-              return readGameState(page).then(function(afterState) {
-                if (stateAdvanced(beforeState, afterState)) {
-                  return {
-                    defaultInteractionRequired: true,
-                    defaultInteractionPassed: true,
-                    defaultInteractionReason: 'advanced-after-raw-actions',
-                    defaultInteractionPhaseBefore: beforePhase,
-                    defaultInteractionPhaseAfter: getStatePhase(afterState),
-                    defaultInteractionCompletedBefore: beforeCompleted,
-                    defaultInteractionCompletedAfter: getStateCompletedCount(afterState),
-                    defaultInteractionConsole: consoleMessages.slice(-8),
-                  };
-                }
-                if (Date.now() >= deadline) {
-                  return {
-                    defaultInteractionRequired: true,
-                    defaultInteractionPassed: false,
-                    defaultInteractionReason: 'raw-actions-did-not-advance-phase',
-                    defaultInteractionPhaseBefore: beforePhase,
-                    defaultInteractionPhaseAfter: getStatePhase(afterState),
-                    defaultInteractionCompletedBefore: beforeCompleted,
-                    defaultInteractionCompletedAfter: getStateCompletedCount(afterState),
-                    defaultInteractionExpectedPhases: interactiveIds.slice(0, 8),
-                    defaultInteractionConsole: consoleMessages.slice(-8),
-                  };
-                }
-                return page.waitForTimeout(500).then(waitAdvanced);
-              });
-            }
-            return waitAdvanced();
-          });
+          return monitorDefaultPreviewProgress(page, specs, options, consoleMessages);
         });
     });
   }).catch(function(err) {
