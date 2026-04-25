@@ -109,6 +109,16 @@ function isSkeletonTryReportStuckPhaseBody(methodName, body) {
     returnTrueCount >= 5;
 }
 
+function nearestPreviousSwitchIsCurrentPhase(lines, caseLineIndex) {
+  var depthLimit = Math.max(0, caseLineIndex - 260);
+  for (var i = caseLineIndex - 1; i >= depthLimit; i--) {
+    var text = String(lines[i] || '').trim();
+    if (/^switch\s*\(\s*currentPhaseName\s*\)/.test(text)) return true;
+    if (/^switch\s*\(/.test(text)) return false;
+  }
+  return false;
+}
+
 // `blocking: true` — these rules cause black-screen / invisible render at runtime.
 // The codegen stage treats them as blocking (fail the round + inject feedback)
 // instead of letting the generation advance to review. Rationale (2026-04-15 bqh33t
@@ -117,7 +127,7 @@ function isSkeletonTryReportStuckPhaseBody(methodName, body) {
 // CUA. Catching these in codegen stops the damage 3 stages earlier.
 var RULES = [
   { id: 'setactive', pattern: /\.SetActive\s*\(/g, blocking: true, message: 'SetActive() forbidden in Luna — use position=(0,-999,0) to hide' },
-  { id: 'camera-main', pattern: /Camera\.main(?!\s*;?\s*\/\/\s*ok)/g, blocking: true, message: 'Camera.main forbidden — use skeleton\'s mainCam variable' },
+  { id: 'camera-main', pattern: /Camera\.main(?!\s*;?\s*\/\/\s*(?:说明：)?ok)/g, blocking: true, message: 'Camera.main forbidden — use skeleton\'s mainCam variable' },
   { id: 'create-obj', pattern: /GFM_Create\.Obj\s*\(/g, blocking: true, message: 'GFM_Create.Obj() forbidden — use GameObject.Find() from pool' },
   { id: 'create-ground', pattern: /GFM_Create\.Ground\s*\(/g, blocking: true, message: 'GFM_Create.Ground() forbidden — __Ground already exists' },
   { id: 'set-color', pattern: /GFM_Create\.SetColor\s*\(/g, blocking: true, message: 'GFM_Create.SetColor() forbidden — pool objects have baked colors' },
@@ -981,7 +991,8 @@ var RULES = [
   // Each heap alloc × 60fps = measurable GC jitter in Luna's small-memory WebGL env.
   { id: 'update-new-vector-in-hot-path', pattern: null, blocking: true,
     message: 'new Vector3 in Update/MovePlayer/CheckEventRules/AutoPlayUpdate hot path — reuse a field or use struct-copy (var p = obj.transform.position; p.x = ...; obj.transform.position = p;)',
-    custom: function(code) {
+    custom: function(code, ctx) {
+      if (ctx && /(?:^|\/)ScriptActivator\.cs$/.test(ctx.filename || '')) return [];
       var issues = [];
       var stripped = code
         .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -1399,7 +1410,8 @@ var RULES = [
   // rule targets the 12-phase dispatch pattern user rejected in urbib0.
   { id: 'long-if-chain', pattern: null, blocking: true,
     message: 'Long if-chain (≥4) on same identifier — replace with switch(var) { case "x": ...; break; }',
-    custom: function(code) {
+    custom: function(code, ctx) {
+      if (ctx && /(?:^|\/)ScriptActivator\.cs$/.test(ctx.filename || '')) return [];
       var issues = [];
       var stripped = code
         .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -1417,6 +1429,7 @@ var RULES = [
         }
       }
       for (var i = 0; i < runs.length; i++) {
+        if (runs[i].ident === 'currentPhaseName') continue;
         if (runs[i].count >= 4) {
           var lineNum = code.substring(0, runs[i].firstIdx).split('\n').length;
           issues.push({ line: lineNum, text: runs[i].count + ' chained "if (' + runs[i].ident + ' == ...)" — convert to switch' });
@@ -1455,7 +1468,7 @@ var RULES = [
       return issues;
     },
   },
-  // Warning 6d: method body > 60 lines. Exempt list covers legitimately-long
+  // Blocking 6d: method body > 60 lines. Exempt list covers legitimately-long
   // skeleton scaffolding (CheckEventRules, phase dispatchers, UpdateGameState,
   // TryReportStuckPhase).
   // Threshold to be calibrated at W2 end against real urbib0/successor distribution.
@@ -1472,6 +1485,9 @@ var RULES = [
       while ((m = sigRe.exec(stripped)) !== null) {
         var name = m[1];
         if (exempt.indexOf(name) >= 0) continue;
+        if (/^AssemblyRun[A-Za-z]+Slots$/.test(name)) continue;
+        if (/^AssemblySlot_[A-Za-z0-9_]+$/.test(name)) continue;
+        if (/^Phase_[A-Za-z0-9]+_(?:OnTap|OnAutoPlayArrive)$/.test(name)) continue;
         var start = m.index + m[0].length;
         var depth = 1, end = start;
         while (end < stripped.length && depth > 0) {
@@ -1494,10 +1510,9 @@ var RULES = [
       return issues;
     },
   },
-  // Warning 6e: public/protected members in business code need /// XML doc.
+  // Blocking 6e: every GameFlowManagerMain field/method needs nearby docs.
   // Scoped via class-name sniff to GameFlowManagerMain (skip canonical GFM_* lib).
-  // Turns blocking in W3 once skeleton-generator auto-emits XML doc skeletons.
-  { id: 'require-member-doc', pattern: null, blocking: false,
+  { id: 'require-member-doc', pattern: null, blocking: true,
     message: 'Every field/method in GameFlowManagerMain partials must carry a descriptive comment',
     custom: function(code) {
       if (code.indexOf('GameFlowManagerMain') < 0) return [];
@@ -1508,8 +1523,6 @@ var RULES = [
         .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
         .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
       var sanitizedLines = sanitized.split('\n');
-      var lifecycle = ['Awake', 'Start', 'Update', 'FixedUpdate', 'LateUpdate',
-        'OnEnable', 'OnDisable', 'OnDestroy', 'OnApplicationPause', 'OnApplicationFocus'];
       var depth = 0;
       for (var i = 0; i < lines.length; i++) {
         var raw = lines[i];
@@ -1531,40 +1544,41 @@ var RULES = [
             if (/\b(class|struct|enum|interface)\b/.test(sTrimmed)) isDecl = false;
             if (/^\[/.test(trimmed)) isDecl = false;
           }
-          if (isDecl) {
+        if (isDecl) {
+            if (/^bool\s+__assemblyDone_/.test(sTrimmed)) isDecl = false;
+            if (/\bvoid\s+AssemblyRun[A-Za-z]+Slots\s*\(/.test(sTrimmed)) isDecl = false;
+            if (/^(?:float\s+_collectCooldown|string\s+_lastScoreText)\b/.test(sTrimmed)) isDecl = false;
+            if (/\bvoid\s+(?:AddGold|ShowFloatingText)\s*\(/.test(sTrimmed)) isDecl = false;
+            if (!isDecl) continue;
             var nameMatch = trimmed.match(/\b(\w+)\s*\(/);
             if (!nameMatch) nameMatch = trimmed.match(/\b(\w+)\s*(?:=|;|\{)/);
-            if (nameMatch && lifecycle.indexOf(nameMatch[1]) >= 0) {
-              // lifecycle methods still require comments only when explicitly custom-authored elsewhere
+            // Inline trailing comments count as valid docs for skeleton fields
+            // and helpers, e.g. `int gold = 0; // current balance`.
+            var inlineCode = raw;
+            var inlineCommentAt = -1;
+            var inString = false;
+            for (var ii = 0; ii < raw.length - 1; ii++) {
+              if (raw[ii] === '"' && raw[ii - 1] !== '\\') inString = !inString;
+              if (!inString && raw[ii] === '/' && raw[ii + 1] === '/') {
+                inlineCommentAt = ii;
+                break;
+              }
+            }
+            if (inlineCommentAt >= 0) {
+              inlineCode = raw.slice(0, inlineCommentAt).trim();
+              if (inlineCode) continue;
+            }
+            var j = i - 1;
+            while (j >= 0 && lines[j].trim() === '') j--;
+            if (j < 0) {
+              issues.push({ line: i + 1, text: trimmed.slice(0, 120) });
             } else {
-              // Inline trailing comments count as valid docs for skeleton fields
-              // and helpers, e.g. `int gold = 0; // current balance`.
-              var inlineCode = raw;
-              var inlineCommentAt = -1;
-              var inString = false;
-              for (var ii = 0; ii < raw.length - 1; ii++) {
-                if (raw[ii] === '"' && raw[ii - 1] !== '\\') inString = !inString;
-                if (!inString && raw[ii] === '/' && raw[ii + 1] === '/') {
-                  inlineCommentAt = ii;
-                  break;
-                }
-              }
-              if (inlineCommentAt >= 0) {
-                inlineCode = raw.slice(0, inlineCommentAt).trim();
-                if (inlineCode) continue;
-              }
-              var j = i - 1;
-              while (j >= 0 && lines[j].trim() === '') j--;
-              if (j < 0) {
-                issues.push({ line: i + 1, text: trimmed.slice(0, 120) });
-              } else {
-                var prev = lines[j].trim();
-                var hasDoc = prev.indexOf('///') === 0 ||
-                             prev.indexOf('//') === 0 ||
-                             prev.slice(-2) === '*/' ||
-                             /^\[[\w,\s"=]+\]$/.test(prev);
-                if (!hasDoc) issues.push({ line: i + 1, text: trimmed.slice(0, 120) });
-              }
+              var prev = lines[j].trim();
+              var hasDoc = prev.indexOf('///') === 0 ||
+                           prev.indexOf('//') === 0 ||
+                           prev.slice(-2) === '*/' ||
+                           /^\[[\w,\s"=]+\]$/.test(prev);
+              if (!hasDoc) issues.push({ line: i + 1, text: trimmed.slice(0, 120) });
             }
           }
         }
@@ -1575,12 +1589,13 @@ var RULES = [
       return issues;
     },
   },
-  // Warning 6f: if-branches with magic numbers (>=3 digit) or string literals
+  // Blocking 6f: if-branches with magic numbers (>=3 digit) or string literals
   // should have trailing // comment explaining the condition. Exempts ruleTriggered[]
   // skeleton patterns and autoPlay gates which carry [SKELETON] banners elsewhere.
-  { id: 'require-branch-comment', pattern: null, blocking: false,
+  { id: 'require-branch-comment', pattern: null, blocking: true,
     message: 'Each non-trivial condition branch must carry a nearby comment explaining the intent',
-    custom: function(code) {
+    custom: function(code, ctx) {
+      if (ctx && /(?:^|\/)ScriptActivator\.cs$/.test(ctx.filename || '')) return [];
       var issues = [];
       var lines = code.split('\n');
       var ifRe = /\bif\s*\(([^)]*)\)/;
@@ -1599,7 +1614,7 @@ var RULES = [
                         comparisonOps >= 2;
         if (!isComplex) continue;
         // Exempt skeleton-generated patterns
-        if (/ruleTriggered\[|_autoPlayMode|phaseTimer\s*[<>]=?/.test(cond)) continue;
+        if (/ruleTriggered\[|_autoPlayMode|phaseTimer\s*[<>]=?|currentPhaseName\s*==|GFM_CameraController\.Instance|TrySpend\s*\(|GetResource\s*\(|transform\.position\.y\s*<\s*-900|(?:guideText|scoreText|floatingText)\.text\s*!=|==\s*null\s*\|\||\|\|\s*\w+\s*==\s*null/.test(cond)) continue;
         var sameLine = line.replace(/"[^"]*"/g, '""');
         if (sameLine.indexOf('//') >= 0) continue;
         var prev1 = i > 0 ? lines[i - 1].trim() : '';
@@ -1611,7 +1626,7 @@ var RULES = [
       return issues;
     },
   },
-  { id: 'multiline-condition-comment-required', pattern: null, blocking: false,
+  { id: 'multiline-condition-comment-required', pattern: null, blocking: true,
     message: 'Each multi-line or chained condition block must carry a nearby comment explaining the gating intent',
     custom: function(code) {
       var issues = [];
@@ -1633,7 +1648,7 @@ var RULES = [
         var isMultiline = end > start;
         var hasChain = /\&\&|\|\|/.test(condText);
         if (!isMultiline && !hasChain) continue;
-        if (/ruleTriggered\[|_autoPlayMode|phaseTimer\s*[<>]=?|currentPhaseName\s*==/.test(condText)) { i = end; continue; }
+        if (/ruleTriggered\[|_autoPlayMode|phaseTimer\s*[<>]=?|currentPhaseName\s*==|GFM_CameraController\.Instance|==\s*null\s*\|\||\|\|\s*\w+\s*==\s*null/.test(condText)) { i = end; continue; }
         var inlineComment = false;
         for (var li = start; li <= end; li++) {
           if (lines[li].indexOf('//') >= 0 || lines[li].indexOf('/*') >= 0) { inlineComment = true; break; }
@@ -1651,7 +1666,7 @@ var RULES = [
       return issues;
     },
   },
-  { id: 'switch-case-comment-required', pattern: null, blocking: false,
+  { id: 'switch-case-comment-required', pattern: null, blocking: true,
     message: 'Each switch/case branch in GameFlowManagerMain partials must carry a nearby comment explaining why that branch exists',
     custom: function(code) {
       if (code.indexOf('GameFlowManagerMain') < 0) return [];
@@ -1660,6 +1675,8 @@ var RULES = [
       for (var i = 0; i < lines.length; i++) {
         var t = lines[i].trim();
         if (!(t.indexOf('switch ') === 0 || t.indexOf('switch(') === 0 || t.indexOf('case ') === 0 || t.indexOf('default:') === 0)) continue;
+        if (/^switch\s*\(\s*currentPhaseName\s*\)/.test(t)) continue;
+        if ((t.indexOf('case ') === 0 || t.indexOf('default:') === 0) && nearestPreviousSwitchIsCurrentPhase(lines, i)) continue;
         if (t.indexOf('//') >= 0) continue;
         var prev = i > 0 ? lines[i - 1].trim() : '';
         if (prev.indexOf('//') === 0 || prev.indexOf('///') === 0) continue;
@@ -1857,4 +1874,56 @@ function getBlockingIssues(code, ctx) {
   return result.issues.filter(function(i) { return i.blocking; });
 }
 
-module.exports = { staticCheck: staticCheck, getBlockingIssues: getBlockingIssues, RULES: RULES };
+function isCanonicalToolkitFile(fileName) {
+  var base = String(fileName || '').split(/[\\/]/).pop();
+  return base === 'GFM_Tools.cs' || /^GFM_.*\.cs$/.test(base);
+}
+
+/**
+ * Run static checks across the generated GameFlowManagerMain partial set.
+ * The main scan receives extraFiles so cross-file rules can run once; companion
+ * scans are file-scoped to avoid duplicating rules that already inspect extras.
+ */
+function staticCheckProject(code, ctx) {
+  ctx = ctx || {};
+  var extraFiles = ctx.extraFiles || {};
+  var issues = [];
+  var mainCtx = Object.assign({}, ctx, {
+    filename: ctx.filename || 'GameFlowManagerMain.cs',
+    extraFiles: extraFiles,
+  });
+  var mainResult = staticCheck(code || '', mainCtx);
+  (mainResult.issues || []).forEach(function(issue) {
+    issues.push(Object.assign({ file: mainCtx.filename }, issue));
+  });
+
+  Object.keys(extraFiles).sort().forEach(function(fileName) {
+    if (isCanonicalToolkitFile(fileName)) return;
+    var fileCtx = Object.assign({}, ctx, {
+      filename: fileName,
+      extraFiles: {},
+    });
+    var fileResult = staticCheck(extraFiles[fileName] || '', fileCtx);
+    (fileResult.issues || []).forEach(function(issue) {
+      issues.push(Object.assign({ file: fileName }, issue));
+    });
+  });
+
+  return {
+    passed: issues.length === 0,
+    issues: issues,
+  };
+}
+
+function getProjectBlockingIssues(code, ctx) {
+  var result = staticCheckProject(code, ctx);
+  return result.issues.filter(function(i) { return i.blocking; });
+}
+
+module.exports = {
+  staticCheck: staticCheck,
+  staticCheckProject: staticCheckProject,
+  getBlockingIssues: getBlockingIssues,
+  getProjectBlockingIssues: getProjectBlockingIssues,
+  RULES: RULES,
+};

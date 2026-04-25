@@ -113,24 +113,24 @@ function generateVariables(schema, skeleton) {
   var skeletonHas = function(varName) {
     return skeleton && (skeleton.indexOf('float ' + varName) !== -1 || skeleton.indexOf('int ' + varName) !== -1 || skeleton.indexOf(varName + ' { get') !== -1);
   };
-  if (gc.moveSpeed && !skeletonHas('moveSpeed')) lines.push('    float moveSpeed = ' + gc.moveSpeed + 'f;');
-  if (gc.collectRange && !skeletonHas('collectRange')) lines.push('    float collectRange = ' + gc.collectRange + 'f;');
-  if (gc.maxCarry && !skeletonHas('maxCarry')) lines.push('    int maxCarry = ' + gc.maxCarry + ';');
+  if (gc.moveSpeed && !skeletonHas('moveSpeed')) lines.push('    float moveSpeed = ' + gc.moveSpeed + 'f; // player movement speed from schema gameConfig');
+  if (gc.collectRange && !skeletonHas('collectRange')) lines.push('    float collectRange = ' + gc.collectRange + 'f; // proximity radius for collect/deliver checks');
+  if (gc.maxCarry && !skeletonHas('maxCarry')) lines.push('    int maxCarry = ' + gc.maxCarry + '; // maximum carried resource count');
   // NPC variables
   var hasPlayerHP = false;
   var npcs = schema.npcs || [];
   for (var i = 0; i < npcs.length; i++) {
     var tmpl = NPC_TEMPLATES[npcs[i].template];
     if (tmpl) {
-      lines.push(tmpl.generateVariables(npcs[i]));
+      lines.push(annotateNpcVariableBlock(tmpl.generateVariables(npcs[i]), npcs[i]));
     } else if (npcs[i].template) {
       console.error('[template-engine] WARNING: NPC template "' + npcs[i].template + '" not registered, skipping NPC "' + (npcs[i].entity || npcs[i].name || 'unknown') + '"');
     }
     if (npcs[i].params && npcs[i].params.attackDamage) hasPlayerHP = true;
   }
-  if (hasPlayerHP) lines.push('    int playerHP = 10;');
+  if (hasPlayerHP) lines.push('    int playerHP = 10; // player health used by NPC combat templates');
   if (npcs.some(function(n) { return n.template === 'chase_attack' || n.template === 'ranged_shooter'; })) {
-    lines.push('    int enemiesDefeated = 0;');
+    lines.push('    int enemiesDefeated = 0; // combat progress counter used by phase evidence');
   }
   // Resource flow variables
   var resourceVars = generateResourceVariables(schema);
@@ -142,6 +142,46 @@ function generateVariables(schema, skeleton) {
   var multiSrcVars = generateMultiSourceVariables(schema);
   if (multiSrcVars) lines.push(multiSrcVars);
   return lines.join('\n');
+}
+
+function npcVariableComment(varName, entityName, templateName) {
+  var lower = String(varName || '').toLowerCase();
+  var owner = entityName || 'NPC';
+  if (/maxhp$/.test(lower)) return 'maximum hit points for ' + owner + ' combat thresholds';
+  if (/lasthp$/.test(lower)) return 'previous hit-point snapshot used to detect damage on ' + owner;
+  if (/hp$/.test(lower) && lower.indexOf('grouphp') < 0) return 'current hit points for ' + owner + ' combat behavior';
+  if (/state$/.test(lower) && lower.indexOf('groupstate') < 0) return 'state machine value for ' + owner + ' ' + (templateName || 'npc') + ' behavior';
+  if (/attacktimer$/.test(lower)) return 'cooldown timer before ' + owner + ' can apply melee damage again';
+  if (/firetimer$/.test(lower)) return 'cooldown timer before ' + owner + ' can fire another projectile';
+  if (/spawntimer$/.test(lower)) return 'countdown before the next spawn attempt for ' + owner;
+  if (/alivecount$/.test(lower)) return 'number of spawned units currently tracked for ' + owner;
+  if (/patroltimer$/.test(lower)) return 'countdown before choosing the next patrol target for ' + owner;
+  if (/patroltarget$/.test(lower)) return 'current patrol destination used by ' + owner;
+  if (/wandertimer$/.test(lower)) return 'countdown before changing wander direction for ' + owner;
+  if (/wanderdir$/.test(lower)) return 'current randomized wander direction for ' + owner;
+  if (/startpos$/.test(lower)) return 'starting position anchor for ' + owner + ' roaming bounds';
+  if (/circleangle$/.test(lower)) return 'orbit angle accumulator for ' + owner + ' circular movement';
+  if (/centerpos$/.test(lower)) return 'center position anchor for ' + owner + ' circular movement';
+  if (/done$/.test(lower)) return 'completion flag indicating ' + owner + ' no longer needs per-frame processing';
+  if (/bossphase$/.test(lower)) return 'current boss behavior phase selected from health percentage';
+  if (/fleetimer$/.test(lower)) return 'remaining flee duration after ' + owner + ' takes damage';
+  if (/grouphp$/.test(lower)) return 'hit-point array for each ' + owner + ' group member';
+  if (/groupstate$/.test(lower)) return 'state array for each ' + owner + ' group member';
+  if (/grouptimer$/.test(lower)) return 'attack cooldown array for each ' + owner + ' group member';
+  if (/groupobj$/.test(lower)) return 'pooled GameObject references for ' + owner + ' group members';
+  if (/groupalive$/.test(lower)) return 'alive member count used to complete ' + owner + ' group behavior';
+  return 'generated ' + (templateName || 'npc') + ' state for ' + owner;
+}
+
+function annotateNpcVariableBlock(block, npc) {
+  var entityName = (npc && (npc.entity || npc.name)) || 'NPC';
+  var templateName = (npc && npc.template) || 'npc';
+  return String(block || '').split('\n').map(function(line) {
+    if (!line.trim() || line.indexOf('//') >= 0) return line;
+    var m = line.match(/\b(?:bool|int|float|string|GameObject|Vector3|int\[\]|float\[\]|GameObject\[\])\s+(\w+)/);
+    if (!m) return line;
+    return line + ' // ' + npcVariableComment(m[1], entityName, templateName);
+  }).join('\n');
 }
 
 function generateUpdateBody(schema, opts) {
@@ -193,6 +233,7 @@ function generateSystems(schema) {
   for (var i = 0; i < npcs.length; i++) {
     var tmpl = NPC_TEMPLATES[npcs[i].template];
     if (tmpl) {
+      lines.push('    // Update the ' + (npcs[i].entity || 'NPC') + ' ' + (npcs[i].template || 'npc') + ' behavior in a named subsystem.');
       lines.push(tmpl.generateSystem(npcs[i]));
       lines.push('');
     }

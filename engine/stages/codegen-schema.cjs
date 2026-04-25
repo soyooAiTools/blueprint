@@ -31,8 +31,14 @@ module.exports = {
     return generateSchemaFromSpecs(ctx)
       .then(function(schema) {
         ctx.blueprint.gameSchema = schema;
+        var customSuppress = suppressCustomLogicWhenAssemblyCovered(ctx, schema);
         ctx.addLog('codegen-schema', 'Schema generated: ' + schema.phases.length + ' phases, ' +
           schema.entities.length + ' entities, ' + (schema.npcs || []).length + ' NPCs');
+        if (customSuppress.suppressedCount > 0) {
+          ctx.addLog('codegen-schema', 'Suppressed ' + customSuppress.suppressedCount +
+            ' customLogic item(s): assembly implementation coverage=' +
+            customSuppress.implementationCoverage.toFixed(3) + ', unresolved=0');
+        }
 
         // Step 2: Template fill
         var startMs = Date.now();
@@ -52,7 +58,14 @@ module.exports = {
           skeletonResult = emitted.files;
           ctx.blueprint.assemblySlotCount = emitted.slotCount;
           ctx.blueprint.assemblyOwnerSummary = emitted.ownerSummary;
-          ctx.addLog('codegen-schema', 'Deterministic assembly scaffold emitted: ' + emitted.slotCount + ' owner slot(s)');
+          if (emitted.implementationCoverage) {
+            ctx.blueprint.assemblyImplementationCoverage = emitted.implementationCoverage.coverage;
+            ctx.blueprint.assemblyImplementationMissingCount = emitted.implementationCoverage.missing.length;
+            ctx.blueprint.assemblyImplementationMissingModuleIds = emitted.implementationCoverage.missingModuleIds;
+          }
+          ctx.addLog('codegen-schema', 'Deterministic assembly scaffold emitted: ' + emitted.slotCount + ' owner slot(s)' +
+            (emitted.implementationCoverage ? ', implementation=' + emitted.implementationCoverage.coverage.toFixed(3) +
+              ', missingImpl=' + emitted.implementationCoverage.missing.length : ''));
         }
         var skeletonStr = typeof skeletonResult === 'string' ? skeletonResult : skeletonResult.main;
 
@@ -125,11 +138,64 @@ module.exports = {
     summarizePlansForPrompt: summarizePlansForPrompt,
     isSchemaInfraError: isSchemaInfraError,
     localizeGeneratedCSharpComments: localizeGeneratedCSharpComments,
+    suppressCustomLogicWhenAssemblyCovered: suppressCustomLogicWhenAssemblyCovered,
   }
 };
 
 function localizeGeneratedCSharpComments(ctx) {
   return commentLocalizer.localizeContextCSharpComments(ctx);
+}
+
+function suppressCustomLogicWhenAssemblyCovered(ctx, schema) {
+  var items = schema && Array.isArray(schema.customLogic) ? schema.customLogic.slice() : [];
+  if (items.length === 0) {
+    return {
+      suppressedCount: 0,
+      implementationCoverage: 1,
+    };
+  }
+
+  var blueprint = ctx && ctx.blueprint ? ctx.blueprint : {};
+  var plans = blueprint.plans;
+  var assemblyPlan = plans && plans.assemblyPlan;
+  if (!assemblyPlan) {
+    return {
+      suppressedCount: 0,
+      implementationCoverage: 0,
+    };
+  }
+
+  var implementation = assemblyEmitter.computeImplementationCoverage(plans);
+  var unresolvedCount = Array.isArray(assemblyPlan.unresolved)
+    ? assemblyPlan.unresolved.length
+    : (blueprint.assemblyUnresolvedCount || 0);
+  var assemblyCoverage = Number(blueprint.assemblyCoverage);
+  if (!isFinite(assemblyCoverage)) assemblyCoverage = 1;
+
+  blueprint.assemblyImplementationCoverage = implementation.coverage;
+  blueprint.assemblyImplementationMissingCount = implementation.missing.length;
+  blueprint.assemblyImplementationMissingModuleIds = implementation.missingModuleIds;
+
+  var fullyCovered = implementation.total > 0 &&
+    implementation.missing.length === 0 &&
+    implementation.coverage >= 0.999 &&
+    unresolvedCount === 0 &&
+    assemblyCoverage >= 0.85;
+
+  if (!fullyCovered) {
+    return {
+      suppressedCount: 0,
+      implementationCoverage: implementation.coverage,
+    };
+  }
+
+  schema.customLogic = [];
+  blueprint.customLogicSuppressedCount = (blueprint.customLogicSuppressedCount || 0) + items.length;
+  blueprint.customLogicSuppressedItems = (blueprint.customLogicSuppressedItems || []).concat(items);
+  return {
+    suppressedCount: items.length,
+    implementationCoverage: implementation.coverage,
+  };
 }
 
 function generateSchemaFromSpecs(ctx) {

@@ -197,16 +197,10 @@ public class GFM_ReturnTimer : MonoBehaviour
 }
 
 // ============================================================
-// GFM_Event — 事件系统
+// GFM_Event — legacy internal event helper
 // ============================================================
-// 用法：
-//   GFM_Event.Init(gameObject);  // 在 Start() 里初始化
-//   GFM_Event.Subscribe(1001, OnEnemyDied);  // 订阅事件
-//   GFM_Event.Fire(1001, this, "enemy1");    // 触发事件（下一帧执行）
-//   GFM_Event.FireNow(1001, this, "enemy1"); // 立即触发
-//   GFM_Event.Unsubscribe(1001, OnEnemyDied);
-//
-//   void OnEnemyDied(object sender, string data) { ... }
+// Generated GameFlowManagerMain code must not call this helper. Business flow,
+// phase logic, input, resources, UI, and scene control must use direct method calls.
 // ============================================================
 public class GFM_Event : MonoBehaviour
 {
@@ -591,7 +585,7 @@ public class GFM_Luna : MonoBehaviour
 // GFM_UI — UI 创建工具
 // ============================================================
 // 用法：
-//   var canvas = GFM_UI.CreateCanvas(1080, 1920);
+//   var canvas = GFM_UI.CreateCanvas(1920, 1080);
 //   var btn = GFM_UI.CreateButton(canvas, "Play", new Vector2(0, -200), new Vector2(300, 80), onClick);
 //   var label = GFM_UI.CreateText(canvas, "Score: 0", new Vector2(0, 400), 32);
 //   GFM_UI.AddWorldLabel(targetObj, "Enemy", 1.5f);

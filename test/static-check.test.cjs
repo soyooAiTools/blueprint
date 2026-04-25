@@ -1,4 +1,4 @@
-const { staticCheck, getBlockingIssues, RULES } = require('../engine/static-check.cjs');
+const { staticCheck, staticCheckProject, getBlockingIssues, RULES } = require('../engine/static-check.cjs');
 
 describe('static-check', () => {
   test('RULES array has 62+ entries', () => {
@@ -160,6 +160,72 @@ public partial class GameFlowManagerMain {
     });
     const hit = result.issues.find(i => i.rule === 'partial-method-duplicate');
     expect(hit).toBeUndefined();
+  });
+
+  test('require-member-doc is blocking for uncommented GameFlowManagerMain members', () => {
+    const code = `using UnityEngine;
+public partial class GameFlowManagerMain : MonoBehaviour {
+  int missingComment = 0;
+}`;
+    const hit = staticCheck(code, { filename: 'GameFlowManagerMain.cs' }).issues.find(i => i.rule === 'require-member-doc');
+    expect(hit).toBeDefined();
+    expect(hit.blocking).toBe(true);
+  });
+
+  test('complex branch comments are blocking when missing near a condition', () => {
+    const code = `using UnityEngine;
+public partial class GameFlowManagerMain : MonoBehaviour {
+  int score = 0; // current score used by the gate
+  bool ready = true; // secondary gameplay readiness gate
+  // Evaluate the score gate for this phase.
+  void CheckScoreGate() {
+    score += 0;
+    if (score >= 100 && ready) {
+      score++;
+    }
+  }
+}`;
+    const issues = staticCheck(code, { filename: 'GameFlowManagerMain.Flow.cs' }).issues;
+    expect(issues.find(i => i.rule === 'require-branch-comment' && i.blocking)).toBeDefined();
+    expect(issues.find(i => i.rule === 'multiline-condition-comment-required' && i.blocking)).toBeDefined();
+  });
+
+  test('switch and case comments are blocking when missing in GameFlowManagerMain partials', () => {
+    const code = `using UnityEngine;
+public partial class GameFlowManagerMain : MonoBehaviour {
+  string currentPhaseName = "a"; // active phase id
+  // Route the current phase to its handler.
+  void RoutePhase() {
+    switch (currentPhaseName) {
+      case "a": break;
+    }
+  }
+}`;
+    const hit = staticCheck(code, { filename: 'GameFlowManagerMain.Flow.cs' }).issues.find(i => i.rule === 'switch-case-comment-required');
+    expect(hit).toBeDefined();
+    expect(hit.blocking).toBe(true);
+  });
+
+  test('staticCheckProject scans companion partials for forbidden event dispatch', () => {
+    const mainCode = `using UnityEngine;
+public partial class GameFlowManagerMain : MonoBehaviour {
+}`;
+    const flowCode = `using UnityEngine;
+public partial class GameFlowManagerMain {
+  // Bad helper intentionally uses the forbidden event helper.
+  void BadEventDispatch() {
+    GFM_Event.FireNow(1001, this, "payload");
+  }
+}`;
+    const result = staticCheckProject(mainCode, {
+      filename: 'GameFlowManagerMain.cs',
+      extraFiles: {
+        'GameFlowManagerMain.Flow.cs': flowCode,
+      },
+    });
+    const hit = result.issues.find(i => i.file === 'GameFlowManagerMain.Flow.cs' && i.rule === 'no-unityevent-in-flow');
+    expect(hit).toBeDefined();
+    expect(hit.blocking).toBe(true);
   });
 
   test('updategamestate-skeleton-preserve accepts helper-based bridge structure', () => {

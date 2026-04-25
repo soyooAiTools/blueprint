@@ -518,5 +518,19 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-1b581a74.md"
+  },
+  {
+    "id": "auto-b49a65c6",
+    "fingerprintPattern": "Codegen contract failed:.*assembly-module-owner-mismatch",
+    "description": "method-check rejects assembly slots after machine-readable '[ASSEMBLY SLOT]' comments are localized or owner-slot parsing no longer matches generated partial files",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/assembly-plan-contracts.cjs",
+      "engine/stages/method-check.cjs",
+      "lib/csharp-comment-localizer.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-b49a65c6.md"
   }
 ]

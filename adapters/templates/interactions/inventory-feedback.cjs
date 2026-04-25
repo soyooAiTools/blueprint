@@ -12,6 +12,7 @@ function generateInventoryFeedback(schema) {
   for (var i = 0; i < resources.length; i++) {
     var r = resources[i];
     var cap = r.maxStock || maxCarry;
+    lines.push('        // Full-inventory gate: show delivery guidance when the carried resource reaches capacity.');
     lines.push('        if (GetResource("' + escapeString(r.name) + '") >= ' + cap + ') {');
     lines.push('            if (guideText != null) guideText.text = "' + escapeString(r.name) + ' full! Deliver to continue.";');
     lines.push('        }');

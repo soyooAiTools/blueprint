@@ -254,7 +254,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('2. **每个方法都必须有详细注释**，说明输入、输出、副作用、调用时机。');
   lines.push('3. **每个条件分支都必须有注释**，说明为什么进入该条件，而不是只写代码结果。');
   lines.push('4. **不要把大量判断逻辑塞进 `HandlePlayerInteractions()` / `OnAutoPlayArrive()` / `Update()` 等聚合方法**。拆成多个命名明确的私有方法，然后直接调用。');
-  lines.push('5. **不要通过事件系统调用业务方法**。禁止 UnityEvent / event Action / AddListener / SendMessage / BroadcastMessage。只允许直接方法调用。');
+  lines.push('5. **不要通过事件系统调用业务方法**。禁止 GFM_Event / UnityEvent / event Action / AddListener / SendMessage / BroadcastMessage。只允许直接方法调用。');
   lines.push('6. **UI 统一按 1920x1080 设计**，不要改骨架中的 1920x1080 Canvas。');
   lines.push('');
   lines.push('## ⚡ 核心规则：基础样例工程模式');

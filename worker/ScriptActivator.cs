@@ -42,47 +42,50 @@ public class ScriptActivator : MonoBehaviour
         if (!_activated) return;
         float dt = Time.deltaTime;
 
-        if (behavior == "patrol")
+        switch (behavior)
         {
-            _timer += dt * param1;
-            float offset = Mathf.Sin(_timer) * param2;
-            transform.position = _patrolOrigin + new Vector3(offset, 0, 0);
-        }
-        else if (behavior == "patrol_z")
-        {
-            _timer += dt * param1;
-            float offset = Mathf.Sin(_timer) * param2;
-            transform.position = _patrolOrigin + new Vector3(0, 0, offset);
-        }
-        else if (behavior == "chase")
-        {
-            if (target != null)
-            {
-                transform.position = Vector3.MoveTowards(
-                    transform.position, target.position,
-                    param1 * dt);
-            }
-        }
-        else if (behavior == "rotate")
-        {
-            transform.Rotate(0, param1 * dt, 0);
-        }
-        else if (behavior == "bob")
-        {
-            _timer += dt;
-            float y = _patrolOrigin.y + Mathf.Sin(_timer * param1) * param2;
-            transform.position = new Vector3(transform.position.x, y, transform.position.z);
-        }
-        else if (behavior == "orbit")
-        {
-            if (target != null)
-            {
+            case "patrol":
                 _timer += dt * param1;
-                float r = param2;
-                float ox = target.position.x + Mathf.Cos(_timer) * r;
-                float oz = target.position.z + Mathf.Sin(_timer) * r;
-                transform.position = new Vector3(ox, transform.position.y, oz);
-            }
+                float offset = Mathf.Sin(_timer) * param2;
+                Vector3 patrolPos = _patrolOrigin;
+                patrolPos.x += offset;
+                transform.position = patrolPos;
+                break;
+            case "patrol_z":
+                _timer += dt * param1;
+                float zOffset = Mathf.Sin(_timer) * param2;
+                Vector3 patrolZPos = _patrolOrigin;
+                patrolZPos.z += zOffset;
+                transform.position = patrolZPos;
+                break;
+            case "chase":
+                if (target != null)
+                {
+                    transform.position = Vector3.MoveTowards(
+                        transform.position, target.position,
+                        param1 * dt);
+                }
+                break;
+            case "rotate":
+                transform.Rotate(0, param1 * dt, 0);
+                break;
+            case "bob":
+                _timer += dt;
+                Vector3 bobPos = transform.position;
+                bobPos.y = _patrolOrigin.y + Mathf.Sin(_timer * param1) * param2;
+                transform.position = bobPos;
+                break;
+            case "orbit":
+                if (target != null)
+                {
+                    _timer += dt * param1;
+                    float r = param2;
+                    Vector3 orbitPos = transform.position;
+                    orbitPos.x = target.position.x + Mathf.Cos(_timer) * r;
+                    orbitPos.z = target.position.z + Mathf.Sin(_timer) * r;
+                    transform.position = orbitPos;
+                }
+                break;
         }
     }
 }

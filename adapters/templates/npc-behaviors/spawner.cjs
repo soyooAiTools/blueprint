@@ -24,6 +24,7 @@ function generateSystem(npc) {
   var lines = [];
   lines.push('    void Update' + npc.entity + 'Spawner(float dt) {');
   lines.push('        ' + v + 'SpawnTimer -= dt;');
+  lines.push('        // Spawn gate: spawn only after cooldown and while alive-count remains below the configured cap.');
   lines.push('        if (' + v + 'SpawnTimer <= 0f && ' + v + 'AliveCount < ' + p.maxAlive + ') {');
   lines.push('            GameObject spawnPrefab = ' + (prefabId || 'null') + ';');
   lines.push('            var spawned = spawnPrefab != null ? GFM_Pool.Get(spawnPrefab) : null;');

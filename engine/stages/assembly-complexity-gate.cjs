@@ -4,8 +4,11 @@ function roundCoverage(value) {
   return Math.round(value * 1000) / 1000;
 }
 
+var assemblyEmitter = require('../../adapters/assembly-emitter.cjs');
+
 function decideAssemblyRisk(metrics) {
-  if (metrics.unresolvedCount === 0 && metrics.assemblyCoverage >= 0.85) {
+  var implementationCoverage = metrics.assemblyImplementationCoverage == null ? 1 : metrics.assemblyImplementationCoverage;
+  if (metrics.unresolvedCount === 0 && metrics.assemblyCoverage >= 0.85 && implementationCoverage >= 0.95) {
     return {
       decision: 'assembly_ready',
       riskLevel: 'low',
@@ -14,11 +17,11 @@ function decideAssemblyRisk(metrics) {
     };
   }
 
-  if (metrics.unresolvedCount <= 2 && metrics.assemblyCoverage >= 0.6) {
+  if (metrics.unresolvedCount <= 2 && metrics.assemblyCoverage >= 0.6 && implementationCoverage >= 0.6) {
     return {
       decision: 'assembly_caution',
       riskLevel: 'medium',
-      fallbackRequired: metrics.unresolvedCount > 0,
+      fallbackRequired: metrics.unresolvedCount > 0 || implementationCoverage < 0.95,
       summary: 'caution'
     };
   }
@@ -40,8 +43,12 @@ module.exports = {
   },
 
   execute: function(ctx) {
+    var implementation = assemblyEmitter.computeImplementationCoverage(ctx.blueprint.plans);
     var metrics = {
       assemblyCoverage: roundCoverage(ctx.blueprint.assemblyCoverage),
+      assemblyImplementationCoverage: roundCoverage(implementation.coverage),
+      assemblyImplementationMissingCount: implementation.missing.length,
+      assemblyImplementationMissingModuleIds: implementation.missingModuleIds,
       unresolvedCount: ctx.blueprint.assemblyUnresolvedCount != null ? ctx.blueprint.assemblyUnresolvedCount : 0,
       moduleInstanceCount: ctx.blueprint.moduleInstanceCount != null ? ctx.blueprint.moduleInstanceCount : 0,
       cuaStepCount: ctx.blueprint.cuaPlanStepCount != null ? ctx.blueprint.cuaPlanStepCount : 0,
@@ -55,12 +62,17 @@ module.exports = {
     ctx.blueprint.assemblyRiskLevel = decision.riskLevel;
     ctx.blueprint.assemblyFallbackRequired = decision.fallbackRequired;
     ctx.blueprint.assemblyDecisionMetrics = metrics;
+    ctx.blueprint.assemblyImplementationCoverage = metrics.assemblyImplementationCoverage;
+    ctx.blueprint.assemblyImplementationMissingCount = metrics.assemblyImplementationMissingCount;
+    ctx.blueprint.assemblyImplementationMissingModuleIds = metrics.assemblyImplementationMissingModuleIds;
 
     ctx.addLog(
       'assembly-complexity-gate',
       'Decision=' + decision.decision +
       ' risk=' + decision.riskLevel +
       ' coverage=' + metrics.assemblyCoverage +
+      ' implementation=' + metrics.assemblyImplementationCoverage +
+      ' missingImpl=' + metrics.assemblyImplementationMissingCount +
       ' unresolved=' + metrics.unresolvedCount +
       ' modules=' + metrics.moduleInstanceCount +
       ' cuaSteps=' + metrics.cuaStepCount +
@@ -71,6 +83,7 @@ module.exports = {
       ctx.reportStatus('processing', {
         message: '[assembly-gate] ' + decision.summary +
           ' (coverage ' + metrics.assemblyCoverage +
+          ', implementation ' + metrics.assemblyImplementationCoverage +
           ', unresolved ' + metrics.unresolvedCount + ')'
       });
     }
@@ -80,6 +93,9 @@ module.exports = {
       riskLevel: decision.riskLevel,
       fallbackRequired: decision.fallbackRequired,
       assemblyCoverage: metrics.assemblyCoverage,
+      assemblyImplementationCoverage: metrics.assemblyImplementationCoverage,
+      assemblyImplementationMissingCount: metrics.assemblyImplementationMissingCount,
+      assemblyImplementationMissingModuleIds: metrics.assemblyImplementationMissingModuleIds,
       unresolvedCount: metrics.unresolvedCount,
       moduleInstanceCount: metrics.moduleInstanceCount,
       cuaStepCount: metrics.cuaStepCount,

@@ -1,5 +1,5 @@
 const { generateSkeleton } = require('../adapters/skeleton-generator.cjs');
-const { staticCheck } = require('../engine/static-check.cjs');
+const { staticCheck, staticCheckProject } = require('../engine/static-check.cjs');
 
 function makeSpecs(phaseCount) {
   const specs = [];
@@ -171,6 +171,30 @@ describe('W1b 5-partial skeleton smoke test', () => {
       return i.rule === 'partial-split-enforce';
     });
     expect(partialIssues).toEqual([]);
+  });
+
+  test('static-check-project: generated 5-partial skeleton has no blocking feedback-rule violations', () => {
+    const out = generateSkeleton(makeSpecs(12), { w1bSplit: true });
+    const extraFiles = {
+      'GameFlowManagerMain.Flow.cs': out.flow,
+      'GameFlowManagerMain.Input.cs': out.input,
+      'GameFlowManagerMain.Resource.cs': out.resource,
+      'GameFlowManagerMain.UI.cs': out.ui,
+      'GameFlowManagerMain.Scene.cs': out.scene,
+    };
+    const result = staticCheckProject(out.main, { extraFiles: extraFiles });
+    const feedbackRules = {
+      'require-member-doc': true,
+      'require-branch-comment': true,
+      'multiline-condition-comment-required': true,
+      'switch-case-comment-required': true,
+      'no-unityevent-in-flow': true,
+      'thin-input-coordinator': true,
+    };
+    const blocking = (result.issues || []).filter(function(i) {
+      return i.blocking && feedbackRules[i.rule];
+    });
+    expect(blocking).toEqual([]);
   });
 
   test('static-check partial-split-enforce: fires when companions missing', () => {

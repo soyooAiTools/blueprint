@@ -29,8 +29,10 @@ function generateDeliverUpdate(schema) {
     var t = targets[i];
     var entity = toLowerCamel(t.entity);
     var resName = resources.length > 0 ? resources[0].name : 'resource';
+    lines.push('        // Delivery gate: player must stand near the target before inventory can be exchanged.');
     lines.push('        if (' + entity + ' != null && IsNear(' + entity + ', 2f)) {');
     lines.push('            int count = GetResource("' + escapeString(resName) + '");');
+    lines.push('            // Sell gate: only convert resources after confirming a positive count and successful spend.');
     lines.push('            if (count > 0 && TrySpend("' + escapeString(resName) + '", count)) {');
     lines.push('                AddGold(' + t.goldPerUnit + ' * count);');
     lines.push('                ' + entity + 'Done = true;');

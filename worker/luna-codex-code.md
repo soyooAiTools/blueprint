@@ -36,7 +36,8 @@ GFM_*.cs 工具类在 `Assets/Program/Script/Commons/`（GFM_UI/GFM_Utils/GFM_Po
 - **绝对不要用 Camera.main** — 用骨架预创建的 `mainCam` 变量，mainCam 可能为 null，操作前必须 `if (mainCam != null)`
 - **绝对不要用 GFM_UI.CreateCanvas()** — 用骨架预创建的 `uiCanvas`
 - **绝对不要用 SetActive()** — Luna 中 SetActive 会导致对象消失且无法恢复
-- 不要用 `GFM_Tools` — 这个类不存在！可用的类是 `GFM_Create`, `GFM_UI`, `GFM_Luna`, `GFM_Audio`, `GFM_Pool`, `GFM_Event`, `GFM_Utils`, `GFM_Joystick`, `GFM_Grid`, `GFM_Pathfinding`
+- 不要用 `GFM_Tools` — 这个类不存在！可用的类是 `GFM_Create`, `GFM_UI`, `GFM_Luna`, `GFM_Audio`, `GFM_Pool`, `GFM_Utils`, `GFM_Joystick`, `GFM_Grid`, `GFM_Pathfinding`
+- 不要用 `GFM_Event` / 订阅 / Fire / FireNow 调业务逻辑；phase、输入、资源、UI、场景逻辑必须直接调用命名方法
 - ⛔ **不要用 `GFM_Create.Obj()` / `GFM_Create.Ground()` / `GFM_Create.SetColor()`** — 池对象颜色已烘焙，直接 Find 使用
 - 不要用 `CreatePrimitive()` — 在 Luna 中不可见
 - 不要用泛型 `List<T>` / `Dictionary<K,V>` — 用数组

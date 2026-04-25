@@ -1,5 +1,5 @@
 {
-    "csCode": "using UnityEngine;\npublic class GameFlowManagerMain : MonoBehaviour {\n    void Start() {\n        Debug.Log(\"Do not use CreatePrimitive or Camera.main\");\n        var cam = GameObject.Find(\"__Camera\");\n    }\n}",
+    "csCode": "using UnityEngine;\npublic class GameFlowManagerMain : MonoBehaviour {\n    // Initialize a camera reference while ignoring forbidden words inside strings.\n    void Start() {\n        Debug.Log(\"Do not use CreatePrimitive or Camera.main\");\n        var cam = GameObject.Find(\"__Camera\");\n    }\n}",
     "expectedResult": {
         "passed": true,
         "issueRules": []

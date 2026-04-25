@@ -281,32 +281,32 @@ function generateSkeleton(specs, opts = {}) {
   // Phase timer system (skeleton-enforced)
   lines.push('    // [SKELETON] Phase timing system — enforces minimum dwell time per phase');
   lines.push('    float phaseTimer = 0f;');
-  lines.push('    string lastPhaseForTimer = "";');
+  lines.push('    string lastPhaseForTimer = ""; // remembers phase name used to reset phaseTimer exactly once per transition');
   lines.push('    float[] phaseEnterTimes;  // [SKELETON] records when each phase was entered');
   lines.push('');
 
   // Game state variables (skeleton-enforced)
   lines.push('    // [SKELETON] Phase tracking');
   lines.push(`    const int RULE_COUNT = ${totalPhases + 2};`);
-  lines.push('    bool[] ruleTriggered;');
-  lines.push('    string currentPhaseName = "init";');
-  lines.push('    string[] completedPhases;');
-  lines.push('    int completedPhaseCount = 0;');
-  lines.push('    float gameTimer;');
-  lines.push('    bool gameEnded = false;');
+  lines.push('    bool[] ruleTriggered; // one gate flag per generated phase rule plus terminal gates');
+  lines.push('    string currentPhaseName = "init"; // active phase id consumed by Flow/Input/UI partials');
+  lines.push('    string[] completedPhases; // ordered phase ids reported to preview and CUA');
+  lines.push('    int completedPhaseCount = 0; // number of valid entries in completedPhases');
+  lines.push('    float gameTimer; // total playable runtime in seconds');
+  lines.push('    bool gameEnded = false; // locks Update after the terminal CTA path fires');
   lines.push('');
   lines.push('    // [SKELETON] AutoPlay — state owner is GFM_AutoPlay (canonical library)');
   lines.push('    // Local snapshots are synced at top of Update() each frame for backward compat');
   lines.push('    // with downstream skeleton code that reads _autoPlayMode / _autoPlaySteps.');
   lines.push('    bool _autoPlayMode = false;');
-  lines.push('    int _autoPlaySteps = 0;');
+  lines.push('    int _autoPlaySteps = 0; // local mirror of GFM_AutoPlay.Instance.Steps');
   lines.push('    int _autoPlayStepsAtPhaseStart = 0; // tracks autoPlay steps when current phase started');
   lines.push('    const float AUTO_PLAY_PHASE_DURATION = 12f; // [SKELETON] 12s per shot — DO NOT MODIFY this value');
   lines.push('');
   lines.push('    // [SKELETON] Phase-scoped runtime evidence for module-contract verification.');
   lines.push('    string[] _phaseEvidenceKeys = new string[512];');
-  lines.push('    string[] _phaseEvidenceValues = new string[512];');
-  lines.push('    int _phaseEvidenceCount = 0;');
+  lines.push('    string[] _phaseEvidenceValues = new string[512]; // JSON payloads paired with _phaseEvidenceKeys');
+  lines.push('    int _phaseEvidenceCount = 0; // number of recorded evidence key/value entries');
   lines.push('');
 
   // Entity state variables — from entitiesRequired + all entityPoolMap entries
@@ -367,6 +367,7 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    // AI/template code invents Spawn<Entity>(count) wrappers instead of');
     lines.push('    // moving the pooled object directly.');
     entityNames.forEach(name => {
+      lines.push(`    // Spawn compatibility wrapper for ${name}; moves the mapped pool object instead of instantiating.`);
       lines.push(`    void Spawn${name}(int count)`);
       lines.push('    {');
       lines.push(`        if (${name} == null) return;`);
@@ -404,7 +405,7 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    Vector3 _snapHidePos = new Vector3(0f, -999f, 0f);');
     lines.push('    // [SKELETON] Per-entity phase-entry snapshots — DO NOT MODIFY');
     entityNames.forEach(name => {
-      lines.push(`    Vector3 _snap_${name}Pos;`);
+      lines.push(`    Vector3 _snap_${name}Pos; // phase-entry position snapshot for ${name}`);
     });
     lines.push('');
   }
@@ -414,11 +415,11 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    Camera mainCam;');
   lines.push('    // [SKELETON] UI references — canvas and text pre-created, use directly');
   lines.push('    Canvas uiCanvas;');
-  lines.push('    Text guideText;');
-  lines.push('    Text scoreText;');
-  lines.push('    Text floatingText;');
-  lines.push('    float floatingTextTimer = 0f;');
-  lines.push('    string cameraFocusTarget = "";');
+  lines.push('    Text guideText; // top-center guide copy rendered on the 1920x1080 canvas');
+  lines.push('    Text scoreText; // resource/score HUD text rendered on the 1920x1080 canvas');
+  lines.push('    Text floatingText; // short-lived feedback text reused by UI helpers');
+  lines.push('    float floatingTextTimer = 0f; // countdown controlling floatingText visibility');
+  lines.push('    string cameraFocusTarget = ""; // current camera focus label exported in preview state');
   lines.push('');
 
   // Detect idle/tycoon game pattern (has joystick + resource interactions)
@@ -496,7 +497,7 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('            }');
     lines.push('        }');
     lines.push('    }');
-    lines.push('    InventoryCompat _inventory = new InventoryCompat();');
+    lines.push('    InventoryCompat _inventory = new InventoryCompat(); // compatibility facade for legacy _inventory["id"] template reads');
     lines.push('');
     lines.push('    // [SKELETON] Sync locally-filled _resources into GFM_EconomyManager (once)');
     lines.push('    void _SyncResourcesToManager() {');
@@ -519,20 +520,24 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        int before = GFM_EconomyManager.Instance.GetResource(id);');
     lines.push('        GFM_EconomyManager.Instance.AddResource(id, amount);');
     lines.push('        int after = GFM_EconomyManager.Instance.GetResource(id);');
+    lines.push('        // Evidence is recorded only when a positive add actually increased the balance.');
     lines.push('        if (amount > 0 && after > before) {');
     lines.push('            RecordPhaseEvidenceDelta(currentPhaseName, "resource_incremented", before, after);');
     lines.push('            RecordPhaseEvidenceFlag(currentPhaseName, "score_text_changed");');
     lines.push('        }');
     lines.push('    }');
     lines.push('    int GetResource(string id) { return GFM_EconomyManager.Instance.GetResource(id); }');
+    lines.push('    // Spend a resource through the manager and record observable resource-decrement evidence.');
     lines.push('    bool TrySpend(string id, int amount) {');
     lines.push('        int before = GFM_EconomyManager.Instance.GetResource(id);');
     lines.push('        bool ok = GFM_EconomyManager.Instance.TrySpend(id, amount);');
     lines.push('        int after = GFM_EconomyManager.Instance.GetResource(id);');
+    lines.push('        // Evidence is recorded only when the spend really reduced the manager-owned balance.');
     lines.push('        if (ok && after < before) RecordPhaseEvidenceDelta(currentPhaseName, "resource_decremented", before, after);');
     lines.push('        return ok;');
     lines.push('    }');
     lines.push('    bool TryConvert(string fromId, string toId) { return GFM_EconomyManager.Instance.TryConvert(fromId, toId); }');
+    lines.push('    // Pull manager inventory into scoreText for lightweight HUD refreshes.');
     lines.push('    void UpdateResourceUI() {');
     lines.push('        // Manager 自动更新 scoreText；如果主文件用本地 scoreText，在这里额外拉取展示。');
     lines.push('        if (scoreText == null) return;');
@@ -574,7 +579,9 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    Vector3 _moveBuf = Vector3.zero;');
     lines.push('    // [SKELETON] Batch 2 collect cooldown infra — shared across all collect templates');
     lines.push('    float collectCooldownInterval = ' + (specs.gameConfig && specs.gameConfig.collectCooldown ? specs.gameConfig.collectCooldown : 0.3) + 'f;');
+    lines.push('    // Runtime collect cooldown remaining time.');
     lines.push('    float _collectCooldown = 0f;');
+    lines.push('    // Last rendered score text, used to avoid redundant HUD writes.');
     lines.push('    string _lastScoreText = "";');
     lines.push('');
     lines.push('    // [SKELETON] Move player by joystick + tap-to-move fallback — call in Update()');
@@ -735,8 +742,8 @@ function generateSkeleton(specs, opts = {}) {
     // movement, so this does not reintroduce timer-only advancement.
     lines.push('    // [SKELETON] AutoPlay targets — passed to GFM_AutoPlay.Instance in Start()');
     lines.push(`    string[] _autoTargets = new string[] { ${autoTargets.map(t => '"' + t + '"').join(', ')} };`);
-    lines.push('    string _autoPlayAssistPhase = "";');
-    lines.push('    bool _autoPlayAssistTriggered = false;');
+    lines.push('    string _autoPlayAssistPhase = ""; // phase id currently guarded by the assist fallback');
+    lines.push('    bool _autoPlayAssistTriggered = false; // prevents repeated assist calls inside one phase');
     lines.push('');
     lines.push('    // [SKELETON] AutoPlayUpdate — delegates to GFM_AutoPlay.Instance (navigation + OnArrive)');
     lines.push('    void AutoPlayUpdate()');
@@ -748,8 +755,8 @@ function generateSkeleton(specs, opts = {}) {
   } else {
     // No concrete targets — keep AutoPlay passive. Phase completion must still
     // come from real input/world-state changes, not timer-driven callbacks.
-    lines.push('    string _autoPlayAssistPhase = "";');
-    lines.push('    bool _autoPlayAssistTriggered = false;');
+    lines.push('    string _autoPlayAssistPhase = ""; // phase id currently guarded by the assist fallback');
+    lines.push('    bool _autoPlayAssistTriggered = false; // prevents repeated assist calls inside one phase');
     lines.push('    // [SKELETON] AutoPlay — passive mode when no explicit navigation targets exist');
     lines.push('');
     lines.push('    void AutoPlayUpdate()');
@@ -856,6 +863,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('');
 
   // Start method — pre-populated with Find() calls and initialization
+  lines.push('    // Initialize generated state, pooled entities, UI, AutoPlay, and first preview snapshot.');
   lines.push('    void Start()');
   lines.push('    {');
   lines.push('        // [SKELETON] Initialize phase tracking');
@@ -975,6 +983,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('');
 
   // Update method
+  lines.push('    // Per-frame coordinator: sync managers, run flow/input helpers, then export preview state.');
   lines.push('    void Update()');
   lines.push('    {');
   lines.push('        if (gameEnded) return;');
@@ -1020,6 +1029,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('');
 
   // CheckEventRules — the core skeleton
+  lines.push('    // Evaluate phase gates and call Flow partial helpers when each gate is satisfied.');
   lines.push('    void CheckEventRules()');
   lines.push('    {');
 
@@ -1446,7 +1456,7 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
   lines.push('        {');
   for (let i = 0; i < specs.length; i++) {
     const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
-    lines.push('            case "' + pid + '": Phase_' + pid + '_OnTap(); break;');
+    lines.push('            case "' + pid + '": Phase_' + pid + '_OnTap(); break; // route tap handling for phase ' + pid);
   }
   lines.push('        }');
   lines.push('    }');
@@ -1459,7 +1469,7 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
   lines.push('        {');
   for (let i = 0; i < specs.length; i++) {
     const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
-    lines.push('            case "' + pid + '": Phase_' + pid + '_OnAutoPlayArrive(targetName); break;');
+    lines.push('            case "' + pid + '": Phase_' + pid + '_OnAutoPlayArrive(targetName); break; // route autoPlay arrival for phase ' + pid);
   }
   lines.push('        }');
   lines.push('    }');
@@ -1530,12 +1540,13 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
   lines.push('    // Emit one stuck-phase marker and throttle repeats so CUA gets a stable fatal signal.');
   lines.push('    bool TryReportStuckPhase()');
   lines.push('    {');
+  lines.push('        // Route stuck reporting by active phase so each generated phase emits a precise marker.');
   lines.push('        switch (currentPhaseName)');
   lines.push('        {');
   for (let i = 0; i < specs.length; i++) {
     const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
     const ruleIndex = i + 1;
-    lines.push('            case "' + pid + '":');
+    lines.push('            case "' + pid + '": // report when phase ' + pid + ' has not reached its next rule gate');
     lines.push('                if (!ruleTriggered[' + ruleIndex + '])');
     lines.push('                {');
     lines.push('                    UnityEngine.Debug.Log("__PHASE_STUCK__:' + pid + ':phaseTimer=" + phaseTimer + ":autoPlay=" + (_autoPlayMode ? "1" : "0"));');
@@ -1895,22 +1906,31 @@ function _buildUiPartial(specs, entityList, helperSections = []) {
 
 function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   const lines = [];
+  const phaseIds = (Array.isArray(specs) ? specs : [])
+    .map((spec) => String(spec && spec.phaseId || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"'))
+    .filter(Boolean);
+  lines.push('    string[] _phaseEvidencePhaseIds = new string[] { ' + phaseIds.map((phaseId) => '"' + phaseId + '"').join(', ') + ' }; // phase ids serialized into phaseEvidence');
+  lines.push('');
+  lines.push('    // Escape runtime text so preview state remains valid JSON.');
   lines.push('    string JsonEscape(string value)');
   lines.push('    {');
   lines.push('        if (value == null) return "";');
   lines.push('        return value.Replace("\\\\", "\\\\\\\\").Replace("\\\"", "\\\\\\\"").Replace("\\n", " ").Replace("\\r", " ");');
   lines.push('    }');
   lines.push('');
+  lines.push('    // Format floats with invariant culture so CUA parsers receive stable decimals.');
   lines.push('    string FormatFloat(float value)');
   lines.push('    {');
   lines.push('        return value.ToString("0.###", CultureInfo.InvariantCulture);');
   lines.push('    }');
   lines.push('');
+  lines.push('    // Serialize a world position into compact JSON for entity and camera evidence.');
   lines.push('    string SerializeVector3Json(Vector3 value)');
   lines.push('    {');
   lines.push('        return "{\\"x\\":" + FormatFloat(value.x) + ",\\"y\\":" + FormatFloat(value.y) + ",\\"z\\":" + FormatFloat(value.z) + "}";');
   lines.push('    }');
   lines.push('');
+  lines.push('    // Return true while a phase is active or has already been completed.');
   lines.push('    bool PhaseEvidenceActive(string phaseId)');
   lines.push('    {');
   lines.push('        if (currentPhaseName == phaseId) return true;');
@@ -1921,6 +1941,7 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('        return false;');
   lines.push('    }');
   lines.push('');
+  lines.push('    // Store one phase-scoped evidence payload under a phase.signal key.');
   lines.push('    void RecordPhaseEvidenceJson(string phaseId, string signal, string jsonValue)');
   lines.push('    {');
   lines.push('        if (string.IsNullOrEmpty(signal) || string.IsNullOrEmpty(jsonValue)) return;');
@@ -1941,21 +1962,25 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('        _phaseEvidenceCount++;');
   lines.push('    }');
   lines.push('');
+  lines.push('    // Record a boolean evidence signal for the active phase.');
   lines.push('    void RecordPhaseEvidenceFlag(string phaseId, string signal)');
   lines.push('    {');
   lines.push('        RecordPhaseEvidenceJson(phaseId, signal, "{\\"covered\\":true,\\"changed\\":true}");');
   lines.push('    }');
   lines.push('');
+  lines.push('    // Record a before/after numeric delta for resources or counters.');
   lines.push('    void RecordPhaseEvidenceDelta(string phaseId, string signal, float beforeValue, float afterValue)');
   lines.push('    {');
   lines.push('        RecordPhaseEvidenceJson(phaseId, signal, "{\\"covered\\":true,\\"changed\\":true,\\"before\\":" + FormatFloat(beforeValue) + ",\\"after\\":" + FormatFloat(afterValue) + ",\\"delta\\":" + FormatFloat(afterValue - beforeValue) + "}");');
   lines.push('    }');
   lines.push('');
+  lines.push('    // Record proximity evidence used by CUA distance assertions.');
   lines.push('    void RecordPhaseEvidenceDistance(string phaseId, string signal, float distance)');
   lines.push('    {');
   lines.push('        RecordPhaseEvidenceJson(phaseId, signal, "{\\"covered\\":true,\\"reached\\":true,\\"distance\\":" + FormatFloat(distance) + "}");');
   lines.push('    }');
   lines.push('');
+  lines.push('    // Append a signal JSON fragment to an existing object body.');
   lines.push('    string AppendSignalEvidenceJson(string json, string signal, string valueJson)');
   lines.push('    {');
   lines.push('        if (string.IsNullOrEmpty(signal) || string.IsNullOrEmpty(valueJson)) return json;');
@@ -1964,6 +1989,7 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('        return json;');
   lines.push('    }');
   lines.push('');
+  lines.push('    // Build the evidence JSON object for a single phase id.');
   lines.push('    string BuildRecordedPhaseEvidenceJson(string phaseId)');
   lines.push('    {');
   lines.push('        string prefix = phaseId + ".";');
@@ -1978,28 +2004,26 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('        return json;');
   lines.push('    }');
   lines.push('');
+  lines.push('    // Serialize evidence for active/completed phases without inlining one branch per phase.');
   lines.push('    string BuildPhaseEvidenceJson()');
   lines.push('    {');
   lines.push('        string json = "{";');
   lines.push('        bool wrotePhase = false;');
-  (Array.isArray(specs) ? specs : []).forEach((spec) => {
-    const phaseId = String(spec && spec.phaseId || '').replace(/"/g, '\\"');
-    if (!phaseId) return;
-    lines.push('        if (PhaseEvidenceActive("' + phaseId + '"))');
-    lines.push('        {');
-    lines.push('            string phaseJson = BuildRecordedPhaseEvidenceJson("' + phaseId + '");');
-    lines.push('            if (phaseJson.Length > 0)');
-    lines.push('            {');
-    lines.push('                if (wrotePhase) json += ",";');
-    lines.push('                json += "\\"' + phaseId + '\\":{" + phaseJson + "}";');
-    lines.push('                wrotePhase = true;');
-    lines.push('            }');
-    lines.push('        }');
-  });
+  lines.push('        for (int i = 0; i < _phaseEvidencePhaseIds.Length; i++)');
+  lines.push('        {');
+  lines.push('            string phaseId = _phaseEvidencePhaseIds[i];');
+  lines.push('            if (!PhaseEvidenceActive(phaseId)) continue; // skip phases that CUA has not reached yet');
+  lines.push('            string phaseJson = BuildRecordedPhaseEvidenceJson(phaseId);');
+  lines.push('            if (phaseJson.Length <= 0) continue; // omit empty phase objects to keep gameObject.name compact');
+  lines.push('            if (wrotePhase) json += ",";');
+  lines.push('            json += "\\"" + JsonEscape(phaseId) + "\\":{" + phaseJson + "}";');
+  lines.push('            wrotePhase = true;');
+  lines.push('        }');
   lines.push('        json += "}";');
   lines.push('        return json;');
   lines.push('    }');
   lines.push('');
+  lines.push('    // Convert compact integer state into a readable build-state string.');
   lines.push('    string BuildEntityBuildState(int stateCode)');
   lines.push('    {');
   lines.push('        if (stateCode >= 2) return "built";');
@@ -2007,6 +2031,7 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('        return "waiting";');
   lines.push('    }');
   lines.push('');
+  lines.push('    // Serialize one entity reference into CUA-readable state JSON.');
   lines.push('    string SerializeEntityStateJson(GameObject obj, int stateCode)');
   lines.push('    {');
   lines.push('        bool visible = obj != null && obj.transform.position.y > -900f;');
@@ -2028,6 +2053,7 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('            + "}";');
   lines.push('    }');
   lines.push('');
+  lines.push('    // Serialize all generated entity state records.');
   lines.push('    string BuildEntityStatesJson()');
   lines.push('    {');
   lines.push('        string json = "{";');
@@ -2039,6 +2065,7 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('        return json;');
   lines.push('    }');
   lines.push('');
+  lines.push('    // Serialize manager-owned resource counters into the variables object.');
   lines.push('    string BuildResourceVariablesJson()');
   lines.push('    {');
   lines.push('        var mgr = GFM_EconomyManager.Instance;');
@@ -2053,6 +2080,7 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('        return json;');
   lines.push('    }');
   lines.push('');
+  lines.push('    // Serialize gameplay variables that CUA and preview polling inspect.');
   lines.push('    string BuildVariablesJson()');
   lines.push('    {');
   lines.push('        float camZoom = mainCam != null ? mainCam.orthographicSize : 0f;');
@@ -2068,6 +2096,7 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('            + "}";');
   lines.push('    }');
   lines.push('');
+  lines.push('    // Serialize visible guide, score, and floating-text UI state.');
   lines.push('    string BuildUiStateJson()');
   lines.push('    {');
   lines.push('        string guide = guideText != null ? guideText.text : "";');
@@ -2085,6 +2114,7 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('            + "}";');
   lines.push('    }');
   lines.push('');
+  lines.push('    // Serialize camera focus and transform state for visual-progress checks.');
   lines.push('    string BuildCameraStateJson()');
   lines.push('    {');
   lines.push('        float camZoom = mainCam != null ? mainCam.orthographicSize : 0f;');

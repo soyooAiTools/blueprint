@@ -135,4 +135,105 @@ assert.strictEqual(codegenSchema._internals.isSchemaInfraError('schema malformed
   assert.strictEqual(schema.phases[0].onComplete[0].entity, 'EnemyAstronaut');
 }
 
+{
+  const schema = makeSchema();
+  schema.customLogic = ['duplicate module work'];
+  const ctx = {
+    blueprint: {
+      assemblyCoverage: 1,
+      plans: {
+        entityPlan: {
+          entities: [
+            { name: 'Player' },
+            { name: 'EnemyBase' },
+            { name: 'CTAButton' },
+          ],
+        },
+        assemblyPlan: {
+          moduleInstances: [
+            {
+              id: 'Player::player_input_joystick',
+              moduleId: 'player_input_joystick',
+              entity: 'Player',
+              params: { target: 'EnemyBase' },
+              ownerFiles: ['GameFlowManagerMain.Input.cs'],
+              sourceAtomIds: ['atom_move'],
+            },
+            {
+              id: 'system::cta_finish',
+              moduleId: 'cta_finish',
+              entity: '',
+              params: { target: 'CTAButton' },
+              ownerFiles: ['GameFlowManagerMain.UI.cs'],
+              sourceAtomIds: ['atom_cta'],
+            },
+          ],
+          fileOwners: [
+            { file: 'GameFlowManagerMain.Input.cs', moduleInstanceIds: ['Player::player_input_joystick'] },
+            { file: 'GameFlowManagerMain.UI.cs', moduleInstanceIds: ['system::cta_finish'] },
+          ],
+          phaseBindings: [
+            {
+              phaseId: 'move',
+              atomIds: ['atom_move'],
+              activateEntities: ['Player', 'EnemyBase'],
+            },
+            {
+              phaseId: 'finish',
+              atomIds: ['atom_cta'],
+              activateEntities: ['CTAButton'],
+            },
+          ],
+          unresolved: [],
+        },
+        cuaPlan: {
+          steps: [
+            { phaseId: 'move', actions: [{ kind: 'move_to', target: 'EnemyBase' }] },
+            { phaseId: 'finish', actions: [{ kind: 'click', target: 'CTAButton' }] },
+          ],
+        },
+      },
+    },
+  };
+  const result = codegenSchema._internals.suppressCustomLogicWhenAssemblyCovered(ctx, schema);
+  assert.strictEqual(result.suppressedCount, 1);
+  assert.deepStrictEqual(schema.customLogic, []);
+  assert.strictEqual(ctx.blueprint.customLogicSuppressedCount, 1);
+  assert.strictEqual(ctx.blueprint.assemblyImplementationCoverage, 1);
+}
+
+{
+  const schema = makeSchema();
+  schema.customLogic = ['requires missing module'];
+  const ctx = {
+    blueprint: {
+      assemblyCoverage: 1,
+      plans: {
+        entityPlan: { entities: [] },
+        assemblyPlan: {
+          moduleInstances: [
+            {
+              id: 'system::unknown',
+              moduleId: 'unknown_module',
+              entity: '',
+              params: {},
+              ownerFiles: ['GameFlowManagerMain.Flow.cs'],
+            },
+          ],
+          fileOwners: [
+            { file: 'GameFlowManagerMain.Flow.cs', moduleInstanceIds: ['system::unknown'] },
+          ],
+          phaseBindings: [],
+          unresolved: [],
+        },
+        cuaPlan: { steps: [] },
+      },
+    },
+  };
+  const result = codegenSchema._internals.suppressCustomLogicWhenAssemblyCovered(ctx, schema);
+  assert.strictEqual(result.suppressedCount, 0);
+  assert.deepStrictEqual(schema.customLogic, ['requires missing module']);
+  assert.strictEqual(ctx.blueprint.assemblyImplementationMissingCount, 1);
+}
+
 console.log('codegen-schema trigger repair tests passed');

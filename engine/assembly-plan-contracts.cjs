@@ -52,13 +52,21 @@ function extractAssemblySlotOwnership(extraFiles) {
     var re = /\/\/\s*\[ASSEMBLY SLOT\]\s*([^\r\n]+)/g;
     var match;
     while ((match = re.exec(text)) !== null) {
-      var moduleInstanceId = String(match[1] || '').trim();
+      var moduleInstanceId = normalizeAssemblySlotId(match[1]);
       if (!moduleInstanceId) continue;
       if (!ownership[moduleInstanceId]) ownership[moduleInstanceId] = [];
       if (ownership[moduleInstanceId].indexOf(file) < 0) ownership[moduleInstanceId].push(file);
     }
   });
   return ownership;
+}
+
+function normalizeAssemblySlotId(value) {
+  return String(value || '')
+    .trim()
+    .replace(/^(?:装配槽|Assembly\s+slot|slot)\s+/i, '')
+    .replace(/\s+\/\/.*$/, '')
+    .trim();
 }
 
 function escapeRegex(text) {

@@ -1,5 +1,37 @@
 # Blueprint 生产事故记录
 
+## 2026-04-25: assembly 覆盖完整但实现覆盖不完整，导致 custom codegen 仍被触发
+
+### 背景
+
+`feedback1.docx` 要求生成代码严格满足注释、1920x1080 UI、五 partial 拆分、小方法、无事件系统等规范。按反馈收紧静态门禁后，线上任务 `proj_1776912973985_5o2lyu` 重跑时又暴露出更深的问题：`assemblyCoverage=1` 只能说明计划层 module 可映射，不代表每个 module 都有确定性实现。任务仍进入 `codegen-custom`，并出现 300s custom runner timeout / fallback model access 风险。
+
+### 根因
+
+1. `assemblyCoverage=1` 与 implementation coverage 没有分离，导致“计划已覆盖”掩盖“实现仍需 custom Codex”。
+2. `schema.customLogic` 即使在 assembly-ready 场景下仍会进入 text runner，剩余少量 custom logic 足以拖住流水线。
+3. review 阶段对 deterministic scaffold 的样板/注释噪音仍会触发 Codex reviewer。
+4. 注释中文化曾把 `// [ASSEMBLY SLOT] OurBase::...` 改成 `// [ASSEMBLY SLOT] 装配槽 OurBase::...`，破坏 method-check 的 owner-slot contract。
+
+### 修复
+
+- 新增 deterministic implementation coverage，只有 `assembly_ready + unresolved=0 + implementation=1 + missingImpl=0` 时才允许 suppress `customLogic`。
+- 补齐当前任务命中的 deterministic emitter / fallback slot，让 implementation coverage 达到 `106/106 = 1.000`。
+- 增加 deterministic review gate：method/static/spec 已通过且 implementation coverage 完整时跳过 Codex reviewer。
+- 静态检查跨 `GameFlowManagerMain.cs` 与所有 companion partial，注释、条件注释、switch/case 注释升级为 blocking。
+- comment localizer 保留 `[ASSEMBLY SLOT]` / `[ASSEMBLY PHASE]` / owner manifest 等机器可读注释，并让 contract parser 兼容历史 `装配槽` 前缀。
+
+### 验证
+
+- 线上任务 `proj_1776912973985_5o2lyu` 已跑通：`pipeline success=true`。
+- 日志确认 `Suppressed customLogic` 和 `No custom logic — skipping text runner entirely`。
+- review 走 deterministic review pass；compile `Build OK`；runtime-contract `Coverage 11/11`、`Signals 109/109`；heavy CUA skipped；upload 公开预览通过，`visualDiff=0.132`。
+- 回归：`node test/assembly-emitter.test.cjs`、`node test/codegen-schema-trigger-repair.test.cjs`、`node test/assembly-contracts-and-cua-bridge.test.cjs`、`node test/csharp-comment-localizer.test.cjs`、`npm test`。
+
+### 归档
+
+- `docs/_archived/2026-04-25-deterministic-implementation-coverage-closeout.md`
+
 ## 2026-04-25: 完整 Unity 工程导出与 C# 注释中文化收口
 
 ### 背景

@@ -1,6 +1,6 @@
 // ============================================================
-// GFM_Event.cs — 事件系统
-// 由 GFM_Tools.cs 拆分，AI 编码时直接调用，不要重定义
+// GFM_Event.cs — legacy internal event helper
+// 由 GFM_Tools.cs 拆分。生成的 GameFlowManagerMain 禁止调用事件系统，必须直接调用业务方法。
 // Luna 兼容：无泛型、无 coroutine、无 C#7.0+ 语法、无 LINQ
 // ============================================================
 

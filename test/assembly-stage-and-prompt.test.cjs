@@ -67,6 +67,8 @@ assert.ok(ctx.blueprint.assemblyCoverage > 0, 'assemblyCoverage should be set');
 var gateResult = assemblyComplexityGateStage.execute(ctx);
 assert.ok(ctx.blueprint.assemblyDecision, 'assembly-complexity-gate should set assemblyDecision');
 assert.ok(ctx.blueprint.assemblyRiskLevel, 'assembly-complexity-gate should set assemblyRiskLevel');
+assert.ok(ctx.blueprint.assemblyImplementationCoverage > 0, 'assembly-complexity-gate should set implementation coverage');
+assert.ok(Array.isArray(ctx.blueprint.assemblyImplementationMissingModuleIds), 'assembly-complexity-gate should set missing implementation module ids');
 assert.ok(gateResult.decision, 'assembly-complexity-gate should return a decision');
 
 var prompt = codegenSchemaStage._internals.buildSchemaPrompt(ctx);

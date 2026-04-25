@@ -35,6 +35,7 @@ function generateFormSwitchUpdate(schema) {
   for (var i = 0; i < triggers.length; i++) {
     var t = triggers[i];
     var entity = toLowerCamel(t.entity);
+    lines.push('        // Form-switch gate: upgrade form only after the trigger entity reaches completed state and the target form exists.');
     lines.push('        if (' + entity + 'State == 2 && _currentFormIndex < ' + t.formIndex + ' && _forms != null && _forms.Length > ' + t.formIndex + ') {');
     lines.push('            SwitchForm(' + t.formIndex + ');');
     lines.push('        }');

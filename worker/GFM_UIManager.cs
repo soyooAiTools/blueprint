@@ -60,10 +60,10 @@ public class GFM_UIManager : MonoBehaviour
     {
         if (_inited && _canvas != null) return;
         _inited = true;
-        if (_canvas == null) _canvas = GFM_UI.CreateCanvas(960, 640);
+        if (_canvas == null) _canvas = GFM_UI.CreateCanvas(1920, 1080);
         if (_canvas == null) return;
-        if (_guideText == null) _guideText = GFM_UI.CreateText(_canvas, "", new Vector2(0, 270), 26);
-        if (_scoreText == null) _scoreText = GFM_UI.CreateText(_canvas, "Score: 0", new Vector2(340, 290), 20);
+        if (_guideText == null) _guideText = GFM_UI.CreateText(_canvas, "", new Vector2(0, 450), 44);
+        if (_scoreText == null) _scoreText = GFM_UI.CreateText(_canvas, "Score: 0", new Vector2(720, 480), 34);
     }
 
     private bool EnsureInit()

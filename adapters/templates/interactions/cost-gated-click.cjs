@@ -30,8 +30,10 @@ function generateCostClickUpdate(schema) {
     var c = clicks[i];
     var entity = toLowerCamel(c.entity);
     if (c.cost > 0) {
+      lines.push('        // Paid-click gate: entity must be reachable and tapped before spending the resource cost.');
       lines.push('        if (' + entity + ' != null && IsNear(' + entity + ', 2f) && Input.GetMouseButtonDown(0)) {');
       lines.push('            int cost = ' + c.cost + ';');
+      lines.push('            // Cost gate: spend only when the wallet has enough gold for this click action.');
       lines.push('            if (gold >= cost) {');
       lines.push('                gold -= cost;');
       lines.push('                if (scoreText != null) scoreText.text = "gold: " + gold;');
@@ -43,6 +45,7 @@ function generateCostClickUpdate(schema) {
       lines.push('            }');
       lines.push('        }');
     } else {
+      lines.push('        // Free-click gate: entity must be reachable and tapped before advancing its state.');
       lines.push('        if (' + entity + ' != null && IsNear(' + entity + ', 2f) && Input.GetMouseButtonDown(0)) {');
       lines.push('            ' + entity + 'Done = true;');
       lines.push('            ' + entity + 'State = 2;');

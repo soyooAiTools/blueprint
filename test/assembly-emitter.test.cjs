@@ -297,4 +297,174 @@ var narrativeMovePlans = {
 var narrativeMoveEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(narrativeMoveSkeleton, narrativeMovePlans);
 assert.ok(narrativeMoveEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag("enemyAttackWarning", "player_position_changed")') >= 0, 'autoplay fallback should record narrative move_to player motion even without a guide-text anchor');
 
+var implementationPlans = {
+  entityPlan: {
+    entities: [
+      { name: 'Player' },
+      { name: 'EnemyBase' },
+      { name: 'RocketDebris' },
+      { name: 'Gold' },
+      { name: 'DefenseTower' },
+      { name: 'CTAButton' }
+    ]
+  },
+  assemblyPlan: {
+    moduleInstances: [
+      {
+        id: 'Player::player_input_joystick',
+        moduleId: 'player_input_joystick',
+        entity: 'Player',
+        params: { target: 'EnemyBase', speed: 4 },
+        ownerFiles: ['GameFlowManagerMain.Input.cs'],
+        sourceAtomIds: ['atom_move']
+      },
+      {
+        id: 'system::move_to_target',
+        moduleId: 'move_to_target',
+        entity: '',
+        params: { target: 'narrative target', speed: 5 },
+        ownerFiles: ['GameFlowManagerMain.Flow.cs'],
+        sourceAtomIds: ['atom_move']
+      },
+      {
+        id: 'system::apply_damage',
+        moduleId: 'apply_damage',
+        entity: '',
+        params: { source: 'Player', amount: 1 },
+        ownerFiles: ['GameFlowManagerMain.Flow.cs'],
+        sourceAtomIds: ['atom_attack']
+      },
+      {
+        id: 'system::projectile_emit',
+        moduleId: 'projectile_emit',
+        entity: '',
+        params: { damage: 1 },
+        ownerFiles: ['GameFlowManagerMain.Flow.cs'],
+        sourceAtomIds: ['atom_attack']
+      },
+      {
+        id: 'system::target_acquire',
+        moduleId: 'target_acquire',
+        entity: '',
+        params: { targetTag: 'enemy' },
+        ownerFiles: ['GameFlowManagerMain.Flow.cs'],
+        sourceAtomIds: ['atom_attack']
+      },
+      {
+        id: 'DefenseTower::activate_targets',
+        moduleId: 'activate_targets',
+        entity: 'DefenseTower',
+        params: { targets: [] },
+        ownerFiles: ['GameFlowManagerMain.Flow.cs'],
+        sourceAtomIds: ['atom_build']
+      },
+      {
+        id: 'system::collect_on_near',
+        moduleId: 'collect_on_near',
+        entity: '',
+        params: { resource: 'gold', count: 1 },
+        ownerFiles: ['GameFlowManagerMain.Resource.cs'],
+        sourceAtomIds: ['atom_collect']
+      },
+      {
+        id: 'system::inventory_wallet',
+        moduleId: 'inventory_wallet',
+        entity: '',
+        params: { resourceKinds: ['gold'] },
+        ownerFiles: ['GameFlowManagerMain.Resource.cs'],
+        sourceAtomIds: ['atom_collect']
+      },
+      {
+        id: 'CTAButton::guide_ui',
+        moduleId: 'guide_ui',
+        entity: 'CTAButton',
+        params: {},
+        ownerFiles: ['GameFlowManagerMain.UI.cs'],
+        sourceAtomIds: ['atom_cta']
+      },
+      {
+        id: 'system::cta_finish',
+        moduleId: 'cta_finish',
+        entity: '',
+        params: { target: 'CTAButton' },
+        ownerFiles: ['GameFlowManagerMain.UI.cs'],
+        sourceAtomIds: ['atom_cta']
+      },
+      {
+        id: 'system::visual_variant_swap',
+        moduleId: 'visual_variant_swap',
+        entity: '',
+        params: { entity: 'narrative entity', variantId: 'red' },
+        ownerFiles: ['GameFlowManagerMain.Scene.cs'],
+        sourceAtomIds: ['atom_visual']
+      }
+    ],
+    fileOwners: [
+      {
+        file: 'GameFlowManagerMain.Flow.cs',
+        moduleInstanceIds: [
+          'system::move_to_target',
+          'system::apply_damage',
+          'system::projectile_emit',
+          'system::target_acquire',
+          'DefenseTower::activate_targets'
+        ]
+      },
+      { file: 'GameFlowManagerMain.Input.cs', moduleInstanceIds: ['Player::player_input_joystick'] },
+      { file: 'GameFlowManagerMain.Resource.cs', moduleInstanceIds: ['system::collect_on_near', 'system::inventory_wallet'] },
+      { file: 'GameFlowManagerMain.UI.cs', moduleInstanceIds: ['CTAButton::guide_ui', 'system::cta_finish'] },
+      { file: 'GameFlowManagerMain.Scene.cs', moduleInstanceIds: ['system::visual_variant_swap'] }
+    ],
+    phaseBindings: [
+      {
+        phaseId: 'combat',
+        atomIds: ['atom_move', 'atom_attack', 'atom_build', 'atom_collect', 'atom_visual'],
+        activateEntities: ['Player', 'EnemyBase', 'RocketDebris', 'Gold', 'DefenseTower'],
+        guide: '战斗'
+      },
+      {
+        phaseId: 'finish',
+        atomIds: ['atom_cta'],
+        activateEntities: ['CTAButton'],
+        guide: '安装'
+      }
+    ],
+    stateOwners: [],
+    eventGraph: [],
+    unresolved: []
+  },
+  cuaPlan: {
+    steps: [
+      {
+        phaseId: 'combat',
+        actions: [
+          { kind: 'move_to', target: 'EnemyBase' },
+          { kind: 'attack', target: 'EnemyBase' },
+          { kind: 'collect', target: 'Gold' }
+        ],
+        expectedSignals: ['player_position_changed', 'target_hp_decreased_or_target_dead', 'resource_incremented']
+      },
+      {
+        phaseId: 'finish',
+        actions: [{ kind: 'click', target: 'CTAButton' }],
+        expectedSignals: ['downstream_entity_visible']
+      }
+    ]
+  }
+};
+var implementationCoverage = assemblyEmitter.computeImplementationCoverage(implementationPlans);
+assert.strictEqual(implementationCoverage.coverage, 1, 'all deterministic fallback modules should be covered');
+assert.deepStrictEqual(implementationCoverage.missing, [], 'deterministic fallback coverage should not leave missing slots');
+
+var implementationEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(genericSkeleton, implementationPlans);
+assert.ok(implementationEmitted.files.input.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "player_position_changed")') >= 0, 'joystick slot should record player movement evidence');
+assert.ok(implementationEmitted.files.flow.indexOf('HideObj(EnemyBase);') >= 0, 'system damage fallback should hide a concrete enemy target');
+assert.ok(implementationEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "projectile_visible")') >= 0, 'system projectile fallback should record projectile evidence');
+assert.ok(implementationEmitted.files.flow.indexOf('DefenseTowerState = Mathf.Max(DefenseTowerState, 1);') >= 0, 'activate_targets fallback should activate its owner when targets are empty');
+assert.ok(implementationEmitted.files.resource.indexOf('AddResource("gold", 1);') >= 0, 'system collect fallback should add the configured resource');
+assert.ok(implementationEmitted.files.resource.indexOf('GetResource("gold") > 0') >= 0, 'inventory_wallet should observe configured resource kinds');
+assert.ok(implementationEmitted.files.ui.indexOf('ShowCTA();') >= 0, 'cta_finish should deterministically show CTA');
+assert.ok(implementationEmitted.files.ui.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "guide_text_visible")') >= 0, 'CTA guide_ui should still emit guide evidence');
+assert.ok(implementationEmitted.files.scene.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "visual_variant_changed")') >= 0, 'system visual variant fallback should record visual evidence');
+
 console.log('assembly-emitter tests passed');

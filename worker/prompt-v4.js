@@ -341,7 +341,7 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   lines.push('3. 每个实体一个 UpdateXxx(float dt) 方法');
   lines.push('4. Update() / HandlePlayerInteractions() / OnAutoPlayArrive() 必须保持轻量，只负责直接调用更小的方法');
   lines.push('5. 每个字段、每个方法、每个条件分支都必须写详细注释，解释用途和意图');
-  lines.push('6. 禁止 UnityEvent / event Action / AddListener / SendMessage / BroadcastMessage，方法必须直接调用');
+  lines.push('6. 禁止 GFM_Event / UnityEvent / event Action / AddListener / SendMessage / BroadcastMessage，方法必须直接调用');
   lines.push('7. CheckEventRules(): 检查每条规则的条件，满足且 ruleTriggered[i]==false → 执行动作 + 标记已触发');
   lines.push('   示例:');
   lines.push('   bool[] ruleTriggered = new bool[RULE_COUNT];');
@@ -363,7 +363,7 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   lines.push('11. 隐藏对象: transform.position = new Vector3(0, -999, 0); 不用 SetActive(false)');
   lines.push('12. 游戏结束: Luna.Unity.LifeCycle.GameEnded() 之后必须立刻 ShowCTA()');
   lines.push('13. CTA: Luna.Unity.Playable.InstallFullGame()');
-  lines.push('14. UI: Canvas canvas = GFM_UI.CreateCanvas(960, 540); // returns Canvas, not GameObject!');
+  lines.push('14. UI: Canvas canvas = GFM_UI.CreateCanvas(1920, 1080); // returns Canvas, not GameObject!');
   lines.push('    Text txt = GFM_UI.CreateText(canvas, "text", new Vector2(x,y), fontSize); // param1 must be Canvas type');
   lines.push('15. 音频: GFM_Audio (如需要)');
   lines.push('');

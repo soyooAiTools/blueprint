@@ -10,7 +10,7 @@ var path = require('path');
 var helpers = require('../helpers.cjs');
 var { recode, patchRecode } = require('../recode.cjs');
 var { createFixLoop } = require('../fix-loop.cjs');
-var { staticCheck, getBlockingIssues } = require('../static-check.cjs');
+var { staticCheckProject, getBlockingIssues } = require('../static-check.cjs');
 var { checkConformance } = require('../spec-conformance.cjs');
 var { normalizeFingerprint } = require('../metrics.cjs');
 var assemblyPlanContracts = require('../assembly-plan-contracts.cjs');
@@ -29,6 +29,28 @@ function summarizeRules(issues, limit) {
     .slice(0, limit || 5)
     .map(function(key) { return key + ' x' + counts[key]; })
     .join(', ');
+}
+
+function isAssemblyReadyForDeterministicReview(ctx, staticWarnings, specCriticalCount) {
+  if (process.env.DISABLE_ASSEMBLY_REVIEW_SKIP === 'true') return false;
+  var blueprint = ctx && ctx.blueprint || {};
+  var plans = blueprint.plans || {};
+  var assemblyPlan = plans.assemblyPlan || {};
+  var unresolvedCount = Array.isArray(assemblyPlan.unresolved)
+    ? assemblyPlan.unresolved.length
+    : (blueprint.assemblyUnresolvedCount || 0);
+  var implementationCoverage = Number(blueprint.assemblyImplementationCoverage);
+  if (!isFinite(implementationCoverage)) implementationCoverage = 0;
+  var missingImpl = Number(blueprint.assemblyImplementationMissingCount || 0);
+  var assemblyCoverage = Number(blueprint.assemblyCoverage);
+  if (!isFinite(assemblyCoverage)) assemblyCoverage = 0;
+  if (specCriticalCount > 0) return false;
+  if (blueprint.assemblyDecision !== 'assembly_ready') return false;
+  if (blueprint.assemblyFallbackRequired) return false;
+  if (assemblyCoverage < 0.999) return false;
+  if (implementationCoverage < 0.999) return false;
+  if (missingImpl !== 0 || unresolvedCount !== 0) return false;
+  return Array.isArray(staticWarnings);
 }
 
 function repairUpdateGameStateBridge(code) {
@@ -1591,6 +1613,7 @@ module.exports = {
   hasLegacyReviewerApiKey: hasLegacyReviewerApiKey,
   shouldFallbackToLegacyReviewer: shouldFallbackToLegacyReviewer,
   shouldUseDeterministicReviewFallback: shouldUseDeterministicReviewFallback,
+  isAssemblyReadyForDeterministicReview: isAssemblyReadyForDeterministicReview,
   repairKnownStructuralDamage: repairKnownStructuralDamage,
   canSkip: function(ctx) {
     return process.env.SKIP_CODE_REVIEW === 'true' || !ctx.csCode;
@@ -1636,12 +1659,14 @@ module.exports = {
     var reviewPlanSummary = assemblyPlanContracts.buildReviewPlanGuidance(ctx.blueprint && ctx.blueprint.plans);
     var lastReviewFingerprint = null;
     var sameReviewFingerprintCount = 0;
+    var specCriticalCount = 0;
 
     // Spec conformance check: verify code semantics match blueprint
     // P1-6: Only inject as feedback if there are genuine critical issues after fuzzy matching
     // This prevents "phaseId naming mismatch" from poisoning the fix loop
     if (ctx.blueprint.specs && ctx.blueprint.specs.length > 0) {
       var conformance = checkConformance(reviewedCode, ctx.blueprint);
+      specCriticalCount = conformance.criticalCount || 0;
       ctx.addLog('review', 'Spec conformance: ' + conformance.criticalCount + ' critical, ' + conformance.warningCount + ' warnings');
       if (!conformance.passed && conformance.criticalCount > 0) {
         // Only inject critical issues (not warnings) into feedback to avoid noise
@@ -1689,11 +1714,10 @@ module.exports = {
         // reviewer pass — leading to known-broken GFM_Create.Obj() code
         // advancing to visual-check → cua-verify with black screen.
         var reviewPromise;
-        var preCheck = staticCheck(reviewedCode, { extraFiles: reviewExtraFiles, blueprint: ctx.blueprint });
-        // W1a introduced warning-severity rules (require-member-doc / require-branch-comment /
-        // method-too-long). `preCheck.passed` is `issues.length === 0`, so warnings were
-        // treating the fix-loop as blocking. Filter to blocking issues for the recode
-        // decision; non-blocking issues still get logged as feedback.
+        var preCheck = staticCheckProject(reviewedCode, { extraFiles: reviewExtraFiles, blueprint: ctx.blueprint });
+        // Scan every GameFlowManagerMain partial, not only the main file. Feedback
+        // rules for comments, file ownership, thin coordinators, and direct calls are
+        // now blocking; remaining non-blocking rules are still logged as warnings.
         var preCheckBlocking = (preCheck.issues || []).filter(function(i) { return i.blocking; });
         var preCheckWarnings = (preCheck.issues || []).filter(function(i) { return !i.blocking; });
         if (preCheckWarnings.length > 0) {
@@ -1701,7 +1725,7 @@ module.exports = {
         }
         if (preCheckBlocking.length > 0) {
           var staticIssues = preCheckBlocking.map(function(i) {
-            return 'L' + i.line + ': ' + i.message + ' — ' + i.text;
+            return (i.file ? i.file + ' ' : '') + 'L' + i.line + ': ' + i.message + ' — ' + i.text;
           }).join('\n');
           ctx.addLog('review', 'Static check (round ' + round + ') found ' + preCheckBlocking.length + ' blocking violations — forcing recode without LLM review');
           ctx.addLog('review', 'Static check (round ' + round + ') top blocking rules: ' + summarizeRules(preCheckBlocking, 6));
@@ -1712,7 +1736,7 @@ module.exports = {
             passed: false,
             feedback: 'STATIC CHECK VIOLATIONS (must fix, these bypass LLM review):\n' + staticIssues,
             issues: preCheckBlocking.map(function(i) {
-              return { severity: 'critical', line: i.line, message: i.message, text: i.text, rule: i.rule };
+              return { severity: 'critical', file: i.file, line: i.line, message: i.message, text: i.text, rule: i.rule };
             }),
             criticalCount: preCheckBlocking.length,
             source: 'static-precheck',
@@ -1774,7 +1798,17 @@ module.exports = {
         // LLM reviewer — only reached when both static check and phase coverage
         // pre-check pass (i.e. reviewPromise is still unset).
         if (!reviewPromise) {
-          if (USE_CODEX_REVIEW && codexReviewer) {
+          if (isAssemblyReadyForDeterministicReview(ctx, preCheckWarnings, specCriticalCount)) {
+            reviewerName = 'Deterministic';
+            ctx.addLog('review', 'Assembly deterministic review gate passed — skipping Codex reviewer (static warnings=' + preCheckWarnings.length + ')');
+            reviewPromise = Promise.resolve({
+              passed: true,
+              source: 'assembly-deterministic-review',
+              issues: preCheckWarnings,
+              warningCount: preCheckWarnings.length,
+              reviewerName: 'Deterministic',
+            });
+          } else if (USE_CODEX_REVIEW && codexReviewer) {
             reviewPromise = codexReviewer.reviewCodeWithCodex(reviewedCode, {
               taskId: ctx.taskId,
               log: function(msg) { ctx.addLog('review', msg); },
@@ -1849,10 +1883,11 @@ module.exports = {
           if (reviewResult.passed) {
             lastReviewFingerprint = null;
             sameReviewFingerprintCount = 0;
-            ctx.addLog('review', reviewerName + ' review PASSED' + (round > 1 ? ' (round ' + round + ')' : ''));
+            var passedReviewerName = reviewResult.reviewerName || reviewerName;
+            ctx.addLog('review', passedReviewerName + ' review PASSED' + (round > 1 ? ' (round ' + round + ')' : ''));
             ctx.reportStatus('processing', {
-              message: ('[Linux] ' + reviewerName + ' 审核通过' + (round > 1 ? ' (第' + round + '轮)' : '')).slice(0, 100),
-              qualityData: { reviewResult: { passed: true, reviewer: reviewerName, round: round } },
+              message: ('[Linux] ' + passedReviewerName + ' 审核通过' + (round > 1 ? ' (第' + round + '轮)' : '')).slice(0, 100),
+              qualityData: { reviewResult: { passed: true, reviewer: passedReviewerName, round: round } },
             });
             // Do NOT read from ctx.workDir here — recode() writes to a fresh temp dir,
             // leaving ctx.workDir untouched. The authoritative source is the closure

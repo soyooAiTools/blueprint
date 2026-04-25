@@ -9,9 +9,9 @@ function generateUpgradeVariables(schema) {
   if (trackedForms.length === 0) return '';
 
   var lines = [];
-  lines.push('    int currentFormIndex = 0;');
+  lines.push('    int currentFormIndex = 0; // currently selected form index from schema forms');
   for (var i = 0; i < trackedForms.length; i++) {
-    lines.push('    bool ' + trackedForms[i].formId + 'Unlocked = false;');
+    lines.push('    bool ' + trackedForms[i].formId + 'Unlocked = false; // unlock flag for form "' + trackedForms[i].formId + '"');
   }
   return lines.join('\n');
 }

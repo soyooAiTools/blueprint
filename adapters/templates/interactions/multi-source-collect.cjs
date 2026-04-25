@@ -46,7 +46,9 @@ function generateMultiSourceCollect(schema) {
       if (!hasEntityRef(g.primaryEntity) || !hasEntityRef(g.extraEntities[j])) continue;
       var entity = toLowerCamel(g.extraEntities[j]);
       var primary = toLowerCamel(g.primaryEntity);
+      lines.push('        // Collect from alternate source only when it is visible and within range.');
       lines.push('        if (' + entity + ' != null && IsNear(' + entity + ', ' + collectRange + 'f)) {');
+      lines.push('            // Keep total "' + escapeString(g.resourceName) + '" below maxCarry before adding one unit.');
       lines.push('            if (GetResource("' + escapeString(g.resourceName) + '") < ' + maxCarry + ') {');
       lines.push('                AddResource("' + escapeString(g.resourceName) + '", 1);');
       lines.push('                ' + primary + 'Done = true;');
@@ -67,7 +69,7 @@ function generateMultiSourceVariables(schema) {
     var extras = groups[i].extraEntities;
     for (var j = 0; j < extras.length; j++) {
       if (!hasEntityRef(extras[j])) continue;
-      lines.push('    GameObject ' + toLowerCamel(extras[j]) + ';');
+      lines.push('    GameObject ' + toLowerCamel(extras[j]) + '; // alternate collect source mapped from entity "' + extras[j] + '"');
     }
   }
   return lines.join('\n');

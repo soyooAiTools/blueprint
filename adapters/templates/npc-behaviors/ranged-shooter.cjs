@@ -31,6 +31,7 @@ function generateSystem(npc) {
   lines.push('        if (dist < ' + p.detectRange + 'f) {');
   lines.push('            ' + v + 'State = 1;');
   lines.push('            ' + v + 'FireTimer -= dt;');
+  lines.push('            // Ranged fire gate: cooldown must be ready and the player must be inside projectile range.');
   lines.push('            if (' + v + 'FireTimer <= 0f && dist < ' + p.fireRange + 'f) {');
   lines.push('                // Fire projectile toward player');
   lines.push('                GameObject projectilePrefab = ' + (projectilePrefabId || 'null') + ';');

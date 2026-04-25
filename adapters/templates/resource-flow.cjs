@@ -8,7 +8,7 @@ function generateResourceVariables(schema) {
   var i;
 
   for (i = 0; i < resources.length; i++) {
-    lines.push('int ' + resources[i].name + 'Carried = 0;');
+    lines.push('int ' + resources[i].name + 'Carried = 0; // carried amount for resource "' + escapeString(resources[i].name) + '"');
   }
 
   return indentLines(lines, 4);
@@ -42,12 +42,14 @@ function buildCollectBlock(resource) {
   var scoreVar = '_score_' + resourceName;
 
   return [
+    '// Collect only when cooldown has elapsed and the player is near the source.',
     'if (_collectCooldown <= 0f && IsNear(' + sourceEntity + ', collectRange)) {',
+    '    // Respect maxCarry so the resource loop cannot overfill the player inventory.',
     '    if (' + resourceName + 'Carried < maxCarry) {',
     '        ' + resourceName + 'Carried++;',
     '        _collectCooldown = collectCooldownInterval;',
     '        string ' + scoreVar + ' = "' + escapeString(resourceName) + ': " + ' + resourceName + 'Carried + "/" + maxCarry;',
-    '        if (_lastScoreText != ' + scoreVar + ') { scoreText.text = ' + scoreVar + '; _lastScoreText = ' + scoreVar + '; }',
+    '        if (_lastScoreText != ' + scoreVar + ') { scoreText.text = ' + scoreVar + '; _lastScoreText = ' + scoreVar + '; } // update HUD only when text changed',
     '    }',
     '}'
   ];
@@ -71,7 +73,10 @@ function buildPhaseBlocks(phase, resources) {
   if (deliverResources.length === 0) return [];
 
   // Merged IsNear block: single proximity check, multiple resource deliveries inside.
-  var lines = ['if (IsNear(' + targetEntity + ', 2f)) {'];
+  var lines = [
+    '// Deliver resources only after the player reaches the target entity.',
+    'if (IsNear(' + targetEntity + ', 2f)) {'
+  ];
   for (i = 0; i < deliverResources.length; i++) {
     lines = lines.concat(buildDeliverBody(trigger, deliverResources[i], targetEntity));
   }
@@ -85,9 +90,11 @@ function buildDeliverBody(trigger, resource, targetEntity) {
   var requiredAmount = trigger.amount || resource.convertRatio;
 
   return [
+    '    // Convert carried "' + escapeString(resourceName) + '" only when there is something to deliver.',
     '    if (' + resourceName + 'Carried > 0) {',
     '        AddResource("' + escapeString(resourceName) + '", ' + resourceName + 'Carried);',
     '        ' + resourceName + 'Carried = 0;',
+    '        // Advance target state only after the required converted resource amount exists.',
     '        if (GetResource("' + escapeString(resourceName) + '") >= ' + requiredAmount + ') {',
     '            ' + targetEntity + 'State++;',
     '        }',

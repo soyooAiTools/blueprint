@@ -26,17 +26,13 @@ GFM_Pool.Return(obj);                    // 归还到池
 GFM_Pool.ReturnAfter(obj, 2f);          // 2 秒后自动归还
 ```
 
-## GFM_Event — 事件系统
+## 业务调用规则 — 直接方法调用
 ```csharp
-GFM_Event.Init(gameObject);              // 初始化
-GFM_Event.Subscribe(1001, handler);      // 订阅事件
-GFM_Event.Unsubscribe(1001, handler);    // 取消订阅
-GFM_Event.Fire(1001, sender, "data");    // 触发事件（下一帧执行）
-GFM_Event.FireNow(1001, sender, "data"); // 立即触发
-GFM_Event.Clear();                       // 清除所有订阅
-
-// handler 签名：
-void OnEvent(object sender, string data) { }
+// 禁止使用事件总线、订阅、Fire/FireNow 触发业务逻辑。
+// phase、输入、资源、UI、场景逻辑必须通过明确命名的方法直接调用。
+Phase_collect_OnTap();
+UpdateResourceUI();
+ShowCTA();
 ```
 
 ## GFM_Utils — 通用工具方法
@@ -72,7 +68,7 @@ GFM_Luna.IsGameOver();         // 是否已结束
 
 ## GFM_UI — UI 创建工具
 ```csharp
-var canvas = GFM_UI.CreateCanvas(1080, 1920);                              // 全屏 Canvas
+var canvas = GFM_UI.CreateCanvas(1920, 1080);                              // 全屏 Canvas（FHD 设计稿）
 var btn = GFM_UI.CreateButton(canvas, "Play", pos, size, onClick);         // 按钮
 var txt = GFM_UI.CreateText(canvas, "Score: 0", pos, 32);                  // 文字标签
 GFM_UI.AddWorldLabel(targetObj, "Enemy", 1.5f);                            // 3D 物体上方标签
@@ -133,7 +129,6 @@ GFM_Tools.cs (999 lines)
 ├── GFM_Audio          (音频管理)
 ├── GFM_Pool           (对象池)
 ├── GFM_ReturnTimer    (对象池自动归还计时器，内部使用)
-├── GFM_Event          (事件系统)
 ├── GFM_Utils          (通用工具 — static)
 ├── GFM_Joystick       (虚拟摇杆)
 ├── GFM_Luna           (Luna 生命周期)

@@ -31,6 +31,15 @@ function generateSystem(npc) {
   lines.push('    void Update' + npc.entity + '(float dt) {');
   lines.push('        int count = ' + count + ';');
   lines.push('        if (' + v + 'Done) return;');
+  lines.push('        Ensure' + npc.entity + 'Group(count);');
+  lines.push('        Update' + npc.entity + 'GroupMembers(dt, count);');
+  lines.push('        if (' + v + 'GroupAlive <= 0) {');
+  lines.push('            ' + v + 'Done = true;');
+  lines.push('        }');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    // Initialize the ' + npc.entity + ' group arrays and place pooled members around the anchor.');
+  lines.push('    void Ensure' + npc.entity + 'Group(int count) {');
   lines.push('        if (' + v + 'GroupObj == null) {');
   lines.push('            ' + v + 'GroupObj = new GameObject[count];');
   lines.push('            ' + v + 'GroupHP = new int[count];');
@@ -50,6 +59,10 @@ function generateSystem(npc) {
   lines.push('                }');
   lines.push('            }');
   lines.push('        }');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    // Update each live ' + npc.entity + ' group member movement, attacks, and death state.');
+  lines.push('    void Update' + npc.entity + 'GroupMembers(float dt, int count) {');
   lines.push('        for (int i = 0; i < count; i++) {');
   lines.push('            if (' + v + 'GroupState[i] == 2) continue;');
   lines.push('            GameObject member = ' + v + 'GroupObj[i];');
@@ -73,9 +86,6 @@ function generateSystem(npc) {
   lines.push('                    }');
   lines.push('                }');
   lines.push('            }');
-  lines.push('        }');
-  lines.push('        if (' + v + 'GroupAlive <= 0) {');
-  lines.push('            ' + v + 'Done = true;');
   lines.push('        }');
   lines.push('    }');
   return lines.join('\n');

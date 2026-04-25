@@ -82,6 +82,7 @@ public class GameSceneCtrl
         {
             var cand = Get(candidates[i]);
             if (cand == null) continue;
+            // Hidden pooled objects are parked below the playable camera range.
             if (cand.transform.position.y < -900) continue;
             float d = Vector3.Distance(go.transform.position, cand.transform.position);
             if (d < minDist) { minDist = d; nearest = candidates[i]; }

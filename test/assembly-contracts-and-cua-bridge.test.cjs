@@ -193,6 +193,15 @@ assert.ok(
   'shared runtime position state should not be flagged as an ownership violation'
 );
 
+var localizedSlotOwnership = assemblyPlanContracts.extractAssemblySlotOwnership({
+  'GameFlowManagerMain.Flow.cs': '// [ASSEMBLY SLOT] 装配槽 ConveyorBelt::build_progress'
+});
+assert.deepStrictEqual(
+  localizedSlotOwnership['ConveyorBelt::build_progress'],
+  ['GameFlowManagerMain.Flow.cs'],
+  'localized assembly slot comments should still map to the original module id'
+);
+
 var derivedSpecs = buildSpecsFromPlans(plans);
 assert.strictEqual(derivedSpecs.length, 2, 'cua plan should derive two specs');
 assert.ok(derivedSpecs[0].requiredInteractions.some(function(text) { return text.indexOf('move_to:') === 0; }), 'move_to action should map into derived specs');

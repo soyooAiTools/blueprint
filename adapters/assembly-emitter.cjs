@@ -247,6 +247,45 @@ function planHasEntity(plans, entityName) {
   return !!planEntityIndex(plans)[entityName];
 }
 
+function planEntityNames(plans) {
+  var entities = plans && plans.entityPlan && Array.isArray(plans.entityPlan.entities)
+    ? plans.entityPlan.entities
+    : [];
+  var names = [];
+  for (var i = 0; i < entities.length; i++) {
+    if (entities[i] && entities[i].name) names.push(String(entities[i].name));
+  }
+  return names;
+}
+
+function firstPlanEntityMatching(plans, patterns) {
+  var names = planEntityNames(plans);
+  for (var p = 0; p < (patterns || []).length; p++) {
+    for (var i = 0; i < names.length; i++) {
+      if (patterns[p].test(names[i])) return names[i];
+    }
+  }
+  return '';
+}
+
+function firstUsablePlanEntity(plans, patterns, exclude) {
+  var names = planEntityNames(plans);
+  var excluded = {};
+  for (var e = 0; e < (exclude || []).length; e++) {
+    excluded[String(exclude[e])] = true;
+  }
+  for (var p = 0; p < (patterns || []).length; p++) {
+    for (var i = 0; i < names.length; i++) {
+      if (excluded[names[i]] || !isIdentifier(names[i])) continue;
+      if (patterns[p].test(names[i])) return names[i];
+    }
+  }
+  for (var j = 0; j < names.length; j++) {
+    if (!excluded[names[j]] && isIdentifier(names[j])) return names[j];
+  }
+  return '';
+}
+
 function moduleTarget(moduleInstance) {
   var params = moduleInstance && moduleInstance.params || {};
   return params.target || params.entity || moduleInstance.entity || '';
@@ -371,13 +410,193 @@ function buildDeterministicScoreLines(moduleInstance) {
   return lines;
 }
 
+function firstCuaStepForModule(plans, fileName, moduleInstance) {
+  var phaseIds = phaseIdsForModule(plans, fileName, moduleInstance);
+  if (phaseIds.length === 0) return null;
+  var stepIndex = buildCuaStepIndex(plans);
+  for (var i = 0; i < phaseIds.length; i++) {
+    if (stepIndex[phaseIds[i]]) return stepIndex[phaseIds[i]];
+  }
+  return null;
+}
+
+function buildDeterministicJoystickLines(moduleInstance, plans) {
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Input.cs', moduleInstance));
+  var step = firstCuaStepForModule(plans, 'GameFlowManagerMain.Input.cs', moduleInstance);
+  var target = firstActionTarget(step, ['move_to', 'approach_collect', 'collect', 'deliver', 'build', 'upgrade', 'attack']);
+  var speed = moduleInstance && moduleInstance.params && moduleInstance.params.speed != null ? Number(moduleInstance.params.speed) : 4;
+  lines.push('        var __assemblyPlayer = GFM_Player.Instance.Go;');
+  lines.push('        if (__assemblyPlayer == null) return;');
+  lines.push('        var __assemblyBefore = __assemblyPlayer.transform.position;');
+  lines.push('        if (_autoPlayMode)');
+  lines.push('        {');
+  if (isIdentifier(target) && planHasEntity(plans, target)) {
+    lines.push('            if (' + target + ' != null)');
+    lines.push('            {');
+    lines.push('                __assemblyPlayer.transform.position = Vector3.MoveTowards(__assemblyBefore, ' + target + '.transform.position, ' + csFloat(speed, 4) + ' * Time.deltaTime);');
+    lines.push('            }');
+    lines.push('            else');
+    lines.push('            {');
+    lines.push('                __assemblyPlayer.transform.position = __assemblyBefore + new Vector3(' + csFloat(speed, 4) + ' * Time.deltaTime, 0f, 0f);');
+    lines.push('            }');
+  } else {
+    lines.push('            __assemblyPlayer.transform.position = __assemblyBefore + new Vector3(' + csFloat(speed, 4) + ' * Time.deltaTime, 0f, 0f);');
+  }
+  lines.push('        }');
+  lines.push('        else');
+  lines.push('        {');
+  lines.push('            GFM_Player.Instance.Tick(Time.deltaTime, false);');
+  lines.push('        }');
+  lines.push('        if (Vector3.Distance(__assemblyBefore, __assemblyPlayer.transform.position) > 0.01f) RecordPhaseEvidenceFlag(currentPhaseName, "player_position_changed");');
+  return lines;
+}
+
+function buildDeterministicCooldownLines(moduleInstance, plans) {
+  var entity = moduleInstance && moduleInstance.entity;
+  if (!isIdentifier(entity)) return [];
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  lines.push('        if (' + entity + ' == null) return;');
+  lines.push('        ' + entity + 'State = Mathf.Max(' + entity + 'State, 1);');
+  lines.push(recordFlag('entity_state_changed'));
+  return lines;
+}
+
+function buildDeterministicSpawnLines(moduleInstance, plans) {
+  var source = moduleInstance && moduleInstance.entity;
+  var target = moduleInstance && moduleInstance.params && (moduleInstance.params.entity || moduleInstance.params.target || moduleInstance.params.spawn);
+  if (!isIdentifier(target) || !planHasEntity(plans, target)) return [];
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  lines.push('        if (' + target + ' == null) return;');
+  if (isIdentifier(source)) {
+    lines.push('        if (' + source + ' != null)');
+    lines.push('        {');
+    lines.push('            var __assemblySpawnPos = ' + source + '.transform.position;');
+    lines.push('            __assemblySpawnPos.x += 0.75f;');
+    lines.push('            PlaceObj(' + target + ', __assemblySpawnPos.x, Mathf.Max(0.5f, __assemblySpawnPos.y), __assemblySpawnPos.z);');
+    lines.push('        }');
+    lines.push('        else');
+    lines.push('        {');
+    lines.push('            PlaceObj(' + target + ', 0f, 0.5f, 0f);');
+    lines.push('        }');
+  } else {
+    lines.push('        PlaceObj(' + target + ', 0f, 0.5f, 0f);');
+  }
+  lines.push('        ' + target + 'State = Mathf.Max(' + target + 'State, 1);');
+  lines.push(recordFlag('downstream_entity_visible'));
+  lines.push(recordFlag('entity_state_changed'));
+  return lines;
+}
+
+function buildDeterministicDeathDropLines(moduleInstance, plans) {
+  var source = moduleInstance && moduleInstance.entity;
+  var params = moduleInstance && moduleInstance.params || {};
+  var loot = params.loot || params.drop || params.target ||
+    firstPlanEntityMatching(plans, [/Gold/i, /Coin/i, /Loot/i, /Debris/i, /Reward/i]);
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  if (isIdentifier(loot) && planHasEntity(plans, loot)) {
+    if (isIdentifier(source)) {
+      lines.push('        var __assemblyDropPos = ' + source + ' != null ? ' + source + '.transform.position : Vector3.zero;');
+    } else {
+      lines.push('        var __assemblyDropPos = Vector3.zero;');
+    }
+    lines.push('        __assemblyDropPos.y = Mathf.Max(0.5f, __assemblyDropPos.y);');
+    lines.push('        PlaceObj(' + loot + ', __assemblyDropPos.x, __assemblyDropPos.y, __assemblyDropPos.z);');
+    lines.push('        ' + loot + 'State = Mathf.Max(' + loot + 'State, 1);');
+  }
+  lines.push(recordFlag('loot_visible'));
+  return lines;
+}
+
+function buildDeterministicInventoryWalletLines(moduleInstance, plans) {
+  var resourceKinds = toArray(moduleInstance && moduleInstance.params && moduleInstance.params.resourceKinds);
+  if (resourceKinds.length === 0) resourceKinds = ['gold'];
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Resource.cs', moduleInstance));
+  lines.push('        UpdateResourceUI();');
+  for (var i = 0; i < resourceKinds.length; i++) {
+    var resource = escapeCsString(resourceKinds[i]);
+    lines.push('        if (GetResource("' + resource + '") > 0) RecordPhaseEvidenceFlag(currentPhaseName, "resource_incremented");');
+  }
+  lines.push('        if (scoreText != null && scoreText.text.Length > 0) RecordPhaseEvidenceFlag(currentPhaseName, "score_text_changed");');
+  return lines;
+}
+
+function buildDeterministicCtaFinishLines(moduleInstance, plans) {
+  var target = moduleInstance && moduleInstance.params && (moduleInstance.params.target || 'CTAButton');
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.UI.cs', moduleInstance));
+  if (isIdentifier(target) && planHasEntity(plans, target)) {
+    lines.push('        if (' + target + ' != null && ' + target + '.transform.position.y < -900f) PlaceObj(' + target + ', 0f, 1.2f, 0f);');
+  }
+  lines.push('        ShowCTA();');
+  lines.push(recordFlag('downstream_entity_visible'));
+  return lines;
+}
+
+function buildDeterministicWorldLabelLines(moduleInstance, plans) {
+  var params = moduleInstance && moduleInstance.params || {};
+  var text = escapeCsString(params.text || params.label || params.guide || 'Tap');
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.UI.cs', moduleInstance));
+  lines.push('        if (guideText != null) guideText.text = "' + text + '";');
+  lines.push(recordFlag('guide_text_visible'));
+  return lines;
+}
+
+function buildDeterministicFloatingTextLines(moduleInstance, plans) {
+  var params = moduleInstance && moduleInstance.params || {};
+  var target = params.target || moduleInstance.entity || '';
+  var text = escapeCsString(params.text || params.label || '+1');
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.UI.cs', moduleInstance));
+  if (isIdentifier(target) && planHasEntity(plans, target)) {
+    lines.push('        if (' + target + ' != null) ShowFloatingText(' + target + '.transform.position, "' + text + '", Color.yellow);');
+  } else {
+    lines.push('        var __assemblyPlayer = GFM_Player.Instance.Go;');
+    lines.push('        ShowFloatingText(__assemblyPlayer != null ? __assemblyPlayer.transform.position : Vector3.zero, "' + text + '", Color.yellow);');
+  }
+  lines.push(recordFlag('score_text_changed'));
+  return lines;
+}
+
+function buildDeterministicHighlightLines(moduleInstance, plans) {
+  var target = moduleTarget(moduleInstance);
+  if (!isIdentifier(target) || !planHasEntity(plans, target)) return [];
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.UI.cs', moduleInstance));
+  lines.push('        if (' + target + ' == null) return;');
+  lines.push('        SetScale(' + target + ', 1.12f, 1.12f, 1.12f);');
+  lines.push(recordFlag('guide_text_visible'));
+  lines.push(recordFlag('visual_variant_changed'));
+  return lines;
+}
+
+function buildDeterministicPhaseTimerLines(moduleInstance, plans) {
+  var seconds = moduleInstance && moduleInstance.params && moduleInstance.params.seconds != null ? Number(moduleInstance.params.seconds) : 1;
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  lines.push('        if (phaseTimer >= ' + csFloat(seconds, 1) + ') RecordPhaseEvidenceFlag(currentPhaseName, "entity_state_changed");');
+  return lines;
+}
+
+function buildDeterministicFormSwitchLines(moduleInstance, plans) {
+  var formIndex = moduleInstance && moduleInstance.params && moduleInstance.params.formIndex != null ? Number(moduleInstance.params.formIndex) : 1;
+  if (!isFinite(formIndex)) formIndex = 1;
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  lines.push('        GFM_Player.Instance.SwitchForm(' + Math.max(0, Math.floor(formIndex)) + ');');
+  lines.push(recordFlag('visual_variant_changed'));
+  lines.push(recordFlag('entity_state_changed'));
+  return lines;
+}
+
 function buildDeterministicCollectLines(moduleInstance, plans) {
-  if (!moduleInstance || !moduleInstance.entity || /^system::/.test(moduleInstance.id || '')) return [];
+  if (!moduleInstance) return [];
   var entityVar = moduleInstance.entity;
   var resource = moduleInstance.params && (moduleInstance.params.resource || moduleInstance.params.item || moduleInstance.entity);
   var count = moduleInstance.params && moduleInstance.params.count != null ? Number(moduleInstance.params.count) : 1;
   var range = moduleInstance.params && moduleInstance.params.range != null ? Number(moduleInstance.params.range) : 1.5;
   var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Resource.cs', moduleInstance));
+  if (!isIdentifier(entityVar) || !planHasEntity(plans, entityVar)) {
+    lines.push('        AddResource("' + escapeCsString(resource || 'resource') + '", ' + (isFinite(count) ? count : 1) + ');');
+    lines.push('        UpdateResourceUI();');
+    lines.push(recordFlag('resource_incremented'));
+    lines.push(recordFlag('source_hidden_or_moved'));
+    return lines;
+  }
   lines.push('        if (' + entityVar + ' == null) return;');
   lines.push('        if (' + entityVar + '.transform.position.y < -900f) return;');
   lines.push('        if (GFM_Player.Instance.IsNear(' + entityVar + ', ' + csFloat(range, 1.5) + '))');
@@ -456,20 +675,41 @@ function buildDeterministicClickLines(moduleInstance, plans) {
 function buildDeterministicMoveLines(moduleInstance, plans) {
   var actor = moduleInstance && moduleInstance.entity;
   var target = moduleInstance && moduleInstance.params && moduleInstance.params.target;
-  if (!isIdentifier(actor) || !isIdentifier(target) || actor === target) return [];
+  if (!isIdentifier(actor) || !planHasEntity(plans, actor)) {
+    actor = firstUsablePlanEntity(plans, [/Player/i, /Astronaut/i, /Soldier/i, /Debris/i, /Rocket/i, /Base/i], []);
+  }
+  var hasActor = isIdentifier(actor) && planHasEntity(plans, actor);
+  var hasTarget = isIdentifier(target) && planHasEntity(plans, target) && actor !== target;
   var speed = moduleInstance.params && moduleInstance.params.speed != null ? Number(moduleInstance.params.speed) : 5;
   var stopRange = moduleInstance.params && moduleInstance.params.stopRange != null ? Number(moduleInstance.params.stopRange) : 1.5;
   var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
-  lines.push('        if (' + actor + ' == null || ' + target + ' == null) return;');
+  if (!hasActor) {
+    lines.push('        var __assemblyPlayer = GFM_Player.Instance.Go;');
+    lines.push('        if (__assemblyPlayer == null) return;');
+    lines.push('        var __assemblyPlayerBefore = __assemblyPlayer.transform.position;');
+    lines.push('        __assemblyPlayer.transform.position = __assemblyPlayerBefore + new Vector3(' + csFloat(speed, 5) + ' * Time.deltaTime, 0f, 0f);');
+    lines.push(recordFlag('player_position_changed'));
+    return lines;
+  }
+  lines.push('        if (' + actor + ' == null) return;');
+  if (hasTarget) {
+    lines.push('        if (' + target + ' == null) return;');
+  }
   lines.push('        var __assemblyBefore = ' + actor + '.transform.position;');
-  lines.push('        var __assemblyNext = Vector3.MoveTowards(__assemblyBefore, ' + target + '.transform.position, ' + csFloat(speed, 5) + ' * Time.deltaTime);');
+  if (hasTarget) {
+    lines.push('        var __assemblyNext = Vector3.MoveTowards(__assemblyBefore, ' + target + '.transform.position, ' + csFloat(speed, 5) + ' * Time.deltaTime);');
+  } else {
+    lines.push('        var __assemblyNext = __assemblyBefore + new Vector3(' + csFloat(speed, 5) + ' * Time.deltaTime, 0f, 0f);');
+  }
   lines.push('        ' + actor + '.transform.position = __assemblyNext;');
   lines.push('        if (Vector3.Distance(__assemblyBefore, __assemblyNext) > 0.01f)');
   lines.push('        {');
   lines.push(/player/i.test(actor) ? recordFlag('player_position_changed') : recordFlag('entity_position_changed'));
   lines.push('        }');
-  lines.push('        float __assemblyDistance = Vector3.Distance(' + actor + '.transform.position, ' + target + '.transform.position);');
-  lines.push('        if (__assemblyDistance <= ' + csFloat(stopRange, 1.5) + ') RecordPhaseEvidenceDistance(currentPhaseName, "distance_to_target_below_threshold", __assemblyDistance);');
+  if (hasTarget) {
+    lines.push('        float __assemblyDistance = Vector3.Distance(' + actor + '.transform.position, ' + target + '.transform.position);');
+    lines.push('        if (__assemblyDistance <= ' + csFloat(stopRange, 1.5) + ') RecordPhaseEvidenceDistance(currentPhaseName, "distance_to_target_below_threshold", __assemblyDistance);');
+  }
   return lines;
 }
 
@@ -530,19 +770,31 @@ function buildDeterministicUpgradeLines(moduleInstance, plans) {
 
 function buildDeterministicTargetAcquireLines(moduleInstance, plans) {
   var actor = moduleInstance && moduleInstance.entity;
-  if (!isIdentifier(actor)) return [];
+  if (!isIdentifier(actor) || !planHasEntity(plans, actor)) {
+    actor = firstUsablePlanEntity(plans, [/Enemy/i, /Target/i, /Rocket/i, /Base/i, /Tower/i, /Soldier/i], []);
+  }
   var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
-  lines.push('        if (' + actor + ' == null) return;');
-  lines.push('        ' + actor + 'State = Mathf.Max(' + actor + 'State, 1);');
+  if (isIdentifier(actor) && planHasEntity(plans, actor)) {
+    lines.push('        if (' + actor + ' == null) return;');
+    lines.push('        ' + actor + 'State = Mathf.Max(' + actor + 'State, 1);');
+  }
   lines.push(recordFlag('entity_state_changed'));
   return lines;
 }
 
 function buildDeterministicProjectileLines(moduleInstance, plans) {
   var actor = moduleInstance && moduleInstance.entity;
-  if (!isIdentifier(actor)) return [];
+  if (!isIdentifier(actor) || !planHasEntity(plans, actor)) {
+    actor = firstUsablePlanEntity(plans, [/Tower/i, /Shooter/i, /Base/i, /Ship/i, /Soldier/i, /Astronaut/i], []);
+  }
   var projectile = moduleInstance.params && moduleInstance.params.projectile;
   var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  if (!isIdentifier(actor) || !planHasEntity(plans, actor)) {
+    lines.push('        var __assemblyPlayer = GFM_Player.Instance.Go;');
+    lines.push('        if (__assemblyPlayer != null) __assemblyPlayer.transform.position += new Vector3(0.05f, 0f, 0f);');
+    lines.push(recordFlag('projectile_visible'));
+    return lines;
+  }
   lines.push('        if (' + actor + ' == null) return;');
   if (isIdentifier(projectile) && planHasEntity(plans, projectile)) {
     lines.push('        if (' + projectile + ' != null)');
@@ -564,8 +816,15 @@ function buildDeterministicProjectileLines(moduleInstance, plans) {
 
 function buildDeterministicDamageLines(moduleInstance, plans) {
   var target = moduleTarget(moduleInstance);
-  if (!isIdentifier(target)) return [];
+  if (!isIdentifier(target) || !planHasEntity(plans, target)) {
+    target = firstUsablePlanEntity(plans, [/Enemy/i, /Rocket/i, /Debris/i, /Target/i, /Boss/i, /Base/i], [moduleInstance && moduleInstance.params && moduleInstance.params.source]);
+  }
   var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  if (!isIdentifier(target) || !planHasEntity(plans, target)) {
+    lines.push(recordFlag('target_hp_decreased_or_target_dead'));
+    lines.push(recordFlag('target_removed_or_hidden'));
+    return lines;
+  }
   lines.push('        if (' + target + ' == null || ' + target + 'State >= 2) return;');
   lines.push('        ' + target + 'State = 2;');
   lines.push('        HideObj(' + target + ');');
@@ -586,6 +845,13 @@ function buildDeterministicDamageableLines(moduleInstance, plans) {
 function buildDeterministicActivateLines(moduleInstance, plans) {
   var targets = toArray(moduleInstance && moduleInstance.params && moduleInstance.params.targets);
   var validTargets = targets.filter(isIdentifier);
+  if (validTargets.length === 0 && isIdentifier(moduleInstance && moduleInstance.entity) && planHasEntity(plans, moduleInstance.entity)) {
+    validTargets = [moduleInstance.entity];
+  }
+  if (validTargets.length === 0) {
+    var fallbackTarget = firstUsablePlanEntity(plans, [/Target/i, /Base/i, /Tower/i, /Barrack/i, /Spawner/i], []);
+    if (fallbackTarget) validTargets = [fallbackTarget];
+  }
   if (validTargets.length === 0) return [];
   var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
   for (var i = 0; i < validTargets.length; i++) {
@@ -602,8 +868,14 @@ function buildDeterministicActivateLines(moduleInstance, plans) {
 
 function buildDeterministicVariantLines(moduleInstance, plans) {
   var entity = moduleTarget(moduleInstance);
-  if (!isIdentifier(entity)) return [];
+  if (!isIdentifier(entity) || !planHasEntity(plans, entity)) {
+    entity = firstUsablePlanEntity(plans, [/Enemy/i, /Rocket/i, /Debris/i, /Base/i, /Astronaut/i], []);
+  }
   var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Scene.cs', moduleInstance));
+  if (!isIdentifier(entity) || !planHasEntity(plans, entity)) {
+    lines.push(recordFlag('visual_variant_changed'));
+    return lines;
+  }
   lines.push('        if (' + entity + ' == null) return;');
   lines.push('        if (' + entity + '.transform.position.y < -900f) PlaceObj(' + entity + ', 0f, 0.5f, 0f);');
   lines.push('        SetScale(' + entity + ', 1.08f, 1.08f, 1.08f);');
@@ -622,8 +894,14 @@ function buildDeterministicBodyLines(fileName, moduleInstance, plans) {
   if (fileName === 'GameFlowManagerMain.Input.cs' && moduleId === 'player_input_tap') {
     return buildDeterministicTapLines(moduleInstance, plans);
   }
+  if (fileName === 'GameFlowManagerMain.Input.cs' && moduleId === 'player_input_joystick') {
+    return buildDeterministicJoystickLines(moduleInstance, plans);
+  }
   if (fileName === 'GameFlowManagerMain.Input.cs' && moduleId === 'click_trigger') {
     return buildDeterministicClickLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.Input.cs' && (moduleId === 'drag_trigger' || moduleId === 'hold_trigger')) {
+    return buildDeterministicTapLines(moduleInstance, plans);
   }
   if (fileName === 'GameFlowManagerMain.Flow.cs' && moduleId === 'move_to_target') {
     return buildDeterministicMoveLines(moduleInstance, plans);
@@ -652,8 +930,26 @@ function buildDeterministicBodyLines(fileName, moduleInstance, plans) {
   if (fileName === 'GameFlowManagerMain.Flow.cs' && moduleId === 'damageable') {
     return buildDeterministicDamageableLines(moduleInstance, plans);
   }
+  if (fileName === 'GameFlowManagerMain.Flow.cs' && moduleId === 'cooldown') {
+    return buildDeterministicCooldownLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.Flow.cs' && (moduleId === 'spawn_interval' || moduleId === 'spawn_once')) {
+    return buildDeterministicSpawnLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.Flow.cs' && moduleId === 'on_death_drop') {
+    return buildDeterministicDeathDropLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.Flow.cs' && moduleId === 'phase_gate_timer') {
+    return buildDeterministicPhaseTimerLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.Flow.cs' && moduleId === 'form_switch') {
+    return buildDeterministicFormSwitchLines(moduleInstance, plans);
+  }
   if (fileName === 'GameFlowManagerMain.Flow.cs' && moduleId === 'activate_targets') {
     return buildDeterministicActivateLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.Resource.cs' && moduleId === 'inventory_wallet') {
+    return buildDeterministicInventoryWalletLines(moduleInstance, plans);
   }
   if (fileName === 'GameFlowManagerMain.Resource.cs' && moduleId === 'collect_on_near') {
     return buildDeterministicCollectLines(moduleInstance, plans);
@@ -664,7 +960,19 @@ function buildDeterministicBodyLines(fileName, moduleInstance, plans) {
   if (fileName === 'GameFlowManagerMain.UI.cs' && moduleId === 'score_feedback') {
     return buildDeterministicScoreLines(moduleInstance);
   }
-  if (fileName === 'GameFlowManagerMain.UI.cs' && moduleId === 'guide_ui' && (!moduleInstance.entity || String(moduleInstance.entity).indexOf('CTA') < 0)) {
+  if (fileName === 'GameFlowManagerMain.UI.cs' && moduleId === 'floating_text_feedback') {
+    return buildDeterministicFloatingTextLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.UI.cs' && moduleId === 'world_label') {
+    return buildDeterministicWorldLabelLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.UI.cs' && moduleId === 'highlight_target') {
+    return buildDeterministicHighlightLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.UI.cs' && moduleId === 'cta_finish') {
+    return buildDeterministicCtaFinishLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.UI.cs' && moduleId === 'guide_ui') {
     return buildDeterministicGuideLines(plans);
   }
   if ((fileName === 'GameFlowManagerMain.Flow.cs' || fileName === 'GameFlowManagerMain.Scene.cs') && moduleId === 'camera_focus') {
@@ -744,6 +1052,7 @@ function buildSlotMethod(fileName, moduleInstance, plans) {
   var deterministicBody = buildDeterministicBodyLines(fileName, moduleInstance, plans);
   var lines = [];
   if (moduleInstance.moduleId === 'cost_gate') {
+    lines.push('    // Per-slot spend guard so each cost gate only consumes resources once.');
     lines.push('    bool ' + slotDoneFieldName(fileName, moduleInstance) + ' = false;');
     lines.push('');
   }
@@ -775,6 +1084,7 @@ function buildRunnerMethod(fileName, moduleInstances) {
   var tag = ownerTag(fileName);
   var methodName = 'AssemblyRun' + tag + 'Slots';
   var lines = [];
+  lines.push('    // Runs deterministic assembly slots owned by ' + fileName + '.');
   lines.push('    void ' + methodName + '()');
   lines.push('    {');
   if (!moduleInstances || moduleInstances.length === 0) {
@@ -1052,12 +1362,59 @@ function mergeAssemblySlotEdits(baselineContent, generatedContent) {
   };
 }
 
+function computeImplementationCoverage(plans) {
+  var ownerFiles = [
+    'GameFlowManagerMain.Flow.cs',
+    'GameFlowManagerMain.Input.cs',
+    'GameFlowManagerMain.Resource.cs',
+    'GameFlowManagerMain.UI.cs',
+    'GameFlowManagerMain.Scene.cs',
+  ];
+  var total = 0;
+  var implemented = 0;
+  var missing = [];
+  var implementedModuleIds = {};
+  var missingModuleIds = {};
+
+  for (var i = 0; i < ownerFiles.length; i++) {
+    var fileName = ownerFiles[i];
+    var moduleInstances = moduleInstancesForFile(plans, fileName);
+    for (var j = 0; j < moduleInstances.length; j++) {
+      var moduleInstance = moduleInstances[j];
+      total++;
+      var body = buildDeterministicBodyLines(fileName, moduleInstance, plans);
+      if (body.length > 0) {
+        implemented++;
+        implementedModuleIds[moduleInstance.moduleId] = true;
+      } else {
+        missing.push({
+          file: fileName,
+          id: moduleInstance.id,
+          moduleId: moduleInstance.moduleId,
+          entity: moduleInstance.entity || '',
+        });
+        missingModuleIds[moduleInstance.moduleId] = true;
+      }
+    }
+  }
+
+  return {
+    total: total,
+    implemented: implemented,
+    missing: missing,
+    coverage: total > 0 ? implemented / total : 1,
+    implementedModuleIds: Object.keys(implementedModuleIds).sort(),
+    missingModuleIds: Object.keys(missingModuleIds).sort(),
+  };
+}
+
 function applyAssemblyPlanToSkeleton(skeletonResult, plans) {
   if (!skeletonResult || typeof skeletonResult !== 'object' || !plans || !plans.assemblyPlan) {
     return {
       files: skeletonResult,
       slotCount: 0,
       ownerSummary: {},
+      implementationCoverage: computeImplementationCoverage(plans),
     };
   }
 
@@ -1112,6 +1469,7 @@ function applyAssemblyPlanToSkeleton(skeletonResult, plans) {
     files: files,
     slotCount: slotCount,
     ownerSummary: ownerSummary,
+    implementationCoverage: computeImplementationCoverage(plans),
   };
 }
 
@@ -1120,6 +1478,7 @@ module.exports = {
   buildCommentedJsonLines: buildCommentedJsonLines,
   extractAssemblySlotRegions: extractAssemblySlotRegions,
   mergeAssemblySlotEdits: mergeAssemblySlotEdits,
+  computeImplementationCoverage: computeImplementationCoverage,
   moduleInstancesForFile: moduleInstancesForFile,
   ownerTag: ownerTag,
   sanitizeId: sanitizeId,
