@@ -1246,6 +1246,79 @@ function collapseLegacyCheckEventRulesStub(code) {
   return { code: fixed, changed: true, fixes: 1 };
 }
 
+function removePostTapPhaseResetBlocks(code) {
+  var next = String(code || '');
+  if (next.indexOf('Phase_OnTap();') < 0 || next.indexOf('switch (currentPhaseName)') < 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+
+  function findBalancedBlockEnd(src, openBraceIdx) {
+    var depth = 1;
+    var i = openBraceIdx + 1;
+    while (i < src.length && depth > 0) {
+      var ch = src[i];
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) return i;
+      }
+      i++;
+    }
+    return -1;
+  }
+
+  function isResetOnlySwitch(block) {
+    if (block.indexOf('case "') < 0) return false;
+    var lines = block.split('\n');
+    var hasReset = false;
+    for (var i = 0; i < lines.length; i++) {
+      var line = String(lines[i] || '').trim();
+      if (!line || line.indexOf('//') === 0) continue;
+      if (/^switch\s*\(\s*currentPhaseName\s*\)\s*\{?$/.test(line)) continue;
+      if (/^case\s+"[^"]+"\s*:\s*\{?$/.test(line)) continue;
+      if (line === '{' || line === '}' || line === 'break;' || line === '};') continue;
+      if (/^PlaceObj\s*\(/.test(line) || /^HideObj\s*\(/.test(line)) {
+        hasReset = true;
+        continue;
+      }
+      return false;
+    }
+    return hasReset;
+  }
+
+  var fixes = 0;
+  var searchFrom = 0;
+  while (searchFrom < next.length) {
+    var tapIdx = next.indexOf('Phase_OnTap();', searchFrom);
+    if (tapIdx < 0) break;
+    var lineEnd = next.indexOf('\n', tapIdx);
+    if (lineEnd < 0) break;
+    var cursor = lineEnd + 1;
+    var removedNearTap = false;
+    while (cursor < next.length) {
+      var ws = /^\s*/.exec(next.slice(cursor))[0] || '';
+      var switchStart = cursor + ws.length;
+      var sw = /^switch\s*\(\s*currentPhaseName\s*\)\s*(?:\{|\r?\n\s*\{)/.exec(next.slice(switchStart));
+      if (!sw) break;
+      var openBrace = switchStart + sw[0].lastIndexOf('{');
+      var blockEnd = findBalancedBlockEnd(next, openBrace);
+      if (blockEnd < 0) break;
+      var blockText = next.slice(switchStart, blockEnd + 1);
+      if (!isResetOnlySwitch(blockText)) break;
+      var removeStart = cursor;
+      var removeEnd = blockEnd + 1;
+      if (next[removeEnd] === '\n') removeEnd++;
+      next = next.slice(0, removeStart) + next.slice(removeEnd);
+      fixes++;
+      removedNearTap = true;
+      cursor = removeStart;
+    }
+    searchFrom = removedNearTap ? cursor : lineEnd + 1;
+  }
+
+  return { code: next, changed: fixes > 0, fixes: fixes };
+}
+
 function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
   var changed = false;
   var fixes = [];
@@ -1419,6 +1492,12 @@ function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
       fixes.push(name + ':LongIfChainSwitchPostPhaseGate x' + res.fixes);
     }
   });
+  var postTapResetFix = removePostTapPhaseResetBlocks(mainCode);
+  if (postTapResetFix.changed) {
+    mainCode = postTapResetFix.code;
+    changed = true;
+    fixes.push('main:PostTapPhaseResetStrip x' + postTapResetFix.fixes);
+  }
   return {
     code: mainCode,
     extraFiles: nextExtras,
@@ -1505,6 +1584,7 @@ module.exports = {
   normalizeSetScaleCalls: normalizeSetScaleCalls,
   repairPhaseGateRuntimeMoves: repairPhaseGateRuntimeMoves,
   repairPhaseGateRuntimeMovesAcrossPartials: repairPhaseGateRuntimeMovesAcrossPartials,
+  removePostTapPhaseResetBlocks: removePostTapPhaseResetBlocks,
   normalizePhaseGateConditionalDeclarations: normalizePhaseGateConditionalDeclarations,
   stripInteractionFlagShortcutsFromPhaseGates: stripInteractionFlagShortcutsFromPhaseGates,
   rewriteLongIfChainsAsSwitches: rewriteLongIfChainsAsSwitches,

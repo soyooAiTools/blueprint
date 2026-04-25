@@ -49,6 +49,62 @@ vm.runInContext([
 }
 
 {
+  const source = [
+    'void Update()',
+    '{',
+    '    if (!_autoPlayMode && Input.GetMouseButtonDown(0))',
+    '    {',
+    '        Phase_OnTap();',
+    '',
+    '        switch (currentPhaseName)',
+    '        {',
+    '            case "upgradeOurBase":',
+    '            {',
+    '                PlaceObj(OurBase, -5f, 0.5f, 0f);',
+    '                PlaceObj(Gold, -3f, 0.5f, -1f);',
+    '                break;',
+    '            }',
+    '        }',
+    '',
+    '        switch (currentPhaseName) {',
+    '            case "buildDefenseTower": {',
+    '                HideObj(Gold);',
+    '                break;',
+    '            }',
+    '        }',
+    '    }',
+    '    UpdateSystems();',
+    '}',
+  ].join('\n');
+  const result = reviewStage.removePostTapPhaseResetBlocks(source);
+  assert.strictEqual(result.changed, true);
+  assert.strictEqual(result.fixes, 2);
+  assert.match(result.code, /Phase_OnTap\(\);/);
+  assert.match(result.code, /UpdateSystems\(\);/);
+  assert.doesNotMatch(result.code, /switch \(currentPhaseName\)/);
+  assert.doesNotMatch(result.code, /PlaceObj\(OurBase/);
+  assert.doesNotMatch(result.code, /HideObj\(Gold/);
+}
+
+{
+  const source = [
+    'void Update()',
+    '{',
+    '    Phase_OnTap();',
+    '    switch (currentPhaseName)',
+    '    {',
+    '        case "custom":',
+    '            RunCustomSystem();',
+    '            break;',
+    '    }',
+    '}',
+  ].join('\n');
+  const result = reviewStage.removePostTapPhaseResetBlocks(source);
+  assert.strictEqual(result.changed, false);
+  assert.match(result.code, /RunCustomSystem/);
+}
+
+{
   const result = sandbox.normalizeSetScaleCalls(
     'void Apply(){ SetScale(Player, scale, scale, scale); SetScale(Crate, 1f, 2f, 3f, 1f); }'
   );

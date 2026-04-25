@@ -34,6 +34,8 @@ After moving runtime verification to module-contract gating, the remaining insta
   - guide, score, and camera evidence slots
 - Fixed `move_to` ownership so `move_to_target` attaches to the actor/player and preserves the target parameter.
 - Updated CUA signal assertions so module-owned phase evidence is accepted for inventory, reward, entity visibility/position, built state, downstream visibility, projectile visibility, and score text.
+- Routed repeated `screenshot sharing` / `screenshot-timing` fingerprints away from the generic CUA fingerprint FATAL breaker so batch-firing visual-collapse cases can reach the no-progress/full-regen escalation path.
+- Added deterministic review repair for post-tap reset-only phase switches that re-place or hide entities immediately after `Phase_OnTap()`, which can make autoplay appear to advance while the visible shot keeps snapping back.
 
 ## Guardrails
 
@@ -51,6 +53,11 @@ After moving runtime verification to module-contract gating, the remaining insta
 - `node test/codegen-contract-scrub.test.cjs`
 - `node test/runtime-contract-module-gate.test.cjs`
 - `node test/playableagent-report-normalization.test.cjs`
+- `node -c engine/stages/cua-verify.cjs`
+- `node -c engine/stages/review.cjs`
+- `node test/cua-fingerprint-circuit-breaker.test.cjs`
+- `node test/cua-feedback-enrichment.test.cjs`
+- `node test/cua-verify-timeout.test.cjs`
 - `node test/build-html-bridge.test.cjs`
 - `node test/method-check-contract.test.cjs`
 - `npx jest test/phase-gate-entities.test.cjs --runInBand`

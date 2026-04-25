@@ -13,6 +13,8 @@
 var assert = require('assert');
 var { normalizeFingerprint } = require('../engine/metrics.cjs');
 var { classify } = require('../engine/error-classifier.cjs');
+var cuaVerify = require('../engine/stages/cua-verify.cjs');
+var cuaInternals = cuaVerify._internals || {};
 
 function buildFp(issues) {
   var raw = (issues || []).slice(0, 3).map(function(i) {
@@ -125,7 +127,26 @@ assert.strictEqual(tick(round1),         'CONTINUE',   '[6.7] return to fp1 but 
 assert.strictEqual(tick(round1),         'DIAGNOSTIC', '[6.8] fp1 twice → diagnostic');
 assert.strictEqual(tick(round1),         'ABORT',      '[6.9] fp1 thrice → FATAL');
 
+// ── Case 7: screenshot-sharing fingerprints are owned by no-progress escalation ─
+// This fingerprint is expected to be stable until a batch-firing/full-regen fix lands.
+// The generic FP breaker must not throw FATAL before that path can run.
+assert.strictEqual(typeof cuaInternals.isFingerprintCircuitBreakerExempt, 'function',
+  '[7.1] cua-verify exposes fingerprint exemption predicate');
+var screenshotSharingFp = buildFp([
+  'Screenshot sharing: 2 spec phases share only 1 screenshot(s). Each phase must have a distinct visual state.',
+  'screenshot-timing: screenshot sharing 2 phases 1 screenshots',
+]);
+assert.ok(screenshotSharingFp && screenshotSharingFp.indexOf('screenshot') >= 0,
+  '[7.2] screenshot sharing fingerprint is normalized: ' + screenshotSharingFp);
+assert.strictEqual(cuaInternals.isFingerprintCircuitBreakerExempt(screenshotSharingFp), true,
+  '[7.3] screenshot-sharing fp must be exempt from generic FATAL breaker');
+assert.strictEqual(cuaInternals.isFingerprintCircuitBreakerExempt('[spec-phase-skipped] missing phase'), true,
+  '[7.4] existing spec-phase-skipped exemption preserved');
+assert.strictEqual(cuaInternals.isFingerprintCircuitBreakerExempt(fp1), false,
+  '[7.5] unrelated uniform-timing fp still uses generic breaker');
+
 console.log('OK — all D1 circuit-breaker assertions passed');
 console.log('  urbib0 fp:           ' + fp1);
 console.log('  heterogeneous fp:    ' + fpDiff);
+console.log('  screenshot fp:       ' + screenshotSharingFp);
 console.log('  error-classifier → ' + classification.type);

@@ -58,7 +58,7 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
     'visual frozen', 'visual-freeze', 'visually frozen', 'visually stuck',
     'virtually identical', 'no meaningful visual change', 'no phase progression',
     'essentially unchanged', 'positions .* unchanged', 'no animation', 'no movement',
-    'game is visually stuck', 'frozen despite running',
+    'game is visually stuck', 'frozen despite running', 'screenshot sharing',
   ];
   var hasVisualFreezePhrase = VISUAL_FREEZE_PHRASES.some(function(p) {
     return p.indexOf('.*') >= 0 ? new RegExp(p).test(allIssueText) : allIssueText.indexOf(p) >= 0;
@@ -254,6 +254,15 @@ function detectLowCoverageSignal(cuaResult, totalPhases) {
     return 'low-phase-coverage-' + completedCount + '/' + totalPhases;
   }
   return null;
+}
+
+function isFingerprintCircuitBreakerExempt(fp) {
+  var text = String(fp || '').toLowerCase();
+  if (!text) return false;
+  if (text.indexOf('spec-phase-skipped') >= 0) return true;
+  if (text.indexOf('screenshot-timing') >= 0) return true;
+  if (text.indexOf('screenshot') >= 0 && text.indexOf('sharing') >= 0) return true;
+  return false;
 }
 
 function detectObservationProtocolFailure(cuaResult) {
@@ -613,9 +622,14 @@ module.exports = {
               // The _noProgressRounds path below already owns escalation (full
               // regen at NO_PROGRESS_EXIT_ROUNDS, FATAL at +3) — let it decide
               // for this class instead of the FP circuit breaker.
-              var isPhaseSkippedFp = _currentFp.indexOf('spec-phase-skipped') >= 0;
+              var isExemptFp = isFingerprintCircuitBreakerExempt(_currentFp);
+              var exemptLabel = _currentFp.indexOf('spec-phase-skipped') >= 0
+                ? '[spec-phase-skipped]'
+                : ((_currentFp.indexOf('screenshot') >= 0 && _currentFp.indexOf('sharing') >= 0)
+                  ? '[screenshot-sharing]'
+                  : '[exempt]');
 
-              if (_fpRepeatCount >= FP_REPEAT_FATAL_AT && !isPhaseSkippedFp) {
+              if (_fpRepeatCount >= FP_REPEAT_FATAL_AT && !isExemptFp) {
                 ctx.addLog('cua-verify',
                   '🚨 Fingerprint repeat FATAL: "' + _currentFp.slice(0, 80) +
                   '" for ' + _fpRepeatCount + ' consecutive rounds — Claude fix ineffective even after enhanced diagnostic');
@@ -630,7 +644,7 @@ module.exports = {
                 throw new Error('Fingerprint repeat FATAL: identical normalized fingerprint "' +
                   _currentFp.slice(0, 100) + '" for ' + _fpRepeatCount +
                   ' consecutive rounds (enhanced diagnostic also failed); Claude fix ineffective');
-              } else if (_fpRepeatCount >= FP_REPEAT_ENHANCED_AT && !isPhaseSkippedFp && !_enhancedDiagInjected) {
+              } else if (_fpRepeatCount >= FP_REPEAT_ENHANCED_AT && !isExemptFp && !_enhancedDiagInjected) {
                 // 2nd repeat: inject a hard-worded diagnostic into feedbackHistory
                 // explaining that the previous fix did not change the observed CUA
                 // symptom. Include a code-diff hint so Claude can tell whether it
@@ -659,9 +673,9 @@ module.exports = {
                   '⚠️ Fingerprint repeat (' + _fpRepeatCount + ') — enhanced diagnostic injected (code ' +
                   (_codeChanged ? 'changed but symptom persists' : 'unchanged') +
                   '); one more round before FATAL');
-              } else if (_fpRepeatCount >= FP_REPEAT_ENHANCED_AT && isPhaseSkippedFp) {
+              } else if (_fpRepeatCount >= FP_REPEAT_ENHANCED_AT && isExemptFp) {
                 ctx.addLog('cua-verify',
-                  '⚠️ Fingerprint repeat (' + _fpRepeatCount + ') for [spec-phase-skipped] — ' +
+                  '⚠️ Fingerprint repeat (' + _fpRepeatCount + ') for ' + exemptLabel + ' — ' +
                   'circuit breaker exempted; deferring to _noProgressRounds escalation');
               }
             }
@@ -1057,6 +1071,7 @@ module.exports = {
   // Exposed for unit testing (D1 L7 silent-pass detection)
   _internals: {
     detectLowCoverageSignal: detectLowCoverageSignal,
+    isFingerprintCircuitBreakerExempt: isFingerprintCircuitBreakerExempt,
     LOW_COVERAGE_MIN_PHASES: LOW_COVERAGE_MIN_PHASES,
     LOW_COVERAGE_RATIO: LOW_COVERAGE_RATIO,
   },
