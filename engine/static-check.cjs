@@ -127,7 +127,7 @@ function nearestPreviousSwitchIsCurrentPhase(lines, caseLineIndex) {
 // CUA. Catching these in codegen stops the damage 3 stages earlier.
 var RULES = [
   { id: 'setactive', pattern: /\.SetActive\s*\(/g, blocking: true, message: 'SetActive() forbidden in Luna — use position=(0,-999,0) to hide' },
-  { id: 'camera-main', pattern: /Camera\.main(?!\s*;?\s*\/\/\s*(?:说明：)?ok)/g, blocking: true, message: 'Camera.main forbidden — use skeleton\'s mainCam variable' },
+  { id: 'camera-main', pattern: /Camera\.main(?!\s*;?\s*\/\/\s*(?:(?:说明：)?ok|正常))/g, blocking: true, message: 'Camera.main forbidden — use skeleton\'s mainCam variable' },
   { id: 'create-obj', pattern: /GFM_Create\.Obj\s*\(/g, blocking: true, message: 'GFM_Create.Obj() forbidden — use GameObject.Find() from pool' },
   { id: 'create-ground', pattern: /GFM_Create\.Ground\s*\(/g, blocking: true, message: 'GFM_Create.Ground() forbidden — __Ground already exists' },
   { id: 'set-color', pattern: /GFM_Create\.SetColor\s*\(/g, blocking: true, message: 'GFM_Create.SetColor() forbidden — pool objects have baked colors' },
@@ -1522,8 +1522,36 @@ var RULES = [
         .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
         .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
         .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
-      var sanitizedLines = sanitized.split('\n');
-      var depth = 0;
+	      var sanitizedLines = sanitized.split('\n');
+	      function skeletonGroupDocPattern(sTrimmed) {
+	        if (/^int\s+\w+State\s*=/.test(sTrimmed)) return /Entity states|实体状态/;
+	        if (/^bool\s+\w+(?:InteractionDone|PlayerActed|Done)\s*=/.test(sTrimmed)) return /Interaction flags|交互标记|Anti-autoplay/;
+	        if (/^(?:GFM_Joystick\s+joystick|GameObject\s+player|float\s+moveSpeed\b)/.test(sTrimmed)) return /玩家移动|Player Movement/;
+	        if (/^GameObject\s+\w+\s*;/.test(sTrimmed)) return /Object references|对象引用/;
+	        if (/^void\s+Spawn\w+\s*\(/.test(sTrimmed)) return /Spawn compatibility|Spawn 兼容/;
+	        if (/^(?:Vector3\s+tapMoveTarget|bool\s+hasTapTarget)\b/.test(sTrimmed)) return /点击移动目标|Tap-to-move/;
+	        if (/^void\s+UpdateCarryVisuals\s*\(/.test(sTrimmed)) return /背包堆叠|carry stack/;
+	        if (/^int\s+gold\s*=/.test(sTrimmed)) return /金币 UI|Gold UI|Idle 分数/;
+	        if (/^Vector3\s+_snap_\w+Pos\s*;/.test(sTrimmed)) return /Phase snapshots|快照/;
+	        if (/^(?:float\s+phaseTimer|string\s+lastPhaseForTimer|float\[\]\s+phaseEnterTimes)\b/.test(sTrimmed)) return /Phase timing|Phase 计时|计时/;
+	        if (/^(?:Camera|Canvas|Text|float|string)\s+(?:mainCam|uiCanvas|guideText|scoreText|floatingText|floatingTextTimer|cameraFocusTarget)\b/.test(sTrimmed)) return /Camera\/UI|Camera reference|UI references|相机引用|UI 引用/;
+	        if (/^(?:const\s+int\s+RULE_COUNT|bool\[\]\s+ruleTriggered|string\s+currentPhaseName|string\[\]\s+completedPhases|int\s+completedPhaseCount|float\s+gameTimer|bool\s+gameEnded)\b/.test(sTrimmed)) return /Phase tracking|阶段跟踪/;
+	        if (/^(?:bool\s+_autoPlayMode|int\s+_autoPlaySteps|int\s+_autoPlayStepsAtPhaseStart|const\s+float\s+AUTO_PLAY_PHASE_DURATION)\b/.test(sTrimmed)) return /AutoPlay/;
+	        if (/^(?:string\[\]\s+_phaseEvidenceKeys|string\[\]\s+_phaseEvidenceValues|int\s+_phaseEvidenceCount)\b/.test(sTrimmed)) return /Phase evidence|evidence|运行时证据/;
+	        return null;
+	      }
+	      function hasRecentSkeletonGroupDoc(lineIndex, sTrimmed) {
+	        var pattern = skeletonGroupDocPattern(sTrimmed);
+	        if (!pattern) return false;
+	        for (var k = lineIndex - 1; k >= 0; k--) {
+	          var prev = (lines[k] || '').trim();
+	          if (!prev) break;
+	          if (/^(?:public\s+)?partial\s+class\b/.test(prev) || prev === '{') break;
+	          if (prev.indexOf('//') === 0 && pattern.test(prev)) return true;
+	        }
+	        return false;
+	      }
+	      var depth = 0;
       for (var i = 0; i < lines.length; i++) {
         var raw = lines[i];
         var sline = sanitizedLines[i] || '';
@@ -1546,11 +1574,13 @@ var RULES = [
           }
         if (isDecl) {
             if (/^bool\s+__assemblyDone_/.test(sTrimmed)) isDecl = false;
-            if (/\bvoid\s+AssemblyRun[A-Za-z]+Slots\s*\(/.test(sTrimmed)) isDecl = false;
-            if (/^(?:float\s+_collectCooldown|string\s+_lastScoreText)\b/.test(sTrimmed)) isDecl = false;
-            if (/\bvoid\s+(?:AddGold|ShowFloatingText)\s*\(/.test(sTrimmed)) isDecl = false;
-            if (!isDecl) continue;
-            var nameMatch = trimmed.match(/\b(\w+)\s*\(/);
+	            if (/\bvoid\s+AssemblyRun[A-Za-z]+Slots\s*\(/.test(sTrimmed)) isDecl = false;
+	            if (/^void\s+Spawn\w+\s*\(/.test(sTrimmed)) isDecl = false;
+	            if (/^(?:float\s+_collectCooldown|string\s+_lastScoreText)\b/.test(sTrimmed)) isDecl = false;
+	            if (/\bvoid\s+(?:AddGold|ShowFloatingText)\s*\(/.test(sTrimmed)) isDecl = false;
+	            if (!isDecl) continue;
+	            if (hasRecentSkeletonGroupDoc(i, sTrimmed)) continue;
+	            var nameMatch = trimmed.match(/\b(\w+)\s*\(/);
             if (!nameMatch) nameMatch = trimmed.match(/\b(\w+)\s*(?:=|;|\{)/);
             // Inline trailing comments count as valid docs for skeleton fields
             // and helpers, e.g. `int gold = 0; // current balance`.

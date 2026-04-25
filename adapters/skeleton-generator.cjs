@@ -17,7 +17,7 @@
 const fs = require('fs');
 const path = require('path');
 
-// Default colors for anti-solid-color initialization
+// 防纯色初始化用默认颜色
 const GROUND_COLOR = { r: 0.75, g: 0.78, b: 0.82 };
 const CAMERA_BG = { r: 0.45, g: 0.52, b: 0.62 };
 const ENTITY_COLORS = [
@@ -121,9 +121,8 @@ function phaseNeedsSpend(spec, pid) {
 }
 
 function generateSkeleton(specs, opts = {}) {
-  // Defence in depth: spec-extract stage is supposed to guarantee non-empty
-  // specs before codegen runs. If we still got undefined/empty here, fail with
-  // a message that points at the contract instead of "Cannot read … 'length'".
+  // 防御式校验：spec-extract 阶段应保证 codegen 前 specs 非空。
+  // 如果这里仍拿到 undefined/empty，就抛出指向契约的明确错误。
   if (!Array.isArray(specs) || specs.length === 0) {
     const err = new Error('generateSkeleton called with empty/undefined specs — spec-extract stage must populate ctx.blueprint.specs before codegen');
     err.classification = 'FATAL';
@@ -131,13 +130,13 @@ function generateSkeleton(specs, opts = {}) {
   }
   const totalPhases = specs.length;
   const entityPoolMap = opts.entityPoolMap || {};
-  // [SKELETON 2026-04-19] entities[] carries chineseName / showLabel for world labels
+  // [SKELETON 2026-04-19] entities[] 携带 chineseName / showLabel 供世界标签使用。
   const entityMeta = {};
   (opts.entities || []).forEach(ent => {
     if (ent && ent.name) entityMeta[ent.name] = ent;
   });
 
-  // Resolve entity name collisions with skeleton built-in variables
+  // 解决实体名与骨架内置变量的冲突。
   const renamedEntities = {};
   Object.keys(entityPoolMap).forEach(name => {
     if (RESERVED_SKELETON_VARS.has(name)) {
@@ -145,14 +144,14 @@ function generateSkeleton(specs, opts = {}) {
       renamedEntities[name] = newName;
       entityPoolMap[newName] = entityPoolMap[name];
       delete entityPoolMap[name];
-      // carry meta over so chineseName/showLabel survive the rename
+      // 同步 meta，保证 chineseName/showLabel 在重命名后仍保留。
       if (entityMeta[name]) {
         entityMeta[newName] = Object.assign({}, entityMeta[name], { name: newName });
         delete entityMeta[name];
       }
     }
   });
-  // Also rename in specs to keep consistent
+  // 同步重命名 specs，保持一致。
   if (Object.keys(renamedEntities).length > 0) {
     specs = JSON.parse(JSON.stringify(specs));
     specs.forEach(spec => {
@@ -174,17 +173,12 @@ function generateSkeleton(specs, opts = {}) {
   const shouldSplit = totalPhases > 10;
   const lines = [];
 
-  // Helper: list GameObject names that gate a phase's exit condition.
-  // Only keep entities that a known interaction template will actually move
-  // (collect/deliver/sell/click/spend/build/move_to).
+  // 辅助：列出会参与 phase 出口 gate 的 GameObject 名称。
+  // 只保留 collect/deliver/sell/click/spend/build/move_to 等已知模板会真实移动的实体。
   //
-  // Why: phase-exit binds to EntityAdvanced(X, _snap_XPos). If X has no interaction
-  // that moves it during the phase, the gate is structurally unreachable — codex
-  // reviewer reports "phase X unreachable" and fix-loop circuit-breaks (seen in
-  // s6ae56 / nqw7z3 on 2026-04-21). Returning [] here lets buildRealCondition()
-  // deliberately fall back to either a real time-only beat (wait/defend) or a
-  // hard `false /* AI: ... */` gate instead of silently inventing an unreachable
-  // EntityAdvanced(X) condition from decoration-only entitiesRequired.
+  // 原因：phase 出口绑定 EntityAdvanced(X, _snap_XPos)。如果 X 在该 phase 没有任何
+  // 会移动它的交互，gate 在结构上不可达。这里返回 []，让 buildRealCondition()
+  // 明确退回到 wait/defend 这类真实时间节拍，或直接生成 hard false gate。
   const MOVING_VERBS = { collect: 1, deliver: 1, sell: 1, click: 1, spend: 1, build: 1, move_to: 1 };
   function phaseGateEntities(spec) {
     const interactions = spec.requiredInteractions || [];
@@ -203,31 +197,24 @@ function generateSkeleton(specs, opts = {}) {
     return movingTargets;
   }
 
-  // Build the phase-exit realCondition. Interactive play still binds to actual
-  // GameObject movement. In autoplay, the same movement proof is preferred, with
-  // a second module-state proof only after GFM_AutoPlay has produced an in-phase
-  // step. This prevents a WebGL/runtime position-snapshot mismatch from freezing
-  // CUA while still requiring phase-local observable work.
+  // 构建 phase 出口 realCondition。交互模式绑定真实 GameObject 位移；
+  // autoplay 也优先使用同一位移证明，仅在 GFM_AutoPlay 已产生 phase 内动作后
+  // 才接受模块状态作为第二证明，避免 WebGL/runtime 快照差异导致 CUA 卡死。
   //
-  // NOTE: SetActive() is forbidden in Luna (see static-check `setactive` rule),
-  // so EntityAdvanced checks position only. The skeleton's PlaceObj/HideObj
-  // move entities to (y >= 0) or (y = -999) respectively — both count as visible
-  // movement and satisfy the condition.
+  // Luna 禁止 SetActive()（见 static-check 的 setactive 规则），因此
+  // EntityAdvanced 只检查位置。骨架的 PlaceObj/HideObj 分别把实体移动到
+  // y >= 0 或 y = -999，二者都算可观测位移。
   //
-  // CUA alignment: because `EntityAdvanced` reads transform.position directly,
-  // any satisfied condition is guaranteed to produce an observable visual diff.
+  // CUA 对齐：EntityAdvanced 直接读取 transform.position，条件满足时必然有视觉差异。
   function buildRealCondition(spec) {
     const names = phaseGateEntities(spec);
     if (names.length === 0) {
-      // No gate entity — check if this phase is legitimately a wait/defend beat.
-      // wait:N / defend:N interactions mean "hold for N seconds of animation",
-      // the timer gate is the real condition. Letting these through as `true`
-      // means only `phaseTimer >= Xf` controls exit (no fakeable flags involved).
+      // 没有 gate 实体时，检查该 phase 是否是合法的 wait/defend 节拍。
+      // wait:N / defend:N 表示维持 N 秒动画；此时 timer gate 就是真实条件。
+      // 返回 true 后，只有 phaseTimer >= Xf 控制出口，不涉及可伪造 flag。
       //
-      // CUA nuance: observe mode intentionally delays __CUA_OBSERVER_READY__ until
-      // the verifier has attached. If autoplay has already been detected but not
-      // activated yet, time-only beats must NOT run on the interactive timer floor
-      // or we pre-fire whole cutscene chains before the observer starts.
+      // CUA 细节：observe mode 会等验证器挂上后才发 __CUA_OBSERVER_READY__。
+      // 如果已检测到 autoplay 但尚未激活，纯时间节拍不能提前按交互计时地板推进。
       const inter = spec.requiredInteractions || [];
       const onlyTimeBased = (inter.length === 0 && !spec.playerMustAct) || (inter.length > 0 && inter.every(function(s) {
         const v = (s || '').split(':')[0];
@@ -236,8 +223,7 @@ function generateSkeleton(specs, opts = {}) {
       if (onlyTimeBased) {
         return '(GFM_AutoPlay.Instance.DetectRealTime <= 0f || GFM_AutoPlay.Instance.IsActive) /* time-only beat (wait/defend) — timer gate is valid only before autoplay detect or after observer-ready activation */';
       }
-      // Otherwise the phase spec is too loose. AI can't fix it by editing C#; block
-      // hard so the bad spec doesn't silently pass.
+      // 其他情况说明 phase spec 过松，AI 修改 C# 也无法补救；直接 hard block。
       return 'false /* AI: phase spec lacks entities/interactions — add EntityAdvanced(...) check with GameObject + snapshot */';
     }
     const parts = names.map(function(n) {
@@ -252,23 +238,23 @@ function generateSkeleton(specs, opts = {}) {
 
 
   // Header
-  lines.push('// ========== AUTO-GENERATED SKELETON — DO NOT MODIFY SKELETON LINES ==========');
-  lines.push('// Generated from storyboard spec. AI fills TODO sections only.');
-  lines.push('// Lines marked [SKELETON] must not be removed or modified.');
+  lines.push('// ========== 自动生成 SKELETON：只允许填写 TODO 区域 ==========');
+  lines.push('// 由 storyboard/spec 生成。AI 只补充 TODO 段，不改写骨架契约。');
+  lines.push('// 带 [SKELETON]、TODO_*、[ASSEMBLY SLOT] 的行是机器锚点，不要删除或改名前缀。');
   lines.push('//');
-  lines.push('// *** RENDERING RULES (MUST FOLLOW — violation = build failure) ***');
-  lines.push('// 1. Camera.backgroundColor is pre-set to (0.45, 0.52, 0.62) — do NOT change');
-  lines.push('// 2. NEVER call GFM_Create.SetColor() — it causes GL_INVALID_OPERATION in Luna');
-  lines.push('// 3. NEVER call GFM_Create.Obj() — pool objects already exist, use GameObject.Find()');
-  lines.push('// 4. Pool objects have pre-baked colors (__Pool_Shape_Color_NN) — just position them');
-  lines.push('// 5. Phase 1 must place at least 3 pool objects on screen to prevent solid-color');
-  lines.push('// 6. NEVER call Destroy() — hide objects via position (0, -999, 0)');
-  lines.push('// 7. NEVER use SafeColor or recursive color functions');
+  lines.push('// *** 渲染约束（违反会导致构建或 Luna 运行失败） ***');
+  lines.push('// 1. Camera.backgroundColor 已预设为 (0.45, 0.52, 0.62)，不要修改');
+  lines.push('// 2. 不要调用 GFM_Create.SetColor()，Luna 下会触发 GL_INVALID_OPERATION');
+  lines.push('// 3. 不要调用 GFM_Create.Obj()，对象池已经存在，请用 GameObject.Find() 绑定');
+  lines.push('// 4. 对象池物体已预烘焙颜色（__Pool_Shape_Color_NN），只需要移动位置');
+  lines.push('// 5. Phase 1 至少摆出 3 个对象池物体，避免首屏纯色');
+  lines.push('// 6. 不要调用 Destroy()，隐藏物体统一移动到 (0, -999, 0)');
+  lines.push('// 7. 不要使用 SafeColor 或递归改色函数');
   lines.push('//');
-  lines.push('// *** ANTI-AUTOPLAY RULES (MUST FOLLOW — violation = CUA rejection) ***');
-  lines.push('// 1. Every phase transition MUST require player interaction (click/drag/joystick)');
-  lines.push('// 2. NEVER advance phases based on timer alone — timer is minimum dwell, not trigger');
-  lines.push('// 3. playerMustAct=true phases MUST wait for user input before transitioning');
+  lines.push('// *** 反自动播放约束（违反会被 CUA 拒绝） ***');
+  lines.push('// 1. 每个需要玩家参与的 phase 都必须由点击/拖拽/摇杆等交互推进');
+  lines.push('// 2. 计时器只表示最短停留时间，不能单独触发 phase 跳转');
+  lines.push('// 3. playerMustAct=true 的 phase 必须等真实输入后才能过关');
   lines.push('//');
   lines.push('');
   lines.push('using UnityEngine;');
@@ -278,54 +264,51 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('public partial class GameFlowManagerMain : MonoBehaviour');
   lines.push('{');
 
-  // Phase timer system (skeleton-enforced)
-  lines.push('    // [SKELETON] Phase timing system — enforces minimum dwell time per phase');
+  // Phase 计时系统（骨架强制）
+  lines.push('    // [SKELETON] Phase timing：phaseTimer 控制最短停留时间，phaseEnterTimes 记录进入时刻。');
   lines.push('    float phaseTimer = 0f;');
-  lines.push('    string lastPhaseForTimer = ""; // remembers phase name used to reset phaseTimer exactly once per transition');
-  lines.push('    float[] phaseEnterTimes;  // [SKELETON] records when each phase was entered');
+  lines.push('    string lastPhaseForTimer = "";');
+  lines.push('    float[] phaseEnterTimes;');
   lines.push('');
 
-  // Game state variables (skeleton-enforced)
-  lines.push('    // [SKELETON] Phase tracking');
+  // 游戏状态变量（骨架强制）
+  lines.push('    // [SKELETON] Phase tracking：记录当前 phase、已完成列表和终局锁。');
   lines.push(`    const int RULE_COUNT = ${totalPhases + 2};`);
-  lines.push('    bool[] ruleTriggered; // one gate flag per generated phase rule plus terminal gates');
-  lines.push('    string currentPhaseName = "init"; // active phase id consumed by Flow/Input/UI partials');
-  lines.push('    string[] completedPhases; // ordered phase ids reported to preview and CUA');
-  lines.push('    int completedPhaseCount = 0; // number of valid entries in completedPhases');
-  lines.push('    float gameTimer; // total playable runtime in seconds');
-  lines.push('    bool gameEnded = false; // locks Update after the terminal CTA path fires');
+  lines.push('    bool[] ruleTriggered;');
+  lines.push('    string currentPhaseName = "init";');
+  lines.push('    string[] completedPhases;');
+  lines.push('    int completedPhaseCount = 0;');
+  lines.push('    float gameTimer;');
+  lines.push('    bool gameEnded = false;');
   lines.push('');
-  lines.push('    // [SKELETON] AutoPlay — state owner is GFM_AutoPlay (canonical library)');
-  lines.push('    // Local snapshots are synced at top of Update() each frame for backward compat');
-  lines.push('    // with downstream skeleton code that reads _autoPlayMode / _autoPlaySteps.');
+  lines.push('    // [SKELETON] AutoPlay：状态由 GFM_AutoPlay 统一持有，本地字段只做旧模板兼容镜像。');
   lines.push('    bool _autoPlayMode = false;');
-  lines.push('    int _autoPlaySteps = 0; // local mirror of GFM_AutoPlay.Instance.Steps');
-  lines.push('    int _autoPlayStepsAtPhaseStart = 0; // tracks autoPlay steps when current phase started');
-  lines.push('    const float AUTO_PLAY_PHASE_DURATION = 12f; // [SKELETON] 12s per shot — DO NOT MODIFY this value');
+  lines.push('    int _autoPlaySteps = 0;');
+  lines.push('    int _autoPlayStepsAtPhaseStart = 0;');
+  lines.push('    const float AUTO_PLAY_PHASE_DURATION = 12f; // [SKELETON] 每个 shot 12 秒，请勿修改该值');
   lines.push('');
-  lines.push('    // [SKELETON] Phase-scoped runtime evidence for module-contract verification.');
+  lines.push('    // [SKELETON] Phase evidence：按 phase.signal 保存运行时证据，供 preview/CUA 验证。');
   lines.push('    string[] _phaseEvidenceKeys = new string[512];');
-  lines.push('    string[] _phaseEvidenceValues = new string[512]; // JSON payloads paired with _phaseEvidenceKeys');
-  lines.push('    int _phaseEvidenceCount = 0; // number of recorded evidence key/value entries');
+  lines.push('    string[] _phaseEvidenceValues = new string[512];');
+  lines.push('    int _phaseEvidenceCount = 0;');
   lines.push('');
 
-  // Entity state variables — from entitiesRequired + all entityPoolMap entries
+  // 实体状态变量：来自 entitiesRequired 和 entityPoolMap。
   const allEntities = new Set();
   specs.forEach(spec => {
     (spec.entitiesRequired || []).forEach(e => allEntities.add(e.name));
   });
-  // Also add all entities in pool map — AI code frequently references {name}State
-  // for entities that only appear in interactions (e.g. RecyclingStation from deliver:)
+  // 对象池映射里的实体也要补齐；AI 代码经常引用只在交互中出现的 {name}State。
   entityNames.forEach(name => allEntities.add(name));
   if (allEntities.size > 0) {
-    lines.push('    // [SKELETON] Entity states — must reach terminal state');
+    lines.push('    // [SKELETON] Entity states：仅给模板/UI 同步使用。约定 0=未激活/等待，1=处理中，2=完成/可见。');
     allEntities.forEach(name => {
-      lines.push(`    int ${name}State = 0; // 0=waiting, 1=building, 2=built [SKELETON]`);
+      lines.push(`    int ${name}State = 0;`);
     });
     lines.push('');
   }
 
-  // [SKELETON] Anti-autoplay interaction flags — AI must set these to true on player input
+  // [SKELETON] 反自动播放交互 flag：玩家输入时由 AI/模板写入。
   const interactionFlags = [];
   specs.forEach(spec => {
     const entities = spec.entitiesRequired || [];
@@ -333,8 +316,7 @@ function generateSkeleton(specs, opts = {}) {
     const mustAct = spec.playerMustAct !== false;
     const phaseId = (spec.phaseId || 'phase').replace(/[^a-zA-Z0-9]/g, '');
 
-    // Always declare BOTH flags per phase — autoplay-mirror and template-engine
-    // both set them, so both must exist to avoid undeclared variable errors.
+    // 每个 phase 同时声明两类 flag；autoplay 镜像和模板引擎都会写，缺一会导致未声明变量。
     interactionFlags.push(phaseId + 'InteractionDone');
     interactionFlags.push(phaseId + 'PlayerActed');
     for (let ii = 0; ii < interactions.length; ii++) {
@@ -342,32 +324,29 @@ function generateSkeleton(specs, opts = {}) {
       const verb = parts[0];
       const target = parts[1];
       if (!target || verb === 'wait' || verb === 'defend') continue;
-      if (/^\d/.test(target)) continue; // skip numeric targets (invalid C# identifier)
+      if (/^\d/.test(target)) continue; // 跳过数字目标，避免非法 C# 标识符。
       interactionFlags.push(target + 'Done');
     }
   });
   if (interactionFlags.length > 0) {
-    lines.push('    // [SKELETON] Anti-autoplay flags — AI MUST set these to true when player performs the required interaction');
+    lines.push('    // [SKELETON] Interaction flags：记录玩家/CUA 是否触发过操作；phase 出口仍以真实位移或 evidence 为准。');
     const uniqueFlags = [...new Set(interactionFlags)];
     uniqueFlags.forEach(flag => {
-      lines.push(`    bool ${flag} = false; // [SKELETON] Set to true on player interaction (click/drag/joystick)`);
+      lines.push(`    bool ${flag} = false;`);
     });
     lines.push('');
   }
 
-  // [SKELETON] Pre-generated GameObject declarations from entity→pool mapping
+  // [SKELETON] 按 entity→pool 映射预生成 GameObject 声明。
   if (entityNames.length > 0) {
-    lines.push('    // [SKELETON] Object references (auto-mapped from entity→pool)');
+    lines.push('    // [SKELETON] Object references：字段名来自蓝图实体；对象池绑定集中在 Start()/GameSceneCtrl。');
     entityNames.forEach(name => {
-      lines.push(`    GameObject ${name}; // → ${entityPoolMap[name]}`);
+      lines.push(`    GameObject ${name};`);
     });
     lines.push('');
 
-    lines.push('    // [SKELETON] Spawn compatibility helpers — compile-safe fallback when');
-    lines.push('    // AI/template code invents Spawn<Entity>(count) wrappers instead of');
-    lines.push('    // moving the pooled object directly.');
+    lines.push('    // [SKELETON] Spawn compatibility helpers：兼容旧模板的 Spawn<Entity>(count)，实际只移动已映射对象池物体。');
     entityNames.forEach(name => {
-      lines.push(`    // Spawn compatibility wrapper for ${name}; moves the mapped pool object instead of instantiating.`);
       lines.push(`    void Spawn${name}(int count)`);
       lines.push('    {');
       lines.push(`        if (${name} == null) return;`);
@@ -385,9 +364,7 @@ function generateSkeleton(specs, opts = {}) {
 
     var genericEnemyAliasTarget = pickGenericEnemyAliasTarget(entityNames);
     if (genericEnemyAliasTarget && genericEnemyAliasTarget !== 'Enemy') {
-      lines.push('    // [SKELETON] Generic enemy spawn alias for template/schema fallbacks.');
-      lines.push('    // Some upstream generators still emit SpawnEnemy(count) as a placeholder;');
-      lines.push('    // keep this mapped to the primary enemy unit instead of failing method-check.');
+      lines.push('    // [SKELETON] SpawnEnemy alias：旧模板可能仍调用 SpawnEnemy(count)，这里映射到主敌方单位。');
       lines.push('    void SpawnEnemy(int count)');
       lines.push('    {');
       lines.push('        Spawn' + genericEnemyAliasTarget + '(count);');
@@ -396,33 +373,29 @@ function generateSkeleton(specs, opts = {}) {
     }
   }
 
-  // [SKELETON 2026-04-20] Per-entity snapshots — captured at phase entry, checked at
-  // phase exit. EntityAdvanced() reads these to decide whether a phase condition is
-  // truly satisfied. This replaces the old xxxState / xxxDone / xxxPlayerActed faking
-  // path (see 2026-04-20 autoplay condition enforcement postmortem).
+  // [SKELETON 2026-04-20] 每个 phase 入口记录实体位置，出口由 EntityAdvanced()
+  // 对比真实 transform.position。不要再用 xxxState / xxxDone / xxxPlayerActed 假推进。
   if (entityNames.length > 0) {
-    lines.push('    // [SKELETON] Shared fallback pos for phase-entry snapshots (class field init, not hot path)');
+    lines.push('    // [SKELETON] Phase snapshots：隐藏位作为缺省快照，真实出口只看对象位移。');
     lines.push('    Vector3 _snapHidePos = new Vector3(0f, -999f, 0f);');
-    lines.push('    // [SKELETON] Per-entity phase-entry snapshots — DO NOT MODIFY');
     entityNames.forEach(name => {
-      lines.push(`    Vector3 _snap_${name}Pos; // phase-entry position snapshot for ${name}`);
+      lines.push(`    Vector3 _snap_${name}Pos;`);
     });
     lines.push('');
   }
 
-  // [SKELETON] Pre-created Camera, Canvas, UI references
-  lines.push('    // [SKELETON] Camera reference — use mainCam instead of Camera.main');
+  // [SKELETON] 预创建 Camera、Canvas、UI 引用。
+  lines.push('    // [SKELETON] Camera/UI references：Start() 统一创建并缓存，运行时代码直接复用这些字段。');
   lines.push('    Camera mainCam;');
-  lines.push('    // [SKELETON] UI references — canvas and text pre-created, use directly');
   lines.push('    Canvas uiCanvas;');
-  lines.push('    Text guideText; // top-center guide copy rendered on the 1920x1080 canvas');
-  lines.push('    Text scoreText; // resource/score HUD text rendered on the 1920x1080 canvas');
-  lines.push('    Text floatingText; // short-lived feedback text reused by UI helpers');
-  lines.push('    float floatingTextTimer = 0f; // countdown controlling floatingText visibility');
-  lines.push('    string cameraFocusTarget = ""; // current camera focus label exported in preview state');
+  lines.push('    Text guideText;');
+  lines.push('    Text scoreText;');
+  lines.push('    Text floatingText;');
+  lines.push('    float floatingTextTimer = 0f;');
+  lines.push('    string cameraFocusTarget = "";');
   lines.push('');
 
-  // Detect idle/tycoon game pattern (has joystick + resource interactions)
+  // 识别 idle/tycoon 模式：同时具备摇杆和资源交互。
   const hasJoystick = specs.some(s => (s.requiredInteractions || []).some(i => i.startsWith('move_to:')));
   const hasResources = specs.some(s => (s.requiredInteractions || []).some(i => i.startsWith('collect:') || i.startsWith('deliver:')));
   const isIdleGame = hasJoystick && hasResources;
@@ -432,9 +405,9 @@ function generateSkeleton(specs, opts = {}) {
     return verb === 'collect' || verb === 'deliver' || verb === 'spend' || verb === 'convert';
   }));
 
-  // [SKELETON] Form-switch system
+  // [SKELETON] 形态切换系统。
   if (hasFormSwitch) {
-    lines.push('    // [SKELETON] Form-switch system — AI fills _forms array in Start()');
+    lines.push('    // [SKELETON] 形态切换系统：AI 在 Start() 中填充 _forms 数组。');
     lines.push('    struct FormDef {');
     lines.push('        public string formId;');
     lines.push('        public string poolObjectName;');
@@ -444,10 +417,10 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        public int carryCapacity;');
     lines.push('        public float scale;');
     lines.push('    }');
-    lines.push('    FormDef[] _forms; // [SKELETON] AI: fill in Start() with form definitions');
+    lines.push('    FormDef[] _forms; // [SKELETON] Start() 中填充形态定义');
     lines.push('    int _currentFormIndex = 0;');
     lines.push('');
-    lines.push('    // [SKELETON] Switch player form — hides old model, shows new, updates stats');
+    lines.push('    // [SKELETON] 切换玩家形态：隐藏旧模型、显示新模型并更新属性。');
     lines.push('    void SwitchForm(int formIndex) {');
     lines.push('        if (_forms == null || formIndex < 0 || formIndex >= _forms.Length) return;');
     lines.push('        if (_forms[_currentFormIndex].poolObjectName != "") {');
@@ -468,23 +441,20 @@ function generateSkeleton(specs, opts = {}) {
   }
 
   if (hasEconomy) {
-    // [SKELETON] Economy system — state lives in GFM_EconomyManager (parallel arrays,
-    // Luna-compatible, no Dictionary). Main file keeps thin delegate stubs so existing
-    // templates that call AddResource/GetResource/TrySpend/TryConvert keep working.
-    lines.push('    // [SKELETON] Economy system — delegated to GFM_EconomyManager (state owner)');
-    lines.push('    // AI fills _resources array in Start(); skeleton syncs it to Manager once.');
+    // [SKELETON] 经济系统状态归 GFM_EconomyManager 持有，内部用 Luna 兼容的并行数组。
+    // 主文件只保留薄委托方法，兼容旧模板对 AddResource/GetResource/TrySpend/TryConvert 的调用。
+    lines.push('    // [SKELETON] 经济系统：委托给 GFM_EconomyManager（状态归属方）');
+    lines.push('    // AI 在 Start() 中填充 _resources；骨架会同步一次到 Manager。');
     lines.push('    struct ResourceDef {');
     lines.push('        public string resourceId;');
     lines.push('        public string displayName;');
-    lines.push('        public string convertFrom; // upstream resource id, empty if primary');
-    lines.push('        public int convertRatio;   // how many upstream = 1 of this');
+    lines.push('        public string convertFrom; // 上游资源 id；主资源为空');
+    lines.push('        public int convertRatio;   // 多少个上游资源可转换为 1 个当前资源');
     lines.push('    }');
-    lines.push('    ResourceDef[] _resources; // [SKELETON] AI: fill in Start(); auto-synced to Manager');
+    lines.push('    ResourceDef[] _resources; // [SKELETON] Start() 填充后自动同步到 Manager');
     lines.push('');
-    lines.push('    // [SKELETON] Legacy inventory compatibility shim.');
-    lines.push('    // Older templates/prompts still emit _inventory["Gold"] style reads/writes.');
-    lines.push('    // Keep this alias wired to GFM_EconomyManager so old code compiles while');
-    lines.push('    // runtime state remains single-sourced in the manager.');
+    lines.push('    // [SKELETON] 旧版背包兼容层：让 _inventory["Gold"] 风格读写仍能编译。');
+    lines.push('    // 运行时状态仍由 GFM_EconomyManager 单一维护。');
     lines.push('    class InventoryCompat');
     lines.push('    {');
     lines.push('        public int this[string id]');
@@ -497,9 +467,9 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('            }');
     lines.push('        }');
     lines.push('    }');
-    lines.push('    InventoryCompat _inventory = new InventoryCompat(); // compatibility facade for legacy _inventory["id"] template reads');
+    lines.push('    InventoryCompat _inventory = new InventoryCompat(); // 兼容旧模板 _inventory["id"] 读取');
     lines.push('');
-    lines.push('    // [SKELETON] Sync locally-filled _resources into GFM_EconomyManager (once)');
+    lines.push('    // [SKELETON] 将本地填充的 _resources 同步到 GFM_EconomyManager（一次）');
     lines.push('    void _SyncResourcesToManager() {');
     lines.push('        if (_resources == null || _resources.Length == 0) return;');
     lines.push('        var mgr = GFM_EconomyManager.Instance;');
@@ -515,29 +485,29 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        mgr.SetResources(mgrDefs);');
     lines.push('    }');
     lines.push('');
-    lines.push('    // [SKELETON] Delegate stubs — forward to GFM_EconomyManager (single source of truth)');
+    lines.push('    // [SKELETON] 委托桩：统一转发到 GFM_EconomyManager。');
     lines.push('    void AddResource(string id, int amount) {');
     lines.push('        int before = GFM_EconomyManager.Instance.GetResource(id);');
     lines.push('        GFM_EconomyManager.Instance.AddResource(id, amount);');
     lines.push('        int after = GFM_EconomyManager.Instance.GetResource(id);');
-    lines.push('        // Evidence is recorded only when a positive add actually increased the balance.');
+    lines.push('        // 只有正向增加确实改变余额时才记录 evidence。');
     lines.push('        if (amount > 0 && after > before) {');
     lines.push('            RecordPhaseEvidenceDelta(currentPhaseName, "resource_incremented", before, after);');
     lines.push('            RecordPhaseEvidenceFlag(currentPhaseName, "score_text_changed");');
     lines.push('        }');
     lines.push('    }');
     lines.push('    int GetResource(string id) { return GFM_EconomyManager.Instance.GetResource(id); }');
-    lines.push('    // Spend a resource through the manager and record observable resource-decrement evidence.');
+    lines.push('    // 通过 manager 扣减资源，并记录可观测的资源减少 evidence。');
     lines.push('    bool TrySpend(string id, int amount) {');
     lines.push('        int before = GFM_EconomyManager.Instance.GetResource(id);');
     lines.push('        bool ok = GFM_EconomyManager.Instance.TrySpend(id, amount);');
     lines.push('        int after = GFM_EconomyManager.Instance.GetResource(id);');
-    lines.push('        // Evidence is recorded only when the spend really reduced the manager-owned balance.');
+    lines.push('        // 只有扣减确实降低 manager 余额时才记录 evidence。');
     lines.push('        if (ok && after < before) RecordPhaseEvidenceDelta(currentPhaseName, "resource_decremented", before, after);');
     lines.push('        return ok;');
     lines.push('    }');
     lines.push('    bool TryConvert(string fromId, string toId) { return GFM_EconomyManager.Instance.TryConvert(fromId, toId); }');
-    lines.push('    // Pull manager inventory into scoreText for lightweight HUD refreshes.');
+    lines.push('    // 将 manager 库存同步到 scoreText，供轻量 HUD 刷新使用。');
     lines.push('    void UpdateResourceUI() {');
     lines.push('        // Manager 自动更新 scoreText；如果主文件用本地 scoreText，在这里额外拉取展示。');
     lines.push('        if (scoreText == null) return;');
@@ -557,10 +527,10 @@ function generateSkeleton(specs, opts = {}) {
   }
 
   if (isIdleGame) {
-    lines.push('    // ========== [SKELETON] IDLE GAME KIT — Pre-built systems ==========');
-    lines.push('    // All systems below are working code. AI should CALL these, not rewrite them.');
+    lines.push('    // ========== [SKELETON] IDLE GAME KIT：预置系统 ==========');
+    lines.push('    // 下方是可直接调用的工作代码，AI 只调用，不重写。');
     lines.push('');
-    lines.push('    // --- Player Movement (joystick-driven) ---');
+    lines.push('    // --- 玩家移动（摇杆优先） ---');
     lines.push('    GFM_Joystick joystick;');
     lines.push('    GameObject player;');
     if (hasFormSwitch) {
@@ -568,27 +538,28 @@ function generateSkeleton(specs, opts = {}) {
     } else {
       lines.push('    float moveSpeed = 5f;');
     }
-    lines.push('    int carrying = 0; // generic resource count on player back');
-    lines.push('    string carryingType = ""; // what resource type');
+    lines.push('    int carrying = 0; // 玩家当前携带的通用资源数量');
+    lines.push('    string carryingType = ""; // 当前携带资源类型');
+    lines.push('    // [SKELETON] Idle 分数状态：由 AddGold/scoreText 使用。');
     lines.push('    int gold = 0;');
     lines.push('');
-    lines.push('    // [SKELETON] Tap-to-move target (fallback for joystick)');
+    lines.push('    // [SKELETON] 点击移动目标：摇杆无输入时的兜底移动方式。');
     lines.push('    Vector3 tapMoveTarget = Vector3.zero;');
     lines.push('    bool hasTapTarget = false;');
-    lines.push('    // [SKELETON] Reusable buffer for per-frame move/look vectors — avoids alloc');
+    lines.push('    // [SKELETON] 每帧移动/朝向复用缓冲，避免额外分配。');
     lines.push('    Vector3 _moveBuf = Vector3.zero;');
-    lines.push('    // [SKELETON] Batch 2 collect cooldown infra — shared across all collect templates');
+    lines.push('    // [SKELETON] 采集冷却：所有 collect 模板共享。');
     lines.push('    float collectCooldownInterval = ' + (specs.gameConfig && specs.gameConfig.collectCooldown ? specs.gameConfig.collectCooldown : 0.3) + 'f;');
-    lines.push('    // Runtime collect cooldown remaining time.');
+    lines.push('    // 当前剩余采集冷却时间。');
     lines.push('    float _collectCooldown = 0f;');
-    lines.push('    // Last rendered score text, used to avoid redundant HUD writes.');
+    lines.push('    // 上一次渲染的分数文本，避免重复写 HUD。');
     lines.push('    string _lastScoreText = "";');
     lines.push('');
-    lines.push('    // [SKELETON] Move player by joystick + tap-to-move fallback — call in Update()');
+    lines.push('    // [SKELETON] 玩家移动：优先摇杆，点击移动兜底；在 Update() 调用。');
     lines.push('    void MovePlayer()');
     lines.push('    {');
     lines.push('        if (player == null) return;');
-    lines.push('        // Priority 1: Joystick');
+    lines.push('        // 优先级 1：摇杆');
     lines.push('        if (joystick != null)');
     lines.push('        {');
     lines.push('            float h = joystick.Horizontal;');
@@ -605,11 +576,11 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('                return;');
     lines.push('            }');
     lines.push('        }');
-    lines.push('        // Priority 2: Tap-to-move (click on game area → raycast → move toward click)');
+    lines.push('        // 优先级 2：点击移动（点击游戏区 -> 射线落点 -> 朝落点移动）');
     lines.push('        if (Input.GetMouseButtonDown(0) && mainCam != null)');
     lines.push('        {');
     lines.push('            Vector2 sp = Input.mousePosition;');
-    lines.push('            // Ignore clicks on joystick area (bottom-left 200x200)');
+    lines.push('            // 忽略左下角 200x200 的摇杆区域点击。');
     lines.push('            if (sp.x > 200f || sp.y > 200f)');
     lines.push('            {');
     lines.push('                Ray ray = mainCam.ScreenPointToRay(sp);');
@@ -617,7 +588,7 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('                if (t > 0f) { tapMoveTarget = ray.origin + ray.direction * t; hasTapTarget = true; }');
     lines.push('            }');
     lines.push('        }');
-    lines.push('        // Move toward tap target');
+    lines.push('        // 朝点击目标移动。');
     lines.push('        if (hasTapTarget)');
     lines.push('        {');
     lines.push('            Vector3 diff = tapMoveTarget - player.transform.position;');
@@ -632,7 +603,7 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        }');
     lines.push('    }');
     lines.push('');
-    lines.push('    // [SKELETON] Check if player is near a target (proximity trigger) — XZ sqr distance, no sqrt/alloc');
+    lines.push('    // [SKELETON] 距离检查：只比较 XZ 平面平方距离，避免 sqrt 和分配。');
     lines.push('    bool IsNear(GameObject target, float range)');
     lines.push('    {');
     lines.push('        if (player == null || target == null) return false;');
@@ -641,8 +612,8 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        return (dx * dx + dz * dz) < (range * range);');
     lines.push('    }');
     lines.push('');
-    lines.push('    // [SKELETON] Auto-collect: when player near source, pick up resources');
-    lines.push('    // Returns true if collected this frame');
+    lines.push('    // [SKELETON] 自动采集：玩家靠近资源点时拾取资源。');
+    lines.push('    // 本帧采集成功则返回 true。');
     lines.push('    bool TryCollect(GameObject source, string resType, int maxCarry, float range)');
     lines.push('    {');
     lines.push('        if (source == null || !IsNear(source, range)) return false;');
@@ -652,11 +623,12 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        return true;');
     lines.push('    }');
     lines.push('');
-    lines.push('    // [SKELETON] Auto-deliver: when player near machine/sellpoint, drop off resources');
-    lines.push('    // Returns number of items delivered');
+    lines.push('    // [SKELETON] 自动交付：玩家靠近机器/售卖点时交出资源。');
+    lines.push('    // 返回本次交付数量。');
     lines.push('    int TryDeliver(GameObject target, string expectedType, float range)');
     lines.push('    {');
     lines.push('        if (target == null || !IsNear(target, range)) return 0;');
+    lines.push('        // 只有携带资源且类型匹配时才允许交付。');
     lines.push('        if (carrying <= 0 || carryingType != expectedType) return 0;');
     lines.push('        int delivered = carrying;');
     lines.push('        carrying = 0;');
@@ -664,11 +636,11 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        return delivered;');
     lines.push('    }');
     lines.push('');
-    lines.push('    // [SKELETON] Show carry stack on player back (visual feedback)');
+    lines.push('    // [SKELETON] 背包堆叠展示：用对象池物体表现携带资源。');
     lines.push('    GameObject[] carryVisuals;');
     lines.push('    void UpdateCarryVisuals()');
     lines.push('    {');
-    lines.push('        // [SKELETON] Carry visuals are optional. Default to no-op unless the spec wires explicit pooled props.');
+    lines.push('        // [SKELETON] 背包展示是可选项；没有明确对象池道具时保持空实现。');
     lines.push('        if (carryVisuals == null)');
     lines.push('        {');
     lines.push('            carryVisuals = new GameObject[0];');
@@ -688,38 +660,33 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        }');
     lines.push('    }');
     lines.push('');
-    lines.push('    // [SKELETON] Gold UI update helper');
+    lines.push('    // [SKELETON] 金币 UI 更新辅助方法。');
     lines.push('    void AddGold(int amount)');
     lines.push('    {');
     lines.push('        gold += amount;');
     lines.push('        if (scoreText != null) scoreText.text = "💰 " + gold;');
     lines.push('    }');
     lines.push('');
-  lines.push('    // [SKELETON] Show floating text (+3 gold) effect');
-  lines.push('    // [SKELETON] Floating text — uses a pooled text element, auto-hides after delay');
+  lines.push('    // [SKELETON] 浮字效果：复用池化文本，并在短暂显示后自动隐藏。');
   lines.push('    void ShowFloatingText(Vector3 worldPos, string text, Color color)');
     lines.push('    {');
     lines.push('        if (mainCam == null) return;');
-    lines.push('        // Optional helper: caller may wire a pre-created pooled text element into floatingText.');
+    lines.push('        // 调用方可把预创建的池化文本挂到 floatingText。');
     lines.push('        if (floatingText == null) return;');
     lines.push('        floatingText.text = text;');
     lines.push('        floatingText.color = color;');
     lines.push('        floatingTextTimer = 1.5f;');
     lines.push('    }');
     lines.push('');
-    lines.push('    // ========== END IDLE GAME KIT ==========');
+    lines.push('    // ========== IDLE GAME KIT 结束 ==========');
     lines.push('');
   }
 
-  // [SKELETON] AutoPlay interaction system — ALWAYS generated (outside isIdleGame block)
-  // Build target entity list from specs — supports both entitiesRequired and activate fields.
+  // [SKELETON] AutoPlay 交互系统：无论是否 idle game 都生成。
+  // 从 specs 构建目标实体列表，同时支持 entitiesRequired 和 activate 字段。
   //
-  // 2026-04-15 fix: exclude player-like names (Player, PlayerRobot, Hero, etc.) from
-  // autoTargets. The player IS the navigation subject — using it as a target results in
-  // distance=0, immediate "arrive", _autoTargetIdx++, skip. Not catastrophic but wastes a
-  // slot and skews initialPhase arrivals. More importantly, if the ONLY Phase 1 target is
-  // the player itself, the autoPlay will produce no visible movement → CUA observer sees
-  // visual freeze → FATAL in 3 rounds.
+  // 2026-04-15 修复：从 autoTargets 排除 Player/PlayerRobot/Hero 等玩家类名称。
+  // 玩家本身是导航主体，不应作为导航目标；否则会立即到达并跳过，且可能导致首阶段无可见位移。
   const isPlayerName = (n) => /^(Player|PlayerRobot|PlayerChar|Hero|MainChar|Protagonist)/i.test(n || '');
   const autoTargets = [];
   specs.forEach(spec => {
@@ -736,28 +703,25 @@ function generateSkeleton(specs, opts = {}) {
   });
 
   if (autoTargets.length > 0) {
-    // Observe-mode CUA needs deterministic autoplay navigation whenever we have
-    // concrete world targets, not just for idle/economy games. The phase-specific
-    // OnAutoPlayArrive handlers remain responsible for producing real in-phase
-    // movement, so this does not reintroduce timer-only advancement.
-    lines.push('    // [SKELETON] AutoPlay targets — passed to GFM_AutoPlay.Instance in Start()');
+    // 观察模式 CUA 需要确定性的自动导航；真正的 phase 内进度仍由
+    // OnAutoPlayArrive 产生可观测位移，不能退回纯计时推进。
+    lines.push('    // [SKELETON] AutoPlay targets：Start() 中传给 GFM_AutoPlay.Instance。');
     lines.push(`    string[] _autoTargets = new string[] { ${autoTargets.map(t => '"' + t + '"').join(', ')} };`);
-    lines.push('    string _autoPlayAssistPhase = ""; // phase id currently guarded by the assist fallback');
-    lines.push('    bool _autoPlayAssistTriggered = false; // prevents repeated assist calls inside one phase');
+    lines.push('    string _autoPlayAssistPhase = ""; // 当前由自动播放兜底保护的 phase id');
+    lines.push('    bool _autoPlayAssistTriggered = false; // 避免同一 phase 内重复触发兜底');
     lines.push('');
-    lines.push('    // [SKELETON] AutoPlayUpdate — delegates to GFM_AutoPlay.Instance (navigation + OnArrive)');
+    lines.push('    // [SKELETON] AutoPlayUpdate：委托给 GFM_AutoPlay.Instance 处理导航和到达回调。');
     lines.push('    void AutoPlayUpdate()');
     lines.push('    {');
     lines.push('        GFM_AutoPlay.Instance.Tick();');
-    lines.push('        _autoPlaySteps = GFM_AutoPlay.Instance.Steps; // sync local for backward compat');
+    lines.push('        _autoPlaySteps = GFM_AutoPlay.Instance.Steps; // 同步本地镜像，兼容旧模板读取');
     lines.push('        MaybeAssistAutoPlayPhase();');
     lines.push('    }');
   } else {
-    // No concrete targets — keep AutoPlay passive. Phase completion must still
-    // come from real input/world-state changes, not timer-driven callbacks.
-    lines.push('    string _autoPlayAssistPhase = ""; // phase id currently guarded by the assist fallback');
-    lines.push('    bool _autoPlayAssistTriggered = false; // prevents repeated assist calls inside one phase');
-    lines.push('    // [SKELETON] AutoPlay — passive mode when no explicit navigation targets exist');
+    // 没有明确目标时保持被动自动播放；phase 完成仍必须来自真实输入或世界状态变化。
+    lines.push('    string _autoPlayAssistPhase = ""; // 当前由自动播放兜底保护的 phase id');
+    lines.push('    bool _autoPlayAssistTriggered = false; // 避免同一 phase 内重复触发兜底');
+    lines.push('    // [SKELETON] AutoPlay：没有显式导航目标时使用被动模式。');
     lines.push('');
     lines.push('    void AutoPlayUpdate()');
     lines.push('    {');
@@ -766,10 +730,8 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    }');
   }
   lines.push('');
-  lines.push('    // [SKELETON] AutoPlay phase assist — trigger exactly one deterministic');
-  lines.push('    // in-phase side effect after a short settle window. This prevents');
-  lines.push('    // observe-mode CUA from stalling forever when navigation reaches no');
-  lines.push('    // valid targets or OnArrive cannot fire reliably in WebGL.');
+  lines.push('    // [SKELETON] AutoPlay phase assist：短暂等待后只触发一次确定性兜底动作。');
+  lines.push('    // 用于避免 WebGL 下无可用导航目标或 OnArrive 不稳定时 CUA 长时间停住。');
   lines.push('    void MaybeAssistAutoPlayPhase()');
   lines.push('    {');
   lines.push('        if (!_autoPlayMode) return;');
@@ -785,20 +747,20 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        _autoPlayAssistTriggered = true;');
   lines.push('    }');
   lines.push('');
-  lines.push('    // [SKELETON 2026-04-20] OnAutoPlayArrive — MUST produce OBSERVABLE position changes.');
-  lines.push('    // Phase-exit gate prefers EntityAdvanced(); autoplay may also satisfy with module state after an in-phase auto step.');
-  lines.push('    // Direct variable writes (xxxState=N, xxxDone=true) DO NOT satisfy conditions.');
+  lines.push('    // [SKELETON 2026-04-20] OnAutoPlayArrive：必须产生可观测的位置变化。');
+  lines.push('    // phase 出口优先看 EntityAdvanced()；自动播放也可在 phase 内动作后配合模块状态过关。');
+  lines.push('    // 只写 xxxState=N、xxxDone=true 等变量不能满足出口条件。');
   lines.push('    //');
-  lines.push('    // REQUIRED per case — move the phase-required entity by > 1.5 units:');
-  lines.push('    //   1. PlaceObj(entity, x, y, z)                      — show at given position');
-  lines.push('    //   2. HideObj(entity)                                — move to y=-999 (hide)');
-  lines.push('    //   3. entity.transform.position = new Vector3(...)   — direct move');
+  lines.push('    // 每个 case 必须把 phase 所需实体移动超过 1.5 单位：');
+  lines.push('    //   1. PlaceObj(entity, x, y, z)                      — 放到指定位置');
+  lines.push('    //   2. HideObj(entity)                                — 移到 y=-999 隐藏');
+  lines.push('    //   3. entity.transform.position = new Vector3(...)   — 直接移动');
   lines.push('    //');
-  lines.push('    // FORBIDDEN in this method (will fail static check):');
-  lines.push('    //   - xxxState = <literal>         (State vars are now read-only)');
-  lines.push('    //   - xxxDone = true               (Done flags no longer gate phases)');
-  lines.push('    //   - xxxPlayerActed = true        (PlayerActed flags no longer gate phases)');
-  lines.push('    //   - entity.SetActive(...)        (forbidden by Luna static-check)');
+  lines.push('    // 本方法禁止以下写法（会被静态检查拦截）：');
+  lines.push('    //   - xxxState = <literal>         （State 变量现在只读）');
+  lines.push('    //   - xxxDone = true               （Done flag 不再作为 phase gate）');
+  lines.push('    //   - xxxPlayerActed = true        （PlayerActed flag 不再作为 phase gate）');
+  lines.push('    //   - entity.SetActive(...)        （Luna 静态检查禁止）');
   lines.push('    void OnAutoPlayArrive(string targetName)');
   lines.push('    {');
   lines.push('        // TODO_AUTOPLAY_INTERACT_START');
@@ -810,44 +772,40 @@ function generateSkeleton(specs, opts = {}) {
       var apPhaseId = (apSpec.phaseId || 'phase' + apsi).replace(/[^a-zA-Z0-9]/g, '');
       var apEntities = apSpec.entitiesRequired || [];
       lines.push('            case "' + apPhaseId + '":');
-      // Emit GUIDANCE comments listing each entity that must be advanced here.
-      // No auto-generated assignments — AI must write real PlaceObj/SetActive calls.
+      // 输出 guidance 注释，列出这里必须推进的实体。
+      // 不自动生成赋值；AI 必须写真实 PlaceObj/HideObj/transform.position 调用。
       if (apEntities.length > 0) {
-        lines.push('                // REQUIRED: produce observable change for each entity below');
+        lines.push('                // 必须让下列每个实体产生可观测变化');
         for (var aei = 0; aei < apEntities.length; aei++) {
           var eName = apEntities[aei].name || apEntities[aei];
-          lines.push('                //   - ' + eName + ': PlaceObj(' + eName + ', x, y, z) or HideObj(' + eName + ') or direct transform.position =');
+          lines.push('                //   - ' + eName + '：调用 PlaceObj(' + eName + ', x, y, z)、HideObj(' + eName + ') 或直接修改 transform.position');
         }
       } else {
-        lines.push('                // REQUIRED: call PlaceObj / HideObj / transform.position = ... for the phase-required entity');
+        lines.push('                // 必须对 phase 所需实体调用 PlaceObj / HideObj / transform.position = ...');
       }
-      lines.push('                // TODO: AI fills — move/activate entities so EntityAdvanced(...) becomes true');
+      lines.push('                // TODO：移动或激活实体，让 EntityAdvanced(...) 变为 true');
       lines.push('                break;');
     }
     lines.push('        }');
   } else {
-    lines.push('        // TODO: AI fills — move/activate entities so EntityAdvanced(...) becomes true');
+    lines.push('        // TODO：移动或激活实体，让 EntityAdvanced(...) 变为 true');
   }
   lines.push('        // TODO_AUTOPLAY_INTERACT_END');
   lines.push('    }');
   lines.push('');
 
-  // [SKELETON] Phase instrumentation for automated testing
-  lines.push('    // [SKELETON] Phase instrumentation for automated testing');
+  // [SKELETON] 自动化测试用 phase 日志。
+  lines.push('    // [SKELETON] Phase 日志：供自动化测试捕获。');
   lines.push('    void ReportPhase(string phaseId) {');
-  lines.push('        // Bridge.NET compiles this to console.log which Playwright can capture');
+  lines.push('        // Bridge.NET 会编译成 console.log，Playwright 可直接捕获。');
   lines.push('        UnityEngine.Debug.Log("__PHASE__:" + phaseId);');
   lines.push('    }');
   lines.push('');
 
-  // [SKELETON 2026-04-20] EntityAdvanced — phase-exit gate binds to GameObject state.
-  // Returns true when the entity has moved more than ~1.5 units from its phase-entry
-  // position. This is the ONLY way phase conditions can satisfy — variable
-  // assignments alone (xxxState=N, xxxDone=true) are not readable here.
-  //
-  // Note: SetActive is forbidden in Luna, so we only check position. Use PlaceObj
-  // (show) / HideObj (move to y=-999) / transform.position = ... to advance entities.
-  lines.push('    // [SKELETON] Phase condition helper — reads REAL GameObject position (DO NOT MODIFY)');
+  // [SKELETON 2026-04-20] EntityAdvanced：phase 出口绑定真实 GameObject 位置。
+  // 实体相对 phase 入口快照移动超过约 1.5 单位才算满足条件；单纯变量赋值不会被这里读取。
+  // Luna 禁止 SetActive，因此只检查位置变化：PlaceObj / HideObj / transform.position 都可推进实体。
+  lines.push('    // [SKELETON] Phase condition helper：读取真实 GameObject 位置，请勿修改。');
   lines.push('    bool EntityAdvanced(GameObject go, Vector3 snapPos)');
   lines.push('    {');
   lines.push('        if (go == null) return false;');
@@ -855,48 +813,45 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    }');
   lines.push('');
 
-  // TODO: AI declares additional variables
-  lines.push('    // === TODO: AI declares pools, counters, and game-specific variables below ===');
+  // TODO：声明额外变量。
+  lines.push('    // === TODO：在下方声明对象池、计数器和游戏专属变量 ===');
   lines.push('    // TODO_VARIABLES_START');
   lines.push('');
   lines.push('    // TODO_VARIABLES_END');
   lines.push('');
 
-  // Start method — pre-populated with Find() calls and initialization
-  lines.push('    // Initialize generated state, pooled entities, UI, AutoPlay, and first preview snapshot.');
+  // Start 方法：预置 Find() 绑定和初始化。
+  lines.push('    // 初始化生成状态、对象池实体、UI、AutoPlay 和首帧 preview 快照。');
   lines.push('    void Start()');
   lines.push('    {');
-  lines.push('        // [SKELETON] Initialize phase tracking');
+  lines.push('        // [SKELETON] 初始化 phase tracking');
   lines.push(`        ruleTriggered = new bool[RULE_COUNT];`);
   lines.push(`        completedPhases = new string[RULE_COUNT + 5];`);
   lines.push(`        phaseEnterTimes = new float[RULE_COUNT];`);
   lines.push('');
 
-  // [SKELETON] Pre-generated initialization
-  lines.push('        // [SKELETON] Pool objects already ship with pre-baked colors');
-  // ResetPool / InitMaterialFromScene removed — using pre-colored pool objects
+  // [SKELETON] 预生成初始化。
+  lines.push('        // [SKELETON] 对象池物体已经带预烘焙颜色');
+  // 已移除 ResetPool / InitMaterialFromScene，统一使用预着色对象池物体。
   lines.push('');
 
-  // [SKELETON] GameSceneCtrl init + entity registration
+  // [SKELETON] GameSceneCtrl 初始化与实体注册。
   if (entityNames.length > 0) {
-    lines.push('        // [SKELETON] Scene entity management');
+    lines.push('        // [SKELETON] 场景实体管理');
     lines.push('        GameSceneCtrl.Init(gameObject);');
     entityNames.forEach(name => {
       lines.push(`        GameSceneCtrl.instance.Register("${name}", "${entityPoolMap[name]}");`);
     });
     lines.push('');
-    lines.push('        // [SKELETON] Entity variable shortcuts (backed by GameSceneCtrl cache)');
+    lines.push('        // [SKELETON] 实体变量快捷引用（由 GameSceneCtrl 缓存支持）');
     entityNames.forEach(name => {
       lines.push(`        ${name} = GameSceneCtrl.instance.Get("${name}");`);
     });
     lines.push('');
   }
 
-  // [SKELETON 2026-04-19] World labels — Chinese names above player-visible targets.
-  // Reintroduced after ScriptActivator predicate (2026-04-18) stopped calling
-  // GFM_Create.Obj(), which historically auto-attached labels. Label bg uses
-  // alpha=0 (fully transparent), so no ugly black bar.
-  // Opt-out rule: showLabel === false (player vehicle, currency, UI buttons).
+  // [SKELETON 2026-04-19] 世界空间标签：在玩家可见目标上方显示中文名。
+  // 标签背景 alpha=0，避免黑条；showLabel=false 的实体不显示标签。
   let _labelsEmitted = 0;
   entityNames.forEach(name => {
     const meta = entityMeta[name];
@@ -904,10 +859,10 @@ function generateSkeleton(specs, opts = {}) {
     if (meta.showLabel === false) return;
     if (!meta.chineseName) return;
     if (_labelsEmitted === 0) {
-      lines.push('        // [SKELETON] World-space Chinese labels on target entities');
+      lines.push('        // [SKELETON] 目标实体的世界空间中文标签');
     }
     const scale = typeof meta.scale === 'number' ? meta.scale : 1;
-    // height offset = ~top of entity bounding box + 0.5m clearance
+    // 高度偏移约等于实体包围盒顶部再加 0.5m 间距。
     const heightOffset = (scale * 0.5 + 0.5).toFixed(2);
     const cnEscaped = meta.chineseName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     lines.push(`        GFM_UI.AddWorldLabel(${name}, "${cnEscaped}", ${heightOffset}f);`);
@@ -915,26 +870,26 @@ function generateSkeleton(specs, opts = {}) {
   });
   if (_labelsEmitted > 0) lines.push('');
 
-  // [SKELETON] Ground color and camera background
+  // [SKELETON] 地面颜色和相机背景
   const groundEntity = entityNames.find(n => n.toLowerCase().indexOf('ground') >= 0 || n.toLowerCase().indexOf('field') >= 0);
   if (groundEntity) {
-    lines.push('        // [SKELETON] Anti-solid-color: ground and camera colors');
-    // Ground color is pre-baked in Unity template, no SetColor needed
+    lines.push('        // [SKELETON] 防纯色：地面与相机颜色');
+    // 地面颜色已在 Unity 模板预烘焙，不需要 SetColor。
   } else {
-    lines.push('        // [SKELETON] Anti-solid-color: camera background');
+    lines.push('        // [SKELETON] 防纯色：设置相机背景');
   }
-  lines.push(`        // [SKELETON] Cache Camera.main — NEVER use Camera.main directly, always use mainCam`);
-  lines.push(`        mainCam = Camera.main; // ok`);
+  lines.push(`        // [SKELETON] 缓存 Camera.main；后续统一使用 mainCam`);
+  lines.push(`        mainCam = Camera.main; // 正常`);
   lines.push(`        if (mainCam != null) mainCam.backgroundColor = new Color(${CAMERA_BG.r}f, ${CAMERA_BG.g}f, ${CAMERA_BG.b}f);`);
   lines.push('');
 
-  // [SKELETON] GFM_Luna.Init for iOS audio
-  lines.push('        // [SKELETON] Luna platform init (iOS audio pre-play)');
+  // [SKELETON] iOS 音频预播放初始化
+  lines.push('        // [SKELETON] Luna 平台初始化（iOS 音频预播放）');
   lines.push('        GFM_Luna.Init(gameObject);');
   lines.push('');
 
-  // [SKELETON] Pre-create Canvas and UI text
-  lines.push('        // [SKELETON] Create Canvas and UI text — use uiCanvas/guideText/scoreText directly');
+  // [SKELETON] 预创建 Canvas 和 UI 文本
+  lines.push('        // [SKELETON] 创建 Canvas 和 UI 文本；后续直接使用 uiCanvas/guideText/scoreText');
   lines.push('        uiCanvas = GFM_UI.CreateCanvas(1920, 1080);');
   lines.push('        guideText = GFM_UI.CreateText(uiCanvas, "", new Vector2(0, 450), 52);');
   lines.push('        scoreText = GFM_UI.CreateText(uiCanvas, "Score: 0", new Vector2(680, 480), 40);');
@@ -942,7 +897,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('');
 
   if (isIdleGame) {
-    lines.push('        // [SKELETON] Idle game initialization — joystick + isometric camera');
+    lines.push('        // [SKELETON] Idle 初始化：摇杆 + 等距相机');
     lines.push('        joystick = GFM_Joystick.Create(uiCanvas, 180f);');
     lines.push('        if (mainCam != null)');
     lines.push('        {');
@@ -953,37 +908,37 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        }');
     lines.push('');
   }
-  lines.push('        // === TODO: AI fills — create game objects, setup scene layout, etc. ===');
-  lines.push('        // IMPORTANT: Do NOT create Canvas again (use uiCanvas). Do NOT use Camera.main (use mainCam).');
+  lines.push('        // === TODO：创建游戏对象、摆放场景等 ===');
+  lines.push('        // 重要：不要再次创建 Canvas；使用 uiCanvas。不要使用 Camera.main；使用 mainCam。');
   if (isIdleGame) {
-    lines.push('        // IMPORTANT for idle games: Use the pre-built MovePlayer(), TryCollect(), TryDeliver() in Update.');
-    lines.push('        //   player = GameObject.Find("__Pool_Capsule_Blue_01"); // use pool object, NOT GFM_Create.Obj');
-    lines.push('        //   Then in Update: MovePlayer(); TryCollect(iceSource, "ice", 5, 1.5f); TryDeliver(machine, "ice", 1.5f);');
+    lines.push('        // Idle 项目请在 Update() 调用预置的 MovePlayer()/TryCollect()/TryDeliver()。');
+    lines.push('        //   player = GameObject.Find("__Pool_Capsule_Blue_01"); // 使用对象池物体，不调用 GFM_Create.Obj');
+    lines.push('        //   Update 示例：MovePlayer(); TryCollect(iceSource, "ice", 5, 1.5f); TryDeliver(machine, "ice", 1.5f);');
   }
   lines.push('        // TODO_START_START');
   lines.push('');
   lines.push('        // TODO_START_END');
   lines.push('');
   if (hasEconomy) {
-    lines.push('        // [SKELETON] Sync AI-filled _resources into GFM_EconomyManager (state owner)');
+    lines.push('        // [SKELETON] 将 Start() 中填充的 _resources 同步到 GFM_EconomyManager（状态归属方）');
     lines.push('        _SyncResourcesToManager();');
     lines.push('');
   }
-  // [SKELETON] Register AutoPlay targets + OnArrive callback with the Manager.
+  // [SKELETON] 向 Manager 注册 AutoPlay 目标和 OnArrive 回调。
   if (autoTargets.length > 0) {
-    lines.push('        // [SKELETON] Register AutoPlay targets with GFM_AutoPlay (state owner)');
+    lines.push('        // [SKELETON] 向 GFM_AutoPlay 注册自动播放目标（状态归属方）');
     lines.push('        GFM_AutoPlay.Instance.SetTargets(_autoTargets);');
     lines.push('');
   }
-  lines.push('        // [SKELETON] Wire AutoPlay arrival callback — Manager calls OnAutoPlayArrive per target');
+  lines.push('        // [SKELETON] 绑定自动播放到达回调；Manager 会按目标调用 OnAutoPlayArrive');
   lines.push('        GFM_AutoPlay.Instance.OnArrive = OnAutoPlayArrive;');
   lines.push('');
   lines.push('        UpdateGameState();');
   lines.push('    }');
   lines.push('');
 
-  // Update method
-  lines.push('    // Per-frame coordinator: sync managers, run flow/input helpers, then export preview state.');
+  // Update 方法。
+  lines.push('    // 每帧协调器：同步 manager，执行 Flow/Input 辅助逻辑，然后导出 preview state。');
   lines.push('    void Update()');
   lines.push('    {');
   lines.push('        if (gameEnded) return;');
@@ -991,7 +946,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        float dt = Time.deltaTime;');
   lines.push('        gameTimer += dt;');
   lines.push('');
-  lines.push('        // Keep update as a coordinator: delegate state sync helpers instead of inlining logic.');
+  lines.push('        // Update 只做调度，状态同步逻辑交给专门的辅助方法。');
   lines.push('        SyncAutoPlayState(gameTimer);');
   lines.push('');
   lines.push('        UpdatePhaseTimer(dt);');
@@ -1001,23 +956,20 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('');
   lines.push('        CheckEventRules();');
   lines.push('');
-  // [SKELETON] Player/control loop
-  // Always tick the shared player controller in interactive mode. Some non-idle
-  // games still rely on GFM_Player for proximity checks and resource delivery,
-  // so omitting this creates a "player exists but never moves" freeze that only
-  // shows up at CUA time.
-  lines.push('        if (_autoPlayMode) AutoPlayUpdate(); // autoPlay mode: trigger interactions for CUA');
-  lines.push('        else GFM_Player.Instance.Tick(dt, false); // interactive mode: joystick/player movement');
+  // [SKELETON] 玩家/控制循环：交互模式始终 tick 共享玩家控制器。
+  // 一些非 idle 项目也依赖 GFM_Player 做距离检查和资源交付。
+  lines.push('        if (_autoPlayMode) AutoPlayUpdate(); // autoPlay 模式：为 CUA 触发交互');
+  lines.push('        else GFM_Player.Instance.Tick(dt, false); // 交互模式：摇杆/玩家移动');
   if (isIdleGame) {
     lines.push('');
   }
-  lines.push('        // === TODO: AI fills — update systems: resource collection, delivery, production, etc. ===');
+  lines.push('        // === TODO：资源采集、交付、生产等 Update 逻辑 ===');
   if (isIdleGame) {
-    lines.push('        // Use TryCollect/TryDeliver for resource flow. Example:');
-    lines.push('        // if (TryCollect(iceSource, "ice", 5, 1.5f)) { /* picked up ice */ }');
+    lines.push('        // 资源流请使用 TryCollect/TryDeliver，例如：');
+    lines.push('        // if (TryCollect(iceSource, "ice", 5, 1.5f)) { /* 已拾取 ice */ }');
     lines.push('        // int delivered = TryDeliver(waterMachine, "ice", 1.5f);');
-    lines.push('        // if (delivered > 0) { waterMachineState = 1; /* machine producing */ }');
-    lines.push('        // UpdateCarryVisuals(); // show stack on player back');
+    lines.push('        // if (delivered > 0) { waterMachineState = 1; /* 机器开始生产 */ }');
+    lines.push('        // UpdateCarryVisuals(); // 展示玩家背包堆叠');
   }
   lines.push('        // TODO_UPDATE_START');
   lines.push('');
@@ -1028,12 +980,12 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    }');
   lines.push('');
 
-  // CheckEventRules — the core skeleton
-  lines.push('    // Evaluate phase gates and call Flow partial helpers when each gate is satisfied.');
+  // CheckEventRules：骨架核心流程。
+  lines.push('    // 检查 phase 出口条件；满足 gate 后调用 Flow partial 中的跳转辅助方法。');
   lines.push('    void CheckEventRules()');
   lines.push('    {');
 
-  // Pick first 3 non-ground entities for anti-solid-color placement in phase 1
+  // Phase 1 摆出前三个非地面实体，避免首屏纯色。
   const visibleEntities = entityNames.filter(n => {
     const lower = n.toLowerCase();
     return lower.indexOf('ground') < 0 && lower.indexOf('field') < 0
@@ -1046,42 +998,35 @@ function generateSkeleton(specs, opts = {}) {
     const isLast = i === specs.length - 1;
 
     lines.push(`        // ========== Phase ${i + 1}: ${spec.phaseName} (${spec.phaseId}) ==========`);
-    lines.push(`        // Duration: ${spec.duration.min}-${spec.duration.max}s`);
-    lines.push(`        // Interactions: ${(spec.requiredInteractions || []).join(', ') || 'none'}`);
-    lines.push(`        // Player must act: ${spec.playerMustAct}`);
+    lines.push(`        // 时长：${spec.duration.min}-${spec.duration.max}s`);
+    lines.push(`        // 交互：${(spec.requiredInteractions || []).join(', ') || 'none'}`);
+    lines.push(`        // 是否必须玩家操作：${spec.playerMustAct}`);
 
     if (i === 0) {
-      // First rule: game start
-      // [SKELETON 2026-04-20] Phase 0 warmup gate — prevents CUA PRE-CONTAMINATION.
-      // Without this, phase 0 fires on Update's first frame (before CUA observer
-      // opens its window at ~5-6s), so completedPhases already contains the first
-      // spec phase when CUA starts observing → hard fail, fix-loop cannot recover.
-      // WarmupReady handles both modes:
-      //   - Interactive: false for first 3s (detection window), then true
-      //   - AutoPlay: false until detection + 6s warmup, then true
+      // 第一条规则：游戏启动。
+      // [SKELETON 2026-04-20] Phase 0 warmup gate：防止 CUA 观察窗口打开前污染 completedPhases。
+      // WarmupReady 同时处理交互模式和 AutoPlay 模式。
       lines.push(`        if (!ruleTriggered[${ruleIdx}] && GFM_AutoPlay.Instance.WarmupReady)`);
       lines.push('        {');
       lines.push(`            EnterPhase(${ruleIdx}, "${spec.phaseId}", false, false);`);
       lines.push('');
 
-      // [SKELETON] Anti-solid-color: place first 3 entities in phase 1
+      // [SKELETON] 防纯色：phase 1 摆出前三个实体。
       if (visibleEntities.length > 0) {
-        lines.push('            // [SKELETON] Anti-solid-color: show initial objects (pool objects have pre-baked colors — do NOT call SetColor)');
+        lines.push('            // [SKELETON] 防纯色：显示初始物体（对象池已有预烘焙颜色，请勿调用 SetColor）');
         visibleEntities.forEach((eName, vi) => {
           const color = ENTITY_COLORS[vi % ENTITY_COLORS.length];
-          const xPos = (vi - 1) * 3; // spread: -3, 0, 3
-          lines.push(`            PlaceObj(${eName}, ${xPos}f, 0.5f, 0f); // pool color: ${color.label} — do NOT call SetColor`);
-          lines.push(`            SetScale(${eName}, 1f, 1f, 1f); // keep original scale — avoid oversized black rectangles`);
+          const xPos = (vi - 1) * 3; // 摆开到 -3、0、3
+          lines.push(`            PlaceObj(${eName}, ${xPos}f, 0.5f, 0f); // 对象池颜色：${color.label}，请勿调用 SetColor`);
+          lines.push(`            SetScale(${eName}, 1f, 1f, 1f); // 保持原始缩放，避免过大的黑色矩形`);
         });
         lines.push('');
       }
 
       lines.push(`            Phase_${spec.phaseId}_Init();`);
       lines.push('');
-      // [SKELETON 2026-04-23] Snapshot phase-exit entities AFTER init.
-      // The snapshot must represent the stable baseline at phase start; otherwise
-      // Phase_<id>_Init() placement/hide work gets miscounted as player progress,
-      // which causes CUA pre-contamination and timer-only auto-advances.
+      // [SKELETON 2026-04-23] init 后记录 phase 出口实体快照。
+      // 快照必须代表 phase 开始时的稳定基线，避免把入口摆放误判成玩家进度。
       const phase0Gates = phaseGateEntities(spec);
       if (phase0Gates.length > 0) {
         lines.push(`            Snapshot_${spec.phaseId}_GateEntities();`);
@@ -1091,21 +1036,19 @@ function generateSkeleton(specs, opts = {}) {
       lines.push('            CompletePhaseProgress("gameStart");');
       lines.push('        }');
     } else {
-      // Subsequent rules: require previous phase condition + minimum dwell time
+      // 后续规则：需要上一 phase 满足真实条件，并且达到最短停留时间。
       const prevSpec = specs[i - 1];
       const conditionHint = prevSpec.triggerNext && prevSpec.triggerNext.condition
         ? prevSpec.triggerNext.condition
         : 'previous phase complete';
 
-      lines.push(`        // [SKELETON] Transition from ${prevSpec.phaseId} → ${spec.phaseId}`);
-      lines.push(`        // Requires: ${prevSpec.triggerNext ? prevSpec.triggerNext.description : 'previous phase complete'}`);
-      lines.push(`        // Condition hint: ${conditionHint}`);
+      lines.push(`        // [SKELETON] Phase 跳转：${prevSpec.phaseId} → ${spec.phaseId}`);
+      lines.push(`        // 依赖：${prevSpec.triggerNext ? prevSpec.triggerNext.description : '上一 phase 完成'}`);
+      lines.push(`        // 条件提示：${conditionHint}`);
       const realCondition = buildRealCondition(prevSpec);
-      // [SKELETON 2026-04-20] Unified phase-exit gate — same condition in autoPlay + interactive.
-      // realCondition binds to GameObject state (see EntityAdvanced), so autoPlay CANNOT
-      // satisfy by flag assignment alone — AI must move/activate entities in OnAutoPlayArrive.
-      // The 12s floor in autoPlay gives CUA observer time to capture each phase clearly.
-      lines.push(`        // [SKELETON] Phase-exit gate (DO NOT MODIFY OR REMOVE)`);
+      // [SKELETON 2026-04-20] 统一 phase 出口 gate：autoPlay 与交互模式使用同一真实条件。
+      // realCondition 绑定 GameObject 状态，不能只靠 flag 赋值过关。
+      lines.push(`        // [SKELETON] Phase 出口 gate，请勿修改或删除`);
       lines.push(`        if (!ruleTriggered[${ruleIdx}]`);
       lines.push(`            && currentPhaseName == "${prevSpec.phaseId}"`);
       lines.push(`            && (${realCondition})`);
@@ -1116,31 +1059,29 @@ function generateSkeleton(specs, opts = {}) {
 
       lines.push(`            Phase_${spec.phaseId}_Init();`);
       lines.push('');
-      // [SKELETON 2026-04-23] Snapshot phase-exit entities AFTER init.
-      // The phase baseline should be captured after deterministic entry placement,
-      // so only in-phase player/autoplay actions can satisfy EntityAdvanced(...).
+      // [SKELETON 2026-04-23] init 后记录出口实体快照；
+      // 只有 phase 内的玩家/自动播放动作才能满足 EntityAdvanced(...)。
       const thisPhaseGates = phaseGateEntities(spec);
       if (thisPhaseGates.length > 0) {
         lines.push(`            Snapshot_${spec.phaseId}_GateEntities();`);
         lines.push('');
       }
 
-      lines.push(`            CompletePhaseProgress("${prevSpec.phaseId}"); // [IMMUTABLE] Must match spec phaseId exactly`);
+      lines.push(`            CompletePhaseProgress("${prevSpec.phaseId}"); // [IMMUTABLE] 必须与 spec phaseId 完全一致`);
       lines.push('        }');
     }
     lines.push('');
   });
 
-  // Final rule: game end
+  // 最后一条规则：游戏结束。
   const lastSpec = specs[specs.length - 1];
-  lines.push(`        // ========== Game End ==========`);
+  lines.push(`        // ========== 游戏结束 ==========`);
   const endConditionHint = lastSpec.triggerNext ? lastSpec.triggerNext.condition : 'game end condition';
-  lines.push(`        // End condition hint: ${endConditionHint}`);
+  lines.push(`        // 终局条件提示：${endConditionHint}`);
   const endRealCondition = buildRealCondition(lastSpec);
-  // [SKELETON 2026-04-20] Unified game-end gate — no autoPlay bypass, no bulk State=2.
-  // Last phase's entities must actually advance (move/toggle) during the last phase
-  // for gameEnd to trigger.
-  lines.push(`        // [SKELETON] Game-end gate (DO NOT MODIFY OR REMOVE)`);
+  // [SKELETON 2026-04-20] 统一终局 gate：不允许 autoPlay 绕过，也不允许批量 State=2。
+  // 最后一个 phase 的实体必须真实推进，才触发 gameEnd。
+  lines.push(`        // [SKELETON] 终局 gate，请勿修改或删除`);
   lines.push(`        if (!ruleTriggered[${specs.length}]`);
   lines.push(`            && currentPhaseName == "${lastSpec.phaseId}"`);
   lines.push(`            && (${endRealCondition})`);
@@ -1152,12 +1093,9 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        }');
   lines.push('');
 
-  // [SKELETON 2026-04-20] Stuck-phase reporter — LOG ONLY, does NOT bypass conditions.
-  // If a phase runs past 90s without its realCondition satisfying, emit a FATAL marker
-  // that CUA / task supervisor picks up. We do NOT write ruleTriggered[i] here —
-  // the old safety net was the L5 bypass; replacing it with a pure observer keeps
-  // "conditions must be fully satisfied" the only path to phase advancement.
-  lines.push('        // [SKELETON] Stuck-phase reporter — emits __PHASE_STUCK__ when realCondition fails to satisfy (DO NOT MODIFY)');
+  // [SKELETON 2026-04-20] 卡阶段上报器只打日志，不绕过条件。
+  // phase 超过 90 秒仍未满足 realCondition 时输出 FATAL marker，交给 CUA/任务监督器处理。
+  lines.push('        // [SKELETON] 卡阶段上报器：realCondition 不满足时输出 __PHASE_STUCK__，请勿修改');
   lines.push('        if (!gameEnded && phaseTimer >= 90f && TryReportStuckPhase())');
   lines.push('        {');
   lines.push('            return;');
@@ -1166,15 +1104,15 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    }');
   lines.push('');
 
-  // Helper methods (skeleton)
-  lines.push('    // === TODO: AI fills — game systems (UpdatePlayer, UpdateEnemies, etc.) ===');
+  // 骨架辅助方法。
+  lines.push('    // === TODO：玩法系统方法，例如 UpdatePlayer/UpdateEnemies ===');
   lines.push('    // TODO_SYSTEMS_START');
   lines.push('');
   lines.push('    // TODO_SYSTEMS_END');
   lines.push('');
 
-  // Standard helpers
-  lines.push('    // ========== SKELETON HELPERS (do not modify) ==========');
+  // 标准辅助方法。
+  lines.push('    // ========== SKELETON HELPERS：请勿修改 ==========');
   lines.push('');
   lines.push('    void AddCompletedPhase(string phaseName)');
   lines.push('    {');
@@ -1187,7 +1125,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        }');
   lines.push('    }');
   lines.push('');
-  lines.push('    // [SKELETON] Transform helpers — struct-copy pattern to minimize Vector3 alloc on hot paths');
+  lines.push('    // [SKELETON] Transform 辅助：使用 struct-copy 模式，减少热路径 Vector3 分配。');
   lines.push('    void PlaceObj(GameObject obj, float x, float y, float z)');
   lines.push('    {');
   lines.push('        if (obj == null) return;');
@@ -1220,8 +1158,8 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    }');
   lines.push('');
 
-  // [SKELETON] Pre-generated ShowCTA with InstallFullGame
-  lines.push('    // [SKELETON] CTA button — pre-generated, do not remove');
+  // [SKELETON] 使用 InstallFullGame 预生成 ShowCTA。
+  lines.push('    // [SKELETON] CTA 按钮：预生成，请勿删除。');
   lines.push('    void ShowCTA()');
   lines.push('    {');
   lines.push('        Luna.Unity.Playable.InstallFullGame();');
@@ -1234,15 +1172,15 @@ function generateSkeleton(specs, opts = {}) {
   Array.prototype.push.apply(lines, _buildUpdateGameStateMethodLines(specs));
   lines.push('');
 
-  // TODO: AI fills remaining UI methods
-  lines.push('    // === TODO: AI fills — ShowGuide, UI helpers, input handlers ===');
+  // TODO：填写剩余 UI 方法。
+  lines.push('    // === TODO：ShowGuide、UI 辅助和输入处理 ===');
   lines.push('    // TODO_UI_START');
   lines.push('');
   lines.push('    // TODO_UI_END');
   lines.push('}');
 
-  // Default-on: 5-partial split (Flow / Input / Resource / UI / Scene).
-  // Callers may explicitly disable via `w1bSplit: false` for compatibility.
+  // 默认启用 5-partial 拆分（Flow / Input / Resource / UI / Scene）。
+  // 调用方可用 `w1bSplit: false` 显式关闭以保持兼容。
   if (opts.w1bSplit !== false) {
     const phaseGateMap = {};
     specs.forEach((spec, index) => {
@@ -1252,7 +1190,7 @@ function generateSkeleton(specs, opts = {}) {
     return _split5Partial(lines, specs, allEntities, entityPoolMap, isIdleGame, phaseGateMap);
   }
 
-  // Legacy: 2-file split for large blueprints (>10 phases)
+  // 旧路径：大蓝图（>10 phases）使用 2 文件拆分。
   if (shouldSplit) {
     return _splitSkeleton(lines, specs, allEntities, entityPoolMap, isIdleGame);
   }
@@ -1261,48 +1199,47 @@ function generateSkeleton(specs, opts = {}) {
 }
 
 /**
- * Split skeleton into main file (phase flow) + systems file (helpers, subsystems)
+ * 将骨架拆成主文件（phase flow）和 systems 文件（辅助/子系统）。
  * @returns {{main: string, systems: string}}
  */
 function _splitSkeleton(allLines, specs, allEntities, entityPoolMap, isIdleGame) {
   const fullCode = allLines.join('\n');
 
-  // Systems file: helper methods that AI can extend
+  // Systems 文件：可扩展的辅助方法。
   const sysLines = [];
-  sysLines.push('// ========== AUTO-GENERATED SYSTEMS FILE — Subsystems & Helpers ==========');
-  sysLines.push('// This partial class holds reusable systems, helpers, and AI-extensible subsystems.');
-  sysLines.push('// Keep phase flow in GameFlowManagerMain.cs, put game systems here.');
+  sysLines.push('// ========== 自动生成 Systems 文件：子系统与辅助方法 ==========');
+  sysLines.push('// 这个 partial class 存放可复用系统、辅助方法和玩法扩展子系统。');
+  sysLines.push('// phase flow 保留在 GameFlowManagerMain.cs，玩法系统放在这里。');
   sysLines.push('');
   sysLines.push('using UnityEngine;');
   sysLines.push('using UnityEngine.UI;');
   sysLines.push('');
   sysLines.push('public partial class GameFlowManagerMain');
   sysLines.push('{');
-  sysLines.push('    // ========== AI SUBSYSTEMS ==========');
-  sysLines.push('    // Put movement systems, spawner systems, combat systems, resource systems here.');
-  sysLines.push('    // The main file calls these from Update() or CheckEventRules().');
+  sysLines.push('    // ========== 玩法子系统 ==========');
+  sysLines.push('    // 移动、生成器、战斗、资源等系统放在这里。');
+  sysLines.push('    // 主文件会从 Update() 或 CheckEventRules() 调用这些方法。');
   sysLines.push('');
-  sysLines.push('    // === TODO: AI fills — game subsystems (movement, combat, spawning, economy) ===');
+  sysLines.push('    // === TODO：玩法子系统（移动、战斗、生成、经济） ===');
   sysLines.push('    // TODO_SYSTEMS_START');
   sysLines.push('');
   sysLines.push('    // TODO_SYSTEMS_END');
   sysLines.push('');
-  sysLines.push('    // === TODO: AI fills — UI helpers, input handlers, visual effects ===');
+  sysLines.push('    // === TODO：UI 辅助、输入处理、视觉效果 ===');
   sysLines.push('    // TODO_UI_START');
   sysLines.push('');
   sysLines.push('    // TODO_UI_END');
   sysLines.push('}');
 
-  // Main file: remove the TODO_SYSTEMS and TODO_UI sections (moved to Systems file)
-  // Replace them with a comment pointing to the Systems file
+  // 主文件移除 TODO_SYSTEMS 和 TODO_UI 段，改用注释指向 Systems 文件。
   let mainCode = fullCode;
   mainCode = mainCode.replace(
-    /    \/\/ === TODO: AI fills — game systems \(UpdatePlayer, UpdateEnemies, etc\.\) ===\n    \/\/ TODO_SYSTEMS_START\n\n    \/\/ TODO_SYSTEMS_END\n/,
-    '    // NOTE: Game subsystems (movement, combat, spawning, etc.) go in GameFlowManagerMain.Systems.cs\n'
+    /    \/\/ === TODO：玩法系统方法，例如 UpdatePlayer\/UpdateEnemies ===\n    \/\/ TODO_SYSTEMS_START\n\n    \/\/ TODO_SYSTEMS_END\n/,
+    '    // 玩法子系统（移动、战斗、生成等）位于 GameFlowManagerMain.Systems.cs\n'
   );
   mainCode = mainCode.replace(
-    /    \/\/ === TODO: AI fills — ShowGuide, UI helpers, input handlers ===\n    \/\/ TODO_UI_START\n\n    \/\/ TODO_UI_END\n/,
-    '    // NOTE: UI helpers and input handlers go in GameFlowManagerMain.Systems.cs\n'
+    /    \/\/ === TODO：ShowGuide、UI 辅助和输入处理 ===\n    \/\/ TODO_UI_START\n\n    \/\/ TODO_UI_END\n/,
+    '    // UI 辅助和输入处理位于 GameFlowManagerMain.Systems.cs\n'
   );
 
   return {
@@ -1313,28 +1250,26 @@ function _splitSkeleton(allLines, specs, allEntities, entityPoolMap, isIdleGame)
 }
 
 /**
- * W1b 5-partial skeleton split.
- * Returns { main, flow, input, resource, ui, scene }.
- * Main keeps all existing skeleton content unchanged; companions add Phase dispatch
- * (Flow) and placeholder partial-class declarations (Input/Resource/UI/Scene).
- * Later W1b iterations will migrate method bodies from main into the 4 placeholders.
+ * W1b 五 partial 拆分。
+ * 返回 { main, flow, input, resource, ui, scene }。
+ * main 保留骨架主体，其他 partial 承接 Flow 分发与 Input/Resource/UI/Scene 占位。
  */
 function _split5Partial(allLines, specs, allEntities, entityPoolMap, isIdleGame, phaseGateMap = {}) {
   const fullCode = allLines.join('\n');
   const entityList = Array.from(allEntities);
   let mainCode = fullCode;
   mainCode = mainCode.replace(
-    /    \/\/ ========== SKELETON HELPERS \(do not modify\) ==========[\s\S]*?    \/\/ === TODO: AI fills — ShowGuide, UI helpers, input handlers ===\n    \/\/ TODO_UI_START\n\n    \/\/ TODO_UI_END\n/,
-    '    // NOTE: Phase bookkeeping helpers live in GameFlowManagerMain.Flow.cs\n' +
-    '    // NOTE: Scene placement helpers live in GameFlowManagerMain.Scene.cs\n' +
-    '    // NOTE: UI / CTA / UpdateGameState helpers live in GameFlowManagerMain.UI.cs\n' +
+    /    \/\/ ========== SKELETON HELPERS：请勿修改 ==========[\s\S]*?    \/\/ === TODO：ShowGuide、UI 辅助和输入处理 ===\n    \/\/ TODO_UI_START\n\n    \/\/ TODO_UI_END\n/,
+    '    // 阶段记账辅助方法位于 GameFlowManagerMain.Flow.cs\n' +
+    '    // 场景摆放辅助方法位于 GameFlowManagerMain.Scene.cs\n' +
+    '    // UI / CTA / UpdateGameState 辅助方法位于 GameFlowManagerMain.UI.cs\n' +
     '\n' +
-    '    // NOTE: Input helpers live in GameFlowManagerMain.Input.cs\n'
+    '    // 输入辅助方法位于 GameFlowManagerMain.Input.cs\n'
   );
   mainCode = mainCode.replace(
-    /    \/\/ \[SKELETON 2026-04-20\] OnAutoPlayArrive — MUST produce OBSERVABLE position changes\.[\s\S]*?    }\n\n    \/\/ \[SKELETON\] Phase instrumentation for automated testing\n/,
-    '    // NOTE: AutoPlay phase dispatch helpers live in GameFlowManagerMain.Flow.cs\n\n' +
-    '    // [SKELETON] Phase instrumentation for automated testing\n'
+    /    \/\/ \[SKELETON 2026-04-20\] OnAutoPlayArrive：必须产生可观测的位置变化。[\s\S]*?    }\n\n    \/\/ \[SKELETON\] Phase 日志：供自动化测试捕获。\n/,
+    '    // 自动播放阶段分发辅助方法位于 GameFlowManagerMain.Flow.cs\n\n' +
+    '    // [SKELETON] Phase 日志：供自动化测试捕获。\n'
   );
   const resourceSplit = _extractResourceSections(mainCode);
   const idleSplit = _extractIdleKitSections(resourceSplit.main);
@@ -1354,9 +1289,8 @@ function _pushAutoplayFallback(lines, pid, gateEntities, spec) {
   if (!gateEntities || gateEntities.length === 0) return;
   const touchFlag = pid + 'InteractionDone';
   const actedFlag = pid + 'PlayerActed';
-  lines.push('        // [SKELETON FALLBACK] Keep phase progression deterministic even');
-  lines.push('        // when AI leaves the phase handler empty. This mutates both transform');
-  lines.push('        // positions and a small set of gameplay variables so CUA sees real progress.');
+  lines.push('        // [SKELETON FALLBACK] AI 留空 phase handler 时，仍保持确定性推进。');
+  lines.push('        // 这里会移动实体并写入少量玩法变量，让 CUA 看到真实进度。');
   lines.push('        if (!' + touchFlag + ' && !' + actedFlag + ')');
   lines.push('        {');
   lines.push('            ' + touchFlag + ' = true;');
@@ -1438,54 +1372,54 @@ function _pushAutoplayFallback(lines, pid, gateEntities, spec) {
  */
 function _buildFlowPartial(specs, phaseGateMap = {}) {
   const lines = [];
-  lines.push('// ========== AUTO-GENERATED FLOW PARTIAL — phase orchestration helpers ==========');
-  lines.push('// Owner class: GameFlowManagerMain (partial). Fields in main are shared.');
+  lines.push('// ========== 自动生成 Flow partial：phase 编排辅助 ==========');
+  lines.push('// 所属类：GameFlowManagerMain (partial)。字段与 main 文件共享。');
   lines.push('');
   lines.push('using UnityEngine;');
   lines.push('');
   lines.push('public partial class GameFlowManagerMain');
   lines.push('{');
-  lines.push('    // ========== Flow Dispatchers ==========');
+  lines.push('    // ========== Flow 分发器 ==========');
   lines.push('');
-  lines.push('    // [SKELETON] Interactive-mode tap dispatcher. Update() calls this on player tap');
-  lines.push('    // when !_autoPlayMode. Grep phaseId to locate each Phase_<id>_OnTap() below.');
+  lines.push('    // [SKELETON] 交互模式点击分发器；Update() 在玩家点击时调用。');
+  lines.push('    // 按 phaseId 定位下方对应的 Phase_<id>_OnTap()。');
   lines.push('    void Phase_OnTap()');
   lines.push('    {');
-  lines.push('        // Dispatch the current phase directly to its dedicated tap handler.');
+  lines.push('        // 将当前 phase 直接分发给专属点击 handler。');
   lines.push('        switch (currentPhaseName)');
   lines.push('        {');
   for (let i = 0; i < specs.length; i++) {
     const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
-    lines.push('            case "' + pid + '": Phase_' + pid + '_OnTap(); break; // route tap handling for phase ' + pid);
+    lines.push('            case "' + pid + '": Phase_' + pid + '_OnTap(); break;');
   }
   lines.push('        }');
   lines.push('    }');
   lines.push('');
-  lines.push('    // AutoPlay-mode dispatcher. Keep this coordinator thin and delegate phase logic below.');
+  lines.push('    // AutoPlay 模式分发器：只做协调，具体 phase 逻辑放在下方。');
   lines.push('    void OnAutoPlayArrive(string targetName)');
   lines.push('    {');
-  lines.push('        // Dispatch directly to the active phase-specific autoPlay handler.');
+  lines.push('        // 直接分发给当前 phase 的 AutoPlay handler。');
   lines.push('        switch (currentPhaseName)');
   lines.push('        {');
   for (let i = 0; i < specs.length; i++) {
     const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
-    lines.push('            case "' + pid + '": Phase_' + pid + '_OnAutoPlayArrive(targetName); break; // route autoPlay arrival for phase ' + pid);
+    lines.push('            case "' + pid + '": Phase_' + pid + '_OnAutoPlayArrive(targetName); break;');
   }
   lines.push('        }');
   lines.push('    }');
   lines.push('');
-  lines.push('    // ========== Shared Flow Helpers ==========');
+  lines.push('    // ========== 共享 Flow 辅助方法 ==========');
   lines.push('');
-  lines.push('    // Sync the local autoplay mirrors from GFM_AutoPlay so Update() stays lightweight.');
+  lines.push('    // 从 GFM_AutoPlay 同步本地 autoplay 镜像，让 Update() 保持轻量。');
   lines.push('    void SyncAutoPlayState(float now)');
   lines.push('    {');
-  lines.push('        // Manager owns activation timing and step counting. Keep main flow code read-only.');
+  lines.push('        // Manager 持有激活时机和步数计数；main flow 只读这些状态。');
   lines.push('        GFM_AutoPlay.Instance.CheckActivation(now);');
   lines.push('        _autoPlayMode = GFM_AutoPlay.Instance.IsActive;');
   lines.push('        _autoPlaySteps = GFM_AutoPlay.Instance.Steps;');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Reset and advance the per-phase timer whenever the active phase changes.');
+  lines.push('    // 当前 phase 变化时重置 phase 计时器，并在每帧推进。');
   lines.push('    void UpdatePhaseTimer(float dt)');
   lines.push('    {');
   lines.push('        if (currentPhaseName != lastPhaseForTimer)');
@@ -1496,7 +1430,7 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
   lines.push('        phaseTimer += dt;');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Apply the common state changes that happen whenever flow enters a new phase.');
+  lines.push('    // 进入新 phase 时统一应用公共状态变更。');
   lines.push('    void EnterPhase(int ruleIdx, string phaseId, bool resetTimer, bool syncAutoPlayBaseline)');
   lines.push('    {');
   lines.push('        ruleTriggered[ruleIdx] = true;');
@@ -1519,7 +1453,7 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
   lines.push('        ReportPhase(phaseId);');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Apply the immutable end-of-game sequence in one place.');
+  lines.push('    // 终局流程集中在这里处理。');
   lines.push('    void FinishGame(string lastPhaseId)');
   lines.push('    {');
   lines.push('        AddCompletedPhase(lastPhaseId);');
@@ -1529,7 +1463,7 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
   lines.push('        UpdateGameState();');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Apply the common phase-progress bookkeeping after a transition completes.');
+  lines.push('    // phase 跳转完成后统一做进度记账。');
   lines.push('    void CompletePhaseProgress(string completedPhaseId)');
   lines.push('    {');
   lines.push('        RecordPhaseEvidenceFlag(completedPhaseId, "phase_advanced");');
@@ -1537,16 +1471,16 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
   lines.push('        UpdateGameState();');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Emit one stuck-phase marker and throttle repeats so CUA gets a stable fatal signal.');
+  lines.push('    // 输出一个卡阶段 marker，并节流重复上报，方便 CUA 得到稳定失败信号。');
   lines.push('    bool TryReportStuckPhase()');
   lines.push('    {');
-  lines.push('        // Route stuck reporting by active phase so each generated phase emits a precise marker.');
+  lines.push('        // 按当前 phase 分发 stuck 上报，保证每个生成阶段都有明确失败标记。');
   lines.push('        switch (currentPhaseName)');
   lines.push('        {');
   for (let i = 0; i < specs.length; i++) {
     const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
     const ruleIndex = i + 1;
-    lines.push('            case "' + pid + '": // report when phase ' + pid + ' has not reached its next rule gate');
+    lines.push('            case "' + pid + '":');
     lines.push('                if (!ruleTriggered[' + ruleIndex + '])');
     lines.push('                {');
     lines.push('                    UnityEngine.Debug.Log("__PHASE_STUCK__:' + pid + ':phaseTimer=" + phaseTimer + ":autoPlay=" + (_autoPlayMode ? "1" : "0"));');
@@ -1559,7 +1493,7 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
   lines.push('        return false;');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Record a completed phase in order and notify the autoPlay observer immediately.');
+  lines.push('    // 按顺序记录已完成 phase，并立即通知 autoPlay observer。');
   lines.push('    void AddCompletedPhase(string phaseName)');
   lines.push('    {');
   lines.push('        if (completedPhaseCount < completedPhases.Length)');
@@ -1571,27 +1505,24 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
   lines.push('        }');
   lines.push('    }');
   lines.push('');
-  lines.push('    // ========== Phase Init Handlers ==========');
+  lines.push('    // ========== Phase 初始化 handler ==========');
   lines.push('');
   for (let i = 0; i < specs.length; i++) {
     const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
-    lines.push('    // [SKELETON] Phase "' + pid + '" enter/init helper.');
-    lines.push('    // Keep phase-specific placement/guide logic here so CheckEventRules() stays concise.');
+    lines.push('    // [SKELETON] Phase "' + pid + '" 进入/初始化辅助方法。');
+    lines.push('    // phase 专属摆放和引导逻辑放在这里，保持 CheckEventRules() 简洁。');
     lines.push('    void Phase_' + pid + '_Init()');
     lines.push('    {');
     if (i === 0) {
-      lines.push('        // === TODO: AI fills — place additional objects, set colors, show guide ===');
+      lines.push('        // === TODO：摆放额外物体、设置颜色、显示引导 ===');
       lines.push('        // TODO_PHASE_' + (i + 1) + '_INIT_START');
       lines.push('');
       lines.push('        // TODO_PHASE_' + (i + 1) + '_INIT_END');
     } else {
-      lines.push('        // === TODO: AI fills — activate objects for ' + specs[i].phaseName + ' ===');
-      lines.push('        // [REMINDER] This phase will exit when EntityAdvanced(X, _snap_XPos) > 1.5 for every X');
-      lines.push('        // listed above. The exit gate reads transform.position ONLY. Flag writes');
-      lines.push('        // (xxxDone=true / xxxState=N / xxxPlayerActed=true) DO NOT satisfy the gate.');
-      lines.push("        // Ensure the phase's player-triggered interaction body (in Update / handlers /");
-      lines.push('        // the matching case in OnAutoPlayArrive) calls PlaceObj(X,...) / HideObj(X) /');
-      lines.push('        // X.transform.position = ... at least once per required entity.');
+      lines.push('        // === TODO：激活 ' + specs[i].phaseName + ' 所需物体 ===');
+      lines.push('        // [REMINDER] 该 phase 的每个 gate 实体都必须满足 EntityAdvanced(X, _snap_XPos) > 1.5。');
+      lines.push('        // 出口 gate 只读取 transform.position；写 xxxDone/xxxState/xxxPlayerActed 不能过关。');
+      lines.push('        // 请确保玩家交互体或对应 OnAutoPlayArrive case 至少一次调用 PlaceObj/HideObj/transform.position。');
       lines.push('        // TODO_PHASE_' + (i + 1) + '_INIT_START');
       lines.push('');
       lines.push('        // TODO_PHASE_' + (i + 1) + '_INIT_END');
@@ -1599,56 +1530,56 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
     lines.push('    }');
     lines.push('');
   }
-  lines.push('    // ========== Phase Tap Handlers ==========');
+  lines.push('    // ========== Phase 点击 handler ==========');
   lines.push('');
   for (let i = 0; i < specs.length; i++) {
     const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
     const gateEntities = phaseGateMap[pid] || [];
-    lines.push('    // [SKELETON] Phase "' + pid + '" tap handler. AI/template fills TODO region.');
+    lines.push('    // [SKELETON] Phase "' + pid + '" 点击 handler，补充交互逻辑或复用模板。');
     lines.push('    void Phase_' + pid + '_OnTap()');
     lines.push('    {');
     _pushAutoplayFallback(lines, pid, gateEntities, specs[i]);
     lines.push('        // TODO_PHASE_' + pid + '_ONTAP_START');
-    lines.push('        // TODO: AI/template fills — produce observable movement or other real gameplay progress here.');
-    lines.push('        // Do NOT rely on ' + pid + 'InteractionDone / ' + pid + 'PlayerActed alone to advance the phase.');
+    lines.push('        // TODO：在这里产生可观察位移或其他真实玩法进度。');
+    lines.push('        // 不要只依赖 ' + pid + 'InteractionDone / ' + pid + 'PlayerActed 推进 phase。');
     lines.push('        // TODO_PHASE_' + pid + '_ONTAP_END');
     lines.push('    }');
     lines.push('');
   }
-  lines.push('    // ========== Phase AutoPlay Handlers ==========');
+  lines.push('    // ========== Phase AutoPlay handler ==========');
   lines.push('');
   for (let i = 0; i < specs.length; i++) {
     const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
     const entities = specs[i].entitiesRequired || [];
     const gateEntities = phaseGateMap[pid] || [];
-    lines.push('    // [SKELETON] Phase "' + pid + '" autoPlay handler.');
-    lines.push('    // MUST produce observable position changes so EntityAdvanced(...) can pass.');
+    lines.push('    // [SKELETON] Phase "' + pid + '" autoPlay handler。');
+    lines.push('    // 必须产生可观测位置变化，EntityAdvanced(...) 才会通过。');
     lines.push('    void Phase_' + pid + '_OnAutoPlayArrive(string targetName)');
     lines.push('    {');
     if (entities.length > 0) {
-      lines.push('        // REQUIRED: produce observable change for each entity below');
+      lines.push('        // 必须让下列每个实体产生可观测变化');
       for (let ei = 0; ei < entities.length; ei++) {
         const eName = entities[ei].name || entities[ei];
-        lines.push('        //   - ' + eName + ': PlaceObj(' + eName + ', x, y, z) or HideObj(' + eName + ') or direct transform.position =');
+        lines.push('        //   - ' + eName + '：调用 PlaceObj(' + eName + ', x, y, z)、HideObj(' + eName + ') 或直接修改 transform.position');
       }
     } else {
-      lines.push('        // REQUIRED: call PlaceObj / HideObj / transform.position = ... for the phase-required entity');
+      lines.push('        // 必须对 phase 所需实体调用 PlaceObj / HideObj / transform.position = ...');
     }
     lines.push('        // TODO_PHASE_' + pid + '_ONAUTOARRIVE_START');
-    lines.push('        // TODO: AI fills — move/activate entities so EntityAdvanced(...) becomes true');
-    lines.push('        // targetName is provided by GFM_AutoPlay for phase-specific routing when needed.');
+    lines.push('        // TODO：移动或激活实体，让 EntityAdvanced(...) 变为 true');
+    lines.push('        // targetName 由 GFM_AutoPlay 提供，可用于 phase 内部分流。');
     _pushAutoplayFallback(lines, pid, gateEntities, specs[i]);
     lines.push('        // TODO_PHASE_' + pid + '_ONAUTOARRIVE_END');
     lines.push('    }');
     lines.push('');
   }
-  lines.push('    // ========== Phase Snapshot Helpers ==========');
+  lines.push('    // ========== Phase 快照辅助方法 ==========');
   lines.push('');
   for (let i = 0; i < specs.length; i++) {
     const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
     const gateEntities = phaseGateMap[pid] || [];
     if (gateEntities.length === 0) continue;
-    lines.push('    // Capture the current positions of phase-gating entities for later EntityAdvanced(...) checks.');
+    lines.push('    // 记录 phase gate 实体当前坐标，供后续 EntityAdvanced(...) 检查。');
     lines.push('    void Snapshot_' + pid + '_GateEntities()');
     lines.push('    {');
     gateEntities.forEach(name => {
@@ -1669,12 +1600,12 @@ function _extractResourceSections(code) {
     {
       regex: /    struct FormDef \{\n[\s\S]*?    int GetCarryCapacity\(\) \{ return \(_forms != null && _forms\.Length > 0\) \? _forms\[_currentFormIndex\]\.carryCapacity : 10; \}\n\n/,
       note:
-        '    // NOTE: Form definitions and form-switch helpers live in GameFlowManagerMain.Resource.cs\n\n',
+        '    // 形态定义和形态切换辅助方法位于 GameFlowManagerMain.Resource.cs\n\n',
     },
     {
-      regex: /    \/\/ \[SKELETON\] Economy system — delegated to GFM_EconomyManager \(state owner\)\n[\s\S]*?        scoreText\.text = display;\n    }\n\n/,
+      regex: /    \/\/ \[SKELETON\] 经济系统：委托给 GFM_EconomyManager（状态归属方）\n[\s\S]*?        scoreText\.text = display;\n    }\n\n/,
       note:
-        '    // NOTE: Economy/resource helpers live in GameFlowManagerMain.Resource.cs\n\n',
+        '    // 经济/资源辅助方法位于 GameFlowManagerMain.Resource.cs\n\n',
     },
   ];
 
@@ -1697,51 +1628,51 @@ function _extractIdleKitSections(code) {
   const extracts = [
     {
       target: inputSections,
-      regex: /    \/\/ --- Player Movement \(joystick-driven\) ---\n    GFM_Joystick joystick;\n    GameObject player;\n(?:    float moveSpeed \{ get \{ return \(_forms != null && _forms\.Length > 0\) \? _forms\[_currentFormIndex\]\.moveSpeed : 5f; \} \}\n|    float moveSpeed = 5f;\n)/,
+      regex: /    \/\/ --- 玩家移动（摇杆优先） ---\n    GFM_Joystick joystick;\n    GameObject player;\n(?:    float moveSpeed \{ get \{ return \(_forms != null && _forms\.Length > 0\) \? _forms\[_currentFormIndex\]\.moveSpeed : 5f; \} \}\n|    float moveSpeed = 5f;\n)/,
       note:
-        '    // NOTE: Idle movement state lives in GameFlowManagerMain.Input.cs\n\n',
+        '    // Idle movement 状态位于 GameFlowManagerMain.Input.cs\n\n',
     },
     {
       target: resourceSections,
-      regex: /    int carrying = 0; \/\/ generic resource count on player back\n    string carryingType = \"\"; \/\/ what resource type\n/,
+      regex: /    int carrying = 0; \/\/ 玩家当前携带的通用资源数量\n    string carryingType = \"\"; \/\/ 当前携带资源类型\n/,
       note:
-        '    // NOTE: Idle carry-state lives in GameFlowManagerMain.Resource.cs\n',
+        '    // Idle carry 状态位于 GameFlowManagerMain.Resource.cs\n',
     },
     {
       target: inputSections,
-      regex: /    \/\/ \[SKELETON\] Tap-to-move target \(fallback for joystick\)\n    Vector3 tapMoveTarget = Vector3\.zero;\n    bool hasTapTarget = false;\n    \/\/ \[SKELETON\] Reusable buffer for per-frame move\/look vectors — avoids alloc\n    Vector3 _moveBuf = Vector3\.zero;\n/,
+      regex: /    \/\/ \[SKELETON\] 点击移动目标：摇杆无输入时的兜底移动方式。\n    Vector3 tapMoveTarget = Vector3\.zero;\n    bool hasTapTarget = false;\n    \/\/ \[SKELETON\] 每帧移动\/朝向复用缓冲，避免额外分配。\n    Vector3 _moveBuf = Vector3\.zero;\n/,
       note:
-        '    // NOTE: Idle tap-move state lives in GameFlowManagerMain.Input.cs\n',
+        '    // Idle tap-move 状态位于 GameFlowManagerMain.Input.cs\n',
     },
     {
       target: resourceSections,
-      regex: /    \/\/ \[SKELETON\] Batch 2 collect cooldown infra — shared across all collect templates\n    float collectCooldownInterval = [^\n]+\n    float _collectCooldown = 0f;\n    string _lastScoreText = \"\";\n\n/,
+      regex: /    \/\/ \[SKELETON\] 采集冷却：所有 collect 模板共享。\n    float collectCooldownInterval = [^\n]+\n    \/\/ 当前剩余采集冷却时间。\n    float _collectCooldown = 0f;\n    \/\/ 上一次渲染的分数文本，避免重复写 HUD。\n    string _lastScoreText = \"\";\n\n/,
       note:
-        '    // NOTE: Idle collect cooldown state lives in GameFlowManagerMain.Resource.cs\n\n',
+        '    // Idle 采集冷却状态位于 GameFlowManagerMain.Resource.cs\n\n',
     },
     {
       target: uiSections,
-      regex: /    int gold = 0;\n\n/,
+      regex: /    \/\/ \[SKELETON\] Idle 分数状态：由 AddGold\/scoreText 使用。\n    int gold = 0;\n\n/,
       note:
-        '    // NOTE: Idle score state lives in GameFlowManagerMain.UI.cs\n\n',
+        '    // Idle 分数状态位于 GameFlowManagerMain.UI.cs\n\n',
     },
     {
       target: inputSections,
-      regex: /    \/\/ \[SKELETON\] Move player by joystick \+ tap-to-move fallback — call in Update\(\)\n    void MovePlayer\(\)\n    \{\n[\s\S]*?    }\n\n/,
+      regex: /    \/\/ \[SKELETON\] 玩家移动：优先摇杆，点击移动兜底；在 Update\(\) 调用。\n    void MovePlayer\(\)\n    \{\n[\s\S]*?    }\n\n/,
       note:
-        '    // NOTE: Idle movement helpers live in GameFlowManagerMain.Input.cs\n\n',
+        '    // Idle 移动辅助方法位于 GameFlowManagerMain.Input.cs\n\n',
     },
     {
       target: resourceSections,
-      regex: /    \/\/ \[SKELETON\] Check if player is near a target \(proximity trigger\) — XZ sqr distance, no sqrt\/alloc\n    bool IsNear\(GameObject target, float range\)\n    \{\n[\s\S]*?    }\n\n    \/\/ \[SKELETON\] Auto-collect: when player near source, pick up resources\n    \/\/ Returns true if collected this frame\n    bool TryCollect\(GameObject source, string resType, int maxCarry, float range\)\n    \{\n[\s\S]*?    }\n\n    \/\/ \[SKELETON\] Auto-deliver: when player near machine\/sellpoint, drop off resources\n    \/\/ Returns number of items delivered\n    int TryDeliver\(GameObject target, string expectedType, float range\)\n    \{\n[\s\S]*?    }\n\n    \/\/ \[SKELETON\] Show carry stack on player back \(visual feedback\)\n    GameObject\[] carryVisuals;\n    void UpdateCarryVisuals\(\)\n    \{\n[\s\S]*?    }\n\n/,
+      regex: /    \/\/ \[SKELETON\] 距离检查：只比较 XZ 平面平方距离，避免 sqrt 和分配。\n    bool IsNear\(GameObject target, float range\)\n    \{\n[\s\S]*?    }\n\n    \/\/ \[SKELETON\] 自动采集：玩家靠近资源点时拾取资源。\n    \/\/ 本帧采集成功则返回 true。\n    bool TryCollect\(GameObject source, string resType, int maxCarry, float range\)\n    \{\n[\s\S]*?    }\n\n    \/\/ \[SKELETON\] 自动交付：玩家靠近机器\/售卖点时交出资源。\n    \/\/ 返回本次交付数量。\n    int TryDeliver\(GameObject target, string expectedType, float range\)\n    \{\n[\s\S]*?    }\n\n    \/\/ \[SKELETON\] 背包堆叠展示：用对象池物体表现携带资源。\n    GameObject\[] carryVisuals;\n    void UpdateCarryVisuals\(\)\n    \{\n[\s\S]*?    }\n\n/,
       note:
-        '    // NOTE: Idle collect/deliver helpers live in GameFlowManagerMain.Resource.cs\n\n',
+        '    // Idle 采集/交付辅助方法位于 GameFlowManagerMain.Resource.cs\n\n',
     },
     {
       target: uiSections,
-      regex: /    \/\/ \[SKELETON\] Gold UI update helper\n    void AddGold\(int amount\)\n    \{\n[\s\S]*?    }\n\n    \/\/ \[SKELETON\] Show floating text \(\+3 gold\) effect\n    \/\/ \[SKELETON\] Floating text — uses a pooled text element, auto-hides after delay\n    void ShowFloatingText\(Vector3 worldPos, string text, Color color\)\n    \{\n[\s\S]*?    }\n\n/,
+      regex: /    \/\/ \[SKELETON\] 金币 UI 更新辅助方法。\n    void AddGold\(int amount\)\n    \{\n[\s\S]*?    }\n\n    \/\/ \[SKELETON\] 浮字效果：复用池化文本，并在短暂显示后自动隐藏。\n    void ShowFloatingText\(Vector3 worldPos, string text, Color color\)\n    \{\n[\s\S]*?    }\n\n/,
       note:
-        '    // NOTE: Idle score/floating-text helpers live in GameFlowManagerMain.UI.cs\n\n',
+        '    // Idle 分数/浮字辅助方法位于 GameFlowManagerMain.UI.cs\n\n',
     },
   ];
 
@@ -1756,20 +1687,20 @@ function _extractIdleKitSections(code) {
 }
 
 /**
- * Build minimal partial-class stub (Input / Resource / UI / Scene).
- * Satisfies partial-split-enforce rule; method bodies migrate in later iterations.
+ * 构建最小 partial-class 占位（Input / Resource / UI / Scene）。
+ * 满足 partial-split-enforce 规则；方法体会在后续迭代迁移。
  */
 function _buildStubPartial(name, description) {
   return [
-    '// ========== AUTO-GENERATED ' + name.toUpperCase() + ' PARTIAL — ' + description + ' ==========',
-    '// Add only ' + name.toLowerCase() + '-related helpers here. Keep this file focused and well-commented.',
+    '// ========== 自动生成 ' + name.toUpperCase() + ' partial：' + description + ' ==========',
+    '// 这里只放 ' + name.toLowerCase() + ' 相关辅助方法，保持文件职责集中。',
     '',
     'using UnityEngine;',
     '',
     'public partial class GameFlowManagerMain',
     '{',
     '    // TODO_' + name.toUpperCase() + '_METHODS_START',
-    '    // Reserved for ' + name.toLowerCase() + ' methods.',
+    '    // 预留给 ' + name.toLowerCase() + ' 方法。',
     '    // TODO_' + name.toUpperCase() + '_METHODS_END',
     '}',
   ].join('\n');
@@ -1777,8 +1708,8 @@ function _buildStubPartial(name, description) {
 
 function _buildResourcePartial(sections) {
   const lines = [];
-  lines.push('// ========== AUTO-GENERATED RESOURCE PARTIAL — economy / inventory / form helpers ==========');
-  lines.push('// Keep resource-facing helpers here so the main file only coordinates phase flow.');
+  lines.push('// ========== 自动生成 Resource partial：经济/背包/形态辅助 ==========');
+  lines.push('// 资源相关辅助方法放在这里，主文件只协调 phase flow。');
   lines.push('');
   lines.push('using UnityEngine;');
   lines.push('');
@@ -1792,7 +1723,7 @@ function _buildResourcePartial(sections) {
     lines.push('');
   }
   lines.push('    // TODO_RESOURCE_METHODS_START');
-  lines.push('    // Reserved for resource, inventory, and form-specific methods.');
+  lines.push('    // 预留给资源、背包和形态相关方法。');
   lines.push('    // TODO_RESOURCE_METHODS_END');
   lines.push('}');
   return lines.join('\n');
@@ -1800,8 +1731,8 @@ function _buildResourcePartial(sections) {
 
 function _buildInputPartial(sections) {
   const lines = [];
-  lines.push('// ========== AUTO-GENERATED INPUT PARTIAL — player movement / tap handling helpers ==========');
-  lines.push('// Keep input-facing helpers here so the main file stays focused on phase orchestration.');
+  lines.push('// ========== 自动生成 Input partial：玩家移动/点击处理辅助 ==========');
+  lines.push('// 输入相关辅助方法放在这里，主文件只负责 phase 编排。');
   lines.push('');
   lines.push('using UnityEngine;');
   lines.push('');
@@ -1815,7 +1746,7 @@ function _buildInputPartial(sections) {
     lines.push('');
   }
   lines.push('    // TODO_INPUT_METHODS_START');
-  lines.push('    // Reserved for input-specific methods.');
+  lines.push('    // 预留给输入相关方法。');
   lines.push('    // TODO_INPUT_METHODS_END');
   lines.push('}');
   return lines.join('\n');
@@ -1823,14 +1754,14 @@ function _buildInputPartial(sections) {
 
 function _buildScenePartial() {
   return [
-    '// ========== AUTO-GENERATED SCENE PARTIAL — entity placement / lifecycle helpers ==========',
-    '// Keep scene-facing helpers here so the main file stays focused on flow orchestration.',
+    '// ========== 自动生成 Scene partial：实体摆放/生命周期辅助 ==========',
+    '// 场景相关辅助方法放在这里，主文件只负责 flow 编排。',
     '',
     'using UnityEngine;',
     '',
     'public partial class GameFlowManagerMain',
     '{',
-    '    // Place a pooled scene object at a concrete world position.',
+    '    // 将对象池场景物体放到明确的世界坐标。',
     '    void PlaceObj(GameObject obj, float x, float y, float z)',
     '    {',
     '        if (obj == null) return;',
@@ -1839,7 +1770,7 @@ function _buildScenePartial() {
     '        obj.transform.position = pos;',
     '    }',
     '',
-    '    // Hide a pooled scene object by moving it below the playable camera range.',
+    '    // 将对象池场景物体移动到试玩相机范围下方来隐藏。',
     '    void HideObj(GameObject obj)',
     '    {',
     '        if (obj == null) return;',
@@ -1848,7 +1779,7 @@ function _buildScenePartial() {
     '        obj.transform.position = pos;',
     '    }',
     '',
-    '    // Apply a non-uniform scene scale to a pooled object.',
+    '    // 对对象池物体应用非等比缩放。',
     '    void SetScale(GameObject obj, float x, float y, float z)',
     '    {',
     '        if (obj == null) return;',
@@ -1857,7 +1788,7 @@ function _buildScenePartial() {
     '        obj.transform.localScale = s;',
     '    }',
     '',
-    '    // Apply a uniform scene scale to a pooled object.',
+    '    // 对对象池物体应用等比缩放。',
     '    void SetScale(GameObject obj, float uniform)',
     '    {',
     '        if (obj == null) return;',
@@ -1871,8 +1802,8 @@ function _buildScenePartial() {
 
 function _buildUiPartial(specs, entityList, helperSections = []) {
   const lines = [];
-  lines.push('// ========== AUTO-GENERATED UI PARTIAL — CTA / HUD / exported preview state ==========');
-  lines.push('// Keep UI-facing helpers here so the main file only orchestrates when they are called.');
+  lines.push('// ========== 自动生成 UI partial：CTA / HUD / preview state 导出 ==========');
+  lines.push('// UI 相关辅助方法放在这里，主文件只负责调用时机。');
   lines.push('');
   lines.push('using UnityEngine;');
   lines.push('using UnityEngine.UI;');
@@ -1889,7 +1820,7 @@ function _buildUiPartial(specs, entityList, helperSections = []) {
   }
   _buildRuntimeStateBridgeHelperLines(entityList, specs).forEach((line) => lines.push(line));
   lines.push('');
-  lines.push('    // Trigger the final CTA directly when the game-end gate succeeds.');
+  lines.push('    // 终局 gate 成功时直接触发最终 CTA。');
   lines.push('    void ShowCTA()');
   lines.push('    {');
   lines.push('        Luna.Unity.Playable.InstallFullGame();');
@@ -1909,28 +1840,28 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   const phaseIds = (Array.isArray(specs) ? specs : [])
     .map((spec) => String(spec && spec.phaseId || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"'))
     .filter(Boolean);
-  lines.push('    string[] _phaseEvidencePhaseIds = new string[] { ' + phaseIds.map((phaseId) => '"' + phaseId + '"').join(', ') + ' }; // phase ids serialized into phaseEvidence');
+  lines.push('    string[] _phaseEvidencePhaseIds = new string[] { ' + phaseIds.map((phaseId) => '"' + phaseId + '"').join(', ') + ' }; // 输出 phaseEvidence 时使用的 phase id 列表');
   lines.push('');
-  lines.push('    // Escape runtime text so preview state remains valid JSON.');
+  lines.push('    // 转义运行时文本，保证 preview state 始终是合法 JSON。');
   lines.push('    string JsonEscape(string value)');
   lines.push('    {');
   lines.push('        if (value == null) return "";');
   lines.push('        return value.Replace("\\\\", "\\\\\\\\").Replace("\\\"", "\\\\\\\"").Replace("\\n", " ").Replace("\\r", " ");');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Format floats with invariant culture so CUA parsers receive stable decimals.');
+  lines.push('    // 用 invariant culture 格式化浮点数，保证 CUA 解析到稳定小数。');
   lines.push('    string FormatFloat(float value)');
   lines.push('    {');
   lines.push('        return value.ToString("0.###", CultureInfo.InvariantCulture);');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Serialize a world position into compact JSON for entity and camera evidence.');
+  lines.push('    // 将世界坐标序列化成紧凑 JSON，供实体和镜头 evidence 使用。');
   lines.push('    string SerializeVector3Json(Vector3 value)');
   lines.push('    {');
   lines.push('        return "{\\"x\\":" + FormatFloat(value.x) + ",\\"y\\":" + FormatFloat(value.y) + ",\\"z\\":" + FormatFloat(value.z) + "}";');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Return true while a phase is active or has already been completed.');
+  lines.push('    // phase 正在进行或已经完成时返回 true。');
   lines.push('    bool PhaseEvidenceActive(string phaseId)');
   lines.push('    {');
   lines.push('        if (currentPhaseName == phaseId) return true;');
@@ -1941,7 +1872,7 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('        return false;');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Store one phase-scoped evidence payload under a phase.signal key.');
+  lines.push('    // 将一条 phase 作用域 evidence 保存到 phase.signal key 下。');
   lines.push('    void RecordPhaseEvidenceJson(string phaseId, string signal, string jsonValue)');
   lines.push('    {');
   lines.push('        if (string.IsNullOrEmpty(signal) || string.IsNullOrEmpty(jsonValue)) return;');
@@ -1962,25 +1893,25 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('        _phaseEvidenceCount++;');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Record a boolean evidence signal for the active phase.');
+  lines.push('    // 为当前 phase 记录布尔型 evidence。');
   lines.push('    void RecordPhaseEvidenceFlag(string phaseId, string signal)');
   lines.push('    {');
   lines.push('        RecordPhaseEvidenceJson(phaseId, signal, "{\\"covered\\":true,\\"changed\\":true}");');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Record a before/after numeric delta for resources or counters.');
+  lines.push('    // 为资源或计数器记录 before/after 数值变化。');
   lines.push('    void RecordPhaseEvidenceDelta(string phaseId, string signal, float beforeValue, float afterValue)');
   lines.push('    {');
   lines.push('        RecordPhaseEvidenceJson(phaseId, signal, "{\\"covered\\":true,\\"changed\\":true,\\"before\\":" + FormatFloat(beforeValue) + ",\\"after\\":" + FormatFloat(afterValue) + ",\\"delta\\":" + FormatFloat(afterValue - beforeValue) + "}");');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Record proximity evidence used by CUA distance assertions.');
+  lines.push('    // 记录 CUA 距离断言需要的 proximity evidence。');
   lines.push('    void RecordPhaseEvidenceDistance(string phaseId, string signal, float distance)');
   lines.push('    {');
   lines.push('        RecordPhaseEvidenceJson(phaseId, signal, "{\\"covered\\":true,\\"reached\\":true,\\"distance\\":" + FormatFloat(distance) + "}");');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Append a signal JSON fragment to an existing object body.');
+  lines.push('    // 向已有 JSON 对象体追加一个 signal 片段。');
   lines.push('    string AppendSignalEvidenceJson(string json, string signal, string valueJson)');
   lines.push('    {');
   lines.push('        if (string.IsNullOrEmpty(signal) || string.IsNullOrEmpty(valueJson)) return json;');
@@ -1989,7 +1920,7 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('        return json;');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Build the evidence JSON object for a single phase id.');
+  lines.push('    // 构建单个 phase id 对应的 evidence JSON 对象。');
   lines.push('    string BuildRecordedPhaseEvidenceJson(string phaseId)');
   lines.push('    {');
   lines.push('        string prefix = phaseId + ".";');
@@ -2004,7 +1935,7 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('        return json;');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Serialize evidence for active/completed phases without inlining one branch per phase.');
+  lines.push('    // 序列化已激活/已完成 phase 的 evidence，避免为每个 phase 手写分支。');
   lines.push('    string BuildPhaseEvidenceJson()');
   lines.push('    {');
   lines.push('        string json = "{";');
@@ -2012,9 +1943,9 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('        for (int i = 0; i < _phaseEvidencePhaseIds.Length; i++)');
   lines.push('        {');
   lines.push('            string phaseId = _phaseEvidencePhaseIds[i];');
-  lines.push('            if (!PhaseEvidenceActive(phaseId)) continue; // skip phases that CUA has not reached yet');
+  lines.push('            if (!PhaseEvidenceActive(phaseId)) continue; // 跳过 CUA 尚未到达的 phase');
   lines.push('            string phaseJson = BuildRecordedPhaseEvidenceJson(phaseId);');
-  lines.push('            if (phaseJson.Length <= 0) continue; // omit empty phase objects to keep gameObject.name compact');
+  lines.push('            if (phaseJson.Length <= 0) continue; // 省略空 phase 对象，避免 gameObject.name 过长');
   lines.push('            if (wrotePhase) json += ",";');
   lines.push('            json += "\\"" + JsonEscape(phaseId) + "\\":{" + phaseJson + "}";');
   lines.push('            wrotePhase = true;');
@@ -2023,7 +1954,7 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('        return json;');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Convert compact integer state into a readable build-state string.');
+  lines.push('    // 将紧凑整数状态转换成可读的 build state 字符串。');
   lines.push('    string BuildEntityBuildState(int stateCode)');
   lines.push('    {');
   lines.push('        if (stateCode >= 2) return "built";');
@@ -2031,7 +1962,7 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('        return "waiting";');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Serialize one entity reference into CUA-readable state JSON.');
+  lines.push('    // 将单个实体引用序列化为 CUA 可读的 state JSON。');
   lines.push('    string SerializeEntityStateJson(GameObject obj, int stateCode)');
   lines.push('    {');
   lines.push('        bool visible = obj != null && obj.transform.position.y > -900f;');
@@ -2053,7 +1984,7 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('            + "}";');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Serialize all generated entity state records.');
+  lines.push('    // 序列化所有生成实体的状态记录。');
   lines.push('    string BuildEntityStatesJson()');
   lines.push('    {');
   lines.push('        string json = "{";');
@@ -2065,7 +1996,7 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('        return json;');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Serialize manager-owned resource counters into the variables object.');
+  lines.push('    // 将 manager 持有的资源计数写入 variables 对象。');
   lines.push('    string BuildResourceVariablesJson()');
   lines.push('    {');
   lines.push('        var mgr = GFM_EconomyManager.Instance;');
@@ -2080,7 +2011,7 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('        return json;');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Serialize gameplay variables that CUA and preview polling inspect.');
+  lines.push('    // 序列化 CUA 和 preview 轮询会检查的玩法变量。');
   lines.push('    string BuildVariablesJson()');
   lines.push('    {');
   lines.push('        float camZoom = mainCam != null ? mainCam.orthographicSize : 0f;');
@@ -2096,7 +2027,7 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('            + "}";');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Serialize visible guide, score, and floating-text UI state.');
+  lines.push('    // 序列化当前可见的引导、分数和浮字 UI 状态。');
   lines.push('    string BuildUiStateJson()');
   lines.push('    {');
   lines.push('        string guide = guideText != null ? guideText.text : "";');
@@ -2114,7 +2045,7 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('            + "}";');
   lines.push('    }');
   lines.push('');
-  lines.push('    // Serialize camera focus and transform state for visual-progress checks.');
+  lines.push('    // 序列化镜头焦点和 transform，供视觉进度检查使用。');
   lines.push('    string BuildCameraStateJson()');
   lines.push('    {');
   lines.push('        float camZoom = mainCam != null ? mainCam.orthographicSize : 0f;');
@@ -2140,7 +2071,7 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
 
 function _buildUpdateGameStateMethodLines(specs) {
   const lines = [];
-  lines.push('    // Serialize current runtime state for preview polling / CUA verification.');
+  lines.push('    // 序列化当前运行时状态，供 preview 轮询和 CUA 验证。');
   lines.push('    void UpdateGameState()');
   lines.push('    {');
   lines.push('        string completedJson = "[";');
@@ -2173,7 +2104,7 @@ function _buildUpdateGameStateMethodLines(specs) {
 }
 
 /**
- * Save skeleton to file
+ * 将骨架保存到文件。
  */
 function saveSkeleton(skeleton, outputPath) {
   fs.writeFileSync(outputPath, skeleton, 'utf8');
