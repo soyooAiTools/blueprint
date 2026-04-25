@@ -295,6 +295,18 @@ function detectObservationProtocolFailure(cuaResult) {
   return null;
 }
 
+function getRuntimeDefaultInteractionFailure(ctx) {
+  var runtimeContract = ctx && ctx.stageResults && ctx.stageResults['runtime-contract'];
+  if (!runtimeContract || runtimeContract.defaultInteractionPassed !== false) return null;
+  return {
+    reason: runtimeContract.defaultInteractionReason || 'default-interaction-failed',
+    phaseBefore: runtimeContract.defaultInteractionPhaseBefore || '',
+    phaseAfter: runtimeContract.defaultInteractionPhaseAfter || '',
+    completedBefore: runtimeContract.defaultInteractionCompletedBefore,
+    completedAfter: runtimeContract.defaultInteractionCompletedAfter,
+  };
+}
+
 module.exports = {
   name: 'cua-verify',
   canRetry: false,
@@ -304,6 +316,10 @@ module.exports = {
   },
   canSkip: function(ctx) {
     var runtimeContract = ctx && ctx.stageResults && ctx.stageResults['runtime-contract'];
+    if (runtimeContract && runtimeContract.defaultInteractionPassed === false) {
+      ctx.addLog('cua-verify', 'Runtime contract default preview interaction failed — heavy CUA cannot be skipped');
+      return false;
+    }
     if (runtimeContract && runtimeContract.needsEscalation === false) {
       ctx.stageResults['cua-verify'] = {
         passed: true,
@@ -477,6 +493,22 @@ module.exports = {
             // Anti-autoplay gate: DISABLED — CUA now uses autoPlay mode (observer)
             // Game intentionally auto-progresses; agent watches instead of interacting.
             // Phase coverage and visual quality are verified, not player-interaction counts.
+
+            var runtimeDefaultFailure = getRuntimeDefaultInteractionFailure(ctx);
+            if (runtimeDefaultFailure && cuaResult.passed) {
+              cuaResult.passed = false;
+              var defaultIssue = '[default-interaction-failed] Raw public preview did not advance after user actions'
+                + (runtimeDefaultFailure.phaseBefore ? ' at phase ' + runtimeDefaultFailure.phaseBefore : '')
+                + ' (' + runtimeDefaultFailure.reason + '). Observe/autoplay CUA pass is not sufficient.';
+              cuaResult.issues = (cuaResult.issues || []).concat([defaultIssue]);
+              ctx.addLog('cua-verify', 'CUA passed=true overridden by runtime default interaction probe: ' + defaultIssue);
+              ctx.stageResults['cua-verify'] = Object.assign({}, ctx.stageResults['cua-verify'] || {}, {
+                defaultInteractionBlocked: true,
+                defaultInteractionReason: runtimeDefaultFailure.reason,
+                defaultInteractionPhaseBefore: runtimeDefaultFailure.phaseBefore,
+                defaultInteractionPhaseAfter: runtimeDefaultFailure.phaseAfter,
+              });
+            }
 
             if (cuaResult.passed) {
               var silentSignals = cuaResult.silentPassSignals || [];
@@ -1072,6 +1104,9 @@ module.exports = {
   _internals: {
     detectLowCoverageSignal: detectLowCoverageSignal,
     isFingerprintCircuitBreakerExempt: isFingerprintCircuitBreakerExempt,
+    detectObservationProtocolFailure: detectObservationProtocolFailure,
+    getRuntimeDefaultInteractionFailure: getRuntimeDefaultInteractionFailure,
+    buildStuckDiagnosis: _buildStuckDiagnosis,
     LOW_COVERAGE_MIN_PHASES: LOW_COVERAGE_MIN_PHASES,
     LOW_COVERAGE_RATIO: LOW_COVERAGE_RATIO,
   },

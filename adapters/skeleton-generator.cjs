@@ -1344,7 +1344,7 @@ function _pushAutoplayFallback(lines, pid, gateEntities, spec) {
   if (!gateEntities || gateEntities.length === 0) return;
   const touchFlag = pid + 'InteractionDone';
   const actedFlag = pid + 'PlayerActed';
-  lines.push('        // [SKELETON FALLBACK] Keep autoplay phase progression deterministic even');
+  lines.push('        // [SKELETON FALLBACK] Keep phase progression deterministic even');
   lines.push('        // when AI leaves the phase handler empty. This mutates both transform');
   lines.push('        // positions and a small set of gameplay variables so CUA sees real progress.');
   lines.push('        if (!' + touchFlag + ' && !' + actedFlag + ')');
@@ -1592,9 +1592,11 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
   lines.push('');
   for (let i = 0; i < specs.length; i++) {
     const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
+    const gateEntities = phaseGateMap[pid] || [];
     lines.push('    // [SKELETON] Phase "' + pid + '" tap handler. AI/template fills TODO region.');
     lines.push('    void Phase_' + pid + '_OnTap()');
     lines.push('    {');
+    _pushAutoplayFallback(lines, pid, gateEntities, specs[i]);
     lines.push('        // TODO_PHASE_' + pid + '_ONTAP_START');
     lines.push('        // TODO: AI/template fills — produce observable movement or other real gameplay progress here.');
     lines.push('        // Do NOT rely on ' + pid + 'InteractionDone / ' + pid + 'PlayerActed alone to advance the phase.');

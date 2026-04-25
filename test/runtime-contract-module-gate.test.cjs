@@ -66,4 +66,35 @@ assert.ok(
   '[3.2] visual smoke failure should explain escalation'
 );
 
+var defaultInteractionSummary = runtimeContract.summarizeRuntimeContractResult(baseResult({
+  defaultInteractionRequired: true,
+  defaultInteractionPassed: false,
+  defaultInteractionReason: 'raw-actions-did-not-advance-phase',
+  defaultInteractionPhaseBefore: 'upgradeOurBase',
+  defaultInteractionPhaseAfter: 'upgradeOurBase',
+  defaultInteractionCompletedBefore: 2,
+  defaultInteractionCompletedAfter: 2,
+}));
+assert.strictEqual(defaultInteractionSummary.passed, false, '[4.1] raw preview interaction failure should block contract pass');
+assert.ok(
+  defaultInteractionSummary.escalationReasons.indexOf('default-interaction-failed') >= 0,
+  '[4.2] default interaction failure should explain escalation'
+);
+assert.strictEqual(
+  defaultInteractionSummary.defaultInteractionReason,
+  'raw-actions-did-not-advance-phase',
+  '[4.3] default interaction failure reason should be preserved'
+);
+
+assert.deepStrictEqual(
+  runtimeContract.getInteractivePhaseIds({
+    specs: [
+      { phaseId: 'intro', requiredInteractions: ['wait:1'], playerMustAct: false, autoAllowed: true },
+      { phaseId: 'upgrade', requiredInteractions: ['click:Base'], playerMustAct: true, autoAllowed: false },
+    ],
+  }),
+  ['upgrade'],
+  '[5.1] default interaction probe should target real player phases only'
+);
+
 console.log('runtime-contract-module-gate tests passed');

@@ -13,11 +13,18 @@ var path = require('path');
 function buildGameStateBridgeScript() {
   return `<script>
 (function(){
-  // AutoPlay mode: if URL has ?autoplay=1, create a flag entity that C# can detect via GameObject.Find
+  window.__BLUEPRINT_GAMESTATE_BRIDGE_VERSION__='public-preview-autoplay-v1';
+  // Public preview should play through by default. CUA observe keeps the
+  // observer-ready handshake to avoid pre-contamination before screenshots start.
   var _autoPlayFlagCreated=false;
   var _observerReadyFlagCreated=false;
-  var _autoPlayRequested=new URLSearchParams(window.location.search).get('autoplay')==='1';
-  window.__CUA_OBSERVER_READY__ = !!window.__CUA_OBSERVER_READY__;
+  var _params=new URLSearchParams(window.location.search);
+  var _autoplayParam=_params.get('autoplay');
+  var _manualRequested=_autoplayParam==='0'||_params.get('manual')==='1'||_params.get('interactive')==='1';
+  var _cuaAutoPlayRequested=_autoplayParam==='1';
+  var _publicPreviewAutoPlay=!_cuaAutoPlayRequested&&!_manualRequested;
+  var _autoPlayRequested=_cuaAutoPlayRequested||_publicPreviewAutoPlay;
+  window.__CUA_OBSERVER_READY__ = !!window.__CUA_OBSERVER_READY__ || _publicPreviewAutoPlay;
   setInterval(function(){
     try{
       var app=pc.app||pc.Application.getApplication();
@@ -26,7 +33,8 @@ function buildGameStateBridgeScript() {
       if(_autoPlayRequested&&!_autoPlayFlagCreated){
         try{var fe=new pc.Entity('__AUTOPLAY_ON__');app.root.addChild(fe);_autoPlayFlagCreated=true;}catch(e){}
       }
-      // Create observer-ready flag only after CUA has actually started observing.
+      // Public preview creates this immediately; CUA creates it only after observation starts.
+      if(_publicPreviewAutoPlay&&!window.__CUA_OBSERVER_READY__)window.__CUA_OBSERVER_READY__=true;
       if(window.__CUA_OBSERVER_READY__&&!_observerReadyFlagCreated){
         try{var oe=new pc.Entity('__CUA_OBSERVER_READY__');app.root.addChild(oe);_observerReadyFlagCreated=true;}catch(e){}
       }
@@ -74,7 +82,8 @@ function injectGameStateBridgeHtml(html) {
   var hasObserverBridge = text.indexOf('var _observerReadyFlagCreated=false;') >= 0 ||
     text.indexOf('window.__CUA_OBSERVER_READY__ = !!window.__CUA_OBSERVER_READY__;') >= 0;
   var hasGameStateBridge = text.indexOf('window.__gameState=best.state') >= 0;
-  if (hasAutoPlayBridge && hasObserverBridge && hasGameStateBridge) {
+  var hasPublicPreviewBridge = text.indexOf('public-preview-autoplay-v1') >= 0;
+  if (hasPublicPreviewBridge && hasAutoPlayBridge && hasObserverBridge && hasGameStateBridge) {
     return html;
   }
   var bridge = buildGameStateBridgeScript();

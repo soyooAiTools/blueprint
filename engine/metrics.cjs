@@ -85,6 +85,8 @@ function recordPipelineMetrics(ctx, stageResults) {
     record.runtimeContractUnsupportedSignalCount = rc.unsupportedSignalCount || 0;
     record.runtimeContractVisualFailCount = rc.visualFailCount || 0;
     record.runtimeContractSilentPassSignals = rc.silentPassSignals || [];
+    record.runtimeContractDefaultInteractionPassed = rc.defaultInteractionPassed === undefined ? null : rc.defaultInteractionPassed;
+    record.runtimeContractDefaultInteractionReason = rc.defaultInteractionReason || '';
   }
 
   // CUA details

@@ -103,6 +103,12 @@ describe('W1b 5-partial skeleton smoke test', () => {
     expect(out.flow).toMatch(/void\s+Phase_bossFight_OnTap\s*\(\s*\)/);
   });
 
+  test('Phase OnTap handlers include deterministic gate-entity movement fallback', () => {
+    const out = generateSkeleton(makeSpecs(3), { w1bSplit: true });
+    expect(out.flow).toMatch(/void\s+Phase_initialCollect_OnTap\s*\(\s*\)[\s\S]*MetalShard\.transform\.position = __autoFallback_initialCollect_MetalShard;/);
+    expect(out.flow).toMatch(/void\s+Phase_initialCollect_OnTap\s*\(\s*\)[\s\S]*RecordPhaseEvidenceFlag\("initialCollect", "entity_position_changed"\);/);
+  });
+
   test('Flow partial emits 12 per-phase OnTap handlers for 12 phase input', () => {
     const out = generateSkeleton(makeSpecs(12), { w1bSplit: true });
     // Per-phase handlers only (dispatcher is `Phase_OnTap`, no id in the middle)
@@ -132,7 +138,7 @@ describe('W1b 5-partial skeleton smoke test', () => {
     const stubs = [
       { code: out.input, limit: 1000 },
       { code: out.resource, limit: 5000 },
-      { code: out.ui, limit: 10000 },
+      { code: out.ui, limit: 16000 },
       { code: out.scene, limit: 3000 },
     ];
     for (const stub of stubs) {

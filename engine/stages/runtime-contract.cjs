@@ -10,6 +10,7 @@
 var fs = require('fs');
 var path = require('path');
 var os = require('os');
+var http = require('http');
 
 function parseCoverageLabel(label) {
   if (!label) return null;
@@ -32,6 +33,296 @@ function buildHardBlockingSignals(silentSignals, isAutoPlayMode) {
   });
 }
 
+function sanitizePhaseId(value) {
+  return String(value || '').replace(/[^a-zA-Z0-9]/g, '');
+}
+
+function extractSpecs(blueprint) {
+  if (!blueprint) return [];
+  if (Array.isArray(blueprint.specs)) return blueprint.specs;
+  if (Array.isArray(blueprint.phases)) return blueprint.phases;
+  if (blueprint.blueprint) return extractSpecs(blueprint.blueprint);
+  return [];
+}
+
+function isPlayerInteractionSpec(spec) {
+  if (!spec) return false;
+  var interactions = Array.isArray(spec.requiredInteractions) ? spec.requiredInteractions : [];
+  if (spec.playerMustAct === true) return true;
+  if (spec.autoAllowed === false && interactions.length > 0) return true;
+  for (var i = 0; i < interactions.length; i++) {
+    var verb = String(interactions[i] || '').split(':')[0].toLowerCase();
+    if (verb && ['wait', 'timer', 'observe', 'show', 'camera'].indexOf(verb) < 0) return true;
+  }
+  return false;
+}
+
+function getInteractivePhaseIds(blueprint) {
+  return extractSpecs(blueprint).filter(isPlayerInteractionSpec).map(function(spec) {
+    return String(spec.phaseId || spec.id || spec.name || '');
+  }).filter(Boolean);
+}
+
+function phaseMatches(id, phaseSet) {
+  var phase = String(id || '');
+  if (!phase) return false;
+  return !!(phaseSet[phase] || phaseSet[sanitizePhaseId(phase)]);
+}
+
+function getStatePhase(state) {
+  if (!state) return '';
+  return String(state.currentPhase || state.phase || state.currentPhaseName || '');
+}
+
+function getStateCompletedCount(state) {
+  if (!state) return 0;
+  var completed = state.completedPhases || state.completed || null;
+  if (Array.isArray(completed)) return completed.length;
+  if (completed && typeof completed === 'object') {
+    return Object.keys(completed).filter(function(key) { return completed[key]; }).length;
+  }
+  var numeric = parseInt(state.completedPhaseCount || state.phaseCompletedCount || 0, 10);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function getSpecByPhaseId(specs, phaseId) {
+  var phase = String(phaseId || '');
+  var sanitized = sanitizePhaseId(phase);
+  for (var i = 0; i < specs.length; i++) {
+    var id = String(specs[i].phaseId || specs[i].id || specs[i].name || '');
+    if (id === phase || sanitizePhaseId(id) === sanitized) return specs[i];
+  }
+  return null;
+}
+
+function stateAdvanced(before, after) {
+  if (!before || !after) return false;
+  var beforePhase = getStatePhase(before);
+  var afterPhase = getStatePhase(after);
+  if (beforePhase && afterPhase && beforePhase !== afterPhase) return true;
+  return getStateCompletedCount(after) > getStateCompletedCount(before);
+}
+
+function startRawPreviewServer(buildDir) {
+  return new Promise(function(resolve, reject) {
+    var server = http.createServer(function(req, res) {
+      var urlPath = (req.url || '/').split('?')[0];
+      var filePath = path.join(buildDir, urlPath === '/' ? 'index.html' : urlPath);
+      if (!fs.existsSync(filePath) && urlPath === '/') filePath = path.join(buildDir, 'iframe.html');
+      if (!fs.existsSync(filePath)) {
+        res.writeHead(404);
+        res.end('Not Found');
+        return;
+      }
+      var ext = path.extname(filePath).toLowerCase();
+      var mime = {
+        '.html': 'text/html',
+        '.js': 'application/javascript',
+        '.css': 'text/css',
+        '.json': 'application/json',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.wasm': 'application/wasm',
+        '.bin': 'application/octet-stream',
+        '.svg': 'image/svg+xml',
+        '.ico': 'image/x-icon',
+      }[ext] || 'application/octet-stream';
+      res.writeHead(200, { 'Content-Type': mime });
+      fs.createReadStream(filePath).pipe(res);
+    });
+    server.listen(0, '127.0.0.1', function() { resolve(server); });
+    server.on('error', reject);
+  });
+}
+
+function readGameState(page) {
+  return page.evaluate(function() {
+    try {
+      var state = window.__gameState || null;
+      if (!state && typeof window.__getGameState === 'function') state = window.__getGameState();
+      if (!state) return null;
+      return JSON.parse(JSON.stringify(state));
+    } catch(e) {
+      return null;
+    }
+  }).catch(function() { return null; });
+}
+
+function clickDefaultInteractionSwarm(page) {
+  var viewport = page.viewportSize() || { width: 960, height: 640 };
+  var w = viewport.width;
+  var h = viewport.height;
+  var points = [
+    [0.50, 0.50], [0.35, 0.50], [0.65, 0.50],
+    [0.50, 0.35], [0.50, 0.65], [0.25, 0.35],
+    [0.75, 0.35], [0.25, 0.65], [0.75, 0.65],
+    [0.50, 0.78], [0.18, 0.50], [0.82, 0.50],
+  ];
+  var chain = Promise.resolve();
+  points.forEach(function(point) {
+    chain = chain.then(function() {
+      return page.mouse.click(Math.round(w * point[0]), Math.round(h * point[1]));
+    }).then(function() {
+      return page.waitForTimeout(250);
+    });
+  });
+  ['Space', 'ArrowUp', 'ArrowRight', 'KeyW', 'KeyD'].forEach(function(key) {
+    chain = chain.then(function() {
+      return page.keyboard.press(key).catch(function() {});
+    }).then(function() {
+      return page.waitForTimeout(150);
+    });
+  });
+  return chain;
+}
+
+function runDefaultInteractionProbe(ctx, buildDir, options) {
+  options = options || {};
+  if (process.env.SKIP_DEFAULT_INTERACTION_PROBE === 'true') {
+    return Promise.resolve({
+      defaultInteractionRequired: false,
+      defaultInteractionPassed: null,
+      defaultInteractionReason: 'skipped-by-env',
+    });
+  }
+
+  var specs = extractSpecs(ctx && ctx.blueprint);
+  var interactiveIds = getInteractivePhaseIds(ctx && ctx.blueprint);
+  if (interactiveIds.length === 0) {
+    return Promise.resolve({
+      defaultInteractionRequired: false,
+      defaultInteractionPassed: null,
+      defaultInteractionReason: 'no-player-interaction-phases',
+    });
+  }
+
+  var phaseSet = {};
+  interactiveIds.forEach(function(id) {
+    phaseSet[id] = true;
+    phaseSet[sanitizePhaseId(id)] = true;
+  });
+
+  var log = function(msg) {
+    if (ctx && typeof ctx.addLog === 'function') ctx.addLog(options.stageName || 'runtime-contract', msg);
+  };
+  var server;
+  var browser;
+  var page;
+
+  return startRawPreviewServer(buildDir).then(function(srv) {
+    server = srv;
+    var port = server.address().port;
+    var chromium = require('playwright').chromium;
+    return chromium.launch({ headless: true, args: ['--no-sandbox'] }).then(function(b) {
+      browser = b;
+      return browser.newPage({ viewport: { width: 960, height: 640 } });
+    }).then(function(p) {
+      page = p;
+      var consoleMessages = [];
+      page.on('console', function(msg) {
+        var text = msg.text();
+        if (text.indexOf('__PHASE__') >= 0 || text.indexOf('__PHASE_STUCK__') >= 0) {
+          consoleMessages.push(text.slice(0, 260));
+        }
+      });
+      return page.goto('http://127.0.0.1:' + port + '/index.html', { waitUntil: 'load', timeout: options.gotoTimeoutMs || 30000 })
+        .then(function() {
+          return page.waitForFunction(function() {
+            return !!window.__gameState || typeof window.__getGameState === 'function';
+          }, null, { timeout: options.gameStateTimeoutMs || 20000 });
+        })
+        .then(function() {
+          var waitDeadline = Date.now() + (options.waitInteractiveMs || 22000);
+          function waitForInteractive() {
+            return readGameState(page).then(function(state) {
+              var phase = getStatePhase(state);
+              if (phaseMatches(phase, phaseSet)) return state;
+              if (Date.now() >= waitDeadline) return null;
+              return page.waitForTimeout(500).then(waitForInteractive);
+            });
+          }
+          return waitForInteractive();
+        })
+        .then(function(beforeState) {
+          if (!beforeState) {
+            return readGameState(page).then(function(lastState) {
+              var lastPhase = getStatePhase(lastState);
+              return {
+                defaultInteractionRequired: true,
+                defaultInteractionPassed: false,
+                defaultInteractionReason: 'interactive-phase-not-reached',
+                defaultInteractionExpectedPhases: interactiveIds.slice(0, 8),
+                defaultInteractionPhaseBefore: lastPhase || '',
+                defaultInteractionCompletedBefore: getStateCompletedCount(lastState),
+                defaultInteractionConsole: consoleMessages.slice(-8),
+              };
+            });
+          }
+
+          var beforePhase = getStatePhase(beforeState);
+          var beforeCompleted = getStateCompletedCount(beforeState);
+          var spec = getSpecByPhaseId(specs, beforePhase) || {};
+          var minDuration = spec.duration && parseFloat(spec.duration.min);
+          var advanceWaitMs = options.advanceWaitMs || Math.min(24000, Math.max(8000, ((Number.isFinite(minDuration) ? minDuration : 3) + 5) * 1000));
+          log('Default interaction probe reached phase ' + beforePhase + ' (completed=' + beforeCompleted + '), sending raw user actions');
+
+          return clickDefaultInteractionSwarm(page).then(function() {
+            var deadline = Date.now() + advanceWaitMs;
+            function waitAdvanced() {
+              return readGameState(page).then(function(afterState) {
+                if (stateAdvanced(beforeState, afterState)) {
+                  return {
+                    defaultInteractionRequired: true,
+                    defaultInteractionPassed: true,
+                    defaultInteractionReason: 'advanced-after-raw-actions',
+                    defaultInteractionPhaseBefore: beforePhase,
+                    defaultInteractionPhaseAfter: getStatePhase(afterState),
+                    defaultInteractionCompletedBefore: beforeCompleted,
+                    defaultInteractionCompletedAfter: getStateCompletedCount(afterState),
+                    defaultInteractionConsole: consoleMessages.slice(-8),
+                  };
+                }
+                if (Date.now() >= deadline) {
+                  return {
+                    defaultInteractionRequired: true,
+                    defaultInteractionPassed: false,
+                    defaultInteractionReason: 'raw-actions-did-not-advance-phase',
+                    defaultInteractionPhaseBefore: beforePhase,
+                    defaultInteractionPhaseAfter: getStatePhase(afterState),
+                    defaultInteractionCompletedBefore: beforeCompleted,
+                    defaultInteractionCompletedAfter: getStateCompletedCount(afterState),
+                    defaultInteractionExpectedPhases: interactiveIds.slice(0, 8),
+                    defaultInteractionConsole: consoleMessages.slice(-8),
+                  };
+                }
+                return page.waitForTimeout(500).then(waitAdvanced);
+              });
+            }
+            return waitAdvanced();
+          });
+        });
+    });
+  }).catch(function(err) {
+    return {
+      defaultInteractionRequired: true,
+      defaultInteractionPassed: false,
+      defaultInteractionReason: 'probe-error: ' + (err && err.message ? err.message : String(err)),
+      defaultInteractionExpectedPhases: interactiveIds.slice(0, 8),
+    };
+  }).then(function(result) {
+    var closePage = page ? page.close().catch(function() {}) : Promise.resolve();
+    return closePage.then(function() {
+      return browser ? browser.close().catch(function() {}) : null;
+    }).then(function() {
+      if (server) {
+        try { server.close(); } catch(e) {}
+      }
+      return result;
+    });
+  });
+}
+
 function buildEscalationReasons(meta) {
   var reasons = [];
   if (!meta.hasGameState) reasons.push('missing-game-state');
@@ -41,6 +332,7 @@ function buildEscalationReasons(meta) {
   if (!meta.signalPassed) reasons.push('signal-validation-failed');
   if ((meta.hardBlockingSignals || []).length > 0) reasons.push('silent-pass-blocked');
   if (!meta.visualSmokePassed) reasons.push('visual-smoke-failed');
+  if (meta.defaultInteractionPassed === false) reasons.push('default-interaction-failed');
   return reasons;
 }
 
@@ -68,8 +360,10 @@ function summarizeRuntimeContractResult(result) {
   var moduleContractReady = !!(signalParts && signalParts.total > 0);
   var signalPassed = moduleContractReady && result.signalValidationPassed !== false && missingSignals.length === 0;
   var visualSmokePassed = visualFailReasons.length === 0;
+  var defaultInteractionPassed = result.defaultInteractionPassed;
   var evidenceReliable = hasGameState && unsupportedSignals.length === 0;
-  var contractPassed = evidenceReliable && planPassed && moduleContractReady && signalPassed && hardBlockingSignals.length === 0 && visualSmokePassed;
+  var contractPassed = evidenceReliable && planPassed && moduleContractReady && signalPassed
+    && hardBlockingSignals.length === 0 && visualSmokePassed && defaultInteractionPassed !== false;
   var escalationReasons = buildEscalationReasons({
     hasGameState: hasGameState,
     unsupportedSignals: unsupportedSignals,
@@ -78,6 +372,7 @@ function summarizeRuntimeContractResult(result) {
     signalPassed: signalPassed,
     hardBlockingSignals: hardBlockingSignals,
     visualSmokePassed: visualSmokePassed,
+    defaultInteractionPassed: defaultInteractionPassed,
   });
 
   return {
@@ -103,6 +398,15 @@ function summarizeRuntimeContractResult(result) {
     visualFailReasons: visualFailReasons.slice(0, 12),
     visualSmokePassed: visualSmokePassed,
     visualSmoke: (result.report && result.report.visualSmoke) || result.visualSmoke || null,
+    defaultInteractionRequired: result.defaultInteractionRequired === true,
+    defaultInteractionPassed: defaultInteractionPassed === undefined ? null : defaultInteractionPassed,
+    defaultInteractionReason: result.defaultInteractionReason || '',
+    defaultInteractionExpectedPhases: result.defaultInteractionExpectedPhases || [],
+    defaultInteractionPhaseBefore: result.defaultInteractionPhaseBefore || '',
+    defaultInteractionPhaseAfter: result.defaultInteractionPhaseAfter || '',
+    defaultInteractionCompletedBefore: result.defaultInteractionCompletedBefore,
+    defaultInteractionCompletedAfter: result.defaultInteractionCompletedAfter,
+    defaultInteractionConsole: result.defaultInteractionConsole || [],
     hasGameState: hasGameState,
     evidenceReliable: evidenceReliable,
     totalActions: result.totalActions !== undefined ? result.totalActions : -1,
@@ -136,9 +440,14 @@ function runRuntimeContractPass(ctx, options) {
   var buildDir = path.join(os.tmpdir(), 'linux-runtime-contract-' + ctx.taskId + '-' + Date.now());
   fs.mkdirSync(buildDir, { recursive: true });
   fs.writeFileSync(path.join(buildDir, 'iframe.html'), ctx.htmlOutput);
+  fs.writeFileSync(path.join(buildDir, 'index.html'), ctx.htmlOutput);
 
   return runCUAVerification(buildDir, ctx.blueprint, ctx.taskId, function(msg) {
     ctx.addLog(stageName, msg);
+  }).then(function(result) {
+    return runDefaultInteractionProbe(ctx, buildDir, { stageName: stageName }).then(function(defaultProbe) {
+      return Object.assign({}, result || {}, defaultProbe || {});
+    });
   }).then(function(result) {
     try { fs.rmSync(buildDir, { recursive: true, force: true }); } catch(e) {}
 
@@ -150,7 +459,8 @@ function runRuntimeContractPass(ctx, options) {
       ctx.addLog(stageName,
         'Escalation required: ' + summary.escalationReasons.join(', ') +
         ' | plan=' + (summary.planCoverage || 'n/a') +
-        ' signal=' + (summary.signalCoverage || 'n/a'));
+        ' signal=' + (summary.signalCoverage || 'n/a') +
+        (summary.defaultInteractionPassed === false ? ' defaultInteraction=' + summary.defaultInteractionReason : ''));
       if (reportStatus) {
         ctx.reportStatus('processing', {
           message: statusPrefix + ' flagged issues, escalating to heavy CUA...',
@@ -210,4 +520,6 @@ module.exports = {
     });
   },
   runRuntimeContractPass: runRuntimeContractPass,
+  runDefaultInteractionProbe: runDefaultInteractionProbe,
+  getInteractivePhaseIds: getInteractivePhaseIds,
 };

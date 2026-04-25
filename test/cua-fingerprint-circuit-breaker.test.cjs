@@ -145,6 +145,36 @@ assert.strictEqual(cuaInternals.isFingerprintCircuitBreakerExempt('[spec-phase-s
 assert.strictEqual(cuaInternals.isFingerprintCircuitBreakerExempt(fp1), false,
   '[7.5] unrelated uniform-timing fp still uses generic breaker');
 
+// ── Case 8: default preview interaction failure must prevent CUA skip ─
+var skipLogs = [];
+assert.strictEqual(cuaVerify.canSkip({
+  stageResults: {
+    'runtime-contract': {
+      needsEscalation: false,
+      defaultInteractionPassed: false,
+      defaultInteractionReason: 'raw-actions-did-not-advance-phase',
+    },
+  },
+  addLog: function(stage, msg) { skipLogs.push(stage + ':' + msg); },
+}), false, '[8.1] CUA cannot be skipped when raw default interaction failed');
+assert.ok(skipLogs.some(function(line) { return line.indexOf('default preview interaction failed') >= 0; }),
+  '[8.2] skip override should leave an operator log');
+assert.deepStrictEqual(cuaInternals.getRuntimeDefaultInteractionFailure({
+  stageResults: {
+    'runtime-contract': {
+      defaultInteractionPassed: false,
+      defaultInteractionReason: 'raw-actions-did-not-advance-phase',
+      defaultInteractionPhaseBefore: 'upgradeOurBase',
+    },
+  },
+}), {
+  reason: 'raw-actions-did-not-advance-phase',
+  phaseBefore: 'upgradeOurBase',
+  phaseAfter: '',
+  completedBefore: undefined,
+  completedAfter: undefined,
+}, '[8.3] runtime default failure metadata should be extractable');
+
 console.log('OK — all D1 circuit-breaker assertions passed');
 console.log('  urbib0 fp:           ' + fp1);
 console.log('  heterogeneous fp:    ' + fpDiff);
