@@ -1,4 +1,5 @@
 var assert = require('assert');
+var fs = require('fs');
 
 var { generateSkeleton } = require('../adapters/skeleton-generator.cjs');
 var assemblyEmitter = require('../adapters/assembly-emitter.cjs');
@@ -158,6 +159,84 @@ assert.ok(genericEmitted.files.resource.indexOf('AddGold(2 * deliverCount);') ==
 assert.ok(genericEmitted.files.resource.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "inventory_decremented")') >= 0, 'deliver slot should record inventory evidence');
 assert.ok(genericEmitted.files.resource.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "reward_incremented")') >= 0, 'deliver slot should record reward evidence');
 assert.ok(genericEmitted.files.resource.indexOf('" energy"') >= 0, 'floating text should use parameterized reward label');
+
+var popPlans = {
+  entityPlan: {
+    entities: [
+      { name: 'CTAButton' }
+    ]
+  },
+  assemblyPlan: {
+    moduleInstances: [
+      {
+        id: 'CTAButton::pop_animation',
+        moduleId: 'pop_animation',
+        entity: 'CTAButton',
+        params: { target: 'CTAButton', intensity: 0.2 },
+        ownerFiles: ['GameFlowManagerMain.Flow.cs'],
+        statesWritten: ['CTAButton.animationState'],
+        sourceAtomIds: ['atom_pop']
+      }
+    ],
+    fileOwners: [
+      { file: 'GameFlowManagerMain.Flow.cs', moduleInstanceIds: ['CTAButton::pop_animation'] }
+    ],
+    phaseBindings: [
+      { phaseId: 'cta', activateEntities: ['CTAButton'], atomIds: ['atom_pop'] }
+    ],
+    stateOwners: [],
+    eventGraph: [],
+    unresolved: []
+  },
+  cuaPlan: { steps: [] }
+};
+var popEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(genericSkeleton, popPlans);
+assert.ok(popEmitted.files.flow.indexOf('AssemblySlot_Flow_CTAButton__pop_animation') >= 0, 'pop_animation slot should be emitted');
+assert.ok(popEmitted.files.flow.indexOf('SetScale(CTAButton, __assemblyPopScale, __assemblyPopScale, __assemblyPopScale);') >= 0, 'pop_animation should use deterministic scale pulse');
+assert.ok(popEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "visual_variant_changed")') >= 0, 'pop_animation should record visual evidence');
+assert.ok(popEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "entity_position_changed")') === -1, 'pop_animation should not record position evidence without moving');
+
+var registry = JSON.parse(fs.readFileSync(__dirname + '/../adapters/schema/assembly-registry-v1/runtime-modules.v1.json', 'utf-8'));
+var registryItems = registry.items || [];
+var registryModuleIds = registryItems.map(function(item) { return item.id; });
+var registryOwnerMap = {};
+registryItems.forEach(function(item) {
+  (item.ownerFiles || ['GameFlowManagerMain.Flow.cs']).forEach(function(file) {
+    registryOwnerMap[file] = registryOwnerMap[file] || [];
+    registryOwnerMap[file].push('RegistryTarget::' + item.id);
+  });
+});
+var registryPlans = {
+  entityPlan: {
+    entities: [
+      { name: 'RegistryTarget' }
+    ]
+  },
+  assemblyPlan: {
+    moduleInstances: registryItems.map(function(item) {
+      return {
+        id: 'RegistryTarget::' + item.id,
+        moduleId: item.id,
+        entity: 'RegistryTarget',
+        params: { target: 'RegistryTarget', targets: ['RegistryTarget'], resource: 'gold', amount: 1, value: 1, intensity: 0.1 },
+        ownerFiles: item.ownerFiles || ['GameFlowManagerMain.Flow.cs'],
+        sourceAtomIds: ['atom_registry']
+      };
+    }),
+    fileOwners: Object.keys(registryOwnerMap).map(function(file) {
+      return { file: file, moduleInstanceIds: registryOwnerMap[file] };
+    }),
+    phaseBindings: [
+      { phaseId: 'registry', activateEntities: ['RegistryTarget'], atomIds: ['atom_registry'] }
+    ],
+    stateOwners: [],
+    eventGraph: [],
+    unresolved: []
+  },
+  cuaPlan: { steps: [] }
+};
+var registryCoverage = assemblyEmitter.computeImplementationCoverage(registryPlans);
+assert.deepStrictEqual(registryCoverage.missingModuleIds, [], 'every runtime registry module should have deterministic emitter coverage');
 
 var fallbackSkeleton = {
   mode: 'w1b-5partial',

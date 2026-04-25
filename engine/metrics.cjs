@@ -128,6 +128,8 @@ function recordPipelineMetrics(ctx, stageResults) {
       record.customLogicTokensIn = ctx.blueprint.customLogicTokensIn || 0;
       record.customLogicRounds = ctx.blueprint.customLogicRounds || 0;
       record.customLogicScopeFixCount = ctx.blueprint.customLogicScopeFixCount || 0;
+      record.customLogicRoute = ctx.blueprint.customLogicRoute || null;
+      record.customLogicRouteReason = ctx.blueprint.customLogicRouteReason || null;
     } else {
       record.codegenMode = 'legacy';
     }
@@ -144,7 +146,22 @@ function recordPipelineMetrics(ctx, stageResults) {
         ? ctx.blueprint.planValidationWarningCount
         : ((ctx.blueprint.planValidation && ctx.blueprint.planValidation.warnings || []).length);
       record.assemblyCoverage = ctx.blueprint.assemblyCoverage != null ? ctx.blueprint.assemblyCoverage : null;
-      record.assemblyFallbackRequired = record.assemblyUnresolvedCount > 0;
+      record.assemblyImplementationCoverage = ctx.blueprint.assemblyImplementationCoverage != null ? ctx.blueprint.assemblyImplementationCoverage : null;
+      record.assemblyImplementationMissingCount = ctx.blueprint.assemblyImplementationMissingCount != null ? ctx.blueprint.assemblyImplementationMissingCount : null;
+      record.assemblyImplementationMissingModuleIds = ctx.blueprint.assemblyImplementationMissingModuleIds || [];
+      record.assemblyImplementationTotal = ctx.blueprint.assemblyImplementationTotal != null ? ctx.blueprint.assemblyImplementationTotal : null;
+      record.assemblyImplementationImplemented = ctx.blueprint.assemblyImplementationImplemented != null ? ctx.blueprint.assemblyImplementationImplemented : null;
+      record.customLogicSuppressedCount = ctx.blueprint.customLogicSuppressedCount || 0;
+      record.assemblyDeterministicReady = ctx.blueprint.assemblyDecision === 'assembly_ready' &&
+        record.assemblyUnresolvedCount === 0 &&
+        record.assemblyCoverage != null &&
+        record.assemblyCoverage >= 0.999 &&
+        record.assemblyImplementationCoverage != null &&
+        record.assemblyImplementationCoverage >= 0.999 &&
+        (record.assemblyImplementationMissingCount || 0) === 0;
+      record.assemblyFallbackRequired = record.assemblyUnresolvedCount > 0 ||
+        (record.assemblyImplementationCoverage != null && record.assemblyImplementationCoverage < 0.999) ||
+        ((record.assemblyImplementationMissingCount || 0) > 0);
       record.assemblyDecision = ctx.blueprint.assemblyDecision || null;
       record.assemblyRiskLevel = ctx.blueprint.assemblyRiskLevel || null;
       record.codegenInputMode = ctx.blueprint.gameSchema ? 'assembly-first' : 'assembly-plan-ready';
@@ -581,7 +598,16 @@ function getMetricsSummary(lastN) {
     var totalSteps = 0;
     var totalCoverage = 0;
     var coverageCount = 0;
+    var totalImplementationCoverage = 0;
+    var implementationCoverageCount = 0;
+    var missingImplementationTotal = 0;
     var fallbackCount = 0;
+    var deterministicReadyCount = 0;
+    var customLogicUsedCount = 0;
+    var postImplementationGateCount = 0;
+    var postImplementationGateCustomLogicCount = 0;
+    var customLogicSuppressedTotal = 0;
+    var customLogicRoutes = {};
     var totalScopeFixes = 0;
     var signalCoverageCovered = 0;
     var signalCoverageTotal = 0;
@@ -596,7 +622,20 @@ function getMetricsSummary(lastN) {
         totalCoverage += r.assemblyCoverage;
         coverageCount++;
       }
+      if (r.assemblyImplementationCoverage !== null && r.assemblyImplementationCoverage !== undefined) {
+        totalImplementationCoverage += r.assemblyImplementationCoverage;
+        implementationCoverageCount++;
+      }
+      missingImplementationTotal += r.assemblyImplementationMissingCount || 0;
       if (r.assemblyFallbackRequired) fallbackCount++;
+      if (r.assemblyDeterministicReady) deterministicReadyCount++;
+      if (r.customLogicUsed) customLogicUsedCount++;
+      if (r.customLogicRoute) customLogicRoutes[r.customLogicRoute] = (customLogicRoutes[r.customLogicRoute] || 0) + 1;
+      if (r.assemblyImplementationCoverage !== null && r.assemblyImplementationCoverage !== undefined) {
+        postImplementationGateCount++;
+        if (r.customLogicUsed) postImplementationGateCustomLogicCount++;
+      }
+      customLogicSuppressedTotal += r.customLogicSuppressedCount || 0;
       totalScopeFixes += r.customLogicScopeFixCount || 0;
       if (r.cuaSignalCoverage && /^\d+\/\d+$/.test(r.cuaSignalCoverage)) {
         var parts = r.cuaSignalCoverage.split('/');
@@ -611,7 +650,16 @@ function getMetricsSummary(lastN) {
     summary.avgAssemblySlots = (totalSlots / assemblyRecords.length).toFixed(1);
     summary.avgCuaPlanSteps = (totalSteps / assemblyRecords.length).toFixed(1);
     summary.avgAssemblyCoverage = coverageCount > 0 ? (totalCoverage / coverageCount * 100).toFixed(1) + '%' : null;
+    summary.avgAssemblyImplementationCoverage = implementationCoverageCount > 0 ? (totalImplementationCoverage / implementationCoverageCount * 100).toFixed(1) + '%' : null;
+    summary.avgAssemblyImplementationMissing = (missingImplementationTotal / assemblyRecords.length).toFixed(1);
+    summary.assemblyDeterministicReadyRate = (deterministicReadyCount / assemblyRecords.length * 100).toFixed(1) + '%';
     summary.assemblyFallbackRate = (fallbackCount / assemblyRecords.length * 100).toFixed(1) + '%';
+    summary.customLogicUsedRate = (customLogicUsedCount / assemblyRecords.length * 100).toFixed(1) + '%';
+    summary.customLogicUsedAfterImplementationGateRate = postImplementationGateCount > 0
+      ? (postImplementationGateCustomLogicCount / postImplementationGateCount * 100).toFixed(1) + '%'
+      : null;
+    summary.customLogicRoutes = customLogicRoutes;
+    summary.customLogicSuppressedTotal = customLogicSuppressedTotal;
     summary.avgCustomLogicScopeFixes = (totalScopeFixes / assemblyRecords.length).toFixed(1);
     summary.avgCuaSignalCoverage = signalCoverageTotal > 0 ? (signalCoverageCovered / signalCoverageTotal * 100).toFixed(1) + '%' : null;
     summary.cuaSignalFailureRate = signalCoverageCount > 0 ? (signalValidationFailures / signalCoverageCount * 100).toFixed(1) + '%' : null;
@@ -760,6 +808,11 @@ function printDiagnostics(lastN) {
     console.log('    Avg slots:     ' + s.avgAssemblySlots);
     console.log('    Avg CUA steps: ' + s.avgCuaPlanSteps);
     if (s.avgAssemblyCoverage) console.log('    Avg coverage:  ' + s.avgAssemblyCoverage);
+    if (s.avgAssemblyImplementationCoverage) console.log('    Avg impl cov:  ' + s.avgAssemblyImplementationCoverage);
+    if (s.avgAssemblyImplementationMissing) console.log('    Missing impl:  ' + s.avgAssemblyImplementationMissing);
+    if (s.assemblyDeterministicReadyRate) console.log('    Direct ready:  ' + s.assemblyDeterministicReadyRate);
+    if (s.customLogicUsedRate) console.log('    Custom logic:  ' + s.customLogicUsedRate);
+    if (s.customLogicUsedAfterImplementationGateRate) console.log('    Custom gated:  ' + s.customLogicUsedAfterImplementationGateRate);
     if (s.avgCuaSignalCoverage) console.log('    Avg signals:   ' + s.avgCuaSignalCoverage);
     if (s.cuaSignalFailureRate) console.log('    Signal fails:  ' + s.cuaSignalFailureRate);
     if (s.avgCustomLogicScopeFixes) console.log('    Scope scrubs:  ' + s.avgCustomLogicScopeFixes);

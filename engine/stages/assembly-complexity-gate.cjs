@@ -8,7 +8,8 @@ var assemblyEmitter = require('../../adapters/assembly-emitter.cjs');
 
 function decideAssemblyRisk(metrics) {
   var implementationCoverage = metrics.assemblyImplementationCoverage == null ? 1 : metrics.assemblyImplementationCoverage;
-  if (metrics.unresolvedCount === 0 && metrics.assemblyCoverage >= 0.85 && implementationCoverage >= 0.95) {
+  var missingImpl = metrics.assemblyImplementationMissingCount || 0;
+  if (metrics.unresolvedCount === 0 && metrics.assemblyCoverage >= 0.999 && implementationCoverage >= 0.999 && missingImpl === 0) {
     return {
       decision: 'assembly_ready',
       riskLevel: 'low',
@@ -21,7 +22,7 @@ function decideAssemblyRisk(metrics) {
     return {
       decision: 'assembly_caution',
       riskLevel: 'medium',
-      fallbackRequired: metrics.unresolvedCount > 0 || implementationCoverage < 0.95,
+      fallbackRequired: metrics.unresolvedCount > 0 || implementationCoverage < 0.95 || missingImpl > 0,
       summary: 'caution'
     };
   }

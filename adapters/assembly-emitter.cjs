@@ -178,7 +178,12 @@ function buildGuidePhaseMap(plans) {
 
 function buildDeterministicGuideLines(plans) {
   var guideMap = buildGuidePhaseMap(plans);
-  if (guideMap.length === 0) return [];
+  if (guideMap.length === 0) {
+    return [
+      '        if (guideText != null && string.IsNullOrEmpty(guideText.text)) SetGuideText("点击继续");',
+      '        RecordPhaseEvidenceFlag(currentPhaseName, "guide_text_visible");'
+    ];
+  }
   var lines = [];
   lines.push('        if (guideText == null) return;');
   lines.push('        switch (currentPhaseName)');
@@ -885,6 +890,30 @@ function buildDeterministicVariantLines(moduleInstance, plans) {
   return lines;
 }
 
+function buildDeterministicPopAnimationLines(moduleInstance, plans) {
+  var entity = moduleTarget(moduleInstance);
+  if (!isIdentifier(entity) || !planHasEntity(plans, entity)) {
+    entity = firstUsablePlanEntity(plans, [/Target/i, /Button/i, /Base/i, /Tower/i, /Astronaut/i, /Enemy/i], []);
+  }
+  var intensity = moduleInstance && moduleInstance.params && moduleInstance.params.intensity != null
+    ? Number(moduleInstance.params.intensity)
+    : 0.12;
+  if (!isFinite(intensity)) intensity = 0.12;
+  intensity = Math.max(0.04, Math.min(0.35, intensity));
+
+  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  if (!isIdentifier(entity) || !planHasEntity(plans, entity)) {
+    lines.push(recordFlag('visual_variant_changed'));
+    return lines;
+  }
+  lines.push('        if (' + entity + ' == null) return;');
+  lines.push('        if (' + entity + '.transform.position.y < -900f) PlaceObj(' + entity + ', 0f, 0.5f, 0f);');
+  lines.push('        var __assemblyPopScale = 1f + Mathf.Abs(Mathf.Sin(gameTimer * 8f)) * ' + csFloat(intensity, 0.12) + ';');
+  lines.push('        SetScale(' + entity + ', __assemblyPopScale, __assemblyPopScale, __assemblyPopScale);');
+  lines.push(recordFlag('visual_variant_changed'));
+  return lines;
+}
+
 function buildDeterministicBodyLines(fileName, moduleInstance, plans) {
   var moduleId = moduleInstance && moduleInstance.moduleId;
   if (fileName === 'GameFlowManagerMain.Scene.cs' && moduleId === 'visual_binding') {
@@ -935,7 +964,7 @@ function buildDeterministicBodyLines(fileName, moduleInstance, plans) {
   if (fileName === 'GameFlowManagerMain.Flow.cs' && moduleId === 'cooldown') {
     return buildDeterministicCooldownLines(moduleInstance, plans);
   }
-  if (fileName === 'GameFlowManagerMain.Flow.cs' && (moduleId === 'spawn_interval' || moduleId === 'spawn_once')) {
+  if ((fileName === 'GameFlowManagerMain.Flow.cs' || fileName === 'GameFlowManagerMain.Scene.cs') && (moduleId === 'spawn_interval' || moduleId === 'spawn_once')) {
     return buildDeterministicSpawnLines(moduleInstance, plans);
   }
   if (fileName === 'GameFlowManagerMain.Flow.cs' && moduleId === 'on_death_drop') {
@@ -949,6 +978,9 @@ function buildDeterministicBodyLines(fileName, moduleInstance, plans) {
   }
   if (fileName === 'GameFlowManagerMain.Flow.cs' && moduleId === 'activate_targets') {
     return buildDeterministicActivateLines(moduleInstance, plans);
+  }
+  if (fileName === 'GameFlowManagerMain.Flow.cs' && moduleId === 'pop_animation') {
+    return buildDeterministicPopAnimationLines(moduleInstance, plans);
   }
   if (fileName === 'GameFlowManagerMain.Resource.cs' && moduleId === 'inventory_wallet') {
     return buildDeterministicInventoryWalletLines(moduleInstance, plans);

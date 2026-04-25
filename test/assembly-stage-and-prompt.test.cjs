@@ -71,6 +71,15 @@ assert.ok(ctx.blueprint.assemblyImplementationCoverage > 0, 'assembly-complexity
 assert.ok(Array.isArray(ctx.blueprint.assemblyImplementationMissingModuleIds), 'assembly-complexity-gate should set missing implementation module ids');
 assert.ok(gateResult.decision, 'assembly-complexity-gate should return a decision');
 
+var cautionWithMissing = assemblyComplexityGateStage._internals.decideAssemblyRisk({
+  unresolvedCount: 0,
+  assemblyCoverage: 0.9,
+  assemblyImplementationCoverage: 0.99,
+  assemblyImplementationMissingCount: 1,
+});
+assert.strictEqual(cautionWithMissing.decision, 'assembly_caution', 'missing impl can still be caution by coverage');
+assert.strictEqual(cautionWithMissing.fallbackRequired, true, 'missing impl must require fallback');
+
 var prompt = codegenSchemaStage._internals.buildSchemaPrompt(ctx);
 assert.ok(prompt.indexOf('## Assembly Plan（必须遵守）') >= 0, 'schema prompt should include assembly plan section');
 assert.ok(prompt.indexOf('"phaseBindings"') >= 0, 'schema prompt should include phaseBindings');

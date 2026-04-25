@@ -141,6 +141,7 @@ assert.strictEqual(codegenSchema._internals.isSchemaInfraError('schema malformed
   const ctx = {
     blueprint: {
       assemblyCoverage: 1,
+      assemblyDecision: 'assembly_ready',
       plans: {
         entityPlan: {
           entities: [
@@ -200,6 +201,7 @@ assert.strictEqual(codegenSchema._internals.isSchemaInfraError('schema malformed
   assert.deepStrictEqual(schema.customLogic, []);
   assert.strictEqual(ctx.blueprint.customLogicSuppressedCount, 1);
   assert.strictEqual(ctx.blueprint.assemblyImplementationCoverage, 1);
+  assert.strictEqual(ctx.blueprint.customLogicRoute, 'deterministic_suppressed');
 }
 
 {
@@ -234,6 +236,7 @@ assert.strictEqual(codegenSchema._internals.isSchemaInfraError('schema malformed
   assert.strictEqual(result.suppressedCount, 0);
   assert.deepStrictEqual(schema.customLogic, ['requires missing module']);
   assert.strictEqual(ctx.blueprint.assemblyImplementationMissingCount, 1);
+  assert.strictEqual(ctx.blueprint.customLogicRoute, 'runner_implementation_gap');
 }
 
 console.log('codegen-schema trigger repair tests passed');

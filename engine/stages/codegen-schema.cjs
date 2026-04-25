@@ -149,9 +149,14 @@ function localizeGeneratedCSharpComments(ctx) {
 function suppressCustomLogicWhenAssemblyCovered(ctx, schema) {
   var items = schema && Array.isArray(schema.customLogic) ? schema.customLogic.slice() : [];
   if (items.length === 0) {
+    if (ctx && ctx.blueprint) {
+      ctx.blueprint.customLogicRoute = 'none';
+      ctx.blueprint.customLogicRouteReason = 'schema_empty';
+    }
     return {
       suppressedCount: 0,
       implementationCoverage: 1,
+      route: 'none',
     };
   }
 
@@ -159,9 +164,12 @@ function suppressCustomLogicWhenAssemblyCovered(ctx, schema) {
   var plans = blueprint.plans;
   var assemblyPlan = plans && plans.assemblyPlan;
   if (!assemblyPlan) {
+    blueprint.customLogicRoute = 'runner_no_assembly_plan';
+    blueprint.customLogicRouteReason = 'assemblyPlan missing';
     return {
       suppressedCount: 0,
       implementationCoverage: 0,
+      route: blueprint.customLogicRoute,
     };
   }
 
@@ -175,26 +183,44 @@ function suppressCustomLogicWhenAssemblyCovered(ctx, schema) {
   blueprint.assemblyImplementationCoverage = implementation.coverage;
   blueprint.assemblyImplementationMissingCount = implementation.missing.length;
   blueprint.assemblyImplementationMissingModuleIds = implementation.missingModuleIds;
+  blueprint.assemblyImplementationTotal = implementation.total;
+  blueprint.assemblyImplementationImplemented = implementation.implemented;
 
   var fullyCovered = implementation.total > 0 &&
     implementation.missing.length === 0 &&
     implementation.coverage >= 0.999 &&
     unresolvedCount === 0 &&
-    assemblyCoverage >= 0.85;
+    assemblyCoverage >= 0.999 &&
+    blueprint.assemblyDecision === 'assembly_ready';
 
   if (!fullyCovered) {
+    var reason = [];
+    if (implementation.total <= 0) reason.push('no implementation slots');
+    if (implementation.missing.length > 0) reason.push('missing implementation: ' + implementation.missingModuleIds.join(','));
+    if (implementation.coverage < 0.999) reason.push('implementation coverage ' + implementation.coverage.toFixed(3));
+    if (unresolvedCount !== 0) reason.push('unresolved ' + unresolvedCount);
+    if (assemblyCoverage < 0.999) reason.push('assembly coverage ' + assemblyCoverage.toFixed(3));
+    if (blueprint.assemblyDecision !== 'assembly_ready') reason.push('decision ' + (blueprint.assemblyDecision || 'n/a'));
+    blueprint.customLogicRoute = unresolvedCount > 0
+      ? 'runner_unresolved'
+      : (implementation.missing.length > 0 ? 'runner_implementation_gap' : 'runner_coverage_gap');
+    blueprint.customLogicRouteReason = reason.join('; ');
     return {
       suppressedCount: 0,
       implementationCoverage: implementation.coverage,
+      route: blueprint.customLogicRoute,
     };
   }
 
   schema.customLogic = [];
   blueprint.customLogicSuppressedCount = (blueprint.customLogicSuppressedCount || 0) + items.length;
   blueprint.customLogicSuppressedItems = (blueprint.customLogicSuppressedItems || []).concat(items);
+  blueprint.customLogicRoute = 'deterministic_suppressed';
+  blueprint.customLogicRouteReason = 'full assembly implementation coverage';
   return {
     suppressedCount: items.length,
     implementationCoverage: implementation.coverage,
+    route: blueprint.customLogicRoute,
   };
 }
 
@@ -385,6 +411,7 @@ function buildSchemaPrompt(ctx) {
     lines.push('17. 优先把 module 实现映射为 schema 的 phases/onEnter/resources/npcs；只有 unresolved 项才允许落入 customLogic。');
     lines.push('18. 如果 Assembly Plan 指定了 state owner，不要让多个 phase/onEnter 重复写同一业务状态。');
     lines.push('19. 对每个 cuaSteps.phaseEvidenceSchema 声明的 signal，必须在对应 phase 写入 phaseEvidence 或 variables["evidence.<phase>.<signal>..."]；缺失会被 runtime contract 判失败。');
+    lines.push('20. 只有 assemblyDecision=assembly_ready、assemblyCoverage=1、unresolved=0、implementationCoverage.coverage=1 且 missingModuleIds 为空时，customLogic 才必须为空数组；否则 unresolved/缺口必须保留在 customLogic 或 fallback 路径中。');
   }
   lines.push('');
   if (plansSummary) {
@@ -404,8 +431,15 @@ function buildSchemaPrompt(ctx) {
 
 function summarizePlansForPrompt(plans) {
   if (!plans || !plans.assemblyPlan) return '';
+  var implementation = assemblyEmitter.computeImplementationCoverage(plans);
   var summary = {
     registryVersion: plans.registryVersion || null,
+    implementationCoverage: {
+      total: implementation.total,
+      implemented: implementation.implemented,
+      coverage: implementation.coverage,
+      missingModuleIds: implementation.missingModuleIds,
+    },
     storyboardAtoms: ((plans.storyboardAtomPlan && plans.storyboardAtomPlan.items) || []).map(function(atom) {
       return {
         id: atom.id,
