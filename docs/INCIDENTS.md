@@ -34,7 +34,7 @@
 - `/opt/luna-poc/build-api.js` 已切到 PM2 进程 `luna-build-api`，健康检查 `{"ok":true,"service":"linux-build-api"}`。
 - 归档：`docs/_archived/2026-04-25-public-preview-cua-gap.md`。
 - 发布收尾归档：`docs/_archived/2026-04-25-public-preview-deployment-closeout.md`。
-- 2026-04-25 收尾复测：monitor 无 active / failed 任务；裸公开预览实时探针完成 `3/3`，`enemyAttackWarning → dispatchAstronautAttack`，visual diff `0.031`。
+- 2026-04-25 收尾复测：monitor 无 active / failed 任务；裸公开预览实时探针完成 `3/3`，`enemyAttackWarning → dispatchAstronautAttack`，visual diff `0.031`；PM2 重启后复测 visual diff `0.029`。
 
 ## 2026-04-23: rerun 假重提 + split-partial phase gate 漏修
 

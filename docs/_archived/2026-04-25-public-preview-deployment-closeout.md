@@ -46,6 +46,13 @@ Bare public preview probe:
 - Phase changes: `3`
 - Visual max diff: `0.031`
 
+Post-restart public preview probe:
+
+- Result: `passed=true`
+- Progression: `enemyAttackWarning -> dispatchAstronautAttack`
+- Completed phases: `3/3`
+- Visual max diff: `0.029`
+
 ## Checks
 
 - `node -c engine/stages/upload.cjs`

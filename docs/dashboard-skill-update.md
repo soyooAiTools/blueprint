@@ -21,6 +21,7 @@
   - `enemyAttackWarning -> dispatchAstronautAttack`
   - `completed=3/3`
   - `visualDiff=0.031`
+  - PM2 重启后复测 `visualDiff=0.029`
 - 归档入口：
   - `docs/_archived/2026-04-25-public-preview-cua-gap.md`
   - `docs/_archived/2026-04-25-public-preview-deployment-closeout.md`
