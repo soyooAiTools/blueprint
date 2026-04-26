@@ -132,7 +132,10 @@ try {
   assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'Entities', 'BaseBuildElement.cs')));
   assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'Entities', 'BuildEntity.cs')));
   assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'Entities', 'BarrackEntity.cs')));
-  assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BaseBuildElement.cs'), 'utf8'), /public int Health = 100;/);
+  assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BaseGameFlowEntity.cs'), 'utf8'), /EntityId = ""; \/\/ 蓝图实体 ID/);
+  assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BaseGameFlowEntity.cs'), 'utf8'), /绑定场景对象和蓝图标识/);
+  assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BaseBuildElement.cs'), 'utf8'), /public int Health = 100; \/\/ 建筑耐久值/);
+  assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowStateBase.cs'), 'utf8'), /领域模型缓存/);
   assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BarrackEntity.cs'), 'utf8'), /public class BarrackEntity : BaseBuildElement/);
   // 反馈 01 #1 架构图:PlayerBase / NPCBase 与 BaseBuildElement 同级,都挂在 BaseGameFlowEntity 下。
   assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'Entities', 'PlayerBase.cs')));
@@ -145,6 +148,7 @@ try {
   assert.match(npcBaseSrc, /public class NPCBase : BaseGameFlowEntity/);
   assert.match(npcBaseSrc, /void SetTarget\(Vector3 target\)/);
   assert.match(npcBaseSrc, /void TickPatrol\(float dt\)/);
+  assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BarrackEntity.cs'), 'utf8'), /蓝图实体 ID/);
   assert.ok(fs.existsSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md')));
   assert.ok(fs.existsSync(path.join(tmp, 'CODE_RELATION_GRAPH.md')));
   assert.ok(fs.existsSync(path.join(tmp, 'CODE_RELATION_GRAPH.html')));
