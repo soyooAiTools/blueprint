@@ -485,7 +485,10 @@ module.exports.init = function(ctx) {
         if (changed && regLoadOk) {
           try {
             fs.mkdirSync(path.dirname(regFile), { recursive: true });
-            fs.writeFileSync(regFile, JSON.stringify(Object.keys(byFp).map(function(k) { return byFp[k]; }), null, 2));
+            // 原子写：先写 .tmp 再 rename,中途崩溃不会留下截断的 regressions.json
+            var regTmp = regFile + '.tmp';
+            fs.writeFileSync(regTmp, JSON.stringify(Object.keys(byFp).map(function(k) { return byFp[k]; }), null, 2));
+            fs.renameSync(regTmp, regFile);
           } catch(e) {}
         }
       } catch(e) {
@@ -530,7 +533,11 @@ module.exports.init = function(ctx) {
 
         if (newSPCount > 0 && spLoadOk) {
           try {
-            fs.writeFileSync(spFile, JSON.stringify(Object.keys(spByTask).map(function(k) { return spByTask[k]; }), null, 2));
+            // 原子写:同 regressions.json,避免中途崩溃截断 silent-passes.json
+            fs.mkdirSync(path.dirname(spFile), { recursive: true });
+            var spTmp = spFile + '.tmp';
+            fs.writeFileSync(spTmp, JSON.stringify(Object.keys(spByTask).map(function(k) { return spByTask[k]; }), null, 2));
+            fs.renameSync(spTmp, spFile);
           } catch(e) {}
           // Feishu alert removed 2026-04-17
           fixes.push('[info] Recorded ' + newSPCount + ' new silent-pass(es) → server-data/silent-passes.json');
