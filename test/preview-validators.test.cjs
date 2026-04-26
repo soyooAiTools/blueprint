@@ -40,12 +40,18 @@ describe('preview-validators / validateShotProgressionMonotonic', () => {
     expect(validateShotProgressionMonotonic(seq)).toEqual([]);
   });
 
-  test('反馈 01 截图重现: 4→5→6→7→8 跳号叠加', () => {
-    // 反馈截图 Data_2.png 红箭头指 5/7/8,推演实际跳到 5 又跳 7 又跳 8。
+  test('反馈 01 截图重现: 1→2→3→5→7→8 跳号叠加', () => {
+    // 反馈截图 Data_2.png 红箭头指 5/7/8,推演从 3 跳 5、再从 5 跳 7。
     const seq = [{ phase: 1 }, { phase: 2 }, { phase: 3 }, { phase: 5 }, { phase: 7 }, { phase: 8 }];
     const issues = validateShotProgressionMonotonic(seq);
     const jumps = issues.filter((i) => i.kind === 'jump');
     expect(jumps.length).toBe(2); // 3→5, 5→7
+  });
+
+  test('浮点 phase 命中 non-integer-phase', () => {
+    const seq = [{ phase: 1 }, { phase: 1.5 }, { phase: 2 }];
+    const issues = validateShotProgressionMonotonic(seq);
+    expect(issues.find((i) => i.kind === 'non-integer-phase')).toBeDefined();
   });
 });
 

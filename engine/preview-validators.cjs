@@ -32,6 +32,10 @@ function validateShotProgressionMonotonic(sequence) {
       issues.push({ kind: 'invalid-phase', index: i, message: `entry[${i}].phase 不是数字: ${entry.phase}` });
       continue;
     }
+    if (!Number.isInteger(cur)) {
+      issues.push({ kind: 'non-integer-phase', index: i, message: `entry[${i}].phase 必须是整数: ${entry.phase}` });
+      continue;
+    }
     if (previous !== null) {
       if (cur < previous) {
         issues.push({ kind: 'regression', index: i, message: `phase ${previous} → ${cur} 反向回退` });
