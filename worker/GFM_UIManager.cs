@@ -148,4 +148,31 @@ public class GFM_UIManager : MonoBehaviour
             if (_floatingTextTimer <= 0f && _floatingText != null) _floatingText.text = "";
         }
     }
+
+    // ------------------------------------------------------------------------
+    // 【统一 UI 创建 API】(反馈 01 #1 架构图：UI 创建走 UIManager,不要让外部
+    // 自己 new GameObject + AddComponent<Text>)。所有创建都挂到管理器自己的
+    // Canvas 上,Luna 重启时不会丢资源。
+    // ------------------------------------------------------------------------
+
+    // 【创建一个标签文本】返回 Text 组件,调用方负责更新内容。
+    public Text CreateLabel(string text, Vector2 anchoredPos, int fontSize = 28)
+    {
+        if (!EnsureInit()) return null;
+        return GFM_UI.CreateText(_canvas, text == null ? "" : text, anchoredPos, fontSize);
+    }
+
+    // 【创建一个按钮】onClick 在主线程立即触发;Luna 平台上不要在回调里 Destroy。
+    public Button CreateButton(string text, Vector2 anchoredPos, Vector2 size, UnityEngine.Events.UnityAction onClick)
+    {
+        if (!EnsureInit()) return null;
+        return GFM_UI.CreateButton(_canvas, text == null ? "" : text, anchoredPos, size, onClick);
+    }
+
+    // 【创建一个进度条】fillColor 决定填充色;返回 Slider,调用方写 .value。
+    public Slider CreateProgressBar(Vector2 anchoredPos, Vector2 size, Color fillColor)
+    {
+        if (!EnsureInit()) return null;
+        return GFM_UI.CreateProgressBar(_canvas, anchoredPos, size, fillColor);
+    }
 }

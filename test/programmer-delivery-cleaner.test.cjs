@@ -118,6 +118,17 @@ try {
   assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'Entities', 'BarrackEntity.cs')));
   assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BaseBuildElement.cs'), 'utf8'), /public int Health = 100;/);
   assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BarrackEntity.cs'), 'utf8'), /public class BarrackEntity : BaseBuildElement/);
+  // 反馈 01 #1 架构图:PlayerBase / NPCBase 与 BaseBuildElement 同级,都挂在 BaseGameFlowEntity 下。
+  assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'Entities', 'PlayerBase.cs')));
+  assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'Entities', 'NPCBase.cs')));
+  const playerBaseSrc = fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'PlayerBase.cs'), 'utf8');
+  assert.match(playerBaseSrc, /public class PlayerBase : BaseGameFlowEntity/);
+  assert.match(playerBaseSrc, /public float MoveSpeed/);
+  assert.match(playerBaseSrc, /void MoveByDirection\(Vector3 direction, float dt\)/);
+  const npcBaseSrc = fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'NPCBase.cs'), 'utf8');
+  assert.match(npcBaseSrc, /public class NPCBase : BaseGameFlowEntity/);
+  assert.match(npcBaseSrc, /void SetTarget\(Vector3 target\)/);
+  assert.match(npcBaseSrc, /void TickPatrol\(float dt\)/);
   assert.ok(fs.existsSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md')));
   assert.ok(fs.existsSync(path.join(tmp, 'CODE_RELATION_GRAPH.md')));
   assert.ok(fs.existsSync(path.join(tmp, 'CODE_RELATION_GRAPH.html')));
