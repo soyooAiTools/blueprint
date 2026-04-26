@@ -14,6 +14,10 @@
 //     }
 //     调用方:GFM_FooManager.Instance.DoSomething();
 //
+// ⚠️ 子类如果一定要覆盖 Awake(不推荐),必须先调 base.Awake()——否则
+//    _instance 不会注册、OnInit 不会触发、duplicate-disable 也跑不到。
+//    99% 的初始化逻辑放 OnInit 就够,不需要碰 Awake。
+//
 // 反馈 01 #1 架构图明确要求 "代码需要按照这个结构来生成" — 单例基类是树根。
 // 所有 Manager 都应继承此类,而不是各自维护一份 static Instance 字段。
 // ============================================================================

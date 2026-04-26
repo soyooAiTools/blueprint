@@ -29,18 +29,18 @@ public class GFM_TipsManager : GFM_SingletonBase<GFM_TipsManager>
     // 【初始化】基类 Awake 已确保 Instance 可用,这里只做 UI 资产搭建。
     protected override void OnInit()
     {
-        // 优先复用 UIManager 的 Canvas;若它还没就绪则自建一个简易 Canvas。
+        // 优先复用 UIManager 的 Canvas;若它还没就绪走 GFM_UI.CreateCanvas
+        // 拿一个配置正确的 Canvas (含 ScaleWithScreenSize)。不要在这里手搓——
+        // 漏配 scaler.uiScaleMode 时默认 ConstantPixelSize,referenceResolution
+        // 会被忽略,文字尺寸跟屏幕脱钩。
         if (GFM_UIManager.Instance != null && GFM_UIManager.Instance.Canvas != null)
         {
             _canvas = GFM_UIManager.Instance.Canvas;
         }
         else
         {
-            var canvasObj = new GameObject("GFM_TipsCanvas");
-            _canvas = canvasObj.AddComponent<Canvas>();
-            _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvasObj.AddComponent<CanvasScaler>().referenceResolution = new Vector2(960, 640);
-            canvasObj.AddComponent<GraphicRaycaster>();
+            _canvas = GFM_UI.CreateCanvas(960, 640);
+            if (_canvas == null) return;
         }
 
         var textObj = new GameObject("GFM_TipText");
