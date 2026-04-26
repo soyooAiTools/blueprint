@@ -418,9 +418,19 @@ module.exports.init = function(ctx) {
         var records = metricsModule.loadRecords(100);
         var regFile = path.join(__dirname, '..', 'server-data', 'regressions.json');
         var existing = [];
+        var regLoadOk = true;
         try {
-          if (fs.existsSync(regFile)) existing = JSON.parse(fs.readFileSync(regFile, 'utf-8')) || [];
-        } catch(e) { existing = []; }
+          if (fs.existsSync(regFile)) {
+            var regParsed = JSON.parse(fs.readFileSync(regFile, 'utf-8'));
+            if (regParsed != null && !Array.isArray(regParsed)) {
+              throw new Error('expected array, got ' + typeof regParsed);
+            }
+            existing = regParsed || [];
+          }
+        } catch(e) {
+          regLoadOk = false;
+          issues.push('[error] ' + regFile + ' 损坏 (' + e.message + '),写入已跳过以保留现场。建议: cp "' + regFile + '" "' + regFile + '.corrupt.' + Date.now() + '" 再人工排查');
+        }
         var byFp = {};
         existing.forEach(function(r) { byFp[r.fingerprint] = r; });
 
@@ -472,7 +482,7 @@ module.exports.init = function(ctx) {
           // Feishu notification removed 2026-04-17
         });
 
-        if (changed) {
+        if (changed && regLoadOk) {
           try {
             fs.mkdirSync(path.dirname(regFile), { recursive: true });
             fs.writeFileSync(regFile, JSON.stringify(Object.keys(byFp).map(function(k) { return byFp[k]; }), null, 2));
@@ -487,9 +497,19 @@ module.exports.init = function(ctx) {
       try {
         var spFile = path.join(__dirname, '..', 'server-data', 'silent-passes.json');
         var existingSP = [];
+        var spLoadOk = true;
         try {
-          if (fs.existsSync(spFile)) existingSP = JSON.parse(fs.readFileSync(spFile, 'utf-8')) || [];
-        } catch(e) { existingSP = []; }
+          if (fs.existsSync(spFile)) {
+            var spParsed = JSON.parse(fs.readFileSync(spFile, 'utf-8'));
+            if (spParsed != null && !Array.isArray(spParsed)) {
+              throw new Error('expected array, got ' + typeof spParsed);
+            }
+            existingSP = spParsed || [];
+          }
+        } catch(e) {
+          spLoadOk = false;
+          issues.push('[error] ' + spFile + ' 损坏 (' + e.message + '),写入已跳过以保留现场。建议: cp "' + spFile + '" "' + spFile + '.corrupt.' + Date.now() + '" 再人工排查');
+        }
         var spByTask = {};
         existingSP.forEach(function(sp) { spByTask[sp.taskId] = sp; });
 
@@ -508,7 +528,7 @@ module.exports.init = function(ctx) {
           issues.push('[F21-silent-pass] ' + r.taskId + ': ' + (r.cuaSilentPassSignals || []).join(', '));
         });
 
-        if (newSPCount > 0) {
+        if (newSPCount > 0 && spLoadOk) {
           try {
             fs.writeFileSync(spFile, JSON.stringify(Object.keys(spByTask).map(function(k) { return spByTask[k]; }), null, 2));
           } catch(e) {}
