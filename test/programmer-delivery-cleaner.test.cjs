@@ -94,15 +94,31 @@ try {
   assert.ok(!fs.existsSync(path.join(tmp, 'tools')));
   assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowManagerMain.Flow.cs')));
   const mergedMain = fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowManagerMain.cs'), 'utf8');
-  assert.match(mergedMain, /public class GameFlowManagerMain : GameFlowPhaseFlowBase/);
+  // Main 继承指向最低非空层（fixture 中是 PhaseInitBase，跳过 Tap/Auto/Flow 空层）。
+  assert.match(mergedMain, /public class GameFlowManagerMain : GameFlowPhaseInitBase/);
   assert.doesNotMatch(mergedMain, /partial class GameFlowManagerMain/);
   assert.match(mergedMain, /BindGameFlowEntityModels\(\);/);
+  // 有内容的层必须存在。
   assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowStateBase.cs')));
-  assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowPhaseFlowBase.cs')));
-  assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowPhaseContentBase.cs')));
-  assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowRuntimeBase.cs')));
-  assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowPreviewBase.cs')));
   assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowPhaseInitBase.cs')));
+  assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowPhaseSharedBase.cs')));
+  // 空层必须被剔除（不再生成 8 行 `class X : Y { }` 壳子）。
+  assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowPhaseFlowBase.cs')));
+  assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowPhaseContentBase.cs')));
+  assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowRuntimeBase.cs')));
+  assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowPreviewBase.cs')));
+  assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowSceneBase.cs')));
+  assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowInputBase.cs')));
+  assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowUiBase.cs')));
+  assert.ok(summary.prunedEmptyLayers && summary.prunedEmptyLayers.length >= 8);
+  assert.strictEqual(summary.mainParent, 'GameFlowPhaseInitBase');
+  // 重新串接的继承链每一段都不引用被剔除的层。
+  const phaseInitText = fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowPhaseInitBase.cs'), 'utf8');
+  assert.match(phaseInitText, /public class GameFlowPhaseInitBase : GameFlowPhaseSharedBase/);
+  const phaseSharedText = fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowPhaseSharedBase.cs'), 'utf8');
+  assert.match(phaseSharedText, /public class GameFlowPhaseSharedBase : GameFlowStateBase/);
+  const stateBaseText = fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowStateBase.cs'), 'utf8');
+  assert.match(stateBaseText, /public class GameFlowStateBase : MonoBehaviour/);
   assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowStateBase.cs'), 'utf8'), /protected void BindGameFlowEntityModels\(\)/);
   assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowStateBase.cs'), 'utf8'), /protected BarrackEntity _barrackEntityModel;/);
   assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowStateBase.cs'), 'utf8'), /BindGameFlowEntityComponent<BarrackEntity>/);
@@ -135,6 +151,7 @@ try {
   assert.match(fs.readFileSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md'), 'utf8'), /程序员交付版说明/);
   assert.match(fs.readFileSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md'), 'utf8'), /移除 tools 目录数：1/);
   assert.match(fs.readFileSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md'), 'utf8'), /普通继承基类分层/);
+  assert.match(fs.readFileSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md'), 'utf8'), /剔除的空 GameFlow 基类层数：\d+/);
   assert.match(fs.readFileSync(path.join(tmp, 'CODE_RELATION_GRAPH.md'), 'utf8'), /代码关系图/);
   assert.match(fs.readFileSync(path.join(tmp, 'CODE_RELATION_GRAPH.md'), 'utf8'), /Entities\/BaseBuildElement\.cs/);
   assert.doesNotMatch(fs.readFileSync(path.join(tmp, 'README.md'), 'utf8'), /partial 文件/);
