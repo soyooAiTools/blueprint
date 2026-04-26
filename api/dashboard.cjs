@@ -1115,7 +1115,7 @@ module.exports.init = function(ctx) {
           var st = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
           if (!st.pendingCommits) st.pendingCommits = {};
           st.pendingCommits[recipeId] = { state: 'loading', at: Date.now() };
-          fs.writeFileSync(stateFile, JSON.stringify(st, null, 2));
+          jsonArrayStore.writeJSONAtomic(stateFile, st);
         } catch(e) {}
 
         var autoFix = require('../engine/auto-fix.cjs');
@@ -1130,7 +1130,7 @@ module.exports.init = function(ctx) {
               } else {
                 st2.pendingCommits[recipeId] = { state: 'error', error: result.error || 'unknown', at: Date.now() };
               }
-              fs.writeFileSync(stateFile, JSON.stringify(st2, null, 2));
+              jsonArrayStore.writeJSONAtomic(stateFile, st2);
             } catch(e) {}
             sendJSON(res, result);
           })
@@ -1139,7 +1139,7 @@ module.exports.init = function(ctx) {
               var st3 = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
               if (!st3.pendingCommits) st3.pendingCommits = {};
               st3.pendingCommits[recipeId] = { state: 'error', error: e.message, at: Date.now() };
-              fs.writeFileSync(stateFile, JSON.stringify(st3, null, 2));
+              jsonArrayStore.writeJSONAtomic(stateFile, st3);
             } catch(e2) {}
             sendJSON(res, { error: e.message }, 500);
           });
@@ -1185,7 +1185,7 @@ module.exports.init = function(ctx) {
           var state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
           if (state.pendingCommits && state.pendingCommits[recipeId]) {
             delete state.pendingCommits[recipeId];
-            fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
+            jsonArrayStore.writeJSONAtomic(stateFile, state);
           }
         } catch(e) {}
 
@@ -1406,15 +1406,22 @@ module.exports.init = function(ctx) {
         var rule = (summary.pendingRules.items || []).filter(function(r) { return r.id === id; })[0];
         if (!rule) return sendJSON(res, { error: 'rule not found' }, 404);
         var promotedFile = path.join(__dirname, '..', 'server-data', 'promoted-rules.json');
-        var existing = [];
-        try { existing = JSON.parse(fs.readFileSync(promotedFile, 'utf-8')); } catch(e) {}
+        var promotedLoad = jsonArrayStore.loadArray(promotedFile);
+        if (!promotedLoad.ok) {
+          // refuse to write — overwriting would silently lose every prior
+          // promotion (same data-loss class PR-4 fixed for regressions.json)
+          return sendJSON(res, {
+            error: jsonArrayStore.buildCorruptDiagnostic(promotedFile, promotedLoad.error),
+          }, 500);
+        }
+        var existing = promotedLoad.data;
         existing.push({
           id: id,
           promotedAt: new Date().toISOString(),
           notes: notes,
           rule: rule,
         });
-        fs.writeFileSync(promotedFile, JSON.stringify(existing, null, 2));
+        jsonArrayStore.writeArrayAtomic(promotedFile, existing);
         sendJSON(res, { ok: true, id: id, totalPromoted: existing.length });
       } catch(e) {
         sendJSON(res, { error: e.message }, 500);
