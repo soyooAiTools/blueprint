@@ -19,7 +19,7 @@ const path = require('path');
 // OpenAI API via relay (sub.mindrix.app)
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL || 'https://sub.mindrix.app/v1';
-const REVIEW_MODEL = 'gpt-5.4';
+const REVIEW_MODEL = process.env.CODEX_REVIEW_MODEL || process.env.CODEX_CODE_MODEL || 'gpt-5.5';
 const REVIEW_TIMEOUT = 120000; // 2 min
 
 // === Luna/Bridge.NET constraint rules ===
