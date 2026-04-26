@@ -1,6 +1,7 @@
 const assert = require('assert');
 
 const codegenSchema = require('../engine/stages/codegen-schema.cjs');
+const codexCodeCoder = require('../worker/codex-code-coder.js');
 
 function makeSchema() {
   return {
@@ -67,7 +68,36 @@ assert.deepStrictEqual(after.allErrors, []);
 
 assert.strictEqual(codegenSchema._internals.isSchemaInfraError('Connection error.'), true);
 assert.strictEqual(codegenSchema._internals.isSchemaInfraError('Request timed out.'), true);
+assert.strictEqual(codegenSchema._internals.isSchemaInfraError("There's an issue with the selected model (gpt-5.4-mini). It may not exist or you may not have access to it."), true);
 assert.strictEqual(codegenSchema._internals.isSchemaInfraError('schema malformed'), false);
+
+{
+  const runner = codegenSchema._internals.resolveSchemaRunnerConfig({});
+  assert.strictEqual(runner.codexModel, 'gpt-5.5');
+  assert.strictEqual(runner.claudeModel, 'claude-sonnet-4-6');
+  assert.notStrictEqual(runner.codexModel, 'gpt-5.4-mini');
+  assert.strictEqual(codegenSchema._internals.resolveSchemaTimeoutMs({}), 360000);
+  assert.strictEqual(codegenSchema._internals.resolveSchemaTimeoutMs({ CODEX_SCHEMA_TIMEOUT_MS: '420000' }), 420000);
+
+  const envRunner = codegenSchema._internals.resolveSchemaRunnerConfig({
+    CODEX_SCHEMA_MODEL: 'gpt-custom',
+    CLAUDE_SCHEMA_MODEL: 'claude-custom',
+  });
+  assert.deepStrictEqual(envRunner, { codexModel: 'gpt-custom', claudeModel: 'claude-custom' });
+
+  assert.strictEqual(codexCodeCoder._internals.resolveClaudePrintModel({ model: 'gpt-5.5' }, {}), 'claude-sonnet-4-6');
+  assert.strictEqual(codexCodeCoder._internals.resolveClaudePrintModel({ model: 'claude-haiku-4-5-20251001' }, {}), 'claude-haiku-4-5-20251001');
+  assert.strictEqual(codexCodeCoder._internals.isModelUnavailableError('selected model may not exist or you may not have access'), true);
+}
+
+{
+  const merged = codegenSchema._internals.mergeSchemaEntitiesForResolution(
+    [{ name: 'Player', template: 'hero' }, { name: 'CTAButton', template: 'cta' }],
+    [{ name: 'BulletItem', template: 'collectible' }, { name: 'Player', template: 'schema-player' }]
+  );
+  assert.deepStrictEqual(merged.map((entity) => entity.name), ['Player', 'CTAButton', 'BulletItem']);
+  assert.strictEqual(merged[0].template, 'hero');
+}
 
 {
   const schema = {

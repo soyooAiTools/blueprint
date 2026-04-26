@@ -313,7 +313,7 @@ module.exports = {
             additionalFiles: _visionAdditionalFiles,
             model: 'claude-sonnet-4-6',
             backend: process.env.BLUEPRINT_VISUAL_CHECK_TEXT_RUNNER || undefined,
-            effort: 'medium',
+            effort: 'xhigh',
             timeoutMs: 120000, // CC cold start + Read images + inference + margin
             minOutputLen: 10,  // JSON of {passed, reason, ...} is at least a dozen chars
             taskId: (ctx.taskId || 'visual') + '-r' + round,

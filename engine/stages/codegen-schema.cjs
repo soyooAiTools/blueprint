@@ -43,9 +43,11 @@ module.exports = {
         // Step 2: Template fill
         var startMs = Date.now();
         // Guard: only call resolveEntities when specs exist (mirrors codegen-legacy.cjs:43)
+        var resolutionEntities = mergeSchemaEntitiesForResolution(ctx.blueprint.entities, schema.entities);
         var resolved = (ctx.blueprint.specs && ctx.blueprint.specs.length > 0)
-          ? resolveEntities(ctx.blueprint.specs, ctx.blueprint.entities)
+          ? resolveEntities(ctx.blueprint.specs, resolutionEntities)
           : { entityPoolMap: {}, resolvedSpecs: [], allEntities: {}, poolManifest: null };
+        ctx.blueprint.entityPoolMap = resolved.entityPoolMap;
         ctx.blueprint.poolManifest = resolved.poolManifest;
         var skeletonResult = generateSkeleton(ctx.blueprint.specs, {
           entityPoolMap: resolved.entityPoolMap,
@@ -136,14 +138,30 @@ module.exports = {
   _internals: {
     buildSchemaPrompt: buildSchemaPrompt,
     summarizePlansForPrompt: summarizePlansForPrompt,
+    resolveSchemaRunnerConfig: resolveSchemaRunnerConfig,
+    resolveSchemaTimeoutMs: resolveSchemaTimeoutMs,
     isSchemaInfraError: isSchemaInfraError,
     localizeGeneratedCSharpComments: localizeGeneratedCSharpComments,
     suppressCustomLogicWhenAssemblyCovered: suppressCustomLogicWhenAssemblyCovered,
+    mergeSchemaEntitiesForResolution: mergeSchemaEntitiesForResolution,
   }
 };
 
 function localizeGeneratedCSharpComments(ctx) {
   return commentLocalizer.localizeContextCSharpComments(ctx);
+}
+
+function mergeSchemaEntitiesForResolution(blueprintEntities, schemaEntities) {
+  var merged = [];
+  var seen = {};
+  function addEntity(ent) {
+    if (!ent || !ent.name || seen[ent.name]) return;
+    seen[ent.name] = true;
+    merged.push(ent);
+  }
+  (Array.isArray(blueprintEntities) ? blueprintEntities : []).forEach(addEntity);
+  (Array.isArray(schemaEntities) ? schemaEntities : []).forEach(addEntity);
+  return merged;
 }
 
 function suppressCustomLogicWhenAssemblyCovered(ctx, schema) {
@@ -255,27 +273,30 @@ function generateSchemaFromSpecs(ctx) {
 
 function generateSchemaTextWithFallback(runCodexText, ctx, promptText) {
   var primarySystemPrompt = '你是试玩广告游戏配置生成器。只输出 JSON 对象，不要 markdown 包裹，不要解释。';
+  var runnerConfig = resolveSchemaRunnerConfig();
   return runCodexText({
     userPrompt: promptText,
     systemPrompt: primarySystemPrompt,
     backend: 'codex-exec',
-    model: 'gpt-5.4-mini',
+    model: runnerConfig.codexModel,
     taskId: ctx.taskId,
     log: function(msg) { ctx.addLog('codegen-schema', msg); },
-    effort: 'low',
-    timeoutMs: 180000,
+    effort: 'xhigh',
+    timeoutMs: resolveSchemaTimeoutMs(),
     noTools: true,
     minOutputLen: 20,
+    allowBackendFallback: false,
   }).then(function(response) {
     if (response.ok || !isSchemaInfraError(response.error)) return response;
-    ctx.addLog('codegen-schema', 'Primary schema backend infra failure — falling back to claude-print');
+    ctx.addLog('codegen-schema', 'Primary schema backend infra/model failure — falling back to claude-print');
     return runCodexText({
       userPrompt: promptText,
       systemPrompt: primarySystemPrompt,
-      model: 'claude-haiku-4-5-20251001',
+      backend: 'claude-print',
+      model: runnerConfig.claudeModel,
       taskId: ctx.taskId,
       log: function(msg) { ctx.addLog('codegen-schema', '[fallback] ' + msg); },
-      effort: 'low',
+      effort: 'xhigh',
       timeoutMs: 300000,
       noTools: true,
       minOutputLen: 20,
@@ -287,9 +308,23 @@ function generateSchemaTextWithFallback(runCodexText, ctx, promptText) {
   });
 }
 
+function resolveSchemaRunnerConfig(env) {
+  env = env || process.env;
+  return {
+    codexModel: env.CODEX_SCHEMA_MODEL || env.CODEX_TEXT_MODEL || env.CODEX_CODE_MODEL || 'gpt-5.5',
+    claudeModel: env.CLAUDE_SCHEMA_MODEL || env.CLAUDE_TEXT_MODEL || env.CLAUDE_CODE_MODEL || 'claude-sonnet-4-6',
+  };
+}
+
+function resolveSchemaTimeoutMs(env) {
+  env = env || process.env;
+  var timeout = parseInt(env.CODEX_SCHEMA_TIMEOUT_MS || env.CODEX_TEXT_TIMEOUT_MS || '', 10);
+  return isFinite(timeout) && timeout > 0 ? timeout : 360000;
+}
+
 function isSchemaInfraError(error) {
   var text = String(error || '');
-  return /ECONNRESET|Request timed out|Unable to connect to API|timed out|socket hang up|ENOTFOUND|EHOSTUNREACH|ECONNREFUSED|Connection error/i.test(text);
+  return /ECONNRESET|Request timed out|Unable to connect to API|timed out|socket hang up|ENOTFOUND|EHOSTUNREACH|ECONNREFUSED|Connection error|selected model|may not exist|not have access|model.?not.?found|unknown model|unsupported model/i.test(text);
 }
 
 function parseAndValidateSchemaResponse(ctx, text) {
@@ -518,11 +553,11 @@ function fillCustomLogic(ctx, schema) {
         userPrompt: promptText,
         systemPrompt: '你是 Unity C# 代码填充器。只修改 TODO_CUSTOM 区域。',
         backend: 'codex-exec',
-        model: 'gpt-5.4',
+        model: process.env.CODEX_CUSTOM_MODEL || process.env.CODEX_SCHEMA_MODEL || process.env.CODEX_CODE_MODEL || 'gpt-5.5',
         workDir: customWorkDir,
         taskId: ctx.taskId,
         log: function(msg) { ctx.addLog('codegen-schema', '[custom R' + round + '] ' + msg); },
-        effort: 'medium',
+        effort: 'xhigh',
         timeoutMs: 300000,
         allowBackendFallback: true,
         execSandbox: 'workspace-write',

@@ -27,7 +27,8 @@ const CODEX_CMD = process.env.CODEX_CMD || 'codex';
 const CLAUDE_TIMEOUT_MS = parseInt(process.env.CLAUDE_TIMEOUT_MS) || 25 * 60 * 1000; // 25 min (fresh gen can take 15-20min)
 const CLAUDE_MAX_BUDGET = process.env.CLAUDE_MAX_BUDGET_USD || '0'; // 0 = no limit
 const CLAUDE_MODEL = process.env.CLAUDE_CODE_MODEL || 'claude-opus-4-7';
-const CODEX_CODE_MODEL = process.env.CODEX_CODE_MODEL || 'gpt-5.4';
+const CLAUDE_TEXT_MODEL = process.env.CLAUDE_TEXT_MODEL || process.env.CLAUDE_CODE_MODEL || 'claude-sonnet-4-6';
+const CODEX_CODE_MODEL = process.env.CODEX_CODE_MODEL || 'gpt-5.5';
 const CODEX_CODE_BACKEND = process.env.CODEX_CODE_BACKEND || 'codex-exec';
 const GLM_MODEL = process.env.GLM_MODEL || 'glm-5.1';
 const GLM_API_BASE = process.env.GLM_API_BASE || 'https://api.aaxe.cn/api/anthropic';
@@ -50,6 +51,23 @@ const LOCK_POLL_MS = 5000;   // poll every 5s
 const LOCK_TIMEOUT_MS = 20 * 60 * 1000; // 20min max wait (slightly over CLAUDE_TIMEOUT)
 
 try { fs.mkdirSync(LOCK_DIR, { recursive: true }); } catch(e) {}
+
+function isCodexModelName(model) {
+  return /^(gpt-|o[0-9]|codex|computer-use)/i.test(String(model || ''));
+}
+
+function resolveClaudePrintModel(opts, env) {
+  opts = opts || {};
+  env = env || process.env;
+  if (opts.claudeModel) return opts.claudeModel;
+  if (opts.fallbackModel) return opts.fallbackModel;
+  if (opts.model && !isCodexModelName(opts.model)) return opts.model;
+  return env.CLAUDE_TEXT_MODEL || env.CLAUDE_CODE_MODEL || 'claude-sonnet-4-6';
+}
+
+function isModelUnavailableError(text) {
+  return /selected model|may not exist|not have access|model.?not.?found|unknown model|unsupported model|invalid model/i.test(String(text || ''));
+}
 
 function _cleanStaleLocks() {
   // Remove locks older than 25 min OR whose owner PID is dead
@@ -569,7 +587,7 @@ function runCodexExecCode(workDir, userPrompt, log, taskId, opts) {
       '--skip-git-repo-check',
       '--ephemeral',
       '-m', opts.model || CODEX_CODE_MODEL,
-      '-c', 'model_reasoning_effort="' + (opts.effort || 'medium') + '"',
+      '-c', 'model_reasoning_effort="' + (opts.effort || process.env.CODEX_REASONING_EFFORT || 'xhigh') + '"',
       '-s', 'danger-full-access',
       '-C', workDir,
       '-o', outputPath,
@@ -769,7 +787,7 @@ function runCodexText(opts) {
     const runClaudePrintBackend = function() {
       const args = [
       '--print',
-      '--model', opts.model || 'claude-sonnet-4-6',
+      '--model', resolveClaudePrintModel(opts),
       '--output-format', 'text',
       '--effort', opts.effort || 'medium',
       '--system-prompt-file', path.join(tempDir, CODEX_SYSTEM_PROMPT_FILE),
@@ -806,11 +824,13 @@ function runCodexText(opts) {
 
       let stdout = '';
       let stderr = '';
+      let timedOut = false;
       child.stdout.on('data', function(d) { stdout += d.toString(); });
       child.stderr.on('data', function(d) { stderr += d.toString(); });
 
       const timeoutMs = opts.timeoutMs || 240000;
       const timer = setTimeout(function() {
+        timedOut = true;
         log('[codex-text] ⚠️ Timeout ' + (timeoutMs / 1000) + 's, killing', taskId);
         child.kill('SIGTERM');
         setTimeout(function() { child.kill('SIGKILL'); }, 5000);
@@ -830,9 +850,10 @@ function runCodexText(opts) {
           return finish({ ok: true, text: stdout, exitCode: 0, backend: 'claude-print' });
         }
         // Build a non-constant error string: prefer stderr, then stdout tail, then generic.
-        const baseErr = (stderr && stderr.trim()) ? stderr
+        const rawErr = (stderr && stderr.trim()) ? stderr
           : (stdout && stdout.trim()) ? `stdout: ${stdout.slice(-500)}`
           : `Exit code ${code}`;
+        const baseErr = timedOut ? ('Timed out after ' + timeoutMs + 'ms; ' + rawErr) : rawErr;
         const errorMsg = isModelFatal
           ? 'MODEL_FATAL: Codex text runner auth/quota — ' + baseErr.slice(0, 300)
           : baseErr.slice(0, 500);
@@ -874,8 +895,8 @@ function runCodexExecText(execDir, tempDir, opts, log, taskId, finish) {
     'exec',
     '--skip-git-repo-check',
     '--ephemeral',
-    '-m', opts.model || 'gpt-5.4',
-    '-c', 'model_reasoning_effort="' + (opts.effort || 'medium') + '"',
+    '-m', opts.model || CODEX_CODE_MODEL,
+    '-c', 'model_reasoning_effort="' + (opts.effort || process.env.CODEX_REASONING_EFFORT || 'xhigh') + '"',
     '-s', opts.execSandbox || 'read-only',
     '-C', execDir,
     '-o', outputPath,
@@ -899,11 +920,13 @@ function runCodexExecText(execDir, tempDir, opts, log, taskId, finish) {
 
   let stdout = '';
   let stderr = '';
+  let timedOut = false;
   child.stdout.on('data', function(d) { stdout += d.toString(); });
   child.stderr.on('data', function(d) { stderr += d.toString(); });
 
   const timeoutMs = opts.timeoutMs || 240000;
   const timer = setTimeout(function() {
+    timedOut = true;
     log('[codex-text] ⚠️ codex exec timeout ' + (timeoutMs / 1000) + 's, killing', taskId);
     child.kill('SIGTERM');
     setTimeout(function() { child.kill('SIGKILL'); }, 5000);
@@ -921,18 +944,20 @@ function runCodexExecText(execDir, tempDir, opts, log, taskId, finish) {
     log('[codex-text] codex-exec exit=' + code + ' last=' + lastMessage.length + 'c stdout=' + stdout.length + 'c stderr=' + stderr.length + 'c', taskId);
 
     const streams = [lastMessage, stdout, stderr].join('\n');
-    const isModelFatal = /quota|insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|unauthoriz|authentication.?fail|access.?denied|billing/i.test(streams);
+    const isModelFatal = /quota|insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|unauthoriz|authentication.?fail|access.?denied|billing/i.test(streams) ||
+      isModelUnavailableError(streams);
     const minOutputLen = opts.minOutputLen != null ? opts.minOutputLen : 50;
     if (code === 0 && lastMessage.length >= minOutputLen) {
       return finish({ ok: true, text: lastMessage, exitCode: 0, backend: 'codex-exec' });
     }
 
-    const baseErr = (stderr && stderr.trim()) ? stderr
+    const rawErr = (stderr && stderr.trim()) ? stderr
       : (lastMessage && lastMessage.trim()) ? ('lastMessage: ' + lastMessage.slice(-500))
       : (stdout && stdout.trim()) ? ('stdout: ' + stdout.slice(-500))
       : ('Exit code ' + code);
+    const baseErr = timedOut ? ('Timed out after ' + timeoutMs + 'ms; ' + rawErr) : rawErr;
     const errorMsg = isModelFatal
-      ? 'MODEL_FATAL: Codex exec text auth/quota — ' + baseErr.slice(0, 300)
+      ? 'MODEL_FATAL: Codex exec text auth/quota/model — ' + baseErr.slice(0, 300)
       : baseErr.slice(0, 500);
     finish({ ok: false, text: lastMessage || stdout, exitCode: code, error: errorMsg, backend: 'codex-exec' });
   });
@@ -1572,6 +1597,11 @@ module.exports = {
   buildFeedbackText,
   stripGenericMethodCallsForLuna,
   applyLunaPostFixesToManagerPartials,
+  _internals: {
+    isCodexModelName,
+    resolveClaudePrintModel,
+    isModelUnavailableError,
+  },
 
   // Legacy export names kept for non-migrated callers.
   generateWithClaudeCode: generateWithCodex,

@@ -543,6 +543,14 @@ function addModuleEntry(record, moduleId, source, params, sourceAtomId) {
   if (sourceAtomId) pushUnique(entry.sourceAtomIds, sourceAtomId);
 }
 
+function defaultCostGateResourceForAtom(atomId) {
+  var id = String(atomId || '');
+  if (id === 'build_entity' || id === 'upgrade_entity' || id === 'unlock_content' || id === 'spawn_unit') {
+    return 'gold';
+  }
+  return 'resource';
+}
+
 function deriveEntityModuleParams(moduleId, entity) {
   var trigger = entity.trigger || {};
   var behavior = entity.behavior || {};
@@ -649,7 +657,7 @@ function deriveAtomModuleParams(moduleId, atom) {
     if (params.reward !== undefined && params.reward !== null && params.reward !== '') out.reward = params.reward;
     if (params.rewardResource) out.rewardResource = params.rewardResource;
   } else if (moduleId === 'cost_gate') {
-    out.resource = params.resource || 'resource';
+    out.resource = params.resource || defaultCostGateResourceForAtom(atom.atomId);
     out.amount = params.amount || 1;
   } else if (moduleId === 'build_progress') {
     out.buildTime = params.buildTime || 1;

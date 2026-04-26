@@ -45,6 +45,31 @@ function indexAssemblyModuleInstances(assemblyPlan) {
   return index;
 }
 
+function getAssemblyPlanFromBlueprint(blueprint) {
+  if (!blueprint) return {};
+  if (blueprint.plans && blueprint.plans.assemblyPlan) return blueprint.plans.assemblyPlan;
+  if (blueprint.assemblyPlan) return blueprint.assemblyPlan;
+  return {};
+}
+
+function collectAssemblyOwnerFiles(assemblyPlan) {
+  var files = {};
+  var fileOwners = Array.isArray(assemblyPlan && assemblyPlan.fileOwners) ? assemblyPlan.fileOwners : [];
+  for (var i = 0; i < fileOwners.length; i++) {
+    if (fileOwners[i] && fileOwners[i].file) files[fileOwners[i].file] = true;
+  }
+
+  var moduleInstances = Array.isArray(assemblyPlan && assemblyPlan.moduleInstances) ? assemblyPlan.moduleInstances : [];
+  for (var j = 0; j < moduleInstances.length; j++) {
+    var ownerFiles = toArray(moduleInstances[j] && moduleInstances[j].ownerFiles);
+    for (var k = 0; k < ownerFiles.length; k++) {
+      if (ownerFiles[k]) files[ownerFiles[k]] = true;
+    }
+  }
+
+  return files;
+}
+
 function extractAssemblySlotOwnership(extraFiles) {
   var ownership = {};
   Object.keys(extraFiles || {}).forEach(function(file) {
@@ -383,7 +408,7 @@ function detectAssemblyContractViolations(ctx) {
   var violations = [];
   var blueprint = ctx && ctx.blueprint || {};
   var plans = blueprint.plans || {};
-  var assemblyPlan = plans.assemblyPlan || {};
+  var assemblyPlan = getAssemblyPlanFromBlueprint(blueprint);
   var extraFiles = ctx && ctx.extraFiles || {};
 
   if (blueprint.planValidation && blueprint.planValidation.ok === false) {
@@ -447,6 +472,7 @@ function detectAssemblyContractViolations(ctx) {
   });
 
   var stateOwners = Array.isArray(assemblyPlan.stateOwners) ? assemblyPlan.stateOwners : [];
+  var assemblyOwnerFiles = collectAssemblyOwnerFiles(assemblyPlan);
   for (var s = 0; s < stateOwners.length; s++) {
     var owner = stateOwners[s] || {};
     var moduleInstance = moduleIndex[owner.moduleInstanceId] || {};
@@ -456,6 +482,7 @@ function detectAssemblyContractViolations(ctx) {
 
     var violatingFiles = [];
     Object.keys(extraFiles).forEach(function(file) {
+      if (!assemblyOwnerFiles[file]) return;
       if (allowedFiles.indexOf(file) >= 0) return;
       if (typeof extraFiles[file] !== 'string') return;
       if (fileMayWriteState(extraFiles[file], owner.state)) violatingFiles.push(file);
@@ -498,6 +525,9 @@ function detectAssemblyContractViolations(ctx) {
 module.exports = {
   buildAggregateCodeFromContext: buildAggregateCodeFromContext,
   extractAssemblySlotOwnership: extractAssemblySlotOwnership,
+  getAssemblyPlanFromBlueprint: getAssemblyPlanFromBlueprint,
+  collectAssemblyOwnerFiles: collectAssemblyOwnerFiles,
+  buildStateWriteSignals: buildStateWriteSignals,
   isStrictAssemblyOwnerState: isStrictAssemblyOwnerState,
   fileMayWriteState: fileMayWriteState,
   extractReportedPhaseIds: extractReportedPhaseIds,

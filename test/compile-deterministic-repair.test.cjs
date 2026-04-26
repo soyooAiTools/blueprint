@@ -183,7 +183,7 @@ const compileStage = require('../engine/stages/compile.cjs');
   assert.strictEqual(repaired.changed, true);
   assert.ok(repaired.fixes.includes('StringPoolPrefabLiterals x3'));
   assert.ok(repaired.fixes.includes('LegacyScoreDisplayAlias x1'));
-  assert.ok(repaired.code.includes('if (GetResource("Gold") > 0) display += "gold: " + GetResource("Gold");'));
+  assert.ok(repaired.code.includes('if (GetResource(GFM_ResourceIds.Gold) > 0) display += "gold: " + GetResource(GFM_ResourceIds.Gold);'));
   assert.ok(repaired.code.includes('var spawned = GFM_Pool.Get(EnemyAstronaut);'));
   assert.ok(repaired.code.includes('var ally = GFM_Pool.Get(OurSoldier);'));
   assert.ok(repaired.code.includes('var proj = GFM_Pool.Get(Bullet);'));
@@ -241,6 +241,98 @@ const compileStage = require('../engine/stages/compile.cjs');
   assert.ok(repaired.fixes.includes('MalformedIsNear'));
   assert.ok(!/IsNear\(\s*,/.test(repaired.code));
   assert.ok(repaired.code.includes('if (false /* stripped malformed IsNear */) { }'));
+}
+
+{
+  const repaired = compileStage._applyDeterministicBuildRepairs(
+    [
+      'using UnityEngine;',
+      'public partial class GameFlowManagerMain : MonoBehaviour',
+      '{',
+      '    GameObject Player;',
+      '    void UpdatePlayer(float dt) {',
+      '        if (Player == null) return;',
+      '        enemiesDefeated++;',
+      '        PlaceObj(Player, 0f, 1f, 0f);',
+      '        PlaceObj(BulletItem, 1f, 1f, 0f);',
+      '        SetScale(BulletItem, 0.35f);',
+      '    }',
+      '}',
+    ].join('\n'),
+    {},
+    { entities: [] }
+  );
+
+  assert.strictEqual(repaired.changed, true);
+  assert.ok(repaired.fixes.includes('UnresolvedBareMutations x1'));
+  assert.ok(repaired.fixes.includes('UnresolvedObjectUtilityCalls x2'));
+  assert.ok(repaired.code.includes('// stripped unresolved mutation: enemiesDefeated'));
+  assert.ok(repaired.code.includes('PlaceObj(Player, 0f, 1f, 0f);'));
+  assert.ok(!repaired.code.includes('PlaceObj(BulletItem'));
+  assert.ok(!repaired.code.includes('SetScale(BulletItem'));
+}
+
+{
+  const repaired = compileStage._applyDeterministicBuildRepairs(
+    [
+      'using UnityEngine;',
+      'public partial class GameFlowManagerMain : MonoBehaviour',
+      '{',
+      '    float moveSpeed = 5f; // player movement speed from schema gameConfig',
+      '}',
+    ].join('\n'),
+    {
+      'GameFlowManagerMain.Input.cs': [
+        'public partial class GameFlowManagerMain',
+        '{',
+        '    float moveSpeed { get { return (_forms != null && _forms.Length > 0) ? _forms[_currentFormIndex].moveSpeed : 5f; } }',
+        '    void MovePlayer() { float step = moveSpeed * Time.deltaTime; }',
+        '}',
+      ].join('\n'),
+    },
+    { entities: [] }
+  );
+
+  assert.strictEqual(repaired.changed, true);
+  assert.ok(repaired.fixes.includes('DuplicateMoveSpeedMembers x1'));
+  assert.ok(!repaired.code.includes('float moveSpeed = 5f'));
+  assert.ok(repaired.extraFiles['GameFlowManagerMain.Input.cs'].includes('float moveSpeed { get'));
+}
+
+{
+  const repaired = compileStage._applyDeterministicBuildRepairs(
+    [
+      'using UnityEngine;',
+      'public partial class GameFlowManagerMain : MonoBehaviour',
+      '{',
+      '    void Start() { GFM_UI.CreateText(uiCanvas, "x", Vector2.zero, 20); }',
+      '}',
+    ].join('\n'),
+    {
+      'GFM_UI.cs': [
+        'using UnityEngine;',
+        'using UnityEngine.UI;',
+        'public static class GFM_UI',
+        '{',
+        '    public static Text CreateText(Canvas canvas, string text, Vector2 pos, int fontSize)',
+        '    {',
+        '        var obj = new GameObject("Text", typeof(RectTransform), typeof(Text));',
+        '        var txt = (Text)obj.GetComponent(typeof(Text));',
+        '        txt.font = Resources.Load<Font>("DefaultFont");',
+        '        return txt;',
+        '    }',
+        '}',
+      ].join('\n'),
+      'GFM_Tools.cs': 'public static class GFM_Tools {}',
+    },
+    { entities: [] }
+  );
+
+  assert.strictEqual(repaired.changed, true);
+  assert.ok(repaired.fixes.includes('CanonicalGfmUi x2'));
+  assert.ok(repaired.extraFiles['GFM_UI.cs'].includes('object.ReferenceEquals(value, null)'));
+  assert.ok(repaired.extraFiles['GFM_UI.cs'].includes('txt = (Text)obj.AddComponent(typeof(Text))'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(repaired.extraFiles, 'GFM_Tools.cs'));
 }
 
 console.log('compile deterministic repair tests passed');

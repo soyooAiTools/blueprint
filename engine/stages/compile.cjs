@@ -13,6 +13,7 @@ var { createFixLoop } = require('../fix-loop.cjs');
 var config = require('../../lib/config.cjs');
 var commentLocalizer = require('../../lib/csharp-comment-localizer.cjs');
 var { resourceIdExpr } = require('../../adapters/templates/resource-ids.cjs');
+var gfmFiles = require('../../worker/gfm-files.cjs');
 
 var MAX_BUILD_FIX_ATTEMPTS = 5;
 // Early exit if the build fails with the same error signature 3 rounds in a row —
@@ -158,6 +159,126 @@ function stripUnresolvedPhaseInitArtifacts(code) {
   return { code: fixed, changed: fixes > 0, fixes: fixes };
 }
 
+function collectDeclaredSymbols(code, extraFiles) {
+  var declared = {};
+  function scan(src) {
+    var text = String(src || '');
+    var re = /\b(?:bool|int|float|string|GameObject|Vector2|Vector3|Vector4|Color|Transform|Text|Canvas|Rigidbody|Material|Image|Sprite|RectTransform|InventoryCompat|var|GFM_[A-Za-z0-9_]+)(?:\s*\[\])?\s+([A-Za-z_][A-Za-z0-9_]*)\b/g;
+    var m;
+    while ((m = re.exec(text)) !== null) declared[m[1]] = true;
+  }
+  scan(code);
+  Object.keys(extraFiles || {}).forEach(function(name) { scan(extraFiles[name]); });
+  return declared;
+}
+
+function escapeRegexLiteral(text) {
+  return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function hasDeclaredSymbol(declaredSymbols, declaredSourceText, name) {
+  if (declaredSymbols && declaredSymbols[name]) return true;
+  var re = new RegExp('\\b(?:bool|int|float|string|GameObject|Vector2|Vector3|Vector4|Color|Transform|Text|Canvas|Rigidbody|Material|Image|Sprite|RectTransform|InventoryCompat|var|GFM_[A-Za-z0-9_]+)(?:\\s*\\[\\])?\\s+' + escapeRegexLiteral(name) + '\\b');
+  return re.test(String(declaredSourceText || ''));
+}
+
+function stripUndeclaredObjectUtilityCalls(code, declaredSymbols, declaredSourceText) {
+  if (!code || !/(?:PlaceObj|HideObj|SetScale)\s*\(/.test(code)) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+  var fixes = 0;
+  var lines = String(code).split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    var m = /^(\s*)(PlaceObj|HideObj|SetScale)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\b[^;]*;\s*$/.exec(lines[i]);
+    if (!m) continue;
+    if (hasDeclaredSymbol(declaredSymbols, declaredSourceText, m[3])) continue;
+    lines[i] = m[1] + '// stripped unresolved object reference: ' + m[3];
+    fixes++;
+  }
+  return { code: fixes > 0 ? lines.join('\n') : code, changed: fixes > 0, fixes: fixes };
+}
+
+function stripUndeclaredBareMutations(code, declaredSymbols, declaredSourceText) {
+  if (!code || !/(?:\+\+|--|=)/.test(code)) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+  var fixes = 0;
+  var lines = String(code).split('\n');
+  var mutationRe = /^(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*(?:(\+\+|--)\s*|([+\-*/]?=)\s*[^;]+);\s*$/;
+  for (var i = 0; i < lines.length; i++) {
+    var trimmed = lines[i].trim();
+    if (!trimmed || trimmed.indexOf('//') === 0) continue;
+    if (/^(?:if|for|foreach|while|switch|return|throw|case|else)\b/.test(trimmed)) continue;
+    var m = mutationRe.exec(lines[i]);
+    if (!m) continue;
+    var name = m[2];
+    if (hasDeclaredSymbol(declaredSymbols, declaredSourceText, name)) continue;
+    lines[i] = m[1] + '// stripped unresolved mutation: ' + name;
+    fixes++;
+  }
+  return { code: fixes > 0 ? lines.join('\n') : code, changed: fixes > 0, fixes: fixes };
+}
+
+function stripDuplicateMoveSpeedMembers(code, extraFiles) {
+  var allSources = [String(code || '')].concat(Object.keys(extraFiles || {}).map(function(name) {
+    return String(extraFiles[name] || '');
+  }));
+  var hasFormBackedProperty = allSources.some(function(src) {
+    return /\bfloat\s+moveSpeed\s*\{\s*get\s*\{\s*return\s*\(_forms\s*!=\s*null\s*&&\s*_forms\.Length\s*>\s*0\)/.test(src);
+  });
+  if (!hasFormBackedProperty) return { changed: false, code: code, extraFiles: extraFiles || {}, fixes: 0 };
+
+  function stripPlainMoveSpeedField(src) {
+    var fixes = 0;
+    var next = String(src || '').replace(/^\s*float\s+moveSpeed\s*=\s*[^;]+;\s*(?:\/\/[^\n\r]*)?$/gm, function() {
+      fixes++;
+      return '';
+    }).replace(/\n{3,}/g, '\n\n');
+    return { code: next, fixes: fixes };
+  }
+
+  var main = stripPlainMoveSpeedField(code);
+  var nextExtras = Object.assign({}, extraFiles || {});
+  var fixes = main.fixes;
+  Object.keys(nextExtras).forEach(function(name) {
+    var res = stripPlainMoveSpeedField(nextExtras[name]);
+    if (res.fixes > 0) {
+      nextExtras[name] = res.code;
+      fixes += res.fixes;
+    }
+  });
+
+  return { changed: fixes > 0, code: main.code, extraFiles: nextExtras, fixes: fixes };
+}
+
+function refreshCanonicalGfmUi(code, extraFiles) {
+  var nextExtras = Object.assign({}, extraFiles || {});
+  var sources = [String(code || '')].concat(Object.keys(nextExtras).map(function(name) {
+    return String(nextExtras[name] || '');
+  })).join('\n');
+  var shouldHaveGfmUi = /\bGFM_UI\./.test(sources) || Object.prototype.hasOwnProperty.call(nextExtras, 'GFM_UI.cs');
+  if (!shouldHaveGfmUi) return { changed: false, extraFiles: nextExtras, fixes: 0 };
+
+  var canonical;
+  try {
+    canonical = gfmFiles.loadGfmFiles()['GFM_UI.cs'];
+  } catch (_err) {
+    canonical = null;
+  }
+  if (!canonical) return { changed: false, extraFiles: nextExtras, fixes: 0 };
+
+  var fixes = 0;
+  if (String(nextExtras['GFM_UI.cs'] || '') !== canonical) {
+    nextExtras['GFM_UI.cs'] = canonical;
+    fixes++;
+  }
+  if (Object.prototype.hasOwnProperty.call(nextExtras, 'GFM_Tools.cs')) {
+    delete nextExtras['GFM_Tools.cs'];
+    fixes++;
+  }
+  return { changed: fixes > 0, extraFiles: nextExtras, fixes: fixes };
+}
+
 function applyDeterministicBuildRepairs(code, extraFiles, blueprint) {
   var methodCheck;
   try {
@@ -171,6 +292,11 @@ function applyDeterministicBuildRepairs(code, extraFiles, blueprint) {
     blueprint: blueprint || {},
   };
   var fixes = [];
+  var gfmUiRepair = refreshCanonicalGfmUi(repairCtx.csCode, repairCtx.extraFiles);
+  if (gfmUiRepair.changed) {
+    repairCtx.extraFiles = gfmUiRepair.extraFiles;
+    fixes.push('CanonicalGfmUi x' + gfmUiRepair.fixes);
+  }
   if (methodCheck.autoRepairDuplicateStateFields && methodCheck.autoRepairDuplicateStateFields(repairCtx)) {
     fixes.push('DuplicateStateFields');
   }
@@ -182,6 +308,12 @@ function applyDeterministicBuildRepairs(code, extraFiles, blueprint) {
   }
   if (methodCheck.autoRepairMissingSkeletonBridgeInfra && methodCheck.autoRepairMissingSkeletonBridgeInfra(repairCtx)) {
     fixes.push('MissingSkeletonBridgeInfra');
+  }
+  var moveSpeedRepair = stripDuplicateMoveSpeedMembers(repairCtx.csCode, repairCtx.extraFiles);
+  if (moveSpeedRepair.changed) {
+    repairCtx.csCode = moveSpeedRepair.code;
+    repairCtx.extraFiles = moveSpeedRepair.extraFiles;
+    fixes.push('DuplicateMoveSpeedMembers x' + moveSpeedRepair.fixes);
   }
   if (methodCheck.autoRepairMalformedIsNear && methodCheck.autoRepairMalformedIsNear(repairCtx)) {
     fixes.push('MalformedIsNear');
@@ -227,6 +359,35 @@ function applyDeterministicBuildRepairs(code, extraFiles, blueprint) {
     if (phaseArtifactRepair.changed) {
       next = phaseArtifactRepair.code;
       fixes.push(name + ':UnresolvedPhaseInitArtifacts x' + phaseArtifactRepair.fixes);
+    }
+    repairCtx.extraFiles[name] = next;
+  });
+  var declaredSymbols = collectDeclaredSymbols(repairCtx.csCode, repairCtx.extraFiles);
+  var declaredSourceText = [repairCtx.csCode].concat(Object.keys(repairCtx.extraFiles || {}).map(function(name) {
+    return repairCtx.extraFiles[name];
+  })).join('\n');
+  var mainObjectRepair = stripUndeclaredObjectUtilityCalls(repairCtx.csCode, declaredSymbols, declaredSourceText);
+  if (mainObjectRepair.changed) {
+    repairCtx.csCode = mainObjectRepair.code;
+    fixes.push('UnresolvedObjectUtilityCalls x' + mainObjectRepair.fixes);
+  }
+  var mainMutationRepair = stripUndeclaredBareMutations(repairCtx.csCode, declaredSymbols, declaredSourceText);
+  if (mainMutationRepair.changed) {
+    repairCtx.csCode = mainMutationRepair.code;
+    fixes.push('UnresolvedBareMutations x' + mainMutationRepair.fixes);
+  }
+  Object.keys(repairCtx.extraFiles || {}).forEach(function(name) {
+    if (!/^GameFlowManagerMain(?:\.|$)/.test(name)) return;
+    var next = repairCtx.extraFiles[name];
+    var objectRepair = stripUndeclaredObjectUtilityCalls(next, declaredSymbols, declaredSourceText);
+    if (objectRepair.changed) {
+      next = objectRepair.code;
+      fixes.push(name + ':UnresolvedObjectUtilityCalls x' + objectRepair.fixes);
+    }
+    var mutationRepair = stripUndeclaredBareMutations(next, declaredSymbols, declaredSourceText);
+    if (mutationRepair.changed) {
+      next = mutationRepair.code;
+      fixes.push(name + ':UnresolvedBareMutations x' + mutationRepair.fixes);
     }
     repairCtx.extraFiles[name] = next;
   });
@@ -373,4 +534,6 @@ module.exports = {
     return loop.run(ctx);
   },
   _applyDeterministicBuildRepairs: applyDeterministicBuildRepairs,
+  _stripDuplicateMoveSpeedMembers: stripDuplicateMoveSpeedMembers,
+  _refreshCanonicalGfmUi: refreshCanonicalGfmUi,
 };

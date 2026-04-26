@@ -53,11 +53,10 @@ function minimalSchema() {
 }
 
 describe('W1b template-engine dispatch routing', () => {
-  test('w1bSplit off (default): Main Update gets inline switch over phases', () => {
+  test('w1bSplit off (default): Main Update keeps direct template logic without phase tap dispatcher', () => {
     const result = templateEngine.fillSkeleton(minimalSchema(), minimalSkeleton());
-    expect(result.code).toMatch(/switch\s*\(\s*currentPhaseName\s*\)/);
-    expect(result.code).toMatch(/case\s+"p1"\s*:\s*p1InteractionDone\s*=\s*true\s*;/);
-    expect(result.code).toMatch(/case\s+"p2"\s*:\s*p2InteractionDone\s*=\s*true\s*;/);
+    expect(result.code).toMatch(/if\s*\(_collectCooldown <= 0f && IsNear\(Shard, collectRange\)\)/);
+    expect(result.code).toMatch(/scoreCarried\+\+;/);
     expect(result.code).not.toMatch(/Phase_OnTap\s*\(\s*\)/);
   });
 
@@ -83,5 +82,15 @@ describe('W1b template-engine dispatch routing', () => {
     // AJV requires phases non-empty, so this test is effectively a guard-doc.
     // Assert at least that the dispatcher code path is guarded by phases.length.
     expect(() => templateEngine.fillSkeleton(schema, minimalSkeleton())).toThrow();
+  });
+
+  test('static_target NPC declares shared defeat counter used by its system body', () => {
+    const schema = minimalSchema();
+    schema.npcs = [
+      { entity: 'Target', template: 'static_target', params: { hp: 10 } },
+    ];
+    const result = templateEngine.fillSkeleton(schema, minimalSkeleton(), { w1bSplit: true });
+    expect(result.code).toMatch(/int enemiesDefeated = 0;/);
+    expect(result.code).toMatch(/enemiesDefeated\+\+;/);
   });
 });

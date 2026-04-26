@@ -80,6 +80,24 @@ assert.ok(emitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, 
 assert.ok(emitted.files.input.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "tap_registered")') >= 0, 'tap/click slot should record tap evidence');
 assert.ok(emitted.files.resource.indexOf('TrySpend(GFM_ResourceIds.Gold, 1)') >= 0, 'cost_gate should spend configured resource through owner API');
 assert.ok(emitted.files.resource.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "resource_decremented")') >= 0, 'cost_gate should record resource decrement evidence');
+var legacyUpgradeCostPlans = JSON.parse(JSON.stringify(plans));
+legacyUpgradeCostPlans.assemblyPlan.moduleInstances.forEach(function(module) {
+  if (module.id === 'ConveyorBelt::cost_gate') {
+    module.params.resource = 'resource';
+    module.sources = ['template:Upgradeable', 'atom:upgrade_entity'];
+  }
+});
+var legacyUpgradeCostEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(skeleton, legacyUpgradeCostPlans);
+assert.ok(legacyUpgradeCostEmitted.files.resource.indexOf('TrySpend(GFM_ResourceIds.Gold, 1)') >= 0, 'legacy build/upgrade cost_gate placeholder resource should fall back to Gold');
+var legacySpendCostPlans = JSON.parse(JSON.stringify(plans));
+legacySpendCostPlans.assemblyPlan.moduleInstances.forEach(function(module) {
+  if (module.id === 'ConveyorBelt::cost_gate') {
+    module.params.resource = 'resource';
+    module.sources = ['atom:spend_resource'];
+  }
+});
+var legacySpendCostEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(skeleton, legacySpendCostPlans);
+assert.ok(legacySpendCostEmitted.files.resource.indexOf('TrySpend(GFM_ResourceIds.Normalize("resource"), 1)') >= 0, 'generic spend_resource cost_gate should preserve generic resource id');
 assert.ok(emitted.files.input.indexOf('ConveyorBeltState = Mathf.Max') === -1, 'click/input slots must not mutate build state owner fields');
 assert.ok(emitted.files.resource.indexOf('ConveyorBeltState = Mathf.Max') === -1, 'cost slots must not mutate build state owner fields');
 assert.ok(emitted.files.scene.indexOf('ConveyorBeltState = Mathf.Max') === -1, 'visual slots must not mutate build state owner fields');
@@ -141,10 +159,20 @@ var genericPlans = {
         statesWritten: ['economy.resources'],
         sources: ['test'],
         sourceAtomIds: ['atom_001']
+      },
+      {
+        id: 'Recycler::collect_on_near',
+        moduleId: 'collect_on_near',
+        entity: 'Recycler',
+        params: { resource: 'debris', item: 'debris', count: 1, range: 1.5 },
+        ownerFiles: ['GameFlowManagerMain.Resource.cs'],
+        statesWritten: ['Recycler.collectState'],
+        sources: ['test'],
+        sourceAtomIds: ['atom_002']
       }
     ],
     fileOwners: [
-      { file: 'GameFlowManagerMain.Resource.cs', moduleInstanceIds: ['Recycler::deliver_to_target'] }
+      { file: 'GameFlowManagerMain.Resource.cs', moduleInstanceIds: ['Recycler::deliver_to_target', 'Recycler::collect_on_near'] }
     ],
     phaseBindings: [],
     stateOwners: [],
@@ -159,6 +187,7 @@ assert.ok(genericEmitted.files.resource.indexOf('AddGold(2 * deliverCount);') ==
 assert.ok(genericEmitted.files.resource.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "inventory_decremented")') >= 0, 'deliver slot should record inventory evidence');
 assert.ok(genericEmitted.files.resource.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "reward_incremented")') >= 0, 'deliver slot should record reward evidence');
 assert.ok(genericEmitted.files.resource.indexOf('" energy"') >= 0, 'floating text should use parameterized reward label');
+assert.ok(genericEmitted.files.resource.indexOf('RecyclerState =') === -1, 'resource collect/deliver slots must not mutate generic entity state owned by flow modules');
 
 var popPlans = {
   entityPlan: {
@@ -545,5 +574,65 @@ assert.ok(implementationEmitted.files.resource.indexOf('GetResource(GFM_Resource
 assert.ok(implementationEmitted.files.ui.indexOf('ShowCTA();') >= 0, 'cta_finish should deterministically show CTA');
 assert.ok(implementationEmitted.files.ui.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "guide_text_visible")') >= 0, 'CTA guide_ui should still emit guide evidence');
 assert.ok(implementationEmitted.files.scene.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "visual_variant_changed")') >= 0, 'system visual variant fallback should record visual evidence');
+
+var genericFallbackPlans = {
+  entityPlan: {
+    entities: [
+      { name: 'Player' },
+      { name: 'SpawnerMachine' },
+      { name: 'UpgradeStation' },
+      { name: 'EnemyTarget' }
+    ]
+  },
+  assemblyPlan: {
+    moduleInstances: [
+      {
+        id: 'SpawnerMachine::spawn_interval',
+        moduleId: 'spawn_interval',
+        entity: 'SpawnerMachine',
+        params: { entity: 'MissingSpawnedEntity', interval: 1, maxAlive: 1 },
+        ownerFiles: ['GameFlowManagerMain.Flow.cs']
+      },
+      {
+        id: 'system::damageable',
+        moduleId: 'damageable',
+        entity: '',
+        params: {},
+        ownerFiles: ['GameFlowManagerMain.Flow.cs']
+      },
+      {
+        id: 'system::upgrade_progress',
+        moduleId: 'upgrade_progress',
+        entity: '',
+        params: {},
+        ownerFiles: ['GameFlowManagerMain.Flow.cs']
+      }
+    ],
+    fileOwners: [
+      {
+        file: 'GameFlowManagerMain.Flow.cs',
+        moduleInstanceIds: ['SpawnerMachine::spawn_interval', 'system::damageable', 'system::upgrade_progress']
+      }
+    ],
+    phaseBindings: [
+      {
+        phaseId: 'fallback',
+        atomIds: [],
+        activateEntities: ['SpawnerMachine', 'UpgradeStation', 'EnemyTarget']
+      }
+    ],
+    stateOwners: [],
+    eventGraph: [],
+    unresolved: []
+  },
+  cuaPlan: { steps: [] }
+};
+var genericFallbackCoverage = assemblyEmitter.computeImplementationCoverage(genericFallbackPlans);
+assert.strictEqual(genericFallbackCoverage.coverage, 1, 'generic/system assembly modules should still have deterministic fallback coverage');
+assert.deepStrictEqual(genericFallbackCoverage.missing, [], 'generic/system fallback modules must not be reported missing');
+var genericFallbackEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(genericSkeleton, genericFallbackPlans);
+assert.ok(genericFallbackEmitted.files.flow.indexOf('PlaceObj(SpawnerMachine') >= 0, 'spawn_interval should use owner entity as visible proxy when spawned entity is not declared');
+assert.ok(genericFallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "target_hp_decreased_or_target_dead")') >= 0, 'system damageable should emit combat evidence instead of an empty slot');
+assert.ok(genericFallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "upgrade_level_changed")') >= 0, 'system upgrade_progress should emit upgrade evidence instead of an empty slot');
 
 console.log('assembly-emitter tests passed');

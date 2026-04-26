@@ -51,6 +51,7 @@ GFM_*.cs 工具类在 `Assets/Program/Script/Commons/`（GFM_UI/GFM_Utils/GFM_Po
 - 不要用泛型方法：`GetComponent<T>()` → 用 `(T)GetComponent(typeof(T))`
 - ⛔ **绝对不要用 `Resources.GetBuiltinResource`（泛型或非泛型）** — Luna runtime 未实现，会抛 "method not implemented" 导致 Start() 崩溃。字体加载由 GFM_UI.CreateText 内部处理（模板已提供 Resources/DefaultFont.ttf）
 - 不要用 `FindObjectOfType<T>()` → 用 `(T)FindObjectOfType(typeof(T))`
+- 不要直接设置 `Text.font` / `Text.fontSize` / `Text.alignment` / `Text.horizontalOverflow`；Luna 的 UI.Text backing element 可能未初始化。创建文字用 `GFM_UI.CreateText`，后续只更新 `.text`
 
 ## 场景对象池（已存在，直接 Find 使用）
 

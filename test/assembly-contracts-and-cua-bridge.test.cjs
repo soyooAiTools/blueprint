@@ -193,6 +193,34 @@ assert.ok(
   'shared runtime position state should not be flagged as an ownership violation'
 );
 
+var helperLibraryCtx = {
+  csCode: 'void Update() { AddCompletedPhase("intro"); AddCompletedPhase("build"); }',
+  extraFiles: {
+    'GameFlowManagerMain.Resource.cs': '// [ASSEMBLY SLOT] system::inventory_wallet',
+    'GFM_ResourceIds.cs': 'public static class GFM_ResourceIds { public const string Gold = "Gold"; public static string Normalize(string lower) { if (lower == "gold") return Gold; return lower; } }'
+  },
+  blueprint: {
+    plans: {
+      assemblyPlan: {
+        moduleInstances: [
+          { id: 'system::inventory_wallet', moduleId: 'inventory_wallet', ownerFiles: ['GameFlowManagerMain.Resource.cs'] }
+        ],
+        fileOwners: [
+          { file: 'GameFlowManagerMain.Resource.cs', moduleInstanceIds: ['system::inventory_wallet'] }
+        ],
+        stateOwners: [
+          { state: 'economy.gold', moduleInstanceId: 'system::inventory_wallet' }
+        ],
+        phaseBindings: []
+      }
+    }
+  }
+};
+assert.ok(
+  !assemblyPlanContracts.detectAssemblyContractViolations(helperLibraryCtx).some(function(item) { return item.rule === 'assembly-state-owner-mismatch'; }),
+  'assembly state ownership should ignore helper libraries outside owner partials'
+);
+
 var localizedSlotOwnership = assemblyPlanContracts.extractAssemblySlotOwnership({
   'GameFlowManagerMain.Flow.cs': '// [ASSEMBLY SLOT] 装配槽 ConveyorBelt::build_progress'
 });

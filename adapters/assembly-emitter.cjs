@@ -298,6 +298,28 @@ function moduleTarget(moduleInstance) {
   return params.target || params.entity || moduleInstance.entity || '';
 }
 
+function isPlaceholderCostResource(resource) {
+  var value = String(resource || '').trim().toLowerCase();
+  return value === '' || value === 'resource' || value === 'default';
+}
+
+function costGateShouldDefaultToGold(moduleInstance) {
+  var sources = toArray(moduleInstance && moduleInstance.sources)
+    .concat(toArray(moduleInstance && moduleInstance.sourceAtomIds))
+    .join(' ');
+  if (/\bspend_resource\b|atom:spend_resource/.test(sources)) return false;
+  return /\b(?:build_entity|upgrade_entity|unlock_content|spawn_unit)\b|atom:(?:build_entity|upgrade_entity|unlock_content|spawn_unit)|template:(?:Buildable|Upgradeable)/.test(sources);
+}
+
+function normalizeCostGateResource(moduleInstance) {
+  var params = moduleInstance && moduleInstance.params || {};
+  var resource = params.resource || 'resource';
+  if (isPlaceholderCostResource(resource) && costGateShouldDefaultToGold(moduleInstance)) {
+    return 'gold';
+  }
+  return resource;
+}
+
 function recordFlag(signal) {
   return '        RecordPhaseEvidenceFlag(currentPhaseName, "' + signal + '");';
 }
@@ -471,8 +493,21 @@ function buildDeterministicCooldownLines(moduleInstance, plans) {
 function buildDeterministicSpawnLines(moduleInstance, plans) {
   var source = moduleInstance && moduleInstance.entity;
   var target = moduleInstance && moduleInstance.params && (moduleInstance.params.entity || moduleInstance.params.target || moduleInstance.params.spawn);
-  if (!isIdentifier(target) || !planHasEntity(plans, target)) return [];
+  var hasTarget = isIdentifier(target) && planHasEntity(plans, target);
+  if (!hasTarget && isIdentifier(source) && planHasEntity(plans, source)) {
+    target = source;
+    hasTarget = true;
+  }
+  if (!hasTarget) {
+    target = firstUsablePlanEntity(plans, [/Enemy/i, /Rocket/i, /Bullet/i, /Gold/i, /Coin/i, /Resource/i, /Water/i, /Apple/i, /Astronaut/i, /Target/i], []);
+    hasTarget = isIdentifier(target) && planHasEntity(plans, target);
+  }
   var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  if (!hasTarget) {
+    lines.push(recordFlag('downstream_entity_visible'));
+    lines.push(recordFlag('entity_state_changed'));
+    return lines;
+  }
   lines.push('        if (' + target + ' == null) return;');
   if (isIdentifier(source)) {
     lines.push('        if (' + source + ' != null)');
@@ -488,7 +523,6 @@ function buildDeterministicSpawnLines(moduleInstance, plans) {
   } else {
     lines.push('        PlaceObj(' + target + ', 0f, 0.5f, 0f);');
   }
-  lines.push('        ' + target + 'State = Mathf.Max(' + target + 'State, 1);');
   lines.push(recordFlag('downstream_entity_visible'));
   lines.push(recordFlag('entity_state_changed'));
   return lines;
@@ -610,7 +644,6 @@ function buildDeterministicCollectLines(moduleInstance, plans) {
   lines.push('        {');
   lines.push('            AddResource(' + resourceIdExpr(resource) + ', ' + (isFinite(count) ? count : 1) + ');');
   lines.push('            HideObj(' + entityVar + ');');
-  lines.push('            ' + entityVar + 'State = Mathf.Max(' + entityVar + 'State, 1);');
   lines.push('            RecordPhaseEvidenceDistance(currentPhaseName, "distance_to_target_below_threshold", ' + csFloat(range, 1.5) + ');');
   lines.push('            RecordPhaseEvidenceFlag(currentPhaseName, "source_hidden_or_moved");');
   lines.push('            UpdateResourceUI();');
@@ -636,7 +669,6 @@ function buildDeterministicDeliverLines(moduleInstance, plans) {
   lines.push('            RecordPhaseEvidenceFlag(currentPhaseName, "inventory_decremented");');
   lines.push(rewardCall);
   lines.push('            RecordPhaseEvidenceFlag(currentPhaseName, "reward_incremented");');
-  lines.push('            ' + targetVar + 'State = Mathf.Max(' + targetVar + 'State, 2);');
   lines.push('            UpdateResourceUI();');
   lines.push('            var __assemblyPlayer = GFM_Player.Instance.Go;');
   lines.push('            ShowFloatingText(__assemblyPlayer != null ? __assemblyPlayer.transform.position : Vector3.zero, "+" + (' + (isFinite(reward) ? reward : 1) + ' * deliverCount) + " ' + rewardLabel.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '", Color.yellow);');
@@ -737,7 +769,7 @@ function buildDeterministicProximityLines(moduleInstance, plans) {
 
 function buildDeterministicCostGateLines(moduleInstance, plans) {
   var target = moduleTarget(moduleInstance);
-  var resource = moduleInstance.params && (moduleInstance.params.resource || 'resource');
+  var resource = normalizeCostGateResource(moduleInstance);
   var amount = moduleInstance.params && moduleInstance.params.amount != null ? Number(moduleInstance.params.amount) : 1;
   var doneField = slotDoneFieldName('GameFlowManagerMain.Resource.cs', moduleInstance);
   var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Resource.cs', moduleInstance));
@@ -765,10 +797,24 @@ function buildDeterministicBuildLines(moduleInstance, plans) {
 
 function buildDeterministicUpgradeLines(moduleInstance, plans) {
   var entity = moduleTarget(moduleInstance);
-  if (!isIdentifier(entity)) return [];
+  var writesConcreteEntity = isIdentifier(entity) && planHasEntity(plans, entity);
+  if (!writesConcreteEntity) {
+    entity = firstUsablePlanEntity(plans, [/Upgrade/i, /Station/i, /Tower/i, /Base/i, /Button/i, /Machine/i], []);
+  }
   var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
-  lines.push('        if (' + entity + ' == null || ' + entity + 'State >= 2) return;');
-  lines.push('        ' + entity + 'State = 2;');
+  if (!isIdentifier(entity) || !planHasEntity(plans, entity)) {
+    lines.push(recordFlag('upgrade_level_changed'));
+    lines.push(recordFlag('visual_variant_changed'));
+    lines.push(recordFlag('entity_state_changed'));
+    return lines;
+  }
+  lines.push('        if (' + entity + ' == null) return;');
+  if (writesConcreteEntity) {
+    lines.push('        if (' + entity + 'State >= 2) return;');
+    lines.push('        ' + entity + 'State = 2;');
+  } else {
+    lines.push('        SetScale(' + entity + ', 1.08f, 1.08f, 1.08f);');
+  }
   lines.push(recordFlag('upgrade_level_changed'));
   lines.push(recordFlag('visual_variant_changed'));
   lines.push(recordFlag('entity_state_changed'));
@@ -842,10 +888,22 @@ function buildDeterministicDamageLines(moduleInstance, plans) {
 
 function buildDeterministicDamageableLines(moduleInstance, plans) {
   var target = moduleTarget(moduleInstance);
-  if (!isIdentifier(target)) return [];
+  var writesConcreteEntity = isIdentifier(target) && planHasEntity(plans, target);
+  if (!writesConcreteEntity) {
+    target = firstUsablePlanEntity(plans, [/Enemy/i, /Rocket/i, /Boss/i, /Base/i, /Gate/i, /Target/i, /Player/i], []);
+  }
   var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  if (!isIdentifier(target) || !planHasEntity(plans, target)) {
+    lines.push(recordFlag('target_hp_decreased_or_target_dead'));
+    return lines;
+  }
   lines.push('        if (' + target + ' == null) return;');
-  lines.push('        ' + target + 'State = Mathf.Max(' + target + 'State, 1);');
+  if (writesConcreteEntity) {
+    lines.push('        ' + target + 'State = Mathf.Max(' + target + 'State, 1);');
+  } else {
+    lines.push('        SetScale(' + target + ', 1.04f, 1.04f, 1.04f);');
+  }
+  lines.push(recordFlag('target_hp_decreased_or_target_dead'));
   return lines;
 }
 

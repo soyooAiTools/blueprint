@@ -38,6 +38,16 @@ var NPC_TEMPLATES = {
   boss_multiphase: require('./templates/npc-behaviors/boss-multiphase.cjs'),
 };
 
+var NPC_TEMPLATES_WITH_DEFEAT_COUNTER = {
+  boss_multiphase: true,
+  chase_attack: true,
+  defend: true,
+  evade: true,
+  flee_on_hit: true,
+  ranged_shooter: true,
+  static_target: true,
+};
+
 function fillSkeleton(schema, skeleton, opts) {
   opts = opts || {};
   // Validate
@@ -110,10 +120,11 @@ function generateVariables(schema, skeleton) {
   var lines = [];
   // Game config vars — skip if skeleton already declares them (idle game kit)
   var gc = schema.gameConfig || {};
+  var splitIdleMovement = !!(skeleton && /Idle movement 状态位于 GameFlowManagerMain\.Input\.cs/.test(skeleton));
   var skeletonHas = function(varName) {
     return skeleton && (skeleton.indexOf('float ' + varName) !== -1 || skeleton.indexOf('int ' + varName) !== -1 || skeleton.indexOf(varName + ' { get') !== -1);
   };
-  if (gc.moveSpeed && !skeletonHas('moveSpeed')) lines.push('    float moveSpeed = ' + gc.moveSpeed + 'f; // player movement speed from schema gameConfig');
+  if (gc.moveSpeed && !skeletonHas('moveSpeed') && !splitIdleMovement) lines.push('    float moveSpeed = ' + gc.moveSpeed + 'f; // player movement speed from schema gameConfig');
   if (gc.collectRange && !skeletonHas('collectRange')) lines.push('    float collectRange = ' + gc.collectRange + 'f; // proximity radius for collect/deliver checks');
   if (gc.maxCarry && !skeletonHas('maxCarry')) lines.push('    int maxCarry = ' + gc.maxCarry + '; // maximum carried resource count');
   // NPC variables
@@ -129,7 +140,7 @@ function generateVariables(schema, skeleton) {
     if (npcs[i].params && npcs[i].params.attackDamage) hasPlayerHP = true;
   }
   if (hasPlayerHP) lines.push('    int playerHP = 10; // player health used by NPC combat templates');
-  if (npcs.some(function(n) { return n.template === 'chase_attack' || n.template === 'ranged_shooter'; })) {
+  if (npcs.some(function(n) { return NPC_TEMPLATES_WITH_DEFEAT_COUNTER[n.template]; })) {
     lines.push('    int enemiesDefeated = 0; // combat progress counter used by phase evidence');
   }
   // Resource flow variables

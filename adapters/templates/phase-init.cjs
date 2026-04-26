@@ -19,7 +19,9 @@ function generatePhaseInit(phase, schema) {
   // Hide entities
   var hide = phase.hideEntities || [];
   for (var j = 0; j < hide.length; j++) {
-    lines.push('                HideObj(' + toLowerCamel(hide[j]) + ');');
+    if (findEntity(schema, hide[j])) {
+      lines.push('                HideObj(' + toLowerCamel(hide[j]) + ');');
+    }
   }
   // Guide text
   if (phase.guideText) {
@@ -36,7 +38,7 @@ function generatePhaseInit(phase, schema) {
 function actionToCode(action, schema) {
   switch (action.action) {
     case ActionType.SET_ENTITY_STATE:
-      if (!action.entity || /^Enemy$/i.test(String(action.entity)) || /^Unknown$/i.test(String(action.entity))) {
+      if (!action.entity || !findEntity(schema, action.entity) || /^Enemy$/i.test(String(action.entity)) || /^Unknown$/i.test(String(action.entity))) {
         return '// skipped unresolved set_entity_state';
       }
       return toLowerCamel(action.entity) + 'State = ' + (action.state != null ? action.state : 1) + ';';

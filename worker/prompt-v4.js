@@ -365,6 +365,7 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   lines.push('13. CTA: Luna.Unity.Playable.InstallFullGame()');
   lines.push('14. UI: Canvas canvas = GFM_UI.CreateCanvas(1920, 1080); // returns Canvas, not GameObject!');
   lines.push('    Text txt = GFM_UI.CreateText(canvas, "text", new Vector2(x,y), fontSize); // param1 must be Canvas type');
+  lines.push('    不要直接写 Text.font/fontSize/alignment/horizontalOverflow；创建后只更新 .text');
   lines.push('15. 音频: GFM_Audio (如需要)');
   lines.push('');
   lines.push('⚠️ 重要：没有 GFM_Tools 类！可用类名: GFM_Create, GFM_Utils, GFM_UI, GFM_Joystick, GFM_Audio');

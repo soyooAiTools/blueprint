@@ -451,7 +451,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    Text scoreText;');
   lines.push('    Text floatingText;');
   lines.push('    float floatingTextTimer = 0f;');
-  lines.push('    string _currentGuideText = "";');
+  lines.push('    string _currentGuideText = ""; // 当前 guideText 文案缓存');
   lines.push('    string cameraFocusTarget = "";');
   lines.push('');
   lines.push('    // [SKELETON] Guide text 单一写入口；phase/template 不直接写 guideText.text。');
@@ -486,7 +486,7 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        public float scale;');
     lines.push('    }');
     lines.push('    FormDef[] _forms; // [SKELETON] Start() 中填充形态定义');
-    lines.push('    int _currentFormIndex = 0;');
+    lines.push('    int _currentFormIndex = 0; // 当前玩家形态索引');
     lines.push('');
     lines.push('    // [SKELETON] 切换玩家形态：隐藏旧模型、显示新模型并更新属性。');
     lines.push('    void SwitchForm(int formIndex) {');
@@ -614,9 +614,6 @@ function generateSkeleton(specs, opts = {}) {
     }
     lines.push('    int carrying = 0; // 玩家当前携带的通用资源数量');
     lines.push('    string carryingType = ""; // 当前携带资源类型');
-    lines.push('    // [SKELETON] Idle 分数状态：由 AddGold/scoreText 使用。');
-    lines.push('    int gold = 0;');
-    lines.push('');
     lines.push('    // [SKELETON] 点击移动目标：摇杆无输入时的兜底移动方式。');
     lines.push('    Vector3 tapMoveTarget = Vector3.zero;');
     lines.push('    bool hasTapTarget = false;');
@@ -737,8 +734,8 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    // [SKELETON] 金币 UI 更新辅助方法。');
     lines.push('    void AddGold(int amount)');
     lines.push('    {');
-    lines.push('        gold += amount;');
-    lines.push('        if (scoreText != null) scoreText.text = "💰 " + gold;');
+    lines.push('        AddResource(GFM_ResourceIds.Gold, amount);');
+    lines.push('        UpdateResourceUI();');
     lines.push('    }');
     lines.push('');
   lines.push('    // [SKELETON] 浮字效果：复用池化文本，并在短暂显示后自动隐藏。');

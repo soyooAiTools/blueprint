@@ -1,13 +1,21 @@
 # auto-b49a65c6
 
 ## Diagnosis
-`method-check.cjs:execute()` calls `detectContractViolations()` → `assemblyPlanContracts.detectAssemblyContractViolations()`. That function iterates every module instance in the assembly plan, extracts `// [ASSEMBLY SLOT] <id>` markers from `ctx.extraFiles`, and fires `assembly-module-owner-mismatch` for each instance whose marker is missing or in the wrong file. Because the AI was never told this magic-comment convention, it produces 4-5 violations per run. The feedback message only says "scaffold ownership drifted / Observed: (none)" — no marker syntax, no concrete action. `invalidateCodegenCheckpoint` correctly forces a codegen retry, but the regenerated code still lacks the markers, so all 3 outer retries burn identically.
+`method-check` repeatedly failed with `assembly-module-owner-mismatch` because generated partial files omitted the machine-readable `// [ASSEMBLY SLOT] <moduleInstanceId>` marker expected by the assembly contract scanner.
+
+The generated method bodies were often usable, but the missing marker caused a full codegen retry instead of a deterministic in-place repair.
 
 ## Root Cause
-`engine/assembly-plan-contracts.cjs:436-438` — the `assembly-module-owner-mismatch` violation message omits the exact `// [ASSEMBLY SLOT] <moduleInstanceId>` comment syntax the AI must emit. Additionally, there is no `autoRepair*` handler for this violation class (unlike `autoRepairDuplicateStateFields`, `autoRepairForbiddenGenericApis`, etc.), so even a trivially fixable case (code is correct, marker comment simply absent) forces a full codegen retry.
+`engine/stages/method-check.cjs` had deterministic repairs for several contract failures, but no repair for missing assembly slot ownership markers.
 
 ## Fix
+Add `autoRepairAssemblyModuleOwnerMismatch(ctx)`:
 
-### 1. `engine/assembly-plan-contracts.cjs` — patch violation message (line 436-438)
+- read `assemblyPlan.moduleInstances`
+- for each declared `ownerFiles[]`, check whether the file exists in `ctx.extraFiles`
+- insert `// [ASSEMBLY SLOT] <id>` at the top when the marker is missing
+- run it before contract violation detection rejects the build
 
-**Before:**
+## Verification
+- `node test/method-check-auto-repair.test.cjs`
+- `npm test`

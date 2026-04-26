@@ -193,6 +193,7 @@ const methodCheck = require('../engine/stages/method-check.cjs');
         'using UnityEngine;',
         'public partial class Demo : MonoBehaviour',
         '{',
+        '    // [ASSEMBLY SLOT] Player::move_to_target',
         '    void Tick() { PlayerAvatar = Player; }',
         '}',
       ].join('\n'),
@@ -204,6 +205,143 @@ const methodCheck = require('../engine/stages/method-check.cjs');
   assert.match(ctx.csCode, /\bPlayer\b/);
   assert.doesNotMatch(ctx.csCode, /\bplayer\b/);
   assert.doesNotMatch(ctx.csCode, /\bPlayerAvatar\b/);
+  assert.match(ctx.extraFiles['GameFlowManagerMain.Flow.cs'], /\[ASSEMBLY SLOT\] Player::move_to_target/);
+}
+
+{
+  const ctx = {
+    csCode: 'public partial class GameFlowManagerMain { void Update() { } }',
+    extraFiles: {
+      'GameFlowManagerMain.Resource.cs': [
+        'public partial class GameFlowManagerMain',
+        '{',
+        '    // [ASSEMBLY SLOT] player::cost_gate',
+        '    void AssemblySlot_Resource_Player__cost_gate() { }',
+        '}',
+      ].join('\n'),
+    },
+    blueprint: {
+      plans: {
+        assemblyPlan: {
+          moduleInstances: [
+            { id: 'Player::cost_gate', moduleId: 'cost_gate', ownerFiles: ['GameFlowManagerMain.Resource.cs'] },
+          ],
+          fileOwners: [
+            { file: 'GameFlowManagerMain.Resource.cs', moduleInstanceIds: ['Player::cost_gate'] },
+          ],
+          stateOwners: [],
+          phaseBindings: [],
+        },
+      },
+    },
+  };
+  assert.ok(methodCheck.detectContractViolations(ctx).some(v => v.rule === 'assembly-module-owner-mismatch'));
+  const changed = methodCheck.autoRepairAssemblyModuleOwnerMismatch(ctx);
+  assert.strictEqual(changed, true);
+  assert.match(ctx.extraFiles['GameFlowManagerMain.Resource.cs'], /\[ASSEMBLY SLOT\] Player::cost_gate/);
+  assert.ok(!methodCheck.detectContractViolations(ctx).some(v => v.rule === 'assembly-module-owner-mismatch'));
+}
+
+{
+  const ctx = {
+    csCode: 'public partial class GameFlowManagerMain { void Update() { } }',
+    extraFiles: {
+      'GameFlowManagerMain.Flow.cs': [
+        'public partial class GameFlowManagerMain',
+        '{',
+        '    // [ASSEMBLY SLOT] ForgeWorkshop::build_progress',
+        '    void AssemblySlot_Flow_ForgeWorkshop__build_progress() { ForgeWorkshopState = 2; }',
+        '}',
+      ].join('\n'),
+      'GameFlowManagerMain.Resource.cs': [
+        'public partial class GameFlowManagerMain',
+        '{',
+        '    // [ASSEMBLY SLOT] ForgeWorkshop::collect_on_near',
+        '    void AssemblySlot_Resource_ForgeWorkshop__collect_on_near()',
+        '    {',
+        '        ForgeWorkshopState = Mathf.Max(ForgeWorkshopState, 1);',
+        '        RecordPhaseEvidenceFlag(currentPhaseName, "source_hidden_or_moved");',
+        '    }',
+        '}',
+      ].join('\n'),
+    },
+    blueprint: {
+      plans: {
+        assemblyPlan: {
+          moduleInstances: [
+            { id: 'ForgeWorkshop::build_progress', moduleId: 'build_progress', ownerFiles: ['GameFlowManagerMain.Flow.cs'] },
+            { id: 'ForgeWorkshop::collect_on_near', moduleId: 'collect_on_near', ownerFiles: ['GameFlowManagerMain.Resource.cs'] },
+          ],
+          fileOwners: [
+            { file: 'GameFlowManagerMain.Flow.cs', moduleInstanceIds: ['ForgeWorkshop::build_progress'] },
+            { file: 'GameFlowManagerMain.Resource.cs', moduleInstanceIds: ['ForgeWorkshop::collect_on_near'] },
+          ],
+          stateOwners: [
+            { state: 'ForgeWorkshop.buildState', moduleInstanceId: 'ForgeWorkshop::build_progress' },
+          ],
+          phaseBindings: [],
+        },
+      },
+    },
+  };
+  assert.ok(methodCheck.detectContractViolations(ctx).some(v => v.rule === 'assembly-state-owner-mismatch'));
+  const changed = methodCheck.autoRepairAssemblyStateOwnerMismatch(ctx);
+  assert.strictEqual(changed, true);
+  assert.doesNotMatch(ctx.extraFiles['GameFlowManagerMain.Resource.cs'], /ForgeWorkshopState =/);
+  assert.ok(!methodCheck.detectContractViolations(ctx).some(v => v.rule === 'assembly-state-owner-mismatch'));
+}
+
+{
+  const ctx = {
+    csCode: 'public partial class GameFlowManagerMain { void Update() { } }',
+    extraFiles: {
+      'GameFlowManagerMain.Resource.cs': [
+        'public partial class GameFlowManagerMain',
+        '{',
+        '    // [ASSEMBLY SLOT] system::inventory_wallet',
+        '    void AddResource(string id, int amount) { }',
+        '    void UpdateResourceUI() { }',
+        '}',
+      ].join('\n'),
+      'GameFlowManagerMain.UI.cs': [
+        'public partial class GameFlowManagerMain',
+        '{',
+        '    int gold = 0;',
+        '    // [ASSEMBLY SLOT] system::score_feedback',
+        '    void AddGold(int amount)',
+        '    {',
+        '        gold += amount;',
+        '        if (scoreText != null) scoreText.text = "G " + gold;',
+        '    }',
+        '}',
+      ].join('\n'),
+    },
+    blueprint: {
+      plans: {
+        assemblyPlan: {
+          moduleInstances: [
+            { id: 'system::inventory_wallet', moduleId: 'inventory_wallet', ownerFiles: ['GameFlowManagerMain.Resource.cs'] },
+            { id: 'system::score_feedback', moduleId: 'score_feedback', ownerFiles: ['GameFlowManagerMain.UI.cs'] },
+          ],
+          fileOwners: [
+            { file: 'GameFlowManagerMain.Resource.cs', moduleInstanceIds: ['system::inventory_wallet'] },
+            { file: 'GameFlowManagerMain.UI.cs', moduleInstanceIds: ['system::score_feedback'] },
+          ],
+          stateOwners: [
+            { state: 'economy.gold', moduleInstanceId: 'system::inventory_wallet' },
+          ],
+          phaseBindings: [],
+        },
+      },
+    },
+  };
+  assert.ok(methodCheck.detectContractViolations(ctx).some(v => v.rule === 'assembly-state-owner-mismatch'));
+  const changed = methodCheck.autoRepairAssemblyStateOwnerMismatch(ctx);
+  assert.strictEqual(changed, true);
+  assert.doesNotMatch(ctx.extraFiles['GameFlowManagerMain.UI.cs'], /\bint gold\b|\bgold \+=| \+ gold/);
+  assert.match(ctx.extraFiles['GameFlowManagerMain.UI.cs'], /AddResource\(GFM_ResourceIds\.Gold, amount\)/);
+  assert.match(ctx.extraFiles['GameFlowManagerMain.UI.cs'], /UpdateResourceUI\(\);/);
+  assert.ok(!methodCheck.detectContractViolations(ctx).some(v => v.rule === 'assembly-state-owner-mismatch'));
 }
 
 {

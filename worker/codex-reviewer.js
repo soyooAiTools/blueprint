@@ -1,5 +1,5 @@
 /**
- * Codex Code Reviewer — 用 Codex CLI 替代 GPT-5.4 API 做代码审查
+ * Codex Code Reviewer — 用 Codex CLI 替代 GPT API 做代码审查
  * 
  * 使用 codex exec 非交互模式，传入 REVIEW_RULES 作为 system prompt，
  * 让 Codex 以 agent 身份审查代码，可以自己读文件、分析问题。
@@ -21,7 +21,8 @@ const {
 // ============ Config ============
 const CODEX_CMD = process.env.CODEX_CMD || 'codex';
 const CODEX_TIMEOUT_MS = parseInt(process.env.CODEX_REVIEW_TIMEOUT_MS) || 4 * 60 * 1000; // align with codex-text default
-const CODEX_MODEL = process.env.CODEX_REVIEW_MODEL || 'gpt-5.4';
+const CODEX_MODEL = process.env.CODEX_REVIEW_MODEL || process.env.CODEX_CODE_MODEL || 'gpt-5.5';
+const CODEX_REASONING_EFFORT = process.env.CODEX_REVIEW_REASONING_EFFORT || process.env.CODEX_REASONING_EFFORT || 'xhigh';
 
 // ============ Preflight Health Check ============
 let _codexPreflightResult = null; // null = not checked, true = ok, false = broken
@@ -146,6 +147,7 @@ function buildCodexReviewArgs(workDir, outputPath) {
     '--skip-git-repo-check',
     '--ephemeral',
     '-m', CODEX_MODEL,
+    '-c', 'model_reasoning_effort="' + CODEX_REASONING_EFFORT + '"',
     '-s', 'danger-full-access', // bwrap 0.4.0 不支持 --argv0，read-only 模式下无法执行命令
     '-C', workDir,
     '-o', outputPath,

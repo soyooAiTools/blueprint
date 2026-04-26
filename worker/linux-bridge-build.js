@@ -586,6 +586,28 @@ window.addEventListener("luna:starting", function() {
       }
       return s;
     };
+    function patchUiTextStyleGuard() {
+      try {
+        if (!window.UnityEngine || !UnityEngine.UI || !UnityEngine.UI.Text) return;
+        var proto = UnityEngine.UI.Text.prototype;
+        if (!proto || proto.__blueprintTextGuardV1) return;
+        var originalApply = proto.ApplyFontDataChanges;
+        if (typeof originalApply !== "function") return;
+        proto.__blueprintTextGuardV1 = true;
+        proto.ApplyFontDataChanges = function() {
+          try {
+            var element = this && this.handle && this.handle.entity && this.handle.entity.element;
+            if (!element || !element._text) return;
+            return originalApply.apply(this, arguments);
+          } catch(e) {
+            return;
+          }
+        };
+      } catch(e) {}
+    }
+    patchUiTextStyleGuard();
+    setTimeout(patchUiTextStyleGuard, 0);
+    setTimeout(patchUiTextStyleGuard, 1000);
     window.addEventListener("error", function(evt) {
       if (evt && evt.message && (evt.message.indexOf("Awake()") >= 0 || evt.message.indexOf("OnEnable()") >= 0)) {
         evt.preventDefault(); return true;

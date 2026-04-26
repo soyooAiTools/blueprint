@@ -116,6 +116,44 @@ vm.runInContext([
 }
 
 {
+  const source = [
+    'using UnityEngine;',
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    void RepositionReward()',
+    '    {',
+    '        if (SalesPoint != null && SalesPoint.transform.position.y > -900f)',
+    '        {',
+    '            PlaceObj(goldObj, 1f, 1f, 1f);',
+    '        }',
+    '        else if (UpgradeStation != null && UpgradeStation.transform.position.y > -900f)',
+    '        {',
+    '            PlaceObj(goldObj, 2f, 1f, 1f);',
+    '        }',
+    '    }',
+    '}',
+  ].join('\n');
+  const result = reviewStage.addMissingComplexBranchComments(source);
+  assert.strictEqual(result.changed, true);
+  assert.strictEqual(result.fixes, 2);
+  assert.match(result.code, /Branch gate: documents the generated multi-part condition before review\.\n        if \(SalesPoint != null/);
+  assert.match(result.code, /Branch gate: documents the generated multi-part condition before review\.\n        else if \(UpgradeStation != null/);
+}
+
+{
+  const source = [
+    'using UnityEngine;',
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    int _currentFormIndex = 0;',
+    '}',
+  ].join('\n');
+  const result = reviewStage.addMissingSkeletonMemberComments(source);
+  assert.strictEqual(result.changed, true);
+  assert.match(result.code, /int _currentFormIndex = 0; \/\/ 当前玩家形态索引/);
+}
+
+{
   const result = sandbox.stripInteractionFlagShortcutsFromPhaseGates(
     'if (!ruleTriggered[2] && (EntityAdvanced(Box, _snap_BoxPos) || boxDone || harvestPlayerActed) && phaseTimer > 3f) {}',
     { specs: [{ phaseId: 'a' }, { phaseId: 'b' }, { phaseId: 'c' }, { phaseId: 'd' }] }

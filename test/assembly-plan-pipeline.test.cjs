@@ -126,4 +126,22 @@ assert.ok(spendGate, 'generic spend should resolve to cost_gate');
 assert.strictEqual(spendGate.params.resource, 'resource', 'empty spend resource should default to generic resource kind');
 assert.strictEqual(spendGate.params.amount, 2, 'generic spend amount should be preserved');
 
+var implicitBuildCostPlans = buildProjectPlans({
+  name: 'ImplicitBuildUpgradeCostDefaults',
+  storyboardFrames: [],
+  entities: [
+    { name: 'Player', template: 'PlayerController', behavior: { moveSpeed: 5 } },
+    { name: 'ConveyorBelt', template: 'Buildable', trigger: { type: 'proximity', params: { radius: 2 } }, behavior: { buildTime: 2 } },
+    { name: 'TripleDrill', template: 'Upgradeable', behavior: { upgradeLevels: [2] } }
+  ],
+  phases: [{ id: 1, name: '建造升级', activate: ['ConveyorBelt', 'TripleDrill'] }],
+  specs: [{ phaseId: 'buildUpgrade', requiredInteractions: ['build:ConveyorBelt', 'upgrade:TripleDrill:2'] }]
+});
+var implicitBuildTarget = implicitBuildCostPlans.entityPlan.entities.find(function(entity) { return entity.name === 'ConveyorBelt'; });
+var implicitUpgradeTarget = implicitBuildCostPlans.entityPlan.entities.find(function(entity) { return entity.name === 'TripleDrill'; });
+var implicitBuildGate = implicitBuildTarget.modules.find(function(module) { return module.moduleId === 'cost_gate'; });
+var implicitUpgradeGate = implicitUpgradeTarget.modules.find(function(module) { return module.moduleId === 'cost_gate'; });
+assert.strictEqual(implicitBuildGate.params.resource, 'gold', 'implicit build cost_gate should default placeholder resource to gold');
+assert.strictEqual(implicitUpgradeGate.params.resource, 'gold', 'implicit upgrade cost_gate should default placeholder resource to gold');
+
 console.log('assembly-plan-pipeline tests passed');

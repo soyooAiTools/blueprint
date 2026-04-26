@@ -635,14 +635,24 @@ public static class GFM_UI
         var btn = (Button)obj.GetComponent(typeof(Button));
         if (onClick != null) btn.onClick.AddListener(onClick);
 
-        var txtObj = new GameObject("Text").AddComponent<Text>();
-        txtObj.transform.SetParent(obj.transform, false);
-        ((RectTransform)txtObj.GetComponent(typeof(RectTransform))).sizeDelta = size;
-        txtObj.text = text;
-        txtObj.font = (Font)Resources.GetBuiltinResource(typeof(Font), "Arial.ttf");
-        txtObj.fontSize = (int)(size.y * 0.4f);
-        txtObj.color = Color.white;
-        txtObj.alignment = TextAnchor.MiddleCenter;
+        var txtGO = new GameObject("Text");
+        txtGO.AddComponent(typeof(RectTransform));
+        var txtObj = (Text)txtGO.AddComponent(typeof(Text));
+        txtGO.transform.SetParent(obj.transform, false);
+        ((RectTransform)txtGO.GetComponent(typeof(RectTransform))).sizeDelta = size;
+        if (!object.ReferenceEquals(txtObj, null))
+        {
+            try { txtObj.text = text; } catch {}
+            try
+            {
+                var font = Resources.Load<Font>("DefaultFont");
+                if (!object.ReferenceEquals(font, null)) txtObj.font = font;
+                txtObj.fontSize = (int)(size.y * 0.4f);
+                txtObj.color = Color.white;
+                txtObj.alignment = TextAnchor.MiddleCenter;
+            }
+            catch {}
+        }
 
         return btn;
     }
@@ -650,17 +660,24 @@ public static class GFM_UI
     /// <summary>创建文字标签</summary>
     public static Text CreateText(Canvas canvas, string content, Vector2 pos, int fontSize)
     {
-        var obj = new GameObject("Text_" + content, typeof(RectTransform));
+        var obj = new GameObject("Text_" + content);
+        obj.AddComponent(typeof(RectTransform));
         obj.transform.SetParent(canvas.transform, false);
         var rect = (RectTransform)obj.GetComponent(typeof(RectTransform));
         rect.anchoredPosition = pos;
         rect.sizeDelta = new Vector2(400, fontSize * 2);
-        var txt = obj.AddComponent<Text>();
-        txt.text = content;
-        txt.font = (Font)Resources.GetBuiltinResource(typeof(Font), "Arial.ttf");
-        txt.fontSize = fontSize;
-        txt.color = Color.white;
-        txt.alignment = TextAnchor.MiddleCenter;
+        var txt = (Text)obj.AddComponent(typeof(Text));
+        if (object.ReferenceEquals(txt, null)) return null;
+        try { txt.text = content; } catch {}
+        try
+        {
+            var font = Resources.Load<Font>("DefaultFont");
+            if (!object.ReferenceEquals(font, null)) txt.font = font;
+            txt.fontSize = fontSize;
+            txt.color = Color.white;
+            txt.alignment = TextAnchor.MiddleCenter;
+        }
+        catch {}
         return txt;
     }
 
@@ -688,17 +705,27 @@ public static class GFM_UI
         bgImg.color = new Color(0f, 0f, 0f, 0.0f);
 
         // White text on dark background
-        var txtObj = new GameObject("Text", typeof(RectTransform)).AddComponent<Text>();
-        txtObj.transform.SetParent(canvas.transform, false);
-        var txtRect = (RectTransform)txtObj.GetComponent(typeof(RectTransform));
+        var txtGO = new GameObject("Text");
+        txtGO.AddComponent(typeof(RectTransform));
+        var txtObj = (Text)txtGO.AddComponent(typeof(Text));
+        txtGO.transform.SetParent(canvas.transform, false);
+        var txtRect = (RectTransform)txtGO.GetComponent(typeof(RectTransform));
         txtRect.sizeDelta = new Vector2(240, 40);
         txtRect.anchoredPosition = Vector2.zero;
-        txtObj.text = text;
-        txtObj.font = (Font)Resources.GetBuiltinResource(typeof(Font), "Arial.ttf");
-        txtObj.fontSize = 22;
-        txtObj.color = Color.white;
-        txtObj.alignment = TextAnchor.MiddleCenter;
-        txtObj.horizontalOverflow = HorizontalWrapMode.Overflow;
+        if (!object.ReferenceEquals(txtObj, null))
+        {
+            try { txtObj.text = text; } catch {}
+            try
+            {
+                var font = Resources.Load<Font>("DefaultFont");
+                if (!object.ReferenceEquals(font, null)) txtObj.font = font;
+                txtObj.fontSize = 22;
+                txtObj.color = Color.white;
+                txtObj.alignment = TextAnchor.MiddleCenter;
+                txtObj.horizontalOverflow = HorizontalWrapMode.Overflow;
+            }
+            catch {}
+        }
 
         // Billboard effect: always face camera (added via Update helper)
         labelObj.AddComponent<GFM_Billboard>();

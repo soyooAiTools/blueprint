@@ -298,7 +298,7 @@ async function applyRecipe(fingerprintId) {
       userPrompt: userPrompt,
       // No additionalFiles — contents embedded in prompt, no Read tool needed
       model: 'claude-sonnet-4-6',
-      effort: 'medium',
+      effort: 'xhigh',
       timeoutMs: 6 * 60 * 1000,
       minOutputLen: 100,
       taskId: 'autofix-' + recipe.id,
@@ -502,7 +502,7 @@ async function generateRecipe(fingerprint, context) {
       systemPrompt: systemPrompt,
       userPrompt: userPrompt,
       model: 'claude-sonnet-4-6',
-      effort: 'medium',
+      effort: 'xhigh',
       timeoutMs: 6 * 60 * 1000,
       minOutputLen: 200,
       taskId: 'gen-recipe-' + id,

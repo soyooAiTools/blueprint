@@ -521,15 +521,50 @@
   },
   {
     "id": "auto-b49a65c6",
-    "fingerprintPattern": "Codegen contract failed:.*assembly-module-owner-mismatch(?:,\\s*assembly-module-owner-mismatch){2,}",
-    "description": "AI-generated partial files omit `// [ASSEMBLY SLOT] <id>` markers; violation message never tells the AI the required syntax, so all 3 retries fail identically with no auto-repair path.",
+    "fingerprintPattern": "assembly-module-owner-mismatch",
+    "description": "method-check fails every retry because partial files lack // [ASSEMBLY SLOT] markers and no autoRepair exists for this contract violation",
     "risk": "medium",
     "autoApply": true,
     "affectedFiles": [
-      "engine/assembly-plan-contracts.cjs",
       "engine/stages/method-check.cjs"
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-b49a65c6.md"
+  },
+  {
+    "id": "auto-449c8b68",
+    "fingerprintPattern": "Codegen contract failed:.*assembly-state-owner-mismatch",
+    "description": "No auto-repair step for assembly-state-owner-mismatch: cross-partial state writes in non-owner files are detected but never fixed in-place, forcing full codegen retries on every hit.",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/method-check.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-449c8b68.md"
+  },
+  {
+    "id": "auto-ce22cc72",
+    "fingerprintPattern": "Observation protocol FATAL.*multiple spec phases collapsed.*single observe window",
+    "description": "screenshot-timing/batch-completion observation protocol failure throws FATAL immediately, bypassing the recode fix loop entirely",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/cua-verify.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-ce22cc72.md"
+  },
+  {
+    "id": "auto-b59e7466",
+    "fingerprintPattern": "Codegen contract failed:.*duplicate-object-fields",
+    "description": "detectDuplicateObjectFields uses a class-unaware global depth-1 counter while autoRepairDuplicateObjectFields uses a class-keyed counter — cross-class same-name fields produce false-positive violations that the repair never removes, causing an infinite retry loop",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/method-check.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-b59e7466.md"
   }
 ]

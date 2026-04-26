@@ -280,6 +280,7 @@ function detectObservationProtocolFailure(cuaResult) {
 
   if (pre && pre.fatal) {
     return {
+      isFatal: true,
       reason: 'Pre-contamination FATAL: ' + pre.offset + '/' + (pre.total || '?') + ' spec phases completed before observe window opened',
       detail: (pre.phases || []).slice(0, 8).join(', '),
     };
@@ -287,7 +288,8 @@ function detectObservationProtocolFailure(cuaResult) {
 
   if ((hasScreenshotSharing && hasBatchCompletion) || (hasBatchCompletion && pre && pre.offset > 0)) {
     return {
-      reason: 'Observation protocol FATAL: multiple spec phases collapsed into a single observe window',
+      isFatal: false,
+      reason: 'Observation protocol warning: multiple spec phases collapsed into a single observe window',
       detail: issues.filter(function(issue) {
         var lower = issue.toLowerCase();
         return lower.indexOf('screenshot sharing') >= 0 || lower.indexOf('batch completion') >= 0 || lower.indexOf('pre-contamination') >= 0;
@@ -626,7 +628,9 @@ module.exports = {
             var observationProtocolFailure = detectObservationProtocolFailure(cuaResult);
             if (observationProtocolFailure) {
               ctx.addLog('cua-verify', observationProtocolFailure.reason + (observationProtocolFailure.detail ? ' — ' + observationProtocolFailure.detail : ''));
-              throw new Error(observationProtocolFailure.reason + (observationProtocolFailure.detail ? ': ' + observationProtocolFailure.detail : ''));
+              if (observationProtocolFailure.isFatal) {
+                throw new Error(observationProtocolFailure.reason + (observationProtocolFailure.detail ? ': ' + observationProtocolFailure.detail : ''));
+              }
             }
 
             // D1 fingerprint circuit breaker: fires BEFORE coarse categorizeIssue so

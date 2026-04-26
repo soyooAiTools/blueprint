@@ -1341,6 +1341,84 @@ function removePostTapPhaseResetBlocks(code) {
   return { code: next, changed: fixes > 0, fixes: fixes };
 }
 
+function isBranchCommentExemptCondition(condText) {
+  return /ruleTriggered\[|_autoPlayMode|phaseTimer\s*[<>]=?|currentPhaseName\s*==|GFM_CameraController\.Instance|TrySpend\s*\(|GetResource\s*\(|transform\.position\.y\s*<\s*-900|(?:guideText|scoreText|floatingText)\.text\s*!=|==\s*null\s*\|\||\|\|\s*\w+\s*==\s*null/.test(condText);
+}
+
+function isComplexBranchCondition(condText) {
+  var cond = String(condText || '');
+  var comparisonOps = (cond.match(/(?:==|!=|<=|>=|<|>)/g) || []).length;
+  return cond.indexOf('&&') >= 0 ||
+    cond.indexOf('||') >= 0 ||
+    cond.indexOf('?') >= 0 ||
+    cond.indexOf('"') >= 0 ||
+    /\b\d{3,}\b/.test(cond) ||
+    comparisonOps >= 2;
+}
+
+function hasNearbyBranchComment(lines, start, end) {
+  var prev1 = start > 0 ? String(lines[start - 1] || '').trim() : '';
+  var prev2 = start > 1 ? String(lines[start - 2] || '').trim() : '';
+  var next1 = end + 1 < lines.length ? String(lines[end + 1] || '').trim() : '';
+  if (prev1.indexOf('//') === 0 || prev1.indexOf('///') === 0) return true;
+  if (prev2.indexOf('//') === 0 || prev2.indexOf('///') === 0) return true;
+  if (next1.indexOf('//') === 0 || next1.indexOf('///') === 0) return true;
+  for (var i = start; i <= end; i++) {
+    var line = String(lines[i] || '');
+    var scrubbed = line.replace(/"[^"]*"/g, '""');
+    if (scrubbed.indexOf('//') >= 0 || scrubbed.indexOf('/*') >= 0) return true;
+  }
+  return false;
+}
+
+function addMissingComplexBranchComments(code) {
+  if (!code || code.indexOf('if') < 0 || code.indexOf('GameFlowManagerMain') < 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+  var lines = String(code).split('\n');
+  var out = [];
+  var fixes = 0;
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    if (/\bif\s*\(/.test(line)) {
+      var start = i;
+      var block = line;
+      var depth = (line.match(/\(/g) || []).length - (line.match(/\)/g) || []).length;
+      var end = i;
+      while (depth > 0 && end + 1 < lines.length) {
+        end++;
+        block += '\n' + lines[end];
+        depth += (lines[end].match(/\(/g) || []).length - (lines[end].match(/\)/g) || []).length;
+      }
+      var condText = block.replace(/^[\s\S]*?\bif\s*\(/, '').replace(/\)\s*\{?[\s\S]*$/, '');
+      if (isComplexBranchCondition(condText) &&
+          !isBranchCommentExemptCondition(condText) &&
+          !hasNearbyBranchComment(lines, start, end)) {
+        var indent = (/^\s*/.exec(line) || [''])[0];
+        out.push(indent + '// Branch gate: documents the generated multi-part condition before review.');
+        fixes++;
+      }
+      for (var copy = start; copy <= end; copy++) out.push(lines[copy]);
+      i = end;
+      continue;
+    }
+    out.push(line);
+  }
+  return { code: fixes > 0 ? out.join('\n') : code, changed: fixes > 0, fixes: fixes };
+}
+
+function addMissingSkeletonMemberComments(code) {
+  if (!code || code.indexOf('GameFlowManagerMain') < 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+  var fixes = 0;
+  var next = String(code).replace(/^(\s*int\s+_currentFormIndex\s*=\s*0\s*;)\s*$/gm, function(_match, decl) {
+    fixes++;
+    return decl + ' // 当前玩家形态索引';
+  });
+  return { code: next, changed: fixes > 0, fixes: fixes };
+}
+
 function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
   var changed = false;
   var fixes = [];
@@ -1520,6 +1598,33 @@ function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
     changed = true;
     fixes.push('main:PostTapPhaseResetStrip x' + postTapResetFix.fixes);
   }
+  var mainBranchCommentFix = addMissingComplexBranchComments(mainCode);
+  if (mainBranchCommentFix.changed) {
+    mainCode = mainBranchCommentFix.code;
+    changed = true;
+    fixes.push('main:ComplexBranchComments x' + mainBranchCommentFix.fixes);
+  }
+  var mainMemberCommentFix = addMissingSkeletonMemberComments(mainCode);
+  if (mainMemberCommentFix.changed) {
+    mainCode = mainMemberCommentFix.code;
+    changed = true;
+    fixes.push('main:SkeletonMemberComments x' + mainMemberCommentFix.fixes);
+  }
+  Object.keys(nextExtras).forEach(function(name) {
+    if (!/^GameFlowManagerMain(?:\.|$)/.test(name)) return;
+    var branchCommentRes = addMissingComplexBranchComments(nextExtras[name]);
+    if (branchCommentRes.changed) {
+      nextExtras[name] = branchCommentRes.code;
+      changed = true;
+      fixes.push(name + ':ComplexBranchComments x' + branchCommentRes.fixes);
+    }
+    var memberCommentRes = addMissingSkeletonMemberComments(nextExtras[name]);
+    if (memberCommentRes.changed) {
+      nextExtras[name] = memberCommentRes.code;
+      changed = true;
+      fixes.push(name + ':SkeletonMemberComments x' + memberCommentRes.fixes);
+    }
+  });
   return {
     code: mainCode,
     extraFiles: nextExtras,
@@ -1610,6 +1715,8 @@ module.exports = {
   normalizePhaseGateConditionalDeclarations: normalizePhaseGateConditionalDeclarations,
   stripInteractionFlagShortcutsFromPhaseGates: stripInteractionFlagShortcutsFromPhaseGates,
   rewriteLongIfChainsAsSwitches: rewriteLongIfChainsAsSwitches,
+  addMissingComplexBranchComments: addMissingComplexBranchComments,
+  addMissingSkeletonMemberComments: addMissingSkeletonMemberComments,
   hasLegacyReviewerApiKey: hasLegacyReviewerApiKey,
   shouldFallbackToLegacyReviewer: shouldFallbackToLegacyReviewer,
   shouldUseDeterministicReviewFallback: shouldUseDeterministicReviewFallback,

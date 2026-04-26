@@ -175,6 +175,30 @@ assert.deepStrictEqual(cuaInternals.getRuntimeDefaultInteractionFailure({
   completedAfter: undefined,
 }, '[8.3] runtime default failure metadata should be extractable');
 
+// ── Case 9: observation protocol screenshot-timing must not bypass recode ─
+assert.strictEqual(typeof cuaInternals.detectObservationProtocolFailure, 'function',
+  '[9.1] cua-verify exposes observation protocol detector');
+var observationWarning = cuaInternals.detectObservationProtocolFailure({
+  issues: [
+    'Screenshot sharing: 2 spec phases share only 1 screenshot(s).',
+    'batch completion: multiple phases completed inside one observe window',
+  ],
+  report: { preContamination: { fatal: false, offset: 1, total: 11, phases: ['intro'] } },
+});
+assert.ok(observationWarning, '[9.2] screenshot sharing + batch completion should be detected');
+assert.strictEqual(observationWarning.isFatal, false,
+  '[9.3] screenshot-timing observation issue must defer to no-progress/full-regen path');
+assert.ok(observationWarning.reason.indexOf('warning') >= 0,
+  '[9.4] non-fatal observation issue should not be logged as FATAL');
+
+var observationFatal = cuaInternals.detectObservationProtocolFailure({
+  issues: [],
+  report: { preContamination: { fatal: true, offset: 8, total: 11, phases: ['p1', 'p2'] } },
+});
+assert.ok(observationFatal, '[9.5] true pre-contamination fatal should still be detected');
+assert.strictEqual(observationFatal.isFatal, true,
+  '[9.6] true pre-contamination fatal must still throw at caller');
+
 console.log('OK — all D1 circuit-breaker assertions passed');
 console.log('  urbib0 fp:           ' + fp1);
 console.log('  heterogeneous fp:    ' + fpDiff);

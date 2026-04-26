@@ -37,9 +37,11 @@ assert.doesNotMatch(autoplayCode, /SpawnEnemy\(2\);/);
 
 const unresolvedInit = generatePhaseInit({
   phaseId: 'cleanup',
-  showEntities: [],
+  showEntities: ['MissingCrate'],
+  hideEntities: ['MissingCrate'],
   onEnter: [
     { action: 'set_entity_state', entity: 'Unknown', state: 1 },
+    { action: 'set_entity_state', entity: 'MissingCrate', state: 1 },
     { action: 'add_resource', resource: 'default', amount: 1 },
     { action: 'show_floating_text', color: 'yellow' },
   ],
@@ -48,6 +50,9 @@ assert.match(unresolvedInit, /skipped unresolved set_entity_state/);
 assert.match(unresolvedInit, /skipped unresolved add_resource/);
 assert.match(unresolvedInit, /skipped unresolved floating_text/);
 assert.doesNotMatch(unresolvedInit, /UnknownState = 1;/);
+assert.doesNotMatch(unresolvedInit, /MissingCrateState = 1;/);
+assert.doesNotMatch(unresolvedInit, /HideObj\(MissingCrate\)/);
+assert.doesNotMatch(unresolvedInit, /PlaceObj\(MissingCrate/);
 assert.doesNotMatch(unresolvedInit, /AddResource\("default"/);
 assert.doesNotMatch(unresolvedInit, /"undefined"/);
 
