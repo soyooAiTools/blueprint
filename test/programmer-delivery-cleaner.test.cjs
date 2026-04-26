@@ -129,6 +129,8 @@ try {
   assert.match(npcBaseSrc, /public class NPCBase : BaseGameFlowEntity/);
   assert.match(npcBaseSrc, /void SetTarget\(Vector3 target\)/);
   assert.match(npcBaseSrc, /void TickPatrol\(float dt\)/);
+  // 到达目标时必须 snap 到 TargetPosition,不能停在 ~0.1 单位前。
+  assert.match(npcBaseSrc, /SourceObject\.transform\.position\s*=\s*TargetPosition;/);
   assert.ok(fs.existsSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md')));
   assert.ok(fs.existsSync(path.join(tmp, 'CODE_RELATION_GRAPH.md')));
   assert.ok(fs.existsSync(path.join(tmp, 'CODE_RELATION_GRAPH.html')));
