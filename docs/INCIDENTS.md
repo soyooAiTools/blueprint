@@ -1,5 +1,34 @@
 # Blueprint 生产事故记录
 
+## 2026-04-26: 三任务恢复收口与 deterministic repair 前移
+
+### 背景
+
+`proj_1777127892659_m0txpu`（太空卖氧气）、`proj_1777127909317_ksgqw6`（子弹模具）、`proj_1777127928281_k4462r`（卖水）在 review / compile / runtime-contract 链路里反复暴露同类系统性问题：review 静态规则把生成样板推回模型循环、compile 才发现重复方法或资源证据缺口、`cua_passed` 后 upload 的 `done` 状态被 stale-report guard 丢弃。
+
+### 修复
+
+- 将 `AddResource(id, -n)` 的 `resource_decremented` evidence 前移到 skeleton 生成和 compile deterministic pre-build repair，覆盖旧 checkpoint。
+- skeleton 避免在已有 `Enemy` 实体时生成第二个 legacy `SpawnEnemy`，compile repair 也会清同文件重复方法。
+- `method-too-long` 改为按剥离注释后的非空逻辑行统计，避免 `phaseEvidenceSchema` / 机器契约注释误报。
+- review deterministic repair 补齐成员注释、跨 partial assembly runner 注入、post-tap reset-only 清理和 switch/case 注释修复。
+- `api/worker.cjs` 放行同一 pipeline 的 `cua_passed -> done` 终态晋级，保证 upload 阶段写回 `previewUrl` 与最终 `done`。
+- queue / watchdog / dashboard 状态守卫同步收紧，避免 `preview_ready`、cancel/ownership 交叉状态被错误回退或复活。
+
+### 验证
+
+- 三个任务最终全部 `done`，公开预览均写回 DB：
+  - `https://playcools.top/webgl/proj_1777127892659_m0txpu/index.html`
+  - `https://playcools.top/webgl/proj_1777127909317_ksgqw6/index.html`
+  - `https://playcools.top/webgl/proj_1777127928281_k4462r/index.html`
+- `卖水` runtime-contract：`11/11` phases，`102/102` signals，upload public preview `completed=3/3`，`visualDiff=0.361`。
+- 回归：`npm test`，以及 review / method-check / compile / static-check / task-queue / worker-status 定向测试全部通过。
+- 代码提交：`a9bff2c Stabilize Blueprint task recovery pipeline`。
+
+### 归档
+
+- `docs/_archived/2026-04-26-blueprint-task-recovery-closeout.md`
+
 ## 2026-04-25: 交付工程代码关系图系统化
 
 ### 背景
