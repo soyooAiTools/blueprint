@@ -312,10 +312,10 @@ module.exports.init = function(ctx) {
       var TASK_TO_PROJECT = {
         pending:     { target: 'submitted', compatible: ['submitted', 'pending', 'assigned'] },
         assigned:    { target: 'processing', compatible: ['assigned', 'processing', 'building', 'developing'] },
-        processing:  { target: 'processing', compatible: ['processing', 'building', 'developing'] },
-        building:    { target: 'building',   compatible: ['building', 'processing'] },
+        processing:  { target: 'processing', compatible: ['processing', 'building', 'developing', 'preview_ready'] },
+        building:    { target: 'building',   compatible: ['building', 'processing', 'preview_ready'] },
         preview_ready:{ target: 'preview_ready', compatible: ['preview_ready', 'reviewing', 'approved', 'committed'] },
-        fix_needed:  { target: 'processing', compatible: ['processing', 'building'] },
+        fix_needed:  { target: 'processing', compatible: ['processing', 'building', 'preview_ready'] },
         failed:      { target: 'failed',     compatible: ['failed'] },
         done:        { target: 'reviewing',  compatible: ['reviewing', 'approved', 'committed'] },
         cua_passed:  { target: 'reviewing',  compatible: ['reviewing', 'approved', 'committed'] },

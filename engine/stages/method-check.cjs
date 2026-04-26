@@ -2008,6 +2008,12 @@ function execute(ctx) {
   }
   if (autoRepairPlayerAliasDrift(ctx)) {
     console.log('[method-check] AUTO-REPAIR — normalized player aliases across partials');
+    if (autoRepairDuplicateObjectFields(ctx)) {
+      console.log('[method-check] AUTO-REPAIR — removed duplicate object/UI field declarations after player alias normalization');
+    }
+    if (autoRepairDuplicateSimpleFields(ctx)) {
+      console.log('[method-check] AUTO-REPAIR — removed duplicate scalar/bool field declarations after player alias normalization');
+    }
   }
   if (autoRepairInvalidPoolLiterals(ctx)) {
     console.log('[method-check] AUTO-REPAIR — rewrote invalid pool literals to allowed blueprint pools');

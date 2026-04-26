@@ -21,6 +21,12 @@ function shouldDropWorkerReport(task, project, workerId, status, mappedStatus) {
   if (task.assigned_to && workerId && task.assigned_to !== workerId) {
     return 'task currently assigned to ' + task.assigned_to;
   }
+  if (!task.assigned_to && task.status === 'cua_passed' && status === 'done') {
+    // `cua_passed` is an intermediate terminal-looking milestone inside the
+    // worker pipeline. The same pipeline still runs upload afterwards, so its
+    // final `done` report must be allowed to persist previewUrl/build status.
+    return null;
+  }
   if (!task.assigned_to && INACTIVE_TASK_STATUSES.indexOf(task.status) >= 0) {
     return 'task is ' + task.status + ' and unassigned';
   }
@@ -342,10 +348,44 @@ module.exports.init = function(ctx) {
           return sendJSON(res, { error: 'workerId required' }, 400);
         }
 
-        taskQueue.heartbeat(workerId, data.status, data.currentTask, data.uptime);
+        var currentTask = data.currentTask;
+        var currentTaskId = typeof currentTask === 'object'
+          ? (currentTask && (currentTask.taskId || currentTask.id || null))
+          : (currentTask || null);
+        var ownerConflict = null;
+        if (currentTaskId) {
+          var currentTaskRow = taskQueue.get(currentTaskId);
+          if (currentTaskRow && currentTaskRow.assigned_to && currentTaskRow.assigned_to !== workerId) {
+            ownerConflict = {
+              taskId: currentTaskId,
+              assignedTo: currentTaskRow.assigned_to,
+              status: currentTaskRow.status,
+            };
+          }
+        }
+
+        taskQueue.heartbeat(
+          workerId,
+          ownerConflict ? 'stale' : data.status,
+          ownerConflict ? null : data.currentTask,
+          data.uptime
+        );
 
         console.log('[Worker Heartbeat] ' + workerId + ' - ' + (data.status || 'unknown') +
                     (data.currentTask ? ' (task: ' + (data.currentTask.taskId || data.currentTask) + ')' : ''));
+
+        if (ownerConflict) {
+          console.log('[Worker Heartbeat] Ownership lost: worker ' + workerId +
+            ' reported task ' + ownerConflict.taskId + ' but assigned_to=' + ownerConflict.assignedTo);
+          return sendJSON(res, {
+            success: true,
+            workerId: workerId,
+            lostOwnership: true,
+            taskId: ownerConflict.taskId,
+            assignedTo: ownerConflict.assignedTo,
+            status: ownerConflict.status,
+          });
+        }
 
         sendJSON(res, { success: true, workerId: workerId });
       } catch (e) {

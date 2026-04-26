@@ -90,6 +90,35 @@ const gfmFiles = require('../worker/gfm-files.cjs').loadGfmFiles();
   const ctx = {
     csCode: [
       'using UnityEngine;',
+      'public partial class GameFlowManagerMain : MonoBehaviour',
+      '{',
+      '    GameObject player;',
+      '    void Update() { player = player; }',
+      '}',
+    ].join('\n'),
+    extraFiles: {
+      'GameFlowManagerMain.Scene.cs': [
+        'using UnityEngine;',
+        'public partial class GameFlowManagerMain : MonoBehaviour',
+        '{',
+        '    GameObject Player;',
+        '    void Start() { Player = player; }',
+        '}',
+      ].join('\n'),
+    },
+    blueprint: { entities: [] },
+  };
+  assert.ok(methodCheck.detectContractViolations(ctx).some(v => v.rule === 'player-alias-drift'));
+  methodCheck.autoRepairPlayerAliasDrift(ctx);
+  assert.ok(methodCheck.detectContractViolations(ctx).some(v => v.rule === 'duplicate-object-fields'));
+  assert.strictEqual(methodCheck.autoRepairDuplicateObjectFields(ctx), true);
+  assert.ok(!methodCheck.detectContractViolations(ctx).some(v => v.rule === 'duplicate-object-fields'));
+}
+
+{
+  const ctx = {
+    csCode: [
+      'using UnityEngine;',
       'public class Demo : MonoBehaviour',
       '{',
       '    Rigidbody rb;',

@@ -1453,7 +1453,7 @@ var RULES = [
           if (!t) continue;
           var op = t.indexOf('(');
           if (op < 0) continue;
-          var cp = t.lastIndexOf(')');
+          var cp = t.indexOf(')', op + 1);
           if (cp <= op) continue;
           var tail = t.slice(cp + 1).replace(/\s/g, '');
           // Method signature tails: empty (brace next line), `{` (brace same line),
@@ -1506,12 +1506,20 @@ var RULES = [
           if (!companionIndex[k]) companionIndex[k] = efKey;
         }
       }
-      if (Object.keys(companionIndex).length === 0) return [];
       var mainSigs = extractSigs(code);
       var issues = [];
+      var seenInFile = {};
       for (var mi = 0; mi < mainSigs.length; mi++) {
         var ms = mainSigs[mi];
         var mk = ms.name + '/' + ms.arity;
+        if (seenInFile[mk]) {
+          issues.push({
+            line: ms.line,
+            text: ms.name + '(' + ms.arity + ' param' + (ms.arity === 1 ? '' : 's') + ') duplicated earlier in the same file at line ' + seenInFile[mk].line,
+          });
+        } else {
+          seenInFile[mk] = ms;
+        }
         if (companionIndex[mk]) {
           issues.push({
             line: ms.line,
@@ -1597,7 +1605,7 @@ var RULES = [
       var stripped = code
         .replace(/\/\*[\s\S]*?\*\//g, '')
         .replace(/\/\/[^\n]*/g, '');
-      var exempt = ['Update', 'Start', 'Awake', 'CheckEventRules'];
+      var exempt = ['Update', 'Start', 'Awake', 'CheckEventRules', 'BuildEntityStatesJson'];
       var sigRe = /\b(?:public|private|protected|internal)?\s*(?:static\s+)?(?:void|IEnumerator|bool|int|float|string|GameObject|Vector[23]|Color|Transform)\s+(\w+)\s*\([^)]*\)\s*\{/g;
       var m;
       while ((m = sigRe.exec(stripped)) !== null) {
@@ -1619,7 +1627,9 @@ var RULES = [
         if (isPurePhaseDispatcherBody(body)) continue;
         if (name === 'UpdateGameState' && isSkeletonUpdateGameStateBody(body)) continue;
         if (isSkeletonTryReportStuckPhaseBody(name, body)) continue;
-        var lineCount = body.split('\n').length;
+        var lineCount = body.split('\n').filter(function(line) {
+          return String(line || '').trim().length > 0;
+        }).length;
         if (lineCount > 45) {
           var lineNum = code.substring(0, m.index).split('\n').length;
           issues.push({ line: lineNum, text: name + '() body ' + lineCount + ' lines' });

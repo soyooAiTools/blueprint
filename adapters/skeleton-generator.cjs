@@ -277,7 +277,7 @@ function generateSkeleton(specs, opts = {}) {
 
   // 游戏状态变量（骨架强制）
   lines.push('    // [SKELETON] Phase tracking：记录当前 phase、已完成列表和终局锁。');
-  lines.push(`    const int RULE_COUNT = ${totalPhases + 2};`);
+  lines.push(`    const int RULE_COUNT = ${totalPhases};`);
   lines.push('    bool[] ruleTriggered;');
   lines.push('    string currentPhaseName = "init";');
   lines.push('    string[] completedPhases;');
@@ -422,7 +422,8 @@ function generateSkeleton(specs, opts = {}) {
     });
 
     var genericEnemyAliasTarget = pickGenericEnemyAliasTarget(entityNames);
-    if (genericEnemyAliasTarget && genericEnemyAliasTarget !== 'Enemy') {
+    var hasLiteralEnemyEntity = entityNames.indexOf('Enemy') >= 0;
+    if (genericEnemyAliasTarget && genericEnemyAliasTarget !== 'Enemy' && !hasLiteralEnemyEntity) {
       lines.push('    // 兼容仍调用 SpawnEnemy(count) 的旧模板，把它转发给本项目的主敌人单位。');
       lines.push('    void SpawnEnemy(int count)');
       lines.push('    {');
@@ -563,9 +564,13 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        int before = GFM_EconomyManager.Instance.GetResource(id);');
     lines.push('        GFM_EconomyManager.Instance.AddResource(id, amount);');
     lines.push('        int after = GFM_EconomyManager.Instance.GetResource(id);');
-    lines.push('        // 只有正向增加确实改变余额时才记录 evidence。');
+    lines.push('        // 资源增加/减少都要写入 phase evidence，供 runtime-contract 精确判定。');
     lines.push('        if (amount > 0 && after > before) {');
     lines.push('            RecordPhaseEvidenceDelta(currentPhaseName, "resource_incremented", before, after);');
+    lines.push('            RecordPhaseEvidenceFlag(currentPhaseName, "score_text_changed");');
+    lines.push('        }');
+    lines.push('        else if (amount < 0 && after < before) {');
+    lines.push('            RecordPhaseEvidenceDelta(currentPhaseName, "resource_decremented", before, after);');
     lines.push('            RecordPhaseEvidenceFlag(currentPhaseName, "score_text_changed");');
     lines.push('        }');
     lines.push('    }');
@@ -678,8 +683,11 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    bool IsNear(GameObject target, float range)');
     lines.push('    {');
     lines.push('        if (player == null || target == null) return false;');
-    lines.push('        float dx = player.transform.position.x - target.transform.position.x;');
-    lines.push('        float dz = player.transform.position.z - target.transform.position.z;');
+    lines.push('        Vector3 playerPos = player.transform.position;');
+    lines.push('        Vector3 targetPos = target.transform.position;');
+    lines.push('        if (targetPos.y < -900f) return false;');
+    lines.push('        float dx = playerPos.x - targetPos.x;');
+    lines.push('        float dz = playerPos.z - targetPos.z;');
     lines.push('        return (dx * dx + dz * dz) < (range * range);');
     lines.push('    }');
     lines.push('');
@@ -1101,7 +1109,6 @@ function generateSkeleton(specs, opts = {}) {
         lines.push('');
       }
 
-      lines.push('            CompletePhaseProgress("gameStart");');
       lines.push('        }');
     } else {
       // 后续规则：需要上一 phase 满足真实条件，并且达到最短停留时间。
@@ -1150,12 +1157,13 @@ function generateSkeleton(specs, opts = {}) {
   // [SKELETON 2026-04-20] 统一终局 gate：不允许 autoPlay 绕过，也不允许批量 State=2。
   // 最后一个 phase 的实体必须真实推进，才触发 gameEnd。
   lines.push(`        // [SKELETON] 终局 gate，请勿修改或删除`);
-  lines.push(`        if (!ruleTriggered[${specs.length}]`);
+  lines.push('        if (!gameEnded');
   lines.push(`            && currentPhaseName == "${lastSpec.phaseId}"`);
   lines.push(`            && (${endRealCondition})`);
   lines.push(`            && phaseTimer >= (_autoPlayMode ? 12f : ${lastSpec.duration.min}f))`);
   lines.push('        {');
-  lines.push(`            EnterPhase(${specs.length}, "gameEnd", false, false);`);
+  lines.push('            currentPhaseName = "gameEnd";');
+  lines.push('            cameraFocusTarget = "gameEnd";');
   lines.push('');
   lines.push(`            FinishGame("${lastSpec.phaseId}");`);
   lines.push('        }');
@@ -1555,7 +1563,7 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
     const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
     const ruleIndex = i + 1;
     lines.push('            case "' + pid + '":');
-    lines.push('                if (!ruleTriggered[' + ruleIndex + '])');
+    lines.push(i === specs.length - 1 ? '                if (!gameEnded)' : '                if (!ruleTriggered[' + ruleIndex + '])');
     lines.push('                {');
     lines.push('                    UnityEngine.Debug.Log("__PHASE_STUCK__:' + pid + ':phaseTimer=" + phaseTimer + ":autoPlay=" + (_autoPlayMode ? "1" : "0"));');
     lines.push('                    phaseTimer = 60f;');

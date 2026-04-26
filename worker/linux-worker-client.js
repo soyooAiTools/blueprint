@@ -473,22 +473,38 @@ class TaskCancelledError extends Error {
   }
 }
 
+// Thrown when this worker is still executing a task that has already been
+// re-claimed by another worker. The correct response is to stop this local
+// pipeline without reporting failure or saving a stale checkpoint.
+class TaskOwnershipLostError extends Error {
+  constructor(taskId, assignedTo, serverStatus) {
+    super('Task ' + taskId + ' ownership lost to ' + assignedTo + ' (status=' + serverStatus + ')');
+    this.name = 'TaskOwnershipLostError';
+    this.taskId = taskId;
+    this.assignedTo = assignedTo;
+    this.serverStatus = serverStatus;
+  }
+}
+
 // Probe server-side task status. Used between stages to detect manual
 // cancellation; if the task is cancelled (or missing), we throw and the
 // pipeline unwinds cleanly instead of burning more stages (and tokens).
 // Returns the task status string on success; treats network errors as
 // non-cancellation so a transient blueprint-editor hiccup doesn't kill
 // in-progress work.
-async function checkTaskCancelled(taskId) {
+async function checkTaskStillOwned(taskId) {
   try {
     var info = await apiRequest('GET', '/api/tasks/' + taskId + '/status');
     if (!info || !info.status) return null;
     if (info.status === 'cancelled') {
       throw new TaskCancelledError(taskId, info.status);
     }
+    if (info.assignedTo && info.assignedTo !== WORKER_ID) {
+      throw new TaskOwnershipLostError(taskId, info.assignedTo, info.status);
+    }
     return info.status;
   } catch (e) {
-    if (e instanceof TaskCancelledError) throw e;
+    if (e instanceof TaskCancelledError || e instanceof TaskOwnershipLostError) throw e;
     // Network/parse error — swallow. Better to keep running than to abort on
     // a transient server hiccup.
     return null;
@@ -747,14 +763,17 @@ async function processTask(task) {
       }
     };
 
-    // Cancellation poller — every 30s, check server-side task status.
-    // If cancelled, set ctx._cancelled so pipeline unwinds at the next stage
-    // boundary. Transient network errors are swallowed inside checkTaskCancelled.
+    // Cancellation/ownership poller — every 30s, check server-side task status.
+    // If cancelled or re-claimed by another worker, set ctx._cancelled so the
+    // pipeline unwinds at the next stage boundary. Transient network errors are
+    // swallowed inside checkTaskStillOwned.
     var cancelPollHandle = setInterval(function() {
-      checkTaskCancelled(taskId).catch(function(e) {
-        if (e && e.name === 'TaskCancelledError') {
+      checkTaskStillOwned(taskId).catch(function(e) {
+        if (e && (e.name === 'TaskCancelledError' || e.name === 'TaskOwnershipLostError')) {
           ctx._cancelled = true;
-          log('[cancel] Server reports task cancelled — pipeline will unwind', taskId);
+          ctx._cancelledErrorName = e.name;
+          ctx._cancelledMessage = e.message;
+          log('[' + (e.name === 'TaskOwnershipLostError' ? 'owner' : 'cancel') + '] ' + e.message + ' — pipeline will unwind', taskId);
         }
       });
     }, 30000);
@@ -787,6 +806,10 @@ async function processTask(task) {
     if (e && e.name === 'TaskCancelledError') {
       log('Task cancelled server-side — exiting cleanly', taskId);
       try { clearCheckpoint(taskId); } catch(_) {}
+      return;
+    }
+    if (e && e.name === 'TaskOwnershipLostError') {
+      log('Task ownership lost — stopping stale worker without reporting failure', taskId);
       return;
     }
 
@@ -1003,5 +1026,10 @@ var heartbeatTimer = setInterval(() => {
     currentTask: currentTaskId,
     activeTasks: activeTasks.size,
     uptime: Math.floor((Date.now() - WORKER_START_TIME) / 1000),
-  })).catch(() => {});
+  })).then(function(result) {
+    if (result && result.lostOwnership) {
+      log('[owner] Lost ownership of ' + result.taskId + ' to ' + result.assignedTo + ' — stopping stale worker');
+      gracefulShutdown('OWNERSHIP_LOST');
+    }
+  }).catch(() => {});
 }, HEARTBEAT_INTERVAL);

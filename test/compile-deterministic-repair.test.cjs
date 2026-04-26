@@ -335,4 +335,62 @@ const compileStage = require('../engine/stages/compile.cjs');
   assert.ok(!Object.prototype.hasOwnProperty.call(repaired.extraFiles, 'GFM_Tools.cs'));
 }
 
+{
+  const repaired = compileStage._applyDeterministicBuildRepairs(
+    [
+      'using UnityEngine;',
+      'public partial class GameFlowManagerMain : MonoBehaviour',
+      '{',
+      '    GameObject Enemy;',
+      '    GameObject EnemySpawner;',
+      '    int EnemyState = 0;',
+      '    int EnemySpawnerState = 0;',
+      '    void SpawnBoundEntity(GameObject entity, ref int entityState, int count) { }',
+      '    void SpawnEnemy(int count) { SpawnBoundEntity(Enemy, ref EnemyState, count); }',
+      '    void SpawnEnemySpawner(int count) { SpawnBoundEntity(EnemySpawner, ref EnemySpawnerState, count); }',
+      '    void SpawnEnemy(int count)',
+      '    {',
+      '        SpawnEnemySpawner(count);',
+      '    }',
+      '}',
+    ].join('\n'),
+    {},
+    { entities: [] }
+  );
+
+  assert.strictEqual(repaired.changed, true);
+  assert.ok(repaired.fixes.includes('DuplicateMethods x1'));
+  assert.strictEqual((repaired.code.match(/void SpawnEnemy\s*\(int count\)/g) || []).length, 1);
+  assert.ok(repaired.code.includes('// stripped duplicate method definition: SpawnEnemy'));
+}
+
+{
+  const repaired = compileStage._applyDeterministicBuildRepairs(
+    [
+      'using UnityEngine;',
+      'public partial class GameFlowManagerMain : MonoBehaviour',
+      '{',
+      '    string currentPhaseName = "unlockNewRoom";',
+      '    void RecordPhaseEvidenceDelta(string phase, string signal, int before, int after) { }',
+      '    void RecordPhaseEvidenceFlag(string phase, string signal) { }',
+      '    void AddResource(string id, int amount) {',
+      '        int before = 10;',
+      '        int after = before + amount;',
+      '        if (amount > 0 && after > before) {',
+      '            RecordPhaseEvidenceDelta(currentPhaseName, "resource_incremented", before, after);',
+      '            RecordPhaseEvidenceFlag(currentPhaseName, "score_text_changed");',
+      '        }',
+      '    }',
+      '}',
+    ].join('\n'),
+    {},
+    { entities: [] }
+  );
+
+  assert.strictEqual(repaired.changed, true);
+  assert.ok(repaired.fixes.includes('NegativeResourceEvidence x1'));
+  assert.ok(repaired.code.includes('else if (amount < 0 && after < before)'));
+  assert.ok(repaired.code.includes('RecordPhaseEvidenceDelta(currentPhaseName, "resource_decremented", before, after);'));
+}
+
 console.log('compile deterministic repair tests passed');

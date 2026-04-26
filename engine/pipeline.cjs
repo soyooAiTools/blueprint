@@ -211,8 +211,8 @@ Pipeline.prototype.run = function(ctx, onProgress) {
           skippedStages: ctx._skippedStages || [],
         });
       } catch(e) {}
-      var cancelErr = new Error('Task ' + ctx.taskId + ' cancelled server-side');
-      cancelErr.name = 'TaskCancelledError';
+      var cancelErr = new Error(ctx._cancelledMessage || ('Task ' + ctx.taskId + ' cancelled server-side'));
+      cancelErr.name = ctx._cancelledErrorName || 'TaskCancelledError';
       return Promise.reject(cancelErr);
     }
     if (stageIndex >= self.stages.length) {

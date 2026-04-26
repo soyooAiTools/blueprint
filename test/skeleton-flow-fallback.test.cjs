@@ -66,6 +66,7 @@ assert.match(flow, /TrySpend\(GFM_ResourceIds\.Gold, 1\);/);
 assert.match(flow, /RecordPhaseEvidenceDistance\("collectRocketDebris", "distance_to_target_below_threshold", 0\.5f\);/);
 assert.match(flow, /RecordPhaseEvidenceFlag\("buildDefenseTower", "entity_state_equals_built"\);/);
 assert.match(resource, /RecordPhaseEvidenceDelta\(currentPhaseName, "resource_decremented"/);
+assert.match(resource, /amount < 0 && after < before/);
 assert.match(ui, /BuildPhaseEvidenceJson\(\)/);
 assert.match(flow, /OurBaseDone = true;/);
 assert.match(flow, /GoldDone = true;/);
@@ -74,5 +75,15 @@ assert.match(flow, /UpdateGameState\(\);/);
 const tapBody = flow.match(/void Phase_upgradeOurBase_OnTap\(\)[\s\S]*?TODO_PHASE_upgradeOurBase_ONTAP_END/);
 assert.ok(tapBody, 'tap handler should exist');
 assert.doesNotMatch(tapBody[0], /ShouldRunAutoPlayFallback|SKELETON FALLBACK/);
+
+const enemyAliasSkeleton = generateSkeleton([
+  spec('enemyPhase', 'Enemy Phase', ['Enemy', 'EnemySpawner'], ['click:EnemySpawner'], true, 3, 6),
+], {
+  entityPoolMap: { Enemy: '__Pool_Enemy', EnemySpawner: '__Pool_EnemySpawner' },
+  entities: [{ name: 'Enemy' }, { name: 'EnemySpawner' }],
+});
+const enemyAliasMain = typeof enemyAliasSkeleton === 'string' ? enemyAliasSkeleton : enemyAliasSkeleton.main;
+const spawnEnemyMatches = enemyAliasMain.match(/void SpawnEnemy\s*\(int count\)/g) || [];
+assert.strictEqual(spawnEnemyMatches.length, 1, 'literal Enemy entity must not get a second generic SpawnEnemy alias');
 
 console.log('skeleton flow fallback tests passed');

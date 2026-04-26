@@ -2,6 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
 const reviewStage = require('../engine/stages/review.cjs');
+const { staticCheckProject } = require('../engine/static-check.cjs');
 
 const reviewFile = '/opt/blueprint-editor/engine/stages/review.cjs';
 const source = fs.readFileSync(reviewFile, 'utf8');
@@ -150,7 +151,42 @@ vm.runInContext([
   ].join('\n');
   const result = reviewStage.addMissingSkeletonMemberComments(source);
   assert.strictEqual(result.changed, true);
-  assert.match(result.code, /int _currentFormIndex = 0; \/\/ 当前玩家形态索引/);
+  assert.match(result.code, /\/\/ 玩家形态：记录可切换形态配置和当前形态索引。\n    int _currentFormIndex = 0;/);
+}
+
+{
+  const source = [
+    'using UnityEngine;',
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    GameObject WaterResource;',
+    '    bool WaterResourceDone = false;',
+    '    void Update()',
+    '    {',
+    '    }',
+    '}',
+  ].join('\n');
+  const result = reviewStage.addMissingSkeletonMemberComments(source);
+  assert.strictEqual(result.changed, true);
+  const checked = staticCheckProject(result.code, { extraFiles: {} });
+  assert.ok(!checked.issues.some(i => i.rule === 'require-member-doc'), 'member docs should satisfy static check');
+}
+
+{
+  const result = reviewStage.declareMissingInteractionFlags([
+    'using UnityEngine;',
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    void Update()',
+    '    {',
+    '        WaterResourceDone = true;',
+    '        if (GoldUIDone) { }',
+    '    }',
+    '}',
+  ].join('\n'), {});
+  assert.strictEqual(result.changed, true);
+  assert.match(result.code, /bool GoldUIDone = false; \/\/ 交互标记/);
+  assert.match(result.code, /bool WaterResourceDone = false; \/\/ 交互标记/);
 }
 
 {
@@ -452,6 +488,87 @@ vm.runInContext([
   const normalized = reviewStage.normalizePhaseGateConditionalDeclarations(broken);
   assert.strictEqual(normalized.changed, true);
   assert.match(normalized.code, /if \(Gold != null\)\s*\{\s*var __gateMovePos_recycleDebrisGetGold_Gold = Gold\.transform\.position;[\s\S]*Gold\.transform\.position = __gateMovePos_recycleDebrisGetGold_Gold;\s*\}/);
+}
+
+{
+  const code = [
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    const int RULE_COUNT = 13;',
+    '    void CheckEventRules()',
+    '    {',
+    '        if (!ruleTriggered[11]',
+    '            && currentPhaseName == "phase11")',
+    '        {',
+    '            EnterPhase(11, "gameEnd", false, false);',
+    '            CompletePhaseProgress("gameStart");',
+    '            ReportPhase("gameEnd");',
+    '            FinishGame("phase11");',
+    '        }',
+    '    }',
+    '}',
+  ].join('\n');
+  const result = reviewStage.normalizeRuntimePhaseContract(code, {
+    specs: Array.from({ length: 11 }, (_, i) => ({ phaseId: 'phase' + (i + 1) })),
+  });
+  assert.strictEqual(result.changed, true);
+  assert.match(result.code, /const int RULE_COUNT = 11;/);
+  assert.match(result.code, /if \(!gameEnded\s+&& currentPhaseName == "phase11"\)/);
+  assert.match(result.code, /currentPhaseName = "gameEnd";/);
+  assert.match(result.code, /cameraFocusTarget = "gameEnd";/);
+  assert.doesNotMatch(result.code, /CompletePhaseProgress\("gameStart"\)/);
+  assert.doesNotMatch(result.code, /ReportPhase\("gameEnd"\)/);
+  assert.doesNotMatch(result.code, /EnterPhase\(11, "gameEnd"/);
+}
+
+{
+  const code = [
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    void Update()',
+    '    {',
+    '        UpdateGameState();',
+    '    }',
+    '    void AssemblyRunFlowSlots() {}',
+    '    void AssemblyRunInputSlots() {}',
+    '    void AssemblyRunResourceSlots() {}',
+    '    void AssemblyRunUISlots() {}',
+    '    void AssemblyRunSceneSlots() {}',
+    '}',
+  ].join('\n');
+  const result = reviewStage.ensureAssemblySlotRunnerCalls(code);
+  assert.strictEqual(result.changed, true);
+  assert.match(result.code, /AssemblyRunFlowSlots\(\);\n\s*AssemblyRunInputSlots\(\);\n\s*AssemblyRunResourceSlots\(\);\n\s*AssemblyRunUISlots\(\);\n\s*AssemblyRunSceneSlots\(\);\n\s*UpdateGameState\(\);/);
+}
+
+{
+  const main = [
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    void Update()',
+    '    {',
+    '        UpdateInput();',
+    '        UpdateGameState();',
+    '    }',
+    '}',
+  ].join('\n');
+  const extras = {
+    'GameFlowManagerMain.Flow.cs': [
+      'public partial class GameFlowManagerMain',
+      '{',
+      '    void AssemblyRunFlowSlots() {}',
+      '}',
+    ].join('\n'),
+    'GameFlowManagerMain.Resource.cs': [
+      'public partial class GameFlowManagerMain',
+      '{',
+      '    void AssemblyRunResourceSlots() {}',
+      '}',
+    ].join('\n'),
+  };
+  const result = reviewStage.ensureAssemblySlotRunnerCallsAcrossPartials(main, extras);
+  assert.strictEqual(result.changed, true);
+  assert.match(result.code, /UpdateInput\(\);\n\s*AssemblyRunFlowSlots\(\);\n\s*AssemblyRunResourceSlots\(\);\n\s*UpdateGameState\(\);/);
 }
 
 console.log('review deterministic repair tests passed');

@@ -165,6 +165,152 @@ function normalizeFinishGameTerminalFlow(code) {
   return { code: fixed, changed: fixes > 0, fixes: fixes };
 }
 
+function getExpectedPhaseCount(blueprint) {
+  if (blueprint && Array.isArray(blueprint.specs) && blueprint.specs.length > 0) {
+    return blueprint.specs.length;
+  }
+  var ids = assemblyPlanContracts.collectExpectedPhaseIds(blueprint || {});
+  return ids.length;
+}
+
+function normalizeRuntimePhaseContract(code, blueprint) {
+  if (!code) return { code: code, changed: false, fixes: 0 };
+  var fixed = code;
+  var fixes = 0;
+  var expectedCount = getExpectedPhaseCount(blueprint);
+
+  if (expectedCount > 0) {
+    fixed = fixed.replace(/\bconst\s+int\s+RULE_COUNT\s*=\s*\d+\s*;/g, function(match) {
+      var replacement = 'const int RULE_COUNT = ' + expectedCount + ';';
+      if (match === replacement) return match;
+      fixes++;
+      return replacement;
+    });
+    var finalRuleRe = new RegExp('!ruleTriggered\\s*\\[\\s*' + expectedCount + '\\s*\\]', 'g');
+    fixed = fixed.replace(finalRuleRe, function() {
+      fixes++;
+      return '!gameEnded';
+    });
+  }
+
+  fixed = fixed.replace(/^\s*(?:CompletePhaseProgress|AddCompletedPhase|ReportPhase)\s*\(\s*"(?:gameStart|gameEnd)"\s*\)\s*;\s*$/gm, function() {
+    fixes++;
+    return '';
+  });
+  fixed = fixed.replace(/^(\s*)EnterPhase\s*\(\s*\d+\s*,\s*"gameEnd"\s*,\s*false\s*,\s*false\s*\)\s*;\s*$/gm, function(_match, indent) {
+    fixes++;
+    return indent + 'currentPhaseName = "gameEnd";\n' + indent + 'cameraFocusTarget = "gameEnd";';
+  });
+
+  return { code: fixed, changed: fixes > 0, fixes: fixes };
+}
+
+function ensureAssemblySlotRunnerCalls(code) {
+  if (!code || code.indexOf('AssemblyRun') < 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+  var runnerNames = ['Flow', 'Input', 'Resource', 'UI', 'Scene'];
+  var missingCalls = [];
+  for (var i = 0; i < runnerNames.length; i++) {
+    var call = 'AssemblyRun' + runnerNames[i] + 'Slots();';
+    var declRe = new RegExp('\\bvoid\\s+AssemblyRun' + runnerNames[i] + 'Slots\\s*\\(');
+    if (declRe.test(code) && code.indexOf(call) < 0) missingCalls.push(call);
+  }
+  if (missingCalls.length === 0) return { code: code, changed: false, fixes: 0 };
+
+  var block = missingCalls.map(function(call) { return '        ' + call; }).join('\n');
+  var marker = '// TODO_CUSTOM_START';
+  var markerIdx = code.indexOf(marker);
+  if (markerIdx >= 0) {
+    var insertAt = markerIdx + marker.length;
+    return {
+      code: code.slice(0, insertAt) + '\n' + block + code.slice(insertAt),
+      changed: true,
+      fixes: missingCalls.length,
+    };
+  }
+
+  var updateMatch = /\bvoid\s+Update\s*\(\s*\)\s*\{/.exec(code);
+  if (!updateMatch) return { code: code, changed: false, fixes: 0 };
+  var start = updateMatch.index + updateMatch[0].length;
+  var depth = 1;
+  var end = start;
+  while (end < code.length && depth > 0) {
+    var ch = code[end];
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) break;
+    }
+    end++;
+  }
+  if (depth !== 0) return { code: code, changed: false, fixes: 0 };
+  var body = code.substring(start, end);
+  var anchor = body.lastIndexOf('UpdateGameState();');
+  var insert = anchor >= 0 ? start + anchor : end;
+  return {
+    code: code.slice(0, insert) + block + '\n' + code.slice(insert),
+    changed: true,
+    fixes: missingCalls.length,
+  };
+}
+
+function findMethodBodyRange(code, methodName) {
+  var re = new RegExp('\\bvoid\\s+' + methodName + '\\s*\\([^)]*\\)\\s*\\{');
+  var m = re.exec(code || '');
+  if (!m) return null;
+  var start = m.index;
+  var bodyStart = m.index + m[0].length;
+  var depth = 1;
+  var end = bodyStart;
+  while (end < code.length && depth > 0) {
+    var ch = code[end];
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) break;
+    }
+    end++;
+  }
+  if (depth !== 0) return null;
+  return {
+    start: start,
+    bodyStart: bodyStart,
+    end: end,
+    body: code.substring(bodyStart, end),
+  };
+}
+
+function ensureAssemblySlotRunnerCallsAcrossPartials(mainCode, extraFiles) {
+  if (!mainCode || mainCode.indexOf('Update') < 0) {
+    return { code: mainCode, changed: false, fixes: 0 };
+  }
+  var runnerNames = ['Flow', 'Input', 'Resource', 'UI', 'Scene'];
+  var allCode = String(mainCode);
+  var extras = extraFiles || {};
+  Object.keys(extras).forEach(function(name) { allCode += '\n' + String(extras[name] || ''); });
+  if (allCode.indexOf('AssemblyRun') < 0) return { code: mainCode, changed: false, fixes: 0 };
+
+  var updateRange = findMethodBodyRange(mainCode, 'Update');
+  if (!updateRange) return { code: mainCode, changed: false, fixes: 0 };
+  var missingCalls = [];
+  for (var i = 0; i < runnerNames.length; i++) {
+    var call = 'AssemblyRun' + runnerNames[i] + 'Slots();';
+    var declRe = new RegExp('\\bvoid\\s+AssemblyRun' + runnerNames[i] + 'Slots\\s*\\(');
+    if (declRe.test(allCode) && updateRange.body.indexOf(call) < 0) missingCalls.push(call);
+  }
+  if (missingCalls.length === 0) return { code: mainCode, changed: false, fixes: 0 };
+
+  var block = missingCalls.map(function(call) { return '        ' + call; }).join('\n') + '\n';
+  var anchor = updateRange.body.lastIndexOf('UpdateGameState();');
+  var insertAt = anchor >= 0 ? updateRange.bodyStart + anchor : updateRange.end;
+  return {
+    code: mainCode.slice(0, insertAt) + block + mainCode.slice(insertAt),
+    changed: true,
+    fixes: missingCalls.length,
+  };
+}
+
 function rewriteHotPathVectorAllocations(code) {
   if (!code || code.indexOf('new Vector3') < 0) {
     return { code: code, changed: false, fixes: 0 };
@@ -1411,17 +1557,164 @@ function addMissingSkeletonMemberComments(code) {
   if (!code || code.indexOf('GameFlowManagerMain') < 0) {
     return { code: code, changed: false, fixes: 0 };
   }
+  var lines = String(code).split('\n');
+  var sanitized = String(code)
+    .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+    .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
+    .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
+  var sanitizedLines = sanitized.split('\n');
+  var out = [];
   var fixes = 0;
-  var next = String(code).replace(/^(\s*int\s+_currentFormIndex\s*=\s*0\s*;)\s*$/gm, function(_match, decl) {
-    fixes++;
-    return decl + ' // 当前玩家形态索引';
+  var depth = 0;
+
+  function docForMember(sTrimmed) {
+    if (/^int\s+\w+State\s*=/.test(sTrimmed)) return '实体状态：记录对象在当前 phase 中的可观察进度。';
+    if (/^bool\s+\w+(?:InteractionDone|PlayerActed|Done)\s*=/.test(sTrimmed)) return '交互标记：记录玩家或自动流程已经完成对应阶段动作。';
+    if (/^(?:GFM_Joystick\s+joystick|float\s+moveSpeed\b)/.test(sTrimmed)) return '玩家移动：控制输入与移动速度配置。';
+    if (/^GameObject\s+player\s*;/.test(sTrimmed)) return '玩家移动：主角对象引用，供交互、距离判断与相机跟随使用。';
+    if (/^GameObject\s+\w+\s*;/.test(sTrimmed)) return '对象引用：绑定场景实体，供阶段 gate、交互和展示逻辑使用。';
+    if (/^void\s+Spawn\w+\s*\(/.test(sTrimmed)) return 'Spawn 兼容：保留旧生成入口，转接到当前实体创建流程。';
+    if (/^(?:Vector3\s+tapMoveTarget|bool\s+hasTapTarget)\b/.test(sTrimmed)) return '点击移动目标：保存本帧输入转换出的移动目的地。';
+    if (/^void\s+UpdateCarryVisuals\s*\(/.test(sTrimmed)) return '背包堆叠：根据资源数量刷新玩家携带物表现。';
+    if (/^int\s+gold\s*=/.test(sTrimmed)) return '金币 UI：记录当前展示和经济流程共用的金币数。';
+    if (/^Vector3\s+_snap_\w+Pos\s*;/.test(sTrimmed)) return 'Phase 快照：进入阶段时记录 gate 实体位置，用于判断真实推进。';
+    if (/^(?:FormDef\[\]\s+_forms|int\s+_currentFormIndex\b)/.test(sTrimmed)) return '玩家形态：记录可切换形态配置和当前形态索引。';
+    if (/^(?:float\s+phaseTimer|string\s+lastPhaseForTimer|float\[\]\s+phaseEnterTimes)\b/.test(sTrimmed)) return 'Phase 计时：跟踪阶段停留时间和进入时间。';
+    if (/^(?:Camera|Canvas|Text|float|string)\s+(?:mainCam|uiCanvas|guideText|scoreText|floatingText|floatingTextTimer|_currentGuideText|cameraFocusTarget)\b/.test(sTrimmed)) return 'Camera/UI：缓存相机与界面状态，驱动引导文字和视角。';
+    if (/^(?:const\s+int\s+RULE_COUNT|bool\[\]\s+ruleTriggered|string\s+currentPhaseName|string\[\]\s+completedPhases|int\s+completedPhaseCount|float\s+gameTimer|bool\s+gameEnded)\b/.test(sTrimmed)) return '阶段跟踪：维护当前 phase、完成列表和终局锁。';
+    if (/^(?:bool\s+_autoPlayMode|int\s+_autoPlaySteps|int\s+_autoPlayStepsAtPhaseStart|const\s+float\s+AUTO_PLAY_PHASE_DURATION)\b/.test(sTrimmed)) return 'AutoPlay：记录自动试玩模式的推进节奏。';
+    if (/^(?:string\[\]\s+_phaseEvidenceKeys|string\[\]\s+_phaseEvidenceValues|int\s+_phaseEvidenceCount)\b/.test(sTrimmed)) return '运行时证据：导出 phase-scoped evidence，供 runtime-contract 判定。';
+    if (/^(?:public|private|protected|internal)?\s*(?:static\s+)?(?:readonly\s+)?(?:const\s+)?(?:bool|int|float|string|GameObject|Vector2|Vector3|Vector4|Color|Transform|Text|Canvas|Quaternion|Ray|Material|Image|Sprite|RectTransform|[\w<>]+\[\]?|[A-Z]\w*)\s+\w+\s*(?:=\s*[^;]+)?;\s*$/.test(sTrimmed)) {
+      return '运行时字段：保存生成玩法流程需要跨帧读取的状态。';
+    }
+    return '运行时成员：封装阶段流程、交互或可观察状态更新逻辑。';
+  }
+
+  function isMemberDeclaration(sTrimmed, rawTrimmed) {
+    if (/^(if|for|foreach|while|switch|catch|using|return|throw|else|do)\b/.test(sTrimmed)) return false;
+    var isDecl = false;
+    if (/^(?:public|private|protected|internal)?\s*(?:static\s+)?(?:readonly\s+)?(?:const\s+)?(?:override\s+)?(?:virtual\s+)?(?:partial\s+)?(?:void|IEnumerator|bool|int|float|string|GameObject|Vector2|Vector3|Vector4|Color|Transform|Text|Canvas|Quaternion|Ray|Material|Image|Sprite|RectTransform|[\w<>]+\[\]?|[A-Z]\w*)\s+\w+\s*\([^;]*\)\s*\{?\s*$/.test(sTrimmed)) {
+      isDecl = true;
+    } else if (/^(?:public|private|protected|internal)?\s*(?:static\s+)?(?:readonly\s+)?(?:const\s+)?(?:bool|int|float|string|GameObject|Vector2|Vector3|Vector4|Color|Transform|Text|Canvas|Quaternion|Ray|Material|Image|Sprite|RectTransform|[\w<>]+\[\]?|[A-Z]\w*)\s+\w+\s*(?:=\s*[^;]+)?;\s*$/.test(sTrimmed)) {
+      isDecl = true;
+    } else if (/^(?:public|private|protected|internal)?\s*(?:static\s+)?(?:bool|int|float|string|GameObject|Vector2|Vector3|Vector4|Color|Transform|Text|Canvas|Quaternion|Ray|Material|Image|Sprite|RectTransform|[\w<>]+\[\]?|[A-Z]\w*)\s+\w+\s*\{\s*get\b/.test(sTrimmed)) {
+      isDecl = true;
+    }
+    if (!isDecl) return false;
+    if (/\b(class|struct|enum|interface)\b/.test(sTrimmed)) return false;
+    if (/^\[/.test(rawTrimmed)) return false;
+    if (/^bool\s+__assemblyDone_/.test(sTrimmed)) return false;
+    if (/\bvoid\s+AssemblyRun[A-Za-z]+Slots\s*\(/.test(sTrimmed)) return false;
+    if (/^void\s+Spawn\w+\s*\(/.test(sTrimmed)) return false;
+    if (/^(?:float\s+_collectCooldown|string\s+_lastScoreText)\b/.test(sTrimmed)) return false;
+    if (/\bvoid\s+(?:AddGold|ShowFloatingText)\s*\(/.test(sTrimmed)) return false;
+    return true;
+  }
+
+  function hasInlineComment(raw) {
+    var inString = false;
+    for (var i = 0; i < raw.length - 1; i++) {
+      if (raw[i] === '"' && raw[i - 1] !== '\\') inString = !inString;
+      if (!inString && raw[i] === '/' && raw[i + 1] === '/') return raw.slice(0, i).trim().length > 0;
+    }
+    return false;
+  }
+
+  function hasPreviousDoc(lineIndex) {
+    var j = lineIndex - 1;
+    while (j >= 0 && String(lines[j] || '').trim() === '') j--;
+    if (j < 0) return false;
+    var prev = String(lines[j] || '').trim();
+    return prev.indexOf('///') === 0 ||
+      prev.indexOf('//') === 0 ||
+      prev.slice(-2) === '*/' ||
+      /^\[[\w,\s"=]+\]$/.test(prev);
+  }
+
+  for (var i = 0; i < lines.length; i++) {
+    var raw = lines[i];
+    var sline = sanitizedLines[i] || '';
+    var rawTrimmed = String(raw || '').trim();
+    var sTrimmed = String(sline || '').trim();
+    if (depth === 1 && isMemberDeclaration(sTrimmed, rawTrimmed) && !hasInlineComment(raw) && !hasPreviousDoc(i)) {
+      var indent = (raw.match(/^\s*/) || [''])[0];
+      out.push(indent + '// ' + docForMember(sTrimmed));
+      fixes++;
+    }
+    out.push(raw);
+    var opens = (sline.match(/\{/g) || []).length;
+    var closes = (sline.match(/\}/g) || []).length;
+    depth += opens - closes;
+    if (depth < 0) depth = 0;
+  }
+  return { code: fixes > 0 ? out.join('\n') : code, changed: fixes > 0, fixes: fixes };
+}
+
+function declareMissingInteractionFlags(mainCode, extraFiles) {
+  if (!mainCode || mainCode.indexOf('GameFlowManagerMain') < 0) {
+    return { code: mainCode, extraFiles: extraFiles || {}, changed: false, fixes: 0 };
+  }
+  var files = Object.assign({}, extraFiles || {});
+  var allCode = [String(mainCode)].concat(Object.keys(files).map(function(name) { return String(files[name] || ''); })).join('\n');
+  var scanCode = allCode
+    .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+    .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
+    .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
+  var declared = {};
+  var refs = {};
+  var declRe = /\bbool\s+([A-Za-z_][A-Za-z0-9_]*(?:InteractionDone|PlayerActed|Done))\b/g;
+  var m;
+  while ((m = declRe.exec(allCode)) !== null) declared[m[1]] = true;
+  var refRe = /\b([A-Za-z_][A-Za-z0-9_]*(?:InteractionDone|PlayerActed|Done))\b/g;
+  while ((m = refRe.exec(scanCode)) !== null) {
+    var name = m[1];
+    if (name.indexOf('__assemblyDone_') === 0) continue;
+    refs[name] = true;
+  }
+  var missing = Object.keys(refs).filter(function(name) { return !declared[name]; }).sort();
+  if (missing.length === 0) {
+    return { code: mainCode, extraFiles: files, changed: false, fixes: 0 };
+  }
+  var lines = String(mainCode).split('\n');
+  var insertAt = -1;
+  var depth = 0;
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    var opens = (line.match(/\{/g) || []).length;
+    var closes = (line.match(/\}/g) || []).length;
+    depth += opens - closes;
+    if (insertAt < 0 && depth === 1 && /\bGameFlowManagerMain\b/.test(lines[Math.max(0, i - 1)] || line)) {
+      insertAt = i + 1;
+      break;
+    }
+  }
+  if (insertAt < 0) {
+    for (var j = 0; j < lines.length; j++) {
+      if (lines[j].indexOf('{') >= 0) {
+        insertAt = j + 1;
+        break;
+      }
+    }
+  }
+  if (insertAt < 0) return { code: mainCode, extraFiles: files, changed: false, fixes: 0 };
+  var indent = '    ';
+  var insertLines = missing.map(function(name) {
+    return indent + 'bool ' + name + ' = false; // 交互标记：补齐被阶段逻辑引用的完成状态。';
   });
-  return { code: next, changed: fixes > 0, fixes: fixes };
+  lines.splice.apply(lines, [insertAt, 0].concat(insertLines));
+  return { code: lines.join('\n'), extraFiles: files, changed: true, fixes: missing.length };
 }
 
 function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
   var changed = false;
   var fixes = [];
+  var missingFlagFix = declareMissingInteractionFlags(mainCode, extraFiles);
+  if (missingFlagFix.changed) {
+    mainCode = missingFlagFix.code;
+    extraFiles = missingFlagFix.extraFiles;
+    changed = true;
+    fixes.push('main:MissingInteractionFlags x' + missingFlagFix.fixes);
+  }
   var mainStubFix = collapseLegacyCheckEventRulesStub(mainCode);
   if (mainStubFix.changed) {
     mainCode = mainStubFix.code;
@@ -1433,6 +1726,18 @@ function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
     mainCode = mainFix.code;
     changed = true;
     fixes.push('main:UpdateGameState x' + mainFix.fixes);
+  }
+  var mainPhaseContractFix = normalizeRuntimePhaseContract(mainCode, blueprint);
+  if (mainPhaseContractFix.changed) {
+    mainCode = mainPhaseContractFix.code;
+    changed = true;
+    fixes.push('main:RuntimePhaseContract x' + mainPhaseContractFix.fixes);
+  }
+  var mainAssemblyTickFix = ensureAssemblySlotRunnerCalls(mainCode);
+  if (mainAssemblyTickFix.changed) {
+    mainCode = mainAssemblyTickFix.code;
+    changed = true;
+    fixes.push('main:AssemblySlotRunnerTick x' + mainAssemblyTickFix.fixes);
   }
   var mainInitFix = stripInitMaterialFromScene(mainCode);
   if (mainInitFix.changed) {
@@ -1502,6 +1807,18 @@ function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
       changed = true;
       fixes.push(name + ':UpdateGameState x' + res.fixes);
     }
+    var phaseContractRes = normalizeRuntimePhaseContract(nextExtras[name], blueprint);
+    if (phaseContractRes.changed) {
+      nextExtras[name] = phaseContractRes.code;
+      changed = true;
+      fixes.push(name + ':RuntimePhaseContract x' + phaseContractRes.fixes);
+    }
+    var assemblyTickRes = ensureAssemblySlotRunnerCalls(nextExtras[name]);
+    if (assemblyTickRes.changed) {
+      nextExtras[name] = assemblyTickRes.code;
+      changed = true;
+      fixes.push(name + ':AssemblySlotRunnerTick x' + assemblyTickRes.fixes);
+    }
     var initRes = stripInitMaterialFromScene(nextExtras[name]);
     if (initRes.changed) {
       nextExtras[name] = initRes.code;
@@ -1563,6 +1880,24 @@ function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
     nextExtras = crossPhaseGateFix.extraFiles;
     changed = true;
     fixes.push('partials:PhaseGateRuntimeMove x' + crossPhaseGateFix.fixes);
+  }
+  var postCrossPhaseContractFix = normalizeRuntimePhaseContract(mainCode, blueprint);
+  if (postCrossPhaseContractFix.changed) {
+    mainCode = postCrossPhaseContractFix.code;
+    changed = true;
+    fixes.push('main:RuntimePhaseContractPost x' + postCrossPhaseContractFix.fixes);
+  }
+  var postCrossAssemblyTickFix = ensureAssemblySlotRunnerCalls(mainCode);
+  if (postCrossAssemblyTickFix.changed) {
+    mainCode = postCrossAssemblyTickFix.code;
+    changed = true;
+    fixes.push('main:AssemblySlotRunnerTickPost x' + postCrossAssemblyTickFix.fixes);
+  }
+  var crossPartialAssemblyTickFix = ensureAssemblySlotRunnerCallsAcrossPartials(mainCode, nextExtras);
+  if (crossPartialAssemblyTickFix.changed) {
+    mainCode = crossPartialAssemblyTickFix.code;
+    changed = true;
+    fixes.push('main:AssemblySlotRunnerTickCross x' + crossPartialAssemblyTickFix.fixes);
   }
   var postCrossMainNormalize = normalizePhaseGateConditionalDeclarations(mainCode);
   if (postCrossMainNormalize.changed) {
@@ -1715,6 +2050,10 @@ module.exports = {
   normalizePhaseGateConditionalDeclarations: normalizePhaseGateConditionalDeclarations,
   stripInteractionFlagShortcutsFromPhaseGates: stripInteractionFlagShortcutsFromPhaseGates,
   rewriteLongIfChainsAsSwitches: rewriteLongIfChainsAsSwitches,
+  normalizeRuntimePhaseContract: normalizeRuntimePhaseContract,
+  ensureAssemblySlotRunnerCalls: ensureAssemblySlotRunnerCalls,
+  ensureAssemblySlotRunnerCallsAcrossPartials: ensureAssemblySlotRunnerCallsAcrossPartials,
+  declareMissingInteractionFlags: declareMissingInteractionFlags,
   addMissingComplexBranchComments: addMissingComplexBranchComments,
   addMissingSkeletonMemberComments: addMissingSkeletonMemberComments,
   hasLegacyReviewerApiKey: hasLegacyReviewerApiKey,

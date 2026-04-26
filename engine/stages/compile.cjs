@@ -279,6 +279,125 @@ function refreshCanonicalGfmUi(code, extraFiles) {
   return { changed: fixes > 0, extraFiles: nextExtras, fixes: fixes };
 }
 
+function repairAddResourceNegativeEvidence(code) {
+  var text = String(code || '');
+  if (text.indexOf('void AddResource') < 0 || text.indexOf('amount < 0 && after < before') >= 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+  var re = /(if\s*\(\s*amount\s*>\s*0\s*&&\s*after\s*>\s*before\s*\)\s*\{\n\s*RecordPhaseEvidenceDelta\s*\(\s*currentPhaseName\s*,\s*"resource_incremented"\s*,\s*before\s*,\s*after\s*\);\n\s*RecordPhaseEvidenceFlag\s*\(\s*currentPhaseName\s*,\s*"score_text_changed"\s*\);\n\s*\})/;
+  if (!re.test(text)) return { code: code, changed: false, fixes: 0 };
+  var fixed = text.replace(re, '$1\n        else if (amount < 0 && after < before) {\n            RecordPhaseEvidenceDelta(currentPhaseName, "resource_decremented", before, after);\n            RecordPhaseEvidenceFlag(currentPhaseName, "score_text_changed");\n        }');
+  return { code: fixed, changed: fixed !== text, fixes: fixed !== text ? 1 : 0 };
+}
+
+function maskCommentsAndStrings(src) {
+  return String(src || '')
+    .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+    .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
+    .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
+}
+
+function splitTopLevelParams(params) {
+  var text = String(params || '').trim();
+  if (!text) return [];
+  var parts = [];
+  var depth = 0;
+  var start = 0;
+  for (var i = 0; i < text.length; i++) {
+    var ch = text[i];
+    if (ch === '<' || ch === '(' || ch === '[') depth++;
+    else if (ch === '>' || ch === ')' || ch === ']') depth = Math.max(0, depth - 1);
+    else if (ch === ',' && depth === 0) {
+      parts.push(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts.map(function(part) { return part.trim(); }).filter(Boolean);
+}
+
+function normalizeMethodParamTypes(params) {
+  return splitTopLevelParams(params).map(function(part) {
+    var clean = part
+      .replace(/=.*/g, '')
+      .replace(/\b(?:ref|out|in|params)\b/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!clean) return '';
+    var tokens = clean.split(/\s+/);
+    if (tokens.length > 1) tokens.pop();
+    return tokens.join(' ');
+  }).join(',');
+}
+
+function findMatchingBrace(masked, openIdx) {
+  var depth = 0;
+  for (var i = openIdx; i < masked.length; i++) {
+    var ch = masked[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function collectMethodRanges(src) {
+  var text = String(src || '');
+  var masked = maskCommentsAndStrings(text);
+  var ranges = [];
+  var ctrl = { if: 1, for: 1, foreach: 1, while: 1, switch: 1, using: 1, lock: 1, catch: 1 };
+  var sigRe = /\b(?:(?:public|private|protected|internal|static|virtual|override|sealed|async|partial|extern)\s+)*(?:void|bool|int|float|string|GameObject|Vector[234]?|Color|Transform|Text|Canvas|Rigidbody|Material|Image|Sprite|RectTransform|InventoryCompat|[A-Za-z_][A-Za-z0-9_<>,\[\].?]*)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*\{/g;
+  var m;
+  while ((m = sigRe.exec(masked)) !== null) {
+    var name = m[1];
+    if (ctrl[name]) continue;
+    var openIdx = masked.indexOf('{', sigRe.lastIndex - 1);
+    if (openIdx < 0) continue;
+    var closeIdx = findMatchingBrace(masked, openIdx);
+    if (closeIdx < 0) continue;
+    ranges.push({
+      name: name,
+      key: name + '/' + normalizeMethodParamTypes(m[2]),
+      start: m.index,
+      end: closeIdx + 1,
+    });
+    sigRe.lastIndex = closeIdx + 1;
+  }
+  return ranges;
+}
+
+function stripDuplicateMethodsInSource(code) {
+  var text = String(code || '');
+  var ranges = collectMethodRanges(text);
+  if (ranges.length < 2) return { code: code, changed: false, fixes: 0, names: [] };
+  var seen = {};
+  var duplicates = [];
+  for (var i = 0; i < ranges.length; i++) {
+    var range = ranges[i];
+    if (seen[range.key]) duplicates.push(range);
+    else seen[range.key] = range;
+  }
+  if (duplicates.length === 0) return { code: code, changed: false, fixes: 0, names: [] };
+  duplicates.sort(function(a, b) { return b.start - a.start; });
+  var fixed = text;
+  var names = [];
+  for (var d = 0; d < duplicates.length; d++) {
+    var dup = duplicates[d];
+    var lineStart = fixed.lastIndexOf('\n', dup.start - 1) + 1;
+    var indentMatch = /^\s*/.exec(fixed.slice(lineStart, dup.start));
+    var indent = indentMatch ? indentMatch[0] : '';
+    var replacement = indent + '// stripped duplicate method definition: ' + dup.name;
+    var end = dup.end;
+    if (fixed[end] === '\r' && fixed[end + 1] === '\n') end += 2;
+    else if (fixed[end] === '\n') end += 1;
+    fixed = fixed.slice(0, dup.start) + replacement + '\n' + fixed.slice(end);
+    names.push(dup.name);
+  }
+  return { code: fixed, changed: true, fixes: duplicates.length, names: names };
+}
+
 function applyDeterministicBuildRepairs(code, extraFiles, blueprint) {
   var methodCheck;
   try {
@@ -297,6 +416,32 @@ function applyDeterministicBuildRepairs(code, extraFiles, blueprint) {
     repairCtx.extraFiles = gfmUiRepair.extraFiles;
     fixes.push('CanonicalGfmUi x' + gfmUiRepair.fixes);
   }
+  var duplicateMainMethods = stripDuplicateMethodsInSource(repairCtx.csCode);
+  if (duplicateMainMethods.changed) {
+    repairCtx.csCode = duplicateMainMethods.code;
+    fixes.push('DuplicateMethods x' + duplicateMainMethods.fixes);
+  }
+  Object.keys(repairCtx.extraFiles || {}).forEach(function(name) {
+    if (!/^GameFlowManagerMain(?:\.|$)/.test(name)) return;
+    var methodRepair = stripDuplicateMethodsInSource(repairCtx.extraFiles[name]);
+    if (methodRepair.changed) {
+      repairCtx.extraFiles[name] = methodRepair.code;
+      fixes.push(name + ':DuplicateMethods x' + methodRepair.fixes);
+    }
+  });
+  var mainNegativeResourceRepair = repairAddResourceNegativeEvidence(repairCtx.csCode);
+  if (mainNegativeResourceRepair.changed) {
+    repairCtx.csCode = mainNegativeResourceRepair.code;
+    fixes.push('NegativeResourceEvidence x' + mainNegativeResourceRepair.fixes);
+  }
+  Object.keys(repairCtx.extraFiles || {}).forEach(function(name) {
+    if (!/^GameFlowManagerMain(?:\.|$)/.test(name)) return;
+    var negativeResourceRepair = repairAddResourceNegativeEvidence(repairCtx.extraFiles[name]);
+    if (negativeResourceRepair.changed) {
+      repairCtx.extraFiles[name] = negativeResourceRepair.code;
+      fixes.push(name + ':NegativeResourceEvidence x' + negativeResourceRepair.fixes);
+    }
+  });
   if (methodCheck.autoRepairDuplicateStateFields && methodCheck.autoRepairDuplicateStateFields(repairCtx)) {
     fixes.push('DuplicateStateFields');
   }
@@ -535,5 +680,7 @@ module.exports = {
   },
   _applyDeterministicBuildRepairs: applyDeterministicBuildRepairs,
   _stripDuplicateMoveSpeedMembers: stripDuplicateMoveSpeedMembers,
+  _stripDuplicateMethodsInSource: stripDuplicateMethodsInSource,
+  _repairAddResourceNegativeEvidence: repairAddResourceNegativeEvidence,
   _refreshCanonicalGfmUi: refreshCanonicalGfmUi,
 };

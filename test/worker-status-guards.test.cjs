@@ -14,6 +14,7 @@ function createCtx() {
   var tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bp-worker-status-'));
   var storedProject = null;
   var reportCalls = [];
+  var heartbeatCalls = [];
   var task = null;
 
   return {
@@ -22,6 +23,7 @@ function createCtx() {
     getProject: function() { return storedProject; },
     setTask: function(nextTask) { task = nextTask ? clone(nextTask) : null; },
     reportCalls: reportCalls,
+    heartbeatCalls: heartbeatCalls,
     handlers: workerApi.init({
       taskQueue: {
         get: function() { return task ? clone(task) : null; },
@@ -35,7 +37,15 @@ function createCtx() {
             status_message: data && data.message || null,
           };
         },
-        cancel: function() {}
+        cancel: function() {},
+        heartbeat: function(workerId, status, currentTask, uptime) {
+          heartbeatCalls.push({
+            workerId: workerId,
+            status: status,
+            currentTask: currentTask,
+            uptime: uptime,
+          });
+        }
       },
       config: {
         PORT: 3901,
@@ -109,6 +119,64 @@ function createCtx() {
   assert.strictEqual(harness2.reportCalls.length, 1, 'live worker report should update task queue');
   assert.strictEqual(harness2.getProject().status, 'processing', 'submitted project should move to processing');
   fs.rmSync(harness2.tmpRoot, { recursive: true, force: true });
+}
+
+{
+  var harnessCuaDone = createCtx();
+  harnessCuaDone.setProject({
+    id: 'proj_worker_guard_cua_done',
+    status: 'reviewing',
+    statusHistory: [],
+    updatedAt: new Date().toISOString()
+  });
+  harnessCuaDone.setTask({
+    id: 'proj_worker_guard_cua_done',
+    status: 'cua_passed',
+    assigned_to: null,
+    status_message: '[Linux] CUA passed'
+  });
+
+  var resCuaDone = {};
+  harnessCuaDone.handlers.workerStatus({}, resCuaDone, JSON.stringify({
+    workerId: 'linux-worker-2',
+    taskId: 'proj_worker_guard_cua_done',
+    status: 'done',
+    message: '[Linux] Build complete. Preview: https://playcools.top/webgl/proj_worker_guard_cua_done/index.html',
+    previewUrl: 'https://playcools.top/webgl/proj_worker_guard_cua_done/index.html'
+  }), {});
+
+  assert.strictEqual(resCuaDone.statusCode, 200, 'cua_passed -> done report should succeed');
+  assert.ok(!resCuaDone.payload.dropped, 'cua_passed -> done report should not be dropped');
+  assert.strictEqual(harnessCuaDone.reportCalls.length, 1, 'cua_passed -> done should update task queue');
+  assert.strictEqual(harnessCuaDone.reportCalls[0].status, 'done');
+  assert.strictEqual(harnessCuaDone.reportCalls[0].data.previewUrl, 'https://playcools.top/webgl/proj_worker_guard_cua_done/index.html');
+  fs.rmSync(harnessCuaDone.tmpRoot, { recursive: true, force: true });
+}
+
+{
+  var harnessHeartbeat = createCtx();
+  harnessHeartbeat.setTask({
+    id: 'proj_worker_guard_owner',
+    status: 'processing',
+    assigned_to: 'linux-worker-2',
+    status_message: null
+  });
+
+  var resHeartbeat = {};
+  harnessHeartbeat.handlers.workerHeartbeat({}, resHeartbeat, JSON.stringify({
+    workerId: 'linux-worker-1',
+    status: 'busy',
+    currentTask: 'proj_worker_guard_owner',
+    uptime: 300,
+  }), {});
+
+  assert.strictEqual(resHeartbeat.statusCode, 200, 'ownership conflict heartbeat should be acknowledged');
+  assert.strictEqual(resHeartbeat.payload.lostOwnership, true, 'heartbeat should tell stale worker to stop');
+  assert.strictEqual(resHeartbeat.payload.assignedTo, 'linux-worker-2');
+  assert.strictEqual(harnessHeartbeat.heartbeatCalls.length, 1, 'heartbeat should still be recorded');
+  assert.strictEqual(harnessHeartbeat.heartbeatCalls[0].status, 'stale');
+  assert.strictEqual(harnessHeartbeat.heartbeatCalls[0].currentTask, null);
+  fs.rmSync(harnessHeartbeat.tmpRoot, { recursive: true, force: true });
 }
 
 {
