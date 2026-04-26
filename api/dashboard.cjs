@@ -6,6 +6,7 @@ var fs = require('fs');
 var path = require('path');
 var { projectSM } = require('../lib/state-machine.cjs');
 var patchRunArchive = require('../engine/archive-patch-run.cjs');
+var jsonArrayStore = require('../lib/json-array-store.cjs');
 
 var LEARNING_ROOT = process.env.BLUEPRINT_LEARNING_REPO || '/opt/blueprint-learning';
 
@@ -417,19 +418,11 @@ module.exports.init = function(ctx) {
         var fpModule = require('../engine/failure-fingerprint.cjs');
         var records = metricsModule.loadRecords(100);
         var regFile = path.join(__dirname, '..', 'server-data', 'regressions.json');
-        var existing = [];
-        var regLoadOk = true;
-        try {
-          if (fs.existsSync(regFile)) {
-            var regParsed = JSON.parse(fs.readFileSync(regFile, 'utf-8'));
-            if (regParsed != null && !Array.isArray(regParsed)) {
-              throw new Error('expected array, got ' + typeof regParsed);
-            }
-            existing = regParsed || [];
-          }
-        } catch(e) {
-          regLoadOk = false;
-          issues.push('[error] ' + regFile + ' 损坏 (' + e.message + '),写入已跳过以保留现场。建议: cp "' + regFile + '" "' + regFile + '.corrupt.' + Date.now() + '" 再人工排查');
+        var regLoadResult = jsonArrayStore.loadArray(regFile);
+        var existing = regLoadResult.data;
+        var regLoadOk = regLoadResult.ok;
+        if (!regLoadOk) {
+          issues.push(jsonArrayStore.buildCorruptDiagnostic(regFile, regLoadResult.error));
         }
         var byFp = {};
         existing.forEach(function(r) { byFp[r.fingerprint] = r; });
@@ -484,11 +477,7 @@ module.exports.init = function(ctx) {
 
         if (changed && regLoadOk) {
           try {
-            fs.mkdirSync(path.dirname(regFile), { recursive: true });
-            // 原子写：先写 .tmp 再 rename,中途崩溃不会留下截断的 regressions.json
-            var regTmp = regFile + '.tmp';
-            fs.writeFileSync(regTmp, JSON.stringify(Object.keys(byFp).map(function(k) { return byFp[k]; }), null, 2));
-            fs.renameSync(regTmp, regFile);
+            jsonArrayStore.writeArrayAtomic(regFile, Object.keys(byFp).map(function(k) { return byFp[k]; }));
           } catch(e) {}
         }
       } catch(e) {
@@ -499,19 +488,11 @@ module.exports.init = function(ctx) {
       // success:true + zero actions / uniform timing / phase order violations = CUA didn't really verify
       try {
         var spFile = path.join(__dirname, '..', 'server-data', 'silent-passes.json');
-        var existingSP = [];
-        var spLoadOk = true;
-        try {
-          if (fs.existsSync(spFile)) {
-            var spParsed = JSON.parse(fs.readFileSync(spFile, 'utf-8'));
-            if (spParsed != null && !Array.isArray(spParsed)) {
-              throw new Error('expected array, got ' + typeof spParsed);
-            }
-            existingSP = spParsed || [];
-          }
-        } catch(e) {
-          spLoadOk = false;
-          issues.push('[error] ' + spFile + ' 损坏 (' + e.message + '),写入已跳过以保留现场。建议: cp "' + spFile + '" "' + spFile + '.corrupt.' + Date.now() + '" 再人工排查');
+        var spLoadResult = jsonArrayStore.loadArray(spFile);
+        var existingSP = spLoadResult.data;
+        var spLoadOk = spLoadResult.ok;
+        if (!spLoadOk) {
+          issues.push(jsonArrayStore.buildCorruptDiagnostic(spFile, spLoadResult.error));
         }
         var spByTask = {};
         existingSP.forEach(function(sp) { spByTask[sp.taskId] = sp; });
@@ -533,11 +514,7 @@ module.exports.init = function(ctx) {
 
         if (newSPCount > 0 && spLoadOk) {
           try {
-            // 原子写:同 regressions.json,避免中途崩溃截断 silent-passes.json
-            fs.mkdirSync(path.dirname(spFile), { recursive: true });
-            var spTmp = spFile + '.tmp';
-            fs.writeFileSync(spTmp, JSON.stringify(Object.keys(spByTask).map(function(k) { return spByTask[k]; }), null, 2));
-            fs.renameSync(spTmp, spFile);
+            jsonArrayStore.writeArrayAtomic(spFile, Object.keys(spByTask).map(function(k) { return spByTask[k]; }));
           } catch(e) {}
           // Feishu alert removed 2026-04-17
           fixes.push('[info] Recorded ' + newSPCount + ' new silent-pass(es) → server-data/silent-passes.json');
