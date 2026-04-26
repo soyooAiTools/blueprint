@@ -5,7 +5,7 @@
 LOG="/root/.pm2/logs/mihomo-healthcheck.log"
 CLASH_API="http://127.0.0.1:9090"
 PROXY="http://127.0.0.1:7890"
-TEST_URL="https://generativelanguage.googleapis.com"
+TEST_URL="https://api.anthropic.com"
 
 timestamp() { date '+%Y-%m-%d %H:%M:%S'; }
 
@@ -32,13 +32,13 @@ fi
 echo "$(timestamp) [ALERT] Proxy not reachable (HTTP=$HTTP_CODE), attempting recovery..." >> "$LOG"
 
 # 3. 尝试切换节点（触发 URLTest 延迟测试）
-CURRENT=$(curl -s "$CLASH_API/proxies/Gemini%E4%B8%93%E7%BA%BF" 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin).get('now',''))" 2>/dev/null)
-echo "$(timestamp) Current node: $CURRENT" >> "$LOG"
+CURRENT=$(curl -s "$CLASH_API/proxies/%E8%89%AF%E5%BF%83%E4%BA%91" 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin).get('now',''))" 2>/dev/null)
+echo "$(timestamp) Current node in 良心云: $CURRENT" >> "$LOG"
 
-curl -s -X PUT "$CLASH_API/proxies/Gemini%E4%B8%93%E7%BA%BF/delay?timeout=3000&url=https://www.gstatic.com/generate_204" > /dev/null 2>&1
+curl -s -X PUT "$CLASH_API/proxies/%E8%89%AF%E5%BF%83%E4%BA%91/delay?timeout=3000&url=https://api.anthropic.com" > /dev/null 2>&1
 sleep 2
 
-NEW=$(curl -s "$CLASH_API/proxies/Gemini%E4%B8%93%E7%BA%BF" 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin).get('now',''))" 2>/dev/null)
+NEW=$(curl -s "$CLASH_API/proxies/%E8%89%AF%E5%BF%83%E4%BA%91" 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin).get('now',''))" 2>/dev/null)
 echo "$(timestamp) After test: node=$NEW" >> "$LOG"
 
 # 4. 再测一次
