@@ -101,6 +101,7 @@ try {
   assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowPhaseFlowBase.cs')));
   assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowPhaseContentBase.cs')));
   assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowRuntimeBase.cs')));
+  assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowResourceBase.cs')));
   assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowPreviewBase.cs')));
   assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowPhaseInitBase.cs')));
   assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowStateBase.cs'), 'utf8'), /protected void BindGameFlowEntityModels\(\)/);
