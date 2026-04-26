@@ -557,8 +557,8 @@
   },
   {
     "id": "auto-b59e7466",
-    "fingerprintPattern": "Codegen contract failed:.*duplicate-object-fields",
-    "description": "detectDuplicateObjectFields uses a class-unaware global depth-1 counter while autoRepairDuplicateObjectFields uses a class-keyed counter — cross-class same-name fields produce false-positive violations that the repair never removes, causing an infinite retry loop",
+    "fingerprintPattern": "Codegen contract failed: duplicate-object-fields",
+    "description": "autoRepairDuplicateObjectFields silently no-ops on namespace-wrapped C# files due to hardcoded depth===0/1 checks that diverge from the relative-depth logic used by detectDuplicateObjectFields, leaving duplicates intact and causing the contract check to fail on every retry",
     "risk": "medium",
     "autoApply": true,
     "affectedFiles": [
