@@ -149,6 +149,13 @@ try {
   assert.match(npcBaseSrc, /void SetTarget\(Vector3 target\)/);
   assert.match(npcBaseSrc, /void TickPatrol\(float dt\)/);
   assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BarrackEntity.cs'), 'utf8'), /蓝图实体 ID/);
+  // 反馈 01: Bind 必须把 Unity primitive 默认名替换为领域名,运行时 Hierarchy 不留未命名物体。
+  const baseEntityCode = fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BaseGameFlowEntity.cs'), 'utf8');
+  assert.match(baseEntityCode, /PrimitiveDefaultNames/);
+  assert.match(baseEntityCode, /void ApplyDomainName\(GameObject obj\)/);
+  assert.match(baseEntityCode, /string FallbackEntityId\(\)/);
+  assert.match(baseEntityCode, /ApplyDomainName\(SourceObject\);/);
+  assert.match(baseEntityCode, /current\.StartsWith\("__Pool_"\)/);
   assert.ok(fs.existsSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md')));
   assert.ok(fs.existsSync(path.join(tmp, 'CODE_RELATION_GRAPH.md')));
   assert.ok(fs.existsSync(path.join(tmp, 'CODE_RELATION_GRAPH.html')));
