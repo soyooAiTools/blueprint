@@ -107,10 +107,12 @@ try {
   assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowPhaseContentBase.cs')));
   assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowRuntimeBase.cs')));
   assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowPreviewBase.cs')));
+  assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowResourceBase.cs')));
   assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowSceneBase.cs')));
   assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowInputBase.cs')));
   assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowUiBase.cs')));
-  assert.ok(summary.prunedEmptyLayers && summary.prunedEmptyLayers.length >= 8);
+  assert.ok(summary.prunedEmptyLayers && summary.prunedEmptyLayers.indexOf('GameFlowResourceBase.cs') !== -1);
+  assert.ok(summary.prunedEmptyLayers && summary.prunedEmptyLayers.length >= 9);
   assert.strictEqual(summary.mainParent, 'GameFlowPhaseInitBase');
   // 重新串接的继承链每一段都不引用被剔除的层。
   const phaseInitText = fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowPhaseInitBase.cs'), 'utf8');
