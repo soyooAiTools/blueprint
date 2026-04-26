@@ -7,6 +7,7 @@ var { projectSM } = require('../lib/state-machine.cjs');
 var { ensureProjectPlans } = require('../adapters/assembly-plan-pipeline.cjs');
 var { normalizeProjectBlueprint } = require('../lib/project-blueprint-normalizer.cjs');
 var programmerDeliveryCleaner = require('../lib/programmer-delivery-cleaner.cjs');
+var { normalizeLegendShape, normalizeLegendColor } = require('../engine/legend-normalizer.cjs');
 
 /**
  * Validate project state transition. Returns error string or null if valid.
@@ -117,6 +118,57 @@ function inferEntityDisplayName(desc) {
   var m = text.match(/^([\u4e00-\u9fa5A-Za-z]{2,16}?)(已|可|正在|将|是|会|能|升级|建造|完成|启用|解锁|进入|触发|展示|开始|结束|出现|消失|到达|停止|达到|恢复|被|自动)/);
   if (m && m[1]) return m[1];
   return text.length > 12 ? text.slice(0, 12) : text;
+}
+
+function buildFallbackEntityMap(project, specs, entityHints, seen) {
+  var entityMap = [];
+  var known = seen || {};
+  function addEntity(name, data, index) {
+    var key = String(name || '').trim();
+    if (!key || known[key]) return;
+    known[key] = true;
+    data = data || {};
+    var visual = data.visual || {};
+    var hint = entityHints[key] || {};
+    entityMap.push({
+      name: key,
+      shape: normalizeLegendShape(data.shape || visual.shape || data.template, index),
+      color: normalizeLegendColor(data.color || visual.color || data.template, index),
+      displayName: data.chineseName || data.label || data.displayName || hint.displayName || '',
+      aliases: []
+        .concat(data.label || [])
+        .concat(data.chineseName || [])
+        .concat(data.aliases || [])
+        .concat(hint.aliases || [])
+        .filter(Boolean)
+    });
+  }
+
+  var blueprint = (project && project.blueprint) || {};
+  var entities = []
+    .concat(Array.isArray(blueprint.entities) ? blueprint.entities : [])
+    .concat(Array.isArray(project && project.entities) ? project.entities : []);
+  for (var i = 0; i < entities.length; i++) {
+    addEntity(entities[i] && entities[i].name, entities[i], i);
+  }
+
+  var nodes = blueprint.nodes || [];
+  for (var n = 0; n < nodes.length; n++) {
+    if (!nodes[n] || nodes[n].type !== 'entityNode') continue;
+    var d = nodes[n].data || {};
+    addEntity(d.name || nodes[n].id, d, n);
+  }
+
+  for (var s = 0; s < (specs || []).length; s++) {
+    var required = (specs[s] && specs[s].entitiesRequired) || [];
+    for (var r = 0; r < required.length; r++) {
+      var er = required[r];
+      addEntity(er && (er.name || er), {
+        aliases: [er && er.description].filter(Boolean)
+      }, r);
+    }
+  }
+  return entityMap;
 }
 
   return {
@@ -342,6 +394,18 @@ function inferEntityDisplayName(desc) {
       }
       var entityHints = {};
       var blueprint = project.blueprint || {};
+      var blueprintEntities = []
+        .concat(Array.isArray(blueprint.entities) ? blueprint.entities : [])
+        .concat(Array.isArray(project.entities) ? project.entities : []);
+      blueprintEntities.forEach(function(e) {
+        if (!e || !e.name) return;
+        var hint = entityHints[e.name] || { aliases: [] };
+        if (e.chineseName) hint.displayName = e.chineseName;
+        else if (e.label) hint.displayName = e.label;
+        if (e.label && hint.aliases.indexOf(e.label) === -1) hint.aliases.push(e.label);
+        if (e.chineseName && hint.aliases.indexOf(e.chineseName) === -1) hint.aliases.push(e.chineseName);
+        entityHints[e.name] = hint;
+      });
       var nodes = blueprint.nodes || [];
       nodes.forEach(function(n) {
         if (!n || n.type !== 'entityNode') return;
@@ -409,6 +473,12 @@ function inferEntityDisplayName(desc) {
           }
         } catch(e) {}
       }
+      var fallbackMap = buildFallbackEntityMap(project, specs, entityHints, (function() {
+        var seenMap = {};
+        for (var si = 0; si < entityMap.length; si++) seenMap[entityMap[si].name] = true;
+        return seenMap;
+      })());
+      entityMap = entityMap.concat(fallbackMap);
       sendJSON(res, {
         specs: specs,
         entityMap: entityMap,

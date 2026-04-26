@@ -38,6 +38,8 @@ import {
   getSpecs,
   svnCommit,
 } from './utils/api';
+import { normalizeLegendShape, normalizeLegendColor } from '../../engine/legend-normalizer.cjs';
+import { validateShotProgressionMonotonic } from '../../engine/preview-validators.cjs';
 
 const nodeTypes = {
   phaseNode: PhaseNode,
@@ -170,24 +172,47 @@ function getOrderedPreviewPhaseStates(previewSpecs, completedPhases, currentPhas
     .filter((phaseId) => !isRuntimeMetaPhase(phaseId));
   const runtimeOrder = Array.from(new Set((runtimePhaseOrder || []).filter(Boolean)))
     .filter((phaseId) => !isRuntimeMetaPhase(phaseId));
-  let activeAssigned = false;
-  let firstPendingIndex = -1;
 
-  const statuses = (previewSpecs || []).map((spec, index) => {
+  const rawStatuses = (previewSpecs || []).map((spec, index) => {
     const runtimeAlias = runtimeOrder[index] || '';
     const done = runtimeCompleted.some((phaseId) => phaseMatchesOrdered(spec, phaseId, runtimeAlias));
-
-    const active = !done && !activeAssigned && phaseMatchesOrdered(spec, currentPhase, runtimeAlias);
-    if (!done && active) activeAssigned = true;
-    if (!done && firstPendingIndex === -1) firstPendingIndex = index;
-    return { done, active };
+    const active = phaseMatchesOrdered(spec, currentPhase, runtimeAlias);
+    return { done, active, runtimeAlias };
   });
 
-  if (!activeAssigned && hasRuntimeSignal && firstPendingIndex >= 0) {
-    statuses[firstPendingIndex] = { ...statuses[firstPendingIndex], active: true };
+  let contiguousDoneCount = 0;
+  while (contiguousDoneCount < rawStatuses.length && rawStatuses[contiguousDoneCount].done) {
+    contiguousDoneCount++;
   }
 
-  return statuses;
+  const ordered = rawStatuses.map((state, index) => {
+    const done = index < contiguousDoneCount;
+    const active = !done && index === contiguousDoneCount && (state.active || hasRuntimeSignal);
+    return {
+      done,
+      active,
+      outOfOrder: !done && index > contiguousDoneCount && state.done,
+    };
+  });
+  // 反馈 01: SHOT 进度推演必须连续 1→2→3。outOfOrder 只能捕捉「后 done 前未 done」的视觉异常,
+  // 真正的跳号 / 回退要靠 validateShotProgressionMonotonic 看 runtime 命中顺序的 spec 索引序列。
+  const completionSequence = runtimeOrder
+    .map((phaseId) => {
+      const idx = (previewSpecs || []).findIndex((spec) => phaseMatchesOrdered(spec, phaseId, ''));
+      return idx >= 0 ? { phase: idx + 1 } : null;
+    })
+    .filter(Boolean);
+  const seqIssues = validateShotProgressionMonotonic(completionSequence);
+  seqIssues.forEach((issue) => {
+    __feedback01_warnOnce(`shot-${issue.kind}:${runtimeOrder.join(',')}:${issue.index}`,
+      `SHOT 推演 ${issue.kind}: ${issue.message}`);
+  });
+  const skips = ordered.filter((s) => s.outOfOrder).length;
+  if (skips > 0) {
+    __feedback01_warnOnce(`shot-outOfOrder:${runtimeOrder.join(',')}`,
+      `SHOT 推演检测到 ${skips} 个 outOfOrder（后 done 前未 done）`);
+  }
+  return ordered;
 }
 
 function splitIdentifierWords(value) {
@@ -237,6 +262,100 @@ function formatEntityDisplayName(entity) {
   const readable = toReadableEnglishLabel(entity && entity.name);
   if (readable) return readable;
   return String(entity && entity.name || '未命名对象').trim() || '未命名对象';
+}
+
+function readPreviewVisual(data, index) {
+  const visual = (data && data.visual) || {};
+  return {
+    shape: normalizeLegendShape(visual.shape || data?.shape || data?.template, index),
+    color: normalizeLegendColor(visual.color || data?.color || data?.template, index),
+  };
+}
+
+// 反馈 01 (2026-04-26): 画面图例 / SHOT 推演运行时校验。
+// 模块级去重,避免同一警告在每次重渲染时刷屏。详见 ~/.codex/skills/blueprint/INCIDENTS.md
+const __feedback01_warned = new Set();
+function __feedback01_warnOnce(key, message) {
+  if (__feedback01_warned.has(key)) return;
+  __feedback01_warned.add(key);
+  console.warn('[反馈01] ' + message);
+}
+
+function buildPreviewLegendItems(entityMap, entities, nodes, previewSpecs) {
+  const seen = new Map();
+  const add = (name, data) => {
+    const key = String(name || '').trim();
+    if (!key) return;
+    const existing = seen.get(key) || { name: key, aliases: [] };
+    const next = { ...existing, name: key };
+    Object.keys(data || {}).forEach((field) => {
+      if (field === 'aliases' || field === 'name') return;
+      const value = data[field];
+      if (value === undefined || value === null || value === '') return;
+      if (existing[field] !== undefined && existing[field] !== null && existing[field] !== '') return;
+      next[field] = value;
+    });
+    const aliases = []
+      .concat(existing.aliases || [])
+      .concat((data && data.aliases) || [])
+      .filter(Boolean);
+    next.aliases = Array.from(new Set(aliases));
+    seen.set(key, next);
+  };
+
+  (entityMap || []).forEach((item, index) => {
+    add(item.name, {
+      ...item,
+      shape: normalizeLegendShape(item.shape, index),
+      color: normalizeLegendColor(item.color, index),
+    });
+  });
+
+  (entities || []).forEach((entity, index) => {
+    const visual = readPreviewVisual(entity, index);
+    add(entity.name, {
+      ...visual,
+      displayName: entity.chineseName || entity.label || entity.displayName || '',
+      aliases: [entity.label, entity.chineseName].filter(Boolean),
+    });
+  });
+
+  (nodes || []).forEach((node, index) => {
+    if (!node || node.type !== 'entityNode') return;
+    const data = node.data || {};
+    const visual = readPreviewVisual(data, index);
+    add(data.name || node.id, {
+      ...visual,
+      displayName: data.chineseName || data.label || data.displayName || '',
+      aliases: [data.label, data.chineseName].filter(Boolean),
+    });
+  });
+
+  (previewSpecs || []).forEach((spec) => {
+    (spec.entitiesRequired || []).forEach((entity, index) => {
+      if (!entity) return;
+      add(entity.name || entity, {
+        shape: normalizeLegendShape('', index),
+        color: normalizeLegendColor('', index),
+        aliases: [entity.description].filter(Boolean),
+      });
+    });
+  });
+
+  const result = Array.from(seen.values()).map((item, index) => ({
+    ...item,
+    shape: normalizeLegendShape(item.shape, index),
+    color: normalizeLegendColor(item.color, index),
+  }));
+  if (result.length === 0) {
+    __feedback01_warnOnce('legend-empty', '画面图例为空 — 预览页左侧将显示空白区域');
+  } else {
+    result.forEach((item) => {
+      if (!item.shape) __feedback01_warnOnce(`legend-shape:${item.name}`, `legend "${item.name}" 缺 shape`);
+      if (!item.color) __feedback01_warnOnce(`legend-color:${item.name}`, `legend "${item.name}" 缺 color`);
+    });
+  }
+  return result;
 }
 
 /**
@@ -460,6 +579,7 @@ function FlowEditor({ project, onBack, initialTab }) {
   const iframeRef = useRef(null);
   const previewPhaseStates = getOrderedPreviewPhaseStates(previewSpecs, completedPhases, currentPhase, runtimePhaseOrder, hasRuntimePhaseSignal);
   const matchedPreviewPhaseCount = previewPhaseStates.filter((item) => item.done).length;
+  const previewLegendItems = buildPreviewLegendItems(entityMap, entities, nodes, previewSpecs);
   useEffect(() => {
     if (activeTab !== 'review') return;
     getSpecs(project.id).then((data) => {
@@ -902,7 +1022,10 @@ function FlowEditor({ project, onBack, initialTab }) {
           <div className="preview-center">
               <div className="preview-toolbar">
                 <button className="preview-refresh-btn" onClick={() => {
-                  if (iframeRef.current) { iframeRef.current.src = iframeRef.current.src; }
+                  if (iframeRef.current) {
+                    const currentSrc = iframeRef.current.getAttribute('src') || webglInfo?.url || '';
+                    iframeRef.current.setAttribute('src', currentSrc);
+                  }
                   setCompletedPhases([]);
                   setCurrentPhase('');
                   setIframeLoading(true);
@@ -940,15 +1063,15 @@ function FlowEditor({ project, onBack, initialTab }) {
               </div>
               {webglInfo && webglInfo.available ? (
                 <div className="preview-main-row">
-                  {entityMap.length > 0 && (() => {
+                  {previewLegendItems.length > 0 && (() => {
                     const shapeLabel = { Cube: '方块', Sphere: '球', Cylinder: '柱体', Plane: '平面' };
-                    const colorLabel = { Red: '红色', Blue: '蓝色', Green: '绿色', Yellow: '黄色', Orange: '橙色', Purple: '紫色', White: '白色', Brown: '棕色', Cyan: '青色', Pink: '粉色' };
+                    const colorLabel = { Red: '红色', Blue: '蓝色', Green: '绿色', Yellow: '黄色', Orange: '橙色', Purple: '紫色', White: '白色', Brown: '棕色', Cyan: '青色', Pink: '粉色', Gray: '灰色' };
                     return (
                       <div className="preview-entity-legend">
                         <div className="preview-shot-title">画面图例</div>
-                        {entityMap.map((e) => (
+                        {previewLegendItems.map((e) => (
                           <div key={e.name} className="preview-entity-item">
-                            <span className={`preview-entity-swatch color-${e.color.toLowerCase()}`}>
+                            <span className={`preview-entity-swatch color-${String(e.color || 'Blue').toLowerCase()}`}>
                               {e.shape === 'Cube' ? '■' : e.shape === 'Sphere' ? '●' : e.shape === 'Cylinder' ? '▮' : '▬'}
                             </span>
                             <span className="preview-entity-label">
@@ -1019,13 +1142,19 @@ function FlowEditor({ project, onBack, initialTab }) {
                         const phaseState = previewPhaseStates[i] || { done: false, active: false };
                         const done = phaseState.done;
                         const active = phaseState.active;
+                        const outOfOrder = phaseState.outOfOrder;
                         const desc = spec.triggerNext && spec.triggerNext.description;
                         return (
-                          <div key={spec.phaseId} className={`preview-shot-item${done ? ' done' : ''}${active ? ' active' : ''}`}>
+                          <div
+                            key={spec.phaseId}
+                            className={`preview-shot-item${done ? ' done' : ''}${active ? ' active' : ''}${outOfOrder ? ' out-of-order' : ''}`}
+                            title={outOfOrder ? '运行时已上报，但前序 Shot 尚未完成，暂不计入进度' : ''}
+                          >
                             <span className="preview-shot-num">{i + 1}</span>
                             <div className="preview-shot-text">
                               <span className="preview-shot-name">{spec.phaseName}</span>
                               {desc && <span className="preview-shot-desc">{desc}</span>}
+                              {outOfOrder && <span className="preview-shot-note">等待前序 Shot 完成</span>}
                             </div>
                           </div>
                         );

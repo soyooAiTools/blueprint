@@ -73,14 +73,14 @@ handlers.saveBlueprint({}, saveRes, JSON.stringify({
       name: 'Player',
       label: '玩家',
       template: 'PlayerController',
-      visual: { position: '(0,0,0)', scale: '1×1×1' },
+      visual: { shape: 'Sphere', color: 'Blue', position: '(0,0,0)', scale: '1×1×1' },
       behavior: { moveSpeed: 5 }
     },
     {
       name: 'ConveyorBelt',
       label: '传送带',
       template: 'Buildable',
-      visual: { position: '(1,0,1)', scale: '1×1×1' },
+      visual: { shape: 'Cube', color: 'Yellow', position: '(1,0,1)', scale: '1×1×1' },
       trigger: { type: 'proximity', params: { radius: 2, cost: { gold: 1 } } },
       behavior: { buildTime: 2 }
     }
@@ -105,6 +105,8 @@ handlers.getSpecs({}, specsRes, '', { id: 'proj_assembly' });
 assert.strictEqual(specsRes.statusCode, 200, 'getSpecs should succeed');
 assert.ok(specsRes.payload.plans && specsRes.payload.plans.assemblyPlan, 'getSpecs should include plans');
 assert.ok(specsRes.payload.planValidation && specsRes.payload.planValidation.ok, 'getSpecs should include plan validation');
+assert.ok(specsRes.payload.entityMap.find(function(e) { return e.name === 'Player' && e.shape === 'Sphere' && e.color === 'Blue'; }), 'getSpecs should include entity legend fallback for Player');
+assert.ok(specsRes.payload.entityMap.find(function(e) { return e.name === 'ConveyorBelt' && e.displayName === '传送带'; }), 'getSpecs should include readable entity display name');
 
 var confirmRes = {};
 handlers.confirmSpecs({}, confirmRes, JSON.stringify({ specs: storedProject.specs }), { id: 'proj_assembly' });
