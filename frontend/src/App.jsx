@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   ReactFlow,
   Background,
@@ -577,9 +577,17 @@ function FlowEditor({ project, onBack, initialTab }) {
 
   // Fetch specs + poll iframe __gameState for phase progress
   const iframeRef = useRef(null);
-  const previewPhaseStates = getOrderedPreviewPhaseStates(previewSpecs, completedPhases, currentPhase, runtimePhaseOrder, hasRuntimePhaseSignal);
+  // useMemo: nodes changes on every React Flow drag tick; recomputing these
+  // O(n*m) walks every render visibly stutters the editor with large graphs.
+  const previewPhaseStates = useMemo(
+    () => getOrderedPreviewPhaseStates(previewSpecs, completedPhases, currentPhase, runtimePhaseOrder, hasRuntimePhaseSignal),
+    [previewSpecs, completedPhases, currentPhase, runtimePhaseOrder, hasRuntimePhaseSignal],
+  );
   const matchedPreviewPhaseCount = previewPhaseStates.filter((item) => item.done).length;
-  const previewLegendItems = buildPreviewLegendItems(entityMap, entities, nodes, previewSpecs);
+  const previewLegendItems = useMemo(
+    () => buildPreviewLegendItems(entityMap, entities, nodes, previewSpecs),
+    [entityMap, entities, nodes, previewSpecs],
+  );
   useEffect(() => {
     if (activeTab !== 'review') return;
     getSpecs(project.id).then((data) => {
