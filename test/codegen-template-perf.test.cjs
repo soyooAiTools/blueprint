@@ -23,13 +23,13 @@ describe('autoplay-mirror — switch dispatch (post-W1a)', () => {
   });
 });
 
-describe('codegen-template-engine TODO_UPDATE — switch dispatch (post-W1a)', () => {
-  test('tap handler uses switch(currentPhaseName), not parallel if-chain', () => {
+describe('codegen-template-engine TODO_UPDATE — dispatch shape (post-W1a/W1b)', () => {
+  test('TODO_UPDATE body delegates to Phase_OnTap (W1b) instead of inline if-chain', () => {
     const fs = require('fs');
     const src = fs.readFileSync(require.resolve('../adapters/codegen-template-engine.cjs'), 'utf8');
-    // Must emit `switch (currentPhaseName)` inside generateUpdateBody.
-    expect(src).toMatch(/switch\s*\(\s*currentPhaseName\s*\)/);
-    // Must not re-introduce the legacy if/else-if ladder.
+    // Post-W1b: tap dispatch is `Phase_OnTap()` in Flow partial; codegen must reference it.
+    expect(src).toMatch(/Phase_OnTap\(\)/);
+    // Must not re-introduce the legacy if/else-if ladder generator.
     expect(src).not.toMatch(/pi === 0 \? ['"]if['"] : ['"]else if['"]/);
   });
 });

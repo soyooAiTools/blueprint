@@ -98,7 +98,11 @@ describe('spec-validate entity name resolution', () => {
     });
   });
 
-  test('unknown entity with no match produces error', () => {
+  test('unknown entity with no match is stripped + warned (does not hard-fail pipeline)', () => {
+    // Contract change (engine/stages/spec-validate.cjs:178-184): a fully hallucinated
+    // entity name used to throw, but that created a permanent dead-end requiring a
+    // full pipeline restart. The current contract strips the entry and logs a warning
+    // so the rest of the pipeline can proceed.
     var ctx = makeCtx({
       specs: [{
         phaseId: 'collectGems',
@@ -109,7 +113,11 @@ describe('spec-validate entity name resolution', () => {
       }],
       entities: [{ name: 'GemStone' }],
     });
-    expect(function() { specValidate.execute(ctx); }).toThrow(/Dragon/);
+    return Promise.resolve(specValidate.execute(ctx)).then(function() {
+      expect(ctx.blueprint.specs[0].entitiesRequired).toEqual([]);
+      var warned = ctx._logs.some(function(l) { return l.indexOf('Dragon') >= 0; });
+      expect(warned).toBe(true);
+    });
   });
 });
 

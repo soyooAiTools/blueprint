@@ -36,7 +36,14 @@ function assertUpdateGameStateJsonLines(code) {
   assert.ok(String(code).indexOf('BuildUiStateJson()') >= 0, 'ui state helper should be used');
   assert.ok(String(code).indexOf('BuildCameraStateJson()') >= 0, 'camera state helper should be used');
   assert.ok(String(code).indexOf('BuildPhaseEvidenceJson()') >= 0, 'phase evidence helper should be used');
-  assert.ok(String(code).indexOf('if (phaseJson.Length > 0)') >= 0, 'phase evidence should only serialize recorded module evidence');
+  // Generator now writes the inverse-guard form `if (phaseJson.Length <= 0) continue;`
+  // for the empty-phase short-circuit; both spellings achieve the same contract — only
+  // recorded evidence is serialized.
+  assert.ok(
+    String(code).indexOf('if (phaseJson.Length <= 0) continue') >= 0
+      || String(code).indexOf('if (phaseJson.Length > 0)') >= 0,
+    'phase evidence should only serialize recorded module evidence'
+  );
   assert.ok(
     String(code).indexOf('phaseJson = AppendSignalEvidenceJson(phaseJson, "distance_to_target_below_threshold"') < 0,
     'phase evidence bridge must not synthesize default distance evidence'

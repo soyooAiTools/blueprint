@@ -8,7 +8,15 @@ const start = source.indexOf('const PHASE_WORD_BLACKLIST');
 const end = source.indexOf('function splitIdentifierWords');
 assert.ok(start >= 0 && end > start, 'preview phase helper source slice should exist');
 
-const sandbox = { module: { exports: {} }, exports: {} };
+// validateShotProgressionMonotonic 已被搬到 engine/preview-validators.cjs（独立模块）。
+// 切片范围内的 getOrderedPreviewPhaseStates 仍引用它，因此把真实实现注入沙箱后再 evaluate。
+const previewValidators = require('../engine/preview-validators.cjs');
+
+const sandbox = {
+  module: { exports: {} },
+  exports: {},
+  validateShotProgressionMonotonic: previewValidators.validateShotProgressionMonotonic,
+};
 vm.runInNewContext(
   source.slice(start, end) +
     '\nmodule.exports = { getOrderedPreviewPhaseStates, isRuntimeMetaPhase };',
@@ -38,10 +46,12 @@ let states = getOrderedPreviewPhaseStates(
   ['gameStart', 'enemyAttackWarning', 'upgradeOurBase'],
   true
 );
+// Each entry now also carries `outOfOrder` (false in monotonic sequences) — the field
+// was added when validateShotProgressionMonotonic moved to its own module.
 assert.deepStrictEqual(plain(states), [
-  { done: true, active: false },
-  { done: true, active: false },
-  { done: false, active: true },
+  { done: true, active: false, outOfOrder: false },
+  { done: true, active: false, outOfOrder: false },
+  { done: false, active: true, outOfOrder: false },
 ]);
 
 states = getOrderedPreviewPhaseStates(

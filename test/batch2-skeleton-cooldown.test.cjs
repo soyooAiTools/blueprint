@@ -21,23 +21,30 @@ function makeSpecs(collectCooldown) {
   return specs;
 }
 
+// W1b 默认开启 5-partial 拆分 — Idle 采集冷却字段从 main 迁移到 Resource partial。
+// 这些断言依然校验 cooldown 基础设施齐全，只是要按拆分后的归属去查（fields 在 resource，
+// Update 中的 decrement 调度仍在 main）。
+function combinedSource(out) {
+  if (typeof out === 'string') return out;
+  return [out.main, out.flow, out.input, out.resource, out.ui, out.scene]
+    .filter(Boolean)
+    .join('\n');
+}
+
 describe('batch2 skeleton cooldown infrastructure', () => {
   test('collectCooldownInterval field emitted with default 0.3f', () => {
-    var out = generateSkeleton(makeSpecs());
-    var main = typeof out === 'string' ? out : out.main;
-    expect(main).toMatch(/float\s+collectCooldownInterval\s*=\s*0\.3f\s*;/);
+    var combined = combinedSource(generateSkeleton(makeSpecs()));
+    expect(combined).toMatch(/float\s+collectCooldownInterval\s*=\s*0\.3f\s*;/);
   });
 
   test('_collectCooldown field emitted as 0f', () => {
-    var out = generateSkeleton(makeSpecs());
-    var main = typeof out === 'string' ? out : out.main;
-    expect(main).toMatch(/float\s+_collectCooldown\s*=\s*0f\s*;/);
+    var combined = combinedSource(generateSkeleton(makeSpecs()));
+    expect(combined).toMatch(/float\s+_collectCooldown\s*=\s*0f\s*;/);
   });
 
   test('_lastScoreText field emitted as empty string', () => {
-    var out = generateSkeleton(makeSpecs());
-    var main = typeof out === 'string' ? out : out.main;
-    expect(main).toMatch(/string\s+_lastScoreText\s*=\s*""\s*;/);
+    var combined = combinedSource(generateSkeleton(makeSpecs()));
+    expect(combined).toMatch(/string\s+_lastScoreText\s*=\s*""\s*;/);
   });
 
   test('Update() decrements _collectCooldown when > 0', () => {
@@ -47,8 +54,7 @@ describe('batch2 skeleton cooldown infrastructure', () => {
   });
 
   test('collectCooldownInterval respects schema gameConfig.collectCooldown', () => {
-    var out = generateSkeleton(makeSpecs(0.5));
-    var main = typeof out === 'string' ? out : out.main;
-    expect(main).toMatch(/float\s+collectCooldownInterval\s*=\s*0\.5f\s*;/);
+    var combined = combinedSource(generateSkeleton(makeSpecs(0.5)));
+    expect(combined).toMatch(/float\s+collectCooldownInterval\s*=\s*0\.5f\s*;/);
   });
 });

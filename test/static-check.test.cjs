@@ -191,13 +191,15 @@ public partial class GameFlowManagerMain : MonoBehaviour {
   });
 
   test('switch and case comments are blocking when missing in GameFlowManagerMain partials', () => {
+    // 注意：`switch (currentPhaseName)` 是规则的豁免分支（phase dispatch 共识），所以
+    // fixture 必须用其他 switch 变量才能触发 switch-case-comment-required 规则。
     const code = `using UnityEngine;
 public partial class GameFlowManagerMain : MonoBehaviour {
-  string currentPhaseName = "a"; // active phase id
-  // Route the current phase to its handler.
-  void RoutePhase() {
-    switch (currentPhaseName) {
-      case "a": break;
+  int handlerKind = 0;
+  void RouteByKind() {
+    switch (handlerKind) {
+      case 1: break;
+      case 2: break;
     }
   }
 }`;

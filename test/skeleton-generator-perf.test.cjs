@@ -17,9 +17,18 @@ function buildMinimalSpec() {
   ];
 }
 
+// W1b 5-partial 默认开启后：IsNear / PlaceObj / HideObj / SetScale / MovePlayer 等
+// helper 仍由 skeleton-generator 输出，但归属到 input/resource/ui 等 partial。
+// 用 w1bSplit:false 保持单文件视角，让 perf 不变量便于在一处校验。
+function buildLegacySkeleton() {
+  return generateSkeleton(buildMinimalSpec(), {
+    entityPoolMap: { Target: 'Pool_Target' },
+    w1bSplit: false,
+  });
+}
+
 describe('skeleton-generator — IsNear no sqrt (T1-5)', () => {
-  const code = generateSkeleton(buildMinimalSpec(), { entityPoolMap: { Target: 'Pool_Target' } });
-  const skeleton = typeof code === 'string' ? code : code.main;
+  const skeleton = buildLegacySkeleton();
   test('IsNear uses dx*dx + dz*dz < range*range, not Vector3.Distance', () => {
     const m = skeleton.match(/bool IsNear\(GameObject target, float range\)\s*[\s\S]*?\}/);
     expect(m).toBeTruthy();
@@ -31,8 +40,7 @@ describe('skeleton-generator — IsNear no sqrt (T1-5)', () => {
 });
 
 describe('skeleton-generator — PlaceObj/HideObj/SetScale struct copy (T1-1)', () => {
-  const code = generateSkeleton(buildMinimalSpec(), { entityPoolMap: { Target: 'Pool_Target' } });
-  const skeleton = typeof code === 'string' ? code : code.main;
+  const skeleton = buildLegacySkeleton();
 
   test('PlaceObj uses struct-copy pattern, not `new Vector3`', () => {
     const m = skeleton.match(/void PlaceObj\(GameObject obj, float x, float y, float z\)[\s\S]*?^\s*\}/m);
@@ -52,8 +60,7 @@ describe('skeleton-generator — PlaceObj/HideObj/SetScale struct copy (T1-1)', 
 });
 
 describe('skeleton-generator — MovePlayer buf reuse (T1-2)', () => {
-  const code = generateSkeleton(buildMinimalSpec(), { entityPoolMap: { Target: 'Pool_Target' } });
-  const skeleton = typeof code === 'string' ? code : code.main;
+  const skeleton = buildLegacySkeleton();
 
   test('MovePlayer body has zero `new Vector3(` calls', () => {
     const m = skeleton.match(/void MovePlayer\(\)[\s\S]*?^\s*\}\s*$/m);
@@ -74,16 +81,18 @@ describe('skeleton-generator — world labels (2026-04-19)', () => {
     const entities = [
       { name: 'Target', chineseName: '目标', pool: 'Pool_Target', scale: 1 },
     ];
-    const code = generateSkeleton(specs, {
+    const out = generateSkeleton(specs, {
       entityPoolMap: { Target: 'Pool_Target' },
       entities: entities,
+      w1bSplit: false,
     });
-    const out = typeof code === 'string' ? code : code.main;
     expect(out).toMatch(/GFM_UI\.AddWorldLabel\(Target,\s*"目标",/);
-    const registerIdx = out.indexOf('GameSceneCtrl.instance.Register("Target"');
+    // 当前 codegen 用 _entityBindingIds 表驱动，所以 Register 参数不再是 "Target" 字面量。
+    // 校验顺序：实体出现在绑定表中 → AddWorldLabel 在表声明之后。
+    const tableIdx = out.indexOf('_entityBindingIds');
     const labelIdx = out.indexOf('AddWorldLabel(Target');
-    expect(registerIdx).toBeGreaterThan(-1);
-    expect(labelIdx).toBeGreaterThan(registerIdx);
+    expect(tableIdx).toBeGreaterThan(-1);
+    expect(labelIdx).toBeGreaterThan(tableIdx);
   });
 
   test('showLabel:false suppresses label emission', () => {
@@ -91,28 +100,27 @@ describe('skeleton-generator — world labels (2026-04-19)', () => {
     const entities = [
       { name: 'Target', chineseName: '玩家载具', pool: 'Pool_Target', scale: 1, showLabel: false },
     ];
-    const code = generateSkeleton(specs, {
+    const out = generateSkeleton(specs, {
       entityPoolMap: { Target: 'Pool_Target' },
       entities: entities,
+      w1bSplit: false,
     });
-    const out = typeof code === 'string' ? code : code.main;
     expect(out).not.toMatch(/AddWorldLabel\(Target/);
   });
 
   test('missing chineseName → no label (graceful)', () => {
     const specs = buildMinimalSpec();
-    const code = generateSkeleton(specs, {
+    const out = generateSkeleton(specs, {
       entityPoolMap: { Target: 'Pool_Target' },
       entities: [{ name: 'Target', pool: 'Pool_Target' }],
+      w1bSplit: false,
     });
-    const out = typeof code === 'string' ? code : code.main;
     expect(out).not.toMatch(/AddWorldLabel\(Target/);
   });
 
   test('no opts.entities → no labels, no crash', () => {
     const specs = buildMinimalSpec();
-    const code = generateSkeleton(specs, { entityPoolMap: { Target: 'Pool_Target' } });
-    const out = typeof code === 'string' ? code : code.main;
+    const out = generateSkeleton(specs, { entityPoolMap: { Target: 'Pool_Target' }, w1bSplit: false });
     expect(out).not.toMatch(/AddWorldLabel\(/);
   });
 });

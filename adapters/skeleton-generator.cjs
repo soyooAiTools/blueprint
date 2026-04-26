@@ -565,10 +565,12 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        GFM_EconomyManager.Instance.AddResource(id, amount);');
     lines.push('        int after = GFM_EconomyManager.Instance.GetResource(id);');
     lines.push('        // 资源增加/减少都要写入 phase evidence，供 runtime-contract 精确判定。');
+    lines.push('        // 资源真增加：需要 RecordPhaseEvidenceDelta 给 runtime-contract 提供 phase-scoped 证据。');
     lines.push('        if (amount > 0 && after > before) {');
     lines.push('            RecordPhaseEvidenceDelta(currentPhaseName, "resource_incremented", before, after);');
     lines.push('            RecordPhaseEvidenceFlag(currentPhaseName, "score_text_changed");');
     lines.push('        }');
+    lines.push('        // 资源真扣减：必须落 phase-scoped resource_decremented evidence，否则 runtime 静态规则会反复报缺扣资源信号。');
     lines.push('        else if (amount < 0 && after < before) {');
     lines.push('            RecordPhaseEvidenceDelta(currentPhaseName, "resource_decremented", before, after);');
     lines.push('            RecordPhaseEvidenceFlag(currentPhaseName, "score_text_changed");');
