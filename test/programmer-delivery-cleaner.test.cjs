@@ -127,6 +127,10 @@ try {
   assert.match(fs.readFileSync(path.join(tmp, 'CODE_RELATION_GRAPH.md'), 'utf8'), /代码关系图/);
   assert.match(fs.readFileSync(path.join(tmp, 'CODE_RELATION_GRAPH.md'), 'utf8'), /Entities\/BaseBuildElement\.cs/);
   assert.doesNotMatch(fs.readFileSync(path.join(tmp, 'README.md'), 'utf8'), /partial 文件/);
+
+  // 反馈 01 (2026-04-26) Phase B.1: validator 集成 — 干净的小 fixture 不应触发 warning
+  assert.ok(Array.isArray(summary.warnings), 'summary.warnings should be array');
+  assert.strictEqual(summary.warnings.length, 0, 'clean fixture should produce no warnings, got: ' + JSON.stringify(summary.warnings));
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
 }
