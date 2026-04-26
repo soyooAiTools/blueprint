@@ -751,4 +751,57 @@ public class Main : MonoBehaviour {
     const hit = staticCheck(code).issues.find(i => i.rule === 'setscale-wrong-params');
     expect(hit).toBeUndefined();
   });
+
+  // --- v10: 反馈 01 (2026-04-26) ---
+
+  test('unnamed-gameobject 命中 .name = "Cube" 字面量', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  void Start() {
+    var go = GameObject.Find("__Pool_Cube_01");
+    go.name = "Cube";
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'unnamed-gameobject');
+    expect(hit).toBeDefined();
+    expect(hit.blocking).toBe(false);
+  });
+
+  test('unnamed-gameobject 命中 "Cylinder (Clone)"', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  void Start() {
+    var go = GameObject.Find("__Pool_Cylinder_02");
+    go.name = "Cylinder (Clone)";
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'unnamed-gameobject');
+    expect(hit).toBeDefined();
+    expect(hit.blocking).toBe(false);
+  });
+
+  test('unnamed-gameobject 不命中领域命名', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  void Start() {
+    var go = GameObject.Find("__Pool_Cube_01");
+    go.name = "我方基地";
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'unnamed-gameobject');
+    expect(hit).toBeUndefined();
+  });
+
+  test('unnamed-gameobject 忽略注释中的字面量', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  // 错误示例: go.name = "Cube";
+  void Start() {
+    var go = GameObject.Find("__Pool_Cube_01");
+    go.name = "兵营";
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'unnamed-gameobject');
+    expect(hit).toBeUndefined();
+  });
 });

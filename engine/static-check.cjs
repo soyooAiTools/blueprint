@@ -1882,6 +1882,28 @@ var RULES = [
       return issues;
     },
   },
+
+  // --- v10: Feedback 01 (2026-04-26) — non-blocking warnings, calibrate before promoting ---
+  // 检测交付/codegen 阶段把 GameObject.name 显式赋成 Unity primitive 默认名（Cube / Sphere /
+  // Cylinder / Plane / Capsule）。这通常意味着 codegen 漏掉了领域语义命名 — 程序员审核交付
+  // 工程时会肉眼看到一堆未命名的蓝色柱体/白色柱体悬浮在场景里。先 non-blocking 观察一周。
+  // 命名为池前缀（__Pool_*）的物体走对象池命名约定，规则只扫显式字面量。
+  { id: 'unnamed-gameobject', pattern: null, blocking: false,
+    message: 'GameObject.name 被赋为 Unity primitive 默认值 — 应使用领域名（如 我方基地 / 敌方宇航员 / 兵营）',
+    custom: function(code) {
+      var issues = [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); });
+      var re = /\.\s*name\s*=\s*"(Cube|Sphere|Cylinder|Plane|Capsule|Quad)(\s*\(\s*Clone\s*\))?(\s*\(\s*\d+\s*\))?\s*"/g;
+      var m;
+      while ((m = re.exec(stripped)) !== null) {
+        var lineNum = code.substring(0, m.index).split('\n').length;
+        issues.push({ line: lineNum, text: 'name = "' + m[1] + (m[2] || '') + (m[3] || '') + '" — 改为领域名' });
+      }
+      return issues;
+    },
+  },
 ];
 
 /**
