@@ -1,5 +1,29 @@
 # Blueprint 生产事故记录
 
+## 2026-04-26: 程序员交付版去拆分类、脚本限长与实体领域类生成
+
+### 背景
+
+`/nickTemp/反馈.doc` 指出交付工程中 `GameFlowManagerMain.Entities.cs`、`GameFlowManagerMain.Flow.*.cs` 这类拆分类文件会让程序员误以为 `entities` 是 `GameFlowManagerMain` 的分类，而不是具体业务对象。反馈要求交付代码按面向对象方式组织，例如 `BaseBuildElement` 承载建筑通用属性，兵营等具体建筑继承基类。
+
+### 修复
+
+- `lib/programmer-delivery-cleaner.cjs` 在程序员交付副本中合并 `GameFlowManagerMain*.cs` companion 文件，改写为普通继承链：`GameFlowManagerMain.cs` 只做 Unity 挂载入口，Phase/Runtime/Scene/Input/UI/Preview/State 分别落到 `GameFlow*Base.cs`。
+- 交付版不再定义 C# `partial class` 主流程；脚本按职责继续细分，fresh `--programmer-delivery` 导出中最长 `GameFlow*.cs` 为 818 行，低于 1000 行上限。
+- 交付副本生成 `Assets/Program/Script/Manager/Entities/`，包含 `BaseGameFlowEntity`、`BaseBuildElement`、`BuildEntity`、`CombatEntity`、`ResourceEntity` 和每个蓝图实体的具体类。
+- `GameFlowManagerMain.Start()` 在实体绑定后调用 `BindGameFlowEntityModels()`，把对象池 `GameObject` 绑定到具体实体组件。
+- `CODE_RELATION_GRAPH.md/html`、`PROGRAMMER_HANDOFF.md` 和 README 改为普通继承分层 + 面向对象实体口径，不再把 `GameFlowManagerMain.Entities.cs` 等旧入口暴露给接手程序员。
+
+### 验证
+
+- `node -c lib/programmer-delivery-cleaner.cjs`
+- `node -c lib/code-relation-graph-writer.cjs`
+- `bash -n scripts/export-unity-project.sh`
+- `node test/programmer-delivery-cleaner.test.cjs`
+- `scripts/export-unity-project.sh proj_1776912973985_5o2lyu --programmer-delivery --out /tmp/proj_1776912973985_5o2lyu-systemic-check.tar.gz`，fresh tar 包确认生成 14 个普通继承 `GameFlow*Base.cs`，最长脚本 818 行，README/交付说明/关系图无旧拆分类入口。
+- `csc -target:library ... Assets/Program/Script/Manager/*.cs` 语法通过。
+- `method-check` 确认 `missingMethods=[]`、`duplicateStateFields=[]`、`duplicateObjectFields=[]`。
+
 ## 2026-04-26: 三任务恢复收口与 deterministic repair 前移
 
 ### 背景

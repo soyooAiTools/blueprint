@@ -68,7 +68,7 @@ rm -rf "$WORK/Assets/.git" 2>/dev/null || true
 SCRIPT_DIR="$WORK/Assets/Program/Script"
 mkdir -p "$SCRIPT_DIR/Manager" "$SCRIPT_DIR/Commons"
 
-# GameFlowManagerMain*.cs partial 文件 → Manager/
+# GameFlowManagerMain*.cs 源文件 → Manager/
 for f in "$SRC"/GameFlowManagerMain*.cs; do
   [ -f "$f" ] || continue
   command cp -rf "$f" "$SCRIPT_DIR/Manager/$(basename "$f")"
@@ -181,7 +181,7 @@ cat > "$WORK/README.md" <<EOF
 是否程序员交付版清理：$([ "$PROGRAMMER_DELIVERY" -eq 1 ] && echo "是" || echo "否")
 
 ## 目录
-- Assets/Program/Script/Manager/  — GameFlowManagerMain.cs 及 partial 文件
+- Assets/Program/Script/Manager/  — GameFlowManagerMain*.cs 源文件
 - Assets/Program/Script/Commons/  — GFM_*.cs canonical 工具库
 - Assets/Scenes/templeteScene.unity — 预烘焙对象池场景
 - CODE_RELATION_GRAPH.md — 代码关系图、运行时调用链和维护入口
@@ -194,12 +194,11 @@ cat > "$WORK/README.md" <<EOF
 Unity Hub → Add → 选择此文件夹根目录，使用 Unity 2022 LTS 打开。
 
 ## 程序员交付边界
-- GameFlowManagerMain.cs 负责启动、实体绑定、主 Update 调度和通用 helper；phase 逻辑在 GameFlowManagerMain.Flow.cs。
-- Flow/Input/Resource/UI/Scene partial 按 owner 分工维护，不要把 phase、资源、UI、场景逻辑混到同一个文件。
+- 程序员交付版会整理为 GameFlowManagerMain.cs 主入口 + GameFlow*Base.cs 普通继承分层，不使用 C# 拆分类组织主流程。
+- 每个 GameFlow 脚本目标保持在 1000 行以内；phase、资源、UI、场景和输入逻辑按基类职责维护。
 - 实体引用只来自 RegisterEntityBindings()/GameSceneCtrl，不要在 TODO 区直接 GameObject.Find("__Pool_*") 覆盖字段。
 - 资源 API 使用 GFM_ResourceIds.Gold / GFM_ResourceIds.Normalize("...")，不要裸写 "gold"/"Gold"。
 - 引导文案统一调用 SetGuideText()；guideText.text 只应在这个 helper 内落地。
-- AssemblySlot_* 是装配/验证合约槽位；如果 runner 被关闭，它们不是主运行路径。
 
 ## 环境注意
 - Packages/manifest.json 可能包含 Luna/Playworks 本机 file: 依赖；交接前请把它改成团队机器可访问的安装路径或包源。
@@ -208,7 +207,10 @@ EOF
 node "$BP_ROOT/lib/code-relation-graph-writer.cjs" "$WORK" "$TASK_ID"
 
 if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
-  node "$BP_ROOT/lib/programmer-delivery-cleaner.cjs" "$WORK"
+  node "$BP_ROOT/lib/programmer-delivery-cleaner.cjs" "$WORK" "$TASK_ID" "$TASK_ID"
+  # programmer-delivery-cleaner may create Entities/*.cs and delete merged
+  # GameFlowManagerMain companion files. Refresh .meta coverage after that step.
+  find "$SCRIPT_DIR" -name '*.cs' | while read -r cs; do gen_meta "$cs"; done
 fi
 
 # ── Step 9: 打包归档（使用友好的文件夹名） ───────────────────
