@@ -5,6 +5,8 @@ const path = require('path');
 const GFM_DIR = __dirname;
 const GFM_DEST_SUBDIR = 'Commons';
 const GFM_FILES = [
+  // 单例基类 (反馈 01 #1 架构图：所有 Manager 走统一懒加载)
+  'GFM_SingletonBase.cs',
   // 基础工具层 (static class / 无状态)
   'GFM_Audio.cs',
   'GFM_Pool.cs',
@@ -21,6 +23,7 @@ const GFM_FILES = [
   // Manager 架构层 (MonoBehaviour 单例 / 有状态)
   'GFM_EconomyManager.cs',   // 资源/金币/兑换
   'GFM_UIManager.cs',        // Canvas/guide/score/floatingText
+  'GFM_TipsManager.cs',      // 即时提示 toast (反馈 01 #1 架构图)
   'GFM_CameraController.cs', // 相机缓存 + 正交视角
   'GFM_Player.cs',           // 玩家载具 + 形态系统 + 采集/递送
   'GFM_AutoPlay.cs',         // CUA 自动播放控制器
