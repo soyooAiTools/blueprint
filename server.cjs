@@ -141,6 +141,15 @@ var server = http.createServer(function(req, res) {
     return;
   }
 
+  // 反馈 01 (2026-04-26): frontend/dist/ 已 untrack,新部署若忘了 npm run build,
+  // 这里给明确诊断而非静默 404,免得运维以为是路由 bug。
+  if (pathname === '/' || !path.extname(pathname)) {
+    console.error('[FATAL] SPA entry missing: ' + indexFile + ' — run: cd frontend && npm run build');
+    res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Frontend not built. On the server, run: cd frontend && npm run build');
+    return;
+  }
+
   res.writeHead(404);
   res.end('Not Found');
 });

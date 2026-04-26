@@ -69,6 +69,22 @@ server-data/project-sources/
 data/
 adapters/server-data/
 
+# Runtime monitor / state (反馈 01,2026-04-26): 本应 ignore 但历史遗留 tracked,本次清理
+server-data/skill-monitor/
+server-data/night-monitor/
+server-data/night-monitor-state.json
+server-data/pending-rules.json
+server-data/rules-scan-state.json
+server-data/exports/
+
+# Frontend build output (regenerate via `cd frontend && npm run build`)
+frontend/dist/
+
+# 用户提交的反馈素材应放 nickTemp/(已 tracked),根目录散落不收录
+/feedback*.doc
+/feedback*.docx
+/feedback*.pdf
+
 # Spec data (per-project, ephemeral)
 spec-data/
 
