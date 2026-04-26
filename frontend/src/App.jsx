@@ -172,15 +172,21 @@ function getOrderedPreviewPhaseStates(previewSpecs, completedPhases, currentPhas
     .filter((phaseId) => !isRuntimeMetaPhase(phaseId));
   let activeAssigned = false;
   let firstPendingIndex = -1;
+  // 反馈 01 #4：SHOT 进度只统计"从第 0 个 phase 起连续完成"的部分,跳号(如 1→3 漏 2)
+  // 后面的 phase 即使个体匹配上了也保持未完成状态,等前序 phase 上报后再向后推进。
+  let lastConsecutiveDone = -1;
 
   const statuses = (previewSpecs || []).map((spec, index) => {
     const runtimeAlias = runtimeOrder[index] || '';
-    const done = runtimeCompleted.some((phaseId) => phaseMatchesOrdered(spec, phaseId, runtimeAlias));
-
+    const matched = runtimeCompleted.some((phaseId) => phaseMatchesOrdered(spec, phaseId, runtimeAlias));
+    const done = matched && index === lastConsecutiveDone + 1;
+    if (done) lastConsecutiveDone = index;
+    // matched 但 !done:运行时已经触发但前序还没完成,UI 用 awaiting 状态提示。
+    const awaiting = matched && !done;
     const active = !done && !activeAssigned && phaseMatchesOrdered(spec, currentPhase, runtimeAlias);
     if (!done && active) activeAssigned = true;
     if (!done && firstPendingIndex === -1) firstPendingIndex = index;
-    return { done, active };
+    return { done, active, awaiting };
   });
 
   if (!activeAssigned && hasRuntimeSignal && firstPendingIndex >= 0) {
@@ -1016,16 +1022,19 @@ function FlowEditor({ project, onBack, initialTab }) {
                   <div className="preview-shot-list">
                       <div className="preview-shot-title">Shot 进度</div>
                       {previewSpecs.map((spec, i) => {
-                        const phaseState = previewPhaseStates[i] || { done: false, active: false };
+                        const phaseState = previewPhaseStates[i] || { done: false, active: false, awaiting: false };
                         const done = phaseState.done;
                         const active = phaseState.active;
+                        const awaiting = phaseState.awaiting;
                         const desc = spec.triggerNext && spec.triggerNext.description;
+                        const cls = `preview-shot-item${done ? ' done' : ''}${active ? ' active' : ''}${awaiting ? ' awaiting' : ''}`;
                         return (
-                          <div key={spec.phaseId} className={`preview-shot-item${done ? ' done' : ''}${active ? ' active' : ''}`}>
+                          <div key={spec.phaseId} className={cls}>
                             <span className="preview-shot-num">{i + 1}</span>
                             <div className="preview-shot-text">
                               <span className="preview-shot-name">{spec.phaseName}</span>
                               {desc && <span className="preview-shot-desc">{desc}</span>}
+                              {awaiting && <span className="preview-shot-awaiting">等待前序 Shot 完成</span>}
                             </div>
                           </div>
                         );
