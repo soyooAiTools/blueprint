@@ -106,6 +106,31 @@ withTmpDir(function(dir) {
   assert.ok(!fs.existsSync(file + '.tmp'));
 });
 
+// ── writeJSONAtomic (object / non-array payloads) ───────────────────────
+
+withTmpDir(function(dir) {
+  // object payload — matches auto-fix-state.json shape
+  var file = path.join(dir, 'state.json');
+  store.writeJSONAtomic(file, { pendingCommits: { recipe1: { state: 'loading' } } });
+  assert.deepStrictEqual(
+    JSON.parse(fs.readFileSync(file, 'utf-8')),
+    { pendingCommits: { recipe1: { state: 'loading' } } }
+  );
+  assert.ok(!fs.existsSync(file + '.tmp'));
+});
+
+withTmpDir(function(dir) {
+  // null and primitives serialize cleanly too
+  var file = path.join(dir, 'val.json');
+  store.writeJSONAtomic(file, null);
+  assert.strictEqual(fs.readFileSync(file, 'utf-8'), 'null');
+});
+
+(function() {
+  // backward-compat: writeArrayAtomic and writeJSONAtomic share an impl
+  assert.strictEqual(store.writeArrayAtomic, store.writeJSONAtomic);
+})();
+
 // ── end-to-end: corrupt file is preserved across a write cycle ──────────
 
 withTmpDir(function(dir) {
