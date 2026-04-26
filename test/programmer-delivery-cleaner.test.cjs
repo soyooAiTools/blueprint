@@ -156,6 +156,12 @@ try {
   assert.match(baseEntityCode, /string FallbackEntityId\(\)/);
   assert.match(baseEntityCode, /ApplyDomainName\(SourceObject\);/);
   assert.match(baseEntityCode, /current\.StartsWith\("__Pool_"\)/);
+  // 反馈 01 #5: BaseGameFlowEntity 必须提供 MoveToPosition lerp tween,运行中位移不瞬移。
+  assert.match(baseEntityCode, /using System\.Collections;/);
+  assert.match(baseEntityCode, /public virtual void MoveToPosition\(Vector3 target, float duration = 0\.4f\)/);
+  assert.match(baseEntityCode, /private IEnumerator MoveToPositionCoroutine/);
+  assert.match(baseEntityCode, /Vector3\.LerpUnclamped\(startPos, target, t\)/);
+  assert.match(baseEntityCode, /StartCoroutine\(MoveToPositionCoroutine/);
   assert.ok(fs.existsSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md')));
   assert.ok(fs.existsSync(path.join(tmp, 'CODE_RELATION_GRAPH.md')));
   assert.ok(fs.existsSync(path.join(tmp, 'CODE_RELATION_GRAPH.html')));
