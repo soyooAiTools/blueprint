@@ -148,6 +148,8 @@ try {
   assert.match(npcBaseSrc, /public class NPCBase : BaseGameFlowEntity/);
   assert.match(npcBaseSrc, /void SetTarget\(Vector3 target\)/);
   assert.match(npcBaseSrc, /void TickPatrol\(float dt\)/);
+  // 到达目标时必须 snap 到 TargetPosition,不能停在 ~0.1 单位前。
+  assert.match(npcBaseSrc, /SourceObject\.transform\.position\s*=\s*TargetPosition;/);
   assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BarrackEntity.cs'), 'utf8'), /蓝图实体 ID/);
   // 反馈 01: Bind 必须把 Unity primitive 默认名替换为领域名,运行时 Hierarchy 不留未命名物体。
   const baseEntityCode = fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BaseGameFlowEntity.cs'), 'utf8');
