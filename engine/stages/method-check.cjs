@@ -1098,13 +1098,14 @@ function autoRepairDuplicateSimpleFields(ctx) {
     var fileChanged = false;
     var depth = 0;
     var currentClass = null;
+    var classDepth = 0;
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
-      if (depth === 0) {
+      if (!currentClass) {
         var classMatch = classDeclRe.exec(line);
-        if (classMatch) currentClass = classMatch[1];
+        if (classMatch) { currentClass = classMatch[1]; classDepth = depth; }
       }
-      var m = depth === 1 ? simpleFieldLineRe.exec(line) : null;
+      var m = (currentClass && depth === classDepth + 1) ? simpleFieldLineRe.exec(line) : null;
       if (m) {
         var fieldName = m[1];
         var classKey = currentClass || '__GLOBAL__';
@@ -1122,7 +1123,7 @@ function autoRepairDuplicateSimpleFields(ctx) {
       var closes = (line.match(/\}/g) || []).length;
       depth += opens - closes;
       if (depth < 0) depth = 0;
-      if (depth === 0 && closes > 0) currentClass = null;
+      if (currentClass && depth <= classDepth && closes > 0) { currentClass = null; classDepth = 0; }
     }
     return { changed: fileChanged, code: resultLines.join('\n') };
   }
@@ -1161,13 +1162,14 @@ function autoRepairDuplicateObjectFields(ctx) {
     var fileChanged = false;
     var depth = 0;
     var currentClass = null;
+    var classDepth = 0;
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
-      if (depth === 0) {
+      if (!currentClass) {
         var classMatch = classDeclRe.exec(line);
-        if (classMatch) currentClass = classMatch[1];
+        if (classMatch) { currentClass = classMatch[1]; classDepth = depth; }
       }
-      var m = depth === 1 ? objectFieldLineRe.exec(line) : null;
+      var m = (currentClass && depth === classDepth + 1) ? objectFieldLineRe.exec(line) : null;
       if (m) {
         var fieldName = m[1];
         var classKey = currentClass || '__GLOBAL__';
@@ -1185,7 +1187,7 @@ function autoRepairDuplicateObjectFields(ctx) {
       var closes = (line.match(/\}/g) || []).length;
       depth += opens - closes;
       if (depth < 0) depth = 0;
-      if (depth === 0 && closes > 0) currentClass = null;
+      if (currentClass && depth <= classDepth && closes > 0) { currentClass = null; classDepth = 0; }
     }
     return { changed: fileChanged, code: resultLines.join('\n') };
   }
