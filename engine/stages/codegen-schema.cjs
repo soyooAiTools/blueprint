@@ -12,6 +12,8 @@ var { generateSkeleton } = require('../../adapters/skeleton-generator.cjs');
 var { resolveEntities } = require('../../adapters/entity-resolver.cjs');
 var assemblyEmitter = require('../../adapters/assembly-emitter.cjs');
 var templateEngine = require('../../adapters/codegen-template-engine.cjs');
+var templateOutputValidator = require('../../adapters/template-output-validator.cjs');
+var triggerNormalizer = require('../../adapters/deterministic-trigger-normalizer.cjs');
 var schemaValidator = require('../../adapters/schema/validate-schema.cjs');
 var commentLocalizer = require('../../lib/csharp-comment-localizer.cjs');
 
@@ -131,6 +133,30 @@ module.exports = {
         if (commentStats.changed) {
           ctx.addLog('codegen-schema', 'Localized generated C# comments to Chinese: ' +
             commentStats.localizedComments + ' comment(s) in ' + commentStats.changedFiles + '/' + commentStats.files + ' file(s)');
+        }
+        // Deterministic post-fill validation. Records on blueprint so review's
+        // skip-LLM gate can use it; never throws — review still runs to fix.
+        try {
+          var validation = templateOutputValidator.validateFromContext(ctx);
+          ctx.blueprint.templateValidation = {
+            passed: validation.passed,
+            criticalCount: validation.summary.criticalCount,
+            summary: validation.summary,
+            issues: validation.issues.slice(0, 20),
+          };
+          var s = validation.summary;
+          ctx.addLog('codegen-schema', 'Template validation: ' + (validation.passed ? 'PASS' : 'FAIL') +
+            ' — phases ' + s.phaseImplemented + '/' + s.phaseExpected +
+            ', npc def/call ' + s.npcDefined + '/' + s.npcChecked + '·' + s.npcCalled + '/' + s.npcChecked +
+            ', residue=' + s.markerResidueCount +
+            (validation.passed ? '' : ', critical=' + s.criticalCount));
+          if (!validation.passed) {
+            var top = validation.issues.slice(0, 3).map(function(i) { return i.rule + ': ' + i.message; }).join(' | ');
+            ctx.addLog('codegen-schema', 'Template validation issues (top 3): ' + top);
+          }
+        } catch (e) {
+          ctx.addLog('codegen-schema', 'Template validator threw (non-fatal): ' + e.message);
+          ctx.blueprint.templateValidation = { passed: false, error: e.message };
         }
         return result;
       });
@@ -378,6 +404,39 @@ function parseAndValidateSchemaResponse(ctx, text) {
   }
   if (validation.allErrors.length > 0) {
     throw new Error('Schema validation failed: ' + validation.allErrors.join('; '));
+  }
+
+  // 2026-04-27: deterministic trigger normalizer (opt-in via env var).
+  // Mode 'shadow' logs LLM↔derivation mismatches without mutating; 'apply'
+  // rewrites mismatched triggers from the spec's requiredInteractions DSL.
+  // Default 'off' so this ships dark — wire it on by setting
+  // DETERMINISTIC_TRIGGER_NORMALIZE=shadow in worker .env once we're ready
+  // to gather production data.
+  try {
+    var trigResult = triggerNormalizer.maybeNormalize(schema, ctx.blueprint && ctx.blueprint.specs);
+    if (trigResult.mode !== 'off') {
+      var disagree = trigResult.diagnostics.filter(function(d) { return d.status === 'disagree'; });
+      var noDeriv = trigResult.diagnostics.filter(function(d) { return d.status === 'no-derivation'; }).length;
+      ctx.addLog('codegen-schema',
+        'Trigger normalizer (' + trigResult.mode + '): ' + disagree.length +
+        ' disagree, ' + noDeriv + ' no-derivation, ' + trigResult.applied + ' applied');
+      if (disagree.length > 0) {
+        var sample = disagree.slice(0, 3).map(function(d) {
+          return d.phaseId + ' [llm=' + JSON.stringify(d.llmTrigger) +
+            ' derived=' + JSON.stringify(d.derivedTrigger) + ']';
+        }).join('; ');
+        ctx.addLog('codegen-schema', 'Trigger normalizer disagreements (first 3): ' + sample);
+      }
+      ctx.blueprint.triggerNormalizer = {
+        mode: trigResult.mode,
+        applied: trigResult.applied,
+        disagreeCount: disagree.length,
+        noDerivCount: noDeriv,
+        agreeCount: trigResult.diagnostics.filter(function(d) { return d.status === 'agree'; }).length,
+      };
+    }
+  } catch (e) {
+    ctx.addLog('codegen-schema', 'Trigger normalizer failed (non-blocking): ' + e.message);
   }
 
   return schema;

@@ -620,6 +620,31 @@ module.exports = {
             var buildError = buildResult.error || '';
             ctx.addLog('compile', 'Build failed: ' + buildError.slice(0, 1000));
 
+            // 2026-04-27: deterministic CS0103 hallucination patcher (opt-in).
+            // PATCH_ANALYZER_AUTO_STUB=safe injects null-guarded stubs for
+            // hallucinated helpers (e.g. SafeSetText, top compile failure
+            // at 60 occ/week). Default 'off' — analysis-only. Saves 1+ Sonnet
+            // recode round per affected build.
+            try {
+              var patchAnalyzer = require('../patch-analyzer.cjs');
+              var patched = patchAnalyzer.maybePatch(lastCsCode, buildError);
+              if (patched.analysis && patched.analysis.totalCS0103 > 0) {
+                var topNames = Object.keys(patched.analysis.undeclaredNames)
+                  .map(function(n) { return n + '×' + patched.analysis.undeclaredNames[n]; })
+                  .slice(0, 5).join(', ');
+                ctx.addLog('compile', 'CS0103 analysis (' + patched.mode + '): ' +
+                  patched.analysis.totalCS0103 + ' undeclared, top: ' + topNames);
+              }
+              if (patched.changed) {
+                lastCsCode = patched.code;
+                ctx.addLog('compile', 'Patch analyzer injected stubs: ' + patched.injected.join(', ') +
+                  ' — retrying build before LLM recode');
+                return { done: false }; // skip recode, let next loop iteration rebuild
+              }
+            } catch (e) {
+              ctx.addLog('compile', 'Patch analyzer failed (non-blocking): ' + e.message);
+            }
+
             // Same-error early exit: signature on first ~200 chars of error.
             // CS error codes (e.g. "CS0117") plus the offending identifier are typically captured here.
             // We count occurrences across ALL rounds (not just consecutive), so an A->B->A->B

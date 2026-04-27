@@ -34,6 +34,9 @@ function summarizeRules(issues, limit) {
 function isAssemblyReadyForDeterministicReview(ctx, staticWarnings, specCriticalCount) {
   if (process.env.DISABLE_ASSEMBLY_REVIEW_SKIP === 'true') return false;
   var blueprint = ctx && ctx.blueprint || {};
+  if (specCriticalCount > 0) return false;
+  if (!Array.isArray(staticWarnings)) return false;
+
   var plans = blueprint.plans || {};
   var assemblyPlan = plans.assemblyPlan || {};
   var unresolvedCount = Array.isArray(assemblyPlan.unresolved)
@@ -44,13 +47,34 @@ function isAssemblyReadyForDeterministicReview(ctx, staticWarnings, specCritical
   var missingImpl = Number(blueprint.assemblyImplementationMissingCount || 0);
   var assemblyCoverage = Number(blueprint.assemblyCoverage);
   if (!isFinite(assemblyCoverage)) assemblyCoverage = 0;
-  if (specCriticalCount > 0) return false;
-  if (blueprint.assemblyDecision !== 'assembly_ready') return false;
-  if (blueprint.assemblyFallbackRequired) return false;
-  if (assemblyCoverage < 0.999) return false;
-  if (implementationCoverage < 0.999) return false;
-  if (missingImpl !== 0 || unresolvedCount !== 0) return false;
-  return Array.isArray(staticWarnings);
+
+  var assemblyReady =
+    blueprint.assemblyDecision === 'assembly_ready' &&
+    !blueprint.assemblyFallbackRequired &&
+    assemblyCoverage >= 0.999 &&
+    implementationCoverage >= 0.999 &&
+    missingImpl === 0 &&
+    unresolvedCount === 0;
+  if (assemblyReady) return true;
+
+  // 2026-04-27: Alternate template-output gate. When the schema-driven template
+  // engine produces structurally complete code (validator passes + no residual
+  // TODOs + high template coverage), there is nothing for the LLM reviewer to
+  // catch that static-check + method-check + compile won't already enforce.
+  // Skipping LLM here saves ~15K Codex tokens and ~30s wall time per task.
+  var templateValidation = blueprint.templateValidation;
+  var templateCoverage = Number(blueprint.templateCoverage);
+  if (!isFinite(templateCoverage)) templateCoverage = 0;
+  var todoSectionsRemaining = Number(blueprint.todoSectionsRemaining);
+  if (!isFinite(todoSectionsRemaining)) todoSectionsRemaining = -1;
+
+  var templateGate =
+    templateValidation && templateValidation.passed === true &&
+    templateCoverage >= 0.95 &&
+    todoSectionsRemaining === 0;
+  if (templateGate) return true;
+
+  return false;
 }
 
 function repairUpdateGameStateBridge(code) {
@@ -2246,10 +2270,16 @@ module.exports = {
         if (!reviewPromise) {
           if (isAssemblyReadyForDeterministicReview(ctx, preCheckWarnings, specCriticalCount)) {
             reviewerName = 'Deterministic';
-            ctx.addLog('review', 'Assembly deterministic review gate passed — skipping Codex reviewer (static warnings=' + preCheckWarnings.length + ')');
+            var bp = ctx.blueprint || {};
+            var gate = (bp.assemblyDecision === 'assembly_ready') ? 'assembly-ready' : 'template-output';
+            var tv = bp.templateValidation || {};
+            ctx.addLog('review', 'Deterministic review gate passed (' + gate + ') — skipping Codex reviewer ' +
+              '(static warnings=' + preCheckWarnings.length +
+              (gate === 'template-output' ? ', templateCoverage=' + Number(bp.templateCoverage || 0).toFixed(2) +
+                ', residueCount=' + ((tv.summary && tv.summary.markerResidueCount) || 0) : '') + ')');
             reviewPromise = Promise.resolve({
               passed: true,
-              source: 'assembly-deterministic-review',
+              source: 'deterministic-review-' + gate,
               issues: preCheckWarnings,
               warningCount: preCheckWarnings.length,
               reviewerName: 'Deterministic',
