@@ -315,12 +315,12 @@ module.exports.init = function(ctx) {
         assigned:    { target: 'processing', compatible: ['assigned', 'processing', 'building', 'developing'] },
         processing:  { target: 'processing', compatible: ['processing', 'building', 'developing', 'preview_ready'] },
         building:    { target: 'building',   compatible: ['building', 'processing', 'preview_ready'] },
-        preview_ready:{ target: 'preview_ready', compatible: ['preview_ready', 'reviewing', 'approved', 'committed'] },
+        preview_ready:{ target: 'preview_ready', compatible: ['preview_ready', 'reviewing', 'feedback', 'approved', 'committed'] },
         fix_needed:  { target: 'processing', compatible: ['processing', 'building', 'preview_ready'] },
-        failed:      { target: 'failed',     compatible: ['failed'] },
-        done:        { target: 'reviewing',  compatible: ['reviewing', 'approved', 'committed'] },
-        cua_passed:  { target: 'reviewing',  compatible: ['reviewing', 'approved', 'committed'] },
-        completed:   { target: 'reviewing',  compatible: ['reviewing', 'approved', 'committed'] },
+        failed:      { target: 'failed',     compatible: ['failed', 'feedback'] },
+        done:        { target: 'reviewing',  compatible: ['reviewing', 'feedback', 'approved', 'committed'] },
+        cua_passed:  { target: 'reviewing',  compatible: ['reviewing', 'feedback', 'approved', 'committed'] },
+        completed:   { target: 'reviewing',  compatible: ['reviewing', 'feedback', 'approved', 'committed'] },
         cancelled:   { target: 'cancelled',  compatible: ['cancelled', 'committed'] },
       };
 

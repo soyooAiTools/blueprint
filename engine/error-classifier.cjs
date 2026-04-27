@@ -153,6 +153,22 @@ function classify(err, context) {
   var msg = unwrapMessage(err);
   var ctx = context || {};
 
+  // 2026-04-27: fix-loop circuit breaker is terminal by definition. Tagged via
+  // err.code = 'FIX_LOOP_CIRCUIT_BREAKER' from engine/fix-loop.cjs. Without this
+  // check the wrapper message ("aborted: same CODE error repeated N rounds, fix-loop
+  // not converging: ...") matches no FATAL pattern and falls through to default
+  // CODE → outer worker re-runs whole task → re-aborts → 5o2lyu burned 13 abort
+  // cycles before the watchdog finally cancelled it (regressions.json count=21
+  // since 2026-04-23 mostly came from this single task).
+  if (err && err.code === 'FIX_LOOP_CIRCUIT_BREAKER') {
+    return { type: 'FATAL', retryable: false, backoffMs: 0, reason: msg };
+  }
+  // Defense-in-depth: also pattern-match the message in case the error is reconstructed
+  // (unwrapping, JSON round-trips, IPC) and loses the .code field.
+  if (/aborted: same CODE error repeated \d+ rounds, fix-loop not converging/i.test(msg)) {
+    return { type: 'FATAL', retryable: false, backoffMs: 0, reason: msg };
+  }
+
   // Highest priority: definitive model failures (quota / auth / invalid-key / preflight).
   // Route these to MODEL_FATAL so the worker can cancel the task outright instead of
   // burning retries or silently passing review. See project_pipeline_fixes_20260415.md.

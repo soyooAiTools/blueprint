@@ -298,12 +298,23 @@ function summarizePlayableAgentReport(report, taskId, log) {
 
   const silentPassSignals = [];
   const totalActions = (report.actions || []).length;
-  if (totalActions === 0 && passed) {
+  // zero-actions is only a silent-pass signal in *interactive* runs.
+  // In observe/autoplay mode the agent intentionally never acts — the gameplay
+  // is driven by OnAutoPlayArrive / autoplay timers — so 0 actions is the
+  // contract, not a regression. Reporting it as silent-pass produced 9
+  // baseline alerts that could never be cleared (see silent-passes.json).
+  if (totalActions === 0 && passed && !isAutoPlayMode) {
     silentPassSignals.push('zero-actions');
   }
   const phaseTs = (finalState.phaseTimestamps) ? finalState.phaseTimestamps : {};
   const tsValues = Object.values(phaseTs).filter(t => typeof t === 'number' && t > 0).sort((a, b) => a - b);
-  if (tsValues.length > 3) {
+  // Uniform phase timing (cv<15%) is a silent-pass tell only for *interactive*
+  // runs — observe/autoplay deliberately advances each phase via a uniform
+  // timer (`phaseTimer >= 12f` gate in skeleton-generator.cjs), so a cv near
+  // 0% is the contract, not a regression. hardBlockingSignals already
+  // suppressed this in autoplay; mirror that here so silent-passes.json and
+  // metric `cuaSilentPass` don't carry the false alarm forward.
+  if (tsValues.length > 3 && !isAutoPlayMode) {
     const intervals = [];
     for (let ti = 1; ti < tsValues.length; ti++) intervals.push(tsValues[ti] - tsValues[ti - 1]);
     const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
@@ -320,6 +331,22 @@ function summarizePlayableAgentReport(report, taskId, log) {
     const gameEndIdx = completedList.indexOf('gameEnd');
     if (gameEndIdx >= 0 && gameEndIdx < completedList.length - 1) {
       silentPassSignals.push('phase-order-violation:gameEnd-not-last');
+    }
+  }
+  // 2026-04-27 silent-pass strict observe-mode: validate each completed phase
+  // had >0 OnAutoPlayArrive steps. Skeleton's phase gate already requires
+  // _autoPlaySteps > _autoPlayStepsAtPhaseStart in realCondition (skeleton-generator.cjs:236),
+  // so any phase reaching `completedPhases` SHOULD have >0 steps. If it doesn't,
+  // a future skeleton change or LLM-injected bypass let the gate slip.
+  // This is hardBlocking in observe mode only — interactive runs do not advance via OnAutoPlayArrive.
+  if (isAutoPlayMode && passed) {
+    const phaseSteps = report.phaseStepsSnapshot || {};
+    const zeroStepPhases = Object.keys(phaseSteps).filter(function(p) {
+      return p !== 'gameEnd' && Number(phaseSteps[p]) === 0;
+    });
+    if (zeroStepPhases.length > 0) {
+      silentPassSignals.push('autoplay-zero-steps:' + zeroStepPhases.slice(0, 4).join(',') +
+        (zeroStepPhases.length > 4 ? '+' + (zeroStepPhases.length - 4) + ' more' : ''));
     }
   }
   if (allVarsZero && interactionKeys.length >= 2) {
@@ -339,7 +366,8 @@ function summarizePlayableAgentReport(report, taskId, log) {
         || s.indexOf('phase-order-violation') === 0
         || s.indexOf('all-vars-zero') === 0
         || s.indexOf('batch-completion') === 0
-        || s.indexOf('no-phase-timestamps') === 0;
+        || s.indexOf('no-phase-timestamps') === 0
+        || s.indexOf('autoplay-zero-steps') === 0;
   });
   var effectivePassed = passed;
   if (passed && hardBlockingSignals.length > 0) {

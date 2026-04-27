@@ -566,5 +566,17 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-b59e7466.md"
+  },
+  {
+    "id": "auto-fb07a3a6",
+    "fingerprintPattern": "silent-pass-block autoplay-zero-steps",
+    "description": "autoplay-zero-steps diagnosis branch shadowed by generic autoplay substring check, giving Claude inverted fix advice → infinite fingerprint repeat → FATAL",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/cua-verify.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-fb07a3a6.md"
   }
 ]

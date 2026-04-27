@@ -119,6 +119,15 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
     rootCause = 'phase_transition_broken';
   } else if (allIssueText.indexOf('null') >= 0 || allIssueText.indexOf('error') >= 0 || allIssueText.indexOf('exception') >= 0) {
     rootCause = 'runtime_error';
+  } else if (allIssueText.indexOf('autoplay-zero-steps') >= 0) {
+    // 2026-04-27 (auto-fb07a3a6 + jv3sij regression): MUST come BEFORE the generic
+    // 'autoplay' substring branch — `autoplay-zero-steps` contains 'autoplay' and
+    // would otherwise route to autoplay_or_idle, whose advice tells Claude to
+    // DISABLE autoplay (playerMustAct=true). In observe-mode (autoPlay enabled by
+    // design) that is the exact opposite of the correct fix and renders every
+    // recode round ineffective → fingerprint repeat → FATAL at round 3. jv3sij
+    // hit this twice across outer retries before the recipe was applied.
+    rootCause = 'autoplay_zero_steps';
   } else if (allIssueText.indexOf('autoplay') >= 0 || allIssueText.indexOf('idle') >= 0) {
     rootCause = 'autoplay_or_idle';
   } else if (allIssueText.indexOf('batch') >= 0 && allIssueText.indexOf('completion') >= 0) {
@@ -162,6 +171,12 @@ function _buildStuckDiagnosis(cuaResult, stuckAtPhase, issueCategory, noProgress
     phase_transition_broken: 'Phase transition condition never becomes true. Check: (1) the trigger condition variable is actually modified by gameplay, (2) AddCompletedPhase is called with correct phaseId, (3) no early return before the transition check.',
     runtime_error: 'Runtime errors prevent execution. Check: (1) GameObject.Find returns null for missing objects, (2) array index out of bounds, (3) division by zero.',
     autoplay_or_idle: 'Game progresses without user input. Check: (1) phase transitions require playerMustAct=true, (2) timer-only transitions should not exist, (3) autoAllowed=false phases must wait for user action.',
+    autoplay_zero_steps: 'Observe-mode/autoPlay run completed phases by TIMER alone — no OnAutoPlayArrive calls fired for the listed phases.\n' +
+      '⛔ DO NOT disable autoplay (do NOT set playerMustAct=true / autoAllowed=false). Observe-mode REQUIRES autoplay to be enabled by design.\n' +
+      '⛔ DO NOT reduce phaseTimer/safety-net thresholds — that masks the bug.\n' +
+      'Root cause: the listed phases are advancing solely because the 50f safety-net timer expired, not because game logic produced an OnAutoPlayArrive event.\n' +
+      'Fix: For EACH listed phase, implement an autoPlay tap target and OnAutoPlayArrive(target) handler that performs the same gameplay action a real player would (collect resource, attack enemy, deliver item, click button). The skeleton calls OnAutoPlayArrive() when the autoPlay driver "moves" the player to a target; if your phase has no target or the handler is empty, autoPlayStepsThisPhase stays 0 and this signal fires.\n' +
+      'Verify: After your fix, each listed phase must produce autoPlayStepsThisPhase > 0 in __gameState — i.e. OnAutoPlayArrive must be called at least once before the phase completes.',
     spec_phase_skipped: 'CUA reports [spec-phase-skipped]: the blueprint spec phases were never triggered by the game. The AddCompletedPhase() calls for one or more phases are either missing, gated behind a condition that never becomes true, or using the wrong phaseId string. Fix: (1) Verify every spec phase has a corresponding AddCompletedPhase("exact-phase-id") call. (2) Confirm the trigger condition for the blocked phase is actually evaluated each Update tick. (3) Check that phaseId strings match EXACTLY — see expected IDs below. (4) Ensure the phase gate (e.g. currentPhase == PhaseN) is not short-circuited by an early return.',
   };
 
@@ -535,7 +550,12 @@ module.exports = {
                     || s.indexOf('phase-order-violation') === 0
                     || s.indexOf('all-vars-zero') === 0
                     || s.indexOf('batch-completion') === 0
-                    || s.indexOf('no-phase-timestamps') === 0;
+                    || s.indexOf('no-phase-timestamps') === 0
+                    // 2026-04-27 (auto-fb07a3a6 sync gap): mirror worker-playableagent.js:370.
+                    // Without this entry the engine's own filter quietly drops the signal even
+                    // though the worker hard-blocks on it, so the engine sees passed=true and
+                    // promotes a silent-pass run.
+                    || s.indexOf('autoplay-zero-steps') === 0;
               });
 
               // 2026-04-20 D1: 7th silent-pass layer — low-phase-coverage.

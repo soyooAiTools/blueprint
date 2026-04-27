@@ -1270,6 +1270,198 @@ var RULES = [
       return issues;
     },
   },
+  { id: 'camera-background-override', pattern: null, blocking: true,
+    // 2026-04-27 ksgqw6/jv3sij post-mortem: codex reviewer kept flagging
+    // "Camera.backgroundColor changed to (0.55, 0.78, 0.92) violates skeleton preset"
+    // round after round; fix-loop never converged. The skeleton already emits
+    // exactly ONE assignment in Start() (mainCam.backgroundColor = new Color(...)).
+    // Any additional assignment is an AI override that breaks solid-color-screen
+    // prevention. Count assignments and block when >1.
+    message: 'Camera.backgroundColor must remain at the skeleton preset (0.45, 0.52, 0.62) — only the skeleton\'s Start() assignment is allowed, do not reassign in AI code.',
+    custom: function(code, ctx) {
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); });
+      var re = /(?:Camera|mainCam)\s*\.\s*backgroundColor\s*=/g;
+      var hits = [];
+      var m;
+      while ((m = re.exec(stripped)) !== null) hits.push(m.index);
+      if (hits.length <= 1) return [];
+      // First hit is the skeleton's own preset assignment — every subsequent hit is an AI override.
+      return hits.slice(1).map(function(idx) {
+        return { line: code.substring(0, idx).split('\n').length, text: 'Extra Camera.backgroundColor assignment overrides skeleton preset (must keep only the Start() assignment).' };
+      });
+    },
+  },
+  { id: 'player-alias-drift', pattern: null, blocking: true,
+    // 2026-04-27 ksgqw6/jv3sij post-mortem: skeleton declares `GameObject player;`
+    // (lowercase, line 616 in skeleton-generator.cjs). AI-generated code keeps
+    // writing `Player.transform`, `Player.gameObject`, `Player.name` because
+    // PascalCase feels natural for a class. This is a compile-time error in the
+    // partial class. Both failed projects burned 4 fix-loop rounds on this exact
+    // same critical without ever fixing it. Block deterministically.
+    message: 'Player (capital P) is undeclared — the skeleton field is lowercase `player`. Use `player.transform` / `player.gameObject` / `player.name` instead.',
+    custom: function(code, ctx) {
+      // Only meaningful when skeleton declares lowercase player and not Player as a class.
+      var hasLowercaseField = /\bGameObject\s+player\s*[;=]/.test(code);
+      if (!hasLowercaseField && ctx && ctx.extraFiles) {
+        Object.keys(ctx.extraFiles).forEach(function(k) {
+          var src = ctx.extraFiles[k] || '';
+          if (/\bGameObject\s+player\s*[;=]/.test(src)) hasLowercaseField = true;
+        });
+      }
+      if (!hasLowercaseField) return [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); });
+      // \bPlayer\b\. matches `Player.foo` but not `PlayerCharacter.foo` or `_player.foo`.
+      var re = /\bPlayer\b\s*\./g;
+      var issues = [];
+      var m;
+      while ((m = re.exec(stripped)) !== null) {
+        issues.push({
+          line: code.substring(0, m.index).split('\n').length,
+          text: '`Player.` is undeclared — use lowercase `player.` (skeleton-bound field).',
+        });
+      }
+      return issues;
+    },
+  },
+  { id: 'uninit-player-field', pattern: null, blocking: true,
+    // 2026-04-27 systemic root-cause: skeleton declares `GameObject player;` (line 616
+    // skeleton-generator.cjs) and the suggested init `player = GFM_Player.Instance.Go;`
+    // is left COMMENTED OUT (line 993) so games without a player don't force a binding.
+    // AI codegen consistently writes `player.transform.position` everywhere WITHOUT ever
+    // uncommenting the init, producing 70-154 null transform crashes per frame at
+    // visual-precheck. Affected: jv3sij(154+114), 8a6j7u(106+70), 5o2lyu(3-5 via
+    // ShowFloatingText/CreateText). Each burned ~25min build + visual-precheck before
+    // failing. Block deterministically: if `player.<x>` is read anywhere but no real
+    // assignment exists across all source files, fail compile and feed back the fix.
+    message: '`player` field is read but never assigned — uncomment `player = GFM_Player.Instance.Go;` in Start() (or assign from your scene-binding) BEFORE any `player.transform`/`player.gameObject` access. Accessing `.transform` on an uninitialized GameObject throws hundreds of null-ref crashes per frame in Luna.',
+    custom: function(code, ctx) {
+      // staticCheckProject runs each extra file with extraFiles={}, which would make
+      // a cross-file rule like this one false-positive on extras whose assignment lives
+      // in the main file. Only run on the main-file pass (where extras are populated)
+      // OR when no companion files exist at all (single-file scenario).
+      if (ctx && ctx.filename && ctx.filename !== 'GameFlowManagerMain.cs') {
+        if (!ctx.extraFiles || Object.keys(ctx.extraFiles).length === 0) {
+          // Single-file mode (no companions registered) — proceed.
+        } else {
+          return [];
+        }
+      }
+      function stripComments(src) {
+        return String(src || '')
+          .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+          .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); });
+      }
+      // Aggregate all source files (current + extras) for declaration/assignment scan.
+      var allSources = [stripComments(code)];
+      if (ctx && ctx.extraFiles) {
+        var keys = Object.keys(ctx.extraFiles);
+        for (var i = 0; i < keys.length; i++) {
+          allSources.push(stripComments(ctx.extraFiles[keys[i]] || ''));
+        }
+      }
+      // Declaration: `GameObject player` somewhere.
+      var declared = false;
+      for (var d = 0; d < allSources.length; d++) {
+        if (/\bGameObject\s+player\s*[;=]/.test(allSources[d])) { declared = true; break; }
+      }
+      if (!declared) return [];
+
+      // Assignment: `player =` (NOT ==, NOT =>, NOT inside a declaration like
+      // `GameObject player = ...` which would also count as init — the regex above
+      // already accepts `=` after declaration). Look for standalone `player\s*=\s*[^=>]`.
+      // Local-variable shadowing like `var player = …;` (e.g. GFM_AutoPlay's own local)
+      // doesn't init the field, so we exclude `\bvar\s+player\s*=`.
+      var assigned = false;
+      for (var a = 0; a < allSources.length; a++) {
+        var src = allSources[a];
+        // Match field assignment: line starting with optional whitespace, then `player`
+        // (not preceded by `var`/`GameObject`/`.`), then `= <not = or >>>`. Also catches
+        // `GameObject player = ...` as a declaration-with-init.
+        if (/(?:^|[\s;{}])(?:GameObject\s+)?player\s*=\s*[^=>\s]/m.test(src)) {
+          // Reject `var player =` (local shadow)
+          if (!/\bvar\s+player\s*=/.test(src) || /(?:^|[\s;{}])player\s*=\s*[^=>\s]/m.test(src)) {
+            assigned = true;
+            break;
+          }
+        }
+      }
+      if (assigned) return [];
+
+      // Reads in current file: `player.<member>` (any member access). Only emit issues
+      // for the file currently being checked; the global "no assignment" check covers
+      // the cross-file case.
+      var stripped = stripComments(code);
+      var re = /\bplayer\s*\.\s*\w/g;
+      var issues = [];
+      var m;
+      var seenLines = {};
+      while ((m = re.exec(stripped)) !== null) {
+        // Exclude `_player.` / `myPlayer.` etc. — \b means we already excluded those,
+        // but `var player =` local could create a real read; skip if preceded by `var ` recently.
+        var line = code.substring(0, m.index).split('\n').length;
+        if (seenLines[line]) continue;
+        seenLines[line] = true;
+        issues.push({
+          line: line,
+          text: '`player.<member>` read but `player` field is never assigned anywhere in this codebase — uncomment the `player = GFM_Player.Instance.Go;` init in Start().',
+        });
+      }
+      return issues;
+    },
+  },
+  { id: 'invalid-pool-literals', pattern: null, blocking: true,
+    // 2026-04-27 ksgqw6 post-mortem: codex reviewer kept flagging invented pool
+    // names like __Pool_Sphere_Yellow_02/03/04. Existing rule `invalid-pool-find-name`
+    // only catches GameObject.Find("__Pool_*"); when the AI puts the names directly
+    // into _entityBindingPools array literal or Register("X", "__Pool_Bogus") calls,
+    // they slip through. Validate ALL "__Pool_*" string literals against entityPoolMap.
+    // The skeleton's own _entityBindingPools array is built from entityPoolMap, so its
+    // entries are valid by construction — this rule only catches AI-invented variants.
+    message: 'String literal references a __Pool_* name outside the approved entityPoolMap — only blueprint-approved pool names may be used.',
+    custom: function(code, ctx) {
+      var blueprint = ctx && ctx.blueprint;
+      var entityPoolMap = blueprint && blueprint.entityPoolMap ? blueprint.entityPoolMap : null;
+      if (!entityPoolMap) return [];
+      var allowed = {};
+      Object.keys(entityPoolMap).forEach(function(k) {
+        if (entityPoolMap[k]) allowed[String(entityPoolMap[k])] = true;
+      });
+      // Skeleton always pre-creates a few infrastructure pools regardless of entityPoolMap;
+      // whitelist them so we don't flag legitimate references.
+      ['__Pool_Cube_White', '__Pool_Sphere_White', '__Pool_Cylinder_White', '__Ground'].forEach(function(p) { allowed[p] = true; });
+      if (Object.keys(allowed).length === 0) return [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); });
+      var seen = {};
+      var issues = [];
+      var re = /"(__Pool_[A-Za-z0-9_]+)"/g;
+      var m;
+      while ((m = re.exec(stripped)) !== null) {
+        var poolName = m[1];
+        if (allowed[poolName]) continue;
+        if (seen[poolName]) continue; // dedupe — one issue per invented name
+        seen[poolName] = true;
+        issues.push({
+          line: code.substring(0, m.index).split('\n').length,
+          text: '"' + poolName + '" is not in the approved entityPoolMap (allowed: ' + Object.keys(allowed).filter(function(k) { return k.indexOf('__Pool_') === 0; }).slice(0, 5).join(', ') + (Object.keys(allowed).length > 5 ? ', ...' : '') + ')',
+        });
+      }
+      return issues;
+    },
+  },
+  { id: 'forbidden-resources-shim', pattern: /\bclass\s+Resources\b/g, blocking: true,
+    // 2026-04-27 ksgqw6 round 4: AI defined `class Resources` with a generic
+    // method that disguised Resources.GetBuiltinResource(). Existing rule
+    // `builtin-resource` only catches the direct call; the shim slipped through
+    // because the call site reads as `MyResources.Get<T>(...)`. Block any AI-defined
+    // class named exactly `Resources` — there is never a legitimate reason to do this.
+    message: 'class Resources shim forbidden — Resources.GetBuiltinResource and generic Resources methods are unavailable in Luna; use skeleton-provided helpers instead of redefining the type.',
+  },
   { id: 'autoplay-fallback-in-ontap', pattern: null, blocking: true,
     message: 'AutoPlay fallback leaked into Phase_*_OnTap(); fallback belongs only in Phase_*_OnAutoPlayArrive().',
     custom: function(code, ctx) {
