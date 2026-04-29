@@ -11,6 +11,7 @@
 
 var fs = require('fs');
 var path = require('path');
+var shotDurationPolicy = require('../../lib/shot-duration-policy.cjs');
 
 // Load interaction verb whitelist
 var KNOWN_VERBS = {};
@@ -228,18 +229,14 @@ module.exports = {
         warnings.push(label + ': playerMustAct=false but autoAllowed=false — contradictory');
       }
 
-      // --- AUTO-FIX: duration sanity ---
-      if (spec.duration) {
-        if (spec.duration.min > spec.duration.max) {
-          autoFixes.push(label + ': duration min(' + spec.duration.min + ') > max(' + spec.duration.max + ') — swapped');
-          var tmp = spec.duration.min;
-          spec.duration.min = spec.duration.max;
-          spec.duration.max = tmp;
-        }
-        if (spec.duration.min <= 0) {
-          autoFixes.push(label + ': duration.min was ' + spec.duration.min + ' — set to 1');
-          spec.duration.min = 1;
-        }
+      // --- AUTO-FIX: review shot duration policy ---
+      var durationPolicy = shotDurationPolicy.normalizeReviewShotDuration(spec.duration);
+      if (durationPolicy.changed) {
+        spec.duration = durationPolicy.duration;
+        autoFixes.push(label + ': review shot duration normalized to ' +
+          spec.duration.min + '-' + spec.duration.max + 's (' + durationPolicy.fixes.join('; ') + ')');
+      } else if (!spec.duration) {
+        spec.duration = durationPolicy.duration;
       }
     }
 
@@ -418,14 +415,14 @@ module.exports = {
         totalMaxDuration += specs[di].duration.max || 0;
       }
     }
-    if (totalMaxDuration > 120) {
-      warnings.push('Total max duration is ' + totalMaxDuration + 's (>120s). ' +
-        'Playable ads should complete within 30-60s. CUA will timeout at 300s. ' +
-        'Consider shortening phase durations.');
+    if (totalMaxDuration > 300) {
+      warnings.push('Total max duration is ' + totalMaxDuration + 's (>300s). ' +
+        'Review-paced shots should stay inside the CUA timeout budget. ' +
+        'Consider reducing phase count or merging simple phases.');
     }
-    if (totalMinDuration < 5 && specs.length > 3) {
+    if (totalMinDuration < specs.length * shotDurationPolicy.REVIEW_SHOT_MIN_SECONDS) {
       warnings.push('Total min duration is only ' + totalMinDuration + 's for ' + specs.length + ' phases. ' +
-        'Phases may auto-complete too quickly — verify player interaction is required.');
+        'Review shot duration normalization may have been bypassed.');
     }
 
     // --- Log results ---

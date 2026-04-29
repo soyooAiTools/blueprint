@@ -472,12 +472,49 @@ public class Main : MonoBehaviour {
     expect(hit).toBeDefined();
   });
 
-  test('AUTO_PLAY_PHASE_DURATION >= 10 passes (skeleton uses 12)', () => {
+  test('AUTO_PLAY_PHASE_DURATION > 15 detected', () => {
     const code = `using UnityEngine;
 public class Main : MonoBehaviour {
-  float AUTO_PLAY_PHASE_DURATION = 12;
+  float AUTO_PLAY_PHASE_DURATION = 20f;
 }`;
     const hit = staticCheck(code).issues.find(i => i.rule === 'autoplay-duration-tamper');
+    expect(hit).toBeDefined();
+  });
+
+  test('AUTO_PLAY_PHASE_DURATION within 10-15 passes (skeleton uses 12)', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  float AUTO_PLAY_PHASE_DURATION = 12f;
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'autoplay-duration-tamper');
+    expect(hit).toBeUndefined();
+  });
+
+  test('unified autoPlay phase gate outside 10-15 is detected', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  bool _autoPlayMode;
+  float phaseTimer;
+  bool ruleTriggered;
+  void CheckEventRules() {
+    if (!ruleTriggered && phaseTimer >= (_autoPlayMode ? 8f : 3f)) {}
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'autoplay-phase-too-fast');
+    expect(hit).toBeDefined();
+  });
+
+  test('unified autoPlay phase gate at 12s passes', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  bool _autoPlayMode;
+  float phaseTimer;
+  bool ruleTriggered;
+  void CheckEventRules() {
+    if (!ruleTriggered && phaseTimer >= (_autoPlayMode ? 12f : 3f)) {}
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'autoplay-phase-too-fast');
     expect(hit).toBeUndefined();
   });
 

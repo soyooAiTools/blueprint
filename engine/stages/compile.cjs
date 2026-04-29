@@ -613,6 +613,37 @@ module.exports = {
                     ctx.addLog('compile', 'WARN: Failed to save C# source: ' + saveErr.message);
                   }
 
+                  // Wave 2 / C2-C3: write handoff docs + storyboard images alongside C# source
+                  try {
+                    var handoffGen = require('../../lib/handoff-doc-generator.cjs');
+                    var sourcesDirHd = path.join(config.SOURCES_DIR, ctx.taskId);
+                    var projectJsonPath = path.join(config.PROJECTS_DIR, ctx.taskId + '.json');
+                    if (fs.existsSync(projectJsonPath)) {
+                      var project = JSON.parse(fs.readFileSync(projectJsonPath, 'utf-8'));
+                      var docs = handoffGen.generateHandoffDocs(project, { dataDir: config.DATA_DIR });
+                      fs.writeFileSync(path.join(sourcesDirHd, 'HANDOFF_README.md'), docs.handoffMd, 'utf-8');
+                      fs.writeFileSync(path.join(sourcesDirHd, 'STORYBOARD.md'), docs.storyboardMd, 'utf-8');
+                      var copiedImages = 0;
+                      if (docs.imageFiles && docs.imageFiles.length) {
+                        var imgDstDir = path.join(sourcesDirHd, 'storyboard-images');
+                        fs.mkdirSync(imgDstDir, { recursive: true });
+                        docs.imageFiles.forEach(function(im) {
+                          try {
+                            if (fs.existsSync(im.src)) {
+                              fs.copyFileSync(im.src, path.join(sourcesDirHd, im.dstRel));
+                              copiedImages++;
+                            }
+                          } catch(_) {}
+                        });
+                      }
+                      ctx.addLog('compile', 'Handoff docs saved (HANDOFF_README.md + STORYBOARD.md + ' + copiedImages + ' images)');
+                    } else {
+                      ctx.addLog('compile', 'WARN: project JSON not found at ' + projectJsonPath + ' — handoff docs skipped');
+                    }
+                  } catch(handoffErr) {
+                    ctx.addLog('compile', 'WARN: Handoff doc generation failed (non-blocking): ' + handoffErr.message);
+                  }
+
                   return { done: true, result: { ok: true, buildTime: buildResult.buildTime, htmlSize: htmlData.length } };
                 });
             }

@@ -391,7 +391,16 @@ function buildDeterministicCameraZoomLines(moduleInstance, plans) {
   for (var i = 0; i < phaseMap.length; i++) {
     var orthoSize = Math.max(4, Math.min(12, 8 / (phaseMap[i].zoom || 1)));
     lines.push('            case "' + String(phaseMap[i].phaseId).replace(/"/g, '\\"') + '":');
-    lines.push('                mainCam.orthographicSize = ' + orthoSize.toFixed(2) + 'f;');
+    // Wave 3：走 GFM_CameraController.SetOrthographicSize 平滑过渡（~3 秒），
+    // 不要直接写 mainCam.orthographicSize 否则会 zoom 瞬变。
+    lines.push('                if (GFM_CameraController.Instance != null && GFM_CameraController.Instance.IsReady)');
+    lines.push('                {');
+    lines.push('                    GFM_CameraController.Instance.SetOrthographicSize(' + orthoSize.toFixed(2) + 'f);');
+    lines.push('                }');
+    lines.push('                else');
+    lines.push('                {');
+    lines.push('                    mainCam.orthographicSize = ' + orthoSize.toFixed(2) + 'f;');
+    lines.push('                }');
     lines.push('                break;');
   }
   lines.push('        }');
@@ -413,10 +422,19 @@ function buildDeterministicCameraLiftLines(moduleInstance, plans) {
     var zOffset = -8 - Math.max(0, height - 12) * 0.5;
     lines.push('            case "' + String(phaseMap[i].phaseId).replace(/"/g, '\\"') + '":');
     lines.push('                {');
-    lines.push('                    var __assemblyCamPos = mainCam.transform.position;');
-    lines.push('                    __assemblyCamPos.y = ' + height.toFixed(2) + 'f;');
-    lines.push('                    __assemblyCamPos.z = ' + zOffset.toFixed(2) + 'f;');
-    lines.push('                    mainCam.transform.position = __assemblyCamPos;');
+    // Wave 3：走 GFM_CameraController.SetCameraHeight 平滑过渡，不要直接写 mainCam.transform.position
+    // 否则会 lift 瞬移；fallback 路径只在 controller 未就绪时使用。
+    lines.push('                    if (GFM_CameraController.Instance != null && GFM_CameraController.Instance.IsReady)');
+    lines.push('                    {');
+    lines.push('                        GFM_CameraController.Instance.SetCameraHeight(' + height.toFixed(2) + 'f, ' + zOffset.toFixed(2) + 'f);');
+    lines.push('                    }');
+    lines.push('                    else');
+    lines.push('                    {');
+    lines.push('                        var __assemblyCamPos = mainCam.transform.position;');
+    lines.push('                        __assemblyCamPos.y = ' + height.toFixed(2) + 'f;');
+    lines.push('                        __assemblyCamPos.z = ' + zOffset.toFixed(2) + 'f;');
+    lines.push('                        mainCam.transform.position = __assemblyCamPos;');
+    lines.push('                    }');
     lines.push('                    break;');
     lines.push('                }');
   }

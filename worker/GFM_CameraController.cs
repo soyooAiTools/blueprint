@@ -45,13 +45,17 @@ public class GFM_CameraController : MonoBehaviour
     private Camera _mainCam;
 
     // 反馈 01 #3：相机锁定的 Y 轴高度。LateUpdate 每帧把 transform.position.y 拉回此值，
-    // 即使别的代码偶发改了 Y 也能立刻纠正，保证镜头视角稳定不抖。
+    // 即使别的代码偶发改了 Y 也能立刻纠正，保证镜头视角稳定不抖。LockedY 可被 SetCameraHeight 改写。
     public float LockedY = 12f;
 
-    // 反馈 01 #3：lerp 平移收敛速率（每秒 → 5 大约 200ms 内收敛 80%；越大越快）。
-    public float PanLerpRate = 5f;
-    // LookAt 旋转 lerp 速率（同 PanLerpRate 量级，角速度过快会抖；保守 5）。
-    public float RotateLerpRate = 5f;
+    // Wave 3：lerp 速率从 5 下调到 1.0，shot 切换时镜头平滑过渡 ~3 秒（exp 衰减 95% @ 3s）。
+    // 这是用户硬性要求：每个 shot 之间不能瞬移，要让玩家肉眼看见镜头在动。
+    // 改这里前请阅读 lib/handoff-doc-generator.cjs §4.1 镜头规则。
+    public float PanLerpRate = 1.0f;
+    // LookAt 旋转 lerp 速率（同 PanLerpRate 量级，角速度过快会抖；同步降到 1.0）。
+    public float RotateLerpRate = 1.0f;
+    // Wave 3：orthographicSize 的 lerp 速率（用于 zoom 平滑过渡）。
+    public float ZoomLerpRate = 1.0f;
     // 距离阈值：targetPosition 与当前位置距离小于此值视为已收敛，停止插值省 GPU。
     public float SettleDistance = 0.005f;
 
@@ -59,6 +63,9 @@ public class GFM_CameraController : MonoBehaviour
     private Vector3 _targetPosition;
     private Quaternion _targetRotation;
     private bool _hasTarget = false;
+    // Wave 3：orthographicSize 平滑过渡用的目标值，外部通过 SetOrthographicSize 设置。
+    private float _targetOrthoSize = 8f;
+    private bool _hasOrthoTarget = false;
 
     // ------------------------------------------------------------------------
     // 【初始化】缓存 Camera.main + 设置等距视角。
@@ -110,6 +117,29 @@ public class GFM_CameraController : MonoBehaviour
     }
 
     // ------------------------------------------------------------------------
+    // 【设置正交尺寸】Wave 3：shot 切换 zoom 时调这个，不要直接写 mainCam.orthographicSize。
+    // LateUpdate 按 ZoomLerpRate 平滑收敛到 size，避免画面突然放大/缩小。
+    // ------------------------------------------------------------------------
+    public void SetOrthographicSize(float size)
+    {
+        if (size <= 0f) return;
+        _targetOrthoSize = size;
+        _hasOrthoTarget = true;
+    }
+
+    // ------------------------------------------------------------------------
+    // 【设置相机高度 + Z 偏移】Wave 3：shot 切换 lift / 视野俯仰时调这个，不要直接写
+    // mainCam.transform.position。会更新 LockedY 并触发 MoveTo lerp 收敛。
+    // ------------------------------------------------------------------------
+    public void SetCameraHeight(float height, float zOffset)
+    {
+        LockedY = height;
+        Vector3 cur = (_mainCam != null) ? _mainCam.transform.position : _targetPosition;
+        _targetPosition = new Vector3(cur.x, height, zOffset);
+        _hasTarget = true;
+    }
+
+    // ------------------------------------------------------------------------
     // 【每帧应用 lerp】放在 LateUpdate 保证物体先移动、再相机跟随,避免抖。
     // 同时强制锁 Y,即使别处代码意外改了 transform.position.y 也能立即拉回。
     // ------------------------------------------------------------------------
@@ -125,6 +155,14 @@ public class GFM_CameraController : MonoBehaviour
             {
                 t.position = _targetPosition;
             }
+        }
+        // Wave 3：orthographicSize 平滑收敛
+        if (_hasOrthoTarget)
+        {
+            float curSize = _mainCam.orthographicSize;
+            float nextSize = Mathf.Lerp(curSize, _targetOrthoSize, ZoomLerpRate * Time.deltaTime);
+            if (Mathf.Abs(nextSize - _targetOrthoSize) < 0.01f) nextSize = _targetOrthoSize;
+            _mainCam.orthographicSize = nextSize;
         }
         if (!Mathf.Approximately(t.position.y, LockedY))
         {

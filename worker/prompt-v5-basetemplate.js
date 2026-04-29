@@ -612,7 +612,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push("- ✅ AddCompletedPhase 的参数使用 Rule 的 ID");
   lines.push('');
   lines.push('## 数值平衡');
-  lines.push('- ✅ 每个 Phase 最少停留 8 秒（骨架已用 phaseTimer 保障）');
+  lines.push('- ✅ 每个 Phase/shot 程序员审阅时长必须控制在 10-15 秒内，默认 12 秒（骨架已用 phaseTimer 保障）');
   lines.push('- ✅ 所有可建造实体的 entityState 必须达到 2（built）');
   lines.push('- ✅ 资源投递到建筑必须有搬运过程');
   lines.push('');

@@ -11,6 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const shotDurationPolicy = require('../lib/shot-duration-policy.cjs');
 
 // LLM via Doubao (豆包) directly
 const modelProvider = require('../lib/model-provider.cjs');
@@ -73,10 +74,10 @@ ${buildVerbDoc()}
   "phaseName": "开局+传送带",          // 中文名
   "chapterId": 1,                     // 对应分镜的 chapter 号
   
-  "duration": {
-    "min": 3,                         // 最少停留秒数
-    "max": 8                          // 最长停留秒数
-  },
+	  "duration": {
+	    "min": 10,                        // 程序员审阅最少停留秒数
+	    "max": 15                         // 程序员审阅最长停留秒数
+	  },
   
   "requiredInteractions": [           // 标准动词数组
     "move_to:conveyor",
@@ -106,10 +107,11 @@ ${buildVerbDoc()}
 ## 提取规则
 
 1. **duration** 从分镜的 timing 字段提取：
-   - "自动播放 1.5s" → min:1, max:2
-   - "玩家操作，预计 3-5s" → min:3, max:8（给 CUA 额外时间）
+   - 所有 phase 最终都必须落在 10-15 秒之间，默认 10-15 秒，推荐实际 AutoPlay 目标 12 秒
+   - "自动播放 1.5s" → min:10, max:12（分镜原始节奏很短，但交付审阅必须看清楚）
+   - "玩家操作，预计 3-5s" → min:10, max:15（给程序员和 CUA 足够观察时间）
    - "10-15秒" → min:10, max:15
-   - 如果没有 timing 信息，默认 min:5, max:15
+   - 如果没有 timing 信息，默认 min:10, max:15
 
 2. **requiredInteractions** 从 interaction 字段提取，映射到标准动词：
    - "移动到传送带" → move_to:conveyor
@@ -254,10 +256,7 @@ ${contextText}
       phaseId: spec.phaseId || `phase${i + 1}`,
       phaseName: spec.phaseName || `Phase ${i + 1}`,
       chapterId: spec.chapterId || i + 1,
-      duration: {
-        min: (spec.duration && spec.duration.min) || 5,
-        max: (spec.duration && spec.duration.max) || 15,
-      },
+      duration: shotDurationPolicy.normalizeReviewShotDuration(spec.duration).duration,
       requiredInteractions: spec.requiredInteractions || [],
       triggerNext: spec.triggerNext || { condition: '', description: '' },
       entitiesRequired: (spec.entitiesRequired || []).map(e => ({
@@ -412,4 +411,12 @@ function loadSpecs(projectId, dataDir) {
   return JSON.parse(fs.readFileSync(specsPath, 'utf8'));
 }
 
-module.exports = { extractSpecs, saveSpecs, loadSpecs, _internals: { computeDeterministicSeed } };
+module.exports = {
+  extractSpecs,
+  saveSpecs,
+  loadSpecs,
+  _internals: {
+    computeDeterministicSeed,
+    normalizeReviewShotDuration: shotDurationPolicy.normalizeReviewShotDuration,
+  },
+};

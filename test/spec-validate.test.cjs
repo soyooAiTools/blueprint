@@ -121,6 +121,43 @@ describe('spec-validate entity name resolution', () => {
   });
 });
 
+describe('spec-validate review shot duration policy', () => {
+  function makeDurationCtx(duration) {
+    return makeCtx({
+      specs: [{
+        phaseId: 'reviewPacing',
+        entitiesRequired: [],
+        requiredInteractions: ['click:StartButton'],
+        triggerNext: { condition: 'reviewPacingDone' },
+        duration: duration,
+      }],
+      entities: [],
+    });
+  }
+
+  test('short storyboard timing is expanded to readable review pacing', () => {
+    var ctx = makeDurationCtx({ min: 3, max: 8 });
+    return specValidate.execute(ctx).then(function(result) {
+      expect(ctx.blueprint.specs[0].duration).toEqual({ min: 10, max: 12 });
+      expect(result.autoFixes.join('\n')).toMatch(/review shot duration normalized/);
+    });
+  });
+
+  test('overlong storyboard timing is capped at 15 seconds', () => {
+    var ctx = makeDurationCtx({ min: 12, max: 30 });
+    return specValidate.execute(ctx).then(function() {
+      expect(ctx.blueprint.specs[0].duration).toEqual({ min: 12, max: 15 });
+    });
+  });
+
+  test('missing duration falls back to the 10-15 second review window', () => {
+    var ctx = makeDurationCtx(undefined);
+    return specValidate.execute(ctx).then(function() {
+      expect(ctx.blueprint.specs[0].duration).toEqual({ min: 10, max: 15 });
+    });
+  });
+});
+
 describe('complexity-gate parseSimplifyResponse', () => {
   const cg = require('../engine/stages/complexity-gate.cjs');
   const VALID = '{"specs":[{"phaseId":"a"}],"entities":[{"name":"X"}]}';

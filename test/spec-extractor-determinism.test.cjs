@@ -16,6 +16,7 @@
 var assert = require('assert');
 var { _internals } = require('../adapters/spec-extractor.cjs');
 var computeSeed = _internals.computeDeterministicSeed;
+var normalizeReviewShotDuration = _internals.normalizeReviewShotDuration;
 
 var baseFrames = [
   { chapter: 1, chapterTitle: 'Intro', interaction: 'move to conveyor', timing: '3s' },
@@ -44,6 +45,11 @@ assert.notStrictEqual(s1, s5, '[4] adding an entity must change seed');
 
 assert.ok(Number.isInteger(s1), '[5] seed must be an integer');
 assert.ok(s1 >= 0 && s1 <= 0x7fffffff, '[6] seed must fit in 31-bit positive int');
+assert.deepStrictEqual(
+  normalizeReviewShotDuration({ min: 3, max: 8 }).duration,
+  { min: 10, max: 12 },
+  '[7] spec-extractor must normalize short storyboard timing to readable review pacing'
+);
 
-console.log('OK — all 6 determinism assertions passed');
+console.log('OK — all 7 determinism/duration assertions passed');
 console.log('  baseline seed = ' + s1);

@@ -560,14 +560,23 @@ function buildFallbackEntityMap(project, specs, entityHints, seen) {
           }
         }
 
-        // Copy C# source files if available
+        // Copy C# source files + handoff docs (HANDOFF_README.md / STORYBOARD.md /
+        // storyboard-images/) if available. Files go to Scripts/, subdirectories
+        // are recursively copied to preserve storyboard-images/.
         var sourcesDir = path.join(SOURCES_DIR, id);
         if (fs.existsSync(sourcesDir)) {
           var scriptsDir = path.join(tmpDir, 'Scripts');
           fs.mkdirSync(scriptsDir, { recursive: true });
           var srcFiles = fs.readdirSync(sourcesDir);
           for (var si = 0; si < srcFiles.length; si++) {
-            fs.copyFileSync(path.join(sourcesDir, srcFiles[si]), path.join(scriptsDir, srcFiles[si]));
+            var srcPath = path.join(sourcesDir, srcFiles[si]);
+            var dstPath = path.join(scriptsDir, srcFiles[si]);
+            var srcStat = fs.statSync(srcPath);
+            if (srcStat.isDirectory()) {
+              exec('cp -r ' + JSON.stringify(srcPath) + ' ' + JSON.stringify(dstPath));
+            } else {
+              fs.copyFileSync(srcPath, dstPath);
+            }
           }
         }
 

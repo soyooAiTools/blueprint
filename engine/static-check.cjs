@@ -289,13 +289,13 @@ var RULES = [
     return [];
   }},
   // --- v4: AutoPlay duration protection ---
-  { id: 'autoplay-duration-tamper', pattern: null, message: 'AUTO_PLAY_PHASE_DURATION must be >= 10 — AI must NOT reduce shot duration', custom: function(code) {
-    var m = code.match(/AUTO_PLAY_PHASE_DURATION\s*=\s*(\d+)/);
+  { id: 'autoplay-duration-tamper', pattern: null, message: 'AUTO_PLAY_PHASE_DURATION must stay within 10-15 seconds; skeleton uses 12', custom: function(code) {
+    var m = code.match(/AUTO_PLAY_PHASE_DURATION\s*=\s*(\d+(?:\.\d+)?)f?\b/);
     if (!m) return [];
-    var val = parseInt(m[1], 10);
-    if (val < 10) {
+    var val = parseFloat(m[1]);
+    if (val < 10 || val > 15) {
       var lineNum = code.substring(0, m.index).split('\n').length;
-      return [{ line: lineNum, text: 'AUTO_PLAY_PHASE_DURATION = ' + val + ' (must be >= 10, skeleton sets 12)' }];
+      return [{ line: lineNum, text: 'AUTO_PLAY_PHASE_DURATION = ' + val + ' (must be within 10-15, skeleton sets 12)' }];
     }
     return [];
   }},
@@ -342,15 +342,23 @@ var RULES = [
     }
     return [];
   }},
-  { id: 'autoplay-phase-too-fast', pattern: null, message: 'AutoPlay phase uses phaseTimer threshold < 15s — shots must be >= 20s', custom: function(code) {
+  { id: 'autoplay-phase-too-fast', pattern: null, message: 'AutoPlay phase duration must stay within 10-15 seconds', custom: function(code) {
     var issues = [];
-    var re = /_autoPlayMode\s*\?\s*phaseTimer\s*>=\s*(\d+)f?\b/g;
+    var re = /phaseTimer\s*>=\s*\(\s*_autoPlayMode\s*\?\s*(\d+(?:\.\d+)?)f?\s*:/g;
     var m2;
     while ((m2 = re.exec(code)) !== null) {
-      var threshold = parseInt(m2[1], 10);
-      if (threshold < 15) {
+      var threshold = parseFloat(m2[1]);
+      if (threshold < 10 || threshold > 15) {
         var lineNum = code.substring(0, m2.index).split('\n').length;
-        issues.push({ line: lineNum, text: 'autoPlay phaseTimer >= ' + threshold + 'f (must be >= 20f)' });
+        issues.push({ line: lineNum, text: 'autoPlay phaseTimer review duration ' + threshold + 'f (must be within 10-15f)' });
+      }
+    }
+    var legacyRe = /_autoPlayMode\s*\?\s*phaseTimer\s*>=\s*(\d+(?:\.\d+)?)f?\b/g;
+    while ((m2 = legacyRe.exec(code)) !== null) {
+      var legacyThreshold = parseFloat(m2[1]);
+      if (legacyThreshold < 10 || legacyThreshold > 15) {
+        var legacyLine = code.substring(0, m2.index).split('\n').length;
+        issues.push({ line: legacyLine, text: 'autoPlay phaseTimer review duration ' + legacyThreshold + 'f (must be within 10-15f)' });
       }
     }
     return issues;
@@ -2092,6 +2100,59 @@ var RULES = [
       while ((m = re.exec(stripped)) !== null) {
         var lineNum = code.substring(0, m.index).split('\n').length;
         issues.push({ line: lineNum, text: 'name = "' + m[1] + (m[2] || '') + (m[3] || '') + '" — 改为领域名' });
+      }
+      return issues;
+    },
+  },
+  // --- Wave 3：玩家瞬移检测 ---
+  // 用户硬性要求：每个 shot 内玩家必须匀速移动，不能 transform.position = X 直接赋值瞬移。
+  // 允许：Vector3.MoveTowards / Vector3.Lerp / Vector3.SmoothDamp / += 增量 / Init/Start/Awake/Place* 中的一次性摆位。
+  // 非 blocking：先以警告形式上线，避免误伤旧产线；待 Wave 3 稳定后可升级 blocking。
+  { id: 'player-teleport-in-update', pattern: null, blocking: false,
+    message: 'Player/玩家关键单位在 Update/CheckEventRules/Phase 处理器内直接 transform.position = X 赋值会导致瞬移。请改用 Vector3.MoveTowards(...) 或 Vector3.Lerp(...) 实现匀速/平滑移动。',
+    custom: function(code, ctx) {
+      var fileName = (ctx && ctx.filename) || '';
+      // GFM 工具/管理库不参与玩家移动逻辑，跳过避免误报。
+      if (/(?:^|\/)(GFM_|GameSceneCtrl|ScriptActivator)/.test(fileName)) return [];
+      var issues = [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
+        .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
+      // 仅扫 gameplay 方法体；Init / Start / Awake / Place* / SetupScene 等允许直接摆位。
+      var gameplayMethodRe = /(?:void|\w+)\s+(Update|LateUpdate|FixedUpdate|CheckEventRules|OnAutoPlayArrive|Phase_\w+_OnTap|Phase_\w+_OnAutoPlayArrive|HandlePlayerInput|MovePlayer)\s*\([^)]*\)\s*\{/g;
+      var sm;
+      while ((sm = gameplayMethodRe.exec(stripped)) !== null) {
+        var name = sm[1];
+        var start = sm.index + sm[0].length;
+        var depth = 1, end = start;
+        while (end < stripped.length && depth > 0) {
+          var ch = stripped[end];
+          if (ch === '{') depth++;
+          else if (ch === '}') { depth--; if (depth === 0) break; }
+          end++;
+        }
+        if (depth !== 0) continue;
+        var body = stripped.substring(start, end);
+        var bodyStartLine = stripped.substring(0, start).split('\n').length;
+        // 匹配 <expr>.transform.position (=|+=) <rhs>;  expr 含 player/Player（大小写不敏感）；
+        // 排除 += 增量赋值与 Vector3.MoveTowards / Lerp / SmoothDamp 等平滑 API。
+        var teleportRe = /([A-Za-z_][\w\.\[\]]*)\s*\.\s*transform\s*\.\s*position\s*(\+=|=)\s*([^;]+);/g;
+        var tm;
+        while ((tm = teleportRe.exec(body)) !== null) {
+          var expr = tm[1];
+          if (!/player/i.test(expr)) continue; // 仅扫 player/Player 实体
+          var op = tm[2];
+          if (op === '+=') continue; // 增量赋值放行
+          var rhs = tm[3];
+          if (/Vector3\.(MoveTowards|Lerp|Slerp|SmoothDamp)/.test(rhs)) continue; // 平滑 API 放行
+          if (/MoveTowards|Lerp|SmoothDamp/.test(rhs)) continue; // 兜底放行
+          var lineInBody = body.substring(0, tm.index).split('\n').length - 1;
+          issues.push({
+            line: bodyStartLine + lineInBody,
+            text: expr + '.transform.position = ' + rhs.trim().slice(0, 60) + ' (in ' + name + '() — 改为 Vector3.MoveTowards 匀速)'
+          });
+        }
       }
       return issues;
     },

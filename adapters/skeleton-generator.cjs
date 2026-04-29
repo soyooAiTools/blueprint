@@ -60,6 +60,37 @@ function csString(value) {
   return String(value == null ? '' : value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
+// Wave 1 / C1：把分镜信息渲染成程序员可读的注释块，置于 Phase_*_Init/_OnTap/_OnAutoPlayArrive 方法定义上方。
+// 注：这些注释会进入交付给程序员的 C# 源码，programmer-delivery-cleaner 不会删除它们。
+function buildShotDocLines(spec, phaseIndex, opts) {
+  var indent = (opts && opts.indent) || '    ';
+  var lines = [];
+  var pid = spec && spec.phaseId ? spec.phaseId : ('phase' + (phaseIndex + 1));
+  var title = spec && spec.phaseName ? String(spec.phaseName) : '';
+  var dur = spec && spec.duration ? spec.duration : {};
+  var durMin = dur && dur.min != null ? dur.min : '-';
+  var durMax = dur && dur.max != null ? dur.max : '-';
+  var interactions = (spec && spec.requiredInteractions) || [];
+  var entities = (spec && spec.entitiesRequired) || [];
+  var entityNames = entities.map(function(e) {
+    if (typeof e === 'string') return e;
+    return e && e.name ? e.name : '';
+  }).filter(Boolean);
+  var endCondition = spec && spec.triggerNext && spec.triggerNext.condition
+    ? String(spec.triggerNext.condition)
+    : '(无显式 trigger，自动进入下一 phase)';
+  var bar = '─────────────────────────────────────────────────────────';
+  lines.push(indent + '// ' + bar);
+  lines.push(indent + '// Shot ' + (phaseIndex + 1) + ' / Phase: ' + pid);
+  if (title) lines.push(indent + '// 标题: ' + title);
+  lines.push(indent + '// 时长: ' + durMin + '-' + durMax + 's');
+  lines.push(indent + '// 操作: ' + (interactions.length ? interactions.join(' / ') : '(无玩家操作 / 自动播放)'));
+  lines.push(indent + '// 入画物体: ' + (entityNames.length ? entityNames.join(', ') : '(沿用上一镜头)'));
+  lines.push(indent + '// 退出条件: ' + endCondition);
+  lines.push(indent + '// ' + bar);
+  return lines;
+}
+
 function inferPhaseEvidenceSignals(spec) {
   var signals = {
     phase_advanced: true,
@@ -1593,6 +1624,8 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
   lines.push('');
   for (let i = 0; i < specs.length; i++) {
     const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
+    // Wave 1 / C1：分镜级注释块，给程序员看的 Shot 元信息。
+    buildShotDocLines(specs[i], i).forEach(function(l) { lines.push(l); });
     lines.push('    // [SKELETON] Phase "' + pid + '" 进入/初始化辅助方法。');
     lines.push('    // phase 专属摆放和引导逻辑放在这里，保持 CheckEventRules() 简洁。');
     lines.push('    void Phase_' + pid + '_Init()');
@@ -1618,6 +1651,8 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
   lines.push('');
   for (let i = 0; i < specs.length; i++) {
     const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
+    // Wave 1 / C1：Shot 信息已在上方 Phase_*_Init 注释块中说明，此处仅做交叉引用。
+    lines.push('    // Shot ' + (i + 1) + ' / Phase: ' + pid + ' — 详见上方 Phase_' + pid + '_Init 分镜注释。');
     lines.push('    // [SKELETON] Phase "' + pid + '" 点击 handler，补充交互逻辑或复用模板。');
     lines.push('    void Phase_' + pid + '_OnTap()');
     lines.push('    {');
@@ -1634,6 +1669,8 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
     const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
     const entities = specs[i].entitiesRequired || [];
     const gateEntities = phaseGateMap[pid] || [];
+    // Wave 1 / C1：Shot 信息已在上方 Phase_*_Init 注释块中说明，此处仅做交叉引用。
+    lines.push('    // Shot ' + (i + 1) + ' / Phase: ' + pid + ' — 详见上方 Phase_' + pid + '_Init 分镜注释。');
     lines.push('    // [SKELETON] Phase "' + pid + '" autoPlay handler。');
     lines.push('    // 必须产生可观测位置变化，EntityAdvanced(...) 才会通过。');
     lines.push('    void Phase_' + pid + '_OnAutoPlayArrive(string targetName)');
