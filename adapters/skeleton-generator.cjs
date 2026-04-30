@@ -1115,7 +1115,7 @@ function generateSkeleton(specs, opts = {}) {
       // WarmupReady 同时处理交互模式和 AutoPlay 模式。
       lines.push(`        if (!ruleTriggered[${ruleIdx}] && GFM_AutoPlay.Instance.WarmupReady)`);
       lines.push('        {');
-      lines.push(`            EnterPhase(${ruleIdx}, "${spec.phaseId}", false, false);`);
+      lines.push(`            EnterPhase(${ruleIdx}, "${spec.phaseId}", true, true);`);
       lines.push('');
 
       // [SKELETON] 防纯色：phase 1 摆出前三个实体。
@@ -1140,6 +1140,7 @@ function generateSkeleton(specs, opts = {}) {
         lines.push('');
       }
 
+      lines.push('            return;');
       lines.push('        }');
     } else {
       // 后续规则：需要上一 phase 满足真实条件，并且达到最短停留时间。
@@ -1174,6 +1175,7 @@ function generateSkeleton(specs, opts = {}) {
       }
 
       lines.push(`            CompletePhaseProgress("${prevSpec.phaseId}"); // [IMMUTABLE] 必须与 spec phaseId 完全一致`);
+      lines.push('            return;');
       lines.push('        }');
     }
     lines.push('');
@@ -1197,6 +1199,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('            cameraFocusTarget = "gameEnd";');
   lines.push('');
   lines.push(`            FinishGame("${lastSpec.phaseId}");`);
+  lines.push('            return;');
   lines.push('        }');
   lines.push('');
 

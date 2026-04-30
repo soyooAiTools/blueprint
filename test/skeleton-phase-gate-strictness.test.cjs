@@ -30,5 +30,9 @@ assert.match(code, /time-only beat/);
 assert.match(code, /DetectRealTime <= 0f \|\| GFM_AutoPlay\.Instance\.IsActive/);
 assert.match(code, /currentPhaseName == "intro"/);
 assert.match(code, /currentPhaseName == "defendBase"/);
+assert.match(code, /EnterPhase\(0, "intro", true, true\);/);
+assert.match(code, /Phase_intro_Init\(\);[\s\S]*return;[\s\S]*Phase 跳转：intro → defendBase/);
+assert.match(code, /CompletePhaseProgress\("intro"\);[^\n]*\n\s*return;/);
+assert.match(code, /FinishGame\("defendBase"\);[^\n]*\n\s*return;/);
 
 console.log('skeleton phase-gate strictness tests passed');
