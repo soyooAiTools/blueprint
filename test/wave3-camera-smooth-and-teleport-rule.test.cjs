@@ -1,7 +1,7 @@
 // Wave 3 单元测试：
-// 1) GFM_CameraController.cs 含 SetOrthographicSize / SetCameraHeight + 3s lerp 速率
-// 2) assembly-emitter 的 camera_zoom / camera_lift 不再直接写 mainCam.orthographicSize / position，
-//    而是优先调 GFM_CameraController.Instance.SetOrthographicSize(...) / SetCameraHeight(...)
+// 1) GFM_CameraController.cs 含 SetOrthographicSize / SetCameraHeight / FramePoint + 3s lerp 速率
+// 2) assembly-emitter 的 camera_focus / camera_zoom / camera_lift 不再直接写 mainCam.transform / orthographicSize，
+//    而是调 GFM_CameraController.Instance.FramePoint(...) / SetOrthographicSize(...) / SetCameraHeight(...)
 // 3) static-check.cjs 含 player-teleport-in-update 规则，能识别 Update 内的瞬移
 
 const assert = require('assert');
@@ -14,6 +14,7 @@ const camCode = fs.readFileSync('/opt/blueprint-editor/worker/GFM_CameraControll
 
 assert.match(camCode, /public void SetOrthographicSize\(float size\)/, 'SetOrthographicSize API 缺失');
 assert.match(camCode, /public void SetCameraHeight\(float height, float zOffset\)/, 'SetCameraHeight API 缺失');
+assert.match(camCode, /public void FramePoint\(Vector3 worldPosition, float orthoSize\)/, 'FramePoint API 缺失');
 assert.match(camCode, /public float ZoomLerpRate = 1\.0f/, 'ZoomLerpRate 必须 1.0f（≈3s 平滑）');
 assert.match(camCode, /public float PanLerpRate = 1\.0f/, 'PanLerpRate 必须降到 1.0f（≈3s 平滑）');
 assert.match(camCode, /public float RotateLerpRate = 1\.0f/, 'RotateLerpRate 必须降到 1.0f');
@@ -32,19 +33,24 @@ const path = require('path');
 // emitter 内部函数没直接 export；通过加载 source 字符串校验
 const emitterSrc = fs.readFileSync('/opt/blueprint-editor/adapters/assembly-emitter.cjs', 'utf8');
 
-// zoom 模板必须先尝试走 SetOrthographicSize，fallback 才允许直接 mainCam.orthographicSize
+// zoom 模板必须走 SetOrthographicSize，不允许 fallback 直写 mainCam.orthographicSize
 assert.match(emitterSrc, /SetOrthographicSize\(/, 'zoom 模板缺少 SetOrthographicSize 调用');
 const zoomFnSrc = emitterSrc.match(/function buildDeterministicCameraZoomLines[\s\S]*?\n\}/);
 assert.ok(zoomFnSrc, 'buildDeterministicCameraZoomLines 函数定位失败');
-assert.ok(/GFM_CameraController\.Instance\.SetOrthographicSize/.test(zoomFnSrc[0]), 'zoom 模板必须优先调 SetOrthographicSize');
-// 必须有 IsReady 守卫（fallback 路径）
-assert.ok(/GFM_CameraController\.Instance\.IsReady/.test(zoomFnSrc[0]), 'zoom 模板必须有 IsReady 守卫');
+assert.ok(/GFM_CameraController\.Instance\.SetOrthographicSize/.test(zoomFnSrc[0]), 'zoom 模板必须调 SetOrthographicSize');
+assert.doesNotMatch(zoomFnSrc[0], /mainCam\.orthographicSize\s*=/, 'zoom 模板禁止直接写 mainCam.orthographicSize');
 
-// lift 模板必须优先走 SetCameraHeight，原始的 mainCam.transform.position 写法只能在 fallback 分支
+// lift 模板必须走 SetCameraHeight，禁止直接写 mainCam.transform.position
 const liftFnSrc = emitterSrc.match(/function buildDeterministicCameraLiftLines[\s\S]*?\n\}/);
 assert.ok(liftFnSrc, 'buildDeterministicCameraLiftLines 函数定位失败');
-assert.ok(/GFM_CameraController\.Instance\.SetCameraHeight/.test(liftFnSrc[0]), 'lift 模板必须优先调 SetCameraHeight');
-assert.ok(/GFM_CameraController\.Instance\.IsReady/.test(liftFnSrc[0]), 'lift 模板必须有 IsReady 守卫');
+assert.ok(/GFM_CameraController\.Instance\.SetCameraHeight/.test(liftFnSrc[0]), 'lift 模板必须调 SetCameraHeight');
+assert.doesNotMatch(liftFnSrc[0], /mainCam\.transform\.position\s*=/, 'lift 模板禁止直接写 mainCam.transform.position');
+
+// focus 模板必须走 FramePoint，禁止直接 mainCam.transform.LookAt。
+const focusFnSrc = emitterSrc.match(/function buildDeterministicCameraFocusLines[\s\S]*?\n\}/);
+assert.ok(focusFnSrc, 'buildDeterministicCameraFocusLines 函数定位失败');
+assert.ok(/GFM_CameraController\.Instance\.FramePoint/.test(focusFnSrc[0]), 'focus 模板必须调 FramePoint');
+assert.doesNotMatch(focusFnSrc[0], /mainCam\.transform\.LookAt\s*\(/, 'focus 模板禁止直接 mainCam.transform.LookAt');
 
 // ============================================================================
 // T3: static-check player-teleport-in-update 规则

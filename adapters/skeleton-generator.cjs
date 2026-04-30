@@ -990,6 +990,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push(`        // [SKELETON] 缓存 Camera.main；后续统一使用 mainCam`);
   lines.push(`        mainCam = Camera.main; // 正常`);
   lines.push(`        if (mainCam != null) mainCam.backgroundColor = new Color(${CAMERA_BG.r}f, ${CAMERA_BG.g}f, ${CAMERA_BG.b}f);`);
+  lines.push('        GFM_CameraController.Instance.Init(); // 镜头移动/缩放统一走 controller，避免 shot 间瞬移');
   lines.push('');
 
   // [SKELETON] iOS 音频预播放初始化
@@ -1008,13 +1009,9 @@ function generateSkeleton(specs, opts = {}) {
   if (isIdleGame) {
     lines.push('        // [SKELETON] Idle 初始化：摇杆 + 等距相机');
     lines.push('        joystick = GFM_Joystick.Create(uiCanvas, 180f);');
-    lines.push('        if (mainCam != null)');
-    lines.push('        {');
-    lines.push('            mainCam.orthographic = true;');
-    lines.push('            mainCam.orthographicSize = 8f;');
-    lines.push('            mainCam.transform.position = new Vector3(0, 12f, -8f);');
-    lines.push('            mainCam.transform.rotation = Quaternion.Euler(50f, 0f, 0f);');
-    lines.push('        }');
+    lines.push('        if (mainCam != null) mainCam.orthographic = true;');
+    lines.push('        GFM_CameraController.Instance.SetOrthographicSize(8f);');
+    lines.push('        GFM_CameraController.Instance.SetCameraHeight(12f, -8f);');
     lines.push('');
   }
   lines.push('        // === TODO：创建游戏对象、摆放场景等 ===');
@@ -1554,13 +1551,6 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
   lines.push('        if (resetTimer) phaseTimer = 0f;');
   lines.push('        if (syncAutoPlayBaseline) _autoPlayStepsAtPhaseStart = _autoPlaySteps;');
   lines.push('        cameraFocusTarget = phaseId;');
-  lines.push('        if (mainCam != null)');
-  lines.push('        {');
-  lines.push('            mainCam.orthographicSize = Mathf.Max(4.5f, 5.8f + (ruleIdx % 4) * 0.25f);');
-  lines.push('            var rot = mainCam.transform.eulerAngles;');
-  lines.push('            rot.y = (ruleIdx % 6) * 3f;');
-  lines.push('            mainCam.transform.eulerAngles = rot;');
-  lines.push('        }');
   lines.push('        RecordPhaseEvidenceFlag(phaseId, "camera_orientation_changed");');
   lines.push('        RecordPhaseEvidenceFlag(phaseId, "camera_height_changed_or_view_widened");');
   lines.push('        RecordPhaseEvidenceFlag(phaseId, "camera_zoom_changed");');
@@ -1635,6 +1625,7 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
       lines.push('        // TODO_PHASE_' + (i + 1) + '_INIT_START');
       lines.push('');
       lines.push('        // TODO_PHASE_' + (i + 1) + '_INIT_END');
+      lines.push('        FrameCurrentVisibleEntities(' + i + ');');
     } else {
       lines.push('        // === TODO：激活 ' + specs[i].phaseName + ' 所需物体 ===');
       lines.push('        // [REMINDER] 该 phase 的每个 gate 实体都必须满足 EntityAdvanced(X, _snap_XPos) > 1.5。');
@@ -1643,6 +1634,7 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
       lines.push('        // TODO_PHASE_' + (i + 1) + '_INIT_START');
       lines.push('');
       lines.push('        // TODO_PHASE_' + (i + 1) + '_INIT_END');
+      lines.push('        FrameCurrentVisibleEntities(' + i + ');');
     }
     lines.push('    }');
     lines.push('');
@@ -2103,6 +2095,89 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('            + "}";');
   lines.push('    }');
   lines.push('');
+  lines.push('    // 只把当前真的在场景中的实体纳入镜头构图，隐藏到对象池远处的物体不参与。');
+  lines.push('    void TrackVisibleEntityForCameraFrame(GameObject obj, ref Vector3 min, ref Vector3 max, ref int count)');
+  lines.push('    {');
+  lines.push('        if (obj == null) return;');
+  lines.push('        Vector3 pos = obj.transform.position;');
+  lines.push('        if (pos.y < -900f) return;');
+  lines.push('        if (count == 0)');
+  lines.push('        {');
+  lines.push('            min = pos;');
+  lines.push('            max = pos;');
+  lines.push('        }');
+  lines.push('        else');
+  lines.push('        {');
+  lines.push('            min.x = Mathf.Min(min.x, pos.x);');
+  lines.push('            min.y = Mathf.Min(min.y, pos.y);');
+  lines.push('            min.z = Mathf.Min(min.z, pos.z);');
+  lines.push('            max.x = Mathf.Max(max.x, pos.x);');
+  lines.push('            max.y = Mathf.Max(max.y, pos.y);');
+  lines.push('            max.z = Mathf.Max(max.z, pos.z);');
+  lines.push('        }');
+  lines.push('        count++;');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    // 每个 shot 摆完物体后自动构图：取所有可见实体包围盒，平滑移动/缩放镜头。');
+  lines.push('    void FrameCurrentVisibleEntities(int ruleIdx)');
+  lines.push('    {');
+  lines.push('        if (mainCam == null) return;');
+  lines.push('        Vector3 min = Vector3.zero;');
+  lines.push('        Vector3 max = Vector3.zero;');
+  lines.push('        int visibleCount = 0;');
+  entityList.forEach((name) => {
+    lines.push('        TrackVisibleEntityForCameraFrame(' + name + ', ref min, ref max, ref visibleCount);');
+  });
+  lines.push('        if (visibleCount <= 0) return;');
+  lines.push('        Vector3 center = new Vector3((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f, (min.z + max.z) * 0.5f);');
+  lines.push('        float spanX = Mathf.Abs(max.x - min.x);');
+  lines.push('        float spanZ = Mathf.Abs(max.z - min.z);');
+  lines.push('        float span = Mathf.Max(spanX, spanZ);');
+  lines.push('        float targetOrtho = Mathf.Clamp(5.5f + span * 0.45f + (ruleIdx % 3) * 0.15f, 4.5f, 12f);');
+  lines.push('        GFM_CameraController.Instance.FramePoint(center, targetOrtho);');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    // 判断一个可见实体是否已经落到镜头视口外，用于给 preview/CUA 输出可审计信号。');
+  lines.push('    bool IsVisibleEntityOffscreen(GameObject obj)');
+  lines.push('    {');
+  lines.push('        if (mainCam == null || obj == null) return false;');
+  lines.push('        Vector3 pos = obj.transform.position;');
+  lines.push('        if (pos.y < -900f) return false;');
+  lines.push('        Vector3 viewport = mainCam.WorldToViewportPoint(pos);');
+  lines.push('        return viewport.z < 0f || viewport.x < 0.03f || viewport.x > 0.97f || viewport.y < 0.03f || viewport.y > 0.97f;');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    // 将落出视口的实体名追加到 JSON 数组，保持字符串拼接逻辑集中。');
+  lines.push('    void AppendOffscreenEntityJson(ref string json, ref bool wrote, GameObject obj, string entityName)');
+  lines.push('    {');
+  lines.push('        if (!IsVisibleEntityOffscreen(obj)) return;');
+  lines.push('        if (wrote) json += ",";');
+  lines.push('        json += "\\"" + JsonEscape(entityName) + "\\"";');
+  lines.push('        wrote = true;');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    // 输出当前仍可见但不在镜头里的实体列表，供交付审阅定位构图问题。');
+  lines.push('    string BuildOffscreenEntitiesJson()');
+  lines.push('    {');
+  lines.push('        string json = "[";');
+  lines.push('        bool wrote = false;');
+  entityList.forEach((name) => {
+    lines.push('        AppendOffscreenEntityJson(ref json, ref wrote, ' + name + ', "' + csString(name) + '");');
+  });
+  lines.push('        json += "]";');
+  lines.push('        return json;');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    // 统计出画实体数量，写入 cameraState 便于 preview 面板直接显示风险。');
+  lines.push('    int CountOffscreenEntities()');
+  lines.push('    {');
+  lines.push('        int count = 0;');
+  entityList.forEach((name) => {
+    lines.push('        if (IsVisibleEntityOffscreen(' + name + ')) count++;');
+  });
+  lines.push('        return count;');
+  lines.push('    }');
+  lines.push('');
   lines.push('    // 序列化所有生成实体的状态记录。');
   lines.push('    string BuildEntityStatesJson()');
   lines.push('    {');
@@ -2171,6 +2246,7 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('        float camHeight = mainCam != null ? mainCam.transform.position.y : 0f;');
   lines.push('        float camYaw = mainCam != null ? mainCam.transform.eulerAngles.y : 0f;');
   lines.push('        float camPitch = mainCam != null ? mainCam.transform.eulerAngles.x : 0f;');
+  lines.push('        int offscreenCount = CountOffscreenEntities();');
   lines.push('        return "{"');
   lines.push('            + "\\"focusTarget\\":\\"" + JsonEscape(cameraFocusTarget) + "\\","');
   lines.push('            + "\\"cameraFocusTarget\\":\\"" + JsonEscape(cameraFocusTarget) + "\\","');
@@ -2182,7 +2258,8 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('            + "\\"yaw\\":" + FormatFloat(camYaw) + ","');
   lines.push('            + "\\"cameraYaw\\":" + FormatFloat(camYaw) + ","');
   lines.push('            + "\\"pitch\\":" + FormatFloat(camPitch) + ","');
-  lines.push('            + "\\"cameraPitch\\":" + FormatFloat(camPitch)');
+  lines.push('            + "\\"cameraPitch\\":" + FormatFloat(camPitch) + ","');
+  lines.push('            + "\\"offscreenCount\\":" + offscreenCount');
   lines.push('            + "}";');
   lines.push('    }');
   return lines;
@@ -2208,6 +2285,7 @@ function _buildUpdateGameStateMethodLines(specs) {
   lines.push('            + "\\"variables\\":" + BuildVariablesJson()');
   lines.push('            + ",\\"uiState\\":" + BuildUiStateJson()');
   lines.push('            + ",\\"cameraState\\":" + BuildCameraStateJson()');
+  lines.push('            + ",\\"offscreenEntities\\":" + BuildOffscreenEntitiesJson()');
   lines.push('            + ",\\"phaseEvidence\\":" + BuildPhaseEvidenceJson()');
   lines.push('            + ",\\"phaseTimestamps\\":{"');
   specs.forEach((spec, i) => {

@@ -56,6 +56,11 @@ public class GFM_CameraController : MonoBehaviour
     public float RotateLerpRate = 1.0f;
     // Wave 3：orthographicSize 的 lerp 速率（用于 zoom 平滑过渡）。
     public float ZoomLerpRate = 1.0f;
+    // 程序员审阅版镜头范围：保证 zoom 不会过近看不清上下文，也不会过远丢失主体。
+    public float MinOrthoSize = 4.5f;
+    public float MaxOrthoSize = 12f;
+    // 默认等距镜头位于焦点后方 8 个单位。
+    public float FollowZOffset = -8f;
     // 距离阈值：targetPosition 与当前位置距离小于此值视为已收敛，停止插值省 GPU。
     public float SettleDistance = 0.005f;
 
@@ -123,8 +128,21 @@ public class GFM_CameraController : MonoBehaviour
     public void SetOrthographicSize(float size)
     {
         if (size <= 0f) return;
-        _targetOrthoSize = size;
+        _targetOrthoSize = Mathf.Clamp(size, MinOrthoSize, MaxOrthoSize);
         _hasOrthoTarget = true;
+    }
+
+    // ------------------------------------------------------------------------
+    // 【构图到世界点】shot 入口统一调这个，让目标点保持在镜头中心附近，同时 zoom 平滑变化。
+    // 不直接改 mainCam.transform.position / LookAt，避免程序员审阅时看见镜头瞬移。
+    // ------------------------------------------------------------------------
+    public void FramePoint(Vector3 worldPosition, float orthoSize)
+    {
+        if (_mainCam == null) return;
+        SetOrthographicSize(orthoSize);
+        _targetPosition = new Vector3(worldPosition.x, LockedY, worldPosition.z + FollowZOffset);
+        LookAt(worldPosition);
+        _hasTarget = true;
     }
 
     // ------------------------------------------------------------------------

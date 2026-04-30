@@ -362,14 +362,8 @@ function buildDeterministicCameraFocusLines(moduleInstance, plans) {
     lines.push('                cameraFocusTarget = "' + String(target).replace(/"/g, '\\"') + '";');
     lines.push('                if (' + target + ' != null)');
     lines.push('                {');
-    lines.push('                    if (GFM_CameraController.Instance != null && GFM_CameraController.Instance.IsReady)');
-    lines.push('                    {');
-    lines.push('                        GFM_CameraController.Instance.LookAt(' + target + '.transform.position);');
-    lines.push('                    }');
-    lines.push('                    else');
-    lines.push('                    {');
-    lines.push('                        mainCam.transform.LookAt(' + target + '.transform.position);');
-    lines.push('                    }');
+    lines.push('                    float __assemblyFrameSize = mainCam != null ? mainCam.orthographicSize : 8f;');
+    lines.push('                    GFM_CameraController.Instance.FramePoint(' + target + '.transform.position, __assemblyFrameSize);');
     lines.push('                }');
     lines.push('                break;');
   }
@@ -393,14 +387,7 @@ function buildDeterministicCameraZoomLines(moduleInstance, plans) {
     lines.push('            case "' + String(phaseMap[i].phaseId).replace(/"/g, '\\"') + '":');
     // Wave 3：走 GFM_CameraController.SetOrthographicSize 平滑过渡（~3 秒），
     // 不要直接写 mainCam.orthographicSize 否则会 zoom 瞬变。
-    lines.push('                if (GFM_CameraController.Instance != null && GFM_CameraController.Instance.IsReady)');
-    lines.push('                {');
-    lines.push('                    GFM_CameraController.Instance.SetOrthographicSize(' + orthoSize.toFixed(2) + 'f);');
-    lines.push('                }');
-    lines.push('                else');
-    lines.push('                {');
-    lines.push('                    mainCam.orthographicSize = ' + orthoSize.toFixed(2) + 'f;');
-    lines.push('                }');
+    lines.push('                GFM_CameraController.Instance.SetOrthographicSize(' + orthoSize.toFixed(2) + 'f);');
     lines.push('                break;');
   }
   lines.push('        }');
@@ -423,18 +410,8 @@ function buildDeterministicCameraLiftLines(moduleInstance, plans) {
     lines.push('            case "' + String(phaseMap[i].phaseId).replace(/"/g, '\\"') + '":');
     lines.push('                {');
     // Wave 3：走 GFM_CameraController.SetCameraHeight 平滑过渡，不要直接写 mainCam.transform.position
-    // 否则会 lift 瞬移；fallback 路径只在 controller 未就绪时使用。
-    lines.push('                    if (GFM_CameraController.Instance != null && GFM_CameraController.Instance.IsReady)');
-    lines.push('                    {');
-    lines.push('                        GFM_CameraController.Instance.SetCameraHeight(' + height.toFixed(2) + 'f, ' + zOffset.toFixed(2) + 'f);');
-    lines.push('                    }');
-    lines.push('                    else');
-    lines.push('                    {');
-    lines.push('                        var __assemblyCamPos = mainCam.transform.position;');
-    lines.push('                        __assemblyCamPos.y = ' + height.toFixed(2) + 'f;');
-    lines.push('                        __assemblyCamPos.z = ' + zOffset.toFixed(2) + 'f;');
-    lines.push('                        mainCam.transform.position = __assemblyCamPos;');
-    lines.push('                    }');
+    // 否则会 lift 瞬移。
+    lines.push('                    GFM_CameraController.Instance.SetCameraHeight(' + height.toFixed(2) + 'f, ' + zOffset.toFixed(2) + 'f);');
     lines.push('                    break;');
     lines.push('                }');
   }

@@ -29,6 +29,10 @@ function plain(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+assert.ok(source.indexOf('previewOffscreenEntities') >= 0, 'preview should derive offscreen entity state from runtime gameState');
+assert.ok(source.indexOf('preview-framing-status') >= 0, 'preview should render camera framing status');
+assert.ok(source.indexOf('offscreenEntities') >= 0, 'preview should read offscreenEntities from runtime gameState');
+
 const specs = [
   { phaseId: 'enemyAttackWarning', phaseName: '敌方进攻预警' },
   { phaseId: 'upgradeOurBase', phaseName: '升级基地防御' },

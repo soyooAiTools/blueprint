@@ -504,7 +504,8 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('要隐藏对象：`obj.transform.position = new Vector3(0, -999, 0);`（不用 SetActive）');
   lines.push('');
   lines.push('## 🚨 相机与对象可见性（必须遵守，否则画面纯色/黑屏）');
-  lines.push('- mainCam.transform.position 的 z 必须为 -10（正交相机），不要用 Camera.main');
+  lines.push('- 不要直接写 mainCam.transform.position / mainCam.transform.eulerAngles / mainCam.orthographicSize');
+  lines.push('- shot 镜头移动、缩放、构图统一用 `GFM_CameraController.Instance.FramePoint(...)` / `SetOrthographicSize(...)` / `SetCameraHeight(...)`');
   lines.push('- 所有游戏对象的 position.x 必须在 -6~6 范围，position.y 在 -4~4 范围');
   lines.push('- 对象 localScale 不能小于 0.3f，推荐 0.5~2.0f');
   lines.push('- SpriteRenderer 的颜色不能和 Camera.backgroundColor 相同');
@@ -661,9 +662,9 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('## 对象初始化的正确写法');
   lines.push('```csharp');
   lines.push('void InitScene() {');
-  lines.push('  // 1. 相机设置（必须）');
-  lines.push('  if (mainCam != null) mainCam.transform.position = new Vector3(0, 0, -10);');
-  lines.push('  if (mainCam != null) mainCam.orthographicSize = 5;');
+  lines.push('  // 1. 相机设置（必须走 controller，避免 shot 间瞬移）');
+  lines.push('  GFM_CameraController.Instance.Init();');
+  lines.push('  GFM_CameraController.Instance.FramePoint(Vector3.zero, 8f);');
   lines.push('');
   lines.push('  // 2. 玩家放在屏幕中心附近（坐标 -6~6 范围）');
   lines.push('  var player = GameObject.Find("__Pool_Sphere_Blue_01"); // Player — use prompt中指定的实际pool名');

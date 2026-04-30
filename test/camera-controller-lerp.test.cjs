@@ -18,9 +18,16 @@ assert.match(code, /Quaternion\.Slerp\(t\.rotation, _targetRotation/);
 
 // MoveTo API 必须存在(给 phase 流程未来调用)。
 assert.match(code, /public void MoveTo\(Vector3 worldPosition\)/);
+assert.match(code, /public void FramePoint\(Vector3 worldPosition, float orthoSize\)/);
 
 // LookAt 改为 lerp,不再原地写 _mainCam.transform.LookAt(...)。
 assert.doesNotMatch(code, /_mainCam\.transform\.LookAt\(/);
 assert.match(code, /_targetRotation = Quaternion\.LookRotation\(dir\);/);
+
+// zoom 必须有限幅，避免镜头过近/过远导致程序员看不懂主体。
+assert.match(code, /public float MinOrthoSize = 4\.5f/);
+assert.match(code, /public float MaxOrthoSize = 12f/);
+assert.match(code, /Mathf\.Clamp\(size, MinOrthoSize, MaxOrthoSize\)/);
+assert.match(code, /worldPosition\.z \+ FollowZOffset/);
 
 console.log('camera controller lerp tests passed');

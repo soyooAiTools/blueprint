@@ -73,7 +73,8 @@ assert.ok(emitted.files.ui.indexOf('AssemblySlot_UI_system__guide_ui') >= 0, 'ui
 assert.ok(emitted.files.flow.indexOf('[ASSEMBLY PHASE] phaseId=intro') >= 0, 'flow phase annotation missing');
 assert.ok(emitted.files.flow.indexOf('AssemblySlot_Flow_ConveyorBelt__build_progress') >= 0, 'flow slot missing');
 assert.ok(emitted.files.flow.indexOf('cameraFocusTarget = "ConveyorBelt";') >= 0 || emitted.files.scene.indexOf('cameraFocusTarget = "ConveyorBelt";') >= 0, 'camera focus slot should bind phase target');
-assert.ok(emitted.files.flow.indexOf('mainCam.orthographicSize = ') >= 0 || emitted.files.scene.indexOf('mainCam.orthographicSize = ') >= 0, 'camera zoom slot should emit deterministic ortho size');
+assert.ok(emitted.files.flow.indexOf('GFM_CameraController.Instance.SetOrthographicSize') >= 0 || emitted.files.scene.indexOf('GFM_CameraController.Instance.SetOrthographicSize') >= 0, 'camera zoom slot should emit smooth controller zoom');
+assert.ok(emitted.files.flow.indexOf('mainCam.orthographicSize = ') < 0 && emitted.files.scene.indexOf('mainCam.orthographicSize = ') < 0, 'camera zoom slot must not directly assign ortho size');
 assert.ok(emitted.files.flow.indexOf('Vector3.MoveTowards(__assemblyBefore, ConveyorBelt.transform.position') >= 0, 'move_to_target slot should move actor toward target');
 assert.ok(emitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "player_position_changed")') >= 0, 'move_to_target should record player motion evidence');
 assert.ok(emitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "entity_state_equals_built")') >= 0, 'build_progress should record built evidence');

@@ -92,6 +92,9 @@ assert.ok(/Phase_sellAtStation_Init/.test(docs.handoffMd), '应包含 Phase_sell
 assert.ok(/moveSpeed = 4/.test(docs.handoffMd), '玩家 moveSpeed 应为 4');
 assert.ok(/10–15 秒/.test(docs.handoffMd), 'shot 时长规则应在文档里');
 assert.ok(/约 3 秒/.test(docs.handoffMd), '镜头平滑过渡时长（3秒）应在文档里');
+assert.ok(/FramePoint/.test(docs.handoffMd), '镜头规则应指向 FramePoint');
+assert.ok(/offscreenEntities/.test(docs.handoffMd), '运行态出画检查应写入文档');
+assert.ok(/Phase_<id>_Init.*Phase_<id>_OnTap.*Phase_<id>_OnAutoPlayArrive.*CheckEventRules/.test(docs.handoffMd), '阅读路径应说明每个 shot 的代码顺序');
 assert.ok(/Luna/.test(docs.handoffMd), 'Luna 兼容章节应存在');
 
 // GFM 索引必须包含核心 Manager 文件
@@ -108,6 +111,7 @@ assert.ok(/## Shot 2 — 卖给回收站/.test(docs.storyboardMd), 'Shot 2 标�
 assert.ok(/Phase_collectScrap_Init/.test(docs.storyboardMd), '代码入口：Init');
 assert.ok(/Phase_collectScrap_OnTap/.test(docs.storyboardMd), '代码入口：OnTap');
 assert.ok(/Phase_collectScrap_OnAutoPlayArrive/.test(docs.storyboardMd), '代码入口：OnAutoPlayArrive');
+assert.ok(/Phase_collectScrap_Init` → `Phase_collectScrap_OnTap` → `Phase_collectScrap_OnAutoPlayArrive` → `CheckEventRules/.test(docs.storyboardMd), 'storyboard 应包含代码阅读顺序');
 
 // 图片引用走 storyboard-images/ 子目录
 assert.ok(/!\[Shot 1\]\(storyboard-images\/frame_1\.jpg\)/.test(docs.storyboardMd), 'Shot 1 图片引用');

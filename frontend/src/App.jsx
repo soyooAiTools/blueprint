@@ -513,6 +513,7 @@ function FlowEditor({ project, onBack, initialTab }) {
   const [currentPhase, setCurrentPhase] = useState('');
   const [runtimePhaseOrder, setRuntimePhaseOrder] = useState([]);
   const [hasRuntimePhaseSignal, setHasRuntimePhaseSignal] = useState(false);
+  const [previewGameState, setPreviewGameState] = useState(null);
   const [svnCommitting, setSvnCommitting] = useState(false);
   const [iframeLoading, setIframeLoading] = useState(true);
   const reactFlowInstance = useReactFlow();
@@ -588,6 +589,22 @@ function FlowEditor({ project, onBack, initialTab }) {
     () => buildPreviewLegendItems(entityMap, entities, nodes, previewSpecs),
     [entityMap, entities, nodes, previewSpecs],
   );
+  const previewOffscreenEntities = useMemo(() => {
+    const rawList = previewGameState && Array.isArray(previewGameState.offscreenEntities)
+      ? previewGameState.offscreenEntities
+      : [];
+    const names = rawList.map((name) => String(name || '').trim()).filter(Boolean);
+    const cameraCount = previewGameState && previewGameState.cameraState
+      ? Number(previewGameState.cameraState.offscreenCount)
+      : NaN;
+    const hasSignal = Array.isArray(previewGameState && previewGameState.offscreenEntities)
+      || Number.isFinite(cameraCount);
+    return {
+      names,
+      count: Number.isFinite(cameraCount) ? Math.max(cameraCount, names.length) : names.length,
+      hasSignal,
+    };
+  }, [previewGameState]);
   useEffect(() => {
     if (activeTab !== 'review') return;
     getSpecs(project.id).then((data) => {
@@ -605,6 +622,7 @@ function FlowEditor({ project, onBack, initialTab }) {
         if (!iframe || !iframe.contentWindow) return;
         const gs = iframe.contentWindow.__gameState;
         if (gs) {
+          setPreviewGameState(gs);
           setHasRuntimePhaseSignal(true);
           if (Array.isArray(gs.completedPhases)) setCompletedPhases(gs.completedPhases);
           if (typeof gs.currentPhase === 'string') setCurrentPhase(gs.currentPhase);
@@ -1036,6 +1054,7 @@ function FlowEditor({ project, onBack, initialTab }) {
                   }
                   setCompletedPhases([]);
                   setCurrentPhase('');
+                  setPreviewGameState(null);
                   setIframeLoading(true);
                 }} title="刷新预览">🔄</button>
                 <button className="preview-orientation-btn" onClick={() => setPreviewLandscape(!previewLandscape)}
@@ -1146,6 +1165,18 @@ function FlowEditor({ project, onBack, initialTab }) {
                   {previewSpecs.length > 0 && (
                   <div className="preview-shot-list">
                       <div className="preview-shot-title">Shot 进度</div>
+                      <div className={`preview-framing-status${previewOffscreenEntities.count > 0 ? ' warning' : ''}`}>
+                        <span className="preview-framing-label">
+                          {previewOffscreenEntities.count > 0 ? '构图风险' : (previewOffscreenEntities.hasSignal ? '构图正常' : '等待构图信号')}
+                        </span>
+                        {previewOffscreenEntities.count > 0 && (
+                          <span className="preview-framing-detail">
+                            {previewOffscreenEntities.names.length > 0
+                              ? previewOffscreenEntities.names.slice(0, 4).join(', ')
+                              : previewOffscreenEntities.count + ' 个实体出镜'}
+                          </span>
+                        )}
+                      </div>
                       {previewSpecs.map((spec, i) => {
                         const phaseState = previewPhaseStates[i] || { done: false, active: false };
                         const done = phaseState.done;

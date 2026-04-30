@@ -3842,6 +3842,38 @@ html, body, #root {
   padding-bottom: 8px;
   border-bottom: 1px solid #222;
 }
+.preview-framing-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 32px;
+  padding: 7px 9px;
+  margin-bottom: 8px;
+  border: 1px solid #242424;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.03);
+}
+.preview-framing-status.warning {
+  border-color: rgba(245,158,11,0.55);
+  background: rgba(245,158,11,0.08);
+}
+.preview-framing-label {
+  font-size: 12px;
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+.preview-framing-status.warning .preview-framing-label {
+  color: #f59e0b;
+}
+.preview-framing-detail {
+  font-size: 12px;
+  color: #d1d5db;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .preview-shot-item {
   display: flex;
   align-items: flex-start;

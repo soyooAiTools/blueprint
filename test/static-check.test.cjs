@@ -276,6 +276,7 @@ public partial class GameFlowManagerMain : MonoBehaviour {
   string BuildVariablesJson() { return "{}"; }
   string BuildUiStateJson() { return "{}"; }
   string BuildCameraStateJson() { return "{}"; }
+  string BuildOffscreenEntitiesJson() { return "[]"; }
   void UpdateGameState() {
     string completedJson = "[]";
     string json = "{"
@@ -285,12 +286,41 @@ public partial class GameFlowManagerMain : MonoBehaviour {
       + "\\"variables\\":" + BuildVariablesJson() + ","
       + "\\"uiState\\":" + BuildUiStateJson() + ","
       + "\\"cameraState\\":" + BuildCameraStateJson() + ","
+      + "\\"offscreenEntities\\":" + BuildOffscreenEntitiesJson() + ","
       + "\\"phaseTimestamps\\":{}"
       + "}";
     gameObject.name = "GFM|" + json;
   }
 }`;
     const hit = staticCheck(code).issues.find(i => i.rule === 'updategamestate-skeleton-preserve');
+    expect(hit).toBeUndefined();
+  });
+
+  test('direct camera motion is forbidden outside initialization', () => {
+    const code = `using UnityEngine;
+public partial class GameFlowManagerMain : MonoBehaviour {
+  Camera mainCam;
+  void EnterPhase() {
+    mainCam.orthographicSize = 6f;
+    mainCam.transform.eulerAngles = new Vector3(50f, 5f, 0f);
+    mainCam.transform.LookAt(Vector3.zero);
+  }
+}`;
+    const hits = staticCheck(code, { filename: 'GameFlowManagerMain.Flow.cs' }).issues.filter(i => i.rule === 'direct-camera-motion-forbidden');
+    expect(hits.length).toBe(3);
+    expect(hits.every(i => i.blocking)).toBe(true);
+  });
+
+  test('direct camera setup is allowed in Start', () => {
+    const code = `using UnityEngine;
+public partial class GameFlowManagerMain : MonoBehaviour {
+  Camera mainCam;
+  void Start() {
+    mainCam.orthographicSize = 8f;
+    mainCam.transform.position = new Vector3(0, 12f, -8f);
+  }
+}`;
+    const hit = staticCheck(code, { filename: 'GameFlowManagerMain.cs' }).issues.find(i => i.rule === 'direct-camera-motion-forbidden');
     expect(hit).toBeUndefined();
   });
 

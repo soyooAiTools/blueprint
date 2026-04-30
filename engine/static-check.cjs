@@ -1301,6 +1301,57 @@ var RULES = [
       });
     },
   },
+  { id: 'direct-camera-motion-forbidden', pattern: null, blocking: true,
+    message: 'Shot 镜头移动/缩放必须走 GFM_CameraController 平滑 API；不要直接写 mainCam.transform 或 mainCam.orthographicSize。',
+    custom: function(code, ctx) {
+      var fileName = (ctx && ctx.filename) || '';
+      if (/(?:^|\/)GFM_CameraController\.cs$/.test(fileName)) return [];
+      var stripped = code
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
+        .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
+
+      var methodRanges = [];
+      var methodRe = /(?:public|private|protected|internal|static|virtual|override|sealed|async|\s)*\b(?:void|bool|int|float|string|Vector3|Quaternion|Camera|GameObject|[A-Za-z_][\w<>,\[\].?]*)\s+([A-Za-z_]\w*)\s*\([^)]*\)\s*\{/g;
+      var sm;
+      while ((sm = methodRe.exec(stripped)) !== null) {
+        var start = sm.index + sm[0].length;
+        var depth = 1;
+        var end = start;
+        while (end < stripped.length && depth > 0) {
+          var ch = stripped[end];
+          if (ch === '{') depth++;
+          else if (ch === '}') { depth--; if (depth === 0) break; }
+          end++;
+        }
+        if (depth === 0) {
+          methodRanges.push({ name: sm[1], start: sm.index, bodyStart: start, end: end });
+        }
+      }
+
+      function methodAt(idx) {
+        for (var i = methodRanges.length - 1; i >= 0; i--) {
+          var r = methodRanges[i];
+          if (idx >= r.bodyStart && idx <= r.end) return r.name;
+        }
+        return '';
+      }
+
+      var allowedInitMethods = { Start: 1, Awake: 1, Init: 1, InitializeCamera: 1, SetupCamera: 1 };
+      var issues = [];
+      var opRe = /\bmainCam\s*\.\s*(?:orthographicSize\s*=|transform\s*\.\s*(?:position|rotation|eulerAngles)\s*=|transform\s*\.\s*LookAt\s*\()/g;
+      var m;
+      while ((m = opRe.exec(stripped)) !== null) {
+        var methodName = methodAt(m.index);
+        if (allowedInitMethods[methodName]) continue;
+        issues.push({
+          line: code.substring(0, m.index).split('\n').length,
+          text: 'Direct camera operation in ' + (methodName || 'unknown') + '(): ' + m[0].replace(/\s+/g, ' ') + ' — use GFM_CameraController.Instance.SetOrthographicSize/SetCameraHeight/FramePoint',
+        });
+      }
+      return issues;
+    },
+  },
   { id: 'player-alias-drift', pattern: null, blocking: true,
     // 2026-04-27 ksgqw6/jv3sij post-mortem: skeleton declares `GameObject player;`
     // (lowercase, line 616 in skeleton-generator.cjs). AI-generated code keeps
@@ -1599,6 +1650,11 @@ var RULES = [
             label: '\\"cameraState\\":{ | BuildCameraStateJson()',
             ok: body.indexOf('\\"cameraState\\":{') >= 0 ||
               (body.indexOf('\\"cameraState\\":') >= 0 && /BuildCameraStateJson\s*\(/.test(body)),
+          },
+          {
+            label: '\\"offscreenEntities\\": | BuildOffscreenEntitiesJson()',
+            ok: body.indexOf('\\"offscreenEntities\\":') >= 0 &&
+              /BuildOffscreenEntitiesJson\s*\(/.test(body),
           }
         ];
         for (var bi = 0; bi < bridgeChecks.length; bi++) {
