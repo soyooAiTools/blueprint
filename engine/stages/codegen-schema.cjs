@@ -166,7 +166,9 @@ module.exports = {
     summarizePlansForPrompt: summarizePlansForPrompt,
     resolveSchemaRunnerConfig: resolveSchemaRunnerConfig,
     resolveSchemaTimeoutMs: resolveSchemaTimeoutMs,
+    resolveSchemaFallbackTimeoutMs: resolveSchemaFallbackTimeoutMs,
     isSchemaInfraError: isSchemaInfraError,
+    isSchemaNonRetryableError: isSchemaNonRetryableError,
     localizeGeneratedCSharpComments: localizeGeneratedCSharpComments,
     suppressCustomLogicWhenAssemblyCovered: suppressCustomLogicWhenAssemblyCovered,
     mergeSchemaEntitiesForResolution: mergeSchemaEntitiesForResolution,
@@ -286,7 +288,7 @@ function generateSchemaFromSpecs(ctx) {
       }
       return parseAndValidateSchemaResponse(ctx, response.text || '');
     }).catch(function(err) {
-      if (attempt <= maxRetries) {
+      if (attempt <= maxRetries && !isSchemaNonRetryableError(err.message)) {
         ctx.addLog('codegen-schema', 'Retry (' + attempt + '): ' + err.message);
         return tryGenerate();
       }
@@ -322,8 +324,8 @@ function generateSchemaTextWithFallback(runCodexText, ctx, promptText) {
       model: runnerConfig.claudeModel,
       taskId: ctx.taskId,
       log: function(msg) { ctx.addLog('codegen-schema', '[fallback] ' + msg); },
-      effort: 'xhigh',
-      timeoutMs: 300000,
+      effort: process.env.CLAUDE_SCHEMA_EFFORT || 'high',
+      timeoutMs: resolveSchemaFallbackTimeoutMs(),
       noTools: true,
       minOutputLen: 20,
       allowBackendFallback: false,
@@ -348,9 +350,20 @@ function resolveSchemaTimeoutMs(env) {
   return isFinite(timeout) && timeout > 0 ? timeout : 360000;
 }
 
+function resolveSchemaFallbackTimeoutMs(env) {
+  env = env || process.env;
+  var timeout = parseInt(env.CLAUDE_SCHEMA_TIMEOUT_MS || env.CODEX_SCHEMA_FALLBACK_TIMEOUT_MS || '', 10);
+  return isFinite(timeout) && timeout > 0 ? timeout : 600000;
+}
+
 function isSchemaInfraError(error) {
   var text = String(error || '');
   return /MODEL_FATAL|quota|usage limit|hit your usage limit|purchase more credits|insufficient|billing|ECONNRESET|Request timed out|Unable to connect to API|timed out|socket hang up|ENOTFOUND|EHOSTUNREACH|ECONNREFUSED|Connection error|selected model|may not exist|not have access|model.?not.?found|unknown model|unsupported model/i.test(text);
+}
+
+function isSchemaNonRetryableError(error) {
+  var text = String(error || '');
+  return /Timed out after \d+ms; Exit code 143|MODEL_FATAL: Codex text runner auth\/quota/i.test(text);
 }
 
 function parseAndValidateSchemaResponse(ctx, text) {

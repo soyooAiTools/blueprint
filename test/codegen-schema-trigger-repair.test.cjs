@@ -82,7 +82,9 @@ assert.strictEqual(codegenSchema._internals.isSchemaInfraError('Connection error
 assert.strictEqual(codegenSchema._internals.isSchemaInfraError('Request timed out.'), true);
 assert.strictEqual(codegenSchema._internals.isSchemaInfraError("There's an issue with the selected model (gpt-5.4-mini). It may not exist or you may not have access to it."), true);
 assert.strictEqual(codegenSchema._internals.isSchemaInfraError("MODEL_FATAL: You've hit your usage limit. purchase more credits"), true);
+assert.strictEqual(codegenSchema._internals.isSchemaNonRetryableError('Schema generation failed: Timed out after 600000ms; Exit code 143'), true);
 assert.strictEqual(codegenSchema._internals.isSchemaInfraError('schema malformed'), false);
+assert.strictEqual(codegenSchema._internals.isSchemaNonRetryableError('schema malformed'), false);
 
 {
   const runner = codegenSchema._internals.resolveSchemaRunnerConfig({});
@@ -91,6 +93,8 @@ assert.strictEqual(codegenSchema._internals.isSchemaInfraError('schema malformed
   assert.notStrictEqual(runner.codexModel, 'gpt-5.4-mini');
   assert.strictEqual(codegenSchema._internals.resolveSchemaTimeoutMs({}), 360000);
   assert.strictEqual(codegenSchema._internals.resolveSchemaTimeoutMs({ CODEX_SCHEMA_TIMEOUT_MS: '420000' }), 420000);
+  assert.strictEqual(codegenSchema._internals.resolveSchemaFallbackTimeoutMs({}), 600000);
+  assert.strictEqual(codegenSchema._internals.resolveSchemaFallbackTimeoutMs({ CLAUDE_SCHEMA_TIMEOUT_MS: '720000' }), 720000);
 
   const envRunner = codegenSchema._internals.resolveSchemaRunnerConfig({
     CODEX_SCHEMA_MODEL: 'gpt-custom',
