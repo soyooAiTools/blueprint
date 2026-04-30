@@ -1234,6 +1234,76 @@ function normalizePhaseGateConditionalDeclarations(code) {
   return { code: next, changed: fixes > 0, fixes: fixes };
 }
 
+function ensurePlayerFieldAssignment(mainCode, extraFiles) {
+  var files = Object.assign({}, extraFiles || {});
+  function stripComments(src) {
+    return String(src || '')
+      .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+      .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); });
+  }
+  var allSources = [stripComments(mainCode)];
+  Object.keys(files).forEach(function(name) {
+    allSources.push(stripComments(files[name] || ''));
+  });
+  var declared = false;
+  var readsPlayer = false;
+  var assigned = false;
+  for (var i = 0; i < allSources.length; i++) {
+    var src = allSources[i];
+    if (/\bGameObject\s+player\s*[;=]/.test(src)) declared = true;
+    if (/\bplayer\s*\.\s*\w/.test(src)) readsPlayer = true;
+    if (/(?:^|[\s;{}])(?:GameObject\s+)?player\s*=\s*[^=>\s]/m.test(src)) {
+      if (!/\bvar\s+player\s*=/.test(src) || /(?:^|[\s;{}])player\s*=\s*[^=>\s]/m.test(src)) assigned = true;
+    }
+  }
+  if (!declared || !readsPlayer || assigned) {
+    return { code: mainCode, extraFiles: files, changed: false, fixes: 0 };
+  }
+
+  var re = /^([ \t]*)void\s+Start\s*\(\s*\)\s*\r?\n[ \t]*\{\r?\n/m;
+  var match = re.exec(mainCode);
+  if (!match) return { code: mainCode, extraFiles: files, changed: false, fixes: 0 };
+  var insertAt = match.index + match[0].length;
+  var indent = match[1] + '    ';
+  var insert = indent + '// [SKELETON] 绑定玩家字段，避免 partial 里的 player.transform 空引用。\n' +
+    indent + 'player = GFM_Player.Instance.Go;\n';
+  return {
+    code: mainCode.slice(0, insertAt) + insert + mainCode.slice(insertAt),
+    extraFiles: files,
+    changed: true,
+    fixes: 1
+  };
+}
+
+function repairPlayerAliasMemberAccess(mainCode, extraFiles) {
+  var files = Object.assign({}, extraFiles || {});
+  function fixCode(src) {
+    var fixes = 0;
+    var code = String(src || '').replace(/\bPlayer\s*\./g, function() {
+      fixes++;
+      return 'player.';
+    });
+    return { code: code, fixes: fixes };
+  }
+  var changed = false;
+  var fixes = 0;
+  var mainRes = fixCode(mainCode);
+  if (mainRes.fixes > 0) {
+    mainCode = mainRes.code;
+    changed = true;
+    fixes += mainRes.fixes;
+  }
+  Object.keys(files).forEach(function(name) {
+    var res = fixCode(files[name]);
+    if (res.fixes > 0) {
+      files[name] = res.code;
+      changed = true;
+      fixes += res.fixes;
+    }
+  });
+  return { code: mainCode, extraFiles: files, changed: changed, fixes: fixes };
+}
+
 function rewriteLongIfChainsAsSwitches(code) {
   if (!code || code.indexOf('if') < 0 || code.indexOf('== "') < 0) {
     return { code: code, changed: false, fixes: 0 };
@@ -1739,6 +1809,20 @@ function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
     changed = true;
     fixes.push('main:MissingInteractionFlags x' + missingFlagFix.fixes);
   }
+  var playerAliasFix = repairPlayerAliasMemberAccess(mainCode, extraFiles);
+  if (playerAliasFix.changed) {
+    mainCode = playerAliasFix.code;
+    extraFiles = playerAliasFix.extraFiles;
+    changed = true;
+    fixes.push('partials:PlayerAliasMemberAccess x' + playerAliasFix.fixes);
+  }
+  var playerAssignFix = ensurePlayerFieldAssignment(mainCode, extraFiles);
+  if (playerAssignFix.changed) {
+    mainCode = playerAssignFix.code;
+    extraFiles = playerAssignFix.extraFiles;
+    changed = true;
+    fixes.push('main:PlayerFieldAssignment x' + playerAssignFix.fixes);
+  }
   var mainStubFix = collapseLegacyCheckEventRulesStub(mainCode);
   if (mainStubFix.changed) {
     mainCode = mainStubFix.code;
@@ -2078,6 +2162,8 @@ module.exports = {
   ensureAssemblySlotRunnerCalls: ensureAssemblySlotRunnerCalls,
   ensureAssemblySlotRunnerCallsAcrossPartials: ensureAssemblySlotRunnerCallsAcrossPartials,
   declareMissingInteractionFlags: declareMissingInteractionFlags,
+  repairPlayerAliasMemberAccess: repairPlayerAliasMemberAccess,
+  ensurePlayerFieldAssignment: ensurePlayerFieldAssignment,
   addMissingComplexBranchComments: addMissingComplexBranchComments,
   addMissingSkeletonMemberComments: addMissingSkeletonMemberComments,
   hasLegacyReviewerApiKey: hasLegacyReviewerApiKey,

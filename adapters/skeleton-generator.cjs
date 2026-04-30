@@ -214,7 +214,7 @@ function generateSkeleton(specs, opts = {}) {
   // 原因：phase 出口绑定 EntityAdvanced(X, _snap_XPos)。如果 X 在该 phase 没有任何
   // 会移动它的交互，gate 在结构上不可达。这里返回 []，让 buildRealCondition()
   // 明确退回到 wait/defend 这类真实时间节拍，或直接生成 hard false gate。
-  const MOVING_VERBS = { collect: 1, deliver: 1, sell: 1, click: 1, spend: 1, build: 1, move_to: 1 };
+  const MOVING_VERBS = { collect: 1, deliver: 1, sell: 1, click: 1, spend: 1, build: 1, upgrade: 1, move_to: 1, reach: 1, drag: 1, hold: 1, attack: 1, defeat: 1, defeat_count: 1, appear: 1, disappear: 1, unlock: 1 };
   function phaseGateEntities(spec) {
     const interactions = spec.requiredInteractions || [];
 
@@ -227,6 +227,7 @@ function generateSkeleton(specs, opts = {}) {
       if (!target) continue;
       if (/^\d/.test(target)) continue;
       if (!MOVING_VERBS[verb]) continue;
+      if (allEntities && allEntities.has && !allEntities.has(target)) continue;
       if (!seen[target]) { movingTargets.push(target); seen[target] = true; }
     }
     return movingTargets;
@@ -1018,7 +1019,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        // 重要：不要再次创建 Canvas；使用 uiCanvas。不要使用 Camera.main；使用 mainCam。');
   if (isIdleGame) {
     lines.push('        // Idle 项目请在 Update() 调用预置的 MovePlayer()/TryCollect()/TryDeliver()。');
-    lines.push('        //   player = GFM_Player.Instance.Go; // 复用已绑定玩家对象，不在 TODO 区直接 Find 对象池');
+    lines.push('        player = GFM_Player.Instance.Go; // 复用已绑定玩家对象，不在 TODO 区直接 Find 对象池');
     lines.push('        //   Update 示例：MovePlayer(); TryCollect(iceSource, "ice", 5, 1.5f); TryDeliver(machine, "ice", 1.5f);');
   }
   lines.push('        // TODO_START_START');

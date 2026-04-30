@@ -144,4 +144,30 @@ var implicitUpgradeGate = implicitUpgradeTarget.modules.find(function(module) { 
 assert.strictEqual(implicitBuildGate.params.resource, 'gold', 'implicit build cost_gate should default placeholder resource to gold');
 assert.strictEqual(implicitUpgradeGate.params.resource, 'gold', 'implicit upgrade cost_gate should default placeholder resource to gold');
 
+var recruitPlans = buildProjectPlans({
+  name: 'RecruitWorkerPlan',
+  storyboardFrames: [],
+  entities: [
+    { name: 'Player', template: 'PlayerController', behavior: { moveSpeed: 5 } },
+    { name: 'WorkerAI', label: 'worker', template: 'Static' },
+    { name: 'BasePlatform', template: 'Buildable', behavior: { buildTime: 1 } }
+  ],
+  phases: [{ id: 1, name: '招募工人', activate: ['WorkerAI'] }],
+  specs: [{ phaseId: 'recruitWorker', requiredInteractions: ['click:BasePlatform', 'spend:gold:20', 'recruit:worker:1'] }]
+});
+assert.ok(recruitPlans.validation.ok, 'recruit plans should validate');
+assert.strictEqual(recruitPlans.assemblyPlan.unresolved.length, 0, 'recruit interaction should not be unresolved');
+assert.ok(
+  recruitPlans.storyboardAtomPlan.items.some(function(atom) {
+    return atom.atomId === 'spawn_entity' && atom.params.entity === 'WorkerAI' && atom.params.count === 1;
+  }),
+  'recruit should map to spawn_entity on the worker entity'
+);
+assert.ok(
+  recruitPlans.assemblyPlan.moduleInstances.some(function(module) {
+    return module.id === 'WorkerAI::spawn_once';
+  }),
+  'recruit should attach spawn_once to recruited worker'
+);
+
 console.log('assembly-plan-pipeline tests passed');

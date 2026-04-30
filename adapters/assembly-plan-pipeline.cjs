@@ -43,6 +43,7 @@ var VERB_TO_ATOM = {
   spend: 'spend_resource',
   build: 'build_entity',
   upgrade: 'upgrade_entity',
+  recruit: 'spawn_entity',
   attack: 'attack_target',
   defeat: 'defeat_target',
   defeat_count: 'defeat_target',
@@ -328,6 +329,9 @@ function parseInteraction(rawInteraction, entityLookup, defaultActor) {
   } else if (verb === 'upgrade') {
     params.target = resolveEntityName(parts[1], entityLookup);
     params.level = asNumber(parts[2], 2);
+  } else if (verb === 'recruit') {
+    params.entity = resolveEntityName(parts[1], entityLookup);
+    params.count = asNumber(parts[2], 1);
   } else if (verb === 'attack') {
     params.target = resolveEntityName(parts[1], entityLookup);
     params.mode = 'tap';
@@ -1107,6 +1111,7 @@ function buildCUAAction(atom) {
   if (atom.atomId === 'attack_target') return { kind: 'attack', target: params.target || '', mode: params.mode || 'auto' };
   if (atom.atomId === 'defeat_target') return { kind: 'observe_defeat', target: params.target || '', count: params.count || 1 };
   if (atom.atomId === 'defend_duration') return { kind: 'defend', duration: params.duration || 3 };
+  if (atom.atomId === 'spawn_entity') return { kind: 'recruit', target: params.entity || params.target || '', count: params.count || 1 };
   return null;
 }
 

@@ -190,6 +190,65 @@ vm.runInContext([
 }
 
 {
+  const main = [
+    'using UnityEngine;',
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    void Start()',
+    '    {',
+    '        mainCam = Camera.main;',
+    '    }',
+    '}',
+  ].join('\n');
+  const extras = {
+    'GameFlowManagerMain.Input.cs': [
+      'using UnityEngine;',
+      'public partial class GameFlowManagerMain',
+      '{',
+      '    GameObject player;',
+      '    void MovePlayer() { player.transform.position = Vector3.zero; }',
+      '}',
+    ].join('\n'),
+  };
+  const result = reviewStage.repairKnownStructuralDamage(main, extras, {});
+  assert.strictEqual(result.changed, true);
+  assert.match(result.code, /player = GFM_Player\.Instance\.Go;/);
+  const staticResult = staticCheckProject(result.code, {
+    filename: 'GameFlowManagerMain.cs',
+    extraFiles: result.extraFiles,
+  });
+  assert.ok(!staticResult.issues.some(function(issue) { return issue.rule === 'uninit-player-field'; }));
+}
+
+{
+  const main = [
+    'using UnityEngine;',
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    GameObject player;',
+    '    void Start() { player = GFM_Player.Instance.Go; }',
+    '}',
+  ].join('\n');
+  const extras = {
+    'GameFlowManagerMain.Flow.cs': [
+      'using UnityEngine;',
+      'public partial class GameFlowManagerMain',
+      '{',
+      '    void Move() { Player.transform.position = Vector3.zero; Player.name = "p"; }',
+      '}',
+    ].join('\n'),
+  };
+  const before = staticCheckProject(main + '\n' + extras['GameFlowManagerMain.Flow.cs'], { filename: 'GameFlowManagerMain.cs' });
+  assert.ok(before.issues.some(function(issue) { return issue.rule === 'player-alias-drift'; }));
+  const result = reviewStage.repairKnownStructuralDamage(main, extras, {});
+  assert.strictEqual(result.changed, true);
+  assert.match(result.extraFiles['GameFlowManagerMain.Flow.cs'], /player\.transform\.position/);
+  assert.doesNotMatch(result.extraFiles['GameFlowManagerMain.Flow.cs'], /\bPlayer\s*\./);
+  const after = staticCheckProject(result.code + '\n' + result.extraFiles['GameFlowManagerMain.Flow.cs'], { filename: 'GameFlowManagerMain.cs' });
+  assert.ok(!after.issues.some(function(issue) { return issue.rule === 'player-alias-drift'; }));
+}
+
+{
   const result = sandbox.stripInteractionFlagShortcutsFromPhaseGates(
     'if (!ruleTriggered[2] && (EntityAdvanced(Box, _snap_BoxPos) || boxDone || harvestPlayerActed) && phaseTimer > 3f) {}',
     { specs: [{ phaseId: 'a' }, { phaseId: 'b' }, { phaseId: 'c' }, { phaseId: 'd' }] }

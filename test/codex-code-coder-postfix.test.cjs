@@ -37,7 +37,8 @@ const coder = require('../worker/codex-code-coder.js');
   ].join('\n'));
   assert.ok(fixed.includes('((Renderer)obj.GetComponent(typeof(Renderer)))'));
   assert.ok(fixed.includes('(Camera)FindObjectOfType(typeof(Camera))'));
-  assert.ok(fixed.includes('(Font)Resources.GetBuiltinResource(typeof(Font), "Arial.ttf")'));
+  assert.ok(fixed.includes('Resources.Load<Font>("DefaultFont")'));
+  assert.ok(!/Resources\.GetBuiltinResource/.test(fixed));
   assert.ok(fixed.includes('GFM_UI.AddWorldLabel(target, "基地", 1.5f);'));
   assert.ok(fixed.includes('uiCanvas = GFM_UI.CreateCanvas(1920, 1080);'));
   assert.ok(fixed.includes('guideText = GFM_UI.CreateText(uiCanvas, "点击", new Vector2(0, 100), 42);'));
@@ -73,6 +74,7 @@ const coder = require('../worker/codex-code-coder.js');
     if (!/^GFM_.*\.cs$/.test(name)) return;
     assert.ok(!/GetComponent\s*</.test(gfmFiles[name]), name + ' should not contain generic GetComponent<T>()');
     assert.ok(!/FindObjectOfType\s*</.test(gfmFiles[name]), name + ' should not contain generic FindObjectOfType<T>()');
+    assert.ok(!/Resources\.GetBuiltinResource\s*[<(]/.test(gfmFiles[name]), name + ' should not call Resources.GetBuiltinResource()');
   });
 }
 

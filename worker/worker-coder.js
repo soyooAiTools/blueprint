@@ -1449,7 +1449,7 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
     + '- Do NOT define class EventPool (conflicts with template)\n'
     + '- Do NOT use transform.parent / SetParent / FindObjectOfType\n'
     + '- Do NOT use generic methods: GetComponent<T>(), Resources.GetBuiltinResource<T>(), FindObjectOfType<T>()\n'
-    + '- Instead use: (T)GetComponent(typeof(T)), (Font)Resources.GetBuiltinResource(typeof(Font), "Arial.ttf")\n\n'
+    + '- Instead use: (T)GetComponent(typeof(T)); for UI text/fonts use GFM_UI.CreateText or Resources.Load<Font>("DefaultFont")\n\n'
     + 'CUA VERIFICATION HOOK (MANDATORY):\n'
     + 'You MUST expose game state for automated testing. Add this in your Update() or state-change logic:\n'
     + '```\n'
@@ -1566,8 +1566,9 @@ async function generateCodeV5(blueprint, clientDir, log, taskId, engine) {
     // Post-fix: replace generic method calls that Luna doesn't support
     for (var fi = 0; fi < files.length; fi++) {
       if (files[fi].content) {
-        // Fix Resources.GetBuiltinResource<T>("name") -> (T)Resources.GetBuiltinResource(typeof(T), "name")
-        files[fi].content = files[fi].content.replace(/Resources\.GetBuiltinResource<(\w+)>\(([^)]+)\)/g, '($1)Resources.GetBuiltinResource(typeof($1), $2)');
+        // Fix Resources.GetBuiltinResource<T>("name") -> Luna-safe fallback.
+        files[fi].content = files[fi].content.replace(/Resources\.GetBuiltinResource<Font>\(([^)]+)\)/g, 'Resources.Load<Font>("DefaultFont")');
+        files[fi].content = files[fi].content.replace(/Resources\.GetBuiltinResource<(\w+)>\(([^)]+)\)/g, 'default($1)');
         // Fix FindObjectOfType<T>() -> (T)FindObjectOfType(typeof(T))
         files[fi].content = files[fi].content.replace(/FindObjectOfType<(\w+)>\(\)/g, '($1)FindObjectOfType(typeof($1))');
         // Fix GetComponent<T>() -> (T)GetComponent(typeof(T))

@@ -157,4 +157,31 @@ describe('phaseGateEntities filter', () => {
     expect(gates).toContain('OreA');
     expect(gates).toContain('OreB');
   });
+
+  test('combat moving targets are allowed, but unknown role labels are ignored', () => {
+    const specs = [
+      {
+        phaseId: 'attackEnemy',
+        entitiesRequired: [{ name: 'Enemy' }],
+        requiredInteractions: ['attack:Enemy'],
+        triggerNext: { condition: 'enemyHp < 3' },
+        duration: { min: 10, max: 15 },
+      },
+      {
+        phaseId: 'recruitWorker',
+        entitiesRequired: [],
+        requiredInteractions: ['recruit:worker:1'],
+        triggerNext: { condition: 'workerCount >= 1' },
+        duration: { min: 10, max: 15 },
+      },
+    ];
+    const skeleton = generateSkeleton(specs, {
+      entityPoolMap: { Enemy: '__Pool_Enemy' },
+      entities: [{ name: 'Enemy' }],
+    });
+    const code = typeof skeleton === 'string' ? skeleton : skeleton.main;
+    const gates = gateEntities(code);
+    expect(gates).toContain('Enemy');
+    expect(gates).not.toContain('worker');
+  });
 });

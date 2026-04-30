@@ -986,7 +986,10 @@ function buildFeedbackText(feedbackItem) {
 
 function stripGenericMethodCallsForLuna(src) {
   let next = String(src || '');
-  next = next.replace(/Resources\.GetBuiltinResource\s*<\s*([A-Za-z_][A-Za-z0-9_]*)\s*>\s*\(([^)]+)\)/g, '($1)Resources.GetBuiltinResource(typeof($1), $2)');
+  next = next.replace(/Resources\.GetBuiltinResource\s*<\s*Font\s*>\s*\(([^)]+)\)/g, 'Resources.Load<Font>("DefaultFont")');
+  next = next.replace(/\(\s*Font\s*\)\s*Resources\.GetBuiltinResource\s*\(\s*typeof\s*\(\s*Font\s*\)\s*,\s*[^)]*\)/g, 'Resources.Load<Font>("DefaultFont")');
+  next = next.replace(/Resources\.GetBuiltinResource\s*<\s*([A-Za-z_][A-Za-z0-9_]*)\s*>\s*\(([^)]+)\)/g, 'default($1)');
+  next = next.replace(/Resources\.GetBuiltinResource\s*\(\s*typeof\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*,\s*[^)]*\)/g, 'default($1)');
   next = next.replace(/FindObjectOfType\s*<\s*([A-Za-z_][A-Za-z0-9_]*)\s*>\s*\(\s*\)/g, '($1)FindObjectOfType(typeof($1))');
   next = next.replace(/((?:this|base|[A-Za-z_][A-Za-z0-9_]*)(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\.GetComponent\s*<\s*([A-Za-z_][A-Za-z0-9_.]*)\s*>\s*\(\s*\)/g, '(($2)$1.GetComponent(typeof($2)))');
   next = next.replace(/\bAddLocalWorldLabel\s*\(/g, 'GFM_UI.AddWorldLabel(');

@@ -40,4 +40,31 @@ assert.match(code, /void MaybeAssistAutoPlayPhase\(\)[\s\S]*OnAutoPlayArrive\("_
 assert.match(code, /GFM_AutoPlay\.Instance\.SetTargets\(_autoTargets\);/);
 assert.match(code, /else GFM_Player\.Instance\.Tick\(dt, false\);/);
 
+const idleSkeleton = generateSkeleton([
+  {
+    phaseId: 'moveToOre',
+    phaseName: 'Move',
+    entitiesRequired: [{ name: 'Ore' }],
+    requiredInteractions: ['move_to:Ore'],
+    duration: { min: 10, max: 12 },
+    playerMustAct: true,
+  },
+  {
+    phaseId: 'collectOre',
+    phaseName: 'Collect',
+    entitiesRequired: [{ name: 'Ore' }],
+    requiredInteractions: ['collect:Ore'],
+    duration: { min: 10, max: 12 },
+    playerMustAct: true,
+  },
+], {
+  entityPoolMap: { Ore: '__Pool_Ore' },
+  entities: [{ name: 'Ore' }],
+});
+const idleCode = typeof idleSkeleton === 'string'
+  ? idleSkeleton
+  : [idleSkeleton.main, idleSkeleton.flow, idleSkeleton.input, idleSkeleton.resource, idleSkeleton.ui, idleSkeleton.scene].join('\n');
+assert.match(idleCode, /GameObject player;/);
+assert.match(idleCode, /player = GFM_Player\.Instance\.Go;/);
+
 console.log('skeleton autoplay observe tests passed');

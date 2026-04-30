@@ -43,21 +43,23 @@ public class GFM_TipsManager : GFM_SingletonBase<GFM_TipsManager>
             if (_canvas == null) return;
         }
 
-        var textObj = new GameObject("GFM_TipText");
-        textObj.transform.SetParent(_canvas.transform, false);
-        _tipText = textObj.AddComponent<Text>();
-        _tipText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-        _tipText.fontSize = 32;
-        _tipText.alignment = TextAnchor.MiddleCenter;
+        _tipText = GFM_UI.CreateText(_canvas, "", new Vector2(0f, 80f), 32);
+        if (_tipText == null) return;
+        _tipText.name = "GFM_TipText";
         _tipText.text = string.Empty;
 
         var rt = _tipText.rectTransform;
-        rt.anchorMin = new Vector2(0.5f, 0.5f);
-        rt.anchorMax = new Vector2(0.5f, 0.5f);
-        rt.anchoredPosition = new Vector2(0f, 80f);
-        rt.sizeDelta = new Vector2(600f, 60f);
+        if (rt != null)
+        {
+            rt.anchorMin = new Vector2(0.5f, 0.5f);
+            rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = new Vector2(0f, 80f);
+            rt.sizeDelta = new Vector2(600f, 60f);
+        }
 
-        textObj.SetActive(false);
+        Color hidden = _baseColor;
+        hidden.a = 0f;
+        _tipText.color = hidden;
     }
 
     // 【显示提示】duration 秒后自动隐藏。color 缺省走 baseColor (白色)。
@@ -67,7 +69,6 @@ public class GFM_TipsManager : GFM_SingletonBase<GFM_TipsManager>
         _tipText.text = message == null ? string.Empty : message;
         _baseColor = color.HasValue ? color.Value : Color.white;
         _tipText.color = _baseColor;
-        _tipText.gameObject.SetActive(true);
         _hideAt = Time.unscaledTime + Mathf.Max(0.1f, duration);
     }
 
@@ -75,16 +76,19 @@ public class GFM_TipsManager : GFM_SingletonBase<GFM_TipsManager>
     public void HideImmediate()
     {
         if (_tipText == null) return;
-        _tipText.gameObject.SetActive(false);
+        _tipText.text = string.Empty;
+        Color hidden = _baseColor;
+        hidden.a = 0f;
+        _tipText.color = hidden;
         _hideAt = 0f;
     }
 
     // 【每帧渐隐】最后 0.3s 走 alpha 渐变,然后关掉 GameObject (不 Destroy)。
     private void Update()
     {
-        if (_tipText == null || !_tipText.gameObject.activeSelf) return;
+        if (_tipText == null || string.IsNullOrEmpty(_tipText.text)) return;
         var remain = _hideAt - Time.unscaledTime;
-        if (remain <= 0f) { _tipText.gameObject.SetActive(false); return; }
+        if (remain <= 0f) { HideImmediate(); return; }
         if (remain < 0.3f)
         {
             var c = _baseColor;

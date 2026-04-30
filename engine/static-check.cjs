@@ -1399,16 +1399,9 @@ var RULES = [
     message: '`player` field is read but never assigned — uncomment `player = GFM_Player.Instance.Go;` in Start() (or assign from your scene-binding) BEFORE any `player.transform`/`player.gameObject` access. Accessing `.transform` on an uninitialized GameObject throws hundreds of null-ref crashes per frame in Luna.',
     custom: function(code, ctx) {
       // staticCheckProject runs each extra file with extraFiles={}, which would make
-      // a cross-file rule like this one false-positive on extras whose assignment lives
-      // in the main file. Only run on the main-file pass (where extras are populated)
-      // OR when no companion files exist at all (single-file scenario).
-      if (ctx && ctx.filename && ctx.filename !== 'GameFlowManagerMain.cs') {
-        if (!ctx.extraFiles || Object.keys(ctx.extraFiles).length === 0) {
-          // Single-file mode (no companions registered) — proceed.
-        } else {
-          return [];
-        }
-      }
+      // a cross-file rule like this one false-positive on partials whose assignment
+      // lives in another partial or the main file. Run only on the aggregate main pass.
+      if (ctx && ctx.filename && ctx.filename !== 'GameFlowManagerMain.cs') return [];
       function stripComments(src) {
         return String(src || '')
           .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })

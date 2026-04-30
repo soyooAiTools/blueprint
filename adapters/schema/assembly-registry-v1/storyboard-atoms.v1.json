@@ -117,7 +117,7 @@
       "params": ["entity"],
       "mapsToModules": ["visual_binding", "spawn_once"],
       "cuaAssertions": ["downstream_entity_visible"],
-      "sourceVerbs": ["appear"]
+      "sourceVerbs": ["appear", "recruit"]
     },
     {
       "id": "deactivate_entity",
