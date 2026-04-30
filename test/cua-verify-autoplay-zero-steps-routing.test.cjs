@@ -86,15 +86,18 @@ var diag3b = buildStuckDiagnosis(
 assert.strictEqual(diag3b.rootCause, 'autoplay_or_idle',
   'Plain "autoplay" (no -zero-steps) must still route to autoplay_or_idle. Got: ' + diag3b.rootCause);
 
-// Case 4: engine hardBlockers filter must include autoplay-zero-steps (sync with worker)
+// Case 4: engine must respect the worker's hard-blocker decision, with a
+// fallback filter that still includes autoplay-zero-steps for older workers.
 var src = fs.readFileSync(path.join(__dirname, '..', 'engine', 'stages', 'cua-verify.cjs'), 'utf8');
 assert.ok(/autoplay-zero-steps/.test(src),
   'cua-verify.cjs must reference autoplay-zero-steps for engine↔worker filter sync');
-// Find the hardBlockers filter block and assert autoplay-zero-steps is in it
-var filterBlockMatch = src.match(/var hardBlockers = silentSignals\.filter\(function\(s\) \{[\s\S]*?\}\);/);
-assert.ok(filterBlockMatch, 'hardBlockers filter block must exist');
+assert.ok(/workerHardBlockers/.test(src),
+  'cua-verify.cjs must honor worker hardBlockingSilentSignals so soft warnings stay soft');
+// Find the fallback hardBlockers filter block and assert autoplay-zero-steps is in it.
+var filterBlockMatch = src.match(/workerHardBlockers \|\| silentSignals\.filter\(function\(s\) \{[\s\S]*?\}\);/);
+assert.ok(filterBlockMatch, 'fallback hardBlockers filter block must exist');
 assert.ok(/autoplay-zero-steps/.test(filterBlockMatch[0]),
-  'autoplay-zero-steps MUST appear in hardBlockers filter block (sync with worker-playableagent.js:370). Block: ' +
+  'autoplay-zero-steps MUST appear in fallback hardBlockers filter block (sync with worker-playableagent.js). Block: ' +
   filterBlockMatch[0].slice(0, 600));
 
 // Case 5: regression — confirm autoplay-zero-steps is checked BEFORE the generic

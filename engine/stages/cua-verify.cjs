@@ -544,7 +544,10 @@ module.exports = {
               // layer's isAutoPlayMode exemption to avoid flipping genuine PASS
               // runs to FAIL. See worker-playableagent.js:441-446.
               var cuaIsAutoPlayMode = cuaResult.isAutoPlayMode === true;
-              var hardBlockers = silentSignals.filter(function(s) {
+              var workerHardBlockers = Array.isArray(cuaResult.hardBlockingSilentSignals)
+                ? cuaResult.hardBlockingSilentSignals.slice()
+                : null;
+              var hardBlockers = workerHardBlockers || silentSignals.filter(function(s) {
                 if (s.indexOf('uniform-timing') === 0 && cuaIsAutoPlayMode) return false;
                 return s.indexOf('uniform-timing') === 0
                     || s.indexOf('phase-order-violation') === 0

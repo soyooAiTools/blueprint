@@ -36,6 +36,35 @@ function computeVerifyTimeoutMs(phaseCount) {
   return seconds * 1000;
 }
 
+function parseCoverageLabel(label) {
+  var match = String(label || '').match(/(\d+)\s*\/\s*(\d+)/);
+  if (!match) return null;
+  return {
+    covered: parseInt(match[1], 10) || 0,
+    total: parseInt(match[2], 10) || 0,
+  };
+}
+
+function isFullCoverage(label) {
+  var parsed = parseCoverageLabel(label);
+  return !!(parsed && parsed.total > 0 && parsed.covered >= parsed.total);
+}
+
+function hasHealthyObserveVisuals(report) {
+  if (!report || !report.observe_mode) return false;
+  if (Array.isArray(report.visual_fail_reasons) && report.visual_fail_reasons.length > 0) return false;
+
+  var visualQuality = report.visual_quality || {};
+  if (typeof visualQuality.changed_frames !== 'number' || typeof visualQuality.total_frames !== 'number') return false;
+  if (visualQuality.total_frames <= 0 || visualQuality.changed_frames <= 0) return false;
+  if (typeof visualQuality.frozen_ratio === 'number' && visualQuality.frozen_ratio > 0.5) return false;
+  if (typeof visualQuality.max_frozen_streak === 'number' && visualQuality.max_frozen_streak > 2) return false;
+
+  var visualSmoke = report.visual_smoke || {};
+  if (typeof visualSmoke.maxBadScreenStreak === 'number' && visualSmoke.maxBadScreenStreak > 1) return false;
+  return true;
+}
+
 try { fs.mkdirSync(CUA_RESULTS_DIR, { recursive: true }); } catch(e) {}
 
 // ─── Reuse patchForHeadless from worker-cua-verify ───
@@ -360,8 +389,19 @@ function summarizePlayableAgentReport(report, taskId, log) {
     logger('[PlayableAgent] ⚠️ Silent-pass signals detected: ' + silentPassSignals.join(', '), taskId);
   }
 
+  var autoplayZeroStepsSoftWarn = isAutoPlayMode
+    && isFullCoverage(planCoverage)
+    && isFullCoverage(signalCoverage)
+    && signalValidationPassed
+    && missingSignals.length === 0
+    && hasHealthyObserveVisuals(report);
+  if (autoplayZeroStepsSoftWarn && silentPassSignals.some(function(s) { return s.indexOf('autoplay-zero-steps') === 0; })) {
+    logger('[PlayableAgent] autoplay-zero-steps downgraded to soft warn because plan/signal/visual observe coverage passed', taskId);
+  }
+
   var hardBlockingSignals = silentPassSignals.filter(function(s) {
     if (s.indexOf('uniform-timing') === 0 && isAutoPlayMode) return false;
+    if (s.indexOf('autoplay-zero-steps') === 0 && autoplayZeroStepsSoftWarn) return false;
     return s.indexOf('uniform-timing') === 0
         || s.indexOf('phase-order-violation') === 0
         || s.indexOf('all-vars-zero') === 0
