@@ -639,7 +639,7 @@ function repairPhaseGateRuntimeMoves(code) {
 
   function buildFallbackMoveLines(entityName, ordinal, phaseId) {
     var safePhase = phaseId ? String(phaseId).replace(/[^A-Za-z0-9_]/g, '_') : '';
-    var varName = safePhase ? ('__gateMovePos_' + safePhase + '_' + entityName) : ('__gateMovePos' + ordinal);
+    var varName = safePhase ? ('__gateMovePos_' + safePhase + '_' + entityName + '_' + ordinal) : ('__gateMovePos' + ordinal);
     return [
       '        if (' + entityName + ' != null)',
       '        {',
@@ -970,7 +970,7 @@ function repairPhaseGateRuntimeMovesAcrossPartials(mainCode, extraFiles) {
 
   function buildFallbackMoveLines(entityName, ordinal, phaseId) {
     var safePhase = phaseId ? String(phaseId).replace(/[^A-Za-z0-9_]/g, '_') : '';
-    var varName = safePhase ? ('__gateMovePos_' + safePhase + '_' + entityName) : ('__gateMovePos' + ordinal);
+    var varName = safePhase ? ('__gateMovePos_' + safePhase + '_' + entityName + '_' + ordinal) : ('__gateMovePos' + ordinal);
     return [
       '        if (' + entityName + ' != null)',
       '        {',
@@ -1231,6 +1231,30 @@ function normalizePhaseGateConditionalDeclarations(code) {
     ].join('\n');
   });
 
+  return { code: next, changed: fixes > 0, fixes: fixes };
+}
+
+function renameDuplicatePhaseGateMoveVars(code) {
+  if (!code || code.indexOf('__gateMovePos') < 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+
+  var seen = {};
+  var fixes = 0;
+  var next = String(code || '').replace(
+    /^([ \t]*)var\s+(__gateMovePos[A-Za-z0-9_]*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\.transform\.position;\s*\r?\n([ \t]*)\2\.y\s*\+=\s*2f;\s*\r?\n([ \t]*)\3\.transform\.position\s*=\s*\2;/gm,
+    function(match, declIndent, varName, entityName, yIndent, assignIndent) {
+      seen[varName] = (seen[varName] || 0) + 1;
+      if (seen[varName] === 1) return match;
+      var nextVarName = varName + '_' + seen[varName];
+      fixes++;
+      return [
+        declIndent + 'var ' + nextVarName + ' = ' + entityName + '.transform.position;',
+        yIndent + nextVarName + '.y += 2f;',
+        assignIndent + entityName + '.transform.position = ' + nextVarName + ';',
+      ].join('\n');
+    }
+  );
   return { code: next, changed: fixes > 0, fixes: fixes };
 }
 
@@ -1889,6 +1913,12 @@ function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
     changed = true;
     fixes.push('main:PhaseGateConditionalNormalize x' + mainPhaseGateNormalize.fixes);
   }
+  var mainGateVarRename = renameDuplicatePhaseGateMoveVars(mainCode);
+  if (mainGateVarRename.changed) {
+    mainCode = mainGateVarRename.code;
+    changed = true;
+    fixes.push('main:PhaseGateMoveVarRename x' + mainGateVarRename.fixes);
+  }
   var mainGateShortcutFix = stripInteractionFlagShortcutsFromPhaseGates(mainCode, blueprint);
   if (mainGateShortcutFix.changed) {
     mainCode = mainGateShortcutFix.code;
@@ -1969,6 +1999,12 @@ function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
       changed = true;
       fixes.push(name + ':PhaseGateConditionalNormalize x' + phaseGateNormalizeRes.fixes);
     }
+    var gateVarRenameRes = renameDuplicatePhaseGateMoveVars(nextExtras[name]);
+    if (gateVarRenameRes.changed) {
+      nextExtras[name] = gateVarRenameRes.code;
+      changed = true;
+      fixes.push(name + ':PhaseGateMoveVarRename x' + gateVarRenameRes.fixes);
+    }
     var gateShortcutRes = stripInteractionFlagShortcutsFromPhaseGates(nextExtras[name], blueprint);
     if (gateShortcutRes.changed) {
       nextExtras[name] = gateShortcutRes.code;
@@ -2013,12 +2049,24 @@ function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
     changed = true;
     fixes.push('main:PhaseGateConditionalNormalizePost x' + postCrossMainNormalize.fixes);
   }
+  var postCrossMainRename = renameDuplicatePhaseGateMoveVars(mainCode);
+  if (postCrossMainRename.changed) {
+    mainCode = postCrossMainRename.code;
+    changed = true;
+    fixes.push('main:PhaseGateMoveVarRenamePost x' + postCrossMainRename.fixes);
+  }
   Object.keys(nextExtras).forEach(function(name) {
     var normalizeRes = normalizePhaseGateConditionalDeclarations(nextExtras[name]);
     if (normalizeRes.changed) {
       nextExtras[name] = normalizeRes.code;
       changed = true;
       fixes.push(name + ':PhaseGateConditionalNormalizePost x' + normalizeRes.fixes);
+    }
+    var renameRes = renameDuplicatePhaseGateMoveVars(nextExtras[name]);
+    if (renameRes.changed) {
+      nextExtras[name] = renameRes.code;
+      changed = true;
+      fixes.push(name + ':PhaseGateMoveVarRenamePost x' + renameRes.fixes);
     }
   });
   var postCrossLongIfFix = rewriteLongIfChainsAsSwitches(mainCode);
@@ -2163,6 +2211,7 @@ module.exports = {
   repairPhaseGateRuntimeMovesAcrossPartials: repairPhaseGateRuntimeMovesAcrossPartials,
   removePostTapPhaseResetBlocks: removePostTapPhaseResetBlocks,
   normalizePhaseGateConditionalDeclarations: normalizePhaseGateConditionalDeclarations,
+  renameDuplicatePhaseGateMoveVars: renameDuplicatePhaseGateMoveVars,
   stripInteractionFlagShortcutsFromPhaseGates: stripInteractionFlagShortcutsFromPhaseGates,
   rewriteLongIfChainsAsSwitches: rewriteLongIfChainsAsSwitches,
   normalizeRuntimePhaseContract: normalizeRuntimePhaseContract,

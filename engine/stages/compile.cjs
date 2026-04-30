@@ -400,8 +400,10 @@ function stripDuplicateMethodsInSource(code) {
 
 function applyDeterministicBuildRepairs(code, extraFiles, blueprint) {
   var methodCheck;
+  var reviewStage;
   try {
     methodCheck = require('./method-check.cjs');
+    reviewStage = require('./review.cjs');
   } catch (_err) {
     return { changed: false, code: code, extraFiles: extraFiles || {}, fixes: [] };
   }
@@ -459,6 +461,14 @@ function applyDeterministicBuildRepairs(code, extraFiles, blueprint) {
     repairCtx.csCode = moveSpeedRepair.code;
     repairCtx.extraFiles = moveSpeedRepair.extraFiles;
     fixes.push('DuplicateMoveSpeedMembers x' + moveSpeedRepair.fixes);
+  }
+  if (reviewStage && reviewStage.repairKnownStructuralDamage) {
+    var structuralRepair = reviewStage.repairKnownStructuralDamage(repairCtx.csCode, repairCtx.extraFiles, blueprint || {});
+    if (structuralRepair.changed) {
+      repairCtx.csCode = structuralRepair.code;
+      repairCtx.extraFiles = structuralRepair.extraFiles;
+      fixes.push('ReviewStructuralDamage x' + structuralRepair.fixes.length + ' [' + structuralRepair.fixes.slice(0, 5).join(', ') + ']');
+    }
   }
   if (methodCheck.autoRepairMalformedIsNear && methodCheck.autoRepairMalformedIsNear(repairCtx)) {
     fixes.push('MalformedIsNear');

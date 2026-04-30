@@ -66,6 +66,18 @@ assert.deepStrictEqual(repairedTrigger.triggers, [
 const after = codegenSchema._validateSchema(original);
 assert.deepStrictEqual(after.allErrors, []);
 
+{
+  const schema = makeSchema();
+  schema.phases[0].duration = { min: 10, max: 15 };
+  schema.phases[0].camera = { lookAt: 'EnemyAstronaut' };
+  schema.phases[0].notes = 'LLM-only commentary';
+  codegenSchema._repairSchema(schema, []);
+  assert.strictEqual(schema.phases[0].duration, undefined);
+  assert.strictEqual(schema.phases[0].camera, undefined);
+  assert.strictEqual(schema.phases[0].notes, undefined);
+  assert.deepStrictEqual(codegenSchema._validateSchema(schema).allErrors, []);
+}
+
 assert.strictEqual(codegenSchema._internals.isSchemaInfraError('Connection error.'), true);
 assert.strictEqual(codegenSchema._internals.isSchemaInfraError('Request timed out.'), true);
 assert.strictEqual(codegenSchema._internals.isSchemaInfraError("There's an issue with the selected model (gpt-5.4-mini). It may not exist or you may not have access to it."), true);
@@ -163,6 +175,85 @@ assert.strictEqual(codegenSchema._internals.isSchemaInfraError('schema malformed
   assert.strictEqual(byName.CTAButton.showLabel, false);
   assert.strictEqual(schema.phases[0].onEnter[0].entity, 'EnemyAstronaut');
   assert.strictEqual(schema.phases[0].onComplete[0].entity, 'EnemyAstronaut');
+}
+
+{
+  const longText = '这是一段会把 prompt 撑爆的 CUA 动作说明'.repeat(80);
+  const plans = {
+    registryVersion: 'v-test',
+    storyboardAtomPlan: {
+      items: [
+        {
+          id: 'atom_001',
+          atomId: 'move_to',
+          phaseId: 'collect',
+          params: { actor: 'Player', target: longText, unusedNarrative: longText },
+          mappedModules: ['move_to_target', 'player_input_joystick'],
+          cuaAssertions: ['player_position_changed'],
+        },
+      ],
+    },
+    entityPlan: {
+      entities: [
+        {
+          name: 'Player',
+          label: '玩家',
+          modules: [
+            { moduleId: 'move_to_target' },
+            { moduleId: 'move_to_target' },
+            { moduleId: 'player_input_joystick' },
+          ],
+        },
+      ],
+      systemModules: [{ moduleId: 'camera_follow' }],
+    },
+    assemblyPlan: {
+      moduleInstances: [
+        {
+          id: 'Player::move_to_target',
+          moduleId: 'move_to_target',
+          entity: 'Player',
+          expectedSignals: ['player_position_changed', 'distance_to_target_below_threshold'],
+          observableFeedback: [longText],
+          phaseEvidenceSchema: [
+            {
+              signal: 'player_position_changed',
+              phaseEvidencePath: 'phaseEvidence["collect"]["player_position_changed"]',
+              variableEvidenceKey: 'evidence.collect.player_position_changed',
+            },
+          ],
+        },
+      ],
+      phaseBindings: [
+        {
+          phaseId: 'collect',
+          activateEntities: ['Player', 'Gold'],
+          atomIds: ['atom_001'],
+          completionSignals: ['player_position_changed'],
+        },
+      ],
+      stateOwners: [{ state: 'Player.position', moduleInstanceId: 'Player::move_to_target' }],
+      fileOwners: [{ file: 'GameFlowManagerMain.Flow.cs', moduleInstanceIds: ['Player::move_to_target'] }],
+      unresolved: [],
+    },
+    cuaPlan: {
+      steps: [
+        {
+          phaseId: 'collect',
+          actions: [{ kind: 'move_to', target: longText }],
+          expectedSignals: ['player_position_changed'],
+          phaseEvidenceSchema: [{ signal: 'player_position_changed', phaseEvidencePath: longText }],
+        },
+      ],
+    },
+  };
+  const summary = codegenSchema._internals.summarizePlansForPrompt(plans);
+  assert.ok(summary.length < 2500, 'compact assembly summary should stay small');
+  assert.ok(summary.indexOf('"phaseEvidenceSignals"') >= 0);
+  assert.ok(summary.indexOf('"stateOwners"') >= 0);
+  assert.ok(summary.indexOf('observableFeedback') < 0);
+  assert.ok(summary.indexOf('phaseEvidencePath') < 0);
+  assert.ok(summary.indexOf(longText) < 0);
 }
 
 {

@@ -504,7 +504,7 @@ function buildSchemaPrompt(ctx) {
     lines.push('16. 你必须优先遵守下面的 Assembly Plan；不要重新发明实体模块组合、状态 owner、phase 顺序。');
     lines.push('17. 优先把 module 实现映射为 schema 的 phases/onEnter/resources/npcs；只有 unresolved 项才允许落入 customLogic。');
     lines.push('18. 如果 Assembly Plan 指定了 state owner，不要让多个 phase/onEnter 重复写同一业务状态。');
-    lines.push('19. 对每个 cuaSteps.phaseEvidenceSchema 声明的 signal，必须在对应 phase 写入 phaseEvidence 或 variables["evidence.<phase>.<signal>..."]；缺失会被 runtime contract 判失败。');
+    lines.push('19. 对每个 moduleContracts/cuaSteps 的 phaseEvidenceSignals 声明的 signal，必须在对应 phase 写入 phaseEvidence 或 variables["evidence.<phase>.<signal>..."]；缺失会被 runtime contract 判失败。');
     lines.push('20. 只有 assemblyDecision=assembly_ready、assemblyCoverage=1、unresolved=0、implementationCoverage.coverage=1 且 missingModuleIds 为空时，customLogic 才必须为空数组；否则 unresolved/缺口必须保留在 customLogic 或 fallback 路径中。');
   }
   lines.push('');
@@ -526,6 +526,113 @@ function buildSchemaPrompt(ctx) {
 function summarizePlansForPrompt(plans) {
   if (!plans || !plans.assemblyPlan) return '';
   var implementation = assemblyEmitter.computeImplementationCoverage(plans);
+
+  function uniqStrings(values, max) {
+    var out = [];
+    var seen = {};
+    (values || []).forEach(function(value) {
+      if (value == null) return;
+      var text = String(value).trim();
+      if (!text || seen[text]) return;
+      seen[text] = true;
+      out.push(text);
+    });
+    if (max && out.length > max) return out.slice(0, max).concat(['...+' + (out.length - max)]);
+    return out;
+  }
+
+  function compactParams(params) {
+    var allowed = {
+      actor: 1, target: 1, entity: 1, resource: 1, item: 1, source: 1,
+      amount: 1, count: 1, state: 1, level: 1, range: 1, speed: 1,
+      stopRange: 1, cooldown: 1, damage: 1, targetTag: 1
+    };
+    var out = {};
+    Object.keys(params || {}).forEach(function(key) {
+      if (!allowed[key]) return;
+      var value = params[key];
+      if (typeof value === 'string') {
+        out[key] = value.length > 80 ? value.slice(0, 77) + '...' : value;
+      } else if (typeof value === 'number' || typeof value === 'boolean') {
+        out[key] = value;
+      }
+    });
+    return out;
+  }
+
+  function signalNames(values, max) {
+    return uniqStrings((values || []).map(function(value) {
+      if (typeof value === 'string') return value;
+      if (value && typeof value === 'object') return value.signal || value.name || value.id || value.kind;
+      return '';
+    }), max);
+  }
+
+  function moduleIds(modules, max) {
+    return uniqStrings((modules || []).map(function(module) {
+      return typeof module === 'string' ? module : (module && module.moduleId);
+    }), max);
+  }
+
+  function compactStateName(value) {
+    var text = String(value || '').trim();
+    return text.length > 64 ? text.slice(0, 61) + '...' : text;
+  }
+
+  function compactRef(value) {
+    var text = String(value || '').trim();
+    if (!text || text.length > 48) return '';
+    return text;
+  }
+
+  function refNames(values, max) {
+    return uniqStrings((values || []).map(compactRef).filter(Boolean), max);
+  }
+
+  var atomsByPhase = {};
+  ((plans.storyboardAtomPlan && plans.storyboardAtomPlan.items) || []).forEach(function(atom) {
+    var phaseId = atom.phaseId || 'unknown';
+    if (!atomsByPhase[phaseId]) {
+      atomsByPhase[phaseId] = { phaseId: phaseId, atomIds: [], atomTypes: [], modules: [], signals: [] };
+    }
+    atomsByPhase[phaseId].atomIds.push(atom.id);
+    atomsByPhase[phaseId].atomTypes.push(atom.atomId);
+    atomsByPhase[phaseId].modules = atomsByPhase[phaseId].modules.concat(atom.mappedModules || []);
+    atomsByPhase[phaseId].signals = atomsByPhase[phaseId].signals.concat(atom.cuaAssertions || []);
+    var params = compactParams(atom.params || {});
+    ['actor', 'target', 'entity', 'resource', 'item'].forEach(function(key) {
+      if (params[key]) atomsByPhase[phaseId][key + 's'] = (atomsByPhase[phaseId][key + 's'] || []).concat([params[key]]);
+    });
+  });
+
+  var moduleContractsByType = {};
+  ((plans.assemblyPlan && plans.assemblyPlan.moduleInstances) || []).forEach(function(module) {
+    var key = module.moduleId || 'unknown_module';
+    if (!moduleContractsByType[key]) {
+      moduleContractsByType[key] = {
+        moduleId: key,
+        count: 0,
+        entities: [],
+        expectedSignals: [],
+        phaseEvidenceSignals: []
+      };
+    }
+    moduleContractsByType[key].count++;
+    moduleContractsByType[key].entities.push(module.entity || '');
+    moduleContractsByType[key].expectedSignals = moduleContractsByType[key].expectedSignals.concat(module.expectedSignals || []);
+    moduleContractsByType[key].phaseEvidenceSignals = moduleContractsByType[key].phaseEvidenceSignals.concat(module.phaseEvidenceSchema || []);
+  });
+
+  var stateOwnersByModule = {};
+  ((plans.assemblyPlan && plans.assemblyPlan.stateOwners) || []).forEach(function(owner) {
+    var moduleId = String(owner.moduleInstanceId || 'unknown_owner').split('::').pop();
+    if (!stateOwnersByModule[moduleId]) {
+      stateOwnersByModule[moduleId] = { moduleId: moduleId, count: 0, states: [] };
+    }
+    stateOwnersByModule[moduleId].count++;
+    stateOwnersByModule[moduleId].states.push(compactStateName(owner.state));
+  });
+
   var summary = {
     registryVersion: plans.registryVersion || null,
     implementationCoverage: {
@@ -534,19 +641,25 @@ function summarizePlansForPrompt(plans) {
       coverage: implementation.coverage,
       missingModuleIds: implementation.missingModuleIds,
     },
-    storyboardAtoms: ((plans.storyboardAtomPlan && plans.storyboardAtomPlan.items) || []).map(function(atom) {
+    storyboardAtomSummary: Object.keys(atomsByPhase).map(function(phaseId) {
+      var group = atomsByPhase[phaseId];
       return {
-        id: atom.id,
-        atomId: atom.atomId,
-        phaseId: atom.phaseId,
-        params: atom.params || {}
+        phaseId: phaseId,
+        atomIds: uniqStrings(group.atomIds, 8),
+        atomTypes: uniqStrings(group.atomTypes, 8),
+        modules: uniqStrings(group.modules, 8),
+        signals: signalNames(group.signals, 8),
+        actors: refNames(group.actors || [], 4),
+        targets: refNames(group.targets || [], 5),
+        resources: refNames((group.resources || []).concat(group.items || []), 5)
       };
     }),
     entities: ((plans.entityPlan && plans.entityPlan.entities) || []).map(function(entity) {
       return {
         name: entity.name,
+        label: entity.label || null,
         archetypeId: entity.archetypeId || null,
-        modules: (entity.modules || []).map(function(module) { return module.moduleId; })
+        modules: moduleIds(entity.modules || [], 12)
       };
     }),
     systemModules: ((plans.entityPlan && plans.entityPlan.systemModules) || []).map(function(module) {
@@ -557,40 +670,43 @@ function summarizePlansForPrompt(plans) {
         phaseId: binding.phaseId,
         activateEntities: binding.activateEntities || [],
         atomIds: binding.atomIds || [],
-        completionSignals: binding.completionSignals || []
+        completionSignals: signalNames(binding.completionSignals || [], 12)
       };
     }),
-    moduleContracts: ((plans.assemblyPlan && plans.assemblyPlan.moduleInstances) || []).map(function(module) {
+    moduleContracts: Object.keys(moduleContractsByType).sort().map(function(moduleId) {
+      var module = moduleContractsByType[moduleId];
       return {
-        id: module.id,
         moduleId: module.moduleId,
-        expectedSignals: module.expectedSignals || [],
-        observableFeedback: module.observableFeedback || [],
-        phaseEvidenceSchema: module.phaseEvidenceSchema || []
+        count: module.count,
+        entities: uniqStrings(module.entities, 12),
+        expectedSignals: signalNames(module.expectedSignals || [], 6),
+        phaseEvidenceSignals: signalNames(module.phaseEvidenceSignals || [], 6)
       };
     }),
     cuaSteps: ((plans.cuaPlan && plans.cuaPlan.steps) || []).map(function(step) {
       return {
         phaseId: step.phaseId,
-        expectedSignals: step.expectedSignals || [],
-        phaseEvidenceSchema: step.phaseEvidenceSchema || []
+        expectedSignals: signalNames(step.expectedSignals || [], 10),
+        phaseEvidenceSignals: signalNames(step.phaseEvidenceSchema || [], 10)
       };
     }),
-    stateOwners: ((plans.assemblyPlan && plans.assemblyPlan.stateOwners) || []).map(function(owner) {
+    stateOwners: Object.keys(stateOwnersByModule).sort().map(function(moduleId) {
+      var owner = stateOwnersByModule[moduleId];
       return {
-        state: owner.state,
-        moduleInstanceId: owner.moduleInstanceId
+        moduleId: owner.moduleId,
+        count: owner.count,
+        states: uniqStrings(owner.states, 4)
       };
     }),
     fileOwners: ((plans.assemblyPlan && plans.assemblyPlan.fileOwners) || []).map(function(owner) {
       return {
         file: owner.file,
-        moduleInstanceIds: owner.moduleInstanceIds || []
+        moduleInstanceIds: uniqStrings(owner.moduleInstanceIds || [], 12)
       };
     }),
     unresolved: (plans.assemblyPlan && plans.assemblyPlan.unresolved) || []
   };
-  return JSON.stringify(summary, null, 2);
+  return JSON.stringify(summary);
 }
 
 function fillCustomLogic(ctx, schema) {
@@ -898,6 +1014,7 @@ function _validateSchema(schema) {
 
 var ALLOWED_ENTITY_KEYS = { name: 1, chineseName: 1, showLabel: 1, pool: 1, initPos: 1, scale: 1, showInPhase: 1, terminalState: 1 };
 var ALLOWED_ACTION_KEYS = { action: 1, entity: 1, state: 1, resource: 1, amount: 1, formIndex: 1, text: 1, color: 1, count: 1 };
+var ALLOWED_PHASE_KEYS = { phaseId: 1, showEntities: 1, hideEntities: 1, guideText: 1, trigger: 1, onEnter: 1, onComplete: 1 };
 var ALLOWED_ACTIONS = ['set_entity_state', 'add_resource', 'switch_form', 'show_floating_text', 'set_guide', 'spawn_enemies'];
 
 function inferEntityShowLabel(name) {
@@ -1146,8 +1263,10 @@ function _repairSchema(schema, blueprintEntities) {
     });
   });
 
-  // Fix phases: strip extra props from onEnter, normalize action names, default required fields
+  // Fix phases: strip extra props from phase/onEnter, normalize action names, default required fields
   (schema.phases || []).forEach(function(p) {
+    if (!p || typeof p !== 'object') return;
+    Object.keys(p).forEach(function(k) { if (!ALLOWED_PHASE_KEYS[k]) delete p[k]; });
     (p.onEnter || []).forEach(function(a) {
       if (!a.action && a.type) { a.action = a.type; delete a.type; }
       if (a.action && ALLOWED_ACTIONS.indexOf(a.action) === -1) {
@@ -1310,6 +1429,19 @@ function _repairSchemaValidationErrors(schema, errors, ctx) {
     return false;
   }
 
+  function stripPhaseExtraProperties(idx) {
+    var phase = schema.phases && schema.phases[idx];
+    if (!phase || typeof phase !== 'object') return false;
+    var changed = false;
+    Object.keys(phase).forEach(function(k) {
+      if (!ALLOWED_PHASE_KEYS[k]) {
+        delete phase[k];
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
   for (var i = 0; i < errors.length; i++) {
     var err = String(errors[i] || '');
     var m;
@@ -1343,6 +1475,13 @@ function _repairSchemaValidationErrors(schema, errors, ctx) {
         logFix('filled missing entities[' + entityIdx + '].' + field);
         continue;
       }
+    }
+
+    m = err.match(/^\.phases\[(\d+)\] should NOT have additional properties$/);
+    if (m && stripPhaseExtraProperties(parseInt(m[1], 10))) {
+      repaired++;
+      logFix('stripped additional properties from phases[' + m[1] + ']');
+      continue;
     }
 
     m = err.match(/^Phase ([^ ]+) showEntities references non-existent entity: (.+)$/);

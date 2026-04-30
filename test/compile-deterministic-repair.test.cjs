@@ -393,4 +393,48 @@ const compileStage = require('../engine/stages/compile.cjs');
   assert.ok(repaired.code.includes('RecordPhaseEvidenceDelta(currentPhaseName, "resource_decremented", before, after);'));
 }
 
+{
+  const repaired = compileStage._applyDeterministicBuildRepairs(
+    [
+      'using UnityEngine;',
+      'public partial class GameFlowManagerMain : MonoBehaviour',
+      '{',
+      '    GameObject player;',
+      '    void Start() { player = GFM_Player.Instance.Go; }',
+      '}',
+    ].join('\n'),
+    {
+      'GameFlowManagerMain.Flow.cs': [
+        'using UnityEngine;',
+        'public partial class GameFlowManagerMain : MonoBehaviour',
+        '{',
+        '    void Phase_build_OnTap()',
+        '    {',
+        '        Player.transform.position = Vector3.zero;',
+        '        if (Gold != null)',
+        '        {',
+        '            var __gateMovePos_build_Gold = Gold.transform.position;',
+        '            __gateMovePos_build_Gold.y += 2f;',
+        '            Gold.transform.position = __gateMovePos_build_Gold;',
+        '        }',
+        '        if (Gold != null)',
+        '        {',
+        '            var __gateMovePos_build_Gold = Gold.transform.position;',
+        '            __gateMovePos_build_Gold.y += 2f;',
+        '            Gold.transform.position = __gateMovePos_build_Gold;',
+        '        }',
+        '    }',
+        '}',
+      ].join('\n'),
+    },
+    { entities: [] }
+  );
+
+  assert.strictEqual(repaired.changed, true);
+  assert.ok(repaired.fixes.some((fix) => fix.indexOf('ReviewStructuralDamage') === 0));
+  assert.doesNotMatch(repaired.extraFiles['GameFlowManagerMain.Flow.cs'], /\bPlayer\s*\./);
+  assert.match(repaired.extraFiles['GameFlowManagerMain.Flow.cs'], /player\.transform\.position/);
+  assert.match(repaired.extraFiles['GameFlowManagerMain.Flow.cs'], /var __gateMovePos_build_Gold_2 = Gold\.transform\.position/);
+}
+
 console.log('compile deterministic repair tests passed');

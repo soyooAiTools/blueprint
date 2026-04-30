@@ -507,8 +507,8 @@ vm.runInContext([
     'GameFlowManagerMain.Flow.cs': flowCode,
   });
   assert.strictEqual(result.changed, true);
-  assert.match(result.extraFiles['GameFlowManagerMain.Flow.cs'], /__gateMovePos_recycleDebrisGetGold_Gold = Gold\.transform\.position/);
-  assert.match(result.extraFiles['GameFlowManagerMain.Flow.cs'], /__gateMovePos_recycleDebrisGetGold_Gold\.y \+= 2f/);
+  assert.match(result.extraFiles['GameFlowManagerMain.Flow.cs'], /__gateMovePos_recycleDebrisGetGold_Gold_\d+ = Gold\.transform\.position/);
+  assert.match(result.extraFiles['GameFlowManagerMain.Flow.cs'], /__gateMovePos_recycleDebrisGetGold_Gold_\d+\.y \+= 2f/);
 }
 
 {
@@ -547,6 +547,36 @@ vm.runInContext([
   const normalized = reviewStage.normalizePhaseGateConditionalDeclarations(broken);
   assert.strictEqual(normalized.changed, true);
   assert.match(normalized.code, /if \(Gold != null\)\s*\{\s*var __gateMovePos_recycleDebrisGetGold_Gold = Gold\.transform\.position;[\s\S]*Gold\.transform\.position = __gateMovePos_recycleDebrisGetGold_Gold;\s*\}/);
+}
+
+{
+  const broken = [
+    'using UnityEngine;',
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    void Phase_build_OnTap()',
+    '    {',
+    '        if (Gold != null)',
+    '        {',
+    '            var __gateMovePos_build_Gold = Gold.transform.position;',
+    '            __gateMovePos_build_Gold.y += 2f;',
+    '            Gold.transform.position = __gateMovePos_build_Gold;',
+    '        }',
+    '        if (Gold != null)',
+    '        {',
+    '            var __gateMovePos_build_Gold = Gold.transform.position;',
+    '            __gateMovePos_build_Gold.y += 2f;',
+    '            Gold.transform.position = __gateMovePos_build_Gold;',
+    '        }',
+    '    }',
+    '}',
+  ].join('\n');
+  const renamed = reviewStage.renameDuplicatePhaseGateMoveVars(broken);
+  assert.strictEqual(renamed.changed, true);
+  assert.match(renamed.code, /var __gateMovePos_build_Gold = Gold\.transform\.position/);
+  assert.match(renamed.code, /var __gateMovePos_build_Gold_2 = Gold\.transform\.position/);
+  assert.match(renamed.code, /__gateMovePos_build_Gold_2\.y \+= 2f/);
+  assert.match(renamed.code, /Gold\.transform\.position = __gateMovePos_build_Gold_2;/);
 }
 
 {
