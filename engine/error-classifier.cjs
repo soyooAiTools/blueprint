@@ -66,6 +66,7 @@ var FATAL_PATTERNS = [
   /(?:generator|reviewer|coder).*not available/i,
   /no (?:code )?generator/i,
   /no reviewer/i,
+  /Schema generation failed: Timed out after \d+ms; Exit code 143/i,
   /Spec validation failed/i,
   /Quality gate failed/i,
 ];

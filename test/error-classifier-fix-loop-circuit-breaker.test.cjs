@@ -66,4 +66,9 @@ check('Pipeline-prefix wrapped breaker', prefixed, 'FATAL');
 var bracketed = new Error('[cua-verify] cua-verify aborted: same CODE error repeated 3 rounds, fix-loop not converging: phase:progress');
 check('bracketed stage prefix', bracketed, 'FATAL');
 
-console.log('error-classifier fix-loop circuit breaker: 7 cases passed');
+// Case 8: schema fallback timeout already consumed the expensive backend window.
+// The codegen stage must not retry the same 50K+ schema prompt at pipeline level.
+var schemaFallbackTimeout = new Error('Schema generation failed: Timed out after 600000ms; Exit code 143');
+check('schema fallback timeout', schemaFallbackTimeout, 'FATAL');
+
+console.log('error-classifier fix-loop circuit breaker: 8 cases passed');

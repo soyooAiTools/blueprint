@@ -73,6 +73,71 @@ function isModelFatalStream(text) {
   return /quota|usage limit|hit your usage limit|purchase more credits|insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|unauthoriz|authentication.?fail|access.?denied|billing/i.test(String(text || ''));
 }
 
+function resolveCodePrimaryCooldownMs(env) {
+  env = env || process.env;
+  var raw = env.CODEX_CODE_PRIMARY_COOLDOWN_MS || env.CODEX_SCHEMA_PRIMARY_COOLDOWN_MS;
+  if (String(raw || '').toLowerCase() === 'off') return 0;
+  var timeout = parseInt(raw || '', 10);
+  return isFinite(timeout) && timeout >= 0 ? timeout : 30 * 60 * 1000;
+}
+
+function resolveCodePrimaryCooldownFile(env) {
+  env = env || process.env;
+  return env.CODEX_CODE_PRIMARY_COOLDOWN_FILE ||
+    path.join(os.tmpdir(), 'blueprint-codex-code-primary-cooldown.json');
+}
+
+function isCodePrimaryCooldownError(error) {
+  var text = String(error || '');
+  return /MODEL_FATAL|quota|usage limit|hit your usage limit|purchase more credits|insufficient|billing|\b401\b|\b402\b|\b403\b|selected model|may not exist|not have access|model.?not.?found|unknown model|unsupported model/i.test(text);
+}
+
+function readCodePrimaryCooldown(env, nowMs) {
+  env = env || process.env;
+  nowMs = isFinite(nowMs) ? nowMs : Date.now();
+  var file = resolveCodePrimaryCooldownFile(env);
+  try {
+    if (!fs.existsSync(file)) return null;
+    var record = JSON.parse(fs.readFileSync(file, 'utf8'));
+    var expiresAtMs = Number(record.expiresAtMs || Date.parse(record.expiresAt || ''));
+    if (isFinite(expiresAtMs) && expiresAtMs > nowMs) {
+      record.expiresAtMs = expiresAtMs;
+      return record;
+    }
+    try { fs.unlinkSync(file); } catch (_) {}
+    return null;
+  } catch (_) {
+    try { fs.unlinkSync(file); } catch (__) {}
+    return null;
+  }
+}
+
+function writeCodePrimaryCooldown(error, taskId, env, nowMs) {
+  if (!isCodePrimaryCooldownError(error)) return null;
+  env = env || process.env;
+  var cooldownMs = resolveCodePrimaryCooldownMs(env);
+  if (!isFinite(cooldownMs) || cooldownMs <= 0) return null;
+  nowMs = isFinite(nowMs) ? nowMs : Date.now();
+  var file = resolveCodePrimaryCooldownFile(env);
+  var record = {
+    taskId: taskId || null,
+    reason: String(error || '').slice(0, 180),
+    createdAt: new Date(nowMs).toISOString(),
+    expiresAt: new Date(nowMs + cooldownMs).toISOString(),
+    expiresAtMs: nowMs + cooldownMs,
+    cooldownMs: cooldownMs,
+  };
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    var tmp = file + '.' + process.pid + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(record, null, 2));
+    fs.renameSync(tmp, file);
+    return record;
+  } catch (_) {
+    return null;
+  }
+}
+
 function _cleanStaleLocks() {
   // Remove locks older than 25 min OR whose owner PID is dead
   try {
@@ -1447,11 +1512,17 @@ ${inlinePromptMd}
   log('[codex-code] 🚀 Starting Codex code agent...', taskId);
   let result;
   try {
-  const codegenBackend = CODEX_CODE_BACKEND;
+  var codegenBackend = CODEX_CODE_BACKEND;
+  var activeCodeCooldown = codegenBackend === 'codex-exec' ? readCodePrimaryCooldown() : null;
+  if (activeCodeCooldown) {
+    log('[codex-code] Skipping codex-exec code primary due to active quota/model cooldown until ' +
+      new Date(activeCodeCooldown.expiresAtMs).toISOString() + ' — using claude-code', taskId);
+    codegenBackend = 'claude-code';
+  }
   const codegenModel = codegenBackend === 'codex-exec' ? CODEX_CODE_MODEL : CLAUDE_MODEL;
   log(`[codex-code] Backend: ${codegenBackend}`, taskId);
   log(`[codex-code] Model: ${codegenModel}`, taskId);
-  result = await (codegenBackend === 'codex-exec' ? runCodexExecCode : runClaudeCode)(clientDir, userPrompt, log, taskId, {
+  const codegenOpts = {
     model: codegenModel,
     // effort: always 'medium' to avoid API stream timeout (5min) during extended thinking
     // INCREMENTAL FIX MODE rules — kept minimal. The ⛔ FORBIDDEN PATTERNS block
@@ -1472,7 +1543,17 @@ ${inlinePromptMd}
         + '7. Do not add direct GameObject.Find("__Pool_*") in GameFlowManagerMain*.cs; use existing bound entity fields. Use GFM_ResourceIds for resource API calls and SetGuideText for guide text.'
       : null,
     workDir: clientDir,
-  });
+  };
+  result = await (codegenBackend === 'codex-exec' ? runCodexExecCode : runClaudeCode)(clientDir, userPrompt, log, taskId, codegenOpts);
+  if (!result.ok && codegenBackend === 'codex-exec' && isCodePrimaryCooldownError(result.error)) {
+    var codeCooldown = writeCodePrimaryCooldown(result.error, taskId);
+    if (codeCooldown) {
+      log('[codex-code] Code primary cooldown activated until ' +
+        new Date(codeCooldown.expiresAtMs).toISOString() + ' after Codex quota/model failure', taskId);
+    }
+    log('[codex-code] Codex code primary quota/model failure — falling back to claude-code', taskId);
+    result = await runClaudeCode(clientDir, userPrompt, log, taskId, Object.assign({}, codegenOpts, { model: CLAUDE_MODEL }));
+  }
   } finally {
     releaseLock(slot, taskId, log);
   }
@@ -1609,6 +1690,11 @@ module.exports = {
     resolveClaudePrintModel,
     isModelUnavailableError,
     isModelFatalStream,
+    resolveCodePrimaryCooldownMs,
+    resolveCodePrimaryCooldownFile,
+    isCodePrimaryCooldownError,
+    readCodePrimaryCooldown,
+    writeCodePrimaryCooldown,
   },
 
   // Legacy export names kept for non-migrated callers.

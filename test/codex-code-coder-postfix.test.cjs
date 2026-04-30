@@ -78,4 +78,32 @@ const coder = require('../worker/codex-code-coder.js');
   });
 }
 
+{
+  const cooldownFile = path.join(os.tmpdir(), 'blueprint-code-cooldown-test-' + process.pid + '.json');
+  try { fs.unlinkSync(cooldownFile); } catch (_) {}
+  const env = {
+    CODEX_CODE_PRIMARY_COOLDOWN_FILE: cooldownFile,
+    CODEX_CODE_PRIMARY_COOLDOWN_MS: '90000',
+  };
+  const now = Date.parse('2026-04-30T00:00:00.000Z');
+  assert.strictEqual(coder._internals.resolveCodePrimaryCooldownMs({}), 30 * 60 * 1000);
+  assert.strictEqual(coder._internals.resolveCodePrimaryCooldownMs(env), 90000);
+  assert.strictEqual(coder._internals.resolveCodePrimaryCooldownMs({ CODEX_CODE_PRIMARY_COOLDOWN_MS: '0' }), 0);
+  assert.strictEqual(coder._internals.isCodePrimaryCooldownError('MODEL_FATAL: Codex code runner auth/quota failure'), true);
+  assert.strictEqual(coder._internals.isCodePrimaryCooldownError('ZERO_EDITS: no file modified'), false);
+  assert.strictEqual(coder._internals.readCodePrimaryCooldown(env, now), null);
+  const written = coder._internals.writeCodePrimaryCooldown(
+    'MODEL_FATAL: Codex code runner auth/quota failure',
+    'proj_code',
+    env,
+    now
+  );
+  assert.ok(written);
+  assert.strictEqual(written.taskId, 'proj_code');
+  assert.strictEqual(written.expiresAtMs, now + 90000);
+  assert.strictEqual(coder._internals.readCodePrimaryCooldown(env, now + 1).expiresAtMs, now + 90000);
+  assert.strictEqual(coder._internals.readCodePrimaryCooldown(env, now + 91000), null);
+  assert.strictEqual(fs.existsSync(cooldownFile), false);
+}
+
 console.log('codex-code-coder post-fix tests passed');
