@@ -170,4 +170,19 @@ assert.ok(
   'recruit should attach spawn_once to recruited worker'
 );
 
+var pipeTemplatePlans = buildProjectPlans({
+  name: 'PipeTemplateAliases',
+  storyboardFrames: [],
+  entities: [
+    { name: 'Player', template: 'PlayerController', behavior: { moveSpeed: 5 } },
+    { name: 'EnemyA', template: 'Damageable|Mover', behavior: { hp: 3, moveTarget: 'Player', moveSpeed: 2 } }
+  ],
+  phases: [{ id: 1, name: '敌人移动', activate: ['EnemyA'] }],
+  specs: [{ phaseId: 'enemyMove', requiredInteractions: ['attack:EnemyA'] }]
+});
+assert.strictEqual(pipeTemplatePlans.assemblyPlan.unresolved.length, 0, 'pipe-separated templates should not be unresolved');
+var enemyA = pipeTemplatePlans.entityPlan.entities.find(function(entity) { return entity.name === 'EnemyA'; });
+assert.ok(enemyA.modules.some(function(module) { return module.moduleId === 'damageable'; }), 'Damageable module should be parsed from pipe template');
+assert.ok(enemyA.modules.some(function(module) { return module.moduleId === 'move_to_target'; }), 'Mover module should be parsed from pipe template');
+
 console.log('assembly-plan-pipeline tests passed');

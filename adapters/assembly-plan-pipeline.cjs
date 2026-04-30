@@ -756,7 +756,7 @@ function buildEntityPlan(ctx, storyboardAtomPlan, registry, registryIndex) {
     if (!entity.name) continue;
     var record = ensureEntityRecord(entity);
 
-    var templateParts = String(entity.template || 'Static').split('+').map(function(part) { return String(part || '').trim(); }).filter(Boolean);
+    var templateParts = String(entity.template || 'Static').split(/[+|]/).map(function(part) { return String(part || '').trim(); }).filter(Boolean);
     for (var tp = 0; tp < templateParts.length; tp++) {
       var part = templateParts[tp];
       if (TEMPLATE_TO_ARCHETYPE[part] && !record.archetypeId) {
