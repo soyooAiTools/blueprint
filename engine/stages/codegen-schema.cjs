@@ -706,7 +706,10 @@ function summarizePlansForPrompt(plans) {
     }),
     unresolved: (plans.assemblyPlan && plans.assemblyPlan.unresolved) || []
   };
-  return JSON.stringify(summary);
+  // Keep the summary compact in content, but do not emit it as one very long
+  // line: codex exec has failed on ~50K-character stdin prompts where the
+  // Assembly Plan JSON was minified into a single line.
+  return JSON.stringify(summary, null, 1);
 }
 
 function fillCustomLogic(ctx, schema) {

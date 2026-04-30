@@ -249,6 +249,10 @@ assert.strictEqual(codegenSchema._internals.isSchemaInfraError('schema malformed
   };
   const summary = codegenSchema._internals.summarizePlansForPrompt(plans);
   assert.ok(summary.length < 2500, 'compact assembly summary should stay small');
+  const summaryLines = summary.split('\n');
+  const longestLine = summaryLines.reduce((max, line) => Math.max(max, line.length), 0);
+  assert.ok(summaryLines.length > 10, 'compact assembly summary should stay wrapped');
+  assert.ok(longestLine < 1000, 'compact assembly summary should not contain ultra-long lines');
   assert.ok(summary.indexOf('"phaseEvidenceSignals"') >= 0);
   assert.ok(summary.indexOf('"stateOwners"') >= 0);
   assert.ok(summary.indexOf('observableFeedback') < 0);
