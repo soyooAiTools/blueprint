@@ -2068,6 +2068,13 @@ function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
       fixes.push(name + ':SkeletonMemberComments x' + memberCommentRes.fixes);
     }
   });
+  var finalPlayerAliasFix = repairPlayerAliasMemberAccess(mainCode, nextExtras);
+  if (finalPlayerAliasFix.changed) {
+    mainCode = finalPlayerAliasFix.code;
+    nextExtras = finalPlayerAliasFix.extraFiles;
+    changed = true;
+    fixes.push('partials:PlayerAliasMemberAccessPost x' + finalPlayerAliasFix.fixes);
+  }
   return {
     code: mainCode,
     extraFiles: nextExtras,
