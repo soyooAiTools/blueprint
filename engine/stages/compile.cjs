@@ -470,6 +470,14 @@ function applyDeterministicBuildRepairs(code, extraFiles, blueprint) {
       fixes.push('ReviewStructuralDamage x' + structuralRepair.fixes.length + ' [' + structuralRepair.fixes.slice(0, 5).join(', ') + ']');
     }
   }
+  if (reviewStage && reviewStage.repairPlayerAliasMemberAccess) {
+    var playerAliasRepair = reviewStage.repairPlayerAliasMemberAccess(repairCtx.csCode, repairCtx.extraFiles);
+    if (playerAliasRepair.changed) {
+      repairCtx.csCode = playerAliasRepair.code;
+      repairCtx.extraFiles = playerAliasRepair.extraFiles;
+      fixes.push('PlayerAliasMemberAccess x' + playerAliasRepair.fixes);
+    }
+  }
   if (methodCheck.autoRepairMalformedIsNear && methodCheck.autoRepairMalformedIsNear(repairCtx)) {
     fixes.push('MalformedIsNear');
   }

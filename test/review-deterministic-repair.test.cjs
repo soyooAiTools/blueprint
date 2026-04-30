@@ -248,6 +248,76 @@ vm.runInContext([
   assert.ok(!after.issues.some(function(issue) { return issue.rule === 'player-alias-drift'; }));
 }
 
+// Bare `Player` references (not just `Player.`) — AI sometimes writes
+// `if (Player == null)` or `(Player) something` after seeing CS0103 feedback.
+// These also need to be normalized so build-fix doesn't loop on the same error.
+{
+  const main = [
+    'using UnityEngine;',
+    'public partial class GameFlowManagerMain : MonoBehaviour',
+    '{',
+    '    GameObject player;',
+    '    void Start() { player = GFM_Player.Instance.Go; }',
+    '}',
+  ].join('\n');
+  const extras = {
+    'GameFlowManagerMain.Flow.cs': [
+      'using UnityEngine;',
+      'public partial class GameFlowManagerMain',
+      '{',
+      '    void Move() {',
+      '        if (Player == null) return;',
+      '        var p = (Player) Player;',
+      '        Player[0].name = "p";',
+      '        SetGuideText("点击 Player 移动");',
+      '        // 控制 Player 的移动方向',
+      '        GFM_Player.Instance.Tick();',
+      '    }',
+      '}',
+    ].join('\n'),
+  };
+  const result = reviewStage.repairPlayerAliasMemberAccess(main, extras);
+  assert.strictEqual(result.changed, true);
+  const flow = result.extraFiles['GameFlowManagerMain.Flow.cs'];
+  // Bare `Player` rewritten everywhere code-side
+  assert.match(flow, /if \(player == null\) return;/);
+  assert.match(flow, /var p = \(player\) player;/);
+  assert.match(flow, /player\[0\]\.name = "p";/);
+  // String literal preserved
+  assert.match(flow, /"点击 Player 移动"/);
+  // Comment preserved
+  assert.match(flow, /\/\/ 控制 Player 的移动方向/);
+  // GFM_Player NOT touched
+  assert.match(flow, /GFM_Player\.Instance\.Tick\(\);/);
+}
+
+// No-op when skeleton lowercase `player` field is not declared anywhere —
+// guards against rewriting code in templates without the GameFlowManagerMain
+// skeleton (e.g. unit-test fixtures that legitimately use `Player`).
+{
+  const result = reviewStage.repairPlayerAliasMemberAccess(
+    'public class Foo { public void Bar() { Player.x = 1; } }',
+    {}
+  );
+  assert.strictEqual(result.changed, false);
+}
+
+// No-op when the project actually defines `class Player` — defensive guard
+// for any future template that introduces a real Player type.
+{
+  const result = reviewStage.repairPlayerAliasMemberAccess(
+    [
+      'public class Player { public int x; }',
+      'public partial class GameFlowManagerMain {',
+      '    GameObject player;',
+      '    void Foo() { Player.x = 1; }',
+      '}',
+    ].join('\n'),
+    {}
+  );
+  assert.strictEqual(result.changed, false);
+}
+
 {
   const result = sandbox.stripInteractionFlagShortcutsFromPhaseGates(
     'if (!ruleTriggered[2] && (EntityAdvanced(Box, _snap_BoxPos) || boxDone || harvestPlayerActed) && phaseTimer > 3f) {}',

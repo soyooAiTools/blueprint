@@ -1301,14 +1301,121 @@ function ensurePlayerFieldAssignment(mainCode, extraFiles) {
 
 function repairPlayerAliasMemberAccess(mainCode, extraFiles) {
   var files = Object.assign({}, extraFiles || {});
-  function fixCode(src) {
-    var fixes = 0;
-    var code = String(src || '').replace(/\bPlayer\s*\./g, function() {
-      fixes++;
-      return 'player.';
-    });
-    return { code: code, fixes: fixes };
+  // Only rewrite when the skeleton's lowercase `player` field is actually declared
+  // somewhere in the project AND no `class Player` exists. This guards against
+  // stomping on a legitimate `Player` type if any future template introduces one.
+  var declaresLowercase = false;
+  var hasPlayerType = false;
+  function noteSrc(src) {
+    var s = String(src || '');
+    if (/\bGameObject\s+player\s*[;=]/.test(s)) declaresLowercase = true;
+    if (/\b(?:class|struct|interface|enum)\s+Player\b/.test(s)) hasPlayerType = true;
   }
+  noteSrc(mainCode);
+  Object.keys(files).forEach(function(name) { noteSrc(files[name]); });
+  if (!declaresLowercase || hasPlayerType) {
+    return { code: mainCode, extraFiles: files, changed: false, fixes: 0 };
+  }
+
+  // Token-level rewrite: replace any standalone `Player` identifier (PascalCase)
+  // with `player`, but skip occurrences inside `// ...` and `/* ... */` comments,
+  // string literals, and verbatim/interpolated strings, so user-facing copy and
+  // identifiers like `GFM_Player` / `PlayerCharacter` are untouched.
+  function fixCode(src) {
+    var input = String(src || '');
+    var out = '';
+    var i = 0;
+    var n = input.length;
+    var fixes = 0;
+    function isWord(ch) { return /[A-Za-z0-9_]/.test(ch); }
+    while (i < n) {
+      var ch = input[i];
+      var next = input[i + 1];
+      // line comment
+      if (ch === '/' && next === '/') {
+        var nlIdx = input.indexOf('\n', i);
+        if (nlIdx < 0) { out += input.slice(i); break; }
+        out += input.slice(i, nlIdx + 1);
+        i = nlIdx + 1;
+        continue;
+      }
+      // block comment
+      if (ch === '/' && next === '*') {
+        var endIdx = input.indexOf('*/', i + 2);
+        if (endIdx < 0) { out += input.slice(i); break; }
+        out += input.slice(i, endIdx + 2);
+        i = endIdx + 2;
+        continue;
+      }
+      // verbatim string @"..."
+      if (ch === '@' && next === '"') {
+        var j = i + 2;
+        while (j < n) {
+          if (input[j] === '"') {
+            if (input[j + 1] === '"') { j += 2; continue; }
+            j++;
+            break;
+          }
+          j++;
+        }
+        out += input.slice(i, j);
+        i = j;
+        continue;
+      }
+      // interpolated string $"..." (we treat it like a regular string;
+      // expressions inside will be rewritten on subsequent passes if needed,
+      // but skipping conservatively keeps copy untouched).
+      if (ch === '$' && next === '"') {
+        var k = i + 2;
+        while (k < n) {
+          if (input[k] === '\\') { k += 2; continue; }
+          if (input[k] === '"') { k++; break; }
+          k++;
+        }
+        out += input.slice(i, k);
+        i = k;
+        continue;
+      }
+      // regular string
+      if (ch === '"') {
+        var s = i + 1;
+        while (s < n) {
+          if (input[s] === '\\') { s += 2; continue; }
+          if (input[s] === '"') { s++; break; }
+          s++;
+        }
+        out += input.slice(i, s);
+        i = s;
+        continue;
+      }
+      // char literal
+      if (ch === "'") {
+        var c = i + 1;
+        while (c < n) {
+          if (input[c] === '\\') { c += 2; continue; }
+          if (input[c] === "'") { c++; break; }
+          c++;
+        }
+        out += input.slice(i, c);
+        i = c;
+        continue;
+      }
+      // identifier — boundary check: previous char must not be word char
+      if (ch === 'P' && input.slice(i, i + 6) === 'Player' && !isWord(input[i + 6] || '')) {
+        var prev = i > 0 ? input[i - 1] : '';
+        if (!isWord(prev) && prev !== '@') {
+          out += 'player';
+          i += 6;
+          fixes++;
+          continue;
+        }
+      }
+      out += ch;
+      i++;
+    }
+    return { code: out, fixes: fixes };
+  }
+
   var changed = false;
   var fixes = 0;
   var mainRes = fixCode(mainCode);
