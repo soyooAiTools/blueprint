@@ -350,7 +350,7 @@ function resolveSchemaTimeoutMs(env) {
 
 function isSchemaInfraError(error) {
   var text = String(error || '');
-  return /ECONNRESET|Request timed out|Unable to connect to API|timed out|socket hang up|ENOTFOUND|EHOSTUNREACH|ECONNREFUSED|Connection error|selected model|may not exist|not have access|model.?not.?found|unknown model|unsupported model/i.test(text);
+  return /MODEL_FATAL|quota|usage limit|hit your usage limit|purchase more credits|insufficient|billing|ECONNRESET|Request timed out|Unable to connect to API|timed out|socket hang up|ENOTFOUND|EHOSTUNREACH|ECONNREFUSED|Connection error|selected model|may not exist|not have access|model.?not.?found|unknown model|unsupported model/i.test(text);
 }
 
 function parseAndValidateSchemaResponse(ctx, text) {

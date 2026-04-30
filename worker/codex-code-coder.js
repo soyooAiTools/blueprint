@@ -69,6 +69,10 @@ function isModelUnavailableError(text) {
   return /selected model|may not exist|not have access|model.?not.?found|unknown model|unsupported model|invalid model/i.test(String(text || ''));
 }
 
+function isModelFatalStream(text) {
+  return /quota|usage limit|hit your usage limit|purchase more credits|insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|unauthoriz|authentication.?fail|access.?denied|billing/i.test(String(text || ''));
+}
+
 function _cleanStaleLocks() {
   // Remove locks older than 25 min OR whose owner PID is dead
   try {
@@ -480,7 +484,7 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
         // Detected definitive failures get MODEL_FATAL: prefix so error-classifier
         // routes them to cancel-task instead of burning more retries.
         const streams = (stdout || '') + '\n' + (stderr || '');
-        const isModelFatal = /quota|insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|unauthoriz|authentication.?fail|access.?denied|billing/i.test(streams);
+        const isModelFatal = isModelFatalStream(streams);
         const baseErr = stdout || stderr || `CLI error: exit code ${code} in ${elapsedMs}ms`;
         const errorMsg = isModelFatal
           ? `MODEL_FATAL: Codex code runner auth/quota failure — ${baseErr.slice(0, 300)}`
@@ -661,7 +665,7 @@ function runCodexExecCode(workDir, userPrompt, log, taskId, opts) {
 
       const elapsedMs = Date.now() - spawnStartTime;
       const streams = (stdout || '') + '\n' + (stderr || '');
-      const isModelFatal = /quota|insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|unauthoriz|authentication.?fail|access.?denied|billing/i.test(streams);
+      const isModelFatal = isModelFatalStream(streams);
       const buildExitError = function(exitCode, stdoutStr, stderrStr) {
         if (stderrStr && stderrStr.trim()) return stderrStr.slice(0, 500);
         if (stdoutStr && stdoutStr.trim()) return `stdout: ${stdoutStr.slice(-500)}`;
@@ -843,7 +847,7 @@ function runCodexText(opts) {
 
         // MODEL_FATAL 检测 (镜像 runClaudeCode line 413-419 规则)
         const streams = (stdout || '') + '\n' + (stderr || '');
-        const isModelFatal = /quota|insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|unauthoriz|authentication.?fail|access.?denied|billing/i.test(streams);
+        const isModelFatal = isModelFatalStream(streams);
 
         const minOutputLen = opts.minOutputLen != null ? opts.minOutputLen : 50;
         if (code === 0 && stdout.length >= minOutputLen) {
@@ -944,7 +948,7 @@ function runCodexExecText(execDir, tempDir, opts, log, taskId, finish) {
     log('[codex-text] codex-exec exit=' + code + ' last=' + lastMessage.length + 'c stdout=' + stdout.length + 'c stderr=' + stderr.length + 'c', taskId);
 
     const streams = [lastMessage, stdout, stderr].join('\n');
-    const isModelFatal = /quota|insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|unauthoriz|authentication.?fail|access.?denied|billing/i.test(streams) ||
+    const isModelFatal = isModelFatalStream(streams) ||
       isModelUnavailableError(streams);
     const minOutputLen = opts.minOutputLen != null ? opts.minOutputLen : 50;
     if (code === 0 && lastMessage.length >= minOutputLen) {
@@ -1604,6 +1608,7 @@ module.exports = {
     isCodexModelName,
     resolveClaudePrintModel,
     isModelUnavailableError,
+    isModelFatalStream,
   },
 
   // Legacy export names kept for non-migrated callers.

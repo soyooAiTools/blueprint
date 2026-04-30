@@ -81,6 +81,7 @@ assert.deepStrictEqual(after.allErrors, []);
 assert.strictEqual(codegenSchema._internals.isSchemaInfraError('Connection error.'), true);
 assert.strictEqual(codegenSchema._internals.isSchemaInfraError('Request timed out.'), true);
 assert.strictEqual(codegenSchema._internals.isSchemaInfraError("There's an issue with the selected model (gpt-5.4-mini). It may not exist or you may not have access to it."), true);
+assert.strictEqual(codegenSchema._internals.isSchemaInfraError("MODEL_FATAL: You've hit your usage limit. purchase more credits"), true);
 assert.strictEqual(codegenSchema._internals.isSchemaInfraError('schema malformed'), false);
 
 {
@@ -100,6 +101,7 @@ assert.strictEqual(codegenSchema._internals.isSchemaInfraError('schema malformed
   assert.strictEqual(codexCodeCoder._internals.resolveClaudePrintModel({ model: 'gpt-5.5' }, {}), 'claude-sonnet-4-6');
   assert.strictEqual(codexCodeCoder._internals.resolveClaudePrintModel({ model: 'claude-haiku-4-5-20251001' }, {}), 'claude-haiku-4-5-20251001');
   assert.strictEqual(codexCodeCoder._internals.isModelUnavailableError('selected model may not exist or you may not have access'), true);
+  assert.strictEqual(codexCodeCoder._internals.isModelFatalStream("You've hit your usage limit. purchase more credits"), true);
 }
 
 {
