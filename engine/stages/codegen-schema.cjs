@@ -169,6 +169,11 @@ module.exports = {
     resolveSchemaFallbackTimeoutMs: resolveSchemaFallbackTimeoutMs,
     isSchemaInfraError: isSchemaInfraError,
     isSchemaNonRetryableError: isSchemaNonRetryableError,
+    resolveSchemaPrimaryCooldownMs: resolveSchemaPrimaryCooldownMs,
+    resolveSchemaPrimaryCooldownFile: resolveSchemaPrimaryCooldownFile,
+    isSchemaPrimaryCooldownError: isSchemaPrimaryCooldownError,
+    readSchemaPrimaryCooldown: readSchemaPrimaryCooldown,
+    writeSchemaPrimaryCooldown: writeSchemaPrimaryCooldown,
     localizeGeneratedCSharpComments: localizeGeneratedCSharpComments,
     suppressCustomLogicWhenAssemblyCovered: suppressCustomLogicWhenAssemblyCovered,
     mergeSchemaEntitiesForResolution: mergeSchemaEntitiesForResolution,
@@ -302,6 +307,12 @@ function generateSchemaFromSpecs(ctx) {
 function generateSchemaTextWithFallback(runCodexText, ctx, promptText) {
   var primarySystemPrompt = '你是试玩广告游戏配置生成器。只输出 JSON 对象，不要 markdown 包裹，不要解释。';
   var runnerConfig = resolveSchemaRunnerConfig();
+  var activeCooldown = readSchemaPrimaryCooldown();
+  if (activeCooldown) {
+    ctx.addLog('codegen-schema', 'Skipping Codex schema primary due to active quota/model cooldown until ' +
+      new Date(activeCooldown.expiresAtMs).toISOString() + ' — using claude-print');
+    return runSchemaFallback(runCodexText, ctx, promptText, primarySystemPrompt, runnerConfig);
+  }
   return runCodexText({
     userPrompt: promptText,
     systemPrompt: primarySystemPrompt,
@@ -316,23 +327,32 @@ function generateSchemaTextWithFallback(runCodexText, ctx, promptText) {
     allowBackendFallback: false,
   }).then(function(response) {
     if (response.ok || !isSchemaInfraError(response.error)) return response;
+    var cooldown = writeSchemaPrimaryCooldown(response.error, ctx);
+    if (cooldown) {
+      ctx.addLog('codegen-schema', 'Schema primary cooldown activated until ' +
+        new Date(cooldown.expiresAtMs).toISOString() + ' after Codex quota/model failure');
+    }
     ctx.addLog('codegen-schema', 'Primary schema backend infra/model failure — falling back to claude-print');
-    return runCodexText({
-      userPrompt: promptText,
-      systemPrompt: primarySystemPrompt,
-      backend: 'claude-print',
-      model: runnerConfig.claudeModel,
-      taskId: ctx.taskId,
-      log: function(msg) { ctx.addLog('codegen-schema', '[fallback] ' + msg); },
-      effort: process.env.CLAUDE_SCHEMA_EFFORT || 'high',
-      timeoutMs: resolveSchemaFallbackTimeoutMs(),
-      noTools: true,
-      minOutputLen: 20,
-      allowBackendFallback: false,
-    }).then(function(fallbackResponse) {
-      if (fallbackResponse.ok) ctx.addLog('codegen-schema', 'Schema backend fallback succeeded via claude-print');
-      return fallbackResponse;
-    });
+    return runSchemaFallback(runCodexText, ctx, promptText, primarySystemPrompt, runnerConfig);
+  });
+}
+
+function runSchemaFallback(runCodexText, ctx, promptText, primarySystemPrompt, runnerConfig) {
+  return runCodexText({
+    userPrompt: promptText,
+    systemPrompt: primarySystemPrompt,
+    backend: 'claude-print',
+    model: runnerConfig.claudeModel,
+    taskId: ctx.taskId,
+    log: function(msg) { ctx.addLog('codegen-schema', '[fallback] ' + msg); },
+    effort: process.env.CLAUDE_SCHEMA_EFFORT || 'high',
+    timeoutMs: resolveSchemaFallbackTimeoutMs(),
+    noTools: true,
+    minOutputLen: 20,
+    allowBackendFallback: false,
+  }).then(function(fallbackResponse) {
+    if (fallbackResponse.ok) ctx.addLog('codegen-schema', 'Schema backend fallback succeeded via claude-print');
+    return fallbackResponse;
   });
 }
 
@@ -354,6 +374,71 @@ function resolveSchemaFallbackTimeoutMs(env) {
   env = env || process.env;
   var timeout = parseInt(env.CLAUDE_SCHEMA_TIMEOUT_MS || env.CODEX_SCHEMA_FALLBACK_TIMEOUT_MS || '', 10);
   return isFinite(timeout) && timeout > 0 ? timeout : 600000;
+}
+
+function resolveSchemaPrimaryCooldownMs(env) {
+  env = env || process.env;
+  var raw = env.CODEX_SCHEMA_PRIMARY_COOLDOWN_MS;
+  if (String(raw || '').toLowerCase() === 'off') return 0;
+  var timeout = parseInt(raw || '', 10);
+  return isFinite(timeout) && timeout >= 0 ? timeout : 30 * 60 * 1000;
+}
+
+function resolveSchemaPrimaryCooldownFile(env) {
+  env = env || process.env;
+  return env.CODEX_SCHEMA_PRIMARY_COOLDOWN_FILE ||
+    path.join(os.tmpdir(), 'blueprint-codex-schema-primary-cooldown.json');
+}
+
+function isSchemaPrimaryCooldownError(error) {
+  var text = String(error || '');
+  return /MODEL_FATAL|quota|usage limit|hit your usage limit|purchase more credits|insufficient|billing|\b401\b|\b402\b|\b403\b|selected model|may not exist|not have access|model.?not.?found|unknown model|unsupported model/i.test(text);
+}
+
+function readSchemaPrimaryCooldown(env, nowMs) {
+  env = env || process.env;
+  nowMs = isFinite(nowMs) ? nowMs : Date.now();
+  var file = resolveSchemaPrimaryCooldownFile(env);
+  try {
+    if (!fs.existsSync(file)) return null;
+    var record = JSON.parse(fs.readFileSync(file, 'utf8'));
+    var expiresAtMs = Number(record.expiresAtMs || Date.parse(record.expiresAt || ''));
+    if (isFinite(expiresAtMs) && expiresAtMs > nowMs) {
+      record.expiresAtMs = expiresAtMs;
+      return record;
+    }
+    try { fs.unlinkSync(file); } catch (_) {}
+    return null;
+  } catch (_) {
+    try { fs.unlinkSync(file); } catch (__) {}
+    return null;
+  }
+}
+
+function writeSchemaPrimaryCooldown(error, ctx, env, nowMs) {
+  if (!isSchemaPrimaryCooldownError(error)) return null;
+  env = env || process.env;
+  var cooldownMs = resolveSchemaPrimaryCooldownMs(env);
+  if (!isFinite(cooldownMs) || cooldownMs <= 0) return null;
+  nowMs = isFinite(nowMs) ? nowMs : Date.now();
+  var file = resolveSchemaPrimaryCooldownFile(env);
+  var record = {
+    taskId: ctx && ctx.taskId || null,
+    reason: String(error || '').slice(0, 180),
+    createdAt: new Date(nowMs).toISOString(),
+    expiresAt: new Date(nowMs + cooldownMs).toISOString(),
+    expiresAtMs: nowMs + cooldownMs,
+    cooldownMs: cooldownMs,
+  };
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    var tmp = file + '.' + process.pid + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(record, null, 2));
+    fs.renameSync(tmp, file);
+    return record;
+  } catch (_) {
+    return null;
+  }
 }
 
 function isSchemaInfraError(error) {

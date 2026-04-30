@@ -1,4 +1,7 @@
 const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const codegenSchema = require('../engine/stages/codegen-schema.cjs');
 const codexCodeCoder = require('../worker/codex-code-coder.js');
@@ -95,6 +98,11 @@ assert.strictEqual(codegenSchema._internals.isSchemaNonRetryableError('schema ma
   assert.strictEqual(codegenSchema._internals.resolveSchemaTimeoutMs({ CODEX_SCHEMA_TIMEOUT_MS: '420000' }), 420000);
   assert.strictEqual(codegenSchema._internals.resolveSchemaFallbackTimeoutMs({}), 600000);
   assert.strictEqual(codegenSchema._internals.resolveSchemaFallbackTimeoutMs({ CLAUDE_SCHEMA_TIMEOUT_MS: '720000' }), 720000);
+  assert.strictEqual(codegenSchema._internals.resolveSchemaPrimaryCooldownMs({}), 30 * 60 * 1000);
+  assert.strictEqual(codegenSchema._internals.resolveSchemaPrimaryCooldownMs({ CODEX_SCHEMA_PRIMARY_COOLDOWN_MS: '120000' }), 120000);
+  assert.strictEqual(codegenSchema._internals.resolveSchemaPrimaryCooldownMs({ CODEX_SCHEMA_PRIMARY_COOLDOWN_MS: '0' }), 0);
+  assert.strictEqual(codegenSchema._internals.isSchemaPrimaryCooldownError("MODEL_FATAL: You've hit your usage limit"), true);
+  assert.strictEqual(codegenSchema._internals.isSchemaPrimaryCooldownError('Connection error.'), false);
 
   const envRunner = codegenSchema._internals.resolveSchemaRunnerConfig({
     CODEX_SCHEMA_MODEL: 'gpt-custom',
@@ -106,6 +114,31 @@ assert.strictEqual(codegenSchema._internals.isSchemaNonRetryableError('schema ma
   assert.strictEqual(codexCodeCoder._internals.resolveClaudePrintModel({ model: 'claude-haiku-4-5-20251001' }, {}), 'claude-haiku-4-5-20251001');
   assert.strictEqual(codexCodeCoder._internals.isModelUnavailableError('selected model may not exist or you may not have access'), true);
   assert.strictEqual(codexCodeCoder._internals.isModelFatalStream("You've hit your usage limit. purchase more credits"), true);
+}
+
+{
+  const cooldownFile = path.join(os.tmpdir(), 'blueprint-schema-cooldown-test-' + process.pid + '.json');
+  try { fs.unlinkSync(cooldownFile); } catch (_) {}
+  const env = {
+    CODEX_SCHEMA_PRIMARY_COOLDOWN_FILE: cooldownFile,
+    CODEX_SCHEMA_PRIMARY_COOLDOWN_MS: '120000',
+  };
+  const now = Date.parse('2026-04-30T00:00:00.000Z');
+  assert.strictEqual(codegenSchema._internals.readSchemaPrimaryCooldown(env, now), null);
+  const written = codegenSchema._internals.writeSchemaPrimaryCooldown(
+    "MODEL_FATAL: You've hit your usage limit. purchase more credits",
+    { taskId: 'proj_test' },
+    env,
+    now
+  );
+  assert.ok(written);
+  assert.strictEqual(written.taskId, 'proj_test');
+  assert.strictEqual(written.expiresAtMs, now + 120000);
+  const active = codegenSchema._internals.readSchemaPrimaryCooldown(env, now + 1000);
+  assert.ok(active);
+  assert.strictEqual(active.expiresAtMs, now + 120000);
+  assert.strictEqual(codegenSchema._internals.readSchemaPrimaryCooldown(env, now + 121000), null);
+  assert.strictEqual(fs.existsSync(cooldownFile), false);
 }
 
 {
