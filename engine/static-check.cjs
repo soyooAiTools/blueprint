@@ -299,16 +299,26 @@ var RULES = [
     }
     return [];
   }},
-  { id: 'autoplay-gate-removed', pattern: null, message: 'AutoPlay 12s gate block was removed — each shot must wait 12s in autoPlay mode', custom: function(code) {
-    // 2026-04-20: unified gate is now `phaseTimer >= (_autoPlayMode ? 12f : Nf)`
-    // in CheckEventRules. Earlier form `phaseTimer < 12f` is gone. Detect by checking
-    // for the ternary pattern OR the legacy form (both satisfy the "gate exists" intent).
-    if (code.indexOf('_autoPlayMode') < 0) return [];
-    if (!/\bvoid\s+CheckEventRules\s*\(/.test(code) && code.indexOf('AUTO_PLAY_PHASE_DURATION') < 0) return [];
-    var hasUnified = /_autoPlayMode\s*\?\s*12f\b/.test(code);
-    var hasLegacy = code.indexOf('phaseTimer < 12f') >= 0;
-    if (!hasUnified && !hasLegacy) {
-      return [{ line: 1, text: 'Missing autoPlay phaseTimer gate — expected `phaseTimer >= (_autoPlayMode ? 12f : Nf)` in CheckEventRules' }];
+  { id: 'autoplay-gate-removed', pattern: null, message: 'AutoPlay 12s gate block was removed — each shot must wait 12s in autoPlay mode', custom: function(code, ctx) {
+    // 2026-04-30: unified gate is `PhaseDwellReady(Nf)`; the helper uses
+    // Time.realtimeSinceStartup-backed phaseRealTimer for AutoPlay so CUA speed
+    // patch cannot compress the programmer-visible 12s shot duration.
+    // Legacy generated code used `phaseTimer >= (_autoPlayMode ? 12f : Nf)`.
+    var allCode = code || '';
+    var extraFiles = ctx && ctx.extraFiles ? ctx.extraFiles : {};
+    Object.keys(extraFiles).forEach(function(fileName) {
+      allCode += '\n' + (extraFiles[fileName] || '');
+    });
+    if (allCode.indexOf('_autoPlayMode') < 0) return [];
+    if (!/\bvoid\s+CheckEventRules\s*\(/.test(allCode) && allCode.indexOf('AUTO_PLAY_PHASE_DURATION') < 0) return [];
+    var hasDwellHelper = /\bbool\s+PhaseDwellReady\s*\(/.test(allCode)
+      && /\bPhaseDwellReady\s*\(\s*\d+(?:\.\d+)?f\s*\)/.test(allCode)
+      && /\bphaseRealTimer\s*>=\s*requiredSeconds\b/.test(allCode)
+      && /_autoPlayMode\s*\?\s*12f\b/.test(allCode);
+    var hasUnified = /phaseTimer\s*>=\s*\(\s*_autoPlayMode\s*\?\s*12f\b/.test(allCode);
+    var hasLegacy = allCode.indexOf('phaseTimer < 12f') >= 0;
+    if (!hasDwellHelper && !hasUnified && !hasLegacy) {
+      return [{ line: 1, text: 'Missing AutoPlay dwell gate — expected `PhaseDwellReady(Nf)` or legacy `phaseTimer >= (_autoPlayMode ? 12f : Nf)` in CheckEventRules' }];
     }
     return [];
   }},
@@ -1912,7 +1922,7 @@ var RULES = [
         if (/^int\s+gold\s*=/.test(sTrimmed)) return /金币 UI|Gold UI|Idle 分数/;
         if (/^Vector3\s+_snap_\w+Pos\s*;/.test(sTrimmed)) return /Phase snapshots|快照/;
         if (/^(?:FormDef\[\]\s+_forms|int\s+_currentFormIndex\b)/.test(sTrimmed)) return /形态|Form|玩家形态/;
-        if (/^(?:float\s+phaseTimer|string\s+lastPhaseForTimer|float\[\]\s+phaseEnterTimes)\b/.test(sTrimmed)) return /Phase timing|Phase 计时|计时/;
+        if (/^(?:float\s+phaseTimer|float\s+phaseRealTimer|float\s+lastPhaseRealClock|string\s+lastPhaseForTimer|float\[\]\s+phaseEnterTimes)\b/.test(sTrimmed)) return /Phase timing|Phase 计时|计时/;
         if (/^(?:Camera|Canvas|Text|float|string)\s+(?:mainCam|uiCanvas|guideText|scoreText|floatingText|floatingTextTimer|_currentGuideText|cameraFocusTarget)\b/.test(sTrimmed)) return /Camera\/UI|Camera reference|UI references|相机引用|UI 引用/;
         if (/^(?:const\s+int\s+RULE_COUNT|bool\[\]\s+ruleTriggered|string\s+currentPhaseName|string\[\]\s+completedPhases|int\s+completedPhaseCount|float\s+gameTimer|bool\s+gameEnded)\b/.test(sTrimmed)) return /Phase tracking|阶段跟踪/;
         if (/^(?:bool\s+_autoPlayMode|int\s+_autoPlaySteps|int\s+_autoPlayStepsAtPhaseStart|const\s+float\s+AUTO_PLAY_PHASE_DURATION)\b/.test(sTrimmed)) return /AutoPlay/;

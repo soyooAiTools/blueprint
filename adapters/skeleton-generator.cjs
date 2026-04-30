@@ -37,7 +37,7 @@ const ENTITY_COLORS = [
 const RESERVED_SKELETON_VARS = new Set([
   'gold', 'moveSpeed', 'collectRange', 'maxCarry', 'carrying', 'carryingType',
   'player', 'joystick', 'mainCam', 'uiCanvas', 'guideText', 'scoreText',
-  'phaseTimer', 'gameTimer', 'gameEnded', 'currentPhaseName', 'ruleTriggered',
+  'phaseTimer', 'phaseRealTimer', 'lastPhaseRealClock', 'gameTimer', 'gameEnded', 'currentPhaseName', 'ruleTriggered',
   'completedPhases', 'completedPhaseCount', 'floatingText', 'floatingTextTimer',
   'tapMoveTarget', 'hasTapTarget', 'carryVisuals', 'playerHP', 'enemiesDefeated',
 ]);
@@ -301,8 +301,10 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('{');
 
   // Phase 计时系统（骨架强制）
-  lines.push('    // [SKELETON] Phase timing：phaseTimer 控制最短停留时间，phaseEnterTimes 记录进入时刻。');
+  lines.push('    // [SKELETON] Phase timing：phaseTimer 控制交互最短停留；phaseRealTimer 控制 AutoPlay 真实墙钟停留。');
   lines.push('    float phaseTimer = 0f;');
+  lines.push('    float phaseRealTimer = 0f;');
+  lines.push('    float lastPhaseRealClock = 0f;');
   lines.push('    string lastPhaseForTimer = "";');
   lines.push('    float[] phaseEnterTimes;');
   lines.push('');
@@ -1159,7 +1161,7 @@ function generateSkeleton(specs, opts = {}) {
       lines.push(`        if (!ruleTriggered[${ruleIdx}]`);
       lines.push(`            && currentPhaseName == "${prevSpec.phaseId}"`);
       lines.push(`            && (${realCondition})`);
-      lines.push(`            && phaseTimer >= (_autoPlayMode ? 12f : ${prevSpec.duration.min}f))`);
+      lines.push(`            && PhaseDwellReady(${prevSpec.duration.min}f))`);
       lines.push('        {');
       lines.push(`            EnterPhase(${ruleIdx}, "${spec.phaseId}", true, true);`);
       lines.push('');
@@ -1193,7 +1195,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        if (!gameEnded');
   lines.push(`            && currentPhaseName == "${lastSpec.phaseId}"`);
   lines.push(`            && (${endRealCondition})`);
-  lines.push(`            && phaseTimer >= (_autoPlayMode ? 12f : ${lastSpec.duration.min}f))`);
+  lines.push(`            && PhaseDwellReady(${lastSpec.duration.min}f))`);
   lines.push('        {');
   lines.push('            currentPhaseName = "gameEnd";');
   lines.push('            cameraFocusTarget = "gameEnd";');
@@ -1536,14 +1538,30 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
   lines.push('    }');
   lines.push('');
   lines.push('    // 当前 phase 变化时重置 phase 计时器，并在每帧推进。');
+  lines.push('    // AutoPlay 使用 Time.realtimeSinceStartup 差值，避免 CUA speed patch 多次调用 Update() 时压缩 shot 时长。');
   lines.push('    void UpdatePhaseTimer(float dt)');
   lines.push('    {');
+  lines.push('        float nowReal = Time.realtimeSinceStartup;');
   lines.push('        if (currentPhaseName != lastPhaseForTimer)');
   lines.push('        {');
   lines.push('            phaseTimer = 0f;');
+  lines.push('            phaseRealTimer = 0f;');
+  lines.push('            lastPhaseRealClock = nowReal;');
   lines.push('            lastPhaseForTimer = currentPhaseName;');
   lines.push('        }');
   lines.push('        phaseTimer += dt;');
+  lines.push('        float realDt = nowReal - lastPhaseRealClock;');
+  lines.push('        // 防御异常真实时间差：页面暂停/恢复时丢弃异常跨度，避免一次性跳过多个 shot。');
+  lines.push('        if (realDt < 0f || realDt > 1f) realDt = 0f;');
+  lines.push('        phaseRealTimer += realDt;');
+  lines.push('        lastPhaseRealClock = nowReal;');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    // [SKELETON] 每个 shot 的最短停留门。AutoPlay 必须按真实秒数等待 12s，不能被验证加速器压缩。');
+  lines.push('    bool PhaseDwellReady(float specMinSeconds)');
+  lines.push('    {');
+  lines.push('        float requiredSeconds = _autoPlayMode ? 12f : specMinSeconds;');
+  lines.push('        return _autoPlayMode ? phaseRealTimer >= requiredSeconds : phaseTimer >= requiredSeconds;');
   lines.push('    }');
   lines.push('');
   lines.push('    // 进入新 phase 时统一应用公共状态变更。');
@@ -1552,7 +1570,12 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
   lines.push('        ruleTriggered[ruleIdx] = true;');
   lines.push('        currentPhaseName = phaseId;');
   lines.push('        phaseEnterTimes[ruleIdx] = gameTimer;');
-  lines.push('        if (resetTimer) phaseTimer = 0f;');
+  lines.push('        if (resetTimer)');
+  lines.push('        {');
+  lines.push('            phaseTimer = 0f;');
+  lines.push('            phaseRealTimer = 0f;');
+  lines.push('            lastPhaseRealClock = Time.realtimeSinceStartup;');
+  lines.push('        }');
   lines.push('        if (syncAutoPlayBaseline) _autoPlayStepsAtPhaseStart = _autoPlaySteps;');
   lines.push('        cameraFocusTarget = phaseId;');
   lines.push('        RecordPhaseEvidenceFlag(phaseId, "camera_orientation_changed");');

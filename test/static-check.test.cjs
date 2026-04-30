@@ -548,6 +548,25 @@ public class Main : MonoBehaviour {
     expect(hit).toBeUndefined();
   });
 
+  test('realtime PhaseDwellReady autoPlay gate passes gate-presence check', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  bool _autoPlayMode;
+  float phaseTimer;
+  float phaseRealTimer;
+  bool ruleTriggered;
+  void CheckEventRules() {
+    if (!ruleTriggered && PhaseDwellReady(10f)) {}
+  }
+  bool PhaseDwellReady(float specMinSeconds) {
+    float requiredSeconds = _autoPlayMode ? 12f : specMinSeconds;
+    return _autoPlayMode ? phaseRealTimer >= requiredSeconds : phaseTimer >= requiredSeconds;
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'autoplay-gate-removed');
+    expect(hit).toBeUndefined();
+  });
+
   // --- v8: Performance hot-path rules (Batch 3) ---
 
   test('new Vector3 in Update() detected as blocking', () => {
