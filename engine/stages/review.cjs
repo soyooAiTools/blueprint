@@ -2517,7 +2517,22 @@ module.exports = {
         // LLM reviewer — only reached when both static check and phase coverage
         // pre-check pass (i.e. reviewPromise is still unset).
         if (!reviewPromise) {
-          if (isAssemblyReadyForDeterministicReview(ctx, preCheckWarnings, specCriticalCount)) {
+          // Round-limit gate: when REVIEW_LLM_ROUNDS_LIMIT is set, rounds past
+          // the limit short-circuit to "pass" if static-check is clean — relying
+          // on deterministic checks instead of repeating expensive LLM passes.
+          var llmRoundLimit = parseInt(process.env.REVIEW_LLM_ROUNDS_LIMIT || '0', 10);
+          if (llmRoundLimit > 0 && round > llmRoundLimit && preCheckBlocking.length === 0) {
+            reviewerName = 'StaticCheckOnly';
+            ctx.addLog('review', 'Round ' + round + ' exceeds REVIEW_LLM_ROUNDS_LIMIT=' + llmRoundLimit +
+              ' and static-check is clean — skipping LLM review (warnings=' + preCheckWarnings.length + ')');
+            reviewPromise = Promise.resolve({
+              passed: true,
+              source: 'round-limit-static-only',
+              issues: preCheckWarnings,
+              warningCount: preCheckWarnings.length,
+              reviewerName: 'StaticCheckOnly',
+            });
+          } else if (isAssemblyReadyForDeterministicReview(ctx, preCheckWarnings, specCriticalCount)) {
             reviewerName = 'Deterministic';
             var bp = ctx.blueprint || {};
             var gate = (bp.assemblyDecision === 'assembly_ready') ? 'assembly-ready' : 'template-output';
