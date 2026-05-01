@@ -245,7 +245,7 @@ function patchRecode(opts) {
     systemPrompt: systemPrompt,
     userPrompt: userPrompt,
     model: 'claude-sonnet-4-6',
-    effort: 'xhigh',
+    effort: process.env.CODEX_REASONING_EFFORT || 'high',
     timeoutMs: 240000,
     minOutputLen: 100,
     taskId: opts.taskId || 'patch',

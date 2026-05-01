@@ -22,7 +22,7 @@ const {
 const CODEX_CMD = process.env.CODEX_CMD || 'codex';
 const CODEX_TIMEOUT_MS = parseInt(process.env.CODEX_REVIEW_TIMEOUT_MS) || 4 * 60 * 1000; // align with codex-text default
 const CODEX_MODEL = process.env.CODEX_REVIEW_MODEL || process.env.CODEX_CODE_MODEL || 'gpt-5.5';
-const CODEX_REASONING_EFFORT = process.env.CODEX_REVIEW_REASONING_EFFORT || process.env.CODEX_REASONING_EFFORT || 'xhigh';
+const CODEX_REASONING_EFFORT = process.env.CODEX_REVIEW_REASONING_EFFORT || process.env.CODEX_REASONING_EFFORT || 'high';
 
 // ============ Preflight Health Check ============
 let _codexPreflightResult = null; // null = not checked, true = ok, false = broken

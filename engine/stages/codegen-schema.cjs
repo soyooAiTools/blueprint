@@ -307,6 +307,10 @@ function generateSchemaFromSpecs(ctx) {
 function generateSchemaTextWithFallback(runCodexText, ctx, promptText) {
   var primarySystemPrompt = '你是试玩广告游戏配置生成器。只输出 JSON 对象，不要 markdown 包裹，不要解释。';
   var runnerConfig = resolveSchemaRunnerConfig();
+  if (process.env.SCHEMA_PRIMARY_BACKEND === 'claude-print') {
+    ctx.addLog('codegen-schema', 'Schema primary backend overridden to claude-print via SCHEMA_PRIMARY_BACKEND env');
+    return runSchemaFallback(runCodexText, ctx, promptText, primarySystemPrompt, runnerConfig);
+  }
   var activeCooldown = readSchemaPrimaryCooldown();
   if (activeCooldown) {
     ctx.addLog('codegen-schema', 'Skipping Codex schema primary due to active quota/model cooldown until ' +
@@ -320,7 +324,7 @@ function generateSchemaTextWithFallback(runCodexText, ctx, promptText) {
     model: runnerConfig.codexModel,
     taskId: ctx.taskId,
     log: function(msg) { ctx.addLog('codegen-schema', msg); },
-    effort: 'xhigh',
+    effort: process.env.CODEX_REASONING_EFFORT || 'high',
     timeoutMs: resolveSchemaTimeoutMs(),
     noTools: true,
     minOutputLen: 20,
@@ -836,7 +840,7 @@ function fillCustomLogic(ctx, schema) {
         workDir: customWorkDir,
         taskId: ctx.taskId,
         log: function(msg) { ctx.addLog('codegen-schema', '[custom R' + round + '] ' + msg); },
-        effort: 'xhigh',
+        effort: process.env.CODEX_REASONING_EFFORT || 'high',
         timeoutMs: 300000,
         allowBackendFallback: true,
         execSandbox: 'workspace-write',
