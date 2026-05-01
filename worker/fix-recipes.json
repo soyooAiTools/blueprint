@@ -246,8 +246,8 @@
   },
   {
     "id": "auto-96cb5031",
-    "fingerprintPattern": "CUA total time limit exceeded \\(\\d+min > 60min pre-recode guard\\)",
-    "description": "RECODE_BUFFER_MS env var (15 min / 900,000 ms) set the pre-recode guard threshold at 60 min, causing legitimate 63–64 min CUA runs to be killed prematurely before recode had a chance to run.",
+    "fingerprintPattern": "CUA total time limit exceeded \\(\\d+min > \\d+min pre-recode guard\\)",
+    "description": "Math.round() applied to both elapsed and threshold produces an impossible-looking 'Xmin > Xmin' when elapsed is just fractionally above the threshold; two throw-sites and stale RECODE_BUFFER_MS env entries affected",
     "risk": "low",
     "autoApply": true,
     "affectedFiles": [
@@ -578,5 +578,43 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-fb07a3a6.md"
+  },
+  {
+    "id": "auto-54f87eea",
+    "fingerprintPattern": "Schema generation failed:.*Reading prompt from stdin|Schema generation failed:.*OpenAI Codex v[0-9]",
+    "description": "codex-exec startup banner captured as error text; isSchemaInfraError() misses it, bypassing claude-print fallback and burning all retries",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/codegen-schema.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-54f87eea.md"
+  },
+  {
+    "id": "auto-447aedf6",
+    "fingerprintPattern": "Schema generation failed: Timed out after \\d+ms; Exit code 143",
+    "description": "claude-print schema fallback has a hardcoded 600 000 ms (10 min) default timeout; SIGTERM after that produces Exit code 143 and blocks inner retries while still allowing up to 3 stage-level retries, burning up to 30 min total",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/codegen-schema.cjs",
+      ".env",
+      "worker/.env"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-447aedf6.md"
+  },
+  {
+    "id": "auto-00903459",
+    "fingerprintPattern": "Codex code runner failed \\(exit 1\\): MODEL_FATAL: Codex code runner auth\\/quota failure — Reading prompt from stdin",
+    "description": "Early-exit baseErr in runClaudeCode/runCodexExecCode picks stdout (Codex startup banner) over stderr (real auth error), hiding the actual quota/auth diagnostic in the MODEL_FATAL message",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "worker/codex-code-coder.js"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-00903459.md"
   }
 ]

@@ -1,0 +1,6 @@
+# auto-447aedf6
+## Diagnosis
+`generateSchemaTextWithFallback()` tries a primary `codex-exec` backend first; when that backend returns an infra/model error (`isSchemaInfraError` match), it falls through to `runSchemaFallback()`, which spawns a `claude --print` process with `timeoutMs: resolveSchemaFallbackTimeoutMs()`. That resolver's hardcoded default is **600 000 ms** (10 min). When the claude-print process is idle/stalled, the `setTimeout` fires after 10 min, sends SIGTERM (exit code 143), and `runCodexText` builds the error string `"Timed out after 600000ms; Exit code 143"`. Back in `generateSchemaFromSpecs`, `isSchemaNonRetryableError` correctly suppresses the *inner* two retries, but the pipeline stage carries `canRetry: true`, so the whole codegen stage retries up to 3 times — each burning another 600 s — before ultimately failing with "Schema generation failed: Timed out after 600000ms; Exit code 143".
+
+## Root Cause
+`engine/stages/codegen-schema.cjs:376` — hardcoded fallback default of `600000`:

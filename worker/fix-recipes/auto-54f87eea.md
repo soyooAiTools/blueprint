@@ -1,0 +1,9 @@
+# auto-54f87eea
+## Diagnosis
+When the `codex exec` backend starts but fails to produce output (API unreachable, model auth issue, empty `-o` file), the Codex CLI startup banner — `"Reading prompt from stdin...\nOpenAI Codex v0.125.0 (research preview)\n--------\nworkdir: ...\nmodel: gpt-5.5\nprovider: openai"` — is the only content in `stdout`. `runCodexExecText()` builds the error string as `"stdout: Reading prompt from stdin..."` (the non-empty-stderr branch). Back in `generateSchemaTextWithFallback()`, `isSchemaInfraError()` is called on that string — but none of its regex patterns match the banner, so it returns `false`. The condition `if (response.ok || !isSchemaInfraError(response.error)) return response` evaluates to `true`, returning the failed response directly instead of triggering the `claude-print` fallback. `generateSchemaFromSpecs()` then throws `"Schema generation failed: stdout: Reading prompt from stdin..."`, which the inner `tryGenerate` retry loop retries up to 2 more times (the banner error doesn't match `isSchemaNonRetryableError` either), burning 3 identical attempts per task × pipeline `canRetry` for the 14-retry pattern seen across 8 tasks.
+
+## Root Cause
+`engine/stages/codegen-schema.cjs:444` — `isSchemaInfraError()` regex is missing the Codex CLI startup banner patterns (`Reading prompt from stdin`, `OpenAI Codex v[0-9]`), causing a legitimate infra failure to be mis-classified as a non-infrastructure error and silently skipping the `claude-print` fallback.
+
+## Fix
+In `engine/stages/codegen-schema.cjs`, extend the `isSchemaInfraError` regex to include the two distinctive Codex CLI banner strings:
