@@ -592,20 +592,6 @@
     "recipeFile": "fix-recipes/auto-54f87eea.md"
   },
   {
-    "id": "auto-447aedf6",
-    "fingerprintPattern": "Schema generation failed: Timed out after \\d+ms; Exit code 143",
-    "description": "claude-print schema fallback has a hardcoded 600 000 ms (10 min) default timeout; SIGTERM after that produces Exit code 143 and blocks inner retries while still allowing up to 3 stage-level retries, burning up to 30 min total",
-    "risk": "low",
-    "autoApply": true,
-    "affectedFiles": [
-      "engine/stages/codegen-schema.cjs",
-      ".env",
-      "worker/.env"
-    ],
-    "relatedMemories": [],
-    "recipeFile": "fix-recipes/auto-447aedf6.md"
-  },
-  {
     "id": "auto-00903459",
     "fingerprintPattern": "Codex code runner failed \\(exit 1\\): MODEL_FATAL: Codex code runner auth\\/quota failure — Reading prompt from stdin",
     "description": "Early-exit baseErr in runClaudeCode/runCodexExecCode picks stdout (Codex startup banner) over stderr (real auth error), hiding the actual quota/auth diagnostic in the MODEL_FATAL message",
@@ -616,18 +602,5 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-00903459.md"
-  },
-  {
-    "id": "auto-8545a535",
-    "fingerprintPattern": "Schema generation failed: Timed out after 180000ms; Exit code 14[0-9]",
-    "description": "CODEX_SCHEMA_FALLBACK_TIMEOUT_MS=180000 (3 min) is too short for the claude-print fallback to complete schema generation on complex blueprints, causing systematic SIGTERM kills and non-retryable stage failures.",
-    "risk": "low",
-    "autoApply": true,
-    "affectedFiles": [
-      ".env",
-      "worker/.env"
-    ],
-    "relatedMemories": [],
-    "recipeFile": "fix-recipes/auto-8545a535.md"
   }
 ]
