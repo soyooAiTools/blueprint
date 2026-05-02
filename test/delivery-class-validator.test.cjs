@@ -214,9 +214,9 @@ var v = require('../engine/delivery-class-validator.cjs');
       new Array(150).fill('    Do();').join('\n') +
       '\n  }\n}';
     fs.writeFileSync(path.join(tmp, 'Scripts', 'GameFlowBig.cs'), longMethod);
-    // 一个干净的小文件
+    // 一个干净的小文件(带方法注释,避免新加的 comment-coverage 规则误报)
     fs.writeFileSync(path.join(tmp, 'Scripts', 'GameFlowSmall.cs'),
-      'public class S { void Tiny() { Do(); } }');
+      'public class S {\n  // 占位方法\n  void Tiny() { Do(); }\n}');
     // 一个 README,不应被扫到
     fs.writeFileSync(path.join(tmp, 'README.md'), '# stuff');
 
@@ -243,4 +243,163 @@ var v = require('../engine/delivery-class-validator.cjs');
   console.log('  ✓ thresholds override works');
 })();
 
-console.log('\nAll delivery-class-validator tests passed (18).');
+// ============ findFields (Wave B / 反馈条 1) ============
+
+(function testFindFieldsBasic() {
+  var code = [
+    'public class Foo {',
+    '  public int Score = 0;',
+    '  private string _name;',
+    '  protected float Speed;',
+    '  internal Vector3 _pos;',
+    '  void DoStuff() { var local = 1; }',
+    '}',
+  ].join('\n');
+  var fields = v.findFields(code);
+  var names = fields.map(function(f) { return f.name; });
+  assert.deepStrictEqual(names.sort(), ['Score', 'Speed', '_name', '_pos'].sort());
+  console.log('  ✓ findFields basic');
+})();
+
+(function testFindFieldsSkipsClassDecl() {
+  var code = [
+    'public class Foo {',
+    '  public class Inner {}',
+    '  private int X;',
+    '}',
+  ].join('\n');
+  var names = v.findFields(code).map(function(f) { return f.name; });
+  assert.deepStrictEqual(names, ['X']);
+  console.log('  ✓ findFields skips inner class decl');
+})();
+
+// ============ findConditions ============
+
+(function testFindConditionsSkipsTinyBlocks() {
+  var code = [
+    'void Foo() {',
+    '  if (a) return;',
+    '  if (b) {',
+    '    DoX();',
+    '    DoY();',
+    '    DoZ();',
+    '  }',
+    '}',
+  ].join('\n');
+  // 第一个 if 1 行,跳过;第二个 4 行,被保留(>=3)
+  var conds = v.findConditions(code, 3);
+  assert.strictEqual(conds.length, 1);
+  assert.strictEqual(conds[0].kind, 'if');
+  console.log('  ✓ findConditions skips tiny blocks');
+})();
+
+// ============ hasCommentAbove ============
+
+(function testCommentAboveLeading() {
+  var lines = [
+    '// 上面这段注释解释为什么',
+    'private int x;',
+  ];
+  assert.strictEqual(v.hasCommentAbove(lines, 2), true);
+  console.log('  ✓ hasCommentAbove: leading // line');
+})();
+
+(function testCommentAboveXmlDoc() {
+  var lines = [
+    '/// <summary>玩家速度</summary>',
+    'public float Speed;',
+  ];
+  assert.strictEqual(v.hasCommentAbove(lines, 2), true);
+  console.log('  ✓ hasCommentAbove: /// XML doc');
+})();
+
+(function testCommentAboveTrailing() {
+  var lines = ['public int Score = 0; // 玩家累计得分'];
+  assert.strictEqual(v.hasCommentAbove(lines, 1), true);
+  console.log('  ✓ hasCommentAbove: trailing // on same line');
+})();
+
+(function testCommentAboveMissing() {
+  var lines = ['', '', 'public int Naked;'];
+  assert.strictEqual(v.hasCommentAbove(lines, 3), false);
+  console.log('  ✓ hasCommentAbove: missing → false');
+})();
+
+// ============ validateCommentCoverage ============
+
+(function testCoverageFieldMissing() {
+  var code = 'public class X {\n  public int Naked;\n}';
+  var w = v.validateCommentCoverage(code, 'X.cs', { conditionMinBlockLines: 3 });
+  var fieldWarn = w.find(function(x) { return x.rule === 'delivery-comment-coverage-field'; });
+  assert.ok(fieldWarn, 'expected field-coverage warning');
+  assert.match(fieldWarn.message, /反馈条 1/);
+  console.log('  ✓ coverage: field missing');
+})();
+
+(function testCoverageMethodMissing() {
+  var code = 'public class X {\n  public void Naked() { Do(); }\n}';
+  var w = v.validateCommentCoverage(code, 'X.cs', { conditionMinBlockLines: 3 });
+  var methWarn = w.find(function(x) { return x.rule === 'delivery-comment-coverage-method'; });
+  assert.ok(methWarn, 'expected method-coverage warning');
+  assert.match(methWarn.message, /反馈条 1/);
+  console.log('  ✓ coverage: method missing');
+})();
+
+(function testCoverageMethodWithDocPasses() {
+  var code = [
+    'public class X {',
+    '  /// <summary>启动逻辑</summary>',
+    '  public void Start() { Do(); }',
+    '}',
+  ].join('\n');
+  var w = v.validateCommentCoverage(code, 'X.cs', { conditionMinBlockLines: 3 });
+  var methWarn = w.find(function(x) { return x.rule === 'delivery-comment-coverage-method'; });
+  assert.strictEqual(methWarn, undefined, 'methods with /// summary should not warn');
+  console.log('  ✓ coverage: /// summary satisfies method rule');
+})();
+
+(function testCoverageConditionMissing() {
+  var code = [
+    '// 方法注释',
+    'void Handle() {',
+    '  if (player.IsDead) {',
+    '    LogA();',
+    '    LogB();',
+    '    LogC();',
+    '  }',
+    '}',
+  ].join('\n');
+  var w = v.validateCommentCoverage(code, 'X.cs', { conditionMinBlockLines: 3 });
+  var condWarn = w.find(function(x) { return x.rule === 'delivery-comment-coverage-condition'; });
+  assert.ok(condWarn, 'expected condition-coverage warning');
+  assert.match(condWarn.message, /反馈条 2/);
+  console.log('  ✓ coverage: condition missing');
+})();
+
+(function testCoverageConditionWithCommentPasses() {
+  var code = [
+    '// 方法注释',
+    'void Handle() {',
+    '  // 玩家死亡时清理状态机',
+    '  if (player.IsDead) {',
+    '    Cleanup();',
+    '    Reset();',
+    '    Reload();',
+    '  }',
+    '}',
+  ].join('\n');
+  var w = v.validateCommentCoverage(code, 'X.cs', { conditionMinBlockLines: 3 });
+  var condWarn = w.find(function(x) { return x.rule === 'delivery-comment-coverage-condition'; });
+  assert.strictEqual(condWarn, undefined);
+  console.log('  ✓ coverage: commented condition does not warn');
+})();
+
+(function testCoverageDisableViaOpts() {
+  var code = 'public class X {\n  public int Naked;\n  public void Bare() { Do(); }\n}';
+  var w = v.validateCSharpSource(code, 'X.cs', { commentCoverage: false });
+  var coverageWarns = w.filter(function(x) { return x.rule.indexOf('comment-coverage') >= 0; });
+  assert.strictEqual(coverageWarns.length, 0, 'commentCoverage:false should disable rule');
+  console.log('  ✓ coverage: opts.commentCoverage=false disables rule');
+})();
+
+console.log('\nAll delivery-class-validator tests passed (29).');

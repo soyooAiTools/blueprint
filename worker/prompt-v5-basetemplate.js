@@ -250,9 +250,14 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('任何多行 `if (...)`、含 `&&` / `||` 的条件链，都必须在前一行写注释解释这个 gate 为什么存在。');
   lines.push('');
   lines.push('## 代码结构硬要求');
-  lines.push('1. **每个字段声明都必须有详细注释**，说明用途、生命周期、由谁更新。');
-  lines.push('2. **每个方法都必须有详细注释**，说明输入、输出、副作用、调用时机。');
-  lines.push('3. **每个条件分支都必须有注释**，说明为什么进入该条件，而不是只写代码结果。');
+  lines.push('1. **每个字段声明都必须有详细中文注释**，说明用途、生命周期、由谁更新。');
+  lines.push('   交付校验规则 `delivery-comment-coverage-field` 会扫描每个 public/private 字段;无注释直接报 warning。');
+  lines.push('2. **每个方法都必须有详细中文注释**，说明输入、输出、副作用、调用时机。');
+  lines.push('   优先使用 `///` XML doc summary;紧邻方法上方一行 `//` 也算合规。');
+  lines.push('   交付校验规则 `delivery-comment-coverage-method` 强制此项。');
+  lines.push('3. **每个 ≥3 行的条件分支都必须有注释**，说明为什么进入该条件，而不是只写代码结果。');
+  lines.push('   `if`/`else if`/`switch case` 块体 ≥ 3 行时由 `delivery-comment-coverage-condition` 校验。');
+  lines.push('   单行 guard (`if (x == null) return;`) 不强制注释,避免噪声。');
   lines.push('4. **不要把大量判断逻辑塞进 `HandlePlayerInteractions()` / `OnAutoPlayArrive()` / `Update()` 等聚合方法**。拆成多个命名明确的私有方法，然后直接调用。');
   lines.push('5. **不要通过事件系统调用业务方法**。禁止 GFM_Event / UnityEvent / event Action / AddListener / SendMessage / BroadcastMessage。只允许直接方法调用。');
   lines.push('6. **UI 统一按 1920x1080 设计**，不要改骨架中的 1920x1080 Canvas。');
