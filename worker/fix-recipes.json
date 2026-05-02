@@ -616,5 +616,18 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-00903459.md"
+  },
+  {
+    "id": "auto-8545a535",
+    "fingerprintPattern": "Schema generation failed: Timed out after 180000ms; Exit code 14[0-9]",
+    "description": "CODEX_SCHEMA_FALLBACK_TIMEOUT_MS=180000 (3 min) is too short for the claude-print fallback to complete schema generation on complex blueprints, causing systematic SIGTERM kills and non-retryable stage failures.",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      ".env",
+      "worker/.env"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-8545a535.md"
   }
 ]

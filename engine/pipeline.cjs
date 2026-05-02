@@ -382,6 +382,12 @@ Pipeline.prototype.run = function(ctx, onProgress) {
           try {
             archiveWriter.writeModelFatal(err, { taskId: ctx.taskId, stage: stage.name, attempt: attempt });
           } catch(awErr) { ctx.addLog(stage.name, 'archive-writer MODEL_FATAL failed: ' + awErr.message); }
+        } else if (earlyClassified === 'FATAL') {
+          // FATAL classification means error-classifier flagged the failure as
+          // not-retryable by design (e.g. schema timeout exit 143, spec validation,
+          // missing generator/reviewer). Without this short-circuit a single FATAL
+          // fault gets multiplied by maxAttempts (3×) and amplifies waste.
+          ctx.addLog(stage.name, 'FATAL classification — skipping stage retries');
         } else if (attempt < maxAttempts) {
           ctx.lastStageError = { stage: stage.name, error: err.message, attempt: attempt };
           return tryExecute();
