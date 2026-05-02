@@ -548,6 +548,54 @@ function injectGameManager(stage4Dir, className) {
 })();
 window.addEventListener("luna:starting", function() {
   try {
+    // [L0 font fix] Load DroidSansFallback (CJK-capable) and patch Resources.Load<Font>("DefaultFont").
+    // Build pipeline ships /resources/DefaultFont.ttf via fileDict; FontFace API registers it under
+    // the family name "DefaultFont" so PlayCanvas/Unity Text can find it.
+    (function loadDefaultFont() {
+      try {
+        if (typeof FontFace !== "function" || !document.fonts) return;
+        fetch("./resources/DefaultFont.ttf").then(function(r) {
+          if (!r || !r.ok) throw new Error("font fetch failed");
+          return r.arrayBuffer();
+        }).then(function(buf) {
+          var ff = new FontFace("DefaultFont", buf);
+          return ff.load().then(function(loaded) { document.fonts.add(loaded); });
+        }).then(function() {
+          console.log("[font] DefaultFont (CJK) registered to document.fonts");
+        }).catch(function(e) {
+          console.warn("[font] DefaultFont load failed:", e && e.message ? e.message : e);
+        });
+      } catch (e) { console.warn("[font] FontFace init error:", e); }
+    })();
+    // Patch Resources.Load and Resources.Load$1 to satisfy GFM_UI's Resources.Load<Font>("DefaultFont").
+    (function patchResourcesLoadFont() {
+      try {
+        if (!window.UnityEngine || !UnityEngine.Resources) return;
+        function makeFont() {
+          try {
+            if (typeof Font !== "undefined" && Font.CreateDynamicFontFromOSFont) {
+              return Font.CreateDynamicFontFromOSFont("DefaultFont", 16);
+            }
+            if (UnityEngine.Font && UnityEngine.Font.CreateDynamicFontFromOSFont) {
+              return UnityEngine.Font.CreateDynamicFontFromOSFont("DefaultFont", 16);
+            }
+          } catch(e) {}
+          return null;
+        }
+        ["Load", "Load$1"].forEach(function(k) {
+          var orig = UnityEngine.Resources[k];
+          if (typeof orig !== "function") return;
+          UnityEngine.Resources[k] = function(name) {
+            if (name === "DefaultFont") {
+              var f = makeFont();
+              if (f) return f;
+            }
+            try { return orig.apply(this, arguments); } catch(e) { return null; }
+          };
+        });
+      } catch (e) { console.warn("[font] Resources.Load patch error:", e); }
+    })();
+
     var origGetBuiltin = UnityEngine.Resources.GetBuiltinResource;
     UnityEngine.Resources.GetBuiltinResource = function(type, name) {
       if (name && name.indexOf(".ttf") >= 0) {
@@ -839,6 +887,9 @@ function convertToSingleHTML(stage4Dir) {
       fileDict[rel] = { t: 'i', d: fs.readFileSync(fp).toString('base64'), m: mime };
     } else if (['.blob', '.bin', '.dat', '.fnt'].includes(ext)) {
       fileDict[rel] = { t: 'b', d: fs.readFileSync(fp).toString('base64') };
+    } else if (ext === '.ttf' || ext === '.otf') {
+      // Web fonts: serve as binary so polyfill can load via FontFace API
+      fileDict[rel] = { t: 'b', d: fs.readFileSync(fp).toString('base64'), m: 'font/' + ext.slice(1) };
     }
   }
 
