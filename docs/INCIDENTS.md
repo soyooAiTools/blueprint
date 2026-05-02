@@ -11,13 +11,14 @@
 1. **配置层** — `auto-447aedf6` 把 `CODEX_SCHEMA_FALLBACK_TIMEOUT_MS` 写成 180 000 ms，本意是 codex-exec primary 失败后让 claude-print fallback "fail-fast"。但 claude-print 在 52 KB 复杂 schema prompt 下稳定要 ~10 min（memory `project_codex_effort_and_backend_switch`），3 min 必然 stdout=0c stderr=0c 被 kill。
 2. **逻辑层** — `engine/error-classifier.cjs:69` 早就把 `Schema generation failed: Timed out after \d+ms; Exit code 143` 标成 `FATAL`（`retryable:false`），但 `engine/pipeline.cjs:378` 只对 `MODEL_FATAL` short-circuit。`FATAL` 落到 `else if (attempt < maxAttempts) return tryExecute()` 分支被 3× 外层重试，把单次 timeout 放大成 540 s 浪费。
 
-### 修复（commit `d392da1`，已 push 到 main）
+### 修复（commits `d392da1` + `a98b2bc` + `66be851`，已 push）
 
 1. `.env` & `worker/.env`：`CODEX_SCHEMA_FALLBACK_TIMEOUT_MS=180000` → `600000`，对齐 hardcoded 安全默认 + 记忆中 claude-print 的稳定上限。
 2. `engine/pipeline.cjs:385` 增加 `else if (earlyClassified === 'FATAL')` 分支，记日志后跳过 stage retries，与 `MODEL_FATAL` 对称处理。
 3. `pm2 restart linux-worker-1..6 --update-env` 让 worker dotenv 重读 `worker/.env`。
 4. 新建 `.learnings/{ERRORS,LEARNINGS}.md` 给 `systematic-debugging` skill 一个真正的跨 session 持久层（之前目录从未存在，每次都冷启动重做 Phase 1）。
-5. 收录 auto-fix 引擎并发生成的 `worker/fix-recipes/auto-8545a535.md`（独立诊断，建议 480 s）。
+5. **退役**两条 stale auto-fix recipe（`a98b2bc`）：从 `worker/fix-recipes.json` 删除 `auto-447aedf6`（宽 fingerprint `Timed out after \d+ms; Exit code 143` 会反向回滚 600 s 修复）+ `auto-8545a535`（pinned 180000ms 已失效）；两个 `.md` 留 SUPERSEDED 标记作历史。
+6. `worker/.env.example` 补 `CODEX_SCHEMA_FALLBACK_TIMEOUT_MS=600000` 文档（`66be851`），让 fresh clone 知道这个 env 存在。
 
 ### 验证
 
