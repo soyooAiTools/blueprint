@@ -23,25 +23,9 @@
 
 using UnityEngine;
 
-public class GFM_NpcManager : MonoBehaviour
+// 反馈 01 #8 架构图:NpcManager 走 GFM_SingletonBase,不再自维护 _instance。
+public class GFM_NpcManager : GFM_SingletonBase<GFM_NpcManager>
 {
-    // ========================================================================
-    // 【单例入口】懒初始化。本项目不会被触发访问。
-    // ========================================================================
-    private static GFM_NpcManager _instance;
-    public static GFM_NpcManager Instance
-    {
-        get
-        {
-            if (_instance == null)
-            {
-                var obj = new GameObject("GFM_NpcManager");
-                _instance = obj.AddComponent<GFM_NpcManager>();
-            }
-            return _instance;
-        }
-    }
-
     private bool _inited = false;
     // 初始化 NPC 管理器和对象池引用。
     public void Init()
@@ -51,10 +35,9 @@ public class GFM_NpcManager : MonoBehaviour
         // TODO (未来项目): 初始化 NPC 池、加载行为模板、注册事件监听
     }
 
-    private void Awake()
+    // 基类 Awake 已经处理 _instance 注册和 duplicate-disable;OnInit 触发 Init。
+    protected override void OnInit()
     {
-        if (_instance != null && _instance != this) { enabled = false; return; }
-        _instance = this;
         Init();
     }
 

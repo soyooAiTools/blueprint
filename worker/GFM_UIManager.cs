@@ -20,25 +20,9 @@
 using UnityEngine;
 using UnityEngine.UI;
 
-public class GFM_UIManager : MonoBehaviour
+// 反馈 01 #8 架构图:UIManager 走 GFM_SingletonBase,不再自维护 _instance。
+public class GFM_UIManager : GFM_SingletonBase<GFM_UIManager>
 {
-    // ------------------------------------------------------------------------
-    // 【单例入口】首次访问自动创建 GameObject 并 AddComponent。
-    // ------------------------------------------------------------------------
-    private static GFM_UIManager _instance;
-    public static GFM_UIManager Instance
-    {
-        get
-        {
-            if (_instance == null)
-            {
-                var obj = new GameObject("GFM_UIManager");
-                _instance = obj.AddComponent<GFM_UIManager>();
-            }
-            return _instance;
-        }
-    }
-
     // 【UI 引用】Canvas/guideText/scoreText 由 Init() 创建。
     public Canvas Canvas { get { return _canvas; } }
     public Text Guide { get { return _guideText; } }
@@ -73,11 +57,10 @@ public class GFM_UIManager : MonoBehaviour
         return _canvas != null;
     }
 
-    private void Awake()
+    // 基类 Awake 已经处理 _instance 注册和 duplicate-disable;只需在 OnInit 里
+    // 触发 Canvas/text 搭建即可。Luna 禁用 Destroy() 的约束由基类统一保证。
+    protected override void OnInit()
     {
-        // Luna 禁用 Destroy()，防重用 enabled=false
-        if (_instance != null && _instance != this) { enabled = false; return; }
-        _instance = this;
         Init();
     }
 

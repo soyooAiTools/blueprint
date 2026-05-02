@@ -16,10 +16,12 @@ public class GFM_Pool : MonoBehaviour
     private Transform _poolRoot;
 
     // 初始化通用对象池根节点和缓存表。
+    // 反馈 01 #8 架构图：模板场景 hierarchy 要求池根节点命名为 `__LunaPool`,
+    // 让程序员在 Hierarchy 里一眼能看出这是池容器,与游戏对象树清晰分离。
     public static GFM_Pool Init(GameObject parent)
     {
         if (instance != null) return instance;
-        var obj = new GameObject("GFM_Pool");
+        var obj = new GameObject("__LunaPool");
         obj.transform.SetParent(parent.transform);
         instance = obj.AddComponent<GFM_Pool>();
         instance._poolRoot = obj.transform;

@@ -10,6 +10,10 @@ const GFM_FILES = [
   // 基础工具层 (static class / 无状态)
   'GFM_Audio.cs',
   'GFM_Pool.cs',
+  // Manager 命名 alias (反馈 01 #8 架构图：图中叫 PoolManager / AudioManager,
+  // 这里转发到 GFM_Pool / GFM_Audio,新生成代码优先用这两个名字)
+  'PoolManager.cs',
+  'AudioManager.cs',
   'GFM_Event.cs',
   'GFM_Utils.cs',
   'GFM_Joystick.cs',

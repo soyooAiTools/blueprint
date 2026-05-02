@@ -146,10 +146,24 @@ try {
   assert.match(playerBaseSrc, /public class PlayerBase : BaseGameFlowEntity/);
   assert.match(playerBaseSrc, /public float MoveSpeed/);
   assert.match(playerBaseSrc, /void MoveByDirection\(Vector3 direction, float dt\)/);
+  // 反馈 01 #8 架构图:Player 走单例语义。
+  assert.match(playerBaseSrc, /public\s+static\s+PlayerBase\s+Instance/);
+  assert.match(playerBaseSrc, /Instance\s*=\s*this/);
   const npcBaseSrc = fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'NPCBase.cs'), 'utf8');
   assert.match(npcBaseSrc, /public class NPCBase : BaseGameFlowEntity/);
   assert.match(npcBaseSrc, /void SetTarget\(Vector3 target\)/);
   assert.match(npcBaseSrc, /void TickPatrol\(float dt\)/);
+  // 反馈 01 #8 架构图:NPC 必须含名字 / 血条 UI / 攻击信息(名字在 BaseGameFlowEntity)。
+  assert.match(npcBaseSrc, /using\s+UnityEngine\.UI;/);
+  assert.match(npcBaseSrc, /public\s+Slider\s+HealthBar/);
+  assert.match(npcBaseSrc, /public\s+int\s+Health/);
+  assert.match(npcBaseSrc, /public\s+int\s+MaxHealth/);
+  assert.match(npcBaseSrc, /public\s+int\s+AttackDamage/);
+  assert.match(npcBaseSrc, /public\s+float\s+AttackRange/);
+  assert.match(npcBaseSrc, /public\s+float\s+AttackCooldown/);
+  assert.match(npcBaseSrc, /void\s+RefreshHealthBar\(\)/);
+  assert.match(npcBaseSrc, /void\s+ApplyDamage\(int\s+amount\)/);
+  assert.match(npcBaseSrc, /bool\s+TryAttack\(Vector3\s+targetPos\)/);
   assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BarrackEntity.cs'), 'utf8'), /蓝图实体 ID/);
   // 反馈 01: Bind 必须把 Unity primitive 默认名替换为领域名,运行时 Hierarchy 不留未命名物体。
   const baseEntityCode = fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BaseGameFlowEntity.cs'), 'utf8');
