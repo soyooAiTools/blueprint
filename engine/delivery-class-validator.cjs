@@ -380,6 +380,117 @@ function validateDeliveryDirectory(root, opts) {
   return warnings;
 }
 
+// ---------------------------------------------------------------------------
+// Wave D 反馈 6 (2026-05-02) — CheckEventRules 拆 GateReady 的 blocking 校验
+//
+// Wave D 把 CheckEventRules 重构成纯分发器:每个 phase 出口判定都抽到独立的
+// `Phase_<pid>_GateReady()` 方法。两条 blocking 规则:
+//   1. delivery-gate-ready-missing — 每个 EnterPhase("X") 都必须有对应
+//      Phase_X_GateReady() 方法 (跨文件查找,因为 GateReady 在 .Flow.cs 中)
+//   2. delivery-check-event-rules-shape — CheckEventRules 内不允许直接出现
+//      EntityAdvanced( / phaseTimer >= 等 gate 表达式 (回归到老的内联 if-chain)
+//
+// 这两条返回 severity:'error',cleaner 把它们装进 summary.errors,api/projects
+// 在 commit 之前如果发现非空就拒绝交付,从而真正"阻塞"。
+// ---------------------------------------------------------------------------
+
+function sanitizePhaseId(pid) {
+  return String(pid).replace(/[^A-Za-z0-9]/g, '');
+}
+
+// 跨整个交付目录:扫所有 .cs 找 EnterPhase 与 Phase_*_GateReady 方法,
+// 验证每个 EnterPhase 都有对应方法定义。
+function validateGateReadyCoverage(root) {
+  var errors = [];
+  if (!fs.existsSync(root)) return errors;
+
+  var allCode = '';
+  function walk(dir) {
+    var entries;
+    try { entries = fs.readdirSync(dir); } catch (e) { return; }
+    for (var i = 0; i < entries.length; i++) {
+      var p = path.join(dir, entries[i]);
+      var st;
+      try { st = fs.statSync(p); } catch (e) { continue; }
+      if (st.isDirectory()) walk(p);
+      else if (path.extname(entries[i]).toLowerCase() === '.cs') {
+        try { allCode += '\n' + fs.readFileSync(p, 'utf8'); } catch (e) {}
+      }
+    }
+  }
+  walk(root);
+
+  var enterPids = Object.create(null);
+  var enterRe = /EnterPhase\(\s*\d+\s*,\s*"([^"]+)"/g;
+  var m;
+  while ((m = enterRe.exec(allCode)) !== null) enterPids[m[1]] = true;
+
+  var gateReadyPids = Object.create(null);
+  var gateRe = /\bbool\s+Phase_([A-Za-z0-9_]+)_GateReady\s*\(/g;
+  while ((m = gateRe.exec(allCode)) !== null) gateReadyPids[m[1]] = true;
+
+  Object.keys(enterPids).forEach(function(pid) {
+    var sanitized = sanitizePhaseId(pid);
+    if (!gateReadyPids[sanitized]) {
+      errors.push({
+        rule: 'delivery-gate-ready-missing',
+        severity: 'error',
+        message: 'EnterPhase("' + pid + '") 没有对应的 Phase_' + sanitized + '_GateReady() 方法 — Wave D 反馈 6 要求每个 phase 出口判定都抽到独立 GateReady 方法,严禁回退到 CheckEventRules 内联 gate。',
+        details: { phaseId: pid, expectedMethod: 'Phase_' + sanitized + '_GateReady' },
+      });
+    }
+  });
+
+  return errors;
+}
+
+// 检查 CheckEventRules 体内是否回退成内联 gate (出现 EntityAdvanced/phaseTimer >= 等)
+function validateCheckEventRulesShape(code, fileName) {
+  var errors = [];
+  var methods = findMethods(code);
+  var checkRules = null;
+  for (var i = 0; i < methods.length; i++) {
+    if (methods[i].name === 'CheckEventRules') { checkRules = methods[i]; break; }
+  }
+  if (!checkRules) return errors;
+
+  var body = checkRules.body;
+  // 允许 stuck reporter 上的 phaseTimer >= 90f;按行扫,只 flag gate 表达式
+  if (/EntityAdvanced\s*\(/.test(body)) {
+    errors.push({
+      rule: 'delivery-check-event-rules-shape',
+      severity: 'error',
+      file: fileName,
+      message: fileName + ' CheckEventRules 体内出现 EntityAdvanced(...) — Wave D 反馈 6 要求把 gate 表达式搬到 Phase_<pid>_GateReady() 方法,CheckEventRules 只做分发。',
+    });
+  }
+  return errors;
+}
+
+// 跨文件聚合:目录级跑 GateReady coverage,每文件跑 CheckEventRules shape。
+function validateBlockingRules(root) {
+  var errors = [].concat(validateGateReadyCoverage(root));
+  if (!fs.existsSync(root)) return errors;
+  function walk(dir) {
+    var entries;
+    try { entries = fs.readdirSync(dir); } catch (e) { return; }
+    for (var i = 0; i < entries.length; i++) {
+      var p = path.join(dir, entries[i]);
+      var st;
+      try { st = fs.statSync(p); } catch (e) { continue; }
+      if (st.isDirectory()) walk(p);
+      else if (path.extname(entries[i]).toLowerCase() === '.cs') {
+        var code;
+        try { code = fs.readFileSync(p, 'utf8'); } catch (e) { continue; }
+        var fileErrors = validateCheckEventRulesShape(code, entries[i]);
+        for (var j = 0; j < fileErrors.length; j++) errors.push(fileErrors[j]);
+      }
+    }
+  }
+  walk(root);
+  return errors;
+}
+
 module.exports = {
   DEFAULT_THRESHOLDS: DEFAULT_THRESHOLDS,
   findMethods: findMethods,
@@ -393,4 +504,7 @@ module.exports = {
   validateCommentCoverage: validateCommentCoverage,
   validateCSharpSource: validateCSharpSource,
   validateDeliveryDirectory: validateDeliveryDirectory,
+  validateGateReadyCoverage: validateGateReadyCoverage,
+  validateCheckEventRulesShape: validateCheckEventRulesShape,
+  validateBlockingRules: validateBlockingRules,
 };

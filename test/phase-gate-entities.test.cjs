@@ -44,7 +44,9 @@ describe('phaseGateEntities filter', () => {
       entityPoolMap: { player: '__Pool_Player', IceOre: '__Pool_IceOre', BackgroundRock: '__Pool_Rock' },
       entities: [{ name: 'player' }, { name: 'IceOre' }, { name: 'BackgroundRock' }],
     });
-    const code = typeof skeleton === 'string' ? skeleton : skeleton.main;
+    const code = typeof skeleton === 'string'
+      ? skeleton
+      : Object.keys(skeleton).map(k => skeleton[k]).filter(v => typeof v === 'string').join('\n');
     const gates = gateEntities(code);
     expect(gates).toContain('IceOre');
     expect(gates).not.toContain('BackgroundRock');
@@ -71,7 +73,9 @@ describe('phaseGateEntities filter', () => {
       entityPoolMap: {},
       entities: [],
     });
-    const code = typeof skeleton === 'string' ? skeleton : skeleton.main;
+    const code = typeof skeleton === 'string'
+      ? skeleton
+      : Object.keys(skeleton).map(k => skeleton[k]).filter(v => typeof v === 'string').join('\n');
     expect(code).toMatch(/time-only beat/);
     expect(code).toMatch(/DetectRealTime <= 0f \|\| GFM_AutoPlay\.Instance\.IsActive/);
   });
@@ -97,7 +101,9 @@ describe('phaseGateEntities filter', () => {
       entityPoolMap: { player: '__Pool_Player', ForgeWorkshop: '__Pool_Forge' },
       entities: [{ name: 'player' }, { name: 'ForgeWorkshop' }],
     });
-    const code = typeof skeleton === 'string' ? skeleton : skeleton.main;
+    const code = typeof skeleton === 'string'
+      ? skeleton
+      : Object.keys(skeleton).map(k => skeleton[k]).filter(v => typeof v === 'string').join('\n');
     expect(gateEntities(code)).toContain('ForgeWorkshop');
     expect(code).toMatch(/EntityAdvanced\(ForgeWorkshop, _snap_ForgeWorkshopPos\) \|\| \(_autoPlayMode && _autoPlaySteps > _autoPlayStepsAtPhaseStart && ForgeWorkshopState >= 2\)/);
   });
@@ -125,7 +131,9 @@ describe('phaseGateEntities filter', () => {
       entityPoolMap: { player: '__Pool_Player', Tower: '__Pool_Tower' },
       entities: [{ name: 'player' }, { name: 'Tower' }],
     });
-    const code = typeof skeleton === 'string' ? skeleton : skeleton.main;
+    const code = typeof skeleton === 'string'
+      ? skeleton
+      : Object.keys(skeleton).map(k => skeleton[k]).filter(v => typeof v === 'string').join('\n');
     expect(gateEntities(code)).not.toContain('Tower');
     expect(code).toMatch(/time-only beat/);
     expect(code).toMatch(/DetectRealTime <= 0f \|\| GFM_AutoPlay\.Instance\.IsActive/);
@@ -152,7 +160,9 @@ describe('phaseGateEntities filter', () => {
       entityPoolMap: { player: '__Pool_Player', OreA: '__Pool_OreA', OreB: '__Pool_OreB' },
       entities: [{ name: 'player' }, { name: 'OreA' }, { name: 'OreB' }],
     });
-    const code = typeof skeleton === 'string' ? skeleton : skeleton.main;
+    const code = typeof skeleton === 'string'
+      ? skeleton
+      : Object.keys(skeleton).map(k => skeleton[k]).filter(v => typeof v === 'string').join('\n');
     const gates = gateEntities(code);
     expect(gates).toContain('OreA');
     expect(gates).toContain('OreB');
@@ -179,7 +189,9 @@ describe('phaseGateEntities filter', () => {
       entityPoolMap: { Enemy: '__Pool_Enemy' },
       entities: [{ name: 'Enemy' }],
     });
-    const code = typeof skeleton === 'string' ? skeleton : skeleton.main;
+    const code = typeof skeleton === 'string'
+      ? skeleton
+      : Object.keys(skeleton).map(k => skeleton[k]).filter(v => typeof v === 'string').join('\n');
     const gates = gateEntities(code);
     expect(gates).toContain('Enemy');
     expect(gates).not.toContain('worker');

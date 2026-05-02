@@ -1089,12 +1089,16 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    }');
   lines.push('');
 
-  // CheckEventRules：骨架核心流程。
-  lines.push('    // 检查 phase 出口条件；满足 gate 后调用 Flow partial 中的跳转辅助方法。');
+  // CheckEventRules：dispatcher。每个 phase 的真实 gate 表达式都抽到 Phase_<id>_GateReady()，
+  // 详见 Flow partial。CheckEventRules 只做 "guard 通过 → EnterPhase + Init + 记账" 的派发。
+  // 反馈 6 (2026-05-02 Wave D)：禁止把多行判断链塞回这里。
+  lines.push('    // 检查 phase 出口条件。每个 phase 的真实判定逻辑在 Flow partial 的 Phase_<id>_GateReady() 中，');
+  lines.push('    // 本方法只做 "Gate 通过 → 进入下一 phase" 的派发。新增分支必须同步新增 GateReady 方法。');
   lines.push('    void CheckEventRules()');
   lines.push('    {');
 
-  // Phase 1 摆出前三个非地面实体，避免首屏纯色。
+  // Phase 1 摆出前三个非地面实体，避免首屏纯色。这些 PlaceObj 仍保留在 dispatch 入口块内，
+  // 因为它们必须在 Phase_intro_Init() 之前发生（避免首帧空场景）。
   const visibleEntities = entityNames.filter(n => {
     const lower = n.toLowerCase();
     return lower.indexOf('ground') < 0 && lower.indexOf('field') < 0
@@ -1104,102 +1108,45 @@ function generateSkeleton(specs, opts = {}) {
 
   specs.forEach((spec, i) => {
     const ruleIdx = i;
-    const isLast = i === specs.length - 1;
+    const phase0Gates = phaseGateEntities(spec);
 
     lines.push(`        // ========== Phase ${i + 1}: ${spec.phaseName} (${spec.phaseId}) ==========`);
-    lines.push(`        // 时长：${spec.duration.min}-${spec.duration.max}s`);
-    lines.push(`        // 交互：${(spec.requiredInteractions || []).join(', ') || 'none'}`);
-    lines.push(`        // 是否必须玩家操作：${spec.playerMustAct}`);
+    lines.push(`        // 时长 ${spec.duration.min}-${spec.duration.max}s | 交互 ${(spec.requiredInteractions || []).join(', ') || 'none'} | playerMustAct=${spec.playerMustAct}`);
+    lines.push(`        if (!ruleTriggered[${ruleIdx}] && Phase_${spec.phaseId}_GateReady())`);
+    lines.push('        {');
+    lines.push(`            EnterPhase(${ruleIdx}, "${spec.phaseId}", true, true);`);
 
-    if (i === 0) {
-      // 第一条规则：游戏启动。
-      // [SKELETON 2026-04-20] Phase 0 warmup gate：防止 CUA 观察窗口打开前污染 completedPhases。
-      // WarmupReady 同时处理交互模式和 AutoPlay 模式。
-      lines.push(`        if (!ruleTriggered[${ruleIdx}] && GFM_AutoPlay.Instance.WarmupReady)`);
-      lines.push('        {');
-      lines.push(`            EnterPhase(${ruleIdx}, "${spec.phaseId}", true, true);`);
-      lines.push('');
-
-      // [SKELETON] 防纯色：phase 1 摆出前三个实体。
-      if (visibleEntities.length > 0) {
-        lines.push('            // [SKELETON] 防纯色：显示初始物体（对象池已有预烘焙颜色，请勿调用 SetColor）');
-        visibleEntities.forEach((eName, vi) => {
-          const color = ENTITY_COLORS[vi % ENTITY_COLORS.length];
-          const xPos = (vi - 1) * 3; // 摆开到 -3、0、3
-          lines.push(`            PlaceObj(${eName}, ${xPos}f, 0.5f, 0f); // 对象池颜色：${color.label}，请勿调用 SetColor`);
-          lines.push(`            SetScale(${eName}, 1f, 1f, 1f); // 保持原始缩放，避免过大的黑色矩形`);
-        });
-        lines.push('');
-      }
-
-      lines.push(`            Phase_${spec.phaseId}_Init();`);
-      lines.push('');
-      // [SKELETON 2026-04-23] init 后记录 phase 出口实体快照。
-      // 快照必须代表 phase 开始时的稳定基线，避免把入口摆放误判成玩家进度。
-      const phase0Gates = phaseGateEntities(spec);
-      if (phase0Gates.length > 0) {
-        lines.push(`            Snapshot_${spec.phaseId}_GateEntities();`);
-        lines.push('');
-      }
-
-      lines.push('            return;');
-      lines.push('        }');
-    } else {
-      // 后续规则：需要上一 phase 满足真实条件，并且达到最短停留时间。
-      const prevSpec = specs[i - 1];
-      const conditionHint = prevSpec.triggerNext && prevSpec.triggerNext.condition
-        ? prevSpec.triggerNext.condition
-        : 'previous phase complete';
-
-      lines.push(`        // [SKELETON] Phase 跳转：${prevSpec.phaseId} → ${spec.phaseId}`);
-      lines.push(`        // 依赖：${prevSpec.triggerNext ? prevSpec.triggerNext.description : '上一 phase 完成'}`);
-      lines.push(`        // 条件提示：${conditionHint}`);
-      const realCondition = buildRealCondition(prevSpec);
-      // [SKELETON 2026-04-20] 统一 phase 出口 gate：autoPlay 与交互模式使用同一真实条件。
-      // realCondition 绑定 GameObject 状态，不能只靠 flag 赋值过关。
-      lines.push(`        // [SKELETON] Phase 出口 gate，请勿修改或删除`);
-      lines.push(`        if (!ruleTriggered[${ruleIdx}]`);
-      lines.push(`            && currentPhaseName == "${prevSpec.phaseId}"`);
-      lines.push(`            && (${realCondition})`);
-      lines.push(`            && PhaseDwellReady(${prevSpec.duration.min}f))`);
-      lines.push('        {');
-      lines.push(`            EnterPhase(${ruleIdx}, "${spec.phaseId}", true, true);`);
-      lines.push('');
-
-      lines.push(`            Phase_${spec.phaseId}_Init();`);
-      lines.push('');
-      // [SKELETON 2026-04-23] init 后记录出口实体快照；
-      // 只有 phase 内的玩家/自动播放动作才能满足 EntityAdvanced(...)。
-      const thisPhaseGates = phaseGateEntities(spec);
-      if (thisPhaseGates.length > 0) {
-        lines.push(`            Snapshot_${spec.phaseId}_GateEntities();`);
-        lines.push('');
-      }
-
-      lines.push(`            CompletePhaseProgress("${prevSpec.phaseId}"); // [IMMUTABLE] 必须与 spec phaseId 完全一致`);
-      lines.push('            return;');
-      lines.push('        }');
+    if (i === 0 && visibleEntities.length > 0) {
+      // 防纯色摆放只发生在 phase 0 的入口块内，避免首帧空场景。
+      lines.push('            // [SKELETON] 防纯色：显示初始物体（对象池颜色已烘焙，请勿调用 SetColor）');
+      visibleEntities.forEach((eName, vi) => {
+        const color = ENTITY_COLORS[vi % ENTITY_COLORS.length];
+        const xPos = (vi - 1) * 3; // 摆开到 -3、0、3
+        lines.push(`            PlaceObj(${eName}, ${xPos}f, 0.5f, 0f); // 对象池颜色：${color.label}`);
+        lines.push(`            SetScale(${eName}, 1f, 1f, 1f);`);
+      });
     }
+
+    lines.push(`            Phase_${spec.phaseId}_Init();`);
+    if (phase0Gates.length > 0) {
+      lines.push(`            Snapshot_${spec.phaseId}_GateEntities();`);
+    }
+    if (i > 0) {
+      const prevSpec = specs[i - 1];
+      lines.push(`            CompletePhaseProgress("${prevSpec.phaseId}"); // [IMMUTABLE] 必须与 spec phaseId 完全一致`);
+    }
+    lines.push('            return;');
+    lines.push('        }');
     lines.push('');
   });
 
-  // 最后一条规则：游戏结束。
+  // 终局：同样把判定抽到 EndGame_GateReady()，dispatch 只负责 "通过 → 收尾"。
   const lastSpec = specs[specs.length - 1];
   lines.push(`        // ========== 游戏结束 ==========`);
-  const endConditionHint = lastSpec.triggerNext ? lastSpec.triggerNext.condition : 'game end condition';
-  lines.push(`        // 终局条件提示：${endConditionHint}`);
-  const endRealCondition = buildRealCondition(lastSpec);
-  // [SKELETON 2026-04-20] 统一终局 gate：不允许 autoPlay 绕过，也不允许批量 State=2。
-  // 最后一个 phase 的实体必须真实推进，才触发 gameEnd。
-  lines.push(`        // [SKELETON] 终局 gate，请勿修改或删除`);
-  lines.push('        if (!gameEnded');
-  lines.push(`            && currentPhaseName == "${lastSpec.phaseId}"`);
-  lines.push(`            && (${endRealCondition})`);
-  lines.push(`            && PhaseDwellReady(${lastSpec.duration.min}f))`);
+  lines.push('        if (!gameEnded && EndGame_GateReady())');
   lines.push('        {');
   lines.push('            currentPhaseName = "gameEnd";');
   lines.push('            cameraFocusTarget = "gameEnd";');
-  lines.push('');
   lines.push(`            FinishGame("${lastSpec.phaseId}");`);
   lines.push('            return;');
   lines.push('        }');
@@ -1295,11 +1242,13 @@ function generateSkeleton(specs, opts = {}) {
   // 调用方可用 `w1bSplit: false` 显式关闭以保持兼容。
   if (opts.w1bSplit !== false) {
     const phaseGateMap = {};
+    const phaseRealConditions = {};
     specs.forEach((spec, index) => {
       const pid = (spec.phaseId || 'phase' + index).replace(/[^a-zA-Z0-9]/g, '');
       phaseGateMap[pid] = phaseGateEntities(spec);
+      phaseRealConditions[pid] = buildRealCondition(spec);
     });
-    return _split5Partial(lines, specs, allEntities, entityPoolMap, isIdleGame, phaseGateMap);
+    return _split5Partial(lines, specs, allEntities, entityPoolMap, isIdleGame, phaseGateMap, phaseRealConditions);
   }
 
   // 旧路径：大蓝图（>10 phases）使用 2 文件拆分。
@@ -1366,7 +1315,7 @@ function _splitSkeleton(allLines, specs, allEntities, entityPoolMap, isIdleGame)
  * 返回 { main, flow, input, resource, ui, scene }。
  * main 保留骨架主体，其他 partial 承接 Flow 分发与 Input/Resource/UI/Scene 占位。
  */
-function _split5Partial(allLines, specs, allEntities, entityPoolMap, isIdleGame, phaseGateMap = {}) {
+function _split5Partial(allLines, specs, allEntities, entityPoolMap, isIdleGame, phaseGateMap = {}, phaseRealConditions = {}) {
   const fullCode = allLines.join('\n');
   const entityList = Array.from(allEntities);
   let mainCode = fullCode;
@@ -1387,7 +1336,7 @@ function _split5Partial(allLines, specs, allEntities, entityPoolMap, isIdleGame,
   const idleSplit = _extractIdleKitSections(resourceSplit.main);
   return {
     main: idleSplit.main,
-    flow: _buildFlowPartial(specs, phaseGateMap),
+    flow: _buildFlowPartial(specs, phaseGateMap, phaseRealConditions),
     input: _buildInputPartial(idleSplit.inputSections),
     resource: _buildResourcePartial(resourceSplit.sections.concat(idleSplit.resourceSections)),
     ui: _buildUiPartial(specs, entityList, idleSplit.uiSections),
@@ -1482,7 +1431,7 @@ function _pushAutoplayFallback(lines, pid, gateEntities, spec) {
  * Phase helpers are generated empty-by-default; templates must add observable
  * entity movement in TODO regions instead of relying on flag-only shortcuts.
  */
-function _buildFlowPartial(specs, phaseGateMap = {}) {
+function _buildFlowPartial(specs, phaseGateMap = {}, phaseRealConditions = {}) {
   const lines = [];
   lines.push('// ========== 自动生成 Flow partial：phase 编排辅助 ==========');
   lines.push('// 所属类：GameFlowManagerMain (partial)。字段与 main 文件共享。');
@@ -1637,6 +1586,55 @@ function _buildFlowPartial(specs, phaseGateMap = {}) {
   lines.push('        }');
   lines.push('    }');
   lines.push('');
+  // ========== Phase 出口 gate（反馈 6 / Wave D：guard 表达式拆出 dispatcher）==========
+  // 每个 Phase_<id>_GateReady() 返回该 phase 进入条件是否满足。CheckEventRules 只负责
+  // "Gate 通过 → EnterPhase + Init + 记账" 的派发，禁止把多行 && 链塞回 CheckEventRules。
+  lines.push('    // ========== Phase 出口 gate ==========');
+  lines.push('');
+  for (let i = 0; i < specs.length; i++) {
+    const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
+    if (i === 0) {
+      // Phase 0 warmup gate：防止 CUA 观察窗口打开前污染 completedPhases。
+      // WarmupReady 同时覆盖交互模式和 AutoPlay 模式。
+      lines.push('    // Phase 0 warmup gate：等 GFM_AutoPlay observer ready 之后才允许进入第一 phase。');
+      lines.push('    bool Phase_' + pid + '_GateReady()');
+      lines.push('    {');
+      lines.push('        return GFM_AutoPlay.Instance.WarmupReady;');
+      lines.push('    }');
+      lines.push('');
+      continue;
+    }
+    const prevSpec = specs[i - 1];
+    const prevPid = (prevSpec.phaseId || 'phase' + (i - 1)).replace(/[^a-zA-Z0-9]/g, '');
+    const conditionHint = prevSpec.triggerNext && prevSpec.triggerNext.condition
+      ? prevSpec.triggerNext.condition
+      : 'previous phase complete';
+    const dependencyHint = prevSpec.triggerNext ? prevSpec.triggerNext.description : '上一 phase 完成';
+    const realCondition = phaseRealConditions[prevPid] || 'false /* missing realCondition */';
+    lines.push('    // Phase 跳转：' + prevSpec.phaseId + ' → ' + pid + '。条件提示：' + conditionHint + '。');
+    lines.push('    // 依赖：' + dependencyHint + '。realCondition 绑定 GameObject 状态，不能只靠 flag 赋值过关。');
+    lines.push('    bool Phase_' + pid + '_GateReady()');
+    lines.push('    {');
+    lines.push('        return currentPhaseName == "' + prevSpec.phaseId + '"');
+    lines.push('            && (' + realCondition + ')');
+    lines.push('            && PhaseDwellReady(' + prevSpec.duration.min + 'f);');
+    lines.push('    }');
+    lines.push('');
+  }
+  // 终局 gate：与各 phase gate 同形，CheckEventRules 调用 EndGame_GateReady()。
+  const flowLastSpec = specs[specs.length - 1];
+  const flowLastPid = (flowLastSpec.phaseId || 'phase' + (specs.length - 1)).replace(/[^a-zA-Z0-9]/g, '');
+  const flowEndCondition = phaseRealConditions[flowLastPid] || 'false /* missing realCondition */';
+  lines.push('    // 终局 gate：最后一个 phase 的实体必须真实推进，才触发 gameEnd。');
+  lines.push('    // 不允许 autoPlay 绕过；与各 phase gate 共享 PhaseDwellReady 真实秒数。');
+  lines.push('    bool EndGame_GateReady()');
+  lines.push('    {');
+  lines.push('        return currentPhaseName == "' + flowLastSpec.phaseId + '"');
+  lines.push('            && (' + flowEndCondition + ')');
+  lines.push('            && PhaseDwellReady(' + flowLastSpec.duration.min + 'f);');
+  lines.push('    }');
+  lines.push('');
+
   lines.push('    // ========== Phase 初始化 handler ==========');
   lines.push('');
   for (let i = 0; i < specs.length; i++) {

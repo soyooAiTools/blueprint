@@ -261,6 +261,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('4. **不要把大量判断逻辑塞进 `HandlePlayerInteractions()` / `OnAutoPlayArrive()` / `Update()` 等聚合方法**。拆成多个命名明确的私有方法，然后直接调用。');
   lines.push('5. **不要通过事件系统调用业务方法**。禁止 GFM_Event / UnityEvent / event Action / AddListener / SendMessage / BroadcastMessage。只允许直接方法调用。');
   lines.push('6. **UI 统一按 1920x1080 设计**，不要改骨架中的 1920x1080 Canvas。');
+  lines.push('7. **CheckEventRules 只做 phase 分发，不放 gate 逻辑**。骨架已为每个 phase 生成 `Phase_<pid>_GateReady()` 出口判定方法 + `EndGame_GateReady()`；CheckEventRules 内部按 `if (!ruleTriggered[i] && Phase_<pid>_GateReady()) { EnterPhase(...); ... return; }` 顺序分派。要扩展某个 phase 的进入条件，去改对应 `Phase_<pid>_GateReady()`，不要把 `&&`/`||` 长链塞回 CheckEventRules。');
   lines.push('');
   lines.push('## ⚡ 核心规则：基础样例工程模式');
   lines.push('场景已预制 160 个带颜色的 3D 对象 + UI 元素。你 **不需要创建任何对象**。');

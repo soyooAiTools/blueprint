@@ -402,4 +402,97 @@ var v = require('../engine/delivery-class-validator.cjs');
   console.log('  ✓ coverage: opts.commentCoverage=false disables rule');
 })();
 
-console.log('\nAll delivery-class-validator tests passed (29).');
+// ============ Wave D 反馈 6 (2026-05-02) — blocking GateReady 校验 ============
+
+(function testCheckEventRulesShapeCleanIsOK() {
+  // 正确的 dispatcher 形态:不出现 EntityAdvanced
+  var code = [
+    'public class X {',
+    '  void CheckEventRules() {',
+    '    if (!ruleTriggered[0] && Phase_intro_GateReady()) {',
+    '      EnterPhase(0, "intro", true, true);',
+    '      Phase_intro_Init();',
+    '      return;',
+    '    }',
+    '    if (!gameEnded && EndGame_GateReady()) { FinishGame("intro"); return; }',
+    '  }',
+    '}',
+  ].join('\n');
+  var errs = v.validateCheckEventRulesShape(code, 'X.cs');
+  assert.strictEqual(errs.length, 0, 'clean dispatcher should produce no errors, got: ' + JSON.stringify(errs));
+  console.log('  ✓ check-event-rules-shape: clean dispatcher passes');
+})();
+
+(function testCheckEventRulesShapeFlagsInlinedGate() {
+  // 回归到内联 gate (EntityAdvanced) — 必须报错
+  var code = [
+    'public class X {',
+    '  void CheckEventRules() {',
+    '    if (!ruleTriggered[0] && phaseTimer >= 1f && EntityAdvanced(player, _snap_playerPos)) {',
+    '      EnterPhase(0, "intro", true, true);',
+    '    }',
+    '  }',
+    '}',
+  ].join('\n');
+  var errs = v.validateCheckEventRulesShape(code, 'X.cs');
+  assert.strictEqual(errs.length, 1);
+  assert.strictEqual(errs[0].rule, 'delivery-check-event-rules-shape');
+  assert.strictEqual(errs[0].severity, 'error');
+  console.log('  ✓ check-event-rules-shape: inlined EntityAdvanced flagged');
+})();
+
+(function testGateReadyCoverageMissing() {
+  // 临时目录:main 调用 EnterPhase("intro") + EnterPhase("collectIce")
+  // 但 flow 文件只定义 Phase_intro_GateReady,缺 collectIce
+  var fs = require('fs');
+  var path = require('path');
+  var os = require('os');
+  var tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-ready-test-'));
+  try {
+    fs.writeFileSync(path.join(tmp, 'GameFlowManagerMain.cs'),
+      'public partial class GameFlowManagerMain {\n' +
+      '  void CheckEventRules() {\n' +
+      '    if (Phase_intro_GateReady()) EnterPhase(0, "intro", true, true);\n' +
+      '    if (Phase_collectIce_GateReady()) EnterPhase(1, "collectIce", true, true);\n' +
+      '  }\n' +
+      '}\n');
+    fs.writeFileSync(path.join(tmp, 'GameFlowManagerMain.Flow.cs'),
+      'public partial class GameFlowManagerMain {\n' +
+      '  bool Phase_intro_GateReady() { return true; }\n' +
+      '}\n');
+    var errs = v.validateGateReadyCoverage(tmp);
+    assert.strictEqual(errs.length, 1);
+    assert.strictEqual(errs[0].rule, 'delivery-gate-ready-missing');
+    assert.strictEqual(errs[0].details.phaseId, 'collectIce');
+    console.log('  ✓ gate-ready-coverage: missing GateReady flagged');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+})();
+
+(function testGateReadyCoverageComplete() {
+  // 全部 EnterPhase 都有对应 GateReady,不应报错
+  var fs = require('fs');
+  var path = require('path');
+  var os = require('os');
+  var tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-ready-test-'));
+  try {
+    fs.writeFileSync(path.join(tmp, 'GameFlowManagerMain.cs'),
+      'public partial class GameFlowManagerMain {\n' +
+      '  void CheckEventRules() {\n' +
+      '    if (Phase_intro_GateReady()) EnterPhase(0, "intro", true, true);\n' +
+      '  }\n' +
+      '}\n');
+    fs.writeFileSync(path.join(tmp, 'GameFlowManagerMain.Flow.cs'),
+      'public partial class GameFlowManagerMain {\n' +
+      '  bool Phase_intro_GateReady() { return true; }\n' +
+      '}\n');
+    var errs = v.validateGateReadyCoverage(tmp);
+    assert.strictEqual(errs.length, 0, 'complete coverage should pass, got: ' + JSON.stringify(errs));
+    console.log('  ✓ gate-ready-coverage: complete coverage passes');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+})();
+
+console.log('\nAll delivery-class-validator tests passed (33).');

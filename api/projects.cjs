@@ -582,6 +582,15 @@ function buildFallbackEntityMap(project, specs, entityHints, seen) {
 
         var deliverySummary = programmerDeliveryCleaner.cleanProgrammerDelivery(tmpDir, { project: project });
 
+        // Wave D 反馈 6 (2026-05-02): blocking 校验失败必须中断 commit,
+        // 否则 GateReady 缺失 / CheckEventRules 内联回退会被无声放过。
+        if (deliverySummary.errors && deliverySummary.errors.length > 0) {
+          throw new Error('交付校验失败 — 必须修复以下问题后重试:\n' +
+            deliverySummary.errors.map(function(err) {
+              return '  [' + err.rule + '] ' + (err.file ? err.file + ': ' : '') + err.message;
+            }).join('\n'));
+        }
+
         // svn add new files (ignore already versioned)
         try { exec('svn add --force --parents ' + JSON.stringify(tmpDir) + '/*', { cwd: tmpDir }); } catch(e) {}
 

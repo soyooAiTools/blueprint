@@ -243,8 +243,32 @@ try {
   // 反馈 01 (2026-04-26) Phase B.1: validator 集成 — 干净的小 fixture 不应触发 warning
   assert.ok(Array.isArray(summary.warnings), 'summary.warnings should be array');
   assert.strictEqual(summary.warnings.length, 0, 'clean fixture should produce no warnings, got: ' + JSON.stringify(summary.warnings));
+  // Wave D 反馈 6 (2026-05-02): summary.errors 必须存在 (即使为空),让上层能稳定取
+  assert.ok(Array.isArray(summary.errors), 'summary.errors should be array');
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
+}
+
+// Wave D 反馈 7 (2026-05-02) — 交付包必须删除 GFM_Event.cs
+{
+  const fs2 = require('fs');
+  const path2 = require('path');
+  const os2 = require('os');
+  const cleaner2 = require('../lib/programmer-delivery-cleaner.cjs');
+  const tmp2 = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'gfm-event-cleanup-'));
+  try {
+    const commonsDir = path2.join(tmp2, 'Assets', 'Program', 'Script', 'Commons');
+    fs2.mkdirSync(commonsDir, { recursive: true });
+    const gfmEventPath = path2.join(commonsDir, 'GFM_Event.cs');
+    fs2.writeFileSync(gfmEventPath, 'public class GFM_Event {}\n');
+    fs2.writeFileSync(gfmEventPath + '.meta', 'fileFormatVersion: 2\n');
+    cleaner2.cleanProgrammerDelivery(tmp2, { project: { id: 'p_evt', name: 'evt' } });
+    assert.ok(!fs2.existsSync(gfmEventPath), 'GFM_Event.cs should be removed');
+    assert.ok(!fs2.existsSync(gfmEventPath + '.meta'), 'GFM_Event.cs.meta should be removed');
+    console.log('  ✓ GFM_Event removal: file + meta deleted from delivery');
+  } finally {
+    fs2.rmSync(tmp2, { recursive: true, force: true });
+  }
 }
 
 console.log('programmer delivery cleaner tests passed');
