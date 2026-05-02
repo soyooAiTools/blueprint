@@ -1,5 +1,38 @@
 # Blueprint 生产事故记录
 
+## 2026-05-03: schema fallback timeout 把 FATAL 错误放大成 3× 重试
+
+### 背景
+
+`proj_1777128165822_6acnqx`（太空捡垃圾分镜）按 Wave D 规范重跑时立刻 `failed`，`status_message` 为 `Outer-retry fingerprint FATAL: "Schema generation failed: Timed out after 180000ms; Exit code N" repeated 2x across outer retries`。每次外层重试都在 180 s 整钟被 SIGTERM。
+
+### 根因（双因，两层）
+
+1. **配置层** — `auto-447aedf6` 把 `CODEX_SCHEMA_FALLBACK_TIMEOUT_MS` 写成 180 000 ms，本意是 codex-exec primary 失败后让 claude-print fallback "fail-fast"。但 claude-print 在 52 KB 复杂 schema prompt 下稳定要 ~10 min（memory `project_codex_effort_and_backend_switch`），3 min 必然 stdout=0c stderr=0c 被 kill。
+2. **逻辑层** — `engine/error-classifier.cjs:69` 早就把 `Schema generation failed: Timed out after \d+ms; Exit code 143` 标成 `FATAL`（`retryable:false`），但 `engine/pipeline.cjs:378` 只对 `MODEL_FATAL` short-circuit。`FATAL` 落到 `else if (attempt < maxAttempts) return tryExecute()` 分支被 3× 外层重试，把单次 timeout 放大成 540 s 浪费。
+
+### 修复（commit `d392da1`，已 push 到 main）
+
+1. `.env` & `worker/.env`：`CODEX_SCHEMA_FALLBACK_TIMEOUT_MS=180000` → `600000`，对齐 hardcoded 安全默认 + 记忆中 claude-print 的稳定上限。
+2. `engine/pipeline.cjs:385` 增加 `else if (earlyClassified === 'FATAL')` 分支，记日志后跳过 stage retries，与 `MODEL_FATAL` 对称处理。
+3. `pm2 restart linux-worker-1..6 --update-env` 让 worker dotenv 重读 `worker/.env`。
+4. 新建 `.learnings/{ERRORS,LEARNINGS}.md` 给 `systematic-debugging` skill 一个真正的跨 session 持久层（之前目录从未存在，每次都冷启动重做 Phase 1）。
+5. 收录 auto-fix 引擎并发生成的 `worker/fix-recipes/auto-8545a535.md`（独立诊断，建议 480 s）。
+
+### 验证
+
+- `cd worker && node -e "require('dotenv').config(); console.log(process.env.CODEX_SCHEMA_FALLBACK_TIMEOUT_MS)"` → `600000`
+- `node -e "var c=require('engine/error-classifier.cjs').classify({message:'Schema generation failed: Timed out after 600000ms; Exit code 143'},{stage:'codegen'}); console.log(c.type)"` → `FATAL`
+- 重跑 `proj_1777128165822_6acnqx` 通关：schema 不再 timeout → CUA 视觉冻结被 worker auto-fix 接住 → Runtime contract passed → `done` (Build OK 1108 s)
+- 产物：`/opt/blueprint-editor/server-data/webgl/proj_1777128165822_6acnqx/index.html`（7.97 MB）
+
+### 教训
+
+1. **outer retries 会乘掉 per-attempt timeout 的"省时"意图** — 把 timeout 调短不等于省 token，大多数情况下反而是 `短 × N retries > 长 × 1 + FATAL short-circuit`。改 timeout 之前先审计外层 retry 是否尊重错误分类。
+2. **`MODEL_FATAL` 和 `FATAL` 都是 `retryable:false`，必须对称对待** — `error-classifier.cjs` 的 header comment 明确写 "FATAL → not retryable, pipeline terminates"，但 pipeline.cjs 多年只 short-circuit `MODEL_FATAL`，`FATAL` 静默被 3× 重试。
+3. **auto-fix 引擎可能与人手并行修同一根因，两边判断会有出入** — 这次 auto-8545a535（建议 480 s）和我手改（600 s）独立产生。下次开始排查前先 `ls -lt worker/fix-recipes/ | head` 看 auto-fix 有没有抢先生成 recipe，避免冲突。
+4. **`.learnings/` 闭环 in-repo 必须存在** — `systematic-debugging` skill 的"先搜历史"步骤依赖这个目录，缺它等于让每个 session 冷启动。
+
 ## 2026-04-26: 程序员交付版去拆分类、脚本限长与实体领域类生成
 
 ### 背景
