@@ -32,7 +32,29 @@ function generatePhaseInit(phase, schema) {
   for (var k = 0; k < actions.length; k++) {
     lines.push('                ' + actionToCode(actions[k], schema));
   }
+  // [L1] 高亮当前 phase 目标实体（青色菱形 + 缩放脉冲）
+  var hiTarget = pickHighlightTarget(phase, schema);
+  if (hiTarget) {
+    lines.push('                GFM_VisualGuide.HighlightTarget(' + toLowerCamel(hiTarget) + ');');
+  } else {
+    lines.push('                GFM_VisualGuide.HighlightTarget(null);');
+  }
   return lines.join('\n');
+}
+
+function pickHighlightTarget(phase, schema) {
+  var trigger = phase && phase.trigger;
+  if (trigger && trigger.entity && findEntity(schema, trigger.entity) && !/^player$/i.test(trigger.entity)) {
+    return trigger.entity;
+  }
+  var show = phase.showEntities || [];
+  for (var i = 0; i < show.length; i++) {
+    var name = show[i];
+    if (!findEntity(schema, name)) continue;
+    if (/^player$/i.test(name)) continue;
+    return name;
+  }
+  return null;
 }
 
 function actionToCode(action, schema) {

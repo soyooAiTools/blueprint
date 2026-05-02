@@ -1043,6 +1043,9 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        GFM_AutoPlay.Instance.OnArrive = OnAutoPlayArrive;');
   lines.push('');
   lines.push('        UpdateGameState();');
+  lines.push('');
+  lines.push('        // [SKELETON L1] 玩家头顶黄色菱形锚点（idempotent，多次调用安全）');
+  lines.push('        GFM_VisualGuide.MarkPlayer(player);');
   lines.push('    }');
   lines.push('');
 
@@ -1069,6 +1072,9 @@ function generateSkeleton(specs, opts = {}) {
   // 一些非 idle 项目也依赖 GFM_Player 做距离检查和资源交付。
   lines.push('        if (_autoPlayMode) AutoPlayUpdate(); // autoPlay 模式：为 CUA 触发交互');
   lines.push('        else GFM_Player.Instance.Tick(dt, false); // 交互模式：摇杆/玩家移动');
+  lines.push('');
+  lines.push('        // [SKELETON L1] 玩家锚点上下浮动 + 当前目标缩放脉冲');
+  lines.push('        GFM_VisualGuide.Tick();');
   if (isIdleGame) {
     lines.push('');
   }
