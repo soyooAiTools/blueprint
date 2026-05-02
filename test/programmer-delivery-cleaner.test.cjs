@@ -55,6 +55,7 @@ try {
     '- Flow/Input/Resource/UI/Scene partial 按 owner 分工维护，不要把 phase、资源、UI、场景逻辑混到同一个文件。',
     ''
   ].join('\n'));
+  // Wave C 起 cleaner 不再合并 partial,fixture 模拟 5-partial 输入(Main + Flow/Input/Resource/UI/Scene)。
   fs.writeFileSync(path.join(tmp, 'Scripts', 'GameFlowManagerMain.cs'), [
     'using UnityEngine;',
     '',
@@ -80,60 +81,97 @@ try {
     '    {',
     '        SetGuideText("开始");',
     '    }',
+    '}',
+  ].join('\n'));
+  fs.writeFileSync(path.join(tmp, 'Scripts', 'GameFlowManagerMain.Input.cs'), [
+    'using UnityEngine;',
+    '',
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    // 输入 partial 占位:本次 fixture 没有真实输入逻辑,但仍要保留 partial 以验证 cleaner 不会误删。',
+    '    void HandleInput() {}',
+    '}',
+  ].join('\n'));
+  fs.writeFileSync(path.join(tmp, 'Scripts', 'GameFlowManagerMain.Resource.cs'), [
+    'using UnityEngine;',
+    '',
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    // 资源 partial 占位:留作真实项目里的 AddResource / Spend 逻辑。',
+    '    void TickResources() {}',
+    '}',
+  ].join('\n'));
+  fs.writeFileSync(path.join(tmp, 'Scripts', 'GameFlowManagerMain.UI.cs'), [
+    'using UnityEngine;',
+    '',
+    'public partial class GameFlowManagerMain',
+    '{',
     '    // UIManager 接管前的临时 helper:把引导栏文字写到 guide UI。',
     '    void SetGuideText(string text) {}',
     '}',
   ].join('\n'));
+  fs.writeFileSync(path.join(tmp, 'Scripts', 'GameFlowManagerMain.Scene.cs'), [
+    'using UnityEngine;',
+    '',
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    // 场景 partial 占位:把对象池实体摆放/隐藏的 helper 写在这里。',
+    '    void PlaceEntityAt(GameObject obj, Vector3 pos) { if (obj != null) obj.transform.position = pos; }',
+    '}',
+  ].join('\n'));
+  // 模拟上一轮残留的 GameFlow*Base.cs,验证 Wave C 会清理掉。
+  fs.writeFileSync(path.join(tmp, 'Scripts', 'GameFlowStateBase.cs'),
+    '// 上一轮 cleaner 输出的继承链残留\npublic class GameFlowStateBase : MonoBehaviour {}\n');
   const summary = cleaner.cleanProgrammerDelivery(tmp, {
     project: { id: 'proj_test', name: '测试项目' }
   });
-  assert.strictEqual(summary.csFiles, 2);
-  assert.strictEqual(summary.partialFilesMerged, 1);
-  assert.strictEqual(summary.partialFilesRemoved, 1);
+  // 输入 6 个 GameFlow .cs + 1 个残留 Base = 7
+  assert.strictEqual(summary.csFiles, 7);
+  // Wave C: 6 个 partial 全部保留,1 个残留 Base 被清理。
+  assert.strictEqual(summary.partialFilesKept, 6);
+  assert.deepStrictEqual(summary.partialFilesByName.slice().sort(), [
+    'GameFlowManagerMain.Flow.cs',
+    'GameFlowManagerMain.Input.cs',
+    'GameFlowManagerMain.Resource.cs',
+    'GameFlowManagerMain.Scene.cs',
+    'GameFlowManagerMain.UI.cs',
+    'GameFlowManagerMain.cs'
+  ]);
+  assert.strictEqual(summary.staleBaseLayersRemoved, 1);
   assert.ok(summary.entityClassFiles >= 6);
   assert.strictEqual(summary.entityModelCount, 1);
   assert.strictEqual(summary.removedArtifactDirs, 1);
   assert.strictEqual(summary.removedToolDirs, 1);
   assert.ok(!fs.existsSync(path.join(tmp, 'BlueprintArtifacts')));
   assert.ok(!fs.existsSync(path.join(tmp, 'tools')));
-  assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowManagerMain.Flow.cs')));
-  const mergedMain = fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowManagerMain.cs'), 'utf8');
-  // Main 继承指向最低非空层（fixture 中是 PhaseInitBase，跳过 Tap/Auto/Flow 空层）。
-  assert.match(mergedMain, /public class GameFlowManagerMain : GameFlowPhaseInitBase/);
-  assert.doesNotMatch(mergedMain, /partial class GameFlowManagerMain/);
-  assert.match(mergedMain, /BindGameFlowEntityModels\(\);/);
-  // 有内容的层必须存在。
-  assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowStateBase.cs')));
-  assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowPhaseInitBase.cs')));
-  assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowPhaseSharedBase.cs')));
-  // 空层必须被剔除（不再生成 8 行 `class X : Y { }` 壳子）。
-  assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowPhaseFlowBase.cs')));
-  assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowPhaseContentBase.cs')));
-  assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowRuntimeBase.cs')));
-  assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowPreviewBase.cs')));
-  assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowResourceBase.cs')));
-  assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowSceneBase.cs')));
-  assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowInputBase.cs')));
+  // 6 个 partial 全部保留。
+  ['GameFlowManagerMain.cs', 'GameFlowManagerMain.Flow.cs', 'GameFlowManagerMain.Input.cs',
+   'GameFlowManagerMain.Resource.cs', 'GameFlowManagerMain.UI.cs', 'GameFlowManagerMain.Scene.cs'].forEach((name) => {
+    assert.ok(fs.existsSync(path.join(tmp, 'Scripts', name)), name + ' should be kept');
+    const text = fs.readFileSync(path.join(tmp, 'Scripts', name), 'utf8');
+    assert.match(text, /partial\s+class\s+GameFlowManagerMain/, name + ' should remain partial');
+  });
+  // GameFlow*Base 残留必须被清理掉。
+  assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowStateBase.cs')));
+  assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowPhaseInitBase.cs')));
+  assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowPhaseSharedBase.cs')));
   assert.ok(!fs.existsSync(path.join(tmp, 'Scripts', 'GameFlowUiBase.cs')));
-  assert.ok(summary.prunedEmptyLayers && summary.prunedEmptyLayers.indexOf('GameFlowResourceBase.cs') !== -1);
-  assert.ok(summary.prunedEmptyLayers && summary.prunedEmptyLayers.length >= 9);
-  assert.strictEqual(summary.mainParent, 'GameFlowPhaseInitBase');
-  // 重新串接的继承链每一段都不引用被剔除的层。
-  const phaseInitText = fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowPhaseInitBase.cs'), 'utf8');
-  assert.match(phaseInitText, /public class GameFlowPhaseInitBase : GameFlowPhaseSharedBase/);
-  const phaseSharedText = fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowPhaseSharedBase.cs'), 'utf8');
-  assert.match(phaseSharedText, /public class GameFlowPhaseSharedBase : GameFlowStateBase/);
-  const stateBaseText = fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowStateBase.cs'), 'utf8');
-  assert.match(stateBaseText, /public class GameFlowStateBase : MonoBehaviour/);
-  assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowStateBase.cs'), 'utf8'), /protected void BindGameFlowEntityModels\(\)/);
-  assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowStateBase.cs'), 'utf8'), /protected BarrackEntity _barrackEntityModel;/);
-  assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowStateBase.cs'), 'utf8'), /BindGameFlowEntityComponent<BarrackEntity>/);
-  assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowPhaseInitBase.cs'), 'utf8'), /void Phase_intro_Init\(\)/);
-  const gameFlowFiles = fs.readdirSync(path.join(tmp, 'Scripts')).filter((name) => /^GameFlow.*\.cs$/.test(name));
+  // Main 文件应保留 partial 关键字、保留 Start/RegisterEntityBindings、注入 BindGameFlowEntityModels 调用 + 实体模型代码区。
+  const mainText = fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowManagerMain.cs'), 'utf8');
+  assert.match(mainText, /public partial class GameFlowManagerMain : MonoBehaviour/);
+  assert.match(mainText, /void Start\(\)/);
+  assert.match(mainText, /BindGameFlowEntityModels\(\);/);
+  assert.match(mainText, /void BindGameFlowEntityModels\(\)/);
+  assert.match(mainText, /BarrackEntity _barrackEntityModel;/);
+  assert.match(mainText, /BindGameFlowEntityComponent<BarrackEntity>/);
+  // Phase_intro_Init 留在 Flow.cs 里,不再被搬到继承链里。
+  const flowText = fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowManagerMain.Flow.cs'), 'utf8');
+  assert.match(flowText, /void Phase_intro_Init\(\)/);
+  // 所有 partial 应控制在 1000 行以内。
+  const gameFlowFiles = fs.readdirSync(path.join(tmp, 'Scripts')).filter((name) => /^GameFlowManagerMain.*\.cs$/.test(name));
   gameFlowFiles.forEach((name) => {
     const lineCount = fs.readFileSync(path.join(tmp, 'Scripts', name), 'utf8').split(/\r?\n/).length - 1;
     assert.ok(lineCount < 1000, name + ' should stay below 1000 lines');
-    assert.doesNotMatch(fs.readFileSync(path.join(tmp, 'Scripts', name), 'utf8'), /partial\s+class/);
   });
   assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'Entities', 'BaseBuildElement.cs')));
   assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'Entities', 'BuildEntity.cs')));
@@ -141,7 +179,8 @@ try {
   assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BaseGameFlowEntity.cs'), 'utf8'), /EntityId = ""; \/\/ 蓝图实体 ID/);
   assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BaseGameFlowEntity.cs'), 'utf8'), /绑定场景对象和蓝图标识/);
   assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BaseBuildElement.cs'), 'utf8'), /public int Health = 100; \/\/ 建筑耐久值/);
-  assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowStateBase.cs'), 'utf8'), /领域模型缓存/);
+  // Wave C: 实体绑定块落到 Main 文件而非继承链 StateBase。
+  assert.match(mainText, /领域模型缓存/);
   assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BarrackEntity.cs'), 'utf8'), /public class BarrackEntity : BaseBuildElement/);
   // 反馈 01 #1 架构图:PlayerBase / NPCBase 与 BaseBuildElement 同级,都挂在 BaseGameFlowEntity 下。
   assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'Entities', 'PlayerBase.cs')));
@@ -185,13 +224,21 @@ try {
   assert.ok(fs.existsSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md')));
   assert.ok(fs.existsSync(path.join(tmp, 'CODE_RELATION_GRAPH.md')));
   assert.ok(fs.existsSync(path.join(tmp, 'CODE_RELATION_GRAPH.html')));
-  assert.match(fs.readFileSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md'), 'utf8'), /程序员交付版说明/);
-  assert.match(fs.readFileSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md'), 'utf8'), /移除 tools 目录数：1/);
-  assert.match(fs.readFileSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md'), 'utf8'), /普通继承基类分层/);
-  assert.match(fs.readFileSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md'), 'utf8'), /剔除的空 GameFlow 基类层数：\d+/);
+  const handoff = fs.readFileSync(path.join(tmp, 'PROGRAMMER_HANDOFF.md'), 'utf8');
+  assert.match(handoff, /程序员交付版说明/);
+  assert.match(handoff, /移除 tools 目录数：1/);
+  // Wave C: HANDOFF 必须用"保留 5 partial"语,绝不能再出现"普通继承基类分层"。
+  assert.match(handoff, /保留.*5 个 partial 拆分/);
+  assert.match(handoff, /保留的 GameFlowManagerMain partial 文件数：6/);
+  assert.match(handoff, /清理的 GameFlow\*Base 残留文件数：1/);
+  assert.doesNotMatch(handoff, /普通继承基类分层/);
+  assert.doesNotMatch(handoff, /GameFlow\*Base\.cs 通过普通继承链/);
   assert.match(fs.readFileSync(path.join(tmp, 'CODE_RELATION_GRAPH.md'), 'utf8'), /代码关系图/);
   assert.match(fs.readFileSync(path.join(tmp, 'CODE_RELATION_GRAPH.md'), 'utf8'), /Entities\/BaseBuildElement\.cs/);
-  assert.doesNotMatch(fs.readFileSync(path.join(tmp, 'README.md'), 'utf8'), /partial 文件/);
+  // Wave C: README 现在保留 partial 提及。
+  const readmeText = fs.readFileSync(path.join(tmp, 'README.md'), 'utf8');
+  assert.match(readmeText, /Flow\/Input\/Resource\/UI\/Scene partial/);
+  assert.match(readmeText, /5 个 partial/);
 
   // 反馈 01 (2026-04-26) Phase B.1: validator 集成 — 干净的小 fixture 不应触发 warning
   assert.ok(Array.isArray(summary.warnings), 'summary.warnings should be array');
