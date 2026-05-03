@@ -463,7 +463,32 @@ function createAtomCollector(registryIndex) {
   };
 }
 
-function inferTextAtoms(frame, frameIndex, phaseId, entityLookup, defaultActor, collector) {
+// 2026-05-04 root-cause fix: 当 frame.interaction 是整段中文 prose
+// (例：「玩家可通过拖拽操作控制角色在太空中自由移动…」),
+// resolveEntityName 命中 isProsePayload 返 ''. 之前 inferTextAtoms 还是带空 target
+// 调 collector.add → 推进 unresolved (kind=prose_payload),把 unresolvedCount 顶到 13,
+// 直接挤掉 assembly_ready 决策 (要求 unresolved=0+coverage≥0.999), 让 codegen 走 LLM
+// customLogic + review 走 LLM 评审, 单 build 多烧 ~42 分钟。
+//
+// 修复策略: 当文本推不出 target 时,优先借同 phase 已注册 atom 的 target 做兜底
+// (spec.requiredInteractions 里 parseInteraction 已经吐出干净 atom);
+// 兜底失败再退到本 phase 的 entitiesRequired;依然没有就静默跳过,不污染 unresolved。
+function pickPhaseFallbackTarget(collector, phaseId, atomFamily, defaultActor, phaseEntitiesRequired) {
+  for (var ci = 0; ci < collector.items.length; ci++) {
+    var it = collector.items[ci];
+    if (it.phaseId !== phaseId) continue;
+    if (atomFamily.indexOf(it.atomId) < 0) continue;
+    var t = it.params && (it.params.target || it.params.entity || it.params.item);
+    if (t && t !== defaultActor) return t;
+  }
+  for (var pi = 0; pi < phaseEntitiesRequired.length; pi++) {
+    var name = phaseEntitiesRequired[pi];
+    if (name && name !== defaultActor) return name;
+  }
+  return '';
+}
+
+function inferTextAtoms(frame, frameIndex, phaseId, entityLookup, defaultActor, collector, phaseEntitiesRequired) {
   var textBlocks = [
     { field: 'interaction', text: frame.interaction },
     { field: 'camera', text: frame.camera },
@@ -473,6 +498,7 @@ function inferTextAtoms(frame, frameIndex, phaseId, entityLookup, defaultActor, 
     { field: 'prompt', text: frame.prompt },
     { field: 'scriptExcerpt', text: frame.scriptExcerpt }
   ];
+  var phaseEnts = phaseEntitiesRequired || [];
 
   for (var i = 0; i < textBlocks.length; i++) {
     var entry = textBlocks[i];
@@ -480,29 +506,37 @@ function inferTextAtoms(frame, frameIndex, phaseId, entityLookup, defaultActor, 
     if (!text) continue;
 
     var target = resolveEntityName(text, entityLookup);
+    var src = { kind: 'frame_text', frameIndex: frameIndex, field: entry.field, raw: text };
+
     if (/移动|走向|前往|靠近|move|walk/i.test(text)) {
-      collector.add('move_to', phaseId, { actor: defaultActor, target: target, range: 1.5 }, { kind: 'frame_text', frameIndex: frameIndex, field: entry.field, raw: text });
+      var t1 = target || pickPhaseFallbackTarget(collector, phaseId, ['move_to', 'collect_nearby', 'highlight_target', 'camera_focus'], defaultActor, phaseEnts);
+      if (t1) collector.add('move_to', phaseId, { actor: defaultActor, target: t1, range: 1.5 }, src);
     }
     if (/收集|拾取|捡|collect/i.test(text)) {
-      collector.add('collect_nearby', phaseId, { actor: defaultActor, target: target, item: target, count: 1 }, { kind: 'frame_text', frameIndex: frameIndex, field: entry.field, raw: text });
+      var t2 = target || pickPhaseFallbackTarget(collector, phaseId, ['collect_nearby', 'move_to'], defaultActor, phaseEnts);
+      if (t2) collector.add('collect_nearby', phaseId, { actor: defaultActor, target: t2, item: t2, count: 1 }, src);
     }
     if (/攻击|射击|开火|attack|shoot/i.test(text)) {
-      collector.add('attack_target', phaseId, { actor: defaultActor, target: target || 'enemy', mode: 'auto' }, { kind: 'frame_text', frameIndex: frameIndex, field: entry.field, raw: text });
+      var t3 = target || pickPhaseFallbackTarget(collector, phaseId, ['attack_target', 'move_to'], defaultActor, phaseEnts);
+      collector.add('attack_target', phaseId, { actor: defaultActor, target: t3 || 'enemy', mode: 'auto' }, src);
     }
     if (/变色|变红|变绿|变蓝|发光|染色|color/i.test(text)) {
-      collector.add('change_color', phaseId, { entity: target, variant: parseColorVariant(text) }, { kind: 'frame_text', frameIndex: frameIndex, field: entry.field, raw: text });
+      var t4 = target || pickPhaseFallbackTarget(collector, phaseId, ['change_color', 'highlight_target', 'move_to'], defaultActor, phaseEnts);
+      if (t4) collector.add('change_color', phaseId, { entity: t4, variant: parseColorVariant(text) }, src);
     }
     if (/镜头拉高|拉高镜头|抬高镜头|拉远|俯视|全景|camera lift|pull back/i.test(text)) {
-      collector.add('camera_lift', phaseId, { amount: 1, duration: 0.5 }, { kind: 'frame_text', frameIndex: frameIndex, field: entry.field, raw: text });
+      collector.add('camera_lift', phaseId, { amount: 1, duration: 0.5 }, src);
     }
     if (/镜头聚焦|看向|对准|focus|look at/i.test(text)) {
-      collector.add('camera_focus', phaseId, { target: target }, { kind: 'frame_text', frameIndex: frameIndex, field: entry.field, raw: text });
+      var t5 = target || pickPhaseFallbackTarget(collector, phaseId, ['camera_focus', 'move_to', 'collect_nearby'], defaultActor, phaseEnts);
+      if (t5) collector.add('camera_focus', phaseId, { target: t5 }, src);
     }
     if (/高亮|圈出|提示圈|highlight/i.test(text)) {
-      collector.add('highlight_target', phaseId, { target: target, style: 'ring' }, { kind: 'frame_text', frameIndex: frameIndex, field: entry.field, raw: text });
+      var t6 = target || pickPhaseFallbackTarget(collector, phaseId, ['highlight_target', 'move_to', 'collect_nearby'], defaultActor, phaseEnts);
+      if (t6) collector.add('highlight_target', phaseId, { target: t6, style: 'ring' }, src);
     }
     if (/飘字|浮字|\+\d+|奖励字|floating/i.test(text)) {
-      collector.add('show_floating_text', phaseId, { text: text.length > 24 ? text.slice(0, 24) : text }, { kind: 'frame_text', frameIndex: frameIndex, field: entry.field, raw: text });
+      collector.add('show_floating_text', phaseId, { text: text.length > 24 ? text.slice(0, 24) : text }, src);
     }
   }
 }
@@ -564,7 +598,12 @@ function buildStoryboardAtomPlan(ctx, registry, registryIndex) {
   for (var fi = 0; fi < ctx.storyboardFrames.length; fi++) {
     var frame = ctx.storyboardFrames[fi] || {};
     var phaseId3 = findPhaseIdForIndex(ctx, fi);
-    inferTextAtoms(frame, fi, phaseId3, entityLookup, defaultActor, collector);
+    var specForFrame = ctx.specs[fi] || {};
+    var phaseEnts = toArray(specForFrame.entitiesRequired).map(function(ent) {
+      if (!ent) return '';
+      return typeof ent === 'string' ? ent : (ent.name || '');
+    }).filter(Boolean);
+    inferTextAtoms(frame, fi, phaseId3, entityLookup, defaultActor, collector, phaseEnts);
   }
 
   return {
