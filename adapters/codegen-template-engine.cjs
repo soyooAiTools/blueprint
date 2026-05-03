@@ -13,7 +13,7 @@ var { generateAutoPlay } = require('./templates/autoplay-mirror.cjs');
 var { generateCustomTodos } = require('./templates/custom-todo.cjs');
 var { generateResourceUpdate, generateResourceVariables } = require('./templates/resource-flow.cjs');
 var { generateUpgradeVariables, generateUpgradeUpdate } = require('./templates/upgrade-logic.cjs');
-var { generateCollectUpdate } = require('./templates/interactions/collect-interaction.cjs');
+var { generateCollectUpdate, generateCollectVariables } = require('./templates/interactions/collect-interaction.cjs');
 var { generateDeliverUpdate } = require('./templates/interactions/deliver-sell.cjs');
 var { generateCostClickUpdate } = require('./templates/interactions/cost-gated-click.cjs');
 var { generateInventoryFeedback } = require('./templates/interactions/inventory-feedback.cjs');
@@ -152,6 +152,9 @@ function generateVariables(schema, skeleton) {
   // Multi-source extra entity variables
   var multiSrcVars = generateMultiSourceVariables(schema);
   if (multiSrcVars) lines.push(multiSrcVars);
+  // Collect-source respawn timer + initPos cache
+  var collectVars = generateCollectVariables(schema);
+  if (collectVars) lines.push(collectVars);
   return lines.join('\n');
 }
 

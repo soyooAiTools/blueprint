@@ -605,6 +605,8 @@ function buildSchemaPrompt(ctx) {
   lines.push('13. showEntities 的 initPos 在不同 phase 间至少相差 2 个单位（避免物体位置不动导致截图无变化）');
   lines.push('14. 每个 phase 至少一个 onEnter action（如 add_resource, set_entity_state），让游戏状态随 phase 推进而变化');
   lines.push('15. 禁止所有 phase 只用 timer trigger——至少 50% 的 phase 必须用 entity_state_reached 或 resource_collected trigger');
+  lines.push('15a. **绝对不要在任何 phase 的 showEntities 里列出 Player**——Player 在 Start() 已摆好且由摇杆/输入持续驱动，phase 重入时若 PlaceObj(Player, initPos) 会把玩家拽回出生点，体感如瞬移。');
+  lines.push('15b. 已经在前序 phase 出现且玩家会移动它的实体（载具、可拖动单位、NPC）也尽量不要再次列入 showEntities，避免位置被 phase-init 重置。需要可见但不重置位置的，可以在前序 phase 的 showEntities 里列一次后保持沉默。');
   if (plansSummary) {
     lines.push('16. 你必须优先遵守下面的 Assembly Plan；不要重新发明实体模块组合、状态 owner、phase 顺序。');
     lines.push('17. 优先把 module 实现映射为 schema 的 phases/onEnter/resources/npcs；只有 unresolved 项才允许落入 customLogic。');

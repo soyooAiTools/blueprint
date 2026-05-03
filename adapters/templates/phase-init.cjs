@@ -10,6 +10,12 @@ function generatePhaseInit(phase, schema) {
     var ent = findEntity(schema, show[i]);
     if (ent) {
       var v = toLowerCamel(ent.name);
+      // 2026-05-03: Player 在 Start() 摆放后由摇杆驱动；任何 phase showEntities 列出 Player
+      // 都不能调 PlaceObj，否则进入新 phase 时会把玩家拽回 initPos，体感如瞬移。
+      if (/^player$/i.test(ent.name)) {
+        lines.push('                // Player 由摇杆持续移动，phase 切换不重置位置');
+        continue;
+      }
       lines.push('                PlaceObj(' + v + ', ' + ent.initPos[0] + 'f, ' + ent.initPos[1] + 'f, ' + ent.initPos[2] + 'f);');
       if (ent.scale && ent.scale !== 1.0) {
         lines.push('                SetScale(' + v + ', ' + ent.scale + 'f);');
