@@ -625,7 +625,7 @@ window.addEventListener("luna:starting", function() {
             var dom = document.createElement("div");
             dom.style.cssText = "position:absolute;white-space:pre;text-align:center;line-height:1.1;transform:translate(-50%,-50%);text-shadow:0 0 4px #000,0 0 4px #000;display:none;";
             overlay.appendChild(dom);
-            rec = { dom: dom, lastText: "" };
+            rec = { dom: dom, lastText: "", lastUpdate: 0, isScreenOverlay: false };
             mirrors.set(inst, rec);
             return rec;
           }
@@ -643,8 +643,10 @@ window.addEventListener("luna:starting", function() {
                   try { origSet.call(this, v); } catch(e) {}
                   try {
                     var rec = ensureDom(this);
-                    rec.lastText = v == null ? "" : String(v);
-                    rec.dom.textContent = rec.lastText;
+                    var newText = v == null ? "" : String(v);
+                    if (newText !== rec.lastText) rec.lastUpdate = Date.now();
+                    rec.lastText = newText;
+                    rec.dom.textContent = newText;
                   } catch(e) {}
                 }
               });
@@ -695,22 +697,25 @@ window.addEventListener("luna:starting", function() {
               var canvasW = canvasEl.width || rect.width;
               var canvasH = canvasEl.height || rect.height;
               var sxDom = rect.width / canvasW, syDom = rect.height / canvasH;
-              // First pass: collect screen-space overlay texts (banner stack)
-              var bannerTexts = [];
+              // Pass 1: position + visibility per Unity props.
+              // Track newest screen-overlay update timestamp so we can suppress stale ones.
+              var newestOverlayTs = 0;
               mirrors.forEach(function(rec, inst) {
                 try {
                   var handle = inst.handle, entity = handle && handle.entity;
                   var element = entity && entity.element;
                   if (!element || !rec.lastText) { rec.dom.style.display = "none"; return; }
-                  // Parent visibility check
+                  // Parent visibility check (entity.enabled + Unity gameObject._activeSelf)
                   var p = entity, hidden = false;
-                  while (p) { if (p.enabled === false) { hidden = true; break; } p = p.parent; }
+                  while (p) {
+                    if (p.enabled === false) { hidden = true; break; }
+                    if (p._activeSelf === false) { hidden = true; break; }
+                    p = p.parent;
+                  }
                   if (hidden) { rec.dom.style.display = "none"; return; }
                   if (element.enabled === false) { rec.dom.style.display = "none"; return; }
                   // Branch by canvas type
                   if (isScreenSpaceOverlay(element)) {
-                    // Screen-overlay: use anchored position relative to refRes.
-                    // Anchored origin is canvas center; +y is up in Unity, +y is down in DOM.
                     var screenComp = getScreenComp(element);
                     var refRes = screenComp && screenComp.screen && screenComp.screen.referenceResolution;
                     if (!refRes) { rec.dom.style.display = "none"; return; }
@@ -727,9 +732,12 @@ window.addEventListener("luna:starting", function() {
                     var fs2 = element.fontSize || 28;
                     rec.dom.style.fontSize = Math.max(14, Math.min(56, fs2 * sX)) + "px";
                     rec.dom.style.display = "";
+                    rec.isScreenOverlay = true;
+                    if (rec.lastUpdate > newestOverlayTs) newestOverlayTs = rec.lastUpdate;
                     return;
                   }
                   // World-space path
+                  rec.isScreenOverlay = false;
                   if (entity.enabled === false) { rec.dom.style.display = "none"; return; }
                   var wp = entity.getPosition();
                   if (!wp) { rec.dom.style.display = "none"; return; }
@@ -746,6 +754,48 @@ window.addEventListener("luna:starting", function() {
                   rec.dom.style.fontSize = Math.max(12, Math.min(48, fs)) + "px";
                   rec.dom.style.display = "";
                 } catch(e) {}
+              });
+              // Pass 2: hide stale screen-overlay mirrors. Pool-allocated UI texts in this
+              // pipeline never get SetActive(false), so old phase prompts pile up. If a newer
+              // overlay text exists in the same canvas, anything older than that-by-2s is stale.
+              if (newestOverlayTs > 0) {
+                var staleCutoff = newestOverlayTs - 2000;
+                mirrors.forEach(function(rec) {
+                  if (!rec.isScreenOverlay) return;
+                  if (rec.dom.style.display === "none") return;
+                  if (rec.lastUpdate < staleCutoff) rec.dom.style.display = "none";
+                });
+              }
+              // Pass 3: dedup overlapping mirrors.
+              //  - Screen overlays: bucket BY POSITION ONLY. UI slots like guideText/
+              //    scoreText are pool-cloned across multiple GameFlowManager instances;
+              //    each may write a DIFFERENT text per frame, but only the newest write
+              //    represents the live game state. Keep the freshest, hide the rest.
+              //  - World-space labels: bucket by lastText+position so two different
+              //    entity labels passing through the same screen pixel are both shown,
+              //    but pool-clones with the same label collapse into one.
+              var groups = {};
+              mirrors.forEach(function(rec) {
+                if (rec.dom.style.display === "none") return;
+                if (!rec.lastText) return;
+                var l = parseFloat(rec.dom.style.left) || 0;
+                var t = parseFloat(rec.dom.style.top) || 0;
+                var key;
+                if (rec.isScreenOverlay) {
+                  // Tighter bucket for overlays — UI anchors are pixel-precise.
+                  key = "OVL@" + Math.floor(l / 40) + "," + Math.floor(t / 40);
+                } else {
+                  var normText = rec.lastText.replace(/\\d+/g, "#");
+                  key = "WS@" + normText + "@" + Math.floor(l / 80) + "," + Math.floor(t / 80);
+                }
+                var prev = groups[key];
+                if (!prev) { groups[key] = rec; return; }
+                if (rec.lastUpdate >= prev.lastUpdate) {
+                  prev.dom.style.display = "none";
+                  groups[key] = rec;
+                } else {
+                  rec.dom.style.display = "none";
+                }
               });
             } catch(e) {}
             requestAnimationFrame(frame);

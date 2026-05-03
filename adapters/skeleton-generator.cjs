@@ -935,10 +935,23 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    // TODO_VARIABLES_END');
   lines.push('');
 
+  // [SKELETON 2026-05-03] Singleton 守卫：场景里既有预序列化的 GFM 又有 inject
+  // script 新建的 GameManager → 同一类有 2 个实例同时跑 Start/Update，画 2 套
+  // Canvas/UI/计算 2 套 phase。第二个抢到 Start 的实例直接缴枪，避免下游所有
+  // 数据/视觉问题（重复 guideText、5 个 Canvas、phase 不同步）。
+  lines.push('    // [SKELETON] Singleton 守卫；防止场景预序列化 + inject 双实例。');
+  lines.push('    static bool _gfmBootstrapped = false;');
+  lines.push('    bool _gfmDisabled = false;');
+  lines.push('');
+
   // Start 方法：预置 Find() 绑定和初始化。
   lines.push('    // 初始化生成状态、对象池实体、UI、AutoPlay 和首帧 preview 快照。');
   lines.push('    void Start()');
   lines.push('    {');
+  lines.push('        // [SKELETON] Singleton 守卫：第二个跑到 Start 的实例直接缴枪。');
+  lines.push('        if (_gfmBootstrapped) { _gfmDisabled = true; return; }');
+  lines.push('        _gfmBootstrapped = true;');
+  lines.push('');
   lines.push('        // [SKELETON] 初始化 phase tracking');
   lines.push(`        ruleTriggered = new bool[RULE_COUNT];`);
   lines.push(`        completedPhases = new string[RULE_COUNT + 5];`);
@@ -1053,6 +1066,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    // 每帧协调器：同步 manager，执行 Flow/Input 辅助逻辑，然后导出 preview state。');
   lines.push('    void Update()');
   lines.push('    {');
+  lines.push('        if (_gfmDisabled) return; // 第二个 GFM 实例：缴枪');
   lines.push('        if (gameEnded) return;');
   lines.push('');
   lines.push('        float dt = Time.deltaTime;');
