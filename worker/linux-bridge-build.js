@@ -595,6 +595,166 @@ window.addEventListener("luna:starting", function() {
         });
       } catch (e) { console.warn("[font] Resources.Load patch error:", e); }
     })();
+    // [L0 path C] DOM text overlay — Luna 引擎不支持运行时字体烘焙;
+    // 把每个 UnityEngine.UI.Text 镜像到一个 <div>(font-family:DefaultFont),
+    // 用 element.canvasCorners 推出屏幕坐标,逐帧同步位置/字号/可见性.
+    (function setupDomTextOverlay() {
+      try {
+        function pickCanvas() { return document.querySelector("canvas"); }
+        var canvasEl = pickCanvas();
+        if (!canvasEl) {
+          var attempts = 0;
+          var iv = setInterval(function(){
+            canvasEl = pickCanvas();
+            if (canvasEl) { clearInterval(iv); install(); }
+            else if (++attempts > 50) clearInterval(iv);
+          }, 200);
+          return;
+        }
+        install();
+        function install() {
+          var overlay = document.createElement("div");
+          overlay.id = "__bp_text_overlay";
+          overlay.style.cssText = "position:fixed;left:0;top:0;pointer-events:none;z-index:9999;font-family:'DefaultFont',sans-serif;color:#fff;";
+          document.body.appendChild(overlay);
+          var mirrors = new Map();
+          window.__bpTextMirrors = mirrors;
+          function ensureDom(inst) {
+            var rec = mirrors.get(inst);
+            if (rec) return rec;
+            var dom = document.createElement("div");
+            dom.style.cssText = "position:absolute;white-space:pre;text-align:center;line-height:1.1;transform:translate(-50%,-50%);text-shadow:0 0 4px #000,0 0 4px #000;display:none;";
+            overlay.appendChild(dom);
+            rec = { dom: dom, lastText: "" };
+            mirrors.set(inst, rec);
+            return rec;
+          }
+          var T = window.UnityEngine && UnityEngine.UI && UnityEngine.UI.Text;
+          if (T && T.prototype && !T.prototype.__bpDomTextV1) {
+            var proto = T.prototype;
+            var d = Object.getOwnPropertyDescriptor(proto, "text");
+            if (d && d.set) {
+              proto.__bpDomTextV1 = true;
+              var origSet = d.set, origGet = d.get;
+              Object.defineProperty(proto, "text", {
+                configurable: true, enumerable: d.enumerable,
+                get: origGet,
+                set: function(v) {
+                  try { origSet.call(this, v); } catch(e) {}
+                  try {
+                    var rec = ensureDom(this);
+                    rec.lastText = v == null ? "" : String(v);
+                    rec.dom.textContent = rec.lastText;
+                  } catch(e) {}
+                }
+              });
+            }
+          }
+          // Camera lookup — DO NOT cache (AI_Camera is added at runtime AFTER Main Camera;
+          // any sticky cache locks us to whichever cam existed at first frame).
+          // Walk every frame; cheap on small scenes.
+          function getCam() {
+            try {
+              var pcApp = (window.pc && window.pc.Application && window.pc.Application.getApplication) ? window.pc.Application.getApplication() : null;
+              if (!pcApp || !pcApp.root) return null;
+              var best = null;
+              function walk(n, d) {
+                if (d > 6 || !n) return;
+                if (n.camera && n.enabled && n.camera.enabled && typeof n.camera.worldToScreen === "function") {
+                  if (!best || (n.camera.priority || 0) > (best.priority || 0)) best = n.camera;
+                }
+                var cs = n.children || [];
+                for (var i = 0; i < cs.length; i++) walk(cs[i], d + 1);
+              }
+              walk(pcApp.root, 0);
+              return best;
+            } catch(e) { return null; }
+          }
+          // Detect screen-space-overlay UI (canvas-anchored).
+          // Luna's screen component exposes _screenType="screen" for ScreenSpaceOverlay
+          // (the standard PlayCanvas .screenSpace getter is not always present here).
+          function getScreenComp(el) {
+            try { return el.screen || (typeof el._findScreen === "function" ? el._findScreen() : null); } catch(e) { return null; }
+          }
+          function isScreenSpaceOverlay(el) {
+            var s = getScreenComp(el);
+            if (!s || !s.screen) return false;
+            if (s.screen.screenSpace === true) return true;
+            if (s.screen._screenType === "screen") return true;
+            return false;
+          }
+          function frame() {
+            try {
+              var rect = canvasEl.getBoundingClientRect();
+              overlay.style.left = rect.left + "px";
+              overlay.style.top = rect.top + "px";
+              overlay.style.width = rect.width + "px";
+              overlay.style.height = rect.height + "px";
+              var cam = getCam();
+              if (!cam) { requestAnimationFrame(frame); return; }
+              var canvasW = canvasEl.width || rect.width;
+              var canvasH = canvasEl.height || rect.height;
+              var sxDom = rect.width / canvasW, syDom = rect.height / canvasH;
+              // First pass: collect screen-space overlay texts (banner stack)
+              var bannerTexts = [];
+              mirrors.forEach(function(rec, inst) {
+                try {
+                  var handle = inst.handle, entity = handle && handle.entity;
+                  var element = entity && entity.element;
+                  if (!element || !rec.lastText) { rec.dom.style.display = "none"; return; }
+                  // Parent visibility check
+                  var p = entity, hidden = false;
+                  while (p) { if (p.enabled === false) { hidden = true; break; } p = p.parent; }
+                  if (hidden) { rec.dom.style.display = "none"; return; }
+                  if (element.enabled === false) { rec.dom.style.display = "none"; return; }
+                  // Branch by canvas type
+                  if (isScreenSpaceOverlay(element)) {
+                    // Screen-overlay: use anchored position relative to refRes.
+                    // Anchored origin is canvas center; +y is up in Unity, +y is down in DOM.
+                    var screenComp = getScreenComp(element);
+                    var refRes = screenComp && screenComp.screen && screenComp.screen.referenceResolution;
+                    if (!refRes) { rec.dom.style.display = "none"; return; }
+                    var ap = element._anchoredPosition;
+                    var ax = ap ? ap.x : 0, ay = ap ? ap.y : 0;
+                    var sX = rect.width / refRes.x, sY = rect.height / refRes.y;
+                    var domX = (refRes.x / 2 + ax) * sX;
+                    var domY = (refRes.y / 2 - ay) * sY;
+                    if (domX < -200 || domX > rect.width + 200 || domY < -200 || domY > rect.height + 200) {
+                      rec.dom.style.display = "none"; return;
+                    }
+                    rec.dom.style.left = domX + "px";
+                    rec.dom.style.top = domY + "px";
+                    var fs2 = element.fontSize || 28;
+                    rec.dom.style.fontSize = Math.max(14, Math.min(56, fs2 * sX)) + "px";
+                    rec.dom.style.display = "";
+                    return;
+                  }
+                  // World-space path
+                  if (entity.enabled === false) { rec.dom.style.display = "none"; return; }
+                  var wp = entity.getPosition();
+                  if (!wp) { rec.dom.style.display = "none"; return; }
+                  var sp = cam.worldToScreen(wp);
+                  if (!sp || sp.z < 0) { rec.dom.style.display = "none"; return; }
+                  var domXw = sp.x * sxDom;
+                  var domYw = sp.y * syDom;
+                  if (domXw < -200 || domXw > rect.width + 200 || domYw < -200 || domYw > rect.height + 200) {
+                    rec.dom.style.display = "none"; return;
+                  }
+                  rec.dom.style.left = domXw + "px";
+                  rec.dom.style.top = domYw + "px";
+                  var fs = element.fontSize || 22;
+                  rec.dom.style.fontSize = Math.max(12, Math.min(48, fs)) + "px";
+                  rec.dom.style.display = "";
+                } catch(e) {}
+              });
+            } catch(e) {}
+            requestAnimationFrame(frame);
+          }
+          requestAnimationFrame(frame);
+          console.log("[font] DOM text overlay installed");
+        }
+      } catch(e) { console.warn("[font] DOM overlay setup failed:", e && e.message); }
+    })();
 
     var origGetBuiltin = UnityEngine.Resources.GetBuiltinResource;
     UnityEngine.Resources.GetBuiltinResource = function(type, name) {
@@ -907,7 +1067,7 @@ function findEntry(url){
   if(fn.startsWith('/'))fn=fn.slice(1);
   fn=fn.replace(/\\\\/g,'/');
   if(__fd[fn])return __fd[fn];
-  var parts=['assets','js','engine','favicon','tmp'];
+  var parts=['assets','js','engine','favicon','tmp','resources'];
   for(var p=0;p<parts.length;p++){var idx=fn.indexOf(parts[p]+'/');if(idx>-1){var k=fn.slice(idx);if(__fd[k])return __fd[k]}}
   return null;
 }
