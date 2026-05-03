@@ -162,17 +162,19 @@ public partial class GameFlowManagerMain {
     expect(hit).toBeUndefined();
   });
 
-  test('require-member-doc is blocking for uncommented GameFlowManagerMain members', () => {
+  test('require-member-doc fires (non-blocking) for uncommented GameFlowManagerMain members', () => {
+    // 2026-05-03: 规则降级为 blocking=false（纯风格，曾导致 30%+ 首轮被强制重写）。
     const code = `using UnityEngine;
 public partial class GameFlowManagerMain : MonoBehaviour {
   int missingComment = 0;
 }`;
     const hit = staticCheck(code, { filename: 'GameFlowManagerMain.cs' }).issues.find(i => i.rule === 'require-member-doc');
     expect(hit).toBeDefined();
-    expect(hit.blocking).toBe(true);
+    expect(hit.blocking).toBe(false);
   });
 
-  test('complex branch comments are blocking when missing near a condition', () => {
+  test('complex branch comments fire (non-blocking) when missing near a condition', () => {
+    // 2026-05-03: branch/multiline-condition 注释规则降级为 blocking=false。
     const code = `using UnityEngine;
 public partial class GameFlowManagerMain : MonoBehaviour {
   int score = 0; // current score used by the gate
@@ -186,13 +188,18 @@ public partial class GameFlowManagerMain : MonoBehaviour {
   }
 }`;
     const issues = staticCheck(code, { filename: 'GameFlowManagerMain.Flow.cs' }).issues;
-    expect(issues.find(i => i.rule === 'require-branch-comment' && i.blocking)).toBeDefined();
-    expect(issues.find(i => i.rule === 'multiline-condition-comment-required' && i.blocking)).toBeDefined();
+    const branchHit = issues.find(i => i.rule === 'require-branch-comment');
+    const condHit = issues.find(i => i.rule === 'multiline-condition-comment-required');
+    expect(branchHit).toBeDefined();
+    expect(branchHit.blocking).toBe(false);
+    expect(condHit).toBeDefined();
+    expect(condHit.blocking).toBe(false);
   });
 
-  test('switch and case comments are blocking when missing in GameFlowManagerMain partials', () => {
+  test('switch and case comments fire (non-blocking) when missing in GameFlowManagerMain partials', () => {
     // 注意：`switch (currentPhaseName)` 是规则的豁免分支（phase dispatch 共识），所以
     // fixture 必须用其他 switch 变量才能触发 switch-case-comment-required 规则。
+    // 2026-05-03: 规则降级为 blocking=false。
     const code = `using UnityEngine;
 public partial class GameFlowManagerMain : MonoBehaviour {
   int handlerKind = 0;
@@ -205,7 +212,7 @@ public partial class GameFlowManagerMain : MonoBehaviour {
 }`;
     const hit = staticCheck(code, { filename: 'GameFlowManagerMain.Flow.cs' }).issues.find(i => i.rule === 'switch-case-comment-required');
     expect(hit).toBeDefined();
-    expect(hit.blocking).toBe(true);
+    expect(hit.blocking).toBe(false);
   });
 
   test('staticCheckProject scans companion partials for forbidden event dispatch', () => {

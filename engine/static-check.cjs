@@ -1938,10 +1938,12 @@ var RULES = [
       return issues;
     },
   },
-  // Blocking 6e: every GameFlowManagerMain field/method needs nearby docs.
+  // 2026-05-03: downgraded blocking→warning. Pure stylistic requirement, not a
+  // correctness/runtime issue. Was causing 30%+ of round-1 force-recodes, burning
+  // 5-8 min per loop just to add doc comments AI then re-stripped on next fix.
   // Scoped via class-name sniff to GameFlowManagerMain (skip canonical GFM_* lib).
-  { id: 'require-member-doc', pattern: null, blocking: true,
-    message: 'Every field/method in GameFlowManagerMain partials must carry a descriptive comment',
+  { id: 'require-member-doc', pattern: null, blocking: false,
+    message: 'Every field/method in GameFlowManagerMain partials should carry a descriptive comment (warning only)',
     custom: function(code) {
       if (code.indexOf('GameFlowManagerMain') < 0) return [];
       var issues = [];
@@ -2049,11 +2051,12 @@ var RULES = [
       return issues;
     },
   },
-  // Blocking 6f: if-branches with magic numbers (>=3 digit) or string literals
-  // should have trailing // comment explaining the condition. Exempts ruleTriggered[]
-  // skeleton patterns and autoPlay gates which carry [SKELETON] banners elsewhere.
-  { id: 'require-branch-comment', pattern: null, blocking: true,
-    message: 'Each non-trivial condition branch must carry a nearby comment explaining the intent',
+  // 2026-05-03: downgraded blocking→warning (same reason as require-member-doc).
+  // if-branches with magic numbers or string literals should ideally have a trailing
+  // // comment, but this is style not safety. Static-check now flags as warning.
+  // Exempts ruleTriggered[] skeleton patterns and autoPlay gates with [SKELETON] banners.
+  { id: 'require-branch-comment', pattern: null, blocking: false,
+    message: 'Each non-trivial condition branch should carry a nearby comment explaining the intent (warning only)',
     custom: function(code, ctx) {
       if (ctx && /(?:^|\/)ScriptActivator\.cs$/.test(ctx.filename || '')) return [];
       var issues = [];
@@ -2086,8 +2089,9 @@ var RULES = [
       return issues;
     },
   },
-  { id: 'multiline-condition-comment-required', pattern: null, blocking: true,
-    message: 'Each multi-line or chained condition block must carry a nearby comment explaining the gating intent',
+  // 2026-05-03: downgraded blocking→warning (style, not safety).
+  { id: 'multiline-condition-comment-required', pattern: null, blocking: false,
+    message: 'Each multi-line or chained condition block should carry a nearby comment explaining the gating intent (warning only)',
     custom: function(code) {
       var issues = [];
       var lines = code.split('\n');
@@ -2126,8 +2130,9 @@ var RULES = [
       return issues;
     },
   },
-  { id: 'switch-case-comment-required', pattern: null, blocking: true,
-    message: 'Each switch/case branch in GameFlowManagerMain partials must carry a nearby comment explaining why that branch exists',
+  // 2026-05-03: downgraded blocking→warning (style, not safety).
+  { id: 'switch-case-comment-required', pattern: null, blocking: false,
+    message: 'Each switch/case branch in GameFlowManagerMain partials should carry a nearby comment explaining why that branch exists (warning only)',
     custom: function(code) {
       if (code.indexOf('GameFlowManagerMain') < 0) return [];
       var issues = [];
