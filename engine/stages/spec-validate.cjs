@@ -425,6 +425,64 @@ module.exports = {
         'Review shot duration normalization may have been bypassed.');
     }
 
+    // --- 11. Inventory-counter ↔ collect-interaction cross-check ---
+    // 2026-05-03 root-cause fix: phase 0 endCondition `Player.CollectedMetalFragmentCount >= 20`
+    // 但 requiredInteractions 里没 `collect:MetalFragment`,LLM 自由发挥,把整段 spec 描述当
+    // collect 的 item 名字喂下去,assembly-plan 把中文写进 AddResource(Normalize("..."), 1) 让中文成为
+    // 资源 key。下游观察到 MetalFragmentCount 永远 0,但 CUA 12s timer gate 还是会推进
+    // phase,所以错误悄无声息。这里对 endCondition 做静态扫描,缺失对应 collect/deliver
+    // interaction 时直接 ERROR,强制 spec 作者(或 spec-extract LLM)补齐。
+    var INVENTORY_PATTERNS = [
+      { re: /Player\.Collected(\w+?)Count\b/g, verb: 'collect' },
+      { re: /Player\.(\w+?)Amount\b/g, verb: 'collect|deliver' },
+      { re: /Player\.inventory\.(\w+)\b/g, verb: 'collect' }
+    ];
+    for (var ii = 0; ii < specs.length; ii++) {
+      var iSpec = specs[ii];
+      var iLabel = 'Spec[' + ii + '] ' + (iSpec.phaseId || 'unnamed');
+      var iCond = (iSpec.triggerNext && iSpec.triggerNext.condition) || '';
+      if (!iCond) continue;
+      var requiredResources = [];
+      INVENTORY_PATTERNS.forEach(function(pat) {
+        pat.re.lastIndex = 0;
+        var match;
+        while ((match = pat.re.exec(iCond)) !== null) {
+          // 跳过通用计数 (Gold/Score 这些 always-on counter, 不需 phase 内 collect)
+          var resName = match[1];
+          if (/^(Gold|Score|Money|Cash|Coin|Currency|Time)$/i.test(resName)) continue;
+          requiredResources.push({ name: resName, verb: pat.verb });
+        }
+      });
+      if (requiredResources.length === 0) continue;
+      // 该 phase OR 之前任意 phase 必须有 collect/deliver 该资源
+      var hasMatchingInteraction = false;
+      for (var hi = 0; hi <= ii && !hasMatchingInteraction; hi++) {
+        var hSpec = specs[hi];
+        var hInts = hSpec.requiredInteractions || [];
+        for (var ji = 0; ji < hInts.length; ji++) {
+          var rawInt = String(hInts[ji] || '');
+          var verb = rawInt.split(':')[0];
+          var arg = rawInt.split(':')[1] || '';
+          for (var ri = 0; ri < requiredResources.length; ri++) {
+            var req = requiredResources[ri];
+            if (req.verb.indexOf(verb) >= 0 && new RegExp('\\b' + req.name + '\\b', 'i').test(arg)) {
+              hasMatchingInteraction = true;
+              break;
+            }
+          }
+          if (hasMatchingInteraction) break;
+        }
+      }
+      if (!hasMatchingInteraction) {
+        var resList = requiredResources.map(function(r) { return r.name + '(' + r.verb + ')'; }).join(', ');
+        errors.push(iLabel + ': triggerNext.condition references inventory counter [' + resList + '] ' +
+          'but no matching collect/deliver interaction in this or earlier phases. ' +
+          'AI will guess the resource name (often leaking phase description as a Chinese resource key) ' +
+          'and the counter will never increment. Add `requiredInteractions: ["collect:' +
+          requiredResources[0].name + '"]` to this or an earlier phase.');
+      }
+    }
+
     // --- Log results ---
     if (autoFixes.length > 0) {
       autoFixes.forEach(function(f) { ctx.addLog('spec-validate', 'AUTO-FIX: ' + f); });

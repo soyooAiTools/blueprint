@@ -484,7 +484,7 @@ function parseAndValidateSchemaResponse(ctx, text) {
     }
   }
 
-  _repairSchema(schema, ctx.blueprint.entities);
+  _repairSchema(schema, ctx.blueprint.entities, ctx.blueprint.specs);
 
   if (Array.isArray(schema.entities)) {
     for (var _ei = 0; _ei < schema.entities.length; _ei++) {
@@ -593,7 +593,7 @@ function buildSchemaPrompt(ctx) {
   lines.push('8. entities[].initPos: [x,y,z], x范围±6, z范围±4, y>0');
   lines.push('9. entities[].scale >= 0.3');
   lines.push('9a. **每个 entity 必须有 chineseName**(中文显示名),从 specs/blueprint 上下文中推断。例: ForgeWorkshop→"锻造间", SpaceJunk→"太空垃圾", RecyclingStation→"回收站"。不能留空、不能给英文、不能复制 name 字段');
-  lines.push('9b. showLabel 默认 true(世界空间头顶标签)。以下三类 entity 必须设 showLabel=false:(a) 玩家载具/飞船/avatar(名字含 Player/Ship/Avatar/Vehicle)(b) 货币飘字/金币/gem(名字含 Gold/Coin/Gem/Currency)(c) UI 按钮(名字含 CTAButton/Button/UI)');
+  lines.push('9b. showLabel 默认 true(世界空间头顶标签)。以下三类 entity 必须设 showLabel=false:(a) 载具/飞船/avatar(名字含 Ship/Avatar/Vehicle)(b) 货币飘字/金币/gem(名字含 Gold/Coin/Gem/Currency)(c) UI 按钮(名字含 CTAButton/Button/UI)。注意: Player 实体必须 showLabel=true 且 chineseName="玩家" — 玩家必须能在场景里一眼认出自己。');
   lines.push('');
   // 2026-04-17: Visual change rules — CUA rejects "visual freeze" when phases
   // transition without observable screen changes. Each phase must produce
@@ -1130,7 +1130,10 @@ var ALLOWED_ACTIONS = ['set_entity_state', 'add_resource', 'switch_form', 'show_
 
 function inferEntityShowLabel(name) {
   var text = String(name || '');
-  if (/Player|Ship|Avatar|Vehicle/i.test(text)) return false;
+  // 2026-05-03: 之前 Player/Ship/Avatar/Vehicle 全 false → 玩家在场景里没标签,
+  // 多 capsule 场景下根本分辨不出哪个是"我"。现在改为只关 Ship/Avatar/Vehicle (载具),
+  // Player 必须有标签,chineseName 用 "玩家" (skeleton 端兜底,见 spec_extractor / repair).
+  if (/Ship|Avatar|Vehicle/i.test(text)) return false;
   if (/^(Gold|Coin|Gem|Currency)$/i.test(text)) return false;
   if (/CTAButton|Button|UIButton|UI/i.test(text)) return false;
   return true;
@@ -1205,7 +1208,7 @@ function hasNamedRef(value) {
   return String(value || '').trim().length > 0;
 }
 
-function _repairSchema(schema, blueprintEntities) {
+function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
   if (!schema || typeof schema !== 'object') return;
 
   // Build blueprint entity lookup: name -> label (Chinese display name)
@@ -1214,6 +1217,22 @@ function _repairSchema(schema, blueprintEntities) {
   var _bpLabelByName = {};
   (blueprintEntities || []).forEach(function(be) {
     if (be && be.name) _bpLabelByName[be.name] = be.label || be.chineseName || '';
+  });
+
+  // Build phaseId -> guideText lookup from spec show_guide atoms (Chinese friendly text).
+  // Used to backfill missing phase.guideText so SetGuideText() always has content
+  // (phase-init template skips emit when guideText is empty → silent UX gap).
+  var _bpGuideByPhase = {};
+  (blueprintSpecs || []).forEach(function(spec) {
+    var atoms = (spec && spec.atoms) || (spec && spec.plan && spec.plan.atoms) || [];
+    atoms.forEach(function(atom) {
+      if (!atom || atom.atomId !== 'show_guide') return;
+      var pid = atom.phaseId;
+      var text = atom.params && atom.params.text;
+      if (pid && text && typeof text === 'string' && !_bpGuideByPhase[pid]) {
+        _bpGuideByPhase[pid] = text;
+      }
+    });
   });
 
   var _defaultEnemyEntity = inferDefaultEnemyEntity(schema, blueprintEntities);
@@ -1305,6 +1324,13 @@ function _repairSchema(schema, blueprintEntities) {
     if (typeof existing.showLabel !== 'boolean') {
       existing.showLabel = inferEntityShowLabel(be.name);
     }
+    // 2026-05-03: Player 必须有 "玩家" 标签 (或 blueprint 给的 label 优先)，强制覆盖
+    if (/^Player$/i.test(be.name)) {
+      existing.showLabel = true;
+      if (!existing.chineseName || existing.chineseName === 'entity' || existing.chineseName === be.name) {
+        existing.chineseName = _bpLabelByName[be.name] || '玩家';
+      }
+    }
     if (!Array.isArray(existing.initPos) || existing.initPos.length < 3) {
       existing.initPos = parseBlueprintInitPos(be.visual && be.visual.position);
     }
@@ -1375,9 +1401,19 @@ function _repairSchema(schema, blueprintEntities) {
   });
 
   // Fix phases: strip extra props from phase/onEnter, normalize action names, default required fields
-  (schema.phases || []).forEach(function(p) {
+  (schema.phases || []).forEach(function(p, _phaseIdx) {
     if (!p || typeof p !== 'object') return;
     Object.keys(p).forEach(function(k) { if (!ALLOWED_PHASE_KEYS[k]) delete p[k]; });
+
+    // Backfill guideText: phase-init template only emits SetGuideText when guideText is non-empty,
+    // so missing field = silent on-screen guidance gap. Source order:
+    //   1) spec show_guide atom for this phaseId (Chinese friendly text)
+    //   2) phaseId itself as a fallback label (always non-empty)
+    if (!p.guideText || typeof p.guideText !== 'string' || p.guideText.trim().length === 0) {
+      var _gt = (p.phaseId && _bpGuideByPhase[p.phaseId]) || p.phaseId || ('Phase ' + (_phaseIdx + 1));
+      p.guideText = String(_gt).trim();
+    }
+
     (p.onEnter || []).forEach(function(a) {
       if (!a.action && a.type) { a.action = a.type; delete a.type; }
       if (a.action && ALLOWED_ACTIONS.indexOf(a.action) === -1) {

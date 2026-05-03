@@ -242,6 +242,18 @@ function buildEntityLookup(entities) {
   return { exact: exact, candidates: candidates };
 }
 
+// 2026-05-03 root-cause fix: 当 LLM 把整段中文描述当 interaction 参数喂进来,
+// resolveEntityName 之前会把"Phase 5: 拾取垃圾..."这类 prose 原样回传,导致下游
+// AddResource(Normalize("Phase 5: ..."), 1) 让中文成为资源 key + HUD 漏字符串。
+// 现在: 描述文本(含 CJK 标点 / 长度 >32 / 含空白)永远不能成为实体名,匹配不到就返 ''。
+function isProsePayload(text) {
+  if (!text) return false;
+  if (text.length > 32) return true;
+  if (/[\u3000-\u303f\uff00-\uffef\u4e00-\u9fff].*[\s,，。：；！？:;!?]/.test(text)) return true;
+  if (/\s.*\s/.test(text)) return true; // 多个空格几乎一定是描述
+  return false;
+}
+
 function resolveEntityName(raw, lookup) {
   var text = String(raw || '').trim();
   if (!text) return '';
@@ -260,14 +272,24 @@ function resolveEntityName(raw, lookup) {
     for (var j = 0; j < names.length; j++) {
       var name = names[j];
       if (!name) continue;
-      if (name.indexOf(key) >= 0 || key.indexOf(name) >= 0) {
+      // 防 prose 占洞: 实体名 <2 字符不参与子串匹配; key 是 prose 时只接受 name⊂key
+      if (name.length < 2) continue;
+      if (isProsePayload(text) ? key.indexOf(name) >= 0 : (name.indexOf(key) >= 0 || key.indexOf(name) >= 0)) {
         matches.push(entity.name);
         break;
       }
     }
   }
   matches = uniq(matches);
-  return matches.length === 1 ? matches[0] : text;
+  if (matches.length === 1) return matches[0];
+  if (matches.length > 1) {
+    // 多重匹配 (几乎一定是 prose 命中所有实体) — 拒绝
+    return '';
+  }
+  // 没有匹配: prose 输入直接吞掉,只允许 ASCII PascalCase/snake_case 短串原样返回
+  if (isProsePayload(text)) return '';
+  if (/^[A-Za-z][A-Za-z0-9_]{0,31}$/.test(text)) return text;
+  return '';
 }
 
 function findPlayerEntityName(entities) {
@@ -323,7 +345,10 @@ function parseInteraction(rawInteraction, entityLookup, defaultActor) {
   } else if (verb === 'spend') {
     params.resource = parts[1] || 'resource';
     params.amount = asNumber(parts[2], 1);
-    params.target = resolveEntityName(parts[3], entityLookup);
+    // target is optional for spend (cost-only verb often has no recipient entity);
+    // only assign if user supplied parts[3], otherwise skip to avoid the empty-string
+    // entity guard tripping on a field that was never attempted.
+    if (parts[3]) params.target = resolveEntityName(parts[3], entityLookup);
   } else if (verb === 'build') {
     params.target = resolveEntityName(parts[1], entityLookup);
   } else if (verb === 'upgrade') {
@@ -352,6 +377,21 @@ function parseInteraction(rawInteraction, entityLookup, defaultActor) {
     params.entity = resolveEntityName(parts[1], entityLookup);
   }
 
+  // 2026-05-03 root-cause fix: resolveEntityName 现在 prose 输入返 ''。
+  // 任何 entity-shape 字段为空 = LLM 喂了 prose,直接降级为 unresolved,
+  // 不允许把空字符串传给下游 (assembly-emitter 会 SLOT_INVALID, codegen 会跳过)。
+  var entityFields = ['target', 'item', 'entity', 'from', 'to'];
+  for (var ei = 0; ei < entityFields.length; ei++) {
+    var fk = entityFields[ei];
+    if (params[fk] !== undefined && params[fk] !== null && String(params[fk]).trim() === '') {
+      return { unresolved: true, raw: raw, verb: verb, reason: 'prose_payload_in_' + fk };
+    }
+  }
+  // resource 字段也要检 (spend verb 里直接从 parts[1] 取,可能是中文资源名)
+  if (params.resource !== undefined && isProsePayload(String(params.resource).trim())) {
+    return { unresolved: true, raw: raw, verb: verb, reason: 'prose_payload_in_resource' };
+  }
+
   return {
     atomId: atomId,
     params: params,
@@ -375,6 +415,28 @@ function createAtomCollector(registryIndex) {
         source: source || {}
       });
       return null;
+    }
+    // 2026-05-03 root-cause fix: atom params 里的 entity/resource 字段必须是干净的标识符,
+    // 不能是空字符串 (resolveEntityName 拒绝 prose 后的产物) 也不能是 prose。
+    // 否则 assembly-emitter 会把"Phase 5: 拾取垃圾..."写进 AddResource(Normalize("..."), 1)
+    // 让中文 + 标点 + 空格成为运行时 resource key,直接漏到 HUD。
+    var entityShapeKeys = ['target', 'item', 'entity', 'from', 'to', 'resource'];
+    for (var esi = 0; esi < entityShapeKeys.length; esi++) {
+      var k = entityShapeKeys[esi];
+      if (params && params[k] !== undefined && params[k] !== null) {
+        var v = String(params[k]).trim();
+        if (v === '' || isProsePayload(v)) {
+          unresolved.push({
+            kind: 'prose_payload',
+            atomId: atomId,
+            phaseId: phaseId || '',
+            field: k,
+            valuePreview: v.slice(0, 40),
+            source: source || {}
+          });
+          return null;
+        }
+      }
     }
     var mapping = registryIndex.mappingIndex[atomId] || {};
     var key = [atomId, phaseId || '', stableStringify(params || {}), stableStringify(source || {})].join('|');

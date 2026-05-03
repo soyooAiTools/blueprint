@@ -957,6 +957,47 @@ var RULES = [
       return issues;
     },
   },
+  // 2026-05-03: 资源 key / 实体 key 字符串字面量必须 ASCII。LLM 把分镜描述
+  // (e.g. "Phase 5: 拾取垃圾换得美金...") 喂进 atom params, 下游变成
+  // AddResource(GFM_ResourceIds.Normalize("Phase 5: ..."), 1) 让中文 + 标点 + 空格成为
+  // 运行时 resource id, 直接漏到玩家可见的 HUD scoreText。
+  // 根因已在 assembly-plan-pipeline 阻断, 这里是 last-line defense in depth。
+  { id: 'non-ascii-resource-key', pattern: null, blocking: true,
+    message: 'Resource/entity key string literal contains CJK / punctuation / whitespace — prose leak from atom plan; check assembly-plan-pipeline resolveEntityName guard',
+    custom: function(code) {
+      var issues = [];
+      // 仅扫这些 API 的字符串字面量参数 (它们的 string 必须是 stable identifier)
+      var apis = [
+        'AddResource', 'TrySpend', 'GetResource', 'TryConvert',
+        'GFM_ResourceIds.Normalize', 'GFM_ResourceIds.Resolve',
+        'GameObject.Find', 'CompletePhaseProgress', 'EnterPhase',
+        'RecordPhaseEvidenceFlag', 'NotifyPhaseProgress'
+      ];
+      for (var ai = 0; ai < apis.length; ai++) {
+        var api = apis[ai];
+        var pattern = api.replace(/\./g, '\\.') + '\\s*\\(\\s*"([^"]*)"';
+        var re = new RegExp(pattern, 'g');
+        var m;
+        while ((m = re.exec(code)) !== null) {
+          var literal = m[1];
+          // 允许空字符串 (如 EnterPhase(0, "", true, true))
+          if (literal === '') continue;
+          var hasCJK = /[\u4e00-\u9fff]/.test(literal);
+          var hasPunct = /[，。：；！？、,.:;!?]/.test(literal);
+          var hasSpaceLike = /\s/.test(literal);
+          if (hasCJK || hasPunct || hasSpaceLike) {
+            var lineNum = code.substring(0, m.index).split('\n').length;
+            issues.push({
+              line: lineNum,
+              text: api + '("' + literal.slice(0, 60) + (literal.length > 60 ? '...' : '') + '") — must be ASCII identifier (got '
+                + (hasCJK ? 'CJK ' : '') + (hasPunct ? 'punct ' : '') + (hasSpaceLike ? 'whitespace ' : '') + ')'
+            });
+          }
+        }
+      }
+      return issues;
+    },
+  },
   { id: 'js-undefined-literal', pattern: null, blocking: true,
     message: 'JS "undefined" leaked into C# code — missing field in schema action or template',
     custom: function(code) {
