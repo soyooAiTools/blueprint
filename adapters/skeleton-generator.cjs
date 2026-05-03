@@ -988,19 +988,23 @@ function generateSkeleton(specs, opts = {}) {
 
   // [SKELETON 2026-04-19] 世界空间标签：在玩家可见目标上方显示中文名。
   // 标签背景 alpha=0，避免黑条；showLabel=false 的实体不显示标签。
+  // [SKELETON 2026-05-04] Player 实体强制加"你"标签（即使 blueprint 没填 chineseName），
+  // 避免新玩家"找不到自己"。复用 isPlayerName(line 816) 识别。
+  const _isPlayerEntityName = (n) => /^(Player|PlayerRobot|PlayerChar|Hero|MainChar|Protagonist)/i.test(n || '');
   let _labelsEmitted = 0;
   entityNames.forEach(name => {
-    const meta = entityMeta[name];
-    if (!meta) return;
+    const meta = entityMeta[name] || {};
     if (meta.showLabel === false) return;
-    if (!meta.chineseName) return;
+    let cn = meta.chineseName;
+    if (!cn && _isPlayerEntityName(name)) cn = '你'; // 强制玩家可见
+    if (!cn) return;
     if (_labelsEmitted === 0) {
       lines.push('        // [SKELETON] 目标实体的世界空间中文标签');
     }
     const scale = typeof meta.scale === 'number' ? meta.scale : 1;
     // 高度偏移约等于实体包围盒顶部再加 0.5m 间距。
     const heightOffset = (scale * 0.5 + 0.5).toFixed(2);
-    const cnEscaped = meta.chineseName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const cnEscaped = cn.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     lines.push(`        GFM_UI.AddWorldLabel(${name}, "${cnEscaped}", ${heightOffset}f);`);
     _labelsEmitted++;
   });

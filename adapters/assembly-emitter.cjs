@@ -568,10 +568,10 @@ function buildDeterministicCtaFinishLines(moduleInstance, plans) {
 }
 
 function buildDeterministicWorldLabelLines(moduleInstance, plans) {
-  var params = moduleInstance && moduleInstance.params || {};
-  var text = escapeCsString(params.text || params.label || params.guide || 'Tap');
+  // 不再写 guideText：guideText 由 buildDeterministicGuideLines 按 phaseBindings.guide 单独切换。
+  // 历史问题：world_label 取 params.text fallback（如 CTA 按钮的 "下载按钮"）覆盖 phase guide。
+  // world_label 的视觉职责由 skeleton Start() 的 GFM_UI.AddWorldLabel(target, chineseName, h) 承担。
   var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.UI.cs', moduleInstance));
-  lines.push('        SetGuideText("' + text + '");');
   lines.push(recordFlag('guide_text_visible'));
   return lines;
 }
@@ -592,11 +592,16 @@ function buildDeterministicFloatingTextLines(moduleInstance, plans) {
 }
 
 function buildDeterministicHighlightLines(moduleInstance, plans) {
+  // 让 target 真正"看得见"：呼吸缩放 + 周期"点这里"提示。
+  // 历史：SetScale(1.12) 静态放大对 1m 方块来说肉眼几乎无差，玩家看不出当前目标。
   var target = moduleTarget(moduleInstance);
   if (!isIdentifier(target) || !planHasEntity(plans, target)) return [];
   var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.UI.cs', moduleInstance));
   lines.push('        if (' + target + ' == null) return;');
-  lines.push('        SetScale(' + target + ', 1.12f, 1.12f, 1.12f);');
+  lines.push('        float __hlPulse = 1.0f + 0.18f * Mathf.Abs(Mathf.Sin(Time.time * 3.5f));');
+  lines.push('        SetScale(' + target + ', __hlPulse, __hlPulse, __hlPulse);');
+  // 约每 3.3 秒一次飘字，避免刷屏；用 frameCount 不需要 per-target 字段。
+  lines.push('        if (Time.frameCount % 200 == 1) ShowFloatingText(' + target + '.transform.position + new Vector3(0f, 1.8f, 0f), "← 点这里 →", new Color(1f, 0.85f, 0.1f));');
   lines.push(recordFlag('guide_text_visible'));
   lines.push(recordFlag('visual_variant_changed'));
   return lines;
