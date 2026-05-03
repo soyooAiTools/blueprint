@@ -31,6 +31,20 @@ const REVIEW_TIMEOUT = 120000; // 2 min
 // GPT-5.4 checks Tier 1 (critical/instant-fail) first, then Tier 2, then Tier 3.
 // This prevents attention dilution on a long flat list.
 const REVIEW_RULES = `
+## Pre-Validated by Static-Check (DO NOT re-flag, they are blocked at codegen)
+The following are already enforced by engine/static-check.cjs before code reaches you:
+- Pool naming format (__Pool_{Shape}_{Color}_{NN}) — wrong names fail static-check
+- Forbidden APIs: SetActive, Destroy, Instantiate, AddComponent, CreatePrimitive,
+  GFM_Create.Obj/Ground/SetColor, FindObjectOfType, Resources.Load, JsonUtility,
+  Camera.main bare (skeleton's mainCam OK), GFM_Tools.* (doesn't exist)
+- Bridge.NET hard limits: async/await, LINQ (System.Linq + .Where/.Select/etc),
+  List<T>, Dictionary<K,V>, generic GetComponent<T>, coroutines (StartCoroutine,
+  Invoke, InvokeRepeating), while(true), class EventPool
+- Resource API: must use GFM_ResourceIds.Normalize() not raw strings
+- ShowCTA + game-end ordering, AutoPlay timing, phase gate non-empty conditions
+**Focus your review on architecture, gameplay correctness, and runtime semantics —
+NOT on the patterns above. Re-flagging them wastes a fix-loop round.**
+
 ## Tier 1 — INSTANT FAIL (check these first, any violation = FAIL)
 
 ### 1. Object Naming — Pool Objects
@@ -60,22 +74,19 @@ const REVIEW_RULES = `
 - SceneManager.LoadScene / Application.LoadLevel — Luna is single-scene
 - SendMessage() — NOT supported
 
-### 3. C# Language — Bridge.NET Hard Limits
+### 3. C# Language — Bridge.NET Hard Limits (NOT covered by static-check)
 - MUST have "using UnityEngine;" (missing = CS0246 MonoBehaviour not found)
-- NO generics: GetComponent<T>() → use GetComponent(typeof(T)) and cast
-- NO LINQ (System.Linq unavailable)
-- NO async/await
-- NO string interpolation $"..."
+- NO string interpolation $"..." (Bridge.NET parses but emits broken JS)
 - NO null-conditional (?.) or null-coalescing (??)
 - NO pattern matching, no nameof()
-- NO List<T> or Dictionary<K,V> — use arrays
-- NO coroutines — use Update() + deltaTime timer
-- MUST NOT define class/enum named "EventPool" (conflicts with Luna template → CS0101)
 - NO inline out parameters: int.TryParse(s, out int x) → declare x separately before the call
 - NO delegate/lambda inside foreach — Bridge.NET bug causes them not to fire; move outside loop
 - NO SByte type — causes SystemInvalidCastException; use int
 - NO System.Math or Unity.Mathematics — use Mathf or MathF
 - NO destructors ~TypeName() — Bridge.NET does not support them
+- Prefer explicit types over var (Bridge.NET var inference can fail at runtime with "Value cannot be null")
+(NOTE: async/await, LINQ, List<T>, Dictionary<K,V>, generic GetComponent<T>, coroutines,
+class EventPool — already blocked by static-check, do not re-flag)
 
 ### 4. Code Completeness
 - ALL phases from blueprint MUST be implemented in CheckEventRules() (zero tolerance)
@@ -163,7 +174,6 @@ const REVIEW_RULES = `
 - Time.deltaTime is constant 0.1 in Luna regardless of FPS
 - SceneManager.GetActiveScene().buildIndex unsupported
 - Prefab with X or Y scale = 0 fails to spawn — use 0.1 minimum
-- Prefer explicit types over var — Bridge.NET var can cause "Value cannot be null"
 
 ### 11. Phase ID Format (CRITICAL)
 - AddCompletedPhase() / ReportPhase() / currentPhaseName MUST exactly match the phase IDs supplied by the CURRENT blueprint/spec and skeleton
