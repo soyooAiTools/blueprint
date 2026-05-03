@@ -16,7 +16,11 @@ function generatePhaseInit(phase, schema) {
         lines.push('                // Player 由摇杆持续移动，phase 切换不重置位置');
         continue;
       }
-      lines.push('                PlaceObj(' + v + ', ' + ent.initPos[0] + 'f, ' + ent.initPos[1] + 'f, ' + ent.initPos[2] + 'f);');
+      // 2026-05-04: 仅当实体处于 HideObj 隐藏态(y<-100)时才 PlaceObj 把它"放出来"。
+      // 已可见的实体保持当前位置，不再每个 phase 切换硬拽回 initPos。
+      // 根因：旧逻辑 phase 1→2→3 重叠 showEntities 时,每次 init 都 SetPosition,
+      // 让玩家眼看到「粉碎机/锻造间」在 phase 切换时跳一下。
+      lines.push('                if (' + v + ' != null && ' + v + '.transform.position.y < -100f) PlaceObj(' + v + ', ' + ent.initPos[0] + 'f, ' + ent.initPos[1] + 'f, ' + ent.initPos[2] + 'f);');
       if (ent.scale && ent.scale !== 1.0) {
         lines.push('                SetScale(' + v + ', ' + ent.scale + 'f);');
       }

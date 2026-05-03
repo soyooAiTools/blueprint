@@ -22,7 +22,10 @@ assert.match(code, /public void FramePoint\(Vector3 worldPosition, float orthoSi
 
 // LookAt 改为 lerp,不再原地写 _mainCam.transform.LookAt(...)。
 assert.doesNotMatch(code, /_mainCam\.transform\.LookAt\(/);
-assert.match(code, /_targetRotation = Quaternion\.LookRotation\(dir\);/);
+// 2026-05-04: 锁等距视角,LookAt 不再覆盖 _targetRotation,Init 设的 50° pitch 永久保留。
+// 原断言 `_targetRotation = Quaternion.LookRotation(dir);` 已失效,改为禁止该写法。
+assert.doesNotMatch(code, /_targetRotation\s*=\s*Quaternion\.LookRotation/);
+assert.match(code, /Quaternion\.Euler\(50f, 0f, 0f\)/);
 
 // zoom 必须有限幅，避免镜头过近/过远导致程序员看不懂主体。
 assert.match(code, /public float MinOrthoSize = 4\.5f/);

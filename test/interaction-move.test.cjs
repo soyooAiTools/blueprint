@@ -13,6 +13,9 @@ function countMoves(code, entity) {
     new RegExp('\\bPlaceObj\\s*\\(\\s*' + entity + '\\b', 'g'),
     new RegExp('\\bHideObj\\s*\\(\\s*' + entity + '\\b', 'g'),
     new RegExp('\\b' + entity + '\\s*\\.\\s*transform\\s*\\.\\s*position\\s*=', 'g'),
+    // 2026-05-04: GFM_SmoothMover.Bobble/MoveTo 是新的"观察性位移"入口，
+    // 取代 cost-gated-click / deliver-sell / autoplay-mirror 里的硬性 SetPosition。
+    new RegExp('\\bGFM_SmoothMover\\.(Bobble|MoveTo)\\s*\\(\\s*' + entity + '\\b', 'g'),
   ];
   return patterns.reduce((sum, re) => sum + (code.match(re) || []).length, 0);
 }
@@ -48,8 +51,8 @@ describe('interaction templates emit observable-movement per target', () => {
     const code = generateDeliverUpdate(schema);
     expect(countMoves(code, 'Smelter')).toBe(1);
     expect(countMoves(code, 'Market')).toBe(1);
-    expect(code).toMatch(/Smelter\.transform\.position\s*=/);
-    expect(code).toMatch(/Market\.transform\.position\s*=/);
+    expect(code).toMatch(/GFM_SmoothMover\.Bobble\(Smelter,/);
+    expect(code).toMatch(/GFM_SmoothMover\.Bobble\(Market,/);
   });
 
   test('cost-gated-click: cost>0 branch pops transform.position', () => {
@@ -63,7 +66,7 @@ describe('interaction templates emit observable-movement per target', () => {
     };
     const code = generateCostClickUpdate(schema);
     expect(countMoves(code, 'ForgeWorkshop')).toBe(1);
-    expect(code).toMatch(/ForgeWorkshop\.transform\.position\s*=/);
+    expect(code).toMatch(/GFM_SmoothMover\.Bobble\(ForgeWorkshop,/);
   });
 
   test('cost-gated-click: free click branch pops transform.position', () => {
@@ -76,7 +79,7 @@ describe('interaction templates emit observable-movement per target', () => {
     };
     const code = generateCostClickUpdate(schema);
     expect(countMoves(code, 'Crossbow')).toBe(1);
-    expect(code).toMatch(/Crossbow\.transform\.position\s*=/);
+    expect(code).toMatch(/GFM_SmoothMover\.Bobble\(Crossbow,/);
   });
 
   test('cost-gated-click: multiple targets each get exactly one move', () => {

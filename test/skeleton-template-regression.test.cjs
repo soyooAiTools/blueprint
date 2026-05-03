@@ -36,20 +36,23 @@ const { triggerToCondition } = require('../adapters/templates/trigger-codegen.cj
 }
 
 {
+  // 2026-05-04: deliver-sell 改用 GFM_SmoothMover.Bobble 替代 +2y SetPosition,
+  // 仍保留"目标实体可观察位移"的 EntityAdvanced 兼容,但不会瞬移到天上。
   const deliver = generateDeliverUpdate({
     resources: [{ name: 'ore' }],
     phases: [{ trigger: { type: 'entity_state_reached', entity: 'SalesDesk', goldPerUnit: 5 } }],
   });
-  assert.match(deliver, /var SalesDeskPos = SalesDesk\.transform\.position;/);
-  assert.doesNotMatch(deliver, /SalesDesk\.transform\.position = SalesDesk\.transform\.position \+ new Vector3/);
+  assert.match(deliver, /GFM_SmoothMover\.Bobble\(SalesDesk, 2f, 0\.6f\)/);
+  assert.doesNotMatch(deliver, /SalesDesk\.transform\.position\s*=/);
 }
 
 {
+  // 2026-05-04: cost-gated-click 同样改 Bobble,旧 var XxxPos = ...; XxxPos.y += 2f 模式废弃。
   const cost = generateCostClickUpdate({
     phases: [{ trigger: { type: 'click_entity', entity: 'Forge' }, cost: { amount: 10, resource: 'gold' } }],
   });
-  assert.match(cost, /var ForgePos = Forge\.transform\.position;/);
-  assert.doesNotMatch(cost, /new Vector3\(Forge\.transform\.position\.x/);
+  assert.match(cost, /GFM_SmoothMover\.Bobble\(Forge, 2f, 0\.6f\)/);
+  assert.doesNotMatch(cost, /Forge\.transform\.position\s*=/);
 }
 
 {

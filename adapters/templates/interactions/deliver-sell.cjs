@@ -38,9 +38,9 @@ function generateDeliverUpdate(schema) {
     lines.push('                AddGold(' + t.goldPerUnit + ' * count);');
     lines.push('                ' + entity + 'Done = true;');
     lines.push('                ' + entity + 'State = 2;');
-    lines.push('                var ' + entity + 'Pos = ' + entity + '.transform.position;');
-    lines.push('                ' + entity + 'Pos.y += 2f; // observable move — satisfies EntityAdvanced() phase-exit gate');
-    lines.push('                ' + entity + '.transform.position = ' + entity + 'Pos;');
+    lines.push('                // 2026-05-04: Bobble 替代直接 +2y SetPosition,目标实体短暂上跳再落回,');
+    lines.push('                // 不再永久挂在天上。EntityAdvanced 在峰值瞬间触发即可。');
+    lines.push('                GFM_SmoothMover.Bobble(' + entity + ', 2f, 0.6f); // observable move — satisfies EntityAdvanced() phase-exit gate');
     lines.push('                ShowFloatingText(player != null ? player.transform.position : Vector3.zero, "+" + (' + t.goldPerUnit + ' * count) + " coins", Color.yellow);');
     lines.push('            }');
     lines.push('        }');

@@ -992,18 +992,26 @@ function generateSkeleton(specs, opts = {}) {
   // 避免新玩家"找不到自己"。复用 isPlayerName(line 816) 识别。
   const _isPlayerEntityName = (n) => /^(Player|PlayerRobot|PlayerChar|Hero|MainChar|Protagonist)/i.test(n || '');
   let _labelsEmitted = 0;
+  // [SKELETON 2026-05-04] label 高度阶梯：同一片区多个实体的 label 在屏幕上会叠到一起，
+  // 玩家看到一坨重影。按 emit 顺序循环 0/1/2 三档错开 +0.45m，配合 entity 自身 scale 的
+  // 基础高度，等于把 N 个 label 散到 3 排上，肉眼可分辨。
+  // 玩家"你"标签强制走档 0（最贴身）保证一眼能看到自己。
   entityNames.forEach(name => {
     const meta = entityMeta[name] || {};
     if (meta.showLabel === false) return;
     let cn = meta.chineseName;
-    if (!cn && _isPlayerEntityName(name)) cn = '你'; // 强制玩家可见
+    let isPlayer = false;
+    if (!cn && _isPlayerEntityName(name)) { cn = '你'; isPlayer = true; }
+    else if (cn && _isPlayerEntityName(name)) { isPlayer = true; }
     if (!cn) return;
     if (_labelsEmitted === 0) {
       lines.push('        // [SKELETON] 目标实体的世界空间中文标签');
     }
     const scale = typeof meta.scale === 'number' ? meta.scale : 1;
-    // 高度偏移约等于实体包围盒顶部再加 0.5m 间距。
-    const heightOffset = (scale * 0.5 + 0.5).toFixed(2);
+    const baseOffset = scale * 0.5 + 0.5;
+    // tier 0 / 1 / 2 → 额外 +0 / +0.45 / +0.9，玩家档强制 0
+    const tier = isPlayer ? 0 : (_labelsEmitted % 3);
+    const heightOffset = (baseOffset + tier * 0.45).toFixed(2);
     const cnEscaped = cn.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     lines.push(`        GFM_UI.AddWorldLabel(${name}, "${cnEscaped}", ${heightOffset}f);`);
     _labelsEmitted++;

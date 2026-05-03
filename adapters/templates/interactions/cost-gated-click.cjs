@@ -39,9 +39,9 @@ function generateCostClickUpdate(schema) {
       lines.push('                if (scoreText != null) scoreText.text = "' + escapeString(c.costResource || 'gold') + ': " + GetResource(' + resourceIdExpr(c.costResource || 'gold') + ');');
       lines.push('                ' + entity + 'Done = true;');
       lines.push('                ' + entity + 'State = 2;');
-      lines.push('                var ' + entity + 'Pos = ' + entity + '.transform.position;');
-      lines.push('                ' + entity + 'Pos.y += 2f; // observable move — satisfies EntityAdvanced() phase-exit gate');
-      lines.push('                ' + entity + '.transform.position = ' + entity + 'Pos;');
+      lines.push('                // 2026-05-04: Bobble 替代直接 +2y SetPosition,半正弦上抬 2m 后回原位,');
+      lines.push('                // 玩家看到的是"被点中→上跳一下→落回"的反馈,而不是实体瞬移到天上。');
+      lines.push('                GFM_SmoothMover.Bobble(' + entity + ', 2f, 0.6f); // observable move — satisfies EntityAdvanced() phase-exit gate');
       lines.push('            }');
       lines.push('        }');
     } else {
@@ -49,9 +49,8 @@ function generateCostClickUpdate(schema) {
       lines.push('        if (' + entity + ' != null && IsNear(' + entity + ', 2f) && Input.GetMouseButtonDown(0)) {');
       lines.push('            ' + entity + 'Done = true;');
       lines.push('            ' + entity + 'State = 2;');
-      lines.push('            var ' + entity + 'Pos = ' + entity + '.transform.position;');
-      lines.push('            ' + entity + 'Pos.y += 2f; // observable move — satisfies EntityAdvanced() phase-exit gate');
-      lines.push('            ' + entity + '.transform.position = ' + entity + 'Pos;');
+      lines.push('            // 2026-05-04: Bobble 替代直接 +2y SetPosition;原位上跳后落回,无瞬移。');
+      lines.push('            GFM_SmoothMover.Bobble(' + entity + ', 2f, 0.6f); // observable move — satisfies EntityAdvanced() phase-exit gate');
       lines.push('        }');
     }
     if (i < clicks.length - 1) lines.push('');

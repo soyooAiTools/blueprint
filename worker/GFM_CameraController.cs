@@ -99,15 +99,18 @@ public class GFM_CameraController : MonoBehaviour
     }
 
     // ------------------------------------------------------------------------
-    // 【让相机看向某个世界点】反馈 01 #3：旋转走 lerp,不再瞬时 LookAt 防镜头抖。
-    // AutoPlay 模式每帧调用一次，维持镜头跟随感。
+    // 【让相机看向某个世界点】2026-05-04 根因修复：试玩广告锁等距 50° pitch,
+    // 只允许绕 Y 轴 yaw 旋转跟随目标。原实现用 Quaternion.LookRotation(dir)
+    // 直接覆盖 pitch,phase 切换时镜头会突然倾斜（玩家看到画面"扭"一下）。
+    // 现在保留 Init 设的 50° 俯角不动,即使 worldPos 在远处仰角也维持等距视角。
+    // 设计取舍: yaw 也禁掉,正交 + 固定俯角时 yaw 旋转会让 ground/物体相对镜头转,
+    // 体感更糟。所以这里整段 no-op,保持 init 角度——若将来需要"环视镜头"再开闸。
     // ------------------------------------------------------------------------
     public void LookAt(Vector3 worldPos)
     {
         if (_mainCam == null) return;
-        Vector3 dir = worldPos - _mainCam.transform.position;
-        if (dir.sqrMagnitude < 1e-4f) return;
-        _targetRotation = Quaternion.LookRotation(dir);
+        // 锁定等距视角：rotation 永远停留在 Init() 设的 Quaternion.Euler(50f, 0f, 0f)。
+        // _targetRotation 已在 Init 里同步过,这里不再覆盖。
         _hasTarget = true;
     }
 
