@@ -349,7 +349,10 @@ function runSchemaFallback(runCodexText, ctx, promptText, primarySystemPrompt, r
     model: runnerConfig.claudeModel,
     taskId: ctx.taskId,
     log: function(msg) { ctx.addLog('codegen-schema', '[fallback] ' + msg); },
-    effort: process.env.CLAUDE_SCHEMA_EFFORT || 'high',
+    // 2026-05-03: 默认从 high 降到 medium。Schema 是结构化 JSON 输出,不需要
+    // extended thinking。high → medium 把单 turn 时间从 ~6min 砍到 ~1-2min,
+    // 配合 --bare/--tools "" 禁掉 agent loop,15min timeout 不再吃满。
+    effort: process.env.CLAUDE_SCHEMA_EFFORT || 'medium',
     timeoutMs: resolveSchemaFallbackTimeoutMs(),
     noTools: true,
     minOutputLen: 20,
@@ -377,7 +380,7 @@ function resolveSchemaTimeoutMs(env) {
 function resolveSchemaFallbackTimeoutMs(env) {
   env = env || process.env;
   var timeout = parseInt(env.CLAUDE_SCHEMA_TIMEOUT_MS || env.CODEX_SCHEMA_FALLBACK_TIMEOUT_MS || '', 10);
-  return isFinite(timeout) && timeout > 0 ? timeout : 600000;
+  return isFinite(timeout) && timeout > 0 ? timeout : 900000;
 }
 
 function resolveSchemaPrimaryCooldownMs(env) {
@@ -1064,7 +1067,7 @@ function buildCustomLogicPrompt(ctx, schema) {
   lines.push('5. 不要发明新的 helper 方法，不要调用代码中不存在的方法。把逻辑直接内联在 TODO_CUSTOM 区域。');
   lines.push('6. 可用 safe API: PlaceObj, HideObj, SetScale, AddResource, TrySpend, IsNear, AddGold, ShowFloatingText 等。');
   lines.push('7. 实体变量名使用 PascalCase，且大小写必须与当前代码完全一致（如 Forge 不是 forge，Player 不是 player）。');
-  lines.push('8. 如果你需要“worker/auto/queue/tick”之类行为，不要发明 AutoWorkerTick / UpdateWorkers / SpawnEnemy 这类 helper；');
+  lines.push('8. 如果你需要"worker/auto/queue/tick"之类行为，不要发明 AutoWorkerTick / UpdateWorkers / SpawnEnemy 这类 helper；');
   lines.push('   只能复用当前代码里已经定义的方法，或直接写最小内联逻辑。');
   lines.push('9. Phase-exit 门使用 EntityAdvanced(X, _snap_XPos) — 读 transform.position > 1.5f。');
   lines.push('   若 phase P 的退出条件是 EntityAdvanced(X)，P 的交互逻辑必须在玩家触发时位移 X：');

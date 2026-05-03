@@ -862,8 +862,21 @@ function runCodexText(opts) {
       '--system-prompt-file', path.join(tempDir, CODEX_SYSTEM_PROMPT_FILE),
       '--debug-file', '/tmp/codex-text-' + taskId + '.log',
       ];
-      // noTools: skip --tools Read → pure text generation, single API round trip
-      if (!opts.noTools) {
+      // [2026-05-03] noTools 之前只跳过 --tools Read,但 ~/.claude/settings.json
+      // 里 11 个工具默认 allow + 44 个 SKILL.md 自动注入 + effortLevel: xhigh →
+      // CC CLI 当 agent 跑 3 turns × 6min = 18min 超时。系统性 hardening:
+      //   --tools ""                                显式禁用所有工具(覆盖 settings.json allow)
+      //   --disable-slash-commands                  关闭所有 skill 触发
+      //   --no-session-persistence                  不写 session 文件
+      //   --exclude-dynamic-system-prompt-sections  剥离 cwd/env 段提升 prompt cache 命中
+      // 注意: 不能用 --bare,它强制 ANTHROPIC_API_KEY 关掉 OAuth → 我们 OAuth login 会失败。
+      // 详见 memory/project_codegen_schema_agent_loop_root_cause.md。
+      if (opts.noTools) {
+        args.push('--tools', '');
+        args.push('--disable-slash-commands');
+        args.push('--no-session-persistence');
+        args.push('--exclude-dynamic-system-prompt-sections');
+      } else {
         args.push('--tools', 'Read');
       }
 
