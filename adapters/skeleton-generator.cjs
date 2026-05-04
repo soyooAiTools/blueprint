@@ -60,6 +60,89 @@ function csString(value) {
   return String(value == null ? '' : value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
+// [WAVE F] 玩家可读性自动注入：根据 spec 字段在 Phase_*_Init 顶部发射 SetGuideText / SetPhaseGoal。
+//   - autoAllowed && autoModeHint → SetGuideText(autoModeHint)（演出文案优先）
+//   - else playerInstruction → SetGuideText(playerInstruction)
+//   - goal 存在 → SetPhaseGoal(kind, target, displayResource)
+//   - goal 缺省但前一 phase 可能设过 → ClearPhaseGoal()，避免上一个 phase 的目标残留
+//   - 字段全缺省时不发射任何代码（旧行为完全保留）。
+//   - subAction 存在时仅发射注释（task 7 单独消化路由）。
+function _emitPlayerReadability(lines, spec) {
+  if (!spec) return;
+  var hint = null;
+  var hintSource = '';
+  if (spec.autoAllowed && typeof spec.autoModeHint === 'string' && spec.autoModeHint.length > 0) {
+    hint = spec.autoModeHint;
+    hintSource = 'autoModeHint';
+  } else if (typeof spec.playerInstruction === 'string' && spec.playerInstruction.length > 0) {
+    hint = spec.playerInstruction;
+    hintSource = 'playerInstruction';
+  }
+  if (hint != null) {
+    lines.push('        // [WAVE F] 玩家可读引导：来自 spec.' + hintSource);
+    lines.push('        SetGuideText("' + csString(hint) + '");');
+  }
+  if (spec.goal && typeof spec.goal === 'object') {
+    var kind = csString(spec.goal.kind || '');
+    var target = Number(spec.goal.target) || 0;
+    var resource = csString(spec.goal.displayResource || '');
+    lines.push('        // [WAVE F] 玩家可读目标：来自 spec.goal');
+    lines.push('        SetPhaseGoal("' + kind + '", ' + target + ', "' + resource + '");');
+  }
+  // [WAVE F] subAction 消歧注释：同 entity 多动作时 LLM 必须按 subAction 路由分流。
+  // 暂不发射 C# 路由代码（留给下一 wave），此处只把信息暴露给 codegen prompt。
+  var _subs = _wfPhaseSubActions(spec);
+  if (_subs.length > 0) {
+    lines.push('        // [WAVE F] subAction 消歧（同 entity 多动作 → 必须 if/switch 分流）：');
+    _subs.forEach(function(s) {
+      lines.push('        //   ' + s.verb + ':' + s.target + ' → subAction="' + s.subAction + '"');
+    });
+  }
+}
+
+// [WAVE F] specs 中是否有任何 phase 用到玩家可读性字段。决定是否发射对应 helper 方法/UI。
+function _anyPlayerReadabilityField(specs) {
+  if (!Array.isArray(specs)) return false;
+  for (var i = 0; i < specs.length; i++) {
+    var s = specs[i] || {};
+    if (typeof s.playerInstruction === 'string' && s.playerInstruction.length > 0) return true;
+    if (typeof s.autoModeHint === 'string' && s.autoModeHint.length > 0) return true;
+    if (s.goal && typeof s.goal === 'object') return true;
+  }
+  return false;
+}
+
+// [WAVE F] requiredInteractions 兼容字符串/对象，为注释/调试输出生成可读字符串。
+function _wfRenderInteractions(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return '';
+  return arr.map(function(ri) {
+    if (typeof ri === 'string') return ri;
+    if (ri && typeof ri === 'object') {
+      var base = (ri.verb || '') + ':' + (ri.target || ri.item || '');
+      if (ri.subAction) base += ':' + ri.subAction;
+      return base;
+    }
+    return '';
+  }).filter(Boolean).join(', ');
+}
+
+// [WAVE F] 检查 phase 的 requiredInteractions 中是否有 subAction 字段，决定是否发射消歧注释。
+function _wfPhaseSubActions(spec) {
+  if (!spec || !Array.isArray(spec.requiredInteractions)) return [];
+  var out = [];
+  for (var i = 0; i < spec.requiredInteractions.length; i++) {
+    var ri = spec.requiredInteractions[i];
+    if (ri && typeof ri === 'object' && ri.subAction) {
+      out.push({
+        verb: ri.verb || '',
+        target: ri.target || ri.item || '',
+        subAction: ri.subAction,
+      });
+    }
+  }
+  return out;
+}
+
 // Wave 1 / C1：把分镜信息渲染成程序员可读的注释块，置于 Phase_*_Init/_OnTap/_OnAutoPlayArrive 方法定义上方。
 // 注：这些注释会进入交付给程序员的 C# 源码，programmer-delivery-cleaner 不会删除它们。
 function buildShotDocLines(spec, phaseIndex, opts) {
@@ -221,9 +304,19 @@ function generateSkeleton(specs, opts = {}) {
     const movingTargets = [];
     const seen = {};
     for (let ii = 0; ii < interactions.length; ii++) {
-      const parts = interactions[ii].split(':');
-      const verb = parts[0];
-      const target = parts[1];
+      // [WAVE F] requiredInteractions 兼容字符串/对象两种形式。
+      const ri = interactions[ii];
+      let verb, target;
+      if (typeof ri === 'string') {
+        const parts = ri.split(':');
+        verb = parts[0];
+        target = parts[1];
+      } else if (ri && typeof ri === 'object') {
+        verb = ri.verb || '';
+        target = ri.target || ri.item || '';
+      } else {
+        continue;
+      }
       if (!target) continue;
       if (/^\d/.test(target)) continue;
       if (!MOVING_VERBS[verb]) continue;
@@ -358,9 +451,19 @@ function generateSkeleton(specs, opts = {}) {
     interactionFlags.push(phaseId + 'InteractionDone');
     interactionFlags.push(phaseId + 'PlayerActed');
     for (let ii = 0; ii < interactions.length; ii++) {
-      const parts = interactions[ii].split(':');
-      const verb = parts[0];
-      const target = parts[1];
+      // [WAVE F] requiredInteractions 兼容字符串/对象两种形式。
+      const ri = interactions[ii];
+      let verb, target;
+      if (typeof ri === 'string') {
+        const parts = ri.split(':');
+        verb = parts[0];
+        target = parts[1];
+      } else if (ri && typeof ri === 'object') {
+        verb = ri.verb || '';
+        target = ri.target || ri.item || '';
+      } else {
+        continue;
+      }
       if (!target || verb === 'wait' || verb === 'defend') continue;
       if (/^\d/.test(target)) continue; // 跳过数字目标，避免非法 C# 标识符。
       interactionFlags.push(target + 'Done');
@@ -493,6 +596,33 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    int _currentPhaseIndex = 0;');
   lines.push('    int _totalPhases = ' + specs.length + ';');
   lines.push('');
+  // [WAVE F] 玩家目标显示：仅当 spec 用到 goal 字段时才发射，避免污染 legacy 项目快照。
+  var _wfReadability = _anyPlayerReadabilityField(specs);
+  // 模式识别提前到此处，让 WAVE F 的 UpdateGoalDisplay 能感知 hasEconomy。
+  // 兼容字符串 "verb:arg" 与对象 { verb, target, ... } 两种 requiredInteractions 形态。
+  function _wfVerb(i) {
+    if (typeof i === 'string') return i.split(':')[0];
+    if (i && typeof i === 'object') return String(i.verb || '');
+    return '';
+  }
+  function _wfHasVerb(s, verbs) {
+    return (s.requiredInteractions || []).some(function(i) {
+      return verbs.indexOf(_wfVerb(i)) >= 0;
+    });
+  }
+  const hasJoystick = specs.some(function(s) { return _wfHasVerb(s, ['move_to']); });
+  const hasResources = specs.some(function(s) { return _wfHasVerb(s, ['collect', 'deliver']); });
+  const isIdleGame = hasJoystick && hasResources;
+  const hasFormSwitch = specs.some(function(s) { return !!s.formSwitch; });
+  const hasEconomy = specs.some(function(s) { return _wfHasVerb(s, ['collect', 'deliver', 'spend', 'convert']); });
+  if (_wfReadability) {
+    lines.push('    // [WAVE F] 玩家目标 HUD：spec.goal 驱动 "X / Y" 进度文本。');
+    lines.push('    Text goalText;');
+    lines.push('    string _goalKind = "";        // amount | count | state | ""=无目标');
+    lines.push('    int _goalTarget = 0;           // 目标阈值，0=无目标');
+    lines.push('    string _goalResource = "";    // 关联资源 id（如 "gold"），可空');
+    lines.push('');
+  }
   lines.push('    // [SKELETON] Guide text 单一写入口；phase/template 不直接写 guideText.text。');
   lines.push('    // 自动追加 [X/N] 前缀，让玩家不会迷失在没有进度反馈的画面里。');
   lines.push('    void SetGuideText(string text)');
@@ -508,16 +638,47 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        if (_currentGuideText.Length > 0) RecordPhaseEvidenceFlag(currentPhaseName, "guide_text_visible");');
   lines.push('    }');
   lines.push('');
+  // [WAVE F] 目标显示 helper —— 仅当 spec 用到 goal 时发射。
+  if (_wfReadability) {
+    lines.push('    // [WAVE F] phase 目标设置入口；spec.goal 驱动，每次 EnterPhase 由 Phase_*_Init 调用。');
+    lines.push('    //   kind: "amount"=资源累积  "count"=次数  "state"=终态推进  ""=清空');
+    lines.push('    //   target>0 时才显示文本；resource 给出时优先读 GFM_EconomyManager 的资源值。');
+    lines.push('    void SetPhaseGoal(string kind, int target, string displayResource)');
+    lines.push('    {');
+    lines.push('        _goalKind = kind == null ? "" : kind;');
+    lines.push('        _goalTarget = target;');
+    lines.push('        _goalResource = displayResource == null ? "" : displayResource;');
+    lines.push('        UpdateGoalDisplay();');
+    lines.push('    }');
+    lines.push('');
+    lines.push('    void ClearPhaseGoal() { SetPhaseGoal("", 0, ""); }');
+    lines.push('');
+    lines.push('    // 每帧刷新目标 HUD。Update() 调用一次；无目标时清空文本。');
+    lines.push('    void UpdateGoalDisplay()');
+    lines.push('    {');
+    lines.push('        if (goalText == null) return;');
+    lines.push('        if (_goalKind == "" || _goalTarget <= 0)');
+    lines.push('        {');
+    lines.push('            goalText.text = "";');
+    lines.push('            return;');
+    lines.push('        }');
+    lines.push('        int current = 0;');
+    lines.push('        if (_goalResource.Length > 0)');
+    lines.push('        {');
+    if (hasEconomy) {
+      lines.push('            // 经济项目：读 GFM_EconomyManager 的资源值（id 已归一）。');
+      lines.push('            current = GFM_EconomyManager.Instance.GetResource(GFM_ResourceIds.Normalize(_goalResource));');
+    } else {
+      lines.push('            // 非经济项目：current 由游戏代码自行更新（通过 SetPhaseGoalCurrent）。');
+    }
+    lines.push('        }');
+    lines.push('        string label = _goalResource.Length > 0 ? _goalResource : _goalKind;');
+    lines.push('        goalText.text = label + ": " + current + " / " + _goalTarget;');
+    lines.push('    }');
+    lines.push('');
+  }
 
-  // 识别 idle/tycoon 模式：同时具备摇杆和资源交互。
-  const hasJoystick = specs.some(s => (s.requiredInteractions || []).some(i => i.startsWith('move_to:')));
-  const hasResources = specs.some(s => (s.requiredInteractions || []).some(i => i.startsWith('collect:') || i.startsWith('deliver:')));
-  const isIdleGame = hasJoystick && hasResources;
-  const hasFormSwitch = specs.some(s => !!s.formSwitch);
-  const hasEconomy = specs.some(s => (s.requiredInteractions || []).some(i => {
-    const verb = String(i).split(':')[0];
-    return verb === 'collect' || verb === 'deliver' || verb === 'spend' || verb === 'convert';
-  }));
+  // 模式识别已上移到 [WAVE F] 块（兼容对象/字符串两种交互形态），此处直接复用上面声明的常量。
 
   // [SKELETON] 形态切换系统。
   if (hasFormSwitch) {
@@ -1043,6 +1204,10 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        guideText = GFM_UI.CreateText(uiCanvas, "", new Vector2(0, 450), 52);');
   lines.push('        scoreText = GFM_UI.CreateText(uiCanvas, "Score: 0", new Vector2(680, 480), 40);');
   lines.push('        floatingText = GFM_UI.CreateText(uiCanvas, "", new Vector2(0, 360), 44);');
+  if (_wfReadability) {
+    // [WAVE F] 目标 HUD 单独一行，靠左下，避免遮挡 score。
+    lines.push('        goalText = GFM_UI.CreateText(uiCanvas, "", new Vector2(-680, 480), 40);');
+  }
   lines.push('');
 
   if (isIdleGame) {
@@ -1128,6 +1293,10 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        // TODO_UPDATE_END');
   lines.push('        // TODO_CUSTOM_START');
   lines.push('        // TODO_CUSTOM_END');
+  if (_wfReadability) {
+    // [WAVE F] 目标 HUD 每帧刷新，让金币/资源数值实时反馈。
+    lines.push('        UpdateGoalDisplay();');
+  }
   lines.push('        UpdateGameState();');
   lines.push('    }');
   lines.push('');
@@ -1154,7 +1323,7 @@ function generateSkeleton(specs, opts = {}) {
     const phase0Gates = phaseGateEntities(spec);
 
     lines.push(`        // ========== Phase ${i + 1}: ${spec.phaseName} (${spec.phaseId}) ==========`);
-    lines.push(`        // 时长 ${spec.duration.min}-${spec.duration.max}s | 交互 ${(spec.requiredInteractions || []).join(', ') || 'none'} | playerMustAct=${spec.playerMustAct}`);
+    lines.push(`        // 时长 ${spec.duration.min}-${spec.duration.max}s | 交互 ${_wfRenderInteractions(spec.requiredInteractions) || 'none'} | playerMustAct=${spec.playerMustAct}`);
     lines.push(`        if (!ruleTriggered[${ruleIdx}] && Phase_${spec.phaseId}_GateReady())`);
     lines.push('        {');
     lines.push(`            EnterPhase(${ruleIdx}, "${spec.phaseId}", true, true);`);
@@ -1690,6 +1859,9 @@ function _buildFlowPartial(specs, phaseGateMap = {}, phaseRealConditions = {}) {
     lines.push('    // phase 专属摆放和引导逻辑放在这里，保持 CheckEventRules() 简洁。');
     lines.push('    void Phase_' + pid + '_Init()');
     lines.push('    {');
+    // [WAVE F] 玩家可读性自动注入：playerInstruction / autoModeHint → guideText
+    // 行在 TODO marker 之外，codegen 不会覆盖；缺省字段则不发射任何代码（保持旧行为）。
+    _emitPlayerReadability(lines, specs[i]);
     if (i === 0) {
       lines.push('        // === TODO：摆放额外物体、设置颜色、显示引导 ===');
       lines.push('        // TODO_PHASE_' + (i + 1) + '_INIT_START');

@@ -214,9 +214,17 @@ module.exports = {
       }
 
       // --- WARN: unknown interaction verbs ---
+      // requiredInteractions[i] 可以是字符串 "click:Foo" 或对象 { verb, target, subAction? }（Wave F）
       if (spec.requiredInteractions && spec.requiredInteractions.length > 0) {
         spec.requiredInteractions.forEach(function(interaction) {
-          var verb = interaction.split(':')[0];
+          var verb;
+          if (typeof interaction === 'string') {
+            verb = interaction.split(':')[0];
+          } else if (interaction && typeof interaction === 'object') {
+            verb = interaction.verb;
+          } else {
+            return; // unknown shape; downstream handles
+          }
           if (VERB_VALIDATION_ENABLED && !KNOWN_VERBS[verb]) {
             errors.push(label + ': unknown interaction verb "' + verb + '" — will cause unpredictable AI code generation. Known: ' +
               Object.keys(KNOWN_VERBS).slice(0, 8).join(', ') + '...');
@@ -237,6 +245,76 @@ module.exports = {
           spec.duration.min + '-' + spec.duration.max + 's (' + durationPolicy.fixes.join('; ') + ')');
       } else if (!spec.duration) {
         spec.duration = durationPolicy.duration;
+      }
+
+      // --- WAVE F: player-readability fields (all optional, warn on malformed) ---
+      // playerInstruction: 一句话告诉玩家此 phase 该做什么（"点击垃圾收集碎片"）。
+      // 缺省时 skeleton 不调 SetGuideText —— 完全等价旧行为。
+      if (spec.playerInstruction !== undefined && spec.playerInstruction !== null) {
+        if (typeof spec.playerInstruction !== 'string') {
+          warnings.push(label + ': playerInstruction must be a string, got ' +
+            typeof spec.playerInstruction + ' — field ignored.');
+          delete spec.playerInstruction;
+        } else if (spec.playerInstruction.length > 60) {
+          warnings.push(label + ': playerInstruction is ' + spec.playerInstruction.length +
+            ' chars (>60) — guideText 顶部条会被截断，建议精简到一句话。');
+        }
+      }
+
+      // goal: 结构化数值阈值，让 skeleton 自动渲染 "X / Y" 进度条文。
+      // 形态: { kind: 'amount'|'count'|'state', target: number, displayResource?: string }
+      if (spec.goal !== undefined && spec.goal !== null) {
+        if (typeof spec.goal !== 'object' || Array.isArray(spec.goal)) {
+          warnings.push(label + ': goal must be an object, got ' +
+            (Array.isArray(spec.goal) ? 'array' : typeof spec.goal) + ' — field ignored.');
+          delete spec.goal;
+        } else {
+          var goalKindOk = ['amount', 'count', 'state'].indexOf(spec.goal.kind) >= 0;
+          if (!goalKindOk) {
+            warnings.push(label + ': goal.kind must be one of amount|count|state, got "' +
+              spec.goal.kind + '" — field ignored.');
+            delete spec.goal;
+          } else if (typeof spec.goal.target !== 'number' || !isFinite(spec.goal.target) || spec.goal.target <= 0) {
+            warnings.push(label + ': goal.target must be a positive finite number, got ' +
+              JSON.stringify(spec.goal.target) + ' — field ignored.');
+            delete spec.goal;
+          } else if (spec.goal.displayResource !== undefined &&
+                     spec.goal.displayResource !== null &&
+                     typeof spec.goal.displayResource !== 'string') {
+            warnings.push(label + ': goal.displayResource must be a string when set — coerced to empty.');
+            spec.goal.displayResource = '';
+          }
+        }
+      }
+
+      // autoModeHint: autoAllowed phase 显示给玩家的 "演出中..." 文案。
+      // 仅当 autoAllowed=true 时有意义；非 auto phase 设了也保留（不会被 skeleton 用）。
+      if (spec.autoModeHint !== undefined && spec.autoModeHint !== null) {
+        if (typeof spec.autoModeHint !== 'string') {
+          warnings.push(label + ': autoModeHint must be a string, got ' +
+            typeof spec.autoModeHint + ' — field ignored.');
+          delete spec.autoModeHint;
+        } else if (!spec.autoAllowed) {
+          warnings.push(label + ': autoModeHint set but autoAllowed=false — hint will not be shown.');
+        }
+      }
+
+      // requiredInteractions[i].subAction: 同 entity 多动作消歧（如 ForgeWorkshop:upgradeDrill）。
+      // 现有 requiredInteractions 是字符串数组（"click:Foo"），subAction 走对象形态：
+      //   "click:Foo" 兼容
+      //   { verb: "click", target: "Foo", subAction: "upgradeDrill" } 新形态
+      // 这里只校验类型；skeleton-generator 在下一步消费。
+      if (Array.isArray(spec.requiredInteractions)) {
+        for (var rii = 0; rii < spec.requiredInteractions.length; rii++) {
+          var ri = spec.requiredInteractions[rii];
+          if (ri && typeof ri === 'object' && !Array.isArray(ri)) {
+            if (ri.subAction !== undefined && ri.subAction !== null && typeof ri.subAction !== 'string') {
+              warnings.push(label + ': requiredInteractions[' + rii + '].subAction must be string, got ' +
+                typeof ri.subAction + ' — field ignored.');
+              delete ri.subAction;
+            }
+          }
+        }
       }
     }
 
@@ -377,11 +455,19 @@ module.exports = {
       var fSpec = specs[fi];
       var fLabel = 'Spec[' + fi + '] ' + (fSpec.phaseId || 'unnamed');
       // Check all text fields in the spec for unsupported feature references
+      // requiredInteractions[i] 兼容字符串与对象形态（Wave F）；对象形态 toString 会变 [object Object]
+      // 让特征字符串失效，所以这里手动展平成字符串。
       var specText = [
         fSpec.phaseName || '',
         (fSpec.triggerNext && fSpec.triggerNext.description) || '',
         (fSpec.entitiesRequired || []).map(function(e) { return (e.name || '') + ' ' + (e.description || ''); }).join(' '),
-        (fSpec.requiredInteractions || []).join(' '),
+        (fSpec.requiredInteractions || []).map(function(ri) {
+          if (typeof ri === 'string') return ri;
+          if (ri && typeof ri === 'object') {
+            return [ri.verb || '', ri.target || '', ri.item || '', ri.subAction || ''].filter(Boolean).join(' ');
+          }
+          return '';
+        }).join(' '),
       ].join(' ');
 
       for (var uf = 0; uf < LUNA_UNSUPPORTED_FEATURES.length; uf++) {
@@ -455,14 +541,24 @@ module.exports = {
       });
       if (requiredResources.length === 0) continue;
       // 该 phase OR 之前任意 phase 必须有 collect/deliver 该资源
+      // requiredInteractions[i] 兼容字符串 "verb:arg" 与对象 { verb, target } 两种形态。
       var hasMatchingInteraction = false;
       for (var hi = 0; hi <= ii && !hasMatchingInteraction; hi++) {
         var hSpec = specs[hi];
         var hInts = hSpec.requiredInteractions || [];
         for (var ji = 0; ji < hInts.length; ji++) {
-          var rawInt = String(hInts[ji] || '');
-          var verb = rawInt.split(':')[0];
-          var arg = rawInt.split(':')[1] || '';
+          var hInt = hInts[ji];
+          var verb, arg;
+          if (typeof hInt === 'string') {
+            var rawInt = String(hInt || '');
+            verb = rawInt.split(':')[0];
+            arg = rawInt.split(':')[1] || '';
+          } else if (hInt && typeof hInt === 'object') {
+            verb = String(hInt.verb || '');
+            arg = String(hInt.target || hInt.item || '');
+          } else {
+            continue;
+          }
           for (var ri = 0; ri < requiredResources.length; ri++) {
             var req = requiredResources[ri];
             if (req.verb.indexOf(verb) >= 0 && new RegExp('\\b' + req.name + '\\b', 'i').test(arg)) {

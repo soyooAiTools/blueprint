@@ -42,6 +42,86 @@ function computeDeterministicSeed(frames, entities) {
   return parseInt(hash.slice(0, 8), 16) & 0x7fffffff;
 }
 
+/**
+ * [WAVE F] 决定性兜底：当 LLM 没有给 goal 字段时，从 interactions 与
+ * triggerNext.condition 中尝试抽取一个数字目标。Skeleton-generator 把 goal
+ * 投射到 HUD，玩家最依赖这个 HUD 知道"还差多少"——LLM 漏写代价是玩家迷路。
+ *
+ * 优先级：triggerNext.condition 显式数值 > spend:resource:N > collect:item:N >
+ * 多个 build:* → count 计数。
+ *
+ * 返回 { kind, target, displayResource } 或 null。已有有效 goal 时调用方应跳过。
+ */
+function _deriveGoalFromSpec(spec) {
+  if (!spec) return null;
+  // 1) triggerNext.condition：常见形态 "GoldUI.value >= 200"、"PlayerAstronaut.amount >= 5"
+  var cond = spec.triggerNext && spec.triggerNext.condition;
+  if (typeof cond === 'string') {
+    var m = cond.match(/(\w+?)(?:UI)?\.(?:value|amount|count)\s*>=\s*(\d+)/);
+    if (m) {
+      var resource = m[1];
+      var target = parseInt(m[2], 10);
+      if (Number.isFinite(target) && target > 0) {
+        return { kind: 'amount', target: target, displayResource: resource };
+      }
+    }
+  }
+  // 2) interactions 扫描
+  var interactions = (spec.requiredInteractions || []);
+  var spendTarget = null;
+  var collectTarget = null;
+  var buildCount = 0;
+  for (var i = 0; i < interactions.length; i++) {
+    var ri = interactions[i];
+    var verb, target, amount;
+    if (typeof ri === 'string') {
+      var parts = ri.split(':');
+      verb = parts[0];
+      target = parts[1];
+      amount = parts[2];
+    } else if (ri && typeof ri === 'object') {
+      verb = ri.verb;
+      target = ri.target || ri.item;
+      amount = ri.amount;
+    } else {
+      continue;
+    }
+    if (verb === 'spend' && target && /^\d+$/.test(String(amount || ''))) {
+      // spend:gold:50 → target=gold, amount=50；resource 名首字母大写
+      var amt = parseInt(amount, 10);
+      if (!spendTarget || amt > spendTarget.target) {
+        spendTarget = {
+          kind: 'amount',
+          target: amt,
+          displayResource: String(target).charAt(0).toUpperCase() + String(target).slice(1),
+        };
+      }
+    }
+    if (verb === 'collect' && target && /^\d+$/.test(String(amount || ''))) {
+      var camt = parseInt(amount, 10);
+      if (!collectTarget || camt > collectTarget.target) {
+        collectTarget = { kind: 'amount', target: camt, displayResource: target };
+      }
+    }
+    if (verb === 'build') buildCount++;
+  }
+  if (spendTarget) return spendTarget;
+  if (collectTarget) return collectTarget;
+  if (buildCount >= 2) return { kind: 'count', target: buildCount, displayResource: '' };
+  return null;
+}
+
+/**
+ * [WAVE F] 校验 LLM 给出的 goal 是否结构合法。kind 必须 ∈ {amount,count,state}，
+ * target 必须正整数。任意一项不合规则视作"未给"，退回到 _deriveGoalFromSpec。
+ */
+function _isValidGoal(g) {
+  if (!g || typeof g !== 'object') return false;
+  if (['amount', 'count', 'state'].indexOf(g.kind) < 0) return false;
+  if (typeof g.target !== 'number' || !Number.isFinite(g.target) || g.target <= 0) return false;
+  return true;
+}
+
 const VERBS = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'worker', 'interaction-verbs.json'), 'utf8'));
 
 function buildVerbDoc() {
@@ -100,7 +180,18 @@ ${buildVerbDoc()}
   
   "playerMustAct": true,              // 是否必须玩家操作
   "autoAllowed": false,               // 是否允许自动完成
-  "formSwitch": "string | null — 如果本阶段解锁了新的玩家形态/载具，填写形态ID（如 'crusherCar'）；否则为 null"
+  "formSwitch": "string | null — 如果本阶段解锁了新的玩家形态/载具，填写形态ID（如 'crusherCar'）；否则为 null",
+
+  // 以下三个字段是 [WAVE F] 玩家可读性字段。骨架会自动把它们投射到 HUD：
+  // playerInstruction → guideText；goal → 目标 HUD；autoModeHint → 自动模式 guideText。
+  // 三个字段都是可选的——但缺失会让真实玩家在该 phase "看不懂自己要做什么"，会被 CUA 视作短板。
+  "playerInstruction": "点击锻造车间花费 50 金币建造", // ≤30 字中文，告诉玩家本 phase 要做的具体动作。playerMustAct=true 时必填。
+  "goal": {                                            // 玩家可见的目标 HUD；当本 phase 有数字目标时填写
+    "kind": "amount | count | state",                  // amount=资源数额；count=对象个数；state=形态切换
+    "target": 50,                                      // 目标数值（必须是正整数）
+    "displayResource": "Gold"                          // 可选：HUD 显示的资源/对象名称（如 'Gold'、'MetalScrap'）
+  },
+  "autoModeHint": "观察粉碎车自动采集"                  // ≤30 字中文，仅在 autoAllowed=true 时填写；告诉玩家"现在观察就好"
 }
 \`\`\`
 
@@ -134,6 +225,23 @@ ${buildVerbDoc()}
 
 7. 每个 chapter 对应一个 phase spec（一一对应，不要合并多个 chapter）。
 8. 重要：输出的 phase 数量必须等于输入的 chapter 数量。如果输入有 11 个 chapter，就必须输出 11 个 phase。绝对不要把所有内容合并成一个 phase。
+
+9. **playerInstruction**（玩家引导文案）从 interaction/title 中提炼一句 ≤30 字的中文动作指令：
+   - "点击太空垃圾收集金属碎片"、"把碎片送到回收站换金币"、"花 50 金币建造锻造车间"
+   - playerMustAct=true 时必填。autoAllowed=true 且有 autoModeHint 时可省略。
+   - 不要照抄 phaseName（phaseName 是设计名，玩家看不懂）；要写清楚要点哪个对象、花什么、得什么。
+
+10. **goal** 仅在该 phase 有"玩家可见的进度数字"时填写：
+    - 触发条件含 \`X.value >= N\` / \`X.amount >= N\` → kind="amount", target=N, displayResource=X
+    - 交互含 \`spend:resource:N\` → kind="amount", target=N, displayResource=资源名（PascalCase）
+    - 交互含 \`collect:item:N\` → kind="amount", target=N, displayResource=item
+    - 同 phase 多个 build:* → kind="count", target=build 个数
+    - 没有可量化目标（纯过场/欣赏）→ 省略 goal 字段。
+    - target 必须是正整数；displayResource 用 blueprint.entities 已有的精确名称（首选 PascalCase）。
+
+11. **autoModeHint** 仅在 autoAllowed=true 时填写，≤30 字，"观察…"/"等待…" 风格：
+    - "观察粉碎车自动采集"、"等待液压车装满金属"、"看着空间站建成"
+    - 与 playerInstruction 互斥：autoAllowed=true 时只填 autoModeHint，playerInstruction 留空。
 
 只输出 JSON 数组，不要其他内容。`;
 
@@ -252,22 +360,45 @@ ${contextText}
     }
 
     // Validate specs
-    validated = specs.map((spec, i) => ({
-      phaseId: spec.phaseId || `phase${i + 1}`,
-      phaseName: spec.phaseName || `Phase ${i + 1}`,
-      chapterId: spec.chapterId || i + 1,
-      duration: shotDurationPolicy.normalizeReviewShotDuration(spec.duration).duration,
-      requiredInteractions: spec.requiredInteractions || [],
-      triggerNext: spec.triggerNext || { condition: '', description: '' },
-      entitiesRequired: (spec.entitiesRequired || []).map(e => ({
-        name: e.name || '',
-        terminalState: e.terminalState !== undefined ? e.terminalState : 2,
-        description: e.description || '',
-      })),
-      playerMustAct: spec.playerMustAct !== false,
-      autoAllowed: spec.autoAllowed === true,
-      formSwitch: spec.formSwitch || null,
-    }));
+    validated = specs.map((spec, i) => {
+      const base = {
+        phaseId: spec.phaseId || `phase${i + 1}`,
+        phaseName: spec.phaseName || `Phase ${i + 1}`,
+        chapterId: spec.chapterId || i + 1,
+        duration: shotDurationPolicy.normalizeReviewShotDuration(spec.duration).duration,
+        requiredInteractions: spec.requiredInteractions || [],
+        triggerNext: spec.triggerNext || { condition: '', description: '' },
+        entitiesRequired: (spec.entitiesRequired || []).map(e => ({
+          name: e.name || '',
+          terminalState: e.terminalState !== undefined ? e.terminalState : 2,
+          description: e.description || '',
+        })),
+        playerMustAct: spec.playerMustAct !== false,
+        autoAllowed: spec.autoAllowed === true,
+        formSwitch: spec.formSwitch || null,
+      };
+
+      // [WAVE F] 玩家可读性字段：spec-validate 把它们当 optional，缺省即跳过；
+      // 这里只做类型清洗 + 兜底 goal 推导。autoAllowed=true 时 autoModeHint 优先，
+      // playerInstruction 留空避免双重 SetGuideText。
+      const pi = (typeof spec.playerInstruction === 'string') ? spec.playerInstruction.trim() : '';
+      const ah = (typeof spec.autoModeHint === 'string') ? spec.autoModeHint.trim() : '';
+      if (pi) base.playerInstruction = pi;
+      if (ah) base.autoModeHint = ah;
+
+      if (_isValidGoal(spec.goal)) {
+        base.goal = {
+          kind: spec.goal.kind,
+          target: spec.goal.target,
+          displayResource: typeof spec.goal.displayResource === 'string' ? spec.goal.displayResource : '',
+        };
+      } else {
+        const derived = _deriveGoalFromSpec(base);
+        if (derived) base.goal = derived;
+      }
+
+      return base;
+    });
 
     // Truncation guard: if we got far fewer specs than expected chapters, retry
     if (validated.length < minAcceptable) {
@@ -418,5 +549,7 @@ module.exports = {
   _internals: {
     computeDeterministicSeed,
     normalizeReviewShotDuration: shotDurationPolicy.normalizeReviewShotDuration,
+    deriveGoalFromSpec: _deriveGoalFromSpec,
+    isValidGoal: _isValidGoal,
   },
 };
