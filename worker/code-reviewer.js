@@ -123,7 +123,6 @@ class EventPool — already blocked by static-check, do not re-flag)
 - GFM_Create.Ground(float width, float depth) — 2 floats, not Vector3
 - GFM_UI.CreateCanvas(int w, int h) — REQUIRES 2 params, returns Canvas
 - GFM_UI.CreateProgressBar(...) — returns Slider, NOT Image
-- GFM_Joystick.Create(Canvas, float size) — returns GFM_Joystick (.Horizontal/.Vertical/.IsDragging)
 - There is NO class called "GFM_Tools" — use GFM_Create, GFM_UI, GFM_Utils, etc.
 - GFM_UI.CreateText(Canvas, string, Vector2, int) — returns Text, valid API
 - GFM_UI.CreateButton(Canvas, string, Vector2, Vector2, UnityAction) — returns Button, valid API
