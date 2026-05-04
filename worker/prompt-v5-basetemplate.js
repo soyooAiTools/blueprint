@@ -520,7 +520,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('');
   lines.push('## 操作 API');
   lines.push('- ⛔ 不要用 GFM_Create.SetColor() — 颜色已烘焙，直接 Find 对应颜色的对象');
-  lines.push('- 虚拟摇杆: `var joystick = GFM_Joystick.Create(canvas, 200f);` canvas 是 Canvas 类型');
+  lines.push('- 玩家移动：点击屏幕设定目标点，由骨架 MovePlayer() 自动朝目标走；不要再创建虚拟摇杆');
   lines.push('- 游戏结束: `Luna.Unity.LifeCycle.GameEnded()`');
   lines.push('- CTA: `Luna.Unity.Playable.InstallFullGame()`');
   lines.push('- 时间延迟: 用 `timer += Time.deltaTime; if (timer > X)` 代替 WaitForSeconds');
@@ -537,7 +537,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('## 骨架已内置 _autoPlayMode 开关，你的代码必须支持两种模式:');
   lines.push('');
   lines.push('### 模式 A: 交互模式 (_autoPlayMode == false) — 上线给用户玩');
-  lines.push('- 玩家通过摇杆/点击/拖拽操控角色');
+  lines.push('- 玩家通过点击/拖拽操控角色');
   lines.push('- Phase 推进需要玩家完成指定操作');
   lines.push('- 引导(guide)告诉玩家下一步操作');
   lines.push('- 每个 Phase 必须有交互门槛（不能靠 timer 自动推进）');
@@ -613,7 +613,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('# 交互模式规则 (_autoPlayMode == false 时)');
   lines.push('');
   lines.push('## 每个 Phase 必须有交互门槛');
-  lines.push('- ✅ Phase 推进依赖玩家操作（摇杆移动到位/点击/拖拽）');
+  lines.push('- ✅ Phase 推进依赖玩家操作（点击移动到位/拖拽）');
   lines.push('- ✅ 引导(guide)清晰告诉玩家下一步操作');
   lines.push('- ✅ 每个阶段之间有明显的视觉变化');
   lines.push("- ✅ AddCompletedPhase 的参数使用 Rule 的 ID");
@@ -638,7 +638,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('  if (currentPhaseName == "" || currentPhaseName == "gameStart") {');
   lines.push('    currentPhaseName = "phase_1";');
   lines.push('    AddCompletedPhase("phase_xxx_1"); // 用蓝图中 Rule 的真实 ID');
-  lines.push('    ShowGuide("用摇杆移动到目标位置");');
+  lines.push('    ShowGuide("点击屏幕移动到目标位置");');
   lines.push('  }');
   lines.push('');
   lines.push('  // Rule 2: 玩家移动到目标 → 触发下一阶段');

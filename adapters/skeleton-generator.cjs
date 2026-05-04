@@ -36,7 +36,7 @@ const ENTITY_COLORS = [
  */
 const RESERVED_SKELETON_VARS = new Set([
   'gold', 'moveSpeed', 'collectRange', 'maxCarry', 'carrying', 'carryingType',
-  'player', 'joystick', 'mainCam', 'uiCanvas', 'guideText', 'scoreText',
+  'player', 'mainCam', 'uiCanvas', 'guideText', 'scoreText',
   'phaseTimer', 'phaseRealTimer', 'lastPhaseRealClock', 'gameTimer', 'gameEnded', 'currentPhaseName', 'ruleTriggered',
   'completedPhases', 'completedPhaseCount', 'floatingText', 'floatingTextTimer',
   'tapMoveTarget', 'hasTapTarget', 'carryVisuals', 'playerHP', 'enemiesDefeated',
@@ -817,8 +817,7 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    // ========== [SKELETON] IDLE GAME KIT：预置系统 ==========');
     lines.push('    // 下方是可直接调用的工作代码，AI 只调用，不重写。');
     lines.push('');
-    lines.push('    // --- 玩家移动（摇杆优先） ---');
-    lines.push('    GFM_Joystick joystick;');
+    lines.push('    // --- 玩家移动（点击移动） ---');
     lines.push('    GameObject player;');
     if (hasFormSwitch) {
       lines.push('    float moveSpeed { get { return (_forms != null && _forms.Length > 0) ? _forms[_currentFormIndex].moveSpeed : 5f; } }');
@@ -827,7 +826,7 @@ function generateSkeleton(specs, opts = {}) {
     }
     lines.push('    int carrying = 0; // 玩家当前携带的通用资源数量');
     lines.push('    string carryingType = ""; // 当前携带资源类型');
-    lines.push('    // [SKELETON] 点击移动目标：摇杆无输入时的兜底移动方式。');
+    lines.push('    // [SKELETON] 点击移动目标：玩家点击屏幕时记录世界落点。');
     lines.push('    Vector3 tapMoveTarget = Vector3.zero;');
     lines.push('    bool hasTapTarget = false;');
     lines.push('    // [SKELETON] 每帧移动/朝向复用缓冲，避免额外分配。');
@@ -839,38 +838,17 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    // 上一次渲染的分数文本，避免重复写 HUD。');
     lines.push('    string _lastScoreText = "";');
     lines.push('');
-    lines.push('    // [SKELETON] 玩家移动：优先摇杆，点击移动兜底；在 Update() 调用。');
+    lines.push('    // [SKELETON] 玩家移动：点击移动；在 Update() 调用。');
     lines.push('    void MovePlayer()');
     lines.push('    {');
     lines.push('        if (player == null) return;');
-    lines.push('        // 优先级 1：摇杆');
-    lines.push('        if (joystick != null)');
-    lines.push('        {');
-    lines.push('            float h = joystick.Horizontal;');
-    lines.push('            float v = joystick.Vertical;');
-    lines.push('            if (Mathf.Abs(h) > 0.1f || Mathf.Abs(v) > 0.1f)');
-    lines.push('            {');
-    lines.push('                _moveBuf.x = h; _moveBuf.y = 0f; _moveBuf.z = v;');
-    lines.push('                float step = moveSpeed * Time.deltaTime;');
-    lines.push('                var p = player.transform.position;');
-    lines.push('                p.x += _moveBuf.x * step; p.z += _moveBuf.z * step;');
-    lines.push('                player.transform.position = p;');
-    lines.push('                player.transform.rotation = Quaternion.LookRotation(_moveBuf);');
-    lines.push('                hasTapTarget = false;');
-    lines.push('                return;');
-    lines.push('            }');
-    lines.push('        }');
-    lines.push('        // 优先级 2：点击移动（点击游戏区 -> 射线落点 -> 朝落点移动）');
+    lines.push('        // 点击移动（点击游戏区 -> 射线落点 -> 朝落点移动）');
     lines.push('        if (Input.GetMouseButtonDown(0) && mainCam != null)');
     lines.push('        {');
     lines.push('            Vector2 sp = Input.mousePosition;');
-    lines.push('            // 忽略左下角 200x200 的摇杆区域点击。');
-    lines.push('            if (sp.x > 200f || sp.y > 200f)');
-    lines.push('            {');
-    lines.push('                Ray ray = mainCam.ScreenPointToRay(sp);');
-    lines.push('                float t = -ray.origin.y / ray.direction.y;');
-    lines.push('                if (t > 0f) { tapMoveTarget = ray.origin + ray.direction * t; hasTapTarget = true; }');
-    lines.push('            }');
+    lines.push('            Ray ray = mainCam.ScreenPointToRay(sp);');
+    lines.push('            float t = -ray.origin.y / ray.direction.y;');
+    lines.push('            if (t > 0f) { tapMoveTarget = ray.origin + ray.direction * t; hasTapTarget = true; }');
     lines.push('        }');
     lines.push('        // 朝点击目标移动。');
     lines.push('        if (hasTapTarget)');
@@ -1211,8 +1189,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('');
 
   if (isIdleGame) {
-    lines.push('        // [SKELETON] Idle 初始化：摇杆 + 等距相机');
-    lines.push('        joystick = GFM_Joystick.Create(uiCanvas, 180f);');
+    lines.push('        // [SKELETON] Idle 初始化：等距相机');
     lines.push('        if (mainCam != null) mainCam.orthographic = true;');
     lines.push('        GFM_CameraController.Instance.SetOrthographicSize(8f);');
     lines.push('        GFM_CameraController.Instance.SetCameraHeight(12f, -8f);');
@@ -1981,7 +1958,7 @@ function _extractIdleKitSections(code) {
   const extracts = [
     {
       target: inputSections,
-      regex: /    \/\/ --- 玩家移动（摇杆优先） ---\n    GFM_Joystick joystick;\n    GameObject player;\n(?:    float moveSpeed \{ get \{ return \(_forms != null && _forms\.Length > 0\) \? _forms\[_currentFormIndex\]\.moveSpeed : 5f; \} \}\n|    float moveSpeed = 5f;\n)/,
+      regex: /    \/\/ --- 玩家移动（点击移动） ---\n    GameObject player;\n(?:    float moveSpeed \{ get \{ return \(_forms != null && _forms\.Length > 0\) \? _forms\[_currentFormIndex\]\.moveSpeed : 5f; \} \}\n|    float moveSpeed = 5f;\n)/,
       note:
         '    // Idle movement 状态位于 GameFlowManagerMain.Input.cs\n\n',
     },
@@ -1993,7 +1970,7 @@ function _extractIdleKitSections(code) {
     },
     {
       target: inputSections,
-      regex: /    \/\/ \[SKELETON\] 点击移动目标：摇杆无输入时的兜底移动方式。\n    Vector3 tapMoveTarget = Vector3\.zero;\n    bool hasTapTarget = false;\n    \/\/ \[SKELETON\] 每帧移动\/朝向复用缓冲，避免额外分配。\n    Vector3 _moveBuf = Vector3\.zero;\n/,
+      regex: /    \/\/ \[SKELETON\] 点击移动目标：玩家点击屏幕时记录世界落点。\n    Vector3 tapMoveTarget = Vector3\.zero;\n    bool hasTapTarget = false;\n    \/\/ \[SKELETON\] 每帧移动\/朝向复用缓冲，避免额外分配。\n    Vector3 _moveBuf = Vector3\.zero;\n/,
       note:
         '    // Idle tap-move 状态位于 GameFlowManagerMain.Input.cs\n',
     },
@@ -2011,7 +1988,7 @@ function _extractIdleKitSections(code) {
     },
     {
       target: inputSections,
-      regex: /    \/\/ \[SKELETON\] 玩家移动：优先摇杆，点击移动兜底；在 Update\(\) 调用。\n    void MovePlayer\(\)\n    \{\n[\s\S]*?    }\n\n/,
+      regex: /    \/\/ \[SKELETON\] 玩家移动：点击移动；在 Update\(\) 调用。\n    void MovePlayer\(\)\n    \{\n[\s\S]*?    }\n\n/,
       note:
         '    // Idle 移动辅助方法位于 GameFlowManagerMain.Input.cs\n\n',
     },
