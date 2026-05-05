@@ -233,4 +233,35 @@ assert.strictEqual(review.isAssemblyReadyForDeterministicReview(ctxOk, [], 0), f
   'Case 17: env override must disable both gates');
 delete process.env.DISABLE_ASSEMBLY_REVIEW_SKIP;
 
-console.log('template-output-validator + review gate: 17 cases passed');
+// Case 18: spawner template regression — Update<entity> naming must align with
+// validator (other 11 NPC templates use Update<entity>; spawner historically
+// emitted Update<entity>Spawner which produced false-positive npc-method-missing-def
+// → fix-loop infinite retry → codex quota burn). 2026-05-05 incident.
+var spawnerTpl = require('../adapters/templates/npc-behaviors/spawner.cjs');
+var spawnerNpc = {
+  entity: 'GarbageSpawner',
+  template: 'spawner',
+  params: { spawnEntity: 'SpaceGarbage', spawnInterval: 2, maxAlive: 20, spawnRadius: 4 },
+};
+var spawnerSchema = {
+  phases: [{ phaseId: 'p1', trigger: null }],
+  entities: [{ name: 'player' }, { name: 'GarbageSpawner' }, { name: 'SpaceGarbage' }],
+  npcs: [spawnerNpc],
+};
+var spawnerCs = [
+  'using UnityEngine;',
+  'public partial class GameFlowManagerMain : MonoBehaviour {',
+  '    void Update() {',
+  '        ' + spawnerTpl.generateUpdate(spawnerNpc).trim(),
+  '        AddCompletedPhase("p1");',
+  '    }',
+  '    ' + spawnerTpl.generateSystem(spawnerNpc).trim(),
+  '}',
+].join('\n');
+var r18 = validator.validateTemplateOutput({ schema: spawnerSchema, csCode: spawnerCs });
+assert.strictEqual(r18.passed, true,
+  'Case 18: spawner template output must satisfy validator. Issues: ' + JSON.stringify(r18.issues));
+assert.strictEqual(r18.summary.npcDefined, 1, 'Case 18: spawner method def must be detected');
+assert.strictEqual(r18.summary.npcCalled, 1, 'Case 18: spawner method call must be detected');
+
+console.log('template-output-validator + review gate: 18 cases passed');

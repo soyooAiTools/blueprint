@@ -14,7 +14,7 @@ function generateVariables(npc) {
 }
 
 function generateUpdate(npc) {
-  return '        Update' + npc.entity + 'Spawner(Time.deltaTime);';
+  return '        Update' + npc.entity + '(Time.deltaTime);';
 }
 
 function generateSystem(npc) {
@@ -22,7 +22,7 @@ function generateSystem(npc) {
   var p = npc.params;
   var prefabId = toPrefabIdentifier(p.spawnEntity);
   var lines = [];
-  lines.push('    void Update' + npc.entity + 'Spawner(float dt) {');
+  lines.push('    void Update' + npc.entity + '(float dt) {');
   lines.push('        ' + v + 'SpawnTimer -= dt;');
   lines.push('        // Spawn gate: spawn only after cooldown and while alive-count remains below the configured cap.');
   lines.push('        if (' + v + 'SpawnTimer <= 0f && ' + v + 'AliveCount < ' + p.maxAlive + ') {');
