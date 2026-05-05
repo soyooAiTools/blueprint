@@ -78,6 +78,27 @@ assert.ok(fpH.indexOf('spec-extract') < 0, '[H.1] spec-extract prefix stripped: 
 var fpI = normalizeFingerprint('complexity-gate: score too high');
 assert.ok(fpI.indexOf('complexity-gate') < 0, '[I.1] complexity-gate prefix stripped: ' + fpI);
 
+// ── Worker error wrapping "[Linux] Error: [<stage>] " — 2026-05-05 incident ───
+// Without this stripper, outer-retry fp dedup never matched across stages
+// because each stage's fp had the wrapper as a uniqueness prefix. Real
+// proj_1777128165822_6acnqx case: 4 fp entries (review/cua-verify x2/codegen),
+// all "fix-loop not converging" root cause but counted as 4 distinct fps.
+var fpJ1 = normalizeFingerprint(
+  '[Linux] Error: [review] review aborted: same CODE error repeated 3 rounds, fix-loop not converging: Review blocked: 1 critical issues'
+);
+var fpJ2 = normalizeFingerprint(
+  '[Linux] Error: [cua-verify] cua-verify aborted: same CODE error repeated 3 rounds, fix-loop not converging: Review blocked: 1 critical issues'
+);
+assert.ok(fpJ1.indexOf('[Linux]') < 0, '[J.1] [Linux] wrapper stripped: ' + fpJ1);
+assert.ok(fpJ2.indexOf('[Linux]') < 0, '[J.2] [Linux] wrapper stripped: ' + fpJ2);
+// Inner stage tag still differs (review/cua-verify in body), so fps stay
+// distinct on root cause — but they'd match if same stage with different
+// outer wrappers (e.g. a Linux retry then a Worker retry).
+var fpJ3 = normalizeFingerprint(
+  '[Worker] Error: [review] review aborted: same CODE error repeated 3 rounds, fix-loop not converging: Review blocked: 1 critical issues'
+);
+eq(fpJ1, fpJ3, '[J.3] same stage with different host wrapper must collapse');
+
 // ── Cap at 100 chars ───────────────────────────────────────────────────
 
 var long = 'x'.repeat(300);

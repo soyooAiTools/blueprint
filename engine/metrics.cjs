@@ -270,6 +270,15 @@ function collapseRepeatedClauses(reason) {
 function normalizeFingerprint(reason, opts) {
   if (!reason) return 'unknown';
   var s = String(reason);
+  // 2026-05-05: strip worker-side error wrapping "[Linux] Error: [<stage>] " that
+  // wraps every fail message before it reaches outer-retry fp dedup. Without this,
+  // every stage's "fix-loop not converging" produced a stage-prefixed fp that
+  // never matched another stage's, so OUTER_RETRY_FP_FATAL_AT (=2) never fired
+  // when failures rotated across stages → infinite outer retries → codex burn.
+  // Real incident 2026-05-05: 6acnqx outerFpHistory had 4 entries
+  // (review/cua-verify/cua-verify/codegen), each unique under stage prefix → 0
+  // dedup hits → 5x MAX_CODE_RETRIES burn before any cap fired.
+  s = s.replace(/^\[(?:Linux|Windows|MacOS|Worker)\]\s*Error\s*:\s*\[[a-z0-9-]+\]\s*/i, '');
   // 2026-04-19: collapse repeated clauses BEFORE everything else so the rest
   // of the pipeline sees a fingerprint shape that's stable even when
   // spec-validate aggregation is bypassed (e.g. legacy records).
