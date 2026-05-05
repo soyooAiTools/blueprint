@@ -108,14 +108,16 @@ describe('skeleton-generator — world labels (2026-04-19)', () => {
     expect(out).not.toMatch(/AddWorldLabel\(Target/);
   });
 
-  test('missing chineseName → no label (graceful)', () => {
+  test('missing chineseName → fallback to entity name (2026-05-05)', () => {
+    // 之前是"chineseName 缺失就静默丢标签",玩家场上只有色块没注解;
+    // 现在兜底用 entity.name,英文也比没标签好。
     const specs = buildMinimalSpec();
     const out = generateSkeleton(specs, {
       entityPoolMap: { Target: 'Pool_Target' },
       entities: [{ name: 'Target', pool: 'Pool_Target' }],
       w1bSplit: false,
     });
-    expect(out).not.toMatch(/AddWorldLabel\(Target/);
+    expect(out).toMatch(/AddWorldLabel\(Target,\s*"Target"/);
   });
 
   test('no opts.entities → no labels, no crash', () => {

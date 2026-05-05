@@ -25,6 +25,7 @@ const GFM_FILES = [
   'GFM_Billboard.cs',
   'GFM_ResourceIds.cs',
   'GFM_VisualGuide.cs',      // 玩家锚点 + 当前目标高亮 (L1 可读性)
+  'GFM_PhaseTransition.cs',  // phase 切换实体显隐缩放缓动 (反跳闪/瞬移/突变)
   // Manager 架构层 (MonoBehaviour 单例 / 有状态)
   'GFM_EconomyManager.cs',   // 资源/金币/兑换
   'GFM_UIManager.cs',        // Canvas/guide/score/floatingText

@@ -20,17 +20,25 @@ function generatePhaseInit(phase, schema) {
       // 已可见的实体保持当前位置，不再每个 phase 切换硬拽回 initPos。
       // 根因：旧逻辑 phase 1→2→3 重叠 showEntities 时,每次 init 都 SetPosition,
       // 让玩家眼看到「粉碎机/锻造间」在 phase 切换时跳一下。
-      lines.push('                if (' + v + ' != null && ' + v + '.transform.position.y < -100f) PlaceObj(' + v + ', ' + ent.initPos[0] + 'f, ' + ent.initPos[1] + 'f, ' + ent.initPos[2] + 'f);');
+      // 2026-05-05: 隐藏态→可见态时同步走 GFM_PhaseTransition.PopIn 缩放缓动,
+      // 不再让实体一帧"啪"出现。PlaceObj 仍同步落位(EntityAdvanced 看 position)。
+      lines.push('                if (' + v + ' != null && ' + v + '.transform.position.y < -100f) {');
+      lines.push('                    PlaceObj(' + v + ', ' + ent.initPos[0] + 'f, ' + ent.initPos[1] + 'f, ' + ent.initPos[2] + 'f);');
       if (ent.scale && ent.scale !== 1.0) {
-        lines.push('                SetScale(' + v + ', ' + ent.scale + 'f);');
+        lines.push('                    SetScale(' + v + ', ' + ent.scale + 'f);');
       }
+      lines.push('                    GFM_PhaseTransition.PopIn(' + v + ', 0.3f);');
+      lines.push('                }');
     }
   }
   // Hide entities
+  // 2026-05-05: 走 GFM_PhaseTransition.PopOut 缩放缓动 + 完成后 y=-1000,
+  // 替代过去 HideObj 一帧 y=-1000 的"瞬移"突变。EntityAdvanced 仍看 transform.position,
+  // 动画期间位置不变,300ms 后才落到 -1000,远早于 autoplay 12s 守护。
   var hide = phase.hideEntities || [];
   for (var j = 0; j < hide.length; j++) {
     if (findEntity(schema, hide[j])) {
-      lines.push('                HideObj(' + toLowerCamel(hide[j]) + ');');
+      lines.push('                GFM_PhaseTransition.PopOut(' + toLowerCamel(hide[j]) + ', 0.3f);');
     }
   }
   // Guide text

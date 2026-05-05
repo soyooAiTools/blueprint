@@ -45,16 +45,10 @@ public static class GFM_Create
             _baseMat.mainTexture = null;
             _baseMat.color = Color.white;
         }
-        var cam = Camera.main;
-        if (cam != null)
-        {
-            cam.backgroundColor = new Color(0.6f, 0.8f, 1f);
-            cam.clearFlags = CameraClearFlags.SolidColor;
-            cam.orthographic = true;
-            cam.orthographicSize = 8f;
-            cam.transform.rotation = Quaternion.Euler(45f, 0f, 0f);
-            cam.transform.position = new Vector3(0f, 15f, -15f);
-        }
+        // 2026-05-05: 不再在 InitMaterialFromScene 里改 backgroundColor / 相机姿态。
+        // backgroundColor 由 GameFlowManagerMain.Start() 唯一设置 (skeleton 预设),
+        // 之前这里又写一次 (0.6, 0.8, 1) → 帧 1 这里写浅蓝, 帧 2 main 覆盖深灰 = 用户看到 2 次闪。
+        // 相机姿态由 GFM_CameraController.Init() 接管。
         return _baseMat;
     }
 

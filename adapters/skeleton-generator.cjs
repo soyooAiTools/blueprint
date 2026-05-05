@@ -529,10 +529,19 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        }');
     lines.push('    }');
     lines.push('');
+    // 2026-05-05: Player 永远不能 HideObj —— Hide 把 y 拍到 -999, Start() 完到 phase 0
+    // 第一次 Init() 中间会有几帧 Player 在 y=-999, 用户看到 player 从屏幕下方"瞬移"上来。
+    // GFM_Player.Init 会负责把 Player 落到正确位置, HideAllBoundEntities 不要碰它。
     lines.push('    // [SKELETON] 开局先隐藏所有绑定实体，phase init 再显式摆放可见对象。');
+    lines.push('    // Player 不在此列表内：Player 由 GFM_Player.Init 负责定位，开局可见。');
     lines.push('    void HideAllBoundEntities()');
     lines.push('    {');
     entityNames.forEach(name => {
+      // 跳过 Player —— 防止 player 出现在 y=-999 又被 phase init 拽回，造成"瞬移上场"
+      if (/^(Player|PlayerRobot|PlayerChar|Hero|MainChar|Protagonist)$/i.test(name)) {
+        lines.push('        // Player 不 HideObj，避免开局瞬移');
+        return;
+      }
       lines.push('        HideObj(' + name + ');');
     });
     lines.push('    }');
@@ -1129,30 +1138,25 @@ function generateSkeleton(specs, opts = {}) {
   // 标签背景 alpha=0，避免黑条；showLabel=false 的实体不显示标签。
   // [SKELETON 2026-05-04] Player 实体强制加"你"标签（即使 blueprint 没填 chineseName），
   // 避免新玩家"找不到自己"。复用 isPlayerName(line 816) 识别。
+  // [SKELETON 2026-05-05] heightOffset 一律走 0 = 实体 transform.position 中心。
+  // 用户反馈"标签飘在头顶很远，看不清是哪个实体的"；和 GFM_VisualGuide 黄色菱形(头顶)
+  // 配合：菱形在头顶定位"我/目标",文字标签在中心定位"是什么"。
+  // 兜底：showLabel != false 时 chineseName 缺失就用 name,避免静默跳过 (LLM 偶尔漏填)。
   const _isPlayerEntityName = (n) => /^(Player|PlayerRobot|PlayerChar|Hero|MainChar|Protagonist)/i.test(n || '');
   let _labelsEmitted = 0;
-  // [SKELETON 2026-05-04] label 高度阶梯：同一片区多个实体的 label 在屏幕上会叠到一起，
-  // 玩家看到一坨重影。按 emit 顺序循环 0/1/2 三档错开 +0.45m，配合 entity 自身 scale 的
-  // 基础高度，等于把 N 个 label 散到 3 排上，肉眼可分辨。
-  // 玩家"你"标签强制走档 0（最贴身）保证一眼能看到自己。
   entityNames.forEach(name => {
-    const meta = entityMeta[name] || {};
+    // 没传 entities meta(opts.entities 为空)→ 整个标签步骤跳过,保持 entity-pool-only 项目老行为
+    if (!entityMeta[name]) return;
+    const meta = entityMeta[name];
     if (meta.showLabel === false) return;
     let cn = meta.chineseName;
-    let isPlayer = false;
-    if (!cn && _isPlayerEntityName(name)) { cn = '你'; isPlayer = true; }
-    else if (cn && _isPlayerEntityName(name)) { isPlayer = true; }
-    if (!cn) return;
+    if (!cn && _isPlayerEntityName(name)) cn = '你';
+    if (!cn) cn = name; // 兜底:LLM 漏填 chineseName 不再静默丢标签
     if (_labelsEmitted === 0) {
-      lines.push('        // [SKELETON] 目标实体的世界空间中文标签');
+      lines.push('        // [SKELETON] 目标实体的世界空间中文标签 (heightOffset=0 → 实体中心)');
     }
-    const scale = typeof meta.scale === 'number' ? meta.scale : 1;
-    const baseOffset = scale * 0.5 + 0.5;
-    // tier 0 / 1 / 2 → 额外 +0 / +0.45 / +0.9，玩家档强制 0
-    const tier = isPlayer ? 0 : (_labelsEmitted % 3);
-    const heightOffset = (baseOffset + tier * 0.45).toFixed(2);
     const cnEscaped = cn.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-    lines.push(`        GFM_UI.AddWorldLabel(${name}, "${cnEscaped}", ${heightOffset}f);`);
+    lines.push(`        GFM_UI.AddWorldLabel(${name}, "${cnEscaped}", 0f);`);
     _labelsEmitted++;
   });
   if (_labelsEmitted > 0) lines.push('');
@@ -1307,12 +1311,23 @@ function generateSkeleton(specs, opts = {}) {
 
     if (i === 0 && visibleEntities.length > 0) {
       // 防纯色摆放只发生在 phase 0 的入口块内，避免首帧空场景。
+      // 2026-05-05 反馈"开头闪动" → PlaceObj+SetScale 一帧瞬现 = 闪。
+      // PopIn 走 GFM_PhaseTransition (300ms easeOut 缩放从 0 → orig) 让初次显形是缓动出现。
+      // 2026-05-05 反馈"实体过大" → 用 entityMeta.scale (codegen-schema 已 clamp 到 ≤1.0),
+      // 默认 0.7。entity initPos 也用 meta 真实值,让物体散开布局看起来不齐刷刷。
       lines.push('            // [SKELETON] 防纯色：显示初始物体（对象池颜色已烘焙，请勿调用 SetColor）');
+      lines.push('            // PlaceObj 同步落位；PopIn 缓动出现，避免首帧"啪"地闪现');
       visibleEntities.forEach((eName, vi) => {
         const color = ENTITY_COLORS[vi % ENTITY_COLORS.length];
-        const xPos = (vi - 1) * 3; // 摆开到 -3、0、3
-        lines.push(`            PlaceObj(${eName}, ${xPos}f, 0.5f, 0f); // 对象池颜色：${color.label}`);
-        lines.push(`            SetScale(${eName}, 1f, 1f, 1f);`);
+        const meta = entityMeta[eName] || {};
+        const sc = (typeof meta.scale === 'number' && meta.scale > 0 && meta.scale <= 1.5) ? meta.scale : 0.7;
+        const ip = Array.isArray(meta.initPos) && meta.initPos.length >= 3 ? meta.initPos : null;
+        const xPos = ip ? ip[0] : ((vi - 1) * 3);
+        const yPos = ip ? ip[1] : 0.5;
+        const zPos = ip ? ip[2] : 0;
+        lines.push(`            PlaceObj(${eName}, ${xPos}f, ${yPos}f, ${zPos}f); // 对象池颜色：${color.label}`);
+        lines.push(`            SetScale(${eName}, ${sc}f, ${sc}f, ${sc}f);`);
+        lines.push(`            GFM_PhaseTransition.PopIn(${eName}, 0.3f);`);
       });
     }
 

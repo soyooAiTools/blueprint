@@ -1024,6 +1024,22 @@ module.exports = {
                   }
                 }
               }
+              // 2026-05-05: codex CUA-fix 也可能写出 0-255 Color → wasm 烘进白闪。
+              try {
+                var __colorSanitizer = require('../../lib/cs-color-sanitizer.cjs');
+                var __mainSan = __colorSanitizer.sanitizeColors(lastCsCode);
+                if (__mainSan.changed) {
+                  lastCsCode = __mainSan.code;
+                  ctx.addLog('cua-verify', 'Color255To01 main x' + __mainSan.fixes);
+                }
+                Object.keys(lastExtraFiles || {}).forEach(function(__name) {
+                  var __extraSan = __colorSanitizer.sanitizeColors(lastExtraFiles[__name]);
+                  if (__extraSan.changed) {
+                    lastExtraFiles[__name] = __extraSan.code;
+                    ctx.addLog('cua-verify', 'Color255To01 ' + __name + ' x' + __extraSan.fixes);
+                  }
+                });
+              } catch (_csErr) { /* sanitizer optional */ }
               ctx.reportStatus('building', { message: '[Linux] CUA fix rebuilding... (round ' + (round + 1) + ')' });
 
               return helpers.buildRequest(buildUrl, '/build', lastCsCode, Object.assign({}, lastExtraFiles))

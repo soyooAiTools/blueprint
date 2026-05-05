@@ -1166,11 +1166,14 @@ function parseBlueprintInitPos(value) {
 }
 
 function parseBlueprintScale(value) {
-  if (typeof value === 'number') return clampNumber(value, 0.3, 8, 1);
+  // 2026-05-05: 上限从 8 收到 1.0。LLM 经常给"重要"实体写 1.5/2/3,
+  // 正交相机 size=8 下看起来巨大占满屏；用户报"实体模型比例有的过于大"。
+  // 收紧上限,把建筑统一压到 1.0 以内,等比保留下限差异。默认 0.7 比 1.0 含蓄。
+  if (typeof value === 'number') return clampNumber(value, 0.3, 1.0, 0.7);
   var text = String(value || '');
   var nums = text.match(/-?\d+(?:\.\d+)?/g);
-  if (!nums || nums.length === 0) return 1;
-  return clampNumber(parseFloat(nums[0]), 0.3, 8, 1);
+  if (!nums || nums.length === 0) return 0.7;
+  return clampNumber(parseFloat(nums[0]), 0.3, 1.0, 0.7);
 }
 
 function inferDefaultEnemyEntity(schema, blueprintEntities) {
@@ -1363,6 +1366,19 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
     // chineseName fallback: blueprint.label → name → 'entity' (prevents Haiku omission from failing validation)
     if (!e.chineseName || typeof e.chineseName !== 'string' || e.chineseName.length === 0) {
       e.chineseName = _bpLabelByName[e.name] || e.name || 'entity';
+    }
+    // 2026-05-05: 常见英文名 → 中文,避免世界标签出现"Gold"这种英文(玩家看不懂)。
+    var _commonZh = { Gold: '金币', Coin: '金币', Gem: '宝石', Currency: '货币', Score: '分数', Energy: '能量', Health: '生命' };
+    if (_commonZh[e.chineseName]) e.chineseName = _commonZh[e.chineseName];
+    // 2026-05-05: 终极 scale 兜底 — LLM/blueprint 给出的 scale 也按 0.3-1.0 cap。
+    // 单独走 parseBlueprintScale 不够,因为 LLM 经常直接在 schema JSON 里塞 scale: 1.5,
+    // 而 existing.scale 已被赋值,后续 parse 走不到。这里在最终 entities 序列化前再 clamp 一次。
+    if (typeof e.scale === 'number') {
+      if (!isFinite(e.scale) || e.scale <= 0) e.scale = 0.7;
+      else if (e.scale > 1.0) e.scale = 1.0;
+      else if (e.scale < 0.3) e.scale = 0.3;
+    } else {
+      e.scale = 0.7;
     }
     if (e.pool && !/\d{2}$/.test(e.pool)) {
       e.pool = e.pool.replace(/_(\d)$/, '_0$1');

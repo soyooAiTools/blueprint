@@ -554,6 +554,23 @@ function applyDeterministicBuildRepairs(code, extraFiles, blueprint) {
     }
     repairCtx.extraFiles[name] = next;
   });
+  // 2026-05-05: Color(R,G,B) 0-255 → 0-1 兜底。LLM 频繁写 new Color(10f, 15f, 30f),
+  // Unity Color 是 0-1 就被 clamp 成纯白闪一帧。所有 main + extra 都过一遍。
+  try {
+    var colorSanitizer = require('../../lib/cs-color-sanitizer.cjs');
+    var mainColorRepair = colorSanitizer.sanitizeColors(repairCtx.csCode);
+    if (mainColorRepair.changed) {
+      repairCtx.csCode = mainColorRepair.code;
+      fixes.push('Color255To01 x' + mainColorRepair.fixes);
+    }
+    Object.keys(repairCtx.extraFiles || {}).forEach(function(name) {
+      var extraColorRepair = colorSanitizer.sanitizeColors(repairCtx.extraFiles[name]);
+      if (extraColorRepair.changed) {
+        repairCtx.extraFiles[name] = extraColorRepair.code;
+        fixes.push(name + ':Color255To01 x' + extraColorRepair.fixes);
+      }
+    });
+  } catch (_e) { /* sanitizer optional */ }
   return {
     changed: fixes.length > 0,
     code: repairCtx.csCode,
