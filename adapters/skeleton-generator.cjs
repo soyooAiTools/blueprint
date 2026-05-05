@@ -1103,6 +1103,18 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    bool _gfmDisabled = false;');
   lines.push('');
 
+  // 2026-05-05: Awake() 在 Start() 之前 + 在第一帧渲染之前执行,把 Camera bg 提前到这里设置,
+  // 否则 Unity scene template 自带 m_BackGroundColor (蓝灰 0.19/0.30/0.47) 会先渲染一帧,
+  // 项目自定义 bg 在 Start() 才生效 → 用户看到"开头闪了一帧"。Awake() 是 Bridge.NET 兼容的
+  // 唯一前置渲染钩子。这里只设 bg + clearFlags,其他全部留给 Start。
+  lines.push('    // [SKELETON] Awake 优先于 Start 且在首帧渲染前执行;只设 Camera bg,消除一帧闪屏。');
+  lines.push('    void Awake()');
+  lines.push('    {');
+  lines.push('        var cam = Camera.main;');
+  lines.push(`        if (cam != null) { cam.clearFlags = CameraClearFlags.SolidColor; cam.backgroundColor = new Color(${CAMERA_BG.r}f, ${CAMERA_BG.g}f, ${CAMERA_BG.b}f); }`);
+  lines.push('    }');
+  lines.push('');
+
   // Start 方法：预置 Find() 绑定和初始化。
   lines.push('    // 初始化生成状态、对象池实体、UI、AutoPlay 和首帧 preview 快照。');
   lines.push('    void Start()');
@@ -1320,7 +1332,7 @@ function generateSkeleton(specs, opts = {}) {
       visibleEntities.forEach((eName, vi) => {
         const color = ENTITY_COLORS[vi % ENTITY_COLORS.length];
         const meta = entityMeta[eName] || {};
-        const sc = (typeof meta.scale === 'number' && meta.scale > 0 && meta.scale <= 1.5) ? meta.scale : 0.7;
+        const sc = (typeof meta.scale === 'number' && meta.scale > 0 && meta.scale <= 0.7) ? meta.scale : 0.5;
         const ip = Array.isArray(meta.initPos) && meta.initPos.length >= 3 ? meta.initPos : null;
         const xPos = ip ? ip[0] : ((vi - 1) * 3);
         const yPos = ip ? ip[1] : 0.5;
