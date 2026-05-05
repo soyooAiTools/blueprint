@@ -1,5 +1,41 @@
 # Blueprint 生产事故记录
 
+## 2026-05-05: spawner 模板命名约定漂移把 fix-loop 烧光 ChatGPT 周配额 40%
+
+### 背景
+
+用户 2026-05-05 09:08 反馈"codex 不到 20 分钟把周 40% 额度跑没了"。`linux-worker-3` 自 08:50 重启后立刻把 `proj_1777128165822_6acnqx`（太空捡垃圾分镜）从 fix-loop 阶段恢复，反复 spawn `codex exec -m gpt-5.5 -c model_reasoning_effort=high`（单次 ~405 s、prompt 19 KB），同一指纹连击 6 次后还在跑；`linux-monitor-loop` 每 2 min 又派发 9 fingerprints。
+
+### 根因（4 层）
+
+1. **L1 模板命名漂移** — `adapters/templates/npc-behaviors/spawner.cjs` 第 17/25 行输出 `Update<entity>Spawner(...)`，**唯一一个**带 `Spawner` 后缀的 NPC 模板。其他 11 个（patrol/chase_attack/circle/defend/evade/flee_on_hit/group_attack/ranged_shooter/static_target/wander/boss_multiphase）一律 `Update<entity>(...)`。
+2. **L2 validator 找不到** — `adapters/template-output-validator.cjs:85` 用 `/void\s+Update<entity>\s*\(/` 检查方法定义。spawner 输出 `void UpdateGarbageSpawnerSpawner(...)`（entity 自带 Spawner 后缀更放大效应），`\s*\(` 匹配不到 `Spawner(`，**永远报 `npc-method-missing-def critical`**。
+3. **L3 fix-loop 错误归因** — `method-check` 看到 critical 后 AUTO-REPAIR 注入 `// [ASSEMBLY SLOT]` marker 然后报 PASS。codex code agent 来填 SLOT 但不知道方法该叫 `Update<entity>Spawner`，永远填错 → 编译/CUA 仍失败 → fix-loop 内圈循环 3 轮 abort。
+4. **L4 outer-retry fp dedup 失效** — `engine/metrics.cjs:normalizeFingerprint` 没剥 `[Linux] Error: [<stage>]` 包装层。`outerFpHistory` 累积 4 条不同 stage 包装的同根因 fp（review/cua-verify×2/codegen），`OUTER_RETRY_FP_FATAL_AT=2` 计数从尾连续匹配，跨 stage 永远不连续 → dedup 永不 fire → 跑满 `MAX_CODE_RETRIES=5` 才标 failed。每轮 outer 烧 ~3 inner × 405 s = 20 min codex 时间。
+
+### 修复（commits `c9110cf` + `7881be2`，已 push）
+
+1. `adapters/templates/npc-behaviors/spawner.cjs` 第 17/25 行去掉 `Spawner` 后缀，与其他 11 模板和 validator 命名约定对齐。
+2. `test/template-output-validator.test.cjs` 加 Case 18，用真实 `proj_1777128165822_6acnqx` 的 `GarbageSpawner` spec 跑 `tpl.generateSystem` + `tpl.generateUpdate` 过 validator，锁住命名契约。
+3. `engine/metrics.cjs:normalizeFingerprint` 顶部新加一条 `s.replace(/^\[(?:Linux|Windows|MacOS|Worker)\]\s*Error\s*:\s*\[[a-z0-9-]+\]\s*/i, '')`，同 stage 跨 worker 重试现在能正确 collapse；real history verify [1]==[2]。
+4. `test/normalize-fingerprint.test.cjs` 加 Case J 覆盖 wrapper strip + 跨 host (Linux/Worker) collapse。
+5. **止血操作**：`pm2 stop linux-worker-2 linux-worker-3 blueprint-monitor-loop`（worker-3 当时正在跑 codex，monitor-loop 每 2 min 又派发 9 fingerprints）；只留 worker-3 单跑、其它 worker + monitor-loop 全停以隔离 observability。
+6. **重置 stale checkpoint**：`/opt/blueprint-editor/server-data/checkpoints/proj_1777128165822_6acnqx/` 移到 `_archived_proj_1777128165822_6acnqx_20260505/`（删 csCode 缓存让 codegen-schema 重跑用新 spawner 模板），sqlite 把 task `code_retry_count=5/status=building` 重置为 `0/pending`。
+
+### 验证
+
+- `node test/normalize-fingerprint.test.cjs` PASS（含新 Case J）；`node test/template-output-validator.test.cjs` 18 cases 全过；`npm test` `pass=285 fail=1`，1 个 fail 是 pre-existing `codegen-schema-trigger-repair` 与本次无关。
+- spawner 模板独立调用对真实 `proj_1777128165822_6acnqx` GarbageSpawner spec 输出 `void UpdateGarbageSpawner(float dt) {`（单 Spawner，与 validator 期望对齐）。
+- normalizeFingerprint 对真实 outerFpHistory 4 条记录验证：[1]==[2]（cua-verify×2 现在 collapse），[0] 与 [1] 仍区分（不同 stage 根因不同，合理）。
+- `pm2 restart linux-worker-1..6 blueprint-monitor-loop` 让所有 worker reload spawner.cjs / metrics.cjs；worker-3 重新 pull 6acnqx 走 codegen-schema → claude-print 路径（不烧 codex）。
+
+### 教训
+
+1. **模板命名约定属于 contract 之一** — 加新 NPC 模板必须配套写 validator-driven 测试用例（喂模板原始 npc spec 进 validator），否则命名漂移会沉默到生产再以 fix-loop 形式爆发。spawner bug 自 commit `3ac4033`（2026-04-16）引入，**20 天 0 测试覆盖**才被发现。
+2. **fingerprint dedup 必须对 message wrapper 不变** — worker → server 上报错误前会包一层 `[Linux] Error: [<stage>] `，normalize 函数没剥这层就让所有"同根因"在 dedup 看来是不同 fp。任何动 normalize 的人必须配套 wrapper 变体测试。
+3. **fix-loop 不收敛永远不该被 watchdog 无脑重派** — 现有 cap 已多层（fix-loop sameErrorThreshold=3 + outer fp dedup at 2 + MAX_CODE_RETRIES=5），但任一层 normalize 漏洞就能让所有 cap 失效。**配额是关键资源**，下次类似事件优先看 normalize 漏洞而非加新 cap。
+4. **checkpoint 是缓存不是 source of truth** — task 从 codegen 之后的 checkpoint 恢复时不会用新模板代码，导致"修了 bug worker 还在烧"。修模板/skeleton/template-engine 后强制清掉相关 task checkpoint 才能验证根因修复。
+
 ## 2026-05-03: schema fallback timeout 把 FATAL 错误放大成 3× 重试
 
 ### 背景
