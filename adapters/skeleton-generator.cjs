@@ -362,7 +362,13 @@ function generateSkeleton(specs, opts = {}) {
       }
       return moveExpr;
     });
-    return parts.join(' && ');
+    // 2026-05-13: phase-level autoplay 出口 override。任一 gate entity 都可能 null /
+    // GFM_AutoPlay 可能 stall 导致 entity-level OR 路径全部 fail。加 phase-level OR 子句:
+    // 一旦 _pushAutoplayFallback 触发(设 _autoplayFallbackFired_<pid> = true),phase gate 直接 pass。
+    // 真玩家路径不受影响(_autoPlayMode = false 时 OR 短路到 entity 真实位移)。
+    var pid = (spec.phaseId || 'phase').replace(/[^a-zA-Z0-9]/g, '');
+    var phaseAutoplayGuard = '(_autoPlayMode && _autoplayFallbackFired_' + pid + ')';
+    return '((' + parts.join(' && ') + ') || ' + phaseAutoplayGuard + ')';
   }
 
 
@@ -417,6 +423,14 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    int _autoPlaySteps = 0;');
   lines.push('    int _autoPlayStepsAtPhaseStart = 0;');
   lines.push('    const float AUTO_PLAY_PHASE_DURATION = 12f; // [SKELETON] 每个 shot 12 秒，请勿修改该值');
+  lines.push('');
+  lines.push('    // 2026-05-13: deterministic autoplay phase-exit flag。每个 phase 各有 _autoplayFallbackFired_<id> 字段;');
+  lines.push('    // _pushAutoplayFallback 触发时置 true,phase 出口 gate 加 OR 子句确保 autoplay 模式下 phase 必能推进,');
+  lines.push('    // 不再依赖 GameObject 真实位移 (entity 可能 null) 或 _autoPlaySteps > baseline (GFM_AutoPlay 可能 stall)。');
+  specs.forEach(function(spec) {
+    var pid = (spec.phaseId || 'phase').replace(/[^a-zA-Z0-9]/g, '');
+    lines.push('    bool _autoplayFallbackFired_' + pid + ' = false;');
+  });
   lines.push('');
   lines.push('    // [SKELETON] Phase evidence：按 phase.signal 保存运行时证据，供 preview/CUA 验证。');
   lines.push('    string[] _phaseEvidenceKeys = new string[512];');
@@ -1575,6 +1589,9 @@ function _pushAutoplayFallback(lines, pid, gateEntities, spec) {
   lines.push('        {');
   lines.push('            ' + touchFlag + ' = true;');
   lines.push('            ' + actedFlag + ' = true;');
+  // 2026-05-13 deterministic phase-exit override: 设 autoplay 出口 flag,让 phase gate 不再
+  // 依赖实体真实位移 / GFM_AutoPlay step 增长 (这两个外部依赖任一 stall 都会让 phase 卡住)。
+  lines.push('            _autoplayFallbackFired_' + pid + ' = true;');
 
   const needsGoldSignal = gateEntities.indexOf('Gold') >= 0 || /upgrade|build|occupy/i.test(pid);
   const needsDebrisSignal = gateEntities.indexOf('RocketDebris') >= 0 || /recycle|collectRocketDebris/i.test(pid);
