@@ -1898,8 +1898,13 @@ var RULES = [
   // skeleton scaffolding (CheckEventRules, phase dispatchers, UpdateGameState,
   // TryReportStuckPhase).
   // Threshold to be calibrated at W2 end against real urbib0/successor distribution.
-  { id: 'method-too-long', pattern: null, blocking: true,
-    message: 'Method body too long — split into smaller named methods and keep coordinator methods thin',
+  // 2026-05-12: 降级 blocking→false。method-too-long 是 semantic 拆分建议,无 deterministic
+  // auto-repair (需 LLM 判断哪段独立)。每次 trigger 都 spawn 一个 ~7min Codex round 来
+  // "拆方法" 性价比极低 (生产 5× 都触发完整 LLM 流);改为 warning 让 reviewer 看 PR 时
+  // 人工决策。如果未来想恢复 blocking,先实现一个 LLM-free auto-split (e.g. 抽 if-block
+  // 到命名方法) 再翻回 true。
+  { id: 'method-too-long', pattern: null, blocking: false,
+    message: 'Method body too long — split into smaller named methods and keep coordinator methods thin (downgraded to warning 2026-05-12, no deterministic auto-repair)',
     custom: function(code) {
       var issues = [];
       var stripped = code

@@ -26,6 +26,9 @@ const GFM_FILES = [
   'GFM_ResourceIds.cs',
   'GFM_VisualGuide.cs',      // 玩家锚点 + 当前目标高亮 (L1 可读性)
   'GFM_PhaseTransition.cs',  // phase 切换实体显隐缩放缓动 (反跳闪/瞬移/突变)
+  // 2026-05-12: GFM_SmoothMover 历史 split 时漏掉,8+ 模板硬编码 GFM_SmoothMover.Bobble/MoveTo
+  // 触发 ~55× CS0103 → ~5.5h LLM 时间烧光。修复:补进 manifest 让 build 复制。
+  'GFM_SmoothMover.cs',      // 实体平滑位移 + Bobble (替代硬性 SetPosition)
   // Manager 架构层 (MonoBehaviour 单例 / 有状态)
   'GFM_EconomyManager.cs',   // 资源/金币/兑换
   'GFM_UIManager.cs',        // Canvas/guide/score/floatingText

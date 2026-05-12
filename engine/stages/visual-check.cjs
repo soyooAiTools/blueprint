@@ -22,9 +22,46 @@ function isVisualInfraFailureReason(reason) {
   return /vision cli unavailable|vision api unavailable|vision cli returned empty response|could not parse analysis response|vision backend not producing valid analysis|exit code 143/.test(text);
 }
 
+/**
+ * 2026-05-12 P2: phaseLog 短路条件判定。
+ * engine 必须被证明在跑(足量 __PHASE__: 信号 + 多个不同 phase + 零关键 console error)。
+ * 命中后可跳过 VLM 视觉检查,把它留作"engine 没在跑/卡死"的 hard gate。
+ *
+ * @param {Array<{phase:string}>} phaseLog
+ * @param {Array<string>} consoleErrors
+ * @param {number} frameCount
+ * @param {Object} [env]
+ * @returns {{canSkip:boolean, distinctPhaseCount:number, criticalErrors:number, reason:string}}
+ */
+function evaluateVisualCheckShortCircuit(phaseLog, consoleErrors, frameCount, env) {
+  env = env || process.env;
+  var enabled = String(env.BLUEPRINT_VISUAL_CHECK_SKIP_VLM || '').toLowerCase() !== 'off';
+  var distinctSet = Object.create(null);
+  (phaseLog || []).forEach(function(p) {
+    if (p && p.phase) distinctSet[p.phase] = true;
+  });
+  var distinct = Object.keys(distinctSet).length;
+  var critical = (consoleErrors || []).filter(function(e) {
+    return /\[pageerror\]|TypeError|ReferenceError/.test(String(e || ''));
+  }).length;
+  var phaseLogLen = (phaseLog || []).length;
+  var fc = Number(frameCount) || 0;
+
+  var ok = enabled && phaseLogLen >= 3 && distinct >= 2 && critical === 0 && fc >= 2;
+  var reason;
+  if (!enabled) reason = 'short-circuit disabled (BLUEPRINT_VISUAL_CHECK_SKIP_VLM=off)';
+  else if (phaseLogLen < 3) reason = 'phaseLog too short (' + phaseLogLen + ' < 3)';
+  else if (distinct < 2) reason = 'too few distinct phases (' + distinct + ' < 2) — engine may be stuck';
+  else if (critical > 0) reason = critical + ' critical console error(s)';
+  else if (fc < 2) reason = 'insufficient frame samples (' + fc + ' < 2)';
+  else reason = 'short-circuit: ' + distinct + ' distinct phases, no critical errors';
+  return { canSkip: ok, distinctPhaseCount: distinct, criticalErrors: critical, reason: reason };
+}
+
 module.exports = {
   name: 'visual-check',
   _isVisualInfraFailureReason: isVisualInfraFailureReason,
+  _evaluateVisualCheckShortCircuit: evaluateVisualCheckShortCircuit,
   canRetry: false,
   assertBefore: function(ctx) {
     if (!ctx.htmlOutput) throw new Error('No HTML output from compile stage');
@@ -301,61 +338,84 @@ module.exports = {
           for (var _vbi = 0; _vbi < imagesBase64.length; _vbi++) _visionImageBytes += (imagesBase64[_vbi] || '').length;
           var _visionFrameCount = imagesBase64.length;
           var _visionStartedAt = Date.now();
-          ctx.addLog('visual-check', '[vision-cost] pre round=' + round +
-            ' frames=' + _visionFrameCount +
-            ' base64Bytes=' + _visionImageBytes +
-            ' promptChars=' + visionUserPrompt.length +
-            ' mode=cc-cli');
 
-          return codexCoder.runCodexText({
-            systemPrompt: visionSystemPrompt,
-            userPrompt: visionUserPrompt,
-            additionalFiles: _visionAdditionalFiles,
-            model: 'claude-sonnet-4-6',
-            backend: process.env.BLUEPRINT_VISUAL_CHECK_TEXT_RUNNER || undefined,
-            effort: process.env.CODEX_REASONING_EFFORT || 'high',
-            timeoutMs: 120000, // CC cold start + Read images + inference + margin
-            minOutputLen: 10,  // JSON of {passed, reason, ...} is at least a dozen chars
-            taskId: (ctx.taskId || 'visual') + '-r' + round,
-            log: function(msg) { ctx.addLog('visual-check', msg); },
-          })
-            .then(function(result) {
-              // [vision-cost] post-call (CLI mode — no usage field available)
-              ctx.addLog('visual-check', '[vision-cost] post round=' + round +
-                ' mode=' + (result.backend || 'cc-cli') + ' ok=' + result.ok +
-                ' respTextLen=' + ((result && result.text) || '').length +
-                ' elapsedMs=' + (Date.now() - _visionStartedAt));
-              if (!result.ok) {
-                throw new Error('Vision CLI error: ' + (result.error || 'unknown'));
-              }
-              var rawText = (result.text || '').trim();
-              var jsonMatch = rawText.match(/\{[\s\S]*\}/);
-              if (jsonMatch) return JSON.parse(jsonMatch[0]);
-              // Empty/unparseable response — bqh33t post-mortem 2026-04-15: dead backend
-              // was returning text="" and pipeline advanced to CUA with a black screen.
-              // Classify as MODEL_FATAL so fix-loop aborts instead of burning recode rounds.
-              if (!rawText) {
-                throw new Error('MODEL_FATAL: Vision CLI returned empty response (likely auth/quota failure)');
-              }
-              return { passed: false, reason: 'Could not parse analysis response: ' + rawText.slice(0, 120) };
+          // 2026-05-12 P2: phaseLog 短路 VLM。
+          // 见 evaluateVisualCheckShortCircuit (本文件顶部) — 全部条件命中才短路:
+          // phaseLog>=3 / 不同 phase>=2 / 无 critical error / frame>=2。
+          // 关闭开关: BLUEPRINT_VISUAL_CHECK_SKIP_VLM=off。
+          var _shortCircuit = evaluateVisualCheckShortCircuit(phaseLog, result.consoleErrors, frameCount);
+
+          var _visionPromise;
+          if (_shortCircuit.canSkip) {
+            ctx.addLog('visual-check', '[short-circuit] skip VLM round=' + round +
+              ' phaseLog=' + phaseLog.length +
+              ' distinctPhases=' + _shortCircuit.distinctPhaseCount +
+              ' criticalErrors=0' +
+              ' frames=' + frameCount +
+              ' — ' + _shortCircuit.reason);
+            _visionPromise = Promise.resolve({
+              passed: true,
+              reason: _shortCircuit.reason,
+              hasInteractiveElements: true,
+              _shortCircuit: true,
+            });
+          } else {
+            ctx.addLog('visual-check', '[vision-cost] pre round=' + round +
+              ' frames=' + _visionFrameCount +
+              ' base64Bytes=' + _visionImageBytes +
+              ' promptChars=' + visionUserPrompt.length +
+              ' mode=cc-cli');
+            _visionPromise = codexCoder.runCodexText({
+              systemPrompt: visionSystemPrompt,
+              userPrompt: visionUserPrompt,
+              additionalFiles: _visionAdditionalFiles,
+              model: 'claude-sonnet-4-6',
+              backend: process.env.BLUEPRINT_VISUAL_CHECK_TEXT_RUNNER || undefined,
+              effort: process.env.CODEX_REASONING_EFFORT || 'high',
+              timeoutMs: 120000, // CC cold start + Read images + inference + margin
+              minOutputLen: 10,  // JSON of {passed, reason, ...} is at least a dozen chars
+              taskId: (ctx.taskId || 'visual') + '-r' + round,
+              log: function(msg) { ctx.addLog('visual-check', msg); },
             })
-            .catch(function(err) {
-              var errMsg = err && err.message ? err.message : 'unknown';
-              ctx.addLog('visual-check', '[vision-cost] error round=' + round +
-                ' elapsedMs=' + (Date.now() - _visionStartedAt) + ' msg=' + errMsg);
-              ctx.addLog('visual-check', 'Vision CLI error: ' + errMsg);
-              // Preserve real MODEL_FATALs (e.g. auth/quota) but allow the visual
-              // stage to degrade gracefully when the vision backend simply times out
-              // or returns no parseable analysis. CUA remains the real hard gate.
-              if (err && /MODEL_FATAL/i.test(errMsg) && !isVisualInfraFailureReason(errMsg)) {
-                throw err;
-              }
-              return {
-                passed: false,
-                reason: 'Vision CLI unavailable: ' + errMsg,
-                infraDegraded: true,
-              };
-            })
+              .then(function(result) {
+                // [vision-cost] post-call (CLI mode — no usage field available)
+                ctx.addLog('visual-check', '[vision-cost] post round=' + round +
+                  ' mode=' + (result.backend || 'cc-cli') + ' ok=' + result.ok +
+                  ' respTextLen=' + ((result && result.text) || '').length +
+                  ' elapsedMs=' + (Date.now() - _visionStartedAt));
+                if (!result.ok) {
+                  throw new Error('Vision CLI error: ' + (result.error || 'unknown'));
+                }
+                var rawText = (result.text || '').trim();
+                var jsonMatch = rawText.match(/\{[\s\S]*\}/);
+                if (jsonMatch) return JSON.parse(jsonMatch[0]);
+                // Empty/unparseable response — bqh33t post-mortem 2026-04-15: dead backend
+                // was returning text="" and pipeline advanced to CUA with a black screen.
+                // Classify as MODEL_FATAL so fix-loop aborts instead of burning recode rounds.
+                if (!rawText) {
+                  throw new Error('MODEL_FATAL: Vision CLI returned empty response (likely auth/quota failure)');
+                }
+                return { passed: false, reason: 'Could not parse analysis response: ' + rawText.slice(0, 120) };
+              })
+              .catch(function(err) {
+                var errMsg = err && err.message ? err.message : 'unknown';
+                ctx.addLog('visual-check', '[vision-cost] error round=' + round +
+                  ' elapsedMs=' + (Date.now() - _visionStartedAt) + ' msg=' + errMsg);
+                ctx.addLog('visual-check', 'Vision CLI error: ' + errMsg);
+                // Preserve real MODEL_FATALs (e.g. auth/quota) but allow the visual
+                // stage to degrade gracefully when the vision backend simply times out
+                // or returns no parseable analysis. CUA remains the real hard gate.
+                if (err && /MODEL_FATAL/i.test(errMsg) && !isVisualInfraFailureReason(errMsg)) {
+                  throw err;
+                }
+                return {
+                  passed: false,
+                  reason: 'Vision CLI unavailable: ' + errMsg,
+                  infraDegraded: true,
+                };
+              });
+          }
+          return _visionPromise
             .then(function(analysis) {
               ctx.addLog('visual-check', (analysis.passed ? 'PASSED' : 'FAILED') + ' — ' + analysis.reason);
 

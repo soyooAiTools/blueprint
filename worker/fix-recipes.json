@@ -602,5 +602,19 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-00903459.md"
+  },
+  {
+    "id": "auto-57100f28",
+    "fingerprintPattern": "Schema generation failed: Timed out after \\d+ms",
+    "description": "Timeout error message varies by stdout/stderr content, causing non-retryable guards to miss it and burn 2×15-min retries",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "worker/codex-code-coder.js",
+      "engine/stages/codegen-schema.cjs",
+      "engine/error-classifier.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-57100f28.md"
   }
 ]

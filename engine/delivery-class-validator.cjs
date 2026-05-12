@@ -355,7 +355,8 @@ function validateCSharpSource(code, fileName, opts) {
 }
 
 /**
- * 递归遍历交付目录,对所有 .cs 文件应用 validateCSharpSource。
+ * 递归遍历交付目录,对所有 .cs 文件应用 validateCSharpSource,
+ * 并对所有 .unity 场景文件跑 unnamed-scene-object 兜底扫。
  */
 function validateDeliveryDirectory(root, opts) {
   var warnings = [];
@@ -377,6 +378,9 @@ function validateDeliveryDirectory(root, opts) {
     }
   }
   walk(root);
+  // 反馈 01 #7:.unity 场景中未命名 primitive 兜底
+  var sceneWarnings = validateUnnamedSceneObjects(root);
+  for (var k = 0; k < sceneWarnings.length; k++) warnings.push(sceneWarnings[k]);
   return warnings;
 }
 
@@ -467,9 +471,142 @@ function validateCheckEventRulesShape(code, fileName) {
   return errors;
 }
 
-// 跨文件聚合:目录级跑 GateReady coverage,每文件跑 CheckEventRules shape。
+// ---------------------------------------------------------------------------
+// 反馈 01 (2026-04-26) #1/#6 — 横切维度 GameFlow*Base.cs 继承链 blocking 校验
+//
+// 反馈强调:程序员交付版必须按"领域对象"组织类层级 (基地 / Player / NPC / 各 Manager
+// 单例),不允许按主类的"横切维度" (Phase / Runtime / Scene / Input / UI / Preview /
+// State) 拆出 GameFlow*Base.cs 继承链 — 这种维度拆分会让程序员误以为流程是 Manager
+// 的内部分类。programmer-delivery-cleaner 已经主动删除这些文件名 (见
+// lib/programmer-delivery-cleaner.cjs 768-781),本规则作为 belt-and-suspenders
+// 兜底:任何手工编辑或回归把文件加回交付目录都会被 blocking 拦住,拒绝 commit。
+//
+// 允许保留的"领域对象类":BaseBuildElement / BaseGameFlowEntity / BuildEntity /
+// CombatEntity / ResourceEntity / 各 Manager 单例 (PoolManager / AudioManager /
+// NPCManager / GameFlowManager 系列 / TipsManager / UIManager)。
+// ---------------------------------------------------------------------------
+
+var FORBIDDEN_CROSS_CUT_BASE_FILES = [
+  'GameFlowPhaseFlowBase.cs',
+  'GameFlowPhaseAutoBase.cs',
+  'GameFlowPhaseTapBase.cs',
+  'GameFlowPhaseInitBase.cs',
+  'GameFlowPhaseSnapshotBase.cs',
+  'GameFlowPhaseSharedBase.cs',
+  'GameFlowPhaseContentBase.cs',
+  'GameFlowUiBase.cs',
+  'GameFlowUIBase.cs',
+  'GameFlowResourceBase.cs',
+  'GameFlowInputBase.cs',
+  'GameFlowRuntimeBase.cs',
+  'GameFlowSceneBase.cs',
+  'GameFlowPreviewBase.cs',
+  'GameFlowStateBase.cs',
+];
+
+// 按显式黑名单检测,而不是宽松 /^GameFlow.*Base\.cs$/。后者会把 BaseGameFlowEntity
+// 或未来合理的领域基类误伤。如未来出现新的横切维度名称,在 SKILL.md 和这里同步加。
+var FORBIDDEN_BASE_SET = (function() {
+  var s = Object.create(null);
+  for (var i = 0; i < FORBIDDEN_CROSS_CUT_BASE_FILES.length; i++) {
+    s[FORBIDDEN_CROSS_CUT_BASE_FILES[i].toLowerCase()] = FORBIDDEN_CROSS_CUT_BASE_FILES[i];
+  }
+  return s;
+})();
+
+function validateClassHierarchy(root) {
+  var errors = [];
+  if (!fs.existsSync(root)) return errors;
+  function walk(dir) {
+    var entries;
+    try { entries = fs.readdirSync(dir); } catch (e) { return; }
+    for (var i = 0; i < entries.length; i++) {
+      var name = entries[i];
+      var p = path.join(dir, name);
+      var st;
+      try { st = fs.statSync(p); } catch (e) { continue; }
+      if (st.isDirectory()) { walk(p); continue; }
+      if (path.extname(name).toLowerCase() !== '.cs') continue;
+      var canonical = FORBIDDEN_BASE_SET[name.toLowerCase()];
+      if (!canonical) continue;
+      var rel = path.relative(root, p);
+      errors.push({
+        rule: 'delivery-class-hierarchy-violation',
+        severity: 'error',
+        file: rel,
+        message: rel + ' 是横切维度 (Phase/Runtime/Scene/Input/UI/Preview/State/Resource) 拆出的 GameFlow*Base.cs — 反馈 01 #1/#6 明确禁止;交付版只允许按"领域对象" (基地/Player/NPC/Manager 单例) 组织类层级。',
+        details: { canonical: canonical },
+      });
+    }
+  }
+  walk(root);
+  return errors;
+}
+
+// ---------------------------------------------------------------------------
+// 反馈 01 (2026-04-26) #7 — 未命名场景对象 (.unity YAML)
+//
+// 反馈截图显示场景里有未命名蓝色柱体/白色柱体悬浮在场景里。运行时层面的检测由
+// engine/static-check.cjs 的 `unnamed-gameobject` 规则覆盖 (扫 C# 里
+// `.name = "Cube"` 字面量);本规则补 Unity 场景文件层面的兜底:扫所有
+// `*.unity` 找 `m_Name: Cube|Sphere|Cylinder|Plane|Capsule|Quad` 字段。
+//
+// 非 blocking warning,口径与 unnamed-gameobject 一致 — 命中后由 cleaner summary
+// 透出给程序员,交付版肉眼检查时可定位。
+// ---------------------------------------------------------------------------
+
+var DEFAULT_PRIMITIVE_NAMES = ['Cube', 'Sphere', 'Cylinder', 'Plane', 'Capsule', 'Quad', 'GameObject'];
+
+function validateUnnamedSceneObjects(root) {
+  var warnings = [];
+  if (!fs.existsSync(root)) return warnings;
+  // m_Name: Cube           ← Unity primitive 默认名
+  // m_Name: Cube (Clone)   ← 克隆默认名
+  // m_Name: Cube (1)       ← 复制默认名
+  // m_Name: GameObject     ← AddComponent<...> 直接 new 出来的默认名
+  var primitiveAlt = DEFAULT_PRIMITIVE_NAMES.join('|');
+  var re = new RegExp('^(\\s*)m_Name:\\s*(' + primitiveAlt + ')(\\s*\\(\\s*(?:Clone|\\d+)\\s*\\))?\\s*$');
+
+  function walk(dir) {
+    var entries;
+    try { entries = fs.readdirSync(dir); } catch (e) { return; }
+    for (var i = 0; i < entries.length; i++) {
+      var name = entries[i];
+      var p = path.join(dir, name);
+      var st;
+      try { st = fs.statSync(p); } catch (e) { continue; }
+      if (st.isDirectory()) { walk(p); continue; }
+      if (path.extname(name).toLowerCase() !== '.unity') continue;
+      var src;
+      try { src = fs.readFileSync(p, 'utf8'); } catch (e) { continue; }
+      var rel = path.relative(root, p);
+      var lines = src.split('\n');
+      for (var li = 0; li < lines.length; li++) {
+        var m = lines[li].match(re);
+        if (!m) continue;
+        var primitive = m[2];
+        var clone = m[3] || '';
+        warnings.push({
+          rule: 'unnamed-scene-object',
+          severity: 'warning',
+          file: rel,
+          line: li + 1,
+          message: rel + ':' + (li + 1) + ' GameObject m_Name = "' + primitive + clone.trim() + '" — 应改为领域名 (反馈 01 #7,运行后肉眼可见未命名物体)。',
+          details: { primitive: primitive, clone: clone.trim() || null },
+        });
+      }
+    }
+  }
+  walk(root);
+  return warnings;
+}
+
+// 跨文件聚合:目录级跑 GateReady coverage + class-hierarchy,每文件跑 CheckEventRules shape。
 function validateBlockingRules(root) {
-  var errors = [].concat(validateGateReadyCoverage(root));
+  var errors = [].concat(
+    validateGateReadyCoverage(root),
+    validateClassHierarchy(root)
+  );
   if (!fs.existsSync(root)) return errors;
   function walk(dir) {
     var entries;
@@ -506,5 +643,8 @@ module.exports = {
   validateDeliveryDirectory: validateDeliveryDirectory,
   validateGateReadyCoverage: validateGateReadyCoverage,
   validateCheckEventRulesShape: validateCheckEventRulesShape,
+  validateClassHierarchy: validateClassHierarchy,
+  validateUnnamedSceneObjects: validateUnnamedSceneObjects,
   validateBlockingRules: validateBlockingRules,
+  FORBIDDEN_CROSS_CUT_BASE_FILES: FORBIDDEN_CROSS_CUT_BASE_FILES,
 };

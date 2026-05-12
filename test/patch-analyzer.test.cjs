@@ -140,4 +140,51 @@ assert.strictEqual(openCount, closeCount, 'Case 15: brace balance preserved');
 // 16. SafeSetText stub null-guards — text grep
 assert.ok(/if \(__go == null\) return;/.test(r15.code), 'Case 16: stub null-guards GameObject');
 
-console.log('patch-analyzer: 16 cases passed');
+// ---------- 2026-05-12 P1a 扩展: TickVisualAnimations / SafeSetActive ----------
+
+// 17. TickVisualAnimations injection
+var r17 = pa.injectStubs(sampleCode, { TickVisualAnimations: 5 }, { mode: 'safe' });
+assert.strictEqual(r17.changed, true);
+assert.deepStrictEqual(r17.injected, ['TickVisualAnimations']);
+assert.ok(/void TickVisualAnimations\(params object\[\] __args\)/.test(r17.code),
+  'Case 17: stub uses params object[] for zero-arg/dt-arg overload coverage');
+
+// 18. TickVisualAnimations idempotent
+var r18 = pa.injectStubs(r17.code, { TickVisualAnimations: 5 }, { mode: 'safe' });
+assert.strictEqual(r18.changed, false, 'Case 18: TickVisualAnimations idempotent');
+
+// 19. SafeSetActive injection + null guard
+var r19 = pa.injectStubs(sampleCode, { SafeSetActive: 2 }, { mode: 'safe' });
+assert.strictEqual(r19.changed, true);
+assert.deepStrictEqual(r19.injected, ['SafeSetActive']);
+assert.ok(/void SafeSetActive\(GameObject __go, bool __on\)/.test(r19.code));
+assert.ok(/if \(__go == null\) return;/.test(r19.code), 'Case 19: SafeSetActive null-guards GameObject');
+
+// 20. 多 stub 同轮注入: SafeSetText + TickVisualAnimations + SafeSetActive 都缺时一次性补齐
+var multiErr = [
+  "Sources/X.cs(10,5): error CS0103: The name 'SafeSetText' does not exist in the current context",
+  "Sources/X.cs(20,5): error CS0103: The name 'TickVisualAnimations' does not exist in the current context",
+  "Sources/X.cs(30,5): error CS0103: The name 'SafeSetActive' does not exist in the current context",
+].join('\n');
+var a20 = pa.analyzeBuildError(multiErr);
+var r20 = pa.injectStubs(sampleCode, a20.undeclaredNames, { mode: 'safe' });
+assert.strictEqual(r20.changed, true);
+assert.deepStrictEqual(r20.injected.sort(), ['SafeSetActive', 'SafeSetText', 'TickVisualAnimations']);
+var openCount20 = (r20.code.match(/\{/g) || []).length;
+var closeCount20 = (r20.code.match(/\}/g) || []).length;
+assert.strictEqual(openCount20, closeCount20, 'Case 20: brace balance after triple inject');
+
+// 21. env=safe + 真实多错误 build → maybePatch 一次注完
+process.env.PATCH_ANALYZER_AUTO_STUB = 'safe';
+var r21 = pa.maybePatch(sampleCode, multiErr);
+delete process.env.PATCH_ANALYZER_AUTO_STUB;
+assert.strictEqual(r21.changed, true);
+assert.strictEqual(r21.mode, 'safe');
+assert.strictEqual(r21.injected.length, 3);
+
+// 22. 未匹配的 CS0103 名(如 NotInRegistry) 不会被任何 stub 接走
+var r22 = pa.injectStubs(sampleCode, { NotInRegistry: 7 }, { mode: 'safe' });
+assert.strictEqual(r22.changed, false);
+assert.deepStrictEqual(r22.injected, []);
+
+console.log('patch-analyzer: 22 cases passed');

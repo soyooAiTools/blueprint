@@ -495,4 +495,166 @@ var v = require('../engine/delivery-class-validator.cjs');
   }
 })();
 
-console.log('\nAll delivery-class-validator tests passed (33).');
+// ============ 反馈 01 #1/#6 — class hierarchy violation (blocking) ============
+
+(function testClassHierarchyClean() {
+  var fs = require('fs');
+  var path = require('path');
+  var os = require('os');
+  var tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'class-hierarchy-clean-'));
+  try {
+    fs.mkdirSync(path.join(tmp, 'Scripts'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'Scripts', 'GameFlowManagerMain.cs'), 'public class GameFlowManagerMain {}');
+    fs.writeFileSync(path.join(tmp, 'Scripts', 'BaseBuildElement.cs'), 'public class BaseBuildElement {}');
+    fs.writeFileSync(path.join(tmp, 'Scripts', 'BuildEntity.cs'), 'public class BuildEntity : BaseBuildElement {}');
+    var errs = v.validateClassHierarchy(tmp);
+    assert.strictEqual(errs.length, 0, '领域 OOP 命名不该报错, got: ' + JSON.stringify(errs));
+    console.log('  ✓ class-hierarchy: domain-named classes pass');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+})();
+
+(function testClassHierarchyFlagsForbiddenBase() {
+  var fs = require('fs');
+  var path = require('path');
+  var os = require('os');
+  var tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'class-hierarchy-bad-'));
+  try {
+    fs.mkdirSync(path.join(tmp, 'Scripts'), { recursive: true });
+    // 三个不同维度的横切拆分都应被抓
+    fs.writeFileSync(path.join(tmp, 'Scripts', 'GameFlowPhaseFlowBase.cs'), '// stub');
+    fs.writeFileSync(path.join(tmp, 'Scripts', 'GameFlowRuntimeBase.cs'), '// stub');
+    fs.writeFileSync(path.join(tmp, 'Scripts', 'GameFlowUiBase.cs'), '// stub');
+    // 一个允许的也放进来作 sanity 对照
+    fs.writeFileSync(path.join(tmp, 'Scripts', 'GameFlowManagerMain.cs'), 'public class GameFlowManagerMain {}');
+    var errs = v.validateClassHierarchy(tmp);
+    assert.strictEqual(errs.length, 3, '应该抓到 3 条横切拆分, got ' + errs.length + ': ' + JSON.stringify(errs));
+    errs.forEach(function(e) {
+      assert.strictEqual(e.rule, 'delivery-class-hierarchy-violation');
+      assert.strictEqual(e.severity, 'error');
+      assert.match(e.message, /反馈 01 #1\/#6/);
+    });
+    var files = errs.map(function(e) { return path.basename(e.file); }).sort();
+    assert.deepStrictEqual(files, ['GameFlowPhaseFlowBase.cs', 'GameFlowRuntimeBase.cs', 'GameFlowUiBase.cs']);
+    console.log('  ✓ class-hierarchy: forbidden cross-cut base files flagged');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+})();
+
+(function testClassHierarchyCaseInsensitive() {
+  // 文件系统大小写敏感性不一,显式黑名单做小写归一对照
+  var fs = require('fs');
+  var path = require('path');
+  var os = require('os');
+  var tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'class-hierarchy-case-'));
+  try {
+    fs.mkdirSync(path.join(tmp, 'Scripts'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'Scripts', 'GameFlowUIBase.cs'), '// stub'); // UI 全大写变体
+    var errs = v.validateClassHierarchy(tmp);
+    assert.strictEqual(errs.length, 1);
+    assert.strictEqual(errs[0].rule, 'delivery-class-hierarchy-violation');
+    console.log('  ✓ class-hierarchy: UI casing variant flagged');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+})();
+
+(function testValidateBlockingRulesIncludesHierarchy() {
+  var fs = require('fs');
+  var path = require('path');
+  var os = require('os');
+  var tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'blocking-hierarchy-'));
+  try {
+    fs.mkdirSync(path.join(tmp, 'Scripts'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'Scripts', 'GameFlowStateBase.cs'), '// stub');
+    var errs = v.validateBlockingRules(tmp);
+    assert.ok(errs.some(function(e) { return e.rule === 'delivery-class-hierarchy-violation'; }),
+      'validateBlockingRules 应聚合 class-hierarchy-violation');
+    console.log('  ✓ validateBlockingRules: class-hierarchy errors surface');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+})();
+
+// ============ 反馈 01 #7 — unnamed scene object (.unity YAML warning) ============
+
+(function testUnnamedSceneObjectFlagsPrimitiveName() {
+  var fs = require('fs');
+  var path = require('path');
+  var os = require('os');
+  var tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'unnamed-scene-'));
+  try {
+    fs.mkdirSync(path.join(tmp, 'Assets', 'Scenes'), { recursive: true });
+    // 三种 default 命名变体:裸名 / (Clone) / (1)
+    fs.writeFileSync(path.join(tmp, 'Assets', 'Scenes', 'Main.unity'),
+      [
+        '%YAML 1.1',
+        '--- !u!1 &123',
+        'GameObject:',
+        '  m_Name: Cube',
+        '--- !u!1 &124',
+        'GameObject:',
+        '  m_Name: Cylinder (Clone)',
+        '--- !u!1 &125',
+        'GameObject:',
+        '  m_Name: Sphere (1)',
+        '--- !u!1 &126',
+        'GameObject:',
+        '  m_Name: 我方基地', // 领域名,不该被抓
+      ].join('\n'));
+    var warns = v.validateUnnamedSceneObjects(tmp);
+    assert.strictEqual(warns.length, 3, '三个 primitive default 名应被抓, got: ' + JSON.stringify(warns));
+    warns.forEach(function(w) {
+      assert.strictEqual(w.rule, 'unnamed-scene-object');
+      assert.strictEqual(w.severity, 'warning');
+      assert.match(w.message, /反馈 01 #7/);
+    });
+    var primitives = warns.map(function(w) { return w.details.primitive; }).sort();
+    assert.deepStrictEqual(primitives, ['Cube', 'Cylinder', 'Sphere']);
+    console.log('  ✓ unnamed-scene-object: primitive m_Name flagged');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+})();
+
+(function testUnnamedSceneObjectIgnoresNonUnity() {
+  var fs = require('fs');
+  var path = require('path');
+  var os = require('os');
+  var tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'unnamed-scene-skip-'));
+  try {
+    fs.mkdirSync(path.join(tmp, 'Scripts'), { recursive: true });
+    // .cs 文件即使含 m_Name: Cube 字符串也不应被扫(那是注释里出现的可能性)
+    fs.writeFileSync(path.join(tmp, 'Scripts', 'Foo.cs'), '// m_Name: Cube\npublic class Foo {}');
+    // .meta 之类 Unity 配套文件也不扫
+    fs.writeFileSync(path.join(tmp, 'Scripts', 'Foo.cs.meta'), 'fileFormatVersion: 2\nm_Name: Cube');
+    var warns = v.validateUnnamedSceneObjects(tmp);
+    assert.strictEqual(warns.length, 0);
+    console.log('  ✓ unnamed-scene-object: only .unity files scanned');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+})();
+
+(function testUnnamedSceneObjectFolderWalk() {
+  // 嵌套目录下的 .unity 文件也要扫到
+  var fs = require('fs');
+  var path = require('path');
+  var os = require('os');
+  var tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'unnamed-scene-walk-'));
+  try {
+    fs.mkdirSync(path.join(tmp, 'Assets', 'Scenes', 'Sub'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'Assets', 'Scenes', 'Sub', 'Nested.unity'),
+      'GameObject:\n  m_Name: Plane\n');
+    var warns = v.validateUnnamedSceneObjects(tmp);
+    assert.strictEqual(warns.length, 1);
+    assert.strictEqual(warns[0].details.primitive, 'Plane');
+    console.log('  ✓ unnamed-scene-object: nested folders walked');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+})();
+
+console.log('\nAll delivery-class-validator tests passed (40).');

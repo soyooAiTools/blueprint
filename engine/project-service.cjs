@@ -120,7 +120,11 @@ function confirmProjectSpecs(project, opts, extra) {
   var existingTask = opts.taskQueue.get(taskId);
   if (existingTask) {
     opts.taskQueue.updateBlueprint(taskId, blueprintExport);
-    opts.taskQueue.updateStatus(taskId, 'pending', extra.statusReason || (mode === 'auto' ? 'specs auto-confirmed' : 'specs confirmed'), 'server');
+    // 2026-05-12: actor='admin' 强制状态机过渡 — 终态 (done/cua_passed/failed/cancelled)
+    // 在 actor='server' 下会被 taskSM.validate 拒绝,导致 task-row 卡死、project-row
+    // 进 submitted、watchdog F14-desync 把项目snap 回 reviewing。submitProject() 的
+    // existingTask 分支已经用 'admin' (见同文件 line ~280 注释),这里跟上同样的修。
+    opts.taskQueue.updateStatus(taskId, 'pending', extra.statusReason || (mode === 'auto' ? 'specs auto-confirmed' : 'specs confirmed'), 'admin');
   } else {
     opts.taskQueue.enqueue(taskId, project.id, project.name, blueprintExport, metadata);
   }

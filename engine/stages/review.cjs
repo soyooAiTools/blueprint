@@ -335,6 +335,107 @@ function ensureAssemblySlotRunnerCallsAcrossPartials(mainCode, extraFiles) {
   };
 }
 
+// 2026-05-12: deterministic `Camera.main` → `mainCam` rewrite.
+// 静态规则 `camera-main` (engine/static-check.cjs:130) blocking — skeleton 提供 `mainCam`
+// 缓存字段以避免每帧 `Camera.main` 查找。AI 偶尔写 `Camera.main` 触发 review 派 Codex
+// 走 ~7min round 仅为字符串替换。本 patcher 在 deterministic pre-repair 直接全文替换。
+//
+// 🔒 关键安全约束 (2026-05-12 v0.5.7 regression fix): 必须先确认该文件声明了
+// `Camera mainCam` 字段才能替换。GFM_Utils.cs / GFM_Billboard.cs / GFM_CameraController.cs
+// 等独立工具类没有 mainCam 字段,它们使用 Camera.main 是合法的;替换会导致 CS0103。
+// 注释行/字符串里出现 Camera.main 不替换 (保持 grep/log message 完整)。
+function rewriteCameraMainToMainCam(code) {
+  if (!code || code.indexOf('Camera.main') < 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+  // 必须确认该文件声明了 mainCam 字段(skeleton 模式)。否则替换会破坏独立工具类。
+  // 接受形态: `Camera mainCam;` / `Camera mainCam =` / `private Camera mainCam;` 等。
+  if (!/\b(?:private|protected|internal|public|static)?\s*Camera\s+mainCam\s*[;=]/.test(code)) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+  // 屏蔽字符串/注释,只在 code mask 内替换
+  var mask = new Array(code.length).fill(true);
+  var i = 0;
+  while (i < code.length) {
+    if (code[i] === '/' && code[i+1] === '/') {
+      while (i < code.length && code[i] !== '\n') { mask[i] = false; i++; }
+    } else if (code[i] === '/' && code[i+1] === '*') {
+      mask[i] = false; mask[i+1] = false; i += 2;
+      while (i < code.length - 1 && !(code[i] === '*' && code[i+1] === '/')) { mask[i] = false; i++; }
+      if (i < code.length - 1) { mask[i] = false; mask[i+1] = false; i += 2; }
+    } else if (code[i] === '"') {
+      mask[i] = false; i++;
+      while (i < code.length && code[i] !== '"' && code[i] !== '\n') {
+        if (code[i] === '\\') { mask[i] = false; i++; }
+        if (i < code.length) { mask[i] = false; i++; }
+      }
+      if (i < code.length) { mask[i] = false; i++; }
+    } else {
+      i++;
+    }
+  }
+  var fixes = 0;
+  var out = '';
+  var j = 0;
+  while (j < code.length) {
+    // 命中 Camera.main 且不在 string/comment + 前后非 identifier char
+    if (mask[j] && code.substr(j, 11) === 'Camera.main' &&
+        !/[A-Za-z0-9_]/.test(code[j - 1] || '') &&
+        !/[A-Za-z0-9_]/.test(code[j + 11] || '')) {
+      out += 'mainCam';
+      j += 11;
+      fixes++;
+    } else {
+      out += code[j];
+      j++;
+    }
+  }
+  return { code: fixes > 0 ? out : code, changed: fixes > 0, fixes: fixes };
+}
+
+// 2026-05-12: deterministic strip of duplicate Camera.backgroundColor assignments.
+// 静态规则 `camera-background-override` (engine/static-check.cjs:1332) 强制要求只保留
+// skeleton 在 Start() 中的预设;AI 在 OnTap/Update/phase-init 等位置重写 backgroundColor
+// 会触发 blocking,review fix-loop 派 Codex 走一整轮 (~8min) 仅为删几行。
+//
+// 修复:文件内 source order 首次出现保留(skeleton 预设),后续全部 strip。
+// 注释模式跟同文件其他 strip 函数 (stripEarlyShowCTA) 对齐:整行替换为带 //
+// 占位注释,便于人工排查 commit diff。
+function stripExcessCameraBackgroundAssignments(code) {
+  if (!code) return { code: code, changed: false, fixes: 0 };
+  // 字符串/注释屏蔽,避免误删字面量中的 backgroundColor
+  var stripped = code
+    .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+    .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); })
+    .replace(/"(?:[^"\\]|\\.)*"/g, function(m) { return '"' + ' '.repeat(Math.max(0, m.length - 2)) + '"'; });
+  var re = /(?:Camera|mainCam)\s*\.\s*backgroundColor\s*=/g;
+  var hits = [];
+  var m;
+  while ((m = re.exec(stripped)) !== null) hits.push(m.index);
+  if (hits.length <= 1) return { code: code, changed: false, fixes: 0 };
+
+  // hits[0] 是 skeleton 预设保留;hits[1..] strip。倒序处理避免后续 index 漂移。
+  var fixes = 0;
+  var nextCode = code;
+  for (var i = hits.length - 1; i >= 1; i--) {
+    var stmtStart = hits[i];
+    // 找语句结束 `;` (源串里相同 offset)
+    var semiIdx = nextCode.indexOf(';', stmtStart);
+    if (semiIdx < 0) continue;
+    // 向前找语句起点(行首,或上一个 `{`/`;`)
+    var lineStart = nextCode.lastIndexOf('\n', stmtStart);
+    if (lineStart < 0) lineStart = 0; else lineStart++;
+    var indent = '';
+    for (var k = lineStart; k < nextCode.length && /[ \t]/.test(nextCode[k]); k++) indent += nextCode[k];
+    // 替换整条语句为占位注释 (保留缩进)
+    nextCode = nextCode.slice(0, lineStart) +
+      indent + '// [REVIEW REPAIR] stripped duplicate Camera.backgroundColor assignment — skeleton Start() preset is the only source of truth.\n' +
+      nextCode.slice(semiIdx + 1).replace(/^[ \t]*\n/, '');
+    fixes++;
+  }
+  return { code: nextCode, changed: fixes > 0, fixes: fixes };
+}
+
 function rewriteHotPathVectorAllocations(code) {
   if (!code || code.indexOf('new Vector3') < 0) {
     return { code: code, changed: false, fixes: 0 };
@@ -2002,6 +2103,20 @@ function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
     changed = true;
     fixes.push('main:HotVectorAlloc x' + mainVectorFix.fixes);
   }
+  // 2026-05-12: camera-background-override deterministic strip
+  var mainCameraBgFix = stripExcessCameraBackgroundAssignments(mainCode);
+  if (mainCameraBgFix.changed) {
+    mainCode = mainCameraBgFix.code;
+    changed = true;
+    fixes.push('main:CameraBackgroundOverride x' + mainCameraBgFix.fixes);
+  }
+  // 2026-05-12: Camera.main → mainCam deterministic rewrite
+  var mainCameraMainFix = rewriteCameraMainToMainCam(mainCode);
+  if (mainCameraMainFix.changed) {
+    mainCode = mainCameraMainFix.code;
+    changed = true;
+    fixes.push('main:CameraMainRewrite x' + mainCameraMainFix.fixes);
+  }
   var mainSetScaleFix = normalizeSetScaleCalls(mainCode);
   if (mainSetScaleFix.changed) {
     mainCode = mainSetScaleFix.code;
@@ -2087,6 +2202,20 @@ function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
       nextExtras[name] = vectorRes.code;
       changed = true;
       fixes.push(name + ':HotVectorAlloc x' + vectorRes.fixes);
+    }
+    // 2026-05-12: camera-background-override deterministic strip (partial files)
+    var cameraBgRes = stripExcessCameraBackgroundAssignments(nextExtras[name]);
+    if (cameraBgRes.changed) {
+      nextExtras[name] = cameraBgRes.code;
+      changed = true;
+      fixes.push(name + ':CameraBackgroundOverride x' + cameraBgRes.fixes);
+    }
+    // 2026-05-12: Camera.main → mainCam deterministic rewrite (partial files)
+    var cameraMainRes = rewriteCameraMainToMainCam(nextExtras[name]);
+    if (cameraMainRes.changed) {
+      nextExtras[name] = cameraMainRes.code;
+      changed = true;
+      fixes.push(name + ':CameraMainRewrite x' + cameraMainRes.fixes);
     }
     var setScaleRes = normalizeSetScaleCalls(nextExtras[name]);
     if (setScaleRes.changed) {

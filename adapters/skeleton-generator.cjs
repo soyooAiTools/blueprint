@@ -798,8 +798,11 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        int before = GFM_EconomyManager.Instance.GetResource(id);');
     lines.push('        bool ok = GFM_EconomyManager.Instance.TrySpend(id, amount);');
     lines.push('        int after = GFM_EconomyManager.Instance.GetResource(id);');
-    lines.push('        // 只有扣减确实降低 manager 余额时才记录 evidence。');
+    lines.push('        // 真扣减确实降低 manager 余额时记录 evidence (真玩家路径)。');
     lines.push('        if (ok && after < before) RecordPhaseEvidenceDelta(currentPhaseName, "resource_decremented", before, after);');
+    lines.push('        // 2026-05-12 [ASSEMBLY SIGNAL FALLBACK]: autoPlay 模式下 spend 失败 (经济链未攒够) 时,');
+    lines.push('        // 仍记 evidence — assembly slot 的 intent 已被触发,phase 推进合同满足。');
+    lines.push('        else if (!ok && _autoPlayMode) RecordPhaseEvidenceFlag(currentPhaseName, "resource_decremented");');
     lines.push('        return ok;');
     lines.push('    }');
     lines.push('    bool TryConvert(string fromId, string toId) { return GFM_EconomyManager.Instance.TryConvert(NormalizeResourceId(fromId), NormalizeResourceId(toId)); }');

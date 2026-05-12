@@ -18,7 +18,8 @@
  * call site work as intended without any LLM round.
  *
  * Behavior is opt-in via env flag PATCH_ANALYZER_AUTO_STUB:
- *   'safe' (recommended) → only SafeSetText (well-understood, null-guarded)
+ *   'safe' (recommended) → SafeSetText / TickVisualAnimations / SafeSetActive
+ *                          (every entry whose `safe:true` — null-guarded, side-effect-bounded)
  *   'all'  → enables every helper in the registry
  *   'off' (default)      → analysis-only, no mutation
  *
@@ -76,6 +77,47 @@ var STUB_REGISTRY = [
       '        if (__t != null) { __t.text = __s ?? ""; return; }',
       '        var __tm = __go.GetComponent<TextMesh>();',
       '        if (__tm != null) { __tm.text = __s ?? ""; return; }',
+      '    }',
+      '',
+    ].join('\n'),
+  },
+  // 2026-05-12 P1a 扩展:7 天日志中 TickVisualAnimations CS0103 出现 19 次(第三高,占
+  // CS0103 总量 ~8%),纯 LLM 幻觉名 — 项目里没有任何真实定义,prompt 也未约定。AI 把
+  // "tick + animate" 当成 Unity 套件里的标准方法。call site 同时存在零参/单 float dt 形式,
+  // 用 params object[] 同时覆盖。no-op = build 不挂 + 动画不跑(本来 CS0103 也不会跑)。
+  {
+    key: 'TickVisualAnimations',
+    safe: true,
+    defines: function(code) {
+      return /\b(?:public\s+|private\s+|protected\s+|static\s+|internal\s+)*void\s+TickVisualAnimations\s*\(/.test(code);
+    },
+    stub: [
+      '    // [PATCH-ANALYZER] auto-stub for hallucinated TickVisualAnimations helper.',
+      '    // Behavior: no-op. AI hallucinates a per-frame animation tick that has no real',
+      '    // definition; the genuine animation paths live on GFM_VisualGuide / GFM_SmoothMover.',
+      '    // Use params object[] so this catches TickVisualAnimations() and TickVisualAnimations(dt) alike.',
+      '    void TickVisualAnimations(params object[] __args)',
+      '    {',
+      '        // intentionally empty — Update loop still ticks, real animations come from GFM_* components.',
+      '    }',
+      '',
+    ].join('\n'),
+  },
+  // SafeSetActive:常被 AI 当成 SafeSetText 的姊妹方法。production CS0103 里出现频次较低
+  // (单数字),但 stub 形态稳定 + null-guarded,且 AI 已经习惯了"Safe*"系列,加进来防御性强。
+  {
+    key: 'SafeSetActive',
+    safe: true,
+    defines: function(code) {
+      return /\b(?:public\s+|private\s+|protected\s+|static\s+|internal\s+)*void\s+SafeSetActive\s*\(/.test(code);
+    },
+    stub: [
+      '    // [PATCH-ANALYZER] auto-stub for hallucinated SafeSetActive helper.',
+      '    // Behavior: null-guarded GameObject.SetActive(bool); no-op when target is null.',
+      '    void SafeSetActive(GameObject __go, bool __on)',
+      '    {',
+      '        if (__go == null) return;',
+      '        if (__go.activeSelf != __on) __go.SetActive(__on);',
       '    }',
       '',
     ].join('\n'),

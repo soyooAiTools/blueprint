@@ -16,6 +16,7 @@ var templateOutputValidator = require('../../adapters/template-output-validator.
 var triggerNormalizer = require('../../adapters/deterministic-trigger-normalizer.cjs');
 var schemaValidator = require('../../adapters/schema/validate-schema.cjs');
 var commentLocalizer = require('../../lib/csharp-comment-localizer.cjs');
+var signalCompletenessPatcher = require('../signal-completeness-patcher.cjs');
 
 module.exports = {
   name: 'codegen',
@@ -69,7 +70,10 @@ module.exports = {
           }
           ctx.addLog('codegen-schema', 'Deterministic assembly scaffold emitted: ' + emitted.slotCount + ' owner slot(s)' +
             (emitted.implementationCoverage ? ', implementation=' + emitted.implementationCoverage.coverage.toFixed(3) +
-              ', missingImpl=' + emitted.implementationCoverage.missing.length : ''));
+              ', missingImpl=' + emitted.implementationCoverage.missing.length +
+              (emitted.implementationCoverage.missingModuleIds && emitted.implementationCoverage.missingModuleIds.length > 0
+                ? ' missingModuleIds=[' + emitted.implementationCoverage.missingModuleIds.join(',') + ']'
+                : '') : ''));
         }
         var skeletonStr = typeof skeletonResult === 'string' ? skeletonResult : skeletonResult.main;
 
@@ -108,6 +112,25 @@ module.exports = {
           ctx.extraFiles['GameFlowManagerMain.UI.cs'] = skeletonResult.ui;
           ctx.extraFiles['GameFlowManagerMain.Scene.cs'] = skeletonResult.scene;
           ctx.addLog('codegen-schema', 'W1b 5-partial: wrote 5 companion files to extraFiles');
+
+          // 2026-05-12: signal completeness patcher — autoplay path 上确保
+          // CUA expected signals 都有 evidence,避免单 signal 缺失触发 ~13min Codex recode。
+          // 见 engine/signal-completeness-patcher.cjs 头部注释。
+          // 包 try/catch 是为了任何 patcher bug 都不让 codegen 整段挂掉(此 patch 仅是优化,非必需)。
+          try {
+            var sigPatch = signalCompletenessPatcher.patchSignalCompleteness(ctx);
+            if (sigPatch && sigPatch.injectedSignalCount > 0) {
+              ctx.blueprint.signalCompletenessFallback = {
+                phaseCount: sigPatch.injectedPhaseCount,
+                signalCount: sigPatch.injectedSignalCount,
+                skippedPhases: sigPatch.skippedPhases || [],
+              };
+            }
+          } catch (_sigPatchErr) {
+            ctx.addLog('codegen-schema',
+              'signal-completeness patcher failed (non-fatal): ' + (_sigPatchErr && _sigPatchErr.message) +
+              ' stack=' + (_sigPatchErr && _sigPatchErr.stack || '').split('\n').slice(0, 3).join(' | '));
+          }
         }
         // Legacy split mode — fill Systems file TODOs too
         else if (typeof skeletonResult === 'object' && skeletonResult.systems) {
@@ -455,7 +478,11 @@ function isSchemaInfraError(error) {
 
 function isSchemaNonRetryableError(error) {
   var text = String(error || '');
-  return /Timed out after \d+ms; Exit code 143|MODEL_FATAL: Codex text runner auth\/quota/i.test(text);
+  // 2026-05-12: 加入上游连接死透时的 fail-fast 关键字。claude --print SDK 内部已经 retry
+  // 11 次每次 ~70s = ~13min 才 give up;外层 codegen 再 retry 3 次 = ~39min 烧光。当
+  // SDK 拿到 "Unable to connect to API" / "UND_ERR_SOCKET" 时,这个 round 上游真的 down,
+  // 外层立即 throw 让任务尽快 FATAL,不要叠加双层指数浪费。
+  return /Timed out after \d+ms; Exit code 143|MODEL_FATAL: Codex text runner auth\/quota|Unable to connect to API|UND_ERR_SOCKET/i.test(text);
 }
 
 function parseAndValidateSchemaResponse(ctx, text) {
@@ -485,6 +512,16 @@ function parseAndValidateSchemaResponse(ctx, text) {
   }
 
   _repairSchema(schema, ctx.blueprint.entities, ctx.blueprint.specs);
+
+  // 2026-05-12 P1b: 如果 _repairSchema 在尾部 pad 过 phase,记录到 ctx.blueprint 便于事后审计。
+  if (schema.__paddedPhases) {
+    var pad = schema.__paddedPhases;
+    delete schema.__paddedPhases;
+    ctx.blueprint.schemaPaddedPhases = pad;
+    ctx.addLog('codegen-schema',
+      'Deterministic phase pad: schema 缺 ' + pad.count + ' phase(s) (idx ' + pad.from + '..' + pad.to +
+      '),已从 specs 反推补齐 (DSL 反推 trigger + entitiesRequired 反推 showEntities)');
+  }
 
   if (Array.isArray(schema.entities)) {
     for (var _ei = 0; _ei < schema.entities.length; _ei++) {
@@ -1556,6 +1593,62 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
     });
   }
   (schema.phases || []).forEach(function(p, idx, arr) { normalizeTrigger(p.trigger, idx, arr.length, false); });
+
+  // 2026-05-12 P1b: 当 LLM 输出的 phase 数量少于 specs.length (Sonnet 偶发截断输出 / 漏拷贝),
+  // 不走重新生成,直接按 specs 模板补齐尾部 phase。只补 tail,中间断号交给 LLM round 处理。
+  // 补齐策略:phaseId 从 spec 取;showEntities 用 spec.entitiesRequired;trigger 用
+  // triggerNormalizer.deriveTriggerFromInteractions 从 DSL 反推。
+  if (Array.isArray(schema.phases) && Array.isArray(blueprintSpecs) && schema.phases.length < blueprintSpecs.length) {
+    var padStart = schema.phases.length;
+    var totalSpecs = blueprintSpecs.length;
+    var schemaEntList = schema.entities || [];
+    schema.__paddedPhases = { from: padStart, to: totalSpecs - 1, count: totalSpecs - padStart };
+    for (var pi = padStart; pi < totalSpecs; pi++) {
+      var spec = blueprintSpecs[pi];
+      if (!spec) continue;
+      var showEntsArr = [];
+      var entReq = Array.isArray(spec.entitiesRequired) ? spec.entitiesRequired : [];
+      for (var ei = 0; ei < entReq.length; ei++) {
+        var entObj = entReq[ei];
+        var entName = entObj && (entObj.name || (typeof entObj === 'string' ? entObj : null));
+        if (entName && hasNamedRef(entName)) showEntsArr.push(String(entName).trim());
+      }
+      var derivedTrigger = null;
+      try {
+        derivedTrigger = triggerNormalizer.deriveTriggerFromInteractions(
+          spec.requiredInteractions, schemaEntList);
+      } catch (_e) { derivedTrigger = null; }
+      if (!derivedTrigger) {
+        // 末位 phase 必须有 click_entity (CTA gate);中间补位走 near_entity 兜底
+        var fallbackEnt = pickPhaseFallbackEntity(null, pi, totalSpecs);
+        if (pi === totalSpecs - 1) {
+          derivedTrigger = { type: 'click_entity', entity: fallbackEnt || 'CTAButton' };
+        } else {
+          derivedTrigger = { type: 'near_entity', entity: fallbackEnt || 'Player', range: 2 };
+        }
+      }
+      var paddedPhase = {
+        phaseId: spec.phaseId || ('phase_' + (pi + 1)),
+        showEntities: showEntsArr,
+        hideEntities: [],
+        guideText: _bpGuideByPhase[spec.phaseId] || spec.shortDescription || spec.title || ('阶段 ' + (pi + 1)),
+        trigger: derivedTrigger,
+        onEnter: [],
+      };
+      schema.phases.push(paddedPhase);
+    }
+    // 末位 trigger 必须包含 click_entity (后续 _validateSchema 也会校验,这里前置一次避免循环)
+    var lastIdx = schema.phases.length - 1;
+    var lastTrig = schema.phases[lastIdx] && schema.phases[lastIdx].trigger;
+    if (lastTrig && lastTrig.type !== 'click_entity' && lastTrig.type !== 'compound') {
+      var cta = pickCtaEntityName() || (lastTrig.entity || 'CTAButton');
+      schema.phases[lastIdx].trigger = {
+        type: 'compound',
+        operator: 'and',
+        triggers: [lastTrig, { type: 'click_entity', entity: cta }],
+      };
+    }
+  }
 
   // Fix customLogic: ensure array of strings
   if (schema.customLogic) {
