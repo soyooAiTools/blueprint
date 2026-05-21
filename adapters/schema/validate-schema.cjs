@@ -40,6 +40,13 @@ function hasNamedRef(value) {
   return String(value || '').trim().length > 0;
 }
 
+/**
+ * Well-known always-on global counters that are never declared in schema.resources[]
+ * but are valid targets for resource_collected triggers. Mirrors the exemption list
+ * in spec-validate.cjs.
+ */
+var GLOBAL_COUNTER_RE = /^(Gold|Score|Money|Cash|Coin|Currency|Time)$/i;
+
 function validateTriggerRefs(trigger, phaseId, entityNames, resourceNames, errors) {
   if (!trigger || typeof trigger !== 'object') return;
   if (trigger.type === 'compound' && Array.isArray(trigger.triggers)) {
@@ -61,6 +68,11 @@ function validateTriggerRefs(trigger, phaseId, entityNames, resourceNames, error
   if (trigger.type === 'resource_collected') {
     if (!hasNamedRef(trigger.resource)) {
       errors.push('Phase ' + phaseId + ' trigger resource_collected missing resource');
+      return;
+    }
+    // Exempt well-known always-on global counters (Gold, Score, Coin, etc.) — these
+    // are never declared in schema.resources[] but are valid trigger targets.
+    if (GLOBAL_COUNTER_RE.test(trigger.resource)) {
       return;
     }
     if (!resourceNames[trigger.resource]) {

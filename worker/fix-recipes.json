@@ -616,5 +616,18 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-57100f28.md"
+  },
+  {
+    "id": "auto-40db3606",
+    "fingerprintPattern": "Phase \\w+ trigger resource_collected references non-existent resource: \\w+",
+    "description": "resource_collected trigger with whitespace-padded resource name (e.g. 'Gold ') bypasses GLOBAL_COUNTER_RE in validate-schema.cjs because normalizeTrigger never trims t.resource; _repairSchemaValidationErrors has no handler for this error so all retries fail",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/codegen-schema.cjs",
+      "adapters/schema/validate-schema.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-40db3606.md"
   }
 ]

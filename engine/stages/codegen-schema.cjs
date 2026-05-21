@@ -18,6 +18,19 @@ var schemaValidator = require('../../adapters/schema/validate-schema.cjs');
 var commentLocalizer = require('../../lib/csharp-comment-localizer.cjs');
 var signalCompletenessPatcher = require('../signal-completeness-patcher.cjs');
 
+function estimateTextTokens(text) {
+  // CLI runners do not expose usage. Char/4 keeps the trend observable.
+  text = String(text || '');
+  if (!text) return 0;
+  return Math.ceil(text.length / 4);
+}
+
+function addBlueprintTokenEstimate(ctx, field, text) {
+  if (!ctx || !ctx.blueprint) return;
+  ctx.blueprint[field] = (Number(ctx.blueprint[field] || 0) || 0) + estimateTextTokens(text);
+  ctx.blueprint.tokenAccountingSource = 'char_estimate';
+}
+
 module.exports = {
   name: 'codegen',
   canRetry: true,
@@ -302,6 +315,10 @@ function generateSchemaFromSpecs(ctx) {
   var maxRetries = 2;
   var attempt = 0;
   var runCodexText = require('../../worker/codex-coder.js').runCodexText;
+  if (ctx && ctx.blueprint) {
+    ctx.blueprint.schemaTokensIn = 0;
+    ctx.blueprint.schemaTokensOut = 0;
+  }
 
   function tryGenerate() {
     attempt++;
@@ -309,11 +326,13 @@ function generateSchemaFromSpecs(ctx) {
 
     // Build prompt for Sonnet
     var promptText = buildSchemaPrompt(ctx);
+    addBlueprintTokenEstimate(ctx, 'schemaTokensIn', promptText);
 
     return generateSchemaTextWithFallback(runCodexText, ctx, promptText).then(function(response) {
       if (!response.ok) {
         throw new Error('Schema generation failed: ' + (response.error || '').slice(0, 300));
       }
+      addBlueprintTokenEstimate(ctx, 'schemaTokensOut', response.text || '');
       return parseAndValidateSchemaResponse(ctx, response.text || '');
     }).catch(function(err) {
       if (attempt <= maxRetries && !isSchemaNonRetryableError(err.message)) {
@@ -486,9 +505,10 @@ function isSchemaNonRetryableError(error) {
 }
 
 function parseAndValidateSchemaResponse(ctx, text) {
-  // Token tracking not available from CLI text mode — set to 0
-  ctx.blueprint.schemaTokensIn = 0;
-  ctx.blueprint.schemaTokensOut = 0;
+  if (ctx && ctx.blueprint) {
+    if (ctx.blueprint.schemaTokensIn == null) ctx.blueprint.schemaTokensIn = 0;
+    if (ctx.blueprint.schemaTokensOut == null) ctx.blueprint.schemaTokensOut = 0;
+  }
 
   // Extract JSON from response (object or array)
   text = String(text || '').replace(/```(?:json)?/g, '').trim();
@@ -866,6 +886,7 @@ function fillCustomLogic(ctx, schema) {
   ctx.blueprint.customLogicRounds = 0;
   ctx.blueprint.customLogicTokensIn = 0;
   var customWorkDir = prepareCustomLogicWorkspace(ctx);
+  var customSystemPrompt = '你是 Unity C# 代码填充器。只修改 TODO_CUSTOM 区域。';
 
   var loop = createFixLoop({
     name: 'codegen-custom',
@@ -874,9 +895,10 @@ function fillCustomLogic(ctx, schema) {
       ctx.blueprint.customLogicRounds = round;
       syncCustomLogicWorkspace(ctx, customWorkDir);
       var promptText = buildCustomLogicPrompt(ctx, schema);
+      addBlueprintTokenEstimate(ctx, 'customLogicTokensIn', customSystemPrompt + '\n' + promptText);
       return runCodexText({
         userPrompt: promptText,
-        systemPrompt: '你是 Unity C# 代码填充器。只修改 TODO_CUSTOM 区域。',
+        systemPrompt: customSystemPrompt,
         backend: 'codex-exec',
         model: process.env.CODEX_CUSTOM_MODEL || process.env.CODEX_SCHEMA_MODEL || process.env.CODEX_CODE_MODEL || 'gpt-5.5',
         workDir: customWorkDir,

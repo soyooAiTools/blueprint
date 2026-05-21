@@ -86,6 +86,7 @@ assert.strictEqual(codegenSchema._internals.isSchemaInfraError('Request timed ou
 assert.strictEqual(codegenSchema._internals.isSchemaInfraError("There's an issue with the selected model (gpt-5.4-mini). It may not exist or you may not have access to it."), true);
 assert.strictEqual(codegenSchema._internals.isSchemaInfraError("MODEL_FATAL: You've hit your usage limit. purchase more credits"), true);
 assert.strictEqual(codegenSchema._internals.isSchemaNonRetryableError('Schema generation failed: Timed out after 600000ms; Exit code 143'), true);
+assert.strictEqual(codegenSchema._internals.isSchemaNonRetryableError('Schema generation failed: Timed out after 900000ms; Exit code 143'), true);
 assert.strictEqual(codegenSchema._internals.isSchemaInfraError('schema malformed'), false);
 assert.strictEqual(codegenSchema._internals.isSchemaNonRetryableError('schema malformed'), false);
 
@@ -96,7 +97,7 @@ assert.strictEqual(codegenSchema._internals.isSchemaNonRetryableError('schema ma
   assert.notStrictEqual(runner.codexModel, 'gpt-5.4-mini');
   assert.strictEqual(codegenSchema._internals.resolveSchemaTimeoutMs({}), 360000);
   assert.strictEqual(codegenSchema._internals.resolveSchemaTimeoutMs({ CODEX_SCHEMA_TIMEOUT_MS: '420000' }), 420000);
-  assert.strictEqual(codegenSchema._internals.resolveSchemaFallbackTimeoutMs({}), 600000);
+  assert.strictEqual(codegenSchema._internals.resolveSchemaFallbackTimeoutMs({}), 900000);
   assert.strictEqual(codegenSchema._internals.resolveSchemaFallbackTimeoutMs({ CLAUDE_SCHEMA_TIMEOUT_MS: '720000' }), 720000);
   assert.strictEqual(codegenSchema._internals.resolveSchemaPrimaryCooldownMs({}), 30 * 60 * 1000);
   assert.strictEqual(codegenSchema._internals.resolveSchemaPrimaryCooldownMs({ CODEX_SCHEMA_PRIMARY_COOLDOWN_MS: '120000' }), 120000);
@@ -208,7 +209,7 @@ assert.strictEqual(codegenSchema._internals.isSchemaNonRetryableError('schema ma
   assert.ok(byName.GoldRecycler);
   assert.strictEqual(byName.GoldRecycler.chineseName, '金币回收机');
   assert.deepStrictEqual(byName.GoldRecycler.initPos, [-6, 0.5, -2]);
-  assert.strictEqual(byName.GoldRecycler.scale, 2);
+  assert.strictEqual(byName.GoldRecycler.scale, 0.7);
   assert.strictEqual(byName.GoldRecycler.showLabel, true);
   assert.ok(byName.CTAButton);
   assert.strictEqual(byName.CTAButton.showLabel, false);

@@ -138,7 +138,8 @@ describe('W1b 5-partial skeleton smoke test', () => {
     const stubs = [
       { code: out.input, limit: 1000 },
       { code: out.resource, limit: 5000 },
-      { code: out.ui, limit: 16000 },
+      // UI partial also owns preview-state export and phaseEvidence snapshot serialization.
+      { code: out.ui, limit: 20000 },
       { code: out.scene, limit: 3000 },
     ];
     for (const stub of stubs) {

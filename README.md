@@ -53,6 +53,17 @@ clone → spec-validate → codegen → review [gate] → compile [gate] → vis
 - **visual-check**: 多帧分析 (t=0/3/8s), 实体可见性, 画面变化检测
 - **cua-verify**: Phase 覆盖率, 30min 总时间上限, 5 轮无进展提前退出
 
+### Phase Evidence Runtime Contract（2026-05-21）
+
+Blueprint 的 deterministic assembly 现在同时输出结构化 runtime snapshot：
+
+- Canonical CUA probe contract: `contracts/cua-probe-contracts.v1.json`，覆盖 L1 registry 36/36 模块。
+- Node 侧读取/评估：`engine/cua-probe-contracts.cjs`，同时支持 `phaseEvidence.<moduleId>` snapshot 与 legacy game-state path alias。
+- C# 侧写入：`adapters/skeleton-generator.cjs` 提供 `RecordPhaseEvidenceObject/Field`，`adapters/assembly-emitter.cjs` 在模块真实执行路径记录 `_meta + before/after/triggered` 等字段。
+- CUA report 侧由 `soyooAiTools/cua-agent` 的 `phase_evidence_reporter.py` 汇总 `phaseEvidenceSummary`，重点看 `triggeredPresentFullRate`、`triggeredAntiAutoplayHeldRate`、validation violations 和 non-passed triggered modules。
+
+收口归档见 `docs/_archived/2026-05-21-phase-d-runtime-snapshot-closeout.md`。
+
 ### Engine 核心模块
 
 | 模块 | 说明 |
@@ -64,6 +75,8 @@ clone → spec-validate → codegen → review [gate] → compile [gate] → vis
 | `engine/helpers.cjs` | 构建请求、issue 分类、结构化反馈构建 |
 | `engine/spec-conformance.cjs` | Spec 语义校验（phase 完整性 / 交互处理器 / entity 引用 / trigger 条件） |
 | `engine/metrics.cjs` | Pipeline 运行指标收集（JSONL），含失败归因/热点/趋势/诊断报告 |
+| `engine/cua-probe-contracts.cjs` | CUA probe contract 加载、registry coverage、runtime snapshot coverage / attribution |
+| `engine/module-gap-ledger.cjs` | assembly module 缺口归因 ledger，用于确定性覆盖率与缺口追踪 |
 | `engine/lesson-extractor.cjs` | 失败自动规则沉淀（CODE/GATE 失败 → pending-rules.json，Jaccard 去重） |
 | `engine/cleanup-old-builds.cjs` | WebGL 构建产物清理（默认 7 天，支持 --dry-run） |
 

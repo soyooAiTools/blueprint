@@ -6,10 +6,13 @@
 
 var fs = require('fs');
 var path = require('path');
+var moduleGapLedger = require('./module-gap-ledger.cjs');
+var cuaProbeContracts = require('./cua-probe-contracts.cjs');
 
 var METRICS_DIR = path.join(__dirname, '..', 'server-data', 'metrics');
 var METRICS_FILE = path.join(METRICS_DIR, 'pipeline-metrics.jsonl');
 var BASELINE_FILE = path.join(METRICS_DIR, 'baseline.json');
+var RUNTIME_MODULE_REGISTRY_FILE = path.join(__dirname, '..', 'adapters', 'schema', 'assembly-registry-v1', 'runtime-modules.v1.json');
 
 function readBaselineMeta() {
   try {
@@ -121,6 +124,7 @@ function recordPipelineMetrics(ctx, stageResults) {
       record.codegenMode = 'schema';
       record.schemaTokensIn = ctx.blueprint.schemaTokensIn || 0;
       record.schemaTokensOut = ctx.blueprint.schemaTokensOut || 0;
+      record.tokenAccountingSource = ctx.blueprint.tokenAccountingSource || null;
       record.templateFillMs = ctx.blueprint.templateFillMs || 0;
       record.templateCoverage = ctx.blueprint.templateCoverage || 0;
       record.todoSectionsRemaining = ctx.blueprint.todoSectionsRemaining || 0;
@@ -165,10 +169,65 @@ function recordPipelineMetrics(ctx, stageResults) {
       record.assemblyDecision = ctx.blueprint.assemblyDecision || null;
       record.assemblyRiskLevel = ctx.blueprint.assemblyRiskLevel || null;
       record.codegenInputMode = ctx.blueprint.gameSchema ? 'assembly-first' : 'assembly-plan-ready';
+      if (ctx.blueprint.cuaProbeContracts) {
+        try {
+          var probeContractSummary = cuaProbeContracts.summarizeProbeContracts(ctx.blueprint.cuaProbeContracts);
+          record.moduleCompleteness = probeContractSummary.modules;
+          record.moduleCompletenessModuleCount = probeContractSummary.moduleCount;
+          record.moduleCompletenessCompleteCount = probeContractSummary.completeCount;
+          record.moduleCompletenessIncompleteCount = probeContractSummary.incompleteCount;
+          record.moduleCompletenessBlockingMissingTotal = probeContractSummary.blockingMissingTotal;
+          record.moduleCompletenessWarningTotal = probeContractSummary.warningTotal;
+          var probeRegistry = ctx.blueprint.cuaProbeRuntimeRegistry || ctx.blueprint.runtimeModuleRegistry || RUNTIME_MODULE_REGISTRY_FILE;
+          var probeRegistryCoverage = cuaProbeContracts.summarizeContractRegistryCoverage(ctx.blueprint.cuaProbeContracts, probeRegistry);
+          record.moduleProbeRegistryVersion = probeRegistryCoverage.registryVersion;
+          record.moduleProbeRegistryRuntimeL1ModuleCount = probeRegistryCoverage.runtimeL1ModuleCount;
+          record.moduleProbeRegistryContractModuleCount = probeRegistryCoverage.contractModuleCount;
+          record.moduleProbeRegistryCoveredCount = probeRegistryCoverage.coveredModuleCount;
+          record.moduleProbeRegistryMissingCount = probeRegistryCoverage.missingModuleCount;
+          record.moduleProbeRegistryContractOnlyCount = probeRegistryCoverage.contractOnlyModuleCount;
+          record.moduleProbeRegistryCompleteCoveredCount = probeRegistryCoverage.completeCoveredModuleCount;
+          record.moduleProbeRegistryIncompleteCoveredCount = probeRegistryCoverage.incompleteCoveredModuleCount;
+          record.moduleProbeRegistryCoverage = probeRegistryCoverage.coverage;
+          record.moduleProbeRegistryCoveredModuleIds = probeRegistryCoverage.coveredModuleIds;
+          record.moduleProbeRegistryMissingModuleIds = probeRegistryCoverage.missingModuleIds;
+          record.moduleProbeRegistryContractOnlyModuleIds = probeRegistryCoverage.contractOnlyModuleIds;
+          var snapshotObservation = ctx.blueprint.cuaPhaseEvidenceObservation || { phaseEvidence: {} };
+          var snapshotCoverage = cuaProbeContracts.summarizePhaseEvidenceSnapshotCoverage(
+            ctx.blueprint.cuaProbeContracts,
+            snapshotObservation,
+            { phaseIds: ctx.blueprint.cuaPhaseIds || null }
+          );
+          record.phaseEvidenceSnapshotMinSchemaVersion = snapshotCoverage.minSnapshotSchemaVersion;
+          record.phaseEvidenceSnapshotModuleCount = snapshotCoverage.moduleIds.length;
+          record.phaseEvidenceSnapshotPhaseCount = snapshotCoverage.phaseIds.length;
+          record.phaseEvidenceSnapshotTotalModulePhasePairs = snapshotCoverage.totalModulePhasePairs;
+          record.phaseEvidenceSnapshotCoveragePresentFullRate = snapshotCoverage.coveragePresentFullRate;
+          record.phaseEvidenceSnapshotCoverageAnyPresentRate = snapshotCoverage.coverageAnyPresentRate;
+          record.phaseEvidenceSnapshotByModule = snapshotCoverage.byModule;
+          record.phaseEvidenceSnapshotByPhase = snapshotCoverage.byPhase;
+          record.phaseEvidenceSnapshotSample = snapshotCoverage.sample;
+        } catch(probeErr) {
+          record.moduleCompletenessError = probeErr && probeErr.message ? probeErr.message : String(probeErr);
+        }
+      }
     }
     record.legacyComplexityScore = ctx.blueprint.legacyComplexityScore != null ? ctx.blueprint.legacyComplexityScore : null;
     record.legacyComplexityBand = ctx.blueprint.legacyComplexityBand || null;
   }
+
+  record.llmPlanTokensIn = record.schemaTokensIn || 0;
+  record.llmPlanTokensOut = record.schemaTokensOut || 0;
+  record.llmCodeTokensIn = record.customLogicTokensIn || 0;
+  record.llmCodeRounds = record.customLogicRounds || 0;
+  var moduleGapEntries = moduleGapLedger.createGapEntriesFromRecord(record);
+  record.moduleGapCount = moduleGapEntries.length;
+  record.moduleGapSources = moduleGapEntries.map(function(entry) { return entry.source; }).filter(function(source, idx, arr) {
+    return arr.indexOf(source) === idx;
+  });
+  record.moduleGapTypes = moduleGapEntries.map(function(entry) { return entry.gapType; }).filter(function(type, idx, arr) {
+    return arr.indexOf(type) === idx;
+  });
 
   try {
     // Rotate if file exceeds 10MB
@@ -184,6 +243,11 @@ function recordPipelineMetrics(ctx, stageResults) {
     }
     fs.appendFileSync(METRICS_FILE, JSON.stringify(record) + '\n');
   } catch(e) { console.error('[metrics] Write failed:', e.message); }
+  try {
+    moduleGapLedger.recordModuleGapsFromPipelineRecord(record);
+  } catch(e) {
+    console.error('[metrics] Module gap ledger write failed:', e.message);
+  }
 
   return record;
 }
@@ -622,6 +686,14 @@ function getMetricsSummary(lastN) {
     var signalCoverageTotal = 0;
     var signalCoverageCount = 0;
     var signalValidationFailures = 0;
+    var probeContractRecordCount = 0;
+    var probeModuleTotal = 0;
+    var probeModuleCompleteTotal = 0;
+    var probeBlockingMissingTotal = 0;
+    var probeRegistryRecordCount = 0;
+    var probeRegistryCoverageTotal = 0;
+    var latestProbeRegistryRecord = null;
+    var latestSnapshotRecord = null;
     assemblyRecords.forEach(function(r) {
       totalAtoms += r.storyboardAtomCount || 0;
       totalModules += r.moduleInstanceCount || 0;
@@ -653,6 +725,20 @@ function getMetricsSummary(lastN) {
         signalCoverageCount++;
       }
       if (r.cuaSignalValidationPassed === false) signalValidationFailures++;
+      if (r.moduleCompletenessModuleCount != null) {
+        probeContractRecordCount++;
+        probeModuleTotal += r.moduleCompletenessModuleCount || 0;
+        probeModuleCompleteTotal += r.moduleCompletenessCompleteCount || 0;
+        probeBlockingMissingTotal += r.moduleCompletenessBlockingMissingTotal || 0;
+      }
+      if (r.moduleProbeRegistryCoverage != null) {
+        probeRegistryRecordCount++;
+        probeRegistryCoverageTotal += Number(r.moduleProbeRegistryCoverage) || 0;
+        latestProbeRegistryRecord = r;
+      }
+      if (r.phaseEvidenceSnapshotCoveragePresentFullRate != null) {
+        latestSnapshotRecord = r;
+      }
     });
     summary.avgStoryboardAtoms = (totalAtoms / assemblyRecords.length).toFixed(1);
     summary.avgModuleInstances = (totalModules / assemblyRecords.length).toFixed(1);
@@ -672,7 +758,68 @@ function getMetricsSummary(lastN) {
     summary.avgCustomLogicScopeFixes = (totalScopeFixes / assemblyRecords.length).toFixed(1);
     summary.avgCuaSignalCoverage = signalCoverageTotal > 0 ? (signalCoverageCovered / signalCoverageTotal * 100).toFixed(1) + '%' : null;
     summary.cuaSignalFailureRate = signalCoverageCount > 0 ? (signalValidationFailures / signalCoverageCount * 100).toFixed(1) + '%' : null;
+    summary.avgModuleCompleteness = probeModuleTotal > 0 ? (probeModuleCompleteTotal / probeModuleTotal * 100).toFixed(1) + '%' : null;
+    summary.moduleCompletenessRecordCount = probeContractRecordCount;
+    summary.avgModuleCompletenessBlockingMissing = probeContractRecordCount > 0 ? (probeBlockingMissingTotal / probeContractRecordCount).toFixed(1) : null;
+    summary.avgModuleProbeRegistryCoverage = probeRegistryRecordCount > 0 ? (probeRegistryCoverageTotal / probeRegistryRecordCount * 100).toFixed(1) + '%' : null;
+    summary.moduleProbeRegistryRecordCount = probeRegistryRecordCount;
+    if (latestProbeRegistryRecord) {
+      summary.latestModuleProbeRegistryCoverage = (Number(latestProbeRegistryRecord.moduleProbeRegistryCoverage || 0) * 100).toFixed(1) + '%';
+      summary.latestModuleProbeRegistryCoveredCount = latestProbeRegistryRecord.moduleProbeRegistryCoveredCount || 0;
+      summary.latestModuleProbeRegistryRuntimeL1ModuleCount = latestProbeRegistryRecord.moduleProbeRegistryRuntimeL1ModuleCount || 0;
+      summary.latestModuleProbeRegistryMissingCount = latestProbeRegistryRecord.moduleProbeRegistryMissingCount || 0;
+      summary.latestModuleProbeRegistryMissingModuleIds = latestProbeRegistryRecord.moduleProbeRegistryMissingModuleIds || [];
+      summary.latestModuleProbeRegistryContractOnlyCount = latestProbeRegistryRecord.moduleProbeRegistryContractOnlyCount || 0;
+      summary.latestModuleProbeRegistryCompleteCoveredCount = latestProbeRegistryRecord.moduleProbeRegistryCompleteCoveredCount || 0;
+    }
+    if (latestSnapshotRecord) {
+      summary.latestPhaseEvidenceSnapshotPresentFullRate =
+        (Number(latestSnapshotRecord.phaseEvidenceSnapshotCoveragePresentFullRate || 0) * 100).toFixed(1) + '%';
+      summary.latestPhaseEvidenceSnapshotAnyPresentRate =
+        (Number(latestSnapshotRecord.phaseEvidenceSnapshotCoverageAnyPresentRate || 0) * 100).toFixed(1) + '%';
+      summary.latestPhaseEvidenceSnapshotTotalPairs = latestSnapshotRecord.phaseEvidenceSnapshotTotalModulePhasePairs || 0;
+      summary.latestPhaseEvidenceSnapshotModuleCount = latestSnapshotRecord.phaseEvidenceSnapshotModuleCount || 0;
+      summary.latestPhaseEvidenceSnapshotPhaseCount = latestSnapshotRecord.phaseEvidenceSnapshotPhaseCount || 0;
+    }
   }
+
+  // ---- LLM usage and module-gap ledger ----
+  var totalLlmPlanTokensIn = 0;
+  var totalLlmPlanTokensOut = 0;
+  var totalLlmCodeTokensIn = 0;
+  var totalLlmCodeRounds = 0;
+  var tokenAccountingSources = {};
+  var gapEntries = [];
+  records.forEach(function(r) {
+    totalLlmPlanTokensIn += Number(r.llmPlanTokensIn != null ? r.llmPlanTokensIn : r.schemaTokensIn || 0) || 0;
+    totalLlmPlanTokensOut += Number(r.llmPlanTokensOut != null ? r.llmPlanTokensOut : r.schemaTokensOut || 0) || 0;
+    totalLlmCodeTokensIn += Number(r.llmCodeTokensIn != null ? r.llmCodeTokensIn : r.customLogicTokensIn || 0) || 0;
+    totalLlmCodeRounds += Number(r.llmCodeRounds != null ? r.llmCodeRounds : r.customLogicRounds || 0) || 0;
+    if (r.tokenAccountingSource) tokenAccountingSources[r.tokenAccountingSource] = (tokenAccountingSources[r.tokenAccountingSource] || 0) + 1;
+    gapEntries = gapEntries.concat(moduleGapLedger.createGapEntriesFromRecord(r));
+  });
+  var totalLlmTokensIn = totalLlmPlanTokensIn + totalLlmCodeTokensIn;
+  summary.llmPlanTokensIn = totalLlmPlanTokensIn;
+  summary.llmPlanTokensOut = totalLlmPlanTokensOut;
+  summary.llmCodeTokensIn = totalLlmCodeTokensIn;
+  summary.llmCodeRounds = totalLlmCodeRounds;
+  summary.llmTokensIn = totalLlmTokensIn;
+  summary.llmTokensInPerRun = (totalLlmTokensIn / records.length).toFixed(1);
+  summary.llmCodeTokensInPerRun = (totalLlmCodeTokensIn / records.length).toFixed(1);
+  summary.llmTokensInPerShippedPlayable = successCount > 0 ? (totalLlmTokensIn / successCount).toFixed(1) : null;
+  summary.llmCodeTokensInPerShippedPlayable = successCount > 0 ? (totalLlmCodeTokensIn / successCount).toFixed(1) : null;
+  summary.tokenAccountingSources = tokenAccountingSources;
+  var gapSummary = moduleGapLedger.summarizeModuleGaps(gapEntries);
+  summary.moduleGaps = {
+    total: gapSummary.totalGaps,
+    taskCount: gapSummary.taskCount,
+    bySource: gapSummary.bySource,
+    byGapType: gapSummary.byGapType,
+    byStage: gapSummary.byStage,
+    byRoute: gapSummary.byRoute,
+    topModules: gapSummary.topModules,
+    topReasons: gapSummary.topReasons,
+  };
 
   // ---- Trend: last 5 vs previous 5 ----
   if (records.length >= 10) {
@@ -824,8 +971,44 @@ function printDiagnostics(lastN) {
     if (s.customLogicUsedAfterImplementationGateRate) console.log('    Custom gated:  ' + s.customLogicUsedAfterImplementationGateRate);
     if (s.avgCuaSignalCoverage) console.log('    Avg signals:   ' + s.avgCuaSignalCoverage);
     if (s.cuaSignalFailureRate) console.log('    Signal fails:  ' + s.cuaSignalFailureRate);
+    if (s.avgModuleCompleteness) console.log('    Module ready:   ' + s.avgModuleCompleteness);
+    if (s.avgModuleCompletenessBlockingMissing) console.log('    Module gaps:    ' + s.avgModuleCompletenessBlockingMissing + ' blocking/run');
+    if (s.latestModuleProbeRegistryCoverage) {
+      console.log('    Probe registry: ' + s.latestModuleProbeRegistryCoverage + ' (' + s.latestModuleProbeRegistryCoveredCount + '/' + s.latestModuleProbeRegistryRuntimeL1ModuleCount + ' L1)');
+      console.log('    Probe missing:  ' + s.latestModuleProbeRegistryMissingCount + ' module(s)');
+      if (s.latestModuleProbeRegistryMissingModuleIds && s.latestModuleProbeRegistryMissingModuleIds.length > 0) {
+        console.log('    Probe next:     ' + s.latestModuleProbeRegistryMissingModuleIds.slice(0, 8).join(', '));
+      }
+    } else if (s.avgModuleProbeRegistryCoverage) {
+      console.log('    Probe registry: ' + s.avgModuleProbeRegistryCoverage);
+    }
     if (s.avgCustomLogicScopeFixes) console.log('    Scope scrubs:  ' + s.avgCustomLogicScopeFixes);
     console.log('    Fallback rate: ' + s.assemblyFallbackRate);
+  }
+
+  if (s.moduleGaps) {
+    console.log('\n  --- LLM / Module Gaps ---');
+    console.log('    LLM tokens/run:       ' + s.llmTokensInPerRun);
+    if (s.tokenAccountingSources && Object.keys(s.tokenAccountingSources).length > 0) {
+      console.log('    Token source:         ' + Object.keys(s.tokenAccountingSources).map(function(k) {
+        return k + '=' + s.tokenAccountingSources[k];
+      }).join(', '));
+    }
+    if (s.llmTokensInPerShippedPlayable !== null) {
+      console.log('    LLM tokens/playable:  ' + s.llmTokensInPerShippedPlayable);
+      console.log('    Code tokens/playable: ' + s.llmCodeTokensInPerShippedPlayable);
+    }
+    console.log('    Module gaps:          ' + s.moduleGaps.total + ' across ' + s.moduleGaps.taskCount + ' task(s)');
+    if (s.moduleGaps.bySource && s.moduleGaps.bySource.length > 0) {
+      console.log('    Gap sources:          ' + s.moduleGaps.bySource.slice(0, 5).map(function(row) {
+        return row.key + '=' + row.count;
+      }).join(', '));
+    }
+    if (s.moduleGaps.byGapType && s.moduleGaps.byGapType.length > 0) {
+      console.log('    Gap types:            ' + s.moduleGaps.byGapType.slice(0, 5).map(function(row) {
+        return row.key + '=' + row.count;
+      }).join(', '));
+    }
   }
 
   if (s.topFailReasons && s.topFailReasons.length > 0) {

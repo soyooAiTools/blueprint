@@ -78,9 +78,12 @@ assert.ok(emitted.files.flow.indexOf('mainCam.orthographicSize = ') < 0 && emitt
 assert.ok(emitted.files.flow.indexOf('Vector3.MoveTowards(__assemblyBefore, ConveyorBelt.transform.position') >= 0, 'move_to_target slot should move actor toward target');
 assert.ok(emitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "player_position_changed")') >= 0, 'move_to_target should record player motion evidence');
 assert.ok(emitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "entity_state_equals_built")') >= 0, 'build_progress should record built evidence');
+assert.ok(emitted.files.flow.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "build_progress"') >= 0, 'build_progress should emit structured phase evidence snapshot');
 assert.ok(emitted.files.input.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "tap_registered")') >= 0, 'tap/click slot should record tap evidence');
-assert.ok(emitted.files.resource.indexOf('TrySpend(GFM_ResourceIds.Gold, 1)') >= 0, 'cost_gate should spend configured resource through owner API');
+assert.ok(emitted.files.resource.indexOf('string __costGateResource = GFM_ResourceIds.Gold;') >= 0, 'cost_gate should bind configured resource through owner API');
+assert.ok(emitted.files.resource.indexOf('TrySpend(__costGateResource, 1)') >= 0, 'cost_gate should spend configured resource through owner API');
 assert.ok(emitted.files.resource.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "resource_decremented")') >= 0, 'cost_gate should record resource decrement evidence');
+assert.ok(emitted.files.resource.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "cost_gate"') >= 0, 'cost_gate should emit structured phase evidence snapshot');
 var legacyUpgradeCostPlans = JSON.parse(JSON.stringify(plans));
 legacyUpgradeCostPlans.assemblyPlan.moduleInstances.forEach(function(module) {
   if (module.id === 'ConveyorBelt::cost_gate') {
@@ -89,7 +92,7 @@ legacyUpgradeCostPlans.assemblyPlan.moduleInstances.forEach(function(module) {
   }
 });
 var legacyUpgradeCostEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(skeleton, legacyUpgradeCostPlans);
-assert.ok(legacyUpgradeCostEmitted.files.resource.indexOf('TrySpend(GFM_ResourceIds.Gold, 1)') >= 0, 'legacy build/upgrade cost_gate placeholder resource should fall back to Gold');
+assert.ok(legacyUpgradeCostEmitted.files.resource.indexOf('string __costGateResource = GFM_ResourceIds.Gold;') >= 0, 'legacy build/upgrade cost_gate placeholder resource should fall back to Gold');
 var legacySpendCostPlans = JSON.parse(JSON.stringify(plans));
 legacySpendCostPlans.assemblyPlan.moduleInstances.forEach(function(module) {
   if (module.id === 'ConveyorBelt::cost_gate') {
@@ -98,7 +101,7 @@ legacySpendCostPlans.assemblyPlan.moduleInstances.forEach(function(module) {
   }
 });
 var legacySpendCostEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(skeleton, legacySpendCostPlans);
-assert.ok(legacySpendCostEmitted.files.resource.indexOf('TrySpend(GFM_ResourceIds.Normalize("resource"), 1)') >= 0, 'generic spend_resource cost_gate should preserve generic resource id');
+assert.ok(legacySpendCostEmitted.files.resource.indexOf('string __costGateResource = GFM_ResourceIds.Normalize("resource");') >= 0, 'generic spend_resource cost_gate should preserve generic resource id');
 assert.ok(emitted.files.input.indexOf('ConveyorBeltState = Mathf.Max') === -1, 'click/input slots must not mutate build state owner fields');
 assert.ok(emitted.files.resource.indexOf('ConveyorBeltState = Mathf.Max') === -1, 'cost slots must not mutate build state owner fields');
 assert.ok(emitted.files.scene.indexOf('ConveyorBeltState = Mathf.Max') === -1, 'visual slots must not mutate build state owner fields');
@@ -123,8 +126,8 @@ assert.deepStrictEqual(commentedJsonLines, [
 var generatedFlow = emitted.files.flow
   .replace('// ownerFile: GameFlowManagerMain.Flow.cs', '// ownerFile: HACKED')
   .replace(
-    '        ConveyorBeltState = 2;',
-    '        ConveyorBeltState = 2;\n        PlaceObj(ConveyorBelt, 1f, 2f, 3f);'
+    '        if (ConveyorBeltState < 2) ConveyorBeltState = 2;',
+    '        if (ConveyorBeltState < 2) ConveyorBeltState = 2;\n        PlaceObj(ConveyorBelt, 1f, 2f, 3f);'
   );
 var mergedFlow = assemblyEmitter.mergeAssemblySlotEdits(emitted.files.flow, generatedFlow);
 assert.strictEqual(mergedFlow.preservedSlotCount > 0, true, 'slot merge should preserve slot body edits');
@@ -183,10 +186,12 @@ var genericPlans = {
   cuaPlan: { steps: [] }
 };
 var genericEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(genericSkeleton, genericPlans);
-assert.ok(genericEmitted.files.resource.indexOf('AddResource(GFM_ResourceIds.Normalize("energy"), 2 * deliverCount);') >= 0, 'deliver slot should grant parameterized reward resource');
+assert.ok(genericEmitted.files.resource.indexOf('string __deliverRewardResource = GFM_ResourceIds.Normalize("energy");') >= 0, 'deliver slot should bind parameterized reward resource');
+assert.ok(genericEmitted.files.resource.indexOf('AddResource(__deliverRewardResource, 2 * deliverCount);') >= 0, 'deliver slot should grant parameterized reward resource');
 assert.ok(genericEmitted.files.resource.indexOf('AddGold(2 * deliverCount);') === -1, 'non-gold deliver reward should not hardcode AddGold');
 assert.ok(genericEmitted.files.resource.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "inventory_decremented")') >= 0, 'deliver slot should record inventory evidence');
 assert.ok(genericEmitted.files.resource.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "reward_incremented")') >= 0, 'deliver slot should record reward evidence');
+assert.ok(genericEmitted.files.resource.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "deliver_to_target"') >= 0, 'deliver slot should emit structured phase evidence snapshot');
 assert.ok(genericEmitted.files.resource.indexOf('" energy"') >= 0, 'floating text should use parameterized reward label');
 assert.ok(genericEmitted.files.resource.indexOf('RecyclerState =') === -1, 'resource collect/deliver slots must not mutate generic entity state owned by flow modules');
 
@@ -225,6 +230,34 @@ assert.ok(popEmitted.files.flow.indexOf('AssemblySlot_Flow_CTAButton__pop_animat
 assert.ok(popEmitted.files.flow.indexOf('SetScale(CTAButton, __assemblyPopScale, __assemblyPopScale, __assemblyPopScale);') >= 0, 'pop_animation should use deterministic scale pulse');
 assert.ok(popEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "visual_variant_changed")') >= 0, 'pop_animation should record visual evidence');
 assert.ok(popEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "entity_position_changed")') === -1, 'pop_animation should not record position evidence without moving');
+
+var formSwitchPlans = {
+  assemblyPlan: {
+    moduleInstances: [
+      {
+        id: 'Player::form_switch',
+        moduleId: 'form_switch',
+        entity: 'Player',
+        params: { formId: 'form_water' },
+        ownerFiles: ['GameFlowManagerMain.Flow.cs'],
+        sourceAtomIds: ['atom_form']
+      }
+    ],
+    fileOwners: [
+      { file: 'GameFlowManagerMain.Flow.cs', moduleInstanceIds: ['Player::form_switch'] }
+    ],
+    phaseBindings: [
+      { phaseId: 'form', atomIds: ['atom_form'], activateEntities: ['Player'] }
+    ],
+    stateOwners: [],
+    eventGraph: [],
+    unresolved: []
+  },
+  cuaPlan: { steps: [] }
+};
+var formSwitchEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(genericSkeleton, formSwitchPlans);
+assert.ok(formSwitchEmitted.files.flow.indexOf('GFM_Player.Instance.SwitchForm(__formSwitchTargetIndex);') >= 0, 'form_switch should resolve and switch to a target form');
+assert.ok(formSwitchEmitted.files.flow.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "form_switch"') >= 0, 'form_switch should emit structured phase evidence snapshot');
 
 var registry = JSON.parse(fs.readFileSync(__dirname + '/../adapters/schema/assembly-registry-v1/runtime-modules.v1.json', 'utf-8'));
 var registryItems = registry.items || [];
@@ -484,6 +517,14 @@ var implementationPlans = {
         sourceAtomIds: ['atom_collect']
       },
       {
+        id: 'system::score_feedback',
+        moduleId: 'score_feedback',
+        entity: '',
+        params: { resource: 'gold', label: 'Gold' },
+        ownerFiles: ['GameFlowManagerMain.UI.cs'],
+        sourceAtomIds: ['atom_collect']
+      },
+      {
         id: 'CTAButton::guide_ui',
         moduleId: 'guide_ui',
         entity: 'CTAButton',
@@ -521,7 +562,7 @@ var implementationPlans = {
       },
       { file: 'GameFlowManagerMain.Input.cs', moduleInstanceIds: ['Player::player_input_joystick'] },
       { file: 'GameFlowManagerMain.Resource.cs', moduleInstanceIds: ['system::collect_on_near', 'system::inventory_wallet'] },
-      { file: 'GameFlowManagerMain.UI.cs', moduleInstanceIds: ['CTAButton::guide_ui', 'system::cta_finish'] },
+      { file: 'GameFlowManagerMain.UI.cs', moduleInstanceIds: ['system::score_feedback', 'CTAButton::guide_ui', 'system::cta_finish'] },
       { file: 'GameFlowManagerMain.Scene.cs', moduleInstanceIds: ['system::visual_variant_swap'] }
     ],
     phaseBindings: [
@@ -570,9 +611,16 @@ assert.ok(implementationEmitted.files.input.indexOf('RecordPhaseEvidenceFlag(cur
 assert.ok(implementationEmitted.files.flow.indexOf('HideObj(EnemyBase);') >= 0, 'system damage fallback should hide a concrete enemy target');
 assert.ok(implementationEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "projectile_visible")') >= 0, 'system projectile fallback should record projectile evidence');
 assert.ok(implementationEmitted.files.flow.indexOf('DefenseTowerState = Mathf.Max(DefenseTowerState, 1);') >= 0, 'activate_targets fallback should activate its owner when targets are empty');
-assert.ok(implementationEmitted.files.resource.indexOf('AddResource(GFM_ResourceIds.Gold, 1);') >= 0, 'system collect fallback should add the configured resource');
-assert.ok(implementationEmitted.files.resource.indexOf('GetResource(GFM_ResourceIds.Gold) > 0') >= 0, 'inventory_wallet should observe configured resource kinds');
+assert.ok(implementationEmitted.files.flow.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "activate_targets"') >= 0, 'activate_targets should emit structured phase evidence snapshot');
+assert.ok(implementationEmitted.files.input.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "player_input_joystick"') >= 0, 'player_input_joystick should emit structured phase evidence snapshot');
+assert.ok(implementationEmitted.files.resource.indexOf('string __collectResource = GFM_ResourceIds.Gold;') >= 0, 'system collect fallback should bind the configured resource');
+assert.ok(implementationEmitted.files.resource.indexOf('AddResource(__collectResource, 1);') >= 0, 'system collect fallback should add the configured resource');
+assert.ok(implementationEmitted.files.resource.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "collect_on_near"') >= 0, 'collect_on_near should emit structured phase evidence snapshot');
+assert.ok(implementationEmitted.files.resource.indexOf('string __inventoryWalletResource = GFM_ResourceIds.Gold;') >= 0, 'inventory_wallet should observe configured resource kinds');
+assert.ok(implementationEmitted.files.resource.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "inventory_wallet"') >= 0, 'inventory_wallet should emit structured phase evidence snapshot');
+assert.ok(implementationEmitted.files.ui.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "score_feedback"') >= 0, 'score_feedback should emit structured phase evidence snapshot');
 assert.ok(implementationEmitted.files.ui.indexOf('ShowCTA();') >= 0, 'cta_finish should deterministically show CTA');
+assert.ok(implementationEmitted.files.ui.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "cta_finish"') >= 0, 'cta_finish should emit structured phase evidence snapshot');
 assert.ok(implementationEmitted.files.ui.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "guide_text_visible")') >= 0, 'CTA guide_ui should still emit guide evidence');
 assert.ok(implementationEmitted.files.scene.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "visual_variant_changed")') >= 0, 'system visual variant fallback should record visual evidence');
 
@@ -633,7 +681,156 @@ assert.strictEqual(genericFallbackCoverage.coverage, 1, 'generic/system assembly
 assert.deepStrictEqual(genericFallbackCoverage.missing, [], 'generic/system fallback modules must not be reported missing');
 var genericFallbackEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(genericSkeleton, genericFallbackPlans);
 assert.ok(genericFallbackEmitted.files.flow.indexOf('PlaceObj(SpawnerMachine') >= 0, 'spawn_interval should use owner entity as visible proxy when spawned entity is not declared');
+assert.ok(genericFallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "spawn_interval"') >= 0, 'spawn_interval should emit structured phase evidence snapshot');
 assert.ok(genericFallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "target_hp_decreased_or_target_dead")') >= 0, 'system damageable should emit combat evidence instead of an empty slot');
 assert.ok(genericFallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "upgrade_level_changed")') >= 0, 'system upgrade_progress should emit upgrade evidence instead of an empty slot');
+assert.ok(genericFallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "upgrade_progress"') >= 0, 'upgrade_progress should emit structured phase evidence snapshot');
+
+var b2b3Plans = {
+  entityPlan: {
+    entities: [
+      { name: 'Player' },
+      { name: 'SpawnPod' },
+      { name: 'EnemyGrunt' }
+    ]
+  },
+  assemblyPlan: {
+    moduleInstances: [
+      {
+        id: 'SpawnPod::spawn_once',
+        moduleId: 'spawn_once',
+        entity: 'SpawnPod',
+        params: { entity: 'EnemyGrunt' },
+        ownerFiles: ['GameFlowManagerMain.Flow.cs'],
+        sourceAtomIds: ['atom_spawn_once']
+      },
+      {
+        id: 'system::phase_gate_timer',
+        moduleId: 'phase_gate_timer',
+        entity: '',
+        params: { seconds: 0.5 },
+        ownerFiles: ['GameFlowManagerMain.Flow.cs'],
+        sourceAtomIds: ['atom_timer']
+      },
+      {
+        id: 'system::player_input_tap',
+        moduleId: 'player_input_tap',
+        entity: '',
+        params: { raycastLayer: 'Default' },
+        ownerFiles: ['GameFlowManagerMain.Input.cs'],
+        sourceAtomIds: ['atom_tap']
+      }
+    ],
+    fileOwners: [
+      { file: 'GameFlowManagerMain.Flow.cs', moduleInstanceIds: ['SpawnPod::spawn_once', 'system::phase_gate_timer'] },
+      { file: 'GameFlowManagerMain.Input.cs', moduleInstanceIds: ['system::player_input_tap'] }
+    ],
+    phaseBindings: [
+      { phaseId: 'spawn', atomIds: ['atom_spawn_once'], activateEntities: ['SpawnPod', 'EnemyGrunt'] },
+      { phaseId: 'timerTap', atomIds: ['atom_timer', 'atom_tap'], activateEntities: ['Player'] }
+    ],
+    stateOwners: [],
+    eventGraph: [],
+    unresolved: []
+  },
+  cuaPlan: { steps: [] }
+};
+var b2b3Coverage = assemblyEmitter.computeImplementationCoverage(b2b3Plans);
+assert.strictEqual(b2b3Coverage.coverage, 1, 'B2/B3 phaseEvidence modules should be deterministic-covered');
+assert.deepStrictEqual(b2b3Coverage.missing, [], 'B2/B3 phaseEvidence modules should not be missing');
+var b2b3Emitted = assemblyEmitter.applyAssemblyPlanToSkeleton(genericSkeleton, b2b3Plans);
+assert.ok(b2b3Emitted.files.flow.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "spawn_once"') >= 0, 'spawn_once should emit structured phase evidence snapshot');
+assert.ok(b2b3Emitted.files.flow.indexOf('\\"phase_advanced_by_timer\\"') >= 0, 'phase_gate_timer snapshot should include timer boundary ownership');
+assert.ok(b2b3Emitted.files.flow.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "phase_gate_timer"') >= 0, 'phase_gate_timer should emit structured phase evidence snapshot');
+assert.ok(b2b3Emitted.files.input.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "player_input_tap"') >= 0, 'player_input_tap should emit structured phase evidence snapshot');
+assert.ok(b2b3Emitted.files.input.indexOf('\\"tap_position\\"') >= 0, 'player_input_tap should include optional tap_position for present_full coverage');
+
+var cTierPlans = {
+  entityPlan: {
+    entities: [
+      { name: 'Player' },
+      { name: 'EnemyBoss' },
+      { name: 'CoinPickup' },
+      { name: 'GuideTarget' },
+      { name: 'CTAButton' },
+      { name: 'Turret' },
+      { name: 'ArrowProjectile' },
+      { name: 'Ingredient' },
+      { name: 'Pot' },
+      { name: 'CooldownTower' }
+    ]
+  },
+  assemblyPlan: {
+    moduleInstances: [
+      { id: 'EnemyBoss::visual_binding', moduleId: 'visual_binding', entity: 'EnemyBoss', params: { position: '(1,0.5,1)', scale: '1.1,1.1,1.1' }, ownerFiles: ['GameFlowManagerMain.Scene.cs'], sourceAtomIds: ['atom_c1'] },
+      { id: 'EnemyBoss::visual_variant_swap', moduleId: 'visual_variant_swap', entity: 'EnemyBoss', params: { variantId: 'phase2' }, ownerFiles: ['GameFlowManagerMain.Scene.cs'], sourceAtomIds: ['atom_c1'] },
+      { id: 'CoinPickup::floating_text_feedback', moduleId: 'floating_text_feedback', entity: 'CoinPickup', params: { target: 'CoinPickup', text: '+10' }, ownerFiles: ['GameFlowManagerMain.UI.cs'], sourceAtomIds: ['atom_c1'] },
+      { id: 'GuideTarget::world_label', moduleId: 'world_label', entity: 'GuideTarget', params: { target: 'GuideTarget', text: '目标' }, ownerFiles: ['GameFlowManagerMain.UI.cs'], sourceAtomIds: ['atom_c1'] },
+      { id: 'CoinPickup::pop_animation', moduleId: 'pop_animation', entity: 'CoinPickup', params: { intensity: 0.2 }, ownerFiles: ['GameFlowManagerMain.Flow.cs'], sourceAtomIds: ['atom_c1'] },
+      { id: 'GuideTarget::highlight_target', moduleId: 'highlight_target', entity: 'GuideTarget', params: { target: 'GuideTarget' }, ownerFiles: ['GameFlowManagerMain.UI.cs'], sourceAtomIds: ['atom_c1'] },
+      { id: 'system::guide_ui', moduleId: 'guide_ui', entity: '', params: {}, ownerFiles: ['GameFlowManagerMain.UI.cs'], sourceAtomIds: ['atom_c1'] },
+      { id: 'system::camera_focus', moduleId: 'camera_focus', entity: '', params: { target: 'EnemyBoss' }, ownerFiles: ['GameFlowManagerMain.Scene.cs'], sourceAtomIds: ['atom_c2'] },
+      { id: 'system::camera_lift', moduleId: 'camera_lift', entity: '', params: { amount: 2 }, ownerFiles: ['GameFlowManagerMain.Scene.cs'], sourceAtomIds: ['atom_c2'] },
+      { id: 'system::camera_zoom', moduleId: 'camera_zoom', entity: '', params: { value: 1.3 }, ownerFiles: ['GameFlowManagerMain.Scene.cs'], sourceAtomIds: ['atom_c2'] },
+      { id: 'EnemyBoss::damageable', moduleId: 'damageable', entity: 'EnemyBoss', params: { target: 'EnemyBoss' }, ownerFiles: ['GameFlowManagerMain.Flow.cs'], sourceAtomIds: ['atom_c3'] },
+      { id: 'EnemyBoss::apply_damage', moduleId: 'apply_damage', entity: 'EnemyBoss', params: { source: 'Turret', target: 'EnemyBoss', amount: 3 }, ownerFiles: ['GameFlowManagerMain.Flow.cs'], sourceAtomIds: ['atom_c3'] },
+      { id: 'EnemyBoss::on_death_drop', moduleId: 'on_death_drop', entity: 'EnemyBoss', params: { loot: 'CoinPickup' }, ownerFiles: ['GameFlowManagerMain.Flow.cs'], sourceAtomIds: ['atom_c3'] },
+      { id: 'Turret::target_acquire', moduleId: 'target_acquire', entity: 'Turret', params: { target: 'EnemyBoss' }, ownerFiles: ['GameFlowManagerMain.Flow.cs'], sourceAtomIds: ['atom_c3'] },
+      { id: 'Turret::projectile_emit', moduleId: 'projectile_emit', entity: 'Turret', params: { projectile: 'ArrowProjectile', velocity: 12 }, ownerFiles: ['GameFlowManagerMain.Flow.cs'], sourceAtomIds: ['atom_c3'] },
+      { id: 'Ingredient::drag_trigger', moduleId: 'drag_trigger', entity: 'Ingredient', params: { source: 'Ingredient', target: 'Pot' }, ownerFiles: ['GameFlowManagerMain.Input.cs'], sourceAtomIds: ['atom_c4'] },
+      { id: 'CTAButton::hold_trigger', moduleId: 'hold_trigger', entity: 'CTAButton', params: { target: 'CTAButton', duration: 1.2 }, ownerFiles: ['GameFlowManagerMain.Input.cs'], sourceAtomIds: ['atom_c4'] },
+      { id: 'Player::move_to_target', moduleId: 'move_to_target', entity: 'Player', params: { target: 'GuideTarget', speed: 4 }, ownerFiles: ['GameFlowManagerMain.Flow.cs'], sourceAtomIds: ['atom_c4'] },
+      { id: 'CooldownTower::cooldown', moduleId: 'cooldown', entity: 'CooldownTower', params: { seconds: 1 }, ownerFiles: ['GameFlowManagerMain.Flow.cs'], sourceAtomIds: ['atom_c4'] },
+      { id: 'CTAButton::click_trigger', moduleId: 'click_trigger', entity: 'CTAButton', params: { target: 'CTAButton' }, ownerFiles: ['GameFlowManagerMain.Input.cs'], sourceAtomIds: ['atom_c4'] }
+    ],
+    fileOwners: [
+      { file: 'GameFlowManagerMain.Scene.cs', moduleInstanceIds: ['EnemyBoss::visual_binding', 'EnemyBoss::visual_variant_swap', 'system::camera_focus', 'system::camera_lift', 'system::camera_zoom'] },
+      { file: 'GameFlowManagerMain.UI.cs', moduleInstanceIds: ['CoinPickup::floating_text_feedback', 'GuideTarget::world_label', 'GuideTarget::highlight_target', 'system::guide_ui'] },
+      { file: 'GameFlowManagerMain.Flow.cs', moduleInstanceIds: ['CoinPickup::pop_animation', 'EnemyBoss::damageable', 'EnemyBoss::apply_damage', 'EnemyBoss::on_death_drop', 'Turret::target_acquire', 'Turret::projectile_emit', 'Player::move_to_target', 'CooldownTower::cooldown'] },
+      { file: 'GameFlowManagerMain.Input.cs', moduleInstanceIds: ['Ingredient::drag_trigger', 'CTAButton::hold_trigger', 'CTAButton::click_trigger'] }
+    ],
+    phaseBindings: [
+      { phaseId: 'visual', atomIds: ['atom_c1'], activateEntities: ['EnemyBoss', 'CoinPickup', 'GuideTarget'], guide: '看这里' },
+      { phaseId: 'camera', atomIds: ['atom_c2'], activateEntities: ['EnemyBoss'], camera: { lookAt: 'EnemyBoss', zoom: 1.3, height: 2 } },
+      { phaseId: 'combat', atomIds: ['atom_c3'], activateEntities: ['EnemyBoss', 'Turret', 'ArrowProjectile', 'CoinPickup'] },
+      { phaseId: 'control', atomIds: ['atom_c4'], activateEntities: ['Player', 'Ingredient', 'Pot', 'CTAButton', 'CooldownTower', 'GuideTarget'] }
+    ],
+    stateOwners: [],
+    eventGraph: [],
+    unresolved: []
+  },
+  cuaPlan: { steps: [] }
+};
+var cTierCoverage = assemblyEmitter.computeImplementationCoverage(cTierPlans);
+assert.strictEqual(cTierCoverage.coverage, 1, 'C-tier phaseEvidence modules should be deterministic-covered');
+assert.deepStrictEqual(cTierCoverage.missing, [], 'C-tier phaseEvidence modules should not be missing');
+var cTierEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(genericSkeleton, cTierPlans);
+[
+  ['scene', 'visual_binding'],
+  ['scene', 'visual_variant_swap'],
+  ['ui', 'floating_text_feedback'],
+  ['ui', 'world_label'],
+  ['flow', 'pop_animation'],
+  ['ui', 'highlight_target'],
+  ['ui', 'guide_ui'],
+  ['scene', 'camera_focus'],
+  ['scene', 'camera_lift'],
+  ['scene', 'camera_zoom'],
+  ['flow', 'damageable'],
+  ['flow', 'apply_damage'],
+  ['flow', 'on_death_drop'],
+  ['flow', 'target_acquire'],
+  ['flow', 'projectile_emit'],
+  ['input', 'drag_trigger'],
+  ['input', 'hold_trigger'],
+  ['flow', 'move_to_target'],
+  ['flow', 'cooldown'],
+  ['input', 'click_trigger']
+].forEach(function(pair) {
+  assert.ok(cTierEmitted.files[pair[0]].indexOf('RecordPhaseEvidenceObject(currentPhaseName, "' + pair[1] + '"') >= 0, pair[1] + ' should emit structured phase evidence snapshot');
+});
+assert.ok(cTierEmitted.files.scene.indexOf('\\"framing.look_at\\"') >= 0, 'camera_focus should use literal dotted framing.look_at key expected by evaluator');
+assert.ok(cTierEmitted.files.input.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "drag_path_completed")') >= 0, 'drag_trigger should emit declared drag_path_completed flag');
+assert.ok(cTierEmitted.files.ui.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "highlight_overlay_visible")') >= 0, 'highlight_target should emit overlay flag');
 
 console.log('assembly-emitter tests passed');
