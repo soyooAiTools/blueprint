@@ -2,6 +2,7 @@
 
 var fs = require('fs');
 var path = require('path');
+var vm = require('vm');
 
 var DEFAULT_SNAPSHOT_SCHEMA_CONTRACT_PATH = path.join(__dirname, '..', 'contracts', 'snapshot-schema.v1.json');
 
@@ -69,6 +70,18 @@ function findUserInputListeners(source) {
   return listeners;
 }
 
+function hasJoystickControl(source) {
+  var html = stripComments(source);
+  var hasControl = /id\s*=\s*["']joystick["']|#[\w-]*joystick|\bjoystick\b/.test(html);
+  var hasFixedUi = /#[\w-]*joystick[\w-]*\s*\{[^}]*\bposition\s*:\s*fixed\b/.test(html)
+    || /id\s*=\s*["'][^"']*joystick[^"']*["'][^>]*style\s*=\s*["'][^"']*\bposition\s*:\s*fixed\b/.test(html)
+    || /style\s*=\s*["'][^"']*\bposition\s*:\s*fixed\b[^"']*["'][^>]*id\s*=\s*["'][^"']*joystick[^"']*["']/.test(html);
+  var hasPointerDown = /joystick[\s\S]{0,260}\.addEventListener\s*\(\s*['"]pointerdown['"]|\.addEventListener\s*\(\s*['"]pointerdown['"][\s\S]{0,260}joystick/.test(html);
+  var hasPointerMove = /joystick[\s\S]{0,260}\.addEventListener\s*\(\s*['"]pointermove['"]|\.addEventListener\s*\(\s*['"]pointermove['"][\s\S]{0,260}joystick/.test(html);
+  var hasPointerEnd = /joystick[\s\S]{0,320}\.addEventListener\s*\(\s*['"]pointer(?:up|cancel)['"]|\.addEventListener\s*\(\s*['"]pointer(?:up|cancel)['"][\s\S]{0,320}joystick/.test(html);
+  return hasControl && hasFixedUi && hasPointerDown && hasPointerMove && hasPointerEnd;
+}
+
 function findAutoProgressPatterns(source) {
   var html = stripComments(source);
   var hits = [];
@@ -85,6 +98,143 @@ function findAutoProgressPatterns(source) {
     hits.push(match[0].replace(/\s+/g, ' ').slice(0, 220));
   }
   return hits;
+}
+
+function findDirectClickCompletionPatterns(source) {
+  var html = stripComments(source);
+  var hits = [];
+  var re = /addEventListener\s*\(\s*['"](?:click|pointerdown|touchstart|keydown)['"][\s\S]{0,700}?(?:(?:completePhase|enterPhase|advancePhase|nextPhase|performAction)\s*\(|(?:phaseIndex|currentPhase)\s*(?:=|\+\+|--|\+=|-=))/g;
+  var match;
+  while ((match = re.exec(html))) {
+    var snippet = match[0].replace(/\s+/g, ' ').slice(0, 220);
+    if (!/joystick|setPointerCapture|updateStick/.test(match[0])) hits.push(snippet);
+  }
+  if (/\bactionBtn\b|执行当前操作/.test(html)) hits.push('actionBtn/执行当前操作 shortcut present');
+  return hits;
+}
+
+function extractBalancedArrayLiteral(source, openIndex) {
+  var depth = 0;
+  var quote = null;
+  var escaped = false;
+  for (var i = openIndex; i < source.length; i += 1) {
+    var ch = source[i];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      continue;
+    }
+    if (ch === '[') depth += 1;
+    if (ch === ']') {
+      depth -= 1;
+      if (depth === 0) return source.slice(openIndex, i + 1);
+    }
+  }
+  return null;
+}
+
+function extractPhasesArrayLiteral(source) {
+  var html = stripComments(source);
+  var assignmentRe = /(?:\b(?:const|let|var)\s+PHASES\s*=|\bwindow\.PHASES\s*=)/g;
+  var match;
+  while ((match = assignmentRe.exec(html))) {
+    var openIndex = html.indexOf('[', assignmentRe.lastIndex);
+    if (openIndex < 0) return null;
+    var literal = extractBalancedArrayLiteral(html, openIndex);
+    if (literal) return literal;
+  }
+  return null;
+}
+
+function parsePhasesFromSource(source) {
+  var literal = extractPhasesArrayLiteral(source);
+  if (!literal) {
+    return { phases: null, errors: ['PHASES array could not be statically parsed'] };
+  }
+  try {
+    var phases = vm.runInNewContext('(' + literal + ')', Object.create(null), { timeout: 100 });
+    if (!Array.isArray(phases)) return { phases: null, errors: ['PHASES must evaluate to an array'] };
+    return { phases: phases, errors: [] };
+  } catch (err) {
+    return { phases: null, errors: ['PHASES array parse failed: ' + err.message] };
+  }
+}
+
+function triggerContainsClickEntity(trigger) {
+  if (!isObject(trigger)) return false;
+  if (trigger.type === 'click_entity') return true;
+  return safeArray(trigger.triggers).some(triggerContainsClickEntity);
+}
+
+function validatePhaseInteractionPlan(source, opts) {
+  opts = opts || {};
+  var parsed = parsePhasesFromSource(source);
+  var errors = [];
+  var nonFinalClickEntityCount = 0;
+  var nonFinalMissingJoystickEvidenceCount = 0;
+  if (!parsed.phases) {
+    if (Number(opts.expectedPhaseCount || 0) > 1) errors = errors.concat(parsed.errors);
+    return {
+      passed: errors.length === 0,
+      errors: errors,
+      phaseCount: 0,
+      nonFinalClickEntityCount: 0,
+      nonFinalMissingJoystickEvidenceCount: 0,
+    };
+  }
+  for (var i = 0; i < parsed.phases.length - 1; i += 1) {
+    var phase = parsed.phases[i] || {};
+    if (triggerContainsClickEntity(phase.trigger)) {
+      nonFinalClickEntityCount += 1;
+      errors.push('non-final PHASES[' + i + '] trigger must not use click_entity');
+    }
+    var modules = safeArray(phase.plannedModuleIds || phase.plannedModules);
+    if (modules.indexOf('player_input_joystick') < 0) {
+      nonFinalMissingJoystickEvidenceCount += 1;
+      errors.push('non-final PHASES[' + i + '] plannedModuleIds must include player_input_joystick');
+    }
+  }
+  return {
+    passed: errors.length === 0,
+    errors: errors,
+    phaseCount: parsed.phases.length,
+    nonFinalClickEntityCount: nonFinalClickEntityCount,
+    nonFinalMissingJoystickEvidenceCount: nonFinalMissingJoystickEvidenceCount,
+  };
+}
+
+function findCtaClickHandlersWithoutArrivalGate(source) {
+  var html = stripComments(source);
+  var hits = [];
+  var handlerRe = /addEventListener\s*\(\s*['"](?:click|pointerdown|touchstart)['"][\s\S]{0,1200}?(?:CtaButton|cta_finish|InstallFullGame|gameEnded\s*=\s*true)[\s\S]{0,500}?\}/g;
+  var match;
+  while ((match = handlerRe.exec(html))) {
+    if (!/\b(?:distance|distanceTo|threshold|near|arrival|arrived|bounding|bbox|recordedDistance|proximity)\b/.test(match[0])) {
+      hits.push(match[0].replace(/\s+/g, ' ').slice(0, 220));
+    }
+  }
+  return hits;
+}
+
+function validateJoystickArrivalEvidence(source) {
+  var html = stripComments(source);
+  var errors = [];
+  if (!/\bplayer_input_joystick\b/.test(html)) errors.push('missing player_input_joystick evidence');
+  if (!/\bmove_to_target\b/.test(html)) errors.push('missing move_to_target evidence');
+  if (!/\bproximity_trigger\b/.test(html)) errors.push('missing proximity_trigger evidence');
+  if (!/distanceTo\s*\(|\.distanceTo\s*\(|recordedDistance|arrived/.test(html)) {
+    errors.push('missing distance/proximity arrival check');
+  }
+  return { passed: errors.length === 0, errors: errors };
 }
 
 function extractShowEntities(source) {
@@ -140,6 +290,21 @@ function validateHtmlInteractionContract(source, opts) {
   if (autoProgress.length > 0) {
     errors.push('phase progression must not be scheduled by setTimeout/scheduleComplete: ' + autoProgress.slice(0, 3).join(' | '));
   }
+  if (!hasJoystickControl(html)) {
+    errors.push('generated HTML must expose a fixed joystick with pointerdown/pointermove/pointerup controls');
+  }
+  var directCompletion = findDirectClickCompletionPatterns(html);
+  if (directCompletion.length > 0) {
+    errors.push('gameplay phases must not complete through direct click/key/button shortcuts: ' + directCompletion.slice(0, 3).join(' | '));
+  }
+  var phasePlan = validatePhaseInteractionPlan(html, opts);
+  errors = errors.concat(phasePlan.errors);
+  var ctaHandlersWithoutArrival = findCtaClickHandlersWithoutArrivalGate(html);
+  if (ctaHandlersWithoutArrival.length > 0) {
+    errors.push('CtaButton click handlers must be arrival-gated: ' + ctaHandlersWithoutArrival.slice(0, 3).join(' | '));
+  }
+  var arrivalEvidence = validateJoystickArrivalEvidence(html);
+  errors = errors.concat(arrivalEvidence.errors);
   var renderable = validateRenderableEntities(html, opts);
   errors = errors.concat(renderable.errors);
   return {
@@ -148,6 +313,12 @@ function validateHtmlInteractionContract(source, opts) {
     userInputListenerCount: listeners.length,
     userInputEvents: listeners,
     autoProgressPatternCount: autoProgress.length,
+    directCompletionPatternCount: directCompletion.length,
+    hasJoystickControl: hasJoystickControl(html),
+    phaseCount: phasePlan.phaseCount,
+    nonFinalClickEntityCount: phasePlan.nonFinalClickEntityCount,
+    nonFinalMissingJoystickEvidenceCount: phasePlan.nonFinalMissingJoystickEvidenceCount,
+    ctaUngatedHandlerCount: ctaHandlersWithoutArrival.length,
     entityCount: renderable.entityNames.length,
   };
 }
@@ -272,6 +443,12 @@ function evaluateHardGates(options) {
         userInputListenerCount: htmlGate.userInputListenerCount,
         userInputEvents: htmlGate.userInputEvents,
         autoProgressPatternCount: htmlGate.autoProgressPatternCount,
+        directCompletionPatternCount: htmlGate.directCompletionPatternCount,
+        hasJoystickControl: htmlGate.hasJoystickControl,
+        phaseCount: htmlGate.phaseCount,
+        nonFinalClickEntityCount: htmlGate.nonFinalClickEntityCount,
+        nonFinalMissingJoystickEvidenceCount: htmlGate.nonFinalMissingJoystickEvidenceCount,
+        ctaUngatedHandlerCount: htmlGate.ctaUngatedHandlerCount,
         entityCount: htmlGate.entityCount,
       },
     });
