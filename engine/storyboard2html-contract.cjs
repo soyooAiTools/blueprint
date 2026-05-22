@@ -78,6 +78,8 @@ function normalizeSpec(spec, index) {
     autoModeHint: spec.autoModeHint || '',
     guideText: spec.guideText || spec.playerInstruction || spec.autoModeHint || '',
     goal: spec.goal || null,
+    plannedModuleIds: safeArray(spec.plannedModuleIds || spec.plannedModules),
+    trigger: spec.trigger || null,
     triggerNext: spec.triggerNext || null,
     duration: spec.duration || null,
   };

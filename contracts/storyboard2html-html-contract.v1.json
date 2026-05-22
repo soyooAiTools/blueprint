@@ -2,6 +2,10 @@
   "schemaVersion": "1.0.0",
   "kind": "blueprint.storyboard2html.htmlContract",
   "contractVersion": "1.0.0",
+  "versionPolicy": {
+    "schemaVersion": "Version of this JSON document shape. Bump when fields in the contract document itself are added, removed, or structurally changed.",
+    "contractVersion": "Version of the generated HTML runtime semantics. Bump when the required HTML globals, window.__gameState shape, phaseEvidence envelope, or hard gates change."
+  },
   "sourceOfTruth": {
     "snapshotSchema": "contracts/snapshot-schema.v1.json",
     "cuaProbeContracts": "contracts/cua-probe-contracts.v1.json"
@@ -96,7 +100,8 @@
     "aliases": {
       "entityStates": "entity_states",
       "uiState": "ui_state",
-      "cameraState": "camera_state"
+      "cameraState": "camera_state",
+      "policy": "snake_case keys are hard-required. camelCase aliases are optional mirrors only; generated HTML must not write camelCase without the corresponding snake_case key."
     },
     "phaseKey": "phase",
     "phaseRealTimer": {
