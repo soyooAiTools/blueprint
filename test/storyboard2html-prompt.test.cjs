@@ -190,6 +190,30 @@ assert.ok(built.systemPrompt.indexOf('不允许 `CtaButton` 的 click handler �
 assert.ok(built.systemPrompt.indexOf('不允许 non-final phase 的 `plannedModuleIds`') >= 0,
   'system prompt 禁止反规则 should forbid non-final phase missing player_input_joystick evidence');
 
+// L1 v2 — final phase arrival-gated relaxation (storyboard2html v5 — youth-nick confirmed arrival-only final canonical)
+assert.ok(built.systemPrompt.indexOf('最后一个 phase 必须以 `CtaButton` 为目标且 *arrival-gated*') >= 0,
+  'system prompt should declare final phase must be CtaButton + arrival-gated (L1 v2)');
+assert.ok(built.systemPrompt.indexOf('`trigger.type` 可为 `near_entity`') >= 0,
+  'system prompt should allow trigger.type==="near_entity" for final phase');
+assert.ok(built.systemPrompt.indexOf('arrival-only:玩家走到 CtaButton 圈内即自动完成') >= 0,
+  'system prompt should describe arrival-only path for final phase');
+assert.ok(built.systemPrompt.indexOf('*或* `click_entity`') >= 0,
+  'system prompt should still allow click_entity as alternate final trigger');
+assert.ok(built.systemPrompt.indexOf('对应 phaseEvidence *必须* 写 `cta_finish` 模块 + `final_phase: true`') >= 0,
+  'system prompt should still require cta_finish evidence regardless of final trigger type');
+// L5 v2 — CtaButton arrival-gated dual-path
+assert.ok(built.systemPrompt.indexOf('两种 canonical 路径任选其一') >= 0,
+  'system prompt L5 should describe the two canonical CtaButton paths');
+// L5 v2 — click_trigger module gating on which final trigger type chosen
+assert.ok(built.systemPrompt.indexOf('若最后一 phase 走 `near_entity` arrival-only 路径,则不需要 `click_trigger`') >= 0,
+  'system prompt should exempt click_trigger when final trigger is near_entity');
+// summarizePhase trigger hint reflects new canonical
+assert.ok(built.userPrompt.indexOf('click_entity(CtaButton)') >= 0,
+  'userPrompt phase table should still echo concrete click_entity trigger when spec uses it (test fixture)');
+// Anti-regression: the old strict requirement string must be gone
+assert.ok(built.systemPrompt.indexOf('最后一个 phase 的 `trigger.type` 必须是 `click_entity`') < 0,
+  'system prompt MUST NOT contain the old strict final-trigger-must-be-click_entity wording');
+
 // L6 — 视觉模型化硬约束 (storyboard2html v4 — 禁纯平面 2D 示意 + 复合几何体)
 assert.ok(built.systemPrompt.indexOf('L6 — 视觉模型化硬约束') >= 0, 'system prompt should declare L6 visual modeling section');
 assert.ok(built.systemPrompt.indexOf('禁止平面 2D 示意') >= 0, 'system prompt L6 header should forbid flat 2D schematic');

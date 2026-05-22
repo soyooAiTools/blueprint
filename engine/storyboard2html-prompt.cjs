@@ -46,8 +46,9 @@ var SYSTEM_PROMPT_HEADER = [
   '  必须可见更新引导文本,并把最新文本保留到闭包 / 全局,供 `window.__gameState().ui_state.guideText` 读到。',
   '- 每个 phase 提供具名函数 `enterPhase<N>` / `completePhase<N>`(N 从 1 起);可选 `updatePhase<N>`。',
   '- 第一个 phase 必须存在 `showEntities >= 3`(默认实体可见 / spawn)。',
-  '- 最后一个 phase 的 `trigger.type` 必须是 `click_entity`,且 `trigger.entity === "CtaButton"`,',
-  '  对应 phaseEvidence 写 `cta_finish` 模块 + `final_phase: true`。',
+  '- 最后一个 phase 必须以 `CtaButton` 为目标且 *arrival-gated*:`trigger.entity === "CtaButton"`,',
+  '  `trigger.type` 可为 `near_entity`(arrival-only:玩家走到 CtaButton 圈内即自动完成,不需要 click)*或* `click_entity`(玩家走到 CtaButton 圈内 *再* click 完成,click handler 内部必须先校验 distance < threshold);',
+  '  无论用哪种 trigger,对应 phaseEvidence *必须* 写 `cta_finish` 模块 + `final_phase: true`。',
   '',
   '## L2 — 运行态契约 window.__gameState',
   '- 必须挂 `window.__gameState = function() { return state; }`(函数形态优先;允许直接对象但 phaseRealTimer 必须自更新)。',
@@ -127,11 +128,11 @@ var SYSTEM_PROMPT_HEADER = [
   '  - *禁止* "按键直接完成 phase"(`keydown` Space/Enter 不能直接调 `enterPhase` / mutate `phaseIndex`)。',
   '- 每个 non-final phase 必须有 *至少一个* 真实 DOM event listener 驱动 phase advance,canonical 路径 = *虚拟摇杆 pointerdown+pointermove+pointerup 三段 listener + arrival 物理判定回调*。允许辅助 `canvas.addEventListener("pointerdown", ...)` + hit-test / raycaster 做实体高亮反馈,但 *不能* 作为 advance 唯一触发。',
   '- non-final phase 的 `trigger.type` *只允许* `near_entity` / `resource_collected`(通过 near_entity 接触收集触发)/ `entity_state_reached`(post-arrival 状态变化)/ `compound`(上述组合)/ `timer`(*post-arrival* 才起计时)。*禁止* non-final phase 写 `click_entity` 作为 trigger。',
-  '- 最后一 phase 的 `CtaButton` 仍是 `click_entity`,但其 *真实* `addEventListener("click", ...)` 回调内部 *必须* 先校验 Player 是否进入 CtaButton 的 arrival-gate 圈(distance < threshold),未进入就 return 不触发 finish / install;不能用 setTimeout 触达,也不能页面任意位置 click 直接结束。',
+  '- 最后一 phase 的 `CtaButton` 必须 *arrival-gated*,两种 canonical 路径任选其一:(a) `trigger.type==="near_entity"` arrival-only — 玩家走到 CtaButton 圈内即触发 `cta_finish`,不挂 click handler;(b) `trigger.type==="click_entity"` — 挂 *真实* `addEventListener("click", ...)`,但回调内部 *必须* 先校验 `distance < threshold`,未进入 arrival-gate 就 return 不触发 finish / install。两种路径都不能用 setTimeout 触达,也不能页面任意位置 click 直接结束。',
   '- `keydown` 监听 *只能* 作为 desktop fallback / debug 辅助:WASD 可以同样推角色位置(等同摇杆 vector 写入 `__gameState.input.joystick`),但 *不能* 是唯一输入路径(虚拟摇杆必须同时存在),且 keydown handler *不能* 直接调 `enterPhase(N+1)` / mutate `phaseIndex`。',
   '- 禁止 `setTimeout(function(){ enterPhase(N+1) })` / `setTimeout(fn, ms)` 内 mutate `phaseIndex` / 直接调 `nextPhase()` 这类 phase index 自走。',
   '- `phase_gate_timer` 模块允许写 timer,但 timer 必须是 *某个用户动作之后*(canonical = arrival-gate 进入之后)的倒计时(例如角色走入目标圈、站定 N 秒再算完成);不能 phase 进入时就立即起 setTimeout 推进。',
-  '- `click_trigger` 模块 *只用于最后一 phase 的 CtaButton*(且 arrival-gate 校验之后);non-final phase 不要写 `click_trigger`,改写 `proximity_trigger` / `collect_on_near` / `move_to_target` 这类 arrival 语义模块。',
+  '- `click_trigger` 模块 *只用于最后一 phase 的 CtaButton + `trigger.type==="click_entity"` 路径*(且 arrival-gate 校验之后);若最后一 phase 走 `near_entity` arrival-only 路径,则不需要 `click_trigger`,只写 `cta_finish`。non-final phase 不要写 `click_trigger`,改写 `proximity_trigger` / `collect_on_near` / `move_to_target` 这类 arrival 语义模块。',
   '- `click_trigger.target_consumed` / `player_input_tap.registered` / `tap_count`++ / `clicks`++ 必须由 DOM event handler 内部置位,*不能* 在 module 进入(`enterPhaseN`)时同步硬编码 record 出来。',
   '- `player_input_joystick` 模块必须在 *每个 non-final phase* 的 phaseEvidence 出现一条,记录 `{ _meta, active:true, vector:{dx,dy}, applied_to_player:true }`,体现摇杆驱动 Player 位移的事实。',
   '- 资源增减(`resources.X += N` / `inventory_wallet` 写入)必须发生在 *arrival 物理判定回调内部*(distance 进入瞬间 / proximity_trigger fired / collect_on_near 接触瞬间),*不能* phase 进入时一次性 set,也 *不能* 在摇杆 `pointermove` listener 内部任意位置直接 set。',
@@ -200,7 +201,7 @@ function summarizePhase(spec, index, isLast) {
   var phaseId = spec.phaseId || ('phase' + (index + 1));
   var name = spec.phaseName || spec.name || phaseId;
   var goal = spec.playerInstruction || spec.guideText || spec.autoModeHint || name;
-  var triggerDesc = describeTrigger(spec.triggerNext || spec.trigger) || (isLast ? 'click_entity(CtaButton) [MANDATORY for last phase]' : 'timer+resource compound suggested');
+  var triggerDesc = describeTrigger(spec.triggerNext || spec.trigger) || (isLast ? 'near_entity(CtaButton) or click_entity(CtaButton) [MANDATORY arrival-gated for last phase]' : 'near_entity/resource_collected/entity_state_reached arrival-gated (no click_entity in non-final)');
   var modules = safeArray(spec.plannedModuleIds);
   if (modules.length === 0 && spec.plannedModules) modules = safeArray(spec.plannedModules);
   if (isLast && modules.indexOf('cta_finish') < 0) modules = modules.concat(['cta_finish']);
