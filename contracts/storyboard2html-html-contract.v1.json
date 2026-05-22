@@ -1,0 +1,189 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "blueprint.storyboard2html.htmlContract",
+  "contractVersion": "1.0.0",
+  "sourceOfTruth": {
+    "snapshotSchema": "contracts/snapshot-schema.v1.json",
+    "cuaProbeContracts": "contracts/cua-probe-contracts.v1.json"
+  },
+  "generationInput": {
+    "description": "Input bundle for the storyboard2html generator. The specs come from ctx.blueprint.specs after spec-extract; storyboardFrames come from ctx.blueprint.storyboard.frames or ctx.blueprint.storyboardFrames.",
+    "requiredKeys": [
+      "projectName",
+      "themeHint",
+      "specs",
+      "storyboardFrames",
+      "htmlContract"
+    ],
+    "specSourcePath": "ctx.blueprint.specs",
+    "storyboardFramesSourcePaths": [
+      "ctx.blueprint.storyboard.frames",
+      "ctx.blueprint.storyboardFrames"
+    ],
+    "themeHintValues": [
+      "default",
+      "farming",
+      "tower-defense"
+    ]
+  },
+  "htmlStaticEntry": {
+    "requiredGlobals": [
+      {
+        "name": "PHASES",
+        "acceptedForms": [
+          "const PHASES = [...]",
+          "let PHASES = [...]",
+          "var PHASES = [...]",
+          "window.PHASES = [...]"
+        ],
+        "requiredPhaseKeys": [
+          "id",
+          "name",
+          "goalText"
+        ],
+        "recommendedPhaseKeys": [
+          "guideText",
+          "durationSec",
+          "showEntities",
+          "trigger",
+          "plannedModuleIds"
+        ]
+      },
+      {
+        "name": "setTip",
+        "acceptedForms": [
+          "function setTip(text, ms) { ... }",
+          "window.setTip = function(text, ms) { ... }"
+        ],
+        "contract": "Must visibly update guide text and store the latest text so window.__gameState().ui_state.guideText can expose it."
+      },
+      {
+        "name": "window.__gameState",
+        "acceptedForms": [
+          "window.__gameState = function() { return stateObject; }",
+          "window.__gameState = stateObject"
+        ]
+      }
+    ],
+    "phaseFunctionNaming": {
+      "enter": "enterPhase<N>",
+      "complete": "completePhase<N>",
+      "update": "updatePhase<N>",
+      "note": "Named phase functions are not a hard runtime requirement, but they are the preferred fallback when PHASES cannot be parsed."
+    },
+    "phaseIdFormat": "phase{n}"
+  },
+  "runtimeStateContract": {
+    "globalName": "window.__gameState",
+    "acceptedForms": [
+      "function_returning_object",
+      "object"
+    ],
+    "requiredTopLevelKeys": [
+      "phase",
+      "phaseRealTimer",
+      "entity_states",
+      "phaseEvidence"
+    ],
+    "recommendedTopLevelKeys": [
+      "resources",
+      "inventory",
+      "visibleEntities",
+      "ui_state",
+      "camera_state",
+      "completedPhases"
+    ],
+    "aliases": {
+      "entityStates": "entity_states",
+      "uiState": "ui_state",
+      "cameraState": "camera_state"
+    },
+    "phaseKey": "phase",
+    "phaseRealTimer": {
+      "shape": "number",
+      "unit": "seconds",
+      "requirement": "Must be based on real elapsed wall-clock time for the current phase, not animation-frame count."
+    }
+  },
+  "phaseEvidenceEnvelope": {
+    "rootPath": "phaseEvidence",
+    "phasePathTemplate": "phaseEvidence.phase{n}",
+    "modulePathTemplate": "phaseEvidence.phase{n}.{moduleId}",
+    "flatSignalPathTemplate": "phaseEvidence.phase{n}.{signalName}",
+    "requiredModuleMeta": {
+      "_meta.schemaVersion": "1.0.0",
+      "_meta.sourcePlatform": "html"
+    },
+    "optionalModuleMetaKeys": [
+      "_meta.generatedAt",
+      "_meta.sourceModuleId",
+      "_meta.sourceAtomIds",
+      "_meta.synthetic"
+    ],
+    "flatSignals": [
+      "guide_text_visible",
+      "phase_advanced",
+      "resource_incremented",
+      "source_hidden_or_moved",
+      "entity_visible",
+      "downstream_entity_visible",
+      "entity_state_changed"
+    ],
+    "moduleSnapshotExamples": {
+      "guide_ui": {
+        "_meta": {
+          "schemaVersion": "1.0.0",
+          "sourcePlatform": "html",
+          "sourceModuleId": "guide_ui"
+        },
+        "text": "Collect resources",
+        "before": {
+          "text": ""
+        },
+        "after": {
+          "text": "Collect resources"
+        },
+        "text_changed": true,
+        "visible": true
+      },
+      "inventory_wallet": {
+        "_meta": {
+          "schemaVersion": "1.0.0",
+          "sourcePlatform": "html",
+          "sourceModuleId": "inventory_wallet"
+        },
+        "resource": "Gold",
+        "operation": "add",
+        "before": {
+          "balance": 0
+        },
+        "after": {
+          "balance": 1
+        },
+        "score_text_visible": true
+      },
+      "cta_finish": {
+        "_meta": {
+          "schemaVersion": "1.0.0",
+          "sourcePlatform": "html",
+          "sourceModuleId": "cta_finish"
+        },
+        "target": "CtaButton",
+        "cta_visible": true,
+        "install_called_or_ready": true,
+        "final_phase": true
+      }
+    }
+  },
+  "regressionHook": {
+    "demo2specCli": "node /root/.claude/skills/demo2spec/index.js <generated.html> <outdir> --theme <themeHint> --blueprint-smoke --verify --steps <n>",
+    "hardGates": [
+      "snapshot-schema.json validates against contracts/snapshot-schema.v1.json",
+      "phaseEvidenceSummary.validation.passed === true",
+      "phaseEvidenceSummary.aggregate.triggeredPresentFullRate === 1",
+      "phaseEvidenceSummary.aggregate.triggeredAntiAutoplayHeldRate === 1",
+      "phaseCoverage completed count equals expected phase count"
+    ],
+    "defaultSteps": 40
+  }
+}
