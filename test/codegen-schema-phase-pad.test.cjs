@@ -140,7 +140,7 @@ function makeSchemaWithEntities(entityNames) {
   console.log('  ✓ fallback triggers when no DSL: near_entity (mid) / click_entity (last)');
 })();
 
-// 6. 末位非 click_entity 但有 DSL 推出别的 trigger 时,包成 compound + click_entity
+// 6. 末位没有 CTA gate 但有 DSL 推出别的 trigger 时,包成 compound + CtaButton near_entity
 (function testWrapLastInCompound() {
   var schema = makeSchemaWithEntities(['Workshop', 'CTAButton']);
   schema.phases = [{ phaseId: 'p1', showEntities: ['Workshop'], trigger: { type: 'near_entity', entity: 'Workshop', range: 2 } }];
@@ -151,10 +151,12 @@ function makeSchemaWithEntities(entityNames) {
   codegenSchema._repairSchema(schema, schema.entities.slice(), specs);
   assert.strictEqual(schema.phases.length, 2);
   var lastTrig = schema.phases[1].trigger;
-  assert.strictEqual(lastTrig.type, 'compound', '末位非 click_entity 必须包成 compound');
-  var hasClick = lastTrig.triggers.some(function(t) { return t.type === 'click_entity'; });
-  assert.ok(hasClick, 'compound 内必须有 click_entity');
-  console.log('  ✓ wrap-last-in-compound: non-click trigger + click_entity CTA');
+  assert.strictEqual(lastTrig.type, 'compound', '末位缺 CTA gate 时必须包成 compound');
+  var hasCtaArrival = lastTrig.triggers.some(function(t) {
+    return t.type === 'near_entity' && /^CTAButton$/i.test(t.entity);
+  });
+  assert.ok(hasCtaArrival, 'compound 内必须有 CtaButton near_entity');
+  console.log('  ✓ wrap-last-in-compound: non-CTA trigger + CtaButton near_entity');
 })();
 
 // 7. 末位 phase 已经是 click_entity 时不重新包

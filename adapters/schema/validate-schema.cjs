@@ -36,6 +36,28 @@ function hasClickEntityTrigger(trigger) {
   return false;
 }
 
+function isCtaEntityName(entity) {
+  return /^CTAButton$/i.test(String(entity || '').trim());
+}
+
+/**
+ * Terminal phases may either use the legacy click_entity finish trigger or the
+ * storyboard2html arrival-only CtaButton path.
+ * @param {object} trigger - Trigger object to inspect.
+ * @returns {boolean}
+ */
+function hasFinalCtaTrigger(trigger) {
+  if (!trigger) return false;
+  if (trigger.type === 'click_entity') return true;
+  if (trigger.type === 'near_entity' && isCtaEntityName(trigger.entity)) return true;
+  if (trigger.type === 'compound' && Array.isArray(trigger.triggers)) {
+    for (var i = 0; i < trigger.triggers.length; i++) {
+      if (hasFinalCtaTrigger(trigger.triggers[i])) return true;
+    }
+  }
+  return false;
+}
+
 function hasNamedRef(value) {
   return String(value || '').trim().length > 0;
 }
@@ -105,10 +127,11 @@ function validateSemantics(schema) {
     return errors;
   }
 
-  // Last phase must have click_entity trigger (CTA button)
+  // Last phase must have a terminal CTA gate. Legacy schemas use click_entity;
+  // storyboard2html can also use arrival-only near_entity(CtaButton).
   var lastPhase = schema.phases[schema.phases.length - 1];
-  if (!hasClickEntityTrigger(lastPhase.trigger)) {
-    errors.push('Last phase trigger must include click_entity (CTA button)');
+  if (!hasFinalCtaTrigger(lastPhase.trigger)) {
+    errors.push('Last phase trigger must include click_entity or CtaButton near_entity');
   }
 
   // timer cannot be a standalone trigger (must be inside compound)
@@ -178,5 +201,6 @@ function validateSemantics(schema) {
 module.exports = {
   validateGameSchema: validateGameSchema,
   validateSemantics: validateSemantics,
-  hasClickEntityTrigger: hasClickEntityTrigger
+  hasClickEntityTrigger: hasClickEntityTrigger,
+  hasFinalCtaTrigger: hasFinalCtaTrigger
 };

@@ -1711,7 +1711,7 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
           spec.requiredInteractions, schemaEntList);
       } catch (_e) { derivedTrigger = null; }
       if (!derivedTrigger) {
-        // 末位 phase 必须有 click_entity (CTA gate);中间补位走 near_entity 兜底
+        // 末位 phase 必须有 CTA gate；中间补位走 near_entity 兜底。
         var fallbackEnt = pickPhaseFallbackEntity(null, pi, totalSpecs);
         if (pi === totalSpecs - 1) {
           derivedTrigger = { type: 'click_entity', entity: fallbackEnt || 'CTAButton' };
@@ -1729,15 +1729,15 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
       };
       schema.phases.push(paddedPhase);
     }
-    // 末位 trigger 必须包含 click_entity (后续 _validateSchema 也会校验,这里前置一次避免循环)
+    // 末位 trigger 必须包含 CTA gate (near_entity or click_entity)。
     var lastIdx = schema.phases.length - 1;
     var lastTrig = schema.phases[lastIdx] && schema.phases[lastIdx].trigger;
-    if (lastTrig && lastTrig.type !== 'click_entity' && lastTrig.type !== 'compound') {
+    if (lastTrig && lastTrig.type !== 'click_entity' && lastTrig.type !== 'near_entity' && lastTrig.type !== 'compound') {
       var cta = pickCtaEntityName() || (lastTrig.entity || 'CTAButton');
       schema.phases[lastIdx].trigger = {
         type: 'compound',
         operator: 'and',
-        triggers: [lastTrig, { type: 'click_entity', entity: cta }],
+        triggers: [lastTrig, { type: 'near_entity', entity: cta, range: 2 }],
       };
     }
   }
@@ -1759,6 +1759,14 @@ function _repairSchemaValidationErrors(schema, errors, ctx) {
 
   function logFix(msg) {
     if (ctx && ctx.addLog) ctx.addLog('codegen-schema', 'repair: ' + msg);
+  }
+
+  function pickCtaEntityNameForRepair() {
+    for (var ce = 0; ce < entities.length; ce++) {
+      var name = String(entities[ce] && entities[ce].name || '').trim();
+      if (/CTA|Button/i.test(name)) return name;
+    }
+    return entityNames.CtaButton ? 'CtaButton' : 'CTAButton';
   }
 
   function clampEntityScale(idx) {
@@ -1867,19 +1875,20 @@ function _repairSchemaValidationErrors(schema, errors, ctx) {
       }
     }
 
-    if (/^Last phase trigger must include click_entity/.test(err)) {
+    if (/^Last phase trigger must include (?:click_entity|CtaButton)/.test(err)) {
       var lastPhase = schema.phases && schema.phases[schema.phases.length - 1];
       if (lastPhase) {
+        var ctaEntity = pickCtaEntityNameForRepair();
         lastPhase.trigger = {
           type: 'compound',
           operator: 'and',
           triggers: [
-            lastPhase.trigger || { type: 'near_entity', entity: (lastPhase.showEntities && lastPhase.showEntities[0]) || (entities[0] && entities[0].name) || 'CTAButton', range: 2 },
-            { type: 'click_entity', entity: (lastPhase.showEntities && lastPhase.showEntities[0]) || (entities[0] && entities[0].name) || 'CTAButton' },
+            lastPhase.trigger || { type: 'near_entity', entity: ctaEntity, range: 2 },
+            { type: 'near_entity', entity: ctaEntity, range: 2 },
           ],
         };
         repaired++;
-        logFix('wrapped last phase trigger with click_entity CTA guard');
+        logFix('wrapped last phase trigger with CtaButton arrival gate');
         continue;
       }
     }
