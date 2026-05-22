@@ -137,14 +137,38 @@ var verifyReport = {
 };
 var snapshotPath = path.join(tempDir, 'snapshot-schema.json');
 var reportPath = path.join(tempDir, 'verify-report.json');
+var htmlPath = path.join(tempDir, 'generated.html');
 fs.writeFileSync(snapshotPath, JSON.stringify(snapshotDoc, null, 2));
 fs.writeFileSync(reportPath, JSON.stringify(verifyReport, null, 2));
+fs.writeFileSync(htmlPath, [
+  '<!doctype html><html><body><canvas id="stage"></canvas><script>',
+  'const PHASES=[{id:"phase1",showEntities:["Player","Corn"],trigger:{type:"resource_collected",resource:"Corn",amount:1}},{id:"phase2",showEntities:["Player","CtaButton"],trigger:{type:"click_entity",entity:"CtaButton"}}];',
+  'var sceneModels={Player:new THREE.BoxGeometry(1,1,1),Corn:new THREE.SphereGeometry(1),Stand:new THREE.CylinderGeometry(1,1,1)};',
+  'document.getElementById("stage").addEventListener("pointerdown",function(){ completePhase1(); });',
+  'function completePhase1(){ window.phase="phase2"; }',
+  'window.__gameState=function(){return{phase:"phase1",phaseRealTimer:1,entity_states:{},phaseEvidence:{}}};',
+  '</script></body></html>',
+].join('\n'));
 var hardgateResult = hardgate.evaluateHardGates({
   snapshotSchemaPath: snapshotPath,
   verifyReportPath: reportPath,
+  htmlPath: htmlPath,
 });
 assert.strictEqual(hardgateResult.passed, true);
+assert.ok(hardgateResult.gates.some(function(gate) { return gate.id === 'html-interaction-hard-gates'; }));
 assert.deepStrictEqual(hardgate.parseCoveragePair('10/10'), { covered: 10, total: 10 });
+
+var autoplayHtml = [
+  '<!doctype html><html><body><script>',
+  'const PHASES=[{id:"phase1",showEntities:["Player","Corn"]},{id:"phase2",showEntities:["Player","CtaButton"]}];',
+  'function enterPhase1(){ setTimeout(function(){ enterPhase(1); }, 800); }',
+  'function enterPhase(i){ window.phaseIndex=i; }',
+  'window.__gameState=function(){return{phase:"phase1",phaseRealTimer:1,entity_states:{},phaseEvidence:{}}};',
+  '</script></body></html>',
+].join('\n');
+var htmlGate = hardgate.validateHtmlInteractionContract(autoplayHtml, { expectedPhaseCount: 2 });
+assert.strictEqual(htmlGate.passed, false);
+assert.ok(htmlGate.errors.some(function(error) { return error.indexOf('setTimeout') >= 0 || error.indexOf('input listener') >= 0; }));
 
 verifyReport.phaseEvidenceSummary.aggregate.triggeredPresentFullRate = 0.5;
 fs.writeFileSync(reportPath, JSON.stringify(verifyReport, null, 2));

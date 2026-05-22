@@ -41,6 +41,117 @@ function parseCoveragePair(value) {
   return null;
 }
 
+function stripComments(source) {
+  return String(source || '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
+
+function findUserInputListeners(source) {
+  var html = stripComments(source);
+  var listeners = [];
+  var re = /\.addEventListener\s*\(\s*['"]([^'"]+)['"]/g;
+  var match;
+  var userEvents = {
+    click: true,
+    mousedown: true,
+    mouseup: true,
+    pointerdown: true,
+    pointerup: true,
+    touchstart: true,
+    touchend: true,
+    keydown: true,
+    keyup: true,
+  };
+  while ((match = re.exec(html))) {
+    if (userEvents[match[1]]) listeners.push(match[1]);
+  }
+  return listeners;
+}
+
+function findAutoProgressPatterns(source) {
+  var html = stripComments(source);
+  var hits = [];
+  var timerRe = /setTimeout\s*\(([\s\S]{0,320}?),\s*(?:\d+|[a-zA-Z_$][\w$]*)\s*\)/g;
+  var match;
+  while ((match = timerRe.exec(html))) {
+    var snippet = match[0].replace(/\s+/g, ' ').slice(0, 220);
+    if (/(?:enterPhase|advancePhase|completePhase|finishAndAdvance|phaseIndex\s*(?:=|\+\+|--|\+=|-=)|currentPhase\s*(?:=|\+\+|--|\+=|-=))/.test(match[1])) {
+      hits.push(snippet);
+    }
+  }
+  var enterPhaseTimerRe = /function\s+enterPhase\d*\s*\([^)]*\)\s*\{[\s\S]{0,600}?(?:setTimeout|scheduleComplete)\s*\(/g;
+  while ((match = enterPhaseTimerRe.exec(html))) {
+    hits.push(match[0].replace(/\s+/g, ' ').slice(0, 220));
+  }
+  return hits;
+}
+
+function extractShowEntities(source) {
+  var html = stripComments(source);
+  var names = {};
+  var re = /showEntities\s*:\s*\[([\s\S]*?)\]/g;
+  var match;
+  while ((match = re.exec(html))) {
+    var itemRe = /['"]([^'"]+)['"]/g;
+    var item;
+    while ((item = itemRe.exec(match[1]))) {
+      names[item[1]] = true;
+    }
+  }
+  return Object.keys(names).sort();
+}
+
+function validateRenderableEntities(source, opts) {
+  opts = opts || {};
+  var html = stripComments(source);
+  var errors = [];
+  var names = opts.entityNames || extractShowEntities(html);
+  var phaseBlockStart = html.search(/\b(?:const|let|var)\s+PHASES\s*=|\bwindow\.PHASES\s*=/);
+  var renderSource = phaseBlockStart >= 0 ? html.slice(0, phaseBlockStart) + html.slice(phaseBlockStart).replace(/PHASES\s*=\s*\[[\s\S]*?\]\s*;?/, '') : html;
+  var missing = [];
+  names.forEach(function(name) {
+    if (name === 'CtaButton') return;
+    var escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (!new RegExp(escaped).test(renderSource)) missing.push(name);
+  });
+  if (names.length > 0 && missing.length > 0) {
+    errors.push('showEntities missing render/model references: ' + missing.slice(0, 12).join(', '));
+  }
+
+  var threeGeometryCount = (html.match(/new\s+THREE\.(?:Box|Cylinder|Sphere|Cone|Torus|Plane|Capsule|Dodecahedron|Icosahedron)Geometry\b/g) || []).length;
+  var canvasDrawCount = (html.match(/\b(?:fillRect|strokeRect|arc|ellipse|drawImage|lineTo|bezierCurveTo)\s*\(/g) || []).length;
+  if (threeGeometryCount < 3 && canvasDrawCount < 8) {
+    errors.push('rendered scene must contain complete procedural models or rich canvas pseudo-3D drawing');
+  }
+  return { passed: errors.length === 0, errors: errors, entityNames: names };
+}
+
+function validateHtmlInteractionContract(source, opts) {
+  opts = opts || {};
+  var html = String(source || '');
+  var errors = [];
+  var expected = Number(opts.expectedPhaseCount || 0);
+  var listeners = findUserInputListeners(html);
+  if (expected > 1 && listeners.length === 0) {
+    errors.push('generated HTML must register at least one real user input listener');
+  }
+  var autoProgress = findAutoProgressPatterns(html);
+  if (autoProgress.length > 0) {
+    errors.push('phase progression must not be scheduled by setTimeout/scheduleComplete: ' + autoProgress.slice(0, 3).join(' | '));
+  }
+  var renderable = validateRenderableEntities(html, opts);
+  errors = errors.concat(renderable.errors);
+  return {
+    passed: errors.length === 0,
+    errors: errors,
+    userInputListenerCount: listeners.length,
+    userInputEvents: listeners,
+    autoProgressPatternCount: autoProgress.length,
+    entityCount: renderable.entityNames.length,
+  };
+}
+
 function expectedPhaseCount(snapshotDoc, opts) {
   if (opts && Number.isFinite(Number(opts.expectedPhaseCount))) {
     return Number(opts.expectedPhaseCount);
@@ -148,6 +259,24 @@ function evaluateHardGates(options) {
     errors: verifyGate.errors,
   });
 
+  if (options.htmlPath) {
+    var htmlSource = fs.readFileSync(options.htmlPath, 'utf8');
+    var htmlGate = validateHtmlInteractionContract(htmlSource, {
+      expectedPhaseCount: expectedPhaseCount(snapshotDoc, options),
+    });
+    gates.push({
+      id: 'html-interaction-hard-gates',
+      passed: htmlGate.passed,
+      errors: htmlGate.errors,
+      details: {
+        userInputListenerCount: htmlGate.userInputListenerCount,
+        userInputEvents: htmlGate.userInputEvents,
+        autoProgressPatternCount: htmlGate.autoProgressPatternCount,
+        entityCount: htmlGate.entityCount,
+      },
+    });
+  }
+
   return {
     passed: gates.every(function(gate) { return gate.passed; }),
     gates: gates,
@@ -159,6 +288,7 @@ function evaluateHardGates(options) {
 module.exports = {
   DEFAULT_SNAPSHOT_SCHEMA_CONTRACT_PATH: DEFAULT_SNAPSHOT_SCHEMA_CONTRACT_PATH,
   parseCoveragePair: parseCoveragePair,
+  validateHtmlInteractionContract: validateHtmlInteractionContract,
   validateSnapshotSchemaDoc: validateSnapshotSchemaDoc,
   evaluateVerifyReport: evaluateVerifyReport,
   evaluateHardGates: evaluateHardGates,
