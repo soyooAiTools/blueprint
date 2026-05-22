@@ -120,6 +120,25 @@ assert.ok(built.systemPrompt.indexOf('不允许把 `window.__assetMeta` 写在�
 // procedural-asset exemption (so we don't burn prompt on entries for primitive prefabs)
 assert.ok(built.systemPrompt.indexOf('程序化资产') >= 0, 'system prompt should exempt procedural assets from assetMeta');
 
+// L4 v2 grill follow-ups (case-sensitive enum / null vs ""/ attribution length cap)
+// A1: case-sensitive license enum + variant denylist
+assert.ok(built.systemPrompt.indexOf('case-sensitive') >= 0, 'system prompt should call license enum case-sensitive');
+assert.ok(built.systemPrompt.indexOf('字符级精确') >= 0, 'system prompt should require char-level exact license match');
+assert.ok(built.systemPrompt.indexOf('"cc0"') >= 0, 'system prompt should show "cc0" as forbidden variant');
+assert.ok(built.systemPrompt.indexOf('"CC BY 4.0"') >= 0, 'system prompt should show "CC BY 4.0" (spaces) as forbidden variant');
+assert.ok(built.systemPrompt.indexOf('"cc-by-4.0"') >= 0, 'system prompt should show "cc-by-4.0" (lowercase) as forbidden variant');
+assert.ok(built.systemPrompt.indexOf('不允许 license 字段写大小写') >= 0, 'system prompt 禁止反规则 should forbid license variant casing');
+// A3: sourceUrl / attribution must be null, not ""
+assert.ok(built.systemPrompt.indexOf('禁止* 空串') >= 0 || built.systemPrompt.indexOf('禁止 空串') >= 0,
+  'system prompt should forbid empty-string for unknown values');
+assert.ok(built.systemPrompt.indexOf('不允许 `attribution` 或 `sourceUrl` 字段写空串') >= 0,
+  'system prompt 禁止反规则 should forbid empty-string for attribution/sourceUrl');
+// A4: attribution length cap
+assert.ok(built.systemPrompt.indexOf('≤ 200 字符') >= 0 || built.systemPrompt.indexOf('<= 200') >= 0,
+  'system prompt should cap attribution length at 200 chars');
+assert.ok(built.systemPrompt.indexOf('不允许 `attribution` 字符串长度 > 200') >= 0,
+  'system prompt 禁止反规则 should forbid attribution > 200 chars');
+
 // Module templates
 ['guide_ui', 'inventory_wallet', 'collect_on_near', 'phase_gate_timer', 'visual_binding', 'spawn_once', 'cta_finish'].forEach(function(moduleId) {
   assert.ok(built.systemPrompt.indexOf(moduleId) >= 0, 'system prompt missing module template: ' + moduleId);
