@@ -139,6 +139,48 @@ assert.ok(built.systemPrompt.indexOf('≤ 200 字符') >= 0 || built.systemPromp
 assert.ok(built.systemPrompt.indexOf('不允许 `attribution` 字符串长度 > 200') >= 0,
   'system prompt 禁止反规则 should forbid attribution > 200 chars');
 
+// L5 — 交互驱动硬约束 (storyboard2html v4 — 禁 phase 自走 + DOM listener 必须)
+assert.ok(built.systemPrompt.indexOf('L5 — 交互驱动硬约束') >= 0, 'system prompt should declare L5 interaction-driven section');
+assert.ok(built.systemPrompt.indexOf('禁止 setTimeout 自走') >= 0, 'system prompt L5 header should forbid setTimeout-driven phase advance');
+assert.ok(built.systemPrompt.indexOf('每个 non-final phase 必须有') >= 0, 'system prompt should require DOM listener for non-final phases');
+assert.ok(built.systemPrompt.indexOf('canvas.addEventListener') >= 0, 'system prompt should hint canvas.addEventListener as valid driver');
+assert.ok(built.systemPrompt.indexOf('hit-test') >= 0 || built.systemPrompt.indexOf('raycaster') >= 0, 'system prompt should mention hit-test/raycaster');
+assert.ok(built.systemPrompt.indexOf('mutate `phaseIndex`') >= 0, 'system prompt should call out phaseIndex mutation as forbidden inside setTimeout');
+assert.ok(built.systemPrompt.indexOf('target_consumed') >= 0 && built.systemPrompt.indexOf('必须由 DOM event handler 内部置位') >= 0,
+  'system prompt should require click_trigger evidence to be set inside DOM listener');
+assert.ok(built.systemPrompt.indexOf('phase_gate_timer') >= 0 && built.systemPrompt.indexOf('某个用户动作之后') >= 0,
+  'system prompt should require phase_gate_timer to be post-user-action countdown, not auto-start');
+assert.ok(built.systemPrompt.indexOf('不允许 `setTimeout(fn, ms)`') >= 0,
+  'system prompt 禁止反规则 should forbid setTimeout phaseIndex/enterPhase mutation');
+assert.ok(built.systemPrompt.indexOf('不允许 non-final phase 完全没有') >= 0,
+  'system prompt 禁止反规则 should forbid non-final phase without any listener');
+
+// L6 — 视觉模型化硬约束 (storyboard2html v4 — 禁纯平面 2D 示意 + 复合几何体)
+assert.ok(built.systemPrompt.indexOf('L6 — 视觉模型化硬约束') >= 0, 'system prompt should declare L6 visual modeling section');
+assert.ok(built.systemPrompt.indexOf('禁止平面 2D 示意') >= 0, 'system prompt L6 header should forbid flat 2D schematic');
+assert.ok(built.systemPrompt.indexOf('3D 场景') >= 0 || built.systemPrompt.indexOf('伪 3D') >= 0,
+  'system prompt should require 3D or pseudo-3D rendering');
+assert.ok(built.systemPrompt.indexOf('isometric') >= 0, 'system prompt should mention isometric as valid canvas pseudo-3D approach');
+assert.ok(built.systemPrompt.indexOf('复合几何体') >= 0, 'system prompt should require composite geometry');
+assert.ok(built.systemPrompt.indexOf('头 Sphere + 身体 Cylinder') >= 0 || built.systemPrompt.indexOf('头+身+肢') >= 0,
+  'system prompt should give explicit composite player geometry guidance');
+assert.ok(built.systemPrompt.indexOf('ground/floor') >= 0 || built.systemPrompt.indexOf('地面/底板') >= 0,
+  'system prompt should require ground/floor element');
+assert.ok(built.systemPrompt.indexOf('PlaneGeometry') >= 0, 'system prompt should hint THREE.PlaneGeometry as ground geometry');
+assert.ok(built.systemPrompt.indexOf('不允许 entity 只用单个 `ctx.arc()`') >= 0,
+  'system prompt 禁止反规则 should forbid single-arc / single-div entity representation');
+assert.ok(built.systemPrompt.indexOf('不允许整个 stage 只是黑底') >= 0,
+  'system prompt 禁止反规则 should forbid empty-stage-with-dots schematic');
+assert.ok(built.systemPrompt.indexOf('不允许跳过 `Player` 角色复合几何体') >= 0,
+  'system prompt 禁止反规则 should forbid skipping composite Player geometry');
+
+// L5/L6 interaction with existing rules
+// The old "玩家不需要真操作:可以 auto-progress" line must be REMOVED (anti-regression)
+assert.ok(built.systemPrompt.indexOf('玩家不需要真操作') < 0,
+  'system prompt MUST NOT contain the old autoplay permission line (玩家不需要真操作:可以 auto-progress)');
+assert.ok(built.systemPrompt.indexOf('可以 auto-progress(setTimeout 推 advancePhase)') < 0,
+  'system prompt MUST NOT permit setTimeout auto-progress');
+
 // Module templates
 ['guide_ui', 'inventory_wallet', 'collect_on_near', 'phase_gate_timer', 'visual_binding', 'spawn_once', 'cta_finish'].forEach(function(moduleId) {
   assert.ok(built.systemPrompt.indexOf(moduleId) >= 0, 'system prompt missing module template: ' + moduleId);
