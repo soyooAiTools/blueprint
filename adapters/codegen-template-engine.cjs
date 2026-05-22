@@ -159,7 +159,7 @@ function generateVariables(schema, skeleton) {
   var upgradeVars = generateUpgradeVariables(schema);
   if (upgradeVars) lines.push(upgradeVars);
   // Multi-source extra entity variables
-  var multiSrcVars = generateMultiSourceVariables(schema);
+  var multiSrcVars = generateMultiSourceVariables(schema, skeleton);
   if (multiSrcVars) lines.push(multiSrcVars);
   // Collect-source respawn timer + initPos cache
   var collectVars = generateCollectVariables(schema);

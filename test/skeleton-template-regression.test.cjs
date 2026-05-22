@@ -3,6 +3,7 @@ const assert = require('assert');
 const { generateSkeleton } = require('../adapters/skeleton-generator.cjs');
 const { generateDeliverUpdate } = require('../adapters/templates/interactions/deliver-sell.cjs');
 const { generateCostClickUpdate } = require('../adapters/templates/interactions/cost-gated-click.cjs');
+const { generateMultiSourceVariables } = require('../adapters/templates/interactions/multi-source-collect.cjs');
 const { triggerToCondition } = require('../adapters/templates/trigger-codegen.cjs');
 
 {
@@ -58,6 +59,25 @@ const { triggerToCondition } = require('../adapters/templates/trigger-codegen.cj
 {
   const cond = triggerToCondition({ type: 'click_entity', entity: 'CTAButton' }, []);
   assert.strictEqual(cond, 'IsNear(CTAButton, 2f) && Input.GetMouseButtonDown(0)');
+}
+
+{
+  // 2026-05-22: skeleton 已统一声明全部实体 GameObject，多源采集模板不能在 TODO_VARIABLES 里二次声明。
+  const schema = {
+    resources: [{ name: 'Corn', entity: 'Corn' }],
+    entities: [{ name: 'Corn' }, { name: 'CornB' }, { name: 'CornC' }],
+  };
+  const skeleton = [
+    'partial class GameFlowManagerMain {',
+    '    GameObject Corn;',
+    '    GameObject CornB;',
+    '    GameObject CornC;',
+    '    // TODO_VARIABLES_START',
+    '    // TODO_VARIABLES_END',
+    '}',
+  ].join('\n');
+  assert.strictEqual(generateMultiSourceVariables(schema, skeleton), '');
+  assert.match(generateMultiSourceVariables(schema), /GameObject CornB/);
 }
 
 console.log('skeleton template regression tests passed');

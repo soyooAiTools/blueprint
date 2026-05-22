@@ -61,7 +61,13 @@ function generateMultiSourceCollect(schema) {
   return lines.join('\n');
 }
 
-function generateMultiSourceVariables(schema) {
+function hasGameObjectDeclaration(skeleton, entityName) {
+  if (!skeleton || !entityName) return false;
+  var escaped = String(entityName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp('\\bGameObject\\s+' + escaped + '\\s*;').test(String(skeleton));
+}
+
+function generateMultiSourceVariables(schema, skeleton) {
   var groups = findExtraSources(schema);
   if (groups.length === 0) return '';
 
@@ -70,10 +76,19 @@ function generateMultiSourceVariables(schema) {
     var extras = groups[i].extraEntities;
     for (var j = 0; j < extras.length; j++) {
       if (!hasEntityRef(extras[j])) continue;
-      lines.push('    GameObject ' + toLowerCamel(extras[j]) + '; // alternate collect source mapped from entity "' + extras[j] + '"');
+      var variableName = toLowerCamel(extras[j]);
+      if (hasGameObjectDeclaration(skeleton, variableName)) continue;
+      lines.push('    GameObject ' + variableName + '; // alternate collect source mapped from entity "' + extras[j] + '"');
     }
   }
   return lines.join('\n');
 }
 
-module.exports = { generateMultiSourceCollect: generateMultiSourceCollect, generateMultiSourceVariables: generateMultiSourceVariables };
+module.exports = {
+  generateMultiSourceCollect: generateMultiSourceCollect,
+  generateMultiSourceVariables: generateMultiSourceVariables,
+  _internals: {
+    findExtraSources: findExtraSources,
+    hasGameObjectDeclaration: hasGameObjectDeclaration
+  }
+};

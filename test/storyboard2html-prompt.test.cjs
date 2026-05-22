@@ -81,6 +81,9 @@ assert.ok(built.systemPrompt.indexOf('setTip') >= 0);
 assert.ok(built.systemPrompt.indexOf('enterPhase') >= 0);
 assert.ok(built.systemPrompt.indexOf('completePhase') >= 0);
 assert.ok(built.systemPrompt.indexOf('phase{n}') >= 0 || built.systemPrompt.indexOf('phase1') >= 0);
+assert.ok(built.systemPrompt.indexOf('conditions:["timer(0.8s)"]') >= 0, 'system prompt should forbid string condition triggers');
+assert.ok(built.systemPrompt.indexOf('triggers:[{type:"resource_collected"') >= 0, 'system prompt should require structured trigger arrays');
+assert.ok(built.systemPrompt.indexOf('built=2') >= 0, 'system prompt should require integer entity states');
 
 // L2 runtime contract clauses
 assert.ok(built.systemPrompt.indexOf('window.__gameState') >= 0);
