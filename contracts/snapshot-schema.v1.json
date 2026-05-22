@@ -1,0 +1,2066 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "blueprint.phaseEvidence.snapshotSchema",
+  "generatedAt": "2026-05-21T16:44:56.174Z",
+  "contractVersion": "1.0.0",
+  "contractSource": "/opt/blueprint-editor/contracts/cua-probe-contracts.v1.json",
+  "visibilityPredicate": {
+    "id": "viewport_aabb_alpha_v1",
+    "description": "An entity is visible when its axis-aligned screen-space bounding box intersects the viewport and sampled alpha is above the configured threshold.",
+    "viewportIntersection": "aabb_intersects_viewport",
+    "alphaThreshold": 0.1,
+    "sampleSpace": "screen_pixels_or_dom_rect"
+  },
+  "browserStateContract": {
+    "globalName": "window.__gameState",
+    "acceptedForms": [
+      "object",
+      "function_returning_object"
+    ],
+    "requiredTopLevelKeys": [
+      "phase",
+      "phaseRealTimer",
+      "entity_states",
+      "phaseEvidence"
+    ],
+    "optionalTopLevelKeys": [
+      "resources",
+      "inventory",
+      "score",
+      "visibleEntities",
+      "ui_state",
+      "camera_state"
+    ],
+    "normalizeRule": "If window.__gameState is a function, call it once per observation tick; otherwise read it as an object.",
+    "phaseKey": "phase",
+    "phaseIdFormat": "phase{n}"
+  },
+  "observationShape": {
+    "phaseIdPath": "phase",
+    "phaseRealTimerPath": "phaseRealTimer",
+    "entityStatesPath": "entity_states",
+    "uiStatePath": "ui_state",
+    "cameraStatePath": "camera_state",
+    "resourcesPath": "resources",
+    "visibleEntitiesPath": "visibleEntities",
+    "phaseEvidencePath": "phaseEvidence"
+  },
+  "runtimeSnapshotEnvelope": {
+    "phaseEvidenceRoot": "phaseEvidence",
+    "phasePathTemplate": "phaseEvidence.{phaseId}",
+    "modulePathTemplate": "phaseEvidence.{phaseId}.{moduleId}",
+    "requiredMeta": {
+      "_meta.schemaVersion": "1.0.0",
+      "_meta.sourcePlatform": [
+        "unity",
+        "html"
+      ]
+    },
+    "optionalMetaKeys": [
+      "_meta.generatedAt",
+      "_meta.sourceModuleId",
+      "_meta.sourceAtomIds"
+    ]
+  },
+  "valueShapes": {
+    "scalar": {
+      "type": [
+        "string",
+        "number",
+        "boolean"
+      ]
+    },
+    "number": {
+      "type": "number"
+    },
+    "bool": {
+      "type": "boolean"
+    },
+    "array": {
+      "type": "array"
+    },
+    "object": {
+      "type": "object"
+    },
+    "vec3": {
+      "type": "object",
+      "requiredKeys": [
+        "x",
+        "y",
+        "z"
+      ]
+    },
+    "perceptualHash": {
+      "type": [
+        "string",
+        "number"
+      ],
+      "note": "String hash preferred. Numeric fallback is accepted by legacy evaluator paths."
+    }
+  },
+  "moduleVocabulary": {
+    "activate_targets": {
+      "moduleId": "activate_targets",
+      "expectedSignals": [
+        "downstream_entity_visible"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.downstream_entity_visible"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.activate_targets.targets",
+          "runtimePath": "phaseEvidence.{phaseId}.activate_targets.targets",
+          "moduleSnapshotKey": "targets",
+          "required": true,
+          "shape": "array",
+          "purpose": "list of entity ids activated this phase"
+        },
+        {
+          "contractPath": "phaseEvidence.activate_targets.before.visible",
+          "runtimePath": "phaseEvidence.{phaseId}.activate_targets.before.visible",
+          "moduleSnapshotKey": "before.visible",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when at least one declared target was already visible at start of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.activate_targets.after.visible",
+          "runtimePath": "phaseEvidence.{phaseId}.activate_targets.after.visible",
+          "moduleSnapshotKey": "after.visible",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when all declared targets are visible at end of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.activate_targets.placed",
+          "runtimePath": "phaseEvidence.{phaseId}.activate_targets.placed",
+          "moduleSnapshotKey": "placed",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when PlaceObj was invoked for every target (emitter call success)"
+        },
+        {
+          "contractPath": "phaseEvidence.activate_targets.visibility_changed",
+          "runtimePath": "phaseEvidence.{phaseId}.activate_targets.visibility_changed",
+          "moduleSnapshotKey": "visibility_changed",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when before.visible !== after.visible OR any target newly entered entity_states"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.activate_targets",
+      "metaPath": "phaseEvidence.{phaseId}.activate_targets._meta"
+    },
+    "apply_damage": {
+      "moduleId": "apply_damage",
+      "expectedSignals": [
+        "target_hp_decreased_or_target_dead",
+        "target_removed_or_hidden"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.target_hp_decreased_or_target_dead",
+        "phaseEvidence.{phaseId}.target_removed_or_hidden"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.apply_damage.target",
+          "runtimePath": "phaseEvidence.{phaseId}.apply_damage.target",
+          "moduleSnapshotKey": "target",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "entity id of the damaged target"
+        },
+        {
+          "contractPath": "phaseEvidence.apply_damage.source",
+          "runtimePath": "phaseEvidence.{phaseId}.apply_damage.source",
+          "moduleSnapshotKey": "source",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "entity id of the attacker, or 'system' when damage is engine-driven"
+        },
+        {
+          "contractPath": "phaseEvidence.apply_damage.amount",
+          "runtimePath": "phaseEvidence.{phaseId}.apply_damage.amount",
+          "moduleSnapshotKey": "amount",
+          "required": true,
+          "shape": "number",
+          "purpose": "damage units requested by this call"
+        },
+        {
+          "contractPath": "phaseEvidence.apply_damage.damageRequested",
+          "runtimePath": "phaseEvidence.{phaseId}.apply_damage.damageRequested",
+          "moduleSnapshotKey": "damageRequested",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when an actual damage request was issued this phase (vs. autoplay-mirror flag-only fallback)"
+        },
+        {
+          "contractPath": "phaseEvidence.apply_damage.killed",
+          "runtimePath": "phaseEvidence.{phaseId}.apply_damage.killed",
+          "moduleSnapshotKey": "killed",
+          "required": false,
+          "shape": "bool",
+          "purpose": "true when this request transitioned target from alive to dead (correlate with damageable's state delta for full attribution)"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.apply_damage",
+      "metaPath": "phaseEvidence.{phaseId}.apply_damage._meta"
+    },
+    "build_progress": {
+      "moduleId": "build_progress",
+      "expectedSignals": [
+        "entity_state_changed",
+        "entity_state_equals_built",
+        "visual_variant_changed",
+        "downstream_entity_visible"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.entity_state_changed",
+        "phaseEvidence.{phaseId}.entity_state_equals_built",
+        "phaseEvidence.{phaseId}.visual_variant_changed",
+        "phaseEvidence.{phaseId}.downstream_entity_visible"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.build_progress.target",
+          "runtimePath": "phaseEvidence.{phaseId}.build_progress.target",
+          "moduleSnapshotKey": "target",
+          "required": true,
+          "shape": "scalar",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.build_progress.before.buildState",
+          "runtimePath": "phaseEvidence.{phaseId}.build_progress.before.buildState",
+          "moduleSnapshotKey": "before.buildState",
+          "required": true,
+          "shape": "number",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.build_progress.after.buildState",
+          "runtimePath": "phaseEvidence.{phaseId}.build_progress.after.buildState",
+          "moduleSnapshotKey": "after.buildState",
+          "required": true,
+          "shape": "number",
+          "purpose": "should reach 2 when built"
+        },
+        {
+          "contractPath": "phaseEvidence.build_progress.buildTimer",
+          "runtimePath": "phaseEvidence.{phaseId}.build_progress.buildTimer",
+          "moduleSnapshotKey": "buildTimer",
+          "required": false,
+          "shape": "number",
+          "purpose": null
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.build_progress",
+      "metaPath": "phaseEvidence.{phaseId}.build_progress._meta"
+    },
+    "camera_focus": {
+      "moduleId": "camera_focus",
+      "expectedSignals": [
+        "camera_orientation_changed"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.camera_orientation_changed"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.camera_focus.target",
+          "runtimePath": "phaseEvidence.{phaseId}.camera_focus.target",
+          "moduleSnapshotKey": "target",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "entity id being framed this phase"
+        },
+        {
+          "contractPath": "phaseEvidence.camera_focus.before.framing.look_at",
+          "runtimePath": "phaseEvidence.{phaseId}.camera_focus.before.framing.look_at",
+          "moduleSnapshotKey": "before.framing.look_at",
+          "required": true,
+          "shape": "vec3",
+          "purpose": "camera look-at point at start of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.camera_focus.after.framing.look_at",
+          "runtimePath": "phaseEvidence.{phaseId}.camera_focus.after.framing.look_at",
+          "moduleSnapshotKey": "after.framing.look_at",
+          "required": true,
+          "shape": "vec3",
+          "purpose": "camera look-at point at end of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.camera_focus.position_delta",
+          "runtimePath": "phaseEvidence.{phaseId}.camera_focus.position_delta",
+          "moduleSnapshotKey": "position_delta",
+          "required": true,
+          "shape": "number",
+          "purpose": "magnitude of look-at delta between before/after"
+        },
+        {
+          "contractPath": "phaseEvidence.camera_focus.framing_changed",
+          "runtimePath": "phaseEvidence.{phaseId}.camera_focus.framing_changed",
+          "moduleSnapshotKey": "framing_changed",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when position_delta exceeds perceptual threshold"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.camera_focus",
+      "metaPath": "phaseEvidence.{phaseId}.camera_focus._meta"
+    },
+    "camera_lift": {
+      "moduleId": "camera_lift",
+      "expectedSignals": [
+        "camera_height_changed_or_view_widened"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.camera_height_changed_or_view_widened"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.camera_lift.amount",
+          "runtimePath": "phaseEvidence.{phaseId}.camera_lift.amount",
+          "moduleSnapshotKey": "amount",
+          "required": true,
+          "shape": "number",
+          "purpose": "configured lift amount from params.amount"
+        },
+        {
+          "contractPath": "phaseEvidence.camera_lift.duration",
+          "runtimePath": "phaseEvidence.{phaseId}.camera_lift.duration",
+          "moduleSnapshotKey": "duration",
+          "required": false,
+          "shape": "number",
+          "purpose": "configured lift duration (informational)"
+        },
+        {
+          "contractPath": "phaseEvidence.camera_lift.before.height",
+          "runtimePath": "phaseEvidence.{phaseId}.camera_lift.before.height",
+          "moduleSnapshotKey": "before.height",
+          "required": true,
+          "shape": "number",
+          "purpose": "camera height at start of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.camera_lift.after.height",
+          "runtimePath": "phaseEvidence.{phaseId}.camera_lift.after.height",
+          "moduleSnapshotKey": "after.height",
+          "required": true,
+          "shape": "number",
+          "purpose": "camera height at end of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.camera_lift.height_delta",
+          "runtimePath": "phaseEvidence.{phaseId}.camera_lift.height_delta",
+          "moduleSnapshotKey": "height_delta",
+          "required": true,
+          "shape": "number",
+          "purpose": "after.height - before.height (signed; non-zero magnitude is the semantic check)"
+        },
+        {
+          "contractPath": "phaseEvidence.camera_lift.lift_applied",
+          "runtimePath": "phaseEvidence.{phaseId}.camera_lift.lift_applied",
+          "moduleSnapshotKey": "lift_applied",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when |height_delta| exceeds perceptual threshold and SetCameraHeight was invoked"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.camera_lift",
+      "metaPath": "phaseEvidence.{phaseId}.camera_lift._meta"
+    },
+    "camera_zoom": {
+      "moduleId": "camera_zoom",
+      "expectedSignals": [
+        "camera_zoom_changed"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.camera_zoom_changed"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.camera_zoom.value",
+          "runtimePath": "phaseEvidence.{phaseId}.camera_zoom.value",
+          "moduleSnapshotKey": "value",
+          "required": true,
+          "shape": "number",
+          "purpose": "configured zoom value from params.value"
+        },
+        {
+          "contractPath": "phaseEvidence.camera_zoom.duration",
+          "runtimePath": "phaseEvidence.{phaseId}.camera_zoom.duration",
+          "moduleSnapshotKey": "duration",
+          "required": false,
+          "shape": "number",
+          "purpose": "configured zoom duration (informational)"
+        },
+        {
+          "contractPath": "phaseEvidence.camera_zoom.before.ortho_size",
+          "runtimePath": "phaseEvidence.{phaseId}.camera_zoom.before.ortho_size",
+          "moduleSnapshotKey": "before.ortho_size",
+          "required": true,
+          "shape": "number",
+          "purpose": "camera orthographic size at start of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.camera_zoom.after.ortho_size",
+          "runtimePath": "phaseEvidence.{phaseId}.camera_zoom.after.ortho_size",
+          "moduleSnapshotKey": "after.ortho_size",
+          "required": true,
+          "shape": "number",
+          "purpose": "camera orthographic size at end of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.camera_zoom.zoom_delta",
+          "runtimePath": "phaseEvidence.{phaseId}.camera_zoom.zoom_delta",
+          "moduleSnapshotKey": "zoom_delta",
+          "required": true,
+          "shape": "number",
+          "purpose": "after.ortho_size - before.ortho_size (signed)"
+        },
+        {
+          "contractPath": "phaseEvidence.camera_zoom.zoom_applied",
+          "runtimePath": "phaseEvidence.{phaseId}.camera_zoom.zoom_applied",
+          "moduleSnapshotKey": "zoom_applied",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when |zoom_delta| exceeds perceptual threshold"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.camera_zoom",
+      "metaPath": "phaseEvidence.{phaseId}.camera_zoom._meta"
+    },
+    "click_trigger": {
+      "moduleId": "click_trigger",
+      "expectedSignals": [
+        "tap_registered"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.tap_registered"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.click_trigger.target",
+          "runtimePath": "phaseEvidence.{phaseId}.click_trigger.target",
+          "moduleSnapshotKey": "target",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "entity id the click is bound to"
+        },
+        {
+          "contractPath": "phaseEvidence.click_trigger.before.clicked",
+          "runtimePath": "phaseEvidence.{phaseId}.click_trigger.before.clicked",
+          "moduleSnapshotKey": "before.clicked",
+          "required": true,
+          "shape": "bool",
+          "purpose": "<target>.clicked state at start of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.click_trigger.after.clicked",
+          "runtimePath": "phaseEvidence.{phaseId}.click_trigger.after.clicked",
+          "moduleSnapshotKey": "after.clicked",
+          "required": true,
+          "shape": "bool",
+          "purpose": "<target>.clicked state at end of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.click_trigger.target_consumed",
+          "runtimePath": "phaseEvidence.{phaseId}.click_trigger.target_consumed",
+          "moduleSnapshotKey": "target_consumed",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when click_trigger consumed the target this phase (before.clicked=false AND after.clicked=true)"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.click_trigger",
+      "metaPath": "phaseEvidence.{phaseId}.click_trigger._meta"
+    },
+    "collect_on_near": {
+      "moduleId": "collect_on_near",
+      "expectedSignals": [
+        "resource_incremented",
+        "source_hidden_or_moved"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.resource_incremented",
+        "phaseEvidence.{phaseId}.source_hidden_or_moved"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.collect_on_near.resource",
+          "runtimePath": "phaseEvidence.{phaseId}.collect_on_near.resource",
+          "moduleSnapshotKey": "resource",
+          "required": true,
+          "shape": "scalar",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.collect_on_near.item",
+          "runtimePath": "phaseEvidence.{phaseId}.collect_on_near.item",
+          "moduleSnapshotKey": "item",
+          "required": false,
+          "shape": "scalar",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.collect_on_near.count",
+          "runtimePath": "phaseEvidence.{phaseId}.collect_on_near.count",
+          "moduleSnapshotKey": "count",
+          "required": true,
+          "shape": "number",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.collect_on_near.range",
+          "runtimePath": "phaseEvidence.{phaseId}.collect_on_near.range",
+          "moduleSnapshotKey": "range",
+          "required": true,
+          "shape": "number",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.collect_on_near.before.balance",
+          "runtimePath": "phaseEvidence.{phaseId}.collect_on_near.before.balance",
+          "moduleSnapshotKey": "before.balance",
+          "required": true,
+          "shape": "number",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.collect_on_near.after.balance",
+          "runtimePath": "phaseEvidence.{phaseId}.collect_on_near.after.balance",
+          "moduleSnapshotKey": "after.balance",
+          "required": true,
+          "shape": "number",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.collect_on_near.sourceHidden",
+          "runtimePath": "phaseEvidence.{phaseId}.collect_on_near.sourceHidden",
+          "moduleSnapshotKey": "sourceHidden",
+          "required": true,
+          "shape": "bool",
+          "purpose": null
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.collect_on_near",
+      "metaPath": "phaseEvidence.{phaseId}.collect_on_near._meta"
+    },
+    "cooldown": {
+      "moduleId": "cooldown",
+      "expectedSignals": [
+        "entity_state_changed"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.entity_state_changed"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.cooldown.seconds",
+          "runtimePath": "phaseEvidence.{phaseId}.cooldown.seconds",
+          "moduleSnapshotKey": "seconds",
+          "required": true,
+          "shape": "number",
+          "purpose": "params.seconds — declared cooldown duration in seconds"
+        },
+        {
+          "contractPath": "phaseEvidence.cooldown.before.timer",
+          "runtimePath": "phaseEvidence.{phaseId}.cooldown.before.timer",
+          "moduleSnapshotKey": "before.timer",
+          "required": true,
+          "shape": "number",
+          "purpose": "<entity>.cooldownTimer at start of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.cooldown.after.timer",
+          "runtimePath": "phaseEvidence.{phaseId}.cooldown.after.timer",
+          "moduleSnapshotKey": "after.timer",
+          "required": true,
+          "shape": "number",
+          "purpose": "<entity>.cooldownTimer at end of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.cooldown.timer_elapsed",
+          "runtimePath": "phaseEvidence.{phaseId}.cooldown.timer_elapsed",
+          "moduleSnapshotKey": "timer_elapsed",
+          "required": true,
+          "shape": "number",
+          "purpose": "before.timer - after.timer; positive when countdown advanced this phase"
+        },
+        {
+          "contractPath": "phaseEvidence.cooldown.just_ready",
+          "runtimePath": "phaseEvidence.{phaseId}.cooldown.just_ready",
+          "moduleSnapshotKey": "just_ready",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when before.timer>0 AND after.timer<=0 — cooldown completed this phase"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.cooldown",
+      "metaPath": "phaseEvidence.{phaseId}.cooldown._meta"
+    },
+    "cost_gate": {
+      "moduleId": "cost_gate",
+      "expectedSignals": [
+        "resource_decremented"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.resource_decremented"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.cost_gate.resource",
+          "runtimePath": "phaseEvidence.{phaseId}.cost_gate.resource",
+          "moduleSnapshotKey": "resource",
+          "required": true,
+          "shape": "scalar",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.cost_gate.amount",
+          "runtimePath": "phaseEvidence.{phaseId}.cost_gate.amount",
+          "moduleSnapshotKey": "amount",
+          "required": true,
+          "shape": "number",
+          "purpose": "amount requested to spend"
+        },
+        {
+          "contractPath": "phaseEvidence.cost_gate.before.balance",
+          "runtimePath": "phaseEvidence.{phaseId}.cost_gate.before.balance",
+          "moduleSnapshotKey": "before.balance",
+          "required": true,
+          "shape": "number",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.cost_gate.after.balance",
+          "runtimePath": "phaseEvidence.{phaseId}.cost_gate.after.balance",
+          "moduleSnapshotKey": "after.balance",
+          "required": true,
+          "shape": "number",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.cost_gate.spent",
+          "runtimePath": "phaseEvidence.{phaseId}.cost_gate.spent",
+          "moduleSnapshotKey": "spent",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when TrySpend returned true; false means insufficient resource"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.cost_gate",
+      "metaPath": "phaseEvidence.{phaseId}.cost_gate._meta"
+    },
+    "cta_finish": {
+      "moduleId": "cta_finish",
+      "expectedSignals": [
+        "downstream_entity_visible"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.downstream_entity_visible"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.cta_finish.target",
+          "runtimePath": "phaseEvidence.{phaseId}.cta_finish.target",
+          "moduleSnapshotKey": "target",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "CTA button entity id (defaults to 'CTAButton' when params.target absent)"
+        },
+        {
+          "contractPath": "phaseEvidence.cta_finish.cta_visible",
+          "runtimePath": "phaseEvidence.{phaseId}.cta_finish.cta_visible",
+          "moduleSnapshotKey": "cta_visible",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when CTA target is visible on screen at end of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.cta_finish.install_called_or_ready",
+          "runtimePath": "phaseEvidence.{phaseId}.cta_finish.install_called_or_ready",
+          "moduleSnapshotKey": "install_called_or_ready",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when ShowCTA() executed and install / endGame handler is ready to fire"
+        },
+        {
+          "contractPath": "phaseEvidence.cta_finish.final_phase",
+          "runtimePath": "phaseEvidence.{phaseId}.cta_finish.final_phase",
+          "moduleSnapshotKey": "final_phase",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when current phase is the terminal phase of the storyboard — distinguishes cta_finish from mid-game guide_ui / click_trigger flag bumps"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.cta_finish",
+      "metaPath": "phaseEvidence.{phaseId}.cta_finish._meta"
+    },
+    "damageable": {
+      "moduleId": "damageable",
+      "expectedSignals": [
+        "target_hp_decreased_or_target_dead"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.target_hp_decreased_or_target_dead"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.damageable.target",
+          "runtimePath": "phaseEvidence.{phaseId}.damageable.target",
+          "moduleSnapshotKey": "target",
+          "required": true,
+          "shape": "scalar",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.damageable.before.state",
+          "runtimePath": "phaseEvidence.{phaseId}.damageable.before.state",
+          "moduleSnapshotKey": "before.state",
+          "required": true,
+          "shape": "number",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.damageable.after.state",
+          "runtimePath": "phaseEvidence.{phaseId}.damageable.after.state",
+          "moduleSnapshotKey": "after.state",
+          "required": true,
+          "shape": "number",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.damageable.deltaSourceModuleId",
+          "runtimePath": "phaseEvidence.{phaseId}.damageable.deltaSourceModuleId",
+          "moduleSnapshotKey": "deltaSourceModuleId",
+          "required": false,
+          "shape": "scalar",
+          "purpose": "which upstream module caused the delta (apply_damage, projectile_emit, etc)"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.damageable",
+      "metaPath": "phaseEvidence.{phaseId}.damageable._meta"
+    },
+    "deliver_to_target": {
+      "moduleId": "deliver_to_target",
+      "expectedSignals": [
+        "inventory_decremented",
+        "reward_incremented"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.inventory_decremented",
+        "phaseEvidence.{phaseId}.reward_incremented"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.deliver_to_target.target",
+          "runtimePath": "phaseEvidence.{phaseId}.deliver_to_target.target",
+          "moduleSnapshotKey": "target",
+          "required": true,
+          "shape": "scalar",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.deliver_to_target.resource",
+          "runtimePath": "phaseEvidence.{phaseId}.deliver_to_target.resource",
+          "moduleSnapshotKey": "resource",
+          "required": true,
+          "shape": "scalar",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.deliver_to_target.rewardResource",
+          "runtimePath": "phaseEvidence.{phaseId}.deliver_to_target.rewardResource",
+          "moduleSnapshotKey": "rewardResource",
+          "required": true,
+          "shape": "scalar",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.deliver_to_target.before.inventory",
+          "runtimePath": "phaseEvidence.{phaseId}.deliver_to_target.before.inventory",
+          "moduleSnapshotKey": "before.inventory",
+          "required": true,
+          "shape": "number",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.deliver_to_target.after.inventory",
+          "runtimePath": "phaseEvidence.{phaseId}.deliver_to_target.after.inventory",
+          "moduleSnapshotKey": "after.inventory",
+          "required": true,
+          "shape": "number",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.deliver_to_target.before.reward",
+          "runtimePath": "phaseEvidence.{phaseId}.deliver_to_target.before.reward",
+          "moduleSnapshotKey": "before.reward",
+          "required": true,
+          "shape": "number",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.deliver_to_target.after.reward",
+          "runtimePath": "phaseEvidence.{phaseId}.deliver_to_target.after.reward",
+          "moduleSnapshotKey": "after.reward",
+          "required": true,
+          "shape": "number",
+          "purpose": null
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.deliver_to_target",
+      "metaPath": "phaseEvidence.{phaseId}.deliver_to_target._meta"
+    },
+    "drag_trigger": {
+      "moduleId": "drag_trigger",
+      "expectedSignals": [
+        "drag_path_completed",
+        "entity_position_changed"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.drag_path_completed",
+        "phaseEvidence.{phaseId}.entity_position_changed"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.drag_trigger.source",
+          "runtimePath": "phaseEvidence.{phaseId}.drag_trigger.source",
+          "moduleSnapshotKey": "source",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "entity being dragged"
+        },
+        {
+          "contractPath": "phaseEvidence.drag_trigger.target",
+          "runtimePath": "phaseEvidence.{phaseId}.drag_trigger.target",
+          "moduleSnapshotKey": "target",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "drop target entity"
+        },
+        {
+          "contractPath": "phaseEvidence.drag_trigger.from.position",
+          "runtimePath": "phaseEvidence.{phaseId}.drag_trigger.from.position",
+          "moduleSnapshotKey": "from.position",
+          "required": true,
+          "shape": "vec3",
+          "purpose": "drag start position"
+        },
+        {
+          "contractPath": "phaseEvidence.drag_trigger.to.position",
+          "runtimePath": "phaseEvidence.{phaseId}.drag_trigger.to.position",
+          "moduleSnapshotKey": "to.position",
+          "required": true,
+          "shape": "vec3",
+          "purpose": "drag end position (where source landed)"
+        },
+        {
+          "contractPath": "phaseEvidence.drag_trigger.completed",
+          "runtimePath": "phaseEvidence.{phaseId}.drag_trigger.completed",
+          "moduleSnapshotKey": "completed",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when source landed within drop_radius of target"
+        },
+        {
+          "contractPath": "phaseEvidence.drag_trigger.drop_radius",
+          "runtimePath": "phaseEvidence.{phaseId}.drag_trigger.drop_radius",
+          "moduleSnapshotKey": "drop_radius",
+          "required": false,
+          "shape": "number",
+          "purpose": "configured drop radius from params.dropRadius"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.drag_trigger",
+      "metaPath": "phaseEvidence.{phaseId}.drag_trigger._meta"
+    },
+    "floating_text_feedback": {
+      "moduleId": "floating_text_feedback",
+      "expectedSignals": [
+        "floating_text_visible"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.floating_text_visible"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.floating_text_feedback.anchor",
+          "runtimePath": "phaseEvidence.{phaseId}.floating_text_feedback.anchor",
+          "moduleSnapshotKey": "anchor",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "entity id or 'player' the text anchors to"
+        },
+        {
+          "contractPath": "phaseEvidence.floating_text_feedback.text",
+          "runtimePath": "phaseEvidence.{phaseId}.floating_text_feedback.text",
+          "moduleSnapshotKey": "text",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "the floating text content shown this phase"
+        },
+        {
+          "contractPath": "phaseEvidence.floating_text_feedback.color",
+          "runtimePath": "phaseEvidence.{phaseId}.floating_text_feedback.color",
+          "moduleSnapshotKey": "color",
+          "required": false,
+          "shape": "scalar",
+          "purpose": "color tag (yellow, red, etc.)"
+        },
+        {
+          "contractPath": "phaseEvidence.floating_text_feedback.before.visible",
+          "runtimePath": "phaseEvidence.{phaseId}.floating_text_feedback.before.visible",
+          "moduleSnapshotKey": "before.visible",
+          "required": true,
+          "shape": "bool",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.floating_text_feedback.after.visible",
+          "runtimePath": "phaseEvidence.{phaseId}.floating_text_feedback.after.visible",
+          "moduleSnapshotKey": "after.visible",
+          "required": true,
+          "shape": "bool",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.floating_text_feedback.visual_changed",
+          "runtimePath": "phaseEvidence.{phaseId}.floating_text_feedback.visual_changed",
+          "moduleSnapshotKey": "visual_changed",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when this phase produced a new floating-text spawn (text/anchor/color delta)"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.floating_text_feedback",
+      "metaPath": "phaseEvidence.{phaseId}.floating_text_feedback._meta"
+    },
+    "form_switch": {
+      "moduleId": "form_switch",
+      "expectedSignals": [
+        "entity_state_changed"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.entity_state_changed"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.form_switch.formId",
+          "runtimePath": "phaseEvidence.{phaseId}.form_switch.formId",
+          "moduleSnapshotKey": "formId",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "configured formId param"
+        },
+        {
+          "contractPath": "phaseEvidence.form_switch.before.formId",
+          "runtimePath": "phaseEvidence.{phaseId}.form_switch.before.formId",
+          "moduleSnapshotKey": "before.formId",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "player.formId at start of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.form_switch.after.formId",
+          "runtimePath": "phaseEvidence.{phaseId}.form_switch.after.formId",
+          "moduleSnapshotKey": "after.formId",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "player.formId at end of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.form_switch.form_changed",
+          "runtimePath": "phaseEvidence.{phaseId}.form_switch.form_changed",
+          "moduleSnapshotKey": "form_changed",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when before.formId !== after.formId"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.form_switch",
+      "metaPath": "phaseEvidence.{phaseId}.form_switch._meta"
+    },
+    "guide_ui": {
+      "moduleId": "guide_ui",
+      "expectedSignals": [
+        "guide_text_visible"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.guide_text_visible"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.guide_ui.text",
+          "runtimePath": "phaseEvidence.{phaseId}.guide_ui.text",
+          "moduleSnapshotKey": "text",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "current guideText content this phase"
+        },
+        {
+          "contractPath": "phaseEvidence.guide_ui.before.text",
+          "runtimePath": "phaseEvidence.{phaseId}.guide_ui.before.text",
+          "moduleSnapshotKey": "before.text",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "guideText content at start of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.guide_ui.after.text",
+          "runtimePath": "phaseEvidence.{phaseId}.guide_ui.after.text",
+          "moduleSnapshotKey": "after.text",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "guideText content at end of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.guide_ui.text_changed",
+          "runtimePath": "phaseEvidence.{phaseId}.guide_ui.text_changed",
+          "moduleSnapshotKey": "text_changed",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when before.text !== after.text this phase"
+        },
+        {
+          "contractPath": "phaseEvidence.guide_ui.visible",
+          "runtimePath": "phaseEvidence.{phaseId}.guide_ui.visible",
+          "moduleSnapshotKey": "visible",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when guideText is non-empty and rendered"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.guide_ui",
+      "metaPath": "phaseEvidence.{phaseId}.guide_ui._meta"
+    },
+    "highlight_target": {
+      "moduleId": "highlight_target",
+      "expectedSignals": [
+        "highlight_overlay_visible",
+        "visual_variant_changed",
+        "guide_text_visible"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.highlight_overlay_visible",
+        "phaseEvidence.{phaseId}.visual_variant_changed",
+        "phaseEvidence.{phaseId}.guide_text_visible"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.highlight_target.target",
+          "runtimePath": "phaseEvidence.{phaseId}.highlight_target.target",
+          "moduleSnapshotKey": "target",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "entity being highlighted"
+        },
+        {
+          "contractPath": "phaseEvidence.highlight_target.style",
+          "runtimePath": "phaseEvidence.{phaseId}.highlight_target.style",
+          "moduleSnapshotKey": "style",
+          "required": false,
+          "shape": "scalar",
+          "purpose": "style identifier from params.style (e.g. 'pulse', 'overlay')"
+        },
+        {
+          "contractPath": "phaseEvidence.highlight_target.overlay_active",
+          "runtimePath": "phaseEvidence.{phaseId}.highlight_target.overlay_active",
+          "moduleSnapshotKey": "overlay_active",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when highlight overlay is currently rendered for the target"
+        },
+        {
+          "contractPath": "phaseEvidence.highlight_target.scale_delta",
+          "runtimePath": "phaseEvidence.{phaseId}.highlight_target.scale_delta",
+          "moduleSnapshotKey": "scale_delta",
+          "required": false,
+          "shape": "number",
+          "purpose": "max breathing-scale delta observed this phase"
+        },
+        {
+          "contractPath": "phaseEvidence.highlight_target.visual_changed",
+          "runtimePath": "phaseEvidence.{phaseId}.highlight_target.visual_changed",
+          "moduleSnapshotKey": "visual_changed",
+          "required": true,
+          "shape": "bool",
+          "purpose": null
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.highlight_target",
+      "metaPath": "phaseEvidence.{phaseId}.highlight_target._meta"
+    },
+    "hold_trigger": {
+      "moduleId": "hold_trigger",
+      "expectedSignals": [
+        "tap_registered",
+        "entity_state_changed"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.tap_registered",
+        "phaseEvidence.{phaseId}.entity_state_changed"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.hold_trigger.target",
+          "runtimePath": "phaseEvidence.{phaseId}.hold_trigger.target",
+          "moduleSnapshotKey": "target",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "entity being held"
+        },
+        {
+          "contractPath": "phaseEvidence.hold_trigger.duration_required",
+          "runtimePath": "phaseEvidence.{phaseId}.hold_trigger.duration_required",
+          "moduleSnapshotKey": "duration_required",
+          "required": true,
+          "shape": "number",
+          "purpose": "configured hold duration in seconds from params.duration"
+        },
+        {
+          "contractPath": "phaseEvidence.hold_trigger.duration_elapsed",
+          "runtimePath": "phaseEvidence.{phaseId}.hold_trigger.duration_elapsed",
+          "moduleSnapshotKey": "duration_elapsed",
+          "required": true,
+          "shape": "number",
+          "purpose": "actual time the press was sustained in seconds"
+        },
+        {
+          "contractPath": "phaseEvidence.hold_trigger.completed",
+          "runtimePath": "phaseEvidence.{phaseId}.hold_trigger.completed",
+          "moduleSnapshotKey": "completed",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when duration_elapsed >= duration_required at end of phase"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.hold_trigger",
+      "metaPath": "phaseEvidence.{phaseId}.hold_trigger._meta"
+    },
+    "inventory_wallet": {
+      "moduleId": "inventory_wallet",
+      "expectedSignals": [
+        "resource_incremented",
+        "resource_decremented",
+        "score_text_changed"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.resource_incremented",
+        "phaseEvidence.{phaseId}.resource_decremented",
+        "phaseEvidence.{phaseId}.score_text_changed"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.inventory_wallet.resource",
+          "runtimePath": "phaseEvidence.{phaseId}.inventory_wallet.resource",
+          "moduleSnapshotKey": "resource",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "resource kind label of the wallet operation this phase performed (e.g. gold, wood)"
+        },
+        {
+          "contractPath": "phaseEvidence.inventory_wallet.operation",
+          "runtimePath": "phaseEvidence.{phaseId}.inventory_wallet.operation",
+          "moduleSnapshotKey": "operation",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "add | spend | noop — direction of the balance change attributable to this module's owner methods"
+        },
+        {
+          "contractPath": "phaseEvidence.inventory_wallet.before.balance",
+          "runtimePath": "phaseEvidence.{phaseId}.inventory_wallet.before.balance",
+          "moduleSnapshotKey": "before.balance",
+          "required": true,
+          "shape": "number",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.inventory_wallet.after.balance",
+          "runtimePath": "phaseEvidence.{phaseId}.inventory_wallet.after.balance",
+          "moduleSnapshotKey": "after.balance",
+          "required": true,
+          "shape": "number",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.inventory_wallet.score_text_visible",
+          "runtimePath": "phaseEvidence.{phaseId}.inventory_wallet.score_text_visible",
+          "moduleSnapshotKey": "score_text_visible",
+          "required": false,
+          "shape": "bool",
+          "purpose": "true when scoreText UI is populated and visible; correlated with score_text_changed flag"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.inventory_wallet",
+      "metaPath": "phaseEvidence.{phaseId}.inventory_wallet._meta"
+    },
+    "move_to_target": {
+      "moduleId": "move_to_target",
+      "expectedSignals": [
+        "entity_position_changed",
+        "distance_to_target_below_threshold"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.entity_position_changed",
+        "phaseEvidence.{phaseId}.distance_to_target_below_threshold"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.move_to_target.target",
+          "runtimePath": "phaseEvidence.{phaseId}.move_to_target.target",
+          "moduleSnapshotKey": "target",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "target entity id the actor is moving toward"
+        },
+        {
+          "contractPath": "phaseEvidence.move_to_target.before.position",
+          "runtimePath": "phaseEvidence.{phaseId}.move_to_target.before.position",
+          "moduleSnapshotKey": "before.position",
+          "required": true,
+          "shape": "vec3",
+          "purpose": "actor world position at start of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.move_to_target.after.position",
+          "runtimePath": "phaseEvidence.{phaseId}.move_to_target.after.position",
+          "moduleSnapshotKey": "after.position",
+          "required": true,
+          "shape": "vec3",
+          "purpose": "actor world position at end of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.move_to_target.distance_traveled",
+          "runtimePath": "phaseEvidence.{phaseId}.move_to_target.distance_traveled",
+          "moduleSnapshotKey": "distance_traveled",
+          "required": true,
+          "shape": "number",
+          "purpose": "Vector3.Distance(before.position, after.position) — movement intent witness"
+        },
+        {
+          "contractPath": "phaseEvidence.move_to_target.arrived",
+          "runtimePath": "phaseEvidence.{phaseId}.move_to_target.arrived",
+          "moduleSnapshotKey": "arrived",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when Vector3.Distance(after.position, target.position) <= stopRange"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.move_to_target",
+      "metaPath": "phaseEvidence.{phaseId}.move_to_target._meta"
+    },
+    "on_death_drop": {
+      "moduleId": "on_death_drop",
+      "expectedSignals": [
+        "loot_visible"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.loot_visible"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.on_death_drop.source",
+          "runtimePath": "phaseEvidence.{phaseId}.on_death_drop.source",
+          "moduleSnapshotKey": "source",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "entity id of the dying entity that triggered the drop"
+        },
+        {
+          "contractPath": "phaseEvidence.on_death_drop.loot",
+          "runtimePath": "phaseEvidence.{phaseId}.on_death_drop.loot",
+          "moduleSnapshotKey": "loot",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "entity id of the loot/reward placed"
+        },
+        {
+          "contractPath": "phaseEvidence.on_death_drop.position",
+          "runtimePath": "phaseEvidence.{phaseId}.on_death_drop.position",
+          "moduleSnapshotKey": "position",
+          "required": true,
+          "shape": "vec3",
+          "purpose": "world position where loot was placed"
+        },
+        {
+          "contractPath": "phaseEvidence.on_death_drop.placed",
+          "runtimePath": "phaseEvidence.{phaseId}.on_death_drop.placed",
+          "moduleSnapshotKey": "placed",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when PlaceObj completed with the loot entity at a non-sentinel position"
+        },
+        {
+          "contractPath": "phaseEvidence.on_death_drop.source_dead",
+          "runtimePath": "phaseEvidence.{phaseId}.on_death_drop.source_dead",
+          "moduleSnapshotKey": "source_dead",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when sourceState >= 2 (death threshold) at end of phase"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.on_death_drop",
+      "metaPath": "phaseEvidence.{phaseId}.on_death_drop._meta"
+    },
+    "phase_gate_timer": {
+      "moduleId": "phase_gate_timer",
+      "expectedSignals": [
+        "phase_advanced"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.phase_advanced"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.phase_gate_timer.seconds_required",
+          "runtimePath": "phaseEvidence.{phaseId}.phase_gate_timer.seconds_required",
+          "moduleSnapshotKey": "seconds_required",
+          "required": true,
+          "shape": "number",
+          "purpose": "configured gate duration from params.seconds"
+        },
+        {
+          "contractPath": "phaseEvidence.phase_gate_timer.seconds_elapsed",
+          "runtimePath": "phaseEvidence.{phaseId}.phase_gate_timer.seconds_elapsed",
+          "moduleSnapshotKey": "seconds_elapsed",
+          "required": true,
+          "shape": "number",
+          "purpose": "phaseTimer at gate completion"
+        },
+        {
+          "contractPath": "phaseEvidence.phase_gate_timer.before.phase_index",
+          "runtimePath": "phaseEvidence.{phaseId}.phase_gate_timer.before.phase_index",
+          "moduleSnapshotKey": "before.phase_index",
+          "required": true,
+          "shape": "number",
+          "purpose": "phase index at start of this phase"
+        },
+        {
+          "contractPath": "phaseEvidence.phase_gate_timer.after.phase_index",
+          "runtimePath": "phaseEvidence.{phaseId}.phase_gate_timer.after.phase_index",
+          "moduleSnapshotKey": "after.phase_index",
+          "required": true,
+          "shape": "number",
+          "purpose": "phase index at end of phase (must be > before.phase_index if gate fired)"
+        },
+        {
+          "contractPath": "phaseEvidence.phase_gate_timer.timer_completed",
+          "runtimePath": "phaseEvidence.{phaseId}.phase_gate_timer.timer_completed",
+          "moduleSnapshotKey": "timer_completed",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when seconds_elapsed >= seconds_required"
+        },
+        {
+          "contractPath": "phaseEvidence.phase_gate_timer.phase_advanced_by_timer",
+          "runtimePath": "phaseEvidence.{phaseId}.phase_gate_timer.phase_advanced_by_timer",
+          "moduleSnapshotKey": "phase_advanced_by_timer",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true ONLY when timer_completed AND no competing phase-advance module fired this phase — distinguishes timer-driven advance from proximity_trigger/cost_gate driven advance"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.phase_gate_timer",
+      "metaPath": "phaseEvidence.{phaseId}.phase_gate_timer._meta"
+    },
+    "player_input_joystick": {
+      "moduleId": "player_input_joystick",
+      "expectedSignals": [
+        "player_position_changed"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.player_position_changed"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.player_input_joystick.axis",
+          "runtimePath": "phaseEvidence.{phaseId}.player_input_joystick.axis",
+          "moduleSnapshotKey": "axis",
+          "required": true,
+          "shape": "vec3",
+          "purpose": "raw joystick / WASD axis vector at end of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.player_input_joystick.magnitude",
+          "runtimePath": "phaseEvidence.{phaseId}.player_input_joystick.magnitude",
+          "moduleSnapshotKey": "magnitude",
+          "required": true,
+          "shape": "number",
+          "purpose": "axis magnitude (0..1); 0 means no input this phase"
+        },
+        {
+          "contractPath": "phaseEvidence.player_input_joystick.registered",
+          "runtimePath": "phaseEvidence.{phaseId}.player_input_joystick.registered",
+          "moduleSnapshotKey": "registered",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when axis.magnitude > 0 at some point this phase"
+        },
+        {
+          "contractPath": "phaseEvidence.player_input_joystick.before.position",
+          "runtimePath": "phaseEvidence.{phaseId}.player_input_joystick.before.position",
+          "moduleSnapshotKey": "before.position",
+          "required": true,
+          "shape": "vec3",
+          "purpose": "GFM_Player position at start of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.player_input_joystick.after.position",
+          "runtimePath": "phaseEvidence.{phaseId}.player_input_joystick.after.position",
+          "moduleSnapshotKey": "after.position",
+          "required": true,
+          "shape": "vec3",
+          "purpose": "GFM_Player position at end of phase"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.player_input_joystick",
+      "metaPath": "phaseEvidence.{phaseId}.player_input_joystick._meta"
+    },
+    "player_input_tap": {
+      "moduleId": "player_input_tap",
+      "expectedSignals": [
+        "tap_registered"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.tap_registered"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.player_input_tap.raycastLayer",
+          "runtimePath": "phaseEvidence.{phaseId}.player_input_tap.raycastLayer",
+          "moduleSnapshotKey": "raycastLayer",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "Unity layer mask used by Phase_OnTap raycasts"
+        },
+        {
+          "contractPath": "phaseEvidence.player_input_tap.tap_count",
+          "runtimePath": "phaseEvidence.{phaseId}.player_input_tap.tap_count",
+          "moduleSnapshotKey": "tap_count",
+          "required": true,
+          "shape": "number",
+          "purpose": "number of raw taps this phase"
+        },
+        {
+          "contractPath": "phaseEvidence.player_input_tap.registered",
+          "runtimePath": "phaseEvidence.{phaseId}.player_input_tap.registered",
+          "moduleSnapshotKey": "registered",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when at least one Input.GetMouseButtonDown registered"
+        },
+        {
+          "contractPath": "phaseEvidence.player_input_tap.tap_position",
+          "runtimePath": "phaseEvidence.{phaseId}.player_input_tap.tap_position",
+          "moduleSnapshotKey": "tap_position",
+          "required": false,
+          "shape": "vec3",
+          "purpose": "world-space position of the last registered tap (informational)"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.player_input_tap",
+      "metaPath": "phaseEvidence.{phaseId}.player_input_tap._meta"
+    },
+    "pop_animation": {
+      "moduleId": "pop_animation",
+      "expectedSignals": [
+        "visual_variant_changed"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.visual_variant_changed"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.pop_animation.target",
+          "runtimePath": "phaseEvidence.{phaseId}.pop_animation.target",
+          "moduleSnapshotKey": "target",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "entity being pop-animated"
+        },
+        {
+          "contractPath": "phaseEvidence.pop_animation.intensity",
+          "runtimePath": "phaseEvidence.{phaseId}.pop_animation.intensity",
+          "moduleSnapshotKey": "intensity",
+          "required": true,
+          "shape": "number",
+          "purpose": "configured intensity from params.intensity (clamped 0.04..0.35 by emitter)"
+        },
+        {
+          "contractPath": "phaseEvidence.pop_animation.duration",
+          "runtimePath": "phaseEvidence.{phaseId}.pop_animation.duration",
+          "moduleSnapshotKey": "duration",
+          "required": false,
+          "shape": "number",
+          "purpose": "configured duration from params.duration (informational)"
+        },
+        {
+          "contractPath": "phaseEvidence.pop_animation.scale_delta",
+          "runtimePath": "phaseEvidence.{phaseId}.pop_animation.scale_delta",
+          "moduleSnapshotKey": "scale_delta",
+          "required": true,
+          "shape": "number",
+          "purpose": "max scale delta observed this phase (peak - 1.0)"
+        },
+        {
+          "contractPath": "phaseEvidence.pop_animation.visual_changed",
+          "runtimePath": "phaseEvidence.{phaseId}.pop_animation.visual_changed",
+          "moduleSnapshotKey": "visual_changed",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when scale_delta exceeded a minimum perceptual threshold"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.pop_animation",
+      "metaPath": "phaseEvidence.{phaseId}.pop_animation._meta"
+    },
+    "projectile_emit": {
+      "moduleId": "projectile_emit",
+      "expectedSignals": [
+        "projectile_visible"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.projectile_visible"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.projectile_emit.projectile",
+          "runtimePath": "phaseEvidence.{phaseId}.projectile_emit.projectile",
+          "moduleSnapshotKey": "projectile",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "projectile template / instance id"
+        },
+        {
+          "contractPath": "phaseEvidence.projectile_emit.source",
+          "runtimePath": "phaseEvidence.{phaseId}.projectile_emit.source",
+          "moduleSnapshotKey": "source",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "actor entity id firing the projectile"
+        },
+        {
+          "contractPath": "phaseEvidence.projectile_emit.direction",
+          "runtimePath": "phaseEvidence.{phaseId}.projectile_emit.direction",
+          "moduleSnapshotKey": "direction",
+          "required": true,
+          "shape": "vec3",
+          "purpose": "unit direction vector from source toward target at spawn"
+        },
+        {
+          "contractPath": "phaseEvidence.projectile_emit.velocity",
+          "runtimePath": "phaseEvidence.{phaseId}.projectile_emit.velocity",
+          "moduleSnapshotKey": "velocity",
+          "required": true,
+          "shape": "number",
+          "purpose": "scalar speed applied to projectile (must be > 0)"
+        },
+        {
+          "contractPath": "phaseEvidence.projectile_emit.spawned",
+          "runtimePath": "phaseEvidence.{phaseId}.projectile_emit.spawned",
+          "moduleSnapshotKey": "spawned",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when a projectile instance was created or repositioned this phase"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.projectile_emit",
+      "metaPath": "phaseEvidence.{phaseId}.projectile_emit._meta"
+    },
+    "proximity_trigger": {
+      "moduleId": "proximity_trigger",
+      "expectedSignals": [
+        "distance_to_target_below_threshold"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.distance_to_target_below_threshold"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.distance_to_target_below_threshold",
+          "runtimePath": "phaseEvidence.{phaseId}.distance_to_target_below_threshold",
+          "moduleSnapshotKey": null,
+          "required": true,
+          "shape": "number",
+          "purpose": "scalar distance written by RecordPhaseEvidenceDistance"
+        },
+        {
+          "contractPath": "phaseEvidence.proximity_trigger.target",
+          "runtimePath": "phaseEvidence.{phaseId}.proximity_trigger.target",
+          "moduleSnapshotKey": "target",
+          "required": true,
+          "shape": "scalar",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.proximity_trigger.radius",
+          "runtimePath": "phaseEvidence.{phaseId}.proximity_trigger.radius",
+          "moduleSnapshotKey": "radius",
+          "required": true,
+          "shape": "number",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.proximity_trigger.recordedDistance",
+          "runtimePath": "phaseEvidence.{phaseId}.proximity_trigger.recordedDistance",
+          "moduleSnapshotKey": "recordedDistance",
+          "required": true,
+          "shape": "number",
+          "purpose": "mirror of distance scalar inside the module-scoped object for delta/threshold checks"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.proximity_trigger",
+      "metaPath": "phaseEvidence.{phaseId}.proximity_trigger._meta"
+    },
+    "score_feedback": {
+      "moduleId": "score_feedback",
+      "expectedSignals": [
+        "score_text_changed"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.score_text_changed"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.score_feedback.resource",
+          "runtimePath": "phaseEvidence.{phaseId}.score_feedback.resource",
+          "moduleSnapshotKey": "resource",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "wallet resource id reflected by the score text"
+        },
+        {
+          "contractPath": "phaseEvidence.score_feedback.label",
+          "runtimePath": "phaseEvidence.{phaseId}.score_feedback.label",
+          "moduleSnapshotKey": "label",
+          "required": false,
+          "shape": "scalar",
+          "purpose": "optional text label prefix (e.g. 'Coins:')"
+        },
+        {
+          "contractPath": "phaseEvidence.score_feedback.before.score",
+          "runtimePath": "phaseEvidence.{phaseId}.score_feedback.before.score",
+          "moduleSnapshotKey": "before.score",
+          "required": true,
+          "shape": "number",
+          "purpose": "displayed score at start of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.score_feedback.after.score",
+          "runtimePath": "phaseEvidence.{phaseId}.score_feedback.after.score",
+          "moduleSnapshotKey": "after.score",
+          "required": true,
+          "shape": "number",
+          "purpose": "displayed score at end of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.score_feedback.delta",
+          "runtimePath": "phaseEvidence.{phaseId}.score_feedback.delta",
+          "moduleSnapshotKey": "delta",
+          "required": true,
+          "shape": "number",
+          "purpose": "after.score - before.score (signed)"
+        },
+        {
+          "contractPath": "phaseEvidence.score_feedback.text_changed",
+          "runtimePath": "phaseEvidence.{phaseId}.score_feedback.text_changed",
+          "moduleSnapshotKey": "text_changed",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when ui.scoreText string literal differs between before/after"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.score_feedback",
+      "metaPath": "phaseEvidence.{phaseId}.score_feedback._meta"
+    },
+    "spawn_interval": {
+      "moduleId": "spawn_interval",
+      "expectedSignals": [
+        "downstream_entity_visible",
+        "entity_state_changed"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.downstream_entity_visible",
+        "phaseEvidence.{phaseId}.entity_state_changed"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.spawn_interval.targetEntity",
+          "runtimePath": "phaseEvidence.{phaseId}.spawn_interval.targetEntity",
+          "moduleSnapshotKey": "targetEntity",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "which entity the emitter selected"
+        },
+        {
+          "contractPath": "phaseEvidence.spawn_interval.expectedCount",
+          "runtimePath": "phaseEvidence.{phaseId}.spawn_interval.expectedCount",
+          "moduleSnapshotKey": "expectedCount",
+          "required": true,
+          "shape": "number",
+          "purpose": "count expected this phase, from params"
+        },
+        {
+          "contractPath": "phaseEvidence.spawn_interval.spawnedEntities",
+          "runtimePath": "phaseEvidence.{phaseId}.spawn_interval.spawnedEntities",
+          "moduleSnapshotKey": "spawnedEntities",
+          "required": true,
+          "shape": "array",
+          "purpose": "{entityId,pos,t} per PlaceObj call"
+        },
+        {
+          "contractPath": "phaseEvidence.spawn_interval.realtimeIntervalsSec",
+          "runtimePath": "phaseEvidence.{phaseId}.spawn_interval.realtimeIntervalsSec",
+          "moduleSnapshotKey": "realtimeIntervalsSec",
+          "required": false,
+          "shape": "array",
+          "purpose": "diff of t between consecutive spawnedEntities"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.spawn_interval",
+      "metaPath": "phaseEvidence.{phaseId}.spawn_interval._meta"
+    },
+    "spawn_once": {
+      "moduleId": "spawn_once",
+      "expectedSignals": [
+        "downstream_entity_visible",
+        "entity_state_changed"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.downstream_entity_visible",
+        "phaseEvidence.{phaseId}.entity_state_changed"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.spawn_once.target",
+          "runtimePath": "phaseEvidence.{phaseId}.spawn_once.target",
+          "moduleSnapshotKey": "target",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "which entity the emitter spawned"
+        },
+        {
+          "contractPath": "phaseEvidence.spawn_once.position",
+          "runtimePath": "phaseEvidence.{phaseId}.spawn_once.position",
+          "moduleSnapshotKey": "position",
+          "required": true,
+          "shape": "vec3",
+          "purpose": "PlaceObj coordinate"
+        },
+        {
+          "contractPath": "phaseEvidence.spawn_once.placed",
+          "runtimePath": "phaseEvidence.{phaseId}.spawn_once.placed",
+          "moduleSnapshotKey": "placed",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true after PlaceObj returns; false means fallback path"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.spawn_once",
+      "metaPath": "phaseEvidence.{phaseId}.spawn_once._meta"
+    },
+    "target_acquire": {
+      "moduleId": "target_acquire",
+      "expectedSignals": [
+        "entity_state_changed"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.entity_state_changed"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.target_acquire.candidate_targets",
+          "runtimePath": "phaseEvidence.{phaseId}.target_acquire.candidate_targets",
+          "moduleSnapshotKey": "candidate_targets",
+          "required": true,
+          "shape": "array",
+          "purpose": "entity ids matching params.targetTag in scan radius"
+        },
+        {
+          "contractPath": "phaseEvidence.target_acquire.selected_target",
+          "runtimePath": "phaseEvidence.{phaseId}.target_acquire.selected_target",
+          "moduleSnapshotKey": "selected_target",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "chosen target entity id (or null when none in range)"
+        },
+        {
+          "contractPath": "phaseEvidence.target_acquire.in_range",
+          "runtimePath": "phaseEvidence.{phaseId}.target_acquire.in_range",
+          "moduleSnapshotKey": "in_range",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when selected_target within params.range of actor"
+        },
+        {
+          "contractPath": "phaseEvidence.target_acquire.target_acquired",
+          "runtimePath": "phaseEvidence.{phaseId}.target_acquire.target_acquired",
+          "moduleSnapshotKey": "target_acquired",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when actor.currentTarget transitioned from null to selected_target this phase"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.target_acquire",
+      "metaPath": "phaseEvidence.{phaseId}.target_acquire._meta"
+    },
+    "upgrade_progress": {
+      "moduleId": "upgrade_progress",
+      "expectedSignals": [
+        "upgrade_level_changed",
+        "visual_variant_changed",
+        "entity_state_changed"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.upgrade_level_changed",
+        "phaseEvidence.{phaseId}.visual_variant_changed",
+        "phaseEvidence.{phaseId}.entity_state_changed"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.upgrade_progress.target",
+          "runtimePath": "phaseEvidence.{phaseId}.upgrade_progress.target",
+          "moduleSnapshotKey": "target",
+          "required": true,
+          "shape": "scalar",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.upgrade_progress.before.state",
+          "runtimePath": "phaseEvidence.{phaseId}.upgrade_progress.before.state",
+          "moduleSnapshotKey": "before.state",
+          "required": true,
+          "shape": "number",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.upgrade_progress.after.state",
+          "runtimePath": "phaseEvidence.{phaseId}.upgrade_progress.after.state",
+          "moduleSnapshotKey": "after.state",
+          "required": true,
+          "shape": "number",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.upgrade_progress.before.scale",
+          "runtimePath": "phaseEvidence.{phaseId}.upgrade_progress.before.scale",
+          "moduleSnapshotKey": "before.scale",
+          "required": true,
+          "shape": "vec3",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.upgrade_progress.after.scale",
+          "runtimePath": "phaseEvidence.{phaseId}.upgrade_progress.after.scale",
+          "moduleSnapshotKey": "after.scale",
+          "required": true,
+          "shape": "vec3",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.upgrade_progress.before.visualHash",
+          "runtimePath": "phaseEvidence.{phaseId}.upgrade_progress.before.visualHash",
+          "moduleSnapshotKey": "before.visualHash",
+          "required": true,
+          "shape": "perceptualHash",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.upgrade_progress.after.visualHash",
+          "runtimePath": "phaseEvidence.{phaseId}.upgrade_progress.after.visualHash",
+          "moduleSnapshotKey": "after.visualHash",
+          "required": true,
+          "shape": "perceptualHash",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.upgrade_progress.evidenceVotes",
+          "runtimePath": "phaseEvidence.{phaseId}.upgrade_progress.evidenceVotes",
+          "moduleSnapshotKey": "evidenceVotes",
+          "required": true,
+          "shape": "object",
+          "purpose": "{stateAdvanced:bool, scaleChanged:bool, visualHashDelta:bool}"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.upgrade_progress",
+      "metaPath": "phaseEvidence.{phaseId}.upgrade_progress._meta"
+    },
+    "visual_binding": {
+      "moduleId": "visual_binding",
+      "expectedSignals": [
+        "entity_visible",
+        "entity_position_changed",
+        "target_removed_or_hidden"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.entity_visible",
+        "phaseEvidence.{phaseId}.entity_position_changed",
+        "phaseEvidence.{phaseId}.target_removed_or_hidden"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.visual_binding.entity",
+          "runtimePath": "phaseEvidence.{phaseId}.visual_binding.entity",
+          "moduleSnapshotKey": "entity",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "entity id this binding owns (e.g. CTAButton, Hero, Loot)"
+        },
+        {
+          "contractPath": "phaseEvidence.visual_binding.operation",
+          "runtimePath": "phaseEvidence.{phaseId}.visual_binding.operation",
+          "moduleSnapshotKey": "operation",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "show | hide | reposition | noop — direction of visibility change this phase"
+        },
+        {
+          "contractPath": "phaseEvidence.visual_binding.before.visible",
+          "runtimePath": "phaseEvidence.{phaseId}.visual_binding.before.visible",
+          "moduleSnapshotKey": "before.visible",
+          "required": true,
+          "shape": "bool",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.visual_binding.after.visible",
+          "runtimePath": "phaseEvidence.{phaseId}.visual_binding.after.visible",
+          "moduleSnapshotKey": "after.visible",
+          "required": true,
+          "shape": "bool",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.visual_binding.position",
+          "runtimePath": "phaseEvidence.{phaseId}.visual_binding.position",
+          "moduleSnapshotKey": "position",
+          "required": false,
+          "shape": "vec3",
+          "purpose": "post-op world position when operation = show or reposition"
+        },
+        {
+          "contractPath": "phaseEvidence.visual_binding.scale_applied",
+          "runtimePath": "phaseEvidence.{phaseId}.visual_binding.scale_applied",
+          "moduleSnapshotKey": "scale_applied",
+          "required": false,
+          "shape": "bool",
+          "purpose": "true when SetScale was called this phase"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.visual_binding",
+      "metaPath": "phaseEvidence.{phaseId}.visual_binding._meta"
+    },
+    "visual_variant_swap": {
+      "moduleId": "visual_variant_swap",
+      "expectedSignals": [
+        "visual_variant_changed"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.visual_variant_changed"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.visual_variant_swap.entity",
+          "runtimePath": "phaseEvidence.{phaseId}.visual_variant_swap.entity",
+          "moduleSnapshotKey": "entity",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "entity id whose variant is being swapped"
+        },
+        {
+          "contractPath": "phaseEvidence.visual_variant_swap.before.variantId",
+          "runtimePath": "phaseEvidence.{phaseId}.visual_variant_swap.before.variantId",
+          "moduleSnapshotKey": "before.variantId",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "variant id at start of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.visual_variant_swap.after.variantId",
+          "runtimePath": "phaseEvidence.{phaseId}.visual_variant_swap.after.variantId",
+          "moduleSnapshotKey": "after.variantId",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "variant id at end of phase"
+        },
+        {
+          "contractPath": "phaseEvidence.visual_variant_swap.variant_changed",
+          "runtimePath": "phaseEvidence.{phaseId}.visual_variant_swap.variant_changed",
+          "moduleSnapshotKey": "variant_changed",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when before.variantId !== after.variantId"
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.visual_variant_swap",
+      "metaPath": "phaseEvidence.{phaseId}.visual_variant_swap._meta"
+    },
+    "world_label": {
+      "moduleId": "world_label",
+      "expectedSignals": [
+        "guide_text_visible"
+      ],
+      "phaseSignalPaths": [
+        "phaseEvidence.{phaseId}.guide_text_visible"
+      ],
+      "evidenceFields": [
+        {
+          "contractPath": "phaseEvidence.world_label.target",
+          "runtimePath": "phaseEvidence.{phaseId}.world_label.target",
+          "moduleSnapshotKey": "target",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "entity id the label is attached to"
+        },
+        {
+          "contractPath": "phaseEvidence.world_label.text",
+          "runtimePath": "phaseEvidence.{phaseId}.world_label.text",
+          "moduleSnapshotKey": "text",
+          "required": true,
+          "shape": "scalar",
+          "purpose": "the label content displayed"
+        },
+        {
+          "contractPath": "phaseEvidence.world_label.anchor_entity_present",
+          "runtimePath": "phaseEvidence.{phaseId}.world_label.anchor_entity_present",
+          "moduleSnapshotKey": "anchor_entity_present",
+          "required": true,
+          "shape": "bool",
+          "purpose": "true when target entity is in entity_states this phase (label is world-anchored, not screen-space)"
+        },
+        {
+          "contractPath": "phaseEvidence.world_label.before.visible",
+          "runtimePath": "phaseEvidence.{phaseId}.world_label.before.visible",
+          "moduleSnapshotKey": "before.visible",
+          "required": true,
+          "shape": "bool",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.world_label.after.visible",
+          "runtimePath": "phaseEvidence.{phaseId}.world_label.after.visible",
+          "moduleSnapshotKey": "after.visible",
+          "required": true,
+          "shape": "bool",
+          "purpose": null
+        },
+        {
+          "contractPath": "phaseEvidence.world_label.visual_changed",
+          "runtimePath": "phaseEvidence.{phaseId}.world_label.visual_changed",
+          "moduleSnapshotKey": "visual_changed",
+          "required": true,
+          "shape": "bool",
+          "purpose": null
+        }
+      ],
+      "snapshotObjectPath": "phaseEvidence.{phaseId}.world_label",
+      "metaPath": "phaseEvidence.{phaseId}.world_label._meta"
+    }
+  },
+  "project": null
+}

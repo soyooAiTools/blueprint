@@ -17,6 +17,7 @@ var triggerNormalizer = require('../../adapters/deterministic-trigger-normalizer
 var schemaValidator = require('../../adapters/schema/validate-schema.cjs');
 var commentLocalizer = require('../../lib/csharp-comment-localizer.cjs');
 var signalCompletenessPatcher = require('../signal-completeness-patcher.cjs');
+var schemaPromptV3 = require('./build-schema-prompt-v3.cjs');
 
 function estimateTextTokens(text) {
   // CLI runners do not expose usage. Char/4 keeps the trend observable.
@@ -43,8 +44,9 @@ module.exports = {
       ctx.addLog('codegen-schema', 'Assembly plan detected: ' + moduleCount + ' module instances, ' + cuaSteps + ' CUA steps');
     }
 
-    // Step 1: Generate JSON schema via Sonnet
-    return generateSchemaFromSpecs(ctx)
+    // Step 1: Generate JSON schema via Sonnet, or consume an explicit
+    // prebuilt gameSchema when a deterministic upstream adapter supplied one.
+    return resolveCodegenSchema(ctx)
       .then(function(schema) {
         ctx.blueprint.gameSchema = schema;
         var customSuppress = suppressCustomLogicWhenAssemblyCovered(ctx, schema);
@@ -105,6 +107,9 @@ module.exports = {
           throw new Error('Template marker coverage failed: missing skeleton markers: ' + combinedMissingMarkers.join(', '));
         }
         ctx.csCode = fillResult.code;
+        if (isW1bSplit && ctx.blueprint && ctx.blueprint.plans && ctx.blueprint.plans.assemblyPlan) {
+          ctx.csCode = assemblyEmitter.injectAssemblyTickIntoMain(ctx.csCode);
+        }
         ctx.blueprint.templateCoverage = fillResult.templateCoverage;
         ctx.blueprint.todoSectionsRemaining = fillResult.todoCount + (flowFillResult ? flowFillResult.todoCount : 0);
         ctx.blueprint.templateFillMs = Date.now() - startMs;
@@ -199,6 +204,11 @@ module.exports = {
   },
   _internals: {
     buildSchemaPrompt: buildSchemaPrompt,
+    buildSchemaPromptLegacy: buildSchemaPromptLegacy,
+    shouldUseSchemaPromptV3: schemaPromptV3.shouldUseSchemaPromptV3,
+    shouldUsePrebuiltGameSchema: shouldUsePrebuiltGameSchema,
+    validatePrebuiltGameSchema: validatePrebuiltGameSchema,
+    resolveCodegenSchema: resolveCodegenSchema,
     summarizePlansForPrompt: summarizePlansForPrompt,
     resolveSchemaRunnerConfig: resolveSchemaRunnerConfig,
     resolveSchemaTimeoutMs: resolveSchemaTimeoutMs,
@@ -344,6 +354,48 @@ function generateSchemaFromSpecs(ctx) {
   }
 
   return tryGenerate();
+}
+
+function shouldUsePrebuiltGameSchema(ctx) {
+  var blueprint = ctx && ctx.blueprint ? ctx.blueprint : {};
+  return !!(blueprint.gameSchema && (
+    blueprint.prebuiltGameSchema === true ||
+    blueprint.skipSchemaGeneration === true ||
+    blueprint.schemaSource === 'demo2spec'
+  ));
+}
+
+function resolveCodegenSchema(ctx) {
+  if (shouldUsePrebuiltGameSchema(ctx)) {
+    ctx.addLog('codegen-schema', 'Using prebuilt gameSchema from blueprint context; skipping schema LLM');
+    return Promise.resolve(validatePrebuiltGameSchema(ctx, ctx.blueprint.gameSchema));
+  }
+  return generateSchemaFromSpecs(ctx);
+}
+
+function validatePrebuiltGameSchema(ctx, schemaInput) {
+  var schema = JSON.parse(JSON.stringify(schemaInput || {}));
+  _repairSchema(schema, ctx.blueprint && ctx.blueprint.entities, ctx.blueprint && ctx.blueprint.specs);
+
+  var validation = _validateSchema(schema);
+  if (validation.allErrors.length > 0) {
+    var repairedKnownIssues = _repairSchemaValidationErrors(schema, validation.allErrors, ctx);
+    if (repairedKnownIssues > 0) {
+      validation = _validateSchema(schema);
+      if (validation.allErrors.length === 0) {
+        ctx.addLog('codegen-schema', 'Deterministic prebuilt schema repair fixed ' +
+          repairedKnownIssues + ' validation issue(s)');
+      }
+    }
+  }
+  if (validation.allErrors.length > 0) {
+    throw new Error('Prebuilt gameSchema validation failed: ' + validation.allErrors.join('; '));
+  }
+
+  ctx.blueprint.prebuiltGameSchemaUsed = true;
+  ctx.blueprint.schemaTokensIn = 0;
+  ctx.blueprint.schemaTokensOut = 0;
+  return schema;
 }
 
 function generateSchemaTextWithFallback(runCodexText, ctx, promptText) {
@@ -605,6 +657,24 @@ function parseAndValidateSchemaResponse(ctx, text) {
 }
 
 function buildSchemaPrompt(ctx) {
+  var useV3 = schemaPromptV3.shouldUseSchemaPromptV3(ctx);
+  if (ctx && ctx.blueprint) {
+    ctx.blueprint.schemaPromptVersion = useV3 ? 'v3' : 'legacy';
+    ctx.blueprint.schemaPromptHtmlSliceCount = schemaPromptV3.countHtmlPhaseSlices(ctx);
+  }
+  if (useV3) {
+    if (ctx && ctx.blueprint) {
+      ctx.blueprint.schemaPromptStaticChars = schemaPromptV3.MAPPING_CHEATSHEET.length;
+      ctx.blueprint.schemaPromptSliceMaxChars = schemaPromptV3.DEFAULT_SLICE_MAX_CHARS;
+    }
+    return schemaPromptV3.buildSchemaPromptV3(ctx, {
+      plansSummary: summarizePlansForPrompt(ctx.blueprint && ctx.blueprint.plans),
+    });
+  }
+  return buildSchemaPromptLegacy(ctx);
+}
+
+function buildSchemaPromptLegacy(ctx) {
   var specs = JSON.stringify(ctx.blueprint.specs, null, 2);
   var entities = JSON.stringify(ctx.blueprint.entities || [], null, 2);
   var plansSummary = summarizePlansForPrompt(ctx.blueprint.plans);

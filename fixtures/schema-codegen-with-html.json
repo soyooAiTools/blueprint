@@ -1,0 +1,39 @@
+{
+  "blueprint": {
+    "projectName": "SchemaPromptV3Fixture",
+    "specs": [
+      {
+        "phaseId": "phase1",
+        "phaseName": "收集冰块",
+        "requiredInteractions": ["collect:Ice:1"],
+        "entitiesRequired": [{ "name": "Ice" }],
+        "playerInstruction": "收集冰块"
+      },
+      {
+        "phaseId": "phase2",
+        "phaseName": "点击下载",
+        "requiredInteractions": ["click:CtaButton"],
+        "entitiesRequired": [{ "name": "CtaButton" }],
+        "playerInstruction": "点击下载"
+      }
+    ],
+    "entities": [
+      {
+        "name": "Ice",
+        "label": "冰块",
+        "template": "Collectible",
+        "visual": { "position": "(-3,0,2)", "scale": "1x1x1" }
+      },
+      {
+        "name": "CtaButton",
+        "label": "立即下载",
+        "template": "UI",
+        "visual": { "position": "(0,2,0)", "scale": "0.5x0.5x0.5" }
+      }
+    ],
+    "htmlPhaseSlices": {
+      "phase1": "function enterPhase1(){ state.ice += 1; spawnShockwave(player.position, 0x66ccff, 3); setTip('收集冰块', 1200); }",
+      "phase2": "function enterPhase2(){ document.querySelector('#endcard').style.display = 'block'; setTip('点击下载', 1000); }"
+    }
+  }
+}

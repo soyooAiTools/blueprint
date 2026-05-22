@@ -1798,6 +1798,7 @@ function buildOwnerSlotSection(fileName, moduleInstances, plans) {
 function injectAssemblyTickIntoMain(mainCode) {
   var marker = '// TODO_CUSTOM_START';
   var text = String(mainCode || '');
+  if (text.indexOf('AssemblyRunFlowSlots();') >= 0) return text;
   var idx = text.indexOf(marker);
   if (idx < 0) return text;
   var before = text.substring(0, idx + marker.length);
@@ -2152,6 +2153,7 @@ function applyAssemblyPlanToSkeleton(skeletonResult, plans) {
 
 module.exports = {
   applyAssemblyPlanToSkeleton: applyAssemblyPlanToSkeleton,
+  injectAssemblyTickIntoMain: injectAssemblyTickIntoMain,
   buildCommentedJsonLines: buildCommentedJsonLines,
   extractAssemblySlotRegions: extractAssemblySlotRegions,
   mergeAssemblySlotEdits: mergeAssemblySlotEdits,

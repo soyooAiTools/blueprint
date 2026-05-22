@@ -84,11 +84,20 @@ function fillSkeleton(schema, skeleton, opts) {
   // TODO_AUTOPLAY_INTERACT: mirror of interactive triggers
   todoMap['TODO_AUTOPLAY_INTERACT'] = generateAutoPlay(schema);
 
-  // TODO_SYSTEMS: NPC full method bodies
-  todoMap['TODO_SYSTEMS'] = generateSystems(schema);
+  // TODO_SYSTEMS: NPC full method bodies. If no systems are needed, fill the
+  // marker with an explicit no-op so post-fill validation sees a closed slot.
+  todoMap['TODO_SYSTEMS'] = generateSystems(schema) || [
+    '    void NoSchemaLevelNpcSystemsRequired()',
+    '    {',
+    '    }',
+  ].join('\n');
 
   // TODO_UI: (minimal — scoreText already handled by economy kit)
-  todoMap['TODO_UI'] = '';
+  todoMap['TODO_UI'] = [
+    '    void NoExtraSchemaLevelUiHelpersRequired()',
+    '    {',
+    '    }',
+  ].join('\n');
 
   // TODO_CUSTOM: interaction templates + remaining customLogic TODO comments
   todoMap['TODO_CUSTOM'] = [

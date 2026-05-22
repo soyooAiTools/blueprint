@@ -490,6 +490,13 @@ function generateSkeleton(specs, opts = {}) {
       interactionFlags.push(target + 'Done');
     }
   });
+  // Assembly emitter slots may write <Entity>Done for entities introduced by
+  // blueprint/gameSchema resources even when that entity is not the direct
+  // interaction target in specs. Declare all known entity Done flags so
+  // deterministic slots stay compilable without needing custom logic repair.
+  allEntities.forEach(name => {
+    interactionFlags.push(name + 'Done');
+  });
   if (interactionFlags.length > 0) {
     lines.push('    // [SKELETON] Interaction flags：记录玩家/CUA 是否触发过操作；phase 出口仍以真实位移或 evidence 为准。');
     const uniqueFlags = [...new Set(interactionFlags)];
