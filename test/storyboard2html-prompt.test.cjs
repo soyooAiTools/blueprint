@@ -275,6 +275,45 @@ assert.ok(built.systemPrompt.indexOf('不允许 `ENTITY_STYLE` 任一 entry 缺 
 assert.ok(built.systemPrompt.indexOf('不允许 `function buildEntity` 写成箭头函数') >= 0,
   'system prompt 禁止反规则 should forbid arrow / anonymous buildEntity');
 
+// L8 — 场景视觉契约(scene-level params,Luna runtime per-story 适配主门)
+assert.ok(built.systemPrompt.indexOf('L8 — 场景视觉契约') >= 0,
+  'system prompt should declare L8 scene visual contract section');
+assert.ok(built.systemPrompt.indexOf('scene-level params') >= 0,
+  'system prompt L8 header should reference scene-level params');
+assert.ok(built.systemPrompt.indexOf('`const SCENE_CONFIG') >= 0,
+  'system prompt L8 should require top-level SCENE_CONFIG const map');
+assert.ok(built.systemPrompt.indexOf('`backgroundColor`') >= 0,
+  'system prompt L8 should declare backgroundColor field');
+assert.ok(built.systemPrompt.indexOf('`fog`') >= 0,
+  'system prompt L8 should declare fog field');
+assert.ok(built.systemPrompt.indexOf('`ambientLight`') >= 0,
+  'system prompt L8 should declare ambientLight field');
+assert.ok(built.systemPrompt.indexOf('`directionalLight`') >= 0,
+  'system prompt L8 should declare directionalLight field');
+assert.ok(built.systemPrompt.indexOf('`rimLight`') >= 0,
+  'system prompt L8 should declare rimLight field (optional)');
+assert.ok(built.systemPrompt.indexOf('`ground`') >= 0,
+  'system prompt L8 should declare ground field');
+assert.ok(built.systemPrompt.indexOf('`decor`') >= 0,
+  'system prompt L8 should declare decor field');
+assert.ok(built.systemPrompt.indexOf('sourceSceneContract') >= 0,
+  'system prompt L8 should reference sourceSceneContract (Luna runtime hook)');
+assert.ok(built.systemPrompt.indexOf('按字段而不是按主题') >= 0,
+  'system prompt L8 should require per-field config not per-theme hardset');
+assert.ok(built.systemPrompt.indexOf('SCENE_CONFIG.backgroundColor') >= 0,
+  'system prompt L8 should reference SCENE_CONFIG.backgroundColor in rendering binding');
+// L8 禁止反规则
+assert.ok(built.systemPrompt.indexOf('不允许 `SCENE_CONFIG` 写在 `function init()') >= 0,
+  'system prompt 禁止反规则 should forbid SCENE_CONFIG inside function/IIFE');
+assert.ok(built.systemPrompt.indexOf('不允许 `SCENE_CONFIG.backgroundColor` 缺失') >= 0,
+  'system prompt 禁止反规则 should forbid missing or string-form backgroundColor');
+assert.ok(built.systemPrompt.indexOf('不允许 `SCENE_CONFIG.ambientLight` 或 `SCENE_CONFIG.directionalLight`') >= 0,
+  'system prompt 禁止反规则 should forbid missing ambient/directional light');
+assert.ok(built.systemPrompt.indexOf('不允许 `SCENE_CONFIG.fog` / `SCENE_CONFIG.rimLight` / `SCENE_CONFIG.ground` / `SCENE_CONFIG.decor` 写成布尔开关') >= 0,
+  'system prompt 禁止反规则 should forbid boolean/string form for fog/rimLight/ground/decor');
+assert.ok(built.systemPrompt.indexOf('不允许源 HTML 的 `scene.background`') >= 0,
+  'system prompt 禁止反规则 should require rendering code to reference SCENE_CONFIG fields (no literal divergence)');
+
 // L5/L6 interaction with existing rules
 // The old "玩家不需要真操作:可以 auto-progress" line must be REMOVED (anti-regression)
 assert.ok(built.systemPrompt.indexOf('玩家不需要真操作') < 0,
