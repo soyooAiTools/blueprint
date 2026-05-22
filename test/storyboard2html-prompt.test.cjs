@@ -239,6 +239,42 @@ assert.ok(built.systemPrompt.indexOf('不允许整个 stage 只是 Canvas 黑底
 assert.ok(built.systemPrompt.indexOf('不允许跳过 `Player` 角色复合几何体') >= 0,
   'system prompt 禁止反规则 should forbid skipping composite Player geometry');
 
+// L7 — Entity 视觉契约(extractor 兼容布局,demo2spec 静态解析必须命中)
+assert.ok(built.systemPrompt.indexOf('L7 — Entity 视觉契约') >= 0,
+  'system prompt should declare L7 entity visual contract section');
+assert.ok(built.systemPrompt.indexOf('extractor 兼容布局') >= 0,
+  'system prompt L7 header should reference extractor-compatible layout');
+assert.ok(built.systemPrompt.indexOf('`const ENTITY_STYLE') >= 0 && built.systemPrompt.indexOf('`const ENTITY_POSITIONS') >= 0,
+  'system prompt L7 should require top-level ENTITY_STYLE + ENTITY_POSITIONS const maps');
+assert.ok(built.systemPrompt.indexOf('function buildEntity(name)') >= 0,
+  'system prompt L7 should require named function buildEntity(name)');
+assert.ok(built.systemPrompt.indexOf('kind-switch') >= 0,
+  'system prompt L7 should require kind-switch dispatch inside buildEntity');
+assert.ok(built.systemPrompt.indexOf('models[name] = g') >= 0 || built.systemPrompt.indexOf('models[<entityName>] = g') >= 0,
+  'system prompt L7 should require models[name] = g anchor pattern');
+assert.ok(built.systemPrompt.indexOf('Object.keys(ENTITY_STYLE).forEach(buildEntity)') >= 0,
+  'system prompt L7 should require Object.keys(ENTITY_STYLE).forEach(buildEntity) driver');
+assert.ok(built.systemPrompt.indexOf('`kind` 字段') >= 0,
+  'system prompt L7 should require kind field on each ENTITY_STYLE entry');
+assert.ok(built.systemPrompt.indexOf('完全一致') >= 0,
+  'system prompt L7 should require ENTITY_STYLE keys === ENTITY_POSITIONS keys');
+
+// L7 禁止反规则 — anti-extractor-blind layouts
+assert.ok(built.systemPrompt.indexOf('不允许 entity mesh 装配塞进 IIFE') >= 0,
+  'system prompt 禁止反规则 should forbid IIFE-wrapped entity assembly');
+assert.ok(built.systemPrompt.indexOf('不允许 entity 名只出现在 `getElementById') >= 0,
+  'system prompt 禁止反规则 should forbid entity names only in getElementById strings');
+assert.ok(built.systemPrompt.indexOf('不允许跳过 `ENTITY_STYLE` 直接 `new THREE.Mesh') >= 0,
+  'system prompt 禁止反规则 should forbid scattering new THREE.Mesh without ENTITY_STYLE binding');
+assert.ok(built.systemPrompt.indexOf('不允许 `buildEntity` 用 `switch (name)`') >= 0,
+  'system prompt 禁止反规则 should forbid switch-on-name (must dispatch on kind)');
+assert.ok(built.systemPrompt.indexOf('不允许 `ENTITY_POSITIONS` 的 key 与 `ENTITY_STYLE` 不一致') >= 0,
+  'system prompt 禁止反规则 should forbid ENTITY_POSITIONS keys diverging from ENTITY_STYLE');
+assert.ok(built.systemPrompt.indexOf('不允许 `ENTITY_STYLE` 任一 entry 缺 `kind`') >= 0,
+  'system prompt 禁止反规则 should forbid ENTITY_STYLE entry without kind');
+assert.ok(built.systemPrompt.indexOf('不允许 `function buildEntity` 写成箭头函数') >= 0,
+  'system prompt 禁止反规则 should forbid arrow / anonymous buildEntity');
+
 // L5/L6 interaction with existing rules
 // The old "玩家不需要真操作:可以 auto-progress" line must be REMOVED (anti-regression)
 assert.ok(built.systemPrompt.indexOf('玩家不需要真操作') < 0,
