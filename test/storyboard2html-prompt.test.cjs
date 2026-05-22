@@ -100,6 +100,26 @@ assert.ok(built.systemPrompt.indexOf('guide_text_visible') >= 0);
 assert.ok(built.systemPrompt.indexOf('phase_advanced') >= 0);
 assert.ok(built.systemPrompt.indexOf('resource_incremented') >= 0);
 
+// L4 — window.__assetMeta license meta clauses (storyboard2html v3 task #6)
+assert.ok(built.systemPrompt.indexOf('window.__assetMeta') >= 0, 'system prompt should declare window.__assetMeta carrier');
+assert.ok(built.systemPrompt.indexOf('license') >= 0, 'system prompt should require license field');
+assert.ok(built.systemPrompt.indexOf('attribution') >= 0, 'system prompt should require attribution field');
+assert.ok(built.systemPrompt.indexOf('sourceUrl') >= 0, 'system prompt should require sourceUrl field');
+// license enum hints
+assert.ok(built.systemPrompt.indexOf('CC0') >= 0, 'system prompt should list CC0 in license enum');
+assert.ok(built.systemPrompt.indexOf('CC-BY-4.0') >= 0, 'system prompt should list CC-BY-4.0 in license enum');
+assert.ok(built.systemPrompt.indexOf('"unknown"') >= 0, 'system prompt should require explicit "unknown" sentinel for license');
+// loader coverage hints (so LLM knows which loaders trigger the requirement)
+assert.ok(built.systemPrompt.indexOf('GLTFLoader') >= 0, 'system prompt should call out GLTFLoader as covered by assetMeta');
+assert.ok(built.systemPrompt.indexOf('TextureLoader') >= 0, 'system prompt should call out TextureLoader as covered by assetMeta');
+// no-omit prohibition rules
+assert.ok(built.systemPrompt.indexOf('不允许任何外部加载的资产 URL 在 `window.__assetMeta` 里缺条目') >= 0,
+  'system prompt 禁止反规则 should forbid omitting assetMeta entries');
+assert.ok(built.systemPrompt.indexOf('不允许把 `window.__assetMeta` 写在函数闭包里') >= 0,
+  'system prompt 禁止反规则 should forbid wrapping assetMeta in closure');
+// procedural-asset exemption (so we don't burn prompt on entries for primitive prefabs)
+assert.ok(built.systemPrompt.indexOf('程序化资产') >= 0, 'system prompt should exempt procedural assets from assetMeta');
+
 // Module templates
 ['guide_ui', 'inventory_wallet', 'collect_on_near', 'phase_gate_timer', 'visual_binding', 'spawn_once', 'cta_finish'].forEach(function(moduleId) {
   assert.ok(built.systemPrompt.indexOf(moduleId) >= 0, 'system prompt missing module template: ' + moduleId);
