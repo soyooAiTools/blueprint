@@ -143,8 +143,9 @@ assert.ok(built.systemPrompt.indexOf('不允许 `attribution` 字符串长度 > 
 assert.ok(built.systemPrompt.indexOf('L5 — 交互驱动硬约束') >= 0, 'system prompt should declare L5 interaction-driven section');
 assert.ok(built.systemPrompt.indexOf('setTimeout 自走') >= 0, 'system prompt L5 header should forbid setTimeout-driven phase advance');
 assert.ok(built.systemPrompt.indexOf('每个 non-final phase 必须有') >= 0, 'system prompt should require DOM listener for non-final phases');
-assert.ok(built.systemPrompt.indexOf('canvas.addEventListener') >= 0, 'system prompt should hint canvas.addEventListener as valid driver');
-assert.ok(built.systemPrompt.indexOf('hit-test') >= 0 || built.systemPrompt.indexOf('raycaster') >= 0, 'system prompt should mention hit-test/raycaster');
+assert.ok(built.systemPrompt.indexOf('document') >= 0 && built.systemPrompt.indexOf('renderer.domElement') >= 0,
+  'system prompt should require global/canvas pointer listeners as valid driver');
+assert.ok(built.systemPrompt.indexOf('raycaster') >= 0, 'system prompt should mention raycaster as optional feedback');
 assert.ok(built.systemPrompt.indexOf('mutate `phaseIndex`') >= 0, 'system prompt should call out phaseIndex mutation as forbidden inside setTimeout');
 assert.ok(built.systemPrompt.indexOf('target_consumed') >= 0 && built.systemPrompt.indexOf('必须由 DOM event handler 内部置位') >= 0,
   'system prompt should require click_trigger evidence to be set inside DOM listener');
@@ -155,9 +156,11 @@ assert.ok(built.systemPrompt.indexOf('不允许 `setTimeout(fn, ms)`') >= 0,
 assert.ok(built.systemPrompt.indexOf('不允许 non-final phase 完全没有') >= 0,
   'system prompt 禁止反规则 should forbid non-final phase without any listener');
 
-// L5 v2 — joystick + arrival-gate canonical (storyboard2html v5 — youth-nick 反馈)
-assert.ok(built.systemPrompt.indexOf('固定虚拟摇杆') >= 0,
-  'system prompt should declare 固定虚拟摇杆 as canonical control paradigm');
+// L5 v3 — floating joystick + arrival-gate canonical (storyboard2html v6 — youth-nick 反馈)
+assert.ok(built.systemPrompt.indexOf('任意屏幕位置浮动虚拟摇杆') >= 0 || built.systemPrompt.indexOf('全屏任意位置浮动虚拟摇杆') >= 0,
+  'system prompt should declare floating any-position joystick as canonical control paradigm');
+assert.ok(built.systemPrompt.indexOf('originX') >= 0 && built.systemPrompt.indexOf('originY') >= 0,
+  'system prompt should require joystick origin coordinates in game state');
 assert.ok(built.systemPrompt.indexOf('arrival-gate') >= 0,
   'system prompt should declare arrival-gate as canonical interaction paradigm');
 assert.ok(built.systemPrompt.indexOf('pointermove') >= 0 && built.systemPrompt.indexOf('pointerup') >= 0,
@@ -179,7 +182,7 @@ assert.ok(built.systemPrompt.indexOf('arrival-gate 圈') >= 0 || built.systemPro
 assert.ok(built.systemPrompt.indexOf('player_input_joystick` 模块必须') >= 0 || built.systemPrompt.indexOf('player_input_joystick 模块必须') >= 0,
   'system prompt should require player_input_joystick evidence per non-final phase');
 // new 禁止反规则 lines for joystick paradigm
-assert.ok(built.systemPrompt.indexOf('不允许整个 demo 缺失固定虚拟摇杆 UI 控件') >= 0,
+assert.ok(built.systemPrompt.indexOf('不允许整个 demo 缺失任意位置浮动虚拟摇杆 UI 控件') >= 0,
   'system prompt 禁止反规则 should forbid missing joystick UI widget');
 assert.ok(built.systemPrompt.indexOf('不允许 non-final phase 用 `keydown`') >= 0,
   'system prompt 禁止反规则 should forbid keydown as sole non-final phase advance path');
@@ -216,10 +219,13 @@ assert.ok(built.systemPrompt.indexOf('最后一个 phase 的 `trigger.type` 必�
 
 // L6 — 视觉模型化硬约束 (storyboard2html v4 — 禁纯平面 2D 示意 + 复合几何体)
 assert.ok(built.systemPrompt.indexOf('L6 — 视觉模型化硬约束') >= 0, 'system prompt should declare L6 visual modeling section');
-assert.ok(built.systemPrompt.indexOf('禁止平面 2D 示意') >= 0, 'system prompt L6 header should forbid flat 2D schematic');
-assert.ok(built.systemPrompt.indexOf('3D 场景') >= 0 || built.systemPrompt.indexOf('伪 3D') >= 0,
-  'system prompt should require 3D or pseudo-3D rendering');
-assert.ok(built.systemPrompt.indexOf('isometric') >= 0, 'system prompt should mention isometric as valid canvas pseudo-3D approach');
+assert.ok(built.systemPrompt.indexOf('禁止 Canvas/DOM 平面示意') >= 0, 'system prompt L6 header should forbid Canvas/DOM flat schematic');
+assert.ok(built.systemPrompt.indexOf('真实 WebGL 3D 场景') >= 0,
+  'system prompt should require real WebGL 3D rendering');
+assert.ok(built.systemPrompt.indexOf('WebGLRenderer') >= 0 && built.systemPrompt.indexOf('THREE.Scene') >= 0,
+  'system prompt should require Three.js Scene/WebGLRenderer');
+assert.ok(built.systemPrompt.indexOf('禁止用纯 Canvas 2D / isometric 伪 3D') >= 0,
+  'system prompt should explicitly reject canvas pseudo-3D as primary rendering');
 assert.ok(built.systemPrompt.indexOf('复合几何体') >= 0, 'system prompt should require composite geometry');
 assert.ok(built.systemPrompt.indexOf('头 Sphere + 身体 Cylinder') >= 0 || built.systemPrompt.indexOf('头+身+肢') >= 0,
   'system prompt should give explicit composite player geometry guidance');
@@ -228,7 +234,7 @@ assert.ok(built.systemPrompt.indexOf('ground/floor') >= 0 || built.systemPrompt.
 assert.ok(built.systemPrompt.indexOf('PlaneGeometry') >= 0, 'system prompt should hint THREE.PlaneGeometry as ground geometry');
 assert.ok(built.systemPrompt.indexOf('不允许 entity 只用单个 `ctx.arc()`') >= 0,
   'system prompt 禁止反规则 should forbid single-arc / single-div entity representation');
-assert.ok(built.systemPrompt.indexOf('不允许整个 stage 只是黑底') >= 0,
+assert.ok(built.systemPrompt.indexOf('不允许整个 stage 只是 Canvas 黑底') >= 0,
   'system prompt 禁止反规则 should forbid empty-stage-with-dots schematic');
 assert.ok(built.systemPrompt.indexOf('不允许跳过 `Player` 角色复合几何体') >= 0,
   'system prompt 禁止反规则 should forbid skipping composite Player geometry');

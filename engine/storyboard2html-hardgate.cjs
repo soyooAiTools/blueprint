@@ -73,13 +73,15 @@ function findUserInputListeners(source) {
 function hasJoystickControl(source) {
   var html = stripComments(source);
   var hasControl = /id\s*=\s*["']joystick["']|#[\w-]*joystick|\bjoystick\b/.test(html);
-  var hasFixedUi = /#[\w-]*joystick[\w-]*\s*\{[^}]*\bposition\s*:\s*fixed\b/.test(html)
+  var hasOverlayUi = /#[\w-]*joystick[\w-]*\s*\{[^}]*\bposition\s*:\s*fixed\b/.test(html)
     || /id\s*=\s*["'][^"']*joystick[^"']*["'][^>]*style\s*=\s*["'][^"']*\bposition\s*:\s*fixed\b/.test(html)
     || /style\s*=\s*["'][^"']*\bposition\s*:\s*fixed\b[^"']*["'][^>]*id\s*=\s*["'][^"']*joystick[^"']*["']/.test(html);
-  var hasPointerDown = /joystick[\s\S]{0,260}\.addEventListener\s*\(\s*['"]pointerdown['"]|\.addEventListener\s*\(\s*['"]pointerdown['"][\s\S]{0,260}joystick/.test(html);
-  var hasPointerMove = /joystick[\s\S]{0,260}\.addEventListener\s*\(\s*['"]pointermove['"]|\.addEventListener\s*\(\s*['"]pointermove['"][\s\S]{0,260}joystick/.test(html);
-  var hasPointerEnd = /joystick[\s\S]{0,320}\.addEventListener\s*\(\s*['"]pointer(?:up|cancel)['"]|\.addEventListener\s*\(\s*['"]pointer(?:up|cancel)['"][\s\S]{0,320}joystick/.test(html);
-  return hasControl && hasFixedUi && hasPointerDown && hasPointerMove && hasPointerEnd;
+  var hasPointerDown = /(?:document|window|canvas|stage|renderer\.domElement|document\.body)\.addEventListener\s*\(\s*['"]pointerdown['"]|joystick[\s\S]{0,260}\.addEventListener\s*\(\s*['"]pointerdown['"]|\.addEventListener\s*\(\s*['"]pointerdown['"][\s\S]{0,260}joystick/.test(html);
+  var hasPointerMove = /(?:document|window|canvas|stage|renderer\.domElement|document\.body)\.addEventListener\s*\(\s*['"]pointermove['"]|joystick[\s\S]{0,260}\.addEventListener\s*\(\s*['"]pointermove['"]|\.addEventListener\s*\(\s*['"]pointermove['"][\s\S]{0,260}joystick/.test(html);
+  var hasPointerEnd = /(?:document|window|canvas|stage|renderer\.domElement|document\.body)\.addEventListener\s*\(\s*['"]pointer(?:up|cancel)['"]|joystick[\s\S]{0,320}\.addEventListener\s*\(\s*['"]pointer(?:up|cancel)['"]|\.addEventListener\s*\(\s*['"]pointer(?:up|cancel)['"][\s\S]{0,320}joystick/.test(html);
+  var hasAnyPositionStart = /(?:document|window|canvas|stage|renderer\.domElement|document\.body)\.addEventListener\s*\(\s*['"]pointerdown['"]/.test(html);
+  var movesJoystickToPointer = /joystick\.style\.(?:left|top)\s*=|joystick\.style\.transform\s*=|showJoystickAt|placeJoystickAt|startJoystickAt/.test(html);
+  return hasControl && hasOverlayUi && hasPointerDown && hasPointerMove && hasPointerEnd && hasAnyPositionStart && movesJoystickToPointer;
 }
 
 function findAutoProgressPatterns(source) {
@@ -269,10 +271,10 @@ function validateRenderableEntities(source, opts) {
     errors.push('showEntities missing render/model references: ' + missing.slice(0, 12).join(', '));
   }
 
-  var threeGeometryCount = (html.match(/new\s+THREE\.(?:Box|Cylinder|Sphere|Cone|Torus|Plane|Capsule|Dodecahedron|Icosahedron)Geometry\b/g) || []).length;
-  var canvasDrawCount = (html.match(/\b(?:fillRect|strokeRect|arc|ellipse|drawImage|lineTo|bezierCurveTo)\s*\(/g) || []).length;
-  if (threeGeometryCount < 3 && canvasDrawCount < 8) {
-    errors.push('rendered scene must contain complete procedural models or rich canvas pseudo-3D drawing');
+  var threeGeometryCount = (html.match(/new\s+THREE\.(?:Box|Cylinder|Sphere|Cone|Torus|Plane|Capsule|Dodecahedron|Icosahedron|Octahedron)Geometry\b/g) || []).length;
+  var hasThreeScene = /new\s+THREE\.Scene\b/.test(html) && /new\s+THREE\.WebGLRenderer\b/.test(html);
+  if (!hasThreeScene || threeGeometryCount < 3) {
+    errors.push('rendered scene must be real three.js 3D with Scene/WebGLRenderer and multiple procedural geometries');
   }
   return { passed: errors.length === 0, errors: errors, entityNames: names };
 }
@@ -291,7 +293,7 @@ function validateHtmlInteractionContract(source, opts) {
     errors.push('phase progression must not be scheduled by setTimeout/scheduleComplete: ' + autoProgress.slice(0, 3).join(' | '));
   }
   if (!hasJoystickControl(html)) {
-    errors.push('generated HTML must expose a fixed joystick with pointerdown/pointermove/pointerup controls');
+    errors.push('generated HTML must expose a floating/global joystick: pointerdown can start from any screen position, pointermove/pointerup update/reset it, and the visible joystick moves to the pointer origin');
   }
   var directCompletion = findDirectClickCompletionPatterns(html);
   if (directCompletion.length > 0) {
