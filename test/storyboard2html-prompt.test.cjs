@@ -110,6 +110,24 @@ assert.ok(built.systemPrompt.indexOf('CtaButton') >= 0);
 // Forbid rules
 assert.ok(built.systemPrompt.indexOf('禁止') >= 0);
 
+// snake_case MUST language (anti-regression: prompt must not allow camelCase-only writes)
+assert.ok(built.systemPrompt.indexOf('snake_case') >= 0, 'system prompt should mention snake_case');
+assert.ok(built.systemPrompt.indexOf('硬必填') >= 0, 'system prompt should mark snake_case keys as 硬必填');
+assert.ok(built.systemPrompt.indexOf('镜像副本') >= 0, 'system prompt should restrict camelCase to 镜像副本');
+
+// 36-module vocabulary present (anti-regression: prompt must not silently support fewer modules)
+[
+  'activate_targets', 'apply_damage', 'build_progress', 'camera_focus', 'camera_lift', 'camera_zoom',
+  'click_trigger', 'collect_on_near', 'cooldown', 'cost_gate', 'cta_finish', 'damageable',
+  'deliver_to_target', 'drag_trigger', 'floating_text_feedback', 'form_switch', 'guide_ui',
+  'highlight_target', 'hold_trigger', 'inventory_wallet', 'move_to_target', 'on_death_drop',
+  'phase_gate_timer', 'player_input_joystick', 'player_input_tap', 'pop_animation',
+  'projectile_emit', 'proximity_trigger', 'score_feedback', 'spawn_interval', 'spawn_once',
+  'target_acquire', 'upgrade_progress', 'visual_binding', 'visual_variant_swap', 'world_label',
+].forEach(function(moduleId) {
+  assert.ok(built.systemPrompt.indexOf(moduleId) >= 0, 'system prompt missing module from 36-vocab: ' + moduleId);
+});
+
 // User prompt content checks
 assert.ok(built.userPrompt.indexOf('FarmStoryboard') >= 0);
 assert.ok(built.userPrompt.indexOf('themeHint: farming') >= 0);
@@ -121,6 +139,72 @@ assert.ok(built.userPrompt.indexOf('click:CtaButton') >= 0);
 assert.ok(built.userPrompt.indexOf('Collect corn near the field') >= 0);
 assert.ok(built.userPrompt.indexOf('Frame 1') >= 0);
 assert.ok(built.userPrompt.indexOf('triggeredPresentFullRate') >= 0);
+
+// Regression: plannedModuleIds must surface in userPrompt phase table
+// (Jonny found that normalizeSpec previously dropped plannedModuleIds silently.)
+assert.ok(built.userPrompt.indexOf('collect_on_near') >= 0, 'userPrompt should list phase1 module collect_on_near');
+assert.ok(built.userPrompt.indexOf('guide_ui') >= 0, 'userPrompt should list guide_ui (phase1+phase2)');
+assert.ok(built.userPrompt.indexOf('inventory_wallet') >= 0, 'userPrompt should list phase1 inventory_wallet');
+assert.ok(built.userPrompt.indexOf('spawn_once') >= 0, 'userPrompt should list phase2 spawn_once');
+assert.ok(built.userPrompt.indexOf('cta_finish') >= 0, 'userPrompt should list phase3 cta_finish');
+
+// extractHtml — accepts well-formed output
+var goodHtml = '<!doctype html>\n<html><head></head><body>x</body></html>';
+assert.strictEqual(promptBuilder.extractHtml(goodHtml), goodHtml);
+
+// extractHtml — strips leading preamble (LLM chatty prefix)
+var preambled = 'Here is the HTML you requested:\n\n<!doctype html>\n<html><body>ok</body></html>\n\nLet me know if you need more.';
+var extracted = promptBuilder.extractHtml(preambled);
+assert.ok(extracted.indexOf('<!doctype html>') === 0, 'extractHtml should strip preamble: ' + extracted.slice(0, 30));
+assert.ok(extracted.indexOf('</html>') === extracted.length - '</html>'.length, 'extractHtml should strip trailing chatter');
+
+// extractHtml — strips ``` fences
+var fenced = '```html\n<!doctype html>\n<html><body>ok</body></html>\n```';
+var fencedOut = promptBuilder.extractHtml(fenced);
+assert.ok(fencedOut.indexOf('<!doctype html>') === 0, 'extractHtml should strip code fence');
+assert.ok(fencedOut.indexOf('```') < 0, 'extractHtml output should not contain fence');
+
+// extractHtml — accepts bare <html ...> opening (no doctype)
+var noDoctype = '<html lang="en"><body>x</body></html>';
+assert.strictEqual(promptBuilder.extractHtml(noDoctype), noDoctype);
+
+// extractHtml — refuses output with no html tags at all
+assert.throws(function() { promptBuilder.extractHtml('I am sorry, I cannot generate HTML.'); }, function(err) {
+  return err && err.code === 'STORYBOARD2HTML_OUTPUT_NOT_HTML';
+}, 'extractHtml should throw STORYBOARD2HTML_OUTPUT_NOT_HTML on prose-only output');
+
+// extractHtml — refuses truncated output missing </html>
+assert.throws(function() { promptBuilder.extractHtml('<!doctype html>\n<html><body>truncated...'); }, function(err) {
+  return err && err.code === 'STORYBOARD2HTML_OUTPUT_TRUNCATED';
+}, 'extractHtml should throw STORYBOARD2HTML_OUTPUT_TRUNCATED when </html> missing');
+
+// resolveModel / resolveTimeoutMs / resolveMinOutputLen — opts win over env, env wins over default
+var prevModel = process.env.STORYBOARD2HTML_MODEL;
+var prevTimeout = process.env.STORYBOARD2HTML_TIMEOUT_MS;
+var prevMinLen = process.env.STORYBOARD2HTML_MIN_OUTPUT_LEN;
+try {
+  delete process.env.STORYBOARD2HTML_MODEL;
+  delete process.env.STORYBOARD2HTML_TIMEOUT_MS;
+  delete process.env.STORYBOARD2HTML_MIN_OUTPUT_LEN;
+  assert.strictEqual(promptBuilder.resolveModel({}), promptBuilder.DEFAULT_MODEL);
+  assert.strictEqual(promptBuilder.resolveTimeoutMs({}), promptBuilder.DEFAULT_TIMEOUT_MS);
+  assert.strictEqual(promptBuilder.resolveMinOutputLen({}), promptBuilder.DEFAULT_MIN_OUTPUT_LEN);
+
+  process.env.STORYBOARD2HTML_MODEL = 'claude-opus-from-env';
+  process.env.STORYBOARD2HTML_TIMEOUT_MS = '12345';
+  process.env.STORYBOARD2HTML_MIN_OUTPUT_LEN = '777';
+  assert.strictEqual(promptBuilder.resolveModel({}), 'claude-opus-from-env');
+  assert.strictEqual(promptBuilder.resolveTimeoutMs({}), 12345);
+  assert.strictEqual(promptBuilder.resolveMinOutputLen({}), 777);
+  // opts override env
+  assert.strictEqual(promptBuilder.resolveModel({ model: 'opt-wins' }), 'opt-wins');
+  assert.strictEqual(promptBuilder.resolveTimeoutMs({ timeoutMs: 999 }), 999);
+  assert.strictEqual(promptBuilder.resolveMinOutputLen({ minOutputLen: 4242 }), 4242);
+} finally {
+  if (prevModel === undefined) delete process.env.STORYBOARD2HTML_MODEL; else process.env.STORYBOARD2HTML_MODEL = prevModel;
+  if (prevTimeout === undefined) delete process.env.STORYBOARD2HTML_TIMEOUT_MS; else process.env.STORYBOARD2HTML_TIMEOUT_MS = prevTimeout;
+  if (prevMinLen === undefined) delete process.env.STORYBOARD2HTML_MIN_OUTPUT_LEN; else process.env.STORYBOARD2HTML_MIN_OUTPUT_LEN = prevMinLen;
+}
 
 // Bundle validation
 assert.strictEqual(promptBuilder.validateBundle(bundle), true);

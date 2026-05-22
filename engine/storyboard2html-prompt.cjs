@@ -6,6 +6,22 @@ var DEFAULT_MODEL = 'claude-sonnet-4-6';
 var DEFAULT_TIMEOUT_MS = 600000;
 var DEFAULT_MIN_OUTPUT_LEN = 2000;
 
+function resolveModel(opts) {
+  return opts && opts.model ? opts.model : (process.env.STORYBOARD2HTML_MODEL || DEFAULT_MODEL);
+}
+
+function resolveTimeoutMs(opts) {
+  if (opts && opts.timeoutMs) return opts.timeoutMs;
+  var env = Number(process.env.STORYBOARD2HTML_TIMEOUT_MS || 0);
+  return Number.isFinite(env) && env > 0 ? env : DEFAULT_TIMEOUT_MS;
+}
+
+function resolveMinOutputLen(opts) {
+  if (opts && opts.minOutputLen) return opts.minOutputLen;
+  var env = Number(process.env.STORYBOARD2HTML_MIN_OUTPUT_LEN || 0);
+  return Number.isFinite(env) && env > 0 ? env : DEFAULT_MIN_OUTPUT_LEN;
+}
+
 var SYSTEM_PROMPT_HEADER = [
   '你是 storyboard2html 生成器。把 Blueprint specs(逆向分镜驱动)转成 *单文件可运行 HTML demo*,',
   '同一份 HTML 既驱动 three.js/Canvas 视觉,也暴露 storyboard2html v1.0.0 契约,',
@@ -35,7 +51,8 @@ var SYSTEM_PROMPT_HEADER = [
   '  `phaseEvidence`(object,见 L3)。',
   '- 推荐补:`resources`(name→balance)、`inventory`(资源镜像)、`visibleEntities[]`、',
   '  `ui_state.guideText`、`camera_state`、`completedPhases[]`(`["phase1","phase2",...]`)。',
-  '- 允许双键写入兼容(`entityStates` / `entity_states`、`uiState` / `ui_state`、`cameraState` / `camera_state`)。',
+  '- snake_case 是 *硬必填*:`entity_states` / `ui_state` / `camera_state` / `completedPhases` 必须存在;',
+  '  camelCase(`entityStates` / `uiState` / `cameraState`)只允许作为 *镜像副本* 同步写,*不能仅写 camelCase*。',
   '- phaseRealTimer 每次 phase 切换归零;基于 `Date.now()` / `performance.now()` 差值,不是 phaseIndex/frame。',
   '',
   '## L3 — phaseEvidence envelope(每 phase 每 module 一条)',
@@ -47,6 +64,17 @@ var SYSTEM_PROMPT_HEADER = [
   '  `entity_visible` / `downstream_entity_visible` / `entity_state_changed`。',
   '- module 触发 = phase 真正发生该模块对应行为时,把对应模块条目写入 + 把对应 flat signal 置 true。',
   '- 仅写 spec.plannedModuleIds 列举的 module(及 cta_finish 在最后一相),不要多写无关 module。',
+  '- moduleId 必须 *逐字符* 出自下面的 36 项词表(snake_case,严格大小写);未列模板的 module 也要写,',
+  '  按通用三段式 `{ _meta, before:{...}, after:{...}, ...module-specific keys }`,*不能用 0 来缺省 _meta*。',
+  '',
+  '### 模块词表(完整 36 项,只允许这些 moduleId)',
+  '  activate_targets / apply_damage / build_progress / camera_focus / camera_lift / camera_zoom /',
+  '  click_trigger / collect_on_near / cooldown / cost_gate / cta_finish / damageable /',
+  '  deliver_to_target / drag_trigger / floating_text_feedback / form_switch / guide_ui /',
+  '  highlight_target / hold_trigger / inventory_wallet / move_to_target / on_death_drop /',
+  '  phase_gate_timer / player_input_joystick / player_input_tap / pop_animation /',
+  '  projectile_emit / proximity_trigger / score_feedback / spawn_interval / spawn_once /',
+  '  target_acquire / upgrade_progress / visual_binding / visual_variant_swap / world_label',
   '',
   '## 模块 evidence 模板(必须复用这些 key,不能改名)',
   '- guide_ui:`{ _meta, text, before:{text}, after:{text}, text_changed, visible }`,phase 切换 enter 时写,同步 flat `guide_text_visible=true`。',
@@ -240,6 +268,36 @@ function validateBundle(bundle) {
   return true;
 }
 
+function stripCodeFence(text) {
+  text = String(text || '').trim();
+  if (text.indexOf('```') === 0) {
+    var lines = text.split('\n');
+    lines.shift();
+    while (lines.length > 0 && lines[lines.length - 1].indexOf('```') === 0) lines.pop();
+    text = lines.join('\n').trim();
+  }
+  return text;
+}
+
+function extractHtml(text) {
+  var trimmed = stripCodeFence(text);
+  var lower = trimmed.toLowerCase();
+  var start = lower.indexOf('<!doctype html>');
+  if (start < 0) start = lower.indexOf('<html');
+  if (start < 0) {
+    var err = new Error('LLM output missing <!doctype html> / <html ...> opening; refusing to write file');
+    err.code = 'STORYBOARD2HTML_OUTPUT_NOT_HTML';
+    throw err;
+  }
+  var end = lower.lastIndexOf('</html>');
+  if (end < 0) {
+    var err2 = new Error('LLM output missing </html> closing tag; refusing to write truncated HTML');
+    err2.code = 'STORYBOARD2HTML_OUTPUT_TRUNCATED';
+    throw err2;
+  }
+  return trimmed.slice(start, end + '</html>'.length).trim();
+}
+
 function buildStoryboard2HtmlPrompt(bundle, opts) {
   opts = opts || {};
   validateBundle(bundle);
@@ -248,9 +306,9 @@ function buildStoryboard2HtmlPrompt(bundle, opts) {
   return {
     systemPrompt: systemPrompt,
     userPrompt: userPrompt,
-    model: opts.model || DEFAULT_MODEL,
-    timeoutMs: opts.timeoutMs || DEFAULT_TIMEOUT_MS,
-    minOutputLen: opts.minOutputLen || DEFAULT_MIN_OUTPUT_LEN,
+    model: resolveModel(opts),
+    timeoutMs: resolveTimeoutMs(opts),
+    minOutputLen: resolveMinOutputLen(opts),
     metadata: {
       phases: bundle.specs.length,
       themeHint: bundle.themeHint || 'default',
@@ -268,6 +326,11 @@ module.exports = {
   buildUserPrompt: buildUserPrompt,
   buildStoryboard2HtmlPrompt: buildStoryboard2HtmlPrompt,
   validateBundle: validateBundle,
+  stripCodeFence: stripCodeFence,
+  extractHtml: extractHtml,
+  resolveModel: resolveModel,
+  resolveTimeoutMs: resolveTimeoutMs,
+  resolveMinOutputLen: resolveMinOutputLen,
   _internals: {
     summarizePhase: summarizePhase,
     renderPhaseTable: renderPhaseTable,

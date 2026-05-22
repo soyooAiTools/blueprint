@@ -53,29 +53,6 @@ function loadBundle(inputPath, opts) {
   });
 }
 
-function stripCodeFence(text) {
-  text = String(text || '').trim();
-  if (text.indexOf('```') === 0) {
-    var lines = text.split('\n');
-    lines.shift();
-    while (lines.length > 0 && lines[lines.length - 1].indexOf('```') === 0) lines.pop();
-    text = lines.join('\n').trim();
-  }
-  return text;
-}
-
-function extractHtml(text) {
-  var trimmed = stripCodeFence(text);
-  var lower = trimmed.toLowerCase();
-  var start = lower.indexOf('<!doctype html>');
-  if (start < 0) start = lower.indexOf('<html');
-  if (start < 0) return trimmed;
-  var end = lower.lastIndexOf('</html>');
-  if (end >= 0) end += '</html>'.length;
-  if (end < 0) end = trimmed.length;
-  return trimmed.slice(start, end).trim();
-}
-
 function main() {
   var opts = parseArgs(process.argv);
   var inputPath = path.resolve(opts.input);
@@ -121,7 +98,15 @@ function main() {
       console.error('runCodexText failed: ' + (result && result.error || 'unknown error'));
       process.exit(1);
     }
-    var html = extractHtml(result.text);
+    var html;
+    try {
+      html = promptBuilder.extractHtml(result.text);
+    } catch (err) {
+      console.error((err && err.code ? '[' + err.code + '] ' : '') + (err && err.message || err));
+      console.error('--- first 400 chars of LLM output ---');
+      console.error(String(result.text || '').slice(0, 400));
+      process.exit(1);
+    }
     if (!html || html.indexOf('<') !== 0) {
       console.error('extracted html looks empty/invalid (first 200 chars): ' + (html || '').slice(0, 200));
       process.exit(1);
