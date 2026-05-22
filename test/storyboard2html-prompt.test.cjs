@@ -141,7 +141,7 @@ assert.ok(built.systemPrompt.indexOf('不允许 `attribution` 字符串长度 > 
 
 // L5 — 交互驱动硬约束 (storyboard2html v4 — 禁 phase 自走 + DOM listener 必须)
 assert.ok(built.systemPrompt.indexOf('L5 — 交互驱动硬约束') >= 0, 'system prompt should declare L5 interaction-driven section');
-assert.ok(built.systemPrompt.indexOf('禁止 setTimeout 自走') >= 0, 'system prompt L5 header should forbid setTimeout-driven phase advance');
+assert.ok(built.systemPrompt.indexOf('setTimeout 自走') >= 0, 'system prompt L5 header should forbid setTimeout-driven phase advance');
 assert.ok(built.systemPrompt.indexOf('每个 non-final phase 必须有') >= 0, 'system prompt should require DOM listener for non-final phases');
 assert.ok(built.systemPrompt.indexOf('canvas.addEventListener') >= 0, 'system prompt should hint canvas.addEventListener as valid driver');
 assert.ok(built.systemPrompt.indexOf('hit-test') >= 0 || built.systemPrompt.indexOf('raycaster') >= 0, 'system prompt should mention hit-test/raycaster');
@@ -154,6 +154,41 @@ assert.ok(built.systemPrompt.indexOf('不允许 `setTimeout(fn, ms)`') >= 0,
   'system prompt 禁止反规则 should forbid setTimeout phaseIndex/enterPhase mutation');
 assert.ok(built.systemPrompt.indexOf('不允许 non-final phase 完全没有') >= 0,
   'system prompt 禁止反规则 should forbid non-final phase without any listener');
+
+// L5 v2 — joystick + arrival-gate canonical (storyboard2html v5 — youth-nick 反馈)
+assert.ok(built.systemPrompt.indexOf('固定虚拟摇杆') >= 0,
+  'system prompt should declare 固定虚拟摇杆 as canonical control paradigm');
+assert.ok(built.systemPrompt.indexOf('arrival-gate') >= 0,
+  'system prompt should declare arrival-gate as canonical interaction paradigm');
+assert.ok(built.systemPrompt.indexOf('pointermove') >= 0 && built.systemPrompt.indexOf('pointerup') >= 0,
+  'system prompt should require full 3-stage pointer events on joystick');
+assert.ok(built.systemPrompt.indexOf('__gameState.input.joystick') >= 0,
+  'system prompt should require joystick vector to write into __gameState.input.joystick');
+assert.ok(built.systemPrompt.indexOf('每帧') >= 0,
+  'system prompt should require per-frame player position update from joystick vector');
+assert.ok(built.systemPrompt.indexOf('禁止* "点 entity 直接完成 phase"') >= 0 || built.systemPrompt.indexOf('禁止 "点 entity 直接完成 phase"') >= 0,
+  'system prompt should forbid direct entity-click as phase advance');
+assert.ok(built.systemPrompt.indexOf('禁止* "按键直接完成 phase"') >= 0 || built.systemPrompt.indexOf('禁止 "按键直接完成 phase"') >= 0,
+  'system prompt should forbid keydown shortcut as phase advance');
+assert.ok(built.systemPrompt.indexOf('非 final phase 写 `click_entity`') >= 0 || built.systemPrompt.indexOf('non-final phase 写 `click_entity`') >= 0,
+  'system prompt should forbid non-final click_entity trigger');
+assert.ok(built.systemPrompt.indexOf('desktop fallback') >= 0,
+  'system prompt should permit keydown only as desktop fallback');
+assert.ok(built.systemPrompt.indexOf('arrival-gate 圈') >= 0 || built.systemPrompt.indexOf('arrival-gate 进入之后') >= 0,
+  'system prompt should require CtaButton click handler to check arrival-gate');
+assert.ok(built.systemPrompt.indexOf('player_input_joystick` 模块必须') >= 0 || built.systemPrompt.indexOf('player_input_joystick 模块必须') >= 0,
+  'system prompt should require player_input_joystick evidence per non-final phase');
+// new 禁止反规则 lines for joystick paradigm
+assert.ok(built.systemPrompt.indexOf('不允许整个 demo 缺失固定虚拟摇杆 UI 控件') >= 0,
+  'system prompt 禁止反规则 should forbid missing joystick UI widget');
+assert.ok(built.systemPrompt.indexOf('不允许 non-final phase 用 `keydown`') >= 0,
+  'system prompt 禁止反规则 should forbid keydown as sole non-final phase advance path');
+assert.ok(built.systemPrompt.indexOf('不允许 non-final phase 写 `trigger.type === "click_entity"`') >= 0,
+  'system prompt 禁止反规则 should forbid non-final click_entity trigger');
+assert.ok(built.systemPrompt.indexOf('不允许 `CtaButton` 的 click handler 在 Player 未进入') >= 0,
+  'system prompt 禁止反规则 should forbid CtaButton finish without arrival-gate check');
+assert.ok(built.systemPrompt.indexOf('不允许 non-final phase 的 `plannedModuleIds`') >= 0,
+  'system prompt 禁止反规则 should forbid non-final phase missing player_input_joystick evidence');
 
 // L6 — 视觉模型化硬约束 (storyboard2html v4 — 禁纯平面 2D 示意 + 复合几何体)
 assert.ok(built.systemPrompt.indexOf('L6 — 视觉模型化硬约束') >= 0, 'system prompt should declare L6 visual modeling section');
