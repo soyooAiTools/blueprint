@@ -359,4 +359,71 @@ try {
   }
 }
 
+// 2026-05-24: 程序员交付版脚本物体挂场景，且 scene fileID / script guid 稳定。
+{
+  function buildFixture(root) {
+    const scripts = path.join(root, 'Assets', 'Scripts');
+    const audio = path.join(scripts, 'Audio');
+    const scenes = path.join(root, 'Assets', 'Scenes');
+    fs.mkdirSync(audio, { recursive: true });
+    fs.mkdirSync(scenes, { recursive: true });
+    fs.writeFileSync(path.join(root, 'README.md'), '# Unity 工程导出\n\n## 程序员交付边界\n- old\n');
+    fs.writeFileSync(path.join(scenes, 'Game.unity'), [
+      '%YAML 1.1',
+      '%TAG !u! tag:unity3d.com,2011:',
+      '--- !u!29 &1',
+      'OcclusionCullingSettings:',
+      '  m_ObjectHideFlags: 0',
+      ''
+    ].join('\n'));
+    fs.writeFileSync(path.join(scripts, 'GameFlowManagerMain.cs'), [
+      'using UnityEngine;',
+      'public partial class GameFlowManagerMain : MonoBehaviour',
+      '{',
+      '    GameObject Player; // 说明：→ __Pool_Cube_Blue_01',
+      '    void Start() { RegisterEntityBindings(); }',
+      '    void RegisterEntityBindings() {}',
+      '}',
+    ].join('\n'));
+    fs.writeFileSync(path.join(audio, 'GFM_Audio.cs'), [
+      'using UnityEngine;',
+      'public class GFM_Audio : MonoBehaviour',
+      '{',
+      '    private static GFM_Audio _instance;',
+      '    public static GFM_Audio Instance { get { return _instance; } }',
+      '    public static GFM_Audio Init(GameObject parent)',
+      '    {',
+      '        var obj = new GameObject("GFM_Audio");',
+      '        _instance = obj.AddComponent<GFM_Audio>();',
+      '        return _instance;',
+      '    }',
+      '}',
+    ].join('\n'));
+  }
+
+  const a = fs.mkdtempSync(path.join(os.tmpdir(), 'scene-inject-a-'));
+  const b = fs.mkdtempSync(path.join(os.tmpdir(), 'scene-inject-b-'));
+  try {
+    buildFixture(a);
+    buildFixture(b);
+    const sa = cleaner.cleanProgrammerDelivery(a, { project: { id: 'scene_a', name: 'scene_a' } });
+    const sb = cleaner.cleanProgrammerDelivery(b, { project: { id: 'scene_b', name: 'scene_b' } });
+    assert.ok(sa.sceneObjectsInjected >= 2, 'should inject MainManager and GFM_Audio');
+    assert.ok(sb.sceneObjectsInjected >= 2, 'should inject MainManager and GFM_Audio');
+    const sceneA = fs.readFileSync(path.join(a, 'Assets', 'Scenes', 'Game.unity'), 'utf8');
+    const sceneB = fs.readFileSync(path.join(b, 'Assets', 'Scenes', 'Game.unity'), 'utf8');
+    assert.strictEqual(sceneA, sceneB, 'scene injection should be deterministic across export roots');
+    assert.match(sceneA, /m_Name: MainManager/);
+    assert.match(sceneA, /m_Name: GFM_Audio/);
+    const audioText = fs.readFileSync(path.join(a, 'Assets', 'Scripts', 'Audio', 'GFM_Audio.cs'), 'utf8');
+    assert.doesNotMatch(audioText, /new GameObject/);
+    assert.doesNotMatch(audioText, /\bInstance\b/);
+    assert.doesNotMatch(audioText, /_instance/);
+    assert.match(audioText, /mInstance/);
+  } finally {
+    fs.rmSync(a, { recursive: true, force: true });
+    fs.rmSync(b, { recursive: true, force: true });
+  }
+}
+
 console.log('programmer delivery cleaner tests passed');

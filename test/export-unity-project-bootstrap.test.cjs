@@ -12,7 +12,7 @@ const src = fs.readFileSync(scriptPath, 'utf8');
 
 assert(
   src.includes('GameFlowBootstrap.cs'),
-  'Unity export must generate a bootstrap script for direct Editor Play'
+  'non-programmer Unity export must keep a bootstrap script for direct Editor Play'
 );
 assert(
   src.includes('RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)'),
@@ -23,8 +23,8 @@ assert(
   'non-programmer export bootstrap must attach GameFlowManagerMain when the scene has no manager object'
 );
 assert(
-  src.includes('go.AddComponent<MainManager>()'),
-  'programmer delivery export bootstrap must attach merged MainManager'
+  !src.includes('go.AddComponent<MainManager>()'),
+  'programmer delivery export must not create MainManager through runtime bootstrap'
 );
 assert(
   src.includes('SCRIPT_DIR="$WORK/Assets/Scripts"'),
@@ -35,8 +35,8 @@ assert(
   'programmer delivery export should put flow entry scripts directly under Assets/Scripts like the reference majority'
 );
 assert(
-  src.includes('COMMON_DIR="$SCRIPT_DIR/Common"'),
-  'programmer delivery export should move helper scripts into reference-project style Assets/Scripts/Common'
+  src.includes('COMMON_DIR="$SCRIPT_DIR/Common"') && src.includes('delivery_script_dir()') && src.includes('$SCRIPT_DIR/Manager') && src.includes('$SCRIPT_DIR/Player') && src.includes('$SCRIPT_DIR/Audio') && src.includes('$SCRIPT_DIR/UI'),
+  'programmer delivery export should classify helper scripts into Manager/Player/Audio/UI/Common folders'
 );
 assert(
   src.includes('rm -rf "$WORK/Assets/Program"'),
@@ -63,8 +63,8 @@ assert(
   'programmer delivery export should rewrite the default scene path to Assets/Scenes/Game.unity'
 );
 assert(
-  src.includes('只加载对象池场景导致黑屏'),
-  'export README should document the black-screen prevention behavior'
+  src.includes('不再依赖运行时创建脚本物体'),
+  'export README should document scene-mounted script object behavior'
 );
 
 const syntax = spawnSync('bash', ['-n', scriptPath], { cwd: repoRoot, encoding: 'utf8' });

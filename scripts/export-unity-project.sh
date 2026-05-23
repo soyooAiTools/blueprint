@@ -103,6 +103,31 @@ if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
   rm -rf "$WORK/Assets/Program" "$WORK/Assets/Program.meta"
 fi
 
+delivery_script_dir() {
+  local name="$1"
+  if [ "$PROGRAMMER_DELIVERY" -ne 1 ]; then
+    echo "$COMMON_DIR"
+    return
+  fi
+  case "$name" in
+    GFM_AutoPlay.cs|GFM_CameraController.cs|GFM_EconomyManager.cs|GFM_ItemManager.cs|GFM_NpcManager.cs|GFM_PhaseTransition.cs|GFM_SingletonBase.cs|GFM_TipsManager.cs|GFM_UIManager.cs)
+      echo "$SCRIPT_DIR/Manager"
+      ;;
+    GFM_Player.cs|GFM_Joystick.cs)
+      echo "$SCRIPT_DIR/Player"
+      ;;
+    GFM_Audio.cs)
+      echo "$SCRIPT_DIR/Audio"
+      ;;
+    GFM_UI.cs|GFM_VisualGuide.cs|GFM_Billboard.cs)
+      echo "$SCRIPT_DIR/UI"
+      ;;
+    *)
+      echo "$COMMON_DIR"
+      ;;
+  esac
+}
+
 # GameFlowManagerMain*.cs 源文件 → Manager/
 for f in "$SRC"/GameFlowManagerMain*.cs; do
   [ -f "$f" ] || continue
@@ -120,7 +145,9 @@ for f in "$SRC"/*.cs; do
       fi
       ;;
   esac
-  command cp -rf "$f" "$COMMON_DIR/$name"
+  dst_dir="$(delivery_script_dir "$name")"
+  mkdir -p "$dst_dir"
+  command cp -rf "$f" "$dst_dir/$name"
 done
 
 # 程序员交付包脱离 Luna 构建链后，project-sources 里通常只包含
@@ -138,33 +165,13 @@ if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
     case "$name" in
       GFM_Luna.cs|GFM_Event.cs|GFM_Tools.cs) continue ;;
     esac
-    command cp -rf "$f" "$COMMON_DIR/$name"
+    dst_dir="$(delivery_script_dir "$name")"
+    mkdir -p "$dst_dir"
+    command cp -rf "$f" "$dst_dir/$name"
   done
 fi
 
-# Unity Editor 直接打开导出工程并点击 Play 时，没有 Luna/PlayCanvas 的
-# iframe 注入层。补一个轻量 bootstrap，确保场景加载后会挂载主流程入口，
-# 否则交付工程只有对象池和 Camera，运行起来容易是黑屏/空场景。
-if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
-cat > "$MANAGER_DIR/GameFlowBootstrap.cs" <<'EOF'
-using UnityEngine;
-
-/// <summary>
-/// Unity Editor 直接打开工程时自动挂载玩法入口，避免模板场景只有对象池而没有主流程。
-/// </summary>
-public static class GameFlowBootstrap
-{
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-    static void EnsureMainManager()
-    {
-        if (Object.FindObjectOfType<MainManager>() != null) return;
-
-        var go = new GameObject("MainManager");
-        go.AddComponent<MainManager>();
-    }
-}
-EOF
-else
+if [ "$PROGRAMMER_DELIVERY" -eq 0 ]; then
 cat > "$MANAGER_DIR/GameFlowBootstrap.cs" <<'EOF'
 using UnityEngine;
 
@@ -191,7 +198,21 @@ gen_meta() {
   local meta="${cs_file}.meta"
   if [ -f "$meta" ]; then return 0; fi
   local guid
-  guid=$(python3 -c "import uuid; print(uuid.uuid4().hex)")
+  if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
+    guid=$(python3 - "$cs_file" "$WORK" <<'PY'
+import hashlib, pathlib, sys
+path = pathlib.Path(sys.argv[1]).resolve()
+root = pathlib.Path(sys.argv[2]).resolve()
+try:
+    rel = path.relative_to(root).as_posix()
+except ValueError:
+    rel = path.as_posix()
+print(hashlib.sha1(("programmer-delivery-meta:" + rel).encode("utf-8")).hexdigest()[:32])
+PY
+)
+  else
+    guid=$(python3 -c "import uuid; print(uuid.uuid4().hex)")
+  fi
   cat > "$meta" <<EOF
 fileFormatVersion: 2
 guid: ${guid}
@@ -207,7 +228,7 @@ MonoImporter:
 EOF
 }
 
-find "$SCRIPT_DIR" "$COMMON_DIR" -name '*.cs' | while read -r cs; do gen_meta "$cs"; done
+find "$SCRIPT_DIR" -name '*.cs' | while read -r cs; do gen_meta "$cs"; done
 
 # ── Step 4: partial class 一致性检查（CS0260 防线） ─────────────
 main_cs="$MANAGER_DIR/GameFlowManagerMain.cs"
@@ -315,7 +336,7 @@ else
   ENTITY_README_PATH="Assets/Program/Script/Manager/Entities"
 fi
 if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
-  MANAGER_LABEL="MainManager.cs 主流程、MonoSingleton.cs 单例基类与 GameFlowBootstrap.cs 入口"
+  MANAGER_LABEL="MainManager.cs 主流程与 MonoSingleton.cs 单例基类"
 else
   MANAGER_LABEL="GameFlowManagerMain*.cs 主流程与 GameFlowBootstrap.cs 入口"
 fi
@@ -344,10 +365,10 @@ Unity Hub → Add → 选择此文件夹根目录，使用 Unity 2022 LTS 打开
 
 ## 程序员交付边界
 - 程序员交付版会整理为 MainManager.cs 单入口 + MonoSingleton<T> 单例基类，并在 Entities/ 下保留领域对象类。
-- Unity Editor 直接点击 Play 时，GameFlowBootstrap.cs 会自动挂载 MainManager，避免只加载对象池场景导致黑屏。
+- Unity Editor 直接点击 Play 时，MainManager 与关键 GFM 管理器已挂在 Game.unity 场景对象上，不再依赖运行时创建脚本物体。
 - 程序员交付版已剥离 Luna 打包流水线依赖和模板备份场景；需要重新接入 Luna 时，从 Blueprint 流水线重新导出审核版。
 - 每个脚本目标保持在 1000 行以内；phase、资源、UI、场景和输入逻辑按职责分段维护。
-- 业务新增脚本优先放到 Assets/Scripts/、Assets/Scripts/Entities、Assets/Scripts/UI、Assets/Scripts/Player 这些参考工程式目录，不再放进 Assets/Program/Script。
+- 业务新增脚本优先放到 Assets/Scripts/Manager、Assets/Scripts/Entities、Assets/Scripts/UI、Assets/Scripts/Player、Assets/Scripts/Audio 这些参考工程式目录，不再放进 Assets/Program/Script。
 - 实体引用只来自 RegisterEntityBindings()/GameSceneCtrl，不要在 TODO 区直接 GameObject.Find("__Pool_*") 覆盖字段。
 - 资源 API 使用 GFM_ResourceIds.Gold / GFM_ResourceIds.Normalize("...")，不要裸写 "gold"/"Gold"。
 - 引导文案统一调用 SetGuideText()；guideText.text 只应在这个 helper 内落地。
@@ -360,9 +381,10 @@ node "$BP_ROOT/lib/code-relation-graph-writer.cjs" "$WORK" "$TASK_ID"
 
 if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
   node "$BP_ROOT/lib/programmer-delivery-cleaner.cjs" "$WORK" "$TASK_ID" "$TASK_ID"
-  # programmer-delivery-cleaner may create Entities/*.cs and delete merged
-  # GameFlowManagerMain companion files. Refresh .meta coverage after that step.
-  find "$SCRIPT_DIR" "$COMMON_DIR" -name '*.cs' | while read -r cs; do gen_meta "$cs"; done
+  # programmer-delivery-cleaner may create Entities/*.cs, move scripts into
+  # category folders, and inject scene-mounted manager objects. Refresh .meta
+  # coverage after that step.
+  find "$SCRIPT_DIR" -name '*.cs' | while read -r cs; do gen_meta "$cs"; done
 fi
 
 # ── Step 9: 打包归档（使用友好的文件夹名） ───────────────────
