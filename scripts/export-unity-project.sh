@@ -134,7 +134,8 @@ for f in "$SRC"/GameFlowManagerMain*.cs; do
   command cp -rf "$f" "$MANAGER_DIR/$(basename "$f")"
 done
 
-# 其他 .cs → Common(s)/（GFM_* / ScriptActivator / GameSceneCtrl 等）
+# 其他 .cs → Common(s)/（源 worker 仍是 GFM_* / ScriptActivator / GameSceneCtrl 等；
+# 程序员交付 cleaner 会统一重命名为 GMP_*）
 for f in "$SRC"/*.cs; do
   name=$(basename "$f")
   case "$name" in
@@ -152,7 +153,7 @@ done
 
 # 程序员交付包脱离 Luna 构建链后，project-sources 里通常只包含
 # GameFlowManagerMain*.cs。MainManager 仍依赖 worker 中维护的 canonical
-# GFM_* helper；这里复制 split helper 到参考工程式 Common 目录，并剔除
+# helper；这里复制 split helper 到参考工程式 Common 目录，并剔除
 # Luna/Event/monolithic 兼容文件，避免本机 package 依赖和 duplicate class。
 if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
   for f in "$BP_ROOT"/worker/*.cs; do
@@ -350,7 +351,7 @@ cat > "$WORK/README.md" <<EOF
 
 ## 目录
 - $MANAGER_README_PATH/  — $MANAGER_LABEL
-- $COMMON_README_PATH/  — GFM_*.cs canonical 工具库
+- $COMMON_README_PATH/  — GMP_*.cs canonical 工具库
 - $ENTITY_README_PATH/ — 领域对象类，承载 Player / NPC / 建筑 / 资源等可维护状态
 - Assets/Scenes/Game.unity — 程序员交付入口场景，打开后直接按 Play
 - 程序员交付版不保留 Luna 模板备份场景；审核版才会保留 templeteScene.unity
@@ -365,12 +366,12 @@ Unity Hub → Add → 选择此文件夹根目录，使用 Unity 2022 LTS 打开
 
 ## 程序员交付边界
 - 程序员交付版会整理为 MainManager.cs 单入口 + MonoSingleton<T> 单例基类，并在 Entities/ 下保留领域对象类。
-- Unity Editor 直接点击 Play 时，MainManager 与关键 GFM 管理器已挂在 Game.unity 场景对象上，不再依赖运行时创建脚本物体。
+- Unity Editor 直接点击 Play 时，MainManager 与关键 GMP 管理器已挂在 Game.unity 场景对象上，不再依赖运行时创建脚本物体。
 - 程序员交付版已剥离 Luna 打包流水线依赖和模板备份场景；需要重新接入 Luna 时，从 Blueprint 流水线重新导出审核版。
 - 每个脚本目标保持在 1000 行以内；phase、资源、UI、场景和输入逻辑按职责分段维护。
 - 业务新增脚本优先放到 Assets/Scripts/Manager、Assets/Scripts/Entities、Assets/Scripts/UI、Assets/Scripts/Player、Assets/Scripts/Audio 这些参考工程式目录，不再放进 Assets/Program/Script。
 - 实体引用只来自 RegisterEntityBindings()/GameSceneCtrl，不要在 TODO 区直接 GameObject.Find("__Pool_*") 覆盖字段。
-- 资源 API 使用 GFM_ResourceIds.Gold / GFM_ResourceIds.Normalize("...")，不要裸写 "gold"/"Gold"。
+- 资源 API 使用 GMP_ResourceIds.Gold / GMP_ResourceIds.Normalize("...")，不要裸写 "gold"/"Gold"。
 - 引导文案统一调用 SetGuideText()；guideText.text 只应在这个 helper 内落地。
 
 ## 环境注意

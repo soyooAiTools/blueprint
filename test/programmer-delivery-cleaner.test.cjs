@@ -162,7 +162,7 @@ try {
   assert.match(mainText, /void Start\(\)/);
   assert.match(mainText, /BindGameFlowEntityModels\(\);/);
   assert.match(mainText, /void BindGameFlowEntityModels\(\)/);
-  assert.match(mainText, /BarrackEntity mBarrackEntityModel;/);
+  assert.match(mainText, /BarrackEntity _barrackEntityModel;/);
   assert.match(mainText, /BindGameFlowEntityComponent<BarrackEntity>/);
   // Phase_intro_Init 留在 Flow.cs 里,不再被搬到继承链里。
   const flowText = fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowManagerMain.Flow.cs'), 'utf8');
@@ -190,8 +190,8 @@ try {
   assert.match(playerBaseSrc, /public float MoveSpeed/);
   assert.match(playerBaseSrc, /void MoveByDirection\(Vector3 direction, float dt\)/);
   // 反馈 01 #8 架构图:Player 走单例语义。
-  assert.match(playerBaseSrc, /public\s+static\s+PlayerBase\s+Instance/);
-  assert.match(playerBaseSrc, /Instance\s*=\s*this/);
+  assert.match(playerBaseSrc, /public\s+static\s+PlayerBase\s+instance/);
+  assert.match(playerBaseSrc, /instance\s*=\s*this/);
   const npcBaseSrc = fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'NPCBase.cs'), 'utf8');
   assert.match(npcBaseSrc, /public class NPCBase : BaseGameFlowEntity/);
   assert.match(npcBaseSrc, /void SetTarget\(Vector3 target\)/);
@@ -306,11 +306,11 @@ try {
 
     const mainManager = fs.readFileSync(path.join(managerDir, 'MainManager.cs'), 'utf8');
     assert.match(mainManager, /public class MainManager : MonoSingleton<MainManager>/);
-    assert.match(mainManager, /public GameObject mBarrack;/);
-    assert.match(mainManager, /public GameObject mGold;/);
-    assert.match(mainManager, /GFM_ResourceIds\.Gold/);
-    assert.doesNotMatch(mainManager, /GFM_ResourceIds\.mGold/);
-    assert.doesNotMatch(mainManager, /GFM_Luna\.Init/);
+    assert.match(mainManager, /public GameObject _barrack;/);
+    assert.match(mainManager, /public GameObject _gold;/);
+    assert.match(mainManager, /GMP_ResourceIds\.Gold/);
+    assert.doesNotMatch(mainManager, /GMP_ResourceIds\._gold/);
+    assert.doesNotMatch(mainManager, /GMP_Luna\.Init/);
     assert.doesNotMatch(mainManager, /AssemblyRunFlowSlots/);
     assert.doesNotMatch(mainManager, /\bpartial\b/);
     assert.doesNotMatch(mainManager, /\[SKELETON\]/);
@@ -385,16 +385,16 @@ try {
       '    void RegisterEntityBindings() {}',
       '}',
     ].join('\n'));
-    fs.writeFileSync(path.join(audio, 'GFM_Audio.cs'), [
+    fs.writeFileSync(path.join(audio, 'GMP_Audio.cs'), [
       'using UnityEngine;',
-      'public class GFM_Audio : MonoBehaviour',
+      'public class GMP_Audio : MonoBehaviour',
       '{',
-      '    private static GFM_Audio _instance;',
-      '    public static GFM_Audio Instance { get { return _instance; } }',
-      '    public static GFM_Audio Init(GameObject parent)',
+      '    private static GMP_Audio _instance;',
+      '    public static GMP_Audio Instance { get { return _instance; } }',
+      '    public static GMP_Audio Init(GameObject parent)',
       '    {',
-      '        var obj = new GameObject("GFM_Audio");',
-      '        _instance = obj.AddComponent<GFM_Audio>();',
+      '        var obj = new GameObject("GMP_Audio");',
+      '        _instance = obj.AddComponent<GMP_Audio>();',
       '        return _instance;',
       '    }',
       '}',
@@ -408,18 +408,17 @@ try {
     buildFixture(b);
     const sa = cleaner.cleanProgrammerDelivery(a, { project: { id: 'scene_a', name: 'scene_a' } });
     const sb = cleaner.cleanProgrammerDelivery(b, { project: { id: 'scene_b', name: 'scene_b' } });
-    assert.ok(sa.sceneObjectsInjected >= 2, 'should inject MainManager and GFM_Audio');
-    assert.ok(sb.sceneObjectsInjected >= 2, 'should inject MainManager and GFM_Audio');
+    assert.ok(sa.sceneObjectsInjected >= 2, 'should inject MainManager and GMP_Audio');
+    assert.ok(sb.sceneObjectsInjected >= 2, 'should inject MainManager and GMP_Audio');
     const sceneA = fs.readFileSync(path.join(a, 'Assets', 'Scenes', 'Game.unity'), 'utf8');
     const sceneB = fs.readFileSync(path.join(b, 'Assets', 'Scenes', 'Game.unity'), 'utf8');
     assert.strictEqual(sceneA, sceneB, 'scene injection should be deterministic across export roots');
     assert.match(sceneA, /m_Name: MainManager/);
-    assert.match(sceneA, /m_Name: GFM_Audio/);
-    const audioText = fs.readFileSync(path.join(a, 'Assets', 'Scripts', 'Audio', 'GFM_Audio.cs'), 'utf8');
+    assert.match(sceneA, /m_Name: GMP_Audio/);
+    const audioText = fs.readFileSync(path.join(a, 'Assets', 'Scripts', 'Audio', 'GMP_Audio.cs'), 'utf8');
     assert.doesNotMatch(audioText, /new GameObject/);
     assert.doesNotMatch(audioText, /\bInstance\b/);
-    assert.doesNotMatch(audioText, /_instance/);
-    assert.match(audioText, /mInstance/);
+    assert.match(audioText, /_instance/);
   } finally {
     fs.rmSync(a, { recursive: true, force: true });
     fs.rmSync(b, { recursive: true, force: true });
