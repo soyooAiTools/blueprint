@@ -33,6 +33,9 @@ while [ "$#" -gt 0 ]; do
     *) echo "Unknown flag: $1" >&2; exit 2 ;;
   esac
 done
+if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
+  STRIP_LUNA=1
+fi
 
 if [ -z "$TASK_ID" ]; then
   echo "Usage: $0 <taskId> [--strip-luna] [--programmer-delivery] [--keep-comment-language] [--out /path/to.tar.gz]" >&2
@@ -64,24 +67,123 @@ done
 # 清理可能混入的 Luna 构建产物（stage4-engine 是 Assets 的同级目录，不在 Assets 内）
 rm -rf "$WORK/Assets/.git" 2>/dev/null || true
 
+# Luna 基础模板来自 Windows 机器时，manifest 里可能残留 file:C:/7.1.0/scripts。
+# 审核版为了本机验证可把 Playworks 包路径正规化；程序员交付版会在后续
+# STRIP_LUNA 中直接删除该依赖，最终包不能含任何本机绝对 package 路径。
+if [ -f "$WORK/Packages/manifest.json" ]; then
+  python3 - <<PY
+import json, os
+from pathlib import Path
+mf = Path("$WORK/Packages/manifest.json")
+data = json.loads(mf.read_text())
+deps = data.get("dependencies") or {}
+pkg = deps.get("com.unity.playworks.upp")
+local_pkg = os.environ.get("PLAYWORKS_PACKAGE_PATH") or "/opt/blueprint-editor/7.1.0/scripts"
+if "$PROGRAMMER_DELIVERY" != "1" and pkg == "file:C:/7.1.0/scripts" and Path(local_pkg, "package.json").exists():
+    deps["com.unity.playworks.upp"] = "file:" + local_pkg
+    mf.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+PY
+fi
+
 # ── Step 2: 覆盖项目 C# 源码（强制覆盖） ─────────────
-SCRIPT_DIR="$WORK/Assets/Program/Script"
-mkdir -p "$SCRIPT_DIR/Manager" "$SCRIPT_DIR/Commons"
+# 程序员交付版采用参考工程口径：业务脚本放在 Assets/Scripts 下，
+# Manager / Common / Entities / UI / Player 等目录一眼可扫；非交付版
+# 继续保持历史 Assets/Program/Script 路径，避免影响现有流水线。
+if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
+  SCRIPT_DIR="$WORK/Assets/Scripts"
+  MANAGER_DIR="$SCRIPT_DIR"
+  COMMON_DIR="$SCRIPT_DIR/Common"
+else
+  SCRIPT_DIR="$WORK/Assets/Program/Script"
+  MANAGER_DIR="$SCRIPT_DIR/Manager"
+  COMMON_DIR="$SCRIPT_DIR/Commons"
+fi
+mkdir -p "$MANAGER_DIR" "$COMMON_DIR"
+if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
+  rm -rf "$WORK/Assets/Program" "$WORK/Assets/Program.meta"
+fi
 
 # GameFlowManagerMain*.cs 源文件 → Manager/
 for f in "$SRC"/GameFlowManagerMain*.cs; do
   [ -f "$f" ] || continue
-  command cp -rf "$f" "$SCRIPT_DIR/Manager/$(basename "$f")"
+  command cp -rf "$f" "$MANAGER_DIR/$(basename "$f")"
 done
 
-# 其他 .cs → Commons/（GFM_* / ScriptActivator / GameSceneCtrl 等）
+# 其他 .cs → Common(s)/（GFM_* / ScriptActivator / GameSceneCtrl 等）
 for f in "$SRC"/*.cs; do
   name=$(basename "$f")
   case "$name" in
     GameFlowManagerMain*.cs) continue ;;
+    Demo2SpecVisualAssetBaker.cs)
+      if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
+        continue
+      fi
+      ;;
   esac
-  command cp -rf "$f" "$SCRIPT_DIR/Commons/$name"
+  command cp -rf "$f" "$COMMON_DIR/$name"
 done
+
+# 程序员交付包脱离 Luna 构建链后，project-sources 里通常只包含
+# GameFlowManagerMain*.cs。MainManager 仍依赖 worker 中维护的 canonical
+# GFM_* helper；这里复制 split helper 到参考工程式 Common 目录，并剔除
+# Luna/Event/monolithic 兼容文件，避免本机 package 依赖和 duplicate class。
+if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
+  for f in "$BP_ROOT"/worker/*.cs; do
+    [ -f "$f" ] || continue
+    name=$(basename "$f")
+    case "$name" in
+      GameSceneCtrl.cs|ScriptActivator.cs|GFM_*.cs) ;;
+      *) continue ;;
+    esac
+    case "$name" in
+      GFM_Luna.cs|GFM_Event.cs|GFM_Tools.cs) continue ;;
+    esac
+    command cp -rf "$f" "$COMMON_DIR/$name"
+  done
+fi
+
+# Unity Editor 直接打开导出工程并点击 Play 时，没有 Luna/PlayCanvas 的
+# iframe 注入层。补一个轻量 bootstrap，确保场景加载后会挂载主流程入口，
+# 否则交付工程只有对象池和 Camera，运行起来容易是黑屏/空场景。
+if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
+cat > "$MANAGER_DIR/GameFlowBootstrap.cs" <<'EOF'
+using UnityEngine;
+
+/// <summary>
+/// Unity Editor 直接打开工程时自动挂载玩法入口，避免模板场景只有对象池而没有主流程。
+/// </summary>
+public static class GameFlowBootstrap
+{
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+    static void EnsureMainManager()
+    {
+        if (Object.FindObjectOfType<MainManager>() != null) return;
+
+        var go = new GameObject("MainManager");
+        go.AddComponent<MainManager>();
+    }
+}
+EOF
+else
+cat > "$MANAGER_DIR/GameFlowBootstrap.cs" <<'EOF'
+using UnityEngine;
+
+/// <summary>
+/// Unity Editor 直接打开工程时自动挂载玩法入口，避免模板场景只有对象池而没有主流程。
+/// </summary>
+public static class GameFlowBootstrap
+{
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+    static void EnsureGameFlowManager()
+    {
+        if (Object.FindObjectOfType<GameFlowManagerMain>() != null) return;
+
+        var go = new GameObject("GameFlowManagerMain");
+        go.AddComponent<GameFlowManagerMain>();
+    }
+}
+EOF
+fi
 
 # ── Step 3: 为新增脚本生成 .meta ───────────────────────
 gen_meta() {
@@ -105,11 +207,11 @@ MonoImporter:
 EOF
 }
 
-find "$SCRIPT_DIR" -name '*.cs' | while read -r cs; do gen_meta "$cs"; done
+find "$SCRIPT_DIR" "$COMMON_DIR" -name '*.cs' | while read -r cs; do gen_meta "$cs"; done
 
 # ── Step 4: partial class 一致性检查（CS0260 防线） ─────────────
-main_cs="$SCRIPT_DIR/Manager/GameFlowManagerMain.cs"
-partial_count=$(find "$SCRIPT_DIR/Manager" -maxdepth 1 -name 'GameFlowManagerMain*.cs' ! -name 'GameFlowManagerMain.cs' | wc -l | tr -d ' ')
+main_cs="$MANAGER_DIR/GameFlowManagerMain.cs"
+partial_count=$(find "$MANAGER_DIR" -maxdepth 1 -name 'GameFlowManagerMain*.cs' ! -name 'GameFlowManagerMain.cs' | wc -l | tr -d ' ')
 if [ "$partial_count" -gt 0 ]; then
   if ! grep -q 'partial class GameFlowManagerMain' "$main_cs"; then
     echo "[export] FAIL: companion files declare partial but $main_cs does not — CS0260 guaranteed." >&2
@@ -133,14 +235,17 @@ PY
   # 5b) 注释 Luna.Unity.* 调用；用 python 避免 sed/grep 正则转义问题
   python3 - <<PY
 import pathlib, re
-root = pathlib.Path("$SCRIPT_DIR")
+roots = [pathlib.Path("$SCRIPT_DIR"), pathlib.Path("$COMMON_DIR")]
 pat = re.compile(r'^([ \t]*)(Luna\.Unity\.(?:LifeCycle\.GameEnded|Playable\.InstallFullGame)\([^)]*\);)', re.MULTILINE)
-for p in root.rglob("*.cs"):
-    t = p.read_text()
-    t2 = pat.sub(r'\1// \2  // Luna 插件已剥离', t)
-    if t2 != t:
-        p.write_text(t2)
-        print(f"  stripped: {p.relative_to(root)}")
+for root in roots:
+    if not root.exists():
+        continue
+    for p in root.rglob("*.cs"):
+        t = p.read_text()
+        t2 = pat.sub(r'\1// \2  // Luna 插件已剥离', t)
+        if t2 != t:
+            p.write_text(t2)
+            print(f"  stripped: {p.relative_to(root)}")
 PY
 
   echo "[export] Luna plugin stripped (manifest + Luna.Unity.* calls)"
@@ -171,7 +276,49 @@ if [ "$PROGRAMMER_DELIVERY" -eq 0 ]; then
   fi
 fi
 
+# 程序员交付版固定提供参考工程式 Game.unity 入口；Luna 模板仍保留原
+# templeteScene.unity 作为兼容备份。
+if [ "$PROGRAMMER_DELIVERY" -eq 1 ] && [ -f "$WORK/Assets/Scenes/templeteScene.unity" ]; then
+  command cp -rf "$WORK/Assets/Scenes/templeteScene.unity" "$WORK/Assets/Scenes/Game.unity"
+  if [ -f "$WORK/Assets/Scenes/templeteScene.unity.meta" ]; then
+    command cp -rf "$WORK/Assets/Scenes/templeteScene.unity.meta" "$WORK/Assets/Scenes/Game.unity.meta"
+  fi
+  if [ -f "$WORK/ProjectSettings/EditorBuildSettings.asset" ]; then
+    python3 - <<PY
+from pathlib import Path
+p = Path("$WORK/ProjectSettings/EditorBuildSettings.asset")
+t = p.read_text()
+p.write_text(t.replace("Assets/Scenes/templeteScene.unity", "Assets/Scenes/Game.unity"))
+PY
+  fi
+fi
+
+if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
+  rm -rf \
+    "$WORK/Assets/__LunaMaterials" \
+    "$WORK/Assets/__LunaMaterials.meta" \
+    "$WORK/Assets/Scenes/templeteScene.unity" \
+    "$WORK/Assets/Scenes/templeteScene.unity.meta" \
+    "$WORK/Assets/Editor.meta" \
+    "$WORK/Assets/Editor" \
+    "$WORK/Assets/Program" \
+    "$WORK/Assets/Program.meta" \
+    "$WORK/luna.json"
+fi
+
 # ── Step 8: 写入 README ───────────────────────────────────────────────
+MANAGER_README_PATH="${MANAGER_DIR#$WORK/}"
+COMMON_README_PATH="${COMMON_DIR#$WORK/}"
+if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
+  ENTITY_README_PATH="Assets/Scripts/Entities"
+else
+  ENTITY_README_PATH="Assets/Program/Script/Manager/Entities"
+fi
+if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
+  MANAGER_LABEL="MainManager.cs 主流程、MonoSingleton.cs 单例基类与 GameFlowBootstrap.cs 入口"
+else
+  MANAGER_LABEL="GameFlowManagerMain*.cs 主流程与 GameFlowBootstrap.cs 入口"
+fi
 cat > "$WORK/README.md" <<EOF
 # Unity 工程导出 — $TASK_ID
 
@@ -181,9 +328,11 @@ cat > "$WORK/README.md" <<EOF
 是否程序员交付版清理：$([ "$PROGRAMMER_DELIVERY" -eq 1 ] && echo "是" || echo "否")
 
 ## 目录
-- Assets/Program/Script/Manager/  — GameFlowManagerMain*.cs 源文件
-- Assets/Program/Script/Commons/  — GFM_*.cs canonical 工具库
-- Assets/Scenes/templeteScene.unity — 预烘焙对象池场景
+- $MANAGER_README_PATH/  — $MANAGER_LABEL
+- $COMMON_README_PATH/  — GFM_*.cs canonical 工具库
+- $ENTITY_README_PATH/ — 领域对象类，承载 Player / NPC / 建筑 / 资源等可维护状态
+- Assets/Scenes/Game.unity — 程序员交付入口场景，打开后直接按 Play
+- 程序员交付版不保留 Luna 模板备份场景；审核版才会保留 templeteScene.unity
 - CODE_RELATION_GRAPH.md — 代码关系图、运行时调用链和维护入口
 - CODE_RELATION_GRAPH.html — 可直接用浏览器打开的图表化关系图
 - BlueprintArtifacts/ — 已验证 WebGL 与 Blueprint 规格/计划元数据（如果存在）
@@ -191,17 +340,20 @@ cat > "$WORK/README.md" <<EOF
 - ProjectSettings/ — Tags/Layers/Input/Graphics 等工程设置
 
 ## 打开方式
-Unity Hub → Add → 选择此文件夹根目录，使用 Unity 2022 LTS 打开。
+Unity Hub → Add → 选择此文件夹根目录，使用 Unity 2022 LTS 打开，然后打开 Assets/Scenes/Game.unity 按 Play。
 
 ## 程序员交付边界
-- 程序员交付版会整理为 GameFlowManagerMain.cs 主入口 + GameFlow*Base.cs 普通继承分层，不使用 C# 拆分类组织主流程。
-- 每个 GameFlow 脚本目标保持在 1000 行以内；phase、资源、UI、场景和输入逻辑按基类职责维护。
+- 程序员交付版会整理为 MainManager.cs 单入口 + MonoSingleton<T> 单例基类，并在 Entities/ 下保留领域对象类。
+- Unity Editor 直接点击 Play 时，GameFlowBootstrap.cs 会自动挂载 MainManager，避免只加载对象池场景导致黑屏。
+- 程序员交付版已剥离 Luna 打包流水线依赖和模板备份场景；需要重新接入 Luna 时，从 Blueprint 流水线重新导出审核版。
+- 每个脚本目标保持在 1000 行以内；phase、资源、UI、场景和输入逻辑按职责分段维护。
+- 业务新增脚本优先放到 Assets/Scripts/、Assets/Scripts/Entities、Assets/Scripts/UI、Assets/Scripts/Player 这些参考工程式目录，不再放进 Assets/Program/Script。
 - 实体引用只来自 RegisterEntityBindings()/GameSceneCtrl，不要在 TODO 区直接 GameObject.Find("__Pool_*") 覆盖字段。
 - 资源 API 使用 GFM_ResourceIds.Gold / GFM_ResourceIds.Normalize("...")，不要裸写 "gold"/"Gold"。
 - 引导文案统一调用 SetGuideText()；guideText.text 只应在这个 helper 内落地。
 
 ## 环境注意
-- Packages/manifest.json 可能包含 Luna/Playworks 本机 file: 依赖；交接前请把它改成团队机器可访问的安装路径或包源。
+- 程序员交付版不依赖本机绝对路径 package；Packages/manifest.json 可直接随工程打开。
 EOF
 
 node "$BP_ROOT/lib/code-relation-graph-writer.cjs" "$WORK" "$TASK_ID"
@@ -210,7 +362,7 @@ if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
   node "$BP_ROOT/lib/programmer-delivery-cleaner.cjs" "$WORK" "$TASK_ID" "$TASK_ID"
   # programmer-delivery-cleaner may create Entities/*.cs and delete merged
   # GameFlowManagerMain companion files. Refresh .meta coverage after that step.
-  find "$SCRIPT_DIR" -name '*.cs' | while read -r cs; do gen_meta "$cs"; done
+  find "$SCRIPT_DIR" "$COMMON_DIR" -name '*.cs' | while read -r cs; do gen_meta "$cs"; done
 fi
 
 # ── Step 9: 打包归档（使用友好的文件夹名） ───────────────────

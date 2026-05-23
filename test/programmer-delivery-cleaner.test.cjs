@@ -162,7 +162,7 @@ try {
   assert.match(mainText, /void Start\(\)/);
   assert.match(mainText, /BindGameFlowEntityModels\(\);/);
   assert.match(mainText, /void BindGameFlowEntityModels\(\)/);
-  assert.match(mainText, /BarrackEntity _barrackEntityModel;/);
+  assert.match(mainText, /BarrackEntity mBarrackEntityModel;/);
   assert.match(mainText, /BindGameFlowEntityComponent<BarrackEntity>/);
   // Phase_intro_Init 留在 Flow.cs 里,不再被搬到继承链里。
   const flowText = fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowManagerMain.Flow.cs'), 'utf8');
@@ -249,6 +249,87 @@ try {
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 
+// 2026-05-23 reference Unity project layout: exporter writes programmer delivery
+// scripts under Assets/Scripts/Manager + sibling Assets/Scripts/Entities.
+{
+  const tmpRef = fs.mkdtempSync(path.join(os.tmpdir(), 'programmer-ref-layout-'));
+  try {
+    const managerDir = path.join(tmpRef, 'Assets', 'Scripts', 'Manager');
+    fs.mkdirSync(managerDir, { recursive: true });
+    fs.writeFileSync(path.join(tmpRef, 'README.md'), [
+      '# Unity 工程导出',
+      '',
+      '## 目录',
+      '- Assets/Scripts/Manager/  — GameFlowManagerMain.cs 及 partial 文件',
+      '',
+      '## 程序员交付边界',
+      '- old boundary',
+      ''
+    ].join('\n'));
+    fs.writeFileSync(path.join(managerDir, 'GameFlowManagerMain.cs'), [
+      'using UnityEngine;',
+      '',
+      'public partial class GameFlowManagerMain : MonoBehaviour',
+      '{',
+      '    GameObject Barrack; // 说明：→ __Pool_Cube_Blue_01',
+      '    GameObject Gold; // 说明：→ __Pool_Cube_Yellow_01',
+      '    // Unity 生命周期入口:第一帧前完成实体注册,主流程从这里启动。',
+      '    void Start()',
+      '    {',
+      '        GFM_Luna.Init(gameObject);',
+      '        string resourceId = GFM_ResourceIds.Gold;',
+      '        RegisterEntityBindings();',
+      '    }',
+      '    void Update()',
+      '    {',
+      '        AssemblyRunFlowSlots();',
+      '    }',
+      '    void AssemblyRunFlowSlots() {}',
+      '    // 由具体项目重写,把 Pool 节点上的实体绑回脚本字段。',
+      '    void RegisterEntityBindings() {}',
+      '}',
+    ].join('\n'));
+
+    const summary = cleaner.cleanProgrammerDelivery(tmpRef, {
+      project: { id: 'proj_ref', name: '参考布局项目' }
+    });
+
+    assert.strictEqual(summary.managerDir, managerDir);
+    assert.strictEqual(summary.entityDir, path.join(tmpRef, 'Assets', 'Scripts', 'Entities'));
+    assert.strictEqual(summary.referenceMainManager, true);
+    assert.ok(fs.existsSync(path.join(tmpRef, 'Assets', 'Scripts', 'Entities', 'BaseGameFlowEntity.cs')));
+    assert.ok(fs.existsSync(path.join(tmpRef, 'Assets', 'Scripts', 'Entities', 'BarrackEntity.cs')));
+    assert.ok(!fs.existsSync(path.join(managerDir, 'Entities')), 'Entities should be sibling to Manager in reference layout');
+    assert.ok(fs.existsSync(path.join(managerDir, 'MainManager.cs')));
+    assert.ok(fs.existsSync(path.join(managerDir, 'MonoSingleton.cs')));
+    assert.ok(!fs.existsSync(path.join(managerDir, 'GameFlowManagerMain.cs')), 'reference layout should merge away GameFlowManagerMain.cs');
+
+    const mainManager = fs.readFileSync(path.join(managerDir, 'MainManager.cs'), 'utf8');
+    assert.match(mainManager, /public class MainManager : MonoSingleton<MainManager>/);
+    assert.match(mainManager, /public GameObject mBarrack;/);
+    assert.match(mainManager, /public GameObject mGold;/);
+    assert.match(mainManager, /GFM_ResourceIds\.Gold/);
+    assert.doesNotMatch(mainManager, /GFM_ResourceIds\.mGold/);
+    assert.doesNotMatch(mainManager, /GFM_Luna\.Init/);
+    assert.doesNotMatch(mainManager, /AssemblyRunFlowSlots/);
+    assert.doesNotMatch(mainManager, /\bpartial\b/);
+    assert.doesNotMatch(mainManager, /\[SKELETON\]/);
+
+    const refReadme = fs.readFileSync(path.join(tmpRef, 'README.md'), 'utf8');
+    assert.match(refReadme, /Assets\/Scripts\/Manager/);
+    assert.match(refReadme, /Assets\/Scripts\/Entities/);
+    assert.match(refReadme, /MainManager\.cs/);
+    assert.match(refReadme, /参考工程式脚本布局/);
+
+    const refHandoff = fs.readFileSync(path.join(tmpRef, 'PROGRAMMER_HANDOFF.md'), 'utf8');
+    assert.match(refHandoff, /Assets\/Scripts\/Manager/);
+    assert.match(refHandoff, /Assets\/Scripts\/Entities/);
+    assert.match(refHandoff, /MainManager\.cs/);
+  } finally {
+    fs.rmSync(tmpRef, { recursive: true, force: true });
+  }
+}
+
 // Wave D 反馈 7 (2026-05-02) — 交付包必须删除 GFM_Event.cs
 {
   const fs2 = require('fs');
@@ -262,9 +343,16 @@ try {
     const gfmEventPath = path2.join(commonsDir, 'GFM_Event.cs');
     fs2.writeFileSync(gfmEventPath, 'public class GFM_Event {}\n');
     fs2.writeFileSync(gfmEventPath + '.meta', 'fileFormatVersion: 2\n');
+    const refCommonDir = path2.join(tmp2, 'Assets', 'Scripts', 'Common');
+    fs2.mkdirSync(refCommonDir, { recursive: true });
+    const refGfmEventPath = path2.join(refCommonDir, 'GFM_Event.cs');
+    fs2.writeFileSync(refGfmEventPath, 'public class GFM_Event {}\n');
+    fs2.writeFileSync(refGfmEventPath + '.meta', 'fileFormatVersion: 2\n');
     cleaner2.cleanProgrammerDelivery(tmp2, { project: { id: 'p_evt', name: 'evt' } });
     assert.ok(!fs2.existsSync(gfmEventPath), 'GFM_Event.cs should be removed');
     assert.ok(!fs2.existsSync(gfmEventPath + '.meta'), 'GFM_Event.cs.meta should be removed');
+    assert.ok(!fs2.existsSync(refGfmEventPath), 'reference-layout GFM_Event.cs should be removed');
+    assert.ok(!fs2.existsSync(refGfmEventPath + '.meta'), 'reference-layout GFM_Event.cs.meta should be removed');
     console.log('  ✓ GFM_Event removal: file + meta deleted from delivery');
   } finally {
     fs2.rmSync(tmp2, { recursive: true, force: true });
