@@ -138,7 +138,9 @@ try {
     'GameFlowManagerMain.cs'
   ]);
   assert.strictEqual(summary.staleBaseLayersRemoved, 1);
-  assert.ok(summary.entityClassFiles >= 6);
+  // v14 交付取消 Build/Resource/Combat 中间继承层，实体模型最小集合为
+  // BaseGameFlowEntity + PlayerBase + NPCBase + 具体业务实体。
+  assert.ok(summary.entityClassFiles >= 4);
   assert.strictEqual(summary.entityModelCount, 1);
   assert.strictEqual(summary.removedArtifactDirs, 1);
   assert.strictEqual(summary.removedToolDirs, 1);
@@ -162,7 +164,7 @@ try {
   assert.match(mainText, /void Start\(\)/);
   assert.match(mainText, /BindGameFlowEntityModels\(\);/);
   assert.match(mainText, /void BindGameFlowEntityModels\(\)/);
-  assert.match(mainText, /BarrackEntity _barrackEntityModel;/);
+  assert.match(mainText, /BarrackEntity mBarrackEntityModel;/);
   assert.match(mainText, /BindGameFlowEntityComponent<BarrackEntity>/);
   // Phase_intro_Init 留在 Flow.cs 里,不再被搬到继承链里。
   const flowText = fs.readFileSync(path.join(tmp, 'Scripts', 'GameFlowManagerMain.Flow.cs'), 'utf8');
@@ -173,15 +175,12 @@ try {
     const lineCount = fs.readFileSync(path.join(tmp, 'Scripts', name), 'utf8').split(/\r?\n/).length - 1;
     assert.ok(lineCount < 1000, name + ' should stay below 1000 lines');
   });
-  assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'Entities', 'BaseBuildElement.cs')));
-  assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'Entities', 'BuildEntity.cs')));
   assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'Entities', 'BarrackEntity.cs')));
   assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BaseGameFlowEntity.cs'), 'utf8'), /EntityId = ""; \/\/ 蓝图实体 ID/);
   assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BaseGameFlowEntity.cs'), 'utf8'), /绑定场景对象和蓝图标识/);
-  assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BaseBuildElement.cs'), 'utf8'), /public int Health = 100; \/\/ 建筑耐久值/);
   // Wave C: 实体绑定块落到 Main 文件而非继承链 StateBase。
   assert.match(mainText, /领域模型缓存/);
-  assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BarrackEntity.cs'), 'utf8'), /public class BarrackEntity : BaseBuildElement/);
+  assert.match(fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'BarrackEntity.cs'), 'utf8'), /public class BarrackEntity : BaseGameFlowEntity/);
   // 反馈 01 #1 架构图:PlayerBase / NPCBase 与 BaseBuildElement 同级,都挂在 BaseGameFlowEntity 下。
   assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'Entities', 'PlayerBase.cs')));
   assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'Entities', 'NPCBase.cs')));
@@ -234,7 +233,7 @@ try {
   assert.doesNotMatch(handoff, /普通继承基类分层/);
   assert.doesNotMatch(handoff, /GameFlow\*Base\.cs 通过普通继承链/);
   assert.match(fs.readFileSync(path.join(tmp, 'CODE_RELATION_GRAPH.md'), 'utf8'), /代码关系图/);
-  assert.match(fs.readFileSync(path.join(tmp, 'CODE_RELATION_GRAPH.md'), 'utf8'), /Entities\/BaseBuildElement\.cs/);
+  assert.match(fs.readFileSync(path.join(tmp, 'CODE_RELATION_GRAPH.md'), 'utf8'), /Entities\/BaseGameFlowEntity\.cs/);
   // Wave C: README 现在保留 partial 提及。
   const readmeText = fs.readFileSync(path.join(tmp, 'README.md'), 'utf8');
   assert.match(readmeText, /Flow\/Input\/Resource\/UI\/Scene partial/);
@@ -289,25 +288,52 @@ try {
       '    void RegisterEntityBindings() {}',
       '}',
     ].join('\n'));
+    fs.writeFileSync(path.join(managerDir, 'GMP_Pool.cs'), [
+      'using UnityEngine;',
+      'public class GMP_Pool : MonoBehaviour',
+      '{',
+      '    public void ReturnLater(GameObject obj) { obj.AddComponent<GMP_ReturnTimer>(); }',
+      '}',
+      'public class GMP_ReturnTimer : MonoBehaviour',
+      '{',
+      '    public void StartTimer(float delay) {}',
+      '}',
+    ].join('\n'));
+    fs.writeFileSync(path.join(managerDir, 'GMP_EntityBindingManager.cs'), [
+      'using System.Collections.Generic;',
+      'using UnityEngine;',
+      '[System.Serializable]',
+      'public class GMP_EntityBinding',
+      '{',
+      '    public string mEntityName;',
+      '    public GameObject mSceneObject;',
+      '}',
+      'public class GMP_EntityBindingManager : MonoSingleton<GMP_EntityBindingManager>',
+      '{',
+      '    public List<GMP_EntityBinding> mBindings = new List<GMP_EntityBinding>();',
+      '}',
+    ].join('\n'));
 
     const summary = cleaner.cleanProgrammerDelivery(tmpRef, {
       project: { id: 'proj_ref', name: '参考布局项目' }
     });
 
     assert.strictEqual(summary.managerDir, managerDir);
-    assert.strictEqual(summary.entityDir, path.join(tmpRef, 'Assets', 'Scripts', 'Entities'));
     assert.strictEqual(summary.referenceMainManager, true);
-    assert.ok(fs.existsSync(path.join(tmpRef, 'Assets', 'Scripts', 'Entities', 'BaseGameFlowEntity.cs')));
-    assert.ok(fs.existsSync(path.join(tmpRef, 'Assets', 'Scripts', 'Entities', 'BarrackEntity.cs')));
+    const coreBase = path.join(tmpRef, 'Assets', 'Scripts', 'Core', 'Base');
+    const coreModules = path.join(tmpRef, 'Assets', 'Scripts', 'Core', 'Modules');
+    const gameEntities = path.join(tmpRef, 'Assets', 'Scripts', 'Game', 'Entities');
+    assert.ok(fs.existsSync(path.join(coreBase, 'GMP_BaseGameFlowEntity.cs')));
+    assert.ok(fs.existsSync(path.join(gameEntities, 'GMP_BarrackEntity.cs')));
     assert.ok(!fs.existsSync(path.join(managerDir, 'Entities')), 'Entities should be sibling to Manager in reference layout');
-    assert.ok(fs.existsSync(path.join(managerDir, 'MainManager.cs')));
-    assert.ok(fs.existsSync(path.join(managerDir, 'MonoSingleton.cs')));
+    assert.ok(fs.existsSync(path.join(coreModules, 'GMP_MainManager.cs')));
+    assert.ok(fs.existsSync(path.join(coreBase, 'MonoSingleton.cs')));
     assert.ok(!fs.existsSync(path.join(managerDir, 'GameFlowManagerMain.cs')), 'reference layout should merge away GameFlowManagerMain.cs');
 
-    const mainManager = fs.readFileSync(path.join(managerDir, 'MainManager.cs'), 'utf8');
-    assert.match(mainManager, /public class MainManager : MonoSingleton<MainManager>/);
-    assert.match(mainManager, /public GameObject _barrack;/);
-    assert.match(mainManager, /public GameObject _gold;/);
+    const mainManager = fs.readFileSync(path.join(coreModules, 'GMP_MainManager.cs'), 'utf8');
+    assert.match(mainManager, /public class GMP_MainManager : MonoSingleton<GMP_MainManager>/);
+    assert.match(mainManager, /public GameObject mBarrack;/);
+    assert.match(mainManager, /public GameObject mGold;/);
     assert.match(mainManager, /GMP_ResourceIds\.Gold/);
     assert.doesNotMatch(mainManager, /GMP_ResourceIds\._gold/);
     assert.doesNotMatch(mainManager, /GMP_Luna\.Init/);
@@ -316,15 +342,29 @@ try {
     assert.doesNotMatch(mainManager, /\[SKELETON\]/);
 
     const refReadme = fs.readFileSync(path.join(tmpRef, 'README.md'), 'utf8');
-    assert.match(refReadme, /Assets\/Scripts\/Manager/);
-    assert.match(refReadme, /Assets\/Scripts\/Entities/);
-    assert.match(refReadme, /MainManager\.cs/);
-    assert.match(refReadme, /参考工程式脚本布局/);
+    assert.match(refReadme, /Core \/ Tool \/ Game/);
+    assert.match(refReadme, /Assets\/Scripts\/Game\/Entities/);
+    assert.match(refReadme, /GMP_MainManager\.cs/);
+    assert.match(refReadme, /Core 不写具体关卡事件名/);
 
     const refHandoff = fs.readFileSync(path.join(tmpRef, 'PROGRAMMER_HANDOFF.md'), 'utf8');
-    assert.match(refHandoff, /Assets\/Scripts\/Manager/);
-    assert.match(refHandoff, /Assets\/Scripts\/Entities/);
-    assert.match(refHandoff, /MainManager\.cs/);
+    assert.match(refHandoff, /Assets\/Scripts\/Core\/Modules/);
+    assert.match(refHandoff, /Assets\/Scripts\/Game\/Entities/);
+    assert.match(refHandoff, /GMP_MainManager\.cs/);
+
+    assert.ok(fs.existsSync(path.join(coreModules, 'GMP_ReturnTimer.cs')));
+    assert.ok(fs.existsSync(path.join(tmpRef, 'Assets', 'Scripts', 'Game', 'Level', 'GMP_EntityBinding.cs')));
+    const multiClassFiles = [];
+    (function walk(dir) {
+      fs.readdirSync(dir, { withFileTypes: true }).forEach((entry) => {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) { walk(full); return; }
+        if (!/\.cs$/.test(entry.name)) return;
+        const classCount = (fs.readFileSync(full, 'utf8').match(/^public\s+(?:abstract\s+)?class\s+/gm) || []).length;
+        if (classCount > 1) multiClassFiles.push(path.relative(tmpRef, full));
+      });
+    })(path.join(tmpRef, 'Assets', 'Scripts'));
+    assert.deepStrictEqual(multiClassFiles, [], 'v14 delivery should keep one public class per .cs file');
   } finally {
     fs.rmSync(tmpRef, { recursive: true, force: true });
   }
@@ -413,12 +453,20 @@ try {
     const sceneA = fs.readFileSync(path.join(a, 'Assets', 'Scenes', 'Game.unity'), 'utf8');
     const sceneB = fs.readFileSync(path.join(b, 'Assets', 'Scenes', 'Game.unity'), 'utf8');
     assert.strictEqual(sceneA, sceneB, 'scene injection should be deterministic across export roots');
-    assert.match(sceneA, /m_Name: MainManager/);
+    assert.match(sceneA, /m_Name: GMP_MainManager/);
     assert.match(sceneA, /m_Name: GMP_Audio/);
-    const audioText = fs.readFileSync(path.join(a, 'Assets', 'Scripts', 'Audio', 'GMP_Audio.cs'), 'utf8');
+    assert.strictEqual((sceneA.match(/AudioSource:/g) || []).length, 2, 'GMP_Audio should mount separate BGM/SFX AudioSource components');
+    assert.match(sceneA, /mBgmList: \[\]/);
+    assert.match(sceneA, /mSfxList: \[\]/);
+    const audioText = fs.readFileSync(path.join(a, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_Audio.cs'), 'utf8');
     assert.doesNotMatch(audioText, /new GameObject/);
     assert.doesNotMatch(audioText, /\bInstance\b/);
-    assert.match(audioText, /_instance/);
+    assert.match(audioText, /mInstance/);
+    assert.match(audioText, /public AudioClip\[\] mBgmList/);
+    assert.match(audioText, /public AudioClip\[\] mSfxList/);
+    assert.match(audioText, /GetComponents<AudioSource>\(\)/);
+    assert.match(audioText, /void PlayBGM\(int index\)/);
+    assert.match(audioText, /void PlaySFX\(int index\)/);
   } finally {
     fs.rmSync(a, { recursive: true, force: true });
     fs.rmSync(b, { recursive: true, force: true });
@@ -434,12 +482,90 @@ try {
     fs.mkdirSync(scripts, { recursive: true });
     fs.mkdirSync(scenes, { recursive: true });
     fs.writeFileSync(path.join(tmpV12, 'README.md'), '# Unity 工程导出\n');
+    function minimalSceneObject(id, transformId, name, position) {
+      return [
+        '--- !u!1 &' + id,
+        'GameObject:',
+        '  m_ObjectHideFlags: 0',
+        '  m_CorrespondingSourceObject: {fileID: 0}',
+        '  m_PrefabInstance: {fileID: 0}',
+        '  m_PrefabAsset: {fileID: 0}',
+        '  serializedVersion: 6',
+        '  m_Component:',
+        '  - component: {fileID: ' + transformId + '}',
+        '  m_Layer: 0',
+        '  m_Name: ' + name,
+        '  m_TagString: Untagged',
+        '  m_Icon: {fileID: 0}',
+        '  m_NavMeshLayer: 0',
+        '  m_StaticEditorFlags: 0',
+        '  m_IsActive: 1',
+        '--- !u!4 &' + transformId,
+        'Transform:',
+        '  m_ObjectHideFlags: 0',
+        '  m_CorrespondingSourceObject: {fileID: 0}',
+        '  m_PrefabInstance: {fileID: 0}',
+        '  m_PrefabAsset: {fileID: 0}',
+        '  m_GameObject: {fileID: ' + id + '}',
+        '  serializedVersion: 2',
+        '  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}',
+        '  m_LocalPosition: {x: ' + position.x + ', y: ' + position.y + ', z: ' + position.z + '}',
+        '  m_LocalScale: {x: 1, y: 1, z: 1}',
+        '  m_ConstrainProportionsScale: 0',
+        '  m_Children: []',
+        '  m_Father: {fileID: 0}',
+        '  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}',
+        ''
+      ].join('\n');
+    }
+    function legacyMonoBehaviourBlock(id, goId, guid) {
+      return [
+        '--- !u!114 &' + id,
+        'MonoBehaviour:',
+        '  m_ObjectHideFlags: 0',
+        '  m_CorrespondingSourceObject: {fileID: 0}',
+        '  m_PrefabInstance: {fileID: 0}',
+        '  m_PrefabAsset: {fileID: 0}',
+        '  m_GameObject: {fileID: ' + goId + '}',
+        '  m_Enabled: 1',
+        '  m_EditorHideFlags: 0',
+        '  m_Script: {fileID: 11500000, guid: ' + guid + ', type: 3}',
+        '  m_Name: ',
+        '  m_EditorClassIdentifier: ',
+        ''
+      ].join('\n');
+    }
+    const legacyActivatorGuid = 'c91b2d4d49b7caa428b32e2e342d0a17';
+    const generatedActivatorGuid = '11111111111111111111111111111111';
+    const legacyPlaceholderGuid = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6';
+    const templateAdditionalLightGuid = '474bcb49853aa07438625e644c072ee6';
+    const templateAdditionalCameraGuid = 'a79441f348de89743a2939f4d699eac1';
+    const oldGraphicRaycasterGuid = 'dc42784cf5571cd4e96f405ef68ec111';
+    const newGraphicRaycasterGuid = 'dc42784cf147c0c48a680349fa168899';
+    const oldEventSystemGuid = '76c392e42b5d8814fa735d0bde908bd4';
+    const newEventSystemGuid = '76c392e42b5098c458856cdf6ecaaaa1';
+    const nonWhitelistedPackageGuid = '99999999999999999999999999999999';
     fs.writeFileSync(path.join(scenes, 'Game.unity'), [
       '%YAML 1.1',
       '%TAG !u! tag:unity3d.com,2011:',
       '--- !u!29 &1',
       'OcclusionCullingSettings:',
       '  m_ObjectHideFlags: 0',
+      minimalSceneObject(100, 101, 'Main Camera', { x: 0, y: 8, z: -12 }).replace('  - component: {fileID: 101}', '  - component: {fileID: 101}\n  - component: {fileID: 102}'),
+      legacyMonoBehaviourBlock(102, 100, templateAdditionalCameraGuid),
+      minimalSceneObject(200, 201, '_player', { x: 0, y: -9999, z: 0 }).replace('  - component: {fileID: 201}', '  - component: {fileID: 201}\n  - component: {fileID: 202}'),
+      legacyMonoBehaviourBlock(202, 200, legacyActivatorGuid),
+      minimalSceneObject(300, 301, '_gold', { x: 0, y: -9999, z: 0 }),
+      minimalSceneObject(400, 401, '_ctaButton', { x: 0, y: -9999, z: 0 }),
+      minimalSceneObject(500, 501, 'Canvas', { x: 0, y: 0, z: 0 }).replace('  - component: {fileID: 501}', '  - component: {fileID: 501}\n  - component: {fileID: 502}'),
+      legacyMonoBehaviourBlock(502, 500, oldGraphicRaycasterGuid),
+      minimalSceneObject(600, 601, 'GameManager', { x: 0, y: 0, z: 0 }).replace('  - component: {fileID: 601}', '  - component: {fileID: 601}\n  - component: {fileID: 602}'),
+      legacyMonoBehaviourBlock(602, 600, legacyPlaceholderGuid),
+      minimalSceneObject(700, 701, '__MainLight', { x: 0, y: 12, z: 0 }).replace('  - component: {fileID: 701}', '  - component: {fileID: 701}\n  - component: {fileID: 702}'),
+      legacyMonoBehaviourBlock(702, 700, templateAdditionalLightGuid),
+      minimalSceneObject(800, 801, 'EventSystem', { x: 0, y: 0, z: 0 }).replace('  - component: {fileID: 801}', '  - component: {fileID: 801}\n  - component: {fileID: 802}\n  - component: {fileID: 803}'),
+      legacyMonoBehaviourBlock(802, 800, oldEventSystemGuid),
+      legacyMonoBehaviourBlock(803, 800, nonWhitelistedPackageGuid),
       ''
     ].join('\n'));
     fs.writeFileSync(path.join(scripts, 'MainManager.cs'), [
@@ -471,48 +597,263 @@ try {
       'using UnityEngine;',
       'public abstract class MonoSingleton<T> : MonoBehaviour where T : MonoBehaviour {}',
     ].join('\n'));
+    fs.writeFileSync(path.join(scripts, 'ScriptActivator.cs'), [
+      'using UnityEngine;',
+      'public class ScriptActivator : MonoBehaviour',
+      '{',
+      '    public string role;',
+      '    public string behavior;',
+      '}',
+    ].join('\n'));
+    fs.writeFileSync(path.join(scripts, 'ScriptActivator.cs.meta'), [
+      'fileFormatVersion: 2',
+      'guid: ' + generatedActivatorGuid,
+      'MonoImporter:',
+      '  externalObjects: {}',
+      '  serializedVersion: 2',
+      '  defaultReferences: []',
+      '  executionOrder: 0',
+      '  icon: {instanceID: 0}',
+      '  userData: ',
+      '  assetBundleName: ',
+      '  assetBundleVariant: ',
+    ].join('\n'));
 
-    const summary = cleaner.cleanProgrammerDelivery(tmpV12, { project: { id: 'v12', name: 'v12' } });
-    const managerDir = path.join(scripts, 'Manager');
-    ['MainManager', 'PhaseController', 'EntityBindingManager', 'AutoPlayDriver', 'HudController', 'EventRuleEngine'].forEach((name) => {
-      const file = path.join(managerDir, name + '.cs');
-      assert.ok(fs.existsSync(file), name + '.cs should be generated under Manager');
+    fs.writeFileSync(path.join(scripts, 'GFM_CameraController.cs'), [
+      'using UnityEngine;',
+      'public class GFM_CameraController : MonoBehaviour',
+      '{',
+      '    public void Init()',
+      '    {',
+      '        var cam = Camera.main;',
+      '        if (cam != null)',
+      '        {',
+      '            cam.orthographic = true;',
+      '            cam.orthographicSize = 8f;',
+      '            cam.transform.position = new Vector3(0, 12f, -8f);',
+      '            cam.transform.rotation = Quaternion.Euler(50f, 0f, 0f);',
+      '        }',
+      '    }',
+      '}',
+    ].join('\n'));
+
+    const summary = cleaner.cleanProgrammerDelivery(tmpV12, {
+      project: {
+        id: 'v12',
+        name: 'v12',
+        entities: [
+          { name: '_player', visual: { position: '(-8, 0, 2)' } },
+          { name: '_gold', visual: { position: '(-4, 0, -2)' } },
+          { name: '_ctaButton', visual: { position: '(6, 0, 3)' } }
+        ]
+      }
+    });
+    const coreModules = path.join(scripts, 'Core', 'Modules');
+    const gameLevel = path.join(scripts, 'Game', 'Level');
+    const gameAutoPlay = path.join(scripts, 'Game', 'AutoPlay');
+    const phaseDir = path.join(scripts, 'Game', 'Phases');
+    [
+      [coreModules, 'GMP_MainManager'],
+      [coreModules, 'GMP_PhaseController'],
+      [gameLevel, 'GMP_EntityBindingManager'],
+      [gameAutoPlay, 'GMP_AutoPlayDriver'],
+      [coreModules, 'GMP_HudController'],
+      [coreModules, 'GMP_EventModule'],
+      [gameLevel, 'GMP_LevelRuleEngine']
+    ].forEach(([dir, name]) => {
+      const file = path.join(dir, name + '.cs');
+      assert.ok(fs.existsSync(file), name + '.cs should be generated in v14 layout');
       const text = fs.readFileSync(file, 'utf8');
       assert.doesNotMatch(text, /\bpartial\s+class\b/, name + ' must not be partial');
       assert.match(text, new RegExp('class\\s+' + name + '\\b'), name + ' should own its class');
     });
-    assert.ok(fs.existsSync(path.join(scripts, 'Common', 'PhasePreset.cs')));
-    const phasePresetCode = fs.readFileSync(path.join(scripts, 'Common', 'PhasePreset.cs'), 'utf8');
-    assert.match(phasePresetCode, /switch \(kind\)/, 'PhaseGate should use an explicit kind switch');
-    assert.match(phasePresetCode, /case "resource"/, 'resource gate branch should be generated');
-    assert.match(phasePresetCode, /case "entity"/, 'entity gate branch should be generated');
-    assert.match(phasePresetCode, /GMP_EconomyManager\.instance\.GetResource/, 'resource gates should read the economy manager');
-    const phaseControllerCode = fs.readFileSync(path.join(managerDir, 'PhaseController.cs'), 'utf8');
-    assert.match(phaseControllerCode, /preset\.gate\.IsReady/, 'PhaseController should use PhasePreset gate data');
-    const entityBindingCode = fs.readFileSync(path.join(managerDir, 'EntityBindingManager.cs'), 'utf8');
+    assert.ok(fs.existsSync(path.join(coreModules, 'GMP_PhasePreset.cs')));
+    assert.ok(fs.existsSync(path.join(coreModules, 'GMP_PhaseGate.cs')));
+    const phasePresetCode = fs.readFileSync(path.join(coreModules, 'GMP_PhasePreset.cs'), 'utf8');
+    assert.match(phasePresetCode, /public class GMP_PhasePreset : ScriptableObject/);
+    assert.doesNotMatch(phasePresetCode, /class PhasePreset\b/);
+    const phaseGateCode = fs.readFileSync(path.join(coreModules, 'GMP_PhaseGate.cs'), 'utf8');
+    assert.match(phaseGateCode, /public class GMP_PhaseGate/);
+    assert.match(phaseGateCode, /switch \(mKind\)/, 'PhaseGate should use an explicit enum switch');
+    assert.match(phaseGateCode, /case GMP_PhaseGateKind\.Resource/, 'resource gate branch should be generated');
+    assert.match(phaseGateCode, /case GMP_PhaseGateKind\.Entity/, 'entity gate branch should be generated');
+    assert.match(phaseGateCode, /GMP_EconomyManager\.instance\.GetResource\(mTarget\)/, 'resource gates should read the economy manager');
+    const phaseControllerCode = fs.readFileSync(path.join(coreModules, 'GMP_PhaseController.cs'), 'utf8');
+    assert.match(phaseControllerCode, /preset\.mGate\.IsReady/, 'PhaseController should use PhasePreset gate data');
+    const entityBindingCode = fs.readFileSync(path.join(gameLevel, 'GMP_EntityBindingManager.cs'), 'utf8');
     assert.match(entityBindingCode, /int GetActiveCount\(string entityName\)/, 'EntityBindingManager should expose active-count gate helper');
+    assert.match(entityBindingCode, /private Vector3\[] mOriginalPositions/, 'EntityBindingManager should cache source scene positions');
+    assert.match(entityBindingCode, /void CacheOriginalPosition\(int index\)/, 'EntityBindingManager should cache original transforms during Init');
+    assert.match(entityBindingCode, /SetVisible\(target, false\)/, 'Hide should toggle renderers instead of moving entities off board');
+    assert.doesNotMatch(entityBindingCode, /target\.transform\.position = new Vector3\(0f, -999f, 0f\)/, 'Hide must not destroy source positions');
     assert.ok(!fs.existsSync(path.join(scripts, 'MainManager.cs')), 'root MainManager god class should be removed');
+    assert.ok(!fs.existsSync(path.join(gameLevel, 'GMP_EventRuleEngine.cs')), 'specific rules should be named LevelRuleEngine');
     assert.strictEqual(walkLocal(scripts).filter((file) => /\.Part\d*\.cs$/.test(file)).length, 0);
     assert.strictEqual(walkLocal(scripts).filter((file) => /(Runtime|Facade)\.cs$/.test(file)).length, 0);
     assert.strictEqual(walkLocal(scripts).filter((file) => /void\s+Spawn[A-Z][A-Za-z]+\s*\(/.test(fs.readFileSync(file, 'utf8'))).length, 0);
-    assert.strictEqual(fs.readdirSync(path.join(tmpV12, 'Assets', 'Phases')).filter((name) => /^Phase\d+\.asset$/.test(name)).length, 2);
-    const phase1Asset = fs.readFileSync(path.join(tmpV12, 'Assets', 'Phases', 'Phase1.asset'), 'utf8');
-    const phase2Asset = fs.readFileSync(path.join(tmpV12, 'Assets', 'Phases', 'Phase2.asset'), 'utf8');
-    assert.match(phase1Asset, /targetEntity: "_gold"/, 'phase1 target should follow the original gate entity');
+    assert.strictEqual(fs.readdirSync(phaseDir).filter((name) => /^Phase\d+\.asset$/.test(name)).length, 2);
+    const phase1Asset = fs.readFileSync(path.join(phaseDir, 'Phase1.asset'), 'utf8');
+    const phase2Asset = fs.readFileSync(path.join(phaseDir, 'Phase2.asset'), 'utf8');
+    assert.match(phase1Asset, /mTargetEntity: "_gold"/, 'phase1 target should follow the original gate entity');
     assert.match(phase1Asset, /  - _gold/, 'gate entity should be visible/interactable in the phase asset');
-    assert.match(phase1Asset, /kind: "entity"/, 'phase1 gate should be data-driven');
-    assert.match(phase1Asset, /target: "_gold"/, 'phase1 gate should keep the original gate target');
-    assert.match(phase1Asset, /threshold: 2/, 'entity gates should use built-state threshold');
-    assert.match(phase2Asset, /target: "_ctaButton"/, 'last phase should use EndGame gate target');
+    assert.match(phase1Asset, /mKind: 3/, 'phase1 gate should be data-driven enum value');
+    assert.match(phase1Asset, /mTarget: "_gold"/, 'phase1 gate should keep the original gate target');
+    assert.match(phase1Asset, /mThreshold: 2/, 'entity gates should use built-state threshold');
+    assert.match(phase2Asset, /mTarget: "_ctaButton"/, 'last phase should use EndGame gate target');
     const scene = fs.readFileSync(path.join(scenes, 'Game.unity'), 'utf8');
-    ['MainManager', 'PhaseController', 'EntityBindingManager', 'AutoPlayDriver', 'HudController', 'EventRuleEngine'].forEach((name) => {
+    ['GMP_MainManager', 'GMP_PhaseController', 'GMP_EntityBindingManager', 'GMP_AutoPlayDriver', 'GMP_HudController', 'GMP_EventModule', 'GMP_LevelRuleEngine'].forEach((name) => {
       assert.strictEqual((scene.match(new RegExp('m_Name: ' + name, 'g')) || []).length, 1, name + ' should be scene-mounted once');
     });
+    assert.match(scene, /m_Name: "Text_"/, 'HUD guide text placeholder should be scene-mounted');
+    assert.match(scene, /m_Name: "Text_Score: 0"/, 'HUD score text placeholder should be scene-mounted');
+    assert.match(scene, /guid: 5f7201a12d95ffc409449d95f23cf332/, 'scene text placeholders should carry Unity UI Text components');
+    assert.doesNotMatch(scene, new RegExp(legacyActivatorGuid), 'legacy ScriptActivator scene refs must be remapped to the generated GMP script guid');
+    assert.match(scene, new RegExp(generatedActivatorGuid), 'GMP_ScriptActivator scene refs should resolve to the generated script meta');
+    assert.doesNotMatch(scene, new RegExp(legacyPlaceholderGuid), 'template placeholder GameManager script refs must be stripped');
+    assert.match(scene, new RegExp(templateAdditionalLightGuid), 'URP light data should stay attached for render fidelity');
+    assert.match(scene, new RegExp(templateAdditionalCameraGuid), 'URP camera data should stay attached for render fidelity');
+    assert.doesNotMatch(scene, new RegExp(oldGraphicRaycasterGuid), 'stale GraphicRaycaster GUID should be remapped');
+    assert.match(scene, new RegExp(newGraphicRaycasterGuid), 'GraphicRaycaster should resolve to the Unity 2022.3 package GUID');
+    assert.doesNotMatch(scene, new RegExp(oldEventSystemGuid), 'stale EventSystem GUID should be remapped');
+    assert.match(scene, new RegExp(newEventSystemGuid), 'EventSystem should resolve to the Unity 2022.3 package GUID');
+    assert.match(scene, new RegExp(nonWhitelistedPackageGuid), 'package GUID repair must stay whitelist-only and preserve unrelated package MonoBehaviours');
+    assert.strictEqual(summary.knownPackageSceneScriptRefsRemapped, 2);
     assert.strictEqual((scene.match(/guid:/g) || []).length >= 8, true, 'scene should contain script refs plus phase asset refs');
+    assert.match(scene, /m_Name: Main Camera[\s\S]*m_LocalPosition: \{x: 6, y: 18, z: 28\}/, 'Phase1 camera should follow the source HTML oblique camera offset');
+    assert.match(scene, /m_LocalEulerAnglesHint: \{x: 37, y: -22, z: 0\}/, 'Phase1 camera should use the source-like oblique angle');
+    assert.match(scene, /m_Name: _player[\s\S]*m_TagString: Player/, 'Player entity should be tagged for camera follow lookup');
+    const deliveryCamera = fs.readFileSync(path.join(scripts, 'Tool', 'GMP_CameraController.cs'), 'utf8');
+    assert.doesNotMatch(deliveryCamera, /orthographic\s*=\s*true/, 'delivery camera must not override the scene-authored projection');
+    assert.doesNotMatch(deliveryCamera, /new Vector3\(0,\s*12f,\s*-8f\)/, 'delivery camera must not override the scene-authored first-frame pose');
+    assert.match(deliveryCamera, /GameObject\.FindWithTag\("Player"\)/, 'delivery camera should use the Player tag lookup path');
+    assert.match(deliveryCamera, /GMP_SceneObjectRegistry\.Find\("Player"\)/, 'delivery camera should include the registry Player lookup path');
+    assert.match(deliveryCamera, /Vector3 target = player\.position \+ new Vector3\(4f, 0f, 2f\);/);
+    assert.match(deliveryCamera, /Vector3 pos = target \+ new Vector3\(10f, 18f, 24f\);/);
+    assert.match(deliveryCamera, /Time\.deltaTime \* 2\.2f/);
+    assert.strictEqual(summary.playerTaggedForCameraFollow, true);
+    assert.strictEqual(summary.deliveryCameraControllerFollowRepaired, true);
+    assert.strictEqual(summary.initialPhaseCameraFramed, true);
     assert.strictEqual(summary.runtimeSplitFiles, 0);
     assert.strictEqual(summary.phasePresetAssets, 2);
   } finally {
     fs.rmSync(tmpV12, { recursive: true, force: true });
+  }
+}
+
+// 2026-05-24 v13.1：程序员 Unity 交付必须同步 storyboard2html 的 scene-level 背景/雾/地面色。
+{
+  const tmpScene = fs.mkdtempSync(path.join(os.tmpdir(), 'programmer-scene-contract-'));
+  try {
+    const scripts = path.join(tmpScene, 'Assets', 'Scripts');
+    const scenes = path.join(tmpScene, 'Assets', 'Scenes');
+    const shaderDir = path.join(tmpScene, 'Assets', 'Shader');
+    fs.mkdirSync(scripts, { recursive: true });
+    fs.mkdirSync(scenes, { recursive: true });
+    fs.mkdirSync(shaderDir, { recursive: true });
+    fs.writeFileSync(path.join(scripts, 'MonoSingleton.cs'), 'using UnityEngine;\npublic abstract class MonoSingleton<T> : MonoBehaviour where T : MonoBehaviour {}\n');
+    fs.writeFileSync(path.join(shaderDir, 'SimpleLit.shader'), 'Shader "URP/SimpleLit" {}\n');
+    fs.writeFileSync(path.join(shaderDir, 'SimpleLit.shader.meta'), 'fileFormatVersion: 2\nguid: 69c1b8dc91f9ab449b8f3f249d4d62bf\n');
+    const sourceHtml = path.join(tmpScene, 'source.html');
+    fs.writeFileSync(sourceHtml, [
+      '<script>',
+      'const SCENE_CONFIG = {',
+      '  backgroundColor: 0x071026,',
+      '  fog: { color: 0x071026, near: 55, far: 145 },',
+      '  ground: { color: 0x13233a },',
+      '  ambientLight: { color: 0xffffff, intensity: 0.62 },',
+      '  directionalLight: { color: 0xffffff, intensity: 1.25 }',
+      '};',
+      '</script>'
+    ].join('\n'));
+    const groundGuid = '179fb0b77823b6345a0e6843ab9398d1';
+    fs.writeFileSync(path.join(scenes, 'Game.unity'), [
+      '%YAML 1.1',
+      '%TAG !u! tag:unity3d.com,2011:',
+      '--- !u!104 &2',
+      'RenderSettings:',
+      '  m_ObjectHideFlags: 0',
+      '  serializedVersion: 9',
+      '  m_Fog: 0',
+      '  m_FogColor: {r: 0.5, g: 0.5, b: 0.5, a: 1}',
+      '  m_FogMode: 3',
+      '  m_FogDensity: 0.01',
+      '  m_LinearFogStart: 0',
+      '  m_LinearFogEnd: 300',
+      '  m_AmbientSkyColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}',
+      '  m_AmbientEquatorColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}',
+      '  m_AmbientGroundColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}',
+      '  m_SkyboxMaterial: {fileID: 10304, guid: 0000000000000000f000000000000000, type: 0}',
+      '--- !u!1 &100',
+      'GameObject:',
+      '  m_Component:',
+      '  - component: {fileID: 101}',
+      '  - component: {fileID: 102}',
+      '  m_Name: Main Camera',
+      '  m_TagString: MainCamera',
+      '  m_IsActive: 1',
+      '--- !u!4 &101',
+      'Transform:',
+      '  m_GameObject: {fileID: 100}',
+      '  serializedVersion: 2',
+      '  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}',
+      '  m_LocalPosition: {x: 0, y: 8, z: -12}',
+      '  m_LocalScale: {x: 1, y: 1, z: 1}',
+      '  m_Children: []',
+      '  m_Father: {fileID: 0}',
+      '  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}',
+      '--- !u!20 &102',
+      'Camera:',
+      '  m_GameObject: {fileID: 100}',
+      '  m_ClearFlags: 2',
+      '  m_BackGroundColor: {r: 0.45, g: 0.54, b: 0.62, a: 1}',
+      '  far clip plane: 1000',
+      '  field of view: 60',
+      '--- !u!1 &200',
+      'GameObject:',
+      '  m_Component:',
+      '  - component: {fileID: 201}',
+      '  - component: {fileID: 202}',
+      '  m_Name: __Ground',
+      '  m_IsActive: 1',
+      '--- !u!4 &201',
+      'Transform:',
+      '  m_GameObject: {fileID: 200}',
+      '  serializedVersion: 2',
+      '  m_LocalPosition: {x: 0, y: 0, z: 0}',
+      '--- !u!23 &202',
+      'MeshRenderer:',
+      '  m_GameObject: {fileID: 200}',
+      '  m_Materials:',
+      '  - {fileID: 2100000, guid: ' + groundGuid + ', type: 2}',
+      ''
+    ].join('\n'));
+
+    const summary = cleaner.cleanProgrammerDelivery(tmpScene, {
+      project: { id: 'scene-contract', name: 'scene-contract', visualAssets: { source: sourceHtml } }
+    });
+    assert.strictEqual(summary.sceneContractApplied, true);
+    assert.strictEqual(summary.sceneContractGroundColor, true);
+    assert.strictEqual(summary.sceneContractFog, true);
+    const scene = fs.readFileSync(path.join(scenes, 'Game.unity'), 'utf8');
+    assert.match(scene, /m_Fog: 1/);
+    assert.match(scene, /m_FogColor: \{r: 0\.0275, g: 0\.0627, b: 0\.1490, a: 1\.0000\}/);
+    assert.match(scene, /m_FogMode: 1/);
+    assert.match(scene, /m_LinearFogStart: 55/);
+    assert.match(scene, /m_LinearFogEnd: 145/);
+    assert.match(scene, /m_SkyboxMaterial: \{fileID: 0\}/);
+    assert.match(scene, /m_BackGroundColor: \{r: 0\.0275, g: 0\.0627, b: 0\.1490, a: 1\.0000\}/);
+    const generatedMaterials = path.join(tmpScene, 'Assets', 'Materials', 'Generated');
+    const groundMat = fs.readdirSync(generatedMaterials)
+      .filter((name) => /Ground.*\.mat$/.test(name))
+      .map((name) => path.join(generatedMaterials, name))[0];
+    assert.ok(groundMat, 'ground fallback material should be generated');
+    const groundText = fs.readFileSync(groundMat, 'utf8');
+    assert.match(groundText, /_Color: \{r: 0\.0745, g: 0\.1373, b: 0\.2275, a: 1\.0000\}/);
+    assert.match(groundText, /_ColorTint: \{r: 0\.0065, g: 0\.0168, b: 0\.0423, a: 1\.0000\}/);
+    assert.match(groundText, /_EmissionColor: \{r: 0\.0000, g: 0\.0000, b: 0\.0000, a: 1\.0000\}/);
+    assert.match(fs.readFileSync(groundMat + '.meta', 'utf8'), new RegExp('guid: ' + groundGuid));
+  } finally {
+    fs.rmSync(tmpScene, { recursive: true, force: true });
   }
 }
 
