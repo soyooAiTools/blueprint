@@ -857,6 +857,95 @@ try {
   }
 }
 
+// 2026-05-24 v15.5：资源实体不能继续交付内置 Cube，占位资源要兜底成 SourcePrimitive。
+{
+  const tmpFallback = fs.mkdtempSync(path.join(os.tmpdir(), 'programmer-fallback-primitive-'));
+  try {
+    const scripts = path.join(tmpFallback, 'Assets', 'Scripts');
+    const scenes = path.join(tmpFallback, 'Assets', 'Scenes');
+    const shaderDir = path.join(tmpFallback, 'Assets', 'Shader');
+    fs.mkdirSync(scripts, { recursive: true });
+    fs.mkdirSync(scenes, { recursive: true });
+    fs.mkdirSync(shaderDir, { recursive: true });
+    fs.writeFileSync(path.join(shaderDir, 'SimpleLit.shader'), 'Shader "URP/SimpleLit" {}\n');
+    fs.writeFileSync(path.join(shaderDir, 'SimpleLit.shader.meta'), 'fileFormatVersion: 2\nguid: 69c1b8dc91f9ab449b8f3f249d4d62bf\n');
+    fs.writeFileSync(path.join(tmpFallback, 'README.md'), '# Unity 工程导出\n');
+    fs.writeFileSync(path.join(scenes, 'Game.unity'), [
+      '%YAML 1.1',
+      '%TAG !u! tag:unity3d.com,2011:',
+      '--- !u!1 &100',
+      'GameObject:',
+      '  m_ObjectHideFlags: 0',
+      '  m_CorrespondingSourceObject: {fileID: 0}',
+      '  m_PrefabInstance: {fileID: 0}',
+      '  m_PrefabAsset: {fileID: 0}',
+      '  serializedVersion: 6',
+      '  m_Component:',
+      '  - component: {fileID: 101}',
+      '  - component: {fileID: 102}',
+      '  - component: {fileID: 103}',
+      '  m_Layer: 0',
+      '  m_Name: _gold',
+      '  m_TagString: Untagged',
+      '  m_Icon: {fileID: 0}',
+      '  m_NavMeshLayer: 0',
+      '  m_StaticEditorFlags: 0',
+      '  m_IsActive: 1',
+      '--- !u!4 &101',
+      'Transform:',
+      '  m_ObjectHideFlags: 0',
+      '  m_CorrespondingSourceObject: {fileID: 0}',
+      '  m_PrefabInstance: {fileID: 0}',
+      '  m_PrefabAsset: {fileID: 0}',
+      '  m_GameObject: {fileID: 100}',
+      '  serializedVersion: 2',
+      '  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}',
+      '  m_LocalPosition: {x: -4, y: 0, z: -2}',
+      '  m_LocalScale: {x: 1, y: 1, z: 1}',
+      '  m_ConstrainProportionsScale: 0',
+      '  m_Children: []',
+      '  m_Father: {fileID: 0}',
+      '  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}',
+      '--- !u!33 &102',
+      'MeshFilter:',
+      '  m_ObjectHideFlags: 0',
+      '  m_CorrespondingSourceObject: {fileID: 0}',
+      '  m_PrefabInstance: {fileID: 0}',
+      '  m_PrefabAsset: {fileID: 0}',
+      '  m_GameObject: {fileID: 100}',
+      '  m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}',
+      '--- !u!23 &103',
+      'MeshRenderer:',
+      '  m_ObjectHideFlags: 0',
+      '  m_CorrespondingSourceObject: {fileID: 0}',
+      '  m_PrefabInstance: {fileID: 0}',
+      '  m_PrefabAsset: {fileID: 0}',
+      '  m_GameObject: {fileID: 100}',
+      '  m_Enabled: 1',
+      '  m_Materials:',
+      '  - {fileID: 2100000, guid: 11111111111111111111111111111111, type: 2}',
+      ''
+    ].join('\n'));
+
+    const summary = cleaner.cleanProgrammerDelivery(tmpFallback, {
+      project: { id: 'storyboard2html-space-ranger-demo2spec-v2', name: 'Space Ranger' },
+      validatorOpts: { maxLines: 10000 }
+    });
+    const scene = fs.readFileSync(path.join(scenes, 'Game.unity'), 'utf8');
+    assert.strictEqual(summary.fallbackSourcePrimitiveEntityCount, 1);
+    assert.strictEqual(summary.fallbackSourcePrimitiveRendererCount, 1);
+    assert.deepStrictEqual(summary.fallbackSourcePrimitiveNames, ['_gold']);
+    assert.deepStrictEqual(summary.extractorMissingPrimitiveEntities, ['_gold']);
+    assert.match(scene, /m_Name: SourcePrimitive_Gold_Fallback_00/);
+    assert.match(scene, /mGeometryType: "CylinderGeometry"/);
+    assert.match(scene, /mArgs:\n  - 0\.42\n  - 0\.42\n  - 0\.18\n  - 32/);
+    assert.doesNotMatch(scene, /m_Mesh: \{fileID: 10202, guid: 0000000000000000e000000000000000, type: 0\}/);
+    assert.match(scene, /m_Children:\n  - \{fileID:/);
+  } finally {
+    fs.rmSync(tmpFallback, { recursive: true, force: true });
+  }
+}
+
 console.log('programmer delivery cleaner tests passed');
 
 function walkLocal(root, out) {

@@ -105,13 +105,33 @@ function resolveEntities(specs, blueprintEntities) {
     entityList.push({
       name: se.name,
       template: bpEntity ? (bpEntity.template || '') : '',
+      explicitPool: bpEntity ? normalizeExplicitPool(bpEntity.pool || bpEntity.poolName) : null,
     });
   }
 
   // Use prompt-v5's matchPrefabs to get pool mapping
   var entityPoolMap = {};
   if (promptV5.matchPrefabs && entityList.length > 0) {
-    entityPoolMap = promptV5.matchPrefabs(entityList);
+    var usedExplicitPools = {};
+    var implicitEntities = [];
+    for (var ep = 0; ep < entityList.length; ep++) {
+      var explicitPool = entityList[ep].explicitPool;
+      if (explicitPool && !usedExplicitPools[explicitPool]) {
+        entityPoolMap[entityList[ep].name] = explicitPool;
+        usedExplicitPools[explicitPool] = true;
+      } else {
+        implicitEntities.push(entityList[ep]);
+      }
+    }
+
+    var implicitMap = promptV5.matchPrefabs(implicitEntities);
+    var implicitNames = Object.keys(implicitMap);
+    for (var im = 0; im < implicitNames.length; im++) {
+      var entityName = implicitNames[im];
+      var preferred = normalizeExplicitPool(implicitMap[entityName]);
+      entityPoolMap[entityName] = pickAvailablePool(preferred, usedExplicitPools);
+      usedExplicitPools[entityPoolMap[entityName]] = true;
+    }
   }
 
   // Enrich specs with resolved pool names
@@ -140,6 +160,41 @@ function resolveEntities(specs, blueprintEntities) {
     allEntities: specEntities,
     poolManifest: poolManifest,
   };
+}
+
+var POOL_SHAPE_LIMITS = { Cube: 5, Sphere: 5, Cylinder: 3, Plane: 3 };
+var POOL_COLORS = ['Red', 'Blue', 'Green', 'Yellow', 'Orange', 'Purple', 'White', 'Brown', 'Cyan', 'Pink'];
+
+function normalizeExplicitPool(poolName) {
+  var match = String(poolName || '').match(/^__Pool_([A-Za-z]+)_([A-Za-z]+)_(\d{2})$/);
+  if (!match) return null;
+  var shape = match[1];
+  var color = match[2];
+  var index = Number(match[3]);
+  if (!POOL_SHAPE_LIMITS[shape]) return null;
+  if (POOL_COLORS.indexOf(color) < 0) return null;
+  if (!Number.isFinite(index) || index < 1 || index > POOL_SHAPE_LIMITS[shape]) return null;
+  return '__Pool_' + shape + '_' + color + '_' + String(index).padStart(2, '0');
+}
+
+function pickAvailablePool(preferredPool, usedPools) {
+  var parsed = String(preferredPool || '').match(/^__Pool_([A-Za-z]+)_([A-Za-z]+)_(\d{2})$/);
+  var preferredShape = parsed && POOL_SHAPE_LIMITS[parsed[1]] ? parsed[1] : 'Cube';
+  var preferredColor = parsed && POOL_COLORS.indexOf(parsed[2]) >= 0 ? parsed[2] : 'White';
+  var shapes = [preferredShape].concat(Object.keys(POOL_SHAPE_LIMITS).filter(function(shape) { return shape !== preferredShape; }));
+  var colors = [preferredColor].concat(POOL_COLORS.filter(function(color) { return color !== preferredColor; }));
+  for (var si = 0; si < shapes.length; si++) {
+    var shape = shapes[si];
+    var max = POOL_SHAPE_LIMITS[shape];
+    for (var ci = 0; ci < colors.length; ci++) {
+      var color = colors[ci];
+      for (var idx = 1; idx <= max; idx++) {
+        var candidate = '__Pool_' + shape + '_' + color + '_' + String(idx).padStart(2, '0');
+        if (!usedPools[candidate]) return candidate;
+      }
+    }
+  }
+  return preferredPool || '__Pool_Cube_White_01';
 }
 
 function buildPoolManifest(entityPoolMap, specEntities, blueprintEntities) {

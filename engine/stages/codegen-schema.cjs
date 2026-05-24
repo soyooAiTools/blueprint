@@ -70,6 +70,7 @@ module.exports = {
         var skeletonResult = generateSkeleton(ctx.blueprint.specs, {
           entityPoolMap: resolved.entityPoolMap,
           entities: schema.entities, // carries chineseName / showLabel for world labels
+          visualAssets: ctx.blueprint.visualAssets || null,
           w1bSplit: ctx.blueprint.w1bSplit !== false, // default-on: 5-partial skeleton split
         });
         var isW1bSplit = (typeof skeletonResult === 'object' && skeletonResult.mode === 'w1b-5partial');
@@ -233,10 +234,28 @@ function localizeGeneratedCSharpComments(ctx) {
 function mergeSchemaEntitiesForResolution(blueprintEntities, schemaEntities) {
   var merged = [];
   var seen = {};
+  var indexByName = {};
+  function mergeMissing(target, source) {
+    if (!target || !source) return target;
+    var keys = ['pool', 'poolName', 'initPos', 'scale', 'chineseName', 'showLabel', 'terminalState'];
+    for (var i = 0; i < keys.length; i++) {
+      var key = keys[i];
+      if ((target[key] === undefined || target[key] === null || target[key] === '') && source[key] !== undefined && source[key] !== null && source[key] !== '') {
+        target[key] = source[key];
+      }
+    }
+    return target;
+  }
   function addEntity(ent) {
-    if (!ent || !ent.name || seen[ent.name]) return;
+    if (!ent || !ent.name) return;
+    if (seen[ent.name]) {
+      mergeMissing(indexByName[ent.name], ent);
+      return;
+    }
     seen[ent.name] = true;
-    merged.push(ent);
+    var cloned = Object.assign({}, ent);
+    indexByName[ent.name] = cloned;
+    merged.push(cloned);
   }
   (Array.isArray(blueprintEntities) ? blueprintEntities : []).forEach(addEntity);
   (Array.isArray(schemaEntities) ? schemaEntities : []).forEach(addEntity);

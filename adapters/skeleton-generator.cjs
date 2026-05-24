@@ -20,6 +20,9 @@ const path = require('path');
 // 防纯色初始化用默认颜色
 const GROUND_COLOR = { r: 0.75, g: 0.78, b: 0.82 };
 const CAMERA_BG = { r: 0.45, g: 0.52, b: 0.62 };
+const STORYBOARD_FALLBACK_BG = { r: 0.027, g: 0.063, b: 0.149 };
+const STORYBOARD_FALLBACK_GROUND = { r: 0.075, g: 0.13, b: 0.22 };
+const STORYBOARD_FALLBACK_AMBIENT = { r: 0.62, g: 0.68, b: 0.78 };
 const ENTITY_COLORS = [
   { r: 0.6, g: 0.3, b: 0.15, label: 'brown' },
   { r: 0.2, g: 0.4, b: 0.9, label: 'blue' },
@@ -58,6 +61,38 @@ function pickGenericEnemyAliasTarget(entityNames) {
 
 function csString(value) {
   return String(value == null ? '' : value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function rgbFromHexColor(value, fallback) {
+  var text = String(value || '').trim().replace(/^#/, '');
+  if (!/^[0-9a-f]{6}$/i.test(text)) return fallback;
+  return {
+    r: parseInt(text.slice(0, 2), 16) / 255,
+    g: parseInt(text.slice(2, 4), 16) / 255,
+    b: parseInt(text.slice(4, 6), 16) / 255,
+  };
+}
+
+function scaledRgbFromHexColor(value, intensity, fallback) {
+  var color = rgbFromHexColor(value, fallback);
+  if (!color) return fallback;
+  var k = Number(intensity);
+  if (!Number.isFinite(k)) k = 1;
+  return {
+    r: Math.min(1, Math.max(0, color.r * k)),
+    g: Math.min(1, Math.max(0, color.g * k)),
+    b: Math.min(1, Math.max(0, color.b * k)),
+  };
+}
+
+function csColor(color) {
+  var c = color || CAMERA_BG;
+  function f(v) {
+    var n = Number(v);
+    if (!Number.isFinite(n)) n = 0;
+    return Number(n.toFixed(4)) + 'f';
+  }
+  return 'new Color(' + f(c.r) + ', ' + f(c.g) + ', ' + f(c.b) + ')';
 }
 
 // [WAVE F] 玩家可读性自动注入：根据 spec 字段在 Phase_*_Init 顶部发射 SetGuideText / SetPhaseGoal。
@@ -253,6 +288,20 @@ function generateSkeleton(specs, opts = {}) {
   (opts.entities || []).forEach(ent => {
     if (ent && ent.name) entityMeta[ent.name] = ent;
   });
+  const sourceVisualContract = opts.visualAssets && opts.visualAssets.sourceEntityContract;
+  const sourceSceneContract = opts.visualAssets && opts.visualAssets.sourceSceneContract && opts.visualAssets.sourceSceneContract.present !== false
+    ? opts.visualAssets.sourceSceneContract
+    : null;
+  const sourceVisualParity = !!(sourceSceneContract || (sourceVisualContract && Number(sourceVisualContract.sourceEntityCount || sourceVisualContract.styleEntityCount || 0) > 0));
+  const sourceCameraBg = sourceSceneContract
+    ? rgbFromHexColor(sourceSceneContract.backgroundColor, STORYBOARD_FALLBACK_BG)
+    : STORYBOARD_FALLBACK_BG;
+  const sourceGroundColor = sourceSceneContract && sourceSceneContract.ground
+    ? rgbFromHexColor(sourceSceneContract.ground.color, STORYBOARD_FALLBACK_GROUND)
+    : STORYBOARD_FALLBACK_GROUND;
+  const sourceAmbientColor = sourceSceneContract && sourceSceneContract.ambientLight
+    ? scaledRgbFromHexColor(sourceSceneContract.ambientLight.color, sourceSceneContract.ambientLight.intensity, STORYBOARD_FALLBACK_AMBIENT)
+    : STORYBOARD_FALLBACK_AMBIENT;
 
   // 解决实体名与骨架内置变量的冲突。
   const renamedEntities = {};
@@ -1142,7 +1191,8 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    void Awake()');
   lines.push('    {');
   lines.push('        var cam = Camera.main;');
-  lines.push(`        if (cam != null) { cam.clearFlags = CameraClearFlags.SolidColor; cam.backgroundColor = new Color(${CAMERA_BG.r}f, ${CAMERA_BG.g}f, ${CAMERA_BG.b}f); }`);
+  const awakeCameraBg = sourceVisualParity ? sourceCameraBg : CAMERA_BG;
+  lines.push(`        if (cam != null) { cam.clearFlags = CameraClearFlags.SolidColor; cam.backgroundColor = ${csColor(awakeCameraBg)}; }`);
   lines.push('    }');
   lines.push('');
 
@@ -1214,8 +1264,31 @@ function generateSkeleton(specs, opts = {}) {
   }
   lines.push(`        // [SKELETON] 缓存 Camera.main；后续统一使用 mainCam`);
   lines.push(`        mainCam = Camera.main; // 正常`);
-  lines.push(`        if (mainCam != null) mainCam.backgroundColor = new Color(${CAMERA_BG.r}f, ${CAMERA_BG.g}f, ${CAMERA_BG.b}f);`);
+  const cameraBg = sourceVisualParity ? sourceCameraBg : CAMERA_BG;
+  lines.push(`        if (mainCam != null) mainCam.backgroundColor = ${csColor(cameraBg)};`);
   lines.push('        GFM_CameraController.Instance.Init(); // 镜头移动/缩放统一走 controller，避免 shot 间瞬移');
+  if (sourceVisualParity) {
+    lines.push('        // [STORYBOARD2HTML VISUAL PARITY] 同步源 HTML SCENE_CONFIG：透视相机、场景底色、环境光和地面色。');
+    lines.push('        if (mainCam != null)');
+    lines.push('        {');
+    lines.push('            mainCam.orthographic = false;');
+    lines.push('            mainCam.fieldOfView = 46f;');
+    lines.push('            mainCam.transform.position = new Vector3(10f, 18f, 24f);');
+    lines.push('            mainCam.transform.rotation = Quaternion.Euler(56f, 18f, 0f);');
+    lines.push('        }');
+    lines.push('        RenderSettings.ambientLight = ' + csColor(sourceAmbientColor) + ';');
+    lines.push('        var __bpGround = GameObject.Find("__Ground");');
+    lines.push('        if (__bpGround != null)');
+    lines.push('        {');
+    lines.push('            var __bpGroundRenderer = (Renderer)__bpGround.GetComponent(typeof(Renderer));');
+    lines.push('            if (__bpGroundRenderer != null && __bpGroundRenderer.sharedMaterial != null)');
+    lines.push('            {');
+    lines.push('                var __bpGroundMat = new Material(__bpGroundRenderer.sharedMaterial);');
+    lines.push('                __bpGroundMat.color = ' + csColor(sourceGroundColor) + ';');
+    lines.push('                __bpGroundRenderer.material = __bpGroundMat;');
+    lines.push('            }');
+    lines.push('        }');
+  }
   lines.push('');
 
   // [SKELETON] iOS 音频预播放初始化
@@ -1226,20 +1299,32 @@ function generateSkeleton(specs, opts = {}) {
   // [SKELETON] 预创建 Canvas 和 UI 文本
   lines.push('        // [SKELETON] 创建 Canvas 和 UI 文本；后续直接使用 uiCanvas/guideText/scoreText');
   lines.push('        uiCanvas = GFM_UI.CreateCanvas(1920, 1080);');
-  lines.push('        guideText = GFM_UI.CreateText(uiCanvas, "", new Vector2(0, 450), 52);');
-  lines.push('        scoreText = GFM_UI.CreateText(uiCanvas, "Score: 0", new Vector2(680, 480), 40);');
-  lines.push('        floatingText = GFM_UI.CreateText(uiCanvas, "", new Vector2(0, 360), 44);');
+  if (sourceVisualParity) {
+    lines.push('        guideText = GFM_UI.CreateText(uiCanvas, "", new Vector2(0, 482), 30);');
+    lines.push('        scoreText = GFM_UI.CreateText(uiCanvas, "Score: 0", new Vector2(-600, 482), 24);');
+    lines.push('        floatingText = GFM_UI.CreateText(uiCanvas, "", new Vector2(0, 410), 30);');
+  } else {
+    lines.push('        guideText = GFM_UI.CreateText(uiCanvas, "", new Vector2(0, 450), 52);');
+    lines.push('        scoreText = GFM_UI.CreateText(uiCanvas, "Score: 0", new Vector2(680, 480), 40);');
+    lines.push('        floatingText = GFM_UI.CreateText(uiCanvas, "", new Vector2(0, 360), 44);');
+  }
   if (_wfReadability) {
     // [WAVE F] 目标 HUD 单独一行，靠左下，避免遮挡 score。
-    lines.push('        goalText = GFM_UI.CreateText(uiCanvas, "", new Vector2(-680, 480), 40);');
+    lines.push(sourceVisualParity
+      ? '        goalText = GFM_UI.CreateText(uiCanvas, "", new Vector2(0, -470), 26);'
+      : '        goalText = GFM_UI.CreateText(uiCanvas, "", new Vector2(-680, 480), 40);');
   }
   lines.push('');
 
   if (isIdleGame) {
     lines.push('        // [SKELETON] Idle 初始化：等距相机');
-    lines.push('        if (mainCam != null) mainCam.orthographic = true;');
-    lines.push('        GFM_CameraController.Instance.SetOrthographicSize(8f);');
-    lines.push('        GFM_CameraController.Instance.SetCameraHeight(12f, -8f);');
+    if (sourceVisualParity) {
+      lines.push('        // [STORYBOARD2HTML VISUAL PARITY] 保持透视相机，不回退到默认正交灰底视角。');
+    } else {
+      lines.push('        if (mainCam != null) mainCam.orthographic = true;');
+      lines.push('        GFM_CameraController.Instance.SetOrthographicSize(8f);');
+      lines.push('        GFM_CameraController.Instance.SetCameraHeight(12f, -8f);');
+    }
     lines.push('');
   }
   lines.push('        // === TODO：创建游戏对象、摆放场景等 ===');

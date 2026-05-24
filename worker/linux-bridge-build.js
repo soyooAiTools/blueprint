@@ -45,7 +45,7 @@ const ENGINE_JS_DIR = isLinux ? '/opt/luna-poc/LunaCompiler/bin' : 'D:\\Luna\\pi
  * @returns {Promise<{ok: boolean, html?: string, error?: string, buildTime?: number}>}
  */
 async function buildFromCS(csCode, opts = {}) {
-  const { taskId = 'build', log = console.log, className = 'GameFlowManagerMain', extraFiles = {} } = opts;
+  const { taskId = 'build', log = console.log, className = 'GameFlowManagerMain', extraFiles = {}, visualAssets = null } = opts;
   // extraFiles: { 'GFM_Tools.cs': '...code...' }
   const startTime = Date.now();
 
@@ -167,7 +167,7 @@ async function buildFromCS(csCode, opts = {}) {
     assembleStage4(stage4Dir, binDir, STAGE1_CACHE);
 
     // 8. Inject GameFlowManagerMain into iframe.html
-    injectGameManager(stage4Dir, className);
+    injectGameManager(stage4Dir, className, visualAssets);
 
     // 9. Patch script1.js (prevent Awake crash)
     patchScript1(stage4Dir, log, taskId);
@@ -490,7 +490,11 @@ ${bootstrapHTML}
 }
 
 // ─── GameFlowManagerMain Injection ───
-function injectGameManager(stage4Dir, className) {
+function scriptSafeJson(value) {
+  return JSON.stringify(value || null).replace(/<(\/?)script/gi, '\\x3c$1script');
+}
+
+function injectGameManager(stage4Dir, className, visualAssets) {
   const iframePath = path.join(stage4Dir, 'iframe.html');
   if (!fs.existsSync(iframePath)) return;
 
@@ -498,6 +502,7 @@ function injectGameManager(stage4Dir, className) {
 
   // The injection script from worker-bridge-build.js (polyfills + game loop)
   const injectionScript = `<script>
+window.__BLUEPRINT_VISUAL_ASSETS__ = ${scriptSafeJson(visualAssets)};
 // Force preserveDrawingBuffer for CUA/QuickPlayTest pixel reading
 (function() {
   var _origGetCtx = HTMLCanvasElement.prototype.getContext;
@@ -515,6 +520,9 @@ function injectGameManager(stage4Dir, className) {
 (function() {
   var _sgAttempts = 0;
   var _sgTimer = null;
+  function _isInsideIframe() {
+    try { return window.self !== window.top; } catch(e) { return true; }
+  }
   function _dispatchStandaloneStart() {
     if (typeof window.app === 'undefined') {
       if (typeof window.startGame !== 'function') {
@@ -534,7 +542,10 @@ function injectGameManager(stage4Dir, className) {
       } catch(e) { console.error("[AI] luna:start fallback error:", e); }
     }
   }
-  _sgTimer = setTimeout(_dispatchStandaloneStart, 3000);
+  window.addEventListener("luna:ready", function() {
+    if (!_isInsideIframe()) setTimeout(_dispatchStandaloneStart, 0);
+  });
+  _sgTimer = setTimeout(_dispatchStandaloneStart, 1000);
   // Cancel timer if app is created normally
   var _origDesc = Object.getOwnPropertyDescriptor(window, 'app');
   if (!_origDesc || !_origDesc.get) {
@@ -972,6 +983,243 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
       });
       lightEnt.setEulerAngles(50, -30, 0);
 
+      function applyStoryboardVisualOverlay() {
+        var manifest = window.__BLUEPRINT_VISUAL_ASSETS__;
+        if (!manifest || !manifest.sourceEntityContract || !manifest.entityBindings) return;
+        try {
+          var sceneContract = manifest.sourceSceneContract || {};
+          var styles = manifest.sourceEntityContract.entityStyles || {};
+          var assets = manifest.assets || [];
+          var byAsset = {};
+          for (var ai = 0; ai < assets.length; ai++) byAsset[assets[ai].assetId] = assets[ai];
+          function color(hex, fallback) {
+            var text = String(hex || fallback || '#ffffff').replace('#', '');
+            if (!/^[0-9a-f]{6}$/i.test(text)) text = 'ffffff';
+            return new pc.Color(parseInt(text.slice(0,2),16)/255, parseInt(text.slice(2,4),16)/255, parseInt(text.slice(4,6),16)/255, 1);
+          }
+          function mat(hex) {
+            var m = new pc.StandardMaterial();
+            m.diffuse = color(hex, '#ffffff');
+            m.emissive = color(hex, '#000000');
+            m.emissiveIntensity = 0.08;
+            m.update();
+            return m;
+          }
+          function nums(raw) {
+            return String(raw || '').split(',').map(function(v) {
+              var m = String(v).match(/-?\d*\.?\d+/);
+              return m ? Number(m[0]) : 0;
+            });
+          }
+          function arr3(value, fallback) {
+            var out = Array.isArray(value) ? value.map(function(v) {
+              var m = String(v).match(/-?\d*\.?\d+/);
+              return m ? Number(m[0]) : NaN;
+            }) : [];
+            return out.length >= 3 && isFinite(out[0]) && isFinite(out[1]) && isFinite(out[2]) ? out.slice(0, 3) : fallback;
+          }
+          function primitiveSpec(asset) {
+            var type = asset && asset.geometry && asset.geometry.type || '';
+            var a = nums(asset && asset.geometry && asset.geometry.argsRaw);
+            if (/BoxGeometry/.test(type)) return { type: 'box', scale: [a[0] || 1, a[1] || 1, a[2] || 1] };
+            if (/CylinderGeometry/.test(type)) return { type: 'cylinder', scale: [(a[0] || 0.5) * 2, a[2] || 1, (a[1] || a[0] || 0.5) * 2] };
+            if (/ConeGeometry/.test(type)) return { type: 'cone', scale: [(a[0] || 0.5) * 2, a[1] || 1, (a[0] || 0.5) * 2] };
+            if (/PlaneGeometry/.test(type)) return { type: 'plane', scale: [a[0] || 1, 1, a[1] || a[0] || 1] };
+            var r = a[0] || 0.5;
+            return { type: 'sphere', scale: [r * 2, r * 2, r * 2] };
+          }
+          function applyMaterial(ent, material) {
+            try {
+              var instances = [];
+              if (ent.render && ent.render.meshInstances) instances = ent.render.meshInstances;
+              else if (ent.model && ent.model.model && ent.model.model.meshInstances) instances = ent.model.model.meshInstances;
+              for (var i = 0; i < instances.length; i++) instances[i].material = material;
+            } catch(e) {}
+          }
+          function addPrimitiveComponent(ent, type) {
+            var primitiveType = type || 'box';
+            try {
+              if (pcApp.systems && pcApp.systems.render) {
+                ent.addComponent('render', { type: primitiveType });
+                return;
+              }
+            } catch(renderErr) {}
+            try {
+              ent.addComponent('model', { type: primitiveType });
+            } catch(modelErr) {
+              var fallbackType = primitiveType === 'cone' ? 'cylinder' : 'box';
+              try {
+                if (pcApp.systems && pcApp.systems.render) ent.addComponent('render', { type: fallbackType });
+                else ent.addComponent('model', { type: fallbackType });
+              } catch(finalErr) {
+                throw finalErr;
+              }
+            }
+          }
+          function hideTemplateVisuals(root) {
+            function walk(ent) {
+              if (!ent) return;
+              if (ent.name && (/^__Pool_/.test(ent.name) || /^Label_/.test(ent.name) || ent.name === 'Canvas')) ent.enabled = false;
+              var children = ent.children || [];
+              for (var i = 0; i < children.length; i++) walk(children[i]);
+            }
+            walk(root);
+          }
+          function addPrimitive(parent, asset) {
+            var spec = primitiveSpec(asset);
+            var e = new pc.Entity('BPV_' + asset.assetId);
+            parent.addChild(e);
+            addPrimitiveComponent(e, spec.type);
+            var p = arr3(asset && asset.transform && asset.transform.position, [0,0,0]);
+            e.setLocalPosition(p[0], p[1], p[2]);
+            e.setLocalScale(spec.scale[0], spec.scale[1], spec.scale[2]);
+            applyMaterial(e, mat(asset && asset.material && asset.material.diffuseColor));
+            return e;
+          }
+          hideTemplateVisuals(pcApp.root);
+          if (sceneContract.backgroundColor && camEnt.camera) camEnt.camera.clearColor = color(sceneContract.backgroundColor, '#071026');
+          if (sceneContract.directionalLight && sceneContract.directionalLight.color && lightEnt.light) {
+            lightEnt.light.color = color(sceneContract.directionalLight.color, '#ffffff');
+            lightEnt.light.intensity = sceneContract.directionalLight.intensity || 1;
+          }
+          var root = new pc.Entity('__StoryboardVisualOverlay');
+          pcApp.root.addChild(root);
+          if (sceneContract.ground && sceneContract.ground.color) {
+            var g = new pc.Entity('StoryboardGround');
+            root.addChild(g);
+            addPrimitiveComponent(g, sceneContract.ground.kind === 'box' ? 'box' : 'cylinder');
+            var radius = sceneContract.ground.radius || Math.max(sceneContract.ground.width || 50, sceneContract.ground.depth || 50) / 2;
+            var height = sceneContract.ground.height || 0.2;
+            g.setPosition(0, -0.06, 0);
+            g.setLocalScale(radius * 2, height, radius * 2);
+            applyMaterial(g, mat(sceneContract.ground.color));
+          }
+          var starMat = mat('#ffffff');
+          var decor = sceneContract.decor || {};
+          var starCount = Math.min(120, Math.max(0, decor.stars || 0));
+          for (var si = 0; si < starCount; si++) {
+            var sx = ((Math.sin(si * 12.9898) * 43758.5453) % 1) * 135 - 35;
+            var sy = 8 + Math.abs((Math.sin(si * 78.233) * 31) % 30);
+            var sz = ((Math.sin(si * 39.425) * 24634.6345) % 1) * 90 - 45;
+            var s = new pc.Entity('StoryboardStar');
+            root.addChild(s);
+            addPrimitiveComponent(s, 'sphere');
+            s.setPosition(sx, sy, sz);
+            s.setLocalScale(0.07, 0.07, 0.07);
+            applyMaterial(s, starMat);
+          }
+          var ringMat = mat('#2f6d9c');
+          var ringCount = Math.min(6, Math.max(0, decor.orbitalRings || 0));
+          for (var ri = 0; ri < ringCount; ri++) {
+            for (var rp = 0; rp < 48; rp++) {
+              var t = rp / 48 * Math.PI * 2;
+              var dot = new pc.Entity('StoryboardOrbit');
+              root.addChild(dot);
+              addPrimitiveComponent(dot, 'sphere');
+              dot.setPosition(Math.cos(t) * (24 + ri * 13), 0.04, Math.sin(t) * (8 + ri * 5) + ri * 3);
+              dot.setLocalScale(0.045, 0.045, 0.045);
+              applyMaterial(dot, ringMat);
+            }
+          }
+          var entityRoots = {};
+          var names = manifest.sourceEntityContract.entities || Object.keys(styles);
+          for (var ni = 0; ni < names.length; ni++) {
+            var name = names[ni];
+            var binding = manifest.entityBindings[name];
+            var primary = binding && byAsset[binding.primaryAssetId];
+            var st = styles[name] || {};
+            var pos = primary && arr3(primary.transform && primary.transform.position, null);
+            if (!pos && st.position) pos = [Number(st.position.x) || 0, Number(st.position.y) || 0, Number(st.position.z) || 0];
+            pos = pos || [0,0,0];
+            var group = new pc.Entity('StoryboardEntity_' + name);
+            root.addChild(group);
+            group.setPosition(pos[0], pos[1], pos[2]);
+            entityRoots[name] = group;
+            var ids = binding && binding.assetIds || [];
+            for (var bi = 0; bi < ids.length; bi++) {
+              var asset = byAsset[ids[bi]];
+              if (!asset || asset.kind !== 'procedural_primitive') continue;
+              addPrimitive(group, asset);
+            }
+          }
+          function syncEntityPositions() {
+            var gs = null;
+            try { gs = typeof window.__gameState === 'function' ? window.__gameState() : window.__gameState; } catch(e) {}
+            var states = gs && (gs.entity_states || gs.entityStates) || {};
+            Object.keys(entityRoots).forEach(function(name) {
+              var st = states[name];
+              var p = st && st.position;
+              if (p && isFinite(Number(p.x)) && isFinite(Number(p.z))) {
+                entityRoots[name].setPosition(Number(p.x), Number(p.y) || 0, Number(p.z));
+              }
+              if (st && st.visible === false) entityRoots[name].enabled = false;
+              else entityRoots[name].enabled = true;
+            });
+          }
+          setInterval(syncEntityPositions, 100);
+          syncEntityPositions();
+          installStoryboardDomHud();
+          console.log('[AI] Storyboard visual overlay active: entities=' + Object.keys(entityRoots).length);
+        } catch(overlayErr) {
+          console.error('[AI] Storyboard visual overlay error:', overlayErr);
+        }
+      }
+
+      function installStoryboardDomHud() {
+        if (document.getElementById('bp-storyboard-hud')) return;
+        var style = document.createElement('style');
+        style.textContent = '#bp-storyboard-hud{position:fixed;left:12px;right:12px;top:10px;z-index:2147483000;display:flex;align-items:center;gap:8px;pointer-events:none;font-family:Arial,"Microsoft YaHei",sans-serif;color:#f2fbff}#bp-storyboard-hud .bp-pill,#bp-storyboard-hud .bp-tip,#bp-storyboard-hud .bp-phase{background:rgba(4,13,31,.82);border:1px solid rgba(118,214,255,.35);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.28);font-weight:900;white-space:nowrap}#bp-storyboard-hud .bp-phase{padding:8px 10px;color:#9fe8ff;font-size:13px}#bp-storyboard-hud .bp-pill{padding:8px 10px;font-size:13px}#bp-storyboard-hud .bp-tip{flex:1;min-height:38px;display:flex;align-items:center;justify-content:center;text-align:center;padding:7px 12px;font-size:16px}#bp-storyboard-target{position:fixed;left:50%;bottom:34px;z-index:2147483000;transform:translateX(-50%);background:rgba(4,13,31,.86);border:1px solid rgba(255,219,80,.5);border-radius:10px;padding:12px 16px;font:900 15px Arial,"Microsoft YaHei";color:#f2fbff;pointer-events:none}#bp-storyboard-stick{position:fixed;width:134px;height:134px;margin:-67px 0 0 -67px;border-radius:50%;z-index:2147483001;background:radial-gradient(circle,rgba(112,224,255,.3),rgba(26,61,100,.64));border:2px solid rgba(151,232,255,.74);box-shadow:0 10px 36px rgba(0,0,0,.45),inset 0 0 20px rgba(117,226,255,.2);pointer-events:none;opacity:0}#bp-storyboard-stick.active{opacity:1}#bp-storyboard-stick:before{content:"";position:absolute;left:50%;top:50%;width:64px;height:64px;border-radius:50%;transform:translate(-50%,-50%);border:1px dashed rgba(255,255,255,.4)}#bp-storyboard-knob{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;background:linear-gradient(180deg,#f8fdff,#4bd2ff);border:2px solid rgba(255,255,255,.9);box-shadow:0 5px 18px rgba(0,0,0,.36)}';
+        document.head.appendChild(style);
+        var hud = document.createElement('div');
+        hud.id = 'bp-storyboard-hud';
+        hud.innerHTML = '<div class="bp-phase" id="bp-storyboard-phase">Phase 1/8</div><div class="bp-pill" id="bp-storyboard-ice">冰 0</div><div class="bp-pill" id="bp-storyboard-oxygen">氧气 0</div><div class="bp-pill" id="bp-storyboard-scrap">铁块 0</div><div class="bp-pill" id="bp-storyboard-coin">金币 0</div><div class="bp-pill" id="bp-storyboard-tool">镐子</div><div class="bp-tip" id="bp-storyboard-tip"></div>';
+        document.body.appendChild(hud);
+        var target = document.createElement('div');
+        target.id = 'bp-storyboard-target';
+        target.textContent = '目标';
+        document.body.appendChild(target);
+        var stick = document.createElement('div');
+        stick.id = 'bp-storyboard-stick';
+        stick.innerHTML = '<div id="bp-storyboard-knob"></div>';
+        document.body.appendChild(stick);
+        var knob = document.getElementById('bp-storyboard-knob');
+        var origin = { x: 0, y: 0 };
+        document.addEventListener('pointerdown', function(ev) {
+          origin.x = ev.clientX; origin.y = ev.clientY;
+          stick.style.left = ev.clientX + 'px';
+          stick.style.top = ev.clientY + 'px';
+          stick.className = 'active';
+        }, true);
+        document.addEventListener('pointermove', function(ev) {
+          if (stick.className !== 'active') return;
+          var dx = ev.clientX - origin.x, dy = ev.clientY - origin.y;
+          var len = Math.sqrt(dx*dx+dy*dy), max = 52;
+          if (len > max) { dx = dx / len * max; dy = dy / len * max; }
+          knob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+        }, true);
+        function resetStick() { stick.className = ''; knob.style.transform = 'translate(0,0)'; }
+        document.addEventListener('pointerup', resetStick, true);
+        document.addEventListener('pointercancel', resetStick, true);
+        function set(id, text) { var el = document.getElementById(id); if (el) el.textContent = text; }
+        setInterval(function() {
+          var gs = null;
+          try { gs = typeof window.__gameState === 'function' ? window.__gameState() : window.__gameState; } catch(e) {}
+          gs = gs || {};
+          var res = gs.resources || gs.inventory || {};
+          var phase = String(gs.phase || gs.currentPhase || 'phase1').replace(/\\D+/g, '') || '1';
+          set('bp-storyboard-phase', 'Phase ' + phase + '/8');
+          set('bp-storyboard-ice', '冰 ' + (res.Ice || res.ice || 0));
+          set('bp-storyboard-oxygen', '氧气 ' + (res.Oxygen || res.oxygen || 0));
+          set('bp-storyboard-scrap', '铁块 ' + (res.Scrap || res.scrap || 0));
+          set('bp-storyboard-coin', '金币 ' + (res.Coin || res.Gold || res.gold || 0));
+          set('bp-storyboard-tool', (res.tool || '镐子') + ' / 飞船' + (res.ShipLevel || 0) + '节');
+          var guide = gs.ui_state && gs.ui_state.guideText || gs.uiState && gs.uiState.guideText || gs.variables && gs.variables.guideText || '';
+          set('bp-storyboard-tip', guide);
+          set('bp-storyboard-target', guide ? '目标：' + guide.slice(0, 24) : '目标');
+        }, 200);
+      }
+      applyStoryboardVisualOverlay();
+
       // 1.5 Hide all __BaseTemplate / __LunaPool non-pool children (Ground, Archer_1, etc.)
       // These overlap with __Pool_* objects and cause visual interference (e.g. black/green screen from Ground entity)
       (function hideBaseTemplate() {
@@ -1177,8 +1425,34 @@ if(_imgSet&&_imgSet.set){
 })();
 <\/script>`;
 
+  const loadingCover = `<style>
+#blueprint-loading-cover{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;flex-direction:column;background:#202733;color:#f8fafc;font-family:Arial,"Microsoft YaHei",sans-serif;transition:opacity .25s ease;pointer-events:none}
+#blueprint-loading-cover.bp-hide{opacity:0}
+#blueprint-loading-cover .bp-loader-ring{width:42px;height:42px;border:4px solid rgba(255,255,255,.24);border-top-color:#72d4ff;border-radius:50%;animation:bp-loader-spin 1s linear infinite;margin-bottom:14px}
+#blueprint-loading-cover .bp-loader-text{font-size:16px;line-height:1.4;letter-spacing:0;color:#f8fafc}
+@keyframes bp-loader-spin{to{transform:rotate(360deg)}}
+<\/style><div id="blueprint-loading-cover" aria-live="polite"><div class="bp-loader-ring"></div><div id="blueprint-loading-text" class="bp-loader-text">Loading...</div></div><script>
+(function(){
+  function cover(){return document.getElementById("blueprint-loading-cover");}
+  function hideCover(){
+    var el=cover();
+    if(!el)return;
+    el.classList.add("bp-hide");
+    setTimeout(function(){ if(el&&el.parentNode)el.parentNode.removeChild(el); },300);
+  }
+  window.addEventListener("luna:postrender", hideCover);
+  window.addEventListener("luna:started", function(){ setTimeout(hideCover, 700); });
+  setTimeout(function(){
+    if(!window.app){
+      var txt=document.getElementById("blueprint-loading-text");
+      if(txt)txt.textContent="Still loading...";
+    }
+  },8000);
+})();
+<\/script>`;
+
   // Inject interceptor after <body>
-  html = html.replace('<body>', '<body>' + interceptor);
+  html = html.replace('<body>', '<body>' + loadingCover + interceptor);
 
   // Inject __gameState polling bridge: reads gameObject.name set by skeleton's UpdateGameState()
   // Skeleton sets gameObject.name = "GFM|" + json in C#.

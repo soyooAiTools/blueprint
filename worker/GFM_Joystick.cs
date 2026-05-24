@@ -19,6 +19,8 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
 
     private RectTransform _bg;
     private RectTransform _handle;
+    private Image _bgImage;
+    private Image _handleImage;
     private Vector2 _input = Vector2.zero;
     private bool _dragging = false;
     private float _radius;
@@ -36,9 +38,9 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
         bgRect.anchorMin = new Vector2(0, 0);
         bgRect.anchorMax = new Vector2(0, 0);
         bgRect.pivot = new Vector2(0.5f, 0.5f);
-        bgRect.anchoredPosition = new Vector2(size * 0.8f, size * 0.8f);
+        bgRect.anchoredPosition = new Vector2(1760f, 160f);
         var bgImg = (Image)bgObj.GetComponent(typeof(Image));
-        bgImg.color = new Color(1f, 1f, 1f, 0.3f);
+        bgImg.color = new Color(1f, 1f, 1f, 0f);
 
         var handleObj = new GameObject("JoystickHandle", typeof(RectTransform), typeof(Image));
         handleObj.transform.SetParent(bgObj.transform, false);
@@ -46,11 +48,13 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
         handleRect.sizeDelta = new Vector2(size * 0.4f, size * 0.4f);
         handleRect.anchoredPosition = Vector2.zero;
         var handleImg = (Image)handleObj.GetComponent(typeof(Image));
-        handleImg.color = new Color(1f, 1f, 1f, 0.6f);
+        handleImg.color = new Color(1f, 1f, 1f, 0f);
 
         instance = bgObj.AddComponent<GFM_Joystick>();
         instance._bg = bgRect;
         instance._handle = handleRect;
+        instance._bgImage = bgImg;
+        instance._handleImage = handleImg;
         instance._radius = size * 0.5f;
         instance._bgStartPos = bgRect.anchoredPosition;
 
@@ -61,6 +65,8 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
     public void OnPointerDown(PointerEventData eventData)
     {
         _dragging = true;
+        _bg.anchoredPosition = eventData.position;
+        SetVisible(true);
         OnDrag(eventData);
     }
 
@@ -83,5 +89,15 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
         _dragging = false;
         _handle.anchoredPosition = Vector2.zero;
         _input = Vector2.zero;
+        SetVisible(false);
+    }
+
+    // 根据拖拽状态显隐摇杆，未操作时不遮挡源画面。
+    private void SetVisible(bool visible)
+    {
+        float bgAlpha = visible ? 0.3f : 0f;
+        float handleAlpha = visible ? 0.6f : 0f;
+        if (_bgImage != null) _bgImage.color = new Color(1f, 1f, 1f, bgAlpha);
+        if (_handleImage != null) _handleImage.color = new Color(1f, 1f, 1f, handleAlpha);
     }
 }

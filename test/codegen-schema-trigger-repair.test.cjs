@@ -152,6 +152,18 @@ assert.strictEqual(codegenSchema._internals.isSchemaNonRetryableError('schema ma
 }
 
 {
+  const merged = codegenSchema._internals.mergeSchemaEntitiesForResolution(
+    [{ name: 'Player', template: 'hero' }],
+    [{ name: 'Player', pool: '__Pool_Cylinder_Cyan_01', initPos: [-8, 0, 2], scale: 0.65 }]
+  );
+  assert.strictEqual(merged.length, 1);
+  assert.strictEqual(merged[0].template, 'hero');
+  assert.strictEqual(merged[0].pool, '__Pool_Cylinder_Cyan_01');
+  assert.deepStrictEqual(merged[0].initPos, [-8, 0, 2]);
+  assert.strictEqual(merged[0].scale, 0.65);
+}
+
+{
   const schema = {
     gameConfig: {},
     entities: [

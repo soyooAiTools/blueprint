@@ -111,10 +111,7 @@ public class GFM_Player : MonoBehaviour
         EnsurePlayerObject();
 
         // 2) 虚拟摇杆 (依赖 Canvas — 这里会触发 UIManager 懒初始化)
-        if (GFM_UIManager.Instance != null && GFM_UIManager.Instance.Canvas != null)
-        {
-            _joystick = GFM_Joystick.Create(GFM_UIManager.Instance.Canvas, 180f);
-        }
+        EnsureJoystick();
 
         // 3) Forms 保底：单形态 (外部可替换)
         if (Forms == null || Forms.Length == 0)
@@ -150,6 +147,7 @@ public class GFM_Player : MonoBehaviour
     public void MovePlayer()
     {
         var go = Go;
+        if (_joystick == null) EnsureJoystick();
         if (go == null || _joystick == null) return;
 
         float h = _joystick.Horizontal;
@@ -159,6 +157,16 @@ public class GFM_Player : MonoBehaviour
             Vector3 move = new Vector3(h, 0, v) * MoveSpeed * Time.deltaTime;
             go.transform.position += move;
             go.transform.rotation = Quaternion.LookRotation(new Vector3(h, 0, v));
+        }
+    }
+
+    // 确保预挂在场景中的 JoystickBG/JoystickHandle 被脚本接管。
+    private void EnsureJoystick()
+    {
+        if (_joystick != null) return;
+        if (GFM_UIManager.Instance != null && GFM_UIManager.Instance.Canvas != null)
+        {
+            _joystick = GFM_Joystick.Create(GFM_UIManager.Instance.Canvas, 180f);
         }
     }
 

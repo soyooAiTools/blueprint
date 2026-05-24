@@ -691,15 +691,15 @@ public static class GFM_UI
         canvas.sortingOrder = 100;
         canvas.transform.SetParent(target.transform, false);
         canvas.transform.localPosition = new Vector3(0, heightOffset, 0);
-        canvas.transform.localScale = new Vector3(0.015f, 0.015f, 0.015f);
+        canvas.transform.localScale = new Vector3(0.0075f, 0.0075f, 0.0075f);
         var rt = (RectTransform)canvas.GetComponent(typeof(RectTransform));
-        rt.sizeDelta = new Vector2(240, 40);
+        rt.sizeDelta = new Vector2(180, 28);
 
         // Subtle background — CUA uses __gameState JSON, not visual labels
         var bgObj = new GameObject("LabelBG", typeof(RectTransform), typeof(Image));
         bgObj.transform.SetParent(canvas.transform, false);
         var bgRect = (RectTransform)bgObj.GetComponent(typeof(RectTransform));
-        bgRect.sizeDelta = new Vector2(240, 40);
+        bgRect.sizeDelta = new Vector2(180, 28);
         bgRect.anchoredPosition = Vector2.zero;
         var bgImg = (Image)bgObj.GetComponent(typeof(Image));
         bgImg.color = new Color(0f, 0f, 0f, 0.0f);
@@ -710,7 +710,7 @@ public static class GFM_UI
         var txtObj = (Text)txtGO.AddComponent(typeof(Text));
         txtGO.transform.SetParent(canvas.transform, false);
         var txtRect = (RectTransform)txtGO.GetComponent(typeof(RectTransform));
-        txtRect.sizeDelta = new Vector2(240, 40);
+        txtRect.sizeDelta = new Vector2(180, 28);
         txtRect.anchoredPosition = Vector2.zero;
         if (!object.ReferenceEquals(txtObj, null))
         {
@@ -719,7 +719,7 @@ public static class GFM_UI
             {
                 var font = Resources.Load<Font>("DefaultFont");
                 if (!object.ReferenceEquals(font, null)) txtObj.font = font;
-                txtObj.fontSize = 22;
+                txtObj.fontSize = 12;
                 txtObj.color = Color.white;
                 txtObj.alignment = TextAnchor.MiddleCenter;
                 txtObj.horizontalOverflow = HorizontalWrapMode.Overflow;
