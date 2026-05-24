@@ -425,4 +425,87 @@ try {
   }
 }
 
+// 2026-05-24 v12：参考 Unity 交付必须真拆成独立 Manager 类，禁止 partial/runtime 马甲回潮。
+{
+  const tmpV12 = fs.mkdtempSync(path.join(os.tmpdir(), 'programmer-v12-'));
+  try {
+    const scripts = path.join(tmpV12, 'Assets', 'Scripts');
+    const scenes = path.join(tmpV12, 'Assets', 'Scenes');
+    fs.mkdirSync(scripts, { recursive: true });
+    fs.mkdirSync(scenes, { recursive: true });
+    fs.writeFileSync(path.join(tmpV12, 'README.md'), '# Unity 工程导出\n');
+    fs.writeFileSync(path.join(scenes, 'Game.unity'), [
+      '%YAML 1.1',
+      '%TAG !u! tag:unity3d.com,2011:',
+      '--- !u!29 &1',
+      'OcclusionCullingSettings:',
+      '  m_ObjectHideFlags: 0',
+      ''
+    ].join('\n'));
+    fs.writeFileSync(path.join(scripts, 'MainManager.cs'), [
+      'using UnityEngine;',
+      'public class MainManager : MonoSingleton<MainManager>',
+      '{',
+      '    string[] _entityBindingIds = new string[] { "_player", "_gold", "_ctaButton" };',
+      '    public GameObject _player;',
+      '    public GameObject _gold;',
+      '    public GameObject _ctaButton;',
+      '    void Start() {}',
+      '    void Update() {}',
+      '    void SpawnGold(int count) { SpawnBoundEntity(_gold, ref _goldState, count); }',
+      '    int _goldState;',
+      '    void SpawnBoundEntity(GameObject entity, ref int state, int count) {}',
+      '    // Shot 1 / Phase: phase1',
+      '    // 标题: 采集金币',
+      '    // 入画物体: _player, _gold',
+      '    void Phase_phase1_Init() { GMP_VisualGuide.HighlightTarget(_gold); }',
+      '    // Shot 2 / Phase: phase2',
+      '    // 标题: 点击下载',
+      '    // 入画物体: _player, _ctaButton',
+      '    void Phase_phase2_Init() { GMP_VisualGuide.HighlightTarget(_ctaButton); }',
+      '}',
+    ].join('\n'));
+    fs.writeFileSync(path.join(scripts, 'MonoSingleton.cs'), [
+      'using UnityEngine;',
+      'public abstract class MonoSingleton<T> : MonoBehaviour where T : MonoBehaviour {}',
+    ].join('\n'));
+
+    const summary = cleaner.cleanProgrammerDelivery(tmpV12, { project: { id: 'v12', name: 'v12' } });
+    const managerDir = path.join(scripts, 'Manager');
+    ['MainManager', 'PhaseController', 'EntityBindingManager', 'AutoPlayDriver', 'HudController', 'EventRuleEngine'].forEach((name) => {
+      const file = path.join(managerDir, name + '.cs');
+      assert.ok(fs.existsSync(file), name + '.cs should be generated under Manager');
+      const text = fs.readFileSync(file, 'utf8');
+      assert.doesNotMatch(text, /\bpartial\s+class\b/, name + ' must not be partial');
+      assert.match(text, new RegExp('class\\s+' + name + '\\b'), name + ' should own its class');
+    });
+    assert.ok(fs.existsSync(path.join(scripts, 'Common', 'PhasePreset.cs')));
+    assert.ok(!fs.existsSync(path.join(scripts, 'MainManager.cs')), 'root MainManager god class should be removed');
+    assert.strictEqual(walkLocal(scripts).filter((file) => /\.Part\d*\.cs$/.test(file)).length, 0);
+    assert.strictEqual(walkLocal(scripts).filter((file) => /(Runtime|Facade)\.cs$/.test(file)).length, 0);
+    assert.strictEqual(walkLocal(scripts).filter((file) => /void\s+Spawn[A-Z][A-Za-z]+\s*\(/.test(fs.readFileSync(file, 'utf8'))).length, 0);
+    assert.strictEqual(fs.readdirSync(path.join(tmpV12, 'Assets', 'Phases')).filter((name) => /^Phase\d+\.asset$/.test(name)).length, 2);
+    const scene = fs.readFileSync(path.join(scenes, 'Game.unity'), 'utf8');
+    ['MainManager', 'PhaseController', 'EntityBindingManager', 'AutoPlayDriver', 'HudController', 'EventRuleEngine'].forEach((name) => {
+      assert.strictEqual((scene.match(new RegExp('m_Name: ' + name, 'g')) || []).length, 1, name + ' should be scene-mounted once');
+    });
+    assert.strictEqual((scene.match(/guid:/g) || []).length >= 8, true, 'scene should contain script refs plus phase asset refs');
+    assert.strictEqual(summary.runtimeSplitFiles, 0);
+    assert.strictEqual(summary.phasePresetAssets, 2);
+  } finally {
+    fs.rmSync(tmpV12, { recursive: true, force: true });
+  }
+}
+
 console.log('programmer delivery cleaner tests passed');
+
+function walkLocal(root, out) {
+  out = out || [];
+  if (!fs.existsSync(root)) return out;
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const full = path.join(root, entry.name);
+    if (entry.isDirectory()) walkLocal(full, out);
+    else if (entry.isFile() && /\.cs$/.test(entry.name)) out.push(full);
+  }
+  return out;
+}
