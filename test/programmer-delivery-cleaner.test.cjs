@@ -463,6 +463,8 @@ try {
       '    // 标题: 点击下载',
       '    // 入画物体: _player, _ctaButton',
       '    void Phase_phase2_Init() { GMP_VisualGuide.HighlightTarget(_ctaButton); }',
+      '    bool Phase_phase2_GateReady() { return EntityAdvanced(_gold, mSnap_GoldPos) && PhaseDwellReady(12f); }',
+      '    bool EndGame_GateReady() { return EntityAdvanced(_ctaButton, mSnap_CtaButtonPos) && PhaseDwellReady(12f); }',
       '}',
     ].join('\n'));
     fs.writeFileSync(path.join(scripts, 'MonoSingleton.cs'), [
@@ -480,11 +482,28 @@ try {
       assert.match(text, new RegExp('class\\s+' + name + '\\b'), name + ' should own its class');
     });
     assert.ok(fs.existsSync(path.join(scripts, 'Common', 'PhasePreset.cs')));
+    const phasePresetCode = fs.readFileSync(path.join(scripts, 'Common', 'PhasePreset.cs'), 'utf8');
+    assert.match(phasePresetCode, /switch \(kind\)/, 'PhaseGate should use an explicit kind switch');
+    assert.match(phasePresetCode, /case "resource"/, 'resource gate branch should be generated');
+    assert.match(phasePresetCode, /case "entity"/, 'entity gate branch should be generated');
+    assert.match(phasePresetCode, /GMP_EconomyManager\.instance\.GetResource/, 'resource gates should read the economy manager');
+    const phaseControllerCode = fs.readFileSync(path.join(managerDir, 'PhaseController.cs'), 'utf8');
+    assert.match(phaseControllerCode, /preset\.gate\.IsReady/, 'PhaseController should use PhasePreset gate data');
+    const entityBindingCode = fs.readFileSync(path.join(managerDir, 'EntityBindingManager.cs'), 'utf8');
+    assert.match(entityBindingCode, /int GetActiveCount\(string entityName\)/, 'EntityBindingManager should expose active-count gate helper');
     assert.ok(!fs.existsSync(path.join(scripts, 'MainManager.cs')), 'root MainManager god class should be removed');
     assert.strictEqual(walkLocal(scripts).filter((file) => /\.Part\d*\.cs$/.test(file)).length, 0);
     assert.strictEqual(walkLocal(scripts).filter((file) => /(Runtime|Facade)\.cs$/.test(file)).length, 0);
     assert.strictEqual(walkLocal(scripts).filter((file) => /void\s+Spawn[A-Z][A-Za-z]+\s*\(/.test(fs.readFileSync(file, 'utf8'))).length, 0);
     assert.strictEqual(fs.readdirSync(path.join(tmpV12, 'Assets', 'Phases')).filter((name) => /^Phase\d+\.asset$/.test(name)).length, 2);
+    const phase1Asset = fs.readFileSync(path.join(tmpV12, 'Assets', 'Phases', 'Phase1.asset'), 'utf8');
+    const phase2Asset = fs.readFileSync(path.join(tmpV12, 'Assets', 'Phases', 'Phase2.asset'), 'utf8');
+    assert.match(phase1Asset, /targetEntity: "_gold"/, 'phase1 target should follow the original gate entity');
+    assert.match(phase1Asset, /  - _gold/, 'gate entity should be visible/interactable in the phase asset');
+    assert.match(phase1Asset, /kind: "entity"/, 'phase1 gate should be data-driven');
+    assert.match(phase1Asset, /target: "_gold"/, 'phase1 gate should keep the original gate target');
+    assert.match(phase1Asset, /threshold: 2/, 'entity gates should use built-state threshold');
+    assert.match(phase2Asset, /target: "_ctaButton"/, 'last phase should use EndGame gate target');
     const scene = fs.readFileSync(path.join(scenes, 'Game.unity'), 'utf8');
     ['MainManager', 'PhaseController', 'EntityBindingManager', 'AutoPlayDriver', 'HudController', 'EventRuleEngine'].forEach((name) => {
       assert.strictEqual((scene.match(new RegExp('m_Name: ' + name, 'g')) || []).length, 1, name + ' should be scene-mounted once');
