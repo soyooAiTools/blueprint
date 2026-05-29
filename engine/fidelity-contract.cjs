@@ -19,7 +19,11 @@ var SCHEMA_VERSION = '1.2.0';
 // {default?, perPhase}). v1.0.0 instances remain valid — lib field-diff @0.6.1
 // transitionally reads hud[id^="label."] as worldLabel fallback so v1.0 contracts
 // run against @0.6.1 lib without migration.
-var ACCEPTED_INSTANCE_SCHEMA_VERSIONS = { '1.0.0': true, '1.1.0': true, '1.2.0': true };
+// v1.3.0 (task #45) adds optional scene.backgroundColor (linear [r,g,b]) +
+// entities[].primitiveStyle.{ modelRef:string, baseColor:[r,g,b] } reverse-extracted
+// from source HTML JS literals (SCENE_CONFIG / ENTITY_STYLE). v1.2 contracts remain
+// valid — these fields are advisory at v1.2, required at v1.3 only when present.
+var ACCEPTED_INSTANCE_SCHEMA_VERSIONS = { '1.0.0': true, '1.1.0': true, '1.2.0': true, '1.3.0': true };
 var RESOLVED_CONFLICT_STATUSES = { accepted: true, rejected: true, deferred: true };
 
 function readJson(filePath) {
@@ -258,12 +262,90 @@ function validateEntity(entity, errors, basePath) {
   if (!isPlainObject(entity.pivot)) errors.push(basePath + '.pivot must be an object');
   if (!isPlainObject(entity.bounds)) errors.push(basePath + '.bounds must be an object');
   if (entity.worldLabel !== undefined) {
-    validatePolymorphicText(entity.worldLabel, errors, basePath + '.worldLabel');
+    // v1.3 worldLabel is a richer object {text, worldOffset, color, fontSize, ...}.
+    // v1.1 polymorphic-text form (string or {default, perPhase}) is still accepted.
+    if (isPlainObject(entity.worldLabel) && typeof entity.worldLabel.text === 'string'
+        && isPlainObject(entity.worldLabel.worldOffset)) {
+      validateWorldLabelRecord(entity.worldLabel, errors, basePath + '.worldLabel');
+    } else {
+      validatePolymorphicText(entity.worldLabel, errors, basePath + '.worldLabel');
+    }
+  }
+  if (entity.primitiveStyle !== undefined) {
+    validatePrimitiveStyle(entity.primitiveStyle, errors, basePath + '.primitiveStyle');
   }
   validateProvenance(entity.provenance, errors, basePath + '.provenance');
   requiredArray(entity, 'primitives', errors, basePath).forEach(function(primitive, index) {
     validatePrimitive(primitive, errors, basePath + '.primitives[' + index + ']');
   });
+}
+
+// task #45 (v1.3): rich worldLabel record. text + worldOffset are required;
+// color, fontSize, consumer, provenance are optional. Writer overlay (#46)
+// reads worldOffset to place a sprite at entity.position + worldOffset.
+function validateWorldLabelRecord(label, errors, basePath) {
+  if (typeof label.text !== 'string' || !label.text) {
+    errors.push(basePath + '.text must be a non-empty string');
+  }
+  if (!isPlainObject(label.worldOffset)) {
+    errors.push(basePath + '.worldOffset must be an object');
+  } else {
+    ['x', 'y', 'z'].forEach(function(k) {
+      if (typeof label.worldOffset[k] !== 'number' || !isFinite(label.worldOffset[k])) {
+        errors.push(basePath + '.worldOffset.' + k + ' must be a finite number');
+      }
+    });
+  }
+  if (label.color !== undefined && typeof label.color !== 'string') {
+    errors.push(basePath + '.color must be a string when present');
+  }
+  if (label.fontSize !== undefined && (typeof label.fontSize !== 'number' || label.fontSize <= 0)) {
+    errors.push(basePath + '.fontSize must be a positive number when present');
+  }
+  if (label.consumer !== undefined && !Array.isArray(label.consumer)) {
+    errors.push(basePath + '.consumer must be an array when present');
+  }
+}
+
+// task #45 (v1.3): semantic model-kind hint + per-entity tint extracted from
+// source HTML ENTITY_STYLE. #46 writer picks composition function by modelRef
+// and applies baseColor as material tint, replacing primitive box/cylinder
+// placeholders with the right styled mesh chain.
+function validatePrimitiveStyle(style, errors, basePath) {
+  if (!isPlainObject(style)) {
+    errors.push(basePath + ' must be an object');
+    return;
+  }
+  if (typeof style.modelRef !== 'string' || !style.modelRef) {
+    errors.push(basePath + '.modelRef must be a non-empty string');
+  }
+  if (!Array.isArray(style.baseColor) || style.baseColor.length !== 3
+      || !style.baseColor.every(function(v) { return typeof v === 'number' && v >= 0 && v <= 1; })) {
+    errors.push(basePath + '.baseColor must be a [r,g,b] array of 0..1 numbers');
+  }
+  if (style.baseColorHex !== undefined && typeof style.baseColorHex !== 'string') {
+    errors.push(basePath + '.baseColorHex must be a string when present');
+  }
+}
+
+// task #45 (v1.3): scene-level fields (informative — writer overlay #46 may consume
+// scene.backgroundColor as PlayCanvas clear color). v1.2 contracts may have no scene
+// block at all; v1.3 typically populates scene.backgroundColor from source HTML
+// SCENE_CONFIG.backgroundColor reverse-extraction.
+function validateSceneBlock(scene, errors, basePath) {
+  if (!isPlainObject(scene)) {
+    errors.push(basePath + ' must be an object when present');
+    return;
+  }
+  if (scene.backgroundColor !== undefined) {
+    if (!Array.isArray(scene.backgroundColor) || scene.backgroundColor.length !== 3
+        || !scene.backgroundColor.every(function(v) { return typeof v === 'number' && v >= 0 && v <= 1; })) {
+      errors.push(basePath + '.backgroundColor must be a [r,g,b] array of 0..1 numbers');
+    }
+  }
+  if (scene.backgroundColorHex !== undefined && typeof scene.backgroundColorHex !== 'string') {
+    errors.push(basePath + '.backgroundColorHex must be a string when present');
+  }
 }
 
 function validatePhase(phase, errors, basePath, contractSchemaVersion) {
@@ -341,6 +423,8 @@ function validateFidelityContract(doc) {
   var coordinateSystem = requiredObject(doc, 'coordinateSystem', errors, '$');
   requireKeys(coordinateSystem, ['source', 'target', 'handedness', 'zFlip', 'unitScale'], errors, '$.coordinateSystem');
   validateRendererAdapter(requiredObject(doc, 'rendererAdapter', errors, '$'), errors);
+  // v1.3 optional scene block — present only when source HTML reverse-extraction succeeded.
+  if (doc.scene !== undefined) validateSceneBlock(doc.scene, errors, '$.scene');
   requiredArray(doc, 'entities', errors, '$').forEach(function(entity, index) {
     validateEntity(entity, errors, 'entities[' + index + ']');
   });

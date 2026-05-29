@@ -369,6 +369,10 @@ function resolvePolymorphicText(spec, phaseId) {
       return spec.perPhase[phaseId];
     }
     if (Object.prototype.hasOwnProperty.call(spec, 'default')) return spec.default;
+    // task #45 (v1.3): rich worldLabel record { text, worldOffset, ... } —
+    // text is phase-constant. Falls through after perPhase/default to keep
+    // v1.1 polymorphic-text behavior strictly first.
+    if (typeof spec.text === 'string') return spec.text;
   }
   return undefined;
 }
@@ -528,6 +532,113 @@ function diffWorldLabelBucket(indexed, phaseId, observed) {
   return entries;
 }
 
+// ─── Bucket 4: scene (v1.3) ────────────────────────────────────────────────────
+// task #45 (v1.3): expected `contract.scene.backgroundColor` (linear-RGB
+// 3-element array 0..1) vs observed `observed.scene.backgroundColor`. Blocking
+// when contract declares scene but target doesn't render it — this is the gate
+// #46 worker overlay must turn green by wiring pc.scene.clearColor from the
+// contract.
+function diffSceneBucket(indexed, phaseId, observed) {
+  const entries = [];
+  const exp = indexed.contract.scene;
+  if (!exp || !Array.isArray(exp.backgroundColor) || exp.backgroundColor.length < 3) {
+    return entries; // pre-v1.3 contract has no scene block
+  }
+  const expBg = exp.backgroundColor;
+  const obsScene = observed && observed.scene;
+  const obsBg = obsScene && obsScene.backgroundColor;
+  if (obsBg === undefined || obsBg === null) {
+    entries.push({
+      key: 'backgroundColor',
+      status: 'missing',
+      diffPaths: [{ path: '$.scene.backgroundColor', expected: expBg, observed: '<missing>' }],
+      blocking: true,
+      provenance: exp.provenance || null,
+    });
+    return entries;
+  }
+  if (!Array.isArray(obsBg) || obsBg.length < 3 ||
+      !floatEq(expBg[0], obsBg[0]) || !floatEq(expBg[1], obsBg[1]) || !floatEq(expBg[2], obsBg[2])) {
+    entries.push({
+      key: 'backgroundColor',
+      status: 'mismatch',
+      diffPaths: [{ path: '$.scene.backgroundColor', expected: expBg, observed: obsBg }],
+      blocking: true,
+      provenance: exp.provenance || null,
+    });
+  }
+  return entries;
+}
+
+// ─── Bucket 5: primitiveStyle (v1.3) ───────────────────────────────────────────
+// task #45 (v1.3): per-entity `entity.primitiveStyle = {modelRef, baseColor[,
+// baseColorHex]}` reverse-extracted from source HTML by Path B producer. The
+// writer overlay (#46) must consume modelRef → real Luna mesh and baseColor →
+// material parameter; this bucket surfaces gaps. Blocking when contract declares
+// primitiveStyle but the entity is visible and observed style is missing/
+// mismatched. Entity-not-visible is the entities-bucket's job — skip here to
+// avoid double-counting.
+function diffPrimitiveStyleBucket(indexed, phaseId, observed) {
+  const entries = [];
+  const expectedVisible = expectedVisibleForPhase(indexed, phaseId);
+  if (!expectedVisible) return entries;
+  const observedVisible = new Set();
+  for (const x of (observed.visibleEntities || [])) observedVisible.add(canonicalEntityKey(x));
+  const canonDetails = {};
+  for (const k of Object.keys(observed.entityDetails || {})) {
+    canonDetails[canonicalEntityKey(k)] = observed.entityDetails[k];
+  }
+
+  for (const name of expectedVisible) {
+    const expEntity = indexed.entitiesByFamily[name];
+    if (!expEntity || !expEntity.primitiveStyle) continue;
+    if (!observedVisible.has(name)) continue; // entities bucket already flags this
+    const expStyle = expEntity.primitiveStyle;
+    const obs = canonDetails[name];
+    const obsStyle = obs && obs.primitiveStyle;
+    if (!obsStyle) {
+      entries.push({
+        entityId: expEntity.id || expEntity.name,
+        status: 'missing',
+        diffPaths: [{ path: '$.primitiveStyle', expected: expStyle, observed: '<missing>' }],
+        blocking: true,
+        provenance: expEntity.provenance || null,
+      });
+      continue;
+    }
+    const diffPaths = [];
+    if (typeof expStyle.modelRef === 'string' && expStyle.modelRef !== obsStyle.modelRef) {
+      diffPaths.push({
+        path: '$.primitiveStyle.modelRef',
+        expected: expStyle.modelRef,
+        observed: obsStyle.modelRef === undefined ? '<missing>' : obsStyle.modelRef,
+      });
+    }
+    if (Array.isArray(expStyle.baseColor) && expStyle.baseColor.length >= 3) {
+      const c1 = expStyle.baseColor;
+      const c2 = obsStyle.baseColor;
+      if (!Array.isArray(c2) || c2.length < 3 ||
+          !floatEq(c1[0], c2[0]) || !floatEq(c1[1], c2[1]) || !floatEq(c1[2], c2[2])) {
+        diffPaths.push({
+          path: '$.primitiveStyle.baseColor',
+          expected: c1,
+          observed: c2 === undefined ? '<missing>' : c2,
+        });
+      }
+    }
+    if (diffPaths.length > 0) {
+      entries.push({
+        entityId: expEntity.id || expEntity.name,
+        status: 'mismatch',
+        diffPaths,
+        blocking: true,
+        provenance: expEntity.provenance || null,
+      });
+    }
+  }
+  return entries;
+}
+
 // ─── Top-level per-phase diff ──────────────────────────────────────────────────
 
 function diffPhase(indexed, phaseId, observed) {
@@ -535,15 +646,17 @@ function diffPhase(indexed, phaseId, observed) {
   const phases = diffPhasesBucket(indexed, phaseId, observed);
   const hud = diffHudBucket(indexed, phaseId, observed);
   const worldLabel = diffWorldLabelBucket(indexed, phaseId, observed);
-  return { entities, phases, hud, worldLabel };
+  const scene = diffSceneBucket(indexed, phaseId, observed);
+  const primitiveStyle = diffPrimitiveStyleBucket(indexed, phaseId, observed);
+  return { entities, phases, hud, worldLabel, scene, primitiveStyle };
 }
 
 function summarize(perPhase) {
   let totalDiffs = 0;
   let blocking = 0;
-  const bucketTotals = { entities: 0, phases: 0, hud: 0, worldLabel: 0 };
+  const bucketTotals = { entities: 0, phases: 0, hud: 0, worldLabel: 0, scene: 0, primitiveStyle: 0 };
   for (const p of perPhase) {
-    for (const bucket of ['entities', 'phases', 'hud', 'worldLabel']) {
+    for (const bucket of ['entities', 'phases', 'hud', 'worldLabel', 'scene', 'primitiveStyle']) {
       for (const e of (p.buckets[bucket] || [])) {
         totalDiffs++;
         bucketTotals[bucket]++;
@@ -856,6 +969,9 @@ module.exports = {
   diffEntitiesBucket,
   diffPhasesBucket,
   diffHudBucket,
+  diffWorldLabelBucket,
+  diffSceneBucket,
+  diffPrimitiveStyleBucket,
   diffPhase,
   buildReport,
   summarize,
@@ -892,6 +1008,15 @@ module.exports = {
     for (const w of (tgtBuckets.worldLabel || [])) {
       flat.push({ path: 'worldLabel.' + w.entityId, source: '<contract>', target: w.status, category: 'worldLabel-' + w.status, diffPaths: w.diffPaths, blocking: false });
     }
+    // task #45 (v1.3): flatten scene + primitiveStyle buckets. Both blocking by
+    // design — contract has the field, target overlay must render it; gap is the
+    // signal for #46 worker work.
+    for (const s of (tgtBuckets.scene || [])) {
+      flat.push({ path: 'scene.' + s.key, source: '<contract>', target: s.status, category: 'scene-' + s.status, diffPaths: s.diffPaths, blocking: s.blocking !== false });
+    }
+    for (const ps of (tgtBuckets.primitiveStyle || [])) {
+      flat.push({ path: 'primitiveStyle.' + ps.entityId, source: '<contract>', target: ps.status, category: 'primitiveStyle-' + ps.status, diffPaths: ps.diffPaths, blocking: ps.blocking !== false });
+    }
     return flat;
   },
   // Convenience: build a template object Sam can stash on ctx.fidelityFieldDiffTemplate.
@@ -902,6 +1027,33 @@ module.exports = {
       schemaVersion: SCHEMA_VERSION,
       contractPath,
       contract,
+      indexed,
+      diffPhase: function(phaseId, observed) { return diffPhase(indexed, phaseId, observed); },
+      PAGE_EXTRACTOR,
+      SOURCE_PAGE_EXTRACTOR,
+      WEBGL_PAGE_EXTRACTOR,
+      makePageExtractor,
+    };
+  },
+  // task #43 (v1.3c): same template shape but from an already-loaded in-memory
+  // contract (e.g. Path B producer's enriched v1.2 on ctx.blueprint.fidelityContract).
+  // Avoids round-tripping through a temp file when the canonical truth is already
+  // in memory — which was the actual bridge gap: source-diff was auto-loading
+  // the default v1.0 path on disk and ignoring the enriched v1.2 contract.
+  makeTemplateFromContract: function(contract) {
+    if (!contract || typeof contract !== 'object') {
+      throw new Error('makeTemplateFromContract: contract must be an object');
+    }
+    // Mirror loadContract's split-pack unwrap so callers can hand in either
+    // a bare contract or a writer-wrapped { contract: {...} }.
+    const unwrapped = (contract.contract && Array.isArray(contract.contract.entities))
+      ? contract.contract
+      : contract;
+    const indexed = indexContract(unwrapped);
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      contractPath: null,
+      contract: unwrapped,
       indexed,
       diffPhase: function(phaseId, observed) { return diffPhase(indexed, phaseId, observed); },
       PAGE_EXTRACTOR,

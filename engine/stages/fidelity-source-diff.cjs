@@ -133,13 +133,7 @@ module.exports = {
     ctx.addLog && ctx.addLog('fidelity-source-diff', 'Starting source-vs-target visual fidelity diff');
 
     if (!ctx.fidelityFieldDiffTemplate) {
-      var contractPath = ctx.fidelityContractPath || DEFAULT_CONTRACT_PATH;
-      if (fs.existsSync(contractPath)) {
-        ctx.fidelityFieldDiffTemplate = fieldDiffLib.makeTemplate(contractPath);
-        ctx.addLog && ctx.addLog('fidelity-source-diff', 'Auto-initialized fieldDiffTemplate from ' + contractPath);
-      } else {
-        ctx.addLog && ctx.addLog('fidelity-source-diff', 'WARN — no fidelityFieldDiffTemplate on ctx and DEFAULT_CONTRACT_PATH missing; diff will short-circuit to no-template marker');
-      }
+      resolveFieldDiffTemplate(ctx);
     }
 
     var phaseSpecs = resolvePhaseSpecs(ctx.blueprint);
@@ -295,7 +289,9 @@ module.exports = {
     resolvePixelGateThreshold: resolvePixelGateThreshold,
     DEFAULT_PIXEL_GATE_THRESHOLD_PERCENT: DEFAULT_PIXEL_GATE_THRESHOLD_PERCENT,
     computePhaseAnchorEntries: computePhaseAnchorEntries,
-    DEFAULT_ANCHOR_TOLERANCE_PX: DEFAULT_ANCHOR_TOLERANCE_PX
+    DEFAULT_ANCHOR_TOLERANCE_PX: DEFAULT_ANCHOR_TOLERANCE_PX,
+    resolveFieldDiffTemplate: resolveFieldDiffTemplate,
+    DEFAULT_CONTRACT_PATH: DEFAULT_CONTRACT_PATH
   }
 };
 
@@ -305,6 +301,31 @@ function resolvePixelGateThreshold() {
   var n = Number(env);
   if (isNaN(n) || n < 0) return DEFAULT_PIXEL_GATE_THRESHOLD_PERCENT;
   return n;
+}
+
+// task #43 (v1.3c): templated precedence —
+//   1. enriched in-memory contract (ctx.blueprint.fidelityContract @ v1.2+)
+//   2. explicit ctx.fidelityContractPath on disk
+//   3. DEFAULT_CONTRACT_PATH on disk
+// Without precedence (1), Path B producer's enriched v1.2 contract gets
+// shadowed by the default v1.0 path, and the anchor bucket stays silent
+// in the official report because the v1.2 gate reads contract.schemaVersion.
+function resolveFieldDiffTemplate(ctx) {
+  var inMemory = ctx.blueprint && ctx.blueprint.fidelityContract;
+  if (inMemory && gteSchemaVersion(inMemory.schemaVersion, '1.2.0')) {
+    ctx.fidelityFieldDiffTemplate = fieldDiffLib.makeTemplateFromContract(inMemory);
+    ctx.addLog && ctx.addLog('fidelity-source-diff',
+      'Auto-initialized fieldDiffTemplate from ctx.blueprint.fidelityContract (in-memory, schemaVersion=' + inMemory.schemaVersion + ')');
+    return ctx.fidelityFieldDiffTemplate;
+  }
+  var contractPath = ctx.fidelityContractPath || DEFAULT_CONTRACT_PATH;
+  if (fs.existsSync(contractPath)) {
+    ctx.fidelityFieldDiffTemplate = fieldDiffLib.makeTemplate(contractPath);
+    ctx.addLog && ctx.addLog('fidelity-source-diff', 'Auto-initialized fieldDiffTemplate from ' + contractPath);
+    return ctx.fidelityFieldDiffTemplate;
+  }
+  ctx.addLog && ctx.addLog('fidelity-source-diff', 'WARN — no fidelityFieldDiffTemplate on ctx and DEFAULT_CONTRACT_PATH missing; diff will short-circuit to no-template marker');
+  return null;
 }
 
 // --- helpers ---
