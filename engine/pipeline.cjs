@@ -67,6 +67,12 @@ function PipelineContext(task, checkpoint, workerConfig) {
   if (checkpoint && checkpoint.blueprint && typeof checkpoint.blueprint === 'object') {
     this.blueprint = JSON.parse(JSON.stringify(checkpoint.blueprint));
   }
+  this.sourceHtmlPath = null;
+  this.sourceHtmlSha256 = null;
+  if (this.blueprint && this.blueprint.sourceHtmlPath) {
+    this.sourceHtmlPath = this.blueprint.sourceHtmlPath;
+    this.sourceHtmlSha256 = this.blueprint.sourceHtmlSha256 || null;
+  }
 
   // Worker config (URLs, IDs)
   this.workerConfig = workerConfig || {
@@ -454,6 +460,7 @@ Pipeline.prototype.run = function(ctx, onProgress) {
 
 // ============ Real Stage Implementations ============
 
+var sourceHtmlBindStage = require('./stages/source-html-bind.cjs');
 var cloneStage = require('./stages/clone.cjs');
 var specExtractStage = require('./stages/spec-extract.cjs');
 var specValidateStage = require('./stages/spec-validate.cjs');
@@ -463,7 +470,9 @@ var assemblyComplexityGateStage = require('./stages/assembly-complexity-gate.cjs
 var codegenStage = require('./stages/codegen.cjs');
 var methodCheckStage = require('./stages/method-check.cjs');
 var reviewStage = require('./stages/review.cjs');
+var fidelityContractProduceStage = require('./stages/fidelity-contract-produce.cjs');
 var compileStage = require('./stages/compile.cjs');
+var fidelitySourceDiffStage = require('./stages/fidelity-source-diff.cjs');
 var visualCheckStage = require('./stages/visual-check.cjs');
 var runtimeContractStage = require('./stages/runtime-contract.cjs');
 var cuaVerifyStage = require('./stages/cua-verify.cjs');
@@ -473,6 +482,7 @@ var uploadStage = require('./stages/upload.cjs');
 
 function createLunaPipeline(options) {
   return new Pipeline([
+    sourceHtmlBindStage,
     cloneStage,
     specExtractStage,
     specValidateStage,
@@ -482,7 +492,9 @@ function createLunaPipeline(options) {
     codegenStage,
     methodCheckStage,
     reviewStage,
+    fidelityContractProduceStage,
     compileStage,
+    fidelitySourceDiffStage,
     visualCheckStage,
     runtimeContractStage,
     cuaVerifyStage,
@@ -507,6 +519,7 @@ module.exports = {
   createLunaPipeline: createLunaPipeline,
   createCocosPipeline: createCocosPipeline,
   stages: {
+    sourceHtmlBind: sourceHtmlBindStage,
     clone: cloneStage,
     specExtract: specExtractStage,
     specValidate: specValidateStage,
@@ -515,7 +528,9 @@ module.exports = {
     codegen: codegenStage,
     methodCheck: methodCheckStage,
     review: reviewStage,
+    fidelityContractProduce: fidelityContractProduceStage,
     compile: compileStage,
+    fidelitySourceDiff: fidelitySourceDiffStage,
     visualCheck: visualCheckStage,
     runtimeContract: runtimeContractStage,
     cuaVerify: cuaVerifyStage,
