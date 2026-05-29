@@ -1021,12 +1021,44 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             if (!/^[0-9a-f]{6}$/i.test(text)) text = 'ffffff';
             return new pc.Color(parseInt(text.slice(0,2),16)/255, parseInt(text.slice(2,4),16)/255, parseInt(text.slice(4,6),16)/255, 1);
           }
-          function mat(hex) {
+          function clamp01(value, fallback) {
+            var n = Number(value);
+            if (!isFinite(n)) n = Number(fallback);
+            if (!isFinite(n)) n = 1;
+            return Math.max(0, Math.min(1, n));
+          }
+          function colorFromValue(value, fallback) {
+            if (Array.isArray(value) && value.length >= 3) {
+              return new pc.Color(clamp01(value[0], 1), clamp01(value[1], 1), clamp01(value[2], 1), 1);
+            }
+            return color(value, fallback || '#ffffff');
+          }
+          function colorArrayFromValue(value, fallback) {
+            var c = colorFromValue(value, fallback || '#ffffff');
+            return [Number(c.r), Number(c.g), Number(c.b)];
+          }
+          function mixColorArray(base, target, t) {
+            base = colorArrayFromValue(base, '#ffffff');
+            target = colorArrayFromValue(target, '#ffffff');
+            t = Math.max(0, Math.min(1, Number(t) || 0));
+            return [
+              base[0] + (target[0] - base[0]) * t,
+              base[1] + (target[1] - base[1]) * t,
+              base[2] + (target[2] - base[2]) * t
+            ];
+          }
+          function mat(value, fallback) {
             if (typeof pc.StandardMaterial !== 'function') return null;
             var m = new pc.StandardMaterial();
-            m.diffuse = color(hex, '#ffffff');
-            m.emissive = color(hex, '#000000');
+            var c = colorFromValue(value, fallback || '#ffffff');
+            m.diffuse = c;
+            m.emissive = color('#000000');
             m.emissiveIntensity = 0.08;
+            if (typeof m.setParameter === 'function') {
+              var rgba = [c.r, c.g, c.b, 1];
+              m.setParameter('_BaseColor', rgba);
+              m.setParameter('_Color', rgba);
+            }
             m.update();
             return m;
           }
@@ -1055,7 +1087,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             } catch(e) { poolRenderableCache = null; }
             return poolRenderableCache;
           }
-          function clonePoolMaterial(hex) {
+          function clonePoolMaterial(value, fallback) {
             var source = findPoolRenderable();
             var base = source && source.material;
             if (!base) return null;
@@ -1066,7 +1098,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             }
             if (!m) m = base;
             try {
-              var c = color(hex, '#ffffff');
+              var c = colorFromValue(value, fallback || '#ffffff');
               if (m.diffuse && typeof m.diffuse.copy === 'function') m.diffuse.copy(c);
               if (typeof m.setParameter === 'function') {
                 var rgba = [c.r, c.g, c.b, 1];
@@ -1077,9 +1109,9 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             } catch(eColor) {}
             return m;
           }
-          function overlayMaterial(hex) {
-            var m = mat(hex);
-            return m || clonePoolMaterial(hex);
+          function overlayMaterial(value, fallback) {
+            var m = mat(value, fallback);
+            return m || clonePoolMaterial(value, fallback);
           }
           function nums(raw) {
             return String(raw || '').split(',').map(function(v) {
@@ -1187,8 +1219,6 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             parent.addChild(e);
             if (addPrimitiveComponent(e, type)) return e;
             try { parent.removeChild(e); } catch(removeErr) {}
-            e = createRendererPrimitiveEntity(parent, name, type);
-            if (e) return e;
             e = createUnityPrimitiveEntity(name, type);
             if (e) {
               try { if (e.parent && e.parent !== parent) e.parent.removeChild(e); } catch(parentErr) {}
@@ -1198,6 +1228,8 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               }
               return e;
             }
+            e = createRendererPrimitiveEntity(parent, name, type);
+            if (e) return e;
             console.warn('[AI] Storyboard primitive unavailable: ' + name + ' type=' + (type || 'box'));
             return null;
           }
@@ -1269,6 +1301,147 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             }
           }
           var entityRoots = {};
+          var primitiveStyleByName = {};
+          function indexPrimitiveStyleAliases(entity, style) {
+            if (!entity || !style || typeof style.modelRef !== 'string') return;
+            function put(key) {
+              if (!key) return;
+              primitiveStyleByName[String(key)] = style;
+            }
+            put(entity.id);
+            put(entity.name);
+            if (entity.parentPath) {
+              var parts = String(entity.parentPath).split('/').filter(Boolean);
+              put(parts[parts.length - 1]);
+            }
+          }
+          if (manifest.fidelityContract && Array.isArray(manifest.fidelityContract.entities)) {
+            for (var fei = 0; fei < manifest.fidelityContract.entities.length; fei++) {
+              var fe = manifest.fidelityContract.entities[fei];
+              if (fe && fe.primitiveStyle) indexPrimitiveStyleAliases(fe, fe.primitiveStyle);
+            }
+          }
+          function primitiveStyleForName(name) {
+            if (primitiveStyleByName[name]) return primitiveStyleByName[name];
+            var raw = String(name || '');
+            var noUnder = raw.replace(/^_+/, '');
+            if (primitiveStyleByName[noUnder]) return primitiveStyleByName[noUnder];
+            var cap = noUnder.charAt(0).toUpperCase() + noUnder.slice(1);
+            if (primitiveStyleByName[cap]) return primitiveStyleByName[cap];
+            var pascal = noUnder.split(/[_-]+/).filter(Boolean).map(function(part) {
+              return part.charAt(0).toUpperCase() + part.slice(1);
+            }).join('');
+            return primitiveStyleByName[pascal] || null;
+          }
+          function recordPrimitiveStyle(name, primitiveStyle, visualKind, primitiveCount) {
+            if (!primitiveStyle || typeof primitiveStyle.modelRef !== 'string') return;
+            window.__storyboardEntityDetails = window.__storyboardEntityDetails || {};
+            var detail = window.__storyboardEntityDetails[name] || {};
+            detail.primitiveStyle = {
+              modelRef: primitiveStyle.modelRef,
+              baseColor: colorArrayFromValue(primitiveStyle.baseColor || primitiveStyle.baseColorHex || '#ffffff')
+            };
+            detail.visualKind = visualKind || detail.visualKind || 'styled-composite';
+            detail.primitiveCount = primitiveCount == null ? detail.primitiveCount : primitiveCount;
+            window.__storyboardEntityDetails[name] = detail;
+          }
+          function setLocalEuler(ent, rot) {
+            rot = rot || [0, 0, 0];
+            try {
+              if (ent && typeof ent.setLocalEulerAngles === 'function') ent.setLocalEulerAngles(rot[0] || 0, rot[1] || 0, rot[2] || 0);
+              else if (ent && typeof ent.setEulerAngles === 'function') ent.setEulerAngles(rot[0] || 0, rot[1] || 0, rot[2] || 0);
+            } catch(e) {}
+          }
+          function addStyledPart(parent, name, index, type, pos, scale, materialValue, rot) {
+            var e = createPrimitiveEntity(parent, 'BPS_' + name + '_' + index, type || 'box');
+            if (!e) return null;
+            e.setLocalPosition(pos[0] || 0, pos[1] || 0, pos[2] || 0);
+            setLocalEuler(e, rot);
+            e.setLocalScale(scale[0] || 1, scale[1] || 1, scale[2] || 1);
+            var m = overlayMaterial(materialValue || '#ffffff');
+            applyMaterial(e, m);
+            setTimeout(function() { applyMaterial(e, m); }, 0);
+            setTimeout(function() { applyMaterial(e, m); }, 250);
+            return e;
+          }
+          function buildStyledComposite(group, name, primitiveStyle, sourceStyle) {
+            if (!primitiveStyle || typeof primitiveStyle.modelRef !== 'string') return 0;
+            var kind = primitiveStyle.modelRef.toLowerCase();
+            var base = colorArrayFromValue(primitiveStyle.baseColor || primitiveStyle.baseColorHex || (sourceStyle && sourceStyle.color) || '#ffffff');
+            var light = mixColorArray(base, [1, 1, 1], 0.28);
+            var dark = mixColorArray(base, [0, 0, 0], 0.35);
+            var warm = mixColorArray(base, [1, 0.82, 0.18], 0.38);
+            var cool = mixColorArray(base, [0.18, 0.58, 1], 0.32);
+            var count = 0;
+            function add(type, pos, scale, matValue, rot) {
+              if (addStyledPart(group, name, count, type, pos, scale, matValue || base, rot)) count++;
+            }
+            if (kind === 'astronaut') {
+              add('box', [0, 1.15, 0], [0.82, 1.12, 0.48], base);
+              add('sphere', [0, 2.0, 0], [0.78, 0.78, 0.78], light);
+              add('box', [-0.64, 1.2, 0], [0.22, 0.9, 0.22], dark, [0, 0, -12]);
+              add('box', [0.64, 1.2, 0], [0.22, 0.9, 0.22], dark, [0, 0, 12]);
+              add('box', [-0.22, 0.38, 0], [0.22, 0.72, 0.24], dark);
+              add('box', [0.22, 0.38, 0], [0.22, 0.72, 0.24], dark);
+              add('box', [0, 1.18, -0.38], [0.58, 0.82, 0.18], cool);
+            } else if (kind === 'ship') {
+              add('box', [0, 0.72, 0], [2.1, 0.48, 0.88], base);
+              add('box', [1.18, 0.72, 0], [0.74, 0.36, 0.56], light);
+              add('box', [-0.08, 0.45, -0.85], [1.25, 0.16, 0.34], cool, [0, -14, 0]);
+              add('box', [-0.08, 0.45, 0.85], [1.25, 0.16, 0.34], cool, [0, 14, 0]);
+              add('cylinder', [-1.24, 0.7, -0.28], [0.28, 0.48, 0.28], warm, [90, 0, 0]);
+              add('cylinder', [-1.24, 0.7, 0.28], [0.28, 0.48, 0.28], warm, [90, 0, 0]);
+            } else if (kind === 'station') {
+              add('cylinder', [0, 0.78, 0], [0.88, 1.56, 0.88], base);
+              add('sphere', [0, 1.72, 0], [0.98, 0.62, 0.98], light);
+              add('box', [-0.95, 0.98, 0], [0.16, 0.84, 0.72], warm);
+              add('box', [0.95, 0.98, 0], [0.16, 0.84, 0.72], warm);
+              add('cylinder', [0, 0.08, 0], [1.18, 0.16, 1.18], dark);
+            } else if (kind === 'counter') {
+              add('box', [0, 0.48, 0], [1.8, 0.82, 0.86], base);
+              add('box', [0, 0.96, 0], [2.08, 0.2, 1.04], light);
+              add('box', [0, 1.22, -0.38], [1.2, 0.34, 0.16], warm);
+            } else if (kind === 'pad') {
+              add('cylinder', [0, 0.12, 0], [2.12, 0.22, 2.12], dark);
+              for (var pi = 0; pi < 10; pi++) {
+                var t = pi / 10 * Math.PI * 2;
+                add('sphere', [Math.cos(t) * 1.18, 0.34, Math.sin(t) * 1.18], [0.28, 0.16, 0.28], base);
+              }
+              add('cylinder', [0, 0.42, 0], [0.68, 0.18, 0.68], light);
+            } else if (kind === 'base') {
+              add('box', [0, 0.42, 0], [2.0, 0.78, 1.5], base);
+              add('box', [0, 0.98, 0], [1.35, 0.38, 1.0], light);
+              add('cylinder', [0.55, 1.55, 0], [0.16, 0.92, 0.16], dark);
+              add('sphere', [0.55, 2.08, 0], [0.38, 0.38, 0.38], warm);
+            } else if (kind === 'crystal') {
+              add('sphere', [0, 0.78, 0], [0.82, 1.42, 0.82], base);
+              add('sphere', [0.46, 0.5, 0.22], [0.42, 0.78, 0.42], light);
+              add('sphere', [-0.42, 0.4, -0.2], [0.32, 0.62, 0.32], cool);
+            } else if (kind === 'debris') {
+              add('box', [0, 0.42, 0], [1.35, 0.72, 0.82], base, [0, 22, 8]);
+              add('box', [0.42, 0.9, -0.18], [0.7, 0.42, 0.5], dark, [12, -28, 0]);
+              add('box', [-0.45, 0.22, 0.28], [0.52, 0.32, 0.66], light, [-8, 12, 18]);
+            } else if (kind === 'cargo') {
+              add('box', [0, 0.52, 0], [1.35, 0.98, 1.12], base);
+              add('box', [0, 0.54, 0], [1.46, 0.12, 1.2], dark);
+              add('box', [0, 1.1, 0], [1.18, 0.16, 0.96], light);
+            } else if (kind === 'beacon') {
+              add('cylinder', [0, 0.18, 0], [1.0, 0.22, 1.0], dark);
+              add('cylinder', [0, 0.9, 0], [0.22, 1.35, 0.22], base);
+              add('sphere', [0, 1.72, 0], [0.55, 0.55, 0.55], warm);
+              add('box', [0, 2.02, 0], [0.18, 0.55, 0.18], light);
+            } else if (kind === 'gate') {
+              add('box', [-0.8, 0.88, 0], [0.3, 1.72, 0.38], base);
+              add('box', [0.8, 0.88, 0], [0.3, 1.72, 0.38], base);
+              add('box', [0, 1.72, 0], [1.85, 0.28, 0.34], light);
+              add('sphere', [0, 0.72, 0], [0.42, 0.42, 0.42], warm);
+            } else {
+              add('box', [0, 0.55, 0], [1.25, 1.0, 1.0], base);
+              add('sphere', [0, 1.35, 0], [0.62, 0.62, 0.62], light);
+            }
+            recordPrimitiveStyle(name, primitiveStyle, 'styled-composite:' + kind, count);
+            return count;
+          }
           function sourcePhaseForOverlayState(gs) {
             try {
               var phaseId = gs && (gs.currentPhase || gs.phase) || '';
@@ -1517,11 +1690,17 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             root.addChild(group);
             group.setPosition(pos[0], pos[1], pos[2]);
             entityRoots[name] = group;
+            var primitiveStyle = primitiveStyleForName(name);
+            var styledCount = primitiveStyle ? buildStyledComposite(group, name, primitiveStyle, st) : 0;
             var ids = binding && binding.assetIds || [];
-            for (var bi = 0; bi < ids.length; bi++) {
-              var asset = byAsset[ids[bi]];
-              if (!asset || asset.kind !== 'procedural_primitive') continue;
-              addPrimitive(group, asset);
+            if (!styledCount) {
+              var sourcePrimitiveCount = 0;
+              for (var bi = 0; bi < ids.length; bi++) {
+                var asset = byAsset[ids[bi]];
+                if (!asset || asset.kind !== 'procedural_primitive') continue;
+                if (addPrimitive(group, asset)) sourcePrimitiveCount++;
+              }
+              if (primitiveStyle) recordPrimitiveStyle(name, primitiveStyle, 'source-procedural', sourcePrimitiveCount);
             }
           }
           function syncEntityPositions() {
