@@ -1030,6 +1030,57 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             m.update();
             return m;
           }
+          var poolRenderableCache = undefined;
+          function findPoolRenderable() {
+            if (poolRenderableCache !== undefined) return poolRenderableCache;
+            poolRenderableCache = null;
+            try {
+              (function walk(node) {
+                if (!node || poolRenderableCache) return;
+                if (node.name && /^__Pool_/.test(node.name)) {
+                  var comps = node._unityComponents || {};
+                  var mf = comps.meshFilter && comps.meshFilter[0];
+                  var rc = comps.renderer && comps.renderer[0];
+                  var mi = rc && rc.meshInstances && rc.meshInstances[0];
+                  var mesh = mf && mf.mesh || mi && mi._mesh;
+                  var material = mi && mi.material || rc && rc.code && (rc.code.sharedMaterial || rc.code.material);
+                  if (mesh && mesh.vertexBuffer && material) {
+                    poolRenderableCache = { mesh: mesh, material: material, sourceName: node.name };
+                    return;
+                  }
+                }
+                var children = node.children || [];
+                for (var i = 0; i < children.length; i++) walk(children[i]);
+              })(pcApp.root);
+            } catch(e) { poolRenderableCache = null; }
+            return poolRenderableCache;
+          }
+          function clonePoolMaterial(hex) {
+            var source = findPoolRenderable();
+            var base = source && source.material;
+            if (!base) return null;
+            var m = null;
+            try { if (typeof base.clone === 'function') m = base.clone(); } catch(eClone) {}
+            if (!m) {
+              try { if (base.constructor && typeof base.constructor === 'function') m = new base.constructor(); } catch(eCtor) {}
+            }
+            if (!m) m = base;
+            try {
+              var c = color(hex, '#ffffff');
+              if (m.diffuse && typeof m.diffuse.copy === 'function') m.diffuse.copy(c);
+              if (typeof m.setParameter === 'function') {
+                var rgba = [c.r, c.g, c.b, 1];
+                m.setParameter('_BaseColor', rgba);
+                m.setParameter('_Color', rgba);
+              }
+              if (typeof m.update === 'function') m.update();
+            } catch(eColor) {}
+            return m;
+          }
+          function overlayMaterial(hex) {
+            var m = mat(hex);
+            return m || clonePoolMaterial(hex);
+          }
           function nums(raw) {
             return String(raw || '').split(',').map(function(v) {
               var m = String(v).match(/-?\d*\.?\d+/);
@@ -1075,6 +1126,40 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             } catch(renderErr) {}
             return false;
           }
+          function createRendererPrimitiveEntity(parent, name, type) {
+            try {
+              var source = findPoolRenderable();
+              if (!source || !pcApp.systems || !pcApp.systems.meshFilter || !pcApp.systems.renderer) return null;
+              if (typeof pc.MeshFilterComponent !== 'function') return null;
+              var RCCtor = (typeof pc.MeshRendererComponent === 'function') ? pc.MeshRendererComponent : pc.RendererComponent;
+              if (typeof RCCtor !== 'function') return null;
+              var e = new pc.Entity(name);
+              parent.addChild(e);
+              var mf = new pc.MeshFilterComponent(e);
+              pcApp.systems.meshFilter.addComponent(e, mf);
+              mf.mesh = source.mesh;
+              var rc = new RCCtor(e);
+              pcApp.systems.renderer.addComponent(e, rc);
+              rc.meshFilter = mf;
+              try { if (rc.code && source.material) rc.code.sharedMaterial = source.material; } catch(eMat) {}
+              try { if (typeof rc.updateMesh === 'function') rc.updateMesh(); } catch(eUpdate) {}
+              setTimeout(function() {
+                try {
+                  var mis = rc.meshInstances || [];
+                  for (var i = 0; i < mis.length; i++) {
+                    mis[i].visible = true;
+                    mis[i].cull = false;
+                    if (source.material && !mis[i].material) mis[i].material = source.material;
+                    try { mis[i]._aabbVer = -1; } catch(eAabb) {}
+                  }
+                } catch(eMi) {}
+              }, 0);
+              return e;
+            } catch(e) {
+              console.warn('[AI] Storyboard renderer primitive failed: ' + name + ' ' + (e && e.message ? e.message : e));
+              return null;
+            }
+          }
           function unityPrimitiveType(type) {
             try {
               if (!window.UnityEngine || !UnityEngine.PrimitiveType) return null;
@@ -1102,6 +1187,8 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             parent.addChild(e);
             if (addPrimitiveComponent(e, type)) return e;
             try { parent.removeChild(e); } catch(removeErr) {}
+            e = createRendererPrimitiveEntity(parent, name, type);
+            if (e) return e;
             e = createUnityPrimitiveEntity(name, type);
             if (e) {
               try { if (e.parent && e.parent !== parent) e.parent.removeChild(e); } catch(parentErr) {}
@@ -1130,7 +1217,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             var p = arr3(asset && asset.transform && asset.transform.position, [0,0,0]);
             e.setLocalPosition(p[0], p[1], p[2]);
             e.setLocalScale(spec.scale[0], spec.scale[1], spec.scale[2]);
-            var material = mat(asset && asset.material && asset.material.diffuseColor);
+            var material = overlayMaterial(asset && asset.material && asset.material.diffuseColor);
             applyMaterial(e, material);
             setTimeout(function() { applyMaterial(e, material); }, 0);
             setTimeout(function() { applyMaterial(e, material); }, 250);
@@ -1151,12 +1238,12 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               var height = sceneContract.ground.height || 0.2;
               g.setPosition(0, -0.06, 0);
               g.setLocalScale(radius * 2, height, radius * 2);
-              var groundMat = mat(sceneContract.ground.color);
+              var groundMat = overlayMaterial(sceneContract.ground.color);
               applyMaterial(g, groundMat);
               setTimeout(function() { applyMaterial(g, groundMat); }, 250);
             }
           }
-          var starMat = mat('#ffffff');
+          var starMat = overlayMaterial('#ffffff');
           var decor = sceneContract.decor || {};
           var starCount = Math.min(120, Math.max(0, decor.stars || 0));
           for (var si = 0; si < starCount; si++) {
@@ -1169,7 +1256,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             s.setLocalScale(0.07, 0.07, 0.07);
             applyMaterial(s, starMat);
           }
-          var ringMat = mat('#2f6d9c');
+          var ringMat = overlayMaterial('#2f6d9c');
           var ringCount = Math.min(6, Math.max(0, decor.orbitalRings || 0));
           for (var ri = 0; ri < ringCount; ri++) {
             for (var rp = 0; rp < 48; rp++) {
@@ -1496,6 +1583,8 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         setInterval(function() {
           var gs = null;
           try { gs = typeof window.__gameState === 'function' ? window.__gameState() : window.__gameState; } catch(e) {}
+          try { gs = normalizeBlueprintGameState(gs, null); } catch(e2) {}
+          try { if (typeof window.__gameState !== 'function') window.__gameState = gs; } catch(e3) {}
           gs = gs || {};
           var res = gs.resources || gs.inventory || {};
           var phase = String(gs.phase || gs.currentPhase || 'phase1').replace(/\\D+/g, '') || '1';
@@ -1569,7 +1658,9 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
       function currentBlueprintGameState() {
         try {
           var gs = typeof window.__gameState === "function" ? window.__gameState() : window.__gameState;
-          return normalizeBlueprintGameState(gs, null);
+          gs = normalizeBlueprintGameState(gs, null);
+          if (typeof window.__gameState !== "function") window.__gameState = gs;
+          return gs;
         } catch(e) { return null; }
       }
       function sourcePhaseForState(state, fallbackPhaseId) {
@@ -1775,7 +1866,10 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             if (!loopComp) throw new Error("GameFlow component unavailable");
             var result = driveLoopComponentToPhase(loopComp, phaseNumber);
             settleFidelityFrame().then(function() {
-              try { if (typeof loopComp.UpdateGameState === "function") loopComp.UpdateGameState(); } catch(e) {}
+              try {
+                if (typeof loopComp.UpdateGameState === "function") loopComp.UpdateGameState();
+                normalizeBlueprintGameState(currentBlueprintGameState(), result.phase);
+              } catch(e) {}
               waitForFidelityState(result.phase).then(function() { resolve(result); }, reject);
             }, reject);
           } catch(e) {
@@ -2094,7 +2188,15 @@ if(_imgSet&&_imgSet.set){
         return best;
       }
       var best=scan(app.root,null);
-      if(best&&best.state){window.__gameState=best.state;}
+      if(best&&best.state){
+        var nextState=best.state;
+        try{
+          if(typeof window.__blueprintNormalizeGameState==='function'){
+            nextState=window.__blueprintNormalizeGameState(nextState,nextState.currentPhase||nextState.phase||null)||nextState;
+          }
+        }catch(e){}
+        window.__gameState=nextState;
+      }
     }catch(e){}
   },500);
 })();
