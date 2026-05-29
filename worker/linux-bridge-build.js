@@ -1122,6 +1122,237 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             }
           }
           var entityRoots = {};
+          function sourcePhaseForOverlayState(gs) {
+            try {
+              var phaseId = gs && (gs.currentPhase || gs.phase) || '';
+              var phaseSets = [];
+              ['sourcePhaseContract', 'fidelityContract', 'sourceFidelityContract', 'contract'].forEach(function(key) {
+                if (manifest && manifest[key] && Array.isArray(manifest[key].phases)) phaseSets.push(manifest[key].phases);
+              });
+              for (var si = 0; si < phaseSets.length; si++) {
+                var phases = phaseSets[si];
+                if (phaseId) {
+                  for (var pi = 0; pi < phases.length; pi++) {
+                    if (phases[pi] && String(phases[pi].id) === String(phaseId)) return phases[pi];
+                  }
+                }
+                var m = String(phaseId || '').match(/(\d+)/);
+                var idx = m ? Math.max(0, Number(m[1]) - 1) : 0;
+                if (phases[idx]) return phases[idx];
+              }
+            } catch(e) {}
+            return null;
+          }
+          function projectedAnchorPhaseForOverlayState(gs) {
+            try {
+              var sourcePhase = sourcePhaseForOverlayState(gs);
+              var phaseId = sourcePhase && sourcePhase.id || gs && (gs.currentPhase || gs.phase) || '';
+              var phaseSets = [];
+              ['sourcePhaseContract', 'fidelityContract', 'sourceFidelityContract', 'contract'].forEach(function(key) {
+                if (manifest && manifest[key] && Array.isArray(manifest[key].phases)) phaseSets.push(manifest[key].phases);
+              });
+              for (var si = 0; si < phaseSets.length; si++) {
+                var phases = phaseSets[si];
+                for (var pi = 0; pi < phases.length; pi++) {
+                  if (phases[pi] && String(phases[pi].id) === String(phaseId) && phases[pi].projectedAnchors) return phases[pi];
+                }
+              }
+              if (sourcePhase && sourcePhase.projectedAnchors) return sourcePhase;
+            } catch(e) {}
+            return null;
+          }
+          function viewportBaseline() {
+            try {
+              var candidates = [
+                manifest && manifest.viewportBaseline,
+                manifest && manifest.fidelityContract && manifest.fidelityContract.viewportBaseline,
+                manifest && manifest.sourceFidelityContract && manifest.sourceFidelityContract.viewportBaseline
+              ];
+              for (var i = 0; i < candidates.length; i++) {
+                var v = candidates[i];
+                if (v && isFinite(Number(v.width)) && isFinite(Number(v.height))) {
+                  return { width: Number(v.width), height: Number(v.height) };
+                }
+              }
+            } catch(e) {}
+            return { width: 1280, height: 720 };
+          }
+          function canvasSize() {
+            var canvas = document.getElementById('application-canvas') || document.querySelector('canvas');
+            var rect = canvas && canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
+            return {
+              width: canvas && Number(canvas.width) || rect && Number(rect.width) || window.innerWidth || 1280,
+              height: canvas && Number(canvas.height) || rect && Number(rect.height) || window.innerHeight || 720
+            };
+          }
+          function viewportIntersectsAnchor(anchor) {
+            if (!anchor) return false;
+            var vp = viewportBaseline();
+            var x = Number(anchor.x_px), y = Number(anchor.y_px);
+            var w = Number(anchor.w_px), h = Number(anchor.h_px);
+            if (![x, y, w, h].every(isFinite)) return false;
+            return (x + w) >= 0 && x <= vp.width && (y + h) >= 0 && y <= vp.height;
+          }
+          function anchorToCanvas(anchor) {
+            var base = viewportBaseline();
+            var size = canvasSize();
+            var sx = size.width / base.width;
+            var sy = size.height / base.height;
+            return {
+              x: Number(anchor.x_px) * sx,
+              y: Number(anchor.y_px) * sy,
+              w: Math.max(0, Number(anchor.w_px) * sx),
+              h: Math.max(0, Number(anchor.h_px) * sy)
+            };
+          }
+          function anchorOverlayName(contractId) {
+            var raw = String(contractId || '');
+            if (entityRoots[raw]) return raw;
+            try {
+              var catalogs = [];
+              ['fidelityContract', 'sourceFidelityContract', 'contract'].forEach(function(key) {
+                if (manifest && manifest[key] && Array.isArray(manifest[key].entities)) catalogs.push(manifest[key].entities);
+              });
+              for (var ci = 0; ci < catalogs.length; ci++) {
+                var list = catalogs[ci];
+                for (var ei = 0; ei < list.length; ei++) {
+                  var ent = list[ei];
+                  if (!ent || typeof ent !== 'object') continue;
+                  var parentPath = String(ent.parentPath || '');
+                  var baseName = parentPath.split('/').filter(Boolean).pop();
+                  if (baseName === raw) {
+                    var alias = ent.name || ent.id;
+                    if (alias && entityRoots[String(alias)]) return String(alias);
+                  }
+                }
+              }
+            } catch(e) {}
+            var noUnder = raw.replace(/^_+/, '');
+            var cap = noUnder.charAt(0).toUpperCase() + noUnder.slice(1);
+            if (entityRoots[cap]) return cap;
+            var pascal = noUnder.split(/[_-]+/).filter(Boolean).map(function(part) {
+              return part.charAt(0).toUpperCase() + part.slice(1);
+            }).join('');
+            if (pascal && entityRoots[pascal]) return pascal;
+            return raw;
+          }
+          function addAabbPoints(points, aabb) {
+            if (!aabb) return;
+            var c = aabb.center || aabb._center;
+            var h = aabb.halfExtents || aabb._halfExtents;
+            if (!c || !h) return;
+            for (var dx = -1; dx <= 1; dx += 2) {
+              for (var dy = -1; dy <= 1; dy += 2) {
+                for (var dz = -1; dz <= 1; dz += 2) {
+                  points.push(new pc.Vec3(c.x + h.x * dx, c.y + h.y * dy, c.z + h.z * dz));
+                }
+              }
+            }
+          }
+          function entityScreenRect(ent) {
+            if (!ent || !camEnt || !camEnt.camera || typeof camEnt.camera.worldToScreen !== 'function') return null;
+            var points = [];
+            function walk(node) {
+              if (!node) return;
+              var instances = [];
+              if (node.render && node.render.meshInstances) instances = node.render.meshInstances;
+              else if (node.model && node.model.model && node.model.model.meshInstances) instances = node.model.model.meshInstances;
+              else if (node._unityComponents && node._unityComponents.renderer && node._unityComponents.renderer[0]) {
+                instances = node._unityComponents.renderer[0].meshInstances || [];
+              }
+              for (var mi = 0; mi < instances.length; mi++) addAabbPoints(points, instances[mi] && instances[mi].aabb);
+              var children = node.children || [];
+              for (var ci = 0; ci < children.length; ci++) walk(children[ci]);
+            }
+            walk(ent);
+            if (!points.length) {
+              var p = ent.getPosition ? ent.getPosition() : (ent.getLocalPosition ? ent.getLocalPosition() : null);
+              if (p) points.push(p);
+            }
+            var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (var pi = 0; pi < points.length; pi++) {
+              var sp = camEnt.camera.worldToScreen(points[pi]);
+              if (!sp || !isFinite(Number(sp.x)) || !isFinite(Number(sp.y))) continue;
+              minX = Math.min(minX, Number(sp.x));
+              minY = Math.min(minY, Number(sp.y));
+              maxX = Math.max(maxX, Number(sp.x));
+              maxY = Math.max(maxY, Number(sp.y));
+            }
+            if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) return null;
+            return { x_px: minX, y_px: minY, w_px: Math.max(0, maxX - minX), h_px: Math.max(0, maxY - minY) };
+          }
+          function projectPosition(pos) {
+            if (!pos || !camEnt || !camEnt.camera || typeof camEnt.camera.worldToScreen !== 'function') return null;
+            return camEnt.camera.worldToScreen(new pc.Vec3(Number(pos.x) || 0, Number(pos.y) || 0, Number(pos.z) || 0));
+          }
+          function calibrateOverlayEntityToAnchor(ent, anchor) {
+            if (!ent || !anchor || anchor.provenance === 'inferred-default') return;
+            if (!viewportIntersectsAnchor(anchor)) return;
+            var target = anchorToCanvas(anchor);
+            var rect = entityScreenRect(ent);
+            if (!rect) return;
+            var pos = ent.getPosition ? ent.getPosition() : (ent.getLocalPosition ? ent.getLocalPosition() : null);
+            if (!pos) return;
+            if (anchor.provenance !== 'anchor-only' && target.w > 0 && target.h > 0 && rect.w_px > 1 && rect.h_px > 1) {
+              var ratio = Math.sqrt((target.w * target.h) / Math.max(1, rect.w_px * rect.h_px));
+              ratio = Math.max(0.2, Math.min(4, ratio));
+              var ls = ent.getLocalScale ? ent.getLocalScale() : null;
+              if (ls) ent.setLocalScale((Number(ls.x) || 1) * ratio, (Number(ls.y) || 1) * ratio, (Number(ls.z) || 1) * ratio);
+              rect = entityScreenRect(ent) || rect;
+            }
+            var currentCx = rect.x_px + rect.w_px / 2;
+            var currentCy = rect.y_px + rect.h_px / 2;
+            var targetCx = target.x + target.w / 2;
+            var targetCy = target.y + target.h / 2;
+            var dxPx = targetCx - currentCx;
+            var dyPx = targetCy - currentCy;
+            if (Math.abs(dxPx) < 0.5 && Math.abs(dyPx) < 0.5) return;
+            var base = projectPosition(pos);
+            var xStep = projectPosition({ x: Number(pos.x) + 1, y: Number(pos.y), z: Number(pos.z) });
+            var zStep = projectPosition({ x: Number(pos.x), y: Number(pos.y), z: Number(pos.z) + 1 });
+            if (!base || !xStep || !zStep) return;
+            var ax = Number(xStep.x) - Number(base.x);
+            var ay = Number(xStep.y) - Number(base.y);
+            var bx = Number(zStep.x) - Number(base.x);
+            var by = Number(zStep.y) - Number(base.y);
+            var det = ax * by - bx * ay;
+            if (!isFinite(det) || Math.abs(det) < 0.001) return;
+            var wx = (dxPx * by - bx * dyPx) / det;
+            var wz = (ax * dyPx - dxPx * ay) / det;
+            var maxStep = 8;
+            var mag = Math.sqrt(wx * wx + wz * wz);
+            if (mag > maxStep) { wx = wx / mag * maxStep; wz = wz / mag * maxStep; }
+            ent.setPosition(Number(pos.x) + wx, Number(pos.y) || 0, Number(pos.z) + wz);
+          }
+          function applyProjectedAnchorCalibration(gs) {
+            var anchorPhase = projectedAnchorPhaseForOverlayState(gs);
+            var anchors = anchorPhase && anchorPhase.projectedAnchors;
+            if (!anchors || typeof anchors !== 'object') {
+              window.__targetAnchors = window.__targetAnchors || {};
+              return;
+            }
+            var measured = {};
+            Object.keys(anchors).forEach(function(contractId) {
+              var anchor = anchors[contractId];
+              var ent = entityRoots[anchorOverlayName(contractId)];
+              if (!ent) return;
+              calibrateOverlayEntityToAnchor(ent, anchor);
+              var rect = entityScreenRect(ent);
+              if (rect) {
+                measured[contractId] = {
+                  x_px: Number(rect.x_px.toFixed ? rect.x_px.toFixed(2) : rect.x_px),
+                  y_px: Number(rect.y_px.toFixed ? rect.y_px.toFixed(2) : rect.y_px),
+                  w_px: Number(rect.w_px.toFixed ? rect.w_px.toFixed(2) : rect.w_px),
+                  h_px: Number(rect.h_px.toFixed ? rect.h_px.toFixed(2) : rect.h_px),
+                  provenance: 'extracted'
+                };
+              }
+            });
+            window.__targetAnchors = window.__targetAnchors || {};
+            var phaseId = anchorPhase.id || gs && (gs.currentPhase || gs.phase) || 'current';
+            window.__targetAnchors[phaseId] = measured;
+            window.__targetAnchors.current = measured;
+          }
           var names = manifest.sourceEntityContract.entities || Object.keys(styles);
           for (var ni = 0; ni < names.length; ni++) {
             var name = names[ni];
@@ -1155,6 +1386,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               if (st && st.visible === false) entityRoots[name].enabled = false;
               else entityRoots[name].enabled = true;
             });
+            applyProjectedAnchorCalibration(gs);
           }
           setInterval(syncEntityPositions, 100);
           syncEntityPositions();

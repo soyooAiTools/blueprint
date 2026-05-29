@@ -547,12 +547,13 @@ module.exports = {
                 }
                 ctx.reportStatus('building', { message: '[Linux] 视觉修复重编译 (round ' + (round + 1) + ')...' });
 
-                return helpers.buildRequest(buildUrl, '/build', lastCsCode, lastExtraFiles)
+                var buildOptions = { visualAssets: helpers.buildVisualAssetsForRequest(ctx) };
+                return helpers.buildRequest(buildUrl, '/build', lastCsCode, lastExtraFiles, buildOptions)
                   .then(function(buildResult) {
                     if (!buildResult.ok) throw new Error('Visual fix rebuild failed');
                     ctx.addLog('visual-check', 'Visual fix rebuild OK in ' + buildResult.buildTime + 's');
                     // Nest /build-html inside /build success to prevent Object→writeFileSync crash
-                    return helpers.buildRequest(buildUrl, '/build-html', lastCsCode, lastExtraFiles)
+                    return helpers.buildRequest(buildUrl, '/build-html', lastCsCode, lastExtraFiles, buildOptions)
                       .then(function(newHtml) {
                         lastHtmlForVisual = newHtml;
                         fs.writeFileSync(path.join(previewDir, 'index.html'), lastHtmlForVisual);
