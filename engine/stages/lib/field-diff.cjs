@@ -913,6 +913,34 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
     }
   } catch (e) { /* leave entityDetails empty on extractor error */ }
 
+  // 6b. primitiveStyle runtime bridge — task #50 v1.4c-gamma. The worker overlay
+  //     consumes contract.entities[].primitiveStyle to choose a styled composite
+  //     and exposes the consumed {modelRef, baseColor} at
+  //     window.__storyboardEntityDetails[entity].primitiveStyle. Read that exact
+  //     runtime surface back so the primitiveStyle bucket verifies consumption
+  //     instead of staying missing while geometry is present.
+  try {
+    if (typeof window !== 'undefined' && window.__storyboardEntityDetails
+        && typeof window.__storyboardEntityDetails === 'object') {
+      const detailKeys = Object.keys(window.__storyboardEntityDetails);
+      for (let di = 0; di < detailKeys.length; di++) {
+        const entId = detailKeys[di];
+        const detail = window.__storyboardEntityDetails[entId];
+        if (!entId || !detail || typeof detail !== 'object') continue;
+        if (!out.entityDetails[entId]) out.entityDetails[entId] = {};
+        if (detail.primitiveStyle && typeof detail.primitiveStyle === 'object') {
+          out.entityDetails[entId].primitiveStyle = {
+            modelRef: detail.primitiveStyle.modelRef,
+            baseColor: Array.isArray(detail.primitiveStyle.baseColor)
+              ? detail.primitiveStyle.baseColor.slice(0, 3)
+              : detail.primitiveStyle.baseColor,
+          };
+        }
+        if (detail.visualKind) out.entityDetails[entId].visualKind = detail.visualKind;
+        if (detail.primitiveCount != null) out.entityDetails[entId].primitiveCount = detail.primitiveCount;
+      }
+    }
+  } catch (e) { /* leave primitiveStyle missing on extractor error */ }
   return out;
 };
 

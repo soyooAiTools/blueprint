@@ -20,10 +20,19 @@ assert.strictEqual(src.indexOf('addComponent("model"'), -1,
 [
   'function createUnityPrimitiveEntity(name, type)',
   'function findPoolRenderable()',
-  'function clonePoolMaterial(hex)',
+  'function clonePoolMaterial(value, fallback)',
   'function createRendererPrimitiveEntity(parent, name, type)',
   'UnityEngine.GameObject.CreatePrimitive',
   'function createPrimitiveEntity(parent, name, type)',
+  'function buildStyledComposite(group, name, primitiveStyle, sourceStyle)',
+  'function primitiveStyleForName(name)',
+  'window.__storyboardEntityDetails',
+  "recordPrimitiveStyle(name, primitiveStyle, 'styled-composite:' + kind, count)",
+  "if (kind === 'astronaut')",
+  "if (kind === 'ship')",
+  "if (kind === 'pad')",
+  "m.setParameter('_BaseColor', rgba)",
+  "m.setParameter('_Color', rgba)",
   'pcApp.systems.meshFilter',
   'pcApp.systems.renderer',
   'new pc.MeshFilterComponent(e)',
@@ -47,5 +56,9 @@ assert.strictEqual(src.indexOf('addComponent("model"'), -1,
 // Fast path remains available for runtimes that do expose PlayCanvas render.
 assert.ok(src.indexOf("addComponent('render'") >= 0,
   'PlayCanvas render fast path should remain available');
+
+assert.ok(src.indexOf('e = createUnityPrimitiveEntity(name, type)') <
+          src.indexOf('e = createRendererPrimitiveEntity(parent, name, type)'),
+  'Unity primitive path should run before pool-renderer mesh reuse so sphere/cylinder/box stay type-specific');
 
 console.log('linux bridge render fallback smoke passed');
