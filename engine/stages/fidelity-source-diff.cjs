@@ -61,6 +61,39 @@ function gteSchemaVersion(actual, target) {
   }
   return true;
 }
+
+// v1.2 stage-layer anchor bridge gate. Replaces silent advisory log (pre-amend4)
+// with two explicit blocking fieldDiff categories so reviewers see the failure
+// in summary.bucket.anchor instead of having to grep logs:
+//   anchor-bridge-missing: window.__targetAnchors never set (helpers.cjs visualAssets
+//                          pass-through missing → built HTML has no overlay plumbing)
+//   anchor-target-empty:   __targetAnchors initialized but empty for this phase
+//                          (manifest bridge missing projectedAnchors → writer no-op)
+// Worker writes { [phaseId]: measured, current: measured } — normalize to entity→rect.
+// Returns array of entries (may be empty when expectedAnchors absent).
+function computePhaseAnchorEntries(phaseId, expectedAnchors, rawTargetAnchors, viewport, tolerancePx) {
+  if (!expectedAnchors) return [];
+  if (!rawTargetAnchors) {
+    return [{
+      category: 'anchor-bridge-missing',
+      blocking: true,
+      phaseId: phaseId,
+      path: 'phases.' + phaseId + '.projectedAnchors',
+      message: 'v1.2 contract has projectedAnchors but target did not expose window.__targetAnchors (helpers.cjs visualAssets pass-through missing?)'
+    }];
+  }
+  var actualAnchors = rawTargetAnchors[phaseId] || rawTargetAnchors.current || rawTargetAnchors;
+  if (!actualAnchors || typeof actualAnchors !== 'object' || Object.keys(actualAnchors).length === 0) {
+    return [{
+      category: 'anchor-target-empty',
+      blocking: true,
+      phaseId: phaseId,
+      path: 'phases.' + phaseId + '.projectedAnchors',
+      message: 'window.__targetAnchors initialized but empty for phase ' + phaseId + ' (manifest bridge missing projectedAnchors?)'
+    }];
+  }
+  return fieldDiffLib.runAnchorDiff(phaseId, expectedAnchors, actualAnchors, viewport, tolerancePx);
+}
 var DEFAULT_CONTRACT_PATH = path.join(__dirname, '..', '..', 'work', 'task25-sam-delivery-verify', 'unpacked',
   'space-ranger-v0.5-fidelity-delivery', 'unity-project', 'Assets', 'Fidelity', 'fidelityContract.json');
 
@@ -165,13 +198,8 @@ module.exports = {
             }
           }
           var expectedAnchors = contractPhaseForAnchors && contractPhaseForAnchors.projectedAnchors;
-          var actualAnchors = targetShot.targetAnchors;
-          if (expectedAnchors && actualAnchors) {
-            var anchorEntries = fieldDiffLib.runAnchorDiff(phaseId, expectedAnchors, actualAnchors, DEFAULT_VIEWPORT, DEFAULT_ANCHOR_TOLERANCE_PX);
-            fieldDiffs = fieldDiffs.concat(anchorEntries);
-          } else if (expectedAnchors && !actualAnchors) {
-            ctx.addLog && ctx.addLog('fidelity-source-diff', 'WARN — v1.2 contract phase ' + phaseId + ' has projectedAnchors but target did not expose window.__targetAnchors; anchor bucket SKIPPED (advisory)');
-          }
+          var anchorEntries = computePhaseAnchorEntries(phaseId, expectedAnchors, targetShot.targetAnchors, DEFAULT_VIEWPORT, DEFAULT_ANCHOR_TOLERANCE_PX);
+          fieldDiffs = fieldDiffs.concat(anchorEntries);
         }
         var pixelDiffPercent = await runPixelDiff(sourceShot.path, targetShot.path);
 
@@ -265,7 +293,9 @@ module.exports = {
     resolvePhaseNumber: resolvePhaseNumber,
     runFieldLevelDiff: runFieldLevelDiff,
     resolvePixelGateThreshold: resolvePixelGateThreshold,
-    DEFAULT_PIXEL_GATE_THRESHOLD_PERCENT: DEFAULT_PIXEL_GATE_THRESHOLD_PERCENT
+    DEFAULT_PIXEL_GATE_THRESHOLD_PERCENT: DEFAULT_PIXEL_GATE_THRESHOLD_PERCENT,
+    computePhaseAnchorEntries: computePhaseAnchorEntries,
+    DEFAULT_ANCHOR_TOLERANCE_PX: DEFAULT_ANCHOR_TOLERANCE_PX
   }
 };
 

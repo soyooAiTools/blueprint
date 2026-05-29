@@ -8,6 +8,41 @@ var https = require('https');
 var fs = require('fs');
 var path = require('path');
 
+// v1.2 plumbing: the writer reads window.__BLUEPRINT_VISUAL_ASSETS__.fidelityContract
+// to discover phases[i].projectedAnchors. If the in-memory visualAssets manifest
+// doesn't carry fidelityContract, load it from the canonical contract path so the
+// worker writer has a non-empty contract to surface.
+var DEFAULT_FIDELITY_CONTRACT_PATH_FOR_BUILD = path.join(__dirname, '..', 'work',
+  'task25-sam-delivery-verify', 'unpacked', 'space-ranger-v0.5-fidelity-delivery',
+  'unity-project', 'Assets', 'Fidelity', 'fidelityContract.json');
+
+function unwrapSplitPackContract(raw) {
+  // Jonny split-pack: `{writer, contract: {entities, phases, ...}}` — unwrap so
+  // the writer-side sees `manifest.fidelityContract.phases` directly.
+  if (raw && raw.contract && Array.isArray(raw.contract.entities) && Array.isArray(raw.contract.phases)) {
+    return raw.contract;
+  }
+  return raw;
+}
+
+function buildVisualAssetsForRequest(ctx) {
+  var va = ctx && ctx.blueprint && ctx.blueprint.visualAssets;
+  if (!va) return null;
+  if (va.fidelityContract) return va;
+  var contract = null;
+  if (ctx.fidelityFieldDiffTemplate && ctx.fidelityFieldDiffTemplate.contract) {
+    contract = ctx.fidelityFieldDiffTemplate.contract;
+  } else if (ctx.blueprint && ctx.blueprint.fidelityContract) {
+    contract = ctx.blueprint.fidelityContract;
+  } else {
+    var p = (ctx && ctx.fidelityContractPath) || DEFAULT_FIDELITY_CONTRACT_PATH_FOR_BUILD;
+    try { contract = JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) { contract = null; }
+  }
+  contract = unwrapSplitPackContract(contract);
+  if (!contract) return va;
+  return Object.assign({}, va, { fidelityContract: contract });
+}
+
 // ============ File Helpers ============
 
 function buildGameStateBridgeScript() {
@@ -144,10 +179,11 @@ function handleResponse(resolve, reject) {
  * We send BOTH field names and translate /build-html → /build + base64 decode,
  * so both servers keep working and stage code is untouched.
  */
-function buildRequest(buildUrl, endpoint, csCode, extraFiles) {
+function buildRequest(buildUrl, endpoint, csCode, extraFiles, options) {
+  var buildOptions = options || {};
   // /build-html legacy adapter: current API only has /build but returns htmlBase64.
   if (endpoint === '/build-html') {
-    return buildRequest(buildUrl, '/build', csCode, extraFiles).then(function(result) {
+    return buildRequest(buildUrl, '/build', csCode, extraFiles, buildOptions).then(function(result) {
       if (result && result.htmlBase64) {
         return injectGameStateBridgeHtml(Buffer.from(result.htmlBase64, 'base64'));
       }
@@ -163,7 +199,13 @@ function buildRequest(buildUrl, endpoint, csCode, extraFiles) {
     return new Promise(function(resolve, reject) {
       var parsedUrl = new (require('url').URL)(buildUrl + endpoint);
       // Send both `csCode` (new API) and `code` (legacy API) for compatibility.
-      var body = JSON.stringify({ csCode: csCode, code: csCode, className: 'GameFlowManagerMain', extraFiles: extraFiles });
+      var body = JSON.stringify({
+        csCode: csCode,
+        code: csCode,
+        className: 'GameFlowManagerMain',
+        extraFiles: extraFiles,
+        visualAssets: buildOptions.visualAssets || null,
+      });
       var req = http.request({
         hostname: parsedUrl.hostname,
         port: parsedUrl.port,
@@ -699,4 +741,5 @@ module.exports = {
   extractCodeContext: extractCodeContext,
   buildStructuredFeedback: buildStructuredFeedback,
   extractPhaseDurations: extractPhaseDurations,
+  buildVisualAssetsForRequest: buildVisualAssetsForRequest,
 };

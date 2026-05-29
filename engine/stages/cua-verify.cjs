@@ -1042,7 +1042,8 @@ module.exports = {
               } catch (_csErr) { /* sanitizer optional */ }
               ctx.reportStatus('building', { message: '[Linux] CUA fix rebuilding... (round ' + (round + 1) + ')' });
 
-              return helpers.buildRequest(buildUrl, '/build', lastCsCode, Object.assign({}, lastExtraFiles))
+              var buildOptions = { visualAssets: ctx.blueprint && ctx.blueprint.visualAssets || null };
+              return helpers.buildRequest(buildUrl, '/build', lastCsCode, Object.assign({}, lastExtraFiles), buildOptions)
                 .then(function(buildResult) {
                   if (!buildResult.ok) {
                     ctx.addLog('cua-verify', 'Fix rebuild failed: ' + (buildResult.error || ''));
@@ -1052,7 +1053,7 @@ module.exports = {
                   ctx.checkpoint.cuaRound = round;
                   ctx.checkpoint.fixHistory = fixHistory;
 
-                  return helpers.buildRequest(buildUrl, '/build-html', lastCsCode, Object.assign({}, lastExtraFiles))
+                  return helpers.buildRequest(buildUrl, '/build-html', lastCsCode, Object.assign({}, lastExtraFiles), buildOptions)
                     .then(function(newHtml) {
                       lastHtmlData = newHtml;
                       ctx.addLog('cua-verify', 'Fix HTML: ' + (newHtml.length / 1048576).toFixed(1) + 'MB');

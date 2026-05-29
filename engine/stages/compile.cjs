@@ -617,7 +617,8 @@ module.exports = {
             localized.stats.localizedComments + ' comment(s) in ' +
             localized.stats.changedFiles + '/' + localized.stats.files + ' file(s)');
         }
-        return helpers.buildRequest(buildUrl, '/build', lastCsCode, lastExtraFiles)
+        var buildOptions = { visualAssets: ctx.blueprint && ctx.blueprint.visualAssets || null };
+        return helpers.buildRequest(buildUrl, '/build', lastCsCode, lastExtraFiles, buildOptions)
           .catch(function(e) { return { ok: false, error: e.message }; })
           .then(function(buildResult) {
             if (buildResult.ok) {
@@ -626,7 +627,7 @@ module.exports = {
               ctx.extraFiles = lastExtraFiles;
               ctx.buildTime = buildResult.buildTime;
 
-              return helpers.buildRequest(buildUrl, '/build-html', lastCsCode, lastExtraFiles)
+              return helpers.buildRequest(buildUrl, '/build-html', lastCsCode, lastExtraFiles, buildOptions)
                 .then(function(htmlData) {
                   if (!htmlData || htmlData.length < 10240) {
                     throw new Error('HTML output too small (' + (htmlData ? htmlData.length : 0) + ' bytes) — likely empty build');
