@@ -617,7 +617,7 @@ module.exports = {
             localized.stats.localizedComments + ' comment(s) in ' +
             localized.stats.changedFiles + '/' + localized.stats.files + ' file(s)');
         }
-        var buildOptions = { visualAssets: ctx.blueprint && ctx.blueprint.visualAssets || null };
+        var buildOptions = { visualAssets: helpers.buildVisualAssetsForRequest(ctx) };
         return helpers.buildRequest(buildUrl, '/build', lastCsCode, lastExtraFiles, buildOptions)
           .catch(function(e) { return { ok: false, error: e.message }; })
           .then(function(buildResult) {

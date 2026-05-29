@@ -25,21 +25,45 @@ function unwrapSplitPackContract(raw) {
   return raw;
 }
 
+function contractHasProjectedAnchors(contract) {
+  if (!contract || !Array.isArray(contract.phases)) return false;
+  for (var i = 0; i < contract.phases.length; i++) {
+    var p = contract.phases[i];
+    if (p && p.projectedAnchors && typeof p.projectedAnchors === 'object') return true;
+  }
+  return false;
+}
+
 function buildVisualAssetsForRequest(ctx) {
   var va = ctx && ctx.blueprint && ctx.blueprint.visualAssets;
   if (!va) return null;
   if (va.fidelityContract) return va;
   var contract = null;
+  var contractSource = null;
   if (ctx.fidelityFieldDiffTemplate && ctx.fidelityFieldDiffTemplate.contract) {
     contract = ctx.fidelityFieldDiffTemplate.contract;
+    contractSource = 'ctx.fidelityFieldDiffTemplate';
   } else if (ctx.blueprint && ctx.blueprint.fidelityContract) {
     contract = ctx.blueprint.fidelityContract;
+    contractSource = 'ctx.blueprint.fidelityContract';
   } else {
     var p = (ctx && ctx.fidelityContractPath) || DEFAULT_FIDELITY_CONTRACT_PATH_FOR_BUILD;
-    try { contract = JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) { contract = null; }
+    try { contract = JSON.parse(fs.readFileSync(p, 'utf8')); contractSource = p; } catch (e) { contract = null; }
   }
   contract = unwrapSplitPackContract(contract);
   if (!contract) return va;
+  // Fail-loud: v1.0/v1.1 contracts have no projectedAnchors. Returning visualAssets
+  // WITHOUT fidelityContract triggers the writer's empty-anchors path, which the
+  // fidelity-source-diff stage then surfaces as a single blocking
+  // `anchor-bridge-missing` entry — instead of silently shipping a v1.0 contract
+  // that the writer would treat as valid input.
+  if (!contractHasProjectedAnchors(contract)) {
+    console.error('[buildVisualAssetsForRequest] FAIL-LOUD: contract from ' + contractSource +
+      ' has schemaVersion=' + (contract.schemaVersion || 'unknown') +
+      ' with NO phases[].projectedAnchors — refusing to inject. Run scripts/migrate-v1.1-to-v1.2.cjs ' +
+      'or set ctx.fidelityContractPath to a v1.2 migrated contract.');
+    return va;
+  }
   return Object.assign({}, va, { fidelityContract: contract });
 }
 

@@ -1042,7 +1042,7 @@ module.exports = {
               } catch (_csErr) { /* sanitizer optional */ }
               ctx.reportStatus('building', { message: '[Linux] CUA fix rebuilding... (round ' + (round + 1) + ')' });
 
-              var buildOptions = { visualAssets: ctx.blueprint && ctx.blueprint.visualAssets || null };
+              var buildOptions = { visualAssets: helpers.buildVisualAssetsForRequest(ctx) };
               return helpers.buildRequest(buildUrl, '/build', lastCsCode, Object.assign({}, lastExtraFiles), buildOptions)
                 .then(function(buildResult) {
                   if (!buildResult.ok) {
