@@ -231,6 +231,11 @@ function diffEntitiesBucket(indexed, phaseId, observed) {
 
 function diffEntityPrimitives(expected, observed) {
   const diffs = [];
+  // Skip when extractor did not surface a primitives array at all — a partial
+  // entityDetails snapshot (e.g. only worldLabel populated by #49) must not be
+  // misread as "all primitives missing". The primitiveStyle bucket has its own
+  // dedicated gate for modelRef/baseColor coverage.
+  if (!observed || !Array.isArray(observed.primitives)) return diffs;
   const expPrims = expected.primitives || [];
   const obsPrims = observed.primitives || [];
   const obsById = {};
@@ -889,6 +894,25 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
       });
     }
   }
+
+  // 6a. worldLabel DOM overlay — task #49 v1.4c-β. The worker installs
+  //     `#bp-storyboard-worldlabels > .bp-worldlabel[data-entity]` divs, one per
+  //     contract.entities[].worldLabel. Extractor reads text regardless of
+  //     visibility (DOM presence is the gate; positioning is visual-only).
+  //     Populates observed.entityDetails[entityName].worldLabel string that
+  //     diffWorldLabelBucket compares against rich worldLabel.text.
+  try {
+    var wlNodes = document.querySelectorAll('#bp-storyboard-worldlabels .bp-worldlabel[data-entity]');
+    for (var wi = 0; wi < wlNodes.length; wi++) {
+      var wlEl = wlNodes[wi];
+      var entId = wlEl.getAttribute('data-entity');
+      if (!entId) continue;
+      var wlText = (wlEl.textContent || '').trim();
+      if (!out.entityDetails[entId]) out.entityDetails[entId] = {};
+      out.entityDetails[entId].worldLabel = wlText;
+    }
+  } catch (e) { /* leave entityDetails empty on extractor error */ }
+
   return out;
 };
 
