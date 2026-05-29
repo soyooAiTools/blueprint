@@ -6,7 +6,7 @@ var path = require('path');
 var DEFAULT_SCHEMA_PATH = path.join(__dirname, '..', 'contracts', 'fidelity-contract.v1.json');
 var CONTRACT_KIND = 'blueprint.fidelityContract';
 var SCHEMA_KIND = 'blueprint.fidelityContract.schema';
-var SCHEMA_VERSION = '1.2.0';
+var SCHEMA_VERSION = '1.3.0';
 // v1.2.0 adds two-layer screen-space anchor design:
 //   - phases[].cameraTransform (informative/diagnostic — does NOT block)
 //   - phases[].projectedAnchors (normative/blocking — per-entity screen rect

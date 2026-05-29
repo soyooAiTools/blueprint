@@ -1,15 +1,16 @@
 {
-  "schemaVersion": "1.2.0",
+  "schemaVersion": "1.3.0",
   "kind": "blueprint.fidelityContract.schema",
-  "contractVersion": "1.2.0",
+  "contractVersion": "1.3.0",
   "description": "Authoritative data contract for high-fidelity HTML and Unity reproduction. HTML writers and Unity writers consume generated blueprint.fidelityContract instances; runtime bridge infra must not carry fixture constants.",
   "instanceKind": "blueprint.fidelityContract",
-  "acceptedInstanceSchemaVersions": ["1.0.0", "1.1.0", "1.2.0"],
+  "acceptedInstanceSchemaVersions": ["1.0.0", "1.1.0", "1.2.0", "1.3.0"],
   "versionPolicy": {
     "schemaVersion": "Version of this schema document. Bump on structural changes to this file.",
     "contractVersion": "Version of generated fidelityContract instance semantics. Bump when required roots, writer gates, or consumer semantics change.",
     "v1_1_0_notes": "Adds entities[].worldLabel (optional, polymorphic) and relaxes hud[].text to polymorphic. Polymorphic shape: string OR {default?: string, perPhase: Record<phaseId,string>}. Lib field-diff @0.6.1 reads v1.0.0 instances via transitional hud[id^=\"label.\"] fallback into worldLabel bucket; migration script scripts/migrate-v1.0-to-v1.1.cjs moves them forward.",
-    "v1_2_0_notes": "Adds phases[].cameraTransform (informative) + phases[].projectedAnchors (normative, blocking) to make per-phase screen-space projection the canonical visual closure truth. Opt1 falsification (msg=ee995411) proved cameraTransform alone insufficient — Three.js↔PlayCanvas world coord/projection semantics are not equivalent. projectedAnchors carry source-observed 2D screen rects (viewport baseline 1280×720, origin top-left) so target writers calibrate via local screen-space fit instead of replaying source camera math. Lib field-diff @0.7.0 reads v1.1.0 instances via transitional fallback: projectedAnchors absent → unresolvedFidelityGaps[] advisory entry; cameraTransform absent → inferred-default. v1.1.0 instances continue to load. Migration script scripts/migrate-v1.1-to-v1.2.cjs is backfill-only: accepts 1.1.0 or 1.2.0 input, runs anchor-extractor against source HTML if available, fills projectedAnchors; if source HTML absent, leaves contract + unresolvedFidelityGaps advisory (NO fabrication). Idempotent. Conditional schemaVersion bump: bumps 1.1.0 → 1.2.0 only if every phase has projectedAnchors populated with provenance ∈ {extracted, anchor-only} (no inferred-default entries)."
+    "v1_2_0_notes": "Adds phases[].cameraTransform (informative) + phases[].projectedAnchors (normative, blocking) to make per-phase screen-space projection the canonical visual closure truth. Opt1 falsification (msg=ee995411) proved cameraTransform alone insufficient — Three.js↔PlayCanvas world coord/projection semantics are not equivalent. projectedAnchors carry source-observed 2D screen rects (viewport baseline 1280×720, origin top-left) so target writers calibrate via local screen-space fit instead of replaying source camera math. Lib field-diff @0.7.0 reads v1.1.0 instances via transitional fallback: projectedAnchors absent → unresolvedFidelityGaps[] advisory entry; cameraTransform absent → inferred-default. v1.1.0 instances continue to load. Migration script scripts/migrate-v1.1-to-v1.2.cjs is backfill-only: accepts 1.1.0 or 1.2.0 input, runs anchor-extractor against source HTML if available, fills projectedAnchors; if source HTML absent, leaves contract + unresolvedFidelityGaps advisory (NO fabrication). Idempotent. Conditional schemaVersion bump: bumps 1.1.0 → 1.2.0 only if every phase has projectedAnchors populated with provenance ∈ {extracted, anchor-only} (no inferred-default entries).",
+    "v1_3_0_notes": "Adds source-HTML-derived presentation field family — all OPTIONAL on the contract surface, populated by scripts/migrate-v1.2-to-v1.3.cjs from reverse-extracted JS literals: (1) scene.backgroundColor [r,g,b] linear-RGB 0..1 from SCENE_CONFIG.backgroundColor (writer overlay clear color); (2) entities[].worldLabel rich record {text, worldOffset:{x,y,z}, color?, fontSize?, consumer?} extracted from ENTITY_STYLE[id].label (writer renders sprite at entity.position + worldOffset). v1.1 polymorphic-text form (string OR {default?, perPhase}) is still accepted for the legacy non-3D HUD case — validator dispatches on (typeof text === 'string' && isPlainObject(worldOffset)); (3) entities[].primitiveStyle {modelRef:string, baseColor:[r,g,b] linear, baseColorHex?:string} from ENTITY_STYLE[id].{kind,color} — modelRef is a semantic kind hint (astronaut|ship|base|station|counter|pad|crystal|debris|cargo|beacon|gate) consumed by the writer overlay to pick a styled mesh family instead of falling back to procedural box/cylinder. v1.2 instances continue to load unchanged. Migration script is deterministic regex parse of source HTML (no puppeteer); idempotent (preserves existing worldLabel/primitiveStyle unless forceReextract=true). Conditional schemaVersion bump: bumps 1.2.0 → 1.3.0 only when scene.backgroundColor extracted AND every source-declared entity has both worldLabel and primitiveStyle populated (Unity-internal auxiliary entities absent from source HTML are excluded — they surface as advisoryGaps[] kind='v13-entity-not-in-source'). Pipeline integration: engine/stages/fidelity-contract-produce.cjs chains v1.1→v1.2 then v1.2→v1.3 migrate in createLunaPipeline (test/luna-pipeline-composition.test.cjs pins position). Two new field-diff buckets (scene + primitiveStyle) are BLOCKING by design — writer overlay #46 must consume modelRef + baseColor to clear them."
   },
   "requiredRoots": [
     "schemaVersion",
@@ -117,14 +118,22 @@
     "optionalKeys": [
       "label",
       "worldLabel",
+      "primitiveStyle",
       "unityPath",
       "htmlPath",
       "consumer"
     ],
     "worldLabelPolicy": {
-      "shape": "string | {default?: string, perPhase: Record<phaseId,string>}",
-      "semantics": "World-space label rendered on/over the entity in 3D (e.g. Three.js Sprite + DOM overlay in source HTML). Distinct from hud[] which is screen-space HUD overlay. Diff bucket = worldLabel-{missing,mismatch}; non-blocking advisory (HTML targets may legitimately render world labels off; Unity targets typically render them on).",
-      "v1_0_migration": "v1.0.0 contracts carried world labels as hud[id=\"label.<EntityName>\"] entries with role:\"entity-label\". v1.1 migration moves them to entities[id=<EntityName>].worldLabel; orphans (no matching entity) remain in hud[] with unresolvedFidelityGaps[] warning."
+      "shape": "v1.1 polymorphic-text: string | {default?: string, perPhase: Record<phaseId,string>}  ||  v1.3 rich record: {text:string, worldOffset:{x:number,y:number,z:number}, color?:string, fontSize?:number, consumer?:Array<string>}",
+      "semantics": "World-space label rendered on/over the entity in 3D (e.g. Three.js Sprite + DOM overlay in source HTML). Distinct from hud[] which is screen-space HUD overlay. Diff bucket = worldLabel-{missing,mismatch}; non-blocking advisory at v1.1, BLOCKING at v1.3 when primitiveStyle is populated (writer #46 must place sprite at entity.position + worldOffset).",
+      "shapeDispatch": "Validator engines dispatch on (typeof value.text === 'string' && isPlainObject(value.worldOffset)) → v1.3 rich record path; otherwise → v1.1 polymorphic-text path. Both shapes coexist on the v1.3 contract surface.",
+      "v1_0_migration": "v1.0.0 contracts carried world labels as hud[id=\"label.<EntityName>\"] entries with role:\"entity-label\". v1.1 migration moves them to entities[id=<EntityName>].worldLabel; orphans (no matching entity) remain in hud[] with unresolvedFidelityGaps[] warning.",
+      "v1_3_migration": "scripts/migrate-v1.2-to-v1.3.cjs reverse-extracts label text + worldOffset (default offset y=3.1 above entity center) from source HTML ENTITY_STYLE[id].label literal. Preserves existing v1.1 polymorphic-text values unless forceReextract=true."
+    },
+    "primitiveStylePolicy": {
+      "shape": "{modelRef:string, baseColor:[r:number,g:number,b:number] linear-RGB 0..1, baseColorHex?:string}",
+      "semantics": "Semantic mesh-kind hint + per-entity tint for writer overlay (task #46) to render styled mesh+material instead of procedural box/cylinder fallback. modelRef enum: astronaut|ship|base|station|counter|pad|crystal|debris|cargo|beacon|gate. baseColor is linear-RGB to compose directly with PlayCanvas StandardMaterial. Diff bucket = primitiveStyle-{missing,mismatch}; BLOCKING by design — the writer overlay MUST consume these fields when present.",
+      "v1_3_extraction": "scripts/migrate-v1.2-to-v1.3.cjs parses ENTITY_STYLE[id].{kind,color} from source HTML JS literals. Unknown kinds are passed through as-is (modelRef = kind) and tracked in report.unknownModelKinds for writer fallback logging."
     }
   },
   "sourceEntityContract": {
@@ -246,6 +255,15 @@
       "tolerance": "writer-side anchor diff: ±8px absolute on x_px/y_px/w_px/h_px (configurable via fidelity-source-diff stage env DEFAULT_ANCHOR_PIXEL_TOLERANCE). Beyond tolerance → blocking field-diff entry. Exception: when expected anchor's derived viewportIntersection=false (source-positioned-offscreen), anchor-mismatch downgrades to advisory unresolvedFidelityGaps[] with kind='anchor-mismatch-off-viewport', NOT hasBlockingDiff (Jonny msg=0ec2b725 / Tim msg=52fe75ad). Pixel-gate hard <5% covers off-canvas regions via sharp resize/cover.",
       "consumerDerivedViewportIntersection": "viewportIntersection = (x_px + w_px) >= 0 AND x_px <= viewportBaseline.width AND (y_px + h_px) >= 0 AND y_px <= viewportBaseline.height. Bbox-rect ∩ viewport-rect (NOT center-point). Derived in-memory at consume time by writer and field-diff; NEVER persisted in contract."
     }
+  },
+  "sceneContract": {
+    "optional": true,
+    "v1_3_notes": "Top-level scene-level fields populated by v1.3 producer chain. Optional on the contract surface — pre-v1.3 contracts omit the entire scene block. v1.3 instances typically populate at least scene.backgroundColor from source HTML SCENE_CONFIG.backgroundColor reverse-extraction.",
+    "shape": {
+      "backgroundColor": "OPTIONAL — [r,g,b] linear-RGB 0..1. Writer overlay (#46) consumes as camera clearColor / canvas background.",
+      "backgroundColorHex": "OPTIONAL — original 6-char hex (e.g. '071026') for audit/debug round-trip."
+    },
+    "diffPolicy": "field-diff scene bucket is BLOCKING: scene-missing emits when contract.scene.backgroundColor present but observed scene.backgroundColor undefined; scene-mismatch emits on componentwise drift outside FLOAT_EPSILON. Pre-v1.3 contracts (no scene block) produce no scene-bucket entries."
   },
   "hudContract": {
     "requiredKeys": [
