@@ -358,6 +358,20 @@ function diffPhasesBucket(indexed, phaseId, observed) {
 //  the bucket name added by the diff renderer.)
 const WORLD_LABEL_HUD_ID_RE = /^label\./;
 
+// task #45 (v1.3) Blocker #3 fix: shape-discriminated severity dispatch.
+// v1.3 rich-record worldLabel = { text:<str>, worldOffset:{x,y,z}, color?, fontSize?, consumer? }
+//   is a normative gate field — missing/mismatch BLOCKS acceptance (youth red line:
+//   "模型一致 + 视觉一致", #45 acceptance includes worldLabel).
+// v0.5 plain string / v1.1 polymorphic { default?, perPhase? } legacy spec
+//   stays advisory (HTML overlay target legitimately doesn't render world-space
+//   labels in those era contracts — preserves backward-compat behavior).
+function isV13RichWorldLabel(spec) {
+  if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) return false;
+  if (typeof spec.text !== 'string') return false;
+  var wo = spec.worldOffset;
+  return wo !== null && typeof wo === 'object' && !Array.isArray(wo);
+}
+
 // Fold (8) Q2: resolve a polymorphic text spec. Accepts a plain string (phase-
 // constant) or `{default?: string, perPhase?: {phaseId: string}}`. Returns the
 // resolved string for the given phaseId, or `undefined` if no text applies.
@@ -455,19 +469,25 @@ function diffHudBucket(indexed, phaseId, observed) {
 }
 
 // Fold (8) Q1: worldLabel bucket. Reads expected world-space entity labels from
-// two sources: (a) v0.6 forward — `entities[].worldLabel` (polymorphic text);
-// (b) v0.5 transitional — `hud[id^="hud.label."]` plain-text entries (the 192
-// reclassified hud noise). All emitted diffs are non-blocking advisory because
-// HTML overlay target legitimately does not render world-space labels by
-// design; this surfaces the gap without blocking acceptance on a target whose
-// rendering scope is intentionally narrower. Observed `worldLabel` is read
-// from `observed.entityDetails[name].worldLabel` (target extractors that
-// support world-space label capture will populate it; absent extractors leave
-// it undefined → missing diff).
+// two sources: (a) v0.6 forward — `entities[].worldLabel` (polymorphic text or
+// v1.3 rich record); (b) v0.5 transitional — `hud[id^="hud.label."]` plain-text
+// entries (the 192 reclassified hud noise).
+//
+// task #45 (v1.3) Blocker #3 fix: shape-discriminated severity. Rich records
+// (v1.3, isV13RichWorldLabel(spec)) emit blocking:true — they're a normative
+// gate field consumed by the #46 writer overlay (modelRef + worldLabel together
+// define "model + visual" replication youth's red line). Legacy v0.5 plain
+// string / v1.1 polymorphic / v0.5 transitional hud.label.* still emit
+// blocking:false — HTML overlay target legitimately does not render world-
+// space labels in those era contracts.
+//
+// Observed `worldLabel` is read from `observed.entityDetails[name].worldLabel`
+// (target extractors that support world-space label capture will populate it;
+// absent extractors leave it undefined → missing diff).
 function diffWorldLabelBucket(indexed, phaseId, observed) {
   const entries = [];
   const expected = {};
-  // (a) v0.6 forward
+  // (a) v0.6 forward — including v1.3 rich record
   for (const e of (indexed.contract.entities || [])) {
     if (e.worldLabel === undefined) continue;
     const key = canonicalEntityKey(e.id || e.name);
@@ -476,9 +496,11 @@ function diffWorldLabelBucket(indexed, phaseId, observed) {
       textSpec: e.worldLabel,
       provenance: e.provenance || null,
       source: 'entities.worldLabel',
+      isRich: isV13RichWorldLabel(e.worldLabel),
     };
   }
-  // (b) v0.5 transitional fallback (only if not already covered by v0.6 path)
+  // (b) v0.5 transitional fallback (only if not already covered by v0.6 path).
+  // Plain hud.label.* entries are never rich-record shape → always advisory.
   for (const h of (indexed.contract.hud || [])) {
     if (!WORLD_LABEL_HUD_ID_RE.test(h.id)) continue;
     const entityName = h.id.replace(WORLD_LABEL_HUD_ID_RE, '');
@@ -489,6 +511,7 @@ function diffWorldLabelBucket(indexed, phaseId, observed) {
       textSpec: h.text,
       provenance: h.provenance || { source: 'hud.label.* (v0.5 transitional)' },
       source: 'hud.label',
+      isRich: false,
     };
   }
 
@@ -512,7 +535,7 @@ function diffWorldLabelBucket(indexed, phaseId, observed) {
         entityId: spec.entityId,
         status: 'missing',
         diffPaths: [{ path: '$', expected: expectedText, observed: '<missing>' }],
-        blocking: false,
+        blocking: spec.isRich === true,
         provenance: spec.provenance,
         source: spec.source,
       });
@@ -523,7 +546,7 @@ function diffWorldLabelBucket(indexed, phaseId, observed) {
         entityId: spec.entityId,
         status: 'mismatch',
         diffPaths: [{ path: '$.text', expected: expectedText, observed: obsText }],
-        blocking: false,
+        blocking: spec.isRich === true,
         provenance: spec.provenance,
         source: spec.source,
       });
@@ -1002,11 +1025,14 @@ module.exports = {
     for (const h of tgtBuckets.hud) {
       flat.push({ path: 'hud.' + h.id, source: '<contract>', target: h.status, category: 'hud-' + h.status, diffPaths: h.diffPaths, blocking: h.blocking !== false });
     }
-    // Fold (8.1): flatten worldLabel bucket so stage-layer callers see advisory
-    // entries. Each entry carries blocking:false; stages should split on the
-    // flag rather than counting every fieldDiff as blocking.
+    // Fold (8.1) + task #45 Blocker #3: flatten worldLabel bucket so stage-
+    // layer callers see entries. Transparently pass through the bucket's
+    // `blocking` flag (v1.3 rich record → true, v1.1 polymorphic / v0.5 plain
+    // → false) instead of hard-coding false. Sam 08:53 + Jonny msg=9307fdee
+    // diagnosed the prior hard-coded false as the surface that swallowed v1.3
+    // worldLabel-missing into advisory.
     for (const w of (tgtBuckets.worldLabel || [])) {
-      flat.push({ path: 'worldLabel.' + w.entityId, source: '<contract>', target: w.status, category: 'worldLabel-' + w.status, diffPaths: w.diffPaths, blocking: false });
+      flat.push({ path: 'worldLabel.' + w.entityId, source: '<contract>', target: w.status, category: 'worldLabel-' + w.status, diffPaths: w.diffPaths, blocking: w.blocking === true });
     }
     // task #45 (v1.3): flatten scene + primitiveStyle buckets. Both blocking by
     // design — contract has the field, target overlay must render it; gap is the
