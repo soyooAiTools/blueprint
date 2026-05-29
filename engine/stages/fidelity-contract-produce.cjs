@@ -43,6 +43,19 @@ var fs = require('fs');
 var path = require('path');
 var fidelityContract = require('../fidelity-contract.cjs');
 var migrateLib = require('../../scripts/migrate-v1.1-to-v1.2.cjs');
+var migrateV13Lib = require('../../scripts/migrate-v1.2-to-v1.3.cjs');
+
+function gteVersion(a, target) {
+  if (typeof a !== 'string') return false;
+  var av = a.split('.').map(function(n) { return parseInt(n, 10) || 0; });
+  var tv = target.split('.').map(function(n) { return parseInt(n, 10) || 0; });
+  for (var i = 0; i < Math.max(av.length, tv.length); i++) {
+    var x = av[i] || 0, y = tv[i] || 0;
+    if (x > y) return true;
+    if (x < y) return false;
+  }
+  return true;
+}
 
 function loadBaseContract(ctx) {
   if (ctx && ctx.blueprint && ctx.blueprint.fidelityContract) {
@@ -72,6 +85,26 @@ function alreadyHasProjectedAnchors(contract) {
   });
 }
 
+// task #45 (v1.3): contract has the source-HTML-derived field family already?
+// True if scene.backgroundColor is set AND every entity (modulo Unity-internal
+// auxiliary ones absent from source) has worldLabel.text and primitiveStyle.modelRef.
+function alreadyHasV13Fields(contract) {
+  if (!contract) return false;
+  if (!contract.scene || contract.scene.backgroundColor === undefined) return false;
+  var entities = contract.entities || [];
+  var stylableCount = 0;
+  var coveredCount = 0;
+  for (var i = 0; i < entities.length; i++) {
+    var e = entities[i];
+    var hasLabel = e.worldLabel && typeof e.worldLabel.text === 'string'
+      && e.worldLabel.worldOffset && typeof e.worldLabel.worldOffset.y === 'number';
+    var hasStyle = e.primitiveStyle && typeof e.primitiveStyle.modelRef === 'string';
+    if (hasLabel || hasStyle) stylableCount++;
+    if (hasLabel && hasStyle) coveredCount++;
+  }
+  return stylableCount > 0 && coveredCount >= stylableCount;
+}
+
 module.exports = {
   name: 'fidelity-contract-produce',
   canRetry: false,
@@ -88,9 +121,12 @@ module.exports = {
         'no base contract resolvable from ctx.blueprint.fidelityContract / fidelityContractPath — skip (helpers.buildVisualAssetsForRequest fail-loud will report)');
       return true;
     }
-    if (alreadyHasProjectedAnchors(base.contract)) {
+    // v1.2 anchors AND v1.3 style fields both present → fully idempotent, skip execute.
+    // v1.2 anchors only → execute() so v1.3 chain runs; v1.2 stage will short-circuit
+    // internally because alreadyHasProjectedAnchors() also gates the migrate call.
+    if (alreadyHasProjectedAnchors(base.contract) && alreadyHasV13Fields(base.contract)) {
       ctx.addLog && ctx.addLog('fidelity-contract-produce',
-        'base contract from ' + base.source + ' already has projectedAnchors on every phase — skip (idempotent re-entry)');
+        'base contract from ' + base.source + ' already has projectedAnchors + v1.3 style fields — skip (idempotent re-entry)');
       // Materialize in-memory so downstream compile/source-diff sees same object.
       if (!ctx.blueprint) ctx.blueprint = {};
       if (!ctx.blueprint.fidelityContract) ctx.blueprint.fidelityContract = base.contract;
@@ -119,10 +155,29 @@ module.exports = {
     ctx.addLog && ctx.addLog('fidelity-contract-produce',
       'enriching base contract from ' + base.source + ' (schemaVersion=' + base.contract.schemaVersion + ') with anchor-extractor on ' + path.basename(ctx.sourceHtmlPath));
 
-    return migrateLib.migrate(base.contract, {
-      sourceHtml: ctx.sourceHtmlPath,
-      forceReextract: false
-    }).then(function(result) {
+    // v1.1→v1.2 migrate is idempotent on v1.2 input, but throws on v1.3 input
+    // (input contract guard). If the base contract is already v1.3, treat the
+    // v1.2 step as a pass-through and proceed directly to the v1.3 chain.
+    var v12Promise;
+    if (gteVersion(base.contract.schemaVersion, '1.3.0')) {
+      ctx.addLog && ctx.addLog('fidelity-contract-produce',
+        'v1.2 stage skipped — base contract already at ' + base.contract.schemaVersion);
+      v12Promise = Promise.resolve({
+        contract: base.contract,
+        report: {
+          fromVersion: base.contract.schemaVersion,
+          toVersion: base.contract.schemaVersion,
+          bumpedSchemaVersion: false,
+          counts: { extractedCount: 0, anchorOnlyCount: 0, inferredCount: 0, advisoryGapCount: 0 }
+        }
+      });
+    } else {
+      v12Promise = migrateLib.migrate(base.contract, {
+        sourceHtml: ctx.sourceHtmlPath,
+        forceReextract: false
+      });
+    }
+    return v12Promise.then(function(result) {
       var validation = fidelityContract.validateFidelityContract(result.contract);
       if (!validation.valid) {
         var errSummary = validation.errors.slice(0, 5).join('; ');
@@ -140,11 +195,50 @@ module.exports = {
         ' anchorOnly=' + c.anchorOnlyCount +
         ' inferred=' + c.inferredCount +
         ' advisoryGaps=' + c.advisoryGapCount);
+
+      // task #45 (v1.3): chain v1.2 → v1.3 reverse-extraction of source HTML
+      // style fields (scene.backgroundColor + entity.worldLabel + entity.primitiveStyle).
+      // Only runs when the v1.2 stage produced a contract that's at least v1.2
+      // (otherwise the v1.3 migrate would refuse on schemaVersion check).
+      // No-op when v1.3 fields already present (idempotent re-entry).
+      if (!gteVersion(result.contract.schemaVersion, '1.2.0')) {
+        ctx.addLog && ctx.addLog('fidelity-contract-produce',
+          'v1.3 skipped — upstream contract still at ' + result.contract.schemaVersion + ' (< 1.2.0)');
+        return;
+      }
+      if (alreadyHasV13Fields(result.contract)) {
+        ctx.addLog && ctx.addLog('fidelity-contract-produce',
+          'v1.3 skipped — scene + worldLabel + primitiveStyle already populated (idempotent re-entry)');
+        return;
+      }
+      var v13 = migrateV13Lib.migrate(result.contract, {
+        sourceHtml: ctx.sourceHtmlPath,
+        forceReextract: false
+      });
+      var v13Validation = fidelityContract.validateFidelityContract(v13.contract);
+      if (!v13Validation.valid) {
+        var v13ErrSummary = v13Validation.errors.slice(0, 5).join('; ');
+        throw new Error('fidelity-contract-produce: v1.3 enriched contract failed validation: ' + v13ErrSummary);
+      }
+      ctx.blueprint.fidelityContract = v13.contract;
+      ctx.fidelityContractProduceReportV13 = v13.report;
+      var v13c = v13.report.counts;
+      ctx.addLog && ctx.addLog('fidelity-contract-produce',
+        'v1.3 enriched: from=' + v13.report.fromVersion +
+        ' to=' + v13.report.toVersion +
+        ' bumped=' + v13.report.bumpedSchemaVersion +
+        ' bgExtracted=' + v13c.backgroundColorExtracted +
+        ' worldLabelSet=' + v13c.worldLabelPopulated +
+        ' primitiveStyleSet=' + v13c.primitiveStylePopulated +
+        ' sourceDeclared=' + (v13c.sourceDeclaredEntities || 0) +
+        ' auxMissing=' + v13c.entitiesMissingFromSource);
     });
   },
 
   _internals: {
     loadBaseContract: loadBaseContract,
-    alreadyHasProjectedAnchors: alreadyHasProjectedAnchors
+    alreadyHasProjectedAnchors: alreadyHasProjectedAnchors,
+    alreadyHasV13Fields: alreadyHasV13Fields,
+    gteVersion: gteVersion
   }
 };
