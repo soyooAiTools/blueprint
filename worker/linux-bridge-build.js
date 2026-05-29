@@ -1022,6 +1022,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             return new pc.Color(parseInt(text.slice(0,2),16)/255, parseInt(text.slice(2,4),16)/255, parseInt(text.slice(4,6),16)/255, 1);
           }
           function mat(hex) {
+            if (typeof pc.StandardMaterial !== 'function') return null;
             var m = new pc.StandardMaterial();
             m.diffuse = color(hex, '#ffffff');
             m.emissive = color(hex, '#000000');
@@ -1054,9 +1055,13 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           }
           function applyMaterial(ent, material) {
             try {
+              if (!material) return;
               var instances = [];
               if (ent.render && ent.render.meshInstances) instances = ent.render.meshInstances;
               else if (ent.model && ent.model.model && ent.model.model.meshInstances) instances = ent.model.model.meshInstances;
+              else if (ent._unityComponents && ent._unityComponents.renderer && ent._unityComponents.renderer[0]) {
+                instances = ent._unityComponents.renderer[0].meshInstances || [];
+              }
               for (var i = 0; i < instances.length; i++) instances[i].material = material;
             } catch(e) {}
           }
@@ -1065,20 +1070,49 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             try {
               if (pcApp.systems && pcApp.systems.render) {
                 ent.addComponent('render', { type: primitiveType });
-                return;
+                return true;
               }
             } catch(renderErr) {}
+            return false;
+          }
+          function unityPrimitiveType(type) {
             try {
-              ent.addComponent('model', { type: primitiveType });
-            } catch(modelErr) {
-              var fallbackType = primitiveType === 'cone' ? 'cylinder' : 'box';
-              try {
-                if (pcApp.systems && pcApp.systems.render) ent.addComponent('render', { type: fallbackType });
-                else ent.addComponent('model', { type: fallbackType });
-              } catch(finalErr) {
-                throw finalErr;
+              if (!window.UnityEngine || !UnityEngine.PrimitiveType) return null;
+              if (type === 'sphere') return UnityEngine.PrimitiveType.Sphere;
+              if (type === 'cylinder' || type === 'cone') return UnityEngine.PrimitiveType.Cylinder;
+              if (type === 'plane') return UnityEngine.PrimitiveType.Plane;
+              return UnityEngine.PrimitiveType.Cube;
+            } catch(e) { return null; }
+          }
+          function createUnityPrimitiveEntity(name, type) {
+            try {
+              if (!window.UnityEngine || !UnityEngine.GameObject || !UnityEngine.GameObject.CreatePrimitive) return null;
+              var primitiveType = unityPrimitiveType(type);
+              if (primitiveType == null) return null;
+              var go = UnityEngine.GameObject.CreatePrimitive(primitiveType);
+              var entity = go && go.handle;
+              if (!entity) return null;
+              go.name = name;
+              entity.name = name;
+              return entity;
+            } catch(e) { return null; }
+          }
+          function createPrimitiveEntity(parent, name, type) {
+            var e = new pc.Entity(name);
+            parent.addChild(e);
+            if (addPrimitiveComponent(e, type)) return e;
+            try { parent.removeChild(e); } catch(removeErr) {}
+            e = createUnityPrimitiveEntity(name, type);
+            if (e) {
+              try { if (e.parent && e.parent !== parent) e.parent.removeChild(e); } catch(parentErr) {}
+              try { if (e.parent !== parent) parent.addChild(e); } catch(addErr) {
+                console.warn('[AI] Storyboard primitive reparent failed: ' + name + ' ' + (addErr && addErr.message ? addErr.message : addErr));
+                return null;
               }
+              return e;
             }
+            console.warn('[AI] Storyboard primitive unavailable: ' + name + ' type=' + (type || 'box'));
+            return null;
           }
           function hideTemplateVisuals(root) {
             function walk(ent) {
@@ -1091,13 +1125,15 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           }
           function addPrimitive(parent, asset) {
             var spec = primitiveSpec(asset);
-            var e = new pc.Entity('BPV_' + asset.assetId);
-            parent.addChild(e);
-            addPrimitiveComponent(e, spec.type);
+            var e = createPrimitiveEntity(parent, 'BPV_' + asset.assetId, spec.type);
+            if (!e) return null;
             var p = arr3(asset && asset.transform && asset.transform.position, [0,0,0]);
             e.setLocalPosition(p[0], p[1], p[2]);
             e.setLocalScale(spec.scale[0], spec.scale[1], spec.scale[2]);
-            applyMaterial(e, mat(asset && asset.material && asset.material.diffuseColor));
+            var material = mat(asset && asset.material && asset.material.diffuseColor);
+            applyMaterial(e, material);
+            setTimeout(function() { applyMaterial(e, material); }, 0);
+            setTimeout(function() { applyMaterial(e, material); }, 250);
             return e;
           }
           hideTemplateVisuals(pcApp.root);
@@ -1109,14 +1145,16 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           var root = new pc.Entity('__StoryboardVisualOverlay');
           pcApp.root.addChild(root);
           if (sceneContract.ground && sceneContract.ground.color) {
-            var g = new pc.Entity('StoryboardGround');
-            root.addChild(g);
-            addPrimitiveComponent(g, sceneContract.ground.kind === 'box' ? 'box' : 'cylinder');
-            var radius = sceneContract.ground.radius || Math.max(sceneContract.ground.width || 50, sceneContract.ground.depth || 50) / 2;
-            var height = sceneContract.ground.height || 0.2;
-            g.setPosition(0, -0.06, 0);
-            g.setLocalScale(radius * 2, height, radius * 2);
-            applyMaterial(g, mat(sceneContract.ground.color));
+            var g = createPrimitiveEntity(root, 'StoryboardGround', sceneContract.ground.kind === 'box' ? 'box' : 'cylinder');
+            if (g) {
+              var radius = sceneContract.ground.radius || Math.max(sceneContract.ground.width || 50, sceneContract.ground.depth || 50) / 2;
+              var height = sceneContract.ground.height || 0.2;
+              g.setPosition(0, -0.06, 0);
+              g.setLocalScale(radius * 2, height, radius * 2);
+              var groundMat = mat(sceneContract.ground.color);
+              applyMaterial(g, groundMat);
+              setTimeout(function() { applyMaterial(g, groundMat); }, 250);
+            }
           }
           var starMat = mat('#ffffff');
           var decor = sceneContract.decor || {};
@@ -1125,9 +1163,8 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             var sx = ((Math.sin(si * 12.9898) * 43758.5453) % 1) * 135 - 35;
             var sy = 8 + Math.abs((Math.sin(si * 78.233) * 31) % 30);
             var sz = ((Math.sin(si * 39.425) * 24634.6345) % 1) * 90 - 45;
-            var s = new pc.Entity('StoryboardStar');
-            root.addChild(s);
-            addPrimitiveComponent(s, 'sphere');
+            var s = createPrimitiveEntity(root, 'StoryboardStar', 'sphere');
+            if (!s) continue;
             s.setPosition(sx, sy, sz);
             s.setLocalScale(0.07, 0.07, 0.07);
             applyMaterial(s, starMat);
@@ -1137,9 +1174,8 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           for (var ri = 0; ri < ringCount; ri++) {
             for (var rp = 0; rp < 48; rp++) {
               var t = rp / 48 * Math.PI * 2;
-              var dot = new pc.Entity('StoryboardOrbit');
-              root.addChild(dot);
-              addPrimitiveComponent(dot, 'sphere');
+              var dot = createPrimitiveEntity(root, 'StoryboardOrbit', 'sphere');
+              if (!dot) continue;
               dot.setPosition(Math.cos(t) * (24 + ri * 13), 0.04, Math.sin(t) * (8 + ri * 5) + ri * 3);
               dot.setLocalScale(0.045, 0.045, 0.045);
               applyMaterial(dot, ringMat);
