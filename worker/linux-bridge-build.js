@@ -1542,6 +1542,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           setInterval(syncEntityPositions, 100);
           syncEntityPositions();
           installStoryboardDomHud();
+          installStoryboardWorldLabels();
           console.log('[AI] Storyboard visual overlay active: entities=' + Object.keys(entityRoots).length);
         } catch(overlayErr) {
           console.error('[AI] Storyboard visual overlay error:', overlayErr);
@@ -1603,6 +1604,89 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           set('bp-storyboard-target', guide ? '目标：' + guide.slice(0, 24) : '目标');
         }, 200);
       }
+      // task #49 v1.4c-beta — render contract.entities[i].worldLabel as world-
+      // space CJK overlay. Reads manifest.fidelityContract.entities[].worldLabel
+      // (rich record), creates one DOM label per entity, projects entity worldPos
+      // + worldOffset through camEnt.camera.worldToScreen each tick.
+      function installStoryboardWorldLabels() {
+        if (document.getElementById('bp-storyboard-worldlabels')) return;
+        var manifest = window.__BLUEPRINT_VISUAL_ASSETS__;
+        var fc = manifest && manifest.fidelityContract;
+        if (!fc || !Array.isArray(fc.entities)) return;
+        var container = document.createElement('div');
+        container.id = 'bp-storyboard-worldlabels';
+        container.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:2147482900;font-family:Arial,"Microsoft YaHei",sans-serif;';
+        document.body.appendChild(container);
+        var labels = [];
+        for (var i = 0; i < fc.entities.length; i++) {
+          var e = fc.entities[i];
+          if (!e || !e.worldLabel) continue;
+          var wl = e.worldLabel;
+          if (typeof wl.text !== 'string') continue;
+          var entityId = e.id || e.name;
+          if (!entityId) continue;
+          var div = document.createElement('div');
+          div.className = 'bp-worldlabel';
+          div.setAttribute('data-entity', entityId);
+          var col = (typeof wl.color === 'string' && wl.color) ? wl.color : '#ffffff';
+          var fs = (typeof wl.fontSize === 'number' && wl.fontSize > 0) ? wl.fontSize : 26;
+          div.style.cssText = 'position:absolute;transform:translate(-50%,-50%);padding:2px 8px;background:rgba(0,0,0,0.55);border-radius:6px;white-space:nowrap;color:' + col + ';font-size:' + (fs * 0.7).toFixed(1) + 'px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.7);display:none;';
+          div.textContent = wl.text;
+          container.appendChild(div);
+          var wo = wl.worldOffset || {};
+          labels.push({
+            entityId: entityId,
+            ox: Number(wo.x) || 0,
+            oy: Number(wo.y) || 0,
+            oz: Number(wo.z) || 0,
+            div: div,
+          });
+        }
+        function findEnt(root, name) {
+          // Prefer synthetic StoryboardEntity_<name> created by the overlay (the
+          // visible group; real Luna entity is hidden by hideTemplateVisuals).
+          // Falls back to plain name for environments where the storyboard overlay
+          // didn't create a synthetic group.
+          var synth = 'StoryboardEntity_' + name;
+          var hit = null;
+          var stack = [root]; var safe = 0;
+          while (stack.length && safe++ < 5000) {
+            var n = stack.shift(); if (!n) continue;
+            var nm = n._name || n.name;
+            if (nm === synth && n.enabled !== false) return n;
+            if (nm === name && n.enabled !== false && !hit) hit = n;
+            var ch = n._children || n.children || [];
+            for (var k = 0; k < ch.length; k++) stack.push(ch[k]);
+          }
+          return hit;
+        }
+        function tickLabels() {
+          if (!pcApp || !camEnt || !camEnt.camera || typeof camEnt.camera.worldToScreen !== 'function') return;
+          for (var li = 0; li < labels.length; li++) {
+            var L = labels[li];
+            var ent = findEnt(pcApp.root, L.entityId);
+            if (!ent || typeof ent.getPosition !== 'function') { L.div.style.opacity = '0'; continue; }
+            var wp = ent.getPosition();
+            if (!wp || typeof wp.x !== 'number') { L.div.style.opacity = '0'; continue; }
+            var target = new pc.Vec3(wp.x + L.ox, wp.y + L.oy, wp.z + L.oz);
+            var sp = camEnt.camera.worldToScreen(target);
+            if (!sp || sp.z < 0) { L.div.style.opacity = '0'; continue; }
+            L.div.style.left = sp.x.toFixed(1) + 'px';
+            L.div.style.top = sp.y.toFixed(1) + 'px';
+            L.div.style.opacity = '1';
+            L.div.style.display = 'block';
+          }
+        }
+        // Flip initial display so the divs are laid out (extractor reads even at
+        // opacity 0; positioning happens on first tick + every 100ms after).
+        for (var di = 0; di < labels.length; di++) {
+          labels[di].div.style.display = 'block';
+          labels[di].div.style.opacity = '0';
+        }
+        tickLabels();
+        setInterval(tickLabels, 100);
+      }
+
       applyStoryboardVisualOverlay();
 
       // 1.5 Hide all __BaseTemplate / __LunaPool non-pool children (Ground, Archer_1, etc.)
