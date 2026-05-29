@@ -503,6 +503,29 @@ function injectGameManager(stage4Dir, className, visualAssets) {
   // The injection script from worker-bridge-build.js (polyfills + game loop)
   const injectionScript = `<script>
 window.__BLUEPRINT_VISUAL_ASSETS__ = ${scriptSafeJson(visualAssets)};
+window.__fidelityReady = false;
+window.__blueprintGameFlowComponent = null;
+window.__blueprintResolveGameFlowComponent = null;
+(function() {
+  var marked = false;
+  function settleThenReady() {
+    if (marked || !window.__blueprintGameFlowComponent) return;
+    marked = true;
+    requestAnimationFrame(function() {
+      requestAnimationFrame(function() {
+        function markReady() { window.__fidelityReady = true; }
+        if (typeof window.__blueprintWaitForFidelityState === "function") {
+          window.__blueprintWaitForFidelityState(null).then(markReady, markReady);
+        } else {
+          markReady();
+        }
+      });
+    });
+  }
+  window.__blueprintMarkFidelityReady = settleThenReady;
+  window.addEventListener("luna:postrender", settleThenReady);
+  window.addEventListener("luna:started", function() { setTimeout(settleThenReady, 200); });
+})();
 // Force preserveDrawingBuffer for CUA/QuickPlayTest pixel reading
 (function() {
   var _origGetCtx = HTMLCanvasElement.prototype.getContext;
@@ -892,6 +915,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
     var go = new UnityEngine.GameObject.ctor("GameManager");
     var comp = go.AddComponent(${className});
     if (comp && comp.Start) { try { comp.Start(); } catch(se) { console.error("[AI] Start() error:", se); } }
+    window.__blueprintGameFlowComponent = comp || null;
 
 
     // Post-Start fixes using PlayCanvas native API
@@ -1494,12 +1518,301 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
     })();
     if (comp && comp.Update) {
       var lastTime = performance.now();
+      function resolveGameLoopComponent() {
+        var target = comp;
+        try {
+          var ap = (typeof GFM_AutoPlay !== "undefined") ? GFM_AutoPlay.Instance : null;
+          var scope = ap && ap.OnArrive && ap.OnArrive.$scope;
+          if (target && target._gfmDisabled && scope && !scope._gfmDisabled && scope.Update) {
+            target = scope;
+          }
+        } catch(e) {}
+        return target;
+      }
+      window.__blueprintResolveGameFlowComponent = resolveGameLoopComponent;
+      function currentBlueprintGameState() {
+        try {
+          var gs = typeof window.__gameState === "function" ? window.__gameState() : window.__gameState;
+          return normalizeBlueprintGameState(gs, null);
+        } catch(e) { return null; }
+      }
+      function sourcePhaseForState(state, fallbackPhaseId) {
+        try {
+          var va = window.__BLUEPRINT_VISUAL_ASSETS__ || null;
+          var phases = va && va.sourcePhaseContract && va.sourcePhaseContract.phases;
+          if ((!phases || !phases.length) && va && va.fidelityContract) phases = va.fidelityContract.phases;
+          if (!phases || !phases.length) return null;
+          var phaseId = fallbackPhaseId || state && (state.currentPhase || state.phase);
+          if (phaseId) {
+            for (var i = 0; i < phases.length; i++) {
+              if (phases[i] && String(phases[i].id) === String(phaseId)) return phases[i];
+            }
+          }
+          var idx = 0;
+          var m = String(phaseId || "").match(/(\\d+)/);
+          if (m) idx = Math.max(0, Number(m[1]) - 1);
+          return phases[idx] || null;
+        } catch(e) { return null; }
+      }
+      function sourcePhaseFirstTarget(phase) {
+        try {
+          if (!phase || !phase.steps || !phase.steps.length) return "";
+          return phase.steps[0] && phase.steps[0].target || "";
+        } catch(e) { return ""; }
+      }
+      function applySourcePhaseVisibility(state, phase) {
+        try {
+          if (!state || !phase || !Array.isArray(phase.showEntities)) return;
+          var show = {};
+          for (var i = 0; i < phase.showEntities.length; i++) {
+            if (phase.showEntities[i]) show[String(phase.showEntities[i])] = true;
+          }
+          var entityStates = state.entity_states || state.entityStates || {};
+          var keys = Object.keys(entityStates);
+          for (var k = 0; k < keys.length; k++) {
+            var name = keys[k];
+            var st = entityStates[name];
+            if (!st || typeof st !== "object") continue;
+            var isVisible = !!show[name];
+            st.visible = isVisible;
+            if (!isVisible) {
+              st.state = st.state || "hidden";
+              if (!st.position || typeof st.position !== "object") st.position = { x: 0, y: -999, z: 0 };
+              else st.position.y = -999;
+            } else if (st.state === "hidden") {
+              st.state = "active";
+            }
+          }
+          state.visibleEntities = phase.showEntities.slice();
+        } catch(e) {}
+      }
+      function normalizeBlueprintGameState(state, fallbackPhaseId) {
+        if (!state || typeof state !== "object") return state;
+        try {
+          if (!state.entity_states && state.entityStates) state.entity_states = state.entityStates;
+          if (!state.entityStates && state.entity_states) state.entityStates = state.entity_states;
+          if (!state.ui_state && state.uiState) state.ui_state = state.uiState;
+          if (!state.uiState && state.ui_state) state.uiState = state.ui_state;
+          if (!state.camera_state && state.cameraState) state.camera_state = state.cameraState;
+          if (!state.cameraState && state.camera_state) state.cameraState = state.camera_state;
+          var phase = sourcePhaseForState(state, fallbackPhaseId);
+          if (phase) {
+            var ui = state.ui_state || state.uiState || {};
+            state.ui_state = ui;
+            state.uiState = ui;
+            if (phase.guideText) ui.guideText = phase.guideText;
+            var vars = state.variables || {};
+            state.variables = vars;
+            if (phase.guideText) vars.guideText = phase.guideText;
+            var target = sourcePhaseFirstTarget(phase);
+            if (target) {
+              vars.targetEntity = target;
+              state.targetEntity = target;
+            }
+            applySourcePhaseVisibility(state, phase);
+          }
+        } catch(e) {}
+        return state;
+      }
+      window.__blueprintNormalizeGameState = normalizeBlueprintGameState;
+      function hasPopulatedFidelityState(state, expectedPhaseId) {
+        if (!state || typeof state !== "object") return false;
+        var phaseId = state.currentPhase || state.phase || "";
+        if (expectedPhaseId && String(phaseId) !== String(expectedPhaseId)) return false;
+        var entities = state.entity_states || state.entityStates || {};
+        return !!(entities && typeof entities === "object" && Object.keys(entities).length > 0);
+      }
+      function waitForFidelityState(expectedPhaseId) {
+        return new Promise(function(resolve) {
+          var started = Date.now();
+          function tick() {
+            var gs = currentBlueprintGameState();
+            if (hasPopulatedFidelityState(gs, expectedPhaseId) || Date.now() - started > 2000) {
+              resolve(gs);
+              return;
+            }
+            setTimeout(tick, 50);
+          }
+          tick();
+        });
+      }
+      window.__blueprintWaitForFidelityState = waitForFidelityState;
+      function phaseSortKey(id, fallback) {
+        var m = String(id || "").match(/(\\d+)/);
+        return m ? Number(m[1]) : 100000 + fallback;
+      }
+      function phaseMethodSuffix(id) {
+        return String(id || "").replace(/[^a-zA-Z0-9]/g, "");
+      }
+      function orderedPhaseIds(loopComp) {
+        var ids = [];
+        try {
+          var va = window.__BLUEPRINT_VISUAL_ASSETS__ || null;
+          var sourcePhases = va && va.sourcePhaseContract && va.sourcePhaseContract.phases;
+          if ((!sourcePhases || !sourcePhases.length) && va && va.fidelityContract) sourcePhases = va.fidelityContract.phases;
+          if (sourcePhases && sourcePhases.length) {
+            for (var i = 0; i < sourcePhases.length; i++) {
+              if (sourcePhases[i] && sourcePhases[i].id) ids.push(String(sourcePhases[i].id));
+            }
+          }
+        } catch(e) {}
+        if (!ids.length) {
+          try {
+            var gs = currentBlueprintGameState();
+            var stamps = gs && gs.phaseTimestamps;
+            if (stamps) {
+              Object.keys(stamps).forEach(function(k) { if (k) ids.push(k); });
+            }
+          } catch(e2) {}
+        }
+        if (!ids.length && loopComp) {
+          try {
+            Object.keys(loopComp).forEach(function(k) {
+              var m = k.match(/^Phase_(.+)_Init$/);
+              if (m && m[1]) ids.push(m[1]);
+            });
+            ids.sort(function(a, b) {
+              var ak = phaseSortKey(a, 0), bk = phaseSortKey(b, 0);
+              if (ak !== bk) return ak - bk;
+              return String(a).localeCompare(String(b));
+            });
+          } catch(e3) {}
+        }
+        return ids;
+      }
+      function primePhaseProgress(loopComp, phaseIds, targetIdx) {
+        try {
+          if (loopComp.ruleTriggered && typeof loopComp.ruleTriggered.length === "number") {
+            for (var i = 0; i < loopComp.ruleTriggered.length; i++) loopComp.ruleTriggered[i] = i < targetIdx;
+          }
+        } catch(e) {}
+        try {
+          if (loopComp.completedPhases && typeof loopComp.completedPhases.length === "number") {
+            var limit = Math.min(targetIdx, loopComp.completedPhases.length);
+            loopComp.completedPhaseCount = 0;
+            for (var j = 0; j < loopComp.completedPhases.length; j++) loopComp.completedPhases[j] = null;
+            for (var p = 0; p < limit; p++) {
+              loopComp.completedPhases[p] = phaseIds[p];
+              loopComp.completedPhaseCount++;
+            }
+          }
+        } catch(e2) {}
+      }
+      function settleFidelityFrame() {
+        return new Promise(function(resolve) {
+          requestAnimationFrame(function() {
+            requestAnimationFrame(function() {
+              setTimeout(resolve, 50);
+            });
+          });
+        });
+      }
+      function driveLoopComponentToPhase(loopComp, phaseNumber) {
+        var phaseIds = orderedPhaseIds(loopComp);
+        if (!phaseIds.length) {
+          for (var i = 1; i <= Math.max(phaseNumber, 1); i++) phaseIds.push("phase" + i);
+        }
+        if (phaseNumber < 1 || phaseNumber > phaseIds.length) throw new Error("bad phase: " + phaseNumber);
+        var targetIdx = phaseNumber - 1;
+        var phaseId = phaseIds[targetIdx] || ("phase" + phaseNumber);
+        var suffix = phaseMethodSuffix(phaseId);
+        primePhaseProgress(loopComp, phaseIds, targetIdx);
+        if (typeof loopComp.EnterPhase === "function") {
+          loopComp.EnterPhase(targetIdx, phaseId, true, true);
+        } else {
+          loopComp.currentPhaseName = phaseId;
+          if (loopComp.ruleTriggered && loopComp.ruleTriggered.length > targetIdx) loopComp.ruleTriggered[targetIdx] = true;
+        }
+        var initName = "Phase_" + suffix + "_Init";
+        if (typeof loopComp[initName] === "function") loopComp[initName]();
+        if (typeof loopComp.UpdateGameState === "function") loopComp.UpdateGameState();
+        normalizeBlueprintGameState(currentBlueprintGameState(), phaseId);
+        return { phase: phaseId, index: phaseNumber };
+      }
+      window.__driveToPhase = function(n) {
+        return new Promise(function(resolve, reject) {
+          try {
+            var phaseNumber = Number(n);
+            if (!isFinite(phaseNumber)) throw new Error("bad phase: " + n);
+            phaseNumber = Math.floor(phaseNumber);
+            var loopComp = resolveGameLoopComponent();
+            if (!loopComp) throw new Error("GameFlow component unavailable");
+            var result = driveLoopComponentToPhase(loopComp, phaseNumber);
+            settleFidelityFrame().then(function() {
+              try { if (typeof loopComp.UpdateGameState === "function") loopComp.UpdateGameState(); } catch(e) {}
+              waitForFidelityState(result.phase).then(function() { resolve(result); }, reject);
+            }, reject);
+          } catch(e) {
+            reject(e);
+          }
+        });
+      };
+      var lateUpdateComponents = [];
+      var lateUpdateFrame = 0;
+      function rememberLifecycleComponent(out, seen, candidate) {
+        if (!candidate || typeof candidate.LateUpdate !== 'function') return;
+        if (candidate._gfmDisabled || candidate.enabled === false) return;
+        if (seen.indexOf(candidate) >= 0) return;
+        seen.push(candidate);
+        out.push(candidate);
+      }
+      function collectLateUpdateComponents(loopComp) {
+        var out = [];
+        var seen = [];
+        rememberLifecycleComponent(out, seen, loopComp);
+        try {
+          function walkEntity(entity) {
+            if (!entity) return;
+            var comps = entity._unityComponents || {};
+            for (var key in comps) {
+              if (!Object.prototype.hasOwnProperty.call(comps, key)) continue;
+              var bucket = comps[key];
+              if (bucket && typeof bucket.length === 'number') {
+                for (var i = 0; i < bucket.length; i++) rememberLifecycleComponent(out, seen, bucket[i]);
+              } else {
+                rememberLifecycleComponent(out, seen, bucket);
+              }
+            }
+            var children = entity.children || [];
+            for (var ci = 0; ci < children.length; ci++) walkEntity(children[ci]);
+          }
+          walkEntity(pcApp && pcApp.root);
+        } catch(e) {}
+        try {
+          if (typeof GFM_CameraController !== 'undefined' && GFM_CameraController._instance) {
+            rememberLifecycleComponent(out, seen, GFM_CameraController._instance);
+          }
+        } catch(e2) {}
+        return out;
+      }
+      function driveManualLateUpdate(loopComp) {
+        lateUpdateFrame++;
+        if (lateUpdateFrame === 1 || lateUpdateFrame % 30 === 0) {
+          lateUpdateComponents = collectLateUpdateComponents(loopComp);
+          if (lateUpdateFrame === 1) {
+            console.log('[AI] LateUpdate loop active via requestAnimationFrame components=' + lateUpdateComponents.length);
+          }
+        }
+        for (var i = 0; i < lateUpdateComponents.length; i++) {
+          var lifecycleComp = lateUpdateComponents[i];
+          try {
+            if (lifecycleComp && !lifecycleComp._gfmDisabled && lifecycleComp.enabled !== false && lifecycleComp.LateUpdate) {
+              lifecycleComp.LateUpdate();
+            }
+          } catch(e) {}
+        }
+      }
       function gameLoop() {
         var now = performance.now();
         var dt = (now - lastTime) / 1000.0;
         lastTime = now;
         try { if (UnityEngine.Time) UnityEngine.Time.deltaTime = dt; } catch(e) {}
-        try { comp.Update(); } catch(e) {}
+        try {
+          var loopComp = resolveGameLoopComponent();
+          if (loopComp && loopComp.Update) loopComp.Update();
+          driveManualLateUpdate(loopComp);
+          if (!window.__fidelityReady && window.__blueprintMarkFidelityReady) window.__blueprintMarkFidelityReady();
+        } catch(e) {}
         requestAnimationFrame(gameLoop);
       }
       requestAnimationFrame(gameLoop);
