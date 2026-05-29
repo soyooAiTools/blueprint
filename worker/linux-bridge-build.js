@@ -1436,40 +1436,44 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             if (!ent || !anchor || anchor.provenance === 'inferred-default') return;
             if (!viewportIntersectsAnchor(anchor)) return;
             var target = anchorToCanvas(anchor);
-            var rect = entityScreenRect(ent);
-            if (!rect) return;
-            var pos = ent.getPosition ? ent.getPosition() : (ent.getLocalPosition ? ent.getLocalPosition() : null);
-            if (!pos) return;
-            if (anchor.provenance !== 'anchor-only' && target.w > 0 && target.h > 0 && rect.w_px > 1 && rect.h_px > 1) {
-              var ratio = Math.sqrt((target.w * target.h) / Math.max(1, rect.w_px * rect.h_px));
-              ratio = Math.max(0.2, Math.min(4, ratio));
-              var ls = ent.getLocalScale ? ent.getLocalScale() : null;
-              if (ls) ent.setLocalScale((Number(ls.x) || 1) * ratio, (Number(ls.y) || 1) * ratio, (Number(ls.z) || 1) * ratio);
-              rect = entityScreenRect(ent) || rect;
-            }
-            var currentCx = rect.x_px + rect.w_px / 2;
-            var currentCy = rect.y_px + rect.h_px / 2;
             var targetCx = target.x + target.w / 2;
             var targetCy = target.y + target.h / 2;
-            var dxPx = targetCx - currentCx;
-            var dyPx = targetCy - currentCy;
-            if (Math.abs(dxPx) < 0.5 && Math.abs(dyPx) < 0.5) return;
-            var base = projectPosition(pos);
-            var xStep = projectPosition({ x: Number(pos.x) + 1, y: Number(pos.y), z: Number(pos.z) });
-            var zStep = projectPosition({ x: Number(pos.x), y: Number(pos.y), z: Number(pos.z) + 1 });
-            if (!base || !xStep || !zStep) return;
-            var ax = Number(xStep.x) - Number(base.x);
-            var ay = Number(xStep.y) - Number(base.y);
-            var bx = Number(zStep.x) - Number(base.x);
-            var by = Number(zStep.y) - Number(base.y);
-            var det = ax * by - bx * ay;
-            if (!isFinite(det) || Math.abs(det) < 0.001) return;
-            var wx = (dxPx * by - bx * dyPx) / det;
-            var wz = (ax * dyPx - dxPx * ay) / det;
-            var maxStep = 8;
-            var mag = Math.sqrt(wx * wx + wz * wz);
-            if (mag > maxStep) { wx = wx / mag * maxStep; wz = wz / mag * maxStep; }
-            ent.setPosition(Number(pos.x) + wx, Number(pos.y) || 0, Number(pos.z) + wz);
+            for (var pass = 0; pass < 5; pass++) {
+              var rect = entityScreenRect(ent);
+              if (!rect) return;
+              if (anchor.provenance !== 'anchor-only' && target.w > 0 && target.h > 0 && rect.w_px > 1 && rect.h_px > 1) {
+                var ratio = Math.sqrt((target.w * target.h) / Math.max(1, rect.w_px * rect.h_px));
+                if (isFinite(ratio) && Math.abs(1 - ratio) > 0.01) {
+                  ratio = Math.max(0.35, Math.min(2.8, ratio));
+                  var ls = ent.getLocalScale ? ent.getLocalScale() : null;
+                  if (ls) ent.setLocalScale((Number(ls.x) || 1) * ratio, (Number(ls.y) || 1) * ratio, (Number(ls.z) || 1) * ratio);
+                  rect = entityScreenRect(ent) || rect;
+                }
+              }
+              var currentCx = rect.x_px + rect.w_px / 2;
+              var currentCy = rect.y_px + rect.h_px / 2;
+              var dxPx = targetCx - currentCx;
+              var dyPx = targetCy - currentCy;
+              if (Math.abs(dxPx) < 0.5 && Math.abs(dyPx) < 0.5) return;
+              var pos = ent.getPosition ? ent.getPosition() : (ent.getLocalPosition ? ent.getLocalPosition() : null);
+              if (!pos) return;
+              var base = projectPosition(pos);
+              var xStep = projectPosition({ x: Number(pos.x) + 1, y: Number(pos.y), z: Number(pos.z) });
+              var zStep = projectPosition({ x: Number(pos.x), y: Number(pos.y), z: Number(pos.z) + 1 });
+              if (!base || !xStep || !zStep) return;
+              var ax = Number(xStep.x) - Number(base.x);
+              var ay = Number(xStep.y) - Number(base.y);
+              var bx = Number(zStep.x) - Number(base.x);
+              var by = Number(zStep.y) - Number(base.y);
+              var det = ax * by - bx * ay;
+              if (!isFinite(det) || Math.abs(det) < 0.001) return;
+              var wx = (dxPx * by - bx * dyPx) / det;
+              var wz = (ax * dyPx - dxPx * ay) / det;
+              var maxStep = 64;
+              var mag = Math.sqrt(wx * wx + wz * wz);
+              if (mag > maxStep) { wx = wx / mag * maxStep; wz = wz / mag * maxStep; }
+              ent.setPosition(Number(pos.x) + wx, Number(pos.y) || 0, Number(pos.z) + wz);
+            }
           }
           function applyProjectedAnchorCalibration(gs) {
             var anchorPhase = projectedAnchorPhaseForOverlayState(gs);
