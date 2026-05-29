@@ -7,79 +7,99 @@
 // exists but is never registered in createLunaPipeline" — the exact orphan
 // shape that blocked PR #32 first round (Jonny msg=bcf94a1d).
 //
+// Implementation note: static text analysis of `engine/pipeline.cjs` rather
+// than `require()`-loading the module. Loading pipeline.cjs pulls in the
+// Ajv-backed schema validator chain (adapters/schema/validate-schema.cjs)
+// which fails when `node_modules` is missing — exactly the situation Jonny
+// hit reviewing PR #32 commit 4 from a clean worktree
+// (msg=3b7e3ac6). Static analysis keeps the test runnable in any worktree
+// regardless of dependency install state, and the regex assertions are
+// sufficient to catch the "registered file, never referenced" orphan shape.
+//
 // Asserts:
-//   1. createLunaPipeline returns a Pipeline whose stage array contains
-//      sourceHtmlBindStage, fidelityContractProduceStage, fidelitySourceDiffStage.
-//   2. Order constraints:
-//        sourceHtmlBindStage           BEFORE cloneStage
-//        fidelityContractProduceStage  BETWEEN reviewStage and compileStage
-//        fidelitySourceDiffStage       AFTER  compileStage and BEFORE visualCheckStage
-//   3. pipeline.stages.* exports include the three names so external callers
-//      (rerun harness, tests, helpers) can look them up by name.
+//   1. `engine/pipeline.cjs` `require`s all three stage modules.
+//   2. The `createLunaPipeline()` stage array contains all three stage
+//      identifiers in the correct positional order around their anchors
+//      (clone / review / compile / visual-check).
+//   3. `module.exports.stages.{sourceHtmlBind,fidelityContractProduce,
+//      fidelitySourceDiff}` exports are present (rerun harness lookup).
 
 var assert = require('assert');
-var pipeline = require('../engine/pipeline.cjs');
+var fs = require('fs');
+var path = require('path');
 
-// ── exposed Pipeline class has stages list accessible? ──
-function stagesOf(p) {
-  // Pipeline ctor stores its stages on `.stages`. Fall back to internal
-  // names if the field is private.
-  if (Array.isArray(p.stages)) return p.stages;
-  if (Array.isArray(p._stages)) return p._stages;
-  throw new Error('Pipeline instance does not expose stages array via .stages or ._stages');
-}
+var src = fs.readFileSync(path.join(__dirname, '..', 'engine', 'pipeline.cjs'), 'utf8');
 
-var luna = pipeline.createLunaPipeline({});
-var stages = stagesOf(luna);
-assert.ok(stages.length > 0, 'createLunaPipeline must return non-empty stage array');
-
-function indexByName(name) {
-  for (var i = 0; i < stages.length; i++) {
-    if (stages[i] && stages[i].name === name) return i;
+// ── helper: find first 1-based index of a regex match (line-oriented for nicer errors) ──
+function lineOfMatch(re, label) {
+  var match = re.exec(src);
+  if (!match) {
+    throw new Error('pipeline.cjs missing required line for ' + label + ' (regex ' + re + ')');
   }
-  return -1;
+  // 1-based line index
+  return src.slice(0, match.index).split('\n').length;
 }
 
-var iSourceBind = indexByName('source-html-bind');
-var iClone = indexByName('clone');
-var iReview = indexByName('review');
-var iProduce = indexByName('fidelity-contract-produce');
-var iCompile = indexByName('compile');
-var iSourceDiff = indexByName('fidelity-source-diff');
-var iVisual = indexByName('visual-check');
+// ── case 1: require lines for all three stage modules ──
+lineOfMatch(/require\(\s*['"]\.\/stages\/source-html-bind\.cjs['"]\s*\)/, 'source-html-bind require');
+lineOfMatch(/require\(\s*['"]\.\/stages\/fidelity-contract-produce\.cjs['"]\s*\)/, 'fidelity-contract-produce require');
+lineOfMatch(/require\(\s*['"]\.\/stages\/fidelity-source-diff\.cjs['"]\s*\)/, 'fidelity-source-diff require');
 
-// ── case 1: all three v1.3 chain stages present ──
-assert.notStrictEqual(iSourceBind, -1, 'source-html-bind must be registered in createLunaPipeline');
-assert.notStrictEqual(iProduce, -1, 'fidelity-contract-produce must be registered in createLunaPipeline');
-assert.notStrictEqual(iSourceDiff, -1, 'fidelity-source-diff must be registered in createLunaPipeline');
+// ── extract createLunaPipeline body and inspect stage identifier order ──
+var lunaBodyMatch = /function\s+createLunaPipeline\s*\([^)]*\)\s*\{([\s\S]*?)\}/m.exec(src);
+assert.ok(lunaBodyMatch, 'pipeline.cjs must define function createLunaPipeline');
+var lunaBody = lunaBodyMatch[1];
 
-// Sanity: surrounding anchors must also be present (we depend on them for ordering).
-assert.notStrictEqual(iClone, -1, 'clone stage anchor missing — pipeline shape changed unexpectedly');
-assert.notStrictEqual(iReview, -1, 'review stage anchor missing — pipeline shape changed unexpectedly');
-assert.notStrictEqual(iCompile, -1, 'compile stage anchor missing — pipeline shape changed unexpectedly');
-assert.notStrictEqual(iVisual, -1, 'visual-check anchor missing — pipeline shape changed unexpectedly');
+// Pull the new Pipeline([...]) stage array literal out of the body.
+var stageArrayMatch = /new\s+Pipeline\s*\(\s*\[([\s\S]*?)\]/.exec(lunaBody);
+assert.ok(stageArrayMatch, 'createLunaPipeline must call `new Pipeline([...])` with a stage array literal');
+var stageArrayText = stageArrayMatch[1];
+
+// Split on commas / newlines to get a clean list of identifier tokens.
+var stageOrder = stageArrayText
+  .split(/[\n,]/)
+  .map(function(s) { return s.replace(/\/\/.*$/, '').trim(); })
+  .filter(function(s) { return s.length > 0; });
+
+function idx(name) {
+  var i = stageOrder.indexOf(name);
+  if (i < 0) {
+    throw new Error('createLunaPipeline stage array missing identifier ' + name + ' (got ' + JSON.stringify(stageOrder) + ')');
+  }
+  return i;
+}
+
+var iSourceBind = idx('sourceHtmlBindStage');
+var iClone = idx('cloneStage');
+var iReview = idx('reviewStage');
+var iProduce = idx('fidelityContractProduceStage');
+var iCompile = idx('compileStage');
+var iSourceDiff = idx('fidelitySourceDiffStage');
+var iVisual = idx('visualCheckStage');
 
 // ── case 2: order constraints ──
 assert.ok(iSourceBind < iClone,
-  'source-html-bind must run BEFORE clone (binds ctx.sourceHtmlPath that downstream stages depend on); got idx ' + iSourceBind + ' vs clone ' + iClone);
+  'sourceHtmlBindStage must run BEFORE cloneStage (binds ctx.sourceHtmlPath that downstream stages depend on); got idx ' + iSourceBind + ' vs clone ' + iClone);
 assert.ok(iReview < iProduce && iProduce < iCompile,
-  'fidelity-contract-produce must run BETWEEN review and compile (enriches contract before compile/helpers consumes it); got review=' + iReview + ' produce=' + iProduce + ' compile=' + iCompile);
+  'fidelityContractProduceStage must run BETWEEN reviewStage and compileStage (enriches contract before compile/helpers consumes it); got review=' + iReview + ' produce=' + iProduce + ' compile=' + iCompile);
 assert.ok(iCompile < iSourceDiff && iSourceDiff < iVisual,
-  'fidelity-source-diff must run AFTER compile and BEFORE visual-check (consumes enriched contract, emits diff before visual gate); got compile=' + iCompile + ' source-diff=' + iSourceDiff + ' visual=' + iVisual);
+  'fidelitySourceDiffStage must run AFTER compileStage and BEFORE visualCheckStage (consumes enriched contract, emits diff before visual gate); got compile=' + iCompile + ' source-diff=' + iSourceDiff + ' visual=' + iVisual);
 
-// ── case 3: pipeline.stages.* exports look up the same stage instances ──
-assert.ok(pipeline.stages.sourceHtmlBind === stages[iSourceBind],
-  'pipeline.stages.sourceHtmlBind export must reference the same stage instance registered in createLunaPipeline');
-assert.ok(pipeline.stages.fidelityContractProduce === stages[iProduce],
-  'pipeline.stages.fidelityContractProduce export must reference the same stage instance registered in createLunaPipeline');
-assert.ok(pipeline.stages.fidelitySourceDiff === stages[iSourceDiff],
-  'pipeline.stages.fidelitySourceDiff export must reference the same stage instance registered in createLunaPipeline');
+// ── case 3: pipeline.stages.* exports exist for rerun/test/helper lookup ──
+function assertStageExport(key) {
+  var re = new RegExp('\\b' + key + '\\s*:\\s*\\w+Stage');
+  assert.ok(re.test(src), 'pipeline.cjs module.exports.stages must include `' + key + '` entry');
+}
+assertStageExport('sourceHtmlBind');
+assertStageExport('fidelityContractProduce');
+assertStageExport('fidelitySourceDiff');
 
 console.log('luna-pipeline-composition.test.cjs PASS');
-console.log('  stage order locked: source-html-bind@' + iSourceBind +
-  ' < clone@' + iClone +
-  ' < review@' + iReview +
-  ' < fidelity-contract-produce@' + iProduce +
-  ' < compile@' + iCompile +
-  ' < fidelity-source-diff@' + iSourceDiff +
-  ' < visual-check@' + iVisual);
+console.log('  stage order locked (positional indices in createLunaPipeline):');
+console.log('    sourceHtmlBindStage           @ ' + iSourceBind);
+console.log('    cloneStage                    @ ' + iClone);
+console.log('    reviewStage                   @ ' + iReview);
+console.log('    fidelityContractProduceStage  @ ' + iProduce);
+console.log('    compileStage                  @ ' + iCompile);
+console.log('    fidelitySourceDiffStage       @ ' + iSourceDiff);
+console.log('    visualCheckStage              @ ' + iVisual);
