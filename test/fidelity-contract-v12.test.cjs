@@ -250,7 +250,9 @@ assert.strictEqual(typeof fidelity.DEFAULT_ANCHOR_TOLERANCE_PX, 'number');
 assert.strictEqual(fidelity._internals.gteSemver('1.2.0', '1.2.0'), true);
 assert.strictEqual(fidelity._internals.gteSemver('1.1.0', '1.2.0'), false);
 assert.strictEqual(fidelity._internals.gteSemver('1.10.0', '1.2.0'), true);
-assert.strictEqual(fidelity.SCHEMA_VERSION, '1.2.0');
+// Backward-compat anchor only: v1.2 instances must still load (test #28 case).
+// Current-ship SCHEMA_VERSION anchor lives in fidelity-contract-descriptor-consistency.test.cjs
+// and floats with each schema bump (1.3.0 at task #45, ...).
 assert.strictEqual(fidelity.ACCEPTED_INSTANCE_SCHEMA_VERSIONS['1.2.0'], true);
 
 console.log('v1.2 fidelity contract tests passed');
