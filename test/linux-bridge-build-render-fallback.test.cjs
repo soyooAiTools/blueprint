@@ -71,7 +71,12 @@ assert.strictEqual(src.indexOf('addComponent("model"'), -1,
   'var maxStep = 64',
   'function currentWorldLabelPhase()',
   'function canonicalWorldLabelEntityName(raw)',
+  'var parentLeaf = String(e.parentPath || \'\').split(\'/\').filter(Boolean).pop()',
+  'function addWorldLabelLookupAliases(keys, raw, allowSourceKeyAlias)',
+  'if (allowSourceKeyAlias || raw.charAt(0) === \'_\')',
   'phase.projectedWorldLabels',
+  'lookupProjectedWorldLabel(projected, L.entityId, L.runtimeAliases, L.sourceAliases)',
+  'measured[projectedHit.key] = observedWorldLabelRect(L.div, true)',
   'function projectWorldLabelRectToViewport(rect)',
   'function observedWorldLabelRect(div, visible)',
   'window.__targetWorldLabels = measured',
@@ -102,5 +107,27 @@ assert.strictEqual(src.indexOf('SellCounter'), -1,
   'worldLabel position fix must be generic, not entity-specific');
 assert.strictEqual(src.indexOf('3.1'), -1,
   'worldLabel position fix must not hard-code the old source local y offset');
+
+var helperStart = src.indexOf('function worldLabelRecordValue(rec, keys)');
+var helperEnd = src.indexOf('function projectWorldLabelRectToViewport(rect)');
+assert.ok(helperStart >= 0 && helperEnd > helperStart, 'worldLabel helper block should be extractable');
+var helperBlock = src.slice(helperStart, helperEnd);
+var lookupProjectedWorldLabel = new Function(helperBlock + '\nreturn lookupProjectedWorldLabel;')();
+var rects = {
+  _sellCounter: { x: 629.25, y: 159.35, width: 72.04, height: 20.26, centerX: 665.27, centerY: 169.48 },
+  Player: { x: 100, y: 120, width: 30, height: 20, centerX: 115, centerY: 130 }
+};
+assert.deepStrictEqual(
+  lookupProjectedWorldLabel(rects, 'SellCounter', ['SellCounter'], ['_sellCounter']).key,
+  '_sellCounter',
+  'worldLabel bridge should map runtime entity.id to contract parentPath key via descriptor alias');
+assert.deepStrictEqual(
+  lookupProjectedWorldLabel(rects, 'Player', ['Player'], []).key,
+  'Player',
+  'worldLabel bridge should keep matching keys unchanged');
+assert.strictEqual(
+  lookupProjectedWorldLabel(rects, 'SellCounter', ['SellCounter'], []),
+  null,
+  'worldLabel bridge should skip alias misses instead of leaking runtime entity.id key space');
 
 console.log('linux bridge render fallback smoke passed');

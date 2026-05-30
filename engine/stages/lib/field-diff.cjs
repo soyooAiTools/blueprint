@@ -89,6 +89,21 @@ function canonicalEntityKey(s) {
   return stripped.charAt(0).toUpperCase() + stripped.slice(1);
 }
 
+function mergeEntityDetailsByCanonicalKey(entityDetails) {
+  const canonDetails = {};
+  for (const k of Object.keys(entityDetails || {})) {
+    const key = canonicalEntityKey(k);
+    if (!key) continue;
+    const dst = canonDetails[key] || {};
+    const src = entityDetails[k] || {};
+    for (const field of Object.keys(src)) {
+      if (src[field] !== undefined) dst[field] = src[field];
+    }
+    canonDetails[key] = dst;
+  }
+  return canonDetails;
+}
+
 function indexContract(contract) {
   // Build phase-keyed view so a single page-load can diff phases sequentially.
   const phasesById = {};
@@ -205,10 +220,7 @@ function diffEntitiesBucket(indexed, phaseId, observed) {
   // (caller may pass observed.entityDetails[name] = { primitives:[{id, position, color}] })
   // observed.entityDetails keys are also canonicalized to bridge probe shape.
   if (observed.entityDetails) {
-    const canonDetails = {};
-    for (const k of Object.keys(observed.entityDetails)) {
-      canonDetails[canonicalEntityKey(k)] = observed.entityDetails[k];
-    }
+    const canonDetails = mergeEntityDetailsByCanonicalKey(observed.entityDetails);
     for (const name of expectedVisible) {
       if (!observedVisible.has(name)) continue;
       const exp = indexed.entitiesByFamily[name];
@@ -646,10 +658,7 @@ function diffPrimitiveStyleBucket(indexed, phaseId, observed) {
   if (!expectedVisible) return entries;
   const observedVisible = new Set();
   for (const x of (observed.visibleEntities || [])) observedVisible.add(canonicalEntityKey(x));
-  const canonDetails = {};
-  for (const k of Object.keys(observed.entityDetails || {})) {
-    canonDetails[canonicalEntityKey(k)] = observed.entityDetails[k];
-  }
+  const canonDetails = mergeEntityDetailsByCanonicalKey(observed.entityDetails);
 
   for (const name of expectedVisible) {
     const expEntity = indexed.entitiesByFamily[name];

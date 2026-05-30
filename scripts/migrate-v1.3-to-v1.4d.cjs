@@ -266,7 +266,7 @@ function migrate(contract, opts) {
     }
     entry.text = polymorphic[slotId];
     entry.provenance = {
-      source: 'source-html-extract',
+      source: 'html',
       confidence: 1,
       extractedFrom: slotId === 'hud.targethint'
         ? 'PHASES[].steps[0].target + ENTITY_STYLE[].label (' + phases.length + ' phases)'
