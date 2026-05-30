@@ -20,6 +20,7 @@
 //  11. runFieldLevelDiff shim flattens scene-* and primitiveStyle-* with blocking:true
 //  12. summarize() bucketTotals tracks scene + primitiveStyle keys
 //  13. WEBGL extractor reads worker __storyboardEntityDetails primitiveStyle bridge
+//  14. WEBGL extractor prioritizes worker __storyboardSceneDetails scene bridge
 
 var assert = require('assert');
 var fd = require('../engine/stages/lib/field-diff.cjs');
@@ -178,5 +179,44 @@ assert.strictEqual(extracted13.entityDetails.Player.visualKind, 'styled-composit
 assert.strictEqual(extracted13.entityDetails.Player.primitiveCount, 7);
 assert.strictEqual(fd.diffPrimitiveStyleBucket(idx1, 'phase1', extracted13).length, 0,
   'worker bridge detail should clear primitiveStyle bucket');
+
+// ─── case 14: WEBGL extractor consumes worker scene bridge ────────────────────
+global.window = {
+  __gameState: { entity_states: { Player: { visible: true } } },
+  __storyboardSceneDetails: {
+    backgroundColor: [0.0275, 0.0627, 0.149],
+    source: 'fidelityContract.scene.backgroundColor'
+  }
+};
+global.document = {
+  getElementById: function() {
+    return {
+      width: 100,
+      height: 100,
+      getContext: function() {
+        return {
+          RGBA: 0,
+          UNSIGNED_BYTE: 0,
+          readPixels: function(x, y, w, h, fmt, typ, pix) {
+            pix[0] = 255; pix[1] = 0; pix[2] = 0; pix[3] = 255;
+          }
+        };
+      }
+    };
+  },
+  querySelector: function() { return null; },
+  querySelectorAll: function() { return []; }
+};
+var extracted14;
+try {
+  extracted14 = template13.WEBGL_PAGE_EXTRACTOR({ phaseId: 'phase1' });
+} finally {
+  global.window = prevWindow;
+  global.document = prevDocument;
+}
+assert.deepStrictEqual(extracted14.scene.backgroundColor, [0.0275, 0.0627, 0.149],
+  'WEBGL extractor should prefer worker scene bridge over occlusion-prone canvas samples');
+assert.strictEqual(fd.diffSceneBucket(idx1, 'phase1', extracted14).length, 0,
+  'worker scene bridge should clear scene bucket');
 
 console.log('field-diff-scene-primitivestyle.test.cjs PASS');
