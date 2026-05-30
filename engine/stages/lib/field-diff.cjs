@@ -760,6 +760,7 @@ const SOURCE_PAGE_EXTRACTOR = function(args) {
     entityDetails: {},
     phaseSpec: {},
     hud: [],
+    worldLabels: {},
   };
   // Visible entities: from __gameState if present, else fallback to entity_states.
   // Source HTML exposes __gameState as a fn; some target builds (v2 demo2spec line 10135
@@ -828,6 +829,7 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
     entityDetails: {},
     phaseSpec: {},
     hud: [],
+    worldLabels: {},
     extractorKind: 'webgl-playcanvas',
   };
   // 1. Resolve PlayCanvas application.
@@ -1011,10 +1013,92 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
   // 6a. worldLabel DOM overlay — task #49 v1.4c-β. The worker installs
   //     `#bp-storyboard-worldlabels > .bp-worldlabel[data-entity]` divs, one per
   //     contract.entities[].worldLabel. Extractor reads text regardless of
-  //     visibility (DOM presence is the gate; positioning is visual-only).
+  //     visibility (DOM presence is the gate).
   //     Populates observed.entityDetails[entityName].worldLabel string that
   //     diffWorldLabelBucket compares against rich worldLabel.text.
+  //     v1.4e also reads screen-space rects from the worker bridge
+  //     `window.__targetWorldLabels` or, as a fallback, DOM getBoundingClientRect.
+  //     The result is normalized back to the contract viewport (default 1280x720)
+  //     and exposed as observed.worldLabels[entityId].
   try {
+    function viewportBaselineForWorldLabels() {
+      var fallback = { width: 1280, height: 720 };
+      try {
+        var va = (typeof window !== 'undefined' && window.__BLUEPRINT_VISUAL_ASSETS__) || {};
+        var candidates = [
+          va.viewportBaseline,
+          va.fidelityContract && va.fidelityContract.viewportBaseline,
+          va.sourceFidelityContract && va.sourceFidelityContract.viewportBaseline
+        ];
+        for (var vi = 0; vi < candidates.length; vi++) {
+          var v = candidates[vi];
+          if (v && isFinite(Number(v.width)) && isFinite(Number(v.height))) {
+            return { width: Number(v.width), height: Number(v.height) };
+          }
+        }
+      } catch (_e) {}
+      return fallback;
+    }
+    function rectNumber(rec, keys) {
+      for (var ri = 0; ri < keys.length; ri++) {
+        if (rec && rec[keys[ri]] != null && isFinite(Number(rec[keys[ri]]))) return Number(rec[keys[ri]]);
+      }
+      return NaN;
+    }
+    function normalizeWorldLabelRect(entId, rec) {
+      if (!entId || !rec || typeof rec !== 'object') return null;
+      var x = rectNumber(rec, ['x', 'x_px']);
+      var y = rectNumber(rec, ['y', 'y_px']);
+      var w = rectNumber(rec, ['width', 'w', 'w_px']);
+      var h = rectNumber(rec, ['height', 'h', 'h_px']);
+      var cx = rectNumber(rec, ['centerX', 'cx', 'center_x']);
+      var cy = rectNumber(rec, ['centerY', 'cy', 'center_y']);
+      if (!isFinite(x) && isFinite(cx) && isFinite(w)) x = cx - w / 2;
+      if (!isFinite(y) && isFinite(cy) && isFinite(h)) y = cy - h / 2;
+      if (!isFinite(cx) && isFinite(x) && isFinite(w)) cx = x + w / 2;
+      if (!isFinite(cy) && isFinite(y) && isFinite(h)) cy = y + h / 2;
+      if (![x, y, w, h, cx, cy].every(isFinite)) return null;
+      return {
+        text: typeof rec.text === 'string' ? rec.text : undefined,
+        x: x,
+        y: y,
+        width: Math.max(0, w),
+        height: Math.max(0, h),
+        centerX: cx,
+        centerY: cy,
+        visible: rec.visible !== false
+      };
+    }
+    function writeWorldLabelRect(entId, rec) {
+      var norm = normalizeWorldLabelRect(entId, rec);
+      if (!norm) return;
+      out.worldLabels[entId] = norm;
+      if (!out.entityDetails[entId]) out.entityDetails[entId] = {};
+      if (typeof norm.text === 'string' && norm.text) out.entityDetails[entId].worldLabel = norm.text;
+    }
+    function rectFromDom(el) {
+      if (!el || typeof el.getBoundingClientRect !== 'function') return null;
+      var base = viewportBaselineForWorldLabels();
+      var ww = (typeof window !== 'undefined' && window.innerWidth) || base.width;
+      var wh = (typeof window !== 'undefined' && window.innerHeight) || base.height;
+      var sx = base.width / ww;
+      var sy = base.height / wh;
+      var r = el.getBoundingClientRect();
+      var visible = true;
+      try {
+        var cs = (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') ? window.getComputedStyle(el) : null;
+        visible = !(cs && (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0));
+      } catch (_e2) {}
+      if (r.width <= 0 || r.height <= 0) visible = false;
+      return {
+        text: (el.textContent || '').trim(),
+        x: Number(r.left) * sx,
+        y: Number(r.top) * sy,
+        width: Number(r.width) * sx,
+        height: Number(r.height) * sy,
+        visible: visible
+      };
+    }
     var wlNodes = document.querySelectorAll('#bp-storyboard-worldlabels .bp-worldlabel[data-entity]');
     for (var wi = 0; wi < wlNodes.length; wi++) {
       var wlEl = wlNodes[wi];
@@ -1023,6 +1107,19 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
       var wlText = (wlEl.textContent || '').trim();
       if (!out.entityDetails[entId]) out.entityDetails[entId] = {};
       out.entityDetails[entId].worldLabel = wlText;
+      writeWorldLabelRect(entId, rectFromDom(wlEl));
+    }
+    if (typeof window !== 'undefined' && window.__targetWorldLabels && typeof window.__targetWorldLabels === 'object') {
+      var bridge = window.__targetWorldLabels;
+      var bridgeForPhase = (phaseId && bridge[phaseId] && typeof bridge[phaseId] === 'object') ? bridge[phaseId] : null;
+      if (!bridgeForPhase && bridge.current && typeof bridge.current === 'object') bridgeForPhase = bridge.current;
+      if (!bridgeForPhase) bridgeForPhase = bridge;
+      var keys = Object.keys(bridgeForPhase);
+      for (var bi = 0; bi < keys.length; bi++) {
+        var key = keys[bi];
+        if (key === 'current' || /^phase\d+/i.test(key)) continue;
+        writeWorldLabelRect(key, bridgeForPhase[key]);
+      }
     }
   } catch (e) { /* leave entityDetails empty on extractor error */ }
 

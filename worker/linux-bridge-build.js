@@ -2069,7 +2069,9 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
       // task #49 v1.4c-beta — render contract.entities[i].worldLabel as world-
       // space CJK overlay. Reads manifest.fidelityContract.entities[].worldLabel
       // (rich record), creates one DOM label per entity, projects entity worldPos
-      // + worldOffset through camEnt.camera.worldToScreen each tick.
+      // + worldOffset through camEnt.camera.worldToScreen each tick. v1.4e adds
+      // projectedWorldLabels: when present, the label div is rect-fit directly
+      // to the source-rendered screen rect and exposed through __targetWorldLabels.
       function installStoryboardWorldLabels() {
         if (document.getElementById('bp-storyboard-worldlabels')) return;
         var manifest = window.__BLUEPRINT_VISUAL_ASSETS__;
@@ -2104,6 +2106,111 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             div: div,
           });
         }
+        function worldLabelViewportBaseline() {
+          try {
+            var candidates = [
+              manifest && manifest.viewportBaseline,
+              fc && fc.viewportBaseline,
+              manifest && manifest.sourceFidelityContract && manifest.sourceFidelityContract.viewportBaseline
+            ];
+            for (var i = 0; i < candidates.length; i++) {
+              var v = candidates[i];
+              if (v && isFinite(Number(v.width)) && isFinite(Number(v.height))) {
+                return { width: Number(v.width), height: Number(v.height) };
+              }
+            }
+          } catch(e) {}
+          return { width: 1280, height: 720 };
+        }
+        function currentWorldLabelPhase() {
+          try {
+            var gs = typeof window.__gameState === 'function' ? window.__gameState() : window.__gameState;
+            var phaseId = gs && (gs.currentPhase || gs.phase) || '';
+            var phases = fc && fc.phases || [];
+            for (var pi = 0; pi < phases.length; pi++) {
+              if (phases[pi] && String(phases[pi].id) === String(phaseId)) return phases[pi];
+            }
+            var m = String(phaseId || '').match(/(\d+)/);
+            var idx = m ? Math.max(0, Number(m[1]) - 1) : 0;
+            return phases[idx] || null;
+          } catch(e) {}
+          return null;
+        }
+        function worldLabelRecordValue(rec, keys) {
+          for (var i = 0; i < keys.length; i++) {
+            if (rec && rec[keys[i]] != null && isFinite(Number(rec[keys[i]]))) return Number(rec[keys[i]]);
+          }
+          return NaN;
+        }
+        function canonicalWorldLabelEntityName(raw) {
+          raw = String(raw || '');
+          if (!raw) return '';
+          raw = raw.replace(/^_+/, '');
+          if (!raw) return '';
+          return raw.charAt(0).toUpperCase() + raw.slice(1);
+        }
+        function normalizeProjectedWorldLabelRect(rec) {
+          if (!rec || typeof rec !== 'object') return null;
+          var x = worldLabelRecordValue(rec, ['x', 'x_px']);
+          var y = worldLabelRecordValue(rec, ['y', 'y_px']);
+          var w = worldLabelRecordValue(rec, ['width', 'w', 'w_px']);
+          var h = worldLabelRecordValue(rec, ['height', 'h', 'h_px']);
+          var cx = worldLabelRecordValue(rec, ['centerX', 'cx', 'center_x']);
+          var cy = worldLabelRecordValue(rec, ['centerY', 'cy', 'center_y']);
+          if (!isFinite(x) && isFinite(cx) && isFinite(w)) x = cx - w / 2;
+          if (!isFinite(y) && isFinite(cy) && isFinite(h)) y = cy - h / 2;
+          if (!isFinite(cx) && isFinite(x) && isFinite(w)) cx = x + w / 2;
+          if (!isFinite(cy) && isFinite(y) && isFinite(h)) cy = y + h / 2;
+          if (![x, y, w, h, cx, cy].every(isFinite)) return null;
+          return { x: x, y: y, width: Math.max(0, w), height: Math.max(0, h), centerX: cx, centerY: cy };
+        }
+        function lookupProjectedWorldLabel(rects, entityId) {
+          if (!rects || typeof rects !== 'object') return null;
+          var raw = String(entityId || '');
+          var keys = [raw, canonicalWorldLabelEntityName(raw), raw.replace(/^_+/, '')];
+          var noUnder = raw.replace(/^_+/, '');
+          keys.push(noUnder.charAt(0).toUpperCase() + noUnder.slice(1));
+          for (var i = 0; i < keys.length; i++) {
+            if (keys[i] && rects[keys[i]]) return normalizeProjectedWorldLabelRect(rects[keys[i]]);
+          }
+          return null;
+        }
+        function projectWorldLabelRectToViewport(rect) {
+          var base = worldLabelViewportBaseline();
+          var sx = (window.innerWidth || base.width) / base.width;
+          var sy = (window.innerHeight || base.height) / base.height;
+          return {
+            x: rect.x * sx,
+            y: rect.y * sy,
+            width: rect.width * sx,
+            height: rect.height * sy,
+            centerX: rect.centerX * sx,
+            centerY: rect.centerY * sy
+          };
+        }
+        function observedWorldLabelRect(div, visible) {
+          if (visible === false) return null;
+          var base = worldLabelViewportBaseline();
+          var sx = base.width / (window.innerWidth || base.width);
+          var sy = base.height / (window.innerHeight || base.height);
+          var r = div && div.getBoundingClientRect ? div.getBoundingClientRect() : null;
+          if (!r) return null;
+          var x = Number(r.left) * sx;
+          var y = Number(r.top) * sy;
+          var w = Number(r.width) * sx;
+          var h = Number(r.height) * sy;
+          return {
+            x: Number(x.toFixed(2)),
+            y: Number(y.toFixed(2)),
+            width: Number(w.toFixed(2)),
+            height: Number(h.toFixed(2)),
+            centerX: Number((x + w / 2).toFixed(2)),
+            centerY: Number((y + h / 2).toFixed(2))
+          };
+        }
+        function setWorldLabelHidden(L, measured) {
+          L.div.style.opacity = '0';
+        }
         function findEnt(root, name) {
           // Prefer synthetic StoryboardEntity_<name> created by the overlay (the
           // visible group; real Luna entity is hidden by hideTemplateVisuals).
@@ -2124,20 +2231,52 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         }
         function tickLabels() {
           if (!pcApp || !camEnt || !camEnt.camera || typeof camEnt.camera.worldToScreen !== 'function') return;
+          var phase = currentWorldLabelPhase();
+          var phaseId = phase && phase.id || 'current';
+          var projected = phase && phase.projectedWorldLabels;
+          var measured = {};
           for (var li = 0; li < labels.length; li++) {
             var L = labels[li];
+            var projectedRect = lookupProjectedWorldLabel(projected, L.entityId);
+            if (projected && !projectedRect) {
+              setWorldLabelHidden(L, measured);
+              continue;
+            }
+            if (projectedRect) {
+              var vr = projectWorldLabelRectToViewport(projectedRect);
+              L.div.style.transform = 'none';
+              L.div.style.left = vr.x.toFixed(1) + 'px';
+              L.div.style.top = vr.y.toFixed(1) + 'px';
+              L.div.style.width = Math.max(0, vr.width).toFixed(1) + 'px';
+              L.div.style.height = Math.max(0, vr.height).toFixed(1) + 'px';
+              L.div.style.boxSizing = 'border-box';
+              L.div.style.display = 'flex';
+              L.div.style.alignItems = 'center';
+              L.div.style.justifyContent = 'center';
+              L.div.style.opacity = '1';
+              measured[L.entityId] = observedWorldLabelRect(L.div, true);
+              continue;
+            }
             var ent = findEnt(pcApp.root, L.entityId);
-            if (!ent || typeof ent.getPosition !== 'function') { L.div.style.opacity = '0'; continue; }
+            if (!ent || typeof ent.getPosition !== 'function') { setWorldLabelHidden(L, measured); continue; }
             var wp = ent.getPosition();
-            if (!wp || typeof wp.x !== 'number') { L.div.style.opacity = '0'; continue; }
+            if (!wp || typeof wp.x !== 'number') { setWorldLabelHidden(L, measured); continue; }
             var target = new pc.Vec3(wp.x + L.ox, wp.y + L.oy, wp.z + L.oz);
             var sp = camEnt.camera.worldToScreen(target);
-            if (!sp || sp.z < 0) { L.div.style.opacity = '0'; continue; }
+            if (!sp || sp.z < 0) { setWorldLabelHidden(L, measured); continue; }
+            L.div.style.transform = 'translate(-50%,-50%)';
+            L.div.style.width = '';
+            L.div.style.height = '';
+            L.div.style.display = 'block';
             L.div.style.left = sp.x.toFixed(1) + 'px';
             L.div.style.top = sp.y.toFixed(1) + 'px';
             L.div.style.opacity = '1';
-            L.div.style.display = 'block';
+            measured[L.entityId] = observedWorldLabelRect(L.div, true);
           }
+          window.__targetWorldLabels = measured;
+          window.__targetWorldLabelsByPhase = window.__targetWorldLabelsByPhase || {};
+          window.__targetWorldLabelsByPhase[phaseId] = measured;
+          window.__targetWorldLabelsByPhase.current = measured;
         }
         // Flip initial display so the divs are laid out (extractor reads even at
         // opacity 0; positioning happens on first tick + every 100ms after).

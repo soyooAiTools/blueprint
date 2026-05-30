@@ -69,6 +69,13 @@ assert.strictEqual(src.indexOf('addComponent("model"'), -1,
   'rectWithinAnchorFitTolerance(rect, anchorToCanvas(anchor))',
   '&& !(viewportAnchored[name] && fitForPhase[name])',
   'var maxStep = 64',
+  'function currentWorldLabelPhase()',
+  'function canonicalWorldLabelEntityName(raw)',
+  'phase.projectedWorldLabels',
+  'function projectWorldLabelRectToViewport(rect)',
+  'function observedWorldLabelRect(div, visible)',
+  'window.__targetWorldLabels = measured',
+  'window.__targetWorldLabelsByPhase[phaseId] = measured',
   "console.warn('[AI] Storyboard primitive unavailable:",
   "Storyboard primitive reparent failed",
   "if (typeof pc.StandardMaterial !== 'function') return null",
@@ -91,5 +98,9 @@ assert.ok(src.indexOf('e = createUnityPrimitiveEntity(name, type)') <
 
 assert.strictEqual(src.indexOf("set('bp-storyboard-target', guide ? '目标：' + guide.slice(0, 24) : '目标')"), -1,
   'target hint must use current target entity label, not truncated guideText');
+assert.strictEqual(src.indexOf('SellCounter'), -1,
+  'worldLabel position fix must be generic, not entity-specific');
+assert.strictEqual(src.indexOf('3.1'), -1,
+  'worldLabel position fix must not hard-code the old source local y offset');
 
 console.log('linux bridge render fallback smoke passed');
