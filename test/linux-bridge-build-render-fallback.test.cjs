@@ -29,6 +29,10 @@ assert.strictEqual(src.indexOf('addComponent("model"'), -1,
   'function applyStoryboardSceneBackground(source)',
   'window.__storyboardSceneDetails',
   "var bgPlane = createPrimitiveEntity(root, 'StoryboardBackground', 'box')",
+  'function currentStoryboardTargetLabel(gs, phaseId)',
+  'function storyboardEntityLabel(name)',
+  'phaseFirstStoryboardTarget(phaseId)',
+  "set('bp-storyboard-target', currentStoryboardTargetLabel(gs, 'phase' + phase))",
   'function primitiveStyleForName(name)',
   'window.__storyboardEntityDetails',
   "recordPrimitiveStyle(name, primitiveStyle, 'styled-composite:' + kind, count)",
@@ -73,5 +77,8 @@ assert.ok(src.indexOf("addComponent('render'") >= 0,
 assert.ok(src.indexOf('e = createUnityPrimitiveEntity(name, type)') <
           src.indexOf('e = createRendererPrimitiveEntity(parent, name, type)'),
   'Unity primitive path should run before pool-renderer mesh reuse so sphere/cylinder/box stay type-specific');
+
+assert.strictEqual(src.indexOf("set('bp-storyboard-target', guide ? '目标：' + guide.slice(0, 24) : '目标')"), -1,
+  'target hint must use current target entity label, not truncated guideText');
 
 console.log('linux bridge render fallback smoke passed');

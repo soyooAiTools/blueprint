@@ -1937,6 +1937,60 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         document.addEventListener('pointerup', resetStick, true);
         document.addEventListener('pointercancel', resetStick, true);
         function set(id, text) { var el = document.getElementById(id); if (el) el.textContent = text; }
+        function canonicalStoryboardEntityName(raw) {
+          raw = String(raw || '');
+          if (!raw) return '';
+          raw = raw.replace(/^_+/, '');
+          if (!raw) return '';
+          return raw.charAt(0).toUpperCase() + raw.slice(1);
+        }
+        function storyboardEntityLabel(name) {
+          var key = canonicalStoryboardEntityName(name);
+          if (!key) return '';
+          try {
+            var va = window.__BLUEPRINT_VISUAL_ASSETS__ || {};
+            var styles = va.sourceEntityContract && va.sourceEntityContract.entityStyles || {};
+            var st = styles[key] || styles[name];
+            if (st && typeof st.label === 'string' && st.label) return st.label;
+            var ents = va.fidelityContract && va.fidelityContract.entities || [];
+            for (var ei = 0; ei < ents.length; ei++) {
+              var ent = ents[ei];
+              if (!ent) continue;
+              var entKey = canonicalStoryboardEntityName(ent.id || ent.name);
+              if (entKey !== key) continue;
+              var wl = ent.worldLabel;
+              if (wl && typeof wl.text === 'string' && wl.text) return wl.text;
+            }
+          } catch(e) {}
+          return key;
+        }
+        function phaseFirstStoryboardTarget(phaseId) {
+          try {
+            var va = window.__BLUEPRINT_VISUAL_ASSETS__ || {};
+            var phases = va.sourcePhaseContract && va.sourcePhaseContract.phases;
+            if ((!phases || !phases.length) && va.fidelityContract) phases = va.fidelityContract.phases;
+            if (!phases || !phases.length) return '';
+            var phase = null;
+            for (var pi = 0; pi < phases.length; pi++) {
+              if (String(phases[pi] && phases[pi].id) === String(phaseId)) {
+                phase = phases[pi];
+                break;
+              }
+            }
+            if (!phase) return '';
+            if (phase.steps && phase.steps[0] && phase.steps[0].target) return phase.steps[0].target;
+            var ig = phase.interactionGate;
+            if (ig && ig.steps && ig.steps[0] && ig.steps[0].target) return ig.steps[0].target;
+            if (phase.trigger && phase.trigger.targetEntity) return phase.trigger.targetEntity;
+          } catch(e) {}
+          return '';
+        }
+        function currentStoryboardTargetLabel(gs, phaseId) {
+          var vars = gs && gs.variables || {};
+          var target = vars.targetEntity || gs && gs.targetEntity || phaseFirstStoryboardTarget(phaseId);
+          var label = storyboardEntityLabel(target);
+          return label ? '目标：' + label : '目标';
+        }
         setInterval(function() {
           var gs = null;
           try { gs = typeof window.__gameState === 'function' ? window.__gameState() : window.__gameState; } catch(e) {}
@@ -1953,7 +2007,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           set('bp-storyboard-tool', (res.tool || '镐子') + ' / 飞船' + (res.ShipLevel || 0) + '节');
           var guide = gs.ui_state && gs.ui_state.guideText || gs.uiState && gs.uiState.guideText || gs.variables && gs.variables.guideText || '';
           set('bp-storyboard-tip', guide);
-          set('bp-storyboard-target', guide ? '目标：' + guide.slice(0, 24) : '目标');
+          set('bp-storyboard-target', currentStoryboardTargetLabel(gs, 'phase' + phase));
         }, 200);
       }
       // task #49 v1.4c-beta — render contract.entities[i].worldLabel as world-
