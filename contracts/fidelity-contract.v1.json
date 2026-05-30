@@ -1,17 +1,18 @@
 {
-  "schemaVersion": "1.4.0",
+  "schemaVersion": "1.5.0",
   "kind": "blueprint.fidelityContract.schema",
-  "contractVersion": "1.4.0",
+  "contractVersion": "1.5.0",
   "description": "Authoritative data contract for high-fidelity HTML and Unity reproduction. HTML writers and Unity writers consume generated blueprint.fidelityContract instances; runtime bridge infra must not carry fixture constants.",
   "instanceKind": "blueprint.fidelityContract",
-  "acceptedInstanceSchemaVersions": ["1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0"],
+  "acceptedInstanceSchemaVersions": ["1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0", "1.5.0"],
   "versionPolicy": {
     "schemaVersion": "Version of this schema document. Bump on structural changes to this file.",
     "contractVersion": "Version of generated fidelityContract instance semantics. Bump when required roots, writer gates, or consumer semantics change.",
     "v1_1_0_notes": "Adds entities[].worldLabel (optional, polymorphic) and relaxes hud[].text to polymorphic. Polymorphic shape: string OR {default?: string, perPhase: Record<phaseId,string>}. Lib field-diff @0.6.1 reads v1.0.0 instances via transitional hud[id^=\"label.\"] fallback into worldLabel bucket; migration script scripts/migrate-v1.0-to-v1.1.cjs moves them forward.",
     "v1_2_0_notes": "Adds phases[].cameraTransform (informative) + phases[].projectedAnchors (normative, blocking) to make per-phase screen-space projection the canonical visual closure truth. Opt1 falsification (msg=ee995411) proved cameraTransform alone insufficient — Three.js↔PlayCanvas world coord/projection semantics are not equivalent. projectedAnchors carry source-observed 2D screen rects (viewport baseline 1280×720, origin top-left) so target writers calibrate via local screen-space fit instead of replaying source camera math. Lib field-diff @0.7.0 reads v1.1.0 instances via transitional fallback: projectedAnchors absent → unresolvedFidelityGaps[] advisory entry; cameraTransform absent → inferred-default. v1.1.0 instances continue to load. Migration script scripts/migrate-v1.1-to-v1.2.cjs is backfill-only: accepts 1.1.0 or 1.2.0 input, runs anchor-extractor against source HTML if available, fills projectedAnchors; if source HTML absent, leaves contract + unresolvedFidelityGaps advisory (NO fabrication). Idempotent. Conditional schemaVersion bump: bumps 1.1.0 → 1.2.0 only if every phase has projectedAnchors populated with provenance ∈ {extracted, anchor-only} (no inferred-default entries).",
     "v1_3_0_notes": "Adds source-HTML-derived presentation field family — all OPTIONAL on the contract surface, populated by scripts/migrate-v1.2-to-v1.3.cjs from reverse-extracted JS literals: (1) scene.backgroundColor [r,g,b] linear-RGB 0..1 from SCENE_CONFIG.backgroundColor (writer overlay clear color); (2) entities[].worldLabel rich record {text, worldOffset:{x,y,z}, color?, fontSize?, consumer?} extracted from ENTITY_STYLE[id].label (writer renders sprite at entity.position + worldOffset). v1.1 polymorphic-text form (string OR {default?, perPhase}) is still accepted for the legacy non-3D HUD case — validator dispatches on (typeof text === 'string' && isPlainObject(worldOffset)); (3) entities[].primitiveStyle {modelRef:string, baseColor:[r,g,b] linear, baseColorHex?:string} from ENTITY_STYLE[id].{kind,color} — modelRef is a semantic kind hint (astronaut|ship|base|station|counter|pad|crystal|debris|cargo|beacon|gate) consumed by the writer overlay to pick a styled mesh family instead of falling back to procedural box/cylinder. v1.2 instances continue to load unchanged. Migration script is deterministic regex parse of source HTML (no puppeteer); idempotent (preserves existing worldLabel/primitiveStyle unless forceReextract=true). Conditional schemaVersion bump: bumps 1.2.0 → 1.3.0 only when scene.backgroundColor extracted AND every source-declared entity has both worldLabel and primitiveStyle populated (Unity-internal auxiliary entities absent from source HTML are excluded — they surface as advisoryGaps[] kind='v13-entity-not-in-source'). Pipeline integration: engine/stages/fidelity-contract-produce.cjs chains v1.1→v1.2 then v1.2→v1.3 migrate in createLunaPipeline (test/luna-pipeline-composition.test.cjs pins position). Two new field-diff buckets (scene + primitiveStyle) are BLOCKING by design — writer overlay #46 must consume modelRef + baseColor to clear them.",
-    "v1_4_0_notes": "Single-axis hud polymorphic enforcement (task #52 v1.4d-ε). Diagnostic on post-#45/#46 main confirmed 22 hud field-diffs are all phase-text mismatches in 3 slots — hud.phase / hud.tip / hud.targethint — because the v1.3 contract authored these as phase-static plain strings (only phase1 values). Runtime DOM / extractor correctly emit per-phase strings; field-diff resolvePolymorphicText is already shape-aware. The break is at Stage 1 (contract authoring) alone. v1.4d migration scripts/migrate-v1.3-to-v1.4d.cjs reverse-extracts source HTML PHASES array (deterministic regex; no puppeteer) and folds {id, guideText} per phase into polymorphic {perPhase: {phaseId: text}} records for those 3 hud slots: hud.phase = 'Phase N/8' (derived from index), hud.tip = guideText verbatim, hud.targethint = '目标：' + guideText. Other hud entries (hud.label.*, hud.iceHud, hud.oxygenHud, hud.coinHud, hud.scrapHud, hud.toolHud, hud:steptoast) untouched. SEVERITY POLICY: for the 3 polymorphic-eligible hud ids, plain-string text is treated as DEPRECATED-but-LEGAL (advisory, not blocking) to preserve backward-compat with v0.5/v1.0~v1.3 contracts authored as static phase1 strings — see hudPolymorphicEligibleIds in hudContract block. Migration is idempotent (preserves existing {perPhase:...} records unless forceReextract=true). Conditional schemaVersion bump: bumps 1.3.0 → 1.4.0 only when all 3 polymorphic-eligible slots are either successfully rewritten or already polymorphic AND phases array non-empty. Pipeline integration: engine/stages/fidelity-contract-produce.cjs chains v1.2→v1.3 then v1.3→v1.4d migrate in createLunaPipeline (test/luna-pipeline-composition.test.cjs pins position). No new field-diff bucket — the existing hud bucket clears 22→0 once the polymorphic instance lands."
+    "v1_4_0_notes": "Single-axis hud polymorphic enforcement (task #52 v1.4d-ε). Diagnostic on post-#45/#46 main confirmed 22 hud field-diffs are all phase-text mismatches in 3 slots — hud.phase / hud.tip / hud.targethint — because the v1.3 contract authored these as phase-static plain strings (only phase1 values). Runtime DOM / extractor correctly emit per-phase strings; field-diff resolvePolymorphicText is already shape-aware. The break is at Stage 1 (contract authoring) alone. v1.4d migration scripts/migrate-v1.3-to-v1.4d.cjs reverse-extracts source HTML PHASES array (deterministic regex; no puppeteer) and folds {id, guideText} per phase into polymorphic {perPhase: {phaseId: text}} records for those 3 hud slots: hud.phase = 'Phase N/8' (derived from index), hud.tip = guideText verbatim, hud.targethint = '目标：' + guideText. Other hud entries (hud.label.*, hud.iceHud, hud.oxygenHud, hud.coinHud, hud.scrapHud, hud.toolHud, hud:steptoast) untouched. SEVERITY POLICY: for the 3 polymorphic-eligible hud ids, plain-string text is treated as DEPRECATED-but-LEGAL (advisory, not blocking) to preserve backward-compat with v0.5/v1.0~v1.3 contracts authored as static phase1 strings — see hudPolymorphicEligibleIds in hudContract block. Migration is idempotent (preserves existing {perPhase:...} records unless forceReextract=true). Conditional schemaVersion bump: bumps 1.3.0 → 1.4.0 only when all 3 polymorphic-eligible slots are either successfully rewritten or already polymorphic AND phases array non-empty. Pipeline integration: engine/stages/fidelity-contract-produce.cjs chains v1.2→v1.3 then v1.3→v1.4d migrate in createLunaPipeline (test/luna-pipeline-composition.test.cjs pins position). No new field-diff bucket — the existing hud bucket clears 22→0 once the polymorphic instance lands.",
+    "v1_5_0_notes": "Per-phase per-entity world-label screen-rect (task #57 v1.4e Axis A). Closes the residual visual gap caught by youth-nick on v1.4d main b8c73da (msg=29785d5a) — SellCounter label rendered visually high because v1.3 worldLabel chain only gated text/color/existence, not screen position. Root cause: #51 anchor-fit shrank SellCounter entity bbox (yRatio≈0.72), but DOM label sits at world-unit constant worldOffset.y=3.1 → visual gap widens. v1.5 adds phases[].projectedWorldLabels[entityId] = {x, y, width, height, centerX, centerY, provenance, lookupPath?, matchedAlias?, resolverRule?} in viewport top-left px (default 1280×720), populated by scripts/migrate-v1.4d-to-v1.4e.cjs via engine/stages/lib/worldlabel-extractor.cjs (headless Three.js render + Sprite billboard corner projection). Runtime worker (#56 Stage 2/3/4 PR #40, Jonny) consumes these as rect-fit targets for the label DOM, replacing the world-unit worldOffset fallback. Stage 5 field-diff (engine/stages/lib/field-diff.cjs runWorldLabelPositionDiff) emits worldLabel-position-* records — BLOCKING at schemaVersion>=1.5.0 with ±7px tolerance, ADVISORY pre-v1.5.0 (backward-compat read path). Off-viewport downgrade matches projectedAnchors policy. Migration is idempotent (preserves existing projectedWorldLabels unless forceReextract=true). Conditional schemaVersion bump: bumps 1.4.0 → 1.5.0 only when every phase's showEntities are fully covered with provenance ∈ {extracted, no-label} (no inferred-default entries). Pipeline integration: engine/stages/fidelity-contract-produce.cjs chains v1.3→v1.4d then v1.4d→v1.4e migrate. Persistence boundary: visibility booleans NEVER in contract worldLabel record — consumers derive viewportIntersection at consume time."
   },
   "requiredRoots": [
     "schemaVersion",
@@ -42,6 +43,7 @@
       "rendererAdapter.driverMap.v1",
       "camera.perPhaseProjection.v1",
       "screen.perPhaseAnchors.v1",
+      "screen.perPhaseWorldLabels.v1",
       "provenance.fieldLevel.v1"
     ]
   },
@@ -198,10 +200,11 @@
       "autoPlayGate",
       "manualGate",
       "cameraTransform",
-      "projectedAnchors"
+      "projectedAnchors",
+      "projectedWorldLabels"
     ],
-    "description": "Behavior must be shifted left too: phase visibility, trigger evidence, and auto/manual gates are shared by HTML and Unity. v1.2 adds cameraTransform (informative) + projectedAnchors (normative, blocking) — see cameraTransformShape and projectedAnchorsShape.",
-    "versionConditionalEnforcement": "cameraTransform + projectedAnchors are enforced only when schemaVersion >= 1.2.0. v1.0/v1.1 instances continue to validate without these keys (acceptedInstanceSchemaVersions covers backward-compat read path).",
+    "description": "Behavior must be shifted left too: phase visibility, trigger evidence, and auto/manual gates are shared by HTML and Unity. v1.2 adds cameraTransform (informative) + projectedAnchors (normative, blocking). v1.5 adds projectedWorldLabels (normative, blocking) — see cameraTransformShape, projectedAnchorsShape, and projectedWorldLabelsShape.",
+    "versionConditionalEnforcement": "cameraTransform + projectedAnchors are enforced only when schemaVersion >= 1.2.0. projectedWorldLabels is enforced only when schemaVersion >= 1.5.0. Older instances continue to validate without these keys (acceptedInstanceSchemaVersions covers backward-compat read path).",
     "cameraTransformShape": {
       "description": "Per-phase camera world-space pose. INFORMATIVE/DIAGNOSTIC ONLY — not blocking visual closure. Use cases: (1) writer initial camera setup, (2) diagnostic when projectedAnchors drift, (3) future renderer hint when projectedAnchors are absent. Renderer-agnostic.",
       "normativity": "informative",
@@ -255,6 +258,49 @@
       "emptyShowEntitiesRule": "When showEntities[] is empty, projectedAnchors MUST still be present (it is in phaseContract.requiredKeys) but as an empty object {}. Validator accepts {} as trivially satisfying the 1:1 coupling. Omitting the projectedAnchors key entirely fails validation in v1.2.0+ instances (per Tim msg=7caa6ec8 clarification, locked).",
       "tolerance": "writer-side anchor diff: ±8px absolute on x_px/y_px/w_px/h_px (configurable via fidelity-source-diff stage env DEFAULT_ANCHOR_PIXEL_TOLERANCE). Beyond tolerance → blocking field-diff entry. Exception: when expected anchor's derived viewportIntersection=false (source-positioned-offscreen), anchor-mismatch downgrades to advisory unresolvedFidelityGaps[] with kind='anchor-mismatch-off-viewport', NOT hasBlockingDiff (Jonny msg=0ec2b725 / Tim msg=52fe75ad). Pixel-gate hard <5% covers off-canvas regions via sharp resize/cover.",
       "consumerDerivedViewportIntersection": "viewportIntersection = (x_px + w_px) >= 0 AND x_px <= viewportBaseline.width AND (y_px + h_px) >= 0 AND y_px <= viewportBaseline.height. Bbox-rect ∩ viewport-rect (NOT center-point). Derived in-memory at consume time by writer and field-diff; NEVER persisted in contract."
+    },
+    "projectedWorldLabelsShape": {
+      "description": "Per-phase, per-entity source-observed world-label Sprite screen-space rect. NORMATIVE / BLOCKING at schemaVersion>=1.5.0 (task #57 v1.4e Axis A). Captured by running source Three.js renderer + Sprite billboard corner projection (camera right/up basis vectors, sprite world position, sprite.scale.x/y) → 4-corner screen projection → axis-aligned 2D rect. Runtime worker (PR #40, Jonny) consumes these as DOM rect-fit targets for the worldLabel element, replacing the world-unit worldOffset fallback. Target writers MUST NOT iframe-replay source.",
+      "normativity": "normative",
+      "polymorphic": false,
+      "polymorphism_note": "Flat-per-phase, mirrors projectedAnchors. phases[] is already phase-scoped.",
+      "viewportBaseline": {
+        "width": 1280,
+        "height": 720,
+        "origin": "top-left",
+        "rationale": "Matches projectedAnchors viewport baseline so worker consumes both with the same coordinate basis."
+      },
+      "shape": {
+        "projectedWorldLabels": {
+          "<entityId>": {
+            "x": "number — screen-space x of top-left corner (pixels, top-left origin) [REQUIRED]",
+            "y": "number — screen-space y of top-left corner (pixels, top-left origin) [REQUIRED]",
+            "width": "number — rect width in pixels [REQUIRED]",
+            "height": "number — rect height in pixels [REQUIRED]",
+            "centerX": "number — x of rect center (pixels) [REQUIRED]",
+            "centerY": "number — y of rect center (pixels) [REQUIRED]",
+            "provenance": "'extracted' | 'inferred-default' | 'no-label' [REQUIRED]",
+            "lookupPath": "OPTIONAL audit — 'meshes' | 'scene.getObjectByName' | 'not-found'",
+            "matchedAlias": "OPTIONAL audit — source Three.js .name actually matched on the entity Group",
+            "resolverRule": "OPTIONAL audit — 'direct' | 'catalog-alias' | 'convention' | 'unresolved'"
+          }
+        }
+      },
+      "validatorRequiredKeys": ["x", "y", "width", "height", "centerX", "centerY", "provenance"],
+      "validatorOptionalKeys": ["lookupPath", "matchedAlias", "resolverRule"],
+      "validatorForbiddenKeys": ["selfVisible", "effectiveVisible", "viewportIntersection", "visible"],
+      "validatorForbiddenKeysRationale": "Visibility booleans stay in the migration audit report only. Consumers derive viewportIntersection from x/y/width/height vs viewportBaseline. Persisting them would re-couple contracts to viewport constants (v6.1 persistence boundary).",
+      "provenanceAcceptedValues": ["extracted", "inferred-default", "no-label"],
+      "provenanceSemantics": {
+        "extracted": "Real Sprite was found and its 4 billboard corners projected to screen.",
+        "inferred-default": "Migration backfill placeholder (entity unresolved or source-not-visible during the phase). All numerics zero. Should not appear when conditional bump succeeds.",
+        "no-label": "Entity Group was resolved but has no Sprite child (legitimate label-less entity). All numerics zero. Stage 5 field-diff suppresses worldLabel-position-* for no-label records."
+      },
+      "rectSourceRule": "Sprite billboard corner formula: cornerᵢ = spriteWorldPos + camRight · (scale.x / 2) · sxᵢ + camUp · (scale.y / 2) · syᵢ for (sxᵢ, syᵢ) ∈ {-1, +1}². Each corner is projected via Camera.project() → NDC → viewport top-left px. Axis-aligned 2D bounding rect = (min/max over 4 projected corners).",
+      "showEntitiesCoupling": "phases[i].projectedWorldLabels MUST contain a key for every entityId in phases[i].showEntities (1:1 enforcement, parallel to projectedAnchors). Missing key → schema VALIDATION blocking at v1.5.0+; present key with provenance='inferred-default' → unresolvedFidelityGaps[] advisory (writer still gets calibration target, lower confidence).",
+      "emptyShowEntitiesRule": "When showEntities[] is empty, projectedWorldLabels MUST still be present as an empty object {}. Validator accepts {} as trivially satisfying the 1:1 coupling.",
+      "tolerance": "writer-side worldLabel position diff: ±7px absolute on x/y/width/height (configurable via fidelity-source-diff stage env DEFAULT_WORLDLABEL_PIXEL_TOLERANCE). Beyond tolerance → BLOCKING field-diff entry at schemaVersion>=1.5.0, ADVISORY pre-v1.5.0. Exception: when expected label's derived viewportIntersection=false (source-positioned-offscreen), worldLabel-position-mismatch downgrades to advisory with kind='worldLabel-position-mismatch-off-viewport', mirroring projectedAnchors policy. Records with provenance='no-label' are skipped entirely.",
+      "consumerDerivedViewportIntersection": "viewportIntersection = (x + width) >= 0 AND x <= viewportBaseline.width AND (y + height) >= 0 AND y <= viewportBaseline.height. Bbox-rect ∩ viewport-rect (NOT center-point). Derived in-memory at consume time; NEVER persisted."
     }
   },
   "sceneContract": {

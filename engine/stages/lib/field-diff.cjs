@@ -1145,6 +1145,81 @@ function runAnchorDiff(phaseId, expectedAnchors, actualAnchors, viewport, tolera
   return entries;
 }
 
+// task #57 (v1.4e Axis A): Stage 5 world-label position diff. Parallels
+// runAnchorDiff with these distinctions:
+//   - Field names use DOM-rect convention {x, y, width, height} (Jonny msg=
+//     fd1a7e7a interface lock), not {x_px, y_px, w_px, h_px}.
+//   - Records with provenance='no-label' are SKIPPED entirely (legitimate
+//     Sprite-less entity, not a drift signal).
+//   - Severity is gated by `enforceBlocking` (caller passes true at
+//     schemaVersion>=1.5.0, false pre-1.5.0). Off-viewport always advisory.
+//   - Default tolerance is ±7px (Jonny lock; tighter than ±8 anchor).
+//   - Category prefix 'worldLabel-position-*' so the stage-layer bucket
+//     aggregator (split('-')[0]) routes entries into the 'worldLabel' bucket.
+function runWorldLabelPositionDiff(phaseId, expectedLabels, actualLabels, viewport, tolerancePx, enforceBlocking) {
+  const entries = [];
+  if (!expectedLabels || typeof expectedLabels !== 'object') return entries;
+  const tol = (typeof tolerancePx === 'number' && tolerancePx >= 0) ? tolerancePx : 7;
+  const W = (viewport && viewport.width) || 1280;
+  const H = (viewport && viewport.height) || 720;
+  const actual = (actualLabels && typeof actualLabels === 'object') ? actualLabels : {};
+  const baseBlocking = enforceBlocking === true;
+  for (const entId of Object.keys(expectedLabels)) {
+    const exp = expectedLabels[entId];
+    if (!exp || typeof exp !== 'object') continue;
+    // no-label provenance is a legitimate terminal state (entity has no
+    // Sprite child) — suppress all severity here.
+    if (exp.provenance === 'no-label') continue;
+    const x = Number(exp.x) || 0;
+    const y = Number(exp.y) || 0;
+    const w = Number(exp.width) || 0;
+    const h = Number(exp.height) || 0;
+    const vpIntersect = (x + w) >= 0 && x <= W && (y + h) >= 0 && y <= H;
+    const category = vpIntersect ? 'worldLabel-position-mismatch' : 'worldLabel-position-mismatch-off-viewport';
+    // Off-viewport always downgrades to advisory; on-viewport follows
+    // schemaVersion gate (advisory pre-v1.5, blocking at v1.5+).
+    const blocking = baseBlocking && vpIntersect;
+    const act = actual[entId];
+    if (!act || typeof act !== 'object') {
+      entries.push({
+        path: 'phases.' + phaseId + '.projectedWorldLabels.' + entId,
+        source: '<contract>',
+        target: 'missing',
+        category: category,
+        phaseId: phaseId,
+        entityId: entId,
+        key: '*',
+        expected: 'present',
+        actual: 'missing',
+        blocking: blocking
+      });
+      continue;
+    }
+    for (const k of ['x', 'y', 'width', 'height']) {
+      const ev = Number(exp[k]) || 0;
+      const av = Number(act[k]) || 0;
+      const delta = Math.abs(ev - av);
+      if (delta > tol) {
+        entries.push({
+          path: 'phases.' + phaseId + '.projectedWorldLabels.' + entId + '.' + k,
+          source: '<contract>',
+          target: 'mismatch',
+          category: category,
+          phaseId: phaseId,
+          entityId: entId,
+          key: k,
+          expected: ev,
+          actual: av,
+          deltaPx: delta,
+          tolerancePx: tol,
+          blocking: blocking
+        });
+      }
+    }
+  }
+  return entries;
+}
+
 // ─── Module exports ────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -1168,6 +1243,7 @@ module.exports = {
   WEBGL_PAGE_EXTRACTOR,
   makePageExtractor,
   runAnchorDiff: runAnchorDiff,
+  runWorldLabelPositionDiff: runWorldLabelPositionDiff,
   // Sam compat: drop-in for runFieldLevelDiff(template, phaseId, sourceFields, targetFields).
   // template = { indexed }
   // sourceFields / targetFields = page extractor output snapshots
