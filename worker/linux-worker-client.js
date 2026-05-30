@@ -575,7 +575,7 @@ function reloadEngineModules() {
   }
 }
 
-var PIPELINE_STAGE_ORDER = ['clone', 'spec-extract', 'spec-validate', 'complexity-gate', 'assembly-plan', 'assembly-complexity-gate', 'codegen', 'method-check', 'review', 'compile', 'visual-check', 'runtime-contract', 'cua-verify', 'upload'];
+var PIPELINE_STAGE_ORDER = ['source-html-bind', 'clone', 'spec-extract', 'spec-validate', 'complexity-gate', 'assembly-plan', 'assembly-complexity-gate', 'codegen', 'method-check', 'review', 'compile', 'fidelity-source-diff', 'visual-check', 'runtime-contract', 'cua-verify', 'upload'];
 
 function shouldRebuildAfterPublicPreviewFailure(blueprint) {
   var failure = blueprint && blueprint.lastFailure;

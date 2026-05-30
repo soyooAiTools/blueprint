@@ -1,0 +1,555 @@
+{
+  "kind": "blueprint.fixtureAcceptanceCatalog.postSchemaBumpBaseline",
+  "schemaVersion": "1.0.0",
+  "generatedAt": "2026-05-29T09:15:00Z",
+  "intent": "Lock catalog state + each fixture contract/sourceHtml sha256 AFTER fidelityContract schema bump v1.0.0 \u2192 v1.1.0 (task #29). Pairs with pre-schema-bump-baseline-2026-05-29.json (which froze catalog state BEFORE the bump). Together they bracket the schema migration; future patches diff against post-bump baseline.",
+  "authoredBy": "@Sam (catalog owner) \u2014 #storyboard2html task #29 Tim audit close (msg=46328b35 chose option b)",
+  "pairedPreBumpBaseline": "/opt/blueprint-editor/fixtures/baselines/pre-schema-bump-baseline-2026-05-29.json",
+  "schemaBumpProvenance": {
+    "fromSchemaVersion": "1.0.0",
+    "toSchemaVersion": "1.1.0",
+    "libVersion": "task25.field-diff@0.6.1",
+    "migrationScript": "/opt/blueprint-editor/scripts/migrate-v1.0-to-v1.1.cjs",
+    "addedFields": [
+      "entities[].worldLabel?: string | {default?: string, perPhase: Record<phaseId,string>}",
+      "hud[].text relaxed to polymorphic: string | {default?: string, perPhase: Record<phaseId,string>}"
+    ],
+    "transitionalReadPaths": [
+      "lib @0.6.1 reads v1.0.0 hud[id^=\"label.\"] as worldLabel bucket fallback",
+      "lib @0.6.1 reads v1.1.0 entities[].worldLabel forward (preferred)"
+    ],
+    "acceptedInstanceSchemaVersionsByValidator": ["1.0.0", "1.1.0"]
+  },
+  "manifestPath": "/opt/blueprint-editor/fixtures/ACCEPTANCE_CATALOG.json",
+  "manifestSha256": "ed3162e4ac294260d22829542300033662ca329c760b3129ed1bd2b3ddd15069",
+  "manifestSnapshot": {
+    "kind": "blueprint.fixtureAcceptanceCatalog",
+    "schemaVersion": "1.0.0",
+    "generatedAt": "2026-05-29T08:25:00Z",
+    "notes": "L4 fidelity acceptance catalog (task #27). Each fixture entry lists a fidelityContract + optional source HTML + optional project dir. Runner: scripts/run-fidelity-catalog.cjs. Owner: @Sam.",
+    "fixtures": [
+      {
+        "name": "space-ranger-v0.5-golden",
+        "status": "golden",
+        "contractPath": "../work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/fidelity-contract/space-ranger.fidelityContract.json",
+        "sourceHtmlPath": "../work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/source-html/space-ranger-3d.html",
+        "projectDir": "../work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/unity-project",
+        "target": "unity",
+        "metadata": {
+          "entityCount": 27,
+          "primitiveCount": 80,
+          "phaseCount": 8,
+          "hudCount": 33,
+          "deliveredBy": "@Tim-cc + @Jonny-codex (task #23/#24)",
+          "deliveryDate": "2026-05-28"
+        }
+      },
+      {
+        "name": "space-ranger-v3-hook-candidate",
+        "status": "candidate",
+        "contractPath": "../work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/unity-project/Assets/Fidelity/fidelityContract.json",
+        "sourceHtmlPath": "../work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/source-html/space-ranger-3d.html",
+        "projectDir": "../work/task27-production-http-visualassets-fence-check",
+        "target": "html",
+        "metadata": {
+          "buildArtifact": "../work/task27-production-http-visualassets-fence-check/index.html",
+          "buildMeta": "../work/task27-production-http-visualassets-fence-check/build-meta.json",
+          "hooks": ["__driveToPhase", "__fidelityReady", "__blueprintMarkFidelityReady", "__blueprintNormalizeGameState"],
+          "verdictNote": "task #27 2026-05-29 production HTTP build: visualAssets passed through build-api, entity_states fence populated, source phase guideText/targetEntity normalized from sourcePhaseContract"
+        }
+      },
+      {
+        "name": "space-ranger-v1.1-migrated-candidate",
+        "status": "candidate",
+        "contractPath": "../work/task29-v1.1-golden-candidate/space-ranger.v1.1.fidelityContract.json",
+        "sourceHtmlPath": "../work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/source-html/space-ranger-3d.html",
+        "projectDir": "../work/task27-production-http-visualassets-fence-check",
+        "target": "html",
+        "metadata": {
+          "migratedFrom": "space-ranger-v0.5-golden",
+          "migrationScript": "scripts/migrate-v1.0-to-v1.1.cjs",
+          "migrationReport": "../work/task29-v1.1-golden-candidate/migration-report.json",
+          "schemaVersion": "1.1.0",
+          "deliveredBy": "@Sam task #29",
+          "deliveryDate": "2026-05-29",
+          "verdictNote": "task #29 2026-05-29 v1.0\u2192v1.1 migration: 24/24 entity-labels moved to entities[].worldLabel, 0 orphan, hud[] 33\u21929. Validates against fidelity-contract.cjs v1.1.0 validator. Used to confirm field-diff @0.6.1 reads worldLabel via entities[].worldLabel forward path (not hud.label.* transitional)."
+        }
+      }
+    ]
+  },
+  "fixtures": [
+    {
+      "name": "space-ranger-v0.5-golden",
+      "status": "golden",
+      "target": "unity",
+      "contractPath": "/opt/blueprint-editor/work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/fidelity-contract/space-ranger.fidelityContract.json",
+      "sourceHtmlPath": "/opt/blueprint-editor/work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/source-html/space-ranger-3d.html",
+      "projectDir": "/opt/blueprint-editor/work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/unity-project",
+      "sha256": {
+        "contract": "820b14e8ccd2a7d6fe96de97e60e49c82d5be697dd76041b178385d2389baa1d",
+        "sourceHtml": "6ff2523374b1e80bb460812c84240cb369c5c64fd4f16d4af16a9566a4d14cb5"
+      },
+      "metadata": {
+        "entityCount": 27,
+        "primitiveCount": 80,
+        "phaseCount": 8,
+        "hudCount": 33,
+        "contractSchemaVersion": "1.0.0",
+        "deliveredBy": "@Tim-cc + @Jonny-codex (task #23/#24)",
+        "deliveryDate": "2026-05-28",
+        "shaUnchangedSincePreBump": true
+      }
+    },
+    {
+      "name": "space-ranger-v3-hook-candidate",
+      "status": "candidate",
+      "target": "html",
+      "contractPath": "/opt/blueprint-editor/work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/unity-project/Assets/Fidelity/fidelityContract.json",
+      "sourceHtmlPath": "/opt/blueprint-editor/work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/source-html/space-ranger-3d.html",
+      "projectDir": "/opt/blueprint-editor/work/task27-production-http-visualassets-fence-check",
+      "sha256": {
+        "contract": "1396f49c0eef7a3e4fc3679c148d62ddb872ce514fc8f7758fdbc19e152b4144",
+        "sourceHtml": "6ff2523374b1e80bb460812c84240cb369c5c64fd4f16d4af16a9566a4d14cb5"
+      },
+      "metadata": {
+        "buildArtifact": "../work/task27-production-http-visualassets-fence-check/index.html",
+        "buildMeta": "../work/task27-production-http-visualassets-fence-check/build-meta.json",
+        "hooks": ["__driveToPhase", "__fidelityReady", "__blueprintMarkFidelityReady", "__blueprintNormalizeGameState"],
+        "contractSchemaVersion": "1.0.0",
+        "verdictNote": "task #27 2026-05-29 production HTTP build: visualAssets passed through build-api, entity_states fence populated, source phase guideText/targetEntity normalized from sourcePhaseContract",
+        "shaUnchangedSincePreBump": true
+      }
+    },
+    {
+      "name": "space-ranger-v1.1-migrated-candidate",
+      "status": "candidate",
+      "target": "html",
+      "contractPath": "/opt/blueprint-editor/work/task29-v1.1-golden-candidate/space-ranger.v1.1.fidelityContract.json",
+      "sourceHtmlPath": "/opt/blueprint-editor/work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/source-html/space-ranger-3d.html",
+      "projectDir": "/opt/blueprint-editor/work/task27-production-http-visualassets-fence-check",
+      "sha256": {
+        "contract": "9186c1325f8541724b47743487c06c3f179eb5f326e6209a4ceac4f09ce0194e",
+        "sourceHtml": "6ff2523374b1e80bb460812c84240cb369c5c64fd4f16d4af16a9566a4d14cb5"
+      },
+      "metadata": {
+        "migratedFrom": "space-ranger-v0.5-golden",
+        "migrationScript": "/opt/blueprint-editor/scripts/migrate-v1.0-to-v1.1.cjs",
+        "migrationReport": "/opt/blueprint-editor/work/task29-v1.1-golden-candidate/migration-report.json",
+        "contractSchemaVersion": "1.1.0",
+        "migrationCounts": {
+          "movedToEntityWorldLabel": 24,
+          "orphanKeptInHud": 0,
+          "hudBefore": 33,
+          "hudAfter": 9
+        },
+        "deliveredBy": "@Sam task #29",
+        "deliveryDate": "2026-05-29",
+        "newSincePreBump": true
+      }
+    }
+  ],
+  "catalogRunVerdict_INVALIDATED_09_05": {
+    "_retractionNote": "INVALIDATED 2026-05-29 ~10:06 by Jonny task #30 ship. See wiringBugRetractionNote below. The 237/24/192/21 numbers below were produced under a buggy run-fidelity-catalog.cjs HTML lane that silently fell back to default contract instead of reading fixture.contractPath. v1.1 migrated candidate contract was NOT actually being read — same v1.0 contract diffed twice. Numbers preserved here for audit trail only.",
+    "runArtifact": "/opt/blueprint-editor/work/task29-catalog-v1.1-end-to-end/",
+    "againstLib": "task25.field-diff@0.6.1",
+    "againstStage": "engine/stages/fidelity-source-diff.cjs (post task #29 split blocking/advisory)",
+    "summary": {
+      "blocking": 45,
+      "advisory": 192,
+      "totalFieldDiffs": 237,
+      "buckets": {
+        "entity": 24,
+        "worldLabel": 192,
+        "hud": 21
+      }
+    },
+    "blockingAttribution": {
+      "entity-extra: Gold/Ice/Scrap \u00d7 8 phase = 24": "#28 Jonny (demo2spec sourceEntityContract collectible mapping)",
+      "hud-mismatch: phase/targethint/tip \u00d7 7 phase = 21": "#30 (per-phase HUD text reverse-extraction)"
+    },
+    "advisoryAttribution": {
+      "worldLabel-missing: 24 entity \u00d7 8 phase = 192": "By design: HTML target legitimately does not render world-space labels. Non-blocking advisory per Tim @0.6.1 lib spec."
+    }
+  },
+  "wiringBugRetractionNote": {
+    "discoveredBy": "@Jonny-codex during task #30 implementation",
+    "discoveredAt": "2026-05-29T10:06:24Z",
+    "bugLocation": "scripts/run-fidelity-catalog.cjs HTML lane",
+    "bugBehavior": "Did not pass fixture.contractPath to fidelity-source-diff; HTML lane silently fell back to a default contract path. v1.1 migrated candidate contract was therefore never actually compared. Two identical 237/24/192/21 result rows in my 9:05 catalog rerun were the same default contract diffed twice, not v1.0 transitional vs v1.1 forward equivalence.",
+    "fixCommit": "Jonny task #30 closure (msg=d086b815 in #storyboard2html:dcf29d48)",
+    "impactOnSamPriorVerdicts": [
+      "9:05 closure msg=b59d0f53 section 5 'v1.1 forward path data equivalence with v1.0 transitional fallback' \u2014 RETRACTED. Lib stub-tests still demonstrate dual-path read at lib unit level (Tim 14/14 PASS), but catalog-layer cross-verification of that equivalence was not actually performed before Jonny's fix.",
+      "Post-bump baseline catalogRunVerdict numbers \u2014 INVALIDATED. Real post-bump catalog state with the fixed runner: see catalogRunVerdict below."
+    ]
+  },
+  "catalogRunVerdict": {
+    "runArtifact": "/opt/blueprint-editor/work/task30-hud-perphase-candidate/catalog-official-fixture/space-ranger-v1.1-migrated-candidate/fidelity-source-diff-report.json",
+    "runBy": "@Jonny-codex task #30 ship verification (with fixed run-fidelity-catalog.cjs HTML lane wiring)",
+    "againstLib": "task25.field-diff@0.6.1",
+    "againstStage": "engine/stages/fidelity-source-diff.cjs (post task #29 split blocking/advisory)",
+    "againstContract": "/opt/blueprint-editor/work/task30-hud-perphase-candidate/space-ranger.v1.1.hud-perphase.fidelityContract.json (v1.1 + #30 perPhase HUD text)",
+    "againstBuild": "work/task27-production-http-visualassets-fence-check (pre-#28 build \u2014 official fixture projectDir still points here)",
+    "summary": {
+      "blocking": 24,
+      "advisory": 192,
+      "totalFieldDiffs": 216,
+      "buckets": {
+        "entity": 24,
+        "worldLabel": 192
+      }
+    },
+    "blockingAttribution": {
+      "entity-extra: Gold/Ice/Scrap \u00d7 8 phase = 24": "Pre-#28 build still has collectible carriers; #28 ship verified separately against task28 HTTP artifact (entity-extra 24\u219216). Will collapse to 0 once official fixture projectDir is bumped to post-#28 build OR #31 ships (whichever applies)."
+    },
+    "advisoryAttribution": {
+      "worldLabel-missing: 24 entity \u00d7 8 phase = 192": "By design: HTML target legitimately does not render world-space labels. Non-blocking advisory per Tim @0.6.1 lib spec."
+    },
+    "hudMismatchClearance": "21 \u2192 0 (Jonny #30 perPhase reverse-extractor: hud.phase / hud.targethint / hud.tip now carry perPhase[phaseId] text resolved by lib @0.6.1).",
+    "alternateBuildRun": {
+      "artifact": "/opt/blueprint-editor/work/task30-hud-perphase-candidate/catalog-task28-http-r2/space-ranger-task30-hud-perphase-task28-http/fidelity-source-diff-report.json",
+      "againstBuild": "task28 HTTP artifact (post-#28 collectible carrier removal)",
+      "summary": {
+        "blocking": 16,
+        "advisory": 192,
+        "totalFieldDiffs": 208,
+        "buckets": {
+          "entity": 16,
+          "worldLabel": 192
+        }
+      },
+      "blockingAttribution": "entity-extra: CtaButton/Canvas/JoystickBG/JoystickHandle = 16. Owned by #31 (UI overlay sourceEntityContract mapping)."
+    },
+    "convergencePath": [
+      "Stage 0 (pre-#28): 45 blocking (24 entity-extra Gold/Ice/Scrap + 21 hud-mismatch)",
+      "Stage 1 (#30 ship, pre-#28 build): 24 blocking (entity-extra still pre-#28, hud-mismatch 21\u21920)",
+      "Stage 2 (#30 contract + #28 build): 16 blocking (entity-extra Gold/Ice/Scrap removed, UI overlay scaffold remains)",
+      "Stage 3 (#31 ship): 0 blocking \u2014 candidate v1.1 promoted to golden \u2014 FINAL"
+    ]
+  },
+  "finalState_2026-05-29T10:18Z": {
+    "summary": "All 4 phases of shift-left infra + 3 product follow-ups closed. v1.1 HTML candidate promoted to golden after #31 ship cleared hard gate.",
+    "manifestShaAfterPromotion": "eb191d688d2bc03889ced609e23b1e05c0d36bc280515784b6230ea78c7160a7",
+    "fixtureShaAfterPromotion": {
+      "space-ranger-v0.5-golden": "820b14e8ccd2a7d6fe96de97e60e49c82d5be697dd76041b178385d2389baa1d (unchanged)",
+      "space-ranger-v3-hook-candidate": "1396f49c0eef7a3e4fc3679c148d62ddb872ce514fc8f7758fdbc19e152b4144 (unchanged, superseded by v1.1)",
+      "space-ranger-v1.1-migrated-candidate": "bc2c2da78f0765dc88fb7bf1479c766d5bedc732cfae1882a0db8997803d495f (NEW \u2014 #31 contract, replaces 9186c132\u2026 from baseline body)"
+    },
+    "v1_1_promotedDelta": "contractPath changed from work/task29-v1.1-golden-candidate/space-ranger.v1.1.fidelityContract.json (sha 9186c132\u2026) to work/task31-ui-overlay-candidate/space-ranger.v1.1.hud-perphase-ui-overlay.fidelityContract.json (sha bc2c2da7\u2026). Contract gained hudPerPhase (#30) + uiOverlayContract (#31) data on top of base migration (#29). projectDir bumped from work/task27-production-http-visualassets-fence-check to work/task28-source-contract-mapping-smoke/production-http-build (post-#28 build).",
+    "openHygieneItems": [
+      "RESOLVED 2026-05-29T12:15Z (see hygienePass_2026-05-29T12_15Z below): space-ranger-v3-hook-candidate demoted candidate → advisory; space-ranger-v1.1-migrated-candidate renamed → space-ranger-v1.1-html-golden."
+    ],
+    "promotionDecisionTrail": {
+      "delegatedBy": "@youth-nick msg=f9233150 in #storyboard2html (2026-05-29T09:39:47Z) \"jonny\u4e32\u884c\u5904\u7406\u5427\uff0cclaudecode\u5347\u7ea7\u8fd9\u4e2a\u6682\u65f6\u4e0d\u505a\u4e86\uff0c\u5176\u4ed6\u51b3\u5b9a\u4f60\u81ea\u5df1\u6765\u62cd@Sam\"",
+      "decidedBy": "@Sam at 2026-05-29T10:18Z",
+      "reasoning": "Hard gate clean (blocking=0), full provenance chain documented (#29 schema+migration / #30 perPhase HUD / #28 collectible mapping / #31 UI overlay), all four phases of shift-left infra closed, Tim audit cleared schema/migration/stage. No remaining blocker for promotion. Reversible if needed (status flip back to candidate is a one-line edit)."
+    }
+  },
+  "hygienePass_2026-05-29T12_15Z": {
+    "summary": "Catalog hygiene pass after youth-nick directive msg=5ba02847 (\"把待办以及小尾巴都收干净吧\"). Two openHygieneItems closed in one edit; no behavior change for golden gate.",
+    "triggeredBy": "@youth-nick msg=5ba02847 in #storyboard2html (2026-05-29T12:09:14Z)",
+    "executedBy": "@Sam at 2026-05-29T12:15Z",
+    "manifestShaBeforeHygiene": "eb191d688d2bc03889ced609e23b1e05c0d36bc280515784b6230ea78c7160a7",
+    "manifestShaAfterHygiene": "c5902cea0ed3fa5856393facc1627b87795d8ee1a63e11fa412a80bd5eb5e3ac",
+    "changes": [
+      {
+        "fixture": "space-ranger-v3-hook-candidate",
+        "field": "status",
+        "from": "candidate",
+        "to": "advisory",
+        "reason": "Superseded by space-ranger-v1.1-html-golden as primary HTML fixture; retained as advisory regression surface for lib field-diff @0.6.1 v1.0.0 transitional read path (hud[id^=\"label.\"] → worldLabel bucket). Non-blocking; will not gate ship.",
+        "metadataAdded": ["demotionNote", "demotedBy"]
+      },
+      {
+        "fixture": "space-ranger-v1.1-migrated-candidate → space-ranger-v1.1-html-golden",
+        "field": "name",
+        "from": "space-ranger-v1.1-migrated-candidate",
+        "to": "space-ranger-v1.1-html-golden",
+        "reason": "Self-consistency with status=golden; drop legacy 'candidate' suffix that survived the 10:18 promotion. Name is a logical identifier (no on-disk move); historical work/ run artifacts under old name preserved as immutable audit trail.",
+        "metadataAdded": ["renamedFrom", "renamedAt", "renamedBy"]
+      }
+    ],
+    "verification": {
+      "tool": "engine/fixture-catalog.cjs loadCatalog()",
+      "result": "PASS — manifest parses cleanly; 3 fixtures: space-ranger-v0.5-golden=golden/unity, space-ranger-v3-hook-candidate=advisory/html, space-ranger-v1.1-html-golden=golden/html.",
+      "VALID_STATUSES": ["golden", "candidate", "advisory"]
+    },
+    "v3HookNameNote": "Fixture name 'space-ranger-v3-hook-candidate' retained as historical lineage marker (the v3 hook integration candidate work). 'candidate' in the name is no longer a status indicator after this hygiene pass; status=advisory is authoritative.",
+    "fixtureShaAfterHygiene": {
+      "space-ranger-v0.5-golden": "820b14e8ccd2a7d6fe96de97e60e49c82d5be697dd76041b178385d2389baa1d (unchanged)",
+      "space-ranger-v3-hook-candidate": "1396f49c0eef7a3e4fc3679c148d62ddb872ce514fc8f7758fdbc19e152b4144 (unchanged, status demoted only)",
+      "space-ranger-v1.1-html-golden": "bc2c2da78f0765dc88fb7bf1479c766d5bedc732cfae1882a0db8997803d495f (unchanged, name only)"
+    }
+  },
+  "visualGateFailedRollback_2026-05-29T12_22Z": {
+    "summary": "v1.1 HTML golden promotion ROLLED BACK to candidate. Visual cross-phase capture shows reproduction renders HUD but no 3D entities across all 8 phases. Contract-layer blocking=0 was a false-confidence signal — it does not catch 'scene tree populated but pixels not rendered' failure mode.",
+    "decidedBy": "@Sam at 2026-05-29T12:22Z per @youth-nick msg=b0016033 (\"需要拍板的话, 你来拍\")",
+    "ruleEstablished": "@youth-nick msg=ccbba11d 12:15:50Z (\"视觉必须一致！！！这是硬标准 红线\") + msg=69681298 12:16:16Z (\"重新审核一遍视觉吧, 有问题就修复根因, 直到视觉保持同步\") — visual cross-phase consistency is the hard gate definition of done.",
+    "evidence": [
+      {
+        "source": "@Tim-cc (msg=21931fab) — task31 catalog pre-existing screenshots at /opt/blueprint-editor/server-data/webgl/catalog-space-ranger-task31-ui-overlay-task28-task30-http/fidelity-source-diff/{source,target}-phase{1..8}.png. Phase 1 shown: source has 5 entities + 6 world labels, target shows HUD top/bottom only, empty 3D scene.",
+        "source": "@Sam (capture-phases.cjs at /root/.slock/agents/131d4ea0-d56a-406e-9cb3-f90999d73977/work/visual-fidelity-check/shots/) — independent puppeteer-core run on source HTML vs task28 production-http-build, 8/8 phases match Tim's finding: source has Player/SpaceShip/all-phase-entities + world labels, repro renders empty 3D scene. Tested phase 1 and phase 8 inline; intermediate phases visually identical to those two.",
+        "source": "@Jonny (msg=80da916a + msg=0bb7ab3a) — independent verification: __gameState is object not function in repro; field-extractor reads visibleEntities from scene tree but rendered pixels are background only. Logical state ≠ rendered output.",
+        "source_quantified": "@Tim-cc (msg=55fc25dd) — option A smoke test on the same 16 task31 catalog screenshots through the new pixel-gate (DEFAULT_PIXEL_GATE_THRESHOLD_PERCENT=5): phase1=93.97% / phase2=93.93% / phase3=93.87% / phase4=93.97% / phase5=93.94% / phase6=93.91% / phase7=93.95% / phase8=93.60%. 8/8 BLOCK at 5% threshold. Mean ~93.94%, meaning only ~6% pixel match (the sky/ground envelope) while every 3D entity is mispositioned or absent. Quantifies how badly the prior 'v1.1 golden' promotion violated the visual gate."
+      }
+    ],
+    "rootCauseHypotheses": [
+      "PlayCanvas writer instantiates entities into scene tree (so field-diff sees them) but render fails: material._BaseColor not resolved / model.asset.ready=false / localScale=0 / camera offset / layer disabled / silent catch in pipeline writer.",
+      "Tim runtime entity diagnostic in flight (msg=612c6d7a): headless puppeteer enumerates app.app.root for enabled/localPosition/localScale/model.asset.ready/material.ready/material._BaseColor, ETA 15min.",
+      "Jonny pipeline writer investigation in flight: storyboard2html → demo2spec → linux-bridge-build PlayCanvas writer entity instantiation path."
+    ],
+    "rollbackActions": [
+      "ACCEPTANCE_CATALOG.json: fixture name space-ranger-v1.1-html-golden → space-ranger-v1.1-html-candidate; status golden → candidate; metadata rollbackFromGolden block added.",
+      "task #25/#27/#29 in_review state HELD — will not flip done until visual gate clears.",
+      "Tim option A approved by Sam (msg=3c0a3339): runPixelDiff advisory → blocking with per-phase PSNR≥30dB or SSIM≥0.85 threshold, makes catalog hard gate enforce visual immediately."
+    ],
+    "manifestShaAfterRollback": "295032e4093d42af6c19950cd90eee113cc7aad42e80efdf2b7d30ef1d1f5261",
+    "repromotionRequirement": "Re-promote v1.1 to golden requires: (a) root cause fix in pipeline writer / runtime patch, (b) visual capture shows source ≡ repro per Tim option A thresholds (subject to grill tune), (c) Tim+Jonny+Sam triple sign-off + youth-nick ratification.",
+    "openGrillThread": "Sam will open grill thread for Q1 (where is the leftmost shift-left observation point) + Q2 (measurement method) + Q4 (gate owner) once Tim diagnostic + Jonny writer investigation data lands. Q3 threshold initial value from option A landing; Q5 prompt red-line phrasing in engine/storyboard2html-prompt.cjs by Tim after root cause clear."
+  },
+  "visualGateProgress_2026-05-29T12_36Z": {
+    "summary": "Jonny landed dual root-cause fix in task34-camera-priority-fix-build: (1) source-visual mode camera framing synced to source HTML rule camera.lookAt(playerPos+(4,0,2)); (2) AI_Camera.camera.priority changed 100 → -100 to prevent its clear pass wiping the rendered scene. After both fixes, repro 3D entities render. Three independent pixel-diff captures across 8 phases confirm the script-renderer second-layer gap does NOT exist — entity render chain restored. 5% hard gate unchanged. Residual is content-side stable baseline diff: mesh shape (capsule placeholder vs buy-station boxes/wedges/rings) + material color (gray-white vs cyan/brown/green) + worldLabel (absent vs 8 labels) + player figurine (absent) + decor (absent).",
+    "buildArtifact": "/opt/blueprint-editor/work/task34-camera-priority-fix-build/index.html",
+    "pixelGateEvidence": {
+      "jonny_8phase_msg26fbc4ca": {
+        "phase1": 17.16, "phase2": 17.74, "phase3": 16.49, "phase4": 17.66,
+        "phase5": 16.28, "phase6": 16.98, "phase7": 17.86, "phase8": 17.84,
+        "mean": 17.25, "min": 16.28, "max": 17.86, "spread": 1.58,
+        "blockingAt5Percent": "8/8"
+      },
+      "sam_independent_corroboration": {
+        "phase1": 15.86, "phase2": 15.43, "phase3": 13.80, "phase4": 14.94,
+        "phase5": 13.55, "phase6": 13.81, "phase7": 15.16, "phase8": 15.15,
+        "mean": 14.71, "min": 13.55, "max": 15.86, "spread": 2.31,
+        "blockingAt5Percent": "8/8",
+        "captureScript": "/root/.slock/agents/131d4ea0-d56a-406e-9cb3-f90999d73977/work/visual-fidelity-check/capture-phases.cjs",
+        "pixelDiffScript": "/root/.slock/agents/131d4ea0-d56a-406e-9cb3-f90999d73977/work/visual-fidelity-check/run-pixel-diff.cjs",
+        "viewport": "960x600",
+        "algorithmRef": "engine/stages/fidelity-source-diff.cjs runPixelDiff (PIXEL_DELTA_THRESHOLD=16, sharp resize+cover)"
+      },
+      "deltaInterpretation": "Sam mean 14.71% vs Jonny mean 17.25% diverge ~2.5pp absolute; both show low variance (1.58-2.31% spread) and 8/8 BLOCK at 5%. Shape agreement (stable cross-phase + same order of magnitude) is what matters. Per Tim msg=211661cc: this disproves script-renderer second-layer gap concern."
+    },
+    "decision": {
+      "thresholdUnchanged": "5% hard gate stays. Per @Tim-cc msg=092789d5 correction to @Sam (Sam had floated raising threshold to 20% as 'v1 realistic value'): '阈值是 driving force, 调高=放弃驱动. 残差应该 content-side 修, 而不是 gate-side 让步.' Saved as feedback-do-not-soften-gate-to-fit-failures.md permanent memory.",
+      "nextOwnership": "@Jonny continues content-side alignment (sky/ground/HUD/material/framing micro-offsets) per his msg=86c79c84 path forward. @Sam holds, re-captures + re-corroborates after next Jonny patch. No new grill branch opened — three-way data already converged on root cause and path forward."
+    },
+    "phase1ContentGapBreakdown": [
+      "mesh shape: source has colored buy-station boxes/wedges/rings; repro has gray-white capsule placeholders",
+      "material color: source cyan 氧气购买台 + brown 售卖台 + green 飞船解锁环; repro uniform gray-white",
+      "world labels: source has 8 labels above entities (氧气购买台/售卖台/飞船解锁/玩家/飞船/etc); repro has 0",
+      "player figurine: source has kneeling paper-plane figure; repro absent",
+      "decor: source has scene props; repro absent"
+    ],
+    "evidence_shots": "/root/.slock/agents/131d4ea0-d56a-406e-9cb3-f90999d73977/work/visual-fidelity-check/shots-r2-task34-camera-priority-fix-12_36Z/ (archived after rebuild)",
+    "evidence_report": "/root/.slock/agents/131d4ea0-d56a-406e-9cb3-f90999d73977/work/visual-fidelity-check/shots-r2-task34-camera-priority-fix-12_36Z/pixel-diff-report.json"
+  },
+  "visualGateProgress_2026-05-29T12_55Z_build2": {
+    "summary": "Jonny landed generic-primitive-fix-build2 (boot regression in build1 fixed via numExpr regex escape in codegen HTML emit). Boot sanity passed: ready=true, __driveToPhase=function, hook present. Sam frozen-check confirmed scene advancing across 8 phases (repro phase1 vs phase{2..8} max cross-diff 20.60% = far above 0.5% frozen threshold). Pixel% now reflects real source-vs-target visual gap with both sides advancing; data widened spread reveals phase-cohort variance signal.",
+    "buildArtifact": "/opt/blueprint-editor/work/task34-generic-primitive-fix-build2/index.html",
+    "boot_regression_history": {
+      "build1": "/opt/blueprint-editor/work/task34-generic-primitive-fix-build/index.html — boot failed: numExpr regex escape produced invalid char class in emitted HTML, page stuck on 'Still loading...' spinner. Sam frozen-check (phase1 cross-diff <0.1%) would have caught this if shipped as gate signal.",
+      "rootCause": "Jonny msg=035a766a — numExpr regex pattern escape bug in codegen HTML emit.",
+      "fixTime": "build1→build2 ~6min (Jonny self-diagnosed via local capture)"
+    },
+    "samPixelDiff_build2": {
+      "phase1": 20.68, "phase2": 20.51, "phase3": 16.28, "phase4": 18.48,
+      "phase5": 19.26, "phase6": 20.72, "phase7": 25.70, "phase8": 26.13,
+      "mean": 20.97, "min": 16.28, "max": 26.13, "spread": 9.85,
+      "blockingAt5Percent": "8/8",
+      "frozenCheck": {
+        "crossDiffs_phase1_vs_2to8": [15.56, 11.97, 13.87, 17.47, 15.46, 20.22, 20.60],
+        "maxCross": 20.60,
+        "meanCross": 16.45,
+        "frozen": false
+      }
+    },
+    "interpretation": {
+      "vs_r2_camera_priority_fix": "r2 mean 14.71% / spread 2.31% was lower BECAUSE repro had 3 gray-white capsule placeholders that uniformly matched dark background; r3-build2 has differentiated colored stations + more entities → higher per-pixel divergence vs source. Lower r2 number was placeholder-uniformity artifact, NOT closer-to-source than build2. The phase-variance signal in build2 (spread 9.85% vs 2.31%) is the meaningful upgrade.",
+      "phase_variance_signal": "spread 9.85% = phase-specific gap exists, NOT a stable baseline residual. phase7/8 worst (25-26%) — late-game phases have more visible entities. phase3 best (16.28%) — early phase has fewer entities. This pattern indicates per-phase entity visibility filter is missing in repro: source contract hides non-active entities per phase, repro shows all entities all the time. Field-diff catches it as phase-mismatch; pixel-gate now corroborates at the pixel layer.",
+      "phase8_visual_evidence": {
+        "source": "3 entities (售卖白 brown wedge + 制氧装置 cyan box + paper-plane Player) + 3 world labels — sparse, phase-focused",
+        "repro": "8 entities (4 large platforms + multiple stations + spaceship + player) — all entities rendered regardless of phase"
+      }
+    },
+    "next_priority_revision": {
+      "old_ROI_ranking": "material color > mesh shape > worldLabel > player figurine > decor (Sam phase1-only inference, did not account for spread)",
+      "new_ROI_ranking": "per-phase entity visibility (closes spread, expected phase7/8 26%→17%) > material color > mesh shape > worldLabel > figurine > decor",
+      "reasoning": "phase-variance signal supersedes phase1-only inspection per Tim's feedback-do-not-soften principle (phase/cohort variance is grill key signal). Close visibility gap first to flatten spread, then attack stable baseline residual."
+    },
+    "frozenCheckTooling": {
+      "scriptPath": "/root/.slock/agents/131d4ea0-d56a-406e-9cb3-f90999d73977/work/visual-fidelity-check/run-pixel-diff.cjs",
+      "logic": "compute repro phase1 vs phase{2..8} pixel-diff; if max <0.5% flag frozen=true and warn report is artifactual",
+      "validatedOn": "build1 boot-fail (caught frozen=true, max 0.07%) and build2 success (frozen=false, max 20.60%)",
+      "futureUpsell": "Tim msg=bbabf339 suggested OCR 'Still loading' detect + pixel variance for stage-level shipping. Sam keeps current minimal cross-phase check in private harness; OCR upsell deferred to engine/stages/fidelity-source-diff.cjs in next iteration."
+    },
+    "evidence_shots": "/root/.slock/agents/131d4ea0-d56a-406e-9cb3-f90999d73977/work/visual-fidelity-check/shots-r4-build2-real-signal-12_55Z/ (archived after build3)",
+    "evidence_report": "/root/.slock/agents/131d4ea0-d56a-406e-9cb3-f90999d73977/work/visual-fidelity-check/shots-r4-build2-real-signal-12_55Z/pixel-diff-report.json"
+  },
+  "visualGateProgress_2026-05-29T13_05Z_build3": {
+    "summary": "Jonny landed per-phase visibility fix in task34-phase-visibility-fix-build3 using Tim's entityStates dual-mechanism spec (visible:false + position.y=-999). Field-diff blocking 9→0 (only worldLabel advisory 192 remains, non-blocking). Pixel-gate: spread tightened 9.85%→7.12% (Sam) / 5.04% (Jonny), mean 20.97%→14.16% (Sam) / 16.72% (Jonny). Phase7/8 huge improvement (-14pp / -13pp), phase1/2 modest (-2pp / -3pp). Tim three-branch analysis verdict: branch 1 confirmed (visibility ~80% closed, phase1/2 residual is content-side, NOT visibility-residual). Jonny path: phase1 camera/framing sweep BEFORE material to identify dominant residual driver.",
+    "buildArtifact": "/opt/blueprint-editor/work/task34-phase-visibility-fix-build3/index.html",
+    "fieldDiffStatus": {
+      "blocking": 0,
+      "advisory_worldLabel": 192,
+      "verdict": "contract layer closed; pixel layer is the only remaining gate"
+    },
+    "samPixelDiff_build3": {
+      "phase1": 18.71, "phase2": 17.45, "phase3": 11.68, "phase4": 15.53,
+      "phase5": 11.59, "phase6": 13.49, "phase7": 11.67, "phase8": 13.20,
+      "mean": 14.16, "min": 11.59, "max": 18.71, "spread": 7.12,
+      "blockingAt5Percent": "8/8",
+      "frozenCheck": {
+        "crossDiffs_phase1_vs_2to8": [10.55, 6.56, 8.76, 8.55, 7.40, 6.19, 7.98],
+        "maxCross": 10.55, "meanCross": 8.00, "frozen": false
+      }
+    },
+    "jonnyPixelDiff_build3_msg51398273": {
+      "phase1": 18.40, "phase2": 19.49, "phase3": 15.40, "phase4": 19.05,
+      "phase5": 14.46, "phase6": 17.32, "phase7": 14.45, "phase8": 15.22,
+      "mean": 16.72, "min": 14.45, "max": 19.49, "spread": 5.04, "blockingAt5Percent": "8/8"
+    },
+    "phase1Convergence": {
+      "samPhase1": 18.71,
+      "jonnyPhase1": 18.40,
+      "delta": 0.31,
+      "significance": "Sam systematic ~2-3pp lower than Jonny on phase2-8, BUT phase1 nearly equal (0.31pp). Strongly supports Tim's earlier 'phase1 = clean ROI metric' judgment: phase1 has static entities + stable camera, two independent capture paths converge tightly here. Other phases diverge because settle timing catches different animation/camera transition frames — not a credibility issue but phase1 is the cleanest anchor."
+    },
+    "build2_to_build3_delta_matrix": {
+      "phase1": -1.97, "phase2": -3.06, "phase3": -4.60, "phase4": -2.95,
+      "phase5": -7.67, "phase6": -7.23, "phase7": -14.03, "phase8": -12.93,
+      "mean_delta": -6.81, "spread_delta": -2.73
+    },
+    "timBranchVerdict_msg19e589a4": {
+      "branchHit": "branch_1_visibility_80pct_closed_residual_is_content_side",
+      "branch1_definition": "phase1/2/3 improvement small + phase7/8 improvement huge → visibility ~80% absorbed, 5.04 spread is real content-side per-phase, Jonny can move to material",
+      "samCorroboration": "Sam build2→build3 deltas match shape: phase1/2 small (-1.97/-3.06) + phase7/8 huge (-14.03/-12.93). All 8 phases improved (no regression branch). Improvement variance 1.97-14.03pp (NOT uniform branch 2). Branch 3 (phase1/2 reversed) ruled out."
+    },
+    "timPhase4NoiseCorrection": {
+      "timObserved": "+0.57 on phase4 (Jonny build2→build3) — flagged as potential edge-case or capture noise",
+      "samPhase4_build2_to_build3": -2.95,
+      "interpretation": "Sam did NOT reproduce the +0.57 anomaly. Likely Jonny capture caught different animation frame on that phase. NOT a visibility regression; do NOT deep-dive."
+    },
+    "nextPriority": {
+      "jonnyAction": "phase1 camera/framing sweep BEFORE material attribution. phase1 entities (OxygenShop+SellCounter+ShipUnlock buy-stations) on 18.40-18.71% are the clean test bench — sweep result will identify whether camera or material is the dominant driver of phase1 residual.",
+      "samAction": "hold + re-capture + run frozen-check + phase1 convergence delta after Jonny build4. Look for phase1 absolute drop + whether other phases follow proportionally (camera win) or only phase1 drops (material win).",
+      "ROIRevised": "phase1 camera/framing sweep > material color > mesh shape > worldLabel > figurine > decor"
+    },
+    "evidence_shots": "/root/.slock/agents/131d4ea0-d56a-406e-9cb3-f90999d73977/work/visual-fidelity-check/shots-r5-build3-visibility-13_05Z/ (archived after build4)",
+    "evidence_report": "/root/.slock/agents/131d4ea0-d56a-406e-9cb3-f90999d73977/work/visual-fidelity-check/shots-r5-build3-visibility-13_05Z/pixel-diff-report.json"
+  },
+  "visualGateProgress_2026-05-29T13_25Z_build4": {
+    "summary": "Jonny landed visibility + scale + worldLabel render in task34-scale-label-fix-build4. Field-diff blocking remained 0. Pixel spread COLLAPSED to <3% on Sam's capture (2.97%) and to 1.61% on Jonny's = phase-specific gap basically closed across both independent capture paths. Mean residual still ~12-15% = uniform-baseline. Jonny diagnosed root cause as PlayCanvas/Luna main camera vs source Three.js camera projection equivalence: target entities scale-correct but land in different screen positions. Tim raised two paths: Opt1 hardcode source rule in writer (fast diagnostic), Opt2 v1.2 schema bump cameraTransform contract (durable, spec-as-truth). Sam pinned both: Opt1 ship now to validate hypothesis, Opt2 Sam owns as schema follow-up.",
+    "buildArtifact": "/opt/blueprint-editor/work/task34-scale-label-fix-build4/index.html",
+    "fieldDiffStatus": {
+      "blocking": 0,
+      "advisory_worldLabel": 192,
+      "verdict": "contract layer still closed after visibility + scale + worldLabel"
+    },
+    "samPixelDiff_build4": {
+      "phase1": 14.58, "phase2": 13.07, "phase3": 11.61, "phase4": 13.43,
+      "phase5": 11.95, "phase6": 12.62, "phase7": 12.04, "phase8": 12.16,
+      "mean": 12.68, "min": 11.61, "max": 14.58, "spread": 2.97,
+      "blockingAt5Percent": "8/8",
+      "frozenCheck": {
+        "crossDiffs_phase1_vs_2to8": [3.95, 3.46, 3.56, 3.47, 3.50, 3.41, 3.57],
+        "maxCross": 3.95, "meanCross": 3.56, "frozen": false,
+        "interpretation": "cross-phase max 3.95% (vs build3 10.55%) = residual is more uniform across phases = consistent with uniform-baseline projection gap, not phase-specific content"
+      }
+    },
+    "jonnyPixelDiff_build4_msg2bf77ec4": {
+      "phase1": 15.60, "phase2": 15.52, "phase3": 14.49, "phase4": 16.10,
+      "phase5": 14.64, "phase6": 15.27, "phase7": 14.69, "phase8": 14.86,
+      "mean": 15.15, "min": 14.49, "max": 16.10, "spread": 1.61, "blockingAt5Percent": "8/8"
+    },
+    "phase1Convergence_build4": {
+      "samPhase1": 14.58, "jonnyPhase1": 15.60, "delta": 1.02,
+      "vs_build3": "build3 0.31pp diff was anomaly. Sam systematic ~2-3pp lower from build2 returning here.",
+      "anchor_validity": "phase1 still cleanest cross-capture point but build4 anchor is 1.02pp not 0.31pp."
+    },
+    "build3_to_build4_delta_matrix": {
+      "phase1": -4.13, "phase2": -4.38, "phase3": -0.07, "phase4": -2.10,
+      "phase5": -0.36, "phase6": -0.87, "phase7": 0.37, "phase8": -1.04,
+      "mean_delta": -1.48, "spread_delta": -4.15,
+      "interpretation": "Spread collapsed (-4.15pp) is the dominant signal. Mean dropped modestly (-1.48pp). phase1/2 saw largest improvement (-4pp each) where world-space label render contributed; phase7 went +0.37 (noise band <±1pp). All phases now in 11.61-14.58 band on Sam, 14.49-16.10 on Jonny — uniform shape."
+    },
+    "timTwoPathTradeoff_msg70d0b69f": {
+      "opt1_hardcodeSourceRuleInWriter": {
+        "pro": "low cost, single-point patch, fast hypothesis validation",
+        "con": "target render hardcoded to source Three.js rule; if source rule changes target breaks"
+      },
+      "opt2_v1.2SchemaCameraTransform": {
+        "pro": "spec-as-truth aligned with v1.1 worldLabel pattern; renderer-agnostic; durable",
+        "con": "schema cycle (v1.1.0 → v1.2.0 bump); Sam workspace owns reverse extractor + migration + writer wire"
+      },
+      "samDecision_msg34cdb2b3": "Opt1 ship now (Jonny build5, ~30min ETA) as fast hypothesis validator; Opt2 Sam owns as schema follow-up. Both are sequenced not punted: Opt1 hardcoded rule in writer becomes Opt2 contract-driven (indirection layer added, not throwaway). Visual gate threshold unchanged per feedback-do-not-soften principle. Renderer-iframe-replay path rejected per Jonny stance (no fake renderer)."
+    },
+    "v1_2_schemaDraftLocation": "/root/.slock/agents/131d4ea0-d56a-406e-9cb3-f90999d73977/notes/v1.2-camera-transform-schema-draft.md (Sam workspace, NOT promoted to production contract until build5 validation)",
+    "evidence_shots": "/root/.slock/agents/131d4ea0-d56a-406e-9cb3-f90999d73977/work/visual-fidelity-check/shots/ (build4 source + repro 8 phases each, 960x600)",
+    "evidence_report": "/root/.slock/agents/131d4ea0-d56a-406e-9cb3-f90999d73977/work/visual-fidelity-check/shots/pixel-diff-report.json"
+  },
+  "visualGateProgress_2026-05-29T13_45Z_build5_opt1_failed": {
+    "summary": "Jonny ran Opt1 validation in two passes: (a) standard rebuild task34-main-camera-source-sync-build5 had unrelated stale C# input pollution (entity-missing=30, hud-mismatch=21 from task28 blueprint-smoke codegen) — judged invalid bad-input by Jonny, NOT used as Opt1 verdict source; (b) clean field-isolation experiment on existing build4 — at runtime in puppeteer browser, per-phase: __driveToPhase(n) → mutate Main Camera + AI_Camera to match source rule (pos=(6,18,28), target=(-4,0,4), fov=46, mainPriority=-1 aiPriority=-100) → screenshot → sharp pixel diff. API confirmed via per-phase ok=true / mainPriority=-1 / aiPriority=-100 / target=(-4,0,4) / pos=(6,18,28). Result: Main Camera source-sync mean=15.34 spread=0.93 vs build4 baseline mean=15.15 spread=1.61 — mean shift -0.19pp (NOT 15→7-8% as hypothesized), spread tightened slightly. Verdict: cameraTransform alone is NOT the 15% residual driver. Three.js source-world ↔ PlayCanvas/Luna target-world coordinate/projection semantics are NOT equivalent (handedness/up-axis/scale/intrinsic FOV/projection matrix non-trivial gap). Camera state identical between source and target yet side-by-side target cluster still lands in wrong screen region. SCOPE PIVOT: v1.2 schema draft from cameraTransform-only → two-layer (cameraTransform informative + projectedAnchors normative blocking).",
+    "buildArtifacts": {
+      "task34-main-camera-source-sync-build5": "BAD-INPUT, do not use for catalog. Stale C# from task28 blueprint-smoke contaminated codegen.",
+      "task34-main-camera-source-sync-manual-capture": "VALID — Jonny clean runtime-mutation isolation experiment on build4 baseline",
+      "task34-scale-label-fix-build4": "Production baseline (unchanged). Jonny reverted Main Camera sync from production code; only safety fix retained = source visual overlay no longer uses y=-999/-9999 sentinel to move primitives/camera target (reverts to canonical source positions). build4 artifact mtime 13:16, awaiting rebuild after v1.2 scope lock."
+    },
+    "jonnyOpt1IsolationData_msg_ee995411": {
+      "phase1": 15.13, "phase2": 15.37, "phase3": 15.16, "phase4": 16.05,
+      "phase5": 15.18, "phase6": 15.36, "phase7": 15.12, "phase8": 15.36,
+      "mean": 15.34, "spread": 0.93,
+      "vs_build4_baseline": "build4 mean=15.15 spread=1.61 → mean Δ +0.19pp / spread Δ -0.68pp (tighter but no mean drop)",
+      "cameraApiVerification": "per phase ok=true, mainPriority=-1, aiPriority=-100, target=(-4,0,4), pos=(6,18,28)",
+      "sideBySideObservation": "target cluster lands in wrong screen region despite identical camera state — projection/coord semantics gap"
+    },
+    "samTPlus10NoRegressionBaseline_msg_8b2159b5": {
+      "summary": "Sam re-ran capture against unchanged build4 artifact (13:16 mtime) at 13:50Z to confirm tooling reproducibility before Jonny rebuilds with safety revert",
+      "phase1": 14.52, "phase2": 13.06, "phase3": 11.62, "phase4": 13.39,
+      "phase5": 11.93, "phase6": 12.60, "phase7": 12.02, "phase8": 12.14,
+      "mean": 12.66, "min": 11.62, "max": 14.52, "spread": 2.90,
+      "frozenCheck": { "maxCross": 3.95, "meanCross": 3.56, "frozen": false },
+      "vs_priorRun_T13_25Z": "mean Δ -0.02pp / spread Δ -0.07pp / maxCross identical = measurement noise → baseline reproducible ✓ no regression",
+      "samVsJonnyOffset": "Sam capture mean has ~2pp systematic offset from Jonny capture (Sam phase1=14.52 vs Jonny phase1=15.60 = 1.08pp). Same source HTML sha, same target build artifact. Difference sources: puppeteer headless render timing / GPU path details. Unrelated to Opt1 verdict."
+    },
+    "scopePivotDecision": {
+      "tim_msg_082f459d": "Two-layer v1.2: cameraTransform world-space pose + projectedAnchors screen-space anchors. screen-space anchors decouple renderer coord assumptions, align with pixel-gate verification layer. Sam called.",
+      "jonny_msg_892495cc": "Agreed double-layer. cameraTransform = initial condition/diagnostic, projectedAnchors = per-phase per-entity source-observed screen contract. viewport baseline 1280x720, anchor origin top-left, bbox source rules.",
+      "sam_msg_ac83b336": "Scope lock 拍 accepted two-layer. cameraTransform informative + projectedAnchors normative blocking. flat-per-phase first (no polymorphic resolver v1.2 first ship). 6-file change list.",
+      "jonny_review_msg_16e6f460": "3 review points: (1) anchor extractor bbox/AABB stability for visible entities, (2) showEntities[] ↔ projectedAnchors 1:1 missing→blocking, (3) writer consume = local screen-space calibration, NO iframe/source replay.",
+      "tim_review_msg_11a04655": "4 review points: (1) lib polymorphic resolver — flat-per-phase first agreed, no @0.7.0 unless needed, (2) migration script backfill-only idempotent, (3) validateProjectedAnchor + validateEntity + diffFidelityRoundTrip entity-level, (4) anchor-mismatch bucket in blocking path + report.summary.buckets +anchor + throw merge.",
+      "jonny_followup_msg_494a7777": "Confirmed flat-per-phase preference (phases[] is already phase-scoped) + backfill-only migration (no fabrication)."
+    },
+    "ownershipSplit": {
+      "schema": "Sam (contracts/fidelity-contract.v1.json)",
+      "migration_script": "Sam (scripts/migrate-v1.1-to-v1.2.cjs, backfill-only idempotent)",
+      "anchor_extractor": "Sam (engine/stages/lib/anchor-extractor.cjs NEW)",
+      "validator_extension": "Tim (adapters/demo2spec/fidelity-contract.cjs validateProjectedAnchor + diffFidelityRoundTrip)",
+      "field_diff_anchor_bucket": "Tim (engine/stages/lib/field-diff.cjs + engine/stages/fidelity-source-diff.cjs anchor-mismatch blocking)",
+      "writer_consume": "Jonny (worker/linux-bridge-build.js local screen-space calibration, NO iframe/source replay)",
+      "polymorphic_resolver": "DEFERRED past v1.2 first ship (flat-per-phase suffices)"
+    },
+    "v1_2_schemaDraft_v3_location": "/root/.slock/agents/131d4ea0-d56a-406e-9cb3-f90999d73977/notes/v1.2-camera-transform-schema-draft.md (Sam workspace, v3 supersedes v2; incorporates Tim 5 nits b62a1cd5 + Jonny 3 blocking + 2 nits 49a84b6d + Tim/Jonny convergence on hybrid extractor 02dd762a/8603ac95/08d233da/017c727d. NOT promoted to production contract until re-sign-off + PoC + youth-nick ratify)",
+    "v1_2_draftV3_lockedDesignPoints": {
+      "extractorCaptureOrder_4tier": "(1) explicit source hooks __sourceCamera/__getSourceEntityById → (2) Object.defineProperty(window,'THREE',{set...}) + constructor registry (Scene/PerspectiveCamera/Mesh/Group/Sprite) → (3) WebGLRenderer.prototype.render belt-and-suspenders → (4) all fail = extractor fail, NO schemaVersion bump (Jonny msg=017c727d explicit ordering)",
+      "tier_B_static_projection": "DROPPED per Tim+Jonny consensus — no real camera = fabrication variant",
+      "migration_conditional_bump_rule": "bump 1.1.0→1.2.0 IFF all phases × all entities have provenance ∈ {extracted, anchor-only}; ZERO inferred-default placeholders allowed in projectedAnchors; else partialMigration:true bumpedSchemaVersion:false stays v1.1.0",
+      "requiredKeys_version_conditional": "cameraTransform + projectedAnchors requiredKeys enforced only for schemaVersion ≥ 1.2.0 instances; v1.0/v1.1 read path NOT held to v1.2 descriptor",
+      "writer_scope_overlay_only": "writer mutates ONLY __StoryboardVisualOverlay mesh entity render transforms; NOT GFM runtime GameObject, NOT __gameState.entity_states.position, NOT phase/interaction/autoPlay/manual gates",
+      "validator_path_corrected": "engine/fidelity-contract.cjs (NOT adapters/demo2spec/fidelity-contract.js which is demo2spec emitter helper)",
+      "viewport_baseline": "1280×720 top-left, matching engine/stages/fidelity-source-diff.cjs DEFAULT_VIEWPORT (Sam local capture at 960×600 is normalized scale not contract baseline)",
+      "PR_pre_merge_acceptance_precondition": "Sam runs anchor-extractor PoC on space-ranger-3d.html (v0.5 golden) — all 8 phases × all showEntities[] entities must produce numeric anchor (provenance ∈ {extracted, anchor-only}), ZERO inferred-default. Fail → re-evaluate extractor strategy, NO PR merge. PoC verdict posted to thread for Tim+Jonny sign-off before triple sign-off lock.",
+      "file_change_list_7files": [
+        "contracts/fidelity-contract.v1.json (Sam)",
+        "engine/fidelity-contract.cjs (Tim, validator extension)",
+        "engine/stages/lib/field-diff.cjs (Tim, anchor bucket)",
+        "engine/stages/fidelity-source-diff.cjs (Tim, anchor-mismatch blocking)",
+        "scripts/migrate-v1.1-to-v1.2.cjs (Sam, NEW)",
+        "engine/stages/lib/anchor-extractor.cjs (Sam, NEW)",
+        "worker/linux-bridge-build.js (Jonny, overlay-only writer)"
+      ]
+    },
+    "tripleSignoffPlan": "Tim reviews (1) anchor bucket field-diff + tolerance (2) validator (3) anchor-mismatch blocking path. Jonny reviews (1) writer screen-space calibration not replay (2) showEntities ↔ anchors 1:1 schema rule (3) extractor stability. Sam owns (1) schema (2) migration (3) extractor. youth-nick ratifies schemaVersion bump.",
+    "gateUnchanged": "5% pixel-gate threshold unchanged per feedback-do-not-soften-gate-to-fit-failures.md. v1.1 instances continue to load through inference fallback (advisory provenance), NOT through gate relaxation.",
+    "evidence_jonny_isolation": "/opt/blueprint-editor/work/task34-main-camera-source-sync-manual-capture/summary.json",
+    "evidence_sam_baseline": "/root/.slock/agents/131d4ea0-d56a-406e-9cb3-f90999d73977/work/visual-fidelity-check/shots/pixel-diff-report.json (13:50Z reverify) + shots-r6-build4-uniform-baseline-13_25Z/ archived"
+  }
+}

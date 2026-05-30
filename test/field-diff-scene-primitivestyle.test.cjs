@@ -19,6 +19,7 @@
 //  10. diffPrimitiveStyleBucket — entity without contract primitiveStyle skipped
 //  11. runFieldLevelDiff shim flattens scene-* and primitiveStyle-* with blocking:true
 //  12. summarize() bucketTotals tracks scene + primitiveStyle keys
+//  13. WEBGL extractor reads worker __storyboardEntityDetails primitiveStyle bridge
 
 var assert = require('assert');
 var fd = require('../engine/stages/lib/field-diff.cjs');
@@ -145,5 +146,38 @@ var sum = fd.summarize(perPhase);
 assert.strictEqual(sum.buckets.scene, 1, 'summarize tracks scene bucket count');
 assert.strictEqual(sum.buckets.primitiveStyle, 2, 'summarize tracks primitiveStyle bucket count');
 assert.strictEqual(sum.blocking, 3, 'blocking count includes scene + primitiveStyle');
+
+// ─── case 13: WEBGL extractor consumes worker primitiveStyle bridge ────────────
+var template13 = fd.makeTemplateFromContract(v13Contract());
+var prevWindow = global.window;
+var prevDocument = global.document;
+global.window = {
+  __gameState: { entity_states: { Player: { visible: true } } },
+  __storyboardEntityDetails: {
+    Player: {
+      primitiveStyle: { modelRef: 'astronaut', baseColor: [0.9098, 0.9843, 1] },
+      visualKind: 'styled-composite:astronaut',
+      primitiveCount: 7
+    }
+  }
+};
+global.document = {
+  querySelector: function() { return null; },
+  querySelectorAll: function() { return []; }
+};
+var extracted13;
+try {
+  extracted13 = template13.WEBGL_PAGE_EXTRACTOR({ phaseId: 'phase1' });
+} finally {
+  global.window = prevWindow;
+  global.document = prevDocument;
+}
+assert.deepStrictEqual(extracted13.entityDetails.Player.primitiveStyle,
+  { modelRef: 'astronaut', baseColor: [0.9098, 0.9843, 1] },
+  'WEBGL extractor should read worker primitiveStyle bridge');
+assert.strictEqual(extracted13.entityDetails.Player.visualKind, 'styled-composite:astronaut');
+assert.strictEqual(extracted13.entityDetails.Player.primitiveCount, 7);
+assert.strictEqual(fd.diffPrimitiveStyleBucket(idx1, 'phase1', extracted13).length, 0,
+  'worker bridge detail should clear primitiveStyle bucket');
 
 console.log('field-diff-scene-primitivestyle.test.cjs PASS');

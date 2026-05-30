@@ -1,4 +1,5 @@
 var assert = require('assert');
+var crypto = require('crypto');
 var fs = require('fs');
 var os = require('os');
 var path = require('path');
@@ -125,6 +126,24 @@ assert.strictEqual(storedProject.blueprint.phases.length, 1, 'saveBlueprint shou
 var exported = handlers.exportBlueprintForAgent(storedProject);
 assert.strictEqual(exported.entities.length, 2, 'exportBlueprintForAgent should export normalized entities');
 assert.strictEqual(exported.phases.length, 1, 'exportBlueprintForAgent should export normalized phases');
+
+var sourceHtmlPath = path.join(tmpRoot, 'source.html');
+var sourceHtml = '<!doctype html><html><body>source visual</body></html>';
+fs.writeFileSync(sourceHtmlPath, sourceHtml, 'utf8');
+storedProject.visualAssets = {
+  visualAssetsSchemaVersion: 'va.1.0.0',
+  source: sourceHtmlPath,
+  entityBindings: [{ entity: 'Player', source: 'source_html' }]
+};
+exported = handlers.exportBlueprintForAgent(storedProject);
+assert.strictEqual(exported.sourceHtmlPath, sourceHtmlPath, 'export should promote visualAssets.source to sourceHtmlPath');
+assert.strictEqual(
+  exported.sourceHtmlSha256,
+  crypto.createHash('sha256').update(sourceHtml).digest('hex'),
+  'export should compute sourceHtmlSha256'
+);
+assert.strictEqual(exported.storyboard.htmlPath, sourceHtmlPath, 'export should mirror source HTML into storyboard.htmlPath');
+assert.ok(exported.visualAssets && exported.visualAssets.source === sourceHtmlPath, 'export should preserve visualAssets for codegen');
 
 fs.rmSync(tmpRoot, { recursive: true, force: true });
 console.log('project blueprint normalizer tests passed');

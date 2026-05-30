@@ -21,9 +21,8 @@ function countMoves(code, entity) {
 }
 
 describe('interaction templates emit observable-movement per target', () => {
-  test('collect-interaction: each resource entity gets HideObj + respawn PlaceObj', () => {
-    // 2026-05-03: 单次采集→HideObj 满足 EntityAdvanced 退出 gate；2s 后 PlaceObj 回填
-    // 让单源采集不会一次就锁死（参考 SpaceGarbage 8→13 冻住的事故）。
+  test('collect-interaction: each resource entity gets hidden without source respawn', () => {
+    // storyboard2html 源 HTML 的 collect 行为是 sourceHidden:true；Unity 不能自行 2s respawn。
     const schema = {
       gameConfig: { collectRange: 2, maxCarry: 10 },
       resources: [
@@ -32,12 +31,13 @@ describe('interaction templates emit observable-movement per target', () => {
       ],
     };
     const code = generateCollectUpdate(schema);
-    expect(countMoves(code, 'IceOre')).toBe(2);
-    expect(countMoves(code, 'SpaceRock')).toBe(2);
+    expect(countMoves(code, 'IceOre')).toBe(1);
+    expect(countMoves(code, 'SpaceRock')).toBe(1);
     expect(code).toMatch(/HideObj\(IceOre\)/);
     expect(code).toMatch(/HideObj\(SpaceRock\)/);
-    expect(code).toMatch(/PlaceObj\(IceOre,/);
-    expect(code).toMatch(/PlaceObj\(SpaceRock,/);
+    expect(code).not.toMatch(/PlaceObj\(IceOre,/);
+    expect(code).not.toMatch(/PlaceObj\(SpaceRock,/);
+    expect(code).not.toMatch(/_respawn_/);
   });
 
   test('deliver-sell: each delivery target gets transform.position pop', () => {

@@ -231,6 +231,11 @@ function diffEntitiesBucket(indexed, phaseId, observed) {
 
 function diffEntityPrimitives(expected, observed) {
   const diffs = [];
+  // Skip when extractor did not surface a primitives array at all — a partial
+  // entityDetails snapshot (e.g. only worldLabel populated by #49) must not be
+  // misread as "all primitives missing". The primitiveStyle bucket has its own
+  // dedicated gate for modelRef/baseColor coverage.
+  if (!observed || !Array.isArray(observed.primitives)) return diffs;
   const expPrims = expected.primitives || [];
   const obsPrims = observed.primitives || [];
   const obsById = {};
@@ -889,6 +894,78 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
       });
     }
   }
+
+  // 6. primitiveStyle runtime bridge — task #50 v1.4c-gamma. The worker overlay
+  //     consumes contract.entities[].primitiveStyle to choose a styled composite
+  //     and exposes the consumed {modelRef, baseColor} at
+  //     window.__storyboardEntityDetails[entity].primitiveStyle. Read that exact
+  //     runtime surface back so the primitiveStyle bucket verifies consumption
+  //     instead of staying missing while geometry is present.
+  try {
+    if (typeof window !== 'undefined' && window.__storyboardEntityDetails
+        && typeof window.__storyboardEntityDetails === 'object') {
+      const detailKeys = Object.keys(window.__storyboardEntityDetails);
+      for (let di = 0; di < detailKeys.length; di++) {
+        const entId = detailKeys[di];
+        const detail = window.__storyboardEntityDetails[entId];
+        if (!entId || !detail || typeof detail !== 'object') continue;
+        if (!out.entityDetails[entId]) out.entityDetails[entId] = {};
+        if (detail.primitiveStyle && typeof detail.primitiveStyle === 'object') {
+          out.entityDetails[entId].primitiveStyle = {
+            modelRef: detail.primitiveStyle.modelRef,
+            baseColor: Array.isArray(detail.primitiveStyle.baseColor)
+              ? detail.primitiveStyle.baseColor.slice(0, 3)
+              : detail.primitiveStyle.baseColor,
+          };
+        }
+        if (detail.visualKind) out.entityDetails[entId].visualKind = detail.visualKind;
+        if (detail.primitiveCount != null) out.entityDetails[entId].primitiveCount = detail.primitiveCount;
+      }
+    }
+  } catch (e) { /* leave primitiveStyle missing on extractor error */ }
+
+  // 6a. worldLabel DOM overlay — task #49 v1.4c-β. The worker installs
+  //     `#bp-storyboard-worldlabels > .bp-worldlabel[data-entity]` divs, one per
+  //     contract.entities[].worldLabel. Extractor reads text regardless of
+  //     visibility (DOM presence is the gate; positioning is visual-only).
+  //     Populates observed.entityDetails[entityName].worldLabel string that
+  //     diffWorldLabelBucket compares against rich worldLabel.text.
+  try {
+    var wlNodes = document.querySelectorAll('#bp-storyboard-worldlabels .bp-worldlabel[data-entity]');
+    for (var wi = 0; wi < wlNodes.length; wi++) {
+      var wlEl = wlNodes[wi];
+      var entId = wlEl.getAttribute('data-entity');
+      if (!entId) continue;
+      var wlText = (wlEl.textContent || '').trim();
+      if (!out.entityDetails[entId]) out.entityDetails[entId] = {};
+      out.entityDetails[entId].worldLabel = wlText;
+    }
+  } catch (e) { /* leave entityDetails empty on extractor error */ }
+
+  // 6. scene — surface runtime camera clearColor as observed.scene.backgroundColor
+  //    for #48 v1.4c-α gate. diffSceneBucket compares contract.scene.backgroundColor
+  //    (linear [r,g,b]) against this. Without this, scene bucket sticks at missing
+  //    regardless of worker overlay writing clearColor.
+  try {
+    var clear = null;
+    if (pcApp && pcApp.scene && pcApp.scene.activeCamera && pcApp.scene.activeCamera.clearColor) {
+      clear = pcApp.scene.activeCamera.clearColor;
+    } else if (pcApp && pcApp.root) {
+      var cstack = [pcApp.root];
+      var csafe = 0;
+      while (cstack.length && csafe++ < 5000) {
+        var cn = cstack.shift();
+        if (!cn) continue;
+        if (cn.camera && cn.camera.clearColor) { clear = cn.camera.clearColor; break; }
+        var cch = cn._children || cn.children || [];
+        for (var ci = 0; ci < cch.length; ci++) cstack.push(cch[ci]);
+      }
+    }
+    if (clear && typeof clear.r === 'number') {
+      out.scene = { backgroundColor: [clear.r, clear.g, clear.b] };
+    }
+  } catch (e) { /* leave scene undefined on extractor error */ }
+
   return out;
 };
 

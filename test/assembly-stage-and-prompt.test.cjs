@@ -3,6 +3,7 @@ var assert = require('assert');
 var assemblyStage = require('../engine/stages/assembly-plan.cjs');
 var assemblyComplexityGateStage = require('../engine/stages/assembly-complexity-gate.cjs');
 var codegenSchemaStage = require('../engine/stages/codegen-schema.cjs');
+var fidelitySourceDiffStage = require('../engine/stages/fidelity-source-diff.cjs');
 var pipeline = require('../engine/pipeline.cjs');
 
 var ctx = {
@@ -86,12 +87,39 @@ assert.ok(prompt.indexOf('"phaseBindings"') >= 0, 'schema prompt should include 
 assert.ok(prompt.indexOf('"stateOwners"') >= 0, 'schema prompt should include stateOwners');
 
 var stageNames = pipeline.createLunaPipeline().stages.map(function(stage) { return stage.name; });
+var sourceBindIdx = stageNames.indexOf('source-html-bind');
+var cloneIdx = stageNames.indexOf('clone');
 var complexityIdx = stageNames.indexOf('complexity-gate');
 var assemblyIdx = stageNames.indexOf('assembly-plan');
 var assemblyGateIdx = stageNames.indexOf('assembly-complexity-gate');
 var codegenIdx = stageNames.indexOf('codegen');
+var compileIdx = stageNames.indexOf('compile');
+var fidelityDiffIdx = stageNames.indexOf('fidelity-source-diff');
+var visualCheckIdx = stageNames.indexOf('visual-check');
+assert.strictEqual(sourceBindIdx, 0, 'source-html-bind should be first stage');
+assert.ok(cloneIdx > sourceBindIdx, 'clone should run after source-html-bind');
 assert.ok(complexityIdx >= 0 && assemblyIdx > complexityIdx, 'assembly-plan should run after complexity-gate');
 assert.ok(assemblyGateIdx > assemblyIdx, 'assembly-complexity-gate should run after assembly-plan');
 assert.ok(codegenIdx > assemblyGateIdx, 'assembly-complexity-gate should run before codegen');
+assert.ok(fidelityDiffIdx > compileIdx, 'fidelity-source-diff should run after compile');
+assert.ok(visualCheckIdx > fidelityDiffIdx, 'visual-check should run after fidelity-source-diff');
+
+var skipLogs = [];
+assert.strictEqual(
+  fidelitySourceDiffStage.canSkip({ addLog: function(stage, msg) { skipLogs.push({ stage: stage, msg: msg }); } }),
+  true,
+  'fidelity-source-diff should soft-skip while sourceHtmlPath is absent'
+);
+assert.ok(skipLogs.some(function(log) { return log.stage === 'fidelity-source-diff' && /No sourceHtmlPath/.test(log.msg); }));
+assert.deepStrictEqual(
+  fidelitySourceDiffStage._internals.resolvePhaseSpecs({ phases: [{ id: 1 }], specs: [{ id: 'spec1' }] }),
+  [{ id: 1 }],
+  'fidelity-source-diff should fall back to blueprint.phases'
+);
+assert.strictEqual(
+  fidelitySourceDiffStage._internals.resolvePhaseNumber({ id: 'phase8' }, 0),
+  8,
+  'fidelity-source-diff should derive phase numbers from phase ids'
+);
 
 console.log('assembly-stage-and-prompt tests passed');

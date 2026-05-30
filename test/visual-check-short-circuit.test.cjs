@@ -8,6 +8,7 @@
 var assert = require('assert');
 var visualCheck = require('../engine/stages/visual-check.cjs');
 var evaluate = visualCheck._evaluateVisualCheckShortCircuit;
+var ENV_ON = { BLUEPRINT_VISUAL_CHECK_SKIP_VLM: 'on' };
 
 // ---------- 触发条件全部满足:短路 ----------
 
@@ -18,7 +19,7 @@ var evaluate = visualCheck._evaluateVisualCheckShortCircuit;
     { phase: 'collect', time: 3 },
     { phase: 'build', time: 4 },
   ];
-  var r = evaluate(phaseLog, [], 3, {});
+  var r = evaluate(phaseLog, [], 3, ENV_ON);
   assert.strictEqual(r.canSkip, true);
   assert.strictEqual(r.distinctPhaseCount, 4);
   assert.strictEqual(r.criticalErrors, 0);
@@ -33,7 +34,7 @@ var evaluate = visualCheck._evaluateVisualCheckShortCircuit;
     { phase: 'b', time: 2 },
     { phase: 'a', time: 3 }, // 重复 a → distinct=2
   ];
-  var r = evaluate(phaseLog, [], 2, {});
+  var r = evaluate(phaseLog, [], 2, ENV_ON);
   assert.strictEqual(r.canSkip, true);
   assert.strictEqual(r.distinctPhaseCount, 2);
   console.log('  ✓ minimal threshold: phaseLog=3 distinct=2 frames=2 → short-circuit');
@@ -43,7 +44,7 @@ var evaluate = visualCheck._evaluateVisualCheckShortCircuit;
 
 (function testRejectShortPhaseLog() {
   var phaseLog = [{ phase: 'a' }, { phase: 'b' }]; // 只 2 条
-  var r = evaluate(phaseLog, [], 3, {});
+  var r = evaluate(phaseLog, [], 3, ENV_ON);
   assert.strictEqual(r.canSkip, false);
   assert.match(r.reason, /phaseLog too short/);
   console.log('  ✓ reject: phaseLog<3');
@@ -52,7 +53,7 @@ var evaluate = visualCheck._evaluateVisualCheckShortCircuit;
 (function testRejectSinglePhase() {
   // 6 个 __PHASE__: 但全是同一 phase → engine 可能卡在原地
   var phaseLog = new Array(6).fill(null).map(function() { return { phase: 'stuck' }; });
-  var r = evaluate(phaseLog, [], 3, {});
+  var r = evaluate(phaseLog, [], 3, ENV_ON);
   assert.strictEqual(r.canSkip, false);
   assert.strictEqual(r.distinctPhaseCount, 1);
   assert.match(r.reason, /too few distinct phases/);
@@ -62,7 +63,7 @@ var evaluate = visualCheck._evaluateVisualCheckShortCircuit;
 (function testRejectCriticalError() {
   var phaseLog = [{ phase: 'a' }, { phase: 'b' }, { phase: 'c' }];
   var errors = ['[pageerror] TypeError: cannot read property x of null'];
-  var r = evaluate(phaseLog, errors, 3, {});
+  var r = evaluate(phaseLog, errors, 3, ENV_ON);
   assert.strictEqual(r.canSkip, false);
   assert.strictEqual(r.criticalErrors, 1);
   assert.match(r.reason, /critical console error/);
@@ -71,7 +72,7 @@ var evaluate = visualCheck._evaluateVisualCheckShortCircuit;
 
 (function testRejectReferenceError() {
   var r = evaluate([{phase:'a'},{phase:'b'},{phase:'c'}],
-    ['[error] ReferenceError: foo is not defined'], 3, {});
+    ['[error] ReferenceError: foo is not defined'], 3, ENV_ON);
   assert.strictEqual(r.canSkip, false);
   assert.strictEqual(r.criticalErrors, 1);
   console.log('  ✓ reject: ReferenceError counted as critical');
@@ -79,7 +80,7 @@ var evaluate = visualCheck._evaluateVisualCheckShortCircuit;
 
 (function testRejectTypeError() {
   var r = evaluate([{phase:'a'},{phase:'b'},{phase:'c'}],
-    ['[error] TypeError: x.y is undefined'], 3, {});
+    ['[error] TypeError: x.y is undefined'], 3, ENV_ON);
   assert.strictEqual(r.canSkip, false);
   console.log('  ✓ reject: TypeError counted as critical');
 })();
@@ -87,13 +88,13 @@ var evaluate = visualCheck._evaluateVisualCheckShortCircuit;
 (function testNonCriticalErrorAllowed() {
   // 普通 console warning 不计入 critical
   var r = evaluate([{phase:'a'},{phase:'b'},{phase:'c'}],
-    ['[warning] CSS deprecation', '[error] some non-fatal app warn'], 3, {});
+    ['[warning] CSS deprecation', '[error] some non-fatal app warn'], 3, ENV_ON);
   assert.strictEqual(r.canSkip, true, '普通 warning/error 不应触发拒绝');
   console.log('  ✓ allow: generic warnings not flagged as critical');
 })();
 
 (function testRejectInsufficientFrames() {
-  var r = evaluate([{phase:'a'},{phase:'b'},{phase:'c'}], [], 1, {});
+  var r = evaluate([{phase:'a'},{phase:'b'},{phase:'c'}], [], 1, ENV_ON);
   assert.strictEqual(r.canSkip, false);
   assert.match(r.reason, /insufficient frame samples/);
   console.log('  ✓ reject: frameCount<2');
@@ -109,18 +110,25 @@ var evaluate = visualCheck._evaluateVisualCheckShortCircuit;
   console.log('  ✓ env: BLUEPRINT_VISUAL_CHECK_SKIP_VLM=off forces VLM call');
 })();
 
-(function testEnvDefaultAllowsShortCircuit() {
+(function testEnvDefaultDisablesShortCircuit() {
   var r = evaluate([{phase:'a'},{phase:'b'},{phase:'c'}], [], 2, {}); // 空 env
-  assert.strictEqual(r.canSkip, true, '默认应允许短路');
-  console.log('  ✓ env: default (unset) allows short-circuit');
+  assert.strictEqual(r.canSkip, false, '默认必须跑 VLM,不能用 phaseLog 直接放行视觉');
+  assert.match(r.reason, /set BLUEPRINT_VISUAL_CHECK_SKIP_VLM=on/);
+  console.log('  ✓ env: default (unset) disables short-circuit');
+})();
+
+(function testEnvOnAllowsShortCircuit() {
+  var r = evaluate([{phase:'a'},{phase:'b'},{phase:'c'}], [], 2, ENV_ON);
+  assert.strictEqual(r.canSkip, true, '显式 opt-in 才允许短路');
+  console.log('  ✓ env: BLUEPRINT_VISUAL_CHECK_SKIP_VLM=on allows short-circuit');
 })();
 
 // ---------- 防御性 ----------
 
 (function testEmptyInputsDefensive() {
-  var r1 = evaluate(null, null, 0, {});
+  var r1 = evaluate(null, null, 0, ENV_ON);
   assert.strictEqual(r1.canSkip, false);
-  var r2 = evaluate([], [], 0, {});
+  var r2 = evaluate([], [], 0, ENV_ON);
   assert.strictEqual(r2.canSkip, false);
   // 不应抛异常
   console.log('  ✓ defensive: null/empty inputs → canSkip=false, no throw');
@@ -135,10 +143,10 @@ var evaluate = visualCheck._evaluateVisualCheckShortCircuit;
     { phase: 'b' },
     { phase: 'c' },
   ];
-  var r = evaluate(phaseLog, [], 3, {});
+  var r = evaluate(phaseLog, [], 3, ENV_ON);
   assert.strictEqual(r.distinctPhaseCount, 3, 'null / 缺字段条目应被跳过');
   assert.strictEqual(r.canSkip, true);
   console.log('  ✓ defensive: malformed phase entries skipped');
 })();
 
-console.log('\nvisual-check short-circuit: 12 cases passed');
+console.log('\nvisual-check short-circuit: 13 cases passed');

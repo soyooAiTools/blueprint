@@ -386,6 +386,45 @@ if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
   # category folders, and inject scene-mounted manager objects. Refresh .meta
   # coverage after that step.
   find "$SCRIPT_DIR" -name '*.cs' | while read -r cs; do gen_meta "$cs"; done
+  python3 - <<PY
+import json, re
+from datetime import datetime, timezone
+from pathlib import Path
+root = Path("$WORK")
+manager = next(root.rglob("GMP_EntityBindingManager.cs"), None)
+entity_names = []
+legacy_pool_hits = []
+if manager and manager.exists():
+    text = manager.read_text(encoding="utf-8")
+    match = re.search(r"mEntityNames\s*=\s*new string\[\]\s*\{(?P<body>.*?)\};", text, re.S)
+    if match:
+        entity_names = re.findall(r'"([^"]+)"', match.group("body"))
+    legacy_pool_hits = re.findall(r"__Pool_[A-Za-z0-9_]+", text)
+doc = {
+    "schemaVersion": 3,
+    "taskId": "$TASK_ID",
+    "generatedAt": datetime.now(timezone.utc).astimezone().isoformat(),
+    "bridgeWarningPrefix": "[k-audit] GFM legacy pool name normalized to _player",
+    "runtimeCounterField": "GameSceneCtrl.LegacyPlayerPoolNormalizeCount",
+    "gfmLunaPath": {
+        "registerCallsTotal": None,
+        "playerBindingLegacyPoolNamesSeen": None,
+        "normalizedToPlayerCount": None,
+        "structuralZero": False,
+        "status": "requires_phase1_bridge_probe"
+    },
+    "gmpDeliveryPath": {
+        "registerCallsTotal": len(entity_names),
+        "playerBindingLegacyPoolNamesSeen": 0,
+        "legacyPoolNamesSeen": len(set(legacy_pool_hits)),
+        "normalizedToPlayerCount": 0,
+        "appliesBridge": False,
+        "structuralZero": True,
+        "status": "static_export_baseline"
+    }
+}
+(root / "audit_k_fallback_count.json").write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+PY
 fi
 
 # ── Step 9: 打包归档（使用友好的文件夹名） ───────────────────

@@ -60,12 +60,12 @@ try {
   assert.match(phaseGate, /case GMP_PhaseGateKind\.Resource/);
   assert.match(phaseGate, /case GMP_PhaseGateKind\.Entity/);
   assert.match(phaseGate, /case GMP_PhaseGateKind\.EntityCount/);
-  assert.match(phaseGate, /GMP_EconomyManager\.instance\.GetResource\(mTarget\)/);
+  assert.match(phaseGate, /GMP_EconomyManager\.instance\.GetCollectedResource\(mTarget\)/);
   assert.match(phaseGate, /GMP_EntityBindingManager\.instance\.GetState\(mTarget\)/);
 
   const phaseController = fs.readFileSync(path.join(coreModules, 'GMP_PhaseController.cs'), 'utf8');
   assert.match(phaseController, /bool IsDwellReady = mPhaseTimer >= required \|\| mPhaseRealTimer >= required/);
-  assert.match(phaseController, /bool IsGateReady = preset\.mGate == null \|\| preset\.mGate\.IsReady/);
+  assert.match(phaseController, /GMP_LevelRuleEngine\.instance\.IsPhaseComplete\(preset, mPhaseTimer, mPhaseRealTimer\)/);
   assert.doesNotMatch(phaseController, /GMP_EventRuleEngine\.instance\.IsPhaseComplete/);
 
   const entityBinding = fs.readFileSync(path.join(gameLevel, 'GMP_EntityBindingManager.cs'), 'utf8');

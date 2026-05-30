@@ -1,0 +1,97 @@
+{
+  "kind": "blueprint.fixtureAcceptanceCatalog.preSchemaBumpBaseline",
+  "schemaVersion": "1.0.0",
+  "generatedAt": "2026-05-29T00:36:39.073Z",
+  "intent": "Lock catalog state + each fixture contract/sourceHtml sha256 prior to Tim @0.6 phase-aware HUD schema patch (task #29). After patch lands, byte-diff against this baseline to detect unintended catalog-level changes.",
+  "authoredBy": "@Sam (catalog owner) at @Tim-cc request — #storyboard2html task #29 thread",
+  "manifestPath": "/opt/blueprint-editor/fixtures/ACCEPTANCE_CATALOG.json",
+  "manifestSha256": "f63e6f7f29de9f109c5b90ede2b1f41364fdc1a10fe59e3fe501e789660f87e1",
+  "manifestSnapshot": {
+    "kind": "blueprint.fixtureAcceptanceCatalog",
+    "schemaVersion": "1.0.0",
+    "generatedAt": "2026-05-29T08:25:00Z",
+    "notes": "L4 fidelity acceptance catalog (task #27). Each fixture entry lists a fidelityContract + optional source HTML + optional project dir. Runner: scripts/run-fidelity-catalog.cjs. Owner: @Sam.",
+    "fixtures": [
+      {
+        "name": "space-ranger-v0.5-golden",
+        "status": "golden",
+        "contractPath": "../work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/fidelity-contract/space-ranger.fidelityContract.json",
+        "sourceHtmlPath": "../work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/source-html/space-ranger-3d.html",
+        "projectDir": "../work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/unity-project",
+        "target": "unity",
+        "metadata": {
+          "entityCount": 27,
+          "primitiveCount": 80,
+          "phaseCount": 8,
+          "hudCount": 33,
+          "deliveredBy": "@Tim-cc + @Jonny-codex (task #23/#24)",
+          "deliveryDate": "2026-05-28"
+        }
+      },
+      {
+        "name": "space-ranger-v3-hook-candidate",
+        "status": "candidate",
+        "contractPath": "../work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/unity-project/Assets/Fidelity/fidelityContract.json",
+        "sourceHtmlPath": "../work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/source-html/space-ranger-3d.html",
+        "projectDir": "../work/task27-production-http-visualassets-fence-check",
+        "target": "html",
+        "metadata": {
+          "buildArtifact": "../work/task27-production-http-visualassets-fence-check/index.html",
+          "buildMeta": "../work/task27-production-http-visualassets-fence-check/build-meta.json",
+          "hooks": [
+            "__driveToPhase",
+            "__fidelityReady",
+            "__blueprintMarkFidelityReady",
+            "__blueprintNormalizeGameState"
+          ],
+          "verdictNote": "task #27 2026-05-29 production HTTP build: visualAssets passed through build-api, entity_states fence populated, source phase guideText/targetEntity normalized from sourcePhaseContract"
+        }
+      }
+    ]
+  },
+  "fixtures": [
+    {
+      "name": "space-ranger-v0.5-golden",
+      "status": "golden",
+      "target": "unity",
+      "contractPath": "/opt/blueprint-editor/work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/fidelity-contract/space-ranger.fidelityContract.json",
+      "sourceHtmlPath": "/opt/blueprint-editor/work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/source-html/space-ranger-3d.html",
+      "projectDir": "/opt/blueprint-editor/work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/unity-project",
+      "sha256": {
+        "contract": "820b14e8ccd2a7d6fe96de97e60e49c82d5be697dd76041b178385d2389baa1d",
+        "sourceHtml": "6ff2523374b1e80bb460812c84240cb369c5c64fd4f16d4af16a9566a4d14cb5"
+      },
+      "metadata": {
+        "entityCount": 27,
+        "primitiveCount": 80,
+        "phaseCount": 8,
+        "hudCount": 33,
+        "deliveredBy": "@Tim-cc + @Jonny-codex (task #23/#24)",
+        "deliveryDate": "2026-05-28"
+      }
+    },
+    {
+      "name": "space-ranger-v3-hook-candidate",
+      "status": "candidate",
+      "target": "html",
+      "contractPath": "/opt/blueprint-editor/work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/unity-project/Assets/Fidelity/fidelityContract.json",
+      "sourceHtmlPath": "/opt/blueprint-editor/work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/source-html/space-ranger-3d.html",
+      "projectDir": "/opt/blueprint-editor/work/task27-production-http-visualassets-fence-check",
+      "sha256": {
+        "contract": "1396f49c0eef7a3e4fc3679c148d62ddb872ce514fc8f7758fdbc19e152b4144",
+        "sourceHtml": "6ff2523374b1e80bb460812c84240cb369c5c64fd4f16d4af16a9566a4d14cb5"
+      },
+      "metadata": {
+        "buildArtifact": "../work/task27-production-http-visualassets-fence-check/index.html",
+        "buildMeta": "../work/task27-production-http-visualassets-fence-check/build-meta.json",
+        "hooks": [
+          "__driveToPhase",
+          "__fidelityReady",
+          "__blueprintMarkFidelityReady",
+          "__blueprintNormalizeGameState"
+        ],
+        "verdictNote": "task #27 2026-05-29 production HTTP build: visualAssets passed through build-api, entity_states fence populated, source phase guideText/targetEntity normalized from sourcePhaseContract"
+      }
+    }
+  ]
+}

@@ -11,7 +11,7 @@ var path = require('path');
 var TaskQueue = require('../lib/task-queue.cjs');
 var { computePipelineFingerprint } = require('../lib/checkpoint.cjs');
 
-var STAGE_ORDER = ['clone', 'spec-extract', 'spec-validate', 'complexity-gate', 'assembly-plan', 'assembly-complexity-gate', 'codegen', 'method-check', 'review', 'compile', 'visual-check', 'runtime-contract', 'cua-verify'];
+var STAGE_ORDER = ['source-html-bind', 'clone', 'spec-extract', 'spec-validate', 'complexity-gate', 'assembly-plan', 'assembly-complexity-gate', 'codegen', 'method-check', 'review', 'compile', 'fidelity-source-diff', 'visual-check', 'runtime-contract', 'cua-verify'];
 
 function parseArgs(argv) {
   var out = { projectId: '', fromStage: 'review', dryRun: false };
@@ -97,7 +97,7 @@ function scrubCheckpointFor(fromStage, checkpoint) {
 
 function main() {
   var args = parseArgs(process.argv);
-  if (!args.projectId) die('usage: node engine/stage-rerun.cjs --project <projectId> --from <cua-verify|runtime-contract|visual-check|compile|review|method-check|codegen|assembly-complexity-gate|assembly-plan|spec-validate|spec-extract>');
+  if (!args.projectId) die('usage: node engine/stage-rerun.cjs --project <projectId> --from <cua-verify|runtime-contract|visual-check|fidelity-source-diff|compile|review|method-check|codegen|assembly-complexity-gate|assembly-plan|complexity-gate|spec-validate|spec-extract|clone|source-html-bind>');
 
   var projectFile = path.join('/opt/blueprint-editor/server-data/projects', args.projectId + '.json');
   if (!fs.existsSync(projectFile)) die('project not found: ' + args.projectId);

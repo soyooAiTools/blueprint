@@ -17,6 +17,7 @@
 
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.EventSystems;
 
 public static class GFM_UI
 {
@@ -72,6 +73,14 @@ public static class GFM_UI
         return slider;
     }
 
+    private static GraphicRaycaster EnsureGraphicRaycaster(GameObject obj)
+    {
+        if (IsMissing(obj)) return null;
+        var raycaster = (GraphicRaycaster)obj.GetComponent(typeof(GraphicRaycaster));
+        if (IsMissing(raycaster)) raycaster = (GraphicRaycaster)obj.AddComponent(typeof(GraphicRaycaster));
+        return raycaster;
+    }
+
     // 获取运行时 UI 使用的默认字体。
     private static Font GetFont()
     {
@@ -105,9 +114,11 @@ public static class GFM_UI
     {
         var obj = new GameObject("Canvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
         if (IsMissing(obj)) return null;
+        EnsureEventSystem();
         var canvas = (Canvas)obj.GetComponent(typeof(Canvas));
         if (IsMissing(canvas)) return null;
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        EnsureGraphicRaycaster(obj);
+        ConfigureCanvasForCamera(canvas);
         var scaler = (CanvasScaler)obj.GetComponent(typeof(CanvasScaler));
         if (!IsMissing(scaler))
         {
@@ -115,6 +126,182 @@ public static class GFM_UI
             scaler.referenceResolution = new Vector2(refWidth, refHeight);
         }
         return canvas;
+    }
+
+    private static void EnsureEventSystem()
+    {
+        var existing = GameObject.Find("EventSystem");
+        if (!IsMissing(existing))
+        {
+            if (IsMissing(existing.GetComponent<EventSystem>())) existing.AddComponent<EventSystem>();
+            if (IsMissing(existing.GetComponent<StandaloneInputModule>())) existing.AddComponent<StandaloneInputModule>();
+            return;
+        }
+        var obj = new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
+    }
+
+    // 使用 Overlay Canvas,避免 Camera-space 画布平面在镜头翻到 -Z 侧时覆盖 3D 画面。
+    // 取证脚本需要同时验证 3D 和 UI 时,应分别采样世界层与 UI 层后合成截图。
+    public static void ConfigureCanvasForCamera(Canvas canvas)
+    {
+        if (IsMissing(canvas)) return;
+        EnsureGraphicRaycaster(canvas.gameObject);
+        var cam = Camera.main;
+        if (IsMissing(cam))
+        {
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            return;
+        }
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.worldCamera = cam;
+        canvas.planeDistance = 8f;
+        canvas.sortingOrder = 100;
+        ConfigureSourceHudLayout(canvas);
+    }
+
+    // 程序员交付版用 1280x720 横屏取证，Screen-space Canvas 需要显式重排，
+    // 否则竖屏/大画布锚点会把 HUD 推到截图外。
+    public static void ConfigureSourceHudLayout(Canvas canvas)
+    {
+        ConfigureSourceHudLayout(canvas, true);
+    }
+
+    public static void ConfigureSourceHudLayout(Canvas canvas, bool includeJoystick)
+    {
+        if (IsMissing(canvas)) return;
+        var canvasRect = (RectTransform)canvas.GetComponent(typeof(RectTransform));
+        if (!IsMissing(canvasRect))
+        {
+            canvasRect.anchorMin = new Vector2(0.5f, 0.5f);
+            canvasRect.anchorMax = new Vector2(0.5f, 0.5f);
+            canvasRect.pivot = new Vector2(0.5f, 0.5f);
+            canvasRect.anchoredPosition = Vector2.zero;
+            canvasRect.sizeDelta = new Vector2(1280f, 720f);
+            canvasRect.localScale = Vector3.one;
+        }
+        var scaler = (CanvasScaler)canvas.GetComponent(typeof(CanvasScaler));
+        if (!IsMissing(scaler))
+        {
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1280f, 720f);
+            scaler.matchWidthOrHeight = 0f;
+        }
+
+        LayoutText("Text_Phase", new Vector2(-592f, 322f), new Vector2(92f, 34f), 15);
+        LayoutText("Text_Ice", new Vector2(-515f, 322f), new Vector2(62f, 34f), 15);
+        LayoutText("Text_Oxygen", new Vector2(-445f, 322f), new Vector2(72f, 34f), 15);
+        LayoutText("Text_Scrap", new Vector2(-367f, 322f), new Vector2(78f, 34f), 15);
+        LayoutText("Text_Coin", new Vector2(-287f, 322f), new Vector2(78f, 34f), 15);
+        LayoutText("Text_Pickaxe", new Vector2(-160f, 322f), new Vector2(150f, 34f), 15);
+        LayoutText("Text_Tip", new Vector2(0f, 270f), new Vector2(640f, 42f), 18);
+        LayoutText("Text_TargetHint", new Vector2(0f, -308f), new Vector2(330f, 48f), 18);
+        LayoutText("Text_StepToast", new Vector2(0f, 220f), new Vector2(420f, 46f), 20);
+        if (includeJoystick && !IsJoystickDragging()) LayoutJoystick("JoystickBG", "JoystickHandle");
+    }
+
+    private static bool IsJoystickDragging()
+    {
+        var joystick = GFM_Joystick.instance;
+        return joystick != null && joystick.IsDragging;
+    }
+
+    private static void LayoutText(string name, Vector2 anchoredPos, Vector2 size, int fontSize)
+    {
+        var obj = GameObject.Find(name);
+        if (IsMissing(obj)) return;
+        var rect = EnsureRect(obj);
+        if (IsMissing(rect)) return;
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = anchoredPos;
+        rect.sizeDelta = size;
+        var txt = EnsureText(obj);
+        if (!IsMissing(txt))
+        {
+            txt.fontSize = fontSize;
+            txt.alignment = TextAnchor.MiddleCenter;
+            txt.horizontalOverflow = name == "Text_Tip" ? HorizontalWrapMode.Wrap : HorizontalWrapMode.Overflow;
+            txt.verticalOverflow = VerticalWrapMode.Overflow;
+            txt.color = Color.white;
+            txt.enabled = true;
+        }
+    }
+
+    private static void LayoutJoystick(string bgName, string handleName)
+    {
+        var bg = GameObject.Find(bgName);
+        if (!IsMissing(bg))
+        {
+            var bgRect = EnsureRect(bg);
+            if (!IsMissing(bgRect))
+            {
+                bgRect.anchorMin = new Vector2(0.5f, 0.5f);
+                bgRect.anchorMax = new Vector2(0.5f, 0.5f);
+                bgRect.pivot = new Vector2(0.5f, 0.5f);
+                bgRect.anchoredPosition = new Vector2(-550f, -260f);
+                bgRect.sizeDelta = new Vector2(134f, 134f);
+            }
+            var bgImage = (Image)bg.GetComponent(typeof(Image));
+            if (!IsMissing(bgImage)) bgImage.color = new Color(0.15f, 0.78f, 1f, 0.28f);
+        }
+        var handle = GameObject.Find(handleName);
+        if (!IsMissing(handle))
+        {
+            var handleRect = EnsureRect(handle);
+            if (!IsMissing(handleRect))
+            {
+                handleRect.anchorMin = new Vector2(0.5f, 0.5f);
+                handleRect.anchorMax = new Vector2(0.5f, 0.5f);
+                handleRect.pivot = new Vector2(0.5f, 0.5f);
+                handleRect.anchoredPosition = Vector2.zero;
+                handleRect.sizeDelta = new Vector2(56f, 56f);
+            }
+            var handleImage = (Image)handle.GetComponent(typeof(Image));
+            if (!IsMissing(handleImage)) handleImage.color = new Color(1f, 1f, 1f, 0.55f);
+        }
+    }
+
+    // 让 screen-space 文本跟随实体头顶，对齐源 HTML 的 DOM label 行为。
+    public static void PositionTextOverEntity(Canvas canvas, string textName, string entityName, float heightOffset)
+    {
+        if (IsMissing(canvas)) return;
+        var textObj = GameObject.Find(textName);
+        var target = GameObject.Find(entityName);
+        if (IsMissing(textObj)) return;
+        if (IsMissing(target) || !target.activeInHierarchy)
+        {
+            var missingText = EnsureText(textObj);
+            if (!IsMissing(missingText)) missingText.enabled = false;
+            return;
+        }
+        var rect = EnsureRect(textObj);
+        var text = EnsureText(textObj);
+        var cam = canvas.worldCamera != null ? canvas.worldCamera : Camera.main;
+        var canvasRect = (RectTransform)canvas.GetComponent(typeof(RectTransform));
+        if (IsMissing(rect) || IsMissing(cam) || IsMissing(canvasRect)) return;
+        Vector3 screen = cam.WorldToScreenPoint(target.transform.position + Vector3.up * heightOffset);
+        bool visible = screen.z > 0f && screen.x >= 0f && screen.x <= Screen.width && screen.y >= 0f && screen.y <= Screen.height;
+        if (!IsMissing(text)) text.enabled = visible;
+        if (!visible) return;
+        float logicalWidth = Mathf.Max(1f, (float)Screen.width);
+        float logicalHeight = Mathf.Max(1f, (float)Screen.height);
+        float screenWidth = Mathf.Max(logicalWidth, canvasRect.sizeDelta.x);
+        float screenHeight = Mathf.Max(logicalHeight, canvasRect.sizeDelta.y);
+        float scaledX = screen.x * screenWidth / logicalWidth;
+        float scaledY = screen.y * screenHeight / logicalHeight;
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = new Vector2(scaledX - screenWidth * 0.5f, scaledY - screenHeight * 0.5f);
+        rect.sizeDelta = new Vector2(180f, 34f);
+        if (!IsMissing(text))
+        {
+            text.fontSize = 18;
+            text.alignment = TextAnchor.MiddleCenter;
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+        }
     }
 
     // 创建按钮并设置文案、位置和点击事件。

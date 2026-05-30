@@ -1012,6 +1012,8 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         if (!manifest || !manifest.sourceEntityContract || !manifest.entityBindings) return;
         try {
           var sceneContract = manifest.sourceSceneContract || {};
+          var fidelityContract = manifest.fidelityContract || {};
+          var contractSceneBg = (fidelityContract.scene && Array.isArray(fidelityContract.scene.backgroundColor)) ? fidelityContract.scene.backgroundColor : null;
           var styles = manifest.sourceEntityContract.entityStyles || {};
           var assets = manifest.assets || [];
           var byAsset = {};
@@ -1021,14 +1023,97 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             if (!/^[0-9a-f]{6}$/i.test(text)) text = 'ffffff';
             return new pc.Color(parseInt(text.slice(0,2),16)/255, parseInt(text.slice(2,4),16)/255, parseInt(text.slice(4,6),16)/255, 1);
           }
-          function mat(hex) {
+          function clamp01(value, fallback) {
+            var n = Number(value);
+            if (!isFinite(n)) n = Number(fallback);
+            if (!isFinite(n)) n = 1;
+            return Math.max(0, Math.min(1, n));
+          }
+          function colorFromValue(value, fallback) {
+            if (Array.isArray(value) && value.length >= 3) {
+              return new pc.Color(clamp01(value[0], 1), clamp01(value[1], 1), clamp01(value[2], 1), 1);
+            }
+            return color(value, fallback || '#ffffff');
+          }
+          function colorArrayFromValue(value, fallback) {
+            var c = colorFromValue(value, fallback || '#ffffff');
+            return [Number(c.r), Number(c.g), Number(c.b)];
+          }
+          function mixColorArray(base, target, t) {
+            base = colorArrayFromValue(base, '#ffffff');
+            target = colorArrayFromValue(target, '#ffffff');
+            t = Math.max(0, Math.min(1, Number(t) || 0));
+            return [
+              base[0] + (target[0] - base[0]) * t,
+              base[1] + (target[1] - base[1]) * t,
+              base[2] + (target[2] - base[2]) * t
+            ];
+          }
+          function mat(value, fallback) {
             if (typeof pc.StandardMaterial !== 'function') return null;
             var m = new pc.StandardMaterial();
-            m.diffuse = color(hex, '#ffffff');
-            m.emissive = color(hex, '#000000');
+            var c = colorFromValue(value, fallback || '#ffffff');
+            m.diffuse = c;
+            m.emissive = color('#000000');
             m.emissiveIntensity = 0.08;
+            if (typeof m.setParameter === 'function') {
+              var rgba = [c.r, c.g, c.b, 1];
+              m.setParameter('_BaseColor', rgba);
+              m.setParameter('_Color', rgba);
+            }
             m.update();
             return m;
+          }
+          var poolRenderableCache = undefined;
+          function findPoolRenderable() {
+            if (poolRenderableCache !== undefined) return poolRenderableCache;
+            poolRenderableCache = null;
+            try {
+              (function walk(node) {
+                if (!node || poolRenderableCache) return;
+                if (node.name && /^__Pool_/.test(node.name)) {
+                  var comps = node._unityComponents || {};
+                  var mf = comps.meshFilter && comps.meshFilter[0];
+                  var rc = comps.renderer && comps.renderer[0];
+                  var mi = rc && rc.meshInstances && rc.meshInstances[0];
+                  var mesh = mf && mf.mesh || mi && mi._mesh;
+                  var material = mi && mi.material || rc && rc.code && (rc.code.sharedMaterial || rc.code.material);
+                  if (mesh && mesh.vertexBuffer && material) {
+                    poolRenderableCache = { mesh: mesh, material: material, sourceName: node.name };
+                    return;
+                  }
+                }
+                var children = node.children || [];
+                for (var i = 0; i < children.length; i++) walk(children[i]);
+              })(pcApp.root);
+            } catch(e) { poolRenderableCache = null; }
+            return poolRenderableCache;
+          }
+          function clonePoolMaterial(value, fallback) {
+            var source = findPoolRenderable();
+            var base = source && source.material;
+            if (!base) return null;
+            var m = null;
+            try { if (typeof base.clone === 'function') m = base.clone(); } catch(eClone) {}
+            if (!m) {
+              try { if (base.constructor && typeof base.constructor === 'function') m = new base.constructor(); } catch(eCtor) {}
+            }
+            if (!m) m = base;
+            try {
+              var c = colorFromValue(value, fallback || '#ffffff');
+              if (m.diffuse && typeof m.diffuse.copy === 'function') m.diffuse.copy(c);
+              if (typeof m.setParameter === 'function') {
+                var rgba = [c.r, c.g, c.b, 1];
+                m.setParameter('_BaseColor', rgba);
+                m.setParameter('_Color', rgba);
+              }
+              if (typeof m.update === 'function') m.update();
+            } catch(eColor) {}
+            return m;
+          }
+          function overlayMaterial(value, fallback) {
+            var m = mat(value, fallback);
+            return m || clonePoolMaterial(value, fallback);
           }
           function nums(raw) {
             return String(raw || '').split(',').map(function(v) {
@@ -1075,6 +1160,40 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             } catch(renderErr) {}
             return false;
           }
+          function createRendererPrimitiveEntity(parent, name, type) {
+            try {
+              var source = findPoolRenderable();
+              if (!source || !pcApp.systems || !pcApp.systems.meshFilter || !pcApp.systems.renderer) return null;
+              if (typeof pc.MeshFilterComponent !== 'function') return null;
+              var RCCtor = (typeof pc.MeshRendererComponent === 'function') ? pc.MeshRendererComponent : pc.RendererComponent;
+              if (typeof RCCtor !== 'function') return null;
+              var e = new pc.Entity(name);
+              parent.addChild(e);
+              var mf = new pc.MeshFilterComponent(e);
+              pcApp.systems.meshFilter.addComponent(e, mf);
+              mf.mesh = source.mesh;
+              var rc = new RCCtor(e);
+              pcApp.systems.renderer.addComponent(e, rc);
+              rc.meshFilter = mf;
+              try { if (rc.code && source.material) rc.code.sharedMaterial = source.material; } catch(eMat) {}
+              try { if (typeof rc.updateMesh === 'function') rc.updateMesh(); } catch(eUpdate) {}
+              setTimeout(function() {
+                try {
+                  var mis = rc.meshInstances || [];
+                  for (var i = 0; i < mis.length; i++) {
+                    mis[i].visible = true;
+                    mis[i].cull = false;
+                    if (source.material && !mis[i].material) mis[i].material = source.material;
+                    try { mis[i]._aabbVer = -1; } catch(eAabb) {}
+                  }
+                } catch(eMi) {}
+              }, 0);
+              return e;
+            } catch(e) {
+              console.warn('[AI] Storyboard renderer primitive failed: ' + name + ' ' + (e && e.message ? e.message : e));
+              return null;
+            }
+          }
           function unityPrimitiveType(type) {
             try {
               if (!window.UnityEngine || !UnityEngine.PrimitiveType) return null;
@@ -1111,6 +1230,8 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               }
               return e;
             }
+            e = createRendererPrimitiveEntity(parent, name, type);
+            if (e) return e;
             console.warn('[AI] Storyboard primitive unavailable: ' + name + ' type=' + (type || 'box'));
             return null;
           }
@@ -1130,14 +1251,34 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             var p = arr3(asset && asset.transform && asset.transform.position, [0,0,0]);
             e.setLocalPosition(p[0], p[1], p[2]);
             e.setLocalScale(spec.scale[0], spec.scale[1], spec.scale[2]);
-            var material = mat(asset && asset.material && asset.material.diffuseColor);
+            var material = overlayMaterial(asset && asset.material && asset.material.diffuseColor);
             applyMaterial(e, material);
             setTimeout(function() { applyMaterial(e, material); }, 0);
             setTimeout(function() { applyMaterial(e, material); }, 250);
             return e;
           }
           hideTemplateVisuals(pcApp.root);
-          if (sceneContract.backgroundColor && camEnt.camera) camEnt.camera.clearColor = color(sceneContract.backgroundColor, '#071026');
+          if (contractSceneBg) {
+            var contractClear = new pc.Color(contractSceneBg[0], contractSceneBg[1], contractSceneBg[2], 1);
+            if (camEnt.camera) camEnt.camera.clearColor = contractClear;
+            // Override any other camera in the scene tree — Luna pool sometimes
+            // creates a second camera that wins active rendering over AI_Camera.
+            try {
+              var camStack = [pcApp.root];
+              var camSafe = 0;
+              var camCount = 0;
+              while (camStack.length && camSafe++ < 5000) {
+                var cn = camStack.shift();
+                if (!cn) continue;
+                if (cn.camera && cn !== camEnt) { cn.camera.clearColor = contractClear; camCount++; }
+                var cch = cn._children || cn.children || [];
+                for (var ci = 0; ci < cch.length; ci++) camStack.push(cch[ci]);
+              }
+              console.log('[contract-bg] applied [' + contractSceneBg[0].toFixed(4) + ',' + contractSceneBg[1].toFixed(4) + ',' + contractSceneBg[2].toFixed(4) + '] to camEnt + ' + camCount + ' extra camera(s)');
+            } catch (e) { /* swallow */ }
+          } else if (sceneContract.backgroundColor && camEnt.camera) {
+            camEnt.camera.clearColor = color(sceneContract.backgroundColor, '#071026');
+          }
           if (sceneContract.directionalLight && sceneContract.directionalLight.color && lightEnt.light) {
             lightEnt.light.color = color(sceneContract.directionalLight.color, '#ffffff');
             lightEnt.light.intensity = sceneContract.directionalLight.intensity || 1;
@@ -1151,12 +1292,12 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               var height = sceneContract.ground.height || 0.2;
               g.setPosition(0, -0.06, 0);
               g.setLocalScale(radius * 2, height, radius * 2);
-              var groundMat = mat(sceneContract.ground.color);
+              var groundMat = overlayMaterial(sceneContract.ground.color);
               applyMaterial(g, groundMat);
               setTimeout(function() { applyMaterial(g, groundMat); }, 250);
             }
           }
-          var starMat = mat('#ffffff');
+          var starMat = overlayMaterial('#ffffff');
           var decor = sceneContract.decor || {};
           var starCount = Math.min(120, Math.max(0, decor.stars || 0));
           for (var si = 0; si < starCount; si++) {
@@ -1169,7 +1310,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             s.setLocalScale(0.07, 0.07, 0.07);
             applyMaterial(s, starMat);
           }
-          var ringMat = mat('#2f6d9c');
+          var ringMat = overlayMaterial('#2f6d9c');
           var ringCount = Math.min(6, Math.max(0, decor.orbitalRings || 0));
           for (var ri = 0; ri < ringCount; ri++) {
             for (var rp = 0; rp < 48; rp++) {
@@ -1182,6 +1323,147 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             }
           }
           var entityRoots = {};
+          var primitiveStyleByName = {};
+          function indexPrimitiveStyleAliases(entity, style) {
+            if (!entity || !style || typeof style.modelRef !== 'string') return;
+            function put(key) {
+              if (!key) return;
+              primitiveStyleByName[String(key)] = style;
+            }
+            put(entity.id);
+            put(entity.name);
+            if (entity.parentPath) {
+              var parts = String(entity.parentPath).split('/').filter(Boolean);
+              put(parts[parts.length - 1]);
+            }
+          }
+          if (Array.isArray(fidelityContract.entities)) {
+            for (var fei = 0; fei < fidelityContract.entities.length; fei++) {
+              var fe = fidelityContract.entities[fei];
+              if (fe && fe.primitiveStyle) indexPrimitiveStyleAliases(fe, fe.primitiveStyle);
+            }
+          }
+          function primitiveStyleForName(name) {
+            if (primitiveStyleByName[name]) return primitiveStyleByName[name];
+            var raw = String(name || '');
+            var noUnder = raw.replace(/^_+/, '');
+            if (primitiveStyleByName[noUnder]) return primitiveStyleByName[noUnder];
+            var cap = noUnder.charAt(0).toUpperCase() + noUnder.slice(1);
+            if (primitiveStyleByName[cap]) return primitiveStyleByName[cap];
+            var pascal = noUnder.split(/[_-]+/).filter(Boolean).map(function(part) {
+              return part.charAt(0).toUpperCase() + part.slice(1);
+            }).join('');
+            return primitiveStyleByName[pascal] || null;
+          }
+          function recordPrimitiveStyle(name, primitiveStyle, visualKind, primitiveCount) {
+            if (!primitiveStyle || typeof primitiveStyle.modelRef !== 'string') return;
+            window.__storyboardEntityDetails = window.__storyboardEntityDetails || {};
+            var detail = window.__storyboardEntityDetails[name] || {};
+            detail.primitiveStyle = {
+              modelRef: primitiveStyle.modelRef,
+              baseColor: colorArrayFromValue(primitiveStyle.baseColor || primitiveStyle.baseColorHex || '#ffffff')
+            };
+            detail.visualKind = visualKind || detail.visualKind || 'styled-composite';
+            detail.primitiveCount = primitiveCount == null ? detail.primitiveCount : primitiveCount;
+            window.__storyboardEntityDetails[name] = detail;
+          }
+          function setLocalEuler(ent, rot) {
+            rot = rot || [0, 0, 0];
+            try {
+              if (ent && typeof ent.setLocalEulerAngles === 'function') ent.setLocalEulerAngles(rot[0] || 0, rot[1] || 0, rot[2] || 0);
+              else if (ent && typeof ent.setEulerAngles === 'function') ent.setEulerAngles(rot[0] || 0, rot[1] || 0, rot[2] || 0);
+            } catch(e) {}
+          }
+          function addStyledPart(parent, name, index, type, pos, scale, materialValue, rot) {
+            var e = createPrimitiveEntity(parent, 'BPS_' + name + '_' + index, type || 'box');
+            if (!e) return null;
+            e.setLocalPosition(pos[0] || 0, pos[1] || 0, pos[2] || 0);
+            setLocalEuler(e, rot);
+            e.setLocalScale(scale[0] || 1, scale[1] || 1, scale[2] || 1);
+            var m = overlayMaterial(materialValue || '#ffffff');
+            applyMaterial(e, m);
+            setTimeout(function() { applyMaterial(e, m); }, 0);
+            setTimeout(function() { applyMaterial(e, m); }, 250);
+            return e;
+          }
+          function buildStyledComposite(group, name, primitiveStyle, sourceStyle) {
+            if (!primitiveStyle || typeof primitiveStyle.modelRef !== 'string') return 0;
+            var kind = primitiveStyle.modelRef.toLowerCase();
+            var base = colorArrayFromValue(primitiveStyle.baseColor || primitiveStyle.baseColorHex || (sourceStyle && sourceStyle.color) || '#ffffff');
+            var light = mixColorArray(base, [1, 1, 1], 0.28);
+            var dark = mixColorArray(base, [0, 0, 0], 0.35);
+            var warm = mixColorArray(base, [1, 0.82, 0.18], 0.38);
+            var cool = mixColorArray(base, [0.18, 0.58, 1], 0.32);
+            var count = 0;
+            function add(type, pos, scale, matValue, rot) {
+              if (addStyledPart(group, name, count, type, pos, scale, matValue || base, rot)) count++;
+            }
+            if (kind === 'astronaut') {
+              add('box', [0, 1.15, 0], [0.82, 1.12, 0.48], base);
+              add('sphere', [0, 2.0, 0], [0.78, 0.78, 0.78], light);
+              add('box', [-0.64, 1.2, 0], [0.22, 0.9, 0.22], dark, [0, 0, -12]);
+              add('box', [0.64, 1.2, 0], [0.22, 0.9, 0.22], dark, [0, 0, 12]);
+              add('box', [-0.22, 0.38, 0], [0.22, 0.72, 0.24], dark);
+              add('box', [0.22, 0.38, 0], [0.22, 0.72, 0.24], dark);
+              add('box', [0, 1.18, -0.38], [0.58, 0.82, 0.18], cool);
+            } else if (kind === 'ship') {
+              add('box', [0, 0.72, 0], [2.1, 0.48, 0.88], base);
+              add('box', [1.18, 0.72, 0], [0.74, 0.36, 0.56], light);
+              add('box', [-0.08, 0.45, -0.85], [1.25, 0.16, 0.34], cool, [0, -14, 0]);
+              add('box', [-0.08, 0.45, 0.85], [1.25, 0.16, 0.34], cool, [0, 14, 0]);
+              add('cylinder', [-1.24, 0.7, -0.28], [0.28, 0.48, 0.28], warm, [90, 0, 0]);
+              add('cylinder', [-1.24, 0.7, 0.28], [0.28, 0.48, 0.28], warm, [90, 0, 0]);
+            } else if (kind === 'station') {
+              add('cylinder', [0, 0.78, 0], [0.88, 1.56, 0.88], base);
+              add('sphere', [0, 1.72, 0], [0.98, 0.62, 0.98], light);
+              add('box', [-0.95, 0.98, 0], [0.16, 0.84, 0.72], warm);
+              add('box', [0.95, 0.98, 0], [0.16, 0.84, 0.72], warm);
+              add('cylinder', [0, 0.08, 0], [1.18, 0.16, 1.18], dark);
+            } else if (kind === 'counter') {
+              add('box', [0, 0.48, 0], [1.8, 0.82, 0.86], base);
+              add('box', [0, 0.96, 0], [2.08, 0.2, 1.04], light);
+              add('box', [0, 1.22, -0.38], [1.2, 0.34, 0.16], warm);
+            } else if (kind === 'pad') {
+              add('cylinder', [0, 0.12, 0], [2.12, 0.22, 2.12], dark);
+              for (var pi = 0; pi < 10; pi++) {
+                var t = pi / 10 * Math.PI * 2;
+                add('sphere', [Math.cos(t) * 1.18, 0.34, Math.sin(t) * 1.18], [0.28, 0.16, 0.28], base);
+              }
+              add('cylinder', [0, 0.42, 0], [0.68, 0.18, 0.68], light);
+            } else if (kind === 'base') {
+              add('box', [0, 0.42, 0], [2.0, 0.78, 1.5], base);
+              add('box', [0, 0.98, 0], [1.35, 0.38, 1.0], light);
+              add('cylinder', [0.55, 1.55, 0], [0.16, 0.92, 0.16], dark);
+              add('sphere', [0.55, 2.08, 0], [0.38, 0.38, 0.38], warm);
+            } else if (kind === 'crystal') {
+              add('sphere', [0, 0.78, 0], [0.82, 1.42, 0.82], base);
+              add('sphere', [0.46, 0.5, 0.22], [0.42, 0.78, 0.42], light);
+              add('sphere', [-0.42, 0.4, -0.2], [0.32, 0.62, 0.32], cool);
+            } else if (kind === 'debris') {
+              add('box', [0, 0.42, 0], [1.35, 0.72, 0.82], base, [0, 22, 8]);
+              add('box', [0.42, 0.9, -0.18], [0.7, 0.42, 0.5], dark, [12, -28, 0]);
+              add('box', [-0.45, 0.22, 0.28], [0.52, 0.32, 0.66], light, [-8, 12, 18]);
+            } else if (kind === 'cargo') {
+              add('box', [0, 0.52, 0], [1.35, 0.98, 1.12], base);
+              add('box', [0, 0.54, 0], [1.46, 0.12, 1.2], dark);
+              add('box', [0, 1.1, 0], [1.18, 0.16, 0.96], light);
+            } else if (kind === 'beacon') {
+              add('cylinder', [0, 0.18, 0], [1.0, 0.22, 1.0], dark);
+              add('cylinder', [0, 0.9, 0], [0.22, 1.35, 0.22], base);
+              add('sphere', [0, 1.72, 0], [0.55, 0.55, 0.55], warm);
+              add('box', [0, 2.02, 0], [0.18, 0.55, 0.18], light);
+            } else if (kind === 'gate') {
+              add('box', [-0.8, 0.88, 0], [0.3, 1.72, 0.38], base);
+              add('box', [0.8, 0.88, 0], [0.3, 1.72, 0.38], base);
+              add('box', [0, 1.72, 0], [1.85, 0.28, 0.34], light);
+              add('sphere', [0, 0.72, 0], [0.42, 0.42, 0.42], warm);
+            } else {
+              add('box', [0, 0.55, 0], [1.25, 1.0, 1.0], base);
+              add('sphere', [0, 1.35, 0], [0.62, 0.62, 0.62], light);
+            }
+            recordPrimitiveStyle(name, primitiveStyle, 'styled-composite:' + kind, count);
+            return count;
+          }
           function sourcePhaseForOverlayState(gs) {
             try {
               var phaseId = gs && (gs.currentPhase || gs.phase) || '';
@@ -1349,40 +1631,44 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             if (!ent || !anchor || anchor.provenance === 'inferred-default') return;
             if (!viewportIntersectsAnchor(anchor)) return;
             var target = anchorToCanvas(anchor);
-            var rect = entityScreenRect(ent);
-            if (!rect) return;
-            var pos = ent.getPosition ? ent.getPosition() : (ent.getLocalPosition ? ent.getLocalPosition() : null);
-            if (!pos) return;
-            if (anchor.provenance !== 'anchor-only' && target.w > 0 && target.h > 0 && rect.w_px > 1 && rect.h_px > 1) {
-              var ratio = Math.sqrt((target.w * target.h) / Math.max(1, rect.w_px * rect.h_px));
-              ratio = Math.max(0.2, Math.min(4, ratio));
-              var ls = ent.getLocalScale ? ent.getLocalScale() : null;
-              if (ls) ent.setLocalScale((Number(ls.x) || 1) * ratio, (Number(ls.y) || 1) * ratio, (Number(ls.z) || 1) * ratio);
-              rect = entityScreenRect(ent) || rect;
-            }
-            var currentCx = rect.x_px + rect.w_px / 2;
-            var currentCy = rect.y_px + rect.h_px / 2;
             var targetCx = target.x + target.w / 2;
             var targetCy = target.y + target.h / 2;
-            var dxPx = targetCx - currentCx;
-            var dyPx = targetCy - currentCy;
-            if (Math.abs(dxPx) < 0.5 && Math.abs(dyPx) < 0.5) return;
-            var base = projectPosition(pos);
-            var xStep = projectPosition({ x: Number(pos.x) + 1, y: Number(pos.y), z: Number(pos.z) });
-            var zStep = projectPosition({ x: Number(pos.x), y: Number(pos.y), z: Number(pos.z) + 1 });
-            if (!base || !xStep || !zStep) return;
-            var ax = Number(xStep.x) - Number(base.x);
-            var ay = Number(xStep.y) - Number(base.y);
-            var bx = Number(zStep.x) - Number(base.x);
-            var by = Number(zStep.y) - Number(base.y);
-            var det = ax * by - bx * ay;
-            if (!isFinite(det) || Math.abs(det) < 0.001) return;
-            var wx = (dxPx * by - bx * dyPx) / det;
-            var wz = (ax * dyPx - dxPx * ay) / det;
-            var maxStep = 8;
-            var mag = Math.sqrt(wx * wx + wz * wz);
-            if (mag > maxStep) { wx = wx / mag * maxStep; wz = wz / mag * maxStep; }
-            ent.setPosition(Number(pos.x) + wx, Number(pos.y) || 0, Number(pos.z) + wz);
+            for (var pass = 0; pass < 5; pass++) {
+              var rect = entityScreenRect(ent);
+              if (!rect) return;
+              if (anchor.provenance !== 'anchor-only' && target.w > 0 && target.h > 0 && rect.w_px > 1 && rect.h_px > 1) {
+                var ratio = Math.sqrt((target.w * target.h) / Math.max(1, rect.w_px * rect.h_px));
+                if (isFinite(ratio) && Math.abs(1 - ratio) > 0.01) {
+                  ratio = Math.max(0.35, Math.min(2.8, ratio));
+                  var ls = ent.getLocalScale ? ent.getLocalScale() : null;
+                  if (ls) ent.setLocalScale((Number(ls.x) || 1) * ratio, (Number(ls.y) || 1) * ratio, (Number(ls.z) || 1) * ratio);
+                  rect = entityScreenRect(ent) || rect;
+                }
+              }
+              var currentCx = rect.x_px + rect.w_px / 2;
+              var currentCy = rect.y_px + rect.h_px / 2;
+              var dxPx = targetCx - currentCx;
+              var dyPx = targetCy - currentCy;
+              if (Math.abs(dxPx) < 0.5 && Math.abs(dyPx) < 0.5) return;
+              var pos = ent.getPosition ? ent.getPosition() : (ent.getLocalPosition ? ent.getLocalPosition() : null);
+              if (!pos) return;
+              var base = projectPosition(pos);
+              var xStep = projectPosition({ x: Number(pos.x) + 1, y: Number(pos.y), z: Number(pos.z) });
+              var zStep = projectPosition({ x: Number(pos.x), y: Number(pos.y), z: Number(pos.z) + 1 });
+              if (!base || !xStep || !zStep) return;
+              var ax = Number(xStep.x) - Number(base.x);
+              var ay = Number(xStep.y) - Number(base.y);
+              var bx = Number(zStep.x) - Number(base.x);
+              var by = Number(zStep.y) - Number(base.y);
+              var det = ax * by - bx * ay;
+              if (!isFinite(det) || Math.abs(det) < 0.001) return;
+              var wx = (dxPx * by - bx * dyPx) / det;
+              var wz = (ax * dyPx - dxPx * ay) / det;
+              var maxStep = 64;
+              var mag = Math.sqrt(wx * wx + wz * wz);
+              if (mag > maxStep) { wx = wx / mag * maxStep; wz = wz / mag * maxStep; }
+              ent.setPosition(Number(pos.x) + wx, Number(pos.y) || 0, Number(pos.z) + wz);
+            }
           }
           function applyProjectedAnchorCalibration(gs) {
             var anchorPhase = projectedAnchorPhaseForOverlayState(gs);
@@ -1426,11 +1712,17 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             root.addChild(group);
             group.setPosition(pos[0], pos[1], pos[2]);
             entityRoots[name] = group;
+            var primitiveStyle = primitiveStyleForName(name);
+            var styledCount = primitiveStyle ? buildStyledComposite(group, name, primitiveStyle, st) : 0;
             var ids = binding && binding.assetIds || [];
-            for (var bi = 0; bi < ids.length; bi++) {
-              var asset = byAsset[ids[bi]];
-              if (!asset || asset.kind !== 'procedural_primitive') continue;
-              addPrimitive(group, asset);
+            if (!styledCount) {
+              var sourcePrimitiveCount = 0;
+              for (var bi = 0; bi < ids.length; bi++) {
+                var asset = byAsset[ids[bi]];
+                if (!asset || asset.kind !== 'procedural_primitive') continue;
+                if (addPrimitive(group, asset)) sourcePrimitiveCount++;
+              }
+              if (primitiveStyle) recordPrimitiveStyle(name, primitiveStyle, 'source-procedural', sourcePrimitiveCount);
             }
           }
           function syncEntityPositions() {
@@ -1451,6 +1743,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           setInterval(syncEntityPositions, 100);
           syncEntityPositions();
           installStoryboardDomHud();
+          installStoryboardWorldLabels();
           console.log('[AI] Storyboard visual overlay active: entities=' + Object.keys(entityRoots).length);
         } catch(overlayErr) {
           console.error('[AI] Storyboard visual overlay error:', overlayErr);
@@ -1496,6 +1789,8 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         setInterval(function() {
           var gs = null;
           try { gs = typeof window.__gameState === 'function' ? window.__gameState() : window.__gameState; } catch(e) {}
+          try { gs = normalizeBlueprintGameState(gs, null); } catch(e2) {}
+          try { if (typeof window.__gameState !== 'function') window.__gameState = gs; } catch(e3) {}
           gs = gs || {};
           var res = gs.resources || gs.inventory || {};
           var phase = String(gs.phase || gs.currentPhase || 'phase1').replace(/\\D+/g, '') || '1';
@@ -1510,6 +1805,89 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           set('bp-storyboard-target', guide ? '目标：' + guide.slice(0, 24) : '目标');
         }, 200);
       }
+      // task #49 v1.4c-beta — render contract.entities[i].worldLabel as world-
+      // space CJK overlay. Reads manifest.fidelityContract.entities[].worldLabel
+      // (rich record), creates one DOM label per entity, projects entity worldPos
+      // + worldOffset through camEnt.camera.worldToScreen each tick.
+      function installStoryboardWorldLabels() {
+        if (document.getElementById('bp-storyboard-worldlabels')) return;
+        var manifest = window.__BLUEPRINT_VISUAL_ASSETS__;
+        var fc = manifest && manifest.fidelityContract;
+        if (!fc || !Array.isArray(fc.entities)) return;
+        var container = document.createElement('div');
+        container.id = 'bp-storyboard-worldlabels';
+        container.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:2147482900;font-family:Arial,"Microsoft YaHei",sans-serif;';
+        document.body.appendChild(container);
+        var labels = [];
+        for (var i = 0; i < fc.entities.length; i++) {
+          var e = fc.entities[i];
+          if (!e || !e.worldLabel) continue;
+          var wl = e.worldLabel;
+          if (typeof wl.text !== 'string') continue;
+          var entityId = e.id || e.name;
+          if (!entityId) continue;
+          var div = document.createElement('div');
+          div.className = 'bp-worldlabel';
+          div.setAttribute('data-entity', entityId);
+          var col = (typeof wl.color === 'string' && wl.color) ? wl.color : '#ffffff';
+          var fs = (typeof wl.fontSize === 'number' && wl.fontSize > 0) ? wl.fontSize : 26;
+          div.style.cssText = 'position:absolute;transform:translate(-50%,-50%);padding:2px 8px;background:rgba(0,0,0,0.55);border-radius:6px;white-space:nowrap;color:' + col + ';font-size:' + (fs * 0.7).toFixed(1) + 'px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.7);display:none;';
+          div.textContent = wl.text;
+          container.appendChild(div);
+          var wo = wl.worldOffset || {};
+          labels.push({
+            entityId: entityId,
+            ox: Number(wo.x) || 0,
+            oy: Number(wo.y) || 0,
+            oz: Number(wo.z) || 0,
+            div: div,
+          });
+        }
+        function findEnt(root, name) {
+          // Prefer synthetic StoryboardEntity_<name> created at L1538 (this is the
+          // visible group; real Luna entity is hidden by hideTemplateVisuals).
+          // Falls back to plain name for environments where the storyboard overlay
+          // didn't create a synthetic group.
+          var synth = 'StoryboardEntity_' + name;
+          var hit = null;
+          var stack = [root]; var safe = 0;
+          while (stack.length && safe++ < 5000) {
+            var n = stack.shift(); if (!n) continue;
+            var nm = n._name || n.name;
+            if (nm === synth && n.enabled !== false) return n;
+            if (nm === name && n.enabled !== false && !hit) hit = n;
+            var ch = n._children || n.children || [];
+            for (var k = 0; k < ch.length; k++) stack.push(ch[k]);
+          }
+          return hit;
+        }
+        function tickLabels() {
+          if (!pcApp || !camEnt || !camEnt.camera || typeof camEnt.camera.worldToScreen !== 'function') return;
+          for (var li = 0; li < labels.length; li++) {
+            var L = labels[li];
+            var ent = findEnt(pcApp.root, L.entityId);
+            if (!ent || typeof ent.getPosition !== 'function') { L.div.style.opacity = '0'; continue; }
+            var wp = ent.getPosition();
+            if (!wp || typeof wp.x !== 'number') { L.div.style.opacity = '0'; continue; }
+            var target = new pc.Vec3(wp.x + L.ox, wp.y + L.oy, wp.z + L.oz);
+            var sp = camEnt.camera.worldToScreen(target);
+            if (!sp || sp.z < 0) { L.div.style.opacity = '0'; continue; }
+            L.div.style.left = sp.x.toFixed(1) + 'px';
+            L.div.style.top = sp.y.toFixed(1) + 'px';
+            L.div.style.opacity = '1';
+            L.div.style.display = 'block';
+          }
+        }
+        // Flip initial display so the divs are laid out (extractor reads even at
+        // opacity 0; positioning happens on first tick + every 100ms after).
+        for (var di = 0; di < labels.length; di++) {
+          labels[di].div.style.display = 'block';
+          labels[di].div.style.opacity = '0';
+        }
+        tickLabels();
+        setInterval(tickLabels, 100);
+      }
+
       applyStoryboardVisualOverlay();
 
       // 1.5 Hide all __BaseTemplate / __LunaPool non-pool children (Ground, Archer_1, etc.)
@@ -1569,7 +1947,9 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
       function currentBlueprintGameState() {
         try {
           var gs = typeof window.__gameState === "function" ? window.__gameState() : window.__gameState;
-          return normalizeBlueprintGameState(gs, null);
+          gs = normalizeBlueprintGameState(gs, null);
+          if (typeof window.__gameState !== "function") window.__gameState = gs;
+          return gs;
         } catch(e) { return null; }
       }
       function sourcePhaseForState(state, fallbackPhaseId) {
@@ -1775,7 +2155,10 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             if (!loopComp) throw new Error("GameFlow component unavailable");
             var result = driveLoopComponentToPhase(loopComp, phaseNumber);
             settleFidelityFrame().then(function() {
-              try { if (typeof loopComp.UpdateGameState === "function") loopComp.UpdateGameState(); } catch(e) {}
+              try {
+                if (typeof loopComp.UpdateGameState === "function") loopComp.UpdateGameState();
+                normalizeBlueprintGameState(currentBlueprintGameState(), result.phase);
+              } catch(e) {}
               waitForFidelityState(result.phase).then(function() { resolve(result); }, reject);
             }, reject);
           } catch(e) {
@@ -2094,7 +2477,15 @@ if(_imgSet&&_imgSet.set){
         return best;
       }
       var best=scan(app.root,null);
-      if(best&&best.state){window.__gameState=best.state;}
+      if(best&&best.state){
+        var nextState=best.state;
+        try{
+          if(typeof window.__blueprintNormalizeGameState==='function'){
+            nextState=window.__blueprintNormalizeGameState(nextState,nextState.currentPhase||nextState.phase||null)||nextState;
+          }
+        }catch(e){}
+        window.__gameState=nextState;
+      }
     }catch(e){}
   },500);
 })();

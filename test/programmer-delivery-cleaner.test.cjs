@@ -5,6 +5,65 @@ const path = require('path');
 
 const cleaner = require('../lib/programmer-delivery-cleaner.cjs');
 
+const workerUiSource = fs.readFileSync(path.join(__dirname, '..', 'worker', 'GFM_UI.cs'), 'utf8');
+const workerJoystickSource = fs.readFileSync(path.join(__dirname, '..', 'worker', 'GFM_Joystick.cs'), 'utf8');
+const workerPlayerSource = fs.readFileSync(path.join(__dirname, '..', 'worker', 'GFM_Player.cs'), 'utf8');
+assert.match(workerUiSource, /public static void ConfigureCanvasForCamera\(Canvas canvas\)/, 'UI helper should expose delivery canvas normalization');
+assert.match(workerUiSource, /canvas\.renderMode = RenderMode\.ScreenSpaceOverlay/, 'UI helper should keep Canvas out of the camera render plane');
+assert.match(workerUiSource, /canvas\.worldCamera = cam/, 'UI helper should bind Canvas to the main camera');
+assert.match(workerUiSource, /ConfigureSourceHudLayout\(canvas\)/, 'UI helper should still normalize landscape HUD layout');
+assert.match(workerUiSource, /ConfigureSourceHudLayout\(Canvas canvas, bool includeJoystick\)/, 'UI helper should support text-only relayout without resetting joystick during drag');
+assert.match(workerUiSource, /if \(includeJoystick && !IsJoystickDragging\(\)\) LayoutJoystick/, 'UI helper must not reset joystick origin while dragging');
+assert.match(workerUiSource, /using UnityEngine\.EventSystems;/, 'UI helper should compile EventSystem input support');
+assert.match(workerUiSource, /private static void EnsureEventSystem\(\)/, 'UI helper should ensure EventSystem exists for IPointerHandler delivery');
+assert.match(workerUiSource, /typeof\(RectTransform\), typeof\(Canvas\), typeof\(CanvasScaler\), typeof\(GraphicRaycaster\)/, 'Canvas should include a GraphicRaycaster for joystick UI input');
+assert.match(workerUiSource, /private static GraphicRaycaster EnsureGraphicRaycaster\(GameObject obj\)/, 'Canvas should repair a missing GraphicRaycaster at runtime');
+assert.match(workerUiSource, /EnsureGraphicRaycaster\(canvas\.gameObject\)/, 'Canvas normalization should preserve UI raycast delivery after binding an existing scene Canvas');
+assert.match(workerJoystickSource, /bgImg\.raycastTarget = true;/, 'joystick background image must receive UI raycasts');
+assert.match(workerJoystickSource, /public void PollInput\(\)/, 'joystick widget should expose an explicit Luna scheduler tick');
+assert.match(workerPlayerSource, /_joystick\.PollInput\(\);/, 'Player movement should read input from joystick widget state after the widget is ticked');
+assert.match(workerPlayerSource, /private float _lastManualMoveRealtime = -1f;/, 'Player manual movement should track real time to resist CUA Update speed patching');
+assert.match(workerPlayerSource, /MovePlayer\(dt\);/, 'Player Tick should pass the scheduler dt into manual movement');
+assert.match(workerPlayerSource, /float now = Time\.realtimeSinceStartup;/, 'manual joystick movement should derive elapsed time from real time');
+assert.match(workerPlayerSource, /if \(safeDt > 0\.0167f\) safeDt = 0\.0167f;/, 'manual joystick movement should clamp large dt spikes to a 60fps frame budget');
+assert.match(workerPlayerSource, /new Vector3\(h, 0, v\)/, 'manual joystick vertical axis should match source HTML stick.dy -> world z');
+assert.doesNotMatch(workerPlayerSource, /new Vector3\(h, 0, -v\)/, 'manual joystick vertical axis must not be inverted');
+const overlayCanvasSceneRe = /--- !u!223 &[0-9]+\nCanvas:[\s\S]*?m_RenderMode: 0[\s\S]*?m_PlaneDistance: 8[\s\S]*?m_SortingOrder: 100/;
+
+const duplicateEventSystemRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'eventsystem-dedupe-'));
+fs.mkdirSync(path.join(duplicateEventSystemRoot, 'Assets', 'Scenes'), { recursive: true });
+fs.writeFileSync(path.join(duplicateEventSystemRoot, 'Assets', 'Scenes', 'Game.unity'), [
+  '--- !u!1 &100',
+  'GameObject:',
+  '  m_Component:',
+  '  - component: {fileID: 101}',
+  '  - component: {fileID: 102}',
+  '  - component: {fileID: 103}',
+  '  - component: {fileID: 104}',
+  '  m_Name: EventSystem',
+  '--- !u!4 &101',
+  'Transform:',
+  '  m_GameObject: {fileID: 100}',
+  '--- !u!114 &102',
+  'MonoBehaviour:',
+  '  m_GameObject: {fileID: 100}',
+  '  m_Script: {fileID: 11500000, guid: 76c392e42b5098c458856cdf6ecaaaa1, type: 3}',
+  '--- !u!114 &103',
+  'MonoBehaviour:',
+  '  m_GameObject: {fileID: 100}',
+  '  m_Script: {fileID: 11500000, guid: 4f231c4fb786f3946a6b90b886c48677, type: 3}',
+  '--- !u!114 &104',
+  'MonoBehaviour:',
+  '  m_GameObject: {fileID: 100}',
+  '  m_Script: {fileID: 11500000, guid: 76c392e42b5098c458856cdf6ecaaaa1, type: 3}',
+  ''
+].join('\n'));
+const dedupedEventSystem = cleaner.dedupeSceneMonoBehavioursByScriptGuid(duplicateEventSystemRoot, ['76c392e42b5098c458856cdf6ecaaaa1']);
+const dedupedEventSystemScene = fs.readFileSync(path.join(duplicateEventSystemRoot, 'Assets', 'Scenes', 'Game.unity'), 'utf8');
+assert.strictEqual(dedupedEventSystem.removed, 1, 'delivery scene should remove duplicate EventSystem components on the same GameObject');
+assert.strictEqual((dedupedEventSystemScene.match(/76c392e42b5098c458856cdf6ecaaaa1/g) || []).length, 1, 'only one EventSystem component should remain');
+assert.doesNotMatch(dedupedEventSystemScene, /fileID:\s*104/, 'duplicate EventSystem component reference should be removed from m_Component');
+
 const input = [
   'public partial class GameFlowManagerMain',
   '{',
@@ -414,6 +473,59 @@ try {
       '--- !u!29 &1',
       'OcclusionCullingSettings:',
       '  m_ObjectHideFlags: 0',
+      '--- !u!1 &500',
+      'GameObject:',
+      '  m_ObjectHideFlags: 0',
+      '  m_CorrespondingSourceObject: {fileID: 0}',
+      '  m_PrefabInstance: {fileID: 0}',
+      '  m_PrefabAsset: {fileID: 0}',
+      '  serializedVersion: 6',
+      '  m_Component:',
+      '  - component: {fileID: 501}',
+      '  - component: {fileID: 502}',
+      '  m_Layer: 0',
+      '  m_Name: Canvas',
+      '  m_TagString: Untagged',
+      '  m_Icon: {fileID: 0}',
+      '  m_NavMeshLayer: 0',
+      '  m_StaticEditorFlags: 0',
+      '  m_IsActive: 1',
+      '--- !u!4 &501',
+      'Transform:',
+      '  m_ObjectHideFlags: 0',
+      '  m_CorrespondingSourceObject: {fileID: 0}',
+      '  m_PrefabInstance: {fileID: 0}',
+      '  m_PrefabAsset: {fileID: 0}',
+      '  m_GameObject: {fileID: 500}',
+      '  serializedVersion: 2',
+      '  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}',
+      '  m_LocalPosition: {x: 0, y: 0, z: 0}',
+      '  m_LocalScale: {x: 1, y: 1, z: 1}',
+      '  m_ConstrainProportionsScale: 0',
+      '  m_Children: []',
+      '  m_Father: {fileID: 0}',
+      '  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}',
+      '--- !u!223 &502',
+      'Canvas:',
+      '  m_ObjectHideFlags: 0',
+      '  m_CorrespondingSourceObject: {fileID: 0}',
+      '  m_PrefabInstance: {fileID: 0}',
+      '  m_PrefabAsset: {fileID: 0}',
+      '  m_GameObject: {fileID: 500}',
+      '  m_Enabled: 1',
+      '  serializedVersion: 3',
+      '  m_RenderMode: 1',
+      '  m_Camera: {fileID: 0}',
+      '  m_PlaneDistance: 100',
+      '  m_PixelPerfect: 0',
+      '  m_ReceivesEvents: 1',
+      '  m_OverrideSorting: 0',
+      '  m_OverridePixelPerfect: 0',
+      '  m_SortingBucketNormalizedSize: 0',
+      '  m_AdditionalShaderChannelsFlag: 25',
+      '  m_SortingLayerID: 0',
+      '  m_SortingOrder: 0',
+      '  m_TargetDisplay: 0',
       ''
     ].join('\n'));
     fs.writeFileSync(path.join(scripts, 'GameFlowManagerMain.cs'), [
@@ -535,6 +647,32 @@ try {
         ''
       ].join('\n');
     }
+    function legacyCameraSpaceCanvasBlock(id, goId) {
+      return [
+        '--- !u!223 &' + id,
+        'Canvas:',
+        '  m_ObjectHideFlags: 0',
+        '  m_CorrespondingSourceObject: {fileID: 0}',
+        '  m_PrefabInstance: {fileID: 0}',
+        '  m_PrefabAsset: {fileID: 0}',
+        '  m_GameObject: {fileID: ' + goId + '}',
+        '  m_Enabled: 1',
+        '  serializedVersion: 3',
+        '  m_RenderMode: 1',
+        '  m_Camera: {fileID: 0}',
+        '  m_PlaneDistance: 100',
+        '  m_PixelPerfect: 0',
+        '  m_ReceivesEvents: 1',
+        '  m_OverrideSorting: 0',
+        '  m_OverridePixelPerfect: 0',
+        '  m_SortingBucketNormalizedSize: 0',
+        '  m_AdditionalShaderChannelsFlag: 25',
+        '  m_SortingLayerID: 0',
+        '  m_SortingOrder: 0',
+        '  m_TargetDisplay: 0',
+        ''
+      ].join('\n');
+    }
     const legacyActivatorGuid = 'c91b2d4d49b7caa428b32e2e342d0a17';
     const generatedActivatorGuid = '11111111111111111111111111111111';
     const legacyPlaceholderGuid = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6';
@@ -557,8 +695,9 @@ try {
       legacyMonoBehaviourBlock(202, 200, legacyActivatorGuid),
       minimalSceneObject(300, 301, '_gold', { x: 0, y: -9999, z: 0 }),
       minimalSceneObject(400, 401, '_ctaButton', { x: 0, y: -9999, z: 0 }),
-      minimalSceneObject(500, 501, 'Canvas', { x: 0, y: 0, z: 0 }).replace('  - component: {fileID: 501}', '  - component: {fileID: 501}\n  - component: {fileID: 502}'),
-      legacyMonoBehaviourBlock(502, 500, oldGraphicRaycasterGuid),
+      minimalSceneObject(500, 501, 'Canvas', { x: 0, y: 0, z: 0 }).replace('  - component: {fileID: 501}', '  - component: {fileID: 501}\n  - component: {fileID: 502}\n  - component: {fileID: 503}'),
+      legacyCameraSpaceCanvasBlock(502, 500),
+      legacyMonoBehaviourBlock(503, 500, oldGraphicRaycasterGuid),
       minimalSceneObject(600, 601, 'GameManager', { x: 0, y: 0, z: 0 }).replace('  - component: {fileID: 601}', '  - component: {fileID: 601}\n  - component: {fileID: 602}'),
       legacyMonoBehaviourBlock(602, 600, legacyPlaceholderGuid),
       minimalSceneObject(700, 701, '__MainLight', { x: 0, y: 12, z: 0 }).replace('  - component: {fileID: 701}', '  - component: {fileID: 701}\n  - component: {fileID: 702}'),
@@ -636,6 +775,7 @@ try {
       '    }',
       '}',
     ].join('\n'));
+    fs.writeFileSync(path.join(scripts, 'GFM_Player.cs'), fs.readFileSync(path.join(__dirname, '..', 'worker', 'GFM_Player.cs'), 'utf8'));
 
     const summary = cleaner.cleanProgrammerDelivery(tmpV12, {
       project: {
@@ -677,13 +817,15 @@ try {
     assert.match(phaseGateCode, /switch \(mKind\)/, 'PhaseGate should use an explicit enum switch');
     assert.match(phaseGateCode, /case GMP_PhaseGateKind\.Resource/, 'resource gate branch should be generated');
     assert.match(phaseGateCode, /case GMP_PhaseGateKind\.Entity/, 'entity gate branch should be generated');
-    assert.match(phaseGateCode, /GMP_EconomyManager\.instance\.GetResource\(mTarget\)/, 'resource gates should read the economy manager');
+    assert.match(phaseGateCode, /GMP_EconomyManager\.instance\.GetCollectedResource\(mTarget\)/, 'resource gates should read cumulative collected resources');
     const phaseControllerCode = fs.readFileSync(path.join(coreModules, 'GMP_PhaseController.cs'), 'utf8');
     assert.match(phaseControllerCode, /preset\.mGate\.IsReady/, 'PhaseController should use PhasePreset gate data');
     const entityBindingCode = fs.readFileSync(path.join(gameLevel, 'GMP_EntityBindingManager.cs'), 'utf8');
     assert.match(entityBindingCode, /int GetActiveCount\(string entityName\)/, 'EntityBindingManager should expose active-count gate helper');
     assert.match(entityBindingCode, /private Vector3\[] mOriginalPositions/, 'EntityBindingManager should cache source scene positions');
     assert.match(entityBindingCode, /void CacheOriginalPosition\(int index\)/, 'EntityBindingManager should cache original transforms during Init');
+    assert.match(entityBindingCode, /target\.transform\.position\.y > -100f/, 'Phase changes should preserve runtime transforms instead of resetting visible source entities');
+    assert.match(entityBindingCode, /ship\.transform\.position = Vector3\.Lerp\(ship\.transform\.position, desired, Mathf\.Clamp01\(dt \* 1\.35f\)\)/, 'SpaceShip should follow the player using the source runtime offset');
     assert.match(entityBindingCode, /SetVisible\(target, false\)/, 'Hide should toggle renderers instead of moving entities off board');
     assert.doesNotMatch(entityBindingCode, /target\.transform\.position = new Vector3\(0f, -999f, 0f\)/, 'Hide must not destroy source positions');
     assert.ok(!fs.existsSync(path.join(scripts, 'MainManager.cs')), 'root MainManager god class should be removed');
@@ -704,14 +846,16 @@ try {
     ['GMP_MainManager', 'GMP_PhaseController', 'GMP_EntityBindingManager', 'GMP_AutoPlayDriver', 'GMP_HudController', 'GMP_EventModule', 'GMP_LevelRuleEngine'].forEach((name) => {
       assert.strictEqual((scene.match(new RegExp('m_Name: ' + name, 'g')) || []).length, 1, name + ' should be scene-mounted once');
     });
-    assert.match(scene, /m_Name: "Text_"/, 'HUD guide text placeholder should be scene-mounted');
-    assert.match(scene, /m_Name: "Text_Score: 0"/, 'HUD score text placeholder should be scene-mounted');
+    assert.match(scene, /m_Name: "Text_Tip"/, 'HUD guide text placeholder should be scene-mounted');
+    assert.doesNotMatch(scene, /m_Name: "Text_Score: 0"/, 'source-aligned HUD should not create a duplicate Score text');
+    assert.doesNotMatch(scene, /m_Name: "Text_PhaseProgress"/, 'source-aligned HUD should not create overlapping phase progress text');
     assert.match(scene, /guid: 5f7201a12d95ffc409449d95f23cf332/, 'scene text placeholders should carry Unity UI Text components');
     assert.doesNotMatch(scene, new RegExp(legacyActivatorGuid), 'legacy ScriptActivator scene refs must be remapped to the generated GMP script guid');
     assert.match(scene, new RegExp(generatedActivatorGuid), 'GMP_ScriptActivator scene refs should resolve to the generated script meta');
     assert.doesNotMatch(scene, new RegExp(legacyPlaceholderGuid), 'template placeholder GameManager script refs must be stripped');
     assert.match(scene, new RegExp(templateAdditionalLightGuid), 'URP light data should stay attached for render fidelity');
     assert.match(scene, new RegExp(templateAdditionalCameraGuid), 'URP camera data should stay attached for render fidelity');
+    assert.match(scene, overlayCanvasSceneRe, 'delivery Canvas should render as Overlay, not a camera-space plane over 3D');
     assert.doesNotMatch(scene, new RegExp(oldGraphicRaycasterGuid), 'stale GraphicRaycaster GUID should be remapped');
     assert.match(scene, new RegExp(newGraphicRaycasterGuid), 'GraphicRaycaster should resolve to the Unity 2022.3 package GUID');
     assert.doesNotMatch(scene, new RegExp(oldEventSystemGuid), 'stale EventSystem GUID should be remapped');
@@ -719,17 +863,44 @@ try {
     assert.match(scene, new RegExp(nonWhitelistedPackageGuid), 'package GUID repair must stay whitelist-only and preserve unrelated package MonoBehaviours');
     assert.strictEqual(summary.knownPackageSceneScriptRefsRemapped, 2);
     assert.strictEqual((scene.match(/guid:/g) || []).length >= 8, true, 'scene should contain script refs plus phase asset refs');
-    assert.match(scene, /m_Name: Main Camera[\s\S]*m_LocalPosition: \{x: 6, y: 18, z: 28\}/, 'Phase1 camera should follow the source HTML oblique camera offset');
-    assert.match(scene, /m_LocalEulerAnglesHint: \{x: 37, y: -22, z: 0\}/, 'Phase1 camera should use the source-like oblique angle');
+    assert.match(scene, /m_Name: Main Camera[\s\S]*m_LocalPosition: \{x: 6, y: 18, z: 28\}/, 'Phase1 camera should use the source HTML player-follow framing');
+    assert.match(scene, /m_LocalEulerAnglesHint: \{x: 34\.7, y: 202\.6, z: 0\}/, 'Phase1 camera should use the source-like oblique angle');
     assert.match(scene, /m_Name: _player[\s\S]*m_TagString: Player/, 'Player entity should be tagged for camera follow lookup');
     const deliveryCamera = fs.readFileSync(path.join(scripts, 'Tool', 'GMP_CameraController.cs'), 'utf8');
     assert.doesNotMatch(deliveryCamera, /orthographic\s*=\s*true/, 'delivery camera must not override the scene-authored projection');
     assert.doesNotMatch(deliveryCamera, /new Vector3\(0,\s*12f,\s*-8f\)/, 'delivery camera must not override the scene-authored first-frame pose');
     assert.match(deliveryCamera, /GameObject\.FindWithTag\("Player"\)/, 'delivery camera should use the Player tag lookup path');
     assert.match(deliveryCamera, /GMP_SceneObjectRegistry\.Find\("Player"\)/, 'delivery camera should include the registry Player lookup path');
-    assert.match(deliveryCamera, /Vector3 target = player\.position \+ new Vector3\(4f, 0f, 2f\);/);
-    assert.match(deliveryCamera, /Vector3 pos = target \+ new Vector3\(10f, 18f, 24f\);/);
+    assert.match(deliveryCamera, /Vector3 target = SourceFollowTarget\(player\.position\);/);
+    assert.match(deliveryCamera, /Vector3 pos = SourceFollowPosition\(target\);/);
+    assert.match(deliveryCamera, /return playerPosition \+ new Vector3\(4f, 0f, 2f\);/);
+    assert.match(deliveryCamera, /return target \+ new Vector3\(10f, 18f, 24f\);/);
     assert.match(deliveryCamera, /Time\.deltaTime \* 2\.2f/);
+    assert.match(deliveryCamera, /FramePhaseEntities\(GMP_PhasePreset preset\)/, 'delivery camera should expose runtime source-follow phase framing');
+    assert.match(deliveryCamera, /Vector3 lookAt = SourceFollowTarget\(player\.position\);/, 'phase framing should use the source runtime camera target');
+    assert.match(deliveryCamera, /Vector3 cameraPos = SourceFollowPosition\(lookAt\);/, 'phase framing should use the source runtime camera offset');
+    assert.doesNotMatch(deliveryCamera, /Mathf\.Clamp\(span \//, 'later phase framing must not invent AABB zoom over the source camera contract');
+    assert.match(deliveryCamera, /mMainCam\.fieldOfView = 46f;/, 'phase framing should keep the source HTML PerspectiveCamera FOV');
+    assert.match(deliveryCamera, /mPhaseFrameHoldUntilFrame = Time\.frameCount \+ 120/, 'phase framing should hold through screenshot probes');
+    assert.match(deliveryCamera, /SetEndStateCamera\(\)/, 'delivery camera should expose the source end-state overview pose');
+    assert.match(deliveryCamera, /Vector3 lookAt = new Vector3\(36f, 0f, 2f\)/, 'source end-state target should be preserved for non-flipped sources');
+    assert.match(deliveryCamera, /if \(IsPhaseFrameHoldActive\) return/, 'source follow must not overwrite phase entry screenshot framing');
+    assert.match(deliveryCamera, /GMP_UIManager\.instance\.SyncSceneEntityLabels\(\)/, 'camera LateUpdate should refresh labels after camera movement');
+    const deliveryPlayer = fs.readFileSync(path.join(scripts, 'Game', 'Player', 'GMP_Player.cs'), 'utf8');
+    assert.doesNotMatch(deliveryPlayer, /mPlayer\.transform\.position = new Vector3\(0f, 0\.5f, 0f\)/, 'Player runtime init must not overwrite the source scene position');
+    assert.match(deliveryPlayer, /GameObject\.FindWithTag\("Player"\)/, 'Player runtime init should bind the source tagged Player first');
+    assert.match(deliveryPlayer, /Debug\.LogError\("GMP_Player 找不到场景 Player/, 'Player runtime init should fail loudly when source Player is missing');
+    assert.doesNotMatch(deliveryPlayer, /CreatePrimitive\(PrimitiveType\.Cylinder\)/, 'Player runtime init must not create primitive fallback players');
+    assert.doesNotMatch(deliveryPlayer, /__Pool_(?:Cylinder|Capsule|Cube)/, 'Player runtime init must not scan old Luna primitive pools');
+    assert.match(deliveryPlayer, /moveSpeed=24f/, 'Player fallback speed should match source HTML 24u/s');
+    assert.match(deliveryPlayer, /private void EnsureRuntimeComponents\(\)/, 'Player controller should create required runtime components for YAML-mounted scene objects');
+    assert.match(deliveryPlayer, /mMovementComponent = \(GMP_MovementComponent\)gameObject\.AddComponent\(typeof\(GMP_MovementComponent\)\)/, 'Player movement component must be added at runtime when RequireComponent was not serialized');
+    assert.match(deliveryPlayer, /mJoystick\.PollInput\(\);/, 'GMP Player path should also tick the joystick widget before reading movement axes');
+    assert.match(deliveryPlayer, /mMovementComponent\.Move\(go\.transform, new Vector3\(h, 0, v\), MoveSpeed, moveDt\)/, 'Joystick vertical axis should match source HTML stick.dy -> world z with real-time movement dt');
+    assert.doesNotMatch(deliveryPlayer, /new Vector3\(h, 0, -v\)/, 'Joystick vertical axis must not be inverted');
+    const deliveryMovement = fs.readFileSync(path.join(scripts, 'Core', 'Components', 'GMP_MovementComponent.cs'), 'utf8');
+    assert.match(deliveryMovement, /public void Move\(Transform target, Vector3 direction, float speed, float dt\)/, 'movement component should accept caller-supplied real-time dt');
+    assert.match(deliveryMovement, /Vector3 delta = direction\.normalized \* \(finalSpeed \* safeDt\);/, 'movement component should not force Time.deltaTime when caller supplies dt');
     assert.strictEqual(summary.playerTaggedForCameraFollow, true);
     assert.strictEqual(summary.deliveryCameraControllerFollowRepaired, true);
     assert.strictEqual(summary.initialPhaseCameraFramed, true);
@@ -928,7 +1099,7 @@ try {
     ].join('\n'));
 
     const summary = cleaner.cleanProgrammerDelivery(tmpFallback, {
-      project: { id: 'storyboard2html-space-ranger-demo2spec-v2', name: 'Space Ranger' },
+      project: { id: 'fallback-resource-primitive', name: 'Fallback Resource Primitive' },
       validatorOpts: { maxLines: 10000 }
     });
     const scene = fs.readFileSync(path.join(scenes, 'Game.unity'), 'utf8');
@@ -943,6 +1114,150 @@ try {
     assert.match(scene, /m_Children:\n  - \{fileID:/);
   } finally {
     fs.rmSync(tmpFallback, { recursive: true, force: true });
+  }
+}
+
+// 2026-05-24 v15.6：程序员 Unity 首帧必须以 storyboard2html 源 HTML 的 PHASES[].showEntities 为准，
+// gate target 仍保留在 PhaseGate,但不能强行塞进首帧入画列表。
+{
+  const tmpSourcePhases = fs.mkdtempSync(path.join(os.tmpdir(), 'programmer-source-phases-'));
+  try {
+    const scripts = path.join(tmpSourcePhases, 'Assets', 'Scripts');
+    const scenes = path.join(tmpSourcePhases, 'Assets', 'Scenes');
+    fs.mkdirSync(scripts, { recursive: true });
+    fs.mkdirSync(scenes, { recursive: true });
+    fs.writeFileSync(path.join(tmpSourcePhases, 'source.html'), [
+      '<script>',
+      'const ENTITY_POSITIONS = {',
+      '  Player: {x:-8,y:0,z:2},',
+      '  OxygenShop: {x:-12,y:0,z:-4},',
+      '  CtaButton: {x:4,y:0,z:8}',
+      '};',
+      'const PHASES = [',
+      '  {id:"phase1",name:"买氧气",guideText:"先到氧气购买台",showEntities:["Player","OxygenShop"],trigger:{type:"resource_collected",resource:"Coin",amount:6},steps:[{target:"OxygenShop",label:"购买氧气",gain:"Coin",amount:6}]},',
+      '  {id:"phase2",name:"结束",guideText:"到终点",showEntities:["Player","CtaButton"],steps:[{target:"CtaButton",label:"结束"}]}',
+      '];',
+      '</script>'
+    ].join('\n'));
+    fs.writeFileSync(path.join(scenes, 'Game.unity'), [
+      '%YAML 1.1',
+      '%TAG !u! tag:unity3d.com,2011:',
+      '--- !u!29 &1',
+      'OcclusionCullingSettings:',
+      '  m_ObjectHideFlags: 0',
+      minimalSceneObject(9100, 9101, '_gold', { x: 1, y: 0, z: 1 }),
+      minimalSceneObject(9200, 9201, '_ice', { x: 2, y: 0, z: 2 }),
+      minimalSceneObject(9300, 9301, '_scrap', { x: 3, y: 0, z: 3 }),
+      ''
+    ].join('\n'));
+    fs.writeFileSync(path.join(scripts, 'MonoSingleton.cs'), 'using UnityEngine;\npublic abstract class MonoSingleton<T> : MonoBehaviour where T : MonoBehaviour {}\n');
+    fs.writeFileSync(path.join(scripts, 'GFM_CameraController.cs'), [
+      'using UnityEngine;',
+      'public class GFM_CameraController : MonoBehaviour',
+      '{',
+      '    void LateUpdate() {}',
+      '}',
+    ].join('\n'));
+    fs.writeFileSync(path.join(scripts, 'MainManager.cs'), [
+      'using UnityEngine;',
+      'public class MainManager : MonoSingleton<MainManager>',
+      '{',
+      '    string[] _entityBindingIds = new string[] { "_player", "_oxygenShop", "_gold", "_ice", "_scrap", "_ctaButton" };',
+      '    public GameObject _player;',
+      '    public GameObject _oxygenShop;',
+      '    public GameObject _gold;',
+      '    public GameObject _ice;',
+      '    public GameObject _scrap;',
+      '    public GameObject _ctaButton;',
+      '    void Phase_phase1_Init() { GMP_VisualGuide.HighlightTarget(_oxygenShop); }',
+      '    void Phase_phase2_Init() { GMP_VisualGuide.HighlightTarget(_ctaButton); }',
+      '    bool Phase_phase2_GateReady() { return EntityAdvanced(_gold, _snapGoldPos) && PhaseDwellReady(12f); }',
+      '    bool EndGame_GateReady() { return EntityAdvanced(_ctaButton, _snapCtaPos) && PhaseDwellReady(12f); }',
+      '}',
+    ].join('\n'));
+
+    const summary = cleaner.cleanProgrammerDelivery(tmpSourcePhases, {
+      project: {
+        id: 'source-phases',
+        name: 'source-phases',
+        visualAssets: {
+          source: path.join(tmpSourcePhases, 'source.html'),
+          sourceSceneContract: { present: true, guidance: { present: true } }
+        }
+      },
+      validatorOpts: { maxLines: 10000 }
+    });
+    const phase1Asset = fs.readFileSync(path.join(scripts, 'Game', 'Phases', 'Phase1.asset'), 'utf8');
+    assert.match(phase1Asset, /mGuideText: "先到氧气购买台"/);
+    assert.match(phase1Asset, /mTargetEntity: "_oxygenShop"/);
+    assert.match(phase1Asset, /mGainResource: "Coin"/);
+    assert.match(phase1Asset, /mGainAmount: 6/);
+    assert.match(phase1Asset, /IsRuntimeUsesStepGate: 1/);
+    assert.match(phase1Asset, /mGate:\n    mKind: 2\n    mTarget: "Coin"\n    mThreshold: 6/);
+    assert.match(phase1Asset, /  - _player/);
+    assert.match(phase1Asset, /  - _oxygenShop/);
+    assert.doesNotMatch(phase1Asset, /  - _(gold|ice|scrap)/);
+    assert.ok((summary.phaseSourceTraceLines || []).some((line) => line.includes('src.gate=resource_collected Coin=6 -> unity.gate=resource Coin=6')));
+    const hudController = fs.readFileSync(path.join(scripts, 'Core', 'Modules', 'GMP_HudController.cs'), 'utf8');
+    assert.match(hudController, /mToastText = FindText\("Text_StepToast"\)/);
+    assert.match(hudController, /mToastText\.text = text == null \? "" : text/);
+    assert.match(hudController, /mToastTimer = mToastText\.enabled \? 1f : 0f/);
+    assert.match(hudController, /if \(mToastText != null && mToastTimer > 0f\)/);
+    assert.match(hudController, /mToastText\.enabled = false/);
+    assert.match(hudController, /mTargetHintText = FindText\("Text_TargetHint"\)/);
+    assert.match(hudController, /public void SetTargetHint\(string targetEntity\)/);
+    assert.match(hudController, /mTargetHintText\.text = "目标：" \+ DisplayNameForEntity\(targetEntity\)/);
+    assert.doesNotMatch(hudController, /mScoreText = FindText\("Text_Coin"\)/);
+    assert.match(hudController, /GMP_UI\.ConfigureCanvasForCamera\(mCanvas\)/);
+    const levelRuleEngine = fs.readFileSync(path.join(scripts, 'Game', 'Level', 'GMP_LevelRuleEngine.cs'), 'utf8');
+    assert.match(levelRuleEngine, /using UnityEngine\.UI;/);
+    assert.match(levelRuleEngine, /RefreshTargetHint\(\)/);
+    assert.match(levelRuleEngine, /GMP_HudController\.instance\.SetTargetHint\(target\)/);
+    assert.match(levelRuleEngine, /SetTargetHintTextDirect\(target\)/);
+    assert.match(levelRuleEngine, /UpdateGuidanceVisuals\(target\)/);
+    assert.match(levelRuleEngine, /GameObject\.Find\("__TargetRing"\)/);
+    assert.match(levelRuleEngine, /GameObject\.Find\("__TrailLine"\)/);
+    assert.match(levelRuleEngine, /GameObject\.Find\("__LaserLine"\)/);
+    assert.match(levelRuleEngine, /trail\.transform\.rotation = Quaternion\.LookRotation\(delta\)/);
+    assert.match(levelRuleEngine, /Text_TargetHint/);
+    assert.match(levelRuleEngine, /Mathf\.Clamp\(step\.mSetState, 1, 3\)/);
+    const phaseController = fs.readFileSync(path.join(scripts, 'Core', 'Modules', 'GMP_PhaseController.cs'), 'utf8');
+    assert.match(phaseController, /GMP_CameraController\.instance\.FramePhaseEntities\(preset\)/);
+    const entityBinding = fs.readFileSync(path.join(scripts, 'Game', 'Level', 'GMP_EntityBindingManager.cs'), 'utf8');
+    assert.doesNotMatch(entityBinding, /"_gold"|" _ice"|" _scrap"|"_ice"|"_scrap"/, 'resource names Gold/Ice/Scrap must not become source-scene entities');
+    assert.deepStrictEqual((summary.sourceResourcePhantomSceneObjectNamesRemoved || []).sort(), ['_gold', '_ice', '_scrap']);
+    assert.match(entityBinding, /target\.SetActive\((?:visible|IsVisibleValue\d*)\)/);
+    assert.match(entityBinding, /!target\.activeInHierarchy/);
+    assert.match(entityBinding, /private string\[\] mEntityLabelNames = new string\[\] \{ "Text_Label_Player"/);
+    assert.match(entityBinding, /SetEntityLabelVisible\(entityName, true\)/);
+    assert.match(entityBinding, /SetEntityLabelVisible\(entityName, false\)/);
+    assert.match(entityBinding, /GameObject labelObject = GameObject\.Find\(mEntityLabelNames\[index\]\)/);
+    assert.match(entityBinding, /if \(labelText != null\) labelText\.enabled = (?:visible|IsVisibleValue\d*)/);
+    assert.match(entityBinding, /GMP_UI\.PositionTextOverEntity\(FindHudCanvas\(\), mEntityLabelNames\[index\], entityName, LabelHeightOffset\(entityName\)\)/);
+    assert.match(entityBinding, /private void SyncVisibleEntityLabels\(\)/);
+    assert.match(entityBinding, /SyncVisibleEntityLabels\(\)/);
+    assert.doesNotMatch(entityBinding, /ArrangeWidePhaseEntitiesForCamera\(preset\)/);
+    assert.doesNotMatch(entityBinding, /private bool ShouldArrangeWidePhase\(GMP_PhasePreset preset\)/);
+    assert.doesNotMatch(entityBinding, /target\.transform\.position = new Vector3\(anchor\.x \+ x, target\.transform\.position\.y, anchor\.z \+ z\)/);
+    assert.match(entityBinding, /if \(entityName == "_player"\) return new Vector3\(-8f, 0f, -2f\);/, 'HTML source Player Z should be flipped into Unity left-handed coordinates');
+    assert.match(entityBinding, /if \(entityName == "_oxygenShop"\) return new Vector3\(-12f, 0f, 4f\);/, 'HTML source target Z should be flipped into Unity left-handed coordinates');
+    assert.match(entityBinding, /if \(entityName == "_ctaButton"\) return new Vector3\(4f, 0f, -8f\);/, 'HTML source CTA Z should be flipped into Unity left-handed coordinates');
+    const cameraController = fs.readFileSync(path.join(scripts, 'Tool', 'GMP_CameraController.cs'), 'utf8');
+    assert.match(cameraController, /return playerPosition \+ new Vector3\(4f, 0f, -2f\);/, 'HTML camera follow target Z offset should be flipped for Unity');
+    assert.match(cameraController, /return target \+ new Vector3\(10f, 18f, -24f\);/, 'HTML camera follow position Z offset should be flipped for Unity');
+    assert.match(cameraController, /Vector3 lookAt = SourceFollowTarget\(player\.position\);/, 'Phase-frame target should use the source runtime follow formula');
+    assert.match(cameraController, /Vector3 cameraPos = SourceFollowPosition\(lookAt\);/, 'Phase-frame position should use the source runtime follow formula');
+    assert.match(cameraController, /Vector3 lookAt = new Vector3\(36f, 0f, -2f\);/, 'End-state target Z should be flipped into Unity');
+    assert.match(cameraController, /Vector3 cameraPos = lookAt \+ new Vector3\(0f, 34f, -36f\);/, 'End-state camera offset Z should be flipped into Unity');
+    assert.match(cameraController, /GMP_UIManager\.instance\.SyncSceneEntityLabels\(\)/, 'label projection should be refreshed after camera LateUpdate');
+    assert.doesNotMatch(cameraController, /Mathf\.Clamp\(span \//, 'Later phases should not use probe-driven active AABB zoom');
+    const sceneText = fs.readFileSync(path.join(scenes, 'Game.unity'), 'utf8');
+    assert.doesNotMatch(sceneText, /m_Name: _(gold|ice|scrap)\b/, 'phantom resource GameObjects should be removed from scene YAML');
+    assert.match(sceneText, /m_Name: __TargetRing/);
+    assert.match(sceneText, /m_Name: __TrailLine/);
+    assert.match(sceneText, /m_Name: __LaserLine/);
+  } finally {
+    fs.rmSync(tmpSourcePhases, { recursive: true, force: true });
   }
 }
 

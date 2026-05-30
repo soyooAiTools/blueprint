@@ -161,7 +161,7 @@ function generateVariables(schema, skeleton) {
   // Multi-source extra entity variables
   var multiSrcVars = generateMultiSourceVariables(schema, skeleton);
   if (multiSrcVars) lines.push(multiSrcVars);
-  // Collect-source respawn timer + initPos cache
+  // Collect-source visibility comments; source objects stay hidden after collection.
   var collectVars = generateCollectVariables(schema);
   if (collectVars) lines.push(collectVars);
   return lines.join('\n');

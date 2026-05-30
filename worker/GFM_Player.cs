@@ -2,7 +2,7 @@
 // GFM_Player.cs — 玩家控制器（单例）
 // ----------------------------------------------------------------------------
 // 职责：封装玩家载具相关的一切：
-//       - 玩家 GameObject (池对象 "__Pool_Cylinder_Blue_01") 的定位
+//       - 玩家 GameObject (优先绑定 source scene 的 Player 实体) 的定位
 //       - 移动输入（仅虚拟摇杆;tap-to-move 已移除防双模冲突,2026-04-19）
 //       - 形态系统（FormDef / SwitchForm / 当前形态的数值查询）
 //       - 采集/递送判定（IsNear / TryCollect / TryDeliver）
@@ -71,6 +71,7 @@ public class GFM_Player : MonoBehaviour
 
     private GameObject _player;
     private GFM_Joystick _joystick;
+    private float _lastManualMoveRealtime = -1f;
 
     // ========================================================================
     // 【背包状态】玩家当前携带物品数 + 物品类型。通用 carry 由 TryCollect/
@@ -79,26 +80,17 @@ public class GFM_Player : MonoBehaviour
     public int Carrying = 0;
     public string CarryingType = "";
 
-    // 【玩家池对象名】可在主文件 Start 里改成项目自己的池对象名；默认胶囊。
-    // 典型："__Pool_Cylinder_Blue_01" / "__Pool_Capsule_01" / "__Pool_Cube_01"
-    public string PlayerPoolName = "__Pool_Cylinder_Blue_01";
+    // 【玩家对象名】默认对齐 storyboard2html/demo2spec 场景中的 source entity。
+    public string PlayerPoolName = "_player";
 
-    private static readonly string[] _playerFallbackPools = new string[] {
-        "__Pool_Cylinder_Blue_01",
-        "__Pool_Cylinder_01",
-        "__Pool_Capsule_01",
-        "__Pool_Cube_Blue_01",
-        "__Pool_Cube_01"
-    };
-
-    // 【当前形态移动速度】供 MovePlayer/外部使用。未初始化 fallback 5f。
-    public float MoveSpeed { get { return (Forms != null && Forms.Length > 0) ? Forms[_currentFormIndex].moveSpeed : 5f; } }
+    // 【当前形态移动速度】对齐 storyboard2html 源 HTML：stick 向量 * 24u/s。
+    public float MoveSpeed { get { return (Forms != null && Forms.Length > 0) ? Forms[_currentFormIndex].moveSpeed : 24f; } }
 
     private bool _inited = false;
 
     // ========================================================================
     // 【初始化】
-    // - 找到玩家池对象 "__Pool_Cylinder_Blue_01" 并定位到原点
+    // - 找到 storyboard2html 场景里的 Player source entity
     // - 创建虚拟摇杆（依赖 UIManager 的 Canvas）
     // - 给 Forms 一个单形态保底（外部可随时覆盖）
     // ========================================================================
@@ -117,7 +109,7 @@ public class GFM_Player : MonoBehaviour
         if (Forms == null || Forms.Length == 0)
         {
             Forms = new FormDef[] {
-                new FormDef { formId="default", poolObjectName="", moveSpeed=5f, collectRange=1.5f, collectPower=1f, carryCapacity=10, scale=1f }
+                new FormDef { formId="default", poolObjectName="", moveSpeed=24f, collectRange=1.5f, collectPower=1f, carryCapacity=10, scale=1f }
             };
         }
     }
@@ -136,7 +128,7 @@ public class GFM_Player : MonoBehaviour
     // ========================================================================
     public void Tick(float dt, bool isAutoPlay)
     {
-        if (!isAutoPlay) MovePlayer();
+        if (!isAutoPlay) MovePlayer(dt);
     }
 
     // ========================================================================
@@ -146,18 +138,45 @@ public class GFM_Player : MonoBehaviour
     // ========================================================================
     public void MovePlayer()
     {
+        MovePlayer(Time.deltaTime);
+    }
+
+    public void MovePlayer(float dt)
+    {
         var go = Go;
         if (_joystick == null) EnsureJoystick();
         if (go == null || _joystick == null) return;
 
+        _joystick.PollInput();
+        float moveDt = ResolveManualMoveDelta(dt);
         float h = _joystick.Horizontal;
         float v = _joystick.Vertical;
         if (Mathf.Abs(h) > 0.1f || Mathf.Abs(v) > 0.1f)
         {
-            Vector3 move = new Vector3(h, 0, v) * MoveSpeed * Time.deltaTime;
+            Vector3 input = new Vector3(h, 0, v);
+            Vector3 move = input * MoveSpeed * moveDt;
             go.transform.position += move;
-            go.transform.rotation = Quaternion.LookRotation(new Vector3(h, 0, v));
+            go.transform.rotation = Quaternion.LookRotation(input);
         }
+    }
+
+    // CUA 会 speed-patch Update()，同一个浏览器帧内同步重放多次。
+    // 手动摇杆必须按真实时间移动，否则 24u/s 会被放大成数百 u/s。
+    private float ResolveManualMoveDelta(float dt)
+    {
+        float safeDt = dt > 0f && dt < 0.2f ? dt : 0.016f;
+        float now = Time.realtimeSinceStartup;
+        if (now > 0f)
+        {
+            if (_lastManualMoveRealtime >= 0f)
+            {
+                safeDt = now - _lastManualMoveRealtime;
+            }
+            _lastManualMoveRealtime = now;
+        }
+        if (safeDt <= 0f) return 0f;
+        if (safeDt > 0.0167f) safeDt = 0.0167f;
+        return safeDt;
     }
 
     // 确保预挂在场景中的 JoystickBG/JoystickHandle 被脚本接管。
@@ -254,40 +273,43 @@ public class GFM_Player : MonoBehaviour
     {
         if (_player != null) return true;
 
-        if (PlayerPoolName != "")
-        {
-            _player = GameObject.Find(PlayerPoolName);
-        }
-
-        if (_player == null)
-        {
-            for (int i = 0; i < _playerFallbackPools.Length; i++)
-            {
-                var candidate = _playerFallbackPools[i];
-                if (candidate == PlayerPoolName) continue;
-                _player = GameObject.Find(candidate);
-                if (_player != null)
-                {
-                    PlayerPoolName = candidate;
-                    break;
-                }
-            }
-        }
-
-        if (_player == null)
-        {
-            _player = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            _player.name = PlayerPoolName != "" ? PlayerPoolName : "__AutoPlayer";
-            _player.transform.localScale = new Vector3(0.8f, 1f, 0.8f);
-        }
+        _player = FindScenePlayerObject();
 
         if (_player != null)
         {
-            _player.transform.position = new Vector3(0f, 0.5f, 0f);
+            StabilizePlayerPhysics(_player);
             return true;
         }
 
+        Debug.LogError("GFM_Player 找不到场景 Player。期望 tag=Player 或 name=_player；禁止创建 primitive 兜底。");
         return false;
+    }
+
+    // 只绑定 storyboard2html 产物里的真实 Player 模型，不再扫描 __Pool_* 或创建 primitive。
+    private GameObject FindScenePlayerObject()
+    {
+        GameObject tagged = null;
+        try { tagged = GameObject.FindWithTag("Player"); } catch (UnityException) { tagged = null; }
+        if (tagged != null) return tagged;
+
+        if (PlayerPoolName != "")
+        {
+            GameObject named = GameObject.Find(PlayerPoolName);
+            if (named != null) return named;
+        }
+        return GameObject.Find("_player");
+    }
+
+    // Luna 场景里的玩家池对象可能带 Rigidbody；交互模式必须保持源 HTML 的 XZ 平面移动。
+    private void StabilizePlayerPhysics(GameObject go)
+    {
+        if (go == null) return;
+        var rb = go.GetComponent<Rigidbody>();
+        if (rb != null)
+        {
+            rb.useGravity = false;
+            rb.isKinematic = true;
+        }
     }
 
     // 【当前形态属性查询】供 CheckEventRules / TryCollect 使用。

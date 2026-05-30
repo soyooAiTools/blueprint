@@ -24,23 +24,46 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
     private Vector2 _input = Vector2.zero;
     private bool _dragging = false;
     private float _radius;
-    private Vector2 _bgStartPos;
+
+    // 场景里预挂的 JoystickBG 也要注册为 instance，否则 probe 首帧只能看到壳。
+    private void Awake()
+    {
+        if (instance != null && instance != this) { enabled = false; return; }
+        instance = this;
+        _bg = (RectTransform)GetComponent(typeof(RectTransform));
+        _bgImage = (Image)GetComponent(typeof(Image));
+        if (_bgImage != null) _bgImage.raycastTarget = true;
+        if (transform.childCount > 0)
+        {
+            var child = transform.GetChild(0);
+            _handle = (RectTransform)child.GetComponent(typeof(RectTransform));
+            _handleImage = (Image)child.GetComponent(typeof(Image));
+            if (_handleImage != null) _handleImage.raycastTarget = true;
+        }
+        _radius = _bg != null ? Mathf.Max(_bg.sizeDelta.x, _bg.sizeDelta.y) * 0.5f : 67f;
+        SetVisible(false);
+    }
 
     // 创建运行时摇杆 UI 并绑定输入事件。
     public static GFM_Joystick Create(Canvas canvas, float size)
     {
-        if (instance != null) return instance;
+        if (instance != null)
+        {
+            instance.Bind(canvas, size);
+            return instance;
+        }
 
         var bgObj = new GameObject("JoystickBG", typeof(RectTransform), typeof(Image));
         bgObj.transform.SetParent(canvas.transform, false);
         var bgRect = (RectTransform)bgObj.GetComponent(typeof(RectTransform));
         bgRect.sizeDelta = new Vector2(size, size);
-        bgRect.anchorMin = new Vector2(0, 0);
-        bgRect.anchorMax = new Vector2(0, 0);
+        bgRect.anchorMin = new Vector2(0.5f, 0.5f);
+        bgRect.anchorMax = new Vector2(0.5f, 0.5f);
         bgRect.pivot = new Vector2(0.5f, 0.5f);
-        bgRect.anchoredPosition = new Vector2(1760f, 160f);
+        bgRect.anchoredPosition = new Vector2(-550f, -260f);
         var bgImg = (Image)bgObj.GetComponent(typeof(Image));
-        bgImg.color = new Color(1f, 1f, 1f, 0f);
+        bgImg.color = new Color(0.15f, 0.78f, 1f, 0.28f);
+        bgImg.raycastTarget = true;
 
         var handleObj = new GameObject("JoystickHandle", typeof(RectTransform), typeof(Image));
         handleObj.transform.SetParent(bgObj.transform, false);
@@ -48,7 +71,8 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
         handleRect.sizeDelta = new Vector2(size * 0.4f, size * 0.4f);
         handleRect.anchoredPosition = Vector2.zero;
         var handleImg = (Image)handleObj.GetComponent(typeof(Image));
-        handleImg.color = new Color(1f, 1f, 1f, 0f);
+        handleImg.color = new Color(1f, 1f, 1f, 0.55f);
+        handleImg.raycastTarget = true;
 
         instance = bgObj.AddComponent<GFM_Joystick>();
         instance._bg = bgRect;
@@ -56,25 +80,95 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
         instance._bgImage = bgImg;
         instance._handleImage = handleImg;
         instance._radius = size * 0.5f;
-        instance._bgStartPos = bgRect.anchoredPosition;
+        instance.SetVisible(false);
 
         return instance;
+    }
+
+    private void Bind(Canvas canvas, float size)
+    {
+        if (_bg == null) _bg = (RectTransform)GetComponent(typeof(RectTransform));
+        if (_bgImage == null) _bgImage = (Image)GetComponent(typeof(Image));
+        if (_bgImage != null) _bgImage.raycastTarget = true;
+        if (_handle == null && transform.childCount > 0)
+        {
+            var child = transform.GetChild(0);
+            _handle = (RectTransform)child.GetComponent(typeof(RectTransform));
+            _handleImage = (Image)child.GetComponent(typeof(Image));
+            if (_handleImage != null) _handleImage.raycastTarget = true;
+        }
+        if (canvas != null && _bg != null && _bg.parent != canvas.transform)
+        {
+            _bg.SetParent(canvas.transform, false);
+        }
+        _radius = _bg != null ? Mathf.Max(_bg.sizeDelta.x, _bg.sizeDelta.y) * 0.5f : size * 0.5f;
+        SetVisible(_dragging);
     }
 
     // 处理摇杆按下，开始记录拖拽方向。
     public void OnPointerDown(PointerEventData eventData)
     {
-        _dragging = true;
-        _bg.anchoredPosition = eventData.position;
-        SetVisible(true);
-        OnDrag(eventData);
+        BeginDragAt(eventData.position);
+        UpdateDrag(eventData.position, eventData.pressEventCamera);
     }
 
     // 处理摇杆拖拽并更新方向向量。
     public void OnDrag(PointerEventData eventData)
     {
+        UpdateDrag(eventData.position, eventData.pressEventCamera);
+    }
+
+    // 处理摇杆松开并重置方向。
+    public void OnPointerUp(PointerEventData eventData)
+    {
+        EndDrag();
+    }
+
+    // 支持源 HTML 的任意非 HUD 位置摇杆:用户按在屏幕任意位置后,摇杆原点移动到触点。
+    private void Update()
+    {
+        PollInput();
+    }
+
+    // Luna bridge 只调度 GameFlowManagerMain.Update();Player 在主循环中显式 tick widget,
+    // 保持"真实 pointer -> joystick widget -> widget 状态 -> Player 输入"链路。
+    public void PollInput()
+    {
+        if (Input.GetMouseButtonDown(0)) BeginDragAt(Input.mousePosition);
+        if (_dragging && Input.GetMouseButton(0)) UpdateDrag(Input.mousePosition, null);
+        if (_dragging && Input.GetMouseButtonUp(0)) EndDrag();
+    }
+
+    private void BeginDragAt(Vector2 screenPosition)
+    {
+        _dragging = true;
+        if (_bg != null)
+        {
+            Vector2 localPoint;
+            var parentRect = _bg.parent as RectTransform;
+            var canvas = _bg.GetComponentInParent<Canvas>();
+            Camera eventCamera = canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? (canvas.worldCamera != null ? canvas.worldCamera : Camera.main)
+                : null;
+            if (parentRect != null && RectTransformUtility.ScreenPointToLocalPointInRectangle(parentRect, screenPosition, eventCamera, out localPoint))
+                _bg.anchoredPosition = localPoint;
+            else
+                _bg.position = screenPosition;
+        }
+        SetVisible(true);
+    }
+
+    private void UpdateDrag(Vector2 screenPosition, Camera eventCamera)
+    {
+        if (_bg == null || _handle == null) return;
+        if (eventCamera == null)
+        {
+            var canvas = _bg.GetComponentInParent<Canvas>();
+            if (canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay)
+                eventCamera = canvas.worldCamera != null ? canvas.worldCamera : Camera.main;
+        }
         Vector2 localPos;
-        if (RectTransformUtility.ScreenPointToLocalPointInRectangle(_bg, eventData.position, eventData.pressEventCamera, out localPos))
+        if (RectTransformUtility.ScreenPointToLocalPointInRectangle(_bg, screenPosition, eventCamera, out localPos))
         {
             if (localPos.magnitude > _radius)
                 localPos = localPos.normalized * _radius;
@@ -83,11 +177,10 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
         }
     }
 
-    // 处理摇杆松开并重置方向。
-    public void OnPointerUp(PointerEventData eventData)
+    private void EndDrag()
     {
         _dragging = false;
-        _handle.anchoredPosition = Vector2.zero;
+        if (_handle != null) _handle.anchoredPosition = Vector2.zero;
         _input = Vector2.zero;
         SetVisible(false);
     }
@@ -97,7 +190,7 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
     {
         float bgAlpha = visible ? 0.3f : 0f;
         float handleAlpha = visible ? 0.6f : 0f;
-        if (_bgImage != null) _bgImage.color = new Color(1f, 1f, 1f, bgAlpha);
+        if (_bgImage != null) _bgImage.color = new Color(0.15f, 0.78f, 1f, bgAlpha);
         if (_handleImage != null) _handleImage.color = new Color(1f, 1f, 1f, handleAlpha);
     }
 }

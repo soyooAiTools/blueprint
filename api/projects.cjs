@@ -3,11 +3,13 @@
  * Extracted from server.cjs — project CRUD, submit, feedback, approve, specs
  */
 var fs = require('fs');
+var crypto = require('crypto');
 var { projectSM } = require('../lib/state-machine.cjs');
 var { ensureProjectPlans } = require('../adapters/assembly-plan-pipeline.cjs');
 var { normalizeProjectBlueprint } = require('../lib/project-blueprint-normalizer.cjs');
 var programmerDeliveryCleaner = require('../lib/programmer-delivery-cleaner.cjs');
 var { normalizeLegendShape, normalizeLegendColor } = require('../engine/legend-normalizer.cjs');
+var path = require('path');
 
 /**
  * Validate project state transition. Returns error string or null if valid.
@@ -32,7 +34,32 @@ function forceProjectTransition(project, newStatus, actor) {
   project.updatedAt = new Date().toISOString();
   return project;
 }
-var path = require('path');
+
+function sha256OfFile(filePath) {
+  var hash = crypto.createHash('sha256');
+  hash.update(fs.readFileSync(filePath));
+  return hash.digest('hex');
+}
+
+function resolveSourceHtmlForExport(project, bp, visualAssets) {
+  var candidates = [
+    bp && bp.sourceHtmlPath,
+    project && project.sourceHtmlPath,
+    visualAssets && visualAssets.source,
+    project && /\.html?$/i.test(String(project.source || '')) ? project.source : null,
+  ];
+  for (var i = 0; i < candidates.length; i++) {
+    var value = candidates[i];
+    if (!value || !/\.html?$/i.test(String(value))) continue;
+    var abs = path.resolve(String(value));
+    try {
+      if (fs.existsSync(abs) && fs.statSync(abs).isFile()) {
+        return { path: abs, sha256: sha256OfFile(abs) };
+      }
+    } catch(e) {}
+  }
+  return null;
+}
 
 module.exports.init = function(ctx) {
   var taskQueue = ctx.taskQueue;
@@ -57,6 +84,10 @@ module.exports.init = function(ctx) {
     normalizeProjectBlueprint(project);
     ensureProjectPlans(project);
     var bp = JSON.parse(JSON.stringify(project.blueprint || {}));
+    var visualAssets = project.visualAssets
+      ? JSON.parse(JSON.stringify(project.visualAssets))
+      : (bp.visualAssets ? JSON.parse(JSON.stringify(bp.visualAssets)) : null);
+    var sourceHtml = resolveSourceHtmlForExport(project, bp, visualAssets);
     var nodes = bp.nodes || [];
     for (var i = 0; i < nodes.length; i++) {
       var d = nodes[i].data;
@@ -80,7 +111,7 @@ module.exports.init = function(ctx) {
       }
       // Keep feedback/revisions as-is (text only)
     }
-    return {
+    var exported = {
       projectName: project.name,
       svnUrl: project.svnUrl || '',
       nodes: nodes,
@@ -100,6 +131,13 @@ module.exports.init = function(ctx) {
       planValidation: project.planValidation || null,
       exportedAt: new Date().toISOString()
     };
+    if (visualAssets) exported.visualAssets = visualAssets;
+    if (sourceHtml) {
+      exported.sourceHtmlPath = sourceHtml.path;
+      exported.sourceHtmlSha256 = sourceHtml.sha256;
+      exported.storyboard.htmlPath = exported.storyboard.htmlPath || sourceHtml.path;
+    }
+    return exported;
   }
 
   // 删除项目时清理 autoCoding 队列 + 标记任务取消
