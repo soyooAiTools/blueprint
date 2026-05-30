@@ -154,6 +154,8 @@ var hudByIdR4 = {};
 r4.contract.hud.forEach(function(h) { hudByIdR4[h.id] = h; });
 assert.ok(hudByIdR4['hud.phase'].text.perPhase);
 assert.strictEqual(hudByIdR4['hud.phase'].text.perPhase.phase2, 'Phase 2/3');
+assert.strictEqual(hudByIdR4['hud.phase'].provenance.source, 'html',
+  'rewritten HUD provenance must use validator-accepted source enum');
 
 // ─── case 5: PHASES missing → stays at 1.3.0 ──────────────────────────────────
 var htmlPath5 = writeFile(tmpPath('case5.html'), syntheticHtml({ skipPhases: true }));

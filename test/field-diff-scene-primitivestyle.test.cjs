@@ -20,7 +20,9 @@
 //  11. runFieldLevelDiff shim flattens scene-* and primitiveStyle-* with blocking:true
 //  12. summarize() bucketTotals tracks scene + primitiveStyle keys
 //  13. WEBGL extractor reads worker __storyboardEntityDetails primitiveStyle bridge
-//  14. WEBGL extractor prioritizes worker __storyboardSceneDetails scene bridge
+//  14. primitiveStyle canonical merge keeps runtime detail when v1.4e bridge
+//      also emits source-key geometry-only detail
+//  15. WEBGL extractor prioritizes worker __storyboardSceneDetails scene bridge
 
 var assert = require('assert');
 var fd = require('../engine/stages/lib/field-diff.cjs');
@@ -180,7 +182,72 @@ assert.strictEqual(extracted13.entityDetails.Player.primitiveCount, 7);
 assert.strictEqual(fd.diffPrimitiveStyleBucket(idx1, 'phase1', extracted13).length, 0,
   'worker bridge detail should clear primitiveStyle bucket');
 
-// ─── case 14: WEBGL extractor consumes worker scene bridge ────────────────────
+// ─── case 14: source-key worldLabel geometry detail must not clobber style ─────
+var styleThenGeometry = {
+  visibleEntities: ['Player'],
+  entityDetails: {
+    Player: { primitiveStyle: { modelRef: 'astronaut', baseColor: [0.9098, 0.9843, 1] } },
+    _player: {}
+  }
+};
+var geometryThenStyle = {
+  visibleEntities: ['Player'],
+  entityDetails: {
+    _player: {},
+    Player: { primitiveStyle: { modelRef: 'astronaut', baseColor: [0.9098, 0.9843, 1] } }
+  }
+};
+assert.strictEqual(fd.diffPrimitiveStyleBucket(idx1, 'phase1', styleThenGeometry).length, 0,
+  'canonical merge must preserve primitiveStyle when v1.4e bridge adds empty source-key detail');
+assert.strictEqual(fd.diffPrimitiveStyleBucket(idx1, 'phase1', geometryThenStyle).length, 0,
+  'canonical merge must be stable when source-key detail is observed before runtime style detail');
+
+// Canonical-like extractor fixture: DOM world-label detail at Player,
+// strict Stage 5 geometry bridge at _player, and primitiveStyle bridge at Player.
+var labelEl = {
+  textContent: '玩家',
+  getAttribute: function(name) { return name === 'data-entity' ? 'Player' : null; },
+  getBoundingClientRect: function() {
+    return { left: 100, top: 120, width: 48, height: 20 };
+  }
+};
+global.window = {
+  innerWidth: 1280,
+  innerHeight: 720,
+  __gameState: { entity_states: { Player: { visible: true } } },
+  __targetWorldLabels: {
+    _player: { x: 100, y: 120, width: 48, height: 20, centerX: 124, centerY: 130 }
+  },
+  __storyboardEntityDetails: {
+    Player: {
+      primitiveStyle: { modelRef: 'astronaut', baseColor: [0.9098, 0.9843, 1] },
+      visualKind: 'styled-composite:astronaut',
+      primitiveCount: 7
+    }
+  },
+  getComputedStyle: function() { return { display: 'block', visibility: 'visible', opacity: '1' }; }
+};
+global.document = {
+  querySelector: function() { return null; },
+  querySelectorAll: function(sel) {
+    return sel === '#bp-storyboard-worldlabels .bp-worldlabel[data-entity]' ? [labelEl] : [];
+  }
+};
+var extracted14;
+try {
+  extracted14 = template13.WEBGL_PAGE_EXTRACTOR({ phaseId: 'phase1' });
+} finally {
+  global.window = prevWindow;
+  global.document = prevDocument;
+}
+assert.ok(extracted14.entityDetails.Player && extracted14.entityDetails.Player.primitiveStyle,
+  'canonical-like extractor fixture should include runtime primitiveStyle detail');
+assert.ok(extracted14.entityDetails._player,
+  'canonical-like extractor fixture should include source-key worldLabel geometry detail');
+assert.strictEqual(fd.diffPrimitiveStyleBucket(idx1, 'phase1', extracted14).length, 0,
+  'canonical merge must clear primitiveStyle with real Player + _player extractor shape');
+
+// ─── case 15: WEBGL extractor consumes worker scene bridge ────────────────────
 global.window = {
   __gameState: { entity_states: { Player: { visible: true } } },
   __storyboardSceneDetails: {

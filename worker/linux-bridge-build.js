@@ -2098,8 +2098,11 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           div.textContent = wl.text;
           container.appendChild(div);
           var wo = wl.worldOffset || {};
+          var parentLeaf = String(e.parentPath || '').split('/').filter(Boolean).pop();
           labels.push({
             entityId: entityId,
+            runtimeAliases: [entityId, e.name],
+            sourceAliases: [parentLeaf],
             ox: Number(wo.x) || 0,
             oy: Number(wo.y) || 0,
             oz: Number(wo.z) || 0,
@@ -2149,6 +2152,26 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           if (!raw) return '';
           return raw.charAt(0).toUpperCase() + raw.slice(1);
         }
+        function pushWorldLabelLookupKey(keys, raw) {
+          raw = String(raw || '');
+          if (!raw) return;
+          for (var i = 0; i < keys.length; i++) {
+            if (keys[i] === raw) return;
+          }
+          keys.push(raw);
+        }
+        function addWorldLabelLookupAliases(keys, raw, allowSourceKeyAlias) {
+          raw = String(raw || '');
+          if (!raw) return;
+          pushWorldLabelLookupKey(keys, raw);
+          var noUnder = raw.replace(/^_+/, '');
+          if (!noUnder) return;
+          pushWorldLabelLookupKey(keys, noUnder);
+          pushWorldLabelLookupKey(keys, canonicalWorldLabelEntityName(raw));
+          if (allowSourceKeyAlias || raw.charAt(0) === '_') {
+            pushWorldLabelLookupKey(keys, '_' + noUnder.charAt(0).toLowerCase() + noUnder.slice(1));
+          }
+        }
         function normalizeProjectedWorldLabelRect(rec) {
           if (!rec || typeof rec !== 'object') return null;
           var x = worldLabelRecordValue(rec, ['x', 'x_px']);
@@ -2164,14 +2187,18 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           if (![x, y, w, h, cx, cy].every(isFinite)) return null;
           return { x: x, y: y, width: Math.max(0, w), height: Math.max(0, h), centerX: cx, centerY: cy };
         }
-        function lookupProjectedWorldLabel(rects, entityId) {
+        function lookupProjectedWorldLabel(rects, entityId, runtimeAliases, sourceAliases) {
           if (!rects || typeof rects !== 'object') return null;
-          var raw = String(entityId || '');
-          var keys = [raw, canonicalWorldLabelEntityName(raw), raw.replace(/^_+/, '')];
-          var noUnder = raw.replace(/^_+/, '');
-          keys.push(noUnder.charAt(0).toUpperCase() + noUnder.slice(1));
+          var keys = [];
+          addWorldLabelLookupAliases(keys, entityId, false);
+          runtimeAliases = Array.isArray(runtimeAliases) ? runtimeAliases : [];
+          for (var ai = 0; ai < runtimeAliases.length; ai++) addWorldLabelLookupAliases(keys, runtimeAliases[ai], false);
+          sourceAliases = Array.isArray(sourceAliases) ? sourceAliases : [];
+          for (var si = 0; si < sourceAliases.length; si++) addWorldLabelLookupAliases(keys, sourceAliases[si], true);
           for (var i = 0; i < keys.length; i++) {
-            if (keys[i] && rects[keys[i]]) return normalizeProjectedWorldLabelRect(rects[keys[i]]);
+            if (!keys[i] || !rects[keys[i]]) continue;
+            var rect = normalizeProjectedWorldLabelRect(rects[keys[i]]);
+            if (rect) return { key: keys[i], rect: rect };
           }
           return null;
         }
@@ -2237,11 +2264,12 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           var measured = {};
           for (var li = 0; li < labels.length; li++) {
             var L = labels[li];
-            var projectedRect = lookupProjectedWorldLabel(projected, L.entityId);
-            if (projected && !projectedRect) {
+            var projectedHit = lookupProjectedWorldLabel(projected, L.entityId, L.runtimeAliases, L.sourceAliases);
+            if (projected && !projectedHit) {
               setWorldLabelHidden(L, measured);
               continue;
             }
+            var projectedRect = projectedHit && projectedHit.rect;
             if (projectedRect) {
               var vr = projectWorldLabelRectToViewport(projectedRect);
               L.div.style.transform = 'none';
@@ -2254,7 +2282,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               L.div.style.alignItems = 'center';
               L.div.style.justifyContent = 'center';
               L.div.style.opacity = '1';
-              measured[L.entityId] = observedWorldLabelRect(L.div, true);
+              measured[projectedHit.key] = observedWorldLabelRect(L.div, true);
               continue;
             }
             var ent = findEnt(pcApp.root, L.entityId);
