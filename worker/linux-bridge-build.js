@@ -1744,6 +1744,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           }
           function entityScreenRect(ent) {
             if (!ent || !camEnt || !camEnt.camera || typeof camEnt.camera.worldToScreen !== 'function') return null;
+            syncOverlayTransforms();
             var points = [];
             function walk(node) {
               if (!node) return;
@@ -1776,7 +1777,46 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           }
           function projectPosition(pos) {
             if (!pos || !camEnt || !camEnt.camera || typeof camEnt.camera.worldToScreen !== 'function') return null;
+            syncOverlayTransforms();
             return camEnt.camera.worldToScreen(new pc.Vec3(Number(pos.x) || 0, Number(pos.y) || 0, Number(pos.z) || 0));
+          }
+          function syncOverlayTransforms() {
+            try {
+              if (pcApp && pcApp.root && typeof pcApp.root.syncHierarchy === 'function') pcApp.root.syncHierarchy();
+            } catch(e) {}
+          }
+          function clampScaleRatio(ratio, min, max) {
+            if (!isFinite(ratio)) return 1;
+            return Math.max(min, Math.min(max, ratio));
+          }
+          function calibrateOverlayEntityScreenSize(ent, rect, target) {
+            if (!ent || !rect || !target || target.w <= 0 || target.h <= 0 || rect.w_px <= 1 || rect.h_px <= 1) return rect;
+            var wRatio = target.w / Math.max(1, rect.w_px);
+            var hRatio = target.h / Math.max(1, rect.h_px);
+            if (!isFinite(wRatio) || !isFinite(hRatio)) return rect;
+            if (Math.abs(1 - wRatio) <= 0.015 && Math.abs(1 - hRatio) <= 0.015) return rect;
+            var aspectScale = ent.getLocalScale ? ent.getLocalScale() : null;
+            if (!aspectScale) return rect;
+            // Fit the runtime bbox to the contract's screen-space rect directly:
+            // width maps to ground-plane scale, height maps to vertical scale, and
+            // the center solve below absorbs the projection coupling.
+            var xzRatio = clampScaleRatio(wRatio, 0.45, 2.2);
+            var yRatio = clampScaleRatio(hRatio, 0.45, 2.2);
+            ent.setLocalScale(
+              (Number(aspectScale.x) || 1) * xzRatio,
+              (Number(aspectScale.y) || 1) * yRatio,
+              (Number(aspectScale.z) || 1) * xzRatio
+            );
+            syncOverlayTransforms();
+            return entityScreenRect(ent) || rect;
+          }
+          function rectWithinAnchorFitTolerance(rect, target) {
+            if (!rect || !target) return false;
+            var tol = 7;
+            return Math.abs(Number(rect.x_px) - Number(target.x)) <= tol
+              && Math.abs(Number(rect.y_px) - Number(target.y)) <= tol
+              && Math.abs(Number(rect.w_px) - Number(target.w)) <= tol
+              && Math.abs(Number(rect.h_px) - Number(target.h)) <= tol;
           }
           function calibrateOverlayEntityToAnchor(ent, anchor) {
             if (!ent || !anchor || anchor.provenance === 'inferred-default') return;
@@ -1788,13 +1828,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               var rect = entityScreenRect(ent);
               if (!rect) return;
               if (anchor.provenance !== 'anchor-only' && target.w > 0 && target.h > 0 && rect.w_px > 1 && rect.h_px > 1) {
-                var ratio = Math.sqrt((target.w * target.h) / Math.max(1, rect.w_px * rect.h_px));
-                if (isFinite(ratio) && Math.abs(1 - ratio) > 0.01) {
-                  ratio = Math.max(0.35, Math.min(2.8, ratio));
-                  var ls = ent.getLocalScale ? ent.getLocalScale() : null;
-                  if (ls) ent.setLocalScale((Number(ls.x) || 1) * ratio, (Number(ls.y) || 1) * ratio, (Number(ls.z) || 1) * ratio);
-                  rect = entityScreenRect(ent) || rect;
-                }
+                rect = calibrateOverlayEntityScreenSize(ent, rect, target);
               }
               var currentCx = rect.x_px + rect.w_px / 2;
               var currentCy = rect.y_px + rect.h_px / 2;
@@ -1819,8 +1853,10 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               var mag = Math.sqrt(wx * wx + wz * wz);
               if (mag > maxStep) { wx = wx / mag * maxStep; wz = wz / mag * maxStep; }
               ent.setPosition(Number(pos.x) + wx, Number(pos.y) || 0, Number(pos.z) + wz);
+              syncOverlayTransforms();
             }
           }
+          var anchorFitApplied = {};
           function applyProjectedAnchorCalibration(gs) {
             var anchorPhase = projectedAnchorPhaseForOverlayState(gs);
             var anchors = anchorPhase && anchorPhase.projectedAnchors;
@@ -1829,9 +1865,13 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               return;
             }
             var measured = {};
+            var phaseId = anchorPhase.id || gs && (gs.currentPhase || gs.phase) || 'current';
+            var fitForPhase = anchorFitApplied[phaseId] || {};
+            anchorFitApplied[phaseId] = fitForPhase;
             Object.keys(anchors).forEach(function(contractId) {
               var anchor = anchors[contractId];
-              var ent = entityRoots[anchorOverlayName(contractId)];
+              var overlayName = anchorOverlayName(contractId);
+              var ent = entityRoots[overlayName];
               if (!ent) return;
               calibrateOverlayEntityToAnchor(ent, anchor);
               var rect = entityScreenRect(ent);
@@ -1843,12 +1883,24 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
                   h_px: Number(rect.h_px.toFixed ? rect.h_px.toFixed(2) : rect.h_px),
                   provenance: 'extracted'
                 };
+                if (viewportIntersectsAnchor(anchor) && rectWithinAnchorFitTolerance(rect, anchorToCanvas(anchor))) fitForPhase[overlayName] = true;
               }
             });
             window.__targetAnchors = window.__targetAnchors || {};
-            var phaseId = anchorPhase.id || gs && (gs.currentPhase || gs.phase) || 'current';
             window.__targetAnchors[phaseId] = measured;
             window.__targetAnchors.current = measured;
+          }
+          function currentViewportAnchoredOverlays(gs) {
+            var anchorPhase = projectedAnchorPhaseForOverlayState(gs);
+            var anchors = anchorPhase && anchorPhase.projectedAnchors;
+            var out = {};
+            if (!anchors || typeof anchors !== 'object') return out;
+            Object.keys(anchors).forEach(function(contractId) {
+              var anchor = anchors[contractId];
+              if (!viewportIntersectsAnchor(anchor)) return;
+              out[anchorOverlayName(contractId)] = true;
+            });
+            return out;
           }
           var names = manifest.sourceEntityContract.entities || Object.keys(styles);
           for (var ni = 0; ni < names.length; ni++) {
@@ -1880,10 +1932,14 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             var gs = null;
             try { gs = typeof window.__gameState === 'function' ? window.__gameState() : window.__gameState; } catch(e) {}
             var states = gs && (gs.entity_states || gs.entityStates) || {};
+            var viewportAnchored = currentViewportAnchoredOverlays(gs);
+            var anchorPhase = projectedAnchorPhaseForOverlayState(gs);
+            var phaseId = anchorPhase && anchorPhase.id || gs && (gs.currentPhase || gs.phase) || 'current';
+            var fitForPhase = anchorFitApplied[phaseId] || {};
             Object.keys(entityRoots).forEach(function(name) {
               var st = states[name];
               var p = st && st.position;
-              if (p && isFinite(Number(p.x)) && isFinite(Number(p.z))) {
+              if (p && isFinite(Number(p.x)) && isFinite(Number(p.z)) && !(viewportAnchored[name] && fitForPhase[name])) {
                 entityRoots[name].setPosition(Number(p.x), Number(p.y) || 0, Number(p.z));
               }
               if (st && st.visible === false) entityRoots[name].enabled = false;
