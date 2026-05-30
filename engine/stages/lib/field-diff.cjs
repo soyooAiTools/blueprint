@@ -929,6 +929,85 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
     }
   }
 
+  // 6. scene background — v1.4d Visual Fidelity Chain.
+  //     Use the worker's stable observation bridge first: scene.backgroundColor
+  //     is a scene/camera property, while canvas corner pixels can be occluded by
+  //     ground/decor/entity geometry. Canvas sampling remains a fallback for
+  //     runtimes that have no bridge; camera clearColor is the final fallback.
+  try {
+    function clamp01(n) {
+      n = Number(n);
+      if (!isFinite(n)) return 0;
+      return Math.max(0, Math.min(1, n));
+    }
+    function rgbFromColorObj(c) {
+      if (!c || typeof c.r !== 'number') return null;
+      return [clamp01(c.r), clamp01(c.g), clamp01(c.b)];
+    }
+    function sceneFromBridge() {
+      if (typeof window === 'undefined' || !window.__storyboardSceneDetails) return null;
+      var bg = window.__storyboardSceneDetails.backgroundColor;
+      if (!Array.isArray(bg) || bg.length < 3) return null;
+      return [clamp01(bg[0]), clamp01(bg[1]), clamp01(bg[2])];
+    }
+    function sceneFromCamera() {
+      var clear = null;
+      if (pcApp && pcApp.scene && pcApp.scene.activeCamera) {
+        clear = pcApp.scene.activeCamera.clearColor;
+      }
+      if (!clear && pcApp && pcApp.root) {
+        (function walk(node) {
+          if (!node || clear) return;
+          if (node.camera && node.camera.clearColor) {
+            clear = node.camera.clearColor;
+            return;
+          }
+          var children = node.children || node._children || [];
+          for (var ci = 0; ci < children.length; ci++) walk(children[ci]);
+        })(pcApp.root);
+      }
+      return rgbFromColorObj(clear);
+    }
+    function sceneFromCanvas() {
+      var canvas = null;
+      if (typeof document !== 'undefined') {
+        if (typeof document.getElementById === 'function') canvas = document.getElementById('application-canvas');
+        if (!canvas && typeof document.querySelector === 'function') canvas = document.querySelector('canvas');
+      }
+      if (!canvas || typeof canvas.getContext !== 'function') return null;
+      var gl = null;
+      try { gl = canvas.getContext('webgl2', { preserveDrawingBuffer: true }); } catch (e2) { gl = null; }
+      if (!gl) {
+        try { gl = canvas.getContext('webgl', { preserveDrawingBuffer: true }); } catch (e1) { gl = null; }
+      }
+      if (!gl || typeof gl.readPixels !== 'function') return null;
+      var w = canvas.width || 0;
+      var h = canvas.height || 0;
+      if (w <= 4 || h <= 4) return null;
+      var points = [
+        [Math.max(1, Math.floor(w * 0.02)), Math.max(1, Math.floor(h * 0.02))],
+        [Math.min(w - 2, Math.floor(w * 0.98)), Math.max(1, Math.floor(h * 0.02))],
+        [Math.max(1, Math.floor(w * 0.02)), Math.min(h - 2, Math.floor(h * 0.98))],
+        [Math.min(w - 2, Math.floor(w * 0.98)), Math.min(h - 2, Math.floor(h * 0.98))]
+      ];
+      var pix = new Uint8Array(4);
+      var samples = [];
+      for (var pi = 0; pi < points.length; pi++) {
+        try {
+          gl.readPixels(points[pi][0], points[pi][1], 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pix);
+          samples.push([pix[0] / 255, pix[1] / 255, pix[2] / 255]);
+        } catch (eRead) {}
+      }
+      if (!samples.length) return null;
+      samples.sort(function(a, b) {
+        return (a[0] + a[1] + a[2]) - (b[0] + b[1] + b[2]);
+      });
+      return samples[0];
+    }
+    var bgObserved = sceneFromBridge() || sceneFromCanvas() || sceneFromCamera();
+    if (bgObserved) out.scene = { backgroundColor: bgObserved };
+  } catch (e) { /* leave scene missing on extractor error */ }
+
   // 6a. worldLabel DOM overlay — task #49 v1.4c-β. The worker installs
   //     `#bp-storyboard-worldlabels > .bp-worldlabel[data-entity]` divs, one per
   //     contract.entities[].worldLabel. Extractor reads text regardless of
