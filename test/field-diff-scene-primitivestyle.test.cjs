@@ -22,7 +22,10 @@
 //  13. WEBGL extractor reads worker __storyboardEntityDetails primitiveStyle bridge
 //  14. primitiveStyle canonical merge keeps runtime detail when v1.4e bridge
 //      also emits source-key geometry-only detail
-//  15. WEBGL extractor prioritizes worker __storyboardSceneDetails scene bridge
+//  15. scene bucket blocks declaration/render divergence
+//  16. WEBGL extractor prioritizes canvas readPixels and keeps bridge auxiliary
+//  17. WEBGL scene sampler uses unbiased edge-ring median, not declaration match
+//  18. WEBGL scene sampler ignores contract-known foreground sample occluders
 
 var assert = require('assert');
 var fd = require('../engine/stages/lib/field-diff.cjs');
@@ -64,6 +67,19 @@ var sc3 = fd.diffSceneBucket(idx1, 'phase1', {
   scene: { backgroundColor: [0.02750001, 0.06270001, 0.149] } // sub-epsilon drift
 });
 assert.strictEqual(sc3.length, 0, 'sub-epsilon match must produce no entries');
+
+// ─── case 3b: bridge declaration diverges from actual render → blocking ───────
+var sc3b = fd.diffSceneBucket(idx1, 'phase1', {
+  visibleEntities: ['Player'],
+  scene: {
+    backgroundColor: idx1.contract.scene.backgroundColor.slice(),
+    declaredBackgroundColor: [0.5, 0.5, 0.5],
+    backgroundColorSource: 'canvas-readpixels'
+  }
+});
+assert.strictEqual(sc3b.length, 1, 'declared/actual divergence must block');
+assert.strictEqual(sc3b[0].status, 'declaration-render-mismatch');
+assert.strictEqual(sc3b[0].blocking, true);
 
 // ─── case 4: pre-v1.3 contract (no scene) → empty ──────────────────────────────
 var idx4 = fd.indexContract(v13Contract({ scene: null }));
@@ -247,11 +263,11 @@ assert.ok(extracted14.entityDetails._player,
 assert.strictEqual(fd.diffPrimitiveStyleBucket(idx1, 'phase1', extracted14).length, 0,
   'canonical merge must clear primitiveStyle with real Player + _player extractor shape');
 
-// ─── case 15: WEBGL extractor consumes worker scene bridge ────────────────────
+// ─── case 16: WEBGL extractor reads actual canvas before bridge ───────────────
 global.window = {
   __gameState: { entity_states: { Player: { visible: true } } },
   __storyboardSceneDetails: {
-    backgroundColor: [0.0275, 0.0627, 0.149],
+    backgroundColor: idx1.contract.scene.backgroundColor.slice(),
     source: 'fidelityContract.scene.backgroundColor'
   }
 };
@@ -281,9 +297,129 @@ try {
   global.window = prevWindow;
   global.document = prevDocument;
 }
-assert.deepStrictEqual(extracted14.scene.backgroundColor, [0.0275, 0.0627, 0.149],
-  'WEBGL extractor should prefer worker scene bridge over occlusion-prone canvas samples');
-assert.strictEqual(fd.diffSceneBucket(idx1, 'phase1', extracted14).length, 0,
-  'worker scene bridge should clear scene bucket');
+assert.deepStrictEqual(extracted14.scene.backgroundColor, [1, 0, 0],
+  'WEBGL extractor should use actual canvas pixels as primary scene evidence');
+assert.deepStrictEqual(extracted14.scene.declaredBackgroundColor, idx1.contract.scene.backgroundColor,
+  'WEBGL extractor should keep worker scene bridge as auxiliary declaration');
+assert.strictEqual(extracted14.scene.backgroundColorSource, 'canvas-readpixels');
+var sceneActualDiffs = fd.diffSceneBucket(idx1, 'phase1', extracted14);
+assert.strictEqual(sceneActualDiffs.length, 2,
+  'actual canvas mismatch plus declaration/render divergence must both be visible');
+assert.ok(sceneActualDiffs.some(function(e) { return e.status === 'mismatch'; }));
+assert.ok(sceneActualDiffs.some(function(e) { return e.status === 'declaration-render-mismatch'; }));
+
+// ─── case 17: WEBGL scene sampler uses unbiased median, not declaration match ─
+var canvasSamples = [
+  [7, 16, 38, 255],
+  [107, 142, 183, 255],
+  [107, 142, 183, 255],
+  [107, 142, 183, 255],
+  [107, 142, 183, 255],
+  [107, 142, 183, 255],
+  [107, 142, 183, 255],
+  [107, 142, 183, 255]
+];
+var canvasSampleIndex = 0;
+global.window = {
+  __gameState: { entity_states: { Player: { visible: true } } },
+  __storyboardSceneDetails: {
+    backgroundColor: idx1.contract.scene.backgroundColor.slice(),
+    source: 'fidelityContract.scene.backgroundColor'
+  }
+};
+global.document = {
+  getElementById: function() {
+    return {
+      width: 100,
+      height: 100,
+      getContext: function() {
+        return {
+          RGBA: 0,
+          UNSIGNED_BYTE: 0,
+          readPixels: function(x, y, w, h, fmt, typ, pix) {
+            var sample = canvasSamples[Math.min(canvasSampleIndex++, canvasSamples.length - 1)];
+            pix[0] = sample[0]; pix[1] = sample[1]; pix[2] = sample[2]; pix[3] = sample[3];
+          }
+        };
+      }
+    };
+  },
+  querySelector: function() { return null; },
+  querySelectorAll: function() { return []; }
+};
+var extracted15;
+try {
+  extracted15 = template13.WEBGL_PAGE_EXTRACTOR({ phaseId: 'phase1' });
+} finally {
+  global.window = prevWindow;
+  global.document = prevDocument;
+}
+assert.deepStrictEqual(extracted15.scene.backgroundColor, [107 / 255, 142 / 255, 183 / 255],
+  'WEBGL scene sampler must not choose the one canvas point closest to the bridge declaration');
+assert.strictEqual(extracted15.scene.backgroundColorSampleStrategy, '8-point-edge-ring');
+assert.strictEqual(extracted15.scene.backgroundColorSamples.length, 8);
+
+// ─── case 18: known foreground rects are reported but excluded from scene ΔE ─
+canvasSampleIndex = 0;
+canvasSamples = [
+  [7, 16, 38, 255],
+  [7, 16, 38, 255],
+  [7, 16, 38, 255],
+  [7, 16, 38, 255],
+  [7, 16, 38, 255],
+  [7, 16, 38, 255],
+  [7, 16, 38, 255],
+  [255, 255, 197, 255]
+];
+global.window = {
+  __gameState: { entity_states: { ForwardBeacon: { visible: true } } },
+  __storyboardSceneDetails: {
+    backgroundColor: idx1.contract.scene.backgroundColor.slice(),
+    source: 'fidelityContract.scene.backgroundColor'
+  },
+  __BLUEPRINT_VISUAL_ASSETS__: {
+    fidelityContract: {
+      phases: [{
+        id: 'phase1',
+        projectedWorldLabels: {
+          _forwardBeacon: { x: 85, y: 42, width: 20, height: 20 }
+        }
+      }]
+    }
+  }
+};
+global.document = {
+  getElementById: function() {
+    return {
+      width: 100,
+      height: 100,
+      getContext: function() {
+        return {
+          RGBA: 0,
+          UNSIGNED_BYTE: 0,
+          readPixels: function(x, y, w, h, fmt, typ, pix) {
+            var sample = canvasSamples[Math.min(canvasSampleIndex++, canvasSamples.length - 1)];
+            pix[0] = sample[0]; pix[1] = sample[1]; pix[2] = sample[2]; pix[3] = sample[3];
+          }
+        };
+      }
+    };
+  },
+  querySelector: function() { return null; },
+  querySelectorAll: function() { return []; }
+};
+var extracted16;
+try {
+  extracted16 = template13.WEBGL_PAGE_EXTRACTOR({ phaseId: 'phase1' });
+} finally {
+  global.window = prevWindow;
+  global.document = prevDocument;
+}
+assert.deepStrictEqual(extracted16.scene.backgroundColor, [7 / 255, 16 / 255, 38 / 255],
+  'WEBGL scene sampler should compute background from unoccluded samples');
+assert.strictEqual(extracted16.scene.backgroundColorSamples[7].ignored, true);
+assert.strictEqual(extracted16.scene.backgroundColorSamples[7].ignoredReason, 'worldLabel:_forwardBeacon');
+assert.strictEqual(fd.diffSceneBucket(idx1, 'phase1', extracted16).length, 0,
+  'known foreground samples must not make scene background block');
 
 console.log('field-diff-scene-primitivestyle.test.cjs PASS');

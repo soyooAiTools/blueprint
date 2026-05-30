@@ -514,8 +514,12 @@ window.__blueprintResolveGameFlowComponent = null;
     requestAnimationFrame(function() {
       requestAnimationFrame(function() {
         function markReady() { window.__fidelityReady = true; }
+        var waits = [];
         if (typeof window.__blueprintWaitForFidelityState === "function") {
-          window.__blueprintWaitForFidelityState(null).then(markReady, markReady);
+          waits.push(window.__blueprintWaitForFidelityState(null));
+        }
+        if (waits.length) {
+          Promise.all(waits).then(markReady, markReady);
         } else {
           markReady();
         }
@@ -535,6 +539,127 @@ window.__blueprintResolveGameFlowComponent = null;
     }
     return _origGetCtx.call(this, type, attrs);
   };
+})();
+// Apply source scene background before Unity/PlayCanvas creates its first
+// skybox draw call. Later camera/CSS updates are still repeated after Start(),
+// but this early path prevents RenderSettings defaults from painting the
+// canvas with Luna's template blue while the bridge reports the contract color.
+(function installStoryboardSceneBackgroundBootstrap() {
+  function clampStoryboardColor(value, fallback) {
+    var n = Number(value);
+    if (!isFinite(n)) n = Number(fallback);
+    if (!isFinite(n)) n = 0;
+    return Math.max(0, Math.min(1, n));
+  }
+  function storyboardSceneBackgroundFromManifest() {
+    try {
+      var manifest = window.__BLUEPRINT_VISUAL_ASSETS__ || {};
+      var fc = manifest.fidelityContract || {};
+      var bg = fc.scene && fc.scene.backgroundColor;
+      if (!Array.isArray(bg) || bg.length < 3) return null;
+      return [
+        clampStoryboardColor(bg[0], 0),
+        clampStoryboardColor(bg[1], 0),
+        clampStoryboardColor(bg[2], 0)
+      ];
+    } catch(e) { return null; }
+  }
+  function storyboardPcColor(rgb) {
+    if (!rgb || typeof pc === 'undefined' || !pc.Color) return null;
+    return new pc.Color(rgb[0], rgb[1], rgb[2], 1);
+  }
+  function storyboardCssColor(rgb) {
+    return 'rgb(' + Math.round(rgb[0] * 255) + ',' + Math.round(rgb[1] * 255) + ',' + Math.round(rgb[2] * 255) + ')';
+  }
+  function storyboardCameraClearFlag() {
+    try {
+      var flags = window.UnityEngine && UnityEngine.CameraClearFlags;
+      if (!flags) return 2;
+      if (flags.SolidColor != null) return flags.SolidColor;
+      if (flags.Color != null) return flags.Color;
+      if (flags.Kr$ != null) return flags.Kr$;
+      if (flags.PJ$ != null) return flags.PJ$;
+    } catch(e) {}
+    return 2;
+  }
+  function recordStoryboardSceneBackground(rgb, source) {
+    if (!rgb) return;
+    window.__storyboardSceneDetails = window.__storyboardSceneDetails || {};
+    window.__storyboardSceneDetails.backgroundColor = rgb.slice(0, 3);
+    window.__storyboardSceneDetails.source = source || 'fidelityContract.scene.backgroundColor';
+  }
+  window.__storyboardApplyActualSceneBackground = function(source) {
+    var rgb = storyboardSceneBackgroundFromManifest();
+    if (!rgb) return 0;
+    var applied = 0;
+    var c = storyboardPcColor(rgb);
+    try {
+      var css = storyboardCssColor(rgb);
+      if (document && document.documentElement) document.documentElement.style.backgroundColor = css;
+      if (document && document.body) document.body.style.backgroundColor = css;
+      var canvas = document && (document.getElementById('application-canvas') || document.querySelector('canvas'));
+      if (canvas && canvas.style) canvas.style.backgroundColor = css;
+    } catch(eCss) {}
+    try {
+      if (window.UnityEngine && UnityEngine.RenderSettings) {
+        try { UnityEngine.RenderSettings.skybox = null; applied++; } catch(eSkyProp) {}
+        try { if (typeof UnityEngine.RenderSettings.setskybox === 'function') UnityEngine.RenderSettings.setskybox(null); } catch(eSkySet) {}
+        if (c) {
+          try { UnityEngine.RenderSettings.ambientLight = c; } catch(eAmb) {}
+          try { UnityEngine.RenderSettings.ambientSkyColor = c; } catch(eAmbSky) {}
+          try { UnityEngine.RenderSettings.ambientGroundColor = c; } catch(eAmbGround) {}
+          try { UnityEngine.RenderSettings.ambientEquatorColor = c; } catch(eAmbEq) {}
+        }
+      }
+    } catch(eRenderSettings) {}
+    try {
+      var mainCam = window.UnityEngine && UnityEngine.Camera && UnityEngine.Camera.main;
+      if (mainCam && c) {
+        mainCam.backgroundColor = c;
+        mainCam.clearFlags = storyboardCameraClearFlag();
+        applied++;
+      }
+    } catch(eMainCam) {}
+    try {
+      var pcApp = (window.app && window.app.app) ||
+        (window.pc && window.pc.Application && typeof window.pc.Application.getApplication === 'function' && window.pc.Application.getApplication()) || null;
+      if (pcApp && pcApp.scene && pcApp.scene.skybox) {
+        try { pcApp.scene.skybox.isVisible = false; applied++; } catch(eSkyVisible) {}
+        try {
+          var mi = pcApp.scene.skybox._meshInstance || (pcApp.scene.skybox.meshInstance ? pcApp.scene.skybox.meshInstance : null);
+          if (mi) {
+            mi.visible = false;
+            mi.cull = true;
+            if (mi.node) mi.node.enabled = false;
+          }
+        } catch(eSkyMi) {}
+      }
+      if (pcApp && pcApp.graphicsDevice && c) {
+        try { pcApp.graphicsDevice.setClearColor(c.r, c.g, c.b, 1); applied++; } catch(eGd) {}
+      }
+      if (pcApp && pcApp.root && c) {
+        try {
+          (function walkCamera(node) {
+            if (!node) return;
+            if (node.camera) {
+              try { node.camera.clearColor = c; } catch(ePcCamColor) {}
+              try { node.camera.clearColorBuffer = true; } catch(ePcCamColorBuffer) {}
+              try { node.camera.clearDepthBuffer = true; } catch(ePcCamDepthBuffer) {}
+              try { node.camera.clearFlags = storyboardCameraClearFlag(); } catch(ePcCamFlags) {}
+              applied++;
+            }
+            var children = node.children || node._children || [];
+            for (var i = 0; i < children.length; i++) walkCamera(children[i]);
+          })(pcApp.root);
+        } catch(eWalkCamera) {}
+      }
+    } catch(ePc) {}
+    recordStoryboardSceneBackground(rgb, source);
+    return applied;
+  };
+  window.addEventListener("luna:starting", function() {
+    try { window.__storyboardApplyActualSceneBackground('luna-starting'); } catch(e) {}
+  });
 })();
 // Fallback: if the standalone preview never receives a platform start event,
 // trigger Luna's normal start path instead of calling startGame() directly.
@@ -985,7 +1110,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             ];
           }
           var sceneContract = manifest.sourceSceneContract || {};
-          if (sceneContract.backgroundColor) return storyboardRgbFromHex(sceneContract.backgroundColor, '#071026');
+          if (sceneContract.backgroundColor) return storyboardRgbFromHex(sceneContract.backgroundColor, null);
         } catch(e) {}
         return null;
       }
@@ -1019,6 +1144,11 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           var canvas = document && (document.getElementById('application-canvas') || document.querySelector('canvas'));
           if (canvas && canvas.style) canvas.style.backgroundColor = css;
         } catch(eCss) {}
+        try {
+          if (typeof window.__storyboardApplyActualSceneBackground === 'function') {
+            applied += window.__storyboardApplyActualSceneBackground(source || 'fidelityContract.scene.backgroundColor');
+          }
+        } catch(eActual) {}
         try {
           if (camEnt && camEnt.camera && setCameraClearColor(camEnt.camera, contractSceneBackground)) applied++;
         } catch(eCam) {}
@@ -1393,7 +1523,15 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           function hideTemplateVisuals(root) {
             function walk(ent) {
               if (!ent) return;
-              if (ent.name && (/^__Pool_/.test(ent.name) || /^Label_/.test(ent.name) || ent.name === 'Canvas')) ent.enabled = false;
+              if (ent.name && (/^__Pool_/.test(ent.name) || /^Label_/.test(ent.name) ||
+                  ent.name === 'Canvas' || ent.name === '__Ground' || ent.name === '__MaterialSource')) {
+                ent.enabled = false;
+                try {
+                  var rc = ent._unityComponents && ent._unityComponents.renderer && ent._unityComponents.renderer[0];
+                  var instances = rc && rc.meshInstances || [];
+                  for (var mi = 0; mi < instances.length; mi++) instances[mi].visible = false;
+                } catch(eHideTemplateMesh) {}
+              }
               var children = ent.children || [];
               for (var i = 0; i < children.length; i++) walk(children[i]);
             }
@@ -1418,7 +1556,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             setTimeout(function() { applyStoryboardSceneBackground('storyboard-visual-overlay-late'); }, 750);
             setTimeout(function() { applyStoryboardSceneBackground('storyboard-visual-overlay-final'); }, 1500);
           } else if (sceneContract.backgroundColor && camEnt.camera) {
-            camEnt.camera.clearColor = color(sceneContract.backgroundColor, '#071026');
+            camEnt.camera.clearColor = color(sceneContract.backgroundColor, '#000000');
           }
           if (sceneContract.directionalLight && sceneContract.directionalLight.color && lightEnt.light) {
             lightEnt.light.color = color(sceneContract.directionalLight.color, '#ffffff');
@@ -1427,16 +1565,10 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           var root = new pc.Entity('__StoryboardVisualOverlay');
           pcApp.root.addChild(root);
           if (contractSceneBackground) {
-            var bgPlane = createPrimitiveEntity(root, 'StoryboardBackground', 'box');
-            if (bgPlane) {
-              bgPlane.setPosition(0, -0.18, 0);
-              bgPlane.setLocalScale(240, 0.04, 240);
-              var bgMat = overlayMaterial(contractSceneBackground);
-              applyMaterial(bgPlane, bgMat);
-              setTimeout(function() { applyMaterial(bgPlane, bgMat); }, 250);
-            }
+            window.__storyboardSceneDetails = window.__storyboardSceneDetails || {};
+            window.__storyboardSceneDetails.sceneFillMode = 'camera-clear';
           }
-          if (sceneContract.ground && sceneContract.ground.color) {
+          if (!contractSceneBackground && sceneContract.ground && sceneContract.ground.color) {
             var g = createPrimitiveEntity(root, 'StoryboardGround', sceneContract.ground.kind === 'box' ? 'box' : 'cylinder');
             if (g) {
               var radius = sceneContract.ground.radius || Math.max(sceneContract.ground.width || 50, sceneContract.ground.depth || 50) / 2;

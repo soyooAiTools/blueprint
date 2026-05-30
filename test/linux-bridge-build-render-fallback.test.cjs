@@ -27,8 +27,19 @@ assert.strictEqual(src.indexOf('addComponent("model"'), -1,
   'function buildStyledComposite(group, name, primitiveStyle, sourceStyle)',
   'function storyboardSceneBackground()',
   'function applyStoryboardSceneBackground(source)',
+  'function installStoryboardSceneBackgroundBootstrap()',
+  'window.__storyboardApplyActualSceneBackground',
+  "window.addEventListener(\"luna:starting\", function()",
+  'UnityEngine.RenderSettings.skybox = null',
+  'UnityEngine.RenderSettings.setskybox(null)',
+  'mainCam.clearFlags = storyboardCameraClearFlag()',
+  'pcApp.graphicsDevice.setClearColor(c.r, c.g, c.b, 1)',
+  'node.camera.clearColor = c',
+  'node.camera.clearColorBuffer = true',
   'window.__storyboardSceneDetails',
-  "var bgPlane = createPrimitiveEntity(root, 'StoryboardBackground', 'box')",
+  "ent.name === '__Ground' || ent.name === '__MaterialSource'",
+  "sceneFillMode = 'camera-clear'",
+  'if (!contractSceneBackground && sceneContract.ground && sceneContract.ground.color)',
   'function currentStoryboardTargetLabel(gs, phaseId)',
   'function storyboardEntityLabel(name)',
   'phaseFirstStoryboardTarget(phaseId)',
@@ -107,6 +118,8 @@ assert.strictEqual(src.indexOf('SellCounter'), -1,
   'worldLabel position fix must be generic, not entity-specific');
 assert.strictEqual(src.indexOf('3.1'), -1,
   'worldLabel position fix must not hard-code the old source local y offset');
+assert.strictEqual(src.indexOf('0.0275, 0.0627, 0.149'), -1,
+  'scene background fix must read contract.scene.backgroundColor, not hard-code the Space Ranger RGB tuple');
 
 var helperStart = src.indexOf('function worldLabelRecordValue(rec, keys)');
 var helperEnd = src.indexOf('function projectWorldLabelRectToViewport(rect)');
