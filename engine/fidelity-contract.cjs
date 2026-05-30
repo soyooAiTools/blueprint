@@ -6,7 +6,7 @@ var path = require('path');
 var DEFAULT_SCHEMA_PATH = path.join(__dirname, '..', 'contracts', 'fidelity-contract.v1.json');
 var CONTRACT_KIND = 'blueprint.fidelityContract';
 var SCHEMA_KIND = 'blueprint.fidelityContract.schema';
-var SCHEMA_VERSION = '1.3.0';
+var SCHEMA_VERSION = '1.4.0';
 // v1.2.0 adds two-layer screen-space anchor design:
 //   - phases[].cameraTransform (informative/diagnostic — does NOT block)
 //   - phases[].projectedAnchors (normative/blocking — per-entity screen rect
@@ -23,7 +23,13 @@ var SCHEMA_VERSION = '1.3.0';
 // entities[].primitiveStyle.{ modelRef:string, baseColor:[r,g,b] } reverse-extracted
 // from source HTML JS literals (SCENE_CONFIG / ENTITY_STYLE). v1.2 contracts remain
 // valid — these fields are advisory at v1.2, required at v1.3 only when present.
-var ACCEPTED_INSTANCE_SCHEMA_VERSIONS = { '1.0.0': true, '1.1.0': true, '1.2.0': true, '1.3.0': true };
+// v1.4.0 (task #52) folds source HTML PHASES[].guideText into polymorphic
+// {perPhase: {phaseId: text}} records for the 3 phase-dynamic hud slots
+// (hud.phase / hud.tip / hud.targethint). Pre-v1.4 instances with plain-string
+// text for these ids still load — their per-phase mismatches downgrade to
+// advisory via descriptor hudPolymorphicPolicy. v1.4 instances with plain-string
+// text for these ids are treated as authoring bug (blocking).
+var ACCEPTED_INSTANCE_SCHEMA_VERSIONS = { '1.0.0': true, '1.1.0': true, '1.2.0': true, '1.3.0': true, '1.4.0': true };
 var RESOLVED_CONFLICT_STATUSES = { accepted: true, rejected: true, deferred: true };
 
 function readJson(filePath) {
