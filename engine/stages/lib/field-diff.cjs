@@ -69,6 +69,7 @@ const fs = require('fs');
 
 const SCHEMA_VERSION = 'task25.field-diff@0.6.1';
 const FLOAT_EPSILON = 1e-3;
+const SCENE_DELTA_E_TOLERANCE = 5;
 
 // ─── Contract loading ──────────────────────────────────────────────────────────
 
@@ -429,6 +430,94 @@ function resolvePolymorphicText(spec, phaseId) {
   return undefined;
 }
 
+function clamp01(n) {
+  n = Number(n);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
+function srgbChannelToLinear(c) {
+  c = clamp01(c);
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+function rgbToLab(rgb) {
+  const r = srgbChannelToLinear(rgb && rgb[0]);
+  const g = srgbChannelToLinear(rgb && rgb[1]);
+  const b = srgbChannelToLinear(rgb && rgb[2]);
+  const x = (r * 0.4124564 + g * 0.3575761 + b * 0.1804375) / 0.95047;
+  const y = (r * 0.2126729 + g * 0.7151522 + b * 0.0721750);
+  const z = (r * 0.0193339 + g * 0.1191920 + b * 0.9503041) / 1.08883;
+  function f(t) {
+    return t > 0.008856 ? Math.cbrt(t) : (7.787 * t) + (16 / 116);
+  }
+  const fx = f(x);
+  const fy = f(y);
+  const fz = f(z);
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
+
+function deltaE76(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length < 3 || b.length < 3) return Infinity;
+  const labA = rgbToLab(a);
+  const labB = rgbToLab(b);
+  return Math.sqrt(
+    Math.pow(labA[0] - labB[0], 2) +
+    Math.pow(labA[1] - labB[1], 2) +
+    Math.pow(labA[2] - labB[2], 2)
+  );
+}
+
+function medianNumber(values) {
+  const nums = (values || []).filter(Number.isFinite).sort((a, b) => a - b);
+  if (!nums.length) return Infinity;
+  const mid = Math.floor(nums.length / 2);
+  return nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
+}
+
+function sceneSampleRgb(sample) {
+  if (Array.isArray(sample)) return sample;
+  if (sample && Array.isArray(sample.rgb)) return sample.rgb;
+  return null;
+}
+
+function sceneDeltaSummary(expected, observed, samples) {
+  let sourceSamples = Array.isArray(samples) && samples.length
+    ? samples.filter((sample) => !(sample && sample.ignored)).map(sceneSampleRgb).filter(Boolean)
+    : [observed];
+  if (!sourceSamples.length && Array.isArray(samples) && samples.length) {
+    sourceSamples = samples.map(sceneSampleRgb).filter(Boolean);
+  }
+  const deltas = sourceSamples.map((rgb) => deltaE76(expected, rgb));
+  return {
+    medianDeltaE: medianNumber(deltas),
+    maxDeltaE: deltas.filter(Number.isFinite).reduce((m, n) => Math.max(m, n), 0),
+    toleranceDeltaE: SCENE_DELTA_E_TOLERANCE,
+    samples: (samples || []).map((sample, i) => {
+      const rgb = sceneSampleRgb(sample);
+      const out = {
+        index: i,
+        rgb,
+        deltaE: deltaE76(expected, rgb),
+      };
+      if (sample && !Array.isArray(sample)) {
+        if (sample.point) out.point = sample.point;
+        if (Number.isFinite(sample.x)) out.x = sample.x;
+        if (Number.isFinite(sample.y)) out.y = sample.y;
+        if (sample.ignored) out.ignored = true;
+        if (sample.ignoredReason) out.ignoredReason = sample.ignoredReason;
+      }
+      return out;
+    }),
+  };
+}
+
+function sceneDeltaBlocks(summary) {
+  if (!summary) return true;
+  return summary.medianDeltaE > SCENE_DELTA_E_TOLERANCE ||
+    summary.maxDeltaE > SCENE_DELTA_E_TOLERANCE * 2;
+}
+
 function diffHudBucket(indexed, phaseId, observed) {
   const entries = [];
   const expectedHud = (indexed.contract.hud || []).filter(h => !WORLD_LABEL_HUD_ID_RE.test(h.id));
@@ -608,10 +697,9 @@ function diffWorldLabelBucket(indexed, phaseId, observed) {
 
 // ─── Bucket 4: scene (v1.3) ────────────────────────────────────────────────────
 // task #45 (v1.3): expected `contract.scene.backgroundColor` (linear-RGB
-// 3-element array 0..1) vs observed `observed.scene.backgroundColor`. Blocking
-// when contract declares scene but target doesn't render it — this is the gate
-// #46 worker overlay must turn green by wiring pc.scene.clearColor from the
-// contract.
+// 3-element array 0..1) vs observed actual render color. The runtime bridge is
+// auxiliary only: if it disagrees with canvas/camera evidence, block so a
+// declarative false-green cannot hide the rendered frame.
 function diffSceneBucket(indexed, phaseId, observed) {
   const entries = [];
   const exp = indexed.contract.scene;
@@ -631,12 +719,45 @@ function diffSceneBucket(indexed, phaseId, observed) {
     });
     return entries;
   }
-  if (!Array.isArray(obsBg) || obsBg.length < 3 ||
-      !floatEq(expBg[0], obsBg[0]) || !floatEq(expBg[1], obsBg[1]) || !floatEq(expBg[2], obsBg[2])) {
+  const actualSummary = sceneDeltaSummary(expBg, obsBg, obsScene && obsScene.backgroundColorSamples);
+  if (!Array.isArray(obsBg) || obsBg.length < 3 || sceneDeltaBlocks(actualSummary)) {
     entries.push({
       key: 'backgroundColor',
       status: 'mismatch',
-      diffPaths: [{ path: '$.scene.backgroundColor', expected: expBg, observed: obsBg }],
+      diffPaths: [{
+        path: '$.scene.backgroundColor',
+        expected: expBg,
+        observed: obsBg,
+        source: obsScene && obsScene.backgroundColorSource || 'unknown',
+        medianDeltaE: actualSummary.medianDeltaE,
+        maxDeltaE: actualSummary.maxDeltaE,
+        toleranceDeltaE: actualSummary.toleranceDeltaE,
+        samples: actualSummary.samples,
+      }],
+      blocking: true,
+      provenance: exp.provenance || null,
+    });
+  }
+  const declaredBg = obsScene && obsScene.declaredBackgroundColor;
+  const declaredSummary = Array.isArray(declaredBg) && declaredBg.length >= 3 && Array.isArray(obsBg) && obsBg.length >= 3
+    ? sceneDeltaSummary(declaredBg, obsBg, obsScene && obsScene.backgroundColorSamples)
+    : null;
+  if (declaredSummary && sceneDeltaBlocks(declaredSummary)) {
+    entries.push({
+      key: 'backgroundColor.actual',
+      status: 'declaration-render-mismatch',
+      diffPaths: [{
+        path: '$.scene.backgroundColor',
+        expected: declaredBg,
+        observed: obsBg,
+        declared: declaredBg,
+        actual: obsBg,
+        source: obsScene && obsScene.backgroundColorSource || 'unknown',
+        medianDeltaE: declaredSummary.medianDeltaE,
+        maxDeltaE: declaredSummary.maxDeltaE,
+        toleranceDeltaE: declaredSummary.toleranceDeltaE,
+        samples: declaredSummary.samples,
+      }],
       blocking: true,
       provenance: exp.provenance || null,
     });
@@ -877,7 +998,7 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
     const SKIP = {
       '__BaseTemplate': 1, '__LunaPool': 1,
       '__AUTOPLAY_ON__': 1, '__CUA_OBSERVER_READY__': 1,
-      'Untitled': 1, 'EventSystem': 1,
+      'Untitled': 1, 'EventSystem': 1, 'Canvas': 1,
     };
     const SKIP_PREFIX = ['Storyboard'];
     const isSkipped = function(n) {
@@ -940,11 +1061,10 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
     }
   }
 
-  // 6. scene background — v1.4d Visual Fidelity Chain.
-  //     Use the worker's stable observation bridge first: scene.backgroundColor
-  //     is a scene/camera property, while canvas corner pixels can be occluded by
-  //     ground/decor/entity geometry. Canvas sampling remains a fallback for
-  //     runtimes that have no bridge; camera clearColor is the final fallback.
+  // 6. scene background — actual-render evidence first.
+  //     Canvas samples are the primary truth for "what pixels were painted".
+  //     The worker bridge remains auxiliary metadata; if bridge and actual
+  //     render disagree, diffSceneBucket blocks that false-green explicitly.
   try {
     function clamp01(n) {
       n = Number(n);
@@ -954,6 +1074,22 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
     function rgbFromColorObj(c) {
       if (!c || typeof c.r !== 'number') return null;
       return [clamp01(c.r), clamp01(c.g), clamp01(c.b)];
+    }
+    function medianComponent(values) {
+      values = values.slice().sort(function(a, b) { return a - b; });
+      if (!values.length) return 0;
+      var mid = Math.floor(values.length / 2);
+      return values.length % 2 ? values[mid] : (values[mid - 1] + values[mid]) / 2;
+    }
+    function medianRgb(samples) {
+      if (!samples || !samples.length) return null;
+      var usable = samples.filter(function(s) { return !s.ignored; });
+      if (!usable.length) usable = samples;
+      return [
+        medianComponent(usable.map(function(s) { return s.rgb[0]; })),
+        medianComponent(usable.map(function(s) { return s.rgb[1]; })),
+        medianComponent(usable.map(function(s) { return s.rgb[2]; }))
+      ];
     }
     function sceneFromBridge() {
       if (typeof window === 'undefined' || !window.__storyboardSceneDetails) return null;
@@ -995,28 +1131,97 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
       var w = canvas.width || 0;
       var h = canvas.height || 0;
       if (w <= 4 || h <= 4) return null;
+      var inset = Math.max(8, Math.round(Math.min(w, h) * 0.02));
+      inset = Math.min(inset, Math.max(1, Math.floor((Math.min(w, h) - 1) / 2)));
+      var left = inset;
+      var right = Math.max(0, w - 1 - inset);
+      var bottom = inset;
+      var top = Math.max(0, h - 1 - inset);
+      var midX = Math.floor((left + right) / 2);
+      var midY = Math.floor((bottom + top) / 2);
       var points = [
-        [Math.max(1, Math.floor(w * 0.02)), Math.max(1, Math.floor(h * 0.02))],
-        [Math.min(w - 2, Math.floor(w * 0.98)), Math.max(1, Math.floor(h * 0.02))],
-        [Math.max(1, Math.floor(w * 0.02)), Math.min(h - 2, Math.floor(h * 0.98))],
-        [Math.min(w - 2, Math.floor(w * 0.98)), Math.min(h - 2, Math.floor(h * 0.98))]
+        { point: 'bottom-left', x: left, y: bottom },
+        { point: 'bottom-right', x: right, y: bottom },
+        { point: 'top-left', x: left, y: top },
+        { point: 'top-right', x: right, y: top },
+        { point: 'bottom-mid', x: midX, y: bottom },
+        { point: 'top-mid', x: midX, y: top },
+        { point: 'left-mid', x: left, y: midY },
+        { point: 'right-mid', x: right, y: midY }
       ];
+      function rectContains(rect, x, y, pad) {
+        if (!rect || !isFinite(rect.x) || !isFinite(rect.y) ||
+            !isFinite(rect.width) || !isFinite(rect.height)) return false;
+        pad = isFinite(pad) ? pad : 0;
+        return x >= rect.x - pad && x <= rect.x + rect.width + pad &&
+          y >= rect.y - pad && y <= rect.y + rect.height + pad;
+      }
+      function sampleOccluder(x, y) {
+        try {
+          var manifest = window.__BLUEPRINT_VISUAL_ASSETS__ || {};
+          var fc = manifest.fidelityContract || {};
+          var phases = fc.phases || [];
+          var phase = null;
+          for (var pi = 0; pi < phases.length; pi++) {
+            if (phases[pi] && phases[pi].id === phaseId) {
+              phase = phases[pi];
+              break;
+            }
+          }
+          if (!phase) return null;
+          var groups = [
+            { kind: 'anchor', rects: phase.projectedAnchors || {} },
+            { kind: 'worldLabel', rects: phase.projectedWorldLabels || {} }
+          ];
+          for (var gi = 0; gi < groups.length; gi++) {
+            var rects = groups[gi].rects;
+            var keys = Object.keys(rects || {});
+            for (var ki = 0; ki < keys.length; ki++) {
+              if (rectContains(rects[keys[ki]], x, y, 6)) return groups[gi].kind + ':' + keys[ki];
+            }
+          }
+        } catch (eOcc) {}
+        return null;
+      }
       var pix = new Uint8Array(4);
       var samples = [];
       for (var pi = 0; pi < points.length; pi++) {
         try {
-          gl.readPixels(points[pi][0], points[pi][1], 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pix);
-          samples.push([pix[0] / 255, pix[1] / 255, pix[2] / 255]);
+          gl.readPixels(points[pi].x, points[pi].y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pix);
+          var ignoredReason = sampleOccluder(points[pi].x, points[pi].y);
+          samples.push({
+            point: points[pi].point,
+            x: points[pi].x,
+            y: points[pi].y,
+            rgb: [pix[0] / 255, pix[1] / 255, pix[2] / 255],
+            ignored: !!ignoredReason,
+            ignoredReason: ignoredReason || undefined
+          });
         } catch (eRead) {}
       }
       if (!samples.length) return null;
-      samples.sort(function(a, b) {
-        return (a[0] + a[1] + a[2]) - (b[0] + b[1] + b[2]);
-      });
-      return samples[0];
+      return {
+        backgroundColor: medianRgb(samples),
+        samples: samples,
+        strategy: '8-point-edge-ring',
+        inset: inset
+      };
     }
-    var bgObserved = sceneFromBridge() || sceneFromCanvas() || sceneFromCamera();
-    if (bgObserved) out.scene = { backgroundColor: bgObserved };
+    var bridgeBg = sceneFromBridge();
+    var cameraBg = sceneFromCamera();
+    var canvasInfo = sceneFromCanvas();
+    var canvasBg = canvasInfo && canvasInfo.backgroundColor;
+    var bgObserved = canvasBg || cameraBg || bridgeBg;
+    if (bgObserved || bridgeBg || cameraBg) {
+      out.scene = { backgroundColor: bgObserved };
+      if (bridgeBg) out.scene.declaredBackgroundColor = bridgeBg;
+      if (canvasBg) out.scene.actualBackgroundColor = canvasBg;
+      if (canvasInfo && canvasInfo.samples) out.scene.backgroundColorSamples = canvasInfo.samples;
+      if (canvasInfo && canvasInfo.strategy) out.scene.backgroundColorSampleStrategy = canvasInfo.strategy;
+      if (canvasInfo && Number.isFinite(canvasInfo.inset)) out.scene.backgroundColorSampleInset = canvasInfo.inset;
+      if (cameraBg) out.scene.cameraBackgroundColor = cameraBg;
+      out.scene.backgroundColorSource = canvasBg ? 'canvas-readpixels' : (cameraBg ? 'camera-clearColor' : 'bridge');
+    }
   } catch (e) { /* leave scene missing on extractor error */ }
 
   // 6a. worldLabel DOM overlay — task #49 v1.4c-β. The worker installs
