@@ -29,6 +29,7 @@ var fs = require('fs');
 var path = require('path');
 
 var src = fs.readFileSync(path.join(__dirname, '..', 'engine', 'pipeline.cjs'), 'utf8');
+var producerSrc = fs.readFileSync(path.join(__dirname, '..', 'engine', 'stages', 'fidelity-contract-produce.cjs'), 'utf8');
 
 // ── helper: find first 1-based index of a regex match (line-oriented for nicer errors) ──
 function lineOfMatch(re, label) {
@@ -93,6 +94,19 @@ function assertStageExport(key) {
 assertStageExport('sourceHtmlBind');
 assertStageExport('fidelityContractProduce');
 assertStageExport('fidelitySourceDiff');
+
+// ── case 4 (task #52 v1.4d, axis #11): producer chains v1.4d migrate step ──
+// fidelity-contract-produce.cjs must `require()` migrate-v1.3-to-v1.4d.cjs AND
+// invoke .migrate() inside execute() so the v1.4d hud polymorphic fold runs at
+// pipeline-time. Catches the "wrote migrate script but forgot to wire it" orphan.
+assert.ok(
+  /require\(\s*['"][^'"]*scripts\/migrate-v1\.3-to-v1\.4d\.cjs['"]\s*\)/.test(producerSrc),
+  'fidelity-contract-produce.cjs must require scripts/migrate-v1.3-to-v1.4d.cjs (task #52 v1.4d chain)'
+);
+assert.ok(
+  /migrateV14dLib\.migrate\s*\(/.test(producerSrc),
+  'fidelity-contract-produce.cjs must invoke migrateV14dLib.migrate(...) inside execute() (task #52 v1.4d chain)'
+);
 
 console.log('luna-pipeline-composition.test.cjs PASS');
 console.log('  stage order locked (positional indices in createLunaPipeline):');

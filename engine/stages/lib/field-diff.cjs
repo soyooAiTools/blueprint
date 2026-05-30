@@ -377,6 +377,27 @@ function isV13RichWorldLabel(spec) {
   return wo !== null && typeof wo === 'object' && !Array.isArray(wo);
 }
 
+// task #52 (v1.4d-ε): hud slots whose text is phase-dynamic at runtime
+// (source HTML phaseTimeline tick rewrites textContent every phase). For
+// schemaVersion < 1.4.0 contracts that author these as plain strings (only
+// phase1 values), per-phase mismatches downgrade to advisory (blocking:false)
+// to preserve backward-compat. v1.4.0+ contracts MUST author polymorphic
+// {perPhase: {...}} records — plain-string text on these ids at v1.4.0+ is
+// an authoring bug and stays blocking.
+var V14D_POLYMORPHIC_ELIGIBLE_HUD_IDS = new Set(['hud.phase', 'hud.tip', 'hud.targethint']);
+
+function gteVersionLocal(a, target) {
+  if (typeof a !== 'string') return false;
+  var av = a.split('.').map(function(n) { return parseInt(n, 10) || 0; });
+  var tv = target.split('.').map(function(n) { return parseInt(n, 10) || 0; });
+  for (var i = 0; i < Math.max(av.length, tv.length); i++) {
+    var x = av[i] || 0, y = tv[i] || 0;
+    if (x > y) return true;
+    if (x < y) return false;
+  }
+  return true;
+}
+
 // Fold (8) Q2: resolve a polymorphic text spec. Accepts a plain string (phase-
 // constant) or `{default?: string, perPhase?: {phaseId: string}}`. Returns the
 // resolved string for the given phaseId, or `undefined` if no text applies.
@@ -406,6 +427,8 @@ function diffHudBucket(indexed, phaseId, observed) {
   }
   const expIds = new Set(expectedHud.map(h => h.id));
   const obsIds = new Set(Object.keys(obsBySlot));
+  const contractSchemaVersion = (indexed.contract && indexed.contract.schemaVersion) || '1.0.0';
+  const v14dOrLater = gteVersionLocal(contractSchemaVersion, '1.4.0');
 
   for (const exp of expectedHud) {
     // Fold (8) Q2: resolve polymorphic text per phase. undefined → text not
@@ -447,13 +470,24 @@ function diffHudBucket(indexed, phaseId, observed) {
       diffPaths.push({ path: '$.style.fontSize', expected: exp.style.fontSize, observed: obs.style.fontSize });
     }
     if (diffPaths.length > 0) {
+      // task #52 (v1.4d-ε): severity downgrade for pre-v1.4 contracts that
+      // authored phase-dynamic hud slots (hud.phase / hud.tip / hud.targethint)
+      // as plain-string text. Per-phase mismatches in that legacy shape stay
+      // advisory (blocking:false). v1.4.0+ contracts MUST use polymorphic
+      // {perPhase:...} — plain-string at v1.4.0+ is an authoring bug, blocking.
+      const isPlainStringText = (typeof exp.text === 'string');
+      const isPolymorphicEligible = V14D_POLYMORPHIC_ELIGIBLE_HUD_IDS.has(exp.id);
+      const downgradeToAdvisory = (
+        isPolymorphicEligible && isPlainStringText && !v14dOrLater
+        && diffPaths.length === 1 && diffPaths[0].path === '$.text'
+      );
       entries.push({
         id: exp.id,
         role: exp.role,
         slot: exp.slot,
         status: 'mismatch',
         diffPaths,
-        blocking: true,
+        blocking: !downgradeToAdvisory,
         provenance: exp.provenance || null,
       });
     }
