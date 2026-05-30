@@ -1,20 +1,27 @@
 #!/usr/bin/env node
 'use strict';
 
-// task #52 (v1.4d-ε) — fidelityContract v1.3.0 → v1.4.0 migration.
+// task #52 (v1.4d-ε) + task #53 (v1.4d-ζ Axis A) — fidelityContract v1.3.0 → v1.4.0 migration.
 //
-// Single-axis fix for hud=22 bucket regression detected after #45/#46 ship.
-// Root cause: hud[].text was authored as phase-static plain string (only
-// phase1 values). DOM observer + extractor correctly emit per-phase text;
-// field-diff gate already supports `resolvePolymorphicText` shape. The
-// only break is at Stage 1 (contract authoring).
+// task #52 (ε) — Single-axis fix for hud=22 bucket regression detected after
+// #45/#46 ship. Root cause: hud[].text was authored as phase-static plain
+// string (only phase1 values). DOM observer + extractor correctly emit
+// per-phase text; field-diff gate already supports `resolvePolymorphicText`
+// shape. The only break is at Stage 1 (contract authoring).
+//
+// task #53 (ζ Axis A) — Fix `hud.targethint` formula. ε wrongly used
+// `PHASES[i].guideText` (long guide sentence) — that mirrored the worker's
+// own bug (storyboard2html template — task #54 Axis B). Source HTML L183
+// truth is `"目标：" + ENTITY_STYLE[currentStep.target].label`. Because
+// `hud.targethint` is phase-level (single value), we resolve it at phase
+// entry: `"目标：" + ENTITY_STYLE[steps[0].target].label`.
 //
 // This migration folds the source HTML's PHASES array into polymorphic
 // records `{perPhase: {phaseId: text}}` for the 3 HUD slots whose text
 // varies per phase:
-//   - hud.phase       → "Phase N/8"           (derived from phase index)
-//   - hud.tip         → PHASES[i].guideText
-//   - hud.targethint  → "目标：" + PHASES[i].guideText
+//   - hud.phase       → "Phase N/8"                                  (derived from phase index)
+//   - hud.tip         → PHASES[i].guideText                          (long guide sentence)
+//   - hud.targethint  → "目标：" + ENTITY_STYLE[steps[0].target].label (short entity label, task #53)
 //
 // Other HUD slots (hud.label.*, hud.iceHud, hud.oxygenHud, hud.coinHud,
 // hud.scrapHud, hud.toolHud, etc.) are NOT touched — their text either is
@@ -59,9 +66,11 @@ function extractPhasesBlock(html) {
   return m ? m[1] : null;
 }
 
-// Parse PHASES block into [{id, guideText}, ...]. Each phase is a top-level
-// `{...}` object inside PHASES. We scan for top-level objects by balancing
-// braces (PHASES entries contain nested `steps[]` and `trigger{}` objects).
+// Parse PHASES block into [{id, guideText, firstStepTarget}, ...]. Each phase
+// is a top-level `{...}` object inside PHASES. We scan for top-level objects
+// by balancing braces (PHASES entries contain nested `steps[]` and
+// `trigger{}` objects). `firstStepTarget` is the `target` of the first step
+// inside `steps:[]` — used by task #53 hud.targethint resolution.
 function parsePhases(blockBody) {
   var out = [];
   var depth = 0;
@@ -77,8 +86,13 @@ function parsePhases(blockBody) {
         var entry = blockBody.slice(start, i + 1);
         var idM = entry.match(/\bid\s*:\s*["']([^"']+)["']/);
         var guideM = entry.match(/\bguideText\s*:\s*["']([^"']+)["']/);
+        var firstStepM = entry.match(/\bsteps\s*:\s*\[\s*\{[^}]*?\btarget\s*:\s*["']([^"']+)["']/);
         if (idM && guideM) {
-          out.push({ id: idM[1], guideText: guideM[1] });
+          out.push({
+            id: idM[1],
+            guideText: guideM[1],
+            firstStepTarget: firstStepM ? firstStepM[1] : null
+          });
         }
         start = -1;
       }
@@ -87,20 +101,48 @@ function parsePhases(blockBody) {
   return out;
 }
 
-function buildPolymorphicHud(phases) {
+// Extract the ENTITY_STYLE block body from source HTML (between `{` and `};`).
+// Returns the body string or null.
+function extractEntityStyleBlock(html) {
+  var m = html.match(/(?:const|var|let)\s+ENTITY_STYLE\s*=\s*\{([\s\S]*?)\};/);
+  return m ? m[1] : null;
+}
+
+// Parse ENTITY_STYLE block into { entityName: label }. Each entry has the
+// shape `Name:{label:"...",color:0x...,kind:"..."}` (flat — no nested
+// objects, so a single-`}`-terminated regex is safe).
+function parseEntityStyle(blockBody) {
+  var out = {};
+  var re = /(\w+)\s*:\s*\{[^}]*?\blabel\s*:\s*["']([^"']+)["'][^}]*?\}/g;
+  var m;
+  while ((m = re.exec(blockBody)) !== null) {
+    out[m[1]] = m[2];
+  }
+  return out;
+}
+
+function buildPolymorphicHud(phases, entityStyleLabel) {
+  entityStyleLabel = entityStyleLabel || {};
   var perPhasePhase = {};
   var perPhaseTip = {};
   var perPhaseTargetHint = {};
+  var unresolvedTargetHintPhases = [];
   for (var i = 0; i < phases.length; i++) {
     var p = phases[i];
     perPhasePhase[p.id] = 'Phase ' + (i + 1) + '/' + phases.length;
     perPhaseTip[p.id] = p.guideText;
-    perPhaseTargetHint[p.id] = TARGETHINT_PREFIX + p.guideText;
+    var entityLabel = p.firstStepTarget && entityStyleLabel[p.firstStepTarget];
+    if (entityLabel) {
+      perPhaseTargetHint[p.id] = TARGETHINT_PREFIX + entityLabel;
+    } else {
+      unresolvedTargetHintPhases.push(p.id);
+    }
   }
   return {
     'hud.phase': { perPhase: perPhasePhase },
     'hud.tip': { perPhase: perPhaseTip },
-    'hud.targethint': { perPhase: perPhaseTargetHint }
+    'hud.targethint': { perPhase: perPhaseTargetHint },
+    unresolvedTargetHintPhases: unresolvedTargetHintPhases
   };
 }
 
@@ -171,7 +213,25 @@ function migrate(contract, opts) {
     return { contract: out, report: report };
   }
 
-  var polymorphic = buildPolymorphicHud(phases);
+  var entityStyleBlock = extractEntityStyleBlock(html);
+  var entityStyleLabel = entityStyleBlock ? parseEntityStyle(entityStyleBlock) : {};
+  report.counts.entityStyleLabelsExtracted = Object.keys(entityStyleLabel).length;
+
+  var polymorphic = buildPolymorphicHud(phases, entityStyleLabel);
+  var targetHintUnresolved = polymorphic.unresolvedTargetHintPhases || [];
+  var targetHintFullyResolved = targetHintUnresolved.length === 0;
+  if (!targetHintFullyResolved) {
+    report.advisoryGaps.push({
+      id: 'v14d-targethint-unresolved',
+      path: '$.hud[id=hud.targethint].text.perPhase',
+      message: 'hud.targethint could not resolve ENTITY_STYLE label for phases: ' +
+        targetHintUnresolved.join(',') + ' — slot left untouched',
+      blocking: false,
+      source: 'migrate-v1.3-to-v1.4d',
+      kind: 'v14d-hud-polymorphic'
+    });
+  }
+
   var hudById = {};
   var huds = out.hud || [];
   for (var i = 0; i < huds.length; i++) {
@@ -198,20 +258,32 @@ function migrate(contract, opts) {
       report.counts.hudSlotsAlreadyPolymorphic++;
       continue;
     }
+    // task #53 (ζ) — if hud.targethint can't be fully resolved against
+    // ENTITY_STYLE, leave the slot untouched (advisory gap already emitted).
+    // Better to preserve old shape than partially fold (would mis-rebump).
+    if (slotId === 'hud.targethint' && !targetHintFullyResolved) {
+      continue;
+    }
     entry.text = polymorphic[slotId];
     entry.provenance = {
       source: 'source-html-extract',
       confidence: 1,
-      extractedFrom: 'PHASES[].guideText (' + phases.length + ' phases)'
+      extractedFrom: slotId === 'hud.targethint'
+        ? 'PHASES[].steps[0].target + ENTITY_STYLE[].label (' + phases.length + ' phases)'
+        : 'PHASES[].guideText (' + phases.length + ' phases)'
     };
     report.counts.hudSlotsRewritten++;
     report.rewrittenSlots.push(slotId);
   }
 
   // Conditional bump — all 3 polymorphic slots must be present and rewritten
-  // (or already polymorphic from a prior run). Missing slots → partial.
+  // (or already polymorphic from a prior run), AND hud.targethint must be
+  // fully resolvable against ENTITY_STYLE. Otherwise → partial, stay at input
+  // schemaVersion. This keeps task #53 ground-truth gate honest: a 1.4.0
+  // bump means every polymorphic slot is sourced from the source-HTML truth.
   var fullyCovered = (
     (report.counts.hudSlotsRewritten + report.counts.hudSlotsAlreadyPolymorphic) === POLYMORPHIC_HUD_IDS.length
+    && targetHintFullyResolved
   );
   if (fullyCovered && phases.length > 0) {
     out.schemaVersion = '1.4.0';
@@ -309,6 +381,8 @@ module.exports = {
   migrate: migrate,
   extractPhasesBlock: extractPhasesBlock,
   parsePhases: parsePhases,
+  extractEntityStyleBlock: extractEntityStyleBlock,
+  parseEntityStyle: parseEntityStyle,
   buildPolymorphicHud: buildPolymorphicHud,
   POLYMORPHIC_HUD_IDS: POLYMORPHIC_HUD_IDS,
   TARGETHINT_PREFIX: TARGETHINT_PREFIX
