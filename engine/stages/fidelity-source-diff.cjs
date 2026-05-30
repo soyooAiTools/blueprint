@@ -50,6 +50,10 @@ var DEFAULT_PIXEL_GATE_THRESHOLD_PERCENT = 5;
 // Env override FIDELITY_ANCHOR_TOLERANCE_PX. v1.2.1 follow-up may switch to
 // `max(8px, 10% bbox dim)` if small-entity false-pass surfaces.
 var DEFAULT_ANCHOR_TOLERANCE_PX = 8;
+// v1.5.0 (task #57) worldLabel rect diff tolerance. Env override
+// FIDELITY_WORLDLABEL_TOLERANCE_PX. Tighter than anchor (Jonny lock — Sprite
+// label drift hurts UX more than entity bbox drift).
+var DEFAULT_WORLDLABEL_TOLERANCE_PX = 7;
 
 function gteSchemaVersion(actual, target) {
   var p = String(actual || '0').split('.').map(Number);
@@ -94,6 +98,48 @@ function computePhaseAnchorEntries(phaseId, expectedAnchors, rawTargetAnchors, v
   }
   return fieldDiffLib.runAnchorDiff(phaseId, expectedAnchors, actualAnchors, viewport, tolerancePx);
 }
+
+// v1.5.0 (task #57) stage-layer worldLabel bridge gate. Same shape as anchor
+// gate above:
+//   worldLabel-bridge-missing: window.__targetWorldLabels never set (Jonny
+//                              Stage 3 DOM bridge missing or pipeline did not
+//                              wire it through helpers.cjs visualAssets)
+//   worldLabel-target-empty:   __targetWorldLabels initialized but empty for
+//                              this phase (Stage 2 worker no-op for this phase)
+// Worker writes { [phaseId]: { entityId: rect }, current: rect } — normalize.
+// Severity follows enforceBlocking; off-viewport advisory bucketing handled in
+// runWorldLabelPositionDiff (gates per-entity records). Bridge/empty entries
+// are top-level structural blockers — they signal the entire pipeline is
+// broken, not per-entity drift — so they always honor enforceBlocking.
+function computePhaseWorldLabelEntries(phaseId, expectedLabels, rawTargetLabels, viewport, tolerancePx, enforceBlocking) {
+  if (!expectedLabels || typeof expectedLabels !== 'object') return [];
+  var hasExpected = Object.keys(expectedLabels).some(function(k) {
+    var v = expectedLabels[k];
+    return v && typeof v === 'object' && v.provenance !== 'no-label';
+  });
+  if (!hasExpected) return [];
+  if (!rawTargetLabels) {
+    return [{
+      category: 'worldLabel-bridge-missing',
+      blocking: enforceBlocking === true,
+      phaseId: phaseId,
+      path: 'phases.' + phaseId + '.projectedWorldLabels',
+      message: 'v1.5 contract has projectedWorldLabels but target did not expose window.__targetWorldLabels (Stage 2/3 DOM bridge missing?)'
+    }];
+  }
+  var actualLabels = rawTargetLabels[phaseId] || rawTargetLabels.current || rawTargetLabels;
+  if (!actualLabels || typeof actualLabels !== 'object' || Object.keys(actualLabels).length === 0) {
+    return [{
+      category: 'worldLabel-target-empty',
+      blocking: enforceBlocking === true,
+      phaseId: phaseId,
+      path: 'phases.' + phaseId + '.projectedWorldLabels',
+      message: 'window.__targetWorldLabels initialized but empty for phase ' + phaseId + ' (Stage 2 worker no-op?)'
+    }];
+  }
+  return fieldDiffLib.runWorldLabelPositionDiff(phaseId, expectedLabels, actualLabels, viewport, tolerancePx, enforceBlocking);
+}
+
 var DEFAULT_CONTRACT_PATH = path.join(__dirname, '..', '..', 'work', 'task25-sam-delivery-verify', 'unpacked',
   'space-ranger-v0.5-fidelity-delivery', 'unity-project', 'Assets', 'Fidelity', 'fidelityContract.json');
 
@@ -195,6 +241,30 @@ module.exports = {
           var anchorEntries = computePhaseAnchorEntries(phaseId, expectedAnchors, targetShot.targetAnchors, DEFAULT_VIEWPORT, DEFAULT_ANCHOR_TOLERANCE_PX);
           fieldDiffs = fieldDiffs.concat(anchorEntries);
         }
+        // v1.5.0 (task #57): projectedWorldLabels bucket. Same precedence as
+        // anchors above — contract is source-of-truth (baked from Sprite
+        // billboard math at migration time), target runtime exposes
+        // window.__targetWorldLabels via Jonny's Stage 2/3 DOM bridge. Bucket
+        // is gated by contract.schemaVersion: pre-v1.5 = advisory backward-
+        // compat read of shape only; v1.5+ = enforceBlocking (on-viewport
+        // mismatches escalate to blocking, off-viewport always advisory).
+        // Mirrors v1.2 anchor gate so the bucket aggregator picks both up
+        // through the same per-phase loop without separate wiring.
+        var worldLabelEnforceBlocking = gteSchemaVersion(contractSchemaVersion, '1.5.0');
+        var contractPhaseForLabels = null;
+        for (var cpL = 0; cpL < contractPhases.length; cpL++) {
+          if (contractPhases[cpL] && contractPhases[cpL].id === phaseId) {
+            contractPhaseForLabels = contractPhases[cpL];
+            break;
+          }
+        }
+        var expectedWorldLabels = contractPhaseForLabels && contractPhaseForLabels.projectedWorldLabels;
+        var worldLabelTolerance = resolveWorldLabelTolerance();
+        var worldLabelEntries = computePhaseWorldLabelEntries(
+          phaseId, expectedWorldLabels, targetShot.targetWorldLabels,
+          DEFAULT_VIEWPORT, worldLabelTolerance, worldLabelEnforceBlocking
+        );
+        fieldDiffs = fieldDiffs.concat(worldLabelEntries);
         var pixelDiffPercent = await runPixelDiff(sourceShot.path, targetShot.path);
 
         var blockingDiffs = fieldDiffs.filter(function(d) { return d.blocking !== false; });
@@ -290,6 +360,9 @@ module.exports = {
     DEFAULT_PIXEL_GATE_THRESHOLD_PERCENT: DEFAULT_PIXEL_GATE_THRESHOLD_PERCENT,
     computePhaseAnchorEntries: computePhaseAnchorEntries,
     DEFAULT_ANCHOR_TOLERANCE_PX: DEFAULT_ANCHOR_TOLERANCE_PX,
+    computePhaseWorldLabelEntries: computePhaseWorldLabelEntries,
+    DEFAULT_WORLDLABEL_TOLERANCE_PX: DEFAULT_WORLDLABEL_TOLERANCE_PX,
+    resolveWorldLabelTolerance: resolveWorldLabelTolerance,
     resolveFieldDiffTemplate: resolveFieldDiffTemplate,
     DEFAULT_CONTRACT_PATH: DEFAULT_CONTRACT_PATH
   }
@@ -300,6 +373,14 @@ function resolvePixelGateThreshold() {
   if (env === undefined || env === '') return DEFAULT_PIXEL_GATE_THRESHOLD_PERCENT;
   var n = Number(env);
   if (isNaN(n) || n < 0) return DEFAULT_PIXEL_GATE_THRESHOLD_PERCENT;
+  return n;
+}
+
+function resolveWorldLabelTolerance() {
+  var env = process.env.FIDELITY_WORLDLABEL_TOLERANCE_PX;
+  if (env === undefined || env === '') return DEFAULT_WORLDLABEL_TOLERANCE_PX;
+  var n = Number(env);
+  if (isNaN(n) || n < 0) return DEFAULT_WORLDLABEL_TOLERANCE_PX;
   return n;
 }
 
@@ -396,9 +477,25 @@ async function captureFrame(browser, url, phaseId, phaseNumber, outPath, driveFn
       });
     } catch (_e) { targetAnchors = null; }
   }
+  // v1.5.0 (task #57): target-runtime per-entity Sprite-label rect capture.
+  // Jonny's Stage 2/3 worker measures DOM bounding rect for each label
+  // overlay element and exposes `window.__targetWorldLabels = { entityId:
+  // { x, y, width, height, centerX, centerY } }` for the current phase.
+  // Source HTML doesn't expose this (Sprite billboard math baked in contract
+  // at migration time by worldlabel-extractor.cjs).
+  var targetWorldLabels = null;
+  if (targetKind === 'webgl-playcanvas') {
+    try {
+      targetWorldLabels = await page.evaluate(function() {
+        return (typeof window !== 'undefined' &&
+                window.__targetWorldLabels &&
+                typeof window.__targetWorldLabels === 'object') ? window.__targetWorldLabels : null;
+      });
+    } catch (_e) { targetWorldLabels = null; }
+  }
   await page.screenshot({ path: outPath, fullPage: false });
   await ctx.close();
-  return { path: outPath, fields: fields, targetAnchors: targetAnchors };
+  return { path: outPath, fields: fields, targetAnchors: targetAnchors, targetWorldLabels: targetWorldLabels };
 }
 
 async function settleFrame(page) {
