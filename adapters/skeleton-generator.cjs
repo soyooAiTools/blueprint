@@ -104,6 +104,104 @@ function csColor(color) {
   return 'new Color(' + f(c.r) + ', ' + f(c.g) + ', ' + f(c.b) + ')';
 }
 
+// ── Option C (Wave 3 Step 3): source-faithful composite mesh emission ──────────
+// Convert a 0xRRGGBB number (from the L9 meshOps contract) to {r,g,b} floats.
+function colorFromHexNumber(num, fallback) {
+  if (typeof num !== 'number' || !Number.isFinite(num)) return fallback || { r: 0.7, g: 0.7, b: 0.7 };
+  var n = (num >>> 0) & 0xffffff;
+  return { r: ((n >> 16) & 0xff) / 255, g: ((n >> 8) & 0xff) / 255, b: (n & 0xff) / 255 };
+}
+
+// Map a meshOp kind+size to a Unity PrimitiveType + localScale, accounting for the
+// base dims of Unity primitives (cube=1³, sphere=diam1, cylinder=diam1×height2,
+// plane=10×10). Returns null for kinds handled separately (torus) or unknown.
+// cone → Cylinder approximation (Luna has no cone primitive; incident doc R5);
+// icosahedron → Sphere approximation (R6).
+function meshOpToPrimitive(op) {
+  var size = Array.isArray(op.size) ? op.size : [];
+  function sz(i, d) { var v = Number(size[i]); return Number.isFinite(v) ? v : d; }
+  switch (op.kind) {
+    case 'box': return { type: 'Cube', scale: [sz(0, 1), sz(1, 1), sz(2, 1)] };
+    case 'sphere':
+    case 'icosahedron': { var r = sz(0, 0.5); return { type: 'Sphere', scale: [r * 2, r * 2, r * 2] }; }
+    case 'cylinder': { var rc = (sz(0, 0.5) + sz(1, 0.5)) / 2; return { type: 'Cylinder', scale: [rc * 2, sz(2, 1) / 2, rc * 2] }; }
+    case 'cone': { var rb = Math.max(sz(0, 0), sz(1, 0)) || 0.5; return { type: 'Cylinder', scale: [rb * 2, sz(2, 1) / 2, rb * 2] }; }
+    case 'plane': return { type: 'Plane', scale: [sz(0, 1) / 10, 1, sz(1, 1) / 10] };
+    default: return null;
+  }
+}
+
+function _fNum(v, d) { var n = Number(v); if (!Number.isFinite(n)) n = d; return Number(n.toFixed(4)) + 'f'; }
+function _vec3(arr, def) {
+  var a = Array.isArray(arr) ? arr : [];
+  return [Number.isFinite(Number(a[0])) ? Number(a[0]) : def[0],
+          Number.isFinite(Number(a[1])) ? Number(a[1]) : def[1],
+          Number.isFinite(Number(a[2])) ? Number(a[2]) : def[2]];
+}
+function _csVec3(v) { return 'new Vector3(' + _fNum(v[0], 0) + ', ' + _fNum(v[1], 0) + ', ' + _fNum(v[2], 0) + ')'; }
+
+// One meshOp → one C# call (AddCompositePart, or AddTorusRing for torus).
+function emitMeshOpCall(op) {
+  var pos = _vec3(op.position, [0, 0, 0]);
+  var rot = _vec3(op.rotation, [0, 0, 0]);
+  var color = csColor(colorFromHexNumber(op.color, { r: 0.7, g: 0.7, b: 0.7 }));
+  if (op.kind === 'torus') {
+    var s = Array.isArray(op.size) ? op.size : [];
+    var radius = Number.isFinite(Number(s[0])) ? Number(s[0]) : 0.5;
+    var tube = Number.isFinite(Number(s[1])) ? Number(s[1]) : 0.05;
+    return 'GFM_Create.AddTorusRing(__root, ' + _csVec3(pos) + ', ' + _csVec3(rot) + ', ' +
+      _fNum(radius, 0.5) + ', ' + _fNum(tube, 0.05) + ', 12, ' + color + ', ' + _fNum(op.metalness, 0) + ');';
+  }
+  var prim = meshOpToPrimitive(op);
+  if (!prim) return null;
+  var mul = _vec3(op.scale, [1, 1, 1]);
+  var sc = [prim.scale[0] * mul[0], prim.scale[1] * mul[1], prim.scale[2] * mul[2]];
+  var emissive = csColor(colorFromHexNumber(op.emissive, { r: 0, g: 0, b: 0 }));
+  return 'GFM_Create.AddCompositePart(__root, PrimitiveType.' + prim.type + ', ' +
+    _csVec3(pos) + ', ' + _csVec3(rot) + ', ' + _csVec3(sc) + ', ' +
+    color + ', ' + emissive + ', ' + _fNum(op.emissiveIntensity, 0) + ', ' +
+    _fNum(op.metalness, 0) + ', ' + _fNum(op.roughness, 1) + ', ' + _fNum(op.opacity, 1) + ');';
+}
+
+// Emit BuildSourceFaithfulMeshes() + per-entity BuildEntity_<safe>() into `lines`.
+// Returns the list of emitted entity names (empty if nothing emitted).
+function emitSourceFaithfulMeshMethods(lines, sourceMeshOps, entityNames) {
+  var names = Object.keys(sourceMeshOps || {}).filter(function (n) {
+    return Array.isArray(sourceMeshOps[n]) && sourceMeshOps[n].length > 0 && entityNames.indexOf(n) >= 0;
+  });
+  if (!names.length) return [];
+  function safe(n) { return String(n).replace(/[^A-Za-z0-9_]/g, '_'); }
+  lines.push('    // ============================================================');
+  lines.push('    // [OPTION C] Source-faithful composite meshes (Wave 3 Step 3).');
+  lines.push('    // Re-binds each entity from its single pooled primitive to a multi-mesh');
+  lines.push('    // composite matching the three.js source geometry (ctx.blueprint.sourceMeshOps).');
+  lines.push('    // Runs at Start() AFTER RegisterEntityBindings — NOT in the hot Update path,');
+  lines.push('    // so new Vector3 / new GameObject here is allowed (incident doc R4).');
+  lines.push('    // ============================================================');
+  lines.push('    void BuildSourceFaithfulMeshes()');
+  lines.push('    {');
+  names.forEach(function (n) { lines.push('        BuildEntity_' + safe(n) + '();'); });
+  lines.push('    }');
+  lines.push('');
+  names.forEach(function (n) {
+    lines.push('    void BuildEntity_' + safe(n) + '()');
+    lines.push('    {');
+    lines.push('        GameObject __existing = GameSceneCtrl.instance.Get("' + csString(n) + '");');
+    lines.push('        Vector3 __pos = __existing != null ? __existing.transform.position : Vector3.zero;');
+    lines.push('        if (__existing != null) { __existing.name = "__SFReplaced"; __existing.transform.position = new Vector3(0f, -9999f, 0f); }');
+    lines.push('        GameObject __root = new GameObject("' + csString(n) + '");');
+    lines.push('        __root.transform.position = __pos;');
+    sourceMeshOps[n].forEach(function (op) {
+      var call = emitMeshOpCall(op);
+      if (call) lines.push('        ' + call);
+    });
+    lines.push('        GameSceneCtrl.instance.Register("' + csString(n) + '", "' + csString(n) + '");');
+    lines.push('    }');
+    lines.push('');
+  });
+  return names;
+}
+
 // [WAVE F] 玩家可读性自动注入：根据 spec 字段在 Phase_*_Init 顶部发射 SetGuideText / SetPhaseGoal。
 //   - autoAllowed && autoModeHint → SetGuideText(autoModeHint)（演出文案优先）
 //   - else playerInstruction → SetGuideText(playerInstruction)
@@ -298,6 +396,12 @@ function generateSkeleton(specs, opts = {}) {
     if (ent && ent.name) entityMeta[ent.name] = ent;
   });
   const sourceVisualContract = opts.visualAssets && opts.visualAssets.sourceEntityContract;
+  // [OPTION C, Wave 3 Step 3] source-faithful composite mesh data (flag-gated default-off).
+  // When OPTION_C_SOURCE_FAITHFUL_BUILD=true and ctx.blueprint.sourceMeshOps is present,
+  // we emit BuildSourceFaithfulMeshes(); otherwise nothing is emitted (byte-identical output).
+  const sourceMeshOps = (opts.sourceMeshOps && typeof opts.sourceMeshOps === 'object' && !Array.isArray(opts.sourceMeshOps)) ? opts.sourceMeshOps : null;
+  const sourceFaithfulActive = process.env.OPTION_C_SOURCE_FAITHFUL_BUILD === 'true' && !!sourceMeshOps && Object.keys(sourceMeshOps).length > 0;
+  let sourceFaithfulEntities = [];
   const sourceSceneContract = opts.visualAssets && opts.visualAssets.sourceSceneContract && opts.visualAssets.sourceSceneContract.present !== false
     ? opts.visualAssets.sourceSceneContract
     : null;
@@ -666,6 +770,10 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        }');
     lines.push('    }');
     lines.push('');
+    // [OPTION C, Wave 3 Step 3] emit source-faithful composite mesh builders (flag-gated).
+    if (sourceFaithfulActive) {
+      sourceFaithfulEntities = emitSourceFaithfulMeshMethods(lines, sourceMeshOps, entityNames);
+    }
     // 2026-05-05: Player 永远不能 HideObj —— Hide 把 y 拍到 -999, Start() 完到 phase 0
     // 第一次 Init() 中间会有几帧 Player 在 y=-999, 用户看到 player 从屏幕下方"瞬移"上来。
     // GFM_Player.Init 会负责把 Player 落到正确位置, HideAllBoundEntities 不要碰它。
@@ -1302,6 +1410,10 @@ function generateSkeleton(specs, opts = {}) {
       lines.push('        NormalizeSourcePlayerSceneObject();');
     }
     lines.push('        RegisterEntityBindings();');
+    if (sourceFaithfulEntities.length > 0) {
+      lines.push('        // [OPTION C] 用源 HTML meshOps 复合网格替换池化单原语，再刷新字段引用。');
+      lines.push('        BuildSourceFaithfulMeshes();');
+    }
     lines.push('');
     lines.push('        // [SKELETON] 实体变量快捷引用（由 GameSceneCtrl 缓存支持）');
     lines.push('        RefreshEntityReferences();');

@@ -184,6 +184,7 @@ module.exports = {
           entityPoolMap: resolved.entityPoolMap,
           entities: schema.entities, // carries chineseName / showLabel for world labels
           visualAssets: ctx.blueprint.visualAssets || null,
+          sourceMeshOps: ctx.blueprint.sourceMeshOps || null, // [OPTION C, Wave 3 Step 3] flag-gated source-faithful meshes
           w1bSplit: ctx.blueprint.w1bSplit !== false, // default-on: 5-partial skeleton split
         });
         var isW1bSplit = (typeof skeletonResult === 'object' && skeletonResult.mode === 'w1b-5partial');
