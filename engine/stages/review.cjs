@@ -14,6 +14,8 @@ var { staticCheckProject, getBlockingIssues } = require('../static-check.cjs');
 var { checkConformance } = require('../spec-conformance.cjs');
 var { normalizeFingerprint } = require('../metrics.cjs');
 var assemblyPlanContracts = require('../assembly-plan-contracts.cjs');
+// 2026-05-31 Wave 1.b: shared whitelist source-of-truth with static-check.cjs.
+var staticRuleRegistry = require('../lib/static-rule-registry.cjs');
 
 var MAX_REVIEW_ROUNDS = 4;
 var REVIEW_REPEAT_BLOCK_AT = 3;
@@ -443,17 +445,15 @@ function stripExcessCameraBackgroundAssignments(code) {
 // pre-repair so the fix-loop converges instead of spinning 3 rounds.
 function sanitizeNonAsciiResourceApiKeys(code) {
   if (!code) return { code: code, changed: false, fixes: 0 };
-  var apis = [
-    'AddResource', 'TrySpend', 'GetResource', 'TryConvert',
-    'GFM_ResourceIds\\.Normalize', 'GFM_ResourceIds\\.Resolve',
-    'GameObject\\.Find', 'CompletePhaseProgress', 'EnterPhase',
-    'RecordPhaseEvidenceFlag', 'NotifyPhaseProgress',
-  ];
-  var nonAsciiRe = /[\u4e00-\u9fff\uFF0C\u3002\uFF1A\uFF1B\uFF01\uFF1F\u3001,.:;!?\s]/;
+  // Wave 1.b: 白名单 + charset 迁到 registry, 与 static-check.cjs non-ascii-resource-key
+  // 同源。registry 存 canonical 形式 (未转义点号), build regex 时自己转义。
+  var apis = staticRuleRegistry.RESOURCE_API_KEY_APIS;
+  var nonAsciiRe = staticRuleRegistry.RESOURCE_API_KEY_NON_ASCII_RE;
   var fixes = 0;
   var fixed = code;
   apis.forEach(function(api) {
-    var re = new RegExp('(' + api + '\\s*\\(\\s*)"([^"]*)"', 'g');
+    var apiRe = api.replace(/\./g, '\\.');
+    var re = new RegExp('(' + apiRe + '\\s*\\(\\s*)"([^"]*)"', 'g');
     fixed = fixed.replace(re, function(match, prefix, literal) {
       if (literal === '') return match;
       if (!nonAsciiRe.test(literal)) return match;
@@ -463,7 +463,8 @@ function sanitizeNonAsciiResourceApiKeys(code) {
       if (ascii.length > 32) ascii = ascii.slice(0, 32);
       // API-specific fallbacks when sanitization yields empty
       if (!ascii) {
-        var cleanApi = api.replace(/\\\./g, '.');
+        // registry APIs already canonical (unescaped) — api IS cleanApi.
+        var cleanApi = api;
         if (cleanApi === 'EnterPhase' || cleanApi === 'CompletePhaseProgress' || cleanApi === 'NotifyPhaseProgress') {
           ascii = 'phase';
         } else if (cleanApi === 'RecordPhaseEvidenceFlag') {
@@ -2502,6 +2503,7 @@ module.exports = {
   name: 'review',
   canRetry: false,
   normalizeSetScaleCalls: normalizeSetScaleCalls,
+  sanitizeNonAsciiResourceApiKeys: sanitizeNonAsciiResourceApiKeys,
   repairPhaseGateRuntimeMoves: repairPhaseGateRuntimeMoves,
   repairPhaseGateRuntimeMovesAcrossPartials: repairPhaseGateRuntimeMovesAcrossPartials,
   removePostTapPhaseResetBlocks: removePostTapPhaseResetBlocks,

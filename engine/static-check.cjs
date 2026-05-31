@@ -7,6 +7,9 @@
 
 var fs = require('fs');
 var path = require('path');
+// 2026-05-31 Wave 1.b: shared single-source-of-truth for static-rule whitelists
+// that must stay in sync with review.cjs pre-repair (see deterministic-prerepair-lib doc).
+var staticRuleRegistry = require('./lib/static-rule-registry.cjs');
 
 function splitTopLevelArgs(text) {
   var args = [];
@@ -966,19 +969,23 @@ var RULES = [
     message: 'Resource/entity key string literal contains CJK / punctuation / whitespace — prose leak from atom plan; check assembly-plan-pipeline resolveEntityName guard',
     custom: function(code) {
       var issues = [];
-      // 仅扫这些 API 的字符串字面量参数 (它们的 string 必须是 stable identifier)
-      var apis = [
-        'AddResource', 'TrySpend', 'GetResource', 'TryConvert',
-        'GFM_ResourceIds.Normalize', 'GFM_ResourceIds.Resolve',
-        'GameObject.Find', 'CompletePhaseProgress', 'EnterPhase',
-        'RecordPhaseEvidenceFlag', 'NotifyPhaseProgress'
-      ];
+      // 2026-05-31 Wave 1.a: 必须屏蔽注释/字符串再扫, 否则注释里嵌的 API 反例
+      // (e.g. skeleton-generator 的 ASCII-ONLY 警告框里的 `// AddResource("金币", 5)`)
+      // 会被当真违规算出假阳性 blocking。mask[i]===1 仅在真实代码处, 与主循环 2386 行
+      // `if (!mask[match.index]) continue;` 语义对齐。注意: 不能用其他 rule 的 stripped
+      // 正则法, 那会把字符串字面量内容也清空, 而本 rule 正是要检查字面量内容。
+      var mask = buildCodeMask(code);
+      // 仅扫这些 API 的字符串字面量参数 (它们的 string 必须是 stable identifier)。
+      // Wave 1.b: 白名单迁到 registry, 与 review.cjs 的 sanitizeNonAsciiResourceApiKeys 同源。
+      var apis = staticRuleRegistry.RESOURCE_API_KEY_APIS;
       for (var ai = 0; ai < apis.length; ai++) {
         var api = apis[ai];
         var pattern = api.replace(/\./g, '\\.') + '\\s*\\(\\s*"([^"]*)"';
         var re = new RegExp(pattern, 'g');
         var m;
         while ((m = re.exec(code)) !== null) {
+          // 跳过注释/字符串内的伪命中 (API token 起点不在真实代码)
+          if (!mask[m.index]) continue;
           var literal = m[1];
           // 允许空字符串 (如 EnterPhase(0, "", true, true))
           if (literal === '') continue;
