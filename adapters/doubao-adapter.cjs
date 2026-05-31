@@ -146,7 +146,11 @@ class Models {
           'Authorization': 'Bearer ' + this.apiKey,
           'Content-Length': Buffer.byteLength(data),
         },
-        timeout: 120000,
+        // 360s ceiling: callers (e.g. storyboard-parser) race a stricter timeout.
+        // Old 120s/240s caps fired before legitimate long-reasoning multimodal
+        // calls (5+ inline JPEGs / 2-3K system prompt) completed (peak ~230s
+        // wall observed 2026-05-31). 360s leaves ~50% safety margin.
+        timeout: 360000,
       };
 
       // Clear proxy for direct connection
@@ -197,7 +201,7 @@ class Models {
 
       req.on('timeout', () => {
         req.destroy();
-        reject(new Error('Doubao API timeout (120s)'));
+        reject(new Error('Doubao API timeout (360s)'));
       });
 
       req.write(data);

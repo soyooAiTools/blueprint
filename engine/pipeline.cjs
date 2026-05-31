@@ -67,6 +67,21 @@ function PipelineContext(task, checkpoint, workerConfig) {
   if (checkpoint && checkpoint.blueprint && typeof checkpoint.blueprint === 'object') {
     this.blueprint = JSON.parse(JSON.stringify(checkpoint.blueprint));
   }
+
+  // Backfill blueprint.sourceHtmlPath from top-level task fields so that
+  // orchestrators which set the field outside blueprint_json are honoured.
+  // This must run BEFORE the ctx.sourceHtmlPath shortcut read below so that
+  // source-html-bind.assertBefore (and any direct ctx.sourceHtmlPath consumer)
+  // sees the value without needing an additional task-field probe.
+  if (this.blueprint && !this.blueprint.sourceHtmlPath) {
+    var topLevelHtmlPath = task.sourceHtmlPath || task.source_html_path || null;
+    if (topLevelHtmlPath) {
+      this.blueprint.sourceHtmlPath = topLevelHtmlPath;
+      var topLevelSha256 = task.sourceHtmlSha256 || task.source_html_sha256 || null;
+      if (topLevelSha256) this.blueprint.sourceHtmlSha256 = topLevelSha256;
+    }
+  }
+
   this.sourceHtmlPath = null;
   this.sourceHtmlSha256 = null;
   if (this.blueprint && this.blueprint.sourceHtmlPath) {
@@ -461,6 +476,7 @@ Pipeline.prototype.run = function(ctx, onProgress) {
 // ============ Real Stage Implementations ============
 
 var sourceHtmlBindStage = require('./stages/source-html-bind.cjs');
+var fidelityContractSynthesizeStage = require('./stages/fidelity-contract-synthesize.cjs');
 var cloneStage = require('./stages/clone.cjs');
 var specExtractStage = require('./stages/spec-extract.cjs');
 var specValidateStage = require('./stages/spec-validate.cjs');
@@ -483,6 +499,7 @@ var uploadStage = require('./stages/upload.cjs');
 function createLunaPipeline(options) {
   return new Pipeline([
     sourceHtmlBindStage,
+    fidelityContractSynthesizeStage,
     cloneStage,
     specExtractStage,
     specValidateStage,

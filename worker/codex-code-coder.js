@@ -26,8 +26,8 @@ const CLAUDE_CMD = process.env.CLAUDE_CMD || 'claude';
 const CODEX_CMD = process.env.CODEX_CMD || 'codex';
 const CLAUDE_TIMEOUT_MS = parseInt(process.env.CLAUDE_TIMEOUT_MS) || 25 * 60 * 1000; // 25 min (fresh gen can take 15-20min)
 const CLAUDE_MAX_BUDGET = process.env.CLAUDE_MAX_BUDGET_USD || '0'; // 0 = no limit
-const CLAUDE_MODEL = process.env.CLAUDE_CODE_MODEL || 'claude-opus-4-7';
-const CLAUDE_TEXT_MODEL = process.env.CLAUDE_TEXT_MODEL || process.env.CLAUDE_CODE_MODEL || 'claude-sonnet-4-6';
+const CLAUDE_MODEL = process.env.CLAUDE_CODE_MODEL || 'claude-opus-4-8';
+const CLAUDE_TEXT_MODEL = process.env.CLAUDE_TEXT_MODEL || process.env.CLAUDE_CODE_MODEL || 'claude-opus-4-8';
 const CODEX_CODE_MODEL = process.env.CODEX_CODE_MODEL || 'gpt-5.5';
 const CODEX_CODE_BACKEND = process.env.CODEX_CODE_BACKEND || 'codex-exec';
 const GLM_MODEL = process.env.GLM_MODEL || 'glm-5.1';
@@ -62,7 +62,7 @@ function resolveClaudePrintModel(opts, env) {
   if (opts.claudeModel) return opts.claudeModel;
   if (opts.fallbackModel) return opts.fallbackModel;
   if (opts.model && !isCodexModelName(opts.model)) return opts.model;
-  return env.CLAUDE_TEXT_MODEL || env.CLAUDE_CODE_MODEL || 'claude-sonnet-4-6';
+  return env.CLAUDE_TEXT_MODEL || env.CLAUDE_CODE_MODEL || 'claude-opus-4-8';
 }
 
 function isModelUnavailableError(text) {

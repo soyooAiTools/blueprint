@@ -436,6 +436,53 @@ function stripExcessCameraBackgroundAssignments(code) {
   return { code: nextCode, changed: fixes > 0, fixes: fixes };
 }
 
+// 2026-05-31 Option C: deterministic strip of non-ASCII chars from string literals
+// passed to APIs scanned by static rule `non-ascii-resource-key`. LLM (gpt-5.5)
+// in codegen-custom occasionally writes Chinese / fullwidth / whitespace keys
+// despite the skeleton comment block; this fix is applied during review
+// pre-repair so the fix-loop converges instead of spinning 3 rounds.
+function sanitizeNonAsciiResourceApiKeys(code) {
+  if (!code) return { code: code, changed: false, fixes: 0 };
+  var apis = [
+    'AddResource', 'TrySpend', 'GetResource', 'TryConvert',
+    'GFM_ResourceIds\\.Normalize', 'GFM_ResourceIds\\.Resolve',
+    'GameObject\\.Find', 'CompletePhaseProgress', 'EnterPhase',
+    'RecordPhaseEvidenceFlag', 'NotifyPhaseProgress',
+  ];
+  var nonAsciiRe = /[\u4e00-\u9fff\uFF0C\u3002\uFF1A\uFF1B\uFF01\uFF1F\u3001,.:;!?\s]/;
+  var fixes = 0;
+  var fixed = code;
+  apis.forEach(function(api) {
+    var re = new RegExp('(' + api + '\\s*\\(\\s*)"([^"]*)"', 'g');
+    fixed = fixed.replace(re, function(match, prefix, literal) {
+      if (literal === '') return match;
+      if (!nonAsciiRe.test(literal)) return match;
+      // Sanitize: keep only [A-Za-z0-9_], collapse remaining to underscores
+      var ascii = literal.replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
+      // Cap length to prevent absurd identifiers
+      if (ascii.length > 32) ascii = ascii.slice(0, 32);
+      // API-specific fallbacks when sanitization yields empty
+      if (!ascii) {
+        var cleanApi = api.replace(/\\\./g, '.');
+        if (cleanApi === 'EnterPhase' || cleanApi === 'CompletePhaseProgress' || cleanApi === 'NotifyPhaseProgress') {
+          ascii = 'phase';
+        } else if (cleanApi === 'RecordPhaseEvidenceFlag') {
+          ascii = 'evidence';
+        } else if (/ResourceIds|AddResource|TrySpend|GetResource|TryConvert/.test(cleanApi)) {
+          ascii = 'Resource';
+        } else if (cleanApi === 'GameObject.Find') {
+          ascii = 'Entity';
+        } else {
+          ascii = 'key';
+        }
+      }
+      fixes++;
+      return prefix + '"' + ascii + '"';
+    });
+  });
+  return { code: fixed, changed: fixes > 0, fixes: fixes };
+}
+
 function rewriteHotPathVectorAllocations(code) {
   if (!code || code.indexOf('new Vector3') < 0) {
     return { code: code, changed: false, fixes: 0 };
@@ -2103,6 +2150,12 @@ function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
     changed = true;
     fixes.push('main:HotVectorAlloc x' + mainVectorFix.fixes);
   }
+  var mainAsciiFix = sanitizeNonAsciiResourceApiKeys(mainCode);
+  if (mainAsciiFix.changed) {
+    mainCode = mainAsciiFix.code;
+    changed = true;
+    fixes.push('main:NonAsciiKey x' + mainAsciiFix.fixes);
+  }
   // 2026-05-12: camera-background-override deterministic strip
   var mainCameraBgFix = stripExcessCameraBackgroundAssignments(mainCode);
   if (mainCameraBgFix.changed) {
@@ -2202,6 +2255,12 @@ function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
       nextExtras[name] = vectorRes.code;
       changed = true;
       fixes.push(name + ':HotVectorAlloc x' + vectorRes.fixes);
+    }
+    var asciiRes = sanitizeNonAsciiResourceApiKeys(nextExtras[name]);
+    if (asciiRes.changed) {
+      nextExtras[name] = asciiRes.code;
+      changed = true;
+      fixes.push(name + ':NonAsciiKey x' + asciiRes.fixes);
     }
     // 2026-05-12: camera-background-override deterministic strip (partial files)
     var cameraBgRes = stripExcessCameraBackgroundAssignments(nextExtras[name]);

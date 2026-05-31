@@ -172,7 +172,19 @@ module.exports = {
         }
       });
     } else {
-      v12Promise = migrateLib.migrate(base.contract, {
+      // Coerce stale v1.0.0 checkpointed contracts to v1.1.0 before migration.
+      // v1.0.0 and v1.1.0 are structurally identical; the only behavioural
+      // difference (polymorphic-text on hud[].text) is irrelevant to the
+      // v1.1→v1.2 anchor-extraction step. The migrate-v1.1-to-v1.2 input guard
+      // rejects schemaVersion values below '1.1.0', so a stale checkpoint
+      // contract at '1.0.0' must be promoted before being passed in.
+      var contractToMigrate = base.contract;
+      if (contractToMigrate.schemaVersion === '1.0.0') {
+        contractToMigrate = Object.assign({}, contractToMigrate, { schemaVersion: '1.1.0' });
+        ctx.addLog && ctx.addLog('fidelity-contract-produce',
+          'coerced stale v1.0.0 checkpoint contract to v1.1.0 for migration (structurally identical; stale checkpoint fast-path)');
+      }
+      v12Promise = migrateLib.migrate(contractToMigrate, {
         sourceHtml: ctx.sourceHtmlPath,
         forceReextract: false
       });
