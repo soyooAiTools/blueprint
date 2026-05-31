@@ -113,6 +113,7 @@ var DEFAULT_CONTRACT_PATH = path.join(__dirname, '..', '..', 'work', 'task25-sam
 module.exports = {
   name: 'fidelity-source-diff',
   canRetry: false,
+  serveSingleFile: serveSingleFile, // Wave 3 Step 2: reused by source-mesh-extract stage
 
   assertBefore: function(ctx) {
     if (!ctx.sourceHtmlPath) {

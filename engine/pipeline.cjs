@@ -477,6 +477,7 @@ Pipeline.prototype.run = function(ctx, onProgress) {
 
 var sourceHtmlBindStage = require('./stages/source-html-bind.cjs');
 var fidelityContractSynthesizeStage = require('./stages/fidelity-contract-synthesize.cjs');
+var sourceMeshExtractStage = require('./stages/source-mesh-extract.cjs'); // Wave 3 Step 2: flag-gated default-off (OPTION_C_SOURCE_FAITHFUL_BUILD)
 var cloneStage = require('./stages/clone.cjs');
 var specExtractStage = require('./stages/spec-extract.cjs');
 var specValidateStage = require('./stages/spec-validate.cjs');
@@ -501,6 +502,7 @@ function createLunaPipeline(options) {
   return new Pipeline([
     sourceHtmlBindStage,
     fidelityContractSynthesizeStage,
+    sourceMeshExtractStage,
     cloneStage,
     specExtractStage,
     specValidateStage,
@@ -539,6 +541,7 @@ module.exports = {
   createCocosPipeline: createCocosPipeline,
   stages: {
     sourceHtmlBind: sourceHtmlBindStage,
+    sourceMeshExtract: sourceMeshExtractStage,
     clone: cloneStage,
     specExtract: specExtractStage,
     specValidate: specValidateStage,
