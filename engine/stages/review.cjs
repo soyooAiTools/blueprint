@@ -2079,7 +2079,49 @@ function declareMissingInteractionFlags(mainCode, extraFiles) {
   return { code: lines.join('\n'), extraFiles: files, changed: true, fixes: missing.length };
 }
 
+// Wave 2 (2026-05-31): the 25 deterministic pre-repair fns keyed by name, injected
+// into the lib orchestrator. Bodies still live in this file (Step 2 migration tactic).
+var PREREPAIR_FNS = {
+  declareMissingInteractionFlags: declareMissingInteractionFlags,
+  repairPlayerAliasMemberAccess: repairPlayerAliasMemberAccess,
+  ensurePlayerFieldAssignment: ensurePlayerFieldAssignment,
+  collapseLegacyCheckEventRulesStub: collapseLegacyCheckEventRulesStub,
+  repairUpdateGameStateBridge: repairUpdateGameStateBridge,
+  normalizeRuntimePhaseContract: normalizeRuntimePhaseContract,
+  ensureAssemblySlotRunnerCalls: ensureAssemblySlotRunnerCalls,
+  stripInitMaterialFromScene: stripInitMaterialFromScene,
+  stripEarlyShowCTA: stripEarlyShowCTA,
+  normalizeFinishGameTerminalFlow: normalizeFinishGameTerminalFlow,
+  rewriteHotPathVectorAllocations: rewriteHotPathVectorAllocations,
+  sanitizeNonAsciiResourceApiKeys: sanitizeNonAsciiResourceApiKeys,
+  stripExcessCameraBackgroundAssignments: stripExcessCameraBackgroundAssignments,
+  rewriteCameraMainToMainCam: rewriteCameraMainToMainCam,
+  normalizeSetScaleCalls: normalizeSetScaleCalls,
+  repairPhaseGateRuntimeMoves: repairPhaseGateRuntimeMoves,
+  normalizePhaseGateConditionalDeclarations: normalizePhaseGateConditionalDeclarations,
+  renameDuplicatePhaseGateMoveVars: renameDuplicatePhaseGateMoveVars,
+  stripInteractionFlagShortcutsFromPhaseGates: stripInteractionFlagShortcutsFromPhaseGates,
+  rewriteLongIfChainsAsSwitches: rewriteLongIfChainsAsSwitches,
+  repairPhaseGateRuntimeMovesAcrossPartials: repairPhaseGateRuntimeMovesAcrossPartials,
+  ensureAssemblySlotRunnerCallsAcrossPartials: ensureAssemblySlotRunnerCallsAcrossPartials,
+  removePostTapPhaseResetBlocks: removePostTapPhaseResetBlocks,
+  addMissingComplexBranchComments: addMissingComplexBranchComments,
+  addMissingSkeletonMemberComments: addMissingSkeletonMemberComments,
+};
+
+// Wave 2: orchestration extracted to engine/lib/static-rule-prerepair.cjs (kills the
+// ~350-line main/partial mirror). Behind USE_PRE_REPAIR_LIB (default-on) with the
+// original inline pass kept as repairKnownStructuralDamageInline for the equivalence
+// gate + emergency fallback. Both produce byte-identical { code, extraFiles, fixes }.
 function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
+  if (process.env.USE_PRE_REPAIR_LIB === 'false') {
+    return repairKnownStructuralDamageInline(mainCode, extraFiles, blueprint);
+  }
+  return require('../lib/static-rule-prerepair.cjs')
+    .runAllPreRepairs(mainCode, extraFiles, blueprint, PREREPAIR_FNS);
+}
+
+function repairKnownStructuralDamageInline(mainCode, extraFiles, blueprint) {
   var changed = false;
   var fixes = [];
   var missingFlagFix = declareMissingInteractionFlags(mainCode, extraFiles);
