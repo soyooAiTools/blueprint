@@ -485,6 +485,7 @@ var assemblyPlanStage = require('./stages/assembly-plan.cjs');
 var assemblyComplexityGateStage = require('./stages/assembly-complexity-gate.cjs');
 var codegenStage = require('./stages/codegen.cjs');
 var methodCheckStage = require('./stages/method-check.cjs');
+var staticPreReviewStage = require('./stages/static-pre-review.cjs'); // Wave 2 #3: flag-gated default-off
 var reviewStage = require('./stages/review.cjs');
 var fidelityContractProduceStage = require('./stages/fidelity-contract-produce.cjs');
 var compileStage = require('./stages/compile.cjs');
@@ -508,6 +509,7 @@ function createLunaPipeline(options) {
     assemblyComplexityGateStage,
     codegenStage,
     methodCheckStage,
+    staticPreReviewStage,
     reviewStage,
     fidelityContractProduceStage,
     compileStage,
@@ -544,6 +546,7 @@ module.exports = {
     assemblyPlan: assemblyPlanStage,
     codegen: codegenStage,
     methodCheck: methodCheckStage,
+    staticPreReview: staticPreReviewStage,
     review: reviewStage,
     fidelityContractProduce: fidelityContractProduceStage,
     compile: compileStage,
