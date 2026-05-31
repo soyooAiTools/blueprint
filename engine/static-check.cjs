@@ -1611,16 +1611,24 @@ var RULES = [
     custom: function(code, ctx) {
       var fileName = ctx && ctx.filename ? String(ctx.filename).split(/[\\/]/).pop() : '';
       if (fileName && !/^GameFlowManagerMain(?:\.[A-Za-z]+)?\.cs$/.test(fileName)) return [];
-      var hasResourceIds = code.indexOf('GFM_ResourceIds') >= 0;
+      // Strip comments BEFORE the activation gate: a GFM_ResourceIds mention living
+      // only in the skeleton's ASCII warning-banner comment must NOT activate the rule
+      // (otherwise it falsely flags genuine raw AddResource("X") calls). Comment chars
+      // are replaced with equal-length spaces and newlines are preserved, so m.index
+      // from scanning `stripped` stays aligned with the original `code` for line numbers.
+      function stripComments(src) {
+        return src
+          .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+          .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); });
+      }
+      var stripped = stripComments(code);
+      var hasResourceIds = stripped.indexOf('GFM_ResourceIds') >= 0;
       if (!hasResourceIds && ctx && ctx.extraFiles) {
         Object.keys(ctx.extraFiles).forEach(function(key) {
-          if ((ctx.extraFiles[key] || '').indexOf('GFM_ResourceIds') >= 0) hasResourceIds = true;
+          if (stripComments(ctx.extraFiles[key] || '').indexOf('GFM_ResourceIds') >= 0) hasResourceIds = true;
         });
       }
       if (!hasResourceIds) return [];
-      var stripped = code
-        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
-        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); });
       var issues = [];
       var callRe = /\b(AddResource|GetResource|TrySpend|TryConvert)\s*\(\s*"([^"\n]+)"/g;
       var m;
