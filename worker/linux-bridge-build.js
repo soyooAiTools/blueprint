@@ -1283,6 +1283,57 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             lightEnt.light.color = color(sceneContract.directionalLight.color, '#ffffff');
             lightEnt.light.intensity = sceneContract.directionalLight.intensity || 1;
           }
+          // [OPTION C, Wave 3 Step 4] source-faithful scene lighting / fog / camera.
+          // Gated on manifest.sourceMeshOps (Option C active) so the validated Option-B
+          // pipeline is unperturbed; each sub-block is null-guarded (missing SCENE_CONFIG
+          // field → no-op); whole block try/catch-wrapped so it can never break the build.
+          var __optionC = !!(manifest.sourceMeshOps && Object.keys(manifest.sourceMeshOps).length);
+          if (__optionC) {
+            try {
+              // Directional light DIRECTION from the source light position (points at origin).
+              if (sceneContract.directionalLight && Array.isArray(sceneContract.directionalLight.position) && lightEnt) {
+                var dp = sceneContract.directionalLight.position;
+                lightEnt.setPosition(dp[0], dp[1], dp[2]);
+                lightEnt.lookAt(0, 0, 0);
+              }
+              // Ambient light (PlayCanvas scene.ambientLight; scaled by intensity).
+              if (sceneContract.ambientLight && sceneContract.ambientLight.color && pcApp && pcApp.scene) {
+                var amb = color(sceneContract.ambientLight.color, '#202020');
+                var ai = Number(sceneContract.ambientLight.intensity);
+                if (isFinite(ai)) amb = new pc.Color(amb.r * ai, amb.g * ai, amb.b * ai, 1);
+                pcApp.scene.ambientLight = amb;
+              }
+              // Rim light (second directional, e.g. three.js PointLight rim at (-10,5,-12)).
+              if (sceneContract.rimLight && sceneContract.rimLight.color) {
+                var rimEnt = new pc.Entity('AI_RimLight');
+                pcApp.root.addChild(rimEnt);
+                rimEnt.addComponent('light', { type: 'directional', color: color(sceneContract.rimLight.color, '#ffffff'), intensity: Number(sceneContract.rimLight.intensity) || 0.5 });
+                var rp = Array.isArray(sceneContract.rimLight.position) ? sceneContract.rimLight.position : [-10, 5, -12];
+                rimEnt.setPosition(rp[0], rp[1], rp[2]);
+                rimEnt.lookAt(0, 0, 0);
+              }
+              // Linear fog.
+              if (sceneContract.fog && sceneContract.fog.color && pcApp && pcApp.scene) {
+                pcApp.scene.fog = 'linear';
+                pcApp.scene.fogColor = color(sceneContract.fog.color, '#071026');
+                if (isFinite(Number(sceneContract.fog.near))) pcApp.scene.fogStart = Number(sceneContract.fog.near);
+                if (isFinite(Number(sceneContract.fog.far))) pcApp.scene.fogEnd = Number(sceneContract.fog.far);
+              }
+              // Camera pose / FoV, IF the source contract captured it (L8 SCENE_CONFIG.camera).
+              // NOTE: the AI_Camera is also synced from UnityEngine.Camera.main at +500ms above;
+              // when the skeleton sets no explicit Camera.main pose, this overlay value persists.
+              if (sceneContract.camera && camEnt.camera) {
+                var scam = sceneContract.camera;
+                if (isFinite(Number(scam.fov))) { camEnt.camera.projection = 0; camEnt.camera.fov = Number(scam.fov); }
+                if (isFinite(Number(scam.near))) camEnt.camera.nearClip = Number(scam.near);
+                if (isFinite(Number(scam.far))) camEnt.camera.farClip = Number(scam.far);
+                if (Array.isArray(scam.position)) camEnt.setPosition(scam.position[0], scam.position[1], scam.position[2]);
+                var look = Array.isArray(scam.lookAt) ? scam.lookAt : [0, 0, 0];
+                camEnt.lookAt(look[0], look[1], look[2]);
+              }
+              console.log('[OPTION C] applied source-faithful scene lighting/fog/camera');
+            } catch (e) { console.error('[OPTION C] scene-config apply error:', e); }
+          }
           var root = new pc.Entity('__StoryboardVisualOverlay');
           pcApp.root.addChild(root);
           if (sceneContract.ground && sceneContract.ground.color) {
@@ -1713,7 +1764,13 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             group.setPosition(pos[0], pos[1], pos[2]);
             entityRoots[name] = group;
             var primitiveStyle = primitiveStyleForName(name);
-            var styledCount = primitiveStyle ? buildStyledComposite(group, name, primitiveStyle, st) : 0;
+            // [OPTION C, Wave 3 R3] when the skeleton already built a source-faithful
+            // composite for this entity (manifest.sourceMeshOps[name] non-empty), skip the
+            // overlay's styled composite to avoid double meshes. Entities without meshOps
+            // still fall through to the overlay (engineered fallback).
+            var __sfOps = manifest.sourceMeshOps;
+            var __hasSF = !!(__sfOps && __sfOps[name] && __sfOps[name].length);
+            var styledCount = (primitiveStyle && !__hasSF) ? buildStyledComposite(group, name, primitiveStyle, st) : 0;
             var ids = binding && binding.assetIds || [];
             if (!styledCount) {
               var sourcePrimitiveCount = 0;

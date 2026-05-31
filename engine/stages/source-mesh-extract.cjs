@@ -116,6 +116,11 @@ function execute(ctx) {
 
       ctx.blueprint = ctx.blueprint || {};
       ctx.blueprint.sourceMeshOps = meshOps;
+      // Fold into the visualAssets manifest so the runtime overlay
+      // (linux-bridge-build.js applyStoryboardVisualOverlay) can see manifest.sourceMeshOps
+      // and skip its own buildStyledComposite for Option-C entities (avoid double meshes, R3).
+      // Only attach if visualAssets already exists — don't fabricate a partial manifest.
+      if (ctx.blueprint.visualAssets) ctx.blueprint.visualAssets.sourceMeshOps = meshOps;
       ctx.blueprint.sourceMeshOpsReport = {
         entityCount: report.entityCount,
         totalOps: report.totalOps,
