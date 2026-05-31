@@ -188,14 +188,22 @@ function emitSourceFaithfulMeshMethods(lines, sourceMeshOps, entityNames) {
     lines.push('    {');
     lines.push('        GameObject __existing = GameSceneCtrl.instance.Get("' + csString(n) + '");');
     lines.push('        Vector3 __pos = __existing != null ? __existing.transform.position : Vector3.zero;');
-    lines.push('        if (__existing != null) { __existing.name = "__SFReplaced"; __existing.transform.position = new Vector3(0f, -9999f, 0f); }');
-    lines.push('        GameObject __root = new GameObject("' + csString(n) + '");');
+    // Preserve the existing entity object\'s name + tag on the composite root, then hide
+    // the old single-primitive object. Critical for special entities like the player,
+    // which GFM_Player finds by name "_player" / tag "Player" — creating a fresh GameObject
+    // named after the entity (e.g. "player") and renaming the real _player away would make
+    // GFM_Player fail ("找不到场景 Player"). Diagnosed via headless render probe 2026-06-01.
+    lines.push('        string __nm = (__existing != null && __existing.name != null && __existing.name.Length > 0) ? __existing.name : "' + csString(n) + '";');
+    lines.push('        string __tag = "Untagged";');
+    lines.push('        if (__existing != null) { try { __tag = __existing.tag; } catch (UnityException) {} __existing.name = "__SFReplaced_" + __nm; __existing.SetActive(false); }');
+    lines.push('        GameObject __root = new GameObject(__nm);');
+    lines.push('        try { __root.tag = __tag; } catch (UnityException) {}');
     lines.push('        __root.transform.position = __pos;');
     sourceMeshOps[n].forEach(function (op) {
       var call = emitMeshOpCall(op);
       if (call) lines.push('        ' + call);
     });
-    lines.push('        GameSceneCtrl.instance.Register("' + csString(n) + '", "' + csString(n) + '");');
+    lines.push('        GameSceneCtrl.instance.Register("' + csString(n) + '", __nm);');
     lines.push('    }');
     lines.push('');
   });

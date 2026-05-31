@@ -180,27 +180,26 @@ public static class GFM_Create
         {
             Material mat = _baseMat != null ? new Material(_baseMat) : new Material(Shader.Find("Standard"));
             Color c = color; c.a = opacity;
+            // Luna renders with URP/Lit, whose base color is _BaseColor — NOT Material.color
+            // (_Color), which URP ignores, leaving composites white. Set _BaseColor (URP) plus
+            // _Color/.color as a legacy fallback. (Confirmed against the build's own override
+            // path which setParameter('_BaseColor','_Color'); diagnosed via headless render
+            // probe 2026-06-01: URP/Lit "doesn't support '_ALPHABLEND_ON'" + white meshes.)
             mat.color = c;
+            mat.SetColor("_BaseColor", c);
+            mat.SetColor("_Color", c);
             if (emissiveIntensity > 0f)
             {
                 mat.EnableKeyword("_EMISSION");
                 mat.SetColor("_EmissionColor", new Color(emissive.r * emissiveIntensity, emissive.g * emissiveIntensity, emissive.b * emissiveIntensity, 1f));
             }
             mat.SetFloat("_Metallic", metalness);
-            mat.SetFloat("_Glossiness", 1f - roughness);
-            if (opacity < 1f)
-            {
-                // Standard-shader transparent setup; integer blend constants for Luna
-                // (SrcAlpha=5, OneMinusSrcAlpha=10) to avoid the BlendMode enum.
-                mat.SetFloat("_Mode", 3f);
-                mat.SetInt("_SrcBlend", 5);
-                mat.SetInt("_DstBlend", 10);
-                mat.SetInt("_ZWrite", 0);
-                mat.DisableKeyword("_ALPHATEST_ON");
-                mat.EnableKeyword("_ALPHABLEND_ON");
-                mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-                mat.renderQueue = 3000;
-            }
+            mat.SetFloat("_Smoothness", 1f - roughness);  // URP/Lit smoothness
+            mat.SetFloat("_Glossiness", 1f - roughness);  // legacy fallback
+            // Do NOT set Standard-shader transparency keywords (_Mode/_SrcBlend/_ALPHABLEND_ON):
+            // URP/Lit rejects them and spams "doesn't support '_ALPHABLEND_ON'" errors. Alpha
+            // rides in _BaseColor; full URP transparency (_Surface=1 + _SURFACE_TYPE_TRANSPARENT)
+            // is deferred — opaque rendering is acceptable for v0.1 (incident doc R7).
             r.material = mat;
         }
         return part;

@@ -64,9 +64,12 @@ function gen(withFlag, withOps) {
   assert.match(code, /BuildSourceFaithfulMeshes\(\);/, 'calls it from Start');
   assert.match(code, /void BuildEntity_Player\(\)/, 'emits BuildEntity_Player');
   assert.match(code, /void BuildEntity_DrillStation\(\)/, 'emits BuildEntity_DrillStation');
-  // re-bind to composite root
-  assert.match(code, /GameSceneCtrl\.instance\.Register\("Player", "Player"\)/, 're-binds Player to composite root');
-  assert.match(code, /GameObject __root = new GameObject\("DrillStation"\)/, 'creates DrillStation root');
+  // re-bind to composite root (preserving the existing object's name so GFM_Player etc. still resolve)
+  assert.match(code, /GameSceneCtrl\.instance\.Register\("Player", __nm\)/, 're-binds Player to composite root by preserved name');
+  assert.match(code, /GameObject __root = new GameObject\(__nm\)/, 'composite root reuses the existing entity name (e.g. _player)');
+  // preserves existing name + tag (critical for player: GFM_Player finds name=_player / tag=Player)
+  assert.match(code, /string __nm = \(__existing != null[^\n]*__existing\.name/, 'preserves existing object name');
+  assert.match(code, /__root\.tag = __tag/, 'preserves existing object tag');
   // copies position from existing pooled primitive
   assert.match(code, /Vector3 __pos = __existing != null \? __existing\.transform\.position : Vector3\.zero/, 'copies pooled position');
   console.log('  ✓ flag on + meshOps: methods emitted + wired into Start');
