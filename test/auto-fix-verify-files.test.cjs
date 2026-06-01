@@ -2,7 +2,12 @@ const fs = require('fs');
 const path = require('path');
 const { verifyFiles, requireTargetResolves } = require('../engine/auto-fix.cjs');
 
-const REPO_ROOT = '/opt/blueprint-editor';
+// Derive the repo root from this test file's location so the test is portable
+// across checkouts/worktrees and matches auto-fix.cjs's own REPO_ROOT
+// (path.join(__dirname,'..') from engine/). Hard-coding /opt/blueprint-editor
+// made verifyFiles (which resolves relative paths against its own REPO_ROOT)
+// look in the wrong tree when run from anywhere else, silently returning [].
+const REPO_ROOT = path.join(__dirname, '..');
 const TMP = 'server-data/__autofix_verify_test';
 
 function write(rel, src) {
