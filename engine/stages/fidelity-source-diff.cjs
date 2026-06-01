@@ -931,10 +931,10 @@ function demoteAdvisoryBuckets(fieldDiffs, targetFields) {
     // surface. worldLabel + primitiveStyle DOM/runtime surfaces are installed by the build
     // (ported 2026-06-01); the lib defaults them to advisory, so promote per the user's
     // decision that these are basic, must-catch fidelity. Self-scoped: only when the scaffold
-    // is actually present (so older builds without it don't hard-fail). The 'guide' pseudo-
-    // worldLabel is the per-phase guide TEXT (not an entity label) — left advisory, handled
-    // by the guideText concern.
-    if ((cat === 'worldLabel-missing' || cat === 'worldLabel-mismatch') && hasAnyWorldLabel && !isGuideLabel(d)) demote = false;
+    // is actually present (so older builds without it don't hard-fail). The 'guide' worldLabel
+    // (per-phase guide text) is now driven from the source contract by the build, so it is
+    // promoted too — same as the guideText phase bucket below.
+    if ((cat === 'worldLabel-missing' || cat === 'worldLabel-mismatch') && hasAnyWorldLabel) demote = false;
     if ((cat === 'primitiveStyle-missing' || cat === 'primitiveStyle-mismatch') && hasAnyPrimitiveStyle) demote = false;
 
     if (d.blocking === false && demote === null) return d; // already advisory, no promotion
@@ -942,20 +942,17 @@ function demoteAdvisoryBuckets(fieldDiffs, targetFields) {
     // DEMOTE to advisory (self-scoping):
     // (a) verification-scaffold absent: the build installed none of the surface this bucket
     //     reads, so every entry is "missing" — a plumbing gap, not drift.
-    if (cat === 'worldLabel-missing' && (!hasAnyWorldLabel || isGuideLabel(d))) demote = true;
+    if (cat === 'worldLabel-missing' && !hasAnyWorldLabel) demote = true;
     if (cat === 'primitiveStyle-missing' && !hasAnyPrimitiveStyle) demote = true;
-    // (b) HUD the build renders but the source contract/extraction didn't capture — pending
-    //     the hud-content alignment decision (source storyboard HUD is sparser than the game HUD).
+    // (b) hud-EXTRA only — the game HUD is richer than the source storyboard HUD (resource
+    //     counters the storyboard sketch omitted), accepted per option (a). hud-missing /
+    //     hud-mismatch stay BLOCKING so the source's own HUD slots are verified.
     if (cat === 'hud-extra') demote = true;
     // (c) background colour — cross-engine / URP post-process recolour; matches the
     //     colour-insensitive structural pixel-diff policy (see runPixelDiff).
     if (cat === 'scene-mismatch' && d.path && /backgroundColor/i.test(d.path)) demote = true;
-    // (d) per-phase guideText — expected empty in the contract + the game's guideText is itself
-    //     stale/buggy; pending the guideText content fix. Advisory for now.
-    if (cat === 'phase-mismatch' && Array.isArray(d.diffPaths) && d.diffPaths.length > 0
-        && d.diffPaths.every(function(p) { return /guideText/i.test(p.path || ''); })) {
-      demote = true;
-    }
+    // (d) phase-mismatch guideText: the build now drives the visible guide (#bp-storyboard-tip)
+    //     from the source contract per phase, so it is BLOCKING (real check) — no demote.
 
     if (demote === true || demote === false) {
       var c = {}; for (var kk in d) c[kk] = d[kk];

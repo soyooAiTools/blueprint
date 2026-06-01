@@ -306,7 +306,14 @@ function diffPhasesBucket(indexed, phaseId, observed) {
   const exp = {
     showEntities: expShowList,
     hideEntities: expHideList,
-    guideText: (phase.trigger && phase.trigger.guideText) || '',
+    // expected guideText: fidelity-contract-synthesize writes it at phase.phaseSpec.guideText
+    // (and phase.manualGate.guideText); older templates used phase.trigger.guideText /
+    // phase.guideText. Read all forms — the empty fallback was the contract-synthesis path gap
+    // (diff read phase.trigger.guideText, synthesize wrote phaseSpec) that left expected blank.
+    guideText: (phase.phaseSpec && phase.phaseSpec.guideText)
+      || (phase.manualGate && phase.manualGate.guideText)
+      || (phase.trigger && phase.trigger.guideText)
+      || phase.guideText || '',
     targetEntity: canonicalEntityKey((phase.trigger && phase.trigger.targetEntity) || null) || null,
   };
   const obs = observed.phaseSpec || {};
@@ -894,7 +901,13 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
   // 4. phaseSpec — derive from __gameState (PlayCanvas build has no window.PHASES).
   //    Leave showEntities/hideEntities undefined so (6) gating skips the diff.
   if (gs) {
-    out.phaseSpec.guideText = (gs.ui_state && gs.ui_state.guideText) ||
+    // Prefer the VISIBLE guide instruction (#bp-storyboard-tip) — the build drives it from
+    // the source storyboard's per-phase guideText, so this reads what the player actually sees
+    // (source-faithful) rather than the game's internal SetGuideText copy. Fall back to game state.
+    var tipEl = (typeof document !== 'undefined' && document.getElementById) ? document.getElementById('bp-storyboard-tip') : null;
+    var tipText = tipEl ? (tipEl.textContent || '').trim() : '';
+    out.phaseSpec.guideText = tipText ||
+                              (gs.ui_state && gs.ui_state.guideText) ||
                               (gs.uiState && gs.uiState.guideText) ||
                               (gs.variables && gs.variables.guideText) || '';
     out.phaseSpec.targetEntity = (gs.variables && gs.variables.targetEntity) ||
