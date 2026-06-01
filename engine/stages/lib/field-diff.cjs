@@ -319,7 +319,14 @@ function diffPhasesBucket(indexed, phaseId, observed) {
   const exp = {
     showEntities: expShowList,
     hideEntities: expHideList,
-    guideText: (phase.trigger && phase.trigger.guideText) || '',
+    // expected guideText: fidelity-contract-synthesize writes it at phase.phaseSpec.guideText
+    // (and phase.manualGate.guideText); older templates used phase.trigger.guideText /
+    // phase.guideText. Read all forms — the empty fallback was the contract-synthesis path gap
+    // (diff read phase.trigger.guideText, synthesize wrote phaseSpec) that left expected blank.
+    guideText: (phase.phaseSpec && phase.phaseSpec.guideText)
+      || (phase.manualGate && phase.manualGate.guideText)
+      || (phase.trigger && phase.trigger.guideText)
+      || phase.guideText || '',
     targetEntity: canonicalEntityKey((phase.trigger && phase.trigger.targetEntity) || null) || null,
   };
   const obs = observed.phaseSpec || {};
@@ -981,15 +988,34 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
     }
   } catch (e) { gs = null; }
 
-  // 3. visibleEntities — prefer __gameState.entity_states, supplement with PC scene walk.
+  // 3. visibleEntities — __gameState.entity_states is the AUTHORITATIVE per-entity,
+  //    phase-correct game state. The PC scene-tree walk only SUPPLEMENTS it with
+  //    entities entity_states does not track. Two guards stop the walk from
+  //    manufacturing phantoms (root-caused 2026-06-01 on the Option-C source-faithful
+  //    build — composite mesh path; memory optionc_pilot_round3):
+  //      • Unity GameObject.CreatePrimitive default node names (Cube/Sphere/Cylinder/
+  //        Plane/Capsule/Quad) are composite SUB-PARTS, never entities — skip them.
+  //      • never flip an entity entity_states explicitly marks hidden back to visible:
+  //        the composite root stays `enabled` in the scene tree even when the game has
+  //        hidden it (moved off-screen / state=hidden), so the tree walk alone over-reports.
   const visible = {};
+  const stateHidden = {};
   if (gs && gs.entity_states && typeof gs.entity_states === 'object') {
     const keys = Object.keys(gs.entity_states);
     for (let i = 0; i < keys.length; i++) {
       const st = gs.entity_states[keys[i]];
       if (st && st.visible !== false) visible[keys[i]] = true;
+      else stateHidden[keys[i]] = true;
     }
   }
+  // The build's JS storyboard overlay (applyStoryboardVisualOverlay) emits one
+  // StoryboardEntity_<Name> node per source entity — these ARE the rendered, phase-managed
+  // source visuals (shown/hidden per phase). When present they are the AUTHORITATIVE on-screen
+  // visibility and supersede both the entity_states scan and the CamelCase tree walk, which
+  // mis-report on the Option-C composite path (composite roots stay always-enabled; the player
+  // composite is parked off-screen; the player node is named 'player', not 'Player'). Captured
+  // separately so the decorative Storyboard* nodes (Ground/Star/Orbit/VisualOverlay) stay skipped.
+  const storyboardEntities = {};
   if (pcApp && pcApp.root) {
     // SKIP — generic runtime/scaffold names that pollute the entity set with
     // extras the contract doesn't list. Exact-match set + prefix list. Sam end-to-end
@@ -1000,9 +1026,12 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
       '__AUTOPLAY_ON__': 1, '__CUA_OBSERVER_READY__': 1,
       'Untitled': 1, 'EventSystem': 1, 'Canvas': 1,
     };
+    // Unity primitive-default names — composite parts emitted by GFM_Create.AddCompositePart,
+    // not game entities. Adding them as "visible entities" produced entity-extra phantoms.
+    const PRIMITIVE_NAMES = { Cube: 1, Sphere: 1, Cylinder: 1, Plane: 1, Capsule: 1, Quad: 1 };
     const SKIP_PREFIX = ['Storyboard'];
     const isSkipped = function(n) {
-      if (SKIP[n]) return true;
+      if (SKIP[n] || PRIMITIVE_NAMES[n]) return true;
       for (let p = 0; p < SKIP_PREFIX.length; p++) {
         if (n.indexOf(SKIP_PREFIX[p]) === 0) return true;
       }
@@ -1014,21 +1043,37 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
       const node = stack.shift();
       if (!node) continue;
       const name = node._name || node.name || '';
+      const sbm = name && name.indexOf('StoryboardEntity_') === 0 ? name.slice('StoryboardEntity_'.length) : null;
+      if (sbm && node.enabled !== false) storyboardEntities[sbm] = true;
       // Top-level CamelCase entity names (Player, OxygenShop, …) the contract cares about.
-      // Pool-managed entities and Luna runtime markers are skipped.
-      if (name && !isSkipped(name) && /^[A-Z][A-Za-z0-9]*$/.test(name) && node.enabled !== false) {
+      // Pool-managed entities, Luna runtime markers, primitive sub-parts, and entities the
+      // authoritative game state has hidden are all skipped.
+      if (name && !isSkipped(name) && !stateHidden[name]
+          && /^[A-Z][A-Za-z0-9]*$/.test(name) && node.enabled !== false) {
         visible[name] = true;
       }
       const children = node._children || node.children || [];
       for (let j = 0; j < children.length; j++) stack.push(children[j]);
     }
   }
-  out.visibleEntities = Object.keys(visible);
+  if (Object.keys(storyboardEntities).length > 0) {
+    out.visibleEntities = Object.keys(storyboardEntities);
+    out.visibleSource = 'storyboard-overlay';
+  } else {
+    out.visibleEntities = Object.keys(visible);
+    out.visibleSource = gs && gs.entity_states ? 'entity_states+tree' : 'tree';
+  }
 
   // 4. phaseSpec — derive from __gameState (PlayCanvas build has no window.PHASES).
   //    Leave showEntities/hideEntities undefined so (6) gating skips the diff.
   if (gs) {
-    out.phaseSpec.guideText = (gs.ui_state && gs.ui_state.guideText) ||
+    // Prefer the VISIBLE guide instruction (#bp-storyboard-tip) — the build drives it from
+    // the source storyboard's per-phase guideText, so this reads what the player actually sees
+    // (source-faithful) rather than the game's internal SetGuideText copy. Fall back to game state.
+    var tipEl = (typeof document !== 'undefined' && document.getElementById) ? document.getElementById('bp-storyboard-tip') : null;
+    var tipText = tipEl ? (tipEl.textContent || '').trim() : '';
+    out.phaseSpec.guideText = tipText ||
+                              (gs.ui_state && gs.ui_state.guideText) ||
                               (gs.uiState && gs.uiState.guideText) ||
                               (gs.variables && gs.variables.guideText) || '';
     out.phaseSpec.targetEntity = (gs.variables && gs.variables.targetEntity) ||
@@ -1365,6 +1410,7 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
       }
     }
   } catch (e) { /* leave primitiveStyle missing on extractor error */ }
+
   return out;
 };
 

@@ -1,0 +1,25 @@
+{
+  "patterns": [
+    {
+      "match": "^(make|spawn|create)(Person|Customer|Customers)$",
+      "api": "SpawnNpc",
+      "templateId": "Customer"
+    },
+    {
+      "match": "^(make|spawn|create)(Hero|Helper|Worker|Farmer)$",
+      "api": "SpawnNpc",
+      "templateId": "Hero"
+    },
+    {
+      "match": "^(make|spawn|create)(Alien|AlienShip|Enemy|Monster|Boss)$",
+      "api": "SpawnNpc",
+      "templateId": "Alien"
+    },
+    {
+      "match": "^(make|spawn|create)(Wall|Obstacle|Barrier)$",
+      "api": "CreateObstacle",
+      "templateId": "Wall",
+      "primitive": "Cube"
+    }
+  ]
+}

@@ -629,5 +629,153 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-40db3606.md"
+  },
+  {
+    "id": "auto-871ebc2b",
+    "fingerprintPattern": "gate: source-html-bind: no sourceHtmlPath resolvable from blueprint\\/env",
+    "description": "source-html-bind hard gate fires because tasks are submitted without blueprint.sourceHtmlPath and no SOURCE_HTML_PATH env fallback is set; PipelineContext also never checks top-level task fields for the path",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/pipeline.cjs",
+      "engine/stages/source-html-bind.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-871ebc2b.md"
+  },
+  {
+    "id": "auto-1f09fa61",
+    "fingerprintPattern": "gate: source-html-bind: no sourceHtmlPath resolvable from blueprint/task/env",
+    "description": "source-html-bind assertBefore gate hard-fails because SOURCE_HTML_BIND_HARD=true leaks in from ambient system env while .env has no explicit override pin, and submitted tasks carry no sourceHtmlPath declaration",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      ".env",
+      "engine/stages/source-html-bind.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-1f09fa61.md"
+  },
+  {
+    "id": "auto-2f479ce8",
+    "fingerprintPattern": "Schema validation.*Last phase trigger must include (click_entity|CtaButton)",
+    "description": "_repairSchemaValidationErrors injects non-CTAButton entity into CTA gate — re-validation fails because isCtaEntityName() demands /^CTAButton$/i but pickCtaEntityNameForRepair() returns broad /CTA|Button/i matches",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/codegen-schema.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-2f479ce8.md"
+  },
+  {
+    "id": "auto-b4e82f17",
+    "fingerprintPattern": "gate:\\s*source-html-bind:\\s*no sourceHtmlPath resolvable from blueprint",
+    "description": "source-html-bind gate hard-fails because resolveSourceHtmlPath() never probes ctx.task.sourceHtmlPath / ctx.task.source_html_path, while the error message already advertises those fields as accepted inputs",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/source-html-bind.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-1f09fa61.md"
+  },
+  {
+    "id": "auto-8adb5ca0",
+    "fingerprintPattern": "MODEL_FATAL.*codex.*preflight.*failed.*\\(auth_failed\\)",
+    "description": "Codex preflight failure cached indefinitely — a single transient auth error permanently blocks review for entire worker process lifetime",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "worker/codex-reviewer.js"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-8adb5ca0.md"
+  },
+  {
+    "id": "auto-8104879d",
+    "fingerprintPattern": "Schema validation.*Phase \\w+ trigger resource_collected references non-existent resource:",
+    "description": "_repairSchemaValidationErrors has no handler for resource_collected trigger referencing an entity name instead of a declared resource, causing codegen to exhaust retries on a deterministically-fixable schema error",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/codegen-schema.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-8104879d.md"
+  },
+  {
+    "id": "auto-c4693156",
+    "fingerprintPattern": "Schema validation.*Phase \\w+ trigger (entity_state_reached|near_entity|click_entity) references non-existent entity:",
+    "description": "LLM writes abbreviated/lowercase entity names in trigger.entity (e.g. 'weapon') that pass _repairSchema but are rejected by validateTriggerRefs because _repairSchemaValidationErrors has no handler for trigger-level entity ref errors",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/codegen-schema.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-c4693156.md"
+  },
+  {
+    "id": "auto-3db28275",
+    "fingerprintPattern": "fidelity-source-diff BLOCKING — \\d+ blocking field-level diff\\(s\\) in phase\\d+ \\+ pixel gate FAIL in phase\\d+ \\(9[5-9]\\.\\d+% > \\d+%",
+    "description": "Synthesized v1.1 contract emits rich worldLabel (with worldOffset) triggering blocking:true field diffs, while un-instrumented PlayCanvas builds never set __fidelityReady, yielding a 99.99% black-screen pixel diff that trips the pixel gate — both firing simultaneously in fidelity-source-diff.",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/fidelity-contract-synthesize.cjs",
+      "engine/stages/fidelity-source-diff.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-3db28275.md"
+  },
+  {
+    "id": "auto-8b63e982",
+    "fingerprintPattern": "fidelity-source-diff BLOCKING.*\\d+ blocking field-level diff.*pixel gate FAIL.*\\d+\\.\\d+% > \\d+%",
+    "description": "fidelity-source-diff fires double-blocking (17+ field diffs + ~100% pixel gate) because Playwright launches without WebGL SW-render flags, so PlayCanvas never initialises in headless CI, and the DEFAULT_CONTRACT_PATH space-ranger fixture is silently loaded for non-space-ranger tasks, guaranteeing entity-missing on every phase",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/fidelity-source-diff.cjs",
+      "engine/stages/lib/field-diff.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-8b63e982.md"
+  },
+  {
+    "id": "auto-6d24da7e",
+    "fingerprintPattern": "page\\.evaluate.*TypeError.*Cannot read properties of null.*\\(reading 'transform'\\).*Phase_\\w+_Init",
+    "description": "fidelity-source-diff crashes hard when __driveToPhase triggers a null-transform TypeError inside a Phase_*_Init function — unguarded await page.evaluate propagates the JS exception straight up as a stage fatal",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/fidelity-source-diff.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-6d24da7e.md"
+  },
+  {
+    "id": "auto-7c563271",
+    "fingerprintPattern": "Schema validation(?::? failed:?)? should NOT have additional properties",
+    "description": "_repairSchema never strips unknown top-level schema keys, so LLM-added fields (version, title, metadata, etc.) survive into AJV strict validation and produce an unhandled additionalProperties error",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/codegen-schema.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-7c563271.md"
+  },
+  {
+    "id": "auto-51bcf87e",
+    "fingerprintPattern": "input schemaVersion must be 1\\.1\\.0 or 1\\.2\\.0, got 1\\.0\\.0",
+    "description": "fidelity-contract-produce passes a stale v1.0.0 checkpoint contract straight into migrate-v1.1-to-v1.2, whose input guard rejects anything below 1.1.0",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/fidelity-contract-produce.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-51bcf87e.md"
   }
 ]

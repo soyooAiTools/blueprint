@@ -88,42 +88,51 @@ function deriveTriggerFromInteractions(requiredInteractions, schemaEntities, opt
     };
   }
 
-  // Look for upgrade:<E>:<lvl> — multiple = compound
+  // Look for upgrade:<E>:<lvl> — multiple = compound.
+  // If any entity cannot be resolved in the schema, return null rather than
+  // emitting an unresolvable entity name that will fail schema validation.
   var upgrades = parsed.filter(function(p) { return p.verb === 'upgrade' && p.args.length >= 2; });
   if (upgrades.length >= 1) {
-    var subs = upgrades.map(function(u) {
-      var entity = findEntityByLooseName(schemaEntities, u.args[0]) || u.args[0];
+    var subs = [];
+    for (var ui = 0; ui < upgrades.length; ui++) {
+      var u = upgrades[ui];
+      var entity = findEntityByLooseName(schemaEntities, u.args[0]);
+      if (!entity) return null; // can't resolve → no safe derivation
       var st = parseInt(u.args[1], 10);
-      return {
+      subs.push({
         type: 'entity_state_reached',
         entity: entity,
         state: isFinite(st) ? st : 1,
-      };
-    });
+      });
+    }
     if (subs.length === 1) return subs[0];
     return { type: 'compound', operator: 'and', triggers: subs };
   }
 
-  // Look for build:<E> — terminal state defaults to 2 (built)
+  // Look for build:<E> — terminal state defaults to 2 (built).
+  // Return null if entity cannot be resolved to avoid emitting a bad name.
   var builds = parsed.filter(function(p) { return p.verb === 'build' && p.args.length >= 1; });
   if (builds.length === 1) {
-    var be = findEntityByLooseName(schemaEntities, builds[0].args[0]) || builds[0].args[0];
+    var be = findEntityByLooseName(schemaEntities, builds[0].args[0]);
+    if (!be) return null; // can't resolve → no safe derivation
     return { type: 'entity_state_reached', entity: be, state: 2 };
   }
   if (builds.length > 1) {
-    return {
-      type: 'compound', operator: 'and',
-      triggers: builds.map(function(b) {
-        var en = findEntityByLooseName(schemaEntities, b.args[0]) || b.args[0];
-        return { type: 'entity_state_reached', entity: en, state: 2 };
-      }),
-    };
+    var buildTriggers = [];
+    for (var bi = 0; bi < builds.length; bi++) {
+      var en = findEntityByLooseName(schemaEntities, builds[bi].args[0]);
+      if (!en) return null; // can't resolve → no safe derivation
+      buildTriggers.push({ type: 'entity_state_reached', entity: en, state: 2 });
+    }
+    return { type: 'compound', operator: 'and', triggers: buildTriggers };
   }
 
-  // Look for deliver:<res>:<E> — entity reaches loaded/filled state
+  // Look for deliver:<res>:<E> — entity reaches loaded/filled state.
+  // Return null if entity cannot be resolved to avoid emitting a bad name.
   var delivers = parsed.filter(function(p) { return p.verb === 'deliver' && p.args.length >= 2; });
   if (delivers.length === 1) {
-    var de = findEntityByLooseName(schemaEntities, delivers[0].args[1]) || delivers[0].args[1];
+    var de = findEntityByLooseName(schemaEntities, delivers[0].args[1]);
+    if (!de) return null; // can't resolve → no safe derivation
     // Default: state 1 (loaded). Can't know without entity's state machine,
     // so use 1 as the conservative "first non-initial state" default.
     return { type: 'entity_state_reached', entity: de, state: 1 };

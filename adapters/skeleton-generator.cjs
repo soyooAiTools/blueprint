@@ -59,6 +59,15 @@ function pickGenericEnemyAliasTarget(entityNames) {
   return names.length > 0 && score(names[0]) > 0 ? names[0] : null;
 }
 
+function isSourcePlayerEntityName(name) {
+  return /^(Player|PlayerRobot|PlayerChar|Hero|MainChar|Protagonist)$/i.test(String(name || ''));
+}
+
+function entityBindingPoolName(name, poolName, sourceVisualParity) {
+  if (sourceVisualParity && isSourcePlayerEntityName(name)) return '_player';
+  return poolName;
+}
+
 function csString(value) {
   return String(value == null ? '' : value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
@@ -93,6 +102,116 @@ function csColor(color) {
     return Number(n.toFixed(4)) + 'f';
   }
   return 'new Color(' + f(c.r) + ', ' + f(c.g) + ', ' + f(c.b) + ')';
+}
+
+// ── Option C (Wave 3 Step 3): source-faithful composite mesh emission ──────────
+// Convert a 0xRRGGBB number (from the L9 meshOps contract) to {r,g,b} floats.
+function colorFromHexNumber(num, fallback) {
+  if (typeof num !== 'number' || !Number.isFinite(num)) return fallback || { r: 0.7, g: 0.7, b: 0.7 };
+  var n = (num >>> 0) & 0xffffff;
+  return { r: ((n >> 16) & 0xff) / 255, g: ((n >> 8) & 0xff) / 255, b: (n & 0xff) / 255 };
+}
+
+// Map a meshOp kind+size to a Unity PrimitiveType + localScale, accounting for the
+// base dims of Unity primitives (cube=1³, sphere=diam1, cylinder=diam1×height2,
+// plane=10×10). Returns null for kinds handled separately (torus) or unknown.
+// cone → Cylinder approximation (Luna has no cone primitive; incident doc R5);
+// icosahedron → Sphere approximation (R6).
+function meshOpToPrimitive(op) {
+  var size = Array.isArray(op.size) ? op.size : [];
+  function sz(i, d) { var v = Number(size[i]); return Number.isFinite(v) ? v : d; }
+  switch (op.kind) {
+    case 'box': return { type: 'Cube', scale: [sz(0, 1), sz(1, 1), sz(2, 1)] };
+    case 'sphere':
+    case 'icosahedron': { var r = sz(0, 0.5); return { type: 'Sphere', scale: [r * 2, r * 2, r * 2] }; }
+    case 'cylinder': { var rc = (sz(0, 0.5) + sz(1, 0.5)) / 2; return { type: 'Cylinder', scale: [rc * 2, sz(2, 1) / 2, rc * 2] }; }
+    case 'cone': { var rb = Math.max(sz(0, 0), sz(1, 0)) || 0.5; return { type: 'Cylinder', scale: [rb * 2, sz(2, 1) / 2, rb * 2] }; }
+    case 'plane': return { type: 'Plane', scale: [sz(0, 1) / 10, 1, sz(1, 1) / 10] };
+    default: return null;
+  }
+}
+
+function _fNum(v, d) { var n = Number(v); if (!Number.isFinite(n)) n = d; return Number(n.toFixed(4)) + 'f'; }
+function _vec3(arr, def) {
+  var a = Array.isArray(arr) ? arr : [];
+  return [Number.isFinite(Number(a[0])) ? Number(a[0]) : def[0],
+          Number.isFinite(Number(a[1])) ? Number(a[1]) : def[1],
+          Number.isFinite(Number(a[2])) ? Number(a[2]) : def[2]];
+}
+function _csVec3(v) { return 'new Vector3(' + _fNum(v[0], 0) + ', ' + _fNum(v[1], 0) + ', ' + _fNum(v[2], 0) + ')'; }
+
+// One meshOp → one C# call (AddCompositePart, or AddTorusRing for torus).
+function emitMeshOpCall(op) {
+  var pos = _vec3(op.position, [0, 0, 0]);
+  var rot = _vec3(op.rotation, [0, 0, 0]);
+  var color = csColor(colorFromHexNumber(op.color, { r: 0.7, g: 0.7, b: 0.7 }));
+  if (op.kind === 'torus') {
+    var s = Array.isArray(op.size) ? op.size : [];
+    var radius = Number.isFinite(Number(s[0])) ? Number(s[0]) : 0.5;
+    var tube = Number.isFinite(Number(s[1])) ? Number(s[1]) : 0.05;
+    return 'GFM_Create.AddTorusRing(__root, ' + _csVec3(pos) + ', ' + _csVec3(rot) + ', ' +
+      _fNum(radius, 0.5) + ', ' + _fNum(tube, 0.05) + ', 12, ' + color + ', ' + _fNum(op.metalness, 0) + ');';
+  }
+  var prim = meshOpToPrimitive(op);
+  if (!prim) return null;
+  var mul = _vec3(op.scale, [1, 1, 1]);
+  var sc = [prim.scale[0] * mul[0], prim.scale[1] * mul[1], prim.scale[2] * mul[2]];
+  var emissive = csColor(colorFromHexNumber(op.emissive, { r: 0, g: 0, b: 0 }));
+  return 'GFM_Create.AddCompositePart(__root, PrimitiveType.' + prim.type + ', ' +
+    _csVec3(pos) + ', ' + _csVec3(rot) + ', ' + _csVec3(sc) + ', ' +
+    color + ', ' + emissive + ', ' + _fNum(op.emissiveIntensity, 0) + ', ' +
+    _fNum(op.metalness, 0) + ', ' + _fNum(op.roughness, 1) + ', ' + _fNum(op.opacity, 1) + ');';
+}
+
+// Emit BuildSourceFaithfulMeshes() + per-entity BuildEntity_<safe>() into `lines`.
+// Returns the list of emitted entity names (empty if nothing emitted).
+function emitSourceFaithfulMeshMethods(lines, sourceMeshOps, entityNames) {
+  var names = Object.keys(sourceMeshOps || {}).filter(function (n) {
+    return Array.isArray(sourceMeshOps[n]) && sourceMeshOps[n].length > 0 && entityNames.indexOf(n) >= 0;
+  });
+  if (!names.length) return [];
+  function safe(n) { return String(n).replace(/[^A-Za-z0-9_]/g, '_'); }
+  lines.push('    // ============================================================');
+  lines.push('    // [OPTION C] Source-faithful composite meshes (Wave 3 Step 3).');
+  lines.push('    // Re-binds each entity from its single pooled primitive to a multi-mesh');
+  lines.push('    // composite matching the three.js source geometry (ctx.blueprint.sourceMeshOps).');
+  lines.push('    // Runs at Start() AFTER RegisterEntityBindings — NOT in the hot Update path,');
+  lines.push('    // so new Vector3 / new GameObject here is allowed (incident doc R4).');
+  lines.push('    // ============================================================');
+  lines.push('    void BuildSourceFaithfulMeshes()');
+  lines.push('    {');
+  names.forEach(function (n) { lines.push('        BuildEntity_' + safe(n) + '();'); });
+  lines.push('    }');
+  lines.push('');
+  names.forEach(function (n) {
+    lines.push('    void BuildEntity_' + safe(n) + '()');
+    lines.push('    {');
+    lines.push('        GameObject __existing = GameSceneCtrl.instance.Get("' + csString(n) + '");');
+    lines.push('        Vector3 __pos = __existing != null ? __existing.transform.position : Vector3.zero;');
+    // Hide the old single-primitive object and build the composite as a fresh GameObject.
+    // Pilot diagnosis (2026-06-01, headless render probe):
+    //   - Root MUST be named after the ENTITY (not the existing object's name): a pooled
+    //     object name like "__Pool_Cube_NN" collides with the pool and the composite is
+    //     dropped from the render set → empty scene.
+    //   - Hide the old object by moving it off-screen, NOT SetActive(false): disabling it
+    //     also drops the composite from the render set.
+    //   - PRESERVE the old object's TAG on the root: GFM_Player resolves the player by
+    //     tag "Player" (or name "_player"), so carrying the tag lets it find the composite
+    //     even though the root is named after the entity (e.g. "player").
+    lines.push('        string __tag = "Untagged";');
+    lines.push('        if (__existing != null) { try { __tag = __existing.tag; } catch (UnityException) {} __existing.name = "__SFReplaced"; __existing.transform.position = new Vector3(0f, -9999f, 0f); }');
+    lines.push('        GameObject __root = new GameObject("' + csString(n) + '");');
+    lines.push('        try { __root.tag = __tag; } catch (UnityException) {}');
+    lines.push('        __root.transform.position = __pos;');
+    sourceMeshOps[n].forEach(function (op) {
+      var call = emitMeshOpCall(op);
+      if (call) lines.push('        ' + call);
+    });
+    lines.push('        GameSceneCtrl.instance.Register("' + csString(n) + '", "' + csString(n) + '");');
+    lines.push('    }');
+    lines.push('');
+  });
+  return names;
 }
 
 // [WAVE F] 玩家可读性自动注入：根据 spec 字段在 Phase_*_Init 顶部发射 SetGuideText / SetPhaseGoal。
@@ -289,6 +408,12 @@ function generateSkeleton(specs, opts = {}) {
     if (ent && ent.name) entityMeta[ent.name] = ent;
   });
   const sourceVisualContract = opts.visualAssets && opts.visualAssets.sourceEntityContract;
+  // [OPTION C, Wave 3 Step 3] source-faithful composite mesh data (flag-gated default-off).
+  // When OPTION_C_SOURCE_FAITHFUL_BUILD=true and ctx.blueprint.sourceMeshOps is present,
+  // we emit BuildSourceFaithfulMeshes(); otherwise nothing is emitted (byte-identical output).
+  const sourceMeshOps = (opts.sourceMeshOps && typeof opts.sourceMeshOps === 'object' && !Array.isArray(opts.sourceMeshOps)) ? opts.sourceMeshOps : null;
+  const sourceFaithfulActive = process.env.OPTION_C_SOURCE_FAITHFUL_BUILD === 'true' && !!sourceMeshOps && Object.keys(sourceMeshOps).length > 0;
+  let sourceFaithfulEntities = [];
   const sourceSceneContract = opts.visualAssets && opts.visualAssets.sourceSceneContract && opts.visualAssets.sourceSceneContract.present !== false
     ? opts.visualAssets.sourceSceneContract
     : null;
@@ -337,6 +462,8 @@ function generateSkeleton(specs, opts = {}) {
   }
 
   const entityNames = Object.keys(entityPoolMap);
+  const sourcePlayerEntityName = sourceVisualParity ? entityNames.find(name => isSourcePlayerEntityName(name)) : null;
+  const sourcePlayerLegacyPoolName = sourcePlayerEntityName ? entityPoolMap[sourcePlayerEntityName] : '';
   const shouldSplit = totalPhases > 10;
   const lines = [];
 
@@ -375,6 +502,33 @@ function generateSkeleton(specs, opts = {}) {
     return movingTargets;
   }
 
+  function phaseResourceCollectConditions(spec) {
+    const interactions = spec.requiredInteractions || [];
+    const byResource = {};
+    for (let ii = 0; ii < interactions.length; ii++) {
+      const ri = interactions[ii];
+      let verb = '';
+      let resource = '';
+      let amount = 1;
+      if (typeof ri === 'string') {
+        const parts = ri.split(':');
+        verb = parts[0] || '';
+        resource = parts[1] || '';
+        amount = Number(parts[2] || 1);
+      } else if (ri && typeof ri === 'object') {
+        verb = ri.verb || ri.action || '';
+        resource = ri.resource || ri.item || ri.target || '';
+        amount = Number(ri.amount || ri.count || 1);
+      }
+      if (verb !== 'collect' || !resource || /^\d/.test(resource)) continue;
+      if (!Number.isFinite(amount) || amount < 1) amount = 1;
+      byResource[resource] = Math.max(byResource[resource] || 0, Math.floor(amount));
+    }
+    return Object.keys(byResource).map(function(resource) {
+      return 'GetCollectedResource(GFM_ResourceIds.Normalize("' + csString(resource) + '")) >= ' + byResource[resource];
+    });
+  }
+
   // 构建 phase 出口 realCondition。交互模式绑定真实 GameObject 位移；
   // autoplay 也优先使用同一位移证明，仅在 GFM_AutoPlay 已产生 phase 内动作后
   // 才接受模块状态作为第二证明，避免 WebGL/runtime 快照差异导致 CUA 卡死。
@@ -386,7 +540,13 @@ function generateSkeleton(specs, opts = {}) {
   // CUA 对齐：EntityAdvanced 直接读取 transform.position，条件满足时必然有视觉差异。
   function buildRealCondition(spec) {
     const names = phaseGateEntities(spec);
+    const resourceConditions = phaseResourceCollectConditions(spec);
+    var pid = (spec.phaseId || 'phase').replace(/[^a-zA-Z0-9]/g, '');
+    var phaseAutoplayGuard = '(_autoPlayMode && _autoplayFallbackFired_' + pid + ')';
     if (names.length === 0) {
+      if (resourceConditions.length > 0) {
+        return '((' + resourceConditions.join(' && ') + ') || ' + phaseAutoplayGuard + ')';
+      }
       // 没有 gate 实体时，检查该 phase 是否是合法的 wait/defend 节拍。
       // wait:N / defend:N 表示维持 N 秒动画；此时 timer gate 就是真实条件。
       // 返回 true 后，只有 phaseTimer >= Xf 控制出口，不涉及可伪造 flag。
@@ -415,9 +575,11 @@ function generateSkeleton(specs, opts = {}) {
     // GFM_AutoPlay 可能 stall 导致 entity-level OR 路径全部 fail。加 phase-level OR 子句:
     // 一旦 _pushAutoplayFallback 触发(设 _autoplayFallbackFired_<pid> = true),phase gate 直接 pass。
     // 真玩家路径不受影响(_autoPlayMode = false 时 OR 短路到 entity 真实位移)。
-    var pid = (spec.phaseId || 'phase').replace(/[^a-zA-Z0-9]/g, '');
-    var phaseAutoplayGuard = '(_autoPlayMode && _autoplayFallbackFired_' + pid + ')';
-    return '((' + parts.join(' && ') + ') || ' + phaseAutoplayGuard + ')';
+    var entityCondition = '(' + parts.join(' && ') + ')';
+    if (resourceConditions.length > 0) {
+      entityCondition = '(' + entityCondition + ' || (' + resourceConditions.join(' && ') + '))';
+    }
+    return '(' + entityCondition + ' || ' + phaseAutoplayGuard + ')';
   }
 
 
@@ -573,7 +735,7 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    string[] _entityBindingPools = new string[] {');
     entityNames.forEach((name, idx) => {
       const comma = idx < entityNames.length - 1 ? ',' : '';
-      lines.push('        "' + csString(entityPoolMap[name]) + '"' + comma);
+      lines.push('        "' + csString(entityBindingPoolName(name, entityPoolMap[name], sourceVisualParity)) + '"' + comma);
     });
     lines.push('    };');
     lines.push('');
@@ -586,6 +748,20 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        }');
     lines.push('    }');
     lines.push('');
+    if (sourcePlayerEntityName) {
+      lines.push('    // [SKELETON] storyboard2html 玩家实体使用 source contract；启动时先把旧 Luna pool 归一到 _player。');
+      lines.push('    void NormalizeSourcePlayerSceneObject()');
+      lines.push('    {');
+      lines.push('        GameObject sourcePlayer = GameObject.Find("_player");');
+      if (sourcePlayerLegacyPoolName && sourcePlayerLegacyPoolName !== '_player') {
+        lines.push('        if (sourcePlayer == null) sourcePlayer = GameObject.Find("' + csString(sourcePlayerLegacyPoolName) + '");');
+      }
+      lines.push('        if (sourcePlayer == null) return;');
+      lines.push('        sourcePlayer.name = "_player";');
+      lines.push('        try { sourcePlayer.tag = "Player"; } catch (UnityException) {}');
+      lines.push('    }');
+      lines.push('');
+    }
     lines.push('    // [SKELETON] 刷新 GameObject 字段引用，gameplay/UI/preview 共用同一批对象。');
     lines.push('    void RefreshEntityReferences()');
     lines.push('    {');
@@ -606,6 +782,10 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        }');
     lines.push('    }');
     lines.push('');
+    // [OPTION C, Wave 3 Step 3] emit source-faithful composite mesh builders (flag-gated).
+    if (sourceFaithfulActive) {
+      sourceFaithfulEntities = emitSourceFaithfulMeshMethods(lines, sourceMeshOps, entityNames);
+    }
     // 2026-05-05: Player 永远不能 HideObj —— Hide 把 y 拍到 -999, Start() 完到 phase 0
     // 第一次 Init() 中间会有几帧 Player 在 y=-999, 用户看到 player 从屏幕下方"瞬移"上来。
     // GFM_Player.Init 会负责把 Player 落到正确位置, HideAllBoundEntities 不要碰它。
@@ -869,6 +1049,7 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        }');
     lines.push('    }');
     lines.push('    int GetResource(string id) { return GFM_EconomyManager.Instance.GetResource(NormalizeResourceId(id)); }');
+    lines.push('    int GetCollectedResource(string id) { return GFM_EconomyManager.Instance.GetCollectedResource(NormalizeResourceId(id)); }');
     lines.push('    // 通过 manager 扣减资源，并记录可观测的资源减少 evidence。');
     lines.push('    bool TrySpend(string id, int amount) {');
     lines.push('        id = NormalizeResourceId(id);');
@@ -920,6 +1101,16 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('    bool hasTapTarget = false;');
     lines.push('    // [SKELETON] 每帧移动/朝向复用缓冲，避免额外分配。');
     lines.push('    Vector3 _moveBuf = Vector3.zero;');
+    lines.push('    // [SKELETON v2 2026-05-31] 通用 hot-path Vector3/Vector2 复用缓冲。');
+    lines.push('    // **REUSE THESE in Update() / FixedUpdate() / LateUpdate() — do NOT `new Vector3(...)` in hot path.**');
+    lines.push('    // 静态规则 update-new-vector-in-hot-path 会拒绝任何 `new Vector3` 在 Update 调用栈里(blocking)。');
+    lines.push('    Vector3 _hotV3 = Vector3.zero;       // 通用 Vector3 暂存(.Set(x,y,z) 重置,不要 new)');
+    lines.push('    Vector3 _hotOffset = Vector3.zero;   // 偏移量复用');
+    lines.push('    Vector3 _hotTarget = Vector3.zero;   // 目标坐标复用');
+    lines.push('    Vector2 _hotV2 = Vector2.zero;       // 通用 Vector2 暂存');
+    lines.push('    static readonly Vector3 V3_ZERO = Vector3.zero;');
+    lines.push('    static readonly Vector3 V3_UP = Vector3.up;');
+    lines.push('    static readonly Vector3 V3_HIDE = new Vector3(0f, -999f, 0f); // 标准隐藏位(class-scope readonly,只分配一次)');
     lines.push('    // [SKELETON] 采集冷却：所有 collect 模板共享。');
     lines.push('    float collectCooldownInterval = ' + (specs.gameConfig && specs.gameConfig.collectCooldown ? specs.gameConfig.collectCooldown : 0.3) + 'f;');
     lines.push('    // 当前剩余采集冷却时间。');
@@ -1043,16 +1234,24 @@ function generateSkeleton(specs, opts = {}) {
   // 玩家本身是导航主体，不应作为导航目标；否则会立即到达并跳过，且可能导致首阶段无可见位移。
   const isPlayerName = (n) => /^(Player|PlayerRobot|PlayerChar|Hero|MainChar|Protagonist)/i.test(n || '');
   const autoTargets = [];
+  function pushAutoTarget(name, opts = {}) {
+    if (!name || isPlayerName(name)) return;
+    if (!opts.allowResource && name.match(/UI$|Canvas|Guide|Gold|Score|Text/)) return;
+    if (autoTargets.indexOf(name) < 0) autoTargets.push(name);
+  }
   specs.forEach(spec => {
+    phaseGateEntities(spec).forEach(name => {
+      // Gameplay interaction targets (collect/move/click/build/etc.) are the
+      // semantic autoplay path. They must win over passive entitiesRequired
+      // lists; otherwise observe mode can move toward scenery and satisfy
+      // fallback signals without enough visible motion.
+      pushAutoTarget(name, { allowResource: true });
+    });
     (spec.entitiesRequired || []).forEach(e => {
-      if (e && e.name && !isPlayerName(e.name) && autoTargets.indexOf(e.name) < 0) {
-        autoTargets.push(e.name);
-      }
+      pushAutoTarget(e && e.name);
     });
     (spec.activate || []).forEach(name => {
-      if (name && !isPlayerName(name) && !name.match(/UI$|Canvas|Guide|Gold|Score|Text/) && autoTargets.indexOf(name) < 0) {
-        autoTargets.push(name);
-      }
+      pushAutoTarget(name);
     });
   });
 
@@ -1219,7 +1418,14 @@ function generateSkeleton(specs, opts = {}) {
   if (entityNames.length > 0) {
     lines.push('        // [SKELETON] 场景实体管理');
     lines.push('        GameSceneCtrl.Init(gameObject);');
+    if (sourcePlayerEntityName) {
+      lines.push('        NormalizeSourcePlayerSceneObject();');
+    }
     lines.push('        RegisterEntityBindings();');
+    if (sourceFaithfulEntities.length > 0) {
+      lines.push('        // [OPTION C] 用源 HTML meshOps 复合网格替换池化单原语，再刷新字段引用。');
+      lines.push('        BuildSourceFaithfulMeshes();');
+    }
     lines.push('');
     lines.push('        // [SKELETON] 实体变量快捷引用（由 GameSceneCtrl 缓存支持）');
     lines.push('        RefreshEntityReferences();');
@@ -1397,9 +1603,35 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('        // if (delivered > 0) { waterMachineState = 1; /* 机器开始生产 */ }');
     lines.push('        // UpdateCarryVisuals(); // 展示玩家背包堆叠');
   }
+  lines.push('        // ╔═══════════════════════════════════════════════════════════════════════╗');
+  lines.push('        // ║ HOT PATH — DO NOT ALLOCATE                                            ║');
+  lines.push('        // ║ This is Update(); runs ~60 Hz. Allocating in here = GC pressure =      ║');
+  lines.push('        // ║ frame spikes on low-end devices. Static rule `update-new-vector-      ║');
+  lines.push('        // ║ in-hot-path` will BLOCK any of these patterns:                        ║');
+  lines.push('        // ║   ✗  new Vector3(x, y, z)        → ✓  _hotV3.Set(x, y, z); …          ║');
+  lines.push('        // ║   ✗  new List<T>()               → ✓  use a pre-declared field        ║');
+  lines.push('        // ║   ✗  string.Format("{0}", ...)   → ✓  StringBuilder field or const    ║');
+  lines.push('        // ║ Use the pre-declared class fields above (`_hotV3`, `_hotOffset`,      ║');
+  lines.push('        // ║ `_hotTarget`, `_hotV2`, `V3_ZERO`, `V3_UP`, `V3_HIDE`) — call         ║');
+  lines.push('        // ║ `.Set(x, y, z)` to reset; do NOT instantiate fresh structs.           ║');
+  lines.push('        // ╚═══════════════════════════════════════════════════════════════════════╝');
   lines.push('        // TODO_UPDATE_START');
   lines.push('');
   lines.push('        // TODO_UPDATE_END');
+  lines.push('        // ╔═══════════════════════════════════════════════════════════════════════╗');
+  lines.push('        // ║ ASCII-ONLY KEY RULE — Resource / phase / evidence keys                ║');
+  lines.push('        // ║ Static rule `non-ascii-resource-key` BLOCKS any CJK / punctuation /   ║');
+  lines.push('        // ║ whitespace in string literal args to these APIs:                      ║');
+  lines.push('        // ║   AddResource / TrySpend / GetResource / TryConvert                   ║');
+  lines.push('        // ║   GFM_ResourceIds.Normalize / Resolve                                 ║');
+  lines.push('        // ║   GameObject.Find / CompletePhaseProgress / EnterPhase                ║');
+  lines.push('        // ║   RecordPhaseEvidenceFlag / NotifyPhaseProgress                       ║');
+  lines.push('        // ║ Use the spec.phaseId / GFM_ResourceIds.* / GFM_PhaseIds.* — these     ║');
+  lines.push('        // ║ are ASCII identifiers. NEVER pass guideText (Chinese) as key.         ║');
+  lines.push('        // ║   ✗  AddResource("金币", 5)             → ✓  AddResource(GFM_ResourceIds.Gold, 5)');
+  lines.push('        // ║   ✗  EnterPhase(1, "走向太空基地")      → ✓  EnterPhase(1, "phase1")  ║');
+  lines.push('        // ║   ✗  RecordPhaseEvidenceFlag("中文", k) → ✓  RecordPhaseEvidenceFlag(currentPhaseName, k)');
+  lines.push('        // ╚═══════════════════════════════════════════════════════════════════════╝');
   lines.push('        // TODO_CUSTOM_START');
   lines.push('        // TODO_CUSTOM_END');
   if (_wfReadability) {
@@ -1703,6 +1935,12 @@ function _pushAutoplayFallback(lines, pid, gateEntities, spec) {
 
   lines.push('            RecordPhaseEvidenceFlag("' + pid + '", "tap_registered");');
   lines.push('            RecordPhaseEvidenceFlag("' + pid + '", "guide_text_visible");');
+  lines.push('            if (floatingText != null)');
+  lines.push('            {');
+  lines.push('                floatingText.text = "AUTO " + currentPhaseName + " OK";');
+  lines.push('                floatingText.color = Color.cyan;');
+  lines.push('                floatingTextTimer = 1.5f;');
+  lines.push('            }');
 
   if (needsDebrisSignal) {
     lines.push('            AddResource(GFM_ResourceIds.RocketDebris, 1);');
@@ -1845,7 +2083,9 @@ function _buildFlowPartial(specs, phaseGateMap = {}, phaseRealConditions = {}) {
   lines.push('    bool PhaseDwellReady(float specMinSeconds)');
   lines.push('    {');
   lines.push('        float requiredSeconds = _autoPlayMode ? 12f : specMinSeconds;');
-  lines.push('        return _autoPlayMode ? phaseRealTimer >= requiredSeconds : phaseTimer >= requiredSeconds;');
+  lines.push('        // Luna manual-loop builds can expose a frozen realtimeSinceStartup while phaseTimer still advances.');
+  lines.push('        // Keep realtime as the primary anti-batch gate; fall back only when the realtime counter is unavailable.');
+  lines.push('        return _autoPlayMode ? (phaseRealTimer >= requiredSeconds || (phaseRealTimer <= 0.01f && phaseTimer >= requiredSeconds)) : phaseTimer >= requiredSeconds;');
   lines.push('    }');
   lines.push('');
   lines.push('    // 进入新 phase 时统一应用公共状态变更。');

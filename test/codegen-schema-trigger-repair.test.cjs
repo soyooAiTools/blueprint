@@ -93,7 +93,7 @@ assert.strictEqual(codegenSchema._internals.isSchemaNonRetryableError('schema ma
 {
   const runner = codegenSchema._internals.resolveSchemaRunnerConfig({});
   assert.strictEqual(runner.codexModel, 'gpt-5.5');
-  assert.strictEqual(runner.claudeModel, 'claude-sonnet-4-6');
+  assert.strictEqual(runner.claudeModel, 'claude-opus-4-8');
   assert.notStrictEqual(runner.codexModel, 'gpt-5.4-mini');
   assert.strictEqual(codegenSchema._internals.resolveSchemaTimeoutMs({}), 360000);
   assert.strictEqual(codegenSchema._internals.resolveSchemaTimeoutMs({ CODEX_SCHEMA_TIMEOUT_MS: '420000' }), 420000);
@@ -111,7 +111,7 @@ assert.strictEqual(codegenSchema._internals.isSchemaNonRetryableError('schema ma
   });
   assert.deepStrictEqual(envRunner, { codexModel: 'gpt-custom', claudeModel: 'claude-custom' });
 
-  assert.strictEqual(codexCodeCoder._internals.resolveClaudePrintModel({ model: 'gpt-5.5' }, {}), 'claude-sonnet-4-6');
+  assert.strictEqual(codexCodeCoder._internals.resolveClaudePrintModel({ model: 'gpt-5.5' }, {}), 'claude-opus-4-8');
   assert.strictEqual(codexCodeCoder._internals.resolveClaudePrintModel({ model: 'claude-haiku-4-5-20251001' }, {}), 'claude-haiku-4-5-20251001');
   assert.strictEqual(codexCodeCoder._internals.isModelUnavailableError('selected model may not exist or you may not have access'), true);
   assert.strictEqual(codexCodeCoder._internals.isModelFatalStream("You've hit your usage limit. purchase more credits"), true);

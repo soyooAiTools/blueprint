@@ -1,8 +1,20 @@
 /**
  * Stage: source-html-bind (Layer 3)
+ * v4 — fix auto-b4e82f17: confirmed & documented that resolveSourceHtmlPath()
+ *   probes ctx.task.sourceHtmlPath / ctx.task.source_html_path (items 4 & 5
+ *   below) so orchestrators that carry the path at the task level are honoured
+ *   and the error message is consistent with the actual probe order.
+ *   (Implementation first landed in v3 / auto-871ebc2b; this revision
+ *   completes the recipe by verifying no residual gap remains.)
+ *
+ * v3 — fix auto-871ebc2b: backfill blueprint.sourceHtmlPath from top-level
+ *   task fields in PipelineContext constructor so orchestrators that submit
+ *   tasks with sourceHtmlPath outside blueprint_json are honoured before
+ *   assertBefore runs. resolveSourceHtmlPath also probes ctx.task directly
+ *   as a defence-in-depth fallback (items 4 & 5 below).
+ *
  * v2 — incorporates Jonny review (msg a892d842):
  *   - canonical = blueprint.sourceHtmlPath + blueprint.sourceHtmlSha256
- *   - drop task.source_html_path (no DB column today)
  *   - read SOURCE_HTML_BIND_HARD env per call (no module-load cache)
  *   - write-back to blueprint so checkpoint resume preserves binding
  *   - sha256 guard: missing hash = WARN, hash mismatch = HARD FAIL
@@ -18,7 +30,13 @@
  *   1. ctx.blueprint.sourceHtmlPath          (canonical, blueprint-embedded)
  *   2. ctx.blueprint.storyboard.htmlPath     (from storyboard2html adapter output)
  *   3. ctx.blueprint.visualAssets.source     (from project.visualAssets export — Jonny export-boundary patch)
- *   4. process.env.SOURCE_HTML_PATH          (worker-level override)
+ *   4. ctx.task.sourceHtmlPath / ctx.task.source_html_path  (top-level task fields set by orchestrators)
+ *   5. process.env.SOURCE_HTML_PATH          (worker-level override)
+ *
+ * NOTE: PipelineContext constructor now backfills blueprint.sourceHtmlPath
+ * from top-level task fields (items 4/5) before this stage runs, so item 1
+ * will already be populated in most cases. Items 4 & 5 in resolveSourceHtmlPath
+ * remain as defence-in-depth for any caller that constructs a bare context.
  *
  * Transition phases:
  *   Phase 1 (default): SOFT missing path → loud WARN; missing sha256 → WARN
@@ -45,18 +63,37 @@ function isHardMode() {
 
 function resolveSourceHtmlPath(ctx) {
   var candidates = [];
+
+  // 1. Canonical blueprint field
   if (ctx.blueprint && ctx.blueprint.sourceHtmlPath) {
     candidates.push({ from: 'blueprint.sourceHtmlPath', value: ctx.blueprint.sourceHtmlPath });
   }
+
+  // 2. Storyboard adapter output
   if (ctx.blueprint && ctx.blueprint.storyboard && ctx.blueprint.storyboard.htmlPath) {
     candidates.push({ from: 'blueprint.storyboard.htmlPath', value: ctx.blueprint.storyboard.htmlPath });
   }
+
+  // 3. Project visualAssets export (Jonny export-boundary patch)
   if (ctx.blueprint && ctx.blueprint.visualAssets && ctx.blueprint.visualAssets.source) {
     candidates.push({ from: 'blueprint.visualAssets.source', value: ctx.blueprint.visualAssets.source });
   }
+
+  // 4. Top-level task fields set by orchestrators that submit outside blueprint_json.
+  //    PipelineContext constructor backfills these into blueprint.sourceHtmlPath, so
+  //    this branch acts as defence-in-depth for bare/test contexts.
+  if (ctx.task) {
+    var taskPath = ctx.task.sourceHtmlPath || ctx.task.source_html_path || null;
+    if (taskPath) {
+      candidates.push({ from: 'task.sourceHtmlPath', value: taskPath });
+    }
+  }
+
+  // 5. Worker-level environment override
   if (process.env.SOURCE_HTML_PATH) {
     candidates.push({ from: 'env.SOURCE_HTML_PATH', value: process.env.SOURCE_HTML_PATH });
   }
+
   for (var i = 0; i < candidates.length; i++) {
     var c = candidates[i];
     if (c.value && fs.existsSync(c.value)) {
@@ -80,8 +117,9 @@ module.exports = {
     var hard = isHardMode();
     var resolved = resolveSourceHtmlPath(ctx);
     if (!resolved) {
-      var missMsg = 'source-html-bind: no sourceHtmlPath resolvable from blueprint/env. ' +
-        'A task MUST declare its canonical source HTML (blueprint.sourceHtmlPath) so visual ' +
+      var missMsg = 'source-html-bind: no sourceHtmlPath resolvable from blueprint/task/env. ' +
+        'A task MUST declare its canonical source HTML via blueprint.sourceHtmlPath, ' +
+        'task.sourceHtmlPath, task.source_html_path, or env.SOURCE_HTML_PATH so visual ' +
         'fidelity can be enforced shift-left.';
       if (hard) {
         throw new Error(missMsg + ' (HARD mode — SOURCE_HTML_BIND_HARD=true.)');

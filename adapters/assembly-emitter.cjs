@@ -527,7 +527,8 @@ function buildDeterministicScoreLines(moduleInstance, plans) {
   var params = moduleInstance && moduleInstance.params || {};
   var label = params.label || params.resource || 'score';
   var resource = params.resource || params.currency || params.resourceKind || params.kind || label || 'gold';
-  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.UI.cs', moduleInstance));
+  var phaseIds = phaseIdsForModule(plans, 'GameFlowManagerMain.UI.cs', moduleInstance);
+  var lines = buildPhaseGuardLines(phaseIds);
   lines.push('        string __scoreFeedbackResource = ' + resourceIdExpr(resource) + ';');
   lines.push('        int __scoreFeedbackBefore = lastKnownScore;');
   lines.push('        string __scoreFeedbackBeforeText = lastKnownScoreText;');
@@ -564,28 +565,89 @@ function firstCuaStepForModule(plans, fileName, moduleInstance) {
   return null;
 }
 
+function phaseActionTargetMap(plans, phaseIds, kinds) {
+  var stepIndex = buildCuaStepIndex(plans);
+  var out = [];
+  var ids = uniq(toArray(phaseIds));
+  for (var i = 0; i < ids.length; i++) {
+    var phaseId = ids[i];
+    var target = firstActionTarget(stepIndex[phaseId], kinds);
+    if (!isIdentifier(target) || !planHasEntity(plans, target)) continue;
+    out.push({ phaseId: phaseId, target: target });
+  }
+  return out;
+}
+
+function collectSourcePhaseEntriesForEntity(plans, phaseIds, entity) {
+  if (!isIdentifier(entity) || !planHasEntity(plans, entity)) return [];
+  return phaseActionTargetMap(plans, phaseIds, ['collect', 'approach_collect']).filter(function(entry) {
+    return entry.target === entity;
+  });
+}
+
+function appendCollectedSourceHiddenLines(lines, varPrefix, plans, phaseIds, entity) {
+  var entries = collectSourcePhaseEntriesForEntity(plans, phaseIds, entity);
+  lines.push('        bool ' + varPrefix + 'CollectedSourcePhase = false;');
+  lines.push('        bool ' + varPrefix + 'CollectedSourceEvidence = false;');
+  if (entries.length > 0) {
+    lines.push('        switch (currentPhaseName)');
+    lines.push('        {');
+    for (var ce = 0; ce < entries.length; ce++) {
+      lines.push('            case "' + escapeCsString(entries[ce].phaseId) + '": ' + varPrefix + 'CollectedSourcePhase = true; break;');
+    }
+    lines.push('        }');
+    for (var e = 0; e < entries.length; e++) {
+      lines.push('        if (HasPhaseEvidenceRecord("' + escapeCsString(entries[e].phaseId) + '", "collect_on_near")) ' + varPrefix + 'CollectedSourceEvidence = true;');
+    }
+  }
+  lines.push('        bool ' + varPrefix + 'CollectedSourceHidden = ' + varPrefix + 'CollectedSourcePhase ? HasPhaseEvidenceRecord(currentPhaseName, "collect_on_near") : ' + varPrefix + 'CollectedSourceEvidence;');
+  return entries;
+}
+
+function buildPhaseTargetResolverLines(varName, nameVar, entries, fallbackTarget) {
+  var lines = [];
+  lines.push('        GameObject ' + varName + ' = null;');
+  lines.push('        string ' + nameVar + ' = ' + csStringLiteral(fallbackTarget || 'target') + ';');
+  if (entries.length === 0) {
+    if (isIdentifier(fallbackTarget)) {
+      lines.push('        if (' + fallbackTarget + ' != null) ' + varName + ' = ' + fallbackTarget + ';');
+    }
+    return lines;
+  }
+  lines.push('        switch (currentPhaseName)');
+  lines.push('        {');
+  for (var i = 0; i < entries.length; i++) {
+    lines.push('            case "' + escapeCsString(entries[i].phaseId) + '":');
+    lines.push('                if (' + entries[i].target + ' != null)');
+    lines.push('                {');
+    lines.push('                    ' + varName + ' = ' + entries[i].target + ';');
+    lines.push('                    ' + nameVar + ' = "' + escapeCsString(entries[i].target) + '";');
+    lines.push('                }');
+    lines.push('                break;');
+  }
+  lines.push('        }');
+  return lines;
+}
+
 function buildDeterministicJoystickLines(moduleInstance, plans) {
-  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Input.cs', moduleInstance));
-  var step = firstCuaStepForModule(plans, 'GameFlowManagerMain.Input.cs', moduleInstance);
-  var target = firstActionTarget(step, ['move_to', 'approach_collect', 'collect', 'deliver', 'build', 'upgrade', 'attack']);
+  var phaseIds = phaseIdsForModule(plans, 'GameFlowManagerMain.Input.cs', moduleInstance);
+  var lines = buildPhaseGuardLines(phaseIds);
+  var targetEntries = phaseActionTargetMap(plans, phaseIds, ['move_to', 'approach_collect', 'collect', 'deliver', 'build', 'upgrade', 'attack']);
   var speed = moduleInstance && moduleInstance.params && moduleInstance.params.speed != null ? Number(moduleInstance.params.speed) : 4;
   lines.push('        var __assemblyPlayer = GFM_Player.Instance.Go;');
   lines.push('        if (__assemblyPlayer == null) return;');
   lines.push('        var __assemblyBefore = __assemblyPlayer.transform.position;');
+  lines = lines.concat(buildPhaseTargetResolverLines('__joystickTarget', '__joystickTargetName', targetEntries, 'target'));
   lines.push('        if (_autoPlayMode)');
   lines.push('        {');
-  if (isIdentifier(target) && planHasEntity(plans, target)) {
-    lines.push('            if (' + target + ' != null)');
-    lines.push('            {');
-    lines.push('                __assemblyPlayer.transform.position = Vector3.MoveTowards(__assemblyBefore, ' + target + '.transform.position, ' + csFloat(speed, 4) + ' * Time.deltaTime);');
-    lines.push('            }');
-    lines.push('            else');
-    lines.push('            {');
-    lines.push('                __assemblyPlayer.transform.position = __assemblyBefore + new Vector3(' + csFloat(speed, 4) + ' * Time.deltaTime, 0f, 0f);');
-    lines.push('            }');
-  } else {
-    lines.push('            __assemblyPlayer.transform.position = __assemblyBefore + new Vector3(' + csFloat(speed, 4) + ' * Time.deltaTime, 0f, 0f);');
-  }
+  lines.push('            if (__joystickTarget != null)');
+  lines.push('            {');
+  lines.push('                __assemblyPlayer.transform.position = Vector3.MoveTowards(__assemblyBefore, __joystickTarget.transform.position, ' + csFloat(speed, 4) + ' * Time.deltaTime);');
+  lines.push('            }');
+  lines.push('            else');
+  lines.push('            {');
+  lines.push('            __assemblyPlayer.transform.position = __assemblyBefore + new Vector3(' + csFloat(speed, 4) + ' * Time.deltaTime, 0f, 0f);');
+  lines.push('            }');
   lines.push('        }');
   lines.push('        else');
   lines.push('        {');
@@ -599,7 +661,7 @@ function buildDeterministicJoystickLines(moduleInstance, plans) {
   lines.push('        if (__joystickRegistered) RecordPhaseEvidenceFlag(currentPhaseName, "player_position_changed");');
   lines.push('        if (__joystickRegistered || !HasPhaseEvidenceRecord(currentPhaseName, "player_input_joystick"))');
   lines.push('        {');
-  lines.push('            string __joystickFields = "{\\"axis\\":" + SerializeVector3Json(__joystickAxis) + ",\\"magnitude\\":" + FormatFloat(__joystickMagnitude) + ",\\"registered\\":" + JsonBool(__joystickRegistered) + ",\\"before\\":{\\"position\\":" + SerializeVector3Json(__assemblyBefore) + "},\\"after\\":{\\"position\\":" + SerializeVector3Json(__joystickAfter) + "}}";');
+    lines.push('            string __joystickFields = "{\\"target\\":" + JsonString(__joystickTargetName) + ",\\"axis\\":" + SerializeVector3Json(__joystickAxis) + ",\\"magnitude\\":" + FormatFloat(__joystickMagnitude) + ",\\"registered\\":" + JsonBool(__joystickRegistered) + ",\\"before\\":{\\"position\\":" + SerializeVector3Json(__assemblyBefore) + "},\\"after\\":{\\"position\\":" + SerializeVector3Json(__joystickAfter) + "}}";');
   lines.push('            RecordPhaseEvidenceObject(currentPhaseName, "player_input_joystick", __joystickFields, "' + sourceSignalIdsJson(['player_position_changed']) + '");');
   lines.push('        }');
   return lines;
@@ -612,7 +674,8 @@ function buildDeterministicCooldownLines(moduleInstance, plans) {
     : (moduleInstance && moduleInstance.params && moduleInstance.params.cooldown != null ? Number(moduleInstance.params.cooldown) : 1);
   if (!isFinite(seconds) || seconds <= 0) seconds = 1;
   if (!isIdentifier(entity)) entity = firstUsablePlanEntity(plans, [/Turret/i, /Tower/i, /Shooter/i, /Enemy/i, /Base/i], []);
-  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  var phaseIds = phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance);
+  var lines = buildPhaseGuardLines(phaseIds);
   lines.push('        if (HasPhaseEvidenceRecord(currentPhaseName, "cooldown")) return;');
   lines.push('        float __cooldownSeconds = ' + csFloat(seconds, 1) + ';');
   lines.push('        bool __cooldownAlreadyReady = phaseRealTimer >= __cooldownSeconds;');
@@ -647,13 +710,16 @@ function buildDeterministicSpawnLines(moduleInstance, plans) {
     target = firstUsablePlanEntity(plans, [/Enemy/i, /Rocket/i, /Bullet/i, /Gold/i, /Coin/i, /Resource/i, /Water/i, /Apple/i, /Astronaut/i, /Target/i], []);
     hasTarget = isIdentifier(target) && planHasEntity(plans, target);
   }
-  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  var phaseIds = phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance);
+  var lines = buildPhaseGuardLines(phaseIds);
   if (!hasTarget) {
     lines.push(recordFlag('downstream_entity_visible'));
     lines.push(recordFlag('entity_state_changed'));
     return lines;
   }
   lines.push('        if (' + target + ' == null) return;');
+  appendCollectedSourceHiddenLines(lines, '__spawn', plans, phaseIds, target);
+  lines.push('        if (__spawnCollectedSourceHidden) return;');
   if (isIdentifier(source)) {
     lines.push('        if (' + source + ' != null)');
     lines.push('        {');
@@ -687,7 +753,8 @@ function buildDeterministicDeathDropLines(moduleInstance, plans) {
   var params = moduleInstance && moduleInstance.params || {};
   var loot = params.loot || params.drop || params.target ||
     firstPlanEntityMatching(plans, [/Gold/i, /Coin/i, /Loot/i, /Debris/i, /Reward/i]);
-  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  var phaseIds = phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance);
+  var lines = buildPhaseGuardLines(phaseIds);
   var sourceName = isIdentifier(source) ? source : 'source';
   var lootName = isIdentifier(loot) ? loot : 'loot';
   if (isIdentifier(source) && planHasEntity(plans, source)) {
@@ -696,14 +763,18 @@ function buildDeterministicDeathDropLines(moduleInstance, plans) {
   lines.push('        bool __deathDropSourceDead = true;');
   lines.push('        string __deathDropFields = "";');
   if (isIdentifier(loot) && planHasEntity(plans, loot)) {
+    appendCollectedSourceHiddenLines(lines, '__deathDrop', plans, phaseIds, loot);
     if (isIdentifier(source)) {
       lines.push('        var __assemblyDropPos = ' + source + ' != null ? ' + source + '.transform.position : Vector3.zero;');
     } else {
       lines.push('        var __assemblyDropPos = Vector3.zero;');
     }
     lines.push('        __assemblyDropPos.y = Mathf.Max(0.5f, __assemblyDropPos.y);');
-    lines.push('        PlaceObj(' + loot + ', __assemblyDropPos.x, __assemblyDropPos.y, __assemblyDropPos.z);');
-    lines.push('        ' + loot + 'State = Mathf.Max(' + loot + 'State, 1);');
+    lines.push('        if (!__deathDropCollectedSourceHidden)');
+    lines.push('        {');
+    lines.push('            PlaceObj(' + loot + ', __assemblyDropPos.x, __assemblyDropPos.y, __assemblyDropPos.z);');
+    lines.push('            ' + loot + 'State = Mathf.Max(' + loot + 'State, 1);');
+    lines.push('        }');
     lines.push('        bool __deathDropPlaced = ' + loot + ' != null && ' + loot + '.transform.position.y > -900f;');
     lines.push('        __deathDropFields = "{\\"source\\":" + JsonString("' + escapeCsString(sourceName) + '") + ",\\"loot\\":" + JsonString("' + escapeCsString(lootName) + '") + ",\\"position\\":" + SerializeVector3Json(' + loot + '.transform.position) + ",\\"placed\\":" + JsonBool(__deathDropPlaced) + ",\\"source_dead\\":" + JsonBool(__deathDropSourceDead) + "}";');
   } else {
@@ -747,10 +818,12 @@ function buildDeterministicInventoryWalletLines(moduleInstance, plans) {
 function buildDeterministicCtaFinishLines(moduleInstance, plans) {
   var target = moduleInstance && moduleInstance.params && (moduleInstance.params.target || 'CTAButton');
   var finalPhase = lastCuaPhaseId(plans);
-  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.UI.cs', moduleInstance));
+  var phaseIds = phaseIdsForModule(plans, 'GameFlowManagerMain.UI.cs', moduleInstance);
+  var lines = buildPhaseGuardLines(phaseIds);
   lines.push('        bool __ctaFinishVisible = true;');
   if (isIdentifier(target) && planHasEntity(plans, target)) {
-    lines.push('        if (' + target + ' != null && ' + target + '.transform.position.y < -900f) PlaceObj(' + target + ', 0f, 1.2f, 0f);');
+    appendCollectedSourceHiddenLines(lines, '__ctaFinish', plans, phaseIds, target);
+    lines.push('        if (' + target + ' != null && ' + target + '.transform.position.y < -900f && !__ctaFinishCollectedSourceHidden) PlaceObj(' + target + ', 0f, 1.2f, 0f);');
     lines.push('        __ctaFinishVisible = ' + target + ' != null && ' + target + '.transform.position.y > -900f;');
   }
   lines.push('        ShowCTA();');
@@ -769,7 +842,8 @@ function buildDeterministicWorldLabelLines(moduleInstance, plans) {
   // 不再写 guideText：guideText 由 buildDeterministicGuideLines 按 phaseBindings.guide 单独切换。
   // 历史问题：world_label 取 params.text fallback（如 CTA 按钮的 "下载按钮"）覆盖 phase guide。
   // world_label 的视觉职责由 skeleton Start() 的 GFM_UI.AddWorldLabel(target, chineseName, h) 承担。
-  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.UI.cs', moduleInstance));
+  var phaseIds = phaseIdsForModule(plans, 'GameFlowManagerMain.UI.cs', moduleInstance);
+  var lines = buildPhaseGuardLines(phaseIds);
   var target = moduleTarget(moduleInstance);
   if (!isIdentifier(target) || !planHasEntity(plans, target)) {
     target = firstUsablePlanEntity(plans, [/Target/i, /Button/i, /Base/i, /Tower/i, /Astronaut/i, /Enemy/i], []);
@@ -778,7 +852,8 @@ function buildDeterministicWorldLabelLines(moduleInstance, plans) {
   var label = params.text || params.label || params.title || params.name || target || 'label';
   var targetForJson = target || 'target';
   if (isIdentifier(target) && planHasEntity(plans, target)) {
-    lines.push('        if (' + target + ' != null && ' + target + '.transform.position.y < -900f) PlaceObj(' + target + ', 0f, 0.5f, 0f);');
+    appendCollectedSourceHiddenLines(lines, '__worldLabel', plans, phaseIds, target);
+    lines.push('        if (' + target + ' != null && ' + target + '.transform.position.y < -900f && !__worldLabelCollectedSourceHidden) PlaceObj(' + target + ', 0f, 0.5f, 0f);');
     lines.push('        bool __worldLabelAnchorPresent = ' + target + ' != null && ' + target + '.transform.position.y > -900f;');
   } else {
     lines.push('        bool __worldLabelAnchorPresent = false;');
@@ -819,9 +894,12 @@ function buildDeterministicHighlightLines(moduleInstance, plans) {
   // 历史：SetScale(1.12) 静态放大对 1m 方块来说肉眼几乎无差，玩家看不出当前目标。
   var target = moduleTarget(moduleInstance);
   if (!isIdentifier(target) || !planHasEntity(plans, target)) return [];
-  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.UI.cs', moduleInstance));
+  var phaseIds = phaseIdsForModule(plans, 'GameFlowManagerMain.UI.cs', moduleInstance);
+  var lines = buildPhaseGuardLines(phaseIds);
   lines.push('        if (' + target + ' == null) return;');
   lines.push('        if (HasPhaseEvidenceRecord(currentPhaseName, "highlight_target")) return;');
+  appendCollectedSourceHiddenLines(lines, '__highlight', plans, phaseIds, target);
+  lines.push('        if (' + target + '.transform.position.y < -900f && __highlightCollectedSourceHidden) return;');
   lines.push('        if (' + target + '.transform.position.y < -900f) PlaceObj(' + target + ', 0f, 0.5f, 0f);');
   lines.push('        Vector3 __highlightBeforeScale = ' + target + '.transform.localScale;');
   lines.push('        float __hlPulse = 1.0f + 0.18f * Mathf.Abs(Mathf.Sin(Time.time * 3.5f));');
@@ -897,7 +975,8 @@ function buildDeterministicFormSwitchLines(moduleInstance, plans) {
   formIndex = Math.max(0, Math.floor(formIndex));
   var configuredFormId = params.formId || ('form_' + formIndex);
   var entity = moduleInstance && moduleInstance.entity;
-  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  var phaseIds = phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance);
+  var lines = buildPhaseGuardLines(phaseIds);
   lines.push('        int __formSwitchBeforeIndex = GFM_Player.Instance.CurrentFormIndex;');
   lines.push('        string __formSwitchBeforeId = "form_" + __formSwitchBeforeIndex;');
   lines.push('        if (GFM_Player.Instance.Forms != null && __formSwitchBeforeIndex >= 0 && __formSwitchBeforeIndex < GFM_Player.Instance.Forms.Length && GFM_Player.Instance.Forms[__formSwitchBeforeIndex].formId != null)');
@@ -1029,8 +1108,10 @@ function buildDeterministicVisualBindingLines(moduleInstance, plans) {
   var entity = moduleInstance && moduleInstance.entity;
   if (!isIdentifier(entity)) return [];
   var params = moduleInstance.params || {};
-  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Scene.cs', moduleInstance));
+  var phaseIds = phaseIdsForModule(plans, 'GameFlowManagerMain.Scene.cs', moduleInstance);
+  var lines = buildPhaseGuardLines(phaseIds);
   lines.push('        if (' + entity + ' == null) return;');
+  appendCollectedSourceHiddenLines(lines, '__visualBinding', plans, phaseIds, entity);
   lines.push('        bool __visualBindingHadRecord = HasPhaseEvidenceRecord(currentPhaseName, "visual_binding");');
   lines.push('        bool __visualBindingBeforeVisible = ' + entity + '.transform.position.y > -900f;');
   lines.push('        Vector3 __visualBindingBeforePos = ' + entity + '.transform.position;');
@@ -1038,8 +1119,15 @@ function buildDeterministicVisualBindingLines(moduleInstance, plans) {
   lines.push('        string __visualBindingOperation = "noop";');
   lines.push('        if (' + entity + '.transform.position.y < -900f)');
   lines.push('        {');
-  lines.push('            PlaceObj(' + entity + ', ' + vectorArgs(params.position, [0, 0.5, 0]) + ');');
-  lines.push('            __visualBindingOperation = "spawn";');
+  lines.push('            if (__visualBindingCollectedSourceHidden)');
+  lines.push('            {');
+  lines.push('                __visualBindingOperation = "collected_hidden";');
+  lines.push('            }');
+  lines.push('            else');
+  lines.push('            {');
+  lines.push('                PlaceObj(' + entity + ', ' + vectorArgs(params.position, [0, 0.5, 0]) + ');');
+  lines.push('                __visualBindingOperation = "spawn";');
+  lines.push('            }');
   lines.push('        }');
   lines.push('        else if (!__visualBindingHadRecord)');
   lines.push('        {');
@@ -1113,10 +1201,14 @@ function buildDeterministicDragLines(moduleInstance, plans) {
   if (!isFinite(radius) || radius <= 0) radius = 0.5;
   var sourceName = source || 'source';
   var targetName = target || 'target';
-  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Input.cs', moduleInstance));
+  var phaseIds = phaseIdsForModule(plans, 'GameFlowManagerMain.Input.cs', moduleInstance);
+  var lines = buildPhaseGuardLines(phaseIds);
   lines.push('        Vector3 __dragFrom = Vector3.zero;');
   lines.push('        Vector3 __dragTo = Vector3.zero;');
   lines.push('        bool __dragCompleted = false;');
+  if (isIdentifier(source) && planHasEntity(plans, source)) {
+    appendCollectedSourceHiddenLines(lines, '__dragSource', plans, phaseIds, source);
+  }
   if (isIdentifier(source) && planHasEntity(plans, source)) {
     lines.push('        if (' + source + ' != null) __dragFrom = ' + source + '.transform.position;');
   }
@@ -1126,6 +1218,7 @@ function buildDeterministicDragLines(moduleInstance, plans) {
   if (isIdentifier(source) && planHasEntity(plans, source) && isIdentifier(target) && planHasEntity(plans, target)) {
     lines.push('        if (' + source + ' != null && ' + target + ' != null)');
     lines.push('        {');
+    lines.push('            if (__dragSourceCollectedSourceHidden) return;');
     lines.push('            ' + source + '.transform.position = __dragTo;');
     lines.push('            __dragCompleted = Vector3.Distance(' + source + '.transform.position, __dragTo) <= ' + csFloat(radius, 0.5) + ';');
     lines.push('        }');
@@ -1165,46 +1258,66 @@ function buildDeterministicMoveLines(moduleInstance, plans) {
   var hasTarget = isIdentifier(target) && planHasEntity(plans, target) && actor !== target;
   var speed = moduleInstance.params && moduleInstance.params.speed != null ? Number(moduleInstance.params.speed) : 5;
   var stopRange = moduleInstance.params && moduleInstance.params.stopRange != null ? Number(moduleInstance.params.stopRange) : 1.5;
-  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  var phaseIds = phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance);
+  var lines = buildPhaseGuardLines(phaseIds);
   if (!hasActor) {
     lines.push('        var __assemblyPlayer = GFM_Player.Instance.Go;');
     lines.push('        if (__assemblyPlayer == null) return;');
     lines.push('        var __assemblyPlayerBefore = __assemblyPlayer.transform.position;');
-    lines.push('        __assemblyPlayer.transform.position = __assemblyPlayerBefore + new Vector3(' + csFloat(speed, 5) + ' * Time.deltaTime, 0f, 0f);');
+    lines.push('        // Missing-actor move_to_target is evidence-only; Player movement is owned by input/autoplay drivers.');
     lines.push('        var __assemblyPlayerAfter = __assemblyPlayer.transform.position;');
     lines.push('        float __movePlayerDistance = Vector3.Distance(__assemblyPlayerBefore, __assemblyPlayerAfter);');
+    lines.push('        if (__movePlayerDistance > 0.01f)');
+    lines.push('        {');
     lines.push(recordFlag('player_position_changed'));
     lines.push(recordFlag('entity_position_changed'));
+    lines.push('        }');
     lines.push('        string __movePlayerFields = "{\\"target\\":" + JsonString("' + escapeCsString(target || 'target') + '") + ",\\"before\\":{\\"position\\":" + SerializeVector3Json(__assemblyPlayerBefore) + "},\\"after\\":{\\"position\\":" + SerializeVector3Json(__assemblyPlayerAfter) + "},\\"distance_traveled\\":" + FormatFloat(__movePlayerDistance) + ",\\"arrived\\":" + JsonBool(__movePlayerDistance > 0.01f) + "}";');
     lines.push('        RecordPhaseEvidenceObject(currentPhaseName, "move_to_target", __movePlayerFields, "' + sourceSignalIdsJson(['entity_position_changed', 'player_position_changed']) + '");');
     return lines;
   }
+  var isPlayerActor = /player/i.test(actor);
   lines.push('        if (' + actor + ' == null) return;');
-  if (hasTarget) {
-    lines.push('        if (' + target + ' == null) return;');
-  }
+  appendCollectedSourceHiddenLines(lines, '__moveActor', plans, phaseIds, actor);
+  lines.push('        if (' + actor + '.transform.position.y < -900f && __moveActorCollectedSourceHidden) return;');
   lines.push('        var __assemblyBefore = ' + actor + '.transform.position;');
-  if (hasTarget) {
-    lines.push('        var __assemblyNext = Vector3.MoveTowards(__assemblyBefore, ' + target + '.transform.position, ' + csFloat(speed, 5) + ' * Time.deltaTime);');
+  if (isPlayerActor) {
+    var targetEntries = phaseActionTargetMap(plans, phaseIds, ['move_to', 'approach_collect', 'collect', 'deliver', 'build', 'upgrade', 'attack']);
+    lines = lines.concat(buildPhaseTargetResolverLines('__moveTarget', '__moveTargetName', targetEntries, target || 'target'));
+    lines.push('        var __assemblyNext = __assemblyBefore;');
+    lines.push('        // Player movement is owned by player_input_joystick / GFM_Player.');
+    lines.push('        // move_to_target records arrival evidence only; it must not write Player.transform.');
+    lines.push('        __assemblyNext = ' + actor + '.transform.position;');
+  } else if (hasTarget) {
+    lines.push('        if (' + target + ' == null) return;');
+    lines.push('        GameObject __moveTarget = ' + target + ';');
+    lines.push('        string __moveTargetName = "' + escapeCsString(target) + '";');
+    lines.push('        var __assemblyNext = Vector3.MoveTowards(__assemblyBefore, __moveTarget.transform.position, ' + csFloat(speed, 5) + ' * Time.deltaTime);');
+    lines.push('        ' + actor + '.transform.position = __assemblyNext;');
   } else {
+    lines.push('        GameObject __moveTarget = null;');
+    lines.push('        string __moveTargetName = "' + escapeCsString(target || actor || 'target') + '";');
     lines.push('        var __assemblyNext = __assemblyBefore + new Vector3(' + csFloat(speed, 5) + ' * Time.deltaTime, 0f, 0f);');
+    lines.push('        ' + actor + '.transform.position = __assemblyNext;');
   }
-  lines.push('        ' + actor + '.transform.position = __assemblyNext;');
   lines.push('        float __moveDistanceTraveled = Vector3.Distance(__assemblyBefore, __assemblyNext);');
   lines.push('        if (Vector3.Distance(__assemblyBefore, __assemblyNext) > 0.01f)');
   lines.push('        {');
-  lines.push(/player/i.test(actor) ? recordFlag('player_position_changed') : recordFlag('entity_position_changed'));
+  lines.push(isPlayerActor ? recordFlag('player_position_changed') : recordFlag('entity_position_changed'));
   lines.push(recordFlag('entity_position_changed'));
   lines.push('        }');
   lines.push('        bool __moveArrived = false;');
-  if (hasTarget) {
-    lines.push('        float __assemblyDistance = Vector3.Distance(' + actor + '.transform.position, ' + target + '.transform.position);');
+  if (hasTarget || isPlayerActor) {
+    lines.push('        if (__moveTarget != null)');
+    lines.push('        {');
+    lines.push('        float __assemblyDistance = Vector3.Distance(' + actor + '.transform.position, __moveTarget.transform.position);');
     lines.push('        __moveArrived = __assemblyDistance <= ' + csFloat(stopRange, 1.5) + ';');
     lines.push('        if (__moveArrived) RecordPhaseEvidenceDistance(currentPhaseName, "distance_to_target_below_threshold", __assemblyDistance);');
+    lines.push('        }');
   } else {
     lines.push('        __moveArrived = __moveDistanceTraveled > 0.01f;');
   }
-  lines.push('        string __moveFields = "{\\"target\\":" + JsonString("' + escapeCsString(target || actor || 'target') + '") + ",\\"before\\":{\\"position\\":" + SerializeVector3Json(__assemblyBefore) + "},\\"after\\":{\\"position\\":" + SerializeVector3Json(__assemblyNext) + "},\\"distance_traveled\\":" + FormatFloat(__moveDistanceTraveled) + ",\\"arrived\\":" + JsonBool(__moveArrived) + "}";');
+  lines.push('        string __moveFields = "{\\"target\\":" + JsonString(__moveTargetName) + ",\\"before\\":{\\"position\\":" + SerializeVector3Json(__assemblyBefore) + "},\\"after\\":{\\"position\\":" + SerializeVector3Json(__assemblyNext) + "},\\"distance_traveled\\":" + FormatFloat(__moveDistanceTraveled) + ",\\"arrived\\":" + JsonBool(__moveArrived) + "}";');
   lines.push('        RecordPhaseEvidenceObject(currentPhaseName, "move_to_target", __moveFields, "' + sourceSignalIdsJson(['entity_position_changed']) + '");');
   return lines;
 }
@@ -1254,8 +1367,11 @@ function buildDeterministicCostGateLines(moduleInstance, plans) {
 function buildDeterministicBuildLines(moduleInstance, plans) {
   var entity = moduleTarget(moduleInstance);
   if (!isIdentifier(entity)) return [];
-  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  var phaseIds = phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance);
+  var lines = buildPhaseGuardLines(phaseIds);
   lines.push('        if (' + entity + ' == null) return;');
+  appendCollectedSourceHiddenLines(lines, '__build', plans, phaseIds, entity);
+  lines.push('        if (' + entity + '.transform.position.y < -900f && __buildCollectedSourceHidden) return;');
   lines.push('        int __buildProgressBefore = ' + entity + 'State;');
   lines.push('        if (' + entity + 'State >= 2 && !HasPhaseEvidenceRecord(currentPhaseName, "build_progress")) __buildProgressBefore = 0;');
   lines.push('        if (' + entity + 'State >= 2 && HasPhaseEvidenceRecord(currentPhaseName, "build_progress")) return;');
@@ -1359,7 +1475,8 @@ function buildDeterministicProjectileLines(moduleInstance, plans) {
   var velocity = moduleInstance.params && moduleInstance.params.velocity != null ? Number(moduleInstance.params.velocity)
     : (moduleInstance.params && moduleInstance.params.speed != null ? Number(moduleInstance.params.speed) : 10);
   if (!isFinite(velocity) || velocity <= 0) velocity = 10;
-  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  var phaseIds = phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance);
+  var lines = buildPhaseGuardLines(phaseIds);
   var projectileName = projectile || 'projectile';
   var actorName = actor || (moduleInstance.params && moduleInstance.params.source) || 'source';
   lines.push('        Vector3 __projectileDirection = Vector3.right;');
@@ -1374,8 +1491,10 @@ function buildDeterministicProjectileLines(moduleInstance, plans) {
   }
   lines.push('        if (' + actor + ' == null) return;');
   if (isIdentifier(projectile) && planHasEntity(plans, projectile)) {
+    appendCollectedSourceHiddenLines(lines, '__projectile', plans, phaseIds, projectile);
     lines.push('        if (' + projectile + ' != null)');
     lines.push('        {');
+    lines.push('            if (__projectileCollectedSourceHidden) return;');
     lines.push('            var __assemblyProjectilePos = ' + actor + '.transform.position;');
     lines.push('            __assemblyProjectilePos.y += 0.6f;');
     lines.push('            __assemblyProjectilePos.x += 0.5f;');
@@ -1461,7 +1580,8 @@ function buildDeterministicActivateLines(moduleInstance, plans) {
     if (fallbackTarget) validTargets = [fallbackTarget];
   }
   if (validTargets.length === 0) return [];
-  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  var phaseIds = phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance);
+  var lines = buildPhaseGuardLines(phaseIds);
   lines.push('        if (HasPhaseEvidenceRecord(currentPhaseName, "activate_targets")) return;');
   lines.push('        bool __activateBeforeVisible = true;');
   lines.push('        bool __activateAfterVisible = true;');
@@ -1476,7 +1596,8 @@ function buildDeterministicActivateLines(moduleInstance, plans) {
     lines.push('            __activateBefore_' + targetSafe + ' = false;');
     lines.push('        }');
     lines.push('        if (!__activateBefore_' + targetSafe + ') __activateBeforeVisible = false;');
-    lines.push('        if (' + target + ' != null && ' + target + '.transform.position.y < -900f)');
+    appendCollectedSourceHiddenLines(lines, '__activate_' + targetSafe, plans, phaseIds, target);
+    lines.push('        if (' + target + ' != null && ' + target + '.transform.position.y < -900f && !__activate_' + targetSafe + 'CollectedSourceHidden)');
     lines.push('        {');
     lines.push('            PlaceObj(' + target + ', 0f, 0.5f, 0f);');
     lines.push('            ' + target + 'State = Mathf.Max(' + target + 'State, 1);');
@@ -1499,7 +1620,8 @@ function buildDeterministicVariantLines(moduleInstance, plans) {
   if (!isIdentifier(entity) || !planHasEntity(plans, entity)) {
     entity = firstUsablePlanEntity(plans, [/Enemy/i, /Rocket/i, /Debris/i, /Base/i, /Astronaut/i], []);
   }
-  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Scene.cs', moduleInstance));
+  var phaseIds = phaseIdsForModule(plans, 'GameFlowManagerMain.Scene.cs', moduleInstance);
+  var lines = buildPhaseGuardLines(phaseIds);
   if (!isIdentifier(entity) || !planHasEntity(plans, entity)) {
     lines.push(recordFlag('visual_variant_changed'));
     lines.push('        string __variantFields = "{\\"entity\\":" + JsonString("' + escapeCsString(entity || 'entity') + '") + ",\\"before\\":{\\"variantId\\":" + JsonString("base") + "},\\"after\\":{\\"variantId\\":" + JsonString("' + escapeCsString(variantId) + '") + "},\\"variant_changed\\":true}";');
@@ -1508,6 +1630,8 @@ function buildDeterministicVariantLines(moduleInstance, plans) {
   }
   lines.push('        if (' + entity + ' == null) return;');
   lines.push('        if (HasPhaseEvidenceRecord(currentPhaseName, "visual_variant_swap")) return;');
+  appendCollectedSourceHiddenLines(lines, '__variant', plans, phaseIds, entity);
+  lines.push('        if (' + entity + '.transform.position.y < -900f && __variantCollectedSourceHidden) return;');
   lines.push('        if (' + entity + '.transform.position.y < -900f) PlaceObj(' + entity + ', 0f, 0.5f, 0f);');
   lines.push('        string __variantBeforeId = HasPhaseEvidenceRecord(currentPhaseName, "visual_variant_swap") ? "' + escapeCsString(variantId) + '" : "base";');
   lines.push('        string __variantAfterId = "' + escapeCsString(variantId) + '";');
@@ -1531,7 +1655,8 @@ function buildDeterministicPopAnimationLines(moduleInstance, plans) {
   if (!isFinite(intensity)) intensity = 0.12;
   intensity = Math.max(0.04, Math.min(0.35, intensity));
 
-  var lines = buildPhaseGuardLines(phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance));
+  var phaseIds = phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance);
+  var lines = buildPhaseGuardLines(phaseIds);
   if (!isIdentifier(entity) || !planHasEntity(plans, entity)) {
     lines.push(recordFlag('visual_variant_changed'));
     lines.push('        string __popFields = "{\\"target\\":" + JsonString("' + escapeCsString(entity || 'target') + '") + ",\\"intensity\\":' + intensity.toFixed(3) + ',\\"duration\\":0.3,\\"scale_delta\\":0.1,\\"visual_changed\\":true}";');
@@ -1539,6 +1664,8 @@ function buildDeterministicPopAnimationLines(moduleInstance, plans) {
     return lines;
   }
   lines.push('        if (' + entity + ' == null) return;');
+  appendCollectedSourceHiddenLines(lines, '__pop', plans, phaseIds, entity);
+  lines.push('        if (' + entity + '.transform.position.y < -900f && __popCollectedSourceHidden) return;');
   lines.push('        if (' + entity + '.transform.position.y < -900f) PlaceObj(' + entity + ', 0f, 0.5f, 0f);');
   lines.push('        Vector3 __popBeforeScale = ' + entity + '.transform.localScale;');
   lines.push('        var __assemblyPopScale = 1f + Mathf.Max(0.04f, Mathf.Abs(Mathf.Sin(gameTimer * 8f)) * ' + csFloat(intensity, 0.12) + ');');

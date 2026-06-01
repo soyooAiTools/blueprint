@@ -22,9 +22,11 @@ if (!repair) {
   var src = require('fs').readFileSync(require('path').join(__dirname, '..', 'engine', 'stages', 'review.cjs'), 'utf8');
   assert.ok(/function stripExcessCameraBackgroundAssignments/.test(src),
     'stripExcessCameraBackgroundAssignments function 必须存在于 review.cjs');
-  assert.ok(/main:CameraBackgroundOverride/.test(src),
-    'repairKnownStructuralDamage 必须调用 stripExcessCameraBackgroundAssignments');
-  console.log('  ✓ source presence: stripExcessCameraBackgroundAssignments + wired into repair');
+  // Wave 2 (2026-05-31): 编排移到 engine/lib/static-rule-prerepair.cjs 的 SHARED_BUNDLE
+  var bundle = require('../engine/lib/static-rule-prerepair.cjs').SHARED_BUNDLE;
+  assert.ok(bundle.some(function(e) { return e[0] === 'stripExcessCameraBackgroundAssignments' && e[1] === 'CameraBackgroundOverride'; }),
+    'repairKnownStructuralDamage (经 SHARED_BUNDLE) 必须调用 stripExcessCameraBackgroundAssignments');
+  console.log('  ✓ source presence: stripExcessCameraBackgroundAssignments + wired into SHARED_BUNDLE');
 }
 
 // 直接对 source code 跑正则验证 strip 行为(避免 require chain 副作用)

@@ -2,7 +2,7 @@
 
 var contract = require('./storyboard2html-contract.cjs');
 
-var DEFAULT_MODEL = 'claude-sonnet-4-6';
+var DEFAULT_MODEL = 'claude-opus-4-8';
 var DEFAULT_TIMEOUT_MS = 600000;
 var DEFAULT_MIN_OUTPUT_LEN = 2000;
 
@@ -60,6 +60,18 @@ var SYSTEM_PROMPT_HEADER = [
   '- snake_case 是 *硬必填*:`entity_states` / `ui_state` / `camera_state` / `completedPhases` 必须存在;',
   '  camelCase(`entityStates` / `uiState` / `cameraState`)只允许作为 *镜像副本* 同步写,*不能仅写 camelCase*。',
   '- phaseRealTimer 每次 phase 切换归零;基于 `Date.now()` / `performance.now()` 差值,不是 phaseIndex/frame。',
+  '',
+  '## L2.5 — 测试驱动 hook(`window.__driveToPhase` + `window.__fidelityReady`)',
+  '- 必须挂 `window.__driveToPhase = function(n) { ... }`,n 为 *1-based* phase 索引(范围 `[1, PHASES.length]`)。',
+  '  - 越界(`n < 1` 或 `n > PHASES.length`)必须 `throw new Error(...)`,*不允许* 静默 no-op。',
+  '  - 推进路径必须复用源 demo 自身 phase API(`advancePhase` / `enterPhase`),*不允许* 直接 mutate `phaseIndex` 后不重走 enter 逻辑(否则 phase enter side-effects 丢失:guide/visual/HUD/evidence 不刷新)。',
+  '  - 返回值 *必须* 是 Promise,且 *必须* 在 resolve 前等至少 **两个 RAF**(`requestAnimationFrame` 嵌套两层后再 resolve),保证 phase 切换后下一帧 paint 已 commit,harness 截图不会拿到半帧。',
+  '- 必须挂 `window.__fidelityReady`,*生命周期严格三阶段*:',
+  '  - **阶段 1(显式 false)**:在 renderer / scene / IIFE bootstrap *之前* 显式 `window.__fidelityReady = false`,*不允许* 让该字段保持 `undefined` 状态(harness 会把 `undefined` 当作"页面没挂 hook"而 fail-fast,误诊为 prompt bug 而不是 race)。',
+  '  - **阶段 2(首个真实 render tick 已执行)**:至少一次 `renderer.render(scene, camera)` 已实际 *执行过* 之后(canonical 路径 = bootstrap 内 `enterPhase(0,""); render();` 已调用一次,render() 内已 invoke `renderer.render(...)`),才能进入下一阶段。',
+  '  - **阶段 3(双 RAF settle 后置 true)**:在阶段 2 满足后,用 `requestAnimationFrame(function(){requestAnimationFrame(function(){window.__fidelityReady=true;});});` 形态置 true。canonical 放在 IIFE 末尾或 bootstrap 完成处。',
+  '  - *禁止* 把 `window.__fidelityReady = true` 写在脚本 load / IIFE top / scene 构造前 / 任何 render tick 未执行前的位置 — 这会让 harness 在 WebGL/three.js 启动完成之前就 bind 到 `__driveToPhase`,触发竞态。',
+  '- **Ownership 边界(本节仅约束源 HTML)**:源 HTML 必须暴露以上两个 hook;WebGL target build 由 Blueprint deterministic skeleton/bridge 暴露 *同形态* hook(由 `worker/linux-bridge-build.js` 收口,*不在本 prompt 范围*)。*禁止* 在源 HTML 中生成 target stub / 远程控制逻辑 / 跨 build runtime 探针 — 源端只关心源端契约。',
   '',
   '## L3 — phaseEvidence envelope(每 phase 每 module 一条)',
   '- 路径:`phaseEvidence.phase{N}.{moduleId}`。',
@@ -181,8 +193,9 @@ var SYSTEM_PROMPT_HEADER = [
   '  - `rimLight`: `{ color: 0xRRGGBB, intensity: <number>, position: [x,y,z], distance: <number> }` 或 `null`(辅助 point/rim light,可选氛围光)。',
   '  - `ground`: `{ kind: "cylinder"|"plane"|"box", radius?: <number>, width?: <number>, height?: <number>, color: 0xRRGGBB }` 或 `null`(地面几何体定义,Luna 用以构建匹配地形)。',
   '  - `decor`: `{ stars?: <number>, orbitalRings?: <number>, ... }` 或 `null`(装饰元素,如星空/轨道线/粒子数量,Luna runtime 据此 spawn 简版装饰)。',
+  '  - `camera`: `{ fov: <number 度>, position: [x,y,z], lookAt: [x,y,z], near?: <number>, far?: <number> }` 或 `null`(Option C source-faithful 用:源 PerspectiveCamera 的 FoV 与机位/朝向,缺省 null 时 Luna 沿用默认机位)。必须与源 HTML 实际 `camera.position.set(...)` / `camera.lookAt(...)` / `PerspectiveCamera(fov,...)` 字面一致。',
   '- 字段语义:Luna skeleton 解析 `sourceSceneContract`(由 demo2spec 从 `SCENE_CONFIG` 抽出)后,**按字段而不是按主题** hard-set 背景/光照/装饰 — 同一套契约支持太空 / 农场 / 餐厅 / 塔防 / 解谜 等任意主题,extractor 不需要主题判定,Luna runtime 不需要 if-theme-then-X 硬编码分支。',
-  '- canonical 示例(深空太空主题):`const SCENE_CONFIG = { backgroundColor: 0x071026, fog: { color: 0x071026, near: 55, far: 145 }, ambientLight: { color: 0xffffff, intensity: 0.62 }, directionalLight: { color: 0xffffff, intensity: 1.25, position: [-14, 28, 18] }, rimLight: { color: 0x72ddff, intensity: 1.0, position: [10, 16, -16], distance: 80 }, ground: { kind: "cylinder", radius: 72, height: 0.25, color: 0x13233a }, decor: { stars: 100, orbitalRings: 4 } };`',
+  '- canonical 示例(深空太空主题):`const SCENE_CONFIG = { backgroundColor: 0x071026, fog: { color: 0x071026, near: 55, far: 145 }, ambientLight: { color: 0xffffff, intensity: 0.62 }, directionalLight: { color: 0xffffff, intensity: 1.25, position: [-14, 28, 18] }, rimLight: { color: 0x72ddff, intensity: 1.0, position: [10, 16, -16], distance: 80 }, ground: { kind: "cylinder", radius: 72, height: 0.25, color: 0x13233a }, decor: { stars: 100, orbitalRings: 4 }, camera: { fov: 60, position: [0, 18, 16], lookAt: [0, 0, 0] } };`',
   '- 源 HTML 实际渲染时仍按本契约写 Three.js scene(`scene.background = new THREE.Color(SCENE_CONFIG.backgroundColor)` / `scene.fog = new THREE.Fog(...)` / `new THREE.AmbientLight(...)` / `new THREE.DirectionalLight(...)` / 地面 mesh / 装饰 loop),保证源 HTML 跑起来视觉与契约值一致(契约不是"声明"而是"事实")。extractor 抽契约时不需要解析渲染代码,直接读 `SCENE_CONFIG` 字面值即可。',
   '- 反例(Luna runtime 拿不到对应字段,只能 fallback 灰底 / 默认 Unity 光照,与源 HTML 视觉 drift):',
   '  - SCENE_CONFIG 写在 `function init() { ... }` / IIFE 内,extractor 静态 AST 抓不到。',
@@ -203,6 +216,17 @@ var SYSTEM_PROMPT_HEADER = [
   '  - targetRing/trailLine/laserLine 的颜色、半径、opacity、pulse 速率随主题变化;这三件是跨主题统一交互语言,数值固定。',
   '  - targetHint 用 step label("购买氧气")而不是 entity label("氧气购买台")。',
   '  - step 完成后只更新资源数,没有 toast / 浮字反馈;用户会误以为摇杆靠近没有触发。',
+  '',
+  '## L9 — Mesh-op 契约(Luna source-faithful build,Option C,受 OPTION_C_SOURCE_FAITHFUL_BUILD 灰度兜底)',
+  '- *顶层* 再声明 `var meshOps = {}`(允许 `let` / `const` / `window.meshOps`,*不能* 闭包内):',
+  '  - key 集合 = ENTITY_STYLE keys(完全一致;两边都得有)。',
+  '  - value = 1..N 个 mesh-op 字面对象组成的纯数组;每个 op 描述一个原子 mesh,*无 lambda / closure / Math.random / Date.now / THREE 引用*。',
+  '  - 必含字段:`kind`(`"box"|"sphere"|"cylinder"|"cone"|"plane"|"torus"|"icosahedron"`,全小写,Luna 端 switch dispatch);`position`(`[x,y,z]` 数值字面量,相对 entity 原点)。',
+  '  - 可选字段:`rotation`(`[x,y,z]` 欧拉角 degree)、`scale`(`[x,y,z]`,默认 [1,1,1])、`size`(因 kind 而异:box→`[w,h,d]`,cylinder/cone→`[rTop,rBottom,h]`,sphere/icosahedron→`[r]`,plane→`[w,h]`,torus→`[radius,tube]`)、`color`(`0xRRGGBB`,默认继承 ENTITY_STYLE[name].color)、`emissive`(`0xRRGGBB`,默认 0x000000)、`emissiveIntensity`(0~1,默认 0)、`metalness`(0~1,默认 0)、`roughness`(0~1,默认 1)、`opacity`(0~1,默认 1)。',
+  '- meshOps *不是替代* `buildEntity`,而是 *并行声明事实*:源 HTML 仍按现有 `buildEntity` 装配 three.js Mesh。推荐 helper:`function emitMeshOp(name, op){ meshOps[name] = meshOps[name] || []; meshOps[name].push(op); }`,在 `buildEntity` 内每个 `new THREE.Mesh(...)` 之后立刻 `emitMeshOp(name, {kind:"box", position:[0,1.15,0], size:[0.82,1.12,0.48], color:0x66ccff})`(数值全字面量)。',
+  '- `meshOps` 内所有数值必须为字面量(Number / Array of Number / 0xRRGGBB),*不能* 引用 `ENTITY_STYLE[X].color` 等运行时表达式 —— extractor 跑一次 `page.evaluate(()=>window.meshOps)` 后 JSON 深拷贝,不解析任意 JS。',
+  '- 禁止把 `meshOps` 写在 IIFE / scene 闭包 / function 内部;必须 *顶层* 声明,且在 `Object.keys(ENTITY_STYLE).forEach(buildEntity)` driver 跑过后也同步可读(静态字面填法或 runtime-populated 填法均可)。',
+  '- 兜底:`meshOps[name]` 缺失或空数组时,Luna 端 fall back 到现有 `spec.entities[].visual.shape` pooled-primitive 路径(等价老行为;Option C flag off 时也走这条)。',
   '',
   '## 禁止反规则',
   '- 不允许把 phaseRealTimer 写成 frame count / phaseIndex / 0。',
@@ -240,6 +264,7 @@ var SYSTEM_PROMPT_HEADER = [
   '- 不允许 `SCENE_CONFIG.ambientLight` 或 `SCENE_CONFIG.directionalLight` 任一字段缺失 — 必须显式声明 `{ color, intensity }`(directional 还需 `position`);缺失 Luna runtime 只能 fallback default Unity 光照,与源 HTML 视觉巨大 drift。',
   '- 不允许 `SCENE_CONFIG.fog` / `SCENE_CONFIG.rimLight` / `SCENE_CONFIG.ground` / `SCENE_CONFIG.decor` 写成布尔开关或 string 标签(`fog: true` / `ground: "default"` 都不接受);要么写完整对象 `{ kind, color, ... }`,要么显式 `null`(`null` = 表示不要这个元素)。',
   '- 不允许源 HTML 的 `scene.background` / `scene.fog` / 光照 mesh / ground mesh / 装饰 loop 字面值与 `SCENE_CONFIG` 不一致 — 契约 = 渲染事实,渲染代码必须 `new THREE.Color(SCENE_CONFIG.backgroundColor)` / `new THREE.Fog(SCENE_CONFIG.fog.color, SCENE_CONFIG.fog.near, SCENE_CONFIG.fog.far)` 等引用契约值,不能两边各写不同字面量。',
+  '- 不允许 `window.__driveToPhase` / `window.__fidelityReady` 缺失或形态不对。`__driveToPhase` 必须 1-based + 越界 throw + 双 RAF settle + 返回 Promise;`__fidelityReady` 必须 *三阶段生命周期*(① bootstrap 前显式 `= false` 初始化,② 至少一次 `renderer.render()` 已执行,③ 双 RAF 后才 `= true`);任何 script-load 即 true / 无 false 初始化 / 无 render tick 等待都视为 prompt bug。fidelity-source-diff 阶段会按此契约硬卡。',
   '',
 ].join('\n');
 
@@ -339,7 +364,131 @@ function renderResources(resources) {
   }).join('\n');
 }
 
-function buildSystemPrompt() {
+// COMPACT_SYSTEM_PROMPT_HEADER (2026-05-31): ~25K → ~10K cut.
+// Removed the "禁止反规则" duplicate-rules tail (38 lines of L1-L8 negations) and
+// trimmed L4 license-meta examples (most demos run primitives + no external
+// assets). Use only when caller passes `compact:true` — production fidelity
+// gates may still want the full prompt. Validated for seed-script throughput:
+// single claude --print stream (no autocompact retry).
+var COMPACT_SYSTEM_PROMPT_HEADER = [
+  '你是 storyboard2html 生成器。把 Blueprint specs(逆向分镜驱动)转成 *单文件可运行 HTML demo*,',
+  '同一份 HTML 既驱动 three.js 真实 3D 视觉,也暴露 storyboard2html v1.0.0 契约,',
+  '保证 demo2spec 反解 + Luna 同向迁移 + CUA verify 主门一次过。',
+  '',
+  '## 输出格式',
+  '- 只输出 *单一完整 HTML 文档*,以 `<!doctype html>` 起,以 `</html>` 止。',
+  '- 不要 markdown 围栏,不要任何解释/前言/后记。',
+  '- 不要 `import`/`require`,所有 JS inline 在 `<script>`;允许通过 CDN `<script src="https://...">` 加载 three.js。',
+  '- 浏览器原生 ES2018 即可,不要 TypeScript 语法。',
+  '',
+  '## L1 — HTML 静态入口',
+  '- 顶层声明 `const PHASES = [...]`(或 var/let/`window.PHASES`)。',
+  '- 每个 PHASES[i] 含字段: `id` (字符串 `phase{n}`)、`name`、`goalText`;推荐补 `guideText`、`durationSec`、`showEntities[]`、`trigger{type,...}`、`plannedModuleIds[]`。',
+  '- `trigger` 必须是结构化对象,不要字符串数组: `timer` 写 `{type:"timer",seconds:0.8}`、`resource_collected` 写 `{type:"resource_collected",resource:"Gold",amount:1}`、`entity_state_reached` 写 `{type:"entity_state_reached",entity:"Turret",state:2}`、组合写 `{type:"compound",operator:"and",triggers:[...]}`。',
+  '- 提供 `function setTip(text, ms)` 或 `window.setTip`,可见更新引导文本并保留到 `window.__gameState().ui_state.guideText`。',
+  '- 每个 phase 提供具名函数 `enterPhase<N>` / `completePhase<N>` (N 从 1 起)。',
+  '- 第一个 phase `showEntities.length >= 3`。',
+  '- 最后一个 phase 必须以 `CtaButton` 为目标且 *arrival-gated*: `trigger.entity === "CtaButton"`,`trigger.type` 可为 `near_entity`(arrival-only)或 `click_entity`(click handler 内部必须先校验 distance < threshold);phaseEvidence *必须* 写 `cta_finish` 模块 + `final_phase: true`。',
+  '',
+  '## L2 — 运行态契约 window.__gameState',
+  '- 必须挂 `window.__gameState = function() { return state; }`(函数优先)。',
+  '- 返回对象含 top-level keys: `phase`(string `phase{n}`)、`phaseRealTimer`(秒,实时 wall-clock,基于 `Date.now()`/`performance.now()` 差值,*不能*用帧数)、`entity_states`(name → {visible, position:{x,y,z}, state})、`phaseEvidence`(见 L3)。',
+  '- 推荐补 `resources` / `inventory` / `visibleEntities[]` / `ui_state.guideText` / `camera_state` / `completedPhases[]`。',
+  '- snake_case 是硬必填: `entity_states` / `ui_state` / `camera_state` / `completedPhases`。camelCase 镜像可同步写但不能仅 camelCase。',
+  '- phaseRealTimer 每次 phase 切换归零。',
+  '',
+  '## L2.5 — 测试驱动 hook',
+  '- 必须挂 `window.__driveToPhase = function(n) { ... }` (1-based;越界 throw;必须复用源 demo 自身 phase API,*不允许* 直接 mutate `phaseIndex`)。返回 Promise,resolve 前等至少两个 RAF 嵌套。',
+  '- 必须挂 `window.__fidelityReady`,严格三阶段: ①bootstrap 前显式 `= false`;②至少一次 `renderer.render(scene, camera)` 已执行;③双 RAF 后置 `true`。禁止 script load 即 true。',
+  '',
+  '## L3 — phaseEvidence envelope',
+  '- 路径 `phaseEvidence.phase{N}.{moduleId}`。每 module 对象必含 `_meta: { schemaVersion:"1.0.0", sourcePlatform:"html", sourceModuleId:"<moduleId>" }`。',
+  '- 同层 phase 上(`phaseEvidence.phase{N}`)允许 flat signal bool: `guide_text_visible` / `phase_advanced` / `resource_incremented` / `source_hidden_or_moved` / `entity_visible` / `downstream_entity_visible` / `entity_state_changed`。',
+  '- 仅写 spec.plannedModuleIds 列举的 module + cta_finish(最后一相)。',
+  '- moduleId *逐字符* 出自这 36 项词表(snake_case,大小写严格): activate_targets / apply_damage / build_progress / camera_focus / camera_lift / camera_zoom / click_trigger / collect_on_near / cooldown / cost_gate / cta_finish / damageable / deliver_to_target / drag_trigger / floating_text_feedback / form_switch / guide_ui / highlight_target / hold_trigger / inventory_wallet / move_to_target / on_death_drop / phase_gate_timer / player_input_joystick / player_input_tap / pop_animation / projectile_emit / proximity_trigger / score_feedback / spawn_interval / spawn_once / target_acquire / upgrade_progress / visual_binding / visual_variant_swap / world_label',
+  '',
+  '## 模块 evidence 模板(必须复用 key)',
+  '- guide_ui: `{ _meta, text, before:{text}, after:{text}, text_changed, visible }` + flat `guide_text_visible=true`。',
+  '- inventory_wallet: `{ _meta, resource, operation:"add"|"sub", before:{balance}, after:{balance}, score_text_visible }` + flat `resource_incremented=true`。',
+  '- collect_on_near: `{ _meta, resource, item, count, range, before:{balance}, after:{balance}, sourceHidden:true }` + flat `resource_incremented=true` + `source_hidden_or_moved=true`。',
+  '- phase_gate_timer: `{ _meta, seconds_required, seconds_elapsed, before:{phase_index}, after:{phase_index}, timer_completed, phase_advanced_by_timer }` + flat `phase_advanced=true`。',
+  '- visual_binding: `{ _meta, entity, operation:"show"|"hide"|"move", before:{visible}, after:{visible}, position, scale_applied }` + flat `entity_visible=true`。',
+  '- spawn_once: `{ _meta, target, position, placed:true }` + flat `downstream_entity_visible=true` + `entity_state_changed=true`。',
+  '- cta_finish: `{ _meta, target:"CtaButton", cta_visible:true, install_called_or_ready:true, final_phase:true }`。',
+  '- 其它 moduleId 按 `{ _meta, before, after, ... }` 三段式写。',
+  '',
+  '## L4 — 资产 license meta(只有外部加载的资产才声明)',
+  '- 推荐方案: *全部使用 THREE primitive + 纯色 MeshStandardMaterial,跳过 window.__assetMeta 整段*(程序化资产不触发 L4)。',
+  '- 若必须加载外部 URL(GLTFLoader/TextureLoader/AudioLoader/<img>/fetch),则顶层声明 `window.__assetMeta = { "<URL逐字符一致>": { license, attribution, sourceUrl } }`。',
+  '- license 严格枚举: `"CC0"` / `"CC-BY-4.0"` / `"CC-BY-SA-4.0"` / `"CC-NC-<suffix>"` / `"proprietary"` / `"unknown"`(case-sensitive,不允许变体)。',
+  '- attribution/sourceUrl 未知必须 `null`,*禁止*空串。attribution ≤200 字符。',
+  '',
+  '## L5 — 交互驱动硬约束(浮动虚拟摇杆 + arrival-gate)',
+  '- 全屏任意位置浮动虚拟摇杆: 用户 `pointerdown` 时摇杆底盘移到触点为原点,`pointermove` 控制 thumb 偏移,`pointerup/cancel` 归零隐藏。必须 `<div id="joystick">` 或等价 canvas overlay,*不能*锁死左下角。',
+  '- 摇杆三段事件挂 `document/window/canvas/renderer.domElement`,写入 `__gameState.input.joystick = { dx, dy, active, originX, originY }`,并每帧 *实际驱动* Player 位置 `player.position.x += dx * speed * dt`。',
+  '- arrival-gate: 每个 non-final phase advance = 用户拖摇杆 → Player 走到目标 entity 圈内(distance < threshold)→ 才触发 phase 行为。non-final phase 的 `trigger.type` *只允许* `near_entity` / `resource_collected` / `entity_state_reached` / `compound` / `timer`(*post-arrival*)。',
+  '- 禁止 non-final phase 用 `click_entity` 或 keydown 作为唯一 advance 路径(keydown 可作 desktop fallback 推角色但不能直接调 enterPhase)。',
+  '- 禁止 `setTimeout` 内 mutate `phaseIndex` / 调 `enterPhase(N+1)`。',
+  '- `click_trigger` 模块只用于最后一 phase 的 CtaButton + arrival-gate 校验之后。',
+  '- 每个 non-final phase 的 `plannedModuleIds` + phaseEvidence 必含 `player_input_joystick`: `{ _meta, active:true, vector:{dx,dy}, applied_to_player:true }`。',
+  '- 资源增减必须在 arrival 物理判定回调内部置位,不能 phase 进入时一次性 set,也不能 pointermove listener 内任意位置 set。',
+  '',
+  '## L6 — 视觉模型化(真实 WebGL 3D)',
+  '- three.js CDN: `https://cdn.jsdelivr.net/npm/three@0.156.1/build/three.min.js`。`new THREE.Scene()` + `new THREE.WebGLRenderer()` + 透视相机 + 灯光 + 程序化 mesh。',
+  '- 最低场景元素: Scene + ground/floor + Player(复合几何体: 头 Sphere + 身 Cylinder/Box + 手脚)+ 每个 spec.entities[] 对应可见 mesh + UI HUD。',
+  '- 禁止单 `ctx.arc()` 圆点 / 单 `<div>` 方框表示 entity;禁止整屏 Canvas 黑底 + 几条线条 + 几个圆点(示意图≠demo)。',
+  '- 每 phase 必须有视觉变化(show/hide/move、material color change、scale animation、particle、camera shake 任一)。',
+  '- HUD 顶栏: 资源(图标+数字)/ 引导文本 `#tip` / 阶段指示 `Phase N/M`。',
+  '',
+  '## L7 — Entity 视觉契约(extractor 必须命中)',
+  '- *顶层* 声明 `const ENTITY_STYLE = { ... }`(不能闭包内):',
+  '  - key = entity 名(与 spec.entities[].name / showEntities[] / trigger.entity 严格匹配)。',
+  '  - value 必含 `kind` 字段(语义类: astronaut/ship/station/counter/pad/crystal/debris/cargo/base/beacon/gate/tool/machine/npc/collectible 等);推荐补 `label`(中文 OK)/ `color`(0xRRGGBB)。',
+  '- *顶层* 声明 `const ENTITY_POSITIONS = { ... }`,keys 与 ENTITY_STYLE 完全一致,value 含 `{x,z}` 或 `{x,y,z}`。',
+  '- 必须 *命名函数声明* `function buildEntity(name) { ... }`(不能箭头/匿名/var 表达式): 内部读 `ENTITY_STYLE[name].kind`,kind-switch dispatch 各类复合几何体。',
+  '- 必须顶层 `var models = {}` 或 const,每个 entity 写 `models[<entityName>] = g;`(`g` = `new THREE.Group()`)。这是 demo2spec 反追 entity↔mesh 的 *唯一* anchor。',
+  '- 统一 driver 一次性构造: `Object.keys(ENTITY_STYLE).forEach(buildEntity);`,不能散布到 phase 入场逻辑。',
+  '',
+  '## L8 — 场景视觉契约',
+  '- *顶层* 声明 `const SCENE_CONFIG = { ... }`(不能闭包内):',
+  '  - `backgroundColor`: 0xRRGGBB 数字字面量(必填)。',
+  '  - `fog`: `{ color, near, far }` 或 `null`。',
+  '  - `ambientLight`: `{ color, intensity }`(必填,intensity 0.4-0.8)。',
+  '  - `directionalLight`: `{ color, intensity, position:[x,y,z] }`(必填,intensity 0.8-1.5)。',
+  '  - `rimLight`: `{ color, intensity, position, distance }` 或 `null`。',
+  '  - `ground`: `{ kind:"cylinder"|"plane"|"box", radius?, width?, height?, color }` 或 `null`。',
+  '  - `decor`: `{ stars?, orbitalRings?, ... }` 或 `null`。',
+  '  - `camera`: `{ fov, position:[x,y,z], lookAt:[x,y,z], near?, far? }` 或 `null`(Option C:源 PerspectiveCamera 的 FoV/机位/朝向,须与源 `camera.position.set`/`lookAt` 字面一致)。',
+  '- 实际渲染必须引用契约值: `scene.background = new THREE.Color(SCENE_CONFIG.backgroundColor)` / `scene.fog = new THREE.Fog(SCENE_CONFIG.fog.color, ...)` / `new THREE.AmbientLight(SCENE_CONFIG.ambientLight.color, SCENE_CONFIG.ambientLight.intensity)` 等。契约 = 渲染事实,不能字面量漂移。',
+  '',
+  '## L8.5 — 引导视觉(targetRing/trailLine/laserLine + targetHint + toast)',
+  '- 闭包顶层声明 `var targetRing, trailLine, laserLine;`。',
+  '- targetRing: `new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.055, 8, 64), new THREE.MeshBasicMaterial({ color: 0xffe45c }))`,`rotation.x = Math.PI/2`,每帧跟 target,scale 脉动 `1 + Math.sin(performance.now()/180) * 0.08`,无 target 时 `visible=false`。',
+  '- trailLine: `THREE.Line` + `LineBasicMaterial({ color: 0x8deaff, opacity: 0.65, transparent: true })`,每帧 setFromPoints player→目标。',
+  '- laserLine: `THREE.Line` + `LineBasicMaterial({ color: 0xff6858, opacity: 0, transparent: true })`,战斗 step 时 opacity=1,每帧 *=衰减 1.6*dt。',
+  '- `#targetHint` 文本: `var t = targetName(); targetHint.textContent = t ? "目标：" + ENTITY_STYLE[t].label : "完成"`(用 entity label,不用 step label)。',
+  '- `#toast` 顶部浮层: `showToast(step.label)` + 1s 后 `toast.className = ""` 淡出。',
+  '',
+  '## L9 — Mesh-op 契约(Luna source-faithful,Option C,OPTION_C_SOURCE_FAITHFUL_BUILD 灰度兜底)',
+  '- *顶层* 再声明 `var meshOps = {}`(不能闭包内),key = ENTITY_STYLE keys(完全一致),value = 纯字面对象数组,每个 op 描述一个原子 mesh(无 lambda / closure / Math.random / THREE 引用)。',
+  '- op 必含 `kind`(`"box"|"sphere"|"cylinder"|"cone"|"plane"|"torus"|"icosahedron"`)+ `position`(`[x,y,z]` 字面量);可选 `rotation`(欧拉 degree)/`scale`/`size`(box→[w,h,d],cylinder/cone→[rTop,rBottom,h],sphere/ico→[r],plane→[w,h],torus→[radius,tube])/`color`(0xRRGGBB)/`emissive`/`emissiveIntensity`/`metalness`/`roughness`/`opacity`。所有值必须字面量。',
+  '- 推荐 helper `function emitMeshOp(name, op){ meshOps[name]=meshOps[name]||[]; meshOps[name].push(op); }`,在 `buildEntity` 内每个 `new THREE.Mesh(...)` 之后调用同步声明事实(meshOps 不替代 buildEntity)。',
+  '- 兜底:`meshOps[name]` 缺失/空数组 → Luna fall back 到 `spec.entities[].visual.shape` pooled-primitive(等价老行为)。',
+  '',
+  '## 禁止反模式(违反必导致 fidelity / CUA fail)',
+  '- 禁止在 `enterPhaseN()` 或 module evidence write 函数里同步硬编码 evidence 标志: `clicks` / `clicks_consumed` / `registered` / `target_consumed` / `tap_count` 必须由真实 DOM event listener 回调置位,不能 phase 进入时一次性 set。',
+  '- 禁止 `setTimeout` / `setInterval` 函数体内 mutate `phaseIndex` 或调 `enterPhase(N+1)` / `nextPhase()`。timer 倒计时必须在用户动作 listener(canonical = arrival-gate 进入回调)内 schedule,不能 phase 进入时立即起 setTimeout 推进。',
+  '- 禁止 `__fidelityReady = true` 在 script load / IIFE top / `renderer.render(...)` 实际执行前的位置 — 必须先显式 `= false`,等至少一次 render tick 后 + 双 RAF settle 才置 true。',
+  '- 禁止 `PHASES` / `ENTITY_STYLE` / `ENTITY_POSITIONS` / `SCENE_CONFIG` / `window.__assetMeta` 放在 `function init() { ... }` / IIFE / scene 闭包内 — 必须 *顶层* 字面量,extractor 静态 AST 直抓。',
+  '- 禁止 `trigger` 写成 `conditions:["timer(0.8s)"]` / `conditions:["resource_collected(Gold,1)"]` 字符串数组 — 必须结构化对象 `{type, ...}`。',
+  '- 禁止 `entity_state_reached.state` 写字符串(`"built"` 等)— 必须整数 state,通常 built=2。',
+  '- 禁止 non-final phase 用 `trigger.type==="click_entity"` 或 keydown 作为唯一 phase advance 路径(keydown 可做 desktop fallback 推角色,但不能调 enterPhase / mutate phaseIndex)。',
+  '- 禁止 `CtaButton` 的 click handler 在 Player 未进入 arrival-gate(`distance < threshold`)时就触发 finish / install — 必须 arrival-gated。',
+  '',
+].join('\n');
+
+function buildSystemPrompt(opts) {
+  if (opts && opts.compact) return COMPACT_SYSTEM_PROMPT_HEADER;
   return SYSTEM_PROMPT_HEADER;
 }
 
@@ -438,7 +587,7 @@ function extractHtml(text) {
 function buildStoryboard2HtmlPrompt(bundle, opts) {
   opts = opts || {};
   validateBundle(bundle);
-  var systemPrompt = buildSystemPrompt();
+  var systemPrompt = buildSystemPrompt({ compact: !!opts.compact });
   var userPrompt = buildUserPrompt(bundle, opts);
   return {
     systemPrompt: systemPrompt,

@@ -95,7 +95,7 @@ function patchForHeadless(content, filename) {
       // extremely high values. With 2x speed this gives ~3s real-time per phase.
       patched = patched.replace(/this\.phaseTimer\s*>=\s*(\d+)\.0/g, (match, val) => {
         var orig = parseInt(val, 10);
-        if (orig > 30) { fixes++; return 'this.phaseTimer >= 20.0'; }
+        if (orig > 30 && orig < 60) { fixes++; return 'this.phaseTimer >= 20.0'; }
         return match;
       });
       patched = patched.replace(/this\._autoInteractTimer\s*>=\s*3\.0/g, () => {
@@ -106,7 +106,10 @@ function patchForHeadless(content, filename) {
       // Normal complexity (<=8 phases): aggressive reduction for speed
       patched = patched.replace(/this\.phaseTimer\s*>=\s*(\d+)\.0/g, (match, val) => {
         var orig = parseInt(val, 10);
-        if (orig >= 5) { fixes++; return 'this.phaseTimer >= 2.0'; }
+        // Do not patch the generated stuck-phase sentinel (`phaseTimer >= 90.0`).
+        // If that guard is shortened it sets phaseTimer=60 and can make dwell
+        // gates pass in one observe poll, producing screenshot-sharing failures.
+        if (orig >= 5 && orig < 60) { fixes++; return 'this.phaseTimer >= 2.0'; }
         return match;
       });
       patched = patched.replace(/this\._autoInteractTimer\s*>=\s*3\.0/g, () => {
@@ -654,6 +657,7 @@ module.exports = {
   runCUAVerification,
   CUA_RESULTS_DIR,
   computeVerifyTimeoutMs,
+  patchForHeadless,
   writeSpecsFile,
   summarizePlayableAgentReport,
 };

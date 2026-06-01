@@ -11,6 +11,7 @@ public class GameSceneCtrl
     private GameObject[] _objects;
     private int _count = 0;
     private const int MAX = 64;
+    public static int LegacyPlayerPoolNormalizeCount = 0;
 
     // 初始化场景实体控制器和实体缓存。
     public static GameSceneCtrl Init(GameObject parent)
@@ -26,6 +27,7 @@ public class GameSceneCtrl
     public void Register(string name, string poolName)
     {
         var go = GameObject.Find(poolName);
+        NormalizeSourcePlayerBinding(name, poolName, go);
         for (int i = 0; i < _count; i++)
         {
             if (_names[i] == name)
@@ -38,6 +40,27 @@ public class GameSceneCtrl
         _names[_count] = name;
         _objects[_count] = go;
         _count++;
+    }
+
+    // 旧生成代码可能仍把 Player 绑定到 __Pool_*；运行时统一收敛到 source entity contract。
+    private void NormalizeSourcePlayerBinding(string name, string poolName, GameObject go)
+    {
+        if (name != "Player" || go == null) return;
+        bool legacyPoolName = !string.IsNullOrEmpty(poolName) && poolName != "_player";
+        bool renamedFromLegacyObject = go.name != "_player";
+        if (legacyPoolName || renamedFromLegacyObject)
+        {
+            LegacyPlayerPoolNormalizeCount++;
+            Debug.LogWarning("[k-audit] GFM legacy pool name normalized to _player — codegen drift, fix upstream");
+        }
+        go.name = "_player";
+        try { go.tag = "Player"; } catch (UnityException) {}
+    }
+
+    // CUA / audit probes read this to distinguish true source-contract binding from bridge containment.
+    public int GetLegacyPlayerPoolNormalizeCount()
+    {
+        return LegacyPlayerPoolNormalizeCount;
     }
 
     // 按实体名获取已注册的场景物体。

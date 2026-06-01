@@ -1,0 +1,52 @@
+[
+  {
+    "name": "cameraMain+playerField+camBg+hotVector",
+    "code": "using UnityEngine;\npublic partial class GameFlowManagerMain\n{\n    // Camera/UI：缓存相机与界面状态，驱动引导文字和视角。\n    Camera mainCam;\n    void Start() { mainCam = mainCam; mainCam.backgroundColor = Color.black; mainCam.backgroundColor = Color.white; }\n}",
+    "extraFiles": {
+      "GameFlowManagerMain.Input.cs": "using UnityEngine;\npublic partial class GameFlowManagerMain\n{\n    // 玩家移动：主角对象引用，供交互、距离判断与相机跟随使用。\n    GameObject player;\n    void MovePlayer() { var __hpPos1 = player.transform.position; __hpPos1.x += 1f; player.transform.position = __hpPos1; }\n}"
+    },
+    "changed": true,
+    "fixes": [
+      "main:CameraMainRewrite x3",
+      "GameFlowManagerMain.Input.cs:HotVectorAlloc x1",
+      "main:SkeletonMemberComments x1",
+      "GameFlowManagerMain.Input.cs:SkeletonMemberComments x1"
+    ]
+  },
+  {
+    "name": "playerAliasAcrossPartials+cjk+setscale",
+    "code": "using UnityEngine;\npublic partial class GameFlowManagerMain\n{\n    // 玩家移动：主角对象引用，供交互、距离判断与相机跟随使用。\n    GameObject player;\n    void Start() { player = GFM_Player.Instance.Go; AddResource(\"Resource\", 5); SetScale(player, 1f); }\n}",
+    "extraFiles": {
+      "GameFlowManagerMain.Flow.cs": "using UnityEngine;\npublic partial class GameFlowManagerMain\n{\n    void Move() { player.transform.position = Vector3.zero; player.name = \"p\"; GameObject.Find(\"Entity\"); }\n}"
+    },
+    "changed": true,
+    "fixes": [
+      "partials:PlayerAliasMemberAccess x2",
+      "main:NonAsciiKey x1",
+      "main:SetScaleNormalize x1",
+      "GameFlowManagerMain.Flow.cs:NonAsciiKey x1",
+      "main:SkeletonMemberComments x1"
+    ]
+  },
+  {
+    "name": "missingFlags+comments+GameFlowManagerMainFilter",
+    "code": "using UnityEngine;\npublic partial class GameFlowManagerMain\n{\n    bool GoldUIDone = false; // 交互标记：补齐被阶段逻辑引用的完成状态。\n    void Update() { WaterResourceDone = true; if (GoldUIDone) { } }\n}",
+    "extraFiles": {
+      "GameFlowManagerMain.State.cs": "using UnityEngine;\npublic partial class GameFlowManagerMain\n{\n    // 对象引用：绑定场景实体，供阶段 gate、交互和展示逻辑使用。\n    GameObject WaterResource;\n    // 交互标记：记录玩家或自动流程已经完成对应阶段动作。\n    bool WaterResourceDone = false;\n    // Branch gate: documents the generated multi-part condition before review.\n    void Tick() { if (a == 1 && b == 2 && c == 3) { DoThing(); } }\n}",
+      "OtherHelper.cs": "using UnityEngine;\npublic class OtherHelper { void X() { } }"
+    },
+    "changed": true,
+    "fixes": [
+      "main:MissingInteractionFlags x1",
+      "GameFlowManagerMain.State.cs:ComplexBranchComments x1",
+      "GameFlowManagerMain.State.cs:SkeletonMemberComments x2"
+    ]
+  },
+  {
+    "name": "noop",
+    "code": "using UnityEngine;\npublic partial class GameFlowManagerMain { void Update() { } }",
+    "extraFiles": {},
+    "changed": false,
+    "fixes": []
+  }
+]

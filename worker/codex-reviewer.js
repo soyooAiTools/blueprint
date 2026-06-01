@@ -24,6 +24,12 @@ const CODEX_TIMEOUT_MS = parseInt(process.env.CODEX_REVIEW_TIMEOUT_MS) || 4 * 60
 const CODEX_MODEL = process.env.CODEX_REVIEW_MODEL || process.env.CODEX_CODE_MODEL || 'gpt-5.5';
 const CODEX_REASONING_EFFORT = process.env.CODEX_REVIEW_REASONING_EFFORT || process.env.CODEX_REASONING_EFFORT || 'high';
 
+// How long to honour a *negative* preflight result before re-checking.
+// A positive result is cached for the process lifetime (auth/sandbox stable = stable).
+// A negative result from a transient error (network blip, token mid-refresh) must
+// not block the worker permanently — re-check after this TTL.
+const PREFLIGHT_NEGATIVE_TTL_MS = parseInt(process.env.CODEX_PREFLIGHT_NEGATIVE_TTL_MS) || 5 * 60 * 1000; // 5 minutes
+
 // ============ Preflight Health Check ============
 let _codexPreflightResult = null; // null = not checked, true = ok, false = broken
 let _codexPreflightReason = null; // human-readable failure reason ('quota_exceeded' / 'auth' / etc.)
@@ -33,11 +39,37 @@ function getPreflightReason() { return _codexPreflightReason; }
 function getPreflightCheckedAt() { return _codexPreflightCheckedAt; }
 
 /**
- * One-time health check: verify codex exec can run (sandbox + auth).
- * Result is cached so it only runs once per process lifetime.
+ * Health check: verify codex exec can run (sandbox + auth).
+ *
+ * Caching policy:
+ *   - true  → cached for the entire process lifetime (a healthy environment stays healthy)
+ *   - false → cached only for PREFLIGHT_NEGATIVE_TTL_MS so transient errors (network blip,
+ *             token mid-refresh, expired id_token) don't permanently block the worker.
+ *             After the TTL the check is re-run transparently.
  */
 async function preflightCheck() {
-  if (_codexPreflightResult !== null) return _codexPreflightResult;
+  // Positive result: process-lifetime cache — environment is stable once confirmed OK.
+  if (_codexPreflightResult === true) return true;
+
+  // Negative result: honour the cache only within the TTL window.
+  if (_codexPreflightResult === false && _codexPreflightCheckedAt !== null) {
+    const ageMs = Date.now() - _codexPreflightCheckedAt;
+    if (ageMs < PREFLIGHT_NEGATIVE_TTL_MS) {
+      // Still within TTL — return cached failure without re-running.
+      return false;
+    }
+    // TTL expired — reset so the full check runs again below.
+    console.log(
+      '[codex-reviewer] Preflight negative-result TTL expired (' +
+        Math.round(ageMs / 1000) + 's >= ' + Math.round(PREFLIGHT_NEGATIVE_TTL_MS / 1000) +
+        's), re-checking...'
+    );
+    _codexPreflightResult = null;
+    _codexPreflightReason = null;
+    _codexPreflightCheckedAt = null;
+  }
+
+  // _codexPreflightResult is now null — run the actual check.
 
   // Check auth: API key OR ChatGPT auth file (~/.codex/auth.json)
   var hasChatGPTAuth = false;

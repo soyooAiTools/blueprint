@@ -57,6 +57,9 @@ public class GFM_EconomyManager : MonoBehaviour
     private string[] _invKeys = new string[32];
     private int[] _invVals = new int[32];
     private int _invCount = 0;
+    private string[] _collectedKeys = new string[32];
+    private int[] _collectedVals = new int[32];
+    private int _collectedCount = 0;
 
     // 【金币】老代码专门维护的独立字段，保留兼容；也可通过 GetResource(GFM_ResourceIds.Gold) 获取。
     public int Gold { get { return _gold; } }
@@ -107,6 +110,13 @@ public class GFM_EconomyManager : MonoBehaviour
         return -1;
     }
 
+    private int _CollectedIndex(string id)
+    {
+        id = NormalizeResourceId(id);
+        for (int i = 0; i < _collectedCount; i++) { if (_collectedKeys[i] == id) return i; }
+        return -1;
+    }
+
     // 【资源 ID 归一】避免 "gold"/"Gold" 在库存里分裂成两份事实来源。
     private string NormalizeResourceId(string id)
     {
@@ -130,6 +140,9 @@ public class GFM_EconomyManager : MonoBehaviour
         int idx = _InvIndex(id);
         if (idx < 0) { _invKeys[_invCount] = id; _invVals[_invCount] = 0; idx = _invCount; _invCount++; }
         _invVals[idx] += amount;
+        int collectedIdx = _CollectedIndex(id);
+        if (collectedIdx < 0) { _collectedKeys[_collectedCount] = id; _collectedVals[_collectedCount] = 0; collectedIdx = _collectedCount; _collectedCount++; }
+        _collectedVals[collectedIdx] += amount;
         if (id == GFM_ResourceIds.Gold) _gold = _invVals[idx]; // 同步 _gold 缓存
         if (GFM_UIManager.Instance != null) GFM_UIManager.Instance.UpdateResourceUI();
     }
@@ -140,6 +153,14 @@ public class GFM_EconomyManager : MonoBehaviour
         id = NormalizeResourceId(id);
         int idx = _InvIndex(id);
         return idx < 0 ? 0 : _invVals[idx];
+    }
+
+    // 【累计采集量】resource_collected gate 使用累计值,不受后续 spend/deposit 影响。
+    public int GetCollectedResource(string id)
+    {
+        id = NormalizeResourceId(id);
+        int idx = _CollectedIndex(id);
+        return idx < 0 ? 0 : _collectedVals[idx];
     }
 
     // 【尝试消费】余量足够则扣减并返回 true；不足返回 false。

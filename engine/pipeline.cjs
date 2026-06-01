@@ -67,6 +67,21 @@ function PipelineContext(task, checkpoint, workerConfig) {
   if (checkpoint && checkpoint.blueprint && typeof checkpoint.blueprint === 'object') {
     this.blueprint = JSON.parse(JSON.stringify(checkpoint.blueprint));
   }
+
+  // Backfill blueprint.sourceHtmlPath from top-level task fields so that
+  // orchestrators which set the field outside blueprint_json are honoured.
+  // This must run BEFORE the ctx.sourceHtmlPath shortcut read below so that
+  // source-html-bind.assertBefore (and any direct ctx.sourceHtmlPath consumer)
+  // sees the value without needing an additional task-field probe.
+  if (this.blueprint && !this.blueprint.sourceHtmlPath) {
+    var topLevelHtmlPath = task.sourceHtmlPath || task.source_html_path || null;
+    if (topLevelHtmlPath) {
+      this.blueprint.sourceHtmlPath = topLevelHtmlPath;
+      var topLevelSha256 = task.sourceHtmlSha256 || task.source_html_sha256 || null;
+      if (topLevelSha256) this.blueprint.sourceHtmlSha256 = topLevelSha256;
+    }
+  }
+
   this.sourceHtmlPath = null;
   this.sourceHtmlSha256 = null;
   if (this.blueprint && this.blueprint.sourceHtmlPath) {
@@ -461,6 +476,8 @@ Pipeline.prototype.run = function(ctx, onProgress) {
 // ============ Real Stage Implementations ============
 
 var sourceHtmlBindStage = require('./stages/source-html-bind.cjs');
+var fidelityContractSynthesizeStage = require('./stages/fidelity-contract-synthesize.cjs');
+var sourceMeshExtractStage = require('./stages/source-mesh-extract.cjs'); // Wave 3 Step 2: flag-gated default-off (OPTION_C_SOURCE_FAITHFUL_BUILD)
 var cloneStage = require('./stages/clone.cjs');
 var specExtractStage = require('./stages/spec-extract.cjs');
 var specValidateStage = require('./stages/spec-validate.cjs');
@@ -469,6 +486,7 @@ var assemblyPlanStage = require('./stages/assembly-plan.cjs');
 var assemblyComplexityGateStage = require('./stages/assembly-complexity-gate.cjs');
 var codegenStage = require('./stages/codegen.cjs');
 var methodCheckStage = require('./stages/method-check.cjs');
+var staticPreReviewStage = require('./stages/static-pre-review.cjs'); // Wave 2 #3: flag-gated default-off
 var reviewStage = require('./stages/review.cjs');
 var fidelityContractProduceStage = require('./stages/fidelity-contract-produce.cjs');
 var compileStage = require('./stages/compile.cjs');
@@ -483,6 +501,8 @@ var uploadStage = require('./stages/upload.cjs');
 function createLunaPipeline(options) {
   return new Pipeline([
     sourceHtmlBindStage,
+    fidelityContractSynthesizeStage,
+    sourceMeshExtractStage,
     cloneStage,
     specExtractStage,
     specValidateStage,
@@ -491,6 +511,7 @@ function createLunaPipeline(options) {
     assemblyComplexityGateStage,
     codegenStage,
     methodCheckStage,
+    staticPreReviewStage,
     reviewStage,
     fidelityContractProduceStage,
     compileStage,
@@ -520,6 +541,7 @@ module.exports = {
   createCocosPipeline: createCocosPipeline,
   stages: {
     sourceHtmlBind: sourceHtmlBindStage,
+    sourceMeshExtract: sourceMeshExtractStage,
     clone: cloneStage,
     specExtract: specExtractStage,
     specValidate: specValidateStage,
@@ -527,6 +549,7 @@ module.exports = {
     assemblyPlan: assemblyPlanStage,
     codegen: codegenStage,
     methodCheck: methodCheckStage,
+    staticPreReview: staticPreReviewStage,
     review: reviewStage,
     fidelityContractProduce: fidelityContractProduceStage,
     compile: compileStage,

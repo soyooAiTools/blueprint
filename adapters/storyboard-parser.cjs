@@ -96,6 +96,51 @@ function readImagePartFromBuffer(buffer, mimeType) {
   return { inlineData: { data: buffer.toString('base64'), mimeType: mimeType || 'image/jpeg' } };
 }
 
+// Rasterize a PDF to ordered JPEG page parts via pdftoppm. Each page becomes
+// one inline image_url part Doubao can consume. Resolution is capped at 1600px
+// long edge to balance quality vs payload size.
+async function rasterizePdfToImageParts(pdfPath) {
+  const { execFileSync } = require('child_process');
+  const which = (() => { try { return execFileSync('which', ['pdftoppm'], { encoding: 'utf8' }).trim(); } catch (_) { return ''; } })();
+  if (!which) throw new Error('pdftoppm not found in PATH (yum install poppler-utils)');
+
+  const stageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-pdf-'));
+  const stem = path.join(stageDir, 'page');
+  try {
+    execFileSync('pdftoppm', ['-jpeg', '-jpegopt', 'quality=85', '-r', '120', pdfPath, stem], { stdio: ['ignore', 'inherit', 'inherit'], timeout: 120000 });
+  } catch (e) {
+    try { fs.rmSync(stageDir, { recursive: true, force: true }); } catch (_) {}
+    throw new Error('pdftoppm failed: ' + e.message);
+  }
+  const files = fs.readdirSync(stageDir)
+    .filter(f => /^page-\d+\.jpg$/i.test(f))
+    .sort((a, b) => {
+      const na = parseInt(a.match(/(\d+)/)[1], 10);
+      const nb = parseInt(b.match(/(\d+)/)[1], 10);
+      return na - nb;
+    });
+  if (!files.length) {
+    try { fs.rmSync(stageDir, { recursive: true, force: true }); } catch (_) {}
+    throw new Error('pdftoppm produced no JPEG pages');
+  }
+
+  let sharp = null;
+  try { sharp = require('sharp'); } catch (_) {}
+  const parts = [];
+  for (const f of files) {
+    const fp = path.join(stageDir, f);
+    let buf = fs.readFileSync(fp);
+    if (sharp) {
+      try {
+        buf = await sharp(buf).resize(1600, 1600, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer();
+      } catch (e) { /* keep original on resize failure */ }
+    }
+    parts.push({ inlineData: { data: buf.toString('base64'), mimeType: 'image/jpeg' } });
+  }
+  try { fs.rmSync(stageDir, { recursive: true, force: true }); } catch (_) {}
+  return parts;
+}
+
 // === Core parse function ===
 
 async function parseScript(text, opts = {}) {
@@ -118,25 +163,25 @@ async function parseScript(text, opts = {}) {
   let docText = '';
   let pdfPart = null;
   let pdfOriginalPath = null; // Keep original PDF path for Claude Opus 4.6
+  // PDF→images parts (new path 2026-05-31). When docPath is a PDF, we rasterize
+  // each page to JPEG via pdftoppm and inject as inline image_url parts on the
+  // Doubao request. Reason: (a) doubao-adapter has no Files API impl
+  // (ai.files.upload is undefined → previous path always threw "Cannot read
+  // properties of undefined"), (b) Doubao's chat completion API rejected
+  // `messages.content.type=file` even when upload worked, (c) inline image_url
+  // base64 is the supported visual path and runs in ~5s/frame. The stale
+  // comment about "Doubao inlineData issues" / Phase 0 Files API hop is
+  // therefore obsolete; we skip it for these PDF-derived parts.
+  let pdfImageParts = [];
   if (docPath) {
     const docExt = path.extname(docPath).toLowerCase();
     if (docExt === '.pdf') {
-      // PDF: save path for Claude Opus 4.6, then try Doubao Files API upload (non-blocking)
       pdfOriginalPath = docPath;
       try {
-        console.log(`[StoryboardParser] Uploading PDF via Doubao Files API...`);
-        const uploaded = await ai.files.upload({ file: docPath, config: { mimeType: 'application/pdf' } });
-        let file = uploaded;
-        while (file.state === 'PROCESSING') {
-          await new Promise(r => setTimeout(r, 2000));
-          file = await ai.files.get({ name: file.name });
-        }
-        if (file.state !== 'ACTIVE') throw new Error(`PDF upload state: ${file.state}`);
-        pdfPart = { fileData: { fileUri: file.uri, mimeType: 'application/pdf' } };
-        console.log(`[StoryboardParser] PDF uploaded to Doubao: ${file.uri}`);
-      } catch(doubaoUploadErr) {
-        console.warn(`[StoryboardParser] Doubao PDF upload failed (will use Claude Opus 4.6 directly): ${doubaoUploadErr.message?.substring(0, 100)}`);
-        // pdfPart stays null — Doubao phases will be skipped if no pdfPart, but Claude Opus 4.6 uses pdfOriginalPath
+        pdfImageParts = await rasterizePdfToImageParts(docPath);
+        console.log(`[StoryboardParser] PDF rasterized to ${pdfImageParts.length} JPEG pages via pdftoppm`);
+      } catch(rasterErr) {
+        console.warn(`[StoryboardParser] PDF rasterize failed: ${rasterErr.message?.substring(0, 200)}`);
       }
     } else if (['.png', '.jpg', '.jpeg', '.webp'].includes(docExt)) {
       // Image: send as inline data to Doubao for visual understanding
@@ -220,7 +265,12 @@ async function parseScript(text, opts = {}) {
 9. **场景一致性同等重要**：同一场景内的每帧 prompt 必须重复 sceneSheet 中的场景描述，地面材质、建筑造型、光照方向不得帧间突变
 ${style ? `10. 额外风格要求：${style}` : ''}
 
-只输出 JSON 数组，不要其他内容。`;
+## JSON 严格要求(违反必导致解析失败)
+- 任何字符串值内部不允许出现裸的 ASCII 双引号字符。需要引用文字、按钮名、UI 文案时,只能用中文引号 「」 或 『』 或单引号 ',或写成转义形式 \\"。
+- 例: 错 "ui": "中央"VICTORY"文字"  →  对 "ui": "中央「VICTORY」文字" 或 "ui": "中央\\"VICTORY\\"文字"。
+- 字符串值内禁止裸换行(必须 \\n 转义)、禁止反斜杠 \\\\ 不成对。
+
+只输出 JSON 数组,不要其他内容。`;
 
   // Build multimodal parts
   const parts = [];
@@ -260,17 +310,18 @@ ${style ? `10. 额外风格要求：${style}` : ''}
     }
   }
 
-  if (pdfPart) {
-    parts.push(pdfPart);
+  if (pdfImageParts.length > 0) {
+    // Push each PDF page as inline image_url part so Doubao receives actual visual content.
+    for (const imgPart of pdfImageParts) parts.push(imgPart);
     const analysisContext = imageAnalysis ? `\n\n## 参考图片 AI 分析结果\n${imageAnalysis}\n\n请参考以上图片分析结果，在生成分镜时融入图片中的风格、场景元素和 UI 设计。` : '';
     const extraText = text ? `\n\n补充说明：${text}` : '';
-    parts.push({ text: `请解析这份 PDF 文档的内容，根据其中的策划文案/需求设计试玩广告分镜板。${extraText}${analysisContext}` });
+    parts.push({ text: `上面是一份策划分镜 PDF 拆成的 ${pdfImageParts.length} 张顺序页面截图。请按页面顺序解析画面内容(角色/场景/UI/交互),并根据其中的策划文案设计试玩广告分镜板。${extraText}${analysisContext}` });
   } else if (pdfOriginalPath) {
-    // Doubao upload failed but we have the PDF file — Claude Opus 4.6 will handle it via file_id
+    // PDF rasterize failed entirely — fall back to text-only prompt (degraded; Doubao will hallucinate).
     const analysisContext = imageAnalysis ? `\n\n## 参考图片 AI 分析结果\n${imageAnalysis}` : '';
     const extraText = text ? `\n\n补充说明：${text}` : '';
     parts.push({ text: `请解析 PDF 文档内容，设计试玩广告分镜板。${extraText}${analysisContext}` });
-    console.log('[StoryboardParser] PDF available for Claude Opus 4.6 only (Doubao upload failed)');
+    console.log('[StoryboardParser] WARN: PDF rasterize unavailable, sending text-only prompt (no visual input).');
   } else if (fullText) {
     const analysisContext = imageAnalysis ? `\n\n## 参考图片 AI 分析结果\n${imageAnalysis}\n\n请参考以上图片分析结果，在生成分镜时融入图片中的风格、场景元素和 UI 设计。` : '';
     parts.push({ text: `文案/需求：\n${fullText}${analysisContext}` });
@@ -425,9 +476,10 @@ ${style ? `10. 额外风格要求：${style}` : ''}
 
   // Helper: try calling Doubao with given config, 2 attempts
   async function tryDoubao(model, partsToUse, thinkingBudget, label) {
-    // Doubao via relay — no proxy pre-flight needed
-
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    // Single-attempt per phase (2026-05-31): retrying identical payload to
+    // Doubao when it's slow just compounds wall time. The resize fallback
+    // (Phase 2) IS the meaningful retry — different (smaller) inputs.
+    for (let attempt = 1; attempt <= 1; attempt++) {
       try {
         console.log(`[StoryboardParser] ${label} (attempt ${attempt}/2)...`);
         const cfg = {
@@ -438,8 +490,12 @@ ${style ? `10. 额外风格要求：${style}` : ''}
         if (thinkingBudget > 0) {
           cfg.thinkingConfig = { thinkingBudget };
         }
-        // Add timeout to prevent hanging on slow/unresponsive models
-        const timeoutMs = thinkingBudget > 0 ? 120000 : 90000;
+        // Timeout cap. PDF→images path can push 5-15 inline JPEG pages (~100-500KB
+        // base64 each); Doubao reasoning observed at 55-235s wall with system
+        // prompt 2.8K chars + 5 images + max_tokens 16K-65K (2026-05-31 bench).
+        // Service has wide variance — peak 230s+, median ~130s. 360s/300s gives
+        // ~50% safety margin without flushing huge wall time on real outages.
+        const timeoutMs = thinkingBudget > 0 ? 360000 : 300000;
         const result = await Promise.race([
           ai.models.generateContent({
             model,
@@ -487,8 +543,11 @@ ${style ? `10. 额外风格要求：${style}` : ''}
     return resized;
   }
 
-  // Phase 0: Pre-process all images — convert to JPEG, resize, then upload via Files API
-  // Doubao Seed 2.0 Pro has issues with inlineData images, but works with Files API references
+  // Phase 0: Pre-process all images — convert to JPEG + resize. Files API hop
+  // removed 2026-05-31: doubao-adapter has no Files API impl, and Doubao seed
+  // 2-0-pro now accepts inline image_url base64 directly (validated by direct
+  // curl test). If sharp is available we still normalize to JPEG ≤2048px to
+  // cap payload size; if not, we pass the original inline part through.
   const imgCount0 = parts.filter(p => p.inlineData && p.inlineData.data).length;
   console.log('[StoryboardParser] Phase0: ' + parts.length + ' parts total, ' + imgCount0 + ' with inlineData');
   let sharp0;
@@ -496,31 +555,20 @@ ${style ? `10. 额外风格要求：${style}` : ''}
   for (let i = 0; i < parts.length; i++) {
     const p = parts[i];
     if (p.inlineData && p.inlineData.data) {
+      if (!sharp0) continue;
       try {
-        let buf = Buffer.from(p.inlineData.data, 'base64');
-        let mimeType = 'image/jpeg';
-        // Pre-process with sharp if available
-        if (sharp0) {
-          const meta = await sharp0(buf).metadata();
-          const out = await sharp0(buf)
-            .resize(2048, 2048, { fit: 'inside', withoutEnlargement: true })
-            .flatten({ background: { r: 255, g: 255, b: 255 } })
-            .jpeg({ quality: 85 })
-            .toBuffer();
-          console.log('[StoryboardParser] Phase0 pre-process: ' + meta.format + ' ' + meta.width + 'x' + meta.height + ' (' + buf.length + 'B) -> JPEG (' + out.length + 'B)');
-          buf = out;
-        }
-        // Upload via Files API to avoid inlineData issues with Doubao
-        const tmpPath = '/tmp/phase0_img_' + i + '_' + Date.now() + '.jpg';
-        fs.writeFileSync(tmpPath, buf);
-        const uploaded = await ai.files.upload({ file: tmpPath, config: { mimeType } });
-        try { fs.unlinkSync(tmpPath); } catch(e) {}
-        parts[i] = { fileData: { fileUri: uploaded.uri, mimeType } };
-        console.log('[StoryboardParser] Phase0 uploaded image ' + i + ' via Files API: ' + uploaded.uri);
+        const buf = Buffer.from(p.inlineData.data, 'base64');
+        const meta = await sharp0(buf).metadata();
+        const out = await sharp0(buf)
+          .resize(2048, 2048, { fit: 'inside', withoutEnlargement: true })
+          .flatten({ background: { r: 255, g: 255, b: 255 } })
+          .jpeg({ quality: 85 })
+          .toBuffer();
+        console.log('[StoryboardParser] Phase0 normalize: ' + meta.format + ' ' + meta.width + 'x' + meta.height + ' (' + buf.length + 'B) -> JPEG (' + out.length + 'B)');
+        parts[i] = { inlineData: { data: out.toString('base64'), mimeType: 'image/jpeg' } };
       } catch(e0) {
-        console.log('[StoryboardParser] Phase0 pre-process/upload FAILED, removing image from parts: ' + e0.message);
-        parts.splice(i, 1);
-        i--;
+        console.log('[StoryboardParser] Phase0 normalize FAILED, keeping original inline image: ' + e0.message);
+        // KEEP the original inline part — do NOT strip. Doubao accepts inline base64.
       }
     }
   }
@@ -572,6 +620,14 @@ ${style ? `10. 额外风格要求：${style}` : ''}
   try {
     parsed = JSON.parse(jsonStr);
   } catch(jsonErr) {
+    // Diagnostic snapshot (2026-05-31): when Doubao returns malformed JSON we
+    // want the raw text on disk for later repair-rule tuning. Best-effort,
+    // ignored if /tmp not writable.
+    try {
+      const snapPath = '/tmp/storyboard-parser-bad-json-' + Date.now() + '.txt';
+      fs.writeFileSync(snapPath, '=== rawText (' + rawText.length + ' chars) ===\n' + rawText + '\n\n=== extracted jsonStr (' + jsonStr.length + ' chars) ===\n' + jsonStr);
+      console.error('[StoryboardParser] Raw bad JSON snapshot: ' + snapPath);
+    } catch(_) {}
     console.error(`[StoryboardParser] JSON parse failed, attempting repair. Error: ${jsonErr.message.substring(0, 100)}`);
     let repaired = jsonStr;
     // Fix 1: Remove non-JSON content between objects

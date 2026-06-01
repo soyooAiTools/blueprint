@@ -35,7 +35,7 @@ function isVisualInfraFailureReason(reason) {
  */
 function evaluateVisualCheckShortCircuit(phaseLog, consoleErrors, frameCount, env) {
   env = env || process.env;
-  var enabled = String(env.BLUEPRINT_VISUAL_CHECK_SKIP_VLM || '').toLowerCase() !== 'off';
+  var enabled = /^(1|true|on|yes)$/i.test(String(env.BLUEPRINT_VISUAL_CHECK_SKIP_VLM || ''));
   var distinctSet = Object.create(null);
   (phaseLog || []).forEach(function(p) {
     if (p && p.phase) distinctSet[p.phase] = true;
@@ -49,7 +49,7 @@ function evaluateVisualCheckShortCircuit(phaseLog, consoleErrors, frameCount, en
 
   var ok = enabled && phaseLogLen >= 3 && distinct >= 2 && critical === 0 && fc >= 2;
   var reason;
-  if (!enabled) reason = 'short-circuit disabled (BLUEPRINT_VISUAL_CHECK_SKIP_VLM=off)';
+  if (!enabled) reason = 'short-circuit disabled (set BLUEPRINT_VISUAL_CHECK_SKIP_VLM=on to opt in)';
   else if (phaseLogLen < 3) reason = 'phaseLog too short (' + phaseLogLen + ' < 3)';
   else if (distinct < 2) reason = 'too few distinct phases (' + distinct + ' < 2) — engine may be stuck';
   else if (critical > 0) reason = critical + ' critical console error(s)';
@@ -342,7 +342,9 @@ module.exports = {
           // 2026-05-12 P2: phaseLog 短路 VLM。
           // 见 evaluateVisualCheckShortCircuit (本文件顶部) — 全部条件命中才短路:
           // phaseLog>=3 / 不同 phase>=2 / 无 critical error / frame>=2。
-          // 关闭开关: BLUEPRINT_VISUAL_CHECK_SKIP_VLM=off。
+          // 安全默认:不再默认跳过 VLM。只有显式设置
+          // BLUEPRINT_VISUAL_CHECK_SKIP_VLM=on 时才允许短路,避免"流程在跑"
+          // 被误读成"视觉复刻正确"。
           var _shortCircuit = evaluateVisualCheckShortCircuit(phaseLog, result.consoleErrors, frameCount);
 
           var _visionPromise;

@@ -1,0 +1,15 @@
+{
+  "patterns": [
+    { "match": "^(pick|pickup|grab|collect)(Ice|Pop|Coin|Corn|up)?$", "clip": "AudioClips.PickupSparkle" },
+    { "match": "^drop$", "clip": "AudioClips.Place" },
+    { "match": "^(machine|cannon)$", "clip": "AudioClips.Machine" },
+    { "match": "^growth$", "clip": "AudioClips.Growth" },
+    { "match": "^(unlock|sell|upgrade)$", "clip": "AudioClips.Unlock" },
+    { "match": "^(alarm|homeDmg|warn)$", "clip": "AudioClips.Alarm" },
+    { "match": "^(hit|gunfire|shoot)$", "clip": "AudioClips.Hit" },
+    { "match": "^(kill|alienKill|explode|blast|boom)$", "clip": "AudioClips.Explosion" },
+    { "match": "^tick$", "clip": "AudioClips.Tick" },
+    { "match": "^win$", "clip": "AudioClips.Victory" },
+    { "match": "^boss$", "clip": "AudioClips.BossRoar" }
+  ]
+}

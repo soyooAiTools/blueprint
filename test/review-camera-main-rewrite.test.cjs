@@ -138,12 +138,17 @@ function rewriteCameraMain(code) {
 })();
 
 // 验证 review.cjs 的 rewriteCameraMainToMainCam 函数定义存在 + 接到 repair
+// Wave 2 (2026-05-31): 编排从 review.cjs 抽到 engine/lib/static-rule-prerepair.cjs。
+// fn body 仍在 review.cjs 并经 PREREPAIR_FNS 注入;main+extras 调用合并为 lib 的
+// SHARED_BUNDLE 单一条目(同时覆盖 main pass 和 partial pass)。
 (function testWired() {
   var src = fs.readFileSync(path.join(__dirname, '..', 'engine', 'stages', 'review.cjs'), 'utf8');
   assert.ok(/function rewriteCameraMainToMainCam/.test(src), 'function present in review.cjs');
-  assert.ok(/main:CameraMainRewrite/.test(src), 'wired into main repair');
-  assert.ok(/CameraMainRewrite\s*x/.test(src), 'wired into extras repair');
-  console.log('  ✓ wired: function + main + extras repair calls');
+  assert.ok(/rewriteCameraMainToMainCam: rewriteCameraMainToMainCam/.test(src), 'fn injected via PREREPAIR_FNS');
+  var bundle = require('../engine/lib/static-rule-prerepair.cjs').SHARED_BUNDLE;
+  assert.ok(bundle.some(function(e) { return e[0] === 'rewriteCameraMainToMainCam' && e[1] === 'CameraMainRewrite'; }),
+    'wired into SHARED_BUNDLE (covers main + extras)');
+  console.log('  ✓ wired: function (review.cjs) + PREREPAIR_FNS + SHARED_BUNDLE (lib)');
 })();
 
 console.log('\nreview Camera.main rewrite: 10 cases passed');

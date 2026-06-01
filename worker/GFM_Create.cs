@@ -150,4 +150,83 @@ public static class GFM_Create
             else if (_baseMat != null) { r.material = new Material(_baseMat); r.material.color = color; }
         }
     }
+
+    // ============================================================
+    // Source-faithful composite mesh builders (Option C, Wave 3 Step 3).
+    // Emitted by adapters/skeleton-generator.cjs BuildSourceFaithfulMeshes() when
+    // OPTION_C_SOURCE_FAITHFUL_BUILD is on and ctx.blueprint.sourceMeshOps is present.
+    // Called at Start()/scene-init (NOT in the hot Update path), so new Vector3 /
+    // new GameObject allocations are acceptable here (see incident doc R4).
+    // ============================================================
+
+    // Add one composite primitive part under `root`, with local transform + material
+    // (diffuse / emissive / metallic / smoothness / opacity). Returns the part.
+    public static GameObject AddCompositePart(GameObject root, PrimitiveType type,
+        Vector3 localPos, Vector3 localEuler, Vector3 scale,
+        Color color, Color emissive, float emissiveIntensity,
+        float metalness, float roughness, float opacity)
+    {
+        var part = GameObject.CreatePrimitive(type);
+        // Visual-only: drop the auto-added collider so composites don't disturb physics.
+        var col = (Collider)part.GetComponent(typeof(Collider));
+        if (col != null) UnityEngine.Object.Destroy(col);
+        if (root != null) part.transform.parent = root.transform;
+        part.transform.localPosition = localPos;
+        part.transform.localEulerAngles = localEuler;
+        part.transform.localScale = scale;
+
+        var r = (Renderer)part.GetComponent(typeof(Renderer));
+        if (r != null)
+        {
+            Material mat = _baseMat != null ? new Material(_baseMat) : new Material(Shader.Find("Standard"));
+            Color c = color; c.a = opacity;
+            // Luna renders with URP/Lit, whose base color is _BaseColor — NOT Material.color
+            // (_Color), which URP ignores, leaving composites white. Set _BaseColor (URP) plus
+            // _Color/.color as a legacy fallback. (Confirmed against the build's own override
+            // path which setParameter('_BaseColor','_Color'); diagnosed via headless render
+            // probe 2026-06-01: URP/Lit "doesn't support '_ALPHABLEND_ON'" + white meshes.)
+            mat.color = c;
+            mat.SetColor("_BaseColor", c);
+            mat.SetColor("_Color", c);
+            if (emissiveIntensity > 0f)
+            {
+                mat.EnableKeyword("_EMISSION");
+                mat.SetColor("_EmissionColor", new Color(emissive.r * emissiveIntensity, emissive.g * emissiveIntensity, emissive.b * emissiveIntensity, 1f));
+            }
+            mat.SetFloat("_Metallic", metalness);
+            mat.SetFloat("_Smoothness", 1f - roughness);  // URP/Lit smoothness
+            mat.SetFloat("_Glossiness", 1f - roughness);  // legacy fallback
+            // Do NOT set Standard-shader transparency keywords (_Mode/_SrcBlend/_ALPHABLEND_ON):
+            // URP/Lit rejects them and spams "doesn't support '_ALPHABLEND_ON'" errors. Alpha
+            // rides in _BaseColor; full URP transparency (_Surface=1 + _SURFACE_TYPE_TRANSPARENT)
+            // is deferred — opaque rendering is acceptable for v0.1 (incident doc R7).
+            r.material = mat;
+        }
+        return part;
+    }
+
+    // Approximate a torus as a ring of `segments` small cubes (Luna has no Torus
+    // primitive; see incident doc R5). Parts hang under a sub-anchor so the ring's
+    // center/orientation is a single local transform on `root`.
+    public static GameObject AddTorusRing(GameObject root, Vector3 center, Vector3 euler,
+        float radius, float tube, int segments, Color color, float metalness)
+    {
+        if (segments < 3) segments = 3;
+        var anchor = new GameObject("__TorusRing");
+        if (root != null) anchor.transform.parent = root.transform;
+        anchor.transform.localPosition = center;
+        anchor.transform.localEulerAngles = euler;
+        float step = 360f / (float)segments;
+        for (int i = 0; i < segments; i++)
+        {
+            float a = step * (float)i * Mathf.Deg2Rad;
+            Vector3 p = new Vector3(Mathf.Cos(a) * radius, 0f, Mathf.Sin(a) * radius);
+            var seg = AddCompositePart(anchor, PrimitiveType.Cube, p,
+                new Vector3(0f, -step * (float)i, 0f),
+                new Vector3(tube * 2f, tube * 2f, tube * 2f),
+                color, Color.black, 0f, metalness, 0.4f, 1f);
+            seg.name = "__TorusSeg_" + i.ToString();
+        }
+        return anchor;
+    }
 }

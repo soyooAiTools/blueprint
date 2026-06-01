@@ -49,6 +49,119 @@ module.exports = {
     return resolveCodegenSchema(ctx)
       .then(function(schema) {
         ctx.blueprint.gameSchema = schema;
+        // Deterministic safety nets (2026-05-31): fix the LLM mistakes that
+        // most reliably trip fillSkeleton's validateSemantics. Idempotent.
+        try {
+          // SAFETY NET #2: resource_collected with non-existent resource.
+          // gpt-5.5 / opus-4-8 sometimes set trigger.resource = an ENTITY name
+          // (e.g. IcePile, RocketDebris) where the validator wants a name in
+          // schema.resources[]. Convert to entity_state_reached when the
+          // "resource" actually matches a schema entity name.
+          try {
+            var _entNamesAll = {};
+            for (var _eEi = 0; _eEi < (schema.entities || []).length; _eEi++) {
+              var _eEn = schema.entities[_eEi] && schema.entities[_eEi].name;
+              if (_eEn) _entNamesAll[_eEn] = true;
+            }
+            var _resourceNames = {};
+            for (var _eRi = 0; _eRi < (schema.resources || []).length; _eRi++) {
+              var _eRn = schema.resources[_eRi] && schema.resources[_eRi].name;
+              if (_eRn) _resourceNames[_eRn] = true;
+            }
+            var _GLOBAL_COUNTER_RE = /^(Gold|Score|Coin|Currency|Point|Cash)s?$/i;
+            var _walkAndFixResourceRefs = function(trig, phaseId) {
+              if (!trig || typeof trig !== 'object') return;
+              if (trig.type === 'resource_collected' && trig.resource) {
+                var rn = String(trig.resource).trim();
+                if (!_resourceNames[rn] && !_GLOBAL_COUNTER_RE.test(rn)) {
+                  if (_entNamesAll[rn]) {
+                    trig.type = 'entity_state_reached';
+                    trig.entity = rn;
+                    if (typeof trig.state !== 'number') trig.state = 1;
+                    delete trig.resource;
+                    delete trig.amount;
+                    ctx.addLog('codegen-schema', 'CTA safety net: phase ' + phaseId + ' resource_collected("' + rn + '") → entity_state_reached (entity name match)');
+                  } else {
+                    // Unknown — convert to timer fallback so it doesn't block
+                    var origAmt = trig.amount;
+                    trig.type = 'timer';
+                    trig.seconds = Math.max(2, Number(origAmt) || 3);
+                    delete trig.resource;
+                    delete trig.amount;
+                    ctx.addLog('codegen-schema', 'CTA safety net: phase ' + phaseId + ' resource_collected("' + rn + '") → timer (unknown name, no entity match)');
+                  }
+                }
+              }
+              if (trig.type === 'compound' && Array.isArray(trig.triggers)) {
+                for (var ti = 0; ti < trig.triggers.length; ti++) _walkAndFixResourceRefs(trig.triggers[ti], phaseId);
+              }
+            };
+            for (var _pi = 0; _pi < (schema.phases || []).length; _pi++) {
+              var _p = schema.phases[_pi];
+              if (_p && _p.trigger) _walkAndFixResourceRefs(_p.trigger, _p.phaseId);
+            }
+          } catch (_rErr) {
+            ctx.addLog('codegen-schema', 'CTA safety net (resource): ' + _rErr.message);
+          }
+
+          // SAFETY NET #3: timer cannot be a standalone trigger (must be in compound).
+          // If non-last phase has trigger.type='timer', wrap in compound + a noop near_entity to first showEntity.
+          try {
+            for (var _tpi = 0; _tpi < (schema.phases || []).length - 1; _tpi++) {
+              var _tp = schema.phases[_tpi];
+              if (_tp && _tp.trigger && _tp.trigger.type === 'timer') {
+                var _fallbackEnt = (_tp.showEntities && _tp.showEntities[0]) || (schema.entities && schema.entities[0] && schema.entities[0].name);
+                if (_fallbackEnt) {
+                  _tp.trigger = {
+                    type: 'compound', operator: 'and',
+                    triggers: [
+                      _tp.trigger,
+                      { type: 'near_entity', entity: _fallbackEnt, range: 3 },
+                    ],
+                  };
+                  ctx.addLog('codegen-schema', 'CTA safety net: phase ' + _tp.phaseId + ' standalone timer → wrapped in compound with near_entity ' + _fallbackEnt);
+                }
+              }
+            }
+          } catch (_tErr) {
+            ctx.addLog('codegen-schema', 'CTA safety net (timer): ' + _tErr.message);
+          }
+
+          // SAFETY NET #1 (original CTA gate):
+        } catch (_outerCtaErr) {
+          ctx.addLog('codegen-schema', 'Outer safety net wrapper failed (non-blocking): ' + _outerCtaErr.message);
+        }
+        try {
+          var _lastIdx = schema && schema.phases ? schema.phases.length - 1 : -1;
+          var _lastPhase = _lastIdx >= 0 ? schema.phases[_lastIdx] : null;
+          var _hasCta = function(t) {
+            if (!t || typeof t !== 'object') return false;
+            if (t.type === 'click_entity') return true;
+            if (t.type === 'near_entity' && /^CTAButton$/i.test(String(t.entity || '').trim())) return true;
+            if (t.type === 'compound' && Array.isArray(t.triggers)) {
+              for (var ti = 0; ti < t.triggers.length; ti++) {
+                if (_hasCta(t.triggers[ti])) return true;
+              }
+            }
+            return false;
+          };
+          if (_lastPhase && !_hasCta(_lastPhase.trigger)) {
+            var _entNames = {};
+            for (var _ei = 0; _ei < (schema.entities || []).length; _ei++) {
+              var _en = schema.entities[_ei] && schema.entities[_ei].name;
+              if (_en) _entNames[_en] = true;
+            }
+            var _ctaPick = _entNames.CtaButton ? 'CtaButton' : (_entNames.CTAButton ? 'CTAButton' : 'CtaButton');
+            var _orig = _lastPhase.trigger || { type: 'near_entity', entity: _ctaPick, range: 2 };
+            _lastPhase.trigger = {
+              type: 'compound', operator: 'and',
+              triggers: [_orig, { type: 'near_entity', entity: _ctaPick, range: 2 }],
+            };
+            ctx.addLog('codegen-schema', 'CTA safety net: wrapped last phase trigger with ' + _ctaPick + ' near_entity gate (pre-fillSkeleton)');
+          }
+        } catch (_ctaErr) {
+          ctx.addLog('codegen-schema', 'CTA safety net failed (non-blocking): ' + _ctaErr.message);
+        }
         var customSuppress = suppressCustomLogicWhenAssemblyCovered(ctx, schema);
         ctx.addLog('codegen-schema', 'Schema generated: ' + schema.phases.length + ' phases, ' +
           schema.entities.length + ' entities, ' + (schema.npcs || []).length + ' NPCs');
@@ -71,6 +184,7 @@ module.exports = {
           entityPoolMap: resolved.entityPoolMap,
           entities: schema.entities, // carries chineseName / showLabel for world labels
           visualAssets: ctx.blueprint.visualAssets || null,
+          sourceMeshOps: ctx.blueprint.sourceMeshOps || null, // [OPTION C, Wave 3 Step 3] flag-gated source-faithful meshes
           w1bSplit: ctx.blueprint.w1bSplit !== false, // default-on: 5-partial skeleton split
         });
         var isW1bSplit = (typeof skeletonResult === 'object' && skeletonResult.mode === 'w1b-5partial');
@@ -480,7 +594,7 @@ function resolveSchemaRunnerConfig(env) {
   env = env || process.env;
   return {
     codexModel: env.CODEX_SCHEMA_MODEL || env.CODEX_TEXT_MODEL || env.CODEX_CODE_MODEL || 'gpt-5.5',
-    claudeModel: env.CLAUDE_SCHEMA_MODEL || env.CLAUDE_TEXT_MODEL || env.CLAUDE_CODE_MODEL || 'claude-sonnet-4-6',
+    claudeModel: env.CLAUDE_SCHEMA_MODEL || env.CLAUDE_TEXT_MODEL || env.CLAUDE_CODE_MODEL || 'claude-opus-4-8',
   };
 }
 

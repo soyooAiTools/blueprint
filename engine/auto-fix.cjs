@@ -140,16 +140,59 @@ function restoreBackupSnapshot(recipeId) {
 
 // ─── Verification ───────────────────────────────────────────────────
 
+// Resolve a static require() specifier the way Node would, WITHOUT executing the module
+// (no side effects). Returns true if the target exists. Only relative/absolute specifiers
+// are checked — bare specifiers (node_modules + builtins) are assumed present.
+function requireTargetResolves(fromDir, spec) {
+  if (spec.charAt(0) !== '.' && spec.charAt(0) !== '/') return true;
+  var base = spec.charAt(0) === '/' ? spec : path.resolve(fromDir, spec);
+  var cands = [base, base + '.js', base + '.cjs', base + '.mjs', base + '.json', base + '.node',
+               path.join(base, 'index.js'), path.join(base, 'index.cjs'), path.join(base, 'index.json')];
+  for (var i = 0; i < cands.length; i++) {
+    try { if (fs.existsSync(cands[i]) && fs.statSync(cands[i]).isFile()) return true; } catch(e) {}
+  }
+  // package.json "main" for directory targets
+  try {
+    var pkg = path.join(base, 'package.json');
+    if (fs.existsSync(pkg)) return true;
+  } catch(e) {}
+  return false;
+}
+
 function verifyFiles(filePaths) {
   var errors = [];
   filePaths.forEach(function(rel) {
     if (!/\.(js|cjs|mjs)$/.test(rel)) return;
     var abs = path.join(REPO_ROOT, rel);
     if (!fs.existsSync(abs)) return;
+    // 1. Syntax (node -c). A require() of a missing module is syntactically VALID, so this
+    //    alone is not enough — it passes, then the module crashes at load time.
     try {
       execSync('node -c "' + abs + '"', { encoding: 'utf-8', timeout: 5000, stdio: 'pipe' });
     } catch(e) {
-      errors.push(rel + ': ' + (e.stderr || e.message).slice(0, 200));
+      errors.push(rel + ': syntax — ' + (e.stderr || e.message).slice(0, 200));
+      return; // syntax broken; require-scan below would be meaningless
+    }
+    // 2. Static require-target resolution. Catches the MODULE_NOT_FOUND class that `node -c`
+    //    misses and that takes the whole pipeline down at load time — this is exactly how
+    //    auto-f4084a58 broke engine/stages/fidelity-source-diff.cjs (it added a require() of a
+    //    module the recipe never created). Done by file-existence resolution only — no require()
+    //    execution, so a verified module's top-level side effects never run during the guard.
+    try {
+      var src = fs.readFileSync(abs, 'utf-8');
+      var dir = path.dirname(abs);
+      var reqRe = /\brequire\(\s*(['"])([^'"]+)\1\s*\)/g;
+      var m, seen = {};
+      while ((m = reqRe.exec(src)) !== null) {
+        var spec = m[2];
+        if (seen[spec]) continue;
+        seen[spec] = true;
+        if (!requireTargetResolves(dir, spec)) {
+          errors.push(rel + ': require("' + spec + '") does not resolve — missing module (would crash at load)');
+        }
+      }
+    } catch(e) {
+      errors.push(rel + ': require-scan — ' + e.message.slice(0, 120));
     }
   });
   return errors;
@@ -780,6 +823,9 @@ module.exports = {
   autoLearn: autoLearn,
   runAutoFixCycle: runAutoFixCycle,
   validatePath: validatePath,
+  // Exposed for tests: pre-apply safety verification (syntax + require-target resolution).
+  verifyFiles: verifyFiles,
+  requireTargetResolves: requireTargetResolves,
   // Exposed for API handler (dashboard manual trigger)
   findRecipe: function(id) {
     var recipes = loadRecipes();

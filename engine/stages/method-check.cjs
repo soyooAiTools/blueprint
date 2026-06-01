@@ -2163,6 +2163,8 @@ module.exports = {
   detectInvalidPoolLiterals: detectInvalidPoolLiterals,
   buildTaskAggregateCode: buildTaskAggregateCode,
   pushFeedbackUnique: pushFeedbackUnique,
+  invalidateCodegenCheckpoint: invalidateCodegenCheckpoint, // Wave 2 #3: reused by static-pre-review stage
+
   injectMissingHelpers: injectMissingHelpers,
   autoRepairForbiddenGenericApis: autoRepairForbiddenGenericApis,
   autoRepairMalformedIsNear: autoRepairMalformedIsNear,

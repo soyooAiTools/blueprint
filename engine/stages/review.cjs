@@ -14,6 +14,8 @@ var { staticCheckProject, getBlockingIssues } = require('../static-check.cjs');
 var { checkConformance } = require('../spec-conformance.cjs');
 var { normalizeFingerprint } = require('../metrics.cjs');
 var assemblyPlanContracts = require('../assembly-plan-contracts.cjs');
+// 2026-05-31 Wave 1.b: shared whitelist source-of-truth with static-check.cjs.
+var staticRuleRegistry = require('../lib/static-rule-registry.cjs');
 
 var MAX_REVIEW_ROUNDS = 4;
 var REVIEW_REPEAT_BLOCK_AT = 3;
@@ -434,6 +436,52 @@ function stripExcessCameraBackgroundAssignments(code) {
     fixes++;
   }
   return { code: nextCode, changed: fixes > 0, fixes: fixes };
+}
+
+// 2026-05-31 Option C: deterministic strip of non-ASCII chars from string literals
+// passed to APIs scanned by static rule `non-ascii-resource-key`. LLM (gpt-5.5)
+// in codegen-custom occasionally writes Chinese / fullwidth / whitespace keys
+// despite the skeleton comment block; this fix is applied during review
+// pre-repair so the fix-loop converges instead of spinning 3 rounds.
+function sanitizeNonAsciiResourceApiKeys(code) {
+  if (!code) return { code: code, changed: false, fixes: 0 };
+  // Wave 1.b: 白名单 + charset 迁到 registry, 与 static-check.cjs non-ascii-resource-key
+  // 同源。registry 存 canonical 形式 (未转义点号), build regex 时自己转义。
+  var apis = staticRuleRegistry.RESOURCE_API_KEY_APIS;
+  var nonAsciiRe = staticRuleRegistry.RESOURCE_API_KEY_NON_ASCII_RE;
+  var fixes = 0;
+  var fixed = code;
+  apis.forEach(function(api) {
+    var apiRe = api.replace(/\./g, '\\.');
+    var re = new RegExp('(' + apiRe + '\\s*\\(\\s*)"([^"]*)"', 'g');
+    fixed = fixed.replace(re, function(match, prefix, literal) {
+      if (literal === '') return match;
+      if (!nonAsciiRe.test(literal)) return match;
+      // Sanitize: keep only [A-Za-z0-9_], collapse remaining to underscores
+      var ascii = literal.replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
+      // Cap length to prevent absurd identifiers
+      if (ascii.length > 32) ascii = ascii.slice(0, 32);
+      // API-specific fallbacks when sanitization yields empty
+      if (!ascii) {
+        // registry APIs already canonical (unescaped) — api IS cleanApi.
+        var cleanApi = api;
+        if (cleanApi === 'EnterPhase' || cleanApi === 'CompletePhaseProgress' || cleanApi === 'NotifyPhaseProgress') {
+          ascii = 'phase';
+        } else if (cleanApi === 'RecordPhaseEvidenceFlag') {
+          ascii = 'evidence';
+        } else if (/ResourceIds|AddResource|TrySpend|GetResource|TryConvert/.test(cleanApi)) {
+          ascii = 'Resource';
+        } else if (cleanApi === 'GameObject.Find') {
+          ascii = 'Entity';
+        } else {
+          ascii = 'key';
+        }
+      }
+      fixes++;
+      return prefix + '"' + ascii + '"';
+    });
+  });
+  return { code: fixed, changed: fixes > 0, fixes: fixes };
 }
 
 function rewriteHotPathVectorAllocations(code) {
@@ -2031,340 +2079,45 @@ function declareMissingInteractionFlags(mainCode, extraFiles) {
   return { code: lines.join('\n'), extraFiles: files, changed: true, fixes: missing.length };
 }
 
+// Wave 2 (2026-05-31): the 25 deterministic pre-repair fns keyed by name, injected
+// into the lib orchestrator. Bodies still live in this file (Step 2 migration tactic).
+var PREREPAIR_FNS = {
+  declareMissingInteractionFlags: declareMissingInteractionFlags,
+  repairPlayerAliasMemberAccess: repairPlayerAliasMemberAccess,
+  ensurePlayerFieldAssignment: ensurePlayerFieldAssignment,
+  collapseLegacyCheckEventRulesStub: collapseLegacyCheckEventRulesStub,
+  repairUpdateGameStateBridge: repairUpdateGameStateBridge,
+  normalizeRuntimePhaseContract: normalizeRuntimePhaseContract,
+  ensureAssemblySlotRunnerCalls: ensureAssemblySlotRunnerCalls,
+  stripInitMaterialFromScene: stripInitMaterialFromScene,
+  stripEarlyShowCTA: stripEarlyShowCTA,
+  normalizeFinishGameTerminalFlow: normalizeFinishGameTerminalFlow,
+  rewriteHotPathVectorAllocations: rewriteHotPathVectorAllocations,
+  sanitizeNonAsciiResourceApiKeys: sanitizeNonAsciiResourceApiKeys,
+  stripExcessCameraBackgroundAssignments: stripExcessCameraBackgroundAssignments,
+  rewriteCameraMainToMainCam: rewriteCameraMainToMainCam,
+  normalizeSetScaleCalls: normalizeSetScaleCalls,
+  repairPhaseGateRuntimeMoves: repairPhaseGateRuntimeMoves,
+  normalizePhaseGateConditionalDeclarations: normalizePhaseGateConditionalDeclarations,
+  renameDuplicatePhaseGateMoveVars: renameDuplicatePhaseGateMoveVars,
+  stripInteractionFlagShortcutsFromPhaseGates: stripInteractionFlagShortcutsFromPhaseGates,
+  rewriteLongIfChainsAsSwitches: rewriteLongIfChainsAsSwitches,
+  repairPhaseGateRuntimeMovesAcrossPartials: repairPhaseGateRuntimeMovesAcrossPartials,
+  ensureAssemblySlotRunnerCallsAcrossPartials: ensureAssemblySlotRunnerCallsAcrossPartials,
+  removePostTapPhaseResetBlocks: removePostTapPhaseResetBlocks,
+  addMissingComplexBranchComments: addMissingComplexBranchComments,
+  addMissingSkeletonMemberComments: addMissingSkeletonMemberComments,
+};
+
+// Wave 2: pre-repair orchestration lives in engine/lib/static-rule-prerepair.cjs
+// (runAllPreRepairs). The 25 pre-repair fn bodies still live in this file and are
+// injected via PREREPAIR_FNS. The original ~350-line inline main/partial mirror was
+// removed after the equivalence gate proved the lib byte-identical — see
+// test/static-rule-prerepair-equivalence.test.cjs and git commit f1d7375 (which kept
+// the inline pass behind USE_PRE_REPAIR_LIB=false purely to run that proof).
 function repairKnownStructuralDamage(mainCode, extraFiles, blueprint) {
-  var changed = false;
-  var fixes = [];
-  var missingFlagFix = declareMissingInteractionFlags(mainCode, extraFiles);
-  if (missingFlagFix.changed) {
-    mainCode = missingFlagFix.code;
-    extraFiles = missingFlagFix.extraFiles;
-    changed = true;
-    fixes.push('main:MissingInteractionFlags x' + missingFlagFix.fixes);
-  }
-  var playerAliasFix = repairPlayerAliasMemberAccess(mainCode, extraFiles);
-  if (playerAliasFix.changed) {
-    mainCode = playerAliasFix.code;
-    extraFiles = playerAliasFix.extraFiles;
-    changed = true;
-    fixes.push('partials:PlayerAliasMemberAccess x' + playerAliasFix.fixes);
-  }
-  var playerAssignFix = ensurePlayerFieldAssignment(mainCode, extraFiles);
-  if (playerAssignFix.changed) {
-    mainCode = playerAssignFix.code;
-    extraFiles = playerAssignFix.extraFiles;
-    changed = true;
-    fixes.push('main:PlayerFieldAssignment x' + playerAssignFix.fixes);
-  }
-  var mainStubFix = collapseLegacyCheckEventRulesStub(mainCode);
-  if (mainStubFix.changed) {
-    mainCode = mainStubFix.code;
-    changed = true;
-    fixes.push('main:LegacyCheckEventRulesStub x' + mainStubFix.fixes);
-  }
-  var mainFix = repairUpdateGameStateBridge(mainCode);
-  if (mainFix.changed) {
-    mainCode = mainFix.code;
-    changed = true;
-    fixes.push('main:UpdateGameState x' + mainFix.fixes);
-  }
-  var mainPhaseContractFix = normalizeRuntimePhaseContract(mainCode, blueprint);
-  if (mainPhaseContractFix.changed) {
-    mainCode = mainPhaseContractFix.code;
-    changed = true;
-    fixes.push('main:RuntimePhaseContract x' + mainPhaseContractFix.fixes);
-  }
-  var mainAssemblyTickFix = ensureAssemblySlotRunnerCalls(mainCode);
-  if (mainAssemblyTickFix.changed) {
-    mainCode = mainAssemblyTickFix.code;
-    changed = true;
-    fixes.push('main:AssemblySlotRunnerTick x' + mainAssemblyTickFix.fixes);
-  }
-  var mainInitFix = stripInitMaterialFromScene(mainCode);
-  if (mainInitFix.changed) {
-    mainCode = mainInitFix.code;
-    changed = true;
-    fixes.push('main:InitMaterialFromScene x' + mainInitFix.fixes);
-  }
-  var mainShowCTAFix = stripEarlyShowCTA(mainCode);
-  if (mainShowCTAFix.changed) {
-    mainCode = mainShowCTAFix.code;
-    changed = true;
-    fixes.push('main:EarlyShowCTA x' + mainShowCTAFix.fixes);
-  }
-  var mainFinishGameFix = normalizeFinishGameTerminalFlow(mainCode);
-  if (mainFinishGameFix.changed) {
-    mainCode = mainFinishGameFix.code;
-    changed = true;
-    fixes.push('main:FinishGameFlow x' + mainFinishGameFix.fixes);
-  }
-  var mainVectorFix = rewriteHotPathVectorAllocations(mainCode);
-  if (mainVectorFix.changed) {
-    mainCode = mainVectorFix.code;
-    changed = true;
-    fixes.push('main:HotVectorAlloc x' + mainVectorFix.fixes);
-  }
-  // 2026-05-12: camera-background-override deterministic strip
-  var mainCameraBgFix = stripExcessCameraBackgroundAssignments(mainCode);
-  if (mainCameraBgFix.changed) {
-    mainCode = mainCameraBgFix.code;
-    changed = true;
-    fixes.push('main:CameraBackgroundOverride x' + mainCameraBgFix.fixes);
-  }
-  // 2026-05-12: Camera.main → mainCam deterministic rewrite
-  var mainCameraMainFix = rewriteCameraMainToMainCam(mainCode);
-  if (mainCameraMainFix.changed) {
-    mainCode = mainCameraMainFix.code;
-    changed = true;
-    fixes.push('main:CameraMainRewrite x' + mainCameraMainFix.fixes);
-  }
-  var mainSetScaleFix = normalizeSetScaleCalls(mainCode);
-  if (mainSetScaleFix.changed) {
-    mainCode = mainSetScaleFix.code;
-    changed = true;
-    fixes.push('main:SetScaleNormalize x' + mainSetScaleFix.fixes);
-  }
-  var mainPhaseGateFix = repairPhaseGateRuntimeMoves(mainCode);
-  if (mainPhaseGateFix.changed) {
-    mainCode = mainPhaseGateFix.code;
-    changed = true;
-    fixes.push('main:PhaseGateRuntimeMove x' + mainPhaseGateFix.fixes);
-  }
-  var mainPhaseGateNormalize = normalizePhaseGateConditionalDeclarations(mainCode);
-  if (mainPhaseGateNormalize.changed) {
-    mainCode = mainPhaseGateNormalize.code;
-    changed = true;
-    fixes.push('main:PhaseGateConditionalNormalize x' + mainPhaseGateNormalize.fixes);
-  }
-  var mainGateVarRename = renameDuplicatePhaseGateMoveVars(mainCode);
-  if (mainGateVarRename.changed) {
-    mainCode = mainGateVarRename.code;
-    changed = true;
-    fixes.push('main:PhaseGateMoveVarRename x' + mainGateVarRename.fixes);
-  }
-  var mainGateShortcutFix = stripInteractionFlagShortcutsFromPhaseGates(mainCode, blueprint);
-  if (mainGateShortcutFix.changed) {
-    mainCode = mainGateShortcutFix.code;
-    changed = true;
-    fixes.push('main:PhaseGateShortcutStrip x' + mainGateShortcutFix.fixes);
-  }
-  var mainLongIfFix = rewriteLongIfChainsAsSwitches(mainCode);
-  if (mainLongIfFix.changed) {
-    mainCode = mainLongIfFix.code;
-    changed = true;
-    fixes.push('main:LongIfChainSwitch x' + mainLongIfFix.fixes);
-  }
-  var nextExtras = Object.assign({}, extraFiles || {});
-  Object.keys(nextExtras).forEach(function(name) {
-    var stubRes = collapseLegacyCheckEventRulesStub(nextExtras[name]);
-    if (stubRes.changed) {
-      nextExtras[name] = stubRes.code;
-      changed = true;
-      fixes.push(name + ':LegacyCheckEventRulesStub x' + stubRes.fixes);
-    }
-    var res = repairUpdateGameStateBridge(nextExtras[name]);
-    if (res.changed) {
-      nextExtras[name] = res.code;
-      changed = true;
-      fixes.push(name + ':UpdateGameState x' + res.fixes);
-    }
-    var phaseContractRes = normalizeRuntimePhaseContract(nextExtras[name], blueprint);
-    if (phaseContractRes.changed) {
-      nextExtras[name] = phaseContractRes.code;
-      changed = true;
-      fixes.push(name + ':RuntimePhaseContract x' + phaseContractRes.fixes);
-    }
-    var assemblyTickRes = ensureAssemblySlotRunnerCalls(nextExtras[name]);
-    if (assemblyTickRes.changed) {
-      nextExtras[name] = assemblyTickRes.code;
-      changed = true;
-      fixes.push(name + ':AssemblySlotRunnerTick x' + assemblyTickRes.fixes);
-    }
-    var initRes = stripInitMaterialFromScene(nextExtras[name]);
-    if (initRes.changed) {
-      nextExtras[name] = initRes.code;
-      changed = true;
-      fixes.push(name + ':InitMaterialFromScene x' + initRes.fixes);
-    }
-    var showCTARes = stripEarlyShowCTA(nextExtras[name]);
-    if (showCTARes.changed) {
-      nextExtras[name] = showCTARes.code;
-      changed = true;
-      fixes.push(name + ':EarlyShowCTA x' + showCTARes.fixes);
-    }
-    var finishGameRes = normalizeFinishGameTerminalFlow(nextExtras[name]);
-    if (finishGameRes.changed) {
-      nextExtras[name] = finishGameRes.code;
-      changed = true;
-      fixes.push(name + ':FinishGameFlow x' + finishGameRes.fixes);
-    }
-    var vectorRes = rewriteHotPathVectorAllocations(nextExtras[name]);
-    if (vectorRes.changed) {
-      nextExtras[name] = vectorRes.code;
-      changed = true;
-      fixes.push(name + ':HotVectorAlloc x' + vectorRes.fixes);
-    }
-    // 2026-05-12: camera-background-override deterministic strip (partial files)
-    var cameraBgRes = stripExcessCameraBackgroundAssignments(nextExtras[name]);
-    if (cameraBgRes.changed) {
-      nextExtras[name] = cameraBgRes.code;
-      changed = true;
-      fixes.push(name + ':CameraBackgroundOverride x' + cameraBgRes.fixes);
-    }
-    // 2026-05-12: Camera.main → mainCam deterministic rewrite (partial files)
-    var cameraMainRes = rewriteCameraMainToMainCam(nextExtras[name]);
-    if (cameraMainRes.changed) {
-      nextExtras[name] = cameraMainRes.code;
-      changed = true;
-      fixes.push(name + ':CameraMainRewrite x' + cameraMainRes.fixes);
-    }
-    var setScaleRes = normalizeSetScaleCalls(nextExtras[name]);
-    if (setScaleRes.changed) {
-      nextExtras[name] = setScaleRes.code;
-      changed = true;
-      fixes.push(name + ':SetScaleNormalize x' + setScaleRes.fixes);
-    }
-    var phaseGateRes = repairPhaseGateRuntimeMoves(nextExtras[name]);
-    if (phaseGateRes.changed) {
-      nextExtras[name] = phaseGateRes.code;
-      changed = true;
-      fixes.push(name + ':PhaseGateRuntimeMove x' + phaseGateRes.fixes);
-    }
-    var phaseGateNormalizeRes = normalizePhaseGateConditionalDeclarations(nextExtras[name]);
-    if (phaseGateNormalizeRes.changed) {
-      nextExtras[name] = phaseGateNormalizeRes.code;
-      changed = true;
-      fixes.push(name + ':PhaseGateConditionalNormalize x' + phaseGateNormalizeRes.fixes);
-    }
-    var gateVarRenameRes = renameDuplicatePhaseGateMoveVars(nextExtras[name]);
-    if (gateVarRenameRes.changed) {
-      nextExtras[name] = gateVarRenameRes.code;
-      changed = true;
-      fixes.push(name + ':PhaseGateMoveVarRename x' + gateVarRenameRes.fixes);
-    }
-    var gateShortcutRes = stripInteractionFlagShortcutsFromPhaseGates(nextExtras[name], blueprint);
-    if (gateShortcutRes.changed) {
-      nextExtras[name] = gateShortcutRes.code;
-      changed = true;
-      fixes.push(name + ':PhaseGateShortcutStrip x' + gateShortcutRes.fixes);
-    }
-    var longIfRes = rewriteLongIfChainsAsSwitches(nextExtras[name]);
-    if (longIfRes.changed) {
-      nextExtras[name] = longIfRes.code;
-      changed = true;
-      fixes.push(name + ':LongIfChainSwitch x' + longIfRes.fixes);
-    }
-  });
-  var crossPhaseGateFix = repairPhaseGateRuntimeMovesAcrossPartials(mainCode, nextExtras);
-  if (crossPhaseGateFix.changed) {
-    mainCode = crossPhaseGateFix.code;
-    nextExtras = crossPhaseGateFix.extraFiles;
-    changed = true;
-    fixes.push('partials:PhaseGateRuntimeMove x' + crossPhaseGateFix.fixes);
-  }
-  var postCrossPhaseContractFix = normalizeRuntimePhaseContract(mainCode, blueprint);
-  if (postCrossPhaseContractFix.changed) {
-    mainCode = postCrossPhaseContractFix.code;
-    changed = true;
-    fixes.push('main:RuntimePhaseContractPost x' + postCrossPhaseContractFix.fixes);
-  }
-  var postCrossAssemblyTickFix = ensureAssemblySlotRunnerCalls(mainCode);
-  if (postCrossAssemblyTickFix.changed) {
-    mainCode = postCrossAssemblyTickFix.code;
-    changed = true;
-    fixes.push('main:AssemblySlotRunnerTickPost x' + postCrossAssemblyTickFix.fixes);
-  }
-  var crossPartialAssemblyTickFix = ensureAssemblySlotRunnerCallsAcrossPartials(mainCode, nextExtras);
-  if (crossPartialAssemblyTickFix.changed) {
-    mainCode = crossPartialAssemblyTickFix.code;
-    changed = true;
-    fixes.push('main:AssemblySlotRunnerTickCross x' + crossPartialAssemblyTickFix.fixes);
-  }
-  var postCrossMainNormalize = normalizePhaseGateConditionalDeclarations(mainCode);
-  if (postCrossMainNormalize.changed) {
-    mainCode = postCrossMainNormalize.code;
-    changed = true;
-    fixes.push('main:PhaseGateConditionalNormalizePost x' + postCrossMainNormalize.fixes);
-  }
-  var postCrossMainRename = renameDuplicatePhaseGateMoveVars(mainCode);
-  if (postCrossMainRename.changed) {
-    mainCode = postCrossMainRename.code;
-    changed = true;
-    fixes.push('main:PhaseGateMoveVarRenamePost x' + postCrossMainRename.fixes);
-  }
-  Object.keys(nextExtras).forEach(function(name) {
-    var normalizeRes = normalizePhaseGateConditionalDeclarations(nextExtras[name]);
-    if (normalizeRes.changed) {
-      nextExtras[name] = normalizeRes.code;
-      changed = true;
-      fixes.push(name + ':PhaseGateConditionalNormalizePost x' + normalizeRes.fixes);
-    }
-    var renameRes = renameDuplicatePhaseGateMoveVars(nextExtras[name]);
-    if (renameRes.changed) {
-      nextExtras[name] = renameRes.code;
-      changed = true;
-      fixes.push(name + ':PhaseGateMoveVarRenamePost x' + renameRes.fixes);
-    }
-  });
-  var postCrossLongIfFix = rewriteLongIfChainsAsSwitches(mainCode);
-  if (postCrossLongIfFix.changed) {
-    mainCode = postCrossLongIfFix.code;
-    changed = true;
-    fixes.push('main:LongIfChainSwitchPostPhaseGate x' + postCrossLongIfFix.fixes);
-  }
-  Object.keys(nextExtras).forEach(function(name) {
-    var res = rewriteLongIfChainsAsSwitches(nextExtras[name]);
-    if (res.changed) {
-      nextExtras[name] = res.code;
-      changed = true;
-      fixes.push(name + ':LongIfChainSwitchPostPhaseGate x' + res.fixes);
-    }
-  });
-  var postTapResetFix = removePostTapPhaseResetBlocks(mainCode);
-  if (postTapResetFix.changed) {
-    mainCode = postTapResetFix.code;
-    changed = true;
-    fixes.push('main:PostTapPhaseResetStrip x' + postTapResetFix.fixes);
-  }
-  var mainBranchCommentFix = addMissingComplexBranchComments(mainCode);
-  if (mainBranchCommentFix.changed) {
-    mainCode = mainBranchCommentFix.code;
-    changed = true;
-    fixes.push('main:ComplexBranchComments x' + mainBranchCommentFix.fixes);
-  }
-  var mainMemberCommentFix = addMissingSkeletonMemberComments(mainCode);
-  if (mainMemberCommentFix.changed) {
-    mainCode = mainMemberCommentFix.code;
-    changed = true;
-    fixes.push('main:SkeletonMemberComments x' + mainMemberCommentFix.fixes);
-  }
-  Object.keys(nextExtras).forEach(function(name) {
-    if (!/^GameFlowManagerMain(?:\.|$)/.test(name)) return;
-    var branchCommentRes = addMissingComplexBranchComments(nextExtras[name]);
-    if (branchCommentRes.changed) {
-      nextExtras[name] = branchCommentRes.code;
-      changed = true;
-      fixes.push(name + ':ComplexBranchComments x' + branchCommentRes.fixes);
-    }
-    var memberCommentRes = addMissingSkeletonMemberComments(nextExtras[name]);
-    if (memberCommentRes.changed) {
-      nextExtras[name] = memberCommentRes.code;
-      changed = true;
-      fixes.push(name + ':SkeletonMemberComments x' + memberCommentRes.fixes);
-    }
-  });
-  var finalPlayerAliasFix = repairPlayerAliasMemberAccess(mainCode, nextExtras);
-  if (finalPlayerAliasFix.changed) {
-    mainCode = finalPlayerAliasFix.code;
-    nextExtras = finalPlayerAliasFix.extraFiles;
-    changed = true;
-    fixes.push('partials:PlayerAliasMemberAccessPost x' + finalPlayerAliasFix.fixes);
-  }
-  return {
-    code: mainCode,
-    extraFiles: nextExtras,
-    changed: changed,
-    fixes: fixes,
-  };
+  return require('../lib/static-rule-prerepair.cjs')
+    .runAllPreRepairs(mainCode, extraFiles, blueprint, PREREPAIR_FNS);
 }
 
 function shouldUsePatchRecode(reviewResult) {
@@ -2443,6 +2196,7 @@ module.exports = {
   name: 'review',
   canRetry: false,
   normalizeSetScaleCalls: normalizeSetScaleCalls,
+  sanitizeNonAsciiResourceApiKeys: sanitizeNonAsciiResourceApiKeys,
   repairPhaseGateRuntimeMoves: repairPhaseGateRuntimeMoves,
   repairPhaseGateRuntimeMovesAcrossPartials: repairPhaseGateRuntimeMovesAcrossPartials,
   removePostTapPhaseResetBlocks: removePostTapPhaseResetBlocks,

@@ -190,6 +190,7 @@ public class GFM_AutoPlay : MonoBehaviour
         // 到达后进入“等待 phase 推进”窗口：先留最短可视时长，再等 AddCompletedPhase 通知。
         if (_awaitingPhaseProgress)
         {
+            FollowPlayerCamera();
             if (_autoTargetWait > 0f) { _autoTargetWait -= Time.deltaTime; return; }
             if (_progressObserved || (_awaitProgressRealTime > 0f && (Time.realtimeSinceStartup - _awaitProgressRealTime) >= 8f))
             {
@@ -216,6 +217,7 @@ public class GFM_AutoPlay : MonoBehaviour
             float speed = player.MoveSpeed * 1.2f;
             player.Trans.position = Vector3.MoveTowards(
                 player.Trans.position, target.transform.position, speed * Time.deltaTime);
+            FollowPlayerCamera();
             if (dir.magnitude > 0.1f)
             {
                 player.Trans.rotation = Quaternion.Lerp(
@@ -250,5 +252,13 @@ public class GFM_AutoPlay : MonoBehaviour
         }
 
         return GameObject.Find(targetName);
+    }
+
+    private void FollowPlayerCamera()
+    {
+        if (GFM_CameraController.Instance == null || !GFM_CameraController.Instance.IsReady) return;
+        var cam = GFM_CameraController.Instance.Main;
+        float size = cam != null ? cam.orthographicSize : 8f;
+        GFM_CameraController.Instance.FramePoint(GFM_Player.Instance.Trans.position, size);
     }
 }

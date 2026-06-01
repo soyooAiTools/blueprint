@@ -1,0 +1,76 @@
+{
+  "kind": "blueprint.fixtureAcceptanceCatalog",
+  "schemaVersion": "1.0.0",
+  "generatedAt": "2026-05-29T08:25:00Z",
+  "notes": "L4 fidelity acceptance catalog (task #27). Each fixture entry lists a fidelityContract + optional source HTML + optional project dir. Runner: scripts/run-fidelity-catalog.cjs. Owner: @Sam.",
+  "fixtures": [
+    {
+      "name": "space-ranger-v0.5-golden",
+      "status": "golden",
+      "contractPath": "../work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/fidelity-contract/space-ranger.fidelityContract.json",
+      "sourceHtmlPath": "../work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/source-html/space-ranger-3d.html",
+      "projectDir": "../work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/unity-project",
+      "target": "unity",
+      "metadata": {
+        "entityCount": 27,
+        "primitiveCount": 80,
+        "phaseCount": 8,
+        "hudCount": 33,
+        "deliveredBy": "@Tim-cc + @Jonny-codex (task #23/#24)",
+        "deliveryDate": "2026-05-28"
+      }
+    },
+    {
+      "name": "space-ranger-v3-hook-candidate",
+      "status": "advisory",
+      "contractPath": "../work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/unity-project/Assets/Fidelity/fidelityContract.json",
+      "sourceHtmlPath": "../work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/source-html/space-ranger-3d.html",
+      "projectDir": "../work/task27-production-http-visualassets-fence-check",
+      "target": "html",
+      "metadata": {
+        "buildArtifact": "../work/task27-production-http-visualassets-fence-check/index.html",
+        "buildMeta": "../work/task27-production-http-visualassets-fence-check/build-meta.json",
+        "hooks": ["__driveToPhase", "__fidelityReady", "__blueprintMarkFidelityReady", "__blueprintNormalizeGameState"],
+        "verdictNote": "task #27 2026-05-29 production HTTP build: visualAssets passed through build-api, entity_states fence populated, source phase guideText/targetEntity normalized from sourcePhaseContract",
+        "demotionNote": "task #29 hygiene 2026-05-29T12:15Z: demoted candidate → advisory. Superseded by space-ranger-v1.1-html-golden as the primary HTML fixture. Retained as advisory regression-test surface exercising the v1.0.0 transitional read path in lib field-diff @0.6.1 (hud[id^=\"label.\"] → worldLabel bucket fallback). Non-blocking; will not gate ship.",
+        "demotedBy": "@Sam per @youth-nick msg=5ba02847 (\"把待办以及小尾巴都收干净吧\")"
+      }
+    },
+    {
+      "name": "space-ranger-v1.1-html-candidate",
+      "status": "candidate",
+      "contractPath": "../work/task31-ui-overlay-candidate/space-ranger.v1.1.hud-perphase-ui-overlay.fidelityContract.json",
+      "sourceHtmlPath": "../work/task25-sam-delivery-verify/unpacked/space-ranger-v0.5-fidelity-delivery/source-html/space-ranger-3d.html",
+      "projectDir": "../work/task28-source-contract-mapping-smoke/production-http-build",
+      "target": "html",
+      "metadata": {
+        "renamedFrom": "space-ranger-v1.1-migrated-candidate → space-ranger-v1.1-html-golden (hygiene 12:15Z) → space-ranger-v1.1-html-candidate (visual rollback 12:22Z)",
+        "renamedAt": "2026-05-29T12:22:00Z",
+        "renamedBy": "@Sam — second rename after visual gate failure forced golden rollback",
+        "rollbackFromGolden": {
+          "rolledBackAt": "2026-05-29T12:22:00Z",
+          "rolledBackBy": "@Sam (decision authority per @youth-nick msg=b0016033 \"需要拍板的话，你来拍\")",
+          "trigger": "Visual gate failed: source HTML vs reproduced HTML show source has 3D entities + world labels rendered while reproduced shows only HUD overlay + empty 3D scene across all 8 phases. Three independent captures (Tim task31 catalog screenshots, Jonny phase8 cross-check, Sam puppeteer baseline) corroborate.",
+          "rule": "@youth-nick msg=ccbba11d (\"视觉必须一致！！！这是硬标准 红线\") — visual cross-phase consistency is hard gate, contract-layer blocking=0 is necessary but not sufficient.",
+          "rollbackScope": "name (golden → candidate) + status (golden → candidate). Contract path / projectDir unchanged — the artifact itself stays valid for forward iteration, only its promotion status reverts.",
+          "promotionRequirement": "Re-promote to golden requires: (a) root cause fix landed in pipeline writer / runtime patch, (b) visual cross-phase capture shows source ≡ repro per per-phase PSNR≥30dB or SSIM≥0.85 (Tim option A thresholds, subject to grill tune), (c) Tim+Jonny+Sam triple sign-off."
+        },
+        "migratedFrom": "space-ranger-v0.5-golden",
+        "migrationScript": "scripts/migrate-v1.0-to-v1.1.cjs",
+        "migrationReport": "../work/task29-v1.1-golden-candidate/migration-report.json",
+        "hudPerPhaseScript": "scripts/apply-source-hud-per-phase.cjs",
+        "hudPerPhaseReport": "../work/task30-hud-perphase-candidate/source-hud-perphase-report.json",
+        "uiOverlayScript": "scripts/apply-source-ui-overlay-contract.cjs",
+        "uiOverlayReport": "../work/task31-ui-overlay-candidate/source-ui-overlay-report.json",
+        "buildArtifact": "../work/task28-source-contract-mapping-smoke/production-http-build/index.html",
+        "schemaVersion": "1.1.0",
+        "deliveredBy": "@Sam task #29 + @Jonny task #28/#30/#31",
+        "deliveryDate": "2026-05-29",
+        "goldenPromotedAt": "2026-05-29T10:18:00Z",
+        "goldenPromotedBy": "@Sam (decision authority delegated by @youth-nick msg=f9233150 \"\u5176\u4ed6\u51b3\u5b9a\u4f60\u81ea\u5df1\u6765\u62cd\")",
+        "goldenPromotionVerdict": "task31-ui-overlay-candidate official fixture catalog PASS: summary={blocking:0, advisory:192, totalFieldDiffs:192, buckets:{worldLabel:192}}. All 4 phases of shift-left (lib + extractor + hook + catalog) plus 3 product follow-ups (#28 collectible + #30 per-phase HUD + #31 UI overlay) closed. v0.5 unity-golden + v1.1 html-golden now both reference fixtures.",
+        "verdictNote": "task #29 2026-05-29 v1.0\u2192v1.1 migration: 24/24 entity-labels moved to entities[].worldLabel, 0 orphan, hud[] 33\u21929. task #30: source HTML PHASES[] reverse-extracted hud.phase/hud.targethint/hud.tip into hud[].text.perPhase (8/8 phases), removing the 21 phase-specific hud-mismatch diffs. task #28+#31: candidate projectDir uses source-contract resource mapping and source UI overlay contract so Gold/Ice/Scrap plus CtaButton/Canvas/Joystick* no longer appear as blocking entity-extra. PROMOTED candidate \u2192 golden after #31 ship with hard gate clean."
+      }
+    }
+  ]
+}

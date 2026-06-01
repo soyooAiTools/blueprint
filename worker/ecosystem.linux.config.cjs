@@ -18,6 +18,8 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         LINUX_WORKER_ID: 'linux-worker-1',
+        SOURCE_HTML_BIND_HARD: 'true',
+        SCHEMA_PRIMARY_BACKEND: 'claude-print',
       },
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
       merge_logs: true,
@@ -38,6 +40,8 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         LINUX_WORKER_ID: 'linux-worker-2',
+        SOURCE_HTML_BIND_HARD: 'true',
+        SCHEMA_PRIMARY_BACKEND: 'claude-print',
       },
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
       merge_logs: true,
@@ -58,6 +62,8 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         LINUX_WORKER_ID: 'linux-worker-3',
+        SOURCE_HTML_BIND_HARD: 'true',
+        SCHEMA_PRIMARY_BACKEND: 'claude-print',
       },
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
       merge_logs: true,
@@ -78,6 +84,8 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         LINUX_WORKER_ID: 'linux-worker-4',
+        SOURCE_HTML_BIND_HARD: 'true',
+        SCHEMA_PRIMARY_BACKEND: 'claude-print',
       },
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
       merge_logs: true,
@@ -98,6 +106,8 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         LINUX_WORKER_ID: 'linux-worker-5',
+        SOURCE_HTML_BIND_HARD: 'true',
+        SCHEMA_PRIMARY_BACKEND: 'claude-print',
       },
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
       merge_logs: true,
@@ -118,6 +128,8 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         LINUX_WORKER_ID: 'linux-worker-6',
+        SOURCE_HTML_BIND_HARD: 'true',
+        SCHEMA_PRIMARY_BACKEND: 'claude-print',
       },
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
       merge_logs: true,
