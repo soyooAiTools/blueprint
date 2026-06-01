@@ -6,7 +6,7 @@ var path = require('path');
 var DEFAULT_SCHEMA_PATH = path.join(__dirname, '..', 'contracts', 'fidelity-contract.v1.json');
 var CONTRACT_KIND = 'blueprint.fidelityContract';
 var SCHEMA_KIND = 'blueprint.fidelityContract.schema';
-var SCHEMA_VERSION = '1.3.0';
+var SCHEMA_VERSION = '1.5.0';
 // v1.2.0 adds two-layer screen-space anchor design:
 //   - phases[].cameraTransform (informative/diagnostic — does NOT block)
 //   - phases[].projectedAnchors (normative/blocking — per-entity screen rect
@@ -23,7 +23,23 @@ var SCHEMA_VERSION = '1.3.0';
 // entities[].primitiveStyle.{ modelRef:string, baseColor:[r,g,b] } reverse-extracted
 // from source HTML JS literals (SCENE_CONFIG / ENTITY_STYLE). v1.2 contracts remain
 // valid — these fields are advisory at v1.2, required at v1.3 only when present.
-var ACCEPTED_INSTANCE_SCHEMA_VERSIONS = { '1.0.0': true, '1.1.0': true, '1.2.0': true, '1.3.0': true };
+// v1.4.0 (task #52) folds source HTML PHASES[].guideText into polymorphic
+// {perPhase: {phaseId: text}} records for the 3 phase-dynamic hud slots
+// (hud.phase / hud.tip / hud.targethint). Pre-v1.4 instances with plain-string
+// text for these ids still load — their per-phase mismatches downgrade to
+// advisory via descriptor hudPolymorphicPolicy. v1.4 instances with plain-string
+// text for these ids are treated as authoring bug (blocking).
+// v1.5.0 (task #57, v1.4e Axis A) adds phases[].projectedWorldLabels — per-entity
+// per-phase screen-space DOM rect for the worldLabel Sprite, reverse-extracted
+// from source HTML via headless Three.js render + billboard corner projection.
+// Shape: { x, y, width, height, centerX, centerY, provenance, lookupPath?,
+// matchedAlias?, resolverRule? } in viewport top-left px (default 1280x720).
+// Parallels v1.2 projectedAnchors design (normative, 1:1 with showEntities,
+// no visibility booleans). At v1.5+ the runtime worker rect-fits the label DOM
+// to projectedWorldLabels[entityId]; Stage 5 field-diff promotes
+// `worldLabel-position-*` from advisory (pre-v1.5) to blocking (v1.5+) with
+// ±7px tolerance. Pre-v1.5 contracts without the field still load.
+var ACCEPTED_INSTANCE_SCHEMA_VERSIONS = { '1.0.0': true, '1.1.0': true, '1.2.0': true, '1.3.0': true, '1.4.0': true, '1.5.0': true };
 var RESOLVED_CONFLICT_STATUSES = { accepted: true, rejected: true, deferred: true };
 
 function readJson(filePath) {
@@ -119,6 +135,14 @@ var ANCHOR_PROVENANCE_ENUM = { 'extracted': true, 'inferred-default': true, 'anc
 var DEFAULT_ANCHOR_TOLERANCE_PX = Number(process.env.DEFAULT_ANCHOR_PIXEL_TOLERANCE) > 0
   ? Number(process.env.DEFAULT_ANCHOR_PIXEL_TOLERANCE)
   : 8;
+// v1.5.0 (task #57): worldLabel rect provenance. `no-label` is the legitimate
+// no-Sprite-child case (entity has no DOM label), not an error.
+var WORLDLABEL_PROVENANCE_ENUM = { 'extracted': true, 'inferred-default': true, 'no-label': true };
+// Parallel to anchor tolerance but tighter (Sprite label drift hurts UX more
+// than entity bbox drift; Jonny msg=fd1a7e7a locked 7px).
+var DEFAULT_WORLDLABEL_TOLERANCE_PX = Number(process.env.DEFAULT_WORLDLABEL_PIXEL_TOLERANCE) > 0
+  ? Number(process.env.DEFAULT_WORLDLABEL_PIXEL_TOLERANCE)
+  : 7;
 
 function gteSemver(a, b) {
   var p = String(a || '0').split('.').map(Number);
@@ -167,6 +191,48 @@ function validateProjectedAnchor(anchor, errors, basePath) {
   ['selfVisible', 'effectiveVisible', 'viewportIntersection'].forEach(function(k) {
     if (anchor[k] !== undefined) {
       errors.push(basePath + '.' + k + ' must not be present in contract anchor record (derived at consume time)');
+    }
+  });
+}
+
+// v1.5.0 (task #57, v1.4e Axis A): per-entity per-phase world-label screen-rect.
+// Parallels validateProjectedAnchor but uses DOM-rect field names
+// {x, y, width, height, centerX, centerY} per Jonny msg=fd1a7e7a interface lock,
+// matching window.__targetWorldLabels[entityId] shape consumed by worker.
+function validateProjectedWorldLabel(label, errors, basePath) {
+  if (!isPlainObject(label)) {
+    errors.push(basePath + ' must be an object');
+    return;
+  }
+  ['x', 'y', 'width', 'height', 'centerX', 'centerY'].forEach(function(k) {
+    if (typeof label[k] !== 'number' || !isFinite(label[k])) {
+      errors.push(basePath + '.' + k + ' must be a finite number');
+    }
+  });
+  if (typeof label.width === 'number' && label.width < 0) {
+    errors.push(basePath + '.width must be >= 0');
+  }
+  if (typeof label.height === 'number' && label.height < 0) {
+    errors.push(basePath + '.height must be >= 0');
+  }
+  if (!WORLDLABEL_PROVENANCE_ENUM[String(label.provenance || '')]) {
+    errors.push(basePath + '.provenance must be one of ' + Object.keys(WORLDLABEL_PROVENANCE_ENUM).join('|'));
+  }
+  // Audit fields required when provenance=extracted (real Sprite was found
+  // and projected). `no-label` and `inferred-default` may omit them.
+  if (label.provenance === 'extracted') {
+    ['lookupPath', 'matchedAlias', 'resolverRule'].forEach(function(k) {
+      if (typeof label[k] !== 'string' || !label[k]) {
+        errors.push(basePath + '.' + k + ' must be a non-empty string when provenance=extracted');
+      }
+    });
+  }
+  // Persistence boundary (v6.1 locked): visibility booleans MUST NOT appear in
+  // contract worldLabel records. Consumers derive viewportIntersection from
+  // x/y/width/height; visibility audit lives in migration report only.
+  ['selfVisible', 'effectiveVisible', 'viewportIntersection', 'visible'].forEach(function(k) {
+    if (label[k] !== undefined) {
+      errors.push(basePath + '.' + k + ' must not be present in contract worldLabel record (derived at consume time)');
     }
   });
 }
@@ -382,6 +448,34 @@ function validatePhase(phase, errors, basePath, contractSchemaVersion) {
       });
     }
   }
+  // v1.5.0 (task #57): projectedWorldLabels is normative & 1:1 with showEntities
+  // (mirrors projectedAnchors). At pre-v1.5 the key may be absent — Stage 5
+  // field-diff treats missing as advisory.
+  if (gteSemver(contractSchemaVersion, '1.5.0')) {
+    requireKeys(phase, ['projectedWorldLabels'], errors, basePath);
+    if (phase.projectedWorldLabels !== undefined && !isPlainObject(phase.projectedWorldLabels)) {
+      errors.push(basePath + '.projectedWorldLabels must be an object');
+    }
+    if (isPlainObject(phase.projectedWorldLabels) && Array.isArray(phase.showEntities)) {
+      phase.showEntities.forEach(function(entId) {
+        if (phase.projectedWorldLabels[entId] === undefined) {
+          errors.push(basePath + '.projectedWorldLabels.' + entId + ' is required (1:1 with showEntities)');
+        }
+      });
+      Object.keys(phase.projectedWorldLabels).forEach(function(entId) {
+        validateProjectedWorldLabel(phase.projectedWorldLabels[entId], errors, basePath + '.projectedWorldLabels.' + entId);
+      });
+    }
+  } else if (phase.projectedWorldLabels !== undefined) {
+    // Pre-v1.5 contracts may carry the field as advisory; only shape-validate.
+    if (!isPlainObject(phase.projectedWorldLabels)) {
+      errors.push(basePath + '.projectedWorldLabels must be an object when present');
+    } else {
+      Object.keys(phase.projectedWorldLabels).forEach(function(entId) {
+        validateProjectedWorldLabel(phase.projectedWorldLabels[entId], errors, basePath + '.projectedWorldLabels.' + entId);
+      });
+    }
+  }
 }
 
 function validateHudEntry(entry, errors, basePath) {
@@ -571,11 +665,13 @@ function diffFidelityRoundTrip(expected, actual) {
         diffs.push({ path: 'phases.' + pid, expected: 'present', actual: 'missing' });
         return;
       }
-      // Non-anchor phase fields — exclude projectedAnchors from coarse diff so
-      // tolerance-based anchor compare below is the authoritative anchor check.
+      // Non-anchor / non-worldLabel phase fields — exclude both from coarse
+      // diff so tolerance-based per-entity compare below is the authoritative
+      // numeric check.
+      var SKIP = { projectedAnchors: 1, projectedWorldLabels: 1 };
       var epClean = {}, apClean = {};
-      Object.keys(ep).forEach(function(k) { if (k !== 'projectedAnchors') epClean[k] = ep[k]; });
-      Object.keys(ap).forEach(function(k) { if (k !== 'projectedAnchors') apClean[k] = ap[k]; });
+      Object.keys(ep).forEach(function(k) { if (!SKIP[k]) epClean[k] = ep[k]; });
+      Object.keys(ap).forEach(function(k) { if (!SKIP[k]) apClean[k] = ap[k]; });
       pushDiff(diffs, 'phases.' + pid, epClean, apClean);
       // Anchor delta — per entity, per field, vs DEFAULT_ANCHOR_TOLERANCE_PX.
       if (isPlainObject(ep.projectedAnchors) && isPlainObject(ap.projectedAnchors)) {
@@ -599,6 +695,30 @@ function diffFidelityRoundTrip(expected, actual) {
       } else if (isPlainObject(ep.projectedAnchors) && !isPlainObject(ap.projectedAnchors)) {
         diffs.push({ path: 'phases.' + pid + '.projectedAnchors', expected: 'object', actual: typeof ap.projectedAnchors });
       }
+      // v1.5.0: per-entity worldLabel rect delta with tolerance.
+      if (gteSemver(expected && expected.schemaVersion, '1.5.0')) {
+        if (isPlainObject(ep.projectedWorldLabels) && isPlainObject(ap.projectedWorldLabels)) {
+          Object.keys(ep.projectedWorldLabels).forEach(function(eid) {
+            var eL = ep.projectedWorldLabels[eid], aL = ap.projectedWorldLabels[eid];
+            if (!aL) {
+              diffs.push({ path: 'phases.' + pid + '.projectedWorldLabels.' + eid, expected: 'present', actual: 'missing' });
+              return;
+            }
+            ['x', 'y', 'width', 'height'].forEach(function(k) {
+              var delta = Math.abs((Number(eL[k]) || 0) - (Number(aL[k]) || 0));
+              if (delta > DEFAULT_WORLDLABEL_TOLERANCE_PX) {
+                diffs.push({
+                  path: 'phases.' + pid + '.projectedWorldLabels.' + eid + '.' + k,
+                  expected: eL[k], actual: aL[k],
+                  deltaPx: delta, tolerancePx: DEFAULT_WORLDLABEL_TOLERANCE_PX
+                });
+              }
+            });
+          });
+        } else if (isPlainObject(ep.projectedWorldLabels) && !isPlainObject(ap.projectedWorldLabels)) {
+          diffs.push({ path: 'phases.' + pid + '.projectedWorldLabels', expected: 'object', actual: typeof ap.projectedWorldLabels });
+        }
+      }
     });
   } else {
     pushDiff(diffs, 'phases', expected.phases, actual.phases);
@@ -621,6 +741,9 @@ module.exports = {
   ANCHOR_PROVENANCE_ENUM: ANCHOR_PROVENANCE_ENUM,
   DEFAULT_ANCHOR_TOLERANCE_PX: DEFAULT_ANCHOR_TOLERANCE_PX,
   validateProjectedAnchor: validateProjectedAnchor,
+  WORLDLABEL_PROVENANCE_ENUM: WORLDLABEL_PROVENANCE_ENUM,
+  DEFAULT_WORLDLABEL_TOLERANCE_PX: DEFAULT_WORLDLABEL_TOLERANCE_PX,
+  validateProjectedWorldLabel: validateProjectedWorldLabel,
   _internals: {
     blockingGaps: blockingGaps,
     unresolvedConflicts: unresolvedConflicts,

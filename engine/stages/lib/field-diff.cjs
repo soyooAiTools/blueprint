@@ -69,6 +69,7 @@ const fs = require('fs');
 
 const SCHEMA_VERSION = 'task25.field-diff@0.6.1';
 const FLOAT_EPSILON = 1e-3;
+const SCENE_DELTA_E_TOLERANCE = 5;
 
 // ─── Contract loading ──────────────────────────────────────────────────────────
 
@@ -87,6 +88,21 @@ function canonicalEntityKey(s) {
   const stripped = s.charAt(0) === '_' ? s.slice(1) : s;
   if (stripped.length === 0) return stripped;
   return stripped.charAt(0).toUpperCase() + stripped.slice(1);
+}
+
+function mergeEntityDetailsByCanonicalKey(entityDetails) {
+  const canonDetails = {};
+  for (const k of Object.keys(entityDetails || {})) {
+    const key = canonicalEntityKey(k);
+    if (!key) continue;
+    const dst = canonDetails[key] || {};
+    const src = entityDetails[k] || {};
+    for (const field of Object.keys(src)) {
+      if (src[field] !== undefined) dst[field] = src[field];
+    }
+    canonDetails[key] = dst;
+  }
+  return canonDetails;
 }
 
 function indexContract(contract) {
@@ -205,10 +221,7 @@ function diffEntitiesBucket(indexed, phaseId, observed) {
   // (caller may pass observed.entityDetails[name] = { primitives:[{id, position, color}] })
   // observed.entityDetails keys are also canonicalized to bridge probe shape.
   if (observed.entityDetails) {
-    const canonDetails = {};
-    for (const k of Object.keys(observed.entityDetails)) {
-      canonDetails[canonicalEntityKey(k)] = observed.entityDetails[k];
-    }
+    const canonDetails = mergeEntityDetailsByCanonicalKey(observed.entityDetails);
     for (const name of expectedVisible) {
       if (!observedVisible.has(name)) continue;
       const exp = indexed.entitiesByFamily[name];
@@ -384,6 +397,27 @@ function isV13RichWorldLabel(spec) {
   return wo !== null && typeof wo === 'object' && !Array.isArray(wo);
 }
 
+// task #52 (v1.4d-ε): hud slots whose text is phase-dynamic at runtime
+// (source HTML phaseTimeline tick rewrites textContent every phase). For
+// schemaVersion < 1.4.0 contracts that author these as plain strings (only
+// phase1 values), per-phase mismatches downgrade to advisory (blocking:false)
+// to preserve backward-compat. v1.4.0+ contracts MUST author polymorphic
+// {perPhase: {...}} records — plain-string text on these ids at v1.4.0+ is
+// an authoring bug and stays blocking.
+var V14D_POLYMORPHIC_ELIGIBLE_HUD_IDS = new Set(['hud.phase', 'hud.tip', 'hud.targethint']);
+
+function gteVersionLocal(a, target) {
+  if (typeof a !== 'string') return false;
+  var av = a.split('.').map(function(n) { return parseInt(n, 10) || 0; });
+  var tv = target.split('.').map(function(n) { return parseInt(n, 10) || 0; });
+  for (var i = 0; i < Math.max(av.length, tv.length); i++) {
+    var x = av[i] || 0, y = tv[i] || 0;
+    if (x > y) return true;
+    if (x < y) return false;
+  }
+  return true;
+}
+
 // Fold (8) Q2: resolve a polymorphic text spec. Accepts a plain string (phase-
 // constant) or `{default?: string, perPhase?: {phaseId: string}}`. Returns the
 // resolved string for the given phaseId, or `undefined` if no text applies.
@@ -403,6 +437,94 @@ function resolvePolymorphicText(spec, phaseId) {
   return undefined;
 }
 
+function clamp01(n) {
+  n = Number(n);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
+function srgbChannelToLinear(c) {
+  c = clamp01(c);
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+function rgbToLab(rgb) {
+  const r = srgbChannelToLinear(rgb && rgb[0]);
+  const g = srgbChannelToLinear(rgb && rgb[1]);
+  const b = srgbChannelToLinear(rgb && rgb[2]);
+  const x = (r * 0.4124564 + g * 0.3575761 + b * 0.1804375) / 0.95047;
+  const y = (r * 0.2126729 + g * 0.7151522 + b * 0.0721750);
+  const z = (r * 0.0193339 + g * 0.1191920 + b * 0.9503041) / 1.08883;
+  function f(t) {
+    return t > 0.008856 ? Math.cbrt(t) : (7.787 * t) + (16 / 116);
+  }
+  const fx = f(x);
+  const fy = f(y);
+  const fz = f(z);
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
+
+function deltaE76(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length < 3 || b.length < 3) return Infinity;
+  const labA = rgbToLab(a);
+  const labB = rgbToLab(b);
+  return Math.sqrt(
+    Math.pow(labA[0] - labB[0], 2) +
+    Math.pow(labA[1] - labB[1], 2) +
+    Math.pow(labA[2] - labB[2], 2)
+  );
+}
+
+function medianNumber(values) {
+  const nums = (values || []).filter(Number.isFinite).sort((a, b) => a - b);
+  if (!nums.length) return Infinity;
+  const mid = Math.floor(nums.length / 2);
+  return nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
+}
+
+function sceneSampleRgb(sample) {
+  if (Array.isArray(sample)) return sample;
+  if (sample && Array.isArray(sample.rgb)) return sample.rgb;
+  return null;
+}
+
+function sceneDeltaSummary(expected, observed, samples) {
+  let sourceSamples = Array.isArray(samples) && samples.length
+    ? samples.filter((sample) => !(sample && sample.ignored)).map(sceneSampleRgb).filter(Boolean)
+    : [observed];
+  if (!sourceSamples.length && Array.isArray(samples) && samples.length) {
+    sourceSamples = samples.map(sceneSampleRgb).filter(Boolean);
+  }
+  const deltas = sourceSamples.map((rgb) => deltaE76(expected, rgb));
+  return {
+    medianDeltaE: medianNumber(deltas),
+    maxDeltaE: deltas.filter(Number.isFinite).reduce((m, n) => Math.max(m, n), 0),
+    toleranceDeltaE: SCENE_DELTA_E_TOLERANCE,
+    samples: (samples || []).map((sample, i) => {
+      const rgb = sceneSampleRgb(sample);
+      const out = {
+        index: i,
+        rgb,
+        deltaE: deltaE76(expected, rgb),
+      };
+      if (sample && !Array.isArray(sample)) {
+        if (sample.point) out.point = sample.point;
+        if (Number.isFinite(sample.x)) out.x = sample.x;
+        if (Number.isFinite(sample.y)) out.y = sample.y;
+        if (sample.ignored) out.ignored = true;
+        if (sample.ignoredReason) out.ignoredReason = sample.ignoredReason;
+      }
+      return out;
+    }),
+  };
+}
+
+function sceneDeltaBlocks(summary) {
+  if (!summary) return true;
+  return summary.medianDeltaE > SCENE_DELTA_E_TOLERANCE ||
+    summary.maxDeltaE > SCENE_DELTA_E_TOLERANCE * 2;
+}
+
 function diffHudBucket(indexed, phaseId, observed) {
   const entries = [];
   const expectedHud = (indexed.contract.hud || []).filter(h => !WORLD_LABEL_HUD_ID_RE.test(h.id));
@@ -413,6 +535,8 @@ function diffHudBucket(indexed, phaseId, observed) {
   }
   const expIds = new Set(expectedHud.map(h => h.id));
   const obsIds = new Set(Object.keys(obsBySlot));
+  const contractSchemaVersion = (indexed.contract && indexed.contract.schemaVersion) || '1.0.0';
+  const v14dOrLater = gteVersionLocal(contractSchemaVersion, '1.4.0');
 
   for (const exp of expectedHud) {
     // Fold (8) Q2: resolve polymorphic text per phase. undefined → text not
@@ -454,13 +578,24 @@ function diffHudBucket(indexed, phaseId, observed) {
       diffPaths.push({ path: '$.style.fontSize', expected: exp.style.fontSize, observed: obs.style.fontSize });
     }
     if (diffPaths.length > 0) {
+      // task #52 (v1.4d-ε): severity downgrade for pre-v1.4 contracts that
+      // authored phase-dynamic hud slots (hud.phase / hud.tip / hud.targethint)
+      // as plain-string text. Per-phase mismatches in that legacy shape stay
+      // advisory (blocking:false). v1.4.0+ contracts MUST use polymorphic
+      // {perPhase:...} — plain-string at v1.4.0+ is an authoring bug, blocking.
+      const isPlainStringText = (typeof exp.text === 'string');
+      const isPolymorphicEligible = V14D_POLYMORPHIC_ELIGIBLE_HUD_IDS.has(exp.id);
+      const downgradeToAdvisory = (
+        isPolymorphicEligible && isPlainStringText && !v14dOrLater
+        && diffPaths.length === 1 && diffPaths[0].path === '$.text'
+      );
       entries.push({
         id: exp.id,
         role: exp.role,
         slot: exp.slot,
         status: 'mismatch',
         diffPaths,
-        blocking: true,
+        blocking: !downgradeToAdvisory,
         provenance: exp.provenance || null,
       });
     }
@@ -569,10 +704,9 @@ function diffWorldLabelBucket(indexed, phaseId, observed) {
 
 // ─── Bucket 4: scene (v1.3) ────────────────────────────────────────────────────
 // task #45 (v1.3): expected `contract.scene.backgroundColor` (linear-RGB
-// 3-element array 0..1) vs observed `observed.scene.backgroundColor`. Blocking
-// when contract declares scene but target doesn't render it — this is the gate
-// #46 worker overlay must turn green by wiring pc.scene.clearColor from the
-// contract.
+// 3-element array 0..1) vs observed actual render color. The runtime bridge is
+// auxiliary only: if it disagrees with canvas/camera evidence, block so a
+// declarative false-green cannot hide the rendered frame.
 function diffSceneBucket(indexed, phaseId, observed) {
   const entries = [];
   const exp = indexed.contract.scene;
@@ -592,12 +726,45 @@ function diffSceneBucket(indexed, phaseId, observed) {
     });
     return entries;
   }
-  if (!Array.isArray(obsBg) || obsBg.length < 3 ||
-      !floatEq(expBg[0], obsBg[0]) || !floatEq(expBg[1], obsBg[1]) || !floatEq(expBg[2], obsBg[2])) {
+  const actualSummary = sceneDeltaSummary(expBg, obsBg, obsScene && obsScene.backgroundColorSamples);
+  if (!Array.isArray(obsBg) || obsBg.length < 3 || sceneDeltaBlocks(actualSummary)) {
     entries.push({
       key: 'backgroundColor',
       status: 'mismatch',
-      diffPaths: [{ path: '$.scene.backgroundColor', expected: expBg, observed: obsBg }],
+      diffPaths: [{
+        path: '$.scene.backgroundColor',
+        expected: expBg,
+        observed: obsBg,
+        source: obsScene && obsScene.backgroundColorSource || 'unknown',
+        medianDeltaE: actualSummary.medianDeltaE,
+        maxDeltaE: actualSummary.maxDeltaE,
+        toleranceDeltaE: actualSummary.toleranceDeltaE,
+        samples: actualSummary.samples,
+      }],
+      blocking: true,
+      provenance: exp.provenance || null,
+    });
+  }
+  const declaredBg = obsScene && obsScene.declaredBackgroundColor;
+  const declaredSummary = Array.isArray(declaredBg) && declaredBg.length >= 3 && Array.isArray(obsBg) && obsBg.length >= 3
+    ? sceneDeltaSummary(declaredBg, obsBg, obsScene && obsScene.backgroundColorSamples)
+    : null;
+  if (declaredSummary && sceneDeltaBlocks(declaredSummary)) {
+    entries.push({
+      key: 'backgroundColor.actual',
+      status: 'declaration-render-mismatch',
+      diffPaths: [{
+        path: '$.scene.backgroundColor',
+        expected: declaredBg,
+        observed: obsBg,
+        declared: declaredBg,
+        actual: obsBg,
+        source: obsScene && obsScene.backgroundColorSource || 'unknown',
+        medianDeltaE: declaredSummary.medianDeltaE,
+        maxDeltaE: declaredSummary.maxDeltaE,
+        toleranceDeltaE: declaredSummary.toleranceDeltaE,
+        samples: declaredSummary.samples,
+      }],
       blocking: true,
       provenance: exp.provenance || null,
     });
@@ -619,10 +786,7 @@ function diffPrimitiveStyleBucket(indexed, phaseId, observed) {
   if (!expectedVisible) return entries;
   const observedVisible = new Set();
   for (const x of (observed.visibleEntities || [])) observedVisible.add(canonicalEntityKey(x));
-  const canonDetails = {};
-  for (const k of Object.keys(observed.entityDetails || {})) {
-    canonDetails[canonicalEntityKey(k)] = observed.entityDetails[k];
-  }
+  const canonDetails = mergeEntityDetailsByCanonicalKey(observed.entityDetails);
 
   for (const name of expectedVisible) {
     const expEntity = indexed.entitiesByFamily[name];
@@ -733,6 +897,7 @@ const SOURCE_PAGE_EXTRACTOR = function(args) {
     entityDetails: {},
     phaseSpec: {},
     hud: [],
+    worldLabels: {},
   };
   // Visible entities: from __gameState if present, else fallback to entity_states.
   // Source HTML exposes __gameState as a fn; some target builds (v2 demo2spec line 10135
@@ -801,6 +966,7 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
     entityDetails: {},
     phaseSpec: {},
     hud: [],
+    worldLabels: {},
     extractorKind: 'webgl-playcanvas',
   };
   // 1. Resolve PlayCanvas application.
@@ -858,7 +1024,7 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
     const SKIP = {
       '__BaseTemplate': 1, '__LunaPool': 1,
       '__AUTOPLAY_ON__': 1, '__CUA_OBSERVER_READY__': 1,
-      'Untitled': 1, 'EventSystem': 1,
+      'Untitled': 1, 'EventSystem': 1, 'Canvas': 1,
     };
     // Unity primitive-default names — composite parts emitted by GFM_Create.AddCompositePart,
     // not game entities. Adding them as "visible entities" produced entity-extra phantoms.
@@ -940,7 +1106,283 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
     }
   }
 
-  // 6. primitiveStyle runtime bridge — task #50 v1.4c-gamma. The worker overlay
+  // 6. scene background — actual-render evidence first.
+  //     Canvas samples are the primary truth for "what pixels were painted".
+  //     The worker bridge remains auxiliary metadata; if bridge and actual
+  //     render disagree, diffSceneBucket blocks that false-green explicitly.
+  try {
+    function clamp01(n) {
+      n = Number(n);
+      if (!isFinite(n)) return 0;
+      return Math.max(0, Math.min(1, n));
+    }
+    function rgbFromColorObj(c) {
+      if (!c || typeof c.r !== 'number') return null;
+      return [clamp01(c.r), clamp01(c.g), clamp01(c.b)];
+    }
+    function medianComponent(values) {
+      values = values.slice().sort(function(a, b) { return a - b; });
+      if (!values.length) return 0;
+      var mid = Math.floor(values.length / 2);
+      return values.length % 2 ? values[mid] : (values[mid - 1] + values[mid]) / 2;
+    }
+    function medianRgb(samples) {
+      if (!samples || !samples.length) return null;
+      var usable = samples.filter(function(s) { return !s.ignored; });
+      if (!usable.length) usable = samples;
+      return [
+        medianComponent(usable.map(function(s) { return s.rgb[0]; })),
+        medianComponent(usable.map(function(s) { return s.rgb[1]; })),
+        medianComponent(usable.map(function(s) { return s.rgb[2]; }))
+      ];
+    }
+    function sceneFromBridge() {
+      if (typeof window === 'undefined' || !window.__storyboardSceneDetails) return null;
+      var bg = window.__storyboardSceneDetails.backgroundColor;
+      if (!Array.isArray(bg) || bg.length < 3) return null;
+      return [clamp01(bg[0]), clamp01(bg[1]), clamp01(bg[2])];
+    }
+    function sceneFromCamera() {
+      var clear = null;
+      if (pcApp && pcApp.scene && pcApp.scene.activeCamera) {
+        clear = pcApp.scene.activeCamera.clearColor;
+      }
+      if (!clear && pcApp && pcApp.root) {
+        (function walk(node) {
+          if (!node || clear) return;
+          if (node.camera && node.camera.clearColor) {
+            clear = node.camera.clearColor;
+            return;
+          }
+          var children = node.children || node._children || [];
+          for (var ci = 0; ci < children.length; ci++) walk(children[ci]);
+        })(pcApp.root);
+      }
+      return rgbFromColorObj(clear);
+    }
+    function sceneFromCanvas() {
+      var canvas = null;
+      if (typeof document !== 'undefined') {
+        if (typeof document.getElementById === 'function') canvas = document.getElementById('application-canvas');
+        if (!canvas && typeof document.querySelector === 'function') canvas = document.querySelector('canvas');
+      }
+      if (!canvas || typeof canvas.getContext !== 'function') return null;
+      var gl = null;
+      try { gl = canvas.getContext('webgl2', { preserveDrawingBuffer: true }); } catch (e2) { gl = null; }
+      if (!gl) {
+        try { gl = canvas.getContext('webgl', { preserveDrawingBuffer: true }); } catch (e1) { gl = null; }
+      }
+      if (!gl || typeof gl.readPixels !== 'function') return null;
+      var w = canvas.width || 0;
+      var h = canvas.height || 0;
+      if (w <= 4 || h <= 4) return null;
+      var inset = Math.max(8, Math.round(Math.min(w, h) * 0.02));
+      inset = Math.min(inset, Math.max(1, Math.floor((Math.min(w, h) - 1) / 2)));
+      var left = inset;
+      var right = Math.max(0, w - 1 - inset);
+      var bottom = inset;
+      var top = Math.max(0, h - 1 - inset);
+      var midX = Math.floor((left + right) / 2);
+      var midY = Math.floor((bottom + top) / 2);
+      var points = [
+        { point: 'bottom-left', x: left, y: bottom },
+        { point: 'bottom-right', x: right, y: bottom },
+        { point: 'top-left', x: left, y: top },
+        { point: 'top-right', x: right, y: top },
+        { point: 'bottom-mid', x: midX, y: bottom },
+        { point: 'top-mid', x: midX, y: top },
+        { point: 'left-mid', x: left, y: midY },
+        { point: 'right-mid', x: right, y: midY }
+      ];
+      function rectContains(rect, x, y, pad) {
+        if (!rect || !isFinite(rect.x) || !isFinite(rect.y) ||
+            !isFinite(rect.width) || !isFinite(rect.height)) return false;
+        pad = isFinite(pad) ? pad : 0;
+        return x >= rect.x - pad && x <= rect.x + rect.width + pad &&
+          y >= rect.y - pad && y <= rect.y + rect.height + pad;
+      }
+      function sampleOccluder(x, y) {
+        try {
+          var manifest = window.__BLUEPRINT_VISUAL_ASSETS__ || {};
+          var fc = manifest.fidelityContract || {};
+          var phases = fc.phases || [];
+          var phase = null;
+          for (var pi = 0; pi < phases.length; pi++) {
+            if (phases[pi] && phases[pi].id === phaseId) {
+              phase = phases[pi];
+              break;
+            }
+          }
+          if (!phase) return null;
+          var groups = [
+            { kind: 'anchor', rects: phase.projectedAnchors || {} },
+            { kind: 'worldLabel', rects: phase.projectedWorldLabels || {} }
+          ];
+          for (var gi = 0; gi < groups.length; gi++) {
+            var rects = groups[gi].rects;
+            var keys = Object.keys(rects || {});
+            for (var ki = 0; ki < keys.length; ki++) {
+              if (rectContains(rects[keys[ki]], x, y, 6)) return groups[gi].kind + ':' + keys[ki];
+            }
+          }
+        } catch (eOcc) {}
+        return null;
+      }
+      var pix = new Uint8Array(4);
+      var samples = [];
+      for (var pi = 0; pi < points.length; pi++) {
+        try {
+          gl.readPixels(points[pi].x, points[pi].y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pix);
+          var ignoredReason = sampleOccluder(points[pi].x, points[pi].y);
+          samples.push({
+            point: points[pi].point,
+            x: points[pi].x,
+            y: points[pi].y,
+            rgb: [pix[0] / 255, pix[1] / 255, pix[2] / 255],
+            ignored: !!ignoredReason,
+            ignoredReason: ignoredReason || undefined
+          });
+        } catch (eRead) {}
+      }
+      if (!samples.length) return null;
+      return {
+        backgroundColor: medianRgb(samples),
+        samples: samples,
+        strategy: '8-point-edge-ring',
+        inset: inset
+      };
+    }
+    var bridgeBg = sceneFromBridge();
+    var cameraBg = sceneFromCamera();
+    var canvasInfo = sceneFromCanvas();
+    var canvasBg = canvasInfo && canvasInfo.backgroundColor;
+    var bgObserved = canvasBg || cameraBg || bridgeBg;
+    if (bgObserved || bridgeBg || cameraBg) {
+      out.scene = { backgroundColor: bgObserved };
+      if (bridgeBg) out.scene.declaredBackgroundColor = bridgeBg;
+      if (canvasBg) out.scene.actualBackgroundColor = canvasBg;
+      if (canvasInfo && canvasInfo.samples) out.scene.backgroundColorSamples = canvasInfo.samples;
+      if (canvasInfo && canvasInfo.strategy) out.scene.backgroundColorSampleStrategy = canvasInfo.strategy;
+      if (canvasInfo && Number.isFinite(canvasInfo.inset)) out.scene.backgroundColorSampleInset = canvasInfo.inset;
+      if (cameraBg) out.scene.cameraBackgroundColor = cameraBg;
+      out.scene.backgroundColorSource = canvasBg ? 'canvas-readpixels' : (cameraBg ? 'camera-clearColor' : 'bridge');
+    }
+  } catch (e) { /* leave scene missing on extractor error */ }
+
+  // 6a. worldLabel DOM overlay — task #49 v1.4c-β. The worker installs
+  //     `#bp-storyboard-worldlabels > .bp-worldlabel[data-entity]` divs, one per
+  //     contract.entities[].worldLabel. Extractor reads text regardless of
+  //     visibility (DOM presence is the gate).
+  //     Populates observed.entityDetails[entityName].worldLabel string that
+  //     diffWorldLabelBucket compares against rich worldLabel.text.
+  //     v1.4e also reads screen-space rects from the worker bridge
+  //     `window.__targetWorldLabels` or, as a fallback, DOM getBoundingClientRect.
+  //     The result is normalized back to the contract viewport (default 1280x720)
+  //     and exposed as observed.worldLabels[entityId].
+  try {
+    function viewportBaselineForWorldLabels() {
+      var fallback = { width: 1280, height: 720 };
+      try {
+        var va = (typeof window !== 'undefined' && window.__BLUEPRINT_VISUAL_ASSETS__) || {};
+        var candidates = [
+          va.viewportBaseline,
+          va.fidelityContract && va.fidelityContract.viewportBaseline,
+          va.sourceFidelityContract && va.sourceFidelityContract.viewportBaseline
+        ];
+        for (var vi = 0; vi < candidates.length; vi++) {
+          var v = candidates[vi];
+          if (v && isFinite(Number(v.width)) && isFinite(Number(v.height))) {
+            return { width: Number(v.width), height: Number(v.height) };
+          }
+        }
+      } catch (_e) {}
+      return fallback;
+    }
+    function rectNumber(rec, keys) {
+      for (var ri = 0; ri < keys.length; ri++) {
+        if (rec && rec[keys[ri]] != null && isFinite(Number(rec[keys[ri]]))) return Number(rec[keys[ri]]);
+      }
+      return NaN;
+    }
+    function normalizeWorldLabelRect(entId, rec) {
+      if (!entId || !rec || typeof rec !== 'object') return null;
+      var x = rectNumber(rec, ['x', 'x_px']);
+      var y = rectNumber(rec, ['y', 'y_px']);
+      var w = rectNumber(rec, ['width', 'w', 'w_px']);
+      var h = rectNumber(rec, ['height', 'h', 'h_px']);
+      var cx = rectNumber(rec, ['centerX', 'cx', 'center_x']);
+      var cy = rectNumber(rec, ['centerY', 'cy', 'center_y']);
+      if (!isFinite(x) && isFinite(cx) && isFinite(w)) x = cx - w / 2;
+      if (!isFinite(y) && isFinite(cy) && isFinite(h)) y = cy - h / 2;
+      if (!isFinite(cx) && isFinite(x) && isFinite(w)) cx = x + w / 2;
+      if (!isFinite(cy) && isFinite(y) && isFinite(h)) cy = y + h / 2;
+      if (![x, y, w, h, cx, cy].every(isFinite)) return null;
+      return {
+        text: typeof rec.text === 'string' ? rec.text : undefined,
+        x: x,
+        y: y,
+        width: Math.max(0, w),
+        height: Math.max(0, h),
+        centerX: cx,
+        centerY: cy,
+        visible: rec.visible !== false
+      };
+    }
+    function writeWorldLabelRect(entId, rec) {
+      var norm = normalizeWorldLabelRect(entId, rec);
+      if (!norm) return;
+      out.worldLabels[entId] = norm;
+      if (!out.entityDetails[entId]) out.entityDetails[entId] = {};
+      if (typeof norm.text === 'string' && norm.text) out.entityDetails[entId].worldLabel = norm.text;
+    }
+    function rectFromDom(el) {
+      if (!el || typeof el.getBoundingClientRect !== 'function') return null;
+      var base = viewportBaselineForWorldLabels();
+      var ww = (typeof window !== 'undefined' && window.innerWidth) || base.width;
+      var wh = (typeof window !== 'undefined' && window.innerHeight) || base.height;
+      var sx = base.width / ww;
+      var sy = base.height / wh;
+      var r = el.getBoundingClientRect();
+      var visible = true;
+      try {
+        var cs = (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') ? window.getComputedStyle(el) : null;
+        visible = !(cs && (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0));
+      } catch (_e2) {}
+      if (r.width <= 0 || r.height <= 0) visible = false;
+      return {
+        text: (el.textContent || '').trim(),
+        x: Number(r.left) * sx,
+        y: Number(r.top) * sy,
+        width: Number(r.width) * sx,
+        height: Number(r.height) * sy,
+        visible: visible
+      };
+    }
+    var wlNodes = document.querySelectorAll('#bp-storyboard-worldlabels .bp-worldlabel[data-entity]');
+    for (var wi = 0; wi < wlNodes.length; wi++) {
+      var wlEl = wlNodes[wi];
+      var entId = wlEl.getAttribute('data-entity');
+      if (!entId) continue;
+      var wlText = (wlEl.textContent || '').trim();
+      if (!out.entityDetails[entId]) out.entityDetails[entId] = {};
+      out.entityDetails[entId].worldLabel = wlText;
+      writeWorldLabelRect(entId, rectFromDom(wlEl));
+    }
+    if (typeof window !== 'undefined' && window.__targetWorldLabels && typeof window.__targetWorldLabels === 'object') {
+      var bridge = window.__targetWorldLabels;
+      var bridgeForPhase = (phaseId && bridge[phaseId] && typeof bridge[phaseId] === 'object') ? bridge[phaseId] : null;
+      if (!bridgeForPhase && bridge.current && typeof bridge.current === 'object') bridgeForPhase = bridge.current;
+      if (!bridgeForPhase) bridgeForPhase = bridge;
+      var keys = Object.keys(bridgeForPhase);
+      for (var bi = 0; bi < keys.length; bi++) {
+        var key = keys[bi];
+        if (key === 'current' || /^phase\d+/i.test(key)) continue;
+        writeWorldLabelRect(key, bridgeForPhase[key]);
+      }
+    }
+  } catch (e) { /* leave entityDetails empty on extractor error */ }
+
+  // 6b. primitiveStyle runtime bridge — task #50 v1.4c-gamma. The worker overlay
   //     consumes contract.entities[].primitiveStyle to choose a styled composite
   //     and exposes the consumed {modelRef, baseColor} at
   //     window.__storyboardEntityDetails[entity].primitiveStyle. Read that exact
@@ -968,48 +1410,6 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
       }
     }
   } catch (e) { /* leave primitiveStyle missing on extractor error */ }
-
-  // 6a. worldLabel DOM overlay — task #49 v1.4c-β. The worker installs
-  //     `#bp-storyboard-worldlabels > .bp-worldlabel[data-entity]` divs, one per
-  //     contract.entities[].worldLabel. Extractor reads text regardless of
-  //     visibility (DOM presence is the gate; positioning is visual-only).
-  //     Populates observed.entityDetails[entityName].worldLabel string that
-  //     diffWorldLabelBucket compares against rich worldLabel.text.
-  try {
-    var wlNodes = document.querySelectorAll('#bp-storyboard-worldlabels .bp-worldlabel[data-entity]');
-    for (var wi = 0; wi < wlNodes.length; wi++) {
-      var wlEl = wlNodes[wi];
-      var entId = wlEl.getAttribute('data-entity');
-      if (!entId) continue;
-      var wlText = (wlEl.textContent || '').trim();
-      if (!out.entityDetails[entId]) out.entityDetails[entId] = {};
-      out.entityDetails[entId].worldLabel = wlText;
-    }
-  } catch (e) { /* leave entityDetails empty on extractor error */ }
-
-  // 6. scene — surface runtime camera clearColor as observed.scene.backgroundColor
-  //    for #48 v1.4c-α gate. diffSceneBucket compares contract.scene.backgroundColor
-  //    (linear [r,g,b]) against this. Without this, scene bucket sticks at missing
-  //    regardless of worker overlay writing clearColor.
-  try {
-    var clear = null;
-    if (pcApp && pcApp.scene && pcApp.scene.activeCamera && pcApp.scene.activeCamera.clearColor) {
-      clear = pcApp.scene.activeCamera.clearColor;
-    } else if (pcApp && pcApp.root) {
-      var cstack = [pcApp.root];
-      var csafe = 0;
-      while (cstack.length && csafe++ < 5000) {
-        var cn = cstack.shift();
-        if (!cn) continue;
-        if (cn.camera && cn.camera.clearColor) { clear = cn.camera.clearColor; break; }
-        var cch = cn._children || cn.children || [];
-        for (var ci = 0; ci < cch.length; ci++) cstack.push(cch[ci]);
-      }
-    }
-    if (clear && typeof clear.r === 'number') {
-      out.scene = { backgroundColor: [clear.r, clear.g, clear.b] };
-    }
-  } catch (e) { /* leave scene undefined on extractor error */ }
 
   return out;
 };
@@ -1102,6 +1502,81 @@ function runAnchorDiff(phaseId, expectedAnchors, actualAnchors, viewport, tolera
   return entries;
 }
 
+// task #57 (v1.4e Axis A): Stage 5 world-label position diff. Parallels
+// runAnchorDiff with these distinctions:
+//   - Field names use DOM-rect convention {x, y, width, height} (Jonny msg=
+//     fd1a7e7a interface lock), not {x_px, y_px, w_px, h_px}.
+//   - Records with provenance='no-label' are SKIPPED entirely (legitimate
+//     Sprite-less entity, not a drift signal).
+//   - Severity is gated by `enforceBlocking` (caller passes true at
+//     schemaVersion>=1.5.0, false pre-1.5.0). Off-viewport always advisory.
+//   - Default tolerance is ±7px (Jonny lock; tighter than ±8 anchor).
+//   - Category prefix 'worldLabel-position-*' so the stage-layer bucket
+//     aggregator (split('-')[0]) routes entries into the 'worldLabel' bucket.
+function runWorldLabelPositionDiff(phaseId, expectedLabels, actualLabels, viewport, tolerancePx, enforceBlocking) {
+  const entries = [];
+  if (!expectedLabels || typeof expectedLabels !== 'object') return entries;
+  const tol = (typeof tolerancePx === 'number' && tolerancePx >= 0) ? tolerancePx : 7;
+  const W = (viewport && viewport.width) || 1280;
+  const H = (viewport && viewport.height) || 720;
+  const actual = (actualLabels && typeof actualLabels === 'object') ? actualLabels : {};
+  const baseBlocking = enforceBlocking === true;
+  for (const entId of Object.keys(expectedLabels)) {
+    const exp = expectedLabels[entId];
+    if (!exp || typeof exp !== 'object') continue;
+    // no-label provenance is a legitimate terminal state (entity has no
+    // Sprite child) — suppress all severity here.
+    if (exp.provenance === 'no-label') continue;
+    const x = Number(exp.x) || 0;
+    const y = Number(exp.y) || 0;
+    const w = Number(exp.width) || 0;
+    const h = Number(exp.height) || 0;
+    const vpIntersect = (x + w) >= 0 && x <= W && (y + h) >= 0 && y <= H;
+    const category = vpIntersect ? 'worldLabel-position-mismatch' : 'worldLabel-position-mismatch-off-viewport';
+    // Off-viewport always downgrades to advisory; on-viewport follows
+    // schemaVersion gate (advisory pre-v1.5, blocking at v1.5+).
+    const blocking = baseBlocking && vpIntersect;
+    const act = actual[entId];
+    if (!act || typeof act !== 'object') {
+      entries.push({
+        path: 'phases.' + phaseId + '.projectedWorldLabels.' + entId,
+        source: '<contract>',
+        target: 'missing',
+        category: category,
+        phaseId: phaseId,
+        entityId: entId,
+        key: '*',
+        expected: 'present',
+        actual: 'missing',
+        blocking: blocking
+      });
+      continue;
+    }
+    for (const k of ['x', 'y', 'width', 'height']) {
+      const ev = Number(exp[k]) || 0;
+      const av = Number(act[k]) || 0;
+      const delta = Math.abs(ev - av);
+      if (delta > tol) {
+        entries.push({
+          path: 'phases.' + phaseId + '.projectedWorldLabels.' + entId + '.' + k,
+          source: '<contract>',
+          target: 'mismatch',
+          category: category,
+          phaseId: phaseId,
+          entityId: entId,
+          key: k,
+          expected: ev,
+          actual: av,
+          deltaPx: delta,
+          tolerancePx: tol,
+          blocking: blocking
+        });
+      }
+    }
+  }
+  return entries;
+}
+
 // ─── Module exports ────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -1125,6 +1600,7 @@ module.exports = {
   WEBGL_PAGE_EXTRACTOR,
   makePageExtractor,
   runAnchorDiff: runAnchorDiff,
+  runWorldLabelPositionDiff: runWorldLabelPositionDiff,
   // Sam compat: drop-in for runFieldLevelDiff(template, phaseId, sourceFields, targetFields).
   // template = { indexed }
   // sourceFields / targetFields = page extractor output snapshots

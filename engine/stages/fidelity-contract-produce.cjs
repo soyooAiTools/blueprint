@@ -44,6 +44,8 @@ var path = require('path');
 var fidelityContract = require('../fidelity-contract.cjs');
 var migrateLib = require('../../scripts/migrate-v1.1-to-v1.2.cjs');
 var migrateV13Lib = require('../../scripts/migrate-v1.2-to-v1.3.cjs');
+var migrateV14dLib = require('../../scripts/migrate-v1.3-to-v1.4d.cjs');
+var migrateV14eLib = require('../../scripts/migrate-v1.4d-to-v1.4e.cjs');
 
 function gteVersion(a, target) {
   if (typeof a !== 'string') return false;
@@ -85,6 +87,49 @@ function alreadyHasProjectedAnchors(contract) {
   });
 }
 
+// task #52 (v1.4d): contract is already "v1.4d-satisfied" for hud polymorphic?
+// True iff there is no migratable work — either hud is absent / empty, or no
+// polymorphic-eligible id is present, or every present polymorphic-eligible id
+// already has {perPhase: {...}} text shape. False ONLY when at least one
+// polymorphic-eligible id exists in hud with plain-string text (i.e. migrate
+// would actually rewrite it).
+function alreadyHasV14dHudPolymorphic(contract) {
+  if (!contract) return false;
+  if (!Array.isArray(contract.hud) || contract.hud.length === 0) return true;
+  var POLYMORPHIC_HUD_IDS = migrateV14dLib.POLYMORPHIC_HUD_IDS;
+  for (var i = 0; i < POLYMORPHIC_HUD_IDS.length; i++) {
+    var slotId = POLYMORPHIC_HUD_IDS[i];
+    var entry = null;
+    for (var j = 0; j < contract.hud.length; j++) {
+      if (contract.hud[j] && contract.hud[j].id === slotId) { entry = contract.hud[j]; break; }
+    }
+    if (!entry) continue; // slot not authored → not a migration target
+    if (typeof entry.text === 'string') return false; // plain string → needs migrate
+    if (!entry.text || !entry.text.perPhase || typeof entry.text.perPhase !== 'object') {
+      return false; // structurally non-polymorphic → needs migrate
+    }
+  }
+  return true;
+}
+
+// task #57 (v1.4e Axis A): contract is already "v1.4e-satisfied" for projectedWorldLabels?
+// True iff there is no migratable work — either phases array is empty (defer to
+// upstream skip), or every phase has nothing to label (showEntities absent or
+// empty), or every phase with showEntities has a non-empty projectedWorldLabels
+// object. False ONLY when at least one phase carries showEntities but lacks
+// projectedWorldLabels coverage (i.e. v1.4e migrate would actually populate).
+// Mirrors alreadyHasV14dHudPolymorphic vacuous-satisfaction semantics so legacy
+// pre-1.4 fixtures (no showEntities) don't trip the gate.
+function alreadyHasV14eWorldLabels(contract) {
+  if (!contract || !Array.isArray(contract.phases) || contract.phases.length === 0) return false;
+  return contract.phases.every(function(p) {
+    if (!p) return true;
+    if (!Array.isArray(p.showEntities) || p.showEntities.length === 0) return true;
+    return p.projectedWorldLabels && typeof p.projectedWorldLabels === 'object'
+      && Object.keys(p.projectedWorldLabels).length > 0;
+  });
+}
+
 // task #45 (v1.3): contract has the source-HTML-derived field family already?
 // True if scene.backgroundColor is set AND every entity (modulo Unity-internal
 // auxiliary ones absent from source) has worldLabel.text and primitiveStyle.modelRef.
@@ -121,12 +166,15 @@ module.exports = {
         'no base contract resolvable from ctx.blueprint.fidelityContract / fidelityContractPath — skip (helpers.buildVisualAssetsForRequest fail-loud will report)');
       return true;
     }
-    // v1.2 anchors AND v1.3 style fields both present → fully idempotent, skip execute.
-    // v1.2 anchors only → execute() so v1.3 chain runs; v1.2 stage will short-circuit
-    // internally because alreadyHasProjectedAnchors() also gates the migrate call.
-    if (alreadyHasProjectedAnchors(base.contract) && alreadyHasV13Fields(base.contract)) {
+    // v1.2 anchors AND v1.3 style fields AND v1.4d polymorphic hud all present →
+    // fully idempotent, skip execute. Otherwise execute() so the chain steps
+    // (v1.1→v1.2 / v1.2→v1.3 / v1.3→v1.4d) each short-circuit internally as needed.
+    if (alreadyHasProjectedAnchors(base.contract)
+        && alreadyHasV13Fields(base.contract)
+        && alreadyHasV14dHudPolymorphic(base.contract)
+        && alreadyHasV14eWorldLabels(base.contract)) {
       ctx.addLog && ctx.addLog('fidelity-contract-produce',
-        'base contract from ' + base.source + ' already has projectedAnchors + v1.3 style fields — skip (idempotent re-entry)');
+        'base contract from ' + base.source + ' already has projectedAnchors + v1.3 style fields + v1.4d hud polymorphic + v1.4e worldLabels — skip (idempotent re-entry)');
       // Materialize in-memory so downstream compile/source-diff sees same object.
       if (!ctx.blueprint) ctx.blueprint = {};
       if (!ctx.blueprint.fidelityContract) ctx.blueprint.fidelityContract = base.contract;
@@ -244,6 +292,77 @@ module.exports = {
         ' primitiveStyleSet=' + v13c.primitiveStylePopulated +
         ' sourceDeclared=' + (v13c.sourceDeclaredEntities || 0) +
         ' auxMissing=' + v13c.entitiesMissingFromSource);
+
+      // task #52 (v1.4d-ε): chain v1.3 → v1.4d hud polymorphic fold.
+      // Source HTML PHASES[].guideText folded into {perPhase: {...}} for the
+      // 3 phase-dynamic hud slots. No-op if already polymorphic (idempotent).
+      if (!gteVersion(v13.contract.schemaVersion, '1.3.0')) {
+        ctx.addLog && ctx.addLog('fidelity-contract-produce',
+          'v1.4d skipped — upstream contract still at ' + v13.contract.schemaVersion + ' (< 1.3.0)');
+        return;
+      }
+      if (alreadyHasV14dHudPolymorphic(v13.contract)) {
+        ctx.addLog && ctx.addLog('fidelity-contract-produce',
+          'v1.4d skipped — hud.phase / hud.tip / hud.targethint already polymorphic (idempotent re-entry)');
+        return;
+      }
+      var v14d = migrateV14dLib.migrate(v13.contract, {
+        sourceHtml: ctx.sourceHtmlPath,
+        forceReextract: false
+      });
+      var v14dValidation = fidelityContract.validateFidelityContract(v14d.contract);
+      if (!v14dValidation.valid) {
+        var v14dErrSummary = v14dValidation.errors.slice(0, 5).join('; ');
+        throw new Error('fidelity-contract-produce: v1.4d enriched contract failed validation: ' + v14dErrSummary);
+      }
+      ctx.blueprint.fidelityContract = v14d.contract;
+      ctx.fidelityContractProduceReportV14d = v14d.report;
+      var v14dc = v14d.report.counts;
+      ctx.addLog && ctx.addLog('fidelity-contract-produce',
+        'v1.4d enriched: from=' + v14d.report.fromVersion +
+        ' to=' + v14d.report.toVersion +
+        ' bumped=' + v14d.report.bumpedSchemaVersion +
+        ' phasesExtracted=' + v14dc.phasesExtracted +
+        ' hudSlotsRewritten=' + v14dc.hudSlotsRewritten +
+        ' hudSlotsAlreadyPolymorphic=' + v14dc.hudSlotsAlreadyPolymorphic +
+        ' hudSlotsMissingInContract=' + v14dc.hudSlotsMissingInContract);
+
+      // task #57 (v1.4e Axis A): chain v1.4d → v1.4e worldlabel-extractor.
+      // Source HTML Sprite labels projected to screen-space rects per phase
+      // per entity. Worker (#56 PR #40) consumes as DOM rect-fit target;
+      // Stage 5 field-diff promotes to blocking at v1.5+. No-op if already
+      // populated (idempotent).
+      if (!gteVersion(v14d.contract.schemaVersion, '1.4.0')) {
+        ctx.addLog && ctx.addLog('fidelity-contract-produce',
+          'v1.4e skipped — upstream contract still at ' + v14d.contract.schemaVersion + ' (< 1.4.0)');
+        return;
+      }
+      if (alreadyHasV14eWorldLabels(v14d.contract)) {
+        ctx.addLog && ctx.addLog('fidelity-contract-produce',
+          'v1.4e skipped — every phase already has projectedWorldLabels (idempotent re-entry)');
+        return;
+      }
+      return migrateV14eLib.migrate(v14d.contract, {
+        sourceHtml: ctx.sourceHtmlPath,
+        forceReextract: false
+      }).then(function(v14e) {
+        var v14eValidation = fidelityContract.validateFidelityContract(v14e.contract);
+        if (!v14eValidation.valid) {
+          var v14eErrSummary = v14eValidation.errors.slice(0, 5).join('; ');
+          throw new Error('fidelity-contract-produce: v1.4e enriched contract failed validation: ' + v14eErrSummary);
+        }
+        ctx.blueprint.fidelityContract = v14e.contract;
+        ctx.fidelityContractProduceReportV14e = v14e.report;
+        var v14ec = v14e.report.counts;
+        ctx.addLog && ctx.addLog('fidelity-contract-produce',
+          'v1.4e enriched: from=' + v14e.report.fromVersion +
+          ' to=' + v14e.report.toVersion +
+          ' bumped=' + v14e.report.bumpedSchemaVersion +
+          ' extracted=' + v14ec.extractedCount +
+          ' noLabel=' + v14ec.noLabelCount +
+          ' inferred=' + v14ec.inferredCount +
+          ' advisoryGaps=' + v14ec.advisoryGapCount);
+      });
     });
   },
 
@@ -251,6 +370,8 @@ module.exports = {
     loadBaseContract: loadBaseContract,
     alreadyHasProjectedAnchors: alreadyHasProjectedAnchors,
     alreadyHasV13Fields: alreadyHasV13Fields,
+    alreadyHasV14dHudPolymorphic: alreadyHasV14dHudPolymorphic,
+    alreadyHasV14eWorldLabels: alreadyHasV14eWorldLabels,
     gteVersion: gteVersion
   }
 };

@@ -514,8 +514,12 @@ window.__blueprintResolveGameFlowComponent = null;
     requestAnimationFrame(function() {
       requestAnimationFrame(function() {
         function markReady() { window.__fidelityReady = true; }
+        var waits = [];
         if (typeof window.__blueprintWaitForFidelityState === "function") {
-          window.__blueprintWaitForFidelityState(null).then(markReady, markReady);
+          waits.push(window.__blueprintWaitForFidelityState(null));
+        }
+        if (waits.length) {
+          Promise.all(waits).then(markReady, markReady);
         } else {
           markReady();
         }
@@ -535,6 +539,127 @@ window.__blueprintResolveGameFlowComponent = null;
     }
     return _origGetCtx.call(this, type, attrs);
   };
+})();
+// Apply source scene background before Unity/PlayCanvas creates its first
+// skybox draw call. Later camera/CSS updates are still repeated after Start(),
+// but this early path prevents RenderSettings defaults from painting the
+// canvas with Luna's template blue while the bridge reports the contract color.
+(function installStoryboardSceneBackgroundBootstrap() {
+  function clampStoryboardColor(value, fallback) {
+    var n = Number(value);
+    if (!isFinite(n)) n = Number(fallback);
+    if (!isFinite(n)) n = 0;
+    return Math.max(0, Math.min(1, n));
+  }
+  function storyboardSceneBackgroundFromManifest() {
+    try {
+      var manifest = window.__BLUEPRINT_VISUAL_ASSETS__ || {};
+      var fc = manifest.fidelityContract || {};
+      var bg = fc.scene && fc.scene.backgroundColor;
+      if (!Array.isArray(bg) || bg.length < 3) return null;
+      return [
+        clampStoryboardColor(bg[0], 0),
+        clampStoryboardColor(bg[1], 0),
+        clampStoryboardColor(bg[2], 0)
+      ];
+    } catch(e) { return null; }
+  }
+  function storyboardPcColor(rgb) {
+    if (!rgb || typeof pc === 'undefined' || !pc.Color) return null;
+    return new pc.Color(rgb[0], rgb[1], rgb[2], 1);
+  }
+  function storyboardCssColor(rgb) {
+    return 'rgb(' + Math.round(rgb[0] * 255) + ',' + Math.round(rgb[1] * 255) + ',' + Math.round(rgb[2] * 255) + ')';
+  }
+  function storyboardCameraClearFlag() {
+    try {
+      var flags = window.UnityEngine && UnityEngine.CameraClearFlags;
+      if (!flags) return 2;
+      if (flags.SolidColor != null) return flags.SolidColor;
+      if (flags.Color != null) return flags.Color;
+      if (flags.Kr$ != null) return flags.Kr$;
+      if (flags.PJ$ != null) return flags.PJ$;
+    } catch(e) {}
+    return 2;
+  }
+  function recordStoryboardSceneBackground(rgb, source) {
+    if (!rgb) return;
+    window.__storyboardSceneDetails = window.__storyboardSceneDetails || {};
+    window.__storyboardSceneDetails.backgroundColor = rgb.slice(0, 3);
+    window.__storyboardSceneDetails.source = source || 'fidelityContract.scene.backgroundColor';
+  }
+  window.__storyboardApplyActualSceneBackground = function(source) {
+    var rgb = storyboardSceneBackgroundFromManifest();
+    if (!rgb) return 0;
+    var applied = 0;
+    var c = storyboardPcColor(rgb);
+    try {
+      var css = storyboardCssColor(rgb);
+      if (document && document.documentElement) document.documentElement.style.backgroundColor = css;
+      if (document && document.body) document.body.style.backgroundColor = css;
+      var canvas = document && (document.getElementById('application-canvas') || document.querySelector('canvas'));
+      if (canvas && canvas.style) canvas.style.backgroundColor = css;
+    } catch(eCss) {}
+    try {
+      if (window.UnityEngine && UnityEngine.RenderSettings) {
+        try { UnityEngine.RenderSettings.skybox = null; applied++; } catch(eSkyProp) {}
+        try { if (typeof UnityEngine.RenderSettings.setskybox === 'function') UnityEngine.RenderSettings.setskybox(null); } catch(eSkySet) {}
+        if (c) {
+          try { UnityEngine.RenderSettings.ambientLight = c; } catch(eAmb) {}
+          try { UnityEngine.RenderSettings.ambientSkyColor = c; } catch(eAmbSky) {}
+          try { UnityEngine.RenderSettings.ambientGroundColor = c; } catch(eAmbGround) {}
+          try { UnityEngine.RenderSettings.ambientEquatorColor = c; } catch(eAmbEq) {}
+        }
+      }
+    } catch(eRenderSettings) {}
+    try {
+      var mainCam = window.UnityEngine && UnityEngine.Camera && UnityEngine.Camera.main;
+      if (mainCam && c) {
+        mainCam.backgroundColor = c;
+        mainCam.clearFlags = storyboardCameraClearFlag();
+        applied++;
+      }
+    } catch(eMainCam) {}
+    try {
+      var pcApp = (window.app && window.app.app) ||
+        (window.pc && window.pc.Application && typeof window.pc.Application.getApplication === 'function' && window.pc.Application.getApplication()) || null;
+      if (pcApp && pcApp.scene && pcApp.scene.skybox) {
+        try { pcApp.scene.skybox.isVisible = false; applied++; } catch(eSkyVisible) {}
+        try {
+          var mi = pcApp.scene.skybox._meshInstance || (pcApp.scene.skybox.meshInstance ? pcApp.scene.skybox.meshInstance : null);
+          if (mi) {
+            mi.visible = false;
+            mi.cull = true;
+            if (mi.node) mi.node.enabled = false;
+          }
+        } catch(eSkyMi) {}
+      }
+      if (pcApp && pcApp.graphicsDevice && c) {
+        try { pcApp.graphicsDevice.setClearColor(c.r, c.g, c.b, 1); applied++; } catch(eGd) {}
+      }
+      if (pcApp && pcApp.root && c) {
+        try {
+          (function walkCamera(node) {
+            if (!node) return;
+            if (node.camera) {
+              try { node.camera.clearColor = c; } catch(ePcCamColor) {}
+              try { node.camera.clearColorBuffer = true; } catch(ePcCamColorBuffer) {}
+              try { node.camera.clearDepthBuffer = true; } catch(ePcCamDepthBuffer) {}
+              try { node.camera.clearFlags = storyboardCameraClearFlag(); } catch(ePcCamFlags) {}
+              applied++;
+            }
+            var children = node.children || node._children || [];
+            for (var i = 0; i < children.length; i++) walkCamera(children[i]);
+          })(pcApp.root);
+        } catch(eWalkCamera) {}
+      }
+    } catch(ePc) {}
+    recordStoryboardSceneBackground(rgb, source);
+    return applied;
+  };
+  window.addEventListener("luna:starting", function() {
+    try { window.__storyboardApplyActualSceneBackground('luna-starting'); } catch(e) {}
+  });
 })();
 // Fallback: if the standalone preview never receives a platform start event,
 // trigger Luna's normal start path instead of calling startGame() directly.
@@ -956,13 +1081,111 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
       fixNullShaders(); // Run immediately after Start() — don't wait for timers
       setTimeout(fixNullShaders, 2000); // Re-run as safety net
       setTimeout(fixNullShaders, 5000);
+
+      function clampStoryboardColor(value, fallback) {
+        var n = Number(value);
+        if (!isFinite(n)) n = Number(fallback);
+        if (!isFinite(n)) n = 0;
+        return Math.max(0, Math.min(1, n));
+      }
+      function storyboardRgbFromHex(hex, fallback) {
+        var text = String(hex || fallback || '#000000').replace('#', '');
+        if (!/^[0-9a-f]{6}$/i.test(text)) text = '000000';
+        return [
+          parseInt(text.slice(0, 2), 16) / 255,
+          parseInt(text.slice(2, 4), 16) / 255,
+          parseInt(text.slice(4, 6), 16) / 255
+        ];
+      }
+      function storyboardSceneBackground() {
+        try {
+          var manifest = window.__BLUEPRINT_VISUAL_ASSETS__ || {};
+          var fc = manifest.fidelityContract || {};
+          var bg = fc.scene && fc.scene.backgroundColor;
+          if (Array.isArray(bg) && bg.length >= 3) {
+            return [
+              clampStoryboardColor(bg[0], 0),
+              clampStoryboardColor(bg[1], 0),
+              clampStoryboardColor(bg[2], 0)
+            ];
+          }
+          var sceneContract = manifest.sourceSceneContract || {};
+          if (sceneContract.backgroundColor) return storyboardRgbFromHex(sceneContract.backgroundColor, null);
+        } catch(e) {}
+        return null;
+      }
+      var contractSceneBackground = storyboardSceneBackground();
+      function storyboardPcColor(rgb) {
+        return new pc.Color(rgb[0], rgb[1], rgb[2], 1);
+      }
+      function storyboardCssColor(rgb) {
+        return 'rgb(' + Math.round(rgb[0] * 255) + ',' + Math.round(rgb[1] * 255) + ',' + Math.round(rgb[2] * 255) + ')';
+      }
+      function recordStoryboardSceneBackground(rgb, source) {
+        if (!rgb) return;
+        window.__storyboardSceneDetails = window.__storyboardSceneDetails || {};
+        window.__storyboardSceneDetails.backgroundColor = rgb.slice(0, 3);
+        window.__storyboardSceneDetails.source = source || 'fidelityContract.scene.backgroundColor';
+      }
+      function setCameraClearColor(cam, rgb) {
+        if (!cam || !rgb) return false;
+        var c = storyboardPcColor(rgb);
+        try { cam.clearColor = c; } catch(e0) {}
+        try { cam.clearColorBuffer = true; } catch(e1) {}
+        return true;
+      }
+      function applyStoryboardSceneBackground(source) {
+        if (!contractSceneBackground) return 0;
+        var applied = 0;
+        try {
+          var css = storyboardCssColor(contractSceneBackground);
+          if (document && document.documentElement) document.documentElement.style.backgroundColor = css;
+          if (document && document.body) document.body.style.backgroundColor = css;
+          var canvas = document && (document.getElementById('application-canvas') || document.querySelector('canvas'));
+          if (canvas && canvas.style) canvas.style.backgroundColor = css;
+        } catch(eCss) {}
+        try {
+          if (typeof window.__storyboardApplyActualSceneBackground === 'function') {
+            applied += window.__storyboardApplyActualSceneBackground(source || 'fidelityContract.scene.backgroundColor');
+          }
+        } catch(eActual) {}
+        try {
+          if (camEnt && camEnt.camera && setCameraClearColor(camEnt.camera, contractSceneBackground)) applied++;
+        } catch(eCam) {}
+        try {
+          var mainCam = UnityEngine.Camera.main;
+          if (mainCam) {
+            mainCam.backgroundColor = storyboardPcColor(contractSceneBackground);
+            if (UnityEngine.CameraClearFlags && UnityEngine.CameraClearFlags.SolidColor != null) {
+              mainCam.clearFlags = UnityEngine.CameraClearFlags.SolidColor;
+            }
+            applied++;
+          }
+        } catch(eUnityCam) {}
+        try {
+          if (pcApp && pcApp.scene && pcApp.scene.activeCamera && setCameraClearColor(pcApp.scene.activeCamera, contractSceneBackground)) applied++;
+        } catch(eSceneCam) {}
+        try {
+          if (pcApp && pcApp.root) {
+            (function walk(node) {
+              if (!node) return;
+              if (node.camera && setCameraClearColor(node.camera, contractSceneBackground)) applied++;
+              var children = node.children || node._children || [];
+              for (var i = 0; i < children.length; i++) walk(children[i]);
+            })(pcApp.root);
+          }
+        } catch(eWalk) {}
+        recordStoryboardSceneBackground(contractSceneBackground, source);
+        return applied;
+      }
       
       // 1. Always create camera + light (scene ones don't survive Start clean-up)
       console.log("[AI] Creating PlayCanvas camera + light");
       var camEnt = new pc.Entity("AI_Camera");
       pcApp.root.addChild(camEnt);
       camEnt.addComponent("camera", {
-        clearColor: new pc.Color(0.6, 0.8, 1.0),
+        clearColor: contractSceneBackground ? storyboardPcColor(contractSceneBackground) : new pc.Color(0.6, 0.8, 1.0),
+        clearColorBuffer: true,
         projection: 1,
         orthoHeight: 10,
         nearClip: 0.1,
@@ -992,7 +1215,8 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               if (mainCam.fieldOfView) camEnt.camera.fov = mainCam.fieldOfView;
             }
             // Sync clear color
-            var bg = mainCam.backgroundColor;
+            if (contractSceneBackground) applyStoryboardSceneBackground('post-camera-sync');
+            var bg = contractSceneBackground ? storyboardPcColor(contractSceneBackground) : mainCam.backgroundColor;
             if (bg) camEnt.camera.clearColor = new pc.Color(bg.r, bg.g, bg.b, bg.a || 1);
             console.log("[AI] Camera synced: ortho=" + mainCam.orthographicSize + " bg=" + (bg ? bg.r.toFixed(2)+","+bg.g.toFixed(2)+","+bg.b.toFixed(2) : "?"));
           }
@@ -1012,8 +1236,6 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         if (!manifest || !manifest.sourceEntityContract || !manifest.entityBindings) return;
         try {
           var sceneContract = manifest.sourceSceneContract || {};
-          var fidelityContract = manifest.fidelityContract || {};
-          var contractSceneBg = (fidelityContract.scene && Array.isArray(fidelityContract.scene.backgroundColor)) ? fidelityContract.scene.backgroundColor : null;
           var styles = manifest.sourceEntityContract.entityStyles || {};
           var assets = manifest.assets || [];
           var byAsset = {};
@@ -1053,6 +1275,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             if (typeof pc.StandardMaterial !== 'function') return null;
             var m = new pc.StandardMaterial();
             var c = colorFromValue(value, fallback || '#ffffff');
+            m.__storyboardColor = [c.r, c.g, c.b, 1];
             m.diffuse = c;
             m.emissive = color('#000000');
             m.emissiveIntensity = 0.08;
@@ -1094,26 +1317,40 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             var base = source && source.material;
             if (!base) return null;
             var m = null;
-            try { if (typeof base.clone === 'function') m = base.clone(); } catch(eClone) {}
+            try {
+              var shader = base.shader || (typeof UnityEngine !== 'undefined' && UnityEngine.Shader && (
+                UnityEngine.Shader.Find("Universal Render Pipeline/Lit") || UnityEngine.Shader.Find("Standard")
+              ));
+              if (shader && typeof UnityEngine !== 'undefined' && UnityEngine.Material && UnityEngine.Material.$ctor2) {
+                m = new UnityEngine.Material.$ctor2(shader);
+              }
+            } catch(eUnityMaterial) {}
+            try { if (!m && typeof base.clone === 'function') m = base.clone(); } catch(eClone) {}
             if (!m) {
               try { if (base.constructor && typeof base.constructor === 'function') m = new base.constructor(); } catch(eCtor) {}
             }
-            if (!m) m = base;
+            if (!m || m === base) return null;
             try {
               var c = colorFromValue(value, fallback || '#ffffff');
+              var uc = new pc.Color(c.r, c.g, c.b, c.a || 1);
+              m.__storyboardColor = [c.r, c.g, c.b, 1];
+              try { m.color = uc; } catch(eSetColor) {}
+              try { m.diffuse = new pc.Color(c.r, c.g, c.b, c.a || 1); } catch(eSetDiffuse) {}
               if (m.diffuse && typeof m.diffuse.copy === 'function') m.diffuse.copy(c);
+              try { m.emissive = new pc.Color(0, 0, 0, 1); } catch(eSetEmissive) {}
               if (typeof m.setParameter === 'function') {
                 var rgba = [c.r, c.g, c.b, 1];
                 m.setParameter('_BaseColor', rgba);
                 m.setParameter('_Color', rgba);
+                m.setParameter('_EmissionColor', [0, 0, 0, 1]);
               }
               if (typeof m.update === 'function') m.update();
             } catch(eColor) {}
             return m;
           }
           function overlayMaterial(value, fallback) {
-            var m = mat(value, fallback);
-            return m || clonePoolMaterial(value, fallback);
+            var m = clonePoolMaterial(value, fallback);
+            return m || mat(value, fallback);
           }
           function nums(raw) {
             return String(raw || '').split(',').map(function(v) {
@@ -1138,16 +1375,64 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             var r = a[0] || 0.5;
             return { type: 'sphere', scale: [r * 2, r * 2, r * 2] };
           }
+          function storyboardMaterialColor(rgba) {
+            var r = Array.isArray(rgba) ? clamp01(rgba[0], 1) : 1;
+            var g = Array.isArray(rgba) ? clamp01(rgba[1], 1) : 1;
+            var b = Array.isArray(rgba) ? clamp01(rgba[2], 1) : 1;
+            var a = Array.isArray(rgba) && rgba.length > 3 ? clamp01(rgba[3], 1) : 1;
+            return new pc.Color(r, g, b, a);
+          }
+          function recolorMaterial(target, rgba) {
+            if (!target || !Array.isArray(rgba)) return;
+            var c = storyboardMaterialColor(rgba);
+            try { target.color = c; } catch(eColor) {}
+            try { target.diffuse = new pc.Color(rgba[0], rgba[1], rgba[2], rgba.length > 3 ? rgba[3] : 1); } catch(eDiffuse) {}
+            try {
+              if (typeof target.SetColor === 'function') {
+                target.SetColor('_Color', c);
+                target.SetColor('_BaseColor', c);
+              }
+            } catch(eSetColor) {}
+            try {
+              if (typeof target.setParameter === 'function') {
+                target.setParameter('_Color', rgba);
+                target.setParameter('_BaseColor', rgba);
+              }
+            } catch(eParam) {}
+            try { if (typeof target.update === 'function') target.update(); } catch(eUpdate) {}
+          }
           function applyMaterial(ent, material) {
             try {
               if (!material) return;
+              var rgba = material.__storyboardColor;
               var instances = [];
               if (ent.render && ent.render.meshInstances) instances = ent.render.meshInstances;
               else if (ent.model && ent.model.model && ent.model.model.meshInstances) instances = ent.model.model.meshInstances;
               else if (ent._unityComponents && ent._unityComponents.renderer && ent._unityComponents.renderer[0]) {
-                instances = ent._unityComponents.renderer[0].meshInstances || [];
+                var rc = ent._unityComponents.renderer[0];
+                try {
+                  if (rc.code) {
+                    recolorMaterial(rc.code.sharedMaterial, rgba);
+                    recolorMaterial(rc.code.material, rgba);
+                    rc.code.sharedMaterial = material;
+                    rc.code.material = material;
+                    recolorMaterial(rc.code.sharedMaterial, rgba);
+                    recolorMaterial(rc.code.material, rgba);
+                  }
+                } catch(eRendererMaterial) {}
+                try { if (typeof rc.updateMesh === 'function') rc.updateMesh(); } catch(eUpdateMesh) {}
+                instances = rc.meshInstances || [];
               }
-              for (var i = 0; i < instances.length; i++) instances[i].material = material;
+              for (var i = 0; i < instances.length; i++) {
+                recolorMaterial(instances[i].material, rgba);
+                instances[i].material = material;
+                recolorMaterial(instances[i].material, rgba);
+                try { instances[i].visible = true; } catch(eVisible) {}
+                try { instances[i].cull = false; } catch(eCull) {}
+                try { instances[i]._aabbVer = -1; } catch(eAabb) {}
+              }
+              recolorMaterial(material, rgba);
+              try { if (typeof material.update === 'function') material.update(); } catch(eMatUpdate) {}
             } catch(e) {}
           }
           function addPrimitiveComponent(ent, type) {
@@ -1238,7 +1523,15 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           function hideTemplateVisuals(root) {
             function walk(ent) {
               if (!ent) return;
-              if (ent.name && (/^__Pool_/.test(ent.name) || /^Label_/.test(ent.name) || ent.name === 'Canvas')) ent.enabled = false;
+              if (ent.name && (/^__Pool_/.test(ent.name) || /^Label_/.test(ent.name) ||
+                  ent.name === 'Canvas' || ent.name === '__Ground' || ent.name === '__MaterialSource')) {
+                ent.enabled = false;
+                try {
+                  var rc = ent._unityComponents && ent._unityComponents.renderer && ent._unityComponents.renderer[0];
+                  var instances = rc && rc.meshInstances || [];
+                  for (var mi = 0; mi < instances.length; mi++) instances[mi].visible = false;
+                } catch(eHideTemplateMesh) {}
+              }
               var children = ent.children || [];
               for (var i = 0; i < children.length; i++) walk(children[i]);
             }
@@ -1258,26 +1551,12 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             return e;
           }
           hideTemplateVisuals(pcApp.root);
-          if (contractSceneBg) {
-            var contractClear = new pc.Color(contractSceneBg[0], contractSceneBg[1], contractSceneBg[2], 1);
-            if (camEnt.camera) camEnt.camera.clearColor = contractClear;
-            // Override any other camera in the scene tree — Luna pool sometimes
-            // creates a second camera that wins active rendering over AI_Camera.
-            try {
-              var camStack = [pcApp.root];
-              var camSafe = 0;
-              var camCount = 0;
-              while (camStack.length && camSafe++ < 5000) {
-                var cn = camStack.shift();
-                if (!cn) continue;
-                if (cn.camera && cn !== camEnt) { cn.camera.clearColor = contractClear; camCount++; }
-                var cch = cn._children || cn.children || [];
-                for (var ci = 0; ci < cch.length; ci++) camStack.push(cch[ci]);
-              }
-              console.log('[contract-bg] applied [' + contractSceneBg[0].toFixed(4) + ',' + contractSceneBg[1].toFixed(4) + ',' + contractSceneBg[2].toFixed(4) + '] to camEnt + ' + camCount + ' extra camera(s)');
-            } catch (e) { /* swallow */ }
+          if (contractSceneBackground) {
+            applyStoryboardSceneBackground('storyboard-visual-overlay');
+            setTimeout(function() { applyStoryboardSceneBackground('storyboard-visual-overlay-late'); }, 750);
+            setTimeout(function() { applyStoryboardSceneBackground('storyboard-visual-overlay-final'); }, 1500);
           } else if (sceneContract.backgroundColor && camEnt.camera) {
-            camEnt.camera.clearColor = color(sceneContract.backgroundColor, '#071026');
+            camEnt.camera.clearColor = color(sceneContract.backgroundColor, '#000000');
           }
           if (sceneContract.directionalLight && sceneContract.directionalLight.color && lightEnt.light) {
             lightEnt.light.color = color(sceneContract.directionalLight.color, '#ffffff');
@@ -1336,7 +1615,11 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           }
           var root = new pc.Entity('__StoryboardVisualOverlay');
           pcApp.root.addChild(root);
-          if (sceneContract.ground && sceneContract.ground.color) {
+          if (contractSceneBackground) {
+            window.__storyboardSceneDetails = window.__storyboardSceneDetails || {};
+            window.__storyboardSceneDetails.sceneFillMode = 'camera-clear';
+          }
+          if (!contractSceneBackground && sceneContract.ground && sceneContract.ground.color) {
             var g = createPrimitiveEntity(root, 'StoryboardGround', sceneContract.ground.kind === 'box' ? 'box' : 'cylinder');
             if (g) {
               var radius = sceneContract.ground.radius || Math.max(sceneContract.ground.width || 50, sceneContract.ground.depth || 50) / 2;
@@ -1388,9 +1671,9 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               put(parts[parts.length - 1]);
             }
           }
-          if (Array.isArray(fidelityContract.entities)) {
-            for (var fei = 0; fei < fidelityContract.entities.length; fei++) {
-              var fe = fidelityContract.entities[fei];
+          if (manifest.fidelityContract && Array.isArray(manifest.fidelityContract.entities)) {
+            for (var fei = 0; fei < manifest.fidelityContract.entities.length; fei++) {
+              var fe = manifest.fidelityContract.entities[fei];
               if (fe && fe.primitiveStyle) indexPrimitiveStyleAliases(fe, fe.primitiveStyle);
             }
           }
@@ -1644,6 +1927,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           }
           function entityScreenRect(ent) {
             if (!ent || !camEnt || !camEnt.camera || typeof camEnt.camera.worldToScreen !== 'function') return null;
+            syncOverlayTransforms();
             var points = [];
             function walk(node) {
               if (!node) return;
@@ -1676,7 +1960,46 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           }
           function projectPosition(pos) {
             if (!pos || !camEnt || !camEnt.camera || typeof camEnt.camera.worldToScreen !== 'function') return null;
+            syncOverlayTransforms();
             return camEnt.camera.worldToScreen(new pc.Vec3(Number(pos.x) || 0, Number(pos.y) || 0, Number(pos.z) || 0));
+          }
+          function syncOverlayTransforms() {
+            try {
+              if (pcApp && pcApp.root && typeof pcApp.root.syncHierarchy === 'function') pcApp.root.syncHierarchy();
+            } catch(e) {}
+          }
+          function clampScaleRatio(ratio, min, max) {
+            if (!isFinite(ratio)) return 1;
+            return Math.max(min, Math.min(max, ratio));
+          }
+          function calibrateOverlayEntityScreenSize(ent, rect, target) {
+            if (!ent || !rect || !target || target.w <= 0 || target.h <= 0 || rect.w_px <= 1 || rect.h_px <= 1) return rect;
+            var wRatio = target.w / Math.max(1, rect.w_px);
+            var hRatio = target.h / Math.max(1, rect.h_px);
+            if (!isFinite(wRatio) || !isFinite(hRatio)) return rect;
+            if (Math.abs(1 - wRatio) <= 0.015 && Math.abs(1 - hRatio) <= 0.015) return rect;
+            var aspectScale = ent.getLocalScale ? ent.getLocalScale() : null;
+            if (!aspectScale) return rect;
+            // Fit the runtime bbox to the contract's screen-space rect directly:
+            // width maps to ground-plane scale, height maps to vertical scale, and
+            // the center solve below absorbs the projection coupling.
+            var xzRatio = clampScaleRatio(wRatio, 0.45, 2.2);
+            var yRatio = clampScaleRatio(hRatio, 0.45, 2.2);
+            ent.setLocalScale(
+              (Number(aspectScale.x) || 1) * xzRatio,
+              (Number(aspectScale.y) || 1) * yRatio,
+              (Number(aspectScale.z) || 1) * xzRatio
+            );
+            syncOverlayTransforms();
+            return entityScreenRect(ent) || rect;
+          }
+          function rectWithinAnchorFitTolerance(rect, target) {
+            if (!rect || !target) return false;
+            var tol = 7;
+            return Math.abs(Number(rect.x_px) - Number(target.x)) <= tol
+              && Math.abs(Number(rect.y_px) - Number(target.y)) <= tol
+              && Math.abs(Number(rect.w_px) - Number(target.w)) <= tol
+              && Math.abs(Number(rect.h_px) - Number(target.h)) <= tol;
           }
           function calibrateOverlayEntityToAnchor(ent, anchor) {
             if (!ent || !anchor || anchor.provenance === 'inferred-default') return;
@@ -1688,13 +2011,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               var rect = entityScreenRect(ent);
               if (!rect) return;
               if (anchor.provenance !== 'anchor-only' && target.w > 0 && target.h > 0 && rect.w_px > 1 && rect.h_px > 1) {
-                var ratio = Math.sqrt((target.w * target.h) / Math.max(1, rect.w_px * rect.h_px));
-                if (isFinite(ratio) && Math.abs(1 - ratio) > 0.01) {
-                  ratio = Math.max(0.35, Math.min(2.8, ratio));
-                  var ls = ent.getLocalScale ? ent.getLocalScale() : null;
-                  if (ls) ent.setLocalScale((Number(ls.x) || 1) * ratio, (Number(ls.y) || 1) * ratio, (Number(ls.z) || 1) * ratio);
-                  rect = entityScreenRect(ent) || rect;
-                }
+                rect = calibrateOverlayEntityScreenSize(ent, rect, target);
               }
               var currentCx = rect.x_px + rect.w_px / 2;
               var currentCy = rect.y_px + rect.h_px / 2;
@@ -1719,8 +2036,10 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               var mag = Math.sqrt(wx * wx + wz * wz);
               if (mag > maxStep) { wx = wx / mag * maxStep; wz = wz / mag * maxStep; }
               ent.setPosition(Number(pos.x) + wx, Number(pos.y) || 0, Number(pos.z) + wz);
+              syncOverlayTransforms();
             }
           }
+          var anchorFitApplied = {};
           function applyProjectedAnchorCalibration(gs) {
             var anchorPhase = projectedAnchorPhaseForOverlayState(gs);
             var anchors = anchorPhase && anchorPhase.projectedAnchors;
@@ -1729,9 +2048,13 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               return;
             }
             var measured = {};
+            var phaseId = anchorPhase.id || gs && (gs.currentPhase || gs.phase) || 'current';
+            var fitForPhase = anchorFitApplied[phaseId] || {};
+            anchorFitApplied[phaseId] = fitForPhase;
             Object.keys(anchors).forEach(function(contractId) {
               var anchor = anchors[contractId];
-              var ent = entityRoots[anchorOverlayName(contractId)];
+              var overlayName = anchorOverlayName(contractId);
+              var ent = entityRoots[overlayName];
               if (!ent) return;
               calibrateOverlayEntityToAnchor(ent, anchor);
               var rect = entityScreenRect(ent);
@@ -1743,12 +2066,24 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
                   h_px: Number(rect.h_px.toFixed ? rect.h_px.toFixed(2) : rect.h_px),
                   provenance: 'extracted'
                 };
+                if (viewportIntersectsAnchor(anchor) && rectWithinAnchorFitTolerance(rect, anchorToCanvas(anchor))) fitForPhase[overlayName] = true;
               }
             });
             window.__targetAnchors = window.__targetAnchors || {};
-            var phaseId = anchorPhase.id || gs && (gs.currentPhase || gs.phase) || 'current';
             window.__targetAnchors[phaseId] = measured;
             window.__targetAnchors.current = measured;
+          }
+          function currentViewportAnchoredOverlays(gs) {
+            var anchorPhase = projectedAnchorPhaseForOverlayState(gs);
+            var anchors = anchorPhase && anchorPhase.projectedAnchors;
+            var out = {};
+            if (!anchors || typeof anchors !== 'object') return out;
+            Object.keys(anchors).forEach(function(contractId) {
+              var anchor = anchors[contractId];
+              if (!viewportIntersectsAnchor(anchor)) return;
+              out[anchorOverlayName(contractId)] = true;
+            });
+            return out;
           }
           var names = manifest.sourceEntityContract.entities || Object.keys(styles);
           for (var ni = 0; ni < names.length; ni++) {
@@ -1786,10 +2121,14 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             var gs = null;
             try { gs = typeof window.__gameState === 'function' ? window.__gameState() : window.__gameState; } catch(e) {}
             var states = gs && (gs.entity_states || gs.entityStates) || {};
+            var viewportAnchored = currentViewportAnchoredOverlays(gs);
+            var anchorPhase = projectedAnchorPhaseForOverlayState(gs);
+            var phaseId = anchorPhase && anchorPhase.id || gs && (gs.currentPhase || gs.phase) || 'current';
+            var fitForPhase = anchorFitApplied[phaseId] || {};
             Object.keys(entityRoots).forEach(function(name) {
               var st = states[name];
               var p = st && st.position;
-              if (p && isFinite(Number(p.x)) && isFinite(Number(p.z))) {
+              if (p && isFinite(Number(p.x)) && isFinite(Number(p.z)) && !(viewportAnchored[name] && fitForPhase[name])) {
                 entityRoots[name].setPosition(Number(p.x), Number(p.y) || 0, Number(p.z));
               }
               if (st && st.visible === false) entityRoots[name].enabled = false;
@@ -1843,6 +2182,60 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         document.addEventListener('pointerup', resetStick, true);
         document.addEventListener('pointercancel', resetStick, true);
         function set(id, text) { var el = document.getElementById(id); if (el) el.textContent = text; }
+        function canonicalStoryboardEntityName(raw) {
+          raw = String(raw || '');
+          if (!raw) return '';
+          raw = raw.replace(/^_+/, '');
+          if (!raw) return '';
+          return raw.charAt(0).toUpperCase() + raw.slice(1);
+        }
+        function storyboardEntityLabel(name) {
+          var key = canonicalStoryboardEntityName(name);
+          if (!key) return '';
+          try {
+            var va = window.__BLUEPRINT_VISUAL_ASSETS__ || {};
+            var styles = va.sourceEntityContract && va.sourceEntityContract.entityStyles || {};
+            var st = styles[key] || styles[name];
+            if (st && typeof st.label === 'string' && st.label) return st.label;
+            var ents = va.fidelityContract && va.fidelityContract.entities || [];
+            for (var ei = 0; ei < ents.length; ei++) {
+              var ent = ents[ei];
+              if (!ent) continue;
+              var entKey = canonicalStoryboardEntityName(ent.id || ent.name);
+              if (entKey !== key) continue;
+              var wl = ent.worldLabel;
+              if (wl && typeof wl.text === 'string' && wl.text) return wl.text;
+            }
+          } catch(e) {}
+          return key;
+        }
+        function phaseFirstStoryboardTarget(phaseId) {
+          try {
+            var va = window.__BLUEPRINT_VISUAL_ASSETS__ || {};
+            var phases = va.sourcePhaseContract && va.sourcePhaseContract.phases;
+            if ((!phases || !phases.length) && va.fidelityContract) phases = va.fidelityContract.phases;
+            if (!phases || !phases.length) return '';
+            var phase = null;
+            for (var pi = 0; pi < phases.length; pi++) {
+              if (String(phases[pi] && phases[pi].id) === String(phaseId)) {
+                phase = phases[pi];
+                break;
+              }
+            }
+            if (!phase) return '';
+            if (phase.steps && phase.steps[0] && phase.steps[0].target) return phase.steps[0].target;
+            var ig = phase.interactionGate;
+            if (ig && ig.steps && ig.steps[0] && ig.steps[0].target) return ig.steps[0].target;
+            if (phase.trigger && phase.trigger.targetEntity) return phase.trigger.targetEntity;
+          } catch(e) {}
+          return '';
+        }
+        function currentStoryboardTargetLabel(gs, phaseId) {
+          var vars = gs && gs.variables || {};
+          var target = vars.targetEntity || gs && gs.targetEntity || phaseFirstStoryboardTarget(phaseId);
+          var label = storyboardEntityLabel(target);
+          return label ? '目标：' + label : '目标';
+        }
         setInterval(function() {
           var gs = null;
           try { gs = typeof window.__gameState === 'function' ? window.__gameState() : window.__gameState; } catch(e) {}
@@ -1859,13 +2252,15 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           set('bp-storyboard-tool', (res.tool || '镐子') + ' / 飞船' + (res.ShipLevel || 0) + '节');
           var guide = gs.ui_state && gs.ui_state.guideText || gs.uiState && gs.uiState.guideText || gs.variables && gs.variables.guideText || '';
           set('bp-storyboard-tip', guide);
-          set('bp-storyboard-target', guide ? '目标：' + guide.slice(0, 24) : '目标');
+          set('bp-storyboard-target', currentStoryboardTargetLabel(gs, 'phase' + phase));
         }, 200);
       }
       // task #49 v1.4c-beta — render contract.entities[i].worldLabel as world-
       // space CJK overlay. Reads manifest.fidelityContract.entities[].worldLabel
       // (rich record), creates one DOM label per entity, projects entity worldPos
-      // + worldOffset through camEnt.camera.worldToScreen each tick.
+      // + worldOffset through camEnt.camera.worldToScreen each tick. v1.4e adds
+      // projectedWorldLabels: when present, the label div is rect-fit directly
+      // to the source-rendered screen rect and exposed through __targetWorldLabels.
       function installStoryboardWorldLabels() {
         if (document.getElementById('bp-storyboard-worldlabels')) return;
         var manifest = window.__BLUEPRINT_VISUAL_ASSETS__;
@@ -1892,16 +2287,148 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           div.textContent = wl.text;
           container.appendChild(div);
           var wo = wl.worldOffset || {};
+          var parentLeaf = String(e.parentPath || '').split('/').filter(Boolean).pop();
           labels.push({
             entityId: entityId,
+            runtimeAliases: [entityId, e.name],
+            sourceAliases: [parentLeaf],
             ox: Number(wo.x) || 0,
             oy: Number(wo.y) || 0,
             oz: Number(wo.z) || 0,
             div: div,
           });
         }
+        function worldLabelViewportBaseline() {
+          try {
+            var candidates = [
+              manifest && manifest.viewportBaseline,
+              fc && fc.viewportBaseline,
+              manifest && manifest.sourceFidelityContract && manifest.sourceFidelityContract.viewportBaseline
+            ];
+            for (var i = 0; i < candidates.length; i++) {
+              var v = candidates[i];
+              if (v && isFinite(Number(v.width)) && isFinite(Number(v.height))) {
+                return { width: Number(v.width), height: Number(v.height) };
+              }
+            }
+          } catch(e) {}
+          return { width: 1280, height: 720 };
+        }
+        function currentWorldLabelPhase() {
+          try {
+            var gs = typeof window.__gameState === 'function' ? window.__gameState() : window.__gameState;
+            var phaseId = gs && (gs.currentPhase || gs.phase) || '';
+            var phases = fc && fc.phases || [];
+            for (var pi = 0; pi < phases.length; pi++) {
+              if (phases[pi] && String(phases[pi].id) === String(phaseId)) return phases[pi];
+            }
+            var m = String(phaseId || '').match(/(\d+)/);
+            var idx = m ? Math.max(0, Number(m[1]) - 1) : 0;
+            return phases[idx] || null;
+          } catch(e) {}
+          return null;
+        }
+        function worldLabelRecordValue(rec, keys) {
+          for (var i = 0; i < keys.length; i++) {
+            if (rec && rec[keys[i]] != null && isFinite(Number(rec[keys[i]]))) return Number(rec[keys[i]]);
+          }
+          return NaN;
+        }
+        function canonicalWorldLabelEntityName(raw) {
+          raw = String(raw || '');
+          if (!raw) return '';
+          raw = raw.replace(/^_+/, '');
+          if (!raw) return '';
+          return raw.charAt(0).toUpperCase() + raw.slice(1);
+        }
+        function pushWorldLabelLookupKey(keys, raw) {
+          raw = String(raw || '');
+          if (!raw) return;
+          for (var i = 0; i < keys.length; i++) {
+            if (keys[i] === raw) return;
+          }
+          keys.push(raw);
+        }
+        function addWorldLabelLookupAliases(keys, raw, allowSourceKeyAlias) {
+          raw = String(raw || '');
+          if (!raw) return;
+          pushWorldLabelLookupKey(keys, raw);
+          var noUnder = raw.replace(/^_+/, '');
+          if (!noUnder) return;
+          pushWorldLabelLookupKey(keys, noUnder);
+          pushWorldLabelLookupKey(keys, canonicalWorldLabelEntityName(raw));
+          if (allowSourceKeyAlias || raw.charAt(0) === '_') {
+            pushWorldLabelLookupKey(keys, '_' + noUnder.charAt(0).toLowerCase() + noUnder.slice(1));
+          }
+        }
+        function normalizeProjectedWorldLabelRect(rec) {
+          if (!rec || typeof rec !== 'object') return null;
+          var x = worldLabelRecordValue(rec, ['x', 'x_px']);
+          var y = worldLabelRecordValue(rec, ['y', 'y_px']);
+          var w = worldLabelRecordValue(rec, ['width', 'w', 'w_px']);
+          var h = worldLabelRecordValue(rec, ['height', 'h', 'h_px']);
+          var cx = worldLabelRecordValue(rec, ['centerX', 'cx', 'center_x']);
+          var cy = worldLabelRecordValue(rec, ['centerY', 'cy', 'center_y']);
+          if (!isFinite(x) && isFinite(cx) && isFinite(w)) x = cx - w / 2;
+          if (!isFinite(y) && isFinite(cy) && isFinite(h)) y = cy - h / 2;
+          if (!isFinite(cx) && isFinite(x) && isFinite(w)) cx = x + w / 2;
+          if (!isFinite(cy) && isFinite(y) && isFinite(h)) cy = y + h / 2;
+          if (![x, y, w, h, cx, cy].every(isFinite)) return null;
+          return { x: x, y: y, width: Math.max(0, w), height: Math.max(0, h), centerX: cx, centerY: cy };
+        }
+        function lookupProjectedWorldLabel(rects, entityId, runtimeAliases, sourceAliases) {
+          if (!rects || typeof rects !== 'object') return null;
+          var keys = [];
+          addWorldLabelLookupAliases(keys, entityId, false);
+          runtimeAliases = Array.isArray(runtimeAliases) ? runtimeAliases : [];
+          for (var ai = 0; ai < runtimeAliases.length; ai++) addWorldLabelLookupAliases(keys, runtimeAliases[ai], false);
+          sourceAliases = Array.isArray(sourceAliases) ? sourceAliases : [];
+          for (var si = 0; si < sourceAliases.length; si++) addWorldLabelLookupAliases(keys, sourceAliases[si], true);
+          for (var i = 0; i < keys.length; i++) {
+            if (!keys[i] || !rects[keys[i]]) continue;
+            var rect = normalizeProjectedWorldLabelRect(rects[keys[i]]);
+            if (rect) return { key: keys[i], rect: rect };
+          }
+          return null;
+        }
+        function projectWorldLabelRectToViewport(rect) {
+          var base = worldLabelViewportBaseline();
+          var sx = (window.innerWidth || base.width) / base.width;
+          var sy = (window.innerHeight || base.height) / base.height;
+          return {
+            x: rect.x * sx,
+            y: rect.y * sy,
+            width: rect.width * sx,
+            height: rect.height * sy,
+            centerX: rect.centerX * sx,
+            centerY: rect.centerY * sy
+          };
+        }
+        function observedWorldLabelRect(div, visible) {
+          if (visible === false) return null;
+          var base = worldLabelViewportBaseline();
+          var sx = base.width / (window.innerWidth || base.width);
+          var sy = base.height / (window.innerHeight || base.height);
+          var r = div && div.getBoundingClientRect ? div.getBoundingClientRect() : null;
+          if (!r) return null;
+          var x = Number(r.left) * sx;
+          var y = Number(r.top) * sy;
+          var w = Number(r.width) * sx;
+          var h = Number(r.height) * sy;
+          return {
+            x: Number(x.toFixed(2)),
+            y: Number(y.toFixed(2)),
+            width: Number(w.toFixed(2)),
+            height: Number(h.toFixed(2)),
+            centerX: Number((x + w / 2).toFixed(2)),
+            centerY: Number((y + h / 2).toFixed(2))
+          };
+        }
+        function setWorldLabelHidden(L, measured) {
+          L.div.style.opacity = '0';
+        }
         function findEnt(root, name) {
-          // Prefer synthetic StoryboardEntity_<name> created at L1538 (this is the
+          // Prefer synthetic StoryboardEntity_<name> created by the overlay (the
           // visible group; real Luna entity is hidden by hideTemplateVisuals).
           // Falls back to plain name for environments where the storyboard overlay
           // didn't create a synthetic group.
@@ -1920,20 +2447,53 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         }
         function tickLabels() {
           if (!pcApp || !camEnt || !camEnt.camera || typeof camEnt.camera.worldToScreen !== 'function') return;
+          var phase = currentWorldLabelPhase();
+          var phaseId = phase && phase.id || 'current';
+          var projected = phase && phase.projectedWorldLabels;
+          var measured = {};
           for (var li = 0; li < labels.length; li++) {
             var L = labels[li];
+            var projectedHit = lookupProjectedWorldLabel(projected, L.entityId, L.runtimeAliases, L.sourceAliases);
+            if (projected && !projectedHit) {
+              setWorldLabelHidden(L, measured);
+              continue;
+            }
+            var projectedRect = projectedHit && projectedHit.rect;
+            if (projectedRect) {
+              var vr = projectWorldLabelRectToViewport(projectedRect);
+              L.div.style.transform = 'none';
+              L.div.style.left = vr.x.toFixed(1) + 'px';
+              L.div.style.top = vr.y.toFixed(1) + 'px';
+              L.div.style.width = Math.max(0, vr.width).toFixed(1) + 'px';
+              L.div.style.height = Math.max(0, vr.height).toFixed(1) + 'px';
+              L.div.style.boxSizing = 'border-box';
+              L.div.style.display = 'flex';
+              L.div.style.alignItems = 'center';
+              L.div.style.justifyContent = 'center';
+              L.div.style.opacity = '1';
+              measured[projectedHit.key] = observedWorldLabelRect(L.div, true);
+              continue;
+            }
             var ent = findEnt(pcApp.root, L.entityId);
-            if (!ent || typeof ent.getPosition !== 'function') { L.div.style.opacity = '0'; continue; }
+            if (!ent || typeof ent.getPosition !== 'function') { setWorldLabelHidden(L, measured); continue; }
             var wp = ent.getPosition();
-            if (!wp || typeof wp.x !== 'number') { L.div.style.opacity = '0'; continue; }
+            if (!wp || typeof wp.x !== 'number') { setWorldLabelHidden(L, measured); continue; }
             var target = new pc.Vec3(wp.x + L.ox, wp.y + L.oy, wp.z + L.oz);
             var sp = camEnt.camera.worldToScreen(target);
-            if (!sp || sp.z < 0) { L.div.style.opacity = '0'; continue; }
+            if (!sp || sp.z < 0) { setWorldLabelHidden(L, measured); continue; }
+            L.div.style.transform = 'translate(-50%,-50%)';
+            L.div.style.width = '';
+            L.div.style.height = '';
+            L.div.style.display = 'block';
             L.div.style.left = sp.x.toFixed(1) + 'px';
             L.div.style.top = sp.y.toFixed(1) + 'px';
             L.div.style.opacity = '1';
-            L.div.style.display = 'block';
+            measured[L.entityId] = observedWorldLabelRect(L.div, true);
           }
+          window.__targetWorldLabels = measured;
+          window.__targetWorldLabelsByPhase = window.__targetWorldLabelsByPhase || {};
+          window.__targetWorldLabelsByPhase[phaseId] = measured;
+          window.__targetWorldLabelsByPhase.current = measured;
         }
         // Flip initial display so the divs are laid out (extractor reads even at
         // opacity 0; positioning happens on first tick + every 100ms after).
