@@ -73,14 +73,17 @@ async function testCleanPasses() {
 }
 
 async function testBlockingRejects() {
+  // Uses a NON-auto-fixable blocking rule (setactive — no pre-repair fn) so the gate still
+  // rejects AFTER the pre-repair pass. (non-ascii / camera-main / hot-vector are auto-fixable
+  // and are covered by testAutoFixablePasses below.)
   var bad = [
     'using UnityEngine;',
     'public partial class GameFlowManagerMain : MonoBehaviour',
     '{',
     '    void Update()',
     '    {',
-    '        AddResource("金币", 5);',     // distinct line → distinct feedback signature
-    '        GameObject.Find("敌人");',
+    '        player.SetActive(false);',     // setactive — survives pre-repair (no fixer)
+    '        enemy.SetActive(true);',       // second distinct violation
     '    }',
     '}',
   ].join('\n');
@@ -93,14 +96,32 @@ async function testBlockingRejects() {
     assert.strictEqual(err.classification, 'CODE', 'error classified CODE');
     assert.ok(Array.isArray(err.structured) && err.structured.length >= 2, 'structured carries blocking issues');
     assert.ok(/STATIC CHECK FAILED/.test(err.feedbackText), 'feedbackText rendered');
-    assert.ok(/non-ascii-resource-key/.test(err.feedbackText), 'feedback names the rule');
+    assert.ok(/setactive/.test(err.feedbackText), 'feedback names the rule');
     assert.ok(/FIX:/.test(err.feedbackText), 'feedback has a FIX hint');
     assert.ok(ctx.completedStages.indexOf('codegen') < 0, 'codegen checkpoint invalidated');
     assert.ok(ctx.blueprint.feedbackHistory.length >= 2, 'feedbackHistory populated');
     assert.ok(ctx.blueprint.feedbackHistory.every(function(e) { return e.source === 'static-pre-review'; }), 'feedback tagged source');
   }
-  assert.ok(rejected, 'must reject on blocking violations');
-  console.log('  ✓ blocking code: rejects CODE + structured + feedback + checkpoint invalidated');
+  assert.ok(rejected, 'must reject on residual (non-auto-fixable) blocking violations');
+  console.log('  ✓ blocking code (setactive): rejects CODE + structured + feedback + checkpoint invalidated');
+}
+
+async function testAutoFixablePasses() {
+  // P2 convergence hardening: a blocking issue that runAllPreRepairs auto-fixes for free
+  // (non-ascii resource key) must NOT trip the gate — otherwise the stage would cost a wasted
+  // recode round for something review repairs deterministically. execute() pre-repairs first.
+  var autoFixable = [
+    'using UnityEngine;',
+    'public partial class GameFlowManagerMain : MonoBehaviour',
+    '{',
+    '    void Update() { AddResource("金币", 5); }',   // non-ascii-resource-key → pre-repaired
+    '}',
+  ].join('\n');
+  var ctx = makeCtx(autoFixable);
+  var resolved = await stage.execute(ctx); // must resolve (0 RESIDUAL blocking after pre-repair)
+  assert.ok(resolved, 'auto-fixable blocking issue passes the gate (pre-repair handles it)');
+  assert.ok(ctx.completedStages.indexOf('codegen') >= 0, 'codegen checkpoint NOT invalidated (no wasted recode)');
+  console.log('  ✓ auto-fixable code (non-ascii): passes the gate — no wasted recode');
 }
 
 async function testSkeletonBannerNotBlocking() {
@@ -123,6 +144,7 @@ async function testSkeletonBannerNotBlocking() {
 (async function main() {
   await testCleanPasses();
   await testBlockingRejects();
+  await testAutoFixablePasses();
   await testSkeletonBannerNotBlocking();
   console.log('\nstatic-pre-review stage: all cases passed');
 })().catch(function(err) {

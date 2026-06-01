@@ -7,13 +7,15 @@
 // only at review's synthetic static-precheck.
 //
 // FLAG-GATED, DEFAULT-OFF (set STATIC_PRE_REVIEW_ENABLED=true to activate). Rationale:
-//   1. It changes live pipeline behavior: it rejects blocking issues — INCLUDING ones
-//      the review stage's deterministic pre-repair (runAllPreRepairs) would auto-fix
-//      for free — trading a recode round for earlier structured feedback. The incident
-//      doc (§6) accepts this cost but flags it for telemetry review before broad
-//      rollout. The operator should weigh that recode-cost tradeoff before enabling.
-//   2. This repo runs live workers; default-off keeps the wiring inert (a pure no-op
-//      via canSkip) until explicitly enabled, even across worker restarts.
+//   1. [ADDRESSED 2026-06-01, P2] The original hazard — rejecting blocking issues that
+//      review's deterministic pre-repair (runAllPreRepairs) would auto-fix for free, trading
+//      a free fix for a wasted recode — is removed: execute() now runs that SAME pre-repair
+//      FIRST and rejects only on issues that SURVIVE it (genuinely-unfixable code review would
+//      also reject). The gate can no longer cost a recode for an auto-fixable issue, so it is
+//      now convergence-safe to enable.
+//   2. This repo runs live workers; default-off keeps the wiring inert (a pure no-op via
+//      canSkip) until explicitly enabled, even across worker restarts. Kept default-off out of
+//      caution (operator flips STATIC_PRE_REVIEW_ENABLED=true + restarts workers when ready).
 //
 // PREREQUISITE (satisfied 2026-05-31, Wave 1.a): the non-ascii-resource-key rule's
 // custom() callback now masks comments via buildCodeMask. Without that, the skeleton's
@@ -63,8 +65,29 @@ function formatFeedback(blocking) {
 }
 
 function execute(ctx) {
-  var result = staticCheckProject(ctx.csCode || '', {
-    extraFiles: ctx.extraFiles || {},
+  // Convergence hardening (2026-06-01, P2): apply the SAME deterministic pre-repairs the
+  // review stage runs (repairKnownStructuralDamage → runAllPreRepairs) FIRST, then static-check
+  // the REPAIRED code. Reject only on blocking issues that SURVIVE the pre-repair — i.e.
+  // genuinely-unfixable code that review would also reject. This removes the original
+  // default-off hazard (incident doc §6.1): rejecting issues runAllPreRepairs would auto-fix
+  // for free, trading a free fix for a wasted recode round. Auto-fixable issues now flow
+  // through to review, which applies the same repair and passes. Lazy require avoids a load
+  // cycle (review.cjs is downstream of this stage in the pipeline).
+  var checkCode = ctx.csCode || '';
+  var checkExtras = ctx.extraFiles || {};
+  try {
+    var repaired = require('./review.cjs').repairKnownStructuralDamage(checkCode, checkExtras, ctx.blueprint);
+    if (repaired && typeof repaired.code === 'string') {
+      checkCode = repaired.code;
+      checkExtras = repaired.extraFiles || checkExtras;
+    }
+  } catch (e) {
+    // Pre-repair is best-effort; fall back to checking the raw code (still strictly better
+    // than nothing, and review's own pre-repair remains as belt-and-suspenders).
+    ctx.addLog && ctx.addLog('static-pre-review', 'pre-repair skipped (' + (e && e.message || e) + '); checking raw code');
+  }
+  var result = staticCheckProject(checkCode, {
+    extraFiles: checkExtras,
     blueprint: ctx.blueprint,
     filename: 'GameFlowManagerMain.cs',
   });
