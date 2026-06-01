@@ -835,6 +835,14 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
       else stateHidden[keys[i]] = true;
     }
   }
+  // The build's JS storyboard overlay (applyStoryboardVisualOverlay) emits one
+  // StoryboardEntity_<Name> node per source entity — these ARE the rendered, phase-managed
+  // source visuals (shown/hidden per phase). When present they are the AUTHORITATIVE on-screen
+  // visibility and supersede both the entity_states scan and the CamelCase tree walk, which
+  // mis-report on the Option-C composite path (composite roots stay always-enabled; the player
+  // composite is parked off-screen; the player node is named 'player', not 'Player'). Captured
+  // separately so the decorative Storyboard* nodes (Ground/Star/Orbit/VisualOverlay) stay skipped.
+  const storyboardEntities = {};
   if (pcApp && pcApp.root) {
     // SKIP — generic runtime/scaffold names that pollute the entity set with
     // extras the contract doesn't list. Exact-match set + prefix list. Sam end-to-end
@@ -862,6 +870,8 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
       const node = stack.shift();
       if (!node) continue;
       const name = node._name || node.name || '';
+      const sbm = name && name.indexOf('StoryboardEntity_') === 0 ? name.slice('StoryboardEntity_'.length) : null;
+      if (sbm && node.enabled !== false) storyboardEntities[sbm] = true;
       // Top-level CamelCase entity names (Player, OxygenShop, …) the contract cares about.
       // Pool-managed entities, Luna runtime markers, primitive sub-parts, and entities the
       // authoritative game state has hidden are all skipped.
@@ -873,7 +883,13 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
       for (let j = 0; j < children.length; j++) stack.push(children[j]);
     }
   }
-  out.visibleEntities = Object.keys(visible);
+  if (Object.keys(storyboardEntities).length > 0) {
+    out.visibleEntities = Object.keys(storyboardEntities);
+    out.visibleSource = 'storyboard-overlay';
+  } else {
+    out.visibleEntities = Object.keys(visible);
+    out.visibleSource = gs && gs.entity_states ? 'entity_states+tree' : 'tree';
+  }
 
   // 4. phaseSpec — derive from __gameState (PlayCanvas build has no window.PHASES).
   //    Leave showEntities/hideEntities undefined so (6) gating skips the diff.

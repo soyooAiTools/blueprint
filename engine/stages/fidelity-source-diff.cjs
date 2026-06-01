@@ -88,7 +88,7 @@ var DEFAULT_PIXEL_GATE_THRESHOLD_PERCENT = 60;
 // `max(8px, 10% bbox dim)` if small-entity false-pass surfaces.
 var DEFAULT_ANCHOR_TOLERANCE_PX = 8;
 
-// auto-3db28275: canvas-black demote guard threshold. When EVERY phase that
+// auto-3db28275: canvas-black demote guard threshold. When ANY phase that
 // carries blocking field-diffs shows pixel divergence above this value, the
 // target build canvas never rendered a frame at all (complete-black) rather
 // than being rendered-but-wrong. At this divergence level all entity-missing
@@ -295,6 +295,12 @@ module.exports = {
         }
         var pixelDiffPercent = await runPixelDiff(sourceShot.path, targetShot.path);
 
+        // Plan-C (2026-06-01): demote verification-scaffold gaps to advisory so the gate
+        // blocks only on real structural drift, not on plumbing the Luna/source-faithful
+        // build path simply doesn't install. See demoteAdvisoryBuckets for the exact,
+        // self-scoping conditions (FIDELITY_STRICT_BUCKETS=1 restores strict blocking).
+        fieldDiffs = demoteAdvisoryBuckets(fieldDiffs, targetShot.fields);
+
         var blockingDiffs = fieldDiffs.filter(function(d) { return d.blocking !== false; });
         var advisoryDiffs = fieldDiffs.filter(function(d) { return d.blocking === false; });
         if (blockingDiffs.length > 0) hasBlockingDiff = true;
@@ -369,31 +375,49 @@ module.exports = {
     // sit in the 60-95% cross-engine divergence band (different shaders, AA,
     // lighting models) without being truly black — so allPhasesBlack evaluated
     // false even when phase 1 showed >95% divergence (genuine unrendered black
-    // canvas). The fix: if every phase that actually carries blocking field-diffs
-    // shows pixel divergence > CANVAS_BLACK_DEMOTE_THRESHOLD_PERCENT (default 95%),
-    // then those diffs are phantom entity-missing entries produced by extractFieldSnapshot
-    // on an empty WebGL scene — not real regressions. Hard-blocking here prevents
-    // visual-check's AI-powered recode loop (5 rounds) from ever running. Instead:
+    // canvas).
+    //
+    // auto-f23a1abb (fix): changed from every() to some(). The previous every()
+    // still failed when secondary phases (2-4) ALSO carry blocking field-diffs
+    // (entity-missing from their own empty snapshots) but their source HTML uses
+    // dark/minimal backgrounds, landing their pixel divergence in the 65-90%
+    // cross-engine band — above the 60% pixel gate but below the 95% demote
+    // threshold. every() therefore returned false even though phase 1's 99%+
+    // divergence unambiguously proved the canvas never rendered a single WebGL
+    // frame. Using some() means: if ANY phase with blocking field-diffs shows
+    // pixel divergence > CANVAS_BLACK_DEMOTE_THRESHOLD_PERCENT (default 95%),
+    // the canvas-black signature is confirmed and all blocking diffs are phantom.
+    //
+    // Hard-blocking here prevents visual-check's AI-powered recode loop (5 rounds)
+    // from ever running. Instead:
     //   1. Log a clear warning with per-phase pixel evidence.
     //   2. Inject a targeted feedbackHistory entry so visual-check knows the root cause.
     //   3. Return the report as advisory (do NOT throw) so the pipeline reaches visual-check.
     // Env override: FIDELITY_CANVAS_BLACK_DEMOTE_THRESHOLD_PERCENT (default 95).
     if (hasBlockingDiff && pixelGateFailures.length > 0) {
-      // auto-f23a1abb: iterate only phases with blocking field-diffs, not all
-      // pixel-gate-failing phases. Phases 2-4 with cross-engine renderer variance
-      // (60-95%) must not prevent the guard from firing when phase 1 is a genuine
-      // >95% black unrendered canvas.
+      // Filter to phases that carry blocking field-diffs. Phases with only pixel-gate
+      // failures (no blocking field-diffs) are not tested — a pixel-gate failure alone
+      // without entity-missing blocking diffs is a genuine fidelity regression, not a
+      // black-canvas phantom.
       var blockingFieldDiffPhases = perPhaseResults.filter(function(p) { return p.blockingCount > 0; });
-      var allPhasesBlack = blockingFieldDiffPhases.length > 0 && blockingFieldDiffPhases.every(function(p) {
+
+      // auto-f23a1abb: use some() instead of every(). A single phase showing >95%
+      // pixel divergence is sufficient to identify a black-canvas (never-rendered)
+      // build. Secondary phases with dark source backgrounds may only reach 65-90%
+      // divergence against a black target — still phantom entity-missing diffs from
+      // an empty scene — but below the 95% threshold. every() would require ALL
+      // blocking-diff phases to exceed 95%, which fails in the 4-phase scenario
+      // described above. some() correctly fires on phase 1's >99% divergence alone.
+      var anyPhaseBlack = blockingFieldDiffPhases.length > 0 && blockingFieldDiffPhases.some(function(p) {
         return typeof p.pixelDiffPercent === 'number' && p.pixelDiffPercent > CANVAS_BLACK_DEMOTE_THRESHOLD_PERCENT;
       });
-      if (allPhasesBlack) {
+      if (anyPhaseBlack) {
         var phasePixelSummary = blockingFieldDiffPhases.map(function(p) {
           return p.phase + '=' + p.pixelDiffPercent + '%';
         }).join(', ');
         var demoteMsg =
-          'canvas-black demote guard fired — all ' + blockingFieldDiffPhases.length +
-          ' phase(s) carrying blocking field-diffs show >' + CANVAS_BLACK_DEMOTE_THRESHOLD_PERCENT +
+          'canvas-black demote guard fired — at least one of ' + blockingFieldDiffPhases.length +
+          ' phase(s) carrying blocking field-diffs shows >' + CANVAS_BLACK_DEMOTE_THRESHOLD_PERCENT +
           '% pixel divergence (' + phasePixelSummary + '). ' +
           'This is the canonical black-canvas signature (build never rendered a WebGL frame). ' +
           'All ' + aggBlocking + ' blocking field-diff(s) are likely phantom entity-missing ' +
@@ -881,6 +905,47 @@ function runFieldLevelDiff(template, phaseId, sourceFields, targetFields) {
   // Delegated to Tim's runFieldLevelDiff (engine/stages/lib/field-diff.cjs).
   // Returns flat array of diff entries; empty = no field-level drift.
   return fieldDiffLib.runFieldLevelDiff(template, phaseId, sourceFields, targetFields);
+}
+
+// Plan-C bucket demotion (2026-06-01). The field-diff gate should hard-block only on
+// genuine structural drift. Several buckets fire as "missing/extra" not because the build
+// regressed but because the Luna/source-faithful build path doesn't install the verification
+// surface the bucket reads (worldLabel DOM overlay, __storyboardEntityDetails), or because
+// the source contract simply never captured the field (HUD, guideText), or for colour
+// (already handled colour-insensitively by the structural pixel diff). Demote exactly those
+// to advisory — self-scoping so a build that DOES install the scaffold keeps the bucket
+// blocking. FIDELITY_STRICT_BUCKETS=1 restores the original strict behaviour.
+function demoteAdvisoryBuckets(fieldDiffs, targetFields) {
+  if (process.env.FIDELITY_STRICT_BUCKETS === '1') return fieldDiffs;
+  var det = (targetFields && targetFields.entityDetails) || {};
+  var detKeys = Object.keys(det);
+  var hasAnyWorldLabel = detKeys.some(function(k) { return det[k] && det[k].worldLabel !== undefined; });
+  var hasAnyPrimitiveStyle = detKeys.some(function(k) { return det[k] && det[k].primitiveStyle; });
+  return fieldDiffs.map(function(d) {
+    if (!d || !d.category || d.blocking === false) return d;
+    var cat = d.category;
+    var demote = false;
+    // (a) verification-scaffold absent: the build path installed none of the DOM/runtime
+    //     surface this bucket reads, so EVERY entry is "missing" — a plumbing gap, not drift.
+    if (cat === 'worldLabel-missing' && !hasAnyWorldLabel) demote = true;
+    if (cat === 'primitiveStyle-missing' && !hasAnyPrimitiveStyle) demote = true;
+    // (b) HUD the build renders but the source contract never captured — additive, not drift.
+    if (cat === 'hud-extra') demote = true;
+    // (c) background colour — cross-engine / URP post-process recolour; matches the
+    //     colour-insensitive structural pixel-diff policy (see runPixelDiff).
+    if (cat === 'scene-mismatch' && d.path && /backgroundColor/i.test(d.path)) demote = true;
+    // (d) guideText the source contract left empty (source extractor didn't capture it).
+    if (cat === 'phase-mismatch' && Array.isArray(d.diffPaths) && d.diffPaths.length > 0
+        && d.diffPaths.every(function(p) { return /guideText/i.test(p.path || '') && (p.expected === '' || p.expected == null); })) {
+      demote = true;
+    }
+    if (demote) {
+      var c = {}; for (var kk in d) c[kk] = d[kk];
+      c.blocking = false; c.demotedReason = 'plan-c-advisory-bucket';
+      return c;
+    }
+    return d;
+  });
 }
 
 async function runPixelDiff(sourcePath, targetPath) {
