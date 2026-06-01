@@ -815,13 +815,24 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
     }
   } catch (e) { gs = null; }
 
-  // 3. visibleEntities — prefer __gameState.entity_states, supplement with PC scene walk.
+  // 3. visibleEntities — __gameState.entity_states is the AUTHORITATIVE per-entity,
+  //    phase-correct game state. The PC scene-tree walk only SUPPLEMENTS it with
+  //    entities entity_states does not track. Two guards stop the walk from
+  //    manufacturing phantoms (root-caused 2026-06-01 on the Option-C source-faithful
+  //    build — composite mesh path; memory optionc_pilot_round3):
+  //      • Unity GameObject.CreatePrimitive default node names (Cube/Sphere/Cylinder/
+  //        Plane/Capsule/Quad) are composite SUB-PARTS, never entities — skip them.
+  //      • never flip an entity entity_states explicitly marks hidden back to visible:
+  //        the composite root stays `enabled` in the scene tree even when the game has
+  //        hidden it (moved off-screen / state=hidden), so the tree walk alone over-reports.
   const visible = {};
+  const stateHidden = {};
   if (gs && gs.entity_states && typeof gs.entity_states === 'object') {
     const keys = Object.keys(gs.entity_states);
     for (let i = 0; i < keys.length; i++) {
       const st = gs.entity_states[keys[i]];
       if (st && st.visible !== false) visible[keys[i]] = true;
+      else stateHidden[keys[i]] = true;
     }
   }
   if (pcApp && pcApp.root) {
@@ -834,9 +845,12 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
       '__AUTOPLAY_ON__': 1, '__CUA_OBSERVER_READY__': 1,
       'Untitled': 1, 'EventSystem': 1,
     };
+    // Unity primitive-default names — composite parts emitted by GFM_Create.AddCompositePart,
+    // not game entities. Adding them as "visible entities" produced entity-extra phantoms.
+    const PRIMITIVE_NAMES = { Cube: 1, Sphere: 1, Cylinder: 1, Plane: 1, Capsule: 1, Quad: 1 };
     const SKIP_PREFIX = ['Storyboard'];
     const isSkipped = function(n) {
-      if (SKIP[n]) return true;
+      if (SKIP[n] || PRIMITIVE_NAMES[n]) return true;
       for (let p = 0; p < SKIP_PREFIX.length; p++) {
         if (n.indexOf(SKIP_PREFIX[p]) === 0) return true;
       }
@@ -849,8 +863,10 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
       if (!node) continue;
       const name = node._name || node.name || '';
       // Top-level CamelCase entity names (Player, OxygenShop, …) the contract cares about.
-      // Pool-managed entities and Luna runtime markers are skipped.
-      if (name && !isSkipped(name) && /^[A-Z][A-Za-z0-9]*$/.test(name) && node.enabled !== false) {
+      // Pool-managed entities, Luna runtime markers, primitive sub-parts, and entities the
+      // authoritative game state has hidden are all skipped.
+      if (name && !isSkipped(name) && !stateHidden[name]
+          && /^[A-Z][A-Za-z0-9]*$/.test(name) && node.enabled !== false) {
         visible[name] = true;
       }
       const children = node._children || node.children || [];
