@@ -2125,9 +2125,32 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             var anchorPhase = projectedAnchorPhaseForOverlayState(gs);
             var phaseId = anchorPhase && anchorPhase.id || gs && (gs.currentPhase || gs.phase) || 'current';
             var fitForPhase = anchorFitApplied[phaseId] || {};
+            // Source-faithful storyboard POSITION (2026-06-01): place the overlay from the
+            // SOURCE contract (sourceEntityContract.entityStyles[name].position) — distinct,
+            // matches the source storyboard layout — instead of the game's runtime
+            // entity_states.position, which collapses several entity pairs
+            // (SpaceBase/DrillUpgradeStation, MeltingFurnace/Electrolyzer, IcePile/AutoMinerNPC)
+            // onto identical coords and stacks their composites + head worldLabels. The PLAYER
+            // is exempt: it tracks the live game position so it can walk (its label follows via
+            // tickWorldLabels); when the game parks/hides it (y<=-100 sentinel) or exposes no
+            // matching key, fall back to source. Off-switch: window.__DISABLE_STORYBOARD_CONTRACT_VISIBILITY.
+            var __sfStyles = (manifest.sourceEntityContract && manifest.sourceEntityContract.entityStyles) || {};
+            var __contractPos = !(typeof window !== 'undefined' && window.__DISABLE_STORYBOARD_CONTRACT_VISIBILITY);
             Object.keys(entityRoots).forEach(function(name) {
               var st = states[name];
               var p = st && st.position;
+              if (__contractPos) {
+                var sp = __sfStyles[name] && __sfStyles[name].position;
+                if (/player/i.test(name)) {
+                  var gp = st && st.position;
+                  if (!gp) { var pst = states['player'] || states['Player'] || states[name.toLowerCase()]; gp = pst && pst.position; }
+                  if (gp && isFinite(Number(gp.x)) && Number(gp.y) > -100) p = gp;
+                  else if (sp && isFinite(Number(sp.x))) p = sp;
+                  else p = gp;
+                } else if (sp && isFinite(Number(sp.x))) {
+                  p = sp;
+                }
+              }
               if (p && isFinite(Number(p.x)) && isFinite(Number(p.z)) && !(viewportAnchored[name] && fitForPhase[name])) {
                 entityRoots[name].setPosition(Number(p.x), Number(p.y) || 0, Number(p.z));
               }
