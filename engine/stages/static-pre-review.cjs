@@ -6,16 +6,14 @@
 // BEFORE the (expensive) review round — instead of discovering the blocking issue
 // only at review's synthetic static-precheck.
 //
-// FLAG-GATED, DEFAULT-OFF (set STATIC_PRE_REVIEW_ENABLED=true to activate). Rationale:
-//   1. [ADDRESSED 2026-06-01, P2] The original hazard — rejecting blocking issues that
-//      review's deterministic pre-repair (runAllPreRepairs) would auto-fix for free, trading
-//      a free fix for a wasted recode — is removed: execute() now runs that SAME pre-repair
-//      FIRST and rejects only on issues that SURVIVE it (genuinely-unfixable code review would
-//      also reject). The gate can no longer cost a recode for an auto-fixable issue, so it is
-//      now convergence-safe to enable.
-//   2. This repo runs live workers; default-off keeps the wiring inert (a pure no-op via
-//      canSkip) until explicitly enabled, even across worker restarts. Kept default-off out of
-//      caution (operator flips STATIC_PRE_REVIEW_ENABLED=true + restarts workers when ready).
+// DEFAULT-ON as of 2026-06-01 (P2). Disable with STATIC_PRE_REVIEW_ENABLED=false. Rationale:
+//   1. The original hazard — rejecting blocking issues that review's deterministic pre-repair
+//      (runAllPreRepairs) would auto-fix for free, trading a free fix for a wasted recode — is
+//      removed: execute() now runs that SAME pre-repair FIRST and rejects only on issues that
+//      SURVIVE it (genuinely-unfixable code review would also reject). The gate can no longer
+//      cost a recode for an auto-fixable issue, so it is convergence-safe.
+//   2. Enabling it moves the recode for genuinely-broken code BEFORE the expensive review
+//      round (faster convergence). Worker restart picks up the new default.
 //
 // PREREQUISITE (satisfied 2026-05-31, Wave 1.a): the non-ascii-resource-key rule's
 // custom() callback now masks comments via buildCodeMask. Without that, the skeleton's
@@ -121,9 +119,11 @@ function execute(ctx) {
 module.exports = {
   name: 'static-pre-review',
   canRetry: true,
-  // Default-OFF: inert no-op unless STATIC_PRE_REVIEW_ENABLED=true (or no code yet).
+  // DEFAULT-ON (2026-06-01, P2): now convergence-safe (pre-repair-aware execute rejects only
+  // residual blocking). Skip only when explicitly disabled (STATIC_PRE_REVIEW_ENABLED=false)
+  // or when there's no code yet.
   canSkip: function(ctx) {
-    return process.env.STATIC_PRE_REVIEW_ENABLED !== 'true' || !ctx || !ctx.csCode;
+    return process.env.STATIC_PRE_REVIEW_ENABLED === 'false' || !ctx || !ctx.csCode;
   },
   execute: execute,
   formatFeedback: formatFeedback, // exported for unit tests

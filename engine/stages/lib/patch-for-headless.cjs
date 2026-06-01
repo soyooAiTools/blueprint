@@ -17,18 +17,24 @@ var canonical = null;
 try {
   canonical = require('../../../worker/worker-cua-verify.js').patchForHeadless;
 } catch (e) {
+  console.warn('[patch-for-headless] WARN: could not load canonical patchForHeadless from worker-cua-verify.js — HTML will be served unpatched, expect black-canvas / pixel-divergence failures:', e && e.message || e);
   canonical = null;
 }
 
 module.exports = function patchForHeadless(source, filename) {
   if (typeof source !== 'string') return source;
-  if (typeof canonical !== 'function') return source;
+  if (typeof canonical !== 'function') {
+    console.warn('[patch-for-headless] WARN: canonical patchForHeadless is not a function (canonical=%s) — returning source unpatched. This will cause new Event() TypeError in headless Chromium and a black canvas.', typeof canonical);
+    return source;
+  }
   try {
     var result = canonical(source, filename || 'index.html');
     if (result && typeof result === 'object' && typeof result.content === 'string') return result.content;
     if (typeof result === 'string') return result;
+    console.warn('[patch-for-headless] WARN: canonical patchForHeadless returned unexpected type (%s) — returning source unpatched. This will cause new Event() TypeError in headless Chromium and a black canvas.', typeof result);
     return source;
   } catch (e) {
+    console.warn('[patch-for-headless] WARN: canonical patchForHeadless threw an error — returning source unpatched. This will cause new Event() TypeError in headless Chromium and a black canvas:', e && e.message || e);
     return source;
   }
 };

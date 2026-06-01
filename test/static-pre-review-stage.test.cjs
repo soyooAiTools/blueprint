@@ -26,14 +26,14 @@ function makeCtx(csCode, extraFiles) {
 }
 
 // ---- synchronous cases ----
-(function testFlagOff() {
+(function testFlagGate() {
   delete process.env.STATIC_PRE_REVIEW_ENABLED;
-  assert.strictEqual(stage.canSkip(makeCtx('x')), true, 'default-off: must skip');
-  process.env.STATIC_PRE_REVIEW_ENABLED = 'true';
-  assert.strictEqual(stage.canSkip(makeCtx('x')), false, 'enabled + csCode: must NOT skip');
-  assert.strictEqual(stage.canSkip(makeCtx('')), true, 'enabled but no csCode: skip');
+  assert.strictEqual(stage.canSkip(makeCtx('x')), false, 'default-ON: must NOT skip');
+  assert.strictEqual(stage.canSkip(makeCtx('')), true, 'default-ON but no csCode: skip');
+  process.env.STATIC_PRE_REVIEW_ENABLED = 'false';
+  assert.strictEqual(stage.canSkip(makeCtx('x')), true, 'explicitly disabled: must skip');
   delete process.env.STATIC_PRE_REVIEW_ENABLED;
-  console.log('  ✓ flag gate: default-off skips; enabled+csCode runs');
+  console.log('  ✓ flag gate: default-ON runs; STATIC_PRE_REVIEW_ENABLED=false skips');
 })();
 
 (function testFormatFeedback() {
