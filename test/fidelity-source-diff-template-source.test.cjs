@@ -9,8 +9,8 @@
 //   1. ctx.fidelityFieldDiffTemplate already present → keep as-is
 //   2. ctx.blueprint.fidelityContract has schemaVersion >= 1.2.0 → use it
 //   3. ctx.fidelityContractPath (explicit) on disk → use it
-//   4. DEFAULT_CONTRACT_PATH on disk → use it
-//   5. nothing resolvable → null + WARN log
+//   4. nothing resolvable → null + WARN log; do not fall back to the
+//      space-ranger DEFAULT_CONTRACT_PATH for unrelated tasks
 //
 // Also covers field-diff lib's new makeTemplateFromContract() directly:
 // the unwrap-split-pack mirror, the bare-contract path, and the error
@@ -121,20 +121,14 @@ var tpl3 = resolveFieldDiffTemplate(ctx3);
 assert.ok(tpl3, '3: explicit path → template');
 assert.strictEqual(tpl3.contractPath, v12OnDiskPath);
 
-// ─── case 4: no in-memory + no explicit path → DEFAULT_CONTRACT_PATH fallback
-// (only assert if the default exists in this checkout; otherwise expect null)
+// ─── case 4: no in-memory + no explicit path → no-template marker ───────────
 var DEFAULT_CONTRACT_PATH = stage._internals.DEFAULT_CONTRACT_PATH;
 assert.strictEqual(typeof DEFAULT_CONTRACT_PATH, 'string', 'DEFAULT_CONTRACT_PATH exposed');
 var ctx4 = makeCtx();
 var tpl4 = resolveFieldDiffTemplate(ctx4);
-if (fs.existsSync(DEFAULT_CONTRACT_PATH)) {
-  assert.ok(tpl4, '4: default path exists → template returned');
-  assert.strictEqual(tpl4.contractPath, DEFAULT_CONTRACT_PATH);
-} else {
-  assert.strictEqual(tpl4, null, '4: no default → null');
-  assert.ok(ctx4.logs.some(function(l) { return l.indexOf('WARN') >= 0; }),
-    '4: WARN log emitted when nothing resolvable');
-}
+assert.strictEqual(tpl4, null, '4: no task-specific contract → null');
+assert.ok(ctx4.logs.some(function(l) { return l.indexOf('WARN') >= 0 && l.indexOf('NOT falling back') >= 0; }),
+  '4: WARN log emitted and default fallback is explicitly rejected');
 
 // ─── case 5: in-memory contract missing schemaVersion → treated as < 1.2.0 ───
 var ctx5 = makeCtx();

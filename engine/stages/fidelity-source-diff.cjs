@@ -622,12 +622,10 @@ function resolveWorldLabelTolerance() {
 // for defence in depth by only accepting an explicitly-provided contractPath.
 function resolveFieldDiffTemplate(ctx) {
   var inMemory = ctx.blueprint && ctx.blueprint.fidelityContract;
-  // 2026-05-31 Option B: gate lowered to >= 1.1.0 so a synthesize-stage v1.1.0
-  // contract (produced from source.html L1-L8.5) wins precedence over the
-  // generic space-ranger v1.0.0 fixture. Anchor bucket is still gated >= 1.2.0
-  // separately at line ~199, so dropping this gate only affects entity/phase/
-  // hud/worldLabel field-diff (which is what we need — project-specific names).
-  if (inMemory && gteSchemaVersion(inMemory.schemaVersion, '1.1.0')) {
+  // In-memory contracts need v1.2 projected-anchor fields before they can take
+  // precedence over an explicit task contract path. Older v1.1 contracts fall
+  // through to disk so the stage can load the richer contract when available.
+  if (inMemory && gteSchemaVersion(inMemory.schemaVersion, '1.2.0')) {
     ctx.fidelityFieldDiffTemplate = fieldDiffLib.makeTemplateFromContract(inMemory);
     ctx.addLog && ctx.addLog('fidelity-source-diff',
       'Auto-initialized fieldDiffTemplate from ctx.blueprint.fidelityContract (in-memory, schemaVersion=' + inMemory.schemaVersion + ')');
