@@ -22,8 +22,10 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
     private Image _bgImage;
     private Image _handleImage;
     private Vector2 _input = Vector2.zero;
+    private Vector2 _originScreenPosition = Vector2.zero;
     private bool _dragging = false;
     private float _radius;
+    private const float InputDeadZone = 4f;
 
     // 场景里预挂的 JoystickBG 也要注册为 instance，否则 probe 首帧只能看到壳。
     private void Awake()
@@ -62,7 +64,7 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
         bgRect.pivot = new Vector2(0.5f, 0.5f);
         bgRect.anchoredPosition = new Vector2(-550f, -260f);
         var bgImg = (Image)bgObj.GetComponent(typeof(Image));
-        bgImg.color = new Color(0.15f, 0.78f, 1f, 0.28f);
+        bgImg.color = new Color(0f, 0f, 0f, 0f);
         bgImg.raycastTarget = true;
 
         var handleObj = new GameObject("JoystickHandle", typeof(RectTransform), typeof(Image));
@@ -71,7 +73,7 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
         handleRect.sizeDelta = new Vector2(size * 0.4f, size * 0.4f);
         handleRect.anchoredPosition = Vector2.zero;
         var handleImg = (Image)handleObj.GetComponent(typeof(Image));
-        handleImg.color = new Color(1f, 1f, 1f, 0.55f);
+        handleImg.color = new Color(1f, 1f, 1f, 0f);
         handleImg.raycastTarget = true;
 
         instance = bgObj.AddComponent<GFM_Joystick>();
@@ -109,7 +111,6 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
     public void OnPointerDown(PointerEventData eventData)
     {
         BeginDragAt(eventData.position);
-        UpdateDrag(eventData.position, eventData.pressEventCamera);
     }
 
     // 处理摇杆拖拽并更新方向向量。
@@ -134,6 +135,14 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
     // 保持"真实 pointer -> joystick widget -> widget 状态 -> Player 输入"链路。
     public void PollInput()
     {
+        if (Input.touchCount > 0)
+        {
+            Touch touch = Input.GetTouch(0);
+            if (touch.phase == TouchPhase.Began) BeginDragAt(touch.position);
+            if (_dragging && (touch.phase == TouchPhase.Moved || touch.phase == TouchPhase.Stationary)) UpdateDrag(touch.position, null);
+            if (_dragging && (touch.phase == TouchPhase.Ended || touch.phase == TouchPhase.Canceled)) EndDrag();
+            return;
+        }
         if (Input.GetMouseButtonDown(0)) BeginDragAt(Input.mousePosition);
         if (_dragging && Input.GetMouseButton(0)) UpdateDrag(Input.mousePosition, null);
         if (_dragging && Input.GetMouseButtonUp(0)) EndDrag();
@@ -142,6 +151,9 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
     private void BeginDragAt(Vector2 screenPosition)
     {
         _dragging = true;
+        _originScreenPosition = screenPosition;
+        _input = Vector2.zero;
+        if (_handle != null) _handle.anchoredPosition = Vector2.zero;
         if (_bg != null)
         {
             Vector2 localPoint;
@@ -161,20 +173,17 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
     private void UpdateDrag(Vector2 screenPosition, Camera eventCamera)
     {
         if (_bg == null || _handle == null) return;
-        if (eventCamera == null)
+        Vector2 localPos = screenPosition - _originScreenPosition;
+        if (localPos.magnitude < InputDeadZone)
         {
-            var canvas = _bg.GetComponentInParent<Canvas>();
-            if (canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay)
-                eventCamera = canvas.worldCamera != null ? canvas.worldCamera : Camera.main;
+            _handle.anchoredPosition = Vector2.zero;
+            _input = Vector2.zero;
+            return;
         }
-        Vector2 localPos;
-        if (RectTransformUtility.ScreenPointToLocalPointInRectangle(_bg, screenPosition, eventCamera, out localPos))
-        {
-            if (localPos.magnitude > _radius)
-                localPos = localPos.normalized * _radius;
-            _handle.anchoredPosition = localPos;
-            _input = localPos / _radius;
-        }
+        if (localPos.magnitude > _radius)
+            localPos = localPos.normalized * _radius;
+        _handle.anchoredPosition = localPos;
+        _input = localPos / _radius;
     }
 
     private void EndDrag()
@@ -188,9 +197,7 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
     // 根据拖拽状态显隐摇杆，未操作时不遮挡源画面。
     private void SetVisible(bool visible)
     {
-        float bgAlpha = visible ? 0.3f : 0f;
-        float handleAlpha = visible ? 0.6f : 0f;
-        if (_bgImage != null) _bgImage.color = new Color(0.15f, 0.78f, 1f, bgAlpha);
-        if (_handleImage != null) _handleImage.color = new Color(1f, 1f, 1f, handleAlpha);
+        if (_bgImage != null) _bgImage.color = new Color(0f, 0f, 0f, 0f);
+        if (_handleImage != null) _handleImage.color = new Color(1f, 1f, 1f, 0f);
     }
 }

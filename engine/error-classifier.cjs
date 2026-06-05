@@ -35,6 +35,11 @@ var INFRA_PATTERNS = [
   /EPIPE/i,
   /EAI_AGAIN/i,
   /ENOTFOUND/i,
+  /ENOENT.*mkdtemp/i,
+  /mkdtemp.*ENOENT/i,
+  /no such file or directory.*(?:mkdtemp|luna-build)/i,
+  /(?:mkdtemp|luna-build).*no such file or directory/i,
+  /temporary directory unavailable/i,
   // Note: 401/403 removed — they're definitive auth failures, not transient.
   // MODEL_FATAL_PATTERNS picks them up via /unauthorized/ and similar.
   /\b429\b/,

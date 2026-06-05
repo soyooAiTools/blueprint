@@ -7,6 +7,8 @@ var http = require('http');
 var https = require('https');
 var fs = require('fs');
 var path = require('path');
+var visualAssetExtractor = null;
+var fieldDiffLib = null;
 
 // v1.2 plumbing: the writer reads window.__BLUEPRINT_VISUAL_ASSETS__.fidelityContract
 // to discover phases[i].projectedAnchors. If the in-memory visualAssets manifest
@@ -34,37 +36,228 @@ function contractHasProjectedAnchors(contract) {
   return false;
 }
 
-function buildVisualAssetsForRequest(ctx) {
-  var va = ctx && ctx.blueprint && ctx.blueprint.visualAssets;
-  if (!va) return null;
-  if (va.fidelityContract) return va;
+function cloneJson(value) {
+  if (!value || typeof value !== 'object') return value || null;
+  return JSON.parse(JSON.stringify(value));
+}
+
+function logVisualAssets(ctx, msg) {
+  try {
+    if (ctx && typeof ctx.addLog === 'function') ctx.addLog('visual-assets', msg);
+  } catch(e) {}
+}
+
+function loadVisualAssetExtractor() {
+  if (visualAssetExtractor) return visualAssetExtractor;
+  visualAssetExtractor = require('../adapters/demo2spec/visual-assets.js');
+  return visualAssetExtractor;
+}
+
+function loadFieldDiffLib() {
+  if (fieldDiffLib) return fieldDiffLib;
+  fieldDiffLib = require('./stages/lib/field-diff.cjs');
+  return fieldDiffLib;
+}
+
+function resolveSourceHtmlPath(ctx, va) {
+  var bp = ctx && ctx.blueprint || {};
+  var task = ctx && ctx.task || {};
+  var candidates = [
+    ctx && ctx.sourceHtmlPath,
+    bp.sourceHtmlPath,
+    task.sourceHtmlPath,
+    task.source_html_path,
+    va && va.source,
+    bp.storyboard && bp.storyboard.htmlPath,
+  ];
+  for (var i = 0; i < candidates.length; i++) {
+    var value = candidates[i];
+    if (!value || !/\.html?$/i.test(String(value))) continue;
+    var abs = path.resolve(String(value));
+    try {
+      if (fs.existsSync(abs) && fs.statSync(abs).isFile()) return abs;
+    } catch(e) {}
+  }
+  return null;
+}
+
+function collectVisualEntityNames(ctx, va) {
+  var out = [];
+  function add(value) {
+    if (!value) return;
+    var text = String(value || '').trim();
+    if (text && out.indexOf(text) < 0) out.push(text);
+  }
+  function addEntities(list) {
+    if (!Array.isArray(list)) return;
+    list.forEach(function(e) {
+      if (!e) return;
+      add(typeof e === 'string' ? e : (e.name || e.id || e.entityName));
+    });
+  }
+  var bp = ctx && ctx.blueprint || {};
+  addEntities(bp.entities);
+  addEntities(bp.blueprint && bp.blueprint.entities);
+  addEntities(ctx && ctx.task && ctx.task.entities);
+  addEntities(va && va.sourceEntityContract && va.sourceEntityContract.entities);
+  addEntities(va && va.fidelityContract && va.fidelityContract.entities);
+  return out;
+}
+
+function hasSourceVisualSurface(va) {
+  if (!va || typeof va !== 'object') return false;
+  var sec = va.sourceEntityContract || {};
+  var spc = va.sourcePhaseContract || {};
+  var bindings = va.entityBindings || {};
+  var entityCount = Array.isArray(sec.entities) ? sec.entities.length : Object.keys(sec.entityStyles || {}).length;
+  var phaseCount = Array.isArray(spc.phases) ? spc.phases.length : 0;
+  return entityCount > 0 && phaseCount > 0 && Object.keys(bindings).length > 0;
+}
+
+function mergeVisualManifest(base, fallback) {
+  var out = cloneJson(base) || {};
+  fallback = fallback || {};
+  [
+    'visualAssetsSchemaVersion',
+    'kind',
+    'assetLicenseContractVersion',
+    'source',
+    'project',
+    'fidelityTarget',
+    'assetMetadata',
+    'sourceEntityContract',
+    'sourceSceneContract',
+    'sourcePhaseContract',
+    'extractionSummary',
+    'assets',
+    'entityBindings',
+    'unsupported',
+  ].forEach(function(key) {
+    var cur = out[key];
+    var missing = cur == null
+      || (Array.isArray(cur) && cur.length === 0)
+      || (typeof cur === 'object' && !Array.isArray(cur) && Object.keys(cur).length === 0);
+    if (missing && fallback[key] != null) out[key] = cloneJson(fallback[key]);
+  });
+  return out;
+}
+
+function synthesizeVisualAssetsFromSourceHtml(ctx, existingVa) {
+  var sourceHtmlPath = resolveSourceHtmlPath(ctx, existingVa);
+  if (!sourceHtmlPath) return null;
+  var extractor = loadVisualAssetExtractor();
+  var html = fs.readFileSync(sourceHtmlPath, 'utf8');
+  var manifest = extractor.extractVisualAssetManifest(html, {
+    source: sourceHtmlPath,
+    project: ctx && (ctx.taskId || ctx.id) || null,
+    entityNames: collectVisualEntityNames(ctx, existingVa),
+  });
+  extractor.validateVisualAssetManifest(manifest);
+  if (!hasSourceVisualSurface(manifest)) {
+    throw new Error('visualAssets synthesis failed: source HTML did not yield sourceEntityContract/sourcePhaseContract/entityBindings for ' + sourceHtmlPath);
+  }
+  logVisualAssets(ctx, 'Synthesized visualAssets from source HTML: entities=' +
+    ((manifest.sourceEntityContract && manifest.sourceEntityContract.entities || []).length) +
+    ', phases=' + ((manifest.sourcePhaseContract && manifest.sourcePhaseContract.phases || []).length) +
+    ', bindings=' + Object.keys(manifest.entityBindings || {}).length);
+  return manifest;
+}
+
+function resolveFidelityContractForBuild(ctx) {
   var contract = null;
   var contractSource = null;
-  if (ctx.fidelityFieldDiffTemplate && ctx.fidelityFieldDiffTemplate.contract) {
+  if (ctx && ctx.fidelityFieldDiffTemplate && ctx.fidelityFieldDiffTemplate.contract) {
     contract = ctx.fidelityFieldDiffTemplate.contract;
     contractSource = 'ctx.fidelityFieldDiffTemplate';
-  } else if (ctx.blueprint && ctx.blueprint.fidelityContract) {
+  } else if (ctx && ctx.blueprint && ctx.blueprint.fidelityContract) {
     contract = ctx.blueprint.fidelityContract;
     contractSource = 'ctx.blueprint.fidelityContract';
   } else {
-    var p = (ctx && ctx.fidelityContractPath) || DEFAULT_FIDELITY_CONTRACT_PATH_FOR_BUILD;
-    try { contract = JSON.parse(fs.readFileSync(p, 'utf8')); contractSource = p; } catch (e) { contract = null; }
+    var candidates = [];
+    if (ctx && ctx.fidelityContractPath) candidates.push(ctx.fidelityContractPath);
+    if (ctx && ctx.blueprint && ctx.blueprint.fidelityContractPath) candidates.push(ctx.blueprint.fidelityContractPath);
+    if (process.env.BLUEPRINT_USE_DEFAULT_FIDELITY_FIXTURE === '1') {
+      candidates.push(DEFAULT_FIDELITY_CONTRACT_PATH_FOR_BUILD);
+    }
+    for (var i = 0; i < candidates.length; i++) {
+      var p = candidates[i];
+      try {
+        if (p && fs.existsSync(p)) {
+          contract = JSON.parse(fs.readFileSync(p, 'utf8'));
+          contractSource = p;
+          break;
+        }
+      } catch(e) {}
+    }
   }
-  contract = unwrapSplitPackContract(contract);
-  if (!contract) return va;
+  return { contract: unwrapSplitPackContract(contract), source: contractSource };
+}
+
+function sanitizeFidelityContractAnchorsForBuild(contract) {
+  var out = cloneJson(unwrapSplitPackContract(contract));
+  var stats = { phases: 0, kept: 0, removed: 0 };
+  if (!out || !Array.isArray(out.phases)) return { contract: out, stats: stats };
+  var filterComparableAnchors = loadFieldDiffLib().filterComparableAnchors;
+  for (var i = 0; i < out.phases.length; i++) {
+    var phase = out.phases[i];
+    if (!phase || !phase.projectedAnchors || typeof phase.projectedAnchors !== 'object') continue;
+    var before = Object.keys(phase.projectedAnchors).length;
+    var filtered = filterComparableAnchors(phase.projectedAnchors);
+    var after = Object.keys(filtered).length;
+    phase.projectedAnchors = filtered;
+    stats.phases++;
+    stats.kept += after;
+    stats.removed += Math.max(0, before - after);
+  }
+  return { contract: out, stats: stats };
+}
+
+function buildVisualAssetsForRequest(ctx) {
+  var bp = ctx && ctx.blueprint || {};
+  var va = (ctx && ctx.visualAssets) || bp.visualAssets || (ctx && ctx.task && ctx.task.visualAssets) || null;
+  va = cloneJson(va);
+  var sourceHtmlPath = resolveSourceHtmlPath(ctx, va);
+  if ((!va || !hasSourceVisualSurface(va)) && sourceHtmlPath) {
+    va = mergeVisualManifest(va, synthesizeVisualAssetsFromSourceHtml(ctx, va));
+  }
+  if (!va) return null;
+  var resolved = va.fidelityContract
+    ? { contract: va.fidelityContract, source: 'visualAssets.fidelityContract' }
+    : resolveFidelityContractForBuild(ctx);
+  var contract = unwrapSplitPackContract(resolved.contract);
+  var contractSource = resolved.source;
+  if (!contract) {
+    if (sourceHtmlPath && process.env.BLUEPRINT_VISUAL_ASSETS_STRICT !== '0') {
+      throw new Error('visualAssets strict gate: source HTML is bound but no fidelityContract is available for build injection: ' + sourceHtmlPath);
+    }
+    return va;
+  }
   // Fail-loud: v1.0/v1.1 contracts have no projectedAnchors. Returning visualAssets
   // WITHOUT fidelityContract triggers the writer's empty-anchors path, which the
   // fidelity-source-diff stage then surfaces as a single blocking
   // `anchor-bridge-missing` entry — instead of silently shipping a v1.0 contract
   // that the writer would treat as valid input.
   if (!contractHasProjectedAnchors(contract)) {
-    console.error('[buildVisualAssetsForRequest] FAIL-LOUD: contract from ' + contractSource +
+    var msg = '[buildVisualAssetsForRequest] FAIL-LOUD: contract from ' + contractSource +
       ' has schemaVersion=' + (contract.schemaVersion || 'unknown') +
       ' with NO phases[].projectedAnchors — refusing to inject. Run scripts/migrate-v1.1-to-v1.2.cjs ' +
-      'or set ctx.fidelityContractPath to a v1.2 migrated contract.');
+      'or set ctx.fidelityContractPath to a v1.2 migrated contract.';
+    console.error(msg);
+    if (sourceHtmlPath && process.env.BLUEPRINT_VISUAL_ASSETS_STRICT !== '0') throw new Error(msg);
     return va;
   }
-  return Object.assign({}, va, { fidelityContract: contract });
+  var sanitized = sanitizeFidelityContractAnchorsForBuild(contract);
+  contract = sanitized.contract;
+  if (sanitized.stats.removed > 0) {
+    logVisualAssets(ctx, 'Dropped ' + sanitized.stats.removed +
+      ' non-comparable projectedAnchors from ' + contractSource +
+      ' before build injection (kept=' + sanitized.stats.kept + ')');
+  }
+  va = Object.assign({}, va, { fidelityContract: contract });
+  if (sourceHtmlPath && process.env.BLUEPRINT_VISUAL_ASSETS_STRICT !== '0' && !hasSourceVisualSurface(va)) {
+    throw new Error('visualAssets strict gate: build manifest missing source visual surface for ' + sourceHtmlPath);
+  }
+  return va;
 }
 
 // ============ File Helpers ============
@@ -72,18 +265,18 @@ function buildVisualAssetsForRequest(ctx) {
 function buildGameStateBridgeScript() {
   return `<script>
 (function(){
-  window.__BLUEPRINT_GAMESTATE_BRIDGE_VERSION__='public-preview-autoplay-v1';
-  // Public preview should play through by default. CUA observe keeps the
-  // observer-ready handshake to avoid pre-contamination before screenshots start.
+  window.__BLUEPRINT_GAMESTATE_BRIDGE_VERSION__='manual-default-autoplay-param-v1';
+  // Public preview is manual by default. CUA/diagnostic observe runs must opt in
+  // with ?autoplay=1 so the user-facing URL cannot silently self-play.
   var _autoPlayFlagCreated=false;
   var _observerReadyFlagCreated=false;
   var _params=new URLSearchParams(window.location.search);
   var _autoplayParam=_params.get('autoplay');
   var _manualRequested=_autoplayParam==='0'||_params.get('manual')==='1'||_params.get('interactive')==='1';
-  var _cuaAutoPlayRequested=_autoplayParam==='1';
-  var _publicPreviewAutoPlay=!_cuaAutoPlayRequested&&!_manualRequested;
-  var _autoPlayRequested=_cuaAutoPlayRequested||_publicPreviewAutoPlay;
-  window.__CUA_OBSERVER_READY__ = !!window.__CUA_OBSERVER_READY__ || _publicPreviewAutoPlay;
+  var _cuaAutoPlayRequested=_autoplayParam==='1'&&!_manualRequested;
+  var _observerReadyRequested=_params.get('observerReady')==='1'||_params.get('cuaObserverReady')==='1';
+  var _autoPlayRequested=_cuaAutoPlayRequested;
+  window.__CUA_OBSERVER_READY__ = !!window.__CUA_OBSERVER_READY__ || _observerReadyRequested;
   setInterval(function(){
     try{
       var app=pc.app||pc.Application.getApplication();
@@ -92,8 +285,6 @@ function buildGameStateBridgeScript() {
       if(_autoPlayRequested&&!_autoPlayFlagCreated){
         try{var fe=new pc.Entity('__AUTOPLAY_ON__');app.root.addChild(fe);_autoPlayFlagCreated=true;}catch(e){}
       }
-      // Public preview creates this immediately; CUA creates it only after observation starts.
-      if(_publicPreviewAutoPlay&&!window.__CUA_OBSERVER_READY__)window.__CUA_OBSERVER_READY__=true;
       if(window.__CUA_OBSERVER_READY__&&!_observerReadyFlagCreated){
         try{var oe=new pc.Entity('__CUA_OBSERVER_READY__');app.root.addChild(oe);_observerReadyFlagCreated=true;}catch(e){}
       }
@@ -141,10 +332,14 @@ function injectGameStateBridgeHtml(html) {
   var hasObserverBridge = text.indexOf('var _observerReadyFlagCreated=false;') >= 0 ||
     text.indexOf('window.__CUA_OBSERVER_READY__ = !!window.__CUA_OBSERVER_READY__;') >= 0;
   var hasGameStateBridge = text.indexOf('window.__gameState=best.state') >= 0;
-  var hasPublicPreviewBridge = text.indexOf('public-preview-autoplay-v1') >= 0;
-  if (hasPublicPreviewBridge && hasAutoPlayBridge && hasObserverBridge && hasGameStateBridge) {
+  var hasManualDefaultBridge = text.indexOf('manual-default-autoplay-param-v1') >= 0;
+  if (hasManualDefaultBridge && hasAutoPlayBridge && hasObserverBridge && hasGameStateBridge) {
     return html;
   }
+  text = text.replace(
+    /<script>\s*\(function\(\)\{\s*window\.__BLUEPRINT_GAMESTATE_BRIDGE_VERSION__='public-preview-autoplay-v1';[\s\S]*?\}\)\(\);\s*<\/script>/,
+    ''
+  );
   var bridge = buildGameStateBridgeScript();
   if (text.indexOf('</body>') >= 0) {
     text = text.replace('</body>', bridge + '</body>');

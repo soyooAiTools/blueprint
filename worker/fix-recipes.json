@@ -718,12 +718,11 @@
   },
   {
     "id": "auto-3db28275",
-    "fingerprintPattern": "fidelity-source-diff BLOCKING — \\d+ blocking field-level diff\\(s\\) in phase\\d+ \\+ pixel gate FAIL in phase\\d+ \\(9[5-9]\\.\\d+% > \\d+%",
-    "description": "Synthesized v1.1 contract emits rich worldLabel (with worldOffset) triggering blocking:true field diffs, while un-instrumented PlayCanvas builds never set __fidelityReady, yielding a 99.99% black-screen pixel diff that trips the pixel gate — both firing simultaneously in fidelity-source-diff.",
+    "fingerprintPattern": "fidelity-source-diff BLOCKING.*\\d+ blocking field-level diff.*pixel gate FAIL.*9[5-9]\\.[0-9]+%.*[3-9]|[1-9]\\d phase\\(s\\) over threshold",
+    "description": "fidelity-source-diff hard-blocks on canvas-never-rendered: target PlayCanvas build stays black across all phases (>95% pixel diff), producing phantom entity-missing diffs; canRetry:false means visual-check's recode loop is never reached.",
     "risk": "medium",
     "autoApply": true,
     "affectedFiles": [
-      "engine/stages/fidelity-contract-synthesize.cjs",
       "engine/stages/fidelity-source-diff.cjs"
     ],
     "relatedMemories": [],
@@ -731,13 +730,13 @@
   },
   {
     "id": "auto-8b63e982",
-    "fingerprintPattern": "fidelity-source-diff BLOCKING.*\\d+ blocking field-level diff.*pixel gate FAIL.*\\d+\\.\\d+% > \\d+%",
-    "description": "fidelity-source-diff fires double-blocking (17+ field diffs + ~100% pixel gate) because Playwright launches without WebGL SW-render flags, so PlayCanvas never initialises in headless CI, and the DEFAULT_CONTRACT_PATH space-ranger fixture is silently loaded for non-space-ranger tasks, guaranteeing entity-missing on every phase",
+    "fingerprintPattern": "fidelity-source-diff BLOCKING — \\d+ blocking field-level diff\\(s\\) in phase\\w+ \\+ pixel gate FAIL in phase\\w+ \\(9\\d\\.\\d+% > 60%;",
+    "description": "Luna/PlayCanvas target build screenshots as a black uninitialized canvas because FIDELITY_READY_TIMEOUT_MS (20 s) is insufficient; produces ~100 % pixel divergence and entity-missing field diffs across all phases",
     "risk": "medium",
     "autoApply": true,
     "affectedFiles": [
       "engine/stages/fidelity-source-diff.cjs",
-      "engine/stages/lib/field-diff.cjs"
+      ".env"
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-8b63e982.md"
@@ -777,5 +776,192 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-51bcf87e.md"
+  },
+  {
+    "id": "auto-9e7c3a1f",
+    "fingerprintPattern": "fidelity-source-diff BLOCKING.*\\d+ blocking field-level diff.*pixel gate FAIL.*99\\.\\d+%",
+    "description": "fidelity-source-diff captures a black PlayCanvas canvas because window.__fidelityReady is never set by Luna builds, causing the 20 s timeout to exhaust and settleFrame (~33 ms) to fire before WebGL draws",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/fidelity-source-diff.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-f23a1abb.md"
+  },
+  {
+    "id": "auto-f4084a58",
+    "fingerprintPattern": "fidelity-source-diff BLOCKING.*\\d+ blocking field-level diff\\(s\\).*pixel gate FAIL.*9\\d\\.\\d+% > \\d+%;.*phase\\(s\\) over threshold",
+    "description": "All phases fail fidelity pixel gate (~100% divergence) because serveSingleFile serves unpatched Luna/PlayCanvas HTML to headless Chromium; `new Event()` calls throw before WebGL renders, producing a permanently-black canvas",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/fidelity-source-diff.cjs",
+      "engine/stages/lib/patch-for-headless.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-f4084a58.md"
+  },
+  {
+    "id": "auto-6514b2f4",
+    "fingerprintPattern": "fidelity-source-diff BLOCKING.*pixel gate FAIL.*[89]\\d\\.\\d+%\\s*>\\s*\\d+%",
+    "description": "Luna/PlayCanvas readiness probe fires prematurely on infrastructure nodes and opaque-canvas alpha, producing black-frame screenshots with ~100% pixel divergence and 20+ entity-missing blocking diffs",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/fidelity-source-diff.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-6514b2f4.md"
+  },
+  {
+    "id": "auto-68029911",
+    "fingerprintPattern": "fidelity-source-diff BLOCKING — \\d+ blocking field-level diff\\(s\\) in phase1 \\+ pixel gate FAIL in phase1 \\(9[0-9]+\\.\\d+% > 60%",
+    "description": "fidelity-source-diff falls back to space-ranger-v0.5 fixture when no task-specific contract is synthesized, producing false-positive blocking entity diffs and ~100% pixel divergence",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/fidelity-source-diff.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-68029911.md"
+  },
+  {
+    "id": "auto-8e4115f8",
+    "fingerprintPattern": "fidelity-source-diff BLOCKING.*\\d+ blocking field-level diff.*pixel gate FAIL.*97\\.?\\d*%",
+    "description": "resolveFieldDiffTemplate() fell back to DEFAULT_CONTRACT_PATH (space-ranger v0.5 fixture) for tasks with no synthesized contract, producing ~34 phantom entity-missing blocking diffs and permanent pipeline block",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/fidelity-source-diff.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-8e4115f8.md"
+  },
+  {
+    "id": "auto-f23a1abb",
+    "fingerprintPattern": "fidelity-source-diff BLOCKING — \\d+ blocking field-level diff\\(s\\) in \\S+ \\+ pixel gate FAIL in \\S+ \\(\\d+\\.\\d+% > 60%;",
+    "description": "Canvas-black demote guard always evaluates false: wrong property name (p.pixelDiffPercent vs p.percent on pixelGateFailures entries) + every() requires ALL phases to exceed 95%, not just phase-1's 99%+",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/fidelity-source-diff.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-f23a1abb.md"
+  },
+  {
+    "id": "auto-f90d1b89",
+    "fingerprintPattern": "fidelity-source-diff BLOCKING.*\\d+ blocking field-level diff.*pixel gate FAIL.*\\d+\\.\\d+% > \\d+%; \\d+ phase\\(s\\) over threshold",
+    "description": "fidelity-source-diff pixel gate fails (~99% divergence, all phases) because drivePageToPhase's canvas-RGB readiness probe silently times out on dark/black-background games, producing black frames; compounded by synthesized-contract worldLabel emitting blocking v1.3 rich shape for every entity.",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/fidelity-source-diff.cjs",
+      "engine/stages/fidelity-contract-synthesize.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-f90d1b89.md"
+  },
+  {
+    "id": "auto-c7f2a915",
+    "fingerprintPattern": "fidelity-source-diff BLOCKING — \\d+ blocking field-level diff\\(s\\) in \\w+ \\+ pixel gate FAIL in \\w+ \\(\\d+\\.?\\d*% > \\d+%; \\d+ phase\\(s\\) over threshold\\)",
+    "description": "fidelity-source-diff hard-block throw discards blocking entity-missing diff names without writing them to feedbackHistory, causing every codegen retry to reproduce the same missing-entity build",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/fidelity-source-diff.cjs",
+      ".env"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-8b63e982.md"
+  },
+  {
+    "id": "auto-90f7084e",
+    "fingerprintPattern": "fidelity-source-diff BLOCKING — \\d+ blocking field-level diff\\(s\\) in phase1 \\+ pixel gate FAIL in phase1 \\(9\\d\\.\\d+% > 60%",
+    "description": "canvas-black demote guard silently skipped because .every() requires ALL blocking-field-diff phases to show >95% pixel divergence, but cross-engine renderer variance keeps phases 2-4 at 60-90%, preventing demotion even when phase1 is a true unrendered black canvas (99.97%).",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/fidelity-source-diff.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-90f7084e.md"
+  },
+  {
+    "id": "auto-801691f7",
+    "fingerprintPattern": "^(?:fidelity-source-diff\\s+)?BLOCKING\\s+[\\u2014-]\\s+\\d+\\s+blocking field-level diff\\(s\\) in phase1 \\(advisory field-diffs: \\d+; full report: .*/fidelity-source-diff/?(?:report\\.json)?\\)$",
+    "description": "WEBGL_PAGE_EXTRACTOR misses Luna wrapped/camelCase entityStates and falls back to noisy scene traversal.",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/lib/field-diff.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-801691f7.md"
+  },
+  {
+    "id": "auto-289f827a",
+    "fingerprintPattern": "^(?:fidelity-source-diff\\s+)?BLOCKING\\s+[\\u2014-]\\s+1\\s+blocking field-level diff\\(s\\) in phase1 \\(advisory field-diffs: 36; full report: .*fidelity-source-diff/?(?:report\\.json)?\\)$",
+    "description": "Color-only scene.backgroundColor mismatch is promoted to a blocking fidelity diff even when structural pixel divergence is clean.",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/fidelity-source-diff.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-289f827a.md"
+  },
+  {
+    "id": "auto-68c0fa1a",
+    "fingerprintPattern": "^(?:fidelity-source-diff\\s+)?BLOCKING\\s+[\\u2014-]\\s+\\d+\\s+blocking field-level diff\\(s\\) in phase1 \\(advisory field-diffs: \\d+; full report: (?:<path>|.*/fidelity-source-diff/?(?:report\\.json)?)\\)$",
+    "description": "WebGL field extractor misses Luna camelCase/wrapped entityStates and falls back to noisy scene-tree visibility.",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/lib/field-diff.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-68c0fa1a.md"
+  },
+  {
+    "id": "auto-86ee2d31",
+    "fingerprintPattern": "^(?:fidelity-source-diff\\s+)?BLOCKING\\s+[\\u2014-]\\s+\\d+\\s+blocking field-level diff\\(s\\) in phase1 \\(advisory field-diffs: \\d+; full report: .*/fidelity-source-diff/?(?:report\\.json)?\\)$",
+    "description": "WEBGL_PAGE_EXTRACTOR misses Luna wrapped/camelCase entityStates and creates phantom phase1 field-diff blockers.",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/lib/field-diff.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-86ee2d31.md"
+  },
+  {
+    "id": "auto-2077d92c",
+    "fingerprintPattern": "Fingerprint repeat FATAL: identical normalized fingerprint \"\\[visual[-_ ]freeze\\][^\"]*Visual frozen: N/N frames?",
+    "description": "Visual-freeze fingerprints are killed by the generic repeat breaker before the CUA no-progress/full-regen path can recover them.",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/cua-verify.cjs",
+      "test/cua-fingerprint-circuit-breaker.test.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-2077d92c.md"
+  },
+  {
+    "id": "auto-75f0bdf0",
+    "fingerprintPattern": "Schema generation failed: stdout: Your organization has disabled Claude subscription access for Clau(?:de Code)?",
+    "description": "Schema generation is leaking into Claude CLI subscription auth even though Blueprint should use Codex-only schema text generation.",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/codegen-schema.cjs",
+      "worker/codex-code-coder.js",
+      ".env",
+      "worker/.env"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-75f0bdf0.md"
   }
 ]

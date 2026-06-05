@@ -40,7 +40,17 @@ const CODEX_SYSTEM_PROMPT_FILE = 'CODEX.md';
 const CODEX_AGENTS_FILE = 'AGENTS.md';
 const LEGACY_SYSTEM_PROMPT_FILE = 'CLAUDE.md';
 const CODEX_SETTINGS_DIRNAME = '.codex';
-const DEFAULT_TEXT_RUNNER_MODE = process.env.BLUEPRINT_TEXT_RUNNER || 'claude-print';
+const DEFAULT_TEXT_RUNNER_MODE = process.env.BLUEPRINT_TEXT_RUNNER || 'codex-exec';
+
+function envFlag(name, env) {
+  env = env || process.env;
+  return /^(1|true|yes|on)$/i.test(String(env[name] || ''));
+}
+
+function isClaudeDisabled(env) {
+  env = env || process.env;
+  return envFlag('BLUEPRINT_DISABLE_CLAUDE', env) || !envFlag('BLUEPRINT_ENABLE_CLAUDE', env);
+}
 
 // ============ Cross-process Codex CLI concurrency semaphore ============
 // Uses file-based slot locking: /tmp/codex-code-slots/slot-N.lock
@@ -63,6 +73,13 @@ function resolveClaudePrintModel(opts, env) {
   if (opts.fallbackModel) return opts.fallbackModel;
   if (opts.model && !isCodexModelName(opts.model)) return opts.model;
   return env.CLAUDE_TEXT_MODEL || env.CLAUDE_CODE_MODEL || 'claude-opus-4-8';
+}
+
+function resolveCodexTextModel(opts, env) {
+  opts = opts || {};
+  env = env || process.env;
+  if (opts.model && isCodexModelName(opts.model)) return opts.model;
+  return env.CODEX_TEXT_MODEL || env.CODEX_CODE_MODEL || CODEX_CODE_MODEL;
 }
 
 function isModelUnavailableError(text) {
@@ -411,6 +428,16 @@ print(json.dumps(payload))
  */
 function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
   opts = opts || {};
+  if (isClaudeDisabled()) {
+    log('[codex-code] Claude code backend disabled; using Codex-only runtime', taskId);
+    return Promise.resolve({
+      ok: false,
+      exitCode: -1,
+      output: '',
+      error: 'MODEL_FATAL: Claude backend disabled; set BLUEPRINT_ENABLE_CLAUDE=1 only for legacy use',
+      partialSuccess: false,
+    });
+  }
   
   return new Promise((resolve, reject) => {
     const args = [
@@ -854,6 +881,15 @@ function runCodexText(opts) {
     }
 
     const runClaudePrintBackend = function() {
+      if (isClaudeDisabled()) {
+        return finish({
+          ok: false,
+          text: '',
+          exitCode: -1,
+          error: 'MODEL_FATAL: Claude text backend disabled; set BLUEPRINT_ENABLE_CLAUDE=1 only for legacy use',
+          backend: 'claude-print',
+        });
+      }
       const args = [
       '--print',
       '--model', resolveClaudePrintModel(opts),
@@ -958,7 +994,7 @@ function runCodexText(opts) {
 
     if (textRunnerMode === 'codex-exec') {
       return runCodexExecText(execDir, tempDir, opts, log, taskId, function(result) {
-        var allowFallback = opts.allowBackendFallback !== false;
+        var allowFallback = opts.allowBackendFallback === true && !isClaudeDisabled();
         if (!result.ok && allowFallback) {
           log('[codex-text] codex-exec failed, auto-fallback to claude-print: ' + (result.error || 'unknown error').slice(0, 200), taskId);
           return runClaudePrintBackend();
@@ -977,7 +1013,7 @@ function runCodexExecText(execDir, tempDir, opts, log, taskId, finish) {
     'exec',
     '--skip-git-repo-check',
     '--ephemeral',
-    '-m', opts.model || CODEX_CODE_MODEL,
+    '-m', resolveCodexTextModel(opts),
     '-c', 'model_reasoning_effort="' + (opts.effort || process.env.CODEX_REASONING_EFFORT || 'high') + '"',
     '-s', opts.execSandbox || 'read-only',
     '-C', execDir,
@@ -1526,11 +1562,22 @@ ${inlinePromptMd}
   let result;
   try {
   var codegenBackend = CODEX_CODE_BACKEND;
+  if (codegenBackend !== 'codex-exec' && isClaudeDisabled()) {
+    log('[codex-code] Requested backend ' + codegenBackend + ' ignored because Claude is disabled; using codex-exec', taskId);
+    codegenBackend = 'codex-exec';
+  }
   var activeCodeCooldown = codegenBackend === 'codex-exec' ? readCodePrimaryCooldown() : null;
   if (activeCodeCooldown) {
-    log('[codex-code] Skipping codex-exec code primary due to active quota/model cooldown until ' +
-      new Date(activeCodeCooldown.expiresAtMs).toISOString() + ' — using claude-code', taskId);
-    codegenBackend = 'claude-code';
+    if (isClaudeDisabled()) {
+      log('[codex-code] Ignoring active codex-exec cooldown until ' +
+        new Date(activeCodeCooldown.expiresAtMs).toISOString() +
+        ' because Claude fallback is disabled; retrying codex-exec', taskId);
+      activeCodeCooldown = null;
+    } else {
+      log('[codex-code] Skipping codex-exec code primary due to active quota/model cooldown until ' +
+        new Date(activeCodeCooldown.expiresAtMs).toISOString() + ' — using claude-code', taskId);
+      codegenBackend = 'claude-code';
+    }
   }
   const codegenModel = codegenBackend === 'codex-exec' ? CODEX_CODE_MODEL : CLAUDE_MODEL;
   log(`[codex-code] Backend: ${codegenBackend}`, taskId);
@@ -1564,8 +1611,12 @@ ${inlinePromptMd}
       log('[codex-code] Code primary cooldown activated until ' +
         new Date(codeCooldown.expiresAtMs).toISOString() + ' after Codex quota/model failure', taskId);
     }
-    log('[codex-code] Codex code primary quota/model failure — falling back to claude-code', taskId);
-    result = await runClaudeCode(clientDir, userPrompt, log, taskId, Object.assign({}, codegenOpts, { model: CLAUDE_MODEL }));
+    if (isClaudeDisabled()) {
+      log('[codex-code] Codex code primary quota/model failure; Claude fallback disabled', taskId);
+    } else {
+      log('[codex-code] Codex code primary quota/model failure — falling back to claude-code', taskId);
+      result = await runClaudeCode(clientDir, userPrompt, log, taskId, Object.assign({}, codegenOpts, { model: CLAUDE_MODEL }));
+    }
   }
   } finally {
     releaseLock(slot, taskId, log);
@@ -1708,6 +1759,7 @@ module.exports = {
     isCodePrimaryCooldownError,
     readCodePrimaryCooldown,
     writeCodePrimaryCooldown,
+    isClaudeDisabled,
   },
 
   // Legacy export names kept for non-migrated callers.

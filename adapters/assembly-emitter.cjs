@@ -129,6 +129,10 @@ function firstActionTarget(step, kinds) {
   return '';
 }
 
+function playerNavigationActionKinds() {
+  return ['move_to', 'approach_collect', 'collect', 'deliver', 'build', 'upgrade', 'attack', 'click'];
+}
+
 function hasActionKind(step, kinds) {
   var allowed = {};
   for (var k = 0; k < (kinds || []).length; k++) allowed[String(kinds[k]).toLowerCase()] = true;
@@ -274,7 +278,20 @@ function planEntityIndex(plans) {
 }
 
 function planHasEntity(plans, entityName) {
-  return !!planEntityIndex(plans)[entityName];
+  return !!resolvePlanEntityName(plans, entityName);
+}
+
+function resolvePlanEntityName(plans, entityName) {
+  var raw = String(entityName || '');
+  if (!raw) return '';
+  var index = planEntityIndex(plans);
+  if (index[raw]) return raw;
+  var lower = raw.toLowerCase();
+  var names = Object.keys(index);
+  for (var i = 0; i < names.length; i++) {
+    if (String(names[i]).toLowerCase() === lower) return names[i];
+  }
+  return '';
 }
 
 function planEntityNames(plans) {
@@ -571,11 +588,30 @@ function phaseActionTargetMap(plans, phaseIds, kinds) {
   var ids = uniq(toArray(phaseIds));
   for (var i = 0; i < ids.length; i++) {
     var phaseId = ids[i];
-    var target = firstActionTarget(stepIndex[phaseId], kinds);
-    if (!isIdentifier(target) || !planHasEntity(plans, target)) continue;
+    var target = resolvePlanEntityName(plans, firstActionTarget(stepIndex[phaseId], kinds));
+    if (!isIdentifier(target)) continue;
     out.push({ phaseId: phaseId, target: target });
   }
   return out;
+}
+
+function phaseIdsForPlayerNavigation(plans) {
+  var steps = plans && plans.cuaPlan && Array.isArray(plans.cuaPlan.steps)
+    ? plans.cuaPlan.steps
+    : [];
+  var out = [];
+  var navKinds = playerNavigationActionKinds();
+  for (var i = 0; i < steps.length; i++) {
+    var step = steps[i] || {};
+    if (!step.phaseId) continue;
+    var target = resolvePlanEntityName(plans, firstActionTarget(step, navKinds));
+    var hasTarget = isIdentifier(target);
+    var expectsNavigation =
+      hasSignal(step.expectedSignals, 'player_position_changed') ||
+      hasSignal(step.expectedSignals, 'distance_to_target_below_threshold');
+    if (hasTarget || expectsNavigation) out.push(step.phaseId);
+  }
+  return uniq(out);
 }
 
 function collectSourcePhaseEntriesForEntity(plans, phaseIds, entity) {
@@ -631,8 +667,9 @@ function buildPhaseTargetResolverLines(varName, nameVar, entries, fallbackTarget
 
 function buildDeterministicJoystickLines(moduleInstance, plans) {
   var phaseIds = phaseIdsForModule(plans, 'GameFlowManagerMain.Input.cs', moduleInstance);
+  phaseIds = uniq(phaseIds.concat(phaseIdsForPlayerNavigation(plans)));
   var lines = buildPhaseGuardLines(phaseIds);
-  var targetEntries = phaseActionTargetMap(plans, phaseIds, ['move_to', 'approach_collect', 'collect', 'deliver', 'build', 'upgrade', 'attack']);
+  var targetEntries = phaseActionTargetMap(plans, phaseIds, playerNavigationActionKinds());
   var speed = moduleInstance && moduleInstance.params && moduleInstance.params.speed != null ? Number(moduleInstance.params.speed) : 4;
   lines.push('        var __assemblyPlayer = GFM_Player.Instance.Go;');
   lines.push('        if (__assemblyPlayer == null) return;');
@@ -651,17 +688,26 @@ function buildDeterministicJoystickLines(moduleInstance, plans) {
   lines.push('        }');
   lines.push('        else');
   lines.push('        {');
-  lines.push('            GFM_Player.Instance.Tick(Time.deltaTime, false);');
+  lines.push('            // Manual joystick movement is applied once in GameFlowManagerMain.Update().');
+  lines.push('            // This slot only reads the per-frame movement snapshot for evidence.');
   lines.push('        }');
-  lines.push('        var __joystickAfter = __assemblyPlayer.transform.position;');
-  lines.push('        Vector3 __joystickAxis = __joystickAfter - __assemblyBefore;');
+  lines.push('        Vector3 __joystickBefore = __assemblyBefore;');
+  lines.push('        Vector3 __joystickAfter = __assemblyPlayer.transform.position;');
+  lines.push('        bool __manualJoystickActive = false;');
+  lines.push('        if (!_autoPlayMode)');
+  lines.push('        {');
+  lines.push('            __manualJoystickActive = GFM_Player.Instance.LastManualMoveActive;');
+  lines.push('            __joystickBefore = GFM_Player.Instance.LastManualMoveBefore;');
+  lines.push('            __joystickAfter = GFM_Player.Instance.LastManualMoveAfter;');
+  lines.push('        }');
+  lines.push('        Vector3 __joystickAxis = __joystickAfter - __joystickBefore;');
   lines.push('        __joystickAxis.y = 0f;');
   lines.push('        float __joystickMagnitude = __joystickAxis.magnitude;');
-  lines.push('        bool __joystickRegistered = __joystickMagnitude > 0.01f;');
+  lines.push('        bool __joystickRegistered = _autoPlayMode ? (__joystickMagnitude > 0.01f) : (__manualJoystickActive && __joystickMagnitude > 0.001f);');
   lines.push('        if (__joystickRegistered) RecordPhaseEvidenceFlag(currentPhaseName, "player_position_changed");');
   lines.push('        if (__joystickRegistered || !HasPhaseEvidenceRecord(currentPhaseName, "player_input_joystick"))');
   lines.push('        {');
-    lines.push('            string __joystickFields = "{\\"target\\":" + JsonString(__joystickTargetName) + ",\\"axis\\":" + SerializeVector3Json(__joystickAxis) + ",\\"magnitude\\":" + FormatFloat(__joystickMagnitude) + ",\\"registered\\":" + JsonBool(__joystickRegistered) + ",\\"before\\":{\\"position\\":" + SerializeVector3Json(__assemblyBefore) + "},\\"after\\":{\\"position\\":" + SerializeVector3Json(__joystickAfter) + "}}";');
+    lines.push('            string __joystickFields = "{\\"target\\":" + JsonString(__joystickTargetName) + ",\\"axis\\":" + SerializeVector3Json(__joystickAxis) + ",\\"magnitude\\":" + FormatFloat(__joystickMagnitude) + ",\\"registered\\":" + JsonBool(__joystickRegistered) + ",\\"before\\":{\\"position\\":" + SerializeVector3Json(__joystickBefore) + "},\\"after\\":{\\"position\\":" + SerializeVector3Json(__joystickAfter) + "}}";');
   lines.push('            RecordPhaseEvidenceObject(currentPhaseName, "player_input_joystick", __joystickFields, "' + sourceSignalIdsJson(['player_position_changed']) + '");');
   lines.push('        }');
   return lines;
@@ -720,29 +766,36 @@ function buildDeterministicSpawnLines(moduleInstance, plans) {
   lines.push('        if (' + target + ' == null) return;');
   appendCollectedSourceHiddenLines(lines, '__spawn', plans, phaseIds, target);
   lines.push('        if (__spawnCollectedSourceHidden) return;');
-  if (isIdentifier(source)) {
-    lines.push('        if (' + source + ' != null)');
-    lines.push('        {');
-    lines.push('            var __assemblySpawnPos = ' + source + '.transform.position;');
-    lines.push('            __assemblySpawnPos.x += 0.75f;');
-    lines.push('            PlaceObj(' + target + ', __assemblySpawnPos.x, Mathf.Max(0.5f, __assemblySpawnPos.y), __assemblySpawnPos.z);');
-    lines.push('        }');
-    lines.push('        else');
-    lines.push('        {');
-    lines.push('            PlaceObj(' + target + ', 0f, 0.5f, 0f);');
-    lines.push('        }');
+  var targetIsPlayer = /player/i.test(target);
+  if (targetIsPlayer) {
+    lines.push('        // Player movement is owned by player_input_joystick / GFM_Player; spawn evidence must not reposition it.');
+    lines.push('        Vector3 __spawnOutputPos = ' + target + '.transform.position;');
   } else {
-    lines.push('        PlaceObj(' + target + ', 0f, 0.5f, 0f);');
+    if (isIdentifier(source)) {
+      lines.push('        if (' + source + ' != null)');
+      lines.push('        {');
+      lines.push('            var __assemblySpawnPos = ' + source + '.transform.position;');
+      lines.push('            __assemblySpawnPos.x += 0.75f;');
+      lines.push('            PlaceObj(' + target + ', __assemblySpawnPos.x, Mathf.Max(0.5f, __assemblySpawnPos.y), __assemblySpawnPos.z);');
+      lines.push('        }');
+      lines.push('        else');
+      lines.push('        {');
+      lines.push('            PlaceObj(' + target + ', 0f, 0.5f, 0f);');
+      lines.push('        }');
+    } else {
+      lines.push('        PlaceObj(' + target + ', 0f, 0.5f, 0f);');
+    }
+    lines.push('        Vector3 __spawnOutputPos = ' + target + '.transform.position;');
   }
   lines.push(recordFlag('downstream_entity_visible'));
   lines.push(recordFlag('entity_state_changed'));
   lines.push('        ' + target + 'State = Mathf.Max(' + target + 'State, 1);');
   if (moduleId === 'spawn_interval') {
-    lines.push('        string __spawnIntervalEntities = "[{\\"entityId\\":" + JsonString("' + escapeCsString(target) + '") + ",\\"pos\\":" + SerializeVector3Json(' + target + '.transform.position) + ",\\"t\\":" + FormatFloat(phaseRealTimer) + "}]";');
+    lines.push('        string __spawnIntervalEntities = "[{\\"entityId\\":" + JsonString("' + escapeCsString(target) + '") + ",\\"pos\\":" + SerializeVector3Json(__spawnOutputPos) + ",\\"t\\":" + FormatFloat(phaseRealTimer) + "}]";');
     lines.push('        string __spawnIntervalFields = "{\\"targetEntity\\":" + JsonString("' + escapeCsString(target) + '") + ",\\"expectedCount\\":' + Math.floor(expectedCount) + ',\\"spawnedEntities\\":" + __spawnIntervalEntities + ",\\"realtimeIntervalsSec\\":[]}";');
     lines.push('        RecordPhaseEvidenceObject(currentPhaseName, "spawn_interval", __spawnIntervalFields, "' + sourceSignalIdsJson(['downstream_entity_visible', 'entity_state_changed']) + '");');
   } else {
-    lines.push('        string __spawnOnceFields = "{\\"target\\":" + JsonString("' + escapeCsString(target) + '") + ",\\"position\\":" + SerializeVector3Json(' + target + '.transform.position) + ",\\"placed\\":true}";');
+    lines.push('        string __spawnOnceFields = "{\\"target\\":" + JsonString("' + escapeCsString(target) + '") + ",\\"position\\":" + SerializeVector3Json(__spawnOutputPos) + ",\\"placed\\":true}";');
     lines.push('        RecordPhaseEvidenceObject(currentPhaseName, "spawn_once", __spawnOnceFields, "' + sourceSignalIdsJson(['downstream_entity_visible', 'entity_state_changed']) + '");');
   }
   return lines;
@@ -1107,6 +1160,7 @@ function buildDeterministicDeliverLines(moduleInstance, plans) {
 function buildDeterministicVisualBindingLines(moduleInstance, plans) {
   var entity = moduleInstance && moduleInstance.entity;
   if (!isIdentifier(entity)) return [];
+  var isPlayerEntity = /^player$/i.test(entity);
   var params = moduleInstance.params || {};
   var phaseIds = phaseIdsForModule(plans, 'GameFlowManagerMain.Scene.cs', moduleInstance);
   var lines = buildPhaseGuardLines(phaseIds);
@@ -1131,10 +1185,14 @@ function buildDeterministicVisualBindingLines(moduleInstance, plans) {
   lines.push('        }');
   lines.push('        else if (!__visualBindingHadRecord)');
   lines.push('        {');
-  lines.push('            var __visualBindingReposition = ' + entity + '.transform.position;');
-  lines.push('            __visualBindingReposition.x += 0.02f;');
-  lines.push('            ' + entity + '.transform.position = __visualBindingReposition;');
-  lines.push('            __visualBindingOperation = "reposition";');
+  if (isPlayerEntity) {
+    lines.push('            __visualBindingOperation = "observe";');
+  } else {
+    lines.push('            var __visualBindingReposition = ' + entity + '.transform.position;');
+    lines.push('            __visualBindingReposition.x += 0.02f;');
+    lines.push('            ' + entity + '.transform.position = __visualBindingReposition;');
+    lines.push('            __visualBindingOperation = "reposition";');
+  }
   lines.push('        }');
   lines.push('        SetScale(' + entity + ', ' + scaleArgs(params.scale) + ');');
   lines.push('        bool __visualBindingAfterVisible = ' + entity + '.transform.position.y > -900f;');
@@ -1256,9 +1314,11 @@ function buildDeterministicMoveLines(moduleInstance, plans) {
   }
   var hasActor = isIdentifier(actor) && planHasEntity(plans, actor);
   var hasTarget = isIdentifier(target) && planHasEntity(plans, target) && actor !== target;
+  var isPlayerActor = /player/i.test(actor);
   var speed = moduleInstance.params && moduleInstance.params.speed != null ? Number(moduleInstance.params.speed) : 5;
   var stopRange = moduleInstance.params && moduleInstance.params.stopRange != null ? Number(moduleInstance.params.stopRange) : 1.5;
   var phaseIds = phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance);
+  if (isPlayerActor) phaseIds = uniq(phaseIds.concat(phaseIdsForPlayerNavigation(plans)));
   var lines = buildPhaseGuardLines(phaseIds);
   if (!hasActor) {
     lines.push('        var __assemblyPlayer = GFM_Player.Instance.Go;');
@@ -1276,13 +1336,12 @@ function buildDeterministicMoveLines(moduleInstance, plans) {
     lines.push('        RecordPhaseEvidenceObject(currentPhaseName, "move_to_target", __movePlayerFields, "' + sourceSignalIdsJson(['entity_position_changed', 'player_position_changed']) + '");');
     return lines;
   }
-  var isPlayerActor = /player/i.test(actor);
   lines.push('        if (' + actor + ' == null) return;');
   appendCollectedSourceHiddenLines(lines, '__moveActor', plans, phaseIds, actor);
   lines.push('        if (' + actor + '.transform.position.y < -900f && __moveActorCollectedSourceHidden) return;');
   lines.push('        var __assemblyBefore = ' + actor + '.transform.position;');
   if (isPlayerActor) {
-    var targetEntries = phaseActionTargetMap(plans, phaseIds, ['move_to', 'approach_collect', 'collect', 'deliver', 'build', 'upgrade', 'attack']);
+    var targetEntries = phaseActionTargetMap(plans, phaseIds, playerNavigationActionKinds());
     lines = lines.concat(buildPhaseTargetResolverLines('__moveTarget', '__moveTargetName', targetEntries, target || 'target'));
     lines.push('        var __assemblyNext = __assemblyBefore;');
     lines.push('        // Player movement is owned by player_input_joystick / GFM_Player.');
@@ -1308,10 +1367,11 @@ function buildDeterministicMoveLines(moduleInstance, plans) {
   lines.push('        }');
   lines.push('        bool __moveArrived = false;');
   if (hasTarget || isPlayerActor) {
+    var arrivalRange = isPlayerActor ? 'Mathf.Max(' + csFloat(stopRange, 1.5) + ', 2.00f)' : csFloat(stopRange, 1.5);
     lines.push('        if (__moveTarget != null)');
     lines.push('        {');
     lines.push('        float __assemblyDistance = Vector3.Distance(' + actor + '.transform.position, __moveTarget.transform.position);');
-    lines.push('        __moveArrived = __assemblyDistance <= ' + csFloat(stopRange, 1.5) + ';');
+    lines.push('        __moveArrived = __assemblyDistance <= ' + arrivalRange + ';');
     lines.push('        if (__moveArrived) RecordPhaseEvidenceDistance(currentPhaseName, "distance_to_target_below_threshold", __assemblyDistance);');
     lines.push('        }');
   } else {

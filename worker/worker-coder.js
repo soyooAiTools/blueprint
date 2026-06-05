@@ -53,6 +53,12 @@ const MAX_FIX_ATTEMPTS = 10;  // Keep retrying until fixed (practical upper boun
 const PIPELINE_DIR = process.env.LUNA_PIPELINE || 'D:\\Luna\\pipeline';
 const COCOS_EXE = process.env.COCOS_CREATOR || 'D:\\CocosCreator-v3.8.8-win-121518\\CocosCreator.exe';
 
+function isClaudeDisabled() {
+  var disabled = /^(1|true|yes|on)$/i.test(String(process.env.BLUEPRINT_DISABLE_CLAUDE || ''));
+  var enabled = /^(1|true|yes|on)$/i.test(String(process.env.BLUEPRINT_ENABLE_CLAUDE || ''));
+  return disabled || !enabled;
+}
+
 // ============ HTTPS Proxy Helper ============
 const http = require('http');
 
@@ -101,6 +107,9 @@ function createProxyRequest(targetUrl, opts, callback) {
 // ============ LLM Call ============
 
 function callClaude(systemPrompt, userMessage, timeoutMs, model) {
+  if (isClaudeDisabled()) {
+    return Promise.reject(new Error('Claude backend disabled; set BLUEPRINT_ENABLE_CLAUDE=1 only for legacy use'));
+  }
   timeoutMs = timeoutMs || 300000; // 5 min default
   model = model || MODEL_GENERATE; // Use Opus for all calls (fix quality > cost savings)
   return new Promise(function(resolve, reject) {

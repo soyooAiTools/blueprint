@@ -28,4 +28,67 @@ const internals = upload._internals;
   assert.strictEqual(internals.getSpecCompletedCount(state, specs), 2);
 }
 
+{
+  assert.throws(function() {
+    internals.assertUploadVisualManifest({
+      sourceHtmlPath: '/tmp/source.html',
+      htmlOutput: '<script>window.__BLUEPRINT_VISUAL_ASSETS__ = null; window.__fidelityReady = false;</script>',
+      blueprint: {},
+    });
+  }, /__BLUEPRINT_VISUAL_ASSETS__ is null/);
+}
+
+{
+  assert.throws(function() {
+    internals.assertUploadVisualManifest({
+      sourceHtmlPath: '/tmp/source.html',
+      htmlOutput: '<script>window.__BLUEPRINT_VISUAL_ASSETS__ = {"sourceEntityContract":{},"sourcePhaseContract":{},"entityBindings":{}}; window.__fidelityReady = false;</script>',
+      blueprint: {},
+    });
+  }, /missing entityBindings, fidelityContract/);
+}
+
+{
+  assert.throws(function() {
+    internals.assertSourceVisualRenderableMetrics({
+      sourceVisualActive: true,
+      expectedEntityCount: 14,
+      bindingCount: 14,
+      sourceMeshOpsCount: 0,
+      fidelityPrimitiveStyleCount: 14,
+      storyboardGroups: 14,
+      sourceVisualRenderable: 0,
+      styledParts: 0,
+      sourcePrims: 0,
+      emptyStoryboardEntities: 14,
+      allEnabledRenderable: 2,
+      disabledVisiblePosPool: 7,
+    }, {});
+  }, /source visual has no renderable mesh parts/);
+}
+
+{
+  assert.doesNotThrow(function() {
+    internals.assertSourceVisualRenderableMetrics({
+      sourceVisualActive: true,
+      expectedEntityCount: 14,
+      bindingCount: 14,
+      sourceMeshOpsCount: 0,
+      fidelityPrimitiveStyleCount: 14,
+      storyboardGroups: 14,
+      sourceVisualRenderable: 22,
+      styledParts: 53,
+      sourcePrims: 0,
+      emptyStoryboardEntities: 14,
+      allEnabledRenderable: 22,
+    }, {});
+  });
+}
+
+{
+  assert.doesNotThrow(function() {
+    internals.assertSourceVisualRenderableMetrics({ sourceVisualActive: false }, {});
+  });
+}
+
 console.log('upload public preview tests passed');

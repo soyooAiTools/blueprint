@@ -128,30 +128,6 @@ public class GFM_UIManager : GFM_SingletonBase<GFM_UIManager>
     {
         if (!EnsureInit()) return;
         GFM_UI.ConfigureSourceHudLayout(_canvas, false);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_Player", "_player", 2.25f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_OxygenShop", "_oxygenShop", 2.7f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_SellCounter", "_sellCounter", 2.2f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_ShipUnlock", "_shipUnlock", 2.2f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_SpaceShip", "_spaceShip", 2.0f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_IceSmall", "_iceSmall", 2.2f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_ShipCargo", "_shipCargo", 2.2f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_TowWarning", "_towWarning", 2.2f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_IceLarge", "_iceLarge", 2.2f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_ForwardBeacon", "_forwardBeacon", 2.2f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_BaseOne", "_baseOne", 2.2f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_OxygenPlant", "_oxygenPlant", 2.2f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_DrillPad", "_drillPad", 2.2f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_ExitGate", "_exitGate", 2.2f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_BigDebris", "_bigDebris", 2.2f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_BaseTwo", "_baseTwo", 2.2f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_Crusher", "_crusher", 2.2f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_ShipUpgrade", "_shipUpgrade", 2.2f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_GunPad", "_gunPad", 2.2f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_ExitGate2", "_exitGate2", 2.2f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_FrozenDebris", "_frozenDebris", 2.2f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_BaseThree", "_baseThree", 2.2f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_GatlingPad", "_gatlingPad", 2.2f);
-        GFM_UI.PositionTextOverEntity(_canvas, "Text_Label_CtaButton", "_ctaButton", 2.2f);
     }
 
     // ------------------------------------------------------------------------
@@ -178,30 +154,6 @@ public class GFM_UIManager : GFM_SingletonBase<GFM_UIManager>
 
     private string DisplayNameForEntity(string entityName)
     {
-        if (entityName == "_player") return "玩家";
-        if (entityName == "_oxygenShop") return "氧气购买台";
-        if (entityName == "_sellCounter") return "售卖台";
-        if (entityName == "_shipUnlock") return "飞船解锁";
-        if (entityName == "_spaceShip") return "飞船";
-        if (entityName == "_iceSmall") return "小冰块";
-        if (entityName == "_shipCargo") return "飞船货舱";
-        if (entityName == "_towWarning") return "拖拽警告";
-        if (entityName == "_iceLarge") return "大冰块";
-        if (entityName == "_forwardBeacon") return "航标";
-        if (entityName == "_baseOne") return "一号基地";
-        if (entityName == "_oxygenPlant") return "制氧装置";
-        if (entityName == "_drillPad") return "钻头升级台";
-        if (entityName == "_exitGate") return "基地出口";
-        if (entityName == "_bigDebris") return "舱体残骸";
-        if (entityName == "_baseTwo") return "二号基地";
-        if (entityName == "_crusher") return "破碎机";
-        if (entityName == "_shipUpgrade") return "飞船升级台";
-        if (entityName == "_gunPad") return "枪械升级台";
-        if (entityName == "_exitGate2") return "二号出口";
-        if (entityName == "_frozenDebris") return "冰封垃圾";
-        if (entityName == "_baseThree") return "三号基地";
-        if (entityName == "_gatlingPad") return "加特林升级台";
-        if (entityName == "_ctaButton") return "全景出口";
         return entityName.TrimStart('_');
     }
 

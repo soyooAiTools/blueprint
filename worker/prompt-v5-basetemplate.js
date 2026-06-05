@@ -193,14 +193,55 @@ function computeReservePool(prefabMap) {
 /**
  * V5 蓝图 → AI Prompt（基础样例工程模式）
  */
+function buildRulesFromSpecs(specs) {
+  var out = [];
+  specs = Array.isArray(specs) ? specs : [];
+  for (var i = 0; i < specs.length; i++) {
+    var spec = specs[i] || {};
+    var required = Array.isArray(spec.requiredInteractions) ? spec.requiredInteractions : [];
+    var entitiesRequired = Array.isArray(spec.entitiesRequired) ? spec.entitiesRequired : [];
+    var showEntities = Array.isArray(spec.showEntities) ? spec.showEntities : [];
+    var activate = showEntities.length ? showEntities : entitiesRequired.map(function(entity) {
+      return entity && (entity.entity || entity.name || entity.id || entity);
+    }).filter(Boolean);
+    out.push({
+      id: spec.phaseId || ('phase_' + (i + 1)),
+      name: spec.phaseName || spec.name || spec.title || spec.phaseId || ('Phase ' + (i + 1)),
+      triggerCondition: i === 0 ? 'gameStart' : null,
+      endCondition: spec.triggerNext || (i + 1 < specs.length ? 'phase-complete:' + (spec.phaseId || ('phase_' + (i + 1))) : 'gameEnd'),
+      activate: activate,
+      actions: required.map(function(dsl) {
+        return { type: 'requiredInteraction', params: { dsl: dsl } };
+      }),
+      guide: spec.playerInstruction || spec.goal || spec.autoModeHint || ''
+    });
+  }
+  return out;
+}
+
+function resolvePromptRules(blueprint) {
+  blueprint = blueprint || {};
+  if (Array.isArray(blueprint.phases) && blueprint.phases.length > 0) {
+    return blueprint.phases.map(function(phase) {
+      return Object.assign({}, phase || {});
+    });
+  }
+  if (Array.isArray(blueprint.specs) && blueprint.specs.length > 0) {
+    return buildRulesFromSpecs(blueprint.specs);
+  }
+  return [];
+}
+
 function parseBlueprintToPromptV5(blueprint, opts) {
   opts = opts || {};
+  blueprint = blueprint || {};
   var entities = blueprint.entities || [];
   
-  // 从 phases 提取事件规则 (V4 only)
-  var rules = blueprint.phases || [];
+  // 从 phases/specs 提取事件规则。source-of-truth 已迁移到 specs；
+  // 修复回路不能因为 blueprint.phases 为空就失去 phase 上下文。
+  var rules = resolvePromptRules(blueprint);
   if (rules.length === 0) {
-    throw new Error('No phases found in blueprint. V3 node fallback has been removed — please ensure blueprint has phases defined.');
+    throw new Error('No phase rules found in blueprint. Expected blueprint.specs or blueprint.phases.');
   }
 
   // triggerCondition 自动转换（同 V4）
@@ -299,7 +340,7 @@ function parseBlueprintToPromptV5(blueprint, opts) {
   lines.push('2. **Camera.backgroundColor 必须与地面反差 ≥ 0.3**（任一 RGB 通道）。推荐深天蓝 (0.35, 0.55, 0.75)（与灰色地面 R 通道差 0.40）。禁止用浅色如 (0.75, 0.82, 0.92)，会与地面融合触发纯色检测。');
   lines.push('3. **主要对象 scale 足够大**：BaseCastle、PlayerHero 等主要实体至少一个维度 scale ≥ 1.5，确保在正交相机下可见。');
   lines.push('4. **对象颜色与地面有对比**：所有可见对象颜色与地面颜色差值（任一通道）≥ 0.25。');
-  lines.push('5. **Rule 0 (gameStart) 必须在第一帧移动至少 3 个不同颜色的对象到 y ≥ 0**：确保画面不是纯色。');
+  lines.push('5. **Rule 0 / Phase 1 防纯色必须优先使用 fidelityContract.phases[0].showEntities / source PHASES[].showEntities 中的实体**：第一帧移动至少 3 个这些合同可见实体到 y ≥ 0；禁止为了凑数摆放后续 phase 才出现的实体。');
   lines.push('');
 
   // ========== 2. 骨架代码 ==========
@@ -1154,6 +1195,8 @@ module.exports = {
   matchPrefabs: matchPrefabs,
   filterBehaviorTemplates: filterBehaviorTemplates,
   detectUsedBehaviors: detectUsedBehaviors,
+  buildRulesFromSpecs: buildRulesFromSpecs,
+  resolvePromptRules: resolvePromptRules,
   buildCodeOutline: buildCodeOutline,
   extractRelevantPhaseBlocks: extractRelevantPhaseBlocks
 };

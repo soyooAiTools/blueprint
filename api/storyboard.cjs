@@ -903,11 +903,11 @@ module.exports.init = function(ctx) {
 
         var userPrompt = '请将以下分镜板转换为 V4 实体驱动蓝图：\n\n' + framesDesc + '\n\n返回纯 JSON（不要 markdown code fence）。';
 
-        // Call Claude Opus 4.6 via Python subprocess
+        // Call OpenAI-compatible converter via Python subprocess.
         var text = '';
 
         sendSSE({ type: 'progress', percent: 20, stage: '调用 AI 提取实体中...' });
-        console.log('[v4-convert] Calling Claude Opus 4.6 via Python for blueprint conversion...');
+        console.log('[v4-convert] Calling Python AI converter for blueprint conversion...');
         var tmpFrames = '/tmp/v4-frames-' + Date.now() + '.json';
         fs.writeFileSync(tmpFrames, JSON.stringify(project.storyboard || project.storyboardFrames || []), 'utf8');
 
@@ -956,16 +956,16 @@ module.exports.init = function(ctx) {
           var parsedResult = JSON.parse(pyResult);
           if (parsedResult.error) throw new Error(parsedResult.error);
           text = JSON.stringify(parsedResult.data);
-          console.log('[v4-convert] Python Claude Opus 4.6 returned ' + text.length + ' chars');
+          console.log('[v4-convert] Python AI converter returned ' + text.length + ' chars');
         } catch(pyErr) {
-          console.log('[v4-convert] Python Claude failed, falling back to Doubao: ' + pyErr.message?.substring(0, 100));
+          console.log('[v4-convert] Python AI converter failed, falling back to modelProvider: ' + pyErr.message?.substring(0, 100));
           sendSSE({ type: 'progress', percent: 30, stage: '切换到豆包备选模型...' });
           var doubaoPercent = 30;
           var doubaoTicker = setInterval(function() {
             doubaoPercent = Math.min(doubaoPercent + 3, 85);
             sendSSE({ type: 'progress', percent: doubaoPercent, stage: '豆包 AI 分析中...' });
           }, 2000);
-          // Fallback via modelProvider chain (Doubao → Claude)
+          // Fallback via modelProvider chain.
           var mpChain = modelProvider.createDefaultChain();
           var mpResult = await Promise.race([
             mpChain.generate({ system: systemPrompt, user: userPrompt }, { temperature: 0.3, maxOutputTokens: 65536, timeoutMs: 120000 }),

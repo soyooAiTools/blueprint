@@ -243,7 +243,7 @@ public static class GFM_UI
                 bgRect.sizeDelta = new Vector2(134f, 134f);
             }
             var bgImage = (Image)bg.GetComponent(typeof(Image));
-            if (!IsMissing(bgImage)) bgImage.color = new Color(0.15f, 0.78f, 1f, 0.28f);
+            if (!IsMissing(bgImage)) bgImage.color = new Color(0f, 0f, 0f, 0f);
         }
         var handle = GameObject.Find(handleName);
         if (!IsMissing(handle))
@@ -258,7 +258,7 @@ public static class GFM_UI
                 handleRect.sizeDelta = new Vector2(56f, 56f);
             }
             var handleImage = (Image)handle.GetComponent(typeof(Image));
-            if (!IsMissing(handleImage)) handleImage.color = new Color(1f, 1f, 1f, 0.55f);
+            if (!IsMissing(handleImage)) handleImage.color = new Color(1f, 1f, 1f, 0f);
         }
     }
 
@@ -354,6 +354,7 @@ public static class GFM_UI
     public static void AddWorldLabel(GameObject target, string text, float heightOffset)
     {
         if (IsMissing(target)) return;
+        if (target.transform.Find("Label_" + text) != null) return;
         var labelObj = new GameObject("Label_" + text, typeof(RectTransform), typeof(Canvas));
         if (IsMissing(labelObj) || IsMissing(labelObj.transform)) return;
         var canvas = (Canvas)labelObj.GetComponent(typeof(Canvas));
@@ -362,32 +363,39 @@ public static class GFM_UI
         canvas.sortingOrder = 100;
         canvas.transform.SetParent(target.transform, false);
         canvas.transform.localPosition = new Vector3(0, heightOffset, 0);
-        canvas.transform.localScale = new Vector3(0.015f, 0.015f, 0.015f);
+        canvas.transform.localScale = new Vector3(0.018f, 0.018f, 0.018f);
         var rt = (RectTransform)canvas.GetComponent(typeof(RectTransform));
         if (IsMissing(rt)) return;
-        rt.sizeDelta = new Vector2(240, 40);
+        rt.sizeDelta = new Vector2(260, 46);
 
         var bgObj = new GameObject("LabelBG");
         if (IsMissing(bgObj) || IsMissing(bgObj.transform)) return;
         bgObj.transform.SetParent(canvas.transform, false);
         var bgRect = EnsureRect(bgObj);
         if (IsMissing(bgRect)) return;
-        bgRect.sizeDelta = new Vector2(240, 40);
+        bgRect.sizeDelta = new Vector2(260, 46);
         bgRect.anchoredPosition = Vector2.zero;
         var bgImg = EnsureImage(bgObj);
         if (IsMissing(bgImg)) return;
-        bgImg.color = new Color(0f, 0f, 0f, 0.0f);
+        bgImg.color = new Color(0f, 0f, 0f, 0f);
 
         var txtGO = new GameObject("Text");
         if (IsMissing(txtGO) || IsMissing(txtGO.transform)) return;
         txtGO.transform.SetParent(canvas.transform, false);
         var txtRect = EnsureRect(txtGO);
         if (IsMissing(txtRect)) return;
-        txtRect.sizeDelta = new Vector2(240, 40);
+        txtRect.sizeDelta = new Vector2(260, 46);
         txtRect.anchoredPosition = Vector2.zero;
         var txtObj = EnsureText(txtGO);
         ApplyTextStyle(txtObj, text, 22, Color.white, TextAnchor.MiddleCenter);
         try { if (!IsMissing(txtObj)) txtObj.horizontalOverflow = HorizontalWrapMode.Overflow; } catch {}
+        var outline = (Outline)txtGO.GetComponent(typeof(Outline));
+        if (IsMissing(outline)) outline = (Outline)txtGO.AddComponent(typeof(Outline));
+        if (!IsMissing(outline))
+        {
+            outline.effectColor = new Color(0f, 0f, 0f, 0.95f);
+            outline.effectDistance = new Vector2(2f, -2f);
+        }
 
         labelObj.AddComponent<GFM_Billboard>();
     }

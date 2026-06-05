@@ -72,6 +72,11 @@ public class GFM_Player : MonoBehaviour
     private GameObject _player;
     private GFM_Joystick _joystick;
     private float _lastManualMoveRealtime = -1f;
+    private bool _hasManualMoveInput = false;
+    private bool _lastManualMoveActive = false;
+    private Vector3 _lastManualMoveBefore = Vector3.zero;
+    private Vector3 _lastManualMoveAfter = Vector3.zero;
+    private bool _playerMissingReported = false;
 
     // ========================================================================
     // 【背包状态】玩家当前携带物品数 + 物品类型。通用 carry 由 TryCollect/
@@ -81,10 +86,29 @@ public class GFM_Player : MonoBehaviour
     public string CarryingType = "";
 
     // 【玩家对象名】默认对齐 storyboard2html/demo2spec 场景中的 source entity。
-    public string PlayerPoolName = "_player";
+    private string _playerPoolName = "_player";
+    public string PlayerPoolName
+    {
+        get { return _playerPoolName; }
+        set
+        {
+            string next = value == null ? "" : value;
+            if (_playerPoolName == next) return;
+            _playerPoolName = next;
+            if (_inited)
+            {
+                _player = null;
+                EnsurePlayerObject();
+            }
+        }
+    }
 
-    // 【当前形态移动速度】对齐 storyboard2html 源 HTML：stick 向量 * 24u/s。
-    public float MoveSpeed { get { return (Forms != null && Forms.Length > 0) ? Forms[_currentFormIndex].moveSpeed : 24f; } }
+    // 【当前形态移动速度】对齐 storyboard2html 源 HTML：stick 向量 * 6u/s。
+    public float MoveSpeed { get { return (Forms != null && Forms.Length > 0) ? Forms[_currentFormIndex].moveSpeed : 6f; } }
+    public bool HasManualMoveInput { get { return _hasManualMoveInput; } }
+    public bool LastManualMoveActive { get { return _lastManualMoveActive; } }
+    public Vector3 LastManualMoveBefore { get { return _lastManualMoveBefore; } }
+    public Vector3 LastManualMoveAfter { get { return _lastManualMoveAfter; } }
 
     private bool _inited = false;
 
@@ -109,7 +133,7 @@ public class GFM_Player : MonoBehaviour
         if (Forms == null || Forms.Length == 0)
         {
             Forms = new FormDef[] {
-                new FormDef { formId="default", poolObjectName="", moveSpeed=24f, collectRange=1.5f, collectPower=1f, carryCapacity=10, scale=1f }
+                new FormDef { formId="default", poolObjectName="", moveSpeed=6f, collectRange=1.5f, collectPower=1f, carryCapacity=10, scale=1f }
             };
         }
     }
@@ -148,20 +172,31 @@ public class GFM_Player : MonoBehaviour
         if (go == null || _joystick == null) return;
 
         _joystick.PollInput();
-        float moveDt = ResolveManualMoveDelta(dt);
+        _lastManualMoveActive = false;
         float h = _joystick.Horizontal;
         float v = _joystick.Vertical;
         if (Mathf.Abs(h) > 0.1f || Mathf.Abs(v) > 0.1f)
         {
-            Vector3 input = new Vector3(h, 0, v);
+            _hasManualMoveInput = true;
+            float moveDt = ResolveManualMoveDelta(dt);
+            Vector3 input = new Vector3(-h, 0, -v);
             Vector3 move = input * MoveSpeed * moveDt;
+            _lastManualMoveBefore = go.transform.position;
             go.transform.position += move;
+            _lastManualMoveAfter = go.transform.position;
+            _lastManualMoveActive = move.sqrMagnitude > 0.000001f;
             go.transform.rotation = Quaternion.LookRotation(input);
+        }
+        else
+        {
+            _lastManualMoveRealtime = -1f;
+            _lastManualMoveBefore = go.transform.position;
+            _lastManualMoveAfter = go.transform.position;
         }
     }
 
     // CUA 会 speed-patch Update()，同一个浏览器帧内同步重放多次。
-    // 手动摇杆必须按真实时间移动，否则 24u/s 会被放大成数百 u/s。
+    // 手动摇杆必须按真实时间移动，否则 6u/s 也会被 speed-patch 放大。
     private float ResolveManualMoveDelta(float dt)
     {
         float safeDt = dt > 0f && dt < 0.2f ? dt : 0.016f;
@@ -175,7 +210,7 @@ public class GFM_Player : MonoBehaviour
             _lastManualMoveRealtime = now;
         }
         if (safeDt <= 0f) return 0f;
-        if (safeDt > 0.0167f) safeDt = 0.0167f;
+        if (safeDt > 0.025f) safeDt = 0.025f;
         return safeDt;
     }
 
@@ -185,7 +220,7 @@ public class GFM_Player : MonoBehaviour
         if (_joystick != null) return;
         if (GFM_UIManager.Instance != null && GFM_UIManager.Instance.Canvas != null)
         {
-            _joystick = GFM_Joystick.Create(GFM_UIManager.Instance.Canvas, 180f);
+            _joystick = GFM_Joystick.Create(GFM_UIManager.Instance.Canvas, 88f);
         }
     }
 
@@ -278,10 +313,15 @@ public class GFM_Player : MonoBehaviour
         if (_player != null)
         {
             StabilizePlayerPhysics(_player);
+            _playerMissingReported = false;
             return true;
         }
 
-        Debug.LogError("GFM_Player 找不到场景 Player。期望 tag=Player 或 name=_player；禁止创建 primitive 兜底。");
+        if (!_playerMissingReported && PlayerPoolName != "_player")
+        {
+            _playerMissingReported = true;
+            Debug.LogError("GFM_Player 找不到场景 Player。期望 tag=Player 或 name=_player；禁止创建 primitive 兜底。");
+        }
         return false;
     }
 

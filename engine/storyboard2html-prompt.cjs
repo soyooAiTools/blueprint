@@ -2,7 +2,7 @@
 
 var contract = require('./storyboard2html-contract.cjs');
 
-var DEFAULT_MODEL = 'claude-opus-4-8';
+var DEFAULT_MODEL = process.env.CODEX_STORYBOARD2HTML_MODEL || process.env.CODEX_TEXT_MODEL || process.env.CODEX_CODE_MODEL || 'gpt-5.5';
 var DEFAULT_TIMEOUT_MS = 600000;
 var DEFAULT_MIN_OUTPUT_LEN = 2000;
 
@@ -369,7 +369,7 @@ function renderResources(resources) {
 // trimmed L4 license-meta examples (most demos run primitives + no external
 // assets). Use only when caller passes `compact:true` — production fidelity
 // gates may still want the full prompt. Validated for seed-script throughput:
-// single claude --print stream (no autocompact retry).
+// single Codex text stream (no autocompact retry).
 var COMPACT_SYSTEM_PROMPT_HEADER = [
   '你是 storyboard2html 生成器。把 Blueprint specs(逆向分镜驱动)转成 *单文件可运行 HTML demo*,',
   '同一份 HTML 既驱动 three.js 真实 3D 视觉,也暴露 storyboard2html v1.0.0 契约,',

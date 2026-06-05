@@ -20,8 +20,14 @@ assert.match(workerUiSource, /typeof\(RectTransform\), typeof\(Canvas\), typeof\
 assert.match(workerUiSource, /private static GraphicRaycaster EnsureGraphicRaycaster\(GameObject obj\)/, 'Canvas should repair a missing GraphicRaycaster at runtime');
 assert.match(workerUiSource, /EnsureGraphicRaycaster\(canvas\.gameObject\)/, 'Canvas normalization should preserve UI raycast delivery after binding an existing scene Canvas');
 assert.match(workerJoystickSource, /bgImg\.raycastTarget = true;/, 'joystick background image must receive UI raycasts');
+assert.match(workerJoystickSource, /bgImg\.color = new Color\(0f, 0f, 0f, 0f\);/, 'Unity joystick background should be transparent; DOM overlay owns visible joystick styling');
+assert.match(workerJoystickSource, /if \(_bgImage != null\) _bgImage\.color = new Color\(0f, 0f, 0f, 0f\);/, 'Unity joystick visibility toggles must not render a second joystick background');
+assert.match(workerUiSource, /if \(!IsMissing\(bgImage\)\) bgImage\.color = new Color\(0f, 0f, 0f, 0f\);/, 'source HUD relayout must not restore the legacy cyan joystick background');
 assert.match(workerJoystickSource, /public void PollInput\(\)/, 'joystick widget should expose an explicit Luna scheduler tick');
 assert.match(workerPlayerSource, /_joystick\.PollInput\(\);/, 'Player movement should read input from joystick widget state after the widget is ticked');
+assert.match(workerPlayerSource, /stick 向量 \* 6u\/s/, 'Player movement speed should document the source HTML 6u/s contract');
+assert.match(workerPlayerSource, /moveSpeed=6f/, 'Player fallback speed should match source HTML 6u/s');
+assert.match(workerPlayerSource, /GFM_Joystick\.Create\(GFM_UIManager\.Instance\.Canvas, 88f\)/, 'Player joystick size should match source HTML maxR=44');
 assert.match(workerPlayerSource, /private float _lastManualMoveRealtime = -1f;/, 'Player manual movement should track real time to resist CUA Update speed patching');
 assert.match(workerPlayerSource, /MovePlayer\(dt\);/, 'Player Tick should pass the scheduler dt into manual movement');
 assert.match(workerPlayerSource, /float now = Time\.realtimeSinceStartup;/, 'manual joystick movement should derive elapsed time from real time');
@@ -892,7 +898,7 @@ try {
     assert.match(deliveryPlayer, /Debug\.LogError\("GMP_Player 找不到场景 Player/, 'Player runtime init should fail loudly when source Player is missing');
     assert.doesNotMatch(deliveryPlayer, /CreatePrimitive\(PrimitiveType\.Cylinder\)/, 'Player runtime init must not create primitive fallback players');
     assert.doesNotMatch(deliveryPlayer, /__Pool_(?:Cylinder|Capsule|Cube)/, 'Player runtime init must not scan old Luna primitive pools');
-    assert.match(deliveryPlayer, /moveSpeed=24f/, 'Player fallback speed should match source HTML 24u/s');
+    assert.match(deliveryPlayer, /moveSpeed=6f/, 'Player fallback speed should match source HTML 6u/s');
     assert.match(deliveryPlayer, /private void EnsureRuntimeComponents\(\)/, 'Player controller should create required runtime components for YAML-mounted scene objects');
     assert.match(deliveryPlayer, /mMovementComponent = \(GMP_MovementComponent\)gameObject\.AddComponent\(typeof\(GMP_MovementComponent\)\)/, 'Player movement component must be added at runtime when RequireComponent was not serialized');
     assert.match(deliveryPlayer, /mJoystick\.PollInput\(\);/, 'GMP Player path should also tick the joystick widget before reading movement axes');

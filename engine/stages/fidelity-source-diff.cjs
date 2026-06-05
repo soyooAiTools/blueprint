@@ -144,6 +144,12 @@ function gteSchemaVersion(actual, target) {
 // Returns array of entries (may be empty when expectedAnchors absent).
 function computePhaseAnchorEntries(phaseId, expectedAnchors, rawTargetAnchors, viewport, tolerancePx) {
   if (!expectedAnchors) return [];
+  var comparableExpected = typeof fieldDiffLib.filterComparableAnchors === 'function'
+    ? fieldDiffLib.filterComparableAnchors(expectedAnchors)
+    : expectedAnchors;
+  if (!comparableExpected || typeof comparableExpected !== 'object' || Object.keys(comparableExpected).length === 0) {
+    return [];
+  }
   if (!rawTargetAnchors) {
     return [{
       category: 'anchor-bridge-missing',
@@ -163,7 +169,7 @@ function computePhaseAnchorEntries(phaseId, expectedAnchors, rawTargetAnchors, v
       message: 'window.__targetAnchors initialized but empty for phase ' + phaseId + ' (manifest bridge missing projectedAnchors?)'
     }];
   }
-  return fieldDiffLib.runAnchorDiff(phaseId, expectedAnchors, actualAnchors, viewport, tolerancePx);
+  return fieldDiffLib.runAnchorDiff(phaseId, comparableExpected, actualAnchors, viewport, tolerancePx);
 }
 
 // v1.5.0 (task #57) stage-layer worldLabel bridge gate. Same shape as anchor
@@ -575,7 +581,8 @@ module.exports = {
     resolveFieldDiffTemplate: resolveFieldDiffTemplate,
     DEFAULT_CONTRACT_PATH: DEFAULT_CONTRACT_PATH,
     LUNA_SCAFFOLD_NODE_NAMES: LUNA_SCAFFOLD_NODE_NAMES,
-    CANVAS_BLACK_DEMOTE_THRESHOLD_PERCENT: CANVAS_BLACK_DEMOTE_THRESHOLD_PERCENT
+    CANVAS_BLACK_DEMOTE_THRESHOLD_PERCENT: CANVAS_BLACK_DEMOTE_THRESHOLD_PERCENT,
+    demoteAdvisoryBuckets: demoteAdvisoryBuckets
   }
 };
 
@@ -1018,11 +1025,25 @@ function demoteAdvisoryBuckets(fieldDiffs, targetFields) {
   var detKeys = Object.keys(det);
   var hasAnyWorldLabel = detKeys.some(function(k) { return det[k] && det[k].worldLabel !== undefined; });
   var hasAnyPrimitiveStyle = detKeys.some(function(k) { return det[k] && det[k].primitiveStyle; });
+  var allowMissingSurfaceDemotion = process.env.FIDELITY_ALLOW_MISSING_VERIFICATION_SURFACE === '1';
   var isGuideLabel = function(d) { return /(^|\.)guide$/i.test(String(d.path || '')); };
   return fieldDiffs.map(function(d) {
     if (!d || !d.category) return d;
     var cat = d.category;
     var demote = null; // true => force advisory, false => force blocking, null => leave lib default
+
+    // Source-contract surfaces are now mandatory. A missing worldLabel,
+    // primitiveStyle, or anchor verification bridge is itself a product defect:
+    // the build would otherwise ship without the labels/models/phase anchors the
+    // source HTML authored. Keep a narrow env escape hatch for legacy audits.
+    if (!allowMissingSurfaceDemotion) {
+      if (cat === 'worldLabel-missing' || cat === 'worldLabel-mismatch' ||
+          cat === 'worldLabel-bridge-missing' || cat === 'worldLabel-target-empty' ||
+          cat === 'primitiveStyle-missing' || cat === 'primitiveStyle-mismatch' ||
+          cat === 'anchor-bridge-missing' || cat === 'anchor-target-empty') {
+        demote = false;
+      }
+    }
 
     // PROMOTE to blocking (real captured checks) once the live build produces the verification
     // surface. worldLabel + primitiveStyle DOM/runtime surfaces are installed by the build
@@ -1039,15 +1060,17 @@ function demoteAdvisoryBuckets(fieldDiffs, targetFields) {
     // DEMOTE to advisory (self-scoping):
     // (a) verification-scaffold absent: the build installed none of the surface this bucket
     //     reads, so every entry is "missing" — a plumbing gap, not drift.
-    if (cat === 'worldLabel-missing' && !hasAnyWorldLabel) demote = true;
-    if (cat === 'primitiveStyle-missing' && !hasAnyPrimitiveStyle) demote = true;
+    if (allowMissingSurfaceDemotion && cat === 'worldLabel-missing' && !hasAnyWorldLabel) demote = true;
+    if (allowMissingSurfaceDemotion && cat === 'primitiveStyle-missing' && !hasAnyPrimitiveStyle) demote = true;
     // (b) hud-EXTRA only — the game HUD is richer than the source storyboard HUD (resource
     //     counters the storyboard sketch omitted), accepted per option (a). hud-missing /
     //     hud-mismatch stay BLOCKING so the source's own HUD slots are verified.
     if (cat === 'hud-extra') demote = true;
     // (c) background colour — cross-engine / URP post-process recolour; matches the
     //     colour-insensitive structural pixel-diff policy (see runPixelDiff).
-    if (cat === 'scene-mismatch' && d.path && /backgroundColor/i.test(d.path)) demote = true;
+    // auto-289f827a: scene.backgroundColor is a color-only scene diff. When the
+    // structural pixel gate is clean, this field mismatch should not hard-block fidelity.
+    if (cat === 'scene-mismatch' && String(d.path || '') === 'scene.backgroundColor') demote = true;
     // (d) phase-mismatch guideText: the build now drives the visible guide (#bp-storyboard-tip)
     //     from the source contract per phase, so it is BLOCKING (real check) — no demote.
 

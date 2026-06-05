@@ -62,6 +62,7 @@ function injectVisualOverlay(html, visualAssets) {
     manualInteraction: false,
     positions: {},
     resources: { Ice: 0, Oxygen: 0, Scrap: 0, Coin: 0, Gold: 0, ShipLevel: 0, tool: '镐子' },
+    resourceBaselines: {},
     lastTick: 0
   };
 
@@ -135,16 +136,37 @@ function injectVisualOverlay(html, visualAssets) {
       Ice: ['Ice', 'ice'],
       Scrap: ['Scrap', 'scrap']
     };
-    var keys = aliases[name] || [name, String(name).toLowerCase()];
+    var compact = String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    var keys = aliases[name] || [name, String(name).toLowerCase(), compact];
     for (var i = 0; i < keys.length; i++) {
       var n = Number(resources[keys[i]]);
       if (isFinite(n)) return n;
     }
     return 0;
   }
-  function stepSatisfied(step, resources, states) {
+  function carriedValue(resources, name) {
+    if (!resources || !name) return 0;
+    var raw = String(name || '');
+    var upper = raw.charAt(0).toUpperCase() + raw.slice(1);
+    var lower = raw.charAt(0).toLowerCase() + raw.slice(1);
+    var compact = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
+    var keys = [raw + 'Carried', upper + 'Carried', lower + 'Carried', compact + 'carried', raw + 'Carry', upper + 'Carry', lower + 'Carry'];
+    return resourceValue(resources, keys.find(function(key) { return resources[key] != null; }) || keys[0]);
+  }
+  function phaseResourceProgress(phase, resources, name) {
+    var phaseId = String(phase && (phase.id || phase.phaseId || phase.name) || 'phase');
+    var key = String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    var phaseStore = overlayRuntime.resourceBaselines[phaseId] || (overlayRuntime.resourceBaselines[phaseId] = {});
+    if (!Object.prototype.hasOwnProperty.call(phaseStore, key)) phaseStore[key] = resourceValue(resources, name);
+    return Math.max(0, resourceValue(resources, name) - (Number(phaseStore[key]) || 0));
+  }
+  function stepSatisfied(step, resources, states, phase) {
     if (!step) return true;
-    if (step.gain) return resourceValue(resources, step.gain) >= Number(step.amount || 1);
+    if (step.gain) {
+      var amount = Number(step.amount || 1);
+      if (!isFinite(amount) || amount <= 0) amount = 1;
+      return carriedValue(resources, step.gain) >= amount || phaseResourceProgress(phase, resources, step.gain) >= amount;
+    }
     if (step.setEntity) {
       var st = states && states[step.setEntity] || {};
       return Number(st.stateCode || 0) > 0 || Number(st.upgradeLevel || st.level || 0) > 0 || st.status === 'built' || st.state === 'built';
@@ -155,7 +177,7 @@ function injectVisualOverlay(html, visualAssets) {
     var steps = info && info.steps || [];
     var target = null;
     for (var i = 0; i < steps.length; i++) {
-      if (!stepSatisfied(steps[i], resources, states)) {
+      if (!stepSatisfied(steps[i], resources, states, info)) {
         target = steps[i].target;
         break;
       }

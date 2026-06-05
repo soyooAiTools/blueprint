@@ -635,6 +635,58 @@ public class Main : MonoBehaviour {
     expect(hit.blocking).toBe(true);
   });
 
+  test('source target ring mirrored x is blocking', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  GameObject _sourceTargetRing;
+  void UpdateSourceGuidance(GameObject target) {
+    Vector3 tp = target.transform.position;
+    _sourceTargetRing.transform.position = new Vector3(-tp.x, 0.10f, tp.z);
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'source-target-ring-mirrored-x');
+    expect(hit).toBeDefined();
+    expect(hit.blocking).toBe(true);
+  });
+
+  test('phase-index-only source guidance target is blocking', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  GameObject IceBlock;
+  GameObject BottledWater;
+  GameObject CTAButton;
+  GameObject SourceTargetForPhase(int phaseIndex) {
+    if (phaseIndex == 1) return BottledWater;
+    if (phaseIndex == 2) return IceBlock;
+    if (phaseIndex == 3) return CTAButton;
+    return IceBlock;
+  }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'source-guidance-phase-index-only-target');
+    expect(hit).toBeDefined();
+    expect(hit.blocking).toBe(true);
+  });
+
+  test('stateful source guidance target resolver is allowed', () => {
+    const code = `using UnityEngine;
+public class Main : MonoBehaviour {
+  GameObject IceBlock;
+  GameObject BottledWater;
+  GameObject SourceTargetForInitialGuidance() {
+    if (IceBlockCarried > 0 || GetResource("IceBlock") >= 3) return BottledWater;
+    return IceBlock;
+  }
+  GameObject SourceTargetForPhase(int phaseIndex) {
+    if (phaseIndex == 1) return SourceTargetForInitialGuidance();
+    return SourceTargetForInitialGuidance();
+  }
+  int IceBlockCarried;
+  int GetResource(string id) { return 0; }
+}`;
+    const hit = staticCheck(code).issues.find(i => i.rule === 'source-guidance-phase-index-only-target');
+    expect(hit).toBeUndefined();
+  });
+
   test('3+ chained if (X == "...") without else detected as warn', () => {
     const code = `using UnityEngine;
 public class Main : MonoBehaviour {

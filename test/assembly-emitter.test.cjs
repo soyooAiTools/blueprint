@@ -75,7 +75,9 @@ assert.ok(emitted.files.flow.indexOf('AssemblySlot_Flow_ConveyorBelt__build_prog
 assert.ok(emitted.files.flow.indexOf('cameraFocusTarget = "ConveyorBelt";') >= 0 || emitted.files.scene.indexOf('cameraFocusTarget = "ConveyorBelt";') >= 0, 'camera focus slot should bind phase target');
 assert.ok(emitted.files.flow.indexOf('GFM_CameraController.Instance.SetOrthographicSize') >= 0 || emitted.files.scene.indexOf('GFM_CameraController.Instance.SetOrthographicSize') >= 0, 'camera zoom slot should emit smooth controller zoom');
 assert.ok(emitted.files.flow.indexOf('mainCam.orthographicSize = ') < 0 && emitted.files.scene.indexOf('mainCam.orthographicSize = ') < 0, 'camera zoom slot must not directly assign ortho size');
-assert.ok(emitted.files.input.indexOf('Vector3.MoveTowards(__assemblyBefore, __joystickTarget.transform.position') >= 0, 'player movement should be owned by joystick/autoplay input path');
+assert.ok(emitted.files.input.indexOf('Vector3.MoveTowards(__assemblyBefore, __joystickTarget.transform.position') >= 0, 'autoplay joystick path should still move toward its target');
+assert.ok(emitted.files.input.indexOf('GFM_Player.Instance.Tick(Time.deltaTime, false)') < 0, 'manual joystick input slot must not tick player a second time');
+assert.ok(emitted.files.input.indexOf('GFM_Player.Instance.LastManualMoveActive') >= 0, 'manual joystick evidence should read the per-frame movement snapshot');
 assert.ok(emitted.files.flow.indexOf('move_to_target records arrival evidence only') >= 0, 'player move_to_target slot should not drive Player transform directly');
 assert.ok(emitted.files.flow.indexOf('Player.transform.position = __assemblyNext') < 0, 'player move_to_target slot must not write Player.transform');
 assert.ok(emitted.files.flow.indexOf('__assemblyPlayer.transform.position = __assemblyPlayerBefore') < 0, 'missing-actor move_to_target fallback must not move Player');
@@ -109,6 +111,10 @@ assert.ok(emitted.files.input.indexOf('ConveyorBeltState = Mathf.Max') === -1, '
 assert.ok(emitted.files.resource.indexOf('ConveyorBeltState = Mathf.Max') === -1, 'cost slots must not mutate build state owner fields');
 assert.ok(emitted.files.scene.indexOf('ConveyorBeltState = Mathf.Max') === -1, 'visual slots must not mutate build state owner fields');
 assert.ok(emitted.files.scene.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "entity_visible")') >= 0, 'visual_binding should record visibility evidence');
+var playerVisualBindingBody = emitted.files.scene.match(/void AssemblySlot_Scene_Player__visual_binding\(\)[\s\S]*?TODO_AssemblySlot_Scene_Player__visual_binding_END/);
+assert.ok(playerVisualBindingBody, 'player visual_binding slot should be present');
+assert.ok(playerVisualBindingBody[0].indexOf('player.transform.position = __visualBindingReposition') === -1, 'player visual_binding must not move Player to manufacture position evidence');
+assert.ok(playerVisualBindingBody[0].indexOf('__visualBindingOperation = "observe"') >= 0, 'player visual_binding should observe first-frame state instead of nudging Player');
 assert.ok(emitted.files.ui.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "guide_text_visible")') >= 0, 'guide_ui should record guide evidence');
 assert.ok(emitted.files.scene.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "camera_zoom_changed")') >= 0, 'camera slots should record camera evidence');
 assert.ok(emitted.files.main.indexOf('AssemblyRunFlowSlots();') >= 0, 'main should tick flow assembly runner');
@@ -261,6 +267,43 @@ var formSwitchPlans = {
 var formSwitchEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(genericSkeleton, formSwitchPlans);
 assert.ok(formSwitchEmitted.files.flow.indexOf('GFM_Player.Instance.SwitchForm(__formSwitchTargetIndex);') >= 0, 'form_switch should resolve and switch to a target form');
 assert.ok(formSwitchEmitted.files.flow.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "form_switch"') >= 0, 'form_switch should emit structured phase evidence snapshot');
+
+var ctaAliasSkeleton = {
+  mode: 'w1b-5partial',
+  main: 'public partial class GameFlowManagerMain\n{\n}\n',
+  flow: 'public partial class GameFlowManagerMain\n{\n}\n',
+  input: 'public partial class GameFlowManagerMain\n{\n    // TODO_INPUT_METHODS_START\n    // TODO_INPUT_METHODS_END\n}\n',
+  resource: 'public partial class GameFlowManagerMain\n{\n}\n',
+  ui: 'public partial class GameFlowManagerMain\n{\n}\n',
+  scene: 'public partial class GameFlowManagerMain\n{\n}\n'
+};
+var ctaAliasPlans = {
+  entityPlan: { entities: [{ name: 'Player' }, { name: 'CtaButton' }] },
+  assemblyPlan: {
+    moduleInstances: [
+      {
+        id: 'Player::player_input_joystick',
+        moduleId: 'player_input_joystick',
+        entity: 'Player',
+        params: { speed: 3 },
+        ownerFiles: ['GameFlowManagerMain.Input.cs'],
+        sourceAtomIds: ['atom_cta_alias']
+      }
+    ],
+    fileOwners: [{ file: 'GameFlowManagerMain.Input.cs', moduleInstanceIds: ['Player::player_input_joystick'] }],
+    phaseBindings: [{ phaseId: 'guideDownload', activateEntities: ['CtaButton'], atomIds: ['atom_cta_alias'] }],
+    stateOwners: [],
+    eventGraph: [],
+    unresolved: []
+  },
+  cuaPlan: {
+    steps: [{ phaseId: 'guideDownload', actions: [{ kind: 'click', target: 'CTAButton' }], expectedSignals: ['player_position_changed'] }]
+  }
+};
+var ctaAliasEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(ctaAliasSkeleton, ctaAliasPlans);
+assert.ok(ctaAliasEmitted.files.input.indexOf('if (CtaButton != null)') >= 0, 'phase target resolver should map CTAButton action to existing CtaButton entity');
+assert.ok(ctaAliasEmitted.files.input.indexOf('__joystickTarget = CtaButton;') >= 0, 'joystick target should use resolved entity field casing');
+assert.ok(ctaAliasEmitted.files.input.indexOf('__joystickTarget = CTAButton;') === -1, 'joystick target must not emit unresolved CTAButton casing');
 
 var registry = JSON.parse(fs.readFileSync(__dirname + '/../adapters/schema/assembly-registry-v1/runtime-modules.v1.json', 'utf-8'));
 var registryItems = registry.items || [];
@@ -616,6 +659,11 @@ assert.ok(implementationEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag(curr
 assert.ok(implementationEmitted.files.flow.indexOf('DefenseTowerState = Mathf.Max(DefenseTowerState, 1);') >= 0, 'activate_targets fallback should activate its owner when targets are empty');
 assert.ok(implementationEmitted.files.flow.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "activate_targets"') >= 0, 'activate_targets should emit structured phase evidence snapshot');
 assert.ok(implementationEmitted.files.input.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "player_input_joystick"') >= 0, 'player_input_joystick should emit structured phase evidence snapshot');
+assert.ok(implementationEmitted.files.input.indexOf('currentPhaseName != "combat" && currentPhaseName != "finish"') >= 0, 'player joystick evidence should stay active for later CUA target phases');
+assert.ok(implementationEmitted.files.input.indexOf('case "finish":') >= 0 && implementationEmitted.files.input.indexOf('__joystickTarget = CTAButton;') >= 0, 'player joystick target resolver should use later CUA click targets');
+assert.ok(implementationEmitted.files.flow.indexOf('currentPhaseName != "combat" && currentPhaseName != "finish"') >= 0, 'player move_to_target evidence should stay active for later CUA target phases');
+assert.ok(implementationEmitted.files.flow.indexOf('case "finish":') >= 0 && implementationEmitted.files.flow.indexOf('__moveTarget = CTAButton;') >= 0, 'player move_to_target resolver should use later CUA click targets');
+assert.ok(implementationEmitted.files.flow.indexOf('__moveArrived = __assemblyDistance <= Mathf.Max(1.50f, 2.00f);') >= 0, 'player move_to_target arrival should use the target-ring tolerance floor');
 assert.ok(implementationEmitted.files.resource.indexOf('string __collectResource = GFM_ResourceIds.Gold;') >= 0, 'system collect fallback should bind the configured resource');
 assert.ok(implementationEmitted.files.resource.indexOf('AddResource(__collectResource, 1);') >= 0, 'system collect fallback should add the configured resource');
 assert.ok(implementationEmitted.files.resource.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "collect_on_near"') >= 0, 'collect_on_near should emit structured phase evidence snapshot');
@@ -688,6 +736,25 @@ assert.ok(genericFallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceObject(c
 assert.ok(genericFallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "target_hp_decreased_or_target_dead")') >= 0, 'system damageable should emit combat evidence instead of an empty slot');
 assert.ok(genericFallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "upgrade_level_changed")') >= 0, 'system upgrade_progress should emit upgrade evidence instead of an empty slot');
 assert.ok(genericFallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "upgrade_progress"') >= 0, 'upgrade_progress should emit structured phase evidence snapshot');
+
+var playerSpawnPlans = {
+  entityPlan: { entities: [{ name: 'Player' }] },
+  assemblyPlan: {
+    moduleInstances: [
+      { id: 'Player::spawn_interval', moduleId: 'spawn_interval', entity: 'Player', params: {}, ownerFiles: ['GameFlowManagerMain.Flow.cs'] }
+    ],
+    fileOwners: [{ file: 'GameFlowManagerMain.Flow.cs', moduleInstanceIds: ['Player::spawn_interval'] }],
+    phaseBindings: [{ phaseId: 'finish', atomIds: [], activateEntities: ['Player'] }],
+    stateOwners: [],
+    eventGraph: [],
+    unresolved: []
+  },
+  cuaPlan: { steps: [] }
+};
+var playerSpawnEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(genericSkeleton, playerSpawnPlans);
+assert.ok(playerSpawnEmitted.files.flow.indexOf('spawn evidence must not reposition') >= 0, 'Player spawn_interval should be evidence-only');
+assert.ok(playerSpawnEmitted.files.flow.indexOf('PlaceObj(Player') < 0, 'Player spawn_interval must not place the player every frame');
+assert.ok(playerSpawnEmitted.files.flow.indexOf('__assemblySpawnPos.x += 0.75f') < 0, 'Player spawn_interval must not drift player horizontally');
 
 var b2b3Plans = {
   entityPlan: {

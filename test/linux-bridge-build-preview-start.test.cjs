@@ -49,6 +49,16 @@ assert(
   'target __driveToPhase must drive the active GameFlow component directly'
 );
 assert(
+  src.includes('window.__blueprintGameFlowComponent = target || null'),
+  'target bridge must keep the exported GameFlow component synchronized with the active resolved loop component'
+);
+assert(
+  src.includes('if (typeof loopComp.ApplyFidelityPhaseVisibility === "function") loopComp.ApplyFidelityPhaseVisibility(targetIdx)') &&
+    src.includes('var snapshotName = "Snapshot_" + suffix + "_GateEntities"') &&
+    src.includes('if (typeof loopComp[snapshotName] === "function") loopComp[snapshotName]()'),
+  'target __driveToPhase must apply phase visibility before resetting gate snapshots to match real phase entry'
+);
+assert(
   src.includes('requestAnimationFrame(function()') && src.includes('setTimeout(resolve, 50)'),
   'target __driveToPhase must settle at least one rendered frame before resolving'
 );
@@ -81,8 +91,10 @@ assert(
   'source visual overlay must install a deterministic source-style camera framing sync'
 );
 assert(
-  src.includes('camEnt.setEulerAngles(35, 203, 0)') && src.includes('camEnt.camera.fov = 46'),
-  'storyboard camera framing must match the source HTML perspective camera direction and FOV'
+  src.includes('camEnt.camera.fov = 60') &&
+    src.includes('camEnt.setPosition(0, 22, 22)') &&
+    src.includes('camEnt.setEulerAngles(45, 180, 0)'),
+  'storyboard camera framing must match the source HTML perspective camera position, stable direction and FOV'
 );
 assert(
   src.includes('priority: __bpHasSourceVisualAssets ? -100 : 100'),
@@ -129,6 +141,17 @@ assert(
   'storyboard overlay must hide inactive phase entities using source phase visibility'
 );
 assert(
+  src.includes('function auditStoryboardVisualLayer(options)') &&
+    src.includes('window.__auditStoryboardVisualLayer = auditStoryboardVisualLayer') &&
+    src.includes('hideLegacyStoryboardVisualSurfaces()') &&
+    src.includes('visibleNonOverlaySurfaces') &&
+    src.includes('activeLegacyPhysicsCount') &&
+    src.includes('setStoryboardPhysicsEnabled') &&
+    src.includes('function stripStoryboardPrimitivePhysics(entity)') &&
+    src.includes('return stripStoryboardPrimitivePhysics(e)'),
+  'storyboard overlay must suppress and expose audit data for legacy non-overlay renderers and physics'
+);
+assert(
   src.includes('SOURCE_VISUAL_ENTITY_SCALE = 0.25') &&
     src.includes('group.setLocalScale(SOURCE_VISUAL_ENTITY_SCALE, SOURCE_VISUAL_ENTITY_SCALE, SOURCE_VISUAL_ENTITY_SCALE)'),
   'storyboard source primitives must use calibrated source-like visual scale'
@@ -140,6 +163,40 @@ assert(
   'storyboard source camera must not target runtime hidden sentinel positions'
 );
 assert(
+  src.includes('function runtimeStoryboardPlayerSourcePosition()') &&
+    src.includes('function manualStoryboardPlayerSourcePosition(name, p, liveAvailable)') &&
+    src.includes('window.__bpManualOverlayPlayerSourcePos'),
+  'storyboard visible player must follow live runtime/manual joystick state each frame instead of stale gameState polling only'
+);
+assert(
+  src.includes('window.__bpManualJoystickOverride') &&
+    src.includes('function installRuntimeJoystickOverridePatch(joystick)') &&
+    src.includes('joystick.PollInput = function()') &&
+    src.includes("override && (override.active || now - (override.updatedAt || 0) < 160)") &&
+    src.includes('function applyRuntimeJoystickOverride(x, y, active)') &&
+    src.includes('joystick._input.x = active ? x : 0') &&
+    src.includes('joystick._input.y = active ? y : 0') &&
+    src.includes('var STORYBOARD_STICK_DEADZONE = 4') &&
+    src.includes('applyRuntimeJoystickOverride(0, 0, false)') &&
+    src.includes('if (len <= STORYBOARD_STICK_DEADZONE)') &&
+    src.includes('applyRuntimeJoystickOverride(-dx / max, -dy / max, true)') &&
+    src.includes("document.addEventListener('touchmove'"),
+  'DOM storyboard joystick must directly drive runtime joystick input after deadzone with correct screen-space signs'
+);
+assert(
+  src.includes("new pc.Entity('StoryboardTargetMarker')") &&
+    src.includes('window.__storyboardTargetMarkerState') &&
+    src.includes('function runtimeStoryboardEntityOverlayPosition(name, gs)') &&
+    src.includes('screenRect: entityScreenRect(storyboardTargetMarker)') &&
+    src.includes('function phaseStepTarget()') &&
+    src.includes('function stepSatisfied(step)') &&
+    src.includes('window.__bpSourceGuidanceBaselines') &&
+    src.includes('carriedValue(step.gain)') &&
+    !src.includes("phaseNumber === 1) phaseDefault = directName('IceBlock')") &&
+    !src.includes("phaseNumber === 2) phaseDefault = directName('BottledWater')"),
+  'storyboard guidance must expose a visible target marker and resolve next-step targets generically instead of project-name phase defaults'
+);
+assert(
   src.includes('function syncSourceWorldLabels()') &&
     src.includes('bp-source-world-labels') &&
     src.includes('camEnt.camera.worldToScreen(wp)'),
@@ -148,6 +205,37 @@ assert(
 assert(
   src.includes('const { code, className, extraFiles, visualAssets } = parsed'),
   'legacy bridge server must accept visualAssets so production and direct builds share source contracts'
+);
+
+const uiManagerSrc = fs.readFileSync(path.join(repoRoot, 'worker', 'GFM_UIManager.cs'), 'utf8');
+assert(
+  !uiManagerSrc.includes('_oxygenShop') &&
+    !uiManagerSrc.includes('Text_Label_OxygenShop') &&
+    !uiManagerSrc.includes('Text_Label_SpaceShip'),
+  'generic UI manager template must not carry project-specific stale label mappings'
+);
+
+for (const file of ['GFM_UI.cs', 'GFM_Tools.cs']) {
+  const worldLabelSrc = fs.readFileSync(path.join(repoRoot, 'worker', file), 'utf8');
+  assert(
+    worldLabelSrc.includes('target.transform.Find("Label_" + text) != null') &&
+      worldLabelSrc.includes('bgImg.color = new Color(0f, 0f, 0f, 0f)') &&
+      !worldLabelSrc.includes('bgImg.color = new Color(0f, 0f, 0f, 0.62f)') &&
+      worldLabelSrc.includes('outline.effectDistance = new Vector2(2f, -2f)'),
+    file + ' world labels must be idempotent and readable without opaque label plates'
+  );
+}
+
+const playerSrc = fs.readFileSync(path.join(repoRoot, 'worker', 'GFM_Player.cs'), 'utf8');
+assert(
+  playerSrc.includes('Vector3 input = new Vector3(-h, 0, -v)') &&
+    !playerSrc.includes('Vector3 input = new Vector3(h, 0, -v)'),
+  'generic player movement must map joystick horizontal input to screen-space right/left under the storyboard camera'
+);
+assert(
+  playerSrc.includes('if (safeDt > 0.025f) safeDt = 0.025f') &&
+    !playerSrc.includes('if (safeDt > 0.05f) safeDt = 0.05f'),
+  'generic player movement must cap manual joystick delta tightly enough to avoid large per-frame jumps in audit playback'
 );
 
 console.log('linux-bridge-build preview start guards passed');

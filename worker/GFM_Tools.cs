@@ -470,9 +470,11 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
     private RectTransform _bg;
     private RectTransform _handle;
     private Vector2 _input = Vector2.zero;
+    private Vector2 _originScreenPosition = Vector2.zero;
     private bool _dragging = false;
     private float _radius;
     private Vector2 _bgStartPos;
+    private const float InputDeadZone = 4f;
 
     /// <summary>创建虚拟摇杆</summary>
     /// <param name="canvas">父 Canvas</param>
@@ -516,20 +518,25 @@ public class GFM_Joystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IP
     public void OnPointerDown(PointerEventData eventData)
     {
         _dragging = true;
-        OnDrag(eventData);
+        _originScreenPosition = eventData.position;
+        _input = Vector2.zero;
+        if (_handle != null) _handle.anchoredPosition = Vector2.zero;
     }
 
     // 处理摇杆拖拽并更新方向向量。
     public void OnDrag(PointerEventData eventData)
     {
-        Vector2 localPos;
-        if (RectTransformUtility.ScreenPointToLocalPointInRectangle(_bg, eventData.position, eventData.pressEventCamera, out localPos))
+        Vector2 localPos = eventData.position - _originScreenPosition;
+        if (localPos.magnitude < InputDeadZone)
         {
-            if (localPos.magnitude > _radius)
-                localPos = localPos.normalized * _radius;
-            _handle.anchoredPosition = localPos;
-            _input = localPos / _radius;
+            _handle.anchoredPosition = Vector2.zero;
+            _input = Vector2.zero;
+            return;
         }
+        if (localPos.magnitude > _radius)
+            localPos = localPos.normalized * _radius;
+        _handle.anchoredPosition = localPos;
+        _input = localPos / _radius;
     }
 
     // 处理摇杆松开并重置方向。
@@ -685,32 +692,33 @@ public static class GFM_UI
     public static void AddWorldLabel(GameObject target, string text, float heightOffset)
     {
         if (target == null) return;
+        if (target.transform.Find("Label_" + text) != null) return;
         var labelObj = new GameObject("Label_" + text);
         var canvas = labelObj.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
         canvas.sortingOrder = 100;
         canvas.transform.SetParent(target.transform, false);
         canvas.transform.localPosition = new Vector3(0, heightOffset, 0);
-        canvas.transform.localScale = new Vector3(0.0075f, 0.0075f, 0.0075f);
+        canvas.transform.localScale = new Vector3(0.018f, 0.018f, 0.018f);
         var rt = (RectTransform)canvas.GetComponent(typeof(RectTransform));
-        rt.sizeDelta = new Vector2(180, 28);
+        rt.sizeDelta = new Vector2(260, 46);
 
-        // Subtle background — CUA uses __gameState JSON, not visual labels
+        // Transparent layout plane; readability comes from the text outline.
         var bgObj = new GameObject("LabelBG", typeof(RectTransform), typeof(Image));
         bgObj.transform.SetParent(canvas.transform, false);
         var bgRect = (RectTransform)bgObj.GetComponent(typeof(RectTransform));
-        bgRect.sizeDelta = new Vector2(180, 28);
+        bgRect.sizeDelta = new Vector2(260, 46);
         bgRect.anchoredPosition = Vector2.zero;
         var bgImg = (Image)bgObj.GetComponent(typeof(Image));
-        bgImg.color = new Color(0f, 0f, 0f, 0.0f);
+        bgImg.color = new Color(0f, 0f, 0f, 0f);
 
-        // White text on dark background
+        // White text with a strong outline.
         var txtGO = new GameObject("Text");
         txtGO.AddComponent(typeof(RectTransform));
         var txtObj = (Text)txtGO.AddComponent(typeof(Text));
         txtGO.transform.SetParent(canvas.transform, false);
         var txtRect = (RectTransform)txtGO.GetComponent(typeof(RectTransform));
-        txtRect.sizeDelta = new Vector2(180, 28);
+        txtRect.sizeDelta = new Vector2(260, 46);
         txtRect.anchoredPosition = Vector2.zero;
         if (!object.ReferenceEquals(txtObj, null))
         {
@@ -719,10 +727,16 @@ public static class GFM_UI
             {
                 var font = Resources.Load<Font>("DefaultFont");
                 if (!object.ReferenceEquals(font, null)) txtObj.font = font;
-                txtObj.fontSize = 12;
+                txtObj.fontSize = 22;
                 txtObj.color = Color.white;
                 txtObj.alignment = TextAnchor.MiddleCenter;
                 txtObj.horizontalOverflow = HorizontalWrapMode.Overflow;
+                var outline = (Outline)txtGO.AddComponent(typeof(Outline));
+                if (!object.ReferenceEquals(outline, null))
+                {
+                    outline.effectColor = new Color(0f, 0f, 0f, 0.95f);
+                    outline.effectDistance = new Vector2(2f, -2f);
+                }
             }
             catch {}
         }

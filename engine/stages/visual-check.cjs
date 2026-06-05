@@ -1,5 +1,5 @@
 /**
- * Stage: visual-check — Playwright screenshot + Claude Sonnet analysis with fix loop
+ * Stage: visual-check — Playwright screenshot + Doubao vision analysis with fix loop
  *
  * Reads: ctx.htmlOutput, ctx.csCode, ctx.blueprint, ctx.extraFiles
  * Writes: ctx.htmlOutput (updated if visual fix applied), ctx.csCode (updated)
@@ -19,7 +19,30 @@ var SAME_REASON_EXIT = 3;
 
 function isVisualInfraFailureReason(reason) {
   var text = String(reason || '').toLowerCase();
-  return /vision cli unavailable|vision api unavailable|vision cli returned empty response|could not parse analysis response|vision backend not producing valid analysis|exit code 143/.test(text);
+  return /vision cli unavailable|vision api unavailable|vision api returned empty response|vision cli returned empty response|could not parse analysis response|vision backend not producing valid analysis|exit code 143/.test(text);
+}
+
+function assertVisualCheckPassed(result) {
+  if (result && result.passed === false) {
+    var reason = result.reason || result.earlyExit || 'visual check failed without a detailed reason';
+    throw new Error('Visual check failed: ' + reason);
+  }
+  return result;
+}
+
+function buildVisualFrameSchedule(env) {
+  env = env || process.env;
+  var middleMs = Number(env.BLUEPRINT_VISUAL_CHECK_MIDDLE_FRAME_MS || 7000);
+  var lateMs = Number(env.BLUEPRINT_VISUAL_CHECK_LATE_FRAME_MS || 16000);
+  if (!Number.isFinite(middleMs) || middleMs < 3000) middleMs = 7000;
+  if (!Number.isFinite(lateMs) || lateMs < middleMs + 4000) lateMs = middleMs + 9000;
+  middleMs = Math.min(Math.max(Math.round(middleMs), 3000), 12000);
+  lateMs = Math.min(Math.max(Math.round(lateMs), middleMs + 4000), 26000);
+  return [
+    { delay: 0, timeMs: 0 },
+    { delay: middleMs, timeMs: middleMs },
+    { delay: lateMs - middleMs, timeMs: lateMs },
+  ];
 }
 
 /**
@@ -61,6 +84,8 @@ function evaluateVisualCheckShortCircuit(phaseLog, consoleErrors, frameCount, en
 module.exports = {
   name: 'visual-check',
   _isVisualInfraFailureReason: isVisualInfraFailureReason,
+  _assertVisualCheckPassed: assertVisualCheckPassed,
+  _buildVisualFrameSchedule: buildVisualFrameSchedule,
   _evaluateVisualCheckShortCircuit: evaluateVisualCheckShortCircuit,
   canRetry: false,
   assertBefore: function(ctx) {
@@ -168,17 +193,15 @@ module.exports = {
                       return waitEngine();
                     })
                     .then(function() {
-                      // Multi-frame capture: 2 base frames at t=0s and t=6s.
-                      // Was 3 frames (0/3/8s) — reduced to save VLM token cost. Two frames
-                      // are sufficient to detect "no progression" (frame[0] vs frame[1]),
-                      // and phaseLog already proves the engine is running.
+                      // Multi-frame capture: include a late frame. Several playable
+                      // specs intentionally hold the first guidance frame for 10-15s
+                      // before the first visible transition; 0s/6s sampling produces
+                      // false "all frames identical" diagnoses and sends recode down
+                      // the wrong path.
                       // JPEG quality 80 is ~70% smaller than PNG for screenshots with no
                       // perceptible quality loss for "is there a solid color / are there objects" checks.
                       var frames = [];
-                      var frameSchedule = [
-                        { delay: 0, timeMs: 0 },
-                        { delay: 6000, timeMs: 6000 },
-                      ];
+                      var frameSchedule = buildVisualFrameSchedule();
                       var frameIdx = 0;
                       function captureNextFrame() {
                         if (frameIdx >= frameSchedule.length) return Promise.resolve();
@@ -194,15 +217,14 @@ module.exports = {
                       }
                       return captureNextFrame().then(function() {
                         // Adaptive capture: if no phase activity AND no errors, extend
-                        // by ONE extra frame at t=14s to give a slow-loading game more time.
-                        // Was 2 extra frames (11s + 15s) — reduced to 1 to save tokens.
+                        // by ONE extra frame at t=24s to give a slow-loading game more time.
                         if (phaseLog.length === 0 && consoleErrors.length === 0) {
-                          ctx.addLog('visual-check', 'No phase activity after base capture, extending to 14s');
+                          ctx.addLog('visual-check', 'No phase activity after base capture, extending to 24s');
                           return page.waitForTimeout(8000)
                             .then(function() {
-                              var extraPath = screenshotPath.replace('.png', '-f2.jpg');
+                              var extraPath = screenshotPath.replace('.png', '-f' + frames.length + '.jpg');
                               return page.screenshot({ path: extraPath, type: 'jpeg', quality: 80 }).then(function() {
-                                frames.push({ path: extraPath, timeMs: 14000 });
+                                frames.push({ path: extraPath, timeMs: 24000 });
                               });
                             })
                             .then(function() {
@@ -303,22 +325,7 @@ module.exports = {
             'PASS if: multiple colored game objects visible AND some visual change between frames AND no critical runtime errors.\n' +
             'Reply JSON only: {"passed": true/false, "reason": "brief explanation", "hasInteractiveElements": true/false}';
 
-          // 2026-04-16: switched from direct Claude API (ClaudeProvider.generateVision HTTP POST)
-          // to spawn the CLI multimodal path via runCodexText.
-          // Model stays Sonnet 4.6 — we only change transport so all Claude calls share
-          // the CC CLI relay's failure modes / MODEL_FATAL / billing.
-          // Mechanism: write JPEG frames into tempDir as ./frame1.jpg, ./frame2.jpg, ... and
-          // instruct the model to Read them. CC Read tool natively supports images and
-          // passes them to Sonnet as multimodal content (same pipeline as direct vision API).
-          var codexCoder = require('../../worker/codex-coder.js');
           var imagesBase64 = frameCount > 1 ? frameImages.map(function(f) { return f.base64; }) : [imgBase64];
-          var _visionAdditionalFiles = {};
-          var _visionFrameNames = [];
-          for (var _fi = 0; _fi < imagesBase64.length; _fi++) {
-            var _fname = 'frame' + (_fi + 1) + '.jpg';
-            _visionAdditionalFiles[_fname] = Buffer.from(imagesBase64[_fi] || '', 'base64');
-            _visionFrameNames.push(_fname);
-          }
 
           var visionSystemPrompt =
             'You are a visual QA analyst for Luna playable ads. ' +
@@ -326,14 +333,11 @@ module.exports = {
             'Reply with ONLY a single JSON object of the exact shape requested — no explanation, no markdown fences.';
 
           var visionUserPrompt =
-            'Use the Read tool to load the following frame image(s) in order:\n' +
-            _visionFrameNames.map(function(f) { return '- ./' + f; }).join('\n') + '\n\n' +
-            'Then analyze them and return the JSON as specified below.\n\n' +
+            'Analyze the attached JPEG screenshot frame(s) in chronological order. ' +
+            'Return the JSON as specified below.\n\n' +
             analysisPrompt;
 
-          // === [vision-cost] pre-call instrumentation (CLI mode) ===
-          // Base64 bytes reflect what CC will read off disk. Token usage is not available
-          // in CLI --print mode, so post-call we only log respTextLen + elapsedMs.
+          // === [vision-cost] pre-call instrumentation ===
           var _visionImageBytes = 0;
           for (var _vbi = 0; _vbi < imagesBase64.length; _vbi++) _visionImageBytes += (imagesBase64[_vbi] || '').length;
           var _visionFrameCount = imagesBase64.length;
@@ -366,36 +370,29 @@ module.exports = {
               ' frames=' + _visionFrameCount +
               ' base64Bytes=' + _visionImageBytes +
               ' promptChars=' + visionUserPrompt.length +
-              ' mode=cc-cli');
-            _visionPromise = codexCoder.runCodexText({
+              ' mode=doubao-vision');
+            var modelProvider = require('../../lib/model-provider.cjs');
+            var visionProvider = modelProvider.createProvider('doubao', {});
+            _visionPromise = visionProvider.generateVision(imagesBase64, visionUserPrompt, {
               systemPrompt: visionSystemPrompt,
-              userPrompt: visionUserPrompt,
-              additionalFiles: _visionAdditionalFiles,
-              model: 'claude-sonnet-4-6',
-              backend: process.env.BLUEPRINT_VISUAL_CHECK_TEXT_RUNNER || undefined,
-              effort: process.env.CODEX_REASONING_EFFORT || 'high',
-              timeoutMs: 120000, // CC cold start + Read images + inference + margin
-              minOutputLen: 10,  // JSON of {passed, reason, ...} is at least a dozen chars
-              taskId: (ctx.taskId || 'visual') + '-r' + round,
-              log: function(msg) { ctx.addLog('visual-check', msg); },
+              model: process.env.BLUEPRINT_VISUAL_CHECK_MODEL || process.env.DOUBAO_VISION_MODEL || process.env.VLM_MODEL,
+              maxTokens: 512,
+              timeoutMs: 120000,
+              temperature: 0.1,
             })
               .then(function(result) {
-                // [vision-cost] post-call (CLI mode — no usage field available)
                 ctx.addLog('visual-check', '[vision-cost] post round=' + round +
-                  ' mode=' + (result.backend || 'cc-cli') + ' ok=' + result.ok +
+                  ' mode=' + (result.provider || 'doubao-vision') + ' ok=true' +
                   ' respTextLen=' + ((result && result.text) || '').length +
                   ' elapsedMs=' + (Date.now() - _visionStartedAt));
-                if (!result.ok) {
-                  throw new Error('Vision CLI error: ' + (result.error || 'unknown'));
-                }
                 var rawText = (result.text || '').trim();
                 var jsonMatch = rawText.match(/\{[\s\S]*\}/);
                 if (jsonMatch) return JSON.parse(jsonMatch[0]);
-                // Empty/unparseable response — bqh33t post-mortem 2026-04-15: dead backend
-                // was returning text="" and pipeline advanced to CUA with a black screen.
+                // Empty/unparseable response — dead backend can otherwise advance
+                // the pipeline to CUA with a black screen.
                 // Classify as MODEL_FATAL so fix-loop aborts instead of burning recode rounds.
                 if (!rawText) {
-                  throw new Error('MODEL_FATAL: Vision CLI returned empty response (likely auth/quota failure)');
+                  throw new Error('MODEL_FATAL: Vision API returned empty response (likely auth/quota failure)');
                 }
                 return { passed: false, reason: 'Could not parse analysis response: ' + rawText.slice(0, 120) };
               })
@@ -403,7 +400,7 @@ module.exports = {
                 var errMsg = err && err.message ? err.message : 'unknown';
                 ctx.addLog('visual-check', '[vision-cost] error round=' + round +
                   ' elapsedMs=' + (Date.now() - _visionStartedAt) + ' msg=' + errMsg);
-                ctx.addLog('visual-check', 'Vision CLI error: ' + errMsg);
+                ctx.addLog('visual-check', 'Vision API error: ' + errMsg);
                 // Preserve real MODEL_FATALs (e.g. auth/quota) but allow the visual
                 // stage to degrade gracefully when the vision backend simply times out
                 // or returns no parseable analysis. CUA remains the real hard gate.
@@ -412,7 +409,7 @@ module.exports = {
                 }
                 return {
                   passed: false,
-                  reason: 'Vision CLI unavailable: ' + errMsg,
+                  reason: 'Vision API unavailable: ' + errMsg,
                   infraDegraded: true,
                 };
               });
@@ -426,21 +423,18 @@ module.exports = {
               if (!analysis.passed) {
                 var reasonKey = (analysis.reason || '').slice(0, 60).toLowerCase().replace(/\s+/g, ' ').trim();
                 if (analysis.infraDegraded || isVisualInfraFailureReason(reasonKey)) {
-                  ctx.addLog('visual-check', 'Vision backend degraded after preview capture — continuing with warning: ' + analysis.reason);
+                  ctx.addLog('visual-check', 'Vision backend degraded after preview capture — failing closed: ' + analysis.reason);
                   if (!ctx.blueprint.feedbackHistory) ctx.blueprint.feedbackHistory = [];
                   ctx.blueprint.feedbackHistory.push({
-                    data: { text: '[visual-check warning] Vision backend unavailable, skipped visual QA: ' + analysis.reason },
-                    source: 'visual-check-infra-warning',
-                    status: 'info',
+                    data: { text: '[visual-check blocking] Vision backend unavailable; visual QA cannot be skipped: ' + analysis.reason },
+                    source: 'visual-check-infra-blocking',
+                    status: 'blocking',
                     timestamp: Date.now(),
                   });
                   ctx.visualCheckDegraded = true;
                   ctx.htmlOutput = lastHtmlForVisual;
                   ctx.csCode = lastCsCode;
-                  return {
-                    done: true,
-                    result: { passed: true, degraded: true, reason: analysis.reason },
-                  };
+                  throw new Error('MODEL_FATAL: Visual backend unavailable; fail-closed instead of skipping visual QA: ' + analysis.reason);
                 }
                 if (reasonKey && reasonKey === lastVisualReasonKey) {
                   sameReasonCount++;
@@ -492,7 +486,7 @@ module.exports = {
               if (round >= maxRounds) {
                 ctx.htmlOutput = lastHtmlForVisual;
                 ctx.csCode = lastCsCode;
-                return { done: true, result: { passed: false, rounds: round } };
+                return { done: true, result: { passed: false, rounds: round, reason: analysis.reason || 'visual check did not pass before max rounds' } };
               }
 
               // Visual fix
@@ -536,7 +530,7 @@ module.exports = {
                   ctx.addLog('visual-check', 'Visual fix re-code failed: ' + recodeResult.error);
                   ctx.htmlOutput = lastHtmlForVisual;
                   ctx.csCode = lastCsCode;
-                  return { done: true, result: { passed: false, rounds: round } };
+                  return { done: true, result: { passed: false, rounds: round, reason: 'Visual fix re-code failed: ' + recodeResult.error } };
                 }
 
                 lastCsCode = recodeResult.code;
@@ -566,7 +560,7 @@ module.exports = {
                     ctx.addLog('visual-check', 'Visual fix rebuild error: ' + err.message);
                     ctx.htmlOutput = lastHtmlForVisual;
                     ctx.csCode = lastCsCode;
-                    return { done: true, result: { passed: false, rounds: round } };
+                    return { done: true, result: { passed: false, rounds: round, reason: 'Visual fix rebuild error: ' + err.message } };
                   });
               });
             });
@@ -583,6 +577,6 @@ module.exports = {
       },
     });
 
-    return loop.run(ctx);
+    return loop.run(ctx).then(assertVisualCheckPassed);
   },
 };

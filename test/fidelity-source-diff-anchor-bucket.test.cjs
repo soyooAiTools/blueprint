@@ -101,6 +101,24 @@ assert.strictEqual(typeof computePhaseAnchorEntries, 'function');
 var VP = { width: 1280, height: 720 };
 var TOL = 8;
 var expectedSimple = { Player: { x_px: 100, y_px: 100, w_px: 50, h_px: 50, provenance: 'extracted' } };
+var expectedInferredDefault = {
+  Player: {
+    x_px: 0, y_px: 0, w_px: 0, h_px: 0,
+    provenance: 'inferred-default',
+    lookupPath: 'not-found',
+    resolverRule: 'unresolved',
+  },
+};
+
+// case E2: inferred/default unresolved anchors are placeholders, not comparable
+// source geometry. They must not trigger anchor mismatch or bridge blockers.
+assert.strictEqual(
+  fieldDiff.runAnchorDiff('phase1', expectedInferredDefault, {}, VP, TOL).length,
+  0,
+  'inferred/default unresolved 0x0 anchors should be ignored by runAnchorDiff'
+);
+var caseE2 = computePhaseAnchorEntries('phase1', expectedInferredDefault, undefined, VP, TOL);
+assert.strictEqual(caseE2.length, 0, 'placeholder-only anchors should not emit anchor-bridge-missing');
 
 // case F: expectedAnchors present, rawTargetAnchors undefined → anchor-bridge-missing
 var caseF = computePhaseAnchorEntries('phase1', expectedSimple, undefined, VP, TOL);
@@ -118,6 +136,27 @@ assert.strictEqual(caseG1[0].category, 'anchor-target-empty');
 assert.strictEqual(caseG1[0].blocking, true);
 assert.ok(caseG1[0].message.indexOf('manifest bridge') >= 0, 'G1: message points at manifest bridge root cause');
 assert.strictEqual(caseG1[0].category.split('-')[0], 'anchor', 'G: bucket aggregator routes to "anchor"');
+
+// case H: source-contract surfaces are mandatory by default. Missing worldLabel
+// and primitiveStyle cannot be demoted simply because the target installed no
+// verification surface; that is the root product defect this gate must catch.
+var demote = stage._internals.demoteAdvisoryBuckets;
+assert.strictEqual(typeof demote, 'function');
+var prevAllowMissingSurface = process.env.FIDELITY_ALLOW_MISSING_VERIFICATION_SURFACE;
+delete process.env.FIDELITY_ALLOW_MISSING_VERIFICATION_SURFACE;
+var strictSurface = demote([
+  { category: 'worldLabel-missing', path: 'worldLabel.Player', blocking: false },
+  { category: 'primitiveStyle-missing', path: 'primitiveStyle.Player', blocking: false },
+], { entityDetails: {} });
+assert.strictEqual(strictSurface[0].blocking, true, 'worldLabel-missing should block when the whole surface is missing');
+assert.strictEqual(strictSurface[1].blocking, true, 'primitiveStyle-missing should block when the whole surface is missing');
+process.env.FIDELITY_ALLOW_MISSING_VERIFICATION_SURFACE = '1';
+var legacySurface = demote([
+  { category: 'worldLabel-missing', path: 'worldLabel.Player', blocking: true },
+], { entityDetails: {} });
+assert.strictEqual(legacySurface[0].blocking, false, 'legacy env may still demote missing surfaces for audits');
+if (prevAllowMissingSurface === undefined) delete process.env.FIDELITY_ALLOW_MISSING_VERIFICATION_SURFACE;
+else process.env.FIDELITY_ALLOW_MISSING_VERIFICATION_SURFACE = prevAllowMissingSurface;
 
 // case G2: rawTargetAnchors entirely empty object {} → still target-empty
 var caseG2 = computePhaseAnchorEntries('phase1', expectedSimple, {}, VP, TOL);

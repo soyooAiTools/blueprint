@@ -90,7 +90,14 @@ function execute(ctx) {
     filename: 'GameFlowManagerMain.cs',
   });
   var blocking = (result.issues || []).filter(function(i) { return i.blocking; });
-  if (blocking.length === 0) return Promise.resolve(ctx);
+  // Resolve a plain summary, NEVER `ctx` itself: pipeline.cjs does
+  // `ctx.stageResults[name] = Object.assign({}, result)`, so resolving ctx makes
+  // ctx.stageResults['static-pre-review'].stageResults === ctx.stageResults (a self
+  // cycle) → JSON.stringify of the checkpoint throws "Converting circular structure
+  // to JSON", crashing BOTH this stage and the failure-checkpoint save. The pipeline
+  // keeps the persistent ctx for the next stage; the resolved value only feeds
+  // stageResults (metrics read durationMs/rounds/passed, all filled by pipeline.cjs).
+  if (blocking.length === 0) return Promise.resolve({ passed: true, blocking: 0 });
 
   // Push each violation into feedbackHistory (dedup) so the recode prompt sees it,
   // then invalidate the codegen checkpoint so the retry actually re-runs codegen.

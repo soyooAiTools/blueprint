@@ -45,7 +45,7 @@ public class GameSceneCtrl
     // 旧生成代码可能仍把 Player 绑定到 __Pool_*；运行时统一收敛到 source entity contract。
     private void NormalizeSourcePlayerBinding(string name, string poolName, GameObject go)
     {
-        if (name != "Player" || go == null) return;
+        if ((name != "Player" && name != "player") || go == null) return;
         bool legacyPoolName = !string.IsNullOrEmpty(poolName) && poolName != "_player";
         bool renamedFromLegacyObject = go.name != "_player";
         if (legacyPoolName || renamedFromLegacyObject)

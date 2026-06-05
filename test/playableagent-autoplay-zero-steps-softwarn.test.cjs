@@ -64,6 +64,31 @@ assert.ok(
   'soft downgrade should be logged for operators'
 );
 
+var waivedFreezeLogs = [];
+var waivedFreeze = worker.summarizePlayableAgentReport(makeReport({
+  visual_quality: {
+    total_frames: 10,
+    changed_frames: 3,
+    frozen_frames: 7,
+    max_frozen_streak: 2,
+    frozen_ratio: 0.7,
+    freeze_eval: {
+      failed: false,
+      waived: true,
+      reason: 'slow phase progression with complete runtime evidence',
+    },
+  },
+}), 'task_waived_freeze', function(message) {
+  waivedFreezeLogs.push(message);
+});
+
+assert.strictEqual(waivedFreeze.passed, true, 'CUA-waived slow phase freeze ratio should remain a healthy observe pass');
+assert.deepStrictEqual(waivedFreeze.hardBlockingSilentSignals, [], 'waived freeze ratio should allow autoplay-zero-steps soft warning');
+assert.ok(
+  waivedFreezeLogs.some(function(message) { return message.indexOf('downgraded to soft warn') >= 0; }),
+  'waived freeze ratio should still log the autoplay-zero-steps soft downgrade'
+);
+
 var hard = worker.summarizePlayableAgentReport(makeReport({
   visual_quality: {
     total_frames: 6,
@@ -79,6 +104,21 @@ assert.strictEqual(hard.passed, false, 'autoplay-zero-steps should still hard-bl
 assert.ok(
   hard.hardBlockingSilentSignals.some(function(signal) { return signal.indexOf('autoplay-zero-steps') === 0; }),
   'unhealthy observe pass must keep autoplay-zero-steps hard-blocking'
+);
+
+var incompletePlanLogs = [];
+var incompletePlan = worker.summarizePlayableAgentReport(makeReport({
+  planCoverage: '1/2',
+}), 'task_incomplete_plan', function(message) { incompletePlanLogs.push(message); });
+
+assert.strictEqual(incompletePlan.passed, false, 'phase coverage must not pass when CUA plan coverage is incomplete');
+assert.ok(
+  incompletePlan.issues.some(function(issue) { return issue.indexOf('[plan-coverage]') === 0; }),
+  'incomplete plan coverage should be reported as a blocking issue'
+);
+assert.ok(
+  !incompletePlanLogs.some(function(message) { return message.indexOf('downgraded to soft warn') >= 0; }),
+  'autoplay-zero-steps must not be soft-warned when plan coverage is incomplete'
 );
 
 console.log('playableagent autoplay-zero-steps softwarn tests passed');

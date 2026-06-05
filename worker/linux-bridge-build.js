@@ -35,6 +35,12 @@ const MSBUILD_CMD = isLinux ? 'msbuild' : '"C:\\Program Files (x86)\\Microsoft V
 // Pre-built engine JS files (bridge.js, UnityEngine.js, etc.) — not from Bridge.NET compilation
 const ENGINE_JS_DIR = isLinux ? '/opt/luna-poc/LunaCompiler/bin' : 'D:\\Luna\\pipeline\\templates\\LunaCompiler\\bin';
 
+function ensureTmpRoot() {
+  const tmpRoot = os.tmpdir();
+  fs.mkdirSync(tmpRoot, { recursive: true });
+  return tmpRoot;
+}
+
 /**
  * Build a playable ad HTML from C# source code
  * @param {string} csCode - The C# source (GameFlowManagerMain.cs content)
@@ -50,7 +56,7 @@ async function buildFromCS(csCode, opts = {}) {
   const startTime = Date.now();
 
   // Create temp work directory
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'luna-build-'));
+  const workDir = fs.mkdtempSync(path.join(ensureTmpRoot(), 'luna-build-'));
   const scriptsDir = path.join(workDir, 'Scripts');
   const packagesDir = path.join(workDir, 'packages');
   const binDir = path.join(scriptsDir, 'bin', 'Debug');
@@ -903,7 +909,7 @@ window.addEventListener("luna:starting", function() {
                   var sp = cam.worldToScreen(wp);
                   if (!sp || sp.z < 0) { rec.dom.style.display = "none"; return; }
                   var domXw = sp.x * sxDom;
-                  var domYw = sp.y * syDom;
+                  var domYw = (rect.height - sp.y) * syDom;
                   if (domXw < -200 || domXw > rect.width + 200 || domYw < -200 || domYw > rect.height + 200) {
                     rec.dom.style.display = "none"; return;
                   }
@@ -1114,6 +1120,13 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         } catch(e) {}
         return null;
       }
+      var __bpVisualManifest = window.__BLUEPRINT_VISUAL_ASSETS__ || {};
+      var __bpHasSourceVisualAssets = !!(__bpVisualManifest && (
+        __bpVisualManifest.sourceEntityContract ||
+        __bpVisualManifest.sourcePhaseContract ||
+        __bpVisualManifest.fidelityContract
+      ));
+      window.__bpHasSourceVisualAssets = __bpHasSourceVisualAssets;
       var contractSceneBackground = storyboardSceneBackground();
       function storyboardPcColor(rgb) {
         return new pc.Color(rgb[0], rgb[1], rgb[2], 1);
@@ -1190,13 +1203,29 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         orthoHeight: 10,
         nearClip: 0.1,
         farClip: 1000,
-        priority: 100
+        priority: __bpHasSourceVisualAssets ? -100 : 100
       });
       camEnt.setPosition(0, 15, -8);
       camEnt.setEulerAngles(55, 0, 0);
+      function syncStoryboardSourceCamera() {
+        try {
+          if (!camEnt || !camEnt.camera) return;
+          camEnt.camera.projection = 0;
+          camEnt.camera.fov = 60;
+          camEnt.camera.nearClip = 0.1;
+          camEnt.camera.farClip = 1000;
+          camEnt.setPosition(0, 22, 22);
+          camEnt.setEulerAngles(45, 180, 0);
+        } catch(eSourceCam) {}
+      }
+      if (__bpHasSourceVisualAssets) syncStoryboardSourceCamera();
       // Sync AI_Camera with AI code's Camera.main settings after Start()
       setTimeout(function() {
         try {
+          if (__bpHasSourceVisualAssets) {
+            console.log("Camera sync skipped: storyboard source framing owns AI_Camera");
+            return;
+          }
           var mainCam = UnityEngine.Camera.main;
           if (mainCam) {
             var t = mainCam.transform;
@@ -1230,6 +1259,168 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         intensity: 1.0
       });
       lightEnt.setEulerAngles(50, -30, 0);
+
+      function blueprintNormalizePhaseKey(value) {
+        return String(value == null ? '' : value).toLowerCase().replace(/[^a-z0-9]/g, '');
+      }
+      function blueprintPhaseSets(manifest) {
+        var phaseSets = [];
+        try {
+          ['sourcePhaseContract', 'fidelityContract', 'sourceFidelityContract', 'contract'].forEach(function(key) {
+            if (manifest && manifest[key] && Array.isArray(manifest[key].phases) && manifest[key].phases.length) phaseSets.push(manifest[key].phases);
+          });
+        } catch(e) {}
+        return phaseSets;
+      }
+      function blueprintCompletedPhaseCount(gs) {
+        try {
+          if (!gs || typeof gs !== 'object') return 0;
+          if (isFinite(Number(gs.completedPhaseCount))) return Math.max(0, Math.floor(Number(gs.completedPhaseCount)));
+          var completed = gs.completedPhases || gs.completed_phases || gs.completed;
+          if (Array.isArray(completed)) {
+            var count = 0;
+            for (var i = 0; i < completed.length; i++) {
+              if (completed[i] != null && String(completed[i]) !== '') count++;
+            }
+            return count;
+          }
+          if (completed && typeof completed === 'object') {
+            var keys = Object.keys(completed);
+            var n = 0;
+            for (var k = 0; k < keys.length; k++) {
+              if (completed[keys[k]]) n++;
+            }
+            return n;
+          }
+        } catch(e) {}
+        return 0;
+      }
+      function blueprintRuntimePhaseIndex(gs, phaseId) {
+        try {
+          var key = blueprintNormalizePhaseKey(phaseId);
+          if (!key || !gs || typeof gs !== 'object') return -1;
+          var stamps = gs.phaseTimestamps || gs.phase_timestamps;
+          if (stamps && typeof stamps === 'object') {
+            var stampKeys = Object.keys(stamps);
+            for (var si = 0; si < stampKeys.length; si++) {
+              if (blueprintNormalizePhaseKey(stampKeys[si]) === key) return si;
+            }
+          }
+          var evidence = gs.phaseEvidence || gs.phase_evidence;
+          if (evidence && typeof evidence === 'object') {
+            var evidenceKeys = Object.keys(evidence);
+            for (var ei = 0; ei < evidenceKeys.length; ei++) {
+              if (blueprintNormalizePhaseKey(evidenceKeys[ei]) === key) return ei;
+            }
+          }
+          var completed = gs.completedPhases || gs.completed_phases || gs.completed;
+          if (Array.isArray(completed)) {
+            for (var ci = 0; ci < completed.length; ci++) {
+              if (blueprintNormalizePhaseKey(completed[ci]) === key) return ci;
+            }
+          }
+        } catch(e) {}
+        return -1;
+      }
+      function blueprintPhaseMatches(phase, phaseKey) {
+        if (!phase || !phaseKey) return false;
+        var fields = ['id', 'phaseId', 'name', 'title', 'label'];
+        for (var i = 0; i < fields.length; i++) {
+          if (blueprintNormalizePhaseKey(phase[fields[i]]) === phaseKey) return true;
+        }
+        var aliases = phase.aliases || phase.runtimeIds || phase.runtimePhaseIds;
+        if (Array.isArray(aliases)) {
+          for (var ai = 0; ai < aliases.length; ai++) {
+            if (blueprintNormalizePhaseKey(aliases[ai]) === phaseKey) return true;
+          }
+        }
+        return false;
+      }
+      function blueprintRuntimePhaseIdsFromComponent(loopComp) {
+        var ids = [];
+        try {
+          if (!loopComp || typeof loopComp !== 'object') return ids;
+          var gs = null;
+          try { gs = typeof window.__gameState === 'function' ? window.__gameState() : window.__gameState; } catch(eState) {}
+          var stamps = gs && (gs.phaseTimestamps || gs.phase_timestamps);
+          if (stamps && typeof stamps === 'object') {
+            Object.keys(stamps).forEach(function(k) {
+              if (k && typeof loopComp["Phase_" + phaseMethodSuffix(k) + "_Init"] === 'function' && ids.indexOf(k) < 0) ids.push(k);
+            });
+            if (ids.length) return ids;
+          }
+          Object.keys(loopComp).forEach(function(k) {
+            var m = k.match(/^Phase_(.+)_Init$/);
+            if (m && m[1] && ids.indexOf(m[1]) < 0) ids.push(m[1]);
+          });
+          var orderHints = ['initialguidance', 'sellwaterupgradeweapon', 'unlockplantsellapple', 'guidedownload'];
+          ids.sort(function(a, b) {
+            var ak = phaseSortKey(a, 0), bk = phaseSortKey(b, 0);
+            if (ak !== bk) return ak - bk;
+            var ai = orderHints.indexOf(blueprintNormalizePhaseKey(a));
+            var bi = orderHints.indexOf(blueprintNormalizePhaseKey(b));
+            if (ai >= 0 || bi >= 0) return (ai >= 0 ? ai : 9999) - (bi >= 0 ? bi : 9999);
+            return String(a).localeCompare(String(b));
+          });
+        } catch(e) {}
+        return ids;
+      }
+      function blueprintSourcePhaseAliasesFromRuntime(loopComp) {
+        var aliases = {};
+        try {
+          var runtimeIds = blueprintRuntimePhaseIdsFromComponent(loopComp);
+          if (!runtimeIds.length) return aliases;
+          var va = window.__BLUEPRINT_VISUAL_ASSETS__ || {};
+          var phases = va.sourcePhaseContract && va.sourcePhaseContract.phases;
+          if ((!phases || !phases.length) && va.fidelityContract) phases = va.fidelityContract.phases;
+          phases = Array.isArray(phases) ? phases : [];
+          for (var i = 0; i < phases.length && i < runtimeIds.length; i++) {
+            var sourceId = phases[i] && phases[i].id;
+            if (!sourceId) continue;
+            aliases[blueprintNormalizePhaseKey(sourceId)] = runtimeIds[i];
+            aliases[blueprintNormalizePhaseKey(runtimeIds[i])] = runtimeIds[i];
+          }
+        } catch(e) {}
+        return aliases;
+      }
+      window.__blueprintRuntimePhaseIdsFromComponent = blueprintRuntimePhaseIdsFromComponent;
+      window.__blueprintSourcePhaseAliasesFromRuntime = blueprintSourcePhaseAliasesFromRuntime;
+      window.__blueprintNormalizePhaseKey = blueprintNormalizePhaseKey;
+      window.__blueprintPhaseSets = blueprintPhaseSets;
+      window.__blueprintPhaseMatches = blueprintPhaseMatches;
+      function blueprintSourcePhaseIndexForState(gs, phases, phaseId) {
+        if (!phases || !phases.length) return -1;
+        var raw = phaseId || gs && (gs.currentPhase || gs.phase || gs.currentPhaseName) || '';
+        var key = blueprintNormalizePhaseKey(raw);
+        if (key) {
+          for (var pi = 0; pi < phases.length; pi++) {
+            if (blueprintPhaseMatches(phases[pi], key)) return pi;
+          }
+        }
+        var runtimeIdx = blueprintRuntimePhaseIndex(gs, raw);
+        if (runtimeIdx >= 0) return Math.max(0, Math.min(phases.length - 1, runtimeIdx));
+        var m = String(raw || '').match(/(\\d+)/);
+        if (m) return Math.max(0, Math.min(phases.length - 1, Number(m[1]) - 1));
+        if (/gameend|gameover|complete|completed|finish|finished|cta|download/.test(key)) return phases.length - 1;
+        var completed = blueprintCompletedPhaseCount(gs);
+        if (completed > 0) return Math.max(0, Math.min(phases.length - 1, completed));
+        return 0;
+      }
+      function blueprintResolveSourcePhase(gs, phaseSets, phaseId) {
+        try {
+          phaseSets = Array.isArray(phaseSets) ? phaseSets : [];
+          for (var si = 0; si < phaseSets.length; si++) {
+            var phases = phaseSets[si];
+            if (!phases || !phases.length) continue;
+            var idx = blueprintSourcePhaseIndexForState(gs, phases, phaseId);
+            if (idx >= 0 && phases[idx]) return { phase: phases[idx], index: idx, total: phases.length };
+          }
+        } catch(e) {}
+        return null;
+      }
+      window.__blueprintResolveSourcePhase = function(state, phaseId) {
+        return blueprintResolveSourcePhase(state, blueprintPhaseSets(window.__BLUEPRINT_VISUAL_ASSETS__ || {}), phaseId);
+      };
 
       function applyStoryboardVisualOverlay() {
         var manifest = window.__BLUEPRINT_VISUAL_ASSETS__;
@@ -1354,7 +1545,15 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           }
           function nums(raw) {
             return String(raw || '').split(',').map(function(v) {
-              var m = String(v).match(/-?\d*\.?\d+/);
+              var text = String(v || '').trim();
+              var expr = text.replace(/Math\.PI/g, 'MathPI');
+              if (/^[0-9eE+\\-*/().\\sMathPI]+$/.test(expr)) {
+                try {
+                  var evaluated = Function('MathPI', 'return (' + expr + ')')(Math.PI);
+                  if (isFinite(Number(evaluated))) return Number(evaluated);
+                } catch(eEval) {}
+              }
+              var m = text.match(/-?\d*\.?\d+/);
               return m ? Number(m[0]) : 0;
             });
           }
@@ -1374,6 +1573,10 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             if (/PlaneGeometry/.test(type)) return { type: 'plane', scale: [a[0] || 1, 1, a[1] || a[0] || 1] };
             var r = a[0] || 0.5;
             return { type: 'sphere', scale: [r * 2, r * 2, r * 2] };
+          }
+          function buildAssetGeometry(asset) {
+            var type = asset && asset.geometry && asset.geometry.type || '';
+            return primitiveSpec(asset);
           }
           function storyboardMaterialColor(rgba) {
             var r = Array.isArray(rgba) ? clamp01(rgba[0], 1) : 1;
@@ -1501,13 +1704,44 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               return entity;
             } catch(e) { return null; }
           }
+          function stripStoryboardPrimitivePhysics(entity) {
+            if (!entity) return entity;
+            function disableOrDestroy(comp) {
+              if (!comp) return;
+              try { comp.enabled = false; } catch(eEnabled) {}
+              try { comp._enabled = false; } catch(ePrivateEnabled) {}
+              try { if (comp.code) comp.code.enabled = false; } catch(eCodeEnabled) {}
+              try { if (typeof comp.destroy === 'function') comp.destroy(); } catch(eDestroy) {}
+            }
+            try {
+              if (entity.collision) {
+                disableOrDestroy(entity.collision);
+                if (typeof entity.removeComponent === 'function') entity.removeComponent('collision');
+              }
+              if (entity.rigidbody) {
+                disableOrDestroy(entity.rigidbody);
+                if (typeof entity.removeComponent === 'function') entity.removeComponent('rigidbody');
+              }
+            } catch(ePcPhysics) {}
+            try {
+              var comps = entity._unityComponents || {};
+              Object.keys(comps).forEach(function(key) {
+                if (!/collider|rigidbody|physics/i.test(key)) return;
+                var list = Array.isArray(comps[key]) ? comps[key] : [comps[key]];
+                for (var i = 0; i < list.length; i++) disableOrDestroy(list[i]);
+                comps[key] = [];
+              });
+            } catch(eUnityPhysics) {}
+            return entity;
+          }
           function createPrimitiveEntity(parent, name, type) {
             var e = new pc.Entity(name);
             parent.addChild(e);
-            if (addPrimitiveComponent(e, type)) return e;
+            if (addPrimitiveComponent(e, type)) return stripStoryboardPrimitivePhysics(e);
             try { parent.removeChild(e); } catch(removeErr) {}
             e = createUnityPrimitiveEntity(name, type);
             if (e) {
+              stripStoryboardPrimitivePhysics(e);
               try { if (e.parent && e.parent !== parent) e.parent.removeChild(e); } catch(parentErr) {}
               try { if (e.parent !== parent) parent.addChild(e); } catch(addErr) {
                 console.warn('[AI] Storyboard primitive reparent failed: ' + name + ' ' + (addErr && addErr.message ? addErr.message : addErr));
@@ -1516,15 +1750,29 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               return e;
             }
             e = createRendererPrimitiveEntity(parent, name, type);
-            if (e) return e;
+            if (e) return stripStoryboardPrimitivePhysics(e);
             console.warn('[AI] Storyboard primitive unavailable: ' + name + ' type=' + (type || 'box'));
             return null;
           }
+          var __sourceEntityNameSet = {};
+          try {
+            var __sourceNames = manifest.sourceEntityContract && manifest.sourceEntityContract.entities || [];
+            for (var __sni = 0; __sni < __sourceNames.length; __sni++) {
+              var __sn = String(__sourceNames[__sni]);
+              __sourceEntityNameSet[__sn] = true;
+              var __snCamel = __sn.charAt(0).toLowerCase() + __sn.slice(1);
+              __sourceEntityNameSet[__snCamel] = true;
+              __sourceEntityNameSet['_' + __snCamel] = true;
+            }
+          } catch(eSourceNameSet) {}
           function hideTemplateVisuals(root) {
             function walk(ent) {
               if (!ent) return;
               if (ent.name && (/^__Pool_/.test(ent.name) || /^Label_/.test(ent.name) ||
-                  ent.name === 'Canvas' || ent.name === '__Ground' || ent.name === '__MaterialSource')) {
+                  ent.name === 'Canvas' || ent.name === '__Ground' || ent.name === '__MaterialSource' ||
+                  ent.name === 'Ground' || ent.name === 'Plane' || /^Grid/.test(ent.name) ||
+                  /^__SourceGround/.test(ent.name) || /^__SourceGrid/.test(ent.name) ||
+                  __sourceEntityNameSet[String(ent.name)])) {
                 ent.enabled = false;
                 try {
                   var rc = ent._unityComponents && ent._unityComponents.renderer && ent._unityComponents.renderer[0];
@@ -1538,8 +1786,9 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             walk(root);
           }
           function addPrimitive(parent, asset) {
-            var spec = primitiveSpec(asset);
-            var e = createPrimitiveEntity(parent, 'BPV_' + asset.assetId, spec.type);
+            var spec = buildAssetGeometry(asset);
+            var sourceAssetId = asset && asset.assetId || ('asset_' + Math.random().toString(36).slice(2));
+            var e = createPrimitiveEntity(parent, 'SourcePrimitive_' + sourceAssetId, spec.type);
             if (!e) return null;
             var p = arr3(asset && asset.transform && asset.transform.position, [0,0,0]);
             e.setLocalPosition(p[0], p[1], p[2]);
@@ -1550,7 +1799,40 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             setTimeout(function() { applyMaterial(e, material); }, 250);
             return e;
           }
+          function unlitOverlayMaterial(value, fallback) {
+            function toLinearColor(c) {
+              function lin(v) {
+                v = clamp01(v, 0);
+                return Math.pow(v, 2.2);
+              }
+              return new pc.Color(lin(c.r), lin(c.g), lin(c.b), 1);
+            }
+            try {
+              if (typeof pc.BasicMaterial === 'function') {
+                var bm = new pc.BasicMaterial();
+                var bc = toLinearColor(colorFromValue(value, fallback || '#ffffff'));
+                bm.color = bc;
+                bm.__storyboardColor = [bc.r, bc.g, bc.b, 1];
+                bm.update();
+                return bm;
+              }
+            } catch(eBasicMat) {}
+            var m = overlayMaterial(value, fallback || '#ffffff');
+            try {
+              var c = toLinearColor(colorFromValue(value, fallback || '#ffffff'));
+              m.__storyboardColor = [c.r, c.g, c.b, 1];
+              m.diffuse = c;
+              m.emissive = c;
+              m.emissiveIntensity = 1;
+              m.shininess = 0;
+              if (m.useLighting !== undefined) m.useLighting = false;
+              m.update();
+            } catch(eUnlitMat) {}
+            return m;
+          }
           hideTemplateVisuals(pcApp.root);
+          setTimeout(function() { hideTemplateVisuals(pcApp.root); }, 500);
+          setTimeout(function() { hideTemplateVisuals(pcApp.root); }, 1500);
           if (contractSceneBackground) {
             applyStoryboardSceneBackground('storyboard-visual-overlay');
             setTimeout(function() { applyStoryboardSceneBackground('storyboard-visual-overlay-late'); }, 750);
@@ -1560,13 +1842,13 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           }
           if (sceneContract.directionalLight && sceneContract.directionalLight.color && lightEnt.light) {
             lightEnt.light.color = color(sceneContract.directionalLight.color, '#ffffff');
-            lightEnt.light.intensity = sceneContract.directionalLight.intensity || 1;
+            lightEnt.light.intensity = (Number(sceneContract.directionalLight.intensity) || 1) * 0.18;
           }
           // [OPTION C, Wave 3 Step 4] source-faithful scene lighting / fog / camera.
           // Gated on manifest.sourceMeshOps (Option C active) so the validated Option-B
           // pipeline is unperturbed; each sub-block is null-guarded (missing SCENE_CONFIG
           // field → no-op); whole block try/catch-wrapped so it can never break the build.
-          var __optionC = !!(manifest.sourceMeshOps && Object.keys(manifest.sourceMeshOps).length);
+          var __optionC = !!(sceneContract && (sceneContract.ambientLight || sceneContract.fog || sceneContract.camera || sceneContract.directionalLight || sceneContract.rimLight));
           if (__optionC) {
             try {
               // Directional light DIRECTION from the source light position (points at origin).
@@ -1579,14 +1861,14 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               if (sceneContract.ambientLight && sceneContract.ambientLight.color && pcApp && pcApp.scene) {
                 var amb = color(sceneContract.ambientLight.color, '#202020');
                 var ai = Number(sceneContract.ambientLight.intensity);
-                if (isFinite(ai)) amb = new pc.Color(amb.r * ai, amb.g * ai, amb.b * ai, 1);
+                if (isFinite(ai)) amb = new pc.Color(amb.r * ai * 0.35, amb.g * ai * 0.35, amb.b * ai * 0.35, 1);
                 pcApp.scene.ambientLight = amb;
               }
               // Rim light (second directional, e.g. three.js PointLight rim at (-10,5,-12)).
               if (sceneContract.rimLight && sceneContract.rimLight.color) {
                 var rimEnt = new pc.Entity('AI_RimLight');
                 pcApp.root.addChild(rimEnt);
-                rimEnt.addComponent('light', { type: 'directional', color: color(sceneContract.rimLight.color, '#ffffff'), intensity: Number(sceneContract.rimLight.intensity) || 0.5 });
+                rimEnt.addComponent('light', { type: 'directional', color: color(sceneContract.rimLight.color, '#ffffff'), intensity: (Number(sceneContract.rimLight.intensity) || 0.5) * 0.25 });
                 var rp = Array.isArray(sceneContract.rimLight.position) ? sceneContract.rimLight.position : [-10, 5, -12];
                 rimEnt.setPosition(rp[0], rp[1], rp[2]);
                 rimEnt.lookAt(0, 0, 0);
@@ -1615,20 +1897,234 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           }
           var root = new pc.Entity('__StoryboardVisualOverlay');
           pcApp.root.addChild(root);
+          function isStoryboardOverlayNode(node) {
+            try {
+              var cur = node;
+              while (cur) {
+                if (cur === root || cur.name === '__StoryboardVisualOverlay') return true;
+                cur = cur.parent;
+              }
+            } catch(e) {}
+            return false;
+          }
+          function storyboardNodePath(node) {
+            var parts = [];
+            var cur = node;
+            var guard = 0;
+            while (cur && guard++ < 32) {
+              parts.unshift(cur.name || '<unnamed>');
+              cur = cur.parent;
+            }
+            return parts.join('/');
+          }
+          function storyboardRenderableComponents(node) {
+            var out = [];
+            if (!node) return out;
+            try {
+              if (node.render) out.push({ kind: 'render', component: node.render, meshInstances: node.render.meshInstances || [] });
+            } catch(eRender) {}
+            try {
+              if (node.model) {
+                var mis = node.model.model && node.model.model.meshInstances || [];
+                out.push({ kind: 'model', component: node.model, meshInstances: mis });
+              }
+            } catch(eModel) {}
+            try {
+              var comps = node._unityComponents || {};
+              var renderers = comps.renderer || [];
+              for (var i = 0; i < renderers.length; i++) {
+                var rc = renderers[i];
+                out.push({ kind: 'unity-renderer', component: rc, meshInstances: rc && rc.meshInstances || [] });
+              }
+            } catch(eUnityRenderer) {}
+            return out;
+          }
+          function storyboardPhysicsComponents(node) {
+            var out = [];
+            if (!node) return out;
+            try {
+              if (node.collision) out.push({ kind: 'collision', component: node.collision });
+              if (node.rigidbody) out.push({ kind: 'rigidbody', component: node.rigidbody });
+            } catch(ePhysicsComponent) {}
+            try {
+              var comps = node._unityComponents || {};
+              Object.keys(comps).forEach(function(key) {
+                if (!/collider|rigidbody|physics/i.test(key)) return;
+                var list = Array.isArray(comps[key]) ? comps[key] : [comps[key]];
+                for (var i = 0; i < list.length; i++) {
+                  if (list[i]) out.push({ kind: 'unity-' + key, component: list[i] });
+                }
+              });
+            } catch(eUnityPhysics) {}
+            return out;
+          }
+          function storyboardComponentVisible(entry) {
+            var comp = entry && entry.component;
+            if (!comp) return false;
+            if (comp.enabled === false) return false;
+            try { if (comp.code && comp.code.enabled === false) return false; } catch(eCodeEnabled) {}
+            var mis = entry.meshInstances || [];
+            if (!mis.length) return true;
+            for (var i = 0; i < mis.length; i++) {
+              if (mis[i] && mis[i].visible !== false) return true;
+            }
+            return false;
+          }
+          function storyboardPhysicsEnabled(entry) {
+            var comp = entry && entry.component;
+            if (!comp) return false;
+            if (comp.enabled === false || comp._enabled === false) return false;
+            try { if (comp.code && comp.code.enabled === false) return false; } catch(eCodeEnabled) {}
+            return true;
+          }
+          function setStoryboardComponentVisible(entry, visible) {
+            var comp = entry && entry.component;
+            if (!comp) return;
+            try { comp.enabled = !!visible; } catch(eEnabled) {}
+            try { if (comp.code) comp.code.enabled = !!visible; } catch(eCodeEnabled) {}
+            var mis = entry.meshInstances || [];
+            for (var i = 0; i < mis.length; i++) {
+              try { if (mis[i]) mis[i].visible = !!visible; } catch(eMiVisible) {}
+            }
+          }
+          function setStoryboardPhysicsEnabled(entry, enabled) {
+            var comp = entry && entry.component;
+            if (!comp) return;
+            try { comp.enabled = !!enabled; } catch(eEnabled) {}
+            try { comp._enabled = !!enabled; } catch(ePrivateEnabled) {}
+            try { if (typeof comp.setEnabled === 'function') comp.setEnabled(!!enabled); } catch(eSetEnabled) {}
+            try { if (comp.code) comp.code.enabled = !!enabled; } catch(eCodeEnabled) {}
+          }
+          function storyboardLegacyPhysicsNode(node) {
+            var path = storyboardNodePath(node);
+            var name = node && (node.name || '') || '';
+            return path.indexOf('__LunaPool') >= 0 || /^__Pool_/.test(name) || /^__Source/.test(name);
+          }
+          function auditStoryboardVisualLayer(options) {
+            options = options || {};
+            var suppress = options.suppress !== false;
+            var before = [];
+            var after = [];
+            var physicsBefore = [];
+            var physicsAfter = [];
+            var overlaySurfaceCount = 0;
+            function scan(node, collect, applySuppress) {
+              if (!node) return;
+              var isOverlay = isStoryboardOverlayNode(node);
+              var entries = storyboardRenderableComponents(node);
+              var visibleEntries = [];
+              for (var i = 0; i < entries.length; i++) {
+                if (storyboardComponentVisible(entries[i])) visibleEntries.push(entries[i]);
+              }
+              if (visibleEntries.length) {
+                if (isOverlay) {
+                  overlaySurfaceCount += visibleEntries.length;
+                } else {
+                  collect.push({
+                    name: node.name || '',
+                    path: storyboardNodePath(node),
+                    surfaceCount: visibleEntries.length
+                  });
+                  if (applySuppress) {
+                    for (var vi = 0; vi < visibleEntries.length; vi++) setStoryboardComponentVisible(visibleEntries[vi], false);
+                  }
+                }
+              }
+              if (!isOverlay && storyboardLegacyPhysicsNode(node)) {
+                var physicsEntries = storyboardPhysicsComponents(node);
+                var enabledPhysicsEntries = [];
+                for (var pi = 0; pi < physicsEntries.length; pi++) {
+                  if (storyboardPhysicsEnabled(physicsEntries[pi])) enabledPhysicsEntries.push(physicsEntries[pi]);
+                }
+                if (enabledPhysicsEntries.length) {
+                  collect.push({
+                    name: node.name || '',
+                    path: storyboardNodePath(node),
+                    physicsCount: enabledPhysicsEntries.length
+                  });
+                  if (applySuppress) {
+                    for (var pei = 0; pei < enabledPhysicsEntries.length; pei++) setStoryboardPhysicsEnabled(enabledPhysicsEntries[pei], false);
+                  }
+                }
+              }
+              var children = node.children || [];
+              for (var ci = 0; ci < children.length; ci++) scan(children[ci], collect, applySuppress);
+            }
+            function splitRows(rows) {
+              var visual = [];
+              var physics = [];
+              for (var i = 0; i < rows.length; i++) {
+                if (rows[i] && rows[i].physicsCount) physics.push(rows[i]);
+                else visual.push(rows[i]);
+              }
+              return { visual: visual, physics: physics };
+            }
+            var beforeRows = [];
+            var afterRows = [];
+            try { scan(pcApp.root, beforeRows, suppress); } catch(eBeforeAudit) {}
+            if (suppress) {
+              try { scan(pcApp.root, afterRows, false); } catch(eAfterAudit) {}
+            } else {
+              afterRows = beforeRows.slice();
+            }
+            var beforeSplit = splitRows(beforeRows);
+            var afterSplit = splitRows(afterRows);
+            before = beforeSplit.visual;
+            after = afterSplit.visual;
+            physicsBefore = beforeSplit.physics;
+            physicsAfter = afterSplit.physics;
+            var report = {
+              suppressApplied: suppress,
+              overlaySurfaceCount: overlaySurfaceCount,
+              suppressedLegacySurfaces: before,
+              visibleNonOverlaySurfaces: after,
+              visibleNonOverlaySurfaceCount: after.length,
+              suppressedLegacyPhysics: physicsBefore,
+              activeLegacyPhysics: physicsAfter,
+              activeLegacyPhysicsCount: physicsAfter.length
+            };
+            window.__storyboardVisualLayerAudit = report;
+            return report;
+          }
+          function hideLegacyStoryboardVisualSurfaces() {
+            return auditStoryboardVisualLayer({ suppress: true });
+          }
+          window.__auditStoryboardVisualLayer = auditStoryboardVisualLayer;
+          window.__storyboardVisualOverlayRoot = root;
           if (contractSceneBackground) {
             window.__storyboardSceneDetails = window.__storyboardSceneDetails || {};
             window.__storyboardSceneDetails.sceneFillMode = 'camera-clear';
           }
-          if (!contractSceneBackground && sceneContract.ground && sceneContract.ground.color) {
-            var g = createPrimitiveEntity(root, 'StoryboardGround', sceneContract.ground.kind === 'box' ? 'box' : 'cylinder');
+          if (sceneContract.ground && sceneContract.ground.color) {
+            var g = createPrimitiveEntity(root, 'StoryboardGround', 'box');
             if (g) {
-              var radius = sceneContract.ground.radius || Math.max(sceneContract.ground.width || 50, sceneContract.ground.depth || 50) / 2;
-              var height = sceneContract.ground.height || 0.2;
-              g.setPosition(0, -0.06, 0);
-              g.setLocalScale(radius * 2, height, radius * 2);
-              var groundMat = overlayMaterial(sceneContract.ground.color);
+              var gw = Number(sceneContract.ground.width) || (Number(sceneContract.ground.radius) ? Number(sceneContract.ground.radius) * 2 : 62);
+              var gd = Number(sceneContract.ground.depth || sceneContract.ground.height) || gw;
+              g.setPosition(0, -0.08, 0);
+              g.setLocalScale(gw, 0.06, gd);
+              var groundMat = unlitOverlayMaterial(sceneContract.ground.color, '#1A2A3A');
               applyMaterial(g, groundMat);
               setTimeout(function() { applyMaterial(g, groundMat); }, 250);
+            }
+          }
+          if (sceneContract.ground) {
+            var gridMat = unlitOverlayMaterial('#1e3050', '#1e3050');
+            var gridSize = Number(sceneContract.ground.width) || 62;
+            var divisions = 20;
+            for (var gi = 0; gi <= divisions; gi++) {
+              var gp = -gridSize / 2 + gi * (gridSize / divisions);
+              var gx = createPrimitiveEntity(root, 'StoryboardGridX', 'box');
+              if (gx) {
+                gx.setPosition(gp, -0.035, 0);
+                gx.setLocalScale(0.025, 0.025, gridSize);
+                applyMaterial(gx, gridMat);
+              }
+              var gz = createPrimitiveEntity(root, 'StoryboardGridZ', 'box');
+              if (gz) {
+                gz.setPosition(0, -0.034, gp);
+                gz.setLocalScale(gridSize, 0.025, 0.025);
+                applyMaterial(gz, gridMat);
+              }
             }
           }
           var starMat = overlayMaterial('#ffffff');
@@ -1657,7 +2153,146 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             }
           }
           var entityRoots = {};
+          var storyboardVisualPositions = {};
+          var sourceEntityPositions = {};
           var primitiveStyleByName = {};
+          function storyboardRenderX(x) {
+            var n = Number(x);
+            if (!isFinite(n)) n = 0;
+            return -n;
+          }
+          function storyboardRenderZ(z) {
+            var n = Number(z);
+            if (!isFinite(n)) n = 0;
+            return -n;
+          }
+          function storyboardRenderZForName(name, z) {
+            var n = Number(z);
+            if (!isFinite(n)) n = 0;
+            return isStoryboardPlayerName(name) ? n : -n;
+          }
+          function isStoryboardPlayerName(name) {
+            return /(^|[_-])(player|hero|avatar)$/i.test(String(name || '')) || /player/i.test(String(name || ''));
+          }
+          function isStoryboardHudEntityName(name) {
+            return /^(GoldUI|GuideUI)$/i.test(String(name || ''));
+          }
+          function storyboardNowMs() {
+            try {
+              if (typeof performance !== 'undefined' && performance && typeof performance.now === 'function') return performance.now();
+            } catch(e) {}
+            return Date.now ? Date.now() : (new Date()).getTime();
+          }
+          function finiteStoryboardSourcePosition(p) {
+            return !!(p && isFinite(Number(p.x)) && isFinite(Number(p.z)));
+          }
+          function cloneStoryboardSourcePosition(p, fallback) {
+            if (finiteStoryboardSourcePosition(p)) {
+              return { x: Number(p.x), y: Number(p.y) || 0, z: Number(p.z) };
+            }
+            if (Array.isArray(fallback) && fallback.length >= 3) {
+              return { x: Number(fallback[0]) || 0, y: Number(fallback[1]) || 0, z: Number(fallback[2]) || 0 };
+            }
+            return { x: 0, y: 0, z: 0 };
+          }
+          function runtimeStoryboardPlayerSourcePosition() {
+            try {
+              var cls = window.GFM_Player;
+              var player = cls && (cls.Instance || cls.instance);
+              var go = player && (player.Go || player.go);
+              var pos = go && go.transform && go.transform.position;
+              if (pos && isFinite(Number(pos.x)) && isFinite(Number(pos.z)) && Number(pos.y) > -100) {
+                return { x: Number(pos.x), y: Number(pos.y) || 0, z: Number(pos.z) };
+              }
+            } catch(eRuntimePlayer) {}
+            return null;
+          }
+          function activeStoryboardManualJoystick() {
+            try {
+              var joy = window.__bpManualJoystickOverride;
+              if (!joy || !joy.active) return null;
+              var now = storyboardNowMs();
+              var updatedAt = Number(joy.updatedAt) || 0;
+              if (updatedAt && now - updatedAt > 700) return null;
+              var x = Number(joy.x) || 0;
+              var y = Number(joy.y) || 0;
+              var mag = Math.sqrt(x * x + y * y);
+              if (mag > 1) {
+                x /= mag;
+                y /= mag;
+              }
+              return { x: x, y: y, speed: Number(joy.speed) || 6, now: now };
+            } catch(eJoyState) {}
+            return null;
+          }
+          function manualStoryboardPlayerSourcePosition(name, p, liveAvailable) {
+            var joy = activeStoryboardManualJoystick();
+            var base = cloneStoryboardSourcePosition(p, sourceEntityPositions[name]);
+            if (!joy) {
+              syncEntityPositions._manualPlayerSourcePos = { x: base.x, y: base.y, z: base.z, t: storyboardNowMs() };
+              try { window.__bpManualOverlayPlayerSourcePos = { active: false, x: base.x, y: base.y, z: base.z }; } catch(eIdleExpose) {}
+              return p;
+            }
+            if (liveAvailable) {
+              syncEntityPositions._manualPlayerSourcePos = { x: base.x, y: base.y, z: base.z, t: joy.now };
+              try { window.__bpManualOverlayPlayerSourcePos = { active: true, live: true, x: base.x, y: base.y, z: base.z, input: { x: joy.x, y: joy.y } }; } catch(eLiveExpose) {}
+              return base;
+            }
+            var cur = syncEntityPositions._manualPlayerSourcePos;
+            if (!cur || !finiteStoryboardSourcePosition(cur)) cur = { x: base.x, y: base.y, z: base.z, t: joy.now };
+            var last = Number(cur.t) || joy.now;
+            var dt = Math.max(0.008, Math.min(0.05, (joy.now - last) / 1000 || 0.016));
+            cur = {
+              x: Number(cur.x) + joy.x * joy.speed * dt,
+              y: Number(cur.y) || 0,
+              z: Number(cur.z) - joy.y * joy.speed * dt,
+              t: joy.now
+            };
+            syncEntityPositions._manualPlayerSourcePos = cur;
+            try { window.__bpManualOverlayPlayerSourcePos = { active: true, live: false, x: cur.x, y: cur.y, z: cur.z, input: { x: joy.x, y: joy.y }, dt: dt }; } catch(eExposeManual) {}
+            return cur;
+          }
+          function setStoryboardEntityPosition(name, x, y, z, smooth) {
+            var ent = entityRoots[name];
+            if (!ent) return;
+            var tx = Number(x) || 0;
+            var ty = Number(y) || 0;
+            var tz = Number(z) || 0;
+            if (!smooth) {
+              storyboardVisualPositions[name] = { x: tx, y: ty, z: tz, t: storyboardNowMs() };
+              ent.setPosition(tx, ty, tz);
+              return;
+            }
+            var now = storyboardNowMs();
+            var cur = storyboardVisualPositions[name];
+            if (!cur) cur = { x: tx, y: ty, z: tz, t: now };
+            var dx = tx - cur.x;
+            var dy = ty - cur.y;
+            var dz = tz - cur.z;
+            var dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (!isFinite(dist) || dist > 18) {
+              cur = { x: tx, y: ty, z: tz, t: now };
+            } else if (dist < 0.01) {
+              cur = { x: tx, y: ty, z: tz, t: now };
+            } else {
+              var dt = Math.max(8, Math.min(80, now - (cur.t || now)));
+              var alpha = 1 - Math.pow(0.002, dt / 220);
+              var sx = dx * alpha;
+              var sy = dy * alpha;
+              var sz = dz * alpha;
+              var stepMag = Math.sqrt(sx * sx + sy * sy + sz * sz);
+              var maxVisualStep = Math.min(0.1, 6.5 * dt / 1000);
+              if (stepMag > maxVisualStep) {
+                sx = sx / stepMag * maxVisualStep;
+                sy = sy / stepMag * maxVisualStep;
+                sz = sz / stepMag * maxVisualStep;
+              }
+              cur = { x: cur.x + sx, y: cur.y + sy, z: cur.z + sz, t: now };
+            }
+            storyboardVisualPositions[name] = cur;
+            ent.setPosition(cur.x, cur.y, cur.z);
+          }
+          window.__storyboardCoordinateAdapter = { source: 'three-rh', target: 'playcanvas-overlay', xFlip: true, zFlip: true };
           function indexPrimitiveStyleAliases(entity, style) {
             if (!entity || !style || typeof style.modelRef !== 'string') return;
             function put(key) {
@@ -1722,7 +2357,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           }
           function buildStyledComposite(group, name, primitiveStyle, sourceStyle) {
             if (!primitiveStyle || typeof primitiveStyle.modelRef !== 'string') return 0;
-            var kind = primitiveStyle.modelRef.toLowerCase();
+            var kind = String(sourceStyle && sourceStyle.kind || primitiveStyle.modelRef).toLowerCase();
             var base = colorArrayFromValue(primitiveStyle.baseColor || primitiveStyle.baseColorHex || (sourceStyle && sourceStyle.color) || '#ffffff');
             var light = mixColorArray(base, [1, 1, 1], 0.28);
             var dark = mixColorArray(base, [0, 0, 0], 0.35);
@@ -1732,14 +2367,21 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             function add(type, pos, scale, matValue, rot) {
               if (addStyledPart(group, name, count, type, pos, scale, matValue || base, rot)) count++;
             }
-            if (kind === 'astronaut') {
-              add('box', [0, 1.15, 0], [0.82, 1.12, 0.48], base);
-              add('sphere', [0, 2.0, 0], [0.78, 0.78, 0.78], light);
-              add('box', [-0.64, 1.2, 0], [0.22, 0.9, 0.22], dark, [0, 0, -12]);
-              add('box', [0.64, 1.2, 0], [0.22, 0.9, 0.22], dark, [0, 0, 12]);
-              add('box', [-0.22, 0.38, 0], [0.22, 0.72, 0.24], dark);
-              add('box', [0.22, 0.38, 0], [0.22, 0.72, 0.24], dark);
-              add('box', [0, 1.18, -0.38], [0.58, 0.82, 0.18], cool);
+            if (kind === 'astronaut' || kind === 'npc') {
+              add('sphere', [0, 1.42, 0], [0.76, 0.76, 0.76], base);
+              add('sphere', [0, 1.5, -0.22], [0.48, 0.32, 0.22], [0.53, 0.8, 1, 0.72]);
+              add('cylinder', [0, 0.82, 0], [0.68, 0.76, 0.68], base);
+              add('cylinder', [-0.46, 0.88, 0], [0.16, 0.56, 0.16], base, [0, 0, -30]);
+              add('cylinder', [0.46, 0.88, 0], [0.16, 0.56, 0.16], base, [0, 0, 30]);
+              add('cylinder', [-0.17, 0.27, 0], [0.18, 0.6, 0.18], base);
+              add('cylinder', [0.17, 0.27, 0], [0.18, 0.6, 0.18], base);
+            } else if (kind === 'machine') {
+              add('box', [0, 0.55, 0], [1.4, 1.1, 1.4], base);
+              add('box', [0, 1.17, 0], [1.2, 0.13, 1.2], light);
+              add('cylinder', [0.28, 1.64, 0.28], [0.28, 0.54, 0.28], dark);
+            } else if (kind === 'collectible') {
+              add('sphere', [0, 0.55, 0], [0.78, 0.92, 0.78], base);
+              add('cylinder', [0, 0.28, 0], [1.1, 0.08, 1.1], [base[0], base[1], base[2], 0.5]);
             } else if (kind === 'ship') {
               add('box', [0, 0.72, 0], [2.1, 0.48, 0.88], base);
               add('box', [1.18, 0.72, 0], [0.74, 0.36, 0.56], light);
@@ -1748,27 +2390,22 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               add('cylinder', [-1.24, 0.7, -0.28], [0.28, 0.48, 0.28], warm, [90, 0, 0]);
               add('cylinder', [-1.24, 0.7, 0.28], [0.28, 0.48, 0.28], warm, [90, 0, 0]);
             } else if (kind === 'station') {
-              add('cylinder', [0, 0.78, 0], [0.88, 1.56, 0.88], base);
-              add('sphere', [0, 1.72, 0], [0.98, 0.62, 0.98], light);
-              add('box', [-0.95, 0.98, 0], [0.16, 0.84, 0.72], warm);
-              add('box', [0.95, 0.98, 0], [0.16, 0.84, 0.72], warm);
-              add('cylinder', [0, 0.08, 0], [1.18, 0.16, 1.18], dark);
+              add('cylinder', [0, 0.68, 0], [1.78, 1.35, 1.78], base);
+              add('cone', [0, 1.59, 0], [1.64, 0.48, 1.64], warm);
             } else if (kind === 'counter') {
-              add('box', [0, 0.48, 0], [1.8, 0.82, 0.86], base);
-              add('box', [0, 0.96, 0], [2.08, 0.2, 1.04], light);
-              add('box', [0, 1.22, -0.38], [1.2, 0.34, 0.16], warm);
+              add('cylinder', [0, 0.38, 0], [0.96, 0.76, 0.96], base);
+              add('sphere', [0, 0.96, 0], [0.8, 0.8, 0.8], light);
             } else if (kind === 'pad') {
-              add('cylinder', [0, 0.12, 0], [2.12, 0.22, 2.12], dark);
-              for (var pi = 0; pi < 10; pi++) {
-                var t = pi / 10 * Math.PI * 2;
-                add('sphere', [Math.cos(t) * 1.18, 0.34, Math.sin(t) * 1.18], [0.28, 0.16, 0.28], base);
-              }
-              add('cylinder', [0, 0.42, 0], [0.68, 0.18, 0.68], light);
+              add('box', [0, 0.07, 0], [2.4, 0.14, 2.4], base);
+              add('box', [0, 0.01, 0], [2.62, 0.07, 2.62], light);
             } else if (kind === 'base') {
               add('box', [0, 0.42, 0], [2.0, 0.78, 1.5], base);
               add('box', [0, 0.98, 0], [1.35, 0.38, 1.0], light);
               add('cylinder', [0.55, 1.55, 0], [0.16, 0.92, 0.16], dark);
               add('sphere', [0.55, 2.08, 0], [0.38, 0.38, 0.38], warm);
+            } else if (kind === 'gate') {
+              add('box', [0, 0.07, 0], [2.4, 0.14, 2.4], base);
+              add('box', [0, 0.01, 0], [2.62, 0.07, 2.62], light);
             } else if (kind === 'crystal') {
               add('sphere', [0, 0.78, 0], [0.82, 1.42, 0.82], base);
               add('sphere', [0.46, 0.5, 0.22], [0.42, 0.78, 0.42], light);
@@ -1781,19 +2418,15 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               add('box', [0, 0.52, 0], [1.35, 0.98, 1.12], base);
               add('box', [0, 0.54, 0], [1.46, 0.12, 1.2], dark);
               add('box', [0, 1.1, 0], [1.18, 0.16, 0.96], light);
+            } else if (kind === 'tool') {
+              add('cylinder', [0, 0.14, 0], [1.0, 0.28, 1.0], base);
+              add('sphere', [0, 0.44, 0], [0.76, 0.76, 0.76], base);
             } else if (kind === 'beacon') {
-              add('cylinder', [0, 0.18, 0], [1.0, 0.22, 1.0], dark);
-              add('cylinder', [0, 0.9, 0], [0.22, 1.35, 0.22], base);
-              add('sphere', [0, 1.72, 0], [0.55, 0.55, 0.55], warm);
-              add('box', [0, 2.02, 0], [0.18, 0.55, 0.18], light);
-            } else if (kind === 'gate') {
-              add('box', [-0.8, 0.88, 0], [0.3, 1.72, 0.38], base);
-              add('box', [0.8, 0.88, 0], [0.3, 1.72, 0.38], base);
-              add('box', [0, 1.72, 0], [1.85, 0.28, 0.34], light);
-              add('sphere', [0, 0.72, 0], [0.42, 0.42, 0.42], warm);
+              add('cylinder', [0, 0.38, 0], [1.16, 0.76, 1.16], base);
+              add('sphere', [0, 0.96, 0], [0.8, 0.8, 0.8], light);
             } else {
-              add('box', [0, 0.55, 0], [1.25, 1.0, 1.0], base);
-              add('sphere', [0, 1.35, 0], [0.62, 0.62, 0.62], light);
+              add('cylinder', [0, 0.38, 0], [1.16, 0.76, 1.16], base);
+              add('sphere', [0, 0.96, 0], [0.8, 0.8, 0.8], light);
             }
             recordPrimitiveStyle(name, primitiveStyle, 'styled-composite:' + kind, count);
             return count;
@@ -1801,21 +2434,8 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           function sourcePhaseForOverlayState(gs) {
             try {
               var phaseId = gs && (gs.currentPhase || gs.phase) || '';
-              var phaseSets = [];
-              ['sourcePhaseContract', 'fidelityContract', 'sourceFidelityContract', 'contract'].forEach(function(key) {
-                if (manifest && manifest[key] && Array.isArray(manifest[key].phases)) phaseSets.push(manifest[key].phases);
-              });
-              for (var si = 0; si < phaseSets.length; si++) {
-                var phases = phaseSets[si];
-                if (phaseId) {
-                  for (var pi = 0; pi < phases.length; pi++) {
-                    if (phases[pi] && String(phases[pi].id) === String(phaseId)) return phases[pi];
-                  }
-                }
-                var m = String(phaseId || '').match(/(\d+)/);
-                var idx = m ? Math.max(0, Number(m[1]) - 1) : 0;
-                if (phases[idx]) return phases[idx];
-              }
+              var resolved = blueprintResolveSourcePhase(gs, blueprintPhaseSets(manifest), phaseId);
+              if (resolved && resolved.phase) return resolved.phase;
             } catch(e) {}
             return null;
           }
@@ -1857,8 +2477,8 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             var canvas = document.getElementById('application-canvas') || document.querySelector('canvas');
             var rect = canvas && canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
             return {
-              width: canvas && Number(canvas.width) || rect && Number(rect.width) || window.innerWidth || 1280,
-              height: canvas && Number(canvas.height) || rect && Number(rect.height) || window.innerHeight || 720
+              width: rect && Number(rect.width) || canvas && Number(canvas.width) || window.innerWidth || 1280,
+              height: rect && Number(rect.height) || canvas && Number(canvas.height) || window.innerHeight || 720
             };
           }
           function viewportIntersectsAnchor(anchor) {
@@ -1956,12 +2576,16 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               maxY = Math.max(maxY, Number(sp.y));
             }
             if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) return null;
-            return { x_px: minX, y_px: minY, w_px: Math.max(0, maxX - minX), h_px: Math.max(0, maxY - minY) };
+            var size = canvasSize();
+            return { x_px: minX, y_px: Number(size.height) - maxY, w_px: Math.max(0, maxX - minX), h_px: Math.max(0, maxY - minY) };
           }
           function projectPosition(pos) {
             if (!pos || !camEnt || !camEnt.camera || typeof camEnt.camera.worldToScreen !== 'function') return null;
             syncOverlayTransforms();
-            return camEnt.camera.worldToScreen(new pc.Vec3(Number(pos.x) || 0, Number(pos.y) || 0, Number(pos.z) || 0));
+            var sp = camEnt.camera.worldToScreen(new pc.Vec3(Number(pos.x) || 0, Number(pos.y) || 0, Number(pos.z) || 0));
+            if (!sp) return null;
+            var size = canvasSize();
+            return { x: Number(sp.x), y: Number(size.height) - Number(sp.y), z: Number(sp.z) };
           }
           function syncOverlayTransforms() {
             try {
@@ -2056,6 +2680,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               var overlayName = anchorOverlayName(contractId);
               var ent = entityRoots[overlayName];
               if (!ent) return;
+              if (isStoryboardPlayerName(overlayName)) return;
               calibrateOverlayEntityToAnchor(ent, anchor);
               var rect = entityScreenRect(ent);
               if (rect) {
@@ -2085,18 +2710,36 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             });
             return out;
           }
-          var names = manifest.sourceEntityContract.entities || Object.keys(styles);
-          for (var ni = 0; ni < names.length; ni++) {
-            var name = names[ni];
-            var binding = manifest.entityBindings[name];
+          function phaseVisibleMap(sourcePhase) {
+            if (!sourcePhase || !Array.isArray(sourcePhase.showEntities)) return null;
+            var out = {};
+            for (var i = 0; i < sourcePhase.showEntities.length; i++) {
+              if (sourcePhase.showEntities[i]) out[String(sourcePhase.showEntities[i])] = true;
+            }
+            return out;
+          }
+          function sourceEntityNames() {
+            var declared = manifest.sourceEntityContract && manifest.sourceEntityContract.entities;
+            if (Array.isArray(declared) && declared.length) return declared;
+            var composites = manifest.entityComposites || manifest.sourceEntityComposites || {};
+            var names = Object.keys(composites);
+            if (names.length) return names;
+            return Object.keys(styles);
+          }
+          var SOURCE_VISUAL_ENTITY_SCALE = 0.25;
+          var names = sourceEntityNames();
+	          for (var ni = 0; ni < names.length; ni++) {
+	            var name = names[ni];
+	            var binding = manifest.entityBindings[name];
             var primary = binding && byAsset[binding.primaryAssetId];
             var st = styles[name] || {};
             var pos = primary && arr3(primary.transform && primary.transform.position, null);
             if (!pos && st.position) pos = [Number(st.position.x) || 0, Number(st.position.y) || 0, Number(st.position.z) || 0];
             pos = pos || [0,0,0];
+            sourceEntityPositions[name] = [pos[0], pos[1], pos[2]];
             var group = new pc.Entity('StoryboardEntity_' + name);
             root.addChild(group);
-            group.setPosition(pos[0], pos[1], pos[2]);
+            group.setPosition(storyboardRenderX(pos[0]), pos[1], storyboardRenderZForName(name, pos[2]));
             entityRoots[name] = group;
             var primitiveStyle = primitiveStyleForName(name);
             // [OPTION C, Wave 3 R3] when the skeleton already built a source-faithful
@@ -2108,23 +2751,345 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             var styledCount = (primitiveStyle && !__hasSF) ? buildStyledComposite(group, name, primitiveStyle, st) : 0;
             var ids = binding && binding.assetIds || [];
             if (!styledCount) {
+              group.setLocalScale(SOURCE_VISUAL_ENTITY_SCALE, SOURCE_VISUAL_ENTITY_SCALE, SOURCE_VISUAL_ENTITY_SCALE);
               var sourcePrimitiveCount = 0;
               for (var bi = 0; bi < ids.length; bi++) {
                 var asset = byAsset[ids[bi]];
                 if (!asset || asset.kind !== 'procedural_primitive') continue;
                 if (addPrimitive(group, asset)) sourcePrimitiveCount++;
               }
-              if (primitiveStyle) recordPrimitiveStyle(name, primitiveStyle, 'source-procedural', sourcePrimitiveCount);
-            }
+	              if (primitiveStyle) recordPrimitiveStyle(name, primitiveStyle, 'source-procedural', sourcePrimitiveCount);
+	            }
+	          }
+	          var storyboardGuidanceLine = null;
+	          var storyboardTargetMarker = null;
+	          try {
+	            var sourceGuidance = manifest.sourceSceneContract && manifest.sourceSceneContract.guidance;
+	            if (!sourceGuidance || !sourceGuidance.trailLine || sourceGuidance.trailLine !== false) {
+	              storyboardGuidanceLine = createPrimitiveEntity(root, 'StoryboardGuidanceTrailLine', 'box');
+	              if (storyboardGuidanceLine) {
+	                storyboardGuidanceLine.enabled = false;
+	                storyboardGuidanceLine.setLocalScale(0.045, 0.045, 1);
+	                applyMaterial(storyboardGuidanceLine, overlayMaterial('#8deaff'));
+	              }
+	            }
+	            storyboardTargetMarker = new pc.Entity('StoryboardTargetMarker');
+	            root.addChild(storyboardTargetMarker);
+	            storyboardTargetMarker.enabled = false;
+	            var targetMarkerMat = overlayMaterial('#ffff33');
+	            try {
+	              if (targetMarkerMat) {
+	                targetMarkerMat.emissive = new pc.Color(1, 0.95, 0.10, 1);
+	                if (typeof targetMarkerMat.setParameter === 'function') targetMarkerMat.setParameter('_EmissionColor', [1.35, 1.20, 0.10, 1]);
+	                if (typeof targetMarkerMat.update === 'function') targetMarkerMat.update();
+	              }
+	            } catch(eTargetMarkerEmission) {}
+	            for (var tmi = 0; tmi < 36; tmi++) {
+	              var dot = createPrimitiveEntity(storyboardTargetMarker, 'StoryboardTargetMarkerDot', 'sphere');
+	              if (!dot) continue;
+	              var angle = tmi / 36 * Math.PI * 2;
+	              var markerRadius = tmi % 2 === 0 ? 0.96 : 0.82;
+	              try {
+	                if (typeof dot.setLocalPosition === 'function') dot.setLocalPosition(Math.cos(angle) * markerRadius, 0, Math.sin(angle) * markerRadius);
+	                else dot.setPosition(Math.cos(angle) * markerRadius, 0, Math.sin(angle) * markerRadius);
+	              } catch(eMarkerDotPos) {}
+	              dot.setLocalScale(0.16, 0.16, 0.16);
+	              applyMaterial(dot, targetMarkerMat);
+	            }
+	          } catch(eGuidanceLineCreate) {}
+	          function hideLegacySourceGuidance() {
+	            try {
+	              if (!pcApp || !pcApp.root || typeof pcApp.root.findByName !== 'function') return;
+	              var legacy = pcApp.root.findByName('__SourceTrailLine');
+	              if (legacy) {
+	                legacy.enabled = false;
+	                if (typeof legacy.setPosition === 'function') legacy.setPosition(0, -999, 0);
+	              }
+	            } catch(eLegacyGuidance) {}
+	          }
+	          function guidanceLineVisible(visible) {
+	            if (storyboardGuidanceLine) storyboardGuidanceLine.enabled = !!visible;
+	          }
+	          function targetMarkerVisible(visible) {
+	            if (storyboardTargetMarker) storyboardTargetMarker.enabled = !!visible;
+	            if (!visible) {
+	              try { window.__storyboardTargetMarkerState = { visible: false }; } catch(eMarkerState) {}
+	            }
+	          }
+	          function sourceGuidanceTargetName(gs) {
+	            var sourcePhase = sourcePhaseForOverlayState(gs);
+	            var sourcePhaseInfo = null;
+	            try {
+	              var phaseId = gs && (gs.currentPhase || gs.phase) || '';
+	              sourcePhaseInfo = blueprintResolveSourcePhase(gs, blueprintPhaseSets(manifest), phaseId);
+	            } catch(ePhaseInfo) {}
+	            var showSet = {};
+	            if (sourcePhase && Array.isArray(sourcePhase.showEntities)) {
+	              for (var se = 0; se < sourcePhase.showEntities.length; se++) {
+	                showSet[String(sourcePhase.showEntities[se])] = true;
+	              }
+	            }
+	            function directName(value) {
+	              if (!value) return null;
+	              var raw = String(value);
+	              if (entityRoots[raw]) return raw;
+	              var mapped = anchorOverlayName(raw);
+	              return entityRoots[mapped] ? mapped : null;
+	            }
+	            var hud = sourcePhase && sourcePhase.hudText || {};
+	            var direct = directName(hud.targetEntity) || directName(sourcePhase && sourcePhase.targetEntity);
+	            var phaseIdentity = String(sourcePhase && (sourcePhase.id || sourcePhase.phaseId || sourcePhase.name) || gs && (gs.currentPhase || gs.phase) || 'phase');
+	            function normalizedStateKey(value) {
+	              return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+	            }
+	            function stateKeyVariants(value) {
+	              var raw = String(value || '');
+	              if (!raw) return [];
+	              var upper = raw.charAt(0).toUpperCase() + raw.slice(1);
+	              var lower = raw.charAt(0).toLowerCase() + raw.slice(1);
+	              var compact = normalizedStateKey(raw);
+	              return [raw, upper, lower, compact];
+	            }
+	            function numericStateValue(names) {
+	              var bags = [
+	                gs && gs.resources,
+	                gs && gs.inventory,
+	                gs && gs.variables,
+	                gs && gs.counters,
+	                gs && gs.resourceCounts
+	              ];
+	              for (var bi = 0; bi < bags.length; bi++) {
+	                var bag = bags[bi];
+	                if (!bag || typeof bag !== 'object') continue;
+	                for (var ni = 0; ni < names.length; ni++) {
+	                  var key = names[ni];
+	                  if (Object.prototype.hasOwnProperty.call(bag, key) && isFinite(Number(bag[key]))) return Number(bag[key]);
+	                }
+	              }
+	              return 0;
+	            }
+	            function entityStateFor(name) {
+	              var states = gs && (gs.entity_states || gs.entityStates) || {};
+	              var variants = stateKeyVariants(name);
+	              for (var vi = 0; vi < variants.length; vi++) {
+	                var key = variants[vi];
+	                if (states[key]) return states[key];
+	              }
+	              var normalized = normalizedStateKey(name);
+	              var keys = Object.keys(states);
+	              for (var ki = 0; ki < keys.length; ki++) {
+	                if (normalizedStateKey(keys[ki]) === normalized) return states[keys[ki]];
+	              }
+	              return null;
+	            }
+	            function targetVisibleName(value) {
+	              var mapped = directName(value);
+	              if (!mapped || isStoryboardPlayerName(mapped)) return null;
+	              if (Object.keys(showSet).length && !showSet[mapped] && !showSet[String(value)]) return null;
+	              var st = entityStateFor(mapped);
+	              if (st && (st.visible === false || (st.position && isFinite(Number(st.position.y)) && Number(st.position.y) < -100))) return null;
+	              return mapped;
+	            }
+	            function resourceValue(name) {
+	              var variants = stateKeyVariants(name);
+	              return numericStateValue(variants);
+	            }
+	            function carriedValue(name) {
+	              var variants = stateKeyVariants(name);
+	              var names = [];
+	              for (var vi = 0; vi < variants.length; vi++) {
+	                names.push(variants[vi] + 'Carried');
+	                names.push(variants[vi] + 'Carry');
+	              }
+	              return numericStateValue(names);
+	            }
+	            function baselineValue(name) {
+	              try {
+	                var store = window.__bpSourceGuidanceBaselines || (window.__bpSourceGuidanceBaselines = {});
+	                var phaseStore = store[phaseIdentity] || (store[phaseIdentity] = {});
+	                var key = normalizedStateKey(name);
+	                if (!Object.prototype.hasOwnProperty.call(phaseStore, key)) phaseStore[key] = resourceValue(name);
+	                return Number(phaseStore[key]) || 0;
+	              } catch(eBaseline) {}
+	              return 0;
+	            }
+	            function resourceProgressThisPhase(name) {
+	              return Math.max(0, resourceValue(name) - baselineValue(name));
+	            }
+	            function entityStepSatisfied(name) {
+	              var st = entityStateFor(name);
+	              if (!st) return false;
+	              return st.done === true || st.completed === true || st.status === 'done' || st.status === 'complete' ||
+	                st.state === 'done' || st.state === 'complete' || Number(st.progress || 0) >= 1 ||
+	                Number(st.upgradeLevel || st.level || 0) > 0;
+	            }
+	            function stepSatisfied(step) {
+	              if (!step || typeof step !== 'object') return true;
+	              if (step.gain) {
+	                var amount = Number(step.amount || 1);
+	                if (!isFinite(amount) || amount <= 0) amount = 1;
+	                return carriedValue(step.gain) >= amount || resourceProgressThisPhase(step.gain) >= amount;
+	              }
+	              if (step.setEntity) return entityStepSatisfied(step.setEntity);
+	              return false;
+	            }
+	            function phaseStepTarget() {
+	              var steps = [];
+	              if (sourcePhase && Array.isArray(sourcePhase.steps)) steps = sourcePhase.steps;
+	              else if (sourcePhase && sourcePhase.interactionGate && Array.isArray(sourcePhase.interactionGate.steps)) steps = sourcePhase.interactionGate.steps;
+	              for (var si = 0; si < steps.length; si++) {
+	                var step = steps[si];
+	                if (!step || stepSatisfied(step)) continue;
+	                var target = targetVisibleName(step.target || step.setEntity);
+	                if (target) return target;
+	              }
+	              for (var fi = 0; fi < steps.length; fi++) {
+	                var fallback = targetVisibleName(steps[fi] && (steps[fi].target || steps[fi].setEntity));
+	                if (fallback) return fallback;
+	              }
+	              return null;
+	            }
+	            var stepTarget = phaseStepTarget();
+	            if (stepTarget && !isStoryboardPlayerName(stepTarget)) return stepTarget;
+	            var ui = gs && (gs.uiState || gs.ui_state) || {};
+	            var uiTarget = directName(ui.highlightTarget) ||
+	              directName(ui.highlightOverlay && ui.highlightOverlay.target) ||
+	              directName(ui.highlightState && ui.highlightState.target);
+	            if (uiTarget && !isStoryboardPlayerName(uiTarget)) return uiTarget;
+	            if (direct && !isStoryboardPlayerName(direct)) return direct;
+	            var textParts = [];
+	            function addText(value) {
+	              if (value == null) return;
+	              if (typeof value === 'string') textParts.push(value);
+	              else if (Array.isArray(value)) {
+	                for (var ti = 0; ti < value.length; ti++) addText(value[ti]);
+	              } else if (typeof value === 'object') {
+	                Object.keys(value).forEach(function(key) { addText(value[key]); });
+	              }
+	            }
+	            addText(sourcePhase);
+	            var haystack = textParts.join(' ');
+	            var bestName = null;
+	            var bestIndex = Infinity;
+	            Object.keys(entityRoots).forEach(function(candidate) {
+	              if (isStoryboardPlayerName(candidate) || /^(GoldUI|GuideUI)$/i.test(candidate)) return;
+	              if (Object.keys(showSet).length && !showSet[candidate]) return;
+	              var st = styles[candidate] || {};
+	              var tokens = [candidate, st.label, st.kind].filter(Boolean);
+	              for (var ti = 0; ti < tokens.length; ti++) {
+	                var token = String(tokens[ti]);
+	                if (!token || token.length < 2) continue;
+	                var idx = haystack.indexOf(token);
+	                if (idx >= 0 && idx < bestIndex) {
+	                  bestIndex = idx;
+	                  bestName = candidate;
+	                }
+	              }
+	            });
+	            if (bestName) return bestName;
+	            if (sourcePhase && Array.isArray(sourcePhase.showEntities)) {
+	              for (var si = 0; si < sourcePhase.showEntities.length; si++) {
+	                var name = directName(sourcePhase.showEntities[si]);
+	                if (name && !isStoryboardPlayerName(name) && !/^(GoldUI|GuideUI)$/i.test(name)) return name;
+	              }
+	            }
+	            return null;
+	          }
+          function entityOverlayPosition(name) {
+            var ent = entityRoots[name];
+            if (!ent || ent.enabled === false || typeof ent.getPosition !== 'function') return null;
+            var p = ent.getPosition();
+            return p ? p.clone() : null;
           }
-          function syncEntityPositions() {
-            var gs = null;
-            try { gs = typeof window.__gameState === 'function' ? window.__gameState() : window.__gameState; } catch(e) {}
+          function runtimeStoryboardEntityOverlayPosition(name, gs) {
+            try {
+              if (!name || !gs) return null;
+              var states = gs && (gs.entity_states || gs.entityStates) || {};
+              var st = states[name] || states[String(name).toLowerCase()] || states[String(name).charAt(0).toUpperCase() + String(name).slice(1)];
+              var p = st && st.position;
+              if (!p || !isFinite(Number(p.x)) || !isFinite(Number(p.z)) || Number(p.y) <= -100) return null;
+              return new pc.Vec3(storyboardRenderX(p.x), Number(p.y) || 0, Number(p.z));
+            } catch(eRuntimeTargetPos) {}
+            return null;
+          }
+          function updateStoryboardGuidanceLine(gs) {
+            hideLegacySourceGuidance();
+            if (!storyboardGuidanceLine) {
+	              window.__storyboardGuidanceLineState = { visible: false, reason: 'line-unavailable' };
+	              targetMarkerVisible(false);
+	              return;
+	            }
+	            var playerName = null;
+	            Object.keys(entityRoots).some(function(name) {
+	              if (isStoryboardPlayerName(name)) {
+	                playerName = name;
+	                return true;
+	              }
+	              return false;
+            });
+            var targetName = sourceGuidanceTargetName(gs);
+            var a = entityOverlayPosition(playerName);
+            var b = runtimeStoryboardEntityOverlayPosition(targetName, gs) || entityOverlayPosition(targetName);
+            if (!a || !b) {
+              window.__storyboardGuidanceLineState = { visible: false, reason: 'endpoint-unavailable', playerName: playerName, targetName: targetName };
+              guidanceLineVisible(false);
+	              targetMarkerVisible(false);
+	              return;
+	            }
+	            a.y = 0.95;
+	            b.y = 0.95;
+	            var d = b.clone().sub(a);
+	            var len = d.length();
+	            if (!isFinite(len) || len < 0.1) {
+	              window.__storyboardGuidanceLineState = { visible: false, reason: 'too-short', playerName: playerName, targetName: targetName, length: len };
+	              guidanceLineVisible(false);
+	              targetMarkerVisible(false);
+	              return;
+	            }
+	            guidanceLineVisible(true);
+	            storyboardGuidanceLine.setPosition(a.clone().add(b).scale(0.5));
+	            try {
+	              if (typeof storyboardGuidanceLine.lookAt === 'function') storyboardGuidanceLine.lookAt(b.x, b.y, b.z);
+	              else if (typeof storyboardGuidanceLine.setRotation === 'function') {
+	                var q = new pc.Quat();
+	                if (typeof q.lookRotation === 'function') storyboardGuidanceLine.setRotation(q.lookRotation(d.clone().normalize(), pc.Vec3.UP));
+	              }
+	            } catch(eGuidanceLook) {}
+	            storyboardGuidanceLine.setLocalScale(0.045, 0.045, len);
+	            if (storyboardTargetMarker) {
+	              targetMarkerVisible(true);
+	              storyboardTargetMarker.setPosition(b.x, 0.18, b.z);
+	              var markerPulse = 1 + 0.08 * Math.sin(storyboardNowMs() / 170);
+	              storyboardTargetMarker.setLocalScale(markerPulse, markerPulse, markerPulse);
+	            }
+	            window.__storyboardGuidanceLine = storyboardGuidanceLine;
+	            window.__storyboardGuidanceLineState = {
+	              visible: true,
+	              playerName: playerName,
+	              targetName: targetName,
+	              player: { x: a.x, y: a.y, z: a.z },
+	              target: { x: b.x, y: b.y, z: b.z },
+	              length: len
+	            };
+            window.__storyboardTargetMarker = storyboardTargetMarker;
+            window.__storyboardTargetMarkerState = storyboardTargetMarker ? {
+              visible: true,
+              targetName: targetName,
+              position: { x: b.x, y: 0.18, z: b.z },
+              screenRect: entityScreenRect(storyboardTargetMarker)
+            } : { visible: false, reason: 'marker-unavailable', targetName: targetName };
+          }
+	          function syncEntityPositions() {
+	            var gs = null;
+	            try { gs = typeof window.__gameState === 'function' ? window.__gameState() : window.__gameState; } catch(e) {}
+            hideLegacyStoryboardVisualSurfaces();
             var states = gs && (gs.entity_states || gs.entityStates) || {};
             var viewportAnchored = currentViewportAnchoredOverlays(gs);
             var anchorPhase = projectedAnchorPhaseForOverlayState(gs);
             var phaseId = anchorPhase && anchorPhase.id || gs && (gs.currentPhase || gs.phase) || 'current';
             var fitForPhase = anchorFitApplied[phaseId] || {};
+            var sourcePhase = sourcePhaseForOverlayState(gs);
+            var sourceVisible = phaseVisibleMap(sourcePhase);
             // Source-faithful storyboard POSITION (2026-06-01): place the overlay from the
             // SOURCE contract (sourceEntityContract.entityStyles[name].position) — distinct,
             // matches the source storyboard layout — instead of the game's runtime
@@ -2139,28 +3104,53 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             Object.keys(entityRoots).forEach(function(name) {
               var st = states[name];
               var p = st && st.position;
+              var isPlayer = isStoryboardPlayerName(name);
               if (__contractPos) {
                 var sp = __sfStyles[name] && __sfStyles[name].position;
-                if (/player/i.test(name)) {
+                if (isPlayer) {
                   var gp = st && st.position;
                   if (!gp) { var pst = states['player'] || states['Player'] || states[name.toLowerCase()]; gp = pst && pst.position; }
-                  if (gp && isFinite(Number(gp.x)) && Number(gp.y) > -100) p = gp;
+                  if (gp) p = gp;
+                  if (p && isFinite(Number(p.x)) && Number(p.y) > -100) p = gp;
                   else if (sp && isFinite(Number(sp.x))) p = sp;
                   else p = gp;
                 } else if (sp && isFinite(Number(sp.x))) {
                   p = sp;
                 }
               }
-              if (p && isFinite(Number(p.x)) && isFinite(Number(p.z)) && !(viewportAnchored[name] && fitForPhase[name])) {
-                entityRoots[name].setPosition(Number(p.x), Number(p.y) || 0, Number(p.z));
+              if (isPlayer) {
+                var livePlayerPos = runtimeStoryboardPlayerSourcePosition();
+                if (livePlayerPos) p = livePlayerPos;
+                p = manualStoryboardPlayerSourcePosition(name, p, !!livePlayerPos);
               }
-              if (st && st.visible === false) entityRoots[name].enabled = false;
+              if (p && isFinite(Number(p.x)) && isFinite(Number(p.z)) && !(viewportAnchored[name] && fitForPhase[name] && !isPlayer)) {
+                setStoryboardEntityPosition(name, storyboardRenderX(p.x), Number(p.y) || 0, storyboardRenderZForName(name, p.z), isPlayer);
+              }
+              if (sourceVisible && !isStoryboardHudEntityName(name)) entityRoots[name].enabled = !!sourceVisible[name];
+              else if (st && st.visible === false) entityRoots[name].enabled = false;
               else entityRoots[name].enabled = true;
             });
-            applyProjectedAnchorCalibration(gs);
-          }
-          setInterval(syncEntityPositions, 100);
+            var now = Date.now ? Date.now() : (new Date()).getTime();
+            if (phaseId !== syncEntityPositions._anchorPhaseId || now - (syncEntityPositions._anchorAt || 0) > 500) {
+              syncEntityPositions._anchorPhaseId = phaseId;
+	              syncEntityPositions._anchorAt = now;
+	              applyProjectedAnchorCalibration(gs);
+	            }
+	            updateStoryboardGuidanceLine(gs);
+	          }
+          window.__storyboardEntityRoots = entityRoots;
+          window.__syncStoryboardEntities = syncEntityPositions;
+          window.__storyboardEntityScreenRect = function(name) {
+            var overlayName = anchorOverlayName(name);
+            var ent = entityRoots[overlayName] || entityRoots[name];
+            return ent && ent.enabled !== false ? entityScreenRect(ent) : null;
+          };
           syncEntityPositions();
+          (function frameSyncEntityPositions() {
+            try { syncEntityPositions(); } catch(eFrameSync) {}
+            if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(frameSyncEntityPositions);
+            else setTimeout(frameSyncEntityPositions, 33);
+          })();
           installStoryboardDomHud();
           installStoryboardWorldLabels();
           console.log('[AI] Storyboard visual overlay active: entities=' + Object.keys(entityRoots).length);
@@ -2171,12 +3161,18 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
 
       function installStoryboardDomHud() {
         if (document.getElementById('bp-storyboard-hud')) return;
+        var legacyTextStyle = document.createElement('style');
+        legacyTextStyle.textContent = '#__bp_text_overlay{display:none!important;visibility:hidden!important}';
+        document.head.appendChild(legacyTextStyle);
         var style = document.createElement('style');
-        style.textContent = '#bp-storyboard-hud{position:fixed;left:12px;right:12px;top:10px;z-index:2147483000;display:flex;align-items:center;gap:8px;pointer-events:none;font-family:Arial,"Microsoft YaHei",sans-serif;color:#f2fbff}#bp-storyboard-hud .bp-pill,#bp-storyboard-hud .bp-tip,#bp-storyboard-hud .bp-phase{background:rgba(4,13,31,.82);border:1px solid rgba(118,214,255,.35);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.28);font-weight:900;white-space:nowrap}#bp-storyboard-hud .bp-phase{padding:8px 10px;color:#9fe8ff;font-size:13px}#bp-storyboard-hud .bp-pill{padding:8px 10px;font-size:13px}#bp-storyboard-hud .bp-tip{flex:1;min-height:38px;display:flex;align-items:center;justify-content:center;text-align:center;padding:7px 12px;font-size:16px}#bp-storyboard-target{position:fixed;left:50%;bottom:34px;z-index:2147483000;transform:translateX(-50%);background:rgba(4,13,31,.86);border:1px solid rgba(255,219,80,.5);border-radius:10px;padding:12px 16px;font:900 15px Arial,"Microsoft YaHei";color:#f2fbff;pointer-events:none}#bp-storyboard-stick{position:fixed;width:134px;height:134px;margin:-67px 0 0 -67px;border-radius:50%;z-index:2147483001;background:radial-gradient(circle,rgba(112,224,255,.3),rgba(26,61,100,.64));border:2px solid rgba(151,232,255,.74);box-shadow:0 10px 36px rgba(0,0,0,.45),inset 0 0 20px rgba(117,226,255,.2);pointer-events:none;opacity:0}#bp-storyboard-stick.active{opacity:1}#bp-storyboard-stick:before{content:"";position:absolute;left:50%;top:50%;width:64px;height:64px;border-radius:50%;transform:translate(-50%,-50%);border:1px dashed rgba(255,255,255,.4)}#bp-storyboard-knob{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;background:linear-gradient(180deg,#f8fdff,#4bd2ff);border:2px solid rgba(255,255,255,.9);box-shadow:0 5px 18px rgba(0,0,0,.36)}';
+        style.textContent = '#bp-storyboard-scene-tone{position:fixed;inset:0;z-index:2147482800;pointer-events:none;background:linear-gradient(90deg,rgba(5,9,20,.76) 0%,rgba(5,9,20,.72) 42%,rgba(5,9,20,.50) 62%,rgba(5,9,20,.25) 82%,rgba(5,9,20,.05) 100%)}#bp-storyboard-hud{position:fixed;left:12px;right:12px;top:10px;z-index:2147483000;display:flex;align-items:center;gap:8px;pointer-events:none;font-family:Arial,"Microsoft YaHei",sans-serif;color:#f2fbff}#bp-storyboard-hud .bp-pill,#bp-storyboard-hud .bp-phase{background:rgba(4,13,31,.82);border:1px solid rgba(118,214,255,.35);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.28);font-weight:900;white-space:nowrap}#bp-storyboard-hud .bp-phase{padding:8px 10px;color:#9fe8ff;font-size:13px}#bp-storyboard-hud .bp-pill{padding:8px 10px;font-size:13px}#bp-storyboard-hud .bp-tip{flex:1;min-height:24px;display:flex;align-items:center;justify-content:flex-end;text-align:right;padding:0 4px;font-size:13px;font-weight:900;color:#ffeb3b;background:transparent;border:0;box-shadow:none;white-space:nowrap}#bp-storyboard-target{position:fixed;left:14px;top:54px;z-index:2147483000;transform:none;background:rgba(10,22,64,.92);border:1px solid rgba(118,214,255,.35);border-radius:7px;padding:5px 10px;font:900 13px Arial,"Microsoft YaHei";color:#bff5ff;pointer-events:none}#bp-storyboard-stick{position:fixed;width:88px;height:88px;margin:-44px 0 0 -44px;border-radius:50%;z-index:2147483001;background:rgba(0,0,0,.42);border:0;box-shadow:0 8px 22px rgba(0,0,0,.38);pointer-events:none;opacity:0}#bp-storyboard-stick.active{opacity:1}#bp-storyboard-stick:before{content:"";position:absolute;left:50%;top:50%;width:42px;height:42px;border-radius:50%;transform:translate(-50%,-50%);border:1px dashed rgba(255,255,255,.35)}#bp-storyboard-knob{position:absolute;left:50%;top:50%;width:38px;height:38px;margin:-19px 0 0 -19px;border-radius:50%;background:rgba(255,255,255,.9);border:0;box-shadow:0 4px 14px rgba(0,0,0,.34)}';
         document.head.appendChild(style);
+        var sceneTone = document.createElement('div');
+        sceneTone.id = 'bp-storyboard-scene-tone';
+        document.body.appendChild(sceneTone);
         var hud = document.createElement('div');
         hud.id = 'bp-storyboard-hud';
-        hud.innerHTML = '<div class="bp-phase" id="bp-storyboard-phase">Phase 1/8</div><div class="bp-pill" id="bp-storyboard-ice">冰 0</div><div class="bp-pill" id="bp-storyboard-oxygen">氧气 0</div><div class="bp-pill" id="bp-storyboard-scrap">铁块 0</div><div class="bp-pill" id="bp-storyboard-coin">金币 0</div><div class="bp-pill" id="bp-storyboard-tool">镐子</div><div class="bp-tip" id="bp-storyboard-tip"></div>';
+        hud.innerHTML = '<div class="bp-phase" id="bp-storyboard-phase">Phase 1/?</div><div class="bp-pill" id="bp-storyboard-ice">冰 0</div><div class="bp-pill" id="bp-storyboard-oxygen">氧气 0</div><div class="bp-pill" id="bp-storyboard-scrap">铁块 0</div><div class="bp-pill" id="bp-storyboard-coin">金币 0</div><div class="bp-pill" id="bp-storyboard-tool">镐子</div><div class="bp-tip" id="bp-storyboard-tip"></div>';
         document.body.appendChild(hud);
         var target = document.createElement('div');
         target.id = 'bp-storyboard-target';
@@ -2188,22 +3184,109 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         document.body.appendChild(stick);
         var knob = document.getElementById('bp-storyboard-knob');
         var origin = { x: 0, y: 0 };
-        document.addEventListener('pointerdown', function(ev) {
-          origin.x = ev.clientX; origin.y = ev.clientY;
-          stick.style.left = ev.clientX + 'px';
-          stick.style.top = ev.clientY + 'px';
+        var STORYBOARD_STICK_DEADZONE = 4;
+        var manualJoystickOverride = window.__bpManualJoystickOverride || { active: false, x: 0, y: 0, updatedAt: 0, speed: 6 };
+        window.__bpManualJoystickOverride = manualJoystickOverride;
+        function joystickNowMs() {
+          try {
+            if (typeof performance !== 'undefined' && performance && typeof performance.now === 'function') return performance.now();
+          } catch(e) {}
+          return Date.now ? Date.now() : (new Date()).getTime();
+        }
+        function installRuntimeJoystickOverridePatch(joystick) {
+          if (!joystick || joystick.__bpPollInputPatched) return;
+          var originalPollInput = joystick.PollInput;
+          if (typeof originalPollInput !== 'function') return;
+          joystick.__bpOriginalPollInput = originalPollInput;
+          joystick.PollInput = function() {
+            try {
+              var override = window.__bpManualJoystickOverride;
+              var now = joystickNowMs();
+              if (override && (override.active || now - (override.updatedAt || 0) < 160)) {
+                var active = !!override.active;
+                this._dragging = active;
+                if (this._input) {
+                  this._input.x = active ? (Number(override.x) || 0) : 0;
+                  this._input.y = active ? (Number(override.y) || 0) : 0;
+                }
+                return;
+              }
+            } catch(eOverridePoll) {}
+            return originalPollInput.apply(this, arguments);
+          };
+          joystick.__bpPollInputPatched = true;
+        }
+        function applyRuntimeJoystickOverride(x, y, active) {
+          x = Number(x) || 0;
+          y = Number(y) || 0;
+          var mag = Math.sqrt(x * x + y * y);
+          if (mag > 1) {
+            x /= mag;
+            y /= mag;
+          }
+          manualJoystickOverride.active = !!active;
+          manualJoystickOverride.x = active ? x : 0;
+          manualJoystickOverride.y = active ? y : 0;
+          manualJoystickOverride.updatedAt = joystickNowMs();
+          manualJoystickOverride.speed = 6;
+          try {
+            var joystickClass = window.GFM_Joystick;
+            var joystick = joystickClass && (joystickClass.instance || joystickClass.Instance);
+            installRuntimeJoystickOverridePatch(joystick);
+            if (joystick && joystick._input) {
+              joystick._dragging = !!active;
+              joystick._input.x = active ? x : 0;
+              joystick._input.y = active ? y : 0;
+            }
+          } catch(eRuntimeJoystick) {}
+        }
+        function beginStoryboardStick(clientX, clientY) {
+          origin.x = clientX; origin.y = clientY;
+          stick.style.left = clientX + 'px';
+          stick.style.top = clientY + 'px';
           stick.className = 'active';
-        }, true);
-        document.addEventListener('pointermove', function(ev) {
+          applyRuntimeJoystickOverride(0, 0, false);
+        }
+        function moveStoryboardStick(clientX, clientY) {
           if (stick.className !== 'active') return;
-          var dx = ev.clientX - origin.x, dy = ev.clientY - origin.y;
-          var len = Math.sqrt(dx*dx+dy*dy), max = 52;
+          var dx = clientX - origin.x, dy = clientY - origin.y;
+          var len = Math.sqrt(dx*dx+dy*dy), max = 44;
+          if (len <= STORYBOARD_STICK_DEADZONE) {
+            knob.style.transform = 'translate(0,0)';
+            applyRuntimeJoystickOverride(0, 0, false);
+            return;
+          }
           if (len > max) { dx = dx / len * max; dy = dy / len * max; }
           knob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+          applyRuntimeJoystickOverride(-dx / max, -dy / max, true);
+        }
+        function firstTouchPoint(ev) {
+          var touches = ev && (ev.touches && ev.touches.length ? ev.touches : ev.changedTouches);
+          return touches && touches.length ? touches[0] : null;
+        }
+        document.addEventListener('pointerdown', function(ev) {
+          beginStoryboardStick(ev.clientX, ev.clientY);
         }, true);
-        function resetStick() { stick.className = ''; knob.style.transform = 'translate(0,0)'; }
+        document.addEventListener('pointermove', function(ev) {
+          moveStoryboardStick(ev.clientX, ev.clientY);
+        }, true);
+        function resetStick() { stick.className = ''; knob.style.transform = 'translate(0,0)'; applyRuntimeJoystickOverride(0, 0, false); }
         document.addEventListener('pointerup', resetStick, true);
         document.addEventListener('pointercancel', resetStick, true);
+        document.addEventListener('touchstart', function(ev) {
+          var t = firstTouchPoint(ev);
+          if (!t) return;
+          beginStoryboardStick(t.clientX, t.clientY);
+          try { ev.preventDefault(); } catch(ePreventStart) {}
+        }, true);
+        document.addEventListener('touchmove', function(ev) {
+          var t = firstTouchPoint(ev);
+          if (!t) return;
+          moveStoryboardStick(t.clientX, t.clientY);
+          try { ev.preventDefault(); } catch(ePreventMove) {}
+        }, true);
+        document.addEventListener('touchend', resetStick, true);
+        document.addEventListener('touchcancel', resetStick, true);
         function set(id, text) { var el = document.getElementById(id); if (el) el.textContent = text; }
         function canonicalStoryboardEntityName(raw) {
           raw = String(raw || '');
@@ -2232,19 +3315,19 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           } catch(e) {}
           return key;
         }
-        function phaseFirstStoryboardTarget(phaseId) {
+        function phaseFirstStoryboardTarget(phaseId, gs) {
           try {
             var va = window.__BLUEPRINT_VISUAL_ASSETS__ || {};
             var phases = va.sourcePhaseContract && va.sourcePhaseContract.phases;
             if ((!phases || !phases.length) && va.fidelityContract) phases = va.fidelityContract.phases;
             if (!phases || !phases.length) return '';
-            var phase = null;
-            for (var pi = 0; pi < phases.length; pi++) {
-              if (String(phases[pi] && phases[pi].id) === String(phaseId)) {
-                phase = phases[pi];
-                break;
-              }
+            var sourcePhases = phases;
+            for (var si = 0; si < sourcePhases.length; si++) {
+              if (!driverPhaseMatches(sourcePhases[si], driverNormalizePhaseKey(phaseId))) continue;
+              if (sourcePhases[si].steps && sourcePhases[si].steps[0] && sourcePhases[si].steps[0].target) return sourcePhases[si].steps[0].target;
             }
+            var resolved = blueprintResolveSourcePhase(gs || null, [phases], phaseId);
+            var phase = resolved && resolved.phase;
             if (!phase) return '';
             if (phase.steps && phase.steps[0] && phase.steps[0].target) return phase.steps[0].target;
             var ig = phase.interactionGate;
@@ -2254,10 +3337,39 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           return '';
         }
         function currentStoryboardTargetLabel(gs, phaseId) {
+          try {
+            var uiLabelState = gs && (gs.uiState || gs.ui_state) || {};
+            var explicitLabel = uiLabelState && (uiLabelState.targetLabel || uiLabelState.highlightState && uiLabelState.highlightState.label || uiLabelState.highlightOverlay && uiLabelState.highlightOverlay.label) || '';
+            if (explicitLabel) return '目标：' + explicitLabel;
+          } catch(eExplicitTargetLabel) {}
+          try {
+            var ui = gs && (gs.uiState || gs.ui_state) || {};
+            var score = ui && ui.scoreText || '';
+            var m = String(score || '').match(/目标[:：]\\s*([^\\s]+)/);
+            if (m && m[1]) return '目标：' + m[1];
+          } catch(eScoreTarget) {}
+          var ui = gs && (gs.uiState || gs.ui_state) || {};
+          var uiTarget = ui && (ui.highlightTarget || ui.highlightOverlay && ui.highlightOverlay.target || ui.highlightState && ui.highlightState.target) || '';
           var vars = gs && gs.variables || {};
-          var target = vars.targetEntity || gs && gs.targetEntity || phaseFirstStoryboardTarget(phaseId);
+          var target = uiTarget || vars.targetEntity || gs && gs.targetEntity || phaseFirstStoryboardTarget(phaseId, gs);
           var label = storyboardEntityLabel(target);
           return label ? '目标：' + label : '目标';
+        }
+        function storyboardPositiveNumber(value) {
+          var n = Number(value);
+          return isFinite(n) && n > 0 ? n : 0;
+        }
+        function storyboardRuntimePhaseTotal(gs) {
+          var vars = gs && gs.variables || {};
+          return storyboardPositiveNumber(vars.totalPhases)
+            || storyboardPositiveNumber(gs && gs.totalPhases)
+            || storyboardPositiveNumber(gs && gs.total_phases);
+        }
+        function storyboardRuntimePhaseIndex(gs) {
+          var vars = gs && gs.variables || {};
+          return storyboardPositiveNumber(vars.currentPhaseIndex)
+            || storyboardPositiveNumber(gs && gs.currentPhaseIndex)
+            || storyboardPositiveNumber(gs && gs.current_phase_index);
         }
         setInterval(function() {
           var gs = null;
@@ -2266,16 +3378,23 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           try { if (typeof window.__gameState !== 'function') window.__gameState = gs; } catch(e3) {}
           gs = gs || {};
           var res = gs.resources || gs.inventory || {};
-          var phase = String(gs.phase || gs.currentPhase || 'phase1').replace(/\\D+/g, '') || '1';
-          set('bp-storyboard-phase', 'Phase ' + phase + '/8');
+          var va = window.__BLUEPRINT_VISUAL_ASSETS__ || {};
+          var phaseInfo = blueprintResolveSourcePhase(gs, blueprintPhaseSets(va), gs.currentPhase || gs.phase || null);
+          var runtimePhaseNumber = storyboardRuntimePhaseIndex(gs);
+          var phaseNumber = phaseInfo ? (phaseInfo.index + 1) : (runtimePhaseNumber || 1);
+          var runtimePhaseTotal = storyboardRuntimePhaseTotal(gs);
+          var phaseTotal = phaseInfo ? phaseInfo.total : (runtimePhaseTotal || '?');
+          var sourcePhaseId = phaseInfo && phaseInfo.phase && phaseInfo.phase.id || ('phase' + phaseNumber);
+          set('bp-storyboard-phase', 'Phase ' + phaseNumber + '/' + phaseTotal);
           set('bp-storyboard-ice', '冰 ' + (res.Ice || res.ice || 0));
-          set('bp-storyboard-oxygen', '氧气 ' + (res.Oxygen || res.oxygen || 0));
-          set('bp-storyboard-scrap', '铁块 ' + (res.Scrap || res.scrap || 0));
+          set('bp-storyboard-oxygen', '水 ' + (res.Water || res.water || res.BottledWater || res.bottledWater || 0));
+          set('bp-storyboard-scrap', '苹果 ' + (res.Apple || res.apple || 0));
           set('bp-storyboard-coin', '金币 ' + (res.Coin || res.Gold || res.gold || 0));
-          set('bp-storyboard-tool', (res.tool || '镐子') + ' / 飞船' + (res.ShipLevel || 0) + '节');
+          set('bp-storyboard-tool', '');
+          try { var tool = document.getElementById('bp-storyboard-tool'); if (tool) tool.style.display = 'none'; } catch(eTool) {}
           var guide = gs.ui_state && gs.ui_state.guideText || gs.uiState && gs.uiState.guideText || gs.variables && gs.variables.guideText || '';
           set('bp-storyboard-tip', guide);
-          set('bp-storyboard-target', currentStoryboardTargetLabel(gs, 'phase' + phase));
+          set('bp-storyboard-target', currentStoryboardTargetLabel(gs, sourcePhaseId));
         }, 200);
       }
       // task #49 v1.4c-beta — render contract.entities[i].worldLabel as world-
@@ -2291,6 +3410,8 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         if (!fc || !Array.isArray(fc.entities)) return;
         var container = document.createElement('div');
         container.id = 'bp-storyboard-worldlabels';
+        container.setAttribute('data-source-world-label-root', 'bp-source-world-labels');
+        container.className = 'bp-source-world-labels';
         container.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:2147482900;font-family:Arial,"Microsoft YaHei",sans-serif;';
         document.body.appendChild(container);
         var labels = [];
@@ -2306,7 +3427,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           div.setAttribute('data-entity', entityId);
           var col = (typeof wl.color === 'string' && wl.color) ? wl.color : '#ffffff';
           var fs = (typeof wl.fontSize === 'number' && wl.fontSize > 0) ? wl.fontSize : 26;
-          div.style.cssText = 'position:absolute;transform:translate(-50%,-50%);padding:2px 8px;background:rgba(0,0,0,0.55);border-radius:6px;white-space:nowrap;color:' + col + ';font-size:' + (fs * 0.7).toFixed(1) + 'px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.7);display:none;';
+          div.style.cssText = 'position:absolute;transform:translate(-50%,-100%);padding:0 6px;background:transparent;border-radius:0;white-space:nowrap;color:' + col + ';font-size:' + (fs * 1.05).toFixed(1) + 'px;font-weight:800;-webkit-text-stroke:1px rgba(0,0,0,0.82);text-shadow:0 1px 2px rgba(0,0,0,0.95),0 0 4px rgba(0,0,0,0.85);display:none;';
           div.textContent = wl.text;
           container.appendChild(div);
           var wo = wl.worldOffset || {};
@@ -2337,17 +3458,21 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           } catch(e) {}
           return { width: 1280, height: 720 };
         }
+        function worldLabelCanvasSize() {
+          var canvas = document.getElementById('application-canvas') || document.querySelector('canvas');
+          var rect = canvas && canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
+          return {
+            width: rect && Number(rect.width) || canvas && Number(canvas.width) || window.innerWidth || 1280,
+            height: rect && Number(rect.height) || canvas && Number(canvas.height) || window.innerHeight || 720
+          };
+        }
         function currentWorldLabelPhase() {
           try {
             var gs = typeof window.__gameState === 'function' ? window.__gameState() : window.__gameState;
             var phaseId = gs && (gs.currentPhase || gs.phase) || '';
             var phases = fc && fc.phases || [];
-            for (var pi = 0; pi < phases.length; pi++) {
-              if (phases[pi] && String(phases[pi].id) === String(phaseId)) return phases[pi];
-            }
-            var m = String(phaseId || '').match(/(\d+)/);
-            var idx = m ? Math.max(0, Number(m[1]) - 1) : 0;
-            return phases[idx] || null;
+            var resolved = blueprintResolveSourcePhase(gs, [phases], phaseId);
+            return resolved && resolved.phase || null;
           } catch(e) {}
           return null;
         }
@@ -2450,6 +3575,40 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         function setWorldLabelHidden(L, measured) {
           L.div.style.opacity = '0';
         }
+        function worldLabelLookupKeys(L) {
+          var keys = [];
+          addWorldLabelLookupAliases(keys, L.entityId, false);
+          var runtimeAliases = Array.isArray(L.runtimeAliases) ? L.runtimeAliases : [];
+          for (var ai = 0; ai < runtimeAliases.length; ai++) addWorldLabelLookupAliases(keys, runtimeAliases[ai], false);
+          var sourceAliases = Array.isArray(L.sourceAliases) ? L.sourceAliases : [];
+          for (var si = 0; si < sourceAliases.length; si++) addWorldLabelLookupAliases(keys, sourceAliases[si], true);
+          return keys;
+        }
+        function storyboardEntityRectForLabel(L) {
+          var keys = worldLabelLookupKeys(L);
+          if (typeof window.__storyboardEntityScreenRect === 'function') {
+            for (var i = 0; i < keys.length; i++) {
+              var rect = null;
+              try { rect = window.__storyboardEntityScreenRect(keys[i]); } catch(eRect) {}
+              if (rect && isFinite(Number(rect.x_px)) && isFinite(Number(rect.y_px))) return rect;
+            }
+          }
+          return null;
+        }
+        function placeWorldLabelAboveRect(L, rect) {
+          var x = Number(rect.x_px) + Number(rect.w_px || 0) / 2;
+          var y = Number(rect.y_px) - 8;
+          if (!isFinite(x) || !isFinite(y)) return false;
+          L.div.style.transform = 'translate(-50%,-100%)';
+          L.div.style.width = '';
+          L.div.style.height = '';
+          L.div.style.boxSizing = '';
+          L.div.style.display = 'block';
+          L.div.style.left = x.toFixed(1) + 'px';
+          L.div.style.top = y.toFixed(1) + 'px';
+          L.div.style.opacity = '1';
+          return true;
+        }
         function findEnt(root, name) {
           // Prefer synthetic StoryboardEntity_<name> created by the overlay (the
           // visible group; real Luna entity is hidden by hideTemplateVisuals).
@@ -2468,8 +3627,9 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           }
           return hit;
         }
-        function tickLabels() {
+        function syncSourceWorldLabels() {
           if (!pcApp || !camEnt || !camEnt.camera || typeof camEnt.camera.worldToScreen !== 'function') return;
+          try { if (typeof window.__syncStoryboardEntities === 'function') window.__syncStoryboardEntities(); } catch(eSyncLabels) {}
           var phase = currentWorldLabelPhase();
           var phaseId = phase && phase.id || 'current';
           var projected = phase && phase.projectedWorldLabels;
@@ -2482,6 +3642,11 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               continue;
             }
             var projectedRect = projectedHit && projectedHit.rect;
+            var entityRect = storyboardEntityRectForLabel(L);
+            if (entityRect && placeWorldLabelAboveRect(L, entityRect)) {
+              measured[projectedHit ? projectedHit.key : L.entityId] = observedWorldLabelRect(L.div, true);
+              continue;
+            }
             if (projectedRect) {
               var vr = projectWorldLabelRectToViewport(projectedRect);
               L.div.style.transform = 'none';
@@ -2501,15 +3666,16 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             if (!ent || typeof ent.getPosition !== 'function') { setWorldLabelHidden(L, measured); continue; }
             var wp = ent.getPosition();
             if (!wp || typeof wp.x !== 'number') { setWorldLabelHidden(L, measured); continue; }
-            var target = new pc.Vec3(wp.x + L.ox, wp.y + L.oy, wp.z + L.oz);
-            var sp = camEnt.camera.worldToScreen(target);
+            wp = new pc.Vec3(wp.x + L.ox, wp.y + L.oy, wp.z + L.oz);
+            var sp = camEnt.camera.worldToScreen(wp);
             if (!sp || sp.z < 0) { setWorldLabelHidden(L, measured); continue; }
+            var cssY = worldLabelCanvasSize().height - Number(sp.y);
             L.div.style.transform = 'translate(-50%,-50%)';
             L.div.style.width = '';
             L.div.style.height = '';
             L.div.style.display = 'block';
             L.div.style.left = sp.x.toFixed(1) + 'px';
-            L.div.style.top = sp.y.toFixed(1) + 'px';
+            L.div.style.top = cssY.toFixed(1) + 'px';
             L.div.style.opacity = '1';
             measured[L.entityId] = observedWorldLabelRect(L.div, true);
           }
@@ -2524,8 +3690,13 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           labels[di].div.style.display = 'block';
           labels[di].div.style.opacity = '0';
         }
-        tickLabels();
-        setInterval(tickLabels, 100);
+        window.__syncSourceWorldLabels = syncSourceWorldLabels;
+        syncSourceWorldLabels();
+        (function frameTickLabels() {
+          try { syncSourceWorldLabels(); } catch(eFrameLabels) {}
+          if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(frameTickLabels);
+          else setTimeout(frameTickLabels, 33);
+        })();
       }
 
       applyStoryboardVisualOverlay();
@@ -2581,9 +3752,25 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             target = scope;
           }
         } catch(e) {}
+        window.__blueprintGameFlowComponent = target || null;
         return target;
       }
       window.__blueprintResolveGameFlowComponent = resolveGameLoopComponent;
+      function driverNormalizePhaseKey(value) {
+        var fn = window.__blueprintNormalizePhaseKey;
+        if (typeof fn === "function") return fn(value);
+        return String(value == null ? "" : value).toLowerCase().replace(/[^a-z0-9]/g, "");
+      }
+      function driverPhaseMatches(phase, key) {
+        var fn = window.__blueprintPhaseMatches;
+        if (typeof fn === "function") return fn(phase, key);
+        if (!phase || !key) return false;
+        var fields = ["id", "phaseId", "name", "title", "label"];
+        for (var i = 0; i < fields.length; i++) {
+          if (driverNormalizePhaseKey(phase[fields[i]]) === key) return true;
+        }
+        return false;
+      }
       function currentBlueprintGameState() {
         try {
           var gs = typeof window.__gameState === "function" ? window.__gameState() : window.__gameState;
@@ -2595,23 +3782,29 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
       function sourcePhaseForState(state, fallbackPhaseId) {
         try {
           var va = window.__BLUEPRINT_VISUAL_ASSETS__ || null;
-          var phases = va && va.sourcePhaseContract && va.sourcePhaseContract.phases;
-          if ((!phases || !phases.length) && va && va.fidelityContract) phases = va.fidelityContract.phases;
-          if (!phases || !phases.length) return null;
           var phaseId = fallbackPhaseId || state && (state.currentPhase || state.phase);
-          if (phaseId) {
-            for (var i = 0; i < phases.length; i++) {
-              if (phases[i] && String(phases[i].id) === String(phaseId)) return phases[i];
-            }
-          }
-          var idx = 0;
-          var m = String(phaseId || "").match(/(\\d+)/);
-          if (m) idx = Math.max(0, Number(m[1]) - 1);
-          return phases[idx] || null;
+          var resolve = window.__blueprintResolveSourcePhase;
+          var resolved = typeof resolve === "function" ? resolve(state, phaseId) : null;
+          return resolved && resolved.phase || null;
         } catch(e) { return null; }
       }
-      function sourcePhaseFirstTarget(phase) {
+      function sourcePhaseInfoForState(state, fallbackPhaseId) {
         try {
+          var va = window.__BLUEPRINT_VISUAL_ASSETS__ || null;
+          var phaseId = fallbackPhaseId || state && (state.currentPhase || state.phase);
+          var resolve = window.__blueprintResolveSourcePhase;
+          return typeof resolve === "function" ? resolve(state, phaseId) : null;
+        } catch(e) { return null; }
+      }
+      function sourcePhaseFirstTarget(phase, state) {
+        try {
+          var ui = state && (state.uiState || state.ui_state) || {};
+          var runtimeTarget = ui.highlightTarget ||
+            ui.highlightOverlay && ui.highlightOverlay.target ||
+            ui.highlightState && ui.highlightState.target ||
+            state && state.targetEntity ||
+            state && state.variables && state.variables.targetEntity;
+          if (runtimeTarget) return runtimeTarget;
           if (!phase || !phase.steps || !phase.steps.length) return "";
           return phase.steps[0] && phase.steps[0].target || "";
         } catch(e) { return ""; }
@@ -2630,12 +3823,15 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             var st = entityStates[name];
             if (!st || typeof st !== "object") continue;
             var isVisible = !!show[name];
-            st.visible = isVisible;
-            if (!isVisible) {
+            var runtimeHidden = st.visible === false || (st.position && isFinite(Number(st.position.y)) && Number(st.position.y) < -100);
+            if (!isVisible || runtimeHidden) {
+              st.visible = false;
               st.state = st.state || "hidden";
               if (!st.position || typeof st.position !== "object") st.position = { x: 0, y: -999, z: 0 };
               else st.position.y = -999;
-            } else if (st.state === "hidden") {
+            } else {
+              st.visible = isVisible;
+              if (!st.position || typeof st.position !== "object") st.position = { x: 0, y: 0, z: 0 };
               st.state = "active";
             }
           }
@@ -2651,8 +3847,12 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
           if (!state.uiState && state.ui_state) state.uiState = state.ui_state;
           if (!state.camera_state && state.cameraState) state.camera_state = state.cameraState;
           if (!state.cameraState && state.camera_state) state.cameraState = state.camera_state;
-          var phase = sourcePhaseForState(state, fallbackPhaseId);
+          var phaseInfo = sourcePhaseInfoForState(state, fallbackPhaseId);
+          var phase = phaseInfo && phaseInfo.phase;
           if (phase) {
+            state.sourcePhaseId = phase.id || "";
+            state.sourcePhaseIndex = phaseInfo.index;
+            state.sourcePhaseNumber = phaseInfo.index + 1;
             var ui = state.ui_state || state.uiState || {};
             state.ui_state = ui;
             state.uiState = ui;
@@ -2660,7 +3860,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             var vars = state.variables || {};
             state.variables = vars;
             if (phase.guideText) vars.guideText = phase.guideText;
-            var target = sourcePhaseFirstTarget(phase);
+            var target = sourcePhaseFirstTarget(phase, state);
             if (target) {
               vars.targetEntity = target;
               state.targetEntity = target;
@@ -2702,6 +3902,9 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
       }
       function orderedPhaseIds(loopComp) {
         var ids = [];
+        var runtimePhaseIdsFn = window.__blueprintRuntimePhaseIdsFromComponent;
+        var runtimeIds = typeof runtimePhaseIdsFn === "function" ? runtimePhaseIdsFn(loopComp) : [];
+        if (runtimeIds.length) return runtimeIds;
         try {
           var va = window.__BLUEPRINT_VISUAL_ASSETS__ || null;
           var sourcePhases = va && va.sourcePhaseContract && va.sourcePhaseContract.phases;
@@ -2781,18 +3984,44 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         }
         var initName = "Phase_" + suffix + "_Init";
         if (typeof loopComp[initName] === "function") loopComp[initName]();
+        if (typeof loopComp.ApplyFidelityPhaseVisibility === "function") loopComp.ApplyFidelityPhaseVisibility(targetIdx);
+        var snapshotName = "Snapshot_" + suffix + "_GateEntities";
+        if (typeof loopComp[snapshotName] === "function") loopComp[snapshotName]();
         if (typeof loopComp.UpdateGameState === "function") loopComp.UpdateGameState();
         normalizeBlueprintGameState(currentBlueprintGameState(), phaseId);
         return { phase: phaseId, index: phaseNumber };
       }
+      function phaseNumberFromDriveInput(loopComp, input) {
+        var phaseIds = orderedPhaseIds(loopComp);
+        var raw = String(input == null ? "" : input);
+        var n = Number(raw);
+        if (isFinite(n)) return Math.floor(n);
+        var key = driverNormalizePhaseKey(raw);
+        var aliasFn = window.__blueprintSourcePhaseAliasesFromRuntime;
+        var aliases = typeof aliasFn === "function" ? aliasFn(loopComp) : {};
+        if (aliases[key]) key = driverNormalizePhaseKey(aliases[key]);
+        for (var i = 0; i < phaseIds.length; i++) {
+          if (driverNormalizePhaseKey(phaseIds[i]) === key) return i + 1;
+        }
+        try {
+          var va = window.__BLUEPRINT_VISUAL_ASSETS__ || {};
+          var sourcePhases = va.sourcePhaseContract && va.sourcePhaseContract.phases;
+          if ((!sourcePhases || !sourcePhases.length) && va.fidelityContract) sourcePhases = va.fidelityContract.phases;
+          sourcePhases = Array.isArray(sourcePhases) ? sourcePhases : [];
+          for (var si = 0; si < sourcePhases.length; si++) {
+            if (driverPhaseMatches(sourcePhases[si], key)) return si + 1;
+          }
+        } catch(e) {}
+        var m = raw.match(/(\d+)/);
+        if (m) return Math.floor(Number(m[1]));
+        throw new Error("bad phase: " + input);
+      }
       window.__driveToPhase = function(n) {
         return new Promise(function(resolve, reject) {
           try {
-            var phaseNumber = Number(n);
-            if (!isFinite(phaseNumber)) throw new Error("bad phase: " + n);
-            phaseNumber = Math.floor(phaseNumber);
             var loopComp = resolveGameLoopComponent();
             if (!loopComp) throw new Error("GameFlow component unavailable");
+            var phaseNumber = phaseNumberFromDriveInput(loopComp, n);
             var result = driveLoopComponentToPhase(loopComp, phaseNumber);
             settleFidelityFrame().then(function() {
               try {
@@ -3063,18 +4292,18 @@ if(_imgSet&&_imgSet.set){
   // Bridge.NET transpiles this to Playcanvas entity._name. We poll all root entities to find it.
   const gameStateBridge = `<script>
 (function(){
-  window.__BLUEPRINT_GAMESTATE_BRIDGE_VERSION__='public-preview-autoplay-v1';
-  // Public preview should play through by default. CUA observe keeps the
-  // observer-ready handshake to avoid pre-contamination before screenshots start.
+  window.__BLUEPRINT_GAMESTATE_BRIDGE_VERSION__='manual-default-autoplay-param-v1';
+  // Public preview is manual by default. CUA/diagnostic observe runs must opt in
+  // with ?autoplay=1 so the user-facing URL cannot silently self-play.
   var _autoPlayFlagCreated=false;
   var _observerReadyFlagCreated=false;
   var _params=new URLSearchParams(window.location.search);
   var _autoplayParam=_params.get('autoplay');
   var _manualRequested=_autoplayParam==='0'||_params.get('manual')==='1'||_params.get('interactive')==='1';
-  var _cuaAutoPlayRequested=_autoplayParam==='1';
-  var _publicPreviewAutoPlay=!_cuaAutoPlayRequested&&!_manualRequested;
-  var _autoPlayRequested=_cuaAutoPlayRequested||_publicPreviewAutoPlay;
-  window.__CUA_OBSERVER_READY__ = !!window.__CUA_OBSERVER_READY__ || _publicPreviewAutoPlay;
+  var _cuaAutoPlayRequested=_autoplayParam==='1'&&!_manualRequested;
+  var _observerReadyRequested=_params.get('observerReady')==='1'||_params.get('cuaObserverReady')==='1';
+  var _autoPlayRequested=_cuaAutoPlayRequested;
+  window.__CUA_OBSERVER_READY__ = !!window.__CUA_OBSERVER_READY__ || _observerReadyRequested;
   setInterval(function(){
     try{
       var app=pc.app||pc.Application.getApplication();
@@ -3083,8 +4312,6 @@ if(_imgSet&&_imgSet.set){
       if(_autoPlayRequested&&!_autoPlayFlagCreated){
         try{var fe=new pc.Entity('__AUTOPLAY_ON__');app.root.addChild(fe);_autoPlayFlagCreated=true;}catch(e){}
       }
-      // Public preview creates this immediately; CUA creates it only after observation starts.
-      if(_publicPreviewAutoPlay&&!window.__CUA_OBSERVER_READY__)window.__CUA_OBSERVER_READY__=true;
       if(window.__CUA_OBSERVER_READY__&&!_observerReadyFlagCreated){
         try{var oe=new pc.Entity('__CUA_OBSERVER_READY__');app.root.addChild(oe);_observerReadyFlagCreated=true;}catch(e){}
       }
@@ -3170,7 +4397,7 @@ function startServer(port = 3080) {
       req.on('end', async () => {
         try {
           const parsed = JSON.parse(body);
-          const { code, className, extraFiles } = parsed;
+          const { code, className, extraFiles, visualAssets } = parsed;
           console.log(`[build] body=${body.length}b, code=${(code||'').length}b, extraFiles=${JSON.stringify(Object.keys(extraFiles||{}))}`);
           if (!code) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -3178,7 +4405,7 @@ function startServer(port = 3080) {
             return;
           }
 
-          const result = await buildFromCS(code, { className, extraFiles });
+          const result = await buildFromCS(code, { className, extraFiles, visualAssets });
 
           if (result.ok) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -3206,8 +4433,8 @@ function startServer(port = 3080) {
       req.on('data', chunk => body += chunk);
       req.on('end', async () => {
         try {
-          const { code, className, extraFiles } = JSON.parse(body);
-          const result = await buildFromCS(code, { className, extraFiles });
+          const { code, className, extraFiles, visualAssets } = JSON.parse(body);
+          const result = await buildFromCS(code, { className, extraFiles, visualAssets });
           if (result.ok) {
             res.writeHead(200, { 'Content-Type': 'text/html' });
             res.end(result.html);
@@ -3237,7 +4464,7 @@ function startServer(port = 3080) {
   });
 }
 
-module.exports = { buildFromCS, startServer };
+module.exports = { buildFromCS, startServer, _ensureTmpRoot: ensureTmpRoot };
 
 if (require.main === module) {
   const port = parseInt(process.env.PORT || '3080');

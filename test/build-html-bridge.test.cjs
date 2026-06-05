@@ -7,10 +7,13 @@ const helpers = require('../engine/helpers.cjs');
   const out = helpers.injectGameStateBridgeHtml(html);
   assert.match(out, /__AUTOPLAY_ON__/);
   assert.match(out, /__CUA_OBSERVER_READY__/);
-  assert.match(out, /public-preview-autoplay-v1/);
-  assert.match(out, /_publicPreviewAutoPlay=!_cuaAutoPlayRequested&&!_manualRequested/);
+  assert.match(out, /manual-default-autoplay-param-v1/);
+  assert.doesNotMatch(out, /_publicPreviewAutoPlay/);
+  assert.match(out, /_autoPlayRequested=_cuaAutoPlayRequested/);
+  assert.match(out, /_cuaAutoPlayRequested=_autoplayParam==='1'&&!_manualRequested/);
+  assert.match(out, /_observerReadyRequested=_params\.get\('observerReady'\)==='1'\|\|_params\.get\('cuaObserverReady'\)==='1'/);
   assert.match(out, /_autoplayParam==='0'\|\|_params\.get\('manual'\)==='1'/);
-  assert.match(out, /window\.__CUA_OBSERVER_READY__ = !!window\.__CUA_OBSERVER_READY__ \|\| _publicPreviewAutoPlay/);
+  assert.match(out, /window\.__CUA_OBSERVER_READY__ = !!window\.__CUA_OBSERVER_READY__ \|\| _observerReadyRequested/);
   assert.match(out, /_observerReadyFlagCreated/);
   assert.match(out, /window\.__gameState/);
   assert.match(out, /scoreState/);
@@ -26,7 +29,7 @@ const helpers = require('../engine/helpers.cjs');
   const text = out.toString('utf8');
   assert.match(text, /__AUTOPLAY_ON__/);
   assert.match(text, /__CUA_OBSERVER_READY__/);
-  assert.match(text, /public-preview-autoplay-v1/);
+  assert.match(text, /manual-default-autoplay-param-v1/);
 }
 
 {
@@ -51,8 +54,9 @@ const helpers = require('../engine/helpers.cjs');
   ].join('');
   const out = helpers.injectGameStateBridgeHtml(oldBridge);
   assert.notStrictEqual(out, oldBridge);
-  assert.match(out, /public-preview-autoplay-v1/);
-  assert.ok(out.indexOf('public-preview-autoplay-v1') > out.indexOf('_autoPlayFlagCreated=false'));
+  assert.match(out, /manual-default-autoplay-param-v1/);
+  assert.doesNotMatch(out, /public-preview-autoplay-v1/);
+  assert.ok(out.indexOf('manual-default-autoplay-param-v1') > out.indexOf('_autoPlayFlagCreated=false'));
 }
 
 {

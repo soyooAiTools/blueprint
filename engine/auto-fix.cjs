@@ -3,7 +3,7 @@
  *
  * Full auto-fix closed loop:
  *   L4  applyRecipe     — sub-agent edits real files (backup→fix→verify→revert)
- *   L5  generateRecipe  — new fingerprint → Claude analyzes → writes recipe JSON+MD
+ *   L5  generateRecipe  — new fingerprint → Codex analyzes → writes recipe JSON+MD
  *   L6  autoApplyFix    — orchestrates: find/generate recipe → apply → verify
  *   L7  autoLearn       — after successful fix → writes memory entry
  *
@@ -340,12 +340,14 @@ async function applyRecipe(fingerprintId) {
       systemPrompt: systemPrompt,
       userPrompt: userPrompt,
       // No additionalFiles — contents embedded in prompt, no Read tool needed
-      model: 'claude-sonnet-4-6',
+      backend: 'codex-exec',
+      model: process.env.CODEX_AUTOFIX_MODEL || process.env.CODEX_TEXT_MODEL || process.env.CODEX_CODE_MODEL || 'gpt-5.5',
       effort: process.env.CODEX_REASONING_EFFORT || 'high',
       timeoutMs: 6 * 60 * 1000,
       minOutputLen: 100,
       taskId: 'autofix-' + recipe.id,
       noTools: true,
+      allowBackendFallback: false,
       log: function(m) { log(m); },
     });
   } catch(e) {
@@ -544,11 +546,13 @@ async function generateRecipe(fingerprint, context) {
     result = await runner({
       systemPrompt: systemPrompt,
       userPrompt: userPrompt,
-      model: 'claude-sonnet-4-6',
+      backend: 'codex-exec',
+      model: process.env.CODEX_AUTOFIX_MODEL || process.env.CODEX_TEXT_MODEL || process.env.CODEX_CODE_MODEL || 'gpt-5.5',
       effort: process.env.CODEX_REASONING_EFFORT || 'high',
       timeoutMs: 6 * 60 * 1000,
       minOutputLen: 200,
       taskId: 'gen-recipe-' + id,
+      allowBackendFallback: false,
       log: function(m) { log(m); },
     });
   } catch(e) {

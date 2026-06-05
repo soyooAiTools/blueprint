@@ -368,10 +368,42 @@ function summarizeAction(action) {
   return kind;
 }
 
-function buildReviewPlanGuidance(plans) {
+function collectRuntimePhaseContract(plans, blueprint) {
+  var specs = blueprint && Array.isArray(blueprint.specs) ? blueprint.specs : [];
+  if (specs.length > 0) {
+    return {
+      source: 'specs',
+      expectedRuleCount: specs.length,
+      phaseIds: uniq(specs.map(function(spec) { return spec && spec.phaseId; }).filter(Boolean)),
+      ruleCountSource: 'blueprint.specs',
+    };
+  }
+
+  var ids = collectExpectedPhaseIds({ plans: plans || {} });
+  var source = 'none';
+  if (ids.length > 0) {
+    source = getExpectedPhaseSource({ plans: plans || {} });
+  }
+  return {
+    source: source,
+    expectedRuleCount: ids.length,
+    phaseIds: ids,
+    ruleCountSource: source === 'none' ? 'none' : source,
+  };
+}
+
+function buildReviewPlanGuidance(plans, blueprint) {
   if (!plans || !plans.assemblyPlan) return '';
+  var runtimePhaseContract = collectRuntimePhaseContract(plans, blueprint);
   var summary = {
     registryVersion: plans.registryVersion || null,
+    runtimePhaseContract: {
+      source: runtimePhaseContract.source,
+      ruleCountSource: runtimePhaseContract.ruleCountSource,
+      expectedRuleCount: runtimePhaseContract.expectedRuleCount,
+      phaseIds: runtimePhaseContract.phaseIds,
+      reviewerGuidance: 'Use runtimePhaseContract.expectedRuleCount and runtimePhaseContract.phaseIds for RULE_COUNT, _totalPhases, ruleTriggered[], phaseEnterTimes, completed phase coverage, and CheckEventRules phase-count checks. Do not infer runtime phase count from assemblyPlan.phaseBindings or cuaSteps when runtimePhaseContract.source is specs; those bindings may be finer-grained storyboard/CUA/state-owner steps that are implemented inside the smaller runtime phase set.',
+    },
     phaseBindings: ((plans.assemblyPlan && plans.assemblyPlan.phaseBindings) || []).map(function(binding) {
       return {
         phaseId: binding.phaseId,
@@ -534,6 +566,7 @@ module.exports = {
   computePhaseCoverage: computePhaseCoverage,
   collectExpectedPhaseIds: collectExpectedPhaseIds,
   getExpectedPhaseSource: getExpectedPhaseSource,
+  collectRuntimePhaseContract: collectRuntimePhaseContract,
   buildReviewPlanGuidance: buildReviewPlanGuidance,
   detectAssemblyContractViolations: detectAssemblyContractViolations,
 };

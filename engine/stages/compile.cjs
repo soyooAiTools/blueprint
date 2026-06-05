@@ -10,6 +10,7 @@ var path = require('path');
 var helpers = require('../helpers.cjs');
 var { recode } = require('../recode.cjs');
 var { createFixLoop } = require('../fix-loop.cjs');
+var { isInfra } = require('../error-classifier.cjs');
 var config = require('../../lib/config.cjs');
 var commentLocalizer = require('../../lib/csharp-comment-localizer.cjs');
 var { resourceIdExpr } = require('../../adapters/templates/resource-ids.cjs');
@@ -19,6 +20,17 @@ var MAX_BUILD_FIX_ATTEMPTS = 5;
 // Early exit if the build fails with the same error signature 3 rounds in a row —
 // the AI is stuck on the same root cause, additional rounds will only burn tokens.
 var SAME_BUILD_ERROR_EXIT = 3;
+
+function isBuildInfraError(error) {
+  var text = String(error || '');
+  if (!text) return false;
+  if (isInfra(text)) return true;
+  return /ENOENT.*mkdtemp/i.test(text)
+    || /mkdtemp.*ENOENT/i.test(text)
+    || /no such file or directory.*(?:mkdtemp|luna-build)/i.test(text)
+    || /(?:mkdtemp|luna-build).*no such file or directory/i.test(text)
+    || /temporary directory unavailable/i.test(text);
+}
 
 function localizeCompileInputs(csCode, extraFiles) {
   var localCtx = {
@@ -686,6 +698,9 @@ module.exports = {
 
             var buildError = buildResult.error || '';
             ctx.addLog('compile', 'Build failed: ' + buildError.slice(0, 1000));
+            if (isBuildInfraError(buildError)) {
+              throw new Error('Build infra error: ' + buildError.slice(0, 1000));
+            }
 
             // 2026-04-27: deterministic CS0103 hallucination patcher (opt-in).
             // PATCH_ANALYZER_AUTO_STUB=safe injects null-guarded stubs for
@@ -775,4 +790,5 @@ module.exports = {
   _stripDuplicateMethodsInSource: stripDuplicateMethodsInSource,
   _repairAddResourceNegativeEvidence: repairAddResourceNegativeEvidence,
   _refreshCanonicalGfmUi: refreshCanonicalGfmUi,
+  _isBuildInfraError: isBuildInfraError,
 };

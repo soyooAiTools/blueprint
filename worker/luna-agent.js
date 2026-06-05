@@ -6,11 +6,10 @@
  * 流程:
  *   1. Playwright 打开广告 URL
  *   2. 注入 playcheck-dom-input.js + luna-snapshot.js
- *   3. 循环: snapshot → Claude 决策 → exec 执行 → 观察变化
+ *   3. 循环: snapshot → AI 决策 → exec 执行 → 观察变化
  *   4. 输出 QC 报告
  * 
- * 依赖: playwright, @anthropic-ai/sdk
- * 环境变量: ANTHROPIC_API_KEY
+ * 依赖: playwright, openai
  */
 
 // ─── 代理设置（必须在最前面） ───
@@ -27,12 +26,16 @@ try {
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const CLAUDE_DISABLED = /^(1|true|yes|on)$/i.test(String(process.env.BLUEPRINT_DISABLE_CLAUDE || '')) ||
+  !/^(1|true|yes|on)$/i.test(String(process.env.BLUEPRINT_ENABLE_CLAUDE || ''));
 
 // ─── 依赖检查 ───
 function checkDeps() {
   const missing = [];
   try { require('playwright'); } catch (e) { missing.push('playwright'); }
-  try { require('@anthropic-ai/sdk'); } catch (e) { missing.push('@anthropic-ai/sdk'); }
+  if (!CLAUDE_DISABLED) {
+    try { require('@anthropic-ai/sdk'); } catch (e) { missing.push('@anthropic-ai/sdk'); }
+  }
   try { require('openai'); } catch (e) { missing.push('openai'); }
   if (missing.length > 0) {
     console.error('Missing dependencies. Run:');
@@ -45,7 +48,7 @@ function checkDeps() {
 checkDeps();
 
 const { chromium } = require('playwright');
-const Anthropic = require('@anthropic-ai/sdk');
+const Anthropic = CLAUDE_DISABLED ? null : require('@anthropic-ai/sdk');
 const OpenAI = require('openai');
 
 // ─── 参数解析 ───
@@ -58,7 +61,7 @@ function parseArgs() {
     output: null,
     screenshotInterval: 5,
     verbose: false,
-    model: 'claude',  // 'claude' | 'gpt' | 'cua'
+    model: 'cua',  // 'gpt' | 'cua' | legacy 'claude'
     background: false, // 后台模式：日志写文件，进程独立运行
     logFile: null,      // 后台模式日志文件路径
     feedbackFile: null,  // 反馈验收模式：上一轮报告 JSON 路径
@@ -1190,6 +1193,10 @@ async function executeAction(page, action, verbose) {
 // ─── 主循环 ───
 async function main() {
   const config = parseArgs();
+  if (config.model === 'claude' && CLAUDE_DISABLED) {
+    console.error('Claude backend disabled; set BLUEPRINT_ENABLE_CLAUDE=1 only for legacy use');
+    process.exit(1);
+  }
   const scripts = loadInjectScripts();
   const { detectAnomalies } = require('./luna-anomaly-rules');
 
@@ -1524,7 +1531,74 @@ async function main() {
       }
     }
 
-    // CUA 是唯一验证方式，无需额外视频审核
+    // Optional video-model audit. This catches temporal/visual drift issues that
+    // screenshot-only CUA reviews can miss, such as jumpy joystick movement or
+    // labels moving opposite to their entity.
+    const videoAuditDisabled = /^(1|true|on|yes)$/i.test(String(process.env.BLUEPRINT_SKIP_VOLC_VIDEO_AUDIT || '')) ||
+      /^(0|false|off|no)$/i.test(String(process.env.BLUEPRINT_VOLC_VIDEO_AUDIT || ''));
+    if (finalVideoPath && !videoAuditDisabled) {
+      console.log('[CUA] Volcengine video audit starting...');
+      try {
+        const volcengineAudit = require('./volcengine-video-audit.cjs');
+        if (typeof volcengineAudit.hasVolcengineVideoAuditCredentials === 'function' &&
+          !volcengineAudit.hasVolcengineVideoAuditCredentials()) {
+          const required = process.env.BLUEPRINT_VOLC_VIDEO_AUDIT_REQUIRED === '1';
+          report.videoFile = finalVideoPath;
+          report.volcengineVideoAudit = {
+            passed: !required,
+            skipped: true,
+            reason: 'ARK_API_KEY/DOUBAO_API_KEY missing',
+          };
+          if (required) {
+            report.summary.passed = false;
+            report.exitReason = 'volcengine_video_audit_failed';
+          }
+          console.log('[CUA] Volcengine video audit skipped: API key missing');
+        } else {
+          const videoAudit = await volcengineAudit.runVolcengineVideoAudit(finalVideoPath, {
+            model: process.env.BLUEPRINT_VOLC_VIDEO_AUDIT_MODEL || process.env.DOUBAO_VIDEO_AUDIT_MODEL || process.env.DOUBAO_VIDEO_MODEL,
+            fps: process.env.BLUEPRINT_VOLC_VIDEO_AUDIT_FPS || 4,
+            context: 'This is a CUA recording of a playable ad. Focus on virtual joystick movement continuity and entity label anchoring.',
+          });
+          report.videoFile = finalVideoPath;
+          report.volcengineVideoAudit = videoAudit;
+          if (!videoAudit.passed) {
+            report.summary.passed = false;
+            report.exitReason = 'volcengine_video_audit_failed';
+          }
+          console.log('[CUA] Volcengine video audit:', videoAudit.passed ? 'PASS' : 'FAIL', '-', videoAudit.summary || '');
+        }
+      } catch (err) {
+        const required = process.env.BLUEPRINT_VOLC_VIDEO_AUDIT_REQUIRED !== '0';
+        report.videoFile = finalVideoPath;
+        report.volcengineVideoAudit = {
+          passed: false,
+          error: err.message,
+          issues: [{ type: 'inconclusive', severity: 'major', evidence: err.message }],
+        };
+        if (required) {
+          report.summary.passed = false;
+          report.exitReason = 'volcengine_video_audit_failed';
+        }
+        console.error('[CUA] Volcengine video audit failed:', err.message);
+      }
+      if (config.output) {
+        try {
+          let savedReport = {};
+          try { savedReport = JSON.parse(fs.readFileSync(config.output, 'utf8')); } catch(e) {}
+          savedReport = Object.assign(savedReport, {
+            exitReason: report.exitReason,
+            summary: report.summary,
+            videoFile: report.videoFile,
+            volcengineVideoAudit: report.volcengineVideoAudit,
+          });
+          fs.writeFileSync(config.output, JSON.stringify(savedReport, null, 2));
+          console.log('[CUA] JSON report updated with Volcengine video audit:', config.output);
+        } catch (writeErr) {
+          console.error('[CUA] Failed to update video audit report:', writeErr.message);
+        }
+      }
+    }
 
     await browser.close();
     console.log('\n[Luna Agent] Done (CUA mode).');
@@ -1596,7 +1670,7 @@ async function main() {
 
     // 5. AI 决策
     const prompt = buildPrompt(snapshot, anomalies, history, round, config.rounds, !!screenshotB64);
-    const decision = config.model === 'gpt'
+    const decision = (config.model === 'gpt' || config.model === 'cua')
       ? await callGPT(openaiClient, prompt, screenshotB64)
       : await callClaude(anthropicClient, prompt, screenshotB64);
 

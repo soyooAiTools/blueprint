@@ -112,7 +112,18 @@ function saveCheckpoint(taskId, data) {
   }
   var jsonTmp = path.join(dir, 'checkpoint.json.tmp');
   var jsonFinal = path.join(dir, 'checkpoint.json');
-  fs.writeFileSync(jsonTmp, JSON.stringify(payload));
+  // Circular-safe stringify (defense-in-depth): a stage that resolves `ctx` instead
+  // of a plain summary can make ctx.stageResults self-referential via pipeline's
+  // Object.assign({}, result). Drop only the repeated back-edge so the checkpoint
+  // still persists instead of crashing the stage AND the failure-checkpoint save.
+  var __ckSeen = new WeakSet();
+  fs.writeFileSync(jsonTmp, JSON.stringify(payload, function (k, v) {
+    if (v && typeof v === 'object') {
+      if (__ckSeen.has(v)) return undefined;
+      __ckSeen.add(v);
+    }
+    return v;
+  }));
   fs.renameSync(jsonTmp, jsonFinal);
 }
 
@@ -337,9 +348,11 @@ function buildStructuredFeedback(round, cuaResult, blueprint, fixHistory) {
 
 // ============ Config ============
 const WORKER_ID = process.env.LINUX_WORKER_ID || process.env.name || ('linux-worker-' + (process.env.pm_id || '1'));
-const BASE_URL = process.env.LINUX_BASE_URL || 'http://120.55.70.226:3901';
+// Worker is co-located with the API on the main ECS — default to localhost so a
+// public-IP changes shouldn't break polling. Override via LINUX_BASE_URL.
+const BASE_URL = process.env.LINUX_BASE_URL || 'http://127.0.0.1:3901';
 // Fallback is local build-api (/opt/luna-poc/build-api.js). The old remote
-// 120.55.70.226:3080 is a zombie (accepts TCP, returns empty reply) and silently
+// old 120.55.70.226:3080 is a zombie (accepts TCP, returns empty reply) and silently
 // turns every compile into ECONNRESET — see memory `feedback_dotenv_path_mismatch`.
 const BUILD_URL = process.env.LINUX_BUILD_URL || 'http://127.0.0.1:18860';
 const POLL_INTERVAL = 10000;       // 10s between polls
@@ -871,19 +884,23 @@ async function processTask(task) {
     await reportStatus(taskId, 'failed', failInfo);
     if (ctx) {
       try {
+        var failureCompletedStages = ctx.completedStages || [];
+        var failureStageResults = ctx.stageResults || {};
+        var failureCsCode = ctx.csCode || (checkpoint && checkpoint.csCode) || null;
+        var failureExtraFiles = ctx.extraFiles || {};
         saveCheckpoint(taskId, {
           blueprint: ctx.blueprint || null,
-          csCode: ctx.csCode || (checkpoint && checkpoint.csCode) || null,
+          csCode: failureCsCode,
           cuaRound: ctx.checkpoint ? ctx.checkpoint.cuaRound || 0 : 0,
           feedbackHistory: ctx.blueprint ? ctx.blueprint.feedbackHistory || [] : [],
           fixHistory: ctx.checkpoint ? ctx.checkpoint.fixHistory || [] : [],
-          completedStages: ctx.completedStages || [],
-          extraFiles: ctx.extraFiles || {},
-          stageResults: ctx.stageResults || {},
+          completedStages: failureCompletedStages,
+          extraFiles: failureExtraFiles,
+          stageResults: failureStageResults,
           workDir: ctx.workDir || null,
           htmlOutput: ctx.htmlOutput || null,
         });
-        log('[checkpoint] Failure checkpoint saved for ' + taskId + ' (stages: ' + (ctx.completedStages || []).join(',') + ')', taskId);
+        log('[checkpoint] Failure checkpoint saved for ' + taskId + ' (stages: ' + (failureCompletedStages || []).join(',') + ')', taskId);
       } catch (saveErr) {
         log('[checkpoint] Failed to save failure checkpoint for ' + taskId + ': ' + saveErr.message, taskId);
       }

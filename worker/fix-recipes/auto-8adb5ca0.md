@@ -1,0 +1,6 @@
+# auto-8adb5ca0
+## Diagnosis
+`worker/codex-reviewer.js` stores the preflight result in a module-level singleton (`_codexPreflightResult`) with **no TTL for negative results**. A single transient failure — network blip, access-token mid-refresh, or id_token expiry — permanently sets the cached result to `false`, causing every subsequent task in the same worker process to throw `MODEL_FATAL: codex preflight failed (auth_failed)` immediately without ever re-running `codex exec`. The second hit confirms the second task consumed the stale cached `false` rather than re-checking. The `~/.codex/auth.json` also shows `chatgpt_plan_type: "free"` with an expired `id_token` (exp `1779813575` ≈ 2026-05-26T16:39Z), which Codex CLI may validate on session setup and emit a `401`/auth-text line that the regex `/401|unauthor|auth/i` (line 126) maps to `auth_failed`.
+
+## Root Cause
+`worker/codex-reviewer.js:40` — unconditional early-return on any non-null cached result, with no expiry path for the `false` case:

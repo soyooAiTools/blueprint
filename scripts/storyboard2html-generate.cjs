@@ -88,10 +88,12 @@ function main() {
   codexCoder.runCodexText({
     systemPrompt: built.systemPrompt,
     userPrompt: built.userPrompt,
+    backend: 'codex-exec',
     model: built.model,
     timeoutMs: built.timeoutMs,
     minOutputLen: built.minOutputLen,
     taskId: 'storyboard2html-' + (built.metadata.projectName || 'job'),
+    allowBackendFallback: false,
     log: function(line) { console.log(line); },
   }).then(function(result) {
     if (!result || !result.ok) {

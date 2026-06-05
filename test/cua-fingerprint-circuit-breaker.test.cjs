@@ -106,11 +106,13 @@ function tick(issues) {
     state._lastNormalizedFp = fp;
     state._enhancedDiagInjected = false;
   }
-  if (state._fpRepeatCount >= FATAL_AT) return 'ABORT';
-  if (state._fpRepeatCount >= ENHANCED_AT && !state._enhancedDiagInjected) {
+  var isExemptFp = cuaInternals.isFingerprintCircuitBreakerExempt(fp);
+  if (state._fpRepeatCount >= FATAL_AT && !isExemptFp) return 'ABORT';
+  if (state._fpRepeatCount >= ENHANCED_AT && !isExemptFp && !state._enhancedDiagInjected) {
     state._enhancedDiagInjected = true;
     return 'DIAGNOSTIC';
   }
+  if (state._fpRepeatCount >= ENHANCED_AT && isExemptFp) return 'EXEMPT';
   return 'CONTINUE';
 }
 
@@ -127,8 +129,8 @@ assert.strictEqual(tick(round1),         'CONTINUE',   '[6.7] return to fp1 but 
 assert.strictEqual(tick(round1),         'DIAGNOSTIC', '[6.8] fp1 twice → diagnostic');
 assert.strictEqual(tick(round1),         'ABORT',      '[6.9] fp1 thrice → FATAL');
 
-// ── Case 7: screenshot-sharing fingerprints are owned by no-progress escalation ─
-// This fingerprint is expected to be stable until a batch-firing/full-regen fix lands.
+// ── Case 7: owner-path fingerprints are owned by no-progress escalation ─
+// These fingerprints are expected to be stable until a batch-firing/full-regen fix lands.
 // The generic FP breaker must not throw FATAL before that path can run.
 assert.strictEqual(typeof cuaInternals.isFingerprintCircuitBreakerExempt, 'function',
   '[7.1] cua-verify exposes fingerprint exemption predicate');
@@ -142,8 +144,22 @@ assert.strictEqual(cuaInternals.isFingerprintCircuitBreakerExempt(screenshotShar
   '[7.3] screenshot-sharing fp must be exempt from generic FATAL breaker');
 assert.strictEqual(cuaInternals.isFingerprintCircuitBreakerExempt('[spec-phase-skipped] missing phase'), true,
   '[7.4] existing spec-phase-skipped exemption preserved');
+var visualFreezeFp = buildFp([
+  '[visual-freeze] observe/autoplay screenshots remained static across the poll window',
+  'Visual freeze: virtually identical screenshots across poll window',
+]);
+assert.ok(visualFreezeFp && (visualFreezeFp.indexOf('visual-freeze') >= 0 || visualFreezeFp.indexOf('visual freeze') >= 0),
+  '[7.5] visual-freeze fingerprint is normalized: ' + visualFreezeFp);
+assert.strictEqual(cuaInternals.isFingerprintCircuitBreakerExempt(visualFreezeFp), true,
+  '[7.6] visual-freeze fp must be exempt from generic FATAL breaker');
 assert.strictEqual(cuaInternals.isFingerprintCircuitBreakerExempt(fp1), false,
-  '[7.5] unrelated uniform-timing fp still uses generic breaker');
+  '[7.7] unrelated uniform-timing fp still uses generic breaker');
+assert.strictEqual(tick([visualFreezeFp]), 'CONTINUE',
+  '[7.8] first exempt visual-freeze fingerprint continues');
+assert.strictEqual(tick([visualFreezeFp]), 'EXEMPT',
+  '[7.9] repeated exempt visual-freeze fingerprint defers to no-progress escalation');
+assert.strictEqual(tick([visualFreezeFp]), 'EXEMPT',
+  '[7.10] exempt visual-freeze fingerprint never returns generic ABORT');
 
 // ── Case 8: default preview interaction failure must prevent CUA skip ─
 var skipLogs = [];
@@ -203,4 +219,5 @@ console.log('OK — all D1 circuit-breaker assertions passed');
 console.log('  urbib0 fp:           ' + fp1);
 console.log('  heterogeneous fp:    ' + fpDiff);
 console.log('  screenshot fp:       ' + screenshotSharingFp);
+console.log('  visual-freeze fp:    ' + visualFreezeFp);
 console.log('  error-classifier → ' + classification.type);

@@ -96,7 +96,7 @@ class EventPool — already blocked by static-check, do not re-flag)
 - Must have Start() and Update() methods
 - Must NOT modify or redefine GFM_Tools.cs classes
 ### 4b. Phase Architecture Verification (MECHANICAL CHECK — count, don't guess)
-- Count all ruleTriggered[N] references in CheckEventRules() — the highest N+1 MUST equal the expected phase count from blueprint
+- Count all ruleTriggered[N] references in CheckEventRules() — the highest N+1 MUST equal the expected runtime phase count from blueprint specs / runtimePhaseContract, not the raw assemblyPlan.phaseBindings count when specs are present
 - Every ruleTriggered[N] block MUST have a real condition (NOT just "true" or timer-only) — require observable world-state checks such as EntityAdvanced(GameObject, _snap_XPos), resource/counter thresholds, or other state the player changes through gameplay. Interaction flags alone are NOT sufficient
 - Every phase transition MUST include a phaseTimer >= Nf dwell guard (prevents instant skip)
 - Every phase MUST have real completion conditions (entity states, interaction flags, counters) — NOT timer-only or unconditional. Phase progression MUST require actual player actions (click/drag/move), never auto-complete
@@ -115,7 +115,7 @@ class EventPool — already blocked by static-check, do not re-flag)
 ### 5b. Solid-Color Screen Prevention (CRITICAL)
 - Ground/GroundField plane color MUST be neutral gray (recommended (0.75, 0.78, 0.82)). Any channel saturation > 0.3 from gray midpoint triggers FAIL (e.g. green (0.42, 0.72, 0.38) is BANNED)
 - Camera.backgroundColor MUST differ from ground color by ≥ 0.3 on at least one RGB channel. Skeleton pre-sets (0.45, 0.52, 0.62) ��� do NOT change. BANNED: (0.75, 0.82, 0.92) — too close to gray ground, triggers solid-color detection
-- Rule 0 / gameStart MUST position ≥ 3 differently-colored objects at y ≥ -1 in the first frame — prevents solid-color screen if later phases never trigger
+- Rule 0 / gameStart MUST position ≥ 3 fidelity-contract/source-visible objects at y ≥ -1 in the first frame. Use fidelityContract.phases[0].showEntities / source PHASES[].showEntities; do not place later-phase entities as anti-solid-color filler because fidelity-source-diff will treat them as blocking extras.
 - Main entities (castle, player, hero) MUST have at least one scale dimension ≥ 1.5 to be visible under orthographic camera
 
 ### 6. GFM_Tools API Signatures (wrong params = compile error or silent fail)
@@ -654,7 +654,7 @@ Respond with a JSON object (no markdown, no code fences):
   }
   if (options.assemblyPlanSummary) {
     systemPrompt += '\n\n## Project-specific Assembly Contract\n';
-    systemPrompt += 'This contract is authoritative for phase IDs, partial-file ownership, state ownership, and CUA expectations. Treat any mismatch as a violation.\n';
+    systemPrompt += 'This contract is authoritative for partial-file ownership, state ownership, evidence, and CUA expectations. If it contains runtimePhaseContract, use runtimePhaseContract.expectedRuleCount and runtimePhaseContract.phaseIds for RULE_COUNT/_totalPhases/ruleTriggered/CheckEventRules phase-count checks. Do NOT infer runtime phase count from assemblyPlan.phaseBindings or cuaSteps when runtimePhaseContract.source is "specs"; those entries may be finer-grained storyboard/CUA/state-owner bindings implemented inside the smaller runtime phase set. Treat genuine ownership/evidence mismatches as violations.\n';
     systemPrompt += options.assemblyPlanSummary + '\n';
   }
   var userMessage = `Review this GameFlowManagerMain.cs for Luna/Bridge.NET constraint violations:\n\n\`\`\`csharp\n${code}\n\`\`\``;

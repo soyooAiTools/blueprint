@@ -2258,7 +2258,7 @@ module.exports = {
 
     var reviewedCode = ctx.csCode;
     var reviewExtraFiles = Object.assign({}, ctx.extraFiles);
-    var reviewPlanSummary = assemblyPlanContracts.buildReviewPlanGuidance(ctx.blueprint && ctx.blueprint.plans);
+    var reviewPlanSummary = assemblyPlanContracts.buildReviewPlanGuidance(ctx.blueprint && ctx.blueprint.plans, ctx.blueprint);
     var lastReviewFingerprint = null;
     var sameReviewFingerprintCount = 0;
     var specCriticalCount = 0;

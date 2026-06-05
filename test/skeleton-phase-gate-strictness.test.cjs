@@ -27,6 +27,34 @@ const code = typeof skeleton === 'string'
   ? skeleton
   : Object.keys(skeleton).map(k => skeleton[k]).filter(v => typeof v === 'string').join('\n');
 
+function methodBlock(src, methodName) {
+  const marker = `bool ${methodName}()`;
+  const start = src.indexOf(marker);
+  assert.notStrictEqual(start, -1, `missing method ${methodName}`);
+  const braceStart = src.indexOf('{', start);
+  assert.notStrictEqual(braceStart, -1, `missing body for ${methodName}`);
+  let depth = 0;
+  for (let i = braceStart; i < src.length; i++) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}') {
+      depth--;
+      if (depth === 0) return src.slice(start, i + 1);
+    }
+  }
+  throw new Error(`unterminated method ${methodName}`);
+}
+
+function assertGateAllowsManual(src, methodName, phaseId) {
+  const block = methodBlock(src, methodName);
+  assert.match(block, new RegExp(`realReady \\|\\| ManualPhaseTargetEvidenceReady\\("${phaseId}"\\)`));
+}
+
+function assertGateDeniesManual(src, methodName, phaseId) {
+  const block = methodBlock(src, methodName);
+  assert.match(block, /&& realReady/);
+  assert.doesNotMatch(block, new RegExp(`ManualPhaseTargetEvidenceReady\\("${phaseId}"\\)`));
+}
+
 assert.doesNotMatch(code, /EntityAdvanced\(Tower,\s*_snap_TowerPos\)/);
 assert.match(code, /time-only beat/);
 assert.match(code, /DetectRealTime <= 0f \|\| GFM_AutoPlay\.Instance\.IsActive/);
@@ -34,13 +62,20 @@ assert.match(code, /float phaseRealTimer = 0f;/);
 assert.match(code, /float lastPhaseRealClock = 0f;/);
 assert.match(code, /float nowReal = Time\.realtimeSinceStartup;/);
 assert.match(code, /bool PhaseDwellReady\(float specMinSeconds\)/);
-assert.match(code, /float requiredSeconds = _autoPlayMode \? 12f : specMinSeconds;/);
+assert.match(code, /float requiredSeconds = _autoPlayMode \? 12f : Mathf\.Min\(specMinSeconds, 0\.35f\);/);
+assert.match(code, /bool ManualPhaseTargetEvidenceReady\(string phaseId\)/);
+assert.match(code, /_autoPlayMode \|\| !_manualGameplayUnlocked/);
+assert.match(code, /HasPhaseEvidenceRecord\(phaseId, "distance_to_target_below_threshold"\)/);
+assert.match(code, /HasPhaseEvidenceRecord\(phaseId, "player_position_changed"\)/);
+assert.doesNotMatch(code, /ManualPhaseTargetEvidenceReady[\s\S]{0,500}source_hidden_or_moved/);
 assert.match(code, /phaseRealTimer >= requiredSeconds \|\| \(phaseRealTimer <= 0\.01f && phaseTimer >= requiredSeconds\)/);
 assert.match(code, /currentPhaseName == "intro"/);
 assert.match(code, /currentPhaseName == "defendBase"/);
 assert.match(code, /EnterPhase\(0, "intro", true, true\);/);
 assert.match(code, /currentPhaseName == "intro"[\s\S]*PhaseDwellReady\(1f\)/);
 assert.match(code, /currentPhaseName == "defendBase"[\s\S]*PhaseDwellReady\(15f\)/);
+assertGateDeniesManual(code, 'Phase_defendBase_GateReady', 'intro');
+assertGateDeniesManual(code, 'EndGame_GateReady', 'defendBase');
 assert.match(code, /Phase_intro_Init\(\);[\s\S]*return;[\s\S]*Phase 跳转：intro → defendBase/);
 assert.match(code, /CompletePhaseProgress\("intro"\);[^\n]*\n\s*return;/);
 assert.match(code, /FinishGame\("defendBase"\);[^\n]*\n\s*return;/);
@@ -72,6 +107,70 @@ assert.match(
 );
 assert.match(collectCode, /int GetCollectedResource\(string id\)/);
 assert.match(collectCode, /currentPhaseName == "collectGold"[\s\S]*PhaseDwellReady\(12f\)/);
+assertGateDeniesManual(collectCode, 'Phase_next_GateReady', 'collectGold');
+
+const moveOnlySkeleton = generateSkeleton([
+  {
+    phaseId: 'walkOnly',
+    entitiesRequired: [{ name: 'Player' }],
+    requiredInteractions: ['move_to:Target'],
+    duration: { min: 10, max: 15 },
+  },
+  {
+    phaseId: 'nextClick',
+    entitiesRequired: [{ name: 'Target' }],
+    requiredInteractions: ['click:Target'],
+    duration: { min: 10, max: 15 },
+  },
+], {
+  entityPoolMap: { Player: '__Pool_Player', Target: '__Pool_Target' },
+  entities: [{ name: 'Player' }, { name: 'Target' }],
+});
+const moveOnlyCode = typeof moveOnlySkeleton === 'string'
+  ? moveOnlySkeleton
+  : Object.keys(moveOnlySkeleton).map(k => moveOnlySkeleton[k]).filter(v => typeof v === 'string').join('\n');
+assertGateAllowsManual(moveOnlyCode, 'Phase_nextClick_GateReady', 'walkOnly');
+assertGateDeniesManual(moveOnlyCode, 'EndGame_GateReady', 'nextClick');
+
+const latePhaseSkeleton = generateSkeleton([
+  {
+    phaseId: 'p1',
+    entitiesRequired: [{ name: 'Player' }],
+    requiredInteractions: ['move_to:A'],
+    triggerNext: { condition: 'first' },
+    duration: { min: 10, max: 15 },
+  },
+  {
+    phaseId: 'p2',
+    entitiesRequired: [{ name: 'A' }],
+    requiredInteractions: ['move_to:B'],
+    triggerNext: { condition: 'second' },
+    duration: { min: 10, max: 15 },
+  },
+  {
+    phaseId: 'p3',
+    entitiesRequired: [{ name: 'B' }],
+    requiredInteractions: ['move_to:C', 'collect:C:1'],
+    triggerNext: { condition: 'third' },
+    duration: { min: 10, max: 15 },
+  },
+  {
+    phaseId: 'p4',
+    entitiesRequired: [{ name: 'CtaButton' }],
+    requiredInteractions: ['click:CtaButton'],
+    duration: { min: 10, max: 15 },
+  },
+], {
+  entityPoolMap: { Player: '__Pool_Player', A: '__Pool_A', B: '__Pool_B', C: '__Pool_C', CtaButton: '__Pool_CTA' },
+  entities: [{ name: 'Player' }, { name: 'A' }, { name: 'B' }, { name: 'C' }, { name: 'CtaButton' }],
+});
+const latePhaseCode = typeof latePhaseSkeleton === 'string'
+  ? latePhaseSkeleton
+  : Object.keys(latePhaseSkeleton).map(k => latePhaseSkeleton[k]).filter(v => typeof v === 'string').join('\n');
+assertGateAllowsManual(latePhaseCode, 'Phase_p2_GateReady', 'p1');
+assertGateAllowsManual(latePhaseCode, 'Phase_p3_GateReady', 'p2');
+assertGateDeniesManual(latePhaseCode, 'Phase_p4_GateReady', 'p3');
+assertGateDeniesManual(latePhaseCode, 'EndGame_GateReady', 'p4');
 
 const interactionTargetSkeleton = generateSkeleton([
   {

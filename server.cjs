@@ -169,13 +169,17 @@ server.listen(PORT, function() {
 });
 
 // ============ Ops: watchdog + lifecycle (delegated to lib/) ============
-initWatchdog({
-  taskQueue: taskQueue,
-  readProject: readProject,
-  writeProject: writeProject,
-  projectSM: projectSM,
-  runWatchdogCycle: dashboardHandlers.runWatchdogCycle,
-});
+if (process.env.BLUEPRINT_DISABLE_WATCHDOG === '1') {
+  console.log('[Watchdog] disabled by BLUEPRINT_DISABLE_WATCHDOG=1');
+} else {
+  initWatchdog({
+    taskQueue: taskQueue,
+    readProject: readProject,
+    writeProject: writeProject,
+    projectSM: projectSM,
+    runWatchdogCycle: dashboardHandlers.runWatchdogCycle,
+  });
+}
 
 initGracefulShutdown({
   server: server,

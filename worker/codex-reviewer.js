@@ -387,7 +387,7 @@ async function reviewCodeWithCodex(code, options) {
     : '';
 
   const planNote = options.assemblyPlanSummary
-    ? '\n\nIMPORTANT: This task also has a project-specific assembly contract. Read ASSEMBLY_PLAN.md and treat it as a hard requirement: phase IDs, owner files, state owners, and CUA steps must stay aligned with that contract.'
+    ? '\n\nIMPORTANT: This task also has a project-specific assembly contract. Read ASSEMBLY_PLAN.md and treat it as a hard requirement for owner files, state owners, evidence, and CUA alignment. If ASSEMBLY_PLAN.md contains runtimePhaseContract, use runtimePhaseContract.expectedRuleCount and runtimePhaseContract.phaseIds for RULE_COUNT/_totalPhases/ruleTriggered/CheckEventRules phase-count checks. Do NOT infer runtime phase count from assemblyPlan.phaseBindings or cuaSteps when runtimePhaseContract.source is "specs"; those entries may be finer-grained storyboard/CUA/state-owner bindings implemented inside the smaller runtime phase set.'
     : '';
   const userPrompt = `You are a strict code reviewer for Luna (Unity-to-HTML5) playable ads.
 

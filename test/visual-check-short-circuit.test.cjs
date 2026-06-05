@@ -10,6 +10,32 @@ var visualCheck = require('../engine/stages/visual-check.cjs');
 var evaluate = visualCheck._evaluateVisualCheckShortCircuit;
 var ENV_ON = { BLUEPRINT_VISUAL_CHECK_SKIP_VLM: 'on' };
 
+(function testFrameScheduleIncludesLateSample() {
+  var schedule = visualCheck._buildVisualFrameSchedule({});
+  assert.strictEqual(schedule.length, 3, 'default visual-check needs a late sample');
+  assert.deepStrictEqual(
+    schedule.map(function(slot) { return slot.timeMs; }),
+    [0, 7000, 16000],
+    'default frame samples should include a post-guidance frame'
+  );
+  assert.deepStrictEqual(
+    schedule.map(function(slot) { return slot.delay; }),
+    [0, 7000, 9000],
+    'delays should be relative to the previous screenshot'
+  );
+  console.log('  ✓ frame schedule: default includes 16s late sample');
+})();
+
+(function testFrameScheduleEnvBounds() {
+  var schedule = visualCheck._buildVisualFrameSchedule({
+    BLUEPRINT_VISUAL_CHECK_MIDDLE_FRAME_MS: '1000',
+    BLUEPRINT_VISUAL_CHECK_LATE_FRAME_MS: '5000',
+  });
+  assert.strictEqual(schedule[1].timeMs, 7000, 'too-small middle frame falls back');
+  assert.strictEqual(schedule[2].timeMs, 16000, 'too-small late frame falls back');
+  console.log('  ✓ frame schedule: invalid env values fall back safely');
+})();
+
 // ---------- 触发条件全部满足:短路 ----------
 
 (function testCanSkipHappyPath() {
@@ -149,4 +175,4 @@ var ENV_ON = { BLUEPRINT_VISUAL_CHECK_SKIP_VLM: 'on' };
   console.log('  ✓ defensive: malformed phase entries skipped');
 })();
 
-console.log('\nvisual-check short-circuit: 13 cases passed');
+console.log('\nvisual-check short-circuit: 15 cases passed');

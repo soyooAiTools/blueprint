@@ -36,14 +36,55 @@ function resolvePhaseRef(condition, ruleMap) {
 /**
  * V4 蓝图 → AI Prompt
  */
+function buildRulesFromSpecs(specs) {
+  var out = [];
+  specs = Array.isArray(specs) ? specs : [];
+  for (var i = 0; i < specs.length; i++) {
+    var spec = specs[i] || {};
+    var required = Array.isArray(spec.requiredInteractions) ? spec.requiredInteractions : [];
+    var entitiesRequired = Array.isArray(spec.entitiesRequired) ? spec.entitiesRequired : [];
+    var showEntities = Array.isArray(spec.showEntities) ? spec.showEntities : [];
+    var activate = showEntities.length ? showEntities : entitiesRequired.map(function(entity) {
+      return entity && (entity.entity || entity.name || entity.id || entity);
+    }).filter(Boolean);
+    out.push({
+      id: spec.phaseId || ('phase_' + (i + 1)),
+      name: spec.phaseName || spec.name || spec.title || spec.phaseId || ('Phase ' + (i + 1)),
+      triggerCondition: i === 0 ? 'gameStart' : null,
+      endCondition: spec.triggerNext || (i + 1 < specs.length ? 'phase-complete:' + (spec.phaseId || ('phase_' + (i + 1))) : 'gameEnd'),
+      activate: activate,
+      actions: required.map(function(dsl) {
+        return { type: 'requiredInteraction', params: { dsl: dsl } };
+      }),
+      guide: spec.playerInstruction || spec.goal || spec.autoModeHint || ''
+    });
+  }
+  return out;
+}
+
+function resolvePromptRules(blueprint) {
+  blueprint = blueprint || {};
+  if (Array.isArray(blueprint.phases) && blueprint.phases.length > 0) {
+    return blueprint.phases.map(function(phase) {
+      return Object.assign({}, phase || {});
+    });
+  }
+  if (Array.isArray(blueprint.specs) && blueprint.specs.length > 0) {
+    return buildRulesFromSpecs(blueprint.specs);
+  }
+  return [];
+}
+
 function parseBlueprintToPromptV4(blueprint, opts) {
   opts = opts || {};
+  blueprint = blueprint || {};
   var entities = blueprint.entities || [];
   
-  // 从 phases 提取事件规则 (V4 only)
-  var rules = blueprint.phases || [];
+  // 从 phases/specs 提取事件规则。source-of-truth 已迁移到 specs；
+  // 修复回路不能因为 blueprint.phases 为空就失去 phase 上下文。
+  var rules = resolvePromptRules(blueprint);
   if (rules.length === 0) {
-    throw new Error('No phases found in blueprint. V3 node fallback has been removed — please ensure blueprint has phases defined.');
+    throw new Error('No phase rules found in blueprint. Expected blueprint.specs or blueprint.phases.');
   }
 
   // 如果 rules 只有 endCondition 没有 triggerCondition（旧格式），自动转换
@@ -413,4 +454,8 @@ function parseBlueprintToPromptV4(blueprint, opts) {
   return lines.join('\n');
 }
 
-module.exports = { parseBlueprintToPromptV4: parseBlueprintToPromptV4 };
+module.exports = {
+  parseBlueprintToPromptV4: parseBlueprintToPromptV4,
+  buildRulesFromSpecs: buildRulesFromSpecs,
+  resolvePromptRules: resolvePromptRules
+};

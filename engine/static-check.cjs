@@ -282,13 +282,36 @@ var RULES = [
       return issues;
     },
   },
-  { id: 'render-no-objects', pattern: null, message: 'Phase 1 must place at least 3 pool objects on screen (anti-solid-color)', custom: function(code) {
+  { id: 'render-no-objects', pattern: null, blocking: true, message: 'Phase 1 must place at least 3 fidelity-contract visible objects on screen (anti-solid-color)', custom: function(code, ctx) {
     // Check that first phase (ruleTriggered[0] block) has at least 3 PlaceObj or transform.position calls
     var phase1Match = code.match(/ruleTriggered\[0\][^}]*\{([\s\S]*?)(?:ruleTriggered\[1\]|$)/);
     if (!phase1Match) return []; // No phase structure found — skip check
     var phase1Code = phase1Match[1];
-    var placeCount = (phase1Code.match(/PlaceObj\s*\(|\.transform\.position\s*=/g) || []).length;
-    if (placeCount < 3) return [{ line: 1, text: 'Only ' + placeCount + ' objects placed in phase 1 (need ≥3)' }];
+    var firstPhase = ctx && ctx.blueprint && ctx.blueprint.fidelityContract &&
+      ctx.blueprint.fidelityContract.phases && ctx.blueprint.fidelityContract.phases[0];
+    var showEntities = firstPhase && Array.isArray(firstPhase.showEntities) ? firstPhase.showEntities : [];
+    var allowed = {};
+    showEntities.forEach(function(name) {
+      allowed[String(name)] = true;
+      if (String(name) === 'Player') allowed.player = true;
+    });
+    var bad = [];
+    var placedAllowed = {};
+    var re = /\bPlaceObj\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,/g;
+    var m;
+    while ((m = re.exec(phase1Code)) !== null) {
+      var entityName = m[1];
+      if (showEntities.length > 0 && !allowed[entityName]) bad.push(entityName);
+      if (allowed[entityName]) placedAllowed[entityName] = true;
+      if (entityName === 'player' && allowed.Player) placedAllowed.Player = true;
+    }
+    if (bad.length > 0) {
+      return [{ line: 1, text: 'Phase 1 anti-solid-color placement uses non-contract entities: ' + bad.join(', ') + '. Use fidelityContract.phases[0].showEntities only: ' + showEntities.join(', ') }];
+    }
+    var usesFidelityHelper = /\bApplyFidelityPhaseVisibility\s*\(\s*0\s*\)/.test(phase1Code);
+    if (usesFidelityHelper) return [];
+    var placeCount = showEntities.length > 0 ? Object.keys(placedAllowed).length : (phase1Code.match(/PlaceObj\s*\(|\.transform\.position\s*=/g) || []).length;
+    if (placeCount < 3) return [{ line: 1, text: 'Only ' + placeCount + ' fidelity-contract visible objects placed in phase 1 (need >=3 from showEntities)' }];
     return [];
   }},
   // --- v4: AutoPlay duration protection ---
@@ -1111,6 +1134,61 @@ var RULES = [
           var absIdx = start + m.index;
           var lineNum = code.substring(0, absIdx).split('\n').length;
           issues.push({ line: lineNum, text: 'new Vector3(' + m[1].trim() + ') inside ' + fn + '()' });
+        }
+      }
+      return issues;
+    },
+  },
+  { id: 'source-target-ring-mirrored-x', pattern: null, blocking: true,
+    message: 'Source target ring mirrors target.x with -tp.x — guidance markers must use the same world coordinate system as the target entity.',
+    custom: function(code) {
+      var issues = [];
+      var mask = buildCodeMask(code);
+      var re = /_sourceTargetRing\s*\.\s*transform\s*\.\s*position\s*=\s*new\s+Vector3\s*\(\s*-[A-Za-z_][A-Za-z0-9_]*\s*\.\s*x\b/g;
+      var m;
+      while ((m = re.exec(code)) !== null) {
+        if (!mask[m.index]) continue;
+        issues.push({
+          line: code.substring(0, m.index).split('\n').length,
+          text: 'Source target ring uses mirrored X coordinate; use target.transform.position.x directly.',
+        });
+      }
+      return issues;
+    },
+  },
+  { id: 'source-guidance-phase-index-only-target', pattern: null, blocking: true,
+    message: 'SourceTargetForPhase returns phase-level hardcoded targets — resolve the next unfinished step from runtime state/resources/visibility instead.',
+    custom: function(code) {
+      var issues = [];
+      var stripped = String(code || '')
+        .replace(/\/\*[\s\S]*?\*\//g, function(m) { return m.replace(/[^\n]/g, ' '); })
+        .replace(/\/\/[^\n]*/g, function(m) { return ' '.repeat(m.length); });
+      var sigRe = /\bGameObject\s+SourceTargetForPhase\s*\([^)]*\bphaseIndex\b[^)]*\)\s*\{/g;
+      var sig;
+      while ((sig = sigRe.exec(stripped)) !== null) {
+        var start = sig.index + sig[0].length;
+        var depth = 1;
+        var end = start;
+        while (end < stripped.length && depth > 0) {
+          var ch = stripped[end];
+          if (ch === '{') depth++;
+          else if (ch === '}') {
+            depth--;
+            if (depth === 0) break;
+          }
+          end++;
+        }
+        if (depth !== 0) continue;
+        var body = stripped.substring(start, end);
+        var phaseCompares = /\bphaseIndex\s*(?:==|!=|<=|>=|<|>)\s*\d+/.test(body);
+        var directReturns = body.match(/\breturn\s+[A-Za-z_][A-Za-z0-9_]*\s*;/g) || [];
+        var delegatesToResolvers = /\breturn\s+[A-Za-z_][A-Za-z0-9_]*\s*\(/.test(body);
+        var usesRuntimeState = /\b(Carried|GetResource|SourceResource|Done|State|SourceTargetIsVisible|FirstVisible|highlightTarget|steps|variables|entityStates)\b/.test(body);
+        if (phaseCompares && directReturns.length >= 2 && !delegatesToResolvers && !usesRuntimeState) {
+          issues.push({
+            line: code.substring(0, sig.index).split('\n').length,
+            text: 'SourceTargetForPhase maps phaseIndex directly to entity fields; this makes the marker stick to phase endpoints instead of next steps.',
+          });
         }
       }
       return issues;

@@ -185,11 +185,8 @@ function extractMethodSignatures(code) {
 }
 
 function patchRecode(opts) {
-  // 2026-04-16: switched from direct Claude API (ClaudeProvider.generateWithRetry)
-  // to spawn the CLI text runner via runCodexText.
-  // Reason: unify all Claude calls through the CC CLI relay so failure modes,
-  // MODEL_FATAL detection, and billing are consistent with codegen/review-fix.
-  // The prompt/contract is unchanged — we only swap the transport layer.
+  // Use Codex text runner so MODEL_FATAL detection and retry behavior stay
+  // consistent with codegen/review-fix.
   var codexCoder = require('../worker/codex-coder.js');
 
   var codeLines = opts.currentCode.split('\n');
@@ -214,7 +211,7 @@ function patchRecode(opts) {
     );
   }
 
-  // Include partial class method signatures so Claude knows which methods already
+  // Include partial class method signatures so the model knows which methods already
   // exist elsewhere — sending only signatures (not full bodies) saves ~20-40KB per call.
   // The model only needs to know the *names* to avoid CS0111 redefinition errors;
   // it does NOT need the implementations (it's not editing those files).
@@ -239,17 +236,19 @@ function patchRecode(opts) {
     'CRITICAL: Do NOT rename or change any existing phaseId strings in AddCompletedPhase(), ReportPhase(), or CheckEventRules() calls. The phase IDs in the existing code are CANONICAL — changing them will break phase tracking.' +
     (extraFilesContext ? '\nCRITICAL: Do NOT duplicate any method already defined in the partial class files above — this causes CS0111.' : '');
 
-  opts.log('patchRecode: fixing ' + opts.issues.length + ' issues via Codex text runner (Sonnet)');
+  opts.log('patchRecode: fixing ' + opts.issues.length + ' issues via Codex text runner');
 
   return codexCoder.runCodexText({
     systemPrompt: systemPrompt,
     userPrompt: userPrompt,
-    model: 'claude-sonnet-4-6',
+    backend: 'codex-exec',
+    model: process.env.CODEX_RECODE_MODEL || process.env.CODEX_TEXT_MODEL || process.env.CODEX_CODE_MODEL || 'gpt-5.5',
     effort: process.env.CODEX_REASONING_EFFORT || 'high',
     timeoutMs: 240000,
     minOutputLen: 100,
     taskId: opts.taskId || 'patch',
     log: opts.log,
+    allowBackendFallback: false,
   }).then(function(result) {
     if (!result.ok) {
       // MODEL_FATAL propagates so error-classifier can cancel the task.

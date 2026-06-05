@@ -1,6 +1,6 @@
 /**
  * Schema-driven codegen stage.
- * Step 1: Claude Sonnet -> JSON game schema
+ * Step 1: Codex -> JSON game schema
  * Step 2: Template engine -> fill skeleton TODOs (80%)
  * Step 3: Codex text runner -> fill customLogic TODOs (20%, optional)
  */
@@ -44,7 +44,7 @@ module.exports = {
       ctx.addLog('codegen-schema', 'Assembly plan detected: ' + moduleCount + ' module instances, ' + cuaSteps + ' CUA steps');
     }
 
-    // Step 1: Generate JSON schema via Sonnet, or consume an explicit
+    // Step 1: Generate JSON schema via Codex, or consume an explicit
     // prebuilt gameSchema when a deterministic upstream adapter supplied one.
     return resolveCodegenSchema(ctx)
       .then(function(schema) {
@@ -53,7 +53,7 @@ module.exports = {
         // most reliably trip fillSkeleton's validateSemantics. Idempotent.
         try {
           // SAFETY NET #2: resource_collected with non-existent resource.
-          // gpt-5.5 / opus-4-8 sometimes set trigger.resource = an ENTITY name
+          // LLMs sometimes set trigger.resource = an ENTITY name
           // (e.g. IcePile, RocketDebris) where the validator wants a name in
           // schema.resources[]. Convert to entity_state_reached when the
           // "resource" actually matches a schema entity name.
@@ -535,14 +535,12 @@ function generateSchemaTextWithFallback(runCodexText, ctx, promptText) {
   var primarySystemPrompt = '你是试玩广告游戏配置生成器。只输出 JSON 对象，不要 markdown 包裹，不要解释。';
   var runnerConfig = resolveSchemaRunnerConfig();
   if (process.env.SCHEMA_PRIMARY_BACKEND === 'claude-print') {
-    ctx.addLog('codegen-schema', 'Schema primary backend overridden to claude-print via SCHEMA_PRIMARY_BACKEND env');
-    return runSchemaFallback(runCodexText, ctx, promptText, primarySystemPrompt, runnerConfig);
+    ctx.addLog('codegen-schema', 'Ignoring SCHEMA_PRIMARY_BACKEND=claude-print; Claude backend is disabled for Blueprint runtime');
   }
   var activeCooldown = readSchemaPrimaryCooldown();
   if (activeCooldown) {
-    ctx.addLog('codegen-schema', 'Skipping Codex schema primary due to active quota/model cooldown until ' +
-      new Date(activeCooldown.expiresAtMs).toISOString() + ' — using claude-print');
-    return runSchemaFallback(runCodexText, ctx, promptText, primarySystemPrompt, runnerConfig);
+    ctx.addLog('codegen-schema', 'Ignoring active Codex schema cooldown until ' +
+      new Date(activeCooldown.expiresAtMs).toISOString() + ' because Claude fallback is disabled; retrying Codex primary');
   }
   return runCodexText({
     userPrompt: promptText,
@@ -563,7 +561,7 @@ function generateSchemaTextWithFallback(runCodexText, ctx, promptText) {
       ctx.addLog('codegen-schema', 'Schema primary cooldown activated until ' +
         new Date(cooldown.expiresAtMs).toISOString() + ' after Codex quota/model failure');
     }
-    ctx.addLog('codegen-schema', 'Primary schema backend infra/model failure — falling back to claude-print');
+    ctx.addLog('codegen-schema', 'Primary schema backend infra/model failure — falling back to Codex schema secondary');
     return runSchemaFallback(runCodexText, ctx, promptText, primarySystemPrompt, runnerConfig);
   });
 }
@@ -572,20 +570,17 @@ function runSchemaFallback(runCodexText, ctx, promptText, primarySystemPrompt, r
   return runCodexText({
     userPrompt: promptText,
     systemPrompt: primarySystemPrompt,
-    backend: 'claude-print',
-    model: runnerConfig.claudeModel,
+    backend: 'codex-exec',
+    model: runnerConfig.codexFallbackModel,
     taskId: ctx.taskId,
     log: function(msg) { ctx.addLog('codegen-schema', '[fallback] ' + msg); },
-    // 2026-05-03: 默认从 high 降到 medium。Schema 是结构化 JSON 输出,不需要
-    // extended thinking。high → medium 把单 turn 时间从 ~6min 砍到 ~1-2min,
-    // 配合 --bare/--tools "" 禁掉 agent loop,15min timeout 不再吃满。
-    effort: process.env.CLAUDE_SCHEMA_EFFORT || 'medium',
+    effort: process.env.CODEX_SCHEMA_FALLBACK_EFFORT || process.env.CODEX_REASONING_EFFORT || 'high',
     timeoutMs: resolveSchemaFallbackTimeoutMs(),
     noTools: true,
     minOutputLen: 20,
     allowBackendFallback: false,
   }).then(function(fallbackResponse) {
-    if (fallbackResponse.ok) ctx.addLog('codegen-schema', 'Schema backend fallback succeeded via claude-print');
+    if (fallbackResponse.ok) ctx.addLog('codegen-schema', 'Schema backend fallback succeeded via codex-exec');
     return fallbackResponse;
   });
 }
@@ -594,7 +589,8 @@ function resolveSchemaRunnerConfig(env) {
   env = env || process.env;
   return {
     codexModel: env.CODEX_SCHEMA_MODEL || env.CODEX_TEXT_MODEL || env.CODEX_CODE_MODEL || 'gpt-5.5',
-    claudeModel: env.CLAUDE_SCHEMA_MODEL || env.CLAUDE_TEXT_MODEL || env.CLAUDE_CODE_MODEL || 'claude-opus-4-8',
+    codexFallbackModel: env.CODEX_SCHEMA_FALLBACK_MODEL || env.CODEX_TEXT_FALLBACK_MODEL ||
+      env.CODEX_SCHEMA_MODEL || env.CODEX_TEXT_MODEL || env.CODEX_CODE_MODEL || 'gpt-5.5',
   };
 }
 
@@ -606,7 +602,7 @@ function resolveSchemaTimeoutMs(env) {
 
 function resolveSchemaFallbackTimeoutMs(env) {
   env = env || process.env;
-  var timeout = parseInt(env.CLAUDE_SCHEMA_TIMEOUT_MS || env.CODEX_SCHEMA_FALLBACK_TIMEOUT_MS || '', 10);
+  var timeout = parseInt(env.CODEX_SCHEMA_FALLBACK_TIMEOUT_MS || env.CODEX_SCHEMA_TIMEOUT_MS || env.CODEX_TEXT_TIMEOUT_MS || '', 10);
   return isFinite(timeout) && timeout > 0 ? timeout : 900000;
 }
 
@@ -682,8 +678,8 @@ function isSchemaInfraError(error) {
 
 function isSchemaNonRetryableError(error) {
   var text = String(error || '');
-  // 2026-05-12: 加入上游连接死透时的 fail-fast 关键字。claude --print SDK 内部已经 retry
-  // 11 次每次 ~70s = ~13min 才 give up;外层 codegen 再 retry 3 次 = ~39min 烧光。当
+  // 2026-05-12: 加入上游连接死透时的 fail-fast 关键字。避免内外层重试叠加，
+  // 外层 codegen 再 retry 3 次会烧光时间。当
   // SDK 拿到 "Unable to connect to API" / "UND_ERR_SOCKET" 时,这个 round 上游真的 down,
   // 外层立即 throw 让任务尽快 FATAL,不要叠加双层指数浪费。
   return /Timed out after \d+ms; Exit code 143|MODEL_FATAL: Codex text runner auth\/quota|Unable to connect to API|UND_ERR_SOCKET/i.test(text);
@@ -1109,7 +1105,7 @@ function fillCustomLogic(ctx, schema) {
         log: function(msg) { ctx.addLog('codegen-schema', '[custom R' + round + '] ' + msg); },
         effort: process.env.CODEX_REASONING_EFFORT || 'high',
         timeoutMs: 300000,
-        allowBackendFallback: true,
+        allowBackendFallback: false,
         execSandbox: 'workspace-write',
       }).then(function(response) {
         if (!response.ok) {

@@ -280,6 +280,27 @@ function _wfRenderInteractions(arr) {
   }).filter(Boolean).join(', ');
 }
 
+// [WAVE F] requiredInteractions 兼容字符串/对象，抽取 verb 供 gate 类型判定。
+function _wfInteractionVerb(ri) {
+  if (typeof ri === 'string') {
+    return String(ri).split(':')[0].trim().toLowerCase();
+  }
+  if (ri && typeof ri === 'object') {
+    return String(ri.verb || ri.action || ri.type || '').trim().toLowerCase();
+  }
+  return '';
+}
+
+// 只有纯移动 phase 才允许用手动目标证据作为 gate。资源、点击、建造、升级等 phase
+// 必须命中真实资源/实体/CTA 条件，避免“只移动到目标点就过 phase”的旁路。
+function _wfAllowsManualTargetGate(spec) {
+  const interactions = spec && Array.isArray(spec.requiredInteractions) ? spec.requiredInteractions : [];
+  const verbs = interactions.map(_wfInteractionVerb).filter(Boolean).filter(function(v) { return v !== 'wait'; });
+  if (verbs.length === 0) return false;
+  const moveVerbs = new Set(['move', 'move_to', 'move_to_target', 'go_to', 'goto', 'navigate', 'walk_to']);
+  return verbs.every(function(v) { return moveVerbs.has(v); });
+}
+
 // [WAVE F] 检查 phase 的 requiredInteractions 中是否有 subAction 字段，决定是否发射消歧注释。
 function _wfPhaseSubActions(spec) {
   if (!spec || !Array.isArray(spec.requiredInteractions)) return [];
@@ -2082,10 +2103,18 @@ function _buildFlowPartial(specs, phaseGateMap = {}, phaseRealConditions = {}) {
   lines.push('    // [SKELETON] 每个 shot 的最短停留门。AutoPlay 必须按真实秒数等待 12s，不能被验证加速器压缩。');
   lines.push('    bool PhaseDwellReady(float specMinSeconds)');
   lines.push('    {');
-  lines.push('        float requiredSeconds = _autoPlayMode ? 12f : specMinSeconds;');
+  lines.push('        float requiredSeconds = _autoPlayMode ? 12f : Mathf.Min(specMinSeconds, 0.35f);');
   lines.push('        // Luna manual-loop builds can expose a frozen realtimeSinceStartup while phaseTimer still advances.');
   lines.push('        // Keep realtime as the primary anti-batch gate; fall back only when the realtime counter is unavailable.');
   lines.push('        return _autoPlayMode ? (phaseRealTimer >= requiredSeconds || (phaseRealTimer <= 0.01f && phaseTimer >= requiredSeconds)) : phaseTimer >= requiredSeconds;');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    bool ManualPhaseTargetEvidenceReady(string phaseId)');
+  lines.push('    {');
+  lines.push('        if (_autoPlayMode || !_manualGameplayUnlocked) return false;');
+  lines.push('        if (currentPhaseName != phaseId) return false;');
+  lines.push('        return HasPhaseEvidenceRecord(phaseId, "distance_to_target_below_threshold")');
+  lines.push('            && HasPhaseEvidenceRecord(phaseId, "player_position_changed");');
   lines.push('    }');
   lines.push('');
   lines.push('    // 进入新 phase 时统一应用公共状态变更。');
@@ -2192,8 +2221,13 @@ function _buildFlowPartial(specs, phaseGateMap = {}, phaseRealConditions = {}) {
     lines.push('    // 依赖：' + dependencyHint + '。realCondition 绑定 GameObject 状态，不能只靠 flag 赋值过关。');
     lines.push('    bool Phase_' + pid + '_GateReady()');
     lines.push('    {');
+    lines.push('        bool realReady = ' + realCondition + ';');
     lines.push('        return currentPhaseName == "' + prevSpec.phaseId + '"');
-    lines.push('            && (' + realCondition + ')');
+    if (_wfAllowsManualTargetGate(prevSpec)) {
+      lines.push('            && (realReady || ManualPhaseTargetEvidenceReady("' + prevSpec.phaseId + '"))');
+    } else {
+      lines.push('            && realReady');
+    }
     lines.push('            && PhaseDwellReady(' + prevSpec.duration.min + 'f);');
     lines.push('    }');
     lines.push('');
@@ -2206,8 +2240,13 @@ function _buildFlowPartial(specs, phaseGateMap = {}, phaseRealConditions = {}) {
   lines.push('    // 不允许 autoPlay 绕过；与各 phase gate 共享 PhaseDwellReady 真实秒数。');
   lines.push('    bool EndGame_GateReady()');
   lines.push('    {');
+  lines.push('        bool realReady = ' + flowEndCondition + ';');
   lines.push('        return currentPhaseName == "' + flowLastSpec.phaseId + '"');
-  lines.push('            && (' + flowEndCondition + ')');
+  if (_wfAllowsManualTargetGate(flowLastSpec)) {
+    lines.push('            && (realReady || ManualPhaseTargetEvidenceReady("' + flowLastSpec.phaseId + '"))');
+  } else {
+    lines.push('            && realReady');
+  }
   lines.push('            && PhaseDwellReady(' + flowLastSpec.duration.min + 'f);');
   lines.push('    }');
   lines.push('');
@@ -2912,6 +2951,8 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('        float camHeight = mainCam != null ? mainCam.transform.position.y : 0f;');
   lines.push('        return "{"');
   lines.push('            + "\\"gameTimer\\":" + (int)gameTimer');
+  lines.push('            + ",\\"currentPhaseIndex\\":" + _currentPhaseIndex');
+  lines.push('            + ",\\"totalPhases\\":" + _totalPhases');
   lines.push('            + ",\\"autoPlayMode\\":" + (_autoPlayMode ? "true" : "false")');
   lines.push('            + ",\\"autoPlaySteps\\":" + _autoPlaySteps');
   lines.push('            + ",\\"autoPlayStepsThisPhase\\":" + (_autoPlaySteps - _autoPlayStepsAtPhaseStart)');

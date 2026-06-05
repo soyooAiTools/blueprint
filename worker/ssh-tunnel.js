@@ -1,5 +1,5 @@
 /**
- * SSH tunnel: forward local port 3901 → ECS 120.55.70.226:3901
+ * SSH tunnel: forward local port 3901 -> ECS 120.55.70.226:3901
  * This lets linux-worker-client.js connect to the blueprint server via localhost:3901
  */
 const net = require('net');

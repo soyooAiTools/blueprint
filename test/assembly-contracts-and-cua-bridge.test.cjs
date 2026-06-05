@@ -59,6 +59,17 @@ assert.ok(guidance.indexOf('"fileOwners"') >= 0, 'review guidance should include
 assert.ok(guidance.indexOf('"cuaSteps"') >= 0, 'review guidance should include cua steps');
 assert.ok(guidance.indexOf('"phaseEvidenceSchema"') >= 0, 'review guidance should include phase evidence schema');
 
+var compactPlans = JSON.parse(JSON.stringify(plans));
+compactPlans.assemblyPlan.phaseBindings = compactPlans.assemblyPlan.phaseBindings.concat([
+  { phaseId: 'storyboardStep3', completionSignals: ['extra.signal'] },
+  { phaseId: 'storyboardStep4', completionSignals: ['extra.signal2'] }
+]);
+var runtimeGuidance = JSON.parse(assemblyPlanContracts.buildReviewPlanGuidance(compactPlans, { specs: project.specs }));
+assert.strictEqual(runtimeGuidance.runtimePhaseContract.source, 'specs', 'guidance should prefer runtime specs as the phase-count source');
+assert.strictEqual(runtimeGuidance.runtimePhaseContract.expectedRuleCount, 2, 'runtime rule count should come from specs, not phaseBindings');
+assert.deepStrictEqual(runtimeGuidance.runtimePhaseContract.phaseIds, ['intro', 'build'], 'runtime phase ids should come from specs');
+assert.strictEqual(runtimeGuidance.phaseBindings.length, compactPlans.assemblyPlan.phaseBindings.length, 'guidance should still include all assembly bindings for ownership/evidence review');
+
 assert.deepStrictEqual(
   assemblyPlanContracts.collectExpectedPhaseIds({ specs: project.specs, plans: plans }),
   ['intro', 'build'],

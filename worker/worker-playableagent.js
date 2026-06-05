@@ -11,7 +11,7 @@
  *   Output: { passed, issues[], report, skipped? }
  */
 
-const { spawn, execSync } = require('child_process');
+const { spawn, execSync, execFile } = require('child_process');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -57,12 +57,31 @@ function hasHealthyObserveVisuals(report) {
   var visualQuality = report.visual_quality || {};
   if (typeof visualQuality.changed_frames !== 'number' || typeof visualQuality.total_frames !== 'number') return false;
   if (visualQuality.total_frames <= 0 || visualQuality.changed_frames <= 0) return false;
-  if (typeof visualQuality.frozen_ratio === 'number' && visualQuality.frozen_ratio > 0.5) return false;
-  if (typeof visualQuality.max_frozen_streak === 'number' && visualQuality.max_frozen_streak > 2) return false;
+  var freezeEval = visualQuality.freeze_eval || {};
+  if (freezeEval.failed === true) return false;
+  if (typeof visualQuality.frozen_ratio === 'number' && visualQuality.frozen_ratio > 0.5 && freezeEval.waived !== true) return false;
+  if (typeof visualQuality.max_frozen_streak === 'number' && visualQuality.max_frozen_streak > 2 && freezeEval.waived !== true) return false;
 
   var visualSmoke = report.visual_smoke || {};
   if (typeof visualSmoke.maxBadScreenStreak === 'number' && visualSmoke.maxBadScreenStreak > 1) return false;
   return true;
+}
+
+function hasFullSpecPhaseCoverage(report) {
+  report = report || {};
+  var specPhases = Array.isArray(report.specPhases) ? report.specPhases : [];
+  var coveredPhases = Array.isArray(report.coveredPhases) ? report.coveredPhases : [];
+  if (specPhases.length === 0) return false;
+  var covered = {};
+  coveredPhases.forEach(function(id) { covered[String(id)] = true; });
+  return specPhases.every(function(id) { return covered[String(id)]; });
+}
+
+function coverageReason(label, name) {
+  var parsed = parseCoverageLabel(label);
+  if (!parsed) return null;
+  if (parsed.total <= 0 || parsed.covered >= parsed.total) return null;
+  return '[' + name + '-coverage] ' + name + ' coverage incomplete: ' + parsed.covered + '/' + parsed.total;
 }
 
 try { fs.mkdirSync(CUA_RESULTS_DIR, { recursive: true }); } catch(e) {}
@@ -167,6 +186,1423 @@ function startLocalServer(buildDir) {
       }
     });
   });
+}
+
+function blueprintNeedsManualJoystickProbe(blueprint, report) {
+  const chunks = [];
+  try { chunks.push(JSON.stringify(blueprint || {})); } catch(e) {}
+  try {
+    chunks.push(JSON.stringify({
+      coveredSignals: report && report.coveredSignals,
+      missingSignals: report && report.missingSignals,
+      signalAssertions: report && report.signalAssertions,
+      specs: report && report.specPhases,
+    }));
+  } catch(e) {}
+  const haystack = chunks.join('\n');
+  return /player_input_joystick|joystick_move|joystick|move_to|player_position_changed/i.test(haystack);
+}
+
+function readProbePosition(sample) {
+  if (!sample) return null;
+  const pos = sample.runtimePlayer || (sample.playerState && sample.playerState.position) || null;
+  if (!pos) return null;
+  const x = Number(pos.x);
+  const y = Number(pos.y);
+  const z = Number(pos.z);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return null;
+  return { x, y, z };
+}
+
+function distance3(a, b) {
+  if (!a || !b) return 0;
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  const dz = a.z - b.z;
+  return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+function evaluateManualJoystickProbeResult(probe) {
+  probe = probe || {};
+  const samples = Array.isArray(probe.samples) ? probe.samples : [];
+  const before = readProbePosition(samples[0]);
+  let maxDistance = 0;
+  let maxInput = 0;
+  for (const sample of samples) {
+    const pos = readProbePosition(sample);
+    if (before && pos) maxDistance = Math.max(maxDistance, distance3(before, pos));
+    const joy = sample && sample.joy;
+    if (joy) {
+      const h = Number(joy.h);
+      const v = Number(joy.v);
+      if (Number.isFinite(h) && Number.isFinite(v)) {
+        maxInput = Math.max(maxInput, Math.sqrt(h * h + v * v));
+      }
+      if (joy.input) {
+        const ix = Number(joy.input.x);
+        const iy = Number(joy.input.y);
+        if (Number.isFinite(ix) && Number.isFinite(iy)) {
+          maxInput = Math.max(maxInput, Math.sqrt(ix * ix + iy * iy));
+        }
+      }
+    }
+  }
+  const joystickResponded = maxInput > 0.1;
+  const playerMoved = maxDistance > 0.05;
+  const touchBeforeSample = samples.find((sample) => sample && sample.label === 'before-touch');
+  const touchDuringSample = samples.find((sample) => sample && sample.label === 'during-touch-hold');
+  let touchOnlyDistance = null;
+  let touchOnlyInput = null;
+  let touchOnlyPassed = true;
+  if (touchBeforeSample && touchDuringSample) {
+    const touchBefore = readProbePosition(touchBeforeSample);
+    const touchDuring = readProbePosition(touchDuringSample);
+    touchOnlyDistance = Number(distance3(touchBefore, touchDuring).toFixed(4));
+    const joy = touchDuringSample.joy || {};
+    const h = Number(joy.h);
+    const v = Number(joy.v);
+    touchOnlyInput = Number((Number.isFinite(h) && Number.isFinite(v) ? Math.sqrt(h * h + v * v) : 0).toFixed(4));
+    touchOnlyPassed = touchOnlyInput > 0.1 && touchOnlyDistance > 0.05;
+  }
+  const passed = joystickResponded && playerMoved && touchOnlyPassed;
+  let reason = 'manual joystick probe passed';
+  if (!before) reason = 'player position unavailable during manual joystick probe';
+  else if (!joystickResponded) reason = 'joystick input did not respond to synthetic drag';
+  else if (!playerMoved) reason = 'joystick input responded, but player position did not change';
+  else if (!touchOnlyPassed) reason = 'touch-only joystick input did not move the player';
+  return {
+    passed,
+    reason,
+    maxInput: Number(maxInput.toFixed(4)),
+    maxPlayerDistance: Number(maxDistance.toFixed(4)),
+    touchOnlyInput,
+    touchOnlyDistance,
+  };
+}
+
+function evaluateStoryboardVisualAuditResult(audit) {
+  audit = audit || {};
+  const issues = [];
+  const labelCenterTolerancePx = Number(audit.labelCenterTolerancePx || 8);
+  const labelGapTargetPx = Number(audit.labelGapTargetPx || 8);
+  const labelGapTolerancePx = Number(audit.labelGapTolerancePx || 8);
+  const maxMotionStepPx = Number(audit.maxMotionStepPx || 6);
+  const minDirectionalTravelPx = Number(audit.minDirectionalTravelPx || 8);
+  const maxClickDisplacementPx = Number(audit.maxClickDisplacementPx || 1.5);
+  const maxGuidanceLinePlayerDelta = Number(audit.maxGuidanceLinePlayerDeltaWorld || 0.08);
+  const maxNonOverlayVisibleSurfaceCount = Number(audit.maxNonOverlayVisibleSurfaceCount || 0);
+  function isHudOnlyEntity(name) {
+    return /^(GoldUI|GuideUI)$/i.test(String(name || ''));
+  }
+  function uniqueNames(values) {
+    const out = [];
+    const seen = {};
+    for (const value of values || []) {
+      const name = String(value || '').trim();
+      if (!name || seen[name]) continue;
+      seen[name] = true;
+      out.push(name);
+    }
+    return out;
+  }
+
+  const phaseAudits = Array.isArray(audit.phaseAudits) ? audit.phaseAudits : [];
+  for (const phaseAudit of phaseAudits) {
+    const phase = phaseAudit && phaseAudit.phase || 'current';
+    const labels = Array.isArray(phaseAudit && phaseAudit.labels) ? phaseAudit.labels : [];
+    for (const row of labels) {
+      if (!row || !row.visible) continue;
+      if (!row.entityRect) {
+        issues.push('[storyboard-label] ' + phase + '/' + (row.entity || '?') + ' visible label has no matching entity rect');
+        continue;
+      }
+      const centerDx = Number(row.centerDx);
+      const topGap = Number(row.topGap);
+      if (!Number.isFinite(centerDx) || Math.abs(centerDx) > labelCenterTolerancePx) {
+        issues.push('[storyboard-label] ' + phase + '/' + (row.entity || '?') + ' center drift ' + centerDx + 'px');
+      }
+      if (!Number.isFinite(topGap) || Math.abs(topGap - labelGapTargetPx) > labelGapTolerancePx) {
+        issues.push('[storyboard-label] ' + phase + '/' + (row.entity || '?') + ' top gap ' + topGap + 'px');
+      }
+    }
+    const expected = uniqueNames(phaseAudit && phaseAudit.expectedVisibleEntities).filter((name) => !isHudOnlyEntity(name));
+    const actual = uniqueNames(phaseAudit && phaseAudit.actualVisibleEntities).filter((name) => !isHudOnlyEntity(name));
+    if (expected.length || actual.length) {
+      const expectedSet = new Set(expected);
+      const actualSet = new Set(actual);
+      const missing = expected.filter((name) => !actualSet.has(name));
+      const extra = actual.filter((name) => !expectedSet.has(name));
+      if (missing.length) {
+        issues.push('[storyboard-entity-visibility] ' + phase + ' missing visible entities: ' + missing.slice(0, 5).join(','));
+      }
+      if (extra.length) {
+        issues.push('[storyboard-entity-visibility] ' + phase + ' unexpected visible entities: ' + extra.slice(0, 5).join(','));
+      }
+    }
+  }
+
+  const layerAudits = Array.isArray(audit.visualLayerAudits) ? audit.visualLayerAudits : [];
+  for (const layerAudit of layerAudits) {
+    const phase = layerAudit && layerAudit.phase || 'current';
+    const surfaces = Array.isArray(layerAudit && layerAudit.visibleNonOverlaySurfaces)
+      ? layerAudit.visibleNonOverlaySurfaces
+      : [];
+    const count = Number.isFinite(Number(layerAudit && layerAudit.visibleNonOverlaySurfaceCount))
+      ? Number(layerAudit.visibleNonOverlaySurfaceCount)
+      : surfaces.length;
+    if (count > maxNonOverlayVisibleSurfaceCount) {
+      const names = surfaces.map((row) => row && row.name).filter(Boolean).slice(0, 5).join(',');
+      issues.push('[storyboard-visual-layer] ' + phase + ' visible non-overlay renderers: ' + count + (names ? ' (' + names + ')' : ''));
+    }
+    const activePhysics = Array.isArray(layerAudit && layerAudit.activeLegacyPhysics)
+      ? layerAudit.activeLegacyPhysics
+      : [];
+    const activePhysicsCount = Number.isFinite(Number(layerAudit && layerAudit.activeLegacyPhysicsCount))
+      ? Number(layerAudit.activeLegacyPhysicsCount)
+      : activePhysics.length;
+    if (activePhysicsCount > 0) {
+      const names = activePhysics.map((row) => row && row.name).filter(Boolean).slice(0, 5).join(',');
+      issues.push('[storyboard-legacy-physics] ' + phase + ' active legacy colliders: ' + activePhysicsCount + (names ? ' (' + names + ')' : ''));
+    }
+  }
+
+  const movementAudits = Array.isArray(audit.movementAudits) ? audit.movementAudits : [];
+  for (const moveAudit of movementAudits) {
+    const dir = moveAudit && moveAudit.direction || 'move';
+    const maxStep = Number(moveAudit && moveAudit.maxAbsStepPx);
+    if (Number.isFinite(maxStep) && maxStep > maxMotionStepPx) {
+      issues.push('[storyboard-motion] ' + dir + ' visible player step too large: ' + maxStep + 'px > ' + maxMotionStepPx + 'px');
+    }
+    const lineDelta = Number(moveAudit && moveAudit.maxGuidanceLinePlayerDelta);
+    if (Number.isFinite(lineDelta) && lineDelta > maxGuidanceLinePlayerDelta) {
+      issues.push('[storyboard-guidance-line] ' + dir + ' line/player anchor delta ' + lineDelta + 'wu > ' + maxGuidanceLinePlayerDelta + 'wu');
+    }
+    const screenDx = Number(moveAudit && moveAudit.screenDx);
+    const screenDy = Number(moveAudit && moveAudit.screenDy);
+    if (dir === 'right' && (!Number.isFinite(screenDx) || screenDx < minDirectionalTravelPx)) {
+      issues.push('[storyboard-direction] right drag moved player dx=' + screenDx + 'px');
+    } else if (dir === 'left' && (!Number.isFinite(screenDx) || screenDx > -minDirectionalTravelPx)) {
+      issues.push('[storyboard-direction] left drag moved player dx=' + screenDx + 'px');
+    } else if (dir === 'up' && (!Number.isFinite(screenDy) || screenDy > -minDirectionalTravelPx)) {
+      issues.push('[storyboard-direction] up drag moved player dy=' + screenDy + 'px');
+    } else if (dir === 'down' && (!Number.isFinite(screenDy) || screenDy < minDirectionalTravelPx)) {
+      issues.push('[storyboard-direction] down drag moved player dy=' + screenDy + 'px');
+    }
+    const checks = Array.isArray(moveAudit && moveAudit.labelDirectionChecks) ? moveAudit.labelDirectionChecks : [];
+    for (const check of checks) {
+      const dy = Number(check && check.dEntityY);
+      const ly = Number(check && check.dLabelBottom);
+      if (!Number.isFinite(dy) || !Number.isFinite(ly)) continue;
+      if (Math.abs(dy) < 0.5 || Math.abs(ly) < 0.5) continue;
+      if (dy * ly < 0) {
+        issues.push('[storyboard-label-motion] ' + dir + ' label moved opposite to player: entityY=' + dy + ', labelY=' + ly);
+      }
+    }
+  }
+  const clickAudits = Array.isArray(audit.clickAudits) ? audit.clickAudits : [];
+  for (const clickAudit of clickAudits) {
+    const displacement = Number(clickAudit && clickAudit.maxDisplacementPx);
+    if (!Number.isFinite(displacement) || displacement > maxClickDisplacementPx) {
+      issues.push('[storyboard-click-zero] click without drag moved player ' + displacement + 'px');
+    }
+  }
+  const targetMarkerAudits = Array.isArray(audit.targetMarkerAudits) ? audit.targetMarkerAudits : [];
+  for (const markerAudit of targetMarkerAudits) {
+    if (!markerAudit || markerAudit.visible !== true || !markerAudit.targetName) {
+      issues.push('[storyboard-target-marker] ' + (markerAudit && markerAudit.phase || 'current') + ' target marker missing: ' + (markerAudit && markerAudit.reason || 'not visible'));
+    }
+  }
+
+  return {
+    passed: issues.length === 0,
+    reason: issues.length ? issues.slice(0, 5).join('; ') : 'storyboard visual audit passed',
+    issues,
+  };
+}
+
+async function runStoryboardVisualAudit(previewUrl, taskId, log) {
+  const logger = typeof log === 'function' ? log : function() {};
+  if (process.env.BLUEPRINT_SKIP_STORYBOARD_VISUAL_AUDIT === '1') {
+    return { passed: true, skipped: true, reason: 'skipped by BLUEPRINT_SKIP_STORYBOARD_VISUAL_AUDIT' };
+  }
+
+  let chromium;
+  try {
+    chromium = require('playwright').chromium;
+  } catch(e) {
+    return { passed: false, skipped: false, reason: 'playwright unavailable for storyboard visual audit: ' + e.message };
+  }
+
+  const outDir = path.join(CUA_RESULTS_DIR, taskId + '-storyboard-visual-audit');
+  try { fs.mkdirSync(outDir, { recursive: true }); } catch(e) {}
+  const audit = {
+    passed: false,
+    skipped: false,
+    url: previewUrl,
+    outDir,
+    phaseAudits: [],
+    movementAudits: [],
+    clickAudits: [],
+    targetMarkerAudits: [],
+    visualLayerAudits: [],
+    labelCenterTolerancePx: 8,
+    labelGapTargetPx: 8,
+    labelGapTolerancePx: 8,
+    maxMotionStepPx: 6,
+    minDirectionalTravelPx: 8,
+    maxClickDisplacementPx: 1.5,
+    maxGuidanceLinePlayerDeltaWorld: 0.08,
+    maxNonOverlayVisibleSurfaceCount: 0,
+  };
+  let browser = null;
+  try {
+    browser = await chromium.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-web-security']
+    });
+    const context = await browser.newContext({
+      viewport: { width: 800, height: 600 },
+      deviceScaleFactor: 1,
+      ignoreHTTPSErrors: true,
+    });
+    const page = await context.newPage();
+    await page.goto(previewUrl, { waitUntil: 'load', timeout: 60000 });
+    await page.waitForTimeout(7000);
+    const ready = await page.evaluate(() => {
+      return typeof window.__storyboardEntityScreenRect === 'function' &&
+        document.querySelectorAll('[data-entity]').length > 0;
+    }).catch(() => false);
+    if (!ready) {
+      audit.skipped = true;
+      audit.passed = true;
+      audit.reason = 'storyboard label surfaces unavailable';
+      return audit;
+    }
+
+    async function labelRows(phase) {
+      return page.evaluate((phaseName) => {
+        function rectObj(r) {
+          return r ? {
+            x: Number(r.x.toFixed(2)),
+            y: Number(r.y.toFixed(2)),
+            w: Number(r.width.toFixed(2)),
+            h: Number(r.height.toFixed(2)),
+            cx: Number((r.x + r.width / 2).toFixed(2)),
+            bottom: Number((r.y + r.height).toFixed(2)),
+          } : null;
+        }
+        return Array.from(document.querySelectorAll('[data-entity]')).map((el) => {
+          const entity = el.getAttribute('data-entity') || '';
+          const lr = el.getBoundingClientRect();
+          let er = null;
+          try {
+            er = window.__storyboardEntityScreenRect(entity) || window.__storyboardEntityScreenRect(entity.replace(/^_+/, ''));
+          } catch(e) {}
+          const label = rectObj(lr);
+          const entityRect = er ? {
+            x: Number(er.x_px.toFixed(2)),
+            y: Number(er.y_px.toFixed(2)),
+            w: Number(er.w_px.toFixed(2)),
+            h: Number(er.h_px.toFixed(2)),
+            cx: Number((er.x_px + er.w_px / 2).toFixed(2)),
+            bottom: Number((er.y_px + er.h_px).toFixed(2)),
+          } : null;
+          const style = getComputedStyle(el);
+          const visible = style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > 0.05;
+          return {
+            phase: phaseName,
+            entity,
+            text: (el.textContent || '').trim(),
+            visible,
+            label,
+            entityRect,
+            centerDx: entityRect && label ? Number((label.cx - entityRect.cx).toFixed(2)) : null,
+            topGap: entityRect && label ? Number((entityRect.y - label.bottom).toFixed(2)) : null,
+          };
+        });
+      }, phase);
+    }
+
+    async function visualLayerRows(phase) {
+      return page.evaluate((phaseName) => {
+        function isDescendantOf(node, ancestor) {
+          let cur = node;
+          let guard = 0;
+          while (cur && guard++ < 32) {
+            if (cur === ancestor || cur.name === '__StoryboardVisualOverlay') return true;
+            cur = cur.parent;
+          }
+          return false;
+        }
+        function nodePath(node) {
+          const parts = [];
+          let cur = node;
+          let guard = 0;
+          while (cur && guard++ < 32) {
+            parts.unshift(cur.name || '<unnamed>');
+            cur = cur.parent;
+          }
+          return parts.join('/');
+        }
+        function renderEntries(node) {
+          const out = [];
+          try {
+            if (node.render) out.push({ kind: 'render', component: node.render, meshInstances: node.render.meshInstances || [] });
+          } catch(eRender) {}
+          try {
+            if (node.model) out.push({ kind: 'model', component: node.model, meshInstances: node.model.model && node.model.model.meshInstances || [] });
+          } catch(eModel) {}
+          try {
+            const renderers = node._unityComponents && node._unityComponents.renderer || [];
+            for (let i = 0; i < renderers.length; i++) {
+              const rc = renderers[i];
+              out.push({ kind: 'unity-renderer', component: rc, meshInstances: rc && rc.meshInstances || [] });
+            }
+          } catch(eUnity) {}
+          return out;
+        }
+        function entryVisible(entry) {
+          const comp = entry && entry.component;
+          if (!comp || comp.enabled === false) return false;
+          try { if (comp.code && comp.code.enabled === false) return false; } catch(eCode) {}
+          const mis = entry.meshInstances || [];
+          if (!mis.length) return true;
+          return mis.some((mi) => mi && mi.visible !== false);
+        }
+        function fallbackLayerAudit() {
+          const app = window.app && window.app.app;
+          const root = app && app.root;
+          const overlay = window.__storyboardVisualOverlayRoot || root && root.findByName && root.findByName('__StoryboardVisualOverlay');
+          const visible = [];
+          let overlaySurfaceCount = 0;
+          function walk(node) {
+            if (!node) return;
+            const isOverlay = overlay && isDescendantOf(node, overlay);
+            const entries = renderEntries(node).filter(entryVisible);
+            if (entries.length) {
+              if (isOverlay) {
+                overlaySurfaceCount += entries.length;
+              } else {
+                visible.push({ name: node.name || '', path: nodePath(node), surfaceCount: entries.length });
+              }
+            }
+            (node.children || []).forEach(walk);
+          }
+          if (root) walk(root);
+          return {
+            suppressApplied: false,
+            overlaySurfaceCount,
+            suppressedLegacySurfaces: [],
+            visibleNonOverlaySurfaces: visible,
+            visibleNonOverlaySurfaceCount: visible.length
+          };
+        }
+        let layer = null;
+        try {
+          if (typeof window.__auditStoryboardVisualLayer === 'function') {
+            layer = window.__auditStoryboardVisualLayer({ suppress: false });
+          }
+        } catch(eAudit) {}
+        if (!layer) layer = fallbackLayerAudit();
+        const actualVisibleEntities = [];
+        try {
+          const roots = window.__storyboardEntityRoots || {};
+          Object.keys(roots).forEach((name) => {
+            const ent = roots[name];
+            if (!ent || ent.enabled === false) return;
+            let rect = null;
+            try {
+              rect = typeof window.__storyboardEntityScreenRect === 'function' ? window.__storyboardEntityScreenRect(name) : null;
+            } catch(eRect) {}
+            if (rect && Number(rect.w_px) > 0 && Number(rect.h_px) > 0) actualVisibleEntities.push(name);
+          });
+        } catch(eEntities) {}
+        layer.phase = phaseName;
+        return { visualLayer: layer, actualVisibleEntities };
+      }, phase);
+    }
+
+    const phases = await page.evaluate(() => {
+      const va = window.__BLUEPRINT_VISUAL_ASSETS__ || {};
+      const list = va.sourcePhaseContract && va.sourcePhaseContract.phases ||
+        va.fidelityContract && va.fidelityContract.phases || [];
+      return Array.isArray(list) && list.length ? list.map((p, i) => ({
+        index: i + 1,
+        id: p && p.id || ('phase' + (i + 1)),
+        showEntities: Array.isArray(p && p.showEntities) ? p.showEntities.slice() : []
+      })) : [{ index: 1, id: 'current', showEntities: [] }];
+    }).catch(() => [{ index: 1, id: 'current' }]);
+
+    for (const phase of phases) {
+      try {
+        const sep = previewUrl.indexOf('?') >= 0 ? '&' : '?';
+        await page.goto(previewUrl + sep + 'storyboardPhaseAudit=' + encodeURIComponent(String(phase.index)) + '&cb=' + Date.now(), { waitUntil: 'load', timeout: 60000 });
+      } catch(e) {}
+      await page.waitForTimeout(phase.index <= 1 ? 7000 : 1200);
+      if (phase.index > 1) {
+        try {
+          await page.evaluate(async (n) => {
+            if (typeof window.__driveToPhase === 'function') await window.__driveToPhase(n);
+          }, phase.index - 1);
+        } catch(e) {}
+      }
+      await page.waitForTimeout(1800);
+      const layerRows = await visualLayerRows(phase.id);
+      audit.visualLayerAudits.push(layerRows.visualLayer);
+      audit.phaseAudits.push({
+        phase: phase.id,
+        expectedVisibleEntities: phase.showEntities || [],
+        actualVisibleEntities: layerRows.actualVisibleEntities || [],
+        labels: await labelRows(phase.id)
+      });
+      const markerAudit = await page.evaluate((phaseName) => {
+        const state = window.__storyboardTargetMarkerState || { visible: false, reason: 'state-unavailable' };
+        return Object.assign({ phase: phaseName }, state);
+      }, phase.id).catch(() => ({ phase: phase.id, visible: false, reason: 'eval-failed' }));
+      audit.targetMarkerAudits.push(markerAudit);
+    }
+    try {
+      const sep = previewUrl.indexOf('?') >= 0 ? '&' : '?';
+      await page.goto(previewUrl + sep + 'storyboardMotionAudit=1&cb=' + Date.now(), { waitUntil: 'load', timeout: 60000 });
+    } catch(e) {}
+    await page.waitForTimeout(7000);
+
+    async function samplePlayerVisualState(sampleLabel) {
+      return page.evaluate((label) => {
+        const er = typeof window.__storyboardEntityScreenRect === 'function'
+          ? (window.__storyboardEntityScreenRect('Player') || window.__storyboardEntityScreenRect('_player'))
+          : null;
+        const el = Array.from(document.querySelectorAll('[data-entity]')).find((node) => /player/i.test(node.getAttribute('data-entity') || '')) ||
+          Array.from(document.querySelectorAll('[data-entity]')).find((node) => /玩家|player/i.test(node.textContent || ''));
+        const lr = el && el.getBoundingClientRect();
+        return {
+          label,
+          t: performance.now(),
+          entityCx: er ? er.x_px + er.w_px / 2 : null,
+          entityY: er ? er.y_px : null,
+          labelCx: lr ? lr.x + lr.width / 2 : null,
+          labelBottom: lr ? lr.y + lr.height : null,
+        };
+      }, sampleLabel).catch(() => null);
+    }
+
+    async function auditClickNoMove() {
+      const before = await samplePlayerVisualState('click-before');
+      await page.mouse.move(400, 300);
+      await page.mouse.click(400, 300);
+      await page.waitForTimeout(650);
+      const after = await samplePlayerVisualState('click-after');
+      const dx = before && after && Number.isFinite(before.entityCx) && Number.isFinite(after.entityCx)
+        ? after.entityCx - before.entityCx
+        : NaN;
+      const dy = before && after && Number.isFinite(before.entityY) && Number.isFinite(after.entityY)
+        ? after.entityY - before.entityY
+        : NaN;
+      audit.clickAudits.push({
+        before,
+        after,
+        screenDx: Number.isFinite(dx) ? Number(dx.toFixed(2)) : null,
+        screenDy: Number.isFinite(dy) ? Number(dy.toFixed(2)) : null,
+        maxDisplacementPx: Number.isFinite(dx) && Number.isFinite(dy) ? Number(Math.sqrt(dx * dx + dy * dy).toFixed(2)) : null,
+      });
+    }
+
+    async function startPlayerLabelCapture(captureLabel) {
+      await page.evaluate((label) => {
+        window.__bpStoryboardMotionCapture = {
+          label,
+          stop: false,
+          samples: [],
+        };
+	        function sample() {
+	          const cap = window.__bpStoryboardMotionCapture;
+	          if (!cap || cap.stop) return;
+          const er = typeof window.__storyboardEntityScreenRect === 'function'
+            ? (window.__storyboardEntityScreenRect('Player') || window.__storyboardEntityScreenRect('_player'))
+            : null;
+          const el = Array.from(document.querySelectorAll('[data-entity]')).find((node) => /player/i.test(node.getAttribute('data-entity') || '')) ||
+            Array.from(document.querySelectorAll('[data-entity]')).find((node) => /玩家|player/i.test(node.textContent || ''));
+	          const lr = el && el.getBoundingClientRect();
+	          let linePlayerDelta = null;
+	          try {
+	            const state = window.__storyboardGuidanceLineState || null;
+	            const roots = window.__storyboardEntityRoots || {};
+	            const root = roots[state && state.playerName || 'Player'] || roots.Player || roots._player;
+	            const pp = root && root.getPosition && root.getPosition();
+	            if (state && state.visible && state.player && pp) {
+	              const dx = Number(state.player.x) - Number(pp.x);
+	              const dz = Number(state.player.z) - Number(pp.z);
+	              if (Number.isFinite(dx) && Number.isFinite(dz)) linePlayerDelta = Math.sqrt(dx * dx + dz * dz);
+	            }
+	          } catch(eLine) {}
+	          cap.samples.push({
+	            label: label + '-' + cap.samples.length,
+	            t: performance.now(),
+	            entityCx: er ? er.x_px + er.w_px / 2 : null,
+	            entityY: er ? er.y_px : null,
+	            labelCx: lr ? lr.x + lr.width / 2 : null,
+	            labelBottom: lr ? lr.y + lr.height : null,
+	            linePlayerDelta: Number.isFinite(linePlayerDelta) ? Number(linePlayerDelta.toFixed(4)) : null,
+	          });
+          requestAnimationFrame(sample);
+        }
+        requestAnimationFrame(sample);
+      }, captureLabel);
+    }
+
+    async function stopPlayerLabelCapture() {
+      return page.evaluate(() => {
+        const cap = window.__bpStoryboardMotionCapture;
+        if (!cap) return [];
+        cap.stop = true;
+        const samples = Array.isArray(cap.samples) ? cap.samples.slice() : [];
+        window.__bpStoryboardMotionCapture = null;
+        return samples;
+      });
+    }
+
+    async function auditMove(direction, dx, dy) {
+      const center = { x: 130, y: 520 };
+      await startPlayerLabelCapture(direction);
+      await page.mouse.move(center.x, center.y);
+      await page.mouse.down();
+      await page.mouse.move(center.x + dx, center.y + dy, { steps: 16 });
+      await page.waitForTimeout(900);
+      await page.mouse.up();
+      await page.waitForTimeout(120);
+      const samples = await stopPlayerLabelCapture();
+      const stepPx = [];
+      const labelDirectionChecks = [];
+      for (let i = 1; i < samples.length; i++) {
+        const a = samples[i - 1];
+        const b = samples[i];
+        if (Number.isFinite(a.entityCx) && Number.isFinite(b.entityCx) && Number.isFinite(a.entityY) && Number.isFinite(b.entityY)) {
+          const sx = b.entityCx - a.entityCx;
+          const sy = b.entityY - a.entityY;
+          stepPx.push(Math.sqrt(sx * sx + sy * sy));
+        }
+        if (Number.isFinite(a.entityY) && Number.isFinite(b.entityY) && Number.isFinite(a.labelBottom) && Number.isFinite(b.labelBottom)) {
+          labelDirectionChecks.push({
+            dEntityY: Number((b.entityY - a.entityY).toFixed(2)),
+            dLabelBottom: Number((b.labelBottom - a.labelBottom).toFixed(2)),
+          });
+        }
+      }
+      const scoredSteps = stepPx.slice(1);
+      const first = samples[0] || null;
+      const last = samples[samples.length - 1] || null;
+      const lineDeltas = samples.map((sample) => Number(sample && sample.linePlayerDelta)).filter(Number.isFinite);
+      const screenDx = first && last && Number.isFinite(first.entityCx) && Number.isFinite(last.entityCx)
+        ? Number((last.entityCx - first.entityCx).toFixed(2))
+        : null;
+      const screenDy = first && last && Number.isFinite(first.entityY) && Number.isFinite(last.entityY)
+        ? Number((last.entityY - first.entityY).toFixed(2))
+        : null;
+      audit.movementAudits.push({
+        direction,
+        screenDx,
+        screenDy,
+        maxGuidanceLinePlayerDelta: lineDeltas.length ? Number(Math.max.apply(Math, lineDeltas).toFixed(4)) : null,
+        maxAbsStepPx: scoredSteps.length ? Number(Math.max.apply(Math, scoredSteps).toFixed(2)) : 0,
+        sampleCount: samples.length,
+        samples,
+        labelDirectionChecks,
+      });
+    }
+
+    await auditClickNoMove();
+    await auditMove('right', 44, 0);
+    await auditMove('up', 0, -44);
+    await auditMove('down', 0, 44);
+    await auditMove('left', -44, 0);
+    Object.assign(audit, evaluateStoryboardVisualAuditResult(audit));
+  } catch(e) {
+    audit.passed = false;
+    audit.reason = 'storyboard visual audit failed: ' + e.message;
+  } finally {
+    try {
+      fs.writeFileSync(path.join(outDir, 'result.json'), JSON.stringify(audit, null, 2));
+    } catch(e) {}
+    if (browser) {
+      try { await browser.close(); } catch(e) {}
+    }
+  }
+
+  logger('[PlayableAgent] Storyboard visual audit: ' + (audit.passed ? 'PASS' : 'FAIL') + ' | ' + audit.reason, taskId);
+  return audit;
+}
+
+function shouldRunStoryboardVideoAudit(env) {
+  env = env || process.env;
+  if (/^(1|true|on|yes)$/i.test(String(env.BLUEPRINT_SKIP_STORYBOARD_VIDEO_AUDIT || ''))) return false;
+  if (/^(0|false|off|no)$/i.test(String(env.BLUEPRINT_STORYBOARD_VIDEO_AUDIT || ''))) return false;
+  if (/^(0|false|off|no)$/i.test(String(env.BLUEPRINT_VOLC_VIDEO_AUDIT || ''))) return false;
+  return true;
+}
+
+function withTimeout(promise, timeoutMs, label) {
+  let timer = null;
+  return Promise.race([
+    promise,
+    new Promise(function(_, reject) {
+      timer = setTimeout(function() {
+        reject(new Error(label + ' timed out after ' + timeoutMs + 'ms'));
+      }, timeoutMs);
+    }),
+  ]).finally(function() {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+function encodeFrameSequenceToVideo(framesDir, outputPath, fps) {
+  fps = Number(fps);
+  if (!Number.isFinite(fps) || fps <= 0) fps = 4;
+  return new Promise(function(resolve, reject) {
+    execFile('ffmpeg', [
+      '-y',
+      '-framerate', String(fps),
+      '-i', path.join(framesDir, 'frame-%04d.jpg'),
+      '-c:v', 'libx264',
+      '-pix_fmt', 'yuv420p',
+      '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+      outputPath,
+    ], { timeout: 120000 }, function(err) {
+      if (err) return reject(new Error('storyboard video ffmpeg encode failed: ' + err.message));
+      resolve(outputPath);
+    });
+  });
+}
+
+async function runStoryboardVideoAudit(previewUrl, taskId, log) {
+  const logger = typeof log === 'function' ? log : function() {};
+  const outDir = path.join(CUA_RESULTS_DIR, taskId + '-storyboard-video-audit');
+  try { fs.mkdirSync(outDir, { recursive: true }); } catch(e) {}
+
+  const result = {
+    passed: false,
+    skipped: false,
+    url: previewUrl,
+    outDir,
+    recording: null,
+    volcengineVideoAudit: null,
+  };
+
+  if (!shouldRunStoryboardVideoAudit(process.env)) {
+    result.passed = true;
+    result.skipped = true;
+    result.reason = 'skipped by storyboard/video audit env';
+    return result;
+  }
+
+  const recordOnly = /^(1|true|on|yes)$/i.test(String(process.env.BLUEPRINT_STORYBOARD_VIDEO_AUDIT_RECORD_ONLY || ''));
+  let videoAudit = null;
+  if (!recordOnly) {
+    try {
+      videoAudit = require('./volcengine-video-audit.cjs');
+    } catch(e) {
+      result.passed = false;
+      result.reason = 'volcengine video audit module unavailable: ' + e.message;
+      try { fs.writeFileSync(path.join(outDir, 'result.json'), JSON.stringify(result, null, 2)); } catch(writeErr) {}
+      return result;
+    }
+
+    const hasCredentials = typeof videoAudit.hasVolcengineVideoAuditCredentials === 'function'
+      ? videoAudit.hasVolcengineVideoAuditCredentials()
+      : !!(process.env.ARK_API_KEY || process.env.DOUBAO_API_KEY);
+    if (!hasCredentials) {
+      result.passed = process.env.BLUEPRINT_VOLC_VIDEO_AUDIT_REQUIRED !== '1';
+      result.skipped = true;
+      result.reason = 'Volcengine video audit skipped: ARK_API_KEY/DOUBAO_API_KEY missing';
+      try { fs.writeFileSync(path.join(outDir, 'result.json'), JSON.stringify(result, null, 2)); } catch(writeErr) {}
+      return result;
+    }
+  }
+
+  let chromium;
+  try {
+    chromium = require('playwright').chromium;
+  } catch(e) {
+    result.passed = false;
+    result.reason = 'playwright unavailable for storyboard video audit: ' + e.message;
+    try { fs.writeFileSync(path.join(outDir, 'result.json'), JSON.stringify(result, null, 2)); } catch(writeErr) {}
+    return result;
+  }
+
+  const framesDir = path.join(outDir, 'frames');
+  try { fs.rmSync(framesDir, { recursive: true, force: true }); } catch(e) {}
+  try { fs.mkdirSync(framesDir, { recursive: true }); } catch(e) {}
+  let browser = null;
+  let finalVideoPath = null;
+  let frameIndex = 0;
+  try {
+    logger('[PlayableAgent] Storyboard video audit: launching mobile recorder', taskId);
+    browser = await withTimeout(chromium.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-web-security'],
+    }), 20000, 'storyboard video browser launch');
+    const context = await withTimeout(browser.newContext({
+      viewport: { width: 540, height: 960 },
+      deviceScaleFactor: 2,
+      isMobile: true,
+      hasTouch: true,
+      ignoreHTTPSErrors: true,
+    }), 10000, 'storyboard video browser context');
+    const page = await withTimeout(context.newPage(), 10000, 'storyboard video page create');
+    page.setDefaultTimeout(15000);
+    logger('[PlayableAgent] Storyboard video audit: loading preview', taskId);
+    await withTimeout(page.goto(previewUrl, { waitUntil: 'domcontentloaded', timeout: 45000 }), 50000, 'storyboard video preview load');
+    await page.waitForTimeout(5000);
+    logger('[PlayableAgent] Storyboard video audit: waiting for playable readiness', taskId);
+    await withTimeout(page.waitForFunction(() => {
+      return typeof window.__storyboardEntityScreenRect === 'function' ||
+        (typeof UnityEngine !== 'undefined' && typeof Bridge !== 'undefined');
+    }, null, { timeout: 15000 }).catch(() => null), 18000, 'storyboard video readiness wait');
+    await page.waitForTimeout(2000);
+
+    async function captureFrame(label) {
+      frameIndex++;
+      const framePath = path.join(framesDir, 'frame-' + String(frameIndex).padStart(4, '0') + '.jpg');
+      await withTimeout(page.screenshot({ path: framePath, type: 'jpeg', quality: 82 }), 10000, 'storyboard video screenshot ' + label);
+      return framePath;
+    }
+    async function holdFrames(label, count, delayMs) {
+      for (let i = 0; i < count; i++) {
+        await captureFrame(label + '-' + i);
+        if (delayMs > 0) await page.waitForTimeout(delayMs);
+      }
+    }
+    async function setAuditStepLabel(text) {
+      await page.evaluate((labelText) => {
+        let el = document.getElementById('bp-video-audit-step');
+        if (!el) {
+          el = document.createElement('div');
+          el.id = 'bp-video-audit-step';
+          el.style.cssText = [
+            'position:fixed',
+            'right:12px',
+            'bottom:12px',
+            'z-index:2147483600',
+            'pointer-events:none',
+            'padding:7px 11px',
+            'border-radius:7px',
+            'background:rgba(0,0,0,.78)',
+            'border:1px solid rgba(255,235,59,.65)',
+            'color:#ffeb3b',
+            'font:900 16px Arial,"Microsoft YaHei",sans-serif',
+            'box-shadow:0 8px 22px rgba(0,0,0,.35)'
+          ].join(';');
+          document.body.appendChild(el);
+        }
+        el.textContent = labelText || '';
+        el.style.display = labelText ? 'block' : 'none';
+      }, text).catch(() => null);
+    }
+    async function setAuditPointerOverlay(label, sx, sy, x, y, active) {
+      await page.evaluate((args) => {
+        let root = document.getElementById('bp-video-audit-pointer');
+        if (!root) {
+          root = document.createElement('div');
+          root.id = 'bp-video-audit-pointer';
+          root.style.cssText = 'position:fixed;left:0;top:0;z-index:2147483599;pointer-events:none;font-family:Arial,"Microsoft YaHei",sans-serif';
+          root.innerHTML = [
+            '<div class="bp-audit-origin"></div>',
+            '<div class="bp-audit-line"></div>',
+            '<div class="bp-audit-dot"></div>',
+            '<div class="bp-audit-label"></div>'
+          ].join('');
+          const style = document.createElement('style');
+          style.textContent = [
+            '#bp-video-audit-pointer .bp-audit-origin{position:fixed;width:28px;height:28px;margin:-14px 0 0 -14px;border:3px solid #ffeb3b;border-radius:50%;box-shadow:0 0 0 3px rgba(0,0,0,.45)}',
+            '#bp-video-audit-pointer .bp-audit-dot{position:fixed;width:22px;height:22px;margin:-11px 0 0 -11px;background:#ffeb3b;border:3px solid #111827;border-radius:50%;box-shadow:0 2px 10px rgba(0,0,0,.45)}',
+            '#bp-video-audit-pointer .bp-audit-line{position:fixed;height:6px;margin:-3px 0 0 0;background:#ffeb3b;border-radius:3px;box-shadow:0 2px 8px rgba(0,0,0,.5);transform-origin:0 50%}',
+            '#bp-video-audit-pointer .bp-audit-label{position:fixed;margin:14px 0 0 14px;padding:4px 7px;border-radius:6px;background:rgba(0,0,0,.78);color:#ffeb3b;font:900 13px Arial,"Microsoft YaHei",sans-serif;white-space:nowrap}'
+          ].join('');
+          document.head.appendChild(style);
+          document.body.appendChild(root);
+        }
+        root.style.display = args.active ? 'block' : 'none';
+        if (!args.active) return;
+        const origin = root.querySelector('.bp-audit-origin');
+        const dot = root.querySelector('.bp-audit-dot');
+        const line = root.querySelector('.bp-audit-line');
+        const text = root.querySelector('.bp-audit-label');
+        const sx = Number(args.sx) || 0;
+        const sy = Number(args.sy) || 0;
+        const x = Number(args.x) || sx;
+        const y = Number(args.y) || sy;
+        const dx = x - sx;
+        const dy = y - sy;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        const angle = Math.atan2(dy, dx);
+        origin.style.left = sx + 'px';
+        origin.style.top = sy + 'px';
+        dot.style.left = x + 'px';
+        dot.style.top = y + 'px';
+        line.style.left = sx + 'px';
+        line.style.top = sy + 'px';
+        line.style.width = Math.max(1, len) + 'px';
+        line.style.transform = 'rotate(' + angle + 'rad)';
+        text.style.left = x + 'px';
+        text.style.top = y + 'px';
+        text.textContent = String(args.label || '').toUpperCase();
+      }, { label, sx, sy, x, y, active }).catch(() => null);
+    }
+    async function samplePlayerVideoAuditState(label) {
+      return page.evaluate((sampleLabel) => {
+        function roundedRect(rect) {
+          if (!rect) return null;
+          return {
+            x: Number(Number(rect.x).toFixed(2)),
+            y: Number(Number(rect.y).toFixed(2)),
+            w: Number(Number(rect.width).toFixed(2)),
+            h: Number(Number(rect.height).toFixed(2)),
+            cx: Number(Number(rect.x + rect.width / 2).toFixed(2)),
+            cy: Number(Number(rect.y + rect.height / 2).toFixed(2)),
+            bottom: Number(Number(rect.y + rect.height).toFixed(2)),
+          };
+        }
+        function roundedEntityRect(rect) {
+          if (!rect) return null;
+          return {
+            x: Number(Number(rect.x_px).toFixed(2)),
+            y: Number(Number(rect.y_px).toFixed(2)),
+            w: Number(Number(rect.w_px).toFixed(2)),
+            h: Number(Number(rect.h_px).toFixed(2)),
+            cx: Number(Number(rect.x_px + rect.w_px / 2).toFixed(2)),
+            cy: Number(Number(rect.y_px + rect.h_px / 2).toFixed(2)),
+          };
+        }
+        function roundedPosition(pos) {
+          if (!pos) return null;
+          return {
+            x: Number(Number(pos.x).toFixed(3)),
+            y: Number(Number(pos.y || 0).toFixed(3)),
+            z: Number(Number(pos.z).toFixed(3)),
+          };
+        }
+        let gamePos = null;
+        try {
+          const gs = typeof window.__gameState === 'function' ? window.__gameState() : window.__gameState;
+          const states = gs && (gs.entity_states || gs.entityStates) || {};
+          const st = states.Player || states.player;
+          gamePos = st && st.position ? roundedPosition(st.position) : null;
+        } catch(e) {}
+        const labelEl = document.querySelector('.bp-worldlabel[data-entity="Player"]');
+        const labelRect = labelEl && labelEl.getBoundingClientRect ? labelEl.getBoundingClientRect() : null;
+	        let entityRect = null;
+	        try {
+	          entityRect = window.__storyboardEntityScreenRect && window.__storyboardEntityScreenRect('Player');
+	        } catch(e) {}
+	        let linePlayerDelta = null;
+	        try {
+	          const state = window.__storyboardGuidanceLineState || null;
+	          const roots = window.__storyboardEntityRoots || {};
+	          const root = roots[state && state.playerName || 'Player'] || roots.Player || roots._player;
+	          const pp = root && root.getPosition && root.getPosition();
+	          if (state && state.visible && state.player && pp) {
+	            const dx = Number(state.player.x) - Number(pp.x);
+	            const dz = Number(state.player.z) - Number(pp.z);
+	            if (Number.isFinite(dx) && Number.isFinite(dz)) linePlayerDelta = Number(Math.sqrt(dx * dx + dz * dz).toFixed(4));
+	          }
+	        } catch(eLine) {}
+	        const label = roundedRect(labelRect);
+	        const rect = roundedEntityRect(entityRect);
+	        return {
+	          label: sampleLabel,
+	          gamePos,
+	          entityRect: rect,
+	          labelRect: label,
+	          labelAnchorDelta: label && rect ? Number(Number(label.bottom - (rect.y - 8)).toFixed(2)) : null,
+	          linePlayerDelta,
+	        };
+	      }, label).catch(() => null);
+	    }
+    function summarizeVideoAuditStep(before, samples, after) {
+      const first = before || (samples && samples[0]) || null;
+      const last = after || (samples && samples[samples.length - 1]) || null;
+      const summary = { sampleCount: Array.isArray(samples) ? samples.length : 0 };
+      if (first && last && first.gamePos && last.gamePos) {
+        summary.gameDx = Number((last.gamePos.x - first.gamePos.x).toFixed(3));
+        summary.gameDz = Number((last.gamePos.z - first.gamePos.z).toFixed(3));
+      }
+      if (first && last && first.entityRect && last.entityRect) {
+        summary.rectDx = Number((last.entityRect.cx - first.entityRect.cx).toFixed(2));
+        summary.rectDy = Number((last.entityRect.y - first.entityRect.y).toFixed(2));
+      }
+      if (first && last && first.labelRect && last.labelRect) {
+        summary.labelDx = Number((last.labelRect.cx - first.labelRect.cx).toFixed(2));
+        summary.labelDy = Number((last.labelRect.bottom - first.labelRect.bottom).toFixed(2));
+      }
+	      const deltas = [before, ...(Array.isArray(samples) ? samples : []), after]
+	        .map((sample) => sample && sample.labelAnchorDelta)
+	        .filter((value) => Number.isFinite(Number(value)))
+	        .map((value) => Math.abs(Number(value)));
+	      if (deltas.length) summary.maxLabelAnchorDelta = Number(Math.max(...deltas).toFixed(2));
+	      const lineDeltas = [before, ...(Array.isArray(samples) ? samples : []), after]
+	        .map((sample) => sample && sample.linePlayerDelta)
+	        .filter((value) => Number.isFinite(Number(value)))
+	        .map((value) => Math.abs(Number(value)));
+	      if (lineDeltas.length) summary.maxGuidanceLinePlayerDelta = Number(Math.max(...lineDeltas).toFixed(4));
+	      return summary;
+	    }
+    function evaluateVideoMovementSummaries(steps) {
+      const issues = [];
+      const minTravel = Number(process.env.BLUEPRINT_STORYBOARD_VIDEO_MIN_TRAVEL_PX || 10);
+      const maxAnchorDelta = Number(process.env.BLUEPRINT_STORYBOARD_VIDEO_MAX_LABEL_ANCHOR_DELTA_PX || 2);
+      for (const step of steps || []) {
+        const label = step && step.label || 'move';
+        const summary = step && step.summary || {};
+        const rectDx = Number(summary.rectDx);
+        const rectDy = Number(summary.rectDy);
+        if (label === 'right' && (!Number.isFinite(rectDx) || rectDx < minTravel)) {
+          issues.push('right rectDx=' + rectDx);
+        } else if (label === 'left' && (!Number.isFinite(rectDx) || rectDx > -minTravel)) {
+          issues.push('left rectDx=' + rectDx);
+        } else if (label === 'up' && (!Number.isFinite(rectDy) || rectDy > -minTravel)) {
+          issues.push('up rectDy=' + rectDy);
+        } else if (label === 'down' && (!Number.isFinite(rectDy) || rectDy < minTravel)) {
+          issues.push('down rectDy=' + rectDy);
+        }
+        const anchorDelta = Number(summary.maxLabelAnchorDelta);
+        if (Number.isFinite(anchorDelta) && anchorDelta > maxAnchorDelta) {
+          issues.push(label + ' maxLabelAnchorDelta=' + anchorDelta);
+        }
+        const lineDelta = Number(summary.maxGuidanceLinePlayerDelta);
+        if (Number.isFinite(lineDelta) && lineDelta > 0.08) {
+          issues.push(label + ' maxGuidanceLinePlayerDelta=' + lineDelta);
+        }
+      }
+      return issues;
+    }
+
+    await holdFrames('initial', 1, 0);
+
+	    const inputModeRaw = String(process.env.BLUEPRINT_STORYBOARD_VIDEO_AUDIT_INPUT || '').toLowerCase();
+	    const inputMode = /^(runtime|runtime-joystick|internal)$/.test(inputModeRaw)
+	      ? 'runtime-joystick'
+	      : (/^(mouse|playwright-mouse)$/.test(inputModeRaw)
+	        ? 'mouse'
+	        : (/^(dom|dom-pointer)$/.test(inputModeRaw) ? 'dom-pointer' : 'touch'));
+    const client = inputMode === 'touch'
+      ? await withTimeout(context.newCDPSession(page), 10000, 'storyboard video CDP session')
+      : null;
+    async function drag(label, sx, sy, ex, ey) {
+      logger('[PlayableAgent] Storyboard video audit: ' + inputMode + ' drag ' + label, taskId);
+      const stepRecord = { label, inputMode, start: [sx, sy], end: [ex, ey] };
+      await setAuditStepLabel('AUDIT DRAG ' + String(label || '').toUpperCase());
+      await setAuditPointerOverlay(label, sx, sy, sx, sy, true);
+      stepRecord.before = await samplePlayerVideoAuditState(label + '-before');
+      if (inputMode === 'runtime-joystick') {
+        await captureFrame(label + '-before');
+        const vector = label === 'right' ? { x: 1, y: 0 } :
+          label === 'left' ? { x: -1, y: 0 } :
+          label === 'up' ? { x: 0, y: 1 } :
+          { x: 0, y: -1 };
+        const applied = await page.evaluate((dir) => {
+          const joystick = window.GFM_Joystick && window.GFM_Joystick.instance;
+          if (!joystick || !joystick._input) return false;
+          joystick._dragging = true;
+          joystick._input.x = dir.x;
+          joystick._input.y = dir.y;
+          return true;
+        }, vector).catch(() => false);
+        if (!applied) throw new Error('runtime joystick instance unavailable');
+        const dragMs = Math.max(600, Number(process.env.BLUEPRINT_STORYBOARD_VIDEO_DRAG_MS || 1800) || 1800);
+        const movingFrameCount = Math.max(2, Math.min(12, Number(process.env.BLUEPRINT_STORYBOARD_VIDEO_FRAMES_PER_DRAG || 4) || 4));
+        const movingDelay = Math.max(80, Math.round(dragMs / movingFrameCount));
+        stepRecord.samples = [];
+	        for (let i = 0; i < movingFrameCount; i++) {
+	          await page.waitForTimeout(movingDelay);
+	          const px = sx + (ex - sx) * (i + 1) / movingFrameCount;
+	          const py = sy + (ey - sy) * (i + 1) / movingFrameCount;
+	          await setAuditPointerOverlay(label, sx, sy, px, py, true);
+	          await captureFrame(label + '-move-' + i);
+	          const sample = await samplePlayerVideoAuditState(label + '-move-' + i);
+          if (sample) stepRecord.samples.push(sample);
+        }
+        await page.waitForTimeout(350);
+        await captureFrame(label + '-hold');
+        await page.evaluate(() => {
+          const joystick = window.GFM_Joystick && window.GFM_Joystick.instance;
+          if (joystick && joystick._input) {
+            joystick._dragging = false;
+            joystick._input.x = 0;
+            joystick._input.y = 0;
+          }
+        }).catch(() => null);
+	      } else if (inputMode === 'touch') {
+	        await captureFrame(label + '-before');
+	        stepRecord.samples = [];
+	        await withTimeout(client.send('Input.dispatchTouchEvent', {
+	          type: 'touchStart',
+	          touchPoints: [{ x: sx, y: sy, id: 1, radiusX: 9, radiusY: 9 }],
+	        }), 5000, 'storyboard video touchStart ' + label);
+	        for (let i = 1; i <= 24; i++) {
+	          const x = Math.round(sx + (ex - sx) * i / 24);
+	          const y = Math.round(sy + (ey - sy) * i / 24);
+	          await setAuditPointerOverlay(label, sx, sy, x, y, true);
+	          await withTimeout(client.send('Input.dispatchTouchEvent', {
+	            type: 'touchMove',
+	            touchPoints: [{ x, y, id: 1, radiusX: 9, radiusY: 9 }],
+	          }), 5000, 'storyboard video touchMove ' + label);
+	          if (i % 6 === 0) {
+	            await captureFrame(label + '-move-' + i);
+	            const sample = await samplePlayerVideoAuditState(label + '-move-' + i);
+	            if (sample) stepRecord.samples.push(sample);
+	          }
+	          await page.waitForTimeout(35);
+	        }
+	        await page.waitForTimeout(900);
+	        await captureFrame(label + '-hold');
+	        await withTimeout(client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }), 5000, 'storyboard video touchEnd ' + label);
+	      } else if (inputMode === 'mouse') {
+	        await captureFrame(label + '-before');
+	        stepRecord.samples = [];
+	        await withTimeout(page.mouse.move(sx, sy), 5000, 'storyboard video mouse move start ' + label);
+	        await withTimeout(page.mouse.down(), 5000, 'storyboard video mouse down ' + label);
+	        for (let i = 1; i <= 16; i++) {
+	          const x = Math.round(sx + (ex - sx) * i / 16);
+	          const y = Math.round(sy + (ey - sy) * i / 16);
+	          await setAuditPointerOverlay(label, sx, sy, x, y, true);
+	          await withTimeout(page.mouse.move(x, y), 5000, 'storyboard video mouse move ' + label);
+	          if (i % 4 === 0) {
+	            await captureFrame(label + '-move-' + i);
+	            const sample = await samplePlayerVideoAuditState(label + '-move-' + i);
+	            if (sample) stepRecord.samples.push(sample);
+	          }
+	          await page.waitForTimeout(30);
+	        }
+        await captureFrame(label + '-end');
+        await holdFrames(label + '-hold', 1, 0);
+        await withTimeout(page.mouse.up(), 5000, 'storyboard video mouse up ' + label);
+	      } else {
+	        await captureFrame(label + '-before');
+	        stepRecord.samples = [];
+	        async function emitDomPointer(type, x, y, buttons) {
+	          await withTimeout(page.evaluate((args) => {
+          function makeMouseEvent(type, x, y, buttons) {
+            return new MouseEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              view: window,
+              clientX: x,
+              clientY: y,
+              screenX: x,
+              screenY: y,
+              button: 0,
+              buttons,
+            });
+          }
+          function makePointerEvent(type, x, y, buttons) {
+            if (typeof PointerEvent !== 'function') return null;
+            return new PointerEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              view: window,
+              clientX: x,
+              clientY: y,
+              screenX: x,
+              screenY: y,
+              button: 0,
+              buttons,
+              pointerId: 1,
+              pointerType: 'mouse',
+              isPrimary: true,
+            });
+          }
+          function emitOne(target, event) {
+            try { target.dispatchEvent(event); } catch(e) {}
+          }
+          function emit(type, x, y, buttons) {
+            const hit = document.elementFromPoint(x, y);
+            const targets = [hit, document, window].filter(Boolean);
+            for (const target of targets) {
+              const pointerType = type.replace(/^mouse/, 'pointer');
+              const pointerEvent = makePointerEvent(pointerType, x, y, buttons);
+              if (pointerEvent) emitOne(target, pointerEvent);
+              emitOne(target, makeMouseEvent(type, x, y, buttons));
+            }
+          }
+	          emit(args.type, args.x, args.y, args.buttons);
+	        }, { type, x, y, buttons }), 5000, 'storyboard video dom pointer ' + type + ' ' + label);
+	        }
+	        await emitDomPointer('mousemove', sx, sy, 0);
+	        await emitDomPointer('mousedown', sx, sy, 1);
+	        for (let i = 1; i <= 24; i++) {
+	          const x = Math.round(sx + (ex - sx) * i / 24);
+	          const y = Math.round(sy + (ey - sy) * i / 24);
+	          await setAuditPointerOverlay(label, sx, sy, x, y, true);
+	          await emitDomPointer('mousemove', x, y, 1);
+	          if (i % 6 === 0) {
+	            const sample = await samplePlayerVideoAuditState(label + '-move-' + i);
+	            if (sample) stepRecord.samples.push(sample);
+	          }
+	          await page.waitForTimeout(35);
+	        }
+	        for (let hold = 0; hold < 10; hold++) {
+	          await emitDomPointer('mousemove', ex, ey, 1);
+	          await page.waitForTimeout(80);
+	        }
+	        await captureFrame(label + '-hold');
+	        const holdSample = await samplePlayerVideoAuditState(label + '-hold');
+	        if (holdSample) stepRecord.samples.push(holdSample);
+	        await emitDomPointer('mouseup', ex, ey, 0);
+        await captureFrame(label + '-end');
+        await holdFrames(label + '-dom-hold', 1, 0);
+      }
+	      stepRecord.after = await samplePlayerVideoAuditState(label + '-after');
+	      stepRecord.summary = summarizeVideoAuditStep(stepRecord.before, stepRecord.samples, stepRecord.after);
+	      await setAuditPointerOverlay(label, sx, sy, ex, ey, false);
+	      await page.waitForTimeout(450);
+      result.recordingSteps = result.recordingSteps || [];
+      result.recordingSteps.push(stepRecord);
+    }
+
+	    const joystickTarget = inputMode === 'runtime-joystick' ? { source: 'runtime-joystick', x: 0, y: 0, radius: 0 } : await page.evaluate(() => {
+	      function rectFor(selector) {
+	        const el = document.querySelector(selector);
+	        if (!el) return null;
+	        let node = el;
+	        while (node && node.nodeType === 1) {
+	          const style = getComputedStyle(node);
+	          if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) < 0.05) return null;
+	          node = node.parentElement;
+	        }
+	        const rect = el.getBoundingClientRect();
+	        if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+	        const vw = window.innerWidth || 540;
+	        const vh = window.innerHeight || 960;
+	        if (rect.x < 0 || rect.y < 0 || rect.x + rect.width > vw || rect.y + rect.height > vh) return null;
+	        return {
+	          x: rect.x,
+          y: rect.y,
+          w: rect.width,
+          h: rect.height,
+          cx: rect.x + rect.width / 2,
+          cy: rect.y + rect.height / 2,
+	        };
+	      }
+      const stick = rectFor('#bp-storyboard-stick') || rectFor('[id*="stick" i]') || rectFor('[class*="stick" i]');
+      const knob = rectFor('#bp-storyboard-knob') || rectFor('[id*="knob" i]') || rectFor('[class*="knob" i]');
+      const base = stick || knob;
+      if (!base) return null;
+      const vw = window.innerWidth || 540;
+      const vh = window.innerHeight || 960;
+      const radius = Math.max(36, Math.min(80, Math.min(base.w || 96, base.h || 96) * 0.45));
+      return {
+        source: stick ? 'stick' : 'knob',
+        x: Math.max(8, Math.min(vw - 8, base.cx)),
+        y: Math.max(8, Math.min(vh - 8, base.cy)),
+        radius,
+        rect: base,
+      };
+    }).catch(() => null);
+    const joy = joystickTarget || { source: 'fallback', x: 72, y: 864, radius: 54 };
+    result.joystickTarget = joy;
+    await drag('right', joy.x, joy.y, joy.x + joy.radius, joy.y);
+    await drag('up', joy.x, joy.y, joy.x, joy.y - joy.radius);
+    await drag('down', joy.x, joy.y, joy.x, joy.y + joy.radius);
+    await drag('left', joy.x, joy.y, joy.x - joy.radius, joy.y);
+    await holdFrames('final', 1, 0);
+
+    logger('[PlayableAgent] Storyboard video audit: finalizing screenshot video', taskId);
+    finalVideoPath = path.join(outDir, 'joystick-pointer.mp4');
+    const recordFps = Number(process.env.BLUEPRINT_STORYBOARD_VIDEO_RECORD_FPS || 4);
+    await encodeFrameSequenceToVideo(framesDir, finalVideoPath, recordFps);
+	    result.recording = {
+	      path: finalVideoPath,
+	      format: 'mp4',
+	      inputMode,
+	      directions: ['right', 'up', 'down', 'left'],
+	      frameCount: frameIndex,
+	    };
+	    result.deterministicMovementIssues = evaluateVideoMovementSummaries(result.recordingSteps || []);
+	    if (result.deterministicMovementIssues.length) {
+	      result.passed = false;
+	      result.reason = 'storyboard video deterministic movement failed: ' + result.deterministicMovementIssues.slice(0, 5).join('; ');
+	      return result;
+	    }
+
+	    logger('[PlayableAgent] Storyboard video audit recording saved: ' + finalVideoPath, taskId);
+    if (recordOnly) {
+      result.passed = true;
+      result.skipped = true;
+      result.reason = 'recording only; Volcengine video model call skipped by BLUEPRINT_STORYBOARD_VIDEO_AUDIT_RECORD_ONLY';
+      return result;
+    }
+    const movementSummary = (result.recordingSteps || []).map((step) => {
+      const s = step.summary || {};
+      return step.label + ': gameDx=' + (s.gameDx ?? 'n/a') +
+        ', gameDz=' + (s.gameDz ?? 'n/a') +
+        ', rectDx=' + (s.rectDx ?? 'n/a') +
+        ', rectDy=' + (s.rectDy ?? 'n/a') +
+	        ', labelDx=' + (s.labelDx ?? 'n/a') +
+	        ', labelDy=' + (s.labelDy ?? 'n/a') +
+	        ', maxLabelAnchorDelta=' + (s.maxLabelAnchorDelta ?? 'n/a') +
+	        ', maxGuidanceLinePlayerDelta=' + (s.maxGuidanceLinePlayerDelta ?? 'n/a');
+    }).join('; ');
+    const modelAudit = await videoAudit.runVolcengineVideoAudit(finalVideoPath, {
+      fps: process.env.BLUEPRINT_VOLC_VIDEO_AUDIT_FPS || 4,
+      model: process.env.BLUEPRINT_VOLC_VIDEO_AUDIT_MODEL || process.env.DOUBAO_VIDEO_AUDIT_MODEL || process.env.DOUBAO_VIDEO_MODEL,
+      maxDurationSeconds: process.env.BLUEPRINT_VOLC_VIDEO_AUDIT_MAX_SECONDS || 30,
+      keepPreparedVideo: true,
+      context: [
+        'This is an automated mobile-touch recording of the playable ad.',
+        'The test drags the virtual joystick with pointer input in this exact order: right, up, down, left.',
+        'Audit Player movement continuity and whether visible entity labels stay above their entities during all four drags.',
+        movementSummary ? ('Recorder measured Player movement and label anchoring: ' + movementSummary + '.') : '',
+      ].join(' '),
+    });
+    result.volcengineVideoAudit = modelAudit;
+    result.passed = modelAudit.passed === true;
+    result.reason = modelAudit.passed ? 'storyboard video audit passed' : (modelAudit.summary || 'storyboard video audit failed');
+  } catch(e) {
+    result.passed = process.env.BLUEPRINT_VOLC_VIDEO_AUDIT_REQUIRED === '0';
+    result.reason = 'storyboard video audit failed: ' + e.message;
+    result.error = e.stack || e.message;
+  } finally {
+    try {
+      fs.writeFileSync(path.join(outDir, 'result.json'), JSON.stringify(result, null, 2));
+    } catch(e) {}
+    if (browser) {
+      try { await browser.close(); } catch(e) {}
+    }
+  }
+
+  logger('[PlayableAgent] Storyboard video audit: ' + (result.passed ? 'PASS' : 'FAIL') + ' | ' + result.reason, taskId);
+  return result;
+}
+
+async function runManualJoystickProbe(previewUrl, taskId, log) {
+  const logger = typeof log === 'function' ? log : function() {};
+  if (process.env.BLUEPRINT_SKIP_MANUAL_JOYSTICK_PROBE === '1') {
+    return { passed: true, skipped: true, reason: 'skipped by BLUEPRINT_SKIP_MANUAL_JOYSTICK_PROBE' };
+  }
+
+  let chromium;
+  try {
+    chromium = require('playwright').chromium;
+  } catch(e) {
+    return { passed: false, skipped: false, reason: 'playwright unavailable for manual joystick probe: ' + e.message };
+  }
+
+  const outDir = path.join(CUA_RESULTS_DIR, taskId + '-manual-joystick-probe');
+  try { fs.mkdirSync(outDir, { recursive: true }); } catch(e) {}
+  const result = { passed: false, skipped: false, url: previewUrl, outDir, samples: [], logs: [] };
+  let browser = null;
+  try {
+    browser = await chromium.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-web-security']
+    });
+    const context = await browser.newContext({
+      viewport: { width: 540, height: 960 },
+      deviceScaleFactor: 2,
+      ignoreHTTPSErrors: true,
+    });
+    const page = await context.newPage();
+    page.on('console', msg => {
+      const type = msg.type();
+      const text = msg.text();
+      if (type === 'error' || type === 'warning' || text.indexOf('__PHASE') >= 0) {
+        result.logs.push({ type, text: text.slice(0, 500) });
+      }
+    });
+    page.on('pageerror', err => {
+      result.logs.push({ type: 'pageerror', text: String(err).slice(0, 500) });
+    });
+
+    await page.goto(previewUrl, { waitUntil: 'load', timeout: 60000 });
+    await page.waitForTimeout(8000);
+
+    async function sample(label) {
+      return page.evaluate((sampleLabel) => {
+        let gs = null;
+        try { gs = typeof window.__gameState === 'function' ? window.__gameState() : window.__gameState; } catch(e) { gs = { error: String(e) }; }
+        const stick = document.getElementById('bp-storyboard-stick');
+        const knob = document.getElementById('bp-storyboard-knob');
+        let joy = null;
+        try {
+          if (window.GFM_Joystick && window.GFM_Joystick.instance) {
+            const j = window.GFM_Joystick.instance;
+            joy = {
+              dragging: !!j._dragging,
+              input: j._input ? { x: j._input.x, y: j._input.y } : null,
+              h: j.Horizontal,
+              v: j.Vertical,
+            };
+          }
+        } catch(e) { joy = { error: String(e) }; }
+        let runtimePlayer = null;
+        try {
+          if (window.GFM_Player) {
+            const p = window.GFM_Player.Instance;
+            const go = p && p.Go;
+            const pos = go && go.transform && go.transform.position;
+            runtimePlayer = pos ? { x: pos.x, y: pos.y, z: pos.z } : null;
+          }
+        } catch(e) { runtimePlayer = null; }
+        return {
+          label: sampleLabel,
+          currentPhase: gs && gs.currentPhase,
+          completedPhases: gs && gs.completedPhases,
+          playerState: gs && gs.entityStates && (gs.entityStates.player || gs.entityStates.Player),
+          runtimePlayer,
+          domStick: stick ? {
+            className: stick.className,
+            opacity: getComputedStyle(stick).opacity,
+            knobTransform: knob && knob.style.transform
+          } : null,
+          joy,
+        };
+      }, label);
+    }
+
+    result.samples.push(await sample('before'));
+    await page.mouse.move(90, 750);
+    await page.mouse.down();
+    for (let i = 1; i <= 20; i++) {
+      const x = 90 + (150 - 90) * i / 20;
+      const y = 750 + (690 - 750) * i / 20;
+      await page.mouse.move(x, y);
+      await page.waitForTimeout(40);
+    }
+    await page.waitForTimeout(1200);
+    result.samples.push(await sample('during-mouse-hold'));
+    await page.mouse.up();
+    await page.waitForTimeout(500);
+
+    result.samples.push(await sample('before-touch'));
+    const client = await withTimeout(context.newCDPSession(page), 10000, 'manual joystick touch CDP session');
+    await withTimeout(client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 90, y: 750, id: 0, radiusX: 10, radiusY: 10 }] }), 5000, 'manual joystick touchStart');
+    for (let i = 1; i <= 15; i++) {
+      const x = Math.round(90 + (150 - 90) * i / 15);
+      const y = Math.round(750 + (690 - 750) * i / 15);
+      await withTimeout(client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y, id: 0, radiusX: 10, radiusY: 10 }] }), 5000, 'manual joystick touchMove');
+      await page.waitForTimeout(40);
+    }
+    await page.waitForTimeout(1200);
+    result.samples.push(await sample('during-touch-hold'));
+    await withTimeout(client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }), 5000, 'manual joystick touchEnd');
+
+    Object.assign(result, evaluateManualJoystickProbeResult(result));
+  } catch(e) {
+    result.passed = false;
+    result.reason = 'manual joystick probe failed: ' + e.message;
+  } finally {
+    try {
+      fs.writeFileSync(path.join(outDir, 'result.json'), JSON.stringify(result, null, 2));
+    } catch(e) {}
+    if (browser) {
+      try { await browser.close(); } catch(e) {}
+    }
+  }
+
+  logger('[PlayableAgent] Manual joystick probe: ' + (result.passed ? 'PASS' : 'FAIL') +
+    ' | maxInput=' + (result.maxInput || 0) +
+    ' | maxPlayerDistance=' + (result.maxPlayerDistance || 0) +
+    ' | ' + result.reason, taskId);
+  return result;
 }
 
 // ─── Ensure Xvfb is running ───
@@ -313,6 +1749,12 @@ function summarizePlayableAgentReport(report, taskId, log) {
   const missingSignals = Array.isArray(report.missingSignals) ? report.missingSignals.slice() : [];
   const unsupportedSignals = Array.isArray(report.unsupportedSignals) ? report.unsupportedSignals.slice() : [];
   const planCoverage = report.planCoverage || null;
+  const planCoverageIssue = coverageReason(planCoverage, 'plan');
+  if (planCoverageIssue) {
+    report.passed = false;
+    if (!report.exitReason) report.exitReason = 'plan_coverage_incomplete';
+    issues.push(planCoverageIssue + ' — phase coverage alone is insufficient for approval.');
+  }
 
   if (!signalValidationPassed || missingSignals.length > 0) {
     report.passed = false;
@@ -542,6 +1984,7 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
 
   // AutoPlay mode: append ?autoplay=1 so the JS bridge creates __AUTOPLAY_ON__ entity
   const previewUrl = 'http://127.0.0.1:' + actualPort + '/' + (hasIframe ? 'iframe.html' : 'index.html') + '?autoplay=1';
+  const manualProbeUrl = 'http://127.0.0.1:' + actualPort + '/' + (hasIframe ? 'iframe.html' : 'index.html') + '?manual=1&autoplay=0';
 
   // Write specs for Python
   const specsPath = writeSpecsFile(blueprint, taskId);
@@ -567,6 +2010,7 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
     };
 
     log('[PlayableAgent] Running: ' + PYTHON + ' ' + args.join(' '), taskId);
+    const verificationStartedAt = Date.now();
     if (!process._activeChildPIDs) process._activeChildPIDs = new Set();
     const child = spawn(PYTHON, args, {
       cwd: '/root/cua-agent',
@@ -594,10 +2038,9 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       try { child.kill('SIGTERM'); } catch(e) {}
     }, verifyTimeoutMs);
 
-    child.on('close', (code) => {
+    child.on('close', async (code) => {
       clearTimeout(timeout);
       if (child.pid && process._activeChildPIDs) process._activeChildPIDs.delete(child.pid);
-      try { server.close(); } catch(e) {}
 
       log('[PlayableAgent] Process exited with code ' + code, taskId);
 
@@ -607,9 +2050,16 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       // Find and read report JSON
       let report = null;
       try {
-        // Find the latest verify_report.json
+        const explicitRunMatch = stdout.match(/输出:\s*(\/root\/cua-agent\/runs\/verify_\d+)/);
+        if (explicitRunMatch) {
+          const explicitReportPath = path.join(explicitRunMatch[1], 'verify_report.json');
+          if (fs.existsSync(explicitReportPath)) {
+            report = JSON.parse(fs.readFileSync(explicitReportPath, 'utf-8'));
+          }
+        }
+        // Find the latest verify_report.json from this process window.
         const runsDir = '/root/cua-agent/runs';
-        if (fs.existsSync(runsDir)) {
+        if (!report && fs.existsSync(runsDir)) {
           const dirs = fs.readdirSync(runsDir)
             .filter(d => d.startsWith('verify_'))
             .sort()
@@ -617,6 +2067,8 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
           for (const dir of dirs) {
             const reportPath = path.join(runsDir, dir, 'verify_report.json');
             if (fs.existsSync(reportPath)) {
+              const stat = fs.statSync(reportPath);
+              if (stat.mtimeMs < verificationStartedAt - 5000) continue;
               report = JSON.parse(fs.readFileSync(reportPath, 'utf-8'));
               break;
             }
@@ -627,6 +2079,7 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       }
 
       if (!report) {
+        try { server.close(); } catch(e) {}
         resolve({
           passed: false,
           issues: ['[playableagent-error] Verification process failed to generate report. Exit code: ' + code],
@@ -636,7 +2089,51 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
         return;
       }
 
-      resolve(summarizePlayableAgentReport(report, taskId, log));
+      const summary = summarizePlayableAgentReport(report, taskId, log);
+      if (summary.passed && blueprintNeedsManualJoystickProbe(blueprint, report)) {
+        const manualProbe = await runManualJoystickProbe(manualProbeUrl, taskId, log);
+        summary.manualJoystickProbe = manualProbe;
+        if (summary.report) {
+          summary.report.manualJoystickProbe = manualProbe;
+          if (summary.report.diagnostics) summary.report.diagnostics.manualJoystickProbe = manualProbe;
+        }
+        if (!manualProbe.passed) {
+          summary.passed = false;
+          summary.exitReason = 'manual_joystick_probe_failed';
+          summary.issues.push('[manual-joystick-probe] ' + manualProbe.reason);
+          if (summary.report) summary.report.exitReason = 'manual_joystick_probe_failed';
+        }
+      }
+      if (summary.passed) {
+        const storyboardVisualAudit = await runStoryboardVisualAudit(manualProbeUrl, taskId, log);
+        summary.storyboardVisualAudit = storyboardVisualAudit;
+        if (summary.report) {
+          summary.report.storyboardVisualAudit = storyboardVisualAudit;
+          if (summary.report.diagnostics) summary.report.diagnostics.storyboardVisualAudit = storyboardVisualAudit;
+        }
+        if (!storyboardVisualAudit.passed) {
+          summary.passed = false;
+          summary.exitReason = 'storyboard_visual_audit_failed';
+          summary.issues.push('[storyboard-visual-audit] ' + storyboardVisualAudit.reason);
+          if (summary.report) summary.report.exitReason = 'storyboard_visual_audit_failed';
+        }
+      }
+      if (summary.passed) {
+        const storyboardVideoAudit = await runStoryboardVideoAudit(manualProbeUrl, taskId, log);
+        summary.storyboardVideoAudit = storyboardVideoAudit;
+        if (summary.report) {
+          summary.report.storyboardVideoAudit = storyboardVideoAudit;
+          if (summary.report.diagnostics) summary.report.diagnostics.storyboardVideoAudit = storyboardVideoAudit;
+        }
+        if (!storyboardVideoAudit.passed) {
+          summary.passed = false;
+          summary.exitReason = 'storyboard_video_audit_failed';
+          summary.issues.push('[storyboard-video-audit] ' + storyboardVideoAudit.reason);
+          if (summary.report) summary.report.exitReason = 'storyboard_video_audit_failed';
+        }
+      }
+      try { server.close(); } catch(e) {}
+      resolve(summary);
     });
 
     child.on('error', (err) => {
@@ -660,4 +2157,11 @@ module.exports = {
   patchForHeadless,
   writeSpecsFile,
   summarizePlayableAgentReport,
+  blueprintNeedsManualJoystickProbe,
+  evaluateManualJoystickProbeResult,
+  evaluateStoryboardVisualAuditResult,
+  runManualJoystickProbe,
+  runStoryboardVisualAudit,
+  runStoryboardVideoAudit,
+  shouldRunStoryboardVideoAudit,
 };

@@ -70,6 +70,317 @@ function appendCacheBuster(url) {
   return String(url || '') + sep + 'publicPreviewProbe=' + Date.now();
 }
 
+function appendQueryParam(url, key, value) {
+  var text = String(url || '');
+  var sep = text.indexOf('?') >= 0 ? '&' : '?';
+  return text + sep + encodeURIComponent(key) + '=' + encodeURIComponent(value);
+}
+
+function resolvePublicPreviewProbe(previewUrl, env) {
+  env = env || process.env;
+  var parsed;
+  try { parsed = new URL(String(previewUrl || '')); } catch(e) { parsed = null; }
+  var host = parsed && parsed.hostname ? parsed.hostname : '';
+  var resolveIp = env.PUBLIC_PREVIEW_PROBE_RESOLVE_IP || env.PUBLIC_PREVIEW_LOCAL_RESOLVE_IP || '127.0.0.1';
+  var localResolveEnabled = env.PUBLIC_PREVIEW_PROBE_LOCAL_RESOLVE !== 'false' &&
+    !!host &&
+    /(^|\.)playcools\.top$/i.test(host);
+  var bypassProxy = env.PUBLIC_PREVIEW_PROBE_BYPASS_PROXY !== 'false';
+  var launchArgs = ['--no-sandbox'];
+  var mode = 'direct-public';
+
+  if (localResolveEnabled) {
+    launchArgs.push('--host-resolver-rules=MAP ' + host + ' ' + resolveIp);
+    mode = 'local-nginx-resolve';
+  }
+  if (bypassProxy) {
+    launchArgs.push('--proxy-server=direct://');
+    launchArgs.push('--proxy-bypass-list=*');
+  }
+
+  return {
+    url: String(previewUrl || ''),
+    host: host,
+    resolveIp: localResolveEnabled ? resolveIp : '',
+    mode: mode,
+    launchArgs: launchArgs,
+    bypassProxy: bypassProxy,
+  };
+}
+
+function assertUploadVisualManifest(ctx) {
+  if (process.env.BLUEPRINT_UPLOAD_VISUAL_MANIFEST_STRICT === '0') return;
+  var sourceHtmlPath = ctx && (ctx.sourceHtmlPath || (ctx.blueprint && ctx.blueprint.sourceHtmlPath));
+  if (!sourceHtmlPath) return;
+  var html = String(ctx && ctx.htmlOutput || '');
+  if (/window\.__BLUEPRINT_VISUAL_ASSETS__\s*=\s*null\s*;/.test(html)) {
+    throw new Error('upload visual manifest gate: source HTML is bound but __BLUEPRINT_VISUAL_ASSETS__ is null');
+  }
+  var m = html.match(/window\.__BLUEPRINT_VISUAL_ASSETS__\s*=\s*([\s\S]*?);\s*window\.__fidelityReady/);
+  if (!m) {
+    throw new Error('upload visual manifest gate: missing __BLUEPRINT_VISUAL_ASSETS__ injection');
+  }
+  var manifest;
+  try {
+    manifest = JSON.parse(m[1]);
+  } catch(e) {
+    throw new Error('upload visual manifest gate: cannot parse __BLUEPRINT_VISUAL_ASSETS__: ' + e.message);
+  }
+  var missing = [];
+  if (!manifest || typeof manifest !== 'object') missing.push('manifest');
+  if (!manifest.sourceEntityContract) missing.push('sourceEntityContract');
+  if (!manifest.sourcePhaseContract) missing.push('sourcePhaseContract');
+  if (!manifest.entityBindings || Object.keys(manifest.entityBindings).length === 0) missing.push('entityBindings');
+  if (!manifest.fidelityContract) missing.push('fidelityContract');
+  if (missing.length > 0) {
+    throw new Error('upload visual manifest gate: missing ' + missing.join(', '));
+  }
+}
+
+function compactSourceVisualMetrics(metrics) {
+  if (!metrics || typeof metrics !== 'object') return metrics;
+  return {
+    sourceVisualActive: !!metrics.sourceVisualActive,
+    expectedEntityCount: Number(metrics.expectedEntityCount || 0),
+    bindingCount: Number(metrics.bindingCount || 0),
+    bindingAssetCount: Number(metrics.bindingAssetCount || 0),
+    sourceMeshOpsCount: Number(metrics.sourceMeshOpsCount || 0),
+    fidelityPrimitiveStyleCount: Number(metrics.fidelityPrimitiveStyleCount || 0),
+    storyboardGroups: Number(metrics.storyboardGroups || 0),
+    sourceVisualRenderable: Number(metrics.sourceVisualRenderable || 0),
+    styledParts: Number(metrics.styledParts || 0),
+    sourcePrims: Number(metrics.sourcePrims || 0),
+    emptyStoryboardEntities: Number(metrics.emptyStoryboardEntities || 0),
+    allEnabledRenderable: Number(metrics.allEnabledRenderable || 0),
+    disabledVisiblePosPool: Number(metrics.disabledVisiblePosPool || 0),
+    samples: Array.isArray(metrics.samples) ? metrics.samples.slice(0, 6) : [],
+    error: metrics.error || '',
+  };
+}
+
+function assertSourceVisualRenderableMetrics(metrics, env) {
+  env = env || process.env;
+  if (env.PUBLIC_PREVIEW_SOURCE_VISUAL_RENDERABLE_STRICT === '0') return;
+  if (!metrics || metrics.sourceVisualActive !== true) return;
+
+  var minRenderable = parseInt(env.PUBLIC_PREVIEW_MIN_SOURCE_VISUAL_RENDERABLES || '3', 10);
+  if (!Number.isFinite(minRenderable) || minRenderable < 1) minRenderable = 3;
+  var expectedEntityCount = Number(metrics.expectedEntityCount || metrics.bindingCount || 0);
+  var expectedRenderable = Math.max(1, Math.min(minRenderable, expectedEntityCount || minRenderable));
+  var sourceMeshOpsCount = Number(metrics.sourceMeshOpsCount || 0);
+  var fallbackExpected = sourceMeshOpsCount === 0 &&
+    (Number(metrics.fidelityPrimitiveStyleCount || 0) > 0 || Number(metrics.bindingAssetCount || 0) > 0);
+  var sourceRenderable = Number(metrics.sourceVisualRenderable || 0);
+  var meshParts = Number(metrics.styledParts || 0) + Number(metrics.sourcePrims || 0);
+
+  if (fallbackExpected && Number(metrics.storyboardGroups || 0) > 0 && meshParts <= 0) {
+    throw new Error(
+      'Public preview source visual has no renderable mesh parts: ' +
+      JSON.stringify(compactSourceVisualMetrics(metrics))
+    );
+  }
+
+  if (fallbackExpected && sourceRenderable < expectedRenderable) {
+    throw new Error(
+      'Public preview source visual has too few renderable meshes: ' +
+      JSON.stringify(compactSourceVisualMetrics(metrics))
+    );
+  }
+}
+
+function readSourceVisualRenderableMetrics(page) {
+  return page.evaluate(function() {
+    function ownKeys(obj) {
+      return obj && typeof obj === 'object' ? Object.keys(obj) : [];
+    }
+    function arrLen(value) {
+      return Array.isArray(value) ? value.length : 0;
+    }
+    function countSourceMeshOps(ops) {
+      var total = 0;
+      ownKeys(ops).forEach(function(key) {
+        total += arrLen(ops[key]);
+      });
+      return total;
+    }
+    function getApp() {
+      try {
+        if (window.app && window.app.app) return window.app.app;
+        if (window.pc && window.pc.Application && typeof window.pc.Application.getApplication === 'function') {
+          return window.pc.Application.getApplication();
+        }
+      } catch(e) {}
+      return null;
+    }
+    function walk(node, fn) {
+      if (!node) return;
+      fn(node);
+      var children = node.children || [];
+      for (var i = 0; i < children.length; i++) walk(children[i], fn);
+    }
+    function addInstances(list, out) {
+      if (!list || typeof list.length !== 'number') return;
+      for (var i = 0; i < list.length; i++) out.push(list[i]);
+    }
+    function meshInstances(node) {
+      var out = [];
+      try { if (node.render && node.render.meshInstances) addInstances(node.render.meshInstances, out); } catch(e1) {}
+      try {
+        if (node.model && node.model.model && node.model.model.meshInstances) {
+          addInstances(node.model.model.meshInstances, out);
+        }
+      } catch(e2) {}
+      try {
+        var renderers = node._unityComponents && node._unityComponents.renderer || [];
+        for (var ri = 0; ri < renderers.length; ri++) addInstances(renderers[ri] && renderers[ri].meshInstances, out);
+      } catch(e3) {}
+      return out;
+    }
+    function visibleMeshCount(node) {
+      var list = meshInstances(node);
+      var count = 0;
+      for (var i = 0; i < list.length; i++) {
+        if (list[i] && list[i].visible !== false) count++;
+      }
+      return count;
+    }
+    function position(node) {
+      try { if (node.getPosition) return node.getPosition(); } catch(e1) {}
+      try { if (node.getLocalPosition) return node.getLocalPosition(); } catch(e2) {}
+      return null;
+    }
+    function isVisibleWorldPosition(pos) {
+      if (!pos) return true;
+      var y = Number(pos.y);
+      return !Number.isFinite(y) || y > -1000;
+    }
+
+    var manifest = window.__BLUEPRINT_VISUAL_ASSETS__ || null;
+    var bindings = manifest && manifest.entityBindings || {};
+    var bindingKeys = ownKeys(bindings);
+    var bindingAssetCount = 0;
+    bindingKeys.forEach(function(key) {
+      bindingAssetCount += arrLen(bindings[key] && bindings[key].assetIds);
+      if (bindings[key] && bindings[key].primaryAssetId) bindingAssetCount++;
+    });
+    var fidelityEntities = manifest && manifest.fidelityContract && Array.isArray(manifest.fidelityContract.entities)
+      ? manifest.fidelityContract.entities
+      : [];
+    var metrics = {
+      sourceVisualActive: !!(manifest && manifest.sourceEntityContract && manifest.entityBindings),
+      expectedEntityCount: arrLen(manifest && manifest.sourceEntityContract && manifest.sourceEntityContract.entities),
+      bindingCount: bindingKeys.length,
+      bindingAssetCount: bindingAssetCount,
+      sourceMeshOpsCount: countSourceMeshOps(manifest && manifest.sourceMeshOps),
+      fidelityPrimitiveStyleCount: fidelityEntities.filter(function(entity) {
+        return !!(entity && entity.primitiveStyle && typeof entity.primitiveStyle.modelRef === 'string');
+      }).length,
+      storyboardGroups: 0,
+      sourceVisualRenderable: 0,
+      styledParts: 0,
+      sourcePrims: 0,
+      emptyStoryboardEntities: 0,
+      allEnabledRenderable: 0,
+      disabledVisiblePosPool: 0,
+      samples: [],
+      error: '',
+    };
+
+    if (!metrics.sourceVisualActive) return metrics;
+
+    var app = getApp();
+    if (!app || !app.root) {
+      metrics.error = 'missing PlayCanvas application root';
+      return metrics;
+    }
+
+    walk(app.root, function(node) {
+      var name = String(node && node.name || '');
+      var meshes = visibleMeshCount(node);
+      var pos = position(node);
+      var enabled = node && node.enabled !== false && node.enabledInHierarchy !== false;
+      var visiblePos = isVisibleWorldPosition(pos);
+      var renderable = enabled && visiblePos && meshes > 0;
+      var isStoryboardGroup = /^StoryboardEntity_/.test(name);
+      var isStyledPart = /^BPS_/.test(name);
+      var isSourcePrimitive = /^BPV_/.test(name) || /^SourcePrimitive/.test(name);
+      var isSourceVisual = isStyledPart || isSourcePrimitive || isStoryboardGroup ||
+        name === 'StoryboardGround' || name === 'StoryboardStar' || name === 'StoryboardOrbit';
+
+      if (renderable) metrics.allEnabledRenderable++;
+      if (renderable && isSourceVisual) metrics.sourceVisualRenderable++;
+      if (renderable && isStyledPart) metrics.styledParts++;
+      if (renderable && isSourcePrimitive) metrics.sourcePrims++;
+      if (isStoryboardGroup) {
+        metrics.storyboardGroups++;
+        if (meshes <= 0) metrics.emptyStoryboardEntities++;
+      }
+      if (/^__Pool_/.test(name) && node.enabled === false && visiblePos && meshes > 0) {
+        metrics.disabledVisiblePosPool++;
+      }
+      if ((renderable || isStoryboardGroup) && metrics.samples.length < 12) {
+        metrics.samples.push({
+          name: name,
+          meshes: meshes,
+          enabled: !!enabled,
+          y: pos && Number.isFinite(Number(pos.y)) ? Number(pos.y) : null,
+        });
+      }
+    });
+
+    return metrics;
+  }).catch(function(err) {
+    return {
+      sourceVisualActive: true,
+      expectedEntityCount: 0,
+      bindingCount: 0,
+      bindingAssetCount: 0,
+      sourceMeshOpsCount: 0,
+      fidelityPrimitiveStyleCount: 0,
+      storyboardGroups: 0,
+      sourceVisualRenderable: 0,
+      styledParts: 0,
+      sourcePrims: 0,
+      emptyStoryboardEntities: 0,
+      allEnabledRenderable: 0,
+      disabledVisiblePosPool: 0,
+      samples: [],
+      error: String(err && err.message || err),
+    };
+  });
+}
+
+function waitForSourceVisualRenderableMetrics(page, env) {
+  env = env || process.env;
+  var timeoutMs = parseInt(env.PUBLIC_PREVIEW_SOURCE_VISUAL_RENDERABLE_TIMEOUT_MS || '12000', 10);
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 1000) timeoutMs = 12000;
+  var intervalMs = parseInt(env.PUBLIC_PREVIEW_SOURCE_VISUAL_RENDERABLE_POLL_MS || '500', 10);
+  if (!Number.isFinite(intervalMs) || intervalMs < 100) intervalMs = 500;
+  var deadline = Date.now() + timeoutMs;
+  var lastMetrics = null;
+  var lastError = null;
+
+  function poll() {
+    return readSourceVisualRenderableMetrics(page).then(function(metrics) {
+      lastMetrics = metrics;
+      try {
+        assertSourceVisualRenderableMetrics(metrics, env);
+        return metrics;
+      } catch(err) {
+        lastError = err;
+        if (Date.now() >= deadline) throw err;
+        return page.waitForTimeout(intervalMs).then(poll);
+      }
+    });
+  }
+
+  return poll().catch(function(err) {
+    if (lastError) throw lastError;
+    if (lastMetrics) assertSourceVisualRenderableMetrics(lastMetrics, env);
+    throw err;
+  });
+}
+
 function captureVisualFrame(page, sharp) {
   if (!sharp) return Promise.resolve(null);
   return page.screenshot({ type: 'jpeg', quality: 72 }).then(function(buffer) {
@@ -160,9 +471,15 @@ function verifyPublicPreviewProgress(ctx, previewUrl) {
     }
   }
 
-  ctx.addLog('upload', 'Verifying public preview default progress...');
+  var probe = resolvePublicPreviewProbe(previewUrl);
+  var progressProbeUrl = appendQueryParam(appendQueryParam(probe.url, 'autoplay', '1'), 'observerReady', '1');
+  ctx.addLog('upload', 'Verifying public preview autoplay progress...' +
+    ' mode=' + probe.mode +
+    (probe.host ? ' host=' + probe.host : '') +
+    (probe.resolveIp ? ' resolve=' + probe.resolveIp : '') +
+    (probe.bypassProxy ? ' proxy=direct' : ''));
 
-  return chromium.launch({ headless: true, args: ['--no-sandbox'] }).then(function(b) {
+  return chromium.launch({ headless: true, args: probe.launchArgs }).then(function(b) {
     browser = b;
     return browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 960, height: 640 } });
   }).then(function(c) {
@@ -179,7 +496,7 @@ function verifyPublicPreviewProgress(ctx, previewUrl) {
     page.on('pageerror', function(err) {
       consoleMessages.push('[pageerror] ' + String(err && err.message || err).slice(0, 260));
     });
-    return page.goto(appendCacheBuster(previewUrl), { waitUntil: 'load', timeout: 45000 });
+    return page.goto(appendCacheBuster(progressProbeUrl), { waitUntil: 'load', timeout: 45000 });
   }).then(function() {
     // Wait for Unity WebGL WASM compilation and engine init to complete before
     // starting the progress-sampling deadline clock.  Without this guard the
@@ -204,6 +521,18 @@ function verifyPublicPreviewProgress(ctx, previewUrl) {
         'Unity engine did not initialise within ' + gameStateInitTimeoutMs + 'ms ' +
         '(window.__gameState never set): ' + String(initErr && initErr.message || initErr)
       );
+    });
+  }).then(function() {
+    return waitForSourceVisualRenderableMetrics(page).then(function(metrics) {
+      if (metrics && metrics.sourceVisualActive) {
+        ctx.addLog(
+          'upload',
+          'Source visual renderables OK: renderable=' + Number(metrics.sourceVisualRenderable || 0) +
+          ' styled=' + Number(metrics.styledParts || 0) +
+          ' sourcePrims=' + Number(metrics.sourcePrims || 0) +
+          ' groups=' + Number(metrics.storyboardGroups || 0)
+        );
+      }
     });
   }).then(function() {
     return captureVisualFrame(page, sharp).then(function(frame) {
@@ -349,6 +678,7 @@ module.exports = {
   canRetry: true,
   assertBefore: function(ctx) {
     if (!ctx.htmlOutput) throw new Error('No HTML output to upload');
+    assertUploadVisualManifest(ctx);
   },
   maxRetries: 3,
   execute: function(ctx) {
@@ -358,6 +688,7 @@ module.exports = {
       ctx.addLog('upload', 'No HTML output to save, skipping');
       return Promise.resolve({ uploaded: false, reason: 'no html' });
     }
+    assertUploadVisualManifest(ctx);
 
     var previewDir = path.join(__dirname, '..', '..', 'server-data', 'webgl', ctx.taskId);
     fs.mkdirSync(previewDir, { recursive: true });
@@ -406,5 +737,10 @@ module.exports = {
   _internals: {
     visualDiffRatio: visualDiffRatio,
     getSpecCompletedCount: getSpecCompletedCount,
+    resolvePublicPreviewProbe: resolvePublicPreviewProbe,
+    assertUploadVisualManifest: assertUploadVisualManifest,
+    assertSourceVisualRenderableMetrics: assertSourceVisualRenderableMetrics,
+    compactSourceVisualMetrics: compactSourceVisualMetrics,
+    waitForSourceVisualRenderableMetrics: waitForSourceVisualRenderableMetrics,
   },
 };

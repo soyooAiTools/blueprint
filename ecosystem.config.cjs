@@ -14,14 +14,15 @@ module.exports = {
     env: {
       NODE_ENV: 'production',
       PORT: 3901,
+      BLUEPRINT_DISABLE_CLAUDE: '1',
+      BLUEPRINT_TEXT_RUNNER: 'codex-exec',
+      CODEX_CODE_BACKEND: 'codex-exec',
+      CODEX_SCHEMA_PRIMARY_COOLDOWN_MS: 'off',
       OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',  // loaded from .env
       OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || 'https://sub.mindrix.app/v1',  // loaded from .env (was hardcoded, caused silent override)
-      // 2026-04-16: ANTHROPIC_AUTH_TOKEN / ANTHROPIC_BASE_URL removed —
-      // all Claude calls now go through CC CLI OAuth (same as local Claude Code)
+      // Claude runtime is disabled; keep proxy vars only for other outbound tools.
       // FEISHU_WEBHOOK_URL removed 2026-04-17 — feishu notifications disabled
       // Proxy — PM2 cluster mode drops inherited proxy vars from process.env.
-      // CC CLI sub-agents need these to reach api.anthropic.com (direct connection
-      // times out on this host). Without this, auto-fix sub-agents 100% fail.
       HTTPS_PROXY: process.env.HTTPS_PROXY || '',
       HTTP_PROXY: process.env.HTTP_PROXY || '',
       NO_PROXY: process.env.NO_PROXY || '',
