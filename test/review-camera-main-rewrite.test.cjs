@@ -41,12 +41,36 @@ function rewriteCameraMain(code) {
     if (mask[j] && code.substr(j, 11) === 'Camera.main' &&
         !/[A-Za-z0-9_]/.test(code[j - 1] || '') &&
         !/[A-Za-z0-9_]/.test(code[j + 11] || '')) {
+      var lineEnd = code.indexOf('\n', j);
+      if (lineEnd < 0) lineEnd = code.length;
+      var suffix = code.slice(j + 11, lineEnd);
+      if (/^\s*;?\s*\/\/\s*(?:(?:说明：)?ok\b|正常)/.test(suffix)) {
+        out += 'Camera.main';
+        j += 11;
+        continue;
+      }
       out += 'mainCam';
       j += 11;
       fixes++;
     } else { out += code[j]; j++; }
   }
   return { code: fixes > 0 ? out : code, changed: fixes > 0, fixes: fixes };
+}
+
+function repairMainCamSelfAssignment(code) {
+  if (!code || code.indexOf('mainCam') < 0 || code.indexOf('= mainCam') < 0) return { code: code, changed: false, fixes: 0 };
+  var lines = code.split('\n');
+  var fixes = 0;
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    var commentIdx = line.indexOf('//');
+    var codePart = commentIdx >= 0 ? line.slice(0, commentIdx) : line;
+    if (!/\bmainCam\s*=\s*mainCam\s*;/.test(codePart)) continue;
+    var fixedCodePart = codePart.replace(/\bmainCam\s*=\s*mainCam\s*;/g, 'mainCam = Camera.main;');
+    lines[i] = fixedCodePart.replace(/\s+$/, '') + ' // 正常';
+    fixes++;
+  }
+  return { code: fixes > 0 ? lines.join('\n') : code, changed: fixes > 0, fixes: fixes };
 }
 
 (function testReplacesBasic() {
@@ -118,6 +142,25 @@ function rewriteCameraMain(code) {
   console.log('  ✓ idempotent: second run is no-op');
 })();
 
+(function testKeepsAllowedSkeletonCameraCache() {
+  var input = 'class GFM { Camera mainCam; void Start() { mainCam = Camera.main; // 正常\n } }';
+  var r = rewriteCameraMain(input);
+  assert.strictEqual(r.changed, false, 'skeleton camera cache line must remain Camera.main // 正常');
+  assert.ok(/mainCam\s*=\s*Camera\.main;\s*\/\/\s*正常/.test(r.code));
+  console.log('  ✓ skeleton cache: Camera.main // 正常 preserved');
+})();
+
+(function testRepairsMainCamSelfAssignment() {
+  var input = 'class GFM { Camera mainCam; void Start() { mainCam = mainCam; // 正常\n } }';
+  var repaired = repairMainCamSelfAssignment(input);
+  assert.strictEqual(repaired.changed, true);
+  assert.strictEqual(repaired.fixes, 1);
+  assert.ok(/mainCam\s*=\s*Camera\.main;\s*\/\/\s*正常/.test(repaired.code));
+  var rewritten = rewriteCameraMain(repaired.code);
+  assert.strictEqual(rewritten.changed, false, 'camera rewrite must not regress repaired skeleton cache');
+  console.log('  ✓ self assignment: mainCam = mainCam repaired and preserved');
+})();
+
 // 🔒 关键安全测试: GFM_*.cs 等独立工具类没有 mainCam 字段,绝不能替换
 (function testSkipsFileWithoutMainCam() {
   var gfmUtilsLike = [
@@ -145,10 +188,14 @@ function rewriteCameraMain(code) {
   var src = fs.readFileSync(path.join(__dirname, '..', 'engine', 'stages', 'review.cjs'), 'utf8');
   assert.ok(/function rewriteCameraMainToMainCam/.test(src), 'function present in review.cjs');
   assert.ok(/rewriteCameraMainToMainCam: rewriteCameraMainToMainCam/.test(src), 'fn injected via PREREPAIR_FNS');
+  assert.ok(/function repairMainCamSelfAssignment/.test(src), 'self-assignment repair present in review.cjs');
+  assert.ok(/repairMainCamSelfAssignment: repairMainCamSelfAssignment/.test(src), 'self-assignment fn injected via PREREPAIR_FNS');
   var bundle = require('../engine/lib/static-rule-prerepair.cjs').SHARED_BUNDLE;
+  assert.ok(bundle.some(function(e) { return e[0] === 'repairMainCamSelfAssignment' && e[1] === 'CameraMainSelfAssign'; }),
+    'self-assignment repair wired into SHARED_BUNDLE');
   assert.ok(bundle.some(function(e) { return e[0] === 'rewriteCameraMainToMainCam' && e[1] === 'CameraMainRewrite'; }),
     'wired into SHARED_BUNDLE (covers main + extras)');
   console.log('  ✓ wired: function (review.cjs) + PREREPAIR_FNS + SHARED_BUNDLE (lib)');
 })();
 
-console.log('\nreview Camera.main rewrite: 10 cases passed');
+console.log('\nreview Camera.main rewrite: 12 cases passed');

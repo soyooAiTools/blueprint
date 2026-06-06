@@ -16,7 +16,7 @@ assert.match(code, /rb\.useGravity = false;/);
 assert.match(code, /rb\.isKinematic = true;/);
 assert.match(code, /ResolveManualMoveDelta\(float dt\)/);
 assert.match(code, /Time\.realtimeSinceStartup/);
-assert.match(code, /safeDt > 0\.05f/);
+assert.match(code, /safeDt > 0\.025f/);
 assert.match(code, /input \* MoveSpeed \* moveDt/);
 assert.doesNotMatch(code, /StabilizePlayerGround/);
 assert.match(sceneCtrl, /public static int LegacyPlayerPoolNormalizeCount = 0;/);

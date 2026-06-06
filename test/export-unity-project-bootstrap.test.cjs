@@ -66,6 +66,14 @@ assert(
   src.includes('不再依赖运行时创建脚本物体'),
   'export README should document scene-mounted script object behavior'
 );
+assert(
+  src.includes('PROGRAMMER_DELIVERY_SUMMARY.json') && src.includes('programmer-delivery-hardgate.cjs') && src.includes('DELIVERY_VALIDATION.json'),
+  'programmer delivery export should write cleaner summary and run delivery hardgate before packaging'
+);
+assert(
+  src.includes('playable-flow-manifest.cjs') && src.includes('record-export') && src.includes('playable-flow-manifest.json'),
+  'programmer delivery export should record delivery validation in playable-flow-manifest.json'
+);
 
 const syntax = spawnSync('bash', ['-n', scriptPath], { cwd: repoRoot, encoding: 'utf8' });
 assert.strictEqual(syntax.status, 0, syntax.stderr || syntax.stdout);

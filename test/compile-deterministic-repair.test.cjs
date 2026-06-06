@@ -218,7 +218,7 @@ const compileStage = require('../engine/stages/compile.cjs');
   assert.ok(repaired.fixes.includes('GameFlowManagerMain.Flow.cs:UnresolvedPhaseInitArtifacts x3'));
   assert.ok(!repaired.extraFiles['GameFlowManagerMain.Flow.cs'].includes('UnknownState = 1;'));
   assert.ok(!repaired.extraFiles['GameFlowManagerMain.Flow.cs'].includes('AddResource("default", 1);'));
-  assert.ok(repaired.extraFiles['GameFlowManagerMain.Flow.cs'].includes('ShowFloatingText(player.transform.position, "", Color.yellow);'));
+  assert.ok(repaired.extraFiles['GameFlowManagerMain.Flow.cs'].includes('ShowFloatingText(player != null ? player.transform.position : Vector3.zero, "", Color.yellow);'));
 }
 
 {

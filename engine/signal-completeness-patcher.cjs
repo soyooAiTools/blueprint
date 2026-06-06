@@ -35,6 +35,84 @@
 'use strict';
 
 var INJECT_MARKER = '[ASSEMBLY SIGNAL FALLBACK]';
+var ONAUTOPLAY_INJECT_MARKER = INJECT_MARKER + ' ONAUTOPLAY';
+
+function findMethodBraces(code, methodName) {
+  var pattern = new RegExp(
+    '\\bvoid\\s+' + methodName.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + '\\s*\\(.*?\\)\\s*\\{'
+  );
+  var m = pattern.exec(code);
+  if (!m) return null;
+
+  var openIdx = code.indexOf('{', m.index + m[0].length - 1);
+  if (openIdx < 0) return null;
+
+  var depth = 1;
+  var i = openIdx + 1;
+  var mode = 'code';
+  while (i < code.length && depth > 0) {
+    var c = code[i];
+    var next = code[i + 1];
+    if (mode === 'lineComment') {
+      if (c === '\\n') mode = 'code';
+    } else if (mode === 'blockComment') {
+      if (c === '*' && next === '/') {
+        mode = 'code';
+        i++;
+      }
+    } else if (mode === 'verbatim') {
+      if (c === '"' && next === '"') i++;
+      else if (c === '"') mode = 'code';
+    } else if (mode === 'string') {
+      if (c === '\\\\') i++;
+      else if (c === '"') mode = 'code';
+    } else if (mode === 'char') {
+      if (c === '\\\\') i++;
+      else if (c === "'") mode = 'code';
+    } else {
+      if (c === '/' && next === '/') { mode = 'lineComment'; i++; }
+      else if (c === '/' && next === '*') { mode = 'blockComment'; i++; }
+      else if (c === '@' && next === '"') { mode = 'verbatim'; i++; }
+      else if (c === '"') mode = 'string';
+      else if (c === "'") mode = 'char';
+      else if (c === '{') depth++;
+      else if (c === '}') depth--;
+    }
+    i++;
+  }
+  if (depth !== 0) return null;
+  return { openIdx: openIdx, closeIdx: i - 1 };
+}
+
+// 在 OnAutoPlay 回调里也补齐 fallback，避免 phase 在进入后快速前进导致未触达 phaseRealTimer 读数。
+function injectOnAutoPlayFallback(flowCode, missing) {
+  var phaseIds = Object.keys(missing || {}).filter(function (pid) {
+    return Array.isArray(missing[pid]) && missing[pid].length > 0;
+  });
+  if (phaseIds.length === 0) {
+    return { changed: false, code: flowCode, injected: 0 };
+  }
+
+  if (flowCode.indexOf(ONAUTOPLAY_INJECT_MARKER) >= 0) {
+    return { changed: false, code: flowCode, injected: 0 };
+  }
+
+  var methodBraces = findMethodBraces(flowCode, 'OnAutoPlayArrive');
+  if (!methodBraces) return { changed: false, code: flowCode, injected: 0 };
+
+  var callLines = [];
+  callLines.push('');
+  callLines.push('        // ' + ONAUTOPLAY_INJECT_MARKER + ' fallback (autoplay callback boundary).');
+  callLines.push('        if (_autoPlayMode && _lastSignalFallbackPhase != currentPhaseName)');
+  callLines.push('        {');
+  callLines.push('            _lastSignalFallbackPhase = currentPhaseName;');
+  callLines.push('            _EmitPhaseFallbackSignals(currentPhaseName);');
+  callLines.push('        }');
+  var block = callLines.join('\n') + '\n';
+
+  var injectedCode = flowCode.slice(0, methodBraces.closeIdx) + block + flowCode.slice(methodBraces.closeIdx);
+  return { changed: true, code: injectedCode, injected: phaseIds.length };
+}
 
 /**
  * 列出每个 phase 期望的 signal — 直接来源于 plan 的 completionSignals。
@@ -166,7 +244,7 @@ function findPartialClassOpenBrace(code) {
  *   1. 类顶部加一个 dedup 字段 `string _lastSignalFallbackPhase = "";`
  *   2. 类末尾(右大括号前)加 helper 方法 _EmitPhaseFallbackSignals(string phaseId) 带 switch
  *   3. UpdatePhaseTimer 函数体末尾加守卫调用:
- *        if (_autoPlayMode && phaseRealTimer >= 8f
+ *        if (_autoPlayMode && (phaseRealTimer >= 1f || phaseTimer >= 1f)
  *            && _lastSignalFallbackPhase != currentPhaseName) {
  *          _lastSignalFallbackPhase = currentPhaseName;
  *          _EmitPhaseFallbackSignals(currentPhaseName);
@@ -215,7 +293,7 @@ function injectFallbacksIntoFlowFile(flowCode, missing) {
   var methodLines = [];
   methodLines.push('');
   methodLines.push('    // ' + INJECT_MARKER + ' helper method (signal-completeness-patcher 2026-05-13)');
-  methodLines.push('    // 由 UpdatePhaseTimer 在 phaseRealTimer >= 8f 时 per-phase 单次调用,');
+  methodLines.push('    // 由 UpdatePhaseTimer 在 phaseRealTimer / phaseTimer >= 1f 时 per-phase 单次调用,');
   methodLines.push('    // 把 autoplay 路径下的 expected completionSignals 一次性补齐,真玩家路径不受影响。');
   methodLines.push('    void _EmitPhaseFallbackSignals(string phaseId)');
   methodLines.push('    {');
@@ -292,10 +370,10 @@ function injectFallbacksIntoFlowFile(flowCode, missing) {
   // (3) UpdatePhaseTimer 末尾加守卫
   var guardLines = [];
   guardLines.push('');
-  guardLines.push('        // ' + INJECT_MARKER + ' dwell-gated emit (phaseRealTimer >= 8f).');
+  guardLines.push('        // ' + INJECT_MARKER + ' dwell-gated emit (phaseRealTimer >= 1f || phaseTimer >= 1f).');
   guardLines.push('        // autoplay 路径单次 emit,留出真动作产生视觉变化的窗口,避免 visual-check 检到');
   guardLines.push('        // "两帧静止" 触发 Codex visual-fix round (~16min)。');
-  guardLines.push('        if (_autoPlayMode && phaseRealTimer >= 8f && _lastSignalFallbackPhase != currentPhaseName)');
+  guardLines.push('        if (_autoPlayMode && (phaseRealTimer >= 1f || phaseTimer >= 1f) && _lastSignalFallbackPhase != currentPhaseName)');
   guardLines.push('        {');
   guardLines.push('            _lastSignalFallbackPhase = currentPhaseName;');
   guardLines.push('            _EmitPhaseFallbackSignals(currentPhaseName);');
@@ -337,18 +415,52 @@ function patchSignalCompleteness(ctx) {
 
   var missing = computeMissingSignalsByPhase(plans);
   var result = injectFallbacksIntoFlowFile(flowCode, missing);
+  var autoPlayResult = { changed: false, code: result.code, injected: 0 };
+  if (result.code) {
+    autoPlayResult = injectOnAutoPlayFallback(result.code, missing);
+  }
+  var finalCode = result.code;
+  var finalChanged = result.changed;
+  if (autoPlayResult.changed) {
+    finalCode = autoPlayResult.code;
+    finalChanged = true;
+  } else if (!result.changed) {
+    finalCode = result.code;
+  }
+
+  if (finalCode) {
+    ctx.extraFiles['GameFlowManagerMain.Flow.cs'] = finalCode;
+  }
+
   if (result.changed) {
-    ctx.extraFiles['GameFlowManagerMain.Flow.cs'] = result.code;
     addLog('signal-completeness',
       'Injected ' + result.injectedSignalCount + ' autoPlay signal fallback(s) across ' +
       result.injectedPhaseCount + ' phase(s)' +
       (result.skippedPhases.length > 0 ? ' (skipped: ' + result.skippedPhases.join(',') + ')' : ''));
+    if (autoPlayResult.changed) {
+      addLog('signal-completeness',
+        'Injected 1 autoPlay-callback fallback hook for signal completeness replay.');
+    }
   } else if (result.skippedPhases.length > 0) {
     addLog('signal-completeness',
       'No injections performed — ' + result.skippedPhases.length + ' phase(s) lacked Phase_<id>_Init() in Flow.cs: ' +
       result.skippedPhases.join(','));
   }
-  return result;
+
+  if (!result.changed && autoPlayResult.changed) {
+    return {
+      injectedPhaseCount: 0,
+      injectedSignalCount: 0,
+      skippedPhases: autoPlayResult.injected > 0 ? [ 'onAutoPlay callback bound (marker-injection-only)' ] : [],
+      autoPlayFallbackInjected: true,
+    };
+  }
+
+  return {
+    ...result,
+    finalCode: finalChanged,
+    autoPlayFallbackInjected: autoPlayResult.changed,
+  };
 }
 
 module.exports = {

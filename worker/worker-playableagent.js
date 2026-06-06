@@ -24,6 +24,10 @@ let LOCAL_PREVIEW_PORT = 0; // Dynamic port to avoid multi-worker conflicts
 const PYTHON = '/usr/bin/python3.8';
 const VERIFY_SCRIPT = '/root/cua-agent/blueprint_verify.py';
 
+function safeRunId(value) {
+  return String(value || 'task').replace(/[^A-Za-z0-9_.-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'task';
+}
+
 // G1 (2026-04-20): kill-switch timeout scales with phase count so simple tasks
 // abort faster on Python hangs. Floor 3min / cap 15min — Python agent has its
 // own per-mode timers (observe max_observe_s, interact max_interact_s), so
@@ -34,6 +38,93 @@ function computeVerifyTimeoutMs(phaseCount) {
   var n = Math.max(0, parseInt(phaseCount, 10) || 0);
   var seconds = Math.max(180, Math.min(n * 60 + 90, 900));
   return seconds * 1000;
+}
+
+function computeManualJoystickFlowBudget(phaseCount, env) {
+  var n = Math.max(0, parseInt(phaseCount, 10) || 0);
+  var source = env || process.env || {};
+  var defaultWindowMs = Math.max(240000, Math.min(n * 90000 + 150000, 1200000));
+  var defaultMaxDrags = Math.min(Math.max(n * 18, 36), 220);
+  var windowMs = Number(source.BLUEPRINT_MANUAL_JOYSTICK_FLOW_WINDOW_MS || defaultWindowMs);
+  var maxDrags = Number(source.BLUEPRINT_MANUAL_JOYSTICK_FLOW_MAX_DRAGS || defaultMaxDrags);
+  return {
+    windowMs: Math.max(60000, Number.isFinite(windowMs) ? windowMs : defaultWindowMs),
+    maxDrags: Math.max(12, Number.isFinite(maxDrags) ? Math.floor(maxDrags) : defaultMaxDrags),
+    defaultWindowMs,
+    defaultMaxDrags,
+  };
+}
+
+function readBuildTelemetryMs(buildDir) {
+  try {
+    const buildResult = readJsonIfExists(path.join(buildDir, 'build-result.json'));
+    if (!buildResult || typeof buildResult !== 'object') return null;
+    const buildMs = Number(buildResult.buildMs);
+    if (Number.isFinite(buildMs) && buildMs >= 0) return Math.round(buildMs);
+    const buildTime = Number(buildResult.buildTime);
+    if (Number.isFinite(buildTime) && buildTime >= 0) return Math.round(buildTime * 1000);
+  } catch(e) {}
+  return null;
+}
+
+function createCuaTelemetry(meta) {
+  meta = meta || {};
+  const startedAtMs = Date.now();
+  return {
+    schemaVersion: 'blueprint-cua-telemetry.v1',
+    taskId: meta.taskId || null,
+    buildDir: meta.buildDir || null,
+    runner: meta.runner || 'playableagent',
+    startedAt: new Date(startedAtMs).toISOString(),
+    _startedAtMs: startedAtMs,
+    phaseCount: null,
+    speedMultiplier: null,
+    verifyTimeoutMs: null,
+    buildMs: typeof meta.buildMs === 'number' ? meta.buildMs : null,
+    proofMs: null,
+    serverMs: null,
+    observeMs: null,
+    manualProbeMs: null,
+    checkpointProbeMs: null,
+    manualFlowMs: null,
+    storyboardVisualAuditMs: null,
+    storyboardVideoAuditMs: null,
+    totalMs: null,
+  };
+}
+
+function snapshotCuaTelemetry(telemetry) {
+  const finishedAtMs = Date.now();
+  const snapshot = {};
+  Object.keys(telemetry || {}).forEach(function(key) {
+    if (key.charAt(0) === '_') return;
+    snapshot[key] = telemetry[key];
+  });
+  snapshot.finishedAt = new Date(finishedAtMs).toISOString();
+  snapshot.totalMs = Math.max(0, finishedAtMs - ((telemetry && telemetry._startedAtMs) || finishedAtMs));
+  return snapshot;
+}
+
+function attachCuaTelemetry(result, telemetry) {
+  const snapshot = snapshotCuaTelemetry(telemetry);
+  const target = result && typeof result === 'object' ? result : {};
+  target.telemetry = snapshot;
+  if (target.report && typeof target.report === 'object') {
+    target.report.telemetry = snapshot;
+    if (target.report.diagnostics && typeof target.report.diagnostics === 'object') {
+      target.report.diagnostics.telemetry = snapshot;
+    }
+  }
+  return target;
+}
+
+async function measureCuaTelemetry(telemetry, key, fn) {
+  const startedAt = Date.now();
+  try {
+    return await fn();
+  } finally {
+    if (telemetry && key) telemetry[key] = Math.max(0, Date.now() - startedAt);
+  }
 }
 
 function parseCoverageLabel(label) {
@@ -60,7 +151,7 @@ function hasHealthyObserveVisuals(report) {
   var freezeEval = visualQuality.freeze_eval || {};
   if (freezeEval.failed === true) return false;
   if (typeof visualQuality.frozen_ratio === 'number' && visualQuality.frozen_ratio > 0.5 && freezeEval.waived !== true) return false;
-  if (typeof visualQuality.max_frozen_streak === 'number' && visualQuality.max_frozen_streak > 2 && freezeEval.waived !== true) return false;
+  if (typeof visualQuality.max_frozen_streak === 'number' && visualQuality.max_frozen_streak > 2 && freezeEval.failed !== false && freezeEval.waived !== true) return false;
 
   var visualSmoke = report.visual_smoke || {};
   if (typeof visualSmoke.maxBadScreenStreak === 'number' && visualSmoke.maxBadScreenStreak > 1) return false;
@@ -190,6 +281,14 @@ function startLocalServer(buildDir) {
 
 function blueprintNeedsManualJoystickProbe(blueprint, report) {
   const chunks = [];
+  const proofPhases = blueprint && blueprint.proofBundle && Array.isArray(blueprint.proofBundle.phases)
+    ? blueprint.proofBundle.phases
+    : [];
+  const specs = blueprint && (blueprint.specs || blueprint.phases) || [];
+  const planSteps = blueprint && blueprint.plans && blueprint.plans.cuaPlan && blueprint.plans.cuaPlan.steps || [];
+  if (proofPhases.length > 1) return true;
+  if (Array.isArray(planSteps) && planSteps.length > 1) return true;
+  if (Array.isArray(specs) && specs.length > 1) return true;
   try { chunks.push(JSON.stringify(blueprint || {})); } catch(e) {}
   try {
     chunks.push(JSON.stringify({
@@ -203,9 +302,224 @@ function blueprintNeedsManualJoystickProbe(blueprint, report) {
   return /player_input_joystick|joystick_move|joystick|move_to|player_position_changed/i.test(haystack);
 }
 
+function normalizePhaseKey(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function extractBlueprintPhaseIds(blueprint) {
+  const proofPath = blueprint && blueprint.proofBundle && Array.isArray(blueprint.proofBundle.expectedPhasePath)
+    ? blueprint.proofBundle.expectedPhasePath
+    : [];
+  if (proofPath.length > 0) return proofPath.map(String).filter(Boolean);
+  const proofPhases = blueprint && blueprint.proofBundle && Array.isArray(blueprint.proofBundle.phases)
+    ? blueprint.proofBundle.phases
+    : [];
+  if (proofPhases.length > 0) {
+    return proofPhases.map((phase, idx) => String(phase && phase.phaseId || ('phase' + (idx + 1)))).filter(Boolean);
+  }
+  const specs = blueprint && (blueprint.specs || blueprint.phases) || [];
+  if (!Array.isArray(specs)) return [];
+  return specs.map((spec, idx) => String(spec && (spec.phaseId || spec.id || spec.name) || ('phase' + (idx + 1)))).filter(Boolean);
+}
+
+function phaseEntityName(entry) {
+  if (!entry) return '';
+  if (typeof entry === 'string') return entry.trim();
+  if (typeof entry === 'object') return String(entry.name || entry.entity || entry.id || entry.target || '').trim();
+  return '';
+}
+
+function phaseEntityNames(spec) {
+  const names = [];
+  const seen = {};
+  ['entitiesRequired', 'showEntities', 'activate', 'targetEntities'].forEach(field => {
+    const values = spec && Array.isArray(spec[field]) ? spec[field] : [];
+    values.forEach(entry => {
+      const name = phaseEntityName(entry);
+      const key = normalizePhaseKey(name);
+      if (name && !seen[key]) {
+        seen[key] = true;
+        names.push(name);
+      }
+    });
+  });
+  return names;
+}
+
+function isPhaseFallbackTargetName(name) {
+  const text = String(name || '');
+  if (!text) return false;
+  if (/^(player|hero|protagonist)$/i.test(text)) return false;
+  if (/guide|text|label|canvas|hud|score|ui/i.test(text)) return false;
+  return true;
+}
+
+function choosePhaseVisibleTarget(spec, plannedTarget) {
+  const names = phaseEntityNames(spec).filter(isPhaseFallbackTargetName);
+  if (!names.length) return '';
+  const plannedKey = normalizePhaseKey(plannedTarget);
+  if (plannedKey) {
+    const exact = names.find(name => normalizePhaseKey(name) === plannedKey);
+    if (exact) return exact;
+  }
+  const targetKey = normalizePhaseKey(plannedTarget);
+  function score(name, idx) {
+    const key = normalizePhaseKey(name);
+    let value = 100 - idx;
+    if (targetKey && (key.indexOf(targetKey) >= 0 || targetKey.indexOf(key) >= 0)) value += 1000;
+    if (/enemy|alien|monster|boss/.test(key) && /count|kill|enemy|alien|monster|boss/.test(targetKey)) value += 600;
+    if (!/spawner|spawn|generator|field|machine|unlock|button/.test(key)) value += 120;
+    return value;
+  }
+  return names.slice().sort((a, b) => score(b, names.indexOf(b)) - score(a, names.indexOf(a)))[0] || '';
+}
+
+function targetExistsInPhaseSpec(spec, target) {
+  const key = normalizePhaseKey(target);
+  if (!key) return false;
+  return phaseEntityNames(spec).some(name => normalizePhaseKey(name) === key);
+}
+
+function extractBlueprintPhaseTargetMap(blueprint) {
+  const out = {};
+  const proofPhases = blueprint && blueprint.proofBundle && Array.isArray(blueprint.proofBundle.phases)
+    ? blueprint.proofBundle.phases
+    : [];
+  proofPhases.forEach((phase, idx) => {
+    const phaseId = String(phase && phase.phaseId || ('phase' + (idx + 1))).trim();
+    const target = String(phase && phase.target || '').trim();
+    if (phaseId && target) out[normalizePhaseKey(phaseId)] = target;
+  });
+  if (Object.keys(out).length > 0) return out;
+  const plans = [];
+  if (blueprint && blueprint.plans && blueprint.plans.cuaPlan && Array.isArray(blueprint.plans.cuaPlan.steps)) {
+    plans.push(blueprint.plans.cuaPlan.steps);
+  }
+  if (blueprint && blueprint.cuaPlan && Array.isArray(blueprint.cuaPlan.steps)) {
+    plans.push(blueprint.cuaPlan.steps);
+  }
+  if (blueprint && blueprint.plan && Array.isArray(blueprint.plan.steps)) {
+    plans.push(blueprint.plan.steps);
+  }
+  const phaseIds = extractBlueprintPhaseIds(blueprint);
+  const specs = blueprint && (blueprint.specs || blueprint.phases) || [];
+  const specsByPhase = {};
+  if (Array.isArray(specs)) {
+    specs.forEach((spec, idx) => {
+      const phaseId = String(spec && (spec.phaseId || spec.id || spec.name) || phaseIds[idx] || '').trim();
+      if (phaseId) specsByPhase[normalizePhaseKey(phaseId)] = spec;
+    });
+  }
+  const targetFields = ['target', 'to', 'item', 'entity', 'object', 'button'];
+  const actionPriority = {
+    move_to: 1,
+    joystick_move: 1,
+    go_to: 1,
+    approach: 1,
+    approach_collect: 1,
+    collect: 2,
+    deliver: 2,
+    build: 2,
+    upgrade: 2,
+    attack: 2,
+    tap: 3,
+    click: 3,
+  };
+  function cleanTarget(value) {
+    const text = String(value || '').trim();
+    if (!text || /^player$/i.test(text)) return '';
+    return text;
+  }
+  function actionTarget(action) {
+    if (!action || typeof action !== 'object') return '';
+    for (const field of targetFields) {
+      const target = cleanTarget(action[field]);
+      if (target) return target;
+    }
+    return '';
+  }
+  function orderedActions(step) {
+    const actions = Array.isArray(step && step.actions) ? step.actions.slice() : [];
+    if (step && typeof step === 'object') actions.push(step);
+    return actions.sort((a, b) => {
+      const ak = String(a && a.kind || '').toLowerCase();
+      const bk = String(b && b.kind || '').toLowerCase();
+      return (actionPriority[ak] || 10) - (actionPriority[bk] || 10);
+    });
+  }
+  for (const steps of plans) {
+    steps.forEach((step, idx) => {
+      if (!step || typeof step !== 'object') return;
+      const phaseId = String(step.phaseId || step.phase || step.phaseName || phaseIds[idx] || '').trim();
+      const phaseKey = normalizePhaseKey(phaseId);
+      if (!phaseKey || out[phaseKey]) return;
+      const actions = orderedActions(step);
+      for (const action of actions) {
+        const target = actionTarget(action);
+        if (target) {
+          const spec = specsByPhase[phaseKey] || null;
+          const visibleTarget = spec && !targetExistsInPhaseSpec(spec, target)
+            ? choosePhaseVisibleTarget(spec, target)
+            : '';
+          out[phaseKey] = visibleTarget || target;
+          return;
+        }
+      }
+    });
+  }
+  return out;
+}
+
+function selectManualJoystickPhaseWindow(blueprint, options) {
+  options = options || {};
+  const allPhaseIds = extractBlueprintPhaseIds(blueprint);
+  const allPhaseTargets = extractBlueprintPhaseTargetMap(blueprint);
+  const rawStart = String(options.checkpointPhase || options.startPhase || '').trim();
+  let startIndex = 0;
+  let checkpointError = '';
+  if (rawStart) {
+    if (!allPhaseIds.length) {
+      checkpointError = 'no phase path available';
+    } else {
+      const startKey = normalizePhaseKey(rawStart);
+      let found = allPhaseIds.findIndex(id => normalizePhaseKey(id) === startKey);
+      if (found < 0 && /^\d+$/.test(rawStart)) {
+        const numeric = Number(rawStart);
+        if (Number.isFinite(numeric) && numeric >= 1 && numeric <= allPhaseIds.length) found = Math.floor(numeric) - 1;
+      }
+      if (found < 0) {
+        checkpointError = 'unknown checkpoint phase: ' + rawStart;
+      } else {
+        startIndex = found;
+      }
+    }
+  }
+  const maxPhasesRaw = Number(options.maxPhases || 0);
+  const maxPhases = Number.isFinite(maxPhasesRaw) && maxPhasesRaw > 0 ? Math.floor(maxPhasesRaw) : 0;
+  const endIndex = maxPhases > 0 ? Math.min(allPhaseIds.length, startIndex + maxPhases) : allPhaseIds.length;
+  const phaseIds = checkpointError ? [] : allPhaseIds.slice(startIndex, endIndex);
+  const phaseTargets = {};
+  phaseIds.forEach(id => {
+    const key = normalizePhaseKey(id);
+    if (allPhaseTargets[key]) phaseTargets[key] = allPhaseTargets[key];
+  });
+  return {
+    checkpointMode: !!rawStart,
+    checkpointPhaseInput: rawStart,
+    checkpointPhase: rawStart && phaseIds.length ? phaseIds[0] : '',
+    checkpointPhaseIndex: rawStart && phaseIds.length ? startIndex + 1 : 0,
+    checkpointError,
+    maxPhases,
+    fullPhaseIds: allPhaseIds,
+    fullPhaseTargets: allPhaseTargets,
+    phaseIds,
+    phaseTargets,
+  };
+}
+
 function readProbePosition(sample) {
   if (!sample) return null;
-  const pos = sample.runtimePlayer || (sample.playerState && sample.playerState.position) || null;
+  const pos = sample.runtimePlayer || sample.playerPos || (sample.playerState && sample.playerState.position) || null;
   if (!pos) return null;
   const x = Number(pos.x);
   const y = Number(pos.y);
@@ -222,30 +536,237 @@ function distance3(a, b) {
   return Math.sqrt(dx * dx + dy * dy + dz * dz);
 }
 
+function isManualJoystickFlowAction(action) {
+  if (!action || typeof action !== 'object') return false;
+  return action.type === 'drag' || action.type === 'autonav_joystick';
+}
+
+function evaluateManualJoystickFlowProbeResult(probe) {
+  probe = probe || {};
+  const samples = Array.isArray(probe.samples) ? probe.samples : [];
+  const rawPhaseIds = Array.isArray(probe.phaseIds) && probe.phaseIds.length
+    ? probe.phaseIds
+    : Array.from({ length: Math.max(0, Number(probe.targetCompleted || 0) || 0) }, (_, i) => 'phase' + (i + 1));
+  const norm = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const expectedPhaseIds = rawPhaseIds.map(id => String(id || '')).filter(Boolean);
+  const first = samples.find(sample => sample && Number.isFinite(Number(sample.completedCount))) || samples[0] || null;
+  let completedAfter = first && Number.isFinite(Number(first.completedCount)) ? Number(first.completedCount) : 0;
+  const targetCompleted = Number(probe.targetCompleted || 0);
+  let terminalReached = false;
+  let maxDistance = 0;
+  const firstPos = readProbePosition(first);
+  const samplePhasePath = [];
+  const samplePhaseSeen = new Set();
+  function pushPhasePath(path, seen, phase) {
+    const text = String(phase || '');
+    if (!text || seen.has(norm(text))) return;
+    seen.add(norm(text));
+    path.push(text);
+  }
+  for (const sample of samples) {
+    if (!sample) continue;
+    if (Number.isFinite(Number(sample.completedCount))) completedAfter = Math.max(completedAfter, Number(sample.completedCount));
+    if (sample.isTerminal === true) terminalReached = true;
+    pushPhasePath(samplePhasePath, samplePhaseSeen, sample.currentPhase);
+    const pos = readProbePosition(sample);
+    if (firstPos && pos) maxDistance = Math.max(maxDistance, distance3(firstPos, pos));
+  }
+  function witnessPhasesFrom(value) {
+    const out = [];
+    const seen = new Set();
+    function add(phase) { pushPhasePath(out, seen, phase); }
+    if (!value || typeof value !== 'object') return out;
+    if (Array.isArray(value.path)) value.path.forEach(add);
+    if (Array.isArray(value.events)) {
+      value.events.forEach(function(event) { add(event && event.phase); });
+    }
+    return out;
+  }
+  const witnessPath = [];
+  const witnessSeen = new Set();
+  witnessPhasesFrom(probe.phaseWitness).forEach(function(phase) {
+    pushPhasePath(witnessPath, witnessSeen, phase);
+  });
+  samples.forEach(function(sample) {
+    witnessPhasesFrom(sample && sample.phaseWitness).forEach(function(phase) {
+      pushPhasePath(witnessPath, witnessSeen, phase);
+    });
+  });
+  function completedWitnessPhasesFrom(value) {
+    const out = [];
+    const seen = new Set();
+    if (!value || typeof value !== 'object') return out;
+    if (Array.isArray(value.completedPath)) {
+      value.completedPath.forEach(function(phase) { pushPhasePath(out, seen, phase); });
+    }
+    if (Array.isArray(value.completedEvents)) {
+      value.completedEvents.forEach(function(event) { pushPhasePath(out, seen, event && event.phase); });
+    }
+    return out;
+  }
+  const completedWitnessPath = [];
+  const completedWitnessSeen = new Set();
+  completedWitnessPhasesFrom(probe.phaseWitness).forEach(function(phase) {
+    pushPhasePath(completedWitnessPath, completedWitnessSeen, phase);
+  });
+  samples.forEach(function(sample) {
+    completedWitnessPhasesFrom(sample && sample.phaseWitness).forEach(function(phase) {
+      pushPhasePath(completedWitnessPath, completedWitnessSeen, phase);
+    });
+  });
+  function orderedCoverage(path) {
+    let total = 0;
+    let searchFrom = 0;
+    for (const id of expectedPhaseIds) {
+      const key = norm(id);
+      let foundAt = -1;
+      for (let i = searchFrom; i < path.length; i++) {
+        if (norm(path[i]) === key) {
+          foundAt = i;
+          break;
+        }
+      }
+      if (foundAt < 0) break;
+      total++;
+      searchFrom = foundAt + 1;
+    }
+    return total;
+  }
+  let phasePath = samplePhasePath.slice();
+  let phasePathSource = 'samples';
+  if (witnessPath.length > 0 && orderedCoverage(witnessPath) > orderedCoverage(samplePhasePath)) {
+    phasePath = witnessPath.slice();
+    phasePathSource = 'phase-witness';
+    const seen = new Set(phasePath.map(norm));
+    samplePhasePath.forEach(function(phase) {
+      if (/gameend|cta|finish|complete|download|install/i.test(String(phase || ''))) {
+        pushPhasePath(phasePath, seen, phase);
+      }
+    });
+  }
+  if (completedWitnessPath.length > 0 &&
+      targetCompleted > 0 &&
+      completedAfter >= targetCompleted &&
+      orderedCoverage(completedWitnessPath) > orderedCoverage(phasePath)) {
+    phasePath = completedWitnessPath.slice();
+    phasePathSource = 'phase-completion-witness';
+    const seen = new Set(phasePath.map(norm));
+    samplePhasePath.forEach(function(phase) {
+      if (/gameend|cta|finish|complete|download|install/i.test(String(phase || ''))) {
+        pushPhasePath(phasePath, seen, phase);
+      }
+    });
+  }
+  const observedByKey = {};
+  phasePath.forEach(phase => { observedByKey[norm(phase)] = phase; });
+  const missingPhasePath = expectedPhaseIds.filter(id => !observedByKey[norm(id)]);
+  let phasePathOrderOk = true;
+  let searchFrom = 0;
+  for (const id of expectedPhaseIds) {
+    const key = norm(id);
+    let foundAt = -1;
+    for (let i = searchFrom; i < phasePath.length; i++) {
+      if (norm(phasePath[i]) === key) {
+        foundAt = i;
+        break;
+      }
+    }
+    if (foundAt < 0) {
+      phasePathOrderOk = false;
+      break;
+    }
+    searchFrom = foundAt + 1;
+  }
+  const phasePathComplete = expectedPhaseIds.length > 0 && missingPhasePath.length === 0 && phasePathOrderOk;
+  const completedBefore = first && Number.isFinite(Number(first.completedCount)) ? Number(first.completedCount) : 0;
+  const joystickActionCount = Array.isArray(probe.actions)
+    ? probe.actions.filter(isManualJoystickFlowAction).length
+    : 0;
+  const dragCount = Number(probe.dragCount || joystickActionCount);
+  const deadlineReached = probe.deadlineReached === true;
+  const dragBudgetReached = probe.dragBudgetReached === true;
+  const iterationBudgetReached = probe.iterationBudgetReached === true;
+  const playerMoved = maxDistance > 0.05;
+  const fullFlowCompleted = targetCompleted > 0 && completedAfter >= targetCompleted;
+  const passed = dragCount > 0 && playerMoved && (fullFlowCompleted || terminalReached) && phasePathComplete;
+  let reason = 'manual joystick flow probe passed';
+  if (targetCompleted <= 0) reason = 'no target phase count for manual joystick flow probe';
+  else if (dragCount <= 0) reason = 'manual joystick flow probe did not perform joystick drags';
+  else if (!playerMoved) reason = 'manual joystick flow probe did not move the player';
+  else if (!fullFlowCompleted && !terminalReached && deadlineReached) reason = 'manual joystick flow timed out: completed ' + completedAfter + '/' + targetCompleted;
+  else if (!fullFlowCompleted && !terminalReached && dragBudgetReached) reason = 'manual joystick flow exhausted drag budget: completed ' + completedAfter + '/' + targetCompleted;
+  else if (!fullFlowCompleted && !terminalReached && iterationBudgetReached) reason = 'manual joystick flow exhausted iteration budget: completed ' + completedAfter + '/' + targetCompleted;
+  else if (!fullFlowCompleted && !terminalReached) reason = 'manual joystick flow incomplete: completed ' + completedAfter + '/' + targetCompleted;
+  else if (!phasePathComplete && missingPhasePath.length > 0) reason = 'manual joystick flow skipped observable phase path: missing ' + missingPhasePath.join(', ');
+  else if (!phasePathComplete) reason = 'manual joystick flow observed phase path out of order';
+  return {
+    passed,
+    reason,
+    completedBefore,
+    completedAfter,
+    targetCompleted,
+    terminalReached,
+    phasePath,
+    phasePathSource,
+    expectedPhasePath: expectedPhaseIds,
+    missingPhasePath,
+    phasePathOrderOk,
+    dragCount,
+    deadlineReached,
+    dragBudgetReached,
+    iterationBudgetReached,
+    maxPlayerDistance: Number(maxDistance.toFixed(4)),
+  };
+}
+
 function evaluateManualJoystickProbeResult(probe) {
   probe = probe || {};
   const samples = Array.isArray(probe.samples) ? probe.samples : [];
   const before = readProbePosition(samples[0]);
   let maxDistance = 0;
   let maxInput = 0;
-  for (const sample of samples) {
-    const pos = readProbePosition(sample);
-    if (before && pos) maxDistance = Math.max(maxDistance, distance3(before, pos));
+  function joystickMagnitude(sample) {
+    let value = 0;
     const joy = sample && sample.joy;
     if (joy) {
       const h = Number(joy.h);
       const v = Number(joy.v);
       if (Number.isFinite(h) && Number.isFinite(v)) {
-        maxInput = Math.max(maxInput, Math.sqrt(h * h + v * v));
+        value = Math.max(value, Math.sqrt(h * h + v * v));
       }
       if (joy.input) {
         const ix = Number(joy.input.x);
         const iy = Number(joy.input.y);
         if (Number.isFinite(ix) && Number.isFinite(iy)) {
-          maxInput = Math.max(maxInput, Math.sqrt(ix * ix + iy * iy));
+          value = Math.max(value, Math.sqrt(ix * ix + iy * iy));
         }
       }
     }
+    const override = sample && sample.manualJoystickOverride;
+    if (override && override.active) {
+      const ox = Number(override.x);
+      const oy = Number(override.y);
+      if (Number.isFinite(ox) && Number.isFinite(oy)) {
+        value = Math.max(value, Math.sqrt(ox * ox + oy * oy));
+      }
+    }
+    const stick = sample && sample.domStick;
+    if (stick && /\bactive\b/.test(String(stick.className || ''))) {
+      const match = String(stick.knobTransform || '').match(/translate\(\s*(-?\d+(?:\.\d+)?)px\s*,\s*(-?\d+(?:\.\d+)?)px\s*\)/);
+      if (match) {
+        const dx = Number(match[1]);
+        const dy = Number(match[2]);
+        if (Number.isFinite(dx) && Number.isFinite(dy)) {
+          value = Math.max(value, Math.min(1, Math.sqrt(dx * dx + dy * dy) / 44));
+        }
+      }
+    }
+    return value;
+  }
+  for (const sample of samples) {
+    const pos = readProbePosition(sample);
+    if (before && pos) maxDistance = Math.max(maxDistance, distance3(before, pos));
+    maxInput = Math.max(maxInput, joystickMagnitude(sample));
   }
   const joystickResponded = maxInput > 0.1;
   const playerMoved = maxDistance > 0.05;
@@ -258,10 +779,7 @@ function evaluateManualJoystickProbeResult(probe) {
     const touchBefore = readProbePosition(touchBeforeSample);
     const touchDuring = readProbePosition(touchDuringSample);
     touchOnlyDistance = Number(distance3(touchBefore, touchDuring).toFixed(4));
-    const joy = touchDuringSample.joy || {};
-    const h = Number(joy.h);
-    const v = Number(joy.v);
-    touchOnlyInput = Number((Number.isFinite(h) && Number.isFinite(v) ? Math.sqrt(h * h + v * v) : 0).toFixed(4));
+    touchOnlyInput = Number(joystickMagnitude(touchDuringSample).toFixed(4));
     touchOnlyPassed = touchOnlyInput > 0.1 && touchOnlyDistance > 0.05;
   }
   const passed = joystickResponded && playerMoved && touchOnlyPassed;
@@ -837,7 +1355,9 @@ function shouldRunStoryboardVideoAudit(env) {
   if (/^(1|true|on|yes)$/i.test(String(env.BLUEPRINT_SKIP_STORYBOARD_VIDEO_AUDIT || ''))) return false;
   if (/^(0|false|off|no)$/i.test(String(env.BLUEPRINT_STORYBOARD_VIDEO_AUDIT || ''))) return false;
   if (/^(0|false|off|no)$/i.test(String(env.BLUEPRINT_VOLC_VIDEO_AUDIT || ''))) return false;
-  return true;
+  if (/^(1|true|on|yes)$/i.test(String(env.BLUEPRINT_STORYBOARD_VIDEO_AUDIT || ''))) return true;
+  if (/^(1|true|on|yes)$/i.test(String(env.BLUEPRINT_VOLC_VIDEO_AUDIT || ''))) return true;
+  return false;
 }
 
 function withTimeout(promise, timeoutMs, label) {
@@ -1182,7 +1702,7 @@ async function runStoryboardVideoAudit(previewUrl, taskId, log) {
 	      ? 'runtime-joystick'
 	      : (/^(mouse|playwright-mouse)$/.test(inputModeRaw)
 	        ? 'mouse'
-	        : (/^(dom|dom-pointer)$/.test(inputModeRaw) ? 'dom-pointer' : 'touch'));
+	        : (/^(touch|cdp-touch)$/.test(inputModeRaw) ? 'touch' : 'dom-pointer'));
     const client = inputMode === 'touch'
       ? await withTimeout(context.newCDPSession(page), 10000, 'storyboard video CDP session')
       : null;
@@ -1357,6 +1877,17 @@ async function runStoryboardVideoAudit(previewUrl, taskId, log) {
       result.recordingSteps = result.recordingSteps || [];
       result.recordingSteps.push(stepRecord);
     }
+    async function runVideoAuditDrag(label, sx, sy, ex, ey) {
+      const timeoutMs = Math.max(10000, Number(process.env.BLUEPRINT_STORYBOARD_VIDEO_DRAG_TIMEOUT_MS || 30000) || 30000);
+      try {
+        await withTimeout(drag(label, sx, sy, ex, ey), timeoutMs, 'storyboard video drag ' + label);
+      } finally {
+        try {
+          if (client) await withTimeout(client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }), 3000, 'storyboard video forced touchEnd ' + label);
+        } catch(e) {}
+        try { await setAuditPointerOverlay(label, sx, sy, ex, ey, false); } catch(e2) {}
+      }
+    }
 
 	    const joystickTarget = inputMode === 'runtime-joystick' ? { source: 'runtime-joystick', x: 0, y: 0, radius: 0 } : await page.evaluate(() => {
 	      function rectFor(selector) {
@@ -1397,12 +1928,12 @@ async function runStoryboardVideoAudit(previewUrl, taskId, log) {
         rect: base,
       };
     }).catch(() => null);
-    const joy = joystickTarget || { source: 'fallback', x: 72, y: 864, radius: 54 };
+    const joy = joystickTarget || { source: 'fallback', x: 90, y: 750, radius: 78 };
     result.joystickTarget = joy;
-    await drag('right', joy.x, joy.y, joy.x + joy.radius, joy.y);
-    await drag('up', joy.x, joy.y, joy.x, joy.y - joy.radius);
-    await drag('down', joy.x, joy.y, joy.x, joy.y + joy.radius);
-    await drag('left', joy.x, joy.y, joy.x - joy.radius, joy.y);
+    await runVideoAuditDrag('right', joy.x, joy.y, joy.x + joy.radius, joy.y);
+    await runVideoAuditDrag('up', joy.x, joy.y, joy.x, joy.y - joy.radius);
+    await runVideoAuditDrag('down', joy.x, joy.y, joy.x, joy.y + joy.radius);
+    await runVideoAuditDrag('left', joy.x, joy.y, joy.x - joy.radius, joy.y);
     await holdFrames('final', 1, 0);
 
     logger('[PlayableAgent] Storyboard video audit: finalizing screenshot video', taskId);
@@ -1534,6 +2065,18 @@ async function runManualJoystickProbe(previewUrl, taskId, log) {
           }
         } catch(e) { joy = { error: String(e) }; }
         let runtimePlayer = null;
+        let manualJoystickOverride = null;
+        try {
+          const o = window.__bpManualJoystickOverride;
+          if (o) {
+            manualJoystickOverride = {
+              active: !!o.active,
+              x: Number(o.x) || 0,
+              y: Number(o.y) || 0,
+              updatedAt: Number(o.updatedAt) || 0,
+            };
+          }
+        } catch(e) { manualJoystickOverride = null; }
         try {
           if (window.GFM_Player) {
             const p = window.GFM_Player.Instance;
@@ -1553,6 +2096,7 @@ async function runManualJoystickProbe(previewUrl, taskId, log) {
             opacity: getComputedStyle(stick).opacity,
             knobTransform: knob && knob.style.transform
           } : null,
+          manualJoystickOverride,
           joy,
         };
       }, label);
@@ -1573,17 +2117,67 @@ async function runManualJoystickProbe(previewUrl, taskId, log) {
     await page.waitForTimeout(500);
 
     result.samples.push(await sample('before-touch'));
-    const client = await withTimeout(context.newCDPSession(page), 10000, 'manual joystick touch CDP session');
-    await withTimeout(client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 90, y: 750, id: 0, radiusX: 10, radiusY: 10 }] }), 5000, 'manual joystick touchStart');
-    for (let i = 1; i <= 15; i++) {
-      const x = Math.round(90 + (150 - 90) * i / 15);
-      const y = Math.round(750 + (690 - 750) * i / 15);
-      await withTimeout(client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y, id: 0, radiusX: 10, radiusY: 10 }] }), 5000, 'manual joystick touchMove');
-      await page.waitForTimeout(40);
+    const touchMode = String(process.env.BLUEPRINT_MANUAL_JOYSTICK_PROBE_TOUCH_MODE || 'dom-pointer').toLowerCase();
+    if (touchMode === 'cdp') {
+      const client = await withTimeout(context.newCDPSession(page), 10000, 'manual joystick touch CDP session');
+      await withTimeout(client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 90, y: 750, id: 0, radiusX: 10, radiusY: 10 }] }), 5000, 'manual joystick touchStart');
+      for (let i = 1; i <= 15; i++) {
+        const x = Math.round(90 + (150 - 90) * i / 15);
+        const y = Math.round(750 + (690 - 750) * i / 15);
+        await withTimeout(client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y, id: 0, radiusX: 10, radiusY: 10 }] }), 5000, 'manual joystick touchMove');
+        await page.waitForTimeout(40);
+      }
+      await page.waitForTimeout(1200);
+      result.samples.push(await sample('during-touch-hold'));
+      await withTimeout(client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }), 5000, 'manual joystick touchEnd');
+    } else {
+      async function emitTouchPointer(type, x, y, buttons) {
+        await withTimeout(page.evaluate((args) => {
+          function pointer(typeName, px, py, btns) {
+            if (typeof PointerEvent === 'function') {
+              return new PointerEvent(typeName, {
+                bubbles: true,
+                cancelable: true,
+                clientX: px,
+                clientY: py,
+                screenX: px,
+                screenY: py,
+                button: 0,
+                buttons: btns,
+                pointerId: 23,
+                pointerType: 'touch',
+                isPrimary: true,
+              });
+            }
+            return new MouseEvent(typeName.replace(/^pointer/, 'mouse'), {
+              bubbles: true,
+              cancelable: true,
+              clientX: px,
+              clientY: py,
+              screenX: px,
+              screenY: py,
+              button: 0,
+              buttons: btns,
+            });
+          }
+          const hit = document.elementFromPoint(args.x, args.y);
+          const targets = [hit, document, window].filter(Boolean);
+          for (const target of targets) {
+            try { target.dispatchEvent(pointer(args.type, args.x, args.y, args.buttons)); } catch(e) {}
+          }
+        }, { type, x, y, buttons }), 5000, 'manual joystick dom touch ' + type);
+      }
+      await emitTouchPointer('pointerdown', 90, 750, 1);
+      for (let i = 1; i <= 15; i++) {
+        const x = Math.round(90 + (150 - 90) * i / 15);
+        const y = Math.round(750 + (690 - 750) * i / 15);
+        await emitTouchPointer('pointermove', x, y, 1);
+        await page.waitForTimeout(40);
+      }
+      await page.waitForTimeout(1200);
+      result.samples.push(await sample('during-touch-hold'));
+      await emitTouchPointer('pointerup', 150, 690, 0);
     }
-    await page.waitForTimeout(1200);
-    result.samples.push(await sample('during-touch-hold'));
-    await withTimeout(client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }), 5000, 'manual joystick touchEnd');
 
     Object.assign(result, evaluateManualJoystickProbeResult(result));
   } catch(e) {
@@ -1603,6 +2197,800 @@ async function runManualJoystickProbe(previewUrl, taskId, log) {
     ' | maxPlayerDistance=' + (result.maxPlayerDistance || 0) +
     ' | ' + result.reason, taskId);
   return result;
+}
+
+async function runManualJoystickFlowProbe(previewUrl, blueprint, taskId, log, options) {
+  const logger = typeof log === 'function' ? log : function() {};
+  const phaseWindow = selectManualJoystickPhaseWindow(blueprint, options || {});
+  const phaseIds = phaseWindow.phaseIds;
+  const phaseTargets = phaseWindow.phaseTargets;
+  if (phaseWindow.checkpointError) {
+    return {
+      passed: false,
+      skipped: false,
+      reason: 'manual joystick checkpoint unavailable: ' + phaseWindow.checkpointError,
+      targetCompleted: 0,
+      checkpoint: phaseWindow,
+    };
+  }
+  if (process.env.BLUEPRINT_SKIP_MANUAL_JOYSTICK_FLOW_PROBE === '1') {
+    return { passed: true, skipped: true, reason: 'skipped by BLUEPRINT_SKIP_MANUAL_JOYSTICK_FLOW_PROBE', targetCompleted: phaseIds.length };
+  }
+  if (phaseIds.length <= 0) {
+    return { passed: false, skipped: false, reason: 'no phase path available for manual joystick flow probe', targetCompleted: 0 };
+  }
+  if (phaseIds.length <= 1 && !phaseWindow.checkpointMode) {
+    return { passed: true, skipped: true, reason: 'single-phase playable does not require manual joystick flow probe', targetCompleted: phaseIds.length };
+  }
+
+  let chromium;
+  try {
+    chromium = require('playwright').chromium;
+  } catch(e) {
+    return { passed: false, skipped: false, reason: 'playwright unavailable for manual joystick flow probe: ' + e.message, targetCompleted: phaseIds.length };
+  }
+
+  const outDir = path.join(CUA_RESULTS_DIR, taskId + (phaseWindow.checkpointMode
+    ? '-manual-joystick-checkpoint-' + safeRunId(phaseWindow.checkpointPhase || phaseWindow.checkpointPhaseInput)
+    : '-manual-joystick-flow-probe'));
+  try { fs.mkdirSync(outDir, { recursive: true }); } catch(e) {}
+  const flowBudget = computeManualJoystickFlowBudget(phaseIds.length, process.env);
+  const deadlineMs = flowBudget.windowMs;
+  const maxDrags = flowBudget.maxDrags;
+  const result = {
+    passed: false,
+    skipped: false,
+    url: previewUrl,
+    outDir,
+    flowBudget,
+    windowMs: deadlineMs,
+    maxDrags,
+    targetCompleted: phaseIds.length,
+    phaseIds,
+    phaseTargets,
+    fullPhaseIds: phaseWindow.fullPhaseIds,
+    samples: [],
+    actions: [],
+    logs: [],
+  };
+  if (phaseWindow.checkpointMode) {
+    result.checkpoint = {
+      debugOnly: true,
+      requestedPhase: phaseWindow.checkpointPhaseInput,
+      phase: phaseWindow.checkpointPhase,
+      index: phaseWindow.checkpointPhaseIndex,
+      maxPhases: phaseWindow.maxPhases,
+      applied: false,
+      driveResult: null,
+    };
+  }
+  let browser = null;
+  try {
+    browser = await chromium.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-web-security']
+    });
+    const context = await browser.newContext({
+      viewport: { width: 540, height: 960 },
+      deviceScaleFactor: 2,
+      isMobile: true,
+      hasTouch: true,
+      ignoreHTTPSErrors: true,
+    });
+    const page = await context.newPage();
+    page.on('console', msg => {
+      const type = msg.type();
+      const text = msg.text();
+      if (type === 'error' || type === 'warning' || text.indexOf('__PHASE') >= 0) {
+        result.logs.push({ type, text: text.slice(0, 500) });
+      }
+    });
+    page.on('pageerror', err => {
+      result.logs.push({ type: 'pageerror', text: String(err).slice(0, 500) });
+    });
+
+    await page.goto(previewUrl, { waitUntil: 'load', timeout: 60000 });
+    await page.waitForTimeout(8000);
+    await page.waitForFunction(() => {
+      return !!window.__gameState || typeof window.__getGameState === 'function' || !!window.GFM_Player;
+    }, null, { timeout: 20000 }).catch(() => null);
+
+    if (phaseWindow.checkpointMode) {
+      const checkpointDrive = await withTimeout(page.evaluate(async (phase) => {
+        if (typeof window.__driveToPhase !== 'function') throw new Error('__driveToPhase unavailable');
+        const driveResult = await window.__driveToPhase(phase);
+        let state = null;
+        try {
+          state = typeof window.__getGameState === 'function' ? window.__getGameState() : window.__gameState;
+        } catch(e) {}
+        return {
+          driveResult,
+          currentPhase: state && (state.currentPhase || state.phase) || '',
+          completedPhases: state && (state.completedPhases || state.completed) || [],
+        };
+      }, phaseWindow.checkpointPhase || phaseWindow.checkpointPhaseInput), 20000, 'manual joystick checkpoint driveToPhase');
+      result.checkpoint.applied = true;
+      result.checkpoint.driveResult = checkpointDrive && checkpointDrive.driveResult || checkpointDrive;
+      result.checkpoint.currentPhase = checkpointDrive && checkpointDrive.currentPhase || '';
+      result.checkpoint.completedPhases = checkpointDrive && checkpointDrive.completedPhases || [];
+      await page.waitForTimeout(1000);
+    }
+
+    const flowTouchMode = String(process.env.BLUEPRINT_MANUAL_JOYSTICK_FLOW_TOUCH_MODE || 'dom-pointer').toLowerCase();
+    result.inputMode = flowTouchMode;
+    const client = flowTouchMode === 'cdp'
+      ? await withTimeout(context.newCDPSession(page), 10000, 'manual joystick flow CDP session')
+      : null;
+    const flowDriver = String(process.env.BLUEPRINT_MANUAL_JOYSTICK_FLOW_DRIVER || 'autonav').toLowerCase() === 'legacy-drag'
+      ? 'legacy-drag'
+      : 'autonav-joystick';
+    result.driver = flowDriver;
+
+    async function installPhaseWitness(label) {
+      return page.evaluate((args) => {
+        function nowMs() {
+          try {
+            if (typeof performance !== 'undefined' && performance && typeof performance.now === 'function') return performance.now();
+          } catch(e) {}
+          return Date.now ? Date.now() : (new Date()).getTime();
+        }
+        function norm(value) {
+          return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        }
+        function getState() {
+          let gs = null;
+          try { gs = typeof window.__gameState === 'function' ? window.__gameState() : window.__gameState; } catch(e) {}
+          try { if (!gs && typeof window.__getGameState === 'function') gs = window.__getGameState(); } catch(e2) {}
+          try {
+            if (gs && typeof window.__blueprintNormalizeGameState === 'function') gs = window.__blueprintNormalizeGameState(gs, gs.currentPhase || gs.phase || null);
+          } catch(e3) {}
+          return gs || {};
+        }
+        function countCompleted(gs) {
+          const phaseKeys = {};
+          (args.phaseIds || []).forEach((id) => { phaseKeys[norm(id)] = true; });
+          const completed = gs.completedPhases || gs.completed || [];
+          if (Array.isArray(completed)) {
+            const seen = {};
+            completed.forEach((id) => {
+              const key = norm(id);
+              if (phaseKeys[key]) seen[key] = true;
+            });
+            return Object.keys(seen).length;
+          }
+          const numeric = Number(gs.completedPhaseCount || gs.phaseCompletedCount || 0);
+          return Number.isFinite(numeric) ? numeric : 0;
+        }
+        try {
+          if (window.__bpCuaPhaseWitness && typeof window.__bpCuaPhaseWitness.stop === 'function') {
+            window.__bpCuaPhaseWitness.stop();
+          }
+        } catch(eStop) {}
+        const expected = Array.isArray(args.phaseIds) ? args.phaseIds.map(String) : [];
+        const expectedKeys = {};
+        expected.forEach((id) => { expectedKeys[norm(id)] = true; });
+        const witness = {
+          schemaVersion: 'blueprint-cua-phase-witness.v1',
+          label: args.label || '',
+          expectedPhasePath: expected,
+          startedAt: nowMs(),
+          path: [],
+          completedPath: [],
+          events: [],
+          completedEvents: [],
+          tickCount: 0,
+          stopped: false,
+          _seen: {},
+          _completedSeen: {},
+          _lastPhase: '',
+          _raf: 0,
+        };
+        function isTerminalPhase(phase) {
+          return /gameend|cta|finish|complete|download|install/i.test(String(phase || ''));
+        }
+        function record(phase, source, gs) {
+          const text = String(phase || '');
+          const key = norm(text);
+          if (!text || (!expectedKeys[key] && !isTerminalPhase(text))) return;
+          const completedCount = countCompleted(gs || {});
+          if (!witness._seen[key]) {
+            witness._seen[key] = true;
+            witness.path.push(text);
+          }
+          if (text !== witness._lastPhase) {
+            witness._lastPhase = text;
+            witness.events.push({
+              t: Number((nowMs() - witness.startedAt).toFixed(1)),
+              phase: text,
+              source: source || 'currentPhase',
+              completedCount,
+            });
+            if (witness.events.length > 600) witness.events.shift();
+          }
+        }
+        function recordCompleted(gs) {
+          const completed = gs && (gs.completedPhases || gs.completed) || [];
+          if (!Array.isArray(completed) || completed.length === 0) return;
+          const completedKeys = {};
+          completed.forEach((id) => { completedKeys[norm(id)] = true; });
+          const completedCount = countCompleted(gs || {});
+          expected.forEach((phase) => {
+            const key = norm(phase);
+            if (!completedKeys[key] || witness._completedSeen[key]) return;
+            witness._completedSeen[key] = true;
+            witness.completedPath.push(phase);
+            witness.completedEvents.push({
+              t: Number((nowMs() - witness.startedAt).toFixed(1)),
+              phase,
+              source: 'completedPhases',
+              completedCount,
+            });
+            if (witness.completedEvents.length > 600) witness.completedEvents.shift();
+          });
+        }
+        function tick() {
+          if (witness.stopped) return;
+          witness.tickCount++;
+          const gs = getState();
+          record(gs.currentPhase || gs.phase || '', 'currentPhase', gs);
+          recordCompleted(gs);
+          witness._raf = requestAnimationFrame(tick);
+        }
+        witness.stop = function() {
+          witness.stopped = true;
+          try { if (witness._raf) cancelAnimationFrame(witness._raf); } catch(eCancel) {}
+        };
+        window.__bpCuaPhaseWitness = witness;
+        tick();
+        return { installed: true, schemaVersion: witness.schemaVersion, expectedPhasePath: expected };
+      }, { phaseIds, label });
+    }
+
+    async function readPhaseWitness(label) {
+      try {
+        return await page.evaluate((sampleLabel) => {
+          const w = window.__bpCuaPhaseWitness || {};
+          return {
+            schemaVersion: w.schemaVersion || 'blueprint-cua-phase-witness.v1',
+            label: sampleLabel || '',
+            expectedPhasePath: Array.isArray(w.expectedPhasePath) ? w.expectedPhasePath.slice() : [],
+            path: Array.isArray(w.path) ? w.path.slice() : [],
+            completedPath: Array.isArray(w.completedPath) ? w.completedPath.slice() : [],
+            events: Array.isArray(w.events) ? w.events.slice() : [],
+            completedEvents: Array.isArray(w.completedEvents) ? w.completedEvents.slice() : [],
+            tickCount: Number(w.tickCount || 0),
+            stopped: w.stopped === true,
+          };
+        }, label || '');
+      } catch(e) {
+        return {
+          schemaVersion: 'blueprint-cua-phase-witness.v1',
+          label: label || '',
+          path: [],
+          events: [],
+          error: e && e.message ? e.message : String(e),
+        };
+      }
+    }
+    await installPhaseWitness(phaseWindow.checkpointMode ? 'checkpoint-flow-start' : 'full-flow-start');
+
+    async function sample(label) {
+      return page.evaluate((args) => {
+        function norm(value) {
+          return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        }
+        function roundPos(pos) {
+          if (!pos) return null;
+          const x = Number(pos.x);
+          const y = Number(pos.y || 0);
+          const z = Number(pos.z);
+          if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return null;
+          return { x: Number(x.toFixed(3)), y: Number(y.toFixed(3)), z: Number(z.toFixed(3)) };
+        }
+        function isVisibleWorldPos(pos) {
+          if (!pos) return false;
+          const x = Number(pos.x);
+          const y = Number(pos.y || 0);
+          const z = Number(pos.z);
+          return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z) &&
+            y > -100 && Math.abs(x) < 10000 && Math.abs(z) < 10000;
+        }
+        function roundRect(rect) {
+          if (!rect) return null;
+          const x = Number(rect.x_px != null ? rect.x_px : rect.x);
+          const y = Number(rect.y_px != null ? rect.y_px : rect.y);
+          const w = Number(rect.w_px != null ? rect.w_px : rect.width);
+          const h = Number(rect.h_px != null ? rect.h_px : rect.height);
+          if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) return null;
+          return { x: Number(x.toFixed(2)), y: Number(y.toFixed(2)), w: Number(w.toFixed(2)), h: Number(h.toFixed(2)), cx: Number((x + w / 2).toFixed(2)), cy: Number((y + h / 2).toFixed(2)) };
+        }
+        function getState() {
+          let gs = null;
+          try { gs = typeof window.__gameState === 'function' ? window.__gameState() : window.__gameState; } catch(e) {}
+          try { if (!gs && typeof window.__getGameState === 'function') gs = window.__getGameState(); } catch(e2) {}
+          try {
+            if (gs && typeof window.__blueprintNormalizeGameState === 'function') gs = window.__blueprintNormalizeGameState(gs, gs.currentPhase || gs.phase || null);
+          } catch(e3) {}
+          return gs || {};
+        }
+        function entityStates(gs) {
+          return gs.entityStates || gs.entity_states || {};
+        }
+        function findEntityState(gs, name) {
+          const states = entityStates(gs);
+          if (!states || !name) return null;
+          if (states[name]) return states[name];
+          const key = norm(name);
+          const names = Object.keys(states);
+          for (const item of names) {
+            if (norm(item) === key) return states[item];
+          }
+          return null;
+        }
+        function entityRootPos(name) {
+          try {
+            const roots = window.__storyboardEntityRoots || {};
+            const root = roots[name] || roots[String(name || '').replace(/^_+/, '')] || roots[norm(name)];
+            const p = root && root.getPosition && root.getPosition();
+            return roundPos(p);
+          } catch(e) { return null; }
+        }
+        function stateEntityPos(gs, name) {
+          const st = findEntityState(gs, name);
+          return roundPos(st && st.position);
+        }
+        function runtimePlayerPos() {
+          try {
+            const p = window.GFM_Player && (window.GFM_Player.Instance || window.GFM_Player.instance || window.GFM_Player._instance);
+            const go = p && (p.Go || p.go || p._player);
+            const pos = go && go.transform && go.transform.position;
+            return roundPos(pos);
+          } catch(e) { return null; }
+        }
+        function targetRect(name) {
+          try {
+            if (!name || typeof window.__storyboardEntityScreenRect !== 'function') return null;
+            return roundRect(window.__storyboardEntityScreenRect(name));
+          } catch(e) { return null; }
+        }
+        function countCompleted(gs) {
+          const phaseKeys = {};
+          (args.phaseIds || []).forEach((id) => { phaseKeys[norm(id)] = true; });
+          const completed = gs.completedPhases || gs.completed || [];
+          if (Array.isArray(completed)) {
+            const seen = {};
+            completed.forEach((id) => {
+              const key = norm(id);
+              if (phaseKeys[key]) seen[key] = true;
+            });
+            return Object.keys(seen).length;
+          }
+          if (completed && typeof completed === 'object') {
+            let total = 0;
+            Object.keys(completed).forEach((id) => {
+              if (completed[id] && phaseKeys[norm(id)]) total++;
+            });
+            return total;
+          }
+          const numeric = Number(gs.completedPhaseCount || gs.phaseCompletedCount || 0);
+          return Number.isFinite(numeric) ? numeric : 0;
+        }
+        function targetNameForState(gs, line, phase) {
+          const plannedTarget = args.phaseTargets && args.phaseTargets[norm(phase)];
+          const ui = gs.uiState || gs.ui_state || {};
+          const runtimeTarget = ui.highlightTarget ||
+            ui.highlightOverlay && ui.highlightOverlay.target ||
+            ui.highlightState && ui.highlightState.target ||
+            ui.targetEntity ||
+            gs.targetEntity ||
+            gs.variables && gs.variables.targetEntity ||
+            '';
+          const lineTarget = line && line.targetName || '';
+          return runtimeTarget || lineTarget || plannedTarget || '';
+        }
+        function choosePosition(candidates) {
+          for (const item of candidates) {
+            if (item && isVisibleWorldPos(item.pos)) return item;
+          }
+          return { pos: null, source: '' };
+        }
+        const gs = getState();
+        const line = window.__storyboardGuidanceLineState || null;
+        const phase = String(gs.currentPhase || gs.phase || '');
+        const linePlayerPos = roundPos(line && line.player);
+        const runtimePlayer = runtimePlayerPos();
+        const statePlayer = stateEntityPos(gs, 'Player') || stateEntityPos(gs, 'player');
+        const rootPlayer = entityRootPos('Player');
+        const playerChoice = choosePosition([
+          { pos: runtimePlayer, source: 'runtime-player' },
+          { pos: statePlayer, source: 'state-player' },
+          { pos: linePlayerPos, source: 'overlay-guidance-player' },
+          { pos: rootPlayer, source: 'overlay-root-player' },
+        ]);
+        const playerPos = playerChoice.pos;
+        const targetName = targetNameForState(gs, line, phase);
+        const targetFromGuidanceLine = line && line.targetName && norm(line.targetName) === norm(targetName);
+        const lineTargetPos = targetFromGuidanceLine ? roundPos(line && line.target) : null;
+        const stateTarget = stateEntityPos(gs, targetName);
+        const rootTarget = entityRootPos(targetName);
+        const targetChoice = choosePosition([
+          { pos: lineTargetPos, source: 'overlay-guidance-target' },
+          { pos: rootTarget, source: 'overlay-root-target' },
+          { pos: stateTarget, source: 'state-target' },
+        ]);
+        const targetPos = targetChoice.pos;
+        const rect = targetRect(targetName);
+        let distanceToTarget = null;
+        if (playerPos && targetPos) {
+          const dx = targetPos.x - playerPos.x;
+          const dz = targetPos.z - playerPos.z;
+          distanceToTarget = Number(Math.sqrt(dx * dx + dz * dz).toFixed(4));
+        }
+        const completedCount = countCompleted(gs);
+        const terminal = /gameend|cta|finish|complete|download|install/i.test(phase) || completedCount >= (args.phaseIds || []).length;
+        return {
+          label: args.label,
+          currentPhase: phase,
+          completedPhases: gs.completedPhases || gs.completed || [],
+          completedCount,
+          targetCompleted: (args.phaseIds || []).length,
+          isTerminal: terminal,
+          playerPos,
+          playerPosSource: playerChoice.source,
+          targetName,
+          plannedTargetName: args.phaseTargets && args.phaseTargets[norm(phase)] || '',
+          targetPos,
+          targetPosSource: targetChoice.source,
+          runtimePlayerPos: runtimePlayer,
+          statePlayerPos: statePlayer,
+          stateTargetPos: stateTarget,
+          overlayPlayerPos: linePlayerPos || rootPlayer,
+          overlayTargetPos: lineTargetPos || rootTarget,
+          targetRect: rect,
+          distanceToTarget,
+        };
+      }, { label, phaseIds, phaseTargets });
+    }
+
+    function sampleComplete(row) {
+      return !!(row && (row.isTerminal === true || Number(row.completedCount || 0) >= phaseIds.length));
+    }
+
+    function canTapFinalTarget(row) {
+      const label = String((row && row.targetName) || '') + ' ' + String((row && row.currentPhase) || '');
+      return /cta|button|download|install|finish|complete/i.test(label);
+    }
+
+    function directionFromSample(row, idx) {
+      if (row && row.playerPos && row.targetPos) {
+        const dx = Number(row.targetPos.x) - Number(row.playerPos.x);
+        const dz = Number(row.targetPos.z) - Number(row.playerPos.z);
+        const mag = Math.sqrt(dx * dx + dz * dz);
+        // Runtime joystick drag follows world X/Z direction; samples prefer Luna/GFM state over the source overlay.
+        if (mag > 0.05) {
+          const defaultHoldMs = mag > 10 ? 6800 : (mag > 6 ? 5200 : (mag > 3 ? 3400 : 1500));
+          const holdMs = Math.max(500, Math.min(9000, Number(process.env.BLUEPRINT_MANUAL_JOYSTICK_FLOW_HOLD_MS || defaultHoldMs) || defaultHoldMs));
+          return { x: dx / mag, y: dz / mag, source: row.targetPosSource || 'target', distance: mag, holdMs };
+        }
+      }
+      const fallback = [
+        { x: 1, y: 0, source: 'scan-right' },
+        { x: 0, y: 1, source: 'scan-down' },
+        { x: -1, y: 0, source: 'scan-left' },
+        { x: 0, y: -1, source: 'scan-up' },
+      ];
+      return fallback[idx % fallback.length];
+    }
+
+    async function emitFlowDomPointer(type, x, y, buttons, label, pointerId) {
+      await withTimeout(page.evaluate((args) => {
+        function makeEvent(typeName, px, py, btns) {
+          if (typeof PointerEvent === 'function') {
+            return new PointerEvent(typeName, {
+              bubbles: true,
+              cancelable: true,
+              clientX: px,
+              clientY: py,
+              screenX: px,
+              screenY: py,
+              button: 0,
+              buttons: btns,
+              pointerId: args.pointerId,
+              pointerType: 'touch',
+              isPrimary: true,
+            });
+          }
+          return new MouseEvent(typeName.replace(/^pointer/, 'mouse'), {
+            bubbles: true,
+            cancelable: true,
+            clientX: px,
+            clientY: py,
+            screenX: px,
+            screenY: py,
+            button: 0,
+            buttons: btns,
+          });
+        }
+        const hit = document.elementFromPoint(args.x, args.y);
+        const targets = [hit, document, window].filter(Boolean);
+        for (const target of targets) {
+          try { target.dispatchEvent(makeEvent(args.type, args.x, args.y, args.buttons)); } catch(e) {}
+        }
+      }, { type, x, y, buttons, pointerId }), 5000, 'manual joystick flow dom pointer ' + label + ' ' + type);
+    }
+
+    async function waitWithFlowSamples(label, holdMs) {
+      const intervalMs = Math.max(250, Math.min(1500, Number(process.env.BLUEPRINT_MANUAL_JOYSTICK_FLOW_SAMPLE_INTERVAL_MS || 750) || 750));
+      let elapsed = 0;
+      let sampleIndex = 0;
+      while (elapsed < holdMs) {
+        const waitMs = Math.min(intervalMs, holdMs - elapsed);
+        await page.waitForTimeout(waitMs);
+        elapsed += waitMs;
+        if (holdMs >= intervalMs) {
+          const during = await sample('during-' + label + '-' + sampleIndex);
+          result.samples.push(during);
+          sampleIndex++;
+        }
+      }
+      return { intervalMs, sampleCount: sampleIndex };
+    }
+
+    async function dragJoystick(dir, label) {
+      const originX = Number(process.env.BLUEPRINT_MANUAL_JOYSTICK_FLOW_ORIGIN_X || 90);
+      const originY = Number(process.env.BLUEPRINT_MANUAL_JOYSTICK_FLOW_ORIGIN_Y || 750);
+      const radius = Number(process.env.BLUEPRINT_MANUAL_JOYSTICK_FLOW_RADIUS || 78);
+      const endX = Math.round(originX + Math.max(-1, Math.min(1, dir.x)) * radius);
+      const endY = Math.round(originY + Math.max(-1, Math.min(1, dir.y)) * radius);
+      const touchId = 7;
+      const holdMs = Math.max(250, Math.min(10000, Number(dir.holdMs || process.env.BLUEPRINT_MANUAL_JOYSTICK_FLOW_HOLD_MS || 1300) || 1300));
+      if (flowTouchMode === 'cdp') {
+        await withTimeout(client.send('Input.dispatchTouchEvent', {
+          type: 'touchStart',
+          touchPoints: [{ x: originX, y: originY, id: touchId, radiusX: 10, radiusY: 10 }],
+        }), 5000, 'manual joystick flow touchStart ' + label);
+        for (let i = 1; i <= 12; i++) {
+          const x = Math.round(originX + (endX - originX) * i / 12);
+          const y = Math.round(originY + (endY - originY) * i / 12);
+          await withTimeout(client.send('Input.dispatchTouchEvent', {
+            type: 'touchMove',
+            touchPoints: [{ x, y, id: touchId, radiusX: 10, radiusY: 10 }],
+          }), 5000, 'manual joystick flow touchMove ' + label);
+          await page.waitForTimeout(55);
+        }
+        var holdSampling = await waitWithFlowSamples(label, holdMs);
+        await withTimeout(client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }), 5000, 'manual joystick flow touchEnd ' + label);
+      } else {
+        await emitFlowDomPointer('pointerdown', originX, originY, 1, label, touchId);
+        for (let i = 1; i <= 12; i++) {
+          const x = Math.round(originX + (endX - originX) * i / 12);
+          const y = Math.round(originY + (endY - originY) * i / 12);
+          await emitFlowDomPointer('pointermove', x, y, 1, label, touchId);
+          await page.waitForTimeout(55);
+        }
+        var holdSampling = await waitWithFlowSamples(label, holdMs);
+        await emitFlowDomPointer('pointerup', endX, endY, 0, label, touchId);
+      }
+      await page.waitForTimeout(220);
+      return {
+        type: 'drag',
+        label,
+        inputMode: flowTouchMode,
+        direction: { x: Number(dir.x.toFixed(3)), y: Number(dir.y.toFixed(3)), source: dir.source || 'target' },
+        holdMs,
+        holdSampleCount: holdSampling ? holdSampling.sampleCount : 0,
+        holdSampleIntervalMs: holdSampling ? holdSampling.intervalMs : 0,
+        distanceBefore: Number.isFinite(Number(dir.distance)) ? Number(Number(dir.distance).toFixed(4)) : null,
+      };
+    }
+
+    async function applyAutoNavJoystick(dir, active, label) {
+      await withTimeout(page.evaluate((args) => {
+        function nowMs() {
+          try {
+            if (typeof performance !== 'undefined' && performance && typeof performance.now === 'function') return performance.now();
+          } catch(e) {}
+          return Date.now ? Date.now() : (new Date()).getTime();
+        }
+        let x = Number(args.x) || 0;
+        let y = Number(args.y) || 0;
+        const mag = Math.sqrt(x * x + y * y);
+        if (mag > 1) {
+          x /= mag;
+          y /= mag;
+        }
+        const override = window.__bpManualJoystickOverride || { active: false, x: 0, y: 0, updatedAt: 0, speed: 6 };
+        override.active = !!args.active;
+        override.x = override.active ? x : 0;
+        override.y = override.active ? y : 0;
+        override.updatedAt = nowMs();
+        override.speed = Number(args.speed) || 6;
+        override.source = 'cua-autonav-joystick';
+        override.label = args.label || '';
+        window.__bpManualJoystickOverride = override;
+        try {
+          const joystickClass = window.GFM_Joystick;
+          const joystick = joystickClass && (joystickClass.instance || joystickClass.Instance);
+          if (joystick && joystick._input) {
+            joystick._dragging = override.active;
+            joystick._input.x = override.x;
+            joystick._input.y = override.y;
+          }
+        } catch(eJoystick) {}
+      }, {
+        x: dir && dir.x,
+        y: dir && dir.y,
+        active: active === true,
+        speed: Number(process.env.BLUEPRINT_MANUAL_JOYSTICK_AUTONAV_SPEED || 6) || 6,
+        label,
+      }), 5000, 'manual joystick autonav override ' + label);
+    }
+
+    async function autoNavJoystick(row, label) {
+      const intervalMs = Math.max(80, Math.min(500, Number(process.env.BLUEPRINT_MANUAL_JOYSTICK_AUTONAV_INTERVAL_MS || 160) || 160));
+      const speed = Math.max(1, Number(process.env.BLUEPRINT_MANUAL_JOYSTICK_AUTONAV_SPEED || 6) || 6);
+      const distanceBefore = Number(row && row.distanceToTarget);
+      const estimatedTravelMs = Number.isFinite(distanceBefore) && distanceBefore > 0
+        ? Math.ceil(distanceBefore / speed * 1000 + 500)
+        : 1200;
+      const maxHoldMs = Math.max(500, Math.min(4500, Number(process.env.BLUEPRINT_MANUAL_JOYSTICK_AUTONAV_MAX_HOLD_MS || estimatedTravelMs) || estimatedTravelMs));
+      const startCompleted = Number(row && row.completedCount || 0);
+      const startPhase = String(row && row.currentPhase || '');
+      let latest = row;
+      let elapsed = 0;
+      let sampleCount = 0;
+      let lastDir = directionFromSample(latest, sampleCount);
+      try {
+        while (elapsed < maxHoldMs && Date.now() < deadlineAt) {
+          lastDir = directionFromSample(latest || row, sampleCount);
+          await applyAutoNavJoystick({ x: -lastDir.x, y: -lastDir.y }, true, label);
+          await page.waitForTimeout(intervalMs);
+          elapsed += intervalMs;
+          const during = await sample('during-' + label + '-' + sampleCount);
+          result.samples.push(during);
+          latest = during;
+          sampleCount++;
+          if (sampleComplete(latest)) break;
+          const completedNow = Number(latest && latest.completedCount || 0);
+          const phaseNow = String(latest && latest.currentPhase || '');
+          if (completedNow > startCompleted || (phaseNow && startPhase && phaseNow !== startPhase)) break;
+          if (Number.isFinite(Number(latest && latest.distanceToTarget)) && Number(latest.distanceToTarget) <= arrivalRange) break;
+        }
+      } finally {
+        await applyAutoNavJoystick({ x: 0, y: 0 }, false, label + '-stop').catch(() => null);
+      }
+      await page.waitForTimeout(80);
+      return {
+        type: 'autonav_joystick',
+        label,
+        inputMode: 'runtime-joystick-override',
+        direction: lastDir ? { x: Number(lastDir.x.toFixed(3)), y: Number(lastDir.y.toFixed(3)), source: lastDir.source || 'target' } : null,
+        holdMs: elapsed,
+        holdSampleCount: sampleCount,
+        holdSampleIntervalMs: intervalMs,
+        distanceBefore: Number.isFinite(distanceBefore) ? Number(distanceBefore.toFixed(4)) : null,
+      };
+    }
+
+    async function tapTarget(row, label) {
+      if (!row || !row.targetRect) return null;
+      const x = Math.round(row.targetRect.cx);
+      const y = Math.round(row.targetRect.cy);
+      const touchId = 8;
+      await withTimeout(page.evaluate(({ x, y }) => {
+        try {
+          if (typeof window.__bpApplyManualClickOverride === 'function') {
+            window.__bpApplyManualClickOverride(x, y);
+          } else {
+            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            window.__bpManualClickOverride = { pending: true, x, y, updatedAt: now, until: now + 220 };
+          }
+        } catch(e) {}
+      }, { x, y }), 5000, 'manual joystick flow runtime click override ' + label);
+      if (flowTouchMode === 'cdp') {
+        await withTimeout(client.send('Input.dispatchTouchEvent', {
+          type: 'touchStart',
+          touchPoints: [{ x, y, id: touchId, radiusX: 9, radiusY: 9 }],
+        }), 5000, 'manual joystick flow tapStart ' + label);
+        await page.waitForTimeout(90);
+        await withTimeout(client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }), 5000, 'manual joystick flow tapEnd ' + label);
+      } else {
+        await withTimeout(page.mouse.move(x, y), 5000, 'manual joystick flow mouseMove tap ' + label);
+        await withTimeout(page.mouse.down(), 5000, 'manual joystick flow mouseDown tap ' + label);
+        await emitFlowDomPointer('pointerdown', x, y, 1, label, touchId);
+        await page.waitForTimeout(90);
+        await emitFlowDomPointer('pointerup', x, y, 0, label, touchId);
+        await withTimeout(page.mouse.up(), 5000, 'manual joystick flow mouseUp tap ' + label);
+      }
+      await page.waitForTimeout(300);
+      return { type: 'tap', label, targetName: row.targetName || '', inputMode: flowTouchMode, x, y };
+    }
+
+    let current = await sample('flow-start');
+    result.samples.push(current);
+    const deadlineAt = Date.now() + deadlineMs;
+    let closeTargetTicks = 0;
+    const arrivalRange = Math.max(1.2, Number(process.env.BLUEPRINT_MANUAL_JOYSTICK_FLOW_ARRIVAL_RANGE || 2.0) || 2.0);
+    const maxFlowIterations = Math.max(maxDrags * 4, maxDrags + phaseIds.length * 24);
+    let flowIterations = 0;
+    for (let i = 0; i < maxFlowIterations && Date.now() < deadlineAt && !sampleComplete(current); i++, flowIterations++) {
+      if (current && current.targetRect && canTapFinalTarget(current)) {
+        const tapAction = await tapTarget(current, 'tap-final-' + i);
+        if (tapAction) result.actions.push(tapAction);
+        const tapped = await sample('after-final-tap-' + i);
+        result.samples.push(tapped);
+        current = tapped;
+        if (sampleComplete(current)) break;
+        await page.waitForTimeout(500);
+        const waitedTap = await sample('after-final-tap-wait-' + i);
+        result.samples.push(waitedTap);
+        current = waitedTap;
+        if (sampleComplete(current)) break;
+      }
+      const closeToTarget = current && Number.isFinite(Number(current.distanceToTarget)) && Number(current.distanceToTarget) <= arrivalRange;
+      if (closeToTarget) {
+        closeTargetTicks++;
+        if (current.targetRect && canTapFinalTarget(current)) {
+          const tapAction = await tapTarget(current, 'tap-' + i);
+          if (tapAction) result.actions.push(tapAction);
+          const tapped = await sample('after-tap-' + i);
+          result.samples.push(tapped);
+          current = tapped;
+          if (sampleComplete(current)) break;
+        }
+        await page.waitForTimeout(closeTargetTicks >= 2 ? 900 : 500);
+        const waited = await sample('after-close-wait-' + i);
+        result.samples.push(waited);
+        current = waited;
+        if (sampleComplete(current)) break;
+        if (closeTargetTicks < 2) continue;
+      } else {
+        closeTargetTicks = 0;
+      }
+      const currentDragCount = result.actions.filter(isManualJoystickFlowAction).length;
+      if (currentDragCount >= maxDrags) break;
+      const dir = directionFromSample(current, i);
+      const action = flowDriver === 'legacy-drag'
+        ? await dragJoystick(dir, 'drag-' + i)
+        : await autoNavJoystick(current, 'autonav-' + i);
+      result.actions.push(action);
+      const after = await sample('after-drag-' + i);
+      result.samples.push(after);
+      current = after;
+    }
+    result.flowIterations = flowIterations;
+    result.iterationBudgetReached = !sampleComplete(current) && flowIterations >= maxFlowIterations;
+    result.dragCount = result.actions.filter(isManualJoystickFlowAction).length;
+    result.deadlineReached = !sampleComplete(current) && Date.now() >= deadlineAt;
+    result.dragBudgetReached = !sampleComplete(current) && result.dragCount >= maxDrags;
+    result.phaseWitness = await readPhaseWitness('flow-end');
+    Object.assign(result, evaluateManualJoystickFlowProbeResult(result));
+  } catch(e) {
+    result.passed = false;
+    result.reason = 'manual joystick flow probe failed: ' + e.message;
+    result.error = e.stack || e.message;
+  } finally {
+    try {
+      fs.writeFileSync(path.join(outDir, 'result.json'), JSON.stringify(result, null, 2));
+    } catch(e) {}
+    if (browser) {
+      try { await withTimeout(browser.close(), 15000, 'manual joystick flow browser close'); } catch(e) {}
+    }
+  }
+
+  logger('[PlayableAgent] Manual joystick flow probe: ' + (result.passed ? 'PASS' : 'FAIL') +
+    ' | completed=' + (result.completedAfter || 0) + '/' + (result.targetCompleted || 0) +
+    ' | drags=' + (result.dragCount || 0) +
+    ' | maxPlayerDistance=' + (result.maxPlayerDistance || 0) +
+    ' | ' + result.reason, taskId);
+  return result;
+}
+
+async function runManualJoystickCheckpointProbe(previewUrl, blueprint, taskId, log, checkpointPhase, maxPhases) {
+  return runManualJoystickFlowProbe(previewUrl, blueprint, taskId, log, {
+    checkpointPhase,
+    maxPhases,
+  });
 }
 
 // ─── Ensure Xvfb is running ───
@@ -1666,6 +3054,48 @@ function buildScriptCoverage(report) {
     covered: (report.coveredPhases || []).includes(phaseId),
     evidence: 'PlayableAgent VLM + __gameState'
   }));
+}
+
+function readJsonIfExists(filePath) {
+  try {
+    if (!filePath || !fs.existsSync(filePath)) return null;
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch(e) {
+    return null;
+  }
+}
+
+function loadBlueprintProofBundle(buildDir, blueprint) {
+  if (blueprint && blueprint.proofBundle && typeof blueprint.proofBundle === 'object') return blueprint.proofBundle;
+  const explicit = blueprint && (blueprint.proofBundlePath || blueprint.blueprintProofBundlePath);
+  const explicitBundle = explicit ? readJsonIfExists(explicit) : null;
+  if (explicitBundle) return explicitBundle;
+  return readJsonIfExists(path.join(buildDir, 'blueprint-proof-bundle.json'));
+}
+
+function attachBlueprintProofBundle(buildDir, blueprint, taskId, log) {
+  const source = blueprint && typeof blueprint === 'object' ? blueprint : {};
+  const specs = source.specs || readJsonIfExists(path.join(buildDir, 'blueprint-specs.json'));
+  const plans = source.plans || readJsonIfExists(path.join(buildDir, 'blueprint-plans.json'));
+  const visualAssets = source.visualAssets || readJsonIfExists(path.join(buildDir, 'blueprint-visual-assets.json'));
+  const proofBundle = loadBlueprintProofBundle(buildDir, source);
+  const next = Object.assign({}, source);
+  if (specs) next.specs = specs;
+  if (plans) next.plans = plans;
+  if (visualAssets) next.visualAssets = visualAssets;
+  if (proofBundle) next.proofBundle = proofBundle;
+  const logger = typeof log === 'function' ? log : function() {};
+  if (proofBundle) {
+    const diff = proofBundle.contractDiff || {};
+    logger('[PlayableAgent] Proof bundle loaded: phases=' + (proofBundle.phaseCount || (proofBundle.phases || []).length || 0) +
+      ', contractBlocking=' + ((diff.summary && diff.summary.blocking) || (diff.blocking && diff.blocking.length) || 0), taskId);
+  }
+  if (specs || plans || visualAssets) {
+    logger('[PlayableAgent] Blueprint sidecars loaded: specs=' + (specs ? 'yes' : 'no') +
+      ', plans=' + (plans ? 'yes' : 'no') +
+      ', visualAssets=' + (visualAssets ? 'yes' : 'no'), taskId);
+  }
+  return next;
 }
 
 function summarizePlayableAgentReport(report, taskId, log) {
@@ -1933,23 +3363,48 @@ function summarizePlayableAgentReport(report, taskId, log) {
  * @returns {Promise<{passed: boolean, issues: string[], report?: object, skipped?: boolean}>}
  */
 async function runCUAVerification(buildDir, blueprint, taskId, log) {
+  const telemetry = createCuaTelemetry({
+    taskId,
+    buildDir,
+    buildMs: readBuildTelemetryMs(buildDir),
+  });
+  function finish(result) {
+    return attachCuaTelemetry(result, telemetry);
+  }
+
   // Check prerequisites
   if (!fs.existsSync(VERIFY_SCRIPT)) {
     log('[PlayableAgent] blueprint_verify.py not found — INFRA FAIL (not skipping)', taskId);
-    return { passed: false, issues: ['[playableagent-infra] blueprint_verify.py not found at ' + VERIFY_SCRIPT], skipped: true, error: 'VERIFY_SCRIPT missing' };
+    return finish({ passed: false, issues: ['[playableagent-infra] blueprint_verify.py not found at ' + VERIFY_SCRIPT], skipped: true, error: 'VERIFY_SCRIPT missing' });
   }
 
   const hasIframe = fs.existsSync(path.join(buildDir, 'iframe.html'));
   const hasIndex = fs.existsSync(path.join(buildDir, 'index.html'));
   if (!hasIframe && !hasIndex) {
     log('[PlayableAgent] No HTML file in build output — FAIL', taskId);
-    return { passed: false, issues: ['[playableagent-infra] No HTML file (iframe.html or index.html) in build dir: ' + buildDir], skipped: true, error: 'No HTML file' };
+    return finish({ passed: false, issues: ['[playableagent-infra] No HTML file (iframe.html or index.html) in build dir: ' + buildDir], skipped: true, error: 'No HTML file' });
+  }
+
+  const proofStartedAt = Date.now();
+  blueprint = attachBlueprintProofBundle(buildDir, blueprint, taskId, log);
+  telemetry.proofMs = Math.max(0, Date.now() - proofStartedAt);
+  const proofDiff = blueprint && blueprint.proofBundle && blueprint.proofBundle.contractDiff || null;
+  const proofBlocking = proofDiff && Array.isArray(proofDiff.blocking) ? proofDiff.blocking : [];
+  if (proofBlocking.length > 0) {
+    log('[PlayableAgent] Proof contract diff has blocking issues — FAIL before browser CUA', taskId);
+    return finish({
+      passed: false,
+      issues: ['[proof-contract-diff] ' + JSON.stringify(proofBlocking.slice(0, 8))],
+      skipped: false,
+      proofBundle: blueprint.proofBundle,
+      error: 'proof_contract_diff_failed'
+    });
   }
 
   // Ensure Xvfb for WebGL
   if (!ensureXvfb()) {
     log('[PlayableAgent] Failed to start Xvfb — INFRA FAIL (not skipping)', taskId);
-    return { passed: false, issues: ['[playableagent-infra] Xvfb :99 could not be started'], skipped: true, error: 'Xvfb unavailable' };
+    return finish({ passed: false, issues: ['[playableagent-infra] Xvfb :99 could not be started'], skipped: true, error: 'Xvfb unavailable' });
   }
 
   // Determine complexity level for CUA speed adaptation
@@ -1959,11 +3414,17 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       : (blueprint.specs || blueprint.phases || []).length
   );
   const isHighComplexity = phaseCount > 8;
-  const speedMultiplier = isHighComplexity ? 2 : 5;
+  const configuredSpeed = Number(process.env.BLUEPRINT_CUA_SPEED_MULTIPLIER || '');
+  const speedMultiplier = Number.isFinite(configuredSpeed) && configuredSpeed > 0
+    ? Math.max(1, Math.floor(configuredSpeed))
+    : (isHighComplexity ? 1 : 5);
   _patchHighComplexity = isHighComplexity;
 
   // G1: dynamic outer kill-switch by phase count
   const verifyTimeoutMs = computeVerifyTimeoutMs(phaseCount);
+  telemetry.phaseCount = phaseCount;
+  telemetry.speedMultiplier = speedMultiplier;
+  telemetry.verifyTimeoutMs = verifyTimeoutMs;
 
   if (isHighComplexity) {
     log('[PlayableAgent] High complexity detected (' + phaseCount + ' phases) — using ' + speedMultiplier + 'x speed, conservative timer gates', taskId);
@@ -1973,10 +3434,12 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
   // Start local server with headless patches
   let server;
   try {
+    const serverStartedAt = Date.now();
     server = await startLocalServer(buildDir);
+    telemetry.serverMs = Math.max(0, Date.now() - serverStartedAt);
   } catch(e) {
     log('[PlayableAgent] Failed to start server — INFRA FAIL: ' + e.message, taskId);
-    return { passed: false, issues: ['[playableagent-infra] Local HTTP server failed: ' + e.message], skipped: true, error: e.message };
+    return finish({ passed: false, issues: ['[playableagent-infra] Local HTTP server failed: ' + e.message], skipped: true, error: e.message });
   }
 
   const actualPort = server.address().port;
@@ -1994,7 +3457,10 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
   }
 
   // Build Python command — observer mode (no VLM interaction, just watch autoPlay)
-  const args = [VERIFY_SCRIPT, previewUrl, '--steps', '50', '--observe'];
+  const agentOutputDir = path.join('/root/cua-agent/runs', 'verify_' + safeRunId(taskId) + '_' + Date.now() + '_' + process.pid);
+  try { fs.mkdirSync(agentOutputDir, { recursive: true }); } catch(e) {}
+
+  const args = [VERIFY_SCRIPT, previewUrl, '--steps', '50', '--observe', '--output', agentOutputDir];
   if (specsPath) args.push('--specs', specsPath);
   if (plansPath) args.push('--plans', plansPath);
 
@@ -2002,12 +3468,13 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
   const logPath = path.join(CUA_RESULTS_DIR, taskId + '-playableagent.log');
 
   return new Promise((resolve) => {
-    const env = {
-      ...process.env,
-      DISPLAY: ':99',
-      DOUBAO_API_KEY: process.env.DOUBAO_API_KEY || '197cb950-3cf3-4b30-b656-6afaa4306a7a',
-      CUA_SPEED_MULTIPLIER: String(speedMultiplier),
-    };
+	    const env = {
+	      ...process.env,
+	      DISPLAY: ':99',
+	      DOUBAO_API_KEY: process.env.DOUBAO_API_KEY || '197cb950-3cf3-4b30-b656-6afaa4306a7a',
+	      CUA_SPEED_MULTIPLIER: String(speedMultiplier),
+	      CUA_VERIFY_OUTPUT_DIR: agentOutputDir,
+	    };
 
     log('[PlayableAgent] Running: ' + PYTHON + ' ' + args.join(' '), taskId);
     const verificationStartedAt = Date.now();
@@ -2041,6 +3508,7 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
     child.on('close', async (code) => {
       clearTimeout(timeout);
       if (child.pid && process._activeChildPIDs) process._activeChildPIDs.delete(child.pid);
+      telemetry.observeMs = Math.max(0, Date.now() - verificationStartedAt);
 
       log('[PlayableAgent] Process exited with code ' + code, taskId);
 
@@ -2050,13 +3518,17 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       // Find and read report JSON
       let report = null;
       try {
-        const explicitRunMatch = stdout.match(/输出:\s*(\/root\/cua-agent\/runs\/verify_\d+)/);
-        if (explicitRunMatch) {
-          const explicitReportPath = path.join(explicitRunMatch[1], 'verify_report.json');
-          if (fs.existsSync(explicitReportPath)) {
-            report = JSON.parse(fs.readFileSync(explicitReportPath, 'utf-8'));
-          }
-        }
+	        const agentReportPath = path.join(agentOutputDir, 'verify_report.json');
+	        if (fs.existsSync(agentReportPath)) {
+	          report = JSON.parse(fs.readFileSync(agentReportPath, 'utf-8'));
+	        }
+	        const explicitRunMatch = stdout.match(/输出:\s*(\/\S+)/);
+	        if (!report && explicitRunMatch) {
+	          const explicitReportPath = path.join(explicitRunMatch[1], 'verify_report.json');
+	          if (fs.existsSync(explicitReportPath)) {
+	            report = JSON.parse(fs.readFileSync(explicitReportPath, 'utf-8'));
+	          }
+	        }
         // Find the latest verify_report.json from this process window.
         const runsDir = '/root/cua-agent/runs';
         if (!report && fs.existsSync(runsDir)) {
@@ -2080,32 +3552,108 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
 
       if (!report) {
         try { server.close(); } catch(e) {}
-        resolve({
+        resolve(finish({
           passed: false,
           issues: ['[playableagent-error] Verification process failed to generate report. Exit code: ' + code],
           skipped: false,
           error: stderr.slice(0, 500)
-        });
+        }));
         return;
       }
 
       const summary = summarizePlayableAgentReport(report, taskId, log);
-      if (summary.passed && blueprintNeedsManualJoystickProbe(blueprint, report)) {
-        const manualProbe = await runManualJoystickProbe(manualProbeUrl, taskId, log);
+      if (blueprint && blueprint.proofBundle) {
+        summary.proofBundle = {
+          schemaVersion: blueprint.proofBundle.schemaVersion || null,
+          semanticHash: blueprint.proofBundle.semanticHash || null,
+          expectedPhasePath: Array.isArray(blueprint.proofBundle.expectedPhasePath) ? blueprint.proofBundle.expectedPhasePath.slice() : [],
+          contractDiff: blueprint.proofBundle.contractDiff || null,
+        };
+        if (summary.report) {
+          summary.report.proofBundle = summary.proofBundle;
+          if (summary.report.diagnostics) summary.report.diagnostics.proofBundle = summary.proofBundle;
+        }
+      }
+      const manualJoystickProbeRequired = blueprintNeedsManualJoystickProbe(blueprint, report);
+      summary.manualJoystickProbeRequired = manualJoystickProbeRequired;
+      summary.manualJoystickFlowProbeRequired = manualJoystickProbeRequired;
+      if (summary.report) {
+        summary.report.manualJoystickProbeRequired = manualJoystickProbeRequired;
+        summary.report.manualJoystickFlowProbeRequired = manualJoystickProbeRequired;
+        if (summary.report.diagnostics) summary.report.diagnostics.manualJoystickProbeRequired = manualJoystickProbeRequired;
+        if (summary.report.diagnostics) summary.report.diagnostics.manualJoystickFlowProbeRequired = manualJoystickProbeRequired;
+      }
+      if (summary.passed && manualJoystickProbeRequired) {
+        const manualProbe = await measureCuaTelemetry(telemetry, 'manualProbeMs', function() {
+          return runManualJoystickProbe(manualProbeUrl, taskId, log);
+        });
         summary.manualJoystickProbe = manualProbe;
         if (summary.report) {
           summary.report.manualJoystickProbe = manualProbe;
           if (summary.report.diagnostics) summary.report.diagnostics.manualJoystickProbe = manualProbe;
         }
-        if (!manualProbe.passed) {
+        if (!manualProbe.passed || manualProbe.skipped) {
           summary.passed = false;
           summary.exitReason = 'manual_joystick_probe_failed';
-          summary.issues.push('[manual-joystick-probe] ' + manualProbe.reason);
+          summary.issues.push('[manual-joystick-probe] ' + (manualProbe.skipped ? 'required probe skipped: ' : '') + manualProbe.reason);
           if (summary.report) summary.report.exitReason = 'manual_joystick_probe_failed';
         }
       }
+      const checkpointPhase = String(process.env.BLUEPRINT_MANUAL_JOYSTICK_CHECKPOINT_PHASE || '').trim();
+      const checkpointOnly = checkpointPhase && process.env.BLUEPRINT_MANUAL_JOYSTICK_CHECKPOINT_ONLY === '1';
+      if (summary.passed && manualJoystickProbeRequired && checkpointPhase) {
+        const checkpointMaxPhases = Number(process.env.BLUEPRINT_MANUAL_JOYSTICK_CHECKPOINT_MAX_PHASES || 0) || 0;
+        const checkpointProbe = await measureCuaTelemetry(telemetry, 'checkpointProbeMs', function() {
+          return runManualJoystickCheckpointProbe(manualProbeUrl, blueprint, taskId, log, checkpointPhase, checkpointMaxPhases);
+        });
+        summary.manualJoystickCheckpointProbe = checkpointProbe;
+        if (summary.report) {
+          summary.report.manualJoystickCheckpointProbe = checkpointProbe;
+          if (summary.report.diagnostics) summary.report.diagnostics.manualJoystickCheckpointProbe = checkpointProbe;
+        }
+        if (!checkpointProbe.passed || checkpointProbe.skipped) {
+          summary.passed = false;
+          summary.exitReason = 'manual_joystick_checkpoint_probe_failed';
+          summary.issues.push('[manual-joystick-checkpoint-probe] ' + (checkpointProbe.skipped ? 'required probe skipped: ' : '') + checkpointProbe.reason);
+          if (summary.report) summary.report.exitReason = 'manual_joystick_checkpoint_probe_failed';
+        }
+      }
+      if (summary.passed && manualJoystickProbeRequired) {
+        const flowProbe = checkpointOnly
+          ? {
+              passed: true,
+              skipped: true,
+              debugOnly: true,
+              reason: 'full manual joystick flow probe skipped by BLUEPRINT_MANUAL_JOYSTICK_CHECKPOINT_ONLY; not valid for production CUA hardgate',
+              targetCompleted: extractBlueprintPhaseIds(blueprint).length,
+            }
+          : await measureCuaTelemetry(telemetry, 'manualFlowMs', function() {
+              return runManualJoystickFlowProbe(manualProbeUrl, blueprint, taskId, log);
+            });
+        if (checkpointOnly) telemetry.manualFlowMs = 0;
+        if (checkpointOnly) {
+          summary.debugOnly = true;
+          if (summary.report) {
+            summary.report.debugOnly = true;
+            if (summary.report.diagnostics) summary.report.diagnostics.debugOnly = true;
+          }
+        }
+        summary.manualJoystickFlowProbe = flowProbe;
+        if (summary.report) {
+          summary.report.manualJoystickFlowProbe = flowProbe;
+          if (summary.report.diagnostics) summary.report.diagnostics.manualJoystickFlowProbe = flowProbe;
+        }
+        if ((!flowProbe.passed || flowProbe.skipped) && !checkpointOnly) {
+          summary.passed = false;
+          summary.exitReason = 'manual_joystick_flow_probe_failed';
+          summary.issues.push('[manual-joystick-flow-probe] ' + (flowProbe.skipped ? 'required probe skipped: ' : '') + flowProbe.reason);
+          if (summary.report) summary.report.exitReason = 'manual_joystick_flow_probe_failed';
+        }
+      }
       if (summary.passed) {
-        const storyboardVisualAudit = await runStoryboardVisualAudit(manualProbeUrl, taskId, log);
+        const storyboardVisualAudit = await measureCuaTelemetry(telemetry, 'storyboardVisualAuditMs', function() {
+          return runStoryboardVisualAudit(manualProbeUrl, taskId, log);
+        });
         summary.storyboardVisualAudit = storyboardVisualAudit;
         if (summary.report) {
           summary.report.storyboardVisualAudit = storyboardVisualAudit;
@@ -2119,7 +3667,9 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
         }
       }
       if (summary.passed) {
-        const storyboardVideoAudit = await runStoryboardVideoAudit(manualProbeUrl, taskId, log);
+        const storyboardVideoAudit = await measureCuaTelemetry(telemetry, 'storyboardVideoAuditMs', function() {
+          return runStoryboardVideoAudit(manualProbeUrl, taskId, log);
+        });
         summary.storyboardVideoAudit = storyboardVideoAudit;
         if (summary.report) {
           summary.report.storyboardVideoAudit = storyboardVideoAudit;
@@ -2133,19 +3683,20 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
         }
       }
       try { server.close(); } catch(e) {}
-      resolve(summary);
+      resolve(finish(summary));
     });
 
     child.on('error', (err) => {
       clearTimeout(timeout);
+      telemetry.observeMs = Math.max(0, Date.now() - verificationStartedAt);
       try { server.close(); } catch(e) {}
       log('[PlayableAgent] Process error: ' + err.message, taskId);
-      resolve({
+      resolve(finish({
         passed: false,
         issues: ['[playableagent-error] Failed to start: ' + err.message],
         skipped: false,
         error: err.message
-      });
+      }));
     });
   });
 }
@@ -2154,13 +3705,24 @@ module.exports = {
   runCUAVerification,
   CUA_RESULTS_DIR,
   computeVerifyTimeoutMs,
+  computeManualJoystickFlowBudget,
+  createCuaTelemetry,
+  attachCuaTelemetry,
+  measureCuaTelemetry,
   patchForHeadless,
   writeSpecsFile,
   summarizePlayableAgentReport,
   blueprintNeedsManualJoystickProbe,
+  extractBlueprintPhaseIds,
+  extractBlueprintPhaseTargetMap,
+  selectManualJoystickPhaseWindow,
+  attachBlueprintProofBundle,
   evaluateManualJoystickProbeResult,
+  evaluateManualJoystickFlowProbeResult,
   evaluateStoryboardVisualAuditResult,
   runManualJoystickProbe,
+  runManualJoystickFlowProbe,
+  runManualJoystickCheckpointProbe,
   runStoryboardVisualAudit,
   runStoryboardVideoAudit,
   shouldRunStoryboardVideoAudit,

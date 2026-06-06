@@ -384,6 +384,14 @@ function rewriteCameraMainToMainCam(code) {
     if (mask[j] && code.substr(j, 11) === 'Camera.main' &&
         !/[A-Za-z0-9_]/.test(code[j - 1] || '') &&
         !/[A-Za-z0-9_]/.test(code[j + 11] || '')) {
+      var lineEnd = code.indexOf('\n', j);
+      if (lineEnd < 0) lineEnd = code.length;
+      var suffix = code.slice(j + 11, lineEnd);
+      if (/^\s*;?\s*\/\/\s*(?:(?:说明：)?ok\b|正常)/.test(suffix)) {
+        out += 'Camera.main';
+        j += 11;
+        continue;
+      }
       out += 'mainCam';
       j += 11;
       fixes++;
@@ -393,6 +401,24 @@ function rewriteCameraMainToMainCam(code) {
     }
   }
   return { code: fixes > 0 ? out : code, changed: fixes > 0, fixes: fixes };
+}
+
+function repairMainCamSelfAssignment(code) {
+  if (!code || code.indexOf('mainCam') < 0 || code.indexOf('= mainCam') < 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+  var lines = code.split('\n');
+  var fixes = 0;
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    var commentIdx = line.indexOf('//');
+    var codePart = commentIdx >= 0 ? line.slice(0, commentIdx) : line;
+    if (!/\bmainCam\s*=\s*mainCam\s*;/.test(codePart)) continue;
+    var fixedCodePart = codePart.replace(/\bmainCam\s*=\s*mainCam\s*;/g, 'mainCam = Camera.main;');
+    lines[i] = fixedCodePart.replace(/\s+$/, '') + ' // 正常';
+    fixes++;
+  }
+  return { code: fixes > 0 ? lines.join('\n') : code, changed: fixes > 0, fixes: fixes };
 }
 
 // 2026-05-12: deterministic strip of duplicate Camera.backgroundColor assignments.
@@ -554,6 +580,74 @@ function rewriteHotPathVectorAllocations(code) {
       return buildStructCopy('__hpPos' + fixes, obj + '.transform.position', ndx, ndy, ndz, obj + '.transform.position');
     });
   return { code: fixed, changed: fixes > 0, fixes: fixes };
+}
+
+function guardFloatingTextTransformPosition(code) {
+  if (!code || code.indexOf('ShowFloatingText') < 0 || code.indexOf('.transform.position') < 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+  var fixes = 0;
+  var fixed = code;
+  fixed = fixed.replace(
+    /\bShowFloatingText\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*transform\s*\.\s*position\s*\+\s*new\s+Vector3\s*\(([^)]*)\)\s*,/g,
+    function(_m, obj, vectorArgs) {
+      fixes++;
+      return 'ShowFloatingText(' + obj + ' != null ? ' + obj + '.transform.position + new Vector3(' + vectorArgs + ') : Vector3.zero,';
+    }
+  );
+  fixed = fixed.replace(
+    /\bShowFloatingText\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*transform\s*\.\s*position\s*,/g,
+    function(_m, obj) {
+      fixes++;
+      return 'ShowFloatingText(' + obj + ' != null ? ' + obj + '.transform.position : Vector3.zero,';
+    }
+  );
+  return { code: fixed, changed: fixes > 0, fixes: fixes };
+}
+
+function guardPlayerTransformDistanceReads(code) {
+  if (!code || code.indexOf('player.transform.position') < 0 || code.indexOf('Vector3.Distance') < 0) {
+    return { code: code, changed: false, fixes: 0 };
+  }
+  var lines = String(code || '').split('\n');
+  var out = [];
+  var fixes = 0;
+  function isInsideVoidMethod(lineIndex) {
+    for (var k = lineIndex; k >= 0 && k >= lineIndex - 40; k--) {
+      var line = lines[k] || '';
+      if (/^\s*(?:public|private|protected|internal|static|virtual|override|sealed|new|async|\s)*void\s+[A-Za-z_][A-Za-z0-9_]*\s*\(/.test(line)) return true;
+      if (/^\s*(?:public|private|protected|internal|static|virtual|override|sealed|new|async|\s)*(?:bool|int|float|string|Vector[234]|GameObject|Color|Transform)\s+[A-Za-z_][A-Za-z0-9_]*\s*\(/.test(line)) return false;
+    }
+    return false;
+  }
+  function hasNearbySafePlayer(lineIndex) {
+    var start = Math.max(0, lineIndex - 5);
+    for (var k = start; k < lineIndex; k++) {
+      if (/\b__safePlayer\s*=\s*player\b/.test(lines[k] || '')) return true;
+    }
+    return false;
+  }
+  var safePlayerActiveFor = 0;
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    var m = /Vector3\.Distance\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\.transform\.position\s*,\s*player\.transform\.position\s*\)/.exec(line);
+    if (!m) {
+      m = /Vector3\.Distance\s*\(\s*player\.transform\.position\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\.transform\.position\s*\)/.exec(line);
+    }
+    if (m && isInsideVoidMethod(i) && !hasNearbySafePlayer(i)) {
+      var indent = (/^(\s*)/.exec(line) || ['', ''])[1];
+      out.push(indent + 'var __safePlayer = player;');
+      out.push(indent + 'if (__safePlayer == null || ' + m[1] + ' == null) return;');
+      fixes++;
+      safePlayerActiveFor = 12;
+    }
+    if (safePlayerActiveFor > 0) {
+      line = line.replace(/\bplayer\.transform\.position\b/g, '__safePlayer.transform.position');
+      safePlayerActiveFor--;
+    }
+    out.push(line);
+  }
+  return { code: fixes > 0 ? out.join('\n') : code, changed: fixes > 0, fixes: fixes };
 }
 
 function normalizeSetScaleCalls(code) {
@@ -1421,13 +1515,21 @@ function ensurePlayerFieldAssignment(mainCode, extraFiles) {
   var declared = false;
   var readsPlayer = false;
   var assigned = false;
+  function hasPlayerFieldAssignment(src) {
+    var text = String(src || '');
+    var lines = text.split(/\r?\n/);
+    for (var li = 0; li < lines.length; li++) {
+      var line = lines[li].replace(/\b(?:var|GameObject)\s+player\s*=/g, ' ');
+      if (/^\s*(?:this\.)?player\s*=\s*[^=>]/.test(line)) return true;
+      if (/(?:^|[^A-Za-z0-9_.])(?:this\.)?player\s*=\s*[^=>]/.test(line)) return true;
+    }
+    return false;
+  }
   for (var i = 0; i < allSources.length; i++) {
     var src = allSources[i];
     if (/\bGameObject\s+player\s*[;=]/.test(src)) declared = true;
     if (/\bplayer\s*\.\s*\w/.test(src)) readsPlayer = true;
-    if (/(?:^|[\s;{}])(?:GameObject\s+)?player\s*=\s*[^=>\s]/m.test(src)) {
-      if (!/\bvar\s+player\s*=/.test(src) || /(?:^|[\s;{}])player\s*=\s*[^=>\s]/m.test(src)) assigned = true;
-    }
+    if (hasPlayerFieldAssignment(src)) assigned = true;
   }
   if (!declared || !readsPlayer || assigned) {
     return { code: mainCode, extraFiles: files, changed: false, fixes: 0 };
@@ -1446,6 +1548,34 @@ function ensurePlayerFieldAssignment(mainCode, extraFiles) {
     changed: true,
     fixes: 1
   };
+}
+
+function repairPlayerBridgePropertyFallback(mainCode, extraFiles) {
+  var files = Object.assign({}, extraFiles || {});
+  var sourceBundle = [String(mainCode || '')];
+  Object.keys(files).forEach(function(name) { sourceBundle.push(String(files[name] || '')); });
+  var allCode = sourceBundle.join('\n');
+  var candidate = '';
+  var fieldRe = /\bGameObject\s+([A-Za-z_][A-Za-z0-9_]*)\s*[;=]/g;
+  var preferred = /^(?:PlayerCharacter|Hero|HeroCharacter|OurAstronaut|Astronaut|Avatar|MainPlayer|PlayerObj|PlayerAvatar|Rescuer|Worker)$/;
+  var loose = /(?:Player|Hero|Astronaut|Character|Avatar|Rescuer|Worker)/;
+  var m;
+  while ((m = fieldRe.exec(allCode)) !== null) {
+    if (m[1] === 'player') continue;
+    if (preferred.test(m[1])) { candidate = m[1]; break; }
+    if (!candidate && loose.test(m[1])) candidate = m[1];
+  }
+  if (!candidate) return { code: mainCode, extraFiles: files, changed: false, fixes: 0 };
+
+  var fixes = 0;
+  var next = String(mainCode || '').replace(
+    /(GameObject\s+player\s*\{\s*get\s*\{\s*var\s+gp\s*=\s*GFM_Player\.Instance\s*;\s*)return\s+gp\s*!=\s*null\s*\?\s*gp\.Go\s*:\s*null\s*;/m,
+    function(match, prefix) {
+      fixes++;
+      return prefix + 'if (gp != null && gp.Go != null) return gp.Go;\n            return ' + candidate + ';';
+    }
+  );
+  return { code: next, extraFiles: files, changed: fixes > 0, fixes: fixes };
 }
 
 function repairPlayerAliasMemberAccess(mainCode, extraFiles) {
@@ -2085,6 +2215,7 @@ var PREREPAIR_FNS = {
   declareMissingInteractionFlags: declareMissingInteractionFlags,
   repairPlayerAliasMemberAccess: repairPlayerAliasMemberAccess,
   ensurePlayerFieldAssignment: ensurePlayerFieldAssignment,
+  repairPlayerBridgePropertyFallback: repairPlayerBridgePropertyFallback,
   collapseLegacyCheckEventRulesStub: collapseLegacyCheckEventRulesStub,
   repairUpdateGameStateBridge: repairUpdateGameStateBridge,
   normalizeRuntimePhaseContract: normalizeRuntimePhaseContract,
@@ -2093,8 +2224,11 @@ var PREREPAIR_FNS = {
   stripEarlyShowCTA: stripEarlyShowCTA,
   normalizeFinishGameTerminalFlow: normalizeFinishGameTerminalFlow,
   rewriteHotPathVectorAllocations: rewriteHotPathVectorAllocations,
+  guardFloatingTextTransformPosition: guardFloatingTextTransformPosition,
+  guardPlayerTransformDistanceReads: guardPlayerTransformDistanceReads,
   sanitizeNonAsciiResourceApiKeys: sanitizeNonAsciiResourceApiKeys,
   stripExcessCameraBackgroundAssignments: stripExcessCameraBackgroundAssignments,
+  repairMainCamSelfAssignment: repairMainCamSelfAssignment,
   rewriteCameraMainToMainCam: rewriteCameraMainToMainCam,
   normalizeSetScaleCalls: normalizeSetScaleCalls,
   repairPhaseGateRuntimeMoves: repairPhaseGateRuntimeMoves,
@@ -2210,6 +2344,10 @@ module.exports = {
   declareMissingInteractionFlags: declareMissingInteractionFlags,
   repairPlayerAliasMemberAccess: repairPlayerAliasMemberAccess,
   ensurePlayerFieldAssignment: ensurePlayerFieldAssignment,
+  repairPlayerBridgePropertyFallback: repairPlayerBridgePropertyFallback,
+  guardFloatingTextTransformPosition: guardFloatingTextTransformPosition,
+  guardPlayerTransformDistanceReads: guardPlayerTransformDistanceReads,
+  repairMainCamSelfAssignment: repairMainCamSelfAssignment,
   addMissingComplexBranchComments: addMissingComplexBranchComments,
   addMissingSkeletonMemberComments: addMissingSkeletonMemberComments,
   hasLegacyReviewerApiKey: hasLegacyReviewerApiKey,

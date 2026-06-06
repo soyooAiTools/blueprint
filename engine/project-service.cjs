@@ -6,7 +6,7 @@
 var fs = require('fs');
 var path = require('path');
 var { projectSM } = require('../lib/state-machine.cjs');
-var { clearCheckpoint, readCheckpoint, inferResumeStage } = require('../lib/checkpoint.cjs');
+var { clearCheckpoint, readCheckpoint, inferResumeStage, STAGE_ORDER } = require('../lib/checkpoint.cjs');
 var { ensureProjectPlans, writePlansArtifact } = require('../adapters/assembly-plan-pipeline.cjs');
 
 function toArray(value) {
@@ -89,13 +89,29 @@ function getCancelledResumeInfo(project) {
   if (!project || project.status !== 'cancelled') return null;
   var checkpoint = readCheckpoint(project.id);
   if (!checkpoint) return null;
-  var resumeStage = inferResumeStage(checkpoint);
+  var resumeStage = inferCancelledResumeStage(checkpoint);
   if (!resumeStage) return null;
   return {
     checkpoint: checkpoint,
     resumeStage: resumeStage,
     completedStages: toArray(checkpoint.completedStages),
   };
+}
+
+function inferCancelledResumeStage(checkpoint) {
+  var completedStages = toArray(checkpoint && checkpoint.completedStages);
+  var seen = {};
+  var latestIdx = -1;
+  completedStages.forEach(function(stage) {
+    seen[stage] = true;
+    var idx = STAGE_ORDER.indexOf(stage);
+    if (idx > latestIdx) latestIdx = idx;
+  });
+  if (latestIdx < 0) return inferResumeStage(checkpoint);
+  for (var i = latestIdx + 1; i < STAGE_ORDER.length; i++) {
+    if (!seen[STAGE_ORDER[i]]) return STAGE_ORDER[i];
+  }
+  return null;
 }
 
 function confirmProjectSpecs(project, opts, extra) {

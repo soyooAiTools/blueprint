@@ -509,19 +509,19 @@ public class Main : MonoBehaviour {
     expect(hit).toBeDefined();
   });
 
-  test('AUTO_PLAY_PHASE_DURATION > 15 detected', () => {
+  test('AUTO_PLAY_PHASE_DURATION > 24 detected', () => {
     const code = `using UnityEngine;
 public class Main : MonoBehaviour {
-  float AUTO_PLAY_PHASE_DURATION = 20f;
+  float AUTO_PLAY_PHASE_DURATION = 30f;
 }`;
     const hit = staticCheck(code).issues.find(i => i.rule === 'autoplay-duration-tamper');
     expect(hit).toBeDefined();
   });
 
-  test('AUTO_PLAY_PHASE_DURATION within 10-15 passes (skeleton uses 12)', () => {
+  test('AUTO_PLAY_PHASE_DURATION within 12-24 passes (skeleton uses 12 or 20)', () => {
     const code = `using UnityEngine;
 public class Main : MonoBehaviour {
-  float AUTO_PLAY_PHASE_DURATION = 12f;
+  float AUTO_PLAY_PHASE_DURATION = 20f;
 }`;
     const hit = staticCheck(code).issues.find(i => i.rule === 'autoplay-duration-tamper');
     expect(hit).toBeUndefined();
@@ -566,7 +566,8 @@ public class Main : MonoBehaviour {
     if (!ruleTriggered && PhaseDwellReady(10f)) {}
   }
   bool PhaseDwellReady(float specMinSeconds) {
-    float requiredSeconds = _autoPlayMode ? 12f : specMinSeconds;
+    const float AUTO_PLAY_PHASE_DURATION = 20f;
+    float requiredSeconds = _autoPlayMode ? AUTO_PLAY_PHASE_DURATION : specMinSeconds;
     return _autoPlayMode ? phaseRealTimer >= requiredSeconds : phaseTimer >= requiredSeconds;
   }
 }`;

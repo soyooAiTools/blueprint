@@ -87,7 +87,34 @@ function isModelUnavailableError(text) {
 }
 
 function isModelFatalStream(text) {
-  return /quota|usage limit|hit your usage limit|purchase more credits|insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|unauthoriz|authentication.?fail|access.?denied|billing/i.test(String(text || ''));
+  return /quota|usage limit|hit your usage limit|purchase more credits|insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|unauthoriz|authentication.?fail|access.?denied|subscription access|billing/i.test(String(text || ''));
+}
+
+function runnerErrorLines(text) {
+  return String(text || '').split(/\r?\n/)
+    .map(function(line) { return line.trim(); })
+    .filter(Boolean);
+}
+
+function selectRunnerErrorLine(stdout, stderr) {
+  var stdoutLines = runnerErrorLines(stdout);
+  var stderrLines = runnerErrorLines(stderr);
+  return stderrLines.concat(stdoutLines).find(function(line) {
+    return isModelFatalStream(line) || isModelUnavailableError(line);
+  }) || '';
+}
+
+function resolveRunnerErrorBody(stdout, stderr, fallback) {
+  var fatalLine = selectRunnerErrorLine(stdout, stderr);
+  if (fatalLine) return fatalLine;
+
+  var stderrLines = runnerErrorLines(stderr);
+  if (stderrLines.length > 0) return stderrLines.join('\n');
+
+  var stdoutLines = runnerErrorLines(stdout);
+  if (stdoutLines.length > 0) return stdoutLines.join('\n');
+
+  return fallback || '';
 }
 
 function resolveCodePrimaryCooldownMs(env) {
@@ -577,7 +604,7 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
         // routes them to cancel-task instead of burning more retries.
         const streams = (stdout || '') + '\n' + (stderr || '');
         const isModelFatal = isModelFatalStream(streams);
-        const baseErr = stdout || stderr || `CLI error: exit code ${code} in ${elapsedMs}ms`;
+        const baseErr = resolveRunnerErrorBody(stdout, stderr, `CLI error: exit code ${code} in ${elapsedMs}ms`);
         const errorMsg = isModelFatal
           ? `MODEL_FATAL: Codex code runner auth/quota failure — ${baseErr.slice(0, 300)}`
           : baseErr;
@@ -627,12 +654,9 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
 
       // Build a non-constant error string when stderr is empty so that fix-loop's
       // circuit breaker does not see three identical signatures and abort prematurely.
-      // Prefer stderr (most diagnostic), then the tail of stdout (actual CC output),
-      // and only fall back to the generic exit-code string as a last resort.
+      // Prefer the actionable auth/quota/model line, then stderr, then stdout.
       const _buildExitError = (exitCode, stdoutStr, stderrStr) => {
-        if (stderrStr && stderrStr.trim()) return stderrStr.slice(0, 500);
-        if (stdoutStr && stdoutStr.trim()) return `stdout: ${stdoutStr.slice(-500)}`;
-        return `Exit code ${exitCode}`;
+        return resolveRunnerErrorBody(stdoutStr, stderrStr, `Exit code ${exitCode}`).slice(0, 500);
       };
 
       resolve({
@@ -759,13 +783,11 @@ function runCodexExecCode(workDir, userPrompt, log, taskId, opts) {
       const streams = (stdout || '') + '\n' + (stderr || '');
       const isModelFatal = isModelFatalStream(streams);
       const buildExitError = function(exitCode, stdoutStr, stderrStr) {
-        if (stderrStr && stderrStr.trim()) return stderrStr.slice(0, 500);
-        if (stdoutStr && stdoutStr.trim()) return `stdout: ${stdoutStr.slice(-500)}`;
-        return `Exit code ${exitCode}`;
+        return resolveRunnerErrorBody(stdoutStr, stderrStr, 'Exit code ' + exitCode).slice(0, 500);
       };
 
       if (code !== 0 && elapsedMs < 10000 && stdout.length < 200 && !fileActuallyModified) {
-        const baseErr = stdout || stderr || `CLI error: exit code ${code} in ${elapsedMs}ms`;
+        const baseErr = resolveRunnerErrorBody(stdout, stderr, `CLI error: exit code ${code} in ${elapsedMs}ms`);
         return resolve({
           ok: false,
           exitCode: code,
@@ -967,10 +989,7 @@ function runCodexText(opts) {
         if (code === 0 && stdout.length >= minOutputLen) {
           return finish({ ok: true, text: stdout, exitCode: 0, backend: 'claude-print' });
         }
-        // Build a non-constant error string: prefer stderr, then stdout tail, then generic.
-        const rawErr = (stderr && stderr.trim()) ? stderr
-          : (stdout && stdout.trim()) ? `stdout: ${stdout.slice(-500)}`
-          : `Exit code ${code}`;
+        const rawErr = resolveRunnerErrorBody(stdout, stderr, `Exit code ${code}`);
         const baseErr = timedOut ? ('Timed out after ' + timeoutMs + 'ms; ' + rawErr) : rawErr;
         const errorMsg = isModelFatal
           ? 'MODEL_FATAL: Codex text runner auth/quota — ' + baseErr.slice(0, 300)
@@ -1069,10 +1088,7 @@ function runCodexExecText(execDir, tempDir, opts, log, taskId, finish) {
       return finish({ ok: true, text: lastMessage, exitCode: 0, backend: 'codex-exec' });
     }
 
-    const rawErr = (stderr && stderr.trim()) ? stderr
-      : (lastMessage && lastMessage.trim()) ? ('lastMessage: ' + lastMessage.slice(-500))
-      : (stdout && stdout.trim()) ? ('stdout: ' + stdout.slice(-500))
-      : ('Exit code ' + code);
+    const rawErr = resolveRunnerErrorBody([lastMessage, stdout].join('\n'), stderr, 'Exit code ' + code);
     const baseErr = timedOut ? ('Timed out after ' + timeoutMs + 'ms; ' + rawErr) : rawErr;
     const errorMsg = isModelFatal
       ? 'MODEL_FATAL: Codex exec text auth/quota/model — ' + baseErr.slice(0, 300)
@@ -1514,7 +1530,7 @@ ${inlineSkeletonSystems}
 4. 全部填充完成后运行 bash build-test.sh 验证编译
 5. 如果编译失败，用 Edit 修复，再次运行 build-test.sh
 
-两个文件是 partial class，共享所有字段。主文件放阶段流程，Systems 文件放子系统。`
+两个文件是 partial class，共享所有字段。`
         : `## 任务：生成 Luna 试玩广告代码
 
 所有参考信息和骨架代码都在下面。
@@ -1535,7 +1551,7 @@ ${inlineSkeletonMain}
 1. 先 Read GameFlowManagerMain.cs（已在磁盘上）
 2. 逐个 TODO 区域使用 Edit 工具替换（每次约 20-80 行）
 3. 全部填充完成后运行 bash build-test.sh 验证编译
-4. 如果编译失败，用 Edit 修复，再次运行 build-test.sh
+4. 如果编译失败，用 Edit 工具修复，再次运行 build-test.sh
 
 代码必须完整（1300-1600 行），不要省略任何部分。`)
       : `## 任务：生成 Luna 试玩广告代码
@@ -1754,6 +1770,9 @@ module.exports = {
     resolveClaudePrintModel,
     isModelUnavailableError,
     isModelFatalStream,
+    runnerErrorLines,
+    selectRunnerErrorLine,
+    resolveRunnerErrorBody,
     resolveCodePrimaryCooldownMs,
     resolveCodePrimaryCooldownFile,
     isCodePrimaryCooldownError,

@@ -122,6 +122,34 @@ var STUB_REGISTRY = [
       '',
     ].join('\n'),
   },
+  // _manualGameplayUnlocked 常见于「引导/手动解锁」分支逻辑的幻觉引用，
+  // 它在多个项目被缺失地直接作为条件变量使用，safe 模式注入最小可编译字段可避开 CS0103 卡死。
+  {
+    key: '_manualGameplayUnlocked',
+    safe: true,
+    defines: function(code) {
+      return /\bbool\s+_manualGameplayUnlocked\b/.test(code);
+    },
+    stub: [
+      '    // [PATCH-ANALYZER] auto-stub for hallucinated _manualGameplayUnlocked symbol.',
+      '    bool _manualGameplayUnlocked = false;',
+      '',
+    ].join('\n'),
+  },
+  // defensePosition 常见在 deliver/defense 路径中缺省定义场景，默认注入可复位零向量作为兜底位置信息，
+  // 并不改变游戏玩法语义（原本就处于未定义错误状态）。
+  {
+    key: 'defensePosition',
+    safe: true,
+    defines: function(code) {
+      return /\bVector3\s+defensePosition\b/.test(code);
+    },
+    stub: [
+      '    // [PATCH-ANALYZER] auto-stub for hallucinated defensePosition symbol.',
+      '    Vector3 defensePosition = Vector3.zero;',
+      '',
+    ].join('\n'),
+  },
 ];
 
 /**

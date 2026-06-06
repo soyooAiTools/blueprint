@@ -344,7 +344,7 @@ public class GFM_Player : MonoBehaviour
     private void StabilizePlayerPhysics(GameObject go)
     {
         if (go == null) return;
-        var rb = go.GetComponent<Rigidbody>();
+        var rb = (Rigidbody)go.GetComponent(typeof(Rigidbody));
         if (rb != null)
         {
             rb.useGravity = false;

@@ -4,7 +4,7 @@
 // Luna 兼容：无泛型、无 coroutine、无 C#7.0+ 语法、无 LINQ
 // ============================================================
 // 字体加载: 只用 Resources/DefaultFont
-// ⛔ 不要用 Resources.GetBuiltinResource — Luna runtime 不实现,抛 "not implemented"
+// ⛔ 不要用 Unity 内置字体获取 API — Luna runtime 不实现,抛 "not implemented"
 // ⛔ 不要用 Font.CreateDynamicFontFromOSFont — Luna WebGL 无系统字体
 // 模板工程必须在 Assets/Resources/ 放一个 DefaultFont.ttf (模板已内置)
 // ------------------------------------------------------------
@@ -133,8 +133,8 @@ public static class GFM_UI
         var existing = GameObject.Find("EventSystem");
         if (!IsMissing(existing))
         {
-            if (IsMissing(existing.GetComponent<EventSystem>())) existing.AddComponent<EventSystem>();
-            if (IsMissing(existing.GetComponent<StandaloneInputModule>())) existing.AddComponent<StandaloneInputModule>();
+            if (IsMissing((EventSystem)existing.GetComponent(typeof(EventSystem)))) existing.AddComponent(typeof(EventSystem));
+            if (IsMissing((StandaloneInputModule)existing.GetComponent(typeof(StandaloneInputModule)))) existing.AddComponent(typeof(StandaloneInputModule));
             return;
         }
         var obj = new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));

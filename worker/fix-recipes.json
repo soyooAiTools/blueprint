@@ -593,12 +593,13 @@
   },
   {
     "id": "auto-00903459",
-    "fingerprintPattern": "Codex code runner failed \\(exit 1\\): MODEL_FATAL: Codex code runner auth\\/quota failure — Reading prompt from stdin",
-    "description": "Early-exit baseErr in runClaudeCode/runCodexExecCode picks stdout (Codex startup banner) over stderr (real auth error), hiding the actual quota/auth diagnostic in the MODEL_FATAL message",
-    "risk": "medium",
+    "fingerprintPattern": "Codex code runner failed \\(exit 1\\): MODEL_FATAL: Codex code runner auth/quota failure\\s+.{0,3}\\s*Reading promp(?:t(?: from stdin)?)?",
+    "description": "Codex code runner surfaces the CLI startup banner instead of the actionable auth/quota line.",
+    "risk": "low",
     "autoApply": true,
     "affectedFiles": [
-      "worker/codex-code-coder.js"
+      "worker/codex-code-coder.js",
+      "test/codex-code-coder-postfix.test.cjs"
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-00903459.md"
@@ -963,5 +964,82 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-75f0bdf0.md"
+  },
+  {
+    "id": "auto-ea13580d",
+    "fingerprintPattern": "^(?:fidelity-source-diff\\s+)?BLOCKING\\s+[\\u2014-]\\s+8\\s+blocking field-level diff\\(s\\) in phase2 \\(advisory field-diffs: 60; full report: (?:<path>|.*/fidelity-source-diff/?(?:report\\.json)?)\\)$",
+    "description": "fidelity-source-diff compares source phase2 against a target still stuck on phase1 because the target __driveToPhase hook does not reapply fidelity phase visibility/gate snapshots.",
+    "risk": "high",
+    "autoApply": false,
+    "affectedFiles": [
+      "worker/linux-bridge-build.js",
+      "test/linux-bridge-build-fidelity-hooks.test.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-ea13580d.md"
+  },
+  {
+    "id": "auto-18c3a574",
+    "fingerprintPattern": "^(?:fidelity-source-diff\\s+)?BLOCKING\\s+[\\u2014-]\\s+6\\s+blocking field-level diff\\(s\\) in phase2 \\(advisory field-diffs: 60; full report: (?:<path>|.*/fidelity-source-diff/?(?:report\\.json)?)\\)$",
+    "description": "fidelity-source-diff compares source phase2 against a target that auto-advanced to phase3 because __driveToPhase did not reapply fidelity visibility/gate snapshots.",
+    "risk": "high",
+    "autoApply": false,
+    "affectedFiles": [
+      "worker/linux-bridge-build.js",
+      "test/linux-bridge-build-preview-start.test.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-18c3a574.md"
+  },
+  {
+    "id": "auto-deb3ed5e",
+    "fingerprintPattern": "expectedVisible\\s+is\\s+not\\s+iterable",
+    "description": "fidelity-source-diff crashes when a phase id is absent from the fidelity contract before the phase-missing bucket can report it.",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/lib/field-diff.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-deb3ed5e.md"
+  },
+  {
+    "id": "auto-a75b1632",
+    "fingerprintPattern": "Visual check failed: Visual fix re-code failed: Codex code runner failed \\(exit -1\\): Codex code prima(?:ry cooldown active until [0-9T:.\\-]+Z; no fallback backend enabled)?",
+    "description": "visual-check recode aborts on Codex primary cooldown when Claude fallback is disabled",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "worker/codex-code-coder.js",
+      "engine/error-classifier.cjs",
+      "test/build-infra-classification.test.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-a75b1632.md"
+  },
+  {
+    "id": "auto-c526b422",
+    "fingerprintPattern": "(?:fidelity-source-diff\\s+)?BLOCKING\\s+—\\s+\\d+ blocking field-level diff\\(s\\) in phase2 \\+ pixel gate FAIL in phase1 \\([0-9.]+% > [0-9.]+%; \\d+ phase\\(s\\) over threshold\\)",
+    "description": "Reapply fidelity phase visibility and gate snapshots after __driveToPhase settle to prevent wrong-phase target extraction.",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "worker/linux-bridge-build.js"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-c526b422.md"
+  },
+  {
+    "id": "auto-11150ce8",
+    "fingerprintPattern": "^Visual check failed: .*All frames are identical.*(?:no visible progression|no progression).*objects$",
+    "description": "visual-check loads passive manual preview, so interaction-gated games never enter autoplay/observer mode and static screenshots are misdiagnosed as code freeze.",
+    "risk": "medium",
+    "autoApply": true,
+    "affectedFiles": [
+      "engine/stages/visual-check.cjs",
+      "test/visual-check-short-circuit.test.cjs"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-11150ce8.md"
   }
 ]

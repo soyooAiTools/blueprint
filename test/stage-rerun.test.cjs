@@ -67,6 +67,31 @@ const stageRerun = require('../engine/stage-rerun.cjs');
 }
 
 {
+  const checkpoint = stageRerun.scrubCheckpointFor('compile', {
+    completedStages: ['source-html-bind', 'clone', 'spec-extract', 'spec-validate', 'complexity-gate', 'assembly-plan', 'assembly-complexity-gate', 'codegen', 'method-check', 'review', 'compile', 'fidelity-source-diff'],
+    stageResults: {
+      review: { passed: true },
+      compile: { passed: true },
+      'fidelity-source-diff': { passed: true },
+    },
+    csCode: 'reviewed code',
+    extraFiles: { 'GameFlowManagerMain.UI.cs': 'ui code' },
+    htmlOutput: '<html>old</html>',
+    hasHtmlOutput: true,
+    previewReadyAt: '2026-04-23T00:00:00.000Z',
+  });
+
+  assert.deepStrictEqual(checkpoint.completedStages, ['source-html-bind', 'clone', 'spec-extract', 'spec-validate', 'complexity-gate', 'assembly-plan', 'assembly-complexity-gate', 'codegen', 'method-check', 'review']);
+  assert.strictEqual(checkpoint.csCode, 'reviewed code');
+  assert.deepStrictEqual(checkpoint.extraFiles, { 'GameFlowManagerMain.UI.cs': 'ui code' });
+  assert.ok(!Object.prototype.hasOwnProperty.call(checkpoint.stageResults, 'compile'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(checkpoint.stageResults, 'fidelity-source-diff'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(checkpoint, 'htmlOutput'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(checkpoint, 'hasHtmlOutput'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(checkpoint, 'previewReadyAt'));
+}
+
+{
   assert.deepStrictEqual(
     stageRerun.keptStagesFor('compile'),
     ['source-html-bind', 'clone', 'spec-extract', 'spec-validate', 'complexity-gate', 'assembly-plan', 'assembly-complexity-gate', 'codegen', 'method-check', 'review']

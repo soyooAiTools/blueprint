@@ -32,6 +32,166 @@ function addBlueprintTokenEstimate(ctx, field, text) {
   ctx.blueprint.tokenAccountingSource = 'char_estimate';
 }
 
+var ASCII_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function makeAsciiPhaseId(raw, index, used) {
+  used = used || {};
+  var original = String(raw || '').trim();
+  var base = original;
+  if (!ASCII_IDENTIFIER_RE.test(base)) {
+    base = original
+      .replace(/[^A-Za-z0-9_]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .replace(/_+/g, '_');
+    if (!base || /^[0-9]/.test(base) || !ASCII_IDENTIFIER_RE.test(base)) {
+      base = 'phase' + (index + 1);
+    }
+  }
+  if (!base) base = 'phase' + (index + 1);
+
+  var candidate = base;
+  var suffix = 2;
+  while (used[candidate]) {
+    candidate = base + '_' + suffix;
+    suffix++;
+  }
+  used[candidate] = true;
+  return candidate;
+}
+
+function rewritePhaseRefsDeep(value, phaseIdMap, seen) {
+  if (!value || !phaseIdMap) return;
+  seen = seen || [];
+  if (seen.indexOf(value) >= 0) return;
+  if (Array.isArray(value)) {
+    seen.push(value);
+    for (var i = 0; i < value.length; i++) rewritePhaseRefsDeep(value[i], phaseIdMap, seen);
+    return;
+  }
+  if (typeof value !== 'object') return;
+  seen.push(value);
+  Object.keys(value).forEach(function(key) {
+    if (key === 'phaseId' && typeof value[key] === 'string' && phaseIdMap[value[key]]) {
+      value[key] = phaseIdMap[value[key]];
+      return;
+    }
+    rewritePhaseRefsDeep(value[key], phaseIdMap, seen);
+  });
+}
+
+function normalizeSchemaPhaseIdsForCodegen(ctx, schema) {
+  if (!schema || !Array.isArray(schema.phases)) {
+    return { changed: false, map: {}, count: 0 };
+  }
+
+  var used = {};
+  var map = {};
+  var changes = [];
+  for (var i = 0; i < schema.phases.length; i++) {
+    var phase = schema.phases[i] || {};
+    var oldId = String(phase.phaseId || '').trim();
+    var nextId = makeAsciiPhaseId(oldId, i, used);
+    if (oldId !== nextId) {
+      map[oldId] = nextId;
+      changes.push(oldId + '→' + nextId);
+      phase.phaseId = nextId;
+    } else {
+      map[oldId] = nextId;
+    }
+  }
+
+  if (changes.length === 0) {
+    return { changed: false, map: {}, count: 0 };
+  }
+
+  var remap = {};
+  Object.keys(map).forEach(function(oldId) {
+    if (oldId && oldId !== map[oldId]) remap[oldId] = map[oldId];
+  });
+
+  if (ctx && ctx.blueprint) {
+    rewritePhaseRefsDeep(ctx.blueprint.specs, remap);
+    rewritePhaseRefsDeep(ctx.blueprint.plans, remap);
+    ctx.blueprint.phaseIdNormalization = Object.assign({}, ctx.blueprint.phaseIdNormalization || {}, remap);
+    if (typeof ctx.addLog === 'function') {
+      ctx.addLog('codegen-schema', 'Normalized non-ASCII/unsafe phaseId(s): ' + changes.join(', '));
+    }
+  }
+
+  return { changed: true, map: remap, count: changes.length, changes: changes };
+}
+
+function triggerToRequiredInteractions(trigger) {
+  var out = [];
+  function walk(t) {
+    if (!t || typeof t !== 'object') return;
+    if (t.type === 'compound' && Array.isArray(t.triggers)) {
+      for (var i = 0; i < t.triggers.length; i++) walk(t.triggers[i]);
+      return;
+    }
+    if (t.type === 'click_entity' && t.entity) out.push('click:' + t.entity);
+    else if (t.type === 'near_entity' && t.entity) out.push('move_to:' + t.entity);
+    else if (t.type === 'resource_collected' && t.resource) out.push('collect:' + t.resource + ':' + (t.amount || 1));
+    else if (t.type === 'entity_state_reached' && t.entity) out.push('state:' + t.entity + ':' + (t.state || 1));
+    else if (t.type === 'form_switched') out.push('switch_form:' + (t.formIndex || 0));
+    else if (t.type === 'timer') out.push('wait:' + (t.seconds || 2));
+  }
+  walk(trigger);
+  return out.filter(Boolean);
+}
+
+function buildSkeletonSpecsForSchema(blueprint, schema) {
+  blueprint = blueprint || {};
+  schema = schema || {};
+  var sourceSpecs = Array.isArray(blueprint.specs) ? blueprint.specs : [];
+  var schemaPhases = Array.isArray(schema.phases) ? schema.phases : [];
+  if (schemaPhases.length === 0) return sourceSpecs;
+
+  var sourceById = {};
+  for (var si = 0; si < sourceSpecs.length; si++) {
+    var sid = sourceSpecs[si] && sourceSpecs[si].phaseId;
+    if (sid) sourceById[sid] = sourceSpecs[si];
+  }
+
+  return schemaPhases.map(function(phase, index) {
+    phase = phase || {};
+    var phaseId = phase.phaseId || ('phase' + (index + 1));
+    var matched = sourceById[phaseId] || null;
+    var fallback = matched || sourceSpecs[Math.min(index, Math.max(0, sourceSpecs.length - 1))] || {};
+    var triggerInteractions = triggerToRequiredInteractions(phase.trigger);
+    var requiredInteractions = matched && Array.isArray(matched.requiredInteractions) && matched.requiredInteractions.length > 0
+      ? matched.requiredInteractions.slice()
+      : (triggerInteractions.length > 0 ? triggerInteractions : (Array.isArray(fallback.requiredInteractions) ? fallback.requiredInteractions.slice() : []));
+    var showEntities = Array.isArray(phase.showEntities) ? phase.showEntities.slice() : [];
+    var entitiesRequired = matched && Array.isArray(matched.entitiesRequired) && matched.entitiesRequired.length > 0
+      ? matched.entitiesRequired.slice()
+      : showEntities.map(function(name) {
+        return { name: name, terminalState: 1, description: 'Visible in schema phase ' + phaseId };
+      });
+
+    return Object.assign({}, fallback, {
+      phaseId: phaseId,
+      phaseName: phase.phaseName || phase.name || phase.title || fallback.phaseName || fallback.title || phase.guideText || phaseId,
+      duration: fallback.duration || { min: 10, max: 15 },
+      requiredInteractions: requiredInteractions,
+      entitiesRequired: entitiesRequired,
+      showEntities: showEntities.length > 0 ? showEntities : (fallback.showEntities || []),
+      hideEntities: Array.isArray(phase.hideEntities) ? phase.hideEntities.slice() : (fallback.hideEntities || []),
+      triggerNext: fallback.triggerNext || {
+        condition: phaseId + '_complete',
+        description: 'Schema phase trigger: ' + (phase.trigger ? JSON.stringify(phase.trigger) : 'none'),
+      },
+      playerInstruction: phase.guideText || fallback.playerInstruction || fallback.autoModeHint || '',
+      playerMustAct: fallback.playerMustAct !== undefined ? fallback.playerMustAct : requiredInteractions.length > 0,
+      autoAllowed: fallback.autoAllowed !== undefined ? fallback.autoAllowed : false,
+    });
+  });
+}
+
+function isCtaEntityName(value) {
+  return /^(?:CTAButton|CtaButton|CTABtn|CtaBtn|InstallButton|DownloadButton)$/i.test(String(value || '').trim());
+}
+
 module.exports = {
   name: 'codegen',
   canRetry: true,
@@ -44,19 +204,11 @@ module.exports = {
       ctx.addLog('codegen-schema', 'Assembly plan detected: ' + moduleCount + ' module instances, ' + cuaSteps + ' CUA steps');
     }
 
-    // Step 1: Generate JSON schema via Codex, or consume an explicit
-    // prebuilt gameSchema when a deterministic upstream adapter supplied one.
     return resolveCodegenSchema(ctx)
       .then(function(schema) {
         ctx.blueprint.gameSchema = schema;
-        // Deterministic safety nets (2026-05-31): fix the LLM mistakes that
-        // most reliably trip fillSkeleton's validateSemantics. Idempotent.
+        normalizeSchemaPhaseIdsForCodegen(ctx, schema);
         try {
-          // SAFETY NET #2: resource_collected with non-existent resource.
-          // LLMs sometimes set trigger.resource = an ENTITY name
-          // (e.g. IcePile, RocketDebris) where the validator wants a name in
-          // schema.resources[]. Convert to entity_state_reached when the
-          // "resource" actually matches a schema entity name.
           try {
             var _entNamesAll = {};
             for (var _eEi = 0; _eEi < (schema.entities || []).length; _eEi++) {
@@ -82,7 +234,6 @@ module.exports = {
                     delete trig.amount;
                     ctx.addLog('codegen-schema', 'CTA safety net: phase ' + phaseId + ' resource_collected("' + rn + '") → entity_state_reached (entity name match)');
                   } else {
-                    // Unknown — convert to timer fallback so it doesn't block
                     var origAmt = trig.amount;
                     trig.type = 'timer';
                     trig.seconds = Math.max(2, Number(origAmt) || 3);
@@ -104,8 +255,6 @@ module.exports = {
             ctx.addLog('codegen-schema', 'CTA safety net (resource): ' + _rErr.message);
           }
 
-          // SAFETY NET #3: timer cannot be a standalone trigger (must be in compound).
-          // If non-last phase has trigger.type='timer', wrap in compound + a noop near_entity to first showEntity.
           try {
             for (var _tpi = 0; _tpi < (schema.phases || []).length - 1; _tpi++) {
               var _tp = schema.phases[_tpi];
@@ -126,8 +275,6 @@ module.exports = {
           } catch (_tErr) {
             ctx.addLog('codegen-schema', 'CTA safety net (timer): ' + _tErr.message);
           }
-
-          // SAFETY NET #1 (original CTA gate):
         } catch (_outerCtaErr) {
           ctx.addLog('codegen-schema', 'Outer safety net wrapper failed (non-blocking): ' + _outerCtaErr.message);
         }
@@ -137,7 +284,7 @@ module.exports = {
           var _hasCta = function(t) {
             if (!t || typeof t !== 'object') return false;
             if (t.type === 'click_entity') return true;
-            if (t.type === 'near_entity' && /^CTAButton$/i.test(String(t.entity || '').trim())) return true;
+            if (t.type === 'near_entity' && isCtaEntityName(t.entity)) return true;
             if (t.type === 'compound' && Array.isArray(t.triggers)) {
               for (var ti = 0; ti < t.triggers.length; ti++) {
                 if (_hasCta(t.triggers[ti])) return true;
@@ -151,7 +298,7 @@ module.exports = {
               var _en = schema.entities[_ei] && schema.entities[_ei].name;
               if (_en) _entNames[_en] = true;
             }
-            var _ctaPick = _entNames.CtaButton ? 'CtaButton' : (_entNames.CTAButton ? 'CTAButton' : 'CtaButton');
+            var _ctaPick = _entNames.CtaButton ? 'CtaButton' : (_entNames.CTABtn ? 'CTABtn' : (_entNames.CtaBtn ? 'CtaBtn' : (_entNames.CTAButton ? 'CTAButton' : 'CtaButton')));
             var _orig = _lastPhase.trigger || { type: 'near_entity', entity: _ctaPick, range: 2 };
             _lastPhase.trigger = {
               type: 'compound', operator: 'and',
@@ -171,21 +318,27 @@ module.exports = {
             customSuppress.implementationCoverage.toFixed(3) + ', unresolved=0');
         }
 
-        // Step 2: Template fill
         var startMs = Date.now();
-        // Guard: only call resolveEntities when specs exist (mirrors codegen-legacy.cjs:43)
         var resolutionEntities = mergeSchemaEntitiesForResolution(ctx.blueprint.entities, schema.entities);
-        var resolved = (ctx.blueprint.specs && ctx.blueprint.specs.length > 0)
-          ? resolveEntities(ctx.blueprint.specs, resolutionEntities)
+        var skeletonSpecs = buildSkeletonSpecsForSchema(ctx.blueprint, schema);
+        if (skeletonSpecs.length !== ((ctx.blueprint.specs || []).length)) {
+          ctx.addLog('codegen-schema', 'Skeleton specs expanded from ' + ((ctx.blueprint.specs || []).length) +
+            ' extracted spec phase(s) to ' + skeletonSpecs.length + ' schema phase(s)');
+          ctx.blueprint.originalSpecs = ctx.blueprint.specs || [];
+          ctx.blueprint.specsForCodegen = skeletonSpecs;
+          ctx.blueprint.specs = skeletonSpecs;
+        }
+        var resolved = (skeletonSpecs && skeletonSpecs.length > 0)
+          ? resolveEntities(skeletonSpecs, resolutionEntities)
           : { entityPoolMap: {}, resolvedSpecs: [], allEntities: {}, poolManifest: null };
         ctx.blueprint.entityPoolMap = resolved.entityPoolMap;
         ctx.blueprint.poolManifest = resolved.poolManifest;
-        var skeletonResult = generateSkeleton(ctx.blueprint.specs, {
+        var skeletonResult = generateSkeleton(skeletonSpecs, {
           entityPoolMap: resolved.entityPoolMap,
-          entities: schema.entities, // carries chineseName / showLabel for world labels
+          entities: schema.entities,
           visualAssets: ctx.blueprint.visualAssets || null,
-          sourceMeshOps: ctx.blueprint.sourceMeshOps || null, // [OPTION C, Wave 3 Step 3] flag-gated source-faithful meshes
-          w1bSplit: ctx.blueprint.w1bSplit !== false, // default-on: 5-partial skeleton split
+          sourceMeshOps: ctx.blueprint.sourceMeshOps || null,
+          w1bSplit: ctx.blueprint.w1bSplit !== false,
         });
         var isW1bSplit = (typeof skeletonResult === 'object' && skeletonResult.mode === 'w1b-5partial');
         if (isW1bSplit && ctx.blueprint && ctx.blueprint.plans && ctx.blueprint.plans.assemblyPlan) {
@@ -211,8 +364,6 @@ module.exports = {
         var combinedMissingMarkers = (fillResult.missingMarkers || []).slice();
         var flowFillResult = null;
         if (isW1bSplit && skeletonResult.flow) {
-          // W1b split keeps phase-init TODO markers in Flow.cs, so fill that
-          // companion before enforcing marker coverage.
           flowFillResult = templateEngine.fillSkeleton(schema, skeletonResult.flow, { w1bSplit: true });
           combinedMissingMarkers = combinedMissingMarkers
             .filter(function(marker) { return !/^TODO_PHASE_\d+_INIT$/.test(marker); })
@@ -233,10 +384,6 @@ module.exports = {
           fillResult.templateCoverage.toFixed(2) + ', remaining TODOs=' + fillResult.todoCount +
           ', took ' + ctx.blueprint.templateFillMs + 'ms');
 
-        // W1b 5-partial split — write Flow/Input/Resource/UI/Scene companions.
-        // TODO_PHASE_<id>_ONTAP filling inside Flow is deferred to W1b-2b; for now
-        // the stubs ship with default <id>InteractionDone/<id>PlayerActed assignments
-        // which keep the code compilable and anti-autoplay-safe.
         if (typeof skeletonResult === 'object' && skeletonResult.mode === 'w1b-5partial') {
           ctx.extraFiles = ctx.extraFiles || {};
           ctx.extraFiles['GameFlowManagerMain.Flow.cs'] = flowFillResult ? flowFillResult.code : skeletonResult.flow;
@@ -246,10 +393,6 @@ module.exports = {
           ctx.extraFiles['GameFlowManagerMain.Scene.cs'] = skeletonResult.scene;
           ctx.addLog('codegen-schema', 'W1b 5-partial: wrote 5 companion files to extraFiles');
 
-          // 2026-05-12: signal completeness patcher — autoplay path 上确保
-          // CUA expected signals 都有 evidence,避免单 signal 缺失触发 ~13min Codex recode。
-          // 见 engine/signal-completeness-patcher.cjs 头部注释。
-          // 包 try/catch 是为了任何 patcher bug 都不让 codegen 整段挂掉(此 patch 仅是优化,非必需)。
           try {
             var sigPatch = signalCompletenessPatcher.patchSignalCompleteness(ctx);
             if (sigPatch && sigPatch.injectedSignalCount > 0) {
@@ -265,7 +408,6 @@ module.exports = {
               ' stack=' + (_sigPatchErr && _sigPatchErr.stack || '').split('\n').slice(0, 3).join(' | '));
           }
         }
-        // Legacy split mode — fill Systems file TODOs too
         else if (typeof skeletonResult === 'object' && skeletonResult.systems) {
           var systemsFill = templateEngine.fillSkeleton(schema, skeletonResult.systems);
           if (systemsFill.missingMarkers && systemsFill.missingMarkers.length > 0) {
@@ -275,7 +417,6 @@ module.exports = {
           ctx.extraFiles['GameFlowManagerMain.Systems.cs'] = systemsFill.code;
         }
 
-        // Step 3: Custom logic fill (only if needed)
         if (schema.customLogic && schema.customLogic.length > 0) {
           ctx.addLog('codegen-schema', 'Custom logic detected (' + schema.customLogic.length +
             ' items), invoking Codex text runner...');
@@ -290,8 +431,6 @@ module.exports = {
           ctx.addLog('codegen-schema', 'Localized generated C# comments to Chinese: ' +
             commentStats.localizedComments + ' comment(s) in ' + commentStats.changedFiles + '/' + commentStats.files + ' file(s)');
         }
-        // Deterministic post-fill validation. Records on blueprint so review's
-        // skip-LLM gate can use it; never throws — review still runs to fix.
         try {
           var validation = templateOutputValidator.validateFromContext(ctx);
           ctx.blueprint.templateValidation = {
@@ -467,7 +606,6 @@ function generateSchemaFromSpecs(ctx) {
     attempt++;
     ctx.addLog('codegen-schema', 'Schema generation attempt ' + attempt + '/' + (maxRetries + 1));
 
-    // Build prompt for Sonnet
     var promptText = buildSchemaPrompt(ctx);
     addBlueprintTokenEstimate(ctx, 'schemaTokensIn', promptText);
 
@@ -587,11 +725,16 @@ function runSchemaFallback(runCodexText, ctx, promptText, primarySystemPrompt, r
 
 function resolveSchemaRunnerConfig(env) {
   env = env || process.env;
-  return {
+  var config = {
     codexModel: env.CODEX_SCHEMA_MODEL || env.CODEX_TEXT_MODEL || env.CODEX_CODE_MODEL || 'gpt-5.5',
-    codexFallbackModel: env.CODEX_SCHEMA_FALLBACK_MODEL || env.CODEX_TEXT_FALLBACK_MODEL ||
-      env.CODEX_SCHEMA_MODEL || env.CODEX_TEXT_MODEL || env.CODEX_CODE_MODEL || 'gpt-5.5',
+    claudeModel: env.CLAUDE_SCHEMA_MODEL || env.CLAUDE_TEXT_MODEL || env.CLAUDE_CODE_MODEL || 'claude-opus-4-8',
   };
+  Object.defineProperty(config, 'codexFallbackModel', {
+    value: env.CODEX_SCHEMA_FALLBACK_MODEL || env.CODEX_TEXT_FALLBACK_MODEL ||
+      env.CODEX_SCHEMA_MODEL || env.CODEX_TEXT_MODEL || env.CODEX_CODE_MODEL || 'gpt-5.5',
+    enumerable: false,
+  });
+  return config;
 }
 
 function resolveSchemaTimeoutMs(env) {
@@ -602,7 +745,7 @@ function resolveSchemaTimeoutMs(env) {
 
 function resolveSchemaFallbackTimeoutMs(env) {
   env = env || process.env;
-  var timeout = parseInt(env.CODEX_SCHEMA_FALLBACK_TIMEOUT_MS || env.CODEX_SCHEMA_TIMEOUT_MS || env.CODEX_TEXT_TIMEOUT_MS || '', 10);
+  var timeout = parseInt(env.CODEX_SCHEMA_FALLBACK_TIMEOUT_MS || env.CLAUDE_SCHEMA_TIMEOUT_MS || env.CODEX_SCHEMA_TIMEOUT_MS || env.CODEX_TEXT_TIMEOUT_MS || '', 10);
   return isFinite(timeout) && timeout > 0 ? timeout : 900000;
 }
 
@@ -673,15 +816,11 @@ function writeSchemaPrimaryCooldown(error, ctx, env, nowMs) {
 
 function isSchemaInfraError(error) {
   var text = String(error || '');
-  return /MODEL_FATAL|quota|usage limit|hit your usage limit|purchase more credits|insufficient|billing|ECONNRESET|Request timed out|Unable to connect to API|timed out|socket hang up|ENOTFOUND|EHOSTUNREACH|ECONNREFUSED|Connection error|selected model|may not exist|not have access|model.?not.?found|unknown model|unsupported model/i.test(text);
+  return /Reading prompt from stdin|OpenAI Codex v[0-9]|MODEL_FATAL|quota|usage limit|hit your usage limit|purchase more credits|insufficient|billing|ECONNRESET|Request timed out|Unable to connect to API|timed out|socket hang up|ENOTFOUND|EHOSTUNREACH|ECONNREFUSED|Connection error|selected model|may not exist|not have access|model.?not.?found|unknown model|unsupported model/i.test(text);
 }
 
 function isSchemaNonRetryableError(error) {
   var text = String(error || '');
-  // 2026-05-12: 加入上游连接死透时的 fail-fast 关键字。避免内外层重试叠加，
-  // 外层 codegen 再 retry 3 次会烧光时间。当
-  // SDK 拿到 "Unable to connect to API" / "UND_ERR_SOCKET" 时,这个 round 上游真的 down,
-  // 外层立即 throw 让任务尽快 FATAL,不要叠加双层指数浪费。
   return /Timed out after \d+ms; Exit code 143|MODEL_FATAL: Codex text runner auth\/quota|Unable to connect to API|UND_ERR_SOCKET/i.test(text);
 }
 
@@ -691,7 +830,6 @@ function parseAndValidateSchemaResponse(ctx, text) {
     if (ctx.blueprint.schemaTokensOut == null) ctx.blueprint.schemaTokensOut = 0;
   }
 
-  // Extract JSON from response (object or array)
   text = String(text || '').replace(/```(?:json)?/g, '').trim();
   var schema;
   try {
@@ -714,7 +852,6 @@ function parseAndValidateSchemaResponse(ctx, text) {
 
   _repairSchema(schema, ctx.blueprint.entities, ctx.blueprint.specs);
 
-  // 2026-05-12 P1b: 如果 _repairSchema 在尾部 pad 过 phase,记录到 ctx.blueprint 便于事后审计。
   if (schema.__paddedPhases) {
     var pad = schema.__paddedPhases;
     delete schema.__paddedPhases;
@@ -749,12 +886,6 @@ function parseAndValidateSchemaResponse(ctx, text) {
     throw new Error('Schema validation failed: ' + validation.allErrors.join('; '));
   }
 
-  // 2026-04-27: deterministic trigger normalizer (opt-in via env var).
-  // Mode 'shadow' logs LLM↔derivation mismatches without mutating; 'apply'
-  // rewrites mismatched triggers from the spec's requiredInteractions DSL.
-  // Default 'off' so this ships dark — wire it on by setting
-  // DETERMINISTIC_TRIGGER_NORMALIZE=shadow in worker .env once we're ready
-  // to gather production data.
   try {
     var trigResult = triggerNormalizer.maybeNormalize(schema, ctx.blueprint && ctx.blueprint.specs);
     if (trigResult.mode !== 'off') {
@@ -849,7 +980,7 @@ function buildSchemaPromptLegacy(ctx) {
   lines.push('8. entities[].initPos: [x,y,z], x范围±6, z范围±4, y>0');
   lines.push('9. entities[].scale >= 0.3');
   lines.push('9a. **每个 entity 必须有 chineseName**(中文显示名),从 specs/blueprint 上下文中推断。例: ForgeWorkshop→"锻造间", SpaceJunk→"太空垃圾", RecyclingStation→"回收站"。不能留空、不能给英文、不能复制 name 字段');
-  lines.push('9b. showLabel 默认 true(世界空间头顶标签)。以下三类 entity 必须设 showLabel=false:(a) 载具/飞船/avatar(名字含 Ship/Avatar/Vehicle)(b) 货币飘字/金币/gem(名字含 Gold/Coin/Gem/Currency)(c) UI 按钮(名字含 CTAButton/Button/UI)。注意: Player 实体必须 showLabel=true 且 chineseName="玩家" — 玩家必须能在场景里一眼认出自己。');
+  lines.push('9b. showLabel 默认 true(世界空间头顶标签)。以下三类 entity 必须设 showLabel=false:(a) 载具/飞船/avatar(名字含 Ship/Avatar/Vehicle)(b) 货币飘字/金币/gem(名字含 Gold/Coin/Gem/Currency)(c) UI 按钮(名字含 CTAButton/Button/UI)。注意: Player 实体必须 showLabel=true 且chineseName="玩家" — 玩家必须能在场景里一眼认出自己。');
   lines.push('');
   // 2026-04-17: Visual change rules — CUA rejects "visual freeze" when phases
   // transition without observable screen changes. Each phase must produce
@@ -1372,6 +1503,8 @@ module.exports._applyGeneratedCodeContractScrub = applyGeneratedCodeContractScru
 module.exports._mergeNamedTodoRegion = mergeNamedTodoRegion;
 module.exports._repairSchema = _repairSchema;
 module.exports._validateSchema = _validateSchema;
+module.exports._buildSkeletonSpecsForSchema = buildSkeletonSpecsForSchema;
+module.exports._normalizeSchemaPhaseIdsForCodegen = normalizeSchemaPhaseIdsForCodegen;
 
 function _validateSchema(schema) {
   var structErrors = schemaValidator.validateGameSchema(schema);

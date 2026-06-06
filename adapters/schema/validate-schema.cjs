@@ -37,7 +37,7 @@ function hasClickEntityTrigger(trigger) {
 }
 
 function isCtaEntityName(entity) {
-  return /^CTAButton$/i.test(String(entity || '').trim());
+  return /^C(?:TA|ta)?(?:Button|Btn)$/i.test(String(entity || '').trim());
 }
 
 /**
@@ -176,6 +176,16 @@ function validateSemantics(schema) {
     for (var h = 0; h < hideEnts.length; h++) {
       if (!entityNames[hideEnts[h]]) {
         errors.push('Phase ' + ph.phaseId + ' hideEntities references non-existent entity: ' + hideEnts[h]);
+      }
+    }
+    var steps = ph.steps || [];
+    for (var st = 0; st < steps.length; st++) {
+      var step = steps[st] || {};
+      if (step.target && !entityNames[step.target]) {
+        errors.push('Phase ' + ph.phaseId + ' steps[' + st + '].target references non-existent entity: ' + step.target);
+      }
+      if (step.setEntity && !entityNames[step.setEntity]) {
+        errors.push('Phase ' + ph.phaseId + ' steps[' + st + '].setEntity references non-existent entity: ' + step.setEntity);
       }
     }
   }

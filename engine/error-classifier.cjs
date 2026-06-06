@@ -62,6 +62,7 @@ var INFRA_PATTERNS = [
   /CERT_/i,
   /TLS handshake/i,
   /rate limit/i,
+  /codex code primary cooldown active/i,
   /too many requests/i,
   /EHOSTUNREACH/i,
   /ENETUNREACH/i,

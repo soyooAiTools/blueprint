@@ -54,7 +54,7 @@ public class GFM_UIManager : GFM_SingletonBase<GFM_UIManager>
         if (_canvas == null)
         {
             var canvasObj = GameObject.Find("Canvas");
-            if (canvasObj != null) _canvas = canvasObj.GetComponent<Canvas>();
+            if (canvasObj != null) _canvas = (Canvas)canvasObj.GetComponent(typeof(Canvas));
         }
         if (_canvas == null) _canvas = GFM_UI.CreateCanvas(1920, 1080);
         if (_canvas == null) return;
@@ -75,7 +75,7 @@ public class GFM_UIManager : GFM_SingletonBase<GFM_UIManager>
     private Text FindSceneText(string name)
     {
         var obj = GameObject.Find(name);
-        return obj != null ? obj.GetComponent<Text>() : null;
+        return obj != null ? (Text)obj.GetComponent(typeof(Text)) : null;
     }
 
     // 确保 UI 管理器已经初始化并拥有根画布。

@@ -14,7 +14,7 @@ const {
 
 const assetManifest = {
   sourceEntityContract: {
-    entities: ['Player', 'SellCounter', 'IceSmall', 'BigDebris', 'FrozenDebris', 'CtaButton'],
+    entities: ['Player', 'SellCounter', 'IceSmall', 'BigDebris', 'FrozenDebris', 'AlienSmallSpawner', 'AlienSmall', 'CtaButton'],
   },
   sourcePhaseContract: {
     phases: [
@@ -39,36 +39,49 @@ const gameSchema = {
     { name: 'IceSmall', chineseName: '小冰块', pool: '__Pool_Cube_Cyan_01', initPos: [2, 0, 0], scale: 1 },
     { name: 'BigDebris', chineseName: '残骸', pool: '__Pool_Cube_Brown_01', initPos: [3, 0, 0], scale: 1 },
     { name: 'FrozenDebris', chineseName: '冰封残骸', pool: '__Pool_Cube_Blue_01', initPos: [4, 0, 0], scale: 1 },
+    { name: 'AlienSmallSpawner', chineseName: '小异形生成器', pool: '__Pool_Cube_Purple_01', initPos: [6, 0, 0], scale: 1 },
+    { name: 'AlienSmall', chineseName: '小异形', pool: '__Pool_Cube_Purple_02', initPos: [7, 0, 0], scale: 1 },
     { name: 'CtaButton', chineseName: '下载', pool: '__Pool_Cube_Green_01', initPos: [5, 0, 0], scale: 1 },
   ],
   resources: [
     { name: 'Gold', entity: 'CtaButton', convertRatio: 1 },
     { name: 'Ice', entity: '', convertRatio: 1 },
     { name: 'Scrap', entity: 'MissingScrapCarrier', convertRatio: 1 },
+    { name: 'EnemyKillCount', entity: 'EnemyKillCount', convertRatio: 1 },
   ],
   phases: [
     { phaseId: 'phase1', showEntities: ['Player', 'SellCounter'], guideText: 'sell', trigger: { type: 'resource_collected', resource: 'Gold', amount: 6 } },
     { phaseId: 'phase2', showEntities: ['Player', 'IceSmall'], guideText: 'ice', trigger: { type: 'resource_collected', resource: 'Ice', amount: 3 } },
     { phaseId: 'phase7', showEntities: ['Player', 'FrozenDebris'], guideText: 'scrap', trigger: { type: 'resource_collected', resource: 'Scrap', amount: 8 } },
-    { phaseId: 'phase8', showEntities: ['Player', 'CtaButton'], guideText: 'cta', trigger: { type: 'near_entity', entity: 'CtaButton', range: 2 } },
+    { phaseId: 'phase8', showEntities: ['AlienSmallSpawner', 'AlienSmall'], guideText: 'kill', trigger: { type: 'resource_collected', resource: 'EnemyKillCount', amount: 10 } },
+    { phaseId: 'phase9', showEntities: ['Player', 'CtaButton'], guideText: 'cta', trigger: { type: 'near_entity', entity: 'CtaButton', range: 2 } },
   ],
 };
 
 const normalized = normalizeGameSchemaForBlueprint(gameSchema, { assetManifest });
 assert.deepStrictEqual(
   normalized.resources.map(r => [r.name, r.entity]),
-  [['Gold', 'SellCounter'], ['Ice', 'IceSmall'], ['Scrap', 'BigDebris']],
+  [['Gold', 'SellCounter'], ['Ice', 'IceSmall'], ['Scrap', 'BigDebris'], ['EnemyKillCount', 'AlienSmall']],
   'source resources should map to real source phase targets instead of CtaButton/generated carriers'
 );
 assert.strictEqual(
-  normalized.entities.some(entity => /^(Gold|Ice|Scrap)$/.test(entity.name) && entity.demo2specGeneratedCarrier),
+  normalized.entities.some(entity => /^(Gold|Ice|Scrap|EnemyKillCount)$/.test(entity.name) && entity.demo2specGeneratedCarrier),
   false,
-  'normalization must not synthesize Gold/Ice/Scrap carrier entities when source targets exist'
+  'normalization must not synthesize resource carrier entities when source or phase targets exist'
 );
 
 const project = buildBlueprintProject(normalized, { assetManifest });
 const phase7 = project.specs.find(spec => spec.phaseId === 'phase7');
 assert.ok(phase7.requiredInteractions.includes('move_to:FrozenDebris'), 'phase-local Scrap collection should use the source phase target');
 assert.ok(!phase7.requiredInteractions.includes('move_to:BigDebris'), 'phase-local target should override the global first Scrap target');
+const phase8 = project.specs.find(spec => spec.phaseId === 'phase8' && spec.phaseName === 'kill');
+assert.ok(phase8.requiredInteractions.includes('move_to:AlienSmall'), 'counter resources should use a visible phase entity as the navigation target');
+assert.ok(phase8.requiredInteractions.includes('collect:EnemyKillCount:10'), 'counter resources should remain the collection exit condition');
+const alienSmallEntity = project.entities.find(entity => entity.name === 'AlienSmall');
+assert.strictEqual(
+  alienSmallEntity && alienSmallEntity.template,
+  'Collectible|Damageable',
+  'resource-backed enemy targets should not inherit default Mover behavior that makes manual joystick chase an unreachable target'
+);
 
 console.log('demo2spec source contract mapping tests passed');

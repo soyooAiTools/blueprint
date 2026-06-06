@@ -23,6 +23,10 @@ const {
   sourceEntitySet,
   sourceResourceTarget,
 } = require('./source-contract-mapping.js');
+const {
+  assertPlayableSceneIrExecutionAlignment,
+  loadPlayableSceneIr,
+} = require('../../engine/playable-scene-ir.cjs');
 
 function parseArgs(argv) {
   const opts = { specPath: null, outPath: null, theme: process.env.DEMO2SPEC_THEME || 'default' };
@@ -61,6 +65,18 @@ function loadJsonIfExists(filePath) {
   return fs.existsSync(filePath) ? JSON.parse(fs.readFileSync(filePath, 'utf8')) : null;
 }
 
+function resolvePlayableSceneIrPath(specPath, specDoc) {
+  const rel = specDoc && specDoc.meta && specDoc.meta.playableSceneIrPath;
+  const candidate = path.join(path.dirname(specPath), rel || 'playable-scene-ir.json');
+  return fs.existsSync(candidate) ? candidate : null;
+}
+
+const PLAYABLE_SCENE_IR_PATH = resolvePlayableSceneIrPath(SPEC_PATH, spec);
+const PLAYABLE_SCENE_IR = PLAYABLE_SCENE_IR_PATH ? loadPlayableSceneIr(PLAYABLE_SCENE_IR_PATH) : null;
+const PLAYABLE_SCENE_IR_PHASES = PLAYABLE_SCENE_IR && Array.isArray(PLAYABLE_SCENE_IR.phases)
+  ? PLAYABLE_SCENE_IR.phases
+  : [];
+
 function loadThemePreset(theme) {
   const explicit = process.env.DEMO2SPEC_THEME_PRESET;
   const presetDir = path.join(__dirname, 'theme-presets');
@@ -96,6 +112,9 @@ const SOURCE_ENTITY_CONTRACT = assetManifest && assetManifest.sourceEntityContra
 const SOURCE_ENTITY_NAMES = sourceEntitySet(assetManifest);
 const SOURCE_ENTITY_STYLES = assetManifest && assetManifest.sourceEntityContract && assetManifest.sourceEntityContract.entityStyles || {};
 const SOURCE_SCENE_CONTRACT = assetManifest && assetManifest.sourceSceneContract || null;
+const SOURCE_PHASES = assetManifest && assetManifest.sourcePhaseContract && Array.isArray(assetManifest.sourcePhaseContract.phases)
+  ? assetManifest.sourcePhaseContract.phases
+  : [];
 
 function rgb01FromSceneColor(color, fallback) {
   if (!/^#[0-9a-f]{6}$/i.test(String(color || ''))) return fallback;
@@ -207,9 +226,37 @@ function visualEntityMeta(name) {
   };
 }
 
+function uniqueResourceSpecs() {
+  const rows = [];
+  const seen = {};
+  function add(name, source) {
+    const id = String(name || '').trim();
+    if (!id || seen[id]) return;
+    seen[id] = true;
+    rows.push({ id, name: id, kind: 'resource', source });
+  }
+  (spec.resources || []).forEach(r => {
+    if (!r || r.kind === 'flag') return;
+    add(r.id || r.name, 'spec.resources');
+  });
+  SOURCE_PHASES.forEach(phase => {
+    (phase.steps || []).forEach(step => {
+      if (!step) return;
+      add(step.gain, 'sourcePhase.steps.gain');
+      add(step.spend, 'sourcePhase.steps.spend');
+    });
+  });
+  return rows;
+}
+
 const allPats = [...spec.phases.flatMap(p => p.patterns || []), ...spec.functions.flatMap(f => f.patterns || [])];
 const factories = new Set(allPats.filter(p => p.rule === 'R11').map(p => p.templateId));
-const phaseEntityNames = new Set(spec.phases.flatMap(p => p.showEntities || []));
+const phaseEntityNames = new Set(
+  spec.phases.flatMap(p => p.showEntities || [])
+    .concat(PLAYABLE_SCENE_IR_PHASES.flatMap(p => p.showEntities || []))
+    .concat(SOURCE_PHASES.flatMap(p => p.showEntities || []))
+    .concat(SOURCE_PHASES.flatMap(p => (p.steps || []).map(step => step && step.target).filter(Boolean)))
+);
 
 const entities = [];
 const entitiesByName = {};
@@ -255,8 +302,7 @@ for (const name of phaseEntityNames) {
 addEntity('CtaButton', visualEntityMeta('CtaButton') || THEME_PRESET.cta);
 
 // ---------- 3. resources ----------
-const resources = spec.resources
-  .filter(r => r.kind !== 'flag')
+const resources = uniqueResourceSpecs()
   .map(r => {
     // 有 source contract 时，资源不是独立 carrier entity；它来自 PHASES.steps
     // 里的真实 target，如 IceSmall / BigDebris / SellCounter。
@@ -272,9 +318,12 @@ const resources = spec.resources
 //   - 有 derivedTriggers 的 dwell → timer + seconds
 //   - tip 文本 → guideText
 //   - 没明确 trigger 的 → 默认 click_entity:CtaButton(终态 fallback)
-const phases = spec.phases.map((p, i) => {
-  const phaseId = `phase${i + 1}`;
-  const guideText = p.tip || `Phase ${i + 1}`;
+const phaseSourceRows = PLAYABLE_SCENE_IR_PHASES.length ? PLAYABLE_SCENE_IR_PHASES : spec.phases;
+const phases = phaseSourceRows.map((sourcePhase, i) => {
+  const p = PLAYABLE_SCENE_IR_PHASES.length ? (spec.phases[i] || {}) : (sourcePhase || {});
+  const irPhase = PLAYABLE_SCENE_IR_PHASES.length ? (sourcePhase || {}) : null;
+  const phaseId = (irPhase && irPhase.id) || `phase${i + 1}`;
+  const guideText = (irPhase && irPhase.guideText) || p.tip || `Phase ${i + 1}`;
   let trigger;
   const derived = (p.derivedTriggers && p.derivedTriggers[0]);
   const internal = (p.triggers && p.triggers[0]);
@@ -292,10 +341,12 @@ const phases = spec.phases.map((p, i) => {
       ],
     };
   }
-  if (p.contractTrigger) {
+  if (irPhase && irPhase.trigger) {
+    trigger = normalizeContractTrigger(irPhase.trigger);
+  } else if (p.contractTrigger) {
     trigger = normalizeContractTrigger(p.contractTrigger);
     if (trigger && trigger.type === 'timer') trigger = timerWith(trigger.seconds);
-  } else if (i === spec.phases.length - 1) {
+  } else if (i === phaseSourceRows.length - 1) {
     trigger = { type: 'click_entity', entity: 'CtaButton' };
   } else if (dwell && dwell.kind === 'click') {
     trigger = { type: 'click_entity', entity: 'CtaButton' };
@@ -309,13 +360,19 @@ const phases = spec.phases.map((p, i) => {
     trigger = timerWith(3);
   }
 
+  const sourceShowEntities = (irPhase && irPhase.showEntities && irPhase.showEntities.length)
+    ? irPhase.showEntities
+    : (p.showEntities || []);
+  const showEntities = sourceShowEntities.length
+    ? sourceShowEntities.filter(name => entitiesByName[name])
+    : entities.map(e => e.name).filter((_, idx) => idx < 3 || i === phaseSourceRows.length - 1);
+
   return {
     phaseId,
-    showEntities: (p.showEntities && p.showEntities.length)
-      ? p.showEntities.filter(name => entitiesByName[name])
-      : entities.map(e => e.name).filter((_, idx) => idx < 3 || i === spec.phases.length - 1), // 简化:前 3 实体始终显示 + 最后 phase 显示 CTA
+    showEntities,
     guideText,
     trigger,
+    steps: irPhase && Array.isArray(irPhase.steps) ? irPhase.steps : [],
     onEnter: [],
     onComplete: [],
   };
@@ -335,7 +392,7 @@ function normalizeContractTrigger(trigger) {
   }
   if (trigger.type === 'timer') return { type: 'timer', seconds: Number(trigger.seconds) || 1 };
   if (trigger.type === 'click_entity') return { type: 'click_entity', entity: trigger.entity || 'CtaButton' };
-  if (trigger.type === 'near_entity') return { type: 'near_entity', entity: trigger.entity || 'Entity', range: Number(trigger.range) || 2 };
+  if (trigger.type === 'near_entity') return { type: 'near_entity', entity: trigger.entity || 'Entity', range: Number(trigger.range != null ? trigger.range : trigger.distance) || 2 };
   if (trigger.type === 'entity_state_reached') return { type: 'entity_state_reached', entity: trigger.entity || 'Entity', state: normalizeStateValue(trigger.state) };
   return trigger;
 }
@@ -365,6 +422,9 @@ for (const name of TOP_FNS) {
 
 // ---------- 6. 组装 + 写文件 + 校验 ----------
 const schema = { gameConfig, entities, resources, phases, customLogic };
+if (PLAYABLE_SCENE_IR) {
+  assertPlayableSceneIrExecutionAlignment(PLAYABLE_SCENE_IR, { gameSchema: schema });
+}
 fs.writeFileSync(OUT_PATH, JSON.stringify(schema, null, 2));
 console.log(`📦 wrote ${OUT_PATH}: ${entities.length} entities, ${resources.length} resources, ${phases.length} phases, ${customLogic.length} customLogic, theme=${THEME_PRESET.name}`);
 

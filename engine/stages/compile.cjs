@@ -164,9 +164,9 @@ function stripUnresolvedPhaseInitArtifacts(code) {
     fixes++;
     return '        // stripped unresolved default resource write';
   });
-  fixed = fixed.replace(/ShowFloatingText\s*\(\s*player\.transform\.position\s*,\s*"undefined"\s*,/g, function() {
+  fixed = fixed.replace(/ShowFloatingText\s*\(\s*([^;\n]*?)\s*,\s*"undefined"\s*,/g, function(_m, positionExpr) {
     fixes++;
-    return 'ShowFloatingText(player.transform.position, "",';
+    return 'ShowFloatingText(' + String(positionExpr || '').trim() + ', "",';
   });
   return { code: fixed, changed: fixes > 0, fixes: fixes };
 }

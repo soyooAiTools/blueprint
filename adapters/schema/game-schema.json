@@ -314,6 +314,11 @@
         "trigger": {
           "$ref": "#/definitions/trigger"
         },
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/phaseStep" },
+          "description": "Source storyboard2html phase step sequence used to preserve intra-phase target order"
+        },
         "onEnter": {
           "type": "array",
           "items": { "$ref": "#/definitions/phaseAction" },
@@ -324,6 +329,24 @@
           "items": { "$ref": "#/definitions/phaseAction" },
           "description": "Actions executed when phase completes"
         }
+      }
+    },
+    "phaseStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "index": { "type": "integer" },
+        "target": { "type": "string" },
+        "label": { "type": "string" },
+        "gain": { "type": "string" },
+        "spend": { "type": "string" },
+        "amount": { "type": "number" },
+        "cost": { "type": "number" },
+        "setEntity": { "type": "string" },
+        "state": { "type": "number" },
+        "damage": { "type": "boolean" },
+        "shipLevel": { "type": "number" },
+        "tool": { "type": "string" }
       }
     },
     "npc": {

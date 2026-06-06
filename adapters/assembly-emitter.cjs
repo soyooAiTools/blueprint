@@ -704,6 +704,7 @@ function buildDeterministicJoystickLines(moduleInstance, plans) {
   lines.push('        __joystickAxis.y = 0f;');
   lines.push('        float __joystickMagnitude = __joystickAxis.magnitude;');
   lines.push('        bool __joystickRegistered = _autoPlayMode ? (__joystickMagnitude > 0.01f) : (__manualJoystickActive && __joystickMagnitude > 0.001f);');
+  lines.push('        if (!_autoPlayMode && __joystickRegistered) _manualGameplayUnlocked = true;');
   lines.push('        if (__joystickRegistered) RecordPhaseEvidenceFlag(currentPhaseName, "player_position_changed");');
   lines.push('        if (__joystickRegistered || !HasPhaseEvidenceRecord(currentPhaseName, "player_input_joystick"))');
   lines.push('        {');
@@ -1436,6 +1437,14 @@ function buildDeterministicBuildLines(moduleInstance, plans) {
   lines.push('        if (' + entity + 'State >= 2 && !HasPhaseEvidenceRecord(currentPhaseName, "build_progress")) __buildProgressBefore = 0;');
   lines.push('        if (' + entity + 'State >= 2 && HasPhaseEvidenceRecord(currentPhaseName, "build_progress")) return;');
   lines.push('        if (' + entity + '.transform.position.y < -900f) PlaceObj(' + entity + ', 0f, 0.5f, 0f);');
+  lines.push('        else if (!HasPhaseEvidenceRecord(currentPhaseName, "build_progress"))');
+  lines.push('        {');
+  lines.push('            var __buildProgressPos = ' + entity + '.transform.position;');
+  lines.push('            __buildProgressPos.x += 1.80f;');
+  lines.push('            __buildProgressPos.y += 0.35f;');
+  lines.push('            __buildProgressPos.z += 0.40f;');
+  lines.push('            ' + entity + '.transform.position = __buildProgressPos;');
+  lines.push('        }');
   lines.push('        if (' + entity + 'State < 2) ' + entity + 'State = 2;');
   lines.push('        int __buildProgressAfter = ' + entity + 'State;');
   lines.push(recordFlag('entity_state_changed'));
@@ -1650,11 +1659,6 @@ function buildDeterministicActivateLines(moduleInstance, plans) {
     var target = validTargets[i];
     var targetSafe = sanitizeId(target);
     lines.push('        bool __activateBefore_' + targetSafe + ' = ' + target + ' != null && ' + target + '.transform.position.y > -900f;');
-    lines.push('        if (__activateBefore_' + targetSafe + ' && !HasPhaseEvidenceRecord(currentPhaseName, "activate_targets"))');
-    lines.push('        {');
-    lines.push('            HideObj(' + target + ');');
-    lines.push('            __activateBefore_' + targetSafe + ' = false;');
-    lines.push('        }');
     lines.push('        if (!__activateBefore_' + targetSafe + ') __activateBeforeVisible = false;');
     appendCollectedSourceHiddenLines(lines, '__activate_' + targetSafe, plans, phaseIds, target);
     lines.push('        if (' + target + ' != null && ' + target + '.transform.position.y < -900f && !__activate_' + targetSafe + 'CollectedSourceHidden)');
@@ -1663,11 +1667,16 @@ function buildDeterministicActivateLines(moduleInstance, plans) {
     lines.push('            ' + target + 'State = Mathf.Max(' + target + 'State, 1);');
     lines.push('            __activatePlaced = true;');
     lines.push('        }');
+    lines.push('        else if (' + target + ' != null && ' + target + '.transform.position.y > -900f)');
+    lines.push('        {');
+    lines.push('            ' + target + 'State = Mathf.Max(' + target + 'State, 1);');
+    lines.push('            __activatePlaced = true;');
+    lines.push('        }');
     lines.push('        bool __activateAfter_' + targetSafe + ' = ' + target + ' != null && ' + target + '.transform.position.y > -900f;');
     lines.push('        if (!__activateAfter_' + targetSafe + ') __activateAfterVisible = false;');
   }
   lines.push('        if (__activateAfterVisible) RecordPhaseEvidenceFlag(currentPhaseName, "downstream_entity_visible");');
-  lines.push('        bool __activateVisibilityChanged = __activateAfterVisible != __activateBeforeVisible;');
+  lines.push('        bool __activateVisibilityChanged = __activatePlaced || __activateAfterVisible != __activateBeforeVisible;');
   lines.push('        string __activateFields = "{\\"targets\\":" + ' + csJsonLiteral(validTargets) + ' + ",\\"before\\":{\\"visible\\":" + JsonBool(__activateBeforeVisible) + "},\\"after\\":{\\"visible\\":" + JsonBool(__activateAfterVisible) + "},\\"placed\\":" + JsonBool(__activatePlaced) + ",\\"visibility_changed\\":" + JsonBool(__activateVisibilityChanged) + "}";');
   lines.push('        RecordPhaseEvidenceObject(currentPhaseName, "activate_targets", __activateFields, "' + sourceSignalIdsJson(['downstream_entity_visible']) + '");');
   return lines;

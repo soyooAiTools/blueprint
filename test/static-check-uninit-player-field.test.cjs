@@ -159,4 +159,30 @@ var r8 = staticCheck(caseLocalShadow, { filename: 'GameFlowManagerMain.cs' });
 // the rule produces a sane structured result (no crash).
 assert.ok(Array.isArray(r8.issues), 'Case 8: rule must not crash on local var shadow');
 
-console.log('static-check uninit-player-field: 8 cases passed');
+// Case 9: cross-file local shadow must NOT count as field assignment
+var caseLocalShadowAcrossFiles = [
+  'using UnityEngine;',
+  'public partial class GameFlowManagerMain : MonoBehaviour {',
+  '    GameObject player;',
+  '    void UpdateEnemy(float dt) {',
+  '        if (Enemy == null) return;',
+  '        float dist = Vector3.Distance(Enemy.transform.position, player.transform.position);',
+  '    }',
+  '}',
+].join('\n');
+var localShadowExtra = {
+  'GFM_AutoPlay.cs': [
+    'using UnityEngine;',
+    'public class GFM_AutoPlay {',
+    '    void Tick() {',
+    '        var player = GFM_Player.Instance;',
+    '        if (player == null || player.Go == null) return;',
+    '    }',
+    '}',
+  ].join('\n'),
+};
+var r9 = staticCheckProject(caseLocalShadowAcrossFiles, { extraFiles: localShadowExtra });
+assert.ok(findRule(r9, 'uninit-player-field'),
+  'Case 9: local var player in another file must not count as GameFlowManagerMain.player assignment');
+
+console.log('static-check uninit-player-field: 9 cases passed');

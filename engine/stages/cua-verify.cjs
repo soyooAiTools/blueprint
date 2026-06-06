@@ -282,6 +282,17 @@ function getRuntimeDefaultInteractionFailure(ctx) {
   };
 }
 
+function pickCuaProbeResult(result, key) {
+  if (!result) return null;
+  if (result[key] && typeof result[key] === 'object') return result[key];
+  if (result.report && result.report[key] && typeof result.report[key] === 'object') return result.report[key];
+  return null;
+}
+
+function getProbePassed(probe) {
+  return probe ? probe.passed === true : null;
+}
+
 module.exports = {
   name: 'cua-verify',
   canRetry: false,
@@ -309,6 +320,16 @@ module.exports = {
         missingSignalCount: runtimeContract.missingSignalCount || 0,
         unsupportedSignalCount: runtimeContract.unsupportedSignalCount || 0,
         silentPassSignals: runtimeContract.silentPassSignals || [],
+        manualJoystickProbeRequired: runtimeContract.manualJoystickProbeRequired === true,
+        manualJoystickFlowProbeRequired: runtimeContract.manualJoystickFlowProbeRequired === true,
+        manualJoystickProbe: runtimeContract.manualJoystickProbe || null,
+        manualJoystickFlowProbe: runtimeContract.manualJoystickFlowProbe || null,
+        storyboardVisualAudit: runtimeContract.storyboardVisualAudit || null,
+        storyboardVideoAudit: runtimeContract.storyboardVideoAudit || null,
+        manualJoystickProbePassed: runtimeContract.manualJoystickProbePassed === undefined ? null : runtimeContract.manualJoystickProbePassed,
+        manualJoystickFlowProbePassed: runtimeContract.manualJoystickFlowProbePassed === undefined ? null : runtimeContract.manualJoystickFlowProbePassed,
+        storyboardVisualAuditPassed: runtimeContract.storyboardVisualAuditPassed === undefined ? null : runtimeContract.storyboardVisualAuditPassed,
+        storyboardVideoAuditPassed: runtimeContract.storyboardVideoAuditPassed === undefined ? null : runtimeContract.storyboardVideoAuditPassed,
         totalActions: runtimeContract.totalActions !== undefined ? runtimeContract.totalActions : null,
       };
       ctx.addLog('cua-verify', 'Skipping heavy CUA — runtime contract already passed');
@@ -403,6 +424,14 @@ module.exports = {
             }
             var missingSignals = cuaResult.missingSignals || (cuaResult.report && cuaResult.report.missingSignals) || [];
             var unsupportedSignals = cuaResult.unsupportedSignals || (cuaResult.report && cuaResult.report.unsupportedSignals) || [];
+            var manualJoystickProbeRequired = cuaResult.manualJoystickProbeRequired === true ||
+              !!(cuaResult.report && cuaResult.report.manualJoystickProbeRequired === true);
+            var manualJoystickFlowProbeRequired = cuaResult.manualJoystickFlowProbeRequired === true ||
+              !!(cuaResult.report && cuaResult.report.manualJoystickFlowProbeRequired === true);
+            var manualJoystickProbe = pickCuaProbeResult(cuaResult, 'manualJoystickProbe');
+            var manualJoystickFlowProbe = pickCuaProbeResult(cuaResult, 'manualJoystickFlowProbe');
+            var storyboardVisualAudit = pickCuaProbeResult(cuaResult, 'storyboardVisualAudit');
+            var storyboardVideoAudit = pickCuaProbeResult(cuaResult, 'storyboardVideoAudit');
 
             ctx.stageResults['cua-verify'] = Object.assign({}, ctx.stageResults['cua-verify'] || {}, {
               round: round,
@@ -413,6 +442,16 @@ module.exports = {
               unsupportedSignalCount: unsupportedSignals.length,
               missingSignals: missingSignals.slice(0, 12),
               unsupportedSignals: unsupportedSignals.slice(0, 12),
+              manualJoystickProbeRequired: manualJoystickProbeRequired,
+              manualJoystickFlowProbeRequired: manualJoystickFlowProbeRequired,
+              manualJoystickProbe: manualJoystickProbe,
+              manualJoystickFlowProbe: manualJoystickFlowProbe,
+              storyboardVisualAudit: storyboardVisualAudit,
+              storyboardVideoAudit: storyboardVideoAudit,
+              manualJoystickProbePassed: getProbePassed(manualJoystickProbe),
+              manualJoystickFlowProbePassed: getProbePassed(manualJoystickFlowProbe),
+              storyboardVisualAuditPassed: getProbePassed(storyboardVisualAudit),
+              storyboardVideoAuditPassed: getProbePassed(storyboardVideoAudit),
             });
             if (signalCoverage || planCoverage) {
               ctx.addLog('cua-verify', 'Plan/signal coverage: plan=' + (planCoverage || 'n/a') + ', signal=' + (signalCoverage || 'n/a'));
@@ -520,6 +559,16 @@ module.exports = {
                   signalValidationPassed: signalValidationPassed !== false,
                   missingSignalCount: missingSignals.length,
                   unsupportedSignalCount: unsupportedSignals.length,
+                  manualJoystickProbeRequired: manualJoystickProbeRequired,
+                  manualJoystickFlowProbeRequired: manualJoystickFlowProbeRequired,
+                  manualJoystickProbe: manualJoystickProbe,
+                  manualJoystickFlowProbe: manualJoystickFlowProbe,
+                  storyboardVisualAudit: storyboardVisualAudit,
+                  storyboardVideoAudit: storyboardVideoAudit,
+                  manualJoystickProbePassed: getProbePassed(manualJoystickProbe),
+                  manualJoystickFlowProbePassed: getProbePassed(manualJoystickFlowProbe),
+                  storyboardVisualAuditPassed: getProbePassed(storyboardVisualAudit),
+                  storyboardVideoAuditPassed: getProbePassed(storyboardVideoAudit),
                 } };
               }
             }
@@ -904,6 +953,16 @@ module.exports = {
                             missingSignals: (contractResult.missingSignals || []).slice(0, 12),
                             unsupportedSignals: (contractResult.unsupportedSignals || []).slice(0, 12),
                             silentPassSignals: contractResult.silentPassSignals || [],
+                            manualJoystickProbeRequired: contractResult.manualJoystickProbeRequired === true,
+                            manualJoystickFlowProbeRequired: contractResult.manualJoystickFlowProbeRequired === true,
+                            manualJoystickProbe: contractResult.manualJoystickProbe || null,
+                            manualJoystickFlowProbe: contractResult.manualJoystickFlowProbe || null,
+                            storyboardVisualAudit: contractResult.storyboardVisualAudit || null,
+                            storyboardVideoAudit: contractResult.storyboardVideoAudit || null,
+                            manualJoystickProbePassed: contractResult.manualJoystickProbePassed === undefined ? null : contractResult.manualJoystickProbePassed,
+                            manualJoystickFlowProbePassed: contractResult.manualJoystickFlowProbePassed === undefined ? null : contractResult.manualJoystickFlowProbePassed,
+                            storyboardVisualAuditPassed: contractResult.storyboardVisualAuditPassed === undefined ? null : contractResult.storyboardVisualAuditPassed,
+                            storyboardVideoAuditPassed: contractResult.storyboardVideoAuditPassed === undefined ? null : contractResult.storyboardVideoAuditPassed,
                             totalActions: contractResult.totalActions !== undefined ? contractResult.totalActions : null,
                           });
                           ctx.addLog('cua-verify', 'Post-fix runtime contract passed — skipping remaining heavy CUA rounds');

@@ -70,6 +70,7 @@ fs.writeFileSync(newReport, JSON.stringify({
 const written = facade.writeVerifySummary(summaryOut, newReport);
 assert.strictEqual(written.reportPath, path.join(summaryOut, 'unity-verify-report.json'));
 assert.strictEqual(written.summaryPath, path.join(summaryOut, 'unity-verify-summary.json'));
+assert.ok(fs.existsSync(path.join(summaryOut, 'playable-flow-manifest.json')));
 const summary = JSON.parse(fs.readFileSync(written.summaryPath, 'utf8'));
 assert.deepStrictEqual(summary, {
   passed: true,
@@ -82,9 +83,13 @@ assert.deepStrictEqual(summary, {
     validation: { violations: [] },
   },
 });
+const directManifest = JSON.parse(fs.readFileSync(path.join(summaryOut, 'playable-flow-manifest.json'), 'utf8'));
+assert.strictEqual(directManifest.stages.demo2specVerify.runner, 'direct');
+assert.strictEqual(directManifest.stages.demo2specVerify.passed, true);
 
-assert.strictEqual(facade.normalizeVerifyRunner(), 'direct');
+assert.strictEqual(facade.normalizeVerifyRunner(), 'production');
 assert.strictEqual(facade.normalizeVerifyRunner('production'), 'production');
+assert.strictEqual(facade.normalizeVerifyRunner('direct'), 'direct');
 assert.throws(
   () => facade.normalizeVerifyRunner('other'),
   /Unknown verify runner/
@@ -148,6 +153,12 @@ fs.writeFileSync(prodReport, JSON.stringify({
         silentPassSignals: [],
         hardBlockingSilentSignals: [],
         visualFailReasons: [],
+        telemetry: {
+          schemaVersion: 'blueprint-cua-telemetry.v1',
+          observeMs: 1200,
+          manualFlowMs: 2300,
+          totalMs: 3600,
+        },
         report: { gameState: { currentPhase: 'phase1' } },
       };
     },
@@ -168,7 +179,12 @@ fs.writeFileSync(prodReport, JSON.stringify({
   assert.strictEqual(productionSummary.runner, 'production');
   assert.strictEqual(productionSummary.passed, true);
   assert.strictEqual(productionSummary.runtimeContractSummary.contractPassed, true);
+  assert.strictEqual(productionSummary.telemetry.schemaVersion, 'blueprint-cua-telemetry.v1');
+  assert.strictEqual(productionSummary.telemetry.manualFlowMs, 2300);
   assert.ok(['symlink', 'copy'].includes(productionSummary.buildDirMaterialization));
+  const productionManifest = JSON.parse(fs.readFileSync(path.join(prodOut, 'playable-flow-manifest.json'), 'utf8'));
+  assert.strictEqual(productionManifest.stages.demo2specVerify.runner, 'production');
+  assert.strictEqual(productionManifest.stages.demo2specVerify.runtimeContractSummary.contractPassed, true);
 
   console.log('demo2spec verify facade tests passed');
 })().catch(error => {

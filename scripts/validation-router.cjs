@@ -1,0 +1,323 @@
+#!/usr/bin/env node
+'use strict';
+
+const { execSync } = require('child_process');
+const path = require('path');
+
+function usage() {
+  return [
+    'Usage: node scripts/validation-router.cjs [--files a,b] [--from-git] [--checkpoint-build-dir dir --checkpoint-phase phaseId] [--strict-cua-build-dir dir]',
+    '',
+    'Builds a risk-based validation plan. It does not execute the plan.',
+  ].join('\n');
+}
+
+function splitFiles(value) {
+  return String(value || '')
+    .split(/[,\n]/)
+    .map(function(file) { return normalizeFile(file); })
+    .filter(Boolean);
+}
+
+function normalizeFile(file) {
+  return String(file || '').trim().replace(/\\/g, '/').replace(/^\.\//, '');
+}
+
+function unique(values) {
+  const seen = {};
+  const out = [];
+  values.forEach(function(value) {
+    const key = String(value || '');
+    if (!key || seen[key]) return;
+    seen[key] = true;
+    out.push(value);
+  });
+  return out;
+}
+
+function parseArgs(argv) {
+  const args = (argv || process.argv).slice(2);
+  const parsed = {
+    files: [],
+    fromGit: false,
+    checkpointBuildDir: '',
+    checkpointPhase: '',
+    checkpointMaxPhases: 1,
+    strictCuaBuildDir: '',
+    strictCuaOut: '',
+    strictCuaTaskId: '',
+    pretty: true,
+    help: false,
+  };
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--help' || arg === '-h') {
+      parsed.help = true;
+    } else if (arg === '--files') {
+      parsed.files = parsed.files.concat(splitFiles(args[++i]));
+    } else if (arg === '--file') {
+      parsed.files = parsed.files.concat(splitFiles(args[++i]));
+    } else if (arg === '--from-git') {
+      parsed.fromGit = true;
+    } else if (arg === '--checkpoint-build-dir') {
+      parsed.checkpointBuildDir = String(args[++i] || '').trim();
+    } else if (arg === '--checkpoint-phase') {
+      parsed.checkpointPhase = String(args[++i] || '').trim();
+    } else if (arg === '--checkpoint-max-phases') {
+      parsed.checkpointMaxPhases = Math.max(1, Math.floor(Number(args[++i] || 1) || 1));
+    } else if (arg === '--strict-cua-build-dir') {
+      parsed.strictCuaBuildDir = String(args[++i] || '').trim();
+    } else if (arg === '--strict-cua-out') {
+      parsed.strictCuaOut = String(args[++i] || '').trim();
+    } else if (arg === '--strict-cua-task-id') {
+      parsed.strictCuaTaskId = String(args[++i] || '').trim();
+    } else if (arg === '--compact') {
+      parsed.pretty = false;
+    } else {
+      throw new Error('Unexpected argument: ' + arg);
+    }
+  }
+  parsed.files = unique(parsed.files);
+  return parsed;
+}
+
+function filesFromGit(repoRoot) {
+  try {
+    const stdout = execSync('git diff --name-only --diff-filter=ACMR HEAD', {
+      cwd: repoRoot || path.resolve(__dirname, '..'),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return unique(splitFiles(stdout));
+  } catch(e) {
+    return [];
+  }
+}
+
+function addTag(plan, tag) {
+  if (!tag) return;
+  if (plan.riskTags.indexOf(tag) < 0) plan.riskTags.push(tag);
+}
+
+function addCommand(plan, command) {
+  if (!command || !command.id) return;
+  if (plan._commandIds[command.id]) return;
+  plan._commandIds[command.id] = true;
+  plan.commands.push(Object.assign({
+    gate: 'iteration',
+    required: true,
+    ready: true,
+  }, command));
+}
+
+function command(id, argv, purpose, gate) {
+  return {
+    id,
+    command: argv,
+    purpose,
+    gate: gate || 'iteration',
+    required: true,
+    ready: true,
+  };
+}
+
+function addUnitForTestFile(plan, file) {
+  if (/^test\/.+\.test\.cjs$/.test(file)) {
+    addCommand(plan, command(
+      'unit:' + file,
+      ['node', file],
+      'Run the directly changed test file.'
+    ));
+  }
+}
+
+function routeFile(plan, file) {
+  addUnitForTestFile(plan, file);
+
+  if (/^(worker\/worker-playableagent\.js|worker\/worker-cua-verify\.js|scripts\/cua-checkpoint-probe\.cjs|scripts\/strict-cua-runner\.cjs)/.test(file)) {
+    addTag(plan, 'cua-verifier');
+    addCommand(plan, command('unit:playableagent-report-normalization', ['node', 'test/playableagent-report-normalization.test.cjs'], 'Validate CUA report normalization and telemetry.'));
+    addCommand(plan, command('unit:playableagent-manual-joystick', ['node', 'test/playableagent-manual-joystick-probe.test.cjs'], 'Validate manual joystick and checkpoint flow contracts.'));
+  }
+
+  if (/^scripts\/cua-checkpoint-probe\.cjs$/.test(file)) {
+    addTag(plan, 'checkpoint-cua');
+    addCommand(plan, command('unit:cua-checkpoint-cli', ['node', 'test/cua-checkpoint-probe-cli.test.cjs'], 'Validate debug-only checkpoint CUA CLI parsing and sidecar loading.'));
+  }
+
+  if (/^scripts\/strict-cua-runner\.cjs$/.test(file)) {
+    addTag(plan, 'strict-cua-cli');
+    addCommand(plan, command('unit:strict-cua-runner-cli', ['node', 'test/strict-cua-runner-cli.test.cjs'], 'Validate strict CUA runner CLI parsing and report output behavior.'));
+  }
+
+  if (/^(scripts\/validation-router\.cjs)$/.test(file)) {
+    addTag(plan, 'validation-router');
+    addCommand(plan, command('unit:validation-router', ['node', 'test/validation-router.test.cjs'], 'Validate risk-based validation routing rules.'));
+  }
+
+  if (/^(adapters\/skeleton-generator\.cjs|adapters\/assembly-plan-pipeline\.cjs|adapters\/demo2spec\/proof-bundle\.cjs|adapters\/demo2spec\/blueprint-project\.js)/.test(file)) {
+    addTag(plan, 'runtime-phase-gate');
+    addTag(plan, 'proof-contract');
+    addCommand(plan, command('unit:demo2spec-proof-bundle', ['node', 'test/demo2spec-proof-bundle.test.cjs'], 'Validate proof bundle and proof diff gates before browser CUA.'));
+    addCommand(plan, command('unit:skeleton-phase-gate', ['node', 'test/skeleton-phase-gate-strictness.test.cjs'], 'Validate phase-local resource/carry gates and phase path strictness.'));
+  }
+
+  if (/^adapters\/assembly-plan-pipeline\.cjs$/.test(file)) {
+    addTag(plan, 'assembly-plan');
+    addCommand(plan, command('unit:assembly-plan-pipeline', ['node', 'test/assembly-plan-pipeline.test.cjs'], 'Validate assembly plan extraction and structured action preservation.'));
+  }
+
+  if (/^(adapters\/demo2spec\/verify-facade\.cjs|adapters\/demo2spec\/run-blueprint-smoke\.js)/.test(file)) {
+    addTag(plan, 'demo2spec-verify');
+    addCommand(plan, command('unit:demo2spec-verify-facade', ['node', 'test/demo2spec-verify-facade.test.cjs'], 'Validate demo2spec production verify summary and artifact materialization.'));
+  }
+
+  if (/^(scripts\/storyboard2html-|engine\/storyboard2html-|engine\/fidelity-|engine\/storyboard2html-hardgate\.cjs|contracts\/storyboard2html)/.test(file)) {
+    addTag(plan, 'storyboard2html');
+    addTag(plan, 'html-fidelity');
+    addCommand(plan, command('unit:storyboard2html-contract', ['node', 'test/storyboard2html-contract.test.cjs'], 'Validate storyboard2html HTML contract and hardgate command shape.'));
+  }
+
+  if (/^(contracts\/cua-probe|engine\/stages\/runtime-contract\.cjs|engine\/playable-flow-manifest\.cjs)/.test(file)) {
+    addTag(plan, 'runtime-contract');
+    addCommand(plan, command('unit:runtime-contract-module-gate', ['node', 'test/runtime-contract-module-gate.test.cjs'], 'Validate runtime contract hardgate summary semantics.'));
+    addCommand(plan, command('unit:playable-flow-manifest', ['node', 'test/playable-flow-manifest.test.cjs'], 'Validate playable flow manifest propagation.'));
+  }
+}
+
+function addCheckpointGate(plan, opts) {
+  const needsCheckpoint = plan.riskTags.some(function(tag) {
+    return ['cua-verifier', 'checkpoint-cua', 'runtime-phase-gate', 'proof-contract'].indexOf(tag) >= 0;
+  });
+  if (!needsCheckpoint) return;
+  if (opts.checkpointBuildDir && opts.checkpointPhase) {
+    addCommand(plan, command(
+      'checkpoint-cua:affected-phase',
+      [
+        'node',
+        'scripts/cua-checkpoint-probe.cjs',
+        opts.checkpointBuildDir,
+        '--phase',
+        opts.checkpointPhase,
+        '--max-phases',
+        String(opts.checkpointMaxPhases || 1),
+      ],
+      'Run a debug-only real joystick checkpoint for the affected phase before a full CUA rerun.'
+    ));
+    return;
+  }
+  addCommand(plan, {
+    id: 'checkpoint-cua:affected-phase',
+    command: ['node', 'scripts/cua-checkpoint-probe.cjs', '<webgl-build-dir>', '--phase', '<phaseId>', '--max-phases', '1'],
+    purpose: 'Run a debug-only real joystick checkpoint for the affected phase before a full CUA rerun.',
+    gate: 'iteration',
+    required: true,
+    ready: false,
+    missingInputs: ['checkpointBuildDir', 'checkpointPhase'],
+  });
+}
+
+function addFinalStrictCuaGate(plan, opts) {
+  if (opts.strictCuaBuildDir) {
+    const argv = ['node', 'scripts/strict-cua-runner.cjs', opts.strictCuaBuildDir];
+    if (opts.strictCuaOut) argv.push('--out', opts.strictCuaOut);
+    if (opts.strictCuaTaskId) argv.push('--task-id', opts.strictCuaTaskId);
+    addCommand(plan, command(
+      'final:strict-cua-one-project',
+      argv,
+      'Final hardgate: observe + real manual joystick full flow on one WebGL project.',
+      'final'
+    ));
+    return;
+  }
+  addCommand(plan, {
+    id: 'final:strict-cua-one-project',
+    command: ['node', 'scripts/strict-cua-runner.cjs', '<webgl-build-dir>'],
+    purpose: 'Final hardgate: observe + real manual joystick full flow on one WebGL project.',
+    gate: 'final',
+    required: true,
+    ready: false,
+    missingInputs: ['strictCuaBuildDir'],
+  });
+}
+
+function buildValidationPlan(input) {
+  const opts = Object.assign({
+    files: [],
+    checkpointBuildDir: '',
+    checkpointPhase: '',
+    checkpointMaxPhases: 1,
+    strictCuaBuildDir: '',
+    strictCuaOut: '',
+    strictCuaTaskId: '',
+  }, input || {});
+  const files = unique((opts.files || []).map(normalizeFile).filter(Boolean));
+  const plan = {
+    schemaVersion: 'blueprint-validation-plan.v1',
+    generatedAt: new Date().toISOString(),
+    files,
+    riskTags: [],
+    commands: [],
+    notes: [],
+    _commandIds: {},
+  };
+  files.forEach(function(file) { routeFile(plan, file); });
+
+  if (files.length === 0) {
+    plan.notes.push('No changed files were supplied or discovered; run full tests if this is not intentional.');
+    addCommand(plan, command('unit:run-all', ['node', 'test/run-all.cjs'], 'Fallback full test suite for unknown change surface.'));
+  } else if (plan.commands.length === 0) {
+    addTag(plan, 'unknown-risk');
+    addCommand(plan, command('unit:run-all', ['node', 'test/run-all.cjs'], 'Unknown change surface; run full test suite.'));
+  }
+
+  addCheckpointGate(plan, opts);
+  addFinalStrictCuaGate(plan, opts);
+
+  plan.riskTags.sort();
+  plan.commands = plan.commands.map(function(item) {
+    return {
+      id: item.id,
+      gate: item.gate,
+      required: item.required,
+      ready: item.ready,
+      command: item.command,
+      purpose: item.purpose,
+      missingInputs: item.missingInputs || undefined,
+    };
+  });
+  delete plan._commandIds;
+  return plan;
+}
+
+function main(argv) {
+  const parsed = parseArgs(argv || process.argv);
+  if (parsed.help) {
+    console.log(usage());
+    return { exitCode: 0, help: true };
+  }
+  let files = parsed.files;
+  if (parsed.fromGit || files.length === 0) {
+    files = unique(files.concat(filesFromGit(path.resolve(__dirname, '..'))));
+  }
+  const plan = buildValidationPlan(Object.assign({}, parsed, { files }));
+  console.log(JSON.stringify(plan, null, parsed.pretty ? 2 : 0));
+  return { exitCode: 0, plan };
+}
+
+if (require.main === module) {
+  try {
+    const result = main(process.argv);
+    process.exitCode = result.exitCode || 0;
+  } catch (err) {
+    console.error('[validation-router] FAIL ' + (err && err.message || err));
+    process.exitCode = 1;
+  }
+}
+
+module.exports = {
+  parseArgs,
+  filesFromGit,
+  buildValidationPlan,
+  main,
+};

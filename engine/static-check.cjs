@@ -315,20 +315,20 @@ var RULES = [
     return [];
   }},
   // --- v4: AutoPlay duration protection ---
-  { id: 'autoplay-duration-tamper', pattern: null, message: 'AUTO_PLAY_PHASE_DURATION must stay within 10-15 seconds; skeleton uses 12', custom: function(code) {
+  { id: 'autoplay-duration-tamper', pattern: null, message: 'AUTO_PLAY_PHASE_DURATION must stay within 12-24 seconds; skeleton uses 12 or 20 for high complexity', custom: function(code) {
     var m = code.match(/AUTO_PLAY_PHASE_DURATION\s*=\s*(\d+(?:\.\d+)?)f?\b/);
     if (!m) return [];
     var val = parseFloat(m[1]);
-    if (val < 10 || val > 15) {
+    if (val < 12 || val > 24) {
       var lineNum = code.substring(0, m.index).split('\n').length;
-      return [{ line: lineNum, text: 'AUTO_PLAY_PHASE_DURATION = ' + val + ' (must be within 10-15, skeleton sets 12)' }];
+      return [{ line: lineNum, text: 'AUTO_PLAY_PHASE_DURATION = ' + val + ' (must be within 12-24, skeleton sets 12 or 20 for high complexity)' }];
     }
     return [];
   }},
-  { id: 'autoplay-gate-removed', pattern: null, message: 'AutoPlay 12s gate block was removed — each shot must wait 12s in autoPlay mode', custom: function(code, ctx) {
+  { id: 'autoplay-gate-removed', pattern: null, message: 'AutoPlay dwell gate was removed — each shot must wait at least 12s in autoPlay mode', custom: function(code, ctx) {
     // 2026-04-30: unified gate is `PhaseDwellReady(Nf)`; the helper uses
     // Time.realtimeSinceStartup-backed phaseRealTimer for AutoPlay so CUA speed
-    // patch cannot compress the programmer-visible 12s shot duration.
+    // patch cannot compress the programmer-visible shot duration.
     // Legacy generated code used `phaseTimer >= (_autoPlayMode ? 12f : Nf)`.
     var allCode = code || '';
     var extraFiles = ctx && ctx.extraFiles ? ctx.extraFiles : {};
@@ -340,11 +340,11 @@ var RULES = [
     var hasDwellHelper = /\bbool\s+PhaseDwellReady\s*\(/.test(allCode)
       && /\bPhaseDwellReady\s*\(\s*\d+(?:\.\d+)?f\s*\)/.test(allCode)
       && /\bphaseRealTimer\s*>=\s*requiredSeconds\b/.test(allCode)
-      && /_autoPlayMode\s*\?\s*12f\b/.test(allCode);
-    var hasUnified = /phaseTimer\s*>=\s*\(\s*_autoPlayMode\s*\?\s*12f\b/.test(allCode);
+      && (/_autoPlayMode\s*\?\s*(?:1[2-9]|2[0-4])f\b/.test(allCode) || /_autoPlayMode\s*\?\s*AUTO_PLAY_PHASE_DURATION\b/.test(allCode));
+    var hasUnified = /phaseTimer\s*>=\s*\(\s*_autoPlayMode\s*\?\s*(?:1[2-9]|2[0-4])f\b/.test(allCode);
     var hasLegacy = allCode.indexOf('phaseTimer < 12f') >= 0;
     if (!hasDwellHelper && !hasUnified && !hasLegacy) {
-      return [{ line: 1, text: 'Missing AutoPlay dwell gate — expected `PhaseDwellReady(Nf)` or legacy `phaseTimer >= (_autoPlayMode ? 12f : Nf)` in CheckEventRules' }];
+      return [{ line: 1, text: 'Missing AutoPlay dwell gate — expected `PhaseDwellReady(Nf)` with AUTO_PLAY_PHASE_DURATION >= 12s or legacy `phaseTimer >= (_autoPlayMode ? 12f : Nf)` in CheckEventRules' }];
     }
     return [];
   }},
@@ -1564,17 +1564,22 @@ var RULES = [
       // Local-variable shadowing like `var player = …;` (e.g. GFM_AutoPlay's own local)
       // doesn't init the field, so we exclude `\bvar\s+player\s*=`.
       var assigned = false;
+      function hasPlayerFieldAssignment(src) {
+        var lines = String(src || '').split(/\r?\n/);
+        for (var li = 0; li < lines.length; li++) {
+          var line = lines[li].replace(/\b(?:var|GameObject)\s+player\s*=/g, ' ');
+          if (/^\s*(?:this\.)?player\s*=\s*[^=>]/.test(line)) return true;
+          if (/(?:^|[^A-Za-z0-9_.])(?:this\.)?player\s*=\s*[^=>]/.test(line)) return true;
+        }
+        return false;
+      }
       for (var a = 0; a < allSources.length; a++) {
-        var src = allSources[a];
-        // Match field assignment: line starting with optional whitespace, then `player`
-        // (not preceded by `var`/`GameObject`/`.`), then `= <not = or >>>`. Also catches
-        // `GameObject player = ...` as a declaration-with-init.
-        if (/(?:^|[\s;{}])(?:GameObject\s+)?player\s*=\s*[^=>\s]/m.test(src)) {
-          // Reject `var player =` (local shadow)
-          if (!/\bvar\s+player\s*=/.test(src) || /(?:^|[\s;{}])player\s*=\s*[^=>\s]/m.test(src)) {
-            assigned = true;
-            break;
-          }
+        // Only count real field writes (`player = ...` / `this.player = ...`).
+        // Local shadows such as `var player = GFM_Player.Instance` and declaration-only
+        // initializers do not protect generated `player.transform` reads.
+        if (hasPlayerFieldAssignment(allSources[a])) {
+          assigned = true;
+          break;
         }
       }
       if (assigned) return [];

@@ -86,6 +86,121 @@ assert.strictEqual(
   '[4.3] default interaction failure reason should be preserved'
 );
 
+var storyboardVideoResult = baseResult({
+  passed: false,
+  exitReason: 'storyboard_video_audit_failed',
+});
+storyboardVideoResult.report.storyboardVideoAudit = {
+  passed: false,
+  skipped: false,
+  reason: 'label contradicts visible direction',
+  recording: { path: '/tmp/storyboard-video-audit.mp4' },
+  volcengineVideoAudit: {
+    passed: false,
+    summary: 'label drift detected',
+    issues: [{ rule: 'direction-mismatch' }],
+  },
+};
+var storyboardVideoSummary = runtimeContract.summarizeRuntimeContractResult(storyboardVideoResult);
+assert.strictEqual(storyboardVideoSummary.passed, false, '[5.1] storyboard video audit failure should block contract pass');
+assert.ok(
+  storyboardVideoSummary.escalationReasons.indexOf('storyboard-video-audit-failed') >= 0,
+  '[5.2] storyboard video audit failure should explain escalation'
+);
+assert.strictEqual(
+  storyboardVideoSummary.storyboardVideoAudit.reason,
+  'label contradicts visible direction',
+  '[5.3] storyboard video audit reason should be preserved'
+);
+assert.strictEqual(
+  storyboardVideoSummary.storyboardVideoAudit.recording,
+  '/tmp/storyboard-video-audit.mp4',
+  '[5.4] storyboard video audit recording path should be preserved'
+);
+assert.strictEqual(
+  storyboardVideoSummary.storyboardVideoAudit.volcengineVideoAudit.issueCount,
+  1,
+  '[5.5] nested video model issue count should be summarized'
+);
+
+var missingManualSummary = runtimeContract.summarizeRuntimeContractResult(baseResult({
+  manualJoystickProbeRequired: true,
+}));
+assert.strictEqual(missingManualSummary.passed, false, '[6.1] required manual joystick probe must block contract pass when missing');
+assert.ok(
+  missingManualSummary.escalationReasons.indexOf('manual-joystick-probe-missing') >= 0,
+  '[6.2] missing required manual joystick probe should explain escalation'
+);
+
+var skippedManualSummary = runtimeContract.summarizeRuntimeContractResult(baseResult({
+  manualJoystickProbeRequired: true,
+  manualJoystickProbe: {
+    passed: true,
+    skipped: true,
+    reason: 'skipped by env',
+  },
+}));
+assert.strictEqual(skippedManualSummary.passed, false, '[6.3] skipped required manual joystick probe must not pass contract');
+assert.ok(
+  skippedManualSummary.escalationReasons.indexOf('manual-joystick-probe-missing') >= 0,
+  '[6.4] skipped required manual joystick probe should be reported as missing evidence'
+);
+assert.strictEqual(skippedManualSummary.manualJoystickProbeRequired, true, '[6.5] manual joystick requirement should be preserved');
+
+var missingManualFlowSummary = runtimeContract.summarizeRuntimeContractResult(baseResult({
+  manualJoystickProbeRequired: true,
+  manualJoystickProbe: {
+    passed: true,
+    skipped: false,
+    reason: 'manual joystick probe passed',
+  },
+}));
+assert.strictEqual(missingManualFlowSummary.passed, false, '[6.6] required manual joystick flow probe must block contract pass when missing');
+assert.ok(
+  missingManualFlowSummary.escalationReasons.indexOf('manual-joystick-flow-probe-missing') >= 0,
+  '[6.7] missing required manual joystick flow probe should explain escalation'
+);
+
+var failedManualFlowSummary = runtimeContract.summarizeRuntimeContractResult(baseResult({
+  manualJoystickProbeRequired: true,
+  manualJoystickFlowProbeRequired: true,
+  manualJoystickProbe: {
+    passed: true,
+    skipped: false,
+    reason: 'manual joystick probe passed',
+  },
+  manualJoystickFlowProbe: {
+    passed: false,
+    skipped: false,
+    reason: 'manual joystick flow incomplete: completed 2/4',
+    completedAfter: 2,
+    targetCompleted: 4,
+    phasePath: ['phase1', 'phase2'],
+    missingPhasePath: ['phase3', 'phase4'],
+    phasePathSource: 'samples',
+    driver: 'autonav-joystick',
+    dragCount: 3,
+  },
+  telemetry: {
+    schemaVersion: 'blueprint-cua-telemetry.v1',
+    taskId: 'runtime-contract-test',
+    observeMs: 100,
+    manualProbeMs: 25,
+    manualFlowMs: 75,
+    totalMs: 220,
+  },
+}));
+assert.strictEqual(failedManualFlowSummary.passed, false, '[6.8] failed manual joystick flow probe must block contract pass');
+assert.ok(
+  failedManualFlowSummary.escalationReasons.indexOf('manual-joystick-flow-probe-failed') >= 0,
+  '[6.9] failed manual joystick flow probe should explain escalation'
+);
+assert.strictEqual(failedManualFlowSummary.manualJoystickFlowProbe.completedAfter, 2, '[6.10] flow completion count should be preserved');
+assert.deepStrictEqual(failedManualFlowSummary.manualJoystickFlowProbe.missingPhasePath, ['phase3', 'phase4'], '[6.11] missing phase path should be preserved');
+assert.strictEqual(failedManualFlowSummary.manualJoystickFlowProbe.phasePathSource, 'samples', '[6.12] phase path source should be preserved');
+assert.strictEqual(failedManualFlowSummary.manualJoystickFlowProbe.driver, 'autonav-joystick', '[6.13] flow driver should be preserved');
+assert.strictEqual(failedManualFlowSummary.telemetry.manualFlowMs, 75, '[6.14] CUA telemetry should be preserved');
+
 assert.deepStrictEqual(
   runtimeContract.getInteractivePhaseIds({
     specs: [
@@ -94,7 +209,7 @@ assert.deepStrictEqual(
     ],
   }),
   ['upgrade'],
-  '[5.1] default interaction probe should target real player phases only'
+  '[7.1] default interaction probe should target real player phases only'
 );
 
 console.log('runtime-contract-module-gate tests passed');

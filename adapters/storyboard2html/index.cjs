@@ -62,6 +62,7 @@ function runStoryboard2HtmlSmoke(htmlPath, outDir, opts) {
   var args = [htmlPath, outDir];
   if (opts.theme) args.push('--theme', opts.theme);
   if (opts.steps) args.push('--steps', String(opts.steps));
+  if (opts.verifyRunner) args.push('--verify-runner', opts.verifyRunner);
   if (opts.skillRoot) args.push('--skill-root', opts.skillRoot);
   if (opts.dryRun) args.push('--dry-run');
   return runScriptChecked('storyboard2html-smoke.cjs', args, opts);

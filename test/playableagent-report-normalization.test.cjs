@@ -60,4 +60,24 @@ assert.ok(
   '[1.13] unsupported signals should be logged as non-blocking'
 );
 
+var telemetry = worker.createCuaTelemetry({
+  taskId: 'task_signal',
+  buildDir: '/tmp/build',
+  buildMs: 9000,
+});
+telemetry.phaseCount = 3;
+telemetry.observeMs = 1200;
+telemetry.manualFlowMs = 2300;
+var attached = worker.attachCuaTelemetry({
+  passed: true,
+  report: { diagnostics: {} },
+}, telemetry);
+assert.strictEqual(attached.telemetry.schemaVersion, 'blueprint-cua-telemetry.v1', '[2.1] CUA telemetry schema exposed');
+assert.strictEqual(attached.telemetry.buildMs, 9000, '[2.2] buildMs should be preserved in CUA telemetry');
+assert.strictEqual(attached.telemetry.observeMs, 1200, '[2.3] observe timing should be preserved in CUA telemetry');
+assert.strictEqual(attached.telemetry.manualFlowMs, 2300, '[2.4] manual flow timing should be preserved in CUA telemetry');
+assert.ok(attached.telemetry.totalMs >= 0, '[2.5] totalMs should be finalized when telemetry attaches');
+assert.strictEqual(attached.report.telemetry.schemaVersion, 'blueprint-cua-telemetry.v1', '[2.6] report telemetry should mirror top-level telemetry');
+assert.strictEqual(attached.report.diagnostics.telemetry.manualFlowMs, 2300, '[2.7] diagnostics telemetry should mirror top-level telemetry');
+
 console.log('playableagent-report-normalization tests passed');

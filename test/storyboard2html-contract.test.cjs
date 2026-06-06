@@ -80,13 +80,45 @@ assert.strictEqual(bundle.htmlContract.kind, contract.kind);
 assert.ok(bundle.acceptancePlan.command.join(' ').indexOf('/root/.claude/skills/demo2spec/index.js') >= 0);
 assert.ok(bundle.acceptancePlan.command.indexOf('--blueprint-smoke') >= 0);
 assert.ok(bundle.acceptancePlan.command.indexOf('--verify') >= 0);
+assert.strictEqual(bundle.acceptancePlan.verifyRunner, 'production');
+assert.ok(bundle.acceptancePlan.command.indexOf('--verify-runner') >= 0);
+assert.ok(bundle.acceptancePlan.command.indexOf('production') >= 0);
+assert.ok(bundle.acceptancePlan.hardgateCommand.indexOf('--summary') >= 0);
+assert.strictEqual(bundle.acceptancePlan.artifacts.verifySummary, '/tmp/storyboard2html-out/blueprint-smoke/unity-verify-summary.json');
+assert.strictEqual(bundle.acceptancePlan.artifacts.flowManifest, '/tmp/storyboard2html-out/playable-flow-manifest.json');
+assert.strictEqual(bundle.acceptancePlan.artifacts.preflightReport, '/tmp/storyboard2html-out/storyboard2html-preflight.json');
+assert.strictEqual(bundle.acceptancePlan.artifacts.playableSceneIr, '/tmp/storyboard2html-out/playable-scene-ir.json');
 assert.ok(bundle.acceptancePlan.hardGates.some(function(gate) {
-  return gate.indexOf('triggeredPresentFullRate') >= 0;
+  return gate.indexOf('manual joystick flow') >= 0;
 }));
+assert.strictEqual(storyboard2html.buildAcceptancePlan({ verifyRunner: 'direct' }).verifyRunner, 'direct');
+assert.throws(function() {
+  storyboard2html.buildAcceptancePlan({ verifyRunner: 'bogus' });
+}, /expected direct\|production/);
 
 assert.throws(function() {
   storyboard2html.buildStoryboard2HtmlInput({ projectName: 'NoSpecs' });
 }, /requires ctx\.blueprint\.specs/);
+
+var normalizedPhaseBundle = storyboard2html.buildStoryboard2HtmlInput({
+  projectName: 'NormalizedPdfBlueprint',
+  storyboardFrames: [{ title: 'Collect', guide: 'Collect resources' }],
+  entities: [{ name: 'Player' }, { name: 'ResourcePile' }, { name: 'CTAButton' }],
+  phases: [
+    { id: 1, name: '收集资源', activate: ['Player', 'ResourcePile'], endCondition: 'global:gold>=50', guide: '拖摇杆收集资源' },
+    { id: 2, name: '下载引导', activate: ['CTAButton'], endCondition: 'none', guide: '点击下载' },
+  ],
+}, {
+  htmlPath: '/tmp/generated.html',
+  outDir: '/tmp/storyboard2html-out',
+});
+assert.strictEqual(normalizedPhaseBundle.specs.length, 2);
+assert.strictEqual(normalizedPhaseBundle.specs[0].phaseId, 'phase1');
+assert.ok(normalizedPhaseBundle.specs[0].plannedModuleIds.indexOf('player_input_joystick') >= 0);
+assert.ok(normalizedPhaseBundle.specs[0].plannedModuleIds.indexOf('move_to_target') >= 0);
+assert.ok(normalizedPhaseBundle.specs[0].plannedModuleIds.indexOf('proximity_trigger') >= 0);
+assert.strictEqual(normalizedPhaseBundle.specs[1].trigger.type, 'click_entity');
+assert.strictEqual(normalizedPhaseBundle.resources[0].name, 'Gold');
 
 var tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'storyboard2html-contract-'));
 var blueprintPath = path.join(tempDir, 'blueprint.json');
@@ -119,7 +151,34 @@ var smokeResult = spawnSync(process.execPath, [
 assert.strictEqual(smokeResult.status, 0, smokeResult.stderr || smokeResult.stdout);
 assert.ok(smokeResult.stdout.indexOf('/root/.claude/skills/demo2spec/index.js') >= 0);
 assert.ok(smokeResult.stdout.indexOf('--blueprint-smoke') >= 0);
+assert.ok(smokeResult.stdout.indexOf('--verify-runner') >= 0);
+assert.ok(smokeResult.stdout.indexOf('production') >= 0);
+assert.ok(smokeResult.stdout.indexOf('storyboard2html-hardgate.cjs') >= 0);
 assert.ok(smokeResult.stdout.indexOf('hardGates=') >= 0);
+
+var badHtmlPath = path.join(tempDir, 'bad-generated.html');
+var badSmokeOut = path.join(tempDir, 'bad-smoke');
+fs.writeFileSync(badHtmlPath, [
+  '<!doctype html><html><body><script>',
+  'const PHASES=[{id:"phase1",showEntities:["Player","Corn"]},{id:"phase2",showEntities:["Player","CtaButton"]}];',
+  'setTimeout(function(){ window.phaseIndex=1; }, 800);',
+  'window.__gameState=function(){return{phase:"phase1",phaseRealTimer:1,entity_states:{},phaseEvidence:{}}};',
+  '</script></body></html>',
+].join('\n'));
+var badSmokeResult = spawnSync(process.execPath, [
+  path.join(__dirname, '..', 'scripts', 'storyboard2html-smoke.cjs'),
+  badHtmlPath,
+  badSmokeOut,
+  '--theme',
+  'farming',
+], { encoding: 'utf8', cwd: path.join(__dirname, '..') });
+assert.strictEqual(badSmokeResult.status, 1, badSmokeResult.stderr || badSmokeResult.stdout);
+assert.ok(badSmokeResult.stderr.indexOf('preflight failed before CUA') >= 0);
+assert.ok(fs.existsSync(path.join(badSmokeOut, 'storyboard2html-preflight.json')));
+assert.ok(fs.existsSync(path.join(badSmokeOut, 'playable-flow-manifest.json')));
+var badPreflight = JSON.parse(fs.readFileSync(path.join(badSmokeOut, 'storyboard2html-preflight.json'), 'utf8'));
+assert.strictEqual(badPreflight.passed, false);
+assert.ok(badPreflight.errors.some(function(error) { return error.indexOf('setTimeout') >= 0 || error.indexOf('floating/global joystick') >= 0; }));
 
 var snapshotDoc = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'contracts', 'snapshot-schema.v1.json'), 'utf8'));
 snapshotDoc = JSON.parse(JSON.stringify(snapshotDoc));
@@ -137,9 +196,53 @@ var verifyReport = {
 };
 var snapshotPath = path.join(tempDir, 'snapshot-schema.json');
 var reportPath = path.join(tempDir, 'verify-report.json');
+var summaryPath = path.join(tempDir, 'verify-summary.json');
 var htmlPath = path.join(tempDir, 'generated.html');
 fs.writeFileSync(snapshotPath, JSON.stringify(snapshotDoc, null, 2));
 fs.writeFileSync(reportPath, JSON.stringify(verifyReport, null, 2));
+fs.writeFileSync(summaryPath, JSON.stringify({
+  runner: 'production',
+  passed: true,
+  telemetry: {
+    schemaVersion: 'blueprint-cua-telemetry.v1',
+    taskId: 'storyboard2html-contract-fixture',
+    runner: 'playableagent',
+    phaseCount: 2,
+    observeMs: 1200,
+    manualProbeMs: 300,
+    manualFlowMs: 450,
+    totalMs: 2100,
+  },
+  runtimeContractSummary: {
+    passed: true,
+    contractPassed: true,
+    telemetry: {
+      schemaVersion: 'blueprint-cua-telemetry.v1',
+      taskId: 'storyboard2html-contract-fixture',
+      runner: 'playableagent',
+      phaseCount: 2,
+      observeMs: 1200,
+      manualProbeMs: 300,
+      manualFlowMs: 450,
+      totalMs: 2100,
+    },
+    manualJoystickProbeRequired: true,
+    manualJoystickFlowProbeRequired: true,
+    manualJoystickProbePassed: true,
+    manualJoystickFlowProbePassed: true,
+    manualJoystickFlowProbe: {
+      passed: true,
+      skipped: false,
+      completedAfter: 2,
+      targetCompleted: 2,
+      phasePath: ['phase1', 'phase2'],
+      missingPhasePath: [],
+      phasePathSource: 'phase-witness',
+      driver: 'autonav-joystick',
+      maxPlayerDistance: 1.25,
+    },
+  },
+}, null, 2));
 fs.writeFileSync(htmlPath, [
   '<!doctype html><html><head><style>#joystick{position:fixed;left:0;top:0}</style></head><body><canvas id="stage"></canvas><div id="joystick"><div id="joystick-knob"></div></div><script>',
   'const PHASES=[{id:"phase1",showEntities:["Player","Corn"],trigger:{type:"near_entity",entity:"Corn",range:1.8},plannedModuleIds:["player_input_joystick","move_to_target","proximity_trigger"]},{id:"phase2",showEntities:["Player","CtaButton"],trigger:{type:"near_entity",entity:"CtaButton",range:1.8},plannedModuleIds:["player_input_joystick","move_to_target","proximity_trigger","cta_finish"]}];',
@@ -158,14 +261,47 @@ fs.writeFileSync(htmlPath, [
 var hardgateResult = hardgate.evaluateHardGates({
   snapshotSchemaPath: snapshotPath,
   verifyReportPath: reportPath,
+  verifySummaryPath: summaryPath,
   htmlPath: htmlPath,
 });
 assert.strictEqual(hardgateResult.passed, true);
 assert.ok(hardgateResult.gates.some(function(gate) { return gate.id === 'html-interaction-hard-gates'; }));
-assert.strictEqual(hardgateResult.gates[2].details.hasJoystickControl, true);
-assert.strictEqual(hardgateResult.gates[2].details.nonFinalClickEntityCount, 0);
-assert.strictEqual(hardgateResult.gates[2].details.nonFinalMissingJoystickEvidenceCount, 0);
+assert.ok(hardgateResult.gates.some(function(gate) { return gate.id === 'production-runtime-cua-hard-gates' && gate.passed === true; }));
+var htmlHardgate = hardgateResult.gates.find(function(gate) { return gate.id === 'html-interaction-hard-gates'; });
+assert.strictEqual(htmlHardgate.details.hasJoystickControl, true);
+assert.strictEqual(htmlHardgate.details.nonFinalClickEntityCount, 0);
+assert.strictEqual(htmlHardgate.details.nonFinalMissingJoystickEvidenceCount, 0);
 assert.deepStrictEqual(hardgate.parseCoveragePair('10/10'), { covered: 10, total: 10 });
+
+var noProjectSnapshotPath = path.join(tempDir, 'snapshot-schema-no-project.json');
+var noProjectSnapshotDoc = JSON.parse(JSON.stringify(snapshotDoc));
+delete noProjectSnapshotDoc.project;
+fs.writeFileSync(noProjectSnapshotPath, JSON.stringify(noProjectSnapshotDoc, null, 2));
+var reportBackfilledHardgate = hardgate.evaluateHardGates({
+  snapshotSchemaPath: noProjectSnapshotPath,
+  verifyReportPath: reportPath,
+  verifySummaryPath: summaryPath,
+  htmlPath: htmlPath,
+});
+assert.strictEqual(reportBackfilledHardgate.passed, true);
+
+var directSummaryPath = path.join(tempDir, 'direct-summary.json');
+fs.writeFileSync(directSummaryPath, JSON.stringify({
+  passed: true,
+  phaseCoverage: '2/2',
+  phaseEvidenceSummary: verifyReport.phaseEvidenceSummary,
+}, null, 2));
+var directSummaryGate = hardgate.evaluateHardGates({
+  snapshotSchemaPath: snapshotPath,
+  verifyReportPath: reportPath,
+  verifySummaryPath: directSummaryPath,
+  htmlPath: htmlPath,
+});
+assert.strictEqual(directSummaryGate.passed, false);
+assert.ok(directSummaryGate.gates.some(function(gate) {
+  return gate.id === 'production-runtime-cua-hard-gates' &&
+    gate.errors.some(function(error) { return error.indexOf('runner must be production') >= 0; });
+}));
 
 var autoplayHtml = [
   '<!doctype html><html><body><script>',
@@ -178,6 +314,43 @@ var autoplayHtml = [
 var htmlGate = hardgate.validateHtmlInteractionContract(autoplayHtml, { expectedPhaseCount: 2 });
 assert.strictEqual(htmlGate.passed, false);
 assert.ok(htmlGate.errors.some(function(error) { return error.indexOf('setTimeout') >= 0 || error.indexOf('input listener') >= 0; }));
+
+var aliasedJoystickHtml = htmlPath + '.alias.html';
+fs.writeFileSync(aliasedJoystickHtml, [
+  '<!doctype html><html><head><style>#joystick{position:fixed;left:0;top:0}</style></head><body><canvas id="stage"></canvas><div id="joystick"><div></div></div><script>',
+  'const PHASES=[{id:"phase1",showEntities:["Player","Corn"],trigger:{type:"near_entity",entity:"Corn",range:1.8},plannedModuleIds:["player_input_joystick","move_to_target","proximity_trigger"]},{id:"phase2",showEntities:["Player","CtaButton"],trigger:{type:"near_entity",entity:"CtaButton",range:1.8},plannedModuleIds:["player_input_joystick","move_to_target","proximity_trigger","cta_finish"]}];',
+  'var scene = new THREE.Scene(), renderer = new THREE.WebGLRenderer({canvas:document.getElementById("stage")});',
+  'var sceneModels={Player:new THREE.BoxGeometry(1,1,1),Corn:new THREE.SphereGeometry(1),Stand:new THREE.CylinderGeometry(1,1,1)};',
+  'var joy=document.getElementById("joystick"), player={position:{x:0,y:0,z:0}}, target={position:{x:1,y:0,z:0}};',
+  'document.addEventListener("pointerdown",function(ev){ joy.style.left=ev.clientX+"px"; joy.style.top=ev.clientY+"px"; });',
+  'document.addEventListener("pointermove",function(){ player.position.x += 1; });',
+  'document.addEventListener("pointerup",function(){ var recordedDistance = 0.5; var phaseEvidence = { player_input_joystick:{registered:true}, move_to_target:{target:"Corn",arrived:true}, proximity_trigger:{target:"Corn",recordedDistance:recordedDistance} }; });',
+  'document.addEventListener("pointercancel",function(){ player.position.x = player.position.x; });',
+  'function maybeArrive(){ var recordedDistance = Math.abs(player.position.x-target.position.x); if(recordedDistance < 1.8){ window.phase="phase2"; } }',
+  'window.__gameState=function(){return{phase:"phase1",phaseRealTimer:1,entity_states:{},phaseEvidence:{}}};',
+  '</script></body></html>',
+].join('\n'));
+var aliasedJoystickGate = hardgate.validateHtmlInteractionContract(fs.readFileSync(aliasedJoystickHtml, 'utf8'), { expectedPhaseCount: 2 });
+assert.strictEqual(aliasedJoystickGate.hasJoystickControl, true);
+
+var namedJoystickHtml = [
+  '<!doctype html><html><head><style>#joystick{position:fixed;left:0;top:0}</style></head><body><canvas id="stage"></canvas><div id="joystick"><div></div></div><script>',
+  'const PHASES=[{id:"phase1",showEntities:["Player","Corn"],trigger:{type:"near_entity",entity:"Corn",range:1.8},plannedModuleIds:["player_input_joystick","move_to_target","proximity_trigger"]},{id:"phase2",showEntities:["Player","CtaButton"],trigger:{type:"near_entity",entity:"CtaButton",range:1.8},plannedModuleIds:["player_input_joystick","move_to_target","proximity_trigger","cta_finish"]}];',
+  'var scene = new THREE.Scene(), renderer = new THREE.WebGLRenderer({canvas:document.getElementById("stage")});',
+  'var sceneModels={Player:new THREE.BoxGeometry(1,1,1),Corn:new THREE.SphereGeometry(1),Stand:new THREE.CylinderGeometry(1,1,1)};',
+  'var joy=document.getElementById("joystick"), player={position:{x:0,y:0,z:0}}, target={position:{x:1,y:0,z:0}};',
+  'function onPointerDown(ev){ joy.style.left=ev.clientX+"px"; joy.style.top=ev.clientY+"px"; }',
+  'document.addEventListener("pointerdown", onPointerDown);',
+  'document.addEventListener("pointermove",function(){ player.position.x += 1; });',
+  'document.addEventListener("pointerup",function(){ var recordedDistance = 0.5; var phaseEvidence = { player_input_joystick:{registered:true}, move_to_target:{target:"Corn",arrived:true}, proximity_trigger:{target:"Corn",recordedDistance:recordedDistance} }; });',
+  'document.addEventListener("pointercancel",function(){ player.position.x = player.position.x; });',
+  'function advancePhase(){ window.phase="phase2"; }',
+  'function maybeArrive(){ var recordedDistance = Math.abs(player.position.x-target.position.x); if(recordedDistance < 1.8){ advancePhase(); } }',
+  'window.__gameState=function(){return{phase:"phase1",phaseRealTimer:1,entity_states:{},phaseEvidence:{}}};',
+  '</script></body></html>',
+].join('\n');
+var namedJoystickGate = hardgate.validateHtmlInteractionContract(namedJoystickHtml, { expectedPhaseCount: 2 });
+assert.strictEqual(namedJoystickGate.passed, true);
 
 var directClickHtml = [
   '<!doctype html><html><head><style>#joystick{position:fixed}</style></head><body><canvas id="stage"></canvas><button id="actionBtn">执行当前操作</button><div id="joystick"></div><script>',
@@ -201,8 +374,30 @@ fs.writeFileSync(reportPath, JSON.stringify(verifyReport, null, 2));
 var failedHardgate = hardgate.evaluateHardGates({
   snapshotSchemaPath: snapshotPath,
   verifyReportPath: reportPath,
+  verifySummaryPath: summaryPath,
 });
 assert.strictEqual(failedHardgate.passed, false);
+
+var manifestPath = path.join(tempDir, 'playable-flow-manifest.json');
+var hardgateCliResult = spawnSync(process.execPath, [
+  path.join(__dirname, '..', 'scripts', 'storyboard2html-hardgate.cjs'),
+  '--snapshot',
+  snapshotPath,
+  '--report',
+  reportPath,
+  '--summary',
+  summaryPath,
+  '--html',
+  htmlPath,
+  '--manifest',
+  manifestPath,
+], { encoding: 'utf8', cwd: path.join(__dirname, '..') });
+assert.strictEqual(hardgateCliResult.status, 1, hardgateCliResult.stderr || hardgateCliResult.stdout);
+assert.ok(fs.existsSync(manifestPath), 'hardgate CLI should record playable flow manifest even on failed gates');
+var smokeManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+assert.strictEqual(smokeManifest.kind, 'blueprint.playableFlowManifest');
+assert.strictEqual(smokeManifest.stages.storyboard2htmlSmoke.passed, false);
+assert.ok(smokeManifest.artifacts.generatedHtml.sha256);
 assert.ok(failedHardgate.gates[1].errors.some(function(error) {
   return error.indexOf('triggeredPresentFullRate') >= 0;
 }));

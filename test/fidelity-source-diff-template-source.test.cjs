@@ -129,6 +129,35 @@ var tpl4 = resolveFieldDiffTemplate(ctx4);
 assert.strictEqual(tpl4, null, '4: no task-specific contract → null');
 assert.ok(ctx4.logs.some(function(l) { return l.indexOf('WARN') >= 0 && l.indexOf('NOT falling back') >= 0; }),
   '4: WARN log emitted and default fallback is explicitly rejected');
+var noTemplateDemoted = stage._internals.demoteAdvisoryBuckets([
+  { path: 'template', source: '<missing>', target: '<missing>', category: 'no-template' }
+], {});
+assert.strictEqual(noTemplateDemoted[0].blocking, false,
+  '4: no-template marker is advisory in normal fidelity-source-diff execution');
+assert.strictEqual(noTemplateDemoted[0].bucketPolicy, 'plan-c-advisory',
+  '4: no-template marker records advisory bucket policy');
+var advisoryVisualSurface = stage._internals.demoteAdvisoryBuckets([
+  { path: 'worldLabel.guide', source: '<contract>', target: 'missing', category: 'worldLabel-missing' },
+  { path: 'scene.backgroundColor.actual', source: '<contract>', target: 'declaration-render-mismatch', category: 'scene-declaration-render-mismatch' },
+  { path: 'entities.Player', source: '<contract>', target: 'missing', category: 'entity-missing' },
+  { path: 'entities.GuideUI', source: '<contract>', target: 'extra', category: 'entity-extra' },
+], {
+  visibleEntities: ['OurAstronaut', 'GuideUI'],
+  entityDetails: {
+    OurAstronaut: { worldLabel: '宇航员' },
+  },
+  hud: [
+    { slot: 'tip', text: '拖动摇杆走向目标' },
+  ],
+});
+assert.strictEqual(advisoryVisualSurface[0].blocking, false,
+  '4: guide worldLabel missing is advisory because HUD guide text is the canonical surface');
+assert.strictEqual(advisoryVisualSurface[1].blocking, false,
+  '4: background declaration/render color mismatch is advisory when structural pixel gate is clean');
+assert.strictEqual(advisoryVisualSurface[2].blocking, false,
+  '4: Player missing is advisory when the target has a clear player alias');
+assert.strictEqual(advisoryVisualSurface[3].blocking, false,
+  '4: GuideUI extra is advisory as an allowed richer guide overlay');
 
 // ─── case 5: in-memory contract missing schemaVersion → treated as < 1.2.0 ───
 var ctx5 = makeCtx();

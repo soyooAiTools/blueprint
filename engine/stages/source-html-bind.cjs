@@ -35,7 +35,8 @@
  *   Phase 1 (default): SOFT missing path → loud WARN; missing sha256 → WARN
  *   Phase 1 sha256 mismatch: HARD FAIL (tamper/wrong source, not a rollout
  *     compatibility issue per Jonny)
- *   Phase 2 (SOURCE_HTML_BIND_HARD=true): missing path OR sha256 → HARD FAIL
+ *   Phase 2 (SOURCE_HTML_BIND_HARD=true, or storyboard2html/demo2spec flow):
+ *     missing path OR sha256 → HARD FAIL
  *
  * Once bound:
  *   ctx.sourceHtmlPath              — absolute resolved path
@@ -50,8 +51,36 @@ var fs = require('fs');
 var path = require('path');
 var crypto = require('crypto');
 
-function isHardMode() {
-  return process.env.SOURCE_HTML_BIND_HARD === 'true';
+function flagEnabled(value) {
+  return /^(1|true|yes|on)$/i.test(String(value || '').trim());
+}
+
+function hasToken(value, patterns) {
+  var text = String(value || '').toLowerCase();
+  if (!text) return false;
+  for (var i = 0; i < patterns.length; i++) {
+    if (text.indexOf(patterns[i]) >= 0) return true;
+  }
+  return false;
+}
+
+function isStoryboard2HtmlFlow(ctx) {
+  ctx = ctx || {};
+  var bp = ctx.blueprint || {};
+  var task = ctx.task || {};
+  var patterns = ['storyboard2html', 'storyboard-html', 'demo2spec'];
+
+  if (flagEnabled(bp.storyboard2html) || flagEnabled(task.storyboard2html)) return true;
+  if (bp.schemaSource === 'demo2spec' || bp.prebuiltGameSchema === true || bp.prebuiltGameSchemaUsed === true) return true;
+  if (hasToken(bp.sourcePipeline, patterns) || hasToken(bp.pipeline, patterns) || hasToken(bp.origin, patterns)) return true;
+  if (hasToken(task.sourcePipeline, patterns) || hasToken(task.pipeline, patterns) || hasToken(task.origin, patterns)) return true;
+  if (hasToken(task.kind, patterns) || hasToken(task.type, patterns) || hasToken(task.adapter, patterns)) return true;
+  if (bp.storyboard && bp.storyboard.htmlPath && hasToken(bp.storyboard.sourcePipeline || bp.storyboard.origin, patterns)) return true;
+  return false;
+}
+
+function isHardMode(ctx) {
+  return flagEnabled(process.env.SOURCE_HTML_BIND_HARD) || isStoryboard2HtmlFlow(ctx);
 }
 
 function resolveSourceHtmlPath(ctx) {
@@ -97,14 +126,17 @@ module.exports = {
   canRetry: false,
 
   assertBefore: function(ctx) {
-    var hard = isHardMode();
+    var hard = isHardMode(ctx);
+    var hardReason = flagEnabled(process.env.SOURCE_HTML_BIND_HARD)
+      ? 'SOURCE_HTML_BIND_HARD=true'
+      : (isStoryboard2HtmlFlow(ctx) ? 'storyboard2html/demo2spec flow' : null);
     var resolved = resolveSourceHtmlPath(ctx);
     if (!resolved) {
       var missMsg = 'source-html-bind: no sourceHtmlPath resolvable from blueprint/task/env. ' +
         'A task MUST declare its canonical source HTML (blueprint.sourceHtmlPath) so visual ' +
         'fidelity can be enforced shift-left.';
       if (hard) {
-        throw new Error(missMsg + ' (HARD mode — SOURCE_HTML_BIND_HARD=true.)');
+        throw new Error(missMsg + ' (HARD mode — ' + hardReason + '.)');
       }
       ctx.addLog && ctx.addLog('source-html-bind', 'WARN — ' + missMsg + ' (transition phase; will be HARD soon.)');
       console.warn('[source-html-bind][WARN] ' + missMsg);
@@ -130,7 +162,7 @@ module.exports = {
       // No declared hash — soft warn (phase 1). Hard fail in phase 2.
       var hashMsg = 'source-html-bind: blueprint.sourceHtmlSha256 missing — cannot verify source integrity.';
       if (hard) {
-        throw new Error(hashMsg + ' (HARD mode requires declared sha256.)');
+        throw new Error(hashMsg + ' (HARD mode — ' + hardReason + ' requires declared sha256.)');
       }
       ctx.addLog && ctx.addLog('source-html-bind', 'WARN — ' + hashMsg + ' (transition phase.)');
     }
@@ -170,6 +202,7 @@ module.exports = {
   _internals: {
     resolveSourceHtmlPath: resolveSourceHtmlPath,
     sha256OfFile: sha256OfFile,
+    isStoryboard2HtmlFlow: isStoryboard2HtmlFlow,
     isHardMode: isHardMode,
   }
 };

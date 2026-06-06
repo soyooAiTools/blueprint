@@ -5,6 +5,7 @@ const net = require('net');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
+const playableFlowManifest = require('../../engine/playable-flow-manifest.cjs');
 
 const DEFAULT_CUA_ROOT = '/root/cua-agent';
 const DEFAULT_VERIFY_SCRIPT = path.join(DEFAULT_CUA_ROOT, 'blueprint_verify.py');
@@ -112,6 +113,12 @@ function writeVerifySummary(outDir, reportPath) {
       validation: phaseEvidence.validation,
     },
   }, null, 2));
+  playableFlowManifest.recordDemo2SpecVerify({
+    outDir,
+    reportPath: paths.reportPath,
+    summaryPath: paths.summaryPath,
+    runner: 'direct',
+  });
   return {
     reportPath: paths.reportPath,
     summaryPath: paths.summaryPath,
@@ -120,7 +127,7 @@ function writeVerifySummary(outDir, reportPath) {
 }
 
 function normalizeVerifyRunner(value) {
-  const runner = String(value || process.env.DEMO2SPEC_VERIFY_RUNNER || 'direct').trim() || 'direct';
+  const runner = String(value || process.env.DEMO2SPEC_VERIFY_RUNNER || 'production').trim() || 'production';
   if (!VERIFY_RUNNERS[runner]) {
     throw new Error('Unknown verify runner "' + runner + '" (expected direct|production)');
   }
@@ -239,8 +246,15 @@ function writeProductionVerifySummary(outDir, reportPath, meta) {
     issues: workerResult.issues || [],
     silentPassSignals: workerResult.silentPassSignals || [],
     hardBlockingSilentSignals: workerResult.hardBlockingSilentSignals || [],
+    telemetry: workerResult.telemetry || (workerResult.report && workerResult.report.telemetry) || null,
     buildDirMaterialization: meta.buildDirMaterialization || null,
   }, null, 2));
+  playableFlowManifest.recordDemo2SpecVerify({
+    outDir,
+    reportPath: paths.reportPath,
+    summaryPath: paths.summaryPath,
+    runner: 'production',
+  });
   return {
     reportPath: paths.reportPath,
     summaryPath: paths.summaryPath,

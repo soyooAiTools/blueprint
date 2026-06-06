@@ -23,10 +23,10 @@ var SNAPSHOT = require('./fixtures/prerepair-snapshot.json');
 function clone(o) { return JSON.parse(JSON.stringify(o)); }
 
 describe('runAllPreRepairs golden snapshot (Wave 2)', function() {
-  it('lib exports runAllPreRepairs + a 17-entry SHARED_BUNDLE', function() {
+  it('lib exports runAllPreRepairs + a 20-entry SHARED_BUNDLE', function() {
     expect(typeof lib.runAllPreRepairs).toBe('function');
     expect(Array.isArray(lib.SHARED_BUNDLE)).toBe(true);
-    expect(lib.SHARED_BUNDLE.length).toBe(17);
+    expect(lib.SHARED_BUNDLE.length).toBe(20);
   });
 
   it('review.cjs still exports repairKnownStructuralDamage (delegates to lib)', function() {

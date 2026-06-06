@@ -78,12 +78,15 @@ assert.ok(emitted.files.flow.indexOf('mainCam.orthographicSize = ') < 0 && emitt
 assert.ok(emitted.files.input.indexOf('Vector3.MoveTowards(__assemblyBefore, __joystickTarget.transform.position') >= 0, 'autoplay joystick path should still move toward its target');
 assert.ok(emitted.files.input.indexOf('GFM_Player.Instance.Tick(Time.deltaTime, false)') < 0, 'manual joystick input slot must not tick player a second time');
 assert.ok(emitted.files.input.indexOf('GFM_Player.Instance.LastManualMoveActive') >= 0, 'manual joystick evidence should read the per-frame movement snapshot');
+assert.ok(emitted.files.input.indexOf('if (!_autoPlayMode && __joystickRegistered) _manualGameplayUnlocked = true;') >= 0, 'manual joystick movement should unlock manual target evidence gates');
 assert.ok(emitted.files.flow.indexOf('move_to_target records arrival evidence only') >= 0, 'player move_to_target slot should not drive Player transform directly');
 assert.ok(emitted.files.flow.indexOf('Player.transform.position = __assemblyNext') < 0, 'player move_to_target slot must not write Player.transform');
 assert.ok(emitted.files.flow.indexOf('__assemblyPlayer.transform.position = __assemblyPlayerBefore') < 0, 'missing-actor move_to_target fallback must not move Player');
 assert.ok(emitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "player_position_changed")') >= 0, 'move_to_target should record player motion evidence');
 assert.ok(emitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "entity_state_equals_built")') >= 0, 'build_progress should record built evidence');
 assert.ok(emitted.files.flow.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "build_progress"') >= 0, 'build_progress should emit structured phase evidence snapshot');
+assert.ok(emitted.files.flow.indexOf('var __buildProgressPos = ConveyorBelt.transform.position;') >= 0, 'build_progress should start from the visible target position');
+assert.ok(emitted.files.flow.indexOf('ConveyorBelt.transform.position = __buildProgressPos;') >= 0, 'build_progress should advance the visible target so phase gates observe real progress');
 assert.ok(emitted.files.input.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "tap_registered")') >= 0, 'tap/click slot should record tap evidence');
 assert.ok(emitted.files.resource.indexOf('string __costGateResource = GFM_ResourceIds.Gold;') >= 0, 'cost_gate should bind configured resource through owner API');
 assert.ok(emitted.files.resource.indexOf('TrySpend(__costGateResource, 1)') >= 0, 'cost_gate should spend configured resource through owner API');
@@ -657,6 +660,7 @@ assert.ok(implementationEmitted.files.input.indexOf('RecordPhaseEvidenceFlag(cur
 assert.ok(implementationEmitted.files.flow.indexOf('HideObj(EnemyBase);') >= 0, 'system damage fallback should hide a concrete enemy target');
 assert.ok(implementationEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "projectile_visible")') >= 0, 'system projectile fallback should record projectile evidence');
 assert.ok(implementationEmitted.files.flow.indexOf('DefenseTowerState = Mathf.Max(DefenseTowerState, 1);') >= 0, 'activate_targets fallback should activate its owner when targets are empty');
+assert.strictEqual(implementationEmitted.files.flow.indexOf('HideObj(DefenseTower);'), -1, 'activate_targets must not hide and re-place an already visible build target');
 assert.ok(implementationEmitted.files.flow.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "activate_targets"') >= 0, 'activate_targets should emit structured phase evidence snapshot');
 assert.ok(implementationEmitted.files.input.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "player_input_joystick"') >= 0, 'player_input_joystick should emit structured phase evidence snapshot');
 assert.ok(implementationEmitted.files.input.indexOf('currentPhaseName != "combat" && currentPhaseName != "finish"') >= 0, 'player joystick evidence should stay active for later CUA target phases');

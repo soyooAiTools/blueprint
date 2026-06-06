@@ -90,6 +90,17 @@ function recordPipelineMetrics(ctx, stageResults) {
     record.runtimeContractSilentPassSignals = rc.silentPassSignals || [];
     record.runtimeContractDefaultInteractionPassed = rc.defaultInteractionPassed === undefined ? null : rc.defaultInteractionPassed;
     record.runtimeContractDefaultInteractionReason = rc.defaultInteractionReason || '';
+    record.runtimeContractManualJoystickProbeRequired = rc.manualJoystickProbeRequired === true;
+    record.runtimeContractManualJoystickProbePassed = rc.manualJoystickProbePassed === undefined ? null : rc.manualJoystickProbePassed;
+    record.runtimeContractManualJoystickFlowProbeRequired = rc.manualJoystickFlowProbeRequired === true;
+    record.runtimeContractManualJoystickFlowProbePassed = rc.manualJoystickFlowProbePassed === undefined ? null : rc.manualJoystickFlowProbePassed;
+    record.runtimeContractManualJoystickFlowCompleted = rc.manualJoystickFlowProbe && rc.manualJoystickFlowProbe.completedAfter !== undefined ? rc.manualJoystickFlowProbe.completedAfter : null;
+    record.runtimeContractManualJoystickFlowTarget = rc.manualJoystickFlowProbe && rc.manualJoystickFlowProbe.targetCompleted !== undefined ? rc.manualJoystickFlowProbe.targetCompleted : null;
+    record.runtimeContractManualJoystickFlowReason = (rc.manualJoystickFlowProbe && rc.manualJoystickFlowProbe.reason) || '';
+    record.runtimeContractStoryboardVisualAuditPassed = rc.storyboardVisualAuditPassed === undefined ? null : rc.storyboardVisualAuditPassed;
+    record.runtimeContractStoryboardVideoAuditPassed = rc.storyboardVideoAuditPassed === undefined ? null : rc.storyboardVideoAuditPassed;
+    record.runtimeContractStoryboardVideoAuditReason = (rc.storyboardVideoAudit && rc.storyboardVideoAudit.reason) || '';
+    record.runtimeContractStoryboardVideoAuditRecording = (rc.storyboardVideoAudit && rc.storyboardVideoAudit.recording) || '';
   }
 
   // CUA details
@@ -102,6 +113,19 @@ function recordPipelineMetrics(ctx, stageResults) {
     record.cuaSignalValidationPassed = cua.signalValidationPassed !== false;
     record.cuaMissingSignalCount = cua.missingSignalCount || 0;
     record.cuaUnsupportedSignalCount = cua.unsupportedSignalCount || 0;
+    record.cuaManualJoystickProbeRequired = cua.manualJoystickProbeRequired === true;
+    record.cuaManualJoystickProbePassed = cua.manualJoystickProbePassed === undefined ? null : cua.manualJoystickProbePassed;
+    record.cuaManualJoystickFlowProbeRequired = cua.manualJoystickFlowProbeRequired === true;
+    record.cuaManualJoystickFlowProbePassed = cua.manualJoystickFlowProbePassed === undefined ? null : cua.manualJoystickFlowProbePassed;
+    record.cuaManualJoystickFlowCompleted = cua.manualJoystickFlowProbe && cua.manualJoystickFlowProbe.completedAfter !== undefined ? cua.manualJoystickFlowProbe.completedAfter : null;
+    record.cuaManualJoystickFlowTarget = cua.manualJoystickFlowProbe && cua.manualJoystickFlowProbe.targetCompleted !== undefined ? cua.manualJoystickFlowProbe.targetCompleted : null;
+    record.cuaManualJoystickFlowReason = (cua.manualJoystickFlowProbe && cua.manualJoystickFlowProbe.reason) || '';
+    record.cuaStoryboardVisualAuditPassed = cua.storyboardVisualAuditPassed === undefined ? null : cua.storyboardVisualAuditPassed;
+    record.cuaStoryboardVideoAuditPassed = cua.storyboardVideoAuditPassed === undefined ? null : cua.storyboardVideoAuditPassed;
+    record.cuaStoryboardVideoAuditReason = (cua.storyboardVideoAudit && cua.storyboardVideoAudit.reason) || '';
+    record.cuaStoryboardVideoAuditRecording = (cua.storyboardVideoAudit && cua.storyboardVideoAudit.recording && cua.storyboardVideoAudit.recording.path)
+      || (cua.storyboardVideoAudit && cua.storyboardVideoAudit.recording)
+      || '';
     // Silent-pass detection signals (recorded even on success)
     record.cuaTotalActions = cua.totalActions !== undefined ? cua.totalActions : null;
     record.cuaSilentPassSignals = cua.silentPassSignals || [];

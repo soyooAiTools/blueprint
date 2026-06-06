@@ -22,6 +22,11 @@ function numberCloseToOne(value) {
   return typeof value === 'number' && Math.abs(value - 1) < 1e-9;
 }
 
+function numberValue(value) {
+  var numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
 function parseCoveragePair(value) {
   if (typeof value === 'string') {
     var match = value.match(/(\d+)\s*\/\s*(\d+)/);
@@ -81,6 +86,11 @@ function hasJoystickControl(source) {
   var hasPointerEnd = /(?:document|window|canvas|stage|renderer\.domElement|document\.body)\.addEventListener\s*\(\s*['"]pointer(?:up|cancel)['"]|joystick[\s\S]{0,320}\.addEventListener\s*\(\s*['"]pointer(?:up|cancel)['"]|\.addEventListener\s*\(\s*['"]pointer(?:up|cancel)['"][\s\S]{0,320}joystick/.test(html);
   var hasAnyPositionStart = /(?:document|window|canvas|stage|renderer\.domElement|document\.body)\.addEventListener\s*\(\s*['"]pointerdown['"]/.test(html);
   var movesJoystickToPointer = /joystick\.style\.(?:left|top)\s*=|joystick\.style\.transform\s*=|showJoystickAt|placeJoystickAt|startJoystickAt/.test(html);
+  var joystickVar = html.match(/\b(?:var|let|const)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:document\.)?getElementById\s*\(\s*["']joystick["']\s*\)/);
+  if (!movesJoystickToPointer && joystickVar) {
+    var escaped = joystickVar[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    movesJoystickToPointer = new RegExp('\\b' + escaped + '\\.style\\.(?:left|top|transform)\\s*=').test(html);
+  }
   return hasControl && hasOverlayUi && hasPointerDown && hasPointerMove && hasPointerEnd && hasAnyPositionStart && movesJoystickToPointer;
 }
 
@@ -105,9 +115,11 @@ function findAutoProgressPatterns(source) {
 function findDirectClickCompletionPatterns(source) {
   var html = stripComments(source);
   var hits = [];
-  var re = /addEventListener\s*\(\s*['"](?:click|pointerdown|touchstart|keydown)['"][\s\S]{0,700}?(?:(?:completePhase|enterPhase|advancePhase|nextPhase|performAction)\s*\(|(?:phaseIndex|currentPhase)\s*(?:=|\+\+|--|\+=|-=))/g;
+  var re = /addEventListener\s*\(\s*['"](?:click|pointerdown|touchstart|keydown)['"]\s*,\s*(function\s*\([^)]*\)\s*\{[\s\S]{0,700}?\}|(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{[\s\S]{0,700}?\})/g;
   var match;
   while ((match = re.exec(html))) {
+    var body = match[1] || '';
+    if (!/(?:(?:completePhase|enterPhase|advancePhase|nextPhase|performAction)\s*\(|(?:phaseIndex|currentPhase)\s*(?:=|\+\+|--|\+=|-=))/.test(body)) continue;
     var snippet = match[0].replace(/\s+/g, ' ').slice(0, 220);
     if (!/joystick|setPointerCapture|updateStick/.test(match[0])) hits.push(snippet);
   }
@@ -325,12 +337,48 @@ function validateHtmlInteractionContract(source, opts) {
   };
 }
 
+function evaluateHtmlPreflight(source, opts) {
+  opts = opts || {};
+  var parsed = parsePhasesFromSource(source);
+  var expected = opts.expectedPhaseCount != null && Number.isFinite(Number(opts.expectedPhaseCount))
+    ? Number(opts.expectedPhaseCount)
+    : (parsed.phases ? parsed.phases.length : 0);
+  var gate = validateHtmlInteractionContract(source, {
+    expectedPhaseCount: expected,
+  });
+  var errors = gate.errors.slice();
+  if (!parsed.phases) {
+    parsed.errors.forEach(function(error) {
+      if (errors.indexOf(error) < 0) errors.unshift(error);
+    });
+  }
+  return Object.assign({}, gate, {
+    id: 'storyboard2html-html-preflight',
+    passed: errors.length === 0,
+    errors: errors,
+    expectedPhaseCount: expected || null,
+  });
+}
+
+function evaluateHtmlPreflightFile(htmlPath, opts) {
+  if (!htmlPath) throw new Error('htmlPath is required');
+  return evaluateHtmlPreflight(fs.readFileSync(htmlPath, 'utf8'), opts);
+}
+
 function expectedPhaseCount(snapshotDoc, opts) {
-  if (opts && Number.isFinite(Number(opts.expectedPhaseCount))) {
+  if (opts && opts.expectedPhaseCount != null && Number.isFinite(Number(opts.expectedPhaseCount))) {
     return Number(opts.expectedPhaseCount);
   }
   var phases = snapshotDoc && snapshotDoc.project && snapshotDoc.project.phases;
   if (Array.isArray(phases)) return phases.length;
+  var reportCoverage = parseCoveragePair(opts && opts.verifyReport && opts.verifyReport.phaseCoverage);
+  if (reportCoverage && reportCoverage.total > 0) return reportCoverage.total;
+  var summaryCoverage = parseCoveragePair(opts && opts.verifySummary && opts.verifySummary.phaseCoverage);
+  if (summaryCoverage && summaryCoverage.total > 0) return summaryCoverage.total;
+  var runtime = opts && opts.verifySummary && opts.verifySummary.runtimeContractSummary;
+  var flow = runtime && runtime.manualJoystickFlowProbe;
+  var targetCompleted = numberValue(flow && flow.targetCompleted);
+  if (targetCompleted != null && targetCompleted > 0) return targetCompleted;
   return null;
 }
 
@@ -389,7 +437,7 @@ function evaluateVerifyReport(report, snapshotDoc, opts) {
   if (!numberCloseToOne(aggregate.triggeredAntiAutoplayHeldRate)) {
     errors.push('triggeredAntiAutoplayHeldRate must be 1');
   }
-  var expected = expectedPhaseCount(snapshotDoc, opts);
+  var expected = expectedPhaseCount(snapshotDoc, Object.assign({}, opts, { verifyReport: report }));
   var coverage = parseCoveragePair(report.phaseCoverage);
   if (expected != null) {
     if (!coverage) {
@@ -406,14 +454,108 @@ function evaluateVerifyReport(report, snapshotDoc, opts) {
   return { passed: errors.length === 0, errors: errors };
 }
 
+function evaluateProductionRuntimeSummary(summary, snapshotDoc, opts) {
+  opts = opts || {};
+  var errors = [];
+  if (!isObject(summary)) {
+    return { passed: false, errors: ['verify summary must be an object'] };
+  }
+  if (summary.runner !== 'production') {
+    errors.push('verify summary runner must be production');
+  }
+  var runtime = summary.runtimeContractSummary || {};
+  if (!isObject(runtime)) {
+    errors.push('runtimeContractSummary must be present');
+    runtime = {};
+  }
+  if (runtime.contractPassed !== true) errors.push('runtimeContractSummary.contractPassed must be true');
+  if (runtime.passed !== true) errors.push('runtimeContractSummary.passed must be true');
+
+  var expected = expectedPhaseCount(snapshotDoc, Object.assign({}, opts, { verifySummary: summary }));
+  var requiresManualFlow = expected == null || expected > 1;
+  if (requiresManualFlow) {
+    if (runtime.manualJoystickProbeRequired !== true) {
+      errors.push('manualJoystickProbeRequired must be true for multi-phase storyboard2html');
+    }
+    if (runtime.manualJoystickFlowProbeRequired !== true) {
+      errors.push('manualJoystickFlowProbeRequired must be true for multi-phase storyboard2html');
+    }
+    if (runtime.manualJoystickProbePassed !== true) {
+      errors.push('manualJoystickProbePassed must be true');
+    }
+    if (runtime.manualJoystickFlowProbePassed !== true) {
+      errors.push('manualJoystickFlowProbePassed must be true');
+    }
+    var flow = runtime.manualJoystickFlowProbe || {};
+    if (!isObject(flow)) {
+      errors.push('manualJoystickFlowProbe summary must be present');
+      flow = {};
+    }
+    if (flow.passed !== true || flow.skipped === true) {
+      errors.push('manualJoystickFlowProbe must pass and must not be skipped');
+    }
+    var completedAfter = numberValue(flow.completedAfter);
+    var targetCompleted = numberValue(flow.targetCompleted);
+    if (completedAfter == null || targetCompleted == null || targetCompleted <= 0) {
+      errors.push('manualJoystickFlowProbe must expose completedAfter and targetCompleted');
+    } else if (completedAfter < targetCompleted) {
+      errors.push('manualJoystickFlowProbe completedAfter must reach targetCompleted, got ' + completedAfter + '/' + targetCompleted);
+    }
+    if (!Array.isArray(flow.phasePath) || flow.phasePath.length === 0) {
+      errors.push('manualJoystickFlowProbe.phasePath must be non-empty');
+    }
+    if (!flow.driver) {
+      errors.push('manualJoystickFlowProbe.driver must be recorded');
+    } else if (['autonav-joystick', 'legacy-drag'].indexOf(String(flow.driver)) < 0) {
+      errors.push('manualJoystickFlowProbe.driver must be autonav-joystick or legacy-drag');
+    }
+    if (!flow.phasePathSource) {
+      errors.push('manualJoystickFlowProbe.phasePathSource must be recorded');
+    } else if (['samples', 'phase-witness', 'phase-completion-witness'].indexOf(String(flow.phasePathSource)) < 0) {
+      errors.push('manualJoystickFlowProbe.phasePathSource is unsupported: ' + flow.phasePathSource);
+    }
+    if (!Array.isArray(flow.missingPhasePath)) {
+      errors.push('manualJoystickFlowProbe.missingPhasePath must be recorded');
+    } else if (flow.missingPhasePath.length > 0) {
+      errors.push('manualJoystickFlowProbe.missingPhasePath must be empty, got ' + flow.missingPhasePath.join(', '));
+    }
+    var maxPlayerDistance = numberValue(flow.maxPlayerDistance);
+    if (maxPlayerDistance == null || maxPlayerDistance <= 0.05) {
+      errors.push('manualJoystickFlowProbe.maxPlayerDistance must show real player movement');
+    }
+  }
+  var telemetry = summary.telemetry || runtime.telemetry || null;
+  if (!isObject(telemetry)) {
+    errors.push('verify summary telemetry must be present for production CUA');
+  } else {
+    if (telemetry.schemaVersion !== 'blueprint-cua-telemetry.v1') {
+      errors.push('verify summary telemetry schemaVersion must be blueprint-cua-telemetry.v1');
+    }
+    ['observeMs', 'totalMs'].forEach(function(key) {
+      var value = numberValue(telemetry[key]);
+      if (value == null || value < 0) errors.push('verify summary telemetry.' + key + ' must be a non-negative number');
+    });
+    if (requiresManualFlow) {
+      ['manualProbeMs', 'manualFlowMs'].forEach(function(key) {
+        var value = numberValue(telemetry[key]);
+        if (value == null || value < 0) errors.push('verify summary telemetry.' + key + ' must be a non-negative number');
+      });
+    }
+  }
+  return { passed: errors.length === 0, errors: errors };
+}
+
 function evaluateHardGates(options) {
   options = options || {};
   var snapshotPath = options.snapshotSchemaPath;
   var verifyPath = options.verifyReportPath;
+  var summaryPath = options.verifySummaryPath;
   if (!snapshotPath) throw new Error('snapshotSchemaPath is required');
   if (!verifyPath) throw new Error('verifyReportPath is required');
+  if (!summaryPath && options.requireProductionCua !== false) throw new Error('verifySummaryPath is required');
   var snapshotDoc = readJson(snapshotPath);
   var verifyReport = readJson(verifyPath);
+  var verifySummary = summaryPath ? readJson(summaryPath) : null;
   var contractPath = options.snapshotSchemaContractPath || DEFAULT_SNAPSHOT_SCHEMA_CONTRACT_PATH;
   var contractDoc = fs.existsSync(contractPath) ? readJson(contractPath) : null;
   var gates = [];
@@ -425,17 +567,27 @@ function evaluateHardGates(options) {
     errors: snapshotGate.errors,
   });
 
-  var verifyGate = evaluateVerifyReport(verifyReport, snapshotDoc, options);
+  var expectedOpts = Object.assign({}, options, { verifyReport: verifyReport, verifySummary: verifySummary });
+  var verifyGate = evaluateVerifyReport(verifyReport, snapshotDoc, expectedOpts);
   gates.push({
     id: 'phase-evidence-hard-gates',
     passed: verifyGate.passed,
     errors: verifyGate.errors,
   });
 
+  if (options.requireProductionCua !== false) {
+    var runtimeGate = evaluateProductionRuntimeSummary(verifySummary, snapshotDoc, expectedOpts);
+    gates.push({
+      id: 'production-runtime-cua-hard-gates',
+      passed: runtimeGate.passed,
+      errors: runtimeGate.errors,
+    });
+  }
+
   if (options.htmlPath) {
     var htmlSource = fs.readFileSync(options.htmlPath, 'utf8');
     var htmlGate = validateHtmlInteractionContract(htmlSource, {
-      expectedPhaseCount: expectedPhaseCount(snapshotDoc, options),
+      expectedPhaseCount: expectedPhaseCount(snapshotDoc, expectedOpts),
     });
     gates.push({
       id: 'html-interaction-hard-gates',
@@ -461,6 +613,7 @@ function evaluateHardGates(options) {
     gates: gates,
     snapshotSchemaPath: snapshotPath,
     verifyReportPath: verifyPath,
+    verifySummaryPath: summaryPath || null,
   };
 }
 
@@ -468,7 +621,10 @@ module.exports = {
   DEFAULT_SNAPSHOT_SCHEMA_CONTRACT_PATH: DEFAULT_SNAPSHOT_SCHEMA_CONTRACT_PATH,
   parseCoveragePair: parseCoveragePair,
   validateHtmlInteractionContract: validateHtmlInteractionContract,
+  evaluateHtmlPreflight: evaluateHtmlPreflight,
+  evaluateHtmlPreflightFile: evaluateHtmlPreflightFile,
   validateSnapshotSchemaDoc: validateSnapshotSchemaDoc,
   evaluateVerifyReport: evaluateVerifyReport,
+  evaluateProductionRuntimeSummary: evaluateProductionRuntimeSummary,
   evaluateHardGates: evaluateHardGates,
 };

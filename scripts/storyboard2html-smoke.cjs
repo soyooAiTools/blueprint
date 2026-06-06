@@ -2,22 +2,27 @@
 'use strict';
 
 var path = require('path');
+var fs = require('fs');
 var spawnSync = require('child_process').spawnSync;
 var contract = require('../engine/storyboard2html-contract.cjs');
+var hardgate = require('../engine/storyboard2html-hardgate.cjs');
+var playableFlowManifest = require('../engine/playable-flow-manifest.cjs');
 
 function usage() {
-  console.error('Usage: node scripts/storyboard2html-smoke.cjs <generated.html> <outdir> [--theme name] [--steps N] [--skill-root path] [--dry-run]');
+  console.error('Usage: node scripts/storyboard2html-smoke.cjs <generated.html> <outdir> [--theme name] [--steps N] [--verify-runner direct|production] [--skill-root path] [--dry-run]');
   process.exit(2);
 }
 
 function parseArgs(argv) {
-  var opts = { html: null, outDir: null, themeHint: 'default', steps: 40, skillRoot: null, dryRun: false };
+  var opts = { html: null, outDir: null, themeHint: 'default', steps: 40, verifyRunner: null, skillRoot: null, dryRun: false };
   for (var i = 2; i < argv.length; i++) {
     var arg = argv[i];
     if (arg === '--theme') {
       opts.themeHint = argv[++i] || opts.themeHint;
     } else if (arg === '--steps') {
       opts.steps = Number(argv[++i] || 0) || opts.steps;
+    } else if (arg === '--verify-runner') {
+      opts.verifyRunner = argv[++i] || opts.verifyRunner;
     } else if (arg === '--skill-root') {
       opts.skillRoot = argv[++i] || opts.skillRoot;
     } else if (arg === '--dry-run') {
@@ -38,6 +43,47 @@ function shellQuote(value) {
   return "'" + String(value).replace(/'/g, "'\\''") + "'";
 }
 
+function runPreflight(plan, opts) {
+  var reportPath = plan.artifacts.preflightReport;
+  var result = hardgate.evaluateHtmlPreflightFile(path.resolve(opts.html));
+  var report = {
+    schemaVersion: 'blueprint-storyboard2html-preflight.v1',
+    stage: 'storyboard2html-html-preflight',
+    htmlPath: path.resolve(opts.html),
+    passed: result.passed === true,
+    errors: result.errors || [],
+    details: {
+      userInputListenerCount: result.userInputListenerCount,
+      userInputEvents: result.userInputEvents,
+      autoProgressPatternCount: result.autoProgressPatternCount,
+      directCompletionPatternCount: result.directCompletionPatternCount,
+      hasJoystickControl: result.hasJoystickControl,
+      phaseCount: result.phaseCount,
+      expectedPhaseCount: result.expectedPhaseCount,
+      nonFinalClickEntityCount: result.nonFinalClickEntityCount,
+      nonFinalMissingJoystickEvidenceCount: result.nonFinalMissingJoystickEvidenceCount,
+      ctaUngatedHandlerCount: result.ctaUngatedHandlerCount,
+      entityCount: result.entityCount,
+    },
+    generatedAt: new Date().toISOString(),
+  };
+  fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+  fs.writeFileSync(reportPath, JSON.stringify(report, null, 2) + '\n');
+  playableFlowManifest.recordStoryboard2HtmlPreflight({
+    manifestPath: process.env.PLAYABLE_FLOW_MANIFEST_PATH || plan.artifacts.flowManifest,
+    outDir: path.resolve(opts.outDir),
+    htmlPath: path.resolve(opts.html),
+    preflightPath: reportPath,
+    preflightResult: report,
+  });
+  if (!report.passed) {
+    console.error(JSON.stringify(report, null, 2));
+    throw new Error('storyboard2html preflight failed before CUA: ' + report.errors.slice(0, 4).join('; '));
+  }
+  console.log('[storyboard2html-smoke] preflight PASS -> ' + reportPath);
+  return report;
+}
+
 function main() {
   var opts = parseArgs(process.argv);
   var plan = contract.buildAcceptancePlan({
@@ -46,20 +92,39 @@ function main() {
     outDir: path.resolve(opts.outDir),
     themeHint: opts.themeHint,
     steps: opts.steps,
+    verifyRunner: opts.verifyRunner,
   });
   if (opts.dryRun) {
     console.log(plan.command.map(shellQuote).join(' '));
+    if (plan.hardgateCommand) console.log(plan.hardgateCommand.map(shellQuote).join(' '));
     console.log('hardGates=' + plan.hardGates.join('; '));
     return;
+  }
+  var childEnv = Object.assign({}, process.env, {
+    PLAYABLE_FLOW_MANIFEST_PATH: plan.artifacts.flowManifest,
+  });
+  if (process.env.STORYBOARD2HTML_SKIP_PREFLIGHT !== '1') {
+    runPreflight(plan, opts);
   }
   var result = spawnSync(plan.command[0], plan.command.slice(1), {
     cwd: process.cwd(),
     encoding: 'utf8',
     stdio: 'inherit',
-    env: Object.assign({}, process.env),
+    env: childEnv,
   });
   if (result.status !== 0) {
     throw new Error('storyboard2html smoke failed with exit ' + result.status);
+  }
+  if (plan.hardgateCommand) {
+    var hardgate = spawnSync(plan.hardgateCommand[0], plan.hardgateCommand.slice(1), {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      stdio: 'inherit',
+      env: childEnv,
+    });
+    if (hardgate.status !== 0) {
+      throw new Error('storyboard2html hardgate failed with exit ' + hardgate.status);
+    }
   }
 }
 

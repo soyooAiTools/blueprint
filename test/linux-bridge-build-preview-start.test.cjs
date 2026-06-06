@@ -184,6 +184,15 @@ assert(
   'DOM storyboard joystick must directly drive runtime joystick input after deadzone with correct screen-space signs'
 );
 assert(
+  src.includes('window.__bpManualClickOverride') &&
+    src.includes('window.__bpApplyManualClickOverride = applyRuntimeClickOverride') &&
+    src.includes('function installRuntimeClickOverridePatch(input)') &&
+    src.includes('input.GetMouseButtonDown = function(button)') &&
+    src.includes('input.mouseButtonsDown[0] = true') &&
+    src.includes('applyRuntimeClickOverride(tapPoint.x, tapPoint.y)'),
+  'DOM storyboard tap overlay must bridge source-level taps into Unity runtime mouse-down gates'
+);
+assert(
   src.includes("new pc.Entity('StoryboardTargetMarker')") &&
     src.includes('window.__storyboardTargetMarkerState') &&
     src.includes('function runtimeStoryboardEntityOverlayPosition(name, gs)') &&

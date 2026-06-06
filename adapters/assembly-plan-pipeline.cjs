@@ -228,18 +228,20 @@ function buildRegistryIndex(registry) {
 }
 
 function buildEntityLookup(entities) {
+  var exactCase = {};
   var exact = {};
   var candidates = [];
   for (var i = 0; i < entities.length; i++) {
     var entity = entities[i] || {};
     if (!entity.name) continue;
     candidates.push(entity);
+    exactCase[String(entity.name)] = entity.name;
     exact[String(entity.name).toLowerCase()] = entity.name;
     if (entity.label) exact[String(entity.label).toLowerCase()] = entity.name;
     if (entity.showLabel) exact[String(entity.showLabel).toLowerCase()] = entity.name;
     if (entity.chineseName) exact[String(entity.chineseName).toLowerCase()] = entity.name;
   }
-  return { exact: exact, candidates: candidates };
+  return { exactCase: exactCase, exact: exact, candidates: candidates };
 }
 
 // 2026-05-03 root-cause fix: 当 LLM 把整段中文描述当 interaction 参数喂进来,
@@ -257,6 +259,7 @@ function isProsePayload(text) {
 function resolveEntityName(raw, lookup) {
   var text = String(raw || '').trim();
   if (!text) return '';
+  if (lookup.exactCase && lookup.exactCase[text]) return lookup.exactCase[text];
   var key = text.toLowerCase();
   if (lookup.exact[key]) return lookup.exact[key];
 
@@ -292,6 +295,74 @@ function resolveEntityName(raw, lookup) {
   return '';
 }
 
+function normResourceKey(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9_]/g, '');
+}
+
+function resourceNameAliases(resourceName) {
+  var raw = String(resourceName || '').trim();
+  if (!raw) return [];
+  var lower = raw.toLowerCase();
+  var aliases = [raw, lower];
+  if (lower === 'gold' || lower === 'coin') aliases.push('Gold', 'gold', 'Coin', 'coin');
+  return uniq(aliases);
+}
+
+function setResourceTarget(index, resourceName, target) {
+  if (!resourceName || !target) return;
+  var aliases = resourceNameAliases(resourceName);
+  for (var i = 0; i < aliases.length; i++) {
+    if (!index[aliases[i]]) index[aliases[i]] = target;
+    var key = normResourceKey(aliases[i]);
+    if (key && !index[key]) index[key] = target;
+  }
+}
+
+function interactionParts(rawInteraction) {
+  return String(rawInteraction || '').split(':').map(function(part) { return String(part || '').trim(); });
+}
+
+function buildSpecResourceTargetIndex(spec, interactions, entityLookup) {
+  var index = {};
+  var entities = toArray(spec && spec.entitiesRequired);
+  for (var i = 0; i < entities.length; i++) {
+    var item = entities[i];
+    if (!item || typeof item === 'string' || !item.resource || !item.name) continue;
+    setResourceTarget(index, item.resource, item.name);
+  }
+  var rows = toArray(interactions || (spec && spec.requiredInteractions));
+  for (var r = 0; r < rows.length; r++) {
+    var parts = interactionParts(rows[r]);
+    var verb = String(parts[0] || '').toLowerCase();
+    if (verb !== 'collect') continue;
+    var resource = resolveResourceName(parts[1]) || String(parts[1] || '').trim();
+    if (!resource || lookupResourceTarget(index, resource)) continue;
+    for (var prev = r - 1; prev >= 0; prev--) {
+      var prevParts = interactionParts(rows[prev]);
+      var prevVerb = String(prevParts[0] || '').toLowerCase();
+      if (prevVerb !== 'move_to' && prevVerb !== 'reach') continue;
+      var target = resolveEntityName(prevParts[1], entityLookup || {});
+      if (target) {
+        setResourceTarget(index, resource, target);
+        break;
+      }
+    }
+  }
+  return index;
+}
+
+function lookupResourceTarget(resourceTargets, resourceName) {
+  if (!resourceTargets || !resourceName) return '';
+  return resourceTargets[String(resourceName)] || resourceTargets[normResourceKey(resourceName)] || '';
+}
+
+function resolveResourceName(raw) {
+  var text = String(raw || '').trim();
+  if (!text || isProsePayload(text)) return '';
+  if (/^[A-Za-z][A-Za-z0-9_]{0,31}$/.test(text)) return text;
+  return '';
+}
+
 function findPlayerEntityName(entities) {
   for (var i = 0; i < entities.length; i++) {
     var template = String(entities[i].template || '');
@@ -313,7 +384,8 @@ function findPhaseIdForIndex(ctx, index) {
   return normalizePhaseId('', index);
 }
 
-function parseInteraction(rawInteraction, entityLookup, defaultActor) {
+function parseInteraction(rawInteraction, entityLookup, defaultActor, options) {
+  options = options || {};
   var raw = String(rawInteraction || '').trim();
   if (!raw) return null;
 
@@ -336,8 +408,9 @@ function parseInteraction(rawInteraction, entityLookup, defaultActor) {
     params.target = resolveEntityName(parts[1], entityLookup);
     params.duration = asNumber(parts[2], 1);
   } else if (verb === 'collect') {
-    params.target = resolveEntityName(parts[1], entityLookup);
-    params.item = resolveEntityName(parts[1], entityLookup);
+    var rawItem = String(parts[1] || '').trim();
+    params.item = resolveResourceName(rawItem) || resolveEntityName(rawItem, entityLookup);
+    params.target = lookupResourceTarget(options.resourceTargets, rawItem) || resolveEntityName(rawItem, entityLookup);
     params.count = asNumber(parts[2], 1);
   } else if (verb === 'deliver') {
     params.item = resolveEntityName(parts[1], entityLookup);
@@ -398,6 +471,10 @@ function parseInteraction(rawInteraction, entityLookup, defaultActor) {
     raw: raw,
     verb: verb
   };
+}
+
+function looksLikeStructuredInteractionText(text) {
+  return /(?:^|,)\s*(move_to|reach|click|drag|hold|collect|deliver|spend|build|upgrade|recruit|attack|defeat|defeat_count|defend|wait|appear|disappear|transform|unlock)\s*:/i.test(String(text || ''));
 }
 
 function createAtomCollector(registryIndex) {
@@ -488,6 +565,14 @@ function pickPhaseFallbackTarget(collector, phaseId, atomFamily, defaultActor, p
   return '';
 }
 
+function phaseHasAtom(collector, phaseId, atomId) {
+  for (var i = 0; i < collector.items.length; i++) {
+    var item = collector.items[i];
+    if (item && item.phaseId === phaseId && item.atomId === atomId) return true;
+  }
+  return false;
+}
+
 function inferTextAtoms(frame, frameIndex, phaseId, entityLookup, defaultActor, collector, phaseEntitiesRequired) {
   var textBlocks = [
     { field: 'interaction', text: frame.interaction },
@@ -504,6 +589,7 @@ function inferTextAtoms(frame, frameIndex, phaseId, entityLookup, defaultActor, 
     var entry = textBlocks[i];
     var text = String(entry.text || '').trim();
     if (!text) continue;
+    if (looksLikeStructuredInteractionText(text)) continue;
 
     var target = resolveEntityName(text, entityLookup);
     var src = { kind: 'frame_text', frameIndex: frameIndex, field: entry.field, raw: text };
@@ -513,8 +599,10 @@ function inferTextAtoms(frame, frameIndex, phaseId, entityLookup, defaultActor, 
       if (t1) collector.add('move_to', phaseId, { actor: defaultActor, target: t1, range: 1.5 }, src);
     }
     if (/收集|拾取|捡|collect/i.test(text)) {
-      var t2 = target || pickPhaseFallbackTarget(collector, phaseId, ['collect_nearby', 'move_to'], defaultActor, phaseEnts);
-      if (t2) collector.add('collect_nearby', phaseId, { actor: defaultActor, target: t2, item: t2, count: 1 }, src);
+      if (!phaseHasAtom(collector, phaseId, 'collect_nearby')) {
+        var t2 = target || pickPhaseFallbackTarget(collector, phaseId, ['collect_nearby', 'move_to'], defaultActor, phaseEnts);
+        if (t2) collector.add('collect_nearby', phaseId, { actor: defaultActor, target: t2, item: t2, count: 1 }, src);
+      }
     }
     if (/攻击|射击|开火|attack|shoot/i.test(text)) {
       var t3 = target || pickPhaseFallbackTarget(collector, phaseId, ['attack_target', 'move_to'], defaultActor, phaseEnts);
@@ -550,8 +638,9 @@ function buildStoryboardAtomPlan(ctx, registry, registryIndex) {
     var spec = ctx.specs[si] || {};
     var phaseId = normalizePhaseId(spec.phaseId || findPhaseIdForIndex(ctx, si), si);
     var interactions = toArray(spec.requiredInteractions);
+    var resourceTargets = buildSpecResourceTargetIndex(spec, interactions, entityLookup);
     for (var ri = 0; ri < interactions.length; ri++) {
-      var parsed = parseInteraction(interactions[ri], entityLookup, defaultActor);
+      var parsed = parseInteraction(interactions[ri], entityLookup, defaultActor, { resourceTargets: resourceTargets });
       if (!parsed) continue;
       if (parsed.unresolved) {
         collector.unresolved.push({
@@ -639,6 +728,16 @@ function addModuleEntry(record, moduleId, source, params, sourceAtomId) {
         }
         if (moduleId === 'cost_gate' && keys[i] === 'amount' && entry.params.amount && Number(params[keys[i]]) === 1) {
           continue;
+        }
+        if (moduleId === 'collect_on_near') {
+          var existingCount = Number(entry.params.count || 0);
+          var incomingCount = Number(params.count || 0);
+          if (keys[i] === 'count' && existingCount > incomingCount && incomingCount <= 1) {
+            continue;
+          }
+          if ((keys[i] === 'resource' || keys[i] === 'item') && entry.params[keys[i]] && existingCount > 1 && incomingCount <= 1) {
+            continue;
+          }
         }
         entry.params[keys[i]] = params[keys[i]];
       }
@@ -1023,6 +1122,16 @@ function buildAssemblyPlan(ctx, storyboardAtomPlan, entityPlan, registry, regist
       var paramKeys = Object.keys(params || {});
       for (var i = 0; i < paramKeys.length; i++) {
         if (params[paramKeys[i]] !== undefined && params[paramKeys[i]] !== '') {
+          if (moduleId === 'collect_on_near') {
+            var existingCount = Number(existing.params.count || 0);
+            var incomingCount = Number(params.count || 0);
+            if (paramKeys[i] === 'count' && existingCount > incomingCount && incomingCount <= 1) {
+              continue;
+            }
+            if ((paramKeys[i] === 'resource' || paramKeys[i] === 'item') && existing.params[paramKeys[i]] && existingCount > 1 && incomingCount <= 1) {
+              continue;
+            }
+          }
           existing.params[paramKeys[i]] = params[paramKeys[i]];
         }
       }

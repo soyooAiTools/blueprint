@@ -4,7 +4,7 @@
 // inside engine/stages/review.cjs `repairKnownStructuralDamage`.
 //
 // The pipeline runs 3 passes: (A) main file, (B) each partial file, (C) cross-file
-// + post re-runs. Passes A and B applied the SAME 17 single-file pre-repairs in the
+// + post re-runs. Passes A and B applied the SAME single-file pre-repairs in the
 // SAME order — that 34-if-block mirror is the duplication this lib removes (one
 // SHARED_BUNDLE array applied to main and to each partial).
 //
@@ -20,7 +20,7 @@
 // MUST precede stripExcessCameraBackgroundAssignments; normalizePhaseGateConditional
 // MUST precede renameDuplicatePhaseGateMoveVars. Do not reorder SHARED_BUNDLE.
 
-// [fnName, fixTag, wantsBlueprintArg] — the 17 single-file pre-repairs applied
+// [fnName, fixTag, wantsBlueprintArg] — the single-file pre-repairs applied
 // identically to mainCode (Pass A) and to each partial (Pass B).
 var SHARED_BUNDLE = [
   ['collapseLegacyCheckEventRulesStub',           'LegacyCheckEventRulesStub',     false],
@@ -31,8 +31,11 @@ var SHARED_BUNDLE = [
   ['stripEarlyShowCTA',                           'EarlyShowCTA',                  false],
   ['normalizeFinishGameTerminalFlow',             'FinishGameFlow',                false],
   ['rewriteHotPathVectorAllocations',             'HotVectorAlloc',                false],
+  ['guardFloatingTextTransformPosition',          'FloatingTextNullGuard',         false],
+  ['guardPlayerTransformDistanceReads',           'PlayerTransformDistanceGuard',  false],
   ['sanitizeNonAsciiResourceApiKeys',             'NonAsciiKey',                   false],
   ['stripExcessCameraBackgroundAssignments',      'CameraBackgroundOverride',      false],
+  ['repairMainCamSelfAssignment',                 'CameraMainSelfAssign',          false],
   ['rewriteCameraMainToMainCam',                  'CameraMainRewrite',             false],
   ['normalizeSetScaleCalls',                      'SetScaleNormalize',             false],
   ['repairPhaseGateRuntimeMoves',                 'PhaseGateRuntimeMove',          false],
@@ -46,6 +49,8 @@ var SHARED_BUNDLE = [
 // pre-repair functions (see PREREPAIR_FNS in review.cjs). Returns the same shape:
 // { code, extraFiles, changed, fixes }.
 function runAllPreRepairs(mainCode, extraFiles, blueprint, fns) {
+  var originalMainCode = mainCode;
+  var originalExtraFiles = Object.assign({}, extraFiles || {});
   var changed = false;
   var fixes = [];
 
@@ -79,6 +84,11 @@ function runAllPreRepairs(mainCode, extraFiles, blueprint, fns) {
   if (playerAssignFix.changed) {
     mainCode = playerAssignFix.code; extraFiles = playerAssignFix.extraFiles;
     changed = true; fixes.push('main:PlayerFieldAssignment x' + playerAssignFix.fixes);
+  }
+  var playerBridgeFix = fns.repairPlayerBridgePropertyFallback(mainCode, extraFiles);
+  if (playerBridgeFix.changed) {
+    mainCode = playerBridgeFix.code; extraFiles = playerBridgeFix.extraFiles;
+    changed = true; fixes.push('main:PlayerBridgeFallback x' + playerBridgeFix.fixes);
   }
   // ---- Pass A: shared bundle on main ----
   mainCode = applyShared(mainCode, 'main');
@@ -178,7 +188,16 @@ function runAllPreRepairs(mainCode, extraFiles, blueprint, fns) {
     changed = true; fixes.push('partials:PlayerAliasMemberAccessPost x' + finalPlayerAliasFix.fixes);
   }
 
-  return { code: mainCode, extraFiles: nextExtras, changed: changed, fixes: fixes };
+  var actualChanged = mainCode !== originalMainCode;
+  var originalNames = Object.keys(originalExtraFiles).sort();
+  var nextNames = Object.keys(nextExtras || {}).sort();
+  if (originalNames.length !== nextNames.length) actualChanged = true;
+  for (var ni = 0; ni < nextNames.length && !actualChanged; ni++) {
+    var name = nextNames[ni];
+    if (name !== originalNames[ni] || (nextExtras[name] || '') !== (originalExtraFiles[name] || '')) actualChanged = true;
+  }
+
+  return { code: mainCode, extraFiles: nextExtras, changed: actualChanged, fixes: actualChanged ? fixes : [] };
 }
 
 module.exports = { runAllPreRepairs: runAllPreRepairs, SHARED_BUNDLE: SHARED_BUNDLE };

@@ -92,6 +92,11 @@ function scrubCheckpointFor(fromStage, checkpoint) {
     delete checkpoint.csCode;
     delete checkpoint.extraFiles;
   }
+  if (STAGE_ORDER.indexOf(fromStage) <= STAGE_ORDER.indexOf('compile')) {
+    delete checkpoint.htmlOutput;
+    delete checkpoint.hasHtmlOutput;
+    delete checkpoint.previewReadyAt;
+  }
   return checkpoint;
 }
 

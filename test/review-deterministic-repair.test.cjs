@@ -225,6 +225,33 @@ vm.runInContext([
     'using UnityEngine;',
     'public partial class GameFlowManagerMain',
     '{',
+    '    GameObject PlayerCharacter;',
+    '    // [AUTO-REPAIR] Compile-safe player bridge property for generated templates.',
+    '    GameObject player',
+    '    {',
+    '        get',
+    '        {',
+    '            var gp = GFM_Player.Instance;',
+    '            return gp != null ? gp.Go : null;',
+    '        }',
+    '    }',
+    '    void UpdateEnemy(float dt) {',
+    '        if (Enemy == null) return;',
+    '        float dist = Vector3.Distance(Enemy.transform.position, player.transform.position);',
+    '    }',
+    '}',
+  ].join('\n');
+  const result = reviewStage.repairKnownStructuralDamage(main, {}, {});
+  assert.strictEqual(result.changed, true);
+  assert.match(result.code, /if \(gp != null && gp\.Go != null\) return gp\.Go;/);
+  assert.match(result.code, /return PlayerCharacter;/);
+}
+
+{
+  const main = [
+    'using UnityEngine;',
+    'public partial class GameFlowManagerMain',
+    '{',
     '    GameObject player;',
     '    void Start() { player = GFM_Player.Instance.Go; }',
     '}',

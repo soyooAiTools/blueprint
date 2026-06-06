@@ -106,14 +106,9 @@ function mergeEntityDetailsByCanonicalKey(entityDetails) {
 }
 
 function indexContract(contract) {
-  // Build phase-keyed view so a single page-load can diff phases sequentially.
   const phasesById = {};
   for (const p of contract.phases || []) phasesById[p.id] = p;
 
-  // Entities are phase-agnostic in the contract (geometry is static).
-  // visible-per-phase derives from phase.showEntities[]/hideEntities[].
-  // (3) v0.5 schema uses `id` (===name) not `entityFamily`. Key by canonical id
-  // so `_player` and `Player` both resolve.
   const entitiesByFamily = {};
   for (const e of contract.entities || []) {
     const key = canonicalEntityKey(e.id || e.name);
@@ -139,23 +134,15 @@ function indexContract(contract) {
   return { contract, phasesById, entitiesByFamily, hudById, uiOverlayEntities };
 }
 
-// Compute the set of entity families that should be VISIBLE in a given phase.
-// Honors phase.showEntities[] (additive) and phase.hideEntities[] (subtractive).
-// Player and SpaceShip persist across phases per source-HTML setVisible() rule
-// (models.Player.visible=true always; SpaceShip if shipLevel>0 OR in showEntities).
-// (4) All entries returned in canonical form.
 function expectedVisibleForPhase(indexed, phaseId) {
   const phase = indexed.phasesById[phaseId];
   if (!phase) return null;
   const set = new Set();
   for (const x of (phase.showEntities || [])) set.add(canonicalEntityKey(x));
   for (const x of (phase.hideEntities || [])) set.delete(canonicalEntityKey(x));
-  // Player always present (source-HTML invariant).
   set.add('Player');
   return set;
 }
-
-// ─── Tolerance helpers ──────────────────────────────────────────────────────────
 
 function floatEq(a, b, eps) {
   if (a === b) return true;
@@ -179,17 +166,12 @@ function setEq(a, b) {
   return true;
 }
 
-// ─── Bucket 1: entities ────────────────────────────────────────────────────────
-
 function diffEntitiesBucket(indexed, phaseId, observed) {
   const entries = [];
   const expectedVisible = expectedVisibleForPhase(indexed, phaseId);
-  // (4) canonicalize observed visible set so a probe emitting `_player`,
-  //     `Player`, or any case-variant collapses to the same canonical key.
   const observedVisible = new Set();
   for (const x of (observed.visibleEntities || [])) observedVisible.add(canonicalEntityKey(x));
 
-  // missing: expected visible, not observed visible
   for (const name of expectedVisible) {
     if (!observedVisible.has(name)) {
       entries.push({
@@ -201,12 +183,9 @@ function diffEntitiesBucket(indexed, phaseId, observed) {
       });
     }
   }
-  // extra: observed visible, not expected — PHANTOM detection (e.g. _gold/_scrap/_ice)
+
   for (const name of observedVisible) {
     if (!expectedVisible.has(name)) {
-      // task #31: source-declared UI overlays (CTA/Canvas/Joystick) are real
-      // screen-space controls, not world entity phantoms. Only suppress them
-      // when the contract explicitly carries sourceEntityContract.uiOverlayContract.
       if (indexed.uiOverlayEntities && indexed.uiOverlayEntities.has(name)) continue;
       entries.push({
         entityFamily: name,
@@ -217,9 +196,7 @@ function diffEntitiesBucket(indexed, phaseId, observed) {
       });
     }
   }
-  // mismatch: both visible, but per-primitive transform/material drifts
-  // (caller may pass observed.entityDetails[name] = { primitives:[{id, position, color}] })
-  // observed.entityDetails keys are also canonicalized to bridge probe shape.
+
   if (observed.entityDetails) {
     const canonDetails = mergeEntityDetailsByCanonicalKey(observed.entityDetails);
     for (const name of expectedVisible) {
@@ -244,10 +221,6 @@ function diffEntitiesBucket(indexed, phaseId, observed) {
 
 function diffEntityPrimitives(expected, observed) {
   const diffs = [];
-  // Skip when extractor did not surface a primitives array at all — a partial
-  // entityDetails snapshot (e.g. only worldLabel populated by #49) must not be
-  // misread as "all primitives missing". The primitiveStyle bucket has its own
-  // dedicated gate for modelRef/baseColor coverage.
   if (!observed || !Array.isArray(observed.primitives)) return diffs;
   const expPrims = expected.primitives || [];
   const obsPrims = observed.primitives || [];
@@ -260,11 +233,9 @@ function diffEntityPrimitives(expected, observed) {
       diffs.push({ path: `$.primitives[${ep.primitiveId || ep.id}]`, expected: '<present>', observed: '<missing>' });
       continue;
     }
-    // mesh kind
     if (ep.mesh && op.mesh && ep.mesh.kind !== op.mesh.kind) {
       diffs.push({ path: `$.primitives[${ep.primitiveId}].mesh.kind`, expected: ep.mesh.kind, observed: op.mesh.kind });
     }
-    // transform.localPosition
     if (ep.transform && op.transform && !vec3Eq(ep.transform.localPosition, op.transform.localPosition)) {
       diffs.push({
         path: `$.primitives[${ep.primitiveId}].transform.localPosition`,
@@ -272,7 +243,6 @@ function diffEntityPrimitives(expected, observed) {
         observed: op.transform.localPosition,
       });
     }
-    // material colors — 3 independent: _BaseColor / _ColorTint / _EmissionColor
     if (ep.material && ep.material.colors && op.material && op.material.colors) {
       for (const k of ['_BaseColor', '_Color', '_ColorTint', '_EmissionColor']) {
         if (ep.material.colors[k] && op.material.colors[k] &&
@@ -299,8 +269,6 @@ function provenanceForEntity(indexed, name) {
   };
 }
 
-// ─── Bucket 2: phases ──────────────────────────────────────────────────────────
-
 function diffPhasesBucket(indexed, phaseId, observed) {
   const phase = indexed.phasesById[phaseId];
   if (!phase) {
@@ -312,17 +280,11 @@ function diffPhasesBucket(indexed, phaseId, observed) {
     }];
   }
   const entries = [];
-  // (4) canonicalize show/hide so contract `_player`-form and source-HTML
-  //     `Player`-form both round-trip to the same key in the set-diff.
   const expShowList = (phase.showEntities || []).map(canonicalEntityKey);
   const expHideList = (phase.hideEntities || []).map(canonicalEntityKey);
   const exp = {
     showEntities: expShowList,
     hideEntities: expHideList,
-    // expected guideText: fidelity-contract-synthesize writes it at phase.phaseSpec.guideText
-    // (and phase.manualGate.guideText); older templates used phase.trigger.guideText /
-    // phase.guideText. Read all forms — the empty fallback was the contract-synthesis path gap
-    // (diff read phase.trigger.guideText, synthesize wrote phaseSpec) that left expected blank.
     guideText: (phase.phaseSpec && phase.phaseSpec.guideText)
       || (phase.manualGate && phase.manualGate.guideText)
       || (phase.trigger && phase.trigger.guideText)
@@ -332,9 +294,6 @@ function diffPhasesBucket(indexed, phaseId, observed) {
   const obs = observed.phaseSpec || {};
   const diffPaths = [];
 
-  // showEntities — order-insensitive, canonical. (6) gate on observed presence
-  // so extractors that can't observe phase intent (e.g. PlayCanvas build has no
-  // PHASES global) skip this signal instead of always popping a diff.
   if (obs.showEntities !== undefined) {
     const expShow = new Set(expShowList);
     const obsShow = new Set(obs.showEntities.map(canonicalEntityKey));
@@ -350,11 +309,11 @@ function diffPhasesBucket(indexed, phaseId, observed) {
       });
     }
   }
-  // guideText — byte-exact
+
   if (obs.guideText !== undefined && exp.guideText !== obs.guideText) {
     diffPaths.push({ path: '$.guideText', expected: exp.guideText, observed: obs.guideText });
   }
-  // targetEntity — canonical
+
   const obsTarget = obs.targetEntity === undefined ? undefined : (canonicalEntityKey(obs.targetEntity) || null);
   if (obsTarget !== undefined && exp.targetEntity !== obsTarget) {
     diffPaths.push({ path: '$.targetEntity', expected: exp.targetEntity, observed: obsTarget });
@@ -372,24 +331,8 @@ function diffPhasesBucket(indexed, phaseId, observed) {
   return entries;
 }
 
-// ─── Bucket 3: hud ─────────────────────────────────────────────────────────────
-
-// Fold (8) Q1: hud entries whose id matches this pattern are world-space entity
-// labels (e.g. id `label.Player`, diffPath `hud.label.Player`), reclassified
-// into the worldLabel bucket and excluded from hud-{missing,mismatch}. v0.5
-// transitional shape; v0.6 forward expresses these as `entities[].worldLabel`.
-// (Verified against `space-ranger-v3-hook-candidate` contract: hud[].id uses
-//  `label.<EntityName>` prefix; the `hud.` prefix in the diff report path is
-//  the bucket name added by the diff renderer.)
 const WORLD_LABEL_HUD_ID_RE = /^label\./;
 
-// task #45 (v1.3) Blocker #3 fix: shape-discriminated severity dispatch.
-// v1.3 rich-record worldLabel = { text:<str>, worldOffset:{x,y,z}, color?, fontSize?, consumer? }
-//   is a normative gate field — missing/mismatch BLOCKS acceptance (youth red line:
-//   "模型一致 + 视觉一致", #45 acceptance includes worldLabel).
-// v0.5 plain string / v1.1 polymorphic { default?, perPhase? } legacy spec
-//   stays advisory (HTML overlay target legitimately doesn't render world-space
-//   labels in those era contracts — preserves backward-compat behavior).
 function isV13RichWorldLabel(spec) {
   if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) return false;
   if (typeof spec.text !== 'string') return false;
@@ -397,13 +340,6 @@ function isV13RichWorldLabel(spec) {
   return wo !== null && typeof wo === 'object' && !Array.isArray(wo);
 }
 
-// task #52 (v1.4d-ε): hud slots whose text is phase-dynamic at runtime
-// (source HTML phaseTimeline tick rewrites textContent every phase). For
-// schemaVersion < 1.4.0 contracts that author these as plain strings (only
-// phase1 values), per-phase mismatches downgrade to advisory (blocking:false)
-// to preserve backward-compat. v1.4.0+ contracts MUST author polymorphic
-// {perPhase: {...}} records — plain-string text on these ids at v1.4.0+ is
-// an authoring bug and stays blocking.
 var V14D_POLYMORPHIC_ELIGIBLE_HUD_IDS = new Set(['hud.phase', 'hud.tip', 'hud.targethint']);
 
 function gteVersionLocal(a, target) {
@@ -418,9 +354,6 @@ function gteVersionLocal(a, target) {
   return true;
 }
 
-// Fold (8) Q2: resolve a polymorphic text spec. Accepts a plain string (phase-
-// constant) or `{default?: string, perPhase?: {phaseId: string}}`. Returns the
-// resolved string for the given phaseId, or `undefined` if no text applies.
 function resolvePolymorphicText(spec, phaseId) {
   if (spec === undefined || spec === null) return undefined;
   if (typeof spec === 'string') return spec;
@@ -429,9 +362,6 @@ function resolvePolymorphicText(spec, phaseId) {
       return spec.perPhase[phaseId];
     }
     if (Object.prototype.hasOwnProperty.call(spec, 'default')) return spec.default;
-    // task #45 (v1.3): rich worldLabel record { text, worldOffset, ... } —
-    // text is phase-constant. Falls through after perPhase/default to keep
-    // v1.1 polymorphic-text behavior strictly first.
     if (typeof spec.text === 'string') return spec.text;
   }
   return undefined;
@@ -539,12 +469,9 @@ function diffHudBucket(indexed, phaseId, observed) {
   const v14dOrLater = gteVersionLocal(contractSchemaVersion, '1.4.0');
 
   for (const exp of expectedHud) {
-    // Fold (8) Q2: resolve polymorphic text per phase. undefined → text not
-    // defined for this phase → skip diff entirely (no expectation to match).
     const expectedText = resolvePolymorphicText(exp.text, phaseId);
     const obs = obsBySlot[exp.id];
     if (!obs) {
-      // Fold (8) Q3: empty-string-equals-missing tolerance for transient slots.
       if (expectedText === '' || expectedText === undefined) continue;
       entries.push({
         id: exp.id,
@@ -559,11 +486,9 @@ function diffHudBucket(indexed, phaseId, observed) {
     }
     if (expectedText === undefined) continue;
     const diffPaths = [];
-    // text — byte-exact (the canonical "Gold:" vs "金币" mismatch is captured here)
     if (obs.text !== undefined && expectedText !== obs.text) {
       diffPaths.push({ path: '$.text', expected: expectedText, observed: obs.text });
     }
-    // anchor.anchoredPosition
     if (obs.anchor && exp.anchor &&
         (!floatEq(exp.anchor.anchoredPosition.x, obs.anchor.anchoredPosition.x) ||
          !floatEq(exp.anchor.anchoredPosition.y, obs.anchor.anchoredPosition.y))) {
@@ -573,16 +498,10 @@ function diffHudBucket(indexed, phaseId, observed) {
         observed: obs.anchor.anchoredPosition,
       });
     }
-    // style.fontSize
     if (obs.style && exp.style && !floatEq(exp.style.fontSize, obs.style.fontSize)) {
       diffPaths.push({ path: '$.style.fontSize', expected: exp.style.fontSize, observed: obs.style.fontSize });
     }
     if (diffPaths.length > 0) {
-      // task #52 (v1.4d-ε): severity downgrade for pre-v1.4 contracts that
-      // authored phase-dynamic hud slots (hud.phase / hud.tip / hud.targethint)
-      // as plain-string text. Per-phase mismatches in that legacy shape stay
-      // advisory (blocking:false). v1.4.0+ contracts MUST use polymorphic
-      // {perPhase:...} — plain-string at v1.4.0+ is an authoring bug, blocking.
       const isPlainStringText = (typeof exp.text === 'string');
       const isPolymorphicEligible = V14D_POLYMORPHIC_ELIGIBLE_HUD_IDS.has(exp.id);
       const downgradeToAdvisory = (
@@ -600,7 +519,6 @@ function diffHudBucket(indexed, phaseId, observed) {
       });
     }
   }
-  // extras (observed hud not in contract — e.g. legacy "Gold:" label)
   for (const id of obsIds) {
     if (!expIds.has(id)) {
       entries.push({
@@ -615,26 +533,9 @@ function diffHudBucket(indexed, phaseId, observed) {
   return entries;
 }
 
-// Fold (8) Q1: worldLabel bucket. Reads expected world-space entity labels from
-// two sources: (a) v0.6 forward — `entities[].worldLabel` (polymorphic text or
-// v1.3 rich record); (b) v0.5 transitional — `hud[id^="hud.label."]` plain-text
-// entries (the 192 reclassified hud noise).
-//
-// task #45 (v1.3) Blocker #3 fix: shape-discriminated severity. Rich records
-// (v1.3, isV13RichWorldLabel(spec)) emit blocking:true — they're a normative
-// gate field consumed by the #46 writer overlay (modelRef + worldLabel together
-// define "model + visual" replication youth's red line). Legacy v0.5 plain
-// string / v1.1 polymorphic / v0.5 transitional hud.label.* still emit
-// blocking:false — HTML overlay target legitimately does not render world-
-// space labels in those era contracts.
-//
-// Observed `worldLabel` is read from `observed.entityDetails[name].worldLabel`
-// (target extractors that support world-space label capture will populate it;
-// absent extractors leave it undefined → missing diff).
 function diffWorldLabelBucket(indexed, phaseId, observed) {
   const entries = [];
   const expected = {};
-  // (a) v0.6 forward — including v1.3 rich record
   for (const e of (indexed.contract.entities || [])) {
     if (e.worldLabel === undefined) continue;
     const key = canonicalEntityKey(e.id || e.name);
@@ -646,13 +547,11 @@ function diffWorldLabelBucket(indexed, phaseId, observed) {
       isRich: isV13RichWorldLabel(e.worldLabel),
     };
   }
-  // (b) v0.5 transitional fallback (only if not already covered by v0.6 path).
-  // Plain hud.label.* entries are never rich-record shape → always advisory.
   for (const h of (indexed.contract.hud || [])) {
     if (!WORLD_LABEL_HUD_ID_RE.test(h.id)) continue;
     const entityName = h.id.replace(WORLD_LABEL_HUD_ID_RE, '');
     const key = canonicalEntityKey(entityName);
-    if (expected[key]) continue; // v0.6 entry wins
+    if (expected[key]) continue;
     expected[key] = {
       entityId: entityName,
       textSpec: h.text,
@@ -676,7 +575,6 @@ function diffWorldLabelBucket(indexed, phaseId, observed) {
     if (expectedText === undefined) continue;
     const obsText = observedLabels[key];
     if (obsText === undefined) {
-      // Q3 tolerance: empty expected + undefined observed = ok
       if (expectedText === '') continue;
       entries.push({
         entityId: spec.entityId,
@@ -702,16 +600,11 @@ function diffWorldLabelBucket(indexed, phaseId, observed) {
   return entries;
 }
 
-// ─── Bucket 4: scene (v1.3) ────────────────────────────────────────────────────
-// task #45 (v1.3): expected `contract.scene.backgroundColor` (linear-RGB
-// 3-element array 0..1) vs observed actual render color. The runtime bridge is
-// auxiliary only: if it disagrees with canvas/camera evidence, block so a
-// declarative false-green cannot hide the rendered frame.
 function diffSceneBucket(indexed, phaseId, observed) {
   const entries = [];
   const exp = indexed.contract.scene;
   if (!exp || !Array.isArray(exp.backgroundColor) || exp.backgroundColor.length < 3) {
-    return entries; // pre-v1.3 contract has no scene block
+    return entries;
   }
   const expBg = exp.backgroundColor;
   const obsScene = observed && observed.scene;
@@ -772,14 +665,6 @@ function diffSceneBucket(indexed, phaseId, observed) {
   return entries;
 }
 
-// ─── Bucket 5: primitiveStyle (v1.3) ───────────────────────────────────────────
-// task #45 (v1.3): per-entity `entity.primitiveStyle = {modelRef, baseColor[,
-// baseColorHex]}` reverse-extracted from source HTML by Path B producer. The
-// writer overlay (#46) must consume modelRef → real Luna mesh and baseColor →
-// material parameter; this bucket surfaces gaps. Blocking when contract declares
-// primitiveStyle but the entity is visible and observed style is missing/
-// mismatched. Entity-not-visible is the entities-bucket's job — skip here to
-// avoid double-counting.
 function diffPrimitiveStyleBucket(indexed, phaseId, observed) {
   const entries = [];
   const expectedVisible = expectedVisibleForPhase(indexed, phaseId);
@@ -791,7 +676,7 @@ function diffPrimitiveStyleBucket(indexed, phaseId, observed) {
   for (const name of expectedVisible) {
     const expEntity = indexed.entitiesByFamily[name];
     if (!expEntity || !expEntity.primitiveStyle) continue;
-    if (!observedVisible.has(name)) continue; // entities bucket already flags this
+    if (!observedVisible.has(name)) continue;
     const expStyle = expEntity.primitiveStyle;
     const obs = canonDetails[name];
     const obsStyle = obs && obs.primitiveStyle;
@@ -838,8 +723,6 @@ function diffPrimitiveStyleBucket(indexed, phaseId, observed) {
   return entries;
 }
 
-// ─── Top-level per-phase diff ──────────────────────────────────────────────────
-
 function diffPhase(indexed, phaseId, observed) {
   const entities = diffEntitiesBucket(indexed, phaseId, observed);
   const phases = diffPhasesBucket(indexed, phaseId, observed);
@@ -881,14 +764,6 @@ function buildReport({ contractPath, sourceKind, observedKind, perPhase, produce
   };
 }
 
-// ─── Page-side extractors (run inside Playwright page.evaluate) ────────────────
-// Two flavors: SOURCE_PAGE_EXTRACTOR (source HTML, Three.js, DOM HUD) and
-// WEBGL_PAGE_EXTRACTOR (PlayCanvas/Luna build, scene walk + bp-storyboard DOM).
-// `makePageExtractor({targetKind})` returns the appropriate one. Backwards-compat
-// alias `PAGE_EXTRACTOR` = `SOURCE_PAGE_EXTRACTOR`.
-// Returns a snapshot in the shape diff* functions expect:
-//   { phaseId, visibleEntities, entityDetails, phaseSpec, hud, extractorKind }
-
 const SOURCE_PAGE_EXTRACTOR = function(args) {
   const { phaseId } = args || {};
   const out = {
@@ -899,10 +774,6 @@ const SOURCE_PAGE_EXTRACTOR = function(args) {
     hud: [],
     worldLabels: {},
   };
-  // Visible entities: from __gameState if present, else fallback to entity_states.
-  // Source HTML exposes __gameState as a fn; some target builds (v2 demo2spec line 10135
-  // `window.__gameState=best.state;`) expose it as a plain object. Handle both shapes —
-  // see (5) in header. Canonical as of @0.3.
   let gs = null;
   if (typeof window !== 'undefined' && window.__gameState != null) {
     gs = (typeof window.__gameState === 'function') ? window.__gameState() : window.__gameState;
@@ -911,7 +782,6 @@ const SOURCE_PAGE_EXTRACTOR = function(args) {
   else if (gs && gs.entity_states) {
     out.visibleEntities = Object.keys(gs.entity_states).filter(n => gs.entity_states[n].visible);
   }
-  // phaseSpec: derive from window.PHASES + current phase
   if (typeof window !== 'undefined' && Array.isArray(window.PHASES)) {
     const idx = (gs && typeof gs.phase === 'string') ? parseInt(gs.phase.replace('phase', ''), 10) - 1 : 0;
     const p = window.PHASES[idx];
@@ -924,7 +794,6 @@ const SOURCE_PAGE_EXTRACTOR = function(args) {
       };
     }
   }
-  // hud: scan known IDs (canonical 9 slot names from v0.5 contract)
   const HUD_SELECTORS = {
     'hud.coin':       '#coinHud',
     'hud.ice':        '#iceHud',
@@ -950,13 +819,6 @@ const SOURCE_PAGE_EXTRACTOR = function(args) {
   return out;
 };
 
-// PlayCanvas / Luna build extractor — handles target builds emitted by the
-// blueprint-editor worker bridge (LunaUnity.Application + pc.Application).
-// Reads: window.__gameState (object form, populated ~500ms after start by GFM
-// scan), pc.app.root scene tree for entity visibility, and the storyboard
-// overlay DOM (`#bp-storyboard-*` created at runtime by installStoryboardDomHud).
-// Leaves phaseSpec.showEntities/hideEntities UNDEFINED on purpose so the
-// phase-diff bucket gating in (6) skips signals the runtime can't observe.
 const WEBGL_PAGE_EXTRACTOR = function(args) {
   const safeArgs = args || {};
   const phaseId = safeArgs.phaseId;
@@ -969,7 +831,6 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
     worldLabels: {},
     extractorKind: 'webgl-playcanvas',
   };
-  // 1. Resolve PlayCanvas application.
   let pcApp = null;
   try {
     if (typeof window !== 'undefined') {
@@ -980,7 +841,6 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
     }
   } catch (e) { pcApp = null; }
 
-  // 2. Resolve __gameState (object form by GFM scan, fn form on source HTML).
   let gs = null;
   try {
     if (typeof window !== 'undefined' && window.__gameState != null) {
@@ -988,46 +848,57 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
     }
   } catch (e) { gs = null; }
 
-  // 3. visibleEntities — __gameState.entity_states is the AUTHORITATIVE per-entity,
-  //    phase-correct game state. The PC scene-tree walk only SUPPLEMENTS it with
-  //    entities entity_states does not track. Two guards stop the walk from
-  //    manufacturing phantoms (root-caused 2026-06-01 on the Option-C source-faithful
-  //    build — composite mesh path; memory optionc_pilot_round3):
-  //      • Unity GameObject.CreatePrimitive default node names (Cube/Sphere/Cylinder/
-  //        Plane/Capsule/Quad) are composite SUB-PARTS, never entities — skip them.
-  //      • never flip an entity entity_states explicitly marks hidden back to visible:
-  //        the composite root stays `enabled` in the scene tree even when the game has
-  //        hidden it (moved off-screen / state=hidden), so the tree walk alone over-reports.
+  function hasEntityStatesShape(candidate) {
+    return !!(candidate && typeof candidate === 'object' &&
+      ((candidate.entity_states && typeof candidate.entity_states === 'object') ||
+       (candidate.entityStates && typeof candidate.entityStates === 'object')));
+  }
+
+  function normalizeGameState(candidate) {
+    let cur = candidate;
+    for (let i = 0; i < 8; i++) {
+      if (!cur || typeof cur !== 'object') return cur;
+      if (hasEntityStatesShape(cur)) return cur;
+      const next = cur.state ||
+        cur.gameState ||
+        cur.game_state ||
+        cur.runtimeState ||
+        cur.runtime_state ||
+        cur.current ||
+        cur.data;
+      if (!next || next === cur) return cur;
+      cur = next;
+    }
+    return cur;
+  }
+
+  function getEntityStates(candidate) {
+    if (!candidate || typeof candidate !== 'object') return null;
+    const states = candidate.entity_states || candidate.entityStates;
+    return states && typeof states === 'object' ? states : null;
+  }
+
+  gs = normalizeGameState(gs);
+  const authoritativeEntityStates = getEntityStates(gs);
+  const hasAuthoritativeEntityState = !!authoritativeEntityStates;
+
   const visible = {};
   const stateHidden = {};
-  if (gs && gs.entity_states && typeof gs.entity_states === 'object') {
-    const keys = Object.keys(gs.entity_states);
+  if (hasAuthoritativeEntityState) {
+    const keys = Object.keys(authoritativeEntityStates);
     for (let i = 0; i < keys.length; i++) {
-      const st = gs.entity_states[keys[i]];
+      const st = authoritativeEntityStates[keys[i]];
       if (st && st.visible !== false) visible[keys[i]] = true;
       else stateHidden[keys[i]] = true;
     }
   }
-  // The build's JS storyboard overlay (applyStoryboardVisualOverlay) emits one
-  // StoryboardEntity_<Name> node per source entity — these ARE the rendered, phase-managed
-  // source visuals (shown/hidden per phase). When present they are the AUTHORITATIVE on-screen
-  // visibility and supersede both the entity_states scan and the CamelCase tree walk, which
-  // mis-report on the Option-C composite path (composite roots stay always-enabled; the player
-  // composite is parked off-screen; the player node is named 'player', not 'Player'). Captured
-  // separately so the decorative Storyboard* nodes (Ground/Star/Orbit/VisualOverlay) stay skipped.
   const storyboardEntities = {};
-  if (pcApp && pcApp.root) {
-    // SKIP — generic runtime/scaffold names that pollute the entity set with
-    // extras the contract doesn't list. Exact-match set + prefix list. Sam end-to-end
-    // 08:16 verdict surfaced 5 phantoms/phase from these: Untitled / EventSystem /
-    // StoryboardGround / StoryboardStar / StoryboardOrbit.
+  if (!hasAuthoritativeEntityState && pcApp && pcApp.root) {
     const SKIP = {
       '__BaseTemplate': 1, '__LunaPool': 1,
       '__AUTOPLAY_ON__': 1, '__CUA_OBSERVER_READY__': 1,
       'Untitled': 1, 'EventSystem': 1, 'Canvas': 1,
     };
-    // Unity primitive-default names — composite parts emitted by GFM_Create.AddCompositePart,
-    // not game entities. Adding them as "visible entities" produced entity-extra phantoms.
     const PRIMITIVE_NAMES = { Cube: 1, Sphere: 1, Cylinder: 1, Plane: 1, Capsule: 1, Quad: 1 };
     const SKIP_PREFIX = ['Storyboard'];
     const isSkipped = function(n) {
@@ -1045,9 +916,6 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
       const name = node._name || node.name || '';
       const sbm = name && name.indexOf('StoryboardEntity_') === 0 ? name.slice('StoryboardEntity_'.length) : null;
       if (sbm && node.enabled !== false) storyboardEntities[sbm] = true;
-      // Top-level CamelCase entity names (Player, OxygenShop, …) the contract cares about.
-      // Pool-managed entities, Luna runtime markers, primitive sub-parts, and entities the
-      // authoritative game state has hidden are all skipped.
       if (name && !isSkipped(name) && !stateHidden[name]
           && /^[A-Z][A-Za-z0-9]*$/.test(name) && node.enabled !== false) {
         visible[name] = true;
@@ -1056,20 +924,18 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
       for (let j = 0; j < children.length; j++) stack.push(children[j]);
     }
   }
-  if (Object.keys(storyboardEntities).length > 0) {
+  if (hasAuthoritativeEntityState) {
+    out.visibleEntities = Object.keys(visible);
+    out.visibleSource = 'entity_states';
+  } else if (Object.keys(storyboardEntities).length > 0) {
     out.visibleEntities = Object.keys(storyboardEntities);
     out.visibleSource = 'storyboard-overlay';
   } else {
     out.visibleEntities = Object.keys(visible);
-    out.visibleSource = gs && gs.entity_states ? 'entity_states+tree' : 'tree';
+    out.visibleSource = 'tree';
   }
 
-  // 4. phaseSpec — derive from __gameState (PlayCanvas build has no window.PHASES).
-  //    Leave showEntities/hideEntities undefined so (6) gating skips the diff.
   if (gs) {
-    // Prefer the VISIBLE guide instruction (#bp-storyboard-tip) — the build drives it from
-    // the source storyboard's per-phase guideText, so this reads what the player actually sees
-    // (source-faithful) rather than the game's internal SetGuideText copy. Fall back to game state.
     var tipEl = (typeof document !== 'undefined' && document.getElementById) ? document.getElementById('bp-storyboard-tip') : null;
     var tipText = tipEl ? (tipEl.textContent || '').trim() : '';
     out.phaseSpec.guideText = tipText ||
@@ -1080,9 +946,6 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
                                  gs.targetEntity || null;
   }
 
-  // 5. HUD — bp-storyboard-* DOM overlay (created by installStoryboardDomHud).
-  //    Maps to the same canonical hud.* ids the source extractor uses so the
-  //    diff bucket treats both extractor flavors uniformly.
   const TARGET_HUD_SELECTORS = {
     'hud.coin':       '#bp-storyboard-coin',
     'hud.ice':        '#bp-storyboard-ice',
@@ -1106,10 +969,6 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
     }
   }
 
-  // 6. scene background — actual-render evidence first.
-  //     Canvas samples are the primary truth for "what pixels were painted".
-  //     The worker bridge remains auxiliary metadata; if bridge and actual
-  //     render disagree, diffSceneBucket blocks that false-green explicitly.
   try {
     function clamp01(n) {
       n = Number(n);
@@ -1267,18 +1126,8 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
       if (cameraBg) out.scene.cameraBackgroundColor = cameraBg;
       out.scene.backgroundColorSource = canvasBg ? 'canvas-readpixels' : (cameraBg ? 'camera-clearColor' : 'bridge');
     }
-  } catch (e) { /* leave scene missing on extractor error */ }
+  } catch (e) {}
 
-  // 6a. worldLabel DOM overlay — task #49 v1.4c-β. The worker installs
-  //     `#bp-storyboard-worldlabels > .bp-worldlabel[data-entity]` divs, one per
-  //     contract.entities[].worldLabel. Extractor reads text regardless of
-  //     visibility (DOM presence is the gate).
-  //     Populates observed.entityDetails[entityName].worldLabel string that
-  //     diffWorldLabelBucket compares against rich worldLabel.text.
-  //     v1.4e also reads screen-space rects from the worker bridge
-  //     `window.__targetWorldLabels` or, as a fallback, DOM getBoundingClientRect.
-  //     The result is normalized back to the contract viewport (default 1280x720)
-  //     and exposed as observed.worldLabels[entityId].
   try {
     function viewportBaselineForWorldLabels() {
       var fallback = { width: 1280, height: 720 };
@@ -1380,14 +1229,8 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
         writeWorldLabelRect(key, bridgeForPhase[key]);
       }
     }
-  } catch (e) { /* leave entityDetails empty on extractor error */ }
+  } catch (e) {}
 
-  // 6b. primitiveStyle runtime bridge — task #50 v1.4c-gamma. The worker overlay
-  //     consumes contract.entities[].primitiveStyle to choose a styled composite
-  //     and exposes the consumed {modelRef, baseColor} at
-  //     window.__storyboardEntityDetails[entity].primitiveStyle. Read that exact
-  //     runtime surface back so the primitiveStyle bucket verifies consumption
-  //     instead of staying missing while geometry is present.
   try {
     if (typeof window !== 'undefined' && window.__storyboardEntityDetails
         && typeof window.__storyboardEntityDetails === 'object') {
@@ -1409,18 +1252,13 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
         if (detail.primitiveCount != null) out.entityDetails[entId].primitiveCount = detail.primitiveCount;
       }
     }
-  } catch (e) { /* leave primitiveStyle missing on extractor error */ }
+  } catch (e) {}
 
   return out;
 };
 
-// Backwards-compat alias for callers wired against the @0.3 single-extractor API.
 const PAGE_EXTRACTOR = SOURCE_PAGE_EXTRACTOR;
 
-// Extractor factory — pick by targetKind. Callers in `fidelity-source-diff.cjs`
-// pass 'source' when capturing the canonical source HTML and 'webgl-playcanvas'
-// when capturing the produced build. Unknown kinds fall back to source extractor
-// so existing wiring keeps working.
 function makePageExtractor(opts) {
   const safeOpts = opts || {};
   const kind = safeOpts.targetKind || 'source';
@@ -1452,21 +1290,6 @@ function filterComparableAnchors(anchors) {
   return comparable;
 }
 
-// ─── v1.2.0 anchor bucket ──────────────────────────────────────────────────────
-// runAnchorDiff: compares per-phase per-entity screen-space anchor rects from
-// the contract (expectedAnchors) against target-runtime anchors (actualAnchors,
-// exposed by Jonny's writer at `window.__targetAnchors`). Both are
-// `{ entityId: { x_px, y_px, w_px, h_px, ... } }` shaped.
-//
-// PERSISTENCE BOUNDARY (locked v6.1, Tim msg=612c753c + Jonny msg=0ec2b725):
-//   viewportIntersection is DERIVED HERE from expected x/y/w/h at consume time —
-//   never read from the contract record (visibility booleans MUST NOT be in
-//   anchor records). Off-viewport expected anchors route to advisory
-//   ('anchor-mismatch-off-viewport', blocking:false) so source-positioned-
-//   offscreen entities don't flood the blocking bucket.
-//
-// Category prefix 'anchor-*' so the stage-layer bucket aggregator
-// (split('-')[0]) routes entries into the 'anchor' bucket.
 function runAnchorDiff(phaseId, expectedAnchors, actualAnchors, viewport, tolerancePx) {
   const entries = [];
   if (!expectedAnchors || typeof expectedAnchors !== 'object') return entries;
@@ -1483,7 +1306,6 @@ function runAnchorDiff(phaseId, expectedAnchors, actualAnchors, viewport, tolera
     const y = Number(exp.y_px) || 0;
     const w = Number(exp.w_px) || 0;
     const h = Number(exp.h_px) || 0;
-    // Bbox-rect intersection vs top-left origin viewport (NOT center-point).
     const vpIntersect = (x + w) >= 0 && x <= W && (y + h) >= 0 && y <= H;
     const category = vpIntersect ? 'anchor-mismatch' : 'anchor-mismatch-off-viewport';
     const blocking = vpIntersect;
@@ -1528,17 +1350,6 @@ function runAnchorDiff(phaseId, expectedAnchors, actualAnchors, viewport, tolera
   return entries;
 }
 
-// task #57 (v1.4e Axis A): Stage 5 world-label position diff. Parallels
-// runAnchorDiff with these distinctions:
-//   - Field names use DOM-rect convention {x, y, width, height} (Jonny msg=
-//     fd1a7e7a interface lock), not {x_px, y_px, w_px, h_px}.
-//   - Records with provenance='no-label' are SKIPPED entirely (legitimate
-//     Sprite-less entity, not a drift signal).
-//   - Severity is gated by `enforceBlocking` (caller passes true at
-//     schemaVersion>=1.5.0, false pre-1.5.0). Off-viewport always advisory.
-//   - Default tolerance is ±7px (Jonny lock; tighter than ±8 anchor).
-//   - Category prefix 'worldLabel-position-*' so the stage-layer bucket
-//     aggregator (split('-')[0]) routes entries into the 'worldLabel' bucket.
 function runWorldLabelPositionDiff(phaseId, expectedLabels, actualLabels, viewport, tolerancePx, enforceBlocking) {
   const entries = [];
   if (!expectedLabels || typeof expectedLabels !== 'object') return entries;
@@ -1550,8 +1361,6 @@ function runWorldLabelPositionDiff(phaseId, expectedLabels, actualLabels, viewpo
   for (const entId of Object.keys(expectedLabels)) {
     const exp = expectedLabels[entId];
     if (!exp || typeof exp !== 'object') continue;
-    // no-label provenance is a legitimate terminal state (entity has no
-    // Sprite child) — suppress all severity here.
     if (exp.provenance === 'no-label') continue;
     const x = Number(exp.x) || 0;
     const y = Number(exp.y) || 0;
@@ -1559,8 +1368,6 @@ function runWorldLabelPositionDiff(phaseId, expectedLabels, actualLabels, viewpo
     const h = Number(exp.height) || 0;
     const vpIntersect = (x + w) >= 0 && x <= W && (y + h) >= 0 && y <= H;
     const category = vpIntersect ? 'worldLabel-position-mismatch' : 'worldLabel-position-mismatch-off-viewport';
-    // Off-viewport always downgrades to advisory; on-viewport follows
-    // schemaVersion gate (advisory pre-v1.5, blocking at v1.5+).
     const blocking = baseBlocking && vpIntersect;
     const act = actual[entId];
     if (!act || typeof act !== 'object') {
@@ -1603,8 +1410,6 @@ function runWorldLabelPositionDiff(phaseId, expectedLabels, actualLabels, viewpo
   return entries;
 }
 
-// ─── Module exports ────────────────────────────────────────────────────────────
-
 module.exports = {
   SCHEMA_VERSION,
   FLOAT_EPSILON,
@@ -1628,17 +1433,10 @@ module.exports = {
   filterComparableAnchors,
   runAnchorDiff: runAnchorDiff,
   runWorldLabelPositionDiff: runWorldLabelPositionDiff,
-  // Sam compat: drop-in for runFieldLevelDiff(template, phaseId, sourceFields, targetFields).
-  // template = { indexed }
-  // sourceFields / targetFields = page extractor output snapshots
   runFieldLevelDiff: function(template, phaseId, sourceFields, targetFields) {
     if (!template || !template.indexed) {
       return [{ path: 'template', source: '<missing>', target: '<missing>', category: 'no-template' }];
     }
-    // Per Sam's stage interface: the source is the canonical truth (contract was
-    // reverse-extracted FROM source HTML), so we diff TARGET against contract only.
-    // If both source and target diff, source diff = contract gap (extractor bug);
-    // target diff = real visual drift (the case we're hunting).
     const tgtBuckets = template.diffPhase(phaseId, targetFields);
     const flat = [];
     for (const e of tgtBuckets.entities) {
@@ -1650,18 +1448,9 @@ module.exports = {
     for (const h of tgtBuckets.hud) {
       flat.push({ path: 'hud.' + h.id, source: '<contract>', target: h.status, category: 'hud-' + h.status, diffPaths: h.diffPaths, blocking: h.blocking !== false });
     }
-    // Fold (8.1) + task #45 Blocker #3: flatten worldLabel bucket so stage-
-    // layer callers see entries. Transparently pass through the bucket's
-    // `blocking` flag (v1.3 rich record → true, v1.1 polymorphic / v0.5 plain
-    // → false) instead of hard-coding false. Sam 08:53 + Jonny msg=9307fdee
-    // diagnosed the prior hard-coded false as the surface that swallowed v1.3
-    // worldLabel-missing into advisory.
     for (const w of (tgtBuckets.worldLabel || [])) {
       flat.push({ path: 'worldLabel.' + w.entityId, source: '<contract>', target: w.status, category: 'worldLabel-' + w.status, diffPaths: w.diffPaths, blocking: w.blocking === true });
     }
-    // task #45 (v1.3): flatten scene + primitiveStyle buckets. Both blocking by
-    // design — contract has the field, target overlay must render it; gap is the
-    // signal for #46 worker work.
     for (const s of (tgtBuckets.scene || [])) {
       flat.push({ path: 'scene.' + s.key, source: '<contract>', target: s.status, category: 'scene-' + s.status, diffPaths: s.diffPaths, blocking: s.blocking !== false });
     }
@@ -1670,7 +1459,6 @@ module.exports = {
     }
     return flat;
   },
-  // Convenience: build a template object Sam can stash on ctx.fidelityFieldDiffTemplate.
   makeTemplate: function(contractPath) {
     const contract = loadContract(contractPath);
     const indexed = indexContract(contract);
@@ -1686,17 +1474,10 @@ module.exports = {
       makePageExtractor,
     };
   },
-  // task #43 (v1.3c): same template shape but from an already-loaded in-memory
-  // contract (e.g. Path B producer's enriched v1.2 on ctx.blueprint.fidelityContract).
-  // Avoids round-tripping through a temp file when the canonical truth is already
-  // in memory — which was the actual bridge gap: source-diff was auto-loading
-  // the default v1.0 path on disk and ignoring the enriched v1.2 contract.
   makeTemplateFromContract: function(contract) {
     if (!contract || typeof contract !== 'object') {
       throw new Error('makeTemplateFromContract: contract must be an object');
     }
-    // Mirror loadContract's split-pack unwrap so callers can hand in either
-    // a bare contract or a writer-wrapped { contract: {...} }.
     const unwrapped = (contract.contract && Array.isArray(contract.contract.entities))
       ? contract.contract
       : contract;

@@ -31,9 +31,9 @@ assert.match(workerPlayerSource, /GFM_Joystick\.Create\(GFM_UIManager\.Instance\
 assert.match(workerPlayerSource, /private float _lastManualMoveRealtime = -1f;/, 'Player manual movement should track real time to resist CUA Update speed patching');
 assert.match(workerPlayerSource, /MovePlayer\(dt\);/, 'Player Tick should pass the scheduler dt into manual movement');
 assert.match(workerPlayerSource, /float now = Time\.realtimeSinceStartup;/, 'manual joystick movement should derive elapsed time from real time');
-assert.match(workerPlayerSource, /if \(safeDt > 0\.0167f\) safeDt = 0\.0167f;/, 'manual joystick movement should clamp large dt spikes to a 60fps frame budget');
-assert.match(workerPlayerSource, /new Vector3\(h, 0, v\)/, 'manual joystick vertical axis should match source HTML stick.dy -> world z');
-assert.doesNotMatch(workerPlayerSource, /new Vector3\(h, 0, -v\)/, 'manual joystick vertical axis must not be inverted');
+assert.match(workerPlayerSource, /if \(safeDt > 0\.025f\) safeDt = 0\.025f;/, 'manual joystick movement should clamp large dt spikes tightly enough for audit playback');
+assert.match(workerPlayerSource, /new Vector3\(-h, 0, -v\)/, 'manual joystick axes should map to screen-space movement under the storyboard camera');
+assert.doesNotMatch(workerPlayerSource, /new Vector3\(h, 0, -v\)/, 'manual joystick horizontal axis must not use the pre-storyboard camera mapping');
 const overlayCanvasSceneRe = /--- !u!223 &[0-9]+\nCanvas:[\s\S]*?m_RenderMode: 0[\s\S]*?m_PlaneDistance: 8[\s\S]*?m_SortingOrder: 100/;
 
 const duplicateEventSystemRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'eventsystem-dedupe-'));
@@ -902,8 +902,9 @@ try {
     assert.match(deliveryPlayer, /private void EnsureRuntimeComponents\(\)/, 'Player controller should create required runtime components for YAML-mounted scene objects');
     assert.match(deliveryPlayer, /mMovementComponent = \(GMP_MovementComponent\)gameObject\.AddComponent\(typeof\(GMP_MovementComponent\)\)/, 'Player movement component must be added at runtime when RequireComponent was not serialized');
     assert.match(deliveryPlayer, /mJoystick\.PollInput\(\);/, 'GMP Player path should also tick the joystick widget before reading movement axes');
-    assert.match(deliveryPlayer, /mMovementComponent\.Move\(go\.transform, new Vector3\(h, 0, v\), MoveSpeed, moveDt\)/, 'Joystick vertical axis should match source HTML stick.dy -> world z with real-time movement dt');
-    assert.doesNotMatch(deliveryPlayer, /new Vector3\(h, 0, -v\)/, 'Joystick vertical axis must not be inverted');
+    assert.match(deliveryPlayer, /Vector3 input = new Vector3\(-h, 0, -v\)/, 'Joystick axes should map to screen-space movement under the storyboard camera with real-time movement dt');
+    assert.match(deliveryPlayer, /Vector3 move = input \* MoveSpeed \* moveDt/, 'Joystick movement should still use the real-time movement dt');
+    assert.doesNotMatch(deliveryPlayer, /new Vector3\(h, 0, -v\)/, 'Joystick horizontal axis must not use the pre-storyboard camera mapping');
     const deliveryMovement = fs.readFileSync(path.join(scripts, 'Core', 'Components', 'GMP_MovementComponent.cs'), 'utf8');
     assert.match(deliveryMovement, /public void Move\(Transform target, Vector3 direction, float speed, float dt\)/, 'movement component should accept caller-supplied real-time dt');
     assert.match(deliveryMovement, /Vector3 delta = direction\.normalized \* \(finalSpeed \* safeDt\);/, 'movement component should not force Time.deltaTime when caller supplies dt');

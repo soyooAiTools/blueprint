@@ -33,6 +33,85 @@ function buildHardBlockingSignals(silentSignals, isAutoPlayMode) {
   });
 }
 
+function pickProbeResult(result, key) {
+  if (!result) return null;
+  if (result[key] && typeof result[key] === 'object') return result[key];
+  if (result.report && result.report[key] && typeof result.report[key] === 'object') return result.report[key];
+  return null;
+}
+
+function summarizeProbeResult(probe) {
+  if (!probe || typeof probe !== 'object') return null;
+  var summary = {
+    passed: probe.passed === true,
+    skipped: probe.skipped === true,
+    reason: probe.reason || probe.summary || probe.exitReason || '',
+  };
+  if (probe.recording && probe.recording.path) summary.recording = probe.recording.path;
+  if (probe.completedBefore !== undefined) summary.completedBefore = probe.completedBefore;
+  if (probe.completedAfter !== undefined) summary.completedAfter = probe.completedAfter;
+  if (probe.targetCompleted !== undefined) summary.targetCompleted = probe.targetCompleted;
+  if (probe.maxPlayerDistance !== undefined) summary.maxPlayerDistance = probe.maxPlayerDistance;
+  if (Array.isArray(probe.phasePath)) summary.phasePath = probe.phasePath.slice(0, 12);
+  if (Array.isArray(probe.missingPhasePath)) summary.missingPhasePath = probe.missingPhasePath.slice(0, 12);
+  if (probe.phasePathSource !== undefined) summary.phasePathSource = probe.phasePathSource;
+  if (probe.driver !== undefined) summary.driver = probe.driver;
+  if (probe.inputMode !== undefined) summary.inputMode = probe.inputMode;
+  if (probe.dragCount !== undefined) summary.dragCount = probe.dragCount;
+  if (probe.volcengineVideoAudit && typeof probe.volcengineVideoAudit === 'object') {
+    summary.volcengineVideoAudit = {
+      passed: probe.volcengineVideoAudit.passed === true,
+      summary: probe.volcengineVideoAudit.summary || '',
+      issueCount: Array.isArray(probe.volcengineVideoAudit.issues) ? probe.volcengineVideoAudit.issues.length : 0,
+    };
+  }
+  return summary;
+}
+
+function pickTelemetry(result) {
+  if (!result) return null;
+  if (result.telemetry && typeof result.telemetry === 'object') return result.telemetry;
+  if (result.report && result.report.telemetry && typeof result.report.telemetry === 'object') return result.report.telemetry;
+  if (result.report && result.report.diagnostics && result.report.diagnostics.telemetry && typeof result.report.diagnostics.telemetry === 'object') {
+    return result.report.diagnostics.telemetry;
+  }
+  return null;
+}
+
+function summarizeTelemetry(telemetry) {
+  if (!telemetry || typeof telemetry !== 'object') return null;
+  var keys = [
+    'schemaVersion',
+    'taskId',
+    'buildDir',
+    'runner',
+    'phaseCount',
+    'speedMultiplier',
+    'verifyTimeoutMs',
+    'buildMs',
+    'proofMs',
+    'serverMs',
+    'observeMs',
+    'manualProbeMs',
+    'checkpointProbeMs',
+    'manualFlowMs',
+    'storyboardVisualAuditMs',
+    'storyboardVideoAuditMs',
+    'totalMs',
+    'startedAt',
+    'finishedAt',
+  ];
+  var out = {};
+  keys.forEach(function(key) {
+    if (telemetry[key] !== undefined) out[key] = telemetry[key];
+  });
+  return out;
+}
+
+function probeBlocksContract(probe) {
+  return !!(probe && probe.skipped !== true && probe.passed === false);
+}
+
 function sanitizePhaseId(value) {
   return String(value || '').replace(/[^a-zA-Z0-9]/g, '');
 }
@@ -297,6 +376,13 @@ function buildEscalationReasons(meta) {
   if ((meta.hardBlockingSignals || []).length > 0) reasons.push('silent-pass-blocked');
   if (!meta.visualSmokePassed) reasons.push('visual-smoke-failed');
   if (meta.defaultInteractionPassed === false) reasons.push('default-interaction-failed');
+  if (meta.manualJoystickProbeFailed) reasons.push('manual-joystick-probe-failed');
+  if (meta.manualJoystickProbeMissing) reasons.push('manual-joystick-probe-missing');
+  if (meta.manualJoystickFlowProbeFailed) reasons.push('manual-joystick-flow-probe-failed');
+  if (meta.manualJoystickFlowProbeMissing) reasons.push('manual-joystick-flow-probe-missing');
+  if (meta.storyboardVisualAuditFailed) reasons.push('storyboard-visual-audit-failed');
+  if (meta.storyboardVideoAuditFailed) reasons.push('storyboard-video-audit-failed');
+  if (meta.agentPassed === false && !meta.auxiliaryAuditFailed) reasons.push('playable-agent-failed');
   return reasons;
 }
 
@@ -325,9 +411,30 @@ function summarizeRuntimeContractResult(result) {
   var signalPassed = moduleContractReady && result.signalValidationPassed !== false && missingSignals.length === 0;
   var visualSmokePassed = visualFailReasons.length === 0;
   var defaultInteractionPassed = result.defaultInteractionPassed;
+  var manualJoystickProbe = pickProbeResult(result, 'manualJoystickProbe');
+  var manualJoystickFlowProbe = pickProbeResult(result, 'manualJoystickFlowProbe');
+  var storyboardVisualAudit = pickProbeResult(result, 'storyboardVisualAudit');
+  var storyboardVideoAudit = pickProbeResult(result, 'storyboardVideoAudit');
+  var manualJoystickProbeRequired = result.manualJoystickProbeRequired === true ||
+    !!(result.report && result.report.manualJoystickProbeRequired === true);
+  var manualJoystickFlowProbeRequired = result.manualJoystickFlowProbeRequired === true ||
+    !!(result.report && result.report.manualJoystickFlowProbeRequired === true) ||
+    manualJoystickProbeRequired;
+  var manualJoystickProbeFailed = probeBlocksContract(manualJoystickProbe);
+  var manualJoystickProbeMissing = manualJoystickProbeRequired &&
+    (!manualJoystickProbe || manualJoystickProbe.skipped === true || manualJoystickProbe.passed !== true);
+  var manualJoystickFlowProbeFailed = probeBlocksContract(manualJoystickFlowProbe);
+  var manualJoystickFlowProbeMissing = manualJoystickFlowProbeRequired &&
+    (!manualJoystickFlowProbe || manualJoystickFlowProbe.skipped === true || manualJoystickFlowProbe.passed !== true);
+  var storyboardVisualAuditFailed = probeBlocksContract(storyboardVisualAudit);
+  var storyboardVideoAuditFailed = probeBlocksContract(storyboardVideoAudit);
+  var auxiliaryAuditFailed = manualJoystickProbeFailed || manualJoystickFlowProbeFailed || storyboardVisualAuditFailed || storyboardVideoAuditFailed;
+  var agentPassed = result.passed !== false;
+  var telemetry = summarizeTelemetry(pickTelemetry(result));
   var evidenceReliable = hasGameState && unsupportedSignals.length === 0;
   var contractPassed = evidenceReliable && planPassed && moduleContractReady && signalPassed
-    && hardBlockingSignals.length === 0 && visualSmokePassed && defaultInteractionPassed !== false;
+    && hardBlockingSignals.length === 0 && visualSmokePassed && defaultInteractionPassed !== false
+    && !auxiliaryAuditFailed && !manualJoystickProbeMissing && !manualJoystickFlowProbeMissing && agentPassed;
   var escalationReasons = buildEscalationReasons({
     hasGameState: hasGameState,
     unsupportedSignals: unsupportedSignals,
@@ -337,6 +444,14 @@ function summarizeRuntimeContractResult(result) {
     hardBlockingSignals: hardBlockingSignals,
     visualSmokePassed: visualSmokePassed,
     defaultInteractionPassed: defaultInteractionPassed,
+    manualJoystickProbeFailed: manualJoystickProbeFailed,
+    manualJoystickProbeMissing: manualJoystickProbeMissing,
+    manualJoystickFlowProbeFailed: manualJoystickFlowProbeFailed,
+    manualJoystickFlowProbeMissing: manualJoystickFlowProbeMissing,
+    storyboardVisualAuditFailed: storyboardVisualAuditFailed,
+    storyboardVideoAuditFailed: storyboardVideoAuditFailed,
+    auxiliaryAuditFailed: auxiliaryAuditFailed,
+    agentPassed: agentPassed,
   });
 
   return {
@@ -362,6 +477,17 @@ function summarizeRuntimeContractResult(result) {
     visualFailReasons: visualFailReasons.slice(0, 12),
     visualSmokePassed: visualSmokePassed,
     visualSmoke: (result.report && result.report.visualSmoke) || result.visualSmoke || null,
+    manualJoystickProbe: summarizeProbeResult(manualJoystickProbe),
+    manualJoystickFlowProbe: summarizeProbeResult(manualJoystickFlowProbe),
+    storyboardVisualAudit: summarizeProbeResult(storyboardVisualAudit),
+    storyboardVideoAudit: summarizeProbeResult(storyboardVideoAudit),
+    telemetry: telemetry,
+    manualJoystickProbeRequired: manualJoystickProbeRequired,
+    manualJoystickFlowProbeRequired: manualJoystickFlowProbeRequired,
+    manualJoystickProbePassed: manualJoystickProbe ? manualJoystickProbe.passed === true : null,
+    manualJoystickFlowProbePassed: manualJoystickFlowProbe ? manualJoystickFlowProbe.passed === true : null,
+    storyboardVisualAuditPassed: storyboardVisualAudit ? storyboardVisualAudit.passed === true : null,
+    storyboardVideoAuditPassed: storyboardVideoAudit ? storyboardVideoAudit.passed === true : null,
     defaultInteractionRequired: result.defaultInteractionRequired === true,
     defaultInteractionPassed: defaultInteractionPassed === undefined ? null : defaultInteractionPassed,
     defaultInteractionReason: result.defaultInteractionReason || '',
@@ -373,6 +499,7 @@ function summarizeRuntimeContractResult(result) {
     defaultInteractionConsole: result.defaultInteractionConsole || [],
     hasGameState: hasGameState,
     evidenceReliable: evidenceReliable,
+    agentPassed: agentPassed,
     totalActions: result.totalActions !== undefined ? result.totalActions : -1,
     isAutoPlayMode: result.isAutoPlayMode === true,
     exitReason: result.exitReason || (result.report && result.report.exitReason) || '',

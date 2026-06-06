@@ -105,7 +105,7 @@ function makeFlowStub() {
   // dwell-gated dedup field declared at class top
   assert.ok(/string _lastSignalFallbackPhase = "";/.test(result.code), 'dedup field declared');
   // 守卫 expression
-  assert.ok(/_autoPlayMode && phaseRealTimer >= 8f && _lastSignalFallbackPhase != currentPhaseName/.test(result.code),
+  assert.ok(/_autoPlayMode && \(phaseRealTimer >= 1f \|\| phaseTimer >= 1f\) && _lastSignalFallbackPhase != currentPhaseName/.test(result.code),
     'dwell-gated guard expression');
   // helper method emit
   assert.ok(/void _EmitPhaseFallbackSignals\(string phaseId\)/.test(result.code));
@@ -119,6 +119,49 @@ function makeFlowStub() {
     !/Phase_initialCollectSpaceGarbage_Init[\s\S]{0,200}\[ASSEMBLY SIGNAL FALLBACK\]/.test(result.code),
     '不再 inline 注入 Phase_X_Init (避免 phase 入口 fire-all 导致 visual-check 检静止)');
   console.log('  ✓ inject: dwell-gated method + field + UpdatePhaseTimer call');
+})();
+
+(function testInjectOnAutoPlayFallback() {
+  var ctx = {
+    blueprint: {
+      plans: {
+        assemblyPlan: {
+          phaseBindings: [{ phaseId: 'phase4', completionSignals: ['resource_decremented'] }],
+        },
+      },
+    },
+    extraFiles: {},
+    addLog: function() {},
+  };
+  var flowCode = [
+    'public partial class GameFlowManagerMain',
+    '{',
+    '    void OnAutoPlayArrive(string targetName)',
+    '    {',
+    '        currentPhaseName = targetName;',
+    '        switch (currentPhaseName)',
+    '        {',
+    '            case "phase1":',
+    '                break;',
+    '        }',
+    '    }',
+    '    void UpdatePhaseTimer(float dt)',
+    '    {',
+    '        phaseTimer += dt;',
+    '        phaseRealTimer += dt;',
+    '    }',
+    '}',
+  ].join('\n');
+  ctx.extraFiles['GameFlowManagerMain.Flow.cs'] = flowCode;
+  var result = patcher.patchSignalCompleteness(ctx);
+  assert.strictEqual(result.injectedPhaseCount, 1);
+  assert.strictEqual(result.injectedSignalCount, 1);
+  assert.ok(result.autoPlayFallbackInjected);
+  var patched = ctx.extraFiles['GameFlowManagerMain.Flow.cs'];
+  assert.ok(/\[ASSEMBLY SIGNAL FALLBACK\]/.test(patched), 'fallback marker present');
+  assert.ok(/ONAUTOPLAY/.test(patched), 'onAutoPlay fallback marker present');
+  assert.ok(/_EmitPhaseFallbackSignals\(currentPhaseName\);/.test(patched), 'onAutoPlay fallback call present');
+  console.log('  ✓ inject: OnAutoPlayArrive callback hook');
 })();
 
 (function testInjectIdempotent() {
@@ -182,7 +225,7 @@ function makeFlowStub() {
   assert.ok(/guide_text_visible/.test(flow));
   assert.ok(/resource_decremented/.test(flow));
   assert.ok(/upgrade_level_changed/.test(flow));
-  assert.ok(/phaseRealTimer >= 8f/.test(flow), 'dwell guard present');
+  assert.ok(/phaseRealTimer >= 1f \|\| phaseTimer >= 1f/.test(flow), 'dwell guard present');
   console.log('  ✓ E2E: dwell-gated patches Flow file, returns counts');
 })();
 

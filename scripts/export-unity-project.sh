@@ -381,7 +381,16 @@ EOF
 node "$BP_ROOT/lib/code-relation-graph-writer.cjs" "$WORK" "$TASK_ID"
 
 if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
-  node "$BP_ROOT/lib/programmer-delivery-cleaner.cjs" "$WORK" "$TASK_ID" "$TASK_ID"
+  PROGRAMMER_DELIVERY_SUMMARY="$WORK/PROGRAMMER_DELIVERY_SUMMARY.json"
+  DELIVERY_VALIDATION="$WORK/DELIVERY_VALIDATION.json"
+  node "$BP_ROOT/lib/programmer-delivery-cleaner.cjs" "$WORK" "$TASK_ID" "$TASK_ID" > "$PROGRAMMER_DELIVERY_SUMMARY"
+  node "$BP_ROOT/lib/programmer-delivery-hardgate.cjs" "$WORK" "$PROGRAMMER_DELIVERY_SUMMARY" --out "$DELIVERY_VALIDATION"
+  node "$BP_ROOT/engine/playable-flow-manifest.cjs" record-export \
+    --root "$WORK" \
+    --summary "$PROGRAMMER_DELIVERY_SUMMARY" \
+    --validation "$DELIVERY_VALIDATION" \
+    --task "$TASK_ID" \
+    --manifest "$WORK/playable-flow-manifest.json"
   # programmer-delivery-cleaner may create Entities/*.cs, move scripts into
   # category folders, and inject scene-mounted manager objects. Refresh .meta
   # coverage after that step.

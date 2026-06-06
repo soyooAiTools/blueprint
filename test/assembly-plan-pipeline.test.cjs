@@ -113,6 +113,28 @@ var playerMoveModule = plans.assemblyPlan.moduleInstances.find(function(module) 
 assert.ok(playerMoveModule, 'move_to atom should attach move_to_target to actor/player');
 assert.strictEqual(playerMoveModule.params.target, 'ConveyorBelt', 'move_to_target actor module should preserve target param');
 
+var ctaCasePlans = buildProjectPlans({
+  name: 'CtaCaseExactWins',
+  storyboardFrames: [],
+  entities: [
+    { name: 'Player', template: 'PlayerController', behavior: { moveSpeed: 5 } },
+    { name: 'CTAButton', label: '下载按钮', template: 'UI' },
+    { name: 'CtaButton', label: '增援', template: 'UI' }
+  ],
+  phases: [{ id: 1, name: '下载', activate: ['CTAButton'] }],
+  specs: [{ phaseId: 'finish', requiredInteractions: ['move_to:CTAButton'] }]
+});
+var ctaMoveAtom = ctaCasePlans.storyboardAtomPlan.items.find(function(atom) {
+  return atom.atomId === 'move_to' && atom.phaseId === 'finish';
+});
+assert.ok(ctaMoveAtom, 'CTA move atom missing');
+assert.strictEqual(ctaMoveAtom.params.target, 'CTAButton', 'exact CTAButton should not be normalized to fallback CtaButton when both exist');
+var ctaMoveModule = ctaCasePlans.assemblyPlan.moduleInstances.find(function(module) {
+  return module.id === 'Player::move_to_target';
+});
+assert.ok(ctaMoveModule, 'CTA move_to_target module missing');
+assert.strictEqual(ctaMoveModule.params.target, 'CTAButton', 'move_to_target should preserve exact CTAButton target');
+
 var genericSpendPlans = buildProjectPlans({
   name: 'GenericSpendDefaults',
   storyboardFrames: [],
@@ -184,5 +206,82 @@ assert.strictEqual(pipeTemplatePlans.assemblyPlan.unresolved.length, 0, 'pipe-se
 var enemyA = pipeTemplatePlans.entityPlan.entities.find(function(entity) { return entity.name === 'EnemyA'; });
 assert.ok(enemyA.modules.some(function(module) { return module.moduleId === 'damageable'; }), 'Damageable module should be parsed from pipe template');
 assert.ok(enemyA.modules.some(function(module) { return module.moduleId === 'move_to_target'; }), 'Mover module should be parsed from pipe template');
+
+var resourceTargetPlans = buildProjectPlans({
+  name: 'ResourceTargetFallbackKeepsSemanticResource',
+  storyboardFrames: [
+    { title: '采冰', interaction: 'move_to:IceChunk,collect:Ice:5' }
+  ],
+  entities: [
+    { name: 'Player', template: 'PlayerController', behavior: { moveSpeed: 5 } },
+    { name: 'IceSpawner', template: 'Static' },
+    { name: 'IceChunk', template: 'Static' }
+  ],
+  phases: [{ id: 1, name: '采冰', activate: ['Player', 'IceSpawner', 'IceChunk'], guide: '采冰' }],
+  specs: [{
+    phaseId: 'phase1',
+    requiredInteractions: ['move_to:IceChunk', 'collect:Ice:5'],
+    entitiesRequired: [{ name: 'Player' }, { name: 'IceSpawner' }, { name: 'IceChunk', resource: 'Ice' }]
+  }]
+});
+assert.strictEqual(resourceTargetPlans.storyboardAtomPlan.unresolved.length, 0, 'resource collect should not become unresolved when resource name is not an entity');
+var iceCollectAtom = resourceTargetPlans.storyboardAtomPlan.items.find(function(atom) {
+  return atom.atomId === 'collect_nearby' && atom.phaseId === 'phase1';
+});
+assert.ok(iceCollectAtom, 'semantic resource collect atom missing');
+assert.strictEqual(iceCollectAtom.params.target, 'IceChunk', 'collect target should fall back to visible phase resource entity');
+assert.strictEqual(iceCollectAtom.params.item, 'Ice', 'collect item should keep semantic resource name');
+assert.strictEqual(iceCollectAtom.params.count, 5, 'collect count should keep trigger amount');
+assert.strictEqual(
+  resourceTargetPlans.storyboardAtomPlan.items.filter(function(atom) {
+    return atom.atomId === 'collect_nearby' && atom.phaseId === 'phase1';
+  }).length,
+  1,
+  'structured storyboard frame DSL should not create a duplicate collect atom'
+);
+var iceCollectModule = resourceTargetPlans.assemblyPlan.moduleInstances.find(function(module) {
+  return module.id === 'IceChunk::collect_on_near';
+});
+assert.ok(iceCollectModule, 'visible resource target should own collect_on_near');
+assert.strictEqual(iceCollectModule.params.resource, 'Ice', 'collect_on_near should add semantic resource, not visible entity id');
+assert.strictEqual(iceCollectModule.params.item, 'Ice', 'collect_on_near item should remain semantic resource');
+assert.strictEqual(iceCollectModule.params.count, 5, 'collect_on_near count should remain semantic amount');
+var iceCuaStep = resourceTargetPlans.cuaPlan.steps.find(function(step) { return step.phaseId === 'phase1'; });
+assert.ok(iceCuaStep.actions.some(function(action) {
+  return action.kind === 'approach_collect' && action.target === 'IceChunk' && action.item === 'Ice' && action.count === 5;
+}), 'CUA plan should steer to visible target while validating semantic resource');
+
+var resourceMoveTargetPlans = buildProjectPlans({
+  name: 'ResourceMoveTargetKeepsSemanticCount',
+  storyboardFrames: [
+    { title: '掉落资源', interaction: '收集敌人掉落资源' }
+  ],
+  entities: [
+    { name: 'Player', template: 'PlayerController', behavior: { moveSpeed: 5 } },
+    { name: 'DropResource', template: 'Static' }
+  ],
+  phases: [{ id: 1, name: '掉落资源', activate: ['Player', 'DropResource'], guide: '收集掉落资源' }],
+  specs: [{
+    phaseId: 'phase4',
+    requiredInteractions: ['move_to:DropResource', 'collect:Gold:80'],
+    entitiesRequired: [{ name: 'DropResource' }]
+  }]
+});
+var dropCollectModule = resourceMoveTargetPlans.assemblyPlan.moduleInstances.find(function(module) {
+  return module.id === 'DropResource::collect_on_near';
+});
+assert.ok(dropCollectModule, 'collect resource should be owned by the visible move target even without entitiesRequired.resource');
+assert.strictEqual(dropCollectModule.params.resource, 'Gold', 'visible collect target must not overwrite semantic resource');
+assert.strictEqual(dropCollectModule.params.item, 'Gold', 'visible collect target must not overwrite semantic item');
+assert.strictEqual(dropCollectModule.params.count, 80, 'fallback collect text must not downgrade semantic resource count to 1');
+var dropCuaStep = resourceMoveTargetPlans.cuaPlan.steps.find(function(step) { return step.phaseId === 'phase4'; });
+assert.ok(dropCuaStep.actions.some(function(action) {
+  return action.kind === 'approach_collect' && action.target === 'DropResource' && action.item === 'Gold' && action.count === 80;
+}), 'CUA plan should steer to DropResource while asserting Gold:80');
+assert.strictEqual(
+  dropCuaStep.actions.filter(function(action) { return action.kind === 'approach_collect'; }).length,
+  1,
+  'guide/prose collect fallback should not add a second count=1 collect action when spec already has collect'
+);
 
 console.log('assembly-plan-pipeline tests passed');

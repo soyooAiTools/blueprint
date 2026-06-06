@@ -374,6 +374,20 @@ function autoRepairMissingSkeletonBridgeInfra(ctx) {
     needsEconomyBridge = true;
   }
 
+  function findPlayerFallbackField(src) {
+    var candidate = '';
+    var fieldRe = /\bGameObject\s+([A-Za-z_][A-Za-z0-9_]*)\s*[;=]/g;
+    var preferred = /^(?:PlayerCharacter|Hero|HeroCharacter|OurAstronaut|Astronaut|Avatar|MainPlayer|PlayerObj|PlayerAvatar|Rescuer|Worker)$/;
+    var loose = /(?:Player|Hero|Astronaut|Character|Avatar|Rescuer|Worker)/;
+    var m;
+    while ((m = fieldRe.exec(String(src || ''))) !== null) {
+      if (m[1] === 'player') continue;
+      if (preferred.test(m[1])) return m[1];
+      if (!candidate && loose.test(m[1])) candidate = m[1];
+    }
+    return candidate;
+  }
+
   if (referencesTaskIdentifier(taskCode, 'player') && !hasTaskFieldOrProperty(taskCode, 'player')) {
     if (hasPlayerAssignment) {
       fieldBlocks.push([
@@ -381,6 +395,7 @@ function autoRepairMissingSkeletonBridgeInfra(ctx) {
         '    GameObject player;'
       ].join('\n'));
     } else {
+      var playerFallbackField = findPlayerFallbackField(taskCode);
       fieldBlocks.push([
         '    // [AUTO-REPAIR] Compile-safe player bridge property for generated templates.',
         '    GameObject player',
@@ -388,11 +403,22 @@ function autoRepairMissingSkeletonBridgeInfra(ctx) {
         '        get',
         '        {',
         '            var gp = GFM_Player.Instance;',
-        '            return gp != null ? gp.Go : null;',
+        '            if (gp != null && gp.Go != null) return gp.Go;',
+        '            return ' + (playerFallbackField || 'null') + ';',
         '        }',
         '    }'
       ].join('\n'));
     }
+    changed = true;
+  }
+
+  if (referencesTaskIdentifier(taskCode, 'target') &&
+      !hasTaskFieldOrProperty(taskCode, 'target') &&
+      !/\btarget\s*\(/.test(stripComments(taskCode))) {
+    fieldBlocks.push([
+      '    // [AUTO-REPAIR] Compile-safe target bridge for generated templates.',
+      '    GameObject target;'
+    ].join('\n'));
     changed = true;
   }
 

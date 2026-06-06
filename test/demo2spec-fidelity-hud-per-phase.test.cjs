@@ -62,6 +62,85 @@ assert.deepStrictEqual(manifest.sourceEntityContract.uiOverlayContract.entities.
   { id: 'JoystickHandle', role: 'joystick-handle' },
 ]);
 
+var triggerOnlyHtml = [
+  '<script>',
+  'const ENTITY_STYLE = {',
+  '  PlayerCharacter: { label: "玩家角色", kind: "astronaut" },',
+  '  ResourceCube: { label: "资源方块", kind: "collectible" },',
+  '  BallistaBuildSpot1: { label: "弩炮建造位1", kind: "pad" },',
+  '  CTAButton: { label: "下载按钮", kind: "beacon" }',
+  '};',
+  'const PHASES = [',
+  '  {id:"phase1", guideText:"采集资源", showEntities:["PlayerCharacter","ResourceCube"], trigger:{type:"resource_collected", resource:"Wood", amount:1}},',
+  '  {id:"phase2", guideText:"建造弩炮", showEntities:["PlayerCharacter","BallistaBuildSpot1"], trigger:{type:"entity_state_reached", entity:"BallistaBuildSpot1", state:2}},',
+  '  {id:"phase3", guideText:"下载", showEntities:["PlayerCharacter","CTAButton"], trigger:{type:"near_entity", entity:"CTAButton", distance:3.5}}',
+  '];',
+  '</script>',
+].join('\n');
+var triggerManifest = visualAssets.extractVisualAssetManifest(triggerOnlyHtml, { source: 'trigger-only.html' });
+assert.deepStrictEqual(triggerManifest.sourcePhaseContract.phases.map(function (phase) {
+  return {
+    id: phase.id,
+    trigger: phase.trigger && phase.trigger.type,
+    target: phase.steps[0] && phase.steps[0].target,
+    label: phase.hudText.targetLabel,
+  };
+}), [
+  { id: 'phase1', trigger: 'resource_collected', target: 'ResourceCube', label: '资源方块' },
+  { id: 'phase2', trigger: 'entity_state_reached', target: 'BallistaBuildSpot1', label: '弩炮建造位1' },
+  { id: 'phase3', trigger: 'near_entity', target: 'CTAButton', label: '下载按钮' },
+]);
+
+var plannedCollectHtml = [
+  '<script>',
+  'const ENTITY_STYLE = {',
+  '  OurAstronaut: { label: "我方宇航员", kind: "astronaut" },',
+  '  EnemyRocket: { label: "敌方小火箭", kind: "debris" },',
+  '  RocketDebris: { label: "火箭残骸", kind: "collectible" },',
+  '  Recycler: { label: "回收机", kind: "machine" }',
+  '};',
+  'const PHASES = [',
+  '  {id:"phase1", guideText:"击败敌方火箭收集残骸送回收机", showEntities:["OurAstronaut","EnemyRocket","RocketDebris","Recycler"], plannedModuleIds:["collect_on_near","guide_ui"], trigger:{type:"near_entity", entity:"Recycler"}}',
+  '];',
+  '</script>',
+].join('\n');
+var plannedCollectManifest = visualAssets.extractVisualAssetManifest(plannedCollectHtml, { source: 'planned-collect.html' });
+assert.deepStrictEqual(plannedCollectManifest.sourcePhaseContract.phases[0].steps, [
+  { index: 0, target: 'RocketDebris', label: '火箭残骸', gain: 'Scrap', amount: 1 },
+  { index: 1, target: 'Recycler', label: '回收机' },
+]);
+assert.strictEqual(plannedCollectManifest.sourcePhaseContract.phases[0].hudText.targetEntity, 'RocketDebris');
+
+var runtimeTargetHtml = [
+  '<script>',
+  'const ENTITY_STYLE = {',
+  '  OurBaseGate: { label: "基地大门", kind: "gate" },',
+  '  EnemyRocket: { label: "敌方小火箭", kind: "debris" },',
+  '  RocketDebris: { label: "火箭残骸", kind: "collectible" },',
+  '  Recycler: { label: "回收机", kind: "machine" },',
+  '  Gold: { label: "金币", kind: "collectible" },',
+  '  DefenseTower: { label: "防御塔", kind: "beacon" }',
+  '};',
+  'const PHASES = [',
+  '  {id:"phase1", guideText:"移动到基地大门升级，再击败敌方火箭收集残骸送回收机", showEntities:["OurBaseGate","EnemyRocket","RocketDebris","Recycler"], plannedModuleIds:["collect_on_near"], trigger:{type:"near_entity", entity:"Recycler"}},',
+  '  {id:"phase2", guideText:"移动到金币处收集，再走到防御塔部署宇航员", showEntities:["Gold","DefenseTower"], plannedModuleIds:["collect_on_near"], trigger:{type:"near_entity", entity:"DefenseTower"}}',
+  '];',
+  'function enterPhase1(){ setTarget("OurBaseGate"); }',
+  'function enterPhase2(){ setTarget("Gold"); }',
+  'function animate(){',
+  '  if(phaseIndex===0){ if(step===0){ setTarget("OurBaseGate"); } else if(step===1){ setTarget("EnemyRocket"); } else if(step===2){ setTarget("RocketDebris"); } else if(step===3){ setTarget("Recycler"); } }',
+  '  if(phaseIndex===1){ if(step===0){ setTarget("Gold"); } else if(step===1){ setTarget("DefenseTower"); } }',
+  '}',
+  '</script>',
+].join('\n');
+var runtimeTargetManifest = visualAssets.extractVisualAssetManifest(runtimeTargetHtml, { source: 'runtime-target.html' });
+assert.deepStrictEqual(runtimeTargetManifest.sourcePhaseContract.phases[0].targetSequence, ['OurBaseGate', 'EnemyRocket', 'RocketDebris', 'Recycler']);
+assert.strictEqual(runtimeTargetManifest.sourcePhaseContract.phases[0].stepSource, 'runtime_setTarget');
+assert.strictEqual(runtimeTargetManifest.sourcePhaseContract.phases[0].steps[1].damage, true);
+assert.strictEqual(runtimeTargetManifest.sourcePhaseContract.phases[0].steps[2].gain, 'Scrap');
+assert.deepStrictEqual(runtimeTargetManifest.sourcePhaseContract.phases[1].targetSequence, ['Gold', 'DefenseTower']);
+assert.strictEqual(runtimeTargetManifest.sourceEntityContract.worldLabelContract.present, false);
+
 var result = demo2specFidelity.applySourceHudPerPhase(sampleContract(), manifest, { includeSummary: true });
 assert.deepStrictEqual(result.summary.updated.map(function (item) { return item.id; }), ['hud.phase', 'hud.targethint', 'hud.tip']);
 

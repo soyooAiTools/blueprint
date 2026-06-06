@@ -142,12 +142,44 @@ function modulesForTrigger(trigger, isLastPhase) {
   return [];
 }
 
+function modulesForStep(step) {
+  if (!step || typeof step !== 'object') return [];
+  const modules = [];
+  if (step.target) modules.push('move_to_target', 'proximity_trigger');
+  if (step.gain) modules.push('collect_on_near', 'inventory_wallet');
+  if (step.spend) modules.push('inventory_wallet');
+  if (step.damage) modules.push('target_acquire', 'apply_damage', 'damageable');
+  if (step.setEntity || step.state != null) modules.push('build_progress');
+  return modules;
+}
+
+function normalizePhaseSteps(steps) {
+  return safeArray(steps).map(step => {
+    if (!step || typeof step !== 'object') return null;
+    const out = {};
+    ['target', 'gain', 'spend', 'setEntity'].forEach(key => {
+      if (step[key] != null && String(step[key]).trim()) out[key] = String(step[key]).trim();
+    });
+    ['amount', 'cost', 'state'].forEach(key => {
+      if (step[key] != null && Number.isFinite(Number(step[key]))) out[key] = Number(step[key]);
+    });
+    if (step.damage === true) out.damage = true;
+    return Object.keys(out).length ? out : null;
+  }).filter(Boolean);
+}
+
+function targetSequenceForSteps(steps) {
+  return normalizePhaseSteps(steps).map(step => step.target).filter(Boolean);
+}
+
 function inferPhaseModules(gamePhase, sourcePhase, isLastPhase) {
   const modules = [];
   modules.push(...modulesForTrigger(gamePhase && gamePhase.trigger, isLastPhase));
+  safeArray(gamePhase && gamePhase.steps).forEach(step => modules.push(...modulesForStep(step)));
   if (gamePhase && safeArray(gamePhase.showEntities).length > 0) modules.push('visual_binding');
   if (gamePhase && gamePhase.guideText) modules.push('guide_ui');
   if (sourcePhase) {
+    safeArray(sourcePhase.steps).forEach(step => modules.push(...modulesForStep(step)));
     safeArray(sourcePhase.patterns).forEach(pattern => modules.push(...modulesForPattern(pattern)));
     safeArray(sourcePhase.derivedTriggers).forEach(trigger => {
       if (trigger.kind === 'dwell') modules.push('phase_gate_timer');
@@ -165,11 +197,14 @@ function buildProjectVocabulary(spec, gameSchema) {
   const phases = gamePhases.map((phase, index) => {
     const phaseId = phase.phaseId || `phase${index + 1}`;
     const sourcePhase = sourcePhases[index] || null;
+    const steps = normalizePhaseSteps(phase.steps && phase.steps.length ? phase.steps : sourcePhase && sourcePhase.steps);
     return {
       phaseId,
       sourcePhaseId: sourcePhase && sourcePhase.id != null ? String(sourcePhase.id) : null,
       guideText: phase.guideText || null,
       trigger: phase.trigger || null,
+      steps,
+      targetSequence: targetSequenceForSteps(steps),
       phaseEvidencePath: `phaseEvidence.${phaseId}`,
       plannedModuleIds: inferPhaseModules(phase, sourcePhase, index === gamePhases.length - 1),
     };
@@ -298,6 +333,35 @@ function triggerToAction(trigger) {
   return { kind: trigger.type || 'wait' };
 }
 
+function actionsForPhaseSteps(steps) {
+  const out = [];
+  normalizePhaseSteps(steps).forEach(step => {
+    if (step.target) out.push({ kind: 'move_to', target: step.target });
+    if (step.damage && step.target) out.push({ kind: 'attack', target: step.target });
+    if (step.gain) out.push({ kind: 'approach_collect', target: step.target || '', item: step.gain, amount: step.amount || 1 });
+    if (step.spend) out.push({ kind: 'spend', target: step.target || '', item: step.spend, amount: step.amount || step.cost || 1 });
+    if (step.setEntity) {
+      const action = { kind: 'build', target: step.setEntity };
+      if (step.state != null) action.state = step.state;
+      out.push(action);
+    }
+  });
+  return out.filter(action => action && action.kind);
+}
+
+function actionsForPhase(phase) {
+  const stepActions = actionsForPhaseSteps(phase && phase.steps);
+  if (stepActions.length) return stepActions;
+  return [triggerToAction(phase && phase.trigger) || { kind: 'wait' }];
+}
+
+function actionToRequiredInteraction(action) {
+  if (!action || action.kind === 'wait') return null;
+  if (action.kind === 'approach_collect') return 'collect:' + (action.item || '') + ':' + (Number(action.amount || 1) || 1);
+  if (action.kind === 'spend') return 'spend:' + (action.item || '') + ':' + (Number(action.amount || 1) || 1) + ':' + (action.target || '');
+  return action.kind + ':' + (action.target || action.item || '');
+}
+
 function signalsForModule(moduleId, snapshotDoc) {
   var module = snapshotDoc && snapshotDoc.moduleVocabulary && snapshotDoc.moduleVocabulary[moduleId];
   return module ? module.expectedSignals : [];
@@ -310,6 +374,9 @@ function syntheticSignalsForPhase(phase) {
   if (modules.indexOf('phase_gate_timer') >= 0) signals.push('phase_advanced');
   if (modules.indexOf('inventory_wallet') >= 0) signals.push('resource_incremented');
   if (modules.indexOf('collect_on_near') >= 0) signals.push('resource_incremented', 'source_hidden_or_moved');
+  if (modules.indexOf('apply_damage') >= 0 || modules.indexOf('damageable') >= 0) signals.push('target_hp_decreased_or_target_dead');
+  if (modules.indexOf('build_progress') >= 0) signals.push('entity_state_changed');
+  if (modules.indexOf('proximity_trigger') >= 0) signals.push('phase_advanced');
   if (modules.indexOf('visual_binding') >= 0) signals.push('entity_visible');
   if (modules.indexOf('spawn_once') >= 0) signals.push('downstream_entity_visible', 'entity_state_changed');
   if (modules.indexOf('cta_finish') >= 0) signals.push('downstream_entity_visible');
@@ -318,16 +385,16 @@ function syntheticSignalsForPhase(phase) {
 
 function buildCuaSpecs(gameSchema) {
   return safeArray(gameSchema && gameSchema.phases).map(function(phase, index) {
-    var action = triggerToAction(phase.trigger);
     var plannedModuleIds = inferPhaseModules(phase, null, index === safeArray(gameSchema && gameSchema.phases).length - 1);
     var planned = {
       guideText: phase.guideText || '',
       plannedModuleIds: plannedModuleIds,
     };
+    var actions = actionsForPhase(phase);
     return {
       phaseId: phase.phaseId || ('phase' + (index + 1)),
       phaseName: phase.guideText || phase.phaseId || ('phase' + (index + 1)),
-      requiredInteractions: action && action.kind !== 'wait' ? [action.kind + ':' + (action.target || action.item || '')] : [],
+      requiredInteractions: uniq(actions.map(actionToRequiredInteraction).filter(Boolean)),
       triggerNext: { description: '' },
       phaseEvidenceExpectedSignals: syntheticSignalsForPhase(planned),
       order: index,
@@ -351,7 +418,7 @@ function buildCuaPlans(snapshotDoc) {
       steps: phases.map(function(phase, index) {
         return {
           phaseId: phase.phaseId,
-          actions: [triggerToAction(phase.trigger) || { kind: 'wait' }],
+          actions: actionsForPhase(phase),
           expectedSignals: [],
           phaseEvidenceExpectedSignals: syntheticSignalsForPhase(phase),
           order: index,
@@ -381,6 +448,8 @@ function buildGameStateShim(snapshotDoc) {
         phaseIndex: index + 1,
         guideText: phase.guideText || '',
         trigger: phase.trigger || null,
+        steps: phase.steps || [],
+        targetSequence: phase.targetSequence || targetSequenceForSteps(phase.steps),
         plannedModuleIds: phase.plannedModuleIds || [],
       };
     }),
@@ -437,6 +506,12 @@ function buildGameStateShim(snapshotDoc) {
     '    if (trigger.type === "compound") { for (var i = 0; i < (trigger.triggers || []).length; i++) { var sec = phaseTriggerSeconds(trigger.triggers[i]); if (sec) return sec; } }',
     '    return 0.3;',
     '  }',
+    '  function phaseCurrentTarget(phase) {',
+    '    if (!phase) return "";',
+    '    if (phase.targetSequence && phase.targetSequence.length) return phase.targetSequence[0] || "";',
+    '    if (phase.steps && phase.steps.length) return phase.steps[0].target || phase.steps[0].setEntity || "";',
+    '    return "";',
+    '  }',
     '  function moduleMeta(moduleId) { return { schemaVersion: CONFIG.schemaVersion, sourcePlatform: "html", sourceModuleId: moduleId, synthetic: true }; }',
     '  function hasModule(phase, moduleId) { return (phase.plannedModuleIds || []).indexOf(moduleId) >= 0; }',
     '  function buildPhaseEvidence(phase, phaseIndex, elapsed, resources) {',
@@ -458,7 +533,8 @@ function buildGameStateShim(snapshotDoc) {
     '    for (var i = 1; i <= Math.min(phaseIndex, CONFIG.phases.length); i++) completed.push("phase" + i);',
     '    var phaseEvidence = { _meta: { schemaVersion: CONFIG.schemaVersion, sourcePlatform: "html", synthetic: true } };',
     '    for (var pi = 1; pi <= Math.min(phaseIndex, CONFIG.phases.length); pi++) { var pconf = CONFIG.phases[pi - 1]; phaseEvidence[pconf.phaseId] = buildPhaseEvidence(pconf, pi, Math.max(elapsed, phaseTriggerSeconds(pconf.trigger)), resources); }',
-    '    return { _meta: { schemaVersion: CONFIG.schemaVersion, sourcePlatform: "html", synthetic: true, generatedAt: new Date(startedAt || Date.now()).toISOString() }, currentPhase: phase.phaseId, phase: phase.phaseId, phaseRealTimer: elapsed, completedPhases: completed, entityStates: entities, entity_states: entities, variables: Object.assign({}, resources, { guideText: phase.guideText || "" }), resources: resources, inventory: resources, visibleEntities: Object.keys(entities), uiState: { guideText: phase.guideText || "" }, ui_state: { guideText: phase.guideText || "" }, cameraState: {}, camera_state: {}, phaseEvidence: phaseEvidence };',
+    '    var targetEntity = phaseCurrentTarget(phase);',
+    '    return { _meta: { schemaVersion: CONFIG.schemaVersion, sourcePlatform: "html", synthetic: true, generatedAt: new Date(startedAt || Date.now()).toISOString() }, currentPhase: phase.phaseId, phase: phase.phaseId, phaseRealTimer: elapsed, completedPhases: completed, entityStates: entities, entity_states: entities, variables: Object.assign({}, resources, { guideText: phase.guideText || "", targetEntity: targetEntity, currentStepIndex: 0, stepCount: (phase.steps || []).length }), resources: resources, inventory: resources, visibleEntities: Object.keys(entities), uiState: { guideText: phase.guideText || "", targetEntity: targetEntity }, ui_state: { guideText: phase.guideText || "", targetEntity: targetEntity }, cameraState: {}, camera_state: {}, phaseEvidence: phaseEvidence };',
     '  };',
     '})();',
     '',

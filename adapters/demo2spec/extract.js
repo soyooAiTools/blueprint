@@ -18,12 +18,33 @@ const {
   writeVisualAssetManifest,
   collectEntityNamesFromHtml,
 } = require('./visual-assets.js');
+const {
+  buildPlayableSceneIrFromHtml,
+  writePlayableSceneIr,
+} = require('../../engine/playable-scene-ir.cjs');
+
+function getEnvNumber(name, fallback) {
+  const raw = process.env[name];
+  if (raw == null || raw === '') return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function getEnvBoolean(name, fallback) {
+  const raw = process.env[name];
+  if (raw == null || raw === '') return fallback;
+  const value = String(raw).toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(value)) return true;
+  if (['0', 'false', 'no', 'off'].includes(value)) return false;
+  return fallback;
+}
 
 const SRC = process.argv[2];
 if (!SRC) { console.error('用法: node extract.js <src.html> [out_dir]'); process.exit(1); }
 const OUT_DIR = process.argv[3] || process.cwd();
 const PROJECT_NAME = process.env.DEMO2SPEC_PROJECT || path.basename(SRC, path.extname(SRC));
 const EXTRACTOR_VERSION = 'v1.0';
+const SRC_ABS = path.resolve(SRC);
 
 const html = fs.readFileSync(SRC, 'utf8');
 const fullText = html;
@@ -788,16 +809,30 @@ function buildOutputs() {
   const sourceEntityNames = collectEntityNamesFromHtml(fullText);
   const entityNames = uniq(spec.phases.flatMap(p => p.showEntities || []).concat(sourceEntityNames));
   const assetManifest = extractVisualAssetManifest(fullText, {
-    source: SRC,
+    source: SRC_ABS,
     project: PROJECT_NAME,
     entityNames,
   });
-  const readiness = validateVisualAssetReadiness(assetManifest, {
-    minExtractedMeshRate: 0.9,
-    minAssetBindingRate: sourceEntityNames.length ? 0.9 : 0,
-    minEntityBindingRate: sourceEntityNames.length ? 0.7 : null,
-    minExpectedEntityCoverageRate: sourceEntityNames.length ? 0.9 : null,
+  const playableSceneIr = buildPlayableSceneIrFromHtml(SRC_ABS, {
+    html: fullText,
+    project: PROJECT_NAME,
+    entityNames,
+    assetManifest,
+  });
+  assetManifest.source = playableSceneIr.source.htmlPath;
+  assetManifest.sourceHtmlPath = playableSceneIr.source.htmlPath;
+  assetManifest.sourceHtmlSha256 = playableSceneIr.source.htmlSha256;
+  assetManifest.playableSceneIrHash = playableSceneIr.semanticHash;
+  const readinessOptions = {
+    minExtractedMeshRate: getEnvNumber('DEMO2SPEC_MIN_EXTRACTED_MESH_RATE', 0.9),
+    minAssetBindingRate: getEnvNumber('DEMO2SPEC_MIN_ASSET_BINDING_RATE', sourceEntityNames.length ? 0.9 : 0),
+    minEntityBindingRate: getEnvNumber('DEMO2SPEC_MIN_ENTITY_BINDING_RATE', sourceEntityNames.length ? 0.7 : null),
+    minExpectedEntityCoverageRate: getEnvNumber('DEMO2SPEC_MIN_EXPECTED_ENTITY_COVERAGE_RATE', sourceEntityNames.length ? 0.9 : null),
+    allowUnsupported: getEnvBoolean('DEMO2SPEC_ALLOW_UNSUPPORTED', true),
     expectedEntities: sourceEntityNames,
+  };
+  const readiness = validateVisualAssetReadiness(assetManifest, {
+    ...readinessOptions,
   });
   if (!readiness.passed) {
     console.error('[demo2spec] visual asset readiness failed:');
@@ -805,6 +840,7 @@ function buildOutputs() {
     process.exit(1);
   }
   writeVisualAssetManifest(path.join(OUT_DIR, 'asset-manifest.json'), assetManifest);
+  writePlayableSceneIr(path.join(OUT_DIR, 'playable-scene-ir.json'), playableSceneIr);
   spec.entities = entityNames.map(name => {
     const binding = assetManifest.entityBindings && assetManifest.entityBindings[name];
     return {
@@ -819,6 +855,10 @@ function buildOutputs() {
   const slim = JSON.parse(JSON.stringify(spec));
   slim.meta.htmlPhaseSlicesPath = 'html-phase-slices.json';
   slim.meta.assetManifestPath = 'asset-manifest.json';
+  slim.meta.playableSceneIrPath = 'playable-scene-ir.json';
+  slim.meta.sourceHtmlPath = playableSceneIr.source.htmlPath;
+  slim.meta.sourceHtmlSha256 = playableSceneIr.source.htmlSha256;
+  slim.meta.playableSceneIrHash = playableSceneIr.semanticHash;
   slim.visualAssetSummary = assetManifest.extractionSummary;
   for (const p of slim.phases) delete p.body;
   for (const f of slim.functions) delete f.body;
@@ -832,6 +872,7 @@ function buildOutputs() {
   console.log(`✅ ${path.join(OUT_DIR, 'spec.json')} (${spec.phases.length} phases, ${spec.functions.length} fns, ${spec.resources.length} resources, ${spec.gfmGaps.length} gaps)`);
   console.log(`✅ ${path.join(OUT_DIR, 'html-phase-slices.json')}`);
   console.log(`✅ ${path.join(OUT_DIR, 'asset-manifest.json')} (${assetManifest.assets.length} assets, bindingRate=${assetManifest.extractionSummary.assetBindingRate})`);
+  console.log(`✅ ${path.join(OUT_DIR, 'playable-scene-ir.json')} (sourceSha256=${playableSceneIr.source.htmlSha256}, semanticHash=${playableSceneIr.semanticHash})`);
   console.log(`✅ ${path.join(OUT_DIR, 'spec.md')}`);
 }
 
