@@ -25,12 +25,25 @@ var src = fs.readFileSync(workerPath, 'utf8');
   "gs = normalizeBlueprintGameState(gs, null)",
   'function waitForFidelityState(expectedPhaseId)',
   'function driveLoopComponentToPhase(loopComp, phaseNumber)',
+  'if (typeof loopComp.ApplyFidelityPhaseVisibility === "function") loopComp.ApplyFidelityPhaseVisibility(targetIdx)',
+  'var snapshotName = "Snapshot_" + suffix + "_GateEntities"',
+  'if (typeof loopComp[snapshotName] === "function") loopComp[snapshotName]()',
   'function collectLateUpdateComponents(loopComp)',
   'function driveManualLateUpdate(loopComp)',
   'driveManualLateUpdate(loopComp)',
   'if (!window.__fidelityReady && window.__blueprintMarkFidelityReady)'
 ].forEach(function(needle) {
   assert.ok(src.indexOf(needle) >= 0, 'missing fidelity hook snippet: ' + needle);
+});
+
+[
+  'function sourceDomHudOwnsStoryboardDom()',
+  'function applyStoryboardDomHudVisibility()',
+  'var contract = va.sourceEntityContract && va.sourceEntityContract.domHudContract',
+  "['bp-storyboard-scene-tone', 'bp-storyboard-hud', 'bp-storyboard-target']",
+  'if (applyStoryboardDomHudVisibility()) return'
+].forEach(function(needle) {
+  assert.ok(src.indexOf(needle) >= 0, 'missing source HUD bridge suppression snippet: ' + needle);
 });
 
 assert.ok(src.indexOf('va.sourcePhaseContract') >= 0,
@@ -45,9 +58,7 @@ assert.ok(src.indexOf('setTimeout(resolve, 50)') >= 0,
 [
   'stableAssetId',
   'bakeSourceVisualAssetsIntoStage4',
-  '__stage4PrebakedSourceVisuals',
-  'syncStoryboardSourceCamera',
-  'SOURCE_VISUAL_ENTITY_SCALE'
+  '__stage4PrebakedSourceVisuals'
 ].forEach(function(forbidden) {
   assert.strictEqual(src.indexOf(forbidden), -1, 'unexpected unrelated WIP snippet: ' + forbidden);
 });

@@ -51,6 +51,7 @@ function runDemo2SpecPipeline(htmlPath, outDir, opts) {
   if (opts.verify) args.push('--verify');
   if (opts.verifyRunner) args.push('--verify-runner', String(opts.verifyRunner));
   if (opts.steps) args.push('--steps', String(opts.steps));
+  if (opts.visualDiff) args.push('--visual-diff');
   return runScriptChecked('index.js', args, opts);
 }
 

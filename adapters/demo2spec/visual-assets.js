@@ -399,6 +399,10 @@ function stripQuotes(value) {
   return String(value || '').trim().replace(/^['"`]|['"`]$/g, '');
 }
 
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function normalizeColor(value, fallbackValue) {
   if (value == null) return null;
   let text = stripQuotes(value).trim();
@@ -497,7 +501,7 @@ function parseSceneLight(body, includePosition, includeDistance) {
 }
 
 function hasGuidanceIdentifier(html, name) {
-  return new RegExp('\\b' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(String(html || ''));
+  return new RegExp('\\b' + escapeRegExp(name) + '\\b').test(String(html || ''));
 }
 
 function parseGuidanceVisualContract(html) {
@@ -557,10 +561,100 @@ function parseGuidanceVisualContract(html) {
   };
 }
 
+function parseSourceCameraVector(html, variable, method) {
+  if (!variable || !method) return null;
+  const direct = new RegExp('\\b' + escapeRegExp(variable) + '\\.' + escapeRegExp(method) + '\\s*\\(([^)]*)\\)', 'm').exec(String(html || ''));
+  if (direct) {
+    const values = numericList(splitTopLevelArgs(direct[1]), null);
+    return values.length >= 3 ? values.slice(0, 3) : null;
+  }
+  if (method === 'lookAt') {
+    const vector = new RegExp('\\b' + escapeRegExp(variable) + '\\.lookAt\\s*\\(\\s*new\\s+THREE\\.Vector3\\s*\\(([^)]*)\\)\\s*\\)', 'm').exec(String(html || ''));
+    if (vector) {
+      const values = numericList(splitTopLevelArgs(vector[1]), null);
+      return values.length >= 3 ? values.slice(0, 3) : null;
+    }
+  }
+  return null;
+}
+
+function parseSourceThreeCameraContract(html) {
+  const text = String(html || '');
+  const re = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*new\s+THREE\.(PerspectiveCamera|OrthographicCamera)\s*\(([^)]*)\)/g;
+  let match;
+  while ((match = re.exec(text))) {
+    const variable = match[1];
+    const type = match[2];
+    const args = splitTopLevelArgs(match[3]);
+    const position = parseSourceCameraVector(text, variable, 'position.set');
+    const lookAt = parseSourceCameraVector(text, variable, 'lookAt');
+    const contract = {
+      present: true,
+      source: 'source-html-three-camera',
+      variable,
+      type,
+      line: findLine(text, match.index),
+      position,
+      lookAt,
+      diagnostics: [],
+    };
+    if (type === 'PerspectiveCamera') {
+      contract.fov = evaluateNumericExpression(args[0]);
+      contract.near = evaluateNumericExpression(args[2]);
+      contract.far = evaluateNumericExpression(args[3]);
+      if (!Number.isFinite(contract.fov)) contract.diagnostics.push({ code: 'camera_fov_missing_or_dynamic' });
+    } else {
+      contract.left = evaluateNumericExpression(args[0]);
+      contract.right = evaluateNumericExpression(args[1]);
+      contract.top = evaluateNumericExpression(args[2]);
+      contract.bottom = evaluateNumericExpression(args[3]);
+      contract.near = evaluateNumericExpression(args[4]);
+      contract.far = evaluateNumericExpression(args[5]);
+    }
+    if (!position) contract.diagnostics.push({ code: 'camera_position_missing_or_dynamic' });
+    if (!lookAt) contract.diagnostics.push({ code: 'camera_lookat_missing_or_dynamic' });
+    return contract;
+  }
+  return {
+    present: false,
+    source: 'source-html-three-camera',
+    diagnostics: [{ code: 'camera_missing' }],
+  };
+}
+
+function parseGridHelperContract(html) {
+  const text = String(html || '');
+  const m = text.match(/new\s+THREE\.GridHelper\s*\(([^)]*)\)/);
+  if (!m) {
+    return {
+      present: false,
+      source: 'source-html-three-grid-helper',
+      diagnostics: [{ code: 'grid_helper_missing' }],
+    };
+  }
+  const args = splitTopLevelArgs(m[1]);
+  return {
+    present: true,
+    source: 'source-html-three-grid-helper',
+    line: findLine(text, m.index),
+    size: evaluateNumericExpression(args[0]),
+    divisions: evaluateNumericExpression(args[1]),
+    colorCenterLine: normalizeColor(args[2]),
+    colorGrid: normalizeColor(args[3]),
+    diagnostics: [],
+  };
+}
+
 function parseSceneConfig(html) {
   const found = findObjectAssignmentLiteral(html, 'SCENE_CONFIG');
   if (!found) {
-    return { present: false, carrier: 'SCENE_CONFIG', diagnostics: [{ code: 'scene_config_missing' }] };
+    return {
+      present: false,
+      carrier: 'SCENE_CONFIG',
+      camera: parseSourceThreeCameraContract(html),
+      grid: parseGridHelperContract(html),
+      diagnostics: [{ code: 'scene_config_missing' }],
+    };
   }
   const entries = parseObjectLiteralEntries(found.literal);
   const fogBody = entries.fog && String(entries.fog).trim() !== 'null' ? entries.fog : null;
@@ -592,6 +686,8 @@ function parseSceneConfig(html) {
       orbitalRings: readNumericProp(decorBody, 'orbitalRings'),
     } : null,
     guidance: parseGuidanceVisualContract(html),
+    camera: parseSourceThreeCameraContract(html),
+    grid: parseGridHelperContract(html),
     diagnostics: [],
   };
   if (!contract.backgroundColor) contract.diagnostics.push({ code: 'scene_config_background_missing_or_invalid' });
@@ -705,6 +801,154 @@ function parsePhaseSteps(stepsLiteral) {
   }).filter(step => step.target || step.label);
 }
 
+function collectSetTargetCalls(source) {
+  const targets = [];
+  const seen = {};
+  const re = /\bsetTarget\s*\(\s*(['"`])([^'"`]+)\1\s*\)/g;
+  let m;
+  while ((m = re.exec(String(source || ''))) !== null) {
+    const target = String(m[2] || '').trim();
+    if (!target || seen[target]) continue;
+    seen[target] = true;
+    targets.push(target);
+  }
+  return targets;
+}
+
+function findFunctionBody(source, name) {
+  const esc = String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp('\\bfunction\\s+' + esc + '\\s*\\([^)]*\\)\\s*\\{', 'g');
+  const m = re.exec(String(source || ''));
+  if (!m) return '';
+  const open = String(source || '').indexOf('{', m.index);
+  const body = open >= 0 ? sliceBalanced(String(source || ''), open, '{', '}') : null;
+  return body || '';
+}
+
+function findPhaseIndexBodies(source, phaseIndex, phaseId) {
+  const text = String(source || '');
+  const bodies = [];
+  const patterns = [
+    new RegExp('\\b(?:if|else\\s+if)\\s*\\([^)]*\\bphaseIndex\\s*={2,3}\\s*' + Number(phaseIndex) + '\\b[^)]*\\)\\s*\\{', 'g'),
+  ];
+  if (phaseId) {
+    const esc = String(phaseId).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    patterns.push(new RegExp('\\b(?:if|else\\s+if)\\s*\\([^)]*\\b(?:state\\.)?phase\\s*={2,3}\\s*[\'"`]' + esc + '[\'"`][^)]*\\)\\s*\\{', 'g'));
+  }
+  patterns.forEach(re => {
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const open = text.indexOf('{', m.index);
+      const body = open >= 0 ? sliceBalanced(text, open, '{', '}') : null;
+      if (body) bodies.push(body);
+    }
+  });
+  return bodies;
+}
+
+function extractRuntimeTargetSequence(html, phase, index) {
+  const phaseId = phase && (phase.id || phase.phaseId) || ('phase' + (index + 1));
+  const bodies = [];
+  bodies.push(findFunctionBody(html, 'enterPhase' + (index + 1)));
+  bodies.push.apply(bodies, findPhaseIndexBodies(html, index, phaseId));
+  const targets = [];
+  const seen = {};
+  bodies.forEach(body => {
+    collectSetTargetCalls(body).forEach(target => {
+      if (seen[target]) return;
+      seen[target] = true;
+      targets.push(target);
+    });
+  });
+  return targets;
+}
+
+function targetHaystack(entityStyles, target) {
+  const style = entityStyles && entityStyles[target] || {};
+  return [target, style.kind, style.label].filter(Boolean).join(' ');
+}
+
+function isLikelyCollectTarget(phase, target, entityStyles) {
+  const style = entityStyles && entityStyles[target] || {};
+  const haystack = targetHaystack(entityStyles, target);
+  const namedText = [target, style.label].filter(Boolean).join(' ');
+  const guide = String(phase && (phase.guideText || phase.goalText || phase.name) || '');
+  if (/enemy|ship|rocket|boss|敌|战舰|火箭/i.test(namedText) && !/debris|scrap|残骸|金币|coin|gold/i.test(namedText)) return false;
+  if (/collectible/i.test(String(style.kind || ''))) return true;
+  if (/coin|gold|scrap|debris|resource|ore|crystal|ice|wood|金币|硬币|残骸|资源|矿|冰|木/i.test(haystack)) {
+    return /collect|pick|gather|coin|gold|scrap|debris|resource|收集|拾取|捡|采集|金币|残骸|资源|回收/i.test(guide + ' ' + haystack);
+  }
+  return false;
+}
+
+function isLikelyDamageTarget(phase, target, entityStyles) {
+  const haystack = targetHaystack(entityStyles, target);
+  const guide = String(phase && (phase.guideText || phase.goalText || phase.name) || '');
+  return /enemy|ship|rocket|boss|monster|alien|敌|战舰|火箭|怪|异形/i.test(haystack)
+    && /attack|damage|defeat|kill|shoot|击败|击毁|攻击|射击|消灭/i.test(guide + ' ' + haystack);
+}
+
+function isLikelyStateTarget(phase, target, entityStyles) {
+  const style = entityStyles && entityStyles[target] || {};
+  const haystack = targetHaystack(entityStyles, target);
+  const guide = String(phase && (phase.guideText || phase.goalText || phase.name) || '');
+  if (/cta|button|download|install|下载/i.test(haystack)) return false;
+  if (/recycler|recycle|回收机|回收站/i.test(haystack)) return false;
+  if (isLikelyCollectTarget(phase, target, entityStyles) || isLikelyDamageTarget(phase, target, entityStyles)) return false;
+  if (!/build|upgrade|activate|deploy|repair|建造|升级|激活|部署|修复|开启/i.test(guide)) return false;
+  return /gate|tower|barracks|station|beacon|pad|base|大门|防御塔|兵营|基地|设备/i.test(haystack + ' ' + String(style.kind || ''));
+}
+
+function runtimeStepFromTarget(phase, target, entityStyles, index) {
+  const step = {
+    index,
+    target,
+    label: sourceEntityLabel(entityStyles, target),
+  };
+  if (isLikelyCollectTarget(phase, target, entityStyles)) {
+    step.gain = resourceNameForCollectTarget(target, entityStyles);
+    step.amount = 1;
+  } else if (isLikelyDamageTarget(phase, target, entityStyles)) {
+    step.damage = true;
+  } else if (isLikelyStateTarget(phase, target, entityStyles)) {
+    step.setEntity = target;
+    step.state = 2;
+  }
+  return step;
+}
+
+function sameTargetSequence(steps, targets) {
+  const a = safeArray(steps).map(step => step && step.target).filter(Boolean);
+  const b = safeArray(targets).filter(Boolean);
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+function parsePhaseTrigger(triggerLiteral) {
+  if (!triggerLiteral || String(triggerLiteral).trim()[0] !== '{') return null;
+  const entries = parseObjectLiteralEntries(triggerLiteral);
+  const trigger = {
+    type: stripQuotes(entries.type || ''),
+  };
+  ['entity', 'target', 'resource'].forEach(key => {
+    const value = stripQuotes(entries[key] || '');
+    if (value) trigger[key] = value;
+  });
+  ['amount', 'state', 'distance', 'range'].forEach(key => {
+    const value = readNumericLiteral(entries[key]);
+    if (Number.isFinite(value)) trigger[key] = value;
+  });
+  if (entries.triggers && String(entries.triggers).trim()[0] === '[') {
+    trigger.triggers = splitTopLevelObjects(entries.triggers)
+      .map(parsePhaseTrigger)
+      .filter(Boolean);
+  }
+  return trigger.type || trigger.entity || trigger.target || trigger.resource || safeArray(trigger.triggers).length
+    ? trigger
+    : null;
+}
+
 function parseStringArrayLiteral(arrayLiteral) {
   const text = String(arrayLiteral || '').trim();
   if (text[0] !== '[') return [];
@@ -719,6 +963,118 @@ function sourceEntityLabel(entityStyles, entityName) {
   return style && style.label || entityName || '';
 }
 
+function isLikelyPlayerEntity(name, style) {
+  const haystack = [name, style && style.kind, style && style.label].filter(Boolean).join(' ');
+  return /player|hero|character|avatar|astronaut|主角|玩家|角色/i.test(haystack);
+}
+
+function inferResourceCollectTarget(phase, trigger, entityStyles) {
+  const names = safeArray(phase && phase.showEntities).filter(Boolean);
+  const resource = String(trigger && trigger.resource || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const preferred = names.find(name => {
+    const style = entityStyles && entityStyles[name] || {};
+    const haystack = [name, style.kind, style.label].filter(Boolean).join(' ').toLowerCase();
+    return !isLikelyPlayerEntity(name, style) && resource && haystack.replace(/[^a-z0-9]/g, '').indexOf(resource) >= 0;
+  });
+  if (preferred) return preferred;
+  const collectable = names.find(name => {
+    const style = entityStyles && entityStyles[name] || {};
+    const haystack = [name, style.kind, style.label].filter(Boolean).join(' ');
+    return !isLikelyPlayerEntity(name, style) && /collect|resource|cube|crystal|ore|wood|ice|coin|gold|scrap|debris|tree|mine|资源|方块|木|冰|矿|金币/i.test(haystack);
+  });
+  if (collectable) return collectable;
+  return names.find(name => {
+    const style = entityStyles && entityStyles[name] || {};
+    const haystack = [name, style.kind].filter(Boolean).join(' ');
+    return !isLikelyPlayerEntity(name, style) && !/base|spawner|enemy|cta|button|gate|home|基地|敌|下载/i.test(haystack);
+  }) || '';
+}
+
+function phaseHasModule(phase, moduleId) {
+  return safeArray(phase && phase.plannedModuleIds).indexOf(moduleId) >= 0;
+}
+
+function inferImplicitCollectTarget(phase, entityStyles) {
+  const names = safeArray(phase && phase.showEntities).filter(Boolean);
+  const guide = String(phase && (phase.guideText || phase.goalText || phase.name) || '');
+  const guideMentionsCollect = /collect|pick|gather|coin|gold|scrap|debris|resource|收集|采集|拾取|金币|残骸|资源|回收/i.test(guide);
+  if (!guideMentionsCollect && !phaseHasModule(phase, 'collect_on_near') && !phaseHasModule(phase, 'inventory_wallet')) return '';
+  const candidates = names.map(name => {
+    const style = entityStyles && entityStyles[name] || {};
+    const haystack = [name, style.kind, style.label].filter(Boolean).join(' ');
+    if (isLikelyPlayerEntity(name, style)) return { name, score: 0 };
+    let score = 0;
+    if (/collectible/i.test(String(style.kind || ''))) score += 120;
+    if (/coin|gold|金币|硬币/i.test(haystack)) score += /coin|gold|金币|硬币/i.test(guide) ? 100 : 55;
+    if (/scrap|debris|残骸|垃圾/i.test(haystack)) score += /scrap|debris|残骸|垃圾/i.test(guide) ? 95 : 45;
+    if (/resource|ore|crystal|ice|wood|资源|矿|冰|木/i.test(haystack)) score += /resource|ore|crystal|ice|wood|资源|矿|冰|木/i.test(guide) ? 90 : 40;
+    if (/enemy|spawner|base|gate|ship|tower|cta|button|敌|生成器|基地|大门|战舰|防御塔|下载/i.test(haystack)) score -= 70;
+    return { name, score };
+  }).filter(item => item.score > 0).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  const preferred = candidates[0] && candidates[0].name;
+  if (preferred) return preferred;
+  return names.find(name => {
+    const style = entityStyles && entityStyles[name] || {};
+    const haystack = [name, style.kind, style.label].filter(Boolean).join(' ');
+    return !isLikelyPlayerEntity(name, style) && /item|drop|loot|pickup|收集|掉落/i.test(haystack);
+  }) || '';
+}
+
+function resourceNameForCollectTarget(target, entityStyles) {
+  const style = entityStyles && entityStyles[target] || {};
+  const haystack = [target, style.kind, style.label].filter(Boolean).join(' ');
+  if (/gold|coin|金币|硬币/i.test(haystack)) return 'Gold';
+  if (/scrap|debris|残骸|垃圾/i.test(haystack)) return 'Scrap';
+  if (/ice|冰/i.test(haystack)) return 'Ice';
+  if (/wood|木/i.test(haystack)) return 'Wood';
+  return target || 'Resource';
+}
+
+function implicitCollectStep(phase, entityStyles) {
+  const target = inferImplicitCollectTarget(phase, entityStyles);
+  if (!target) return null;
+  return {
+    index: 0,
+    target,
+    label: sourceEntityLabel(entityStyles, target),
+    gain: resourceNameForCollectTarget(target, entityStyles),
+    amount: 1,
+  };
+}
+
+function derivePhaseStepsFromTrigger(phase, trigger, entityStyles) {
+  if (!trigger) return [];
+  if (Array.isArray(trigger.triggers) && trigger.triggers.length) {
+    const nested = trigger.triggers
+      .map(item => derivePhaseStepsFromTrigger(phase, item, entityStyles))
+      .find(steps => steps.length);
+    if (nested) return nested;
+  }
+  let target = trigger.entity || trigger.target || '';
+  if (!target && trigger.type === 'resource_collected') {
+    target = inferResourceCollectTarget(phase, trigger, entityStyles);
+  }
+  if (!target) return [];
+  const step = {
+    index: 0,
+    target,
+    label: sourceEntityLabel(entityStyles, target),
+  };
+  if (trigger.type === 'resource_collected' && trigger.resource) {
+    step.gain = trigger.resource;
+    if (Number.isFinite(Number(trigger.amount))) step.amount = Number(trigger.amount);
+  }
+  if (trigger.type === 'entity_state_reached') {
+    step.setEntity = target;
+    if (Number.isFinite(Number(trigger.state))) step.state = Number(trigger.state);
+  }
+  const steps = [];
+  const collect = implicitCollectStep(phase, entityStyles);
+  if (collect && collect.target !== step.target) steps.push(collect);
+  steps.push(Object.assign({}, step, { index: steps.length }));
+  return steps.map((item, index) => Object.assign({}, item, { index }));
+}
+
 function buildPhaseHudText(phase, index, phaseCount, entityStyles) {
   const firstTargetStep = safeArray(phase && phase.steps).find(step => step && step.target);
   const targetEntity = firstTargetStep && firstTargetStep.target || '';
@@ -729,6 +1085,75 @@ function buildPhaseHudText(phase, index, phaseCount, entityStyles) {
     tip: phase && phase.guideText || '',
     targetEntity,
     targetLabel,
+  };
+}
+
+function sourceDomIdPresent(html, id) {
+  const esc = escapeRegExp(id);
+  const text = String(html || '');
+  return new RegExp('\\bid\\s*=\\s*["\']' + esc + '["\']').test(text)
+    || new RegExp('\\bgetElementById\\(\\s*["\']' + esc + '["\']\\s*\\)').test(text);
+}
+
+function extractCssRuleBody(html, selector) {
+  const re = new RegExp(escapeRegExp(selector) + '\\s*\\{([^}]*)\\}', 'm');
+  const m = String(html || '').match(re);
+  if (!m) return null;
+  return m[1].replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim();
+}
+
+function extractInitialDomText(html, id) {
+  const re = new RegExp('<[^>]*\\bid\\s*=\\s*["\']' + escapeRegExp(id) + '["\'][^>]*>([\\s\\S]*?)<\\/[^>]+>', 'i');
+  const m = String(html || '').match(re);
+  if (!m) return null;
+  const text = m[1].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  return text || null;
+}
+
+function parseSourceDomHudContract(html) {
+  const ids = {
+    hud: sourceDomIdPresent(html, 'hud') ? 'hud' : null,
+    targetHint: sourceDomIdPresent(html, 'targetHint') ? 'targetHint' : null,
+    scoreText: sourceDomIdPresent(html, 'scoreText') ? 'scoreText' : null,
+    goalText: sourceDomIdPresent(html, 'goalText') ? 'goalText' : null,
+    goldIcon: sourceDomIdPresent(html, 'goldIcon') ? 'goldIcon' : null,
+    goldCount: sourceDomIdPresent(html, 'goldCount') ? 'goldCount' : null,
+    tip: sourceDomIdPresent(html, 'tip') ? 'tip' : null,
+    phaseLabel: sourceDomIdPresent(html, 'phaseLabel') ? 'phaseLabel' : null,
+    toast: sourceDomIdPresent(html, 'toast') ? 'toast' : null,
+  };
+  const present = Object.keys(ids).some(key => !!ids[key]);
+  const css = {
+    hud: extractCssRuleBody(html, '#hud'),
+    targetHint: extractCssRuleBody(html, '#targetHint'),
+    scoreText: extractCssRuleBody(html, '#scoreText'),
+    goalText: extractCssRuleBody(html, '#goalText'),
+    goldIcon: extractCssRuleBody(html, '#goldIcon'),
+    goldCount: extractCssRuleBody(html, '#goldCount'),
+    tip: extractCssRuleBody(html, '#tip'),
+    phaseLabel: extractCssRuleBody(html, '#phaseLabel'),
+    coinIcon: extractCssRuleBody(html, '.coinIcon'),
+    toast: extractCssRuleBody(html, '#toast'),
+  };
+  const initialText = {
+    scoreText: extractInitialDomText(html, 'scoreText'),
+    goalText: extractInitialDomText(html, 'goalText'),
+    goldCount: extractInitialDomText(html, 'goldCount'),
+    tip: extractInitialDomText(html, 'tip'),
+    phaseLabel: extractInitialDomText(html, 'phaseLabel'),
+    targetHint: extractInitialDomText(html, 'targetHint'),
+  };
+  const diagnostics = [];
+  if (present && !ids.hud) diagnostics.push({ code: 'source_hud_container_missing' });
+  if (present && !ids.targetHint) diagnostics.push({ code: 'source_target_hint_missing' });
+  if (present && !css.hud) diagnostics.push({ code: 'source_hud_css_missing' });
+  return {
+    present,
+    source: 'source-html-dom-hud',
+    ids,
+    css,
+    initialText,
+    diagnostics,
   };
 }
 
@@ -761,6 +1186,17 @@ function parseSourceUiOverlayContract(html, entityStyles) {
   };
 }
 
+function parseSourceWorldLabelContract(html) {
+  const text = String(html || '');
+  const present = /\b(?:makeLabel|CanvasTexture|CSS2DObject|CSS3DObject|THREE\.Sprite|new\s+Sprite)\b/.test(text)
+    && /\b(?:fillText|textContent|innerText)\b/.test(text)
+    && /\b(?:label|world_label|labels)\b/i.test(text);
+  return {
+    present,
+    source: present ? 'source-html-world-label-renderer' : 'not-rendered-in-source-html',
+  };
+}
+
 function parseSourcePhaseContract(html, options) {
   options = options || {};
   const entityStyles = options.entityStyles || parseEntityStyleMap(html);
@@ -772,6 +1208,7 @@ function parseSourcePhaseContract(html, options) {
   const phaseCount = phaseLiterals.length;
   const phases = phaseLiterals.map((phaseLiteral, index) => {
     const entries = parseObjectLiteralEntries(phaseLiteral);
+    const trigger = parsePhaseTrigger(entries.trigger);
     const phase = {
       index,
       id: stripQuotes(entries.id || ('phase' + (index + 1))),
@@ -779,8 +1216,29 @@ function parseSourcePhaseContract(html, options) {
       guideText: stripQuotes(entries.guideText || ''),
       goalText: stripQuotes(entries.goalText || ''),
       showEntities: parseStringArrayLiteral(entries.showEntities),
+      plannedModuleIds: parseStringArrayLiteral(entries.plannedModuleIds),
+      trigger,
       steps: parsePhaseSteps(entries.steps),
     };
+    const runtimeTargetSequence = extractRuntimeTargetSequence(html, phase, index);
+    phase.runtimeTargetSequence = runtimeTargetSequence;
+    phase.stepSource = phase.steps.length ? 'PHASES.steps' : '';
+    phase.diagnostics = [];
+    if (!phase.steps.length && runtimeTargetSequence.length) {
+      phase.steps = runtimeTargetSequence.map((target, stepIndex) => runtimeStepFromTarget(phase, target, entityStyles, stepIndex));
+      phase.stepSource = 'runtime_setTarget';
+    }
+    if (!phase.steps.length) {
+      phase.steps = derivePhaseStepsFromTrigger(phase, trigger, entityStyles);
+      phase.stepSource = phase.steps.length ? 'PHASES.trigger' : '';
+    } else if (runtimeTargetSequence.length && !sameTargetSequence(phase.steps, runtimeTargetSequence)) {
+      phase.diagnostics.push({
+        code: 'phase_runtime_target_sequence_differs_from_contract_steps',
+        runtimeTargetSequence,
+        contractTargetSequence: phase.steps.map(step => step && step.target).filter(Boolean),
+      });
+    }
+    phase.targetSequence = phase.steps.map(step => step && step.target).filter(Boolean);
     phase.hudText = buildPhaseHudText(phase, index, phaseCount, entityStyles);
     return phase;
   });
@@ -1017,6 +1475,37 @@ function inferEntityBinding(variable, entityNames) {
   return best;
 }
 
+function primaryPlayableEntity(entityNames, entityStyles) {
+  const names = safeArray(entityNames);
+  const styles = entityStyles || {};
+  const preferred = ['Player', 'PlayerCharacter', 'Hero', 'Avatar', 'Character'];
+  for (const name of preferred) {
+    if (names.indexOf(name) >= 0 || styles[name]) return name;
+  }
+  const candidates = names.map(name => {
+    const style = styles[name] || {};
+    const text = [name, style.kind, style.label].filter(Boolean).join(' ');
+    let score = 0;
+    if (/player|hero|character|avatar|玩家|角色/i.test(text)) score += 100;
+    if (/astronaut|宇航员/i.test(text)) score += 80;
+    if (/soldier|士兵/i.test(text)) score += 35;
+    if (/rocket|火箭/i.test(text)) score -= 10;
+    return { name, score };
+  }).filter(item => item.score > 0).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  return candidates[0] && candidates[0].name || null;
+}
+
+function inferSemanticEntityBinding(variable, entityNames, entityStyles) {
+  const direct = inferEntityBinding(variable, entityNames);
+  if (direct) return direct;
+  const v = normalizeKey(variable);
+  if (/player|hero|character|avatar|astronaut/.test(v)) {
+    const player = primaryPlayableEntity(entityNames, entityStyles);
+    if (player) return { entityName: player, confidence: 0.82, evidence: 'semantic_player_group' };
+  }
+  return null;
+}
+
 function buildAsset(variable, index, expr, html, geometryVars, materialVars, entityNames, context) {
   const args = splitTopLevelArgs(expr.slice(1, -1));
   const geometry = parseGeometryExpression(args[0], geometryVars);
@@ -1084,7 +1573,7 @@ function collectBuildEntityFunction(html) {
 
 function collectBuildEntityBranches(fn) {
   const branches = {};
-  const branchRe = /(?:^|[\s;}]|else\s+)if\s*\(\s*style\.kind\s*===\s*['"`]([^'"`]+)['"`]\s*\)\s*\{/g;
+  const branchRe = /(?:^|[\s;}]|else\s+)if\s*\(\s*(?:style\.kind|kind)\s*===\s*['"`]([^'"`]+)['"`]\s*\)\s*\{/g;
   let m;
   while ((m = branchRe.exec(fn.body)) !== null) {
     const open = fn.body.indexOf('{', m.index + m[0].length - 1);
@@ -1122,25 +1611,30 @@ function collectLocalMeshDecls(block) {
 
 function collectAddCalls(block) {
   const calls = [];
-  let cursor = 0;
-  while (cursor < block.length) {
-    const idx = block.indexOf('add(', cursor);
-    if (idx < 0) break;
-    const open = block.indexOf('(', idx);
+  const re = /\b(?:([A-Za-z_$][\w$]*)\s*\.\s*)?add\s*\(/g;
+  let m;
+  while ((m = re.exec(block)) !== null) {
+    const open = block.indexOf('(', m.index);
     const call = sliceBalanced(block, open, '(', ')');
     if (!call) {
-      cursor = idx + 4;
+      re.lastIndex = m.index + 4;
       continue;
     }
-    calls.push({ call, offset: idx });
-    cursor = open + call.length;
+    const receiver = m[1] || null;
+    calls.push({
+      call,
+      receiver,
+      offset: m.index,
+      endOffset: open + call.length,
+    });
+    re.lastIndex = open + call.length;
   }
   return calls;
 }
 
 function collectTrailingTransform(block, addCall, meshExpr) {
   const out = {};
-  const end = addCall.offset + 3 + addCall.call.length;
+  const end = addCall.endOffset || (addCall.offset + 3 + addCall.call.length);
   const segment = block.slice(end, end + 180);
   const axisMap = { x: 0, y: 1, z: 2 };
   const rotation = [null, null, null];
@@ -1193,6 +1687,114 @@ function buildEntityMeshAsset(entityName, meshName, index, meshCall, html, geome
   return asset;
 }
 
+function meshOpArray(value, fallback) {
+  const text = String(value || '').trim();
+  if (!text || text[0] !== '[') return fallback || [];
+  const parsed = splitTopLevelArgs(text.slice(1, text[text.length - 1] === ']' ? -1 : undefined)).map(stripQuotes);
+  return parsed.length ? parsed : (fallback || []);
+}
+
+function meshOpGeometry(kind, size) {
+  const k = String(kind || '').toLowerCase();
+  const s = size && size.length ? size : [1, 1, 1];
+  if (k === 'sphere') return { type: 'SphereGeometry', argsRaw: [s[0] || 1, 20, 16].join(','), source: 'meshOps' };
+  if (k === 'cylinder') return { type: 'CylinderGeometry', argsRaw: [s[0] || 1, s[1] || s[0] || 1, s[2] || 1, 24].join(','), source: 'meshOps' };
+  if (k === 'cone') return { type: 'ConeGeometry', argsRaw: [s[1] || s[0] || 1, s[2] || 1, 24].join(','), source: 'meshOps' };
+  if (k === 'plane') return { type: 'PlaneGeometry', argsRaw: [s[0] || 1, s[1] || 1].join(','), source: 'meshOps' };
+  if (k === 'torus') return { type: 'TorusGeometry', argsRaw: [s[0] || 1, s[1] || 0.1, 8, 48].join(','), source: 'meshOps' };
+  if (k === 'icosahedron') return { type: 'IcosahedronGeometry', argsRaw: [s[0] || 1, 0].join(','), source: 'meshOps' };
+  return { type: 'BoxGeometry', argsRaw: [s[0] || 1, s[1] || 1, s[2] || 1].join(','), source: 'meshOps' };
+}
+
+function collectMeshOpsAssets(html, entityStyles) {
+  const found = findObjectAssignmentLiteral(html, 'meshOps');
+  if (!found) return [];
+  const meshOpsEntries = parseObjectLiteralEntries(found.literal);
+  const assets = [];
+  const compositeAssets = [];
+  Object.keys(meshOpsEntries).forEach(entityName => {
+    const entityStyle = entityStyles[entityName] || { name: entityName };
+    const ops = splitTopLevelObjects(meshOpsEntries[entityName]);
+    const childIds = [];
+    ops.forEach((opLiteral, index) => {
+      const op = parseObjectLiteralEntries(opLiteral);
+      const opIndex = html.indexOf(opLiteral, found.index);
+      const size = meshOpArray(op.size, [1, 1, 1]);
+      const opacity = readNumber(op.opacity);
+      const assetId = stableAssetId(entityName + '_meshop_' + (index + 1));
+      const asset = {
+        assetId,
+        kind: 'procedural_primitive',
+        ...assetLicenseFields(),
+        source: {
+          type: 'inline_procedural',
+          variable: 'meshOps[' + JSON.stringify(entityName) + '][' + index + ']',
+          entityName,
+          entityKind: entityStyle.kind || null,
+          line: findLine(html, opIndex >= 0 ? opIndex : found.index),
+          pattern: 'meshOps',
+        },
+        unityImport: {
+          mode: 'runtime-generate',
+          supported: true,
+          generator: 'GFM_Create.Obj',
+        },
+        geometry: meshOpGeometry(stripQuotes(op.kind), size),
+        material: {
+          type: 'MeshStandardMaterial',
+          source: 'meshOps',
+          diffuseColor: normalizeColor(op.color || entityStyle.color || '0xffffff'),
+          emissiveColor: normalizeColor(op.emissive),
+          opacity: opacity == null ? null : opacity,
+          transparent: opacity == null ? undefined : opacity < 1,
+          roughness: readNumber(op.roughness),
+          metalness: readNumber(op.metalness),
+        },
+        transform: {
+          position: meshOpArray(op.position, [0, 0, 0]),
+          rotation: meshOpArray(op.rotation, [0, 0, 0]),
+          scale: meshOpArray(op.scale, [1, 1, 1]),
+        },
+        entityBinding: { entityName, confidence: 1, evidence: 'meshOps' },
+        fidelityTarget: 'geometry_color_material',
+        visualFallback: null,
+        unsupported: [],
+      };
+      assets.push(asset);
+      childIds.push(assetId);
+    });
+    if (childIds.length) {
+      const position = entityStyle.position || null;
+      compositeAssets.push({
+        assetId: stableAssetId(entityName + '_meshop_composite'),
+        kind: 'procedural_composite',
+        ...assetLicenseFields(),
+        source: {
+          type: 'inline_procedural',
+          variable: 'meshOps[' + JSON.stringify(entityName) + ']',
+          entityName,
+          entityKind: entityStyle.kind || null,
+          line: findLine(html, found.index),
+          pattern: 'meshOps:entity-composite',
+        },
+        unityImport: {
+          mode: 'runtime-generate',
+          supported: true,
+          generator: 'GFM_Create composite',
+        },
+        children: uniq(childIds),
+        childVariables: uniq(childIds),
+        transform: position ? { position: [String(position.x || 0), String(position.y || 0), String(position.z || 0)] } : {},
+        entityBinding: { entityName, confidence: 1, evidence: 'meshOps' },
+        fidelityTarget: 'geometry_color_material',
+        visualFallback: null,
+        unsupported: [],
+      });
+    }
+  });
+  return assets.concat(compositeAssets);
+}
+
 function collectBuildEntityAssets(html, geometryVars, materialVars, entityNames, entityStyles) {
   const fn = collectBuildEntityFunction(html);
   if (!fn) return [];
@@ -1208,8 +1810,13 @@ function collectBuildEntityAssets(html, geometryVars, materialVars, entityNames,
     let meshIndex = 0;
     collectAddCalls(branch.block).forEach(addCall => {
       const args = splitTopLevelArgs(addCall.call.slice(1, -1));
-      if (!args.length || args[0] !== 'g') return;
-      const meshExpr = String(args[1] || '').trim();
+      if (!args.length) return;
+      if (addCall.receiver) {
+        if (addCall.receiver !== 'g') return;
+      } else if (args[0] !== 'g') {
+        return;
+      }
+      const meshExpr = String(addCall.receiver ? args[0] : (args[1] || '')).trim();
       const inlineCall = meshCallFromExpression(meshExpr);
       const local = localMeshes[meshExpr];
       const meshCall = inlineCall || (local && local.call);
@@ -1225,8 +1832,10 @@ function collectBuildEntityAssets(html, geometryVars, materialVars, entityNames,
         geometryVars,
         materialVars,
         entityStyle,
-        args.slice(2, 5),
-        inlineCall ? 'buildEntity:add-inline-mesh' : 'buildEntity:add-local-mesh',
+        addCall.receiver ? [] : args.slice(2, 5),
+        inlineCall
+          ? (addCall.receiver ? 'buildEntity:group.add-inline-mesh' : 'buildEntity:add-inline-mesh')
+          : (addCall.receiver ? 'buildEntity:group.add-local-mesh' : 'buildEntity:add-local-mesh'),
         collectTrailingTransform(branch.block, addCall, meshExpr)
       );
       assets.push(asset);
@@ -1265,7 +1874,7 @@ function collectBuildEntityAssets(html, geometryVars, materialVars, entityNames,
   return assets.concat(compositeAssets);
 }
 
-function collectGroupAssets(html, primitiveAssets, entityNames) {
+function collectGroupAssets(html, primitiveAssets, entityNames, entityStyles) {
   const assetsByVariable = {};
   primitiveAssets.forEach(asset => {
     if (asset.source && asset.source.variable) assetsByVariable[asset.source.variable] = asset;
@@ -1274,6 +1883,7 @@ function collectGroupAssets(html, primitiveAssets, entityNames) {
   const groupRe = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*new\s+THREE\.Group\s*\(\s*\)/g;
   let m;
   while ((m = groupRe.exec(html)) !== null) {
+    if (curlyDepthAt(html, m.index) > 0) continue;
     groups[m[1]] = { variable: m[1], line: findLine(html, m.index), childVariables: [] };
   }
   Object.keys(groups).forEach(groupName => {
@@ -1288,6 +1898,19 @@ function collectGroupAssets(html, primitiveAssets, entityNames) {
     const group = groups[groupName];
     const childAssetIds = uniq(group.childVariables.map(name => assetsByVariable[name] && assetsByVariable[name].assetId));
     const degraded = childAssetIds.length >= 5;
+    const entityBinding = inferSemanticEntityBinding(groupName, entityNames, entityStyles) || { entityName: null, confidence: 0, evidence: 'unbound' };
+    if (entityBinding.entityName) {
+      group.childVariables.forEach(childName => {
+        const child = assetsByVariable[childName];
+        if (child && !(child.entityBinding && child.entityBinding.entityName)) {
+          child.entityBinding = {
+            entityName: entityBinding.entityName,
+            confidence: Math.min(entityBinding.confidence || 0.75, 0.8),
+            evidence: entityBinding.evidence + ':child'
+          };
+        }
+      });
+    }
     return {
       assetId: stableAssetId(groupName),
       kind: 'procedural_composite',
@@ -1300,7 +1923,7 @@ function collectGroupAssets(html, primitiveAssets, entityNames) {
       },
       children: childAssetIds,
       childVariables: uniq(group.childVariables),
-      entityBinding: inferEntityBinding(groupName, entityNames) || { entityName: null, confidence: 0, evidence: 'unbound' },
+      entityBinding,
       fidelityTarget: degraded ? 'geometry_color_only' : 'geometry_color_material',
       visualFallback: degraded ? 'degraded_composite' : null,
       unsupported: [],
@@ -1597,14 +2220,18 @@ function extractVisualAssetManifest(html, options) {
   const materialVars = collectMaterialVars(html);
   const primitiveAssets = collectMeshAssets(html, geometryVars, materialVars, entityNames);
   const entityBuilderAssets = collectBuildEntityAssets(html, geometryVars, materialVars, Object.keys(entityStyles), entityStyles);
-  const allPrimitiveAssets = primitiveAssets.concat(entityBuilderAssets.filter(asset => asset.kind === 'procedural_primitive'));
-  const compositeAssets = collectGroupAssets(html, allPrimitiveAssets, entityNames);
-  const entityBuilderComposites = entityBuilderAssets.filter(asset => asset.kind === 'procedural_composite');
+  const meshOpsAssets = collectMeshOpsAssets(html, entityStyles);
+  const allPrimitiveAssets = primitiveAssets
+    .concat(entityBuilderAssets.filter(asset => asset.kind === 'procedural_primitive'))
+    .concat(meshOpsAssets.filter(asset => asset.kind === 'procedural_primitive'));
+  const compositeAssets = collectGroupAssets(html, allPrimitiveAssets, entityNames, entityStyles);
+  const entityBuilderComposites = entityBuilderAssets.filter(asset => asset.kind === 'procedural_composite')
+    .concat(meshOpsAssets.filter(asset => asset.kind === 'procedural_composite'));
   const externalAssets = collectExternalAssets(html, entityNames, {
     source: options.source,
     assetMetaIndex: assetMeta.index,
   });
-  const assets = primitiveAssets.concat(entityBuilderAssets, compositeAssets, externalAssets);
+  const assets = primitiveAssets.concat(entityBuilderAssets, meshOpsAssets, compositeAssets, externalAssets);
   const unsupported = collectUnsupported(html);
   const entityBindings = buildEntityBindings(assets, entityNames);
   const entityComposites = buildEntityComposites(assets, entityBindings, serializableEntityStyles(entityStyles));
@@ -1629,7 +2256,9 @@ function extractVisualAssetManifest(html, options) {
       entities: sourceEntityNames,
       entityStyles: serializableEntityStyles(entityStyles),
       entityComposites,
+      domHudContract: parseSourceDomHudContract(html),
       uiOverlayContract: parseSourceUiOverlayContract(html, entityStyles),
+      worldLabelContract: parseSourceWorldLabelContract(html),
     },
     sourceSceneContract,
     sourcePhaseContract,
@@ -1775,4 +2404,7 @@ module.exports = {
   validateVisualAssetReadiness,
   collectEntityNamesFromHtml,
   parseSceneConfig,
+  parseSourceDomHudContract,
+  parseGridHelperContract,
+  parseSourceThreeCameraContract,
 };

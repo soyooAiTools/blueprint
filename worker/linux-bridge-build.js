@@ -3167,6 +3167,26 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         var style = document.createElement('style');
         style.textContent = '#bp-storyboard-scene-tone{position:fixed;inset:0;z-index:2147482800;pointer-events:none;background:linear-gradient(90deg,rgba(5,9,20,.76) 0%,rgba(5,9,20,.72) 42%,rgba(5,9,20,.50) 62%,rgba(5,9,20,.25) 82%,rgba(5,9,20,.05) 100%)}#bp-storyboard-hud{position:fixed;left:12px;right:12px;top:10px;z-index:2147483000;display:flex;align-items:center;gap:8px;pointer-events:none;font-family:Arial,"Microsoft YaHei",sans-serif;color:#f2fbff}#bp-storyboard-hud .bp-pill,#bp-storyboard-hud .bp-phase{background:rgba(4,13,31,.82);border:1px solid rgba(118,214,255,.35);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.28);font-weight:900;white-space:nowrap}#bp-storyboard-hud .bp-phase{padding:8px 10px;color:#9fe8ff;font-size:13px}#bp-storyboard-hud .bp-pill{padding:8px 10px;font-size:13px}#bp-storyboard-hud .bp-tip{flex:1;min-height:24px;display:flex;align-items:center;justify-content:flex-end;text-align:right;padding:0 4px;font-size:13px;font-weight:900;color:#ffeb3b;background:transparent;border:0;box-shadow:none;white-space:nowrap}#bp-storyboard-target{position:fixed;left:14px;top:54px;z-index:2147483000;transform:none;background:rgba(10,22,64,.92);border:1px solid rgba(118,214,255,.35);border-radius:7px;padding:5px 10px;font:900 13px Arial,"Microsoft YaHei";color:#bff5ff;pointer-events:none}#bp-storyboard-stick{position:fixed;width:88px;height:88px;margin:-44px 0 0 -44px;border-radius:50%;z-index:2147483001;background:rgba(0,0,0,.42);border:0;box-shadow:0 8px 22px rgba(0,0,0,.38);pointer-events:none;opacity:0}#bp-storyboard-stick.active{opacity:1}#bp-storyboard-stick:before{content:"";position:absolute;left:50%;top:50%;width:42px;height:42px;border-radius:50%;transform:translate(-50%,-50%);border:1px dashed rgba(255,255,255,.35)}#bp-storyboard-knob{position:absolute;left:50%;top:50%;width:38px;height:38px;margin:-19px 0 0 -19px;border-radius:50%;background:rgba(255,255,255,.9);border:0;box-shadow:0 4px 14px rgba(0,0,0,.34)}';
         document.head.appendChild(style);
+        function sourceDomHudOwnsStoryboardDom() {
+          try {
+            var va = window.__BLUEPRINT_VISUAL_ASSETS__ || {};
+            var contract = va.sourceEntityContract && va.sourceEntityContract.domHudContract;
+            return !!(window.__BLUEPRINT_SOURCE_RUNTIME_ACTIVE__ || contract && contract.present);
+          } catch(eSourceHudOwns) {
+            return false;
+          }
+        }
+        function applyStoryboardDomHudVisibility() {
+          var hidden = sourceDomHudOwnsStoryboardDom();
+          ['bp-storyboard-scene-tone', 'bp-storyboard-hud', 'bp-storyboard-target'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (!el) return;
+            el.style.display = hidden ? 'none' : '';
+            el.style.visibility = hidden ? 'hidden' : '';
+            el.style.opacity = hidden ? '0' : '';
+          });
+          return hidden;
+        }
         var sceneTone = document.createElement('div');
         sceneTone.id = 'bp-storyboard-scene-tone';
         document.body.appendChild(sceneTone);
@@ -3178,6 +3198,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         target.id = 'bp-storyboard-target';
         target.textContent = '目标';
         document.body.appendChild(target);
+        applyStoryboardDomHudVisibility();
         var stick = document.createElement('div');
         stick.id = 'bp-storyboard-stick';
         stick.innerHTML = '<div id="bp-storyboard-knob"></div>';
@@ -3187,11 +3208,60 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         var STORYBOARD_STICK_DEADZONE = 4;
         var manualJoystickOverride = window.__bpManualJoystickOverride || { active: false, x: 0, y: 0, updatedAt: 0, speed: 6 };
         window.__bpManualJoystickOverride = manualJoystickOverride;
+        var manualClickOverride = window.__bpManualClickOverride || { pending: false, x: 0, y: 0, updatedAt: 0, until: 0 };
+        window.__bpManualClickOverride = manualClickOverride;
+        var directRuntimePlayerJoystick = { last: 0 };
         function joystickNowMs() {
           try {
             if (typeof performance !== 'undefined' && performance && typeof performance.now === 'function') return performance.now();
           } catch(e) {}
           return Date.now ? Date.now() : (new Date()).getTime();
+        }
+        function bridgeVector3(x, y, z) {
+          try { return new UnityEngine.Vector3.ctor$1(x, y, z); } catch(eCtor1) {}
+          try { var v = new UnityEngine.Vector3(); v.x = x; v.y = y; v.z = z; return v; } catch(eCtor) {}
+          return { x: x, y: y, z: z };
+        }
+        function runtimePlayerInstance() {
+          try { return window.GFM_Player && (window.GFM_Player.Instance || window.GFM_Player.instance || window.GFM_Player._instance); } catch(e) {}
+          return null;
+        }
+        function runtimePlayerGameObject(player) {
+          return player && (player.Go || player.go || player._player) || null;
+        }
+        function tickDirectRuntimePlayerJoystick() {
+          try {
+            var joy = window.__bpManualJoystickOverride;
+            if (!joy || !joy.active) {
+              directRuntimePlayerJoystick.last = 0;
+            } else {
+              var player = runtimePlayerInstance();
+              var go = runtimePlayerGameObject(player);
+              var tr = go && go.transform;
+              var pos = tr && tr.position;
+              if (player && tr && pos) {
+                var now = joystickNowMs();
+                var last = directRuntimePlayerJoystick.last || now;
+                var dt = Math.max(0, Math.min(0.035, (now - last) / 1000 || 0.016));
+                directRuntimePlayerJoystick.last = now;
+                if (dt > 0) {
+                  var speed = Number(joy.speed) || 6;
+                  var before = bridgeVector3(Number(pos.x) || 0, Number(pos.y) || 0, Number(pos.z) || 0);
+                  var after = bridgeVector3(before.x - (Number(joy.x) || 0) * speed * dt, before.y, before.z - (Number(joy.y) || 0) * speed * dt);
+                  tr.position = after;
+                  player._hasManualMoveInput = true;
+                  player._lastManualMoveActive = true;
+                  player._lastManualMoveBefore = before;
+                  player._lastManualMoveAfter = after;
+                }
+              }
+            }
+          } catch(eDirectJoystick) {}
+          requestAnimationFrame(tickDirectRuntimePlayerJoystick);
+        }
+        if (!window.__bpDirectRuntimePlayerJoystickLoop) {
+          window.__bpDirectRuntimePlayerJoystickLoop = true;
+          requestAnimationFrame(tickDirectRuntimePlayerJoystick);
         }
         function installRuntimeJoystickOverridePatch(joystick) {
           if (!joystick || joystick.__bpPollInputPatched) return;
@@ -3215,6 +3285,51 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             return originalPollInput.apply(this, arguments);
           };
           joystick.__bpPollInputPatched = true;
+        }
+        function applyRuntimeClickOverride(x, y) {
+          var now = joystickNowMs();
+          manualClickOverride.pending = true;
+          manualClickOverride.x = Number(x) || 0;
+          manualClickOverride.y = Number(y) || 0;
+          manualClickOverride.updatedAt = now;
+          manualClickOverride.until = now + 220;
+          try {
+            var input = window.UnityEngine && UnityEngine.Input;
+            if (input) {
+              installRuntimeClickOverridePatch(input);
+              if (input.mouseButtonsDown) input.mouseButtonsDown[0] = true;
+              if (input.mouseButtons) input.mouseButtons[0] = true;
+              input.mousePosition = bridgeVector3(manualClickOverride.x, Math.max(0, (window.innerHeight || 0) - manualClickOverride.y), 0);
+            }
+          } catch(eRuntimeClickApply) {}
+        }
+        window.__bpApplyManualClickOverride = applyRuntimeClickOverride;
+        function installRuntimeClickOverridePatch(input) {
+          if (!input || input.__bpClickOverridePatched) return;
+          var originalGetMouseButtonDown = input.GetMouseButtonDown;
+          if (typeof originalGetMouseButtonDown !== 'function') return;
+          input.__bpOriginalGetMouseButtonDown = originalGetMouseButtonDown;
+          input.GetMouseButtonDown = function(button) {
+            try {
+              var click = window.__bpManualClickOverride;
+              var now = joystickNowMs();
+              if (click && click.pending && button === 0 && now <= (Number(click.until) || 0)) return true;
+              if (click && click.pending && now > (Number(click.until) || 0)) click.pending = false;
+            } catch(eOverrideClick) {}
+            return originalGetMouseButtonDown.apply(this, arguments);
+          };
+          input.__bpClickOverridePatched = true;
+        }
+        function tickRuntimeClickOverridePatch() {
+          try {
+            var input = window.UnityEngine && UnityEngine.Input;
+            installRuntimeClickOverridePatch(input);
+          } catch(eTickClickOverride) {}
+          requestAnimationFrame(tickRuntimeClickOverridePatch);
+        }
+        if (!window.__bpRuntimeClickOverrideLoop) {
+          window.__bpRuntimeClickOverrideLoop = true;
+          requestAnimationFrame(tickRuntimeClickOverridePatch);
         }
         function applyRuntimeJoystickOverride(x, y, active) {
           x = Number(x) || 0;
@@ -3242,6 +3357,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         }
         function beginStoryboardStick(clientX, clientY) {
           origin.x = clientX; origin.y = clientY;
+          origin.moved = false;
           stick.style.left = clientX + 'px';
           stick.style.top = clientY + 'px';
           stick.className = 'active';
@@ -3256,6 +3372,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             applyRuntimeJoystickOverride(0, 0, false);
             return;
           }
+          origin.moved = true;
           if (len > max) { dx = dx / len * max; dy = dy / len * max; }
           knob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
           applyRuntimeJoystickOverride(-dx / max, -dy / max, true);
@@ -3270,7 +3387,22 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         document.addEventListener('pointermove', function(ev) {
           moveStoryboardStick(ev.clientX, ev.clientY);
         }, true);
-        function resetStick() { stick.className = ''; knob.style.transform = 'translate(0,0)'; applyRuntimeJoystickOverride(0, 0, false); }
+        function resetStick(ev) {
+          var tapPoint = null;
+          try {
+            var t = firstTouchPoint(ev);
+            if (t) tapPoint = { x: t.clientX, y: t.clientY };
+            else if (ev && isFinite(Number(ev.clientX)) && isFinite(Number(ev.clientY))) tapPoint = { x: Number(ev.clientX), y: Number(ev.clientY) };
+          } catch(eTapPoint) {}
+          if (tapPoint) {
+            var tdx = tapPoint.x - origin.x;
+            var tdy = tapPoint.y - origin.y;
+            if (!origin.moved && Math.sqrt(tdx * tdx + tdy * tdy) <= STORYBOARD_STICK_DEADZONE * 2) {
+              applyRuntimeClickOverride(tapPoint.x, tapPoint.y);
+            }
+          }
+          stick.className = ''; knob.style.transform = 'translate(0,0)'; applyRuntimeJoystickOverride(0, 0, false);
+        }
         document.addEventListener('pointerup', resetStick, true);
         document.addEventListener('pointercancel', resetStick, true);
         document.addEventListener('touchstart', function(ev) {
@@ -3372,6 +3504,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             || storyboardPositiveNumber(gs && gs.current_phase_index);
         }
         setInterval(function() {
+          if (applyStoryboardDomHudVisibility()) return;
           var gs = null;
           try { gs = typeof window.__gameState === 'function' ? window.__gameState() : window.__gameState; } catch(e) {}
           try { gs = normalizeBlueprintGameState(gs, null); } catch(e2) {}
