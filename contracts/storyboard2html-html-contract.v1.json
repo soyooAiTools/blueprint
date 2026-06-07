@@ -9,7 +9,8 @@
   "sourceOfTruth": {
     "snapshotSchema": "contracts/snapshot-schema.v1.json",
     "cuaProbeContracts": "contracts/cua-probe-contracts.v1.json",
-    "sourceSceneIr": "contracts/source-scene-ir.v1.json"
+    "sourceSceneIr": "contracts/source-scene-ir.v1.json",
+    "sourceVisualIr": "contracts/source-visual-ir.v1.json"
   },
   "generationInput": {
     "description": "Input bundle for the storyboard2html generator. The specs come from ctx.blueprint.specs after spec-extract; storyboardFrames come from ctx.blueprint.storyboard.frames or ctx.blueprint.storyboardFrames.",
@@ -225,8 +226,12 @@
     }
   },
   "regressionHook": {
-    "demo2specCli": "node /root/.claude/skills/demo2spec/index.js <generated.html> <outdir> --theme <themeHint> --blueprint-smoke --verify --steps <n>",
+    "sourceIrBuildCli": "node scripts/source-ir-build.cjs <generated.html> <outdir> --project <projectName> --blueprint-smoke --verify --verify-runner production --steps <n>",
+    "legacyDemo2specBridge": "node adapters/demo2spec/index.js <generated.html> <outdir> --blueprint-smoke --verify --steps <n> (legacy bridge only; SourceIR-only, no JS inference fallback)",
     "hardGates": [
+      "source-ir-report.json passes with renderer ownership",
+      "semantic-source.json has semanticSource=source-scene-ir and legacyJsInferenceUsed=false",
+      "source-visual-ir.json exists and hash-binds to source-ir.json",
       "snapshot-schema.json validates against contracts/snapshot-schema.v1.json",
       "phaseEvidenceSummary.validation.passed === true",
       "phaseEvidenceSummary.aggregate.triggeredPresentFullRate === 1",

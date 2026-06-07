@@ -18,6 +18,7 @@ var {
   buildSourceIrArtifacts,
   compileToGameSchema,
   compileVisualAssetManifest,
+  compileSourceVisualIr,
   compilePlayableSceneIr,
   buildSourceIrBlueprintContext,
 } = require('../adapters/source-ir/index.js');
@@ -105,10 +106,23 @@ assert.strictEqual(playableSceneIr.kind, 'blueprint.playableSceneIR');
 assert.strictEqual(playableSceneIr.phases.length, 2);
 assert.strictEqual(assertPlayableSceneIrExecutionAlignment(playableSceneIr, { gameSchema: gameSchema }).passed, true);
 
+var sourceVisualIr = compileSourceVisualIr(sourceIr);
+assert.strictEqual(sourceVisualIr.kind, 'blueprint.sourceVisualIR');
+assert.strictEqual(sourceVisualIr.source.sourceSceneIrHash, sourceIr.semanticHash);
+assert.strictEqual(sourceVisualIr.visual.scene.backgroundColor, '#101820');
+assert.strictEqual(sourceVisualIr.visual.entities.length, 3);
+assert.strictEqual(sourceVisualIr.visual.entities[1].meshOps[0].kind, 'primitive');
+assert.strictEqual(sourceVisualIr.visual.hud.resourceBar[0], 'Water');
+assert.strictEqual(sourceVisualIr.visual.phaseStates.length, 2);
+assert.strictEqual(sourceVisualIr.visual.phaseStates[0].guidance.primaryTarget, 'WaterDrop');
+assert.strictEqual(sourceVisualIr.visual.cta.entity, 'CtaButton');
+
 var assetManifest = compileVisualAssetManifest(sourceIr, {
   playableSceneIrHash: playableSceneIr.semanticHash,
+  sourceVisualIrHash: sourceVisualIr.semanticHash,
 });
 assert.strictEqual(assetManifest.kind, 'demo2spec.visualAssetManifest');
+assert.strictEqual(assetManifest.sourceVisualIrHash, sourceVisualIr.semanticHash);
 assert.strictEqual(assetManifest.visualRuntimeContract.kind, 'demo2spec.visualRuntimeContract');
 assert.strictEqual(assetManifest.visualRuntimeContract.summary.phaseCount, 2);
 assert.strictEqual(assetManifest.visualRuntimeContract.phaseDriver.sourceFunction, '__driveToSourcePhase');
@@ -137,9 +151,12 @@ else process.env.BLUEPRINT_PROOF_CONTRACT_GATE = previousProofGate;
 assert.ok(fs.existsSync(path.join(outDir, 'source-ir.json')));
 assert.ok(fs.existsSync(path.join(outDir, 'gameschema.json')));
 assert.ok(fs.existsSync(path.join(outDir, 'asset-manifest.json')));
+assert.ok(fs.existsSync(path.join(outDir, 'source-visual-ir.json')));
 assert.ok(fs.existsSync(path.join(outDir, 'visual-runtime-contract.json')));
 assert.ok(fs.existsSync(path.join(outDir, 'playable-scene-ir.json')));
 assert.strictEqual(artifacts.sourceIr.semanticHash, sourceIr.semanticHash);
+assert.strictEqual(artifacts.sourceVisualIr.source.sourceSceneIrHash, sourceIr.semanticHash);
+assert.strictEqual(JSON.parse(fs.readFileSync(path.join(outDir, 'spec.json'), 'utf8')).meta.sourceVisualIrHash, artifacts.sourceVisualIr.semanticHash);
 
 var cliOut = path.join(tmp, 'cli-out');
 var cli = childProcess.execFileSync(process.execPath, [
@@ -153,7 +170,9 @@ var cli = childProcess.execFileSync(process.execPath, [
 var cliSummary = JSON.parse(cli);
 assert.strictEqual(cliSummary.semanticSource, 'source-scene-ir');
 assert.strictEqual(cliSummary.legacyJsInferenceUsed, false);
+assert.ok(cliSummary.sourceVisualIrHash);
 assert.ok(fs.existsSync(path.join(cliOut, 'gameschema.json')));
 assert.ok(fs.existsSync(path.join(cliOut, 'spec.json')));
+assert.ok(fs.existsSync(path.join(cliOut, 'source-visual-ir.json')));
 
 console.log('source-ir compiler tests passed');

@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "blueprint.sourceVisualIR.schema",
+  "contractVersion": "source-visual-ir.v1",
+  "description": "Deterministic visual projection compiled from SourceSceneIR. This is not a second gameplay semantic source: scene, model, UI, phase visual state, guidance, and CTA visuals must remain hash-bound to SourceSceneIR.",
+  "sourceOfTruth": {
+    "sourceSceneIr": "contracts/source-scene-ir.v1.json"
+  },
+  "requiredTopLevelKeys": [
+    "schemaVersion",
+    "kind",
+    "project",
+    "source",
+    "visual"
+  ],
+  "visualRequiredKeys": [
+    "scene",
+    "entities",
+    "hud",
+    "phaseStates",
+    "guidance",
+    "cta"
+  ],
+  "hash": {
+    "algorithm": "sha256",
+    "semanticPayload": [
+      "schemaVersion",
+      "kind",
+      "project",
+      "source.sourceSceneIrHash",
+      "visual"
+    ],
+    "excludedFields": [
+      "generatedAt",
+      "source.htmlPath",
+      "source.htmlSha256",
+      "semanticHash",
+      "diagnostics"
+    ]
+  },
+  "visual": {
+    "scene": "Camera, ground, lights, grid, background, and coordinate-system values projected from SourceSceneIR.scene.",
+    "entities": "Stable entity visuals. Each entry includes id, label, kind, transform, material, meshOps, and optional asset binding.",
+    "hud": "HUD visual contract projected from SourceSceneIR.hud, including tip source, resource bar, DOM HUD contract, and UI overlay contract.",
+    "phaseStates": "Per-phase visual state: visible entities, hidden entities, HUD text, target sequence, guidance target, resource hints, and CTA visibility.",
+    "guidance": "Guidance visuals such as target ring, trail line, laser line, and phase primary targets.",
+    "cta": "Final CTA visual contract, including entity, arrival-gated flag, title, button text, subtitle, and final phase."
+  },
+  "preflightRules": [
+    "schemaVersion must be source-visual-ir.v1",
+    "kind must be blueprint.sourceVisualIR",
+    "source.sourceSceneIrHash must match the SourceSceneIR semanticHash used to compile it",
+    "visual.entities[].id values must be unique",
+    "visual.entities[].meshOps must be an array",
+    "visual.phaseStates[] ids must be unique and sequential as phase1..phaseN",
+    "visual.phaseStates[].visibleEntities and guidance targets must reference visual.entities[]",
+    "visual.cta.entity must reference visual.entities[] when present",
+    "semanticHash, when present, must match the normalized semantic payload"
+  ]
+}

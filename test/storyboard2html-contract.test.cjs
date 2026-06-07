@@ -15,6 +15,7 @@ assert.strictEqual(storyboard2html.validateContract(contract), true);
 assert.strictEqual(contract.schemaVersion, '1.0.0');
 assert.strictEqual(contract.kind, 'blueprint.storyboard2html.htmlContract');
 assert.strictEqual(contract.sourceOfTruth.sourceSceneIr, 'contracts/source-scene-ir.v1.json');
+assert.strictEqual(contract.sourceOfTruth.sourceVisualIr, 'contracts/source-visual-ir.v1.json');
 assert.ok(contract.htmlStaticEntry.requiredGlobals.some(function(entry) { return entry.name === 'window.__BP_SOURCE_IR__'; }));
 assert.ok(contract.htmlStaticEntry.requiredGlobals.some(function(entry) { return entry.name === 'window.__BP_SOURCE_IR_HASH__'; }));
 assert.ok(contract.htmlStaticEntry.requiredGlobals.some(function(entry) { return entry.name === 'window.__BP_SOURCE_IR_PREVIEW_RENDERER_VERSION__'; }));
@@ -87,7 +88,9 @@ assert.deepStrictEqual(bundle.specs[0].plannedModuleIds, ['guide_ui', 'collect_o
 assert.strictEqual(bundle.specs[0].trigger.type, 'resource_collected');
 assert.strictEqual(bundle.storyboardFrames[0].title, 'Collect corn');
 assert.strictEqual(bundle.htmlContract.kind, contract.kind);
-assert.ok(bundle.acceptancePlan.command.join(' ').indexOf('/root/.claude/skills/demo2spec/index.js') >= 0);
+assert.strictEqual(bundle.acceptancePlan.smokeMode, 'source-ir-only');
+assert.ok(bundle.acceptancePlan.command.join(' ').indexOf('scripts/source-ir-build.cjs') >= 0);
+assert.ok(bundle.acceptancePlan.command.join(' ').indexOf('/root/.claude/skills/demo2spec/index.js') < 0);
 assert.ok(bundle.acceptancePlan.command.indexOf('--blueprint-smoke') >= 0);
 assert.ok(bundle.acceptancePlan.command.indexOf('--verify') >= 0);
 assert.strictEqual(bundle.acceptancePlan.verifyRunner, 'production');
@@ -100,19 +103,27 @@ assert.strictEqual(bundle.acceptancePlan.artifacts.preflightReport, '/tmp/storyb
 assert.strictEqual(bundle.acceptancePlan.artifacts.sourceSceneIrPreflightReport, '/tmp/storyboard2html-out/source-ir-report.json');
 assert.strictEqual(bundle.acceptancePlan.artifacts.playableSceneIr, '/tmp/storyboard2html-out/playable-scene-ir.json');
 assert.ok(bundle.acceptancePlan.sourceIrPreflightCommand.join(' ').indexOf('source-scene-ir-preflight.cjs') >= 0);
+assert.ok(bundle.acceptancePlan.sourceIrPreflightCommand.indexOf('--require-renderer') >= 0);
 assert.ok(bundle.acceptancePlan.hardGates.some(function(gate) {
   return gate.indexOf('manual joystick flow') >= 0;
 }));
 assert.ok(bundle.acceptancePlan.hardGates.some(function(gate) {
   return gate.indexOf('source-scene-ir preflight') >= 0;
 }));
+assert.ok(bundle.acceptancePlan.hardGates.some(function(gate) {
+  return gate.indexOf('source-visual-ir.json') >= 0;
+}));
 assert.strictEqual(storyboard2html.buildAcceptancePlan({ verifyRunner: 'direct' }).verifyRunner, 'direct');
-assert.ok(storyboard2html.buildAcceptancePlan({
-  requireSourceIrRenderer: true,
-}).sourceIrPreflightCommand.indexOf('--require-renderer') >= 0);
+assert.ok(storyboard2html.buildAcceptancePlan().sourceIrPreflightCommand.indexOf('--require-renderer') >= 0);
+assert.ok(storyboard2html.buildAcceptancePlan({ requireSourceIrRenderer: false }).sourceIrPreflightCommand.indexOf('--require-renderer') < 0);
+assert.strictEqual(storyboard2html.buildAcceptancePlan({ legacyDemo2spec: true }).smokeMode, 'legacy-demo2spec');
+assert.ok(storyboard2html.buildAcceptancePlan({ legacyDemo2spec: true }).command.join(' ').indexOf('/root/.claude/skills/demo2spec/index.js') >= 0);
 assert.throws(function() {
   storyboard2html.buildAcceptancePlan({ verifyRunner: 'bogus' });
 }, /expected direct\|production/);
+assert.throws(function() {
+  storyboard2html.buildAcceptancePlan({ smokeMode: 'bogus' });
+}, /expected source-ir-only\|legacy-demo2spec/);
 
 assert.throws(function() {
   storyboard2html.buildStoryboard2HtmlInput({ projectName: 'NoSpecs' });
@@ -168,7 +179,8 @@ var smokeResult = spawnSync(process.execPath, [
 ], { encoding: 'utf8', cwd: path.join(__dirname, '..') });
 assert.strictEqual(smokeResult.status, 0, smokeResult.stderr || smokeResult.stdout);
 assert.ok(smokeResult.stdout.indexOf('source-scene-ir-preflight.cjs') >= 0);
-assert.ok(smokeResult.stdout.indexOf('/root/.claude/skills/demo2spec/index.js') >= 0);
+assert.ok(smokeResult.stdout.indexOf('scripts/source-ir-build.cjs') >= 0);
+assert.ok(smokeResult.stdout.indexOf('/root/.claude/skills/demo2spec/index.js') < 0);
 assert.ok(smokeResult.stdout.indexOf('--blueprint-smoke') >= 0);
 assert.ok(smokeResult.stdout.indexOf('--verify-runner') >= 0);
 assert.ok(smokeResult.stdout.indexOf('production') >= 0);

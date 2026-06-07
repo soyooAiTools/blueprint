@@ -14,7 +14,14 @@ const {
 const skillRoot = __dirname;
 
 function usage() {
-  console.error('Usage: node index.js <demo.html> <outdir> [--theme name] [--blueprint-smoke] [--verify] [--verify-runner direct|production] [--steps N] [--visual-diff] [--visual-phases phase8|6-8|phase6,phase8]');
+  console.error([
+    'Usage: node index.js <demo.html> <outdir> [--theme name] [--blueprint-smoke] [--verify]',
+    '  [--verify-runner direct|production] [--steps N] [--visual-diff]',
+    '  [--visual-phases phase8|6-8|phase6,phase8]',
+    '',
+    'Legacy bridge note: new storyboard2html builds should call scripts/source-ir-build.cjs.',
+    'This wrapper is retained for older callers, but it is SourceIR-only and never runs legacy JS inference.',
+  ].join('\n'));
   process.exit(2);
 }
 
@@ -102,6 +109,7 @@ function runSourceIrCompiler(htmlPath, outDir, opts) {
   });
   const sourceSceneIrHash = artifacts.sourceIr && artifacts.sourceIr.semanticHash || report.summary && report.summary.sourceSceneIrHash || null;
   const playableSceneIrHash = artifacts.playableSceneIr && artifacts.playableSceneIr.semanticHash || null;
+  const sourceVisualIrHash = artifacts.sourceVisualIr && artifacts.sourceVisualIr.semanticHash || null;
   writeJson(path.join(outDir, 'semantic-source.json'), {
     semanticSource: 'source-scene-ir',
     legacyJsInferenceUsed: false,
@@ -109,11 +117,13 @@ function runSourceIrCompiler(htmlPath, outDir, opts) {
     sourceIrPreflightPassed: true,
     sourceSceneIrHash,
     playableSceneIrHash,
+    sourceVisualIrHash,
   });
   return {
     usedSourceIr: true,
     sourceSceneIrHash,
     playableSceneIrHash,
+    sourceVisualIrHash,
   };
 }
 
@@ -153,11 +163,13 @@ function main() {
     legacyJsInferenceUsed: false,
     sourceSceneIrHash: sourceIrResult.sourceSceneIrHash,
     playableSceneIrHash: sourceIrResult.playableSceneIrHash,
+    sourceVisualIrHash: sourceIrResult.sourceVisualIrHash,
     spec: specPath,
     gameSchema: gameSchemaPath,
     snapshotSchema: path.join(outDir, 'snapshot-schema.json'),
     htmlPhaseSlices: path.join(outDir, 'html-phase-slices.json'),
     assetManifest: path.join(outDir, 'asset-manifest.json'),
+    sourceVisualIr: path.join(outDir, 'source-visual-ir.json'),
     visualRuntimeContract: path.join(outDir, 'visual-runtime-contract.json'),
     playableSceneIr: path.join(outDir, 'playable-scene-ir.json'),
     blueprintProofBundle: opts.blueprintSmoke ? path.join(outDir, 'blueprint-smoke', 'blueprint-proof-bundle.json') : null,

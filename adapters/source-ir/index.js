@@ -35,9 +35,15 @@ var {
   compilePlayableSceneIr,
 } = require('./compile-playable-scene-ir.js');
 var {
+  compileSourceVisualIr,
+} = require('./compile-source-visual-ir.js');
+var {
   buildSourceIrBlueprintContext,
   writeSourceIrBlueprintArtifacts,
 } = require('./compile-blueprint-context.js');
+var {
+  writeSourceVisualIr,
+} = require('../../engine/source-visual-ir.cjs');
 
 function usage() {
   console.error('Usage: node adapters/source-ir/index.js <source.html|source-ir.json> <outdir> [--project name] [--no-blueprint]');
@@ -101,13 +107,16 @@ function buildSourceIrArtifacts(inputPath, outDir, options) {
   var projectName = options.projectName || sourceIr.project && sourceIr.project.name || 'source-ir';
   var gameSchema = compileToGameSchema(sourceIr, options);
   var playableSceneIr = compilePlayableSceneIr(sourceIr, options);
+  var sourceVisualIr = compileSourceVisualIr(sourceIr, options);
   var assetManifest = compileVisualAssetManifest(sourceIr, {
     project: projectName,
     sourceHtmlPath: playableSceneIr.source && playableSceneIr.source.htmlPath,
     sourceHtmlSha256: playableSceneIr.source && playableSceneIr.source.htmlSha256,
     playableSceneIrHash: playableSceneIr.semanticHash,
+    sourceVisualIrHash: sourceVisualIr.semanticHash,
     generatedAt: options.generatedAt,
   });
+  assetManifest.sourceVisualIrHash = sourceVisualIr.semanticHash;
   var spec = {
     meta: {
       project: projectName,
@@ -118,10 +127,12 @@ function buildSourceIrArtifacts(inputPath, outDir, options) {
       sourceHtmlPath: sourceIr.source && sourceIr.source.htmlPath || null,
       sourceHtmlSha256: sourceIr.source && sourceIr.source.htmlSha256 || null,
       assetManifestPath: 'asset-manifest.json',
+      sourceVisualIrPath: 'source-visual-ir.json',
       visualRuntimeContractPath: 'visual-runtime-contract.json',
       playableSceneIrPath: 'playable-scene-ir.json',
       htmlPhaseSlicesPath: 'html-phase-slices.json',
       playableSceneIrHash: playableSceneIr.semanticHash,
+      sourceVisualIrHash: sourceVisualIr.semanticHash,
     },
     notes: ['SourceSceneIR deterministic compiler; no legacy JS inference used.'],
     phases: gameSchema.phases,
@@ -143,6 +154,7 @@ function buildSourceIrArtifacts(inputPath, outDir, options) {
   writeSourceSceneIr(path.join(absOut, 'source-ir.json'), sourceIr);
   writeJson(path.join(absOut, 'gameschema.json'), gameSchema);
   writeJson(path.join(absOut, 'spec.json'), spec);
+  writeSourceVisualIr(path.join(absOut, 'source-visual-ir.json'), sourceVisualIr);
   writeJson(path.join(absOut, 'html-phase-slices.json'), htmlPhaseSlices);
   writeJson(path.join(absOut, 'cua-specs.json'), buildCuaSpecs(gameSchema));
   writeJson(path.join(absOut, 'cua-plans.json'), buildCuaPlans(snapshotSchema));
@@ -179,6 +191,7 @@ function buildSourceIrArtifacts(inputPath, outDir, options) {
     sourceIr: sourceIr,
     gameSchema: gameSchema,
     assetManifest: assetManifest,
+    sourceVisualIr: sourceVisualIr,
     playableSceneIr: playableSceneIr,
     blueprint: blueprint,
     paths: {
@@ -188,6 +201,7 @@ function buildSourceIrArtifacts(inputPath, outDir, options) {
       snapshotSchema: path.join(absOut, 'snapshot-schema.json'),
       htmlPhaseSlices: path.join(absOut, 'html-phase-slices.json'),
       assetManifest: path.join(absOut, 'asset-manifest.json'),
+      sourceVisualIr: path.join(absOut, 'source-visual-ir.json'),
       visualRuntimeContract: path.join(absOut, 'visual-runtime-contract.json'),
       playableSceneIr: path.join(absOut, 'playable-scene-ir.json'),
       unityAssetPlan: path.join(absOut, 'unity-asset-plan.json'),
@@ -204,6 +218,7 @@ function main() {
     semanticSource: 'source-scene-ir',
     legacyJsInferenceUsed: false,
     sourceSceneIrHash: result.sourceIr.semanticHash,
+    sourceVisualIrHash: result.sourceVisualIr.semanticHash,
     playableSceneIrHash: result.playableSceneIr.semanticHash,
     paths: result.paths,
   }, null, 2));
@@ -223,6 +238,7 @@ module.exports = {
   loadSourceIrFromInput: loadSourceIrFromInput,
   compileToGameSchema: compileToGameSchema,
   compileVisualAssetManifest: compileVisualAssetManifest,
+  compileSourceVisualIr: compileSourceVisualIr,
   compilePlayableSceneIr: compilePlayableSceneIr,
   buildSourceIrBlueprintContext: buildSourceIrBlueprintContext,
 };

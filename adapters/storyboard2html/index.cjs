@@ -65,6 +65,11 @@ function runStoryboard2HtmlSmoke(htmlPath, outDir, opts) {
   if (opts.verifyRunner) args.push('--verify-runner', opts.verifyRunner);
   if (opts.skillRoot) args.push('--skill-root', opts.skillRoot);
   if (opts.dryRun) args.push('--dry-run');
+  if (opts.legacyDemo2spec) args.push('--legacy-demo2spec');
+  if (opts.allowNonRendererHtml) args.push('--allow-non-renderer-html');
+  if (opts.requireSourceIrRenderer) args.push('--require-source-ir-renderer');
+  if (opts.visualDiff) args.push('--visual-diff');
+  if (opts.visualPhases) args.push('--visual-phases', String(opts.visualPhases));
   return runScriptChecked('storyboard2html-smoke.cjs', args, opts);
 }
 

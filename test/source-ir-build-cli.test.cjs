@@ -88,15 +88,20 @@ assert.strictEqual(rendererSummary.semanticSource, 'source-scene-ir');
 assert.strictEqual(rendererSummary.legacyJsInferenceUsed, false);
 assert.strictEqual(rendererSummary.sourceIrRenderer.ownsVisuals, true);
 assert.strictEqual(rendererSummary.sourceIrRenderer.ownsPhaseDriver, true);
+assert.ok(rendererSummary.sourceVisualIrHash);
 assert.ok(fs.existsSync(path.join(rendererOut, 'source-ir-build-summary.json')));
 assert.ok(fs.existsSync(path.join(rendererOut, 'spec.json')));
 assert.ok(fs.existsSync(path.join(rendererOut, 'gameschema.json')));
+assert.ok(fs.existsSync(path.join(rendererOut, 'source-visual-ir.json')));
 var rendererSemanticSource = JSON.parse(fs.readFileSync(path.join(rendererOut, 'semantic-source.json'), 'utf8'));
 assert.strictEqual(rendererSemanticSource.legacyJsInferenceUsed, false);
 assert.strictEqual(rendererSemanticSource.sourceIrBuildPassed, true);
+assert.strictEqual(rendererSemanticSource.sourceVisualIrHash, rendererSummary.sourceVisualIrHash);
 var rendererSpec = JSON.parse(fs.readFileSync(path.join(rendererOut, 'spec.json'), 'utf8'));
 assert.strictEqual(rendererSpec.meta.semanticSource, 'source-scene-ir');
 assert.strictEqual(rendererSpec.meta.legacyJsInferenceUsed, false);
+assert.strictEqual(rendererSpec.meta.sourceVisualIrPath, 'source-visual-ir.json');
+assert.strictEqual(rendererSpec.meta.sourceVisualIrHash, rendererSummary.sourceVisualIrHash);
 
 var sourceIrJsonPath = path.join(tmp, 'source-ir.json');
 writeSourceSceneIr(sourceIrJsonPath, sourceIr);
@@ -108,6 +113,7 @@ assert.strictEqual(jsonSummary.inputKind, 'source-ir-json');
 assert.strictEqual(jsonSummary.sourceIrRenderer, null);
 assert.strictEqual(jsonSummary.legacyJsInferenceUsed, false);
 assert.ok(fs.existsSync(path.join(jsonOut, 'playable-scene-ir.json')));
+assert.ok(fs.existsSync(path.join(jsonOut, 'source-visual-ir.json')));
 
 var nonRendererHtmlPath = path.join(tmp, 'non-renderer.html');
 fs.writeFileSync(nonRendererHtmlPath, [

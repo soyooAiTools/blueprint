@@ -99,6 +99,7 @@ function compileVisualAssetManifest(sourceIr, options) {
     sourceHtmlPath: ir.source && ir.source.htmlPath || options.sourceHtmlPath || null,
     sourceHtmlSha256: ir.source && ir.source.htmlSha256 || options.sourceHtmlSha256 || null,
     playableSceneIrHash: options.playableSceneIrHash || null,
+    sourceVisualIrHash: options.sourceVisualIrHash || null,
     project: options.project || ir.project && ir.project.name || null,
     fidelityTarget: 'geometry_color_material',
     assetMetadata: {

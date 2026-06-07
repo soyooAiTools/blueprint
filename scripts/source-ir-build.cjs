@@ -170,6 +170,9 @@ function assertIrOnlyArtifacts(outDir) {
   if (spec.meta.legacyJsInferenceUsed !== false) {
     throw new Error('IR-only build artifact violation: spec.meta.legacyJsInferenceUsed must be false');
   }
+  if (!spec.meta.sourceVisualIrPath || !spec.meta.sourceVisualIrHash) {
+    throw new Error('IR-only build artifact violation: spec.meta.sourceVisualIrPath/hash must be present');
+  }
   var semanticSource = JSON.parse(fs.readFileSync(path.join(outDir, 'semantic-source.json'), 'utf8'));
   if (semanticSource.semanticSource !== 'source-scene-ir') {
     throw new Error('IR-only build artifact violation: semantic-source semanticSource must be source-scene-ir');
@@ -257,6 +260,7 @@ function main() {
     inputKind: inputKind(inputPath),
     sourceSceneIrHash: artifacts.sourceIr.semanticHash,
     playableSceneIrHash: artifacts.playableSceneIr.semanticHash,
+    sourceVisualIrHash: artifacts.sourceVisualIr.semanticHash,
     sourceIrRenderer: report.summary && report.summary.sourceIrRenderer || null,
   });
   assertIrOnlyArtifacts(outDir);
@@ -272,6 +276,7 @@ function main() {
     sourceIrPreflightPassed: true,
     sourceSceneIrHash: artifacts.sourceIr.semanticHash,
     playableSceneIrHash: artifacts.playableSceneIr.semanticHash,
+    sourceVisualIrHash: artifacts.sourceVisualIr.semanticHash,
     sourceIrRenderer: report.summary && report.summary.sourceIrRenderer || null,
     paths: Object.assign({}, artifacts.paths, {
       sourceIrReport: path.join(outDir, 'source-ir-report.json'),

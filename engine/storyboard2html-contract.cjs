@@ -5,7 +5,9 @@ var path = require('path');
 
 var DEFAULT_CONTRACT_PATH = path.join(__dirname, '..', 'contracts', 'storyboard2html-html-contract.v1.json');
 var DEFAULT_DEMO2SPEC_SKILL_ROOT = '/root/.claude/skills/demo2spec';
+var SOURCE_IR_BUILD_SCRIPT = path.join(__dirname, '..', 'scripts', 'source-ir-build.cjs');
 var VERIFY_RUNNERS = { direct: true, production: true };
+var SMOKE_MODES = { 'source-ir-only': true, 'legacy-demo2spec': true };
 
 function safeArray(value) {
   return Array.isArray(value) ? value : [];
@@ -25,6 +27,18 @@ function normalizeVerifyRunner(value) {
     throw new Error('Unknown storyboard2html verify runner "' + runner + '" (expected direct|production)');
   }
   return runner;
+}
+
+function normalizeSmokeMode(options) {
+  options = options || {};
+  if (options.legacyDemo2spec === true || process.env.STORYBOARD2HTML_LEGACY_DEMO2SPEC === '1') return 'legacy-demo2spec';
+  var mode = String(options.smokeMode || process.env.STORYBOARD2HTML_SMOKE_MODE || 'source-ir-only').trim() || 'source-ir-only';
+  if (mode === 'ir-only' || mode === 'source-ir') mode = 'source-ir-only';
+  if (mode === 'demo2spec' || mode === 'legacy') mode = 'legacy-demo2spec';
+  if (!SMOKE_MODES[mode]) {
+    throw new Error('Unknown storyboard2html smoke mode "' + mode + '" (expected source-ir-only|legacy-demo2spec)');
+  }
+  return mode;
 }
 
 function loadContract(explicitPath) {
@@ -275,6 +289,8 @@ function buildAcceptancePlan(options) {
   var skillRoot = options.demo2specSkillRoot || process.env.DEMO2SPEC_SKILL_ROOT || DEFAULT_DEMO2SPEC_SKILL_ROOT;
   var steps = Number(options.steps || process.env.STORYBOARD2HTML_VERIFY_STEPS || 40) || 40;
   var verifyRunner = normalizeVerifyRunner(options.verifyRunner);
+  var smokeMode = normalizeSmokeMode(options);
+  var requireSourceIrRenderer = options.requireSourceIrRenderer !== false;
   var themeHint = options.themeHint || '<themeHint>';
   var outDir = options.outDir || '<outdir>';
   var htmlPath = options.htmlPath || '<generated.html>';
@@ -286,20 +302,43 @@ function buildAcceptancePlan(options) {
   var verifyReportPath = path.join(smokeOutDir, 'unity-verify-report.json');
   var verifySummaryPath = path.join(smokeOutDir, 'unity-verify-summary.json');
   var flowManifestPath = path.join(outDir, 'playable-flow-manifest.json');
-  var args = [
-    process.execPath,
-    path.join(skillRoot, 'index.js'),
-    htmlPath,
-    outDir,
-    '--theme',
-    themeHint,
-    '--blueprint-smoke',
-    '--verify',
-    '--verify-runner',
-    verifyRunner,
-    '--steps',
-    String(steps),
-  ];
+  var args;
+  if (smokeMode === 'legacy-demo2spec') {
+    args = [
+      process.execPath,
+      path.join(skillRoot, 'index.js'),
+      htmlPath,
+      outDir,
+      '--theme',
+      themeHint,
+      '--blueprint-smoke',
+      '--verify',
+      '--verify-runner',
+      verifyRunner,
+      '--steps',
+      String(steps),
+    ];
+  } else {
+    args = [
+      process.execPath,
+      SOURCE_IR_BUILD_SCRIPT,
+      htmlPath,
+      outDir,
+      '--project',
+      options.projectName || themeHint || 'storyboard2html',
+      '--blueprint-smoke',
+      '--verify',
+      '--verify-runner',
+      verifyRunner,
+      '--steps',
+      String(steps),
+    ];
+    if (requireSourceIrRenderer === false) args.push('--allow-non-renderer-html');
+  }
+  if (options.visualDiff === true) {
+    args.push('--visual-diff');
+    if (options.visualPhases) args.push('--visual-phases', String(options.visualPhases));
+  }
   var hardgateCommand = [
     process.execPath,
     path.join(__dirname, '..', 'scripts', 'storyboard2html-hardgate.cjs'),
@@ -318,10 +357,11 @@ function buildAcceptancePlan(options) {
     htmlPath,
     sourceSceneIrPreflightReportPath,
   ];
-  if (options.requireSourceIrRenderer === true) sourceIrPreflightCommand.push('--require-renderer');
+  if (requireSourceIrRenderer === true) sourceIrPreflightCommand.push('--require-renderer');
   return {
     demo2specSkillRoot: skillRoot,
     verifyRunner: verifyRunner,
+    smokeMode: smokeMode,
     command: args,
     sourceIrPreflightCommand: sourceIrPreflightCommand,
     hardgateCommand: hardgateCommand,
@@ -336,7 +376,10 @@ function buildAcceptancePlan(options) {
     },
     hardGates: [
       'source-scene-ir preflight report exists',
+      'source-ir preview renderer owns visuals and phase driver',
       'source-scene-ir hash chain is fresh and aligned',
+      'semanticSource === source-scene-ir and legacyJsInferenceUsed === false',
+      'source-visual-ir.json exists and hash-bound to SourceSceneIR',
       'snapshot-schema validates',
       'verify summary runner === production',
       'runtimeContractSummary.contractPassed === true',
@@ -378,8 +421,14 @@ function buildStoryboard2HtmlInput(blueprint, options) {
       demo2specSkillRoot: options.demo2specSkillRoot,
       steps: options.steps,
       themeHint: themeHint,
+      projectName: bp.projectName || bp.name || options.projectName || 'storyboard2html',
       htmlPath: options.htmlPath,
       outDir: options.outDir,
+      smokeMode: options.smokeMode,
+      legacyDemo2spec: options.legacyDemo2spec,
+      requireSourceIrRenderer: options.requireSourceIrRenderer,
+      visualDiff: options.visualDiff,
+      visualPhases: options.visualPhases,
     }),
   };
 }
@@ -387,9 +436,11 @@ function buildStoryboard2HtmlInput(blueprint, options) {
 module.exports = {
   DEFAULT_CONTRACT_PATH: DEFAULT_CONTRACT_PATH,
   DEFAULT_DEMO2SPEC_SKILL_ROOT: DEFAULT_DEMO2SPEC_SKILL_ROOT,
+  SOURCE_IR_BUILD_SCRIPT: SOURCE_IR_BUILD_SCRIPT,
   loadContract: loadContract,
   validateContract: validateContract,
   normalizeVerifyRunner: normalizeVerifyRunner,
+  normalizeSmokeMode: normalizeSmokeMode,
   buildAcceptancePlan: buildAcceptancePlan,
   buildStoryboard2HtmlInput: buildStoryboard2HtmlInput,
   _internals: {

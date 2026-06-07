@@ -99,11 +99,15 @@ assert.strictEqual(spec.meta.legacyJsInferenceUsed, false);
 assert.strictEqual(spec.meta.sourceHtmlSha256, sha256OfString(html));
 
 var playableSceneIr = JSON.parse(fs.readFileSync(path.join(outDir, 'playable-scene-ir.json'), 'utf8'));
+var sourceVisualIr = JSON.parse(fs.readFileSync(path.join(outDir, 'source-visual-ir.json'), 'utf8'));
 assert.strictEqual(semanticSource.sourceSceneIrHash, spec.meta.sourceSceneIrHash);
 assert.strictEqual(semanticSource.playableSceneIrHash, playableSceneIr.semanticHash);
+assert.strictEqual(semanticSource.sourceVisualIrHash, sourceVisualIr.semanticHash);
 assert.strictEqual(summary.sourceSceneIrHash, semanticSource.sourceSceneIrHash);
 assert.strictEqual(summary.playableSceneIrHash, playableSceneIr.semanticHash);
+assert.strictEqual(summary.sourceVisualIrHash, sourceVisualIr.semanticHash);
 assert.strictEqual(spec.meta.playableSceneIrHash, playableSceneIr.semanticHash);
+assert.strictEqual(spec.meta.sourceVisualIrHash, sourceVisualIr.semanticHash);
 
 var gameSchema = JSON.parse(fs.readFileSync(path.join(outDir, 'gameschema.json'), 'utf8'));
 assert.deepStrictEqual(schemaValidator.validateGameSchema(gameSchema), []);
@@ -113,6 +117,7 @@ assert.strictEqual(gameSchema.phases[1].trigger.type, 'near_entity');
 
 [
   'source-ir.json',
+  'source-visual-ir.json',
   'asset-manifest.json',
   'visual-runtime-contract.json',
   'playable-scene-ir.json',

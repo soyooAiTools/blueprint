@@ -43,7 +43,7 @@ function convertDemoSpecToGameSchema(specPath, outPath, opts) {
   return runScriptChecked('convert-to-gameschema.js', args, opts);
 }
 
-function runDemo2SpecPipeline(htmlPath, outDir, opts) {
+function runSourceIrLegacyBridge(htmlPath, outDir, opts) {
   opts = opts || {};
   var args = [htmlPath, outDir];
   if (opts.theme) args.push('--theme', opts.theme);
@@ -54,6 +54,10 @@ function runDemo2SpecPipeline(htmlPath, outDir, opts) {
   if (opts.visualDiff) args.push('--visual-diff');
   if (opts.visualPhases) args.push('--visual-phases', String(opts.visualPhases));
   return runScriptChecked('index.js', args, opts);
+}
+
+function runDemo2SpecPipeline(htmlPath, outDir, opts) {
+  return runSourceIrLegacyBridge(htmlPath, outDir, opts);
 }
 
 function runBlueprintSmoke(input, outDir, opts) {
@@ -73,6 +77,7 @@ module.exports = {
   runScriptChecked: runScriptChecked,
   extractDemoHtml: extractDemoHtml,
   convertDemoSpecToGameSchema: convertDemoSpecToGameSchema,
+  runSourceIrLegacyBridge: runSourceIrLegacyBridge,
   runDemo2SpecPipeline: runDemo2SpecPipeline,
   runBlueprintSmoke: runBlueprintSmoke,
   modules: {

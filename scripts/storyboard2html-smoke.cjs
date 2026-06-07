@@ -10,12 +10,30 @@ var playableFlowManifest = require('../engine/playable-flow-manifest.cjs');
 var sourceSceneIr = require('../engine/source-scene-ir.cjs');
 
 function usage() {
-  console.error('Usage: node scripts/storyboard2html-smoke.cjs <generated.html> <outdir> [--theme name] [--steps N] [--verify-runner direct|production] [--skill-root path] [--dry-run] [--require-source-ir-renderer]');
+  console.error([
+    'Usage: node scripts/storyboard2html-smoke.cjs <generated.html> <outdir> [--theme name] [--steps N]',
+    '  [--verify-runner direct|production] [--dry-run] [--visual-diff]',
+    '  [--visual-phases phase8|6-8|phase6,phase8] [--ir-only] [--legacy-demo2spec]',
+    '  [--require-source-ir-renderer] [--allow-non-renderer-html] [--skill-root path]',
+  ].join('\n'));
   process.exit(2);
 }
 
 function parseArgs(argv) {
-  var opts = { html: null, outDir: null, themeHint: 'default', steps: 40, verifyRunner: null, skillRoot: null, dryRun: false, requireSourceIrRenderer: false };
+  var opts = {
+    html: null,
+    outDir: null,
+    themeHint: 'default',
+    steps: 40,
+    verifyRunner: null,
+    skillRoot: null,
+    dryRun: false,
+    requireSourceIrRenderer: true,
+    smokeMode: 'source-ir-only',
+    legacyDemo2spec: false,
+    visualDiff: false,
+    visualPhases: null,
+  };
   for (var i = 2; i < argv.length; i++) {
     var arg = argv[i];
     if (arg === '--theme') {
@@ -30,6 +48,20 @@ function parseArgs(argv) {
       opts.dryRun = true;
     } else if (arg === '--require-source-ir-renderer' || arg === '--require-renderer') {
       opts.requireSourceIrRenderer = true;
+    } else if (arg === '--allow-non-renderer-html') {
+      opts.requireSourceIrRenderer = false;
+    } else if (arg === '--ir-only' || arg === '--source-ir-only') {
+      opts.smokeMode = 'source-ir-only';
+      opts.legacyDemo2spec = false;
+    } else if (arg === '--legacy-demo2spec') {
+      opts.smokeMode = 'legacy-demo2spec';
+      opts.legacyDemo2spec = true;
+    } else if (arg === '--visual-diff') {
+      opts.visualDiff = true;
+    } else if (arg === '--visual-phases' || arg === '--visual-diff-phases') {
+      opts.visualPhases = argv[++i] || null;
+      if (!opts.visualPhases || /^--/.test(opts.visualPhases)) usage();
+      opts.visualDiff = true;
     } else if (!opts.html) {
       opts.html = arg;
     } else if (!opts.outDir) {
@@ -142,6 +174,10 @@ function main() {
     steps: opts.steps,
     verifyRunner: opts.verifyRunner,
     requireSourceIrRenderer: opts.requireSourceIrRenderer,
+    smokeMode: opts.smokeMode,
+    legacyDemo2spec: opts.legacyDemo2spec,
+    visualDiff: opts.visualDiff,
+    visualPhases: opts.visualPhases,
   });
   if (opts.dryRun) {
     if (plan.sourceIrPreflightCommand) console.log(plan.sourceIrPreflightCommand.map(shellQuote).join(' '));
