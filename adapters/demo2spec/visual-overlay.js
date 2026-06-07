@@ -179,7 +179,8 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
   }
   function sourceDomWorldLabelsEnabled() {
     var c = manifest.sourceEntityContract || {};
-    return !!(c.worldLabelContract && c.worldLabelContract.source === 'source-html-dom-world-labels');
+    var source = c.worldLabelContract && c.worldLabelContract.source;
+    return source === 'source-html-dom-world-labels' || source === 'source-scene-ir';
   }
   function hexToNumber(hex, fallback) {
     var text = String(hex || fallback || '#ffffff').replace('#', '');
@@ -522,6 +523,9 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       sourceHudExtra += ';flex-wrap:nowrap!important;align-items:flex-start!important';
       sourceMetersExtra += 'margin-left:auto!important;flex-shrink:0!important';
     }
+    var sourceStickExtra = css.joystick
+      ? 'z-index:2147482411!important;pointer-events:none!important;display:block!important;visibility:visible!important'
+      : '';
     return [
       sourceCssRule('#demo2spec-source-hud', css.hud, sourceHudExtra),
       sourceCssRule('#demo2spec-source-logo', css.logo, ''),
@@ -543,8 +547,8 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       sourceCssRule('#demo2spec-source-phase-label', css.phaseLabel, ''),
       sourceCssRule('#demo2spec-source-target', css.targetHint, (!/\\bbottom\\s*:/i.test(targetHintCss) ? 'bottom:auto!important;' : '') + 'right:auto!important;width:auto!important;height:auto!important;min-width:0!important;max-width:calc(100vw - 32px)!important;z-index:2147482411!important;pointer-events:none!important' + (!/\\bborder\\s*:/.test(targetHintCss) ? ';border:0!important' : '')),
       sourceCssRule('#demo2spec-source-toast', css.toast, 'z-index:2147482412!important;pointer-events:none!important'),
-      sourceCssRule('#demo2spec-source-stick', css.joystick, sourceDomHudHasIdleJoystick() ? 'top:auto!important;margin:0!important;z-index:2147482411!important;pointer-events:none!important' : ''),
-      sourceCssRule('#demo2spec-source-stick-knob', css.stickThumb, sourceDomHudHasIdleJoystick() ? 'margin:0!important' : ''),
+      sourceCssRule('#demo2spec-source-stick', css.joystick, sourceStickExtra),
+      sourceCssRule('#demo2spec-source-stick-knob', css.stickThumb, ''),
       sourceDomHudHasIdleJoystick() ? '#demo2spec-source-stick:before{display:none!important;visibility:hidden!important}' : '',
       sourceCssRule('#demo2spec-source-cta-overlay.source-dom-cta', css.victory, 'display:none!important;z-index:2147482413!important;pointer-events:none!important;text-align:center!important;font-family:Arial,"Microsoft YaHei",sans-serif!important;color:#fff!important' + sourceCtaWrapperExtra),
       sourceCssRule('#demo2spec-source-cta-overlay.source-dom-cta.visible', css.victory, 'display:flex!important;z-index:2147482413!important;pointer-events:none!important;text-align:center!important;font-family:Arial,"Microsoft YaHei",sans-serif!important;color:#fff!important' + sourceCtaWrapperExtra),
@@ -1215,6 +1219,10 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       try { ev.stopImmediatePropagation(); } catch(e) {}
       try { ev.stopPropagation(); } catch(e) {}
     }
+    function setStyleImportant(el, name, value) {
+      if (!el) return;
+      try { el.style.setProperty(name, value, 'important'); } catch(e) { el.style[name] = value; }
+    }
     function moveStick(ev) {
       if (!origin || !knob) return;
       var dx = ev.clientX - origin.x;
@@ -1238,8 +1246,10 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       updateManualJoystickOverride(true, 0, 0);
       overlayInput.originX = origin.x;
       overlayInput.originY = origin.y;
-      stick.style.left = origin.x + 'px';
-      stick.style.top = origin.y + 'px';
+      setStyleImportant(stick, 'display', 'block');
+      setStyleImportant(stick, 'visibility', 'visible');
+      setStyleImportant(stick, 'left', origin.x + 'px');
+      setStyleImportant(stick, 'top', origin.y + 'px');
       stick.classList.add('active');
       if (knob) knob.style.transform = 'translate(0,0)';
       consume(ev);

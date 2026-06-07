@@ -176,6 +176,10 @@ async function main() {
   assert.ok(html.indexOf('window.__BP_SOURCE_IR__') >= 0);
   assert.ok(html.indexOf('window.__BP_SOURCE_IR_HASH__') >= 0);
   assert.ok(html.indexOf('__driveToSourcePhase') >= 0);
+  assert.ok(html.indexOf('source-ir-world-label') >= 0);
+  assert.ok(html.indexOf('function movePreviewPlayer(dt)') >= 0);
+  assert.ok(html.indexOf('function forcePreviewJoystickVisible(el)') >= 0);
+  assert.ok(html.indexOf('function terminalRetainedPhaseList(index)') >= 0);
 
   var detection = detectSourceIrPreviewRenderer(html);
   assert.strictEqual(detection.version, SOURCE_IR_PREVIEW_RENDERER_VERSION);
@@ -248,6 +252,9 @@ async function main() {
   assert.strictEqual(typeof sandbox.window.__gameState, 'function');
   assert.strictEqual(typeof sandbox.window.__driveToPhase, 'function');
   assert.strictEqual(sandbox.window.__driveToSourcePhase, sandbox.window.__driveToPhase);
+  assert.strictEqual(sandbox.document.__elements.joystick.style.display, 'block');
+  assert.strictEqual(sandbox.document.__elements.joystick.style.pointerEvents, 'none');
+  assert.ok(sandbox.document.__elements['source-ir-world-labels']);
 
   var phase1 = sandbox.window.__gameState();
   assert.strictEqual(phase1.phase, 'phase1');
@@ -263,9 +270,9 @@ async function main() {
   assert.deepStrictEqual(Array.from(phase2.completedPhases), ['phase1']);
   assert.strictEqual(phase2.ui_state.guideText, 'Go to install');
   assert.strictEqual(phase2.resources.Water, 3);
-  assert.strictEqual(phase2.entity_states.WaterDrop.visible, false);
+  assert.strictEqual(phase2.entity_states.WaterDrop.visible, true);
   assert.strictEqual(phase2.entity_states.CtaButton.visible, true);
-  assert.strictEqual(sandbox.window.__sourceIrPreviewModels.WaterDrop.dom.style.display, 'none');
+  assert.notStrictEqual(sandbox.window.__sourceIrPreviewModels.WaterDrop.dom.style.display, 'none');
   assert.notStrictEqual(sandbox.window.__sourceIrPreviewModels.CtaButton.dom.style.display, 'none');
   assert.strictEqual(phase2.phaseEvidence.phase2.cta_finish.final_phase, true);
   assert.strictEqual(sandbox.document.__elements.tip.textContent, 'Go to install');

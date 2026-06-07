@@ -42,6 +42,26 @@ function compileEntityStyles(ir) {
   return out;
 }
 
+function compileWorldLabelContract(ir) {
+  var labels = safeArray(ir.entities).map(function(entity) {
+    return {
+      id: entity.id,
+      label: entity.label || entity.id,
+      kind: entity.kind || null,
+      position: sourcePositionObject(entity),
+      yOffset: Number(entity.visual && entity.visual.labelYOffset || 1.85),
+      source: 'SourceSceneIR.entities[].label',
+    };
+  });
+  return {
+    present: labels.length > 0,
+    source: 'source-scene-ir',
+    carrier: 'window.__BP_SOURCE_IR__.entities[].label',
+    labelCount: labels.length,
+    labels: labels,
+  };
+}
+
 function sourceSceneContract(ir) {
   var scene = clone(ir.scene || {});
   scene.present = true;
@@ -358,7 +378,7 @@ function compileVisualAssetManifest(sourceIr, options) {
       entityComposites: visualGeometry.entityComposites,
       domHudContract: ir.hud && ir.hud.domHudContract || null,
       uiOverlayContract: ir.hud && ir.hud.uiOverlayContract || null,
-      worldLabelContract: null,
+      worldLabelContract: compileWorldLabelContract(ir),
     },
     sourceMeshOps: visualGeometry.sourceMeshOps,
     sourceSceneContract: sourceSceneContract(ir),
