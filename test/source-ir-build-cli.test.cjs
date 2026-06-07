@@ -32,6 +32,7 @@ function fixtureSourceIr() {
       { id: 'Player', label: 'Player', kind: 'player', position: [0, 0, 0], visual: { primitive: 'capsule', color: '#66ccff' } },
       { id: 'Gem', label: 'Gem', kind: 'resource', position: [3, 0, 0], visual: { primitive: 'sphere', color: '#33aaff' } },
       { id: 'CtaButton', label: 'Install', kind: 'cta', position: [6, 0, 0], visual: { primitive: 'box', color: '#22cc88' } },
+      { id: 'JoystickUI', label: 'Joystick', kind: 'ui_marker', position: [-4, 0, 5.4], visual: { primitive: 'box', color: '#ffffff' } },
     ],
     resources: [{ id: 'Gem', label: 'Gem', carrierEntity: 'Gem', kind: 'resource', initial: 0 }],
     phases: [
@@ -39,7 +40,7 @@ function fixtureSourceIr() {
         id: 'phase1',
         title: 'Collect gem',
         guideText: 'Collect gem',
-        showEntities: ['Player', 'Gem'],
+        showEntities: ['Player', 'Gem', 'JoystickUI'],
         plannedModuleIds: ['player_input_joystick', 'move_to_target', 'collect_on_near'],
         steps: [
           { kind: 'move_to', target: 'Gem', radius: 1.2 },
@@ -104,6 +105,10 @@ assert.strictEqual(rendererSpec.meta.sourceVisualIrPath, 'source-visual-ir.json'
 assert.strictEqual(rendererSpec.meta.sourceVisualIrHash, rendererSummary.sourceVisualIrHash);
 var rendererManifest = JSON.parse(fs.readFileSync(path.join(rendererOut, 'asset-manifest.json'), 'utf8'));
 assert.strictEqual(rendererManifest.assets.length, 3);
+assert.strictEqual(rendererManifest.sourceEntityContract.sourceEntityCount, 4);
+assert.strictEqual(rendererManifest.sourceEntityContract.renderableEntityCount, 3);
+assert.deepStrictEqual(rendererManifest.sourceEntityContract.hudOnlyEntities, ['JoystickUI']);
+assert.deepStrictEqual(rendererManifest.sourceEntityContract.entities, ['Player', 'Gem', 'CtaButton']);
 assert.strictEqual(Object.keys(rendererManifest.sourceEntityContract.entityComposites).length, 3);
 assert.strictEqual(rendererManifest.sourceEntityContract.entityComposites.Player.primitiveCount, 1);
 assert.ok(rendererManifest.sourceEntityContract.entityComposites.Player.primitives[0].geometry.type);
@@ -111,6 +116,7 @@ assert.strictEqual(rendererManifest.sourceEntityContract.worldLabelContract.pres
 assert.strictEqual(rendererManifest.sourceEntityContract.worldLabelContract.source, 'source-scene-ir');
 assert.strictEqual(rendererManifest.sourceEntityContract.worldLabelContract.labels.length, 3);
 assert.strictEqual(rendererManifest.sourceEntityContract.worldLabelContract.labels[0].label, 'Player');
+assert.strictEqual(rendererManifest.sourceEntityContract.worldLabelContract.labels.some(function(item) { return item.id === 'JoystickUI'; }), false);
 assert.strictEqual(rendererManifest.entityBindings.Player.visualFallback, 'source-scene-ir-procedural');
 assert.strictEqual(Object.keys(rendererManifest.sourceMeshOps).length, 3);
 assert.strictEqual(rendererManifest.extractionSummary.entityBindingRate, 1);

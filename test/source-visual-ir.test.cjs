@@ -34,6 +34,7 @@ var sourceIr = normalizeSourceSceneIr({
     { id: 'Player', label: '玩家', kind: 'player', position: [0, 0, 0], visual: { primitive: 'capsule', color: '#66ccff' } },
     { id: 'WaterDrop', label: '水滴', kind: 'resource', position: [3, 0, 0], visual: { primitive: 'sphere', color: '#33aaff' } },
     { id: 'CtaButton', label: '下载', kind: 'cta', position: [6, 0, 0], visual: { primitive: 'box', color: '#22cc88' } },
+    { id: 'GoldUI', label: '金币UI', kind: 'ui_marker', position: [4, 0, 5], visual: { primitive: 'box', color: '#ffe45c' } },
   ],
   resources: [{ id: 'Water', label: '水', carrierEntity: 'WaterDrop', kind: 'resource', initial: 0 }],
   phases: [
@@ -41,7 +42,7 @@ var sourceIr = normalizeSourceSceneIr({
       id: 'phase1',
       title: '收集水滴',
       guideText: '拖摇杆收集水滴',
-      showEntities: ['Player', 'WaterDrop'],
+      showEntities: ['Player', 'WaterDrop', 'GoldUI'],
       targetSequence: ['WaterDrop'],
       steps: [{ kind: 'move_to', target: 'WaterDrop', radius: 1.2 }],
       gate: { kind: 'near_entity', entity: 'WaterDrop', radius: 1.2 },
@@ -75,6 +76,7 @@ assert.strictEqual(visualIr.schemaVersion, SOURCE_VISUAL_IR_SCHEMA_VERSION);
 assert.strictEqual(visualIr.kind, SOURCE_VISUAL_IR_KIND);
 assert.strictEqual(visualIr.source.sourceSceneIrHash, sourceIr.semanticHash);
 assert.strictEqual(visualIr.visual.scene.backgroundColor, '#0a1020');
+assert.deepStrictEqual(visualIr.visual.entities.map(function(entity) { return entity.id; }), ['Player', 'WaterDrop', 'CtaButton']);
 assert.strictEqual(visualIr.visual.entities[0].meshOps[0].kind, 'primitive');
 assert.strictEqual(visualIr.visual.entities[1].material.color, '#33aaff');
 assert.deepStrictEqual(visualIr.visual.phaseStates[0].visibleEntities, ['Player', 'WaterDrop']);

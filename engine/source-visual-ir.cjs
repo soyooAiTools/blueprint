@@ -68,6 +68,13 @@ function uniqueStrings(values) {
   return out;
 }
 
+function isHudOnlyEntity(entity) {
+  var kind = String(entity && entity.kind || '');
+  var id = String(entity && entity.id || '');
+  return /\b(ui_marker|hud|hud_marker|ui_overlay|screen_ui)\b/i.test(kind + ' ' + id) ||
+    /(?:^|_)(?:GoldUI|JoystickUI|HUD|Hud|GuideText|PhaseLabel)$/i.test(id);
+}
+
 function normalizeMeshOps(entity) {
   var visual = entity && entity.visual || {};
   var ops = safeArray(visual.meshOps).map(clone);
@@ -93,7 +100,9 @@ function entityMaterial(entity) {
 }
 
 function visualEntities(sourceIr) {
-  return safeArray(sourceIr.entities).map(function(entity) {
+  return safeArray(sourceIr.entities).filter(function(entity) {
+    return !isHudOnlyEntity(entity);
+  }).map(function(entity) {
     return {
       id: entity.id,
       label: entity.label || entity.id,
@@ -120,15 +129,17 @@ function visualScene(sourceIr) {
   };
 }
 
-function phasePrimaryTarget(phase) {
+function phasePrimaryTarget(phase, renderableMap) {
   var sequence = safeArray(phase && phase.targetSequence);
+  sequence = sequence.filter(function(id) { return renderableMap[id]; });
   if (sequence.length) return sequence[0];
   var step = safeArray(phase && phase.steps).find(function(item) {
-    return item && (item.target || item.from || item.to || item.entity);
+    var id = item && (item.target || item.from || item.to || item.entity);
+    return id && renderableMap[id];
   });
   if (step) return step.target || step.from || step.to || step.entity;
   return safeArray(phase && phase.showEntities).filter(function(name) {
-    return !/^(Player|GuideText|HUD|Camera)$/i.test(name);
+    return renderableMap[name] && !/^(Player|GuideText|HUD|Camera)$/i.test(name);
   })[0] || null;
 }
 
@@ -142,13 +153,19 @@ function phaseHudState(sourceIr, phase) {
 }
 
 function visualPhaseStates(sourceIr) {
-  var entityIds = safeArray(sourceIr.entities).map(function(entity) { return entity.id; });
+  var renderableMap = {};
+  var entityIds = safeArray(sourceIr.entities).filter(function(entity) {
+    return !isHudOnlyEntity(entity);
+  }).map(function(entity) {
+    renderableMap[entity.id] = true;
+    return entity.id;
+  });
   return safeArray(sourceIr.phases).map(function(phase, index) {
-    var visible = uniqueStrings(phase.showEntities);
+    var visible = uniqueStrings(phase.showEntities).filter(function(id) { return renderableMap[id]; });
     var visibleMap = {};
     visible.forEach(function(id) { visibleMap[id] = true; });
     var hidden = entityIds.filter(function(id) { return !visibleMap[id]; });
-    var primaryTarget = phasePrimaryTarget(phase);
+    var primaryTarget = phasePrimaryTarget(phase, renderableMap);
     return {
       index: index,
       id: phase.id,
@@ -166,7 +183,7 @@ function visualPhaseStates(sourceIr) {
           initial: Number(resource.initial) || 0,
         };
       }),
-      targetSequence: uniqueStrings(phase.targetSequence || (primaryTarget ? [primaryTarget] : [])),
+      targetSequence: uniqueStrings(phase.targetSequence || (primaryTarget ? [primaryTarget] : [])).filter(function(id) { return renderableMap[id]; }),
       guidance: {
         primaryTarget: primaryTarget,
         targetRingVisible: !!primaryTarget,
@@ -401,4 +418,5 @@ module.exports = {
   collectSourceVisualIrViolations: collectSourceVisualIrViolations,
   computeSourceVisualIrHash: computeSourceVisualIrHash,
   writeSourceVisualIr: writeSourceVisualIr,
+  isHudOnlyEntity: isHudOnlyEntity,
 };

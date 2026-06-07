@@ -40,6 +40,7 @@ function fixtureSourceIr() {
       { id: 'Player', label: 'Player', kind: 'player', position: [0, 0, 0], visual: { primitive: 'capsule', color: '#66ccff' } },
       { id: 'WaterDrop', label: 'Water', kind: 'resource', position: [3, 0, 0], visual: { primitive: 'sphere', color: '#33aaff' } },
       { id: 'CtaButton', label: 'Install', kind: 'cta', position: [6, 0, 0], visual: { primitive: 'box', color: '#22cc88' } },
+      { id: 'GoldUI', label: 'Gold UI', kind: 'ui_marker', position: [4, 0, 5.4], visual: { primitive: 'box', color: '#ffe45c' } },
     ],
     resources: [{ id: 'Water', label: 'Water', kind: 'resource', carrierEntity: 'WaterDrop', initial: 0 }],
     phases: [
@@ -47,7 +48,7 @@ function fixtureSourceIr() {
         id: 'phase1',
         title: 'Collect water',
         guideText: 'Collect water',
-        showEntities: ['Player', 'WaterDrop'],
+        showEntities: ['Player', 'WaterDrop', 'GoldUI'],
         plannedModuleIds: ['player_input_joystick', 'move_to_target', 'collect_on_near'],
         steps: [
           { kind: 'move_to', target: 'WaterDrop', radius: 1.5 },
@@ -255,15 +256,25 @@ async function main() {
   assert.strictEqual(sandbox.document.__elements.joystick.style.display, 'block');
   assert.strictEqual(sandbox.document.__elements.joystick.style.pointerEvents, 'none');
   assert.ok(sandbox.document.__elements['source-ir-world-labels']);
+  assert.strictEqual(sandbox.window.__sourceIrPreviewModels.GoldUI, undefined);
 
   var phase1 = sandbox.window.__gameState();
   assert.strictEqual(phase1.phase, 'phase1');
   assert.strictEqual(phase1.ui_state.guideText, 'Collect water');
+  assert.strictEqual(phase1.entity_states.GoldUI.visible, true);
+  assert.strictEqual(phase1.entity_states.GoldUI.hudOnly, true);
   assert.strictEqual(phase1.entity_states.WaterDrop.visible, true);
   assert.strictEqual(phase1.entity_states.CtaButton.visible, false);
   assert.strictEqual(sandbox.window.__BP_SOURCE_IR_RENDERER_USING_DOM_FALLBACK__, true);
   assert.notStrictEqual(sandbox.window.__sourceIrPreviewModels.WaterDrop.dom.style.display, 'none');
   assert.strictEqual(sandbox.window.__sourceIrPreviewModels.CtaButton.dom.style.display, 'none');
+
+  sandbox.window.__sourceIrPreviewModels.Player.position.x = 3;
+  sandbox.window.__sourceIrPreviewModels.Player.position.z = 0;
+  var progressed = sandbox.window.__sourceIrPreviewRuntimeTick(.016);
+  assert.strictEqual(progressed.phase, 'phase2');
+  assert.strictEqual(progressed.resources.Water, 3);
+  assert.deepStrictEqual(Array.from(progressed.completedPhases), ['phase1']);
 
   var phase2 = await sandbox.window.__driveToSourcePhase(2);
   assert.strictEqual(phase2.phase, 'phase2');

@@ -27,6 +27,13 @@ function sourcePositionObject(entity) {
   };
 }
 
+function isHudOnlySourceEntity(entity) {
+  var kind = String(entity && entity.kind || '');
+  var id = String(entity && entity.id || '');
+  return /\b(ui_marker|hud|hud_marker|ui_overlay|screen_ui)\b/i.test(kind + ' ' + id) ||
+    /(?:^|_)(?:GoldUI|JoystickUI|HUD|Hud|GuideText|PhaseLabel)$/i.test(id);
+}
+
 function compileEntityStyles(ir) {
   var out = {};
   safeArray(ir.entities).forEach(function(entity) {
@@ -43,7 +50,9 @@ function compileEntityStyles(ir) {
 }
 
 function compileWorldLabelContract(ir) {
-  var labels = safeArray(ir.entities).map(function(entity) {
+  var labels = safeArray(ir.entities).filter(function(entity) {
+    return !isHudOnlySourceEntity(entity);
+  }).map(function(entity) {
     return {
       id: entity.id,
       label: entity.label || entity.id,
@@ -237,6 +246,7 @@ function compileVisualGeometry(ir, options) {
   var entityComposites = {};
   var sourceMeshOps = {};
   safeArray(sourceVisualIr.visual && sourceVisualIr.visual.entities).forEach(function(entity) {
+    if (isHudOnlySourceEntity(entity)) return;
     var ops = safeArray(entity.meshOps).map(function(op) { return sourceMeshOpFor(entity, op); });
     if (!ops.length) ops = [sourceMeshOpFor(entity, null)];
     var assetIds = [];
@@ -347,6 +357,9 @@ function compileVisualAssetManifest(sourceIr, options) {
   validateSourceSceneIr(ir);
   var entityStyles = compileEntityStyles(ir);
   var entityNames = safeArray(ir.entities).map(function(entity) { return entity.id; });
+  var renderableEntityNames = safeArray(ir.entities).filter(function(entity) {
+    return !isHudOnlySourceEntity(entity);
+  }).map(function(entity) { return entity.id; });
   var visualGeometry = compileVisualGeometry(ir, {
     generatedAt: options.generatedAt,
     sourceHtmlPath: options.sourceHtmlPath,
@@ -373,7 +386,9 @@ function compileVisualAssetManifest(sourceIr, options) {
     sourceEntityContract: {
       styleEntityCount: entityNames.length,
       sourceEntityCount: entityNames.length,
-      entities: entityNames,
+      renderableEntityCount: renderableEntityNames.length,
+      entities: renderableEntityNames,
+      hudOnlyEntities: entityNames.filter(function(name) { return renderableEntityNames.indexOf(name) < 0; }),
       entityStyles: entityStyles,
       entityComposites: visualGeometry.entityComposites,
       domHudContract: ir.hud && ir.hud.domHudContract || null,
@@ -390,6 +405,7 @@ function compileVisualAssetManifest(sourceIr, options) {
       proceduralAssetCount: visualGeometry.assets.length,
       externalAssetCount: 0,
       entityCount: entityNames.length,
+      renderableEntityCount: renderableEntityNames.length,
       entityBindingRate: entityNames.length ? 1 : 0,
       assetBindingRate: visualGeometry.assets.length ? 1 : 0,
       unsupportedCount: 0,
@@ -398,7 +414,7 @@ function compileVisualAssetManifest(sourceIr, options) {
     entityBindings: visualGeometry.entityBindings,
     unsupported: [],
   };
-  entityNames.forEach(function(name) {
+  renderableEntityNames.forEach(function(name) {
     if (!manifest.entityBindings[name]) {
       manifest.entityBindings[name] = {
         primaryAssetId: null,
@@ -419,4 +435,5 @@ function compileVisualAssetManifest(sourceIr, options) {
 
 module.exports = {
   compileVisualAssetManifest: compileVisualAssetManifest,
+  isHudOnlySourceEntity: isHudOnlySourceEntity,
 };
