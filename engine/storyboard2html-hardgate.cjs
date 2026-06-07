@@ -661,6 +661,7 @@ function evaluateSourceSceneIrHashChain(options) {
   var smokeDir = options.verifySummaryPath ? path.dirname(options.verifySummaryPath) : path.join(outDir, 'blueprint-smoke');
   var paths = {
     sourceIrReport: options.sourceIrReportPath || path.join(outDir, 'source-ir-report.json'),
+    sourcePhaseLivenessReport: options.sourcePhaseLivenessReportPath || path.join(outDir, 'source-phase-liveness-report.json'),
     semanticSource: options.semanticSourcePath || path.join(outDir, 'semantic-source.json'),
     sourceIr: options.sourceIrPath || path.join(outDir, 'source-ir.json'),
     spec: options.specPath || path.join(outDir, 'spec.json'),
@@ -671,6 +672,7 @@ function evaluateSourceSceneIrHashChain(options) {
   };
   var errors = [];
   var sourceIrReport = requireJsonDoc(paths, 'sourceIrReport', errors);
+  var sourcePhaseLivenessReport = requireJsonDoc(paths, 'sourcePhaseLivenessReport', errors);
   var semanticSource = requireJsonDoc(paths, 'semanticSource', errors);
   var sourceIr = requireJsonDoc(paths, 'sourceIr', errors);
   var spec = requireJsonDoc(paths, 'spec', errors);
@@ -691,11 +693,25 @@ function evaluateSourceSceneIrHashChain(options) {
       errors.push('source-ir-report.summary.hashMatches must be true');
     }
   }
+  if (sourcePhaseLivenessReport) {
+    var livenessSummary = sourcePhaseLivenessReport.summary || {};
+    if (sourcePhaseLivenessReport.passed !== true) errors.push('source-phase-liveness-report.passed must be true');
+    if (sourcePhaseLivenessReport.inputKind !== 'source-ir-html') {
+      errors.push('source-phase-liveness-report.inputKind must be source-ir-html for storyboard2html acceptance');
+    }
+    if (livenessSummary.staticPassed !== true) errors.push('source-phase-liveness-report.summary.staticPassed must be true');
+    if (livenessSummary.browserProbePassed !== true) errors.push('source-phase-liveness-report.summary.browserProbePassed must be true');
+    if (livenessSummary.browserProbeSkipped === true) errors.push('source-phase-liveness-report.summary.browserProbeSkipped must be false');
+    if (Number(livenessSummary.phaseCount || 0) > 0 && safeArray(livenessSummary.completedPhases).length !== Number(livenessSummary.phaseCount || 0)) {
+      errors.push('source-phase-liveness-report completedPhases count must equal phaseCount');
+    }
+  }
   if (semanticSource) {
     if (semanticSource.semanticSource !== 'source-scene-ir') errors.push('semantic-source.semanticSource must be source-scene-ir');
     if (semanticSource.legacyJsInferenceUsed !== false) errors.push('semantic-source.legacyJsInferenceUsed must be false');
     if (semanticSource.sourceIrPresent !== true) errors.push('semantic-source.sourceIrPresent must be true');
     if (semanticSource.sourceIrPreflightPassed !== true) errors.push('semantic-source.sourceIrPreflightPassed must be true');
+    if (semanticSource.sourcePhaseLivenessPassed !== true) errors.push('semantic-source.sourcePhaseLivenessPassed must be true');
   }
   if (spec && (!spec.meta || spec.meta.semanticSource !== 'source-scene-ir')) {
     errors.push('spec.meta.semanticSource must be source-scene-ir');
@@ -706,6 +722,7 @@ function evaluateSourceSceneIrHashChain(options) {
 
   var sourceIrHashes = [];
   addHashValue(sourceIrHashes, 'source-ir-report.summary.sourceSceneIrHash', sourceIrReport && sourceIrReport.summary && sourceIrReport.summary.sourceSceneIrHash);
+  addHashValue(sourceIrHashes, 'source-phase-liveness-report.summary.sourceSceneIrHash', sourcePhaseLivenessReport && sourcePhaseLivenessReport.summary && sourcePhaseLivenessReport.summary.sourceSceneIrHash);
   addHashValue(sourceIrHashes, 'semantic-source.sourceSceneIrHash', semanticSource && semanticSource.sourceSceneIrHash);
   addHashValue(sourceIrHashes, 'source-ir.semanticHash', sourceIr && sourceIr.semanticHash);
   addHashValue(sourceIrHashes, 'spec.meta.sourceSceneIrHash', spec && spec.meta && spec.meta.sourceSceneIrHash);

@@ -78,6 +78,7 @@ var sourceIr = fixtureSourceIr();
 var rendererHtmlPath = path.join(tmp, 'renderer.html');
 fs.writeFileSync(rendererHtmlPath, buildSourceIrPreviewHtml(sourceIr, {
   html: '<div id="joystick"></div>',
+  includeThree: false,
   generatedAt: '2026-06-07T00:00:00.000Z',
 }));
 
@@ -89,15 +90,24 @@ assert.strictEqual(rendererSummary.semanticSource, 'source-scene-ir');
 assert.strictEqual(rendererSummary.legacyJsInferenceUsed, false);
 assert.strictEqual(rendererSummary.sourceIrRenderer.ownsVisuals, true);
 assert.strictEqual(rendererSummary.sourceIrRenderer.ownsPhaseDriver, true);
+assert.strictEqual(rendererSummary.sourcePhaseLivenessPassed, true);
 assert.ok(rendererSummary.sourceVisualIrHash);
 assert.ok(fs.existsSync(path.join(rendererOut, 'source-ir-build-summary.json')));
+assert.ok(fs.existsSync(path.join(rendererOut, 'source-phase-liveness-report.json')));
 assert.ok(fs.existsSync(path.join(rendererOut, 'spec.json')));
 assert.ok(fs.existsSync(path.join(rendererOut, 'gameschema.json')));
 assert.ok(fs.existsSync(path.join(rendererOut, 'source-visual-ir.json')));
 var rendererSemanticSource = JSON.parse(fs.readFileSync(path.join(rendererOut, 'semantic-source.json'), 'utf8'));
 assert.strictEqual(rendererSemanticSource.legacyJsInferenceUsed, false);
 assert.strictEqual(rendererSemanticSource.sourceIrBuildPassed, true);
+assert.strictEqual(rendererSemanticSource.sourceIrPresent, true);
+assert.strictEqual(rendererSemanticSource.sourcePhaseLivenessPassed, true);
 assert.strictEqual(rendererSemanticSource.sourceVisualIrHash, rendererSummary.sourceVisualIrHash);
+var rendererLiveness = JSON.parse(fs.readFileSync(path.join(rendererOut, 'source-phase-liveness-report.json'), 'utf8'));
+assert.strictEqual(rendererLiveness.passed, true);
+assert.strictEqual(rendererLiveness.summary.staticPassed, true);
+assert.strictEqual(rendererLiveness.summary.browserProbePassed, true);
+assert.deepStrictEqual(rendererLiveness.summary.completedPhases, ['phase1', 'phase2']);
 var rendererSpec = JSON.parse(fs.readFileSync(path.join(rendererOut, 'spec.json'), 'utf8'));
 assert.strictEqual(rendererSpec.meta.semanticSource, 'source-scene-ir');
 assert.strictEqual(rendererSpec.meta.legacyJsInferenceUsed, false);
@@ -130,8 +140,13 @@ var jsonSummary = JSON.parse(jsonRun.stdout);
 assert.strictEqual(jsonSummary.inputKind, 'source-ir-json');
 assert.strictEqual(jsonSummary.sourceIrRenderer, null);
 assert.strictEqual(jsonSummary.legacyJsInferenceUsed, false);
+assert.strictEqual(jsonSummary.sourcePhaseLivenessPassed, true);
 assert.ok(fs.existsSync(path.join(jsonOut, 'playable-scene-ir.json')));
 assert.ok(fs.existsSync(path.join(jsonOut, 'source-visual-ir.json')));
+var jsonLiveness = JSON.parse(fs.readFileSync(path.join(jsonOut, 'source-phase-liveness-report.json'), 'utf8'));
+assert.strictEqual(jsonLiveness.passed, true);
+assert.strictEqual(jsonLiveness.summary.staticPassed, true);
+assert.strictEqual(jsonLiveness.summary.browserProbeSkipped, true);
 
 var nonRendererHtmlPath = path.join(tmp, 'non-renderer.html');
 fs.writeFileSync(nonRendererHtmlPath, [
@@ -152,8 +167,18 @@ assert.strictEqual(fs.existsSync(path.join(nonRendererOut, 'spec.json')), false)
 
 var allowedOut = path.join(tmp, 'non-renderer-allowed-out');
 var allowedRun = runBuild(nonRendererHtmlPath, allowedOut, ['--allow-non-renderer-html']);
-assert.strictEqual(allowedRun.status, 0, allowedRun.stderr || allowedRun.stdout);
-assert.strictEqual(JSON.parse(allowedRun.stdout).legacyJsInferenceUsed, false);
+assert.notStrictEqual(allowedRun.status, 0);
+assert.ok(/source_ir_liveness_probe_api_missing/.test(allowedRun.stderr), allowedRun.stderr);
+assert.strictEqual(fs.existsSync(path.join(allowedOut, 'spec.json')), false);
+assert.strictEqual(JSON.parse(fs.readFileSync(path.join(allowedOut, 'semantic-source.json'), 'utf8')).sourcePhaseLivenessPassed, false);
+
+var skippedOut = path.join(tmp, 'non-renderer-skipped-out');
+var skippedRun = runBuild(nonRendererHtmlPath, skippedOut, ['--allow-non-renderer-html', '--skip-source-liveness']);
+assert.strictEqual(skippedRun.status, 0, skippedRun.stderr || skippedRun.stdout);
+var skippedSummary = JSON.parse(skippedRun.stdout);
+assert.strictEqual(skippedSummary.legacyJsInferenceUsed, false);
+assert.strictEqual(skippedSummary.sourcePhaseLivenessPassed, false);
+assert.strictEqual(JSON.parse(fs.readFileSync(path.join(skippedOut, 'semantic-source.json'), 'utf8')).sourcePhaseLivenessPassed, false);
 
 var legacyHtmlPath = path.join(tmp, 'legacy.html');
 fs.writeFileSync(legacyHtmlPath, '<!doctype html><html><body><script>window.PHASES=[];</script></body></html>');

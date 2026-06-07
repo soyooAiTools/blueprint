@@ -547,6 +547,103 @@ function normalizePhase(phase, index, phaseCount) {
   };
 }
 
+function isHudOnlySourceEntity(entity) {
+  var kind = String(entity && entity.kind || '');
+  var id = String(entity && entity.id || '');
+  return /\b(ui_marker|hud|hud_marker|ui_overlay|screen_ui)\b/i.test(kind + ' ' + id) ||
+    /(?:^|_)(?:GoldUI|JoystickUI|HUD|Hud|GuideText|PhaseLabel)$/i.test(id);
+}
+
+function findSourcePlayerId(entities) {
+  var exact = safeArray(entities).filter(function(entity) {
+    return String(entity && entity.id || '').toLowerCase() === 'player' ||
+      String(entity && entity.kind || '').toLowerCase() === 'player';
+  })[0];
+  var fuzzy = exact || safeArray(entities).filter(function(entity) {
+    return /player|hero|主角|角色/i.test(String(entity && entity.id || '') + ' ' + String(entity && entity.label || '') + ' ' + String(entity && entity.kind || ''));
+  })[0];
+  return fuzzy && fuzzy.id || null;
+}
+
+function collectGateEntityTargets(gate, out) {
+  out = out || [];
+  if (!isObject(gate)) return out;
+  if (gate.kind === 'compound_all' || gate.kind === 'compound_any') {
+    safeArray(gate.gates).forEach(function(child) {
+      collectGateEntityTargets(child, out);
+    });
+    return out;
+  }
+  var target = gate.entity || gate.target || (gate.kind === 'cta_arrival' ? 'CtaButton' : '');
+  if (target && out.indexOf(target) < 0) out.push(target);
+  return out;
+}
+
+function collectGateEntityStateRequirements(gate, out) {
+  out = out || {};
+  if (!isObject(gate)) return out;
+  if (gate.kind === 'compound_all' || gate.kind === 'compound_any') {
+    safeArray(gate.gates).forEach(function(child) {
+      collectGateEntityStateRequirements(child, out);
+    });
+    return out;
+  }
+  if (gate.kind === 'entity_state' && (gate.entity || gate.target)) {
+    var entity = gate.entity || gate.target;
+    var required = Number(gate.state == null ? 1 : gate.state);
+    out[entity] = Math.max(Number(out[entity] || 0), isFinite(required) ? required : 1);
+  }
+  return out;
+}
+
+function sourceStepEntityTarget(step) {
+  return step && (step.target || step.from || step.to || step.entity) || '';
+}
+
+function repairSourcePhaseLiveness(phases, entities, runtimeContract, options) {
+  options = options || {};
+  if (options.repairPhaseLiveness === false) return { phases: phases, repairs: [] };
+  var entityById = indexById(entities);
+  var playerId = findSourcePlayerId(entities);
+  var repairs = [];
+  var repairedPhases = safeArray(phases).map(function(phase) {
+    var next = clone(phase);
+    next.showEntities = uniqueStrings(next.showEntities);
+    if (runtimeContract && runtimeContract.requiresJoystick && playerId && entityById[playerId] && !isHudOnlySourceEntity(entityById[playerId]) && next.showEntities.indexOf(playerId) < 0) {
+      next.showEntities.unshift(playerId);
+      repairs.push({ code: 'source_ir_phase_player_visibility_repaired', phaseId: next.id, entity: playerId });
+    }
+    var targets = [];
+    safeArray(next.steps).forEach(function(step) {
+      var target = sourceStepEntityTarget(step);
+      if (target && targets.indexOf(target) < 0) targets.push(target);
+    });
+    collectGateEntityTargets(next.gate, targets);
+    targets.forEach(function(target) {
+      var entity = entityById[target];
+      if (!entity || isHudOnlySourceEntity(entity) || next.showEntities.indexOf(target) >= 0) return;
+      next.showEntities.push(target);
+      repairs.push({ code: 'source_ir_phase_target_visibility_repaired', phaseId: next.id, entity: target });
+    });
+    var stateRequirements = collectGateEntityStateRequirements(next.gate, {});
+    Object.keys(stateRequirements).forEach(function(entityId) {
+      var required = Number(stateRequirements[entityId] || 0);
+      safeArray(next.steps).forEach(function(step) {
+        if (['set_entity_state', 'build', 'upgrade'].indexOf(String(step && step.kind || '')) < 0) return;
+        if ((step.entity || step.target) !== entityId) return;
+        var current = Number(step.state != null ? step.state : (step.level != null ? step.level : 1));
+        if (current >= required) return;
+        step.state = required;
+        repairs.push({ code: 'source_ir_phase_entity_state_step_repaired', phaseId: next.id, entity: entityId, before: current, after: required });
+      });
+    });
+    next.showEntities = uniqueStrings(next.showEntities);
+    next.targetSequence = uniqueStrings(next.targetSequence.concat(targets));
+    return next;
+  });
+  return { phases: repairedPhases, repairs: repairs };
+}
+
 function resourceIdForStep(step) {
   return step && (step.resource || step.gain || step.spend) || null;
 }
@@ -764,6 +861,13 @@ function normalizeSourceSceneIr(ir, options) {
       source: hasJoystickRuntimeEvidence(options.html) ? 'source-html' : null,
     };
   }
+  var phaseRepair = repairSourcePhaseLiveness(phases, entities, runtimeContract, options);
+  phases = phaseRepair.phases;
+  var diagnostics = ir.diagnostics ? clone(ir.diagnostics) : null;
+  if (phaseRepair.repairs.length > 0) {
+    diagnostics = isObject(diagnostics) ? diagnostics : {};
+    diagnostics.normalizationRepairs = safeArray(diagnostics.normalizationRepairs).concat(phaseRepair.repairs);
+  }
   var normalized = {
     schemaVersion: SOURCE_SCENE_IR_SCHEMA_VERSION,
     kind: SOURCE_SCENE_IR_KIND,
@@ -780,7 +884,7 @@ function normalizeSourceSceneIr(ir, options) {
     hud: isObject(ir.hud) ? clone(ir.hud) : buildHudContract(phases, resources, null),
     runtimeContract: runtimeContract,
     extraction: ir.extraction || null,
-    diagnostics: ir.diagnostics || null,
+    diagnostics: diagnostics,
   };
   normalized.semanticHash = computeSourceSceneIrHash(normalized);
   return normalized;
@@ -996,6 +1100,7 @@ function extractSourceSceneIrFromHtml(html, sourceHtmlPath, options) {
       sourceHtmlSha256: sourceHash,
       html: html,
       generatedAt: options.generatedAt,
+      repairPhaseLiveness: options.repairPhaseLiveness,
     });
     ir.extraction = {
       carrier: 'window.__BP_SOURCE_IR__',
@@ -1017,11 +1122,13 @@ function extractSourceSceneIrFromHtml(html, sourceHtmlPath, options) {
       sourceHtmlSha256: sourceHash,
       html: html,
       generatedAt: options.generatedAt,
+      repairPhaseLiveness: options.repairPhaseLiveness,
     }), {
       sourceHtmlPath: sourcePath,
       sourceHtmlSha256: sourceHash,
       html: html,
       generatedAt: options.generatedAt,
+      repairPhaseLiveness: options.repairPhaseLiveness,
     });
     validateSourceSceneIr(ir);
     return ir;
@@ -1039,11 +1146,13 @@ function extractSourceSceneIrFromHtml(html, sourceHtmlPath, options) {
     html: html,
     project: options.project || null,
     generatedAt: options.generatedAt,
+    repairPhaseLiveness: options.repairPhaseLiveness,
   }), {
     sourceHtmlPath: sourcePath,
     sourceHtmlSha256: sourceHash,
     html: html,
     generatedAt: options.generatedAt,
+    repairPhaseLiveness: options.repairPhaseLiveness,
   });
   validateSourceSceneIr(ir);
   return ir;

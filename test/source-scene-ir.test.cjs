@@ -105,6 +105,22 @@ function fixtureSourceIr() {
 var directIr = fixtureSourceIr();
 validateSourceSceneIr(directIr);
 assert.strictEqual(directIr.semanticHash, computeSourceSceneIrHash(directIr));
+var repairedInput = JSON.parse(JSON.stringify(directIr));
+repairedInput.phases[1].showEntities = ['CtaButton'];
+repairedInput.phases[1].steps = [{ kind: 'set_entity_state', entity: 'CtaButton', state: 1 }];
+repairedInput.phases[1].gate = { kind: 'entity_state', entity: 'CtaButton', state: 2 };
+var repairedIr = normalizeSourceSceneIr(repairedInput, {
+  html: '<div id="joystick"></div>',
+  generatedAt: '2026-06-07T00:00:00.000Z',
+});
+assert.ok(repairedIr.phases[1].showEntities.indexOf('Player') >= 0);
+assert.strictEqual(repairedIr.phases[1].steps[0].state, 2);
+assert.ok(repairedIr.diagnostics.normalizationRepairs.some(function(repair) {
+  return repair.code === 'source_ir_phase_player_visibility_repaired' && repair.phaseId === 'phase2';
+}));
+assert.ok(repairedIr.diagnostics.normalizationRepairs.some(function(repair) {
+  return repair.code === 'source_ir_phase_entity_state_step_repaired' && repair.phaseId === 'phase2';
+}));
 var directProjection = projectSourceSceneIrToLegacy(directIr);
 
 function buildSourceIrHtml(ir, projection) {

@@ -101,6 +101,7 @@ assert.strictEqual(bundle.acceptancePlan.artifacts.verifySummary, '/tmp/storyboa
 assert.strictEqual(bundle.acceptancePlan.artifacts.flowManifest, '/tmp/storyboard2html-out/playable-flow-manifest.json');
 assert.strictEqual(bundle.acceptancePlan.artifacts.preflightReport, '/tmp/storyboard2html-out/storyboard2html-preflight.json');
 assert.strictEqual(bundle.acceptancePlan.artifacts.sourceSceneIrPreflightReport, '/tmp/storyboard2html-out/source-ir-report.json');
+assert.strictEqual(bundle.acceptancePlan.artifacts.sourcePhaseLivenessReport, '/tmp/storyboard2html-out/source-phase-liveness-report.json');
 assert.strictEqual(bundle.acceptancePlan.artifacts.playableSceneIr, '/tmp/storyboard2html-out/playable-scene-ir.json');
 assert.ok(bundle.acceptancePlan.sourceIrPreflightCommand.join(' ').indexOf('source-scene-ir-preflight.cjs') >= 0);
 assert.ok(bundle.acceptancePlan.sourceIrPreflightCommand.indexOf('--require-renderer') >= 0);
@@ -109,6 +110,9 @@ assert.ok(bundle.acceptancePlan.hardGates.some(function(gate) {
 }));
 assert.ok(bundle.acceptancePlan.hardGates.some(function(gate) {
   return gate.indexOf('source-scene-ir preflight') >= 0;
+}));
+assert.ok(bundle.acceptancePlan.hardGates.some(function(gate) {
+  return gate.indexOf('phase liveness') >= 0;
 }));
 assert.ok(bundle.acceptancePlan.hardGates.some(function(gate) {
   return gate.indexOf('source-visual-ir.json') >= 0;
@@ -308,11 +312,29 @@ var sourceIrArtifacts = sourceIrCompiler.buildSourceIrArtifacts(htmlPath, tempDi
 var sourceIrReport = sourceSceneIr.preflightSourceSceneIrHtml(hardgateHtml, { sourceHtmlPath: htmlPath });
 assert.strictEqual(sourceIrReport.passed, true);
 fs.writeFileSync(path.join(tempDir, 'source-ir-report.json'), JSON.stringify(sourceIrReport, null, 2));
+fs.writeFileSync(path.join(tempDir, 'source-phase-liveness-report.json'), JSON.stringify({
+  schemaVersion: '1.0.0',
+  kind: 'blueprint.sourceSceneIR.phaseLivenessReport',
+  generatedAt: '2026-06-07T00:00:00.000Z',
+  inputPath: htmlPath,
+  inputKind: 'source-ir-html',
+  passed: true,
+  summary: {
+    sourceSceneIrHash: sourceIrArtifacts.sourceIr.semanticHash,
+    phaseCount: 2,
+    staticPassed: true,
+    browserProbePassed: true,
+    browserProbeSkipped: false,
+    completedPhases: ['phase1', 'phase2'],
+  },
+  violations: [],
+}, null, 2));
 fs.writeFileSync(path.join(tempDir, 'semantic-source.json'), JSON.stringify({
   semanticSource: 'source-scene-ir',
   legacyJsInferenceUsed: false,
   sourceIrPresent: true,
   sourceIrPreflightPassed: true,
+  sourcePhaseLivenessPassed: true,
   sourceSceneIrHash: sourceIrArtifacts.sourceIr.semanticHash,
   playableSceneIrHash: sourceIrArtifacts.playableSceneIr.semanticHash,
 }, null, 2));

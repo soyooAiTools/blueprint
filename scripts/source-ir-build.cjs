@@ -19,7 +19,7 @@ function usage() {
     'Usage: node scripts/source-ir-build.cjs <source-ir.json|source-ir-renderer.html> <outdir>',
     '  [--project name] [--blueprint-smoke] [--verify] [--verify-runner direct|production]',
     '  [--steps N] [--visual-diff] [--visual-phases phase8|6-8|phase6,phase8]',
-    '  [--allow-non-renderer-html] [--write-blueprint-artifacts]',
+    '  [--allow-non-renderer-html] [--write-blueprint-artifacts] [--skip-source-liveness]',
   ].join('\n'));
   process.exit(2);
 }
@@ -37,6 +37,7 @@ function parseArgs(argv) {
     visualPhases: null,
     allowNonRendererHtml: false,
     writeBlueprintArtifacts: false,
+    skipSourceLiveness: false,
   };
   for (var i = 2; i < argv.length; i += 1) {
     var arg = argv[i];
@@ -65,6 +66,8 @@ function parseArgs(argv) {
       opts.allowNonRendererHtml = true;
     } else if (arg === '--write-blueprint-artifacts') {
       opts.writeBlueprintArtifacts = true;
+    } else if (arg === '--skip-source-liveness') {
+      opts.skipSourceLiveness = true;
     } else if (!opts.input) {
       opts.input = arg;
     } else if (!opts.outDir) {
@@ -182,6 +185,47 @@ function assertIrOnlyArtifacts(outDir) {
   }
 }
 
+function runSourcePhaseLiveness(inputPath, outDir, opts) {
+  var reportPath = path.join(outDir, 'source-phase-liveness-report.json');
+  if (opts.skipSourceLiveness) {
+    writeJson(reportPath, {
+      schemaVersion: '1.0.0',
+      kind: 'blueprint.sourceSceneIR.phaseLivenessReport',
+      inputPath: inputPath,
+      passed: false,
+      skipped: true,
+      summary: {
+        staticPassed: false,
+        browserProbePassed: false,
+        browserProbeSkipped: true,
+      },
+      violations: [{
+        code: 'source_ir_phase_liveness_skipped',
+        message: 'source phase liveness was explicitly skipped',
+      }],
+    });
+    return reportPath;
+  }
+  var args = [inputPath, reportPath];
+  if (inputKind(inputPath) === 'source-ir-json') args.push('--static-only');
+  runNodeQuiet(path.join(__dirname, 'source-ir-phase-liveness.cjs'), args, path.join(__dirname, '..'));
+  return reportPath;
+}
+
+function runNodeQuiet(script, args, cwd) {
+  var result = spawnSync(process.execPath, [script].concat(args || []), {
+    cwd: cwd || process.cwd(),
+    encoding: 'utf8',
+    stdio: 'pipe',
+    env: Object.assign({}, process.env),
+  });
+  if (result.status !== 0) {
+    if (result.stdout) process.stderr.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    throw new Error(path.basename(script) + ' failed with exit ' + result.status);
+  }
+}
+
 function runNode(script, args, cwd) {
   var result = spawnSync(process.execPath, [script].concat(args || []), {
     cwd: cwd || process.cwd(),
@@ -250,6 +294,25 @@ function main() {
     throw new Error('SourceIR-only preflight failed: ' + firstViolationCodes(report).join('; '));
   }
 
+  var sourcePhaseLivenessReport;
+  try {
+    sourcePhaseLivenessReport = runSourcePhaseLiveness(inputPath, outDir, opts);
+  } catch (error) {
+    var failedLivenessPath = path.join(outDir, 'source-phase-liveness-report.json');
+    var failedLiveness = fs.existsSync(failedLivenessPath) ? JSON.parse(fs.readFileSync(failedLivenessPath, 'utf8')) : null;
+    writeSemanticSource(outDir, {
+      semanticSource: 'source-scene-ir-required',
+      sourceIrBuildPassed: false,
+      sourceIrPreflightPassed: true,
+      sourceIrPresent: true,
+      sourcePhaseLivenessPassed: false,
+      inputKind: inputKind(inputPath),
+      sourceSceneIrHash: report.summary && report.summary.sourceSceneIrHash || null,
+      failure: firstViolationCodes(failedLiveness).join('; ') || 'source phase liveness failed',
+    });
+    throw new Error('SourceIR phase liveness failed: ' + (firstViolationCodes(failedLiveness).join('; ') || error.message));
+  }
+  var sourcePhaseLiveness = JSON.parse(fs.readFileSync(sourcePhaseLivenessReport, 'utf8'));
   var artifacts = buildSourceIrArtifacts(inputPath, outDir, {
     projectName: opts.projectName || path.basename(outDir),
     noBlueprint: opts.writeBlueprintArtifacts !== true,
@@ -257,6 +320,8 @@ function main() {
   writeSemanticSource(outDir, {
     sourceIrBuildPassed: true,
     sourceIrPreflightPassed: true,
+    sourceIrPresent: true,
+    sourcePhaseLivenessPassed: sourcePhaseLiveness.passed === true,
     inputKind: inputKind(inputPath),
     sourceSceneIrHash: artifacts.sourceIr.semanticHash,
     playableSceneIrHash: artifacts.playableSceneIr.semanticHash,
@@ -274,12 +339,15 @@ function main() {
     legacyJsInferenceUsed: false,
     sourceIrBuildPassed: true,
     sourceIrPreflightPassed: true,
+    sourceIrPresent: true,
+    sourcePhaseLivenessPassed: sourcePhaseLiveness.passed === true,
     sourceSceneIrHash: artifacts.sourceIr.semanticHash,
     playableSceneIrHash: artifacts.playableSceneIr.semanticHash,
     sourceVisualIrHash: artifacts.sourceVisualIr.semanticHash,
     sourceIrRenderer: report.summary && report.summary.sourceIrRenderer || null,
     paths: Object.assign({}, artifacts.paths, {
       sourceIrReport: path.join(outDir, 'source-ir-report.json'),
+      sourcePhaseLivenessReport: sourcePhaseLivenessReport,
       semanticSource: path.join(outDir, 'semantic-source.json'),
       sourceIrBuildSummary: path.join(outDir, 'source-ir-build-summary.json'),
     }, runtime),

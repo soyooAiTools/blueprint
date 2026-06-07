@@ -299,6 +299,7 @@ function buildAcceptancePlan(options) {
   var playableSceneIrPath = path.join(outDir, 'playable-scene-ir.json');
   var preflightReportPath = path.join(outDir, 'storyboard2html-preflight.json');
   var sourceSceneIrPreflightReportPath = path.join(outDir, 'source-ir-report.json');
+  var sourcePhaseLivenessReportPath = path.join(outDir, 'source-phase-liveness-report.json');
   var verifyReportPath = path.join(smokeOutDir, 'unity-verify-report.json');
   var verifySummaryPath = path.join(smokeOutDir, 'unity-verify-summary.json');
   var flowManifestPath = path.join(outDir, 'playable-flow-manifest.json');
@@ -370,12 +371,14 @@ function buildAcceptancePlan(options) {
       playableSceneIr: playableSceneIrPath,
       preflightReport: preflightReportPath,
       sourceSceneIrPreflightReport: sourceSceneIrPreflightReportPath,
+      sourcePhaseLivenessReport: sourcePhaseLivenessReportPath,
       verifyReport: verifyReportPath,
       verifySummary: verifySummaryPath,
       flowManifest: flowManifestPath,
     },
     hardGates: [
       'source-scene-ir preflight report exists',
+      'source HTML phase liveness report passes and completes all phases',
       'source-ir preview renderer owns visuals and phase driver',
       'source-scene-ir hash chain is fresh and aligned',
       'semanticSource === source-scene-ir and legacyJsInferenceUsed === false',
