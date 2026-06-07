@@ -1,6 +1,7 @@
 'use strict';
 
 var {
+  extractSourceSceneIrFromHtml,
   normalizeSourceSceneIr,
   projectSourceSceneIrToLegacy,
 } = require('./source-scene-ir.cjs');
@@ -218,8 +219,24 @@ function buildSourceIrPreviewHtml(sourceIr, options) {
   ].join('\n');
 }
 
+function rewriteHtmlWithSourceIrPreviewRenderer(html, options) {
+  options = options || {};
+  if (options.requireEmbeddedSourceIr !== false && !/\b__BP_SOURCE_IR__\b/.test(String(html || ''))) {
+    throw new Error('SourceIR preview rewrite requires embedded window.__BP_SOURCE_IR__');
+  }
+  var ir = extractSourceSceneIrFromHtml(String(html || ''), options.sourceHtmlPath || null, {
+    generatedAt: options.generatedAt,
+    project: options.project || null,
+  });
+  return buildSourceIrPreviewHtml(ir, {
+    generatedAt: options.generatedAt,
+    html: '<div id="joystick"></div>',
+  });
+}
+
 module.exports = {
   SOURCE_IR_PREVIEW_RENDERER_VERSION: SOURCE_IR_PREVIEW_RENDERER_VERSION,
   buildSourceIrPreviewRendererScript: buildSourceIrPreviewRendererScript,
   buildSourceIrPreviewHtml: buildSourceIrPreviewHtml,
+  rewriteHtmlWithSourceIrPreviewRenderer: rewriteHtmlWithSourceIrPreviewRenderer,
 };

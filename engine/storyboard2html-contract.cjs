@@ -318,6 +318,7 @@ function buildAcceptancePlan(options) {
     htmlPath,
     sourceSceneIrPreflightReportPath,
   ];
+  if (options.requireSourceIrRenderer === true) sourceIrPreflightCommand.push('--require-renderer');
   return {
     demo2specSkillRoot: skillRoot,
     verifyRunner: verifyRunner,

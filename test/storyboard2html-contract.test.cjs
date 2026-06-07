@@ -107,6 +107,9 @@ assert.ok(bundle.acceptancePlan.hardGates.some(function(gate) {
   return gate.indexOf('source-scene-ir preflight') >= 0;
 }));
 assert.strictEqual(storyboard2html.buildAcceptancePlan({ verifyRunner: 'direct' }).verifyRunner, 'direct');
+assert.ok(storyboard2html.buildAcceptancePlan({
+  requireSourceIrRenderer: true,
+}).sourceIrPreflightCommand.indexOf('--require-renderer') >= 0);
 assert.throws(function() {
   storyboard2html.buildAcceptancePlan({ verifyRunner: 'bogus' });
 }, /expected direct\|production/);

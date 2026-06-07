@@ -12,6 +12,7 @@ var {
   SOURCE_IR_PREVIEW_RENDERER_VERSION,
   buildSourceIrPreviewHtml,
   buildSourceIrPreviewRendererScript,
+  rewriteHtmlWithSourceIrPreviewRenderer,
 } = require('../engine/source-ir-preview-renderer.cjs');
 
 var {
@@ -199,6 +200,30 @@ async function main() {
   ], { encoding: 'utf8' });
   assert.strictEqual(cli.status, 0, cli.stderr || cli.stdout);
   assert.strictEqual(JSON.parse(fs.readFileSync(cliReportPath, 'utf8')).summary.sourceIrRenderer.ownsVisuals, true);
+
+  var rewritten = rewriteHtmlWithSourceIrPreviewRenderer(html, { sourceHtmlPath: '/tmp/llm-output.html' });
+  var rewrittenReport = preflightSourceSceneIrHtml(rewritten, {
+    sourceHtmlPath: '/tmp/rewritten.html',
+    requireSourceIrRenderer: true,
+  });
+  assert.strictEqual(rewrittenReport.passed, true);
+  assert.strictEqual(rewrittenReport.summary.sourceIrRenderer.ownsPhaseDriver, true);
+
+  var rewriteCliOut = path.join(tmp, 'rewritten.html');
+  var rewriteCli = childProcess.spawnSync(process.execPath, [
+    path.join(__dirname, '..', 'scripts', 'source-ir-preview-html.cjs'),
+    htmlPath,
+    rewriteCliOut,
+  ], { encoding: 'utf8' });
+  assert.strictEqual(rewriteCli.status, 0, rewriteCli.stderr || rewriteCli.stdout);
+  assert.strictEqual(preflightSourceSceneIrHtml(fs.readFileSync(rewriteCliOut, 'utf8'), {
+    sourceHtmlPath: rewriteCliOut,
+    requireSourceIrRenderer: true,
+  }).passed, true);
+
+  assert.throws(function() {
+    rewriteHtmlWithSourceIrPreviewRenderer('<!doctype html><html><body></body></html>');
+  }, /requires embedded/);
 
   var missingOwnershipReport = preflightSourceSceneIrHtml(html.replace(
     'window.__BP_SOURCE_IR_RENDERER_OWNS_VISUALS__ = true;',

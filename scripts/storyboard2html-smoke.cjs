@@ -10,12 +10,12 @@ var playableFlowManifest = require('../engine/playable-flow-manifest.cjs');
 var sourceSceneIr = require('../engine/source-scene-ir.cjs');
 
 function usage() {
-  console.error('Usage: node scripts/storyboard2html-smoke.cjs <generated.html> <outdir> [--theme name] [--steps N] [--verify-runner direct|production] [--skill-root path] [--dry-run]');
+  console.error('Usage: node scripts/storyboard2html-smoke.cjs <generated.html> <outdir> [--theme name] [--steps N] [--verify-runner direct|production] [--skill-root path] [--dry-run] [--require-source-ir-renderer]');
   process.exit(2);
 }
 
 function parseArgs(argv) {
-  var opts = { html: null, outDir: null, themeHint: 'default', steps: 40, verifyRunner: null, skillRoot: null, dryRun: false };
+  var opts = { html: null, outDir: null, themeHint: 'default', steps: 40, verifyRunner: null, skillRoot: null, dryRun: false, requireSourceIrRenderer: false };
   for (var i = 2; i < argv.length; i++) {
     var arg = argv[i];
     if (arg === '--theme') {
@@ -28,6 +28,8 @@ function parseArgs(argv) {
       opts.skillRoot = argv[++i] || opts.skillRoot;
     } else if (arg === '--dry-run') {
       opts.dryRun = true;
+    } else if (arg === '--require-source-ir-renderer' || arg === '--require-renderer') {
+      opts.requireSourceIrRenderer = true;
     } else if (!opts.html) {
       opts.html = arg;
     } else if (!opts.outDir) {
@@ -91,6 +93,7 @@ function runSourceSceneIrPreflight(plan, opts) {
   var html = fs.readFileSync(htmlPath, 'utf8');
   var report = sourceSceneIr.preflightSourceSceneIrHtml(html, {
     sourceHtmlPath: htmlPath,
+    requireSourceIrRenderer: opts.requireSourceIrRenderer,
   });
   fs.mkdirSync(path.dirname(reportPath), { recursive: true });
   fs.writeFileSync(reportPath, JSON.stringify(report, null, 2) + '\n');
@@ -138,6 +141,7 @@ function main() {
     themeHint: opts.themeHint,
     steps: opts.steps,
     verifyRunner: opts.verifyRunner,
+    requireSourceIrRenderer: opts.requireSourceIrRenderer,
   });
   if (opts.dryRun) {
     if (plan.sourceIrPreflightCommand) console.log(plan.sourceIrPreflightCommand.map(shellQuote).join(' '));

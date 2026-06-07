@@ -5,10 +5,11 @@ var fs = require('fs');
 var path = require('path');
 var contractMod = require('../engine/storyboard2html-contract.cjs');
 var promptBuilder = require('../engine/storyboard2html-prompt.cjs');
+var sourceIrPreviewRenderer = require('../engine/source-ir-preview-renderer.cjs');
 var codexCoder = require('../worker/codex-coder.js');
 
 function usage() {
-  console.error('Usage: node scripts/storyboard2html-generate.cjs <blueprint.json|input-bundle.json> <out.html> [--theme name] [--steps N] [--dry-run] [--prompt-only out.txt] [--model id] [--timeout-ms N]');
+  console.error('Usage: node scripts/storyboard2html-generate.cjs <blueprint.json|input-bundle.json> <out.html> [--theme name] [--steps N] [--dry-run] [--prompt-only out.txt] [--model id] [--timeout-ms N] [--source-ir-renderer]');
   process.exit(2);
 }
 
@@ -16,6 +17,7 @@ function parseArgs(argv) {
   var opts = {
     input: null, outHtml: null, themeHint: null, steps: null,
     dryRun: false, promptOnly: null, model: null, timeoutMs: null,
+    sourceIrRenderer: false,
   };
   for (var i = 2; i < argv.length; i++) {
     var arg = argv[i];
@@ -31,6 +33,8 @@ function parseArgs(argv) {
       opts.model = argv[++i] || null;
     } else if (arg === '--timeout-ms') {
       opts.timeoutMs = Number(argv[++i] || 0) || null;
+    } else if (arg === '--source-ir-renderer' || arg === '--rewrite-source-ir-preview') {
+      opts.sourceIrRenderer = true;
     } else if (!opts.input) {
       opts.input = arg;
     } else if (!opts.outHtml) {
@@ -81,6 +85,7 @@ function main() {
     console.log('  userPrompt:   ' + built.userPrompt.length + ' chars');
     console.log('  model:        ' + built.model);
     console.log('  timeoutMs:    ' + built.timeoutMs);
+    console.log('  sourceIR renderer rewrite: ' + (opts.sourceIrRenderer ? 'yes' : 'no'));
     return;
   }
 
@@ -112,6 +117,16 @@ function main() {
     if (!html || html.indexOf('<') !== 0) {
       console.error('extracted html looks empty/invalid (first 200 chars): ' + (html || '').slice(0, 200));
       process.exit(1);
+    }
+    if (opts.sourceIrRenderer) {
+      try {
+        html = sourceIrPreviewRenderer.rewriteHtmlWithSourceIrPreviewRenderer(html, {
+          sourceHtmlPath: path.resolve(opts.outHtml),
+        });
+      } catch (err) {
+        console.error('SourceIR renderer rewrite failed: ' + (err && err.message || err));
+        process.exit(1);
+      }
     }
     var outPath = path.resolve(opts.outHtml);
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
