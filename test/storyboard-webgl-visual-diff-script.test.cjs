@@ -52,4 +52,12 @@ assert.throws(function() {
   visualDiffScript.parsePhaseSelector('phase9', 8);
 }, /Invalid visual phase selector token/);
 
+var tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'storyboard-webgl-visual-diff-'));
+var objectLiteralPhases = path.join(tmpDir, 'object-literal.html');
+fs.writeFileSync(objectLiteralPhases, '<script>const PHASES = [{id:"phase1"},{id:"phase2"}];</script>');
+assert.strictEqual(visualDiffScript.phaseCountFromSource(objectLiteralPhases), 2);
+var sourceIrRendererPhases = path.join(tmpDir, 'source-ir-renderer.html');
+fs.writeFileSync(sourceIrRendererPhases, '<script>const PHASES = [{"id":"phase1"},{"id":"phase2"},{"id":"phase3"},{"id":"phase4"},{"id":"phase5"},{"id":"phase6"},{"id":"phase7"},{"id":"phase8"}];</script>');
+assert.strictEqual(visualDiffScript.phaseCountFromSource(sourceIrRendererPhases), 8);
+
 console.log('storyboard-webgl visual diff script smoke passed');

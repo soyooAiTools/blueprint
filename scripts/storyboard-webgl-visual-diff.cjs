@@ -143,7 +143,7 @@ function phaseCountFromSource(sourcePath) {
     var html = fs.readFileSync(sourcePath, 'utf8');
     var m = html.match(/\bPHASES\s*=\s*\[([\s\S]*?)\]\s*;/);
     if (!m) return 1;
-    var ids = m[1].match(/\bid\s*:\s*["']phase\d+["']/g) || [];
+    var ids = m[1].match(/(?:\bid\b|["']id["'])\s*:\s*["']phase\d+["']/g) || [];
     return Math.max(1, ids.length || 1);
   } catch (error) {
     return 1;
@@ -324,4 +324,5 @@ if (require.main === module) {
 module.exports = {
   parsePhaseSelector: parsePhaseSelector,
   parsePhaseNumberToken: parsePhaseNumberToken,
+  phaseCountFromSource: phaseCountFromSource,
 };

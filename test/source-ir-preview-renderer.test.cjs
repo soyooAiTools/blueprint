@@ -260,6 +260,8 @@ async function main() {
   assert.strictEqual(phase2.entity_states.CtaButton.visible, true);
   assert.strictEqual(phase2.phaseEvidence.phase2.cta_finish.final_phase, true);
   assert.strictEqual(sandbox.document.__elements.tip.textContent, 'Go to install');
+  assert.strictEqual(sandbox.document.__elements['source-ir-cta-overlay'].style.display, 'grid');
+  assert.strictEqual(sandbox.document.__elements['source-ir-target-ring'].style.display, 'block');
   assert.strictEqual(sandbox.window.__fidelityReady, true);
 
   assert.throws(function() {
