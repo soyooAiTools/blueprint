@@ -62,6 +62,23 @@ assert.deepStrictEqual(manifest.sourceEntityContract.uiOverlayContract.entities.
   { id: 'JoystickHandle', role: 'joystick-handle' },
 ]);
 
+var harvestDamageHtml = [
+  '<script>',
+  'const ENTITY_STYLE = {',
+  '  IceBlock: { label: "冰晶", kind: "ice" },',
+  '  EnemyAstronaut: { label: "敌方宇航员", kind: "enemy" }',
+  '};',
+  'const PHASES = [',
+  '  {id:"phase1", guideText:"靠近冰晶，电锯会自动切割", steps:[{target:"IceBlock", label:"切割冰晶", damage:true}, {target:"IceBlock", label:"拾取冰晶", gain:"Ice", amount:1}]},',
+  '  {id:"phase2", guideText:"击败来犯敌人", steps:[{target:"EnemyAstronaut", label:"击败敌人", damage:true}]}',
+  '];',
+  '</script>',
+].join('\n');
+var harvestDamageManifest = visualAssets.extractVisualAssetManifest(harvestDamageHtml, { source: 'harvest-damage.html' });
+assert.strictEqual(harvestDamageManifest.sourcePhaseContract.phases[0].steps[0].damage, false);
+assert.strictEqual(harvestDamageManifest.sourcePhaseContract.phases[0].diagnostics[0].code, 'harvest_damage_step_normalized');
+assert.strictEqual(harvestDamageManifest.sourcePhaseContract.phases[1].steps[0].damage, true);
+
 var triggerOnlyHtml = [
   '<script>',
   'const ENTITY_STYLE = {',

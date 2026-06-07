@@ -16,54 +16,6 @@
 //
 // Self-contained — no Node-only deps; the page-eval extractor function
 // runs inside Playwright via page.evaluate(template.PAGE_EXTRACTOR).
-//
-// 2026-05-29 ship to /opt/blueprint-editor/engine/stages/lib/field-diff.cjs.
-// Folded (per Sam vendored review):
-//   (2) loadContract unwraps Jonny split-pack `{writer, contract:{...}}` wrapper
-//   (3) entityFamily → e.id (v0.5 schema has no entityFamily; id===name)
-//   (4) canonicalEntityKey() — strip leading `_` + UpperCamel first char so
-//       `_player` and `Player` regularize to `Player`. All entity-set ops walk
-//       canonical form to bridge contract `phase.showEntities` (_camelCase)
-//       and `entities[].id` (CamelCase) + source-HTML PHASES.showEntities.
-//   (5) PAGE_EXTRACTOR `__gameState` fn/obj dual-form tolerance — source HTML
-//       exposes as fn (`window.__gameState=function(){...}`), v2 build exposes
-//       as plain object (demo2spec line 10135 `window.__gameState=best.state`).
-//       Both shapes resolved transparently. (folded from Sam end-to-end patch)
-//   (6) Layer 1.5 extractor abstraction — `makePageExtractor({targetKind})`
-//       returns SOURCE_PAGE_EXTRACTOR (source HTML, Three.js, DOM-HUD) or
-//       WEBGL_PAGE_EXTRACTOR (PlayCanvas/Luna build, walks pc.app.root for
-//       visibleEntities, reads `bp-storyboard-*` DOM overlay for HUD).
-//       Per Jonny 03:23 scope: no new pipeline stage, single report out;
-//       caller in `fidelity-source-diff.cjs` picks 'source' vs 'webgl-playcanvas'
-//       per page being captured. `diffPhasesBucket` also gates `showEntities`
-//       check on `obs.showEntities !== undefined` so a target extractor that
-//       legitimately can't observe phase intent doesn't pop a phantom diff.
-//   (7) WEBGL_PAGE_EXTRACTOR skip-list extension — exact-match
-//       `Untitled|EventSystem` + prefix `Storyboard*` filtered out of the
-//       PlayCanvas scene-tree visibleEntities walk. Sam 08:16 L1.5 verdict
-//       surfaced these as 5 phantoms/phase (40 entity-extra across 8 phases)
-//       from Luna runtime/scaffold nodes the contract doesn't list.
-//   (8) task #29 design — phase-aware HUD + worldLabel split (Sam 08:40 拍
-//       Q1=A Q2=A Q3=yes). Three lib changes:
-//       Q1: new `worldLabel` bucket — `entities[].worldLabel` (v0.6 forward)
-//           or `hud[id^="label."]` (v0.5 transitional fallback). Diffs are
-//           non-blocking advisory (HTML overlay target legitimately doesn't
-//           render world-space entity labels; Unity golden does). Reclassifies
-//           192 hud-missing noise out of the hud bucket.
-//       Q2: polymorphic `hud[].text` (and `entities[].worldLabel`) — string OR
-//           `{default?: string, perPhase: {phaseId: string}}`. Resolver picks
-//           perPhase[phaseId] → default → undefined-skip. Backward-compat:
-//           existing v0.5 plain-string entries unchanged.
-//       Q3: `hud:steptoast` empty-string-equals-missing tolerance — if expected
-//           `text === ''` and target slot is undefined, skip diff (transient
-//           toast with no active step is a legitimate undefined state).
-//   (8.1) `runFieldLevelDiff` shim observability fix — flatten worldLabel
-//        bucket entries into the legacy flat diff array (`category:
-//        worldLabel-{missing,mismatch}`, `blocking: false`) so stage-layer
-//        callers see them. Also pass through `blocking` flag on all entries so
-//        the stage can split blocking vs advisory without guessing. Sam 08:53
-//        diagnosed gap: lib computed worldLabel diffs but legacy shim dropped
-//        them on the floor — report.json had 0 mentions of worldLabel.
 
 const fs = require('fs');
 
@@ -71,18 +23,13 @@ const SCHEMA_VERSION = 'task25.field-diff@0.6.1';
 const FLOAT_EPSILON = 1e-3;
 const SCENE_DELTA_E_TOLERANCE = 5;
 
-// ─── Contract loading ──────────────────────────────────────────────────────────
-
 function loadContract(contractPath) {
   const raw = fs.readFileSync(contractPath, 'utf8');
   const c = JSON.parse(raw);
-  // (2) split-pack wrapper unwrap — Jonny writer emits `{writer, contract:{...}}`.
   if (c && c.contract && Array.isArray(c.contract.entities)) return c.contract;
   return c;
 }
 
-// (4) canonical entity key: strip leading underscore + uppercase first char.
-//     `_player` → `Player`, `Player` → `Player`, `_oxygenShop` → `OxygenShop`.
 function canonicalEntityKey(s) {
   if (typeof s !== 'string' || s.length === 0) return s;
   const stripped = s.charAt(0) === '_' ? s.slice(1) : s;

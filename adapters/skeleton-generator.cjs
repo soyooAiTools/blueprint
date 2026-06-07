@@ -300,7 +300,8 @@ function _wfInteractionVerb(ri) {
 
 // 手动证据 gate 分三类：
 // - none: wait/defend/无交互，不需要手动到达证据。
-// - either: 纯 move/click phase 的真实成功就是玩家到达/点击，可由 manual evidence 单独证明。
+// - either: 纯 move/click phase 的真实成功就是玩家到达/点击；manual 只能由输入证据证明，
+//           autoplay 只能由真实 runtime 进度证明，避免无输入时 realReady 自行过门。
 // - both: collect/build/upgrade/deliver 等 phase 必须同时满足真实状态和玩家到达/点击证据。
 function _wfManualTargetGateMode(spec) {
   const interactions = spec && Array.isArray(spec.requiredInteractions) ? spec.requiredInteractions : [];
@@ -427,6 +428,21 @@ function phaseNeedsSpend(spec, pid) {
   return false;
 }
 
+function phaseNeedsCombatDefeatCounter(spec, pid) {
+  if (/enemyImpactExplosion|dispatchAstronautAttack|enemyUnitDefeated/i.test(String(pid || ''))) {
+    return true;
+  }
+  var triggerType = String((spec && spec.trigger && spec.trigger.type) || '').toLowerCase();
+  if (triggerType === 'enemy_defeated' || triggerType === 'defeat') return true;
+  var interactions = (spec && spec.requiredInteractions) || [];
+  for (var i = 0; i < interactions.length; i++) {
+    var verb = _wfInteractionVerb(interactions[i]);
+    if (verb === 'attack' || verb === 'defeat') return true;
+  }
+  var steps = Array.isArray(spec && spec.steps) ? spec.steps : [];
+  return steps.some(function(step) { return !!(step && step.damage); });
+}
+
 function generateSkeleton(specs, opts = {}) {
   // 防御式校验：spec-extract 阶段应保证 codegen 前 specs 非空。
   // 如果这里仍拿到 undefined/empty，就抛出指向契约的明确错误。
@@ -436,7 +452,11 @@ function generateSkeleton(specs, opts = {}) {
     throw err;
   }
   const totalPhases = specs.length;
-  const autoPlayPhaseDuration = totalPhases > 8 ? 20 : 12;
+  const autoPlayPhaseDuration = totalPhases >= 8 ? 20 : 12;
+  const skeletonNeedsCombatDefeatCounter = specs.some(function(spec) {
+    var pid = (spec && spec.phaseId) || 'phase';
+    return phaseNeedsCombatDefeatCounter(spec, pid);
+  });
   const entityPoolMap = opts.entityPoolMap || {};
   // [SKELETON 2026-04-19] entities[] 携带 chineseName / showLabel 供世界标签使用。
   const entityMeta = {};
@@ -641,7 +661,10 @@ function generateSkeleton(specs, opts = {}) {
     const parts = names.map(function(n) {
       const moveExpr = 'EntityAdvanced(' + n + ', _snap_' + n + 'Pos)';
       if (allEntities && allEntities.has && allEntities.has(n)) {
-        return '(' + moveExpr + ' || (_autoPlayMode && _autoPlaySteps > _autoPlayStepsAtPhaseStart && ' + n + 'State >= 2))';
+        const stateExpr = n + 'State >= 2';
+        const autoplayStateExpr = '(_autoPlayMode && _autoPlaySteps > _autoPlayStepsAtPhaseStart && ' + stateExpr + ')';
+        const manualStateExpr = '(!_autoPlayMode && ManualPhaseTargetEvidenceReady("' + csString(spec.phaseId || 'phase') + '") && ' + stateExpr + ')';
+        return '(' + moveExpr + ' || ' + autoplayStateExpr + ' || ' + manualStateExpr + ')';
       }
       return moveExpr;
     });
@@ -690,6 +713,11 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    float phaseRealTimer = 0f;');
   lines.push('    float lastPhaseRealClock = 0f;');
   lines.push('    string lastPhaseForTimer = "";');
+  lines.push('    float _lastDwellRequiredSeconds = 0f;');
+  lines.push('    float _lastDwellPhaseTimer = 0f;');
+  lines.push('    float _lastDwellPhaseRealTimer = 0f;');
+  lines.push('    bool _lastDwellAuto = false;');
+  lines.push('    bool _lastDwellReady = false;');
   lines.push('    float[] phaseEnterTimes;');
   lines.push('');
 
@@ -708,8 +736,10 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    int _autoPlaySteps = 0;');
   lines.push('    int _autoPlayStepsAtPhaseStart = 0;');
   lines.push('    string _autoPlayVisualPhase = "";');
+  lines.push('    Vector3 _autoPlayCameraBasePosition = Vector3.zero;');
   lines.push('    Quaternion _autoPlayCameraBaseRotation = Quaternion.identity;');
   lines.push('    float _autoPlayCameraBaseFov = 46f;');
+  lines.push('    float _autoPlayCameraBaseOrthoSize = 8f;');
   lines.push('    const float AUTO_PLAY_PHASE_DURATION = ' + autoPlayPhaseDuration + 'f; // [SKELETON] AutoPlay/CUA 每 phase 持续时间；高复杂项目加长以保证截图唯一性');
   lines.push('');
   lines.push('    // 2026-05-13: deterministic autoplay phase-exit flag。每个 phase 各有 _autoplayFallbackFired_<id> 字段;');
@@ -719,6 +749,9 @@ function generateSkeleton(specs, opts = {}) {
     var pid = (spec.phaseId || 'phase').replace(/[^a-zA-Z0-9]/g, '');
     lines.push('    bool _autoplayFallbackFired_' + pid + ' = false;');
   });
+  if (skeletonNeedsCombatDefeatCounter) {
+    lines.push('    int enemiesDefeated = 0; // [SKELETON] combat progress counter used by autoplay evidence fallback');
+  }
   lines.push('');
   lines.push('    // [SKELETON] Phase evidence：按 phase.signal 保存运行时证据，供 preview/CUA 验证。');
   lines.push('    string[] _phaseEvidenceKeys = new string[512];');
@@ -1324,21 +1357,31 @@ function generateSkeleton(specs, opts = {}) {
     if (!opts.allowResource && name.match(/UI$|Canvas|Guide|Gold|Score|Text/)) return;
     if (autoTargets.indexOf(name) < 0) autoTargets.push(name);
   }
-  specs.forEach(spec => {
-    phaseGateEntities(spec).forEach(name => {
-      // Gameplay interaction targets (collect/move/click/build/etc.) are the
-      // semantic autoplay path. They must win over passive entitiesRequired
-      // lists; otherwise observe mode can move toward scenery and satisfy
-      // fallback signals without enough visible motion.
-      pushAutoTarget(name, { allowResource: true });
-    });
-    (spec.entitiesRequired || []).forEach(e => {
-      pushAutoTarget(e && e.name);
-    });
-    (spec.activate || []).forEach(name => {
-      pushAutoTarget(name);
+  const planSteps = opts.plans && opts.plans.cuaPlan && Array.isArray(opts.plans.cuaPlan.steps)
+    ? opts.plans.cuaPlan.steps
+    : [];
+  planSteps.forEach(step => {
+    (step && Array.isArray(step.actions) ? step.actions : []).forEach(action => {
+      pushAutoTarget(action && action.target, { allowResource: true });
     });
   });
+  if (autoTargets.length === 0) {
+    specs.forEach(spec => {
+      phaseGateEntities(spec).forEach(name => {
+        // Gameplay interaction targets (collect/move/click/build/etc.) are the
+        // semantic autoplay path. They must win over passive entitiesRequired
+        // lists; otherwise observe mode can move toward scenery and satisfy
+        // fallback signals without enough visible motion.
+        pushAutoTarget(name, { allowResource: true });
+      });
+      (spec.entitiesRequired || []).forEach(e => {
+        pushAutoTarget(e && e.name);
+      });
+      (spec.activate || []).forEach(name => {
+        pushAutoTarget(name);
+      });
+    });
+  }
 
   if (autoTargets.length > 0) {
     // 观察模式 CUA 需要确定性的自动导航；真正的 phase 内进度仍由
@@ -1373,23 +1416,31 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    // [SKELETON] AutoPlay visual motion：只在 observe/autoPlay 中给画面持续微动，避免状态推进但截图静止。');
   lines.push('    void TickAutoPlayVisualMotion()');
   lines.push('    {');
-  lines.push('        if (!_autoPlayMode || mainCam == null || gameEnded) return;');
+  lines.push('        if (!IsAutoPlayCuaEngaged() || mainCam == null || gameEnded) return;');
   lines.push('        if (currentPhaseName != _autoPlayVisualPhase)');
   lines.push('        {');
   lines.push('            _autoPlayVisualPhase = currentPhaseName;');
+  lines.push('            _autoPlayCameraBasePosition = mainCam.transform.position;');
   lines.push('            _autoPlayCameraBaseRotation = mainCam.transform.rotation;');
   lines.push('            _autoPlayCameraBaseFov = mainCam.fieldOfView;');
+  lines.push('            _autoPlayCameraBaseOrthoSize = mainCam.orthographicSize;');
   lines.push('        }');
   lines.push('        float pulse = Mathf.Sin(Time.realtimeSinceStartup * 1.15f);');
+  lines.push('        float pulse2 = Mathf.Cos(Time.realtimeSinceStartup * 0.91f);');
+  lines.push('        Vector3 __autoPlayCameraPulsePosition = _autoPlayCameraBasePosition;');
+  lines.push('        __autoPlayCameraPulsePosition.x += pulse * 0.55f;');
+  lines.push('        __autoPlayCameraPulsePosition.z += pulse2 * 0.55f;');
+  lines.push('        mainCam.transform.position = __autoPlayCameraPulsePosition;');
   lines.push('        mainCam.transform.rotation = _autoPlayCameraBaseRotation * Quaternion.Euler(pulse * 2.4f, pulse * 4.5f, 0f);');
   lines.push('        mainCam.fieldOfView = Mathf.Clamp(_autoPlayCameraBaseFov + pulse * 3.0f, 32f, 64f);');
+  lines.push('        if (mainCam.orthographic) mainCam.orthographicSize = Mathf.Clamp(_autoPlayCameraBaseOrthoSize + pulse * 0.70f, 3.5f, 14f);');
   lines.push('    }');
   lines.push('');
   lines.push('    // [SKELETON] AutoPlay phase assist：短暂等待后只触发一次确定性兜底动作。');
   lines.push('    // 用于避免 WebGL 下无可用导航目标或 OnArrive 不稳定时 CUA 长时间停住。');
   lines.push('    void MaybeAssistAutoPlayPhase()');
   lines.push('    {');
-  lines.push('        if (!_autoPlayMode) return;');
+  lines.push('        if (!IsAutoPlayCuaEngaged()) return;');
   lines.push('        if (currentPhaseName != _autoPlayAssistPhase)');
   lines.push('        {');
   lines.push('            _autoPlayAssistPhase = currentPhaseName;');
@@ -1679,6 +1730,13 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('');
   lines.push('        // Update 只做调度，状态同步逻辑交给专门的辅助方法。');
   lines.push('        SyncAutoPlayState(gameTimer);');
+  lines.push('        if (GFM_AutoPlay.Instance.AutoPlayRequested && !GFM_AutoPlay.Instance.IsActive)');
+  lines.push('        {');
+  lines.push('            // CUA 已通过 URL 请求 autoplay，但 observer-ready 尚未握手时冻结玩法。');
+  lines.push('            // 否则 speed patch 可能在首次观察前推进 phase，触发 PRE-CONTAMINATION。');
+  lines.push('            UpdateGameState();');
+  lines.push('            return;');
+  lines.push('        }');
   lines.push('');
   lines.push('        UpdatePhaseTimer(dt);');
   if (isIdleGame) {
@@ -2025,10 +2083,11 @@ function _pushAutoplayFallback(lines, pid, gateEntities, spec) {
   // 2026-05-13 deterministic phase-exit override: 设 autoplay 出口 flag,让 phase gate 不再
   // 依赖实体真实位移 / GFM_AutoPlay step 增长 (这两个外部依赖任一 stall 都会让 phase 卡住)。
   lines.push('            _autoplayFallbackFired_' + pid + ' = true;');
+  lines.push('            GFM_AutoPlay.Instance.IncrementSteps();');
 
   const needsGoldSignal = gateEntities.indexOf('Gold') >= 0 || /upgrade|build|occupy/i.test(pid);
   const needsDebrisSignal = gateEntities.indexOf('RocketDebris') >= 0 || /recycle|collectRocketDebris/i.test(pid);
-  const needsCombatSignal = /enemyImpactExplosion|dispatchAstronautAttack|enemyUnitDefeated/i.test(pid);
+  const needsCombatSignal = phaseNeedsCombatDefeatCounter(spec, pid);
   const needsSpendSignal = phaseNeedsSpend(spec, pid);
   const needsDeliverSignal = ((spec && spec.requiredInteractions) || []).some(function(interaction) {
     var verb = String(interaction || '').split(':')[0].toLowerCase();
@@ -2158,7 +2217,12 @@ function _buildFlowPartial(specs, phaseGateMap = {}, phaseRealConditions = {}, p
   lines.push('    // fallback 只能服务 AutoPlay/CUA，真实交互路径不能靠它伪造资源和状态。');
   lines.push('    bool ShouldRunAutoPlayFallback()');
   lines.push('    {');
-  lines.push('        return _autoPlayMode;');
+  lines.push('        return IsAutoPlayCuaEngaged();');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    bool IsAutoPlayCuaEngaged()');
+  lines.push('    {');
+  lines.push('        return _autoPlayMode || GFM_AutoPlay.Instance.IsActive;');
   lines.push('    }');
   lines.push('');
   lines.push('    // 当前 phase 变化时重置 phase 计时器，并在每帧推进。');
@@ -2186,10 +2250,17 @@ function _buildFlowPartial(specs, phaseGateMap = {}, phaseRealConditions = {}, p
   lines.push('    // [SKELETON] 每个 shot 的最短停留门。AutoPlay 必须按真实秒数等待 AUTO_PLAY_PHASE_DURATION，不能被验证加速器压缩。');
   lines.push('    bool PhaseDwellReady(float specMinSeconds)');
   lines.push('    {');
-  lines.push('        float requiredSeconds = _autoPlayMode ? AUTO_PLAY_PHASE_DURATION : Mathf.Min(specMinSeconds, 0.35f);');
+  lines.push('        bool autoDwell = IsAutoPlayCuaEngaged();');
+  lines.push('        float requiredSeconds = autoDwell ? AUTO_PLAY_PHASE_DURATION : Mathf.Min(specMinSeconds, 0.35f);');
   lines.push('        // Keep realtime as the primary anti-batch gate; fall back only when the realtime counter is truly unavailable.');
   lines.push('        bool realtimeUnavailable = Time.realtimeSinceStartup <= 0.01f;');
-  lines.push('        return _autoPlayMode ? (phaseRealTimer >= requiredSeconds || (realtimeUnavailable && phaseTimer >= requiredSeconds)) : phaseTimer >= requiredSeconds;');
+  lines.push('        bool ready = autoDwell ? (phaseRealTimer >= requiredSeconds || (realtimeUnavailable && phaseTimer >= requiredSeconds)) : phaseTimer >= requiredSeconds;');
+  lines.push('        _lastDwellAuto = autoDwell;');
+  lines.push('        _lastDwellRequiredSeconds = requiredSeconds;');
+  lines.push('        _lastDwellPhaseTimer = phaseTimer;');
+  lines.push('        _lastDwellPhaseRealTimer = phaseRealTimer;');
+  lines.push('        _lastDwellReady = ready;');
+  lines.push('        return ready;');
   lines.push('    }');
   lines.push('');
   lines.push('    bool ManualPhaseTargetEvidenceReady(string phaseId)');
@@ -2325,7 +2396,7 @@ function _buildFlowPartial(specs, phaseGateMap = {}, phaseRealConditions = {}, p
     lines.push('        return currentPhaseName == "' + prevSpec.phaseId + '"');
     const manualGateMode = _wfManualTargetGateMode(prevSpec);
     if (manualGateMode === 'either') {
-      lines.push('            && (realReady || ManualPhaseTargetEvidenceReady("' + prevSpec.phaseId + '"))');
+      lines.push('            && ((_autoPlayMode && realReady) || ManualPhaseTargetEvidenceReady("' + prevSpec.phaseId + '"))');
     } else if (manualGateMode === 'both') {
       lines.push('            && realReady');
       lines.push('            && (_autoPlayMode || ManualPhaseTargetEvidenceReady("' + prevSpec.phaseId + '"))');
@@ -2348,7 +2419,7 @@ function _buildFlowPartial(specs, phaseGateMap = {}, phaseRealConditions = {}, p
   lines.push('        return currentPhaseName == "' + flowLastSpec.phaseId + '"');
   const endManualGateMode = _wfManualTargetGateMode(flowLastSpec);
   if (endManualGateMode === 'either') {
-    lines.push('            && (realReady || ManualPhaseTargetEvidenceReady("' + flowLastSpec.phaseId + '"))');
+    lines.push('            && ((_autoPlayMode && realReady) || ManualPhaseTargetEvidenceReady("' + flowLastSpec.phaseId + '"))');
   } else if (endManualGateMode === 'both') {
     lines.push('            && realReady');
     lines.push('            && (_autoPlayMode || ManualPhaseTargetEvidenceReady("' + flowLastSpec.phaseId + '"))');
@@ -2842,6 +2913,16 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('        RecordPhaseEvidenceObject(phaseId, moduleId, fieldsJson, "[]");');
   lines.push('    }');
   lines.push('');
+  lines.push('    bool HasLastKnownResourceBalance(string resourceId)');
+  lines.push('    {');
+  lines.push('        resourceId = GFM_ResourceIds.Normalize(resourceId);');
+  lines.push('        for (int i = 0; i < _phaseEvidenceResourceBalanceCount; i++)');
+  lines.push('        {');
+  lines.push('            if (_phaseEvidenceResourceBalanceKeys[i] == resourceId) return true;');
+  lines.push('        }');
+  lines.push('        return false;');
+  lines.push('    }');
+  lines.push('');
   lines.push('    int GetLastKnownResourceBalance(string resourceId)');
   lines.push('    {');
   lines.push('        resourceId = GFM_ResourceIds.Normalize(resourceId);');
@@ -3064,6 +3145,14 @@ function _buildRuntimeStateBridgeHelperLines(entityList, specs) {
   lines.push('            + ",\\"autoPlayMode\\":" + (_autoPlayMode ? "true" : "false")');
   lines.push('            + ",\\"autoPlaySteps\\":" + _autoPlaySteps');
   lines.push('            + ",\\"autoPlayStepsThisPhase\\":" + (_autoPlaySteps - _autoPlayStepsAtPhaseStart)');
+  lines.push('            + ",\\"phaseTimer\\":" + FormatFloat(phaseTimer)');
+  lines.push('            + ",\\"phaseRealTimer\\":" + FormatFloat(phaseRealTimer)');
+  lines.push('            + ",\\"autoPlayPhaseDuration\\":" + FormatFloat(AUTO_PLAY_PHASE_DURATION)');
+  lines.push('            + ",\\"lastDwellAuto\\":" + (_lastDwellAuto ? "true" : "false")');
+  lines.push('            + ",\\"lastDwellReady\\":" + (_lastDwellReady ? "true" : "false")');
+  lines.push('            + ",\\"lastDwellRequiredSeconds\\":" + FormatFloat(_lastDwellRequiredSeconds)');
+  lines.push('            + ",\\"lastDwellPhaseTimer\\":" + FormatFloat(_lastDwellPhaseTimer)');
+  lines.push('            + ",\\"lastDwellPhaseRealTimer\\":" + FormatFloat(_lastDwellPhaseRealTimer)');
   lines.push('            + ",\\"cameraZoom\\":" + FormatFloat(camZoom)');
   lines.push('            + ",\\"cameraHeight\\":" + FormatFloat(camHeight)');
   lines.push('            + BuildResourceVariablesJson()');

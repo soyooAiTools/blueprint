@@ -19,6 +19,7 @@ const manifest = {
         tip: 'flex:1;text-align:center;color:#8deaff;font-size:13px',
         phaseLabel: 'color:#fff;font-size:12px;opacity:0.7',
         targetHint: 'position:fixed;top:56px;left:50%;transform:translateX(-50%);color:#ffe45c',
+        keyframes: '@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(41,217,111,.58)}70%{box-shadow:0 0 0 18px rgba(41,217,111,0)}100%{box-shadow:0 0 0 0 rgba(41,217,111,0)}}',
       },
       initialText: {
         goldCount: '50',
@@ -51,6 +52,7 @@ const manifest = {
       width: 60,
       height: 60,
       color: '#111122',
+      positionY: -0.12,
     },
     grid: {
       present: true,
@@ -68,6 +70,18 @@ const manifest = {
       position: [0, 22, 18],
       lookAt: [0, 0, 0],
     },
+    decor: {
+      orbitalRings: 2,
+      orbitalRingStyle: {
+        geometry: { type: 'TorusGeometry', argsBase: [10, 0.025, 8, 128], argsStep: [5.5, 0, 0, 0] },
+        material: { diffuseColor: '#234C76', opacity: 0.5, transparent: true },
+        rotation: [1.5708, 0, 0],
+        positionY: { base: 0.04, step: 0.015 },
+      },
+    },
+    guidance: {
+      trailLine: { from: 'Player', to: 'SpaceBase', fromYOffset: 1, toYOffset: 1 },
+    },
   },
   playableSceneIrHash: 'a'.repeat(64),
   entityBindings: {},
@@ -75,6 +89,11 @@ const manifest = {
 };
 
 const out = injectVisualOverlay(html, manifest);
+const overlayScriptMatch = out.match(/<script>\s*(\(function\(\)\{[\s\S]*?\n\}\)\(\);)\s*<\\?\/script>/);
+assert.ok(overlayScriptMatch, 'injected overlay script should be extractable');
+assert.doesNotThrow(function() {
+  new Function(overlayScriptMatch[1]);
+}, 'injected overlay script should parse as JavaScript');
 
 assert.notStrictEqual(out, html, 'visual overlay should still inject when entityStyles is empty');
 assert.match(out, /function sourceEntityNames\(contract\)/);
@@ -83,6 +102,7 @@ assert.match(out, /var names = sourceEntityNames\(contract\);/);
 assert.match(out, /Three\.js source visual overlay active: entities=/);
 assert.match(out, /function sourceVisualEnabled\(\)/);
 assert.match(out, /return hasPlayableSceneIr\(\);/);
+assert.match(out, /function sourceDomWorldLabelsEnabled\(\)/);
 assert.match(out, /function sourceAutoplayRuntimeActive\(\)/);
 assert.match(out, /function observerReadyRequested\(\)/);
 assert.match(out, /function sourceAutoplayObserverReady\(\)/);
@@ -93,6 +113,13 @@ assert.match(out, /highlightTarget: targetEntity/);
 assert.match(out, /targetSequence: info && info\.targetSequence \|\| \[\]/);
 assert.match(out, /currentStepIndex: overlayRuntime\.stepIndex/);
 assert.match(out, /phaseTimestamps: {}/);
+assert.match(out, /var hasRuntimeVisibleEntities = !!\(info && Array\.isArray\(info\.runtimeVisibleEntities\) && info\.runtimeVisibleEntities\.length\)/);
+assert.match(out, /var baselineCoverageEntities = baselineEntities\.filter/);
+assert.match(out, /var coveredBaselineEntities = baselineCoverageEntities\.filter/);
+assert.match(out, /var needsBaselinePhase = hasRuntimeVisibleEntities && coveredBaselineEntities < Math\.min\(2, baselineCoverageEntities\.length \|\| 0\)/);
+assert.match(out, /needsBaselinePhase \? terminalRetainedPhaseList\(phases, phaseIndex\) : \[phases\[phaseIndex\]\]/);
+assert.match(out, /function terminalRetainedPhaseList\(phases, phaseIndex\)/);
+assert.match(out, /phaseIndex - 3/);
 assert.match(out, /function markPhaseTimestamp\(phaseId\)/);
 assert.match(out, /markPhaseTimestamp\(info\.id\)/);
 assert.match(out, /phaseTimestamps: Object\.assign\({}, overlayRuntime\.phaseTimestamps\)/);
@@ -107,31 +134,117 @@ assert.match(out, /window\.__getGameState = sourceGameStateFn/);
 assert.match(out, /window\.__gameState = sourceGameStateFn/);
 assert.match(out, /window\.__bpManualJoystickOverride/);
 assert.match(out, /function sourcePhaseCount\(\)/);
+assert.match(out, /function isTerminalSourcePhaseIndex\(index\)/);
 assert.match(out, /function sourceDomHudContract\(\)/);
+assert.match(out, /function sourceDomCtaPresent\(\)/);
+assert.match(out, /function sourceDomHudUsesResourceBar\(\)/);
+assert.match(out, /function sourceDomHudUsesCompactPills\(\)/);
 assert.match(out, /function sourceDomHudCssRules\(\)/);
+assert.match(out, /function sourceDomHudUsesTopbarStats\(\)/);
+assert.match(out, /data-k="goldPanel"/);
+assert.match(out, /set\('goldPanel', '金币 ' \+ String/);
+assert.match(out, /demo2spec-source-upgrade-panel/);
+assert.match(out, /sourceUpgradePanel\.style\.display = overlayRuntime\.phaseIndex === 6 \? 'block' : 'none'/);
+assert.match(out, /function applySourceCameraFrame\(camera, contract, playerPos\)/);
+assert.match(out, /applySourceCameraFrame\(camera, cameraContract, player\)/);
+assert.match(out, /var targetRingColor = hexToNumber\(guidance\.targetRing && guidance\.targetRing\.material && guidance\.targetRing\.material\.color, '#ffe45c'\)/);
+assert.match(out, /var contractedTrailTargetName = guidance\.trailLine && guidance\.trailLine\.to \|\| ''/);
+assert.match(out, /trailFromYOffset = Number\(guidance\.trailLine && guidance\.trailLine\.fromYOffset\)/);
+assert.doesNotMatch(out, /replace\(\s*\/\\?s\+/);
 assert.match(out, /bridgeOverlayHiddenCss\(\) \+ style\.textContent \+ sourceDomHudCssRules\(\)/);
 assert.match(out, /bp-storyboard-hud,#bp-storyboard-target,#bp-storyboard-scene-tone/);
+assert.match(out, /demo2spec-source-world-label/);
 assert.match(out, /#demo2spec-source-phase-band\{display:none!important;visibility:hidden!important\}/);
-assert.match(out, /bottom:auto!important;right:auto!important;width:auto!important;height:auto!important/);
+assert.match(out, /function terminalCtaCopy\(info\)/);
+assert.match(out, /function setTerminalCta\(info, visible\)/);
+assert.match(out, /title = '立即下载，解锁更多' \+ unlock\[1\] \+ '玩法！'/);
+assert.match(out, /button = '安装完整游戏'/);
+assert.match(out, /title = sourceDomHudInitial\('victory', title\)/);
+assert.match(out, /button = sourceDomHudInitial\('ctaDom', button\)/);
+assert.match(out, /demo2spec-source-cta-overlay/);
+assert.match(out, /background:rgba\(0,0,0,\.62\)/);
+assert.match(out, /source-dom-cta/);
+assert.match(out, /#demo2spec-source-cta-overlay\.source-dom-cta\.visible/);
+assert.match(out, /#demo2spec-source-cta-overlay\.source-dom-cta #demo2spec-source-cta-box/);
+assert.match(out, /sourceCtaBoxExtra = 'width:auto!important;max-width:calc\(100vw - 48px\)!important;display:inline-block!important'/);
+assert.match(out, /#demo2spec-source-cta-overlay\.source-dom-cta #demo2spec-source-cta-btn/);
+assert.match(out, /@keyframes pulse/);
+assert.match(out, /demo2spec-source-cta-subtitle/);
+assert.match(out, /demo2spec-source-phase-badge/);
+assert.match(out, /demo2spec-source-resources/);
+assert.match(out, /demo2spec-source-gold-box/);
+assert.match(out, /sourceDomHudInitial\('goldText'/);
+assert.match(out, /sourceDomHudInitial\('matText'/);
+assert.match(out, /sourceDomHudUsesResourceBar\(\) \|\| sourceDomHudUsesCompactPills\(\) \|\| sourceDomHudUsesMeterPills\(\)/);
+assert.match(out, /function sourceDomHudUsesMeterPills\(\)/);
+assert.match(out, /function sourceDomHudHasProgressBar\(\)/);
+assert.match(out, /function sourceDomHudHasIdleJoystick\(\)/);
+assert.match(out, /demo2spec-source-logo/);
+assert.match(out, /demo2spec-source-meters/);
+assert.match(out, /!sourceDomHudUsesMeterPills\(\) &&/);
+assert.match(out, /demo2spec-source-oxygen-text/);
+assert.match(out, /demo2spec-source-worker-panel/);
+assert.match(out, /demo2spec-source-progress-wrap/);
+assert.match(out, /demo2spec-source-progress-bar/);
+assert.match(out, /inlineSourceTip/);
+assert.match(out, /demo2spec-source-stick', css\.joystick/);
+assert.match(out, /demo2spec-source-stick-knob', css\.stickThumb/);
+assert.match(out, /#demo2spec-source-stick:before\{display:none!important;visibility:hidden!important\}/);
+assert.match(out, /sourceCounterText\('iceText'/);
+assert.match(out, /demo2spec-source-cta-title/);
+assert.match(out, /demo2spec-source-cta-btn/);
+assert.match(out, /display\\s\*:\\s\*none/);
+assert.match(out, /if \(!sourceDomCtaPresent\(\)\)/);
+assert.match(out, /\['demo2spec-source-hud', 'demo2spec-source-target'\]\.forEach/);
+assert.match(out, /setTerminalCta\(info, isTerminalSourcePhaseIndex\(index\)\)/);
+assert.match(out, /var terminalVisible = phaseText === 'gameEnd' \|\| isTerminalSourcePhaseIndex/);
+assert.match(out, /!\/\\bbottom\\s\*:\/i\.test\(targetHintCss\)/);
+assert.match(out, /right:auto!important;width:auto!important;height:auto!important/);
 assert.match(out, /demo2spec-source-gold-count/);
 assert.match(out, /sourceDomHudInitial\('goldCount'/);
+assert.match(out, /sourceDomHudInitial\('goldBox'/);
+assert.match(out, /sourceProgressBar\.style\.width/);
 assert.match(out, /function sourceCameraContract\(\)/);
-assert.match(out, /function applySourceCameraFrame\(camera, contract\)/);
+assert.match(out, /function applySourceCameraFrame\(camera, contract, playerPos\)/);
+assert.match(out, /follow\.positionY == null \? NaN : Number\(follow\.positionY\)/);
+assert.match(out, /follow\.lookAtY == null \? NaN : Number\(follow\.lookAtY\)/);
+assert.match(out, /var hasLookAtFactor = isFinite\(Number\(lf\.x\)\) \|\| isFinite\(Number\(lf\.z\)\)/);
+assert.match(out, /var useDynamicLookAt = hasLookAtFactor && contract\.dynamicLookAtPlayer !== false/);
+assert.match(out, /useDynamicLookAt \? Number\(playerPos\.x \|\| 0\).*: target\[0\]/);
+assert.match(out, /useDynamicLookAt \? lookAtY : target\[1\]/);
+assert.match(out, /useDynamicLookAt \? Number\(playerPos\.z \|\| 0\).*: target\[2\]/);
+assert.match(out, /function rotationVector\(values, fallback\)/);
+assert.match(out, /value \* Math\.PI \/ 180/);
 assert.match(out, /sourceCameraPresent\(\) && isFinite\(Number\(cameraContract\.fov\)\)/);
-assert.match(out, /applySourceCameraFrame\(camera, cameraContract\)/);
+assert.match(out, /applySourceCameraFrame\(camera, cameraContract, player\)/);
 assert.match(out, /new THREE\.PlaneGeometry\(ground\.width \|\| ground\.radius \|\| 72, ground\.height \|\| ground\.width \|\| ground\.radius \|\| 72\)/);
+assert.match(out, /new THREE\.BoxGeometry\(ground\.width \|\| ground\.radius \|\| 72, ground\.thickness \|\| \.18, ground\.height \|\| ground\.width \|\| ground\.radius \|\| 72\)/);
+assert.match(out, /Number\.isFinite\(Number\(ground\.positionY\)\)/);
+assert.match(out, /new THREE\.WebGLRenderer\(\{ antialias: true, alpha: false, powerPreference: 'high-performance' \}\)/);
 assert.match(out, /new THREE\.GridHelper\(/);
+assert.match(out, /numericSeriesValue\(orbitStyle\.positionY, torusIndex, \.04 \+ torusIndex \* \.015\)/);
+assert.match(out, /new THREE\.TorusGeometry\(args\[0\] \|\| 10, args\[1\] \|\| \.025, args\[2\] \|\| 8, args\[3\] \|\| 128\)/);
+assert.match(out, /baselineCoverageEntities = baselineEntities\.filter/);
+assert.match(out, /guide\|ui\|hint\|target/i);
 assert.match(out, /window\.__driveToSourcePhase = driveSourceOverlayToPhase/);
+assert.match(out, /canvas\.height = 64/);
+assert.match(out, /spr\.scale\.set\(2\.1, \.52, 1\)/);
+assert.match(out, /spr\.position\.y = 2\.25/);
 assert.match(out, /wrapped\.__demo2specSourceWrapped = true/);
+assert.match(out, /phaseDriverFallback = error && error\.message/);
+assert.match(out, /function sourceVisualDiffRunning\(\)/);
+assert.match(out, /sourceRuntimeEnabled && sourceVisualDiffRunning\(\) && !manualActive && !sourceAutoplayRuntimeActive\(\)/);
 assert.match(out, /var sourceDrivenAuto = autoMode && sourceVisualEnabled\(\)/);
 assert.match(out, /moveToward\(playerAuto, targetAuto, dt \* \(sourceAutoplayRuntimeActive\(\) \? 3\.0 : 16\)\)/);
 assert.match(out, /var targetDisc = null/);
+assert.match(out, /var domLabels = {}/);
 assert.match(out, /new THREE\.CircleGeometry\(2\.45, 64\)/);
 assert.match(out, /demo2spec-source-phase-band/);
 assert.match(out, /function cssHex\(value\)/);
 assert.match(out, /function storyboardRuntimeComparableTargetPosition\(name, pos\)/);
 assert.match(out, /var runtimeTarget = storyboardRuntimeComparableTargetPosition\(step && step\.target, target\)/);
 assert.match(out, /distance2\(runtimePlayer, runtimeTarget\) <= 2\.5/);
+assert.match(out, /pos\.project\(camera\)/);
 assert.doesNotMatch(out, /Phase 1\/8/);
 
 console.log('demo2spec visual overlay tests passed');

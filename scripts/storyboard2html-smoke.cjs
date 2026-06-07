@@ -7,6 +7,7 @@ var spawnSync = require('child_process').spawnSync;
 var contract = require('../engine/storyboard2html-contract.cjs');
 var hardgate = require('../engine/storyboard2html-hardgate.cjs');
 var playableFlowManifest = require('../engine/playable-flow-manifest.cjs');
+var sourceSceneIr = require('../engine/source-scene-ir.cjs');
 
 function usage() {
   console.error('Usage: node scripts/storyboard2html-smoke.cjs <generated.html> <outdir> [--theme name] [--steps N] [--verify-runner direct|production] [--skill-root path] [--dry-run]');
@@ -84,6 +85,50 @@ function runPreflight(plan, opts) {
   return report;
 }
 
+function runSourceSceneIrPreflight(plan, opts) {
+  var reportPath = plan.artifacts.sourceSceneIrPreflightReport;
+  var htmlPath = path.resolve(opts.html);
+  var html = fs.readFileSync(htmlPath, 'utf8');
+  var report = sourceSceneIr.preflightSourceSceneIrHtml(html, {
+    sourceHtmlPath: htmlPath,
+  });
+  fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+  fs.writeFileSync(reportPath, JSON.stringify(report, null, 2) + '\n');
+  playableFlowManifest.updateManifest({
+    manifestPath: process.env.PLAYABLE_FLOW_MANIFEST_PATH || plan.artifacts.flowManifest,
+    outDir: path.resolve(opts.outDir),
+  }, {
+    artifacts: {
+      generatedHtml: playableFlowManifest.artifactFor(htmlPath),
+      sourceSceneIrPreflightReport: playableFlowManifest.artifactFor(reportPath),
+    },
+    stages: {
+      sourceSceneIrPreflight: {
+        recordedAt: new Date().toISOString(),
+        passed: report.passed === true,
+        sourceSceneIrHash: report.summary && report.summary.sourceSceneIrHash || null,
+        embeddedSourceIrPresent: !!(report.summary && report.summary.embeddedSourceIrPresent),
+        legacyProjectionUsed: !!(report.summary && report.summary.legacyProjectionUsed),
+        warnings: report.warnings || [],
+        violations: report.violations || [],
+      },
+    },
+    events: [{
+      at: new Date().toISOString(),
+      stage: 'source-scene-ir-preflight',
+      passed: report.passed === true,
+    }],
+  });
+  if (!report.passed) {
+    console.error(JSON.stringify(report, null, 2));
+    throw new Error('source-scene-ir preflight failed before CUA: ' + report.violations.slice(0, 4).map(function(violation) {
+      return violation.code || violation.message || JSON.stringify(violation);
+    }).join('; '));
+  }
+  console.log('[storyboard2html-smoke] source-scene-ir preflight PASS -> ' + reportPath);
+  return report;
+}
+
 function main() {
   var opts = parseArgs(process.argv);
   var plan = contract.buildAcceptancePlan({
@@ -95,6 +140,7 @@ function main() {
     verifyRunner: opts.verifyRunner,
   });
   if (opts.dryRun) {
+    if (plan.sourceIrPreflightCommand) console.log(plan.sourceIrPreflightCommand.map(shellQuote).join(' '));
     console.log(plan.command.map(shellQuote).join(' '));
     if (plan.hardgateCommand) console.log(plan.hardgateCommand.map(shellQuote).join(' '));
     console.log('hardGates=' + plan.hardGates.join('; '));
@@ -104,6 +150,7 @@ function main() {
     PLAYABLE_FLOW_MANIFEST_PATH: plan.artifacts.flowManifest,
   });
   if (process.env.STORYBOARD2HTML_SKIP_PREFLIGHT !== '1') {
+    runSourceSceneIrPreflight(plan, opts);
     runPreflight(plan, opts);
   }
   var result = spawnSync(plan.command[0], plan.command.slice(1), {

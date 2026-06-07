@@ -44,7 +44,36 @@ assert.ok(manifest.entityBindings.PlayerCharacter, 'PlayerCharacter should bind 
 assert.ok(manifest.entityBindings.Ballista1, 'Ballista1 should bind through g.add(localMesh)');
 assert.ok(manifest.entityBindings.PlayerCharacter.assetIds.length > 0);
 assert.ok(manifest.assets.some(asset => asset.source && asset.source.pattern === 'buildEntity:group.add-local-mesh'));
+const ballistaPrimitive = manifest.assets.find(asset => asset.kind === 'procedural_primitive' && asset.source && asset.source.entityName === 'Ballista1');
+assert.ok(ballistaPrimitive, 'Ballista1 primitive should be extracted');
+assert.strictEqual(ballistaPrimitive.material.diffuseColor, '#5577AA', 'buildEntity material variable should resolve to ENTITY_STYLE color');
 assert.strictEqual(manifest.extractionSummary.entityBindingRate, 1);
+
+const matFactoryHtml = [
+  '<!doctype html><html><body><script>',
+  'const ENTITY_STYLE = { SecondArea: { kind: "area", label: "第二区域", color: 0x30664b } };',
+  'const ENTITY_POSITIONS = { SecondArea: { x: 5, y: 0, z: 2 } };',
+  'const PHASES = [{ id: "phase1", showEntities: ["SecondArea"] }];',
+  'var models = {};',
+  'function mat(color,opacity,emissive){return new THREE.MeshStandardMaterial({color:color,roughness:.55,metalness:.1,transparent:opacity<1,opacity:opacity,emissive:emissive||0x000000});}',
+  'function buildEntity(name){',
+  '  var style = ENTITY_STYLE[name]; var kind = style.kind; var c = style.color; var g = new THREE.Group();',
+  '  if(kind === "area"){ var ar = new THREE.Mesh(new THREE.BoxGeometry(6,.22,6), mat(c,.5,0x063116)); ar.position.y = .07; g.add(ar); }',
+  '  models[name] = g;',
+  '}',
+  'Object.keys(ENTITY_STYLE).forEach(buildEntity);',
+  '</script></body></html>',
+].join('\n');
+const matFactoryManifest = visualAssets.extractVisualAssetManifest(matFactoryHtml, {
+  source: 'inline-mat-factory.html',
+  entityNames: ['SecondArea'],
+});
+const areaPrimitive = matFactoryManifest.assets.find(asset => asset.kind === 'procedural_primitive' && asset.source && asset.source.entityName === 'SecondArea');
+assert.ok(areaPrimitive, 'SecondArea primitive should be extracted from mat factory');
+assert.strictEqual(areaPrimitive.material.diffuseColor, '#30664B');
+assert.strictEqual(areaPrimitive.material.opacity, 0.5);
+assert.strictEqual(areaPrimitive.material.transparent, true);
+assert.strictEqual(areaPrimitive.material.emissiveColor, '#063116');
 
 const meshOpsHtml = [
   '<!doctype html><html><body><script>',

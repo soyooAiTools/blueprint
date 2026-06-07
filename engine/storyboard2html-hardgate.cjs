@@ -3,11 +3,22 @@
 var fs = require('fs');
 var path = require('path');
 var vm = require('vm');
+var crypto = require('crypto');
+var playableSceneIr = require('./playable-scene-ir.cjs');
 
 var DEFAULT_SNAPSHOT_SCHEMA_CONTRACT_PATH = path.join(__dirname, '..', 'contracts', 'snapshot-schema.v1.json');
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+function readJsonIfExists(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return null;
+  return readJson(filePath);
+}
+
+function sha256OfFile(filePath) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
 function safeArray(value) {
@@ -25,6 +36,11 @@ function numberCloseToOne(value) {
 function numberValue(value) {
   var numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
+}
+
+function normalizeHash(value) {
+  var text = String(value || '').trim().toLowerCase();
+  return /^[0-9a-f]{64}$/.test(text) ? text : null;
 }
 
 function parseCoveragePair(value) {
@@ -125,6 +141,40 @@ function findDirectClickCompletionPatterns(source) {
   }
   if (/\bactionBtn\b|执行当前操作/.test(html)) hits.push('actionBtn/执行当前操作 shortcut present');
   return hits;
+}
+
+function extractBalancedCurly(source, openIndex) {
+  var depth = 0;
+  var quote = null;
+  var escaped = false;
+  for (var i = openIndex; i < source.length; i += 1) {
+    var ch = source[i];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      continue;
+    }
+    if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return source.slice(openIndex, i + 1);
+    }
+  }
+  return '';
+}
+
+function findNamedFunctionBody(source, name) {
+  var escaped = String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  var re = new RegExp('\\bfunction\\s+' + escaped + '\\s*\\([^)]*\\)\\s*\\{', 'g');
+  var match = re.exec(source);
+  if (!match) return '';
+  var open = source.indexOf('{', match.index);
+  return open >= 0 ? extractBalancedCurly(source, open) : '';
 }
 
 function extractBalancedArrayLiteral(source, openIndex) {
@@ -229,11 +279,27 @@ function validatePhaseInteractionPlan(source, opts) {
 function findCtaClickHandlersWithoutArrivalGate(source) {
   var html = stripComments(source);
   var hits = [];
-  var handlerRe = /addEventListener\s*\(\s*['"](?:click|pointerdown|touchstart)['"][\s\S]{0,1200}?(?:CtaButton|cta_finish|InstallFullGame|gameEnded\s*=\s*true)[\s\S]{0,500}?\}/g;
+  var handlerRe = /\.addEventListener\s*\(\s*['"](?:click|pointerdown|touchstart)['"]\s*,\s*/g;
   var match;
   while ((match = handlerRe.exec(html))) {
-    if (!/\b(?:distance|distanceTo|threshold|near|arrival|arrived|bounding|bbox|recordedDistance|proximity)\b/.test(match[0])) {
-      hits.push(match[0].replace(/\s+/g, ' ').slice(0, 220));
+    var start = handlerRe.lastIndex;
+    var rest = html.slice(start, start + 1600);
+    var open = html.indexOf('{', start);
+    var closeParen = html.indexOf(')', start);
+    var body = '';
+    if (open >= 0 && (closeParen < 0 || open < closeParen + 40)) {
+      body = extractBalancedCurly(html, open);
+    }
+    if (!body) {
+      var named = rest.match(/^([A-Za-z_$][\w$]*)/);
+      if (named) body = findNamedFunctionBody(html, named[1]);
+    }
+    var handler = html.slice(Math.max(0, match.index - 140), match.index) + match[0] + (body || rest);
+    if (!/(?:CtaButton|cta_finish|ctaDomButton|InstallFullGame|Playable\.InstallFullGame|gameEnded\s*=\s*true)/.test(handler)) continue;
+    var completesGame = /\b(?:cta_finish|InstallFullGame|Playable\.InstallFullGame|gameEnded\s*=\s*true|completePhase\d*\s*\(|FinishGame)\b/.test(handler);
+    if (!completesGame) continue;
+    if (!/\b(?:distance|distTo|distanceTo|threshold|near|arrival|arrived|bounding|bbox|recordedDistance|proximity)\b/.test(handler)) {
+      hits.push(handler.replace(/\s+/g, ' ').slice(0, 220));
     }
   }
   return hits;
@@ -545,6 +611,149 @@ function evaluateProductionRuntimeSummary(summary, snapshotDoc, opts) {
   return { passed: errors.length === 0, errors: errors };
 }
 
+function sourceSceneIrHashFromGameSchema(gameSchema) {
+  var found = null;
+  safeArray(gameSchema && gameSchema.customLogic).forEach(function(line) {
+    var match = String(line || '').match(/^sourceSceneIrHash=([0-9a-f]{64})$/i);
+    if (match) found = match[1].toLowerCase();
+  });
+  return found;
+}
+
+function addHashValue(values, source, value) {
+  var hash = normalizeHash(value);
+  if (hash) values.push({ source: source, hash: hash });
+}
+
+function assertSameHash(label, values, errors) {
+  var hashes = {};
+  values.forEach(function(item) { hashes[item.hash] = true; });
+  var unique = Object.keys(hashes);
+  if (unique.length === 0) {
+    errors.push(label + ' hash chain is missing');
+    return null;
+  }
+  if (unique.length > 1) {
+    errors.push(label + ' hash chain mismatch: ' + values.map(function(item) {
+      return item.source + '=' + item.hash;
+    }).join(', '));
+  }
+  return unique[0] || null;
+}
+
+function requireJsonDoc(paths, key, errors) {
+  var filePath = paths[key];
+  if (!filePath || !fs.existsSync(filePath)) {
+    errors.push('missing SourceSceneIR hash-chain artifact: ' + key + ' at ' + filePath);
+    return null;
+  }
+  try {
+    return readJson(filePath);
+  } catch (err) {
+    errors.push('invalid SourceSceneIR hash-chain artifact: ' + key + ' at ' + filePath + ': ' + err.message);
+    return null;
+  }
+}
+
+function evaluateSourceSceneIrHashChain(options) {
+  options = options || {};
+  var outDir = path.dirname(options.snapshotSchemaPath);
+  var smokeDir = options.verifySummaryPath ? path.dirname(options.verifySummaryPath) : path.join(outDir, 'blueprint-smoke');
+  var paths = {
+    sourceIrReport: options.sourceIrReportPath || path.join(outDir, 'source-ir-report.json'),
+    semanticSource: options.semanticSourcePath || path.join(outDir, 'semantic-source.json'),
+    sourceIr: options.sourceIrPath || path.join(outDir, 'source-ir.json'),
+    spec: options.specPath || path.join(outDir, 'spec.json'),
+    gameSchema: options.gameSchemaPath || path.join(outDir, 'gameschema.json'),
+    playableSceneIr: options.playableSceneIrPath || path.join(outDir, 'playable-scene-ir.json'),
+    assetManifest: options.assetManifestPath || path.join(outDir, 'asset-manifest.json'),
+    buildResult: options.buildResultPath || path.join(smokeDir, 'build-result.json'),
+  };
+  var errors = [];
+  var sourceIrReport = requireJsonDoc(paths, 'sourceIrReport', errors);
+  var semanticSource = requireJsonDoc(paths, 'semanticSource', errors);
+  var sourceIr = requireJsonDoc(paths, 'sourceIr', errors);
+  var spec = requireJsonDoc(paths, 'spec', errors);
+  var gameSchema = requireJsonDoc(paths, 'gameSchema', errors);
+  var playable = requireJsonDoc(paths, 'playableSceneIr', errors);
+  var assetManifest = requireJsonDoc(paths, 'assetManifest', errors);
+  var buildResult = requireJsonDoc(paths, 'buildResult', errors);
+
+  if (sourceIrReport) {
+    if (sourceIrReport.passed !== true) errors.push('source-ir-report.passed must be true');
+    if (!sourceIrReport.summary || sourceIrReport.summary.embeddedSourceIrPresent !== true) {
+      errors.push('source-ir-report.summary.embeddedSourceIrPresent must be true');
+    }
+    if (!sourceIrReport.summary || sourceIrReport.summary.legacyProjectionUsed !== false) {
+      errors.push('source-ir-report.summary.legacyProjectionUsed must be false');
+    }
+    if (!sourceIrReport.summary || sourceIrReport.summary.hashMatches !== true) {
+      errors.push('source-ir-report.summary.hashMatches must be true');
+    }
+  }
+  if (semanticSource) {
+    if (semanticSource.semanticSource !== 'source-scene-ir') errors.push('semantic-source.semanticSource must be source-scene-ir');
+    if (semanticSource.legacyJsInferenceUsed !== false) errors.push('semantic-source.legacyJsInferenceUsed must be false');
+    if (semanticSource.sourceIrPresent !== true) errors.push('semantic-source.sourceIrPresent must be true');
+    if (semanticSource.sourceIrPreflightPassed !== true) errors.push('semantic-source.sourceIrPreflightPassed must be true');
+  }
+  if (spec && (!spec.meta || spec.meta.semanticSource !== 'source-scene-ir')) {
+    errors.push('spec.meta.semanticSource must be source-scene-ir');
+  }
+  if (spec && spec.meta && spec.meta.legacyJsInferenceUsed !== false) {
+    errors.push('spec.meta.legacyJsInferenceUsed must be false');
+  }
+
+  var sourceIrHashes = [];
+  addHashValue(sourceIrHashes, 'source-ir-report.summary.sourceSceneIrHash', sourceIrReport && sourceIrReport.summary && sourceIrReport.summary.sourceSceneIrHash);
+  addHashValue(sourceIrHashes, 'semantic-source.sourceSceneIrHash', semanticSource && semanticSource.sourceSceneIrHash);
+  addHashValue(sourceIrHashes, 'source-ir.semanticHash', sourceIr && sourceIr.semanticHash);
+  addHashValue(sourceIrHashes, 'spec.meta.sourceSceneIrHash', spec && spec.meta && spec.meta.sourceSceneIrHash);
+  addHashValue(sourceIrHashes, 'gameschema.customLogic.sourceSceneIrHash', sourceSceneIrHashFromGameSchema(gameSchema));
+  addHashValue(sourceIrHashes, 'playable-scene-ir.extractionSummary.sourceSceneIrHash', playable && playable.extractionSummary && playable.extractionSummary.sourceSceneIrHash);
+  addHashValue(sourceIrHashes, 'playable-scene-ir.diagnostics.sourceSceneIrHash', playable && playable.diagnostics && playable.diagnostics.sourceSceneIrHash);
+  var sourceSceneIrHash = assertSameHash('SourceSceneIR semantic', sourceIrHashes, errors);
+
+  var playableHashes = [];
+  addHashValue(playableHashes, 'semantic-source.playableSceneIrHash', semanticSource && semanticSource.playableSceneIrHash);
+  addHashValue(playableHashes, 'spec.meta.playableSceneIrHash', spec && spec.meta && spec.meta.playableSceneIrHash);
+  addHashValue(playableHashes, 'playable-scene-ir.semanticHash', playable && playable.semanticHash);
+  addHashValue(playableHashes, 'asset-manifest.playableSceneIrHash', assetManifest && assetManifest.playableSceneIrHash);
+  addHashValue(playableHashes, 'build-result.sourceBinding.playableSceneIrHash', buildResult && buildResult.sourceBinding && buildResult.sourceBinding.playableSceneIrHash);
+  var playableSceneIrHash = assertSameHash('PlayableSceneIR semantic', playableHashes, errors);
+
+  var sourceHtmlHashes = [];
+  if (options.htmlPath && fs.existsSync(options.htmlPath)) {
+    addHashValue(sourceHtmlHashes, 'hardgate.htmlPath.sha256', sha256OfFile(options.htmlPath));
+  }
+  addHashValue(sourceHtmlHashes, 'source-ir-report.sourceHtmlSha256', sourceIrReport && sourceIrReport.sourceHtmlSha256);
+  addHashValue(sourceHtmlHashes, 'source-ir.source.htmlSha256', sourceIr && sourceIr.source && sourceIr.source.htmlSha256);
+  addHashValue(sourceHtmlHashes, 'spec.meta.sourceHtmlSha256', spec && spec.meta && spec.meta.sourceHtmlSha256);
+  addHashValue(sourceHtmlHashes, 'playable-scene-ir.source.htmlSha256', playable && playable.source && playable.source.htmlSha256);
+  addHashValue(sourceHtmlHashes, 'asset-manifest.sourceHtmlSha256', assetManifest && (assetManifest.sourceHtmlSha256 || assetManifest.sourceSha256));
+  addHashValue(sourceHtmlHashes, 'build-result.sourceBinding.sourceHtmlSha256', buildResult && buildResult.sourceBinding && buildResult.sourceBinding.sourceHtmlSha256);
+  var sourceHtmlSha256 = assertSameHash('Source HTML', sourceHtmlHashes, errors);
+
+  if (playable && gameSchema) {
+    try {
+      playableSceneIr.assertPlayableSceneIrExecutionAlignment(playable, { gameSchema: gameSchema });
+    } catch (err) {
+      errors.push(err.message);
+    }
+  }
+
+  return {
+    passed: errors.length === 0,
+    errors: errors,
+    details: {
+      sourceSceneIrHash: sourceSceneIrHash,
+      playableSceneIrHash: playableSceneIrHash,
+      sourceHtmlSha256: sourceHtmlSha256,
+      paths: paths,
+    },
+  };
+}
+
 function evaluateHardGates(options) {
   options = options || {};
   var snapshotPath = options.snapshotSchemaPath;
@@ -581,6 +790,16 @@ function evaluateHardGates(options) {
       id: 'production-runtime-cua-hard-gates',
       passed: runtimeGate.passed,
       errors: runtimeGate.errors,
+    });
+  }
+
+  if (options.requireSourceIrHashChain !== false) {
+    var sourceIrGate = evaluateSourceSceneIrHashChain(options);
+    gates.push({
+      id: 'source-scene-ir-hash-chain-hard-gates',
+      passed: sourceIrGate.passed,
+      errors: sourceIrGate.errors,
+      details: sourceIrGate.details,
     });
   }
 
@@ -626,5 +845,6 @@ module.exports = {
   validateSnapshotSchemaDoc: validateSnapshotSchemaDoc,
   evaluateVerifyReport: evaluateVerifyReport,
   evaluateProductionRuntimeSummary: evaluateProductionRuntimeSummary,
+  evaluateSourceSceneIrHashChain: evaluateSourceSceneIrHashChain,
   evaluateHardGates: evaluateHardGates,
 };

@@ -321,34 +321,22 @@ function resolveClaudeAuthEnv(baseEnv, log, taskId) {
  * - 创建 Assets/Program/Script/Manager/ 目录
  */
 function prepareWorkDir(workDir, blueprint, prompt, skeleton, log, taskId) {
-  // 创建目录结构
   const managerDir = path.join(workDir, 'Assets', 'Program', 'Script', 'Manager');
   fs.mkdirSync(managerDir, { recursive: true });
 
-  // 1. CODEX.md — explicit system prompt file passed to the CLI
   const systemPromptSrc = SYSTEM_PROMPT_PATH;
   if (fs.existsSync(systemPromptSrc)) {
     const codexPromptPath = path.join(workDir, CODEX_SYSTEM_PROMPT_FILE);
     fs.copyFileSync(systemPromptSrc, codexPromptPath);
-    // Legacy alias kept for any tooling that still looks for CLAUDE.md in temp dirs.
     fs.copyFileSync(systemPromptSrc, path.join(workDir, LEGACY_SYSTEM_PROMPT_FILE));
   }
 
-  // 2. blueprint.json
   fs.writeFileSync(path.join(workDir, 'blueprint.json'), JSON.stringify(blueprint, null, 2));
-
-  // 3. prompt.md — V5 prompt（对象分配表 + 实体行为 + 事件规则）
   fs.writeFileSync(path.join(workDir, 'prompt.md'), prompt);
 
-  // 3b. 如果有 skeleton，直接写入 .cs 文件（省去 Claude Code 读 prompt 再复制的时间）
   if (skeleton) {
     const csPath = path.join(managerDir, 'GameFlowManagerMain.cs');
-    // NOTE: check `typeof object` not `skeleton.split` — a plain string has `.split` as a
-    // method (truthy function), which would otherwise send us into the multi-file branch
-    // and throw `fs.writeFileSync(path, undefined)`. The generator flags split mode with
-    // `split: true` on a returned object.
     if (typeof skeleton === 'object' && skeleton.split === true) {
-      // Multi-file skeleton: main + systems
       fs.writeFileSync(csPath, skeleton.main);
       const sysPath = path.join(managerDir, 'GameFlowManagerMain.Systems.cs');
       fs.writeFileSync(sysPath, skeleton.systems);
@@ -365,7 +353,6 @@ function prepareWorkDir(workDir, blueprint, prompt, skeleton, log, taskId) {
         + '5. 两个文件都是 `partial class GameFlowManagerMain`，共享所有字段和方法\n');
       log(`[codex-code] Split skeleton written: main=${skeleton.main.split('\n').length} lines, systems=${skeleton.systems.split('\n').length} lines`, taskId);
     } else {
-      // Single file skeleton (≤10 phases)
       const skeletonStr = typeof skeleton === 'string' ? skeleton : skeleton.main || String(skeleton);
       fs.writeFileSync(csPath, skeletonStr);
       fs.appendFileSync(path.join(workDir, 'prompt.md'),
@@ -376,27 +363,15 @@ function prepareWorkDir(workDir, blueprint, prompt, skeleton, log, taskId) {
     }
   }
 
-  // 4. GFM toolkit files → Commons/ (split from monolithic GFM_Tools.cs)
   var gfmHelper = require('./gfm-files.cjs');
   gfmHelper.copyGfmToProjectDir(workDir);
   gfmHelper.cleanupLegacyGfm(workDir);
 
-  // 5. behavior-templates.md — NOT copied to workDir (P2-新1, 2026-04-15).
-  // filterBehaviorTemplates() in parseBlueprintToPromptV5 already inlines only the
-  // USED behaviors into prompt.md. Leaving an 11KB copy on disk was poisoning
-  // Claude Code's first Read (~3K tokens wasted per codegen session) — the same
-  // pattern as the GFM_Tools.cs workDir copy fix from P1.
-
-  // 5b. promoted rules + phase state machine 已经由 parseBlueprintToPromptV5 内部注入到 prompt.md，
-  //     这里不再 append（避免与 prompt-v5-basetemplate.js 的统一注入点重复）
-
-  // 5c. GFM_Tools_API.md — extended API documentation
   const apiDocSrc = path.join(__dirname, 'GFM_Tools_API.md');
   if (fs.existsSync(apiDocSrc)) {
     fs.copyFileSync(apiDocSrc, path.join(workDir, 'GFM_Tools_API.md'));
   }
 
-  // 6. 创建 build-test.sh — 方便 Claude Code 调用编译验证
   const buildScript = `#!/bin/bash
 # 编译验证脚本：读取 GameFlowManagerMain.cs (+ Systems.cs + Commons/GFM_*.cs) 并调用 Bridge.NET 编译
 CS_FILE="Assets/Program/Script/Manager/GameFlowManagerMain.cs"
@@ -405,7 +380,6 @@ if [ ! -f "$CS_FILE" ]; then
   exit 1
 fi
 
-# 收集 Manager/ 和 Commons/ 下所有额外 .cs 文件
 EXTRA=$(python3 -c "
 import json, os, sys
 extra = {}
@@ -419,7 +393,6 @@ for d in dirs:
 print(json.dumps(extra))
 " 2>/dev/null || echo '{}')
 
-# 构建 JSON payload
 python3 -c "
 import json, sys
 code = open(sys.argv[1]).read()
@@ -432,7 +405,6 @@ print(json.dumps(payload))
 `;
   fs.writeFileSync(path.join(workDir, 'build-test.sh'), buildScript, { mode: 0o755 });
 
-  // 6. .codex/settings.local.json — 预授权所有工具（最高权限）
   const codexSettingsDir = path.join(workDir, CODEX_SETTINGS_DIRNAME);
   fs.mkdirSync(codexSettingsDir, { recursive: true });
   fs.writeFileSync(path.join(codexSettingsDir, 'settings.local.json'), JSON.stringify({
@@ -465,24 +437,19 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
       partialSuccess: false,
     });
   }
-  
+
   return new Promise((resolve, reject) => {
     const args = [
-      '--print',                              // 非交互模式
+      '--print',
       '--model', opts.model || (opts.useGlm ? GLM_MODEL : CLAUDE_MODEL),
       '--output-format', 'text',
-      // Budget: 0 means no limit; only pass flag if > 0
       ...(parseInt(CLAUDE_MAX_BUDGET) > 0 ? ['--max-budget-usd', CLAUDE_MAX_BUDGET] : []),
-      // Note: --no-session-persistence intentionally NOT set so that server-side prompt
-      // cache can hash-match the stable system prompt + tools prefix across fix-loop rounds.
-      // Each round still gets a fresh CLI process; "session" here only affects cache identity.
-      '--effort', opts.effort || 'medium',  // medium effort to avoid 5min API stream timeout during extended thinking
-      '--debug-file', '/tmp/codex-debug-' + (taskId || 'unknown') + '.log',  // debug log for diagnosis
-      '--tools', 'Read,Write,Edit,Bash',  // only essential tools, no Glob/Grep/Agent overhead
-      '--system-prompt-file', path.join(workDir, CODEX_SYSTEM_PROMPT_FILE),  // 直接传入 system prompt
+      '--effort', opts.effort || 'medium',
+      '--debug-file', '/tmp/codex-debug-' + (taskId || 'unknown') + '.log',
+      '--tools', 'Read,Write,Edit,Bash',
+      '--system-prompt-file', path.join(workDir, CODEX_SYSTEM_PROMPT_FILE),
     ];
 
-    // 如果有追加系统提示（如增量修复指令）
     if (opts.appendSystemPrompt) {
       args.push('--append-system-prompt', opts.appendSystemPrompt);
     }
@@ -490,13 +457,6 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
     log(`[codex-code] Spawning: ${CLAUDE_CMD} ${args.join(' ')}`, taskId);
     log(`[codex-code] Prompt length: ${userPrompt.length} chars`, taskId);
 
-    // === Prompt cache hit instrumentation ===
-    // Server-side prompt cache hashes the stable prefix (system prompt + tools + early user message bytes).
-    // Logging sha1 of:
-    //   - CODEX.md file (system prompt) — should be IDENTICAL across all tasks if cache is going to hit
-    //   - userPrompt head 1000 bytes — should be identical across all tasks for the same template/skeleton
-    //   - userPrompt tail 500 bytes — usually task-specific (verifies it varies as expected)
-    // To check cache hit rate: grep '[prompt-cache]' on logs from multiple tasks; head sha1 should match.
     try {
       const codexMdPath = path.join(workDir, CODEX_SYSTEM_PROMPT_FILE);
       let codexMdSha = 'missing';
@@ -515,12 +475,6 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
       log(`[prompt-cache] instrumentation error: ${cacheLogErr.message}`, taskId);
     }
 
-    // Record file mtimes before spawn to detect actual modifications (Bug fix: skeleton pre-write false positive)
-    // Dynamically scan `GameFlowManagerMain*.cs` — covers Systems.cs AND the W1b 5-partial
-    // split (Flow/Input/Resource/UI/Scene). A successful INCREMENTAL_FIX round may touch
-    // any subset of these; a zero-edit round touches none.
-    // 2026-04-15: added Systems.cs tracking (was main-only). 2026-04-20: switched to dynamic
-    // scan so future partial additions (W1c, ...) don't require editing this list.
     const managerDirForMtime = path.join(opts.workDir || workDir, 'Assets', 'Program', 'Script', 'Manager');
     const watchedCsFilesForMtime = [];
     try {
@@ -530,7 +484,6 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
         watchedCsFilesForMtime.push(path.join(managerDirForMtime, f));
       }
     } catch (_e) {}
-    // Fallback: at least watch the main file so detection is never empty.
     if (watchedCsFilesForMtime.length === 0) {
       watchedCsFilesForMtime.push(path.join(managerDirForMtime, 'GameFlowManagerMain.cs'));
     }
@@ -540,7 +493,6 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
         preSpawnMtimes[f] = fs.existsSync(f) ? fs.statSync(f).mtimeMs : 0;
       }
     } catch (_e) {}
-    // Legacy var kept for any external reference — reflects the main file only
     let preSpawnMtimeMs = preSpawnMtimes[watchedCsFilesForMtime[0]] || 0;
     const spawnStartTime = Date.now();
 
@@ -552,7 +504,6 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    // Track child PID for graceful shutdown cleanup (shared via process global)
     if (child.pid) {
       if (!process._activeChildPIDs) process._activeChildPIDs = new Set();
       process._activeChildPIDs.add(child.pid);
@@ -563,7 +514,6 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
 
     child.stdout.on('data', (data) => {
       stdout += data.toString();
-      // 实时日志（每 2000 字符输出一次进度）
       if (stdout.length % 2000 < 100) {
         log(`[codex-code] Output progress: ${stdout.length} chars...`, taskId);
       }
@@ -573,7 +523,6 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
       stderr += data.toString();
     });
 
-    // 超时保护
     const timer = setTimeout(() => {
       log(`[codex-code] ⚠️ Timeout (${CLAUDE_TIMEOUT_MS / 1000}s), killing process`, taskId);
       child.kill('SIGTERM');
@@ -584,9 +533,8 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
       clearTimeout(timer);
       if (child.pid && process._activeChildPIDs) process._activeChildPIDs.delete(child.pid);
       log(`[codex-code] Process exited with code ${code}, stdout ${stdout.length} chars, stderr ${stderr.length} chars`, taskId);
-      
+
       if (stderr && stderr.length > 0) {
-        // 过滤掉 Claude Code 的正常 stderr 输出（进度条等）
         const significantErrors = stderr.split('\n').filter(line => {
           return line && !line.includes('Thinking') && !line.includes('⠋') && !line.includes('⠙');
         }).join('\n');
@@ -595,13 +543,8 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
         }
       }
 
-      // Bug fix: Check elapsed time + stdout length to detect CLI errors (auth failure, connection error)
       const elapsedMs = Date.now() - spawnStartTime;
       if (code !== 0 && elapsedMs < 10000 && stdout.length < 200) {
-        // Scan both streams for quota/auth indicators — if Claude relay rejects
-        // our request, the CLI exits early with the API error dumped to stderr/stdout.
-        // Detected definitive failures get MODEL_FATAL: prefix so error-classifier
-        // routes them to cancel-task instead of burning more retries.
         const streams = (stdout || '') + '\n' + (stderr || '');
         const isModelFatal = isModelFatalStream(streams);
         const baseErr = resolveRunnerErrorBody(stdout, stderr, `CLI error: exit code ${code} in ${elapsedMs}ms`);
@@ -619,11 +562,6 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
         return;
       }
 
-      // 即使超时(143)或非零退出，也检查文件是否已实际修改
-      // Claude Code 可能在被 kill 前已经写好了文件
-      // 2026-04-15 fix: require EITHER main OR Systems partial class to have newer mtime.
-      // A zero-edit round (Claude wasted time on files that get overwritten or wrong targets)
-      // is now detected even with exit code 0 and rejected as ZERO_EDITS.
       let fileActuallyModified = false;
       const modifiedFiles = [];
       try {
@@ -652,9 +590,6 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
 
       const trueOk = code === 0 && fileActuallyModified;
 
-      // Build a non-constant error string when stderr is empty so that fix-loop's
-      // circuit breaker does not see three identical signatures and abort prematurely.
-      // Prefer the actionable auth/quota/model line, then stderr, then stdout.
       const _buildExitError = (exitCode, stdoutStr, stderrStr) => {
         return resolveRunnerErrorBody(stdoutStr, stderrStr, `Exit code ${exitCode}`).slice(0, 500);
       };
@@ -665,7 +600,7 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
         output: stdout,
         error: !trueOk
           ? (code !== 0 && fileActuallyModified
-              ? null  // partial success path below
+              ? null
               : (code === 0 && !fileActuallyModified
                   ? ('ZERO_EDITS: Claude Code exited 0 but did not modify any of the watched partial class files: '
                       + watchedCsFilesForMtime.map(function(f){ return path.basename(f); }).join(', ')
@@ -688,7 +623,6 @@ function runClaudeCode(workDir, userPrompt, log, taskId, opts) {
       });
     });
 
-    // 写入 prompt
     child.stdin.write(userPrompt);
     child.stdin.end();
   });
@@ -834,29 +768,6 @@ function runCodexExecCode(workDir, userPrompt, log, taskId, opts) {
 
 /**
  * runCodexText — 文本模式 CLI spawn
- *
- * 用于 patchRecode / visual-check 等 "给一段输入(+可选附件文件), 拿一段文本输出" 场景。
- * 和 runClaudeCode 的关键区别:
- *   - 不需要 Unity 工程目录; 自己创建 /tmp/codex-text-<taskId>-XXX 临时 workDir
- *   - 不做 mtime 检查; ok 判据只看 exit code === 0 && stdout.length >= minOutputLen
- *   - tools 缩到 Read(最小权限, 视觉也靠 Read 加载图片)
- *   - systemPrompt 写到临时 CODEX.md 作为 --system-prompt-file 传入
- *   - opts.additionalFiles 预写到 workDir, 供 prompt 里指令模型 Read (图片/附件)
- *
- * 设计目的: 让所有本来直连 Claude API 的场景(patchRecode / visual-check)统一走
- * CC CLI relay, 故障特征、MODEL_FATAL 检测、计费归一。
- *
- * @param {object} opts
- * @param {string} opts.systemPrompt - 写入 CODEX.md 的系统提示
- * @param {string} opts.userPrompt - 经 stdin 喂给 CLI 的用户消息
- * @param {object} [opts.additionalFiles] - 可选 {filename: Buffer|string}, 写入 workDir 根
- * @param {string} [opts.model] - 默认 claude-sonnet-4-6
- * @param {string} [opts.effort] - 默认 medium
- * @param {number} [opts.timeoutMs] - 默认 240000 (4min)
- * @param {number} [opts.minOutputLen] - 成功判据最小 stdout 长度, 默认 50
- * @param {function} [opts.log]
- * @param {string} [opts.taskId]
- * @returns {Promise<{ok, text, exitCode, error}>}
  */
 function runCodexText(opts) {
   opts = opts || {};
@@ -875,21 +786,17 @@ function runCodexText(opts) {
       resolve(result);
     };
 
-    // 1. 写 CODEX.md (system prompt)
     try {
       fs.writeFileSync(path.join(tempDir, CODEX_SYSTEM_PROMPT_FILE), opts.systemPrompt || 'You are a helpful assistant.');
     } catch(e) {
       return finish({ ok: false, error: 'Failed to write CODEX.md: ' + e.message });
     }
-    // Codex exec currently cannot take a custom system prompt in headless mode.
-    // Mirror the same content into AGENTS.md for the experimental exec backend.
     try {
       fs.writeFileSync(path.join(tempDir, CODEX_AGENTS_FILE), opts.systemPrompt || 'You are a helpful assistant.');
     } catch(e) {
       return finish({ ok: false, error: 'Failed to write AGENTS.md: ' + e.message });
     }
 
-    // 2. 写附件文件 (图片或任何需要 Read 的 blob)
     if (opts.additionalFiles) {
       try {
         const names = Object.keys(opts.additionalFiles);
@@ -920,15 +827,6 @@ function runCodexText(opts) {
       '--system-prompt-file', path.join(tempDir, CODEX_SYSTEM_PROMPT_FILE),
       '--debug-file', '/tmp/codex-text-' + taskId + '.log',
       ];
-      // [2026-05-03] noTools 之前只跳过 --tools Read,但 ~/.claude/settings.json
-      // 里 11 个工具默认 allow + 44 个 SKILL.md 自动注入 + effortLevel: xhigh →
-      // CC CLI 当 agent 跑 3 turns × 6min = 18min 超时。系统性 hardening:
-      //   --tools ""                                显式禁用所有工具(覆盖 settings.json allow)
-      //   --disable-slash-commands                  关闭所有 skill 触发
-      //   --no-session-persistence                  不写 session 文件
-      //   --exclude-dynamic-system-prompt-sections  剥离 cwd/env 段提升 prompt cache 命中
-      // 注意: 不能用 --bare,它强制 ANTHROPIC_API_KEY 关掉 OAuth → 我们 OAuth login 会失败。
-      // 详见 memory/project_codegen_schema_agent_loop_root_cause.md。
       if (opts.noTools) {
         args.push('--tools', '');
         args.push('--disable-slash-commands');
@@ -942,9 +840,6 @@ function runCodexText(opts) {
       log('[codex-text] systemPrompt=' + (opts.systemPrompt || '').length + 'c userPrompt=' + (opts.userPrompt || '').length + 'c cwd=' + execDir, taskId);
 
       const cleanEnv = resolveClaudeAuthEnv(process.env, log, taskId);
-      // PM2 cluster mode drops proxy vars from process.env despite them being in
-      // /proc/PID/environ. CC CLI needs the proxy to reach api.anthropic.com.
-      // Hard-code fallback — this host requires proxy for outbound HTTPS.
       if (!cleanEnv.HTTPS_PROXY && !cleanEnv.https_proxy) {
         cleanEnv.HTTPS_PROXY = 'http://127.0.0.1:7890';
         cleanEnv.HTTP_PROXY = 'http://127.0.0.1:7890';
@@ -981,7 +876,6 @@ function runCodexText(opts) {
         if (child.pid && process._activeChildPIDs) process._activeChildPIDs.delete(child.pid);
         log('[codex-text] exit=' + code + ' stdout=' + stdout.length + 'c stderr=' + stderr.length + 'c', taskId);
 
-        // MODEL_FATAL 检测 (镜像 runClaudeCode line 413-419 规则)
         const streams = (stdout || '') + '\n' + (stderr || '');
         const isModelFatal = isModelFatalStream(streams);
 
@@ -1042,8 +936,6 @@ function runCodexExecText(execDir, tempDir, opts, log, taskId, finish) {
   log('[codex-text] Spawning experimental exec backend: ' + CODEX_CMD + ' ' + args.join(' '), taskId);
   log('[codex-text] backend=codex-exec systemPrompt=' + (opts.systemPrompt || '').length + 'c userPrompt=' + (opts.userPrompt || '').length + 'c cwd=' + execDir, taskId);
 
-  // Match codex-reviewer behavior: prefer ChatGPT auth / CODEX_HOME and avoid
-  // accidentally forcing API-key mode via unrelated blueprint-editor env vars.
   const { OPENAI_API_KEY, CODEX_API_KEY, OPENAI_BASE_URL, HTTP_PROXY, HTTPS_PROXY, http_proxy, https_proxy, ALL_PROXY, all_proxy, NO_PROXY, no_proxy, ...cleanEnv } = process.env;
   const child = spawn(CODEX_CMD, args, {
     cwd: execDir,
@@ -1294,14 +1186,13 @@ function applyLunaPostFixesToManagerPartials(clientDir, log, taskId) {
 
 /**
  * 主入口：generateWithCodex
- * 
+ *
  * 替代 generateCodeV5 的 callClaudeWithRetry 部分。
  * 保留原有的 V5 prompt 生成逻辑（对象分配表等），但让 Codex worker 自己读文件、写代码、编译验证。
  */
 async function generateWithCodex(blueprint, clientDir, log, taskId, engine) {
   if (engine === 'cocos') {
     log('[codex-code] Cocos not supported, falling back to V4 API', taskId);
-    // Cocos 暂时还用旧方式
     const { generateCodeV4 } = require('./worker-coder.js');
     return generateCodeV4(blueprint, clientDir, log, taskId, engine);
   }
@@ -1309,7 +1200,6 @@ async function generateWithCodex(blueprint, clientDir, log, taskId, engine) {
   const startTime = Date.now();
   const hasFeedback = blueprint.feedbackHistory && blueprint.feedbackHistory.length > 0;
 
-  // === Step 1: 生成 V5 Prompt（复用现有逻辑）===
   let opts = {};
   if (hasFeedback) {
     opts.feedback = blueprint.feedbackHistory;
@@ -1317,7 +1207,6 @@ async function generateWithCodex(blueprint, clientDir, log, taskId, engine) {
     if (fs.existsSync(mainFile)) {
       opts.existingCode = fs.readFileSync(mainFile, 'utf-8');
     }
-    // Also track Systems file for split-mode regression detection
     const sysFile = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.Systems.cs');
     if (fs.existsSync(sysFile)) {
       opts.existingSystemsCode = fs.readFileSync(sysFile, 'utf-8');
@@ -1326,7 +1215,6 @@ async function generateWithCodex(blueprint, clientDir, log, taskId, engine) {
   const prompt = promptV5Module.parseBlueprintToPromptV5(blueprint, opts);
   log(`[codex-code] V5 prompt generated: ${prompt.length} chars, mode=${hasFeedback ? 'INCREMENTAL_FIX' : 'FULL_GENERATION'}`, taskId);
 
-  // === Step 2: Spec + Skeleton（可选）===
   let skeleton = null;
   const storyboardFrames = (blueprint.storyboard && blueprint.storyboard.frames && blueprint.storyboard.frames.length > 0)
     ? blueprint.storyboard.frames
@@ -1334,18 +1222,14 @@ async function generateWithCodex(blueprint, clientDir, log, taskId, engine) {
   if (!hasFeedback && specExtractor && skeletonGenerator && storyboardFrames) {
     try {
       const specsDataDir = process.env.SPECS_DATA_DIR || path.join(__dirname, '..', 'spec-data');
-      // P0 FIX: Use blueprint.specs (from DB, same source as review/conformance) as single source of truth
-      // This prevents phaseId mismatch between skeleton (Path B) and review checks (Path A)
       let specs = (blueprint.specs && blueprint.specs.length > 0) ? blueprint.specs : null;
       if (specs) {
         log(`[codex-code] Using blueprint.specs (DB): ${specs.length} phase specs — single source of truth`, taskId);
       }
-      // Fallback: try cached spec-data
       if (!specs || specs.length === 0) {
         specs = specExtractor.loadSpecs(taskId, specsDataDir);
         if (specs && specs.length > 0) {
           log(`[codex-code] Using cached specs: ${specs.length} phase specs — re-validating entity names`, taskId);
-          // Re-validate cached specs against current blueprint entities
           const cachedEntities = blueprint.entities || [];
           if (cachedEntities.length > 0) {
             const knownNames = new Set(cachedEntities.map(e => e.name).filter(Boolean));
@@ -1363,7 +1247,6 @@ async function generateWithCodex(blueprint, clientDir, log, taskId, engine) {
           }
         }
       }
-      // Last resort: extract fresh (and save to both spec-data and blueprint)
       if (!specs || specs.length === 0) {
         log('[codex-code] Extracting specs from storyboard frames...', taskId);
         specs = await specExtractor.extractSpecs(storyboardFrames, {
@@ -1373,14 +1256,10 @@ async function generateWithCodex(blueprint, clientDir, log, taskId, engine) {
         });
         log(`[codex-code] Extracted ${specs.length} phase specs`, taskId);
         specExtractor.saveSpecs(specs, taskId, specsDataDir);
-        // Write back to blueprint so review/conformance uses the same phaseIds
         blueprint.specs = specs;
       }
 
-      // === Generate skeleton for ALL phases (no longer limiting to first 3) ===
       let activeSpecs = specs;
-
-      // Generate skeleton with entity→pool mapping
       const entityPoolMap = (blueprint.entities && blueprint.entities.length > 0)
         ? promptV5Module.matchPrefabs(blueprint.entities)
         : {};
@@ -1397,18 +1276,13 @@ async function generateWithCodex(blueprint, clientDir, log, taskId, engine) {
     }
   }
 
-  // === Step 3: 准备工作目录 ===
   prepareWorkDir(clientDir, blueprint, prompt, skeleton, log, taskId);
 
-  // === Step 4: 构建用户 Prompt ===
   let userPrompt;
   if (hasFeedback) {
-    // Extract feedback text to inject directly into prompt (don't rely on AI reading prompt.md)
     const feedbackTexts = blueprint.feedbackHistory.map(buildFeedbackText).join('\n---\n');
     const allowedPools = Array.from(new Set(Object.values(promptV5Module.matchPrefabs(blueprint.entities || []))));
 
-    // Dynamically enumerate partial class files on disk so W1b 5-partial (or future W1c)
-    // gets listed in whitelist / Read step / ZERO_EDITS warning without hardcoding names.
     const managerDirForList = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager');
     let partialFilesList = [];
     try {
@@ -1469,9 +1343,6 @@ ${feedbackTexts}
 重要：修改后文件行数不应减少。如果你发现文件变短了，说明你错误地重写了整个文件。
 重要：如果你一轮结束时没有对任何一个 WHITELIST 里的 partial 文件做 Edit，这一轮会被判定为 ZERO_EDITS 失败并强制重试 — 所以确保你的 Edit 目标正确。`;
   } else {
-    // Inline key file contents to minimize Read tool calls — speeds up fresh gen significantly
-    // Note: behavior-templates.md is already injected into prompt.md by parseBlueprintToPromptV5
-    // (filtered to only the behaviors actually used by current entities), so no separate inline read.
     let inlinePromptMd = '';
     let inlineGfmApi = '';
     try {
@@ -1481,7 +1352,6 @@ ${feedbackTexts}
       inlineGfmApi = fs.readFileSync(path.join(clientDir, 'GFM_Tools_API.md'), 'utf-8');
     } catch(e) {}
 
-    // Also inline skeleton contents to avoid Read calls on large skeleton files
     let inlineSkeletonMain = '';
     let inlineSkeletonSystems = '';
     if (skeleton && skeleton.split) {
@@ -1572,7 +1442,6 @@ ${inlinePromptMd}
 代码必须完整（1300-1600 行），不要省略任何部分。`;
   }
 
-  // === Step 5: 运行代码 agent（跨进程信号量，限制并发数）===
   const slot = await acquireLock(taskId, log);
   log('[codex-code] 🚀 Starting Codex code agent...', taskId);
   let result;
@@ -1600,14 +1469,6 @@ ${inlinePromptMd}
   log(`[codex-code] Model: ${codegenModel}`, taskId);
   const codegenOpts = {
     model: codegenModel,
-    // effort: always 'medium' to avoid API stream timeout (5min) during extended thinking
-    // INCREMENTAL FIX MODE rules — kept minimal. The ⛔ FORBIDDEN PATTERNS block
-    // that used to live here was removed 2026-04-14 because it fully duplicated
-    // luna-codex-code.md §L87-98 (autoPlay gates, _autoInteractTimer ≥3f,
-    // safety net ≥50f, ruleTriggered[], VISUAL FREEZE, phaseId preservation).
-    // Sending it twice wasted ~750 bytes per fix round with zero additional signal.
-    // Only the FIX-ONLY rules (Edit-not-Write, no-rewrite, Read-first) stay here
-    // because they'd confuse fresh-gen tasks if moved into CLAUDE.md.
     appendSystemPrompt: hasFeedback
       ? 'INCREMENTAL FIX MODE — CRITICAL RULES:\n'
         + '1. Use the Edit tool (NOT Write) to modify .cs files\n'
@@ -1648,9 +1509,8 @@ ${inlinePromptMd}
     };
   }
 
-  // === Step 6: 验证输出 ===
   const mainFilePath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.cs');
-  
+
   if (!fs.existsSync(mainFilePath)) {
     log('[codex-code] ❌ GameFlowManagerMain.cs not found after Codex code run', taskId);
     return {
@@ -1662,13 +1522,11 @@ ${inlinePromptMd}
   const mainSrc = fs.readFileSync(mainFilePath, 'utf-8');
   const mainLineCount = mainSrc.split('\n').length;
 
-  // Check for Systems partial class file
   const systemsFilePath = path.join(clientDir, 'Assets', 'Program', 'Script', 'Manager', 'GameFlowManagerMain.Systems.cs');
   const hasSystems = fs.existsSync(systemsFilePath);
   const systemsSrc = hasSystems ? fs.readFileSync(systemsFilePath, 'utf-8') : '';
   const systemsLineCount = hasSystems ? systemsSrc.split('\n').length : 0;
 
-  // Combined metrics across all partial class files
   const combinedSrc = mainSrc + '\n' + systemsSrc;
   const lineCount = mainLineCount + systemsLineCount;
   const findCalls = (combinedSrc.match(/GameObject\.Find/g) || []).length;
@@ -1681,10 +1539,8 @@ ${inlinePromptMd}
     log(`[codex-code] ✅ Code generated: ${lineCount} lines, ${findCalls} Find() calls, ${gfmCreateCalls} GFM_Create.Obj() calls`, taskId);
   }
 
-  // === 增量修复回退保护：如果修复后代码变短了超过 30%，恢复原始代码 ===
   if (hasFeedback && opts.existingCode) {
     const origLines = opts.existingCode.split('\n').length;
-    // Compare combined line count (main+systems) against original main file
     if (lineCount < origLines * 0.7) {
       log(`[codex-code] ⚠️ REGRESSION DETECTED: code shrank from ${origLines} to ${lineCount} lines (${Math.round((1 - lineCount/origLines) * 100)}% reduction). Restoring original.`, taskId);
       fs.writeFileSync(mainFilePath, opts.existingCode);
@@ -1703,17 +1559,12 @@ ${inlinePromptMd}
     log('[codex-code] ⚠️ WARNING: No GameEnded() call', taskId);
   }
 
-  // === Stub 检测：空壳代码不允许进入修复循环 ===
-  // Count real unfilled TODOs across all files (not skeleton section markers like TODO_VARIABLES_START/END)
   const realTodoCount = (combinedSrc.match(/\/\/ TODO(?!_\w+(?:START|END))/gi) || []).length;
-  // Check if skeleton was completely unmodified: [SKELETON] markers present AND code didn't grow
   const skeletonLineCount = skeleton
     ? (skeleton.split ? (skeleton.main || '').split('\n').length + (skeleton.systems || '').split('\n').length
        : (typeof skeleton === 'string' ? skeleton.split('\n').length : 0))
     : 0;
   const codeGrowthRatio = skeletonLineCount > 0 ? lineCount / skeletonLineCount : 999;
-  // Skeleton includes IdleGameKit (~400 lines of working code), so growth ratio is less relevant.
-  // Instead check: are TODO sections still unfilled? (realTodoCount > 5 = still a stub)
   const isUnmodifiedSkeleton = /\[SKELETON\]/.test(mainSrc) && codeGrowthRatio < 1.2 && realTodoCount > 5;
   if (lineCount < 100 || (findCalls === 0 && gfmCreateCalls === 0) || isUnmodifiedSkeleton) {
     const stubReason = lineCount < 100
@@ -1722,7 +1573,6 @@ ${inlinePromptMd}
         ? `Skeleton unmodified (${skeletonLineCount}→${lineCount} lines, ${realTodoCount} unfilled TODOs) — codex code runner likely timed out`
         : `0 Find() and 0 GFM_Create.Obj() calls (no objects created)`;
     log(`[codex-code] ❌ STUB CODE DETECTED: ${stubReason}. Rejecting output.`, taskId);
-    // 清空 feedbackHistory 强制下一轮走 FULL_GENERATION
     if (blueprint.feedbackHistory && blueprint.feedbackHistory.length > 0) {
       log('[codex-code] Clearing feedbackHistory to force FULL_GENERATION on next attempt', taskId);
       blueprint.feedbackHistory.length = 0;
@@ -1737,10 +1587,8 @@ ${inlinePromptMd}
     log(`[codex-code] ⚠️ WARNING: Code only grew ${codeGrowthRatio.toFixed(1)}x from skeleton (${skeletonLineCount}→${lineCount}). May be partially filled.`, taskId);
   }
 
-  // Post-fix: 替换所有 partial 文件中的泛型方法（Luna 不支持）
   applyLunaPostFixesToManagerPartials(clientDir, log, taskId);
 
-  // 确保 GFM toolkit 文件是正版 → Commons/
   var gfmHelper2 = require('./gfm-files.cjs');
   gfmHelper2.copyGfmToProjectDir(clientDir);
   gfmHelper2.cleanupLegacyGfm(clientDir);
@@ -1781,7 +1629,6 @@ module.exports = {
     isClaudeDisabled,
   },
 
-  // Legacy export names kept for non-migrated callers.
   generateWithClaudeCode: generateWithCodex,
   runClaudeCodeText: runCodexText,
 };

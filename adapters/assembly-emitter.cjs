@@ -40,6 +40,10 @@ function slotDoneFieldName(fileName, moduleInstance) {
   return '__assemblyDone_' + slotMethodName(fileName, moduleInstance);
 }
 
+function slotDonePhaseFieldName(fileName, moduleInstance) {
+  return slotDoneFieldName(fileName, moduleInstance) + 'Phase';
+}
+
 function prettyJson(value) {
   var json = JSON.stringify(value || {}, null, 2);
   return json === '{}' ? '{}' : json;
@@ -154,6 +158,55 @@ function phaseIdsForModule(plans, fileName, moduleInstance) {
     phaseIds.push(phaseBindings[i].phaseId);
   }
   return uniq(phaseIds);
+}
+
+function phaseCuaStep(plans, phaseId) {
+  var steps = plans && plans.cuaPlan && Array.isArray(plans.cuaPlan.steps)
+    ? plans.cuaPlan.steps
+    : [];
+  for (var i = 0; i < steps.length; i++) {
+    if (String((steps[i] && steps[i].phaseId) || '') === String(phaseId || '')) return steps[i];
+  }
+  return null;
+}
+
+function actionTargetName(action) {
+  if (!action || typeof action !== 'object') return '';
+  return String(action.target || action.to || action.entity || action.object || action.button || '').trim();
+}
+
+function buildCompanionTargetsForPhase(plans, phaseId, entity) {
+  var step = phaseCuaStep(plans, phaseId);
+  var actions = toArray(step && step.actions);
+  if (!actions.length || !isIdentifier(entity)) return [];
+  var hasBuildForEntity = false;
+  var unsafeMultiStep = false;
+  var afterBuild = false;
+  var companions = [];
+  for (var i = 0; i < actions.length; i++) {
+    var action = actions[i] || {};
+    var kind = String(action.kind || action.type || '').toLowerCase();
+    var target = actionTargetName(action);
+    if (/collect|deliver|attack|defeat|damage|sell|recruit/.test(kind)) unsafeMultiStep = true;
+    if ((kind === 'build' || kind === 'upgrade') && resolvePlanEntityName(plans, target) === entity) {
+      hasBuildForEntity = true;
+      afterBuild = true;
+      continue;
+    }
+    if (!afterBuild || kind !== 'move_to') continue;
+    var resolved = resolvePlanEntityName(plans, target);
+    if (!resolved || resolved === entity || !isIdentifier(resolved)) continue;
+    companions.push(resolved);
+  }
+  return hasBuildForEntity && !unsafeMultiStep ? uniq(companions) : [];
+}
+
+function buildCompanionTargetsForBuild(plans, phaseIds, entity) {
+  var out = [];
+  for (var i = 0; i < (phaseIds || []).length; i++) {
+    out = out.concat(buildCompanionTargetsForPhase(plans, phaseIds[i], entity));
+  }
+  return uniq(out);
 }
 
 function buildPhaseGuardLines(phaseIds, indent) {
@@ -850,8 +903,9 @@ function buildDeterministicInventoryWalletLines(moduleInstance, plans) {
     var resource = escapeCsString(resourceKinds[i]);
     lines.push('        {');
     lines.push('            string __inventoryWalletResource = ' + resourceIdExpr(resource) + ';');
-    lines.push('            int __inventoryWalletBefore = GetLastKnownResourceBalance(__inventoryWalletResource);');
+    lines.push('            string __inventoryWalletBalanceKey = __inventoryWalletResource + "_wallet";');
     lines.push('            int __inventoryWalletAfter = GetResource(__inventoryWalletResource);');
+    lines.push('            int __inventoryWalletBefore = HasLastKnownResourceBalance(__inventoryWalletBalanceKey) ? GetLastKnownResourceBalance(__inventoryWalletBalanceKey) : __inventoryWalletAfter;');
     lines.push('            string __inventoryWalletOperation = __inventoryWalletAfter > __inventoryWalletBefore ? "add" : (__inventoryWalletAfter < __inventoryWalletBefore ? "spend" : "noop");');
     lines.push('            bool __inventoryWalletScoreVisible = scoreText != null && scoreText.text.Length > 0;');
     lines.push('            if (__inventoryWalletAfter > __inventoryWalletBefore) RecordPhaseEvidenceFlag(currentPhaseName, "resource_incremented");');
@@ -862,7 +916,7 @@ function buildDeterministicInventoryWalletLines(moduleInstance, plans) {
     lines.push('                string __inventoryWalletFields = "{\\"resource\\":" + JsonString(__inventoryWalletResource) + ",\\"operation\\":" + JsonString(__inventoryWalletOperation) + ",\\"before\\":{\\"balance\\":" + __inventoryWalletBefore + "},\\"after\\":{\\"balance\\":" + __inventoryWalletAfter + "},\\"score_text_visible\\":" + JsonBool(__inventoryWalletScoreVisible) + "}";');
     lines.push('                RecordPhaseEvidenceObject(currentPhaseName, "inventory_wallet", __inventoryWalletFields, "' + sourceSignalIdsJson(['resource_incremented', 'resource_decremented', 'score_text_changed']) + '");');
     lines.push('            }');
-    lines.push('            SetLastKnownResourceBalance(__inventoryWalletResource, __inventoryWalletAfter);');
+    lines.push('            SetLastKnownResourceBalance(__inventoryWalletBalanceKey, __inventoryWalletAfter);');
     lines.push('        }');
   }
   lines.push('        if (scoreText != null && scoreText.text.Length > 0) RecordPhaseEvidenceFlag(currentPhaseName, "score_text_changed");');
@@ -1238,7 +1292,10 @@ function buildDeterministicClickLines(moduleInstance, plans) {
   if (isIdentifier(target)) {
     lines.push('        if (' + target + ' != null)');
     lines.push('        {');
-    lines.push('            // Click ownership is input-scoped; build/state transitions are handled by Flow owner slots.');
+    lines.push('            ' + target + 'Done = true;');
+    lines.push('            ' + target + 'State = Mathf.Max(' + target + 'State, 2);');
+    lines.push('            RecordPhaseEvidenceFlag(currentPhaseName, "entity_state_changed");');
+    lines.push('            RecordPhaseEvidenceFlag(currentPhaseName, "visual_variant_changed");');
     lines.push('        }');
   }
   lines.push('        string __clickFields = "{\\"target\\":" + JsonString("' + escapeCsString(targetName) + '") + ",\\"before\\":{\\"clicked\\":" + JsonBool(__clickBeforeClicked) + "},\\"after\\":{\\"clicked\\":" + JsonBool(__clickAfterClicked) + "},\\"target_consumed\\":" + JsonBool(__clickTargetConsumed) + "}";');
@@ -1343,10 +1400,14 @@ function buildDeterministicMoveLines(moduleInstance, plans) {
   lines.push('        var __assemblyBefore = ' + actor + '.transform.position;');
   if (isPlayerActor) {
     var targetEntries = phaseActionTargetMap(plans, phaseIds, playerNavigationActionKinds());
+    var targetStateNames = uniq(targetEntries.map(function(entry) { return entry.target; }).filter(function(name) {
+      return isIdentifier(name) && planHasEntity(plans, name);
+    }));
+    if (isIdentifier(target) && planHasEntity(plans, target)) targetStateNames = uniq(targetStateNames.concat([target]));
     lines = lines.concat(buildPhaseTargetResolverLines('__moveTarget', '__moveTargetName', targetEntries, target || 'target'));
     lines.push('        var __assemblyNext = __assemblyBefore;');
     lines.push('        // Player movement is owned by player_input_joystick / GFM_Player.');
-    lines.push('        // move_to_target records arrival evidence only; it must not write Player.transform.');
+    lines.push('        // move_to_target records arrival evidence and target state only; it must not write Player.transform.');
     lines.push('        __assemblyNext = ' + actor + '.transform.position;');
   } else if (hasTarget) {
     lines.push('        if (' + target + ' == null) return;');
@@ -1378,8 +1439,35 @@ function buildDeterministicMoveLines(moduleInstance, plans) {
   } else {
     lines.push('        __moveArrived = __moveDistanceTraveled > 0.01f;');
   }
+  if (isPlayerActor && targetStateNames.length > 0) {
+    lines.push('        bool __moveMarkedTargetState = false;');
+    lines.push('        if (__moveArrived && !_autoPlayMode && _manualGameplayUnlocked && __moveTarget != null)');
+    lines.push('        {');
+    lines.push('            switch (__moveTargetName)');
+    lines.push('            {');
+    for (var mts = 0; mts < targetStateNames.length; mts++) {
+      var targetStateName = targetStateNames[mts];
+      lines.push('                case "' + escapeCsString(targetStateName) + '":');
+      lines.push('                    if (' + targetStateName + ' != null)');
+      lines.push('                    {');
+      lines.push('                        ' + targetStateName + 'Done = true;');
+      lines.push('                        ' + targetStateName + 'State = Mathf.Max(' + targetStateName + 'State, 2);');
+      lines.push('                        __moveMarkedTargetState = true;');
+      lines.push('                    }');
+      lines.push('                    break;');
+    }
+    lines.push('            }');
+    lines.push('        }');
+    lines.push('        if (__moveMarkedTargetState)');
+    lines.push('        {');
+    lines.push('            RecordPhaseEvidenceFlag(currentPhaseName, "entity_state_changed");');
+    lines.push('            RecordPhaseEvidenceFlag(currentPhaseName, "visual_variant_changed");');
+    lines.push('            RecordPhaseEvidenceFlag(currentPhaseName, "entity_state_equals_built");');
+    lines.push('            RecordPhaseEvidenceFlag(currentPhaseName, "downstream_entity_visible");');
+    lines.push('        }');
+  }
   lines.push('        string __moveFields = "{\\"target\\":" + JsonString(__moveTargetName) + ",\\"before\\":{\\"position\\":" + SerializeVector3Json(__assemblyBefore) + "},\\"after\\":{\\"position\\":" + SerializeVector3Json(__assemblyNext) + "},\\"distance_traveled\\":" + FormatFloat(__moveDistanceTraveled) + ",\\"arrived\\":" + JsonBool(__moveArrived) + "}";');
-  lines.push('        RecordPhaseEvidenceObject(currentPhaseName, "move_to_target", __moveFields, "' + sourceSignalIdsJson(['entity_position_changed']) + '");');
+  lines.push('        RecordPhaseEvidenceObject(currentPhaseName, "move_to_target", __moveFields, "' + sourceSignalIdsJson(isPlayerActor ? ['entity_position_changed', 'entity_state_changed', 'entity_state_equals_built', 'visual_variant_changed', 'downstream_entity_visible'] : ['entity_position_changed']) + '");');
   return lines;
 }
 
@@ -1429,15 +1517,17 @@ function buildDeterministicBuildLines(moduleInstance, plans) {
   var entity = moduleTarget(moduleInstance);
   if (!isIdentifier(entity)) return [];
   var phaseIds = phaseIdsForModule(plans, 'GameFlowManagerMain.Flow.cs', moduleInstance);
+  var companionTargets = buildCompanionTargetsForBuild(plans, phaseIds, entity);
+  var donePhaseField = slotDonePhaseFieldName('GameFlowManagerMain.Flow.cs', moduleInstance);
   var lines = buildPhaseGuardLines(phaseIds);
+  lines.push('        if (' + donePhaseField + ' == currentPhaseName) return;');
   lines.push('        if (' + entity + ' == null) return;');
   appendCollectedSourceHiddenLines(lines, '__build', plans, phaseIds, entity);
   lines.push('        if (' + entity + '.transform.position.y < -900f && __buildCollectedSourceHidden) return;');
   lines.push('        int __buildProgressBefore = ' + entity + 'State;');
-  lines.push('        if (' + entity + 'State >= 2 && !HasPhaseEvidenceRecord(currentPhaseName, "build_progress")) __buildProgressBefore = 0;');
-  lines.push('        if (' + entity + 'State >= 2 && HasPhaseEvidenceRecord(currentPhaseName, "build_progress")) return;');
+  lines.push('        if (' + entity + 'State >= 2) __buildProgressBefore = 0;');
   lines.push('        if (' + entity + '.transform.position.y < -900f) PlaceObj(' + entity + ', 0f, 0.5f, 0f);');
-  lines.push('        else if (!HasPhaseEvidenceRecord(currentPhaseName, "build_progress"))');
+  lines.push('        else');
   lines.push('        {');
   lines.push('            var __buildProgressPos = ' + entity + '.transform.position;');
   lines.push('            __buildProgressPos.x += 1.80f;');
@@ -1447,12 +1537,21 @@ function buildDeterministicBuildLines(moduleInstance, plans) {
   lines.push('        }');
   lines.push('        if (' + entity + 'State < 2) ' + entity + 'State = 2;');
   lines.push('        int __buildProgressAfter = ' + entity + 'State;');
+  for (var ci = 0; ci < companionTargets.length; ci++) {
+    var companion = companionTargets[ci];
+    lines.push('        if (' + companion + ' != null)');
+    lines.push('        {');
+    lines.push('            ' + companion + 'Done = true;');
+    lines.push('            ' + companion + 'State = Mathf.Max(' + companion + 'State, 2);');
+    lines.push('        }');
+  }
   lines.push(recordFlag('entity_state_changed'));
   lines.push(recordFlag('entity_state_equals_built'));
   lines.push(recordFlag('visual_variant_changed'));
   lines.push(recordFlag('downstream_entity_visible'));
   lines.push('        string __buildProgressFields = "{\\"target\\":" + JsonString("' + escapeCsString(entity) + '") + ",\\"before\\":{\\"buildState\\":" + __buildProgressBefore + "},\\"after\\":{\\"buildState\\":" + __buildProgressAfter + "},\\"buildTimer\\":" + FormatFloat(phaseRealTimer) + "}";');
   lines.push('        RecordPhaseEvidenceObject(currentPhaseName, "build_progress", __buildProgressFields, "' + sourceSignalIdsJson(['entity_state_changed', 'entity_state_equals_built', 'visual_variant_changed']) + '");');
+  lines.push('        ' + donePhaseField + ' = currentPhaseName;');
   return lines;
 }
 
@@ -1927,6 +2026,10 @@ function buildSlotMethod(fileName, moduleInstance, plans) {
   if (moduleInstance.moduleId === 'cost_gate') {
     lines.push('    // Per-slot spend guard so each cost gate only consumes resources once.');
     lines.push('    bool ' + slotDoneFieldName(fileName, moduleInstance) + ' = false;');
+    lines.push('');
+  } else if (moduleInstance.moduleId === 'build_progress') {
+    lines.push('    // Per-slot build guard so multi-target phases can advance each target once.');
+    lines.push('    string ' + slotDonePhaseFieldName(fileName, moduleInstance) + ' = "";');
     lines.push('');
   }
   lines.push('    // [ASSEMBLY SLOT] ' + moduleInstance.id);

@@ -282,6 +282,7 @@ function buildAcceptancePlan(options) {
   var snapshotSchemaPath = path.join(outDir, 'snapshot-schema.json');
   var playableSceneIrPath = path.join(outDir, 'playable-scene-ir.json');
   var preflightReportPath = path.join(outDir, 'storyboard2html-preflight.json');
+  var sourceSceneIrPreflightReportPath = path.join(outDir, 'source-ir-report.json');
   var verifyReportPath = path.join(smokeOutDir, 'unity-verify-report.json');
   var verifySummaryPath = path.join(smokeOutDir, 'unity-verify-summary.json');
   var flowManifestPath = path.join(outDir, 'playable-flow-manifest.json');
@@ -311,20 +312,30 @@ function buildAcceptancePlan(options) {
     '--html',
     htmlPath,
   ];
+  var sourceIrPreflightCommand = [
+    process.execPath,
+    path.join(__dirname, '..', 'scripts', 'source-scene-ir-preflight.cjs'),
+    htmlPath,
+    sourceSceneIrPreflightReportPath,
+  ];
   return {
     demo2specSkillRoot: skillRoot,
     verifyRunner: verifyRunner,
     command: args,
+    sourceIrPreflightCommand: sourceIrPreflightCommand,
     hardgateCommand: hardgateCommand,
     artifacts: {
       snapshotSchema: snapshotSchemaPath,
       playableSceneIr: playableSceneIrPath,
       preflightReport: preflightReportPath,
+      sourceSceneIrPreflightReport: sourceSceneIrPreflightReportPath,
       verifyReport: verifyReportPath,
       verifySummary: verifySummaryPath,
       flowManifest: flowManifestPath,
     },
     hardGates: [
+      'source-scene-ir preflight report exists',
+      'source-scene-ir hash chain is fresh and aligned',
       'snapshot-schema validates',
       'verify summary runner === production',
       'runtimeContractSummary.contractPassed === true',

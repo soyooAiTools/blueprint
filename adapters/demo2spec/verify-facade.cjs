@@ -11,6 +11,12 @@ const DEFAULT_CUA_ROOT = '/root/cua-agent';
 const DEFAULT_VERIFY_SCRIPT = path.join(DEFAULT_CUA_ROOT, 'blueprint_verify.py');
 const DEFAULT_RUNS_DIR = path.join(DEFAULT_CUA_ROOT, 'runs');
 const VERIFY_RUNNERS = { direct: true, production: true };
+const DIRECT_VERIFY_QUERY_FLAGS = [
+  ['sourceOverlay', 'sourceOverlay=0'],
+  ['sourceRuntime', 'sourceRuntime=0'],
+  ['sourceVisual', 'sourceVisual=0'],
+  ['demo2specSource', 'demo2specSource=0'],
+];
 
 function resolveVerifyArtifactPaths(outDir) {
   const root = path.resolve(outDir);
@@ -43,8 +49,17 @@ function buildObserveVerifyArgs(options) {
 function withAutoplayQuery(url) {
   const text = String(url || '');
   if (!text) return text;
-  if (/[?&]autoplay=/.test(text)) return text;
-  return text + (text.indexOf('?') >= 0 ? '&' : '?') + 'autoplay=1';
+  let out = text;
+  function append(pair) {
+    out += (out.indexOf('?') >= 0 ? '&' : '?') + pair;
+  }
+  if (!/[?&]autoplay=/.test(out)) append('autoplay=1');
+  for (const flag of DIRECT_VERIFY_QUERY_FLAGS) {
+    const key = flag[0];
+    const pair = flag[1];
+    if (!new RegExp('[?&]' + key + '=').test(out)) append(pair);
+  }
+  return out;
 }
 
 function latestVerifyReport(sinceMs, runsDir) {

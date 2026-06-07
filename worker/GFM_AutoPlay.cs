@@ -50,17 +50,21 @@ public class GFM_AutoPlay : MonoBehaviour
     //   _detectRealTime: 检测到标志的 wall-clock 时间戳
     //   _steps: 已完成的自动交互步数 (CheckEventRules 读它做 phase gate)
     //   _observerReady: CUA observer 是否已明确发出“开始观察”信号
+    //   _autoPlayRequested: URL 已明确要求 autoplay=1；即使标志实体漏检也不能退回交互模式
     // ========================================================================
     private bool _isActive = false;
     private bool _checked = false;
     private float _detectRealTime = -1f;
     private int _steps = 0;
     private bool _observerReady = false;
+    private bool _requestChecked = false;
+    private bool _autoPlayRequested = false;
 
     public bool IsActive { get { return _isActive; } }
     public int Steps { get { return _steps; } }
     public float DetectRealTime { get { return _detectRealTime; } }
     public bool Checked { get { return _checked; } }
+    public bool AutoPlayRequested { get { return _autoPlayRequested; } }
 
     // 【Warmup 完成信号】skeleton 的 phase 0 入口用它做门,防止第 1 帧 fire
     // 导致 CUA PRE-CONTAMINATION。
@@ -73,6 +77,7 @@ public class GFM_AutoPlay : MonoBehaviour
         get
         {
             if (!_checked) return false;
+            if (_autoPlayRequested && !_isActive) return false;
             if (_detectRealTime < 0f) return true;
             return _isActive;
         }
@@ -132,7 +137,9 @@ public class GFM_AutoPlay : MonoBehaviour
 
     // ========================================================================
     // 【激活检测】— 与 skeleton 契约绑死
-    // Stage 1: 每帧 Find "__AUTOPLAY_ON__"；realtime 5s 后未找到 → 放弃探测 (interactive 模式)
+    // Stage 1: 每帧 Find "__AUTOPLAY_ON__"，同时读取 WebGL URL 的 autoplay=1。
+    //          URL 请求优先级高：只要明确请求 autoplay，就不能在 5s 后退回 interactive。
+    //          realtime 5s 后仍未找到请求 → 放弃探测 (interactive 模式)
     //          注意用 Time.realtimeSinceStartup 不能用 gameTimer: CUA 2x/5x speed patch
     //          会让 gameTimer>3f 在 real t≈1.5s 就触发,此时 PlayCanvas 还没建好
     //          __AUTOPLAY_ON__ 实体 → 误判为 interactive → WarmupReady 立即放行 →
@@ -144,10 +151,12 @@ public class GFM_AutoPlay : MonoBehaviour
     // ========================================================================
     public void CheckActivation(float gameTimer)
     {
+        DetectAutoPlayRequestFromUrl();
+
         // Stage 1：标志探测 (real time, 不受 speed patch 影响)
         if (!_isActive && !_checked)
         {
-            if (GameObject.Find("__AUTOPLAY_ON__") != null)
+            if (_autoPlayRequested || GameObject.Find("__AUTOPLAY_ON__") != null)
             {
                 _detectRealTime = Time.realtimeSinceStartup;
                 _checked = true;
@@ -158,7 +167,7 @@ public class GFM_AutoPlay : MonoBehaviour
         // Stage 1b: late-detect — 给 PlayCanvas 慢 init 留余量 (real 5-15s 仍探测)
         if (!_isActive && _checked && _detectRealTime < 0f && Time.realtimeSinceStartup < 15.0f)
         {
-            if (GameObject.Find("__AUTOPLAY_ON__") != null)
+            if (_autoPlayRequested || GameObject.Find("__AUTOPLAY_ON__") != null)
             {
                 _detectRealTime = Time.realtimeSinceStartup;
             }
@@ -174,6 +183,25 @@ public class GFM_AutoPlay : MonoBehaviour
         {
             _isActive = true;
         }
+    }
+
+    private void DetectAutoPlayRequestFromUrl()
+    {
+        if (_requestChecked) return;
+        string url = Application.absoluteURL;
+        if (string.IsNullOrEmpty(url)) return;
+        _requestChecked = true;
+        _autoPlayRequested = UrlHasQueryFlag(url, "autoplay=1")
+            || UrlHasQueryFlag(url, "cuaAutoplay=1")
+            || UrlHasQueryFlag(url, "cuaAutoPlay=1");
+    }
+
+    private bool UrlHasQueryFlag(string url, string flag)
+    {
+        if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(flag)) return false;
+        return url.IndexOf("?" + flag) >= 0
+            || url.IndexOf("&" + flag) >= 0
+            || url.IndexOf("#" + flag) >= 0;
     }
 
     // ========================================================================

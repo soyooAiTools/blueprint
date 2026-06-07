@@ -120,6 +120,9 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
   function sourceAutoplayRuntimeActive() {
     return sourceRuntimeEnabled && autoplayRequested() && sourceAutoplayObserverReady() && !overlayRuntime.manualInteraction;
   }
+  function sourceVisualDiffRunning() {
+    return !!window.__BLUEPRINT_VISUAL_DIFF_RUNNING__;
+  }
   function originalState() {
     try {
       if (originalGameState !== null) return typeof originalGameState === 'function' ? originalGameState() : originalGameState;
@@ -174,6 +177,10 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     var c = manifest.sourceEntityContract || {};
     return !!(c.worldLabelContract && c.worldLabelContract.present);
   }
+  function sourceDomWorldLabelsEnabled() {
+    var c = manifest.sourceEntityContract || {};
+    return !!(c.worldLabelContract && c.worldLabelContract.source === 'source-html-dom-world-labels');
+  }
   function hexToNumber(hex, fallback) {
     var text = String(hex || fallback || '#ffffff').replace('#', '');
     return /^[0-9a-f]{6}$/i.test(text) ? parseInt(text, 16) : parseInt(String(fallback || '#ffffff').replace('#', ''), 16);
@@ -194,6 +201,11 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       finite(values[2], fallback[2] || 0)
     ];
   }
+  function rotationVector(values, fallback) {
+    var out = vector(values, fallback || [0, 0, 0]);
+    var looksLikeDegrees = Math.max(Math.abs(out[0]), Math.abs(out[1]), Math.abs(out[2])) > Math.PI * 2;
+    return looksLikeDegrees ? out.map(function(value) { return value * Math.PI / 180; }) : out;
+  }
   function sourceCameraContract() {
     var sceneContract = manifest.sourceSceneContract || {};
     return sceneContract.camera || {};
@@ -202,10 +214,35 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     var camera = sourceCameraContract();
     return !!(camera && camera.present && Array.isArray(camera.position) && Array.isArray(camera.lookAt));
   }
-  function applySourceCameraFrame(camera, contract) {
+  function applySourceCameraFrame(camera, contract, playerPos) {
     if (!camera || !contract) return false;
     var pos = vector(contract.position, null);
     var target = vector(contract.lookAt, null);
+    var follow = contract.dynamicPlayerFollow || null;
+    if (follow && playerPos && (follow.positionAbsolute || Number(follow.smoothing) >= 0.05)) {
+      var pf = follow.positionFactor || {};
+      var po = follow.positionOffset || {};
+      var lf = follow.lookAtFactor || {};
+      var positionY = follow.positionY == null ? NaN : Number(follow.positionY);
+      var lookAtY = follow.lookAtY == null ? NaN : Number(follow.lookAtY);
+      if (!isFinite(positionY)) positionY = pos[1];
+      if (!isFinite(lookAtY)) lookAtY = target[1];
+      var followX = Number(playerPos.x || 0) * (isFinite(Number(pf.x)) ? Number(pf.x) : 0) + (isFinite(Number(po.x)) ? Number(po.x) : 0);
+      var followZ = Number(playerPos.z || 0) * (isFinite(Number(pf.z)) ? Number(pf.z) : 0) + (isFinite(Number(po.z)) ? Number(po.z) : 0);
+      camera.position.set(
+        follow.positionAbsolute ? followX : pos[0] + followX,
+        positionY,
+        follow.positionAbsolute ? followZ : pos[2] + followZ
+      );
+      var hasLookAtFactor = isFinite(Number(lf.x)) || isFinite(Number(lf.z));
+      var useDynamicLookAt = hasLookAtFactor && contract.dynamicLookAtPlayer !== false;
+      camera.lookAt(new THREE.Vector3(
+        useDynamicLookAt ? Number(playerPos.x || 0) * (isFinite(Number(lf.x)) ? Number(lf.x) : 0) : target[0],
+        useDynamicLookAt ? lookAtY : target[1],
+        useDynamicLookAt ? Number(playerPos.z || 0) * (isFinite(Number(lf.z)) ? Number(lf.z) : 0) : target[2]
+      ));
+      return true;
+    }
     camera.position.set(pos[0], pos[1], pos[2]);
     camera.lookAt(new THREE.Vector3(target[0], target[1], target[2]));
     return true;
@@ -230,11 +267,44 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     return phases.filter(function(phase) { return phase && phase.id === phaseText; })[0] || phases[index] || null;
   }
   function phaseVisibleSet(info) {
-    var names = info && Array.isArray(info.showEntities) ? info.showEntities : [];
+    var phases = manifest.sourcePhaseContract && manifest.sourcePhaseContract.phases || [];
+    var phaseIndex = Math.max(0, Math.min(phases.length - 1, Number(overlayRuntime.phaseIndex) || 0));
+    var phaseList = [info];
+    var hasRuntimeVisibleEntities = !!(info && Array.isArray(info.runtimeVisibleEntities) && info.runtimeVisibleEntities.length);
+    if (isTerminalSourcePhaseIndex(phaseIndex) && phases.length > 1) {
+      var baselineEntities = phases[0] && (phases[0].runtimeVisibleEntities || phases[0].showEntities) || [];
+      var baselineCoverageEntities = baselineEntities.filter(function(name) {
+        return !/guide|ui|hint|target/i.test(String(name || ''));
+      });
+      var currentRuntimeEntities = info && info.runtimeVisibleEntities || [];
+      var coveredBaselineEntities = baselineCoverageEntities.filter(function(name) { return currentRuntimeEntities.indexOf(name) >= 0; }).length;
+      var needsBaselinePhase = hasRuntimeVisibleEntities && coveredBaselineEntities < Math.min(2, baselineCoverageEntities.length || 0);
+      phaseList = hasRuntimeVisibleEntities
+        ? (needsBaselinePhase ? terminalRetainedPhaseList(phases, phaseIndex) : [phases[phaseIndex]])
+        : terminalRetainedPhaseList(phases, phaseIndex);
+    }
+    var names = [];
+    phaseList.forEach(function(phase) {
+      var visibleEntities = phase && Array.isArray(phase.runtimeVisibleEntities) && phase.runtimeVisibleEntities.length
+        ? phase.runtimeVisibleEntities
+        : phase && phase.showEntities;
+      if (Array.isArray(visibleEntities)) {
+        visibleEntities.forEach(function(name) { if (name && names.indexOf(name) < 0) names.push(name); });
+      }
+    });
     if (!names.length) return null;
     var out = {};
     names.forEach(function(name) { if (name) out[name] = true; });
     return out;
+  }
+  function terminalRetainedPhaseList(phases, phaseIndex) {
+    return [
+      phases[0],
+      phases[Math.max(0, phaseIndex - 3)],
+      phases[Math.max(0, phaseIndex - 2)],
+      phases[Math.max(0, phaseIndex - 1)],
+      phases[phaseIndex]
+    ];
   }
   function resourceValue(resources, name) {
     if (!resources || !name) return 0;
@@ -307,6 +377,9 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     var phases = manifest.sourcePhaseContract && manifest.sourcePhaseContract.phases || [];
     return phases[Math.max(0, Math.min(phases.length - 1, Number(index) || 0))] || phases[0] || null;
   }
+  function isTerminalSourcePhaseIndex(index) {
+    return Number(index) >= Math.max(0, sourcePhaseCount() - 1);
+  }
   function sourcePhaseCount() {
     var phases = manifest.sourcePhaseContract && manifest.sourcePhaseContract.phases || [];
     var count = Number(manifest.sourcePhaseContract && manifest.sourcePhaseContract.phaseCount || phases.length || 0);
@@ -319,6 +392,41 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     var contract = sourceDomHudContract();
     return !!(contract && contract.present);
   }
+  function sourceDomCtaPresent() {
+    var contract = sourceDomHudContract();
+    var ids = contract && contract.ids || {};
+    return !!(ids.ctaDom || ids.victory);
+  }
+  function sourceDomHudUsesResourceBar() {
+    var contract = sourceDomHudContract();
+    var ids = contract && contract.ids || {};
+    return !!(ids.resources || ids.matText);
+  }
+  function sourceDomHudUsesMeterPills() {
+    var contract = sourceDomHudContract();
+    var ids = contract && contract.ids || {};
+    return !sourceDomHudUsesTopbarStats() && !!(ids.meters || ids.logo || ids.phaseBadge === 'phaseText' || ids.oxygenText || ids.iceText);
+  }
+  function sourceDomHudUsesCompactPills() {
+    var contract = sourceDomHudContract();
+    var ids = contract && contract.ids || {};
+    return !sourceDomHudUsesTopbarStats() && !!(ids.goldBox || (ids.phaseBadge && (ids.goldText || ids.goldCount || ids.goldIcon)));
+  }
+  function sourceDomHudUsesTopbarStats() {
+    var contract = sourceDomHudContract();
+    var ids = contract && contract.ids || {};
+    return !!(ids.hud === 'topbar' || ids.meters === 'leftStats' || ids.goldBox === 'goldPanel');
+  }
+  function sourceDomHudHasProgressBar() {
+    var contract = sourceDomHudContract();
+    var ids = contract && contract.ids || {};
+    return !!(ids.progressWrap || ids.progressBar);
+  }
+  function sourceDomHudHasIdleJoystick() {
+    var contract = sourceDomHudContract();
+    var ids = contract && contract.ids || {};
+    return !!(ids.joystick || ids.stickThumb);
+  }
   function sourceDomHudInitial(key, fallback) {
     var contract = sourceDomHudContract();
     var initial = contract && contract.initialText || {};
@@ -330,12 +438,29 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     var n = Number(String(raw == null ? '' : raw).replace(/[^0-9.-]/g, ''));
     return isFinite(n) ? n : (Number(fallback) || 0);
   }
+  function sourceCounterText(key, value) {
+    var initial = sourceDomHudInitial(key, '0');
+    var match = String(initial || '').match(/\\/\\s*([0-9]+)/);
+    var n = Math.max(0, Math.round(Number(value) || 0));
+    return String(n) + (match ? '/' + match[1] : '');
+  }
   function cleanCssDeclarationBlock(value) {
-    return String(value || '')
-      .replace(/[{}<>]/g, ' ')
-      .replace(/url\s*\([^)]*\)/gi, '')
-      .replace(/\s+/g, ' ')
-      .trim();
+    var text = String(value || '');
+    var out = '';
+    var lastSpace = false;
+    for (var i = 0; i < text.length; i++) {
+      var ch = text.charAt(i);
+      var code = ch.charCodeAt(0);
+      var space = code <= 32 || ch === '{' || ch === '}' || ch === '<' || ch === '>';
+      if (space) {
+        if (!lastSpace) out += ' ';
+        lastSpace = true;
+      } else {
+        out += ch;
+        lastSpace = false;
+      }
+    }
+    return out.trim();
   }
   function escapeHtmlText(value) {
     return String(value == null ? '' : value)
@@ -351,21 +476,129 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     if (!clean && !extra) return '';
     return selector + '{' + clean + (clean && extra ? ';' : '') + extra + '}';
   }
+  function cleanCssAtRules(value) {
+    return String(value || '')
+      .replace(/<\\/?style[^>]*>/gi, ' ')
+      .replace(/<\\/?script[^>]*>/gi, ' ')
+      .trim();
+  }
   function bridgeOverlayHiddenCss() {
     return '#bp-storyboard-hud,#bp-storyboard-target,#bp-storyboard-scene-tone{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important}';
   }
   function sourceDomHudCssRules() {
     if (!sourceDomHudPresent()) return '';
     var css = sourceDomHudContract().css || {};
+    var initial = sourceDomHudContract().initialText || {};
+    var sourceCtaHasTitle = !!(css.victoryTitle || initial.victory);
+    var sourceCtaHasSubtitle = !!(css.ctaSubtitle || initial.ctaSubtitle);
+    var ctaOverlayCss = String(css.victory || '');
+    var ctaBoxCss = String(css.victoryBox || '');
+    var ctaButtonCss = String(css.ctaDom || '');
+    var keyframesCss = cleanCssAtRules(css.keyframes);
+    var ctaButtonExtra = (!ctaButtonCss || /\\bdisplay\\s*:\\s*none\\b/i.test(ctaButtonCss) ? 'display:block!important;' : '') +
+      'z-index:2147482414!important;pointer-events:none!important';
+    var hudCss = String(css.hud || '');
+    var tipCss = String(css.tip || css.goalText || '');
+    var targetHintCss = String(css.targetHint || '');
+    var sourceTipExtra = 'z-index:2147482412!important;pointer-events:none!important';
+    if (sourceDomCtaPresent() && !hudCss && !/\\bposition\\s*:\\s*fixed\\b/i.test(tipCss)) {
+      sourceTipExtra = 'position:fixed!important;left:50%!important;bottom:22px!important;top:auto!important;transform:translateX(-50%)!important;' + sourceTipExtra;
+    }
+    if (!/\\bcolor\\s*:/.test(tipCss)) sourceTipExtra += ';color:#fff!important';
+    var sourceCtaWrapperExtra = '';
+    if (sourceDomCtaPresent() && (!ctaOverlayCss || !/\\b(?:inset|left|right|top|bottom)\\s*:/.test(ctaOverlayCss))) {
+      sourceCtaWrapperExtra += ';inset:auto!important;width:auto!important;height:auto!important';
+    }
+    if (sourceDomCtaPresent() && (!ctaOverlayCss || !/\\bbackground(?:-color)?\\s*:/.test(ctaOverlayCss))) {
+      sourceCtaWrapperExtra += ';background:transparent!important';
+    }
+    var sourceCtaBoxExtra = '';
+    if (sourceDomCtaPresent() && ctaBoxCss && !/\\bwidth\\s*:/.test(ctaBoxCss)) {
+      sourceCtaBoxExtra = 'width:auto!important;max-width:calc(100vw - 48px)!important;display:inline-block!important';
+    }
+    var sourceHudExtra = 'z-index:2147482410!important;pointer-events:none!important';
+    var sourceMetersExtra = '';
+    if (sourceDomHudUsesTopbarStats()) {
+      sourceHudExtra += ';flex-wrap:nowrap!important;align-items:flex-start!important';
+      sourceMetersExtra += 'margin-left:auto!important;flex-shrink:0!important';
+    }
     return [
-      sourceCssRule('#demo2spec-source-hud', css.hud, 'z-index:2147482410!important;pointer-events:none!important'),
+      sourceCssRule('#demo2spec-source-hud', css.hud, sourceHudExtra),
+      sourceCssRule('#demo2spec-source-logo', css.logo, ''),
+      sourceCssRule('#demo2spec-source-meters', css.meters, sourceMetersExtra),
+      sourceCssRule('#demo2spec-source-meters .pill', css.resourcePill, ''),
+      sourceCssRule('#demo2spec-source-gold-box', css.goldBox || css.phaseBadge || css.scoreText, ''),
+      sourceCssRule('#demo2spec-source-phase-badge,#demo2spec-source-phase-text', css.phaseBadge, ''),
+      sourceCssRule('#demo2spec-source-resources', css.resources, ''),
+      sourceCssRule('#demo2spec-source-resources .res', css.resourcePill, ''),
+      sourceCssRule('#demo2spec-source-progress-wrap', css.progressWrap, 'z-index:2147482411!important;pointer-events:none!important'),
+      sourceCssRule('#demo2spec-source-progress-bar', css.progressBar, ''),
       sourceCssRule('#demo2spec-source-gold-icon', css.goldIcon || css.coinIcon, ''),
       sourceCssRule('#demo2spec-source-gold-count', css.goldCount || css.scoreText, ''),
-      sourceCssRule('#demo2spec-source-tip', css.tip || css.goalText, ''),
+      sourceCssRule('#demo2spec-source-oxygen-text', css.oxygenText, ''),
+      sourceCssRule('#demo2spec-source-ice-text', css.iceText, ''),
+      sourceCssRule('#demo2spec-source-worker-panel', css.workerPanel, 'z-index:2147482410!important;pointer-events:none!important;color:#fff!important'),
+      sourceCssRule('#demo2spec-source-upgrade-panel', css.upgradePanel, 'z-index:2147482410!important;pointer-events:none!important;color:#fff!important'),
+      sourceCssRule('#demo2spec-source-tip', css.tip || css.goalText, sourceTipExtra),
       sourceCssRule('#demo2spec-source-phase-label', css.phaseLabel, ''),
-      sourceCssRule('#demo2spec-source-target', css.targetHint, 'bottom:auto!important;right:auto!important;width:auto!important;height:auto!important;min-width:0!important;max-width:calc(100vw - 32px)!important;border:0!important;box-shadow:none!important;z-index:2147482411!important;pointer-events:none!important'),
-      sourceCssRule('#demo2spec-source-toast', css.toast, 'z-index:2147482412!important;pointer-events:none!important')
-    ].join('') + '#demo2spec-source-phase-band{display:none!important;visibility:hidden!important}';
+      sourceCssRule('#demo2spec-source-target', css.targetHint, (!/\\bbottom\\s*:/i.test(targetHintCss) ? 'bottom:auto!important;' : '') + 'right:auto!important;width:auto!important;height:auto!important;min-width:0!important;max-width:calc(100vw - 32px)!important;z-index:2147482411!important;pointer-events:none!important' + (!/\\bborder\\s*:/.test(targetHintCss) ? ';border:0!important' : '')),
+      sourceCssRule('#demo2spec-source-toast', css.toast, 'z-index:2147482412!important;pointer-events:none!important'),
+      sourceCssRule('#demo2spec-source-stick', css.joystick, sourceDomHudHasIdleJoystick() ? 'top:auto!important;margin:0!important;z-index:2147482411!important;pointer-events:none!important' : ''),
+      sourceCssRule('#demo2spec-source-stick-knob', css.stickThumb, sourceDomHudHasIdleJoystick() ? 'margin:0!important' : ''),
+      sourceDomHudHasIdleJoystick() ? '#demo2spec-source-stick:before{display:none!important;visibility:hidden!important}' : '',
+      sourceCssRule('#demo2spec-source-cta-overlay.source-dom-cta', css.victory, 'display:none!important;z-index:2147482413!important;pointer-events:none!important;text-align:center!important;font-family:Arial,"Microsoft YaHei",sans-serif!important;color:#fff!important' + sourceCtaWrapperExtra),
+      sourceCssRule('#demo2spec-source-cta-overlay.source-dom-cta.visible', css.victory, 'display:flex!important;z-index:2147482413!important;pointer-events:none!important;text-align:center!important;font-family:Arial,"Microsoft YaHei",sans-serif!important;color:#fff!important' + sourceCtaWrapperExtra),
+      sourceCssRule('#demo2spec-source-cta-overlay.source-dom-cta #demo2spec-source-cta-box', css.victoryBox, sourceCtaBoxExtra),
+      sourceCssRule('#demo2spec-source-cta-overlay.source-dom-cta #demo2spec-source-cta-title', css.victoryTitle, 'max-width:calc(100vw - 48px)!important'),
+      sourceCssRule('#demo2spec-source-cta-overlay.source-dom-cta #demo2spec-source-cta-subtitle', css.ctaSubtitle, ''),
+      sourceCssRule('#demo2spec-source-cta-overlay.source-dom-cta #demo2spec-source-cta-btn', css.ctaDom, ctaButtonExtra)
+    ].join('') +
+      (sourceDomCtaPresent() && !sourceCtaHasTitle ? '#demo2spec-source-cta-title{display:none!important;visibility:hidden!important}' : '') +
+      (sourceDomCtaPresent() && !sourceCtaHasSubtitle ? '#demo2spec-source-cta-subtitle{display:none!important;visibility:hidden!important}' : '') +
+      '#demo2spec-source-phase-band{display:none!important;visibility:hidden!important}' +
+      keyframesCss;
+  }
+  function terminalCtaCopy(info) {
+    var steps = info && info.steps || [];
+    var lastStep = steps.length ? steps[steps.length - 1] : null;
+    var guide = info && info.guideText || '';
+    var title = info && (info.goalText || guide || info.name) || '立即下载，解锁更多舱室玩法！';
+    var unlock = String(guide || '').match(/解锁更多([^，。！!,.]*)玩法/);
+    if (/立即下载/.test(title) && unlock && unlock[1]) {
+      title = '立即下载，解锁更多' + unlock[1] + '玩法！';
+    }
+    var button = lastStep && (lastStep.label || entityTargetLabel(lastStep.target)) || '';
+    if (/^立即下载$/.test(button) && /安装/.test(guide + title)) button = '安装完整游戏';
+    if (!button || !/(下载|安装|体验|完整|开始|Install|Download|Play)/i.test(button)) {
+      button = entityTargetLabel(lastStep && lastStep.target) || '安装完整游戏';
+    }
+    if (sourceDomCtaPresent()) {
+      title = sourceDomHudInitial('victory', title);
+      button = sourceDomHudInitial('ctaDom', button);
+    }
+    return {
+      title: title,
+      button: button,
+      subtitle: sourceDomHudInitial('ctaSubtitle', '')
+    };
+  }
+  function setTerminalCta(info, visible) {
+    var overlay = document.getElementById('demo2spec-source-cta-overlay');
+    if (!overlay) return;
+    var copy = terminalCtaCopy(info);
+    var title = document.getElementById('demo2spec-source-cta-title');
+    var button = document.getElementById('demo2spec-source-cta-btn');
+    var subtitle = document.getElementById('demo2spec-source-cta-subtitle');
+    if (title) title.textContent = copy.title;
+    if (button) button.textContent = copy.button;
+    if (subtitle) subtitle.textContent = copy.subtitle;
+    overlay.className = visible ? (sourceDomCtaPresent() ? 'visible source-dom-cta' : 'visible') : (sourceDomCtaPresent() ? 'source-dom-cta' : '');
+    if (!sourceDomCtaPresent()) {
+      ['demo2spec-source-hud', 'demo2spec-source-target'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.style.display = visible ? 'none' : '';
+      });
+    }
   }
   function phaseIndexFromState(gs) {
     var phaseText = String(gs && (gs.phase || gs.currentPhase) || 'phase1');
@@ -405,6 +638,12 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
   function cssHex(value) {
     var n = Number(value) || 0;
     return '#' + ('000000' + (n >>> 0).toString(16)).slice(-6);
+  }
+  function numericSeriesValue(series, index, fallback) {
+    if (!series) return fallback;
+    var base = finite(series.base, fallback);
+    var step = finite(series.step, 0);
+    return base + step * (Number(index) || 0);
   }
   function runtimeNowMs() {
     return typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
@@ -630,6 +869,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       ship.z += ((player.z + 1.7) - ship.z) * Math.min(1, dt * 1.35);
     }
     if (overlayRuntime.cooldown > 0 || overlayRuntime.gameEnded) return;
+    if (sourceRuntimeEnabled && sourceVisualDiffRunning() && !manualActive && !sourceAutoplayRuntimeActive()) return;
     var info = currentOverlayInfo(gs);
     var step = currentOverlayStep(info);
     var target = step && step.target && overlayRuntime.positions[step.target];
@@ -738,7 +978,16 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     overlayRuntime.gameEnded = false;
     overlayRuntime.completed = phases.slice(0, index).map(function(phase) { return phase && phase.id || ''; }).filter(Boolean);
     var info = phaseByRuntimeIndex(index);
+    var runtimeResources = info && info.runtimeResources || {};
+    Object.keys(runtimeResources).forEach(function(key) {
+      var value = Number(runtimeResources[key]);
+      if (!isFinite(value)) return;
+      overlayRuntime.resources[key] = value;
+      if (key === 'Gold') overlayRuntime.resources.Coin = value;
+      if (key === 'Coin') overlayRuntime.resources.Gold = value;
+    });
     window.__demo2specSourceOverlayState = overlayStateSnapshot(info);
+    setTerminalCta(info, isTerminalSourcePhaseIndex(index));
     installSourceRuntimeGameState();
     return window.__demo2specSourceOverlayState;
   }
@@ -764,6 +1013,10 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
         return result.then(function(value) {
           driveSourceOverlayToPhase(n);
           return value;
+        }).catch(function(error) {
+          var state = driveSourceOverlayToPhase(n);
+          if (state) state.phaseDriverFallback = error && error.message || String(error || 'source-overlay-fallback');
+          return state;
         });
       }
       return result;
@@ -861,26 +1114,24 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
   function makeLabel(text) {
     var canvas = document.createElement('canvas');
     canvas.width = 256;
-    canvas.height = 68;
+    canvas.height = 64;
     var c = canvas.getContext('2d');
-    c.fillStyle = 'rgba(2,8,18,.72)';
-    c.fillRect(10, 10, 236, 48);
-    c.strokeStyle = 'rgba(130,224,255,.45)';
-    c.strokeRect(10, 10, 236, 48);
+    c.fillStyle = 'rgba(8,20,40,.75)';
+    c.fillRect(0, 0, 256, 64);
     c.fillStyle = '#fff';
-    c.font = 'bold 26px Arial';
+    c.font = '28px Arial';
     c.textAlign = 'center';
-    c.fillText(text || '', 128, 43);
+    c.fillText(text || '', 128, 42);
     var tex = new THREE.CanvasTexture(canvas);
     var spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
-    spr.scale.set(3.2, .9, 1);
-    spr.position.y = 3.1;
+    spr.scale.set(2.1, .52, 1);
+    spr.position.y = 2.25;
     return spr;
   }
   function installHud() {
     if (document.getElementById('demo2spec-source-hud')) return;
     var style = document.createElement('style');
-    style.textContent = '#__bp_text_overlay{display:none!important;visibility:hidden!important}#demo2spec-source-3d-overlay{position:fixed;inset:0;z-index:2147482400;pointer-events:auto;display:block;touch-action:none}#demo2spec-source-phase-band{position:fixed;left:0;top:0;bottom:0;width:18px;z-index:2147482408;pointer-events:none;background:#ffe45c;box-shadow:0 0 30px #ffe45c;opacity:.76;transition:background .18s,box-shadow .18s}#demo2spec-source-hud{position:fixed;left:12px;right:12px;top:10px;z-index:2147482410;display:flex;align-items:center;gap:8px;pointer-events:none;font-family:Arial,"Microsoft YaHei",sans-serif;color:#f2fbff}#demo2spec-source-hud .pill,#demo2spec-source-hud .tip,#demo2spec-source-hud .phase{background:rgba(4,13,31,.82);border:1px solid rgba(118,214,255,.35);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.28);font-weight:900;white-space:nowrap}#demo2spec-source-hud .phase{padding:8px 10px;color:#9fe8ff;font-size:13px}#demo2spec-source-hud .pill{padding:8px 10px;font-size:13px}#demo2spec-source-hud .tip{flex:1;min-height:38px;display:flex;align-items:center;justify-content:center;text-align:center;padding:7px 12px;font-size:16px;white-space:normal}#demo2spec-source-target{position:fixed;left:50%;bottom:34px;z-index:2147482411;transform:translateX(-50%);background:rgba(4,13,31,.86);border:1px solid rgba(255,219,80,.5);border-radius:10px;padding:12px 16px;font:900 15px Arial,"Microsoft YaHei",sans-serif;color:#f2fbff;pointer-events:none}#demo2spec-source-toast{position:fixed;left:50%;top:74px;z-index:2147482412;transform:translateX(-50%) translateY(-8px);background:rgba(4,13,31,.88);border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:11px 18px;font:900 16px Arial,"Microsoft YaHei",sans-serif;color:#fff;box-shadow:0 12px 32px rgba(0,0,0,.36);opacity:0;transition:opacity .16s,transform .16s;pointer-events:none}#demo2spec-source-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}#demo2spec-source-stick{position:fixed;left:50%;top:50%;width:134px;height:134px;margin:-67px 0 0 -67px;border-radius:50%;z-index:2147482411;background:radial-gradient(circle,rgba(112,224,255,.3),rgba(26,61,100,.64));border:2px solid rgba(151,232,255,.74);box-shadow:0 10px 36px rgba(0,0,0,.45),inset 0 0 20px rgba(117,226,255,.2);pointer-events:none;opacity:0;transition:opacity .08s}#demo2spec-source-stick.active{opacity:1}#demo2spec-source-stick:before{content:"";position:absolute;left:50%;top:50%;width:64px;height:64px;border-radius:50%;transform:translate(-50%,-50%);border:1px dashed rgba(255,255,255,.4)}#demo2spec-source-stick-knob{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;background:linear-gradient(180deg,#f8fdff,#4bd2ff);border:2px solid rgba(255,255,255,.9);box-shadow:0 5px 18px rgba(0,0,0,.36)}@media(max-width:760px){#demo2spec-source-phase-band{width:14px}#demo2spec-source-hud{flex-wrap:wrap}#demo2spec-source-hud .pill{font-size:12px}#demo2spec-source-hud .tip{order:9;flex-basis:100%}#demo2spec-source-target{left:12px;right:12px;bottom:24px;transform:none;text-align:center;font-size:13px}#demo2spec-source-toast{top:102px;max-width:calc(100vw - 32px);font-size:14px;text-align:center}#demo2spec-source-stick{width:118px;height:118px;margin:-59px 0 0 -59px}}';
+    style.textContent = '#__bp_text_overlay{display:none!important;visibility:hidden!important}#demo2spec-source-3d-overlay{position:fixed;inset:0;z-index:2147482400;pointer-events:auto;display:block;touch-action:none}.demo2spec-source-world-label{position:fixed;z-index:2147482409;transform:translate(-50%,-50%);padding:3px 7px;border-radius:5px;background:rgba(5,16,28,.62);font:700 12px Arial,"Microsoft YaHei",sans-serif;color:#fff;white-space:nowrap;pointer-events:none}#demo2spec-source-phase-band{position:fixed;left:0;top:0;bottom:0;width:18px;z-index:2147482408;pointer-events:none;background:#ffe45c;box-shadow:0 0 30px #ffe45c;opacity:.76;transition:background .18s,box-shadow .18s}#demo2spec-source-hud{position:fixed;left:12px;right:12px;top:10px;z-index:2147482410;display:flex;align-items:center;gap:8px;pointer-events:none;font-family:Arial,"Microsoft YaHei",sans-serif;color:#f2fbff}#demo2spec-source-hud .pill,#demo2spec-source-hud .tip,#demo2spec-source-hud .phase{background:rgba(4,13,31,.82);border:1px solid rgba(118,214,255,.35);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.28);font-weight:900;white-space:nowrap}#demo2spec-source-hud .phase{padding:8px 10px;color:#9fe8ff;font-size:13px}#demo2spec-source-hud .pill{padding:8px 10px;font-size:13px}#demo2spec-source-hud .tip{flex:1;min-height:38px;display:flex;align-items:center;justify-content:center;text-align:center;padding:7px 12px;font-size:16px;white-space:normal}#demo2spec-source-target{position:fixed;left:50%;bottom:34px;z-index:2147482411;transform:translateX(-50%);background:rgba(4,13,31,.86);border:1px solid rgba(255,219,80,.5);border-radius:10px;padding:12px 16px;font:900 15px Arial,"Microsoft YaHei",sans-serif;color:#f2fbff;pointer-events:none}#demo2spec-source-toast{position:fixed;left:50%;top:74px;z-index:2147482412;transform:translateX(-50%) translateY(-8px);background:rgba(4,13,31,.88);border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:11px 18px;font:900 16px Arial,"Microsoft YaHei",sans-serif;color:#fff;box-shadow:0 12px 32px rgba(0,0,0,.36);opacity:0;transition:opacity .16s,transform .16s;pointer-events:none}#demo2spec-source-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}#demo2spec-source-stick{position:fixed;left:50%;top:50%;width:134px;height:134px;margin:-67px 0 0 -67px;border-radius:50%;z-index:2147482411;background:radial-gradient(circle,rgba(112,224,255,.3),rgba(26,61,100,.64));border:2px solid rgba(151,232,255,.74);box-shadow:0 10px 36px rgba(0,0,0,.45),inset 0 0 20px rgba(117,226,255,.2);pointer-events:none;opacity:0;transition:opacity .08s}#demo2spec-source-stick.active{opacity:1}#demo2spec-source-stick:before{content:"";position:absolute;left:50%;top:50%;width:64px;height:64px;border-radius:50%;transform:translate(-50%,-50%);border:1px dashed rgba(255,255,255,.4)}#demo2spec-source-stick-knob{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;background:linear-gradient(180deg,#f8fdff,#4bd2ff);border:2px solid rgba(255,255,255,.9);box-shadow:0 5px 18px rgba(0,0,0,.36)}#demo2spec-source-cta-overlay{position:fixed;inset:0;z-index:2147482413;display:none;place-items:center;background:rgba(0,0,0,.62);pointer-events:none;font-family:Arial,"Microsoft YaHei",sans-serif;color:#fff;text-align:center}#demo2spec-source-cta-overlay.visible{display:grid}#demo2spec-source-cta-box{width:min(520px,86vw);padding:0 12px}#demo2spec-source-cta-title{font-size:34px;font-weight:900;line-height:1.18;text-shadow:0 3px 14px rgba(0,0,0,.62)}#demo2spec-source-cta-btn{display:inline-block;margin-top:24px;padding:16px 34px;border-radius:8px;background:#26d67b;color:#06151d;font-size:22px;font-weight:900;box-shadow:0 10px 28px rgba(38,214,123,.35)}@media(max-width:760px){#demo2spec-source-phase-band{width:14px}#demo2spec-source-hud{flex-wrap:wrap}#demo2spec-source-hud .pill{font-size:12px}#demo2spec-source-hud .tip{order:9;flex-basis:100%}#demo2spec-source-target{left:12px;right:12px;bottom:24px;transform:none;text-align:center;font-size:13px}#demo2spec-source-toast{top:102px;max-width:calc(100vw - 32px);font-size:14px;text-align:center}#demo2spec-source-stick{width:118px;height:118px;margin:-59px 0 0 -59px}#demo2spec-source-cta-title{font-size:28px}#demo2spec-source-cta-btn{font-size:20px;padding:15px 28px}}';
     style.textContent = bridgeOverlayHiddenCss() + style.textContent + sourceDomHudCssRules();
     document.head.appendChild(style);
     if (!sourceDomHudPresent()) {
@@ -890,19 +1141,69 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     }
     var hud = document.createElement('div');
     hud.id = 'demo2spec-source-hud';
+    var sourceHudIds = sourceDomHudContract().ids || {};
+    var inlineSourceTip = !!(
+      sourceDomHudPresent() &&
+      sourceDomHudUsesCompactPills() &&
+      !sourceDomHudUsesTopbarStats() &&
+      !sourceDomHudUsesResourceBar() &&
+      !sourceDomHudUsesMeterPills() &&
+      sourceHudIds.tip
+    );
     if (sourceDomHudPresent()) {
-      hud.innerHTML = '<div id="demo2spec-source-gold-icon" data-k="goldIcon"></div><div id="demo2spec-source-gold-count" data-k="score">' + escapeHtmlText(sourceDomHudInitial('goldCount', sourceDomHudInitial('scoreText', '0'))) + '</div><div id="demo2spec-source-tip" data-k="tip">' + escapeHtmlText(sourceDomHudInitial('tip', sourceDomHudInitial('goalText', ''))) + '</div><div id="demo2spec-source-phase-label" data-k="phase">' + escapeHtmlText(sourceDomHudInitial('phaseLabel', 'Phase 1/' + sourcePhaseCount())) + '</div>';
+      if (sourceDomHudUsesTopbarStats()) {
+        hud.innerHTML = '<div id="demo2spec-source-tip" data-k="tip">' + escapeHtmlText(sourceDomHudInitial('tip', sourceDomHudInitial('goalText', ''))) + '</div><div id="demo2spec-source-meters"><div id="demo2spec-source-gold-box" data-k="goldPanel">' + escapeHtmlText(sourceDomHudInitial('goldBox', '金币 0')) + '</div><div id="demo2spec-source-phase-label" data-k="phase">' + escapeHtmlText(sourceDomHudInitial('phaseLabel', 'Phase 1/' + sourcePhaseCount())) + '</div></div>';
+      } else if (sourceDomHudUsesResourceBar()) {
+        hud.innerHTML = '<div id="demo2spec-source-phase-badge" data-k="phase">' + escapeHtmlText(sourceDomHudInitial('phaseBadge', 'Phase 1/' + sourcePhaseCount())) + '</div><div id="demo2spec-source-resources"><div class="res">金币 <span id="demo2spec-source-gold-text">' + escapeHtmlText(sourceDomHudInitial('goldText', '50')) + '</span></div><div class="res">建材 <span id="demo2spec-source-mat-text">' + escapeHtmlText(sourceDomHudInitial('matText', '50')) + '</span></div></div>';
+      } else if (sourceDomHudUsesMeterPills()) {
+        hud.innerHTML = '<div id="demo2spec-source-logo">' + escapeHtmlText(sourceDomHudInitial('logo', '')) + '</div><div id="demo2spec-source-meters"><div class="pill" id="demo2spec-source-phase-text" data-k="phase">' + escapeHtmlText(sourceDomHudInitial('phaseBadge', 'Phase 1/' + sourcePhaseCount())) + '</div><div class="pill">氧气 <span id="demo2spec-source-oxygen-text" data-k="oxygenText">' + escapeHtmlText(sourceDomHudInitial('oxygenText', '0')) + '</span></div><div class="pill">金币 <span id="demo2spec-source-gold-text" data-k="goldText">' + escapeHtmlText(sourceDomHudInitial('goldText', '0')) + '</span></div><div class="pill">冰块 <span id="demo2spec-source-ice-text" data-k="iceText">' + escapeHtmlText(sourceDomHudInitial('iceText', '0')) + '</span></div></div>';
+      } else if (sourceDomHudUsesCompactPills()) {
+        hud.innerHTML = '<div id="demo2spec-source-gold-box"><span id="demo2spec-source-gold-icon" data-k="goldIcon"></span><span id="demo2spec-source-gold-label">金币</span><span id="demo2spec-source-gold-count" data-k="score">' + escapeHtmlText(sourceDomHudInitial('goldCount', sourceDomHudInitial('goldText', sourceDomHudInitial('scoreText', sourceDomHudInitial('goldBox', '0'))))) + '</span></div>' + (inlineSourceTip ? '<div id="demo2spec-source-tip" data-k="tip">' + escapeHtmlText(sourceDomHudInitial('tip', sourceDomHudInitial('goalText', ''))) + '</div>' : '') + '<div id="demo2spec-source-phase-badge" data-k="phase">' + escapeHtmlText(sourceDomHudInitial('phaseBadge', 'Phase 1/' + sourcePhaseCount())) + '</div>';
+      } else {
+        hud.innerHTML = '<div id="demo2spec-source-gold-icon" data-k="goldIcon"></div><div id="demo2spec-source-gold-count" data-k="score">' + escapeHtmlText(sourceDomHudInitial('goldCount', sourceDomHudInitial('scoreText', '0'))) + '</div><div id="demo2spec-source-tip" data-k="tip">' + escapeHtmlText(sourceDomHudInitial('tip', sourceDomHudInitial('goalText', ''))) + '</div><div id="demo2spec-source-phase-label" data-k="phase">' + escapeHtmlText(sourceDomHudInitial('phaseLabel', 'Phase 1/' + sourcePhaseCount())) + '</div>';
+      }
       hud.setAttribute('data-source-dom-hud', '1');
     } else {
       hud.innerHTML = '<div class="phase" data-k="phase">Phase 1/' + sourcePhaseCount() + '</div><div class="pill" data-k="ice">冰 0</div><div class="pill" data-k="oxygen">氧气 0</div><div class="pill" data-k="scrap">铁块 0</div><div class="pill" data-k="coin">金币 0</div><div class="pill" data-k="tool">镐子</div><div class="tip" data-k="tip"></div>';
     }
     document.body.appendChild(hud);
+    if (sourceDomHudPresent() && (sourceDomHudUsesResourceBar() || sourceDomHudUsesCompactPills() || sourceDomHudUsesMeterPills()) && !inlineSourceTip) {
+      var sourceTip = document.createElement('div');
+      sourceTip.id = 'demo2spec-source-tip';
+      sourceTip.setAttribute('data-k', 'tip');
+      sourceTip.textContent = sourceDomHudInitial('tip', sourceDomHudInitial('goalText', ''));
+      document.body.appendChild(sourceTip);
+    }
+    if (sourceDomHudPresent() && sourceDomHudHasProgressBar()) {
+      var progressWrap = document.createElement('div');
+      progressWrap.id = 'demo2spec-source-progress-wrap';
+      progressWrap.innerHTML = '<div id="demo2spec-source-progress-bar"></div>';
+      document.body.appendChild(progressWrap);
+    }
+    if (sourceDomHudPresent() && sourceDomHudContract().ids && sourceDomHudContract().ids.workerPanel) {
+      var workerPanel = document.createElement('div');
+      workerPanel.id = 'demo2spec-source-worker-panel';
+      workerPanel.textContent = sourceDomHudInitial('workerPanel', '');
+      workerPanel.style.display = 'none';
+      document.body.appendChild(workerPanel);
+    }
+    if (sourceDomHudPresent() && sourceDomHudContract().ids && sourceDomHudContract().ids.upgradePanel) {
+      var upgradePanel = document.createElement('div');
+      upgradePanel.id = 'demo2spec-source-upgrade-panel';
+      upgradePanel.textContent = sourceDomHudInitial('upgradePanel', '');
+      upgradePanel.style.display = 'none';
+      document.body.appendChild(upgradePanel);
+    }
     var target = document.createElement('div');
     target.id = 'demo2spec-source-target';
     document.body.appendChild(target);
     var toast = document.createElement('div');
     toast.id = 'demo2spec-source-toast';
     document.body.appendChild(toast);
+    var cta = document.createElement('div');
+    cta.id = 'demo2spec-source-cta-overlay';
+    cta.innerHTML = '<div id="demo2spec-source-cta-box"><div id="demo2spec-source-cta-title">立即下载，解锁更多舱室玩法！</div><div id="demo2spec-source-cta-btn">安装完整游戏</div><div id="demo2spec-source-cta-subtitle"></div></div>';
+    document.body.appendChild(cta);
     var stick = document.createElement('div');
     stick.id = 'demo2spec-source-stick';
     stick.innerHTML = '<div id="demo2spec-source-stick-knob"></div>';
@@ -968,7 +1269,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     var hud = document.getElementById('demo2spec-source-hud');
     if (!hud) return;
     function set(key, text) {
-      var el = hud.querySelector('[data-k="' + key + '"]');
+      var el = hud.querySelector('[data-k="' + key + '"]') || document.querySelector('[data-k="' + key + '"]');
       if (el) el.textContent = text;
     }
     gs = gs || {};
@@ -976,14 +1277,30 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     var states = gs.entity_states || gs.entityStates || {};
     var phaseText = autoMode ? String(gs.phase || gs.currentPhase || 'phase1') : overlayPhaseText();
     var phaseNum = phaseText.match(/\\d+/);
+    var terminalVisible = phaseText === 'gameEnd' || isTerminalSourcePhaseIndex(autoMode ? phaseIndexFromState(gs) : overlayRuntime.phaseIndex);
+    setTerminalCta(info, terminalVisible);
     if (sourceDomHudPresent()) {
       set('phase', 'Phase ' + (phaseNum ? phaseNum[0] : '1') + '/' + sourcePhaseCount());
-      var baseScore = numericSourceDomHudInitial('goldCount', numericSourceDomHudInitial('scoreText', 0));
+      var baseScore = numericSourceDomHudInitial('goldCount', numericSourceDomHudInitial('goldText', numericSourceDomHudInitial('scoreText', numericSourceDomHudInitial('goldBox', 0))));
       var liveScore = Math.max(resourceValue(res, 'Gold'), resourceValue(res, 'Coin'));
       var score = autoMode ? (liveScore || baseScore) : (baseScore + liveScore);
       set('score', String(Math.max(0, Math.round(score))));
+      set('goldPanel', '金币 ' + String(Math.max(0, Math.round(score))));
+      set('goldText', String(Math.max(0, Math.round(score))));
+      set('oxygenText', sourceCounterText('oxygenText', resourceValue(res, 'Oxygen')));
+      set('iceText', sourceCounterText('iceText', resourceValue(res, 'Ice')));
       var sourceGuide = info && info.guideText || gs.ui_state && gs.ui_state.guideText || gs.uiState && gs.uiState.guideText || gs.variables && gs.variables.guideText || '';
       set('tip', sourceGuide || sourceDomHudInitial('tip', sourceDomHudInitial('goalText', '')));
+      var sourceProgressBar = document.getElementById('demo2spec-source-progress-bar');
+      if (sourceProgressBar) {
+        var sourcePhaseIndex = autoMode ? phaseIndexFromState(gs) : overlayRuntime.phaseIndex;
+        var progressDenom = Math.max(1, sourcePhaseCount() - 1);
+        sourceProgressBar.style.width = Math.max(0, Math.min(100, Math.round(sourcePhaseIndex / progressDenom * 100))) + '%';
+      }
+      var sourceWorkerPanel = document.getElementById('demo2spec-source-worker-panel');
+      if (sourceWorkerPanel) sourceWorkerPanel.style.display = overlayRuntime.phaseIndex >= 6 ? 'block' : 'none';
+      var sourceUpgradePanel = document.getElementById('demo2spec-source-upgrade-panel');
+      if (sourceUpgradePanel) sourceUpgradePanel.style.display = overlayRuntime.phaseIndex === 6 ? 'block' : 'none';
       var sourceTarget = document.getElementById('demo2spec-source-target');
       var sourceTargetName = autoMode ? currentOverlayTargetName(info, res, states) : (step && step.target || '');
       var sourceLabel = entityTargetLabel(sourceTargetName);
@@ -1048,7 +1365,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       sourceCameraPresent() && isFinite(Number(cameraContract.near)) ? Number(cameraContract.near) : .1,
       sourceCameraPresent() && isFinite(Number(cameraContract.far)) ? Number(cameraContract.far) : 500
     );
-    var renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: 'high-performance' });
+    var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
     renderer.setPixelRatio(1);
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.domElement.id = 'demo2spec-source-3d-overlay';
@@ -1066,14 +1383,19 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       scene.add(rim);
     }
     var ground = sceneContract.ground || {};
-    var groundGeometry = String(ground.kind || '').toLowerCase() === 'plane'
+    var groundKind = String(ground.kind || '').toLowerCase();
+    var groundGeometry = groundKind === 'plane'
       ? new THREE.PlaneGeometry(ground.width || ground.radius || 72, ground.height || ground.width || ground.radius || 72)
-      : new THREE.CylinderGeometry(ground.radius || 72, ground.radius || 72, ground.height || .25, 8);
+      : groundKind === 'box'
+        ? new THREE.BoxGeometry(ground.width || ground.radius || 72, ground.thickness || .18, ground.height || ground.width || ground.radius || 72)
+        : new THREE.CylinderGeometry(ground.radius || 72, ground.radius || 72, ground.height || .25, ground.segments || 96);
     var groundMesh = new THREE.Mesh(
       groundGeometry,
       new THREE.MeshStandardMaterial({ color: hexToNumber(ground.color, '#13233a'), roughness: .7, metalness: .05 })
     );
-    if (String(ground.kind || '').toLowerCase() === 'plane') groundMesh.rotation.x = -Math.PI / 2;
+    if (groundKind === 'plane') groundMesh.rotation.x = -Math.PI / 2;
+    else if (Number.isFinite(Number(ground.positionY))) groundMesh.position.y = Number(ground.positionY);
+    else if (groundKind === 'box') groundMesh.position.y = -0.1;
     else groundMesh.rotation.y = Math.PI / 8;
     scene.add(groundMesh);
     if (sceneContract.grid && sceneContract.grid.present) {
@@ -1085,15 +1407,37 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       );
       scene.add(grid);
     }
-    var orbitMat = new THREE.LineBasicMaterial({ color: 0x2f6d9c, transparent: true, opacity: .28 });
     var orbitCount = Math.min(8, Math.max(0, sceneContract.decor && sceneContract.decor.orbitalRings || 0));
-    for (var oi = 0; oi < orbitCount; oi++) {
-      var pts = [];
-      for (var a = 0; a <= 96; a++) {
-        var t = a / 96 * Math.PI * 2;
-        pts.push(new THREE.Vector3(Math.cos(t) * (24 + oi * 13), .04, Math.sin(t) * (8 + oi * 5) + oi * 3));
+    var orbitStyle = sceneContract.decor && sceneContract.decor.orbitalRingStyle || null;
+    if (orbitStyle && orbitStyle.geometry && orbitStyle.geometry.type === 'TorusGeometry') {
+      var ringMaterial = orbitStyle.material || {};
+      var ringMat = new THREE.MeshBasicMaterial({
+        color: hexToNumber(ringMaterial.diffuseColor || ringMaterial.color, '#234c76'),
+        transparent: ringMaterial.transparent === false ? false : true,
+        opacity: finite(ringMaterial.opacity, .5)
+      });
+      var argsBase = orbitStyle.geometry.argsBase || [];
+      var argsStep = orbitStyle.geometry.argsStep || [];
+      var rotation = orbitStyle.rotation || [Math.PI / 2, 0, 0];
+      for (var torusIndex = 0; torusIndex < orbitCount; torusIndex++) {
+        var args = [0, 1, 2, 3].map(function(argIndex) {
+          return finite(argsBase[argIndex], 0) + finite(argsStep[argIndex], 0) * torusIndex;
+        });
+        var ring = new THREE.Mesh(new THREE.TorusGeometry(args[0] || 10, args[1] || .025, args[2] || 8, args[3] || 128), ringMat);
+        ring.rotation.set(finite(rotation[0], 0), finite(rotation[1], 0), finite(rotation[2], 0));
+        ring.position.y = numericSeriesValue(orbitStyle.positionY, torusIndex, .04 + torusIndex * .015);
+        scene.add(ring);
       }
-      scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), orbitMat));
+    } else {
+      var orbitMat = new THREE.LineBasicMaterial({ color: 0x2f6d9c, transparent: true, opacity: .28 });
+      for (var oi = 0; oi < orbitCount; oi++) {
+        var pts = [];
+        for (var a = 0; a <= 96; a++) {
+          var t = a / 96 * Math.PI * 2;
+          pts.push(new THREE.Vector3(Math.cos(t) * (24 + oi * 13), .04, Math.sin(t) * (8 + oi * 5) + oi * 3));
+        }
+        scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), orbitMat));
+      }
     }
     var starCount = Math.min(140, Math.max(0, sceneContract.decor && sceneContract.decor.stars || 0));
     if (starCount > 0) {
@@ -1112,10 +1456,11 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     }
     var targetRing = null;
     var targetDisc = null;
+    var targetRingColor = hexToNumber(guidance.targetRing && guidance.targetRing.material && guidance.targetRing.material.color, '#ffe45c');
     if (!guidance.targetRing || guidance.targetRing !== false) {
       targetRing = new THREE.Mesh(
         new THREE.TorusGeometry(1.5, 0.055, 8, 64),
-        new THREE.MeshBasicMaterial({ color: 0xffe45c })
+        new THREE.MeshBasicMaterial({ color: targetRingColor })
       );
       targetRing.rotation.x = Math.PI / 2;
       scene.add(targetRing);
@@ -1141,6 +1486,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     }
     var groups = {};
     var labels = {};
+    var domLabels = {};
     names.forEach(function(name) {
       var c = composites[name] || {};
       var group = new THREE.Group();
@@ -1150,14 +1496,20 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       (c.primitives || []).forEach(function(part) {
         var mesh = new THREE.Mesh(geometry(part.geometry), material(part.material));
         var pos = vector(part.transform && part.transform.position, [0, 0, 0]);
-        var rot = vector(part.transform && part.transform.rotation, [0, 0, 0]);
+        var rot = rotationVector(part.transform && part.transform.rotation, [0, 0, 0]);
         var scale = vector(part.transform && part.transform.scale, [1, 1, 1]);
         mesh.position.set(pos[0], pos[1], pos[2]);
         mesh.rotation.set(rot[0], rot[1], rot[2]);
         mesh.scale.set(scale[0], scale[1], scale[2]);
         group.add(mesh);
       });
-      if (sourceWorldLabelsEnabled()) {
+      if (sourceDomWorldLabelsEnabled()) {
+        var domLabel = document.createElement('div');
+        domLabel.className = 'demo2spec-source-world-label';
+        domLabel.textContent = c.label || name;
+        document.body.appendChild(domLabel);
+        domLabels[name] = domLabel;
+      } else if (sourceWorldLabelsEnabled()) {
         var label = makeLabel(c.label || name);
         group.add(label);
         labels[name] = label;
@@ -1201,7 +1553,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       var ended = autoMode ? String(gs.phase || gs.currentPhase || '') === 'gameEnd' : overlayRuntime.gameEnded;
       mirrorRuntimePlayerPosition(playerName, player);
       if (sourceCameraPresent()) {
-        applySourceCameraFrame(camera, cameraContract);
+        applySourceCameraFrame(camera, cameraContract, player);
       } else {
         camTarget.set(player.x + (ended ? 36 : 4), 0, player.z + (ended ? 2 : 2));
         var desired = camTarget.clone().add(ended ? new THREE.Vector3(0, 34, 36) : new THREE.Vector3(10, 18, 24));
@@ -1211,6 +1563,20 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       }
       Object.keys(labels).forEach(function(name) {
         if (labels[name] && groups[name] && groups[name].visible) labels[name].lookAt(camera.position);
+      });
+      Object.keys(domLabels).forEach(function(name) {
+        var el = domLabels[name];
+        var group = groups[name];
+        if (!el || !group || !group.visible) {
+          if (el) el.style.display = 'none';
+          return;
+        }
+        var pos = group.position.clone();
+        pos.y += 1.85;
+        pos.project(camera);
+        el.style.display = 'block';
+        el.style.left = ((pos.x * 0.5 + 0.5) * window.innerWidth).toFixed(1) + 'px';
+        el.style.top = ((-pos.y * 0.5 + 0.5) * window.innerHeight).toFixed(1) + 'px';
       });
       var targetName = autoMode ? currentOverlayTargetName(info, gs.resources || gs.inventory || {}, states) : (step && step.target || '');
       var phasePalette = [0xffe45c, 0x54d6ff, 0xff884d, 0x8dff72];
@@ -1224,7 +1590,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       if (targetRing) {
         if (targetName && groups[targetName] && groups[targetName].visible) {
           targetRing.visible = true;
-          targetRing.material.color.setHex(phaseColor);
+          targetRing.material.color.setHex(targetRingColor);
           targetRing.position.copy(groups[targetName].position);
           targetRing.position.y = 0.08;
           targetRing.scale.setScalar(1 + Math.sin(now / 180) * 0.08);
@@ -1241,9 +1607,16 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
         }
       }
       if (trailLine) {
-        var trailTargetName = targetName && groups[targetName] ? targetName : (groups.SpaceShip ? 'SpaceShip' : '');
+        var contractedTrailTargetName = guidance.trailLine && guidance.trailLine.to || '';
+        var trailTargetName = contractedTrailTargetName && groups[contractedTrailTargetName]
+          ? contractedTrailTargetName
+          : (targetName && groups[targetName] ? targetName : (groups.SpaceShip ? 'SpaceShip' : ''));
+        var trailFromYOffset = Number(guidance.trailLine && guidance.trailLine.fromYOffset);
+        var trailToYOffset = Number(guidance.trailLine && guidance.trailLine.toYOffset);
+        if (!isFinite(trailFromYOffset)) trailFromYOffset = 1;
+        if (!isFinite(trailToYOffset)) trailToYOffset = 1;
         trailLine.visible = !!(groups[playerName] && trailTargetName && groups[trailTargetName] && groups[playerName].visible && groups[trailTargetName].visible);
-        if (trailLine.visible) updateLineGeometry(trailLine, groups[playerName].position, 1, groups[trailTargetName].position, 1);
+        if (trailLine.visible) updateLineGeometry(trailLine, groups[playerName].position, trailFromYOffset, groups[trailTargetName].position, trailToYOffset);
       }
       if (laserLine) {
         if (autoMode && step && step.damage && groups[playerName] && targetName && groups[targetName]) {

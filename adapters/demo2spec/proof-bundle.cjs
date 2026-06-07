@@ -460,6 +460,7 @@ function buildProofBundle(input) {
   input = input || {};
   const gameSchema = input.gameSchema || input.blueprint && input.blueprint.gameSchema || {};
   const assetManifest = input.assetManifest || input.blueprint && input.blueprint.visualAssets || null;
+  const visualRuntimeContract = assetManifest && assetManifest.visualRuntimeContract || null;
   const plans = input.plans || input.blueprint && input.blueprint.plans || {};
   const specs = safeArray(input.specs || input.blueprint && input.blueprint.specs);
   const sources = sourcePhases(assetManifest, gameSchema);
@@ -482,6 +483,12 @@ function buildProofBundle(input) {
     schemaVersion: PROOF_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
     source: assetManifest && assetManifest.source || input.source || null,
+    visualRuntimeContract: visualRuntimeContract ? {
+      schemaVersion: visualRuntimeContract.schemaVersion || null,
+      kind: visualRuntimeContract.kind || null,
+      phaseDriver: clone(visualRuntimeContract.phaseDriver || null),
+      summary: clone(visualRuntimeContract.summary || null),
+    } : null,
     sourcePhaseCount: sources.length,
     phaseCount: phases.length,
     expectedPhasePath: phases.map(phase => phase.phaseId),

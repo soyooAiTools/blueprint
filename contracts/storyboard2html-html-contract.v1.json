@@ -8,7 +8,8 @@
   },
   "sourceOfTruth": {
     "snapshotSchema": "contracts/snapshot-schema.v1.json",
-    "cuaProbeContracts": "contracts/cua-probe-contracts.v1.json"
+    "cuaProbeContracts": "contracts/cua-probe-contracts.v1.json",
+    "sourceSceneIr": "contracts/source-scene-ir.v1.json"
   },
   "generationInput": {
     "description": "Input bundle for the storyboard2html generator. The specs come from ctx.blueprint.specs after spec-extract; storyboardFrames come from ctx.blueprint.storyboard.frames or ctx.blueprint.storyboardFrames.",
@@ -32,6 +33,20 @@
   },
   "htmlStaticEntry": {
     "requiredGlobals": [
+      {
+        "name": "window.__BP_SOURCE_IR__",
+        "acceptedForms": [
+          "window.__BP_SOURCE_IR__ = { ... }"
+        ],
+        "contract": "Canonical SourceSceneIR semantic payload. New storyboard2html output must derive PHASES, ENTITY_STYLE, ENTITY_POSITIONS, SCENE_CONFIG, HUD, camera, resources, steps, and gates from this object instead of duplicating independent semantic facts."
+      },
+      {
+        "name": "window.__BP_SOURCE_IR_HASH__",
+        "acceptedForms": [
+          "window.__BP_SOURCE_IR_HASH__ = \"<sha256>\""
+        ],
+        "contract": "sha256 of the normalized SourceSceneIR semantic payload. The source-scene-ir preflight recomputes this hash when present."
+      },
       {
         "name": "PHASES",
         "acceptedForms": [

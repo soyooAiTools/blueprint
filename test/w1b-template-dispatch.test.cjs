@@ -93,4 +93,11 @@ describe('W1b template-engine dispatch routing', () => {
     expect(result.code).toMatch(/int enemiesDefeated = 0;/);
     expect(result.code).toMatch(/enemiesDefeated\+\+;/);
   });
+
+  test('phase combat triggers declare shared defeat counter without NPC template', () => {
+    const schema = minimalSchema();
+    schema.phases[0].trigger = { type: 'enemy_defeated', count: 1 };
+    const result = templateEngine.fillSkeleton(schema, minimalSkeleton(), { w1bSplit: true });
+    expect(result.code).toMatch(/int enemiesDefeated = 0;/);
+  });
 });

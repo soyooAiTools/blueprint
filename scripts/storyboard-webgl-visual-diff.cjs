@@ -8,7 +8,7 @@ var sharp = require('sharp');
 var playwright = require('playwright');
 
 function usage() {
-  console.error('Usage: node scripts/storyboard-webgl-visual-diff.cjs --source <storyboard.html> --webgl <webgl-dir|index.html> --out <dir> [--phases N] [--width 540] [--height 960] [--settle-ms 1000] [--mean-threshold 14] [--over50-threshold 6] [--no-fail]');
+  console.error('Usage: node scripts/storyboard-webgl-visual-diff.cjs --source <storyboard.html> --webgl <webgl-dir|index.html> --out <dir> [--phases N|phase8|6-8|phase6,phase8] [--width 540] [--height 960] [--settle-ms 1800] [--mean-threshold 14] [--over50-threshold 6] [--no-fail]');
   process.exit(2);
 }
 
@@ -17,10 +17,11 @@ function parseArgs(argv) {
     source: null,
     webgl: null,
     out: null,
-    phases: null,
+    phaseTotal: null,
+    phaseSelector: null,
     width: 540,
     height: 960,
-    settleMs: 1000,
+    settleMs: 1800,
     meanThreshold: 14,
     over50Threshold: 6,
     fail: true,
@@ -30,7 +31,16 @@ function parseArgs(argv) {
     if (arg === '--source') opts.source = argv[++i] || null;
     else if (arg === '--webgl') opts.webgl = argv[++i] || null;
     else if (arg === '--out') opts.out = argv[++i] || null;
-    else if (arg === '--phases') opts.phases = Number(argv[++i] || 0) || null;
+    else if (arg === '--phases') {
+      var phaseValue = argv[++i] || '';
+      if (!phaseValue || /^--/.test(phaseValue)) usage();
+      if (/^\d+$/.test(phaseValue)) opts.phaseTotal = Number(phaseValue) || null;
+      else opts.phaseSelector = phaseValue || null;
+    }
+    else if (arg === '--phase' || arg === '--only-phases') {
+      opts.phaseSelector = argv[++i] || null;
+      if (!opts.phaseSelector || /^--/.test(opts.phaseSelector)) usage();
+    }
     else if (arg === '--width') opts.width = Number(argv[++i] || 0) || opts.width;
     else if (arg === '--height') opts.height = Number(argv[++i] || 0) || opts.height;
     else if (arg === '--settle-ms') opts.settleMs = Number(argv[++i] || 0) || opts.settleMs;
@@ -41,6 +51,45 @@ function parseArgs(argv) {
   }
   if (!opts.source || !opts.webgl || !opts.out) usage();
   return opts;
+}
+
+function parsePhaseNumberToken(token) {
+  var m = String(token || '').trim().match(/^(?:phase)?(\d+)$/i);
+  return m ? Number(m[1]) : null;
+}
+
+function parsePhaseSelector(selector, phaseTotal) {
+  var max = Math.max(1, Number(phaseTotal) || 1);
+  if (!selector) {
+    var all = [];
+    for (var i = 1; i <= max; i++) all.push(i);
+    return all;
+  }
+  var out = [];
+  String(selector).split(',').forEach(function(rawPart) {
+    var part = rawPart.trim();
+    if (!part) return;
+    var range = part.match(/^(?:phase)?(\d+)\s*-\s*(?:phase)?(\d+)$/i);
+    if (range) {
+      var start = Number(range[1]);
+      var end = Number(range[2]);
+      if (start < 1 || start > max || end < 1 || end > max) {
+        throw new Error('Invalid visual phase selector token: ' + part + ' (phaseTotal=' + max + ')');
+      }
+      var step = start <= end ? 1 : -1;
+      for (var n = start; step > 0 ? n <= end : n >= end; n += step) {
+        if (n >= 1 && n <= max && out.indexOf(n) < 0) out.push(n);
+      }
+      return;
+    }
+    var phase = parsePhaseNumberToken(part);
+    if (!phase || phase < 1 || phase > max) {
+      throw new Error('Invalid visual phase selector token: ' + part + ' (phaseTotal=' + max + ')');
+    }
+    if (out.indexOf(phase) < 0) out.push(phase);
+  });
+  if (!out.length) throw new Error('Invalid visual phase selector: ' + selector + ' (phaseTotal=' + max + ')');
+  return out;
 }
 
 function encodeUrlPath(filePath) {
@@ -110,6 +159,9 @@ function resolveEntry(inputPath) {
 
 async function drivePage(page, url, phaseNumber, settleMs) {
   await page.goto(url, { waitUntil: 'load', timeout: 60000 });
+  await page.addStyleTag({
+    content: '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}'
+  }).catch(function() {});
   await page.waitForTimeout(300);
   await page.evaluate(function() {
     window.__CUA_OBSERVER_READY__ = true;
@@ -189,11 +241,13 @@ async function main() {
   var sourceServer = await serveRoot(sourceEntry.root);
   var webglServer = await serveRoot(webglEntry.root);
   fs.mkdirSync(opts.out, { recursive: true });
-  var phaseTotal = opts.phases || phaseCountFromSource(opts.source);
+  var phaseTotal = opts.phaseTotal || phaseCountFromSource(opts.source);
+  var phaseNumbers = parsePhaseSelector(opts.phaseSelector, phaseTotal);
   var browser = await playwright.chromium.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   var phases = [];
   try {
-    for (var phase = 1; phase <= phaseTotal; phase++) {
+    for (var phaseIndex = 0; phaseIndex < phaseNumbers.length; phaseIndex++) {
+      var phase = phaseNumbers[phaseIndex];
       var sourcePage = await browser.newPage({ viewport: { width: opts.width, height: opts.height }, deviceScaleFactor: 1 });
       var webglPage = await browser.newPage({ viewport: { width: opts.width, height: opts.height }, deviceScaleFactor: 1 });
       var sourceUrl = sourceServer.url + '/' + encodeUrlPath(sourceEntry.entry);
@@ -232,6 +286,8 @@ async function main() {
     source: path.resolve(opts.source),
     webgl: path.resolve(opts.webgl),
     viewport: { width: opts.width, height: opts.height },
+    phaseTotal: phaseTotal,
+    selectedPhases: phaseNumbers.map(function(phase) { return 'phase' + phase; }),
     thresholds: {
       meanAbs: opts.meanThreshold,
       over50Pct: opts.over50Threshold,
@@ -258,7 +314,14 @@ async function main() {
   if (!report.passed && opts.fail) process.exit(1);
 }
 
-main().catch(function(error) {
-  console.error(error && error.stack ? error.stack : String(error));
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch(function(error) {
+    console.error(error && error.stack ? error.stack : String(error));
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  parsePhaseSelector: parsePhaseSelector,
+  parsePhaseNumberToken: parsePhaseNumberToken,
+};

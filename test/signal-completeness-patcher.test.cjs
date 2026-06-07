@@ -105,7 +105,7 @@ function makeFlowStub() {
   // dwell-gated dedup field declared at class top
   assert.ok(/string _lastSignalFallbackPhase = "";/.test(result.code), 'dedup field declared');
   // 守卫 expression
-  assert.ok(/_autoPlayMode && \(phaseRealTimer >= 1f \|\| phaseTimer >= 1f\) && _lastSignalFallbackPhase != currentPhaseName/.test(result.code),
+  assert.ok(/_autoPlayMode && PhaseDwellReady\(AUTO_PLAY_PHASE_DURATION\) && _lastSignalFallbackPhase != currentPhaseName/.test(result.code),
     'dwell-gated guard expression');
   // helper method emit
   assert.ok(/void _EmitPhaseFallbackSignals\(string phaseId\)/.test(result.code));
@@ -225,7 +225,7 @@ function makeFlowStub() {
   assert.ok(/guide_text_visible/.test(flow));
   assert.ok(/resource_decremented/.test(flow));
   assert.ok(/upgrade_level_changed/.test(flow));
-  assert.ok(/phaseRealTimer >= 1f \|\| phaseTimer >= 1f/.test(flow), 'dwell guard present');
+  assert.ok(/PhaseDwellReady\(AUTO_PLAY_PHASE_DURATION\)/.test(flow), 'dwell guard present');
   console.log('  ✓ E2E: dwell-gated patches Flow file, returns counts');
 })();
 

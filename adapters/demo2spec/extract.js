@@ -15,6 +15,8 @@ const path = require('path');
 const {
   extractVisualAssetManifest,
   validateVisualAssetReadiness,
+  buildVisualRuntimeContract,
+  writeVisualRuntimeContract,
   writeVisualAssetManifest,
   collectEntityNamesFromHtml,
 } = require('./visual-assets.js');
@@ -823,6 +825,9 @@ function buildOutputs() {
   assetManifest.sourceHtmlPath = playableSceneIr.source.htmlPath;
   assetManifest.sourceHtmlSha256 = playableSceneIr.source.htmlSha256;
   assetManifest.playableSceneIrHash = playableSceneIr.semanticHash;
+  assetManifest.visualRuntimeContract = buildVisualRuntimeContract(assetManifest, {
+    generatedAt: assetManifest.generatedAt,
+  });
   const readinessOptions = {
     minExtractedMeshRate: getEnvNumber('DEMO2SPEC_MIN_EXTRACTED_MESH_RATE', 0.9),
     minAssetBindingRate: getEnvNumber('DEMO2SPEC_MIN_ASSET_BINDING_RATE', sourceEntityNames.length ? 0.9 : 0),
@@ -830,6 +835,7 @@ function buildOutputs() {
     minExpectedEntityCoverageRate: getEnvNumber('DEMO2SPEC_MIN_EXPECTED_ENTITY_COVERAGE_RATE', sourceEntityNames.length ? 0.9 : null),
     allowUnsupported: getEnvBoolean('DEMO2SPEC_ALLOW_UNSUPPORTED', true),
     expectedEntities: sourceEntityNames,
+    requireVisualRuntimeContract: true,
   };
   const readiness = validateVisualAssetReadiness(assetManifest, {
     ...readinessOptions,
@@ -840,6 +846,7 @@ function buildOutputs() {
     process.exit(1);
   }
   writeVisualAssetManifest(path.join(OUT_DIR, 'asset-manifest.json'), assetManifest);
+  writeVisualRuntimeContract(path.join(OUT_DIR, 'visual-runtime-contract.json'), assetManifest.visualRuntimeContract);
   writePlayableSceneIr(path.join(OUT_DIR, 'playable-scene-ir.json'), playableSceneIr);
   spec.entities = entityNames.map(name => {
     const binding = assetManifest.entityBindings && assetManifest.entityBindings[name];
@@ -855,6 +862,7 @@ function buildOutputs() {
   const slim = JSON.parse(JSON.stringify(spec));
   slim.meta.htmlPhaseSlicesPath = 'html-phase-slices.json';
   slim.meta.assetManifestPath = 'asset-manifest.json';
+  slim.meta.visualRuntimeContractPath = 'visual-runtime-contract.json';
   slim.meta.playableSceneIrPath = 'playable-scene-ir.json';
   slim.meta.sourceHtmlPath = playableSceneIr.source.htmlPath;
   slim.meta.sourceHtmlSha256 = playableSceneIr.source.htmlSha256;
@@ -872,6 +880,7 @@ function buildOutputs() {
   console.log(`✅ ${path.join(OUT_DIR, 'spec.json')} (${spec.phases.length} phases, ${spec.functions.length} fns, ${spec.resources.length} resources, ${spec.gfmGaps.length} gaps)`);
   console.log(`✅ ${path.join(OUT_DIR, 'html-phase-slices.json')}`);
   console.log(`✅ ${path.join(OUT_DIR, 'asset-manifest.json')} (${assetManifest.assets.length} assets, bindingRate=${assetManifest.extractionSummary.assetBindingRate})`);
+  console.log(`✅ ${path.join(OUT_DIR, 'visual-runtime-contract.json')} (${assetManifest.visualRuntimeContract.summary.phaseCount} phases, ${assetManifest.visualRuntimeContract.summary.entityCount} entities)`);
   console.log(`✅ ${path.join(OUT_DIR, 'playable-scene-ir.json')} (sourceSha256=${playableSceneIr.source.htmlSha256}, semanticHash=${playableSceneIr.semanticHash})`);
   console.log(`✅ ${path.join(OUT_DIR, 'spec.md')}`);
 }

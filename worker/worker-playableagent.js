@@ -178,7 +178,7 @@ function coverageReason(label, name) {
 try { fs.mkdirSync(CUA_RESULTS_DIR, { recursive: true }); } catch(e) {}
 
 // ─── Reuse patchForHeadless from worker-cua-verify ───
-// highComplexity flag: for games with many phases (>8), use conservative
+// highComplexity flag: for storyboard-scale games (>=8 phases), use conservative
 // timer reduction to prevent phase batch-fire. At 5x speed + 2s gates,
 // all phases complete in <1 poll cycle (1.5s) and CUA can't observe them.
 var _patchHighComplexity = false;
@@ -201,8 +201,8 @@ function patchForHeadless(content, filename) {
   }
   if (filename.includes('.html') || filename.includes('index')) {
     if (_patchHighComplexity) {
-      // High complexity (>8 phases): keep original timer gates, only reduce
-      // extremely high values. With 2x speed this gives ~3s real-time per phase.
+      // High complexity (>=8 phases): keep original timer gates, only reduce
+      // extremely high values; the production runner stays at 1x for phase uniqueness.
       patched = patched.replace(/this\.phaseTimer\s*>=\s*(\d+)\.0/g, (match, val) => {
         var orig = parseInt(val, 10);
         if (orig > 30 && orig < 60) { fixes++; return 'this.phaseTimer >= 20.0'; }
@@ -277,6 +277,17 @@ function startLocalServer(buildDir) {
       }
     });
   });
+}
+
+const PRODUCTION_SOURCE_OVERLAY_OFF_QUERY = 'sourceOverlay=0&sourceRuntime=0&sourceVisual=0&demo2specSource=0';
+
+function buildPlayableAgentPreviewUrl(port, entryFile, query) {
+  const base = 'http://127.0.0.1:' + port + '/' + (entryFile || 'index.html');
+  const baseQuery = String(query || '').replace(/^\?+/, '');
+  const parts = [];
+  if (baseQuery) parts.push(baseQuery);
+  parts.push(PRODUCTION_SOURCE_OVERLAY_OFF_QUERY);
+  return base + '?' + parts.join('&');
 }
 
 function blueprintNeedsManualJoystickProbe(blueprint, report) {
@@ -380,17 +391,37 @@ function targetExistsInPhaseSpec(spec, target) {
   return phaseEntityNames(spec).some(name => normalizePhaseKey(name) === key);
 }
 
+function phaseSpecsById(blueprint, phaseIds) {
+  const specs = blueprint && (blueprint.specs || blueprint.phases) || [];
+  const byPhase = {};
+  if (Array.isArray(specs)) {
+    specs.forEach((spec, idx) => {
+      const phaseId = String(spec && (spec.phaseId || spec.id || spec.name) || (phaseIds && phaseIds[idx]) || '').trim();
+      if (phaseId) byPhase[normalizePhaseKey(phaseId)] = spec;
+    });
+  }
+  return byPhase;
+}
+
 function extractBlueprintPhaseTargetMap(blueprint) {
   const out = {};
+  const phaseIds = extractBlueprintPhaseIds(blueprint);
+  const specsByPhase = phaseSpecsById(blueprint, phaseIds);
   const proofPhases = blueprint && blueprint.proofBundle && Array.isArray(blueprint.proofBundle.phases)
     ? blueprint.proofBundle.phases
     : [];
   proofPhases.forEach((phase, idx) => {
     const phaseId = String(phase && phase.phaseId || ('phase' + (idx + 1))).trim();
     const target = String(phase && phase.target || '').trim();
-    if (phaseId && target) out[normalizePhaseKey(phaseId)] = target;
+    const phaseKey = normalizePhaseKey(phaseId);
+    if (!phaseKey || !target) return;
+    const spec = specsByPhase[phaseKey] || null;
+    const visibleTarget = spec && (!targetExistsInPhaseSpec(spec, target) || !isPhaseFallbackTargetName(target))
+      ? choosePhaseVisibleTarget(spec, target)
+      : '';
+    out[phaseKey] = visibleTarget || target;
   });
-  if (Object.keys(out).length > 0) return out;
+  if (Object.keys(out).length > 0 && (!phaseIds.length || Object.keys(out).length >= phaseIds.length)) return out;
   const plans = [];
   if (blueprint && blueprint.plans && blueprint.plans.cuaPlan && Array.isArray(blueprint.plans.cuaPlan.steps)) {
     plans.push(blueprint.plans.cuaPlan.steps);
@@ -400,15 +431,6 @@ function extractBlueprintPhaseTargetMap(blueprint) {
   }
   if (blueprint && blueprint.plan && Array.isArray(blueprint.plan.steps)) {
     plans.push(blueprint.plan.steps);
-  }
-  const phaseIds = extractBlueprintPhaseIds(blueprint);
-  const specs = blueprint && (blueprint.specs || blueprint.phases) || [];
-  const specsByPhase = {};
-  if (Array.isArray(specs)) {
-    specs.forEach((spec, idx) => {
-      const phaseId = String(spec && (spec.phaseId || spec.id || spec.name) || phaseIds[idx] || '').trim();
-      if (phaseId) specsByPhase[normalizePhaseKey(phaseId)] = spec;
-    });
   }
   const targetFields = ['target', 'to', 'item', 'entity', 'object', 'button'];
   const actionPriority = {
@@ -470,10 +492,82 @@ function extractBlueprintPhaseTargetMap(blueprint) {
   return out;
 }
 
+function normalizeTargetSequence(values) {
+  const out = [];
+  const seen = {};
+  (Array.isArray(values) ? values : []).forEach(value => {
+    const text = String(value || '').trim();
+    const key = normalizePhaseKey(text);
+    if (!text || !key || /^player$/i.test(text) || !isPhaseFallbackTargetName(text) || seen[key]) return;
+    seen[key] = true;
+    out.push(text);
+  });
+  return out;
+}
+
+function phaseTargetSequence(phase) {
+  if (!phase || typeof phase !== 'object') return [];
+  if (Array.isArray(phase.targetSequence)) return normalizeTargetSequence(phase.targetSequence);
+  if (Array.isArray(phase.targets)) return normalizeTargetSequence(phase.targets);
+  if (Array.isArray(phase.steps)) {
+    return normalizeTargetSequence(phase.steps.flatMap(step => step
+      ? [step.target, step.entity, step.to, step.item, step.setEntity]
+      : []));
+  }
+  return normalizeTargetSequence([phase.target]);
+}
+
+function extractBlueprintPhaseTargetSequenceMap(blueprint) {
+  const out = {};
+  function add(phaseId, sequence) {
+    const key = normalizePhaseKey(phaseId);
+    const values = normalizeTargetSequence(sequence);
+    if (!key || !values.length || out[key]) return;
+    out[key] = values;
+  }
+
+  const proofPhases = blueprint && blueprint.proofBundle && Array.isArray(blueprint.proofBundle.phases)
+    ? blueprint.proofBundle.phases
+    : [];
+  proofPhases.forEach((phase, idx) => {
+    add(phase && (phase.phaseId || phase.id || ('phase' + (idx + 1))), phaseTargetSequence(phase));
+  });
+
+  const visualPhaseSources = [
+    blueprint && blueprint.visualAssets && blueprint.visualAssets.sourcePhaseContract && blueprint.visualAssets.sourcePhaseContract.phases,
+    blueprint && blueprint.visualAssets && blueprint.visualAssets.fidelityContract && blueprint.visualAssets.fidelityContract.phases,
+  ];
+  visualPhaseSources.forEach(phases => {
+    if (!Array.isArray(phases)) return;
+    phases.forEach((phase, idx) => {
+      add(phase && (phase.id || phase.phaseId || ('phase' + (idx + 1))), phaseTargetSequence(phase));
+    });
+  });
+
+  const phaseIds = extractBlueprintPhaseIds(blueprint);
+  const plans = [];
+  if (blueprint && blueprint.plans && blueprint.plans.cuaPlan && Array.isArray(blueprint.plans.cuaPlan.steps)) plans.push(blueprint.plans.cuaPlan.steps);
+  if (blueprint && blueprint.cuaPlan && Array.isArray(blueprint.cuaPlan.steps)) plans.push(blueprint.cuaPlan.steps);
+  if (blueprint && blueprint.plan && Array.isArray(blueprint.plan.steps)) plans.push(blueprint.plan.steps);
+  plans.forEach(steps => {
+    steps.forEach((step, idx) => {
+      if (!step || typeof step !== 'object') return;
+      const phaseId = String(step.phaseId || step.phase || step.phaseName || phaseIds[idx] || '').trim();
+      const actions = Array.isArray(step.actions) ? step.actions : [step];
+      add(phaseId, actions.map(action => action && (action.target || action.to || action.item || action.entity || action.object || action.button)));
+    });
+  });
+
+  const singleTargets = extractBlueprintPhaseTargetMap(blueprint);
+  Object.keys(singleTargets).forEach(key => add(key, [singleTargets[key]]));
+  return out;
+}
+
 function selectManualJoystickPhaseWindow(blueprint, options) {
   options = options || {};
   const allPhaseIds = extractBlueprintPhaseIds(blueprint);
   const allPhaseTargets = extractBlueprintPhaseTargetMap(blueprint);
+  const allPhaseTargetSequences = extractBlueprintPhaseTargetSequenceMap(blueprint);
   const rawStart = String(options.checkpointPhase || options.startPhase || '').trim();
   let startIndex = 0;
   let checkpointError = '';
@@ -499,9 +593,11 @@ function selectManualJoystickPhaseWindow(blueprint, options) {
   const endIndex = maxPhases > 0 ? Math.min(allPhaseIds.length, startIndex + maxPhases) : allPhaseIds.length;
   const phaseIds = checkpointError ? [] : allPhaseIds.slice(startIndex, endIndex);
   const phaseTargets = {};
+  const phaseTargetSequences = {};
   phaseIds.forEach(id => {
     const key = normalizePhaseKey(id);
     if (allPhaseTargets[key]) phaseTargets[key] = allPhaseTargets[key];
+    if (allPhaseTargetSequences[key]) phaseTargetSequences[key] = allPhaseTargetSequences[key].slice();
   });
   return {
     checkpointMode: !!rawStart,
@@ -512,8 +608,10 @@ function selectManualJoystickPhaseWindow(blueprint, options) {
     maxPhases,
     fullPhaseIds: allPhaseIds,
     fullPhaseTargets: allPhaseTargets,
+    fullPhaseTargetSequences: allPhaseTargetSequences,
     phaseIds,
     phaseTargets,
+    phaseTargetSequences,
   };
 }
 
@@ -2204,6 +2302,7 @@ async function runManualJoystickFlowProbe(previewUrl, blueprint, taskId, log, op
   const phaseWindow = selectManualJoystickPhaseWindow(blueprint, options || {});
   const phaseIds = phaseWindow.phaseIds;
   const phaseTargets = phaseWindow.phaseTargets;
+  const phaseTargetSequences = phaseWindow.phaseTargetSequences || {};
   if (phaseWindow.checkpointError) {
     return {
       passed: false,
@@ -2248,6 +2347,7 @@ async function runManualJoystickFlowProbe(previewUrl, blueprint, taskId, log, op
     targetCompleted: phaseIds.length,
     phaseIds,
     phaseTargets,
+    phaseTargetSequences,
     fullPhaseIds: phaseWindow.fullPhaseIds,
     samples: [],
     actions: [],
@@ -2473,6 +2573,7 @@ async function runManualJoystickFlowProbe(previewUrl, blueprint, taskId, log, op
       }
     }
     await installPhaseWitness(phaseWindow.checkpointMode ? 'checkpoint-flow-start' : 'full-flow-start');
+    const arrivalRange = Math.max(1.2, Number(process.env.BLUEPRINT_MANUAL_JOYSTICK_FLOW_ARRIVAL_RANGE || 2.0) || 2.0);
 
     async function sample(label) {
       return page.evaluate((args) => {
@@ -2516,6 +2617,31 @@ async function runManualJoystickFlowProbe(previewUrl, blueprint, taskId, log, op
         function entityStates(gs) {
           return gs.entityStates || gs.entity_states || {};
         }
+        function clonePlainObject(value) {
+          if (!value || typeof value !== 'object') return {};
+          try { return JSON.parse(JSON.stringify(value)); } catch(e) {}
+          const out = {};
+          try {
+            Object.keys(value).slice(0, 120).forEach((key) => {
+              const item = value[key];
+              if (item == null || typeof item === 'number' || typeof item === 'string' || typeof item === 'boolean') {
+                out[key] = item;
+              }
+            });
+          } catch(e2) {}
+          return out;
+        }
+        function currentPhaseEvidence(gs, phase) {
+          const all = gs.phaseEvidence || gs.phase_evidence || gs.evidence || {};
+          if (!all || typeof all !== 'object') return {};
+          if (all[phase]) return clonePlainObject(all[phase]);
+          const key = norm(phase);
+          const names = Object.keys(all);
+          for (const name of names) {
+            if (norm(name) === key) return clonePlainObject(all[name]);
+          }
+          return {};
+        }
         function findEntityState(gs, name) {
           const states = entityStates(gs);
           if (!states || !name) return null;
@@ -2526,6 +2652,37 @@ async function runManualJoystickFlowProbe(previewUrl, blueprint, taskId, log, op
             if (norm(item) === key) return states[item];
           }
           return null;
+        }
+        function completionText(value) {
+          if (value == null) return '';
+          if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
+          try { return JSON.stringify(value); } catch(e) { return ''; }
+        }
+        function isCompletedTargetToken(value) {
+          const text = completionText(value).toLowerCase();
+          if (!text) return false;
+          if (/unbuilt|notbuilt|not_built|pending|locked|inactive|disabled|hidden/.test(text)) return false;
+          return /built|completed|complete|done|delivered|collected|upgraded|activated|unlocked|rescued|healed|defeated|destroyed/.test(text);
+        }
+        function targetSatisfiedForManualFlow(gs, phase, name) {
+          const targetKey = norm(name);
+          if (!targetKey) return false;
+          const st = findEntityState(gs, name) || {};
+          const fields = [
+            st.status,
+            st.buildState,
+            st.visualVariant,
+            st.variant,
+            st.state,
+            st.phaseState,
+            st.targetState,
+          ];
+          if (fields.some(isCompletedTargetToken)) return true;
+          const stateCode = Number(st.stateCode != null ? st.stateCode : st.code);
+          if (Number.isFinite(stateCode) && stateCode >= 2 && fields.some((value) => /built|active|complete|done/i.test(completionText(value)))) return true;
+          const evidence = currentPhaseEvidence(gs, phase);
+          const evidenceText = completionText(evidence).slice(0, 12000).toLowerCase();
+          return evidenceText.indexOf(targetKey) >= 0 && isCompletedTargetToken(evidenceText);
         }
         function entityRootPos(name) {
           try {
@@ -2577,6 +2734,7 @@ async function runManualJoystickFlowProbe(previewUrl, blueprint, taskId, log, op
         }
         function targetNameForState(gs, line, phase) {
           const plannedTarget = args.phaseTargets && args.phaseTargets[norm(phase)];
+          const sequence = args.phaseTargetSequences && args.phaseTargetSequences[norm(phase)] || [];
           const ui = gs.uiState || gs.ui_state || {};
           const runtimeTarget = ui.highlightTarget ||
             ui.highlightOverlay && ui.highlightOverlay.target ||
@@ -2586,7 +2744,25 @@ async function runManualJoystickFlowProbe(previewUrl, blueprint, taskId, log, op
             gs.variables && gs.variables.targetEntity ||
             '';
           const lineTarget = line && line.targetName || '';
-          return runtimeTarget || lineTarget || plannedTarget || '';
+          const fallback = runtimeTarget || lineTarget || plannedTarget || '';
+          if (!Array.isArray(sequence) || sequence.length <= 1) return fallback;
+          const phaseKey = norm(phase);
+          const store = window.__bpManualFlowTargetCursor || { indexes: {}, lastPhase: '' };
+          if (!store.indexes || typeof store.indexes !== 'object') store.indexes = {};
+          if (store.lastPhase !== phaseKey) store.lastPhase = phaseKey;
+          let idx = Number(store.indexes[phaseKey] || 0);
+          if (!Number.isFinite(idx) || idx < 0) idx = 0;
+          idx = Math.min(sequence.length - 1, Math.floor(idx));
+          store.indexes[phaseKey] = idx;
+          window.__bpManualFlowTargetCursor = store;
+          const ordered = sequence.slice(idx).concat(sequence.slice(0, idx));
+          for (const name of ordered) {
+            if (isVisibleWorldPos(stateEntityPos(gs, name))) return name;
+          }
+          for (const name of ordered) {
+            if (isVisibleWorldPos(entityRootPos(name))) return name;
+          }
+          return sequence[idx] || fallback || sequence[0] || '';
         }
         function choosePosition(candidates) {
           for (const item of candidates) {
@@ -2614,9 +2790,9 @@ async function runManualJoystickFlowProbe(previewUrl, blueprint, taskId, log, op
         const stateTarget = stateEntityPos(gs, targetName);
         const rootTarget = entityRootPos(targetName);
         const targetChoice = choosePosition([
-          { pos: lineTargetPos, source: 'overlay-guidance-target' },
-          { pos: rootTarget, source: 'overlay-root-target' },
           { pos: stateTarget, source: 'state-target' },
+          { pos: rootTarget, source: 'overlay-root-target' },
+          { pos: lineTargetPos, source: 'overlay-guidance-target' },
         ]);
         const targetPos = targetChoice.pos;
         const rect = targetRect(targetName);
@@ -2626,8 +2802,33 @@ async function runManualJoystickFlowProbe(previewUrl, blueprint, taskId, log, op
           const dz = targetPos.z - playerPos.z;
           distanceToTarget = Number(Math.sqrt(dx * dx + dz * dz).toFixed(4));
         }
+        const phaseSequence = args.phaseTargetSequences && args.phaseTargetSequences[norm(phase)] || [];
+        const targetSequenceIndex = Array.isArray(phaseSequence) ? phaseSequence.findIndex((name) => norm(name) === norm(targetName)) : -1;
+        const targetSatisfied = targetSatisfiedForManualFlow(gs, phase, targetName);
+        const targetArrived = Number.isFinite(Number(distanceToTarget)) && Number(distanceToTarget) <= Number(args.arrivalRange || 2.0);
+        if (Array.isArray(phaseSequence) && phaseSequence.length > 1 &&
+          targetSequenceIndex >= 0 && targetSequenceIndex < phaseSequence.length - 1 &&
+          targetArrived) {
+          const phaseKey = norm(phase);
+          const store = window.__bpManualFlowTargetCursor || { indexes: {}, lastPhase: '' };
+          if (!store.indexes || typeof store.indexes !== 'object') store.indexes = {};
+          store.lastPhase = phaseKey;
+          store.indexes[phaseKey] = targetSequenceIndex + 1;
+          store.lastAdvance = {
+            phase,
+            from: targetName,
+            to: phaseSequence[targetSequenceIndex + 1],
+            distance: distanceToTarget,
+            reason: 'arrival-range',
+            label: args.label,
+          };
+          window.__bpManualFlowTargetCursor = store;
+        }
         const completedCount = countCompleted(gs);
         const terminal = /gameend|cta|finish|complete|download|install/i.test(phase) || completedCount >= (args.phaseIds || []).length;
+        const resources = clonePlainObject(gs.resources || gs.inventory || {});
+        const variables = clonePlainObject(gs.variables || {});
+        const phaseEvidence = currentPhaseEvidence(gs, phase);
         return {
           label: args.label,
           currentPhase: phase,
@@ -2639,8 +2840,16 @@ async function runManualJoystickFlowProbe(previewUrl, blueprint, taskId, log, op
           playerPosSource: playerChoice.source,
           targetName,
           plannedTargetName: args.phaseTargets && args.phaseTargets[norm(phase)] || '',
+          targetSequenceIndex,
+          targetSequenceLength: Array.isArray(phaseSequence) ? phaseSequence.length : 0,
+          targetSatisfied,
           targetPos,
           targetPosSource: targetChoice.source,
+          resources,
+          inventory: clonePlainObject(gs.inventory || {}),
+          variables,
+          phaseEvidence,
+          entityStateTarget: clonePlainObject(findEntityState(gs, targetName) || {}),
           runtimePlayerPos: runtimePlayer,
           statePlayerPos: statePlayer,
           stateTargetPos: stateTarget,
@@ -2649,7 +2858,7 @@ async function runManualJoystickFlowProbe(previewUrl, blueprint, taskId, log, op
           targetRect: rect,
           distanceToTarget,
         };
-      }, { label, phaseIds, phaseTargets });
+      }, { label, phaseIds, phaseTargets, phaseTargetSequences, arrivalRange });
     }
 
     function sampleComplete(row) {
@@ -2873,9 +3082,20 @@ async function runManualJoystickFlowProbe(previewUrl, blueprint, taskId, log, op
     }
 
     async function tapTarget(row, label) {
-      if (!row || !row.targetRect) return null;
-      const x = Math.round(row.targetRect.cx);
-      const y = Math.round(row.targetRect.cy);
+      if (!row) return null;
+      let x = row.targetRect ? Math.round(row.targetRect.cx) : null;
+      let y = row.targetRect ? Math.round(row.targetRect.cy) : null;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        if (!canTapFinalTarget(row)) return null;
+        const fallbackPoint = await withTimeout(page.evaluate(() => {
+          const w = Math.max(1, Number(window.innerWidth || document.documentElement.clientWidth || 540) || 540);
+          const h = Math.max(1, Number(window.innerHeight || document.documentElement.clientHeight || 960) || 960);
+          return { x: Math.round(w * 0.5), y: Math.round(h * 0.82) };
+        }), 5000, 'manual joystick flow fallback tap point ' + label);
+        x = fallbackPoint && fallbackPoint.x;
+        y = fallbackPoint && fallbackPoint.y;
+      }
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
       const touchId = 8;
       await withTimeout(page.evaluate(({ x, y }) => {
         try {
@@ -2910,7 +3130,6 @@ async function runManualJoystickFlowProbe(previewUrl, blueprint, taskId, log, op
     result.samples.push(current);
     const deadlineAt = Date.now() + deadlineMs;
     let closeTargetTicks = 0;
-    const arrivalRange = Math.max(1.2, Number(process.env.BLUEPRINT_MANUAL_JOYSTICK_FLOW_ARRIVAL_RANGE || 2.0) || 2.0);
     const maxFlowIterations = Math.max(maxDrags * 4, maxDrags + phaseIds.length * 24);
     let flowIterations = 0;
     for (let i = 0; i < maxFlowIterations && Date.now() < deadlineAt && !sampleComplete(current); i++, flowIterations++) {
@@ -2930,7 +3149,7 @@ async function runManualJoystickFlowProbe(previewUrl, blueprint, taskId, log, op
       const closeToTarget = current && Number.isFinite(Number(current.distanceToTarget)) && Number(current.distanceToTarget) <= arrivalRange;
       if (closeToTarget) {
         closeTargetTicks++;
-        if (current.targetRect && canTapFinalTarget(current)) {
+        if (canTapFinalTarget(current)) {
           const tapAction = await tapTarget(current, 'tap-' + i);
           if (tapAction) result.actions.push(tapAction);
           const tapped = await sample('after-tap-' + i);
@@ -3413,7 +3632,7 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
       ? blueprint.plans.cuaPlan.steps.length
       : (blueprint.specs || blueprint.phases || []).length
   );
-  const isHighComplexity = phaseCount > 8;
+  const isHighComplexity = phaseCount >= 8;
   const configuredSpeed = Number(process.env.BLUEPRINT_CUA_SPEED_MULTIPLIER || '');
   const speedMultiplier = Number.isFinite(configuredSpeed) && configuredSpeed > 0
     ? Math.max(1, Math.floor(configuredSpeed))
@@ -3445,9 +3664,11 @@ async function runCUAVerification(buildDir, blueprint, taskId, log) {
   const actualPort = server.address().port;
   log("[PlayableAgent] Local server on port " + actualPort, taskId);
 
-  // AutoPlay mode: append ?autoplay=1 so the JS bridge creates __AUTOPLAY_ON__ entity
-  const previewUrl = 'http://127.0.0.1:' + actualPort + '/' + (hasIframe ? 'iframe.html' : 'index.html') + '?autoplay=1';
-  const manualProbeUrl = 'http://127.0.0.1:' + actualPort + '/' + (hasIframe ? 'iframe.html' : 'index.html') + '?manual=1&autoplay=0';
+  const entryFile = hasIframe ? 'iframe.html' : 'index.html';
+  // AutoPlay mode: append autoplay=1 so the JS bridge creates __AUTOPLAY_ON__ entity.
+  // Source overlay/runtime is disabled here; production CUA must observe the generated WebGL runtime, not demo2spec's source visual overlay.
+  const previewUrl = buildPlayableAgentPreviewUrl(actualPort, entryFile, 'autoplay=1');
+  const manualProbeUrl = buildPlayableAgentPreviewUrl(actualPort, entryFile, 'manual=1&autoplay=0');
 
   // Write specs for Python
   const specsPath = writeSpecsFile(blueprint, taskId);
@@ -3710,11 +3931,13 @@ module.exports = {
   attachCuaTelemetry,
   measureCuaTelemetry,
   patchForHeadless,
+  buildPlayableAgentPreviewUrl,
   writeSpecsFile,
   summarizePlayableAgentReport,
   blueprintNeedsManualJoystickProbe,
   extractBlueprintPhaseIds,
   extractBlueprintPhaseTargetMap,
+  extractBlueprintPhaseTargetSequenceMap,
   selectManualJoystickPhaseWindow,
   attachBlueprintProofBundle,
   evaluateManualJoystickProbeResult,

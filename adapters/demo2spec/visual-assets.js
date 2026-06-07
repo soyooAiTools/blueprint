@@ -5,6 +5,8 @@ const path = require('path');
 
 const VISUAL_ASSET_SCHEMA_VERSION = 'va.1.0.0';
 const VISUAL_ASSET_KIND = 'demo2spec.visualAssetManifest';
+const VISUAL_RUNTIME_CONTRACT_VERSION = 'vrc.1.0.0';
+const VISUAL_RUNTIME_CONTRACT_KIND = 'demo2spec.visualRuntimeContract';
 const ASSET_LICENSE_CONTRACT_VERSION = 'val.1.0.0';
 const DEFAULT_ASSET_LICENSE = 'unknown';
 const KNOWN_ASSET_LICENSES = new Set([
@@ -407,7 +409,7 @@ function normalizeColor(value, fallbackValue) {
   if (value == null) return null;
   let text = stripQuotes(value).trim();
   if (!text) return null;
-  if (text === 'style.color' && fallbackValue != null) return normalizeColor(fallbackValue);
+  if (/^(?:style\.color|c|col|styleColor)$/i.test(text) && fallbackValue != null) return normalizeColor(fallbackValue);
   if (/^0x[0-9a-f]+$/i.test(text)) return '#' + text.slice(2).padStart(6, '0').slice(-6).toUpperCase();
   if (/^#[0-9a-f]{3,8}$/i.test(text)) return text.toUpperCase();
   if (/^[0-9a-f]{6}$/i.test(text)) return '#' + text.toUpperCase();
@@ -504,9 +506,26 @@ function hasGuidanceIdentifier(html, name) {
   return new RegExp('\\b' + escapeRegExp(name) + '\\b').test(String(html || ''));
 }
 
+function parseGuidanceTrailLineTarget(html) {
+  const source = String(html || '');
+  const callRe = /\btrailLine\s*\.\s*geometry\s*\.\s*setFromPoints\s*\(\s*\[([\s\S]{0,800}?)\]\s*\)/g;
+  let match;
+  while ((match = callRe.exec(source))) {
+    const body = match[1] || '';
+    const targets = [];
+    let modelMatch;
+    const modelRe = /\bmodels\s*\.\s*([A-Za-z_$][\w$]*)\s*\.\s*position\b/g;
+    while ((modelMatch = modelRe.exec(body))) targets.push(modelMatch[1]);
+    const target = targets.reverse().find(name => !/player|hero|avatar|astronaut/i.test(name));
+    if (target) return target;
+  }
+  return '';
+}
+
 function parseGuidanceVisualContract(html) {
   const source = String(html || '');
   const diagnostics = [];
+  const trailLineTarget = parseGuidanceTrailLineTarget(source);
   const hasTargetRing = hasGuidanceIdentifier(source, 'targetRing')
     && /new\s+THREE\.TorusGeometry\s*\(/.test(source)
     && /0xffe45c/i.test(source);
@@ -539,7 +558,7 @@ function parseGuidanceVisualContract(html) {
     } : null,
     trailLine: hasTrailLine ? {
       from: 'Player',
-      to: 'SpaceShip',
+      to: trailLineTarget || 'SpaceShip',
       fromYOffset: 1.0,
       toYOffset: 1.0,
       material: { color: '#8DEAFF', opacity: 0.65 },
@@ -622,6 +641,99 @@ function parseSourceThreeCameraContract(html) {
   };
 }
 
+function parsePlayerAxisExpression(expr, axis) {
+  const text = String(expr || '').replace(/\s+/g, '');
+  const re = new RegExp('player\\.position\\.' + escapeRegExp(axis) + '(?:\\*([^+\\-]+))?([+\\-].+)?$');
+  const match = text.match(re);
+  if (!match) return null;
+  const factor = match[1] ? evaluateNumericExpression(match[1]) : 1;
+  const offset = match[2] ? evaluateNumericExpression(match[2]) : 0;
+  return {
+    factor: Number.isFinite(factor) ? factor : 1,
+    offset: Number.isFinite(offset) ? offset : 0,
+  };
+}
+
+function parseDynamicCameraFollowContract(html) {
+  const text = String(html || '');
+  const out = {
+    positionFactor: {},
+    positionOffset: {},
+    positionY: null,
+    positionAbsolute: false,
+    lookAtFactor: {},
+    lookAtY: 0,
+    smoothing: null,
+  };
+  const positionRe = /\bcamera\.position\.(x|z)\s*\+=\s*\(\s*player\.position\.\1\s*\*\s*([^)-]+?)\s*-\s*camera\.position\.\1\s*\+\s*SCENE_CONFIG\.camera\.position\s*\[\s*[02]\s*\]\s*\)\s*\*\s*(?:dt\s*\*\s*)?([^;\n]+)/g;
+  let m;
+  while ((m = positionRe.exec(text))) {
+    const axis = m[1];
+    const factor = evaluateNumericExpression(m[2]);
+    const smoothing = evaluateNumericExpression(m[3]);
+    if (Number.isFinite(factor)) out.positionFactor[axis] = factor;
+    if (Number.isFinite(smoothing)) out.smoothing = smoothing;
+  }
+  const lerp = text.match(/\bcamera\.position\.lerp\s*\(\s*new\s+THREE\.Vector3\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+?)\s*\)\s*,\s*([^)]+)\)/);
+  if (lerp) {
+    const xExpr = parsePlayerAxisExpression(lerp[1], 'x');
+    const y = evaluateNumericExpression(lerp[2]);
+    const zExpr = parsePlayerAxisExpression(lerp[3], 'z');
+    const smoothing = evaluateNumericExpression(lerp[4]);
+    if (xExpr) {
+      out.positionFactor.x = xExpr.factor;
+      out.positionOffset.x = xExpr.offset;
+    }
+    if (Number.isFinite(y)) out.positionY = y;
+    if (zExpr) {
+      out.positionFactor.z = zExpr.factor;
+      out.positionOffset.z = zExpr.offset;
+    }
+    if (Number.isFinite(smoothing)) out.smoothing = smoothing;
+    out.positionAbsolute = true;
+  }
+  const lookAtRe = /\bcamera\.lookAt\s*\(([^)]*)\)/g;
+  while ((m = lookAtRe.exec(text))) {
+    if (m[1].indexOf('player.position') < 0) continue;
+    const args = splitTopLevelArgs(m[1]);
+    if (args.length < 3) continue;
+    const xExpr = parsePlayerAxisExpression(args[0], 'x');
+    const y = evaluateNumericExpression(args[1]);
+    const zExpr = parsePlayerAxisExpression(args[2], 'z');
+    if (xExpr) out.lookAtFactor.x = xExpr.factor;
+    if (Number.isFinite(y)) out.lookAtY = y;
+    if (zExpr) out.lookAtFactor.z = zExpr.factor;
+    break;
+  }
+  return (Object.keys(out.positionFactor).length || Object.keys(out.lookAtFactor).length) ? out : null;
+}
+
+function parseSceneConfigCameraContract(body, html) {
+  if (!body || String(body).trim() === 'null') return null;
+  const entries = parseObjectLiteralEntries(body);
+  const source = String(html || '');
+  const dynamicPlayerLookAt = /\bcamera\.lookAt\s*\(\s*player\.position\.x\b/.test(source);
+  const dynamicPlayerFollow = parseDynamicCameraFollowContract(source);
+  const type = stripQuotes(entries.type || 'PerspectiveCamera');
+  const contract = {
+    present: true,
+    source: 'SCENE_CONFIG.camera',
+    type: type || 'PerspectiveCamera',
+    position: readVectorArray(entries.position || readProp(body, 'position')),
+    lookAt: dynamicPlayerLookAt ? [0, 0, 0] : readVectorArray(entries.lookAt || readProp(body, 'lookAt')),
+    fov: readNumericProp(body, 'fov'),
+    near: readNumericProp(body, 'near'),
+    far: readNumericProp(body, 'far'),
+    dynamicLookAtPlayer: dynamicPlayerLookAt,
+    dynamicPlayerFollow,
+    diagnostics: [],
+  };
+  if (!Number.isFinite(contract.fov)) contract.diagnostics.push({ code: 'camera_fov_missing_or_dynamic' });
+  if (!contract.position) contract.diagnostics.push({ code: 'camera_position_missing_or_dynamic' });
+  if (!contract.lookAt) contract.diagnostics.push({ code: 'camera_lookat_missing_or_dynamic' });
+  return contract;
+}
+
 function parseGridHelperContract(html) {
   const text = String(html || '');
   const m = text.match(/new\s+THREE\.GridHelper\s*\(([^)]*)\)/);
@@ -645,6 +757,78 @@ function parseGridHelperContract(html) {
   };
 }
 
+function readLoopNumericSeries(value, loopVariable) {
+  if (value == null) return null;
+  const loopName = loopVariable || 'i';
+  const normalized = String(value).replace(new RegExp('\\b' + escapeRegExp(loopName) + '\\b', 'g'), 'i');
+  const base = evaluateNumericExpression(normalized, 0);
+  if (!Number.isFinite(base)) return null;
+  const next = evaluateNumericExpression(normalized, 1);
+  const step = Number.isFinite(next) ? Number((next - base).toFixed(4)) : 0;
+  return { base, step };
+}
+
+function parseSourceOrbitalRingStyle(html) {
+  const text = String(html || '');
+  const loopRe = /for\s*\(\s*(?:var|let|const)?\s*([A-Za-z_$][\w$]*)\s*=\s*0\s*;\s*\1\s*<\s*[^;]*\borbitalRings\b[^;]*;\s*\1\+\+\s*\)/g;
+  let loop;
+  while ((loop = loopRe.exec(text)) !== null) {
+    const loopVariable = loop[1];
+    const blockStart = text.indexOf('{', loopRe.lastIndex);
+    if (blockStart < 0) continue;
+    const block = sliceBalanced(text, blockStart, '{', '}');
+    if (!block || !/new\s+THREE\.TorusGeometry\s*\(/.test(block)) continue;
+    const geometryMatch = /new\s+THREE\.(TorusGeometry)\s*\(/.exec(block);
+    const geometryCallStart = block.indexOf('(', geometryMatch.index);
+    const geometryCall = sliceBalanced(block, geometryCallStart, '(', ')') || '()';
+    const argSeries = splitTopLevelArgs(geometryCall.slice(1, -1)).map(arg => readLoopNumericSeries(arg, loopVariable));
+    if (argSeries.length < 2 || argSeries.some(series => !series)) continue;
+    let material = null;
+    const materialMatch = /new\s+THREE\.([A-Za-z0-9_]+Material)\s*\(/.exec(block);
+    if (materialMatch) {
+      const materialCallStart = block.indexOf('(', materialMatch.index);
+      const materialCall = sliceBalanced(block, materialCallStart, '(', ')') || '()';
+      const materialArgs = splitTopLevelArgs(materialCall.slice(1, -1));
+      const options = materialArgs.find(arg => /^\{/.test(arg)) || '{}';
+      material = materialFromOptions(materialMatch[1], options, 'source-html-orbital-ring', {});
+    }
+    const rotation = [0, 0, 0];
+    const rotX = block.match(/\.rotation\.x\s*=\s*([^;\n]+)/);
+    const rotY = block.match(/\.rotation\.y\s*=\s*([^;\n]+)/);
+    const rotZ = block.match(/\.rotation\.z\s*=\s*([^;\n]+)/);
+    rotation[0] = rotX ? (evaluateNumericExpression(rotX[1]) || 0) : 0;
+    rotation[1] = rotY ? (evaluateNumericExpression(rotY[1]) || 0) : 0;
+    rotation[2] = rotZ ? (evaluateNumericExpression(rotZ[1]) || 0) : 0;
+    const positionYMatch = block.match(/\.position\.y\s*=\s*([^;\n]+)/);
+    const positionY = positionYMatch ? readLoopNumericSeries(positionYMatch[1], loopVariable) : null;
+    return {
+      source: 'source-html-orbital-ring-loop',
+      line: findLine(text, loop.index),
+      loopVariable,
+      geometry: {
+        type: 'TorusGeometry',
+        argsBase: argSeries.map(series => series.base),
+        argsStep: argSeries.map(series => series.step),
+      },
+      material: material ? {
+        type: material.type,
+        diffuseColor: material.diffuseColor,
+        opacity: material.opacity,
+        transparent: material.transparent,
+      } : null,
+      rotation,
+      positionY,
+    };
+  }
+  return null;
+}
+
+function parseSourceGroundPositionY(html) {
+  const match = String(html || '').match(/\bground\.position\.y\s*=\s*([^;\n]+)/);
+  if (!match) return null;
+  return evaluateNumericExpression(match[1]);
+}
+
 function parseSceneConfig(html) {
   const found = findObjectAssignmentLiteral(html, 'SCENE_CONFIG');
   if (!found) {
@@ -660,6 +844,7 @@ function parseSceneConfig(html) {
   const fogBody = entries.fog && String(entries.fog).trim() !== 'null' ? entries.fog : null;
   const groundBody = entries.ground && String(entries.ground).trim() !== 'null' ? entries.ground : null;
   const decorBody = entries.decor && String(entries.decor).trim() !== 'null' ? entries.decor : null;
+  const orbitalRingStyle = parseSourceOrbitalRingStyle(html);
   const contract = {
     present: true,
     carrier: 'SCENE_CONFIG',
@@ -678,15 +863,17 @@ function parseSceneConfig(html) {
       radius: readNumericProp(groundBody, 'radius'),
       width: readNumericProp(groundBody, 'width'),
       height: readNumericProp(groundBody, 'height'),
+      positionY: parseSourceGroundPositionY(html),
       color: readHexColorProp(groundBody, 'color'),
       colorRgb01: colorToRgb01(readProp(groundBody, 'color')),
     } : null,
     decor: decorBody ? {
       stars: readNumericProp(decorBody, 'stars'),
       orbitalRings: readNumericProp(decorBody, 'orbitalRings'),
+      orbitalRingStyle,
     } : null,
     guidance: parseGuidanceVisualContract(html),
-    camera: parseSourceThreeCameraContract(html),
+    camera: parseSceneConfigCameraContract(entries.camera, html) || parseSourceThreeCameraContract(html),
     grid: parseGridHelperContract(html),
     diagnostics: [],
   };
@@ -1030,6 +1217,34 @@ function resourceNameForCollectTarget(target, entityStyles) {
   return target || 'Resource';
 }
 
+function normalizeHarvestDamageSteps(phase, entityStyles, diagnostics) {
+  const steps = safeArray(phase && phase.steps);
+  if (!steps.length) return steps;
+  const guide = String(phase && (phase.guideText || phase.goalText || phase.name) || '');
+  return steps.map(step => {
+    if (!step || !step.damage || isLikelyDamageTarget(phase, step.target, entityStyles)) return step;
+    const haystack = targetHaystack(entityStyles, step.target);
+    const harvestLike = /cut|mine|harvest|collect|crush|break|smash|drill|recycle|采集|切割|粉碎|击碎|打碎|开采|回收|收集|拾取|捡/i.test(guide + ' ' + haystack);
+    const resourceLike = isLikelyCollectTarget(phase, step.target, entityStyles)
+      || /garbage|trash|scrap|debris|ice|ore|crystal|wood|resource|垃圾|残骸|冰|矿|资源|木/i.test(haystack);
+    if (!harvestLike && !resourceLike) return step;
+    const normalized = Object.assign({}, step, { damage: false });
+    const sameTargetCollect = steps.some(other => other && other !== step && other.target === step.target && other.gain);
+    if (!normalized.gain && !sameTargetCollect && resourceLike) {
+      normalized.gain = resourceNameForCollectTarget(step.target, entityStyles);
+      if (!Number.isFinite(Number(normalized.amount))) normalized.amount = 1;
+    }
+    if (diagnostics) {
+      diagnostics.push({
+        code: 'harvest_damage_step_normalized',
+        target: step.target,
+        label: step.label || '',
+      });
+    }
+    return normalized;
+  });
+}
+
 function implicitCollectStep(phase, entityStyles) {
   const target = inferImplicitCollectTarget(phase, entityStyles);
   if (!target) return null;
@@ -1095,53 +1310,201 @@ function sourceDomIdPresent(html, id) {
     || new RegExp('\\bgetElementById\\(\\s*["\']' + esc + '["\']\\s*\\)').test(text);
 }
 
+function firstSourceDomId(html, ids) {
+  for (const id of ids || []) {
+    if (sourceDomIdPresent(html, id)) return id;
+  }
+  return null;
+}
+
 function extractCssRuleBody(html, selector) {
-  const re = new RegExp(escapeRegExp(selector) + '\\s*\\{([^}]*)\\}', 'm');
-  const m = String(html || '').match(re);
-  if (!m) return null;
-  return m[1].replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim();
+  const rules = [];
+  const re = /([^{}]+)\{([^{}]*)\}/gm;
+  const wanted = String(selector || '').trim();
+  let m;
+  while ((m = re.exec(String(html || '')))) {
+    const selectors = String(m[1] || '').replace(/<[^>]*>/g, ' ').split(',').map(s => s.trim());
+    if (selectors.indexOf(wanted) < 0) continue;
+    const body = String(m[2] || '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim();
+    if (body) rules.push(body);
+  }
+  return rules.length ? rules.join(';') : null;
+}
+
+function extractCssKeyframes(html) {
+  const text = String(html || '');
+  const out = [];
+  const re = /@keyframes\s+([A-Za-z_$][\w$-]*)\s*\{/g;
+  let match;
+  while ((match = re.exec(text))) {
+    const blockStart = text.indexOf('{', match.index);
+    if (blockStart < 0) continue;
+    const block = sliceBalanced(text, blockStart, '{', '}');
+    if (!block) continue;
+    out.push('@keyframes ' + match[1] + block.replace(/\/\*[\s\S]*?\*\//g, ' '));
+  }
+  return out.length ? out.join('\n') : null;
+}
+
+function firstCssRuleBody(html, selectors) {
+  for (const selector of selectors || []) {
+    const body = extractCssRuleBody(html, selector);
+    if (body) return body;
+  }
+  return null;
 }
 
 function extractInitialDomText(html, id) {
-  const re = new RegExp('<[^>]*\\bid\\s*=\\s*["\']' + escapeRegExp(id) + '["\'][^>]*>([\\s\\S]*?)<\\/[^>]+>', 'i');
+  const re = new RegExp('<([a-zA-Z][\\w:-]*)\\b[^>]*\\bid\\s*=\\s*["\']' + escapeRegExp(id) + '["\'][^>]*>([\\s\\S]*?)<\\/\\1>', 'i');
+  const m = String(html || '').match(re);
+  if (!m) return null;
+  const text = m[2].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  return text || null;
+}
+
+function extractInitialClassText(html, className) {
+  const re = new RegExp('<[^>]*\\bclass\\s*=\\s*["\'][^"\']*\\b' + escapeRegExp(className) + '\\b[^"\']*["\'][^>]*>([\\s\\S]*?)<\\/[^>]+>', 'i');
   const m = String(html || '').match(re);
   if (!m) return null;
   const text = m[1].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
   return text || null;
 }
 
+function extractInitialDescendantText(html, containerId, tagName) {
+  const childRe = new RegExp(
+    '<[^>]*\\bid\\s*=\\s*["\']' + escapeRegExp(containerId) + '["\'][^>]*>[\\s\\S]*?<' +
+      escapeRegExp(tagName) + '\\b[^>]*>([\\s\\S]*?)<\\/' + escapeRegExp(tagName) + '>',
+    'i'
+  );
+  const child = String(html || '').match(childRe);
+  if (!child) return null;
+  const text = child[1].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  return text || null;
+}
+
+function firstInitialDomText(html, ids) {
+  for (const id of ids || []) {
+    const text = extractInitialDomText(html, id);
+    if (text) return text;
+  }
+  return null;
+}
+
+function extractPhaseBadgeText(html) {
+  const phaseNow = extractInitialDomText(html, 'phaseNow');
+  const phaseTotal = extractInitialDomText(html, 'phaseTotal');
+  if (phaseNow && phaseTotal) return 'Phase ' + phaseNow + '/' + phaseTotal;
+  return firstInitialDomText(html, ['phaseBadge', 'phaseBox', 'phaseText']);
+}
+
 function parseSourceDomHudContract(html) {
+  const ctaOverlayIds = ['ctaOverlay', 'downloadOverlay', 'installOverlay', 'victory'];
+  const ctaPanelIds = ['ctaPanel', 'ctaBox', 'downloadPanel', 'installPanel'];
+  const ctaButtonIds = ['ctaDom', 'ctaButtonDom', 'ctaDomButton', 'installButton', 'downloadButton', 'ctaButton', 'CTAButton'];
+  const ctaOverlaySelectors = ctaOverlayIds.map(id => '#' + id);
+  const ctaPanelSelectors = ctaPanelIds.map(id => '#' + id);
+  const ctaButtonSelectors = ctaButtonIds.map(id => '#' + id);
+  const selectedCtaOverlayId = firstSourceDomId(html, ctaOverlayIds);
   const ids = {
-    hud: sourceDomIdPresent(html, 'hud') ? 'hud' : null,
+    hud: firstSourceDomId(html, ['hud', 'topbar']),
+    logo: sourceDomIdPresent(html, 'logo') ? 'logo' : null,
+    meters: firstSourceDomId(html, ['meters', 'leftStats']),
     targetHint: sourceDomIdPresent(html, 'targetHint') ? 'targetHint' : null,
     scoreText: sourceDomIdPresent(html, 'scoreText') ? 'scoreText' : null,
     goalText: sourceDomIdPresent(html, 'goalText') ? 'goalText' : null,
+    goldBox: firstSourceDomId(html, ['goldBox', 'scoreBox', 'coinBox', 'wallet', 'goldPanel']),
     goldIcon: sourceDomIdPresent(html, 'goldIcon') ? 'goldIcon' : null,
-    goldCount: sourceDomIdPresent(html, 'goldCount') ? 'goldCount' : null,
+    goldCount: firstSourceDomId(html, ['goldCount', 'goldValue']),
+    goldText: firstSourceDomId(html, ['goldText', 'goldValue']),
+    oxygenText: sourceDomIdPresent(html, 'oxygenText') ? 'oxygenText' : null,
+    iceText: sourceDomIdPresent(html, 'iceText') ? 'iceText' : null,
+    matText: sourceDomIdPresent(html, 'matText') ? 'matText' : null,
     tip: sourceDomIdPresent(html, 'tip') ? 'tip' : null,
+    phaseBadge: firstSourceDomId(html, ['phaseBadge', 'phaseBox', 'phaseText']),
+    resources: sourceDomIdPresent(html, 'resources') ? 'resources' : null,
+    progressWrap: sourceDomIdPresent(html, 'progressWrap') ? 'progressWrap' : null,
+    progressBar: sourceDomIdPresent(html, 'progressBar') ? 'progressBar' : null,
     phaseLabel: sourceDomIdPresent(html, 'phaseLabel') ? 'phaseLabel' : null,
+    workerPanel: sourceDomIdPresent(html, 'workerPanel') ? 'workerPanel' : null,
+    upgradePanel: sourceDomIdPresent(html, 'upgradePanel') ? 'upgradePanel' : null,
+    joystick: sourceDomIdPresent(html, 'joystick') ? 'joystick' : null,
+    stickThumb: firstSourceDomId(html, ['stickThumb', 'joyThumb', 'stick']),
     toast: sourceDomIdPresent(html, 'toast') ? 'toast' : null,
+    victory: selectedCtaOverlayId,
+    ctaPanel: firstSourceDomId(html, ctaPanelIds),
+    ctaDom: firstSourceDomId(html, ctaButtonIds),
   };
   const present = Object.keys(ids).some(key => !!ids[key]);
+  const hudCss = [
+    extractCssRuleBody(html, '.hud'),
+    firstCssRuleBody(html, ['#hud', '#topbar']),
+  ].filter(Boolean).join(';');
   const css = {
-    hud: extractCssRuleBody(html, '#hud'),
+    hud: hudCss || null,
+    logo: extractCssRuleBody(html, '#logo'),
+    meters: firstCssRuleBody(html, ['#meters', '#leftStats']),
     targetHint: extractCssRuleBody(html, '#targetHint'),
     scoreText: extractCssRuleBody(html, '#scoreText'),
     goalText: extractCssRuleBody(html, '#goalText'),
+    goldBox: firstCssRuleBody(html, ['#goldBox', '#scoreBox', '#coinBox', '#wallet', '#goldPanel']),
     goldIcon: extractCssRuleBody(html, '#goldIcon'),
-    goldCount: extractCssRuleBody(html, '#goldCount'),
+    goldCount: firstCssRuleBody(html, ['#goldCount', '#goldValue']),
+    goldText: firstCssRuleBody(html, ['#goldText', '#goldValue']),
+    oxygenText: extractCssRuleBody(html, '#oxygenText'),
+    iceText: extractCssRuleBody(html, '#iceText'),
+    matText: extractCssRuleBody(html, '#matText'),
     tip: extractCssRuleBody(html, '#tip'),
+    phaseBadge: firstCssRuleBody(html, ['#phaseBadge', '#phaseBox', '#phaseText']),
+    resources: extractCssRuleBody(html, '#resources'),
+    resourcePill: firstCssRuleBody(html, ['.res', '.pill']),
+    progressWrap: extractCssRuleBody(html, '#progressWrap'),
+    progressBar: extractCssRuleBody(html, '#progressBar'),
     phaseLabel: extractCssRuleBody(html, '#phaseLabel'),
+    workerPanel: extractCssRuleBody(html, '#workerPanel'),
+    upgradePanel: extractCssRuleBody(html, '#upgradePanel'),
+    joystick: extractCssRuleBody(html, '#joystick'),
+    stickThumb: firstCssRuleBody(html, ['#stickThumb', '#joyThumb', '#stick']),
     coinIcon: extractCssRuleBody(html, '.coinIcon'),
     toast: extractCssRuleBody(html, '#toast'),
+    victory: firstCssRuleBody(html, ctaOverlaySelectors),
+    victoryBox: selectedCtaOverlayId && selectedCtaOverlayId !== 'victory'
+      ? firstCssRuleBody(html, ctaPanelSelectors.concat(['#victory', '#' + selectedCtaOverlayId + ' .ctaBox', '.ctaBox']))
+      : null,
+    victoryTitle: firstCssRuleBody(html, ['#victory h1', '#ctaOverlay h1', '.ctaTitle']),
+    ctaSubtitle: firstCssRuleBody(html, ['#ctaOverlay small', '.ctaSubtitle', '.ctaSubTitle']),
+    ctaDom: firstCssRuleBody(html, ctaButtonSelectors.concat(['#ctaOverlay button', '.ctaBtn'])),
+    keyframes: extractCssKeyframes(html),
   };
   const initialText = {
     scoreText: extractInitialDomText(html, 'scoreText'),
     goalText: extractInitialDomText(html, 'goalText'),
-    goldCount: extractInitialDomText(html, 'goldCount'),
+    logo: extractInitialDomText(html, 'logo'),
+    goldCount: firstInitialDomText(html, ['goldCount', 'goldValue']),
+    goldText: firstInitialDomText(html, ['goldText', 'goldValue']),
+    oxygenText: extractInitialDomText(html, 'oxygenText'),
+    iceText: extractInitialDomText(html, 'iceText'),
+    matText: extractInitialDomText(html, 'matText'),
+    resources: extractInitialDomText(html, 'resources'),
+    progressWrap: extractInitialDomText(html, 'progressWrap'),
+    progressBar: extractInitialDomText(html, 'progressBar'),
     tip: extractInitialDomText(html, 'tip'),
+    goldBox: firstInitialDomText(html, ['goldBox', 'scoreBox', 'coinBox', 'wallet', 'goldPanel']),
+    phaseBadge: extractPhaseBadgeText(html),
     phaseLabel: extractInitialDomText(html, 'phaseLabel'),
+    workerPanel: extractInitialDomText(html, 'workerPanel'),
+    upgradePanel: extractInitialDomText(html, 'upgradePanel'),
     targetHint: extractInitialDomText(html, 'targetHint'),
+    victory: (selectedCtaOverlayId ? extractInitialDescendantText(html, selectedCtaOverlayId, 'h1') : null)
+      || extractInitialClassText(html, 'ctaTitle')
+      || extractInitialDomText(html, 'victory')
+      || extractInitialDescendantText(html, 'ctaOverlay', 'h1'),
+    ctaPanel: firstInitialDomText(html, ctaPanelIds),
+    ctaDom: firstInitialDomText(html, ctaButtonIds)
+      || extractInitialClassText(html, 'ctaBtn')
+      || extractInitialDescendantText(html, 'ctaOverlay', 'button'),
+    ctaSubtitle: extractInitialDescendantText(html, 'ctaOverlay', 'small')
+      || extractInitialClassText(html, 'ctaSubtitle')
+      || extractInitialClassText(html, 'ctaSubTitle'),
   };
   const diagnostics = [];
   if (present && !ids.hud) diagnostics.push({ code: 'source_hud_container_missing' });
@@ -1188,13 +1551,129 @@ function parseSourceUiOverlayContract(html, entityStyles) {
 
 function parseSourceWorldLabelContract(html) {
   const text = String(html || '');
-  const present = /\b(?:makeLabel|CanvasTexture|CSS2DObject|CSS3DObject|THREE\.Sprite|new\s+Sprite)\b/.test(text)
+  const spriteLabels = /\b(?:makeLabel|CanvasTexture|CSS2DObject|CSS3DObject|THREE\.Sprite|new\s+Sprite)\b/.test(text)
     && /\b(?:fillText|textContent|innerText)\b/.test(text)
     && /\b(?:label|world_label|labels)\b/i.test(text);
+  const domLabels = /document\.createElement\s*\(\s*["']div["']\s*\)[\s\S]{0,260}\.className\s*=\s*["']label["']/.test(text)
+    && /\blabels\s*\[[^\]]+\]\s*=/.test(text)
+    && /\b(?:textContent|innerText)\s*=/.test(text);
+  const present = spriteLabels || domLabels;
   return {
     present,
-    source: present ? 'source-html-world-label-renderer' : 'not-rendered-in-source-html',
+    source: present ? (domLabels ? 'source-html-dom-world-labels' : 'source-html-world-label-renderer') : 'not-rendered-in-source-html',
   };
+}
+
+function parseRuntimeVisibilityRules(html) {
+  const rules = {
+    always: [],
+    minPhaseIndex: [],
+    exactPhaseIndex: [],
+    statefulSetEntities: false,
+  };
+  String(html || '').split(/\r?\n/).forEach(line => {
+    const setVisibleVar = line.match(/\bsetVisible\s*\(\s*([A-Za-z_$][\w$]*)\s*,/);
+    const visibleAssignVar = line.match(/\b(?:models|entities|groups)\s*\[\s*([A-Za-z_$][\w$]*)\s*\]\s*\.\s*visible\s*=/);
+    const visibilityVar = setVisibleVar || visibleAssignVar;
+    if (visibilityVar) {
+      const varName = visibilityVar[1];
+      const varNameRe = escapeRegExp(varName);
+      const alwaysRe = new RegExp('\\b' + varNameRe + '\\s*={2,3}\\s*["\\\']([^"\\\']+)["\\\']', 'g');
+      let alwaysMatch;
+      while ((alwaysMatch = alwaysRe.exec(line))) {
+        if (rules.always.indexOf(alwaysMatch[1]) < 0) rules.always.push(alwaysMatch[1]);
+      }
+      const arrayRe = new RegExp('\\[((?:(?:"[^"]+"|\\\'[^\\\']+\\\')\\s*,?\\s*)+)\\]\\s*\\.\\s*(?:indexOf|includes)\\s*\\(\\s*' + varNameRe + '\\s*\\)', 'g');
+      let arrayMatch;
+      while ((arrayMatch = arrayRe.exec(line))) {
+        const literalRe = /["']([^"']+)["']/g;
+        let literalMatch;
+        while ((literalMatch = literalRe.exec(arrayMatch[1]))) {
+          if (rules.always.indexOf(literalMatch[1]) < 0) rules.always.push(literalMatch[1]);
+        }
+      }
+      if (new RegExp('entityState\\s*\\[\\s*' + varNameRe + '\\s*\\]\\.state\\s*>\\s*0').test(line)) {
+        rules.statefulSetEntities = true;
+      }
+    }
+    const m = line.match(/\bsetVisible\s*\(\s*["']([^"']+)["']\s*,\s*true\s*\)/);
+    if (!m) return;
+    const entity = m[1];
+    const min = line.match(/\bif\s*\(\s*i\s*>=\s*(\d+)\s*\)/);
+    if (min) {
+      rules.minPhaseIndex.push({ entity, index: Number(min[1]) });
+      return;
+    }
+    const exact = line.match(/\bif\s*\(\s*i\s*={2,3}\s*(\d+)\s*\)/);
+    if (exact) {
+      rules.exactPhaseIndex.push({ entity, index: Number(exact[1]) });
+      return;
+    }
+    if (rules.always.indexOf(entity) < 0) rules.always.push(entity);
+  });
+  return rules;
+}
+
+function parseRuntimeResourceRules(html) {
+  const rules = [];
+  const text = String(html || '');
+  const directRe = /if\s*\(\s*i\s*={2,3}\s*(\d+)[^)]*\)\s*resources\.([A-Za-z_$][\w$]*)\s*=\s*(\d+(?:\.\d+)?)/g;
+  let m;
+  while ((m = directRe.exec(text))) {
+    rules.push({ index: Number(m[1]), resource: m[2], value: Number(m[3]) });
+  }
+  const maxRe = /if\s*\(\s*i\s*={2,3}\s*(\d+)[^)]*\)\s*resources\.([A-Za-z_$][\w$]*)\s*=\s*Math\.max\s*\(\s*resources\.\2\s*,\s*(\d+(?:\.\d+)?)\s*\)/g;
+  while ((m = maxRe.exec(text))) {
+    rules.push({ index: Number(m[1]), resource: m[2], value: Number(m[3]) });
+  }
+  return rules;
+}
+
+function runtimeResourcesForPhase(index, rules) {
+  const out = {};
+  safeArray(rules).forEach(rule => {
+    if (!rule || Number(rule.index) !== index) return;
+    const value = Number(rule.value);
+    if (!rule.resource || !isFinite(value)) return;
+    out[rule.resource] = Math.max(Number(out[rule.resource] || 0), value);
+  });
+  return out;
+}
+
+function runtimeVisibleEntitiesForPhase(phase, index, rules) {
+  const out = [];
+  function add(name) {
+    if (name && out.indexOf(name) < 0) out.push(name);
+  }
+  safeArray(phase && phase.showEntities).forEach(add);
+  safeArray(rules && rules.always).forEach(add);
+  safeArray(rules && rules.minPhaseIndex).forEach(rule => {
+    if (rule && index >= Number(rule.index)) add(rule.entity);
+  });
+  safeArray(rules && rules.exactPhaseIndex).forEach(rule => {
+    if (rule && index === Number(rule.index)) add(rule.entity);
+  });
+  return out;
+}
+
+function applyStatefulVisibilityRules(phases, rules) {
+  if (!(rules && rules.statefulSetEntities)) return phases;
+  const visibleByState = [];
+  function addStateful(name) {
+    if (name && visibleByState.indexOf(name) < 0) visibleByState.push(name);
+  }
+  function addVisible(phase, name) {
+    if (!phase || !name) return;
+    phase.runtimeVisibleEntities = safeArray(phase.runtimeVisibleEntities);
+    if (phase.runtimeVisibleEntities.indexOf(name) < 0) phase.runtimeVisibleEntities.push(name);
+  }
+  safeArray(phases).forEach(phase => {
+    visibleByState.forEach(name => addVisible(phase, name));
+    safeArray(phase && phase.steps).forEach(step => {
+      if (step && step.setEntity) addStateful(step.setEntity);
+    });
+  });
+  return phases;
 }
 
 function parseSourcePhaseContract(html, options) {
@@ -1206,6 +1685,8 @@ function parseSourcePhaseContract(html, options) {
   }
   const phaseLiterals = splitTopLevelObjects(found.literal);
   const phaseCount = phaseLiterals.length;
+  const visibilityRules = parseRuntimeVisibilityRules(html);
+  const resourceRules = parseRuntimeResourceRules(html);
   const phases = phaseLiterals.map((phaseLiteral, index) => {
     const entries = parseObjectLiteralEntries(phaseLiteral);
     const trigger = parsePhaseTrigger(entries.trigger);
@@ -1220,10 +1701,13 @@ function parseSourcePhaseContract(html, options) {
       trigger,
       steps: parsePhaseSteps(entries.steps),
     };
+    phase.diagnostics = [];
+    if (phase.steps.length) {
+      phase.steps = normalizeHarvestDamageSteps(phase, entityStyles, phase.diagnostics);
+    }
     const runtimeTargetSequence = extractRuntimeTargetSequence(html, phase, index);
     phase.runtimeTargetSequence = runtimeTargetSequence;
     phase.stepSource = phase.steps.length ? 'PHASES.steps' : '';
-    phase.diagnostics = [];
     if (!phase.steps.length && runtimeTargetSequence.length) {
       phase.steps = runtimeTargetSequence.map((target, stepIndex) => runtimeStepFromTarget(phase, target, entityStyles, stepIndex));
       phase.stepSource = 'runtime_setTarget';
@@ -1239,14 +1723,19 @@ function parseSourcePhaseContract(html, options) {
       });
     }
     phase.targetSequence = phase.steps.map(step => step && step.target).filter(Boolean);
+    phase.runtimeVisibleEntities = runtimeVisibleEntitiesForPhase(phase, index, visibilityRules);
+    phase.runtimeResources = runtimeResourcesForPhase(index, resourceRules);
     phase.hudText = buildPhaseHudText(phase, index, phaseCount, entityStyles);
     return phase;
   });
+  applyStatefulVisibilityRules(phases, visibilityRules);
   return {
     present: true,
     carrier: 'PHASES',
     phaseCount: phases.length,
     phases,
+    visibilityRules,
+    resourceRules,
     diagnostics: phases.length ? [] : [{ code: 'phases_empty' }],
   };
 }
@@ -1354,11 +1843,12 @@ function parseMaterialExpression(expr, materialVars, context) {
     return {
       type: 'MeshStandardMaterial',
       source: 'entity_builder_factory',
-      diffuseColor: normalizeColor(rawColor),
-      emissiveColor: null,
-      opacity: null,
-      roughness: readNumber(args[1]) == null ? 0.55 : readNumber(args[1]),
-      metalness: readNumber(args[2]) == null ? 0.08 : readNumber(args[2]),
+      diffuseColor: normalizeColor(rawColor, materialContext.styleColor),
+      emissiveColor: normalizeColor(args[2]),
+      opacity: readNumber(args[1]),
+      transparent: readNumber(args[1]) == null ? undefined : readNumber(args[1]) < 1,
+      roughness: 0.55,
+      metalness: 0.1,
     };
   }
   const ctor = text.match(/new\s+THREE\.([A-Za-z0-9_]+Material)\s*\(/);
@@ -1367,7 +1857,7 @@ function parseMaterialExpression(expr, materialVars, context) {
     const call = sliceBalanced(text, callStart, '(', ')') || '()';
     const args = splitTopLevelArgs(call.slice(1, -1));
     const options = args.find(arg => /^\{/.test(arg)) || '{}';
-    return materialFromOptions(ctor[1], options, 'inline');
+    return materialFromOptions(ctor[1], options, 'inline', materialContext);
   }
   const varName = text.match(/^[A-Za-z_$][\w$]*/);
   if (varName && materialVars[varName[0]]) return Object.assign({}, materialVars[varName[0]], { source: 'variable', variable: varName[0] });
@@ -1395,13 +1885,14 @@ function entityBuilderMaterialAliases(entityStyle) {
   };
 }
 
-function materialFromOptions(type, optionsBody, source) {
+function materialFromOptions(type, optionsBody, source, context) {
   const body = String(optionsBody || '').replace(/^\{|\}$/g, '');
   const transparent = readBool(readProp(body, 'transparent'));
+  const materialContext = context || {};
   return {
     type,
     source,
-    diffuseColor: normalizeColor(readProp(body, 'color')),
+    diffuseColor: normalizeColor(readProp(body, 'color'), materialContext.styleColor),
     emissiveColor: normalizeColor(readProp(body, 'emissive')),
     opacity: readNumber(readProp(body, 'opacity')),
     transparent: transparent == null ? undefined : transparent,
@@ -1611,7 +2102,7 @@ function collectLocalMeshDecls(block) {
 
 function collectAddCalls(block) {
   const calls = [];
-  const re = /\b(?:([A-Za-z_$][\w$]*)\s*\.\s*)?add\s*\(/g;
+  const re = /\b(?:([A-Za-z_$][\w$]*)\s*\.\s*)?(addMesh|add)\s*\(/g;
   let m;
   while ((m = re.exec(block)) !== null) {
     const open = block.indexOf('(', m.index);
@@ -1623,6 +2114,7 @@ function collectAddCalls(block) {
     const receiver = m[1] || null;
     calls.push({
       call,
+      callee: m[2],
       receiver,
       offset: m.index,
       endOffset: open + call.length,
@@ -1630,6 +2122,17 @@ function collectAddCalls(block) {
     re.lastIndex = open + call.length;
   }
   return calls;
+}
+
+function transformFromMeshOpLiteral(opLiteral) {
+  const text = String(opLiteral || '').trim();
+  if (!text || text[0] !== '{') return {};
+  const op = parseObjectLiteralEntries(text);
+  const out = {};
+  if (op.position) out.position = meshOpArray(op.position, [0, 0, 0]);
+  if (op.rotation) out.rotation = meshOpArray(op.rotation, [0, 0, 0]);
+  if (op.scale) out.scale = meshOpArray(op.scale, [1, 1, 1]);
+  return out;
 }
 
 function collectTrailingTransform(block, addCall, meshExpr) {
@@ -1811,12 +2314,22 @@ function collectBuildEntityAssets(html, geometryVars, materialVars, entityNames,
     collectAddCalls(branch.block).forEach(addCall => {
       const args = splitTopLevelArgs(addCall.call.slice(1, -1));
       if (!args.length) return;
-      if (addCall.receiver) {
+      let meshExpr;
+      let positionArgs = [];
+      let opTransform = {};
+      if (addCall.callee === 'addMesh') {
+        if (addCall.receiver || args[0] !== 'g') return;
+        meshExpr = String(args[2] || '').trim();
+        opTransform = transformFromMeshOpLiteral(args[3]);
+      } else if (addCall.receiver) {
         if (addCall.receiver !== 'g') return;
       } else if (args[0] !== 'g') {
         return;
       }
-      const meshExpr = String(addCall.receiver ? args[0] : (args[1] || '')).trim();
+      if (!meshExpr) {
+        meshExpr = String(addCall.receiver ? args[0] : (args[1] || '')).trim();
+        positionArgs = addCall.receiver ? [] : args.slice(2, 5);
+      }
       const inlineCall = meshCallFromExpression(meshExpr);
       const local = localMeshes[meshExpr];
       const meshCall = inlineCall || (local && local.call);
@@ -1832,11 +2345,11 @@ function collectBuildEntityAssets(html, geometryVars, materialVars, entityNames,
         geometryVars,
         materialVars,
         entityStyle,
-        addCall.receiver ? [] : args.slice(2, 5),
+        positionArgs,
         inlineCall
-          ? (addCall.receiver ? 'buildEntity:group.add-inline-mesh' : 'buildEntity:add-inline-mesh')
-          : (addCall.receiver ? 'buildEntity:group.add-local-mesh' : 'buildEntity:add-local-mesh'),
-        collectTrailingTransform(branch.block, addCall, meshExpr)
+          ? (addCall.callee === 'addMesh' ? 'buildEntity:addMesh-inline-mesh' : (addCall.receiver ? 'buildEntity:group.add-inline-mesh' : 'buildEntity:add-inline-mesh'))
+          : (addCall.callee === 'addMesh' ? 'buildEntity:addMesh-local-mesh' : (addCall.receiver ? 'buildEntity:group.add-local-mesh' : 'buildEntity:add-local-mesh')),
+        Object.assign({}, opTransform, collectTrailingTransform(branch.block, addCall, meshExpr))
       );
       assets.push(asset);
       childIds.push(asset.assetId);
@@ -2208,6 +2721,209 @@ function buildEntityComposites(assets, entityBindings, entityStyles) {
   return out;
 }
 
+function objectValue(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function contractEntityStyle(style) {
+  style = objectValue(style);
+  return {
+    label: style.label || null,
+    kind: style.kind || null,
+    color: style.color || null,
+    position: style.position || null,
+  };
+}
+
+function addUniqueString(out, value) {
+  const text = String(value || '').trim();
+  if (text && out.indexOf(text) < 0) out.push(text);
+}
+
+function phaseTriggerTargets(trigger, out) {
+  if (!trigger || typeof trigger !== 'object') return;
+  if (trigger.type === 'compound') return safeArray(trigger.triggers).forEach(item => phaseTriggerTargets(item, out));
+  addUniqueString(out, trigger.entity || trigger.target);
+}
+
+function phaseTargetAffordances(phase) {
+  phase = objectValue(phase);
+  const out = [];
+  const seen = {};
+  function add(entity, source, stepIndex, label) {
+    entity = String(entity || '').trim();
+    if (!entity || seen[entity]) return;
+    seen[entity] = true;
+    out.push({
+      entity,
+      source,
+      stepIndex: Number.isFinite(stepIndex) ? stepIndex : null,
+      label: label || null,
+      input: 'joystick_proximity',
+      arrivalGated: true,
+      evidence: ['player_input_joystick', 'move_to_target', 'proximity_trigger'],
+    });
+  }
+  safeArray(phase.steps).forEach((step, stepIndex) => {
+    if (!step) return;
+    add(step.target, 'PHASES.steps', stepIndex, step.label || null);
+  });
+  const hud = objectValue(phase.hudText);
+  add(hud.targetEntity, 'phase.hudText.targetEntity', null, hud.targetLabel || null);
+  const triggerTargets = [];
+  phaseTriggerTargets(phase.trigger, triggerTargets);
+  triggerTargets.forEach(entity => add(entity, 'PHASES.trigger', null, null));
+  return out;
+}
+
+function expectedEvidenceForPhase(phase) {
+  const out = ['guide_text_visible', 'player_input_joystick', 'move_to_target', 'proximity_trigger', 'phase_advanced'];
+  safeArray(phase && phase.steps).forEach(step => {
+    if (!step) return;
+    if (step.gain) {
+      ['resource_incremented', 'score_text_changed', 'source_hidden_or_moved'].forEach(item => addUniqueString(out, item));
+    }
+    if (step.spend) addUniqueString(out, 'resource_decremented');
+    if (step.setEntity || step.shipLevel || step.tool) {
+      ['entity_state_changed', 'visual_variant_changed', 'entity_state_equals_built'].forEach(item => addUniqueString(out, item));
+    }
+    if (step.damage) {
+      ['target_acquire', 'projectile_emit', 'target_hp_decreased_or_target_dead', 'target_removed_or_hidden'].forEach(item => addUniqueString(out, item));
+    }
+    const targetText = [step.target, step.label].filter(Boolean).join(' ');
+    if (/cta|download|install|button|下载|安装|按钮/i.test(targetText)) addUniqueString(out, 'cta_finish');
+  });
+  return out;
+}
+
+function buildVisualRuntimeContract(manifest, options) {
+  manifest = objectValue(manifest);
+  options = options || {};
+  const entityContract = objectValue(manifest.sourceEntityContract);
+  const sceneContract = objectValue(manifest.sourceSceneContract);
+  const phaseContract = objectValue(manifest.sourcePhaseContract);
+  const entityBindings = objectValue(manifest.entityBindings);
+  const phases = safeArray(phaseContract.phases);
+  const styles = objectValue(entityContract.entityStyles);
+  const composites = objectValue(entityContract.entityComposites);
+  const entities = safeArray(entityContract.entities).map(name => {
+    const binding = objectValue(entityBindings[name]);
+    return {
+      name,
+      style: contractEntityStyle(styles[name]),
+      binding: {
+        primaryAssetId: binding.primaryAssetId || null,
+        assetIds: safeArray(binding.assetIds),
+        fidelityTarget: binding.fidelityTarget || null,
+        visualFallback: binding.visualFallback || null,
+      },
+      composite: composites[name] || null,
+      visibleInPhases: phases.filter(phase => {
+        const visible = safeArray(phase.runtimeVisibleEntities).length ? phase.runtimeVisibleEntities : phase.showEntities;
+        return safeArray(visible).indexOf(name) >= 0;
+      }).map(phase => phase.id),
+    };
+  });
+  return {
+    schemaVersion: VISUAL_RUNTIME_CONTRACT_VERSION,
+    kind: VISUAL_RUNTIME_CONTRACT_KIND,
+    generatedAt: options.generatedAt || manifest.generatedAt || new Date().toISOString(),
+    source: manifest.sourceHtmlPath || manifest.source || null,
+    sourceHtmlSha256: manifest.sourceHtmlSha256 || null,
+    playableSceneIrHash: manifest.playableSceneIrHash || null,
+    project: manifest.project || null,
+    phaseDriver: {
+      sourceFunction: '__driveToSourcePhase',
+      webglFunction: '__driveToPhase',
+      phaseCount: Number(phaseContract.phaseCount || phases.length) || phases.length,
+      selectedBy: 'phaseNumber',
+    },
+    scene: {
+      camera: sceneContract.camera || null,
+      grid: sceneContract.grid || null,
+      ground: sceneContract.ground || null,
+      decor: sceneContract.decor || null,
+      guidance: sceneContract.guidance || null,
+    },
+    dom: {
+      hud: entityContract.domHudContract || null,
+      uiOverlay: entityContract.uiOverlayContract || null,
+      worldLabels: entityContract.worldLabelContract || null,
+    },
+    entities,
+    phases: phases.map(phase => ({
+      index: phase.index,
+      id: phase.id,
+      name: phase.name || '',
+      guideText: phase.guideText || '',
+      goalText: phase.goalText || '',
+      showEntities: safeArray(phase.showEntities),
+      runtimeVisibleEntities: safeArray(phase.runtimeVisibleEntities),
+      runtimeResources: objectValue(phase.runtimeResources),
+      targetSequence: safeArray(phase.targetSequence),
+      targetAffordances: phaseTargetAffordances(phase),
+      plannedModuleIds: safeArray(phase.plannedModuleIds),
+      expectedEvidence: expectedEvidenceForPhase(phase),
+      trigger: phase.trigger || null,
+    })),
+    summary: {
+      entityCount: entities.length,
+      boundEntityCount: entities.filter(entity => safeArray(entity.binding && entity.binding.assetIds).length > 0).length,
+      phaseCount: phases.length,
+      hasCamera: !!(sceneContract.camera && sceneContract.camera.present),
+      hasDomHud: !!(entityContract.domHudContract && entityContract.domHudContract.present),
+      hasGuidance: !!(sceneContract.guidance && sceneContract.guidance.present),
+      phasesWithTargets: phases.filter(phase => phaseTargetAffordances(phase).length > 0).length,
+    },
+  };
+}
+
+function validateVisualRuntimeContract(doc, options) {
+  options = options || {};
+  const violations = [];
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
+    return { passed: false, violations: [{ code: 'visual_runtime_contract_missing' }], summary: {} };
+  }
+  if (doc.kind !== VISUAL_RUNTIME_CONTRACT_KIND) violations.push({ code: 'visual_runtime_contract_kind_invalid', actual: doc.kind });
+  if (doc.schemaVersion !== VISUAL_RUNTIME_CONTRACT_VERSION) violations.push({ code: 'visual_runtime_contract_version_invalid', actual: doc.schemaVersion });
+  const phaseDriver = objectValue(doc.phaseDriver);
+  if (phaseDriver.sourceFunction !== '__driveToSourcePhase') violations.push({ code: 'visual_runtime_source_phase_driver_missing', expected: '__driveToSourcePhase', actual: phaseDriver.sourceFunction || null });
+  if (phaseDriver.webglFunction !== '__driveToPhase') violations.push({ code: 'visual_runtime_webgl_phase_driver_missing', expected: '__driveToPhase', actual: phaseDriver.webglFunction || null });
+  const entities = safeArray(doc.entities);
+  const phases = safeArray(doc.phases);
+  if (!entities.length) violations.push({ code: 'visual_runtime_entities_missing' });
+  if (!phases.length) violations.push({ code: 'visual_runtime_phases_missing' });
+  const boundEntityCount = entities.filter(entity => safeArray(entity && entity.binding && entity.binding.assetIds).length > 0).length;
+  if (options.requireEntityAssetBindings === true && entities.length && boundEntityCount <= 0) {
+    violations.push({ code: 'visual_runtime_entity_bindings_missing' });
+  }
+  const camera = objectValue(doc.scene && doc.scene.camera);
+  if (options.requireCamera !== false && !(camera.present && Array.isArray(camera.position) && Array.isArray(camera.lookAt))) {
+    violations.push({ code: 'visual_runtime_camera_contract_incomplete' });
+  }
+  if (options.requireDomHud !== false && !(doc.dom && doc.dom.hud && doc.dom.hud.present)) {
+    violations.push({ code: 'visual_runtime_dom_hud_contract_missing' });
+  }
+  const phasesWithoutTargets = phases
+    .filter(phase => !safeArray(phase && phase.targetAffordances).length)
+    .map(phase => phase && phase.id || '<unknown>');
+  if (options.requirePhaseTargets !== false && phasesWithoutTargets.length) {
+    violations.push({ code: 'visual_runtime_phase_targets_missing', phases: phasesWithoutTargets });
+  }
+  return {
+    passed: violations.length === 0,
+    violations,
+    summary: {
+      entityCount: entities.length,
+      boundEntityCount,
+      phaseCount: phases.length,
+      phasesWithTargets: phases.length - phasesWithoutTargets.length,
+      hasCamera: !!(camera && camera.present),
+      hasDomHud: !!(doc.dom && doc.dom.hud && doc.dom.hud.present),
+    },
+  };
+}
+
 function extractVisualAssetManifest(html, options) {
   options = options || {};
   const entityStyles = parseEntityStyleMap(html);
@@ -2236,7 +2952,7 @@ function extractVisualAssetManifest(html, options) {
   const entityBindings = buildEntityBindings(assets, entityNames);
   const entityComposites = buildEntityComposites(assets, entityBindings, serializableEntityStyles(entityStyles));
   const extractionSummary = summarize(html, assets, entityNames, unsupported, assetMeta);
-  return {
+  const manifest = {
     visualAssetsSchemaVersion: VISUAL_ASSET_SCHEMA_VERSION,
     kind: VISUAL_ASSET_KIND,
     assetLicenseContractVersion: ASSET_LICENSE_CONTRACT_VERSION,
@@ -2268,6 +2984,10 @@ function extractVisualAssetManifest(html, options) {
     entityBindings,
     unsupported,
   };
+  manifest.visualRuntimeContract = buildVisualRuntimeContract(manifest, {
+    generatedAt: manifest.generatedAt,
+  });
+  return manifest;
 }
 
 function validateVisualAssetManifest(doc) {
@@ -2301,6 +3021,7 @@ function validateVisualAssetReadiness(doc, options) {
   const requireExternalSourceMetadata = options.requireExternalSourceMetadata === true;
   const requireKnownExternalLicense = options.requireKnownExternalLicense === true;
   const requireFetchableExternalSource = options.requireFetchableExternalSource === true;
+  const requireVisualRuntimeContract = options.requireVisualRuntimeContract === true;
   const summary = doc.extractionSummary || {};
   const violations = [];
   if ((summary.extractedMeshRate == null ? 1 : Number(summary.extractedMeshRate)) < minExtractedMeshRate) {
@@ -2363,11 +3084,31 @@ function validateVisualAssetReadiness(doc, options) {
       violations.push({ code: 'external_asset_source_not_fetchable', assetId: asset.assetId, url: asset.source && asset.source.url });
     }
   });
+  if (requireVisualRuntimeContract) {
+    const runtimeGate = validateVisualRuntimeContract(doc.visualRuntimeContract, options.visualRuntimeContractOptions || {});
+    if (!runtimeGate.passed) {
+      runtimeGate.violations.forEach(violation => violations.push(Object.assign({ source: 'visualRuntimeContract' }, violation)));
+    }
+  }
   return {
     passed: violations.length === 0,
     violations,
     summary,
   };
+}
+
+function writeVisualRuntimeContract(outPath, contract) {
+  const result = validateVisualRuntimeContract(contract, {
+    requireCamera: false,
+    requireDomHud: false,
+    requirePhaseTargets: false,
+  });
+  if (!result.passed) {
+    throw new Error('invalid visual runtime contract: ' + result.violations.map(item => item.code).join(', '));
+  }
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+  fs.writeFileSync(outPath, JSON.stringify(contract, null, 2));
+  return contract;
 }
 
 function writeVisualAssetManifest(outPath, manifest) {
@@ -2393,11 +3134,16 @@ function resolveManifestPathForSpec(specPath, spec) {
 module.exports = {
   VISUAL_ASSET_SCHEMA_VERSION,
   VISUAL_ASSET_KIND,
+  VISUAL_RUNTIME_CONTRACT_VERSION,
+  VISUAL_RUNTIME_CONTRACT_KIND,
   ASSET_LICENSE_CONTRACT_VERSION,
   extractVisualAssetManifest,
   extractAssetMetaMap,
   normalizeAssetUrl,
   validateVisualAssetManifest,
+  buildVisualRuntimeContract,
+  validateVisualRuntimeContract,
+  writeVisualRuntimeContract,
   writeVisualAssetManifest,
   loadVisualAssetManifest,
   resolveManifestPathForSpec,
@@ -2405,6 +3151,8 @@ module.exports = {
   collectEntityNamesFromHtml,
   parseSceneConfig,
   parseSourceDomHudContract,
+  parseSourcePhaseContract,
+  parseSourceWorldLabelContract,
   parseGridHelperContract,
   parseSourceThreeCameraContract,
 };

@@ -46,7 +46,7 @@ function methodBlock(src, methodName) {
 
 function assertGateAllowsManual(src, methodName, phaseId) {
   const block = methodBlock(src, methodName);
-  assert.match(block, new RegExp(`realReady \\|\\| ManualPhaseTargetEvidenceReady\\("${phaseId}"\\)`));
+  assert.match(block, new RegExp(`\\(_autoPlayMode && realReady\\) \\|\\| ManualPhaseTargetEvidenceReady\\("${phaseId}"\\)`));
 }
 
 function assertGateRequiresManualAndReal(src, methodName, phaseId) {
@@ -61,11 +61,21 @@ function assertGateDeniesManual(src, methodName, phaseId) {
   assert.doesNotMatch(block, new RegExp(`ManualPhaseTargetEvidenceReady\\("${phaseId}"\\)`));
 }
 
+function assertAppearsBefore(src, before, after, label) {
+  const beforeIndex = src.indexOf(before);
+  const afterIndex = src.indexOf(after);
+  assert.notStrictEqual(beforeIndex, -1, `missing before marker for ${label}: ${before}`);
+  assert.notStrictEqual(afterIndex, -1, `missing after marker for ${label}: ${after}`);
+  assert.ok(beforeIndex < afterIndex, `${label}: expected ${before} before ${after}`);
+}
+
 assert.doesNotMatch(code, /EntityAdvanced\(Tower,\s*_snap_TowerPos\)/);
 assert.match(code, /time-only beat/);
 assert.match(code, /DetectRealTime <= 0f \|\| GFM_AutoPlay\.Instance\.IsActive/);
 assert.match(code, /float phaseRealTimer = 0f;/);
 assert.match(code, /float lastPhaseRealClock = 0f;/);
+assert.match(code, /float _lastDwellRequiredSeconds = 0f;/);
+assert.match(code, /bool _lastDwellReady = false;/);
 assert.match(code, /float nowReal = Time\.realtimeSinceStartup;/);
 assert.match(code, /if \(realDt < 0f\) realDt = 0f;/);
 assert.match(code, /if \(realDt > 12f\) realDt = 12f;/);
@@ -73,11 +83,24 @@ assert.doesNotMatch(code, /realDt < 0f \|\| realDt > 1f\) realDt = 0f/);
 assert.match(code, /bool PhaseDwellReady\(float specMinSeconds\)/);
 assert.match(code, /const float AUTO_PLAY_PHASE_DURATION = 12f;/);
 assert.match(code, /string _autoPlayVisualPhase = "";/);
+assert.match(code, /Vector3 _autoPlayCameraBasePosition = Vector3\.zero;/);
+assert.match(code, /float _autoPlayCameraBaseOrthoSize = 8f;/);
 assert.match(code, /void TickAutoPlayVisualMotion\(\)/);
-assert.match(code, /if \(!_autoPlayMode \|\| mainCam == null \|\| gameEnded\) return;/);
+assert.match(code, /bool IsAutoPlayCuaEngaged\(\)/);
+assert.match(code, /return _autoPlayMode \|\| GFM_AutoPlay\.Instance\.IsActive;/);
+assert.match(code, /return IsAutoPlayCuaEngaged\(\);/);
+assert.match(code, /if \(!IsAutoPlayCuaEngaged\(\) \|\| mainCam == null \|\| gameEnded\) return;/);
+assert.match(code, /_autoPlayCameraBasePosition = mainCam\.transform\.position;/);
+assert.match(code, /_autoPlayCameraBaseOrthoSize = mainCam\.orthographicSize;/);
+assert.match(code, /mainCam\.transform\.position = __autoPlayCameraPulsePosition;/);
 assert.match(code, /mainCam\.transform\.rotation = _autoPlayCameraBaseRotation \* Quaternion\.Euler\(pulse \* 2\.4f, pulse \* 4\.5f, 0f\);/);
 assert.match(code, /mainCam\.fieldOfView = Mathf\.Clamp\(_autoPlayCameraBaseFov \+ pulse \* 3\.0f, 32f, 64f\);/);
-assert.match(code, /float requiredSeconds = _autoPlayMode \? AUTO_PLAY_PHASE_DURATION : Mathf\.Min\(specMinSeconds, 0\.35f\);/);
+assert.match(code, /if \(mainCam\.orthographic\) mainCam\.orthographicSize = Mathf\.Clamp\(_autoPlayCameraBaseOrthoSize \+ pulse \* 0\.70f, 3\.5f, 14f\);/);
+assert.match(code, /bool autoDwell = IsAutoPlayCuaEngaged\(\);/);
+assert.match(code, /float requiredSeconds = autoDwell \? AUTO_PLAY_PHASE_DURATION : Mathf\.Min\(specMinSeconds, 0\.35f\);/);
+assert.match(code, /bool ready = autoDwell \? \(phaseRealTimer >= requiredSeconds \|\| \(realtimeUnavailable && phaseTimer >= requiredSeconds\)\) : phaseTimer >= requiredSeconds;/);
+assert.match(code, /_lastDwellRequiredSeconds = requiredSeconds;/);
+assert.match(code, /_lastDwellPhaseRealTimer = phaseRealTimer;/);
 assert.match(code, /bool ManualPhaseTargetEvidenceReady\(string phaseId\)/);
 assert.match(code, /_autoPlayMode \|\| !_manualGameplayUnlocked/);
 assert.match(code, /HasPhaseEvidenceRecord\(phaseId, "distance_to_target_below_threshold"\)/);
@@ -86,8 +109,37 @@ assert.match(code, /bool manualClickReady = HasPhaseEvidenceRecord\(phaseId, "ta
 assert.match(code, /HasPhaseEvidenceRecord\(phaseId, "click_trigger"\)/);
 assert.match(code, /return manualMoveReady \|\| manualClickReady;/);
 assert.doesNotMatch(code, /ManualPhaseTargetEvidenceReady[\s\S]{0,500}source_hidden_or_moved/);
+assert.match(code, /if \(GFM_AutoPlay\.Instance\.AutoPlayRequested && !GFM_AutoPlay\.Instance\.IsActive\)/);
+assertAppearsBefore(
+  code,
+  'SyncAutoPlayState(gameTimer);',
+  'if (GFM_AutoPlay.Instance.AutoPlayRequested && !GFM_AutoPlay.Instance.IsActive)',
+  'pending autoplay guard follows sync'
+);
+assertAppearsBefore(
+  code,
+  'if (GFM_AutoPlay.Instance.AutoPlayRequested && !GFM_AutoPlay.Instance.IsActive)',
+  'UpdatePhaseTimer(dt);',
+  'pending autoplay guard blocks phase timer'
+);
+assertAppearsBefore(
+  code,
+  'if (GFM_AutoPlay.Instance.AutoPlayRequested && !GFM_AutoPlay.Instance.IsActive)',
+  'CheckEventRules();',
+  'pending autoplay guard blocks phase rules'
+);
+assertAppearsBefore(
+  code,
+  'if (GFM_AutoPlay.Instance.AutoPlayRequested && !GFM_AutoPlay.Instance.IsActive)',
+  'GFM_Player.Instance.Tick(dt, false)',
+  'pending autoplay guard blocks manual player tick'
+);
 assert.match(code, /bool realtimeUnavailable = Time\.realtimeSinceStartup <= 0\.01f;/);
 assert.match(code, /phaseRealTimer >= requiredSeconds \|\| \(realtimeUnavailable && phaseTimer >= requiredSeconds\)/);
+assert.match(code, /"lastDwellRequiredSeconds\\":"/);
+assert.match(code, /FormatFloat\(_lastDwellRequiredSeconds\)/);
+assert.match(code, /"lastDwellPhaseRealTimer\\":"/);
+assert.match(code, /FormatFloat\(_lastDwellPhaseRealTimer\)/);
 assert.doesNotMatch(code, /phaseRealTimer <= 0\.01f && phaseTimer >= requiredSeconds/);
 assert.match(code, /currentPhaseName == "intro"/);
 assert.match(code, /currentPhaseName == "defendBase"/);
@@ -127,6 +179,7 @@ assert.match(
 );
 assert.match(collectCode, /int GetCollectedResource\(string id\)/);
 assert.match(collectCode, /void CapturePhaseResourceBaselines\(\)/);
+assert.match(collectCode, /bool HasLastKnownResourceBalance\(string resourceId\)/);
 assert.match(collectCode, /SetLastKnownResourceBalance\(GFM_ResourceIds\.Normalize\("Gold"\), GetCollectedResource\(GFM_ResourceIds\.Normalize\("Gold"\)\)\)/);
 assert.match(collectCode, /SetLastKnownResourceBalance\(GFM_ResourceIds\.Normalize\("Gold"\) \+ "_carried", GoldCarried\)/);
 assert.match(collectCode, /currentPhaseName == "collectGold"[\s\S]*PhaseDwellReady\(12f\)/);
@@ -178,6 +231,33 @@ const moveOnlyCode = typeof moveOnlySkeleton === 'string'
   : Object.keys(moveOnlySkeleton).map(k => moveOnlySkeleton[k]).filter(v => typeof v === 'string').join('\n');
 assertGateAllowsManual(moveOnlyCode, 'Phase_nextClick_GateReady', 'walkOnly');
 assertGateAllowsManual(moveOnlyCode, 'EndGame_GateReady', 'nextClick');
+
+const combatSkeleton = generateSkeleton([
+  {
+    phaseId: 'attackEnemy',
+    entitiesRequired: [{ name: 'EnemyAstronaut' }],
+    requiredInteractions: ['move_to:EnemyAstronaut', 'attack:EnemyAstronaut'],
+    triggerNext: { condition: 'enemy_defeated' },
+    duration: { min: 10, max: 15 },
+  },
+  {
+    phaseId: 'next',
+    entitiesRequired: [{ name: 'RocketDebris' }],
+    requiredInteractions: ['move_to:RocketDebris'],
+    duration: { min: 10, max: 15 },
+  },
+], {
+  entityPoolMap: { EnemyAstronaut: '__Pool_Enemy', RocketDebris: '__Pool_Debris' },
+  entities: [{ name: 'EnemyAstronaut' }, { name: 'RocketDebris' }],
+});
+const combatCode = typeof combatSkeleton === 'string'
+  ? combatSkeleton
+  : Object.keys(combatSkeleton).map(k => combatSkeleton[k]).filter(v => typeof v === 'string').join('\n');
+const combatGate = methodBlock(combatCode, 'Phase_next_GateReady');
+assert.match(combatGate, /EntityAdvanced\(EnemyAstronaut,\s*_snap_EnemyAstronautPos\)/);
+assert.match(combatGate, /_autoPlayMode && _autoPlaySteps > _autoPlayStepsAtPhaseStart && EnemyAstronautState >= 2/);
+assert.match(combatGate, /!_autoPlayMode && ManualPhaseTargetEvidenceReady\("attackEnemy"\) && EnemyAstronautState >= 2/);
+assertGateRequiresManualAndReal(combatCode, 'Phase_next_GateReady', 'attackEnemy');
 
 const latePhaseSkeleton = generateSkeleton([
   {
@@ -241,14 +321,14 @@ const buildOnlyCode = typeof buildOnlySkeleton === 'string'
   : Object.keys(buildOnlySkeleton).map(k => buildOnlySkeleton[k]).filter(v => typeof v === 'string').join('\n');
 assertGateRequiresManualAndReal(buildOnlyCode, 'Phase_next_GateReady', 'buildTower');
 
-const highComplexitySkeleton = generateSkeleton(Array.from({ length: 9 }, (_, idx) => ({
+const highComplexitySkeleton = generateSkeleton(Array.from({ length: 8 }, (_, idx) => ({
   phaseId: 'phase' + (idx + 1),
   entitiesRequired: [{ name: 'Target' + (idx + 1) }],
   requiredInteractions: ['move_to:Target' + (idx + 1)],
   duration: { min: 12, max: 15 },
 })), {
   entityPoolMap: {},
-  entities: Array.from({ length: 9 }, (_, idx) => ({ name: 'Target' + (idx + 1) })),
+  entities: Array.from({ length: 8 }, (_, idx) => ({ name: 'Target' + (idx + 1) })),
 });
 const highComplexityCode = typeof highComplexitySkeleton === 'string'
   ? highComplexitySkeleton

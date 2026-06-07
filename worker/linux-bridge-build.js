@@ -1448,6 +1448,9 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             }
             return color(value, fallback || '#ffffff');
           }
+          function alphaFromValue(value) {
+            return clamp01(value, 1);
+          }
           function colorArrayFromValue(value, fallback) {
             var c = colorFromValue(value, fallback || '#ffffff');
             return [Number(c.r), Number(c.g), Number(c.b)];
@@ -1462,16 +1465,29 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               base[2] + (target[2] - base[2]) * t
             ];
           }
-          function mat(value, fallback) {
+          function applyAlphaToMaterial(m, alpha) {
+            alpha = alphaFromValue(alpha);
+            try { if (m.diffuse) m.diffuse.a = alpha; } catch(eDiffuseA) {}
+            try { m.opacity = alpha; } catch(eOpacity) {}
+            if (alpha < 1) {
+              try { if (pc.BLEND_NORMAL !== undefined) m.blendType = pc.BLEND_NORMAL; } catch(eBlend) {}
+              try { m.depthWrite = false; } catch(eDepthWrite) {}
+              try { m.alphaTest = 0; } catch(eAlphaTest) {}
+            }
+            return alpha;
+          }
+          function mat(value, fallback, alphaValue) {
             if (typeof pc.StandardMaterial !== 'function') return null;
             var m = new pc.StandardMaterial();
             var c = colorFromValue(value, fallback || '#ffffff');
-            m.__storyboardColor = [c.r, c.g, c.b, 1];
+            var alpha = applyAlphaToMaterial(m, alphaValue);
+            m.__storyboardColor = [c.r, c.g, c.b, alpha];
             m.diffuse = c;
+            applyAlphaToMaterial(m, alpha);
             m.emissive = color('#000000');
             m.emissiveIntensity = 0.08;
             if (typeof m.setParameter === 'function') {
-              var rgba = [c.r, c.g, c.b, 1];
+              var rgba = [c.r, c.g, c.b, alpha];
               m.setParameter('_BaseColor', rgba);
               m.setParameter('_Color', rgba);
             }
@@ -1503,7 +1519,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             } catch(e) { poolRenderableCache = null; }
             return poolRenderableCache;
           }
-          function clonePoolMaterial(value, fallback) {
+          function clonePoolMaterial(value, fallback, alphaValue) {
             var source = findPoolRenderable();
             var base = source && source.material;
             if (!base) return null;
@@ -1523,14 +1539,16 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             if (!m || m === base) return null;
             try {
               var c = colorFromValue(value, fallback || '#ffffff');
-              var uc = new pc.Color(c.r, c.g, c.b, c.a || 1);
-              m.__storyboardColor = [c.r, c.g, c.b, 1];
+              var alpha = alphaFromValue(alphaValue);
+              var uc = new pc.Color(c.r, c.g, c.b, alpha);
+              m.__storyboardColor = [c.r, c.g, c.b, alpha];
               try { m.color = uc; } catch(eSetColor) {}
-              try { m.diffuse = new pc.Color(c.r, c.g, c.b, c.a || 1); } catch(eSetDiffuse) {}
+              try { m.diffuse = new pc.Color(c.r, c.g, c.b, alpha); } catch(eSetDiffuse) {}
               if (m.diffuse && typeof m.diffuse.copy === 'function') m.diffuse.copy(c);
+              applyAlphaToMaterial(m, alpha);
               try { m.emissive = new pc.Color(0, 0, 0, 1); } catch(eSetEmissive) {}
               if (typeof m.setParameter === 'function') {
-                var rgba = [c.r, c.g, c.b, 1];
+                var rgba = [c.r, c.g, c.b, alpha];
                 m.setParameter('_BaseColor', rgba);
                 m.setParameter('_Color', rgba);
                 m.setParameter('_EmissionColor', [0, 0, 0, 1]);
@@ -1539,9 +1557,9 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             } catch(eColor) {}
             return m;
           }
-          function overlayMaterial(value, fallback) {
-            var m = clonePoolMaterial(value, fallback);
-            return m || mat(value, fallback);
+          function overlayMaterial(value, fallback, alphaValue) {
+            var m = clonePoolMaterial(value, fallback, alphaValue);
+            return m || mat(value, fallback, alphaValue);
           }
           function nums(raw) {
             return String(raw || '').split(',').map(function(v) {
@@ -1793,7 +1811,8 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
             var p = arr3(asset && asset.transform && asset.transform.position, [0,0,0]);
             e.setLocalPosition(p[0], p[1], p[2]);
             e.setLocalScale(spec.scale[0], spec.scale[1], spec.scale[2]);
-            var material = overlayMaterial(asset && asset.material && asset.material.diffuseColor);
+            var assetMaterial = asset && asset.material || {};
+            var material = overlayMaterial(assetMaterial.diffuseColor, null, assetMaterial.opacity);
             applyMaterial(e, material);
             setTimeout(function() { applyMaterial(e, material); }, 0);
             setTimeout(function() { applyMaterial(e, material); }, 250);
@@ -3876,6 +3895,21 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
     })();
     if (comp && comp.Update) {
       var lastTime = performance.now();
+      var wallClockStart = lastTime;
+      window.__bpHeadlessWallSeconds = 0;
+      function syncHeadlessUnityClock(now) {
+        window.__bpHeadlessWallSeconds = Math.max(0, (now - wallClockStart) / 1000.0);
+        try {
+          if (UnityEngine.Time && !UnityEngine.Time.__bpWallClockPatched) {
+            Object.defineProperty(UnityEngine.Time, 'realtimeSinceStartup', {
+              configurable: true,
+              get: function() { return window.__bpHeadlessWallSeconds || 0; }
+            });
+            UnityEngine.Time.__bpWallClockPatched = true;
+          }
+        } catch(e) {}
+        try { if (UnityEngine.Time) UnityEngine.Time.realtimeSinceStartup = window.__bpHeadlessWallSeconds; } catch(e2) {}
+      }
       function resolveGameLoopComponent() {
         var target = comp;
         try {
@@ -4227,6 +4261,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
         var now = performance.now();
         var dt = (now - lastTime) / 1000.0;
         lastTime = now;
+        syncHeadlessUnityClock(now);
         try { if (UnityEngine.Time) UnityEngine.Time.deltaTime = dt; } catch(e) {}
         try {
           var loopComp = resolveGameLoopComponent();
@@ -4437,16 +4472,39 @@ if(_imgSet&&_imgSet.set){
   var _observerReadyRequested=_params.get('observerReady')==='1'||_params.get('cuaObserverReady')==='1';
   var _autoPlayRequested=_cuaAutoPlayRequested;
   window.__CUA_OBSERVER_READY__ = !!window.__CUA_OBSERVER_READY__ || _observerReadyRequested;
+  function createRuntimeFlag(name){
+    var made=false;
+    try{
+      if(typeof UnityEngine!=='undefined'&&UnityEngine.Application){
+        UnityEngine.Application.absoluteURL=window.location.href;
+      }
+    }catch(e){}
+    try{
+      if(typeof UnityEngine!=='undefined'&&UnityEngine.GameObject){
+        try{ if(UnityEngine.GameObject.Find&&UnityEngine.GameObject.Find(name)!=null) return true; }catch(e){}
+        if(UnityEngine.GameObject.$ctor2){ new UnityEngine.GameObject.$ctor2(name); made=true; }
+        else if(UnityEngine.GameObject.ctor){ new UnityEngine.GameObject.ctor(name); made=true; }
+      }
+    }catch(e){}
+    try{
+      var appForFlag=pc.app||pc.Application.getApplication();
+      if(appForFlag&&appForFlag.root){var fe=new pc.Entity(name);appForFlag.root.addChild(fe);made=true;}
+    }catch(e){}
+    return made;
+  }
   setInterval(function(){
     try{
       var app=pc.app||pc.Application.getApplication();
-      if(!app||!app.root)return;
       // Create autoPlay flag entity once (C# reads via GameObject.Find("__AUTOPLAY_ON__"))
       if(_autoPlayRequested&&!_autoPlayFlagCreated){
-        try{var fe=new pc.Entity('__AUTOPLAY_ON__');app.root.addChild(fe);_autoPlayFlagCreated=true;}catch(e){}
+        _autoPlayFlagCreated=createRuntimeFlag('__AUTOPLAY_ON__');
       }
       if(window.__CUA_OBSERVER_READY__&&!_observerReadyFlagCreated){
-        try{var oe=new pc.Entity('__CUA_OBSERVER_READY__');app.root.addChild(oe);_observerReadyFlagCreated=true;}catch(e){}
+        _observerReadyFlagCreated=createRuntimeFlag('__CUA_OBSERVER_READY__');
+      }
+      if(!app||!app.root)return;
+      if(window.__CUA_OBSERVER_READY__&&!_observerReadyFlagCreated){
+        _observerReadyFlagCreated=createRuntimeFlag('__CUA_OBSERVER_READY__');
       }
       // Scan all children recursively and choose the freshest GFM state.
       // Luna can leave multiple renamed GFM entities in the tree; CUA must read
@@ -4503,6 +4561,9 @@ if(_imgSet&&_imgSet.set){
     }
     return match;
   });
+
+  const headlessRealtimeExpr = '((typeof window!=="undefined"&&typeof window.__bpHeadlessWallSeconds==="number")?window.__bpHeadlessWallSeconds:UnityEngine.Time.realtimeSinceStartup)';
+  html = html.replace(/UnityEngine\.Time\.realtimeSinceStartup(?!\s*=)/g, headlessRealtimeExpr);
 
   return html;
 }

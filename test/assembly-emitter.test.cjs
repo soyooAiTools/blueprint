@@ -79,12 +79,18 @@ assert.ok(emitted.files.input.indexOf('Vector3.MoveTowards(__assemblyBefore, __j
 assert.ok(emitted.files.input.indexOf('GFM_Player.Instance.Tick(Time.deltaTime, false)') < 0, 'manual joystick input slot must not tick player a second time');
 assert.ok(emitted.files.input.indexOf('GFM_Player.Instance.LastManualMoveActive') >= 0, 'manual joystick evidence should read the per-frame movement snapshot');
 assert.ok(emitted.files.input.indexOf('if (!_autoPlayMode && __joystickRegistered) _manualGameplayUnlocked = true;') >= 0, 'manual joystick movement should unlock manual target evidence gates');
-assert.ok(emitted.files.flow.indexOf('move_to_target records arrival evidence only') >= 0, 'player move_to_target slot should not drive Player transform directly');
+assert.ok(emitted.files.flow.indexOf('move_to_target records arrival evidence and target state only') >= 0, 'player move_to_target slot should not drive Player transform directly');
 assert.ok(emitted.files.flow.indexOf('Player.transform.position = __assemblyNext') < 0, 'player move_to_target slot must not write Player.transform');
 assert.ok(emitted.files.flow.indexOf('__assemblyPlayer.transform.position = __assemblyPlayerBefore') < 0, 'missing-actor move_to_target fallback must not move Player');
 assert.ok(emitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "player_position_changed")') >= 0, 'move_to_target should record player motion evidence');
+assert.ok(emitted.files.flow.indexOf('__moveArrived && !_autoPlayMode && _manualGameplayUnlocked && __moveTarget != null') >= 0, 'manual move_to_target arrival should promote concrete target state only after manual input');
+assert.ok(emitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "entity_state_equals_built")') >= 0, 'manual move_to_target should record built-state evidence');
+assert.ok(emitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "downstream_entity_visible")') >= 0, 'manual move_to_target should record downstream visibility evidence');
 assert.ok(emitted.files.flow.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "entity_state_equals_built")') >= 0, 'build_progress should record built evidence');
 assert.ok(emitted.files.flow.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "build_progress"') >= 0, 'build_progress should emit structured phase evidence snapshot');
+assert.ok(emitted.files.flow.indexOf('string __assemblyDone_AssemblySlot_Flow_ConveyorBelt__build_progressPhase = "";') >= 0, 'build_progress should keep a per-slot phase guard');
+assert.ok(emitted.files.flow.indexOf('__assemblyDone_AssemblySlot_Flow_ConveyorBelt__build_progressPhase == currentPhaseName') >= 0, 'build_progress should not use shared phase evidence as its idempotence guard');
+assert.strictEqual(emitted.files.flow.indexOf('HasPhaseEvidenceRecord(currentPhaseName, "build_progress")) return;'), -1, 'build_progress must not let one target suppress another target in the same phase');
 assert.ok(emitted.files.flow.indexOf('var __buildProgressPos = ConveyorBelt.transform.position;') >= 0, 'build_progress should start from the visible target position');
 assert.ok(emitted.files.flow.indexOf('ConveyorBelt.transform.position = __buildProgressPos;') >= 0, 'build_progress should advance the visible target so phase gates observe real progress');
 assert.ok(emitted.files.input.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "tap_registered")') >= 0, 'tap/click slot should record tap evidence');
@@ -92,6 +98,7 @@ assert.ok(emitted.files.resource.indexOf('string __costGateResource = GFM_Resour
 assert.ok(emitted.files.resource.indexOf('TrySpend(__costGateResource, 1)') >= 0, 'cost_gate should spend configured resource through owner API');
 assert.ok(emitted.files.resource.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "resource_decremented")') >= 0, 'cost_gate should record resource decrement evidence');
 assert.ok(emitted.files.resource.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "cost_gate"') >= 0, 'cost_gate should emit structured phase evidence snapshot');
+
 var legacyUpgradeCostPlans = JSON.parse(JSON.stringify(plans));
 legacyUpgradeCostPlans.assemblyPlan.moduleInstances.forEach(function(module) {
   if (module.id === 'ConveyorBelt::cost_gate') {
@@ -163,6 +170,80 @@ var genericSkeleton = {
   ui: 'public partial class GameFlowManagerMain\n{\n    // TODO_UI_START\n    // TODO_UI_END\n}\n',
   scene: 'public partial class GameFlowManagerMain\n{\n}\n'
 };
+var multiTargetBuildPlans = {
+  entityPlan: {
+    entities: [
+      { name: 'CabinFoundation' },
+      { name: 'CabinCafeteria' },
+      { name: 'CabinDorm' },
+      { name: 'CabinPasture' },
+      { name: 'SpaceGarbage' },
+      { name: 'MetalShard' },
+      { name: 'SpaceStation' }
+    ]
+  },
+  assemblyPlan: {
+    moduleInstances: [
+      {
+        id: 'CabinFoundation::build_progress',
+        moduleId: 'build_progress',
+        entity: 'CabinFoundation',
+        params: { target: 'CabinFoundation' },
+        ownerFiles: ['GameFlowManagerMain.Flow.cs'],
+        sourceAtomIds: ['atom_cabin']
+      },
+      {
+        id: 'SpaceGarbage::build_progress',
+        moduleId: 'build_progress',
+        entity: 'SpaceGarbage',
+        params: { target: 'SpaceGarbage' },
+        ownerFiles: ['GameFlowManagerMain.Flow.cs'],
+        sourceAtomIds: ['atom_collect']
+      }
+    ],
+    fileOwners: [
+      { file: 'GameFlowManagerMain.Flow.cs', moduleInstanceIds: ['CabinFoundation::build_progress', 'SpaceGarbage::build_progress'] }
+    ],
+    phaseBindings: [
+      { phaseId: 'phase7', atomIds: ['atom_cabin'], activateEntities: ['CabinFoundation'] },
+      { phaseId: 'phase1', atomIds: ['atom_collect'], activateEntities: ['SpaceGarbage'] }
+    ],
+    stateOwners: [],
+    eventGraph: [],
+    unresolved: []
+  },
+  cuaPlan: {
+    steps: [
+      {
+        phaseId: 'phase7',
+        actions: [
+          { kind: 'move_to', target: 'CabinFoundation' },
+          { kind: 'build', target: 'CabinFoundation' },
+          { kind: 'move_to', target: 'CabinCafeteria' },
+          { kind: 'move_to', target: 'CabinDorm' },
+          { kind: 'move_to', target: 'CabinPasture' }
+        ]
+      },
+      {
+        phaseId: 'phase1',
+        actions: [
+          { kind: 'move_to', target: 'SpaceGarbage' },
+          { kind: 'build', target: 'SpaceGarbage' },
+          { kind: 'collect', target: 'SpaceGarbage', item: 'Scrap' },
+          { kind: 'move_to', target: 'MetalShard' },
+          { kind: 'move_to', target: 'SpaceStation' }
+        ]
+      }
+    ]
+  }
+};
+var multiTargetBuildEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(genericSkeleton, multiTargetBuildPlans);
+assert.ok(multiTargetBuildEmitted.files.flow.indexOf('CabinCafeteriaDone = true;') >= 0, 'build_progress should mark downstream build-chain cabin targets done for manual gates');
+assert.ok(multiTargetBuildEmitted.files.flow.indexOf('CabinDormState = Mathf.Max(CabinDormState, 2);') >= 0, 'build_progress should mark downstream build-chain cabin state as built');
+assert.ok(multiTargetBuildEmitted.files.flow.indexOf('CabinPastureState = Mathf.Max(CabinPastureState, 2);') >= 0, 'build_progress should mark all downstream build-chain targets as built');
+assert.ok(multiTargetBuildEmitted.files.flow.indexOf('MetalShardState = Mathf.Max(MetalShardState, 2);') === -1, 'collect-loop target sequences must not be marked built by build_progress');
+assert.ok(multiTargetBuildEmitted.files.flow.indexOf('SpaceStationState = Mathf.Max(SpaceStationState, 2);') === -1, 'return/dropoff collect targets must not be marked built by build_progress');
+
 var genericPlans = {
   assemblyPlan: {
     moduleInstances: [
@@ -672,6 +753,10 @@ assert.ok(implementationEmitted.files.resource.indexOf('string __collectResource
 assert.ok(implementationEmitted.files.resource.indexOf('AddResource(__collectResource, 1);') >= 0, 'system collect fallback should add the configured resource');
 assert.ok(implementationEmitted.files.resource.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "collect_on_near"') >= 0, 'collect_on_near should emit structured phase evidence snapshot');
 assert.ok(implementationEmitted.files.resource.indexOf('string __inventoryWalletResource = GFM_ResourceIds.Gold;') >= 0, 'inventory_wallet should observe configured resource kinds');
+assert.ok(implementationEmitted.files.resource.indexOf('string __inventoryWalletBalanceKey = __inventoryWalletResource + "_wallet";') >= 0, 'inventory_wallet should use a private balance key');
+assert.ok(implementationEmitted.files.resource.indexOf('HasLastKnownResourceBalance(__inventoryWalletBalanceKey)') >= 0, 'inventory_wallet should initialize its private balance without fabricating a first-frame delta');
+assert.strictEqual(implementationEmitted.files.resource.indexOf('SetLastKnownResourceBalance(__inventoryWalletResource, __inventoryWalletAfter);'), -1, 'inventory_wallet must not overwrite phase resource baselines used by gates');
+assert.ok(implementationEmitted.files.resource.indexOf('SetLastKnownResourceBalance(__inventoryWalletBalanceKey, __inventoryWalletAfter);') >= 0, 'inventory_wallet should update only its private balance key');
 assert.ok(implementationEmitted.files.resource.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "inventory_wallet"') >= 0, 'inventory_wallet should emit structured phase evidence snapshot');
 assert.ok(implementationEmitted.files.ui.indexOf('RecordPhaseEvidenceObject(currentPhaseName, "score_feedback"') >= 0, 'score_feedback should emit structured phase evidence snapshot');
 assert.ok(implementationEmitted.files.ui.indexOf('ShowCTA();') >= 0, 'cta_finish should deterministically show CTA');
@@ -905,6 +990,8 @@ var cTierEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(genericSkeleton, 
 });
 assert.ok(cTierEmitted.files.scene.indexOf('\\"framing.look_at\\"') >= 0, 'camera_focus should use literal dotted framing.look_at key expected by evaluator');
 assert.ok(cTierEmitted.files.input.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "drag_path_completed")') >= 0, 'drag_trigger should emit declared drag_path_completed flag');
+assert.ok(cTierEmitted.files.input.indexOf('CTAButtonState = Mathf.Max(CTAButtonState, 2);') >= 0, 'click trigger should advance clicked target state for phase gates');
+assert.ok(cTierEmitted.files.input.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "entity_state_changed")') >= 0, 'click trigger should record state evidence');
 assert.ok(cTierEmitted.files.ui.indexOf('RecordPhaseEvidenceFlag(currentPhaseName, "highlight_overlay_visible")') >= 0, 'highlight_target should emit overlay flag');
 
 console.log('assembly-emitter tests passed');

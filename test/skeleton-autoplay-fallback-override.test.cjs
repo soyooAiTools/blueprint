@@ -86,12 +86,21 @@ var src = fs.readFileSync(path.join(__dirname, '..', 'adapters', 'skeleton-gener
       entitiesRequired: [{ name: 'Workshop' }],
       playerMustAct: true,
     },
+    {
+      phaseId: 'phase3',
+      phaseName: 'Phase 3',
+      duration: { min: 10, max: 15 },
+      requiredInteractions: ['move_to:EnemyAstronaut', 'attack:EnemyAstronaut'],
+      entitiesRequired: [{ name: 'EnemyAstronaut' }],
+      playerMustAct: true,
+    },
   ];
   var result = skeleton.generateSkeleton(specs, {
-    entityPoolMap: { Player: '__Pool_Cube_White_01', Workshop: '__Pool_Cube_Red_02' },
+    entityPoolMap: { Player: '__Pool_Cube_White_01', Workshop: '__Pool_Cube_Red_02', EnemyAstronaut: '__Pool_Cube_Blue_03' },
     entities: [
       { name: 'Player', chineseName: '玩家' },
       { name: 'Workshop', chineseName: '工坊' },
+      { name: 'EnemyAstronaut', chineseName: '敌方宇航员' },
     ],
     w1bSplit: true,
   });
@@ -106,6 +115,14 @@ var src = fs.readFileSync(path.join(__dirname, '..', 'adapters', 'skeleton-gener
     'phase1 fallback 设 flag');
   assert.ok(/_autoplayFallbackFired_phase2\s*=\s*true/.test(allFiles),
     'phase2 fallback 设 flag');
+  assert.ok(/GFM_AutoPlay\.Instance\.IncrementSteps\(\)/.test(allFiles),
+    'autoplay fallback should count as a real autoplay step before phase completion snapshot');
+  assert.ok(/RecordPhaseEvidenceFlag\("phase3", "projectile_visible"\)/.test(allFiles),
+    'combat fallback records projectile evidence from attack interaction');
+  assert.ok(/int enemiesDefeated\s*=\s*0/.test(allFiles),
+    'combat fallback declares enemiesDefeated counter');
+  assert.ok(/enemiesDefeated\s*=\s*Mathf\.Max\(enemiesDefeated,\s*1\)/.test(allFiles),
+    'combat fallback updates enemiesDefeated counter');
   // gate condition 含 OR 子句
   assert.ok(/_autoPlayMode\s*&&\s*_autoplayFallbackFired_phase1/.test(allFiles),
     'phase1 gate 含 OR 子句');

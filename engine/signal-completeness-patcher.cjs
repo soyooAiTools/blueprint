@@ -244,7 +244,7 @@ function findPartialClassOpenBrace(code) {
  *   1. 类顶部加一个 dedup 字段 `string _lastSignalFallbackPhase = "";`
  *   2. 类末尾(右大括号前)加 helper 方法 _EmitPhaseFallbackSignals(string phaseId) 带 switch
  *   3. UpdatePhaseTimer 函数体末尾加守卫调用:
- *        if (_autoPlayMode && (phaseRealTimer >= 1f || phaseTimer >= 1f)
+ *        if (_autoPlayMode && PhaseDwellReady(AUTO_PLAY_PHASE_DURATION)
  *            && _lastSignalFallbackPhase != currentPhaseName) {
  *          _lastSignalFallbackPhase = currentPhaseName;
  *          _EmitPhaseFallbackSignals(currentPhaseName);
@@ -293,7 +293,7 @@ function injectFallbacksIntoFlowFile(flowCode, missing) {
   var methodLines = [];
   methodLines.push('');
   methodLines.push('    // ' + INJECT_MARKER + ' helper method (signal-completeness-patcher 2026-05-13)');
-  methodLines.push('    // 由 UpdatePhaseTimer 在 phaseRealTimer / phaseTimer >= 1f 时 per-phase 单次调用,');
+  methodLines.push('    // 由 UpdatePhaseTimer 在 PhaseDwellReady(AUTO_PLAY_PHASE_DURATION) 后 per-phase 单次调用,');
   methodLines.push('    // 把 autoplay 路径下的 expected completionSignals 一次性补齐,真玩家路径不受影响。');
   methodLines.push('    void _EmitPhaseFallbackSignals(string phaseId)');
   methodLines.push('    {');
@@ -370,10 +370,9 @@ function injectFallbacksIntoFlowFile(flowCode, missing) {
   // (3) UpdatePhaseTimer 末尾加守卫
   var guardLines = [];
   guardLines.push('');
-  guardLines.push('        // ' + INJECT_MARKER + ' dwell-gated emit (phaseRealTimer >= 1f || phaseTimer >= 1f).');
-  guardLines.push('        // autoplay 路径单次 emit,留出真动作产生视觉变化的窗口,避免 visual-check 检到');
-  guardLines.push('        // "两帧静止" 触发 Codex visual-fix round (~16min)。');
-  guardLines.push('        if (_autoPlayMode && (phaseRealTimer >= 1f || phaseTimer >= 1f) && _lastSignalFallbackPhase != currentPhaseName)');
+  guardLines.push('        // ' + INJECT_MARKER + ' dwell-gated emit after PhaseDwellReady; never before CUA observer window.');
+  guardLines.push('        // autoplay 路径单次 emit,但必须共享 phase 出口的真实 dwell gate,避免 PRE-CONTAMINATION。');
+  guardLines.push('        if (_autoPlayMode && PhaseDwellReady(AUTO_PLAY_PHASE_DURATION) && _lastSignalFallbackPhase != currentPhaseName)');
   guardLines.push('        {');
   guardLines.push('            _lastSignalFallbackPhase = currentPhaseName;');
   guardLines.push('            _EmitPhaseFallbackSignals(currentPhaseName);');

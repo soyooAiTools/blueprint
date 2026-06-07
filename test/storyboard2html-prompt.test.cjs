@@ -77,6 +77,17 @@ assert.strictEqual(built.metadata.projectName, 'FarmStoryboard');
 
 // L1 system prompt clauses
 assert.ok(built.systemPrompt.indexOf('PHASES') >= 0, 'system prompt should mention PHASES');
+assert.ok(built.systemPrompt.indexOf('SourceSceneIR') >= 0, 'system prompt should mention SourceSceneIR');
+assert.ok(built.systemPrompt.indexOf('window.__BP_SOURCE_IR__') >= 0, 'system prompt should require window.__BP_SOURCE_IR__');
+assert.ok(built.systemPrompt.indexOf('window.__BP_SOURCE_IR_HASH__') >= 0, 'system prompt should require window.__BP_SOURCE_IR_HASH__');
+assert.ok(built.systemPrompt.indexOf('source-scene-ir.v1') >= 0, 'system prompt should require source-scene-ir.v1 schemaVersion');
+assert.ok(built.systemPrompt.indexOf('blueprint.sourceSceneIR') >= 0, 'system prompt should require SourceSceneIR kind');
+assert.ok(built.systemPrompt.indexOf('step.kind') >= 0 && built.systemPrompt.indexOf('move_to') >= 0 && built.systemPrompt.indexOf('cta_finish') >= 0,
+  'system prompt should include SourceSceneIR step whitelist');
+assert.ok(built.systemPrompt.indexOf('gate.kind') >= 0 && built.systemPrompt.indexOf('near_entity') >= 0 && built.systemPrompt.indexOf('cta_arrival') >= 0,
+  'system prompt should include SourceSceneIR gate whitelist');
+assert.ok(built.systemPrompt.indexOf('PHASES = __BP_SOURCE_IR__.phases') >= 0,
+  'system prompt should require legacy PHASES projection from SourceSceneIR');
 assert.ok(built.systemPrompt.indexOf('setTip') >= 0);
 assert.ok(built.systemPrompt.indexOf('enterPhase') >= 0);
 assert.ok(built.systemPrompt.indexOf('completePhase') >= 0);

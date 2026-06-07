@@ -40,6 +40,29 @@ assert.match(code, /void MaybeAssistAutoPlayPhase\(\)[\s\S]*OnAutoPlayArrive\("_
 assert.match(code, /GFM_AutoPlay\.Instance\.SetTargets\(_autoTargets\);/);
 assert.match(code, /else GFM_Player\.Instance\.Tick\(dt, false\);/);
 
+const planOrderedSkeleton = generateSkeleton(specs, {
+  entityPoolMap: {
+    Enemy: '__Pool_Enemy',
+    Tower: '__Pool_Tower',
+    Gold: '__Pool_Gold',
+  },
+  entities: [{ name: 'Enemy' }, { name: 'Tower' }, { name: 'Gold' }],
+  plans: {
+    cuaPlan: {
+      steps: [
+        { phaseId: 'warning', actions: [{ kind: 'move_to', target: 'Tower' }] },
+        { phaseId: 'buildTower', actions: [{ kind: 'collect', target: 'Gold' }, { kind: 'attack', target: 'Enemy' }] },
+      ],
+    },
+  },
+});
+const planOrderedCode = typeof planOrderedSkeleton === 'string' ? planOrderedSkeleton : planOrderedSkeleton.main;
+assert.match(
+  planOrderedCode,
+  /string\[\] _autoTargets = new string\[\] \{ "Tower", "Gold", "Enemy" \};/,
+  'autoplay target order should prefer CUA plan actions when available'
+);
+
 const idleSkeleton = generateSkeleton([
   {
     phaseId: 'moveToOre',

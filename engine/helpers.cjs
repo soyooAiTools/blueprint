@@ -128,6 +128,7 @@ function mergeVisualManifest(base, fallback) {
     'sourceEntityContract',
     'sourceSceneContract',
     'sourcePhaseContract',
+    'visualRuntimeContract',
     'extractionSummary',
     'assets',
     'entityBindings',
@@ -277,16 +278,39 @@ function buildGameStateBridgeScript() {
   var _observerReadyRequested=_params.get('observerReady')==='1'||_params.get('cuaObserverReady')==='1';
   var _autoPlayRequested=_cuaAutoPlayRequested;
   window.__CUA_OBSERVER_READY__ = !!window.__CUA_OBSERVER_READY__ || _observerReadyRequested;
+  function createRuntimeFlag(name){
+    var made=false;
+    try{
+      if(typeof UnityEngine!=='undefined'&&UnityEngine.Application){
+        UnityEngine.Application.absoluteURL=window.location.href;
+      }
+    }catch(e){}
+    try{
+      if(typeof UnityEngine!=='undefined'&&UnityEngine.GameObject){
+        try{ if(UnityEngine.GameObject.Find&&UnityEngine.GameObject.Find(name)!=null) return true; }catch(e){}
+        if(UnityEngine.GameObject.$ctor2){ new UnityEngine.GameObject.$ctor2(name); made=true; }
+        else if(UnityEngine.GameObject.ctor){ new UnityEngine.GameObject.ctor(name); made=true; }
+      }
+    }catch(e){}
+    try{
+      var appForFlag=pc.app||pc.Application.getApplication();
+      if(appForFlag&&appForFlag.root){var fe=new pc.Entity(name);appForFlag.root.addChild(fe);made=true;}
+    }catch(e){}
+    return made;
+  }
   setInterval(function(){
     try{
       var app=pc.app||pc.Application.getApplication();
-      if(!app||!app.root)return;
       // Create autoPlay flag entity once (C# reads via GameObject.Find("__AUTOPLAY_ON__"))
       if(_autoPlayRequested&&!_autoPlayFlagCreated){
-        try{var fe=new pc.Entity('__AUTOPLAY_ON__');app.root.addChild(fe);_autoPlayFlagCreated=true;}catch(e){}
+        _autoPlayFlagCreated=createRuntimeFlag('__AUTOPLAY_ON__');
       }
       if(window.__CUA_OBSERVER_READY__&&!_observerReadyFlagCreated){
-        try{var oe=new pc.Entity('__CUA_OBSERVER_READY__');app.root.addChild(oe);_observerReadyFlagCreated=true;}catch(e){}
+        _observerReadyFlagCreated=createRuntimeFlag('__CUA_OBSERVER_READY__');
+      }
+      if(!app||!app.root)return;
+      if(window.__CUA_OBSERVER_READY__&&!_observerReadyFlagCreated){
+        _observerReadyFlagCreated=createRuntimeFlag('__CUA_OBSERVER_READY__');
       }
       // Scan all children recursively and choose the freshest GFM state.
       // Some Luna exports keep stale renamed entities around; taking the first

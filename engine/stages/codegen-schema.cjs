@@ -338,6 +338,7 @@ module.exports = {
           entities: schema.entities,
           visualAssets: ctx.blueprint.visualAssets || null,
           sourceMeshOps: ctx.blueprint.sourceMeshOps || null,
+          plans: ctx.blueprint.plans || null,
           w1bSplit: ctx.blueprint.w1bSplit !== false,
         });
         var isW1bSplit = (typeof skeletonResult === 'object' && skeletonResult.mode === 'w1b-5partial');
@@ -942,7 +943,7 @@ function buildSchemaPromptLegacy(ctx) {
   var lines = [];
   lines.push('根据分镜 specs 输出完整 JSON 配置对象。严格遵守以下字段定义,不添加额外字段:');
   lines.push('');
-  lines.push('gameConfig (必填): { "cameraBackground": [r,g,b], "groundColor": [r,g,b], "moveSpeed": 5.0, "collectRange": 2.0, "maxCarry": 10 }');
+  lines.push('gameConfig (必填): { "cameraBackground": [r,g,b], "groundColor": [0.3,0.6,0.2], "moveSpeed": 5.0, "collectRange": 2.0, "maxCarry": 10 }');
   lines.push('entities[]: { "name": "PascalCaseName", "chineseName": "中文名", "showLabel": true, "pool": "__Pool_Shape_Color_NN", "initPos": [x,y,z], "scale": 1.0 } — name 用于 C#,chineseName 是世界标签显示的中文');
   lines.push('resources[]: { "name": "资源名", "entity": "关联实体名", "convertRatio": 1 }');
   lines.push('phases[]: { "phaseId": "阶段ID", "showEntities": ["实体名"], "hideEntities": [], "guideText": "引导文字", "trigger": {...}, "onEnter": [{...}] }');
@@ -1608,17 +1609,11 @@ function hasNamedRef(value) {
 function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
   if (!schema || typeof schema !== 'object') return;
 
-  // Build blueprint entity lookup: name -> label (Chinese display name)
-  // AJV requires chineseName but Haiku --effort low omits it ~30% of runs;
-  // backfill from blueprint.label → entity.name → 'entity' before validation.
   var _bpLabelByName = {};
   (blueprintEntities || []).forEach(function(be) {
     if (be && be.name) _bpLabelByName[be.name] = be.label || be.chineseName || '';
   });
 
-  // Build phaseId -> guideText lookup from spec show_guide atoms (Chinese friendly text).
-  // Used to backfill missing phase.guideText so SetGuideText() always has content
-  // (phase-init template skips emit when guideText is empty → silent UX gap).
   var _bpGuideByPhase = {};
   (blueprintSpecs || []).forEach(function(spec) {
     var atoms = (spec && spec.atoms) || (spec && spec.plan && spec.plan.atoms) || [];
@@ -1678,7 +1673,6 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
     return '';
   }
 
-  // Fix gameConfig defaults
   if (!schema.gameConfig) schema.gameConfig = {};
   var gc = schema.gameConfig;
   if (!gc.cameraBackground) gc.cameraBackground = [0.5, 0.7, 1.0];
@@ -1721,7 +1715,6 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
     if (typeof existing.showLabel !== 'boolean') {
       existing.showLabel = inferEntityShowLabel(be.name);
     }
-    // 2026-05-03: Player 必须有 "玩家" 标签 (或 blueprint 给的 label 优先)，强制覆盖
     if (/^Player$/i.test(be.name)) {
       existing.showLabel = true;
       if (!existing.chineseName || existing.chineseName === 'entity' || existing.chineseName === be.name) {
@@ -1742,8 +1735,6 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
     }
   });
 
-  // Fix entities: strip extra props, pad pool digits, prevent pool collisions.
-  // Two-pass: (1) validate & register valid pools, (2) assign unique fallbacks.
   var _FALLBACK_POOLS = [
     '__Pool_Cube_White_01', '__Pool_Cube_Red_02', '__Pool_Sphere_Blue_03',
     '__Pool_Cube_Green_04', '__Pool_Cube_Yellow_05', '__Pool_Sphere_White_06',
@@ -1752,19 +1743,13 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
     '__Pool_Capsule_Yellow_13', '__Pool_Cylinder_White_14', '__Pool_Cube_Blue_15',
   ];
   var _usedPools = {};
-  // Pass 1: validate format, register valid unique pools
   (schema.entities || []).forEach(function(e) {
     Object.keys(e).forEach(function(k) { if (!ALLOWED_ENTITY_KEYS[k]) delete e[k]; });
-    // chineseName fallback: blueprint.label → name → 'entity' (prevents Haiku omission from failing validation)
     if (!e.chineseName || typeof e.chineseName !== 'string' || e.chineseName.length === 0) {
       e.chineseName = _bpLabelByName[e.name] || e.name || 'entity';
     }
-    // 2026-05-05: 常见英文名 → 中文,避免世界标签出现"Gold"这种英文(玩家看不懂)。
     var _commonZh = { Gold: '金币', Coin: '金币', Gem: '宝石', Currency: '货币', Score: '分数', Energy: '能量', Health: '生命' };
     if (_commonZh[e.chineseName]) e.chineseName = _commonZh[e.chineseName];
-    // 2026-05-05: 终极 scale 兜底 — LLM/blueprint 给出的 scale 也按 0.3-0.7 cap。
-    // 单独走 parseBlueprintScale 不够,因为 LLM 经常直接在 schema JSON 里塞 scale: 1.5,
-    // 而 existing.scale 已被赋值,后续 parse 走不到。这里在最终 entities 序列化前再 clamp 一次。
     if (typeof e.scale === 'number') {
       if (!isFinite(e.scale) || e.scale <= 0) e.scale = 0.5;
       else if (e.scale > 0.7) e.scale = 0.7;
@@ -1775,19 +1760,18 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
     if (e.pool && !/\d{2}$/.test(e.pool)) {
       e.pool = e.pool.replace(/_(\d)$/, '_0$1');
     }
-    if (e.pool && !/^__Pool_[A-Z][a-z]+_[A-Z][a-z]+_\d{2}$/.test(e.pool)) {
+    if (e.pool && !(/^__Pool_[A-Z][a-z]+_[A-Z][a-z]+_\d{2}$/.test(e.pool))) {
       e.pool = null;
     }
     if (e.pool && !_usedPools[e.pool]) {
       _usedPools[e.pool] = true;
     } else if (e.pool) {
-      e.pool = null; // duplicate — clear for pass 2
+      e.pool = null;
     }
   });
-  // Pass 2: assign unique fallback pools for invalid/duplicate entries
   var _fallbackIdx = 0;
   (schema.entities || []).forEach(function(e) {
-    if (e.pool) return; // already valid + unique
+    if (e.pool) return;
     for (; _fallbackIdx < _FALLBACK_POOLS.length; _fallbackIdx++) {
       if (!_usedPools[_FALLBACK_POOLS[_fallbackIdx]]) {
         e.pool = _FALLBACK_POOLS[_fallbackIdx];
@@ -1801,7 +1785,6 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
     _fallbackIdx++;
   });
 
-  // Fix resources: ensure required fields
   (schema.resources || []).forEach(function(r) {
     if (!r.entity) r.entity = (schema.entities && schema.entities[0]) ? schema.entities[0].name : 'Unknown';
     if (r.convertRatio == null) r.convertRatio = 1;
@@ -1810,15 +1793,10 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
     });
   });
 
-  // Fix phases: strip extra props from phase/onEnter, normalize action names, default required fields
   (schema.phases || []).forEach(function(p, _phaseIdx) {
     if (!p || typeof p !== 'object') return;
     Object.keys(p).forEach(function(k) { if (!ALLOWED_PHASE_KEYS[k]) delete p[k]; });
 
-    // Backfill guideText: phase-init template only emits SetGuideText when guideText is non-empty,
-    // so missing field = silent on-screen guidance gap. Source order:
-    //   1) spec show_guide atom for this phaseId (Chinese friendly text)
-    //   2) phaseId itself as a fallback label (always non-empty)
     if (!p.guideText || typeof p.guideText !== 'string' || p.guideText.trim().length === 0) {
       var _gt = (p.phaseId && _bpGuideByPhase[p.phaseId]) || p.phaseId || ('Phase ' + (_phaseIdx + 1));
       p.guideText = String(_gt).trim();
@@ -1829,7 +1807,6 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
       if (a.action && ALLOWED_ACTIONS.indexOf(a.action) === -1) {
         a.action = 'set_entity_state';
       }
-      // Default required fields to prevent JS undefined leaking into C# code
       if (a.action === 'switch_form' && a.formIndex == null) a.formIndex = 0;
       if (a.action === 'set_entity_state') {
         if (!a.entity) a.entity = 'Unknown';
@@ -1873,8 +1850,6 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
     });
   });
 
-  // Fix triggers: infer missing type, normalize common aliases, strip stray
-  // fields, and recurse into compound triggers before validation.
   function inferTriggerType(t, phaseIdx, phaseCount) {
     if (!t || typeof t !== 'object') return null;
     if (typeof t.type === 'string' && t.type) return t.type;
@@ -1948,10 +1923,6 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
   }
   (schema.phases || []).forEach(function(p, idx, arr) { normalizeTrigger(p.trigger, idx, arr.length, false); });
 
-  // 2026-05-12 P1b: 当 LLM 输出的 phase 数量少于 specs.length (Sonnet 偶发截断输出 / 漏拷贝),
-  // 不走重新生成,直接按 specs 模板补齐尾部 phase。只补 tail,中间断号交给 LLM round 处理。
-  // 补齐策略:phaseId 从 spec 取;showEntities 用 spec.entitiesRequired;trigger 用
-  // triggerNormalizer.deriveTriggerFromInteractions 从 DSL 反推。
   if (Array.isArray(schema.phases) && Array.isArray(blueprintSpecs) && schema.phases.length < blueprintSpecs.length) {
     var padStart = schema.phases.length;
     var totalSpecs = blueprintSpecs.length;
@@ -1973,7 +1944,6 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
           spec.requiredInteractions, schemaEntList);
       } catch (_e) { derivedTrigger = null; }
       if (!derivedTrigger) {
-        // 末位 phase 必须有 CTA gate；中间补位走 near_entity 兜底。
         var fallbackEnt = pickPhaseFallbackEntity(null, pi, totalSpecs);
         if (pi === totalSpecs - 1) {
           derivedTrigger = { type: 'click_entity', entity: fallbackEnt || 'CTAButton' };
@@ -1991,7 +1961,6 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
       };
       schema.phases.push(paddedPhase);
     }
-    // 末位 trigger 必须包含 CTA gate (near_entity or click_entity)。
     var lastIdx = schema.phases.length - 1;
     var lastTrig = schema.phases[lastIdx] && schema.phases[lastIdx].trigger;
     if (lastTrig && lastTrig.type !== 'click_entity' && lastTrig.type !== 'near_entity' && lastTrig.type !== 'compound') {
@@ -2004,7 +1973,6 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
     }
   }
 
-  // Fix customLogic: ensure array of strings
   if (schema.customLogic) {
     schema.customLogic = schema.customLogic.filter(function(x) { return typeof x === 'string'; });
   }
@@ -2156,7 +2124,6 @@ function _repairSchemaValidationErrors(schema, errors, ctx) {
     }
   }
 
-  // Mechanical post-pass after error-driven repair.
   if (schema.phases && schema.phases.length > 0) {
     var firstPhase = schema.phases[0];
     if (firstPhase && Array.isArray(firstPhase.showEntities) && firstPhase.showEntities.length < 3) {

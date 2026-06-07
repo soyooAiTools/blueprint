@@ -149,7 +149,7 @@ function generateVariables(schema, skeleton) {
     if (npcs[i].params && npcs[i].params.attackDamage) hasPlayerHP = true;
   }
   if (hasPlayerHP) lines.push('    int playerHP = 10; // player health used by NPC combat templates');
-  if (npcs.some(function(n) { return NPC_TEMPLATES_WITH_DEFEAT_COUNTER[n.template]; })) {
+  if (!skeletonHas('enemiesDefeated') && (npcs.some(function(n) { return NPC_TEMPLATES_WITH_DEFEAT_COUNTER[n.template]; }) || schemaUsesCombatDefeatCounter(schema))) {
     lines.push('    int enemiesDefeated = 0; // combat progress counter used by phase evidence');
   }
   // Resource flow variables
@@ -165,6 +165,21 @@ function generateVariables(schema, skeleton) {
   var collectVars = generateCollectVariables(schema);
   if (collectVars) lines.push(collectVars);
   return lines.join('\n');
+}
+
+function schemaUsesCombatDefeatCounter(schema) {
+  var phases = schema && Array.isArray(schema.phases) ? schema.phases : [];
+  return phases.some(function(phase) {
+    var triggerType = String(phase && phase.trigger && phase.trigger.type || '').toLowerCase();
+    if (triggerType === 'enemy_defeated' || triggerType === 'defeat') return true;
+    var required = Array.isArray(phase && phase.requiredInteractions) ? phase.requiredInteractions : [];
+    if (required.some(function(item) {
+      var verb = String(item || '').split(':')[0].toLowerCase();
+      return verb === 'attack' || verb === 'defeat';
+    })) return true;
+    var steps = Array.isArray(phase && phase.steps) ? phase.steps : [];
+    return steps.some(function(step) { return !!(step && step.damage); });
+  });
 }
 
 function npcVariableComment(varName, entityName, templateName) {

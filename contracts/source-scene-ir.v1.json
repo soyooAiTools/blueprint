@@ -1,0 +1,82 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "blueprint.sourceSceneIR.schema",
+  "contractVersion": "source-scene-ir.v1",
+  "description": "Canonical storyboard2html semantic source contract. HTML runtime may still use JavaScript, but downstream gameplay semantics must be compiled from this IR instead of inferred from arbitrary JS bodies.",
+  "requiredTopLevelKeys": [
+    "schemaVersion",
+    "project",
+    "scene",
+    "entities",
+    "resources",
+    "phases",
+    "hud",
+    "runtimeContract"
+  ],
+  "hash": {
+    "globalName": "window.__BP_SOURCE_IR_HASH__",
+    "algorithm": "sha256",
+    "semanticPayload": [
+      "schemaVersion",
+      "kind",
+      "project",
+      "scene",
+      "entities",
+      "resources",
+      "phases",
+      "hud",
+      "runtimeContract"
+    ],
+    "excludedFields": [
+      "generatedAt",
+      "source",
+      "semanticHash",
+      "diagnostics",
+      "extraction"
+    ]
+  },
+  "phaseIdFormat": "phase{n}",
+  "stepKinds": [
+    "move_to",
+    "collect",
+    "deliver",
+    "build",
+    "upgrade",
+    "attack",
+    "spawn",
+    "despawn",
+    "show",
+    "hide",
+    "set_tip",
+    "set_resource",
+    "set_entity_state",
+    "wait",
+    "cta_finish"
+  ],
+  "gateKinds": [
+    "near_entity",
+    "resource",
+    "entity_state",
+    "entity_count",
+    "timer",
+    "compound_all",
+    "compound_any",
+    "cta_arrival"
+  ],
+  "legacyCompatibilityProjection": {
+    "PHASES": "phases[] projected to id/name/guideText/goalText/showEntities/trigger/steps/plannedModuleIds",
+    "ENTITY_STYLE": "entities[].visual projected by entity id",
+    "ENTITY_POSITIONS": "entities[].position projected by entity id",
+    "SCENE_CONFIG": "scene projected to background/camera/ground/lights"
+  },
+  "preflightRules": [
+    "schemaVersion must be source-scene-ir.v1",
+    "semanticHash, when present, must match the normalized semantic payload",
+    "phase ids must be unique and sequential as phase1..phaseN",
+    "showEntities entries must reference entities[]",
+    "step and gate entity/resource references must resolve",
+    "non-final phases must not use CTA or click-to-advance semantics",
+    "requiresJoystick=true requires runtime joystick evidence during HTML preflight",
+    "IR must project to PHASES, ENTITY_STYLE, ENTITY_POSITIONS, and SCENE_CONFIG"
+  ]
+}

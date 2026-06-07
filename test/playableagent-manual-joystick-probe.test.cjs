@@ -36,6 +36,7 @@ assert.ok(
 );
 assert.ok(
   playableAgentSrc.indexOf('extractBlueprintPhaseTargetMap') >= 0 &&
+    playableAgentSrc.indexOf('extractBlueprintPhaseTargetSequenceMap') >= 0 &&
     playableAgentSrc.indexOf('choosePhaseVisibleTarget') >= 0 &&
     playableAgentSrc.indexOf('targetExistsInPhaseSpec') >= 0 &&
     playableAgentSrc.indexOf('targetFromGuidanceLine ? roundPos(line && line.target) : null') >= 0,
@@ -43,8 +44,16 @@ assert.ok(
 );
 assert.ok(
   playableAgentSrc.indexOf('const lineTarget = line && line.targetName') >= 0 &&
-    playableAgentSrc.indexOf('return runtimeTarget || lineTarget || plannedTarget ||') >= 0,
-  'manual joystick flow probe should prefer runtime current step targets over stale overlay guidance and static phase fallback targets'
+    playableAgentSrc.indexOf('const sequence = args.phaseTargetSequences') >= 0 &&
+    playableAgentSrc.indexOf('if (isVisibleWorldPos(stateEntityPos(gs, name))) return name;') >= 0,
+  'manual joystick flow probe should advance through visible per-phase target sequences before stale overlay fallback targets'
+);
+assert.ok(
+  playableAgentSrc.indexOf('window.__bpManualFlowTargetCursor') >= 0 &&
+    playableAgentSrc.indexOf('store.indexes[phaseKey] = targetSequenceIndex + 1') >= 0 &&
+    playableAgentSrc.indexOf('targetSequenceIndex') >= 0 &&
+    playableAgentSrc.indexOf('arrivalRange })') >= 0,
+  'manual joystick flow probe should keep a browser-side cursor through multi-target phase sequences'
 );
 assert.ok(
   playableAgentSrc.indexOf("BLUEPRINT_MANUAL_JOYSTICK_FLOW_TOUCH_MODE || 'dom-pointer'") >= 0 &&
@@ -59,8 +68,15 @@ assert.ok(
   'manual joystick flow samples must prefer visible Luna/GFM runtime positions over the source overlay'
 );
 assert.ok(
-  /\{ pos: lineTargetPos, source: 'overlay-guidance-target' \}[\s\S]{0,120}\{ pos: rootTarget, source: 'overlay-root-target' \}[\s\S]{0,120}\{ pos: stateTarget, source: 'state-target' \}/.test(playableAgentSrc),
-  'manual joystick flow target samples should prefer visible storyboard overlay targets before stale Luna state targets'
+  /\{ pos: stateTarget, source: 'state-target' \}[\s\S]{0,120}\{ pos: rootTarget, source: 'overlay-root-target' \}[\s\S]{0,120}\{ pos: lineTargetPos, source: 'overlay-guidance-target' \}/.test(playableAgentSrc),
+  'manual joystick flow target samples should prefer real Luna/GFM target positions before storyboard overlay targets'
+);
+assert.ok(
+  playableAgentSrc.indexOf('function currentPhaseEvidence') >= 0 &&
+    playableAgentSrc.indexOf('resources = clonePlainObject') >= 0 &&
+    playableAgentSrc.indexOf('phaseEvidence,') >= 0 &&
+    playableAgentSrc.indexOf('entityStateTarget') >= 0,
+  'manual joystick flow samples should include resources and current phase evidence for generated-game gate diagnosis'
 );
 assert.ok(
   playableAgentSrc.indexOf('BLUEPRINT_MANUAL_JOYSTICK_FLOW_HOLD_MS') >= 0 &&
@@ -120,6 +136,12 @@ assert.ok(
     playableAgentSrc.indexOf('after-final-tap') >= 0 &&
     playableAgentSrc.indexOf('canTapFinalTarget(current)') >= 0,
   'manual joystick flow should tap a visible final CTA directly instead of dragging the player toward UI'
+);
+assert.ok(
+  playableAgentSrc.indexOf('manual joystick flow fallback tap point') >= 0 &&
+    playableAgentSrc.indexOf('Math.round(w * 0.5)') >= 0 &&
+    playableAgentSrc.indexOf('Math.round(h * 0.82)') >= 0,
+  'manual joystick flow should tap final CTA targets even when no projected target rect is available'
 );
 assert.ok(
   playableAgentSrc.indexOf("withTimeout(browser.close(), 15000, 'manual joystick flow browser close')") >= 0,
@@ -229,6 +251,52 @@ assert.deepStrictEqual(
   { phase1: 'IceChunk', phase2: 'Turret' },
   'manual joystick flow should use proof bundle targets over stale merged CUA module targets'
 );
+assert.deepStrictEqual(
+  worker.extractBlueprintPhaseTargetSequenceMap({
+    proofBundle: {
+      expectedPhasePath: ['phase1', 'phase2'],
+      phases: [
+        { phaseId: 'phase1', target: 'Furnace', targetSequence: ['Furnace'] },
+        { phaseId: 'phase2', target: 'WaterBottle', targetSequence: ['WaterBottle', 'AstronautQueue'] },
+      ],
+    },
+  }),
+  { phase1: ['Furnace'], phase2: ['WaterBottle', 'AstronautQueue'] },
+  'manual joystick flow should preserve multi-step target sequences from proof bundles'
+);
+
+var uiTargetBlueprint = {
+  proofBundle: {
+    expectedPhasePath: ['phase1', 'phase2', 'phase3'],
+    phases: [
+      { phaseId: 'phase1', target: 'CabinDoor', targetSequence: ['CabinDoor'] },
+      { phaseId: 'phase2', target: 'GuideUI', targetSequence: ['GuideUI'] },
+      { phaseId: 'phase3', target: 'CTAButton', targetSequence: ['CTAButton'] },
+    ],
+  },
+  specs: [
+    { phaseId: 'phase1', entitiesRequired: [{ name: 'CabinDoor' }, { name: 'GuideUI' }] },
+    { phaseId: 'phase2', entitiesRequired: [{ name: 'GuideUI' }, { name: 'RecoveryBathtub' }] },
+    { phaseId: 'phase3', entitiesRequired: [{ name: 'CTAButton' }, { name: 'GuideUI' }] },
+  ],
+  plans: {
+    cuaPlan: {
+      steps: [
+        { phaseId: 'phase2', actions: [{ kind: 'move_to', target: 'GuideUI' }, { kind: 'build', target: 'RecoveryBathtub' }] },
+      ],
+    },
+  },
+};
+assert.deepStrictEqual(
+  worker.extractBlueprintPhaseTargetMap(uiTargetBlueprint),
+  { phase1: 'CabinDoor', phase2: 'RecoveryBathtub', phase3: 'CTAButton' },
+  'manual joystick flow should replace non-navigable GuideUI proof targets with real phase entities'
+);
+assert.deepStrictEqual(
+  worker.extractBlueprintPhaseTargetSequenceMap(uiTargetBlueprint),
+  { phase1: ['CabinDoor'], phase2: ['RecoveryBathtub'], phase3: ['CTAButton'] },
+  'manual joystick flow target sequences should filter GuideUI and recover build/setEntity targets'
+);
 
 var checkpointBlueprint = {
   proofBundle: {
@@ -254,6 +322,11 @@ assert.deepStrictEqual(
   checkpointWindow.phaseTargets,
   { phase2: 'MeltingFurnace', phase3: 'WaterBottle' },
   'manual joystick checkpoint should preserve proof targets for the local phase window'
+);
+assert.deepStrictEqual(
+  checkpointWindow.phaseTargetSequences,
+  { phase2: ['MeltingFurnace'], phase3: ['WaterBottle'] },
+  'manual joystick checkpoint should preserve proof target sequences for the local phase window'
 );
 assert.strictEqual(checkpointWindow.checkpointPhaseIndex, 2);
 assert.strictEqual(checkpointWindow.checkpointPhase, 'phase2');

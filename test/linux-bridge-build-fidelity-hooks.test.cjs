@@ -31,6 +31,12 @@ var src = fs.readFileSync(workerPath, 'utf8');
   'function collectLateUpdateComponents(loopComp)',
   'function driveManualLateUpdate(loopComp)',
   'driveManualLateUpdate(loopComp)',
+  'window.__bpHeadlessWallSeconds = 0',
+  'function syncHeadlessUnityClock(now)',
+  "Object.defineProperty(UnityEngine.Time, 'realtimeSinceStartup'",
+  'syncHeadlessUnityClock(now)',
+  'const headlessRealtimeExpr',
+  'UnityEngine\\.Time\\.realtimeSinceStartup(?!\\s*=)',
   'if (!window.__fidelityReady && window.__blueprintMarkFidelityReady)'
 ].forEach(function(needle) {
   assert.ok(src.indexOf(needle) >= 0, 'missing fidelity hook snippet: ' + needle);

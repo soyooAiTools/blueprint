@@ -29,15 +29,19 @@ assert.deepStrictEqual(
 );
 assert.strictEqual(
   facade.withAutoplayQuery('http://127.0.0.1:1234/index.html'),
-  'http://127.0.0.1:1234/index.html?autoplay=1'
+  'http://127.0.0.1:1234/index.html?autoplay=1&sourceOverlay=0&sourceRuntime=0&sourceVisual=0&demo2specSource=0'
 );
 assert.strictEqual(
   facade.withAutoplayQuery('http://127.0.0.1:1234/index.html?foo=1'),
-  'http://127.0.0.1:1234/index.html?foo=1&autoplay=1'
+  'http://127.0.0.1:1234/index.html?foo=1&autoplay=1&sourceOverlay=0&sourceRuntime=0&sourceVisual=0&demo2specSource=0'
 );
 assert.strictEqual(
   facade.withAutoplayQuery('http://127.0.0.1:1234/index.html?autoplay=0'),
-  'http://127.0.0.1:1234/index.html?autoplay=0'
+  'http://127.0.0.1:1234/index.html?autoplay=0&sourceOverlay=0&sourceRuntime=0&sourceVisual=0&demo2specSource=0'
+);
+assert.strictEqual(
+  facade.withAutoplayQuery('http://127.0.0.1:1234/index.html?autoplay=1&sourceOverlay=1'),
+  'http://127.0.0.1:1234/index.html?autoplay=1&sourceOverlay=1&sourceRuntime=0&sourceVisual=0&demo2specSource=0'
 );
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'demo2spec-verify-facade-'));
