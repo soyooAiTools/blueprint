@@ -65,6 +65,13 @@ public class GFM_AutoPlay : MonoBehaviour
     public float DetectRealTime { get { return _detectRealTime; } }
     public bool Checked { get { return _checked; } }
     public bool AutoPlayRequested { get { return _autoPlayRequested; } }
+    public bool ManualPreviewReady
+    {
+        get
+        {
+            return _requestChecked && !_autoPlayRequested && _detectRealTime < 0f;
+        }
+    }
 
     // 【Warmup 完成信号】skeleton 的 phase 0 入口用它做门,防止第 1 帧 fire
     // 导致 CUA PRE-CONTAMINATION。

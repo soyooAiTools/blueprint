@@ -102,6 +102,14 @@ assert.strictEqual(rendererSpec.meta.semanticSource, 'source-scene-ir');
 assert.strictEqual(rendererSpec.meta.legacyJsInferenceUsed, false);
 assert.strictEqual(rendererSpec.meta.sourceVisualIrPath, 'source-visual-ir.json');
 assert.strictEqual(rendererSpec.meta.sourceVisualIrHash, rendererSummary.sourceVisualIrHash);
+var rendererManifest = JSON.parse(fs.readFileSync(path.join(rendererOut, 'asset-manifest.json'), 'utf8'));
+assert.strictEqual(rendererManifest.assets.length, 3);
+assert.strictEqual(Object.keys(rendererManifest.sourceEntityContract.entityComposites).length, 3);
+assert.strictEqual(rendererManifest.sourceEntityContract.entityComposites.Player.primitiveCount, 1);
+assert.ok(rendererManifest.sourceEntityContract.entityComposites.Player.primitives[0].geometry.type);
+assert.strictEqual(rendererManifest.entityBindings.Player.visualFallback, 'source-scene-ir-procedural');
+assert.strictEqual(Object.keys(rendererManifest.sourceMeshOps).length, 3);
+assert.strictEqual(rendererManifest.extractionSummary.entityBindingRate, 1);
 
 var sourceIrJsonPath = path.join(tmp, 'source-ir.json');
 writeSourceSceneIr(sourceIrJsonPath, sourceIr);

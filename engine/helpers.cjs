@@ -278,13 +278,17 @@ function buildGameStateBridgeScript() {
   var _observerReadyRequested=_params.get('observerReady')==='1'||_params.get('cuaObserverReady')==='1';
   var _autoPlayRequested=_cuaAutoPlayRequested;
   window.__CUA_OBSERVER_READY__ = !!window.__CUA_OBSERVER_READY__ || _observerReadyRequested;
-  function createRuntimeFlag(name){
-    var made=false;
+  function syncUnityAbsoluteUrl(){
     try{
       if(typeof UnityEngine!=='undefined'&&UnityEngine.Application){
         UnityEngine.Application.absoluteURL=window.location.href;
       }
     }catch(e){}
+  }
+  syncUnityAbsoluteUrl();
+  function createRuntimeFlag(name){
+    var made=false;
+    syncUnityAbsoluteUrl();
     try{
       if(typeof UnityEngine!=='undefined'&&UnityEngine.GameObject){
         try{ if(UnityEngine.GameObject.Find&&UnityEngine.GameObject.Find(name)!=null) return true; }catch(e){}

@@ -2372,11 +2372,12 @@ function _buildFlowPartial(specs, phaseGateMap = {}, phaseRealConditions = {}, p
     const pid = (specs[i].phaseId || 'phase' + i).replace(/[^a-zA-Z0-9]/g, '');
     if (i === 0) {
       // Phase 0 warmup gate：防止 CUA 观察窗口打开前污染 completedPhases。
-      // WarmupReady 同时覆盖交互模式和 AutoPlay 模式。
-      lines.push('    // Phase 0 warmup gate：等 GFM_AutoPlay observer ready 之后才允许进入第一 phase。');
+      // ManualPreviewReady 只在 C# 已读到 URL 且确认没有 autoplay 请求时放行；
+      // autoplay=1 仍必须等 WarmupReady，避免 CUA observer 窗口前偷跑。
+      lines.push('    // Phase 0 warmup gate：手动交付预览可立即显示第一 phase；autoplay=1 仍等 observer-ready。');
       lines.push('    bool Phase_' + pid + '_GateReady()');
       lines.push('    {');
-      lines.push('        return GFM_AutoPlay.Instance.WarmupReady;');
+      lines.push('        return GFM_AutoPlay.Instance.ManualPreviewReady || GFM_AutoPlay.Instance.WarmupReady;');
       lines.push('    }');
       lines.push('');
       continue;

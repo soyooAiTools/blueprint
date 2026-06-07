@@ -143,6 +143,7 @@ assert.match(code, /FormatFloat\(_lastDwellPhaseRealTimer\)/);
 assert.doesNotMatch(code, /phaseRealTimer <= 0\.01f && phaseTimer >= requiredSeconds/);
 assert.match(code, /currentPhaseName == "intro"/);
 assert.match(code, /currentPhaseName == "defendBase"/);
+assert.match(code, /bool Phase_intro_GateReady\(\)[\s\S]*ManualPreviewReady \|\| GFM_AutoPlay\.Instance\.WarmupReady/);
 assert.match(code, /EnterPhase\(0, "intro", true, true\);/);
 assert.match(code, /currentPhaseName == "intro"[\s\S]*PhaseDwellReady\(1f\)/);
 assert.match(code, /currentPhaseName == "defendBase"[\s\S]*PhaseDwellReady\(15f\)/);

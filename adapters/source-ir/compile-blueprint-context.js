@@ -15,6 +15,10 @@ var {
   compilePlayableSceneIr,
 } = require('./compile-playable-scene-ir.js');
 
+function cloneOrNull(value) {
+  return value == null ? null : JSON.parse(JSON.stringify(value));
+}
+
 function buildSourceIrBlueprintContext(sourceIr, options) {
   options = options || {};
   var gameSchema = options.gameSchema || compileToGameSchema(sourceIr, options);
@@ -39,6 +43,7 @@ function buildSourceIrBlueprintContext(sourceIr, options) {
   built.blueprint.schemaSource = 'source-scene-ir';
   built.blueprint.semanticSource = 'source-scene-ir';
   built.blueprint.legacyJsInferenceUsed = false;
+  built.blueprint.sourceMeshOps = cloneOrNull(assetManifest && assetManifest.sourceMeshOps || null);
   built.project.semanticSource = 'source-scene-ir';
   built.project.legacyJsInferenceUsed = false;
   return built;

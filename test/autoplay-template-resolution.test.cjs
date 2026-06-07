@@ -6,6 +6,8 @@ const code = fs.readFileSync('/opt/blueprint-editor/worker/GFM_AutoPlay.cs', 'ut
 assert.match(code, /private GameObject ResolveTarget\(string targetName\)/);
 assert.match(code, /private void DetectAutoPlayRequestFromUrl\(\)/);
 assert.match(code, /Application\.absoluteURL/);
+assert.match(code, /public bool ManualPreviewReady/);
+assert.match(code, /_requestChecked && !_autoPlayRequested && _detectRealTime < 0f/);
 assert.match(code, /_autoPlayRequested && !_isActive/);
 assert.match(code, /_autoPlayRequested \|\| GameObject\.Find\("__AUTOPLAY_ON__"\) != null/);
 assert.match(code, /GameSceneCtrl\.instance != null/);

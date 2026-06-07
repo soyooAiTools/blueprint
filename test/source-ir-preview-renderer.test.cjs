@@ -12,6 +12,7 @@ var {
   SOURCE_IR_PREVIEW_RENDERER_VERSION,
   buildSourceIrPreviewHtml,
   buildSourceIrPreviewRendererScript,
+  buildThreeLoaderTags,
   rewriteHtmlWithSourceIrPreviewRenderer,
 } = require('../engine/source-ir-preview-renderer.cjs');
 
@@ -166,9 +167,12 @@ async function main() {
   var html = buildSourceIrPreviewHtml(sourceIr, {
     html: '<div id="joystick"></div>',
     generatedAt: '2026-06-07T00:00:00.000Z',
+    includeThree: false,
   });
 
   assert.ok(buildSourceIrPreviewRendererScript().indexOf('__BP_SOURCE_IR_RENDERER_OWNS_VISUALS__') >= 0);
+  assert.ok(buildThreeLoaderTags({}).length >= 1);
+  assert.strictEqual(buildThreeLoaderTags({ includeThree: false }).length, 0);
   assert.ok(html.indexOf('window.__BP_SOURCE_IR__') >= 0);
   assert.ok(html.indexOf('window.__BP_SOURCE_IR_HASH__') >= 0);
   assert.ok(html.indexOf('__driveToSourcePhase') >= 0);
@@ -250,6 +254,9 @@ async function main() {
   assert.strictEqual(phase1.ui_state.guideText, 'Collect water');
   assert.strictEqual(phase1.entity_states.WaterDrop.visible, true);
   assert.strictEqual(phase1.entity_states.CtaButton.visible, false);
+  assert.strictEqual(sandbox.window.__BP_SOURCE_IR_RENDERER_USING_DOM_FALLBACK__, true);
+  assert.notStrictEqual(sandbox.window.__sourceIrPreviewModels.WaterDrop.dom.style.display, 'none');
+  assert.strictEqual(sandbox.window.__sourceIrPreviewModels.CtaButton.dom.style.display, 'none');
 
   var phase2 = await sandbox.window.__driveToSourcePhase(2);
   assert.strictEqual(phase2.phase, 'phase2');
@@ -258,6 +265,8 @@ async function main() {
   assert.strictEqual(phase2.resources.Water, 3);
   assert.strictEqual(phase2.entity_states.WaterDrop.visible, false);
   assert.strictEqual(phase2.entity_states.CtaButton.visible, true);
+  assert.strictEqual(sandbox.window.__sourceIrPreviewModels.WaterDrop.dom.style.display, 'none');
+  assert.notStrictEqual(sandbox.window.__sourceIrPreviewModels.CtaButton.dom.style.display, 'none');
   assert.strictEqual(phase2.phaseEvidence.phase2.cta_finish.final_phase, true);
   assert.strictEqual(sandbox.document.__elements.tip.textContent, 'Go to install');
   assert.strictEqual(sandbox.document.__elements['source-ir-cta-overlay'].style.display, 'grid');

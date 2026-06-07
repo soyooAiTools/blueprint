@@ -1,5 +1,7 @@
 'use strict';
 
+var fs = require('fs');
+
 var {
   extractSourceSceneIrFromHtml,
   normalizeSourceSceneIr,
@@ -15,6 +17,35 @@ function safeInlineJson(value) {
     .replace(/&/g, '\\u0026')
     .replace(/\u2028/g, '\\u2028')
     .replace(/\u2029/g, '\\u2029');
+}
+
+function safeInlineScript(value) {
+  return String(value || '').replace(/<(\/?)script/gi, '\\x3c$1script');
+}
+
+function loadThreeSource() {
+  var candidates = [
+    process.env.SOURCE_IR_THREE_SOURCE,
+    process.env.DEMO2SPEC_THREE_SOURCE,
+    '/opt/loot-app/lib/three.min.js',
+  ].filter(Boolean);
+  for (var i = 0; i < candidates.length; i += 1) {
+    try {
+      if (!fs.existsSync(candidates[i])) continue;
+      var source = fs.readFileSync(candidates[i], 'utf8');
+      new Function(source);
+      return source;
+    } catch (error) {}
+  }
+  return null;
+}
+
+function buildThreeLoaderTags(options) {
+  options = options || {};
+  if (options.includeThree === false) return [];
+  var source = loadThreeSource();
+  if (source) return ['<script>' + safeInlineScript(source) + '\n</script>'];
+  return ["<script src=\"https://cdn.jsdelivr.net/npm/three@0.156.1/build/three.min.js\" onerror=\"(function(){var s=document.createElement('script');s.src='https://unpkg.com/three@0.156.1/build/three.min.js';document.head.appendChild(s);})()\"></script>"];
 }
 
 function buildSourceIrPreviewRendererScript() {
@@ -98,19 +129,28 @@ function buildSourceIrPreviewRendererScript() {
     '    el.style.color = "#071026"; el.style.font = "700 12px/1.15 system-ui,sans-serif"; el.style.textAlign = "center";',
     '    el.style.boxShadow = "0 10px 22px rgba(0,0,0,.35)";',
     '    refs.stage.appendChild(el);',
-    '    models[entity.id] = { dom: el, position: p, visible: true, domFallbackHidden: true };',
+    '    models[entity.id] = { dom: el, position: p, visible: true };',
     '  });',
     '}',
     'function makeMaterial(entity){ return new THREE.MeshStandardMaterial({ color: color(entity.visual && entity.visual.color, "#66ccff"), roughness: 0.65, metalness: 0.05 }); }',
+    'function inferredPrimitive(entity){',
+    '  var primitive = String(entity.visual && entity.visual.primitive || "").toLowerCase();',
+    '  var text = String(entity.kind || "") + " " + String(entity.id || "");',
+    '  if (!primitive || primitive === "box") { if (/player|hero|npc|astronaut|queue|person/i.test(text)) return "cylinder"; if (/water|apple|gold|ice|resource|coin|gem|drop|bottle/i.test(text)) return "sphere"; return "box"; }',
+    '  if (primitive === "capsule") return "cylinder";',
+    '  return primitive;',
+    '}',
     'function buildEntityMesh(entity){',
     '  var group = new THREE.Group(); group.name = entity.id;',
-    '  var primitive = entity.visual && entity.visual.primitive || entity.kind || "box";',
+    '  var primitive = inferredPrimitive(entity);',
     '  var mat = makeMaterial(entity);',
-    '  function add(geometry, pos, scale){ var mesh = new THREE.Mesh(geometry, mat); mesh.position.set(pos[0], pos[1], pos[2]); if (scale) mesh.scale.set(scale[0], scale[1], scale[2]); group.add(mesh); return mesh; }',
-    '  if (/player|hero|npc|person/i.test(entity.kind || entity.id)) { add(new THREE.CylinderGeometry(.35,.42,1.15,16), [0,.75,0]); add(new THREE.SphereGeometry(.32,16,12), [0,1.55,0]); add(new THREE.BoxGeometry(.22,.65,.22), [-.45,.72,0]); add(new THREE.BoxGeometry(.22,.65,.22), [.45,.72,0]); }',
-    '  else if (/sphere|resource|coin|water|gold|collect/i.test(primitive + " " + entity.kind)) { add(new THREE.SphereGeometry(.48,20,14), [0,.52,0]); add(new THREE.BoxGeometry(.78,.16,.78), [0,.12,0]); }',
-    '  else if (/cta|button|install/i.test(entity.kind || entity.id)) { add(new THREE.BoxGeometry(1.5,.24,.72), [0,.18,0]); add(new THREE.BoxGeometry(1.25,.58,.18), [0,.72,-.24]); }',
-    '  else { add(new THREE.BoxGeometry(.9,.75,.9), [0,.42,0]); add(new THREE.CylinderGeometry(.28,.28,.46,16), [0,1.02,0]); }',
+    '  var mesh;',
+    '  if (primitive === "sphere" || primitive === "icosahedron") { mesh = new THREE.Mesh(new THREE.SphereGeometry(.52,20,14), mat); mesh.position.set(0,.56,0); }',
+    '  else if (primitive === "cylinder" || primitive === "cone") { mesh = new THREE.Mesh(new THREE.CylinderGeometry(.38,.44,1.15,20), mat); mesh.position.set(0,.62,0); }',
+    '  else if (primitive === "torus") { mesh = new THREE.Mesh(new THREE.TorusGeometry(.62,.08,8,48), mat); mesh.position.set(0,.12,0); mesh.rotation.x = Math.PI / 2; }',
+    '  else if (primitive === "plane") { mesh = new THREE.Mesh(new THREE.PlaneGeometry(1,1), mat); mesh.position.set(0,.04,0); mesh.rotation.x = -Math.PI / 2; }',
+    '  else { mesh = new THREE.Mesh(new THREE.BoxGeometry(1,.9,1), mat); mesh.position.set(0,.48,0); }',
+    '  group.add(mesh);',
     '  return group;',
     '}',
     'function buildThreeScene(){',
@@ -163,7 +203,7 @@ function buildSourceIrPreviewRendererScript() {
     '  refs.targetRing.style.display = targetText ? "block" : "none";',
     '}',
     'function renderFrame(){',
-    '  entities.forEach(function(entity){ var model = models[entity.id]; if (!model) return; var visible = state.entity_states[entity.id] && state.entity_states[entity.id].visible; if (model.dom) model.dom.style.display = visible && !model.domFallbackHidden ? "" : "none"; if (model.three) model.three.visible = !!visible; });',
+    '  entities.forEach(function(entity){ var model = models[entity.id]; if (!model) return; var visible = state.entity_states[entity.id] && state.entity_states[entity.id].visible; if (model.dom) model.dom.style.display = visible ? "" : "none"; if (model.three) model.three.visible = !!visible; });',
     '  if (three) three.renderer.render(three.scene, three.camera);',
     '}',
     'function applyPhase(n){',
@@ -200,7 +240,7 @@ function buildSourceIrPreviewRendererScript() {
     'window.__driveToSourcePhase = driveToPhase;',
     'window.__driveToPhase = driveToPhase;',
     'window.__sourceIrPreviewApplyPhase = applyPhase;',
-    'refs = ensureShell(); installJoystick(); if (!buildThreeScene()) buildDomModels(); applyPhase(1); renderFrame();',
+    'refs = ensureShell(); installJoystick(); if (!buildThreeScene()) { window.__BP_SOURCE_IR_RENDERER_USING_DOM_FALLBACK__ = true; buildDomModels(); } else { window.__BP_SOURCE_IR_RENDERER_USING_DOM_FALLBACK__ = false; } applyPhase(1); renderFrame();',
     'afterTwoFrames(function(){ renderFrame(); window.__fidelityReady = true; });',
     'if (window.requestAnimationFrame) window.requestAnimationFrame(updatePhaseTimer);',
     '}());',
@@ -212,6 +252,7 @@ function buildSourceIrPreviewHtml(sourceIr, options) {
   var ir = normalizeSourceSceneIr(sourceIr, options);
   var projection = projectSourceSceneIrToLegacy(ir);
   var title = ir.project && ir.project.name || 'SourceIR preview';
+  var threeLoaderTags = buildThreeLoaderTags(options);
   return [
     '<!doctype html>',
     '<html>',
@@ -229,12 +270,13 @@ function buildSourceIrPreviewHtml(sourceIr, options) {
     'const ENTITY_POSITIONS = ' + safeInlineJson(projection.ENTITY_POSITIONS) + ';',
     'const SCENE_CONFIG = ' + safeInlineJson(projection.SCENE_CONFIG) + ';',
     '</script>',
+  ].concat(threeLoaderTags).concat([
     '<script>',
     buildSourceIrPreviewRendererScript(),
     '</script>',
     '</body>',
     '</html>',
-  ].join('\n');
+  ]).join('\n');
 }
 
 function rewriteHtmlWithSourceIrPreviewRenderer(html, options) {
@@ -256,5 +298,6 @@ module.exports = {
   SOURCE_IR_PREVIEW_RENDERER_VERSION: SOURCE_IR_PREVIEW_RENDERER_VERSION,
   buildSourceIrPreviewRendererScript: buildSourceIrPreviewRendererScript,
   buildSourceIrPreviewHtml: buildSourceIrPreviewHtml,
+  buildThreeLoaderTags: buildThreeLoaderTags,
   rewriteHtmlWithSourceIrPreviewRenderer: rewriteHtmlWithSourceIrPreviewRenderer,
 };
