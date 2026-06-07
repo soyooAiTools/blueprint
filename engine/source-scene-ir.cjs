@@ -966,6 +966,23 @@ function parseEmbeddedSourceIrHash(html) {
   return parseStringAssignment(html, '__BP_SOURCE_IR_HASH__');
 }
 
+function detectSourceIrPreviewRenderer(html) {
+  var text = String(html || '');
+  var versionMatch = text.match(/__BP_SOURCE_IR_PREVIEW_RENDERER_VERSION__\s*=\s*["']([^"']+)["']/);
+  return {
+    version: versionMatch ? versionMatch[1] : null,
+    present: !!versionMatch,
+    ownsVisuals: /__BP_SOURCE_IR_RENDERER_OWNS_VISUALS__\s*=\s*true/.test(text),
+    ownsPhaseDriver: /__BP_SOURCE_IR_RENDERER_OWNS_PHASE_DRIVER__\s*=\s*true/.test(text),
+    visualSourceIsSourceIr: /__BP_SOURCE_IR_VISUAL_SOURCE__\s*=\s*["']source-scene-ir["']/.test(text),
+    hasDriveToSourcePhase: /__driveToSourcePhase\s*=/.test(text),
+    hasDriveToPhase: /__driveToPhase\s*=/.test(text),
+    hasGameState: /__gameState\s*=/.test(text),
+    hasSetTip: /(?:function\s+setTip\s*\(|(?:window\.)?setTip\s*=)/.test(text),
+    initializesFidelityReadyFalse: /__fidelityReady\s*=\s*false/.test(text),
+  };
+}
+
 function extractSourceSceneIrFromHtml(html, sourceHtmlPath, options) {
   options = options || {};
   var sourceHash = sha256OfString(html);
@@ -1305,9 +1322,11 @@ function preflightSourceSceneIrHtml(html, options) {
   options = options || {};
   var requireEmbeddedSourceIr = options.requireEmbeddedSourceIr !== false;
   var requireDeclaredHash = options.requireDeclaredHash !== false;
+  var requireSourceIrRenderer = options.requireSourceIrRenderer === true;
   var forbidLegacyProjection = options.forbidLegacyProjection !== false;
   var sourcePath = options.sourceHtmlPath ? comparablePath(options.sourceHtmlPath) : null;
   var sourceHash = sha256OfString(html);
+  var rendererDetection = detectSourceIrPreviewRenderer(html);
   var report = {
     schemaVersion: '1.0.0',
     kind: SOURCE_SCENE_IR_PREFLIGHT_KIND,
@@ -1326,6 +1345,7 @@ function preflightSourceSceneIrHtml(html, options) {
       resourceCount: 0,
       requiresJoystick: false,
       joystickEvidencePresent: false,
+      sourceIrRenderer: rendererDetection,
       legacyProjection: null,
       projectionParity: null,
     },
@@ -1376,6 +1396,26 @@ function preflightSourceSceneIrHtml(html, options) {
     if (ir.runtimeContract && ir.runtimeContract.requiresJoystick && !hasJoystickRuntimeEvidence(html)) {
       report.violations.push({ code: 'source_ir_joystick_runtime_evidence_missing', message: 'requiresJoystick=true but no source HTML joystick runtime evidence was found' });
     }
+    if (requireSourceIrRenderer) {
+      if (!rendererDetection.present) {
+        report.violations.push({ code: 'source_ir_renderer_missing', message: 'SourceIR preview renderer version marker is missing' });
+      }
+      if (!rendererDetection.ownsVisuals) {
+        report.violations.push({ code: 'source_ir_renderer_visual_ownership_missing', message: 'SourceIR preview renderer must declare visual ownership' });
+      }
+      if (!rendererDetection.ownsPhaseDriver) {
+        report.violations.push({ code: 'source_ir_renderer_phase_driver_ownership_missing', message: 'SourceIR preview renderer must declare phase-driver ownership' });
+      }
+      if (!rendererDetection.visualSourceIsSourceIr) {
+        report.violations.push({ code: 'source_ir_renderer_visual_source_missing', message: 'SourceIR preview renderer must declare visual source as source-scene-ir' });
+      }
+      if (!rendererDetection.hasDriveToSourcePhase || !rendererDetection.hasDriveToPhase) {
+        report.violations.push({ code: 'source_ir_renderer_phase_hook_missing', message: 'SourceIR preview renderer must expose __driveToSourcePhase and __driveToPhase' });
+      }
+      if (!rendererDetection.hasGameState || !rendererDetection.hasSetTip || !rendererDetection.initializesFidelityReadyFalse) {
+        report.violations.push({ code: 'source_ir_renderer_runtime_hook_missing', message: 'SourceIR preview renderer must expose __gameState, setTip, and initialize __fidelityReady=false' });
+      }
+    }
     validationErrors.forEach(function(error) { report.violations.push(error); });
   } catch (err) {
     report.violations.push({ code: 'source_ir_preflight_failed', message: err.message });
@@ -1401,5 +1441,6 @@ module.exports = {
   loadSourceSceneIr: loadSourceSceneIr,
   assertSourceSceneIrBinding: assertSourceSceneIrBinding,
   projectSourceSceneIrToLegacy: projectSourceSceneIrToLegacy,
+  detectSourceIrPreviewRenderer: detectSourceIrPreviewRenderer,
   preflightSourceSceneIrHtml: preflightSourceSceneIrHtml,
 };

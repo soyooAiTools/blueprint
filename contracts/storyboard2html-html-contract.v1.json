@@ -48,6 +48,34 @@
         "contract": "sha256 of the normalized SourceSceneIR semantic payload. The source-scene-ir preflight recomputes this hash when present."
       },
       {
+        "name": "window.__BP_SOURCE_IR_PREVIEW_RENDERER_VERSION__",
+        "acceptedForms": [
+          "window.__BP_SOURCE_IR_PREVIEW_RENDERER_VERSION__ = \"source-ir-preview-renderer.v1\""
+        ],
+        "contract": "Marker that the source HTML preview surface is rendered by the SourceSceneIR preview renderer rather than by an independent JS semantic/runtime model."
+      },
+      {
+        "name": "window.__BP_SOURCE_IR_RENDERER_OWNS_VISUALS__",
+        "acceptedForms": [
+          "window.__BP_SOURCE_IR_RENDERER_OWNS_VISUALS__ = true"
+        ],
+        "contract": "Must be true when source HTML visual/UI/model state is derived from SourceSceneIR."
+      },
+      {
+        "name": "window.__BP_SOURCE_IR_RENDERER_OWNS_PHASE_DRIVER__",
+        "acceptedForms": [
+          "window.__BP_SOURCE_IR_RENDERER_OWNS_PHASE_DRIVER__ = true"
+        ],
+        "contract": "Must be true when source HTML phase switching hooks are driven from SourceSceneIR phases."
+      },
+      {
+        "name": "window.__driveToSourcePhase",
+        "acceptedForms": [
+          "window.__driveToSourcePhase = function(n) { ... }"
+        ],
+        "contract": "Source-specific deterministic phase driver. Must share behavior with window.__driveToPhase and settle before visual-diff screenshots."
+      },
+      {
         "name": "PHASES",
         "acceptedForms": [
           "const PHASES = [...]",
@@ -90,7 +118,8 @@
       "update": "updatePhase<N>",
       "note": "Named phase functions are not a hard runtime requirement, but they are the preferred fallback when PHASES cannot be parsed."
     },
-    "phaseIdFormat": "phase{n}"
+    "phaseIdFormat": "phase{n}",
+    "renderingSourceOfTruth": "source-ir-preview-renderer"
   },
   "runtimeStateContract": {
     "globalName": "window.__gameState",

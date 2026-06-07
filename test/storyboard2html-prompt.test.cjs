@@ -80,6 +80,15 @@ assert.ok(built.systemPrompt.indexOf('PHASES') >= 0, 'system prompt should menti
 assert.ok(built.systemPrompt.indexOf('SourceSceneIR') >= 0, 'system prompt should mention SourceSceneIR');
 assert.ok(built.systemPrompt.indexOf('window.__BP_SOURCE_IR__') >= 0, 'system prompt should require window.__BP_SOURCE_IR__');
 assert.ok(built.systemPrompt.indexOf('window.__BP_SOURCE_IR_HASH__') >= 0, 'system prompt should require window.__BP_SOURCE_IR_HASH__');
+assert.ok(built.systemPrompt.indexOf('source-ir-preview-renderer.v1') >= 0, 'system prompt should require SourceIR preview renderer version');
+assert.ok(built.systemPrompt.indexOf('window.__BP_SOURCE_IR_RENDERER_OWNS_VISUALS__') >= 0,
+  'system prompt should require SourceIR renderer visual ownership marker');
+assert.ok(built.systemPrompt.indexOf('window.__BP_SOURCE_IR_RENDERER_OWNS_PHASE_DRIVER__') >= 0,
+  'system prompt should require SourceIR renderer phase-driver ownership marker');
+assert.ok(built.systemPrompt.indexOf('window.__BP_SOURCE_IR_VISUAL_SOURCE__') >= 0,
+  'system prompt should require SourceIR visual source marker');
+assert.ok(built.systemPrompt.indexOf('window.__driveToSourcePhase') >= 0,
+  'system prompt should require source-specific phase driver hook');
 assert.ok(built.systemPrompt.indexOf('source-scene-ir.v1') >= 0, 'system prompt should require source-scene-ir.v1 schemaVersion');
 assert.ok(built.systemPrompt.indexOf('blueprint.sourceSceneIR') >= 0, 'system prompt should require SourceSceneIR kind');
 assert.ok(built.systemPrompt.indexOf('step.kind') >= 0 && built.systemPrompt.indexOf('move_to') >= 0 && built.systemPrompt.indexOf('cta_finish') >= 0,
