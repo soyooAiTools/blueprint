@@ -93,6 +93,9 @@ function assertStaticViolation(ir, code) {
 
 async function main() {
   var ir = fixtureSourceIr();
+  assert.strictEqual(ir.entities.some(function(entity) { return entity.id === 'CtaButton'; }), false);
+  assert.strictEqual(ir.hud.cta.ctaId, 'CtaButton');
+  assert.strictEqual(ir.hud.cta.entity, undefined);
   var staticReport = analyzeSourceIrPhaseLiveness(ir, {});
   assert.strictEqual(staticReport.passed, true, JSON.stringify(staticReport.violations, null, 2));
   assert.strictEqual(staticReport.summary.checkedPhases, 3);

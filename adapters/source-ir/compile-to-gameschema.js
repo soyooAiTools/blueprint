@@ -64,6 +64,14 @@ function poolSpecForEntity(entity) {
   return { shape: 'Cube', color: color, scale: 0.65, showLabel: true };
 }
 
+function isHudOnlyOrCtaEntity(entity) {
+  var kind = String(entity && entity.kind || '');
+  var id = String(entity && entity.id || '');
+  return /\b(ui_marker|hud|hud_marker|ui_overlay|screen_ui|cta|install|download)\b/i.test(kind + ' ' + id) ||
+    /^(CtaButton|CTAButton|CTAPopup|InstallButton|DownloadButton)$/i.test(id) ||
+    /(?:^|_)(?:GoldUI|JoystickUI|HUD|Hud|GuideText|PhaseLabel)$/i.test(id);
+}
+
 function makePoolAllocator() {
   var counters = {};
   function normalizeShape(shape) {
@@ -173,8 +181,8 @@ function triggerFromGate(gate) {
   }
   if (gate.kind === 'cta_arrival') {
     return {
-      type: 'near_entity',
-      entity: gate.entity || gate.target || 'CtaButton',
+      type: 'cta_arrival',
+      ctaId: gate.ctaId || gate.entity || gate.target || 'CtaButton',
       range: Number(gate.radius || gate.range || 2) || 2,
     };
   }
@@ -196,16 +204,23 @@ function firstStepTarget(phase) {
 }
 
 function fallbackTriggerForPhase(phase, isFinal) {
-  if (isFinal) return { type: 'near_entity', entity: 'CtaButton', range: 2 };
+  if (isFinal) return { type: 'cta_arrival', ctaId: 'CtaButton', range: 2 };
   var target = firstStepTarget(phase) || safeArray(phase && phase.showEntities).filter(function(name) {
     return !/player|hero|guide|hud|ui/i.test(name);
   })[0] || 'Player';
   return { type: 'near_entity', entity: target, range: 2 };
 }
 
-function compileStep(step, index) {
+function compileStep(step, index, entityMap) {
   step = step || {};
+  if (step.kind === 'cta_finish') {
+    return {
+      index: index,
+      label: step.label || 'cta_finish',
+    };
+  }
   var target = step.target || step.from || step.to || step.entity || '';
+  if (target && entityMap && !entityMap[target]) target = '';
   var out = {
     index: index,
     target: target,
@@ -214,7 +229,7 @@ function compileStep(step, index) {
   if (step.kind === 'collect') out.gain = step.resource || '';
   if (step.kind === 'deliver') out.spend = step.resource || '';
   if (step.kind === 'set_entity_state' || step.kind === 'build' || step.kind === 'upgrade') {
-    out.setEntity = step.entity || step.target || target;
+    out.setEntity = entityMap && !entityMap[step.entity || step.target || target] ? '' : (step.entity || step.target || target);
     out.state = Number(step.state == null ? (step.kind === 'upgrade' ? 2 : 1) : step.state) || 1;
   }
   if (step.kind === 'attack') out.damage = true;
@@ -226,14 +241,16 @@ function compileStep(step, index) {
   return out;
 }
 
-function compilePhase(phase, index, phaseCount) {
+function compilePhase(phase, index, phaseCount, entityMap) {
   var trigger = triggerFromGate(phase.gate) || fallbackTriggerForPhase(phase, index === phaseCount - 1);
   return {
     phaseId: phase.id || ('phase' + (index + 1)),
-    showEntities: safeArray(phase.showEntities),
+    showEntities: safeArray(phase.showEntities).filter(function(id) { return entityMap[id]; }),
     guideText: phase.guideText || phase.title || phase.id || '',
     trigger: trigger,
-    steps: safeArray(phase.steps).map(compileStep),
+    steps: safeArray(phase.steps).map(function(step, stepIndex) {
+      return compileStep(step, stepIndex, entityMap);
+    }),
     onEnter: phase.guideText ? [{ action: 'set_guide', text: phase.guideText }] : [],
   };
 }
@@ -245,6 +262,13 @@ function compileToGameSchema(sourceIr, options) {
   var nextPool = makePoolAllocator();
   var scene = ir.scene || {};
   var ground = scene.ground || {};
+  var gameplayEntities = safeArray(ir.entities).filter(function(entity) {
+    return !isHudOnlyOrCtaEntity(entity);
+  });
+  var gameplayEntityMap = {};
+  gameplayEntities.forEach(function(entity) {
+    gameplayEntityMap[entity.id] = true;
+  });
   var schema = {
     gameConfig: {
       cameraBackground: rgb01FromColor(scene.backgroundColor, [0.04, 0.07, 0.16]),
@@ -254,12 +278,12 @@ function compileToGameSchema(sourceIr, options) {
       maxCarry: Number(options.maxCarry || 10),
       collectCooldown: Number(options.collectCooldown || 0.3),
     },
-    entities: safeArray(ir.entities).map(function(entity, index) {
+    entities: gameplayEntities.map(function(entity, index) {
       return compileEntity(entity, index, nextPool);
     }),
     resources: safeArray(ir.resources).map(compileResource),
     phases: safeArray(ir.phases).map(function(phase, index, phases) {
-      return compilePhase(phase, index, phases.length);
+      return compilePhase(phase, index, phases.length, gameplayEntityMap);
     }),
     customLogic: [
       'semanticSource=source-scene-ir',

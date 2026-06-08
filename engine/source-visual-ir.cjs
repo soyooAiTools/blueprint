@@ -71,7 +71,8 @@ function uniqueStrings(values) {
 function isHudOnlyEntity(entity) {
   var kind = String(entity && entity.kind || '');
   var id = String(entity && entity.id || '');
-  return /\b(ui_marker|hud|hud_marker|ui_overlay|screen_ui)\b/i.test(kind + ' ' + id) ||
+  return /\b(ui_marker|hud|hud_marker|ui_overlay|screen_ui|cta|install|download)\b/i.test(kind + ' ' + id) ||
+    /^(CtaButton|CTAButton|CTAPopup|InstallButton|DownloadButton)$/i.test(id) ||
     /(?:^|_)(?:GoldUI|JoystickUI|HUD|Hud|GuideText|PhaseLabel)$/i.test(id);
 }
 
@@ -226,7 +227,7 @@ function visualCta(sourceIr) {
   var initialText = isObject(dom.initialText) ? dom.initialText : {};
   var phases = safeArray(sourceIr.phases);
   return {
-    entity: cta.entity || 'CtaButton',
+    ctaId: cta.ctaId || cta.entity || 'CtaButton',
     arrivalGated: cta.arrivalGated !== false,
     finalPhase: phases.length ? phases[phases.length - 1].id : null,
     title: cta.title || initialText.ctaTitle || initialText.title || '立即下载',
@@ -308,6 +309,9 @@ function normalizeSourceVisualIr(doc, options) {
     },
     diagnostics: clone(doc.diagnostics || null),
   };
+  if (!isObject(out.visual.cta)) out.visual.cta = {};
+  if (!out.visual.cta.ctaId) out.visual.cta.ctaId = out.visual.cta.entity || 'CtaButton';
+  delete out.visual.cta.entity;
   out.semanticHash = computeSourceVisualIrHash(out);
   return out;
 }
@@ -377,9 +381,9 @@ function collectSourceVisualIrViolations(doc, options) {
       addViolation(out, 'source_visual_ir_guidance_target_missing', 'visual.phaseStates[' + index + '].guidance.primaryTarget missing entity: ' + primaryTarget);
     }
   });
-  var ctaEntity = doc.visual.cta && doc.visual.cta.entity;
-  if (ctaEntity && !entityIds[ctaEntity]) {
-    addViolation(out, 'source_visual_ir_cta_entity_missing', 'visual.cta.entity missing entity: ' + ctaEntity);
+  var ctaId = doc.visual.cta && (doc.visual.cta.ctaId || doc.visual.cta.entity);
+  if (ctaId && !entityIds[ctaId] && !/^(CtaButton|CTAButton|CTAPopup|InstallButton|DownloadButton)$/i.test(String(ctaId))) {
+    addViolation(out, 'source_visual_ir_cta_id_missing', 'visual.cta.ctaId missing CTA id: ' + ctaId);
   }
   if (options.sourceSceneIr && options.sourceSceneIr.semanticHash && doc.source && doc.source.sourceSceneIrHash !== options.sourceSceneIr.semanticHash) {
     addViolation(out, 'source_visual_ir_source_hash_mismatch', 'source.sourceSceneIrHash does not match SourceSceneIR semanticHash');

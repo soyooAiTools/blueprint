@@ -38,6 +38,12 @@ function safeArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function isCtaUiEntityName(value) {
+  const id = String(value || '').trim();
+  return /^(CtaButton|CTAButton|CTAPopup|InstallButton|DownloadButton)$/i.test(id) ||
+    /\b(cta|install|download)\b/i.test(id);
+}
+
 function readJsonIfExists(filePath) {
   if (!filePath || !fs.existsSync(filePath)) return null;
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -169,7 +175,7 @@ function normalizePhaseSteps(steps) {
 }
 
 function targetSequenceForSteps(steps) {
-  return normalizePhaseSteps(steps).map(step => step.target).filter(Boolean);
+  return normalizePhaseSteps(steps).map(step => step.target).filter(Boolean).filter(target => !isCtaUiEntityName(target));
 }
 
 function inferPhaseModules(gamePhase, sourcePhase, isLastPhase) {
@@ -508,8 +514,9 @@ function buildGameStateShim(snapshotDoc) {
     '  }',
     '  function phaseCurrentTarget(phase) {',
     '    if (!phase) return "";',
-    '    if (phase.targetSequence && phase.targetSequence.length) return phase.targetSequence[0] || "";',
-    '    if (phase.steps && phase.steps.length) return phase.steps[0].target || phase.steps[0].setEntity || "";',
+    '    function isCta(value) { var id = String(value || "").trim(); return /^(CtaButton|CTAButton|CTAPopup|InstallButton|DownloadButton)$/i.test(id) || /\\b(cta|install|download)\\b/i.test(id); }',
+    '    if (phase.targetSequence && phase.targetSequence.length) { for (var i = 0; i < phase.targetSequence.length; i++) { if (phase.targetSequence[i] && !isCta(phase.targetSequence[i])) return phase.targetSequence[i]; } }',
+    '    if (phase.steps && phase.steps.length) { for (var j = 0; j < phase.steps.length; j++) { var target = phase.steps[j].target || phase.steps[j].setEntity || ""; if (target && !isCta(target)) return target; } }',
     '    return "";',
     '  }',
     '  function moduleMeta(moduleId) { return { schemaVersion: CONFIG.schemaVersion, sourcePlatform: "html", sourceModuleId: moduleId, synthetic: true }; }',
@@ -522,7 +529,7 @@ function buildGameStateShim(snapshotDoc) {
     '    if (hasModule(phase, "collect_on_near")) { var cres = phaseTriggerResource(phase.trigger) || (CONFIG.resources[0] && CONFIG.resources[0].name) || "Resource"; block.resource_incremented = true; block.source_hidden_or_moved = true; block.collect_on_near = { _meta: moduleMeta("collect_on_near"), resource: cres, item: cres, count: 1, range: 2.5, before: { balance: 0 }, after: { balance: 1 }, sourceHidden: true }; }',
     '    if (hasModule(phase, "visual_binding") && CONFIG.entities[0]) { block.entity_visible = true; block.visual_binding = { _meta: moduleMeta("visual_binding"), entity: CONFIG.entities[0].name, operation: "show", before: { visible: false }, after: { visible: true }, position: asVec3(CONFIG.entities[0].initPos), scale_applied: true }; }',
     '    if (hasModule(phase, "spawn_once") && CONFIG.entities[0]) { block.downstream_entity_visible = true; block.entity_state_changed = true; block.spawn_once = { _meta: moduleMeta("spawn_once"), target: CONFIG.entities[0].name, position: asVec3(CONFIG.entities[0].initPos), placed: true }; }',
-    '    if (hasModule(phase, "cta_finish")) { block.downstream_entity_visible = true; block.cta_finish = { _meta: moduleMeta("cta_finish"), target: "CtaButton", cta_visible: true, install_called_or_ready: true, final_phase: true }; }',
+    '    if (hasModule(phase, "cta_finish")) { block.downstream_entity_visible = true; block.cta_finish = { _meta: moduleMeta("cta_finish"), ctaId: "CtaButton", cta_visible: true, install_called_or_ready: true, final_phase: true }; }',
     '    return block;',
     '  }',
     '  window.__gameState = function() {',

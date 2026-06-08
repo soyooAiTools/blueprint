@@ -9,6 +9,7 @@ var visualAssets = require('../adapters/demo2spec/visual-assets.js');
 
 var SOURCE_SCENE_IR_SCHEMA_VERSION = 'source-scene-ir.v1';
 var SOURCE_SCENE_IR_KIND = 'blueprint.sourceSceneIR';
+var SOURCE_IR_LITERAL_PARSE_TIMEOUT_MS = 1000;
 var SOURCE_SCENE_IR_PREFLIGHT_KIND = 'blueprint.sourceSceneIR.preflightReport';
 
 var STEP_KINDS = {
@@ -125,7 +126,7 @@ function parseTopLevelLiteral(source, name, openChar, closeChar) {
     if (!literal) return { value: null, literal: null, errors: [name + ' literal could not be balanced'] };
     try {
       return {
-        value: vm.runInNewContext('(' + literal + ')', Object.create(null), { timeout: 100 }),
+        value: vm.runInNewContext('(' + literal + ')', Object.create(null), { timeout: SOURCE_IR_LITERAL_PARSE_TIMEOUT_MS }),
         literal: literal,
         errors: [],
       };
@@ -200,7 +201,7 @@ function parseOptionalAssignedLiteral(source, name, openChar, closeChar) {
   try {
     return {
       present: true,
-      value: vm.runInNewContext('(' + literal + ')', Object.create(null), { timeout: 100 }),
+      value: vm.runInNewContext('(' + literal + ')', Object.create(null), { timeout: SOURCE_IR_LITERAL_PARSE_TIMEOUT_MS }),
       literal: literal,
       derivedFromSourceIr: false,
       errors: [],
@@ -429,7 +430,7 @@ function normalizeGate(gate, phase, index, phaseCount) {
   if (kind === 'click_entity') {
     return {
       kind: 'cta_arrival',
-      entity: gate.entity || gate.target || 'CtaButton',
+      ctaId: gate.ctaId || gate.entity || gate.target || 'CtaButton',
     };
   }
   if (kind === 'compound') {
@@ -446,6 +447,11 @@ function normalizeGate(gate, phase, index, phaseCount) {
   var out = clone(gate);
   out.kind = kind;
   delete out.type;
+  if (out.kind === 'cta_arrival') {
+    out.ctaId = out.ctaId || out.entity || out.target || 'CtaButton';
+    delete out.entity;
+    delete out.target;
+  }
   return out;
 }
 
@@ -455,6 +461,13 @@ function normalizeStep(step, index) {
     var direct = clone(step);
     direct.kind = String(step.kind);
     if (direct.index == null) direct.index = index;
+    if (direct.kind === 'cta_finish') {
+      direct.ctaId = direct.ctaId || direct.entity || direct.target || 'CtaButton';
+      delete direct.entity;
+      delete direct.target;
+      delete direct.from;
+      delete direct.to;
+    }
     return direct;
   }
   if (step.damage) {
@@ -515,7 +528,7 @@ function deriveStepsFromGate(gate) {
     return [{ index: 0, kind: 'set_entity_state', entity: gate.entity, state: gate.state != null ? gate.state : 1 }];
   }
   if (gate.kind === 'cta_arrival') {
-    return [{ index: 0, kind: 'cta_finish', entity: gate.entity || 'CtaButton' }];
+    return [{ index: 0, kind: 'cta_finish', ctaId: gate.ctaId || 'CtaButton' }];
   }
   if (gate.kind === 'timer') {
     return [{ index: 0, kind: 'wait', seconds: gate.seconds || 1 }];
@@ -554,6 +567,13 @@ function isHudOnlySourceEntity(entity) {
     /(?:^|_)(?:GoldUI|JoystickUI|HUD|Hud|GuideText|PhaseLabel)$/i.test(id);
 }
 
+function isCtaSourceEntity(entity) {
+  var kind = typeof entity === 'string' ? '' : String(entity && entity.kind || '');
+  var id = typeof entity === 'string' ? String(entity || '') : String(entity && entity.id || '');
+  return /\b(cta|install|download)\b/i.test(kind + ' ' + id) ||
+    /^(CtaButton|CTAButton|CTAPopup|InstallButton|DownloadButton)$/i.test(id);
+}
+
 function findSourcePlayerId(entities) {
   var exact = safeArray(entities).filter(function(entity) {
     return String(entity && entity.id || '').toLowerCase() === 'player' ||
@@ -574,7 +594,8 @@ function collectGateEntityTargets(gate, out) {
     });
     return out;
   }
-  var target = gate.entity || gate.target || (gate.kind === 'cta_arrival' ? 'CtaButton' : '');
+  if (gate.kind === 'cta_arrival') return out;
+  var target = gate.entity || gate.target || '';
   if (target && out.indexOf(target) < 0) out.push(target);
   return out;
 }
@@ -597,7 +618,99 @@ function collectGateEntityStateRequirements(gate, out) {
 }
 
 function sourceStepEntityTarget(step) {
+  if (step && step.kind === 'cta_finish') return '';
   return step && (step.target || step.from || step.to || step.entity) || '';
+}
+
+function sourceStepEntityRefs(step) {
+  var refs = [];
+  ['target', 'from', 'to', 'entity'].forEach(function(key) {
+    if (step && step[key] && refs.indexOf(step[key]) < 0) refs.push(step[key]);
+  });
+  return refs;
+}
+
+function firstNonCtaPhaseTarget(phase, entityById, playerId) {
+  var refs = [];
+  safeArray(phase && phase.steps).forEach(function(step) {
+    sourceStepEntityRefs(step).forEach(function(id) {
+      if (refs.indexOf(id) < 0) refs.push(id);
+    });
+  });
+  safeArray(phase && phase.showEntities).forEach(function(id) {
+    if (refs.indexOf(id) < 0) refs.push(id);
+  });
+  for (var i = 0; i < refs.length; i += 1) {
+    var entity = entityById[refs[i]];
+    if (!entity || refs[i] === playerId || isHudOnlySourceEntity(entity) || isCtaSourceEntity(entity)) continue;
+    return refs[i];
+  }
+  return null;
+}
+
+function replaceCtaGateTargets(gate, replacement, entityById, repairs, phaseId) {
+  if (!isObject(gate) || !replacement) return gate;
+  var next = clone(gate);
+  if (next.kind === 'compound_all' || next.kind === 'compound_any') {
+    next.gates = safeArray(next.gates).map(function(child) {
+      return replaceCtaGateTargets(child, replacement, entityById, repairs, phaseId);
+    });
+    return next;
+  }
+  ['entity', 'target'].forEach(function(key) {
+    if (!next[key]) return;
+    var entity = entityById[next[key]];
+    if (!isCtaSourceEntity(entity || next[key])) return;
+    repairs.push({ code: 'source_ir_non_final_cta_target_repaired', phaseId: phaseId, field: 'gate.' + key, before: next[key], after: replacement });
+    next[key] = replacement;
+  });
+  return next;
+}
+
+function rewriteFinalCtaGate(gate, repairs, phaseId) {
+  if (!isObject(gate)) return gate;
+  var next = clone(gate);
+  if (next.kind === 'compound_all' || next.kind === 'compound_any') {
+    next.gates = safeArray(next.gates).map(function(child) {
+      return rewriteFinalCtaGate(child, repairs, phaseId);
+    });
+    return next;
+  }
+  var ref = next.ctaId || next.entity || next.target || (next.kind === 'cta_arrival' ? 'CtaButton' : '');
+  if (!ref || !isCtaSourceEntity(ref)) return next;
+  if (next.kind !== 'cta_arrival') {
+    repairs.push({ code: 'source_ir_final_cta_gate_rewritten', phaseId: phaseId, before: next.kind, after: 'cta_arrival', ctaId: ref });
+    next.kind = 'cta_arrival';
+  }
+  next.ctaId = ref;
+  delete next.entity;
+  delete next.target;
+  return next;
+}
+
+function clearCtaHudTarget(phase, repairs) {
+  if (!isObject(phase) || !isObject(phase.hudText) || !isCtaSourceEntity(phase.hudText.targetEntity || '')) return phase;
+  var next = phase;
+  var before = {
+    targetEntity: phase.hudText.targetEntity,
+    targetLabel: phase.hudText.targetLabel || null,
+    targethint: phase.hudText.targethint || '',
+  };
+  next.hudText = clone(phase.hudText);
+  next.hudText.targetEntity = null;
+  if (/cta|install|download|安装|下载|按钮/i.test(String(next.hudText.targetLabel || ''))) {
+    next.hudText.targetLabel = null;
+  }
+  if (/cta|install|download|安装|下载|按钮/i.test(String(next.hudText.targethint || ''))) {
+    next.hudText.targethint = '';
+  }
+  repairs.push({
+    code: 'source_ir_cta_hud_target_rewritten',
+    phaseId: phase.id || phase.phaseId || null,
+    before: before,
+    after: { targetEntity: null },
+  });
+  return next;
 }
 
 function repairSourcePhaseLiveness(phases, entities, runtimeContract, options) {
@@ -606,9 +719,49 @@ function repairSourcePhaseLiveness(phases, entities, runtimeContract, options) {
   var entityById = indexById(entities);
   var playerId = findSourcePlayerId(entities);
   var repairs = [];
-  var repairedPhases = safeArray(phases).map(function(phase) {
+  var phaseCount = safeArray(phases).length;
+  var repairedPhases = safeArray(phases).map(function(phase, phaseIndex) {
     var next = clone(phase);
     next.showEntities = uniqueStrings(next.showEntities);
+    if (phaseIndex < phaseCount - 1) {
+      var replacement = firstNonCtaPhaseTarget(next, entityById, playerId);
+      if (replacement) {
+        safeArray(next.steps).forEach(function(step) {
+          ['target', 'entity'].forEach(function(key) {
+            var entity = step && step[key] && entityById[step[key]];
+            if (!step || !step[key] || !isCtaSourceEntity(entity || step[key])) return;
+            repairs.push({ code: 'source_ir_non_final_cta_target_repaired', phaseId: next.id, field: 'steps.' + key, before: step[key], after: replacement });
+            step[key] = replacement;
+          });
+        });
+        next.gate = replaceCtaGateTargets(next.gate, replacement, entityById, repairs, next.id);
+      }
+    } else {
+      safeArray(next.steps).forEach(function(step) {
+        var ref = sourceStepEntityTarget(step);
+        if (!ref || !isCtaSourceEntity(entityById[ref] || ref) || step.kind === 'cta_finish') return;
+        var before = step.kind;
+        step.kind = 'cta_finish';
+        step.ctaId = ref;
+        delete step.entity;
+        delete step.target;
+        delete step.from;
+        delete step.to;
+        delete step.state;
+        delete step.level;
+        repairs.push({ code: 'source_ir_final_cta_step_rewritten', phaseId: next.id, before: before, after: 'cta_finish', ctaId: ref });
+      });
+      next.gate = rewriteFinalCtaGate(next.gate, repairs, next.id);
+    }
+    next = clearCtaHudTarget(next, repairs);
+    var beforeShow = next.showEntities.slice();
+    next.showEntities = next.showEntities.filter(function(id) {
+      var entity = entityById[id];
+      return !isCtaSourceEntity(entity || id);
+    });
+    if (beforeShow.length !== next.showEntities.length) {
+      repairs.push({ code: 'source_ir_cta_visibility_repaired', phaseId: next.id, removed: beforeShow.filter(function(id) { return next.showEntities.indexOf(id) < 0; }) });
+    }
     if (runtimeContract && runtimeContract.requiresJoystick && playerId && entityById[playerId] && !isHudOnlySourceEntity(entityById[playerId]) && next.showEntities.indexOf(playerId) < 0) {
       next.showEntities.unshift(playerId);
       repairs.push({ code: 'source_ir_phase_player_visibility_repaired', phaseId: next.id, entity: playerId });
@@ -621,7 +774,7 @@ function repairSourcePhaseLiveness(phases, entities, runtimeContract, options) {
     collectGateEntityTargets(next.gate, targets);
     targets.forEach(function(target) {
       var entity = entityById[target];
-      if (!entity || isHudOnlySourceEntity(entity) || next.showEntities.indexOf(target) >= 0) return;
+      if (!entity || isHudOnlySourceEntity(entity) || isCtaSourceEntity(entity || target) || next.showEntities.indexOf(target) >= 0) return;
       next.showEntities.push(target);
       repairs.push({ code: 'source_ir_phase_target_visibility_repaired', phaseId: next.id, entity: target });
     });
@@ -638,7 +791,10 @@ function repairSourcePhaseLiveness(phases, entities, runtimeContract, options) {
       });
     });
     next.showEntities = uniqueStrings(next.showEntities);
-    next.targetSequence = uniqueStrings(next.targetSequence.concat(targets));
+    next.targetSequence = uniqueStrings(next.targetSequence.concat(targets)).filter(function(id) {
+      var entity = entityById[id];
+      return !isCtaSourceEntity(entity || id);
+    });
     return next;
   });
   return { phases: repairedPhases, repairs: repairs };
@@ -831,10 +987,48 @@ function buildHudContract(phases, resources, manifest) {
   return {
     tip: { source: 'phase.guideText' },
     resourceBar: safeArray(resources).map(function(resource) { return resource.id; }),
-    cta: { entity: ctaEntity, arrivalGated: true },
+    cta: { ctaId: ctaEntity, arrivalGated: true },
     domHudContract: sourceEntityContract.domHudContract || null,
     uiOverlayContract: sourceEntityContract.uiOverlayContract || null,
   };
+}
+
+function sanitizeHudContract(hud, repairs) {
+  var next = isObject(hud) ? clone(hud) : {};
+  if (isObject(next.uiOverlayContract) && Array.isArray(next.uiOverlayContract.entities)) {
+    var beforeEntities = next.uiOverlayContract.entities.slice();
+    next.uiOverlayContract.entities = beforeEntities.filter(function(item) {
+      return !isCtaSourceEntity(item && item.id || item);
+    });
+    if (beforeEntities.length !== next.uiOverlayContract.entities.length) {
+      repairs.push({
+        code: 'source_ir_cta_ui_overlay_entity_reclassified',
+        entityIds: beforeEntities
+          .map(function(item) { return item && item.id || item; })
+          .filter(function(id) { return isCtaSourceEntity(id); }),
+        target: 'hud.cta.ctaId',
+      });
+    }
+    if (!next.uiOverlayContract.entities.length) next.uiOverlayContract.present = false;
+  }
+  return next;
+}
+
+function sanitizeSourceIrDiagnostics(diagnostics) {
+  if (!isObject(diagnostics)) return null;
+  var next = clone(diagnostics);
+  next.normalizationRepairs = safeArray(next.normalizationRepairs).map(function(repair) {
+    if (!isObject(repair)) return repair;
+    if ((repair.code === 'source_ir_final_cta_step_rewritten' || repair.code === 'source_ir_final_cta_gate_rewritten') &&
+      repair.entity && isCtaSourceEntity(repair.entity)) {
+      var fixed = clone(repair);
+      fixed.ctaId = fixed.ctaId || fixed.entity;
+      delete fixed.entity;
+      return fixed;
+    }
+    return repair;
+  });
+  return next;
 }
 
 function normalizeSourceSceneIr(ir, options) {
@@ -847,7 +1041,13 @@ function normalizeSourceSceneIr(ir, options) {
   var phases = safeArray(ir.phases).map(function(phase, index) {
     return normalizePhase(phase, index, phaseCount);
   });
-  var entities = safeArray(ir.entities).map(normalizeEntity);
+  var rawEntities = safeArray(ir.entities).map(normalizeEntity);
+  var ctaEntityIds = [];
+  var entities = rawEntities.filter(function(entity) {
+    if (!isCtaSourceEntity(entity)) return true;
+    if (entity && entity.id && ctaEntityIds.indexOf(entity.id) < 0) ctaEntityIds.push(entity.id);
+    return false;
+  });
   var resources = options.inferResources === true
     ? inferResources(phases, ir.resources)
     : safeArray(ir.resources).map(normalizeResource);
@@ -863,11 +1063,29 @@ function normalizeSourceSceneIr(ir, options) {
   }
   var phaseRepair = repairSourcePhaseLiveness(phases, entities, runtimeContract, options);
   phases = phaseRepair.phases;
-  var diagnostics = ir.diagnostics ? clone(ir.diagnostics) : null;
+  var diagnostics = ir.diagnostics ? sanitizeSourceIrDiagnostics(ir.diagnostics) : null;
+  if (ctaEntityIds.length > 0) {
+    diagnostics = isObject(diagnostics) ? diagnostics : {};
+    diagnostics.normalizationRepairs = safeArray(diagnostics.normalizationRepairs).concat([{
+      code: 'source_ir_cta_entity_reclassified',
+      entityIds: ctaEntityIds,
+      target: 'hud.cta.ctaId',
+    }]);
+  }
   if (phaseRepair.repairs.length > 0) {
     diagnostics = isObject(diagnostics) ? diagnostics : {};
     diagnostics.normalizationRepairs = safeArray(diagnostics.normalizationRepairs).concat(phaseRepair.repairs);
   }
+  var hudRepairs = [];
+  var hud = sanitizeHudContract(isObject(ir.hud) ? ir.hud : buildHudContract(phases, resources, null), hudRepairs);
+  if (hudRepairs.length > 0) {
+    diagnostics = isObject(diagnostics) ? diagnostics : {};
+    diagnostics.normalizationRepairs = safeArray(diagnostics.normalizationRepairs).concat(hudRepairs);
+  }
+  if (!isObject(hud.cta)) hud.cta = {};
+  if (!hud.cta.ctaId) hud.cta.ctaId = hud.cta.entity || ctaEntityIds[0] || 'CtaButton';
+  delete hud.cta.entity;
+  if (hud.cta.arrivalGated == null) hud.cta.arrivalGated = true;
   var normalized = {
     schemaVersion: SOURCE_SCENE_IR_SCHEMA_VERSION,
     kind: SOURCE_SCENE_IR_KIND,
@@ -881,7 +1099,7 @@ function normalizeSourceSceneIr(ir, options) {
     entities: entities,
     resources: resources,
     phases: phases,
-    hud: isObject(ir.hud) ? clone(ir.hud) : buildHudContract(phases, resources, null),
+    hud: hud,
     runtimeContract: runtimeContract,
     extraction: ir.extraction || null,
     diagnostics: diagnostics,
@@ -938,14 +1156,22 @@ function validateGate(gate, index, phaseCount, entityIds, resourceIds, errors, p
   if (!GATE_KINDS[gate.kind]) {
     addError(errors, 'source_ir_gate_kind_invalid', pathPrefix + '.kind is not allowed: ' + gate.kind);
   }
-  if (gate.entity && !entityIds[gate.entity]) {
+  var finalPhase = index === phaseCount - 1;
+  var virtualCtaGate = finalPhase && (gate.kind === 'cta_arrival' || gate.kind === 'click_entity');
+  if (gate.entity && !entityIds[gate.entity] && !(virtualCtaGate && isCtaSourceEntity(gate.entity))) {
     addError(errors, 'source_ir_gate_entity_missing', pathPrefix + '.entity not found: ' + gate.entity);
   }
-  if (gate.target && !entityIds[gate.target]) {
+  if (gate.target && !entityIds[gate.target] && !(virtualCtaGate && isCtaSourceEntity(gate.target))) {
     addError(errors, 'source_ir_gate_target_missing', pathPrefix + '.target not found: ' + gate.target);
   }
   if (gate.resource && !resourceIds[gate.resource]) {
     addError(errors, 'source_ir_gate_resource_missing', pathPrefix + '.resource not found: ' + gate.resource);
+  }
+  if (gate.kind === 'cta_arrival' && gate.entity) {
+    addError(errors, 'source_ir_cta_gate_uses_entity_field', pathPrefix + '.entity must not be used for CTA; use ctaId');
+  }
+  if (gate.kind === 'cta_arrival' && gate.target) {
+    addError(errors, 'source_ir_cta_gate_uses_target_field', pathPrefix + '.target must not be used for CTA; use ctaId');
   }
   if ((gate.kind === 'cta_arrival' || gate.kind === 'click_entity') && index !== phaseCount - 1) {
     addError(errors, 'source_ir_non_final_cta_gate', pathPrefix + ' uses CTA/click semantics before the final phase');
@@ -965,13 +1191,21 @@ function validateStep(step, index, phaseCount, entityIds, resourceIds, errors, p
   if (!STEP_KINDS[step.kind]) {
     addError(errors, 'source_ir_step_kind_invalid', pathPrefix + '.kind is not allowed: ' + step.kind);
   }
+  var finalPhase = index === phaseCount - 1;
+  var virtualCtaStep = finalPhase && (step.kind === 'cta_finish' || step.kind === 'click_entity');
   ['target', 'from', 'to', 'entity'].forEach(function(key) {
-    if (step[key] && !entityIds[step[key]]) {
+    if (step[key] && !entityIds[step[key]] && !(virtualCtaStep && isCtaSourceEntity(step[key]))) {
       addError(errors, 'source_ir_step_entity_missing', pathPrefix + '.' + key + ' not found: ' + step[key]);
     }
   });
   if (step.resource && !resourceIds[step.resource]) {
     addError(errors, 'source_ir_step_resource_missing', pathPrefix + '.resource not found: ' + step.resource);
+  }
+  if (step.kind === 'cta_finish' && step.entity) {
+    addError(errors, 'source_ir_cta_step_uses_entity_field', pathPrefix + '.entity must not be used for CTA; use ctaId');
+  }
+  if (step.kind === 'cta_finish' && step.target) {
+    addError(errors, 'source_ir_cta_step_uses_target_field', pathPrefix + '.target must not be used for CTA; use ctaId');
   }
   if ((step.kind === 'cta_finish' || step.kind === 'click_entity') && index !== phaseCount - 1) {
     addError(errors, 'source_ir_non_final_cta_step', pathPrefix + ' uses CTA/click semantics before the final phase');
@@ -1173,7 +1407,7 @@ function triggerProjectionFromGate(gate) {
     return { type: 'timer', seconds: gate.seconds || 1 };
   }
   if (gate.kind === 'cta_arrival') {
-    return { type: 'near_entity', entity: gate.entity || 'CtaButton', range: gate.radius || gate.range || 2 };
+    return { type: 'cta_arrival', ctaId: gate.ctaId || 'CtaButton', range: gate.radius || gate.range || 2 };
   }
   if (gate.kind === 'compound_all' || gate.kind === 'compound_any') {
     return {
@@ -1187,6 +1421,13 @@ function triggerProjectionFromGate(gate) {
 
 function legacyStepProjection(step, index) {
   step = step || {};
+  if (step.kind === 'cta_finish') {
+    return {
+      index: index,
+      label: step.label || 'cta_finish',
+      ctaEntity: step.ctaId || 'CtaButton',
+    };
+  }
   var out = {
     index: index,
     target: step.target || step.from || step.to || step.entity || '',

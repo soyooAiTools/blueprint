@@ -216,6 +216,7 @@
             "entity_state_reached",
             "near_entity",
             "click_entity",
+            "cta_arrival",
             "all_built",
             "enemy_defeated",
             "timer",
@@ -225,6 +226,10 @@
         "entity": {
           "type": "string",
           "description": "Target entity name (for entity-related triggers)"
+        },
+        "ctaId": {
+          "type": "string",
+          "description": "HUD CTA control id (for cta_arrival); not a gameplay entity"
         },
         "resource": {
           "type": "string",

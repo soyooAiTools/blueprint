@@ -75,6 +75,7 @@
     "phase ids must be unique and sequential as phase1..phaseN",
     "showEntities entries must reference entities[]",
     "step and gate entity/resource references must resolve",
+    "CTA finish/arrival semantics must use ctaId instead of entity/target fields",
     "non-final phases must not use CTA or click-to-advance semantics",
     "requiresJoystick=true requires runtime joystick evidence during HTML preflight",
     "IR must project to PHASES, ENTITY_STYLE, ENTITY_POSITIONS, and SCENE_CONFIG"

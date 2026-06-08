@@ -72,18 +72,24 @@ var visualIr = buildSourceVisualIrFromSourceSceneIr(sourceIr, {
   generatedAt: '2026-06-07T00:00:00.000Z',
 });
 
+assert.deepStrictEqual(sourceIr.entities.map(function(entity) { return entity.id; }), ['Player', 'WaterDrop', 'GoldUI']);
+assert.strictEqual(sourceIr.hud.cta.ctaId, 'CtaButton');
+assert.strictEqual(sourceIr.hud.cta.entity, undefined);
 assert.strictEqual(visualIr.schemaVersion, SOURCE_VISUAL_IR_SCHEMA_VERSION);
 assert.strictEqual(visualIr.kind, SOURCE_VISUAL_IR_KIND);
 assert.strictEqual(visualIr.source.sourceSceneIrHash, sourceIr.semanticHash);
 assert.strictEqual(visualIr.visual.scene.backgroundColor, '#0a1020');
-assert.deepStrictEqual(visualIr.visual.entities.map(function(entity) { return entity.id; }), ['Player', 'WaterDrop', 'CtaButton']);
+assert.deepStrictEqual(visualIr.visual.entities.map(function(entity) { return entity.id; }), ['Player', 'WaterDrop']);
 assert.strictEqual(visualIr.visual.entities[0].meshOps[0].kind, 'primitive');
 assert.strictEqual(visualIr.visual.entities[1].material.color, '#33aaff');
 assert.deepStrictEqual(visualIr.visual.phaseStates[0].visibleEntities, ['Player', 'WaterDrop']);
 assert.strictEqual(visualIr.visual.phaseStates[0].guidance.primaryTarget, 'WaterDrop');
+assert.deepStrictEqual(visualIr.visual.phaseStates[1].visibleEntities, ['Player']);
+assert.strictEqual(visualIr.visual.phaseStates[1].guidance.primaryTarget, null);
 assert.strictEqual(visualIr.visual.phaseStates[1].ctaVisible, true);
 assert.strictEqual(visualIr.visual.guidance.phaseTargets[0].primaryTarget, 'WaterDrop');
-assert.strictEqual(visualIr.visual.cta.entity, 'CtaButton');
+assert.strictEqual(visualIr.visual.cta.ctaId, 'CtaButton');
+assert.strictEqual(visualIr.visual.cta.entity, undefined);
 assert.strictEqual(visualIr.visual.cta.buttonText, '安装完整游戏');
 assert.strictEqual(validateSourceVisualIr(visualIr, { sourceSceneIr: sourceIr }), true);
 assert.strictEqual(computeSourceVisualIrHash(visualIr), visualIr.semanticHash);

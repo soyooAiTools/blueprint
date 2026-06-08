@@ -54,7 +54,7 @@
     "visual.entities[].meshOps must be an array",
     "visual.phaseStates[] ids must be unique and sequential as phase1..phaseN",
     "visual.phaseStates[].visibleEntities and guidance targets must reference visual.entities[]",
-    "visual.cta.entity must reference visual.entities[] when present",
+    "visual.cta.ctaId is a HUD/UI contract id and does not have to be present in visual.entities[]",
     "semanticHash, when present, must match the normalized semantic payload"
   ]
 }

@@ -70,8 +70,20 @@ function gateTargets(gate) {
     });
     return out;
   }
-  var target = gate.entity || gate.target || (gate.kind === 'cta_arrival' ? 'CtaButton' : '');
+  if (gate.kind === 'cta_arrival') return [];
+  var target = gate.entity || gate.target || '';
   return target ? [target] : [];
+}
+
+function isCtaEntity(entityOrId) {
+  var id = typeof entityOrId === 'string' ? entityOrId : String(entityOrId && entityOrId.id || '');
+  var kind = typeof entityOrId === 'string' ? '' : String(entityOrId && entityOrId.kind || '');
+  return /\b(cta|install|download)\b/i.test(kind + ' ' + id) ||
+    /^(CtaButton|CTAButton|CTAPopup|InstallButton|DownloadButton)$/i.test(id);
+}
+
+function isFinalPhase(index, ir) {
+  return index === safeArray(ir && ir.phases).length - 1;
 }
 
 function phaseRequiresPlayer(phase, gate, sourceIrRequiresJoystick) {
@@ -106,11 +118,11 @@ function applyStepDelta(step, resources, entityStates) {
   }
 }
 
-function checkGateSatisfiable(gate, resources, entityStates, phase, phaseIndex, errors, entityById) {
+function checkGateSatisfiable(gate, resources, entityStates, phase, phaseIndex, errors, entityById, ir) {
   if (!isObject(gate)) return;
   if (gate.kind === 'compound_all' || gate.kind === 'compound_any') {
     safeArray(gate.gates).forEach(function(child) {
-      checkGateSatisfiable(child, resources, entityStates, phase, phaseIndex, errors, entityById);
+      checkGateSatisfiable(child, resources, entityStates, phase, phaseIndex, errors, entityById, ir);
     });
     return;
   }
@@ -137,7 +149,10 @@ function checkGateSatisfiable(gate, resources, entityStates, phase, phaseIndex, 
       });
     }
   } else if (gate.kind === 'near_entity' || gate.kind === 'cta_arrival') {
-    var target = gate.entity || gate.target || 'CtaButton';
+    var target = gate.ctaId || gate.entity || gate.target || 'CtaButton';
+    if (isCtaEntity(target) && isFinalPhase(phaseIndex, ir)) {
+      return;
+    }
     if (!entityById[target]) {
       addViolation(errors, 'source_ir_gate_target_missing', 'phase' + (phaseIndex + 1) + ' gate target is missing: ' + target, {
         phaseId: phase.id,
@@ -206,6 +221,14 @@ function analyzeSourceIrPhaseLiveness(sourceIr, options) {
       if (target && targets.indexOf(target) < 0) targets.push(target);
     });
     targets.forEach(function(target) {
+      if (isCtaEntity(target) && isFinalPhase(index, ir)) return;
+      if (isCtaEntity(target) && !isFinalPhase(index, ir)) {
+        addViolation(errors, 'source_ir_non_final_cta_target', phase.id + ' references CTA as a gameplay target before the final phase: ' + target, {
+          phaseId: phase.id,
+          target: target,
+        });
+        return;
+      }
       var entity = entityById[target];
       if (!entity) {
         addViolation(errors, 'source_ir_phase_target_missing', phase.id + ' references missing target: ' + target, {
@@ -228,7 +251,7 @@ function analyzeSourceIrPhaseLiveness(sourceIr, options) {
     safeArray(phase.steps).forEach(function(step) {
       applyStepDelta(step, resources, entityStates);
     });
-    checkGateSatisfiable(phase.gate, resources, entityStates, phase, index, errors, entityById);
+    checkGateSatisfiable(phase.gate, resources, entityStates, phase, index, errors, entityById, ir);
     phaseSummaries.push({
       id: phase.id,
       index: index,
@@ -285,7 +308,7 @@ async function runBrowserProbe(htmlPath, sourceIr, options) {
   var errors = [];
   var samples = [];
   try {
-    await page.goto(pathToFileURL(path.resolve(htmlPath)).href, { waitUntil: 'load', timeout: Number(options.loadTimeoutMs || 60000) });
+    await page.goto(pathToFileURL(path.resolve(htmlPath)).href, { waitUntil: 'domcontentloaded', timeout: Number(options.loadTimeoutMs || 60000) });
     await page.waitForTimeout(Number(options.settleMs || 600));
     var api = await page.evaluate(function() {
       return {

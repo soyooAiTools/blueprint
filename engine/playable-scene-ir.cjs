@@ -369,6 +369,10 @@ function loadPlayableSceneIr(filePath) {
   return ir;
 }
 
+function isCtaUiEntityName(value) {
+  return /^(CtaButton|CTAButton|CTAPopup|InstallButton|DownloadButton)$/i.test(String(value || '').trim());
+}
+
 function normalizeTriggerForCompare(trigger) {
   if (!isObject(trigger)) return null;
   if (trigger.type === 'compound') {
@@ -386,6 +390,13 @@ function normalizeTriggerForCompare(trigger) {
     };
   }
   if (trigger.type === 'near_entity') {
+    if (isCtaUiEntityName(trigger.entity)) {
+      return {
+        type: 'cta_arrival',
+        ctaId: trigger.entity || 'CtaButton',
+        range: Number(trigger.range != null ? trigger.range : trigger.distance) || 2,
+      };
+    }
     return {
       type: 'near_entity',
       entity: trigger.entity || null,
@@ -393,7 +404,15 @@ function normalizeTriggerForCompare(trigger) {
     };
   }
   if (trigger.type === 'click_entity') {
+    if (isCtaUiEntityName(trigger.entity)) return { type: 'cta_arrival', ctaId: trigger.entity || 'CtaButton', range: 2 };
     return { type: 'click_entity', entity: trigger.entity || null };
+  }
+  if (trigger.type === 'cta_arrival') {
+    return {
+      type: 'cta_arrival',
+      ctaId: trigger.ctaId || trigger.entity || trigger.target || 'CtaButton',
+      range: Number(trigger.range != null ? trigger.range : trigger.distance) || 2,
+    };
   }
   if (trigger.type === 'entity_state_reached') {
     return {

@@ -92,30 +92,39 @@ sourceIr = normalizeSourceSceneIr(sourceIr, {
   sourceHtmlSha256: require('../engine/source-scene-ir.cjs').sha256OfString(html),
   html: html,
 });
+assert.deepStrictEqual(sourceIr.entities.map(function(entity) { return entity.id; }), ['Player', 'WaterDrop']);
+assert.strictEqual(sourceIr.hud.cta.ctaId, 'CtaButton');
+assert.strictEqual(sourceIr.hud.cta.entity, undefined);
 
 var gameSchema = compileToGameSchema(sourceIr);
 assert.deepStrictEqual(schemaValidator.validateGameSchema(gameSchema), []);
 assert.deepStrictEqual(schemaValidator.validateSemantics(gameSchema), []);
 assert.strictEqual(gameSchema.phases[0].trigger.type, 'resource_collected');
 assert.strictEqual(gameSchema.phases[0].steps[1].gain, 'Water');
-assert.strictEqual(gameSchema.phases[1].trigger.type, 'near_entity');
-assert.strictEqual(gameSchema.phases[1].trigger.entity, 'CtaButton');
+assert.strictEqual(gameSchema.phases[1].trigger.type, 'cta_arrival');
+assert.strictEqual(gameSchema.phases[1].trigger.ctaId, 'CtaButton');
+assert.strictEqual(gameSchema.phases[1].trigger.entity, undefined);
+assert.deepStrictEqual(gameSchema.entities.map(function(entity) { return entity.name; }), ['Player', 'WaterDrop']);
+assert.deepStrictEqual(gameSchema.phases[1].showEntities, ['Player']);
+assert.deepStrictEqual(gameSchema.phases[1].steps.map(function(step) { return step.target; }).filter(Boolean), []);
 
 var playableSceneIr = compilePlayableSceneIr(sourceIr);
 assert.strictEqual(playableSceneIr.kind, 'blueprint.playableSceneIR');
 assert.strictEqual(playableSceneIr.phases.length, 2);
+assert.deepStrictEqual(playableSceneIr.entities.map(function(entity) { return entity.name; }), ['Player', 'WaterDrop']);
 assert.strictEqual(assertPlayableSceneIrExecutionAlignment(playableSceneIr, { gameSchema: gameSchema }).passed, true);
 
 var sourceVisualIr = compileSourceVisualIr(sourceIr);
 assert.strictEqual(sourceVisualIr.kind, 'blueprint.sourceVisualIR');
 assert.strictEqual(sourceVisualIr.source.sourceSceneIrHash, sourceIr.semanticHash);
 assert.strictEqual(sourceVisualIr.visual.scene.backgroundColor, '#101820');
-assert.strictEqual(sourceVisualIr.visual.entities.length, 3);
+assert.strictEqual(sourceVisualIr.visual.entities.length, 2);
 assert.strictEqual(sourceVisualIr.visual.entities[1].meshOps[0].kind, 'primitive');
 assert.strictEqual(sourceVisualIr.visual.hud.resourceBar[0], 'Water');
 assert.strictEqual(sourceVisualIr.visual.phaseStates.length, 2);
 assert.strictEqual(sourceVisualIr.visual.phaseStates[0].guidance.primaryTarget, 'WaterDrop');
-assert.strictEqual(sourceVisualIr.visual.cta.entity, 'CtaButton');
+assert.strictEqual(sourceVisualIr.visual.cta.ctaId, 'CtaButton');
+assert.strictEqual(sourceVisualIr.visual.cta.entity, undefined);
 
 var assetManifest = compileVisualAssetManifest(sourceIr, {
   playableSceneIrHash: playableSceneIr.semanticHash,
@@ -138,6 +147,9 @@ assert.strictEqual(built.blueprint.schemaSource, 'source-scene-ir');
 assert.strictEqual(built.blueprint.legacyJsInferenceUsed, false);
 assert.strictEqual(built.project.semanticSource, 'source-scene-ir');
 assert.strictEqual(built.project.playableSceneIrHash, playableSceneIr.semanticHash);
+assert.deepStrictEqual(built.project.specs[1].requiredInteractions, []);
+assert.strictEqual(built.project.specs[1].playerMustAct, false);
+assert.strictEqual(/move_to:CtaButton/.test(JSON.stringify(built.blueprint.plans)), false);
 
 var outDir = path.join(tmp, 'out');
 var previousProofGate = process.env.BLUEPRINT_PROOF_CONTRACT_GATE;

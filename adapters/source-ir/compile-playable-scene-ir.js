@@ -29,6 +29,14 @@ function positionObject(position) {
   };
 }
 
+function isHudOnlyOrCtaEntity(entity) {
+  var kind = String(entity && entity.kind || '');
+  var id = String(entity && entity.id || '');
+  return /\b(ui_marker|hud|hud_marker|ui_overlay|screen_ui|cta|install|download)\b/i.test(kind + ' ' + id) ||
+    /^(CtaButton|CTAButton|CTAPopup|InstallButton|DownloadButton)$/i.test(id) ||
+    /(?:^|_)(?:GoldUI|JoystickUI|HUD|Hud|GuideText|PhaseLabel)$/i.test(id);
+}
+
 function compilePlayableSceneIr(sourceIr, options) {
   options = options || {};
   var ir = normalizeSourceSceneIr(sourceIr, options);
@@ -46,7 +54,9 @@ function compilePlayableSceneIr(sourceIr, options) {
     },
     project: clone(ir.project),
     scene: clone(ir.scene),
-    entities: safeArray(ir.entities).map(function(entity) {
+    entities: safeArray(ir.entities).filter(function(entity) {
+      return !isHudOnlyOrCtaEntity(entity);
+    }).map(function(entity) {
       return {
         name: entity.id,
         label: entity.label || entity.id,
@@ -71,7 +81,9 @@ function compilePlayableSceneIr(sourceIr, options) {
         goalText: phase.goalText || '',
         showEntities: safeArray(phase.showEntities),
         trigger: projected.trigger || null,
-        steps: safeArray(projected.steps),
+        steps: safeArray(projected.steps).filter(function(step) {
+          return !/^(CtaButton|CTAButton|CTAPopup|InstallButton|DownloadButton)$/i.test(String(step && step.target || ''));
+        }),
         hudText: clone(phase.hudText || null),
         plannedModuleIds: safeArray(phase.plannedModuleIds),
       };

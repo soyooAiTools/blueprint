@@ -41,13 +41,14 @@ function isCtaEntityName(entity) {
 }
 
 /**
- * Terminal phases may either use the legacy click_entity finish trigger or the
- * storyboard2html arrival-only CtaButton path.
+ * Terminal phases may use the canonical cta_arrival trigger, the legacy
+ * click_entity finish trigger, or the legacy arrival-only CtaButton path.
  * @param {object} trigger - Trigger object to inspect.
  * @returns {boolean}
  */
 function hasFinalCtaTrigger(trigger) {
   if (!trigger) return false;
+  if (trigger.type === 'cta_arrival') return true;
   if (trigger.type === 'click_entity') return true;
   if (trigger.type === 'near_entity' && isCtaEntityName(trigger.entity)) return true;
   if (trigger.type === 'compound' && Array.isArray(trigger.triggers)) {
@@ -77,9 +78,18 @@ function validateTriggerRefs(trigger, phaseId, entityNames, resourceNames, error
     }
     return;
   }
+  if (trigger.type === 'cta_arrival') {
+    if (!hasNamedRef(trigger.ctaId || trigger.entity)) {
+      errors.push('Phase ' + phaseId + ' trigger cta_arrival missing ctaId');
+    }
+    return;
+  }
   if (trigger.type === 'entity_state_reached' || trigger.type === 'near_entity' || trigger.type === 'click_entity') {
     if (!hasNamedRef(trigger.entity)) {
       errors.push('Phase ' + phaseId + ' trigger ' + trigger.type + ' missing entity');
+      return;
+    }
+    if (isCtaEntityName(trigger.entity)) {
       return;
     }
     if (!entityNames[trigger.entity]) {
@@ -131,7 +141,7 @@ function validateSemantics(schema) {
   // storyboard2html can also use arrival-only near_entity(CtaButton).
   var lastPhase = schema.phases[schema.phases.length - 1];
   if (!hasFinalCtaTrigger(lastPhase.trigger)) {
-    errors.push('Last phase trigger must include click_entity or CtaButton near_entity');
+    errors.push('Last phase trigger must include cta_arrival, click_entity, or CtaButton near_entity');
   }
 
   // timer cannot be a standalone trigger (must be inside compound)

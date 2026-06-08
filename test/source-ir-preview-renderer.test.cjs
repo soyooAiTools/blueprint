@@ -257,6 +257,7 @@ async function main() {
   assert.strictEqual(sandbox.document.__elements.joystick.style.pointerEvents, 'none');
   assert.ok(sandbox.document.__elements['source-ir-world-labels']);
   assert.strictEqual(sandbox.window.__sourceIrPreviewModels.GoldUI, undefined);
+  assert.strictEqual(sandbox.window.__sourceIrPreviewModels.CtaButton, undefined);
 
   var phase1 = sandbox.window.__gameState();
   assert.strictEqual(phase1.phase, 'phase1');
@@ -264,10 +265,9 @@ async function main() {
   assert.strictEqual(phase1.entity_states.GoldUI.visible, true);
   assert.strictEqual(phase1.entity_states.GoldUI.hudOnly, true);
   assert.strictEqual(phase1.entity_states.WaterDrop.visible, true);
-  assert.strictEqual(phase1.entity_states.CtaButton.visible, false);
+  assert.strictEqual(phase1.entity_states.CtaButton, undefined);
   assert.strictEqual(sandbox.window.__BP_SOURCE_IR_RENDERER_USING_DOM_FALLBACK__, true);
   assert.notStrictEqual(sandbox.window.__sourceIrPreviewModels.WaterDrop.dom.style.display, 'none');
-  assert.strictEqual(sandbox.window.__sourceIrPreviewModels.CtaButton.dom.style.display, 'none');
 
   sandbox.window.__sourceIrPreviewModels.Player.position.x = 3;
   sandbox.window.__sourceIrPreviewModels.Player.position.z = 0;
@@ -280,15 +280,15 @@ async function main() {
   assert.strictEqual(phase2.phase, 'phase2');
   assert.deepStrictEqual(Array.from(phase2.completedPhases), ['phase1']);
   assert.strictEqual(phase2.ui_state.guideText, 'Go to install');
+  assert.strictEqual(phase2.ui_state.ctaVisible, true);
   assert.strictEqual(phase2.resources.Water, 3);
   assert.strictEqual(phase2.entity_states.WaterDrop.visible, true);
-  assert.strictEqual(phase2.entity_states.CtaButton.visible, true);
+  assert.strictEqual(phase2.entity_states.CtaButton, undefined);
   assert.notStrictEqual(sandbox.window.__sourceIrPreviewModels.WaterDrop.dom.style.display, 'none');
-  assert.notStrictEqual(sandbox.window.__sourceIrPreviewModels.CtaButton.dom.style.display, 'none');
   assert.strictEqual(phase2.phaseEvidence.phase2.cta_finish.final_phase, true);
   assert.strictEqual(sandbox.document.__elements.tip.textContent, 'Go to install');
   assert.strictEqual(sandbox.document.__elements['source-ir-cta-overlay'].style.display, 'grid');
-  assert.strictEqual(sandbox.document.__elements['source-ir-target-ring'].style.display, 'block');
+  assert.strictEqual(sandbox.document.__elements['source-ir-target-ring'].style.display, 'none');
   assert.strictEqual(sandbox.window.__fidelityReady, true);
 
   assert.throws(function() {

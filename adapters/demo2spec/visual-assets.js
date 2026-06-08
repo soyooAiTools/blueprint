@@ -39,6 +39,12 @@ function uniq(values) {
   return Array.from(new Set(safeArray(values).filter(Boolean)));
 }
 
+function isCtaUiEntityName(value) {
+  const id = String(value || '').trim();
+  return /^(CtaButton|CTAButton|CTAPopup|InstallButton|DownloadButton)$/i.test(id) ||
+    /\b(cta|install|download)\b/i.test(id);
+}
+
 function findLine(text, idx) {
   let n = 1;
   for (let i = 0; i < idx && i < text.length; i++) if (text[i] === '\n') n++;
@@ -1118,7 +1124,7 @@ function parsePhaseTrigger(triggerLiteral) {
   const trigger = {
     type: stripQuotes(entries.type || ''),
   };
-  ['entity', 'target', 'resource'].forEach(key => {
+  ['entity', 'target', 'resource', 'ctaId'].forEach(key => {
     const value = stripQuotes(entries[key] || '');
     if (value) trigger[key] = value;
   });
@@ -1269,7 +1275,7 @@ function derivePhaseStepsFromTrigger(phase, trigger, entityStyles) {
   if (!target && trigger.type === 'resource_collected') {
     target = inferResourceCollectTarget(phase, trigger, entityStyles);
   }
-  if (!target) return [];
+  if (!target || isCtaUiEntityName(target)) return [];
   const step = {
     index: 0,
     target,
@@ -1291,7 +1297,7 @@ function derivePhaseStepsFromTrigger(phase, trigger, entityStyles) {
 }
 
 function buildPhaseHudText(phase, index, phaseCount, entityStyles) {
-  const firstTargetStep = safeArray(phase && phase.steps).find(step => step && step.target);
+  const firstTargetStep = safeArray(phase && phase.steps).find(step => step && step.target && !isCtaUiEntityName(step.target));
   const targetEntity = firstTargetStep && firstTargetStep.target || '';
   const targetLabel = sourceEntityLabel(entityStyles, targetEntity);
   return {
@@ -1530,12 +1536,7 @@ function parseSourceUiOverlayContract(html, entityStyles) {
       source: 'source-html-ui-overlay',
     }, details || {}));
   }
-  if (entityStyles && entityStyles.CtaButton) {
-    add('CtaButton', 'cta', {
-      label: entityStyles.CtaButton.label || 'CtaButton',
-      source: 'ENTITY_STYLE.CtaButton',
-    });
-  }
+  // CTA is modeled by the HUD contract, not as a source/UI entity.
   if (/\bid\s*=\s*["']joystick["']/.test(html) || /getElementById\(\s*["']joystick["']\s*\)/.test(html)) {
     add('Canvas', 'ui-canvas', { source: 'html-dom-ui-layer' });
     add('JoystickBG', 'joystick-background', { domId: 'joystick' });
@@ -1722,7 +1723,7 @@ function parseSourcePhaseContract(html, options) {
         contractTargetSequence: phase.steps.map(step => step && step.target).filter(Boolean),
       });
     }
-    phase.targetSequence = phase.steps.map(step => step && step.target).filter(Boolean);
+    phase.targetSequence = phase.steps.map(step => step && step.target).filter(Boolean).filter(target => !isCtaUiEntityName(target));
     phase.runtimeVisibleEntities = runtimeVisibleEntitiesForPhase(phase, index, visibilityRules);
     phase.runtimeResources = runtimeResourcesForPhase(index, resourceRules);
     phase.hudText = buildPhaseHudText(phase, index, phaseCount, entityStyles);
@@ -2743,6 +2744,7 @@ function addUniqueString(out, value) {
 function phaseTriggerTargets(trigger, out) {
   if (!trigger || typeof trigger !== 'object') return;
   if (trigger.type === 'compound') return safeArray(trigger.triggers).forEach(item => phaseTriggerTargets(item, out));
+  if (trigger.type === 'cta_arrival') return;
   addUniqueString(out, trigger.entity || trigger.target);
 }
 
@@ -2752,7 +2754,7 @@ function phaseTargetAffordances(phase) {
   const seen = {};
   function add(entity, source, stepIndex, label) {
     entity = String(entity || '').trim();
-    if (!entity || seen[entity]) return;
+    if (!entity || seen[entity] || isCtaUiEntityName(entity)) return;
     seen[entity] = true;
     out.push({
       entity,

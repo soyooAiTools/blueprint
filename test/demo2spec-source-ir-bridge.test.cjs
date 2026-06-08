@@ -113,7 +113,9 @@ var gameSchema = JSON.parse(fs.readFileSync(path.join(outDir, 'gameschema.json')
 assert.deepStrictEqual(schemaValidator.validateGameSchema(gameSchema), []);
 assert.deepStrictEqual(schemaValidator.validateSemantics(gameSchema), []);
 assert.strictEqual(gameSchema.phases[0].trigger.type, 'resource_collected');
-assert.strictEqual(gameSchema.phases[1].trigger.type, 'near_entity');
+assert.strictEqual(gameSchema.phases[1].trigger.type, 'cta_arrival');
+assert.strictEqual(gameSchema.phases[1].trigger.ctaId, 'CtaButton');
+assert.strictEqual(gameSchema.phases[1].trigger.entity, undefined);
 
 [
   'source-ir.json',

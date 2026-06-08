@@ -324,6 +324,23 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     }
     return 0;
   }
+  function isCtaUiEntityName(value) {
+    var id = String(value || '').trim();
+    return /^(CtaButton|CTAButton|CTAPopup|InstallButton|DownloadButton)$/i.test(id) ||
+      /\b(cta|install|download)\b/i.test(id);
+  }
+  function worldTargetName(value) {
+    var id = String(value || '').trim();
+    return id && !isCtaUiEntityName(id) ? id : '';
+  }
+  function worldTargetSequence(values) {
+    var out = [];
+    (values || []).forEach(function(value) {
+      var id = worldTargetName(value);
+      if (id && out.indexOf(id) < 0) out.push(id);
+    });
+    return out;
+  }
   function carriedValue(resources, name) {
     if (!resources || !name) return 0;
     var raw = String(name || '');
@@ -358,14 +375,16 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     var target = null;
     for (var i = 0; i < steps.length; i++) {
       if (!stepSatisfied(steps[i], resources, states, info)) {
-        target = steps[i].target;
-        break;
+        target = worldTargetName(steps[i].target || steps[i].setEntity || steps[i].from || '');
+        if (target) break;
       }
     }
-    if (!target && steps.length) target = steps[steps.length - 1].target;
-    if (!target && info && info.hudText && info.hudText.targetEntity) target = info.hudText.targetEntity;
-    if (!target && info && info.trigger) target = info.trigger.entity || info.trigger.target || '';
-    return target || '';
+    for (var j = steps.length - 1; !target && j >= 0; j--) {
+      target = worldTargetName(steps[j].target || steps[j].setEntity || steps[j].from || '');
+    }
+    if (!target && info && info.hudText && info.hudText.targetEntity) target = worldTargetName(info.hudText.targetEntity);
+    if (!target && info && info.trigger) target = worldTargetName(info.trigger.entity || info.trigger.target || '');
+    return worldTargetName(target);
   }
   function entityTargetLabel(name) {
     var composites = manifest.sourceEntityContract && manifest.sourceEntityContract.entityComposites || {};
@@ -753,7 +772,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
   }
   function currentOverlayTargetName(info, resources, states) {
     var step = currentOverlayStep(info);
-    if (sourceRuntimeEnabled && step && step.target) return step.target;
+    if (sourceRuntimeEnabled && step && step.target && worldTargetName(step.target)) return worldTargetName(step.target);
     return sourceTargetName(info, resources, states);
   }
   function distance2(a, b) {
@@ -844,7 +863,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       var autoStates = gs && (gs.entity_states || gs.entityStates) || {};
       var autoResources = gs && (gs.resources || gs.inventory) || {};
       var autoStep = currentOverlayStep(autoInfo);
-      var autoTargetName = sourceRuntimeEnabled && autoStep && autoStep.target ? autoStep.target : sourceTargetName(autoInfo, autoResources, autoStates);
+      var autoTargetName = sourceRuntimeEnabled && autoStep && autoStep.target && worldTargetName(autoStep.target) ? worldTargetName(autoStep.target) : sourceTargetName(autoInfo, autoResources, autoStates);
       var playerName = sourcePlayerName(names, composites);
       var playerAuto = overlayRuntime.positions[playerName] || overlayRuntime.positions.Player;
       var targetAuto = autoTargetName && overlayRuntime.positions[autoTargetName];
@@ -911,8 +930,9 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       };
     });
     var step = currentOverlayStep(info);
-    var targetEntity = step && step.target || sourceTargetName(info, overlayRuntime.resources, entityStates);
+    var targetEntity = worldTargetName(step && step.target) || sourceTargetName(info, overlayRuntime.resources, entityStates);
     var targetLabel = entityTargetLabel(targetEntity);
+    var targetSequence = worldTargetSequence(info && info.targetSequence || []);
     return {
       phase: overlayPhaseText(),
       currentPhase: overlayPhaseText(),
@@ -928,7 +948,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
         guideText: info && info.guideText || '',
         targetEntity: targetEntity,
         targetLabel: targetLabel,
-        targetSequence: info && info.targetSequence || [],
+        targetSequence: targetSequence,
         currentStepIndex: overlayRuntime.stepIndex,
         stepCount: info && info.steps && info.steps.length || 0
       },
@@ -937,7 +957,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
         targetEntity: targetEntity,
         targetLabel: targetLabel,
         highlightTarget: targetEntity,
-        targetSequence: info && info.targetSequence || [],
+        targetSequence: targetSequence,
         currentStepIndex: overlayRuntime.stepIndex,
         stepCount: info && info.steps && info.steps.length || 0
       },
@@ -946,7 +966,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
         targetEntity: targetEntity,
         targetLabel: targetLabel,
         highlightTarget: targetEntity,
-        targetSequence: info && info.targetSequence || [],
+        targetSequence: targetSequence,
         currentStepIndex: overlayRuntime.stepIndex,
         stepCount: info && info.steps && info.steps.length || 0
       },
@@ -1312,9 +1332,12 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       var sourceUpgradePanel = document.getElementById('demo2spec-source-upgrade-panel');
       if (sourceUpgradePanel) sourceUpgradePanel.style.display = overlayRuntime.phaseIndex === 6 ? 'block' : 'none';
       var sourceTarget = document.getElementById('demo2spec-source-target');
-      var sourceTargetName = autoMode ? currentOverlayTargetName(info, res, states) : (step && step.target || '');
+      var sourceTargetName = autoMode ? currentOverlayTargetName(info, res, states) : worldTargetName(step && step.target || '');
       var sourceLabel = entityTargetLabel(sourceTargetName);
-      if (sourceTarget) sourceTarget.textContent = sourceLabel ? '目标：' + sourceLabel : sourceDomHudInitial('targetHint', '');
+      if (sourceTarget) {
+        sourceTarget.textContent = sourceLabel ? '目标：' + sourceLabel : '';
+        sourceTarget.style.display = sourceLabel ? '' : 'none';
+      }
       return;
     }
     set('phase', 'Phase ' + (phaseNum ? phaseNum[0] : '1') + '/' + sourcePhaseCount());
@@ -1326,9 +1349,12 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     var guide = info && info.guideText || gs.ui_state && gs.ui_state.guideText || gs.uiState && gs.uiState.guideText || gs.variables && gs.variables.guideText || '';
     set('tip', guide || '在任意位置拖动摇杆，控制角色靠近高亮目标');
     var target = document.getElementById('demo2spec-source-target');
-    var targetName = autoMode ? currentOverlayTargetName(info, res, states) : (step && step.target || '');
+    var targetName = autoMode ? currentOverlayTargetName(info, res, states) : worldTargetName(step && step.target || '');
     var label = entityTargetLabel(targetName);
-    if (target) target.textContent = label ? '目标：' + label : '目标：高亮目标';
+    if (target) {
+      target.textContent = label ? '目标：' + label : '';
+      target.style.display = label ? '' : 'none';
+    }
   }
   function makeGuidanceLine(colorValue, opacityValue) {
     var geometry = new THREE.BufferGeometry();

@@ -29,6 +29,10 @@ function norm(value) {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+function isCtaEntityName(name) {
+  return /^(CtaButton|CTAButton|CTAPopup|InstallButton|DownloadButton)$/i.test(String(name || '').trim());
+}
+
 function stableStringify(value) {
   if (value === null || value === undefined) return String(value);
   if (typeof value !== 'object') return JSON.stringify(value);
@@ -142,14 +146,16 @@ function mainAction(actions) {
 }
 
 function sourceStepTargets(sourcePhase) {
-  return uniq(safeArray(sourcePhase && sourcePhase.steps).map(step => step && step.target).filter(Boolean));
+  return uniq(safeArray(sourcePhase && sourcePhase.steps)
+    .map(step => step && step.target)
+    .filter(target => target && !isCtaEntityName(target)));
 }
 
 function sourceTargetForPhase(sourcePhase) {
   const steps = sourceStepTargets(sourcePhase);
   if (steps.length) return steps[0];
   const hudTarget = sourcePhase && sourcePhase.hudText && sourcePhase.hudText.targetEntity;
-  if (hudTarget) return hudTarget;
+  if (hudTarget && !isCtaEntityName(hudTarget)) return hudTarget;
   return '';
 }
 
@@ -158,8 +164,8 @@ function triggerTargets(trigger) {
   function visit(node) {
     if (!node || typeof node !== 'object') return;
     if (node.type === 'compound') return safeArray(node.triggers).forEach(visit);
-    if (node.entity) out.push(node.entity);
-    if (node.target) out.push(node.target);
+    if (node.entity && !isCtaEntityName(node.entity)) out.push(node.entity);
+    if (node.target && !isCtaEntityName(node.target)) out.push(node.target);
   }
   visit(trigger);
   return uniq(out);

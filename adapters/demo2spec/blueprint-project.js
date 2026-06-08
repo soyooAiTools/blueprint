@@ -236,6 +236,19 @@ function resourceForEntity(gameSchema, entityName) {
   return found && found.name ? found.name : '';
 }
 
+function isCtaEntityName(name) {
+  return /^(CtaButton|CTAButton|CTAPopup|InstallButton|DownloadButton)$/i.test(String(name || '').trim());
+}
+
+function isFinalCtaTrigger(trigger) {
+  if (!trigger || typeof trigger !== 'object') return false;
+  if (trigger.type === 'compound') {
+    return safeArray(trigger.triggers).some(isFinalCtaTrigger);
+  }
+  return trigger.type === 'cta_arrival'
+    || ((trigger.type === 'near_entity' || trigger.type === 'click_entity') && isCtaEntityName(trigger.entity));
+}
+
 function triggerToRequiredInteractions(trigger, options) {
   options = options || {};
   if (!trigger || typeof trigger !== 'object') return [];
@@ -252,7 +265,11 @@ function triggerToRequiredInteractions(trigger, options) {
     ]);
   }
   if (trigger.type === 'click_entity') {
+    if (options.isFinalPhase && isCtaEntityName(trigger.entity)) return [];
     return ['click:' + (trigger.entity || 'CtaButton')];
+  }
+  if (trigger.type === 'cta_arrival') {
+    return [];
   }
   if (trigger.type === 'timer') {
     return ['wait:' + (trigger.seconds || 1)];
@@ -261,6 +278,7 @@ function triggerToRequiredInteractions(trigger, options) {
     return ['build:' + (trigger.entity || '')];
   }
   if (trigger.type === 'near_entity') {
+    if (options.isFinalPhase && isCtaEntityName(trigger.entity)) return [];
     return ['move_to:' + (trigger.entity || '')];
   }
   if (trigger.type === 'enemy_defeated') {
@@ -281,9 +299,9 @@ function sourcePhaseStepInteractions(sourcePhase) {
   safeArray(sourcePhase && sourcePhase.steps).forEach(step => {
     if (!step || typeof step !== 'object') return;
     const target = String(step.target || '').trim();
-    if (target) out.push('move_to:' + target);
-    if (step.damage && target) out.push('attack:' + target);
-    if (step.setEntity) out.push('build:' + String(step.setEntity).trim());
+    if (target && !isCtaEntityName(target)) out.push('move_to:' + target);
+    if (step.damage && target && !isCtaEntityName(target)) out.push('attack:' + target);
+    if (step.setEntity && !isCtaEntityName(step.setEntity)) out.push('build:' + String(step.setEntity).trim());
     if (step.gain) out.push('collect:' + String(step.gain).trim() + ':' + (Number(step.amount || 1) || 1));
     if (step.spend && target) out.push('spend:' + String(step.spend).trim() + ':' + (Number(step.amount || step.cost || 1) || 1) + ':' + target);
   });
@@ -408,10 +426,12 @@ function buildBlueprintProject(gameSchema, options) {
   const specs = phases.map((phase, index) => {
     const phaseResourceTargets = phaseResourceTargetIndex(phase, assetManifest);
     const sourcePhase = sourcePhaseForGamePhase(phase, assetManifest);
+    const isFinalPhase = index === phases.length - 1;
+    const finalCta = isFinalPhase && isFinalCtaTrigger(phase.trigger);
     const requiredInteractions = uniq(sourcePhaseStepInteractions(sourcePhase)
-      .concat(triggerToRequiredInteractions(phase.trigger, { resourceEntities, phaseResourceTargets }))
+      .concat(triggerToRequiredInteractions(phase.trigger, { resourceEntities, phaseResourceTargets, isFinalPhase }))
       .filter(interaction => interaction && interaction.indexOf('wait:') !== 0));
-    return {
+    const spec = {
       phaseId: phase.phaseId || ('phase' + (index + 1)),
       phaseName: phase.guideText || phase.phaseId || ('phase' + (index + 1)),
       requiredInteractions,
@@ -423,6 +443,8 @@ function buildBlueprintProject(gameSchema, options) {
       playerInstruction: phase.guideText || '',
       autoModeHint: phase.guideText || '',
     };
+    if (finalCta) spec.playerMustAct = false;
+    return spec;
   });
 
   return {
@@ -432,9 +454,13 @@ function buildBlueprintProject(gameSchema, options) {
     sourceHtmlSha256: sceneBinding.sourceHtmlSha256 || null,
     playableSceneIrHash: sceneBinding.playableSceneIrHash || null,
     playableSceneIr: cloneOrNull(sceneBinding.playableSceneIr),
-    storyboardFrames: phases.map(phase => ({
+    storyboardFrames: phases.map((phase, index) => ({
       title: phase.guideText || phase.phaseId || '',
-      interaction: triggerToRequiredInteractions(phase.trigger, { resourceEntities, phaseResourceTargets: phaseResourceTargetIndex(phase, assetManifest) }).join(','),
+      interaction: triggerToRequiredInteractions(phase.trigger, {
+        resourceEntities,
+        phaseResourceTargets: phaseResourceTargetIndex(phase, assetManifest),
+        isFinalPhase: index === phases.length - 1,
+      }).join(','),
       ui: phase.guideText || '',
     })),
     entities,

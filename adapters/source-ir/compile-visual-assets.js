@@ -30,7 +30,8 @@ function sourcePositionObject(entity) {
 function isHudOnlySourceEntity(entity) {
   var kind = String(entity && entity.kind || '');
   var id = String(entity && entity.id || '');
-  return /\b(ui_marker|hud|hud_marker|ui_overlay|screen_ui)\b/i.test(kind + ' ' + id) ||
+  return /\b(ui_marker|hud|hud_marker|ui_overlay|screen_ui|cta|install|download)\b/i.test(kind + ' ' + id) ||
+    /^(CtaButton|CTAButton|CTAPopup|InstallButton|DownloadButton)$/i.test(id) ||
     /(?:^|_)(?:GoldUI|JoystickUI|HUD|Hud|GuideText|PhaseLabel)$/i.test(id);
 }
 
