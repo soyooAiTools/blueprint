@@ -107,3 +107,16 @@ git diff --check
 ```
 
 Full visual diff was not rerun in this closeout; SourceIR structural/browser checks and the `卖水` SourceIR WebGL build were used for this CTA regression.
+
+## Deployment Record
+
+- Implementation commit: `af9706c fix(source-ir): keep CTA HUD-only`
+- Initial skill documentation commit: `f702a19 docs(skill): document SourceIR CTA HUD-only`
+- Pushed `soyooAiTools/blueprint` and `soyooAiTools/blueprint-skill` `main` before deployment; deployment record was added as a follow-up docs note.
+- Deployed with `bash scripts/deploy-ecs.sh`; frontend rebuilt successfully.
+- Manually restarted `pm2` process `blueprint-editor` to clear server-side module cache after engine/adapters/contracts changes.
+- Health checks after deploy:
+  - `http://127.0.0.1:3901/` -> HTTP 200
+  - `http://127.0.0.1:3901/api/projects` -> HTTP 200
+  - `http://127.0.0.1:3902/api/projects` -> HTTP 200
+- Final repo status after deploy: `/opt/blueprint-editor` and `/opt/blueprint-skill` clean on `main...origin/main`.
