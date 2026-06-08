@@ -4,8 +4,8 @@
 var fs = require('fs');
 var path = require('path');
 
-var visualAssets = require('../adapters/demo2spec/visual-assets.js');
-var demo2specFidelity = require('../adapters/demo2spec/fidelity-contract.js');
+var visualAssets = require('../adapters/source-ir/visual-assets.js');
+var sourceIrFidelity = require('../adapters/source-ir/fidelity-contract.js');
 var fidelity = require('../engine/fidelity-contract.cjs');
 
 function usage() {
@@ -54,7 +54,7 @@ function main() {
   var opts = parseArgs(process.argv);
   var source = loadSource(opts);
   var input = readJson(path.resolve(opts.contractPath));
-  var result = demo2specFidelity.applySourceHudPerPhase(input, source, { includeSummary: true });
+  var result = sourceIrFidelity.applySourceHudPerPhase(input, source, { includeSummary: true });
   var validation = fidelity.validateFidelityContract(result.contract);
   if (!validation.valid) {
     console.error('contract failed validation after hud perPhase extraction:');

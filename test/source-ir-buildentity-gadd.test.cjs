@@ -2,7 +2,7 @@
 'use strict';
 
 const assert = require('assert');
-const visualAssets = require('../adapters/demo2spec/visual-assets.js');
+const visualAssets = require('../adapters/source-ir/visual-assets.js');
 
 const html = [
   '<!doctype html><html><body><script>',
@@ -100,4 +100,4 @@ assert.strictEqual(meshOpsManifest.entityBindings.Crate.visualFallback, null);
 assert.ok(meshOpsManifest.assets.some(asset => asset.source && asset.source.pattern === 'meshOps:entity-composite'));
 assert.strictEqual(meshOpsManifest.extractionSummary.entityBindingRate, 1);
 
-console.log('demo2spec buildEntity g.add tests passed');
+console.log('source-ir buildEntity g.add tests passed');

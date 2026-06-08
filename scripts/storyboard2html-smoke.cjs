@@ -13,8 +13,8 @@ function usage() {
   console.error([
     'Usage: node scripts/storyboard2html-smoke.cjs <generated.html> <outdir> [--theme name] [--steps N]',
     '  [--verify-runner direct|production] [--dry-run] [--visual-diff]',
-    '  [--visual-phases phase8|6-8|phase6,phase8] [--ir-only] [--legacy-demo2spec]',
-    '  [--require-source-ir-renderer] [--allow-non-renderer-html] [--skill-root path]',
+    '  [--visual-phases phase8|6-8|phase6,phase8] [--ir-only]',
+    '  [--require-source-ir-renderer] [--allow-non-renderer-html]',
   ].join('\n'));
   process.exit(2);
 }
@@ -26,11 +26,9 @@ function parseArgs(argv) {
     themeHint: 'default',
     steps: 40,
     verifyRunner: null,
-    skillRoot: null,
     dryRun: false,
     requireSourceIrRenderer: true,
     smokeMode: 'source-ir-only',
-    legacyDemo2spec: false,
     visualDiff: false,
     visualPhases: null,
   };
@@ -42,8 +40,6 @@ function parseArgs(argv) {
       opts.steps = Number(argv[++i] || 0) || opts.steps;
     } else if (arg === '--verify-runner') {
       opts.verifyRunner = argv[++i] || opts.verifyRunner;
-    } else if (arg === '--skill-root') {
-      opts.skillRoot = argv[++i] || opts.skillRoot;
     } else if (arg === '--dry-run') {
       opts.dryRun = true;
     } else if (arg === '--require-source-ir-renderer' || arg === '--require-renderer') {
@@ -52,10 +48,6 @@ function parseArgs(argv) {
       opts.requireSourceIrRenderer = false;
     } else if (arg === '--ir-only' || arg === '--source-ir-only') {
       opts.smokeMode = 'source-ir-only';
-      opts.legacyDemo2spec = false;
-    } else if (arg === '--legacy-demo2spec') {
-      opts.smokeMode = 'legacy-demo2spec';
-      opts.legacyDemo2spec = true;
     } else if (arg === '--visual-diff') {
       opts.visualDiff = true;
     } else if (arg === '--visual-phases' || arg === '--visual-diff-phases') {
@@ -167,7 +159,6 @@ function runSourceSceneIrPreflight(plan, opts) {
 function main() {
   var opts = parseArgs(process.argv);
   var plan = contract.buildAcceptancePlan({
-    demo2specSkillRoot: opts.skillRoot || process.env.DEMO2SPEC_SKILL_ROOT,
     htmlPath: path.resolve(opts.html),
     outDir: path.resolve(opts.outDir),
     themeHint: opts.themeHint,
@@ -175,7 +166,6 @@ function main() {
     verifyRunner: opts.verifyRunner,
     requireSourceIrRenderer: opts.requireSourceIrRenderer,
     smokeMode: opts.smokeMode,
-    legacyDemo2spec: opts.legacyDemo2spec,
     visualDiff: opts.visualDiff,
     visualPhases: opts.visualPhases,
   });

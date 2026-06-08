@@ -130,9 +130,9 @@ var assetManifest = compileVisualAssetManifest(sourceIr, {
   playableSceneIrHash: playableSceneIr.semanticHash,
   sourceVisualIrHash: sourceVisualIr.semanticHash,
 });
-assert.strictEqual(assetManifest.kind, 'demo2spec.visualAssetManifest');
+assert.strictEqual(assetManifest.kind, 'blueprint.sourceIr.visualAssetManifest');
 assert.strictEqual(assetManifest.sourceVisualIrHash, sourceVisualIr.semanticHash);
-assert.strictEqual(assetManifest.visualRuntimeContract.kind, 'demo2spec.visualRuntimeContract');
+assert.strictEqual(assetManifest.visualRuntimeContract.kind, 'blueprint.sourceIr.visualRuntimeContract');
 assert.strictEqual(assetManifest.visualRuntimeContract.summary.phaseCount, 2);
 assert.strictEqual(assetManifest.visualRuntimeContract.phaseDriver.sourceFunction, '__driveToSourcePhase');
 

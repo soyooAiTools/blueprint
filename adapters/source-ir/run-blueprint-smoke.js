@@ -27,7 +27,7 @@ const {
 } = require('../../engine/playable-scene-ir.cjs');
 
 function usage() {
-  console.error('Usage: node run-blueprint-smoke.js <demo2spec-outdir|gameschema.json> [outdir] [--verify] [--verify-runner direct|production] [--steps N]');
+  console.error('Usage: node run-blueprint-smoke.js <source-ir-outdir|gameschema.json> [outdir] [--verify] [--verify-runner direct|production] [--steps N]');
   process.exit(2);
 }
 
@@ -181,8 +181,8 @@ async function main() {
   const unityAssetPlanPath = path.join(path.dirname(gameschemaPath), 'unity-asset-plan.json');
   const assetManifest = fs.existsSync(assetManifestPath) ? loadVisualAssetManifest(assetManifestPath) : null;
   const playableSceneIr = fs.existsSync(playableSceneIrPath) ? loadPlayableSceneIr(playableSceneIrPath) : null;
-  if (assetManifest && !playableSceneIr && process.env.DEMO2SPEC_REQUIRE_PLAYABLE_SCENE_IR !== '0') {
-    throw new Error('missing playable-scene-ir.json for source-bound demo2spec build: ' + playableSceneIrPath);
+  if (assetManifest && !playableSceneIr && process.env.SOURCE_IR_REQUIRE_PLAYABLE_SCENE_IR !== '0') {
+    throw new Error('missing playable-scene-ir.json for source-bound SourceIR build: ' + playableSceneIrPath);
   }
   const built = buildBlueprintContext(gameSchema, {
     projectName: path.basename(path.dirname(gameschemaPath)) + '-empty-project',
@@ -191,13 +191,13 @@ async function main() {
     htmlPhaseSlices: fs.existsSync(htmlPhaseSlicesPath) ? loadJson(htmlPhaseSlicesPath) : {},
     assetManifest,
     playableSceneIr,
-    requireAssetManifestHash: assetManifest && playableSceneIr ? process.env.DEMO2SPEC_REQUIRE_PLAYABLE_SCENE_IR_HASH !== '0' : false,
+    requireAssetManifestHash: assetManifest && playableSceneIr ? process.env.SOURCE_IR_REQUIRE_PLAYABLE_SCENE_IR_HASH !== '0' : false,
     unityAssetPlan: fs.existsSync(unityAssetPlanPath) ? loadUnityAssetPlan(unityAssetPlanPath) : null,
   });
   writeBlueprintArtifacts(outDir, built.project, built.blueprint);
 
   const ctx = {
-    taskId: 'demo2spec-blueprint-smoke-' + Date.now(),
+    taskId: 'source-ir-blueprint-smoke-' + Date.now(),
     csCode: null,
     extraFiles: {},
     blueprint: built.blueprint,

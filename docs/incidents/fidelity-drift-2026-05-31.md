@@ -50,7 +50,7 @@ The title overlay text on the target is **literally lifted from the default refe
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ STAGES 2–6: clone → spec-validate → complexity-gate → assembly-plan      │
 │              → assembly-complexity-gate → codegen → method-check → review│
-│  (produces ctx.blueprint.entities/phases/specs from… upstream demo2spec  │
+│  (produces ctx.blueprint.entities/phases/specs from… upstream source-ir  │
 │   or storyboard pipeline — NOT from source.html re-read)                 │
 └──────────────────────────┬───────────────────────────────────────────────┘
                            │

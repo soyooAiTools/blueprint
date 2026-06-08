@@ -85,7 +85,7 @@ public class GFM_Player : MonoBehaviour
     public int Carrying = 0;
     public string CarryingType = "";
 
-    // 【玩家对象名】默认对齐 storyboard2html/demo2spec 场景中的 source entity。
+    // 【玩家对象名】默认对齐 storyboard2html/source-ir 场景中的 source entity。
     private string _playerPoolName = "_player";
     public string PlayerPoolName
     {

@@ -6,8 +6,8 @@ var fs = require('fs');
 var os = require('os');
 var path = require('path');
 
-var writer = require('../adapters/demo2spec/fidelity-unity-writer.js');
-var demo2specFidelity = require('../adapters/demo2spec/fidelity-contract.js');
+var writer = require('../adapters/source-ir/fidelity-unity-writer.js');
+var sourceIrFidelity = require('../adapters/source-ir/fidelity-contract.js');
 
 function vec(x, y, z) { return { x: x, y: y, z: z }; }
 function transform(x, y, z) {
@@ -34,7 +34,7 @@ function sampleContract(overrides) {
     schemaVersion: '1.0.0',
     kind: 'blueprint.fidelityContract',
     producerVersion: 'unity-writer-test.1',
-    requiredCapabilities: demo2specFidelity.UNITY_WRITER_CAPABILITIES.slice(),
+    requiredCapabilities: sourceIrFidelity.UNITY_WRITER_CAPABILITIES.slice(),
     coordinateSystem: { source: 'unity-lh', target: 'unity-lh', handedness: 'left', zFlip: false, unitScale: 1 },
     rendererAdapter: rendererAdapter(),
     entities: [
@@ -134,7 +134,7 @@ var materialAsset = JSON.parse(fs.readFileSync(materialPath, 'utf8'));
 materialAsset.material.colors._EmissionColor = [1, 0, 0, 1];
 fs.writeFileSync(materialPath, JSON.stringify(materialAsset, null, 2) + '\n', 'utf8');
 var changedReadback = writer.readUnityFidelityManifest(tempDir);
-var changedSummary = demo2specFidelity.buildFidelityRoundTripSummary(contract, changedReadback);
+var changedSummary = sourceIrFidelity.buildFidelityRoundTripSummary(contract, changedReadback);
 assert.strictEqual(changedSummary.passed, false);
 assert.ok(changedSummary.diffs.some(function(diff) {
   return diff.path === 'entities.Player.primitives.SourcePrimitive_Player_00.material';

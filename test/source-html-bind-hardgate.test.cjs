@@ -16,7 +16,7 @@ assert.strictEqual(stage._internals.isStoryboard2HtmlFlow({
   task: { adapter: 'storyboard2html' },
 }), true);
 assert.strictEqual(stage._internals.isStoryboard2HtmlFlow({
-  blueprint: { schemaSource: 'demo2spec' },
+  blueprint: { schemaSource: 'source-scene-ir' },
 }), true);
 assert.strictEqual(stage._internals.isHardMode({
   task: { sourcePipeline: 'storyboard2html' },
@@ -29,7 +29,7 @@ assert.throws(function() {
     blueprint: {},
     addLog: function() {},
   });
-}, /storyboard2html\/demo2spec flow/);
+}, /storyboard2html\/source-ir flow/);
 
 assert.throws(function() {
   stage.assertBefore({

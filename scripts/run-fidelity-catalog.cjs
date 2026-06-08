@@ -15,8 +15,8 @@ var path = require('path');
 var fixtureCatalog = require('../engine/fixture-catalog.cjs');
 var auditGate = require('../engine/fidelity-audit-gate.cjs');
 var report = require('../engine/fidelity-report.cjs');
-var unityWriter = require('../adapters/demo2spec/fidelity-unity-writer.js');
-var demo2specFidelity = require('../adapters/demo2spec/fidelity-contract.js');
+var unityWriter = require('../adapters/source-ir/fidelity-unity-writer.js');
+var sourceIrFidelity = require('../adapters/source-ir/fidelity-contract.js');
 
 var sourceHtmlBind = require('../engine/stages/source-html-bind.cjs');
 var fidelitySourceDiff = require('../engine/stages/fidelity-source-diff.cjs');
@@ -62,7 +62,7 @@ function readJson(p) { return JSON.parse(fs.readFileSync(p, 'utf8')); }
 
 function runUnityLane(fixture, outDir, opts) {
   var contract = readJson(fixture.contractPath);
-  var supportedCapabilities = demo2specFidelity.supportedCapabilitiesFor(fixture.target || 'unity');
+  var supportedCapabilities = sourceIrFidelity.supportedCapabilitiesFor(fixture.target || 'unity');
   var projectDir = fixture.projectDir || fs.mkdtempSync(path.join(os.tmpdir(), 'fidelity-catalog-' + fixture.name + '-'));
 
   var auditResult = null;

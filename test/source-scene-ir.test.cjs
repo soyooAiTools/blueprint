@@ -114,12 +114,14 @@ var repairedIr = normalizeSourceSceneIr(repairedInput, {
   generatedAt: '2026-06-07T00:00:00.000Z',
 });
 assert.ok(repairedIr.phases[1].showEntities.indexOf('Player') >= 0);
-assert.strictEqual(repairedIr.phases[1].steps[0].state, 2);
+assert.strictEqual(repairedIr.phases[1].steps[0].kind, 'cta_finish');
+assert.strictEqual(repairedIr.phases[1].steps[0].ctaId, 'CtaButton');
+assert.strictEqual(repairedIr.phases[1].gate.kind, 'cta_arrival');
 assert.ok(repairedIr.diagnostics.normalizationRepairs.some(function(repair) {
   return repair.code === 'source_ir_phase_player_visibility_repaired' && repair.phaseId === 'phase2';
 }));
 assert.ok(repairedIr.diagnostics.normalizationRepairs.some(function(repair) {
-  return repair.code === 'source_ir_phase_entity_state_step_repaired' && repair.phaseId === 'phase2';
+  return repair.code === 'source_ir_final_cta_step_rewritten' && repair.phaseId === 'phase2';
 }));
 var directProjection = projectSourceSceneIrToLegacy(directIr);
 
@@ -280,7 +282,8 @@ fs.writeFileSync(playableHtmlPath, playableHtml);
 var playableIr = extractSourceSceneIrFromHtml(playableHtml, playableHtmlPath);
 assert.strictEqual(playableIr.extraction.carrier, 'window.__BLUEPRINT_PLAYABLE_SCENE_IR__');
 assert.strictEqual(playableIr.phases[0].gate.kind, 'cta_arrival');
-assert.strictEqual(playableIr.entities[1].id, 'CtaButton');
+assert.strictEqual(playableIr.hud.cta.ctaId, 'CtaButton');
+assert.ok(!playableIr.entities.some(function(entity) { return entity.id === 'CtaButton'; }));
 
 var preflight = preflightSourceSceneIrHtml(legacyHtml, { sourceHtmlPath: legacyHtmlPath });
 assert.strictEqual(preflight.passed, false);

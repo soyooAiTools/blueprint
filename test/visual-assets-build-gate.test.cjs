@@ -6,7 +6,7 @@ var fs = require('fs');
 var os = require('os');
 var path = require('path');
 var helpers = require('../engine/helpers.cjs');
-var visualAssets = require('../adapters/demo2spec/visual-assets.js');
+var visualAssets = require('../adapters/source-ir/visual-assets.js');
 
 var tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bp-visual-assets-gate-'));
 var sourceHtmlPath = path.join(tmpDir, 'source.html');

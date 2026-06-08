@@ -5,7 +5,7 @@ var path = require('path');
 var crypto = require('crypto');
 var vm = require('vm');
 
-var visualAssets = require('../adapters/demo2spec/visual-assets.js');
+var visualAssets = require('../adapters/source-ir/visual-assets.js');
 
 var SOURCE_SCENE_IR_SCHEMA_VERSION = 'source-scene-ir.v1';
 var SOURCE_SCENE_IR_KIND = 'blueprint.sourceSceneIR';

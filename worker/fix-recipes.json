@@ -1041,5 +1041,17 @@
     ],
     "relatedMemories": [],
     "recipeFile": "fix-recipes/auto-11150ce8.md"
+  },
+  {
+    "id": "auto-fd17c75e",
+    "fingerprintPattern": "Codex code runner failed \\(exit 1\\): MODEL_FATAL: Codex code runner auth/quota failure\\s*[—-]?\\s*\\[plan-coverage\\]\\s*plan coverage incomplete: \\d+/\\d+\\s*[—-].*(?:phase coverage alone is insufficient|phase/signal coverage alone)",
+    "description": "Plan-coverage repair text is falsely classified as Codex auth/quota MODEL_FATAL.",
+    "risk": "low",
+    "autoApply": true,
+    "affectedFiles": [
+      "worker/codex-code-coder.js"
+    ],
+    "relatedMemories": [],
+    "recipeFile": "fix-recipes/auto-fd17c75e.md"
   }
 ]

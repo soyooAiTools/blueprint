@@ -5,10 +5,10 @@ var assert = require('assert');
 var {
   buildProofBundle,
   moduleProofContract,
-} = require('../adapters/demo2spec/proof-bundle.cjs');
+} = require('../adapters/source-ir/proof-bundle.cjs');
 var {
   buildBlueprintProject,
-} = require('../adapters/demo2spec/blueprint-project.js');
+} = require('../adapters/source-ir/blueprint-project.js');
 
 function baseFixture() {
   return {
@@ -215,4 +215,4 @@ assert.deepStrictEqual(
   'resource phases should prefer source step target over passive barriers when building required interactions'
 );
 
-console.log('demo2spec proof bundle tests passed');
+console.log('source-ir proof bundle tests passed');

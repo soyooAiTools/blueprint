@@ -296,6 +296,60 @@ function monitorDefaultPreviewProgress(page, specs, options, consoleMessages) {
   return sample();
 }
 
+function driveDefaultPreviewInteractions(page, options, stopRef) {
+  options = options || {};
+  stopRef = stopRef || {};
+  var intervalMs = options.defaultPreviewInputIntervalMs || 700;
+  var maxInputs = options.defaultPreviewMaxInputs || 90;
+
+  function getPoint(pattern) {
+    return page.$('#application-canvas').then(function(canvas) {
+      if (!canvas) return null;
+      return canvas.boundingBox();
+    }).then(function(box) {
+      var width = box && box.width ? box.width : 960;
+      var height = box && box.height ? box.height : 640;
+      var left = box && box.x ? box.x : 0;
+      var top = box && box.y ? box.y : 0;
+      var cx = left + width * 0.5;
+      var cy = top + height * 0.55;
+      var dx = Math.max(80, width * 0.18);
+      var dy = Math.max(70, height * 0.16);
+      var variants = [
+        { x: cx, y: cy, ex: cx + dx, y2: cy },
+        { x: cx, y: cy, ex: cx - dx, y2: cy },
+        { x: cx, y: cy, ex: cx, y2: cy - dy },
+        { x: cx, y: cy, ex: cx, y2: cy + dy },
+      ];
+      return variants[pattern % variants.length];
+    });
+  }
+
+  function performInput(i) {
+    if (stopRef.done || i >= maxInputs) return Promise.resolve();
+    return getPoint(i).then(function(point) {
+      if (!point) return null;
+      stopRef.inputCount = (stopRef.inputCount || 0) + 1;
+      return page.mouse.move(point.x, point.y)
+        .then(function() { return page.mouse.down(); })
+        .then(function() { return page.mouse.move(point.ex, point.y2, { steps: 8 }); })
+        .then(function() { return page.mouse.up(); })
+        .then(function() { return page.mouse.click(point.x, point.y); });
+    }).catch(function() {
+      return null;
+    }).then(function() {
+      if (stopRef.done) return null;
+      return page.waitForTimeout(intervalMs).then(function() {
+        return performInput(i + 1);
+      });
+    });
+  }
+
+  return page.waitForTimeout(options.defaultPreviewInputDelayMs || 1200).then(function() {
+    return performInput(0);
+  });
+}
+
 function runDefaultInteractionProbe(ctx, buildDir, options) {
   options = options || {};
   if (process.env.SKIP_DEFAULT_INTERACTION_PROBE === 'true') {
@@ -343,7 +397,22 @@ function runDefaultInteractionProbe(ctx, buildDir, options) {
           }, null, { timeout: options.gameStateTimeoutMs || 20000 });
         })
         .then(function() {
-          return monitorDefaultPreviewProgress(page, specs, options, consoleMessages);
+          var inputStop = { done: false, inputCount: 0 };
+          var inputDriver = driveDefaultPreviewInteractions(page, options, inputStop);
+          return monitorDefaultPreviewProgress(page, specs, options, consoleMessages).then(function(result) {
+            inputStop.done = true;
+            if (result && result.defaultInteractionRequired) {
+              result.defaultInteractionInputCount = inputStop.inputCount || 0;
+            }
+            return inputDriver.catch(function() { return null; }).then(function() {
+              return result;
+            });
+          }, function(err) {
+            inputStop.done = true;
+            return inputDriver.catch(function() { return null; }).then(function() {
+              throw err;
+            });
+          });
         });
     });
   }).catch(function(err) {

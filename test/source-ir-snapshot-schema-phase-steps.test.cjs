@@ -8,7 +8,7 @@ const {
   buildCuaPlans,
   buildCuaSpecs,
   buildGameStateShim,
-} = require('../adapters/demo2spec/snapshot-schema.js');
+} = require('../adapters/source-ir/snapshot-schema.js');
 
 const gameSchema = {
   gameConfig: {},
@@ -78,4 +78,4 @@ const shim = buildGameStateShim(snapshotDoc);
 assert.ok(shim.indexOf('"targetSequence": [') >= 0);
 assert.ok(shim.indexOf('targetEntity: targetEntity') >= 0);
 
-console.log('demo2spec snapshot schema phase steps tests passed');
+console.log('source-ir snapshot schema phase steps tests passed');

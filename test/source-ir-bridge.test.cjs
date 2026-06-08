@@ -13,13 +13,13 @@ var {
 } = require('../engine/source-scene-ir.cjs');
 var schemaValidator = require('../adapters/schema/validate-schema.cjs');
 
-var tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'demo2spec-source-ir-'));
+var tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'source-ir-ir-'));
 var htmlPath = path.join(tmp, 'source.html');
 
 function buildHtml() {
   var ir = normalizeSourceSceneIr({
     schemaVersion: 'source-scene-ir.v1',
-    project: { name: 'demo2spec-source-ir-fixture', theme: 'default' },
+    project: { name: 'source-ir-ir-fixture', theme: 'default' },
     scene: {
       backgroundColor: '#101820',
       camera: { position: [0, 8, 12], lookAt: [0, 0, 0], fov: 55 },
@@ -75,9 +75,11 @@ fs.writeFileSync(htmlPath, html);
 
 var outDir = path.join(tmp, 'out');
 var stdout = childProcess.execFileSync(process.execPath, [
-  path.join(__dirname, '..', 'adapters', 'demo2spec', 'index.js'),
+  path.join(__dirname, '..', 'scripts', 'source-ir-build.cjs'),
   htmlPath,
   outDir,
+  '--allow-non-renderer-html',
+  '--skip-source-liveness',
 ], { encoding: 'utf8' });
 var summary = JSON.parse(stdout);
 assert.strictEqual(summary.semanticSource, 'source-scene-ir');
@@ -126,7 +128,7 @@ assert.strictEqual(gameSchema.phases[1].trigger.entity, undefined);
   'snapshot-schema.json',
   'html-phase-slices.json',
   'unity-asset-plan.json',
-  'Demo2SpecVisualAssetBaker.cs',
+  'SourceIrVisualAssetBaker.cs',
 ].forEach(function(fileName) {
   assert.ok(fs.existsSync(path.join(outDir, fileName)), fileName + ' should exist');
 });
@@ -135,12 +137,14 @@ var legacyHtmlPath = path.join(tmp, 'legacy.html');
 var legacyOutDir = path.join(tmp, 'legacy-out');
 fs.writeFileSync(legacyHtmlPath, '<!doctype html><html><body><script>window.PHASES=[];</script></body></html>');
 var legacyRun = childProcess.spawnSync(process.execPath, [
-  path.join(__dirname, '..', 'adapters', 'demo2spec', 'index.js'),
+  path.join(__dirname, '..', 'scripts', 'source-ir-build.cjs'),
   legacyHtmlPath,
   legacyOutDir,
+  '--allow-non-renderer-html',
+  '--skip-source-liveness',
 ], { encoding: 'utf8' });
 assert.notStrictEqual(legacyRun.status, 0);
-assert.ok(/SourceSceneIR required/.test(legacyRun.stderr), legacyRun.stderr);
+assert.ok(/SourceIR-only preflight failed/.test(legacyRun.stderr), legacyRun.stderr);
 var legacySemanticSource = JSON.parse(fs.readFileSync(path.join(legacyOutDir, 'semantic-source.json'), 'utf8'));
 assert.strictEqual(legacySemanticSource.semanticSource, 'source-scene-ir-required');
 assert.strictEqual(legacySemanticSource.legacyJsInferenceUsed, false);
@@ -148,4 +152,4 @@ assert.strictEqual(legacySemanticSource.sourceIrPresent, false);
 assert.strictEqual(fs.existsSync(path.join(legacyOutDir, 'spec.json')), false);
 assert.strictEqual(fs.existsSync(path.join(legacyOutDir, 'gameschema.json')), false);
 
-console.log('demo2spec source-ir bridge tests passed');
+console.log('source-ir bridge tests passed');

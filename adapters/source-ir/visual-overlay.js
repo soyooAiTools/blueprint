@@ -12,7 +12,7 @@ function scriptSafeText(value) {
 
 function loadThreeSource() {
   const candidates = [
-    process.env.DEMO2SPEC_THREE_SOURCE,
+    process.env.SOURCE_IR_THREE_SOURCE,
     '/opt/loot-app/lib/three.min.js',
   ].filter(Boolean);
   for (const filePath of candidates) {
@@ -98,8 +98,8 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     return !!(window.__BLUEPRINT_PLAYABLE_SCENE_IR__ || manifest.playableSceneIrHash);
   }
   function sourceVisualEnabled() {
-    if (queryIs('sourceOverlay', '0') || queryIs('demo2specSource', '0') || queryIs('sourceVisual', '0')) return false;
-    return queryIs('sourceOverlay', '1') || queryIs('demo2specSource', '1') || hasPlayableSceneIr();
+    if (queryIs('sourceOverlay', '0') || queryIs('sourceVisual', '0')) return false;
+    return queryIs('sourceOverlay', '1') || hasPlayableSceneIr();
   }
   function autoplayRequested() {
     return queryIs('autoplay', '1') || queryIs('autoPlay', '1');
@@ -131,7 +131,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     catch(e) { return null; }
   }
   function state() {
-    if (sourceRuntimeEnabled && window.__demo2specSourceOverlayState) return window.__demo2specSourceOverlayState;
+    if (sourceRuntimeEnabled && window.__SOURCE_IR_OVERLAY_STATE) return window.__SOURCE_IR_OVERLAY_STATE;
     return originalState();
   }
   function updateManualJoystickOverride(active, x, y) {
@@ -546,39 +546,39 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       ? 'z-index:2147482411!important;pointer-events:none!important;display:block!important;visibility:visible!important'
       : '';
     return [
-      sourceCssRule('#demo2spec-source-hud', css.hud, sourceHudExtra),
-      sourceCssRule('#demo2spec-source-logo', css.logo, ''),
-      sourceCssRule('#demo2spec-source-meters', css.meters, sourceMetersExtra),
-      sourceCssRule('#demo2spec-source-meters .pill', css.resourcePill, ''),
-      sourceCssRule('#demo2spec-source-gold-box', css.goldBox || css.phaseBadge || css.scoreText, ''),
-      sourceCssRule('#demo2spec-source-phase-badge,#demo2spec-source-phase-text', css.phaseBadge, ''),
-      sourceCssRule('#demo2spec-source-resources', css.resources, ''),
-      sourceCssRule('#demo2spec-source-resources .res', css.resourcePill, ''),
-      sourceCssRule('#demo2spec-source-progress-wrap', css.progressWrap, 'z-index:2147482411!important;pointer-events:none!important'),
-      sourceCssRule('#demo2spec-source-progress-bar', css.progressBar, ''),
-      sourceCssRule('#demo2spec-source-gold-icon', css.goldIcon || css.coinIcon, ''),
-      sourceCssRule('#demo2spec-source-gold-count', css.goldCount || css.scoreText, ''),
-      sourceCssRule('#demo2spec-source-oxygen-text', css.oxygenText, ''),
-      sourceCssRule('#demo2spec-source-ice-text', css.iceText, ''),
-      sourceCssRule('#demo2spec-source-worker-panel', css.workerPanel, 'z-index:2147482410!important;pointer-events:none!important;color:#fff!important'),
-      sourceCssRule('#demo2spec-source-upgrade-panel', css.upgradePanel, 'z-index:2147482410!important;pointer-events:none!important;color:#fff!important'),
-      sourceCssRule('#demo2spec-source-tip', css.tip || css.goalText, sourceTipExtra),
-      sourceCssRule('#demo2spec-source-phase-label', css.phaseLabel, ''),
-      sourceCssRule('#demo2spec-source-target', css.targetHint, (!/\\bbottom\\s*:/i.test(targetHintCss) ? 'bottom:auto!important;' : '') + 'right:auto!important;width:auto!important;height:auto!important;min-width:0!important;max-width:calc(100vw - 32px)!important;z-index:2147482411!important;pointer-events:none!important' + (!/\\bborder\\s*:/.test(targetHintCss) ? ';border:0!important' : '')),
-      sourceCssRule('#demo2spec-source-toast', css.toast, 'z-index:2147482412!important;pointer-events:none!important'),
-      sourceCssRule('#demo2spec-source-stick', css.joystick, sourceStickExtra),
-      sourceCssRule('#demo2spec-source-stick-knob', css.stickThumb, ''),
-      sourceDomHudHasIdleJoystick() ? '#demo2spec-source-stick:before{display:none!important;visibility:hidden!important}' : '',
-      sourceCssRule('#demo2spec-source-cta-overlay.source-dom-cta', css.victory, 'display:none!important;z-index:2147482413!important;pointer-events:none!important;text-align:center!important;font-family:Arial,"Microsoft YaHei",sans-serif!important;color:#fff!important' + sourceCtaWrapperExtra),
-      sourceCssRule('#demo2spec-source-cta-overlay.source-dom-cta.visible', css.victory, 'display:flex!important;z-index:2147482413!important;pointer-events:none!important;text-align:center!important;font-family:Arial,"Microsoft YaHei",sans-serif!important;color:#fff!important' + sourceCtaWrapperExtra),
-      sourceCssRule('#demo2spec-source-cta-overlay.source-dom-cta #demo2spec-source-cta-box', css.victoryBox, sourceCtaBoxExtra),
-      sourceCssRule('#demo2spec-source-cta-overlay.source-dom-cta #demo2spec-source-cta-title', css.victoryTitle, 'max-width:calc(100vw - 48px)!important'),
-      sourceCssRule('#demo2spec-source-cta-overlay.source-dom-cta #demo2spec-source-cta-subtitle', css.ctaSubtitle, ''),
-      sourceCssRule('#demo2spec-source-cta-overlay.source-dom-cta #demo2spec-source-cta-btn', css.ctaDom, ctaButtonExtra)
+      sourceCssRule('#source-ir-hud', css.hud, sourceHudExtra),
+      sourceCssRule('#source-ir-logo', css.logo, ''),
+      sourceCssRule('#source-ir-meters', css.meters, sourceMetersExtra),
+      sourceCssRule('#source-ir-meters .pill', css.resourcePill, ''),
+      sourceCssRule('#source-ir-gold-box', css.goldBox || css.phaseBadge || css.scoreText, ''),
+      sourceCssRule('#source-ir-phase-badge,#source-ir-phase-text', css.phaseBadge, ''),
+      sourceCssRule('#source-ir-resources', css.resources, ''),
+      sourceCssRule('#source-ir-resources .res', css.resourcePill, ''),
+      sourceCssRule('#source-ir-progress-wrap', css.progressWrap, 'z-index:2147482411!important;pointer-events:none!important'),
+      sourceCssRule('#source-ir-progress-bar', css.progressBar, ''),
+      sourceCssRule('#source-ir-gold-icon', css.goldIcon || css.coinIcon, ''),
+      sourceCssRule('#source-ir-gold-count', css.goldCount || css.scoreText, ''),
+      sourceCssRule('#source-ir-oxygen-text', css.oxygenText, ''),
+      sourceCssRule('#source-ir-ice-text', css.iceText, ''),
+      sourceCssRule('#source-ir-worker-panel', css.workerPanel, 'z-index:2147482410!important;pointer-events:none!important;color:#fff!important'),
+      sourceCssRule('#source-ir-upgrade-panel', css.upgradePanel, 'z-index:2147482410!important;pointer-events:none!important;color:#fff!important'),
+      sourceCssRule('#source-ir-tip', css.tip || css.goalText, sourceTipExtra),
+      sourceCssRule('#source-ir-phase-label', css.phaseLabel, ''),
+      sourceCssRule('#source-ir-target', css.targetHint, (!/\\bbottom\\s*:/i.test(targetHintCss) ? 'bottom:auto!important;' : '') + 'right:auto!important;width:auto!important;height:auto!important;min-width:0!important;max-width:calc(100vw - 32px)!important;z-index:2147482411!important;pointer-events:none!important' + (!/\\bborder\\s*:/.test(targetHintCss) ? ';border:0!important' : '')),
+      sourceCssRule('#source-ir-toast', css.toast, 'z-index:2147482412!important;pointer-events:none!important'),
+      sourceCssRule('#source-ir-stick', css.joystick, sourceStickExtra),
+      sourceCssRule('#source-ir-stick-knob', css.stickThumb, ''),
+      sourceDomHudHasIdleJoystick() ? '#source-ir-stick:before{display:none!important;visibility:hidden!important}' : '',
+      sourceCssRule('#source-ir-cta-overlay.source-dom-cta', css.victory, 'display:none!important;z-index:2147482413!important;pointer-events:none!important;text-align:center!important;font-family:Arial,"Microsoft YaHei",sans-serif!important;color:#fff!important' + sourceCtaWrapperExtra),
+      sourceCssRule('#source-ir-cta-overlay.source-dom-cta.visible', css.victory, 'display:flex!important;z-index:2147482413!important;pointer-events:none!important;text-align:center!important;font-family:Arial,"Microsoft YaHei",sans-serif!important;color:#fff!important' + sourceCtaWrapperExtra),
+      sourceCssRule('#source-ir-cta-overlay.source-dom-cta #source-ir-cta-box', css.victoryBox, sourceCtaBoxExtra),
+      sourceCssRule('#source-ir-cta-overlay.source-dom-cta #source-ir-cta-title', css.victoryTitle, 'max-width:calc(100vw - 48px)!important'),
+      sourceCssRule('#source-ir-cta-overlay.source-dom-cta #source-ir-cta-subtitle', css.ctaSubtitle, ''),
+      sourceCssRule('#source-ir-cta-overlay.source-dom-cta #source-ir-cta-btn', css.ctaDom, ctaButtonExtra)
     ].join('') +
-      (sourceDomCtaPresent() && !sourceCtaHasTitle ? '#demo2spec-source-cta-title{display:none!important;visibility:hidden!important}' : '') +
-      (sourceDomCtaPresent() && !sourceCtaHasSubtitle ? '#demo2spec-source-cta-subtitle{display:none!important;visibility:hidden!important}' : '') +
-      '#demo2spec-source-phase-band{display:none!important;visibility:hidden!important}' +
+      (sourceDomCtaPresent() && !sourceCtaHasTitle ? '#source-ir-cta-title{display:none!important;visibility:hidden!important}' : '') +
+      (sourceDomCtaPresent() && !sourceCtaHasSubtitle ? '#source-ir-cta-subtitle{display:none!important;visibility:hidden!important}' : '') +
+      '#source-ir-phase-band{display:none!important;visibility:hidden!important}' +
       keyframesCss;
   }
   function terminalCtaCopy(info) {
@@ -606,18 +606,18 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     };
   }
   function setTerminalCta(info, visible) {
-    var overlay = document.getElementById('demo2spec-source-cta-overlay');
+    var overlay = document.getElementById('source-ir-cta-overlay');
     if (!overlay) return;
     var copy = terminalCtaCopy(info);
-    var title = document.getElementById('demo2spec-source-cta-title');
-    var button = document.getElementById('demo2spec-source-cta-btn');
-    var subtitle = document.getElementById('demo2spec-source-cta-subtitle');
+    var title = document.getElementById('source-ir-cta-title');
+    var button = document.getElementById('source-ir-cta-btn');
+    var subtitle = document.getElementById('source-ir-cta-subtitle');
     if (title) title.textContent = copy.title;
     if (button) button.textContent = copy.button;
     if (subtitle) subtitle.textContent = copy.subtitle;
     overlay.className = visible ? (sourceDomCtaPresent() ? 'visible source-dom-cta' : 'visible') : (sourceDomCtaPresent() ? 'source-dom-cta' : '');
     if (!sourceDomCtaPresent()) {
-      ['demo2spec-source-hud', 'demo2spec-source-target'].forEach(function(id) {
+      ['source-ir-hud', 'source-ir-target'].forEach(function(id) {
         var el = document.getElementById(id);
         if (el) el.style.display = visible ? 'none' : '';
       });
@@ -1010,21 +1010,21 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       if (key === 'Gold') overlayRuntime.resources.Coin = value;
       if (key === 'Coin') overlayRuntime.resources.Gold = value;
     });
-    window.__demo2specSourceOverlayState = overlayStateSnapshot(info);
+    window.__SOURCE_IR_OVERLAY_STATE = overlayStateSnapshot(info);
     setTerminalCta(info, isTerminalSourcePhaseIndex(index));
     installSourceRuntimeGameState();
-    return window.__demo2specSourceOverlayState;
+    return window.__SOURCE_IR_OVERLAY_STATE;
   }
   function installSourcePhaseDriver() {
     window.__driveToSourcePhase = driveSourceOverlayToPhase;
     var current = window.__driveToPhase;
-    if (!current || current.__demo2specSourceOnly) {
+    if (!current || current.__SOURCE_IR_SOURCE_ONLY) {
       var sourceOnly = function(n) { return driveSourceOverlayToPhase(n); };
-      sourceOnly.__demo2specSourceOnly = true;
+      sourceOnly.__SOURCE_IR_SOURCE_ONLY = true;
       window.__driveToPhase = sourceOnly;
       return;
     }
-    if (current.__demo2specSourceWrapped) return;
+    if (current.__SOURCE_IR_SOURCE_WRAPPED) return;
     var originalDriveToPhase = current;
     var wrapped = function(n) {
       var result;
@@ -1045,8 +1045,8 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       }
       return result;
     };
-    wrapped.__demo2specSourceWrapped = true;
-    wrapped.__demo2specOriginalDriveToPhase = originalDriveToPhase;
+    wrapped.__SOURCE_IR_SOURCE_WRAPPED = true;
+    wrapped.__SOURCE_IR_ORIGINAL_DRIVE_TO_PHASE = originalDriveToPhase;
     window.__driveToPhase = wrapped;
   }
   function captureLunaGameState(value) {
@@ -1065,7 +1065,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     if (!sourceRuntimeEnabled) return;
     if (!sourceGameStateFn) {
       sourceGameStateFn = function() {
-        return window.__demo2specSourceOverlayState || overlayStateSnapshot(phaseByRuntimeIndex(overlayRuntime.phaseIndex)) || originalState();
+        return window.__SOURCE_IR_OVERLAY_STATE || overlayStateSnapshot(phaseByRuntimeIndex(overlayRuntime.phaseIndex)) || originalState();
       };
     }
     try {
@@ -1153,18 +1153,18 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     return spr;
   }
   function installHud() {
-    if (document.getElementById('demo2spec-source-hud')) return;
+    if (document.getElementById('source-ir-hud')) return;
     var style = document.createElement('style');
-    style.textContent = '#__bp_text_overlay{display:none!important;visibility:hidden!important}#demo2spec-source-3d-overlay{position:fixed;inset:0;z-index:2147482400;pointer-events:auto;display:block;touch-action:none}.demo2spec-source-world-label{position:fixed;z-index:2147482409;transform:translate(-50%,-50%);padding:3px 7px;border-radius:5px;background:rgba(5,16,28,.62);font:700 12px Arial,"Microsoft YaHei",sans-serif;color:#fff;white-space:nowrap;pointer-events:none}#demo2spec-source-phase-band{position:fixed;left:0;top:0;bottom:0;width:18px;z-index:2147482408;pointer-events:none;background:#ffe45c;box-shadow:0 0 30px #ffe45c;opacity:.76;transition:background .18s,box-shadow .18s}#demo2spec-source-hud{position:fixed;left:12px;right:12px;top:10px;z-index:2147482410;display:flex;align-items:center;gap:8px;pointer-events:none;font-family:Arial,"Microsoft YaHei",sans-serif;color:#f2fbff}#demo2spec-source-hud .pill,#demo2spec-source-hud .tip,#demo2spec-source-hud .phase{background:rgba(4,13,31,.82);border:1px solid rgba(118,214,255,.35);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.28);font-weight:900;white-space:nowrap}#demo2spec-source-hud .phase{padding:8px 10px;color:#9fe8ff;font-size:13px}#demo2spec-source-hud .pill{padding:8px 10px;font-size:13px}#demo2spec-source-hud .tip{flex:1;min-height:38px;display:flex;align-items:center;justify-content:center;text-align:center;padding:7px 12px;font-size:16px;white-space:normal}#demo2spec-source-target{position:fixed;left:50%;bottom:34px;z-index:2147482411;transform:translateX(-50%);background:rgba(4,13,31,.86);border:1px solid rgba(255,219,80,.5);border-radius:10px;padding:12px 16px;font:900 15px Arial,"Microsoft YaHei",sans-serif;color:#f2fbff;pointer-events:none}#demo2spec-source-toast{position:fixed;left:50%;top:74px;z-index:2147482412;transform:translateX(-50%) translateY(-8px);background:rgba(4,13,31,.88);border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:11px 18px;font:900 16px Arial,"Microsoft YaHei",sans-serif;color:#fff;box-shadow:0 12px 32px rgba(0,0,0,.36);opacity:0;transition:opacity .16s,transform .16s;pointer-events:none}#demo2spec-source-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}#demo2spec-source-stick{position:fixed;left:50%;top:50%;width:134px;height:134px;margin:-67px 0 0 -67px;border-radius:50%;z-index:2147482411;background:radial-gradient(circle,rgba(112,224,255,.3),rgba(26,61,100,.64));border:2px solid rgba(151,232,255,.74);box-shadow:0 10px 36px rgba(0,0,0,.45),inset 0 0 20px rgba(117,226,255,.2);pointer-events:none;opacity:0;transition:opacity .08s}#demo2spec-source-stick.active{opacity:1}#demo2spec-source-stick:before{content:"";position:absolute;left:50%;top:50%;width:64px;height:64px;border-radius:50%;transform:translate(-50%,-50%);border:1px dashed rgba(255,255,255,.4)}#demo2spec-source-stick-knob{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;background:linear-gradient(180deg,#f8fdff,#4bd2ff);border:2px solid rgba(255,255,255,.9);box-shadow:0 5px 18px rgba(0,0,0,.36)}#demo2spec-source-cta-overlay{position:fixed;inset:0;z-index:2147482413;display:none;place-items:center;background:rgba(0,0,0,.62);pointer-events:none;font-family:Arial,"Microsoft YaHei",sans-serif;color:#fff;text-align:center}#demo2spec-source-cta-overlay.visible{display:grid}#demo2spec-source-cta-box{width:min(520px,86vw);padding:0 12px}#demo2spec-source-cta-title{font-size:34px;font-weight:900;line-height:1.18;text-shadow:0 3px 14px rgba(0,0,0,.62)}#demo2spec-source-cta-btn{display:inline-block;margin-top:24px;padding:16px 34px;border-radius:8px;background:#26d67b;color:#06151d;font-size:22px;font-weight:900;box-shadow:0 10px 28px rgba(38,214,123,.35)}@media(max-width:760px){#demo2spec-source-phase-band{width:14px}#demo2spec-source-hud{flex-wrap:wrap}#demo2spec-source-hud .pill{font-size:12px}#demo2spec-source-hud .tip{order:9;flex-basis:100%}#demo2spec-source-target{left:12px;right:12px;bottom:24px;transform:none;text-align:center;font-size:13px}#demo2spec-source-toast{top:102px;max-width:calc(100vw - 32px);font-size:14px;text-align:center}#demo2spec-source-stick{width:118px;height:118px;margin:-59px 0 0 -59px}#demo2spec-source-cta-title{font-size:28px}#demo2spec-source-cta-btn{font-size:20px;padding:15px 28px}}';
+    style.textContent = '#__bp_text_overlay{display:none!important;visibility:hidden!important}#source-ir-3d-overlay{position:fixed;inset:0;z-index:2147482400;pointer-events:auto;display:block;touch-action:none}.source-ir-world-label{position:fixed;z-index:2147482409;transform:translate(-50%,-50%);padding:3px 7px;border-radius:5px;background:rgba(5,16,28,.62);font:700 12px Arial,"Microsoft YaHei",sans-serif;color:#fff;white-space:nowrap;pointer-events:none}#source-ir-phase-band{position:fixed;left:0;top:0;bottom:0;width:18px;z-index:2147482408;pointer-events:none;background:#ffe45c;box-shadow:0 0 30px #ffe45c;opacity:.76;transition:background .18s,box-shadow .18s}#source-ir-hud{position:fixed;left:12px;right:12px;top:10px;z-index:2147482410;display:flex;align-items:center;gap:8px;pointer-events:none;font-family:Arial,"Microsoft YaHei",sans-serif;color:#f2fbff}#source-ir-hud .pill,#source-ir-hud .tip,#source-ir-hud .phase{background:rgba(4,13,31,.82);border:1px solid rgba(118,214,255,.35);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.28);font-weight:900;white-space:nowrap}#source-ir-hud .phase{padding:8px 10px;color:#9fe8ff;font-size:13px}#source-ir-hud .pill{padding:8px 10px;font-size:13px}#source-ir-hud .tip{flex:1;min-height:38px;display:flex;align-items:center;justify-content:center;text-align:center;padding:7px 12px;font-size:16px;white-space:normal}#source-ir-target{position:fixed;left:50%;bottom:34px;z-index:2147482411;transform:translateX(-50%);background:rgba(4,13,31,.86);border:1px solid rgba(255,219,80,.5);border-radius:10px;padding:12px 16px;font:900 15px Arial,"Microsoft YaHei",sans-serif;color:#f2fbff;pointer-events:none}#source-ir-toast{position:fixed;left:50%;top:74px;z-index:2147482412;transform:translateX(-50%) translateY(-8px);background:rgba(4,13,31,.88);border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:11px 18px;font:900 16px Arial,"Microsoft YaHei",sans-serif;color:#fff;box-shadow:0 12px 32px rgba(0,0,0,.36);opacity:0;transition:opacity .16s,transform .16s;pointer-events:none}#source-ir-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}#source-ir-stick{position:fixed;left:50%;top:50%;width:134px;height:134px;margin:-67px 0 0 -67px;border-radius:50%;z-index:2147482411;background:radial-gradient(circle,rgba(112,224,255,.3),rgba(26,61,100,.64));border:2px solid rgba(151,232,255,.74);box-shadow:0 10px 36px rgba(0,0,0,.45),inset 0 0 20px rgba(117,226,255,.2);pointer-events:none;opacity:0;transition:opacity .08s}#source-ir-stick.active{opacity:1}#source-ir-stick:before{content:"";position:absolute;left:50%;top:50%;width:64px;height:64px;border-radius:50%;transform:translate(-50%,-50%);border:1px dashed rgba(255,255,255,.4)}#source-ir-stick-knob{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;background:linear-gradient(180deg,#f8fdff,#4bd2ff);border:2px solid rgba(255,255,255,.9);box-shadow:0 5px 18px rgba(0,0,0,.36)}#source-ir-cta-overlay{position:fixed;inset:0;z-index:2147482413;display:none;place-items:center;background:rgba(0,0,0,.62);pointer-events:none;font-family:Arial,"Microsoft YaHei",sans-serif;color:#fff;text-align:center}#source-ir-cta-overlay.visible{display:grid}#source-ir-cta-box{width:min(520px,86vw);padding:0 12px}#source-ir-cta-title{font-size:34px;font-weight:900;line-height:1.18;text-shadow:0 3px 14px rgba(0,0,0,.62)}#source-ir-cta-btn{display:inline-block;margin-top:24px;padding:16px 34px;border-radius:8px;background:#26d67b;color:#06151d;font-size:22px;font-weight:900;box-shadow:0 10px 28px rgba(38,214,123,.35)}@media(max-width:760px){#source-ir-phase-band{width:14px}#source-ir-hud{flex-wrap:wrap}#source-ir-hud .pill{font-size:12px}#source-ir-hud .tip{order:9;flex-basis:100%}#source-ir-target{left:12px;right:12px;bottom:24px;transform:none;text-align:center;font-size:13px}#source-ir-toast{top:102px;max-width:calc(100vw - 32px);font-size:14px;text-align:center}#source-ir-stick{width:118px;height:118px;margin:-59px 0 0 -59px}#source-ir-cta-title{font-size:28px}#source-ir-cta-btn{font-size:20px;padding:15px 28px}}';
     style.textContent = bridgeOverlayHiddenCss() + style.textContent + sourceDomHudCssRules();
     document.head.appendChild(style);
     if (!sourceDomHudPresent()) {
       var phaseBand = document.createElement('div');
-      phaseBand.id = 'demo2spec-source-phase-band';
+      phaseBand.id = 'source-ir-phase-band';
       document.body.appendChild(phaseBand);
     }
     var hud = document.createElement('div');
-    hud.id = 'demo2spec-source-hud';
+    hud.id = 'source-ir-hud';
     var sourceHudIds = sourceDomHudContract().ids || {};
     var inlineSourceTip = !!(
       sourceDomHudPresent() &&
@@ -1176,15 +1176,15 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     );
     if (sourceDomHudPresent()) {
       if (sourceDomHudUsesTopbarStats()) {
-        hud.innerHTML = '<div id="demo2spec-source-tip" data-k="tip">' + escapeHtmlText(sourceDomHudInitial('tip', sourceDomHudInitial('goalText', ''))) + '</div><div id="demo2spec-source-meters"><div id="demo2spec-source-gold-box" data-k="goldPanel">' + escapeHtmlText(sourceDomHudInitial('goldBox', '金币 0')) + '</div><div id="demo2spec-source-phase-label" data-k="phase">' + escapeHtmlText(sourceDomHudInitial('phaseLabel', 'Phase 1/' + sourcePhaseCount())) + '</div></div>';
+        hud.innerHTML = '<div id="source-ir-tip" data-k="tip">' + escapeHtmlText(sourceDomHudInitial('tip', sourceDomHudInitial('goalText', ''))) + '</div><div id="source-ir-meters"><div id="source-ir-gold-box" data-k="goldPanel">' + escapeHtmlText(sourceDomHudInitial('goldBox', '金币 0')) + '</div><div id="source-ir-phase-label" data-k="phase">' + escapeHtmlText(sourceDomHudInitial('phaseLabel', 'Phase 1/' + sourcePhaseCount())) + '</div></div>';
       } else if (sourceDomHudUsesResourceBar()) {
-        hud.innerHTML = '<div id="demo2spec-source-phase-badge" data-k="phase">' + escapeHtmlText(sourceDomHudInitial('phaseBadge', 'Phase 1/' + sourcePhaseCount())) + '</div><div id="demo2spec-source-resources"><div class="res">金币 <span id="demo2spec-source-gold-text">' + escapeHtmlText(sourceDomHudInitial('goldText', '50')) + '</span></div><div class="res">建材 <span id="demo2spec-source-mat-text">' + escapeHtmlText(sourceDomHudInitial('matText', '50')) + '</span></div></div>';
+        hud.innerHTML = '<div id="source-ir-phase-badge" data-k="phase">' + escapeHtmlText(sourceDomHudInitial('phaseBadge', 'Phase 1/' + sourcePhaseCount())) + '</div><div id="source-ir-resources"><div class="res">金币 <span id="source-ir-gold-text">' + escapeHtmlText(sourceDomHudInitial('goldText', '50')) + '</span></div><div class="res">建材 <span id="source-ir-mat-text">' + escapeHtmlText(sourceDomHudInitial('matText', '50')) + '</span></div></div>';
       } else if (sourceDomHudUsesMeterPills()) {
-        hud.innerHTML = '<div id="demo2spec-source-logo">' + escapeHtmlText(sourceDomHudInitial('logo', '')) + '</div><div id="demo2spec-source-meters"><div class="pill" id="demo2spec-source-phase-text" data-k="phase">' + escapeHtmlText(sourceDomHudInitial('phaseBadge', 'Phase 1/' + sourcePhaseCount())) + '</div><div class="pill">氧气 <span id="demo2spec-source-oxygen-text" data-k="oxygenText">' + escapeHtmlText(sourceDomHudInitial('oxygenText', '0')) + '</span></div><div class="pill">金币 <span id="demo2spec-source-gold-text" data-k="goldText">' + escapeHtmlText(sourceDomHudInitial('goldText', '0')) + '</span></div><div class="pill">冰块 <span id="demo2spec-source-ice-text" data-k="iceText">' + escapeHtmlText(sourceDomHudInitial('iceText', '0')) + '</span></div></div>';
+        hud.innerHTML = '<div id="source-ir-logo">' + escapeHtmlText(sourceDomHudInitial('logo', '')) + '</div><div id="source-ir-meters"><div class="pill" id="source-ir-phase-text" data-k="phase">' + escapeHtmlText(sourceDomHudInitial('phaseBadge', 'Phase 1/' + sourcePhaseCount())) + '</div><div class="pill">氧气 <span id="source-ir-oxygen-text" data-k="oxygenText">' + escapeHtmlText(sourceDomHudInitial('oxygenText', '0')) + '</span></div><div class="pill">金币 <span id="source-ir-gold-text" data-k="goldText">' + escapeHtmlText(sourceDomHudInitial('goldText', '0')) + '</span></div><div class="pill">冰块 <span id="source-ir-ice-text" data-k="iceText">' + escapeHtmlText(sourceDomHudInitial('iceText', '0')) + '</span></div></div>';
       } else if (sourceDomHudUsesCompactPills()) {
-        hud.innerHTML = '<div id="demo2spec-source-gold-box"><span id="demo2spec-source-gold-icon" data-k="goldIcon"></span><span id="demo2spec-source-gold-label">金币</span><span id="demo2spec-source-gold-count" data-k="score">' + escapeHtmlText(sourceDomHudInitial('goldCount', sourceDomHudInitial('goldText', sourceDomHudInitial('scoreText', sourceDomHudInitial('goldBox', '0'))))) + '</span></div>' + (inlineSourceTip ? '<div id="demo2spec-source-tip" data-k="tip">' + escapeHtmlText(sourceDomHudInitial('tip', sourceDomHudInitial('goalText', ''))) + '</div>' : '') + '<div id="demo2spec-source-phase-badge" data-k="phase">' + escapeHtmlText(sourceDomHudInitial('phaseBadge', 'Phase 1/' + sourcePhaseCount())) + '</div>';
+        hud.innerHTML = '<div id="source-ir-gold-box"><span id="source-ir-gold-icon" data-k="goldIcon"></span><span id="source-ir-gold-label">金币</span><span id="source-ir-gold-count" data-k="score">' + escapeHtmlText(sourceDomHudInitial('goldCount', sourceDomHudInitial('goldText', sourceDomHudInitial('scoreText', sourceDomHudInitial('goldBox', '0'))))) + '</span></div>' + (inlineSourceTip ? '<div id="source-ir-tip" data-k="tip">' + escapeHtmlText(sourceDomHudInitial('tip', sourceDomHudInitial('goalText', ''))) + '</div>' : '') + '<div id="source-ir-phase-badge" data-k="phase">' + escapeHtmlText(sourceDomHudInitial('phaseBadge', 'Phase 1/' + sourcePhaseCount())) + '</div>';
       } else {
-        hud.innerHTML = '<div id="demo2spec-source-gold-icon" data-k="goldIcon"></div><div id="demo2spec-source-gold-count" data-k="score">' + escapeHtmlText(sourceDomHudInitial('goldCount', sourceDomHudInitial('scoreText', '0'))) + '</div><div id="demo2spec-source-tip" data-k="tip">' + escapeHtmlText(sourceDomHudInitial('tip', sourceDomHudInitial('goalText', ''))) + '</div><div id="demo2spec-source-phase-label" data-k="phase">' + escapeHtmlText(sourceDomHudInitial('phaseLabel', 'Phase 1/' + sourcePhaseCount())) + '</div>';
+        hud.innerHTML = '<div id="source-ir-gold-icon" data-k="goldIcon"></div><div id="source-ir-gold-count" data-k="score">' + escapeHtmlText(sourceDomHudInitial('goldCount', sourceDomHudInitial('scoreText', '0'))) + '</div><div id="source-ir-tip" data-k="tip">' + escapeHtmlText(sourceDomHudInitial('tip', sourceDomHudInitial('goalText', ''))) + '</div><div id="source-ir-phase-label" data-k="phase">' + escapeHtmlText(sourceDomHudInitial('phaseLabel', 'Phase 1/' + sourcePhaseCount())) + '</div>';
       }
       hud.setAttribute('data-source-dom-hud', '1');
     } else {
@@ -1193,46 +1193,46 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     document.body.appendChild(hud);
     if (sourceDomHudPresent() && (sourceDomHudUsesResourceBar() || sourceDomHudUsesCompactPills() || sourceDomHudUsesMeterPills()) && !inlineSourceTip) {
       var sourceTip = document.createElement('div');
-      sourceTip.id = 'demo2spec-source-tip';
+      sourceTip.id = 'source-ir-tip';
       sourceTip.setAttribute('data-k', 'tip');
       sourceTip.textContent = sourceDomHudInitial('tip', sourceDomHudInitial('goalText', ''));
       document.body.appendChild(sourceTip);
     }
     if (sourceDomHudPresent() && sourceDomHudHasProgressBar()) {
       var progressWrap = document.createElement('div');
-      progressWrap.id = 'demo2spec-source-progress-wrap';
-      progressWrap.innerHTML = '<div id="demo2spec-source-progress-bar"></div>';
+      progressWrap.id = 'source-ir-progress-wrap';
+      progressWrap.innerHTML = '<div id="source-ir-progress-bar"></div>';
       document.body.appendChild(progressWrap);
     }
     if (sourceDomHudPresent() && sourceDomHudContract().ids && sourceDomHudContract().ids.workerPanel) {
       var workerPanel = document.createElement('div');
-      workerPanel.id = 'demo2spec-source-worker-panel';
+      workerPanel.id = 'source-ir-worker-panel';
       workerPanel.textContent = sourceDomHudInitial('workerPanel', '');
       workerPanel.style.display = 'none';
       document.body.appendChild(workerPanel);
     }
     if (sourceDomHudPresent() && sourceDomHudContract().ids && sourceDomHudContract().ids.upgradePanel) {
       var upgradePanel = document.createElement('div');
-      upgradePanel.id = 'demo2spec-source-upgrade-panel';
+      upgradePanel.id = 'source-ir-upgrade-panel';
       upgradePanel.textContent = sourceDomHudInitial('upgradePanel', '');
       upgradePanel.style.display = 'none';
       document.body.appendChild(upgradePanel);
     }
     var target = document.createElement('div');
-    target.id = 'demo2spec-source-target';
+    target.id = 'source-ir-target';
     document.body.appendChild(target);
     var toast = document.createElement('div');
-    toast.id = 'demo2spec-source-toast';
+    toast.id = 'source-ir-toast';
     document.body.appendChild(toast);
     var cta = document.createElement('div');
-    cta.id = 'demo2spec-source-cta-overlay';
-    cta.innerHTML = '<div id="demo2spec-source-cta-box"><div id="demo2spec-source-cta-title">立即下载，解锁更多舱室玩法！</div><div id="demo2spec-source-cta-btn">安装完整游戏</div><div id="demo2spec-source-cta-subtitle"></div></div>';
+    cta.id = 'source-ir-cta-overlay';
+    cta.innerHTML = '<div id="source-ir-cta-box"><div id="source-ir-cta-title">立即下载，解锁更多舱室玩法！</div><div id="source-ir-cta-btn">安装完整游戏</div><div id="source-ir-cta-subtitle"></div></div>';
     document.body.appendChild(cta);
     var stick = document.createElement('div');
-    stick.id = 'demo2spec-source-stick';
-    stick.innerHTML = '<div id="demo2spec-source-stick-knob"></div>';
+    stick.id = 'source-ir-stick';
+    stick.innerHTML = '<div id="source-ir-stick-knob"></div>';
     document.body.appendChild(stick);
-    var knob = document.getElementById('demo2spec-source-stick-knob');
+    var knob = document.getElementById('source-ir-stick-knob');
     var origin = null;
     function consume(ev) {
       try { ev.preventDefault(); } catch(e) {}
@@ -1289,14 +1289,14 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     });
   }
   function showOverlayToast(text) {
-    var toast = document.getElementById('demo2spec-source-toast');
+    var toast = document.getElementById('source-ir-toast');
     if (!toast || !text) return;
     toast.textContent = text;
     toast.classList.add('show');
     overlayRuntime.toastUntil = (performance.now ? performance.now() : Date.now()) + 1000;
   }
   function setHud(gs, info, step, autoMode) {
-    var hud = document.getElementById('demo2spec-source-hud');
+    var hud = document.getElementById('source-ir-hud');
     if (!hud) return;
     function set(key, text) {
       var el = hud.querySelector('[data-k="' + key + '"]') || document.querySelector('[data-k="' + key + '"]');
@@ -1321,17 +1321,17 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       set('iceText', sourceCounterText('iceText', resourceValue(res, 'Ice')));
       var sourceGuide = info && info.guideText || gs.ui_state && gs.ui_state.guideText || gs.uiState && gs.uiState.guideText || gs.variables && gs.variables.guideText || '';
       set('tip', sourceGuide || sourceDomHudInitial('tip', sourceDomHudInitial('goalText', '')));
-      var sourceProgressBar = document.getElementById('demo2spec-source-progress-bar');
+      var sourceProgressBar = document.getElementById('source-ir-progress-bar');
       if (sourceProgressBar) {
         var sourcePhaseIndex = autoMode ? phaseIndexFromState(gs) : overlayRuntime.phaseIndex;
         var progressDenom = Math.max(1, sourcePhaseCount() - 1);
         sourceProgressBar.style.width = Math.max(0, Math.min(100, Math.round(sourcePhaseIndex / progressDenom * 100))) + '%';
       }
-      var sourceWorkerPanel = document.getElementById('demo2spec-source-worker-panel');
+      var sourceWorkerPanel = document.getElementById('source-ir-worker-panel');
       if (sourceWorkerPanel) sourceWorkerPanel.style.display = overlayRuntime.phaseIndex >= 6 ? 'block' : 'none';
-      var sourceUpgradePanel = document.getElementById('demo2spec-source-upgrade-panel');
+      var sourceUpgradePanel = document.getElementById('source-ir-upgrade-panel');
       if (sourceUpgradePanel) sourceUpgradePanel.style.display = overlayRuntime.phaseIndex === 6 ? 'block' : 'none';
-      var sourceTarget = document.getElementById('demo2spec-source-target');
+      var sourceTarget = document.getElementById('source-ir-target');
       var sourceTargetName = autoMode ? currentOverlayTargetName(info, res, states) : worldTargetName(step && step.target || '');
       var sourceLabel = entityTargetLabel(sourceTargetName);
       if (sourceTarget) {
@@ -1348,7 +1348,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     set('tool', (res.tool || '镐子') + ' / 飞船' + (res.ShipLevel || 0) + '节');
     var guide = info && info.guideText || gs.ui_state && gs.ui_state.guideText || gs.uiState && gs.uiState.guideText || gs.variables && gs.variables.guideText || '';
     set('tip', guide || '在任意位置拖动摇杆，控制角色靠近高亮目标');
-    var target = document.getElementById('demo2spec-source-target');
+    var target = document.getElementById('source-ir-target');
     var targetName = autoMode ? currentOverlayTargetName(info, res, states) : worldTargetName(step && step.target || '');
     var label = entityTargetLabel(targetName);
     if (target) {
@@ -1375,7 +1375,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     attr.needsUpdate = true;
   }
   function install() {
-    if (!window.THREE || document.getElementById('demo2spec-source-3d-overlay')) return;
+    if (!window.THREE || document.getElementById('source-ir-3d-overlay')) return;
     originalGameState = window.__gameState;
     window.__BLUEPRINT_LUNA_GAME_STATE__ = originalGameState || null;
     sourceRuntimeEnabled = sourceRuntimeDefaultEnabled();
@@ -1404,7 +1404,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
     renderer.setPixelRatio(1);
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.domElement.id = 'demo2spec-source-3d-overlay';
+    renderer.domElement.id = 'source-ir-3d-overlay';
     document.body.appendChild(renderer.domElement);
     scene.add(new THREE.AmbientLight(hexToNumber(sceneContract.ambientLight && sceneContract.ambientLight.color, '#ffffff'), sceneContract.ambientLight && sceneContract.ambientLight.intensity || .62));
     var sun = new THREE.DirectionalLight(hexToNumber(sceneContract.directionalLight && sceneContract.directionalLight.color, '#ffffff'), sceneContract.directionalLight && sceneContract.directionalLight.intensity || 1.25);
@@ -1541,7 +1541,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       });
       if (sourceDomWorldLabelsEnabled()) {
         var domLabel = document.createElement('div');
-        domLabel.className = 'demo2spec-source-world-label';
+        domLabel.className = 'source-ir-world-label';
         domLabel.textContent = c.label || name;
         document.body.appendChild(domLabel);
         domLabels[name] = domLabel;
@@ -1567,7 +1567,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       var dt = overlayRuntime.lastTick ? Math.min(.08, Math.max(.001, (now - overlayRuntime.lastTick) / 1000)) : .016;
       overlayRuntime.lastTick = now;
       var rawGs = sourceRuntimeEnabled ? null : state();
-      var gs = sourceRuntimeEnabled ? (window.__demo2specSourceOverlayState || {}) : (rawGs || {});
+      var gs = sourceRuntimeEnabled ? (window.__SOURCE_IR_OVERLAY_STATE || {}) : (rawGs || {});
       var states = gs.entity_states || gs.entityStates || {};
       var autoMode = isAutoMode(gs);
       var sourceDrivenAuto = autoMode && sourceVisualEnabled();
@@ -1617,7 +1617,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       var targetName = autoMode ? currentOverlayTargetName(info, gs.resources || gs.inventory || {}, states) : (step && step.target || '');
       var phasePalette = [0xffe45c, 0x54d6ff, 0xff884d, 0x8dff72];
       var phaseColor = phasePalette[Math.max(0, overlayRuntime.phaseIndex) % phasePalette.length];
-      var phaseBand = document.getElementById('demo2spec-source-phase-band');
+      var phaseBand = document.getElementById('source-ir-phase-band');
       if (phaseBand) {
         var phaseCss = cssHex(phaseColor);
         phaseBand.style.background = phaseCss;
@@ -1669,11 +1669,11 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
           laserLine.material.opacity = 0;
         }
       }
-      var toast = document.getElementById('demo2spec-source-toast');
+      var toast = document.getElementById('source-ir-toast');
       if (toast && overlayRuntime.toastUntil && overlayRuntime.toastUntil < now) {
         toast.classList.remove('show');
       }
-      window.__demo2specSourceOverlayState = overlayStateSnapshot(info);
+      window.__SOURCE_IR_OVERLAY_STATE = overlayStateSnapshot(info);
       installSourceRuntimeGameState();
       installSourcePhaseDriver();
       setHud(gs, info, step, autoMode);
@@ -1681,7 +1681,7 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
       requestAnimationFrame(frame);
     }
     frame();
-    console.log('[demo2spec] Three.js source visual overlay active: entities=' + names.length);
+    console.log('[source-ir] Three.js source visual overlay active: entities=' + names.length);
   }
   function waitForThree() {
     if (!sourceVisualEnabled()) return;

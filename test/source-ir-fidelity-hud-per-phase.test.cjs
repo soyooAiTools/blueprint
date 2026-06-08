@@ -3,8 +3,8 @@
 
 var assert = require('assert');
 
-var visualAssets = require('../adapters/demo2spec/visual-assets.js');
-var demo2specFidelity = require('../adapters/demo2spec/fidelity-contract.js');
+var visualAssets = require('../adapters/source-ir/visual-assets.js');
+var sourceIrFidelity = require('../adapters/source-ir/fidelity-contract.js');
 var fidelity = require('../engine/fidelity-contract.cjs');
 
 function sampleContract() {
@@ -12,7 +12,7 @@ function sampleContract() {
     schemaVersion: '1.1.0',
     kind: 'blueprint.fidelityContract',
     producerVersion: 'test',
-    requiredCapabilities: demo2specFidelity.supportedCapabilitiesFor('html'),
+    requiredCapabilities: sourceIrFidelity.supportedCapabilitiesFor('html'),
     coordinateSystem: { source: 'three-rh', target: 'unity-lh', handedness: 'source-rh-target-lh', zFlip: true, unitScale: 1 },
     rendererAdapter: { three: { shader: {}, animator: {}, physics: {}, audio: {}, ui: {} }, unity: { shader: {}, animator: {}, physics: {}, audio: {}, ui: {} } },
     entities: [],
@@ -158,7 +158,7 @@ assert.strictEqual(runtimeTargetManifest.sourcePhaseContract.phases[0].steps[2].
 assert.deepStrictEqual(runtimeTargetManifest.sourcePhaseContract.phases[1].targetSequence, ['Gold', 'DefenseTower']);
 assert.strictEqual(runtimeTargetManifest.sourceEntityContract.worldLabelContract.present, false);
 
-var result = demo2specFidelity.applySourceHudPerPhase(sampleContract(), manifest, { includeSummary: true });
+var result = sourceIrFidelity.applySourceHudPerPhase(sampleContract(), manifest, { includeSummary: true });
 assert.deepStrictEqual(result.summary.updated.map(function (item) { return item.id; }), ['hud.phase', 'hud.targethint', 'hud.tip']);
 
 var hudById = {};
@@ -171,7 +171,7 @@ assert.strictEqual(hudById['hud.coin'].text, '金币 0');
 var validation = fidelity.validateFidelityContract(result.contract);
 assert.strictEqual(validation.valid, true, validation.errors.join('\n'));
 
-var overlayResult = demo2specFidelity.applySourceUiOverlayContract(sampleContract(), {
+var overlayResult = sourceIrFidelity.applySourceUiOverlayContract(sampleContract(), {
   sourceEntityContract: {
     uiOverlayContract: {
       present: true,
@@ -188,4 +188,4 @@ assert.deepStrictEqual(overlayResult.contract.sourceEntityContract.uiOverlayCont
   { id: 'JoystickBG', role: 'joystick-background' },
 ]);
 
-console.log('demo2spec fidelity HUD perPhase tests passed');
+console.log('source-ir fidelity HUD perPhase tests passed');

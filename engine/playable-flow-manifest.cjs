@@ -172,7 +172,7 @@ function updateManifest(options, patch) {
   };
 }
 
-function recordDemo2SpecVerify(options) {
+function recordSourceIrVerify(options) {
   options = options || {};
   var summary = readJsonIfExists(options.summaryPath);
   var report = readJsonIfExists(options.reportPath);
@@ -186,7 +186,7 @@ function recordDemo2SpecVerify(options) {
       verifySummary: artifactFor(options.summaryPath),
     },
     stages: {
-      demo2specVerify: {
+      sourceIrVerify: {
         recordedAt: nowIso(),
         runner: runner,
         passed: !!(summary && summary.passed === true),
@@ -198,7 +198,7 @@ function recordDemo2SpecVerify(options) {
     },
     events: [{
       at: nowIso(),
-      stage: 'demo2spec-verify',
+      stage: 'source-ir-verify',
       runner: runner,
       passed: !!(summary && summary.passed === true),
     }],
@@ -303,7 +303,7 @@ module.exports = {
   sha256OfFile: sha256OfFile,
   artifactFor: artifactFor,
   updateManifest: updateManifest,
-  recordDemo2SpecVerify: recordDemo2SpecVerify,
+  recordSourceIrVerify: recordSourceIrVerify,
   recordStoryboard2HtmlPreflight: recordStoryboard2HtmlPreflight,
   recordStoryboard2HtmlSmoke: recordStoryboard2HtmlSmoke,
   recordExportDelivery: recordExportDelivery,

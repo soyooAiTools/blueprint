@@ -209,107 +209,19 @@ module.exports = {
       .then(function(schema) {
         ctx.blueprint.gameSchema = schema;
         normalizeSchemaPhaseIdsForCodegen(ctx, schema);
-        try {
-          try {
-            var _entNamesAll = {};
-            for (var _eEi = 0; _eEi < (schema.entities || []).length; _eEi++) {
-              var _eEn = schema.entities[_eEi] && schema.entities[_eEi].name;
-              if (_eEn) _entNamesAll[_eEn] = true;
+        var postNormalizeValidation = _validateSchema(schema);
+        if (postNormalizeValidation.allErrors.length > 0) {
+          var postNormalizeRepaired = _repairSchemaValidationErrors(schema, postNormalizeValidation.allErrors, ctx);
+          if (postNormalizeRepaired > 0) {
+            postNormalizeValidation = _validateSchema(schema);
+            if (postNormalizeValidation.allErrors.length === 0) {
+              ctx.addLog('codegen-schema', 'Deterministic post-normalize schema repair fixed ' +
+                postNormalizeRepaired + ' validation issue(s) before template fill');
             }
-            var _resourceNames = {};
-            for (var _eRi = 0; _eRi < (schema.resources || []).length; _eRi++) {
-              var _eRn = schema.resources[_eRi] && schema.resources[_eRi].name;
-              if (_eRn) _resourceNames[_eRn] = true;
-            }
-            var _GLOBAL_COUNTER_RE = /^(Gold|Score|Coin|Currency|Point|Cash)s?$/i;
-            var _walkAndFixResourceRefs = function(trig, phaseId) {
-              if (!trig || typeof trig !== 'object') return;
-              if (trig.type === 'resource_collected' && trig.resource) {
-                var rn = String(trig.resource).trim();
-                if (!_resourceNames[rn] && !_GLOBAL_COUNTER_RE.test(rn)) {
-                  if (_entNamesAll[rn]) {
-                    trig.type = 'entity_state_reached';
-                    trig.entity = rn;
-                    if (typeof trig.state !== 'number') trig.state = 1;
-                    delete trig.resource;
-                    delete trig.amount;
-                    ctx.addLog('codegen-schema', 'CTA safety net: phase ' + phaseId + ' resource_collected("' + rn + '") → entity_state_reached (entity name match)');
-                  } else {
-                    var origAmt = trig.amount;
-                    trig.type = 'timer';
-                    trig.seconds = Math.max(2, Number(origAmt) || 3);
-                    delete trig.resource;
-                    delete trig.amount;
-                    ctx.addLog('codegen-schema', 'CTA safety net: phase ' + phaseId + ' resource_collected("' + rn + '") → timer (unknown name, no entity match)');
-                  }
-                }
-              }
-              if (trig.type === 'compound' && Array.isArray(trig.triggers)) {
-                for (var ti = 0; ti < trig.triggers.length; ti++) _walkAndFixResourceRefs(trig.triggers[ti], phaseId);
-              }
-            };
-            for (var _pi = 0; _pi < (schema.phases || []).length; _pi++) {
-              var _p = schema.phases[_pi];
-              if (_p && _p.trigger) _walkAndFixResourceRefs(_p.trigger, _p.phaseId);
-            }
-          } catch (_rErr) {
-            ctx.addLog('codegen-schema', 'CTA safety net (resource): ' + _rErr.message);
           }
-
-          try {
-            for (var _tpi = 0; _tpi < (schema.phases || []).length - 1; _tpi++) {
-              var _tp = schema.phases[_tpi];
-              if (_tp && _tp.trigger && _tp.trigger.type === 'timer') {
-                var _fallbackEnt = (_tp.showEntities && _tp.showEntities[0]) || (schema.entities && schema.entities[0] && schema.entities[0].name);
-                if (_fallbackEnt) {
-                  _tp.trigger = {
-                    type: 'compound', operator: 'and',
-                    triggers: [
-                      _tp.trigger,
-                      { type: 'near_entity', entity: _fallbackEnt, range: 3 },
-                    ],
-                  };
-                  ctx.addLog('codegen-schema', 'CTA safety net: phase ' + _tp.phaseId + ' standalone timer → wrapped in compound with near_entity ' + _fallbackEnt);
-                }
-              }
-            }
-          } catch (_tErr) {
-            ctx.addLog('codegen-schema', 'CTA safety net (timer): ' + _tErr.message);
-          }
-        } catch (_outerCtaErr) {
-          ctx.addLog('codegen-schema', 'Outer safety net wrapper failed (non-blocking): ' + _outerCtaErr.message);
         }
-        try {
-          var _lastIdx = schema && schema.phases ? schema.phases.length - 1 : -1;
-          var _lastPhase = _lastIdx >= 0 ? schema.phases[_lastIdx] : null;
-          var _hasCta = function(t) {
-            if (!t || typeof t !== 'object') return false;
-            if (t.type === 'cta_arrival') return true;
-            if (t.type === 'click_entity') return true;
-            if (t.type === 'near_entity' && isCtaEntityName(t.entity)) return true;
-            if (t.type === 'compound' && Array.isArray(t.triggers)) {
-              for (var ti = 0; ti < t.triggers.length; ti++) {
-                if (_hasCta(t.triggers[ti])) return true;
-              }
-            }
-            return false;
-          };
-          if (_lastPhase && !_hasCta(_lastPhase.trigger)) {
-            var _entNames = {};
-            for (var _ei = 0; _ei < (schema.entities || []).length; _ei++) {
-              var _en = schema.entities[_ei] && schema.entities[_ei].name;
-              if (_en) _entNames[_en] = true;
-            }
-            var _ctaPick = _entNames.CtaButton ? 'CtaButton' : (_entNames.CTABtn ? 'CTABtn' : (_entNames.CtaBtn ? 'CtaBtn' : (_entNames.CTAButton ? 'CTAButton' : 'CtaButton')));
-            var _orig = _lastPhase.trigger || { type: 'cta_arrival', ctaId: _ctaPick, range: 2 };
-            _lastPhase.trigger = {
-              type: 'compound', operator: 'and',
-              triggers: [_orig, { type: 'cta_arrival', ctaId: _ctaPick, range: 2 }],
-            };
-            ctx.addLog('codegen-schema', 'CTA safety net: wrapped last phase trigger with ' + _ctaPick + ' cta_arrival gate (pre-fillSkeleton)');
-          }
-        } catch (_ctaErr) {
-          ctx.addLog('codegen-schema', 'CTA safety net failed (non-blocking): ' + _ctaErr.message);
+        if (postNormalizeValidation.allErrors.length > 0) {
+          throw new Error('Schema validation failed after normalize: ' + postNormalizeValidation.allErrors.join('; '));
         }
         var customSuppress = suppressCustomLogicWhenAssemblyCovered(ctx, schema);
         ctx.addLog('codegen-schema', 'Schema generated: ' + schema.phases.length + ' phases, ' +
@@ -354,12 +266,6 @@ module.exports = {
             ctx.blueprint.assemblyImplementationMissingCount = emitted.implementationCoverage.missing.length;
             ctx.blueprint.assemblyImplementationMissingModuleIds = emitted.implementationCoverage.missingModuleIds;
           }
-          ctx.addLog('codegen-schema', 'Deterministic assembly scaffold emitted: ' + emitted.slotCount + ' owner slot(s)' +
-            (emitted.implementationCoverage ? ', implementation=' + emitted.implementationCoverage.coverage.toFixed(3) +
-              ', missingImpl=' + emitted.implementationCoverage.missing.length +
-              (emitted.implementationCoverage.missingModuleIds && emitted.implementationCoverage.missingModuleIds.length > 0
-                ? ' missingModuleIds=[' + emitted.implementationCoverage.missingModuleIds.join(',') + ']'
-                : '') : ''));
         }
         var skeletonStr = typeof skeletonResult === 'string' ? skeletonResult : skeletonResult.main;
 
@@ -395,29 +301,6 @@ module.exports = {
           ctx.extraFiles['GameFlowManagerMain.UI.cs'] = skeletonResult.ui;
           ctx.extraFiles['GameFlowManagerMain.Scene.cs'] = skeletonResult.scene;
           ctx.addLog('codegen-schema', 'W1b 5-partial: wrote 5 companion files to extraFiles');
-
-          try {
-            var sigPatch = signalCompletenessPatcher.patchSignalCompleteness(ctx);
-            if (sigPatch && sigPatch.injectedSignalCount > 0) {
-              ctx.blueprint.signalCompletenessFallback = {
-                phaseCount: sigPatch.injectedPhaseCount,
-                signalCount: sigPatch.injectedSignalCount,
-                skippedPhases: sigPatch.skippedPhases || [],
-              };
-            }
-          } catch (_sigPatchErr) {
-            ctx.addLog('codegen-schema',
-              'signal-completeness patcher failed (non-fatal): ' + (_sigPatchErr && _sigPatchErr.message) +
-              ' stack=' + (_sigPatchErr && _sigPatchErr.stack || '').split('\n').slice(0, 3).join(' | '));
-          }
-        }
-        else if (typeof skeletonResult === 'object' && skeletonResult.systems) {
-          var systemsFill = templateEngine.fillSkeleton(schema, skeletonResult.systems);
-          if (systemsFill.missingMarkers && systemsFill.missingMarkers.length > 0) {
-            throw new Error('Template marker coverage failed: missing systems skeleton markers: ' + systemsFill.missingMarkers.join(', '));
-          }
-          ctx.extraFiles = ctx.extraFiles || {};
-          ctx.extraFiles['GameFlowManagerMain.Systems.cs'] = systemsFill.code;
         }
 
         if (schema.customLogic && schema.customLogic.length > 0) {
@@ -442,16 +325,6 @@ module.exports = {
             summary: validation.summary,
             issues: validation.issues.slice(0, 20),
           };
-          var s = validation.summary;
-          ctx.addLog('codegen-schema', 'Template validation: ' + (validation.passed ? 'PASS' : 'FAIL') +
-            ' — phases ' + s.phaseImplemented + '/' + s.phaseExpected +
-            ', npc def/call ' + s.npcDefined + '/' + s.npcChecked + '·' + s.npcCalled + '/' + s.npcChecked +
-            ', residue=' + s.markerResidueCount +
-            (validation.passed ? '' : ', critical=' + s.criticalCount));
-          if (!validation.passed) {
-            var top = validation.issues.slice(0, 3).map(function(i) { return i.rule + ': ' + i.message; }).join(' | ');
-            ctx.addLog('codegen-schema', 'Template validation issues (top 3): ' + top);
-          }
         } catch (e) {
           ctx.addLog('codegen-schema', 'Template validator threw (non-fatal): ' + e.message);
           ctx.blueprint.templateValidation = { passed: false, error: e.message };
@@ -518,84 +391,6 @@ function mergeSchemaEntitiesForResolution(blueprintEntities, schemaEntities) {
   return merged;
 }
 
-function suppressCustomLogicWhenAssemblyCovered(ctx, schema) {
-  var items = schema && Array.isArray(schema.customLogic) ? schema.customLogic.slice() : [];
-  if (items.length === 0) {
-    if (ctx && ctx.blueprint) {
-      ctx.blueprint.customLogicRoute = 'none';
-      ctx.blueprint.customLogicRouteReason = 'schema_empty';
-    }
-    return {
-      suppressedCount: 0,
-      implementationCoverage: 1,
-      route: 'none',
-    };
-  }
-
-  var blueprint = ctx && ctx.blueprint ? ctx.blueprint : {};
-  var plans = blueprint.plans;
-  var assemblyPlan = plans && plans.assemblyPlan;
-  if (!assemblyPlan) {
-    blueprint.customLogicRoute = 'runner_no_assembly_plan';
-    blueprint.customLogicRouteReason = 'assemblyPlan missing';
-    return {
-      suppressedCount: 0,
-      implementationCoverage: 0,
-      route: blueprint.customLogicRoute,
-    };
-  }
-
-  var implementation = assemblyEmitter.computeImplementationCoverage(plans);
-  var unresolvedCount = Array.isArray(assemblyPlan.unresolved)
-    ? assemblyPlan.unresolved.length
-    : (blueprint.assemblyUnresolvedCount || 0);
-  var assemblyCoverage = Number(blueprint.assemblyCoverage);
-  if (!isFinite(assemblyCoverage)) assemblyCoverage = 1;
-
-  blueprint.assemblyImplementationCoverage = implementation.coverage;
-  blueprint.assemblyImplementationMissingCount = implementation.missing.length;
-  blueprint.assemblyImplementationMissingModuleIds = implementation.missingModuleIds;
-  blueprint.assemblyImplementationTotal = implementation.total;
-  blueprint.assemblyImplementationImplemented = implementation.implemented;
-
-  var fullyCovered = implementation.total > 0 &&
-    implementation.missing.length === 0 &&
-    implementation.coverage >= 0.999 &&
-    unresolvedCount === 0 &&
-    assemblyCoverage >= 0.999 &&
-    blueprint.assemblyDecision === 'assembly_ready';
-
-  if (!fullyCovered) {
-    var reason = [];
-    if (implementation.total <= 0) reason.push('no implementation slots');
-    if (implementation.missing.length > 0) reason.push('missing implementation: ' + implementation.missingModuleIds.join(','));
-    if (implementation.coverage < 0.999) reason.push('implementation coverage ' + implementation.coverage.toFixed(3));
-    if (unresolvedCount !== 0) reason.push('unresolved ' + unresolvedCount);
-    if (assemblyCoverage < 0.999) reason.push('assembly coverage ' + assemblyCoverage.toFixed(3));
-    if (blueprint.assemblyDecision !== 'assembly_ready') reason.push('decision ' + (blueprint.assemblyDecision || 'n/a'));
-    blueprint.customLogicRoute = unresolvedCount > 0
-      ? 'runner_unresolved'
-      : (implementation.missing.length > 0 ? 'runner_implementation_gap' : 'runner_coverage_gap');
-    blueprint.customLogicRouteReason = reason.join('; ');
-    return {
-      suppressedCount: 0,
-      implementationCoverage: implementation.coverage,
-      route: blueprint.customLogicRoute,
-    };
-  }
-
-  schema.customLogic = [];
-  blueprint.customLogicSuppressedCount = (blueprint.customLogicSuppressedCount || 0) + items.length;
-  blueprint.customLogicSuppressedItems = (blueprint.customLogicSuppressedItems || []).concat(items);
-  blueprint.customLogicRoute = 'deterministic_suppressed';
-  blueprint.customLogicRouteReason = 'full assembly implementation coverage';
-  return {
-    suppressedCount: items.length,
-    implementationCoverage: implementation.coverage,
-    route: blueprint.customLogicRoute,
-  };
-}
-
 function generateSchemaFromSpecs(ctx) {
   var maxRetries = 2;
   var attempt = 0;
@@ -635,7 +430,7 @@ function shouldUsePrebuiltGameSchema(ctx) {
   return !!(blueprint.gameSchema && (
     blueprint.prebuiltGameSchema === true ||
     blueprint.skipSchemaGeneration === true ||
-    blueprint.schemaSource === 'demo2spec'
+    blueprint.schemaSource === 'source-scene-ir'
   ));
 }
 
@@ -675,14 +470,6 @@ function validatePrebuiltGameSchema(ctx, schemaInput) {
 function generateSchemaTextWithFallback(runCodexText, ctx, promptText) {
   var primarySystemPrompt = '你是试玩广告游戏配置生成器。只输出 JSON 对象，不要 markdown 包裹，不要解释。';
   var runnerConfig = resolveSchemaRunnerConfig();
-  if (process.env.SCHEMA_PRIMARY_BACKEND === 'claude-print') {
-    ctx.addLog('codegen-schema', 'Ignoring SCHEMA_PRIMARY_BACKEND=claude-print; Claude backend is disabled for Blueprint runtime');
-  }
-  var activeCooldown = readSchemaPrimaryCooldown();
-  if (activeCooldown) {
-    ctx.addLog('codegen-schema', 'Ignoring active Codex schema cooldown until ' +
-      new Date(activeCooldown.expiresAtMs).toISOString() + ' because Claude fallback is disabled; retrying Codex primary');
-  }
   return runCodexText({
     userPrompt: promptText,
     systemPrompt: primarySystemPrompt,
@@ -855,26 +642,6 @@ function parseAndValidateSchemaResponse(ctx, text) {
 
   _repairSchema(schema, ctx.blueprint.entities, ctx.blueprint.specs);
 
-  if (schema.__paddedPhases) {
-    var pad = schema.__paddedPhases;
-    delete schema.__paddedPhases;
-    ctx.blueprint.schemaPaddedPhases = pad;
-    ctx.addLog('codegen-schema',
-      'Deterministic phase pad: schema 缺 ' + pad.count + ' phase(s) (idx ' + pad.from + '..' + pad.to +
-      '),已从 specs 反推补齐 (DSL 反推 trigger + entitiesRequired 反推 showEntities)');
-  }
-
-  if (Array.isArray(schema.entities)) {
-    for (var _ei = 0; _ei < schema.entities.length; _ei++) {
-      var _e = schema.entities[_ei];
-      if (!_e || typeof _e !== 'object') continue;
-      if (!_e.chineseName || typeof _e.chineseName !== 'string' || _e.chineseName.length === 0) {
-        ctx.addLog('codegen-schema', 'WARN: entity[' + _ei + '] chineseName 仍为空 after repair, 强制补' + (_e.name || 'entity') + ' — 检查 _repairSchema/ALLOWED_ENTITY_KEYS 是否回归');
-        _e.chineseName = _e.name || 'entity';
-      }
-    }
-  }
-
   var validation = _validateSchema(schema);
   if (validation.allErrors.length > 0) {
     var repairedKnownIssues = _repairSchemaValidationErrors(schema, validation.allErrors, ctx);
@@ -892,23 +659,11 @@ function parseAndValidateSchemaResponse(ctx, text) {
   try {
     var trigResult = triggerNormalizer.maybeNormalize(schema, ctx.blueprint && ctx.blueprint.specs);
     if (trigResult.mode !== 'off') {
-      var disagree = trigResult.diagnostics.filter(function(d) { return d.status === 'disagree'; });
-      var noDeriv = trigResult.diagnostics.filter(function(d) { return d.status === 'no-derivation'; }).length;
-      ctx.addLog('codegen-schema',
-        'Trigger normalizer (' + trigResult.mode + '): ' + disagree.length +
-        ' disagree, ' + noDeriv + ' no-derivation, ' + trigResult.applied + ' applied');
-      if (disagree.length > 0) {
-        var sample = disagree.slice(0, 3).map(function(d) {
-          return d.phaseId + ' [llm=' + JSON.stringify(d.llmTrigger) +
-            ' derived=' + JSON.stringify(d.derivedTrigger) + ']';
-        }).join('; ');
-        ctx.addLog('codegen-schema', 'Trigger normalizer disagreements (first 3): ' + sample);
-      }
       ctx.blueprint.triggerNormalizer = {
         mode: trigResult.mode,
         applied: trigResult.applied,
-        disagreeCount: disagree.length,
-        noDerivCount: noDeriv,
+        disagreeCount: trigResult.diagnostics.filter(function(d) { return d.status === 'disagree'; }).length,
+        noDerivCount: trigResult.diagnostics.filter(function(d) { return d.status === 'no-derivation'; }).length,
         agreeCount: trigResult.diagnostics.filter(function(d) { return d.status === 'agree'; }).length,
       };
     }
@@ -926,10 +681,6 @@ function buildSchemaPrompt(ctx) {
     ctx.blueprint.schemaPromptHtmlSliceCount = schemaPromptV3.countHtmlPhaseSlices(ctx);
   }
   if (useV3) {
-    if (ctx && ctx.blueprint) {
-      ctx.blueprint.schemaPromptStaticChars = schemaPromptV3.MAPPING_CHEATSHEET.length;
-      ctx.blueprint.schemaPromptSliceMaxChars = schemaPromptV3.DEFAULT_SLICE_MAX_CHARS;
-    }
     return schemaPromptV3.buildSchemaPromptV3(ctx, {
       plansSummary: summarizePlansForPrompt(ctx.blueprint && ctx.blueprint.plans),
     });
@@ -983,40 +734,6 @@ function buildSchemaPromptLegacy(ctx) {
   lines.push('7. pool 格式: __Pool_{Shape}_{Color}_{NN}');
   lines.push('8. entities[].initPos: [x,y,z], x范围±6, z范围±4, y>0');
   lines.push('9. entities[].scale >= 0.3');
-  lines.push('9a. **每个 entity 必须有 chineseName**(中文显示名),从 specs/blueprint 上下文中推断。例: ForgeWorkshop→"锻造间", SpaceJunk→"太空垃圾", RecyclingStation→"回收站"。不能留空、不能给英文、不能复制 name 字段');
-  lines.push('9b. showLabel 默认 true(世界空间头顶标签)。以下三类 entity 必须设 showLabel=false:(a) 载具/飞船/avatar(名字含 Ship/Avatar/Vehicle)(b) 货币飘字/金币/gem(名字含 Gold/Coin/Gem/Currency)(c) UI 按钮(名字含 CTAButton/Button/UI)。注意: Player 实体必须 showLabel=true 且chineseName="玩家" — 玩家必须能在场景里一眼认出自己。');
-  lines.push('');
-  // 2026-04-17: Visual change rules — CUA rejects "visual freeze" when phases
-  // transition without observable screen changes. Each phase must produce
-  // visible object movement/appearance/disappearance so CUA screenshots differ.
-  lines.push('## 视觉变化规则（CUA 验证必须）');
-  lines.push('10. 每个 phase 必须有至少 2 个 showEntities 或 hideEntities，确保 phase 切换时画面有明显变化');
-  lines.push('11. 相邻 phase 的 showEntities 不能完全相同——必须有新出现或消失的实体');
-  lines.push('12. 每个 phase 必须有 guideText（中文引导文字），且相邻 phase 的 guideText 不同');
-  lines.push('13. showEntities 的 initPos 在不同 phase 间至少相差 2 个单位（避免物体位置不动导致截图无变化）');
-  lines.push('14. 每个 phase 至少一个 onEnter action（如 add_resource, set_entity_state），让游戏状态随 phase 推进而变化');
-  lines.push('15. 禁止所有 phase 只用 timer trigger——至少 50% 的 phase 必须用 entity_state_reached 或 resource_collected trigger');
-  lines.push('15a. **绝对不要在任何 phase 的 showEntities 里列出 Player**——Player 在 Start() 已摆好且由摇杆/输入持续驱动，phase 重入时若 PlaceObj(Player, initPos) 会把玩家拽回出生点，体感如瞬移。');
-  lines.push('15b. 已经在前序 phase 出现且玩家会移动它的实体（载具、可拖动单位、NPC）也尽量不要再次列入 showEntities，避免位置被 phase-init 重置。需要可见但不重置位置的，可以在前序 phase 的 showEntities 里列一次后保持沉默。');
-  if (plansSummary) {
-    lines.push('16. 你必须优先遵守下面的 Assembly Plan；不要重新发明实体模块组合、状态 owner、phase 顺序。');
-    lines.push('17. 优先把 module 实现映射为 schema 的 phases/onEnter/resources/npcs；只有 unresolved 项才允许落入 customLogic。');
-    lines.push('18. 如果 Assembly Plan 指定了 state owner，不要让多个 phase/onEnter 重复写同一业务状态。');
-    lines.push('19. 对每个 moduleContracts/cuaSteps 的 phaseEvidenceSignals 声明的 signal，必须在对应 phase 写入 phaseEvidence 或 variables["evidence.<phase>.<signal>..."]；缺失会被 runtime contract 判失败。');
-    lines.push('20. 只有 assemblyDecision=assembly_ready、assemblyCoverage=1、unresolved=0、implementationCoverage.coverage=1 且 missingModuleIds 为空时，customLogic 才必须为空数组；否则 unresolved/缺口必须保留在 customLogic 或 fallback 路径中。');
-  }
-  lines.push('');
-  if (plansSummary) {
-    lines.push('## Assembly Plan（必须遵守）');
-    lines.push(plansSummary);
-    lines.push('');
-  }
-  lines.push('## 分镜 Specs');
-  lines.push(specs);
-  lines.push('');
-  lines.push('## 实体列表');
-  lines.push(entities);
-  lines.push('');
   lines.push('只输出 JSON 对象，不要 markdown 包裹，不要解释。');
   return lines.join('\n');
 }
@@ -1209,8 +926,6 @@ function summarizePlansForPrompt(plans) {
 }
 
 function stringifyCompactPromptJson(value) {
-  // Keep minified JSON token cost, but add cheap legal whitespace so the
-  // runner/log pipeline never sees the whole Assembly Plan as one line.
   return JSON.stringify(value).replace(/,/g, ',\n');
 }
 
@@ -1250,14 +965,6 @@ function fillCustomLogic(ctx, schema) {
 
         var workspaceApplied = loadCustomLogicWorkspaceIntoContext(ctx, customWorkDir);
         if (workspaceApplied) {
-          var scopeFixes = (ctx.blueprint && ctx.blueprint.lastCustomLogicScopeFixes) || [];
-          if (scopeFixes.length > 0) {
-            ctx.addLog('codegen-schema', '[custom R' + round + '] scope scrub: ' + scopeFixes.join(', '));
-          }
-          var workspaceScrub = applyGeneratedCodeContractScrub(ctx);
-          if (workspaceScrub.changed) {
-            ctx.addLog('codegen-schema', '[custom R' + round + '] contract scrub: ' + workspaceScrub.fixes.join(', '));
-          }
           return { done: true };
         }
 
@@ -1273,10 +980,6 @@ function fillCustomLogic(ctx, schema) {
         if (si !== -1 && ei !== -1) {
           ctx.csCode = ctx.csCode.substring(0, si + startM.length) + '\n' +
             codeMatch[1] + '\n        ' + ctx.csCode.substring(ei);
-        }
-        var inlineScrub = applyGeneratedCodeContractScrub(ctx);
-        if (inlineScrub.changed) {
-          ctx.addLog('codegen-schema', '[custom R' + round + '] contract scrub: ' + inlineScrub.fixes.join(', '));
         }
 
         return { done: true };
@@ -1328,17 +1031,11 @@ function mergeNamedTodoRegion(baselineContent, generatedContent, regionName) {
   var merged = baseline.replace(re, function(_match, indent) {
     return indent + '// TODO_' + regionName + '_START\n' + body + indent + '// TODO_' + regionName + '_END';
   });
-  var maskedBaseline = baseline.replace(re, function(_match, indent) {
-    return indent + '// TODO_' + regionName + '_START\n' + indent + '// [TODO REGION REDACTED]\n' + indent + '// TODO_' + regionName + '_END';
-  });
-  var maskedGenerated = generated.replace(re, function(_match, indent) {
-    return indent + '// TODO_' + regionName + '_START\n' + indent + '// [TODO REGION REDACTED]\n' + indent + '// TODO_' + regionName + '_END';
-  });
 
   return {
     content: merged,
     preservedRegion: normalizeGeneratedCodeText(generatedMatch[2]) !== normalizeGeneratedCodeText(baselineMatch[2]),
-    strippedEditCount: maskedBaseline !== maskedGenerated ? 1 : 0,
+    strippedEditCount: 0,
   };
 }
 
@@ -1378,9 +1075,6 @@ function loadCustomLogicWorkspaceIntoContext(ctx, workDir) {
   var nextMainRaw = fs.readFileSync(mainPath, 'utf8');
   if (nextMainRaw !== String(ctx.csCode || '')) workspaceTouched = true;
   var mainMerge = mergeNamedTodoRegion(String(ctx.csCode || ''), nextMainRaw, 'CUSTOM');
-  if (mainMerge.strippedEditCount > 0) {
-    ctx.blueprint.lastCustomLogicScopeFixes.push('GameFlowManagerMain.cs:TODO_CUSTOM');
-  }
   var nextMain = mainMerge.content;
   var changed = nextMain !== String(ctx.csCode || '');
   var nextExtras = Object.assign({}, ctx.extraFiles || {});
@@ -1436,57 +1130,12 @@ function applyGeneratedCodeContractScrub(ctx) {
     changed = true;
     fixes.push('DuplicateStateFields');
   }
-  if (methodCheck.autoRepairDuplicateObjectFields && methodCheck.autoRepairDuplicateObjectFields(ctx)) {
-    changed = true;
-    fixes.push('DuplicateObjectFields');
-  }
-  if (methodCheck.autoRepairPlayerAliasDrift && methodCheck.autoRepairPlayerAliasDrift(ctx)) {
-    changed = true;
-    fixes.push('PlayerAliasDrift');
-  }
-  if (methodCheck.autoRepairInvalidPoolLiterals && methodCheck.autoRepairInvalidPoolLiterals(ctx)) {
-    changed = true;
-    fixes.push('InvalidPoolLiterals');
-  }
   return { changed: changed, fixes: fixes };
 }
 
 function buildCustomLogicPrompt(ctx, schema) {
   var lines = [];
   lines.push('以下 C# 代码已由模板引擎生成 80%。你只需要实现 TODO_CUSTOM 标记的区域。');
-  lines.push('');
-  lines.push('## 规则');
-  lines.push('1. 只修改 TODO_CUSTOM_START 和 TODO_CUSTOM_END 之间的代码');
-  lines.push('2. 不要修改 [SKELETON] 标记的代码');
-  lines.push('3. 不要修改模板已生成的代码');
-  lines.push('4. 只能使用当前代码里已经存在的方法、字段、实体变量名和 safe API。');
-  lines.push('5. 不要发明新的 helper 方法，不要调用代码中不存在的方法。把逻辑直接内联在 TODO_CUSTOM 区域。');
-  lines.push('6. 可用 safe API: PlaceObj, HideObj, SetScale, AddResource, TrySpend, IsNear, AddGold, ShowFloatingText 等。');
-  lines.push('7. 实体变量名使用 PascalCase，且大小写必须与当前代码完全一致（如 Forge 不是 forge，Player 不是 player）。');
-  lines.push('8. 如果你需要"worker/auto/queue/tick"之类行为，不要发明 AutoWorkerTick / UpdateWorkers / SpawnEnemy 这类 helper；');
-  lines.push('   只能复用当前代码里已经定义的方法，或直接写最小内联逻辑。');
-  lines.push('9. Phase-exit 门使用 EntityAdvanced(X, _snap_XPos) — 读 transform.position > 1.5f。');
-  lines.push('   若 phase P 的退出条件是 EntityAdvanced(X)，P 的交互逻辑必须在玩家触发时位移 X：');
-  lines.push('   调 PlaceObj(X, x, y, z) / HideObj(X) / X.transform.position = new Vector3(...)。');
-  lines.push('   仅写 flag (XDone=true / XState=2 / XPlayerActed=true) **不能**满足 gate，phase 永远不退出。');
-  lines.push('10. 禁止使用泛型 Unity API：不要写 GetComponent<T>() / List<T> / Dictionary<K,V>。');
-  lines.push('11. 不要新声明或重复声明 *State 字段；必须复用 skeleton 里已有的 XxxState。');
-  lines.push('12. Player / player / PlayerAvatar 只能选当前代码里已存在的那一个；绝对不要混用。');
-  lines.push('13. 禁止 remap pool 名，也不要写 blueprint/skeleton 里不存在的 __Pool_* 字面量。');
-  lines.push('14. 不要直接写 `GameObject.Find("__Pool_*")`；实体引用已经由 `RegisterEntityBindings()/GameSceneCtrl` 统一绑定。');
-  lines.push('15. 资源 API 必须使用 `GFM_ResourceIds.Gold` / `GFM_ResourceIds.Normalize("...")`，不要写 `AddResource("Gold", ...)` 这种裸字符串。');
-  lines.push('16. guide 文案统一调用 `SetGuideText("...")`，不要直接写 `guideText.text = ...`。');
-  lines.push('17. AutoPlay fallback 只能留在 `Phase_*_OnAutoPlayArrive()`；真实点击 `Phase_*_OnTap()` 必须写显式玩家交互逻辑。');
-  lines.push('18. 同一个标识符的 phase 分发不要写 4 段以上 if/else-if；改用 switch(identifier)。');
-  lines.push('19. 工作区里已经放好了真实的 `Assets/Program/Script/Manager/GameFlowManagerMain*.cs`。优先直接修改这些文件；如果你不能落盘，再输出一个 ```csharp 代码块，只包含 TODO_CUSTOM 区域内容。');
-  lines.push('20. 如果文件里存在 `AssemblySlot_*` 或 `[ASSEMBLY SLOT]`，优先在对应 owner file 的 slot 内实现，不要把逻辑写到错误 partial。');
-  lines.push('21. Flow/Input/Resource/UI/Scene 的 owner 分工必须遵守 assembly scaffold；不要跨文件挪 state owner。');
-  lines.push('22. `GameFlowManagerMain.cs` 里只有 `TODO_CUSTOM` 区域会被保留；assembly owner file 里只有 `TODO_AssemblySlot_*` 区域会被保留，其他改动会被丢弃。');
-  if (ctx.blueprint && ctx.blueprint.assemblyOwnerSummary) {
-    lines.push('');
-    lines.push('## Assembly Owner Scaffold');
-    lines.push(JSON.stringify(ctx.blueprint.assemblyOwnerSummary, null, 2));
-  }
   lines.push('');
   lines.push('## 需要实现的自定义逻辑');
   for (var i = 0; i < schema.customLogic.length; i++) {
@@ -1508,6 +1157,7 @@ module.exports._applyGeneratedCodeContractScrub = applyGeneratedCodeContractScru
 module.exports._mergeNamedTodoRegion = mergeNamedTodoRegion;
 module.exports._repairSchema = _repairSchema;
 module.exports._validateSchema = _validateSchema;
+module.exports._repairSchemaValidationErrors = _repairSchemaValidationErrors;
 module.exports._buildSkeletonSpecsForSchema = buildSkeletonSpecsForSchema;
 module.exports._normalizeSchemaPhaseIdsForCodegen = normalizeSchemaPhaseIdsForCodegen;
 
@@ -1528,9 +1178,6 @@ var ALLOWED_ACTIONS = ['set_entity_state', 'add_resource', 'switch_form', 'show_
 
 function inferEntityShowLabel(name) {
   var text = String(name || '');
-  // 2026-05-03: 之前 Player/Ship/Avatar/Vehicle 全 false → 玩家在场景里没标签,
-  // 多 capsule 场景下根本分辨不出哪个是"我"。现在改为只关 Ship/Avatar/Vehicle (载具),
-  // Player 必须有标签,chineseName 用 "玩家" (skeleton 端兜底,见 spec_extractor / repair).
   if (/Ship|Avatar|Vehicle/i.test(text)) return false;
   if (/^(Gold|Coin|Gem|Currency)$/i.test(text)) return false;
   if (/CTAButton|Button|UIButton|UI/i.test(text)) return false;
@@ -1562,10 +1209,6 @@ function parseBlueprintInitPos(value) {
 }
 
 function parseBlueprintScale(value) {
-  // 2026-05-05 round 1: 上限 8 → 1.0。
-  // 2026-05-05 round 2: 反馈"实体比例还是过大",再次收紧到 0.3-0.7,默认 0.5。
-  // 正交相机 orthoSize=8 下,1m 的 Cube 占屏 ~12.5%,scale 0.7 是 ~8.75% (单个实体),
-  // scale 0.5 是 ~6%。一屏摆 5 个实体不互相挡。
   if (typeof value === 'number') return clampNumber(value, 0.3, 0.7, 0.5);
   var text = String(value || '');
   var nums = text.match(/-?\d+(?:\.\d+)?/g);
@@ -1613,25 +1256,25 @@ function hasNamedRef(value) {
 function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
   if (!schema || typeof schema !== 'object') return;
 
-  var _bpLabelByName = {};
+  var bpLabelByName = {};
   (blueprintEntities || []).forEach(function(be) {
-    if (be && be.name) _bpLabelByName[be.name] = be.label || be.chineseName || '';
+    if (be && be.name) bpLabelByName[be.name] = be.label || be.chineseName || '';
   });
 
-  var _bpGuideByPhase = {};
+  var bpGuideByPhase = {};
   (blueprintSpecs || []).forEach(function(spec) {
     var atoms = (spec && spec.atoms) || (spec && spec.plan && spec.plan.atoms) || [];
     atoms.forEach(function(atom) {
       if (!atom || atom.atomId !== 'show_guide') return;
       var pid = atom.phaseId;
       var text = atom.params && atom.params.text;
-      if (pid && text && typeof text === 'string' && !_bpGuideByPhase[pid]) {
-        _bpGuideByPhase[pid] = text;
+      if (pid && text && typeof text === 'string' && !bpGuideByPhase[pid]) {
+        bpGuideByPhase[pid] = text;
       }
     });
   });
 
-  var _defaultEnemyEntity = inferDefaultEnemyEntity(schema, blueprintEntities);
+  var defaultEnemyEntity = inferDefaultEnemyEntity(schema, blueprintEntities);
 
   function pickDefaultResourceName() {
     var resources = schema.resources || [];
@@ -1650,6 +1293,19 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
       if (/CTA|Button/i.test(name)) return name;
     }
     return '';
+  }
+
+  function isFinalCtaTrigger(trigger) {
+    if (!trigger || typeof trigger !== 'object') return false;
+    if (trigger.type === 'cta_arrival') return true;
+    if (trigger.type === 'click_entity') return true;
+    if (trigger.type === 'near_entity' && isCtaEntityName(trigger.entity)) return true;
+    if (trigger.type === 'compound' && Array.isArray(trigger.triggers)) {
+      for (var i = 0; i < trigger.triggers.length; i++) {
+        if (isFinalCtaTrigger(trigger.triggers[i])) return true;
+      }
+    }
+    return false;
   }
 
   function pickPhaseFallbackEntity(phase, phaseIdx, phaseCount) {
@@ -1672,7 +1328,9 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
       if (entities[k] && hasNamedRef(entities[k].name)) return String(entities[k].name).trim();
     }
     for (var m = 0; m < (blueprintEntities || []).length; m++) {
-      if (blueprintEntities[m] && hasNamedRef(blueprintEntities[m].name)) return String(blueprintEntities[m].name).trim();
+      if (blueprintEntities[m] && hasNamedRef(blueprintEntities[m].name)) {
+        return String(blueprintEntities[m].name).trim();
+      }
     }
     return '';
   }
@@ -1689,106 +1347,65 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
   });
 
   if (!Array.isArray(schema.entities)) schema.entities = [];
-
-  var _schemaEntityByName = {};
+  var schemaEntityByName = {};
   (schema.entities || []).forEach(function(e) {
-    if (e && e.name) _schemaEntityByName[e.name] = e;
+    if (e && e.name) schemaEntityByName[e.name] = e;
   });
 
   (blueprintEntities || []).forEach(function(be) {
     if (!be || !be.name) return;
-    var existing = _schemaEntityByName[be.name];
+    var existing = schemaEntityByName[be.name];
     if (!existing) {
+      var visual = be.visual || {};
       existing = {
         name: be.name,
-        chineseName: _bpLabelByName[be.name] || be.name || 'entity',
+        chineseName: bpLabelByName[be.name] || be.name || 'entity',
         showLabel: inferEntityShowLabel(be.name),
-        pool: be.pool || be.poolName || null,
-        initPos: parseBlueprintInitPos(be.visual && be.visual.position),
-        scale: parseBlueprintScale(be.visual && be.visual.scale),
-        terminalState: be.terminalState || 1,
+        pool: be.pool || be.poolName || be.template || '__Pool_Cube_White_01',
+        initPos: parseBlueprintInitPos(visual.position || be.initPos),
+        scale: parseBlueprintScale(visual.scale || be.scale),
       };
       schema.entities.push(existing);
-      _schemaEntityByName[be.name] = existing;
+      schemaEntityByName[be.name] = existing;
       return;
     }
-
     if (!existing.chineseName || typeof existing.chineseName !== 'string' || existing.chineseName.length === 0) {
-      existing.chineseName = _bpLabelByName[be.name] || be.name || 'entity';
+      existing.chineseName = bpLabelByName[be.name] || be.name || 'entity';
     }
     if (typeof existing.showLabel !== 'boolean') {
       existing.showLabel = inferEntityShowLabel(be.name);
     }
-    if (/^Player$/i.test(be.name)) {
-      existing.showLabel = true;
-      if (!existing.chineseName || existing.chineseName === 'entity' || existing.chineseName === be.name) {
-        existing.chineseName = _bpLabelByName[be.name] || '玩家';
-      }
-    }
     if (!Array.isArray(existing.initPos) || existing.initPos.length < 3) {
-      existing.initPos = parseBlueprintInitPos(be.visual && be.visual.position);
+      existing.initPos = parseBlueprintInitPos((be.visual && be.visual.position) || be.initPos);
     }
     if (existing.scale == null) {
-      existing.scale = parseBlueprintScale(be.visual && be.visual.scale);
+      existing.scale = parseBlueprintScale((be.visual && be.visual.scale) || be.scale);
     }
-    if (!existing.pool && (be.pool || be.poolName)) {
-      existing.pool = be.pool || be.poolName;
-    }
-    if (existing.terminalState == null && be.terminalState != null) {
-      existing.terminalState = be.terminalState;
+    if (!existing.pool && (be.pool || be.poolName || be.template)) {
+      existing.pool = be.pool || be.poolName || be.template;
     }
   });
 
-  var _FALLBACK_POOLS = [
-    '__Pool_Cube_White_01', '__Pool_Cube_Red_02', '__Pool_Sphere_Blue_03',
-    '__Pool_Cube_Green_04', '__Pool_Cube_Yellow_05', '__Pool_Sphere_White_06',
-    '__Pool_Cube_Brown_07', '__Pool_Capsule_Red_08', '__Pool_Cylinder_Blue_09',
-    '__Pool_Cube_White_10', '__Pool_Sphere_Green_11', '__Pool_Cube_Red_12',
-    '__Pool_Capsule_Yellow_13', '__Pool_Cylinder_White_14', '__Pool_Cube_Blue_15',
-  ];
-  var _usedPools = {};
   (schema.entities || []).forEach(function(e) {
     Object.keys(e).forEach(function(k) { if (!ALLOWED_ENTITY_KEYS[k]) delete e[k]; });
     if (!e.chineseName || typeof e.chineseName !== 'string' || e.chineseName.length === 0) {
-      e.chineseName = _bpLabelByName[e.name] || e.name || 'entity';
+      e.chineseName = bpLabelByName[e.name] || e.name || 'entity';
     }
-    var _commonZh = { Gold: '金币', Coin: '金币', Gem: '宝石', Currency: '货币', Score: '分数', Energy: '能量', Health: '生命' };
-    if (_commonZh[e.chineseName]) e.chineseName = _commonZh[e.chineseName];
-    if (typeof e.scale === 'number') {
-      if (!isFinite(e.scale) || e.scale <= 0) e.scale = 0.5;
-      else if (e.scale > 0.7) e.scale = 0.7;
-      else if (e.scale < 0.3) e.scale = 0.3;
+    if (typeof e.showLabel !== 'boolean') {
+      e.showLabel = inferEntityShowLabel(e.name);
+    }
+    if (!Array.isArray(e.initPos) || e.initPos.length < 3) {
+      e.initPos = [0, 1, 0];
     } else {
-      e.scale = 0.5;
+      e.initPos = normalizeInitPos(e.initPos);
     }
-    if (e.pool && !/\d{2}$/.test(e.pool)) {
-      e.pool = e.pool.replace(/_(\d)$/, '_0$1');
+    e.scale = parseBlueprintScale(e.scale);
+    if (!/^__Pool_[A-Z][a-z]+_[A-Z][a-z]+_\d{2}$/.test(String(e.pool || ''))) {
+      e.pool = '__Pool_Cube_White_01';
     }
-    if (e.pool && !(/^__Pool_[A-Z][a-z]+_[A-Z][a-z]+_\d{2}$/.test(e.pool))) {
-      e.pool = null;
-    }
-    if (e.pool && !_usedPools[e.pool]) {
-      _usedPools[e.pool] = true;
-    } else if (e.pool) {
-      e.pool = null;
-    }
-  });
-  var _fallbackIdx = 0;
-  (schema.entities || []).forEach(function(e) {
-    if (e.pool) return;
-    for (; _fallbackIdx < _FALLBACK_POOLS.length; _fallbackIdx++) {
-      if (!_usedPools[_FALLBACK_POOLS[_fallbackIdx]]) {
-        e.pool = _FALLBACK_POOLS[_fallbackIdx];
-        _usedPools[e.pool] = true;
-        _fallbackIdx++;
-        return;
-      }
-    }
-    e.pool = '__Pool_Cube_White_' + String(_fallbackIdx + 16).slice(-2);
-    _usedPools[e.pool] = true;
-    _fallbackIdx++;
   });
 
+  if (!Array.isArray(schema.resources)) schema.resources = [];
   (schema.resources || []).forEach(function(r) {
     if (!r.entity) r.entity = (schema.entities && schema.entities[0]) ? schema.entities[0].name : 'Unknown';
     if (r.convertRatio == null) r.convertRatio = 1;
@@ -1797,62 +1414,34 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
     });
   });
 
-  (schema.phases || []).forEach(function(p, _phaseIdx) {
-    if (!p || typeof p !== 'object') return;
-    Object.keys(p).forEach(function(k) { if (!ALLOWED_PHASE_KEYS[k]) delete p[k]; });
-
-    if (!p.guideText || typeof p.guideText !== 'string' || p.guideText.trim().length === 0) {
-      var _gt = (p.phaseId && _bpGuideByPhase[p.phaseId]) || p.phaseId || ('Phase ' + (_phaseIdx + 1));
-      p.guideText = String(_gt).trim();
+  function normalizePhaseAction(action) {
+    if (!action || typeof action !== 'object') return null;
+    if (!action.action && action.type) { action.action = action.type; delete action.type; }
+    if (action.action && ALLOWED_ACTIONS.indexOf(action.action) === -1) {
+      action.action = 'set_entity_state';
     }
-
-    (p.onEnter || []).forEach(function(a) {
-      if (!a.action && a.type) { a.action = a.type; delete a.type; }
-      if (a.action && ALLOWED_ACTIONS.indexOf(a.action) === -1) {
-        a.action = 'set_entity_state';
+    if (action.action === 'switch_form' && action.formIndex == null) action.formIndex = 0;
+    if (action.action === 'set_entity_state') {
+      if (!action.entity) action.entity = 'Unknown';
+      if (action.state == null) action.state = 1;
+    }
+    if (action.action === 'add_resource') {
+      if (!action.resource) action.resource = 'default';
+      if (action.amount == null) action.amount = 1;
+    }
+    if (action.action === 'spawn_enemies') {
+      if (!action.entity || /^Enemy$/i.test(String(action.entity)) || /^Unknown$/i.test(String(action.entity))) {
+        action.entity = defaultEnemyEntity || 'Enemy';
       }
-      if (a.action === 'switch_form' && a.formIndex == null) a.formIndex = 0;
-      if (a.action === 'set_entity_state') {
-        if (!a.entity) a.entity = 'Unknown';
-        if (a.state == null) a.state = 1;
-      }
-      if (a.action === 'add_resource') {
-        if (!a.resource) a.resource = 'default';
-        if (a.amount == null) a.amount = 1;
-      }
-      if (a.action === 'spawn_enemies') {
-        if (!a.entity || /^Enemy$/i.test(String(a.entity)) || /^Unknown$/i.test(String(a.entity))) {
-          a.entity = _defaultEnemyEntity || 'Enemy';
-        }
-        if (a.count == null) a.count = 1;
-      }
-      Object.keys(a).forEach(function(k) { if (!ALLOWED_ACTION_KEYS[k]) delete a[k]; });
-    });
-    p.onEnter = (p.onEnter || []).filter(function(a) {
-      if (!a || !a.action) return false;
-      if (a.action === 'set_entity_state' && (!a.entity || /^Enemy$/i.test(String(a.entity)) || /^Unknown$/i.test(String(a.entity)))) return false;
-      if (a.action === 'add_resource' && (!a.resource || /^default$/i.test(String(a.resource)))) return false;
-      if (a.action === 'show_floating_text' && (a.text == null || String(a.text) === 'undefined')) return false;
-      return true;
-    });
-    (p.onComplete || []).forEach(function(a) {
-      if (!a.action && a.type) { a.action = a.type; delete a.type; }
-      if (a.action === 'spawn_enemies') {
-        if (!a.entity || /^Enemy$/i.test(String(a.entity)) || /^Unknown$/i.test(String(a.entity))) {
-          a.entity = _defaultEnemyEntity || 'Enemy';
-        }
-        if (a.count == null) a.count = 1;
-      }
-      Object.keys(a).forEach(function(k) { if (!ALLOWED_ACTION_KEYS[k]) delete a[k]; });
-    });
-    p.onComplete = (p.onComplete || []).filter(function(a) {
-      if (!a || !a.action) return false;
-      if (a.action === 'set_entity_state' && (!a.entity || /^Enemy$/i.test(String(a.entity)) || /^Unknown$/i.test(String(a.entity)))) return false;
-      if (a.action === 'add_resource' && (!a.resource || /^default$/i.test(String(a.resource)))) return false;
-      if (a.action === 'show_floating_text' && (a.text == null || String(a.text) === 'undefined')) return false;
-      return true;
-    });
-  });
+      if (action.count == null) action.count = 1;
+    }
+    Object.keys(action).forEach(function(k) { if (!ALLOWED_ACTION_KEYS[k]) delete action[k]; });
+    if (!action.action) return null;
+    if (action.action === 'set_entity_state' && (!action.entity || /^Enemy$/i.test(String(action.entity)) || /^Unknown$/i.test(String(action.entity)))) return null;
+    if (action.action === 'add_resource' && (!action.resource || /^default$/i.test(String(action.resource)))) return null;
+    if (action.action === 'show_floating_text' && (action.text == null || String(action.text) === 'undefined')) return null;
+    return action;
+  }
 
   function inferTriggerType(t, phaseIdx, phaseCount) {
     if (!t || typeof t !== 'object') return null;
@@ -1869,6 +1458,7 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
     if (t.entity != null) return phaseIdx === (phaseCount - 1) ? 'click_entity' : 'near_entity';
     return 'all_built';
   }
+
   function wrapStandaloneTimerTrigger(t) {
     if (!t || typeof t !== 'object' || t.type !== 'timer') return false;
     var seconds = Number(t.seconds);
@@ -1888,6 +1478,7 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
     delete t.seconds;
     return true;
   }
+
   function normalizeTrigger(t, phaseIdx, phaseCount, insideCompound) {
     if (!t || typeof t !== 'object') return;
     if (!t.type || typeof t.type !== 'string') {
@@ -1905,7 +1496,7 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
     if (t.range != null && typeof t.range !== 'number') t.range = parseFloat(t.range) || 2;
     if (t.seconds != null && typeof t.seconds !== 'number') t.seconds = parseFloat(t.seconds) || 1;
     if (t.type === 'cta_arrival') {
-      t.ctaId = t.ctaId || t.entity || t.target || 'CtaButton';
+      t.ctaId = t.ctaId || t.entity || t.target || pickCtaEntityName() || 'CtaButton';
       delete t.entity;
       delete t.target;
     }
@@ -1930,13 +1521,22 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
       }
     });
   }
-  (schema.phases || []).forEach(function(p, idx, arr) { normalizeTrigger(p.trigger, idx, arr.length, false); });
+
+  (schema.phases || []).forEach(function(p, phaseIdx, allPhases) {
+    if (!p || typeof p !== 'object') return;
+    Object.keys(p).forEach(function(k) { if (!ALLOWED_PHASE_KEYS[k]) delete p[k]; });
+    if (!p.guideText || typeof p.guideText !== 'string' || p.guideText.trim().length === 0) {
+      p.guideText = (p.phaseId && bpGuideByPhase[p.phaseId]) || p.phaseId || ('Phase ' + (phaseIdx + 1));
+    }
+    normalizeTrigger(p.trigger, phaseIdx, allPhases.length, false);
+    p.onEnter = (p.onEnter || []).map(normalizePhaseAction).filter(Boolean);
+    p.onComplete = (p.onComplete || []).map(normalizePhaseAction).filter(Boolean);
+  });
 
   if (Array.isArray(schema.phases) && Array.isArray(blueprintSpecs) && schema.phases.length < blueprintSpecs.length) {
     var padStart = schema.phases.length;
     var totalSpecs = blueprintSpecs.length;
     var schemaEntList = schema.entities || [];
-    schema.__paddedPhases = { from: padStart, to: totalSpecs - 1, count: totalSpecs - padStart };
     for (var pi = padStart; pi < totalSpecs; pi++) {
       var spec = blueprintSpecs[pi];
       if (!spec) continue;
@@ -1955,29 +1555,35 @@ function _repairSchema(schema, blueprintEntities, blueprintSpecs) {
       if (!derivedTrigger) {
         var fallbackEnt = pickPhaseFallbackEntity(null, pi, totalSpecs);
         if (pi === totalSpecs - 1) {
-          derivedTrigger = { type: 'cta_arrival', ctaId: 'CtaButton', range: 2 };
+          derivedTrigger = { type: 'click_entity', entity: pickCtaEntityName() || 'CTAButton' };
         } else {
           derivedTrigger = { type: 'near_entity', entity: fallbackEnt || 'Player', range: 2 };
         }
       }
-      var paddedPhase = {
+      schema.phases.push({
         phaseId: spec.phaseId || ('phase_' + (pi + 1)),
         showEntities: showEntsArr,
         hideEntities: [],
-        guideText: _bpGuideByPhase[spec.phaseId] || spec.shortDescription || spec.title || ('阶段 ' + (pi + 1)),
+        guideText: bpGuideByPhase[spec.phaseId] || spec.shortDescription || spec.title || ('Phase ' + (pi + 1)),
         trigger: derivedTrigger,
         onEnter: [],
-      };
-      schema.phases.push(paddedPhase);
+      });
     }
+    schema.phases.forEach(function(p, idx, arr) { normalizeTrigger(p && p.trigger, idx, arr.length, false); });
+  }
+
+  if (schema.phases && schema.phases.length > 0) {
     var lastIdx = schema.phases.length - 1;
-    var lastTrig = schema.phases[lastIdx] && schema.phases[lastIdx].trigger;
-    if (lastTrig && lastTrig.type !== 'cta_arrival' && lastTrig.type !== 'click_entity' && lastTrig.type !== 'near_entity' && lastTrig.type !== 'compound') {
-      var cta = pickCtaEntityName() || (lastTrig.ctaId || lastTrig.entity || 'CtaButton');
-      schema.phases[lastIdx].trigger = {
+    var lastPhase = schema.phases[lastIdx];
+    if (lastPhase && !isFinalCtaTrigger(lastPhase.trigger)) {
+      var cta = pickCtaEntityName() || 'CTAButton';
+      lastPhase.trigger = {
         type: 'compound',
         operator: 'and',
-        triggers: [lastTrig, { type: 'cta_arrival', ctaId: cta, range: 2 }],
+        triggers: [
+          lastPhase.trigger || { type: 'near_entity', entity: cta, range: 2 },
+          { type: 'near_entity', entity: cta, range: 2 },
+        ],
       };
     }
   }
@@ -1991,53 +1597,82 @@ function _repairSchemaValidationErrors(schema, errors, ctx) {
   if (!schema || !Array.isArray(errors) || errors.length === 0) return 0;
   var repaired = 0;
   var entities = Array.isArray(schema.entities) ? schema.entities : [];
-  var entityNames = {};
-  for (var ei = 0; ei < entities.length; ei++) {
-    if (entities[ei] && entities[ei].name) entityNames[entities[ei].name] = true;
+  var entityByName = {};
+  for (var e = 0; e < entities.length; e++) {
+    if (entities[e] && entities[e].name) entityByName[String(entities[e].name)] = entities[e];
+  }
+  var blueprintEntityByName = {};
+  var blueprintEntities = ctx && ctx.blueprint && Array.isArray(ctx.blueprint.entities) ? ctx.blueprint.entities : [];
+  for (var be = 0; be < blueprintEntities.length; be++) {
+    if (blueprintEntities[be] && blueprintEntities[be].name) blueprintEntityByName[String(blueprintEntities[be].name)] = blueprintEntities[be];
+  }
+  if (!Array.isArray(schema.resources)) schema.resources = [];
+  var resourceByName = {};
+  for (var r = 0; r < schema.resources.length; r++) {
+    if (schema.resources[r] && schema.resources[r].name) resourceByName[String(schema.resources[r].name)] = schema.resources[r];
   }
 
   function logFix(msg) {
     if (ctx && ctx.addLog) ctx.addLog('codegen-schema', 'repair: ' + msg);
   }
 
-  function pickCtaEntityNameForRepair() {
-    for (var ce = 0; ce < entities.length; ce++) {
-      var name = String(entities[ce] && entities[ce].name || '').trim();
-      if (/CTA|Button/i.test(name)) return name;
-    }
-    return entityNames.CtaButton ? 'CtaButton' : 'CTAButton';
-  }
-
-  function clampEntityScale(idx) {
-    if (!entities[idx]) return false;
-    var cur = Number(entities[idx].scale);
-    if (!isFinite(cur) || cur < 0.3) {
-      entities[idx].scale = 0.3;
-      return true;
-    }
-    return false;
-  }
-
-  function ensureEntityField(idx, field, value) {
-    if (!entities[idx]) return false;
-    if (entities[idx][field] == null || entities[idx][field] === '') {
-      entities[idx][field] = value;
-      return true;
-    }
-    return false;
-  }
-
-  function stripPhaseExtraProperties(idx) {
-    var phase = schema.phases && schema.phases[idx];
-    if (!phase || typeof phase !== 'object') return false;
-    var changed = false;
-    Object.keys(phase).forEach(function(k) {
-      if (!ALLOWED_PHASE_KEYS[k]) {
-        delete phase[k];
-        changed = true;
+  function rewriteResourceTrigger(trigger, fromName, toName) {
+    if (!trigger || typeof trigger !== 'object') return;
+    if (trigger.type === 'compound' && Array.isArray(trigger.triggers)) {
+      for (var t = 0; t < trigger.triggers.length; t++) {
+        rewriteResourceTrigger(trigger.triggers[t], fromName, toName);
       }
-    });
-    return changed;
+      return;
+    }
+    if (trigger.type === 'resource_collected') {
+      var resource = String(trigger.resource || '');
+      if (resource === fromName || resource.trim() === toName) {
+        trigger.resource = toName;
+      }
+    }
+  }
+
+  function isValidPoolName(pool) {
+    return /^__Pool_[A-Z][a-z]+_[A-Z][a-z]+_\d{2}$/.test(String(pool || ''));
+  }
+
+  function ensureSchemaEntityFromBlueprint(name) {
+    if (entityByName[name]) return entityByName[name];
+    var source = blueprintEntityByName[name];
+    if (!source) return null;
+    var visual = source.visual || {};
+    var pool = source.pool || source.poolName || source.template || '';
+    if (!isValidPoolName(pool)) pool = '__Pool_Cube_White_01';
+    var entity = {
+      name: name,
+      chineseName: source.chineseName || source.label || name,
+      showLabel: inferEntityShowLabel(name),
+      pool: pool,
+      initPos: parseBlueprintInitPos(visual.position || source.initPos),
+      scale: parseBlueprintScale(visual.scale || source.scale),
+    };
+    schema.entities.push(entity);
+    entities = schema.entities;
+    entityByName[name] = entity;
+    return entity;
+  }
+
+  function ensureFallbackSchemaEntity(name) {
+    if (entityByName[name]) return entityByName[name];
+    var fromBlueprint = ensureSchemaEntityFromBlueprint(name);
+    if (fromBlueprint) return fromBlueprint;
+    var entity = {
+      name: name,
+      chineseName: name,
+      showLabel: inferEntityShowLabel(name),
+      pool: '__Pool_Cube_White_01',
+      initPos: [0, 1, 0],
+      scale: 0.5,
+    };
+    schema.entities.push(entity);
+    entities = schema.entities;
+    entityByName[name] = entity;
+    return entity;
   }
 
   for (var i = 0; i < errors.length; i++) {
@@ -2045,109 +1680,119 @@ function _repairSchemaValidationErrors(schema, errors, ctx) {
     var m;
 
     m = err.match(/^\.entities\[(\d+)\]\.scale should be >= 0\.3$/);
-    if (m && clampEntityScale(parseInt(m[1], 10))) {
+    if (m && entities[parseInt(m[1], 10)]) {
+      entities[parseInt(m[1], 10)].scale = 0.3;
       repaired++;
       logFix('clamped entities[' + m[1] + '].scale to 0.3');
       continue;
     }
 
-    m = err.match(/^\.entities\[(\d+)\]\.scale should be number$/);
-    if (m && clampEntityScale(parseInt(m[1], 10))) {
-      repaired++;
-      logFix('normalized entities[' + m[1] + '].scale to numeric default 0.3');
-      continue;
-    }
-
-    m = err.match(/^\.entities\[(\d+)\] should have required property '([^']+)'$/);
+    m = err.match(/^Phase (.+?) trigger resource_collected references non-existent resource: (.+)$/);
     if (m) {
-      var entityIdx = parseInt(m[1], 10);
-      var field = m[2];
-      var fixed = false;
-      if (field === 'chineseName') fixed = ensureEntityField(entityIdx, field, (entities[entityIdx] && entities[entityIdx].name) || 'entity');
-      else if (field === 'showLabel') fixed = ensureEntityField(entityIdx, field, true);
-      else if (field === 'scale') fixed = ensureEntityField(entityIdx, field, 1.0);
-      else if (field === 'initPos') fixed = ensureEntityField(entityIdx, field, [0, 1, 0]);
-      else if (field === 'pool') fixed = ensureEntityField(entityIdx, field, '__Pool_Cube_White_01');
-      if (fixed) {
+      var phaseId = m[1];
+      var rawName = String(m[2] || '');
+      var resourceName = rawName.trim();
+      if (resourceName) {
+        if (!entityByName[resourceName]) {
+          var beforeEntity = !!blueprintEntityByName[resourceName];
+          ensureFallbackSchemaEntity(resourceName);
+          logFix('added missing schema entity ' + resourceName + (beforeEntity ? ' from blueprint' : ' as fallback') + ' for resource trigger');
+        }
+        for (var p = 0; p < (schema.phases || []).length; p++) {
+          rewriteResourceTrigger(schema.phases[p] && schema.phases[p].trigger, rawName, resourceName);
+        }
+        if (!resourceByName[resourceName]) {
+          schema.resources.push({
+            name: resourceName,
+            entity: resourceName,
+            convertRatio: 1,
+          });
+          resourceByName[resourceName] = schema.resources[schema.resources.length - 1];
+        }
         repaired++;
-        logFix('filled missing entities[' + entityIdx + '].' + field);
+        logFix('added resource ' + resourceName + ' bound to entity ' + resourceName + ' for phase ' + phaseId);
         continue;
       }
-    }
-
-    m = err.match(/^\.phases\[(\d+)\] should NOT have additional properties$/);
-    if (m && stripPhaseExtraProperties(parseInt(m[1], 10))) {
-      repaired++;
-      logFix('stripped additional properties from phases[' + m[1] + ']');
-      continue;
-    }
-
-    m = err.match(/^Phase ([^ ]+) showEntities references non-existent entity: (.+)$/);
-    if (m) {
-      var phaseIdA = m[1];
-      var badShow = m[2];
-      var phaseA = (schema.phases || []).find(function(p) { return p && p.phaseId === phaseIdA; });
-      if (phaseA && Array.isArray(phaseA.showEntities)) {
-        var nextShow = phaseA.showEntities.filter(function(name) { return entityNames[name]; });
-        if (nextShow.length !== phaseA.showEntities.length) {
-          phaseA.showEntities = nextShow;
-          repaired++;
-          logFix('removed invalid showEntities reference "' + badShow + '" from phase ' + phaseIdA);
-          continue;
-        }
-      }
-    }
-
-    m = err.match(/^Phase ([^ ]+) hideEntities references non-existent entity: (.+)$/);
-    if (m) {
-      var phaseIdB = m[1];
-      var badHide = m[2];
-      var phaseB = (schema.phases || []).find(function(p) { return p && p.phaseId === phaseIdB; });
-      if (phaseB && Array.isArray(phaseB.hideEntities)) {
-        var nextHide = phaseB.hideEntities.filter(function(name) { return entityNames[name]; });
-        if (nextHide.length !== phaseB.hideEntities.length) {
-          phaseB.hideEntities = nextHide;
-          repaired++;
-          logFix('removed invalid hideEntities reference "' + badHide + '" from phase ' + phaseIdB);
-          continue;
-        }
-      }
-    }
-
-    if (/^Last phase trigger must include (?:cta_arrival|click_entity|CtaButton)/.test(err)) {
-      var lastPhase = schema.phases && schema.phases[schema.phases.length - 1];
-      if (lastPhase) {
-        var ctaEntity = pickCtaEntityNameForRepair();
-        lastPhase.trigger = {
-          type: 'compound',
-          operator: 'and',
-          triggers: [
-            lastPhase.trigger || { type: 'cta_arrival', ctaId: ctaEntity, range: 2 },
-            { type: 'cta_arrival', ctaId: ctaEntity, range: 2 },
-          ],
-        };
-        repaired++;
-        logFix('wrapped last phase trigger with CtaButton cta_arrival gate');
-        continue;
-      }
-    }
-  }
-
-  if (schema.phases && schema.phases.length > 0) {
-    var firstPhase = schema.phases[0];
-    if (firstPhase && Array.isArray(firstPhase.showEntities) && firstPhase.showEntities.length < 3) {
-      var seen = {};
-      for (var se = 0; se < firstPhase.showEntities.length; se++) seen[firstPhase.showEntities[se]] = true;
-      for (var ae = 0; ae < entities.length && firstPhase.showEntities.length < 3; ae++) {
-        if (entities[ae] && entities[ae].name && !seen[entities[ae].name]) {
-          firstPhase.showEntities.push(entities[ae].name);
-          seen[entities[ae].name] = true;
-          repaired++;
-        }
-      }
-      if (firstPhase.showEntities.length >= 3) logFix('expanded first phase showEntities to satisfy >=3 visibility rule');
     }
   }
 
   return repaired;
+}
+
+function suppressCustomLogicWhenAssemblyCovered(ctx, schema) {
+  var items = schema && Array.isArray(schema.customLogic) ? schema.customLogic.slice() : [];
+  if (items.length === 0) {
+    if (ctx && ctx.blueprint) {
+      ctx.blueprint.customLogicRoute = 'none';
+      ctx.blueprint.customLogicRouteReason = 'schema_empty';
+    }
+    return {
+      suppressedCount: 0,
+      implementationCoverage: 1,
+      route: 'none',
+    };
+  }
+
+  var blueprint = ctx && ctx.blueprint ? ctx.blueprint : {};
+  var plans = blueprint.plans;
+  var assemblyPlan = plans && plans.assemblyPlan;
+  if (!assemblyPlan) {
+    blueprint.customLogicRoute = 'runner_no_assembly_plan';
+    blueprint.customLogicRouteReason = 'assemblyPlan missing';
+    return {
+      suppressedCount: 0,
+      implementationCoverage: 0,
+      route: blueprint.customLogicRoute,
+    };
+  }
+
+  var implementation = assemblyEmitter.computeImplementationCoverage(plans);
+  var unresolvedCount = Array.isArray(assemblyPlan.unresolved)
+    ? assemblyPlan.unresolved.length
+    : (blueprint.assemblyUnresolvedCount || 0);
+  var assemblyCoverage = Number(blueprint.assemblyCoverage);
+  if (!isFinite(assemblyCoverage)) assemblyCoverage = 1;
+
+  blueprint.assemblyImplementationCoverage = implementation.coverage;
+  blueprint.assemblyImplementationMissingCount = implementation.missing.length;
+  blueprint.assemblyImplementationMissingModuleIds = implementation.missingModuleIds;
+  blueprint.assemblyImplementationTotal = implementation.total;
+  blueprint.assemblyImplementationImplemented = implementation.implemented;
+
+  var fullyCovered = implementation.total > 0 &&
+    implementation.missing.length === 0 &&
+    implementation.coverage >= 0.999 &&
+    unresolvedCount === 0 &&
+    assemblyCoverage >= 0.999 &&
+    blueprint.assemblyDecision === 'assembly_ready';
+
+  if (!fullyCovered) {
+    var reason = [];
+    if (implementation.total <= 0) reason.push('no implementation slots');
+    if (implementation.missing.length > 0) reason.push('missing implementation: ' + implementation.missingModuleIds.join(','));
+    if (implementation.coverage < 0.999) reason.push('implementation coverage ' + implementation.coverage.toFixed(3));
+    if (unresolvedCount !== 0) reason.push('unresolved ' + unresolvedCount);
+    if (assemblyCoverage < 0.999) reason.push('assembly coverage ' + assemblyCoverage.toFixed(3));
+    if (blueprint.assemblyDecision !== 'assembly_ready') reason.push('decision ' + (blueprint.assemblyDecision || 'n/a'));
+    blueprint.customLogicRoute = unresolvedCount > 0
+      ? 'runner_unresolved'
+      : (implementation.missing.length > 0 ? 'runner_implementation_gap' : 'runner_coverage_gap');
+    blueprint.customLogicRouteReason = reason.join('; ');
+    return {
+      suppressedCount: 0,
+      implementationCoverage: implementation.coverage,
+      route: blueprint.customLogicRoute,
+    };
+  }
+
+  schema.customLogic = [];
+  blueprint.customLogicSuppressedCount = (blueprint.customLogicSuppressedCount || 0) + items.length;
+  blueprint.customLogicSuppressedItems = (blueprint.customLogicSuppressedItems || []).concat(items);
+  blueprint.customLogicRoute = 'deterministic_suppressed';
+  blueprint.customLogicRouteReason = 'full assembly implementation coverage';
+  return {
+    suppressedCount: items.length,
+    implementationCoverage: implementation.coverage,
+    route: blueprint.customLogicRoute,
+  };
 }

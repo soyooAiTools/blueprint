@@ -91,7 +91,7 @@ function buildUnityFidelityAssetPack(contract, options) {
     kind: ASSET_INDEX_KIND,
     generatedAt,
     writer: {
-      name: 'demo2spec.fidelityUnityWriter',
+      name: 'blueprint.sourceIr.fidelityUnityWriter',
       mode: 'fidelity-asset-pack-v1',
     },
     contractRoots: {
@@ -215,7 +215,7 @@ function buildUnityWriterManifest(contract, options) {
     kind: MANIFEST_KIND,
     generatedAt: options.generatedAt || new Date().toISOString(),
     writer: {
-      name: 'demo2spec.fidelityUnityWriter',
+      name: 'blueprint.sourceIr.fidelityUnityWriter',
       mode: 'fidelity-asset-pack-v1',
       note: 'Audit-gated writer emits per-root fidelity assets and readback rebuilds the contract from those assets before diffing.',
     },

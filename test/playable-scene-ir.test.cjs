@@ -16,7 +16,7 @@ var {
 } = require('../engine/playable-scene-ir.cjs');
 var {
   injectPlayableSceneIr,
-} = require('../adapters/demo2spec/visual-overlay.js');
+} = require('../adapters/source-ir/visual-overlay.js');
 
 var tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'playable-scene-ir-'));
 var htmlPath = path.join(tmp, 'source.html');

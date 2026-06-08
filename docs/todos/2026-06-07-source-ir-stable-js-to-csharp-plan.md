@@ -1,4 +1,4 @@
-# SourceSceneIR 稳定化方案：替代 storyboard2html -> demo2spec 的 JS 语义反推
+# SourceSceneIR 稳定化方案：替代 storyboard2html -> source-ir 的 JS 语义反推
 
 日期：2026-06-07
 
@@ -8,7 +8,7 @@
 
 ```text
 LLM 生成 HTML/JS
-  -> demo2spec 从 JS / PHASES / 函数体 / side effects 反推 gameSchema
+  -> source-ir 从 JS / PHASES / 函数体 / side effects 反推 gameSchema
   -> Blueprint codegen
   -> C# / Luna WebGL / Unity export
 ```
@@ -23,13 +23,13 @@ storyboard / blueprint specs
   -> Blueprint codegen / Luna WebGL / Unity export
 ```
 
-也就是说：**主路径去掉 demo2spec 的 JS 语义推断；demo2spec wrapper 只保留给旧调用方作为 SourceIR-only bridge，缺 SourceIR 时直接失败，不静默回退旧 JS 推断。**
+也就是说：**主路径去掉 source-ir 的 JS 语义推断；source-ir wrapper 只保留给旧调用方作为 SourceIR-only bridge，缺 SourceIR 时直接失败，不静默回退旧 JS 推断。**
 
 ## 2026-06-08 收口状态
 
 - `storyboard2html` prompt / contract 已切到 SourceSceneIR 主事实；新 HTML 必须声明 `window.__BP_SOURCE_IR__`，并由 SourceIR preview renderer 派生视觉、UI、模型和 phase driver。
 - `scripts/source-ir-build.cjs` 是当前新主路径入口，输出 `source-ir.json`、`source-visual-ir.json`、`gameschema.json`、`visual-runtime-contract.json`、`playable-scene-ir.json`、`semantic-source.json`，并保证 `legacyJsInferenceUsed=false`。
-- `adapters/demo2spec/index.js` 已变成 SourceIR-only 兼容入口；缺 `window.__BP_SOURCE_IR__` 时 hard fail，不再回落到 legacy JS 语义推断。旧素材不作为本轮兼容目标。
+- `adapters/source-ir/index.js` 已变成 SourceIR-only 兼容入口；缺 `window.__BP_SOURCE_IR__` 时 hard fail，不再回落到 legacy JS 语义推断。旧素材不作为本轮兼容目标。
 - CTA/安装按钮是 HUD 控件，不是 gameplay entity：IR、visual IR、GameSchema、visual-runtime-contract、playable-scene-ir、C# 均使用 `ctaId` / `cta_arrival`，不得把 `CtaButton` 写入 `entities[]`、`showEntities`、`targetSequence` 或 `move_to:CtaButton`。
 - `卖水` 已用 SourceIR preview HTML + SourceIR build 输出验证：phase liveness 通过，WebGL build 通过，HTML/WebGL phase8 无 CTA 目标残留；产物路径记录在 `docs/_archived/2026-06-08-source-ir-cta-hud-only-closeout.md`。
 
@@ -42,7 +42,7 @@ storyboard / blueprint specs
 
 ## 非目标
 
-- 不要求第一阶段删除 `adapters/demo2spec/`。
+- 不要求第一阶段删除 `adapters/source-ir/`。
 - 不要求放弃 HTML playable；HTML 仍然是人工/视觉 review 的效果稿。
 - 不做通用 JavaScript -> C# transpiler。
 - 不把 `storyboard2html-generate.cjs` 变成长链路构建器；长链路应由新的 accept/build 脚本编排。
@@ -51,14 +51,14 @@ storyboard / blueprint specs
 
 ### 已有保障
 
-- `storyboard2html-smoke.cjs` 已能把 generated HTML 接入 `demo2spec -> Blueprint smoke -> CUA -> hardgate`。
-- `demo2spec/extract.js` 已能生成 `asset-manifest.json`、`playable-scene-ir.json`，并写入 `sourceHtmlPath` / `sourceHtmlSha256` / `playableSceneIrHash`。
-- 主 worker pipeline 有 `source-html-bind` 作为第一阶段；storyboard2html/demo2spec flow 下缺 source HTML 或缺 sha256 会 hard fail。
+- `storyboard2html-smoke.cjs` 已能把 generated HTML 接入 `source-ir -> Blueprint smoke -> CUA -> hardgate`。
+- `source-ir/extract.js` 已能生成 `asset-manifest.json`、`playable-scene-ir.json`，并写入 `sourceHtmlPath` / `sourceHtmlSha256` / `playableSceneIrHash`。
+- 主 worker pipeline 有 `source-html-bind` 作为第一阶段；storyboard2html/source-ir flow 下缺 source HTML 或缺 sha256 会 hard fail。
 - `fidelity-source-diff` 和 `storyboard-webgl-visual-diff` 已经可以比较 source HTML 和 WebGL 产物。
 
 ### 主要不稳定来源
 
-1. `demo2spec` 仍会从 JS 函数、side effects、factory patterns 里推断玩法。
+1. `source-ir` 仍会从 JS 函数、side effects、factory patterns 里推断玩法。
 2. HTML prompt 约束的是 `PHASES`、`ENTITY_STYLE`、`SCENE_CONFIG` 等多个分散合同，不是一个单一 canonical IR。
 3. `gameSchema`、`visualAssets`、`playableSceneIr` 之间有重复信息，容易出现 drift。
 4. `storyboard2html-generate` 只写 HTML；后续 smoke/build/export 是独立动作，容易漏跑。
@@ -350,14 +350,14 @@ blueprint-plans.json
 blueprint-proof-bundle.json
 ```
 
-### 5. demo2spec 主路径改造成 IR bridge
+### 5. source-ir 主路径改造成 IR bridge
 
 改造：
 
 ```text
-adapters/demo2spec/index.js
-adapters/demo2spec/extract.js
-adapters/demo2spec/blueprint-project.js
+adapters/source-ir/index.js
+adapters/source-ir/extract.js
+adapters/source-ir/blueprint-project.js
 ```
 
 新逻辑：
@@ -407,7 +407,7 @@ node scripts/storyboard2html-accept.cjs <blueprint.json|input-bundle.json> <outd
 ```text
 1. storyboard2html-generate -> out/source.html
 2. source-scene-ir-preflight -> out/source-ir-report.json
-3. source-ir/demo2spec bridge -> out/spec.json + gameschema.json + asset-manifest.json + playable-scene-ir.json
+3. source-ir/source-ir bridge -> out/spec.json + gameschema.json + asset-manifest.json + playable-scene-ir.json
 4. Blueprint smoke -> out/blueprint-smoke/index.html
 5. storyboad2html hardgate -> CUA / runtime evidence
 6. storyboard-webgl-visual-diff -> source-vs-webgl phase screenshots
@@ -522,16 +522,16 @@ node test/source-ir-compiler.test.cjs
 node adapters/source-ir/index.js <source.html|source-ir.json> <outdir>
 ```
 
-### Phase 4：demo2spec 主路径切换
+### Phase 4：source-ir 主路径切换
 
-`adapters/demo2spec/index.js` 检测到 `__BP_SOURCE_IR__` 时走 source-ir compiler；否则 hard fail。新主入口优先用 `scripts/source-ir-build.cjs`，demo2spec wrapper 只保留给旧调用方。
+`adapters/source-ir/index.js` 检测到 `__BP_SOURCE_IR__` 时走 source-ir compiler；否则 hard fail。新主入口优先用 `scripts/source-ir-build.cjs`，source-ir wrapper 只保留给旧调用方。
 
 验收：
 
 ```bash
-node test/demo2spec-playable-scene-ir-contract.test.cjs
+node test/source-ir-playable-scene-ir-contract.test.cjs
 node test/visual-assets-build-gate.test.cjs
-node adapters/demo2spec/index.js <source-ir-html> <outdir> --blueprint-smoke --verify --verify-runner production --visual-diff
+node adapters/source-ir/index.js <source-ir-html> <outdir> --blueprint-smoke --verify --verify-runner production --visual-diff
 ```
 
 ### Phase 5：accept 编排与 manifest
@@ -563,7 +563,7 @@ node scripts/storyboard2html-accept.cjs <blueprint.json> <outdir> --dry-run
 
 ## 推荐新 session 执行顺序
 
-第一轮不要直接大改 `demo2spec`，先做可逆层：
+第一轮不要直接大改 `source-ir`，先做可逆层：
 
 1. 新增 `contracts/source-scene-ir.v1.json`。
 2. 新增 `engine/source-scene-ir.cjs`。
@@ -576,7 +576,7 @@ node scripts/storyboard2html-accept.cjs <blueprint.json> <outdir> --dry-run
 
 1. 新增 `adapters/source-ir/compile-to-gameschema.js`。
 2. 新增 `adapters/source-ir/index.js`。
-3. `demo2spec/index.js` 加 SourceIR-only bridge。
+3. `source-ir/index.js` 加 SourceIR-only bridge。
 4. 缺 SourceIR 时 hard fail，不静默回退旧 JS 推断。
 
 第三轮做 accept + freshness：
@@ -600,7 +600,7 @@ node scripts/storyboard2html-accept.cjs <blueprint.json> <outdir> --dry-run
 
 控制：
 
-- 当前按“旧素材不管了”处理，`demo2spec` wrapper 缺 SourceIR 时 hard fail。
+- 当前按“旧素材不管了”处理，`source-ir` wrapper 缺 SourceIR 时 hard fail。
 - 输出里显式标记 `legacyJsInferenceUsed=false` 或 `semanticSource=source-scene-ir-required`。
 - 如果要恢复 legacy，必须新增显式 opt-in 开关、单独报告，并禁止影响新 storyboard2html SourceIR flow。
 
@@ -648,6 +648,6 @@ acceptance manifest complete
 ```text
 请按 /opt/blueprint-editor/docs/todos/2026-06-07-source-ir-stable-js-to-csharp-plan.md 执行 Phase 1：
 新增 SourceSceneIR schema、validator、preflight 脚本和测试。
-不要删除 demo2spec legacy 路径，不要改完整 build 链路。
+不要删除 source-ir legacy 路径，不要改完整 build 链路。
 完成后跑 source-scene-ir、storyboard2html-contract、storyboard2html-prompt、luna-pipeline-composition 相关测试。
 ```

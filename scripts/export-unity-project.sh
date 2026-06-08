@@ -140,7 +140,7 @@ for f in "$SRC"/*.cs; do
   name=$(basename "$f")
   case "$name" in
     GameFlowManagerMain*.cs) continue ;;
-    Demo2SpecVisualAssetBaker.cs)
+    SourceIrVisualAssetBaker.cs)
       if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
         continue
       fi

@@ -812,7 +812,10 @@ const WEBGL_PAGE_EXTRACTOR = function(args) {
         cur.runtimeState ||
         cur.runtime_state ||
         cur.current ||
-        cur.data;
+        cur.snapshot ||
+        cur.payload ||
+        cur.data ||
+        cur.value;
       if (!next || next === cur) return cur;
       cur = next;
     }

@@ -13,18 +13,18 @@ var {
 var {
   writePlayableSceneIr,
 } = require('../../engine/playable-scene-ir.cjs');
-var visualAssets = require('../demo2spec/visual-assets.js');
+var visualAssets = require('./visual-assets.js');
 var {
   writeSnapshotSchema,
   buildCuaSpecs,
   buildCuaPlans,
   buildGameStateShim,
-} = require('../demo2spec/snapshot-schema.js');
+} = require('./snapshot-schema.js');
 var {
   buildUnityAssetPlan,
   writeUnityAssetPlan,
   writeUnityEditorBaker,
-} = require('../demo2spec/unity-asset-plan.js');
+} = require('./unity-asset-plan.js');
 var {
   compileToGameSchema,
 } = require('./compile-to-gameschema.js');
@@ -163,7 +163,7 @@ function buildSourceIrArtifacts(inputPath, outDir, options) {
   visualAssets.writeVisualRuntimeContract(path.join(absOut, 'visual-runtime-contract.json'), assetManifest.visualRuntimeContract);
   writePlayableSceneIr(path.join(absOut, 'playable-scene-ir.json'), playableSceneIr);
   writeUnityAssetPlan(path.join(absOut, 'unity-asset-plan.json'), unityAssetPlan);
-  writeUnityEditorBaker(path.join(absOut, 'Demo2SpecVisualAssetBaker.cs'), unityAssetPlan);
+  writeUnityEditorBaker(path.join(absOut, 'SourceIrVisualAssetBaker.cs'), unityAssetPlan);
   var blueprint = null;
   if (options.noBlueprint !== true) {
     blueprint = buildSourceIrBlueprintContext(sourceIr, {
@@ -205,7 +205,7 @@ function buildSourceIrArtifacts(inputPath, outDir, options) {
       visualRuntimeContract: path.join(absOut, 'visual-runtime-contract.json'),
       playableSceneIr: path.join(absOut, 'playable-scene-ir.json'),
       unityAssetPlan: path.join(absOut, 'unity-asset-plan.json'),
-      unityEditorBaker: path.join(absOut, 'Demo2SpecVisualAssetBaker.cs'),
+      unityEditorBaker: path.join(absOut, 'SourceIrVisualAssetBaker.cs'),
     },
   };
 }

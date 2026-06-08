@@ -40,7 +40,7 @@ assert.ok(cuaPlan.riskTags.includes('cua-verifier'), 'worker-playableagent shoul
 assert.ok(cuaPlan.riskTags.includes('runtime-phase-gate'), 'skeleton generator should route to runtime phase gate risk');
 assert.ok(commandIds(cuaPlan).includes('unit:playableagent-report-normalization'), 'CUA telemetry/report test should be required');
 assert.ok(commandIds(cuaPlan).includes('unit:playableagent-manual-joystick'), 'manual joystick test should be required');
-assert.ok(commandIds(cuaPlan).includes('unit:demo2spec-proof-bundle'), 'proof bundle test should be required');
+assert.ok(commandIds(cuaPlan).includes('unit:source-ir-proof-bundle'), 'proof bundle test should be required');
 assert.ok(commandIds(cuaPlan).includes('unit:skeleton-phase-gate'), 'skeleton phase gate test should be required');
 
 const checkpoint = commandById(cuaPlan, 'checkpoint-cua:affected-phase');
@@ -58,7 +58,7 @@ assert.deepStrictEqual(
 );
 
 const missingInputsPlan = router.buildValidationPlan({
-  files: ['adapters/demo2spec/proof-bundle.cjs'],
+  files: ['adapters/source-ir/proof-bundle.cjs'],
 });
 assert.strictEqual(commandById(missingInputsPlan, 'checkpoint-cua:affected-phase').ready, false);
 assert.strictEqual(commandById(missingInputsPlan, 'final:strict-cua-one-project').ready, false);

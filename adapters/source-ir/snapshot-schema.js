@@ -419,7 +419,7 @@ function buildCuaPlans(snapshotDoc) {
   var phases = project && Array.isArray(project.phases) ? project.phases : [];
   return {
     schemaVersion: '1.0.0',
-    source: 'demo2spec.snapshot-schema',
+    source: 'blueprint.sourceIr.snapshotSchema',
     cuaPlan: {
       steps: phases.map(function(phase, index) {
         return {

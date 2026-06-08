@@ -6,11 +6,11 @@ const assert = require('assert');
 const {
   buildSourceResourceTargetIndex,
   sourceResourceTarget,
-} = require('../adapters/demo2spec/source-contract-mapping.js');
+} = require('../adapters/source-ir/source-contract-mapping.js');
 const {
   normalizeGameSchemaForBlueprint,
   buildBlueprintProject,
-} = require('../adapters/demo2spec/blueprint-project.js');
+} = require('../adapters/source-ir/blueprint-project.js');
 
 const assetManifest = {
   sourceEntityContract: {
@@ -65,7 +65,7 @@ assert.deepStrictEqual(
   'source resources should map to real source phase targets instead of CtaButton/generated carriers'
 );
 assert.strictEqual(
-  normalized.entities.some(entity => /^(Gold|Ice|Scrap|EnemyKillCount)$/.test(entity.name) && entity.demo2specGeneratedCarrier),
+  normalized.entities.some(entity => /^(Gold|Ice|Scrap|EnemyKillCount)$/.test(entity.name) && entity.sourceIrGeneratedCarrier),
   false,
   'normalization must not synthesize resource carrier entities when source or phase targets exist'
 );
@@ -84,4 +84,4 @@ assert.strictEqual(
   'resource-backed enemy targets should not inherit default Mover behavior that makes manual joystick chase an unreachable target'
 );
 
-console.log('demo2spec source contract mapping tests passed');
+console.log('source-ir source contract mapping tests passed');

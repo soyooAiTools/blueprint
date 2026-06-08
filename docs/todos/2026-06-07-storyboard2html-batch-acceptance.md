@@ -54,14 +54,14 @@ Targeted continuation result:
   - Manual joystick flow: PASS `8/8`, `drags=11`
   - Visual diff: PASS `8/8`, max `over50Pct=5.6209`, phase8 `over50Pct=5.0633`
 - `太空卖氧气` is now green on targeted split evidence:
-  - Existing production report: `/nickTemp/分镜目录/_blueprint_outputs/batch-acceptance-20260607-current-fixes/太空卖氧气/demo2spec-full/blueprint-smoke/unity-verify-summary.json`, PASS `8/8`, `57/57`
+  - Existing production report: `/nickTemp/分镜目录/_blueprint_outputs/batch-acceptance-20260607-current-fixes/太空卖氧气/source-ir-full/blueprint-smoke/unity-verify-summary.json`, PASS `8/8`, `57/57`
   - Final visual report: `/nickTemp/分镜目录/_blueprint_outputs/batch-acceptance-20260607-current-fixes/太空卖氧气/rerun-final-camera-contract-full-visual/storyboard-webgl-visual-diff/report.json`, PASS `8/8`, max `over50Pct=1.6815`, phase8 `over50Pct=1.6686`
   - Fix source: camera follow contract now preserves `null` Y fallback to source camera height, applies dynamic lookAt from `lookAtFactor`, and meter-pills HUD now creates the external source tip.
 - `守护家园` is green on targeted split evidence:
-  - Existing production report: `/nickTemp/分镜目录/_blueprint_outputs/batch-acceptance-20260607-current-fixes/守护家园/demo2spec-full/blueprint-smoke/unity-verify-summary.json`, PASS `8/8`, `70/70`
+  - Existing production report: `/nickTemp/分镜目录/_blueprint_outputs/batch-acceptance-20260607-current-fixes/守护家园/source-ir-full/blueprint-smoke/unity-verify-summary.json`, PASS `8/8`, `70/70`
   - Final visual report: `/nickTemp/分镜目录/_blueprint_outputs/batch-acceptance-20260607-current-fixes/守护家园/rerun-upgrade-panel-full-visual/storyboard-webgl-visual-diff/report.json`, PASS `8/8`, phase8 `over50Pct=4.7323`
 - `PA-守护家园-分镜_3` is green on targeted split evidence:
-  - Existing production report: `/nickTemp/分镜目录/_blueprint_outputs/batch-acceptance-20260607-current-fixes/PA-守护家园-分镜_3/demo2spec-full/blueprint-smoke/unity-verify-summary.json`, PASS `8/8`, `76/76`
+  - Existing production report: `/nickTemp/分镜目录/_blueprint_outputs/batch-acceptance-20260607-current-fixes/PA-守护家园-分镜_3/source-ir-full/blueprint-smoke/unity-verify-summary.json`, PASS `8/8`, `76/76`
   - Final visual report: `/nickTemp/分镜目录/_blueprint_outputs/batch-acceptance-20260607-current-fixes/PA-守护家园-分镜_3/rerun-shared-contract-full-visual/storyboard-webgl-visual-diff/report.json`, PASS `8/8`, max `over50Pct=5.4342`, phase8 `over50Pct=5.0639`
 - Passing canaries remain visually green after overlay/runtime changes:
   - `回收子弹`: `/nickTemp/分镜目录/_blueprint_outputs/batch-acceptance-20260607-current-fixes/回收子弹/rerun-post-camera-contract-phase8-canary/storyboard-webgl-visual-diff/report.json`, PASS, phase8 `over50Pct=3.3553`
@@ -69,7 +69,7 @@ Targeted continuation result:
   - `制作子弹`: `/nickTemp/分镜目录/_blueprint_outputs/batch-acceptance-20260607-current-fixes/制作子弹/rerun-post-camera-contract-phase8-canary/storyboard-webgl-visual-diff/report.json`, PASS, phase8 `over50Pct=5.0691`
 - Added a phase-selectable storyboard/WebGL visual diff fast path:
   - Direct script accepts `--phases phase8`, `--phases 6-8`, or `--phases phase6,phase8`.
-  - `demo2spec` accepts `--visual-phases` / `--visual-diff-phases` and forwards it to the diff script.
+  - `source-ir` accepts `--visual-phases` / `--visual-diff-phases` and forwards it to the diff script.
   - Backward compatibility is preserved: `--phases 8` still means run phases `1`-`8`.
   - Invalid selectors fail immediately instead of falling back to a slow full-phase run.
   - CSS animations/transitions are frozen during visual diff, and the default settle is now `1800ms` for stable screenshots.
@@ -177,7 +177,7 @@ Re-run one generated HTML through production + visual diff:
 
 ```bash
 cd /opt/blueprint-editor
-node adapters/demo2spec/index.js \
+node adapters/source-ir/index.js \
   '/nickTemp/分镜目录/_blueprint_outputs/batch-acceptance-20260607-015430/卖水/storyboard2html.html' \
   '/nickTemp/分镜目录/_blueprint_outputs/batch-acceptance-20260607-015430/卖水/rerun-after-fix' \
   --blueprint-smoke --visual-diff --verify --verify-runner production --steps 40
@@ -195,11 +195,11 @@ node scripts/storyboard-webgl-visual-diff.cjs \
   --no-fail
 ```
 
-Run `demo2spec` with visual diff restricted to selected phases:
+Run `source-ir` with visual diff restricted to selected phases:
 
 ```bash
 cd /opt/blueprint-editor
-node adapters/demo2spec/index.js \
+node adapters/source-ir/index.js \
   '/nickTemp/分镜目录/_blueprint_outputs/batch-acceptance-20260607-015430/太空捡垃圾分镜/storyboard2html.html' \
   '/nickTemp/分镜目录/_blueprint_outputs/batch-acceptance-20260607-current-fixes/太空捡垃圾分镜/rerun-phase8-visual' \
   --blueprint-smoke --visual-diff --visual-phases phase8

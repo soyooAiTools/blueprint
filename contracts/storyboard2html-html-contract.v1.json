@@ -227,7 +227,7 @@
   },
   "regressionHook": {
     "sourceIrBuildCli": "node scripts/source-ir-build.cjs <generated.html> <outdir> --project <projectName> --blueprint-smoke --verify --verify-runner production --steps <n>",
-    "legacyDemo2specBridge": "node adapters/demo2spec/index.js <generated.html> <outdir> --blueprint-smoke --verify --steps <n> (legacy bridge only; SourceIR-only, no JS inference fallback)",
+    "sourceIrCompiler": "node adapters/source-ir/index.js <generated.html> <outdir> (SourceIR-only compiler, no JS inference fallback)",
     "hardGates": [
       "source-ir-report.json passes with renderer ownership",
       "semantic-source.json has semanticSource=source-scene-ir and legacyJsInferenceUsed=false",

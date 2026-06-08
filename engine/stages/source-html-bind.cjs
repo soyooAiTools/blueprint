@@ -35,7 +35,7 @@
  *   Phase 1 (default): SOFT missing path → loud WARN; missing sha256 → WARN
  *   Phase 1 sha256 mismatch: HARD FAIL (tamper/wrong source, not a rollout
  *     compatibility issue per Jonny)
- *   Phase 2 (SOURCE_HTML_BIND_HARD=true, or storyboard2html/demo2spec flow):
+ *   Phase 2 (SOURCE_HTML_BIND_HARD=true, or storyboard2html/source-ir flow):
  *     missing path OR sha256 → HARD FAIL
  *
  * Once bound:
@@ -68,10 +68,10 @@ function isStoryboard2HtmlFlow(ctx) {
   ctx = ctx || {};
   var bp = ctx.blueprint || {};
   var task = ctx.task || {};
-  var patterns = ['storyboard2html', 'storyboard-html', 'demo2spec'];
+  var patterns = ['storyboard2html', 'storyboard-html', 'source-ir', 'source-scene-ir'];
 
   if (flagEnabled(bp.storyboard2html) || flagEnabled(task.storyboard2html)) return true;
-  if (bp.schemaSource === 'demo2spec' || bp.prebuiltGameSchema === true || bp.prebuiltGameSchemaUsed === true) return true;
+  if (bp.schemaSource === 'source-scene-ir' || bp.prebuiltGameSchema === true || bp.prebuiltGameSchemaUsed === true) return true;
   if (hasToken(bp.sourcePipeline, patterns) || hasToken(bp.pipeline, patterns) || hasToken(bp.origin, patterns)) return true;
   if (hasToken(task.sourcePipeline, patterns) || hasToken(task.pipeline, patterns) || hasToken(task.origin, patterns)) return true;
   if (hasToken(task.kind, patterns) || hasToken(task.type, patterns) || hasToken(task.adapter, patterns)) return true;
@@ -129,7 +129,7 @@ module.exports = {
     var hard = isHardMode(ctx);
     var hardReason = flagEnabled(process.env.SOURCE_HTML_BIND_HARD)
       ? 'SOURCE_HTML_BIND_HARD=true'
-      : (isStoryboard2HtmlFlow(ctx) ? 'storyboard2html/demo2spec flow' : null);
+      : (isStoryboard2HtmlFlow(ctx) ? 'storyboard2html/source-ir flow' : null);
     var resolved = resolveSourceHtmlPath(ctx);
     if (!resolved) {
       var missMsg = 'source-html-bind: no sourceHtmlPath resolvable from blueprint/task/env. ' +

@@ -49,7 +49,7 @@ function logVisualAssets(ctx, msg) {
 
 function loadVisualAssetExtractor() {
   if (visualAssetExtractor) return visualAssetExtractor;
-  visualAssetExtractor = require('../adapters/demo2spec/visual-assets.js');
+  visualAssetExtractor = require('../adapters/source-ir/visual-assets.js');
   return visualAssetExtractor;
 }
 

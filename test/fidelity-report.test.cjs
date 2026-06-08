@@ -124,7 +124,7 @@ assert.ok(passReport.html.indexOf('PASS') >= 0);
 
 var failContract = sampleContract({
   unresolvedFidelityGaps: [
-    { id: 'missing-emission', path: 'entities.Player.primitives[0].material.colors._EmissionColor', blocking: true, reason: 'demo2spec did not extract _EmissionColor before #24' }
+    { id: 'missing-emission', path: 'entities.Player.primitives[0].material.colors._EmissionColor', blocking: true, reason: 'SourceIR did not extract _EmissionColor before #24' }
   ],
   contractConflicts: [
     { id: 'player-position', path: 'entities.Player.transform.localPosition', html: [0, 0, 0], unity: [-1.5, 0, -2] }

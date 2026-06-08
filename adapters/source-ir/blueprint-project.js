@@ -195,7 +195,7 @@ function normalizeGameSchemaForBlueprint(gameSchema, options) {
       pool: '__Pool_Cylinder_Yellow_01',
       initPos: [-4 + index * 1.5, 0, -2],
       scale: 0.7,
-      demo2specGeneratedCarrier: true,
+      sourceIrGeneratedCarrier: true,
     });
     resource.entity = carrierName;
   });
@@ -207,7 +207,7 @@ function normalizeGameSchemaForBlueprint(gameSchema, options) {
       pool: '__Pool_Cube_White_01',
       initPos: [0, 0.5, 0],
       scale: 0.6,
-      demo2specGeneratedPlayer: true,
+      sourceIrGeneratedPlayer: true,
     });
     entityNames.Player = true;
   }
@@ -390,7 +390,7 @@ function templateForEntity(entity, gameSchema, options) {
 function buildBlueprintProject(gameSchema, options) {
   options = options || {};
   const phases = safeArray(gameSchema && gameSchema.phases);
-  const projectName = options.projectName || 'Demo2SpecBlueprintSmoke';
+  const projectName = options.projectName || 'SourceIrBlueprintSmoke';
   const sceneBinding = preparePlayableSceneBinding(options);
   const assetManifest = sceneBinding.assetManifest || null;
   const unityAssetPlan = options.unityAssetPlan || null;
@@ -489,7 +489,7 @@ function buildBlueprintContext(gameSchema, options) {
     project,
     blueprint: {
       projectName: project.name,
-      schemaSource: 'demo2spec',
+      schemaSource: 'source-scene-ir',
       prebuiltGameSchema: true,
       gameSchema: normalizedGameSchema,
       specs: project.specs,
@@ -537,7 +537,7 @@ function writeBlueprintArtifacts(outDir, project, blueprint) {
   if (blueprint.visualAssets) fs.writeFileSync(path.join(outDir, 'blueprint-visual-assets.json'), JSON.stringify(blueprint.visualAssets, null, 2));
   if (blueprint.visualAssetPlan) {
     fs.writeFileSync(path.join(outDir, 'blueprint-unity-asset-plan.json'), JSON.stringify(blueprint.visualAssetPlan, null, 2));
-    fs.writeFileSync(path.join(outDir, 'Demo2SpecVisualAssetBaker.cs'), renderUnityEditorBaker(blueprint.visualAssetPlan));
+    fs.writeFileSync(path.join(outDir, 'SourceIrVisualAssetBaker.cs'), renderUnityEditorBaker(blueprint.visualAssetPlan));
   }
 }
 

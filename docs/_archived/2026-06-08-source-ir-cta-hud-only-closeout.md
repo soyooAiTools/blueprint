@@ -10,7 +10,7 @@ This records the SourceSceneIR / SourceVisualIR closeout that fixed the CTA-as-e
 
 - New storyboard2html output is SourceIR-first: `window.__BP_SOURCE_IR__` is required.
 - `scripts/source-ir-build.cjs` is the preferred build path for new storyboard2html output.
-- `adapters/demo2spec/index.js` is now a SourceIR-only compatibility wrapper. Missing SourceIR writes `semanticSource=source-scene-ir-required` and fails; it does not run legacy JS semantic inference.
+- `adapters/source-ir/index.js` is now a SourceIR-only compatibility wrapper. Missing SourceIR writes `semanticSource=source-scene-ir-required` and fails; it does not run legacy JS semantic inference.
 - CTA/install/download UI is HUD-only. It must use `ctaId` and `cta_arrival`, not `entity` / `near_entity(CtaButton)` in gameplay data.
 
 ## Invariant
@@ -46,9 +46,9 @@ Allowed forms:
 - `contracts/source-scene-ir.v1.json`
 - `contracts/source-visual-ir.v1.json`
 - `adapters/source-ir/*`
-- `adapters/demo2spec/{blueprint-project,proof-bundle,snapshot-schema,visual-assets,visual-overlay}.js`
+- `adapters/source-ir/{blueprint-project,proof-bundle,snapshot-schema,visual-assets,visual-overlay}.js`
 - `adapters/schema/{game-schema.json,validate-schema.cjs}`
-- SourceIR / demo2spec / visual overlay tests
+- SourceIR / source-ir / visual overlay tests
 
 ## Sell-water Validation
 
@@ -90,16 +90,16 @@ node -c engine/source-ir-phase-liveness.cjs
 node -c adapters/schema/validate-schema.cjs
 node -c adapters/source-ir/compile-to-gameschema.js
 node -c engine/stages/codegen-schema.cjs
-node -c adapters/demo2spec/visual-assets.js
-node -c adapters/demo2spec/blueprint-project.js
+node -c adapters/source-ir/visual-assets.js
+node -c adapters/source-ir/blueprint-project.js
 node test/source-ir-phase-liveness.test.cjs
 node test/source-ir-preview-renderer.test.cjs
 node test/source-ir-compiler.test.cjs
 node test/source-visual-ir.test.cjs
 node test/source-ir-build-cli.test.cjs
-node test/demo2spec-source-ir-bridge.test.cjs
-node test/demo2spec-playable-scene-ir-contract.test.cjs
-node test/demo2spec-visual-overlay.test.cjs
+node test/source-ir-source-ir-bridge.test.cjs
+node test/source-ir-playable-scene-ir-contract.test.cjs
+node test/source-ir-visual-overlay.test.cjs
 node test/visual-assets-build-gate.test.cjs
 node test/storyboard2html-contract.test.cjs
 node test/storyboard2html-prompt.test.cjs

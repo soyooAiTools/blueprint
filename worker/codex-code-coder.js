@@ -86,8 +86,14 @@ function isModelUnavailableError(text) {
   return /selected model|may not exist|not have access|model.?not.?found|unknown model|unsupported model|invalid model/i.test(String(text || ''));
 }
 
+function isPlanCoverageRepairText(text) {
+  return /\[plan-coverage\]|phase coverage alone is insufficient for approval/i.test(String(text || ''));
+}
+
 function isModelFatalStream(text) {
-  return /quota|usage limit|hit your usage limit|purchase more credits|insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|unauthoriz|authentication.?fail|access.?denied|subscription access|billing/i.test(String(text || ''));
+  var value = String(text || '');
+  if (isPlanCoverageRepairText(value)) return false;
+  return /quota|usage limit|hit your usage limit|purchase more credits|insufficient[_ -]?(?:quota|credits?|balance|funds|billing|usage)|(?:quota|credits?|balance|funds|billing|usage)[^\n]{0,80}insufficient|\b401\b|\b402\b|\b403\b|invalid.?api.?key|unauthoriz|authentication.?fail|access.?denied|subscription access|billing/i.test(value);
 }
 
 function runnerErrorLines(text) {
@@ -133,7 +139,8 @@ function resolveCodePrimaryCooldownFile(env) {
 
 function isCodePrimaryCooldownError(error) {
   var text = String(error || '');
-  return /MODEL_FATAL|quota|usage limit|hit your usage limit|purchase more credits|insufficient|billing|\b401\b|\b402\b|\b403\b|selected model|may not exist|not have access|model.?not.?found|unknown model|unsupported model/i.test(text);
+  if (isPlanCoverageRepairText(text)) return false;
+  return /MODEL_FATAL|quota|usage limit|hit your usage limit|purchase more credits|insufficient[_ -]?(?:quota|credits?|balance|funds|billing|usage)|(?:quota|credits?|balance|funds|billing|usage)[^\n]{0,80}insufficient|billing|\b401\b|\b402\b|\b403\b|selected model|may not exist|not have access|model.?not.?found|unknown model|unsupported model/i.test(text);
 }
 
 function readCodePrimaryCooldown(env, nowMs) {

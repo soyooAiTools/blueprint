@@ -5,7 +5,7 @@ const path = require('path');
 const { validateVisualAssetManifest } = require('./visual-assets.js');
 
 const UNITY_ASSET_PLAN_SCHEMA_VERSION = 'uap.1.0.0';
-const UNITY_ASSET_PLAN_KIND = 'demo2spec.unityAssetPlan';
+const UNITY_ASSET_PLAN_KIND = 'blueprint.sourceIr.unityAssetPlan';
 
 function safeArray(value) {
   return Array.isArray(value) ? value : [];
@@ -44,19 +44,19 @@ function assetBaseName(asset) {
 }
 
 function sourceAssetPath(asset, fallbackExt) {
-  return 'Assets/Demo2Spec/SourceAssets/' + assetBaseName(asset) + extensionForAsset(asset, fallbackExt);
+  return 'Assets/SourceIR/SourceAssets/' + assetBaseName(asset) + extensionForAsset(asset, fallbackExt);
 }
 
 function prefabPath(asset) {
-  return 'Assets/Demo2Spec/Prefabs/' + assetBaseName(asset) + '.prefab';
+  return 'Assets/SourceIR/Prefabs/' + assetBaseName(asset) + '.prefab';
 }
 
 function texturePath(asset) {
-  return 'Assets/Demo2Spec/Textures/' + assetBaseName(asset) + extensionForAsset(asset, '.png');
+  return 'Assets/SourceIR/Textures/' + assetBaseName(asset) + extensionForAsset(asset, '.png');
 }
 
 function materialPath(asset) {
-  return 'Assets/Demo2Spec/Materials/' + assetBaseName(asset) + '.mat';
+  return 'Assets/SourceIR/Materials/' + assetBaseName(asset) + '.mat';
 }
 
 function primitiveForGeometry(geometry) {
@@ -328,7 +328,7 @@ function buildUnityAssetPlan(assetManifest, options) {
     target: {
       engine: 'unity',
       mode: 'editor-prefab-baking',
-      root: 'Assets/Demo2Spec',
+      root: 'Assets/SourceIR',
       sourceFetchCommand: 'node fetch-source-assets.js <unity-asset-plan.json> <unity-project-root>',
     },
     summary,
@@ -376,7 +376,7 @@ function renderUnityEditorBaker(plan) {
   lines.push('using UnityEditor;');
   lines.push('using UnityEngine;');
   lines.push('');
-  lines.push('public static class Demo2SpecVisualAssetBaker');
+  lines.push('public static class SourceIrVisualAssetBaker');
   lines.push('{');
   lines.push('    struct Entry');
   lines.push('    {');
@@ -412,14 +412,14 @@ function renderUnityEditorBaker(plan) {
   });
   lines.push('    };');
   lines.push('');
-  lines.push('    [MenuItem("Demo2Spec/Rebuild Visual Asset Prefabs")]');
+  lines.push('    [MenuItem("SourceIR/Rebuild Visual Asset Prefabs")]');
   lines.push('    public static void Rebuild()');
   lines.push('    {');
-  lines.push('        EnsureFolder("Assets/Demo2Spec");');
-  lines.push('        EnsureFolder("Assets/Demo2Spec/Prefabs");');
-  lines.push('        EnsureFolder("Assets/Demo2Spec/Materials");');
-  lines.push('        EnsureFolder("Assets/Demo2Spec/Textures");');
-  lines.push('        EnsureFolder("Assets/Demo2Spec/SourceAssets");');
+  lines.push('        EnsureFolder("Assets/SourceIR");');
+  lines.push('        EnsureFolder("Assets/SourceIR/Prefabs");');
+  lines.push('        EnsureFolder("Assets/SourceIR/Materials");');
+  lines.push('        EnsureFolder("Assets/SourceIR/Textures");');
+  lines.push('        EnsureFolder("Assets/SourceIR/SourceAssets");');
   lines.push('        for (int i = 0; i < Entries.Length; i++) if (Entries[i].action == "generate_primitive_prefab") BakePrimitive(Entries[i]);');
   lines.push('        for (int i = 0; i < Entries.Length; i++) if (Entries[i].action == "compose_prefab") BakeComposite(Entries[i]);');
   lines.push('        for (int i = 0; i < Entries.Length; i++) if (Entries[i].action == "import_texture") ImportTexture(Entries[i]);');
@@ -430,7 +430,7 @@ function renderUnityEditorBaker(plan) {
   lines.push('');
   lines.push('    static void BakePrimitive(Entry e)');
   lines.push('    {');
-  lines.push('        if (!e.supported || string.IsNullOrEmpty(e.prefabPath)) { Debug.LogWarning("[Demo2SpecVisualAssetBaker] Unsupported primitive " + e.assetId); return; }');
+  lines.push('        if (!e.supported || string.IsNullOrEmpty(e.prefabPath)) { Debug.LogWarning("[SourceIrVisualAssetBaker] Unsupported primitive " + e.assetId); return; }');
   lines.push('        EnsureParentFolder(e.prefabPath);');
   lines.push('        var go = GameObject.CreatePrimitive(ParsePrimitive(e.unityPrimitive));');
   lines.push('        go.name = e.assetId;');
@@ -460,7 +460,7 @@ function renderUnityEditorBaker(plan) {
   lines.push('');
   lines.push('    static void ImportTexture(Entry e)');
   lines.push('    {');
-  lines.push('        if (!File.Exists(e.sourceAssetPath)) { Debug.LogWarning("[Demo2SpecVisualAssetBaker] Place texture source at " + e.sourceAssetPath + " for " + e.assetId + " from " + e.sourceUrl); return; }');
+  lines.push('        if (!File.Exists(e.sourceAssetPath)) { Debug.LogWarning("[SourceIrVisualAssetBaker] Place texture source at " + e.sourceAssetPath + " for " + e.assetId + " from " + e.sourceUrl); return; }');
   lines.push('        AssetDatabase.ImportAsset(e.sourceAssetPath);');
   lines.push('        var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(e.sourceAssetPath);');
   lines.push('        if (tex == null || string.IsNullOrEmpty(e.materialPath)) return;');
@@ -472,7 +472,7 @@ function renderUnityEditorBaker(plan) {
   lines.push('');
   lines.push('    static void ImportExternalModel(Entry e)');
   lines.push('    {');
-  lines.push('        if (!File.Exists(e.sourceAssetPath)) { Debug.LogWarning("[Demo2SpecVisualAssetBaker] Place model source at " + e.sourceAssetPath + " for " + e.assetId + " from " + e.sourceUrl); return; }');
+  lines.push('        if (!File.Exists(e.sourceAssetPath)) { Debug.LogWarning("[SourceIrVisualAssetBaker] Place model source at " + e.sourceAssetPath + " for " + e.assetId + " from " + e.sourceUrl); return; }');
   lines.push('        AssetDatabase.ImportAsset(e.sourceAssetPath);');
   lines.push('        var imported = AssetDatabase.LoadAssetAtPath<GameObject>(e.sourceAssetPath);');
   lines.push('        if (imported == null || string.IsNullOrEmpty(e.prefabPath)) return;');

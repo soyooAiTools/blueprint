@@ -8,7 +8,7 @@ The fix adds a source-to-WebGL phase screenshot diff gate and makes WebGL reuse 
 
 ## Root Causes
 
-- `demo2spec --blueprint-smoke` validated flow, build, and runtime evidence, but had no mandatory screenshot diff between storyboard2html HTML and the final WebGL.
+- `source-ir --blueprint-smoke` validated flow, build, and runtime evidence, but had no mandatory screenshot diff between storyboard2html HTML and the final WebGL.
 - Source camera and grid were not preserved. WebGL often used its own fallback view, so phase flow could pass while framing drifted.
 - Source DOM HUD and bridge HUD could both be present. This created duplicate or mismatched labels even when the underlying phase state was correct.
 - Phase driving existed in both outputs, but there was no single tool that drove both outputs phase by phase and compared pixels.
@@ -21,7 +21,7 @@ The fix adds a source-to-WebGL phase screenshot diff gate and makes WebGL reuse 
   - Captures source, WebGL, and diff screenshots.
   - Writes `storyboard-webgl-visual-diff/report.json`.
   - Fails when `meanAbs` or `over50Pct` exceed thresholds.
-- Added `adapters/demo2spec/index.js --visual-diff`.
+- Added `adapters/source-ir/index.js --visual-diff`.
   - Implies `--blueprint-smoke`.
   - Runs the source/WebGL visual diff after smoke output is produced.
 - Extended visual asset extraction.
@@ -38,23 +38,23 @@ The fix adds a source-to-WebGL phase screenshot diff gate and makes WebGL reuse 
 Targeted unit and syntax checks:
 
 ```bash
-node -c adapters/demo2spec/visual-assets.js
-node -c adapters/demo2spec/visual-overlay.js
+node -c adapters/source-ir/visual-assets.js
+node -c adapters/source-ir/visual-overlay.js
 node -c worker/linux-bridge-build.js
-node -c adapters/demo2spec/index.js
-node -c adapters/demo2spec/adapter.cjs
+node -c adapters/source-ir/index.js
+node -c adapters/source-ir/adapter.cjs
 node -c scripts/storyboard-webgl-visual-diff.cjs
 
 node test/storyboard-webgl-visual-diff-script.test.cjs
 node test/visual-assets-build-gate.test.cjs
-node test/demo2spec-visual-overlay.test.cjs
+node test/source-ir-visual-overlay.test.cjs
 node test/linux-bridge-build-fidelity-hooks.test.cjs
 ```
 
 回收子弹 source/WebGL visual diff:
 
 ```bash
-node adapters/demo2spec/index.js \
+node adapters/source-ir/index.js \
   '/nickTemp/分镜目录/_blueprint_outputs/recycle-bullet-run-20260607-v1/回收子弹-storyboard2html.html' \
   '/nickTemp/分镜目录/_blueprint_outputs/recycle-bullet-visual-align-20260607-v2' \
   --blueprint-smoke --visual-diff

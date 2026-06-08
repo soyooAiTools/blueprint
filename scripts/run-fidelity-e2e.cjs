@@ -7,8 +7,8 @@ var path = require('path');
 
 var auditGate = require('../engine/fidelity-audit-gate.cjs');
 var report = require('../engine/fidelity-report.cjs');
-var unityWriter = require('../adapters/demo2spec/fidelity-unity-writer.js');
-var demo2specFidelity = require('../adapters/demo2spec/fidelity-contract.js');
+var unityWriter = require('../adapters/source-ir/fidelity-unity-writer.js');
+var sourceIrFidelity = require('../adapters/source-ir/fidelity-contract.js');
 
 function usage() {
   console.error('Usage: node scripts/run-fidelity-e2e.cjs --contract <path> [--project-dir <path>] [--out-dir <path>] [--target unity|html] [--fixture <name>] [--visual-report <path>] [--require-visual] [--allow-missing-unity-coverage] [--allow-audit-fail]');
@@ -60,7 +60,7 @@ function writeArtifact(filePath, value) {
 function main() {
   var opts = parseArgs(process.argv);
   var contract = JSON.parse(fs.readFileSync(path.resolve(opts.contractPath), 'utf8'));
-  var supportedCapabilities = demo2specFidelity.supportedCapabilitiesFor(opts.target);
+  var supportedCapabilities = sourceIrFidelity.supportedCapabilitiesFor(opts.target);
   var projectDir = opts.projectDir
     ? path.resolve(opts.projectDir)
     : fs.mkdtempSync(path.join(os.tmpdir(), 'fidelity-e2e-'));

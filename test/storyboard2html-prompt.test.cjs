@@ -259,7 +259,7 @@ assert.ok(built.systemPrompt.indexOf('不允许整个 stage 只是 Canvas 黑底
 assert.ok(built.systemPrompt.indexOf('不允许跳过 `Player` 角色复合几何体') >= 0,
   'system prompt 禁止反规则 should forbid skipping composite Player geometry');
 
-// L7 — Entity 视觉契约(extractor 兼容布局,demo2spec 静态解析必须命中)
+// L7 — Entity 视觉契约(extractor 兼容布局,SourceIR 静态解析必须命中)
 assert.ok(built.systemPrompt.indexOf('L7 — Entity 视觉契约') >= 0,
   'system prompt should declare L7 entity visual contract section');
 assert.ok(built.systemPrompt.indexOf('extractor 兼容布局') >= 0,

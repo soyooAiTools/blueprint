@@ -64,7 +64,7 @@ Net effect: ~100% pixel divergence, dominated by **mesh geometry mismatch** > **
 
 ┌────────────────────────────────────── LUNA WEBGL BUILD PATH ──────────────────────────────────────────────┐
 │                                                                                                           │
-│  spec.entities[] (from upstream demo2spec / storyboard pipeline; each has visual.shape: Cube/Sphere/...)  │
+│  spec.entities[] (from upstream source-ir / storyboard pipeline; each has visual.shape: Cube/Sphere/...)  │
 │    │                                                                                                      │
 │    ▼                                                                                                      │
 │  adapters/skeleton-generator.cjs                                                                          │

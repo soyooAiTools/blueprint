@@ -1,6 +1,6 @@
 'use strict';
 
-var visualAssets = require('../demo2spec/visual-assets.js');
+var visualAssets = require('./visual-assets.js');
 var {
   normalizeSourceSceneIr,
   projectSourceSceneIrToLegacy,

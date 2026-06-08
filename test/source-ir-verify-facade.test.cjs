@@ -3,48 +3,48 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const facade = require('../adapters/demo2spec/verify-facade.cjs');
+const facade = require('../adapters/source-ir/verify-facade.cjs');
 
-const paths = facade.resolveVerifyArtifactPaths('/tmp/demo2spec-verify-facade-out');
-assert.strictEqual(paths.specsPath, '/tmp/demo2spec-verify-facade-out/blueprint-specs.json');
-assert.strictEqual(paths.plansPath, '/tmp/demo2spec-verify-facade-out/blueprint-plans.json');
-assert.strictEqual(paths.reportPath, '/tmp/demo2spec-verify-facade-out/unity-verify-report.json');
-assert.strictEqual(paths.summaryPath, '/tmp/demo2spec-verify-facade-out/unity-verify-summary.json');
+const paths = facade.resolveVerifyArtifactPaths('/tmp/source-ir-verify-facade-out');
+assert.strictEqual(paths.specsPath, '/tmp/source-ir-verify-facade-out/blueprint-specs.json');
+assert.strictEqual(paths.plansPath, '/tmp/source-ir-verify-facade-out/blueprint-plans.json');
+assert.strictEqual(paths.reportPath, '/tmp/source-ir-verify-facade-out/unity-verify-report.json');
+assert.strictEqual(paths.summaryPath, '/tmp/source-ir-verify-facade-out/unity-verify-summary.json');
 
 assert.deepStrictEqual(
   facade.buildObserveVerifyArgs({
     url: 'http://127.0.0.1:1234/index.html',
-    outDir: '/tmp/demo2spec-verify-facade-out',
+    outDir: '/tmp/source-ir-verify-facade-out',
     steps: 7,
     verifyScript: '/tmp/blueprint_verify.py',
   }),
   [
     '/tmp/blueprint_verify.py',
     'http://127.0.0.1:1234/index.html',
-    '--specs', '/tmp/demo2spec-verify-facade-out/blueprint-specs.json',
-    '--plans', '/tmp/demo2spec-verify-facade-out/blueprint-plans.json',
+    '--specs', '/tmp/source-ir-verify-facade-out/blueprint-specs.json',
+    '--plans', '/tmp/source-ir-verify-facade-out/blueprint-plans.json',
     '--steps', '7',
     '--observe',
   ]
 );
 assert.strictEqual(
   facade.withAutoplayQuery('http://127.0.0.1:1234/index.html'),
-  'http://127.0.0.1:1234/index.html?autoplay=1&sourceOverlay=0&sourceRuntime=0&sourceVisual=0&demo2specSource=0'
+  'http://127.0.0.1:1234/index.html?autoplay=1&sourceOverlay=0&sourceRuntime=0&sourceVisual=0'
 );
 assert.strictEqual(
   facade.withAutoplayQuery('http://127.0.0.1:1234/index.html?foo=1'),
-  'http://127.0.0.1:1234/index.html?foo=1&autoplay=1&sourceOverlay=0&sourceRuntime=0&sourceVisual=0&demo2specSource=0'
+  'http://127.0.0.1:1234/index.html?foo=1&autoplay=1&sourceOverlay=0&sourceRuntime=0&sourceVisual=0'
 );
 assert.strictEqual(
   facade.withAutoplayQuery('http://127.0.0.1:1234/index.html?autoplay=0'),
-  'http://127.0.0.1:1234/index.html?autoplay=0&sourceOverlay=0&sourceRuntime=0&sourceVisual=0&demo2specSource=0'
+  'http://127.0.0.1:1234/index.html?autoplay=0&sourceOverlay=0&sourceRuntime=0&sourceVisual=0'
 );
 assert.strictEqual(
   facade.withAutoplayQuery('http://127.0.0.1:1234/index.html?autoplay=1&sourceOverlay=1'),
-  'http://127.0.0.1:1234/index.html?autoplay=1&sourceOverlay=1&sourceRuntime=0&sourceVisual=0&demo2specSource=0'
+  'http://127.0.0.1:1234/index.html?autoplay=1&sourceOverlay=1&sourceRuntime=0&sourceVisual=0'
 );
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'demo2spec-verify-facade-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'source-ir-verify-facade-'));
 const oldRun = path.join(tmp, 'old');
 const newRun = path.join(tmp, 'new');
 fs.mkdirSync(oldRun);
@@ -88,8 +88,8 @@ assert.deepStrictEqual(summary, {
   },
 });
 const directManifest = JSON.parse(fs.readFileSync(path.join(summaryOut, 'playable-flow-manifest.json'), 'utf8'));
-assert.strictEqual(directManifest.stages.demo2specVerify.runner, 'direct');
-assert.strictEqual(directManifest.stages.demo2specVerify.passed, true);
+assert.strictEqual(directManifest.stages.sourceIrVerify.runner, 'direct');
+assert.strictEqual(directManifest.stages.sourceIrVerify.passed, true);
 
 assert.strictEqual(facade.normalizeVerifyRunner(), 'production');
 assert.strictEqual(facade.normalizeVerifyRunner('production'), 'production');
@@ -187,10 +187,10 @@ fs.writeFileSync(prodReport, JSON.stringify({
   assert.strictEqual(productionSummary.telemetry.manualFlowMs, 2300);
   assert.ok(['symlink', 'copy'].includes(productionSummary.buildDirMaterialization));
   const productionManifest = JSON.parse(fs.readFileSync(path.join(prodOut, 'playable-flow-manifest.json'), 'utf8'));
-  assert.strictEqual(productionManifest.stages.demo2specVerify.runner, 'production');
-  assert.strictEqual(productionManifest.stages.demo2specVerify.runtimeContractSummary.contractPassed, true);
+  assert.strictEqual(productionManifest.stages.sourceIrVerify.runner, 'production');
+  assert.strictEqual(productionManifest.stages.sourceIrVerify.runtimeContractSummary.contractPassed, true);
 
-  console.log('demo2spec verify facade tests passed');
+  console.log('source-ir verify facade tests passed');
 })().catch(error => {
   console.error(error && error.stack ? error.stack : String(error));
   process.exit(1);

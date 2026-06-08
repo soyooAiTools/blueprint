@@ -15,7 +15,6 @@ const DIRECT_VERIFY_QUERY_FLAGS = [
   ['sourceOverlay', 'sourceOverlay=0'],
   ['sourceRuntime', 'sourceRuntime=0'],
   ['sourceVisual', 'sourceVisual=0'],
-  ['demo2specSource', 'demo2specSource=0'],
 ];
 
 function resolveVerifyArtifactPaths(outDir) {
@@ -128,7 +127,7 @@ function writeVerifySummary(outDir, reportPath) {
       validation: phaseEvidence.validation,
     },
   }, null, 2));
-  playableFlowManifest.recordDemo2SpecVerify({
+  playableFlowManifest.recordSourceIrVerify({
     outDir,
     reportPath: paths.reportPath,
     summaryPath: paths.summaryPath,
@@ -142,7 +141,7 @@ function writeVerifySummary(outDir, reportPath) {
 }
 
 function normalizeVerifyRunner(value) {
-  const runner = String(value || process.env.DEMO2SPEC_VERIFY_RUNNER || 'production').trim() || 'production';
+  const runner = String(value || process.env.SOURCE_IR_VERIFY_RUNNER || 'production').trim() || 'production';
   if (!VERIFY_RUNNERS[runner]) {
     throw new Error('Unknown verify runner "' + runner + '" (expected direct|production)');
   }
@@ -189,7 +188,7 @@ function loadBlueprintForProduction(outDir) {
   if (!plans) throw new Error('missing blueprint plans for production verify: ' + paths.plansPath);
   return assertBlueprintShape({
     projectName: project.name || gameSchema.name || path.basename(outDir),
-    schemaSource: 'demo2spec',
+    schemaSource: 'source-scene-ir',
     prebuiltGameSchema: true,
     gameSchema,
     specs,
@@ -264,7 +263,7 @@ function writeProductionVerifySummary(outDir, reportPath, meta) {
     telemetry: workerResult.telemetry || (workerResult.report && workerResult.report.telemetry) || null,
     buildDirMaterialization: meta.buildDirMaterialization || null,
   }, null, 2));
-  playableFlowManifest.recordDemo2SpecVerify({
+  playableFlowManifest.recordSourceIrVerify({
     outDir,
     reportPath: paths.reportPath,
     summaryPath: paths.summaryPath,
@@ -329,10 +328,10 @@ async function runProductionObserveVerify(options) {
   options = options || {};
   const outDir = path.resolve(options.outDir || '.');
   const startedAt = Date.now();
-  const tempBuildDir = options.buildDir || fs.mkdtempSync(path.join(os.tmpdir(), 'demo2spec-production-verify-'));
+  const tempBuildDir = options.buildDir || fs.mkdtempSync(path.join(os.tmpdir(), 'source-ir-production-verify-'));
   const materialized = materializeVerifyBuildDir(outDir, tempBuildDir);
   const blueprint = assertBlueprintShape(options.blueprint || loadBlueprintForProduction(outDir));
-  const taskId = options.taskId || ('demo2spec-production-verify-' + startedAt);
+  const taskId = options.taskId || ('source-ir-production-verify-' + startedAt);
   const log = typeof options.log === 'function'
     ? options.log
     : function(message) {

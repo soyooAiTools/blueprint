@@ -4,7 +4,7 @@ var path = require('path');
 var {
   buildBlueprintContext,
   writeBlueprintArtifacts,
-} = require('../demo2spec/blueprint-project.js');
+} = require('./blueprint-project.js');
 var {
   compileToGameSchema,
 } = require('./compile-to-gameschema.js');

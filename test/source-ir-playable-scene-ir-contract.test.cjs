@@ -8,11 +8,11 @@ var path = require('path');
 
 var {
   extractVisualAssetManifest,
-} = require('../adapters/demo2spec/visual-assets.js');
+} = require('../adapters/source-ir/visual-assets.js');
 var {
   buildBlueprintContext,
   writeBlueprintArtifacts,
-} = require('../adapters/demo2spec/blueprint-project.js');
+} = require('../adapters/source-ir/blueprint-project.js');
 var {
   buildPlayableSceneIrFromHtml,
 } = require('../engine/playable-scene-ir.cjs');
@@ -21,7 +21,7 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-var tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'demo2spec-ir-contract-'));
+var tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'source-ir-contract-'));
 var htmlPath = path.join(tmp, 'source.html');
 var html = [
   '<!doctype html><html><body><script>',
@@ -39,12 +39,12 @@ fs.writeFileSync(htmlPath, html);
 var entityNames = ['Player', 'WaterDrop', 'CtaButton'];
 var assetManifest = extractVisualAssetManifest(html, {
   source: htmlPath,
-  project: 'demo2spec-ir-contract',
+  project: 'source-ir-contract',
   entityNames: entityNames,
 });
 var playableSceneIr = buildPlayableSceneIrFromHtml(htmlPath, {
   html: html,
-  project: 'demo2spec-ir-contract',
+  project: 'source-ir-contract',
   entityNames: entityNames,
   assetManifest: assetManifest,
 });
@@ -76,7 +76,7 @@ function fixturePlans() {
 }
 
 var built = buildBlueprintContext(gameSchema, {
-  projectName: 'demo2spec-ir-contract',
+  projectName: 'source-ir-contract',
   source: path.join(tmp, 'gameschema.json'),
   assetManifest: assetManifest,
   playableSceneIr: playableSceneIr,
@@ -111,7 +111,7 @@ var badManifest = clone(assetManifest);
 badManifest.sourceHtmlSha256 = '0'.repeat(64);
 assert.throws(function() {
   buildBlueprintContext(gameSchema, {
-    projectName: 'demo2spec-ir-contract-bad',
+    projectName: 'source-ir-contract-bad',
     assetManifest: badManifest,
     playableSceneIr: playableSceneIr,
     requireAssetManifestHash: true,
@@ -119,4 +119,4 @@ assert.throws(function() {
   });
 }, /playableSceneIR binding failed/);
 
-console.log('demo2spec playable scene IR contract tests passed');
+console.log('source-ir playable scene IR contract tests passed');

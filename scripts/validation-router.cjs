@@ -155,10 +155,10 @@ function routeFile(plan, file) {
     addCommand(plan, command('unit:validation-router', ['node', 'test/validation-router.test.cjs'], 'Validate risk-based validation routing rules.'));
   }
 
-  if (/^(adapters\/skeleton-generator\.cjs|adapters\/assembly-plan-pipeline\.cjs|adapters\/demo2spec\/proof-bundle\.cjs|adapters\/demo2spec\/blueprint-project\.js)/.test(file)) {
+  if (/^(adapters\/skeleton-generator\.cjs|adapters\/assembly-plan-pipeline\.cjs|adapters\/source-ir\/proof-bundle\.cjs|adapters\/source-ir\/blueprint-project\.js)/.test(file)) {
     addTag(plan, 'runtime-phase-gate');
     addTag(plan, 'proof-contract');
-    addCommand(plan, command('unit:demo2spec-proof-bundle', ['node', 'test/demo2spec-proof-bundle.test.cjs'], 'Validate proof bundle and proof diff gates before browser CUA.'));
+    addCommand(plan, command('unit:source-ir-proof-bundle', ['node', 'test/source-ir-proof-bundle.test.cjs'], 'Validate proof bundle and proof diff gates before browser CUA.'));
     addCommand(plan, command('unit:skeleton-phase-gate', ['node', 'test/skeleton-phase-gate-strictness.test.cjs'], 'Validate phase-local resource/carry gates and phase path strictness.'));
   }
 
@@ -167,9 +167,9 @@ function routeFile(plan, file) {
     addCommand(plan, command('unit:assembly-plan-pipeline', ['node', 'test/assembly-plan-pipeline.test.cjs'], 'Validate assembly plan extraction and structured action preservation.'));
   }
 
-  if (/^(adapters\/demo2spec\/verify-facade\.cjs|adapters\/demo2spec\/run-blueprint-smoke\.js)/.test(file)) {
-    addTag(plan, 'demo2spec-verify');
-    addCommand(plan, command('unit:demo2spec-verify-facade', ['node', 'test/demo2spec-verify-facade.test.cjs'], 'Validate demo2spec production verify summary and artifact materialization.'));
+  if (/^(adapters\/source-ir\/verify-facade\.cjs|adapters\/source-ir\/run-blueprint-smoke\.js)/.test(file)) {
+    addTag(plan, 'source-ir-verify');
+    addCommand(plan, command('unit:source-ir-verify-facade', ['node', 'test/source-ir-verify-facade.test.cjs'], 'Validate SourceIR production verify summary and artifact materialization.'));
   }
 
   if (/^(scripts\/storyboard2html-|engine\/storyboard2html-|engine\/fidelity-|engine\/storyboard2html-hardgate\.cjs|contracts\/storyboard2html)/.test(file)) {

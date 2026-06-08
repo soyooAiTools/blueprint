@@ -81,6 +81,39 @@ assert.deepStrictEqual(after.allErrors, []);
   assert.deepStrictEqual(codegenSchema._validateSchema(schema).allErrors, []);
 }
 
+{
+  const schema = makeSchema();
+  schema.phases[0].trigger = {
+    type: 'resource_collected',
+    resource: 'IceBlock',
+    amount: 5,
+  };
+
+  const before = codegenSchema._validateSchema(schema);
+  assert.ok(before.allErrors.some((err) => err === 'Phase enemyAttackWarning trigger resource_collected references non-existent resource: IceBlock'));
+
+  const logs = [];
+  const repaired = codegenSchema._repairSchemaValidationErrors(schema, before.allErrors, {
+    blueprint: {
+      entities: [
+        {
+          name: 'IceBlock',
+          label: '冰块',
+          visual: { position: '(-5,0,-8)', scale: '1×1×1' },
+        },
+      ],
+    },
+    addLog: (_stage, message) => logs.push(message),
+  });
+  assert.strictEqual(repaired, 1);
+  assert.ok(schema.entities.some((entity) => entity.name === 'IceBlock'));
+  assert.deepStrictEqual(schema.resources, [
+    { name: 'IceBlock', entity: 'IceBlock', convertRatio: 1 },
+  ]);
+  assert.ok(logs.some((line) => line.includes('added resource IceBlock bound to entity IceBlock')));
+  assert.deepStrictEqual(codegenSchema._validateSchema(schema).allErrors, []);
+}
+
 assert.strictEqual(codegenSchema._internals.isSchemaInfraError('Connection error.'), true);
 assert.strictEqual(codegenSchema._internals.isSchemaInfraError('Request timed out.'), true);
 assert.strictEqual(codegenSchema._internals.isSchemaInfraError("There's an issue with the selected model (gpt-5.4-mini). It may not exist or you may not have access to it."), true);

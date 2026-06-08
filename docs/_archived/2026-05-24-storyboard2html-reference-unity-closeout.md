@@ -2,7 +2,7 @@
 
 ## 背景
 
-`#storyboard2html` task #6 要把 space-ranger 的 demo2spec/Blueprint 产物对标 3 个 Unity 参考工程，输出给程序员可直接打开的 Unity 工程。用户后续明确边界：
+`#storyboard2html` task #6 要把 space-ranger 的 source-ir/Blueprint 产物对标 3 个 Unity 参考工程，输出给程序员可直接打开的 Unity 工程。用户后续明确边界：
 
 - 最终交付给程序员的是干净 Unity 工程文件。
 - 不需要把 CUA / Blueprint / Luna 生成过程放进交付包。

@@ -4,9 +4,9 @@ const fs = require('fs');
 const path = require('path');
 
 const VISUAL_ASSET_SCHEMA_VERSION = 'va.1.0.0';
-const VISUAL_ASSET_KIND = 'demo2spec.visualAssetManifest';
+const VISUAL_ASSET_KIND = 'blueprint.sourceIr.visualAssetManifest';
 const VISUAL_RUNTIME_CONTRACT_VERSION = 'vrc.1.0.0';
-const VISUAL_RUNTIME_CONTRACT_KIND = 'demo2spec.visualRuntimeContract';
+const VISUAL_RUNTIME_CONTRACT_KIND = 'blueprint.sourceIr.visualRuntimeContract';
 const ASSET_LICENSE_CONTRACT_VERSION = 'val.1.0.0';
 const DEFAULT_ASSET_LICENSE = 'unknown';
 const KNOWN_ASSET_LICENSES = new Set([
@@ -1275,7 +1275,7 @@ function derivePhaseStepsFromTrigger(phase, trigger, entityStyles) {
   if (!target && trigger.type === 'resource_collected') {
     target = inferResourceCollectTarget(phase, trigger, entityStyles);
   }
-  if (!target || isCtaUiEntityName(target)) return [];
+  if (!target) return [];
   const step = {
     index: 0,
     target,
@@ -1297,7 +1297,9 @@ function derivePhaseStepsFromTrigger(phase, trigger, entityStyles) {
 }
 
 function buildPhaseHudText(phase, index, phaseCount, entityStyles) {
-  const firstTargetStep = safeArray(phase && phase.steps).find(step => step && step.target && !isCtaUiEntityName(step.target));
+  const steps = safeArray(phase && phase.steps);
+  const firstTargetStep = steps.find(step => step && step.target && !isCtaUiEntityName(step.target))
+    || steps.find(step => step && step.target);
   const targetEntity = firstTargetStep && firstTargetStep.target || '';
   const targetLabel = sourceEntityLabel(entityStyles, targetEntity);
   return {

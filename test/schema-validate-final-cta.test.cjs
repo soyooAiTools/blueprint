@@ -58,7 +58,7 @@ function makeSchema(trigger) {
 
 {
   const errors = validateSemantics(makeSchema({ type: 'near_entity', entity: 'Workbench', range: 2 }));
-  assert.ok(errors.indexOf('Last phase trigger must include click_entity or CtaButton near_entity') >= 0,
+  assert.ok(errors.indexOf('Last phase trigger must include cta_arrival, click_entity, or CtaButton near_entity') >= 0,
     'non-CTA arrival should still fail terminal CTA validation');
 }
 

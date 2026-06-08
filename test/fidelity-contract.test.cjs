@@ -3,7 +3,7 @@
 
 var assert = require('assert');
 var fidelity = require('../engine/fidelity-contract.cjs');
-var demo2specFidelity = require('../adapters/demo2spec/fidelity-contract.js');
+var sourceIrFidelity = require('../adapters/source-ir/fidelity-contract.js');
 
 function vec(x, y, z) {
   return { x: x, y: y, z: z };
@@ -162,8 +162,8 @@ assert.strictEqual(fidelity.assertWriterReady(doc, {
   target: 'unity',
   supportedCapabilities: doc.requiredCapabilities
 }), true);
-assert.strictEqual(demo2specFidelity.assertFidelityWriterReady(doc, { target: 'unity' }), true);
-assert.ok(demo2specFidelity.supportedCapabilitiesFor('unity').indexOf('runtime.noFixtureBridgeConstants.v1') >= 0);
+assert.strictEqual(sourceIrFidelity.assertFidelityWriterReady(doc, { target: 'unity' }), true);
+assert.ok(sourceIrFidelity.supportedCapabilitiesFor('unity').indexOf('runtime.noFixtureBridgeConstants.v1') >= 0);
 
 var missingAdapter = sampleContract({ rendererAdapter: { three: {}, unity: {} } });
 var missingAdapterValidation = fidelity.validateFidelityContract(missingAdapter);
@@ -219,7 +219,7 @@ assert.strictEqual(fidelity.assertWriterReady(htmlOnly, {
 
 var roundTrip = fidelity.diffFidelityRoundTrip(doc, JSON.parse(JSON.stringify(doc)));
 assert.strictEqual(roundTrip.passed, true, JSON.stringify(roundTrip.diffs, null, 2));
-var roundTripSummary = demo2specFidelity.buildFidelityRoundTripSummary(doc, JSON.parse(JSON.stringify(doc)));
+var roundTripSummary = sourceIrFidelity.buildFidelityRoundTripSummary(doc, JSON.parse(JSON.stringify(doc)));
 assert.strictEqual(roundTripSummary.kind, 'blueprint.fidelityContract.roundTripSummary');
 assert.strictEqual(roundTripSummary.passed, true);
 assert.strictEqual(roundTripSummary.diffCount, 0);

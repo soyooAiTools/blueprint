@@ -57,7 +57,7 @@ fs.writeFileSync(summaryPath, JSON.stringify({
   },
 }, null, 2));
 
-manifest.recordDemo2SpecVerify({
+manifest.recordSourceIrVerify({
   outDir: tmp,
   reportPath: reportPath,
   summaryPath: summaryPath,
@@ -96,8 +96,8 @@ var doc = JSON.parse(fs.readFileSync(path.join(tmp, 'playable-flow-manifest.json
 assert.strictEqual(doc.kind, manifest.KIND);
 assert.strictEqual(doc.schemaVersion, manifest.SCHEMA_VERSION);
 assert.ok(doc.artifacts.generatedHtml.sha256);
-assert.strictEqual(doc.stages.demo2specVerify.runner, 'production');
-assert.strictEqual(doc.stages.demo2specVerify.telemetry.totalMs, 250);
+assert.strictEqual(doc.stages.sourceIrVerify.runner, 'production');
+assert.strictEqual(doc.stages.sourceIrVerify.telemetry.totalMs, 250);
 assert.strictEqual(doc.stages.storyboard2htmlPreflight.passed, true);
 assert.strictEqual(doc.stages.storyboard2htmlSmoke.passed, true);
 assert.strictEqual(doc.stages.storyboard2htmlSmoke.runtimeContractSummary.manualJoystickFlowProbe.maxPlayerDistance, 1.5);

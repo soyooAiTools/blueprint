@@ -164,7 +164,7 @@
       }
     },
     "blockingAttribution": {
-      "entity-extra: Gold/Ice/Scrap \u00d7 8 phase = 24": "#28 Jonny (demo2spec sourceEntityContract collectible mapping)",
+      "entity-extra: Gold/Ice/Scrap \u00d7 8 phase = 24": "#28 Jonny (SourceIR sourceEntityContract collectible mapping)",
       "hud-mismatch: phase/targethint/tip \u00d7 7 phase = 21": "#30 (per-phase HUD text reverse-extraction)"
     },
     "advisoryAttribution": {
@@ -295,7 +295,7 @@
     "rootCauseHypotheses": [
       "PlayCanvas writer instantiates entities into scene tree (so field-diff sees them) but render fails: material._BaseColor not resolved / model.asset.ready=false / localScale=0 / camera offset / layer disabled / silent catch in pipeline writer.",
       "Tim runtime entity diagnostic in flight (msg=612c6d7a): headless puppeteer enumerates app.app.root for enabled/localPosition/localScale/model.asset.ready/material.ready/material._BaseColor, ETA 15min.",
-      "Jonny pipeline writer investigation in flight: storyboard2html → demo2spec → linux-bridge-build PlayCanvas writer entity instantiation path."
+      "Jonny pipeline writer investigation in flight: storyboard2html -> source-ir -> linux-bridge-build PlayCanvas writer entity instantiation path."
     ],
     "rollbackActions": [
       "ACCEPTANCE_CATALOG.json: fixture name space-ranger-v1.1-html-golden → space-ranger-v1.1-html-candidate; status golden → candidate; metadata rollbackFromGolden block added.",
@@ -522,7 +522,7 @@
       "schema": "Sam (contracts/fidelity-contract.v1.json)",
       "migration_script": "Sam (scripts/migrate-v1.1-to-v1.2.cjs, backfill-only idempotent)",
       "anchor_extractor": "Sam (engine/stages/lib/anchor-extractor.cjs NEW)",
-      "validator_extension": "Tim (adapters/demo2spec/fidelity-contract.cjs validateProjectedAnchor + diffFidelityRoundTrip)",
+      "validator_extension": "Tim (adapters/source-ir/fidelity-contract.cjs validateProjectedAnchor + diffFidelityRoundTrip)",
       "field_diff_anchor_bucket": "Tim (engine/stages/lib/field-diff.cjs + engine/stages/fidelity-source-diff.cjs anchor-mismatch blocking)",
       "writer_consume": "Jonny (worker/linux-bridge-build.js local screen-space calibration, NO iframe/source replay)",
       "polymorphic_resolver": "DEFERRED past v1.2 first ship (flat-per-phase suffices)"
@@ -534,7 +534,7 @@
       "migration_conditional_bump_rule": "bump 1.1.0→1.2.0 IFF all phases × all entities have provenance ∈ {extracted, anchor-only}; ZERO inferred-default placeholders allowed in projectedAnchors; else partialMigration:true bumpedSchemaVersion:false stays v1.1.0",
       "requiredKeys_version_conditional": "cameraTransform + projectedAnchors requiredKeys enforced only for schemaVersion ≥ 1.2.0 instances; v1.0/v1.1 read path NOT held to v1.2 descriptor",
       "writer_scope_overlay_only": "writer mutates ONLY __StoryboardVisualOverlay mesh entity render transforms; NOT GFM runtime GameObject, NOT __gameState.entity_states.position, NOT phase/interaction/autoPlay/manual gates",
-      "validator_path_corrected": "engine/fidelity-contract.cjs (NOT adapters/demo2spec/fidelity-contract.js which is demo2spec emitter helper)",
+      "validator_path_corrected": "engine/fidelity-contract.cjs (NOT adapters/source-ir/fidelity-contract.js which is SourceIR emitter helper)",
       "viewport_baseline": "1280×720 top-left, matching engine/stages/fidelity-source-diff.cjs DEFAULT_VIEWPORT (Sam local capture at 960×600 is normalized scale not contract baseline)",
       "PR_pre_merge_acceptance_precondition": "Sam runs anchor-extractor PoC on space-ranger-3d.html (v0.5 golden) — all 8 phases × all showEntities[] entities must produce numeric anchor (provenance ∈ {extracted, anchor-only}), ZERO inferred-default. Fail → re-evaluate extractor strategy, NO PR merge. PoC verdict posted to thread for Tim+Jonny sign-off before triple sign-off lock.",
       "file_change_list_7files": [

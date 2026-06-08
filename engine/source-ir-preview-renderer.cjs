@@ -26,7 +26,7 @@ function safeInlineScript(value) {
 function loadThreeSource() {
   var candidates = [
     process.env.SOURCE_IR_THREE_SOURCE,
-    process.env.DEMO2SPEC_THREE_SOURCE,
+    process.env.SOURCE_IR_THREE_SOURCE,
     '/opt/loot-app/lib/three.min.js',
   ].filter(Boolean);
   for (var i = 0; i < candidates.length; i += 1) {

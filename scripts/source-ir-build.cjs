@@ -254,7 +254,7 @@ function runSmokeAndVisual(inputPath, outDir, opts) {
   var smokeArgs = [outDir, smokeOut];
   if (opts.verify) smokeArgs.push('--verify', '--steps', String(opts.steps));
   if (opts.verifyRunner) smokeArgs.push('--verify-runner', opts.verifyRunner);
-  runNode(path.join(__dirname, '..', 'adapters', 'demo2spec', 'run-blueprint-smoke.js'), smokeArgs, path.join(__dirname, '..'));
+  runNode(path.join(__dirname, '..', 'adapters', 'source-ir', 'run-blueprint-smoke.js'), smokeArgs, path.join(__dirname, '..'));
 
   var visualReport = null;
   if (opts.visualDiff) {
@@ -288,6 +288,7 @@ function main() {
       semanticSource: 'source-scene-ir-required',
       sourceIrBuildPassed: false,
       sourceIrPreflightPassed: false,
+      sourceIrPresent: false,
       inputKind: inputKind(inputPath),
       failure: firstViolationCodes(report).join('; ') || 'source-ir preflight failed',
     });
