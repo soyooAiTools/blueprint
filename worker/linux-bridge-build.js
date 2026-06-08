@@ -1210,12 +1210,17 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
       function syncStoryboardSourceCamera() {
         try {
           if (!camEnt || !camEnt.camera) return;
+          var sourceScene = __bpVisualManifest && __bpVisualManifest.sourceSceneContract || {};
+          var sourceCamera = sourceScene && sourceScene.camera || {};
+          var sourcePosition = Array.isArray(sourceCamera.position) ? sourceCamera.position : [0, 22, 22];
+          var sourceLookAt = Array.isArray(sourceCamera.lookAt) ? sourceCamera.lookAt : null;
           camEnt.camera.projection = 0;
-          camEnt.camera.fov = 60;
-          camEnt.camera.nearClip = 0.1;
-          camEnt.camera.farClip = 1000;
-          camEnt.setPosition(0, 22, 22);
-          camEnt.setEulerAngles(45, 180, 0);
+          camEnt.camera.fov = isFinite(Number(sourceCamera.fov)) ? Number(sourceCamera.fov) : 60;
+          camEnt.camera.nearClip = isFinite(Number(sourceCamera.near)) ? Number(sourceCamera.near) : 0.1;
+          camEnt.camera.farClip = isFinite(Number(sourceCamera.far)) ? Number(sourceCamera.far) : 1000;
+          camEnt.setPosition(Number(sourcePosition[0]) || 0, Number(sourcePosition[1]) || 22, Number(sourcePosition[2]) || 22);
+          if (sourceLookAt) camEnt.lookAt(Number(sourceLookAt[0]) || 0, Number(sourceLookAt[1]) || 0, Number(sourceLookAt[2]) || 0);
+          else camEnt.setEulerAngles(45, 180, 0);
         } catch(eSourceCam) {}
       }
       if (__bpHasSourceVisualAssets) syncStoryboardSourceCamera();
@@ -2952,6 +2957,17 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
 	              if (step.setEntity) return entityStepSatisfied(step.setEntity);
 	              return false;
 	            }
+	            function phasePrimaryTarget() {
+	              var steps = [];
+	              if (sourcePhase && Array.isArray(sourcePhase.steps)) steps = sourcePhase.steps;
+	              else if (sourcePhase && sourcePhase.interactionGate && Array.isArray(sourcePhase.interactionGate.steps)) steps = sourcePhase.interactionGate.steps;
+	              for (var psi = 0; psi < steps.length; psi++) {
+	                var rawTarget = steps[psi] && (steps[psi].target || steps[psi].setEntity || steps[psi].ctaEntity);
+	                var mapped = directName(rawTarget);
+	                if (mapped && !isStoryboardPlayerName(mapped)) return mapped;
+	              }
+	              return null;
+	            }
 	            function phaseStepTarget() {
 	              var steps = [];
 	              if (sourcePhase && Array.isArray(sourcePhase.steps)) steps = sourcePhase.steps;
@@ -2968,6 +2984,8 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
 	              }
 	              return null;
 	            }
+	            var primaryTarget = phasePrimaryTarget();
+	            if (primaryTarget && !isStoryboardPlayerName(primaryTarget)) return primaryTarget;
 	            var stepTarget = phaseStepTarget();
 	            if (stepTarget && !isStoryboardPlayerName(stepTarget)) return stepTarget;
 	            var ui = gs && (gs.uiState || gs.ui_state) || {};
@@ -3027,7 +3045,7 @@ window.addEventListener("luna:startup:shaderReady", function() { setTimeout(func
               var st = states[name] || states[String(name).toLowerCase()] || states[String(name).charAt(0).toUpperCase() + String(name).slice(1)];
               var p = st && st.position;
               if (!p || !isFinite(Number(p.x)) || !isFinite(Number(p.z)) || Number(p.y) <= -100) return null;
-              return new pc.Vec3(storyboardRenderX(p.x), Number(p.y) || 0, Number(p.z));
+              return new pc.Vec3(storyboardRenderX(p.x), Number(p.y) || 0, storyboardRenderZForName(name, p.z));
             } catch(eRuntimeTargetPos) {}
             return null;
           }

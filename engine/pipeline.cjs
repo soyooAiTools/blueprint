@@ -179,6 +179,7 @@ Pipeline.prototype.run = function(ctx, onProgress) {
   ctx._pipelineStartTime = Date.now();
   // Guard: only record metrics once per pipeline run
   ctx._metricsRecorded = false;
+  if (self.options.recordMetrics === false) ctx._metricsRecorded = true;
 
   // Deduplicate completedStages from checkpoint to prevent cross-run accumulation
   if (ctx.completedStages && ctx.completedStages.length > 0) {
@@ -547,6 +548,7 @@ module.exports = {
     specValidate: specValidateStage,
     complexityGate: complexityGateStage,
     assemblyPlan: assemblyPlanStage,
+    assemblyComplexityGate: assemblyComplexityGateStage,
     codegen: codegenStage,
     methodCheck: methodCheckStage,
     staticPreReview: staticPreReviewStage,

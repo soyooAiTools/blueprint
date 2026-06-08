@@ -91,10 +91,11 @@ assert(
   'source visual overlay must install a deterministic source-style camera framing sync'
 );
 assert(
-  src.includes('camEnt.camera.fov = 60') &&
-    src.includes('camEnt.setPosition(0, 22, 22)') &&
-    src.includes('camEnt.setEulerAngles(45, 180, 0)'),
-  'storyboard camera framing must match the source HTML perspective camera position, stable direction and FOV'
+  src.includes('var sourceCamera = sourceScene && sourceScene.camera || {}') &&
+    src.includes('Array.isArray(sourceCamera.position) ? sourceCamera.position : [0, 22, 22]') &&
+    src.includes('camEnt.camera.fov = isFinite(Number(sourceCamera.fov)) ? Number(sourceCamera.fov) : 60') &&
+    src.includes('if (sourceLookAt) camEnt.lookAt'),
+  'storyboard camera framing must be driven by the source scene camera contract with stable fallbacks'
 );
 assert(
   src.includes('priority: __bpHasSourceVisualAssets ? -100 : 100'),
@@ -197,8 +198,11 @@ assert(
     src.includes('window.__storyboardTargetMarkerState') &&
     src.includes('function runtimeStoryboardEntityOverlayPosition(name, gs)') &&
     src.includes('screenRect: entityScreenRect(storyboardTargetMarker)') &&
+    src.includes('function phasePrimaryTarget()') &&
+    src.includes('var primaryTarget = phasePrimaryTarget()') &&
     src.includes('function phaseStepTarget()') &&
     src.includes('function stepSatisfied(step)') &&
+    src.includes('new pc.Vec3(storyboardRenderX(p.x), Number(p.y) || 0, storyboardRenderZForName(name, p.z))') &&
     src.includes('window.__bpSourceGuidanceBaselines') &&
     src.includes('carriedValue(step.gain)') &&
     !src.includes("phaseNumber === 1) phaseDefault = directName('IceBlock')") &&

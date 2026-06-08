@@ -105,6 +105,9 @@ function fixtureSourceIr() {
 var directIr = fixtureSourceIr();
 validateSourceSceneIr(directIr);
 assert.strictEqual(directIr.semanticHash, computeSourceSceneIrHash(directIr));
+assert.strictEqual(directIr.scene.ground.width, 24);
+assert.strictEqual(directIr.scene.ground.depth, 24);
+assert.strictEqual(directIr.scene.ground.height, 24);
 var repairedInput = JSON.parse(JSON.stringify(directIr));
 repairedInput.phases[1].showEntities = ['CtaButton'];
 repairedInput.phases[1].steps = [{ kind: 'set_entity_state', entity: 'CtaButton', state: 1 }];

@@ -14,6 +14,7 @@ var { staticCheckProject, getBlockingIssues } = require('../static-check.cjs');
 var { checkConformance } = require('../spec-conformance.cjs');
 var { normalizeFingerprint } = require('../metrics.cjs');
 var assemblyPlanContracts = require('../assembly-plan-contracts.cjs');
+var llmHotPath = require('../../lib/llm-hot-path.cjs');
 // 2026-05-31 Wave 1.b: shared whitelist source-of-truth with static-check.cjs.
 var staticRuleRegistry = require('../lib/static-rule-registry.cjs');
 
@@ -2570,6 +2571,19 @@ module.exports = {
               reviewerName: 'Deterministic',
             });
           } else if (USE_CODEX_REVIEW && codexReviewer) {
+            llmHotPath.guard(ctx, 'review.codex-reviewer', {
+              stage: 'review',
+              purpose: 'adversarial code review',
+              reason: 'deterministic review gate did not pass',
+              estimatedTokens: Math.ceil(String(reviewedCode || '').length / 4),
+              metadata: {
+                round: round,
+                staticWarningCount: preCheckWarnings.length,
+                specCriticalCount: specCriticalCount,
+                assemblyDecision: ctx.blueprint && ctx.blueprint.assemblyDecision || '',
+                templateCoverage: ctx.blueprint && ctx.blueprint.templateCoverage || 0,
+              },
+            });
             reviewPromise = codexReviewer.reviewCodeWithCodex(reviewedCode, {
               taskId: ctx.taskId,
               log: function(msg) { ctx.addLog('review', msg); },
@@ -2582,6 +2596,18 @@ module.exports = {
             // code-reviewer.js:594 would immediately throw MODEL_FATAL — crashing every
             // task in the process run. Skipping to the else-branch produces a clear,
             // actionable fatal instead.
+            llmHotPath.guard(ctx, 'review.legacy-gpt-reviewer', {
+              stage: 'review',
+              purpose: 'legacy adversarial code review',
+              reason: 'Codex reviewer unavailable or disabled',
+              estimatedTokens: Math.ceil(String(reviewedCode || '').length / 4),
+              metadata: {
+                round: round,
+                staticWarningCount: preCheckWarnings.length,
+                specCriticalCount: specCriticalCount,
+                assemblyDecision: ctx.blueprint && ctx.blueprint.assemblyDecision || '',
+              },
+            });
             reviewPromise = codeReviewer.reviewCode(reviewedCode, {
               taskId: ctx.taskId,
               log: function(msg) { ctx.addLog('review', msg); },
@@ -2618,6 +2644,17 @@ module.exports = {
           }
           if (shouldFallbackToLegacyReviewer(reviewResult, USE_CODEX_REVIEW, codexReviewer, codeReviewer)) {
             ctx.addLog('review', 'Codex had transient env/parse error, falling back to GPT-5.4');
+            llmHotPath.guard(ctx, 'review.legacy-gpt-fallback', {
+              stage: 'review',
+              purpose: 'legacy reviewer fallback',
+              reason: 'Codex reviewer returned transient env/parse error',
+              estimatedTokens: Math.ceil(String(reviewedCode || '').length / 4),
+              metadata: {
+                round: round,
+                source: reviewResult.source || '',
+                error: reviewResult.error || '',
+              },
+            });
             return codeReviewer.reviewCode(reviewedCode, {
               taskId: ctx.taskId,
               log: function(msg) { ctx.addLog('review', msg); },

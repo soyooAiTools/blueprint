@@ -25,6 +25,8 @@
 var path = require('path');
 var crypto = require('crypto');
 var specExtractor = require('../../adapters/spec-extractor.cjs');
+var llmHotPath = require('../../lib/llm-hot-path.cjs');
+var storyboardSpecCompiler = require('../storyboard-spec-compiler.cjs');
 
 /**
  * Returns true only when every entitiesRequired ref in `specs` resolves to a
@@ -90,6 +92,12 @@ function compareFingerprints(before, after) {
   };
 }
 
+function resolveStoryboardIr(bp) {
+  if (bp && bp.storyboardIr) return bp.storyboardIr;
+  if (bp && bp.storyboard && bp.storyboard.storyboardIr) return bp.storyboard.storyboardIr;
+  return null;
+}
+
 module.exports = {
   name: 'spec-extract',
   canRetry: true,
@@ -133,6 +141,7 @@ module.exports = {
     var frames = (bp.storyboard && Array.isArray(bp.storyboard.frames) && bp.storyboard.frames.length > 0)
       ? bp.storyboard.frames
       : (Array.isArray(bp.storyboardFrames) && bp.storyboardFrames.length > 0 ? bp.storyboardFrames : null);
+    var storyboardIr = resolveStoryboardIr(bp);
 
     function commitSpecs(specs, source) {
       var afterFp = computeSpecsFingerprint(specs);
@@ -188,6 +197,30 @@ module.exports = {
       beforeFp = null;
     }
 
+    if (storyboardIr) {
+      var compiled = storyboardSpecCompiler.compileSpecsFromStoryboardIr(storyboardIr, {
+        projectName: bp.projectName || taskId,
+        entities: entities,
+      });
+      if (compiled.ok && specsAreReusable(compiled.specs, entities)) {
+        bp.storyboardIr = compiled.storyboardIr;
+        bp.specExtraction = {
+          source: 'storyboard-ir',
+          summary: compiled.summary,
+          diagnostics: compiled.diagnostics,
+        };
+        commitSpecs(compiled.specs, 'storyboard-ir');
+        try { specExtractor.saveSpecs(compiled.specs, taskId, specsDataDir); } catch (e2) {
+          ctx.addLog('spec-extract', 'saveSpecs failed (non-fatal): ' + e2.message);
+        }
+        return Promise.resolve();
+      }
+      ctx.addLog('spec-extract',
+        'StoryboardIR deterministic specs skipped: ok=' + compiled.ok +
+        ' actionCoverage=' + (compiled.summary && compiled.summary.actionCoverage) +
+        ' reusable=' + specsAreReusable(compiled.specs, entities));
+    }
+
     if (!frames) {
       // FATAL — no frames and no cache means we can't produce specs. Failing
       // here is the right answer: downstream would crash in generateSkeleton
@@ -198,6 +231,16 @@ module.exports = {
       return Promise.reject(err);
     }
 
+    llmHotPath.guard(ctx, 'spec-extract.fresh-extract', {
+      stage: 'spec-extract',
+      purpose: 'extract phase specs from storyboard frames',
+      reason: 'no reusable specs/cache available',
+      metadata: {
+        frameCount: frames.length,
+        entityCount: Array.isArray(bp.entities) ? bp.entities.length : 0,
+        projectName: bp.projectName || taskId,
+      },
+    });
     ctx.addLog('spec-extract', 'Extracting specs from ' + frames.length + ' storyboard frames...');
     return specExtractor.extractSpecs(frames, {
       projectName: bp.projectName || taskId,

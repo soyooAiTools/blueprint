@@ -181,6 +181,10 @@ async function main() {
   assert.ok(html.indexOf('function movePreviewPlayer(dt)') >= 0);
   assert.ok(html.indexOf('function forcePreviewJoystickVisible(el)') >= 0);
   assert.ok(html.indexOf('function terminalRetainedPhaseList(index)') >= 0);
+  var rendererScript = buildSourceIrPreviewRendererScript();
+  assert.ok(rendererScript.indexOf('new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.055, 8, 64)') >= 0);
+  assert.ok(rendererScript.indexOf('window.__sourceIrTargetRingState') >= 0);
+  assert.strictEqual(rendererScript.indexOf('targetRingEl.style.position = "fixed"; targetRingEl.style.left = "50%"; targetRingEl.style.top = "50%"'), -1);
 
   var detection = detectSourceIrPreviewRenderer(html);
   assert.strictEqual(detection.version, SOURCE_IR_PREVIEW_RENDERER_VERSION);
@@ -268,6 +272,17 @@ async function main() {
   assert.strictEqual(phase1.entity_states.CtaButton, undefined);
   assert.strictEqual(sandbox.window.__BP_SOURCE_IR_RENDERER_USING_DOM_FALLBACK__, true);
   assert.notStrictEqual(sandbox.window.__sourceIrPreviewModels.WaterDrop.dom.style.display, 'none');
+  assert.strictEqual(sandbox.window.__sourceIrTargetRingState.visible, true);
+  assert.strictEqual(sandbox.window.__sourceIrTargetRingState.target, 'WaterDrop');
+  assert.strictEqual(sandbox.window.__sourceIrTargetRingState.mode, 'dom');
+  assert.strictEqual(sandbox.window.__sourceIrTargetRingState.world.x, 3);
+  assert.strictEqual(sandbox.window.__sourceIrTargetRingState.world.y, 0);
+  assert.strictEqual(sandbox.window.__sourceIrTargetRingState.world.z, 0);
+  assert.strictEqual(sandbox.window.__sourceIrTargetRingState.screen.x, 526);
+  assert.strictEqual(sandbox.window.__sourceIrTargetRingState.screen.y, 300);
+  assert.strictEqual(sandbox.document.__elements['source-ir-target-ring'].style.display, 'block');
+  assert.strictEqual(sandbox.document.__elements['source-ir-target-ring'].style.left, '526.0px');
+  assert.strictEqual(sandbox.document.__elements['source-ir-target-ring'].style.top, '300.0px');
 
   sandbox.window.__sourceIrPreviewModels.Player.position.x = 3;
   sandbox.window.__sourceIrPreviewModels.Player.position.z = 0;

@@ -16,6 +16,7 @@ var templateOutputValidator = require('../../adapters/template-output-validator.
 var triggerNormalizer = require('../../adapters/deterministic-trigger-normalizer.cjs');
 var schemaValidator = require('../../adapters/schema/validate-schema.cjs');
 var commentLocalizer = require('../../lib/csharp-comment-localizer.cjs');
+var llmHotPath = require('../../lib/llm-hot-path.cjs');
 var signalCompletenessPatcher = require('../signal-completeness-patcher.cjs');
 var schemaPromptV3 = require('./build-schema-prompt-v3.cjs');
 
@@ -269,7 +270,10 @@ module.exports = {
         }
         var skeletonStr = typeof skeletonResult === 'string' ? skeletonResult : skeletonResult.main;
 
-        var fillResult = templateEngine.fillSkeleton(schema, skeletonStr, { w1bSplit: isW1bSplit });
+        var fillResult = templateEngine.fillSkeleton(schema, skeletonStr, {
+          w1bSplit: isW1bSplit,
+          suppressMissingMarkerWarning: isW1bSplit,
+        });
         var combinedMissingMarkers = (fillResult.missingMarkers || []).slice();
         var flowFillResult = null;
         if (isW1bSplit && skeletonResult.flow) {
@@ -392,6 +396,15 @@ function mergeSchemaEntitiesForResolution(blueprintEntities, schemaEntities) {
 }
 
 function generateSchemaFromSpecs(ctx) {
+  llmHotPath.guard(ctx, 'codegen-schema.generate-schema', {
+    stage: 'codegen-schema',
+    purpose: 'fresh gameSchema generation',
+    reason: 'no prebuilt gameSchema available',
+    metadata: {
+      specCount: ctx && ctx.blueprint && Array.isArray(ctx.blueprint.specs) ? ctx.blueprint.specs.length : 0,
+      entityCount: ctx && ctx.blueprint && Array.isArray(ctx.blueprint.entities) ? ctx.blueprint.entities.length : 0,
+    },
+  });
   var maxRetries = 2;
   var attempt = 0;
   var runCodexText = require('../../worker/codex-coder.js').runCodexText;
@@ -699,7 +712,7 @@ function buildSchemaPromptLegacy(ctx) {
   lines.push('gameConfig (必填): { "cameraBackground": [r,g,b], "groundColor": [0.3,0.6,0.2], "moveSpeed": 5.0, "collectRange": 2.0, "maxCarry": 10 }');
   lines.push('entities[]: { "name": "PascalCaseName", "chineseName": "中文名", "showLabel": true, "pool": "__Pool_Shape_Color_NN", "initPos": [x,y,z], "scale": 1.0 } — name 用于 C#,chineseName 是世界标签显示的中文');
   lines.push('resources[]: { "name": "资源名", "entity": "关联实体名", "convertRatio": 1 }');
-  lines.push('phases[]: { "phaseId": "阶段ID", "showEntities": ["实体名"], "hideEntities": [], "guideText": "引导文字", "trigger": {...}, "onEnter": [{...}] }');
+  lines.push('phases[]: { "phaseId": "阶段ID", "showEntities": ["实体名"], "hideEntities": [], "guideText": "引导文字", "trigger": {...}", "onEnter": [{...}] }');
   lines.push('phases[].onEnter[].action 只能是: "set_entity_state" | "add_resource" | "switch_form" | "show_floating_text" | "set_guide" | "spawn_enemies"');
   lines.push('trigger.state 必须是整数(不是字符串)');
   lines.push('npcs[]: { "entity": "实体名", "template": "patrol|chase_attack|...", "params": {...} }');
@@ -734,6 +747,11 @@ function buildSchemaPromptLegacy(ctx) {
   lines.push('7. pool 格式: __Pool_{Shape}_{Color}_{NN}');
   lines.push('8. entities[].initPos: [x,y,z], x范围±6, z范围±4, y>0');
   lines.push('9. entities[].scale >= 0.3');
+  if (plansSummary) {
+    lines.push('');
+    lines.push('## Assembly Plan（必须遵守）');
+    lines.push(plansSummary);
+  }
   lines.push('只输出 JSON 对象，不要 markdown 包裹，不要解释。');
   return lines.join('\n');
 }
@@ -1076,6 +1094,9 @@ function loadCustomLogicWorkspaceIntoContext(ctx, workDir) {
   if (nextMainRaw !== String(ctx.csCode || '')) workspaceTouched = true;
   var mainMerge = mergeNamedTodoRegion(String(ctx.csCode || ''), nextMainRaw, 'CUSTOM');
   var nextMain = mainMerge.content;
+  if (mainMerge.preservedRegion) {
+    ctx.blueprint.lastCustomLogicScopeFixes.push('GameFlowManagerMain.cs:TODO_CUSTOM');
+  }
   var changed = nextMain !== String(ctx.csCode || '');
   var nextExtras = Object.assign({}, ctx.extraFiles || {});
   Object.keys(nextExtras).forEach(function(name) {
@@ -1129,6 +1150,18 @@ function applyGeneratedCodeContractScrub(ctx) {
   if (methodCheck.autoRepairDuplicateStateFields && methodCheck.autoRepairDuplicateStateFields(ctx)) {
     changed = true;
     fixes.push('DuplicateStateFields');
+  }
+  if (methodCheck.autoRepairDuplicateObjectFields && methodCheck.autoRepairDuplicateObjectFields(ctx)) {
+    changed = true;
+    fixes.push('DuplicateObjectFields');
+  }
+  if (methodCheck.autoRepairPlayerAliasDrift && methodCheck.autoRepairPlayerAliasDrift(ctx)) {
+    changed = true;
+    fixes.push('PlayerAliasDrift');
+  }
+  if (methodCheck.autoRepairInvalidPoolLiterals && methodCheck.autoRepairInvalidPoolLiterals(ctx)) {
+    changed = true;
+    fixes.push('InvalidPoolLiterals');
   }
   return { changed: changed, fixes: fixes };
 }

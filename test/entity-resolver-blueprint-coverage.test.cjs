@@ -183,13 +183,15 @@ const { generateSkeleton } = require('../adapters/skeleton-generator.cjs');
   });
   const mainCode = typeof code === 'string' ? code : code.main;
   assert.match(mainCode, /STORYBOARD2HTML VISUAL PARITY/);
-  assert.match(mainCode, /string\[\] _entityBindingPools = new string\[\] \{[\s\S]*"_player"[\s\S]*"__Pool_Cylinder_Blue_01"/);
-  assert.match(mainCode, /void NormalizeSourcePlayerSceneObject\(\)[\s\S]*GameObject\.Find\("__Pool_Cylinder_Cyan_01"\)[\s\S]*sourcePlayer\.name = "_player"/);
-  assert.match(mainCode, /NormalizeSourcePlayerSceneObject\(\);[\s\S]*RegisterEntityBindings\(\);/);
+  assert.match(mainCode, /string\[\] _entityBindingPools = new string\[\] \{[\s\S]*"__Pool_Cylinder_Cyan_01"[\s\S]*"__Pool_Cylinder_Blue_01"/);
+  assert.match(mainCode, /void NormalizeSourcePlayerSceneObject\(\)[\s\S]*GameSceneCtrl\.instance\.Get\("Player"\)[\s\S]*sourcePlayer\.name = "_player"/);
+  assert.doesNotMatch(mainCode, /GameObject\.Find\("__Pool_Cylinder_Cyan_01"\)/);
+  assert.match(mainCode, /RegisterEntityBindings\(\);[\s\S]*NormalizeSourcePlayerSceneObject\(\);/);
   assert.match(mainCode, /mainCam\.orthographic = false;/);
   assert.match(mainCode, /new Color\(0\.0275f, 0\.0627f, 0\.149f\)/);
   assert.match(mainCode, /RenderSettings\.ambientLight = new Color\(0\.62f, 0\.62f, 0\.62f\);/);
-  assert.match(mainCode, /__bpGroundMat\.color = new Color\(0\.0745f, 0\.1373f, 0\.2275f\);/);
+  assert.match(mainCode, /__bpGroundRenderer\.sharedMaterial\.color = new Color\(0\.0745f, 0\.1373f, 0\.2275f\);/);
+  assert.doesNotMatch(mainCode, /new Material\(/);
   assert.match(mainCode, /guideText = GFM_UI\.CreateText\(uiCanvas, "", new Vector2\(0, 482\), 30\);/);
 }
 

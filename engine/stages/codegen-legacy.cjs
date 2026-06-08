@@ -11,6 +11,7 @@ var helpers = require('../helpers.cjs');
 var { createFixLoop } = require('../fix-loop.cjs');
 var { getProjectBlockingIssues } = require('../static-check.cjs');
 var loadInjectablePromotedRules = require('../../worker/code-reviewer.js').loadInjectablePromotedRules;
+var llmHotPath = require('../../lib/llm-hot-path.cjs');
 
 module.exports = {
   name: 'codegen',
@@ -155,6 +156,15 @@ module.exports = {
         }
       },
       attempt: function(ctx, round) {
+        llmHotPath.guard(ctx, 'codegen-legacy.generate-code', {
+          stage: 'codegen',
+          purpose: 'legacy full code generation',
+          reason: 'schema codegen disabled',
+          metadata: {
+            round: round,
+            specCount: ctx.blueprint && Array.isArray(ctx.blueprint.specs) ? ctx.blueprint.specs.length : 0,
+          },
+        });
         return generator(ctx.blueprint, ctx.workDir, logFn, ctx.taskId, 'unity').then(function(result) {
           if (!result.ok) {
             throw new Error('AI coding failed: ' + (result.error || '').slice(0, 200));

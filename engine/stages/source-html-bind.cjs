@@ -51,6 +51,9 @@ var fs = require('fs');
 var path = require('path');
 var crypto = require('crypto');
 
+var sourceSceneIr;
+var sourceIrBlueprintContext;
+
 function flagEnabled(value) {
   return /^(1|true|yes|on)$/i.test(String(value || '').trim());
 }
@@ -121,6 +124,72 @@ function sha256OfFile(filePath) {
   return hash.digest('hex');
 }
 
+function sourceIrAutoPrebuildEnabled() {
+  return !/^(0|false|off|disabled)$/i.test(String(process.env.BLUEPRINT_SOURCE_IR_AUTOPREBUILD || '1').trim());
+}
+
+function hasEmbeddedSourceIr(html) {
+  return /(?:window|globalThis)\.__BP_SOURCE_IR__\s*=/.test(String(html || '')) ||
+    /\b(?:const|let|var)\s+__BP_SOURCE_IR__\s*=/.test(String(html || ''));
+}
+
+function loadSourceIrDeps() {
+  if (!sourceSceneIr) sourceSceneIr = require('../source-scene-ir.cjs');
+  if (!sourceIrBlueprintContext) sourceIrBlueprintContext = require('../../adapters/source-ir/compile-blueprint-context.js');
+  return {
+    sourceSceneIr: sourceSceneIr,
+    sourceIrBlueprintContext: sourceIrBlueprintContext,
+  };
+}
+
+function shouldAutoPrebuildSourceIr(ctx) {
+  if (!sourceIrAutoPrebuildEnabled()) return false;
+  var bp = ctx && ctx.blueprint || {};
+  if (!ctx || !ctx.sourceHtmlPath) return false;
+  if (bp.prebuiltGameSchema === true && bp.gameSchema) return false;
+  if (bp.skipSchemaGeneration === true && bp.gameSchema) return false;
+  if (bp.schemaSource === 'source-scene-ir' && bp.gameSchema) return false;
+  return true;
+}
+
+function autoPrebuildSourceIrGameSchema(ctx) {
+  if (!shouldAutoPrebuildSourceIr(ctx)) return { applied: false, reason: 'disabled-or-not-needed' };
+  var html = fs.readFileSync(ctx.sourceHtmlPath, 'utf8');
+  if (!hasEmbeddedSourceIr(html)) return { applied: false, reason: 'no-embedded-source-ir' };
+
+  var deps = loadSourceIrDeps();
+  var ir = deps.sourceSceneIr.extractSourceSceneIrFromHtml(html, ctx.sourceHtmlPath, {
+    project: ctx.blueprint && (ctx.blueprint.projectName || ctx.blueprint.name) || ctx.taskId || 'source-ir',
+  });
+  var built = deps.sourceIrBlueprintContext.buildSourceIrBlueprintContext(ir, {
+    projectName: ctx.blueprint && (ctx.blueprint.projectName || ctx.blueprint.name) || ctx.taskId || 'source-ir',
+    source: ctx.sourceHtmlPath,
+    blueprintRoot: path.join(__dirname, '..', '..'),
+  });
+
+  var previous = ctx.blueprint || {};
+  ctx.blueprint = Object.assign({}, previous, built.blueprint, {
+    sourceHtmlPath: ctx.sourceHtmlPath,
+    sourceHtmlSha256: ctx.sourceHtmlSha256,
+    sourceIrAutoPrebuilt: true,
+    sourceIrAutoPrebuiltAt: new Date().toISOString(),
+    sourceIrAutoPrebuiltHash: ir.semanticHash,
+    sourceIrAutoPrebuiltCarrier: ir.extraction && ir.extraction.carrier || 'window.__BP_SOURCE_IR__',
+    schemaSource: 'source-scene-ir',
+    semanticSource: 'source-scene-ir',
+    prebuiltGameSchema: true,
+    skipSchemaGeneration: true,
+  });
+  if (previous.feedbackHistory && !ctx.blueprint.feedbackHistory) ctx.blueprint.feedbackHistory = previous.feedbackHistory;
+  if (previous.metadata && !ctx.blueprint.metadata) ctx.blueprint.metadata = previous.metadata;
+  return {
+    applied: true,
+    sourceSceneIrHash: ir.semanticHash,
+    phaseCount: ir.phases.length,
+    entityCount: ir.entities.length,
+  };
+}
+
 module.exports = {
   name: 'source-html-bind',
   canRetry: false,
@@ -188,6 +257,25 @@ module.exports = {
         ' sha256=' + (ctx.sourceHtmlSha256 || '<unverified>') +
         ' (from ' + ctx._sourceHtmlBindFrom + ')'
       );
+      try {
+        var prebuilt = autoPrebuildSourceIrGameSchema(ctx);
+        if (prebuilt.applied) {
+          ctx.addLog && ctx.addLog(
+            'source-html-bind',
+            'SourceIR auto-prebuilt gameSchema: phases=' + prebuilt.phaseCount +
+            ' entities=' + prebuilt.entityCount +
+            ' sourceSceneIrHash=' + prebuilt.sourceSceneIrHash
+          );
+        } else if (prebuilt.reason && prebuilt.reason !== 'disabled-or-not-needed') {
+          ctx.addLog && ctx.addLog('source-html-bind', 'SourceIR auto-prebuild skipped: ' + prebuilt.reason);
+        }
+      } catch (err) {
+        var message = 'SourceIR auto-prebuild failed: ' + (err && err.message || err);
+        ctx.addLog && ctx.addLog('source-html-bind', message);
+        if (!/^(1|true|yes|on)$/i.test(String(process.env.BLUEPRINT_SOURCE_IR_AUTOPREBUILD_SOFT || '').trim())) {
+          throw new Error(message);
+        }
+      }
     } else {
       ctx.addLog && ctx.addLog('source-html-bind', 'no-op (phase 1 transition — no sourceHtmlPath provided)');
     }
@@ -204,5 +292,7 @@ module.exports = {
     sha256OfFile: sha256OfFile,
     isStoryboard2HtmlFlow: isStoryboard2HtmlFlow,
     isHardMode: isHardMode,
+    hasEmbeddedSourceIr: hasEmbeddedSourceIr,
+    autoPrebuildSourceIrGameSchema: autoPrebuildSourceIrGameSchema,
   }
 };

@@ -71,7 +71,7 @@ function csharpResourceCarryVar(resource) {
 }
 
 function entityBindingPoolName(name, poolName, sourceVisualParity) {
-  if (sourceVisualParity && isSourcePlayerEntityName(name)) return '_player';
+  if (sourceVisualParity && isSourcePlayerEntityName(name) && !poolName) return '_player';
   return poolName;
 }
 
@@ -519,7 +519,6 @@ function generateSkeleton(specs, opts = {}) {
 
   const entityNames = Object.keys(entityPoolMap);
   const sourcePlayerEntityName = sourceVisualParity ? entityNames.find(name => isSourcePlayerEntityName(name)) : null;
-  const sourcePlayerLegacyPoolName = sourcePlayerEntityName ? entityPoolMap[sourcePlayerEntityName] : '';
   const shouldSplit = totalPhases > 10;
   const lines = [];
 
@@ -754,8 +753,9 @@ function generateSkeleton(specs, opts = {}) {
   }
   lines.push('');
   lines.push('    // [SKELETON] Phase evidence：按 phase.signal 保存运行时证据，供 preview/CUA 验证。');
-  lines.push('    string[] _phaseEvidenceKeys = new string[512];');
-  lines.push('    string[] _phaseEvidenceValues = new string[512];');
+  const phaseEvidenceCapacity = Math.max(2048, specs.length * 96);
+  lines.push('    string[] _phaseEvidenceKeys = new string[' + phaseEvidenceCapacity + '];');
+  lines.push('    string[] _phaseEvidenceValues = new string[' + phaseEvidenceCapacity + '];');
   lines.push('    int _phaseEvidenceCount = 0;');
   lines.push('    int _phaseEvidenceWriteCount = 0;');
   lines.push('    int _phaseEvidenceWriteRejectionCount = 0;');
@@ -862,10 +862,7 @@ function generateSkeleton(specs, opts = {}) {
       lines.push('    // [SKELETON] storyboard2html 玩家实体使用 source contract；启动时先把旧 Luna pool 归一到 _player。');
       lines.push('    void NormalizeSourcePlayerSceneObject()');
       lines.push('    {');
-      lines.push('        GameObject sourcePlayer = GameObject.Find("_player");');
-      if (sourcePlayerLegacyPoolName && sourcePlayerLegacyPoolName !== '_player') {
-        lines.push('        if (sourcePlayer == null) sourcePlayer = GameObject.Find("' + csString(sourcePlayerLegacyPoolName) + '");');
-      }
+      lines.push('        GameObject sourcePlayer = GameSceneCtrl.instance.Get("' + csString(sourcePlayerEntityName) + '");');
       lines.push('        if (sourcePlayer == null) return;');
       lines.push('        sourcePlayer.name = "_player";');
       lines.push('        try { sourcePlayer.tag = "Player"; } catch (UnityException) {}');
@@ -1430,10 +1427,9 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('        Vector3 __autoPlayCameraPulsePosition = _autoPlayCameraBasePosition;');
   lines.push('        __autoPlayCameraPulsePosition.x += pulse * 0.55f;');
   lines.push('        __autoPlayCameraPulsePosition.z += pulse2 * 0.55f;');
-  lines.push('        mainCam.transform.position = __autoPlayCameraPulsePosition;');
-  lines.push('        mainCam.transform.rotation = _autoPlayCameraBaseRotation * Quaternion.Euler(pulse * 2.4f, pulse * 4.5f, 0f);');
+  lines.push('        GFM_CameraController.Instance.MoveTo(__autoPlayCameraPulsePosition);');
   lines.push('        mainCam.fieldOfView = Mathf.Clamp(_autoPlayCameraBaseFov + pulse * 3.0f, 32f, 64f);');
-  lines.push('        if (mainCam.orthographic) mainCam.orthographicSize = Mathf.Clamp(_autoPlayCameraBaseOrthoSize + pulse * 0.70f, 3.5f, 14f);');
+  lines.push('        if (mainCam.orthographic) GFM_CameraController.Instance.SetOrthographicSize(Mathf.Clamp(_autoPlayCameraBaseOrthoSize + pulse * 0.70f, 3.5f, 14f));');
   lines.push('    }');
   lines.push('');
   lines.push('    // [SKELETON] AutoPlay phase assist：短暂等待后只触发一次确定性兜底动作。');
@@ -1542,7 +1538,7 @@ function generateSkeleton(specs, opts = {}) {
   lines.push('    // [SKELETON] Awake 优先于 Start 且在首帧渲染前执行;只设 Camera bg,消除一帧闪屏。');
   lines.push('    void Awake()');
   lines.push('    {');
-  lines.push('        var cam = Camera.main;');
+  lines.push('        var cam = Camera.main; // 正常');
   const awakeCameraBg = sourceVisualParity ? sourceCameraBg : CAMERA_BG;
   lines.push(`        if (cam != null) { cam.clearFlags = CameraClearFlags.SolidColor; cam.backgroundColor = ${csColor(awakeCameraBg)}; }`);
   lines.push('    }');
@@ -1571,10 +1567,10 @@ function generateSkeleton(specs, opts = {}) {
   if (entityNames.length > 0) {
     lines.push('        // [SKELETON] 场景实体管理');
     lines.push('        GameSceneCtrl.Init(gameObject);');
+    lines.push('        RegisterEntityBindings();');
     if (sourcePlayerEntityName) {
       lines.push('        NormalizeSourcePlayerSceneObject();');
     }
-    lines.push('        RegisterEntityBindings();');
     if (sourceFaithfulEntities.length > 0) {
       lines.push('        // [OPTION C] 用源 HTML meshOps 复合网格替换池化单原语，再刷新字段引用。');
       lines.push('        BuildSourceFaithfulMeshes();');
@@ -1642,9 +1638,7 @@ function generateSkeleton(specs, opts = {}) {
     lines.push('            var __bpGroundRenderer = (Renderer)__bpGround.GetComponent(typeof(Renderer));');
     lines.push('            if (__bpGroundRenderer != null && __bpGroundRenderer.sharedMaterial != null)');
     lines.push('            {');
-    lines.push('                var __bpGroundMat = new Material(__bpGroundRenderer.sharedMaterial);');
-    lines.push('                __bpGroundMat.color = ' + csColor(sourceGroundColor) + ';');
-    lines.push('                __bpGroundRenderer.material = __bpGroundMat;');
+    lines.push('                __bpGroundRenderer.sharedMaterial.color = ' + csColor(sourceGroundColor) + ';');
     lines.push('            }');
     lines.push('        }');
   }

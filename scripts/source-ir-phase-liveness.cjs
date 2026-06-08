@@ -60,6 +60,7 @@ async function main() {
     violations: (report.violations || []).map(function(violation) { return violation.code; }).slice(0, 12),
   }, null, 2));
   if (!report.passed) process.exit(1);
+  process.exit(0);
 }
 
 main().catch(function(error) {

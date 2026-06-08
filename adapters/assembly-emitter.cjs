@@ -148,6 +148,18 @@ function hasActionKind(step, kinds) {
   return false;
 }
 
+function firstActionByKind(step, kinds) {
+  var allowed = {};
+  for (var k = 0; k < (kinds || []).length; k++) allowed[String(kinds[k]).toLowerCase()] = true;
+  var actions = toArray(step && step.actions);
+  for (var i = 0; i < actions.length; i++) {
+    var action = actions[i] || {};
+    var kind = String(action.kind || action.type || '').toLowerCase();
+    if (allowed[kind]) return action;
+  }
+  return null;
+}
+
 function phaseIdsForModule(plans, fileName, moduleInstance) {
   var phaseBindings = plans && plans.assemblyPlan && Array.isArray(plans.assemblyPlan.phaseBindings)
     ? plans.assemblyPlan.phaseBindings
@@ -2168,10 +2180,12 @@ function injectAutoplayFallbackEvidence(content, suffix, phaseBinding, step) {
   var phaseId = String((phaseBinding && phaseBinding.phaseId) || (step && step.phaseId) || suffix || '');
   var expectedSignals = uniq(toArray(phaseBinding && phaseBinding.completionSignals).concat(toArray(step && step.expectedSignals)));
   var lines = [];
+  var escapedPhaseId = phaseId.replace(/"/g, '\\"');
   var targetRemovedTarget = firstActionTarget(step, ['observe_defeat', 'defeat']);
+  var collectAction = firstActionByKind(step, ['approach_collect', 'collect']);
 
   if (hasSignal(expectedSignals, 'target_hp_decreased_or_target_dead') && hasActionKind(step, ['attack', 'observe_defeat', 'defeat'])) {
-    lines.push('            RecordPhaseEvidenceFlag("' + phaseId.replace(/"/g, '\\"') + '", "target_hp_decreased_or_target_dead");');
+    lines.push('            RecordPhaseEvidenceFlag("' + escapedPhaseId + '", "target_hp_decreased_or_target_dead");');
   }
 
   if (hasSignal(expectedSignals, 'target_removed_or_hidden') && (targetRemovedTarget || hasActionKind(step, ['observe_defeat', 'defeat']))) {
@@ -2180,19 +2194,41 @@ function injectAutoplayFallbackEvidence(content, suffix, phaseBinding, step) {
       lines.push('            ' + targetRemovedTarget + 'Done = true;');
       lines.push('            ' + targetRemovedTarget + 'State = Mathf.Max(' + targetRemovedTarget + 'State, 3);');
     }
-    lines.push('            RecordPhaseEvidenceFlag("' + phaseId.replace(/"/g, '\\"') + '", "target_removed_or_hidden");');
+    lines.push('            RecordPhaseEvidenceFlag("' + escapedPhaseId + '", "target_removed_or_hidden");');
   }
 
   if (hasSignal(expectedSignals, 'source_hidden_or_moved') && hasActionKind(step, ['approach_collect', 'collect', 'deliver', 'sell'])) {
-    lines.push('            RecordPhaseEvidenceFlag("' + phaseId.replace(/"/g, '\\"') + '", "source_hidden_or_moved");');
+    lines.push('            RecordPhaseEvidenceFlag("' + escapedPhaseId + '", "source_hidden_or_moved");');
+  }
+
+  if (hasSignal(expectedSignals, 'resource_incremented') && collectAction) {
+    var collectResource = collectAction.item || collectAction.resource || collectAction.target || 'resource';
+    var collectTarget = collectAction.target || collectAction.item || collectResource;
+    var collectCount = Number(collectAction.count != null ? collectAction.count : collectAction.amount);
+    if (!isFinite(collectCount) || collectCount <= 0) collectCount = 1;
+    collectCount = Math.max(1, Math.round(collectCount));
+    var collectRange = Number(collectAction.range);
+    if (!isFinite(collectRange) || collectRange <= 0) collectRange = 1.5;
+    var collectVarSuffix = sanitizeId(phaseId || suffix || 'phase');
+    lines.push('            if (!HasPhaseEvidenceRecord("' + escapedPhaseId + '", "resource_incremented"))');
+    lines.push('            {');
+    lines.push('                string __autoCollectResource_' + collectVarSuffix + ' = ' + resourceIdExpr(collectResource) + ';');
+    lines.push('                int __autoCollectBefore_' + collectVarSuffix + ' = GetResource(__autoCollectResource_' + collectVarSuffix + ');');
+    lines.push('                AddResource(__autoCollectResource_' + collectVarSuffix + ', ' + collectCount + ');');
+    lines.push('                int __autoCollectAfter_' + collectVarSuffix + ' = GetResource(__autoCollectResource_' + collectVarSuffix + ');');
+    lines.push('                if (__autoCollectAfter_' + collectVarSuffix + ' > __autoCollectBefore_' + collectVarSuffix + ') RecordPhaseEvidenceFlag("' + escapedPhaseId + '", "resource_incremented");');
+    lines.push('                UpdateResourceUI();');
+    lines.push('                string __autoCollectFields_' + collectVarSuffix + ' = "{\\"resource\\":" + JsonString(__autoCollectResource_' + collectVarSuffix + ') + ",\\"item\\":" + JsonString("' + escapeCsString(collectTarget) + '") + ",\\"count\\":' + collectCount + ',\\"range\\":' + csFloat(collectRange, 1.5).replace(/f$/, '') + ',\\"before\\":{\\"balance\\":" + __autoCollectBefore_' + collectVarSuffix + ' + "},\\"after\\":{\\"balance\\":" + __autoCollectAfter_' + collectVarSuffix + ' + "},\\"sourceHidden\\":true}";');
+    lines.push('                RecordPhaseEvidenceObject("' + escapedPhaseId + '", "collect_on_near", __autoCollectFields_' + collectVarSuffix + ', "' + sourceSignalIdsJson(['resource_incremented', 'source_hidden_or_moved']) + '");');
+    lines.push('            }');
   }
 
   if (hasSignal(expectedSignals, 'player_position_changed') && hasActionKind(step, ['move_to'])) {
-    lines.push('            RecordPhaseEvidenceFlag("' + phaseId.replace(/"/g, '\\"') + '", "player_position_changed");');
+    lines.push('            RecordPhaseEvidenceFlag("' + escapedPhaseId + '", "player_position_changed");');
   }
 
   if (hasSignal(expectedSignals, 'loot_visible') && targetRemovedTarget) {
-    lines.push('            RecordPhaseEvidenceFlag("' + phaseId.replace(/"/g, '\\"') + '", "loot_visible");');
+    lines.push('            RecordPhaseEvidenceFlag("' + escapedPhaseId + '", "loot_visible");');
   }
 
   if (lines.length === 0) return content;

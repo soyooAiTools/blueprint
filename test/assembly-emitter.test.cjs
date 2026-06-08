@@ -483,7 +483,7 @@ var fallbackPlans = {
       },
       {
         phaseId: 'buildConveyorBelt',
-        completionSignals: ['guide_text_visible', 'source_hidden_or_moved', 'player_position_changed']
+        completionSignals: ['guide_text_visible', 'source_hidden_or_moved', 'resource_incremented', 'player_position_changed']
       },
       {
         phaseId: 'occupyEnemyBaseCTA',
@@ -503,8 +503,8 @@ var fallbackPlans = {
       },
       {
         phaseId: 'buildConveyorBelt',
-        actions: [{ kind: 'approach_collect', target: 'RocketDebris' }, { kind: 'move_to', target: 'ConveyorBelt' }],
-        expectedSignals: ['source_hidden_or_moved', 'player_position_changed']
+        actions: [{ kind: 'approach_collect', target: 'RocketDebris', item: 'RocketDebris', count: 1 }, { kind: 'move_to', target: 'ConveyorBelt' }],
+        expectedSignals: ['source_hidden_or_moved', 'resource_incremented', 'player_position_changed']
       },
       {
         phaseId: 'occupyEnemyBaseCTA',
@@ -517,6 +517,11 @@ var fallbackPlans = {
 var fallbackEmitted = assemblyEmitter.applyAssemblyPlanToSkeleton(fallbackSkeleton, fallbackPlans);
 assert.ok(fallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag("buildDefenseTower", "target_hp_decreased_or_target_dead")') >= 0, 'autoplay fallback should record action-backed damage evidence');
 assert.ok(fallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag("buildConveyorBelt", "source_hidden_or_moved")') >= 0, 'autoplay fallback should record action-backed collect movement evidence');
+assert.ok(fallbackEmitted.files.flow.indexOf('string __autoCollectResource_buildConveyorBelt = GFM_ResourceIds.RocketDebris;') >= 0, 'autoplay fallback should bind collect resource from approach_collect action');
+assert.ok(fallbackEmitted.files.flow.indexOf('AddResource(__autoCollectResource_buildConveyorBelt, 1);') >= 0, 'autoplay fallback should add the collected resource when collect evidence is expected');
+assert.ok(fallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag("buildConveyorBelt", "resource_incremented")') >= 0, 'autoplay fallback should record resource_incremented for collect phases');
+assert.ok(fallbackEmitted.files.flow.indexOf('\\"range\\":1.5') >= 0, 'autoplay fallback collect evidence should include required range');
+assert.ok(fallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceObject("buildConveyorBelt", "collect_on_near"') >= 0, 'autoplay fallback should emit structured collect evidence');
 assert.ok(fallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag("buildConveyorBelt", "player_position_changed")') >= 0, 'autoplay fallback should record action-backed move_to evidence');
 assert.ok(fallbackEmitted.files.flow.indexOf('if (EnemyBase != null) HideObj(EnemyBase);') >= 0, 'autoplay fallback should hide defeated target when action names one');
 assert.ok(fallbackEmitted.files.flow.indexOf('RecordPhaseEvidenceFlag("occupyEnemyBaseCTA", "target_removed_or_hidden")') >= 0, 'autoplay fallback should record target removal evidence');

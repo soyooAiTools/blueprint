@@ -114,7 +114,7 @@ function fillSkeleton(schema, skeleton, opts) {
 
   var colorOverrides = getColorOverrides(schema);
   var result = replaceAllTodos(skeleton, todoMap, colorOverrides);
-  if (result.missingMarkers && result.missingMarkers.length > 0) {
+  if (!opts.suppressMissingMarkerWarning && result.missingMarkers && result.missingMarkers.length > 0) {
     console.error('[template-engine] WARNING: skeleton missing markers for: ' + result.missingMarkers.join(', '));
   }
   return {

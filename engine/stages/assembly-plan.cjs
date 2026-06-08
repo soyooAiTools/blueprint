@@ -17,6 +17,7 @@ function buildProjectLikeBlueprint(blueprint, taskId) {
     phases: blueprint.phases || [],
     specs: blueprint.specs || [],
     storyboardFrames: blueprint.storyboardFrames || ((blueprint.storyboard && blueprint.storyboard.frames) || []),
+    storyboardIr: blueprint.storyboardIr || (blueprint.storyboard && blueprint.storyboard.storyboardIr) || null,
     storyboard: blueprint.storyboard || [],
     characterSheet: blueprint.storyboard && blueprint.storyboard.characterSheet || {},
     sceneSheet: blueprint.storyboard && blueprint.storyboard.sceneSheet || {},

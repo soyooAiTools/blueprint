@@ -114,6 +114,15 @@ async function main() {
   unsatisfiedResource.phases[0].steps = [{ kind: 'move_to', target: 'WaterDrop', radius: 1.2 }];
   assertStaticViolation(unsatisfiedResource, 'source_ir_gate_resource_unsatisfied');
 
+  var hiddenCollectCarrier = clone(ir);
+  hiddenCollectCarrier.phases[0].showEntities = ['Player'];
+  hiddenCollectCarrier.phases[0].steps = [{ kind: 'collect', resource: 'Water', amount: 1 }];
+  assertStaticViolation(hiddenCollectCarrier, 'source_ir_collect_carrier_not_visible');
+
+  var wrongCollectCarrier = clone(ir);
+  wrongCollectCarrier.phases[0].steps = [{ kind: 'collect', resource: 'Water', from: 'Pump', amount: 1 }];
+  assertStaticViolation(wrongCollectCarrier, 'source_ir_collect_carrier_mismatch');
+
   var unsatisfiedState = clone(ir);
   unsatisfiedState.phases[1].steps[1].state = 1;
   assertStaticViolation(unsatisfiedState, 'source_ir_gate_entity_state_unsatisfied');

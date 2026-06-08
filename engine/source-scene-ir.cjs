@@ -334,12 +334,33 @@ function normalizeGround(ground) {
     ground.width != null ? ground.width : (ground.radius != null ? Number(ground.radius) * 2 : 24),
     ground.depth != null ? ground.depth : (ground.height != null && ground.kind !== 'box' ? ground.height : 24),
   ];
-  return {
-    kind: ground.kind || 'plane',
-    size: normalizeVector(size, [24, 24], 2),
+  var normalizedSize = normalizeVector(size, [24, 24], 2);
+  var kind = ground.kind || 'plane';
+  var out = {
+    kind: kind,
+    size: normalizedSize,
+    width: normalizedSize[0],
+    depth: normalizedSize[1],
     color: ground.color || '#13233a',
     positionY: ground.positionY != null ? toNumber(ground.positionY, 0) : null,
   };
+  if (kind !== 'box') out.height = normalizedSize[1];
+  else if (ground.height != null) out.height = toNumber(ground.height, normalizedSize[1]);
+  return out;
+}
+
+function isSourcePlayerEntity(entity) {
+  entity = isObject(entity) ? entity : {};
+  var id = String(entity.id || '').trim();
+  var label = String(entity.label || entity.chineseName || entity.name || '').trim();
+  var kind = String(entity.kind || entity.type || entity.template || '').trim();
+  var compactId = id.replace(/[\s_-]+/g, '').toLowerCase();
+  var compactKind = kind.replace(/[\s_-]+/g, '').toLowerCase();
+  if (/^(player|playerrobot|playerchar|mainplayer|maincharacter|mainchar|protagonist|avatar|hero|mainhero)$/.test(compactId)) return true;
+  if (/^(player|playercontroller|playercharacter|hero|mainhero|avatar)$/.test(compactKind)) return true;
+  if (/^(玩家|主角|角色|主人公)$/.test(label)) return true;
+  if (/(玩家|主角|可控角色)/.test(label) && !/(塔|炮塔|基地|按钮|敌|怪|建筑)/.test(label)) return true;
+  return /(^|[\s_-])player($|[\s_-])/i.test(id);
 }
 
 function normalizeScene(scene) {
@@ -575,14 +596,8 @@ function isCtaSourceEntity(entity) {
 }
 
 function findSourcePlayerId(entities) {
-  var exact = safeArray(entities).filter(function(entity) {
-    return String(entity && entity.id || '').toLowerCase() === 'player' ||
-      String(entity && entity.kind || '').toLowerCase() === 'player';
-  })[0];
-  var fuzzy = exact || safeArray(entities).filter(function(entity) {
-    return /player|hero|主角|角色/i.test(String(entity && entity.id || '') + ' ' + String(entity && entity.label || '') + ' ' + String(entity && entity.kind || ''));
-  })[0];
-  return fuzzy && fuzzy.id || null;
+  var player = safeArray(entities).filter(isSourcePlayerEntity)[0];
+  return player && player.id || null;
 }
 
 function collectGateEntityTargets(gate, out) {

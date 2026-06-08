@@ -189,7 +189,10 @@ function getProjectAssemblyContext(project) {
 
   return {
     projectName: project.name || bp.projectName || '',
+    schemaSource: project.schemaSource || bp.schemaSource || '',
+    prebuiltGameSchema: project.prebuiltGameSchema === true || bp.prebuiltGameSchema === true,
     storyboardFrames: storyboardFrames,
+    storyboardIr: project.storyboardIr || bp.storyboardIr || (bp.storyboard && bp.storyboard.storyboardIr) || null,
     characterSheet: project.characterSheet || {},
     sceneSheet: project.sceneSheet || {},
     entities: entities,
@@ -573,7 +576,9 @@ function phaseHasAtom(collector, phaseId, atomId) {
   return false;
 }
 
-function inferTextAtoms(frame, frameIndex, phaseId, entityLookup, defaultActor, collector, phaseEntitiesRequired) {
+function inferTextAtoms(frame, frameIndex, phaseId, entityLookup, defaultActor, collector, phaseEntitiesRequired, options) {
+  options = options || {};
+  var allowGameplayTextAtoms = options.allowGameplayTextAtoms !== false;
   var textBlocks = [
     { field: 'interaction', text: frame.interaction },
     { field: 'camera', text: frame.camera },
@@ -594,17 +599,17 @@ function inferTextAtoms(frame, frameIndex, phaseId, entityLookup, defaultActor, 
     var target = resolveEntityName(text, entityLookup);
     var src = { kind: 'frame_text', frameIndex: frameIndex, field: entry.field, raw: text };
 
-    if (/移动|走向|前往|靠近|move|walk/i.test(text)) {
+    if (allowGameplayTextAtoms && /移动|走向|前往|靠近|move|walk/i.test(text)) {
       var t1 = target || pickPhaseFallbackTarget(collector, phaseId, ['move_to', 'collect_nearby', 'highlight_target', 'camera_focus'], defaultActor, phaseEnts);
       if (t1) collector.add('move_to', phaseId, { actor: defaultActor, target: t1, range: 1.5 }, src);
     }
-    if (/收集|拾取|捡|collect/i.test(text)) {
+    if (allowGameplayTextAtoms && /收集|拾取|捡|collect/i.test(text)) {
       if (!phaseHasAtom(collector, phaseId, 'collect_nearby')) {
         var t2 = target || pickPhaseFallbackTarget(collector, phaseId, ['collect_nearby', 'move_to'], defaultActor, phaseEnts);
         if (t2) collector.add('collect_nearby', phaseId, { actor: defaultActor, target: t2, item: t2, count: 1 }, src);
       }
     }
-    if (/攻击|射击|开火|attack|shoot/i.test(text)) {
+    if (allowGameplayTextAtoms && /攻击|射击|开火|attack|shoot/i.test(text)) {
       var t3 = target || pickPhaseFallbackTarget(collector, phaseId, ['attack_target', 'move_to'], defaultActor, phaseEnts);
       collector.add('attack_target', phaseId, { actor: defaultActor, target: t3 || 'enemy', mode: 'auto' }, src);
     }
@@ -633,6 +638,7 @@ function buildStoryboardAtomPlan(ctx, registry, registryIndex) {
   var collector = createAtomCollector(registryIndex);
   var defaultActor = findPlayerEntityName(ctx.entities);
   var entityLookup = buildEntityLookup(ctx.entities);
+  var allowGameplayTextAtoms = !(ctx.prebuiltGameSchema === true || ctx.schemaSource === 'source-scene-ir');
 
   for (var si = 0; si < ctx.specs.length; si++) {
     var spec = ctx.specs[si] || {};
@@ -692,7 +698,9 @@ function buildStoryboardAtomPlan(ctx, registry, registryIndex) {
       if (!ent) return '';
       return typeof ent === 'string' ? ent : (ent.name || '');
     }).filter(Boolean);
-    inferTextAtoms(frame, fi, phaseId3, entityLookup, defaultActor, collector, phaseEnts);
+    inferTextAtoms(frame, fi, phaseId3, entityLookup, defaultActor, collector, phaseEnts, {
+      allowGameplayTextAtoms: allowGameplayTextAtoms
+    });
   }
 
   return {
@@ -704,7 +712,8 @@ function buildStoryboardAtomPlan(ctx, registry, registryIndex) {
     sourceSummary: {
       frames: ctx.storyboardFrames.length,
       phases: ctx.phases.length,
-      specs: ctx.specs.length
+      specs: ctx.specs.length,
+      gameplayTextAtomsEnabled: allowGameplayTextAtoms
     }
   };
 }

@@ -6,10 +6,12 @@ var path = require('path');
 var contractMod = require('../engine/storyboard2html-contract.cjs');
 var promptBuilder = require('../engine/storyboard2html-prompt.cjs');
 var sourceIrPreviewRenderer = require('../engine/source-ir-preview-renderer.cjs');
+var storyboardSourceIrCompiler = require('../engine/storyboard-source-ir-compiler.cjs');
 var codexCoder = require('../worker/codex-coder.js');
+var llmHotPath = require('../lib/llm-hot-path.cjs');
 
 function usage() {
-  console.error('Usage: node scripts/storyboard2html-generate.cjs <blueprint.json|input-bundle.json> <out.html> [--theme name] [--steps N] [--dry-run] [--prompt-only out.txt] [--model id] [--timeout-ms N] [--source-ir-renderer]');
+  console.error('Usage: node scripts/storyboard2html-generate.cjs <blueprint.json|input-bundle.json> <out.html> [--theme name] [--steps N] [--dry-run] [--prompt-only out.txt] [--model id] [--timeout-ms N] [--source-ir-renderer] [--deterministic-source-ir]');
   process.exit(2);
 }
 
@@ -17,7 +19,7 @@ function parseArgs(argv) {
   var opts = {
     input: null, outHtml: null, themeHint: null, steps: null,
     dryRun: false, promptOnly: null, model: null, timeoutMs: null,
-    sourceIrRenderer: false,
+    sourceIrRenderer: false, deterministicSourceIr: false,
   };
   for (var i = 2; i < argv.length; i++) {
     var arg = argv[i];
@@ -35,6 +37,8 @@ function parseArgs(argv) {
       opts.timeoutMs = Number(argv[++i] || 0) || null;
     } else if (arg === '--source-ir-renderer' || arg === '--rewrite-source-ir-preview') {
       opts.sourceIrRenderer = true;
+    } else if (arg === '--deterministic-source-ir' || arg === '--no-llm-source-ir') {
+      opts.deterministicSourceIr = true;
     } else if (!opts.input) {
       opts.input = arg;
     } else if (!opts.outHtml) {
@@ -61,6 +65,35 @@ function main() {
   var opts = parseArgs(process.argv);
   var inputPath = path.resolve(opts.input);
   var bundle = loadBundle(inputPath, opts);
+  var deterministicSourceIr = opts.deterministicSourceIr || process.env.STORYBOARD2HTML_DETERMINISTIC_SOURCE_IR === '1';
+  if (deterministicSourceIr) {
+    var outPath0 = path.resolve(opts.outHtml);
+    var sourceIr = storyboardSourceIrCompiler.compileSourceSceneIrFromStoryboard(bundle, {
+      projectName: bundle.projectName || path.basename(inputPath, path.extname(inputPath)),
+      theme: bundle.themeHint || opts.themeHint,
+      sourceHtmlPath: outPath0,
+    });
+    if (opts.dryRun) {
+      console.log('dry-run deterministic SourceIR plan:');
+      console.log('  input bundle: ' + inputPath);
+      console.log('  output html:  ' + outPath0);
+      console.log('  projectName:  ' + (sourceIr.project && sourceIr.project.name));
+      console.log('  phases:       ' + sourceIr.phases.length);
+      console.log('  entities:     ' + sourceIr.entities.length);
+      console.log('  resources:    ' + sourceIr.resources.length);
+      console.log('  sourceIrHash: ' + sourceIr.semanticHash);
+      return;
+    }
+    var html0 = sourceIrPreviewRenderer.buildSourceIrPreviewHtml(sourceIr, {
+      sourceHtmlPath: outPath0,
+      html: '<div id="joystick"></div>',
+    });
+    fs.mkdirSync(path.dirname(outPath0), { recursive: true });
+    fs.writeFileSync(outPath0, html0);
+    console.log('wrote deterministic SourceIR preview HTML ' + outPath0 + ' (' + html0.length + ' bytes, phases=' + sourceIr.phases.length + ', hash=' + sourceIr.semanticHash + ')');
+    console.log('next: node scripts/storyboard2html-smoke.cjs ' + outPath0 + ' <outdir> --theme ' + (bundle.themeHint || opts.themeHint || 'default'));
+    return;
+  }
   var built = promptBuilder.buildStoryboard2HtmlPrompt(bundle, {
     model: opts.model,
     timeoutMs: opts.timeoutMs,
@@ -89,6 +122,20 @@ function main() {
     return;
   }
 
+  llmHotPath.guard({
+    blueprint: {},
+    addLog: function(stage, message) { console.log('[no-llm-hot-path] ' + (message || stage)); },
+  }, 'storyboard2html-generate.html', {
+    stage: 'storyboard2html-generate',
+    purpose: 'generate storyboard2html source HTML',
+    reason: 'source HTML not supplied/generated deterministically',
+    estimatedTokens: Math.ceil((built.systemPrompt.length + built.userPrompt.length) / 4),
+    metadata: {
+      projectName: built.metadata.projectName,
+      phases: built.metadata.phases,
+      model: built.model,
+    },
+  });
   console.log('calling runCodexText (model=' + built.model + ', timeoutMs=' + built.timeoutMs + ')...');
   codexCoder.runCodexText({
     systemPrompt: built.systemPrompt,

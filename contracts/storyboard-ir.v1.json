@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "blueprint.storyboardIR.schema",
+  "contractVersion": "storyboard-ir.v1",
+  "description": "Canonical structured storyboard contract between PDF/storyboard parsing and downstream SourceSceneIR or storyboard2html generation. This IR preserves storyboard semantics without requiring downstream prompts to infer interactions from prose.",
+  "requiredTopLevelKeys": [
+    "schemaVersion",
+    "kind",
+    "project",
+    "chapters",
+    "frames",
+    "diagnostics",
+    "semanticHash"
+  ],
+  "hash": {
+    "algorithm": "sha256",
+    "semanticPayload": [
+      "schemaVersion",
+      "project",
+      "characterSheet",
+      "sceneSheet",
+      "chapters",
+      "frames"
+    ],
+    "excludedFields": [
+      "semanticHash",
+      "diagnostics",
+      "source",
+      "generatedAt"
+    ]
+  },
+  "frameShape": {
+    "requiredKeys": [
+      "index",
+      "id",
+      "chapter",
+      "step",
+      "title",
+      "visual",
+      "instruction",
+      "interaction"
+    ],
+    "visualKeys": [
+      "prompt",
+      "sceneText",
+      "camera",
+      "image"
+    ],
+    "instructionKeys": [
+      "uiText",
+      "playerText"
+    ],
+    "interactionKeys": [
+      "raw",
+      "verb",
+      "target",
+      "resource",
+      "amount",
+      "riskHints"
+    ]
+  },
+  "interactionVerbs": [
+    "observe",
+    "click",
+    "drag",
+    "joystick",
+    "collect",
+    "attack",
+    "build",
+    "upgrade",
+    "wait"
+  ],
+  "normalizationRules": [
+    "Frames may come from frames, storyboardFrames, storyboard.frames, or blueprint storyboard fields.",
+    "Character and scene sheets are preserved as structured dictionaries when present.",
+    "Colon actions such as collect:Corn:3 map to interaction.verb/resource/amount deterministically.",
+    "Chinese and English action prose is normalized to a finite interaction verb set.",
+    "Entity names, ids, labels, and chineseName aliases are used as deterministic target candidates.",
+    "Joystick and drag interactions are marked in riskHints for CUA/runtime hard-gate planning."
+  ],
+  "downstreamPolicy": {
+    "storyboard2html": "Input bundles should include storyboardIr while retaining legacy storyboardFrames during migration.",
+    "sourceSceneIr": "Future compilers should derive SourceSceneIR phases, entities, resources, and runtimeContract from storyboardIr plus deterministic defaults before falling back to LLM.",
+    "llmHotPath": "LLM usage should be limited to filling missing visual/entity metadata or resolving ambiguous diagnostics, not parsing every frame on the hot path."
+  }
+}

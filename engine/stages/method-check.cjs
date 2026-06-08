@@ -1750,16 +1750,37 @@ function chooseCanonicalPlayerAlias(code) {
 
 function collectAllowedPoolNames(ctx) {
   var allowed = {};
+  function addPool(pool) {
+    if (pool) allowed[String(pool)] = true;
+  }
+  var entityPoolMap = ctx && ctx.blueprint && ctx.blueprint.entityPoolMap || null;
+  if (entityPoolMap && typeof entityPoolMap === 'object') {
+    Object.keys(entityPoolMap).forEach(function(entityName) {
+      addPool(entityPoolMap[entityName]);
+    });
+  }
   var entities = ctx && ctx.blueprint && Array.isArray(ctx.blueprint.entities) ? ctx.blueprint.entities : [];
   for (var i = 0; i < entities.length; i++) {
     var entity = entities[i] || {};
-    var pool = entity.pool || entity.poolName;
-    if (pool) allowed[String(pool)] = true;
+    addPool(entity.pool || entity.poolName);
   }
   var manifest = ctx && ctx.blueprint && ctx.blueprint.poolManifest;
   if (manifest && Array.isArray(manifest.pools)) {
     for (var j = 0; j < manifest.pools.length; j++) {
-      if (manifest.pools[j] && manifest.pools[j].name) allowed[String(manifest.pools[j].name)] = true;
+      var legacyPool = manifest.pools[j] || {};
+      addPool(legacyPool.name || legacyPool.poolName || legacyPool.pool);
+    }
+  }
+  if (manifest && Array.isArray(manifest.activePool)) {
+    for (var k = 0; k < manifest.activePool.length; k++) {
+      var activePool = manifest.activePool[k] || {};
+      addPool(activePool.poolName || activePool.name || activePool.pool);
+    }
+  }
+  if (manifest && Array.isArray(manifest.reservedPool)) {
+    for (var r = 0; r < manifest.reservedPool.length; r++) {
+      var reservedPool = manifest.reservedPool[r] || {};
+      addPool(reservedPool.poolName || reservedPool.name || reservedPool.pool);
     }
   }
   return allowed;

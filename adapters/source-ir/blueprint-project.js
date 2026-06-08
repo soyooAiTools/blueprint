@@ -236,6 +236,19 @@ function resourceForEntity(gameSchema, entityName) {
   return found && found.name ? found.name : '';
 }
 
+function resourceForEntityInPhase(gameSchema, phase, entityName, options) {
+  options = options || {};
+  const phaseResourceTargets = options.phaseResourceTargets || {};
+  const resourceEntities = options.resourceEntities || {};
+  const phaseResources = triggerResourceNames(phase && phase.trigger);
+  for (let i = 0; i < phaseResources.length; i++) {
+    const resource = phaseResources[i];
+    const target = phaseResourceTargets[resource] || resourceEntities[resource] || '';
+    if (target === entityName) return resource;
+  }
+  return resourceForEntity(gameSchema, entityName);
+}
+
 function isCtaEntityName(name) {
   return /^(CtaButton|CTAButton|CTAPopup|InstallButton|DownloadButton)$/i.test(String(name || '').trim());
 }
@@ -285,6 +298,70 @@ function triggerToRequiredInteractions(trigger, options) {
     return ['attack:' + (trigger.entity || 'Enemy')];
   }
   return [];
+}
+
+function conditionIdentifier(value, fallback) {
+  var text = String(value || fallback || 'phase').trim()
+    .replace(/[^A-Za-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_+/g, '_');
+  if (!text || /^[0-9]/.test(text)) text = String(fallback || 'phase');
+  return text || 'phase';
+}
+
+function triggerToCondition(trigger, options) {
+  options = options || {};
+  if (!trigger || typeof trigger !== 'object') return conditionIdentifier(options.phaseId, 'phase') + 'Complete';
+  if (trigger.type === 'compound') {
+    var operator = trigger.operator === 'or' ? ' || ' : ' && ';
+    var parts = safeArray(trigger.triggers).map(function(child) {
+      return triggerToCondition(child, options);
+    }).filter(Boolean);
+    return parts.length > 0 ? parts.join(operator) : conditionIdentifier(options.phaseId, 'phase') + 'Complete';
+  }
+  if (trigger.type === 'resource_collected') {
+    var resource = trigger.resource || 'Resource';
+    var phaseResourceTargets = options.phaseResourceTargets || {};
+    var target = phaseResourceTargets[resource] || options.resourceEntities && options.resourceEntities[resource] || resource;
+    return conditionIdentifier(target || resource, 'Resource') + 'Collected >= ' +
+      Math.max(1, Math.round(Number(trigger.amount || 1) || 1));
+  }
+  if (trigger.type === 'click_entity') {
+    return conditionIdentifier(trigger.entity || 'Target', 'Target') + 'Clicked';
+  }
+  if (trigger.type === 'cta_arrival') {
+    return conditionIdentifier(trigger.ctaId || trigger.entity || 'CtaButton', 'CtaButton') + 'Reached';
+  }
+  if (trigger.type === 'timer') {
+    return 'phaseDwellSeconds >= ' + Math.max(1, Number(trigger.seconds || 1) || 1);
+  }
+  if (trigger.type === 'entity_state_reached') {
+    return conditionIdentifier(trigger.entity || 'Target', 'Target') + 'State >= ' +
+      Math.max(1, Math.round(Number(trigger.state || 1) || 1));
+  }
+  if (trigger.type === 'near_entity') {
+    return conditionIdentifier(trigger.entity || 'Target', 'Target') + 'Reached';
+  }
+  if (trigger.type === 'enemy_defeated') {
+    return conditionIdentifier(trigger.entity || 'Enemy', 'Enemy') + 'Defeated >= ' +
+      Math.max(1, Math.round(Number(trigger.count || 1) || 1));
+  }
+  return conditionIdentifier(options.phaseId, 'phase') + 'Complete';
+}
+
+function triggerDescription(trigger) {
+  if (!trigger || typeof trigger !== 'object') return 'SourceIR phase gate complete';
+  if (trigger.type === 'compound') {
+    return 'SourceIR compound gate: ' + safeArray(trigger.triggers).map(triggerDescription).join(trigger.operator === 'or' ? ' OR ' : ' AND ');
+  }
+  if (trigger.type === 'resource_collected') return 'Collect ' + (trigger.amount || 1) + ' ' + (trigger.resource || 'resource');
+  if (trigger.type === 'click_entity') return 'Click ' + (trigger.entity || 'target');
+  if (trigger.type === 'cta_arrival') return 'Reach CTA ' + (trigger.ctaId || trigger.entity || 'CtaButton');
+  if (trigger.type === 'timer') return 'Wait ' + (trigger.seconds || 1) + 's';
+  if (trigger.type === 'entity_state_reached') return 'Reach state ' + (trigger.state || 1) + ' on ' + (trigger.entity || 'target');
+  if (trigger.type === 'near_entity') return 'Move near ' + (trigger.entity || 'target');
+  if (trigger.type === 'enemy_defeated') return 'Defeat ' + (trigger.count || 1) + ' ' + (trigger.entity || 'enemy');
+  return 'SourceIR phase gate complete';
 }
 
 function sourcePhaseForGamePhase(phase, assetManifest) {
@@ -436,19 +513,35 @@ function buildBlueprintProject(gameSchema, options) {
       phaseName: phase.guideText || phase.phaseId || ('phase' + (index + 1)),
       requiredInteractions,
       entitiesRequired: safeArray(phase.showEntities).map(name => {
-        const resourceName = resourceForEntity(gameSchema, name);
+        const resourceName = resourceForEntityInPhase(gameSchema, phase, name, {
+          phaseResourceTargets,
+          resourceEntities,
+        });
         return resourceName ? { name, resource: resourceName } : { name };
       }),
       duration: { min: 12, max: 15 },
       playerInstruction: phase.guideText || '',
       autoModeHint: phase.guideText || '',
     };
+    if (!isFinalPhase) {
+      spec.triggerNext = {
+        condition: triggerToCondition(phase.trigger, {
+          phaseId: spec.phaseId,
+          resourceEntities,
+          phaseResourceTargets,
+        }),
+        description: triggerDescription(phase.trigger),
+      };
+      spec.nextPhase = phases[index + 1] && phases[index + 1].phaseId || ('phase' + (index + 2));
+    }
     if (finalCta) spec.playerMustAct = false;
     return spec;
   });
 
   return {
     name: projectName,
+    schemaSource: 'source-scene-ir',
+    prebuiltGameSchema: true,
     source: options.source || null,
     sourceHtmlPath: sceneBinding.sourceHtmlPath || null,
     sourceHtmlSha256: sceneBinding.sourceHtmlSha256 || null,
@@ -545,6 +638,7 @@ module.exports = {
   DEFAULT_BLUEPRINT_ROOT,
   normalizeGameSchemaForBlueprint,
   triggerToRequiredInteractions,
+  triggerToCondition,
   buildResourceEntityIndex,
   collectTriggerResources,
   templateForEntity,

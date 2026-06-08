@@ -284,4 +284,32 @@ assert.strictEqual(
   'guide/prose collect fallback should not add a second count=1 collect action when spec already has collect'
 );
 
+var prebuiltSchemaPlans = buildProjectPlans({
+  name: 'PrebuiltSchemaSuppressesGameplayTextAtoms',
+  schemaSource: 'source-scene-ir',
+  prebuiltGameSchema: true,
+  storyboardFrames: [
+    { title: '升级钻头', interaction: 'build:ForgeWorkshop', ui: '使用新钻头采集垃圾拾取垃圾 build:ForgeWorkshop' }
+  ],
+  entities: [
+    { name: 'Player', template: 'PlayerController', behavior: { moveSpeed: 5 } },
+    { name: 'ForgeWorkshop', template: 'Buildable', behavior: { buildTime: 1 } },
+    { name: 'Drill', template: 'Static' }
+  ],
+  phases: [{ id: 1, name: '升级钻头', activate: ['Player', 'ForgeWorkshop'], guide: '使用新钻头采集垃圾拾取垃圾' }],
+  specs: [{
+    phaseId: 'phase3',
+    requiredInteractions: ['move_to:ForgeWorkshop', 'build:ForgeWorkshop'],
+    entitiesRequired: [{ name: 'Player' }, { name: 'ForgeWorkshop' }]
+  }]
+});
+assert.strictEqual(prebuiltSchemaPlans.storyboardAtomPlan.sourceSummary.gameplayTextAtomsEnabled, false);
+assert.strictEqual(
+  prebuiltSchemaPlans.storyboardAtomPlan.items.filter(function(atom) {
+    return atom.atomId === 'collect_nearby' && atom.source && atom.source.kind === 'frame_text';
+  }).length,
+  0,
+  'prebuilt SourceIR/schema phases must not infer extra gameplay collect atoms from guide text'
+);
+
 console.log('assembly-plan-pipeline tests passed');

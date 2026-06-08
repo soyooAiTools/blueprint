@@ -14,6 +14,7 @@ var {
   assertPlayableSceneIrExecutionAlignment,
 } = require('../engine/playable-scene-ir.cjs');
 var schemaValidator = require('../adapters/schema/validate-schema.cjs');
+var specValidateStage = require('../engine/stages/spec-validate.cjs');
 var {
   buildSourceIrArtifacts,
   compileToGameSchema,
@@ -149,6 +150,14 @@ assert.strictEqual(built.project.semanticSource, 'source-scene-ir');
 assert.strictEqual(built.project.playableSceneIrHash, playableSceneIr.semanticHash);
 assert.deepStrictEqual(built.project.specs[1].requiredInteractions, []);
 assert.strictEqual(built.project.specs[1].playerMustAct, false);
+assert.ok(built.project.specs[0].triggerNext, 'non-final SourceIR specs should include triggerNext');
+assert.strictEqual(built.project.specs[0].triggerNext.condition, 'WaterDropCollected >= 2');
+assert.strictEqual(built.project.specs[0].nextPhase, 'phase2');
+specValidateStage.execute({
+  blueprint: JSON.parse(JSON.stringify(built.blueprint)),
+  completedStages: [],
+  addLog: function() {},
+});
 assert.strictEqual(/move_to:CtaButton/.test(JSON.stringify(built.blueprint.plans)), false);
 
 var outDir = path.join(tmp, 'out');

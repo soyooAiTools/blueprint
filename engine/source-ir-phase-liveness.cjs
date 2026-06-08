@@ -102,6 +102,72 @@ function collectResourceDeltas(ir) {
   return totals;
 }
 
+function resourceIndex(ir) {
+  var out = {};
+  safeArray(ir.resources).forEach(function(resource) {
+    if (resource && resource.id) out[resource.id] = resource;
+  });
+  return out;
+}
+
+function checkCollectCarrier(step, phase, phaseIndex, show, resourceById, entityById, errors) {
+  if (!isObject(step) || step.kind !== 'collect') return;
+  var resourceId = step.resource || step.item || '';
+  if (!resourceId) {
+    addViolation(errors, 'source_ir_collect_resource_missing', phase.id + ' collect step must declare resource', {
+      phaseId: phase.id,
+    });
+    return;
+  }
+  var resource = resourceById[resourceId] || null;
+  if (!resource) {
+    addViolation(errors, 'source_ir_collect_resource_unknown', phase.id + ' collect step references unknown resource: ' + resourceId, {
+      phaseId: phase.id,
+      resource: resourceId,
+    });
+    return;
+  }
+  var declaredCarrier = resource.carrierEntity || resource.carrier || '';
+  var stepCarrier = step.from || step.target || declaredCarrier || '';
+  if (!stepCarrier) {
+    addViolation(errors, 'source_ir_collect_carrier_missing', phase.id + ' collect step must declare from/target or resource.carrierEntity', {
+      phaseId: phase.id,
+      resource: resourceId,
+    });
+    return;
+  }
+  if (declaredCarrier && stepCarrier !== declaredCarrier) {
+    addViolation(errors, 'source_ir_collect_carrier_mismatch', phase.id + ' collect target does not match resource carrierEntity', {
+      phaseId: phase.id,
+      resource: resourceId,
+      stepCarrier: stepCarrier,
+      resourceCarrier: declaredCarrier,
+    });
+    return;
+  }
+  var entity = entityById[stepCarrier];
+  if (!entity) {
+    addViolation(errors, 'source_ir_collect_carrier_entity_missing', phase.id + ' collect carrier entity is missing: ' + stepCarrier, {
+      phaseId: phase.id,
+      resource: resourceId,
+      carrier: stepCarrier,
+    });
+  } else if (isHudOnlyEntity(entity)) {
+    addViolation(errors, 'source_ir_collect_carrier_hud_only', phase.id + ' collect carrier is HUD-only: ' + stepCarrier, {
+      phaseId: phase.id,
+      resource: resourceId,
+      carrier: stepCarrier,
+    });
+  } else if (show.indexOf(stepCarrier) < 0) {
+    addViolation(errors, 'source_ir_collect_carrier_not_visible', phase.id + ' collect carrier is not visible in showEntities: ' + stepCarrier, {
+      phaseId: phase.id,
+      resource: resourceId,
+      carrier: stepCarrier,
+      phaseIndex: phaseIndex,
+    });
+  }
+}
+
 function applyStepDelta(step, resources, entityStates) {
   if (!isObject(step)) return;
   if (step.kind === 'collect' && step.resource) {
@@ -180,6 +246,7 @@ function analyzeSourceIrPhaseLiveness(sourceIr, options) {
   var playerId = findPlayerId(ir);
   var player = playerId && entityById[playerId] || null;
   var resources = collectResourceDeltas(ir);
+  var resourceById = resourceIndex(ir);
   var entityStates = {};
   var errors = [];
   var phaseSummaries = [];
@@ -214,6 +281,7 @@ function analyzeSourceIrPhaseLiveness(sourceIr, options) {
     }
     var targets = [];
     safeArray(phase.steps).forEach(function(step) {
+      checkCollectCarrier(step, phase, index, show, resourceById, entityById, errors);
       var target = stepTarget(step);
       if (target && targets.indexOf(target) < 0) targets.push(target);
     });
