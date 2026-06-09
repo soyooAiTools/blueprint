@@ -76,6 +76,7 @@ function fixtureSourceIr() {
 
 function createFakeDom() {
   var elements = {};
+  var documentListeners = {};
 
   function makeElement(tag) {
     var idValue = '';
@@ -121,9 +122,25 @@ function createFakeDom() {
     getElementById: function(id) {
       return elements[id] || null;
     },
-    addEventListener: function() {},
+    addEventListener: function(name, fn) {
+      documentListeners[name] = documentListeners[name] || [];
+      documentListeners[name].push(fn);
+    },
     __elements: elements,
+    __listeners: documentListeners,
   };
+}
+
+function dispatchDocumentEvent(sandbox, type, props) {
+  var listeners = sandbox.document.__listeners[type] || [];
+  var event = Object.assign({
+    target: { closest: function() { return null; } },
+    clientX: 0,
+    clientY: 0,
+  }, props || {});
+  listeners.forEach(function(fn) {
+    fn(event);
+  });
 }
 
 function runHtmlScripts(html) {
@@ -181,6 +198,8 @@ async function main() {
   assert.ok(html.indexOf('function movePreviewPlayer(dt)') >= 0);
   assert.ok(html.indexOf('function forcePreviewJoystickVisible(el)') >= 0);
   assert.ok(html.indexOf('function terminalRetainedPhaseList(index)') >= 0);
+  assert.ok(html.indexOf('function visualDiffFrozen()') >= 0);
+  assert.ok(html.indexOf('if (visualDiffFrozen())') >= 0);
   var rendererScript = buildSourceIrPreviewRendererScript();
   assert.ok(rendererScript.indexOf('new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.055, 8, 64)') >= 0);
   assert.ok(rendererScript.indexOf('window.__sourceIrTargetRingState') >= 0);
@@ -286,10 +305,109 @@ async function main() {
 
   sandbox.window.__sourceIrPreviewModels.Player.position.x = 3;
   sandbox.window.__sourceIrPreviewModels.Player.position.z = 0;
+  var noInputProgress = sandbox.window.__sourceIrPreviewRuntimeTick(.016);
+  assert.strictEqual(noInputProgress.phase, 'phase1');
+  assert.deepStrictEqual(Array.from(noInputProgress.completedPhases), []);
+  sandbox.window.__sourceIrPreviewSetJoystick(0.1, 0, true);
   var progressed = sandbox.window.__sourceIrPreviewRuntimeTick(.016);
   assert.strictEqual(progressed.phase, 'phase2');
   assert.strictEqual(progressed.resources.Water, 3);
   assert.deepStrictEqual(Array.from(progressed.completedPhases), ['phase1']);
+
+  var repeatedTargetIr = normalizeSourceSceneIr({
+    schemaVersion: SOURCE_SCENE_IR_SCHEMA_VERSION,
+    kind: 'blueprint.sourceSceneIR',
+    generatedAt: '2026-06-07T00:00:00.000Z',
+    project: { name: 'Repeated target preview', theme: 'default' },
+    scene: {
+      backgroundColor: '#101820',
+      camera: { fov: 55, position: [0, 8, 12], lookAt: [0, 0, 0] },
+      ground: { kind: 'plane', size: [20, 20], color: '#13233a' },
+    },
+    entities: [
+      { id: 'Player', label: 'Player', kind: 'player', position: [0, 0, 0], visual: { primitive: 'capsule', color: '#66ccff' } },
+      { id: 'Turret', label: 'Turret', kind: 'station', position: [3, 0, 0], visual: { primitive: 'box', color: '#ffaa33' } },
+      { id: 'CtaButton', label: 'Install', kind: 'cta', position: [6, 0, 0], visual: { primitive: 'box', color: '#22cc88' } },
+    ],
+    phases: [
+      {
+        id: 'phase1',
+        title: 'Build turret left',
+        guideText: 'Build turret left',
+        showEntities: ['Player', 'Turret'],
+        steps: [{ kind: 'move_to', target: 'Turret', radius: 1.5 }, { kind: 'build', entity: 'Turret', state: 2 }],
+        gate: { kind: 'entity_state', entity: 'Turret', state: 2 },
+      },
+      {
+        id: 'phase2',
+        title: 'Build turret right',
+        guideText: 'Build turret right',
+        showEntities: ['Player', 'Turret'],
+        steps: [{ kind: 'move_to', target: 'Turret', radius: 1.5 }, { kind: 'build', entity: 'Turret', state: 2 }],
+        gate: { kind: 'entity_state', entity: 'Turret', state: 2 },
+      },
+      {
+        id: 'phase3',
+        title: 'Install',
+        guideText: 'Install',
+        showEntities: ['Player', 'CtaButton'],
+        steps: [{ kind: 'cta_finish', entity: 'CtaButton' }],
+        gate: { kind: 'cta_arrival', entity: 'CtaButton', radius: 1.8 },
+      },
+    ],
+    runtimeContract: { requiresJoystick: true, requiresArrivalGate: true, forbidAutoplayProgress: true },
+  }, {
+    html: '<div id="joystick"></div>',
+    generatedAt: '2026-06-07T00:00:00.000Z',
+  });
+  var repeatedSandbox = runHtmlScripts(buildSourceIrPreviewHtml(repeatedTargetIr, {
+    html: '<div id="joystick"></div>',
+    generatedAt: '2026-06-07T00:00:00.000Z',
+    includeThree: false,
+  }));
+  var repeatedPhase1Target = repeatedTargetIr.phases[0].steps[0].target;
+  var repeatedPhase2Target = repeatedTargetIr.phases[1].steps[0].target;
+  assert.notStrictEqual(repeatedPhase1Target, repeatedPhase2Target);
+  repeatedSandbox.window.__sourceIrPreviewModels.Player.position.x = repeatedSandbox.window.__sourceIrPreviewModels[repeatedPhase1Target].position.x;
+  repeatedSandbox.window.__sourceIrPreviewModels.Player.position.z = repeatedSandbox.window.__sourceIrPreviewModels[repeatedPhase1Target].position.z;
+  repeatedSandbox.window.__sourceIrPreviewSetJoystick(0.1, 0, true);
+  var repeatedPhase2 = repeatedSandbox.window.__sourceIrPreviewRuntimeTick(.016);
+  assert.strictEqual(repeatedPhase2.phase, 'phase2');
+  assert.deepStrictEqual(Array.from(repeatedPhase2.completedPhases), ['phase1']);
+  repeatedSandbox.window.__sourceIrPreviewModels.Player.position.x = repeatedSandbox.window.__sourceIrPreviewModels[repeatedPhase2Target].position.x;
+  repeatedSandbox.window.__sourceIrPreviewModels.Player.position.z = repeatedSandbox.window.__sourceIrPreviewModels[repeatedPhase2Target].position.z;
+  var noFreshInput = repeatedSandbox.window.__sourceIrPreviewRuntimeTick(.016);
+  assert.strictEqual(noFreshInput.phase, 'phase2');
+  assert.deepStrictEqual(Array.from(noFreshInput.completedPhases), ['phase1']);
+  repeatedSandbox.window.__sourceIrPreviewSetJoystick(0.1, 0, true);
+  var repeatedPhase3 = repeatedSandbox.window.__sourceIrPreviewRuntimeTick(.016);
+  assert.strictEqual(repeatedPhase3.phase, 'phase3');
+  assert.deepStrictEqual(Array.from(repeatedPhase3.completedPhases), ['phase1', 'phase2']);
+
+  var continuousDragSandbox = runHtmlScripts(buildSourceIrPreviewHtml(repeatedTargetIr, {
+    html: '<div id="joystick"></div>',
+    generatedAt: '2026-06-07T00:00:00.000Z',
+    includeThree: false,
+  }));
+  continuousDragSandbox.window.__sourceIrPreviewModels.Player.position.x = continuousDragSandbox.window.__sourceIrPreviewModels[repeatedPhase1Target].position.x;
+  continuousDragSandbox.window.__sourceIrPreviewModels.Player.position.z = continuousDragSandbox.window.__sourceIrPreviewModels[repeatedPhase1Target].position.z;
+  dispatchDocumentEvent(continuousDragSandbox, 'pointerdown', { clientX: 100, clientY: 100 });
+  dispatchDocumentEvent(continuousDragSandbox, 'pointermove', { clientX: 104, clientY: 100 });
+  var dragPhase2 = continuousDragSandbox.window.__gameState();
+  assert.strictEqual(dragPhase2.phase, 'phase2');
+  assert.deepStrictEqual(Array.from(dragPhase2.completedPhases), ['phase1']);
+  continuousDragSandbox.window.__sourceIrPreviewModels.Player.position.x = continuousDragSandbox.window.__sourceIrPreviewModels[repeatedPhase2Target].position.x;
+  continuousDragSandbox.window.__sourceIrPreviewModels.Player.position.z = continuousDragSandbox.window.__sourceIrPreviewModels[repeatedPhase2Target].position.z;
+  dispatchDocumentEvent(continuousDragSandbox, 'pointermove', { clientX: 132, clientY: 100 });
+  var heldDragPhase = continuousDragSandbox.window.__gameState();
+  assert.strictEqual(heldDragPhase.phase, 'phase2');
+  assert.deepStrictEqual(Array.from(heldDragPhase.completedPhases), ['phase1']);
+  dispatchDocumentEvent(continuousDragSandbox, 'pointerup', { clientX: 132, clientY: 100 });
+  dispatchDocumentEvent(continuousDragSandbox, 'pointerdown', { clientX: 132, clientY: 100 });
+  dispatchDocumentEvent(continuousDragSandbox, 'pointermove', { clientX: 136, clientY: 100 });
+  var freshDragPhase = continuousDragSandbox.window.__gameState();
+  assert.strictEqual(freshDragPhase.phase, 'phase3');
+  assert.deepStrictEqual(Array.from(freshDragPhase.completedPhases), ['phase1', 'phase2']);
 
   var phase2 = await sandbox.window.__driveToSourcePhase(2);
   assert.strictEqual(phase2.phase, 'phase2');

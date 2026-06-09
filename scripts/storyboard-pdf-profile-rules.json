@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "storyboard-pdf-profile-rules.v1",
+  "runtimePhaseBounds": {
+    "min": 10,
+    "max": 13
+  },
+  "profiles": [
+    {
+      "kind": "guard",
+      "parserHint": "generic",
+      "patterns": [
+        "守护家园",
+        "玉米|爆米花|异形|英雄塔|孢子|飞船舱室"
+      ]
+    },
+    {
+      "kind": "space",
+      "parserHint": "phase-marker",
+      "patterns": [
+        "太空捡垃圾|太空救星",
+        "太空舱|休眠舱|助手|怪物|航天|太阳能板",
+        "回收站|太空垃圾|锻造|钻头"
+      ]
+    },
+    {
+      "kind": "forest_defense",
+      "parserHint": "phase-marker",
+      "patterns": [
+        "取木射箭",
+        "木头|木材|弩炮|传送带|红色士兵|森林营地|基地"
+      ]
+    },
+    {
+      "kind": "shelter_warmth",
+      "parserHint": "phase-marker",
+      "patterns": [
+        "搜屋取暖",
+        "火堆|冻僵|木材|电塔|电线|取暖|房间"
+      ]
+    },
+    {
+      "kind": "water",
+      "parserHint": "paragraph",
+      "patterns": [
+        "卖水|制作子弹|桶装水|冰晶|熔炉|宇航员排队|农田|苹果"
+      ]
+    }
+  ]
+}

@@ -11,6 +11,20 @@ var storyboardSpecCompiler = require('../engine/storyboard-spec-compiler.cjs');
 var storyboardSourceIrCompiler = require('../engine/storyboard-source-ir-compiler.cjs');
 var sourceIrPreviewRenderer = require('../engine/source-ir-preview-renderer.cjs');
 
+var RUNTIME_PHASE_MIN = 10;
+var RUNTIME_PHASE_MAX = 13;
+var PROFILE_RULES_PATH = path.join(__dirname, 'storyboard-pdf-profile-rules.json');
+var DEFAULT_PROFILE_RULES = {
+  schemaVersion: 'storyboard-pdf-profile-rules.fallback.v1',
+  profiles: [
+    { kind: 'guard', parserHint: 'generic', patterns: ['守护家园', '玉米|爆米花|异形|英雄塔|孢子|飞船舱室'] },
+    { kind: 'space', parserHint: 'phase-marker', patterns: ['太空捡垃圾|太空救星', '太空舱|休眠舱|助手|怪物|航天|太阳能板', '回收站|太空垃圾|锻造|钻头'] },
+    { kind: 'forest_defense', parserHint: 'phase-marker', patterns: ['取木射箭', '木头|木材|弩炮|传送带|红色士兵|森林营地|基地'] },
+    { kind: 'shelter_warmth', parserHint: 'phase-marker', patterns: ['搜屋取暖', '火堆|冻僵|木材|电塔|电线|取暖|房间'] },
+    { kind: 'water', parserHint: 'paragraph', patterns: ['卖水|制作子弹|桶装水|冰晶|熔炉|宇航员排队|农田|苹果'] },
+  ],
+};
+
 function usage() {
   console.error('Usage: node scripts/process-storyboard-pdf-samples.cjs <pdf-dir> <out-dir>');
   process.exit(2);
@@ -18,6 +32,18 @@ function usage() {
 
 function safeArray(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function uniqueStrings(values) {
+  var seen = {};
+  var out = [];
+  safeArray(values).forEach(function(value) {
+    var text = String(value || '').trim();
+    if (!text || seen[text]) return;
+    seen[text] = true;
+    out.push(text);
+  });
+  return out;
 }
 
 function ensureDir(dir) {
@@ -33,6 +59,20 @@ function execFile(command, args, options) {
 
 function sha256(value) {
   return crypto.createHash('sha256').update(String(value || '')).digest('hex');
+}
+
+function readJsonIfExists(filePath, fallback) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (e) {
+    return fallback;
+  }
+}
+
+function loadProfileRules() {
+  var rules = readJsonIfExists(PROFILE_RULES_PATH, DEFAULT_PROFILE_RULES);
+  if (!rules || !Array.isArray(rules.profiles)) return DEFAULT_PROFILE_RULES;
+  return rules;
 }
 
 function basenameNoExt(filePath) {
@@ -137,22 +177,178 @@ function collapseLines(lines) {
   return safeArray(lines).join('').replace(/\s+/g, ' ').trim();
 }
 
-function inferInteraction(text, fallbackTitle) {
+function normalizePdfText(text) {
+  return String(text || '')
+    .replace(/\r/g, '')
+    .replace(/Phas\s*\n\s*e\s*:?\s*(\d+)\s*:?\s*/gi, 'Phase$1:\n')
+    .replace(/Phas\s*\n\s*e\s*:?\s*\n\s*(\d+)/gi, 'Phase$1:')
+    .replace(/Phas\s*\n\s*e\s*(\d+)\s*:/gi, 'Phase$1:')
+    .replace(/Phas\s*e\s*:?\s*(\d+)\s*:/gi, 'Phase$1:')
+    .replace(/Phase\s*:?\s*(\d+)\s*:/gi, 'Phase$1:')
+    .replace(/Phase\s*:?\s*(\d+)(?=\s|$)/gi, 'Phase$1:')
+    .replace(/Phase\s*(\d+)\s*:/gi, 'Phase$1:');
+}
+
+function phaseBodyLines(text) {
+  return paragraphLines(text)
+    .filter(function(line) {
+      return !/^(需求描述|序号|文字描述|画面|注释)$/.test(line);
+    })
+    .filter(function(line) {
+      return !/^序号\s+文字描述\s+画面$/.test(line);
+    });
+}
+
+function contentLinesWithNumbers(text) {
+  return stripText(text)
+    .split(/\r?\n/)
+    .map(function(line) { return line.trim(); })
+    .filter(Boolean)
+    .filter(function(line) { return !/^?$/.test(line); })
+    .filter(function(line) { return !/^(需求描述|序号|文字描述|画面|注释)$/.test(line); })
+    .filter(function(line) { return !/^序号\s+文字描述\s+画面$/.test(line); })
+    .filter(function(line) { return !/^大底图设定$/.test(line); });
+}
+
+function splitTitleAndDescription(lines, fallbackTitle) {
+  lines = safeArray(lines);
+  var titleParts = [];
+  var descriptionStart = 0;
+  for (var i = 0; i < lines.length; i += 1) {
+    var line = lines[i];
+    if (/^(玩家看到什么|玩家做什么|镜头|感觉|大约耗时|耗时|注释)[:：]/.test(line)) {
+      descriptionStart = i;
+      break;
+    }
+    if (titleParts.length < 3 && line.length <= 28) {
+      titleParts.push(line);
+      descriptionStart = i + 1;
+      continue;
+    }
+    descriptionStart = i;
+    break;
+  }
+  var title = collapseLines(titleParts) || fallbackTitle || '';
+  var description = collapseLines(lines.slice(descriptionStart)) || collapseLines(lines) || title;
+  return { title: title, description: description };
+}
+
+function optionKind(options) {
+  if (typeof options === 'string') return options;
+  return String(options && options.kind || '');
+}
+
+function optionVerb(options) {
+  if (typeof options === 'string') return '';
+  return String(options && options.verb || '');
+}
+
+function optionPrimaryText(options) {
+  if (typeof options === 'string') return '';
+  return String(options && options.primaryText || '');
+}
+
+function firstPatternIndex(text, patterns) {
+  text = String(text || '');
+  var best = -1;
+  safeArray(patterns).forEach(function(pattern) {
+    var idx = text.search(pattern);
+    if (idx >= 0 && (best < 0 || idx < best)) best = idx;
+  });
+  return best;
+}
+
+function hasSideCue(text, side) {
+  text = String(text || '');
+  if (side === 'right') return /(右侧|右边|右路|右方|右侧中间)/.test(text);
+  if (side === 'left') return /(左侧|左边|左路|左方|自己所在一侧|己方|本侧)/.test(text);
+  return false;
+}
+
+function hasTurretCue(text) {
+  return /(弩炮|炮塔|箭塔|防御塔|射击)/.test(String(text || ''));
+}
+
+function sideSpecificTurretTarget(text, primaryText) {
+  primaryText = String(primaryText || '');
+  text = String(text || '');
+  if (hasTurretCue(primaryText) && hasSideCue(primaryText, 'right')) return 'RightCrossbowTurret';
+  if (hasTurretCue(primaryText) && hasSideCue(primaryText, 'left')) return 'LeftCrossbowTurret';
+  if (hasTurretCue(text) && hasSideCue(text, 'right')) return 'RightCrossbowTurret';
+  if (hasTurretCue(text) && hasSideCue(text, 'left')) return 'LeftCrossbowTurret';
+  return '';
+}
+
+function inferForestDefenseTargetId(text, fallback, options) {
+  var hay = String(text || '');
+  var primaryText = optionPrimaryText(options);
+  var verb = optionVerb(options);
+  var bossIndex = firstPatternIndex(hay, [/巨大\s*Boss/i, /Boss\s*来袭/i, /boss\s*展示/i, /最终决战/, /血条/]);
+  var rightWaveIndex = firstPatternIndex(hay, [/右侧开始刷新敌人/, /右侧.*?(敌人|红色士兵|刷新|来袭|战斗)/, /招募右侧工人/]);
+  var rightWorkerIndex = firstPatternIndex(hay, [/招募右侧工人/, /右侧.*?(工人木屋|木屋|工人)/, /工人木屋/]);
+  var turretTarget = sideSpecificTurretTarget(hay, primaryText);
+
+  if (verb === 'attack') {
+    if (rightWaveIndex >= 0 && (bossIndex < 0 || rightWaveIndex < bossIndex)) return 'RightEnemyWave';
+    if (bossIndex >= 0) return 'BossEnemy';
+    if (/Boss|BOSS|boss/.test(primaryText)) return 'BossEnemy';
+    if (/敌|丧尸|怪|士兵/.test(hay)) return 'Enemy';
+    if (turretTarget) return turretTarget;
+  } else {
+    if (turretTarget) return turretTarget;
+    if ((verb === 'build' || verb === 'upgrade' || verb === 'click') && rightWorkerIndex >= 0 && !hasTurretCue(hay)) return 'RightWorkerHouse';
+    if (bossIndex >= 0 && !hasTurretCue(primaryText)) return 'BossEnemy';
+    if (rightWaveIndex >= 0 && !hasTurretCue(primaryText)) return 'RightEnemyWave';
+  }
+
+  if (/传送带/.test(hay)) return 'Conveyor';
+  if (/弩炮|炮塔/.test(hay)) return 'CrossbowTurret';
+  if (/木屋|基地|营地/.test(hay)) return 'BaseCamp';
+  if (/树木|木材|木头/.test(hay)) return 'WoodPile';
+  if (/敌|丧尸|BOSS|Boss|怪/.test(hay)) return bossIndex >= 0 ? 'BossEnemy' : 'Enemy';
+  return fallback || 'Target';
+}
+
+function inferInteraction(text, fallbackTitle, options) {
   var hay = String(text || '') + ' ' + String(fallbackTitle || '');
+  var kind = optionKind(options);
   if (/下载|跳转|下一关|结束/.test(hay)) return 'click:CtaButton';
-  if (/建造|扩充|解锁|建成|打造/.test(hay)) return 'build:' + inferTargetId(hay, 'BuildTarget');
-  if (/升级/.test(hay)) return 'upgrade:' + inferTargetId(hay, 'UpgradeTarget') + ':2';
-  if (/攻击|击杀|打死|打掉|Boss|BOSS/.test(hay)) return 'attack:' + inferTargetId(hay, 'Enemy');
+  if (kind === 'shelter_warmth') return inferShelterWarmthInteraction(hay, fallbackTitle);
+  if (/选择助手|角色卡片|只剩一个角色|随机出现/.test(hay)) return 'click:' + inferTargetId(hay, 'RoleCard', { kind: kind, verb: 'click' });
+  if (/技能|进度条满|释放技能/.test(hay)) return 'upgrade:' + inferTargetId(hay, 'SkillMeter', { kind: kind, verb: 'upgrade' }) + ':2';
+  if (/攻击|击杀|打死|打掉|打怪|战斗|Boss|BOSS|丧尸/.test(hay)) {
+    return 'attack:' + inferTargetId(hay, 'Enemy', { kind: kind, verb: 'attack', primaryText: fallbackTitle });
+  }
+  if (/升级/.test(hay)) return 'upgrade:' + inferTargetId(hay, 'UpgradeTarget', { kind: kind, verb: 'upgrade', primaryText: fallbackTitle }) + ':2';
+  if (/修建|建屋|建完|建好|建造|扩充|解锁|建成|打造|修复/.test(hay)) return 'build:' + inferTargetId(hay, 'BuildTarget', { kind: kind, verb: 'build', primaryText: fallbackTitle });
   if (/售卖|贩卖|换得|换取|金币|美金|收集|拾取|采集|采冰|捡|垃圾|冰晶|苹果|水|玉米/.test(hay)) {
     return 'collect:' + inferResourceId(hay) + ':1';
   }
-  if (/引导|移动|回到|靠近|去/.test(hay)) return 'move_to:' + inferTargetId(hay, 'Target');
+  if (/引导|移动|回到|靠近|去/.test(hay)) return 'move_to:' + inferTargetId(hay, 'Target', { kind: kind, verb: 'move_to', primaryText: fallbackTitle });
+  return String(fallbackTitle || text || 'observe').slice(0, 80);
+}
+
+function inferShelterWarmthInteraction(text, fallbackTitle) {
+  var hay = String(text || '') + ' ' + String(fallbackTitle || '');
+  if (/下载|跳转|结束页面|Play\s*Now|CTA|获取胜利|全场景积雪融化/.test(hay)) return 'click:CtaButton';
+  if (/电塔需要物资|升级电塔|去电塔处缴纳|电塔升级/.test(hay)) return 'upgrade:PowerTower:3';
+  if (/电池/.test(hay)) return 'collect:Battery:1';
+  if (/钥匙/.test(hay)) return 'collect:Key:1';
+  if (/缴纳木材后篝火升级为电塔|升级篝火为电塔|篝火变为电塔/.test(hay)) return 'upgrade:PowerTower:2';
+  if (/右下房间|足够的木材|收集.*木材|木材.*开宝箱|先捡木材/.test(hay)) return 'collect:Wood:1';
+  if (/右侧中间房间|搜刮物资|破坏家具|获得宝箱|出丧尸击杀|击杀丧尸/.test(hay)) return 'attack:Enemy';
+  if (/篝火需要点燃|点燃篝火/.test(hay)) return 'collect:Wood:1';
+  if (/房间|指引|前往|去/.test(hay)) return 'move_to:ShelterRoom';
+  if (/火堆|篝火|寒意|寒冷|开局/.test(hay)) return 'move_to:Campfire';
   return String(fallbackTitle || text || 'observe').slice(0, 80);
 }
 
 function inferResourceId(text) {
   if (/垃圾|金属|碎块/.test(text)) return 'Scrap';
   if (/冰晶|冰/.test(text)) return 'Ice';
+  if (/钥匙/.test(text)) return 'Key';
+  if (/电池/.test(text)) return 'Battery';
+  if (/木头|木材|木/.test(text)) return 'Wood';
   if (/桶装水|喝水|水/.test(text)) return 'Water';
   if (/苹果/.test(text)) return 'Apple';
   if (/玉米/.test(text)) return 'Corn';
@@ -160,18 +356,31 @@ function inferResourceId(text) {
   return 'Resource';
 }
 
-function inferTargetId(text, fallback) {
+function inferTargetId(text, fallback, options) {
+  if (optionKind(options) === 'forest_defense') return inferForestDefenseTargetId(text, fallback, options);
   if (/回收站|收购站|太空舱/.test(text)) return 'RecyclingCabin';
   if (/锻造/.test(text)) return 'ForgeWorkshop';
   if (/钻头/.test(text)) return 'Drill';
   if (/粉碎车/.test(text)) return 'CrusherCar';
   if (/液压车/.test(text)) return 'HydraulicCar';
+  if (/角色卡片|选择助手|只剩一个角色|随机出现/.test(text)) return 'RoleCard';
+  if (/技能|进度条满|进度条|释放/.test(text)) return 'SkillMeter';
+  if (/传送带/.test(text)) return 'Conveyor';
+  if (/弩炮|炮塔/.test(text)) return 'CrossbowTurret';
+  if (/木屋|基地|营地/.test(text)) return 'BaseCamp';
+  if (/火堆|取暖/.test(text)) return 'Campfire';
+  if (/电塔|发电/.test(text)) return 'PowerTower';
+  if (/电线/.test(text)) return 'PowerLine';
+  if (/冻僵|人群/.test(text)) return 'FrozenCrowd';
+  if (/树木|木材|木头/.test(text)) return 'WoodPile';
+  if (/敌|丧尸|BOSS|Boss|怪/.test(text)) return 'Enemy';
+  if (/房间/.test(text) && /火堆|取暖|冻僵|电塔|电线|木材|丧尸|宝箱|钥匙|电池/.test(text)) return 'ShelterRoom';
   if (/房间|船舱|餐厅|宿舍/.test(text)) return 'NewCabin';
   if (/冰晶|冰/.test(text)) return 'IceChunk';
   if (/水箱|浇水|制氧/.test(text)) return 'WaterTank';
   if (/爆米花制作|制作机器|机器/.test(text)) return 'PopcornMachine';
   if (/售卖台|卖爆米花|售卖/.test(text)) return 'PopcornStand';
-  if (/小人|帮手|助手/.test(text)) return 'HelperWorker';
+  if (/小人|帮手|助手|工人|搬运/.test(text)) return 'HelperWorker';
   if (/异形船/.test(text)) return 'AlienShip';
   if (/武器台|步枪|枪/.test(text)) return 'WeaponRack';
   if (/塔台|英雄塔|英雄/.test(text)) return 'HeroTower';
@@ -183,7 +392,6 @@ function inferTargetId(text, fallback) {
   if (/水桶|桶装水/.test(text)) return 'WaterBucket';
   if (/门/.test(text)) return 'Door';
   if (/玉米|玉米地/.test(text)) return 'CornField';
-  if (/敌|BOSS|Boss|怪/.test(text)) return 'Enemy';
   return fallback || 'Target';
 }
 
@@ -198,6 +406,12 @@ function entitiesForKind(kind) {
       { name: 'CrusherCar', label: '粉碎车', template: 'Upgradeable' },
       { name: 'HydraulicCar', label: '液压车', template: 'Upgradeable' },
       { name: 'NewCabin', label: '新船舱', template: 'Buildable' },
+      { name: 'DormantPod', label: '休眠舱', template: 'Buildable' },
+      { name: 'HelperWorker', label: '助手', template: 'NPC' },
+      { name: 'RoleCard', label: '助手角色卡片', template: 'UI' },
+      { name: 'SkillMeter', label: '助手技能条', template: 'UI' },
+      { name: 'SolarPanel', label: '太阳能板', template: 'Static' },
+      { name: 'Enemy', label: '太空怪物', template: 'Damageable' },
       { name: 'CtaButton', label: '下载按钮', template: 'UI' },
     ];
   }
@@ -235,14 +449,63 @@ function entitiesForKind(kind) {
       { name: 'CtaButton', label: '下载按钮', template: 'UI' },
     ];
   }
+  if (kind === 'forest_defense') {
+    return [
+      { name: 'Player', label: '玩家', template: 'PlayerController' },
+      { name: 'WoodPile', label: '木材堆', template: 'Collectible' },
+      { name: 'Conveyor', label: '传送带', template: 'Buildable' },
+      { name: 'CrossbowTurret', label: '弩炮', template: 'Buildable' },
+      { name: 'LeftCrossbowTurret', label: '左侧弩炮', template: 'Buildable' },
+      { name: 'RightCrossbowTurret', label: '右侧炮塔', template: 'Buildable' },
+      { name: 'BaseCamp', label: '森林基地', template: 'Buildable' },
+      { name: 'HelperWorker', label: '搬运工人', template: 'NPC' },
+      { name: 'RightWorkerHouse', label: '右侧工人木屋', template: 'Buildable' },
+      { name: 'Enemy', label: '红色士兵', template: 'Damageable' },
+      { name: 'RightEnemyWave', label: '右侧敌人', template: 'Damageable' },
+      { name: 'BossEnemy', label: 'Boss 敌人', template: 'Damageable' },
+      { name: 'CtaButton', label: '下载按钮', template: 'UI' },
+    ];
+  }
+  if (kind === 'shelter_warmth') {
+    return [
+      { name: 'Player', label: '玩家', template: 'PlayerController' },
+      { name: 'Campfire', label: '火堆', template: 'Buildable' },
+      { name: 'WoodPile', label: '木材', template: 'Collectible' },
+      { name: 'ShelterRoom', label: '房间', template: 'Buildable' },
+      { name: 'PowerTower', label: '电塔', template: 'Upgradeable' },
+      { name: 'PowerLine', label: '电线', template: 'Static' },
+      { name: 'FrozenCrowd', label: '冻僵人群', template: 'NPC' },
+      { name: 'Enemy', label: '丧尸', template: 'Damageable' },
+      { name: 'Chest', label: '宝箱', template: 'Collectible' },
+      { name: 'Furniture', label: '家具', template: 'Damageable' },
+      { name: 'KeyItem', label: '钥匙', template: 'Collectible' },
+      { name: 'Battery', label: '电池', template: 'Collectible' },
+      { name: 'AxeOrbit', label: '飞斧', template: 'Weapon' },
+      { name: 'CtaButton', label: '下载按钮', template: 'UI' },
+    ];
+  }
   return [{ name: 'Player', label: '玩家', template: 'PlayerController' }, { name: 'CtaButton', label: '下载按钮', template: 'UI' }];
 }
 
 function themeForKind(kind) {
+  if (kind === 'forest_defense') return 'farming';
   return kind === 'water' || kind === 'space' || kind === 'guard' ? 'space' : 'default';
 }
 
 function resourcesForKind(kind) {
+  if (kind === 'forest_defense') {
+    return [
+      { id: 'Wood', label: '木头', carrierEntity: 'WoodPile', kind: 'resource', initial: 0 },
+      { id: 'Coin', label: '金币', carrierEntity: 'BaseCamp', kind: 'resource', initial: 0 },
+    ];
+  }
+  if (kind === 'shelter_warmth') {
+    return [
+      { id: 'Wood', label: '木材', carrierEntity: 'WoodPile', kind: 'resource', initial: 0 },
+      { id: 'Key', label: '钥匙', carrierEntity: 'KeyItem', kind: 'resource', initial: 0 },
+      { id: 'Battery', label: '电池', carrierEntity: 'Battery', kind: 'resource', initial: 0 },
+    ];
+  }
   if (kind === 'guard') {
     return [
       { id: 'Ice', label: '冰块', carrierEntity: 'IceChunk', kind: 'resource', initial: 0 },
@@ -252,6 +515,180 @@ function resourcesForKind(kind) {
     ];
   }
   return [];
+}
+
+function entityNamesForKind(kind) {
+  return entitiesForKind(kind).map(function(entity) { return entity.name || entity.id; }).filter(Boolean);
+}
+
+function addVisibleEntity(out, entitySet, name) {
+  if (!name || !entitySet[name]) return;
+  out.push(name);
+}
+
+function addInteractionVisibleEntity(out, entitySet, interaction, kind) {
+  var parts = String(interaction || '').split(':').map(function(part) { return part.trim(); });
+  var verb = parts[0] || '';
+  var target = parts[1] || '';
+  if (verb === 'collect') {
+    if (target === 'Wood') addVisibleEntity(out, entitySet, 'WoodPile');
+    else if (target === 'Coin' && kind === 'forest_defense') addVisibleEntity(out, entitySet, 'BaseCamp');
+    else if (target === 'Coin' && kind === 'space') addVisibleEntity(out, entitySet, 'DormantPod');
+    else addVisibleEntity(out, entitySet, target);
+    return;
+  }
+  if (verb === 'click' && /^CtaButton$/i.test(target)) {
+    addVisibleEntity(out, entitySet, 'CtaButton');
+    return;
+  }
+  addVisibleEntity(out, entitySet, target);
+}
+
+function visibleEntityKeywordRules(kind) {
+  var common = [
+    ['CtaButton', /下载|跳转|结束页面|PlayNow|CTA|logo/i],
+    ['Enemy', /敌|怪|丧尸|士兵|战斗|打怪|击杀|攻击/],
+  ];
+  if (kind === 'forest_defense') {
+    return common.concat([
+      ['BaseCamp', /基地|营地|木屋|城堡/],
+      ['WoodPile', /木头|木材|树木|资源/],
+      ['Conveyor', /传送带/],
+      ['LeftCrossbowTurret', /(左侧|左边|左路|自己所在一侧|己方|本侧).*?(弩炮|炮塔|射击)|(弩炮|炮塔|射击).*?(左侧|左边|左路|自己所在一侧|己方|本侧)/],
+      ['RightCrossbowTurret', /(右侧|右边|右路|右方).*?(弩炮|炮塔|射击)|(弩炮|炮塔|射击).*?(右侧|右边|右路|右方)/],
+      ['CrossbowTurret', /弩炮|炮塔|射击/],
+      ['RightWorkerHouse', /(右侧|右边).*?(工人木屋|木屋|工人)|工人木屋/],
+      ['RightEnemyWave', /(右侧|右边).*?(敌人|红色士兵|刷新|来袭|战斗)|右侧开始刷新敌人/],
+      ['HelperWorker', /小人|工人|帮手|搬运/],
+    ]);
+  }
+  if (kind === 'space') {
+    return common.concat([
+      ['RecyclingCabin', /太空舱|主空间|航天休眠室|舱内/],
+      ['DormantPod', /休眠舱|培养皿/],
+      ['HelperWorker', /助手|英雄|角色|跟随/],
+      ['RoleCard', /角色卡片|选择助手|随机出现|只剩一个角色/],
+      ['SkillMeter', /技能|进度条|释放/],
+      ['SolarPanel', /太阳能板/],
+      ['NewCabin', /房间|舱/],
+      ['SpaceJunk', /垃圾|金属|碎块/],
+    ]);
+  }
+  if (kind === 'shelter_warmth') {
+    return common.concat([
+      ['Campfire', /火堆|篝火|取暖|点燃/],
+      ['WoodPile', /木材|木头|树木/],
+      ['ShelterRoom', /房间|左下|左上|右下|右上|右侧中间|墙壁|床铺/],
+      ['PowerTower', /电塔|发电|升级/],
+      ['PowerLine', /电线|链接/],
+      ['FrozenCrowd', /冻僵|人群|苏醒|欢呼/],
+      ['Chest', /宝箱/],
+      ['Furniture', /家具|破坏/],
+      ['KeyItem', /钥匙/],
+      ['Battery', /电池/],
+      ['AxeOrbit', /斧子|飞斧/],
+    ]);
+  }
+  return common;
+}
+
+function frameInferenceText(frame) {
+  return [
+    frame && frame.title,
+    frame && frame.chapterTitle,
+    frame && frame.scene,
+    frame && frame.ui,
+  ].map(function(value) { return String(value || ''); }).filter(Boolean).join(' ');
+}
+
+function framePrimaryText(frame) {
+  return [
+    frame && frame.title,
+    frame && frame.chapterTitle,
+    frame && frame.ui,
+  ].map(function(value) { return String(value || ''); }).filter(Boolean).join(' ');
+}
+
+function interactionParts(value) {
+  if (value && typeof value === 'object') {
+    return {
+      object: value,
+      verb: String(value.verb || '').trim(),
+      target: String(value.target || value.entity || value.resource || '').trim(),
+      amount: value.amount == null ? '' : String(value.amount),
+    };
+  }
+  var parts = String(value || '').split(':').map(function(part) { return part.trim(); });
+  return { object: null, verb: parts[0] || '', target: parts[1] || '', amount: parts[2] || '', rest: parts.slice(2) };
+}
+
+function coarseForestTarget(target) {
+  return !target || /^(Target|BuildTarget|UpgradeTarget|CrossbowTurret|Enemy)$/.test(String(target || ''));
+}
+
+function rewriteInteractionTarget(interaction, target) {
+  var parts = interactionParts(interaction);
+  if (!parts.verb || !target) return interaction;
+  if (parts.object) {
+    var next = Object.assign({}, parts.object, { target: target });
+    if (parts.verb === 'collect') next.resource = parts.object.resource || parts.target;
+    next.raw = [parts.verb, target].concat(parts.amount ? [parts.amount] : []).join(':');
+    return next;
+  }
+  var suffix = safeArray(parts.rest).filter(Boolean);
+  return [parts.verb, target].concat(suffix).join(':');
+}
+
+function disambiguateFrameInteraction(frame, kind) {
+  var copy = Object.assign({}, frame || {});
+  if (kind !== 'forest_defense') return copy;
+  var parts = interactionParts(copy.interaction);
+  if (['attack', 'build', 'upgrade', 'move_to', 'click'].indexOf(parts.verb) < 0) return copy;
+  var target = inferTargetId(frameInferenceText(copy), parts.target || 'Target', {
+    kind: kind,
+    verb: parts.verb,
+    primaryText: framePrimaryText(copy),
+  });
+  if (!target || target === parts.target) return copy;
+  if (!coarseForestTarget(parts.target) && !/^(LeftCrossbowTurret|RightCrossbowTurret|RightEnemyWave|BossEnemy|RightWorkerHouse)$/.test(target)) return copy;
+  copy.interaction = rewriteInteractionTarget(copy.interaction, target);
+  copy.entityDisambiguation = {
+    from: parts.target || '',
+    to: target,
+    kind: kind,
+    reason: 'storyboard-direction-or-boss-cue',
+  };
+  return copy;
+}
+
+function inferVisibleEntitiesForFrame(frame, kind) {
+  var entitySet = {};
+  entityNamesForKind(kind).forEach(function(name) { entitySet[name] = true; });
+  var out = [];
+  addVisibleEntity(out, entitySet, 'Player');
+  var text = [
+    frame && frame.title,
+    frame && frame.scene,
+    frame && frame.ui,
+    frame && frame.interaction,
+  ].map(function(value) { return String(value || ''); }).join(' ');
+  addInteractionVisibleEntity(out, entitySet, frame && frame.interaction, kind);
+  visibleEntityKeywordRules(kind).forEach(function(rule) {
+    if (rule[1].test(text)) addVisibleEntity(out, entitySet, rule[0]);
+  });
+  if (/下载|跳转|结束页面|CTA|PlayNow/i.test(text)) addVisibleEntity(out, entitySet, 'CtaButton');
+  return uniqueStrings(out);
+}
+
+function enrichFramesWithVisibleEntities(frames, kind) {
+  return safeArray(frames).map(function(frame) {
+    var copy = disambiguateFrameInteraction(frame, kind);
+    var visible = safeArray(copy.visibleEntities).concat(safeArray(copy.entities));
+    visible = visible.concat(inferVisibleEntitiesForFrame(copy, kind));
+    copy.visibleEntities = uniqueStrings(visible);
+    copy.entities = copy.visibleEntities;
+    return copy;
+  });
 }
 
 
@@ -336,6 +773,543 @@ function parseWaterFrames(text) {
     };
   });
   return frames;
+}
+
+function parseNumberedTableFrames(text, fallbackName) {
+  var lines = contentLinesWithNumbers(text)
+    .filter(function(line) { return line !== fallbackName; });
+  var frames = [];
+  var prelude = [];
+  var current = null;
+
+  function finishCurrent() {
+    if (!current) return;
+    var textBlock = collapseLines(current.lines);
+    if (textBlock.length >= 3) {
+      var fallbackTitle = (fallbackName || 'Phase') + ' ' + current.chapter;
+      var parts = splitTitleAndDescription(current.lines, fallbackTitle);
+      var title = collapseLines(current.lines).slice(0, 24) || parts.title || fallbackTitle;
+      var description = parts.description || textBlock || title;
+      frames.push({
+        id: 'numbered-row-' + current.chapter,
+        chapter: current.chapter,
+        chapterTitle: title,
+        step: 1,
+        title: title,
+        scene: description,
+        interaction: inferInteraction(title + ' ' + description, title),
+        ui: title,
+        timing: '玩家操作，预计 3-5s',
+        parser: 'numbered-table',
+      });
+    }
+    current = null;
+  }
+
+  function startCurrent(chapter, firstLine) {
+    finishCurrent();
+    current = { chapter: chapter, lines: prelude.splice(0) };
+    if (firstLine) current.lines.push(firstLine);
+  }
+
+  lines.forEach(function(line) {
+    var markerWithText = line.match(/^(\d{1,2})\s+(.+)$/);
+    if (markerWithText) {
+      startCurrent(Number(markerWithText[1]), markerWithText[2]);
+      return;
+    }
+    var markerOnly = line.match(/^(\d{1,2})$/);
+    if (markerOnly) {
+      startCurrent(Number(markerOnly[1]), '');
+      return;
+    }
+    if (current) current.lines.push(line);
+    else prelude.push(line);
+  });
+  finishCurrent();
+  return frames.length >= 3 ? frames : [];
+}
+
+function parsePhaseMarkedFrames(text, fallbackName) {
+  var normalized = normalizePdfText(text);
+  var re = /(?:^|\n)\s*Phase\s*(\d+)\s*:\s*/gi;
+  var matches = [];
+  var match;
+  while ((match = re.exec(normalized))) {
+    matches.push({
+      raw: Number(match[1]),
+      index: match.index,
+      bodyStart: re.lastIndex,
+    });
+  }
+  if (matches.length < 2) return [];
+  var frames = [];
+  var lastChapter = 0;
+  for (var i = 0; i < matches.length; i += 1) {
+    var rawChapter = matches[i].raw || i + 1;
+    var chapter = rawChapter <= lastChapter ? lastChapter + 1 : rawChapter;
+    lastChapter = chapter;
+    var body = normalized.slice(matches[i].bodyStart, i + 1 < matches.length ? matches[i + 1].index : normalized.length);
+    var lines = phaseBodyLines(body);
+    var parts = splitTitleAndDescription(lines, (fallbackName || 'Phase') + ' ' + chapter);
+    var title = parts.title || ((fallbackName || 'Phase') + ' ' + chapter);
+    var description = parts.description || title;
+    frames.push({
+      id: 'phase-marked-' + chapter,
+      chapter: chapter,
+      chapterTitle: title,
+      step: 1,
+      title: title,
+      scene: description,
+      interaction: inferInteraction(title + ' ' + description, title),
+      ui: title,
+      timing: '玩家操作，预计 3-5s',
+      parser: 'phase-marker',
+    });
+  }
+  return frames;
+}
+
+function collapsedStoryboardText(text) {
+  return normalizePdfText(text).replace(/\s+/g, ' ').trim();
+}
+
+function findCueIndex(text, cue, startAt) {
+  startAt = Math.max(0, Number(startAt) || 0);
+  var match = String(text || '').slice(startAt).match(cue);
+  return match ? startAt + match.index : -1;
+}
+
+function chunkBetweenCues(text, startCue, endCue, fallback) {
+  var source = String(text || '');
+  var start = findCueIndex(source, startCue, 0);
+  if (start < 0) return fallback || '';
+  var end = endCue ? findCueIndex(source, endCue, start + 1) : -1;
+  return source.slice(start, end >= 0 ? end : source.length).trim();
+}
+
+function parseShelterWarmthFrames(text) {
+  var source = collapsedStoryboardText(text);
+  if (!/搜屋取暖|火堆|篝火|电塔|取暖/.test(source)) return [];
+  var rows = [
+    {
+      title: '开局寒冷火堆',
+      start: /冰雪场景|风雪吹灭篝火|熄灭的小火堆/,
+      end: /篝火需要点燃/,
+      interaction: 'move_to:Campfire',
+    },
+    {
+      title: '收集木材点燃篝火',
+      start: /篝火需要点燃/,
+      end: /篝火点燃后变旺/,
+      interaction: 'collect:Wood:1',
+    },
+    {
+      title: '前往右侧中间房间',
+      start: /篝火点燃后变旺/,
+      end: /右侧中间房间里有数量/,
+      interaction: 'move_to:ShelterRoom',
+    },
+    {
+      title: '右中房间搜刮战斗',
+      start: /右侧中间房间里有数量/,
+      end: /右下房间里也有丧尸/,
+      interaction: 'attack:Enemy',
+    },
+    {
+      title: '右下房间收集木材飞斧',
+      start: /右下房间里也有丧尸/,
+      end: /缴纳木材后篝火升级为电/,
+      interaction: 'collect:Wood:1',
+    },
+    {
+      title: '升级篝火为电塔',
+      start: /缴纳木材后篝火升级为电|升级篝火为电塔/,
+      end: /升级后电塔上方再度出现/,
+      interaction: 'upgrade:PowerTower:2',
+    },
+    {
+      title: '左下房间获取钥匙',
+      start: /升级后电塔上方再度出现|左下房间获取钥匙/,
+      end: /房间里的宝箱家具和丧尸/,
+      interaction: 'collect:Key:1',
+    },
+    {
+      title: '左上右上房间获取电池',
+      start: /房间里的宝箱家具和丧尸/,
+      end: /电塔需要物资/,
+      interaction: 'collect:Battery:1',
+    },
+    {
+      title: '缴纳电池木材升级电塔',
+      start: /电塔需要物资/,
+      end: /全场景积雪融化|结束页面/,
+      interaction: 'upgrade:PowerTower:3',
+    },
+    {
+      title: '胜利结束页面',
+      start: /全场景积雪融化|结束页面/,
+      end: null,
+      interaction: 'click:CtaButton',
+    },
+  ];
+  var frames = rows.map(function(row, index) {
+    var scene = chunkBetweenCues(source, row.start, row.end, '');
+    if (!scene) scene = row.title;
+    return {
+      id: 'shelter-warmth-' + (index + 1),
+      chapter: index + 1,
+      chapterTitle: row.title,
+      step: 1,
+      title: row.title,
+      scene: scene,
+      interaction: row.interaction || inferShelterWarmthInteraction(scene, row.title),
+      ui: row.title,
+      timing: '玩家操作，预计 3-5s',
+      parser: 'shelter-warmth-profile',
+    };
+  });
+  return frames.filter(function(frame) {
+    return frame.scene && frame.scene !== frame.title || /^click:CtaButton$/.test(frame.interaction);
+  }).length >= 8 ? frames : [];
+}
+
+function parseGenericFrames(text, fallbackName) {
+  var phaseFrames = parsePhaseMarkedFrames(text, fallbackName);
+  if (phaseFrames.length >= 2) return phaseFrames;
+  var numberedFrames = parseNumberedTableFrames(text, fallbackName);
+  if (numberedFrames.length >= 3) return numberedFrames;
+  return parseWaterFrames(text);
+}
+
+function runtimePhaseCount(frames) {
+  var seen = {};
+  safeArray(frames).forEach(function(frame, index) {
+    var chapter = Number(frame && frame.chapter || index + 1);
+    if (!Number.isFinite(chapter) || chapter <= 0) chapter = index + 1;
+    seen[String(chapter)] = true;
+  });
+  return Object.keys(seen).length;
+}
+
+function interactionVerb(value) {
+  var text = String(value || '').trim();
+  var match = text.match(/^([A-Za-z_]+)(?::|\b)/);
+  return match ? match[1].toLowerCase() : '';
+}
+
+function frameActionScore(frame) {
+  var verb = interactionVerb(frame && frame.interaction);
+  if (verb === 'click') return 90;
+  if (verb === 'attack' || verb === 'build' || verb === 'upgrade' || verb === 'collect') return 70;
+  if (verb === 'move_to' || verb === 'move') return 50;
+  if (verb === 'wait' || verb === 'timer') return 10;
+  return 0;
+}
+
+function groupActionScore(group) {
+  return safeArray(group && group.frames).reduce(function(best, frame) {
+    return Math.max(best, frameActionScore(frame));
+  }, 0);
+}
+
+function groupHasFinalCta(group) {
+  return safeArray(group && group.frames).some(function(frame) {
+    return /^click:CtaButton$/i.test(String(frame && frame.interaction || ''));
+  });
+}
+
+function groupFramesByRuntimeChapter(frames) {
+  var groups = [];
+  var byChapter = {};
+  safeArray(frames).forEach(function(frame, index) {
+    var chapter = Number(frame && frame.chapter || index + 1);
+    if (!Number.isFinite(chapter) || chapter <= 0) chapter = index + 1;
+    var key = String(chapter);
+    if (!byChapter[key]) {
+      byChapter[key] = { chapter: chapter, frames: [], firstIndex: index };
+      groups.push(byChapter[key]);
+    }
+    byChapter[key].frames.push(Object.assign({}, frame));
+  });
+  return groups.sort(function(a, b) { return a.firstIndex - b.firstIndex; });
+}
+
+function frameSplitSourceText(frame) {
+  return [
+    frame && frame.title,
+    frame && frame.scene,
+  ].map(function(value) { return String(value || '').replace(/\s+/g, ' ').trim(); }).filter(Boolean).join(' ');
+}
+
+function titleFromChunk(chunk, fallbackTitle) {
+  var text = String(chunk || '').replace(/^(玩家看到什么|玩家做什么|镜头|感觉|大约耗时)[:：]\s*/g, '').trim();
+  text = text.replace(/\s+/g, ' ');
+  if (!text) return fallbackTitle || 'Phase';
+  return text.slice(0, Math.min(24, text.length));
+}
+
+function splitTextByRuntimeCues(text) {
+  var source = String(text || '').replace(/\s+/g, ' ').trim();
+  if (source.length < 48) return [];
+  var cueRe = /(玩家看到什么[:：]|在第[一二三四五六七八九十]+个房间|在第二个房间|右下角房间|右下房间|右侧中间房间|左下房间获取钥匙|左上右上房间获取电池|升级电塔|获取胜利|结束页面[:：]?)/g;
+  var matches = [];
+  var match;
+  while ((match = cueRe.exec(source))) {
+    if (match.index > 0) matches.push(match.index);
+  }
+  if (!matches.length) return [];
+  var cuts = [0].concat(matches).filter(function(value, index, arr) {
+    return index === 0 || value - arr[index - 1] >= 32;
+  });
+  var chunks = [];
+  for (var i = 0; i < cuts.length; i += 1) {
+    var start = cuts[i];
+    var end = i + 1 < cuts.length ? cuts[i + 1] : source.length;
+    var chunk = source.slice(start, end).trim();
+    if (chunk.length >= 24) chunks.push(chunk);
+  }
+  if (chunks.length >= 2) return chunks;
+  var sentences = source
+    .replace(/([。；;.!?？])/g, '$1\n')
+    .split(/\n+/)
+    .map(function(item) { return item.trim(); })
+    .filter(function(item) { return item.length >= 10; });
+  if (sentences.length < 2) return [];
+  var sentenceChunks = [];
+  var current = '';
+  sentences.forEach(function(sentence) {
+    if (current && (current.length + sentence.length > 54)) {
+      sentenceChunks.push(current.trim());
+      current = sentence;
+    } else {
+      current = current ? current + sentence : sentence;
+    }
+  });
+  if (current) sentenceChunks.push(current.trim());
+  return sentenceChunks.length >= 2 ? sentenceChunks : [];
+}
+
+function splitFrameForRuntimeExpansion(frame, maxParts) {
+  maxParts = Math.max(1, Number(maxParts) || 1);
+  var chunks = splitTextByRuntimeCues(frameSplitSourceText(frame));
+  if (chunks.length < 2) return [];
+  if (chunks.length > maxParts) {
+    chunks = chunks.slice(0, maxParts - 1).concat([chunks.slice(maxParts - 1).join(' ')]);
+  }
+  return chunks.map(function(chunk, index) {
+    var title = titleFromChunk(chunk, frame && frame.title || ('Phase ' + (index + 1)));
+    return Object.assign({}, frame, {
+      id: String(frame && frame.id || 'frame') + '-part-' + (index + 1),
+      chapterTitle: title,
+      title: title,
+      scene: chunk,
+      interaction: inferInteraction(title + ' ' + chunk, title),
+      ui: title,
+      runtimeExpansion: 'storyboard-pdf-min-phase',
+      expandedFromFrameId: frame && frame.id || null,
+      expandedPartIndex: index + 1,
+      expandedPartCount: chunks.length,
+    });
+  });
+}
+
+function splitGroupForRuntimeExpansion(group, maxParts) {
+  maxParts = Math.max(1, Number(maxParts) || 1);
+  if (!group || maxParts < 2) return [];
+  if (safeArray(group.frames).length > 1) {
+    return group.frames.slice(0, maxParts).map(function(frame) {
+      return { chapter: group.chapter, frames: [Object.assign({}, frame)], firstIndex: group.firstIndex };
+    });
+  }
+  var parts = splitFrameForRuntimeExpansion(group.frames[0], maxParts);
+  return parts.map(function(frame) {
+    return { chapter: group.chapter, frames: [frame], firstIndex: group.firstIndex };
+  });
+}
+
+function groupTextLength(group) {
+  return safeArray(group && group.frames).reduce(function(total, frame) {
+    return total + frameSplitSourceText(frame).length;
+  }, 0);
+}
+
+function expandRuntimePhases(groups, options) {
+  var min = Number(options && options.min) || RUNTIME_PHASE_MIN;
+  var max = Number(options && options.max) || RUNTIME_PHASE_MAX;
+  groups = safeArray(groups).map(function(group) {
+    return {
+      chapter: group.chapter,
+      frames: safeArray(group.frames).map(function(frame) { return Object.assign({}, frame); }),
+      firstIndex: group.firstIndex,
+    };
+  });
+  var originalCount = groups.length;
+  while (groups.length < min && groups.length < max) {
+    var room = max - groups.length + 1;
+    var best = null;
+    for (var i = 0; i < groups.length; i += 1) {
+      var maxParts = Math.min(room, min - groups.length + 1, 5);
+      var parts = splitGroupForRuntimeExpansion(groups[i], maxParts);
+      if (parts.length < 2) continue;
+      var score = groupTextLength(groups[i]) + (parts.length * 250);
+      if (groupHasFinalCta(groups[i])) score -= 500;
+      if (!best || score > best.score) best = { index: i, parts: parts, score: score };
+    }
+    if (!best) break;
+    groups.splice.apply(groups, [best.index, 1].concat(best.parts));
+  }
+  if (groups.length === originalCount) return { groups: groups, diagnostics: [] };
+  return {
+    groups: groups,
+    diagnostics: [{
+      code: 'storyboard_pdf_runtime_phase_expand',
+      severity: 'info',
+      fromPhaseCount: originalCount,
+      toPhaseCount: groups.length,
+      minPhaseCount: min,
+      maxPhaseCount: max,
+      message: 'Split long storyboard phases into runtime phases before SourceIR build.',
+    }],
+  };
+}
+
+function mergedRuntimePhaseTarget(groups, options) {
+  var max = Number(options && options.max) || RUNTIME_PHASE_MAX;
+  var min = Number(options && options.min) || RUNTIME_PHASE_MIN;
+  var actionGroups = safeArray(groups).filter(function(group) { return groupActionScore(group) > 0; }).length;
+  var noActionGroups = Math.max(0, groups.length - actionGroups);
+  return Math.min(max, Math.max(Math.min(min, groups.length), actionGroups + Math.ceil(noActionGroups / 3)));
+}
+
+function chooseRuntimeMergePair(groups) {
+  for (var i = 0; i < groups.length; i += 1) {
+    if (groupActionScore(groups[i]) > 0 || groupHasFinalCta(groups[i])) continue;
+    if (i > 0) return i - 1;
+    return 0;
+  }
+  var best = { index: 0, penalty: Infinity };
+  for (var j = 0; j < groups.length - 1; j += 1) {
+    var penalty = groupActionScore(groups[j]) + groupActionScore(groups[j + 1]);
+    if (groupHasFinalCta(groups[j + 1])) penalty += 400;
+    if (interactionVerb(groups[j].frames[0] && groups[j].frames[0].interaction) === interactionVerb(groups[j + 1].frames[0] && groups[j + 1].frames[0].interaction)) {
+      penalty -= 20;
+    }
+    if (penalty < best.penalty) best = { index: j, penalty: penalty };
+  }
+  return best.index;
+}
+
+function capRuntimePhases(frames, options) {
+  options = options || {};
+  var max = Number(options.max) || RUNTIME_PHASE_MAX;
+  var groups = groupFramesByRuntimeChapter(frames);
+  var diagnostics = [];
+  if (groups.length < (Number(options.min) || RUNTIME_PHASE_MIN)) {
+    var expanded = expandRuntimePhases(groups, options);
+    groups = expanded.groups;
+    diagnostics = diagnostics.concat(expanded.diagnostics);
+  }
+  if (groups.length <= max) {
+    var normalizedFrames = [];
+    groups.forEach(function(group, groupIndex) {
+      var phaseIndex = groupIndex + 1;
+      var phaseTitle = group.frames[0] && (group.frames[0].chapterTitle || group.frames[0].title) || ('Phase ' + phaseIndex);
+      group.frames.forEach(function(frame, frameIndex) {
+        var copy = Object.assign({}, frame);
+        copy.chapter = phaseIndex;
+        copy.chapterTitle = phaseTitle;
+        copy.runtimePhaseIndex = phaseIndex;
+        copy.runtimePhaseFrameIndex = frameIndex + 1;
+        copy.runtimePhaseFrameCount = group.frames.length;
+        normalizedFrames.push(copy);
+      });
+    });
+    return { frames: normalizedFrames, diagnostics: diagnostics };
+  }
+  var originalCount = groups.length;
+  var target = mergedRuntimePhaseTarget(groups, options);
+  while (groups.length > target && groups.length > 1) {
+    var pairIndex = chooseRuntimeMergePair(groups);
+    groups[pairIndex].frames = groups[pairIndex].frames.concat(groups[pairIndex + 1].frames);
+    groups.splice(pairIndex + 1, 1);
+  }
+  var cappedFrames = [];
+  groups.forEach(function(group, groupIndex) {
+    var phaseIndex = groupIndex + 1;
+    var phaseTitle = group.frames[0] && (group.frames[0].chapterTitle || group.frames[0].title) || ('Phase ' + phaseIndex);
+    group.frames.forEach(function(frame, frameIndex) {
+      var copy = Object.assign({}, frame);
+      copy.chapter = phaseIndex;
+      copy.chapterTitle = phaseTitle;
+      copy.runtimePhaseIndex = phaseIndex;
+      copy.runtimePhaseFrameIndex = frameIndex + 1;
+      copy.runtimePhaseFrameCount = group.frames.length;
+      cappedFrames.push(copy);
+    });
+  });
+  return {
+    frames: cappedFrames,
+    diagnostics: diagnostics.concat([{
+      code: 'storyboard_pdf_runtime_phase_merge',
+      severity: 'info',
+      fromPhaseCount: originalCount,
+      toPhaseCount: groups.length,
+      minPhaseCount: Number(options.min) || RUNTIME_PHASE_MIN,
+      maxPhaseCount: max,
+      message: 'Merged adjacent storyboard frames into runtime phases before SourceIR build.',
+    }]),
+  };
+}
+
+function storyboardQualityDiagnostics(compiled, kind) {
+  var diagnostics = [];
+  var specs = safeArray(compiled && compiled.specs);
+  var existing = safeArray(compiled && compiled.diagnostics);
+  var noActionCount = existing.filter(function(item) {
+    return item && item.code === 'storyboard_spec_phase_no_actions';
+  }).length;
+  var longWeakStoryboard = specs.length > 18 && noActionCount > 0;
+  var consecutiveTimerOnly = 0;
+  var maxConsecutiveTimerOnly = 0;
+  specs.forEach(function(spec) {
+    var required = safeArray(spec && spec.requiredInteractions).filter(Boolean);
+    var interactionText = required.join(' ');
+    var timerOnly = required.length === 0 || /^wait\b|timer/i.test(interactionText);
+    if (timerOnly) {
+      consecutiveTimerOnly += 1;
+      if (consecutiveTimerOnly > maxConsecutiveTimerOnly) maxConsecutiveTimerOnly = consecutiveTimerOnly;
+    } else {
+      consecutiveTimerOnly = 0;
+    }
+  });
+  if (longWeakStoryboard) {
+    diagnostics.push({
+      code: 'storyboard_pdf_low_quality_phase_split',
+      severity: 'error',
+      phaseCount: specs.length,
+      noActionCount: noActionCount,
+      message: 'PDF storyboard produced too many weak/no-action phases; use a phase-aware parser before SourceIR build.',
+    });
+  }
+  if (specs.length > RUNTIME_PHASE_MAX) {
+    diagnostics.push({
+      code: 'storyboard_pdf_runtime_phase_cap_exceeded',
+      severity: 'error',
+      phaseCount: specs.length,
+      maxPhaseCount: RUNTIME_PHASE_MAX,
+      message: 'Runtime phase count exceeds the blueprint storyboard cap.',
+    });
+  }
+  if (kind !== 'guard' && maxConsecutiveTimerOnly >= 4) {
+    diagnostics.push({
+      code: 'storyboard_pdf_consecutive_timer_only_phases',
+      severity: 'error',
+      maxConsecutiveTimerOnly: maxConsecutiveTimerOnly,
+      message: 'Consecutive timer-only phases are likely to fail production CUA visual-freeze gates.',
+    });
+  }
+  return diagnostics;
 }
 
 var GUARD_HOME_VISUAL_FALLBACK_VERSION = 'guard-home-image-table.v1';
@@ -542,11 +1516,71 @@ function buildVisualOnlyFrames(rowManifest) {
   });
 }
 
-function classifySample(name, textChars) {
-  if (/守护家园/.test(name) || textChars < 50) return 'guard';
-  if (/太空捡垃圾/.test(name)) return 'space';
-  if (/卖水|制作子弹/.test(name)) return 'water';
-  return 'generic';
+function scoreKeywordProfile(text, patterns) {
+  var score = 0;
+  safeArray(patterns).forEach(function(pattern) {
+    try {
+      var re = pattern instanceof RegExp ? pattern : new RegExp(String(pattern), 'i');
+      if (re.test(text)) score += 1;
+    } catch (e) {}
+  });
+  return score;
+}
+
+function inferSampleProfile(name, text, textChars) {
+  var hay = [name, text].map(function(value) { return String(value || ''); }).join('\n');
+  var rules = loadProfileRules();
+  var profiles = safeArray(rules.profiles);
+  var profileScores = {};
+  var profileByKind = {};
+  profiles.forEach(function(profile) {
+    if (!profile || !profile.kind) return;
+    profileByKind[profile.kind] = profile;
+    profileScores[profile.kind] = scoreKeywordProfile(hay, profile.patterns);
+  });
+  ['guard', 'space', 'water'].forEach(function(kind) {
+    if (profileScores[kind] == null) profileScores[kind] = 0;
+  });
+  var bestKind = 'generic';
+  var bestScore = 0;
+  Object.keys(profileScores).forEach(function(kind) {
+    if (profileScores[kind] > bestScore) {
+      bestKind = kind;
+      bestScore = profileScores[kind];
+    }
+  });
+  if (/守护家园/.test(name) || textChars < 50) {
+    bestKind = 'guard';
+    bestScore = Math.max(bestScore, 3);
+  }
+  var parser = 'generic';
+  var structureScore = 0;
+  var normalized = normalizePdfText(text);
+  if (/(?:^|\n)\s*Phase\s*\d+\s*:/i.test(normalized)) {
+    parser = 'phase-marker';
+    structureScore = 1;
+  } else if (contentLinesWithNumbers(text).some(function(line) { return /^\d{1,2}(\s+.+)?$/.test(line); })) {
+    parser = 'numbered-table';
+    structureScore = 1;
+  }
+  else if (profileByKind[bestKind] && profileByKind[bestKind].parserHint) parser = profileByKind[bestKind].parserHint;
+  else if (bestKind === 'space') parser = 'phase-marker';
+  else if (bestKind === 'water') parser = 'paragraph';
+  return {
+    kind: bestKind,
+    parser: parser,
+    confidence: Math.min(1, (bestScore + structureScore) / 3),
+    ruleSet: rules.schemaVersion || 'unknown',
+    scores: profileScores,
+    structureScore: structureScore,
+    reason: bestKind === 'generic'
+      ? 'No named or feature profile crossed the classification threshold.'
+      : 'Matched storyboard profile keywords and structure.',
+  };
+}
+
+function classifySample(name, textChars, text) {
+  return inferSampleProfile(name, text, textChars).kind;
 }
 
 function createRowCrops(pdfPath, outDir, kind) {
@@ -592,11 +1626,9 @@ function buildIrForSample(sample, outDir) {
   var entities = entitiesForKind(sample.kind);
   var resources = resourcesForKind(sample.kind);
   var diagnostics = [];
-  if (sample.kind === 'space') {
-    frames = parseSpaceFrames(sample.layoutText);
-  } else if (sample.kind === 'water') {
-    frames = parseWaterFrames(sample.plainText);
-  } else if (sample.kind === 'guard') {
+  var text = sample.layoutText || sample.plainText;
+  var parser = sample.profile && sample.profile.parser || 'generic';
+  if (sample.kind === 'guard') {
     sample.rowManifest = createRowCrops(sample.pdfPath, outDir, sample.kind);
     frames = buildGuardVisualFallbackFrames(sample.rowManifest);
     diagnostics.push({
@@ -605,9 +1637,29 @@ function buildIrForSample(sample, outDir) {
       version: GUARD_HOME_VISUAL_FALLBACK_VERSION,
       rowCount: sample.rowManifest.rows.length,
     });
+  } else if (sample.kind === 'shelter_warmth') {
+    frames = parseShelterWarmthFrames(text);
+    if (frames.length < 8 && parser === 'phase-marker') frames = parsePhaseMarkedFrames(text, sample.name);
+    if (frames.length < 2) frames = parseGenericFrames(text, sample.name);
+  } else if (parser === 'phase-marker') {
+    frames = parsePhaseMarkedFrames(text, sample.name);
+    if (frames.length < 2 && sample.kind === 'space') frames = parseSpaceFrames(sample.layoutText);
+    if (frames.length < 2) frames = parseGenericFrames(text, sample.name);
+  } else if (parser === 'numbered-table') {
+    frames = parseNumberedTableFrames(text, sample.name);
+    if (frames.length < 3) frames = parseGenericFrames(text, sample.name);
+  } else if (sample.kind === 'space') {
+    frames = parseSpaceFrames(sample.layoutText);
+    if (frames.length < 2) frames = parseGenericFrames(text, sample.name);
+  } else if (sample.kind === 'water') {
+    frames = parseWaterFrames(sample.plainText);
   } else {
-    frames = parseWaterFrames(sample.plainText || sample.layoutText);
+    frames = parseGenericFrames(text, sample.name);
   }
+  var capped = capRuntimePhases(frames, { min: RUNTIME_PHASE_MIN, max: RUNTIME_PHASE_MAX });
+  frames = capped.frames;
+  frames = enrichFramesWithVisibleEntities(frames, sample.kind);
+  diagnostics = diagnostics.concat(capped.diagnostics);
   var theme = themeForKind(sample.kind);
   var ir = storyboardIr.normalizeStoryboardIr({
     projectName: sample.name,
@@ -627,6 +1679,11 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2) + '\n');
 }
 
+function sourceIrSummaryDiagnostics(sourceIr) {
+  if (!sourceIr || !sourceIr.diagnostics) return [];
+  return safeArray(sourceIr.diagnostics.storyboardSemanticFallbacks);
+}
+
 function processPdf(pdfPath, outRoot) {
   var name = basenameNoExt(pdfPath);
   var outDir = path.join(outRoot, safeName(name));
@@ -636,10 +1693,12 @@ function processPdf(pdfPath, outRoot) {
   var layoutText = textOfPdf(pdfPath, true);
   var textChars = stripText(plainText).length;
   var compactHash = sha256(compactText(plainText));
-  var kind = classifySample(name, textChars);
+  var profile = inferSampleProfile(name, layoutText || plainText, textChars);
+  var kind = profile.kind;
   var sample = {
     name: name,
     kind: kind,
+    profile: profile,
     pdfPath: pdfPath,
     info: info,
     textChars: textChars,
@@ -658,10 +1717,17 @@ function processPdf(pdfPath, outRoot) {
     entities: built.entities,
     minActionCoverage: kind === 'guard' ? 1 : 0.35,
   });
+  var qualityDiagnostics = storyboardQualityDiagnostics(compiled, kind);
+  if (qualityDiagnostics.length > 0) {
+    compiled.ok = false;
+    compiled.diagnostics = safeArray(compiled.diagnostics).concat(qualityDiagnostics);
+  }
   writeJson(path.join(outDir, 'spec-compile-report.json'), compiled);
+  var sourceIr = null;
+  var sourceIrDiagnostics = [];
   if (compiled.ok) {
     writeJson(path.join(outDir, 'specs.json'), compiled.specs);
-    var sourceIr = storyboardSourceIrCompiler.compileSourceSceneIrFromStoryboard({
+    sourceIr = storyboardSourceIrCompiler.compileSourceSceneIrFromStoryboard({
       projectName: name,
       themeHint: themeForKind(kind),
       entities: built.entities,
@@ -671,6 +1737,7 @@ function processPdf(pdfPath, outRoot) {
     }, {
       sourceHtmlPath: path.join(outDir, 'source-ir-preview.html'),
     });
+    sourceIrDiagnostics = sourceIrSummaryDiagnostics(sourceIr);
     writeJson(path.join(outDir, 'source-scene-ir.json'), sourceIr);
     var html = sourceIrPreviewRenderer.buildSourceIrPreviewHtml(sourceIr, {
       sourceHtmlPath: path.join(outDir, 'source-ir-preview.html'),
@@ -682,16 +1749,19 @@ function processPdf(pdfPath, outRoot) {
   return {
     name: name,
     kind: kind,
+    profile: profile,
     pdfPath: pdfPath,
     outDir: outDir,
     pages: Number(info.Pages || 0),
     textChars: textChars,
     textCompactSha256: compactHash,
     frameCount: built.ir.frames.length,
+    phaseCount: runtimePhaseCount(built.ir.frames),
     specCompileOk: compiled.ok,
+    sourceIrCompileOk: compiled.ok && !sourceIrDiagnostics.some(function(item) { return item && item.severity === 'error'; }),
     specCount: compiled.specs.length,
     actionCoverage: compiled.summary.actionCoverage,
-    diagnostics: built.ir.diagnostics.concat(compiled.diagnostics || []),
+    diagnostics: built.ir.diagnostics.concat(compiled.diagnostics || [], sourceIrDiagnostics),
     rowCount: sample.rowManifest ? sample.rowManifest.rows.length : 0,
   };
 }
@@ -748,7 +1818,20 @@ module.exports = {
     buildGuardVisualFallbackFrames: buildGuardVisualFallbackFrames,
     buildVisualOnlyFrames: buildVisualOnlyFrames,
     classifySample: classifySample,
+    capRuntimePhases: capRuntimePhases,
+    disambiguateFrameInteraction: disambiguateFrameInteraction,
+    enrichFramesWithVisibleEntities: enrichFramesWithVisibleEntities,
     entitiesForKind: entitiesForKind,
+    inferInteraction: inferInteraction,
+    inferTargetId: inferTargetId,
+    inferVisibleEntitiesForFrame: inferVisibleEntitiesForFrame,
+    inferSampleProfile: inferSampleProfile,
+    parseGenericFrames: parseGenericFrames,
+    parseShelterWarmthFrames: parseShelterWarmthFrames,
+    parseNumberedTableFrames: parseNumberedTableFrames,
+    parsePhaseMarkedFrames: parsePhaseMarkedFrames,
+    runtimePhaseCount: runtimePhaseCount,
+    storyboardQualityDiagnostics: storyboardQualityDiagnostics,
     themeForKind: themeForKind,
     resourcesForKind: resourcesForKind,
   },

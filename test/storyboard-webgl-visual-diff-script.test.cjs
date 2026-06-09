@@ -17,6 +17,7 @@ var visualDiffScript = require('../scripts/storyboard-webgl-visual-diff.cjs');
   'parsePhaseSelector',
   'selectedPhases',
   'animation:none!important;transition:none!important',
+  'window.__BLUEPRINT_VISUAL_DIFF_RUNNING__ = true',
   '?sourceOverlay=1&sourceRuntime=1&observerReady=1&cuaObserverReady=1',
   'meanAbs',
   'over50Pct',

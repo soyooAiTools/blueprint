@@ -109,6 +109,99 @@ assert.deepStrictEqual(gameSchema.entities.map(function(entity) { return entity.
 assert.deepStrictEqual(gameSchema.phases[1].showEntities, ['Player']);
 assert.deepStrictEqual(gameSchema.phases[1].steps.map(function(step) { return step.target; }).filter(Boolean), []);
 
+var stateGateHtmlPath = path.join(tmp, 'state-gate-source.html');
+var stateGateHtml = '<div id="joystick"></div>';
+fs.writeFileSync(stateGateHtmlPath, stateGateHtml);
+var stateGateIr = normalizeSourceSceneIr({
+  schemaVersion: 'source-scene-ir.v1',
+  project: { name: 'state-gate-fixture', theme: 'default' },
+  scene: {
+    backgroundColor: '#101820',
+    camera: { position: [0, 8, 12], lookAt: [0, 0, 0], fov: 55 },
+    ground: { kind: 'plane', size: [20, 20], color: '#203040' },
+  },
+  entities: [
+    { id: 'Player', label: 'Player', kind: 'player', position: [0, 0, 0], visual: { primitive: 'capsule', color: '#66ccff' } },
+    { id: 'Turret', label: 'Turret', kind: 'station', position: [3, 0, 0], visual: { primitive: 'box', color: '#ffaa33' } },
+    { id: 'CtaButton', label: 'Install', kind: 'cta', position: [6, 0, 0], visual: { primitive: 'box', color: '#22cc88' } },
+  ],
+  phases: [
+    {
+      id: 'phase1',
+      title: 'Build turret once',
+      guideText: 'Build turret once',
+      showEntities: ['Player', 'Turret'],
+      steps: [{ kind: 'move_to', target: 'Turret', radius: 1.8 }, { kind: 'build', entity: 'Turret', state: 2 }],
+      gate: { kind: 'entity_state', entity: 'Turret', state: 2 },
+    },
+    {
+      id: 'phase2',
+      title: 'Build turret again',
+      guideText: 'Build turret again',
+      showEntities: ['Player', 'Turret'],
+      steps: [{ kind: 'move_to', target: 'Turret', radius: 1.8 }, { kind: 'build', entity: 'Turret', state: 2 }],
+      gate: { kind: 'entity_state', entity: 'Turret', state: 2 },
+    },
+    {
+      id: 'phase3',
+      title: 'Install',
+      guideText: 'Install',
+      showEntities: ['Player', 'CtaButton'],
+      steps: [{ kind: 'cta_finish', entity: 'CtaButton' }],
+      gate: { kind: 'cta_arrival', entity: 'CtaButton' },
+    },
+  ],
+  runtimeContract: { requiresJoystick: true, requiresArrivalGate: true, forbidAutoplayProgress: true },
+}, {
+  sourceHtmlPath: stateGateHtmlPath,
+  sourceHtmlSha256: require('../engine/source-scene-ir.cjs').sha256OfString(stateGateHtml),
+  html: stateGateHtml,
+  generatedAt: '2026-06-07T00:00:00.000Z',
+});
+var stateGateSchema = compileToGameSchema(stateGateIr);
+assert.deepStrictEqual(schemaValidator.validateGameSchema(stateGateSchema), []);
+assert.deepStrictEqual(schemaValidator.validateSemantics(stateGateSchema), []);
+var stateGatePhase1Target = stateGateIr.phases[0].steps[0].target;
+var stateGatePhase2Target = stateGateIr.phases[1].steps[0].target;
+assert.notStrictEqual(stateGatePhase1Target, 'Turret');
+assert.notStrictEqual(stateGatePhase2Target, 'Turret');
+assert.notStrictEqual(stateGatePhase1Target, stateGatePhase2Target);
+assert.deepStrictEqual(stateGateSchema.phases[0].trigger, {
+  type: 'compound',
+  operator: 'and',
+  triggers: [
+    { type: 'near_entity', entity: stateGatePhase1Target, range: 2 },
+    { type: 'entity_state_reached', entity: stateGatePhase1Target, state: 2 },
+  ],
+});
+assert.deepStrictEqual(stateGateSchema.phases[1].trigger, {
+  type: 'compound',
+  operator: 'and',
+  triggers: [
+    { type: 'near_entity', entity: stateGatePhase2Target, range: 2 },
+    { type: 'entity_state_reached', entity: stateGatePhase2Target, state: 2 },
+  ],
+});
+var stateGatePlayableSceneIr = compilePlayableSceneIr(stateGateIr);
+var stateGateSourceVisualIr = compileSourceVisualIr(stateGateIr);
+var stateGateAssetManifest = compileVisualAssetManifest(stateGateIr, {
+  playableSceneIrHash: stateGatePlayableSceneIr.semanticHash,
+  sourceVisualIrHash: stateGateSourceVisualIr.semanticHash,
+});
+var stateGateBlueprint = buildSourceIrBlueprintContext(stateGateIr, {
+  projectName: 'state-gate-blueprint-fixture',
+  gameSchema: stateGateSchema,
+  playableSceneIr: stateGatePlayableSceneIr,
+  assetManifest: stateGateAssetManifest,
+  buildProjectPlans: fixturePlans,
+});
+function conditionId(value) {
+  return String(value || '').replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').replace(/_+/g, '_');
+}
+assert.deepStrictEqual(stateGateBlueprint.blueprint.specs[0].requiredInteractions, ['move_to:' + stateGatePhase1Target, 'build:' + stateGatePhase1Target]);
+assert.ok(stateGateBlueprint.blueprint.specs[0].triggerNext.condition.indexOf(conditionId(stateGatePhase1Target) + 'Reached') >= 0);
+assert.ok(stateGateBlueprint.blueprint.specs[0].triggerNext.condition.indexOf(conditionId(stateGatePhase1Target) + 'State >= 2') >= 0);
+
 var playableSceneIr = compilePlayableSceneIr(sourceIr);
 assert.strictEqual(playableSceneIr.kind, 'blueprint.playableSceneIR');
 assert.strictEqual(playableSceneIr.phases.length, 2);

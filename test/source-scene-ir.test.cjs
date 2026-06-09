@@ -126,6 +126,60 @@ assert.ok(repairedIr.diagnostics.normalizationRepairs.some(function(repair) {
 assert.ok(repairedIr.diagnostics.normalizationRepairs.some(function(repair) {
   return repair.code === 'source_ir_final_cta_step_rewritten' && repair.phaseId === 'phase2';
 }));
+
+var consecutiveTargetInput = JSON.parse(JSON.stringify(directIr));
+consecutiveTargetInput.entities.push({
+  id: 'Workshop',
+  label: 'Workshop',
+  kind: 'station',
+  position: [5, 0, 2],
+  visual: { primitive: 'box', color: '#ffaa33' },
+});
+consecutiveTargetInput.phases = [
+  {
+    id: 'phase1',
+    title: 'Build workshop',
+    showEntities: ['Player', 'Workshop'],
+    steps: [{ kind: 'move_to', target: 'Workshop', radius: 1.2 }, { kind: 'build', entity: 'Workshop', state: 2 }],
+    gate: { kind: 'entity_state', entity: 'Workshop', state: 2 },
+  },
+  {
+    id: 'phase2',
+    title: 'Upgrade workshop',
+    showEntities: ['Player', 'Workshop'],
+    steps: [{ kind: 'move_to', target: 'Workshop', radius: 1.2 }, { kind: 'upgrade', entity: 'Workshop', level: 3 }],
+    gate: { kind: 'entity_state', entity: 'Workshop', state: 3 },
+  },
+  {
+    id: 'phase3',
+    title: 'Visit gold later',
+    showEntities: ['Player', 'GoldPile'],
+    steps: [{ kind: 'move_to', target: 'GoldPile', radius: 1.2 }],
+    gate: { kind: 'near_entity', entity: 'GoldPile', radius: 1.2 },
+  },
+  {
+    id: 'phase4',
+    title: 'Workshop later',
+    showEntities: ['Player', 'Workshop'],
+    steps: [{ kind: 'move_to', target: 'Workshop', radius: 1.2 }],
+    gate: { kind: 'near_entity', entity: 'Workshop', radius: 1.2 },
+  },
+];
+var consecutiveTargetIr = normalizeSourceSceneIr(consecutiveTargetInput, {
+  html: '<div id="joystick"></div>',
+  generatedAt: '2026-06-07T00:00:00.000Z',
+});
+var phase1Target = consecutiveTargetIr.phases[0].steps[0].target;
+var phase2Target = consecutiveTargetIr.phases[1].steps[0].target;
+assert.notStrictEqual(phase1Target, 'Workshop');
+assert.notStrictEqual(phase2Target, 'Workshop');
+assert.notStrictEqual(phase1Target, phase2Target);
+assert.strictEqual(consecutiveTargetIr.phases[3].steps[0].target, 'Workshop');
+assert.ok(consecutiveTargetIr.entities.some(function(entity) { return entity.id === phase1Target && entity.kind === 'phase_target'; }));
+assert.ok(consecutiveTargetIr.entities.some(function(entity) { return entity.id === phase2Target && entity.kind === 'phase_target'; }));
+assert.ok(consecutiveTargetIr.diagnostics.normalizationRepairs.filter(function(repair) {
+  return repair.code === 'source_ir_consecutive_phase_target_anchor_materialized';
+}).length >= 2);
 var directProjection = projectSourceSceneIrToLegacy(directIr);
 
 function buildSourceIrHtml(ir, projection) {

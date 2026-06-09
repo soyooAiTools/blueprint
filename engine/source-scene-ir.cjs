@@ -615,6 +615,27 @@ function collectGateEntityTargets(gate, out) {
   return out;
 }
 
+function gateHasCtaArrival(gate) {
+  if (!isObject(gate)) return false;
+  if (gate.kind === 'cta_arrival') return true;
+  if (gate.kind === 'compound_all' || gate.kind === 'compound_any') {
+    return safeArray(gate.gates).some(gateHasCtaArrival);
+  }
+  return false;
+}
+
+function ctaIdFromGate(gate) {
+  if (!isObject(gate)) return '';
+  if (gate.kind === 'cta_arrival') return gate.ctaId || gate.entity || gate.target || 'CtaButton';
+  if (gate.kind === 'compound_all' || gate.kind === 'compound_any') {
+    for (var i = 0; i < safeArray(gate.gates).length; i += 1) {
+      var id = ctaIdFromGate(gate.gates[i]);
+      if (id) return id;
+    }
+  }
+  return '';
+}
+
 function collectGateEntityStateRequirements(gate, out) {
   out = out || {};
   if (!isObject(gate)) return out;
@@ -643,6 +664,23 @@ function sourceStepEntityRefs(step) {
     if (step && step[key] && refs.indexOf(step[key]) < 0) refs.push(step[key]);
   });
   return refs;
+}
+
+function firstGameplayPhaseTarget(phase, entityById, playerId) {
+  var refs = [];
+  safeArray(phase && phase.steps).forEach(function(step) {
+    sourceStepEntityRefs(step).forEach(function(id) {
+      if (refs.indexOf(id) < 0) refs.push(id);
+    });
+  });
+  collectGateEntityTargets(phase && phase.gate, refs);
+  for (var i = 0; i < refs.length; i += 1) {
+    var id = refs[i];
+    var entity = entityById[id];
+    if (!id || id === playerId || !entity || isHudOnlySourceEntity(entity) || isCtaSourceEntity(entity || id)) continue;
+    return id;
+  }
+  return '';
 }
 
 function firstNonCtaPhaseTarget(phase, entityById, playerId) {
@@ -728,9 +766,171 @@ function clearCtaHudTarget(phase, repairs) {
   return next;
 }
 
+function roundPhaseAnchorCoord(value) {
+  return Number((Number(value) || 0).toFixed(2));
+}
+
+function isWorldLayoutEntity(entity) {
+  return entity && !isHudOnlySourceEntity(entity) && !isCtaSourceEntity(entity);
+}
+
+function hasNearbyWorldEntity(position, entities, minDistance) {
+  for (var i = 0; i < safeArray(entities).length; i += 1) {
+    var entity = entities[i];
+    if (!isWorldLayoutEntity(entity)) continue;
+    var p = normalizeVector(entity.position, [0, 0, 0], 3);
+    var dx = Number(position[0]) - Number(p[0]);
+    var dz = Number(position[2]) - Number(p[2]);
+    var distance = Math.sqrt(dx * dx + dz * dz);
+    if (distance < minDistance) return true;
+  }
+  return false;
+}
+
+function phaseAnchorPosition(basePosition, phaseIndex, runOrdinal, occupiedEntities) {
+  var p = normalizeVector(basePosition, [0, 0, 0], 3);
+  var minDistance = 3.25;
+  var baseAngle = (phaseIndex + 1) * 2.3999632297 + runOrdinal * 0.82;
+  for (var ring = 0; ring < 8; ring += 1) {
+    var radius = 3.6 + ring * 0.95 + (runOrdinal % 3) * 0.52;
+    for (var attempt = 0; attempt < 10; attempt += 1) {
+      var angle = baseAngle + attempt * 0.6283185307 + ring * 0.31;
+      var candidate = [
+        roundPhaseAnchorCoord(p[0] + Math.cos(angle) * radius),
+        roundPhaseAnchorCoord(p[1]),
+        roundPhaseAnchorCoord(p[2] + Math.sin(angle) * radius),
+      ];
+      if (!hasNearbyWorldEntity(candidate, occupiedEntities, minDistance)) return candidate;
+    }
+  }
+  return [
+    roundPhaseAnchorCoord(p[0] + Math.cos(baseAngle) * 11.2),
+    roundPhaseAnchorCoord(p[1]),
+    roundPhaseAnchorCoord(p[2] + Math.sin(baseAngle) * 11.2),
+  ];
+}
+
+function safePhaseAnchorBaseId(value) {
+  var id = String(value || 'Target').replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
+  if (!id) id = 'Target';
+  if (!/^[A-Za-z_]/.test(id)) id = 'Target_' + id;
+  return id;
+}
+
+function phaseTargetAnchorId(baseId, phaseIndex, entityById) {
+  var base = safePhaseAnchorBaseId(baseId);
+  var preferred = base + '__phase' + String(phaseIndex + 1).padStart(2, '0') + '_target';
+  if (!entityById[preferred]) return preferred;
+  return preferred;
+}
+
+function createPhaseTargetAnchor(baseEntity, baseId, phase, phaseIndex, runOrdinal, anchorId, occupiedEntities) {
+  var visual = Object.assign({}, baseEntity && baseEntity.visual || {});
+  if (!visual.primitive) visual.primitive = 'cylinder';
+  visual.color = visual.color || '#FFE45C';
+  return {
+    id: anchorId,
+    label: String(baseEntity && baseEntity.label || baseId) + ' P' + (phaseIndex + 1) + ' target',
+    kind: 'phase_target',
+    position: phaseAnchorPosition(baseEntity && baseEntity.position, phaseIndex, runOrdinal, occupiedEntities),
+    scale: [0.68, 0.68, 0.68],
+    visibleFromPhase: phase && phase.id || null,
+    visual: visual,
+    binding: null,
+  };
+}
+
+function rewritePhaseGateTarget(gate, before, after) {
+  if (!isObject(gate) || !before || !after) return gate;
+  var next = clone(gate);
+  if (next.kind === 'compound_all' || next.kind === 'compound_any') {
+    next.gates = safeArray(next.gates).map(function(child) {
+      return rewritePhaseGateTarget(child, before, after);
+    });
+    return next;
+  }
+  ['entity', 'target'].forEach(function(key) {
+    if (next[key] === before) next[key] = after;
+  });
+  return next;
+}
+
+function rewritePhaseStepTarget(step, before, after) {
+  if (!isObject(step) || !before || !after) return step;
+  var next = clone(step);
+  if (next.kind === 'collect') {
+    return next;
+  }
+  if (next.kind === 'deliver') {
+    if (next.to === before) next.to = after;
+    if (next.target === before) next.target = after;
+    return next;
+  }
+  ['target', 'entity'].forEach(function(key) {
+    if (next[key] === before) next[key] = after;
+  });
+  return next;
+}
+
+function rewritePhaseTargetReferences(phase, before, after) {
+  var next = clone(phase);
+  next.steps = safeArray(next.steps).map(function(step) {
+    return rewritePhaseStepTarget(step, before, after);
+  });
+  next.gate = rewritePhaseGateTarget(next.gate, before, after);
+  next.showEntities = uniqueStrings(safeArray(next.showEntities).concat([after]));
+  next.targetSequence = uniqueStrings(safeArray(next.targetSequence).map(function(id) {
+    return id === before ? after : id;
+  }).concat([after]));
+  return next;
+}
+
+function materializeConsecutivePhaseTargetAnchors(phases, entities, repairs) {
+  var entityById = indexById(entities);
+  var playerId = findSourcePlayerId(entities);
+  var primaryTargets = safeArray(phases).map(function(phase) {
+    return firstGameplayPhaseTarget(phase, entityById, playerId);
+  });
+  var anchorNeeded = {};
+  for (var i = 1; i < primaryTargets.length; i += 1) {
+    if (!primaryTargets[i] || primaryTargets[i] !== primaryTargets[i - 1]) continue;
+    anchorNeeded[i - 1] = true;
+    anchorNeeded[i] = true;
+  }
+  if (Object.keys(anchorNeeded).length === 0) {
+    return { phases: phases, entities: entities };
+  }
+  var nextEntities = entities.slice();
+  var runOrdinalByBase = {};
+  var nextPhases = safeArray(phases).map(function(phase, phaseIndex) {
+    if (!anchorNeeded[phaseIndex]) return phase;
+    var baseId = primaryTargets[phaseIndex];
+    var baseEntity = entityById[baseId];
+    if (!baseEntity) return phase;
+    var runOrdinal = runOrdinalByBase[baseId] || 0;
+    runOrdinalByBase[baseId] = runOrdinal + 1;
+    var anchorId = phaseTargetAnchorId(baseId, phaseIndex, entityById);
+    if (!entityById[anchorId]) {
+      var anchor = createPhaseTargetAnchor(baseEntity, baseId, phase, phaseIndex, runOrdinal, anchorId, nextEntities);
+      nextEntities.push(anchor);
+      entityById[anchorId] = anchor;
+    }
+    repairs.push({
+      code: 'source_ir_consecutive_phase_target_anchor_materialized',
+      phaseId: phase.id,
+      phaseIndex: phaseIndex + 1,
+      baseTarget: baseId,
+      anchorTarget: anchorId,
+      reason: 'adjacent_phases_shared_primary_target',
+    });
+    return rewritePhaseTargetReferences(phase, baseId, anchorId);
+  });
+  return { phases: nextPhases, entities: nextEntities };
+}
+
 function repairSourcePhaseLiveness(phases, entities, runtimeContract, options) {
   options = options || {};
-  if (options.repairPhaseLiveness === false) return { phases: phases, repairs: [] };
+  if (options.repairPhaseLiveness === false) return { phases: phases, entities: entities, repairs: [] };
   var entityById = indexById(entities);
   var playerId = findSourcePlayerId(entities);
   var repairs = [];
@@ -767,6 +967,20 @@ function repairSourcePhaseLiveness(phases, entities, runtimeContract, options) {
         repairs.push({ code: 'source_ir_final_cta_step_rewritten', phaseId: next.id, before: before, after: 'cta_finish', ctaId: ref });
       });
       next.gate = rewriteFinalCtaGate(next.gate, repairs, next.id);
+      if (gateHasCtaArrival(next.gate) && safeArray(next.steps).some(function(step) { return step && step.kind === 'cta_finish'; })) {
+        var ctaId = ctaIdFromGate(next.gate) || 'CtaButton';
+        var alreadyCtaOnly = safeArray(next.steps).length === 1 && next.steps[0] && next.steps[0].kind === 'cta_finish';
+        if (!alreadyCtaOnly) {
+          repairs.push({
+            code: 'source_ir_final_cta_steps_reduced',
+            phaseId: next.id,
+            beforeStepKinds: safeArray(next.steps).map(function(step) { return step && step.kind || ''; }),
+            after: 'cta_finish',
+            ctaId: ctaId,
+          });
+        }
+        next.steps = [{ index: 0, kind: 'cta_finish', ctaId: ctaId }];
+      }
     }
     next = clearCtaHudTarget(next, repairs);
     var beforeShow = next.showEntities.slice();
@@ -812,7 +1026,8 @@ function repairSourcePhaseLiveness(phases, entities, runtimeContract, options) {
     });
     return next;
   });
-  return { phases: repairedPhases, repairs: repairs };
+  var anchored = materializeConsecutivePhaseTargetAnchors(repairedPhases, entities, repairs);
+  return { phases: anchored.phases, entities: anchored.entities, repairs: repairs };
 }
 
 function resourceIdForStep(step) {
@@ -1078,6 +1293,7 @@ function normalizeSourceSceneIr(ir, options) {
   }
   var phaseRepair = repairSourcePhaseLiveness(phases, entities, runtimeContract, options);
   phases = phaseRepair.phases;
+  entities = phaseRepair.entities || entities;
   var diagnostics = ir.diagnostics ? sanitizeSourceIrDiagnostics(ir.diagnostics) : null;
   if (ctaEntityIds.length > 0) {
     diagnostics = isObject(diagnostics) ? diagnostics : {};

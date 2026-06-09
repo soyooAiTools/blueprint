@@ -142,7 +142,7 @@ function compileResource(resource) {
   };
 }
 
-function triggerFromGate(gate) {
+function triggerFromGate(gate, phase, isFinal) {
   if (!gate || typeof gate !== 'object') return null;
   if (gate.kind === 'resource') {
     return {
@@ -159,11 +159,26 @@ function triggerFromGate(gate) {
     };
   }
   if (gate.kind === 'entity_state') {
-    return {
+    var stateTrigger = {
       type: 'entity_state_reached',
       entity: gate.entity || gate.target || 'Target',
       state: Math.round(Number(gate.state == null ? 1 : gate.state) || 1),
     };
+    var arrivalTarget = !isFinal && firstStepTarget(phase);
+    if (!arrivalTarget || arrivalTarget === stateTrigger.entity) {
+      arrivalTarget = stateTrigger.entity;
+    }
+    if (!isFinal && arrivalTarget) {
+      return {
+        type: 'compound',
+        operator: 'and',
+        triggers: [
+          { type: 'near_entity', entity: arrivalTarget, range: Number(gate.radius || gate.range || 2) || 2 },
+          stateTrigger,
+        ],
+      };
+    }
+    return stateTrigger;
   }
   if (gate.kind === 'entity_count') {
     return {
@@ -190,7 +205,9 @@ function triggerFromGate(gate) {
     return {
       type: 'compound',
       operator: gate.kind === 'compound_any' ? 'or' : 'and',
-      triggers: safeArray(gate.gates).map(triggerFromGate).filter(Boolean),
+      triggers: safeArray(gate.gates).map(function(child) {
+        return triggerFromGate(child, phase, isFinal);
+      }).filter(Boolean),
     };
   }
   return null;
@@ -242,7 +259,8 @@ function compileStep(step, index, entityMap) {
 }
 
 function compilePhase(phase, index, phaseCount, entityMap) {
-  var trigger = triggerFromGate(phase.gate) || fallbackTriggerForPhase(phase, index === phaseCount - 1);
+  var isFinal = index === phaseCount - 1;
+  var trigger = triggerFromGate(phase.gate, phase, isFinal) || fallbackTriggerForPhase(phase, isFinal);
   return {
     phaseId: phase.id || ('phase' + (index + 1)),
     showEntities: safeArray(phase.showEntities).filter(function(id) { return entityMap[id]; }),

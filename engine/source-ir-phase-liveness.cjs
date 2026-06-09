@@ -86,6 +86,16 @@ function isFinalPhase(index, ir) {
   return index === safeArray(ir && ir.phases).length - 1;
 }
 
+function primaryGameplayTarget(targets, entityById, playerId) {
+  for (var i = 0; i < safeArray(targets).length; i += 1) {
+    var target = targets[i];
+    var entity = entityById[target];
+    if (!target || target === playerId || isCtaEntity(entity || target) || isHudOnlyEntity(entity)) continue;
+    return target;
+  }
+  return '';
+}
+
 function phaseRequiresPlayer(phase, gate, sourceIrRequiresJoystick) {
   if (sourceIrRequiresJoystick) return true;
   if (gate && (gate.kind === 'near_entity' || gate.kind === 'cta_arrival')) return true;
@@ -251,6 +261,8 @@ function analyzeSourceIrPhaseLiveness(sourceIr, options) {
   var errors = [];
   var phaseSummaries = [];
   var requiresJoystick = !!(ir.runtimeContract && ir.runtimeContract.requiresJoystick);
+  var previousPrimaryTarget = '';
+  var previousPrimaryPhaseId = '';
 
   if (!playerId || !player) {
     addViolation(errors, 'source_ir_player_missing', 'SourceIR phase liveness requires a Player/player-like entity');
@@ -320,11 +332,22 @@ function analyzeSourceIrPhaseLiveness(sourceIr, options) {
       applyStepDelta(step, resources, entityStates);
     });
     checkGateSatisfiable(phase.gate, resources, entityStates, phase, index, errors, entityById, ir);
+    var primaryTarget = primaryGameplayTarget(targets, entityById, playerId);
+    if (primaryTarget && previousPrimaryTarget && primaryTarget === previousPrimaryTarget) {
+      addViolation(errors, 'source_ir_consecutive_phase_target_shared', phase.id + ' shares primary target with the previous phase: ' + primaryTarget, {
+        phaseId: phase.id,
+        previousPhaseId: previousPrimaryPhaseId,
+        target: primaryTarget,
+      });
+    }
+    previousPrimaryTarget = primaryTarget;
+    previousPrimaryPhaseId = phase.id;
     phaseSummaries.push({
       id: phase.id,
       index: index,
       showEntities: show,
       targetSequence: targets,
+      primaryTarget: primaryTarget,
       requiresPlayer: needsPlayer,
       gate: phase.gate && phase.gate.kind || null,
       resourceSnapshot: Object.assign({}, resources),

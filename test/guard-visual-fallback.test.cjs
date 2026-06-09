@@ -72,6 +72,10 @@ var sourceIr = storyboardSourceIrCompiler.compileSourceSceneIrFromStoryboard({
 });
 assert.strictEqual(sourceIr.project.theme, 'space');
 assert.strictEqual(sourceIr.phases.length, 23);
+assert.strictEqual(sourceIr.hud.domHudContract.present, true);
+assert.strictEqual(sourceIr.hud.domHudContract.ids.tip, 'tip');
+assert.strictEqual(sourceIr.hud.domHudContract.ids.targetHint, 'targetHint');
+assert.strictEqual(sourceIr.hud.domHudContract.ids.joystick, 'joystick');
 assert.strictEqual(sourceIr.phases[22].gate.kind, 'cta_arrival');
 assert.deepStrictEqual(sourceIr.phases[2].showEntities.slice(0, 4), ['Player', 'WaterTank', 'CornField', 'ShipCabin']);
 assert.ok(sourceIr.phases[21].showEntities.indexOf('HeroTower') >= 0);

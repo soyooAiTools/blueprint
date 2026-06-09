@@ -4,6 +4,8 @@ var sourceSceneIr = require('./source-scene-ir.cjs');
 var storyboardIrMod = require('./storyboard-ir.cjs');
 var storyboardSpecCompiler = require('./storyboard-spec-compiler.cjs');
 
+var UNRESOLVED_SEMANTIC_WAIT_SECONDS = 999999;
+
 function safeArray(value) {
   return Array.isArray(value) ? value : [];
 }
@@ -90,6 +92,7 @@ function sceneLayoutForEntities(entities) {
 
 function normalizeEntityId(value, fallback) {
   var text = stringValue(value || fallback).replace(/[^A-Za-z0-9_-]/g, '_').replace(/^_+|_+$/g, '');
+  if (!text && fallback === '') return '';
   if (!text) text = fallback || 'Entity';
   if (!/^[A-Za-z_]/.test(text)) text = 'Entity_' + text;
   return text;
@@ -293,6 +296,90 @@ function stepRefs(step) {
   return [step.target, step.from, step.to, step.entity].filter(Boolean);
 }
 
+function phaseFallbackTarget(spec) {
+  var refs = [];
+  safeArray(spec && spec.visibleEntities).forEach(function(name) { refs.push(name); });
+  safeArray(spec && spec.phaseEntities).forEach(function(name) { refs.push(name); });
+  safeArray(spec && spec.entitiesRequired).forEach(function(entity) {
+    refs.push(typeof entity === 'string' ? entity : entity && entity.name);
+  });
+  safeArray(spec && spec.requiredInteractions).forEach(function(item) {
+    var parts = splitInteraction(item);
+    if (parts[1]) refs.push(parts[1]);
+  });
+  return uniqueStrings(refs).filter(function(ref) {
+    return ref && !isPlayerId(ref, { id: ref }) && !isCtaId(ref);
+  })[0] || '';
+}
+
+function fallbackManualStepForSpec(spec) {
+  var target = normalizeEntityId(phaseFallbackTarget(spec), '');
+  return target ? { kind: 'move_to', target: target, radius: 1.8, fallback: 'storyboard-visible-entity' } : null;
+}
+
+function unresolvedSemanticBlockStepForSpec() {
+  return { kind: 'wait', seconds: UNRESOLVED_SEMANTIC_WAIT_SECONDS, fallback: 'storyboard-unresolved-semantic-block' };
+}
+
+function interactionStepsForSpec(spec, resources, isFinal) {
+  var steps = [];
+  safeArray(spec && spec.requiredInteractions).forEach(function(item) {
+    steps = steps.concat(interactionSteps(item, resources, isFinal));
+  });
+  return steps;
+}
+
+function phaseSemanticText(spec) {
+  return [
+    spec && spec.playerInstruction,
+    spec && spec.guideText,
+    spec && spec.autoModeHint,
+    spec && spec.phaseName,
+    spec && spec.title,
+  ].map(stringValue).filter(Boolean)[0] || '';
+}
+
+function semanticFallbackDiagnosticForSpec(spec, index, phaseCount, resources) {
+  var isFinal = index === phaseCount - 1;
+  if (isFinal) return null;
+  if (interactionStepsForSpec(spec, resources, isFinal).length > 0) return null;
+  var fallbackTarget = normalizeEntityId(phaseFallbackTarget(spec), '');
+  var base = {
+    phaseId: spec && spec.phaseId || ('phase' + (index + 1)),
+    phaseIndex: index + 1,
+    phaseName: spec && (spec.phaseName || spec.title) || ('phase' + (index + 1)),
+    requiredInteractions: safeArray(spec && spec.requiredInteractions),
+    visibleEntities: safeArray(spec && spec.visibleEntities),
+    semanticText: phaseSemanticText(spec),
+    ruleAction: 'add_or_adjust_storyboard_semantic_rule',
+  };
+  if (fallbackTarget) {
+    return Object.assign(base, {
+      code: 'storyboard_semantic_fallback_visible_entity',
+      severity: 'warning',
+      fallbackTarget: fallbackTarget,
+      fallbackInteraction: 'move_to:' + fallbackTarget,
+      message: 'No canonical storyboard action was parsed; SourceIR used a visible entity as a manual movement gate and queued this phrase for rule expansion.',
+    });
+  }
+  return Object.assign(base, {
+    code: 'storyboard_semantic_unresolved_no_target',
+    severity: 'error',
+    blocking: true,
+    fallbackInteraction: 'wait:' + UNRESOLVED_SEMANTIC_WAIT_SECONDS,
+    message: 'No canonical storyboard action or usable visible target was parsed; SourceIR emitted a long blocking wait instead of a short auto-advance timer.',
+  });
+}
+
+function semanticFallbackDiagnosticsForSpecs(specs, resources) {
+  var list = [];
+  safeArray(specs).forEach(function(spec, index, allSpecs) {
+    var diagnostic = semanticFallbackDiagnosticForSpec(spec, index, allSpecs.length, resources);
+    if (diagnostic) list.push(diagnostic);
+  });
+  return list;
+}
+
 function gateFromSpec(spec, steps, resources, isFinal) {
   var interactions = safeArray(spec.requiredInteractions);
   var nonCtaInteractions = interactions.filter(function(item) {
@@ -308,8 +395,13 @@ function gateFromSpec(spec, steps, resources, isFinal) {
   if (verb === 'collect' && target) return { kind: 'resource', resource: target, threshold: amount };
   if ((verb === 'build' || verb === 'upgrade') && target) return { kind: 'entity_state', entity: target, state: verb === 'upgrade' ? amount : 2 };
   if (verb === 'attack' && target) return { kind: 'entity_state', entity: target, state: 0 };
+  if (safeArray(steps).some(function(step) { return step && step.fallback === 'storyboard-unresolved-semantic-block'; })) {
+    return { kind: 'timer', seconds: UNRESOLVED_SEMANTIC_WAIT_SECONDS };
+  }
   var move = safeArray(steps).filter(function(step) { return step.target || step.entity; })[0];
   if (move) return { kind: 'near_entity', entity: move.target || move.entity, radius: move.radius || 1.8 };
+  target = normalizeEntityId(phaseFallbackTarget(spec), '');
+  if (target) return { kind: 'near_entity', entity: target, radius: 1.8 };
   return { kind: 'timer', seconds: 1 };
 }
 
@@ -326,6 +418,9 @@ function moduleHintsForSpec(spec, isFinal) {
     if (verb === 'attack') modules.push('target_acquire', 'damageable', 'apply_damage');
     if (verb === 'click') modules.push(isFinal ? 'cta_finish' : 'player_input_tap');
   });
+  if (!isFinal && !safeArray(spec && spec.requiredInteractions).length && phaseFallbackTarget(spec)) {
+    modules.push('player_input_joystick', 'move_to_target', 'proximity_trigger');
+  }
   if (isFinal) modules.push('cta_finish');
   return uniqueStrings(modules);
 }
@@ -333,11 +428,11 @@ function moduleHintsForSpec(spec, isFinal) {
 function compilePhases(specs, resources) {
   return safeArray(specs).map(function(spec, index) {
     var isFinal = index === specs.length - 1;
-    var steps = [];
-    safeArray(spec.requiredInteractions).forEach(function(item) {
-      steps = steps.concat(interactionSteps(item, resources, isFinal));
-    });
-    if (!steps.length) steps = [{ kind: 'wait', seconds: 1 }];
+    var steps = interactionStepsForSpec(spec, resources, isFinal);
+    if (!steps.length) {
+      var fallbackStep = !isFinal ? fallbackManualStepForSpec(spec) : null;
+      steps = fallbackStep ? [fallbackStep] : [unresolvedSemanticBlockStepForSpec()];
+    }
     var refs = ['Player'];
     refs = refs.concat(safeArray(spec.visibleEntities));
     refs = refs.concat(safeArray(spec.phaseEntities));
@@ -365,6 +460,45 @@ function compilePhases(specs, resources) {
   });
 }
 
+function defaultDomHudContract(resources, phaseCount) {
+  var resourceLabel = safeArray(resources).map(function(resource) {
+    return (resource.label || resource.id) + ': ' + Number(resource.initial || 0);
+  }).join('   ');
+  return {
+    present: true,
+    ids: {
+      tip: 'tip',
+      targetHint: 'targetHint',
+      goldBox: 'resourceBar',
+      phaseBadge: 'phaseLabel',
+      joystick: 'joystick',
+      stickThumb: 'joystick-knob',
+      victory: 'source-ir-cta-overlay',
+      victoryTitle: 'source-ir-cta-title',
+      ctaDom: 'source-ir-cta-btn',
+    },
+    initialText: {
+      tip: '',
+      targetHint: '',
+      goldBox: resourceLabel || 'Resource: 0',
+      phaseBadge: 'Phase 1/' + Math.max(1, Number(phaseCount) || 1),
+      ctaDom: '安装完整游戏',
+      victory: '立即下载，解锁更多内容！',
+    },
+    css: {
+      tip: 'position:absolute;top:16px;left:50%;transform:translateX(-50%);max-width:min(760px,88vw);padding:10px 16px;border-radius:8px;background:rgba(5,16,28,.72);z-index:20;color:#fff;font:700 18px/1.35 system-ui,sans-serif;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,.25)',
+      targetHint: 'position:absolute;left:50%;bottom:18px;transform:translateX(-50%);padding:8px 14px;border-radius:6px;background:rgba(5,16,28,.72);z-index:20;color:#ffe45c;font:700 15px/1.3 system-ui,sans-serif',
+      goldBox: 'position:absolute;right:16px;top:16px;padding:9px 14px;border-radius:7px;background:rgba(10,24,36,.82);z-index:20;color:#fff;font:800 16px/1.3 system-ui,sans-serif',
+      phaseBadge: 'position:absolute;left:16px;top:18px;padding:8px 10px;border-radius:6px;background:rgba(5,16,28,.72);z-index:20;color:#cbd5e1;font:700 14px/1.3 system-ui,sans-serif',
+      joystick: 'position:fixed;left:24px;bottom:24px;width:96px;height:96px;border-radius:50%;border:2px solid rgba(255,255,255,.45);background:rgba(8,16,32,.38);z-index:30;opacity:.86',
+      stickThumb: 'position:absolute;left:31px;top:31px;width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.85)',
+      victory: 'position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.58);z-index:25;color:#fff;text-align:center',
+      victoryTitle: 'font:900 34px/1.18 system-ui,sans-serif;text-shadow:0 3px 14px rgba(0,0,0,.45)',
+      ctaDom: 'display:inline-block;margin-top:24px;padding:16px 34px;border-radius:8px;background:#26d67b;color:#06151d;font:900 22px/1.1 system-ui,sans-serif;box-shadow:0 10px 28px rgba(38,214,123,.35)',
+    },
+  };
+}
+
 function compileSourceSceneIrFromStoryboard(input, options) {
   options = options || {};
   input = input || {};
@@ -388,6 +522,22 @@ function compileSourceSceneIrFromStoryboard(input, options) {
   var entities = compileEntities(input, specs, resources);
   var layout = sceneLayoutForEntities(entities);
   var phases = compilePhases(specs, resources);
+  var semanticFallbacks = semanticFallbackDiagnosticsForSpecs(specs, resources);
+  var diagnostics = semanticFallbacks.length > 0 ? {
+    storyboardSemanticFallbacks: semanticFallbacks,
+    storyboardRuleLearningQueue: semanticFallbacks.map(function(item) {
+      return {
+        code: item.code,
+        severity: item.severity,
+        phaseId: item.phaseId,
+        phaseIndex: item.phaseIndex,
+        semanticText: item.semanticText,
+        fallbackInteraction: item.fallbackInteraction,
+        fallbackTarget: item.fallbackTarget || null,
+        ruleAction: item.ruleAction,
+      };
+    }),
+  } : null;
   var raw = {
     schemaVersion: sourceSceneIr.SOURCE_SCENE_IR_SCHEMA_VERSION,
     kind: 'blueprint.sourceSceneIR',
@@ -400,8 +550,14 @@ function compileSourceSceneIrFromStoryboard(input, options) {
     entities: entities,
     resources: resources,
     phases: phases,
-    hud: { tip: { source: 'phase.guideText' }, resourceBar: resources.map(function(resource) { return resource.id; }), cta: { entity: 'CtaButton', arrivalGated: true } },
+    hud: {
+      tip: { source: 'phase.guideText' },
+      resourceBar: resources.map(function(resource) { return resource.id; }),
+      cta: { entity: 'CtaButton', arrivalGated: true },
+      domHudContract: defaultDomHudContract(resources, phases.length),
+    },
     runtimeContract: { requiresJoystick: phases.length > 1, requiresArrivalGate: phases.length > 1, forbidAutoplayProgress: true },
+    diagnostics: diagnostics,
   };
   return sourceSceneIr.normalizeSourceSceneIr(raw, {
     generatedAt: options.generatedAt,
@@ -416,6 +572,11 @@ module.exports = {
     compileEntities: compileEntities,
     collectResourceSpecs: collectResourceSpecs,
     compilePhases: compilePhases,
+    defaultDomHudContract: defaultDomHudContract,
+    phaseFallbackTarget: phaseFallbackTarget,
+    fallbackManualStepForSpec: fallbackManualStepForSpec,
+    semanticFallbackDiagnosticsForSpecs: semanticFallbackDiagnosticsForSpecs,
+    UNRESOLVED_SEMANTIC_WAIT_SECONDS: UNRESOLVED_SEMANTIC_WAIT_SECONDS,
     sceneLayoutForEntities: sceneLayoutForEntities,
   },
 };

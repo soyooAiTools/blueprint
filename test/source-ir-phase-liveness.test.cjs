@@ -110,6 +110,12 @@ async function main() {
   hudTarget.phases[0].gate = { kind: 'near_entity', entity: 'GoldUI', radius: 1.2 };
   assertStaticViolation(hudTarget, 'source_ir_phase_target_hud_only');
 
+  var sharedConsecutiveTarget = clone(ir);
+  sharedConsecutiveTarget.phases[1].showEntities = ['Player', 'WaterDrop'];
+  sharedConsecutiveTarget.phases[1].steps = [{ kind: 'move_to', target: 'WaterDrop', radius: 1.2 }];
+  sharedConsecutiveTarget.phases[1].gate = { kind: 'near_entity', entity: 'WaterDrop', radius: 1.2 };
+  assertStaticViolation(sharedConsecutiveTarget, 'source_ir_consecutive_phase_target_shared');
+
   var unsatisfiedResource = clone(ir);
   unsatisfiedResource.phases[0].steps = [{ kind: 'move_to', target: 'WaterDrop', radius: 1.2 }];
   assertStaticViolation(unsatisfiedResource, 'source_ir_gate_resource_unsatisfied');

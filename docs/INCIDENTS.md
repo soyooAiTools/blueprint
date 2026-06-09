@@ -1,5 +1,33 @@
 # Blueprint 生产事故记录
 
+## 2026-06-09: Storyboard PDF phase 目标语义漂移与假修复
+
+### 背景
+
+用户要求 PDF 分镜 runtime phase 强制落在 10-13 个，同时连续 phase 不能共享同一个主 gameplay target。`搜屋取暖` 先前被误判修复，但复测仍看到 phase 语义目标重复。
+
+### 根因
+
+PDF 文本抽取把 phase marker 与正文交错，generic phase parser 泄漏相邻行语义，把 `攻击/丧尸/火堆/电塔` 等动作误归到错误 phase。之前只把重复目标改成 `Campfire__phase01_target`、`PowerTower__phase06_target` 等技术 anchor，SourceIR/WebGL id 不再相同，但上游 frame/spec 语义仍错，所以是假通过。另一个 `取木射箭` 跳 phase 问题来自 preview drag 的 `pointermove` 被当成 fresh input，进入下一 phase 后自动满足到达门。
+
+### 修复
+
+- PDF storyboard 处理强制 runtime phase cap 为 10-13，过多合并、过少按可观察动作扩展。
+- `shelter_warmth` 增加 profile parser 和 Key/Battery 资源，`搜屋取暖` 目标链路固定从语义产出：`Campfire -> WoodPile -> ShelterRoom -> Enemy -> WoodPile -> PowerTower -> KeyItem -> Battery -> PowerTower -> CtaButton`。
+- SourceIR liveness 新增 `source_ir_consecutive_phase_target_shared`，连续 phase 共享主 gameplay target 直接报错。
+- generic anchor materialization 只作为语义确认后的兜底，不能用 id 改名代替 parser/rules 修复。
+- SourceIR preview 只把 `pointerdown` 算 fresh input，phase 切换后重置 input baseline，避免拖拽自动跳 phase。
+
+### 验证
+
+定向回归通过：`storyboard-pdf-generic-parser`、`source-scene-ir`、`source-ir-phase-liveness`、`source-ir-compiler`、`source-ir-preview-renderer`、`guard-visual-fallback`、`storyboard-webgl-visual-diff-script`、`source-ir-proof-bundle`、`skeleton-phase-gate-strictness` 和 `git diff --check`。
+
+三项目 HTML/WebGL 打包：`/nickTemp/three-projects-html-webgl-20260609-155814-semantic-targets.zip`，SHA256 `6cf7731c99f130a0173538cce45b49d177b49b6eb61d943f744fd2ecbcf95a05`。
+
+### 归档
+
+- `docs/_archived/2026-06-09-storyboard-pdf-phase-target-closeout.md`
+
 ## 2026-05-05: spawner 模板命名约定漂移把 fix-loop 烧光 ChatGPT 周配额 40%
 
 ### 背景
