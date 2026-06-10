@@ -62,6 +62,7 @@ export default function TopBar({
   onApprove,
   onFeedback,
   shotCount,
+  sourceHtmlReady,
   statusMessage,
   activeTab,
 }) {
@@ -82,6 +83,10 @@ export default function TopBar({
   };
 
   const handleSubmit = async () => {
+    if (!sourceHtmlReady) {
+      await showAlert('请先在分镜页生成并确认 HTML 预览，再提交 WebGL 生成流程');
+      return;
+    }
     if (!shotCount || shotCount === 0) {
       await showAlert('蓝图为空，请先添加实体或镜头节点再提交');
       return;
@@ -154,8 +159,8 @@ export default function TopBar({
               <button
                 className="topbar-btn topbar-btn-submit"
                 onClick={handleSubmit}
-                disabled={submitting || !shotCount}
-                title={!shotCount ? '请先完成分镜并转为蓝图' : ''}
+                disabled={submitting || !sourceHtmlReady || !shotCount}
+                title={!sourceHtmlReady ? '请先在分镜页确认 HTML 预览' : (!shotCount ? '当前项目没有可提交的蓝图节点' : '')}
               >
                 {submitting ? '⏳ 提交中...' : '🚀 提交开发'}
               </button>

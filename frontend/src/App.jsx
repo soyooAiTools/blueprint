@@ -504,6 +504,9 @@ function FlowEditor({ project, onBack, initialTab }) {
     cameraBgColor: '(0.6,0.8,1)',
     defaultInput: 'virtualJoystick',
   });
+  const [sourceHtmlPath, setSourceHtmlPath] = useState(
+    project.sourceHtmlPath || project.blueprint?.sourceHtmlPath || ''
+  );
   // Default to storyboard for new/editing projects (unless explicitly set)
   
   const [webglInfo, setWebglInfo] = useState(null);
@@ -520,39 +523,6 @@ function FlowEditor({ project, onBack, initialTab }) {
   const entityCountRef = useRef((project.entities || []).length || (project.nodes || []).filter((n) => n.type === 'entityNode').length || 1);
   const autoSaveRef = useRef(null);
   const { showAlert, showConfirm, showPrompt } = useModal();
-
-  const handleStoryboardConvert = useCallback((newNodes, newEdges, v4Data) => {
-    if (v4Data && v4Data.entities) {
-      // V4 entity-driven: set entities + phases, generate entity/phase nodes
-      setEntities(v4Data.entities);
-      if (v4Data.phases) {
-        // Generate phase nodes
-        const phaseNodes = v4Data.phases.map((p, i) => ({
-          id: 'phase_' + Date.now() + '_' + (i + 1),
-          type: 'phaseNode',
-          position: { x: 50, y: i * 300 },
-          data: {
-            name: p.name || 'Phase ' + (p.id || i + 1),
-            activate: p.activate || [],
-            endCondition: p.endCondition || '',
-            guide: p.guide || '',
-            camera: p.camera || {},
-          },
-        }));
-        // Generate entity nodes using existing function
-        const { nodes: eNodes, edges: eEdges } = generateEntityNodesAndEdges(v4Data.entities);
-        setNodes([...phaseNodes, ...eNodes]);
-        setEdges(eEdges);
-      }
-      if (v4Data.globalSettings) {
-        setGlobalSettings(v4Data.globalSettings);
-      }
-      setActiveTab('blueprint');
-      setTimeout(() => {
-        reactFlowInstance.fitView({ padding: 0.2 });
-      }, 100);
-    }
-  }, [setNodes, setEdges, setEntities, reactFlowInstance]);
 
   // Fetch WebGL info + feedback history when status warrants it
   useEffect(() => {
@@ -896,15 +866,47 @@ function FlowEditor({ project, onBack, initialTab }) {
   }, [setNodes, setEdges, showConfirm]);
 
   const handleSubmit = useCallback(async () => {
+    if (!sourceHtmlPath) {
+      await showAlert('请先在分镜页生成并确认 HTML 预览，再提交 WebGL 生成流程');
+      return;
+    }
     try {
       await saveBlueprint(project.id, nodes, edges, projectName, { objectRegistry, globalParams, globalSettings, entities });
       const result = await submitProject(project.id);
       setProjectStatus(result.status);
+      if (result.message !== undefined) setStatusMessage(result.message || '');
       await showAlert('✅ 已成功提交给 Coding Agent！');
     } catch (err) {
       await showAlert('提交失败: ' + err.message);
     }
-  }, [project.id, nodes, edges, projectName, objectRegistry, globalParams, globalSettings, entities, showAlert]);
+  }, [project.id, nodes, edges, projectName, objectRegistry, globalParams, globalSettings, entities, sourceHtmlPath, showAlert]);
+
+  const handleStoryboardHtmlApproved = useCallback(async (htmlResult) => {
+    const sourceHtmlPath = htmlResult?.paths?.html || '';
+    if (!sourceHtmlPath) throw new Error('HTML 产物缺少 sourceHtmlPath');
+    const sourceHtmlUrl = htmlResult?.urls?.html || '';
+    await saveBlueprint(project.id, [], [], projectName, {
+      objectRegistry: [],
+      globalParams,
+      globalSettings,
+      entities: [],
+      phases: [],
+      sourceHtmlPath,
+      sourceHtmlUrl,
+      sourceHtmlJobId: htmlResult.jobId || '',
+      storyboardFrames: [],
+      clearDerivedStoryboardState: true,
+    });
+    setNodes([]);
+    setEdges([]);
+    setEntities([]);
+    setObjectRegistry([]);
+    setSourceHtmlPath(sourceHtmlPath);
+    const result = await submitProject(project.id);
+    setProjectStatus(result.status);
+    if (result.message !== undefined) setStatusMessage(result.message || '');
+    await showAlert('✅ HTML 已确认，已提交 WebGL 生成流程');
+  }, [project.id, projectName, globalParams, globalSettings, setNodes, setEdges, setEntities, setObjectRegistry, showAlert]);
 
   const handleApprove = useCallback(async () => {
     try {
@@ -957,6 +959,7 @@ function FlowEditor({ project, onBack, initialTab }) {
         onApprove={handleApprove}
         onFeedback={handleFeedback}
         shotCount={nodes.filter((n) => n.type === 'entityNode' || n.type === 'phaseNode').length}
+        sourceHtmlReady={!!sourceHtmlPath}
         activeTab={activeTab}
       />
       <div className="app-tabs">
@@ -987,8 +990,8 @@ function FlowEditor({ project, onBack, initialTab }) {
       <div className="app-body">
         {activeTab === 'storyboard' ? (
           <StoryboardPanel
-            projectId={project.id}
-            onConvertToBlueprint={handleStoryboardConvert}
+            projectName={projectName}
+            onApproveHtmlPreview={handleStoryboardHtmlApproved}
             hasExistingNodes={nodes.length > 0}
             showAlert={showAlert}
             showConfirm={showConfirm}

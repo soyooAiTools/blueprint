@@ -233,6 +233,7 @@ function normalizeEntity(entity) {
   return {
     name: entity.name || '',
     label: entity.label || entity.chineseName || entity.name || '',
+    kind: entity.kind || entity.type || entity.visual && entity.visual.kind || '',
     template: entity.template || '',
     visual: entity.visual || null,
     behavior: entity.behavior || null,

@@ -224,6 +224,7 @@ function buildFallbackEntityMap(project, specs, entityHints, seen) {
         id: generateId(),
         name: data.name.trim(),
         svnUrl: (data.svnUrl || '').trim(),
+        engine: data.engine === 'cocos' ? 'cocos' : 'unity',
         status: 'editing',
         blueprint: { nodes: [], edges: [], projectName: data.name.trim() },
         webglPath: null,
@@ -296,6 +297,14 @@ function buildFallbackEntityMap(project, specs, entityHints, seen) {
         project.blueprint.globalSettings = data.globalSettings;
         project.globalSettings = data.globalSettings;
       }
+      if (data.globalParams !== undefined) {
+        project.blueprint.globalParams = data.globalParams;
+        project.globalParams = data.globalParams;
+      }
+      if (data.objectRegistry !== undefined) {
+        project.blueprint.objectRegistry = data.objectRegistry;
+        project.objectRegistry = data.objectRegistry;
+      }
       // V4 实体列表
       if (data.entities !== undefined) {
         project.blueprint.entities = data.entities;
@@ -304,6 +313,30 @@ function buildFallbackEntityMap(project, specs, entityHints, seen) {
       if (data.phases !== undefined) {
         project.blueprint.phases = data.phases;
         project.phases = data.phases;
+      }
+      if (data.sourceHtmlPath !== undefined) {
+        project.sourceHtmlPath = String(data.sourceHtmlPath || '');
+        project.blueprint.sourceHtmlPath = project.sourceHtmlPath;
+      }
+      if (data.sourceHtmlUrl !== undefined) {
+        project.sourceHtmlUrl = String(data.sourceHtmlUrl || '');
+        project.blueprint.sourceHtmlUrl = project.sourceHtmlUrl;
+      }
+      if (data.sourceHtmlJobId !== undefined) {
+        project.sourceHtmlJobId = String(data.sourceHtmlJobId || '');
+        project.blueprint.sourceHtmlJobId = project.sourceHtmlJobId;
+      }
+      if (data.storyboardFrames !== undefined) {
+        project.storyboardFrames = Array.isArray(data.storyboardFrames) ? data.storyboardFrames : [];
+        project.blueprint.storyboardFrames = project.storyboardFrames;
+      }
+      if (data.clearDerivedStoryboardState) {
+        project.specs = [];
+        project.plans = null;
+        project.planValidation = null;
+        project.planReview = null;
+        project.blueprint.specs = [];
+        project.blueprint.phases = project.blueprint.phases || [];
       }
       normalizeProjectBlueprint(project);
       ensureProjectPlans(project);

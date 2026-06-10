@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "blueprint.storyboardAi.schema",
+  "contractVersion": "storyboard-ai.v1",
+  "description": "Human-review storyboard contract for the v1 customer confirmation PDF flow. Blueprint compilation is intentionally deferred until customer approval.",
+  "sourceOfTruthPolicy": {
+    "customerPdf": "customer-storyboard.pdf is a presentation artifact only. It must be regenerated from storyboard-ai data and must not become the machine source of truth.",
+    "v1Path": "static customer materials -> evidence-ir -> storyboard-ai -> customer-storyboard.pdf",
+    "futureMachinePath": "after customer approval, storyboard-ai can be projected into storyboard-ir/specs/source-scene-ir",
+    "approval": "Approved phase text and images are locked by semanticHash before any future Blueprint/Luna build."
+  },
+  "requiredTopLevelKeys": [
+    "schemaVersion",
+    "kind",
+    "project",
+    "phases",
+    "diagnostics"
+  ],
+  "phaseCountPolicy": {
+    "min": 10,
+    "max": 13,
+    "default": 12,
+    "note": "These are runtime/customer confirmation phases, not pipeline stages."
+  },
+  "phaseShape": {
+    "requiredKeys": [
+      "phaseId",
+      "title",
+      "sceneText",
+      "playerAction",
+      "feedback",
+      "uiText",
+      "primaryTarget",
+      "canonicalInteraction",
+      "image"
+    ],
+    "optionalKeys": [
+      "visualBrief",
+      "visualPrompt",
+      "sourceEvidence",
+      "sourceRows",
+      "confidence",
+      "clientStatus"
+    ]
+  },
+  "customerPdfProjection": {
+    "template": "customer-storyboard-pdf.v1",
+    "columns": [
+      "序号",
+      "文字描述",
+      "画面"
+    ],
+    "imageSlotsPerRow": 1,
+    "showPhaseId": true,
+    "showNotesColumn": false,
+    "showCustomerConfirmationSection": false
+  },
+  "canonicalInteractionVerbs": [
+    "observe",
+    "click",
+    "drag",
+    "joystick",
+    "collect",
+    "deliver",
+    "build",
+    "upgrade",
+    "attack",
+    "wait",
+    "cta_finish"
+  ],
+  "qualityRules": [
+    "phase ids should be sequential as phase1..phaseN",
+    "non-final phases must not use CTA or click-to-advance semantics",
+    "final phase should close with CTA or a CTA-ready scene",
+    "each phase should have one primary target or a clear reason for observe/wait",
+    "consecutive phases should not share the same primary gameplay target unless the action semantics differ visibly",
+    "each customer PDF row must contain one large AI-generated image or a generated-image placeholder tied to visualBrief/sourceEvidence in dry-run mode"
+  ]
+}

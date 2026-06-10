@@ -7,7 +7,178 @@ var path = require('path');
 var Busboy = require('busboy');
 var storyboardParser = require('../adapters/storyboard-parser.cjs');
 var storyboardPdf = require('../adapters/storyboard-pdf.cjs');
+var customerStoryboardPackage = require('../scripts/storyboard-pdf-package.cjs');
+var storyboardHtmlPackage = require('../scripts/storyboard-html-package.cjs');
 var { ensureProjectPlans } = require('../adapters/assembly-plan-pipeline.cjs');
+
+function safeFileName(value) {
+  return String(value || 'file')
+    .replace(/[\\/:*?"<>|]+/g, '_')
+    .replace(/\.\.+/g, '.')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 160) || 'file';
+}
+
+function truthy(value) {
+  return /^(1|true|yes|on)$/i.test(String(value || ''));
+}
+
+function cameraModeFromFields(fields) {
+  var mode = String(fields.cameraMode || 'perspective').trim().toLowerCase();
+  if (mode === 'orthographic' || mode === 'ortho') return 'orthographic';
+  return 'perspective';
+}
+
+function visualOptionsFromFields(fields) {
+  var mode = String(fields.visualMode || 'codex').trim();
+  if (mode === 'codex') {
+    return {
+      requestedMode: 'codex',
+      visualMode: 'external',
+      visualCommand: 'node scripts/storyboard-codex-image-provider.cjs',
+      strictVisual: true,
+      async: true,
+      visualTimeoutMs: Number(process.env.STORYBOARD_CODEX_PHASE_TIMEOUT_MS || 900000),
+    };
+  }
+  if (mode === 'codex-dry-run') {
+    return {
+      requestedMode: 'codex-dry-run',
+      visualMode: 'external',
+      visualCommand: 'STORYBOARD_CODEX_DRY_RUN=1 node scripts/storyboard-codex-image-provider.cjs',
+      strictVisual: true,
+      async: true,
+      visualTimeoutMs: 120000,
+    };
+  }
+  if (mode === 'doubao') {
+    return {
+      requestedMode: 'doubao',
+      visualMode: 'external',
+      visualCommand: 'node scripts/storyboard-doubao-image-provider.cjs',
+      strictVisual: true,
+    };
+  }
+  if (mode === 'doubao-dry-run') {
+    return {
+      requestedMode: 'doubao-dry-run',
+      visualMode: 'external',
+      visualCommand: 'STORYBOARD_DOUBAO_DRY_RUN=1 node scripts/storyboard-doubao-image-provider.cjs',
+      strictVisual: true,
+    };
+  }
+  if (mode === 'openai') {
+    return {
+      requestedMode: 'openai',
+      visualMode: 'external',
+      visualCommand: 'node scripts/storyboard-openai-image-provider.cjs',
+      strictVisual: true,
+    };
+  }
+  if (mode === 'openai-dry-run') {
+    return {
+      requestedMode: 'openai-dry-run',
+      visualMode: 'external',
+      visualCommand: 'STORYBOARD_OPENAI_DRY_RUN=1 node scripts/storyboard-openai-image-provider.cjs',
+      strictVisual: true,
+    };
+  }
+  if (mode === 'external') {
+    return {
+      requestedMode: 'external',
+      visualMode: 'external',
+      visualCommand: String(fields.visualCommand || '').trim(),
+      strictVisual: truthy(fields.strictVisual),
+    };
+  }
+  return {
+    requestedMode: 'brief-card',
+    visualMode: 'brief-card',
+    visualCommand: '',
+    strictVisual: false,
+  };
+}
+
+function packageBaseUrl(jobId) {
+  return '/api/storyboard-pdf-package/' + encodeURIComponent(jobId) + '/package/';
+}
+
+function publicPromptRow(jobId, row, index) {
+  row = row || {};
+  var base = packageBaseUrl(jobId);
+  var imageName = path.basename(row.output || ('phase' + String((index || 0) + 1).padStart(2, '0') + '.png'));
+  var promptName = path.basename(row.promptPath || ('phase' + String((index || 0) + 1).padStart(2, '0') + '.prompt.txt'));
+  var promptJsonName = path.basename(row.promptJsonPath || ('phase' + String((index || 0) + 1).padStart(2, '0') + '.json'));
+  return {
+    phaseId: row.phaseId || '',
+    status: row.status || '',
+    promptUrl: base + 'visual-prompts/' + promptName,
+    promptJsonUrl: base + 'visual-prompts/' + promptJsonName,
+    imageUrl: row.status === 'generating' ? '' : base + 'assets/' + imageName,
+  };
+}
+
+function packageReportResponse(report, jobId, visualMode) {
+  var promptRows = report.imageGeneration && report.imageGeneration.phases || [];
+  return {
+    ok: true,
+    jobId: jobId,
+    project: report.project,
+    phaseCount: report.phaseCount,
+    manualRequiredCount: report.unsupportedOrManualSources.length,
+    unsupportedOrManualSources: report.unsupportedOrManualSources,
+    visualMode: visualMode || report.imageGeneration && report.imageGeneration.mode,
+    visualStatus: report.imageGeneration && report.imageGeneration.status,
+    cameraMode: report.imageGeneration && report.imageGeneration.cameraMode || 'perspective',
+    urls: {
+      pdf: packageBaseUrl(jobId) + 'customer-storyboard.pdf',
+      auditReport: packageBaseUrl(jobId) + 'audit-report.json',
+      storyboardAi: packageBaseUrl(jobId) + 'storyboard-ai.json',
+      evidenceIr: packageBaseUrl(jobId) + 'evidence-ir.json',
+      pdfMap: packageBaseUrl(jobId) + 'customer-storyboard.map.json',
+    },
+    prompts: promptRows.map(function(row, index) { return publicPromptRow(jobId, row, index); }),
+    diagnostics: report.diagnostics || [],
+  };
+}
+
+function htmlPackageBaseUrl(jobId) {
+  return '/api/storyboard-html-package/' + encodeURIComponent(jobId) + '/package/';
+}
+
+function htmlGenerationModeFromFields(fields) {
+  var mode = String(fields.generationMode || 'codex').trim().toLowerCase();
+  if (mode === 'deterministic' || mode === 'dry-run' || mode === 'codex-dry-run') return 'deterministic';
+  return 'codex';
+}
+
+function htmlPackageReportResponse(report, jobId) {
+  return {
+    ok: true,
+    jobId: jobId,
+    project: report.project,
+    phaseCount: report.phaseCount,
+    manualRequiredCount: report.unsupportedOrManualSources.length,
+    unsupportedOrManualSources: report.unsupportedOrManualSources,
+    generationMode: report.generation && report.generation.mode || 'codex',
+    generationStatus: report.generation && report.generation.status || 'done',
+    urls: {
+      html: htmlPackageBaseUrl(jobId) + 'generated.html',
+      auditReport: htmlPackageBaseUrl(jobId) + 'audit-report.json',
+      storyboard2htmlInput: htmlPackageBaseUrl(jobId) + 'storyboard2html-input.json',
+      storyboardAi: htmlPackageBaseUrl(jobId) + 'storyboard-ai.json',
+      evidenceIr: htmlPackageBaseUrl(jobId) + 'evidence-ir.json',
+      sourceIrPreflight: htmlPackageBaseUrl(jobId) + 'source-ir-preflight.json',
+      generateLog: htmlPackageBaseUrl(jobId) + 'storyboard2html-generate.log',
+    },
+    paths: {
+      html: report.artifacts && report.artifacts.generatedHtml || '',
+      auditReport: report.outDir ? path.join(report.outDir, 'audit-report.json') : '',
+      storyboard2htmlInput: report.artifacts && report.artifacts.storyboard2htmlInput || '',
+    },
+    diagnostics: report.diagnostics || [],
+  };
+}
 
 module.exports.init = function(ctx) {
   var config = ctx.config;
@@ -25,8 +196,442 @@ module.exports.init = function(ctx) {
   var WEBGL_DIR = config.WEBGL_DIR;
   var UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
   if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  var packageJobs = new Map();
+  var packageQueue = [];
+  var packageWorkerActive = false;
+  var htmlPackageJobs = new Map();
+  var htmlPackageQueue = [];
+  var htmlPackageWorkerActive = false;
+
+  function publicPackageJob(job) {
+    var payload = {
+      ok: true,
+      async: true,
+      jobId: job.jobId,
+      status: job.status,
+      stage: job.stage,
+      progress: job.progress,
+      visualMode: job.visualMode,
+      cameraMode: job.cameraMode,
+      phaseCount: job.phaseCount,
+      completedPhases: job.completedPhases,
+      queuedAt: job.queuedAt,
+      startedAt: job.startedAt,
+      finishedAt: job.finishedAt,
+      prompts: job.prompts || [],
+      urls: job.result && job.result.urls || null,
+      error: job.error || '',
+    };
+    if (job.result) payload.result = job.result;
+    return payload;
+  }
+
+  function updateJobPhaseStart(job, evt) {
+    job.status = 'running';
+    job.stage = 'Codex 生图 ' + (evt.index + 1) + '/' + evt.total;
+    job.phaseCount = evt.total;
+    job.progress = Math.max(job.progress || 0, 15 + Math.floor((evt.index / Math.max(1, evt.total)) * 75));
+    job.prompts[evt.index] = publicPromptRow(job.jobId, {
+      phaseId: evt.phaseId,
+      status: 'generating',
+      output: evt.output,
+      promptPath: evt.promptPath,
+      promptJsonPath: evt.promptJsonPath,
+    }, evt.index);
+  }
+
+  function updateJobPhaseComplete(job, row, index, total) {
+    job.phaseCount = total;
+    job.completedPhases = Math.max(job.completedPhases || 0, index + 1);
+    job.progress = Math.max(job.progress || 0, 15 + Math.floor(((index + 1) / Math.max(1, total)) * 75));
+    job.stage = '已完成画面 ' + job.completedPhases + '/' + total;
+    job.prompts[index] = publicPromptRow(job.jobId, row, index);
+  }
+
+  async function runPackageJob(job) {
+    job.status = 'running';
+    job.stage = '解析素材并规划分镜';
+    job.startedAt = new Date().toISOString();
+    job.progress = 5;
+    try {
+      var report = await customerStoryboardPackage.buildPackage(job.files.map(function(file) { return file.path; }), job.outDir, {
+        projectName: job.projectName,
+        visualMode: job.visualOptions.visualMode,
+        visualCommand: job.visualOptions.visualCommand,
+        cameraMode: job.cameraMode,
+        strictVisual: job.visualOptions.strictVisual,
+        visualTimeoutMs: job.visualOptions.visualTimeoutMs,
+        allowEmptyEvidence: job.allowEmptyEvidence,
+        onVisualPhaseStart: function(evt) { updateJobPhaseStart(job, evt); },
+        onVisualPhaseComplete: function(row, index, total) { updateJobPhaseComplete(job, row, index, total); },
+      });
+      job.result = packageReportResponse(report, job.jobId, job.visualMode);
+      job.status = 'done';
+      job.stage = '完成';
+      job.progress = 100;
+      job.phaseCount = job.result.phaseCount;
+      job.completedPhases = job.result.phaseCount;
+      job.prompts = job.result.prompts;
+      job.finishedAt = new Date().toISOString();
+    } catch (e) {
+      console.error('[storyboard-pdf-package-job] Error:', e.message);
+      job.status = 'error';
+      job.stage = '失败';
+      job.error = e.message;
+      job.finishedAt = new Date().toISOString();
+      job.progress = Math.max(job.progress || 0, 1);
+    }
+  }
+
+  function pumpPackageQueue() {
+    if (packageWorkerActive) return;
+    var job = packageQueue.shift();
+    if (!job) return;
+    packageWorkerActive = true;
+    runPackageJob(job).finally(function() {
+      packageWorkerActive = false;
+      setImmediate(pumpPackageQueue);
+    });
+  }
+
+  function enqueuePackageJob(job) {
+    packageJobs.set(job.jobId, job);
+    packageQueue.push(job);
+    job.stage = packageWorkerActive ? '排队中' : '等待启动';
+    job.progress = 1;
+    setImmediate(pumpPackageQueue);
+  }
+
+  function publicHtmlPackageJob(job) {
+    var payload = {
+      ok: true,
+      async: true,
+      jobId: job.jobId,
+      status: job.status,
+      stage: job.stage,
+      progress: job.progress,
+      generationMode: job.generationMode,
+      phaseCount: job.phaseCount,
+      queuedAt: job.queuedAt,
+      startedAt: job.startedAt,
+      finishedAt: job.finishedAt,
+      urls: job.result && job.result.urls || null,
+      error: job.error || '',
+    };
+    if (job.result) payload.result = job.result;
+    return payload;
+  }
+
+  async function runHtmlPackageJob(job) {
+    job.status = 'running';
+    job.stage = '解析素材并规划 HTML';
+    job.startedAt = new Date().toISOString();
+    job.progress = 5;
+    var heartbeatStarted = Date.now();
+    var heartbeat = setInterval(function() {
+      if (job.status !== 'running') return;
+      var elapsed = Math.round((Date.now() - heartbeatStarted) / 1000);
+      job.progress = Math.min(92, Math.max(job.progress || 0, 12 + Math.floor(elapsed / 4)));
+      if (elapsed > 8) job.stage = 'Codex 生成 storyboard2html HTML（已等待 ' + elapsed + ' 秒）';
+    }, 4000);
+    try {
+      var report = await storyboardHtmlPackage.buildPackage(job.files.map(function(file) { return file.path; }), job.outDir, {
+        projectName: job.projectName,
+        generationMode: job.generationMode,
+        model: job.model,
+        timeoutMs: job.timeoutMs,
+        allowEmptyEvidence: job.allowEmptyEvidence,
+      });
+      clearInterval(heartbeat);
+      job.result = htmlPackageReportResponse(report, job.jobId);
+      job.status = 'done';
+      job.stage = '完成';
+      job.progress = 100;
+      job.phaseCount = job.result.phaseCount;
+      job.finishedAt = new Date().toISOString();
+    } catch (e) {
+      clearInterval(heartbeat);
+      console.error('[storyboard-html-package-job] Error:', e.message);
+      job.status = 'error';
+      job.stage = '失败';
+      job.error = e.message;
+      job.finishedAt = new Date().toISOString();
+      job.progress = Math.max(job.progress || 0, 1);
+    }
+  }
+
+  function pumpHtmlPackageQueue() {
+    if (htmlPackageWorkerActive) return;
+    var job = htmlPackageQueue.shift();
+    if (!job) return;
+    htmlPackageWorkerActive = true;
+    runHtmlPackageJob(job).finally(function() {
+      htmlPackageWorkerActive = false;
+      setImmediate(pumpHtmlPackageQueue);
+    });
+  }
+
+  function enqueueHtmlPackageJob(job) {
+    htmlPackageJobs.set(job.jobId, job);
+    htmlPackageQueue.push(job);
+    job.stage = htmlPackageWorkerActive ? '排队中' : '等待启动';
+    job.progress = 1;
+    setImmediate(pumpHtmlPackageQueue);
+  }
 
   return {
+    generateStoryboardHtmlPackage: function(req, res) {
+      var bb;
+      try {
+        bb = Busboy({ headers: req.headers, limits: { fileSize: 20 * 1024 * 1024, files: 24 } });
+      } catch(e) {
+        return sendJSON(res, { error: 'Invalid multipart request: ' + e.message }, 400);
+      }
+
+      var jobId = 'sbhtml_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      var jobDir = path.join(DATA_DIR, 'storyboard-html-packages', jobId);
+      var uploadDir = path.join(jobDir, 'uploads');
+      var outDir = path.join(jobDir, 'package');
+      fs.mkdirSync(uploadDir, { recursive: true });
+      var fields = {};
+      var files = [];
+      var pendingWrites = [];
+      var limitHit = false;
+
+      bb.on('field', function(name, val) {
+        fields[name] = val;
+      });
+      bb.on('file', function(name, stream, info) {
+        var filename = safeFileName(info && info.filename || 'file');
+        if (!filename || filename === 'file') {
+          stream.resume();
+          return;
+        }
+        var dest = path.join(uploadDir, String(files.length + 1).padStart(2, '0') + '_' + filename);
+        var ws = fs.createWriteStream(dest);
+        stream.on('limit', function() { limitHit = true; });
+        stream.pipe(ws);
+        pendingWrites.push(new Promise(function(resolve, reject) {
+          ws.on('close', function() {
+            files.push({ path: dest, filename: filename, field: name });
+            resolve();
+          });
+          ws.on('error', reject);
+          stream.on('error', reject);
+        }));
+      });
+      bb.on('close', async function() {
+        try {
+          await Promise.all(pendingWrites);
+          if (limitHit) return sendJSON(res, { error: '单文件大小不能超过 20MB' }, 413);
+          if (!files.length) return sendJSON(res, { error: '请上传至少一个文件' }, 400);
+
+          var generationMode = htmlGenerationModeFromFields(fields);
+          var asyncJob = {
+            jobId: jobId,
+            status: 'queued',
+            stage: '排队中',
+            progress: 0,
+            generationMode: generationMode,
+            phaseCount: 0,
+            queuedAt: new Date().toISOString(),
+            startedAt: '',
+            finishedAt: '',
+            error: '',
+            projectName: fields.projectName || 'AI试玩HTML',
+            files: files,
+            outDir: outDir,
+            model: fields.model || '',
+            timeoutMs: Number(fields.timeoutMs || process.env.STORYBOARD2HTML_TIMEOUT_MS || 900000) || 900000,
+            allowEmptyEvidence: truthy(fields.allowEmptyEvidence),
+          };
+          enqueueHtmlPackageJob(asyncJob);
+          return sendJSON(res, publicHtmlPackageJob(asyncJob), 202);
+        } catch(e) {
+          console.error('[storyboard-html-package] Error:', e.message);
+          var status = e.code === 'STORYBOARD_HTML_NO_AUTOMATABLE_EVIDENCE' ? 400 : 500;
+          sendJSON(res, { error: e.message, code: e.code || 'STORYBOARD_HTML_PACKAGE_FAILED' }, status);
+        }
+      });
+      bb.on('error', function(e) {
+        sendJSON(res, { error: 'Upload failed: ' + e.message }, 500);
+      });
+      req.pipe(bb);
+    },
+
+    getStoryboardHtmlPackageJob: function(req, res, body, params) {
+      var jobId = String(params.packageJobId || '');
+      if (!/^sbhtml_\d+_[a-z0-9]+$/.test(jobId)) return sendJSON(res, { error: 'Invalid package id' }, 400);
+      var job = htmlPackageJobs.get(jobId);
+      if (job) return sendJSON(res, publicHtmlPackageJob(job));
+
+      var root = path.join(DATA_DIR, 'storyboard-html-packages', jobId);
+      var auditPath = path.join(root, 'package', 'audit-report.json');
+      if (fs.existsSync(auditPath)) {
+        try {
+          var report = JSON.parse(fs.readFileSync(auditPath, 'utf8'));
+          return sendJSON(res, Object.assign({ async: false, status: 'done', progress: 100 }, htmlPackageReportResponse(report, jobId)));
+        } catch (e) {}
+      }
+      return sendJSON(res, { error: 'Job not found' }, 404);
+    },
+
+    serveStoryboardHtmlPackageFile: function(req, res, body, params) {
+      var jobId = String(params.packageJobId || '');
+      if (!/^sbhtml_\d+_[a-z0-9]+$/.test(jobId)) return sendJSON(res, { error: 'Invalid package id' }, 400);
+      var rel = String(params.packageFile || '').replace(/^\/+/, '');
+      var root = path.join(DATA_DIR, 'storyboard-html-packages', jobId);
+      var filePath = path.resolve(root, rel);
+      if (filePath.indexOf(path.resolve(root) + path.sep) !== 0) return sendJSON(res, { error: 'Invalid file path' }, 400);
+      if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return sendJSON(res, { error: 'File not found' }, 404);
+      if (path.extname(filePath).toLowerCase() === '.html') {
+        var html = fs.readFileSync(filePath);
+        res.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Content-Length': html.length,
+          'Cache-Control': 'no-cache',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(html);
+        return;
+      }
+      ctx.serveStatic(res, filePath, req);
+    },
+
+    generateCustomerStoryboardPackage: function(req, res) {
+      var bb;
+      try {
+        bb = Busboy({ headers: req.headers, limits: { fileSize: 20 * 1024 * 1024, files: 24 } });
+      } catch(e) {
+        return sendJSON(res, { error: 'Invalid multipart request: ' + e.message }, 400);
+      }
+
+      var jobId = 'sbpdf_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      var jobDir = path.join(DATA_DIR, 'storyboard-pdf-packages', jobId);
+      var uploadDir = path.join(jobDir, 'uploads');
+      var outDir = path.join(jobDir, 'package');
+      fs.mkdirSync(uploadDir, { recursive: true });
+      var fields = {};
+      var files = [];
+      var pendingWrites = [];
+      var limitHit = false;
+
+      bb.on('field', function(name, val) {
+        fields[name] = val;
+      });
+      bb.on('file', function(name, stream, info) {
+        var filename = safeFileName(info && info.filename || 'file');
+        if (!filename || filename === 'file') {
+          stream.resume();
+          return;
+        }
+        var dest = path.join(uploadDir, String(files.length + 1).padStart(2, '0') + '_' + filename);
+        var ws = fs.createWriteStream(dest);
+        stream.on('limit', function() { limitHit = true; });
+        stream.pipe(ws);
+        pendingWrites.push(new Promise(function(resolve, reject) {
+          ws.on('close', function() {
+            files.push({ path: dest, filename: filename, field: name });
+            resolve();
+          });
+          ws.on('error', reject);
+          stream.on('error', reject);
+        }));
+      });
+      bb.on('close', async function() {
+        try {
+          await Promise.all(pendingWrites);
+          if (limitHit) return sendJSON(res, { error: '单文件大小不能超过 20MB' }, 413);
+          if (!files.length) return sendJSON(res, { error: '请上传至少一个文件' }, 400);
+
+          var visualOpts = visualOptionsFromFields(fields);
+          var cameraMode = cameraModeFromFields(fields);
+          if (visualOpts.async) {
+            var asyncJob = {
+              jobId: jobId,
+              status: 'queued',
+              stage: '排队中',
+              progress: 0,
+              visualMode: visualOpts.requestedMode,
+              cameraMode: cameraMode,
+              phaseCount: 0,
+              completedPhases: 0,
+              prompts: [],
+              queuedAt: new Date().toISOString(),
+              startedAt: '',
+              finishedAt: '',
+              error: '',
+              projectName: fields.projectName || 'AI分镜PDF',
+              files: files,
+              outDir: outDir,
+              visualOptions: visualOpts,
+              allowEmptyEvidence: truthy(fields.allowEmptyEvidence),
+            };
+            enqueuePackageJob(asyncJob);
+            return sendJSON(res, publicPackageJob(asyncJob), 202);
+          }
+          var report = await customerStoryboardPackage.buildPackage(files.map(function(file) { return file.path; }), outDir, {
+            projectName: fields.projectName || 'AI分镜PDF',
+            visualMode: visualOpts.visualMode,
+            visualCommand: visualOpts.visualCommand,
+            cameraMode: cameraMode,
+            strictVisual: visualOpts.strictVisual,
+            visualTimeoutMs: visualOpts.visualTimeoutMs,
+            allowEmptyEvidence: truthy(fields.allowEmptyEvidence),
+          });
+
+          sendJSON(res, packageReportResponse(report, jobId, visualOpts.requestedMode));
+        } catch(e) {
+          console.error('[storyboard-pdf-package] Error:', e.message);
+          var status = e.code === 'STORYBOARD_PDF_NO_AUTOMATABLE_EVIDENCE' ? 400 : 500;
+          sendJSON(res, { error: e.message, code: e.code || 'STORYBOARD_PDF_PACKAGE_FAILED' }, status);
+        }
+      });
+      bb.on('error', function(e) {
+        sendJSON(res, { error: 'Upload failed: ' + e.message }, 500);
+      });
+      req.pipe(bb);
+    },
+
+    getCustomerStoryboardPackageJob: function(req, res, body, params) {
+      var jobId = String(params.packageJobId || '');
+      if (!/^sbpdf_\d+_[a-z0-9]+$/.test(jobId)) return sendJSON(res, { error: 'Invalid package id' }, 400);
+      var job = packageJobs.get(jobId);
+      if (job) return sendJSON(res, publicPackageJob(job));
+
+      var root = path.join(DATA_DIR, 'storyboard-pdf-packages', jobId);
+      var auditPath = path.join(root, 'package', 'audit-report.json');
+      if (fs.existsSync(auditPath)) {
+        try {
+          var report = JSON.parse(fs.readFileSync(auditPath, 'utf8'));
+          return sendJSON(res, Object.assign({ async: false, status: 'done', progress: 100 }, packageReportResponse(report, jobId)));
+        } catch (e) {}
+      }
+      return sendJSON(res, { error: 'Job not found' }, 404);
+    },
+
+    serveCustomerStoryboardPackageFile: function(req, res, body, params) {
+      var jobId = String(params.packageJobId || '');
+      if (!/^sbpdf_\d+_[a-z0-9]+$/.test(jobId)) return sendJSON(res, { error: 'Invalid package id' }, 400);
+      var rel = String(params.packageFile || '').replace(/^\/+/, '');
+      var root = path.join(DATA_DIR, 'storyboard-pdf-packages', jobId);
+      var filePath = path.resolve(root, rel);
+      if (filePath.indexOf(path.resolve(root) + path.sep) !== 0) return sendJSON(res, { error: 'Invalid file path' }, 400);
+      if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return sendJSON(res, { error: 'File not found' }, 404);
+      if (path.extname(filePath).toLowerCase() === '.pdf') {
+        var data = fs.readFileSync(filePath);
+        res.writeHead(200, {
+          'Content-Type': 'application/pdf',
+          'Content-Length': data.length,
+          'Cache-Control': 'no-cache',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(data);
+        return;
+      }
+      ctx.serveStatic(res, filePath, req);
+    },
+
     parseStoryboard: function(req, res, body, params) {
       var projectId = params.id;
       console.log('[parse-storyboard] REQ headers:', JSON.stringify({ct: req.headers['content-type'], cl: req.headers['content-length']}));
@@ -660,11 +1265,12 @@ module.exports.init = function(ctx) {
         // Parse multipart to get PDF file
         var uploadedFiles = [];
         var formFields = {};
+        var legacyParseLimitHit = false;
 
         // *** STEP 3: Parse multipart from buffer ***
         await new Promise(function(resolve, reject) {
           try {
-            var bb = Busboy({ headers: req.headers });
+            var bb = Busboy({ headers: req.headers, limits: { fileSize: 20 * 1024 * 1024, files: 24 } });
             var pendingWrites = 0;
             var busboyDone = false;
             function checkResolve() {
@@ -679,6 +1285,7 @@ module.exports.init = function(ctx) {
               var dest = path.join(uploadDir, Date.now() + '_' + filename);
               var ws = fs.createWriteStream(dest);
               pendingWrites++;
+              file.on('limit', function() { legacyParseLimitHit = true; });
               file.pipe(ws);
               ws.on('close', function() {
                 var size = 0;
@@ -713,6 +1320,12 @@ module.exports.init = function(ctx) {
             resolve();
           }
         });
+
+        if (legacyParseLimitHit) {
+          sendSSE({ type: 'error', message: '单文件大小不能超过 20MB' });
+          res.end();
+          return;
+        }
 
         // Find PDF file
         var pdfFile = uploadedFiles.find(function(f) { return /\.pdf$/i.test(f.name); });

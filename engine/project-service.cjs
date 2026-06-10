@@ -193,7 +193,9 @@ async function submitProject(project, opts) {
   var isFeedbackResubmit = project.status === 'feedback';
   var cancelledResume = getCancelledResumeInfo(project);
   var isCancelledResume = !!cancelledResume;
-  var hasStoryboard = project.storyboardFrames && project.storyboardFrames.length > 0;
+  var bpForSource = project.blueprint || {};
+  var hasSourceHtml = !!(bpForSource.sourceHtmlPath || project.sourceHtmlPath);
+  var hasStoryboard = !hasSourceHtml && project.storyboardFrames && project.storyboardFrames.length > 0;
 
   // Export blueprint (strip base64 images)
   var blueprintExport = exportBlueprintForAgent(project);

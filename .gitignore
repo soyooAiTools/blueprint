@@ -66,6 +66,8 @@ server-data/pending-fixes.json
 server-data/recipe-stats.json
 worker/pending-rules.json
 server-data/project-sources/
+server-data/storyboard-html-packages/
+server-data/storyboard-pdf-packages/
 data/
 adapters/server-data/
 

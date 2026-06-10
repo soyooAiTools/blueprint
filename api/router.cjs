@@ -65,6 +65,16 @@ function matchRoute(method, pathname) {
   if (m && method === 'POST') return { handler: 'convertToV4', id: m[1] };
   m = pathname.match(/^\/api\/projects\/([^/]+)\/analyze-reference$/);
   if (m && method === 'POST') return { handler: 'analyzeReference', id: m[1], rawBody: true };
+  if (method === 'POST' && pathname === '/api/storyboard-pdf-package') return { handler: 'generateCustomerStoryboardPackage', rawBody: true };
+  m = pathname.match(/^\/api\/storyboard-pdf-package\/([^/]+)\/status$/);
+  if (m && method === 'GET') return { handler: 'getCustomerStoryboardPackageJob', packageJobId: m[1] };
+  m = pathname.match(/^\/api\/storyboard-pdf-package\/([^/]+)\/(.+)$/);
+  if (m && method === 'GET') return { handler: 'serveCustomerStoryboardPackageFile', packageJobId: m[1], packageFile: m[2] };
+  if (method === 'POST' && pathname === '/api/storyboard-html-package') return { handler: 'generateStoryboardHtmlPackage', rawBody: true };
+  m = pathname.match(/^\/api\/storyboard-html-package\/([^/]+)\/status$/);
+  if (m && method === 'GET') return { handler: 'getStoryboardHtmlPackageJob', packageJobId: m[1] };
+  m = pathname.match(/^\/api\/storyboard-html-package\/([^/]+)\/(.+)$/);
+  if (m && method === 'GET') return { handler: 'serveStoryboardHtmlPackageFile', packageJobId: m[1], packageFile: m[2] };
 
   // Spec review routes
   m = pathname.match(/^\/api\/projects\/([^/]+)\/specs$/);
@@ -152,6 +162,8 @@ function createRouter(handlers) {
       if (route.projectId) params.projectId = route.projectId;
       if (route.filename) params.filename = route.filename;
       if (route.fingerprintId) params.fingerprintId = route.fingerprintId;
+      if (route.packageJobId) params.packageJobId = route.packageJobId;
+      if (route.packageFile) params.packageFile = route.packageFile;
 
       if (route.rawBody) {
         // Binary upload — pass req directly, handler reads raw body

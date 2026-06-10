@@ -1,5 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { fetchProjects, fetchTasks, createProject, deleteProject, getProject } from '../utils/api';
+import {
+  fetchProjects,
+  fetchTasks,
+  createProject,
+  deleteProject,
+  getProject,
+} from '../utils/api';
 
 export default function ProjectList({ user, onSelectProject, onLogout }) {
   const [projects, setProjects] = useState([]);
@@ -8,7 +14,9 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newSvnUrl, setNewSvnUrl] = useState('');
-  const [newEngine, setNewEngine] = useState('unity');
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createError, setCreateError] = useState('');
+  const newEngine = 'unity';
 
   const initialLoad = useRef(true);
   const loadProjects = useCallback(async () => {
@@ -49,6 +57,13 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
     return () => clearInterval(timer);
   }, [loadProjects, taskMap]);
 
+  const resetCreateModal = useCallback(() => {
+    setNewName('');
+    setNewSvnUrl('');
+    setCreateBusy(false);
+    setCreateError('');
+  }, []);
+
   const openProject = async (id) => {
     try {
       const full = await getProject(id);
@@ -58,6 +73,7 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
         name: full.name,
         svnUrl: full.svnUrl,
         status: full.status,
+        statusMessage: full.statusMessage || '',
         engine: full.engine,
         nodes: bp.nodes || [],
         edges: bp.edges || [],
@@ -65,6 +81,9 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
         globalParams: bp.globalParams || '',
         globalSettings: bp.globalSettings || {},
         entities: bp.entities || [],
+        sourceHtmlPath: full.sourceHtmlPath || bp.sourceHtmlPath || '',
+        sourceHtmlUrl: full.sourceHtmlUrl || bp.sourceHtmlUrl || '',
+        sourceHtmlJobId: full.sourceHtmlJobId || bp.sourceHtmlJobId || '',
         feedbackHistory: full.feedbackHistory || [],
       });
     } catch (err) {
@@ -73,18 +92,18 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
   };
 
   const handleCreate = async () => {
-    if (!newName.trim()) return;
+    if (!newName.trim() || createBusy) return;
+    setCreateBusy(true);
+    setCreateError('');
     try {
       const project = await createProject(newName.trim(), newSvnUrl.trim(), newEngine);
       setProjects((prev) => [project, ...prev]);
-      setNewName('');
-      setNewSvnUrl('');
-      setNewEngine('unity');
+      resetCreateModal();
       setShowCreate(false);
-      // Auto-open the newly created project
       await openProject(project.id);
     } catch (err) {
-      alert('创建失败: ' + err.message);
+      setCreateError('创建失败: ' + err.message);
+      setCreateBusy(false);
     }
   };
 
@@ -113,6 +132,10 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
     const bp = p.blueprint || p;
     return (bp.entities || []).length || (bp.nodes || []).filter((n) => n.type === 'entityNode').length;
   };
+  const hasSourceHtml = (p) => {
+    const bp = p.blueprint || {};
+    return !!(p.sourceHtmlPath || bp.sourceHtmlPath);
+  };
   const getRevisionCount = (p) => {
     const bp = p.blueprint || p;
     let count = 0;
@@ -140,7 +163,7 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
     failed: '失败',
   };
 
-  const ENGINE_LABELS = { unity: 'Unity', cocos: 'Cocos' };
+  const ENGINE_LABELS = { unity: 'Unity' };
 
   return (
     <div className="project-list-page">
@@ -164,20 +187,6 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
           <div className="project-create-card">
             <h3>新建项目</h3>
 
-            <div className="project-create-field">
-              <label className="project-create-label">引擎</label>
-              <div className="project-create-radios">
-                <label className={'project-radio-option' + (newEngine === 'unity' ? ' project-radio-selected' : '')}>
-                  <input type="radio" name="engine" value="unity" checked={newEngine === 'unity'} onChange={() => setNewEngine('unity')} />
-                  <span className="project-radio-icon">🎮</span> Unity
-                </label>
-                <label className={'project-radio-option' + (newEngine === 'cocos' ? ' project-radio-selected' : '')}>
-                  <input type="radio" name="engine" value="cocos" checked={newEngine === 'cocos'} onChange={() => setNewEngine('cocos')} />
-                  <span className="project-radio-icon">🐦</span> Cocos
-                </label>
-              </div>
-            </div>
-
             <input
               className="project-create-input"
               type="text"
@@ -186,6 +195,7 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
               onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
               placeholder="项目名称（如：太空打冰块）"
               autoFocus
+              disabled={createBusy}
             />
             <input
               className="project-create-input"
@@ -193,13 +203,24 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
               value={newSvnUrl}
               onChange={(e) => setNewSvnUrl(e.target.value)}
               placeholder="SVN 地址（可选）"
+              disabled={createBusy}
             />
+
+            {createError && <div className="project-create-error">{createError}</div>}
             <div className="project-create-actions">
-              <button className="project-create-cancel" onClick={() => { setShowCreate(false); setNewName(''); setNewSvnUrl(''); setNewEngine('unity'); }}>
+              <button
+                className="project-create-cancel"
+                onClick={() => {
+                  if (createBusy) return;
+                  resetCreateModal();
+                  setShowCreate(false);
+                }}
+                disabled={createBusy}
+              >
                 取消
               </button>
-              <button className="project-create-confirm" onClick={handleCreate} disabled={!newName.trim()}>
-                创建并打开
+              <button className="project-create-confirm" onClick={handleCreate} disabled={!newName.trim() || createBusy}>
+                {createBusy ? '处理中...' : '创建并打开'}
               </button>
             </div>
           </div>
@@ -221,6 +242,7 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
           {projects.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).map((p) => {
             const shots = getShotCount(p);
             const revisions = getRevisionCount(p);
+            const sourceHtmlReady = hasSourceHtml(p);
             const task = taskMap[p.id];
             const effectiveStatus = task && task.status ? task.status : p.status;
             const effectiveMessage = task && task.statusMessage ? task.statusMessage : p.statusMessage;
@@ -237,7 +259,11 @@ export default function ProjectList({ user, onSelectProject, onLogout }) {
                 </div>
                 <div className="project-card-stats">
                   {p.engine && <span className={'project-stat project-engine-badge project-engine-' + p.engine}>{ENGINE_LABELS[p.engine] || p.engine}</span>}
-                  <span className="project-stat">📷 {shots} 个镜头</span>
+                  {sourceHtmlReady ? (
+                    <span className="project-stat">HTML 已确认</span>
+                  ) : (
+                    <span className="project-stat">📷 {shots} 个镜头</span>
+                  )}
                   {revisions > 0 && <span className="project-stat project-stat-rev">🔴 {revisions} 待修</span>}
                   {effectiveStatus && effectiveStatus !== 'editing' && (
                     <span className={'project-stat project-stat-status project-status-' + effectiveStatus}>{statusLabel}</span>

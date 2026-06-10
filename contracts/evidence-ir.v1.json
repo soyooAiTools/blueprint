@@ -1,0 +1,83 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "blueprint.evidenceIr.schema",
+  "contractVersion": "evidence-ir.v1",
+  "description": "Canonical evidence extracted from static customer materials before AI storyboard planning. Version 1 intentionally excludes HTML and video autoplay/reference parsing; those sources are manual-required.",
+  "scope": {
+    "supported": [
+      "png",
+      "jpg",
+      "jpeg",
+      "pdf",
+      "csv",
+      "xlsx",
+      "xls",
+      "docx",
+      "doc"
+    ],
+    "manualRequired": [
+      "html",
+      "htm",
+      "mp4",
+      "mov",
+      "webm",
+      "gif",
+      "avi",
+      "mkv"
+    ],
+    "v1Output": "customer storyboard PDF package only; Blueprint artifacts are deferred until after customer approval"
+  },
+  "requiredTopLevelKeys": [
+    "schemaVersion",
+    "kind",
+    "project",
+    "sources",
+    "facts",
+    "diagnostics",
+    "semanticHash"
+  ],
+  "sourceShape": {
+    "requiredKeys": [
+      "sourceId",
+      "path",
+      "fileName",
+      "extension",
+      "sourceType",
+      "status"
+    ],
+    "status": [
+      "parsed",
+      "manual_required",
+      "unsupported",
+      "error"
+    ]
+  },
+  "factShape": {
+    "requiredKeys": [
+      "factId",
+      "sourceId",
+      "sourceType",
+      "locator",
+      "factType",
+      "text",
+      "confidence"
+    ],
+    "factType": [
+      "title",
+      "core_loop",
+      "phase_marker",
+      "row",
+      "text",
+      "visual_reference",
+      "asset",
+      "manual_required"
+    ]
+  },
+  "planningPolicy": {
+    "phaseCountMin": 10,
+    "phaseCountMax": 13,
+    "phaseCountDefault": 12,
+    "plannerOutput": "storyboard-ai.json",
+    "pdfOutput": "customer-storyboard.pdf"
+  }
+}

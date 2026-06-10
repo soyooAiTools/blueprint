@@ -372,6 +372,7 @@ function renderEntities(entities) {
   return entities.map(function(entity) {
     return '- name=' + JSON.stringify(entity.name || '') +
       ' label=' + JSON.stringify(entity.label || entity.name || '') +
+      ' kind=' + JSON.stringify(entity.kind || entity.visual && entity.visual.kind || '') +
       ' template=' + JSON.stringify(entity.template || '');
   }).join('\n');
 }
