@@ -145,6 +145,8 @@ assert.match(out, /function sourceDomCtaPresent\(\)/);
 assert.match(out, /function sourceDomHudUsesResourceBar\(\)/);
 assert.match(out, /function sourceDomHudUsesCompactPills\(\)/);
 assert.match(out, /function sourceDomHudCssRules\(\)/);
+assert.match(out, /var tipHasVerticalAnchor = \/\\b\(\?:top\|bottom\)\\s\*:\/i\.test\(tipCss\)/);
+assert.match(out, /sourceDomCtaPresent\(\) && !hudCss && !tipHasVerticalAnchor && !\/\\bposition\\s\*:\\s\*fixed\\b\/i\.test\(tipCss\)/);
 assert.match(out, /function sourceDomHudUsesTopbarStats\(\)/);
 assert.match(out, /data-k="goldPanel"/);
 assert.match(out, /set\('goldPanel', '金币 ' \+ String/);

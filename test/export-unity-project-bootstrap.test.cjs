@@ -51,6 +51,12 @@ assert(
   'export should normalize the Windows Playworks file dependency before Unity open validation'
 );
 assert(
+  src.includes('$SRC/source-scene-ir.json:source-scene-ir.json') &&
+    src.includes('$BP_ROOT/server-data/webgl/$TASK_ID/source-ir.json:source-ir.json') &&
+    src.includes('$BP_ROOT/server-data/webgl/$TASK_ID/asset-manifest.json:asset-manifest.json'),
+  'programmer delivery export should copy SourceIR artifacts so Phase assets and HUD text use current source guide copy'
+);
+assert(
   src.includes('if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then') && src.includes('STRIP_LUNA=1'),
   'programmer delivery export should strip Luna package dependencies by default'
 );

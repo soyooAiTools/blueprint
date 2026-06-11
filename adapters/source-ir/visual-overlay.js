@@ -522,7 +522,8 @@ function injectVisualOverlay(html, visualAssets, playableSceneIr) {
     var tipCss = String(css.tip || css.goalText || '');
     var targetHintCss = String(css.targetHint || '');
     var sourceTipExtra = 'z-index:2147482412!important;pointer-events:none!important';
-    if (sourceDomCtaPresent() && !hudCss && !/\\bposition\\s*:\\s*fixed\\b/i.test(tipCss)) {
+    var tipHasVerticalAnchor = /\\b(?:top|bottom)\\s*:/i.test(tipCss);
+    if (sourceDomCtaPresent() && !hudCss && !tipHasVerticalAnchor && !/\\bposition\\s*:\\s*fixed\\b/i.test(tipCss)) {
       sourceTipExtra = 'position:fixed!important;left:50%!important;bottom:22px!important;top:auto!important;transform:translateX(-50%)!important;' + sourceTipExtra;
     }
     if (!/\\bcolor\\s*:/.test(tipCss)) sourceTipExtra += ';color:#fff!important';

@@ -444,6 +444,42 @@ function compactGuideText(text) {
   return out.slice(0, 57).replace(/[，、：；:;]$/g, '') + '。';
 }
 
+function showGuideTextForSpec(spec, step, labels, phaseIndex, isContinuation) {
+  var semanticText = phaseSemanticText(spec);
+  var target = humanLabelForId(step && (step.target || step.entity), labels, '目标');
+  if (/第一个符合订单|符合订单|配菜出现|所需配菜/.test(semanticText)) {
+    return compactGuideText('看到符合订单的配菜出现时，按订单选择它');
+  }
+  if (/订单|小票/.test(semanticText)) {
+    return compactGuideText('查看订单小票，确认当前订单需要什么');
+  }
+  if (/剩余|金额|资金|价格|资产/.test(semanticText)) {
+    return compactGuideText('查看剩余金额，确认还差多少才能解锁');
+  }
+  if (/倒计时|计时|圆环|超时/.test(semanticText)) {
+    return compactGuideText('查看倒计时提示，尽快完成当前目标');
+  }
+  if (/发光|闪烁/.test(semanticText) && /摇摆|镜头|拉远|转场|播放/.test(semanticText)) {
+    return compactGuideText('观察目标发光和镜头变化，准备进入下一步');
+  }
+  if (/发光|闪烁/.test(semanticText)) {
+    return compactGuideText('观察目标发光提示，准备继续下一步');
+  }
+  if (/摇摆|镜头|拉远|转场|播放/.test(semanticText)) {
+    return compactGuideText('看完这段镜头表现，准备进入下一步');
+  }
+  if (/画面|呈现|场景|整体|背景/.test(semanticText)) {
+    return compactGuideText('观察当前场景，确认接下来要处理的目标');
+  }
+  if (/显示|展示|出现|高亮/.test(semanticText)) {
+    return compactGuideText('查看' + target + '的提示，确认它已经出现');
+  }
+  if (isContinuation) {
+    return compactGuideText('第' + (phaseIndex + 1) + '步：继续查看' + target + '提示');
+  }
+  return compactGuideText('查看' + target + '提示，确认这一步已出现');
+}
+
 function plainGuideTextForSpec(spec, steps, resources, entities, isFinal, phaseIndex) {
   var labels = labelIndexFromLists(resources, entities);
   var semanticText = phaseSemanticText(spec);
@@ -472,7 +508,15 @@ function plainGuideTextForSpec(spec, steps, resources, entities, isFinal, phaseI
     return compactGuideText('注意倒计时，尽快按当前目标完成操作');
   }
   if (actions.length >= 3) {
-    return compactGuideText('跟着高亮目标走，依次完成' + joinedActionKindLabels(actions));
+    var selectStep = firstStepOfKind(steps, ['select']);
+    var combineStep = firstStepOfKind(steps, ['combine']);
+    var unlockStep = firstStepOfKind(steps, ['unlock']);
+    var produceStep = firstStepOfKind(steps, ['produce']);
+    var collectStep = firstStepOfKind(steps, ['collect']);
+    if (selectStep && combineStep && unlockStep && produceStep && collectStep) {
+      return compactGuideText('先选中' + targetLabel(selectStep, '物品') + '，再合成升级，解锁' + targetLabel(unlockStep) + '后收集产出的' + resourceLabel(collectStep));
+    }
+    return compactGuideText('依次完成' + joinedActionKindLabels(actions));
   }
   var step = firstStepOfKind(steps, ['deliver']);
   if (step) return compactGuideText('把' + resourceLabel(step) + '送到' + targetLabel(step, '顾客') + '处，完成订单');
@@ -497,7 +541,7 @@ function plainGuideTextForSpec(spec, steps, resources, entities, isFinal, phaseI
   step = firstStepOfKind(steps, ['attack']);
   if (step) return compactGuideText('移动到' + targetLabel(step) + '旁，消灭它');
   step = firstStepOfKind(steps, ['show']);
-  if (step) return compactGuideText('看屏幕提示和高亮目标，确认当前要做什么');
+  if (step) return showGuideTextForSpec(spec, step, labels, phaseIndex, false);
   step = firstStepOfKind(steps, ['move_to']);
   if (step) return compactGuideText('拖动摇杆，移动到' + targetLabel(step) + '旁');
   if (safeArray(steps).some(function(item) { return item && item.kind === 'wait'; })) {
@@ -506,7 +550,7 @@ function plainGuideTextForSpec(spec, steps, resources, entities, isFinal, phaseI
   return compactGuideText(semanticText || ('第' + (phaseIndex + 1) + '步，按提示继续'));
 }
 
-function continuationGuideText(guide, phaseIndex, steps, resources, entities) {
+function continuationGuideText(guide, phaseIndex, steps, resources, entities, spec) {
   var labels = labelIndexFromLists(resources, entities);
   var step = firstStepOfKind(steps, ['combine', 'deliver', 'transfer', 'select', 'collect', 'produce', 'unlock', 'upgrade', 'build', 'reward', 'show', 'attack']);
   var label = step ? humanLabelForId(step.resource || step.target || step.to || step.entity || step.from, labels, '目标') : '目标';
@@ -520,7 +564,7 @@ function continuationGuideText(guide, phaseIndex, steps, resources, entities) {
   if (step && step.kind === 'build') return compactGuideText('第' + (phaseIndex + 1) + '步：继续把建筑修好');
   if (step && step.kind === 'collect') return compactGuideText('第' + (phaseIndex + 1) + '步：继续收集' + label);
   if (step && step.kind === 'reward') return compactGuideText('第' + (phaseIndex + 1) + '步：看奖励或计数继续增加');
-  if (step && step.kind === 'show') return compactGuideText('第' + (phaseIndex + 1) + '步：继续看屏幕提示和高亮目标');
+  if (step && step.kind === 'show') return showGuideTextForSpec(spec || {}, step, labels, phaseIndex, true);
   if (step && step.kind === 'attack') return compactGuideText('第' + (phaseIndex + 1) + '步：继续消灭当前目标');
   return compactGuideText('第' + (phaseIndex + 1) + '步：继续按提示处理当前目标');
 }
@@ -652,7 +696,7 @@ function compilePhases(specs, resources, entities) {
     if (isFinal) refs.push('CtaButton');
     var guideText = plainGuideTextForSpec(spec, steps, resources, entities, isFinal, index);
     if (usedGuideTexts[guideText]) {
-      guideText = continuationGuideText(guideText, index, steps, resources, entities);
+      guideText = continuationGuideText(guideText, index, steps, resources, entities, spec);
     }
     usedGuideTexts[guideText] = true;
     return {
@@ -781,6 +825,7 @@ module.exports = {
     collectResourceSpecs: collectResourceSpecs,
     compilePhases: compilePhases,
     plainGuideTextForSpec: plainGuideTextForSpec,
+    showGuideTextForSpec: showGuideTextForSpec,
     defaultDomHudContract: defaultDomHudContract,
     phaseFallbackTarget: phaseFallbackTarget,
     fallbackManualStepForSpec: fallbackManualStepForSpec,

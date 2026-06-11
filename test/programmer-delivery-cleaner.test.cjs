@@ -5,6 +5,23 @@ const path = require('path');
 
 const cleaner = require('../lib/programmer-delivery-cleaner.cjs');
 const cleanerInternals = cleaner._internals;
+const cleanerSource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'programmer-delivery-cleaner.cjs'), 'utf8');
+
+assert.match(
+  cleanerSource,
+  /sourcePhaseContract && Array\.isArray\(data\.visualAssets\.sourcePhaseContract\.phases\)/,
+  'programmer delivery cleaner should read source phases from visual manifest sourcePhaseContract'
+);
+assert.match(
+  cleanerSource,
+  /delivery-root\.asset-manifest\.json/,
+  'programmer delivery cleaner should consider the Unity export root asset-manifest.json'
+);
+assert.match(
+  cleanerSource,
+  /rootSourceIr = readJsonIfExists\(path\.join\(root, 'source-scene-ir\.json'\)\) \|\| readJsonIfExists\(path\.join\(root, 'source-ir\.json'\)\)/,
+  'programmer delivery cleaner should read source phases from export root SourceIR json'
+);
 
 assert.strictEqual(cleanerInternals.canonicalEntityName('Item__phase01_target'), 'ItemPhase01Target');
 assert.strictEqual(cleanerInternals.unityEntityName('Item__phase01_target'), '_itemPhase01Target');

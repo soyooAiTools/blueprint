@@ -172,6 +172,23 @@ if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
   done
 fi
 
+# SourceIR/visual manifest drives programmer-delivery-cleaner Phase assets and
+# Game.unity HUD text. Keep these artifacts in the temp project root so the
+# Unity package cannot fall back to stale template phase copy.
+if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
+  for artifact in \
+    "$SRC/source-scene-ir.json:source-scene-ir.json" \
+    "$SRC/source-ir-preview.html:source-ir-preview.html" \
+    "$BP_ROOT/server-data/webgl/$TASK_ID/source-ir.json:source-ir.json" \
+    "$BP_ROOT/server-data/webgl/$TASK_ID/asset-manifest.json:asset-manifest.json"; do
+    src_artifact="${artifact%%:*}"
+    dst_artifact="${artifact##*:}"
+    if [ -f "$src_artifact" ]; then
+      command cp -rf "$src_artifact" "$WORK/$dst_artifact"
+    fi
+  done
+fi
+
 if [ "$PROGRAMMER_DELIVERY" -eq 0 ]; then
 cat > "$MANAGER_DIR/GameFlowBootstrap.cs" <<'EOF'
 using UnityEngine;
