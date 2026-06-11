@@ -251,7 +251,7 @@ try {
   assert.ok(fs.existsSync(path.join(tmp, 'Scripts', 'Entities', 'NPCBase.cs')));
   const playerBaseSrc = fs.readFileSync(path.join(tmp, 'Scripts', 'Entities', 'PlayerBase.cs'), 'utf8');
   assert.match(playerBaseSrc, /public class PlayerBase : BaseGameFlowEntity/);
-  assert.match(playerBaseSrc, /public float MoveSpeed/);
+  assert.match(playerBaseSrc, /public float mMoveSpeed/);
   assert.match(playerBaseSrc, /void MoveByDirection\(Vector3 direction, float dt\)/);
   // 反馈 01 #8 架构图:Player 走单例语义。
   assert.match(playerBaseSrc, /public\s+static\s+PlayerBase\s+instance/);
@@ -573,18 +573,32 @@ try {
     assert.strictEqual(sceneA, sceneB, 'scene injection should be deterministic across export roots');
     assert.match(sceneA, /m_Name: GMP_MainManager/);
     assert.match(sceneA, /m_Name: GMP_Audio/);
-    assert.strictEqual((sceneA.match(/AudioSource:/g) || []).length, 2, 'GMP_Audio should mount separate BGM/SFX AudioSource components');
+    assert.strictEqual((sceneA.match(/AudioSource:/g) || []).length, 8, 'GMP_Audio should mount loop and one-shot AudioSource pools');
     assert.match(sceneA, /mBgmList: \[\]/);
     assert.match(sceneA, /mSfxList: \[\]/);
+    assert.match(sceneA, /mLoopSources: \[\]/);
+    assert.match(sceneA, /mOneShotSources: \[\]/);
+    assert.match(sceneA, /mRuntimeLoopSourceCount: 2/);
+    assert.match(sceneA, /mRuntimeOneShotSourceCount: 6/);
     const audioText = fs.readFileSync(path.join(a, 'Assets', 'Scripts', 'Core', 'Modules', 'GMP_Audio.cs'), 'utf8');
     assert.doesNotMatch(audioText, /new GameObject/);
     assert.doesNotMatch(audioText, /\bInstance\b/);
     assert.match(audioText, /mInstance/);
+    assert.match(audioText, /using System\.Collections\.Generic;/);
     assert.match(audioText, /public AudioClip\[\] mBgmList/);
     assert.match(audioText, /public AudioClip\[\] mSfxList/);
+    assert.match(audioText, /public AudioSource\[\] mLoopSources/);
+    assert.match(audioText, /public AudioSource\[\] mOneShotSources/);
+    assert.match(audioText, /public int mRuntimeOneShotSourceCount = 6/);
+    assert.match(audioText, /Dictionary<string, AudioSource> mLoopSourceByKey/);
     assert.match(audioText, /GetComponents<AudioSource>\(\)/);
     assert.match(audioText, /void PlayBGM\(int index\)/);
     assert.match(audioText, /void PlaySFX\(int index\)/);
+    assert.match(audioText, /void PlayLoop\(string key, AudioClip clip\)/);
+    assert.match(audioText, /void PlayOneShot\(AudioClip clip\)/);
+    assert.match(audioText, /NextOneShotSource\(\)/);
+    assert.doesNotMatch(audioText, /private AudioSource mSfxSource/);
+    assert.doesNotMatch(audioText, /private AudioSource mBgmSource/);
   } finally {
     fs.rmSync(a, { recursive: true, force: true });
     fs.rmSync(b, { recursive: true, force: true });
@@ -893,6 +907,10 @@ try {
     assert.match(deliveryCamera, /if \(IsPhaseFrameHoldActive\) return/, 'source follow must not overwrite phase entry screenshot framing');
     assert.match(deliveryCamera, /GMP_UIManager\.instance\.SyncSceneEntityLabels\(\)/, 'camera LateUpdate should refresh labels after camera movement');
     const deliveryPlayer = fs.readFileSync(path.join(scripts, 'Game', 'Player', 'GMP_Player.cs'), 'utf8');
+    assert.match(deliveryPlayer, /public class GMP_Player : GMP_PlayerBase/, 'project Player should inherit the reusable Core Player base');
+    assert.match(deliveryPlayer, /protected override void Awake\(\)/, 'project Player should override the Core PlayerBase Awake hook');
+    assert.match(deliveryPlayer, /base\.Awake\(\);/, 'project Player should register the Core PlayerBase singleton state');
+    assert.match(deliveryPlayer, /Bind\(Go, PlayerPoolName, "Player"\);/, 'project Player should bind its source scene object to GMP_PlayerBase');
     assert.doesNotMatch(deliveryPlayer, /mPlayer\.transform\.position = new Vector3\(0f, 0\.5f, 0f\)/, 'Player runtime init must not overwrite the source scene position');
     assert.match(deliveryPlayer, /GameObject\.FindWithTag\("Player"\)/, 'Player runtime init should bind the source tagged Player first');
     assert.match(deliveryPlayer, /Debug\.LogError\("GMP_Player 找不到场景 Player/, 'Player runtime init should fail loudly when source Player is missing');
@@ -1213,13 +1231,21 @@ try {
     assert.match(hudController, /mToastText\.enabled = false/);
     assert.match(hudController, /mTargetHintText = FindText\("Text_TargetHint"\)/);
     assert.match(hudController, /public void SetTargetHint\(string targetEntity\)/);
-    assert.match(hudController, /mTargetHintText\.text = "目标：" \+ DisplayNameForEntity\(targetEntity\)/);
+    assert.match(hudController, /public void SetTargetHint\(string targetEntity, string displayName\)/);
+    assert.match(hudController, /mTargetHintText\.text = "目标：" \+ label/);
+    assert.doesNotMatch(hudController, /if \(entityName == "_/, 'Core HUD must not hardcode project entity display names');
+    const uiManagerPath = path.join(scripts, 'Core', 'Modules', 'GMP_UIManager.cs');
+    if (fs.existsSync(uiManagerPath)) {
+      const uiManager = fs.readFileSync(uiManagerPath, 'utf8');
+      assert.doesNotMatch(uiManager, /DisplayNameForEntity/, 'Core UIManager should use a generic fallback label helper, not a Game display-name mapper');
+      assert.match(uiManager, /FallbackEntityLabel\(targetEntity\)/);
+    }
     assert.doesNotMatch(hudController, /mScoreText = FindText\("Text_Coin"\)/);
     assert.match(hudController, /GMP_UI\.ConfigureCanvasForCamera\(mCanvas\)/);
     const levelRuleEngine = fs.readFileSync(path.join(scripts, 'Game', 'Level', 'GMP_LevelRuleEngine.cs'), 'utf8');
     assert.match(levelRuleEngine, /using UnityEngine\.UI;/);
     assert.match(levelRuleEngine, /RefreshTargetHint\(\)/);
-    assert.match(levelRuleEngine, /GMP_HudController\.instance\.SetTargetHint\(target\)/);
+    assert.match(levelRuleEngine, /GMP_HudController\.instance\.SetTargetHint\(target, DisplayNameForEntity\(target\)\)/);
     assert.match(levelRuleEngine, /SetTargetHintTextDirect\(target\)/);
     assert.match(levelRuleEngine, /UpdateGuidanceVisuals\(target\)/);
     assert.match(levelRuleEngine, /GameObject\.Find\("__TargetRing"\)/);
@@ -1227,7 +1253,9 @@ try {
     assert.match(levelRuleEngine, /GameObject\.Find\("__LaserLine"\)/);
     assert.match(levelRuleEngine, /trail\.transform\.rotation = Quaternion\.LookRotation\(delta\)/);
     assert.match(levelRuleEngine, /Text_TargetHint/);
-    assert.match(levelRuleEngine, /Mathf\.Clamp\(step\.mSetState, 1, 3\)/);
+    assert.match(levelRuleEngine, /SetState\(step\.mSetEntity, step\.mSetState\)/);
+    const phasePresetCodeStrict = fs.readFileSync(path.join(scripts, 'Core', 'Modules', 'GMP_PhasePreset.cs'), 'utf8');
+    assert.match(phasePresetCodeStrict, /public GMP_EntityState mSetState = GMP_EntityState\.Hidden/);
     const phaseController = fs.readFileSync(path.join(scripts, 'Core', 'Modules', 'GMP_PhaseController.cs'), 'utf8');
     assert.match(phaseController, /GMP_CameraController\.instance\.FramePhaseEntities\(preset\)/);
     const entityBinding = fs.readFileSync(path.join(scripts, 'Game', 'Level', 'GMP_EntityBindingManager.cs'), 'utf8');

@@ -332,14 +332,26 @@ fi
 MANAGER_README_PATH="${MANAGER_DIR#$WORK/}"
 COMMON_README_PATH="${COMMON_DIR#$WORK/}"
 if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
-  ENTITY_README_PATH="Assets/Scripts/Entities"
+  ENTITY_README_PATH="Assets/Scripts/Game/Entities"
 else
   ENTITY_README_PATH="Assets/Program/Script/Manager/Entities"
 fi
 if [ "$PROGRAMMER_DELIVERY" -eq 1 ]; then
-  MANAGER_LABEL="MainManager.cs 主流程与 MonoSingleton.cs 单例基类"
+  MANAGER_README_PATH="Assets/Scripts/Core/Modules"
+  COMMON_README_PATH="Assets/Scripts/Core/Common"
+  MANAGER_LABEL="GMP_MainManager.cs 主管理器与 Phase/Event/UI/Economy 等核心模块"
+  DELIVERY_README_EXTRA="- Assets/Scripts/Core/Base/ — MonoSingleton、核心枚举、实体/Player/NPC 基类
+- Assets/Scripts/Core/Components/ — Movement、Trigger、Interaction、Inventory、Skill 等可复用组件
+- Assets/Scripts/Tool/ — 相机、UI、视觉引导等跨项目工具
+- Assets/Scripts/Game/Level/ — 本项目关卡流程与业务规则
+- Assets/Scripts/Game/Player/ — 本项目 Player 控制器"
+  DELIVERY_BOUNDARY_INTRO="程序员交付版会整理为 Assets/Scripts/Core / Tool / Game 三层；Core/Tool 保持通用，Game 承载本项目业务。"
+  DELIVERY_NEW_CODE_RULE="业务新增脚本优先放到 Assets/Scripts/Game/Level、Assets/Scripts/Game/Entities、Assets/Scripts/Game/Player；只有跨项目复用能力才下沉到 Core/Components 或 Tool。"
 else
   MANAGER_LABEL="GameFlowManagerMain*.cs 主流程与 GameFlowBootstrap.cs 入口"
+  DELIVERY_README_EXTRA=""
+  DELIVERY_BOUNDARY_INTRO="程序员交付版会整理为 MainManager.cs 单入口 + MonoSingleton<T> 单例基类，并在 Entities/ 下保留领域对象类。"
+  DELIVERY_NEW_CODE_RULE="业务新增脚本优先放到 Assets/Scripts/Manager、Assets/Scripts/Entities、Assets/Scripts/UI、Assets/Scripts/Player、Assets/Scripts/Audio 这些参考工程式目录，不再放进 Assets/Program/Script。"
 fi
 cat > "$WORK/README.md" <<EOF
 # Unity 工程导出 — $TASK_ID
@@ -351,7 +363,8 @@ cat > "$WORK/README.md" <<EOF
 
 ## 目录
 - $MANAGER_README_PATH/  — $MANAGER_LABEL
-- $COMMON_README_PATH/  — GMP_*.cs canonical 工具库
+- $COMMON_README_PATH/  — 场景注册、资源 ID 等通用基础设施
+$DELIVERY_README_EXTRA
 - $ENTITY_README_PATH/ — 领域对象类，承载 Player / NPC / 建筑 / 资源等可维护状态
 - Assets/Scenes/Game.unity — 程序员交付入口场景，打开后直接按 Play
 - 程序员交付版不保留 Luna 模板备份场景；审核版才会保留 templeteScene.unity
@@ -365,11 +378,11 @@ cat > "$WORK/README.md" <<EOF
 Unity Hub → Add → 选择此文件夹根目录，使用 Unity 2022 LTS 打开，然后打开 Assets/Scenes/Game.unity 按 Play。
 
 ## 程序员交付边界
-- 程序员交付版会整理为 MainManager.cs 单入口 + MonoSingleton<T> 单例基类，并在 Entities/ 下保留领域对象类。
+- $DELIVERY_BOUNDARY_INTRO
 - Unity Editor 直接点击 Play 时，MainManager 与关键 GMP 管理器已挂在 Game.unity 场景对象上，不再依赖运行时创建脚本物体。
 - 程序员交付版已剥离 Luna 打包流水线依赖和模板备份场景；需要重新接入 Luna 时，从 Blueprint 流水线重新导出审核版。
 - 每个脚本目标保持在 1000 行以内；phase、资源、UI、场景和输入逻辑按职责分段维护。
-- 业务新增脚本优先放到 Assets/Scripts/Manager、Assets/Scripts/Entities、Assets/Scripts/UI、Assets/Scripts/Player、Assets/Scripts/Audio 这些参考工程式目录，不再放进 Assets/Program/Script。
+- $DELIVERY_NEW_CODE_RULE
 - 实体引用只来自 RegisterEntityBindings()/GameSceneCtrl，不要在 TODO 区直接 GameObject.Find("__Pool_*") 覆盖字段。
 - 资源 API 使用 GMP_ResourceIds.Gold / GMP_ResourceIds.Normalize("...")，不要裸写 "gold"/"Gold"。
 - 引导文案统一调用 SetGuideText()；guideText.text 只应在这个 helper 内落地。
